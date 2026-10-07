@@ -107,7 +107,7 @@ Orden de la Mesa: primero la base, luego la lógica con sus pruebas, al final la
 
 | Sprint | Qué |
 |---|---|
-| **MS.7.15** | «Nueva solicitud»: elegir **área** → categorías de esa área → ubicación (ya visible) → zona → campos dinámicos → foto (opcional). |
+| **MS.7.15** ✅ | Ver §9.12. «Nueva solicitud»: elegir **área** → categorías de esa área → ubicación (ya visible) → zona → campos dinámicos → foto (opcional). |
 | **MS.7.16** | Bandeja y ficha por cola: selector de cola (sólo las permitidas), etiqueta de cola en filas y ficha, motivo de pausa, **Transferir a otra área**, **Marcar como prueba**. |
 | **MS.7.17** | Configuración de colas: miembros (coordinador/técnicos), responsable por omisión, modelo de prioridad, SLA por cola, campos, zonas. Demuestra la regla 1: **crear otra área sin tocar código**. |
 | **MS.7.18** | Reportes con filtro de cola; «Mi trabajo»: lo «por asignar» de **cada cola que reparte** esa persona. |
@@ -313,3 +313,13 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 - **Lo que devuelve:** `SdTransferResult { id, folio, queue_id, queue_name, category_name, status }` — **no la ficha**: tras trasladar, quien coordina el origen deja de ver el ticket (ya es de otra cola) y devolver su ficha sería un 404 disfrazado de éxito. La pantalla debe cerrar la ficha y refrescar la lista (MS.7.16).
 - **Pruebas:** `service-desk` 234 (`validarTraslado` con cada rechazo, `estadoTrasTraslado`, aviso `transferido`) · E2E bloque 31 (total **660**: 10 rechazos, el 409 de la cola vacía y que nada cambia, mismo folio, cola/categoría/asignación/plazos, hilo entero con nota interna oculta a quien reportó, aviso al destino y no a quien traslada, resuelto → 409, en espera → termina la espera y se puede tomar, iniciar y volver a pausar). **Mutación atrapada:** ignorar «nadie atiende el destino» pone en rojo 5 checks.
 - **Declarado:** las respuestas de los campos propios del área de origen (MS.7.4) **se conservan en la base y en `meta.extra_origen` del mensaje de traslado**, pero la ficha del destino sólo muestra las de su propia cola; la zona se conserva aunque el destino no la pregunte; no hay «devolver» automático (se traslada de vuelta con otro traslado); la pantalla («Transferir a otra área») es de MS.7.16.
+
+### 9.12 MS.7.15 construido (2026-10-07): «Nueva solicitud» — primero el área, luego las categorías de esa área
+
+- **El flujo:** **área → categoría de esa área → ubicación → zona (si la cola la pregunta, MS.7.3) → campos propios (MS.7.4) → foto opcional.** Antes la categoría era un solo selector agrupado por cola; ahora, con varias áreas, se pregunta **«¿A qué área?»** y «¿Sobre qué es?» ofrece **sólo** las categorías de esa área (la lista mezclada de todas las áreas se vuelve larga e invita a elegir mal).
+- **⛔ Sin área elegida no hay categorías** (el selector queda deshabilitado con «Primero elige el área»).
+- **Con una sola área no se pregunta nada:** ya está elegida y se ven sus categorías — **TI se ve exactamente como siempre** mientras Mantenimiento esté apagada. Una cola sin categorías **no se ofrece** como área (no se podría reportar nada ahí).
+- **Cambiar de área descarta lo que dependía de la anterior:** la categoría, los campos propios y la zona (eran de otra cola). Elegir la **misma** área otra vez no borra nada. Y **elegir una categoría por código deja el área coherente** (enlace directo, otra pantalla, pruebas): el área sigue a la categoría.
+- **Sin cambios de servidor:** el catálogo ya traía colas, categorías, zonas y campos; sólo cambia cómo se presentan.
+- **Pruebas:** view 208 (nuevo spec de 8 casos: pregunta el área, sin área no hay categorías, categorías sólo del área, una sola área no se pregunta, cambiar de área descarta lo dependiente, misma área no borra, categoría por código sincroniza el área, `nueva()` limpia). **Dos mutaciones atrapadas:** no ignorar la misma área, y no vaciar la categoría al cambiar de área.
+- **Declarado:** el área no viaja al servidor (la deduce la categoría); si en el futuro una persona sólo puede reportar a ciertas áreas, eso es una regla nueva (hoy el catálogo es el mismo para todas); la validación visual en navegador se hizo en 7.16 (misma pantalla).

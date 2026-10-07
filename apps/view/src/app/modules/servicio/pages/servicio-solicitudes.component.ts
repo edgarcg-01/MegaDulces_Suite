@@ -134,9 +134,14 @@ function dataUri(f: File): Promise<string> {
                   </div>
                 }
 
+                <!-- [MS.7.15] Primero el ÁREA y luego las categorías de ESA área. Con una sola área no se pregunta (no hay nada que elegir). -->
+                @if (hayVariasAreas()) {
+                  <label class="ss-field"><span>¿A qué área? <em>*</em></span>
+                    <p-select [options]="areas()" optionLabel="name" optionValue="id" [ngModel]="areaId()" (ngModelChange)="elegirArea($event)" placeholder="Elige el área" appendTo="body" ariaLabel="Área" /></label>
+                }
                 <label class="ss-field"><span>¿Sobre qué es? <em>*</em></span>
-                  <p-select [options]="categorias()" optionLabel="name" optionValue="id" [group]="true" optionGroupLabel="label" optionGroupChildren="items" [ngModel]="form.category_id"
-                            (ngModelChange)="elegirCategoria($event)" placeholder="Elige una categoría" appendTo="body" ariaLabel="Categoría" [filter]="true" filterBy="name" />
+                  <p-select [options]="categoriasDelArea()" optionLabel="name" optionValue="id" [ngModel]="form.category_id" [disabled]="!areaEfectiva()"
+                            (ngModelChange)="elegirCategoria($event)" [placeholder]="areaEfectiva() ? 'Elige una categoría' : 'Primero elige el área'" appendTo="body" ariaLabel="Categoría" [filter]="true" filterBy="name" />
                 </label>
                 <label class="ss-field"><span>Título corto <em>*</em></span>
                   <input pInputText [(ngModel)]="form.title" maxlength="200" placeholder="Ej. No me abre el sistema de caja" /></label>
@@ -371,11 +376,21 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly formError = signal<string | null>(null);
   form: { category_id: string | null; title: string; description: string; impact: SdImpact; blocks_work: boolean; warehouse_code: string | null; /** `[MS.7.7]` `null` = sin contestar (en una cola de riesgo es obligatoria). */ safety_risk: boolean | null; /** `[MS.7.3]` Zona opcional. */ zone_code: string | null } = this.formVacio();
 
-  /** Categorías agrupadas por cola (`p-select` con `group`). Hoy hay una sola cola (TI). */
-  readonly categorias = computed(() => {
+  /** `[MS.7.15]` Las áreas (colas) que ofrecen al menos una categoría. Una cola sin categorías no se ofrece: no se podría reportar nada ahí. */
+  readonly areas = computed(() => {
     const c = this.catalogo();
     if (!c) return [];
-    return c.queues.map((q) => ({ label: q.name, items: c.categories.filter((k) => k.queue_id === q.id) })).filter((g) => g.items.length);
+    return c.queues.filter((q) => c.categories.some((k) => k.queue_id === q.id)).map((q) => ({ id: q.id, name: q.name }));
+  });
+  readonly hayVariasAreas = computed(() => this.areas().length > 1);
+  /** El área elegida; con una sola, ésa (no se pregunta). Es una señal aparte del `form` por la misma razón que `categoriaId`. */
+  readonly areaId = signal<string | null>(null);
+  readonly areaEfectiva = computed(() => this.areaId() ?? (this.areas().length === 1 ? this.areas()[0].id : null));
+  /** Las categorías del área elegida (vacías mientras no se elige área). */
+  readonly categoriasDelArea = computed(() => {
+    const c = this.catalogo();
+    const area = this.areaEfectiva();
+    return c && area ? c.categories.filter((k) => k.queue_id === area) : [];
   });
   /**
    * La categoría elegida vive en una SEÑAL aparte del `form` plano a propósito: un `computed()` que lee un campo
@@ -461,17 +476,30 @@ export class ServicioSolicitudesComponent implements OnInit {
     this.aNombreDe.set(false);
     this.quitarPersona();
     this.categoriaId.set(null);
+    this.areaId.set(null);
     this.archivos.set([]);
     this.formError.set(null);
     this.selId.set(null);
     this.creando.set(true);
     if (!this.catalogo()) this.api.catalog().subscribe({ next: (c) => this.catalogo.set(c), error: (e) => this.formError.set(sdError(e, 'No se pudo cargar el catálogo.')) });
   }
+  /** `[MS.7.15]` Cambiar de área vacía la categoría (era de otra cola) y todo lo que dependía de ella: campos propios y zona. */
+  elegirArea(id: string): void {
+    if (id === this.areaId()) return;
+    this.areaId.set(id);
+    this.form.category_id = null;
+    this.form.zone_code = null;
+    this.categoriaId.set(null);
+    this.extraForm = {};
+  }
   elegirCategoria(id: string): void {
     // Cambiar de categoría cambia (o no) la cola, y con ella los campos: lo contestado de otra cola no viaja.
     if (id !== this.categoriaId()) this.extraForm = {};
     this.form.category_id = id;
     this.categoriaId.set(id);
+    // El área sigue a la categoría (así una categoría elegida por código, o un enlace directo, deja el área coherente).
+    const q = this.catalogo()?.categories.find((k) => k.id === id)?.queue_id;
+    if (q) this.areaId.set(q);
   }
   /** `[MS.3.12]` Mientras se achican las fotos de la cámara no se deja enviar. */
   readonly optimizando = signal(false);
