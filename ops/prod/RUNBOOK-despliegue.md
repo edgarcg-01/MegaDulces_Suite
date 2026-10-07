@@ -8,16 +8,61 @@
 
 ## 0. El resumen de una línea
 
-**Nadie despliega a mano.** `origin/main` se despliega solo cada 5 minutos, y hay cuatro
-compuertas entre un commit y la gente. Tu trabajo es que el commit pase las compuertas, no
-empujarlo.
+**El commit no sale solo: alguien lo suelta.** Un merge a `main` lo compila el CI y lo sella en
+`ci-green`, pero prod no se mueve hasta que alguien corre `soltar.sh`. Entre ese momento y la
+gente hay cuatro compuertas. Tu trabajo es que el commit las pase, y después soltarlo.
+
+```
+ssh superoot@192.168.0.222 'ops/prod/soltar.sh'
+```
+
+---
+
+## 0.1 Soltar a producción
+
+**Desde el 2026-10-07 el despliegue es manual.** Antes el vigía miraba `ci-green` y **cada merge
+salía solo**: medido, **14 despliegues en un día**, cada uno reiniciando los pods y cortando las
+conexiones en vivo. Ahora mira `prod-release`, que mueve una persona.
+
+```
+ci-green      ¿el CI lo aprobó?       ← lo mueve el job `sellar`, automático
+prod-release  ¿lo queremos afuera?    ← lo mueve `soltar.sh`, a mano
+```
+
+⭐ **`ci-green` no cambió de significado.** Sigue siendo el sello que `compuerta-ci.sh` exige, y
+como esa compuerta acepta **ancestros**, `prod-release` puede ir detrás sin frenar nada.
+
+| Comando | Qué hace |
+|---|---|
+| `ops/prod/soltar.sh` | muestra qué sale + **avisa de migraciones pendientes** + suelta |
+| `ops/prod/soltar.sh --ver` | sólo muestra, no suelta |
+| `ops/prod/soltar.sh --volver <sha>` | regresa prod a un commit anterior (lo rechaza si el CI nunca lo selló) |
+
+El vigía lo levanta en **≤30 s**.
+
+⚠️ **El aviso de migraciones es lo que más gana con esto.** Las migraciones **no** las aplica el
+despliegue (§3), así que si el código que sale necesita esquema que prod no tiene, la compuerta
+2 FRENA y el vigía reintenta cada 120 s hasta que alguien las aplique. El 2026-10-07 eso pasó
+**dos veces en veinte minutos** y las dos se supo leyendo el log, tarde. `soltar.sh` las lista
+**antes**. Y juntar varios merges junta también sus migraciones: soltá seguido.
+
+### Volver al modo automático
+
+Borrar `~/ops/prod/vigia.env` en `md` y reiniciar el vigía (`pkill -f vigia-ci-green.sh`; systemd
+lo levanta en ~30 s). El guion cae a `ci-green` por omisión.
+
+⛔ **`/home/superoot/ops` NO es un repo git** — estos guiones se copian a mano. Cambiar la copia
+del repo **no cambia lo que corre**.
+
+⛔ **La configuración vive en `vigia.env`, no en la unidad de systemd**, porque `/etc/systemd/`
+exige `sudo` y `sudo` sobre SSH no autenticado pide terminal (medido el 2026-10-07).
 
 ---
 
 ## 1. El camino normal
 
 ```
-tu commit → origin/main → auto-deploy (cada 5 min) → 4 compuertas → prod
+tu commit → origin/main → CI sella ci-green → soltar.sh → auto-deploy → 4 compuertas → prod
 ```
 
 | # | Compuerta | Dónde vive | Qué frena |
