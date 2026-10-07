@@ -359,6 +359,66 @@ filas con descuento (13.7%)** — entre ellas toda la familia SUPER TOMY, cuyas 
 no existe ningún resolvedor del descuento del cliente para el resto de los canales**. Detalle y
 consecuencias en [`FASE_DC`](IMPLEMENTACION/FASES/FASE_DC_DESCUENTOS_CLIENTE.md).
 
+### 2.7 ⭐ El PRECIO POR VOLUMEN vive en `kdpv_prod_util`, y su nivel **NO se puede derivar** (decodificado 2026-10-07)
+
+De esta tabla cuelga todo el mayoreo que cobra la Suite (`analytics.product_volume_tiers` →
+`resolvePriceForQty`), y **no estaba documentada acá**. Tiene **dos ejes, no uno**:
+
+| col | qué es | universo medido |
+|---|---|---|
+| `c1` | SKU | — |
+| `c2` | **presentación** (`PAQ`, `CJA`, `KG`…) | se convierte a la unidad base con la escalera de `kdii` (§2.1) |
+| **`c3`** | **NIVEL DE PRECIO** | exactamente `0`, `1`, `2`, `3` en todo el catálogo |
+| `c4` | cantidad mínima | — |
+| `c7` | precio | — |
+
+⛔ **Aplastar `c3` contra `c4` cuesta dinero, y ya costó.** `product_volume_tiers` agrupaba sólo
+por cantidad con `min(price)`, así que cualquiera que alcanzara el mínimo se llevaba el precio del
+nivel más profundo. SKU `83652`: la Suite publicaba **$54.66 a qty 10 donde Kepler cobra $71.15**
+(−23.2 %, y 15.0 % **bajo el costo de la ficha**). 729 SKUs tenían niveles compitiendo. Arreglado
+en `[PV.1]`/`[PV.2]`.
+
+**El nivel 0 es el estándar** — el precio del cliente sin nivel asignado. Arbitrado con dinero
+(ADR-059) sobre `83652`: lo cobrado fue `77.25` a qty 1-2, `71.15` a qty 5 y 10, `70.51` a qty 30.
+**Nadie pagó nunca los niveles profundos de ese SKU**, ni siquiera superando su `c4`.
+
+#### ⛔ Qué determina el nivel: NO se pudo derivar, y las cuatro hipótesis están REFUTADAS
+
+Medido sobre 90 días de ventas reales (`U-D`), 58,362 renglones cuyo `kdm2.c66` casa con algún
+nivel dentro de $0.01. **86.1 % casa con UN solo nivel**, así que el cruce distingue y los conteos
+significan algo (sin ese control el resto no valdría nada):
+
+| hipótesis | prueba | veredicto |
+|---|---|---|
+| Es un **escalón de volumen** (`c4` es el quiebre) | `83652` vendió a qty 10 y 30 — por encima del `c4=10` del nivel 3 — y se quedó en nivel 0 | ❌ |
+| Lo asigna el **maestro de clientes** | `kdud` tiene 31 columnas, todas decodificadas (§2.6 y tabla §1): ninguna es un nivel. `c17` ya se descartó como lista porque toma `2.5` | ❌ |
+| Es el **grupo del cliente** (`kdud.c13`) | Cada grupo abarca varios niveles: `2VP01` tiene 0/1/2/3, `3M001` tiene 0/1/3 | ❌ |
+| Lo registra el **renglón** (`kdm2`) | Ninguna columna numérica de `kdm2` tiene universo `{0,1,2,3}`; las más chicas son `c20` (0-41) y `c21` (0-10). El renglón guarda el precio resultante, no el nivel | ❌ |
+
+⭐ **Y la medición que cierra la puerta:** el nivel **no es estable por cliente**.
+
+```
+729 clientes siempre en un nivel  →   3,452 renglones  (4.7 c/u — poco volumen, coincidencia)
+244 clientes MEZCLAN niveles      →  47,303 renglones  (194 c/u — el volumen real)
+```
+
+**El 93.2 % de los renglones viene de clientes que mezclan**, y dentro de ésos sólo el 67.9 % está
+en su nivel dominante. Un atributo del cliente no se comporta así.
+
+**Conclusión: el nivel es una decisión POR TRANSACCIÓN de quien captura, no una regla derivable.**
+La Suite no puede replicarla, así que publica el **nivel 0** y deja los demás fuera.
+
+⚠️ **El precio que eso implica, declarado:** los niveles 1-3 se usan en ~48 % de los renglones que
+casan, así que a un cliente que en el mostrador compra en nivel 1 la Suite le va a cotizar nivel 0
+— **de más**. Es el error elegido a propósito: cobrar de menos sale en silencio y por debajo del
+costo; cobrar de más lo levanta el cliente o lo corrige el vendedor. Si algún día aparece el
+mecanismo (una pantalla de Kepler, un manual, o alguien de ventas que lo explique), esto se vuelve
+derivable y la decisión se revisa.
+
+⚠️ **Lo que NO se probó:** si el nivel lo fija el **vendedor**, la **ruta** o el **canal**. Se
+descartaron cliente, grupo, cantidad y renglón; esos tres quedan abiertos y son la primera piedra
+si alguien retoma el decode.
+
 ---
 
 ## 3. El modelo de documentos (género · naturaleza · tipo)
