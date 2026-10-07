@@ -1056,8 +1056,15 @@ export class FinanzasPresupuestoComponent implements OnInit {
   ];
   setView(v: string) {
     this.view.set(v as PresView);
-    if (v === 'flujo') this.loadResultado(); // el flujo de caja (lento, CXC ODS) es opt-in — ver botón «Actualizar»
+    // `[VE.3]` El flujo de caja se cargaba sólo apretando «Actualizar». Una cifra que hay que
+    // pedir no es un tablero: es un reporte a demanda. Se dispara al entrar a la pestaña, en
+    // segundo plano — la pantalla ya se pintó, el bloque llega cuando llega — y el botón se
+    // queda, pero ahora significa «volvé a consultar», no «traémelo por primera vez».
+    if (v === 'flujo') { this.loadResultado(); if (!this.cashflow()) this.loadCashflow(); }
     if (v === 'campanas' && !this.campaigns().length) this.loadCampaigns();
+    // Entrar a Ventas abre la pestaña «Plan», y `setSalesTab` no corre si no se cambia de
+    // pestaña: sin esta línea la comparación seguiría esperando un clic en el caso más común.
+    if (v === 'ventas' && this.salesTab() === 'plan' && !this.salesCmp()) this.loadSalesComparison();
     // 'ventas': el pivote meta-vs-real consulta el sell-out del ODS (lento) → opt-in por botón, no al cargar
     if (v === 'gasto-op') this.loadExpensePlan();
     if (v === 'ejercicios') this.loadAssumptions();
@@ -1202,7 +1209,17 @@ export class FinanzasPresupuestoComponent implements OnInit {
       summary: this.http.get<Summary>(`${this.base}/budgets/${b.id}/summary`),
       lines: this.http.get<BudgetLine[]>(`${this.base}/budgets/${b.id}/lines`),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: ({ summary, lines }) => { this.summary.set(summary); this.lines.set(lines ?? []); this.loadingDetail.set(false); },
+      next: ({ summary, lines }) => {
+        this.summary.set(summary); this.lines.set(lines ?? []); this.loadingDetail.set(false);
+        // `[VE.3]` El «real vs presupuesto» llegaba `deferred:true` y esperaba a que alguien
+        // apretara «Cargar real vs presupuesto». Ahora se pide solo, DESPUÉS de pintar el
+        // ejercicio y en una llamada aparte, así que no retrasa nada de lo que ya se ve.
+        // ⚠️ El diferimiento del backend NO era una precaución vieja: medido contra prod el
+        // 2026-10-06, ese agregado recorre 2.2 M filas de `mv_sales_blended` y tarda 1,893 ms
+        // en frío (283 ms caliente). Por eso se dispara en segundo plano y no se mete en el
+        // `forkJoin` de arriba: meterlo ahí haría esperar 2 s a la pantalla entera.
+        if (summary?.real?.deferred) this.loadSummaryReal();
+      },
       error: () => { this.loadingDetail.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el ejercicio.' }); },
     });
     this.loadAssumptions();
@@ -1568,6 +1585,10 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.salesTab.set(t);
     if (t === 'indicadores' && !this.indicators()) this.loadIndicators();
     if (t === 'conciliacion' && !this.reconciliation()) this.loadReconciliation();
+    // `[VE.3]` Las otras dos pestañas ya se cargaban solas; «Plan» era la única que exigía
+    // apretar «Cargar meta vs real» para ver el real al lado de la meta — justo la comparación
+    // que da sentido a la pestaña.
+    if (t === 'plan' && !this.salesCmp()) this.loadSalesComparison();
   }
   statusLabel(s: string): string { return s === 'concilia' ? 'Concilia' : s === 'revisar' ? 'Revisar' : s === 'sin_facturacion' ? 'Sin facturación' : s === 'sin_sellout' ? 'Sin sell-out' : s; }
   loadReconciliation(): void {
