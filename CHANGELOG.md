@@ -15,6 +15,14 @@
 - El tipo sale de la clave del proveedor (`C` mercancía, `G` servicios, `A`/`TC`/`B.B.` y grupo 140 financieros); los bancos con comisiones van a Servicios.
 - **Declara** que $59.9M de lo pendiente de mercancía son facturas en el Kepler de una sucursal anteriores al 1-oct-2026 (cuando el 00 concentraba los pagos): Kepler suma $138.8M contra $79.4M de ContPAQi.
 - Usa `FINANCE_PAYMENTS_VER`: **sin migración ni re-login**.
+### Added — El pedido de Kepler entra al motor de surtido (GP.2, 2026-10-07)
+- `GET /reparto/surtido/pool-kepler`: pedidos `U-D-40` en `AUTORIZADO` de la sucursal, fuera de cualquier ola, con su tamaño (tanda de 1–5 renglones / individual) y los atorados de más de 7 días contados aparte.
+- `POST /reparto/surtido/waves/auto-kepler`: arma una tanda con los pedidos chicos y una ola por cada pedido grande (regla de Francisco, FASE_GP §5.1).
+- `POST /reparto/surtido/waves` acepta `kepler_orders`. El pedido no se copia: la ola guarda su llave y un `order_id` derivado de ella (mig `20261007260100`).
+
+### Fixed — El reparto del surtido truncaba los kilos (GP.2, 2026-10-07)
+- `allocation.ts` redondeaba hacia abajo a enteros (`7.9 → 7`, `61.74 KG → 61`). Ahora reparte en milésimas, la precisión de la base. Afecta también a los pedidos de la Suite.
+
 ### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
 - En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
 - **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.

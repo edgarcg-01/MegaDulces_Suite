@@ -5,9 +5,29 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
+import type {
+  KeplerPickPoolResponse,
+  KeplerPickPoolRow,
+  KeplerWavesAutoResponse,
+  PickingWaveCreated,
+} from '@megadulces/contracts';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService, ScopeService } from '@megadulces/platform-core';
 import { repartirOla, resumenPorPedido } from './allocation';
+import {
+  ATORADOS_KEPLER_SQL,
+  CABECERAS_POR_LLAVE_SQL,
+  LINEAS_KEPLER_DE_OLA_SQL,
+  POOL_KEPLER_SQL,
+  UMBRAL_TANDA,
+  documentoKepler,
+  keplerOrderId,
+  normalizarLlave,
+  planearOlas,
+  unidadesMezcladas,
+  type PedidoKeplerLlave,
+} from './kepler-origen';
 import {
   ROUTE_KINDS,
   type RouteKind,
@@ -99,9 +119,124 @@ export interface PoolGrupo {
 export interface CreateWaveDto {
   warehouse_id: string;
   delivery_date?: string;
-  order_ids: string[];
+  /** Pedidos de la Suite (`commercial.orders`). Puede ir vacío si van pedidos de Kepler. */
+  order_ids?: string[];
+  /**
+   * `[GP.2]` Pedidos de Kepler (`U-D-40`) por su llave. No llevan UUID propio: el `order_id` se
+   * deriva de la llave (ver `keplerOrderId`).
+   */
+  kepler_orders?: Array<{ sucursal: string; serie: number; folio: string }>;
   assigned_to?: string;
   notes?: string;
+}
+
+/** `[GP.2]` Filtros del pool de pedidos de Kepler. */
+export interface PoolKeplerQuery {
+  warehouse_id: string;
+  /** `TELEMARK` o `SUCURSAL` (Kepler `c27`). Ausente = los dos. */
+  origen?: string;
+  /** Ventana hacia atrás, en días, contada desde hoy (MX). Default 7, máximo 60. */
+  days?: number;
+}
+
+/** Fila normalizada de un pedido para la ola, venga de la Suite o de Kepler. */
+interface LineaDePedido {
+  source: 'suite' | 'kepler';
+  order_id: string;
+  order_code: string;
+  product_id: string | null;
+  product_name: string | null;
+  sku: string | null;
+  quantity: number;
+  qty_unit: string | null;
+  qty_presentacion: number | null;
+  unidad_presentacion: string | null;
+  delivery_date: string | null;
+  confirmed_at: string | null;
+}
+
+/** Cabecera normalizada de un pedido de la ola. */
+interface CabeceraDePedido {
+  wave_order_id: string;
+  order_id: string;
+  source: 'suite' | 'kepler';
+  stage: string;
+  code: string;
+  customer_name: string | null;
+  total: number | null;
+  /** Sólo Kepler: el estatus vigente en Kepler (para notar que alguien lo avanzó por fuera). */
+  kepler_estatus?: string | null;
+}
+
+const ORIGENES_KEPLER = ['TELEMARK', 'SUCURSAL'] as const;
+
+// ─── [GP.2] Filas crudas de las consultas a Kepler (pg devuelve numeric como texto) ────────
+
+interface PoolKeplerSqlRow {
+  sucursal: string;
+  serie: number | string;
+  folio: string;
+  fecha: string;
+  hora: string | null;
+  origen: string | null;
+  estatus: string | null;
+  cliente_code: string | null;
+  destino_nombre: string | null;
+  importe: string | null;
+  renglones: number | string;
+  unidades: number | string;
+  sin_catalogo: number | string;
+}
+
+interface CabeceraKeplerSqlRow {
+  sucursal: string;
+  serie: number;
+  folio: string;
+  fecha: string | null;
+  estatus: string | null;
+  origen: string | null;
+  destino_nombre: string | null;
+  importe: string | null;
+}
+
+interface LineaKeplerSqlRow {
+  order_id: string;
+  sucursal: string;
+  serie: number | string;
+  folio: string;
+  renglon: number;
+  sku: string;
+  descripcion: string | null;
+  product_id: string | null;
+  product_name: string | null;
+  quantity: string;
+  qty_unit: string | null;
+  qty_presentacion: string | null;
+  unidad_presentacion: string | null;
+  fecha: string | null;
+}
+
+/** Fila de `commercial.wave_orders` con las columnas de [GP.2]. */
+interface WaveOrderRow {
+  id: string;
+  order_id: string;
+  stage: string;
+  source: 'suite' | 'kepler';
+  kepler_sucursal: string | null;
+  kepler_serie: number | null;
+  kepler_folio: string | null;
+}
+
+interface SuiteLineaRow {
+  product_id: string;
+  product_name: string | null;
+  sku: string | null;
+  qty_unit: string | null;
+  quantity: string;
+  order_code: string;
+  order_id: string;
+  delivery_date: string | Date | null;
+  confirmed_at: string | Date | null;
 }
 
 /**
@@ -223,6 +358,199 @@ export class PickingService {
         pendiente_offline: 'no_medible_desde_el_servidor',
       };
     });
+  }
+
+  /**
+   * `[GP.2]` Pool de pedidos de KEPLER (`U-D-40`) listos para surtir: estatus vigente
+   * `AUTORIZADO`, de la sucursal del almacén, y fuera de cualquier ola.
+   *
+   * Lectura pura del ODS (ADR-086): el pedido no se copia; la ola sólo guarda su llave.
+   *
+   * ── Por qué una ventana de días ─────────────────────────────────────────────────────────
+   * Medido en prod (2026-10-07): en Kepler quedan pedidos `AUTORIZADO` de julio y agosto que nadie
+   * va a surtir. Meterlos al pool los mezclaría con los de hoy. No se esconden: se cuentan aparte
+   * en `atorados`, para que alguien los cierre en Kepler.
+   *
+   * ── Por qué "fuera de cualquier ola" y no sólo "fuera de una ola viva" ─────────────────
+   * Un pedido de la Suite sale del pool porque su propio estado cambia. Uno de Kepler NO: sigue
+   * `AUTORIZADO` en Kepler hasta que el almacenista captura el resultado (ADR-086, una sola vez al
+   * final). Si sólo se excluyeran las olas vivas, un pedido ya surtido y listo para embarque
+   * volvería a aparecer como pendiente. Cancelar la ola sí lo regresa (cancelar borra sus filas).
+   *
+   * Cada fila trae `tamano` (`tanda` hasta 5 renglones, `individual` de 6 en adelante), la regla
+   * de surtido de Francisco (`FASE_GP` §5.1).
+   */
+  async poolKepler(q: PoolKeplerQuery): Promise<KeplerPickPoolResponse> {
+    if (!UUID_RE.test(q?.warehouse_id || '')) throw new BadRequestException('warehouse_id inválido');
+    const origen = q.origen ? String(q.origen).trim().toUpperCase() : null;
+    if (origen && !(ORIGENES_KEPLER as readonly string[]).includes(origen)) {
+      throw new BadRequestException(`origen inválido: ${origen}. Válidos: ${ORIGENES_KEPLER.join(', ')}`);
+    }
+    const days = q.days == null ? 7 : Number(q.days);
+    if (!Number.isInteger(days) || days < 0 || days > 60) {
+      throw new BadRequestException('days debe ser un entero entre 0 y 60');
+    }
+
+    return this.tk.run(async (trx) => {
+      const sucursal = await this.sucursalDeAlmacen(trx, q.warehouse_id);
+      const { rows: hoyRows } = await trx.raw(
+        `SELECT to_char((now() AT TIME ZONE 'America/Mexico_City')::date - ?::int, 'YYYY-MM-DD') AS desde`,
+        [days],
+      );
+      const desde: string = hoyRows[0].desde;
+
+      const { rows } = await trx.raw(POOL_KEPLER_SQL, [sucursal, desde, origen, origen]);
+      const conId = (rows as PoolKeplerSqlRow[]).map((r) => {
+        const llave: PedidoKeplerLlave = { sucursal: r.sucursal, serie: Number(r.serie), folio: r.folio };
+        return { ...r, llave, id: keplerOrderId(llave) };
+      });
+
+      const ids = conId.map((r) => r.id);
+      const enOla = ids.length
+        ? new Set(
+            (await trx('commercial.wave_orders').whereIn('order_id', ids).select('order_id')).map(
+              (x: { order_id: string }) => x.order_id,
+            ),
+          )
+        : new Set<string>();
+
+      const data = conId
+        .filter((r) => !enOla.has(r.id))
+        .map((r): KeplerPickPoolRow => ({
+          id: r.id,
+          source: 'kepler' as const,
+          sucursal: r.sucursal,
+          serie: Number(r.serie),
+          folio: r.folio,
+          code: documentoKepler(r.llave),
+          fecha: r.fecha,
+          hora: r.hora,
+          origen: r.origen,
+          estatus: r.estatus,
+          cliente_code: r.cliente_code,
+          customer_name: r.destino_nombre,
+          total: r.importe == null ? null : Number(r.importe),
+          lines: Number(r.renglones) || 0,
+          units: Number(r.unidades) || 0,
+          tamano: (Number(r.renglones) || 0) <= UMBRAL_TANDA ? ('tanda' as const) : ('individual' as const),
+          // Un renglón cuya clave no existe en el catálogo no puede entrar a una ola. Se dice
+          // por pedido para que se vea ANTES de intentar armarla.
+          sin_catalogo: Number(r.sin_catalogo) || 0,
+        }));
+
+      const { rows: at } = await trx.raw(ATORADOS_KEPLER_SQL, [sucursal, desde, origen, origen]);
+      return {
+        data,
+        count: data.length,
+        sucursal,
+        desde,
+        umbral_tanda: UMBRAL_TANDA,
+        /** Siguen `AUTORIZADO` en Kepler con fecha anterior a `desde`: fuera del pool, no escondidos. */
+        atorados: { count: Number(at[0]?.n) || 0, desde: at[0]?.desde ?? null },
+      };
+    });
+  }
+
+  /**
+   * `[GP.2]` Arma las olas de los pedidos de Kepler pendientes con la regla de Francisco
+   * (`FASE_GP` §5.1): los de 1–5 renglones en UNA tanda, y una ola por cada pedido más grande.
+   *
+   * Mismo criterio que `crearOlaAuto`: un botón, no un cron (quien camina el almacén decide
+   * cuándo cierra el corte), nunca toca una ola existente y no crea olas vacías.
+   *
+   * ⚠️ Los pedidos con algún renglón fuera del catálogo NO entran: se devuelven en
+   * `bloqueados` con su motivo. Armar la ola sin ellos sería mandar el pedido incompleto sin que
+   * nadie lo decidiera.
+   *
+   * ⚠️ Cada ola se crea en su propia transacción. Si una choca (otra sesión se llevó el pedido),
+   * esa falla con su motivo y las demás siguen: se prefiere armar lo que se puede y decir qué no.
+   */
+  async crearOlasKepler(dto: {
+    warehouse_id: string;
+    origen?: string;
+    days?: number;
+  }): Promise<KeplerWavesAutoResponse> {
+    const pool = await this.poolKepler(dto);
+    const bloqueados = pool.data
+      .filter((p) => p.sin_catalogo > 0)
+      .map((p) => ({ code: p.code, motivo: `${p.sin_catalogo} renglón(es) con clave fuera del catálogo` }));
+    const elegibles = pool.data.filter((p) => p.sin_catalogo === 0);
+    const plan = planearOlas(elegibles.map((p) => ({ id: p.id, renglones: p.lines })));
+    const porId = new Map(elegibles.map((p) => [p.id, p]));
+    const llaves = (ids: string[]) =>
+      ids.map((id) => {
+        const p = porId.get(id)!;
+        return { sucursal: p.sucursal, serie: p.serie, folio: p.folio };
+      });
+
+    const creadas: PickingWaveCreated[] = [];
+    const fallidas: Array<{ pedidos: string[]; motivo: string }> = [];
+    const armar = async (ids: string[], notes: string): Promise<boolean> => {
+      try {
+        const w = await this.createWave({ warehouse_id: dto.warehouse_id, kepler_orders: llaves(ids), notes });
+        creadas.push({
+          id: w.id,
+          code: w.code,
+          warehouse_id: w.warehouse_id,
+          status: w.status,
+          notes: w.notes ?? null,
+          orders_count: w.orders_count,
+        });
+        return true;
+      } catch (e) {
+        fallidas.push({ pedidos: ids.map((id) => porId.get(id)!.code), motivo: (e as Error).message });
+        return false;
+      }
+    };
+
+    if (plan.tanda.length) {
+      const ok = await armar(
+        plan.tanda,
+        `Tanda Kepler — ${plan.tanda.length} pedido(s) de 1 a ${UMBRAL_TANDA} renglones`,
+      );
+      // Un solo pedido problemático (p. ej. una clave pedida en dos unidades entre dos pedidos) no
+      // debe frenar a todos los demás: si la tanda no se pudo armar, se intenta cada uno solo. El
+      // motivo de la tanda queda en `fallidas`, y cada pedido que tampoco entre solo, también.
+      if (!ok && plan.tanda.length > 1) {
+        for (const id of plan.tanda) await armar([id], `Pedido Kepler ${porId.get(id)!.code} — tanda no armada`);
+      }
+    }
+    for (const id of plan.individuales) {
+      const p = porId.get(id)!;
+      await armar([id], `Pedido Kepler ${p.code} — ${p.lines} renglones`);
+    }
+
+    this.logger.log(
+      `[GP.2] Olas Kepler suc ${pool.sucursal}: ${creadas.length} creada(s), ${fallidas.length} fallida(s), ` +
+        `${bloqueados.length} bloqueado(s)`,
+    );
+    return {
+      creadas,
+      fallidas,
+      bloqueados,
+      /** Pedidos autorizados sin renglones: no hay nada que caminar. */
+      vacios: plan.vacios.map((id) => porId.get(id)!.code),
+      atorados: pool.atorados,
+    };
+  }
+
+  /**
+   * `[GP.2]` La sucursal Kepler de un almacén de la Suite: su `code` de dos dígitos
+   * (`'01'` = Padre Hidalgo). Los almacenes de ruta (`RUTA-21`, `01-002`) no surten pedidos
+   * `U-D-40` y se rechazan con un mensaje, no con un pool vacío.
+   */
+  private async sucursalDeAlmacen(trx: Knex.Transaction, warehouseId: string): Promise<string> {
+    const w: { code: string | null; name: string } | undefined = await trx('commercial.warehouses')
+      .where({ id: warehouseId })
+      .first('code', 'name');
+    if (!w) throw new NotFoundException(`Almacén ${warehouseId} no encontrado`);
+    const code = String(w.code ?? '').trim();
+    if (!/^\d{2}$/.test(code)) {
+      throw new BadRequestException(
+        `El almacén ${w.name} (${code}) no es una sucursal Kepler: los pedidos U-D-40 se surten de una sucursal (código de 2 dígitos).`,
+      );
+    }
+    return code;
   }
 
   /**
@@ -477,19 +805,200 @@ export class PickingService {
       const wave = await trx('commercial.picking_waves').where({ id: waveId }).first();
       if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
 
-      const orders = await trx('commercial.wave_orders as wo')
-        .join('commercial.orders as o', function () {
-          this.on('o.id', '=', 'wo.order_id').andOn('o.tenant_id', '=', 'wo.tenant_id');
-        })
-        .leftJoin('commercial.customers as c', function () {
-          this.on('c.id', '=', 'o.customer_id').andOn('c.tenant_id', '=', 'o.tenant_id');
-        })
-        .where('wo.wave_id', waveId)
-        .select('wo.id as wave_order_id', 'wo.stage', 'o.id as order_id', 'o.code', 'o.total', 'c.name as customer_name')
-        .orderBy('o.code');
-
+      const orders = [...(await this.cabecerasDe(trx, waveId)).values()].sort((a, b) =>
+        a.code.localeCompare(b.code),
+      );
       return { ...wave, orders, consolidated: await this.consolidado(trx, waveId) };
     });
+  }
+
+  /**
+   * `[GP.2]` Cabeceras de los pedidos de una ola, vengan de la Suite o de Kepler, con una sola
+   * forma. Lo usan el detalle y la hoja de reparto para no repetir la bifurcación.
+   *
+   * ⚠️ Un pedido Kepler cuya cabecera ya no aparece en el ODS se devuelve igual, con
+   * `customer_name` y `total` en null: desaparecer de la ola sería peor que mostrarse sin datos.
+   */
+  private async cabecerasDe(trx: Knex.Transaction, waveId: string): Promise<Map<string, CabeceraDePedido>> {
+    const wos: WaveOrderRow[] = await trx('commercial.wave_orders').where({ wave_id: waveId });
+    const out = new Map<string, CabeceraDePedido>();
+
+    const suite = wos.filter((w) => w.source !== 'kepler');
+    if (suite.length) {
+      const rows: Array<{ id: string; code: string; total: string | null; customer_name: string | null }> =
+        await trx('commercial.orders as o')
+          .leftJoin('commercial.customers as c', function (this: Knex.JoinClause) {
+            this.on('c.id', '=', 'o.customer_id').andOn('c.tenant_id', '=', 'o.tenant_id');
+          })
+          .whereIn(
+            'o.id',
+            suite.map((w) => w.order_id),
+          )
+          .select('o.id', 'o.code', 'o.total', 'c.name as customer_name');
+      const porId = new Map(rows.map((r) => [r.id, r]));
+      for (const w of suite) {
+        const o = porId.get(w.order_id);
+        out.set(w.order_id, {
+          wave_order_id: w.id,
+          order_id: w.order_id,
+          source: 'suite',
+          stage: w.stage,
+          code: o?.code ?? w.order_id,
+          customer_name: o?.customer_name ?? null,
+          total: o?.total == null ? null : Number(o.total),
+        });
+      }
+    }
+
+    const kep = wos.filter((w) => w.source === 'kepler');
+    if (kep.length) {
+      const llaves = kep.map((w) => ({
+        sucursal: w.kepler_sucursal,
+        serie: Number(w.kepler_serie),
+        folio: w.kepler_folio,
+      }));
+      const { rows } = await trx.raw(CABECERAS_POR_LLAVE_SQL, [JSON.stringify(llaves)]);
+      const porLlave = new Map(
+        (rows as CabeceraKeplerSqlRow[]).map((r) => [`${r.sucursal}/${Number(r.serie)}/${r.folio}`, r]),
+      );
+      for (const w of kep) {
+        const h = porLlave.get(`${w.kepler_sucursal}/${Number(w.kepler_serie)}/${w.kepler_folio}`);
+        out.set(w.order_id, {
+          wave_order_id: w.id,
+          order_id: w.order_id,
+          source: 'kepler',
+          stage: w.stage,
+          code: documentoKepler({ serie: Number(w.kepler_serie), folio: String(w.kepler_folio) }),
+          customer_name: h?.destino_nombre ?? null,
+          total: h?.importe == null ? null : Number(h.importe),
+          kepler_estatus: h?.estatus ?? null,
+        });
+      }
+    }
+    return out;
+  }
+
+  /**
+   * `[GP.2]` Los renglones de TODOS los pedidos de la ola con una sola forma, vengan de la Suite
+   * (`commercial.order_lines`) o de Kepler (`kdm2`, leído del ODS). De aquí salen el consolidado
+   * y el reparto: si cada uno leyera por su lado, el día que uno cambie repartirían algo distinto
+   * de lo que se surtió.
+   *
+   * Para Kepler, `quantity` va en la unidad BASE (`c9`/`c11`) y la presentación (`c56`/`c55`,
+   * lo que dice la hoja) viaja aparte para mostrarse. Ver `LINEAS_KEPLER_DE_OLA_SQL`.
+   */
+  private async lineasDePedidos(trx: Knex.Transaction, waveId: string): Promise<LineaDePedido[]> {
+    const suite: SuiteLineaRow[] = await trx('commercial.wave_orders as wo')
+      .join('commercial.order_lines as ol', function (this: Knex.JoinClause) {
+        this.on('ol.order_id', '=', 'wo.order_id').andOn('ol.tenant_id', '=', 'wo.tenant_id');
+      })
+      .leftJoin('catalog.products as p', function (this: Knex.JoinClause) {
+        this.on('p.id', '=', 'ol.product_id').andOn('p.tenant_id', '=', 'ol.tenant_id');
+      })
+      .join('commercial.orders as o', function (this: Knex.JoinClause) {
+        this.on('o.id', '=', 'wo.order_id').andOn('o.tenant_id', '=', 'wo.tenant_id');
+      })
+      .where('wo.wave_id', waveId)
+      .whereNot('wo.source', 'kepler')
+      .select(
+        'ol.product_id',
+        // ⚠️ `nombre`, no `name`: el catálogo conserva el español legacy (mismo nombre que usa
+        // `commercial-orders` al leer sus líneas). Es la clase de columna que NO se adivina.
+        'p.nombre as product_name',
+        'p.sku',
+        'ol.qty_unit',
+        'ol.quantity',
+        'o.code as order_code',
+        'wo.order_id',
+        'o.requested_delivery_date as delivery_date',
+        'o.confirmed_at',
+      );
+
+    const { rows: kep } = await trx.raw(LINEAS_KEPLER_DE_OLA_SQL, [waveId]);
+
+    const filas: LineaDePedido[] = [
+      ...suite.map((r) => ({
+        source: 'suite' as const,
+        order_id: r.order_id,
+        order_code: r.order_code,
+        product_id: r.product_id,
+        product_name: r.product_name,
+        sku: r.sku,
+        quantity: Number(r.quantity),
+        qty_unit: r.qty_unit || null,
+        qty_presentacion: null,
+        unidad_presentacion: null,
+        delivery_date: r.delivery_date ? String(r.delivery_date).slice(0, 10) : null,
+        confirmed_at: r.confirmed_at ? new Date(r.confirmed_at).toISOString() : null,
+      })),
+      ...(kep as LineaKeplerSqlRow[]).map((r) => ({
+        source: 'kepler' as const,
+        order_id: r.order_id,
+        order_code: documentoKepler({ serie: Number(r.serie), folio: r.folio }),
+        product_id: r.product_id,
+        product_name: r.product_name ?? r.descripcion,
+        sku: r.sku,
+        quantity: Number(r.quantity),
+        qty_unit: r.qty_unit,
+        qty_presentacion: r.qty_presentacion == null ? null : Number(r.qty_presentacion),
+        unidad_presentacion: r.unidad_presentacion,
+        // Kepler no tiene fecha de entrega comprometida: el desempate del reparto cae a la
+        // fecha del pedido (más viejo primero) y luego al folio. Se declara null, no se inventa.
+        delivery_date: null,
+        confirmed_at: r.fecha ?? null,
+      })),
+    ];
+    return filas.sort(
+      (a, b) =>
+        (a.product_name ?? '').localeCompare(b.product_name ?? '') || a.order_code.localeCompare(b.order_code),
+    );
+  }
+
+  /**
+   * `[GP.2]` Renglones de Kepler cuya clave no está en el catálogo. No pueden entrar a una ola
+   * (`wave_lines.product_id` es NOT NULL). Se listan con su clave para que se pueda corregir.
+   */
+  private sinCatalogo(lineas: readonly LineaDePedido[]): string[] {
+    return lineas.filter((l) => !l.product_id).map((l) => `${l.order_code} clave ${l.sku}`);
+  }
+
+  /**
+   * `[GP.2]` Productos cuya cantidad pedida hoy (leída en vivo) ya no es la que se congeló en
+   * `wave_lines` al arrancar. Sólo aplica a olas con pedidos de Kepler; en las de la Suite el
+   * pedido confirmado no cambia y se devuelve `[]` sin consultar.
+   */
+  private async cambiosDesdeArranque(trx: Knex.Transaction, waveId: string): Promise<string[]> {
+    const hayKepler = await trx('commercial.wave_orders').where({ wave_id: waveId, source: 'kepler' }).first('id');
+    if (!hayKepler) return [];
+    const congeladas: Array<{ product_id: string; qty_requested: string }> = await trx('commercial.wave_lines')
+      .where({ wave_id: waveId })
+      .select('product_id', 'qty_requested');
+    const vivo = new Map(
+      (await this.consolidado(trx, waveId)).map((c) => [c.product_id as string, { qty: c.total_base, sku: c.sku }]),
+    );
+    const out: string[] = [];
+    for (const c of congeladas) {
+      const v = vivo.get(c.product_id);
+      const antes = Math.round(Number(c.qty_requested) * 1000);
+      if (!v) out.push(`producto ${c.product_id} ya no está en el pedido`);
+      else if (Math.round(v.qty * 1000) !== antes) out.push(`clave ${v.sku}: ${antes / 1000} → ${v.qty}`);
+      vivo.delete(c.product_id);
+    }
+    for (const v of vivo.values()) out.push(`clave ${v.sku} agregada (${v.qty})`);
+    return out;
+  }
+
+  /**
+   * `[GP.2]` Lo que impide surtir una ola con pedidos de Kepler, o `[]` si nada.
+   *
+   *  · **Clave fuera del catálogo**: no hay `product_id` que guardar.
+   *  · **El mismo producto en unidades distintas** (medido en prod: 248 pares sucursal×clave con
+   *    más de una unidad en `kdm2.c11`, p. ej. PAQ y PZA). El motor suma por producto: juntar
+   *    paquetes con piezas da un número que no se puede surtir ni repartir. Con pedidos de la Suite
+   *    la cantidad ya viene en la unidad base y eso no pasa; con Kepler sí, así que se frena.
+   */
+  private bloqueosKepler(lineas: readonly LineaDePedido[]): string[] {
+    return [...this.sinCatalogo(lineas).map((x) => `${x} fuera del catálogo`), ...unidadesMezcladas(lineas)];
   }
 
   /**
@@ -508,30 +1017,11 @@ export class PickingService {
    * ⚠️ `qty_unit` sale del sello que puso la captura (VU.2/VU.4). Cuando la línea no lo trae, la
    * cantidad está en unidad base y se declara `sin_unidad_declarada` — nunca se asume "pieza".
    */
-  private async consolidado(trx: any, waveId: string) {
-    const rows = await trx('commercial.wave_orders as wo')
-      .join('commercial.order_lines as ol', function (this: any) {
-        this.on('ol.order_id', '=', 'wo.order_id').andOn('ol.tenant_id', '=', 'wo.tenant_id');
-      })
-      .leftJoin('catalog.products as p', function (this: any) {
-        this.on('p.id', '=', 'ol.product_id').andOn('p.tenant_id', '=', 'ol.tenant_id');
-      })
-      .join('commercial.orders as o', function (this: any) {
-        this.on('o.id', '=', 'wo.order_id').andOn('o.tenant_id', '=', 'wo.tenant_id');
-      })
-      .where('wo.wave_id', waveId)
-      .select(
-        'ol.product_id',
-        // ⚠️ `nombre`, no `name`: el catálogo conserva el español legacy (mismo nombre que usa
-        // `commercial-orders` al leer sus líneas). Es la clase de columna que NO se adivina.
-        'p.nombre as product_name',
-        'p.sku',
-        'ol.qty_unit',
-        'ol.quantity',
-        'o.code as order_code',
-        'wo.order_id',
-      )
-      .orderBy(['p.nombre', 'o.code']);
+  private async consolidado(trx: Knex.Transaction, waveId: string) {
+    // [GP.2] Suite y Kepler con la misma forma. Los renglones Kepler sin producto en el catálogo
+    // NO se consolidan (no hay `product_id` que agrupar ni que guardar): `createWave` y
+    // `startPicking` los rechazan con su clave antes de llegar acá.
+    const rows = (await this.lineasDePedidos(trx, waveId)).filter((r) => r.product_id);
 
     const porSku = new Map<string, any>();
     for (const r of rows as any[]) {
@@ -555,8 +1045,18 @@ export class PickingService {
       // lo fuera (pasó: reventó el varchar(16) de `wave_lines.qty_unit`, y de haber cabido habría
       // quedado una "unidad" inventada en la tabla). ADR-056: la ausencia se declara, no se nombra.
       g.unidades_capturadas.add(r.qty_unit || null);
-      g.por_pedido.push({ order_id: r.order_id, order_code: r.order_code, quantity: Number(r.quantity) });
+      g.por_pedido.push({
+        order_id: r.order_id,
+        order_code: r.order_code,
+        quantity: Number(r.quantity),
+        // [GP.2] Lo que dice la hoja de Kepler (3 BTO). Sólo para mostrar; null en pedidos de la Suite.
+        presentacion:
+          r.qty_presentacion == null ? null : { cantidad: r.qty_presentacion, unidad: r.unidad_presentacion },
+      });
     }
+    // [GP.2] Kepler trae KG con decimales: sumar en coma flotante da 0.30000000000000004. Se
+    // redondea a milésimas, la precisión de `wave_lines.qty_requested` (numeric(14,3)).
+    for (const g of porSku.values()) g.total_base = Math.round(g.total_base * 1000) / 1000;
 
     return Array.from(porSku.values()).map((g) => {
       const us = Array.from(g.unidades_capturadas) as (string | null)[];
@@ -606,7 +1106,16 @@ export class PickingService {
   async createWave(dto: CreateWaveDto) {
     if (!UUID_RE.test(dto?.warehouse_id || '')) throw new BadRequestException('warehouse_id inválido');
     const ids = Array.from(new Set((dto?.order_ids || []).filter((x) => UUID_RE.test(x))));
-    if (!ids.length) throw new BadRequestException('order_ids vacío o inválido');
+    // [GP.2] Pedidos de Kepler por llave. Una llave mala es un 400 con la posición, no un pedido
+    // que desaparece en silencio de la ola.
+    const kCrudos = dto?.kepler_orders || [];
+    const kepler: PedidoKeplerLlave[] = [];
+    kCrudos.forEach((x, i) => {
+      const k = normalizarLlave(x);
+      if (!k) throw new BadRequestException(`kepler_orders[${i}] inválido: se espera { sucursal: '01', serie, folio }`);
+      if (!kepler.some((y) => keplerOrderId(y) === keplerOrderId(k))) kepler.push(k);
+    });
+    if (!ids.length && !kepler.length) throw new BadRequestException('order_ids y kepler_orders vacíos');
     if (dto.delivery_date && !DATE_RE.test(dto.delivery_date))
       throw new BadRequestException('delivery_date debe ser YYYY-MM-DD');
     if (dto.assigned_to && !UUID_RE.test(dto.assigned_to))
@@ -615,36 +1124,42 @@ export class PickingService {
     const userId = this.tenantCtx.get()?.userId || null;
 
     return this.tk.run(async (trx) => {
-      const orders = await trx('commercial.orders').whereIn('id', ids).select('id', 'code', 'status', 'warehouse_id');
-      if (orders.length !== ids.length) {
-        const vistos = new Set(orders.map((o: any) => o.id));
-        throw new NotFoundException(`Pedidos no encontrados: ${ids.filter((i) => !vistos.has(i)).join(', ')}`);
+      if (ids.length) {
+        const orders: Array<{ id: string; code: string; status: string; warehouse_id: string }> = await trx(
+          'commercial.orders',
+        )
+          .whereIn('id', ids)
+          .select('id', 'code', 'status', 'warehouse_id');
+        if (orders.length !== ids.length) {
+          const vistos = new Set(orders.map((o) => o.id));
+          throw new NotFoundException(`Pedidos no encontrados: ${ids.filter((i) => !vistos.has(i)).join(', ')}`);
+        }
+
+        const noConfirmados = orders.filter((o) => o.status !== 'confirmed');
+        if (noConfirmados.length)
+          throw new ConflictException(
+            `Solo entran pedidos confirmados. Fuera: ${noConfirmados.map((o) => `${o.code} (${o.status})`).join(', ')}`,
+          );
+
+        // Una ola recorre UN almacén: mezclar dos es un recorrido imposible.
+        const otroAlmacen = orders.filter((o) => o.warehouse_id !== dto.warehouse_id);
+        if (otroAlmacen.length)
+          throw new ConflictException(
+            `Estos pedidos se surten de otro almacén: ${otroAlmacen.map((o) => o.code).join(', ')}`,
+          );
+
+        const yaEnOla: Array<{ code: string }> = await trx('commercial.wave_orders as wo')
+          .join('commercial.orders as o', function (this: Knex.JoinClause) {
+            this.on('o.id', '=', 'wo.order_id').andOn('o.tenant_id', '=', 'wo.tenant_id');
+          })
+          .whereIn('wo.order_id', ids)
+          .andWhere('wo.stage', '<>', 'listo_embarque')
+          .select('o.code');
+        if (yaEnOla.length)
+          throw new ConflictException(`Ya están en otra ola: ${yaEnOla.map((r) => r.code).join(', ')}`);
       }
 
-      const noConfirmados = orders.filter((o: any) => o.status !== 'confirmed');
-      if (noConfirmados.length)
-        throw new ConflictException(
-          `Solo entran pedidos confirmados. Fuera: ${noConfirmados.map((o: any) => `${o.code} (${o.status})`).join(', ')}`,
-        );
-
-      // Una ola recorre UN almacén: mezclar dos es un recorrido imposible.
-      const otroAlmacen = orders.filter((o: any) => o.warehouse_id !== dto.warehouse_id);
-      if (otroAlmacen.length)
-        throw new ConflictException(
-          `Estos pedidos se surten de otro almacén: ${otroAlmacen.map((o: any) => o.code).join(', ')}`,
-        );
-
-      const yaEnOla = await trx('commercial.wave_orders as wo')
-        .join('commercial.orders as o', function (this: any) {
-          this.on('o.id', '=', 'wo.order_id').andOn('o.tenant_id', '=', 'wo.tenant_id');
-        })
-        .whereIn('wo.order_id', ids)
-        .andWhere('wo.stage', '<>', 'listo_embarque')
-        .select('o.code');
-      if (yaEnOla.length)
-        throw new ConflictException(
-          `Ya están en otra ola: ${yaEnOla.map((r: any) => r.code).join(', ')}`,
-        );
+      if (kepler.length) await this.validarKepler(trx, dto.warehouse_id, kepler);
 
       const code = await this.nextCode(trx);
       const [wave] = await trx('commercial.picking_waves')
@@ -659,13 +1174,107 @@ export class PickingService {
         })
         .returning('*');
 
-      await trx('commercial.wave_orders').insert(
-        ids.map((order_id) => ({ wave_id: wave.id, order_id, added_by: userId })),
+      try {
+        await trx('commercial.wave_orders').insert([
+          ...ids.map((order_id) => ({ wave_id: wave.id, order_id, added_by: userId })),
+          // [GP.2] El order_id de Kepler se DERIVA de la llave; el CHECK
+          // `wave_orders_kepler_id_derivado` rechaza el INSERT si no coincide.
+          ...kepler.map((k) => ({
+            wave_id: wave.id,
+            order_id: keplerOrderId(k),
+            source: 'kepler',
+            kepler_sucursal: k.sucursal,
+            kepler_serie: k.serie,
+            kepler_folio: k.folio,
+            added_by: userId,
+          })),
+        ]);
+      } catch (e) {
+        // [GP.2] Dos sesiones armando la ola del mismo pedido a la vez: la segunda choca con
+        // `ux_wo_order_viva`. Es un 409 con mensaje, no un 500 con el texto de Postgres.
+        if ((e as { code?: string }).code === '23505')
+          throw new ConflictException('Otro usuario acaba de meter alguno de estos pedidos a una ola. Recargá el pool.');
+        throw e;
+      }
+
+      // [GP.2] Con los pedidos de Kepler ya dentro de la ola (en esta misma transacción), se leen
+      // sus renglones con la MISMA consulta que usarán el consolidado y el reparto. Si algo impide
+      // surtir, se aborta todo: la ola no queda creada a medias.
+      if (kepler.length) {
+        const bloqueos = this.bloqueosKepler(await this.lineasDePedidos(trx, wave.id));
+        if (bloqueos.length) throw new ConflictException(`No se puede armar la ola: ${bloqueos.join('; ')}`);
+      }
+
+      const total = ids.length + kepler.length;
+      this.logger.log(`Ola ${code} creada con ${total} pedido(s) (${kepler.length} de Kepler)`);
+      return { ...wave, orders_count: total };
+    });
+  }
+
+  /**
+   * `[GP.2]` Lo que tiene que cumplir un pedido de Kepler para entrar a una ola. Todo en la misma
+   * transacción que el INSERT, y con mensajes que nombran el folio:
+   *
+   *   1. Es de la sucursal del almacén de la ola (una ola recorre UN almacén).
+   *   2. Existe y su estatus VIGENTE en Kepler es `AUTORIZADO`. Uno que ya avanzó (SURTIDO,
+   *      CHECADO…) lo está trabajando alguien por fuera de la Suite.
+   *   3. No está en NINGUNA ola (ni siquiera ya lista para embarque: en Kepler sigue AUTORIZADO
+   *      hasta que se capture, y sin esto se podría surtir dos veces).
+   *   4. Tiene renglones, y todas sus claves existen en el catálogo (`wave_lines.product_id` es
+   *      NOT NULL).
+   */
+  private async validarKepler(
+    trx: Knex.Transaction,
+    warehouseId: string,
+    kepler: readonly PedidoKeplerLlave[],
+  ): Promise<void> {
+    const sucursal = await this.sucursalDeAlmacen(trx, warehouseId);
+    const otra = kepler.filter((k) => k.sucursal !== sucursal);
+    if (otra.length)
+      throw new ConflictException(
+        `Estos pedidos son de otra sucursal (la ola es de la ${sucursal}): ${otra
+          .map((k) => `${k.sucursal} ${documentoKepler(k)}`)
+          .join(', ')}`,
       );
 
-      this.logger.log(`Ola ${code} creada con ${ids.length} pedido(s)`);
-      return { ...wave, orders_count: ids.length };
-    });
+    const { rows } = await trx.raw(CABECERAS_POR_LLAVE_SQL, [JSON.stringify(kepler)]);
+    const cabs = rows as CabeceraKeplerSqlRow[];
+    const noExisten = cabs.filter((r) => r.estatus == null);
+    if (noExisten.length)
+      throw new NotFoundException(
+        `Pedidos no encontrados en Kepler, o sin estatus: ${noExisten.map((r) => documentoKepler({ serie: r.serie, folio: r.folio })).join(', ')}`,
+      );
+    const noAutorizados = cabs.filter((r) => r.estatus !== 'AUTORIZADO');
+    if (noAutorizados.length)
+      throw new ConflictException(
+        `Solo entran pedidos AUTORIZADO en Kepler. Fuera: ${noAutorizados
+          .map((r) => `${documentoKepler({ serie: r.serie, folio: r.folio })} (${r.estatus})`)
+          .join(', ')}`,
+      );
+
+    const yaEnOla: Array<{ kepler_serie: number; kepler_folio: string }> = await trx('commercial.wave_orders')
+      .whereIn('order_id', kepler.map(keplerOrderId))
+      .select('kepler_serie', 'kepler_folio');
+    if (yaEnOla.length)
+      throw new ConflictException(
+        `Ya están en una ola: ${yaEnOla
+          .map((r) => documentoKepler({ serie: Number(r.kepler_serie), folio: r.kepler_folio }))
+          .join(', ')}`,
+      );
+
+    // Renglones y catálogo, con la MISMA consulta que usa el pool: si difieren, la ola pasaría
+    // la validación y fallaría al arrancar. La ventana arranca en el pedido más viejo de la lista.
+    const desde = cabs.map((r) => r.fecha as string).sort()[0];
+    const { rows: pool } = await trx.raw(POOL_KEPLER_SQL, [sucursal, desde, null, null]);
+    const porLlave = new Map((pool as PoolKeplerSqlRow[]).map((p) => [`${Number(p.serie)}/${p.folio}`, p]));
+    const problemas: string[] = [];
+    for (const k of kepler) {
+      const p = porLlave.get(`${k.serie}/${k.folio}`);
+      if (!p || Number(p.renglones) === 0) problemas.push(`${documentoKepler(k)} sin renglones`);
+      else if (Number(p.sin_catalogo) > 0)
+        problemas.push(`${documentoKepler(k)}: ${p.sin_catalogo} renglón(es) con clave fuera del catálogo`);
+    }
+    if (problemas.length) throw new ConflictException(`No se pueden surtir: ${problemas.join('; ')}`);
   }
 
   /**
@@ -830,6 +1439,11 @@ export class PickingService {
 
       const yaHay = await trx('commercial.wave_lines').where({ wave_id: waveId }).first();
       if (!yaHay) {
+        // [GP.2] El catálogo y el pedido de Kepler pudieron cambiar entre armar la ola y
+        // arrancarla. Un renglón sin producto, o un producto en dos unidades, no se puede congelar
+        // sin inventar; saltarlo mandaría el pedido corto sin que nadie lo decidiera. Se frena.
+        const bloqueos = this.bloqueosKepler(await this.lineasDePedidos(trx, waveId));
+        if (bloqueos.length) throw new ConflictException(`No se puede arrancar: ${bloqueos.join('; ')}`);
         const cons = await this.consolidado(trx, waveId);
         if (!cons.length) throw new ConflictException('La ola no tiene renglones que surtir');
         await trx('commercial.wave_lines').insert(
@@ -945,6 +1559,16 @@ export class PickingService {
             'un renglón sin tocar no es lo mismo que uno agotado.',
         );
 
+      // [GP.2] El reparto lee lo que pidió cada pedido EN VIVO. Un pedido de la Suite `confirmed`
+      // no cambia; uno de Kepler sigue editable en Kepler mientras se surte. Si cambió después de
+      // arrancar, repartir contra lo nuevo dejaría mercancía sin dueño sin que nadie lo viera.
+      const cambios = await this.cambiosDesdeArranque(trx, waveId);
+      if (cambios.length)
+        throw new ConflictException(
+          `El pedido cambió en Kepler después de arrancar el surtido: ${cambios.join('; ')}. ` +
+            'Cancelá la ola y volvé a armarla con el pedido actual.',
+        );
+
       const [upd] = await trx('commercial.picking_waves')
         .where({ id: waveId })
         .update({
@@ -978,34 +1602,28 @@ export class PickingService {
     if (!lineas.length) return [];
 
     // Lo que pidió cada pedido de cada producto, con lo que hace falta para ordenarlos.
-    const pedidos = await trx('commercial.wave_orders as wo')
-      .join('commercial.order_lines as ol', function (this: any) {
-        this.on('ol.order_id', '=', 'wo.order_id').andOn('ol.tenant_id', '=', 'wo.tenant_id');
-      })
-      .join('commercial.orders as o', function (this: any) {
-        this.on('o.id', '=', 'wo.order_id').andOn('o.tenant_id', '=', 'wo.tenant_id');
-      })
-      .where('wo.wave_id', waveId)
-      .select(
-        'ol.product_id',
-        'wo.order_id',
-        'o.code as order_code',
-        'ol.quantity as qty_requested',
-        'o.requested_delivery_date as delivery_date',
-        'o.confirmed_at',
-      );
+    // [GP.2] Misma lectura que el consolidado (Suite + Kepler): se reparte lo mismo que se surtió.
+    const pedidos = (await this.lineasDePedidos(trx, waveId)).filter((r) => r.product_id);
 
     const porProducto = new Map<string, any[]>();
-    for (const r of pedidos as any[]) {
-      const arr = porProducto.get(r.product_id) ?? [];
+    for (const r of pedidos) {
+      const arr = porProducto.get(r.product_id as string) ?? [];
+      // [GP.2] Un pedido de Kepler puede traer el MISMO producto en dos renglones. Se suman: el
+      // reparto es por (pedido, producto) y `wave_allocations` tiene UNIQUE sobre eso — dos
+      // entradas del mismo pedido harían fallar el cierre de la ola.
+      const ya = arr.find((x) => x.order_id === r.order_id);
+      if (ya) {
+        ya.qty_requested = Math.round((ya.qty_requested + r.quantity) * 1000) / 1000;
+        continue;
+      }
       arr.push({
         order_id: r.order_id,
         order_code: r.order_code,
-        qty_requested: Number(r.qty_requested),
-        delivery_date: r.delivery_date ? String(r.delivery_date).slice(0, 10) : null,
-        confirmed_at: r.confirmed_at ? new Date(r.confirmed_at).toISOString() : null,
+        qty_requested: r.quantity,
+        delivery_date: r.delivery_date,
+        confirmed_at: r.confirmed_at,
       });
-      porProducto.set(r.product_id, arr);
+      porProducto.set(r.product_id as string, arr);
     }
 
     const ola = repartirOla(
@@ -1043,31 +1661,37 @@ export class PickingService {
   async allocations(waveId: string) {
     if (!UUID_RE.test(waveId)) throw new BadRequestException('waveId inválido');
     return this.tk.run(async (trx) => {
-      const filas = await trx('commercial.wave_allocations as wa')
-        .join('commercial.orders as o', function (this: any) {
-          this.on('o.id', '=', 'wa.order_id').andOn('o.tenant_id', '=', 'wa.tenant_id');
-        })
-        .leftJoin('commercial.customers as c', function (this: any) {
-          this.on('c.id', '=', 'o.customer_id').andOn('c.tenant_id', '=', 'o.tenant_id');
-        })
-        .leftJoin('catalog.products as p', function (this: any) {
+      // [GP.2] La cabecera (folio, cliente, etapa) sale de `cabecerasDe`, que sabe leer Suite y
+      // Kepler. Un JOIN a `commercial.orders` dejaba fuera en silencio a los pedidos de Kepler.
+      const cab = await this.cabecerasDe(trx, waveId);
+      const crudas: Array<{
+        order_id: string;
+        product_id: string;
+        qty_requested: string;
+        qty_allocated: string;
+        rule_applied: string;
+        product_name: string | null;
+        sku: string | null;
+      }> = await trx('commercial.wave_allocations as wa')
+        .leftJoin('catalog.products as p', function (this: Knex.JoinClause) {
           this.on('p.id', '=', 'wa.product_id').andOn('p.tenant_id', '=', 'wa.tenant_id');
         })
-        .leftJoin('commercial.wave_orders as wo', function (this: any) {
-          this.on('wo.wave_id', '=', 'wa.wave_id')
-            .andOn('wo.order_id', '=', 'wa.order_id')
-            .andOn('wo.tenant_id', '=', 'wa.tenant_id');
-        })
         .where('wa.wave_id', waveId)
-        .select(
-          'wa.*',
-          'o.code as order_code',
-          'c.name as customer_name',
-          'p.nombre as product_name',
-          'p.sku',
-          'wo.stage',
-        )
-        .orderBy(['o.code', 'p.nombre']);
+        .select('wa.*', 'p.nombre as product_name', 'p.sku');
+      const filas = crudas
+        .map((f) => {
+          const h = cab.get(f.order_id);
+          return {
+            ...f,
+            order_code: h?.code ?? f.order_id,
+            customer_name: h?.customer_name ?? null,
+            stage: h?.stage ?? null,
+          };
+        })
+        .sort(
+          (a, b) =>
+            a.order_code.localeCompare(b.order_code) || (a.product_name ?? '').localeCompare(b.product_name ?? ''),
+        );
 
       // Agrupado por pedido: así es como se separa físicamente (una caja por cliente).
       const porPedido = new Map<string, any>();

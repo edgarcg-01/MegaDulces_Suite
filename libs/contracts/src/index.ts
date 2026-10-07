@@ -77,6 +77,8 @@ export * from './http/cortes-sucursales.contract';
 // [ECA.1] Estado de cuenta de acreedores: documento de Kepler con sus pagos casados (kdxe + kdxf).
 export * from './http/creditor-statements.contract';
 export * from './http/warehouse-orders.contract';
+// [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
+export * from './http/warehouse-picking-kepler.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a
 // la versión anterior le faltaba (y que es el 88 % del egreso).
 export * from './http/budget-result.contract';
