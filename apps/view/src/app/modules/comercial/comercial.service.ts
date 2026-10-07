@@ -2016,7 +2016,7 @@ export class ComercialService {
    * quincena. Por eso la pantalla no dispara cálculos: eso lo hace el cron.
    */
   commissionBoard(anio: number) {
-    return this.http.get<CommissionBoardRow[]>(`${this.base}/commissions/board`,
+    return this.http.get<CommissionBoard>(`${this.base}/commissions/board`,
       { params: new HttpParams().set('anio', String(anio)) });
   }
   commissionPeriods(anio?: number) {
@@ -4049,6 +4049,25 @@ export interface CommissionRunDetail {
   notes: string | null;
   period?: { anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null };
   lines: (CommissionLine & { id: string })[];
+}
+/**
+ * RD.21 — el estado del carril que llena el tablero, medido y no supuesto.
+ *
+ * ⭐ Son **tres** causas distintas de "no hay corridas", y se arreglan en tres lugares
+ * distintos. La pantalla las trataba como una sola y nombraba la tercera: mandaba a mirar un
+ * latido que (medido el 2026-10-07) **nunca reportó**, y no encontrar nada se lee igual que
+ * estar bien.
+ */
+export interface CommissionMotor {
+  veredicto: 'nunca_reporto' | 'con_error' | 'corre';
+  detalle: string;
+  last_finish: string | null;
+  status: string | null;
+  error: string | null;
+}
+export interface CommissionBoard {
+  periodos: CommissionBoardRow[];
+  motor: CommissionMotor;
 }
 /**
  * RD.21 — una quincena del tablero, con su corrida si la tiene. Es la forma que devuelve
