@@ -1,6 +1,7 @@
 import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import type { NuevoEmbarqueHoja } from '@megadulces/contracts';
 import { ErpShipmentsService } from './erp-shipments.service';
 import { GuideCostService } from './guide-cost.service';
 
@@ -49,6 +50,13 @@ export class ErpShipmentsController {
   @ApiOperation({ summary: 'Un viaje: sus paradas, la unidad, dónde está ahora y el recorrido del día' })
   tripDetail(@Param('sucursal') sucursal: string, @Param('guia') guia: string) {
     return this.service.tripDetail(sucursal, guia);
+  }
+
+  @Get('trips/:sucursal/:guia/nuevo-embarque')
+  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_VER)
+  @ApiOperation({ summary: 'EMB.12 — La hoja de «Nuevo embarque» de ese viaje: lo que Kepler ya capturó (unidad, chofer, paradas con ruta, carga, valor) + tarifa sugerida + si ya se tomó' })
+  nuevoEmbarque(@Param('sucursal') sucursal: string, @Param('guia') guia: string): Promise<NuevoEmbarqueHoja> {
+    return this.service.nuevoEmbarque(sucursal, guia);
   }
 
   @Get('lines/:sucursal/:serie/:folio')

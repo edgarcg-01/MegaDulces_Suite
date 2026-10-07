@@ -1925,9 +1925,52 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
 - [ ] **[EMB.11]** ⬜ El resolvedor de unidad cuesta ~1.5 s por llamada aunque se filtre. Es un
   primitivo COMPARTIDO (lo usan varias pantallas), así que el arreglo va en él, no en un
   atajo local — parchearlo acá escondería el costo para todos los demás.
-- [ ] **[EMB.12]** ⬜ Falta decidir si un viaje de Kepler (la guía) se **materializa** como
-  `logistics.shipments` para colgarle checklists, fotos y costos, o si la app sigue con su
-  propio ciclo en paralelo.
+- [ ] **[EMB.12]** 🧪 **«Nuevo embarque» TOMA el viaje de Kepler en vez de recapturarlo**
+  (2026-10-06, probado en local; sin desplegar). Decidido: el viaje (guía) **sí** se materializa
+  como `logistics.shipments`, pero guardando sólo la **llave** (`kepler_sucursal` + `kepler_guia`,
+  índice único parcial: una guía activa) y lo que Kepler no tiene (tipo de entrega, ayudantes,
+  comisiones, viáticos, flete, km, peso). Unidad, chofer, paradas, cajas y valor se leen **en vivo**.
+  Crea además la guía de entrega y **un destinatario por parada** (acuse para el POD del chofer).
+  Mig `20261006210000`: vistas `analytics.erp_shipment_stops` (la ruta por **domicilio de entrega**
+  `c10+c85 → kdudent.c13 → kdm_rutas`, 100% medido en suc 01 y 06; orden `kdm_rutas2.c4`;
+  facturación `c43`; hora de captura `c69`; nota de almacén `c24-c26`), `erp_shipment_stop_load`
+  (cajas = `kdm2.c54` en CJA/BTO, sueltos el resto, kg sólo de renglones por kilo) y
+  `v_kepler_responsables` (`kdm_cat_sur/che/emb`). Pantallas `/logistica/shipments/nuevo` (elegir el
+  viaje del día) y `/logistica/shipments/nuevo/:sucursal/:guia`: la **hoja de embarque**, un solo
+  formato con las secciones del embarque manual donde lo de Kepler va lleno y **bloqueado** (no se
+  edita en la Suite, se corrige en Kepler) y lo demás en blanco para teclear. Por decisión del
+  usuario la hoja **no** dice qué viene de Kepler y qué no: sin leyenda, sin marcas de origen, sin
+  panel de completitud ni avisos — sólo «Para crear el embarque falta:» junto al botón. El tipo de
+  entrega arranca en blanco (no es dato de Kepler) y el chofer de Kepler no se cambia: la API
+  responde 400 si se manda otro. La misma hoja, toda bloqueada, vive en el detalle del embarque con
+  entregas y costo estimado. «Embarque manual»
+  (`?manual=1`) queda para lo que Kepler no emite. La forma de la hoja, la lista y la toma es un contrato
+  compartido (`libs/contracts/src/http/nuevo-embarque.contract.ts`, ADR-052): servidor y front importan
+  los mismos tipos y la compuerta de boundary no admite `any` nuevo. **Pruebas:** `libs/logistics` estrena Vitest
+  (59: reglas, armado de la hoja con base simulada, endpoints con ruta+permiso, toma), `apps/view` 58 en logística (cada componente montado con TestBed + rutas + servicio); cada regla nueva con mutación verificada, DB
+  `test-newdb-emb-nuevo-embarque.js` 14/14 con prueba negativa del candado; además se ejecutó el
+  servicio real contra la base local como `app_runtime` (lista 95 ms, hoja 103 ms).
+  **Arreglado de paso:** el formulario manual pedía «Por ruta / Viaje largo» y lo tiraba (no había
+  columna), y guardaba la fecha en UTC (después de las 18:00 se guardaba mañana).
+  **Falta:** aplicar la migración a prod (una por una) + redeploy api+view (sin permisos nuevos).
+- [ ] **[EMB.13]** ⬜ **Comisión de un viaje con varias rutas.** El catálogo de rutas tiene una
+  tarifa por ruta y una guía cruza hasta 5 (medido: 71 de 122 guías de Telemarketing de PH son de
+  una sola). EMB.12 precarga la **mayor** del viaje en la comisión del chofer (editable); la regla
+  es una propuesta que decide Logística. Y el emparejamiento es por `kepler_code` o nombre EXACTO: Kepler escribe
+  «SANTAGIO TANGAMNADAPIO», que no es «TANGAMANDAPIO» — se declara «sin tarifa», no se adivina.
+- [ ] **[EMB.14]** ⬜ **Tarifas de viáticos sin configurar** (`logistics.config_finance` no tiene la
+  categoría `viatico` en la base local): la hoja pide el total a mano. Configurarlas activa el
+  checklist persona × comida que ya existe en la pantalla.
+- [ ] **[EMB.15]** ⬜ **El traspaso SÍ tiene confirmación de llegada en Kepler**: la recepción
+  `U-A-50` en la sucursal destino guarda `c10` = sucursal origen (`TI###`) y `c37/c38/c39` = el
+  `U-D-41-2` exacto que la envió. Medido Padre Hidalgo → Canindo: 18 de 19 con recepción, mismo
+  importe al centavo, 1 a 5 días después (en esa muestra; en general va de −2 a +63 días, así que
+  se liga por el back-pointer y el destino, nunca por fecha — ver `[DM.20]`). Falta usarlo como POD
+  automático de las paradas de traspaso (hoy la hoja sólo muestra lo que captura el chofer).
+- [ ] **[EMB.16]** ⚠️ **Chofer vacío en Padre Hidalgo**: Kepler precarga el chofer desde la unidad y
+  10 de 30 unidades no tienen uno asignado — entre ellas la `00008`, la que más embarca (0.2% de sus
+  embarques de Telemarketing traen chofer). La pantalla lo pide; el arreglo de fondo es asignarles
+  chofer en el catálogo de unidades de Kepler.
 - [ ] **[EMB.8]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
   histórico (`'40'` 102,310 · `'35'` 44) = el tipo de documento padre, 0/10 match contra
   `kdm_rutas`. Lo pintan como ruta la pantalla de analytics de logística y una tool de Thot.
