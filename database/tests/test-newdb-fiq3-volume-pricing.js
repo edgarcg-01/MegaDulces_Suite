@@ -7,6 +7,19 @@
  * Replica EXACTAMENTE la selección de tier que hace CommercialPricingService.
  * resolvePriceForQty (lowest price where min_qty <= qty), y la compara contra un
  * cómputo JS independiente sobre los tiers reales del producto.
+ *
+ * ── ⚠️ `[PV.1]` LO QUE ESTE CANDADO **NO** PUEDE DECIR, Y COSTÓ DINERO ──────────────────────
+ * Mide **paridad**, no verdad: compara nuestro SQL contra una réplica JS de **la misma regla**.
+ * Las dos pueden estar de acuerdo y equivocadas — y lo estuvieron. Este archivo quedó VERDE
+ * todo el tiempo que `analytics.product_volume_tiers` aplastaba el nivel de precio del cliente
+ * (`kdpv_prod_util.c3`) contra la cantidad mínima (`c4`) y le regalaba a cualquiera el precio
+ * del nivel más profundo: SKU 83652 publicaba $54.66 a qty 10 donde Kepler cobra $71.15.
+ * Peor: la frase de arriba —"el MEJOR (menor) tier"— **consagra el defecto como criterio**.
+ *
+ * ⭐ Un candado que verifica una regla contra sí misma no es una compuerta. El que arbitra
+ * contra un testigo independiente —el nivel 0 de la ficha y lo que de verdad se cobró— es
+ * `test-newdb-volume-tiers-vs-cobrado.js`. Éste se conserva porque la equivalencia SQL↔JS del
+ * resolver sí vale algo, pero NO alcanza como compuerta de precio y no debe citarse como tal.
  */
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 const T = '00000000-0000-0000-0000-00000000d01c';
