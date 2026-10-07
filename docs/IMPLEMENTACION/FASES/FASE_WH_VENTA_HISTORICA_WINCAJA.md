@@ -85,6 +85,33 @@ Tickets de venta (`Tipo='V'`) por corte anual y sucursal:
 **≈ 9.72 millones de tickets, 2017–2025.** Yurécuaro arranca en 2024 y Zamora en 2025 porque las
 tiendas son más nuevas — eso **no es un hueco**, es su historia completa.
 
+### 1.2.bis ⚠️ «Toda la base» son 17 años; en Postgres hay 9
+
+Barrido de **todos** los schemas `h*` (no sólo los 9 de tienda), contando cabeceras por corte:
+
+| corte | schemas | cabeceras | | corte | schemas | cabeceras |
+|---|---:|---:|---|---|---:|---:|
+| 2017 | 17 | 1,218,084 | | 2023 | 18 | 1,284,783 |
+| 2018 | 22 | 1,204,320 | | 2024 | 21 | 1,289,292 |
+| 2019 | 21 | 1,165,015 | | 2025 | 22 | 1,320,955 |
+| 2020 | 16 | 1,072,268 | | `Actuales` | 21 | 169,115 |
+| 2021 | 16 | 1,113,897 | | `Concentradas` | 4 | 356,363 |
+| 2022 | 17 | 1,215,148 | | + 5 cortes con nombre propio | 1 c/u | 196,548 |
+
+**Ningún corte anterior a 2017.** Contra la fuente (`Z:\Salidas\Bases`, medida el 2026-10-07):
+
+- Carpetas descomprimidas: **2019–2025**, `Actuales`, `Concentradas`, `2025 12`, `2026 C`, `Cierres`.
+- Comprimidos sueltos en la raíz: **`2009.7z` … `2018.7z`**, que suman **0.94 GB**.
+
+Dos cosas que salen de ahí:
+
+1. ⭐ **La copia en Postgres ya es MÁS completa que el share.** 2017 y 2018 ya no están
+   descomprimidos allá —sólo como `.7z`— y **sí están cargados** (2.4M cabeceras entre los dos).
+   El activo es la base, no la carpeta.
+2. ⭐ **Lo que falta es barato.** 2009–2016 son **ocho `.7z` que pesan 0.94 GB** (los años viejos
+   son chicos: `2009.7z` = 0.02 GB). No es una segunda fase: es descomprimir y volver a correr el
+   mismo cargador, que ya los admite por `WINCAJA_HIST_YEARS`.
+
 ### 1.3 El dinero: MEDIDO PERO **NO ARBITRADO** ⛔
 
 Para dimensionar se sumó `DetallesMovAlmacen.ValorVenta` de **un solo año (2023)**:
@@ -347,9 +374,14 @@ el CEDIS son 8,165 tickets en nueve años — no es venta de mostrador.
 
 ## 6. Decisiones abiertas (Edgar)
 
-1. **¿Hasta dónde atrás?** El espejo tiene 2017–2025. Los `.7z` de **2009–2016** existen y no están
-   extraídos. Mi recomendación: **cerrar 2017–2025 primero** y decidir 2009–2016 con la fase ya
-   entregada — nueve años ya cubren cualquier comparativo que el negocio pida hoy.
+1. **¿Hasta dónde atrás?** El espejo tiene **9 años (2017–2025)**; el histórico completo son **17**.
+   Faltan **2009–2016**, que son ocho `.7z` de **0.94 GB en total** (§1.2.bis) — mucho más barato
+   de lo que esta fase asumía en su primera versión.
+   **Recomiendo igual cargarlos DESPUÉS, y el motivo no es el costo sino el orden:** el método de
+   lectura no está firmado hasta `[WH.0]`, y meter ocho años más antes de arbitrar `ValorVenta`
+   multiplica por dos el retrabajo si el arbitraje cambia la fórmula. Nueve años cubren cualquier
+   comparativo que el negocio pida hoy; los otros ocho entran corriendo el mismo cargador con
+   `WINCAJA_HIST_YEARS`, sin código nuevo.
 2. **¿A qué almacén va la historia de `03`, `07` y `08`?** Los otros cinco ya tienen precedente
    medido (escriben al mismo código que Kepler). Estos tres no tienen ni una fila Wincaja hoy.
 3. **El corte de `03`/`04`/`05`** (§2.7): hay que fijar la fecha real de traspaso de cada una.
