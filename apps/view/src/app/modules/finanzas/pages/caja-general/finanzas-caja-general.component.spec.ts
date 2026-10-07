@@ -890,6 +890,34 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(split!.classList.contains('cg-split-capturando')).toBe(false);
   });
 
+  it('⛔ [negativa] la reja pregunta por SU columna, no por el panel entero', () => {
+    // El defecto que esto congela, reportado por Edgar con captura: la reja del arqueo se apila con
+    // `@container (max-width:26rem)`, pero el único `container-type` estaba en `.cg-detail-cuerpo`.
+    // O sea que la consulta medía los ~646px del PANEL en vez de los ~311px de la COLUMNA donde la
+    // reja vive. Nunca disparaba: dos columnas de reja dentro de una columna de 311px, cada
+    // sub-tabla a ~150px, con scroll horizontal y la columna «Importe» cortada.
+    //
+    // ⚠️ Una consulta de contenedor NO falla cuando apunta a la caja equivocada: contesta, y
+    // contesta sobre otra cosa. jsdom no hace layout, así que esto no se puede probar renderizando;
+    // lo que sí se puede exigir es que la columna DECLARE que es un contenedor.
+    const meta = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
+    const css = (meta.ɵcmp?.styles ?? []).join('\n');
+
+    expect(css).toContain('26rem');                      // la reja pregunta
+
+    // ⚠️ El CSS compilado lleva los atributos `_ngcontent-…` inyectados en cada selector, así que
+    // un regex pegado al selector literal es frágil. Se busca por VENTANA: alguna regla que
+    // mencione `.cg-col` y declare `container-type` cerca.
+    const declaraContenedor = css
+      .split('.cg-col')
+      .slice(1)
+      .some((trozo) => /^[^}]{0,400}container-type\s*:\s*inline-size/.test(trozo));
+    expect(declaraContenedor).toBe(true);
+    // Y siguen siendo DOS contenedores distintos: el panel (para repartir QUÉ/CUÁNTO) y cada
+    // columna (para que lo de adentro mida lo suyo). Si quedara uno solo, vuelve el defecto.
+    expect((css.match(/container-type\s*:\s*inline-size/g) ?? []).length).toBeGreaterThanOrEqual(2);
+  });
+
   it('⛔ [negativa] los dos umbrales del panel son COMPLEMENTARIOS, o las columnas se invierten', () => {
     // Si el colapso cae en 39rem y la posición se fija recién en 46, entre medio hay dos columnas
     // SIN `grid-column` asignado: gana el orden del DOM y el CUÁNTO se va a la izquierda. Dos

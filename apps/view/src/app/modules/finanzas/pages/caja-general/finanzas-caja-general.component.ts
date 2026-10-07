@@ -166,7 +166,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .fin-form { display:flex; flex-direction:column; gap:var(--sp-3); }
     /* CS.3.7 — Dos columnas para que la captura entre en una pantalla sin scroll. Apila en angosto. */
     .cg-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-3) var(--sp-6); align-items:start; }
-    .cg-grid > .cg-col { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
+    /* ⛔ [CG.57] CADA COLUMNA ES SU PROPIO CONTENEDOR DE CONSULTA, y sin esto el diseño se rompe.
+       La reja del arqueo pregunta "@container (max-width:26rem)" para apilarse, pero el único
+       container-type estaba en .cg-detail-cuerpo: la consulta medía los 646px del PANEL en vez de
+       los ~311px de la COLUMNA donde la reja vive de verdad. Nunca disparaba, así que la reja
+       quedaba en dos columnas dentro de una de 311px -- cada sub-tabla a ~150px, con scroll
+       horizontal y la columna "Importe" cortada. Reportado por Edgar con captura.
+       Con esto se corrige sola en los dos sentidos: panel lado a lado -> la columna mide 19rem y
+       la reja se apila (y no hace falta que no se apile, porque el panel YA son dos columnas);
+       panel apilado -> la columna mide 40rem y la reja se abre en dos, que es donde la altura
+       importaba. */
+    .cg-grid > .cg-col { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0;
+                         container-type:inline-size; }
     /* ⛔ [CG.46] Acá había un "@media (max-width:47.5rem)". Con el formulario dentro del panel de
        detalle eso es el antipatrón que DESIGN.md §R nombra: el ancho que decide el layout de este
        bloque es el del PANEL (32rem), no el de la ventana. En un monitor ancho el media query
