@@ -9,6 +9,16 @@
 ---
 
 ## [Unreleased]
+### Fixed — Ventas por ruta: la venta vecinal publicaba **2.07×** y tres rutas no existían (VEC.0–6.2, 2026-10-06)
+- **La pantalla decía $9,164,175.91 de venta vecinal 2026; el ERP dice $4,417,300.50.** Arbitrado contra `kdm1.c16` —el total impreso en el ticket, que no depende de cómo se sumen las líneas— y cuadra al centavo. El día de hoy, 1V001 publicaba $46,279.21 contra **$21,710.40** reales.
+- **La causa:** el feed unía cabecera y líneas **sin la caja** (`c5`), creyendo que esa columna era el número de renglón. No lo es —el renglón es `c7`— y como **los folios se numeran por caja**, a cada ticket de la ruta se le pegaban las líneas de los tickets con el mismo número de las otras cuatro cajas: compras de mostrador de otros clientes. 9,021 líneas donde había 1,515.
+- **No se arregló el feed: se retiró.** El dato sale del ODS por vista, sin copia intermedia. Eso resolvió de raíz lo que un join corregido no podía: el rollup subía con `GREATEST` y **nunca bajaba**, las ~75k líneas fantasma del drill-down quedaban huérfanas, y la cobertura la fijaba una lista escrita a mano.
+- **Aparecieron $1,815,047.93 que nadie veía:** Zamora `3V001`, Morelia Madero `2V001`/`2V003` y Morelia Abastos `2V005` nunca estuvieron en esa lista. De 4 rutas publicadas a **21**. ⚠️ El discriminante tenía que ser el **código**, no el nombre: en Michoacán las rutas se llaman con el nombre de la persona.
+- **`U-D-12` queda fuera del universo vecinal:** re-factura el mismo ticket (99.8% de sus líneas ya están en `U-D-10`, con placebo 0). Fuera de las rutas sí es venta genuina, así que la regla general no cambia. ⚠️ **El sell-out sí lo suma y por eso dobla la vecinal** ($577,086 sólo en PH agosto) — pendiente, exige recrear una matview de 878k filas con 5 dependientes.
+- **Huecos declarados, no tapados:** 24 tickets ($25,760.98, 0.41%) cobrados cuyas líneas no llegaron al ODS — el importe los incluye porque sale de la cabecera, y las unidades se declaran incompletas en vez de estimarse.
+- **Rendimiento medido en cada paso:** 6,959 → 6,559 → 1,565 → **1,099 ms**. Sigue sobre el gate de 1,000 ms y el candado lo deja **en rojo** a propósito. ⚠️ Dos arreglos razonables seguidos movieron la aguja casi nada porque el cuello estaba siempre un piso más abajo de donde se miraba.
+- **Pendiente: `git push` + redeploy api.** Las 8 migraciones ya están en prod (batches 744–750), pero **la pantalla seguirá publicando la cifra inflada hasta que el API se redespliegue**.
+
 ### Added — «Movimientos»: un apartado de Hallazgos que dice qué perseguir, con su ventana (DM.21, 2026-10-06)
 - El Cuadre decía **si** cuadra, no **qué** revisar. Ahora, arriba de los informes, un bloque compacto: cada hallazgo con su cifra, una frase que lo explica y un botón **Ver** que abre la ventana con los documentos. Clic en una fila abre el documento y su contraparte.
 - **Lo que el panel separa es el punto:** «sin recepción» mezclaba tres cosas y sólo una es un hueco — lo que salió **a un almacén** y nadie recibió (el hallazgo), la **carga a una camioneta de ruta** y la **entrega a un cliente**, que por definición no emiten acuse. Los tres se muestran y suman, para que no parezca que algo se esconde.
