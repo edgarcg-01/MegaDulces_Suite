@@ -446,10 +446,23 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
     // Lo que NO cambió: la fila trabada sigue sin poder marcarse. Confirmar sin cuenta
     // declarada no se puede, y eso es independiente de dónde se cuente el efectivo.
-    const check: HTMLInputElement | null =
-      fixture.nativeElement.querySelector('tbody p-checkbox input[type="checkbox"]');
-    expect(check).not.toBeNull();
-    expect(check!.disabled).toBe(true);
+    //
+    // ⭐ `[CG.55]` Y la afirmación se ENDURECE: antes había una casilla deshabilitada, hoy **no hay
+    // casilla**. Una casilla apagada en oscuro se ve casi igual que una viva, así que la columna
+    // ofrecía 44 veces algo que podía hacer 23. Lo que la fila sí puede hacer lo dicen su etiqueta
+    // de motivo y su botón «Capturar».
+    expect(fixture.nativeElement.querySelector('tbody p-checkbox')).toBeNull();
+  });
+
+  it('⛔ [negativa] la fila CONFIRMABLE sí tiene casilla: no se fueron todas', async () => {
+    // El control no desapareció: desapareció donde no servía. Sin esto, «limpiar» podría haber
+    // dejado la bandeja sin forma de marcar nada y la prueba de arriba seguiría verde.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    expect(comp.pendientes().every((p) => p.confirmable)).toBe(true);
+    expect(fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody p-checkbox').length).toBe(2);
   });
 
   it('[negativa] el lote manda SÓLO la referencia: ningún importe propio viaja al libro', () => {

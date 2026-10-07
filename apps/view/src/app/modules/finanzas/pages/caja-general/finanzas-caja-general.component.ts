@@ -998,10 +998,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <ng-template #body let-p>
                 <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p">
                   <td class="ta-c">
-                    <p-checkbox [binary]="true" [disabled]="!p.confirmable"
-                           [ngModel]="estaMarcada(p.origen_ref)"
-                           (ngModelChange)="marcar(p.origen_ref, $event)"
-                           [ariaLabel]="'Confirmar ' + p.doc_tipo + ' ' + p.folio"></p-checkbox>
+                    <!-- ⛔ [CG.55] La fila que NO se puede confirmar ya no muestra casilla.
+                         Reportado por Edgar sobre la pantalla en vivo: "se siguen mostrando los
+                         checkbox". Medido en esa captura: 44 filas y "23 de 44 se confirman de un
+                         clic" -- o sea 21 casillas DESHABILITADAS. En oscuro una casilla apagada se
+                         ve casi igual que una viva, asi que la columna ofrecia 44 veces algo que
+                         podia hacer 23: un control que promete lo que no puede cumplir.
+                         Lo que la fila SI puede hacer ya esta dicho dos veces -- su etiqueta de
+                         motivo ("ruta sin declarar") y su boton "Capturar". -->
+                    @if (p.confirmable) {
+                      <p-checkbox [binary]="true"
+                             [ngModel]="estaMarcada(p.origen_ref)"
+                             (ngModelChange)="marcar(p.origen_ref, $event)"
+                             [ariaLabel]="'Confirmar ' + p.doc_tipo + ' ' + p.folio"></p-checkbox>
+                    }
                   </td>
                   <td>
                     {{ dmy(p.fecha_valor) }}
