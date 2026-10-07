@@ -157,7 +157,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Presupuesto</h1>
-          <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler; vos ajustás los <strong>supuestos del año</strong> y autorizás. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
+          <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler — supuestos, plan y partidas. Vos <strong>autorizás</strong>. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
         </div>
         <div class="pres-nav">
           <app-segmented [options]="viewOptsArmar" [value]="view()" (valueChange)="setView($event)" ariaLabel="Armar el presupuesto" />
@@ -217,28 +217,31 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               </div>
             </div>
 
-            <!-- Supuestos del año: lo ÚNICO que ajusta el humano; el sistema propone con esto (PR.5) -->
+            <!-- [VE.7] Los supuestos DEJARON DE CAPTURARSE. Antes eran seis inputs y un boton
+                 «Guardar»: el numero que gobierna todo el plan dependia de que alguien se
+                 acordara, y el que estaba guardado (credito -29.4%) resulto ser una
+                 reclasificacion de canal, no una caida. Ahora los calcula el sistema desde la
+                 historia y se muestran. Si uno esta mal, se corrige LA FUENTE -- que es como se
+                 arreglo ese -29.4%, normalizando el canal, no tecleando otro numero.
+                 Lo que sigue siendo del humano es la POLITICA (que familias presupuestar, si se
+                 abre por sucursal, que hace el control de sobregiro): eso no es un dato que la
+                 historia pueda derivar, es una decision. -->
             <div class="pres-assump">
               <div class="pres-assump-head">
-                <h3><span class="pi pi-sliders-h"></span> Supuestos del año <span class="pres-muted">— lo único que ajustás; el sistema propone ventas y gastos con esto</span></h3>
-                @if (b.status === 'borrador' || b.status === 'en_revision') {
-                  <div class="pres-detail-actions">
-                    <button pButton type="button" class="p-button-sm p-button-text" (click)="suggestAssumptions()" [loading]="suggestingAssump()" title="Estima el crecimiento desde la historia: ventas año-contra-año del sell-out + egresos de Kepler"><span class="pi pi-bolt"></span>&nbsp;Sugerir automáticamente</button>
-                    <button pButton type="button" class="p-button-sm" (click)="saveAssumptions()" [loading]="savingAssump()">Guardar supuestos</button>
-                  </div>
-                }
+                <h3><span class="pi pi-sliders-h"></span> Supuestos del año <span class="pres-muted">— los calcula el sistema desde la historia; no se capturan</span></h3>
               </div>
               <div class="pres-assump-grid">
                 <div class="pres-assump-col">
                   <h4>Ventas — crecimiento por canal (%)</h4>
                   @for (ch of channelsList; track ch) {
-                    <label class="pres-assump-row"><span>{{ channelLabels[ch] || ch }}</span><input pInputText type="number" [(ngModel)]="asVentasGrowth[ch]" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                    <div class="pres-assump-row"><span>{{ channelLabels[ch] || ch }}</span><strong class="pres-mono">{{ asVentasGrowth[ch] == null ? '—' : asVentasGrowth[ch] + ' %' }}</strong></div>
                   }
-                  <label class="pres-assump-row"><span>Respaldo</span><input pInputText type="number" [(ngModel)]="asVentasDefault" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                  <div class="pres-assump-row"><span class="pres-muted">Respaldo (canal sin historia propia)</span><strong class="pres-mono">{{ asVentasDefault == null ? '—' : asVentasDefault + ' %' }}</strong></div>
                 </div>
                 <div class="pres-assump-col">
                   <h4>Gastos</h4>
-                  <label class="pres-assump-row"><span>Crecimiento (%)</span><input pInputText type="number" [(ngModel)]="asGastosDefault" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                  <div class="pres-assump-row"><span>Crecimiento (%)</span><strong class="pres-mono">{{ asGastosDefault == null ? '—' : asGastosDefault + ' %' }}</strong></div>
+                  <h4 class="pres-assump-sub">Política — esto sí lo decidís</h4>
                   <label class="pres-assump-row"><span>Familias Kepler</span><input pInputText type="text" [(ngModel)]="asGastosFamilies" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" placeholder="6" /></label>
                   <label class="pres-assump-row"><p-checkbox [(ngModel)]="asGastosBySucursal" [binary]="true" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" /> &nbsp;Presupuestar por sucursal</label>
                   <label class="pres-assump-row"><span>Control de sobregiro</span>
@@ -248,10 +251,13 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                       <option value="bloqueo">Bloqueo (impide sobregirar)</option>
                     </select>
                   </label>
+                  @if (b.status === 'borrador' || b.status === 'en_revision') {
+                    <button pButton type="button" class="p-button-sm" (click)="saveAssumptions()" [loading]="savingAssump()">Guardar política</button>
+                  }
                   <p class="pres-lbl-hint">6 = gasto operativo · 5 = compras · 7 = financieros · 1 = inversión. <strong>Bloqueo</strong> impide autorizar un gasto que exceda la partida.</p>
                 </div>
               </div>
-              <p class="pres-lbl-hint">Usá «<strong>Sugerir automáticamente</strong>» para estimar el crecimiento desde la historia (ventas año-contra-año + egresos de Kepler), ajustá lo que cambie este año y <strong>Guardá</strong>. Luego «Proponer plan» en Ventas y «Proponer gastos» en Gastos. Al <strong>aprobar</strong>, el sistema materializa las partidas y proyecta las metas a Análisis.</p>
+              <p class="pres-lbl-hint">El crecimiento sale de la historia (ventas año-contra-año del sell-out + egresos de Kepler) y se recalcula en la <strong>pasada nocturna</strong>, junto con el plan. <strong>Si un supuesto no cuadra, el arreglo es la fuente, no el número</strong>: el «−29.4 %» que mostraba Crédito era el canal reclasificándose, y se corrigió normalizando el catálogo.</p>
             </div>
 
             <!-- Answer-first: el resumen ejecutivo antes del grid (DESIGN §15) -->
@@ -995,6 +1001,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-assump-col { flex:1; min-width:14rem; }
     .pres-assump-col h4 { margin:.2rem 0 .4rem; font-size:.8rem; color:var(--text-muted); }
     .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; text-transform:capitalize; }
+    /* [VE.7] Separa lo que el sistema CALCULA de lo que la persona DECIDE. */
+    .pres-assump-sub { margin:1rem 0 .35rem; padding-top:.6rem; border-top:1px solid var(--border-subtle,#e5e1dc); font-size:.78rem; color:var(--text-muted); }
     .pres-assump-in { width:8rem; }
     /* [PU.R] La cascada del estado de resultados. El renglon de corte va en negritas y con
        linea arriba: es lo que separa margen bruto de resultado al leerla de corrido. */
@@ -1769,11 +1777,16 @@ export class FinanzasPresupuestoComponent implements OnInit {
   saveAssumptions(): void {
     const b = this.selected(); if (!b) return;
     this.savingAssump.set(true);
-    const gbc: Record<string, number> = {}; for (const ch of this.channelsList) gbc[ch] = (Number(this.asVentasGrowth[ch]) || 0) / 100;
     const families = this.asGastosFamilies.split(',').map((s) => s.trim()).filter(Boolean);
-    let done = 0; const finish = () => { if (++done === 2) { this.savingAssump.set(false); this.toast.add({ severity: 'success', summary: 'Supuestos guardados', detail: 'El sistema propondrá ventas y gastos con estos supuestos.' }); } };
-    this.http.put(`${this.base}/budgets/${b.id}/sales-plan/settings`, { default_growth_pct: (Number(this.asVentasDefault) || 0) / 100, growth_by_channel: gbc }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de ventas.' }); } });
-    this.http.put(`${this.base}/budgets/${b.id}/expense-plan/settings`, { default_growth_pct: (Number(this.asGastosDefault) || 0) / 100, proposal_families: families, by_sucursal: this.asGastosBySucursal, control_level: this.asGastosControl }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de gastos.' }); } });
+    // `[VE.7]` Guarda SÓLO la política. ⛔ Antes mandaba también `growth_by_channel` con lo que
+    // hubiera en pantalla, y ahora eso sería un bug grave: el piloto respeta todo canal que ya
+    // tenga valor guardado (misma regla que `method='manual'`), así que apretar «Guardar» una vez
+    // CONGELARÍA los supuestos derivados para siempre — el presupuesto dejaría de actualizarse
+    // solo sin que nadie se entere. El crecimiento lo escribe la pasada nocturna, no esta pantalla.
+    this.http.put(`${this.base}/budgets/${b.id}/expense-plan/settings`, { proposal_families: families, by_sucursal: this.asGastosBySucursal, control_level: this.asGastosControl }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingAssump.set(false); this.toast.add({ severity: 'success', summary: 'Política guardada', detail: 'El crecimiento lo sigue calculando el sistema desde la historia.' }); },
+      error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar la política de gastos.' }); },
+    });
   }
 
   // ── `[PU.R]` Estado de resultados: PLAN contra REAL, renglón por renglón ──

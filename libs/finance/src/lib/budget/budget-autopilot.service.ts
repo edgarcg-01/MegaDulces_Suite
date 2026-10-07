@@ -63,6 +63,8 @@ export interface AutopilotBudgetResult {
   gastos: { escritas: number; manual_kept: number } | null;
   targets: { filas: number } | null;
   partidas: { creadas: number; ajustadas: number; sin_cambio: number } | null;
+  /** [VE.7] Supuestos derivados por el sistema vs respetados porque alguien los fijo. */
+  supuestos?: { derivados: number; respetados: number };
   /** [VE.5-D] El folio de la generacion que produjo estos numeros. */
   run_folio?: string;
   errores: string[];
@@ -219,6 +221,30 @@ export class BudgetAutopilotService {
       // entre ayer y hoy» no tiene respuesta — y un valor derivado que nadie puede auditar es
       // peor que uno capturado, porque nadie lo revisa (ADR-056).
       let run: { id: string; folio: string } | null = null;
+      // `[VE.7]` Los supuestos se DERIVAN y se GUARDAN, no se capturan. Hasta acá el sistema los
+      // sugería y había que apretar «Guardar», o sea que el número que gobierna todo el plan
+      // dependía de que alguien se acordara. Edgar: *«todo valor manual es posible error»*.
+      //
+      // ⛔ Sólo se escriben los canales que NO tienen un valor guardado. Si alguien ajustó uno a
+      // mano, ese se respeta — misma regla que `method='manual'` en las celdas del plan. Lo que
+      // desaparece es la obligación de capturar, no la posibilidad de corregir.
+      try {
+        const g = await this.salesPlan.proposeGrowth(budgetId);
+        const actual = await this.salesPlan.getSettings(budgetId).catch(() => null);
+        const yaGuardado = (actual?.growth_by_channel ?? {}) as Record<string, number>;
+        const derivado: Record<string, number> = {};
+        for (const [canal, v] of Object.entries(g.by_channel ?? {})) {
+          if (yaGuardado[canal] == null) derivado[canal] = Number((v as { growth_pct: number }).growth_pct);
+        }
+        if (Object.keys(derivado).length) {
+          await this.salesPlan.upsertSettings(budgetId, {
+            default_growth_pct: Number(g.global?.growth_pct ?? 0),
+            growth_by_channel: { ...yaGuardado, ...derivado },
+          }, AUTOR);
+          out.supuestos = { derivados: Object.keys(derivado).length, respetados: Object.keys(yaGuardado).length };
+        }
+      } catch (e) { out.errores.push(`supuestos: ${(e as Error)?.message ?? e}`); }
+
       try {
         const sup = await this.salesPlan.getSettings(budgetId).catch(() => null);
         run = await this.generation.openRun(tenantId, 'pasada', 'cron', budgetId, sup, AUTOR);
