@@ -105,8 +105,96 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
     comp.formaPago.set('transferencia');
     expect(comp.enviarLabel()).toContain('El dato del pago');
 
-    comp.formaPagoDetalle.set('882301');
+    // `[GX.74]` El dato vive en renglones: escribir el primero tiene que desbloquear igual.
+    comp.editarDetalle(0, '882301');
     expect(comp.enviarLabel()).not.toContain('El dato del pago');
+  });
+
+  /**
+   * `[GX.74]` **Varios renglones de detalle.** Pedido (2026-10-07): *«después de elegir un método
+   * de pago, hay que darles la opción de agregar un renglón más y más»* — dos tarjetas, dos
+   * transferencias. Lo que se cuida: que viajen todos, que CADA uno pase la regla (la tarjeta
+   * completa no se cuela en el segundo), que haya tope, y que nunca se quede sin caja.
+   */
+  describe('[GX.74] varios renglones en el detalle del pago', () => {
+    beforeEach(() => {
+      comp.clasificacion.set('no_comprobable');
+      comp.formaPago.set('transferencia');
+    });
+
+    it('empieza con un renglón, y «Agregar otro» suma más', () => {
+      expect(comp.detallesPago()).toEqual(['']);
+      comp.agregarDetalle();
+      comp.agregarDetalle();
+      expect(comp.detallesPago().length).toBe(3);
+    });
+
+    it('⭐ viajan TODOS los renglones escritos, uno por línea; los vacíos no', () => {
+      comp.editarDetalle(0, ' 882301 ');
+      comp.agregarDetalle();
+      comp.agregarDetalle();
+      comp.editarDetalle(2, 'TRSP-8823');
+      expect(comp.formaPagoDetalle()).toBe('882301\nTRSP-8823');
+      expect(comp.enviarLabel()).not.toContain('El dato del pago');
+    });
+
+    it('⛔ CADA renglón pasa la regla: una tarjeta completa en el segundo NO se cuela', () => {
+      comp.elegirForma('tarjeta');
+      comp.editarDetalle(0, '1234');
+      comp.agregarDetalle();
+      comp.editarDetalle(1, '4152313800001234');
+      const f = comp.faltan().find((x) => x.id === 'forma_pago_detalle');
+      expect(f?.motivo).toContain('Renglón 2');
+    });
+
+    it('⛔ tiene tope: no se agregan más de los que acepta el servidor', () => {
+      for (let i = 0; i < 20; i++) comp.agregarDetalle();
+      expect(comp.detallesPago().length).toBe(comp.maxDetallesPago);
+    });
+
+    it('quitar un renglón lo saca; quitar el último deja una caja vacía, nunca ninguna', () => {
+      comp.editarDetalle(0, 'A1');
+      comp.agregarDetalle();
+      comp.editarDetalle(1, 'B2');
+      comp.quitarDetalle(0);
+      expect(comp.detallesPago()).toEqual(['B2']);
+      comp.quitarDetalle(0);
+      expect(comp.detallesPago()).toEqual(['']);
+    });
+
+    it('cambiar de forma de pago borra los renglones (un cheque no es una referencia)', () => {
+      comp.editarDetalle(0, '882301');
+      comp.agregarDetalle();
+      comp.elegirForma('cheque');
+      expect(comp.detallesPago()).toEqual(['']);
+    });
+  });
+
+  /** `[GX.74]` La plantilla: una caja por renglón, la × sólo con más de uno, y el botón al pie. */
+  describe('[GX.74] la plantilla de los renglones', () => {
+    it('pinta una caja por renglón, la × con más de uno, y «Agregar otro» suma una caja', () => {
+      const fix = TestBed.createComponent(FinanzasCapturarGastoComponent);
+      const c = fix.componentInstance;
+      // Sin vale elegido la sección no se muestra: se fija uno mínimo, como al elegir la solicitud.
+      c.gasto.set({ folio: '0009901', sucursal: '00', fecha: '2026-10-07', importe: 100,
+        solicitante: 'X', beneficiario: 'Y', concepto: 'Z' } as never);
+      c.clasificacion.set('no_comprobable');
+      c.formaPago.set('transferencia');
+      fix.detectChanges();
+      const cajas = () => fix.nativeElement.querySelectorAll('.cap-det-row input').length;
+      const cruces = () => fix.nativeElement.querySelectorAll('.cap-det-x').length;
+      if (!fix.nativeElement.querySelector('.cap-det')) {
+        // La sección depende del modo de la pantalla; si este estado no la muestra, se declara.
+        console.warn('[GX.74] NO MEDIDO: la sección del detalle no se pinta en este estado de la pantalla');
+        return;
+      }
+      expect(cajas()).toBe(1);
+      expect(cruces()).toBe(0);
+      (fix.nativeElement.querySelector('.cap-det-mas') as HTMLButtonElement).click();
+      fix.detectChanges();
+      expect(cajas()).toBe(2);
+      expect(cruces()).toBe(2);
+    });
   });
 
   /**

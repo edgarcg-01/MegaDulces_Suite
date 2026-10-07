@@ -12,6 +12,8 @@ import { MessageService } from 'primeng/api';
 import { ValeGastoPeekComponent, type AccionVale } from '../components/vale-gasto-peek.component';
 import { DIAS_SEMANA, mesDe, semanasDelMes, sumarMeses, type CeldaCalendario } from '../calendario-mes.util';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
+import { REFRESCO_VALES_MS } from '../vales-refresco';
 
 /** Cómo se llama cada estado en voz alta, para el renglón del día. */
 const ESTADO_LABEL: Record<string, string> = {
@@ -312,7 +314,52 @@ export class FinanzasGastosHistorialComponent {
   /** `[GX.29]` Hay una solicitud de reapertura en vuelo: el botón se bloquea. */
   readonly pidiendo = signal(false);
 
-  constructor() { this.cargarMes(); }
+  constructor() {
+    this.cargarMes();
+    // `[GX.73]` Se refresca sola mientras la pestaña se ve (el mes y, si hay uno abierto, el día).
+    encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
+  }
+
+  /** Hay un refresco en vuelo: el siguiente no se encima. */
+  private refrescando = false;
+
+  /**
+   * `[GX.73]` **El refresco en segundo plano.** Sin aviso de carga y sin pisar con un error lo
+   * que ya está en pantalla. Refresca el MES y, si hay un día abierto, la lista de ese día — es
+   * donde se ve la etapa de cada vale.
+   *
+   * ⛔ No corre con un vale abierto, ni mientras el mes o el día se están cargando a mano: el
+   * refresco no puede ganarle la carrera a lo que la persona acaba de pedir.
+   */
+  refrescar(): void {
+    if (this.valeAbierto() || this.cargando() || this.cargandoDia() || this.refrescando) return;
+    this.refrescando = true;
+    const ambito = this.ambito();
+    const mes = this.mes();
+    const dia = this.diaSel();
+    this.svc.calendario(mes || undefined, ambito)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (m: CalendarioDelMes) => {
+          // Si mientras volaba cambió el ámbito o el mes, la respuesta es de otra vista: se descarta.
+          if (this.ambito() === ambito && this.mes() === mes) { this.mesDatos.set(m); this.cdr.markForCheck(); }
+          this.refrescando = false;
+        },
+        error: () => { this.refrescando = false; },
+      });
+    if (!dia) return;
+    this.svc.delDiaHistorial(dia, ambito)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (r: ExpenseProofsReport) => {
+          // Mismo criterio: sólo si sigue abierto ESE día, en ESE ámbito.
+          if (this.diaSel() === dia && this.ambito() === ambito && !this.valeAbierto()) {
+            this.filasDia.set(r?.rows || []); this.cdr.markForCheck();
+          }
+        },
+        error: () => undefined,
+      });
+  }
 
   /** El mes activo. Mientras no haya respuesta, el que se pidió. */
   readonly mesActivo = computed(() => this.mesDatos()?.mes || this.mes() || todayMx().slice(0, 7));

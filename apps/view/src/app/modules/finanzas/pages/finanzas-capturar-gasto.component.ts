@@ -22,6 +22,7 @@ import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseP
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
 // compartido: son los mismos que valida el backend. Copiarlos acá los separa.
 import { FORMAS_PAGO, faltaParaMandar, type FormaPagoId, type Faltante } from '@megadulces/contracts';
+import { MAX_DETALLES_PAGO, unirDetallesDePago } from '@megadulces/contracts';
 import { CapturaEnVivoComponent } from '../components/captura-en-vivo.component';
 
 /** En qué momento del ciclo está la solicitud elegida, y por tanto qué muestra la página. */
@@ -196,17 +197,39 @@ interface SelSolicitud {
                 </div>
                 @if (formaSel(); as fs) {
                   @if (fs.detalle_label) {
-                    <label class="cap-f"><span>{{ fs.detalle_label }}</span>
-                      <!--
-                        [GX.53] El tope y el tipo salen del CATALOGO, no de un numero suelto
-                        aca: «Ultimos 4 digitos» aceptaba 19 y ahi cabia una tarjeta entera.
-                        El maxlength es comodidad; quien decide es la compuerta, que el
-                        backend tambien lee -- un limite solo en el input se salta por la API.
-                      -->
-                      <input pInputText [ngModel]="formaPagoDetalle()" (ngModelChange)="formaPagoDetalle.set($event)"
-                             [placeholder]="fs.detalle_ejemplo || ''" class="w-full"
-                             [attr.maxlength]="fs.detalle_max" [attr.inputmode]="fs.detalle_solo_digitos ? 'numeric' : null" />
-                    </label>
+                    <!--
+                      [GX.74] VARIOS renglones: un gasto se pudo pagar con dos tarjetas o en dos
+                      transferencias. Cada renglon es su propia caja de UNA linea (por eso el salto
+                      de linea con que se guardan nunca choca con lo escrito). Tope en el contrato.
+                    -->
+                    <div class="cap-f cap-det" role="group" [attr.aria-label]="fs.detalle_label">
+                      <span>{{ fs.detalle_label }}</span>
+                      @for (d of detallesPago(); track $index; let i = $index) {
+                        <div class="cap-det-row">
+                          <!--
+                            [GX.53] El tope y el tipo salen del CATALOGO, no de un numero suelto
+                            aca: «Ultimos 4 digitos» aceptaba 19 y ahi cabia una tarjeta entera.
+                            El maxlength es comodidad; quien decide es la compuerta, que el
+                            backend tambien lee -- un limite solo en el input se salta por la API.
+                          -->
+                          <input pInputText [ngModel]="d" (ngModelChange)="editarDetalle(i, $event)"
+                                 [placeholder]="fs.detalle_ejemplo || ''" class="w-full"
+                                 [attr.aria-label]="fs.detalle_label + (detallesPago().length > 1 ? ' ' + (i + 1) : '')"
+                                 [attr.maxlength]="fs.detalle_max" [attr.inputmode]="fs.detalle_solo_digitos ? 'numeric' : null" />
+                          @if (detallesPago().length > 1) {
+                            <button type="button" class="cap-det-x" (click)="quitarDetalle(i)"
+                                    [attr.aria-label]="'Quitar el renglón ' + (i + 1)">
+                              <i class="pi pi-times" aria-hidden="true"></i>
+                            </button>
+                          }
+                        </div>
+                      }
+                      @if (detallesPago().length < maxDetallesPago) {
+                        <button type="button" class="cap-det-mas" (click)="agregarDetalle()">
+                          <i class="pi pi-plus" aria-hidden="true"></i> Agregar otro
+                        </button>
+                      }
+                    </div>
                   }
                 }
 
@@ -570,6 +593,20 @@ interface SelSolicitud {
     .cap-fp-c { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--fg-3);
       letter-spacing: .04em; }
 
+    /* [GX.74] Los renglones del detalle del pago: caja + quitar, y «Agregar otro» al pie. */
+    .cap-det-row { display: flex; gap: var(--sp-2); align-items: center; }
+    .cap-det-x { flex-shrink: 0; width: var(--tap-min); height: var(--tap-min); padding: 0;
+      display: inline-flex; align-items: center; justify-content: center;
+      border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      background: transparent; color: var(--fg-3); cursor: pointer; }
+    .cap-det-x:hover { color: var(--bad-fg); border-color: var(--bad-fg); }
+    .cap-det-x:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .cap-det-mas { align-self: flex-start; display: inline-flex; align-items: center; gap: var(--sp-1);
+      min-height: var(--tap-min); padding: 0 var(--sp-2); border: 0; background: transparent;
+      color: var(--action); font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium); cursor: pointer; }
+    .cap-det-mas:hover { text-decoration: underline; }
+    .cap-det-mas:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+
     /* [GX.24] La miniatura de lo capturado. Es un boton: se abre en grande al tocarla. */
     .cap-mini { flex-shrink: 0; width: 40px; height: 40px; padding: 0; overflow: hidden;
       border: 1px solid var(--border-color); border-radius: var(--r-sm);
@@ -877,8 +914,36 @@ export class FinanzasCapturarGastoComponent {
    * Lo agarro `scripts/check-signal-reactivity.js`, que ya venia en rojo por esta misma
    * linea. Un candado que nadie mira es un candado apagado.
    */
-  readonly formaPagoDetalle = signal('');
+  /**
+   * `[GX.74]` Los renglones del detalle (dos tarjetas, dos referencias…). Empieza con UNO vacío
+   * para que la caja aparezca sin tener que pedirla.
+   */
+  readonly detallesPago = signal<string[]>(['']);
+  /** El tope de renglones. Del contrato, el mismo que valida el servidor. */
+  readonly maxDetallesPago = MAX_DETALLES_PAGO;
+  /**
+   * El detalle tal como viaja y como lo juzga la compuerta: los renglones unidos, uno por línea.
+   * `computed` sobre la SEÑAL de arriba, así que escribir en cualquier renglón re-evalúa el botón
+   * (la lección de `[GX.22]`, que sigue valiendo con varios).
+   */
+  readonly formaPagoDetalle = computed(() => unirDetallesDePago(this.detallesPago()));
   readonly formaSel = computed(() => FORMAS_PAGO.find((f) => f.id === this.formaPago()) ?? null);
+
+  editarDetalle(i: number, valor: string): void {
+    this.detallesPago.update((xs) => xs.map((x, j) => (j === i ? String(valor ?? '') : x)));
+  }
+
+  agregarDetalle(): void {
+    this.detallesPago.update((xs) => (xs.length >= MAX_DETALLES_PAGO ? xs : [...xs, '']));
+  }
+
+  /** Quitar un renglón. Nunca deja la lista vacía: siempre queda una caja para escribir. */
+  quitarDetalle(i: number): void {
+    this.detallesPago.update((xs) => {
+      const quedan = xs.filter((_, j) => j !== i);
+      return quedan.length ? quedan : [''];
+    });
+  }
 
   /**
    * `[GX.14]` De dónde salió cada archivo, por rol.
@@ -892,7 +957,7 @@ export class FinanzasCapturarGastoComponent {
   elegirForma(id: FormaPagoId) {
     // Cambiar de forma borra el detalle: un número de cheque no sirve como referencia
     // de transferencia, y dejarlo ahí lo mandaría con la etiqueta equivocada.
-    if (this.formaPago() !== id) this.formaPagoDetalle.set('');
+    if (this.formaPago() !== id) this.detallesPago.set(['']);
     this.formaPago.set(id);
   }
 
@@ -1102,7 +1167,7 @@ export class FinanzasCapturarGastoComponent {
   reset() {
     this.gasto.set(null); this.clearPhoto(); this.clearFile('solicitud_kepler'); this.sel = null; this.comentarios.set('');
     this.clasificacion.set(null); this.clasificacionV = null; this.formError.set('');
-    this.formaPago.set(null); this.formaPagoDetalle.set(''); this.sellos.set({});
+    this.formaPago.set(null); this.detallesPago.set(['']); this.sellos.set({});
     this.existing.set(null); this.checking.set(false);
   }
 
@@ -1247,7 +1312,8 @@ export class FinanzasCapturarGastoComponent {
       fecha_gasto: g.fecha ? String(g.fecha).slice(0, 10) : undefined, importe: g.importe || undefined,
       clasificacion: this.clasificacion()!,
       forma_pago: this.formaPago() ?? undefined,
-      forma_pago_detalle: this.formaPagoDetalle().trim() || undefined,
+      // `[GX.74]` Los renglones unidos (uno por línea); el servidor los vuelve a normalizar.
+      forma_pago_detalle: this.formaPagoDetalle() || undefined,
       /**
        * `[GX.57]` El concepto, siempre el que ESCRIBIÓ la persona.
        *
