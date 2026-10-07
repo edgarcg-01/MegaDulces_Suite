@@ -2030,6 +2030,15 @@ export class ComercialService {
   commissionSetStatus(runId: string, accion: 'approve' | 'pay' | 'void') {
     return this.http.post<CommissionRunDetail>(`${this.base}/commissions/runs/${runId}/${accion}`, {});
   }
+  /** RD.17 — el universo DERIVADO de rutas, con el veredicto de cada una. */
+  commissionUniverse() {
+    return this.http.get<CommissionUniverseRow[]>(`${this.base}/commissions/universe`);
+  }
+  /** RD.20 — dispara la corrida automática sin esperar a las 08:30. No aprueba ni paga. */
+  commissionRunNow() {
+    return this.http.post<{ revisados: number; calculadas: unknown[]; fallas: string[] }>(
+      `${this.base}/commissions/run-now`, {});
+  }
 
   /** BI.4 — Serie mensual (tendencia). */
   sellOutSeries(opts: { to_month?: string; months?: number; brand_id?: string; channel?: string }) {
@@ -2453,6 +2462,18 @@ export interface RouteInventoryRow {
   /** Cobertura del contraste del ERP. Por pares da 77.7% y en dinero 31.6%: manda el dinero. */
   pares_vendidos: number; pares_sin_cogs_erp: number;
   venta_sin_cogs_erp: number | null;
+  /**
+   * RD.40 - hasta donde se puede creer `delta_costo` en esta ruta. `sin_medir_costo` es cuanto
+   * puede mover el ARTEFACTO de medicion, en la misma moneda que el descuadre: carga que entro
+   * antes de que el push trajera ventas (pide `current_date - 15 dias`) y venta que el ledger
+   * descarta por caer antes de su ventana. Si tapa al descuadre, la cifra no significa nada
+   * sola -- por eso la pantalla DECLARA en vez de publicar.
+   */
+  sin_medir_costo: number;
+  carga_sin_medir: number;
+  venta_sin_medir: number;
+  descuadre_medible: boolean;
+  sin_medir_motivo: string | null;
 }
 
 export interface RouteInventoryDetailRow {
@@ -2477,6 +2498,18 @@ export interface RouteSeriesPoint {
   cargado_qty: number; vendido_qty: number;
   /** Saldo del camion al cierre de ese dia. Cuando cruza a negativo, ahi empezo el rojo. */
   saldo_qty_acum: number;
+  /**
+   * RD.42 - el AJUSTE del conteo de ese dia, en las tres monedas. Entra al acumulado y NO a
+   * "cargado": no se le subio nada al camion, se midio lo que ya traia. Viaja visible porque
+   * sin el, "cargado - vendido" no da el saldo de al lado y nada lo explica.
+   */
+  conteo_qty: number; conteo_costo: number; conteo_venta: number;
+  /**
+   * RD.42 - lo que el cliente pago DE VERDAD ese dia. Es un hecho y viaja aparte: no cierra la
+   * identidad, la acompana. Las columnas de arriba se valuan con el unitario resuelto para que
+   * "cargado + conteo - vendido" de el saldo; mezclar las dos cosas fue el defecto.
+   */
+  cobrado_real: number;
 }
 
 /** RD.19 - un embarque. El documento es la unidad: se firma y se reclama por su folio. */
@@ -2517,6 +2550,8 @@ export interface RouteInventoryReport {
   /** De cuantas rutas se tiene embarque de ayer. Se cuenta sobre el nulo, no sobre la suma. */
   rutas_cargaron_ayer: number;
   rutas_totales: number;
+  /** RD.40 - de cuantas rutas NO se puede publicar el descuadre. Va al lado del total, no en su lugar. */
+  rutas_sin_medir: number;
   /** Frescura del DATO: hasta que dia hay movimiento. */
   data_as_of: string | null;
   /** Frescura de la COPIA: cuando termino el ultimo refresco de matvistas. `poblado != fresco`. */
@@ -3935,31 +3970,75 @@ export interface ExpenseProvider360 {
 }
 
 // ── RD.6 · comisiones de Ruta Directa ──────────────────────────────────────────
+/** RD.19 — el resultado de una compuerta de la corrida. `bloquea` impide aprobar. */
+export interface CommissionGate {
+  gate: string; estado: 'pasa' | 'advierte' | 'bloquea' | 'no_medido'; detalle: string;
+}
+/** RD.19 — el neto POR PERSONA: la deducción del supervisor no es por ruta. */
+export interface CommissionBeneficiario {
+  beneficiario: 'chofer' | 'supervisor'; nombre: string; rutas: string[];
+  comision: number; bonos: number; bruto: number;
+  deduccion: number; deduccion_status: 'aplicada' | 'sin_configurar' | 'no_aplica'; neto: number;
+}
+/** RD.17 — lo que vende y NO comisiona. Antes se caía sin aparecer. */
+export interface CommissionFuera {
+  route_code: string; veredicto: string; route_kind: string | null;
+  subtotal: number | null; venta: number | null;
+}
 export interface CommissionPeriod {
   id: string; anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null;
-  run: { run_id: string; status: string; total_a_pagar: string | number; rutas_sin_dato: number } | null;
+  run: {
+    run_id: string; status: string;
+    total_a_pagar: string | number; total_neto: string | number | null;
+    rutas_sin_dato: number; rutas_fuera: number | null;
+    gates: CommissionGate[] | null; origen: string | null;
+  } | null;
 }
 export interface CommissionLine {
   route_code: string; beneficiario: 'chofer' | 'supervisor';
   chofer_nombre?: string | null; supervisor_nombre?: string | null;
-  subtotal: number | null; venta: number | null; costo: number | null; margen_pct: number | null;
-  subtotal_origen: string | null; costo_status: string | null;
+  subtotal: number | null; venta: number | null; costo: number | null;
+  cogs_ruta: number | null; cogs_erp: number | null;
+  /** ⚠️ Es MARKUP sobre costo, no margen. Los umbrales del bono están calibrados contra ésta. */
+  markup_sobre_costo_pct: number | null;
+  margen_sobre_venta_pct: number | null;
+  venta_arbitro: string | null; costo_veredicto: string | null; traslape_subtotal: number;
   pct_aplicado: number | null; comision: number; bonos: number;
   bonos_detalle: { nombre: string; monto: number; metrica: string; umbral: number }[];
-  nomina_banco: number; a_pagar: number; motivo_no_pago: string | null;
+  bono_veredicto: string | null;
+  nomina_banco: number; deduccion_status: string | null;
+  a_pagar: number; motivo_no_pago: string | null;
 }
 export interface CommissionRunPayload {
   run_id: string | null; status: string;
   period: { id: string; anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null };
   scale: { id: string; code: string; base_field: string; gate_field: string; share_supervisor_pct: number };
-  total_subtotal: number; total_venta: number; total_comision: number; total_a_pagar: number;
-  rutas_con_dato: number; rutas_sin_dato: number;
+  total_subtotal: number; total_venta: number; total_comision: number;
+  /** Bruto. El neto es `total_neto`. */
+  total_a_pagar: number; total_deduccion: number; total_neto: number;
+  traslape_subtotal: number;
+  rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number;
+  data_as_of: string | null;
+  gates: CommissionGate[];
+  beneficiarios: CommissionBeneficiario[];
+  fuera: CommissionFuera[];
   lines: CommissionLine[];
 }
 export interface CommissionRunDetail {
   id: string; status: string; total_subtotal: string | number; total_venta: string | number;
   total_comision: string | number; total_a_pagar: string | number;
-  rutas_con_dato: number; rutas_sin_dato: number; notes: string | null;
+  total_deduccion: string | number | null; total_neto: string | number | null;
+  traslape_subtotal: string | number | null;
+  rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number | null;
+  data_as_of: string | null; gates: CommissionGate[] | null; origen: string | null;
+  notes: string | null;
   period?: { anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null };
   lines: (CommissionLine & { id: string })[];
+}
+/** RD.17 — una fila del universo derivado de rutas. */
+export interface CommissionUniverseRow {
+  route_code: string; comisiona: boolean; veredicto: string; route_kind: string | null;
+  plaza_o_zona: string | null; en_identidad: boolean; en_config: boolean;
+  chofer_nombre: string | null; supervisor_nombre: string | null;
+  nomina_banco: string | number | null; carga_desde: string | null;
 }

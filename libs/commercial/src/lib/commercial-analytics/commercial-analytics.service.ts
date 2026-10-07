@@ -260,6 +260,28 @@ export interface RouteInventoryRow {
   pares_vendidos: number; pares_sin_cogs_erp: number;
   /** La venta sin testigo de costo del ERP, EN PESOS. Por pares da 77.7%, en dinero 38%. */
   venta_sin_cogs_erp: number | null;
+  /**
+   * ⛔ `[RD.40]` — **Hasta dónde se puede creer el descuadre de esta ruta.**
+   *
+   * `sin_medir_costo` es cuánto puede mover el ARTEFACTO a `delta_costo`, en la misma moneda.
+   * Son dos huecos, los dos medidos contra prod el 2026-10-07:
+   *   · carga que entró antes de que el push trajera ventas — el push de la camioneta pide
+   *     `current_date - 15 días`, así que su historia de venta arranca 15 días antes del día
+   *     en que se lo instalamos, no cuando el camión empezó a vender;
+   *   · venta que el ledger descarta por caer antes de su ventana (las cinco de Canindo
+   *     vendían antes de su primer embarque: traían existencia de Wincaja).
+   *
+   * ⭐ Si `sin_medir_costo >= |delta_costo|`, **el artefacto explica el descuadre entero** y la
+   *    cifra no significa nada por sí sola. Por eso viaja `descuadre_medible`: la pantalla
+   *    declara en vez de publicar. Medido hoy: 0 de 11 rutas publicables, $413,464 de
+   *    exposición contra $301,834 de residuo. ADR-056.
+   */
+  sin_medir_costo: number;
+  carga_sin_medir: number;
+  venta_sin_medir: number;
+  descuadre_medible: boolean;
+  /** Por qué no se puede medir. `null` cuando sí se puede. Nunca una cadena vacía. */
+  sin_medir_motivo: string | null;
 }
 
 export interface RouteInventoryDetailRow {
@@ -284,6 +306,18 @@ export interface RouteSeriesPoint {
   cargado_qty: number; vendido_qty: number;
   /** Saldo del camión al cierre de ese día. Cuando cruza a negativo, ahí empezó el rojo. */
   saldo_qty_acum: number;
+  /**
+   * `[RD.42]` El AJUSTE del conteo de ese día, en las tres monedas. Entra al acumulado y **no**
+   * a «cargado» — no se le subió nada al camión, se midió lo que ya traía. Viaja visible porque
+   * sin él, en la pantalla «cargado − vendido» no da el saldo de al lado y nada lo explica.
+   */
+  conteo_qty: number; conteo_costo: number; conteo_venta: number;
+  /**
+   * `[RD.42]` Lo que el cliente pagó **de verdad** ese día. Es un hecho y viaja aparte: no cierra
+   * la identidad, la acompaña. Las columnas de arriba se valúan con el unitario resuelto para
+   * que `cargado + conteo − vendido` dé el saldo; mezclar las dos cosas fue el defecto.
+   */
+  cobrado_real: number;
 }
 
 /** `[RD.19]` Un embarque. El documento es la unidad: se firma y se reclama por su folio. */
@@ -365,6 +399,12 @@ export interface RouteInventoryReport {
   /** De cuántas rutas se tiene embarque de ayer. Se cuenta sobre el nulo, no sobre la suma. */
   rutas_cargaron_ayer: number;
   rutas_totales: number;
+  /**
+   * `[RD.40]` De cuántas rutas **no se puede publicar el descuadre** porque el artefacto de
+   * medición lo explica entero. Va al lado del total, nunca en lugar de él: un KPI que esconde
+   * cuántas filas dejó fuera se lee como si las hubiera incluido.
+   */
+  rutas_sin_medir: number;
   /** Frescura del DATO: hasta qué día hay movimiento. */
   data_as_of: string | null;
   /** Frescura de la COPIA: cuándo terminó el último refresco de matvistas. `poblado ≠ fresco`. */
@@ -8461,8 +8501,21 @@ export class CommercialAnalyticsService {
                 count(*) FILTER (WHERE v.origen_costo  = 'kepler')::int             AS costo_de_ficha,
                 count(*) FILTER (WHERE v.origen_precio = 'kepler')::int             AS precio_de_ficha,
                 count(*) FILTER (WHERE v.costo_u  IS NULL AND v.sku IS NOT NULL)::int AS sin_costo_resuelto,
-                count(*) FILTER (WHERE v.precio_u IS NULL AND v.sku IS NOT NULL)::int AS sin_precio_resuelto
+                count(*) FILTER (WHERE v.precio_u IS NULL AND v.sku IS NOT NULL)::int AS sin_precio_resuelto,
+                -- ⛔ [RD.40] Hasta donde se puede creer delta_costo. NO es una suma mas: es la
+                -- cota del ARTEFACTO, en la misma moneda que el descuadre. Sale de
+                -- analytics.v_rd_route_opening, que es donde ya vivia la mitad de esta
+                -- declaracion desde [RD.30] -- no se materializa una segunda.
+                round(max(o.exposicion_costo),2)::float                       AS sin_medir_costo,
+                round(max(o.carga_sin_medir),2)::float                        AS carga_sin_medir,
+                round(max(o.venta_sin_medir),2)::float                        AS venta_sin_medir,
+                bool_and(coalesce(o.medible,false))                           AS descuadre_medible,
+                max(o.motivo)                                                 AS sin_medir_motivo
            FROM analytics.mv_rd_route_identity i
+           -- [RD.41] La COPIA, no la vista: medido, la vista le sumaba 297 ms a una pantalla
+           -- con liston de 500 ms (130 -> 427 en una version recortada de esta misma consulta).
+           LEFT JOIN analytics.mv_rd_route_opening o
+             ON o.tenant_id = i.tenant_id AND o.route_no = i.route_no
            LEFT JOIN val v ON v.route_no = i.route_no
            LEFT JOIN carga_dia cd ON cd.route_no = i.route_no
            LEFT JOIN ultimo_dia uc ON uc.route_no = i.route_no AND uc.clase = 'carga'
@@ -8527,7 +8580,23 @@ export class CommercialAnalyticsService {
           venta_sin_cogs_erp: r2(num('venta_sin_cogs_erp')),
           venta_sin_costo: r2(num('venta_sin_costo')),
           carga_sin_precio: r2(num('carga_sin_precio')),
+          /** [RD.40] Lo que el artefacto de medición puede mover, sumado. Se declara, no se resta. */
+          sin_medir_costo: r2(num('sin_medir_costo')),
+          /**
+           * ⭐ [RD.40] **El piso defendible del descuadre**: la parte que el artefacto NO puede
+           * explicar, ruta por ruta. Se calcula por ruta y recién después se suma — sumar los
+           * descuadres y restarles la exposición total mezclaría una ruta donde el artefacto
+           * sobra con otra donde falta, y dejaría pasar la diferencia como si fuera real.
+           *
+           * Medido contra prod el 2026-10-07: el residuo bruto es $301,834, la exposición
+           * $413,464, y este piso **$94,096**. O sea que de cada tres pesos que la pantalla
+           * publicaba como "llegó sin embarque", dos los explica cómo medimos, no la operación.
+           */
+          descuadre_piso: r2(rows.reduce((a: number, r: Record<string, number>) =>
+            a + Math.max(0, Math.abs(Number(r.delta_costo) || 0) - (Number(r.sin_medir_costo) || 0)), 0)),
         },
+        /** [RD.40] De cuántas rutas NO se puede publicar el descuadre. Se cuenta, no se esconde. */
+        rutas_sin_medir: rows.filter((r: Record<string, unknown>) => r.descuadre_medible === false).length,
         copia_al: copia?.copia_al ?? null,
         copia_status: copia ? (copia.status === 'ok' ? 'ok' : 'error') : 'sin_medir',
         copia_edad_min: copia?.copia_edad_min ?? null,
@@ -8683,23 +8752,23 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => (await trx.raw(
       `WITH u AS (
-         -- El valor unitario de cada par, resuelto UNA vez sobre toda la ventana. Es el mismo
-         -- criterio del resumen: si cada dia resolviera el suyo, un dia sin carga dejaria el
-         -- COGS de ese dia en cero y el saldo saltaria sin que nada se haya movido.
-         SELECT sku, unidad,
-                -- [RD.31] El costo del conteo entra despues del de la ruta: una ruta recien
-                -- anclada no tiene carga posterior y sin esto su COGS del dia saldria en cero.
-                coalesce(
-                  sum(costo_doc) FILTER (WHERE clase='carga')
-                    / nullif(sum(qty) FILTER (WHERE clase='carga'),0),
-                  sum(costo_doc) FILTER (WHERE clase='conteo')
-                    / nullif(sum(qty) FILTER (WHERE clase='conteo'),0)
-                )                                                  AS costo_u,
-                sum(venta_doc) FILTER (WHERE clase='venta')
-                  / nullif(sum(qty) FILTER (WHERE clase='venta'),0) AS precio_u
-           FROM analytics.mv_rd_route_ledger
-          WHERE tenant_id = ? AND route_no = ? AND business_date >= ? AND business_date <= ?
-          GROUP BY 1,2
+         /**
+          * ⛔ [RD.42] El unitario se LEE del resolvedor, NO se calcula aca.
+          *
+          * Hasta el 2026-10-07 esta consulta derivaba su propio costo (carga_imp / carga_qty,
+          * con el conteo de respaldo) mientras el resumen leia mv_rd_route_unit_value. Dos
+          * resolvedores para el mismo hecho, y divergian: medido contra prod, **la lista y el
+          * detalle valuaban el mismo camion distinto, hasta 24% por ruta y $48,943.69 en la
+          * flota** (la 26 publicaba $83,092 en la lista y $63,479 en su detalle). El candado de
+          * [RD.20] lo venia marcando y la falla se leia como ruido del test.
+          *
+          * El cambio no pierde cobertura: medido sobre los 9,094 pares, el resolvedor NO deja
+          * sin costo ni un par que la derivacion local resolviera, y ADEMAS cubre 66 pares de
+          * costo y 368 de precio que la local dejaba en NULL. Domina estrictamente.
+          */
+         SELECT sku, unidad, costo_u, precio_u
+           FROM analytics.mv_rd_route_unit_value
+          WHERE tenant_id = ? AND route_no = ?
        ), d AS (
          SELECT l.business_date,
                 sum(l.qty) FILTER (WHERE l.clase='carga')             AS carga_qty,
@@ -8707,14 +8776,26 @@ export class CommercialAnalyticsService {
                 -- [RD.31] El conteo NO se suma a "cargado": no se le subio nada al camion ese dia,
                 -- se midio lo que ya traia. Viaja aparte y entra solo al ACUMULADO, que es el saldo.
                 sum(l.qty)              FILTER (WHERE l.clase='conteo') AS conteo_qty,
-                sum(l.costo_doc)        FILTER (WHERE l.clase='conteo') AS conteo_costo,
+                sum(l.qty * u.costo_u)  FILTER (WHERE l.clase='conteo') AS conteo_costo,
                 sum(l.qty * u.precio_u) FILTER (WHERE l.clase='conteo') AS conteo_precio,
-                -- Columna COSTO: lo cargado y lo vendido, los dos al costo del embarque.
-                sum(l.costo_doc)        FILTER (WHERE l.clase='carga') AS carga_costo,
+                /**
+                 * ⛔ [RD.42] Las TRES clases se valuan con el MISMO unitario resuelto. Hasta hoy
+                 * "cargado" salia de costo_doc (el importe del documento) y "vendido" de
+                 * qty * costo_u (el resolvedor): dos monedas en la misma resta, asi que
+                 * carga - cogs no era el inventario del resumen. Medido en la ruta 21: la serie
+                 * publicaba $32,359.36 donde el resumen publicaba su inventario con otro criterio.
+                 *
+                 * Es el MISMO defecto que routeInventory ya habia corregido para la columna
+                 * VENTA -- "con el dinero crudo la identidad se rompia en cuanto la ventana era
+                 * corta" -- y que nunca se propago aca. El dinero crudo no se pierde: viaja en
+                 * cobrado_real, que es un hecho y no tiene por que cerrar una identidad.
+                 */
+                sum(l.qty * u.costo_u)  FILTER (WHERE l.clase='carga') AS carga_costo,
                 sum(l.qty * u.costo_u)  FILTER (WHERE l.clase='venta') AS cogs_costo,
-                -- Columna VENTA: los dos al precio realizado de esta ruta.
                 sum(l.qty * u.precio_u) FILTER (WHERE l.clase='carga') AS carga_precio,
-                sum(l.venta_doc)        FILTER (WHERE l.clase='venta') AS venta_precio
+                sum(l.qty * u.precio_u) FILTER (WHERE l.clase='venta') AS venta_precio,
+                -- Lo que el cliente pago DE VERDAD ese dia. Viaja aparte, igual que en el resumen.
+                sum(l.venta_doc)        FILTER (WHERE l.clase='venta') AS cobrado_real
            FROM analytics.mv_rd_route_ledger l
            LEFT JOIN u ON u.sku = l.sku AND u.unidad = l.unidad
           WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date >= ? AND l.business_date <= ?
@@ -8727,6 +8808,17 @@ export class CommercialAnalyticsService {
               round(coalesce(venta_precio,0),2)::float        AS vendido_venta,
               round(coalesce(carga_qty,0),2)::float           AS cargado_qty,
               round(coalesce(venta_qty,0),2)::float           AS vendido_qty,
+              /**
+               * [RD.42] El AJUSTE del conteo, visible. Entra al acumulado y NO a "cargado"
+               * (correcto: no se le subio nada al camion, se midio lo que ya traia) — pero
+               * hasta hoy no salia en ninguna columna, asi que en la pantalla de detalle
+               * "cargado − vendido" NO daba el saldo de al lado y nada decia por que. En la
+               * ruta 501 ese hueco mudo son 862.78 unidades / $1,496.05.
+               */
+              round(coalesce(conteo_qty,0),2)::float          AS conteo_qty,
+              round(coalesce(conteo_costo,0),2)::float        AS conteo_costo,
+              round(coalesce(conteo_precio,0),2)::float       AS conteo_venta,
+              round(coalesce(cobrado_real,0),2)::float        AS cobrado_real,
               -- [RD.31] El acumulado ARRANCA en el conteo cuando lo hay. Es legible porque el
               -- ledger ya no publica nada anterior al ancla: el primer punto de la serie ES el dia
               -- del conteo, y la linea empieza donde el camion de verdad estaba.
@@ -8737,7 +8829,9 @@ export class CommercialAnalyticsService {
               round(sum(coalesce(carga_precio,0) + coalesce(conteo_precio,0) - coalesce(venta_precio,0))
                     OVER (ORDER BY business_date),2)::float   AS saldo_venta_acum
          FROM d ORDER BY business_date`,
-      [tenantId, ruta, desde, hasta, tenantId, ruta, desde, hasta],
+      // [RD.42] El CTE `u` pasó de 4 parámetros a 2: ya no acota por fecha porque el resolvedor
+      // resuelve sobre toda la historia de la ruta — que es justo lo que hace el resumen.
+      [tenantId, ruta, tenantId, ruta, desde, hasta],
     )).rows as RouteSeriesPoint[]);
   }
 

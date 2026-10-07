@@ -77,6 +77,12 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // refrescarlo antes lo dejaria resolviendo contra la foto anterior. Ordenar no es depender
   // (ADR-056), pero cuando el orden es gratis se respeta.
   { name: 'analytics.mv_rd_route_unit_value', everyMin: 30 },
+  // `[RD.41]` (mig 20261007170000) La DECLARACIÓN: cuánto del descuadre de cada ruta lo puede
+  // explicar un artefacto de medición. Va al final porque se deriva de `mv_rd_route_identity`
+  // y del resolvedor de costo. Medido: leída en vivo cuesta **281 ms** para once filas (pega
+  // contra `kepler_ods.kdm1`/`kdm2` con tres laterales por ruta) y la pantalla que la consume
+  // tiene un listón de 500 ms; materializada, 1 ms.
+  { name: 'analytics.mv_rd_route_opening', everyMin: 30 },
   // `[CDRP.4-perf]` (mig 20260922000000) La otra pierna de la misma portada: venta por
   // almacén × canal × día. `sales_daily` está al grano de PRODUCTO y el bloque sumaba 249,389
   // filas por carga; **1,124,926 filas de 200 d colapsan a 4,447** (253×).
