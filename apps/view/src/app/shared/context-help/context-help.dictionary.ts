@@ -1666,4 +1666,77 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // `[CG.45]` Regla P. Caja General es la pantalla de finanzas con mas jerga: corte, arqueo,
+  // fondo inicial, veredicto, contracuenta, ventana, rezago, CAOS. Todo lo de aca esta
+  // VERIFICADO contra el codigo y contra prod en la auditoria por capas del 2026-10-06; no se
+  // redacta de memoria. Las cifras que envejecen NO se escriben: lo que vale es el criterio.
+  'caja-general': {
+    title: 'Caja General — guia',
+    intro: 'Dos trabajos distintos en una pantalla. Arriba: rendir cuentas de la jornada (cuanto entro, cuanto salio, cuanto hay). En medio: confirmar los movimientos que Kepler ya registro, para que nazcan en el libro con su cuenta contable. El libro es nuestro; los documentos son del ERP y no se escriben desde aca.',
+    groups: [
+      {
+        heading: 'La bandeja: que significa "se confirma de un clic"',
+        entries: [
+          { term: 'Por confirmar', def: 'Movimientos de efectivo que Kepler ya registro y que todavia no existen en nuestro libro. No se capturan de cero: se confirman. Lo unico que a veces hay que escribir es lo CONTADO, si se conto distinto de lo que dice el documento.' },
+          { term: 'Se confirma de un clic', def: 'La fila ya sabe a que cuenta contable va, asi que entra en lote sin elegir nada. Si no lo sabe, queda marcada con su motivo y hay que abrirla.' },
+          { term: 'Como sabe la cuenta', def: 'Tres caminos, en orden. 1) RUTA: el cliente del cobro tiene su cuenta firmada. 2) REGLA: el beneficiario del gasto tiene una regla declarada. 3) CONTRACUENTA: la propia poliza del documento en Kepler dice contra que cuenta se movio el dinero. El tercero resuelve la mayoria, y su cuenta es AUTORITATIVA: por eso se muestra bloqueada.' },
+          { term: 'Elegir concepto', def: 'No es "faltan datos". La cuenta ya vino del documento; falta cual de sus conceptos aplica. Es una eleccion acotada a esa cuenta, no un buscador en blanco.' },
+          { term: 'Ventana', def: 'Cuantos dias hacia atras mira la bandeja. Existe porque sin ella la lista trae todo lo que el ERP registro desde que hay datos, y eso se lee como si alguien llevara veinte meses de atraso sobre un libro que no existia.' },
+          { term: 'Rezago', def: 'Lo que queda ANTES de la ventana. No es trabajo del dia: es lo que el sistema anterior ya registro. Hasta donde se trae es una decision aparte, no una tarea de la caja.' },
+          { term: 'Fecha posterior a hoy', def: 'Un documento fechado adelante casi siempre es un error de captura del ERP, no un hecho futuro. Queda fuera del lote y se corrige EN KEPLER; aca se actualiza solo.' },
+        ],
+      },
+      {
+        heading: 'El corte: rendir cuentas de la jornada',
+        entries: [
+          { term: 'Corte', def: 'El acto de cerrar la caja de un dia: se abre, se cuenta el efectivo, se sella el conteo, se cierra y alguien mas lo autoriza.' },
+          { term: 'Fondo inicial', def: 'Con cuanto arranco la caja (el fondo de cambio). Puede quedar SIN MEDIR, y entonces se dice: afirmar que arranco en cero cuando nadie lo conto haria aparecer un sobrante del tamano exacto del fondo, todos los dias.' },
+          { term: 'Conteo ciego', def: 'Quien cuenta NO ve lo esperado hasta sellar su conteo. Es a proposito: si se ve el numero antes, se cuenta hacia el numero.' },
+          { term: 'Doble llave', def: 'Quien cierra el corte no puede autorizarlo. Son dos personas y dos permisos distintos; el candado real vive en la base, no en el boton.' },
+          { term: 'Esperado', def: 'Fondo inicial + ingresos - gastos - depositos. Es contra lo que se compara lo contado, y solo se revela al sellar.' },
+          { term: 'Cajero (CAOS)', def: 'La caja fuerte inteligente. Cuenta el efectivo por su cuenta, asi que sirve de segundo testigo del dia. De ella se cuadra el FLUJO (lo que entro y salio), no su contenido.' },
+        ],
+      },
+      {
+        heading: 'El veredicto del arqueo',
+        entries: [
+          { term: 'Cuadra', def: 'Lo contado coincide con lo esperado, al centavo.' },
+          { term: 'Sobra / Falta', def: 'Hay mas o menos efectivo del esperado. Son los dos unicos resultados que responden a "cuadra".' },
+          { term: 'Sin contar', def: 'Nadie conto. NO es "cuadra": un dia sin conteo que devolviera cero contra cero se veria igual que uno que cuadro perfecto.' },
+          { term: 'Sin fondo medido', def: 'Se conto, pero nadie midio con cuanto arranco la caja. La pregunta no tiene respuesta, porque lo esperado parte de un supuesto. Tampoco es un faltante: mandar a alguien a buscar ese dinero es perder el dia.' },
+        ],
+      },
+      {
+        heading: 'De donde sale cada cosa',
+        entries: [
+          { term: 'Cuenta y concepto de Kepler', def: 'El par contable con el que nace el movimiento. Es POR SUCURSAL: el mismo par tiene nombre distinto en cada plaza.' },
+          { term: 'Espejo del Access', def: 'El libro que hoy se captura en la aplicacion Control. Se lee, no se escribe: sirve para comparar lo que la plataforma registra contra lo que el metodo viejo registro.' },
+          { term: 'Frescura', def: 'De cuando son los datos de la bandeja. Sale del servidor, no del reloj del navegador. Si el carril que alimenta la lista se cae, la foto se congela SIN dar error y esta es la unica senal.' },
+        ],
+      },
+    ],
+    resolve: [
+      {
+        heading: 'Si una fila no se puede confirmar',
+        kind: 'fix',
+        intro: 'El motivo dice cual de los tres caminos falto. Ninguno se arregla adivinando una cuenta.',
+        steps: [
+          'Dice "elegir concepto": abrirla con Capturar. La cuenta ya viene del documento y esta bloqueada; solo se elige el concepto entre los de esa cuenta.',
+          'Dice que el beneficiario no tiene cuenta declarada: declararla ahi mismo, con la casilla de la captura. Queda como regla y los proximos pagos de ese beneficiario entran solos.',
+          'Dice que la ruta no esta firmada: la cuenta de ese cliente se declara una vez; despues sus cobros se confirman en lote.',
+          'Dice fecha posterior a hoy: no se toca aca. Se corrige el documento en Kepler y la fila sale sola de la lista.',
+        ],
+      },
+      {
+        heading: 'Si el cuadre del dia no cierra',
+        kind: 'info',
+        steps: [
+          'Mirar primero QUE no se pudo medir: la pantalla lista aparte lo no medido y lo que este cuadre no cubre. Un hueco no es un descuadre.',
+          'Comparar contra el cajero (CAOS): si el libro y la boveda se contradicen, el problema es de registro, no de efectivo.',
+          'Si el veredicto dice "sin fondo medido", no hay nada que buscar: falta el dato de apertura, no el dinero.',
+        ],
+      },
+    ],
+  },
 };

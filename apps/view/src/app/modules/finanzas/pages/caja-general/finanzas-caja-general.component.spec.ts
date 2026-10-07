@@ -26,6 +26,7 @@ import { of, throwError, Subject } from 'rxjs';
 
 import { CAJA_VENTANA_DIAS, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
+ import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 import {
   CashLedgerService, type CoberturaResponse, type LibroResponse, type SaldoResponse,
   type PendientesResponse, type Frecuente, type CajaKepler, type MovimientoPendiente,
@@ -351,7 +352,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       movimientosPendientes: vi.fn(() => of({ ...VACIA, ventana_dias: 45, desde: '2026-08-08' })),
     });
     expect(comp.ventanaSrv()?.dias).toBe(45);
-    expect(comp.textoBandeja()).toContain('45 días');
+    // `[CG.45]` Antes era `textoBandeja()`. Esa frase juntaba cinco hechos en un renglón gris y
+    // se partió: la cifra accionable va en la cabecera con peso, el ALCANCE queda acá, y la edad
+    // del dato se fue a `app-freshness-pill`. Lo que esta prueba vigila —que la ventana salga de
+    // la RESPUESTA y no del selector local— no cambió.
+    expect(comp.textoAlcance()).toContain('45 días');
   });
 
   it('avisa cuando la lista viene TOPADA (has_more)', () => {
@@ -1780,14 +1785,19 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
    * pantalla afirmaba dos universos distintos a cinco centimetros de distancia.
    */
   it('el renglon de la bandeja NO repite el total: declara que es sobre lo que se ve', () => {
-    montar({
+    const fx = montar({
       movimientosPendientes: vi.fn(() => of({
         ...VACIA, rows: [GASTO_TRABADO], confirmables: 0, total: 1875,
       })),
     });
-    expect(comp.textoBandeja()).toContain('de las 1 que se ven');
+    // `[CG.45]` La afirmacion se mudo del string al DOM: la cifra ahora vive en la cabecera con
+    // su propio peso, no dentro de una frase. Se mide lo RENDERIZADO, que es mas fuerte que
+    // medir el helper -- si manana alguien deja de pintarlo, esta prueba cae.
+    const head: string = fx.nativeElement.querySelector('.cg-bandeja-head').textContent;
+    expect(head).toContain('de 1');
     // El total lo dice el subtitulo de la pagina; repetirlo aca seria ruido.
-    expect(comp.textoBandeja()).not.toContain('1,875');
+    expect(head).not.toContain('1,875');
+    expect(comp.textoAlcance()).not.toContain('1,875');
   });
 
   /**
@@ -1965,6 +1975,52 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
       comp.cargarPendientes(true);   // refresco de fondo: la misma pagina, otra vez
       expect([...comp.marcadas()].sort()).toEqual([FILA_A.origen_ref, FILA_B.origen_ref].sort());
+    });
+  });
+  // ── [CG.45] El repertorio compartido, no un vocabulario propio ──────────────────────────────
+  //
+  // De 13 componentes compartidos esta pantalla usaba 2, mientras el resto de /finanzas ya usaba
+  // los otros. No es cosmetico: la frescura como PROSA gris no se pone ambar cuando el dato
+  // envejece, y un desplegable de tres valores esconde las dos alternativas.
+  describe('[CG.45] usa el repertorio compartido, no piezas propias', () => {
+    it('la frescura es la pildora canonica, y declara cuando no se pudo medir', () => {
+      const fx = montar({
+        movimientosPendientes: vi.fn(() => of({ ...VACIA, datos_al: '2026-10-06T18:00:00Z' })),
+      });
+      expect(fx.nativeElement.querySelector('app-freshness-pill')).toBeTruthy();
+
+      // Tercer estado: sin `datos_al` no se esconde -- se DECLARA (ADR-056).
+      TestBed.resetTestingModule();
+      const fx2 = montar({ movimientosPendientes: vi.fn(() => of({ ...VACIA, datos_al: null })) });
+      const head: string = fx2.nativeElement.querySelector('.cg-bandeja-head').textContent;
+      expect(fx2.nativeElement.querySelector('app-freshness-pill')).toBeFalsy();
+      expect(head).toContain('frescura sin medir');
+    });
+
+    it('el signo es un control segmentado, no un desplegable', () => {
+      const fx = montar();
+      expect(fx.nativeElement.querySelector('app-segmented')).toBeTruthy();
+      // Las tres opciones siguen siendo las mismas y en el mismo orden.
+      expect(comp.opcionesSigno.map((o) => o.value)).toEqual(['', 'ingreso', 'gasto']);
+    });
+
+    it('la ayuda de contexto existe y sale del DICCIONARIO, no del template', () => {
+      const fx = montar();
+      expect(fx.nativeElement.querySelector('app-context-help')).toBeTruthy();
+      // Regla P: la entrada tiene que existir, o el boton no se pinta y queda un hueco mudo.
+      expect(CONTEXT_HELP['caja-general']).toBeTruthy();
+      expect(CONTEXT_HELP['caja-general'].groups?.length).toBeGreaterThan(0);
+    });
+
+    it('⛔ [negativa] el espaciado sale de la escala, no de valores a mano', () => {
+      // La causa mecanica de que la pantalla "no se sintiera bien": 20 valores distintos, 14 de
+      // ellos fuera de la rejilla de 4px, mientras sus hermanas de /finanzas usaban 0 o 1.
+      const fuente = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
+      const css = (fuente.ɵcmp?.styles ?? []).join('\n');
+      const crudos = (css.match(/(padding|margin|gap)[a-z-]*: *[^;}]*[0-9]*\.?[0-9]+rem/g) ?? [])
+        // El micro-nudge del chip (<4px) es excepcion declarada en DESIGN.md §Spacing.
+        .filter((d) => !/\.1rem \.45rem/.test(d));
+      expect(crudos, 'espaciado fuera de la escala --sp-*: ' + crudos.join(' | ')).toEqual([]);
     });
   });
 });
