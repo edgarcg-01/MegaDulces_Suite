@@ -17,6 +17,7 @@ import type {
   KeplerDestinoTipo, KeplerMetodoResolucion, NuevoEmbarqueComision, NuevoEmbarqueResumen,
   NuevoEmbarqueTipoViaje,
 } from '@megadulces/contracts';
+import { comisionesDeLaGuia, erroresDeTarifa } from '@megadulces/contracts';
 
 export type MetodoResolucion = KeplerMetodoResolucion;
 
@@ -215,7 +216,10 @@ export function nombreNormalizado(s?: string | null): string {
 export type ComisionSugerida = NuevoEmbarqueComision;
 
 /**
- * Comisión que se SUGIERE para chofer y ayudante a partir del catálogo de rutas de la Suite.
+ * La tarifa del viaje para chofer y ayudante, del catálogo de rutas de la Suite: la de MAYOR
+ * tarifa entre sus rutas (decisión de Logística 2026-10-07). Ya no es sugerencia: la guía lleva
+ * exactamente esto (`comisionesDeLaGuia`), y si una ruta no tiene tarifa no se crea
+ * (`erroresDeTarifa`, ambas en el contrato).
  *
  * Se empareja por `kepler_code` y, si no hay, por nombre normalizado EXACTO. Nada de parecido:
  * `SANTAGIO TANGAMNADAPIO` (así está en Kepler) no es `TANGAMANDAPIO` para una máquina, y
@@ -280,6 +284,10 @@ export interface TomaContexto {
   chofer_kepler_driver_id: string | null;
   /** Folio del embarque que ya tomó esta guía, si existe. */
   ya_tomado_folio: string | null;
+  /** La tarifa del viaje (la mayor de sus rutas) y las rutas que no tienen tarifa. */
+  comision: Pick<NuevoEmbarqueComision, 'driver' | 'helper' | 'sin_tarifa' | 'ruta_usada'>;
+  /** Paradas sin ruta en Kepler: sin ruta no hay tarifa que aplicar. */
+  paradas_sin_ruta: number;
 }
 
 /** Errores en lenguaje del usuario. Lista vacía = se puede tomar. */
@@ -306,10 +314,16 @@ export function validarToma(input: TomaInput, ctx: TomaContexto): string[] {
   if (h1 && h2 && h1 === h2) errores.push('Ayudante 1 y ayudante 2 son la misma persona.');
   if (h2 && !h1) errores.push('Captura primero al ayudante 1.');
 
+  // La comisión se CALCULA de la tarifa de las rutas del viaje (fórmula de la beta de Logística):
+  // sin tarifa no se crea, y una comisión tecleada que no coincide con la calculada se rechaza.
+  const ayudantes = { helper1: !!h1, helper2: !!h2 };
+  errores.push(...erroresDeTarifa(ctx.comision, ctx.paradas_sin_ruta, ayudantes));
+  const calculada = comisionesDeLaGuia(ctx.comision, ayudantes);
+  const tecleada = (['driver_commission', 'helper1_commission', 'helper2_commission'] as const)
+    .some((k) => input[k] != null && Number(input[k]) !== calculada[k]);
+  if (tecleada) errores.push('La comisión se calcula de la tarifa de la ruta; no se captura.');
+
   const montos: Array<[keyof TomaInput, string]> = [
-    ['driver_commission', 'La comisión del chofer'],
-    ['helper1_commission', 'La comisión del ayudante 1'],
-    ['helper2_commission', 'La comisión del ayudante 2'],
     ['per_diem_total', 'Los viáticos'],
     ['freight_revenue', 'El flete cobrado'],
     ['total_weight_kg', 'El peso'],
@@ -322,8 +336,6 @@ export function validarToma(input: TomaInput, ctx: TomaContexto): string[] {
   if (input.actual_km != null && (!Number.isInteger(Number(input.actual_km)) || Number(input.actual_km) < 0)) {
     errores.push('Los kilómetros deben ser un número entero mayor o igual a cero.');
   }
-  if ((input.helper1_commission ?? 0) > 0 && !h1) errores.push('Hay comisión de ayudante 1 pero no hay ayudante 1.');
-  if ((input.helper2_commission ?? 0) > 0 && !h2) errores.push('Hay comisión de ayudante 2 pero no hay ayudante 2.');
   return errores;
 }
 

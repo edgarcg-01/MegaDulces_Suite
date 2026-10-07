@@ -206,3 +206,21 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 - **Pruebas:** E2E **455/0** (candidatos: sólo con la clave y no miembros, no el solicitante; el coordinador de TI y el técnico → 403; `can_manage`: coordinación sí, técnico no, god-mode sí) · 13 pruebas del componente (incluye las negativas: sólo lectura, 409 con su mensaje, cambio de rol rechazado que recarga). La prueba **atrapó un defecto real**: tras un cambio de rol rechazado la recarga borraba el motivo que se acababa de mostrar. Revisado en navegador (agregar a una persona de punta a punta).
 - **Con esto el alta de una persona nueva ya no necesita API** (runbook §11): la coordinación de la cola la agrega desde la pantalla, siempre que Administración le haya dado antes `SERVICIO_ATENDER`.
 
+### 9.3 MS.7.14 preparada (2026-10-07): la siembra de Mantenimiento
+
+**Qué es:** la migración `20261007240000_servicedesk_seed_mantenimiento.js` (aditiva, idempotente, reversible): la cola **Mantenimiento** y sus **11 categorías**. Sólo configuración; ninguna línea de lógica por nombre de cola. Más `EC` = «Estacionamiento CEDIS» en `SD_UBICACIONES_EXTRA` (la 11.ª ubicación; sin migración).
+
+**⛔ Nace APAGADA y SIN miembros, a propósito.** Encendida y sin nadie, el catálogo ofrecería sus categorías a toda la empresa y cada ticket nacería en una bandeja que nadie ve. El catálogo ya esconde las categorías de una cola apagada, así que **sembrarla no cambia nada visible**. El camino para activarla es el de la pantalla (MS.7.17): 1) un administrador nombra coordinador a Ubaldo Barajas Valencia; 2) él agrega a su gente y **enciende la cola**. La migración no agrega a nadie (su usuario no está confirmado en prod y no se adivina).
+
+**Qué trae y qué no (declarado, no fingido):**
+- ✅ Cola + 11 categorías (eléctrico e iluminación, climatización y refrigeración, plomería, obra civil y pintura, herrería/puertas/cortinas, mobiliario y anaqueles, equipo de almacén, seguridad y protección civil, plagas y limpieza, fachada y rotulación, estacionamiento) + la ubicación `EC`.
+- ⚠️ **Dos valores por validar con Frank** (se cambian desde la pantalla): todas las categorías nacen con prioridad por defecto `media` (el plan no fija ninguna) y todas **exigen ubicación**.
+- ❌ **SLA propio en horario hábil → MS.7.2.** Hoy los plazos son globales por prioridad: sus tickets heredan los generales (la urgente de TI corre corrida; Sistemas decidió «hábil» para Mantenimiento y eso necesita la columna por cola).
+- ❌ **Prioridad por riesgo × operación → MS.7.7** (`priority_model` sigue en `impacto`: la cola no clama una matriz que el código no aplica).
+- ❌ **Zonas (MS.7.3) y los dos campos de riesgo (MS.7.4/7.8).**
+- ❌ Un departamento «Mantenimiento» en el catálogo de áreas **no existe**; la cola va sin `department_code` (es opcional).
+
+**Pruebas:** `test-newdb-mantenimiento-seed` **19/0** (apagada, sin miembros, 11 categorías, no finge matriz ni SLA, idempotente: re-correrla no pisa lo que la coordinación ajustó ni apaga una cola ya encendida, el `down` conserva la cola si tiene tickets) · E2E **451/0** con el bloque 24 (apagada no se ofrece ni admite tickets; el god-mode la ve; quien no es de la cola no la enciende → 403; **el camino real**: un administrador nombra a la coordinación, ésta enciende la cola, el catálogo ofrece las 11 categorías, `EC` es válida, sin ubicación → 400, el ticket aparece en su bandeja y **no** en la de TI) · specs de la lista de ubicaciones (11). **Mutación atrapada:** sembrarla encendida pone en rojo la prueba.
+
+**Orden de despliegue (compuertas):** #272 (acceso por cola) ya en `main`; **#287** (Mi trabajo por cola) y **#288** (pantalla de miembros) deben estar desplegados **antes** de encender la cola; la migración de `queue_members` aplicada y verificada. Sembrar (esta migración) es seguro en cualquier momento posterior: no cambia nada visible.
+

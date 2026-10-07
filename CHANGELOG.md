@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Arqueo de caja: monedas y billetes en una sola lista, de 50¢ a $1,000 (SM.42, 2026-10-07)
+- `/tienda/arqueo`: el conteo deja de ser dos columnas (billetes | monedas, de mayor a menor) y pasa a **una tabla «Monedas / billetes» de menor a mayor** —50¢, $1, $2, $5, $10, $20 moneda, $20 billete, $50 … $1,000— con cantidad, importe y **«Total en efectivo»** al pie, como la hoja de arqueo de la operación. En todas las pestañas.
+- Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
+- Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
+- Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+
 ### Fixed — `/compras/pedido`: el testigo del crash estaba ciego, el CLS de toda la app se guardaba en 0, y la píldora no podía decir la edad del dato (RA-PERF.5–8, 2026-10-07)
 - **El guard del "Maximum call stack" llevaba 69 días sin poder disparar.** Medía `(new Error().stack).split('\n').length > 300` y **`Error.stackTraceLimit` vale 10 por default en V8**: con **500 marcos reales anidados esa expresión devuelve 11**. Por eso la causa del crash nunca se identificó — el instrumento no veía nada, y encima pagaba un `queueMicrotask` por tick. Ahora sube el límite antes de capturar y mide **dos** señales: profundidad real y **re-entrada** (cuántas veces aparece `money` en su propio stack), que es la señal sin umbral. ⚠️ **La causa raíz sigue abierta**; lo que se arregló es que ahora haya cómo verla.
 - **Y el crash no salía del navegador**: el `throw` muere dentro de una expresión de template y lo come el `ErrorHandler` de Angular. Medido en prod: en 30 días hay **un solo** evento `kind='error'`, de `/portal/login`. El diagnóstico ahora se reporta por telemetría.
@@ -87,6 +93,7 @@
 - ⚠️ Los **7 encargados tienen que volver a entrar** para que el permiso surta efecto. Y queda declarado: **Yurécuaro y Morelia Abastos no tienen encargado de tienda**, así que ahí todavía no hay quién asigne.
 ### Added — «Nuevo embarque» toma el viaje de Kepler en vez de recapturarlo (EMB.12, 2026-10-06)
 - `/logistica/shipments/nuevo`: se elige la guía de embarque que almacén ya dio de salida en Kepler (con tipo, destinos, unidad, chofer y si ya se tomó). `/logistica/shipments/nuevo/:sucursal/:guia`: la hoja de embarque — un solo formato donde lo que Kepler ya tiene (fecha, origen, unidad, chofer, rutas, cajas, valor, almacén, paradas con su ruta y orden) va lleno y bloqueado, y lo demás se teclea: tipo de entrega, ayudantes, comisiones (la del chofer precargada del catálogo de rutas), viáticos, flete, km y peso.
+- La comisión de chofer y ayudantes se calcula de la tarifa de las rutas del viaje (la mayor) y va bloqueada en la hoja; si una ruta no tiene tarifa, la hoja no deja crear el embarque y dice cuál falta tarifar en Configuración › Comisiones.
 - Al crear se guarda la llave de la guía (`kepler_sucursal` + `kepler_guia`, una guía activa a la vez), la guía de entrega y un destinatario por parada para que el chofer confirme cada entrega. El detalle del embarque muestra la hoja final con entregas y costo estimado.
 - Vistas nuevas sobre el ODS: `analytics.erp_shipment_stops` (ruta por domicilio de entrega), `erp_shipment_stop_load` (cajas y sueltos desde los renglones) y `v_kepler_responsables` (mig `20261006210000`). «Embarque manual» sigue para lo que Kepler no emite.
 - Fixed: el formulario manual pedía «Por ruta / Viaje largo» y no se guardaba, y la fecha se mandaba en UTC (después de las 18:00 quedaba el día siguiente).
@@ -419,6 +426,7 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 **Oficinas Corporativas (MS.3.14):** al levantar una solicitud, la lista de ubicaciones (antes «Sucursal»; el campo ahora se llama «Ubicación» en toda la mesa) ofrece «Oficinas Corporativas» (al final). No es una sucursal de la red: se guarda con su propio código (`OF`) sin tocar los de Kepler, y funciona en toda la mesa (categorías que exigen sucursal, filtro de la bandeja, ficha y reporte por sucursal).
 **La ubicación se ve siempre (MS.3.17):** al levantar una solicitud, el campo «Ubicación (opcional)» ya no está escondido tras un enlace; se muestra desde el principio (y con asterisco si la categoría la exige).
 
+**Mantenimiento sembrada, apagada (MS.7.14):** la Mesa tiene la cola de Mantenimiento con sus 11 categorías y la ubicación «Estacionamiento CEDIS». Nace apagada y sin miembros: no se ofrece a nadie hasta que un administrador nombre a su coordinación y ésta la encienda desde Configuración.
 **Pantalla de miembros de la cola (MS.7.17):** en Configuración de la Mesa, cada cola muestra quién la atiende y la coordinación de esa cola puede agregar personas (las que ya tienen el permiso de atender), cambiar su rol o quitarlas, sin pasar por la API. Marca a quien perdió el permiso y explica con claridad lo que no se puede (la cola no se queda sin coordinación; no se quita a quien tiene solicitudes abiertas).
 
 **«Mi trabajo» y Reportes por cola (MS.7.18):** lo «sin asignar» de Mi trabajo cuenta sólo las colas a las que perteneces (si no perteneces a ninguna, lo dice en vez de mostrar un cero), y Reportes ofrece elegir la cola cuando coordinas más de una.

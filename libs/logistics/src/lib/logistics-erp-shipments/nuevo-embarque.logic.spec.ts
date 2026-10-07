@@ -229,8 +229,10 @@ describe('comisionSugerida', () => {
 
 describe('validarToma', () => {
   const base = { delivery_type: 'route' };
-  const ctxConChofer = { chofer_kepler_driver_id: 'd-cesar', ya_tomado_folio: null };
-  const ctxSinChofer = { chofer_kepler_driver_id: null, ya_tomado_folio: null };
+  // La tarifa del viaje 06-G0001419 si todas sus rutas tuvieran tarifa: la mayor es JIQUILPAN.
+  const tarifa = { driver: 98.04, helper: 57.76, ruta_usada: { clave: 'R0057', nombre: 'JIQUILPAN', route_id: 'r57' }, sin_tarifa: [] };
+  const ctxConChofer = { chofer_kepler_driver_id: 'd-cesar', ya_tomado_folio: null, comision: tarifa, paradas_sin_ruta: 0 };
+  const ctxSinChofer = { ...ctxConChofer, chofer_kepler_driver_id: null };
 
   it('con chofer de Kepler y tipo de entrega, se puede tomar', () => {
     expect(validarToma(base, ctxConChofer)).toEqual([]);
@@ -265,15 +267,29 @@ describe('validarToma', () => {
   });
 
   it('montos negativos o no numéricos se rechazan; los km son enteros', () => {
-    const e = validarToma({ ...base, driver_commission: -1, per_diem_total: Number.NaN, actual_km: 12.5 }, ctxConChofer);
-    expect(e).toContain('La comisión del chofer debe ser un número mayor o igual a cero.');
+    const e = validarToma({ ...base, per_diem_total: Number.NaN, freight_revenue: -1, actual_km: 12.5 }, ctxConChofer);
     expect(e).toContain('Los viáticos debe ser un número mayor o igual a cero.');
+    expect(e).toContain('El flete cobrado debe ser un número mayor o igual a cero.');
     expect(e).toContain('Los kilómetros deben ser un número entero mayor o igual a cero.');
   });
 
-  it('una comisión de ayudante sin ayudante es un error de captura', () => {
-    expect(validarToma({ ...base, helper1_commission: 63.84 }, ctxConChofer))
-      .toContain('Hay comisión de ayudante 1 pero no hay ayudante 1.');
+  // ── La comisión se CALCULA (fórmula de la beta de Logística, decisión 2026-10-07) ──────────
+
+  it('una ruta del viaje sin tarifa FRENA la toma (la guía 0001419 real: SANTAGIO no tiene)', () => {
+    const ctx = { ...ctxConChofer, comision: { ...tarifa, sin_tarifa: [{ clave: 'R0041', nombre: 'SANTAGIO TANGAMNADAPIO' }] } };
+    expect(validarToma(base, ctx)).toEqual(['Falta la tarifa de SANTAGIO TANGAMNADAPIO en Logística › Configuración › Comisiones.']);
+  });
+
+  it('una parada sin ruta en Kepler también frena', () => {
+    expect(validarToma(base, { ...ctxConChofer, paradas_sin_ruta: 2 })[0]).toMatch(/^2 paradas no tienen ruta en Kepler/);
+  });
+
+  it('una comisión tecleada distinta de la calculada se rechaza; la misma pasa', () => {
+    expect(validarToma({ ...base, driver_commission: 150 }, ctxConChofer))
+      .toContain('La comisión se calcula de la tarifa de la ruta; no se captura.');
+    expect(validarToma({ ...base, helper1_commission: 57.76 }, ctxConChofer))
+      .toContain('La comisión se calcula de la tarifa de la ruta; no se captura.'); // no va ayudante: le toca 0
+    expect(validarToma({ ...base, driver_commission: 98.04, helper1_id: 'a', helper1_commission: 57.76 }, ctxConChofer)).toEqual([]);
   });
 });
 

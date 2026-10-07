@@ -3,8 +3,10 @@
  *
  * El productor (`libs/logistics`: `ErpShipmentsService.nuevoEmbarque`, `listTrips` y
  * `LogisticsShipmentsService.createFromKepler`) y el consumidor (`apps/view`, módulo de
- * logística) importan de acá. **Sólo tipos**: este barril lo cargan las apps Angular desde el
- * arranque, y un valor aquí pesaría en todas.
+ * logística) importan de acá. Tipos más DOS funciones puras chicas (`comisionesDeLaGuia`,
+ * `erroresDeTarifa`): la regla de la comisión la leen la hoja (para el botón) y la API (para el
+ * 400), y si viviera en dos lados una dejaría pasar lo que la otra frena. Nada de datos: este
+ * barril lo cargan las apps Angular desde el arranque.
  *
  * Endpoints:
  *   · `GET  /logistics/erp-shipments/trips?fecha&sucursal&solo_sin_tomar` → `KeplerTripList`
@@ -189,16 +191,17 @@ export interface NuevoEmbarqueHoja {
   procedencia: Record<string, string>;
 }
 
-/** Lo que el coordinador captura al tomar el viaje: sólo lo que Kepler no tiene. */
+/**
+ * Lo que el coordinador captura al tomar el viaje: sólo lo que Kepler no tiene. Las comisiones
+ * NO van: se calculan de la tarifa de las rutas del viaje (`comisionesDeLaGuia`), y la API
+ * rechaza una capturada que no coincida.
+ */
 export interface TomaKeplerBody {
   delivery_type: 'route' | 'long_trip';
   /** Sólo si Kepler no trae chofer: si lo trae, la API rechaza otro. */
   driver_id?: string | null;
   helper1_id?: string | null;
   helper2_id?: string | null;
-  driver_commission?: number | null;
-  helper1_commission?: number | null;
-  helper2_commission?: number | null;
   per_diem_total?: number | null;
   per_diem_breakdown?: unknown;
   overnight?: boolean;
@@ -213,4 +216,56 @@ export interface TomaKeplerResultado {
   shipment: { id: string; folio: string; status: string; kepler_sucursal: string; kepler_guia: string };
   guide: { id: string; number: string; status: string };
   destinatarios: number;
+}
+
+// ── La comisión del viaje: se CALCULA, no se captura ─────────────────────────────────────────
+//
+// Fórmula de la beta de Logística (`megadulces_beta`, `autoFillComisionChofer` /
+// `autoFillComisionAyudante`): chofer = tarifa de chofer de la ruta; cada ayudante que va =
+// tarifa de ayudante de la misma ruta. La beta tenía UN destino por embarque; una guía de Kepler
+// cruza varias rutas y se aplica la de MAYOR tarifa (decisión de Logística, 2026-10-07).
+// Sin tarifa la beta guardaba 0, y Liquidaciones paga lo que dice la guía: un 0 es no pagar. Por
+// eso aquí no hay 0 por omisión — si falta una tarifa, la hoja no deja crear (`erroresDeTarifa`).
+
+/** Dónde se captura la tarifa que falta. */
+export const DONDE_SE_CAPTURA_LA_TARIFA = 'Logística › Configuración › Comisiones';
+
+/** Las comisiones que lleva la guía. Sólo tienen sentido cuando `erroresDeTarifa` viene vacío. */
+export function comisionesDeLaGuia(
+  comision: Pick<NuevoEmbarqueComision, 'driver' | 'helper'>,
+  ayudantes: { helper1: boolean; helper2: boolean },
+): { driver_commission: number; helper1_commission: number; helper2_commission: number } {
+  return {
+    driver_commission: comision.driver ?? 0,
+    helper1_commission: ayudantes.helper1 ? (comision.helper ?? 0) : 0,
+    helper2_commission: ayudantes.helper2 ? (comision.helper ?? 0) : 0,
+  };
+}
+
+/**
+ * Lo que impide calcular la comisión, en una línea cada cosa. Vacío = se puede.
+ *
+ * ⚠️ Una ruta sin tarifa frena aunque otra del viaje sí la tenga: con «la mayor del viaje», la
+ * que falta podría ser justo la mayor (la más lejana), y tomar otra sería pagar de menos.
+ */
+export function erroresDeTarifa(
+  comision: Pick<NuevoEmbarqueComision, 'driver' | 'helper' | 'sin_tarifa' | 'ruta_usada'>,
+  paradasSinRuta: number,
+  ayudantes: { helper1: boolean; helper2: boolean },
+): string[] {
+  const nombre = (r: { clave: string; nombre: string | null }) => r.nombre || r.clave;
+  if (paradasSinRuta > 0) {
+    return [`${paradasSinRuta === 1 ? 'Una parada no tiene' : `${paradasSinRuta} paradas no tienen`} ruta en Kepler: sin ruta no se calcula la comisión.`];
+  }
+  if (comision.sin_tarifa.length) {
+    return [`Falta la tarifa de ${comision.sin_tarifa.map(nombre).join(', ')} en ${DONDE_SE_CAPTURA_LA_TARIFA}.`];
+  }
+  if (!comision.ruta_usada) return ['El viaje no tiene ruta en Kepler: sin ruta no se calcula la comisión.'];
+  const ruta = nombre(comision.ruta_usada);
+  const e: string[] = [];
+  if (!((comision.driver ?? 0) > 0)) e.push(`${ruta} no tiene tarifa de chofer en ${DONDE_SE_CAPTURA_LA_TARIFA}.`);
+  if ((ayudantes.helper1 || ayudantes.helper2) && !((comision.helper ?? 0) > 0)) {
+    e.push(`${ruta} no tiene tarifa de ayudante en ${DONDE_SE_CAPTURA_LA_TARIFA}.`);
+  }
+  return e;
 }
