@@ -43,6 +43,8 @@ export const SD_IMPACTS = ['yo', 'varios', 'sucursal', 'red'] as const;
  */
 export const SD_UBICACIONES_EXTRA: Readonly<Record<string, string>> = Object.freeze({
   OF: 'Oficinas Corporativas',
+  /** `[MS.7.14]` El estacionamiento del CEDIS (portón, pluma, alumbrado y piso: es de Mantenimiento). No es el CEDIS (`00`): ahí no hay venta ni inventario que lo mida. */
+  EC: 'Estacionamiento CEDIS',
 });
 export type SdImpact = (typeof SD_IMPACTS)[number];
 

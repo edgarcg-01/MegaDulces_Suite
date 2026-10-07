@@ -107,6 +107,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
   console.log('\n=== [MS.2.9] Mesa de Servicio por HTTP — roles mínimos y pruebas negativas ===\n');
   const usuarios = [];
   let restaurar = null;
+  let mtoActivaAntes = null; // `[MS.7.14]` la cola de Mantenimiento vuelve a como estaba
   try {
     // ── 0. Los cuatro usuarios efímeros ──────────────────────────────────────────
     console.log('0 — usuarios de prueba (se borran al final)');
@@ -1007,6 +1008,52 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       }
     }
 
+    // ── 24. [MS.7.14] Mantenimiento: sembrada APAGADA, y se enciende desde la pantalla ───────────────
+    {
+      console.log('\n24 — Mantenimiento sembrada: apagada y sin miembros hasta que su coordinación la enciende');
+      const mto = await knex('servicedesk.queues').where({ tenant_id: T, code: 'mantenimiento' }).first('id', 'active');
+      if (!mto) {
+        noMedido.push('siembra de Mantenimiento (MS.7.14): la cola no está sembrada en este destino; se omiten sus comprobaciones');
+      } else {
+        mtoActivaAntes = mto.active;
+        await knex('servicedesk.queues').where({ id: mto.id }).update({ active: false }); // punto de partida conocido
+        const catPlomeria = await knex('servicedesk.categories').where({ queue_id: mto.id, code: 'plomeria' }).first('id');
+        const dios2 = await crearUsuario('dios2');
+        await knex('identity.users').where({ id: dios2.id }).update({ role_name: 'superadmin' });
+        dios2.token = (await req('POST', '/auth-mt/login', null, { tenant_slug: 'mega_dulces', username: dios2.username, password: PASS_PLANO })).body?.access_token ?? null;
+        const jefe = await crearUsuario('mto_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], []);
+        usuarios.push(dios2, jefe);
+
+        const idsDe = async (token) => new Set(((await req('GET', `${SD}/requests/inbox?scope=all&limit=200`, token)).body?.rows ?? []).map((r) => r.id));
+        const cat0 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+        check('⭐ APAGADA: el catálogo NO ofrece la cola ni sus categorías (un ticket ahí nacería en una bandeja que nadie ve)', !(cat0?.queues ?? []).some((q) => q.id === mto.id) && !(cat0?.categories ?? []).some((k) => k.queue_id === mto.id), JSON.stringify((cat0?.queues ?? []).map((q) => q.name)));
+        const intento = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 con la cola apagada', warehouse_code: 'EC' });
+        check('⛔ y levantar un ticket en una categoría suya → 400 (no queda un ticket huérfano)', intento.status === 400, dump(intento));
+        const cfgDios = await req('GET', `${SD}/config`, dios2.token);
+        check('el god-mode SÍ la ve en la configuración (apagada) para poder encenderla', (cfgDios.body?.queues ?? []).some((q) => q.id === mto.id && q.active === false));
+        check('⛔ quien tiene las claves pero NO es de la cola no puede encenderla → 403', (await req('PUT', `${SD}/config/queues/${mto.id}`, jefe.token, { active: true })).status === 403);
+
+        // El camino real: un administrador nombra a la coordinación; ella enciende la cola.
+        const nombra = await req('PUT', `${SD}/config/queues/${mto.id}/members/${jefe.id}`, dios2.token, { role: 'coordinador' });
+        check('⭐ 1) un administrador nombra a quien coordina la cola', nombra.status === 200 && nombra.body?.members?.some((m) => m.user_id === jefe.id && m.role === 'coordinador'), dump(nombra));
+        const enciende = await req('PUT', `${SD}/config/queues/${mto.id}`, jefe.token, { active: true });
+        check('⭐ 2) ESA coordinación enciende la cola (no hizo falta código ni migración)', enciende.status === 200 && (enciende.body?.queues ?? []).some((q) => q.id === mto.id && q.active === true), dump(enciende));
+        const cat1 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+        const susCats = (cat1?.categories ?? []).filter((k) => k.queue_id === mto.id);
+        check('⭐ encendida, el catálogo ofrece sus 11 categorías', susCats.length === 11, String(susCats.length));
+        check('y todas exigen ubicación', susCats.every((k) => k.requires_branch === true));
+        const sinUbic = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 sin ubicación' });
+        check('⛔ sin ubicación → 400 (una falla de mantenimiento es EN un sitio)', sinUbic.status === 400, dump(sinUbic));
+        const tEc = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 fuga en el estacionamiento', warehouse_code: 'EC' });
+        check('⭐ «Estacionamiento CEDIS» (EC) es una ubicación válida y se nombra bien', tEc.status === 201 && tEc.body?.warehouse_name === 'Estacionamiento CEDIS', dump(tEc));
+        const bJefe = await idsDe(jefe.token);
+        check('⭐ la coordinación de Mantenimiento ve el ticket en SU bandeja', bJefe.has(tEc.body?.id));
+        const bTi = await idsDe(agente.token);
+        check('⛔ y la gente de TI NO lo ve (el aislamiento por cola ya lo garantiza)', !bTi.has(tEc.body?.id));
+        check('el ticket cae SIN asignar (no hay regla ni responsable por omisión: lo reparte la coordinación)', tEc.body?.status === 'nuevo' && !tEc.body?.assigned_to, JSON.stringify([tEc.body?.status, tEc.body?.assigned_to]));
+      }
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
@@ -1170,6 +1217,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
         });
       }
     }
+    if (mtoActivaAntes !== null) await knex('servicedesk.queues').where({ tenant_id: T, code: 'mantenimiento' }).update({ active: mtoActivaAntes });
     // Se borra con la conexión PRIVILEGIADA: `app_runtime` no tiene DELETE sobre el registro, y es lo correcto.
     const ids = usuarios.map((u) => u.id);
     if (ids.length) {
