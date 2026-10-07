@@ -4,7 +4,7 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { MessageService } from 'primeng/api';
 import { of } from 'rxjs';
-import { ArqueoService, AvisoDobleCaja, Turno, TurnosResp } from '../arqueo.service';
+import { ArqueoRow, ArqueoService, AvisoDobleCaja, Turno, TurnosResp } from '../arqueo.service';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { DataScopeService } from '../../../core/services/data-scope.service';
@@ -129,8 +129,11 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     // quedó clavada en él. Llegó roja a `main` porque `Lint & test` es
     // informativo, no compuerta. La rejilla es lo que de verdad hay que ver:
     // si el bloqueo volviera a reemplazar la captura, desaparecería.
-    expect(html()).toContain('Registro detallado de billetes');
-    expect(html()).toContain('Registro detallado de monedas');
+    //
+    // [SM.42] La rejilla dejo de ser billetes | monedas y paso a ser UNA lista «Monedas /
+    // billetes»; se afirma sobre esa lista y su total, que es lo que desapareceria.
+    expect(html()).toContain('Monedas / billetes');
+    expect(html()).toContain('Total en efectivo');
     expect(cmp.turnoSel()?.folio).toBe('87');
     await contar();
     expect(cmp.canSubmit()).toBe(true);
@@ -386,5 +389,148 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     expect(root.querySelector('.arq-suc-val')).toBeNull();
     expect(cmp.idxCaja()).toBe(1);
     expect(cmp.idxCajero()).toBe(2);
+  });
+
+  // ── `[SM.42]` El efectivo se cuenta en UNA lista, de menor a mayor ────────────────────────
+  //
+  // Es el formato de la hoja de arqueo de la operacion: «Monedas / billetes», de 50¢ a
+  // $1,000, consecutivas, con el total en efectivo al pie, en TODAS las pestanas. Lo que
+  // cambia por tipo es la columna de al lado: el retiro muestra sus retiros del turno (no
+  // lleva medios), el cierre y las rutas sus medios de pago, el relevo nada.
+  const retiroListo = async (): Promise<void> => {
+    svc.resp = { turnos: [turno()], aviso: null };
+    cmp.ngOnInit();
+    await tick();
+    cmp.elegirTipo('retiro');
+    await tick();
+  };
+  const casillasRetiro = (): HTMLInputElement[] =>
+    Array.from((fix.nativeElement as HTMLElement).querySelectorAll<HTMLInputElement>('.arq-lista input'));
+
+  it('⭐ la lista va de 50¢ a $1,000 con el total en efectivo, en todas las pestañas', async () => {
+    await retiroListo();
+    const root = fix.nativeElement as HTMLElement;
+    const etiquetas = (): string[] =>
+      Array.from(root.querySelectorAll('.arq-lista-row:not(.arq-lista-head):not(.arq-lista-foot) .arq-lista-den'))
+        .map((e) => (e.textContent ?? '').replace(/\s+/g, ' ').trim());
+
+    expect(etiquetas()).toHaveLength(12);
+    expect(etiquetas()[0]).toBe('50¢');
+    expect(etiquetas()[11]).toBe('$1,000');
+    // La de $20 existe dos veces; la moneda va primero (menor a mayor, monedas antes que billetes).
+    expect(etiquetas()[5]).toContain('moneda');
+    expect(etiquetas()[6]).toContain('billete');
+    expect(html()).toContain('Total en efectivo');
+    // Las dos columnas de antes ya no existen en ninguna pestaña.
+    expect(html()).not.toContain('Registro detallado de billetes');
+    // El retiro: sus retiros del turno, y NO medios de pago.
+    expect(html()).toContain('Retiros de este turno');
+    expect(html()).not.toContain('Medios de pago y movimientos');
+
+    // El cierre: la MISMA lista, y al lado sus medios de pago como siempre.
+    cmp.elegirTipo('cierre');
+    await tick();
+    expect(etiquetas()).toHaveLength(12);
+    expect(etiquetas()[0]).toBe('50¢');
+    expect(html()).toContain('Medios de pago y movimientos');
+    expect(html()).not.toContain('Retiros de este turno');
+
+    // El relevo: la lista sola (nunca llevó medios).
+    cmp.elegirTipo('relevo');
+    await tick();
+    expect(etiquetas()).toHaveLength(12);
+    expect(html()).not.toContain('Medios de pago y movimientos');
+    expect(html()).not.toContain('Retiros de este turno');
+  });
+
+  it('⭐ en el cierre, → pasa de la lista a los medios en el mismo renglón', async () => {
+    svc.resp = { turnos: [turno()], aviso: null };
+    cmp.ngOnInit();
+    await tick();
+    cmp.elegirTipo('cierre');
+    await tick();
+    const root = fix.nativeElement as HTMLElement;
+    const lista = Array.from(root.querySelectorAll<HTMLInputElement>('.arq-lista input'));
+    const medios = Array.from(root.querySelectorAll<HTMLInputElement>('.arq-col--medios input'));
+    expect(lista).toHaveLength(12);
+    expect(medios).toHaveLength(5);
+
+    lista[1].focus();
+    cmp.onCellKey(new KeyboardEvent('keydown', { key: 'ArrowRight' }), 0, 1);
+    expect(document.activeElement).toBe(medios[1]);
+    // ← regresa al mismo renglón de la lista.
+    cmp.onCellKey(new KeyboardEvent('keydown', { key: 'ArrowLeft' }), 1, 1);
+    expect(document.activeElement).toBe(lista[1]);
+    // Desde un renglón más abajo que el último medio, cae en el último medio, no al vacío.
+    cmp.onCellKey(new KeyboardEvent('keydown', { key: 'ArrowRight' }), 0, 9);
+    expect(document.activeElement).toBe(medios[4]);
+  });
+
+  it('⭐ ↓ recorre la lista entera sin cortarse en $20, y la última casilla baja al botón', async () => {
+    await retiroListo();
+    await contar();   // con dinero contado el botón está habilitado y puede recibir el foco
+    const casillas = casillasRetiro();
+    expect(casillas).toHaveLength(12);
+
+    casillas[0].focus();
+    cmp.onCellKey(new KeyboardEvent('keydown', { key: 'ArrowDown' }), 0, 0);
+    expect(document.activeElement).toBe(casillas[1]);
+
+    // La prueba que importa: de la $20 moneda a la $20 billete. Partida en billetes|monedas
+    // (como era la grilla cuando eran dos bloques), la columna se cortaba aquí y Enter
+    // saltaba al botón con medio conteo sin capturar.
+    cmp.onCellKey(new KeyboardEvent('keydown', { key: 'Enter' }), 0, 5);
+    expect(document.activeElement).toBe(casillas[6]);
+
+    cmp.onCellKey(new KeyboardEvent('keydown', { key: 'ArrowDown' }), 0, 11);
+    expect(document.activeElement?.tagName).toBe('BUTTON');
+    expect(document.activeElement?.closest('.arq-bar')).toBeTruthy();
+  });
+
+  it('⭐ un medio escrito en el cierre NO se cuela al retiro', async () => {
+    svc.resp = { turnos: [turno()], aviso: null };
+    cmp.ngOnInit();
+    await tick();
+    cmp.elegirTipo('cierre');
+    cmp.onMedioInput('tarjeta', { target: { value: '500' } } as unknown as Event);
+    await contar();
+    // CONTROL: en el cierre la tarjeta sí suma al total del turno.
+    expect(cmp.totalTurno()).toBe(1500);
+
+    cmp.elegirTipo('retiro');
+    await tick();
+    expect(cmp.totalTurno()).toBe(1000);
+    expect(cmp.mediosDeclarados()).toEqual([]);
+
+    cmp.submit();
+    await tick();
+    expect(svc.enviado.tipo).toBe('retiro');
+    expect(svc.enviado.medios).toBeUndefined();
+    expect(svc.enviado.denominations).toEqual({ '1000': 1 });
+  });
+
+  it('⭐ al lado de la lista van los retiros que ya guardó en ESTE turno, y nada más', async () => {
+    await retiroListo();
+    const fila = (over: Partial<ArqueoRow>): ArqueoRow => ({
+      id: 'r', tipo: 'retiro', warehouse_code: '01', caja: '2', business_date: '2026-09-29', turno: '01',
+      cajero_code: '10C02', cajero_entrante: null, cajero_nombre: null, total_contado: 0,
+      captured_by: '10c02', captured_at: '2026-09-29T15:00:00.000Z', nota: null, incidencia_tipo: null,
+      cash_cut_folio: '87',
+      ...over,
+    });
+    cmp.rows.set([
+      fila({ id: 'b', secuencia: 2, total_contado: 10500, captured_at: '2026-09-29T16:31:00.000Z' }),
+      fila({ id: 'a', secuencia: 1, total_contado: 8000, captured_at: '2026-09-29T15:12:00.000Z' }),
+      // NEGATIVAS: otra caja, otro corte y un cierre no son retiros de este turno.
+      fila({ id: 'x', caja: '7', total_contado: 999 }),
+      fila({ id: 'y', cash_cut_folio: '12', total_contado: 555 }),
+      fila({ id: 'z', tipo: 'cierre', total_contado: 777 }),
+    ]);
+    await tick();
+
+    expect(cmp.retirosDelTurno().map((r) => r.n)).toEqual([1, 2]);
+    expect(cmp.retiradoDelTurno()).toBe(18500);
+    // El que se está contando es el siguiente.
+    expect(html()).toContain('Retiro 3');
   });
 });

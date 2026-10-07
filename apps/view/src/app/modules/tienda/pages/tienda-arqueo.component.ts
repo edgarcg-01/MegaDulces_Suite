@@ -354,78 +354,80 @@ interface CortesPersona {
               </div>
             }
 
-            <!-- SM.27 — Tres bloques a lo ancho, el formato de la hoja que ya se usa
-                 en piso: BILLETES | MONEDAS | MEDIOS. El billete y la moneda se
-                 cuentan por separado (dos fajos distintos, dos totales que se
-                 verifican aparte) y los medios quedan **al lado** de las monedas,
-                 no debajo: la columna de monedas es corta y ese hueco era el lugar
-                 natural del voucher y los cheques. Grid intrínseco (§9): en una
-                 pantalla angosta las tres columnas se apilan solas. -->
-            <div class="arq-cols">
-              <section class="arq-col" role="group" aria-label="Registro detallado de billetes">
-                <h4 class="arq-col-t">Registro detallado de billetes</h4>
-                <div class="arq-col-rows">
-                  @for (d of billetes; track d.key; let i = $index) {
-                    <label class="arq-den">
-                      <span class="arq-den-lbl">{{ d.label }}</span>
-                      <!-- Input de texto (no p-inputnumber) a propósito: acá ↑/↓ SALTAN de
+            <!-- [SM.42] El efectivo se cuenta en UNA sola lista, de menor a mayor: primero
+                 las monedas y luego los billetes, consecutivas, con el total en efectivo al
+                 pie. Es el formato de la hoja de arqueo que pidio la operacion, y es el que
+                 corre mas rapido con la fila esperando: una sola columna que se baja con
+                 Enter, sin decidir en que bloque va cada pieza. Reemplaza a las dos columnas
+                 billetes | monedas de SM.27 en TODAS las pestanas.
+
+                 Al lado va lo que cada tipo necesita: el retiro, los retiros que ya se
+                 guardaron en el turno (una sangria es efectivo, no lleva medios); el cierre
+                 y las rutas, sus medios de pago como antes; el relevo, nada.
+
+                 La de $20 existe como moneda y como billete; solo esas dos llevan rotulo.
+                 NO PONER ACENTOS GRAVES ACA: esto vive dentro de un template literal. -->
+            <div class="arq-conteo">
+              <div class="arq-lista" role="group" aria-label="Monedas y billetes">
+                <div class="arq-lista-row arq-lista-head" aria-hidden="true">
+                  <span>Monedas / billetes</span><span>Cantidad</span><span>Importe</span>
+                </div>
+                @for (d of denomsLista; track d.key; let i = $index) {
+                  <label class="arq-lista-row" [class.has]="(denomCount[d.key] || 0) > 0">
+                    <span class="arq-lista-den">{{ d.label }}@if (d.valor === 20) {<span class="arq-lista-tp">{{ d.familia }}</span>}</span>
+                    <span class="arq-lista-q">
+                      <!-- Input de texto (no p-inputnumber) a proposito: aca ↑/↓ SALTAN de
                            casilla en vez de sumar/restar. Con el spinner puesto, una flecha
-                           de más cambia el conteo del billete sin que la cajera lo note. -->
+                           de mas cambia el conteo sin que la cajera lo note. La lista es la
+                           columna 0 de la grilla (ver grilla()). -->
                       <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
-                             [attr.aria-label]="'Cantidad de billetes de ' + d.label"
+                             [attr.aria-label]="'Cantidad de ' + (d.familia === 'billete' ? 'billetes' : 'monedas') + ' de ' + d.label"
                              [value]="denomCount[d.key] ?? ''" placeholder="0"
                              (input)="onDenomInput(d.key, $event)" (keydown)="onCellKey($event, 0, i)" (focus)="selectAll($event)">
-                      <span class="arq-den-sub">{{ (denomCount[d.key] || 0) ? money((denomCount[d.key] || 0) * d.valor) : '' }}</span>
-                    </label>
-                  }
+                    </span>
+                    <span class="arq-lista-imp">{{ (denomCount[d.key] || 0) ? money((denomCount[d.key] || 0) * d.valor) : '—' }}</span>
+                  </label>
+                }
+                <div class="arq-lista-row arq-lista-foot">
+                  <span>Total en efectivo</span>
+                  <span class="arq-lista-pz">{{ pzasBilletes() + pzasMonedas() }} pzas</span>
+                  <span class="arq-lista-imp">{{ money(arqTotal()) }}</span>
                 </div>
-                <div class="arq-col-tot">
-                  <span>Total</span>
-                  <span class="arq-col-pz">{{ pzasBilletes() }} pzas</span>
-                  <span class="arq-col-mn">{{ money(totBilletes()) }}</span>
-                </div>
-              </section>
+              </div>
 
-              <section class="arq-col" role="group" aria-label="Registro detallado de monedas">
-                <h4 class="arq-col-t">Registro detallado de monedas</h4>
-                <div class="arq-col-rows">
-                  @for (d of monedas; track d.key; let i = $index) {
-                    <label class="arq-den">
-                      <span class="arq-den-lbl">{{ d.label }}</span>
-                      <input #denomInput pInputText class="arq-num" inputmode="numeric" autocomplete="off"
-                             [attr.aria-label]="'Cantidad de monedas de ' + d.label"
-                             [value]="denomCount[d.key] ?? ''" placeholder="0"
-                             (input)="onDenomInput(d.key, $event)" (keydown)="onCellKey($event, 1, i)" (focus)="selectAll($event)">
-                      <span class="arq-den-sub">{{ (denomCount[d.key] || 0) ? money((denomCount[d.key] || 0) * d.valor) : '' }}</span>
-                    </label>
-                  }
-                </div>
-                <div class="arq-col-tot">
-                  <span>Total</span>
-                  <span class="arq-col-pz">{{ pzasMonedas() }} pzas</span>
-                  <span class="arq-col-mn">{{ money(totMonedas()) }}</span>
-                </div>
-              </section>
-
-              <!-- SM.24 — El corte no es solo efectivo: Kepler arquea seis renglones.
-                   Acá se declara el total de cada uno (el voucher de la terminal, el
-                   fajo de cheques, los vales). El efectivo NO se repite: sale del
-                   conteo de las dos columnas de la izquierda. -->
-              @if (aTipo() !== 'relevo') {
+              @if (aTipo() === 'retiro') {
+                <section class="arq-col" aria-label="Retiros de este turno">
+                  <h4 class="arq-col-t">Retiros de este turno</h4>
+                  <div class="arq-col-rows">
+                    @for (r of retirosDelTurno(); track r.id) {
+                      <div class="arq-retiro"><span>Retiro {{ r.n }}</span><span class="muted">{{ r.hora }}</span><span class="ta-r">{{ money(r.total) }}</span></div>
+                    } @empty {
+                      <p class="muted arq-retiro-vacio">Todavía no guardas retiros en este turno.</p>
+                    }
+                    <div class="arq-retiro arq-retiro--actual"><span>Retiro {{ retirosDelTurno().length + 1 }}</span><span>contando</span><span class="ta-r">{{ money(arqTotal()) }}</span></div>
+                  </div>
+                  <div class="arq-col-tot">
+                    <span>Retirado en el turno</span>
+                    <span class="arq-col-mn">{{ money(retiradoDelTurno()) }}</span>
+                  </div>
+                </section>
+              } @else if (aTipo() !== 'relevo') {
+                <!-- SM.24 — El corte no es solo efectivo: Kepler arquea seis renglones.
+                     Acá se declara el total de cada uno (el voucher de la terminal, el
+                     fajo de cheques, los vales). El efectivo NO se repite: sale de la
+                     lista de la izquierda. -->
                 <section class="arq-col arq-col--medios" role="group" aria-label="Medios de pago y movimientos">
                   <h4 class="arq-col-t">Medios de pago y movimientos</h4>
                   <div class="arq-col-rows">
                     @for (m of mediosCampos; track m.key; let i = $index) {
                       <label class="arq-den arq-medio">
                         <span class="arq-medio-lbl">{{ m.label }}</span>
-                        <!-- Mismo #medioInput y mismo handler que las denominaciones: la
-                             cadena de saltos es UNA sola de punta a punta (↓ en 50¢ cae en
-                             Tarjeta). Si los medios quedan fuera, el operario teclea seis
-                             casillas con el pulgar y toca la pantalla con guantes. -->
+                        <!-- Mismo onCellKey que la lista: es la columna 1 de la grilla, asi que
+                             → desde cualquier denominacion cae en el medio del mismo renglon. -->
                         <input #medioInput pInputText class="arq-num arq-medio-num" inputmode="decimal" autocomplete="off"
                                [attr.aria-label]="m.label"
                                [value]="medios[m.key] ?? ''" placeholder="0.00"
-                               (input)="onMedioInput(m.key, $event)" (keydown)="onCellKey($event, 2, i)" (focus)="selectAll($event)">
+                               (input)="onMedioInput(m.key, $event)" (keydown)="onCellKey($event, 1, i)" (focus)="selectAll($event)">
                       </label>
                     }
                   </div>
@@ -443,8 +445,10 @@ interface CortesPersona {
               }
             </div>
             <p class="arq-hint"><i class="pi pi-arrows-alt" aria-hidden="true"></i>
-              Usa <kbd>↑</kbd> <kbd>↓</kbd> dentro de la columna, <kbd>←</kbd> <kbd>→</kbd> para cambiar de columna,
-              y <kbd>Enter</kbd> para avanzar. Abajo de la última casilla está el botón de guardar.</p>
+              Escribe cuántas piezas hay de cada una, de 50¢ a $1,000: <kbd>Enter</kbd> o <kbd>↓</kbd> baja a la siguiente
+              y <kbd>↑</kbd> sube.
+              @if (aTipo() !== 'retiro' && aTipo() !== 'relevo') { Con <kbd>→</kbd> pasas a los medios de pago. }
+              Abajo de la última casilla está el botón de guardar.</p>
             <label class="arq-lbl arq-block">Nota <input pInputText class="arq-fld" [(ngModel)]="aNota" (ngModelChange)="dirty.set(true)" placeholder="opcional"></label>
 
             <!-- Barra pegada al fondo: contando billetes se scrollea todo el rato, y
@@ -459,7 +463,7 @@ interface CortesPersona {
                      compara contra el efectivo esperado del corte. Sin esta línea,
                      un total que incluye tarjeta se lee como "esto es lo que hay en
                      el cajón" y no lo es. -->
-                @if (totMedios() > 0) {
+                @if (totMedios() > 0 && aTipo() !== 'retiro') {
                   <span class="arq-bar-desg">Efectivo {{ money(arqTotal()) }} · Otros medios {{ money(totMedios()) }}</span>
                 }
               </div>
@@ -1014,14 +1018,6 @@ interface CortesPersona {
     .arq-block .arq-sel { display: block; width: 100%; margin-top: .2rem; }
     :host ::ng-deep .arq-block .arq-fld { display: block; width: 100%; margin-top: .2rem; }
     :host ::ng-deep .arq-print { margin-top: .35rem; }
-    /* Grid intrínseco (§9): dos columnas donde caben, una donde no. Sin breakpoints. */
-    /* Tres bloques del formato de piso: billetes | monedas | medios. Grid
-       intrinseco, sin breakpoints: se apilan solos cuando no entran (DESIGN §9). */
-    /* min(15.5rem, 100%) en vez de 15.5rem pelado: con el minimo fijo, en un
-       telefono la unica columna medía 248px dentro de un contenedor de 230 y se
-       desbordaba. Con el min() el track se rinde al ancho disponible. */
-    .arq-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(15.5rem, 100%), 1fr));
-                gap: .8rem 1.4rem; margin: .2rem 0 .4rem; }
     .arq-col { min-width: 0; display: flex; flex-direction: column; }
     .arq-col-t { margin: 0 0 .4rem; padding-bottom: .3rem; border-bottom: 1px solid var(--border-color);
                  font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
@@ -1033,6 +1029,40 @@ interface CortesPersona {
     .arq-col-pz { margin-left: auto; font-size: .68rem; font-weight: 500; color: var(--text-muted); font-variant-numeric: tabular-nums; }
     .arq-col-mn { min-width: 5.5rem; text-align: right; font-variant-numeric: tabular-nums; }
     .arq-col--medios .arq-den { grid-template-columns: minmax(0, 1fr) 6.5rem; }
+    /* [SM.42] La lista "Monedas / billetes" y, al lado, lo que lleve el tipo (los retiros
+       del turno o los medios de pago). Tabla con reglas a la vista, como la hoja de arqueo:
+       tres columnas fijas para que el importe quede alineado renglon con renglon y el
+       total caiga bajo su columna. min(15.5rem, 100%): en un telefono el track se rinde
+       al ancho disponible en vez de desbordar. */
+    .arq-conteo { display: grid; grid-template-columns: minmax(0, 30rem) minmax(min(15.5rem, 100%), 20rem);
+                    justify-content: start; gap: .8rem 1.6rem; align-items: start; margin: .2rem 0 .6rem; }
+    .arq-lista { border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; background: var(--card-bg); }
+    .arq-lista-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(5.5rem, 1fr) minmax(0, 1.1fr);
+                     align-items: stretch; border-bottom: 1px solid var(--border-color); font-variant-numeric: tabular-nums; }
+    .arq-lista-row > span { display: flex; align-items: center; min-width: 0; padding: .22rem .7rem; }
+    .arq-lista-row > span + span { border-left: 1px solid var(--border-color); }
+    .arq-lista-head { background: var(--surface-hover-bg); }
+    .arq-lista-head > span { justify-content: center; padding: .45rem .7rem; font-size: .68rem; font-weight: 700;
+                             text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+    .arq-lista-den { justify-content: center; gap: .35rem; font-size: .85rem; font-weight: 600; }
+    .arq-lista-tp { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+    .arq-lista-q { justify-content: center; }
+    .arq-lista-q .arq-num { text-align: center; }
+    .arq-lista-imp { justify-content: flex-end; font-size: .8rem; color: var(--text-muted); }
+    /* El renglon ya contado se distingue: si a la cajera la interrumpen a media cuenta,
+       al volver ve de un vistazo hasta donde llego. */
+    .arq-lista-row.has { background: color-mix(in srgb, var(--action) 7%, transparent); }
+    .arq-lista-row.has .arq-lista-imp { color: var(--text-main); font-weight: 600; }
+    .arq-lista-foot { border-bottom: 0; background: var(--surface-hover-bg); }
+    .arq-lista-foot > span { padding: .5rem .7rem; font-weight: 800; }
+    .arq-lista-foot > span:first-child { justify-content: center; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; }
+    .arq-lista-pz { justify-content: center; font-size: .72rem; font-weight: 500; color: var(--text-muted); }
+    .arq-lista-foot .arq-lista-imp { font-size: .95rem; color: var(--text-main); }
+    .arq-retiro { display: grid; grid-template-columns: minmax(0, 1fr) auto 6rem; gap: .5rem; align-items: baseline;
+                  padding: .25rem 0; font-size: .82rem; font-variant-numeric: tabular-nums;
+                  border-bottom: 1px dashed var(--border-color); }
+    .arq-retiro--actual { border-bottom: 0; font-weight: 700; color: var(--action); }
+    .arq-retiro-vacio { margin: .2rem 0 .3rem; font-size: .76rem; }
     .arq-inc { display: block; margin-top: .55rem; }
     :host ::ng-deep .arq-inc .arq-fld { display: block; width: 100%; margin-top: .2rem; }
     /* El track del medio es minmax(0,1fr): con 1fr no bajaba del ancho fijo
@@ -1116,6 +1146,11 @@ interface CortesPersona {
        una sola columna de verdad - los campos del encabezado a lo ancho, las
        tarjetas de turno a lo ancho, y el boton de guardar en su propio renglon
        en vez de pelearse con el total. */
+    /* [SM.42] Sin espacio para la lista y la columna de al lado, se apilan. */
+    @container arqpanel (max-width: 52rem) {
+      .arq-conteo { grid-template-columns: minmax(0, 1fr); gap: 1.3rem; }
+    }
+
     @container arqpanel (max-width: 30rem) {
       .arq-head { gap: .55rem; }
       .arq-head .arq-lbl { width: 100%; }
@@ -1125,9 +1160,6 @@ interface CortesPersona {
          pide (el control lo comparten 14 pantallas y no decide por ellas). */
       :host ::ng-deep app-segmented .seg { display: flex; }
       :host ::ng-deep app-segmented .seg-btn { flex: 1 1 auto; }
-      /* Apiladas, las tres columnas del formato necesitan mas aire entre si:
-         con .8rem se leian como una sola lista de 20 renglones. */
-      .arq-cols { gap: 1.3rem; }
       /* El total en una linea (rotulo + monto al lado) en vez de dos: en un
          telefono la barra pegada se comia 112px de los 844 de alto. */
       .arq-bar-total { flex-flow: row wrap; align-items: baseline; column-gap: .45rem; }
@@ -1475,6 +1507,13 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   readonly monedas = MONEDAS_MXN;
   /** El orden importa: es el de los inputs en pantalla (navegacion ↑/↓). */
   readonly denoms = DENOMINACIONES_MXN;
+  /**
+   * [SM.42] El orden de la lista de conteo: de menor a mayor, monedas y luego billetes
+   * (50¢ → $1,000), en todas las pestañas. Se arma aca y no en `libs/contracts`: el catalogo
+   * compartido va de mayor a menor y lo leen tambien el ticket y el cuadre de almacen, que
+   * no cambian.
+   */
+  readonly denomsLista: readonly Denominacion[] = [...MONEDAS_MXN].reverse().concat([...BILLETES_MXN].reverse());
   /** La llave es la del catalogo (`20` billete, `20m` moneda), no el valor. */
   denomCount: Record<string, number> = {};
   readonly aTipo = signal<ArqueoTipo>('cierre');
@@ -1491,8 +1530,13 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * honesta de $18,587). Cada medio se cuadra contra SU columna de Kepler (SM.24).
    */
   readonly totMedios = signal(0);
-  /** Efectivo + medios: el número grande de la barra y del diálogo. */
-  readonly totalTurno = computed(() => Math.round((this.arqTotal() + this.totMedios()) * 100) / 100);
+  /**
+   * Efectivo + medios: el número grande de la barra y del diálogo.
+   * [SM.42] En el retiro los medios no se capturan, así que tampoco suman: un monto que
+   * quedó escrito en el cierre no puede colarse al total de una sangría.
+   */
+  readonly totalTurno = computed(() =>
+    Math.round((this.arqTotal() + (this.aTipo() === 'retiro' ? 0 : this.totMedios())) * 100) / 100);
   readonly totMonedas = signal(0);
   readonly pzasBilletes = signal(0);
   readonly pzasMonedas = signal(0);
@@ -1844,13 +1888,12 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   /**
    * **La captura se mueve como se ve: en dos dimensiones.**
    *
-   * La pantalla son tres columnas (billetes | monedas | medios), no una lista, y
-   * con una cadena lineal bajar de `$1000` a `Tarjeta` costaba 11 pulsaciones.
-   * Ahora:
+   * [SM.42] La pantalla son dos columnas: la lista de denominaciones (50¢ → $1,000) y,
+   * cuando el tipo los lleva, los medios de pago. Ahora:
    *
    *  - `↑` / `↓` → dentro de la columna;
    *  - `←` / `→` → a la columna de al lado, **mismo renglón** (si la vecina es más
-   *    corta — monedas tiene 5 y billetes 6 — cae en su último renglón, no al vacío);
+   *    corta — los medios son 5 y la lista 12 — cae en su último renglón, no al vacío);
    *  - `Enter` → igual que `↓`, para no romper el hábito de quien ya lo usa;
    *  - `↓` (o `Enter`) en la **última** casilla de una columna → **el botón de
    *    guardar**, que es a dónde iba a ir la mano de todos modos.
@@ -1991,9 +2034,11 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
    * billetes; los medios son su propia lista y **se omiten si no se renderizaron**.
    */
   private grilla(): HTMLInputElement[][] {
+    // [SM.42] Las denominaciones son UNA sola columna (50¢ → $1,000): ↑/↓ la recorren entera.
+    // Partirla en billetes|monedas, como cuando eran dos bloques, la cortaría en la $20.
     const den = (this.denomInputs?.toArray() ?? []).map((r) => r.nativeElement);
     const med = (this.medioInputs?.toArray() ?? []).map((r) => r.nativeElement);
-    const cols = [den.slice(0, this.billetes.length), den.slice(this.billetes.length)];
+    const cols = den.length ? [den] : [];
     if (med.length) cols.push(med);
     return cols;
   }
@@ -2048,7 +2093,9 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
       const n = Number(this.denomCount[d.key]) || 0;
       if (n > 0) denominations[d.key] = n;
     }
-    const medios = Object.keys(this.medios).length ? { ...this.medios } : undefined;
+    // [SM.42] El retiro no lleva medios (no se pintan): no se mandan aunque hayan quedado
+    // escritos al cambiar de pestaña desde el cierre.
+    const medios = this.aTipo() !== 'retiro' && Object.keys(this.medios).length ? { ...this.medios } : undefined;
     const relevo = this.aTipo() === 'relevo';
     const t = this.turnoSel();
     // Con turno, el encabezado sale de Kepler; el backend lo vuelve a resolver
@@ -2202,12 +2249,46 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
 
   /** Solo los medios con monto: cinco ceros en el resumen no son información. */
   mediosDeclarados(): { key: string; label: string; monto: number }[] {
+    if (this.aTipo() === 'retiro') return [];   // [SM.42] el retiro no los lleva
     return this.mediosCampos
       .map((m) => ({ key: m.key, label: m.label, monto: Number(this.medios[m.key]) || 0 }))
       .filter((m) => m.monto > 0);
   }
 
   private setCortes(key: string, v: CortesPersona) { this.cortesCache.update((m) => ({ ...m, [key]: v })); }
+
+  /**
+   * [SM.42] Los retiros ya guardados de ESTE turno, para tenerlos a la vista mientras se
+   * cuenta el siguiente. Salen del historial que la pantalla ya trae (`rows`), sin otra
+   * llamada. Es lo que la propia cajera contó, no un esperado: el arqueo sigue ciego.
+   *
+   * Con turno de Kepler casan por sucursal + caja + folio del corte; sin turno (captura
+   * manual), por sucursal + caja + el día de hoy. Método y no `computed`: `aCaja` es un
+   * campo plano, y un computed sobre él se quedaría congelado (el bug de `aSuc`, SM.41).
+   */
+  retirosDelTurno(): { id: string; n: number; hora: string; total: number }[] {
+    const t = this.turnoSel();
+    const dia = (s: string | null | undefined) => String(s ?? '').slice(0, 10);
+    const suc = t ? t.warehouse_code : this.aSuc().trim();
+    const caja = t ? String(t.caja) : this.aCaja.trim();
+    if (!suc || !caja) return [];
+    const fecha = t ? dia(t.business_date) : this.fmtDate(new Date());
+    return this.rows()
+      .filter((r) => r.tipo === 'retiro' && r.warehouse_code === suc && String(r.caja) === caja
+        && (t && r.cash_cut_folio ? String(r.cash_cut_folio) === String(t.folio) : dia(r.business_date) === fecha))
+      .sort((a, b) => String(a.captured_at).localeCompare(String(b.captured_at)))
+      .map((r, i) => ({ id: r.id, n: r.secuencia ?? i + 1, hora: this.horaDe(r.captured_at), total: Number(r.total_contado) || 0 }));
+  }
+
+  retiradoDelTurno(): number {
+    return Math.round(this.retirosDelTurno().reduce((s, r) => s + r.total, 0) * 100) / 100;
+  }
+
+  private horaDe(iso: string | null | undefined): string {
+    const d = iso ? new Date(iso) : null;
+    if (!d || Number.isNaN(d.getTime())) return '—';
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
 
   /** 'YYYY-MM-DD' de hace N días, en la fecha local (la misma que usa el resto). */
   private desdeHace(dias: number): string {

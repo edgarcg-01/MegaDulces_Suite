@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Arqueo de caja: monedas y billetes en una sola lista, de 50¢ a $1,000 (SM.42, 2026-10-07)
+- `/tienda/arqueo`: el conteo deja de ser dos columnas (billetes | monedas, de mayor a menor) y pasa a **una tabla «Monedas / billetes» de menor a mayor** —50¢, $1, $2, $5, $10, $20 moneda, $20 billete, $50 … $1,000— con cantidad, importe y **«Total en efectivo»** al pie, como la hoja de arqueo de la operación. En todas las pestañas.
+- Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
+- Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
+- Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+
 ### Added — Costo por compra: archivar varias facturas recibidas a la vez, con sello y firma (RE.35.7, 2026-10-06)
 - Botón **Varias** (y soltar 2 o más PDF en la barra; varias fotos soltadas ahí siguen siendo UNA factura): PDF o fotos, **una recepción por archivo**. Como la captura por lote de pagos a proveedores: la IA lee cada papel de 3 en 3, busca su **CFDI en ContPAQi** y la **entrada de Kepler** que cuadra, y la fila viene lista / por confirmar / elegir / sin entrada. Nada se guarda sin «Guardar». Al guardar, lo archivado **sale de la lista** (como en pagos, PC.8) y queda un resumen: cuántas pasan solas, cuántas por revisar y el atajo «Ver por revisar».
 - El OCR ahora lee el **UUID**, el **sello de recibido** y la **firma** de quien recibió (lo que da valor al papel archivado). El expediente suma los checks **Sello de recibido** y **Firma** (regla **R-v2**): si el papel no los trae no pasa solo; las lecturas anteriores quedan «sin medir» y no bloquean.
