@@ -65,6 +65,15 @@ const SIN_REPARTIR = {
     '"quien cuenta/reconcilia NO es quien investiga". A quien le toca investigar es decision de ' +
     'negocio y NO se deriva del estado vivo -- repartirlo a ojo destruiria el control que el ' +
     'modulo existe para implementar. Pendiente: Edgar.',
+  // `[RH.1.5]`/`[RH.1.6]` (Fase RH, ADR-084): la API de asistencia ya las exige, pero las
+  // pantallas son `[RH.1.7]` y no existen: repartirlas hoy seria prometer una casilla que no abre
+  // nada. Y A QUIEN le toca calificar y a quien auditar es separacion de funciones (quien captura
+  // no califica, quien califica no audita): lo decide RH, no se deriva del estado vivo.
+  ...Object.fromEntries(['HR_ATTENDANCE_VER', 'HR_ATTENDANCE_GESTIONAR', 'HR_INCIDENTS_CAPTURAR',
+    'HR_INCIDENTS_CALIFICAR', 'HR_INCIDENTS_AUDITAR', 'HR_PERIOD_CLOSE'].map((k) => [k,
+    'Fase RH: la API la exige desde [RH.1.5]/[RH.1.6]; sin pantalla hasta [RH.1.7], y el reparto ' +
+    '(quien captura, califica, audita, cierra) es separacion de funciones que decide RH. ' +
+    'Pendiente: David con RH.'])),
 };
 
 /**

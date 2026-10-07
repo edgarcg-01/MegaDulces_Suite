@@ -274,9 +274,10 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
 - [ ] **[RH.1.3]** Agente al monorepo: código del agente de Mega Talento + `verify_mode`; contenedor en el
   namespace `ingesta` de `md`; latido en `cron_runs` + umbral en `CRON_JOBS`; prueba negativa (apagar un reloj y ver el rojo).
 - [ ] **[RH.1.4]** Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4.
-- [ ] **[RH.1.5]** Horarios deducidos y agente de alertas como `@Cron` del worker (una sola implementación;
-  hoy está duplicada en la API y en el bot). Decidir revisión vs incidencia.
-- [ ] **[RH.1.6]** Incidencias (4 estados) y cierre semanal jueves→miércoles. Permisos `HR_INCIDENTS_*`, `HR_PERIOD_CLOSE`.
+- [ ] **[RH.1.5]** 🧪 Horarios deducidos y agente de alertas como `@Cron` del worker (una sola implementación;
+  hoy está duplicada en la API y en el bot). Decidir revisión vs incidencia. → En código 2026-10-07, ver §5.1.
+- [ ] **[RH.1.6]** 🧪 Incidencias y cierre semanal jueves→miércoles. Permisos `HR_INCIDENTS_*`, `HR_PERIOD_CLOSE`.
+  Son **6** estados, no 4 (rechazada y anulada son salidas del flujo). → En código 2026-10-07, ver §5.1.
 - [ ] **[RH.1.7]** Pantallas `/rh/asistencia`, `/rh/incidencias`, `/rh/relojes`; espacio RH `active`.
 - [ ] **[RH.1.8]** Corte de asistencia (§6): carga única verificada de checadas, incidencias y cierres; el
   agente apunta a la Suite; las pantallas de asistencia de Mega Talento quedan de sólo lectura 2 semanas.
@@ -313,6 +314,58 @@ nómina): confirmación con reloj, código del celular o firma con motivo; venta
 comprobante sellado (NOM-151). Se construye sobre RH.1 cuando se decida.
 
 ---
+
+### 5.1 `[RH.1.5]`/`[RH.1.6]` — lo que se trasladó y lo que se decidió (2026-10-07)
+
+**Qué se trasladó.** La lógica de asistencia de Mega Talento (`api/src/agente-horarios/*`, `incidencias.ts`,
+`cierres.ts`, commits de sep–oct 2026) vive en `libs/hr/src/lib/attendance/`. Lo que es **regla** se copió
+textual (`logic/horario-deducido.ts`, `logic/reglas.ts`, `logic/tipos.ts`, `detalleDia`) para que se audite
+con un diff; lo que mezclaba consulta y cálculo (`asistenciaPersonas`, `detectar`) se partió en una función
+pura y una lectura (`attendance-reader.ts`), sin tocar el recorrido. Encima: el agente (`@Cron` cada 30 min
+con candado por sitio y bitácora en `hr.attendance_agent_runs`, mig `20261007130000`), la cola de alertas,
+los horarios (por sitio y por persona), las incidencias con su bitácora y el cierre de semana.
+API en `/api/hr/attendance/*` (asistencia, checadas, horarios, agente, alertas, incidencias, cierres).
+
+**Lo que se encontró al medir:**
+- **La prueba del horario de Mega Talento está en ROJO desde el 18/08** (`tools/probar-horario.ts`: 6 fallas).
+  Las seis se explican por dos cambios de regla de RH que nadie llevó a la prueba: la semana de nómina pasó
+  de miércoles a **jueves** (18/08) y una ausencia puede ser **el descanso** de la semana (26/09). Aquí la
+  prueba trae los números corregidos y cada uno dice por qué cambió.
+- **La copia del bot se quedó con la regla vieja** (`BOT-RH/src/horario-deducido.js` corta en miércoles y no
+  tiene descansos por semana): su panel da 146 min de retardo a una persona de Morelia donde el portal da 131. En la Suite
+  queda **una sola** implementación, la vigente. El panel del bot se retira en `[RH.3.4]`.
+- **El agente de producción nunca manda si una checada es entrada o salida** (la librería ZK no lo trae), y
+  las reglas se calibraron así. El lector de la Fase CH sí decodificaba el estado del reloj: usarlo
+  encendería las ramas "con tipo" de cuatro reglas sólo para la parte vieja de la historia. La lógica
+  trabaja con `tipo` vacío; el dato queda guardado.
+
+**Decisiones:**
+- **Revisión vs incidencia → la incidencia es el único mecanismo.** La revisión de Mega Talento excusaba por
+  coincidencia de palabras y se escribía **sin pasar por el candado de semana cerrada** (justificar con ella
+  cambiaba el número de una semana ya pagada). En la Suite no se escribe; sus filas históricas se LEEN
+  para que las semanas viejas den el mismo número.
+- **El cierre toma la foto dentro de la misma transacción** que cambia los estados (allá iba afuera): la
+  foto es exactamente lo que quedó cerrado.
+- **Separación de funciones por clave**: `HR_INCIDENTS_CAPTURAR` / `_CALIFICAR` / `_AUDITAR`, y quien
+  audita nunca es quien capturó o calificó (lógica + CHECK de la tabla). Allá eran el mismo rol admin.
+- **El agente arranca apagado** (`ENABLE_HR_ATTENDANCE_AGENT`): hasta el corte la fuente viva es Mega
+  Talento. Apagado tampoco late (un latido sin su fila en `CRON_JOBS` se pinta verde sin umbral). El
+  encendido y las filas `hr_attendance_agent` / `hr_attendance_ingest` de `CRON_JOBS` van en el corte.
+- **Aprobar alertas sigue siendo de una en una** aunque el aviso al jefe por WhatsApp todavía no exista.
+- **Los horarios de sitio se desactivan, no se borran** (pueden estar referidos por el de una persona).
+
+**Medido:** 86 pruebas puras + 2 contra Postgres (35 aserciones de punta a punta: lote → vista →
+asistencia → agente → incidencias → cierre → reapertura, con la separación de funciones probada también
+contra el CHECK y la bitácora probada como sólo-agregar con el rol `app_runtime`). Tiempos con un sitio
+sintético del tamaño real (70 personas, ~29 mil checadas): asistencia de una semana **116 ms**, de tres
+meses **259 ms**, agente de 45 días **96 ms** — debajo del criterio de 1 s. ⚠️ Es una base local con un
+solo sitio; contra prod se vuelve a medir en el corte.
+
+**Declarado, no construido aquí:** el aviso al jefe por WhatsApp y su respuesta con código (`[RH.3]`, con el
+bot); presencia en vivo, "ubicación de mi equipo" y cruces entre plazas (son pantallas: `[RH.1.7]`); el
+alcance de datos del rol Promotoría (ADR-050, con las pantallas); editar el padrón y su turno de sitio
+(`[RH.1.4]`); repartir las claves `HR_*` (con las pantallas; mientras, `SIN_REPARTIR`). Las áreas de
+`horarios_sucursal` no se trasladan: el horario por persona ya cubre ese caso.
 
 ## 6. Cómo se hace cada corte
 

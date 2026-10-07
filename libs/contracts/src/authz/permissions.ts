@@ -92,6 +92,19 @@ export enum Permission {
   // se identifica en la pantalla, no con esta credencial. Restrictivo: no se reparte a
   // ningún rol existente. ⚠️ La pantalla que gatea es `[CH.0.10]` y todavía no existe.
   HR_ATTENDANCE_CHECAR = 'HR_ATTENDANCE_CHECAR',
+  // Módulo: RH / Asistencia — Fase RH (ADR-084), lo que antes vivía en Mega Talento. Las
+  // pantallas son `[RH.1.7]` y todavía no existen: estas claves gatean la API desde `[RH.1.5]`/
+  // `[RH.1.6]` y se REPARTEN con las pantallas (mientras, `SIN_REPARTIR` del candado de reparto).
+  // Ver/gestionar la asistencia: checadas, horarios, la cola de alertas del agente.
+  HR_ATTENDANCE_VER = 'HR_ATTENDANCE_VER',
+  HR_ATTENDANCE_GESTIONAR = 'HR_ATTENDANCE_GESTIONAR',
+  // Incidencias en tres claves a propósito: separación de funciones. Quien captura entrega, quien
+  // califica decide si cuenta, y quien audita revisa lo cerrado — y nunca lo que capturó o calificó.
+  HR_INCIDENTS_CAPTURAR = 'HR_INCIDENTS_CAPTURAR',
+  HR_INCIDENTS_CALIFICAR = 'HR_INCIDENTS_CALIFICAR',
+  HR_INCIDENTS_AUDITAR = 'HR_INCIDENTS_AUDITAR',
+  // Cerrar (y reabrir, con motivo) la semana jueves→miércoles para prenómina.
+  HR_PERIOD_CLOSE = 'HR_PERIOD_CLOSE',
 
   // Módulo: Tienda — verificador de precios de mostrador (kiosco con lector de barras).
   // Sólo lectura de precio de venta: nunca costo ni margen. Los endpoints que consume

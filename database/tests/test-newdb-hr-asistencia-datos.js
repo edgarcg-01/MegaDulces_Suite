@@ -26,6 +26,7 @@ const MIGS = [
   '20261007100000_hr_relojes_y_checadas',
   '20261007110000_hr_horarios_y_alertas',
   '20261007304401_hr_incidencias_y_cierres',
+  '20261007130000_hr_agente_corridas',
 ].map((n) => require(path.resolve(__dirname, '../migrations-newdb', `${n}.js`)));
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
@@ -77,7 +78,8 @@ const check = (cond, msg) => {
 
       console.log('\n[2] Tablas nuevas con RLS forzado');
       const nuevas = ['attendance_sites', 'device_commands', 'ingest_batches', 'work_schedules', 'person_schedules', 'attendance_rules',
-        'attendance_alerts', 'attendance_reviews', 'attendance_incidents', 'attendance_incident_log', 'attendance_closures'];
+        'attendance_alerts', 'attendance_reviews', 'attendance_incidents', 'attendance_incident_log', 'attendance_closures',
+        'attendance_agent_runs'];
       const { rows: rlsRows } = await trx.raw(`
         SELECT c.relname, c.relrowsecurity AS rls, c.relforcerowsecurity AS forced,
                EXISTS (SELECT 1 FROM pg_policies p WHERE p.schemaname = 'hr' AND p.tablename = c.relname
