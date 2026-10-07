@@ -9,6 +9,12 @@
 ---
 
 ## [Unreleased]
+### Changed — Arqueo de caja: monedas y billetes en una sola lista, de 50¢ a $1,000 (SM.42, 2026-10-07)
+- `/tienda/arqueo`: el conteo deja de ser dos columnas (billetes | monedas, de mayor a menor) y pasa a **una tabla «Monedas / billetes» de menor a mayor** —50¢, $1, $2, $5, $10, $20 moneda, $20 billete, $50 … $1,000— con cantidad, importe y **«Total en efectivo»** al pie, como la hoja de arqueo de la operación. En todas las pestañas.
+- Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
+- Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
+- Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+
 ### Fixed — `/compras/pedido`: el testigo del crash estaba ciego, el CLS de toda la app se guardaba en 0, y la píldora no podía decir la edad del dato (RA-PERF.5–8, 2026-10-07)
 - **El guard del "Maximum call stack" llevaba 69 días sin poder disparar.** Medía `(new Error().stack).split('\n').length > 300` y **`Error.stackTraceLimit` vale 10 por default en V8**: con **500 marcos reales anidados esa expresión devuelve 11**. Por eso la causa del crash nunca se identificó — el instrumento no veía nada, y encima pagaba un `queueMicrotask` por tick. Ahora sube el límite antes de capturar y mide **dos** señales: profundidad real y **re-entrada** (cuántas veces aparece `money` en su propio stack), que es la señal sin umbral. ⚠️ **La causa raíz sigue abierta**; lo que se arregló es que ahora haya cómo verla.
 - **Y el crash no salía del navegador**: el `throw` muere dentro de una expresión de template y lo come el `ErrorHandler` de Angular. Medido en prod: en 30 días hay **un solo** evento `kind='error'`, de `/portal/login`. El diagnóstico ahora se reporta por telemetría.
