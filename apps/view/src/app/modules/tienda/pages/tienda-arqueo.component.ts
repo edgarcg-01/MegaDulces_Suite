@@ -1042,27 +1042,27 @@ interface CortesPersona {
     .arq-lista-row > span { display: flex; align-items: center; min-width: 0; padding: .22rem .7rem; }
     .arq-lista-row > span + span { border-left: 1px solid var(--border-color); }
     .arq-lista-head { background: var(--surface-hover-bg); }
-    .arq-lista-head > span { justify-content: center; padding: .45rem .7rem; font-size: .68rem; font-weight: 700;
+    .arq-lista-head > span { justify-content: center; padding: .45rem .7rem; font-size: var(--fs-micro); font-weight: 700;
                              text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
-    .arq-lista-den { justify-content: center; gap: .35rem; font-size: .85rem; font-weight: 600; }
-    .arq-lista-tp { font-size: .6rem; font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
+    .arq-lista-den { justify-content: center; gap: .35rem; font-size: var(--fs-body); font-weight: 600; }
+    .arq-lista-tp { font-size: var(--fs-nano); font-weight: 700; text-transform: uppercase; letter-spacing: .03em; color: var(--text-muted); }
     .arq-lista-q { justify-content: center; }
     .arq-lista-q .arq-num { text-align: center; }
-    .arq-lista-imp { justify-content: flex-end; font-size: .8rem; color: var(--text-muted); }
+    .arq-lista-imp { justify-content: flex-end; font-size: var(--fs-sm); color: var(--text-muted); }
     /* El renglon ya contado se distingue: si a la cajera la interrumpen a media cuenta,
        al volver ve de un vistazo hasta donde llego. */
     .arq-lista-row.has { background: color-mix(in srgb, var(--action) 7%, transparent); }
     .arq-lista-row.has .arq-lista-imp { color: var(--text-main); font-weight: 600; }
     .arq-lista-foot { border-bottom: 0; background: var(--surface-hover-bg); }
     .arq-lista-foot > span { padding: .5rem .7rem; font-weight: 800; }
-    .arq-lista-foot > span:first-child { justify-content: center; font-size: .68rem; text-transform: uppercase; letter-spacing: .04em; }
-    .arq-lista-pz { justify-content: center; font-size: .72rem; font-weight: 500; color: var(--text-muted); }
-    .arq-lista-foot .arq-lista-imp { font-size: .95rem; color: var(--text-main); }
+    .arq-lista-foot > span:first-child { justify-content: center; font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; }
+    .arq-lista-pz { justify-content: center; font-size: var(--fs-xs); font-weight: 500; color: var(--text-muted); }
+    .arq-lista-foot .arq-lista-imp { font-size: var(--fs-h3); color: var(--text-main); }
     .arq-retiro { display: grid; grid-template-columns: minmax(0, 1fr) auto 6rem; gap: .5rem; align-items: baseline;
-                  padding: .25rem 0; font-size: .82rem; font-variant-numeric: tabular-nums;
+                  padding: .25rem 0; font-size: var(--fs-sm); font-variant-numeric: tabular-nums;
                   border-bottom: 1px dashed var(--border-color); }
     .arq-retiro--actual { border-bottom: 0; font-weight: 700; color: var(--action); }
-    .arq-retiro-vacio { margin: .2rem 0 .3rem; font-size: .76rem; }
+    .arq-retiro-vacio { margin: .2rem 0 .3rem; font-size: var(--fs-xs); }
     .arq-inc { display: block; margin-top: .55rem; }
     :host ::ng-deep .arq-inc .arq-fld { display: block; width: 100%; margin-top: .2rem; }
     /* El track del medio es minmax(0,1fr): con 1fr no bajaba del ancho fijo
