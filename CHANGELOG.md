@@ -459,6 +459,8 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 
 **Nueva solicitud, por área (MS.7.15):** cuando hay varias áreas (TI, Mantenimiento…), «Nueva solicitud» primero pregunta a qué área va y después ofrece sólo las categorías de esa área; con una sola área se ve igual que siempre. Cambiar de área empieza de cero la categoría, las preguntas propias y la zona.
 
+**Bandeja por área y traslado desde la ficha (MS.7.16):** cuando una persona atiende más de un área, la bandeja ofrece un filtro de área (sólo las suyas), etiqueta cada solicitud con su área y muestra qué se espera en las que están en espera. La coordinación puede «Transferir a otra área» desde la ficha, eligiendo el área, la categoría nueva y diciendo por qué; tras trasladar, la solicitud sale de su bandeja. Con una sola área todo se ve igual que siempre.
+
 **Campos propios por cola (MS.7.4):** cada cola puede pedir preguntas extra al reportar —sí/no, una opción de una lista, un texto o una foto— que su coordinación declara desde Configuración, sin tocar código; las obligatorias no dejan enviar sin contestar y la ficha muestra las respuestas (también si el campo se apaga después). Hoy ninguna cola trae campos: TI y Mantenimiento no cambian. **Nada aplicado a prod** (migración `20261007280000`).
 
 **Zonas en la Mesa de Servicio (MS.7.3):** además de la ubicación, las colas que lo piden (hoy Mantenimiento) preguntan **en qué parte** — bodega, andén, oficina, baños, exterior — de forma opcional; la ficha la muestra y la coordinación administra el catálogo desde Configuración (apagar una zona no borra: los tickets viejos la conservan). Para TI no cambia nada. **Nada aplicado a prod** (migración `20261007270000`).

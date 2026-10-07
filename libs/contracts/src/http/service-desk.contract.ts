@@ -403,6 +403,8 @@ export interface SdStatsResponse {
   resolution_breached: number;
   by_status: Partial<Record<SdStatus, number>>;
   by_priority: Partial<Record<SdPriority, number>>;
+  /** `[MS.7.16]` Las colas que esta persona lee (clave ∩ pertenencia; el god-mode, todas): lo que ofrece el selector de la bandeja. */
+  queues: { id: string; name: string }[];
 }
 
 // ── Reportes (coordinación) ────────────────────────────────────────────────────────────────────

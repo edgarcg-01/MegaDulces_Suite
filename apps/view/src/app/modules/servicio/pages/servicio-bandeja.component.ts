@@ -6,11 +6,11 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
-import { SD_PRIORITIES, SD_STATUSES, SD_UBICACIONES_EXTRA, type SdAgentDto, type SdCategoryDto, type SdRequestRow, type SdStatsResponse } from '@megadulces/contracts';
+import { SD_PRIORITIES, SD_STATUSES, SD_UBICACIONES_EXTRA, type SdAgentDto, type SdCategoryDto, type SdPauseReason, type SdRequestRow, type SdStatsResponse, type SdTransferResult } from '@megadulces/contracts';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError, slaTexto, type SdInboxQuery } from '../service-desk.service';
+import { PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError, slaTexto, type SdInboxQuery } from '../service-desk.service';
 import { SdRequestDetailComponent } from '../sd-request-detail.component';
 
 /**
@@ -58,6 +58,11 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
         @for (c of scopes; track c.value) {
           <button type="button" class="sb-chip" [class.on]="scope() === c.value" (click)="setScope(c.value)">{{ c.label }}</button>
         }
+        @if (hayVariasColas()) {
+          <!-- [MS.7.16] Sólo las colas que esta persona lee (las dice el servidor): no se ofrece lo que no vería. -->
+          <p-select class="sb-pri" [options]="colas()" optionLabel="name" optionValue="id" [ngModel]="cola()" (ngModelChange)="setCola($event)"
+                    placeholder="Todas mis áreas" [showClear]="true" appendTo="body" ariaLabel="Filtrar por área" />
+        }
         <p-select class="sb-pri" [options]="prioridades" optionLabel="label" optionValue="value" [ngModel]="prio()"
                   (ngModelChange)="setPrio($event)" placeholder="Cualquier prioridad" [showClear]="true" appendTo="body" ariaLabel="Filtrar por prioridad" />
         <span class="sb-search">
@@ -95,6 +100,7 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
       </section>
 
       @if (loadError(); as e) { <p class="sb-banner bad" role="alert">{{ e }}</p> }
+      @if (aviso(); as a) { <p class="sb-banner ok" role="status">{{ a }}</p> }
 
       <div class="sb-body" [class.has-detail]="!!selId()">
         <section class="sb-list" aria-label="Solicitudes">
@@ -115,11 +121,11 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
                 @for (t of rows(); track t.id) {
                   <tr [class.sel]="selId() === t.id" (click)="abrir(t.id)" tabindex="0" (keydown.enter)="abrir(t.id)">
                     <td class="mono" role="cell" data-label="Folio">{{ t.folio }}</td>
-                    <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}<small>{{ t.category_name }}</small></td>
+                    <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}<small>@if (hayVariasColas() && t.queue_name) { <b class="cola">{{ t.queue_name }}</b> · }{{ t.category_name }}</small></td>
                     <td class="opc" role="cell" data-label="Reportó">{{ t.requester_name || '—' }}</td>
                     <td class="opc" role="cell" data-label="Ubicación">{{ t.warehouse_name || '—' }}</td>
                     <td role="cell" data-label="Prioridad"><span class="pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span></td>
-                    <td role="cell" data-label="Estado"><span class="est" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span></td>
+                    <td role="cell" data-label="Estado"><span class="est" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span>@if (t.pause_reason) { <small class="espera">{{ motivoPausa(t.pause_reason) }}</small> }</td>
                     <td class="opc" role="cell" data-label="Atiende">{{ t.assigned_to_name || '—' }}</td>
                     <td role="cell" data-label="Plazo"><span class="sla" [attr.data-t]="plazo(t).tono">{{ plazo(t).texto }}</span></td>
                   </tr>
@@ -139,7 +145,7 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
         @if (selId(); as id) {
           <section class="sb-detail" aria-label="Ficha">
             <p-button class="sb-back" icon="pi pi-arrow-left" label="Volver a la bandeja" [text]="true" severity="secondary" size="small" (onClick)="cerrar()" />
-            <app-sd-request-detail [id]="id" [agent]="true" [coord]="esCoordinador()" (cambio)="alCambiar()" (cerrar)="cerrar()" />
+            <app-sd-request-detail [id]="id" [agent]="true" [coord]="esCoordinador()" (cambio)="alCambiar()" (cerrar)="cerrar()" (trasladada)="alTrasladar($event)" />
           </section>
         }
       </div>
@@ -185,6 +191,9 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
     .sb-search input { width: 100%; padding-left: 30px; }
     .sb-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); }
     .sb-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    .sb-banner.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    .cola { color: var(--text-main); }
+    .espera { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     .sb-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); align-items: start; }
     .sb-body.has-detail { grid-template-columns: minmax(0, 1.3fr) minmax(380px, 1fr); }
     .sb-list, .sb-detail { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
@@ -281,6 +290,12 @@ export class ServicioBandejaComponent implements OnInit {
   readonly search = signal('');
   readonly estado = signal<string | null>(null);
   readonly categoria = signal<string | null>(null);
+  /** `[MS.7.16]` Filtro por cola. Las opciones son sólo las colas que esta persona lee (vienen de las estadísticas). */
+  readonly cola = signal<string | null>(null);
+  readonly colas = computed(() => this.st()?.queues ?? []);
+  readonly hayVariasColas = computed(() => this.colas().length > 1);
+  /** Aviso de lo que acaba de pasar (p. ej. un traslado). */
+  readonly aviso = signal<string | null>(null);
   readonly atiende = signal<string | null>(null);
   readonly ubic = signal<string | null>(null);
   readonly desde = signal('');
@@ -298,8 +313,8 @@ export class ServicioBandejaComponent implements OnInit {
   /** Sólo teléfono: los filtros extra van tras un botón. En escritorio siempre se ven. */
   readonly filtrosAbiertos = signal(false);
   /** Cuántos filtros hay puestos (se muestra en el botón del teléfono, para no esconder que hay uno activo). */
-  readonly nFiltros = computed(() => [this.prio(), this.estado(), this.categoria(), this.atiende(), this.ubic(), this.desde(), this.hasta(), this.sortCol()].filter(Boolean).length);
-  readonly hayFiltros = computed(() => !!(this.prio() || this.estado() || this.categoria() || this.atiende() || this.ubic() || this.desde() || this.hasta() || this.sortCol()));
+  readonly nFiltros = computed(() => [this.prio(), this.cola(), this.estado(), this.categoria(), this.atiende(), this.ubic(), this.desde(), this.hasta(), this.sortCol()].filter(Boolean).length);
+  readonly hayFiltros = computed(() => !!(this.prio() || this.cola() || this.estado() || this.categoria() || this.atiende() || this.ubic() || this.desde() || this.hasta() || this.sortCol()));
   readonly selId = signal<string | null>(null);
   /** Reasigna quien coordina; el servidor lo vuelve a exigir (`SERVICIO_COORDINAR` o god-mode). */
   readonly esCoordinador = computed(() => this.perms.has(Permission.SERVICIO_COORDINAR));
@@ -334,6 +349,7 @@ export class ServicioBandejaComponent implements OnInit {
   consulta(): SdInboxQuery {
     return {
       scope: this.scope(),
+      queue_id: this.cola() ?? undefined,
       priority: this.prio() ?? undefined,
       status: this.estado() ?? undefined,
       category_id: this.categoria() ?? undefined,
@@ -362,6 +378,7 @@ export class ServicioBandejaComponent implements OnInit {
 
   setScope(s: string): void { this.scope.set(s); this.cargarLista(); }
   setPrio(p: string | null): void { this.prio.set(p); this.cargarLista(); }
+  setCola(q: string | null): void { this.cola.set(q || null); this.cargarLista(); }
   setFiltro(cual: 'estado' | 'categoria' | 'atiende' | 'ubic', v: string | null): void {
     const s = { estado: this.estado, categoria: this.categoria, atiende: this.atiende, ubic: this.ubic }[cual];
     s.set(v || null);
@@ -380,7 +397,7 @@ export class ServicioBandejaComponent implements OnInit {
   }
   /** Quita los filtros y el orden elegido; el alcance (los chips) se queda donde está. */
   limpiar(): void {
-    this.prio.set(null); this.estado.set(null); this.categoria.set(null); this.atiende.set(null); this.ubic.set(null);
+    this.prio.set(null); this.cola.set(null); this.estado.set(null); this.categoria.set(null); this.atiende.set(null); this.ubic.set(null);
     this.desde.set(''); this.hasta.set('');
     this.sortCol.set(null); this.sortDir.set('asc');
     this.cargarLista();
@@ -410,7 +427,15 @@ export class ServicioBandejaComponent implements OnInit {
     this.timer = setTimeout(() => this.cargarLista(), 300);
   }
 
-  abrir(id: string): void { this.selId.set(id); }
+  /** `[MS.7.11]` Quien traslada ya no ve el ticket (es de otra área): se cierra la ficha, se refresca y se dice a dónde fue. */
+  alTrasladar(r: SdTransferResult): void {
+    this.selId.set(null);
+    this.aviso.set(`${r.folio} se trasladó a ${r.queue_name}.`);
+    this.recargar();
+  }
+  motivoPausa(m: SdPauseReason): string { return PAUSE_REASON_LABEL[m]; }
+
+  abrir(id: string): void { this.selId.set(id); this.aviso.set(null); }
   cerrar(): void { this.selId.set(null); }
   /** Un cambio en la ficha mueve la fila de filtro (p. ej. tomarla la saca de «Sin asignar»). */
   alCambiar(): void { this.recargar(); }

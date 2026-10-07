@@ -16,8 +16,8 @@ import { ServicioSolicitudesComponent } from './servicio-solicitudes.component';
  */
 const CATALOGO: SdCatalogResponse = {
   queues: [
-    { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false, default_assignee_id: null, default_assignee_name: null },
-    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'riesgo_operacion', asks_zone: true, default_assignee_id: null, default_assignee_name: null },
+    { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'riesgo_operacion', asks_zone: true },
   ],
   zones: [{ code: 'bodega', name: 'Bodega' }, { code: 'anden', name: 'Andén' }],
   fields: [],

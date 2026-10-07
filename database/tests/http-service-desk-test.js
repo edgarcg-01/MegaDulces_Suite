@@ -1689,6 +1689,20 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
         return !ids.has(t0.id) && !ids.has(te.id);
       })());
 
+      // `[MS.7.16]` El selector de cola de la bandeja ofrece SÓLO las colas que cada persona lee.
+      const colasDe = async (tok) => ((await req('GET', `${SD}/requests/stats`, tok)).body?.queues ?? []).map((q) => q.id);
+      const cO = await colasDe(jefeO.token);
+      const cD = await colasDe(jefeD.token);
+      const cTi = await colasDe(agente.token);
+      check('⭐ `stats.queues`: la coordinación del origen lee SU cola y no la del destino', cO.includes(qO) && !cO.includes(qD) && !cO.includes(qV), JSON.stringify(cO));
+      check('⭐ y la del destino lee la suya y no la del origen', cD.includes(qD) && !cD.includes(qO), JSON.stringify(cD));
+      check('⛔ el agente de TI no ve ninguna de las colas de este bloque en su selector', !cTi.some((id) => [qO, qD, qV].includes(id)) && cTi.length >= 1, JSON.stringify(cTi));
+      check('⛔ quien sólo reporta no tiene tablero (403): no hay selector que filtrar', (await req('GET', `${SD}/requests/stats`, sol.token)).status === 403);
+      const filtro = await req('GET', `${SD}/requests/inbox?scope=all&queue_id=${qD}&limit=200`, jefeD.token);
+      check('⭐ filtrar la bandeja por una cola (queue_id) devuelve sólo los tickets de esa cola', (filtro.body?.rows ?? []).length >= 2 && (filtro.body?.rows ?? []).every((r) => r.queue_id === qD), JSON.stringify((filtro.body?.rows ?? []).map((r) => r.queue_id === qD)));
+      const ajena = await req('GET', `${SD}/requests/inbox?scope=all&queue_id=${qO}&limit=200`, jefeD.token);
+      check('⛔ pedir la cola de OTRA área no revela nada (la lectura por cola manda sobre el filtro)', (ajena.body?.rows ?? []).length === 0, JSON.stringify((ajena.body?.rows ?? []).length));
+
       await knex('servicedesk.sla_policies').whereIn('queue_id', [qO, qD, qV]).del();
     }
 

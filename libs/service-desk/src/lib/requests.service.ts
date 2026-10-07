@@ -640,7 +640,14 @@ export class ServiceDeskRequestsService {
           trx.raw('count(*) FILTER (WHERE sla_resolution_breached_at IS NOT NULL)::int AS resolucion'),
         )
         .first();
+      // `[MS.7.16]` El selector de cola de la bandeja ofrece SÓLO las colas que esta persona lee (`[]` = ninguna).
+      const colasLeidas = (await trx('servicedesk.queues')
+        .whereNull('deleted_at')
+        .modify((qb) => { if (colas) qb.whereIn('id', colas); })
+        .orderBy([{ column: 'sort_order' }, { column: 'name' }])
+        .select('id', 'name')) as { id: string; name: string }[];
       return {
+        queues: colasLeidas,
         open_total,
         unassigned: Number(un?.n ?? 0),
         first_response_breached: Number(br?.primera ?? 0),
