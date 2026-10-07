@@ -476,14 +476,15 @@ jobs:
         if: ${{ !cancelled() }}
         run: |
           node scripts/check-conflict-markers.js
-          node scripts/check-migration-collisions.js
           node scripts/check-commit-wiring.js
           node scripts/check-branch-catalog.js
           node scripts/check-set-bind-param.js
-          node scripts/check-prod-target.js
-          node scripts/check-powershell.js
-          node scripts/check-candado-target.js
           node scripts/check-adr-duplicados.js
+          # `--solo-git` porque el modo completo LEE el ledger de migraciones de prod para saber
+          # cuáles ya se aplicaron, y el runner no alcanza `192.168.0.222`. Sin esa lectura el
+          # candado se niega a reportar verde —y hace bien, es ADR-056— así que acá corre su
+          # análisis parcial, declarado como tal. El modo completo sigue en el `pre-push`.
+          node scripts/check-migration-collisions.js --solo-git
 
       - name: Compuertas del pre-push — frontend y arranque
         if: ${{ !cancelled() }}
@@ -494,8 +495,23 @@ jobs:
           node scripts/check-keyboard-nav.js
           node scripts/check-css-tokens.js
           node scripts/check-busqueda.js
-          node scripts/check-boot.js
 
+      # ── Las que NO pueden correr acá porque necesitan ENTORNO, no código ────────────────────
+      #
+      # ⛔ Lección propia, del primer intento (2026-10-07): las medí en mi máquina, con mi `.env`,
+      # y las declaré «verdes». El runner no tiene ese `.env` y tres se cayeron. **Una compuerta
+      # se mide en el entorno donde va a correr, no en el que la escribiste.**
+      #
+      #   · `check-migration-collisions`  LEE el ledger de migraciones de prod para saber cuáles
+      #                                   ya se aplicaron. Acá corre `--solo-git` (arriba); el
+      #                                   modo completo se queda en el `pre-push`.
+      #   · `check-prod-target`           lo mismo: sin `PROD_DB_URL` se niega a decir verde, y
+      #                                   hace bien — un candado que no pudo leer no es un verde.
+      #   · `check-candado-target`        necesita `DATABASE_URL_NEW`.
+      #   · `check-boot`                  ARRANCA el API. Exige `ENABLE_MULTITENANT=true` y aborta
+      #                                   a propósito sin él. Es una prueba de arranque, no de
+      #                                   código: su lugar es el `pre-push` y el despliegue.
+      #
       # ── Declaradas, NO agregadas (rojas el 2026-10-07, con su motivo) ───────────────────────
       #   · `check-no-emoji-ui`      84 emoji en texto visible contra un techo de 75. El trinquete
       #                              se soltó igual que el de PrimeNG. Re-basar el techo es una
