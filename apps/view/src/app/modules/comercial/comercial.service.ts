@@ -4028,9 +4028,19 @@ export interface CommissionRunPayload {
   scale: { id: string; code: string; base_field: string; gate_field: string; share_supervisor_pct: number };
   total_subtotal: number; total_venta: number; total_comision: number;
   /** Bruto. El neto es `total_neto`. */
-  total_a_pagar: number; total_deduccion: number; total_neto: number;
-  traslape_subtotal: number;
-  rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number;
+  total_a_pagar: number;
+  /**
+   * ⚠️ NULABLES a propósito. Este payload lo llenan DOS caminos: el cálculo en vivo, que siempre
+   * los computa, y `loadRun`, que lee una corrida GUARDADA (`CommissionRunDetail`), donde la
+   * columna puede venir en `null` porque esa corrida es anterior a `[RD.40]`.
+   *
+   * Poner `0` ahí sería dibujar un cero sobre algo que no se midió — lo que el proyecto prohíbe.
+   * `null` dice «esta corrida no lo trae», que es la verdad. Hoy nadie los lee en la pantalla
+   * (verificado); quien los pinte tiene que decidir qué mostrar cuando son `null`.
+   */
+  total_deduccion: number | null; total_neto: number | null;
+  traslape_subtotal: number | null;
+  rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number | null;
   data_as_of: string | null;
   gates: CommissionGate[];
   beneficiarios: CommissionBeneficiario[];

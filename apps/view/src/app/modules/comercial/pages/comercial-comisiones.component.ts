@@ -289,6 +289,19 @@ export class ComercialComisionesComponent {
           total_subtotal: +d.total_subtotal, total_venta: +d.total_venta,
           total_comision: +d.total_comision, total_a_pagar: +d.total_a_pagar,
           rutas_con_dato: d.rutas_con_dato, rutas_sin_dato: d.rutas_sin_dato,
+          // `[RD.40]` agregó estos al payload y este mapeo se quedó corto, lo que rompió el build
+          // de `main`. El detalle guardado SÍ los trae, así que se pasan tal cual: lo que viene en
+          // `null` se queda en `null` —una corrida anterior a RD.40 no los midió— en vez de caer a
+          // `0`, que diría que se midieron y dieron cero.
+          total_deduccion: d.total_deduccion == null ? null : +d.total_deduccion,
+          total_neto: d.total_neto == null ? null : +d.total_neto,
+          traslape_subtotal: d.traslape_subtotal == null ? null : +d.traslape_subtotal,
+          rutas_fuera: d.rutas_fuera ?? null,
+          data_as_of: d.data_as_of,
+          gates: d.gates ?? [],
+          // ⚠️ El detalle guardado NO los persiste: la corrida en vivo los calcula y no se
+          // escriben. Van vacíos porque no hay nada que mostrar, no porque valgan cero.
+          beneficiarios: [], fuera: [],
           lines: d.lines,
         });
         this.busy.set(false);
