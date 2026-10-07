@@ -413,6 +413,9 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 **La ubicación se ve siempre (MS.3.17):** al levantar una solicitud, el campo «Ubicación (opcional)» ya no está escondido tras un enlace; se muestra desde el principio (y con asterisco si la categoría la exige).
 
 **Mantenimiento sembrada, apagada (MS.7.14):** la Mesa tiene la cola de Mantenimiento con sus 11 categorías y la ubicación «Estacionamiento CEDIS». Nace apagada y sin miembros: no se ofrece a nadie hasta que un administrador nombre a su coordinación y ésta la encienda desde Configuración.
+**Pantalla de miembros de la cola (MS.7.17):** en Configuración de la Mesa, cada cola muestra quién la atiende y la coordinación de esa cola puede agregar personas (las que ya tienen el permiso de atender), cambiar su rol o quitarlas, sin pasar por la API. Marca a quien perdió el permiso y explica con claridad lo que no se puede (la cola no se queda sin coordinación; no se quita a quien tiene solicitudes abiertas).
+
+**«Mi trabajo» y Reportes por cola (MS.7.18):** lo «sin asignar» de Mi trabajo cuenta sólo las colas a las que perteneces (si no perteneces a ninguna, lo dice en vez de mostrar un cero), y Reportes ofrece elegir la cola cuando coordinas más de una.
 
 **Acceso por cola (MS.7.1 y MS.7.6):** quien atiende la Mesa de Servicio ya no ve los tickets de todas las áreas: sólo los de las colas a las que pertenece (la clave de atender dice *qué* puede hacer; la pertenencia, *dónde*). La bandeja, el tablero, el reporte, los avisos de urgentes y de plazo y la asignación respetan la cola del ticket; la coordinación de cada cola administra a sus miembros (API) y la cola nunca se queda sin coordinación. Quien ya atendía TI queda como miembro de TI al aplicar la migración. Es la base para sumar Mantenimiento y Recursos Humanos.
 

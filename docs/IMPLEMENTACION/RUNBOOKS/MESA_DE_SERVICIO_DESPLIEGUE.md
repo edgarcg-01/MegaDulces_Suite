@@ -281,7 +281,7 @@ A partir de la fase multi-área ([`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md
 
 **Por qué antes:** con `queue_members` vacía el código nuevo no deja ver ningún ticket a nadie. El backfill de la migración es lo que lo evita; por eso el paso 2 no es opcional.
 
-**Dar de alta a una persona nueva** (cambia el §5): además de `SERVICIO_ATENDER` (y `SERVICIO_COORDINAR` si reparte), la coordinación **de esa cola** la agrega: `PUT /service-desk/config/queues/:id/members/:userId` con `{"role":"tecnico"}` (o `"coordinador"`). Hoy es por API: la pantalla es MS.7.17. La API se niega con un mensaje claro si a la persona le falta la clave.
+**Dar de alta a una persona nueva** (cambia el §5): además de `SERVICIO_ATENDER` (y `SERVICIO_COORDINAR` si reparte), la coordinación **de esa cola** la agrega: `PUT /service-desk/config/queues/:id/members/:userId` con `{"role":"tecnico"}` (o `"coordinador"`). **Desde MS.7.17 se hace en la pantalla:** `/servicio/configuracion` › la cola › «Quién atiende esta cola» › Agregar (la API se niega con un mensaje claro si a la persona le falta la clave, y la lista de candidatos sólo ofrece a quien ya la tiene).
 
 **Reversa:** la migración trae `down` (quita la tabla y las dos columnas). ⚠️ Si ya se desplegó el código nuevo, **revertir primero el código**: sin la tabla, `actors.service` falla al leer las membresías.
 

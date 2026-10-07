@@ -360,6 +360,10 @@ export interface SdReportRecurringRow {
 
 export interface SdReportResponse {
   periodo: { desde: string; hasta: string };
+  /** `[MS.7.18]` Las colas de las que este reporte PUEDE ser (las que la persona coordina; el god-mode, todas). Para el selector. */
+  colas: SdQueueDto[];
+  /** `[MS.7.18]` La cola a la que se acotó el reporte; `null` = todas las de `colas`. */
+  cola_id: string | null;
   /** Cuándo se calculó (la fuente es la tabla viva de tickets: no hay copia que pueda estar vieja). */
   medido_at: string;
   /** `true` = el periodo trae más tickets de los que el reporte calcula; los números son de los más recientes. */
@@ -528,6 +532,16 @@ export interface SdQueueMemberDto {
 export interface SdQueueMembersResponse {
   queue_id: string;
   members: SdQueueMemberDto[];
+  /** `[MS.7.17]` ¿Quien pregunta puede agregar, cambiar de rol o quitar? (coordina ESA cola). La pantalla sólo ofrece los controles si sí. */
+  can_manage: boolean;
+}
+
+/** `[MS.7.17]` Alguien que PODRÍA entrar a la cola: tiene la clave de atender (o coordinar) y todavía no es miembro. */
+export interface SdQueueCandidateDto {
+  user_id: string;
+  username: string;
+  name: string | null;
+  can_coordinate: boolean;
 }
 
 export interface SdUpsertQueueMemberDto {
