@@ -51,6 +51,8 @@ export class PurchaseDeliveriesService {
   private readonly logger = new Logger(PurchaseDeliveriesService.name);
   /** Sólo se recuerda el SÍ (si se aplica la migración con la API arriba, se ve en la siguiente consulta). */
   private readyCache: Readiness | null = null;
+  /** Último aviso de migraciones pendientes: se avisa al CAMBIAR el estado, no en cada petición. */
+  private lastWarn = '';
 
   constructor(
     private readonly tk: TenantKnexService,
@@ -78,7 +80,10 @@ export class PurchaseDeliveriesService {
     // Las cinco: si se cacheara con `ref` en false, la referencia no aparecería hasta reiniciar la API
     // aunque la migración ya estuviera aplicada.
     if (r.view && r.tables && r.internal && r.ref && r.lineRef) this.readyCache = r;
-    else this.logger.warn(`RE.32: migraciones pendientes — vista=${r.view} tablas=${r.tables} internos=${r.internal} referencia=${r.ref}/${r.lineRef}`);
+    else {
+      const msg = `RE.32: migraciones pendientes — vista=${r.view} tablas=${r.tables} internos=${r.internal} referencia=${r.ref}/${r.lineRef}`;
+      if (msg !== this.lastWarn) { this.lastWarn = msg; this.logger.warn(msg); }
+    }
     return r;
   }
 
