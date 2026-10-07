@@ -454,15 +454,48 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(fixture.nativeElement.querySelector('tbody p-checkbox')).toBeNull();
   });
 
-  it('⛔ [negativa] la fila CONFIRMABLE sí tiene casilla: no se fueron todas', async () => {
-    // El control no desapareció: desapareció donde no servía. Sin esto, «limpiar» podría haber
-    // dejado la bandeja sin forma de marcar nada y la prueba de arriba seguiría verde.
+  // ── [CG.56] Sin casillas: la fila ES el control ──────────────────────────────────────────
+  //
+  // Decisión de Edgar: *"hazlo, no son necesarias"*. La columna de casillas se retiró entera.
+  // El camino quedó uno: `pSelectableRow` ([CG.50]) hace la fila seleccionable con clic, con
+  // Space y con las flechas. Lo que una casilla daba y una fila no —ver el estado de un
+  // vistazo— lo da `.cg-fila-marcada`.
+
+  it('⛔ [negativa] no queda NINGUNA casilla en la bandeja', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelectorAll('.cg-bandeja-tbl p-checkbox').length).toBe(0);
+  });
+
+  it('⭐ pero marcar SIGUE siendo posible y se VE: sin esto, limpiar dejaría la bandeja muerta', async () => {
     const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     await Promise.resolve();
     fx.detectChanges();
 
-    expect(comp.pendientes().every((p) => p.confirmable)).toBe(true);
-    expect(fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody p-checkbox').length).toBe(2);
+    const fila = () => fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr') as HTMLElement;
+    expect(fila().classList.contains('cg-fila-marcada')).toBe(false);
+
+    comp.marcar(FILA_A.origen_ref, true);
+    fx.detectChanges();
+
+    // El estado se ve: la fila cambia de clase y aparece su marca.
+    expect(fila().classList.contains('cg-fila-marcada')).toBe(true);
+    expect(fila().querySelector('.cg-td-marca i')).not.toBeNull();
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
+  });
+
+  it('«Marcar las N» reemplaza a la casilla del encabezado, y DICE cuántas son', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    // La casilla de "marcar todas" nunca pudo decir cuántas eran; el botón sí.
+    expect(fx.nativeElement.textContent).toContain('Marcar las 2');
+    comp.marcarTodas(true);
+    expect(comp.marcadas().length).toBe(2);
+    fx.detectChanges();
+    expect(fx.nativeElement.textContent).toContain('Quitar la marca');
   });
 
   it('[negativa] el lote manda SÓLO la referencia: ningún importe propio viaja al libro', () => {
@@ -808,20 +841,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(conAncla).toBeLessThanOrEqual(2);
   });
 
-  it('⛔ [negativa] la columna de marcar tiene ROTULO VISIBLE, no sólo un aria-label', async () => {
-    // Edgar preguntó DOS veces "¿para qué sirve el checkbox?". La columna llevaba sólo la casilla
-    // de «marcar todas» y su único texto era un `ariaLabel`: el control más importante de la
-    // pantalla no decía qué hace, salvo para un lector de pantalla.
-    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
-    await Promise.resolve();
-    fx.detectChanges();
-
-    const th: Element | null = fx.nativeElement.querySelector('.cg-bandeja-tbl thead th');
-    expect(th).not.toBeNull();
-    expect(th!.textContent!.trim()).toContain('Confirmar');
-    // Y no vale esconderlo en un sr-only: tiene que verlo el ojo.
-    expect(th!.querySelector('.sr-only')).toBeNull();
-  });
+  // ⚠️ `[CG.54]` puso un rótulo visible «Confirmar» en el encabezado de la columna de casillas,
+  // porque el control no decía qué hacía. `[CG.56]` retiró la columna entera: el rótulo que había
+  // que arreglar dejó de existir, y la acción se nombra donde ahora vive — la barra, que además
+  // dice CUÁNTAS son, que es lo que la casilla nunca pudo decir. Lo cubre la prueba de «Marcar
+  // las N»; acá queda la nota para que nadie reponga un encabezado de una columna que ya no es.
 
   it('marcar con el teclado NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });

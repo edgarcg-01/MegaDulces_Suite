@@ -1733,3 +1733,52 @@ El acto sigue siendo el mismo y su circuito sigue roto (§20): **2 movimientos e
 12,976 pendientes, 0 cortes, 1 regla declarada, y nada río abajo lee `finance.cash_ledger`.**
 Esconder la casilla donde no sirve es higiene de interfaz; que confirmar le sirva a alguien es otra
 decisión, y está abierta.
+
+---
+
+## 22. `[CG.56]` Sin casillas: la fila ES el control (2026-10-07)
+
+**Decisión de Edgar:** *"hazlo, no son necesarias"*.
+
+La columna de casillas se retiró **entera**. El camino quedó uno: `pSelectableRow` (`[CG.50]`) ya
+hace la fila seleccionable con el **clic**, con **Space** y con las **flechas**, y PrimeNG le pone
+`aria-selected`. La casilla era una segunda forma de hacer exactamente lo mismo — y aparecía 44
+veces para 23 acciones posibles (`[CG.55]`).
+
+### ⚠️ Lo que una casilla daba y una fila seleccionada no
+
+**Que el estado se lea de un vistazo.** Por eso la fila marcada no se queda en el `p-highlight` del
+tema: lleva fondo propio **y** una barra sólida en `--action` al borde izquierdo
+(`.cg-fila-marcada`), más un ✓ en su celda. Dos señales, ninguna dependiente de que el tema pinte
+su resaltado ni del contraste de un fondo solo.
+
+Y **«marcar todas» se mudó a la barra**, al lado de la acción que habilita: *«Marcar las 23»* /
+*«Quitar la marca»*. Una casilla en el encabezado de una columna que ya no tiene casillas no
+significa nada — y de paso el botón **dice cuántas son**, que es el dato que la casilla nunca pudo
+dar.
+
+### ⛔ Un token inventado que se habría caído en silencio
+
+Escribí `background: var(--action-soft-bg)` para la fila marcada. **Ese token no existe**: la
+familia es `action / hover / press / ink / ring`, sin fondo suave. Una declaración con un token
+inexistente **no falla** — se cae callada, y la fila marcada se habría visto **igual que las demás**,
+que es justo lo único que esa celda viene a resolver. Lo agarró `check:tokens`. Quedó
+`--action-ring`, que **es** el translúcido de esa familia.
+
+### Verificación
+
+- `nx test view` caja-general: **213/213** (3 pruebas nuevas, 2 retiradas por contradecir la
+  decisión). `typecheck`, `check:templates`, `check:tokens` y `check:teclado` verdes.
+- **Mutación**: sacar `.cg-fila-marcada` de la fila → 1 roja.
+- ⭐ La prueba que importa no es la que dice «no hay casillas» sino la que dice **«marcar sigue
+  siendo posible y se VE»**. Sin ella, «limpiar» podía dejar la bandeja sin forma de marcar nada y
+  la otra prueba seguiría verde — *una compuerta que sólo mide lo que se quitó aprueba el vacío*.
+- ⚠️ `[CG.54]` había puesto un rótulo «Confirmar» en el encabezado de esa columna. `[CG.56]` la
+  retiró: el rótulo que había que arreglar dejó de existir. Queda una nota en el spec para que
+  nadie reponga el encabezado de una columna que ya no es.
+
+### Sigue sin resolverse
+
+Lo de §20: **2 movimientos en el libro contra 12,976 pendientes, 0 cortes, 1 regla declarada, y
+nada río abajo lee `finance.cash_ledger`.** Esta entrega hace que marcar se vea mejor; no hace que
+marcar le sirva a alguien.

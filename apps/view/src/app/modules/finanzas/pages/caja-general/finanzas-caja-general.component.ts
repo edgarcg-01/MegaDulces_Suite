@@ -354,10 +354,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⛔ [CG.48] Acá vivía ".cg-contado", el input de conteo por renglón de la bandeja. Se fue
        con su columna: era la única forma de meter una cifra contada al libro SIN desglose. */
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
-    /* [CG.54] El rotulo de la columna de marcar. La casilla y la palabra van en un <label>, asi que
-       hacer clic en "Confirmar" tambien marca todas -- el blanco deja de ser una casilla de 14px. */
-    .cg-th-conf { white-space:nowrap; }
-    .cg-conf-lbl { display:inline-flex; align-items:center; gap:var(--sp-2); cursor:pointer; }
+    /* [CG.56] La columna de la MARCA. Ya no hay casilla: la fila es el control y esta celda sólo
+       publica el estado. Angosta a proposito -- es una senial, no un boton. */
+    .cg-th-marca, .cg-td-marca { width:2.25rem; text-align:center; padding-left:var(--sp-2); }
+    .cg-td-marca > i { font-size:var(--fs-xs); color:var(--action); }
+    /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
+       Fondo propio MAS una barra en --action, para que no dependa de que el tema pinte su
+       p-highlight ni del contraste de un fondo solo. */
+    /* ⛔ Acá escribí "var(--action-soft-bg)" y ESE TOKEN NO EXISTE: la familia --action son
+       action/hover/press/ink/ring, sin fondo suave. Una declaración con un token inexistente no
+       falla: se cae en silencio y la fila marcada se habría visto igual que las demás --
+       justo lo único que esta celda viene a resolver. Lo agarró check:tokens.
+       Se usa --action-ring, que ES el translúcido de esta familia, y la barra sólida al borde. */
+    .cg-fila-marcada > td, .cg-fila-marcada > th { background:var(--action-ring); }
+    .cg-fila-marcada > td:first-child { box-shadow:inset 3px 0 0 0 var(--action); }
 
     /* [CG.53] La reja en dos columnas y el numero grande. Una caja con borde y SIN sombra -- in-page
        es una de las dos, nunca las dos. */
@@ -878,6 +888,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <input pInputText [(ngModel)]="searchPend" (keyup.enter)="cargarPendientes()" class="cg-sel cg-buscar"
                  placeholder="Buscar: folio Kepler, concepto, beneficiario…" aria-label="Buscar en por confirmar" />
           <span class="cg-bandeja-sp"></span>
+          <!-- [CG.56] "Marcar todas" vivia como una casilla en el encabezado de la columna. Al
+               retirarse la columna entera, una casilla suelta en un th sin casillas debajo no
+               significa nada: la accion se muda a la barra, al lado de la accion que habilita, y
+               DICE CUANTAS son -- que es el dato que la casilla nunca pudo dar. -->
+          @if (confirmables(); as n) {
+            @if (n > 0) {
+              <p-button [label]="todasMarcadas() ? 'Quitar la marca' : 'Marcar las ' + n"
+                        [icon]="todasMarcadas() ? 'pi pi-times' : 'pi pi-check-square'"
+                        size="small" severity="secondary" [text]="true"
+                        (onClick)="marcarTodas(!todasMarcadas())"></p-button>
+            }
+          }
           <!-- ⛔ [CG.47] "Confirmar 0" se pintaba en --action estando APAGADO: un boton de marca,
                grande y naranja, que no hace nada y ademas publica un cero. El color de marca
                significa "apreta aca"; en el estado en el que arranca la pantalla -sin nada
@@ -971,20 +993,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    [selection]="filasMarcadas()" (selectionChange)="onSeleccionTabla($event)">
             <ng-template #header>
               <tr>
-                <!-- ⛔ [CG.54] Esta columna NO TENIA ROTULO VISIBLE: el th llevaba solo la casilla de
-                     "marcar todas", y el unico texto era un ariaLabel que nada mas oye un lector de
-                     pantalla. O sea que el control MAS IMPORTANTE de la pantalla no decia que hace.
-                     Lo reporto Edgar dos veces ("no entiendo para que es el checkbox") y las dos
-                     veces se respondio con una explicacion en el chat en vez de arreglar la pantalla.
-                     Marcar significa: este efectivo SI paso por la caja, espejalo al libro. -->
-                <th scope="col" class="cg-th-conf">
-                  <label class="cg-conf-lbl">
-                    <p-checkbox [binary]="true" [ngModel]="todasMarcadas()"
-                                (ngModelChange)="marcarTodas($event)"
-                                ariaLabel="Marcar todas las confirmables"></p-checkbox>
-                    <span>Confirmar</span>
-                  </label>
-                </th>
+                <!-- ⛔ [CG.56] ACA VIVIA LA COLUMNA DE CASILLAS, y se retiro entera por decision de
+                     Edgar: "no son necesarias".
+
+                     El camino quedo UNO: la fila ES el control. pSelectableRow ([CG.50]) ya la hace
+                     seleccionable con el clic, con Space y con las flechas, y PrimeNG le pone
+                     aria-selected. La casilla era una segunda forma de hacer lo mismo, y encima
+                     aparecia 44 veces para 23 acciones posibles ([CG.55]).
+
+                     ⚠️ Lo que una casilla SI daba y una fila seleccionada no: el estado se ve de
+                     un vistazo. Por eso la fila marcada lleva fondo propio y una barra en
+                     --action a la izquierda (.cg-fila-marcada), que no depende del tema. -->
+                <th scope="col" class="cg-th-marca"><span class="sr-only">Marcada</span></th>
                 <th scope="col">Fecha</th>
                 <th scope="col"><span class="sr-only">Entra o sale</span></th>
                 <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
@@ -996,21 +1016,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               </tr>
             </ng-template>
             <ng-template #body let-p>
-                <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p">
-                  <td class="ta-c">
-                    <!-- ⛔ [CG.55] La fila que NO se puede confirmar ya no muestra casilla.
-                         Reportado por Edgar sobre la pantalla en vivo: "se siguen mostrando los
-                         checkbox". Medido en esa captura: 44 filas y "23 de 44 se confirman de un
-                         clic" -- o sea 21 casillas DESHABILITADAS. En oscuro una casilla apagada se
-                         ve casi igual que una viva, asi que la columna ofrecia 44 veces algo que
-                         podia hacer 23: un control que promete lo que no puede cumplir.
-                         Lo que la fila SI puede hacer ya esta dicho dos veces -- su etiqueta de
-                         motivo ("ruta sin declarar") y su boton "Capturar". -->
-                    @if (p.confirmable) {
-                      <p-checkbox [binary]="true"
-                             [ngModel]="estaMarcada(p.origen_ref)"
-                             (ngModelChange)="marcar(p.origen_ref, $event)"
-                             [ariaLabel]="'Confirmar ' + p.doc_tipo + ' ' + p.folio"></p-checkbox>
+                <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p"
+                    [class.cg-fila-marcada]="estaMarcada(p.origen_ref)">
+                  <!-- [CG.56] La celda de la marca: una barra, no una casilla. Lo que se ve es el
+                       ESTADO (marcada o no); el acto de marcar es la fila entera. -->
+                  <td class="cg-td-marca">
+                    @if (estaMarcada(p.origen_ref)) {
+                      <i class="pi pi-check" [attr.aria-label]="'Marcada: ' + p.doc_tipo + ' ' + p.folio"></i>
                     }
                   </td>
                   <td>
