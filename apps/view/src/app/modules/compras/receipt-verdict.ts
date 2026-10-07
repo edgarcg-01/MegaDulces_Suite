@@ -1,3 +1,4 @@
+import type { ReceiptExpediente } from '@megadulces/contracts';
 import { EntradaDetail, EntradaLinea, ReceiptDeposit, type MotivoDescarte } from './entradas.service';
 import { money } from '../../shared/util';
 
@@ -33,6 +34,27 @@ export interface ReceiptVerdict {
   lectura: string;
   /** RE.14 — la otra captura de la MISMA recepción (oficinas), cuando el par está vigente. */
   gemela: { folio: string; monto: number | null; delta: number | null } | null;
+  /**
+   * `[RE.35.6]` El CFDI de ContPAQi cuadró con Kepler y el OCR leyó otra cosa: la lectura del
+   * papel quedó desmentida (la cifra se muestra, pero no se pinta como problema).
+   */
+  ocrDesmentido: boolean;
+}
+
+/** `[RE.35.6]` El CFDI de ContPAQi que cuadra con la entrada, si lo hay. */
+export interface CfdiQueCuadra { uuid: string; total: number }
+
+/**
+ * `[RE.35.6]` — **¿el CFDI de ContPAQi ya cuadra con Kepler?** Sólo cuando las tres cosas son
+ * ciertas: la liga es EXACTA (no una sugerencia), se evaluó por la vía de factura y el check
+ * `E1_cuadre` (CFDI contra la entrada, tolerancia R-v1) pasó. Decisión de Francisco
+ * (2026-10-06): CFDI + entrada de Kepler que coinciden van para adelante; el OCR es una
+ * herramienta adicional, no el árbitro.
+ */
+export function cfdiQueCuadra(x: ReceiptExpediente | null | undefined): CfdiQueCuadra | null {
+  if (!x?.cfdi || x.via !== 'factura' || !x.liga?.exacta) return null;
+  const e1 = x.checks.find((c) => c.clave === 'E1_cuadre');
+  return e1?.estado === 'ok' ? { uuid: x.cfdi.uuid, total: Number(x.cfdi.total) } : null;
 }
 
 /**
@@ -63,8 +85,10 @@ export function depForCuadre(d: EntradaDetail): ReceiptDeposit | null {
 /**
  * @param hayAjustes si el proveedor tiene devoluciones/notas de crédito cerca de la fecha —
  *        cambia la pista del descuadre (es la explicación más frecuente después del IVA).
+ * @param cfdi `[RE.35.6]` el CFDI de ContPAQi que ya cuadra con la entrada (`cfdiQueCuadra`).
+ *        Si viene, manda sobre el OCR: el papel identifica, el CFDI informa (ADR-085).
  */
-export function receiptVerdict(d: EntradaDetail, hayAjustes = false): ReceiptVerdict {
+export function receiptVerdict(d: EntradaDetail, hayAjustes = false, cfdi: CfdiQueCuadra | null = null): ReceiptVerdict {
   const kepler = Number(d.entrada.monto) || 0;
   const lineas = lineasTotal(d.lineas);
   const dep = depForCuadre(d);
@@ -76,7 +100,10 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false): ReceiptVer
     : null;
   const conIva = Math.abs(lineas * (1 + IVA) - kepler) <= EPS;
   // Cómo se compone el total de Kepler: lo dice una vez, acá, y no se repite abajo.
+  // `[RE.35.6]` El OCR leyó otra cifra que el CFDI que sí cuadra: se dice, sin alarma.
+  const ocrDesmentido = !!dep && !!cfdi && ocr != null && Math.abs(ocr - cfdi.total) > EPS;
   const ocrMeta = !dep ? 'sin remisión adjunta'
+    : ocrDesmentido ? 'lectura del OCR descartada: manda el CFDI de ContPAQi'
     : ocr == null ? 'el OCR no leyó el total'
     : `leído de ${dep.files?.[0]?.name || 'la hoja adjunta'}`;
   // Los renglones son el SUBTOTAL (cantidad × costo, kdm2) y el total de Kepler (c16) va con
@@ -91,18 +118,27 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false): ReceiptVer
     : dImp > 0 ? `${nLin} · subtotal; Kepler suma impuestos (+${money(dImp)})`
     : `${nLin} · suman ${money(-dImp)} MÁS que el total de Kepler — revisar`;
 
+  const base = { kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela, ocrDesmentido };
   if (!dep) {
-    return { tone: 'muted', icon: 'pi-paperclip', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
+    return { ...base, tone: 'muted', icon: 'pi-paperclip',
       titulo: 'Falta la remisión del proveedor',
       lectura: `Kepler registró ${money(kepler)}. Sin el documento adjunto no hay contra qué compararlo — adjuntalo para cerrar la recepción.` };
   }
+  // `[RE.35.6]` El CFDI ligado de forma exacta cuadra con Kepler: va para adelante, diga lo que
+  // diga el OCR (que puede no haber leído el total, o haberlo leído mal).
+  if (cfdi) {
+    return { ...base, tone: 'ok', icon: 'pi-check-circle',
+      titulo: 'Cuadra con el CFDI de ContPAQi',
+      lectura: `El CFDI dice ${money(cfdi.total)} y Kepler registró ${money(kepler)}.`
+        + (ocrDesmentido ? ` El OCR leyó ${money(ocr as number)} del papel: es un error de lectura y no cuenta.` : '') };
+  }
   if (ocr == null) {
-    return { tone: 'warn', icon: 'pi-eye-slash', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
+    return { ...base, tone: 'warn', icon: 'pi-eye-slash',
       titulo: 'El documento está, pero no se pudo leer su total',
       lectura: `Kepler registró ${money(kepler)}. El OCR no encontró el total en la hoja: hay que verificarlo a ojo contra el documento de la derecha.` };
   }
   if (Math.abs(delta as number) <= EPS) {
-    return { tone: 'ok', icon: 'pi-check-circle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
+    return { ...base, tone: 'ok', icon: 'pi-check-circle',
       titulo: 'El documento cuadra con Kepler',
       lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}: coinciden al centavo.` };
   }
@@ -112,7 +148,7 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false): ReceiptVer
   // lo que difiere son NUESTRAS dos capturas. Decirle "el documento cobra de más" al capturista
   // lo manda a pelearse con un proveedor que no se equivocó.
   if (gemela?.monto != null && Math.abs(ocr - gemela.monto) <= EPS) {
-    return { tone: 'warn', icon: 'pi-clone', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
+    return { ...base, tone: 'warn', icon: 'pi-clone',
       titulo: 'Cuadra con la captura de oficinas, no con la de la sucursal',
       lectura: `La remisión dice ${money(ocr)} y coincide con lo que oficinas capturó en su folio ${gemela.folio} (${money(gemela.monto)}). La de la sucursal dice ${money(kepler)}: la diferencia de ${money(dif)} es entre nuestras dos capturas, no con el proveedor.` };
   }
@@ -123,7 +159,7 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false): ReceiptVer
     : hayAjustes
       ? ' Hay devoluciones o notas de crédito de este proveedor cerca de la fecha; mirá "¿Por qué no cuadra?" más abajo.'
       : '';
-  return { tone: 'bad', icon: 'pi-exclamation-triangle', kepler, lineas, ocr, delta, ocrMeta, lineasMeta, gemela,
+  return { ...base, tone: 'bad', icon: 'pi-exclamation-triangle',
     titulo: `${sentido} ${money(dif)}`,
     lectura: `La remisión dice ${money(ocr)} y Kepler registró ${money(kepler)}.${pista}` };
 }

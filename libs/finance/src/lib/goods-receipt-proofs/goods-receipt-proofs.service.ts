@@ -2563,9 +2563,14 @@ export class GoodsReceiptProofsService {
    * y se iba a revisión manual para siempre, aunque Kepler ya tuviera el X-D-40 que la explica.
    * Se afloja **sólo** para el caso con liga estructural (ver `ajusteLigadoQueExplica`); el match
    * por monto a secas y los ambiguos siguen yendo a mano, que es donde deben ir.
+   *
+   * `[RE.35.6]` — tercera puerta: **el expediente pasa solo** (`cubo = 'auto'`, regla R-v1): el CFDI
+   * de ContPAQi está ligado de forma exacta, cuadra con Kepler dentro de la tolerancia y pasó los
+   * checks fiscales, OC y fecha. Decisión de Francisco (2026-10-06): el OCR es una herramienta
+   * adicional; si leyó mal el total del papel pero el CFDI y la entrada coinciden, va para adelante.
    */
   async validateBulk(ids: string[], actor?: string) {
-    this.tenantCtx.requireTenantId();
+    const tenantId = this.tenantCtx.requireTenantId();
     const lista = (ids || []).map(String).filter(Boolean).slice(0, 200);
     if (!lista.length) throw new BadRequestException('no llegó ninguna evidencia');
     const out: { id: string; ok: boolean; motivo?: string }[] = [];
@@ -2587,7 +2592,14 @@ export class GoodsReceiptProofsService {
           // devolución legítima no se podía aprobar en lote NUNCA. Ahora hay una segunda puerta,
           // más angosta: que Kepler ligue un ajuste a esta entrada y su magnitud sea el hueco.
           let ajuste: Awaited<ReturnType<typeof this.ajusteLigadoQueExplica>> = null;
+          let cfdiAuto: string | null = null;
           if (prev.monto_match !== true) {
+            // `[RE.35.6]` Primero el expediente: si pasa solo, el CFDI manda sobre el OCR.
+            const exp = (await this.expediente.calcularLote(trx, tenantId, [{ sucursal: prev.sucursal, folio: prev.folio }]))
+              .get(`${prev.sucursal}/${prev.folio}`);
+            if (exp?.veredicto.cubo === 'auto' && exp.cfdi) cfdiAuto = exp.cfdi.uuid;
+          }
+          if (prev.monto_match !== true && !cfdiAuto) {
             const cfgB = await this.settings(trx);
             ajuste = prev.discrepancy_amount != null
               ? await this.ajusteLigadoQueExplica(trx, {
@@ -2612,7 +2624,9 @@ export class GoodsReceiptProofsService {
           await this.registrarHistorial(trx, {
             proof_id: id, sucursal: prev.sucursal, folio: prev.folio,
             status_from: prev.status, status_to: 'validado', actor,
-            motivo: ajuste
+            motivo: cfdiAuto
+              ? `aprobación en lote — cuadra con su CFDI de ContPAQi ${cfdiAuto} (expediente R-v1; el OCR no manda)`
+              : ajuste
               ? `aprobación en lote — cuadra con ajuste ${ajuste.doctype} ${ajuste.folio} de $${ajuste.monto.toFixed(2)}${ajuste.categoria ? ` (${ajuste.categoria})` : ''}`
               : 'aprobación en lote (cuadra al peso)',
           });

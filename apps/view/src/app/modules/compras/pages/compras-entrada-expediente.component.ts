@@ -1,8 +1,8 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
-import type { ExpedienteCheck, ExpedienteCheckGrupo, ExpedienteCubo, ReceiptExpediente } from '@megadulces/contracts';
+import type { ExpedienteCheck, ExpedienteCheckGrupo, ExpedienteCubo, ExpedienteLiga, ReceiptExpediente } from '@megadulces/contracts';
 import { EntradasService } from '../entradas.service';
 
 /** Texto y tono de cada cubo. El color nunca va solo (DESIGN.md §5): siempre ícono + palabra. */
@@ -21,6 +21,8 @@ const LIGA: Record<string, string> = {
   rfc_folio: 'por RFC y folio de la factura',
   folio_total: 'por folio y total de la factura',
   rfc_importe: 'sugerida por RFC e importe: confírmala',
+  // [RE.35.6] RFC + importe es exacta cuando ninguna otra entrada tiene ese importe (promoverRfcImporte).
+  rfc_importe_exacta: 'por RFC e importe exacto (ninguna otra entrada tiene ese importe)',
   total_fecha: 'sugerida por total y fecha: confírmala',
 };
 
@@ -56,7 +58,7 @@ const LIGA: Record<string, string> = {
               <p class="ex-ver-s">Cumple todos los checks. Regla {{ x.regla }} · tolerancia menor a {{ (x.tolerancia.pct * 100).toFixed(2) }}% y a {{ money(x.tolerancia.abs) }}.</p>
             }
             @if (x.liga) {
-              <p class="ex-ver-s">CFDI encontrado {{ ligaTexto(x.liga.metodo) }}.</p>
+              <p class="ex-ver-s">CFDI encontrado {{ ligaTexto(x.liga) }}.</p>
             }
             @if (x.via === 'remision' && x.doc_tipo === 'factura') {
               <p class="ex-ver-s">Se revisó como remisión: el proveedor no tiene CFDI en ContPAQi.</p>
@@ -161,6 +163,8 @@ export class ComprasEntradaExpedienteComponent {
   readonly folio = input.required<string>();
 
   readonly data = signal<ReceiptExpediente | null>(null);
+  /** `[RE.35.6]` El expediente cargado (null mientras carga o si falla): el panel lo usa para el aviso de arriba. */
+  readonly cargado = output<ReceiptExpediente | null>();
   readonly loading = signal(false);
   readonly error = signal(false);
   readonly cubo = computed(() => CUBO[this.data()?.cubo ?? 'revisar']);
@@ -185,10 +189,11 @@ export class ComprasEntradaExpedienteComponent {
   cargar(): void {
     this.loading.set(true);
     this.error.set(false);
+    this.cargado.emit(null);
     this.pedido?.unsubscribe();
     this.pedido = this.svc.expediente(this.sucursal(), this.folio()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (x) => { this.data.set(x); this.loading.set(false); },
-      error: () => { this.data.set(null); this.loading.set(false); this.error.set(true); },
+      next: (x) => { this.data.set(x); this.loading.set(false); this.cargado.emit(x); },
+      error: () => { this.data.set(null); this.loading.set(false); this.error.set(true); this.cargado.emit(null); },
     });
   }
 
@@ -196,7 +201,10 @@ export class ComprasEntradaExpedienteComponent {
     return (this.data()?.checks ?? []).filter((c) => c.grupo === grupo);
   }
 
-  ligaTexto(metodo: string): string { return LIGA[metodo] ?? metodo; }
+  ligaTexto(liga: ExpedienteLiga): string {
+    const k = liga.metodo === 'rfc_importe' && liga.exacta ? 'rfc_importe_exacta' : liga.metodo;
+    return LIGA[k] ?? liga.metodo;
+  }
 
   icono(c: ExpedienteCheck): string {
     return { ok: 'pi-check', falla: 'pi-times', aviso: 'pi-exclamation-triangle', sin_medir: 'pi-minus', no_aplica: 'pi-minus' }[c.estado];

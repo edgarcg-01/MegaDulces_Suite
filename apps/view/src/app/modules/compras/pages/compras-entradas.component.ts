@@ -31,12 +31,13 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import type { ReceiptExpediente } from '@megadulces/contracts';
 import { EntradasService, EntradaRow, EntradasReport, EntradasQuery, RemisionOcr, ProofFile, EntradaDetail, EntradaLinea, DuplicateHit, DocPresence, RemisionLine, ReconcileResult, ReconciledLine, type OrdenEntradas, type MotivoDescarte } from '../entradas.service';
 import { money, moneyShort, toggleSort, sortIcon, ariaSort, serverSortParams, DATE_PRESET_OPTIONS, datePresetRange, type SortState, type SortDir } from '../../../shared/util';
 import { EntityInspectorComponent } from '../../../shared/components/entity-inspector/entity-inspector.component';
 import { entityRef } from '../../../shared/components/entity-inspector/entity-ref.service';
 import { ComprasService, AdjustmentForEntradaRow, AdjustmentGrupo } from '../compras.service';
-import { receiptVerdict, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
+import { receiptVerdict, cfdiQueCuadra, lineasTotal, plural, depForCuadre, EPS, MOTIVOS_DESCARTE, motivoDescarteLabel, MOTIVOS_RECHAZO } from '../receipt-verdict';
 import { ofrecerSelectorSucursal } from '../sucursal-selector';
 import {
   FuenteRecepcion, REQUIRED_BY_SOURCE, receptionSource, roleOptsFor,
@@ -353,10 +354,10 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
                       equivocado con el monto correcto — que es justo donde se paga de más.
                       El motivo va en el tooltip: el chip dice qué, el texto dice por qué.
                     -->
-                    <span class="cb-cuadre" [attr.data-cuadre]="c.cuadre"
-                          [pTooltip]="c.cuadre_motivo || ''" tooltipPosition="left">
-                      <i class="pi" [ngClass]="cuadreIcon(c.cuadre)" aria-hidden="true"></i>
-                      <span class="cb-cuadre-txt">{{ cuadreLabel(c.cuadre) }}</span>
+                    <span class="cb-cuadre" [attr.data-cuadre]="cuadreFila(c)"
+                          [pTooltip]="cuadreMotivoFila(c)" tooltipPosition="left">
+                      <i class="pi" [ngClass]="cuadreIcon(cuadreFila(c))" aria-hidden="true"></i>
+                      <span class="cb-cuadre-txt">{{ cuadreLabel(cuadreFila(c)) }}</span>
                     </span>
                     <i class="pi pi-eye cb-eye" aria-hidden="true"></i>
                   </div>
@@ -928,7 +929,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
               <dd>{{ money(q.lineas) }}</dd>
               <p>{{ q.lineasMeta }}</p>
             </div>
-            <div class="cb-tri-c" [class.is-off]="q.tone === 'bad'">
+            <div class="cb-tri-c" [class.is-off]="q.tone === 'bad'" [class.is-desmentido]="q.ocrDesmentido">
               <dt>Documento (OCR)</dt>
               <dd>{{ q.ocr != null ? money(q.ocr) : '—' }}</dd>
               <p>{{ q.ocrMeta }}</p>
@@ -938,7 +939,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
 
         <!-- [RE.35] El expediente de la factura: el CFDI de ContPAQi ligado a esta entrada y el
              veredicto (pasa sola / revisar / sin CFDI aun). El papel identifica, el CFDI informa. -->
-        <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" />
+        <app-compras-entrada-expediente class="cb-expediente" [sucursal]="d.entrada.sucursal" [folio]="d.entrada.folio" (cargado)="expedientePanel.set($event)" />
 
         <div class="cb-cobro">
           <div><span class="cb-lbl">Entrada</span>
@@ -1495,6 +1496,8 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     /* La cifra que NO cuadra se marca en el borde, no tiñendo el numero. */
     .cb-tri-c.is-off { box-shadow: inset 0 -2px 0 var(--bad-fg); }
     .cb-tri-c.is-off dd { color: var(--bad-fg); }
+    /* [RE.35.6] El OCR leyó otra cifra que el CFDI que cuadra: se ve, tachada y sin alarma. */
+    .cb-tri-c.is-desmentido dd { color: var(--text-muted); text-decoration: line-through; }
     @media (max-width: 46rem) {
       .cb-tri { grid-template-columns: 1fr; }
       .cb-tri-c + .cb-tri-c { border-left: 0; border-top: 1px solid var(--border-color); }
@@ -2917,6 +2920,7 @@ export class ComprasEntradasComponent {
     if (!c.deposit_id || this.actingId()) return;
     const aviso = c.cuadre === 'cuadra'
       ? 'El importe y el proveedor concuerdan.'
+      : this.cuadreFila(c) === 'cuadra' ? this.cuadreMotivoFila(c)
       : (c.cuadre_motivo || 'Este documento no cuadró automáticamente.');
     const folio = c.folio_interno_ok === false
       ? ` Ojo: la hoja interna del paquete dice ${c.folio_interno}, no ${c.folio}.`
@@ -3069,7 +3073,14 @@ export class ComprasEntradasComponent {
    * **bandeja de revisión** (RE.13.2) muestra el mismo veredicto: dos copias garantizaban que
    * las dos pantallas terminaran diciendo cosas distintas del mismo expediente.
    */
-  cuadre(d: EntradaDetail) { return receiptVerdict(d, this.explains().length > 0); }
+  cuadre(d: EntradaDetail) {
+    // `[RE.35.6]` Si el CFDI de ContPAQi de ESTA entrada ya cuadra con Kepler, manda sobre el OCR.
+    const x = this.expedientePanel();
+    const cfdi = x && x.sucursal === d.entrada.sucursal && x.folio === d.entrada.folio ? cfdiQueCuadra(x) : null;
+    return receiptVerdict(d, this.explains().length > 0, cfdi);
+  }
+  /** `[RE.35.6]` El expediente que cargó el panel lateral (lo emite `app-compras-entrada-expediente`). */
+  readonly expedientePanel = signal<ReceiptExpediente | null>(null);
 
   /** El archivo ELEGIDO (data URI, aún sin subir) es imagen / PDF. */
   /** Un archivo YA subido (Cloudinary) es imagen (por kind o extensión) — si no, se trata como PDF/archivo. */
@@ -3093,6 +3104,19 @@ export class ComprasEntradasComponent {
    * `sin_datos` se llama **"No se leyó"** y no "Revisar" a propósito: no es un descuadre, es una
    * hoja ilegible. El trabajo es re-escanearla, no auditarla, y son 27% de los comprobantes.
    */
+  /**
+   * `[RE.35.6]` El cuadre que muestra la fila. El de `CUADRE_SQL` es del OCR; si el expediente pasa
+   * solo (CFDI de ContPAQi ligado de forma exacta y cuadrando con Kepler), manda el expediente:
+   * el chip no puede decir "Revisar" al lado de una columna que dice "Pasa sola".
+   */
+  cuadreFila(c: EntradaRow): string | null {
+    return c.expediente?.cubo === 'auto' ? 'cuadra' : c.cuadre;
+  }
+  cuadreMotivoFila(c: EntradaRow): string {
+    return c.expediente?.cubo === 'auto' && c.cuadre !== 'cuadra'
+      ? 'Cuadra con su CFDI de ContPAQi; la lectura del OCR no manda.'
+      : (c.cuadre_motivo || '');
+  }
   cuadreLabel(k: string | null): string {
     return ({ cuadra: 'Cuadra', revisar: 'Revisar', sin_datos: 'No se leyó', sin_evidencia: '' } as Record<string, string>)[k || ''] ?? '';
   }

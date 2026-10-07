@@ -257,6 +257,10 @@ Una entrada con factura **pasa sola** si cumple **F1–F8**, **tiene OC**, **tie
 - **Meta de arranque: 60–70% automático** (con el UUID del PDF/XML resolviendo la factura que cubre varias entradas). El 90% no se busca abriendo la tolerancia ni la OC.
 - **Límites declarados:** sólo Kepler (Wincaja fuera), un trimestre, emparejamiento por importe, y las NC de Kepler sólo traen la sucursal `00`.
 
+#### RE.35.6 — El CFDI manda sobre el OCR (Francisco, 2026-10-06)
+
+Cuando el OCR pifia el total del papel pero el CFDI de ContPAQi está ligado de forma **exacta** y cuadra con Kepler (`E1_cuadre` ok, vía factura), la entrada **va para adelante**: aviso verde en el panel, chip de la fila según el expediente y **Aprobar N** la acepta (`validateBulk`, tercera puerta `cubo = auto`). La lectura del OCR se muestra tachada como descartada. El OCR sigue sirviendo para **identificar** (UUID, folio, RFC); no es árbitro del importe. Una liga sugerida (no exacta) **no** manda.
+
 #### Lo que se queda en manos del auxiliar enseña — sin dejar huecos (ADR-085)
 
 Pedido de Francisco: *«lo que se quede comience a estudiar al usuario para aplicar correctivos y scripts que usen interpretación en código para ajustar criterios que aporten a ir aumentando, sin dejar huecos por detrás»*. Es el patrón de ADR-021 (Horus.L) y Maat (L2), aplicado a la recepción: **el motor aprende con reglas tipadas y auditables; el LLM no decide.**

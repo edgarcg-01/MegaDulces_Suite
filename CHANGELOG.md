@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Costo por compra: el CFDI de ContPAQi que cuadra con Kepler manda sobre el OCR (RE.35.6, 2026-10-06)
+- Si el CFDI está ligado de forma exacta y cuadra con la entrada, el aviso del panel sale **verde** («Cuadra con el CFDI de ContPAQi») aunque el OCR haya leído mal el total; la cifra del OCR se ve tachada como lectura descartada. Caso real: el OCR leyó $3,320,584.53 en una factura de $320,584.53 y el aviso decía «cobra de MÁS $3,000,000.18».
+- El chip de cuadre de la fila sigue al expediente (no dice «Revisar» junto a «Pasa sola») y **Aprobar N** acepta las que el expediente deja pasar solas; la bitácora dice «cuadra con su CFDI de ContPAQi <UUID>».
+- La liga por RFC + importe sin gemelos ya no se rotula «sugerida: confírmala» cuando es exacta.
 ### Fixed — Ventas por ruta: la venta vecinal publicaba **2.07×** y tres rutas no existían (VEC.0–6.2, 2026-10-06)
 - **La pantalla decía $9,164,175.91 de venta vecinal 2026; el ERP dice $4,417,300.50.** Arbitrado contra `kdm1.c16` —el total impreso en el ticket, que no depende de cómo se sumen las líneas— y cuadra al centavo. El día de hoy, 1V001 publicaba $46,279.21 contra **$21,710.40** reales.
 - **La causa:** el feed unía cabecera y líneas **sin la caja** (`c5`), creyendo que esa columna era el número de renglón. No lo es —el renglón es `c7`— y como **los folios se numeran por caja**, a cada ticket de la ruta se le pegaban las líneas de los tickets con el mismo número de las otras cuatro cajas: compras de mostrador de otros clientes. 9,021 líneas donde había 1,515.
