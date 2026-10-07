@@ -6,7 +6,16 @@
 #    primera instruccion de un script. Pegado revienta y deja $f sin definir.
 if (-not $f) { $f = 'C:\KeplerPush\push-ruta.cmd' }
 $ErrorActionPreference = 'Continue'
-function Mask($s) { if (-not $s) { return '(vacio)' }; return ($s -replace '://[^@]*@', '://***@') }
+# ⛔ DOS formas de cadena, y la segunda ya se escapo una vez (2026-10-06, ruta_22):
+#    URI  -> postgresql://usuario:clave@host/db
+#    DSN  -> host=... user=... password=... connect_timeout=...
+#    Enmascarar solo la primera deja la clave en pantalla en los agentes que usan
+#    la segunda, que son justo los que no conociamos. Se cubren las dos, y la del
+#    DSN con \S+ para no comerse el parametro siguiente.
+function Mask($s) {
+  if (-not $s) { return '(vacio)' }
+  return ($s -replace '://[^@]*@', '://***@' -replace '(?i)(password\s*=\s*)\S+', '${1}***')
+}
 
 if (-not (Test-Path $f)) { Write-Host "ERROR: no existe $f" -f Red; return }
 $t = Get-Content $f -Raw -Encoding Default

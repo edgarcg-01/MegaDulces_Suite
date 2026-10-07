@@ -221,6 +221,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
       },
       {
+        // `[SV.3]` El tablero del supervisor. MISMO permiso y MISMA fuente que Ventas por ruta:
+        // lo que cambia es el recorte (las rutas de su equipo) y la meta encima. Pantalla aparte
+        // y no una pestaña de la otra, porque la otra la miran 10 roles y meterle el recorte le
+        // cambiaría en silencio lo que ven.
+        path: 'mis-rutas',
+        loadComponent: () => import('./modules/comercial/pages/comercial-mis-rutas.component').then(m => m.ComercialMisRutasComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
+      },
+      {
         // RD.13 — el inventario de los camiones. Mismo permiso que Ventas por ruta: es la misma
         // operacion mirada del otro lado (lo que se le cargo contra lo que vendio), no nomina.
         path: 'inventario-ruta',
@@ -1224,6 +1233,22 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
+        /**
+         * `[VEC.11]` Surtido — preparar lo que sale. Nació en `/reparto/surtido` (Fase SU) y
+         * se mudó acá el 2026-10-06: **quien surte es `almacenista`**, y no llegaba por
+         * ningún camino desde Reparto. La URL vieja redirige, no se borra.
+         *
+         * ⚠️ El COMPONENTE sigue viviendo en `modules/reparto/` a propósito: moverlo de
+         * carpeta renombraría 6 archivos (servicio, specs, imports) en un índice de git que
+         * comparten 10 sesiones, para cero cambio de comportamiento. La carpeta es dónde está
+         * el archivo; la ruta es dónde está la pantalla, y es la ruta la que se mudó.
+         */
+        path: 'surtido',
+        loadComponent: () =>
+          import('./modules/reparto/pages/reparto-surtido.component').then((m) => m.RepartoSurtidoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_VER)],
+      },
+      {
         // DM — Diario de movimientos (mejora del reporte Kepler): entradas/salidas agregadas + drill por folio.
         // También es superficie de auditoría/prevención → accesible con RECONCILIATION_VER.
         //
@@ -2034,12 +2059,23 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.REPARTO_DESPACHAR)],
       },
       {
-        // Fase SU (ADR-067) — Surtido: UNA pantalla para UNA persona (arma el recorrido, lo
-        // camina, lo cierra). Vive en Reparto porque prepara lo que se reparte.
+        /**
+         * `[VEC.11]` Surtido se MUDÓ a `/almacen/surtido`. Esto queda como **redirect**, no
+         * como copia: una segunda ruta al mismo componente daría dos URLs canónicas y el
+         * resaltado del sidebar resolvería distinto según por cuál entraste.
+         *
+         * Se conserva (en vez de borrarse) porque la pantalla estuvo en producción con esta
+         * URL: enlaces guardados, el historial del navegador y cualquier mensaje que la haya
+         * compartido tienen que seguir llegando. Mismo criterio que `[E.9.1]`
+         * (`/televenta/*` → `/telemarketing/*`).
+         *
+         * ⚠️ El `repartoGuard` del padre conserva `COMMERCIAL_PICKING_VER` a propósito: corre
+         * ANTES que este redirect, así que sin él `almacenista` rebotaría a `/projects` sin
+         * llegar nunca a redirigirse.
+         */
         path: 'surtido',
-        loadComponent: () =>
-          import('./modules/reparto/pages/reparto-surtido.component').then((m) => m.RepartoSurtidoComponent),
-        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_VER)],
+        redirectTo: '/almacen/surtido',
+        pathMatch: 'full',
       },
     ],
   },

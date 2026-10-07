@@ -1,0 +1,33 @@
+[RD.32] La foto sale del KARDEX, no de kdik — UNA SOLA LINEA
+=============================================================
+
+Medido en la ruta_22 el 2026-10-06, contra su propio Kepler:
+
+  md.kdik  ->  888 productos / 1,101,314.07   (22.6x la reconstruccion: IMPOSIBLE)
+  md.kdij  ->  358 productos /    65,100.76   (3,428 uds: escala de camion)
+
+En esa van `kdik` ACUMULA las entradas y nunca se releva: 08057 figuraba con
+2,688 piezas cuando el conteo de la 21 tenia 112. `kdil` es su espejo y tampoco
+sirve. El saldo real esta en el kardex `kdij`: entradas menos salidas.
+
+  entra  c5='A'  ->  U-A-50 Recepcion Traspaso (asi RECIBE la van su carga)
+  sale   c5='D'  ->  U-D-10 Ticket Contado
+  ajuste N-A-30 / N-A-20 / N-D-5 entran por el mismo signo
+
+⚠️ Y de paso corrige otra suposicion: la van NO recibe con U-D-41 (ese es el
+   documento del lado de la SUCURSAL que embarca). Del lado del camion es U-A-50.
+
+Esta linea reemplaza UNA sola linea del agente -- la del \copy de existencia.
+Es idempotente: si ya usa kdij, lo dice y no toca nada.
+
+--- COPIAR DESDE AQUI (una sola linea) ----------------------------------------
+
+$p='C:\KeplerPush\push-ruta.cmd'; $e=[Text.Encoding]::Default; $t=[IO.File]::ReadAllText($p,$e); if($t -match 'md\.kdij'){'YA USA EL KARDEX'}elseif($t -notmatch '(?m)^.*ingest\.route_stock_stg \(truck.*$'){'NO ENCONTRE LA LINEA DE EXISTENCIA -- parar y avisar'}else{[IO.File]::Copy($p,$p+'.bak3',$true); $n='%PSQL% "%LOCAL_CONN%" -c "\copy (select ''%TRUCK%'',s.sku,btrim(i.c2),btrim(i.c11),s.saldo,k.c16,(s.saldo*k.c16) from (select c3 as sku, sum(case when c5=''A'' then c11 else -c11 end) as saldo from md.kdij group by c3) s join md.kdik k on btrim(k.c2)=btrim(s.sku) join md.kdii i on btrim(i.c1)=btrim(s.sku) where s.saldo > 0) to stdout csv" | %PSQL% "%RUNNER_CONN%" -c "\copy ingest.route_stock_stg (truck,sku,producto,unidad,existencia,costo,importe) from stdin csv" >> "%LOG%" 2>&1'; [IO.File]::WriteAllText($p,($t -replace '(?m)^.*ingest\.route_stock_stg \(truck.*$',$n),$e); $v=[IO.File]::ReadAllText($p,$e); if(($v -match 'md\.kdij') -and ($v -match 'merge_route_sales') -and ($v -notmatch 'k\.c5 > 0')){'CORREGIDO: ahora lee el kardex'}else{[IO.File]::Copy($p+'.bak3',$p,$true);'FALLO: se restauro el respaldo'}}
+
+--- HASTA AQUI ----------------------------------------------------------------
+
+Despues:
+
+schtasks /Run /TN "Ruta22"
+
+Get-Content C:\KeplerPush\push_ruta_22.log -Tail 12 | Select-String 'existencia|error|FATAL|precauc'

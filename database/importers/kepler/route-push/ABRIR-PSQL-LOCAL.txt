@@ -1,0 +1,36 @@
+[RD.32] Abrir psql contra el Kepler LOCAL de la camioneta — UNA SOLA LINEA
+===========================================================================
+
+Por que asi y no `psql "<cadena>"`: PowerShell 5.1 estropea los argumentos
+nativos que llevan `=` y espacios. Medido en la ruta_22 el 2026-10-06: la cadena
+`host=localhost port=5432 ...` llegaba partida, psql ignoraba el `-c` y quedaba
+en modo interactivo. Pasar la conexion por variables PG* no tiene ese problema.
+
+⭐ Y ademas NO imprime la contrasena: la lee del agente y la mete en el entorno,
+   nunca en pantalla. (La mascara de los diagnosticos ya se corrigio para cubrir
+   tambien la forma `password=...`, que es la que uso esta van.)
+
+--- COPIAR DESDE AQUI (una sola linea) ----------------------------------------
+
+$t=Get-Content C:\KeplerPush\push-ruta.cmd -Raw; $n=([regex]::Match($t,'(?im)^\s*set\s+(\w+)\s*=\s*(?=.*host=).*localhost.*$')).Groups[1].Value; $s=([regex]::Match($t,"(?im)^\s*set\s+$n\s*=\s*(.+?)\s*$")).Groups[1].Value; ($s -split '\s+') | %{ $kv=$_ -split '=',2; switch($kv[0]){'host'{$env:PGHOST=$kv[1]} 'port'{$env:PGPORT=$kv[1]} 'dbname'{$env:PGDATABASE=$kv[1]} 'user'{$env:PGUSER=$kv[1]} 'password'{$env:PGPASSWORD=$kv[1]}} }; $q=([regex]::Match($t,'(?im)^\s*set\s+PSQL\s*=\s*"?(.+?psql\.exe)"?\s*$')).Groups[1].Value; "conectando a $env:PGDATABASE en $env:PGHOST ..."; & $q
+
+--- HASTA AQUI ----------------------------------------------------------------
+
+Ya adentro de psql, pegar esta consulta (termina en ';'):
+
+select btrim(c1) as almacen, count(*) as productos, to_char(sum(c5*c16),'FM999,999,990.00') as valor from md.kdik where c5 > 0 group by 1 order by 2 desc;
+
+Eso dice si el Kepler de la laptop tiene UN almacen o varios. Si tiene varios,
+el del camion es el que coincide con su codigo de ruta (la 22 => 01-002), y la
+consulta del agente TIENE que filtrarlo -- si no, manda el almacen de la
+sucursal entera.
+
+Medido en la ruta_22 el 2026-10-06, SIN filtrar: 888 productos / 1,101,314.07,
+que es 22.6 veces lo que la reconstruccion le atribuye. Un camion no trae un
+millon de pesos: la foto sin filtro NO sirve.
+
+Para salir:  \q
+
+⚠️ Al terminar, limpiar la contrasena del entorno de esa consola:
+
+$env:PGPASSWORD=$null

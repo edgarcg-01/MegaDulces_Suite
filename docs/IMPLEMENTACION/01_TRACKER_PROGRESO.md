@@ -90,6 +90,51 @@ Y se actualiza el símbolo al avanzar:
 
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
+### Fase VEC-VERDAD — La VENTA de la ruta vecinal: publicaba 2.07× · 2026-10-06 · ADR-056 / ADR-059
+
+> ⚠️ **COLISIÓN DE CÓDIGO, declarada:** los commits de esta fase usan `[VEC.0]`…`[VEC.7.1]` y la
+> fase de abajo —**Flujo del vendedor vecinal**, del mismo día y de otra sesión— usará los suyos.
+> Son temas distintos: aquélla es el **flujo** (pedido → almacén), ésta es la **verdad de la
+> cifra**. Renombrar implica editar los `COMMENT ON` ya grabados en prod, así que **se declara en
+> vez de arreglarse a medias**. Decisión pendiente de Edgar.
+
+- [x] **[VEC.0]** 🚀 La venta vecinal se deriva del ODS; se **retira** `import-kepler-vecinal-routes.js`.
+  **Medido: $9,164,175.91 publicados contra $4,417,300.50 reales en 2026 — 2.07×.** El feed unía
+  cabecera y líneas **sin `c5`** creyendo que era el número de renglón (es `c7`; `c5` es la
+  **caja**), y como los folios se numeran por caja, a cada ticket se le pegaban las líneas de los
+  tickets homónimos de las otras cuatro: **9,021 líneas donde había 1,515**. Árbitro `kdm1.c16`,
+  cuadra al centavo. *(batch 744)*
+- [x] **[VEC.1]** 🚀 `v_route_sales_lines` toma la vecinal del ODS; la pierna del push queda acotada
+  a las camionetas. ⚠️ **`pg_get_viewdef` imprime según el `search_path` de quien pregunta** — la
+  misma vista decía `catalog.products` desde una sesión y `products` desde el pod. *(batch 751)*
+- [x] **[VEC.4]** 🚀 El importe sale de la **cabecera**: incluye los 24 tickets cobrados cuyas líneas
+  no llegaron al ODS ($25,760.98) y viene neto de descuento. `units` se **declara incompleta** en
+  vez de estimarse. *(batch 745)*
+- [x] **[VEC.5]** 🚀 Índice parcial `ix_kdm1_ruta_vecinal`: la cabecera pasa de 1,506 a **54 ms**.
+  ⛔ **`CREATE INDEX CONCURRENTLY … IF NOT EXISTS` miente tras un intento fallido**: encontró el
+  índice **inválido** y reportó OK en 0.1 s sobre una tabla de 555 MB. *(batches 746-747)*
+- [x] **[VEC.6.2]** 🚀 El rollup mensual: 6,959 → 6,559 → 1,565 → **1,099 ms**. Tres intentos, y en
+  los dos primeros el efecto fue casi nulo porque **el cuello estaba un piso más abajo** de donde
+  se miraba. ⬜ Sigue sobre el gate de 1,000 ms — **el candado lo deja en rojo a propósito**.
+  *(batches 748-750)*
+- [x] **[VEC.7]** 🚀 `analytics.v_kepler_sales_lines`: la línea de venta de Kepler resuelta **una
+  vez**, compartida por el sell-out y la venta por ruta (pedido de Edgar). Su `canal` es **carácter
+  por carácter** el del sell-out — verificado contra prod, **los 5 canales coinciden al centavo**
+  (39.5 MDP, Δ 0.00). *(batches 752-753)*
+- [x] **[VEC.3]** ✅ Candado `test-newdb-vecinal-truth.js` **en la regresión**: 12 ✓ / 2 ✗
+  declaradas, con **prueba negativa** (ejerce el join malo y exige que dé más).
+- ⬜ **[VEC.8]** El sell-out sigue **doblando** la vecinal ($1,205,244.01 en sep-2026, 62%) porque
+  suma `U-D-12`, que en estas rutas re-factura el ticket. Migrar `mv_kepler_sales_daily` exige
+  `DROP CASCADE` sobre **15 objetos en 3 niveles (5 matviews, 2,453 MB)** y su refresco **bloquea
+  lecturas** → ventana. Runbook en [`VEC8`](RUNBOOKS/VEC8_SELLOUT_A_FUENTE_COMPARTIDA.md).
+- ⬜ **Camionetas (58% del reporte) siguen en importer.** ⭐ El ODS **sí las tiene** (`01-001`…
+  `01-006`), pero **no es copiar y pegar**: en sep-2026 el push declara **$311,652 más (12.7%)** que
+  el ODS en las mismas 6 rutas, y **no son doctypes** (en el ODS esas rutas sólo tienen `U-D-10`).
+  Explicar esa diferencia es requisito previo.
+- ⬜ Histórico Wincaja `VEC-PH-H` ($3,011,913.36 en 2026): **no medido** en esta fase.
+- ⬜ Limpiar las filas inertes del importer retirado en `sales_by_route_monthly` y
+  `route_push_lines` (~103k líneas vecinales). Ya nadie las lee.
+
 ### Fase VEC — Flujo del vendedor vecinal: pedido → aviso a la sucursal → pedido global · 2026-10-06
 
 > **Lo medido antes de planear:** el tramo de almacén **ya existe y nunca se usó**. La Fase SU (ADR-067)
@@ -105,6 +150,12 @@ Y se actualiza el símbolo al avanzar:
 - [x] **[VEC.4]** 🔨 **EN CÓDIGO 2026-10-06** — mig `20261006140000` + `avisarSucursal()` + bandeja `GET /reparto/surtido/avisos` + acuse. El canal existía y no servía: `emitOrderConfirmed` va a la room `tenant:<id>` — **efímero** (no hay ninguna tabla de avisos en `commercial.*`) y **tenant-wide** (a Morelia le llegaba el pedido de La Piedad). `emitTo` (room `u:<tenant>:<username>`, Fase C.4) **ya existía y nadie lo usaba para esto**. La tabla guarda **sólo el hecho y el acuse**; cliente/total/ruta se derivan (copiarlos sería una segunda verdad que envejece). Se emite en **los dos caminos** que llegan a `confirmed` (`place` del campo y `approve` del escritorio) porque los dos meten el pedido al pool — y el candado lo vigila (0 confirmados en 7 d sin aviso). Va **dentro del mismo trx** (si el pedido se confirma, el aviso existe) pero **nunca tira el pedido** (una venta ya tomada no se pierde por un fallo al avisar). ⛔ **El recorte NO puede salir de `users.warehouse_id`: sólo 1 de los 6 `almacenista` la tiene poblada** — filtrar por ahí dejaría ciegas a 5 de las 6 personas que arman. Usa `ScopeService` (`null` = sin recorte para quien no tiene alcance declarado: mejor un aviso de más, que se nota, que uno de menos). **Asignarle sucursal a esas 5 personas es trabajo humano pendiente.**
 - [x] **[VEC.5]** 🔨 **EN CÓDIGO 2026-10-06** — `POST /reparto/surtido/waves/auto`: el **pedido global** en un clic. ⭐ **Deliberadamente NO es un cron ni se dispara en `place()`**, aunque el pedido lo pedía literal: el primer pedido del día crearía una ola de **un renglón** (consolidar por SKU sobre un pedido no consolida nada), y peor, un pedido de las 11:40 se sumaría a una ola que alguien **ya está caminando** con la lista impresa. El aviso es inmediato, el armado es a demanda — decide quien va a caminar el almacén. Nunca toca una ola existente, **no crea olas vacías**, y el universo sale del **mismo `pool()`** que ve la pantalla. Carrera entre `pool()` y `createWave()` **declarada**: `createWave` ya tira 409 nombrando los pedidos, y un error ruidoso es mejor que una ola que se lleva algo que otro ya estaba caminando.
 - [ ] **[VEC.6]** ⚠️ **BLOQUEADO (Meta):** WhatsApp al encargado. El puerto nace **no-op y declarado** (patrón `FINANCE_NOTIFIER_PORT`) — mismo bloqueo de plantilla que `[OBS.5]`. Pintarlo como funcionando esconde que no llega.
+- [x] **[VEC.7]** 🔨 **EN CÓDIGO 2026-10-06** — Surtido al sidebar de **Reparto**, que era el arreglo correcto con lo que se sabía ese día. **Revertido por `[VEC.11]`** cuando se midió a quién le toca de verdad. ⛔ **Choque de código de ticket:** otra sesión usa el prefijo `[VEC]` para *"venta de ruta vecinal derivada del ODS"* y ya metió a `main` un `[VEC.1]` (`pg_get_viewdef`), un `[VEC.0-6.2]` y **otro `[VEC.7]`** (`20261006310000_kepler_sales_lines_canonica.js`). Esta fase es la registrada en el tracker; la otra no tiene entrada. **Dueño: Edgar** — hay que renombrar uno de los dos prefijos antes de que la historia quede ambigua.
+- [x] **[VEC.8]** 🔨 **EN CÓDIGO 2026-10-06** — El pool se agrupa y se arma **por ruta**, que es el pedido literal («que no mezcle mercancía»). El grano NO es la ruta sola: **la misma ruta aparece en dos almacenes** (RUTA 23, RUTA 28), así que una ola por ruta mezclaría mercancía de dos sucursales — exactamente lo que se quería evitar. Es `(warehouse_id, sales_route)`. `agruparPool()` es **función pura** (sale del servicio y se prueba sin DB): 8 pruebas con control positivo, invariante `Σ grupos == filas` y orden estable — sin orden estable, dos cargas de la misma pantalla listan los grupos distinto y el surtidor no sabe si cambió algo. Columna **Ruta** en la tabla: sin el tipo a la vista nadie nota un pedido en la ola equivocada.
+- [x] **[VEC.9]** 🔨 **EN CÓDIGO 2026-10-06** — mig `20261006150000`: coordenadas de **8 de 9** sucursales (las dio Edgar). Sin esto no existe «la más cercana». La migración **no se cree el dato**: valida que caigan dentro de México, que no haya dos en el mismo punto, y **dos pares conocidos** — PH↔8ESQ tiene que dar menos de 5 km y La Piedad↔Morelia más de 50; medido, **0.8 km** y **110.9 km**. Un número de coordenada mal tecleado no se ve leyéndolo, se ve en la distancia que produce. ◻ **CEDIS queda DECLARADO sin coordenada**, no en `(0,0)`: un cero en geografía es el Golfo de Guinea y haría que el CEDIS salga «la más cercana» de todo.
+- [x] **[VEC.10]** 🔨 **EN CÓDIGO 2026-10-06** — `GET /reparto/surtido/faltantes`: qué falta y **de qué sucursal traerlo**. La distancia se mide desde la sucursal que **surte la ruta**, no desde el vendedor (pedido explícito de Edgar) — el que camina el almacén es el que va a pedir el traspaso. Medido contra prod: **14 faltantes, 9 con alternativa y 5 sin ninguna, en 62 ms**. ⭐ Los 5 sin alternativa **no son un hueco del motor**: nadie en la red tiene esa mercancía, o sea que es una **compra**, no un traspaso — se dicen así y no se esconden detrás de una lista vacía. Usa el **mismo filtro** que el pool: con filtros distintos, la pantalla diría que faltan cosas de una ruta que no es la que se está armando. ⛔ **No se propone el traspaso**: `commercial.stock_movements` no tiene primitivo de transferencia (sólo `in/out/adjust/reserve/release/sale`) y fabricar uno a las apuradas es inventar un movimiento de inventario — queda declarado.
+- [x] **[VEC.11]** 🔨 **EN CÓDIGO 2026-10-06** — **Surtido se muda de Reparto a Almacén.** Lo disparó un hecho, no una opinión: *«Luis Espino sólo tiene acceso a Almacén»*. ⭐ **La causa no era el permiso sino la puerta del espacio:** el gate de `entregas-reparto` en `suite-map.ts` exige `REPARTO_DESPACHAR` citando una regla de guard **que ya no existe**, o sea que el gate es MÁS estricto que el guard — lo que la propia regla de suite-map prohíbe. Mudar la pantalla arregla el aterrizaje **sin tocar ese gate** (que sigue siendo deuda de otra fase). `/reparto/surtido` queda como **redirect**, no se borra: hay gente con el enlace guardado. Se movió también la candidatura de landing — dejarla apuntando a la ruta vieja no era inofensivo: seguía anunciando Reparto como la casa de Surtido. Va **última** en `ALMACEN_LANDING` a propósito: 6 de los 7 roles con `PICKING_VER` ya aterrizaban en otra pantalla y **moverles el aterrizaje es un cambio que nadie pidió**. ⚠️ El archivo del componente sigue en `modules/reparto/` — mudarlo es churn en un índice compartido por ~10 sesiones; queda declarado como deuda cosmética. La discrepancia `GESTIONAR→/almacen/surtido` se **declara** en `landing-guards.spec.ts` (patrón «manage sin view», ya declarado 20 veces en el repo) tras medir contra prod que **CERO roles** tienen `GESTIONAR` sin `VER`: declarar un rebote real habría sido esconderlo.
+- [x] **[VEC.12]** 🔨 **EN CÓDIGO 2026-10-06** — mig `20261006235500`: se les retira `COMMERCIAL_PICKING_*` a los **4 roles que no surten** (`marketing` las dos claves, `direccion`/`prevencion`/`prevencion_auxiliar` la de ver) — 7 personas. Ensayo en seco contra prod: toca exactamente esos 4, y los roles con `PICKING_VER` pasan de **10 a 6**. `compras`/`gerente_compras` quedan **declarados-no-tocados** (hace falta que Edgar diga si compran o surten). ⚠️ El `down()` se recortó a lo que esta migración puede probar que pobló: el primero revertía de más y le habría quitado `VER` a `direccion`/`prevencion`, que lo tienen **desde SU.2**. ⚠️ Usa `-> 'KEY' IS NOT NULL`, **nunca el operador `?` de JSONB**: knex lee el `?` como placeholder de binding — el mismo bug que `[CV.7]` y que en `[VEC.1]` hizo que un regex matcheara **0 de 29** rutas en silencio.
 
 ### Fase CSU — Cortes/Sucursales: corte de caja → cobro → ingreso · 2026-10-05 · plan en [`FASE_CSU`](FASES/FASE_CSU_CORTES_SUCURSALES.md)
 

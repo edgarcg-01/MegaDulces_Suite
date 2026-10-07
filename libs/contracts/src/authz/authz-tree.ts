@@ -142,6 +142,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'sellout-analysis', label: 'Análisis (Sell-Out BI)', route: '/comercial/analisis', view: [Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER], manage: [Permission.COMMERCIAL_SELLOUT_TARGETS_GESTIONAR] },
           { id: 'salidas', label: 'Salidas por producto', route: '/comercial/salidas', view: [Permission.COMMERCIAL_SALIDAS_VER], manage: [] },
           { id: 'route-sales', label: 'Ventas por ruta', route: '/comercial/ventas-por-ruta', view: [Permission.COMMERCIAL_ROUTE_SALES_VER], manage: [] },
+          // `[SV.3]` Mismo permiso que route-sales a propósito: es el mismo dato con otro
+          // recorte, no una facultad nueva. Un permiso propio obligaría a repartirlo y a un
+          // re-login para abrir una pantalla que ya se puede abrir.
+          { id: 'mis-rutas', label: 'Mis rutas', route: '/comercial/mis-rutas', view: [Permission.COMMERCIAL_ROUTE_SALES_VER], manage: [] },
           { id: 'route-commissions', label: 'Comisiones de ruta', route: '/comercial/comisiones', view: [Permission.COMMERCIAL_COMMISSIONS_VER], manage: [Permission.COMMERCIAL_COMMISSIONS_GESTIONAR] },
           { id: 'sales-docs', label: 'Facturación de Telemarketing', route: '/comercial/documentos', view: [Permission.COMMERCIAL_SALES_DOCS_VER], manage: [] },
           { id: 'tickets', label: 'Tickets de venta', route: '/comercial/tickets', view: [Permission.COMMERCIAL_TICKETS_VER], manage: [] },
@@ -211,6 +215,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // su permiso es `RECONCILIATION_*`, dominio propio (ADR-029), y lo que resuelve
           // es dinero —arqueo ciego, descuadre de caja— con una pata en inventario.
           { id: 'movimientos', label: 'Diario de movimientos', route: '/almacen/movimientos', view: [Permission.COMMERCIAL_MOVEMENTS_VER], manage: [Permission.COMMERCIAL_MOVEMENTS_GESTIONAR] },
+          // `[VEC.11]` Surtido — vino de Reparto (Fase SU). Preparar lo que sale es trabajo de
+          // almacén: quien lo hace es `almacenista`, y desde Reparto no tenía forma de llegar.
+          { id: 'surtido', label: 'Surtido', route: '/almacen/surtido', view: [Permission.COMMERCIAL_PICKING_VER], manage: [Permission.COMMERCIAL_PICKING_GESTIONAR] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
           // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.
@@ -441,11 +448,13 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         modules: [
           { id: 'reparto-despacho', label: 'Despacho (tienda)', route: '/reparto', view: [Permission.REPARTO_DESPACHAR], manage: [] },
           { id: 'reparto-entrega', label: 'Entrega (repartidor)', route: '/reparto', view: [Permission.REPARTO_ENTREGAR], manage: [] },
-          // Fase SU (ADR-067). Vive acá y no en Almacén por decisión de Edgar (2026-09-17): el
-          // surtido prepara lo que se reparte. Tiene ruta PROPIA (`/reparto/surtido`), a
-          // diferencia de los dos de arriba que apuntan los dos a `/reparto` — eso era lo que
-          // hacía rebotar a `REPARTO_ENTREGAR`.
-          { id: 'reparto-surtido', label: 'Surtido', route: '/reparto/surtido', view: [Permission.COMMERCIAL_PICKING_VER], manage: [Permission.COMMERCIAL_PICKING_GESTIONAR] },
+          // ⚠️ `[VEC.11]` **Surtido se mudó al proyecto `almacen`** (2026-10-06). Vivió acá
+          // desde la Fase SU por decisión de Edgar (2026-09-17, «el surtido prepara lo que se
+          // reparte»), y el uso lo refutó: quien surte es `almacenista`, cuyo proyecto es
+          // Almacén, y desde acá **no llegaba por ningún camino** — el `gate` de la tarjeta de
+          // Reparto en el suite-map exige `REPARTO_DESPACHAR`, que ese rol tiene en `false`.
+          // ⭐ Moverlo deja ese gate CORRECTO sin tocarlo: ahora Reparto sólo tiene despacho
+          // y entrega, y ambos sí exigen `REPARTO_DESPACHAR`.
         ],
       },
       {

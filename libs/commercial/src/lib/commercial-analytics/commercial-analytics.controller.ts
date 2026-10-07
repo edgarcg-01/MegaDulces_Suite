@@ -13,6 +13,7 @@ import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
 import { RoutePromoService, PromoQuery } from './route-promo.service';
 import { SelloutChatService } from './sellout-chat.service';
+import { SupervisorRoutesService } from './supervisor-routes.service';
 // [IG.1.1] La forma de los filtros de ingreso vive con la lógica pura, no en el controller.
 import type { IncomeQueryFilters } from './period-coverage';
 import type { IncomeRecon, IncomeReconDetalle, IncomeReport, IncomeSources, IncomeTree, IncomeTreeChildren, IncomeDocumento } from '@megadulces/contracts';
@@ -32,7 +33,37 @@ export class CommercialAnalyticsController {
     private readonly exporter: SellOutExportService,
     private readonly routePromoSvc: RoutePromoService,
     private readonly selloutChat: SelloutChatService,
+    private readonly supervisorRoutes: SupervisorRoutesService,
   ) {}
+
+  /**
+   * `[SV.3]` El tablero del supervisor: cómo van SUS rutas.
+   *
+   * Mismo permiso y misma fuente que `sales-by-route/dashboard` — lo que cambia es el RECORTE:
+   * acá el universo son las rutas del equipo de quien pregunta, derivadas del organigrama
+   * (`identity.users.supervisor_id`), no todas las del tenant.
+   *
+   * ⚠️ No es una frontera de seguridad: el eje `route` de `identity.role_scopes` está en `all`
+   * para 43 de 49 roles, así que quien ya veía todas las rutas las sigue viendo con
+   * `ver_todas=true`. Es el DEFAULT con el que se abre la pantalla.
+   */
+  @Get('sales-by-route/mis-rutas')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'SV.3 - Venta diaria de las rutas del EQUIPO de quien pregunta, con la meta del mes y su '
+      + 'veredicto de 5 estados (CDRP.2). Lee la matvista mv_rd_route_daily_200d (6 ms; la vista '
+      + 'equivalente tarda 6,722 ms). El margen NO se publica: el costo por ruta existe en 1 de '
+      + '430 filas de la fuente y se declara en margen_motivo. Sin meta capturada el estado es '
+      + 'sin_meta, nunca ok. Params: desde, hasta (YYYY-MM-DD), ver_todas (opcional).',
+  })
+  misRutas(
+    @Query('desde') desde: string,
+    @Query('hasta') hasta: string,
+    @Query('ver_todas') verTodas?: string,
+  ) {
+    return this.supervisorRoutes.tablero(desde, hasta, verTodas === 'true');
+  }
 
   @Get('overview')
   @RequirePermissions(Permission.COMMERCIAL_ANALYTICS_VER)

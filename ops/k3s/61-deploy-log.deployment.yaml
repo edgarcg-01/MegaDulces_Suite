@@ -1,0 +1,71 @@
+# ═══ EL DESPLIEGUE, EN LA MISMA PANTALLA ═══  [K3S.21]
+#
+# ── Qué problema resuelve ───────────────────────────────────────────────────────────────────
+# `[K3S.20]` puso los logs de los 24 pods en el navegador, pero **el despliegue no es un pod**:
+# `auto-deploy.sh` corre en el host y escribe en `~/ops/prod/auto-deploy.log`. O sea que lo único
+# que no se podía ver era justamente *cómo se está desplegando* — el pedido literal.
+#
+# Esto es un `tail -F` y nada más: su **salida estándar es el log del despliegue**, así que
+# aparece en Dozzle al lado de `api`, `worker` y los carriles, con el mismo buscador y el mismo
+# seguimiento en vivo. Se ve el fetch, la compuerta de `ci-green`, el build, el `kubectl apply`,
+# las 4 compuertas y el veredicto — o la reversión.
+#
+# ── Por qué NO se convirtió el despliegue en un Job de Kubernetes ───────────────────────────
+# Sería "más correcto" (cada despliegue = un Job = su historial con logs, igual que Railway) y se
+# evaluó. Se descarta hoy: `auto-deploy.sh` hace `docker build`, usa la llave ssh del host y
+# corre `kubectl apply` con reversión. Meterlo en un pod exige darle **el socket de Docker**
+# —que es exactamente lo que el punto 3 de `ADR-080` vino a sacar— más permisos de admin sobre
+# el clúster. Se gana una pantalla y se pierde la frontera. Queda declarado, no hecho.
+#
+# ⚠️ Monta el DIRECTORIO, no el archivo. Un `hostPath` de tipo `File` se ata al inodo: si alguna
+#    vez el log se trunca o se rota, el montaje queda apuntando al archivo viejo y el pod sigue
+#    mostrando, en silencio, un log que ya nadie escribe. Con el directorio montado, el `-F`
+#    (que sigue por NOMBRE, no por descriptor) lo reabre solo.
+#
+# ⚠️ SÓLO LECTURA. Este pod no puede escribir nada en el host.
+#
+# ⛔ NO SIRVE DE NADA SI EL DESPLIEGUE NO CORRE. Al 2026-10-02 el cron de `auto-deploy` está
+#    DESHABILITADO (se apagó a pedido, porque sondeaba cada 5 min en vez de disparar al pushear).
+#    Esta pantalla muestra el historial que ya existe y se enciende sola cuando el despliegue
+#    vuelva a correr — sea por cron, a mano, o por el disparo en el push que todavía falta.
+#
+#   aplicar:  k3s kubectl apply -f ops/k3s/61-deploy-log.deployment.yaml
+# ═══════════════════════════════════════════════════════════════════════════════════════════
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: deploy-log
+  namespace: obs
+  labels: { app: deploy-log }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: deploy-log }
+  template:
+    metadata:
+      labels: { app: deploy-log }
+    spec:
+      enableServiceLinks: false
+      containers:
+        - name: tail
+          image: busybox:1.36
+          # `-n 500` para que al abrir la pantalla ya haya contexto y no un vacío que
+          # parece "no pasa nada"; `-F` sigue por nombre y sobrevive a una rotación.
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "── seguimiento de ~/ops/prod/auto-deploy.log ──"
+              exec tail -n 500 -F /despliegue/auto-deploy.log
+          volumeMounts:
+            - name: prod-ops
+              mountPath: /despliegue
+              readOnly: true
+          resources:
+            requests: { memory: 8Mi, cpu: 5m }
+            limits:   { memory: 64Mi }
+      volumes:
+        - name: prod-ops
+          hostPath:
+            path: /home/superoot/ops/prod
+            type: Directory

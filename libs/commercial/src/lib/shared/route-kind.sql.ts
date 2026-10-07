@@ -88,3 +88,87 @@ export function routeKindFilterSql(kinds: readonly string[], customerAlias = 'c'
   const lista = kinds.map((k) => `'${k.replace(/'/g, "''")}'`).join(',');
   return `${orderRouteSql(customerAlias, 'route_kind')} IN (${lista})`;
 }
+
+/**
+ * `[SV.0]` — El CÓDIGO de la ruta, el que habla el ODS.
+ *
+ * ── El problema que esto resuelve ───────────────────────────────────────────────────────
+ * Hay **dos vocabularios de ruta** en el sistema y nadie los había cruzado:
+ *
+ *   · El mundo de la app (`trade.catalogs.value`, `customers.sales_route`) guarda
+ *     **tres formatos en el mismo campo**: 'RUTA 23', '1V001 CANDELARIA SALGADO MORALES'
+ *     (código **y nombre del vendedor pegados**) y '502' pelado.
+ *   · El mundo del ODS (`analytics.v_rd_route_daily.route_code`,
+ *     `commercial.commission_route_config.route_code`, y el `scope_key` de una meta con
+ *     `scope='route'`) habla sólo el código pelado: '23', '1V001', '502'.
+ *
+ * Medido contra prod el 2026-10-06: con el join directo `value = route_code` empata **1 de 19**
+ * rutas. Con esta función, **19 de 19 y $0 de venta sin empatar**.
+ *
+ * ── Por qué es conservador a propósito ──────────────────────────────────────────────────
+ * Resuelve SÓLO las cuatro formas que puede probar, y lo demás lo devuelve NULL para que el
+ * consumidor lo declare. La tentación es "tomar el último número", y eso rompe: en el catálogo
+ * real hay 'Ruta Vecinal Padre Hidalgo 1' y 'Ruta mayoreo 01', que esa regla mandaría a las
+ * rutas 1 y 01 — **venta de otro supervisor atribuida al tuyo, sin un solo error en pantalla**.
+ * Los 5 rótulos que quedan sin código (3 'Ruta Vecinal (plaza)', 'Ruta mayoreo 01' y
+ * 'SUCURSAL PADRE HIDALGO MAYOREO') **no vendieron nada en 30 días**: son rótulos, no rutas.
+ *
+ * La cuarta regla pide 4+ dígitos para la forma 'codigo nombre' porque los únicos observados
+ * son de 5 ('10001', '10002', '20005'). Si mañana aparece '21 JUAN PEREZ' NO se resuelve: se
+ * declara. Es la respuesta correcta — y el candado lo ve, porque la cobertura baja.
+ *
+ * ⚠️ **No uses `\s` en estos regex.** Medido en `[VEC.1]` por tres caminos: esta base lo lee
+ * como una letra 's'. Van espacios literales.
+ *
+ * ⚠️ **Dos filas del catálogo pueden dar el MISMO código**: hoy 'Ruta 501'/'RUTA 501' y
+ * '502'/'RUTA 502'. Hoy no cuelga nadie de la fila gemela (medido: 0 y 0 · 1 y 0), así que no
+ * hay doble conteo — pero lo habrá el día que alguien asigne un vendedor a 'RUTA 502'. Por eso
+ * todo consumidor agrupa por CÓDIGO, nunca por fila del catálogo, y el candado lo vigila.
+ */
+export function routeCodeSql(valueExpr: string): string {
+  return `(CASE
+             WHEN btrim(${valueExpr}) ~ '^[0-9]+$'
+               THEN btrim(${valueExpr})
+             WHEN upper(btrim(${valueExpr})) ~ '^RUTA +[0-9]+$'
+               THEN regexp_replace(upper(btrim(${valueExpr})), '^RUTA +', '')
+             WHEN split_part(btrim(${valueExpr}), ' ', 1) ~ '^[0-9]+[A-Z][0-9]+$'
+               THEN split_part(btrim(${valueExpr}), ' ', 1)
+             WHEN split_part(btrim(${valueExpr}), ' ', 1) ~ '^[0-9]{4,}$'
+               THEN split_part(btrim(${valueExpr}), ' ', 1)
+             ELSE NULL
+           END)`;
+}
+
+/**
+ * `[SV.1]` — Las rutas de UN supervisor, en el vocabulario del ODS.
+ *
+ * ── Por qué el organigrama y no el mapa de comisiones ───────────────────────────────────
+ * Los dos existen y los dos están a medias. Medido contra prod el 2026-10-06:
+ *
+ *   · `commercial.commission_route_config` tiene 13 rutas con `supervisor_nombre`, pero
+ *     **`supervisor_user_id` está en 0 de 13** — o sea que no se puede resolver desde el
+ *     usuario que inició sesión sin casar texto. De sus 3 nombres, **uno no tiene cuenta**.
+ *     Y le faltan las **8 rutas vecinales**, que vendieron **$2.1M en 30 días**.
+ *   · `identity.users.supervisor_id` es una FK real y cubre más: **22 reportes con ruta,
+ *     19 rutas distintas**, vecinales incluidas.
+ *
+ * ⚠️ Devuelve un conjunto de CÓDIGOS, no de filas del catálogo: dos vendedores en
+ * 'Ruta 501' y 'RUTA 501' son **una sola ruta**, y sumar las dos filas duplicaría su venta.
+ *
+ * ⚠️ Un supervisor sin reportes con ruta devuelve el conjunto VACÍO, y eso **no es lo mismo**
+ * que "no tiene alcance": el consumidor tiene que distinguir "no le toca ninguna ruta" de
+ * "nadie le declaró el equipo". Hoy es el caso de 3 de las 6 cuentas de supervisor.
+ */
+export function supervisorRouteCodesSql(supervisorIdParam = '?'): string {
+  return `(SELECT array_agg(DISTINCT cod) FROM (
+             SELECT ${routeCodeSql('tc.value')} AS cod
+               FROM identity.users u
+               JOIN trade.catalogs tc
+                 ON tc.id = u.route_id
+                AND tc.tenant_id = u.tenant_id
+                AND tc.catalog_id = 'rutas'
+                AND tc.deleted_at IS NULL
+              WHERE u.supervisor_id = ${supervisorIdParam}
+                AND u.deleted_at IS NULL
+           ) s WHERE cod IS NOT NULL)`;
+}

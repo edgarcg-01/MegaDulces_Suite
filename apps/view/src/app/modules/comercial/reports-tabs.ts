@@ -29,6 +29,15 @@ export const REPORTS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
   },
   {
+    // `[SV.3]` La misma venta, recortada al equipo de quien mira y con la meta encima. Va
+    // pegada a "Ventas por ruta" porque es el mismo dato visto desde el puesto que responde
+    // por él; mismo permiso, no uno nuevo.
+    label: 'Mis rutas',
+    route: '/comercial/mis-rutas',
+    icon: 'pi pi-user',
+    permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
+  },
+  {
     // RD.13 — la misma operacion del otro lado: lo que se le cargo al camion contra lo que
     // vendio. Mismo permiso que Ventas por ruta; no es nomina.
     label: 'Inventario de ruta',

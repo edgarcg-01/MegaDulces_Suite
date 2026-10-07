@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 // [VP.2.1] La forma de la procedencia la define el contrato, no cada consumidor.
+import type { SupervisorTablero } from '@megadulces/contracts';
 import type { Freshness, ExpenseFamilia } from '@megadulces/contracts';
 import type { PeriodCoverageWire, PeriodComparativoWire } from '@megadulces/contracts';
 import type { IncomeGroupBy as IncomeGroupByT, IncomeReport as IncomeReportT, IncomeTree as IncomeTreeT, IncomeTreeChildren as IncomeTreeChildrenT, IncomeDocumento as IncomeDocumentoT, IncomeSources as IncomeSourcesT, IncomeRecon as IncomeReconT, IncomeReconDetalle as IncomeReconDetalleT, IncomeGrain as IncomeGrainT } from '@megadulces/contracts';
@@ -1819,6 +1820,21 @@ export class ComercialService {
   salesByRouteDashboard(from: string, to: string) {
     return this.http.get<SalesByRouteDashboard>(`${this.base}/analytics/sales-by-route/dashboard`, {
       params: new HttpParams().set('from', from).set('to', to),
+    });
+  }
+
+  /**
+   * `[SV.3]` El tablero del supervisor: cómo van SUS rutas (las de su equipo, derivadas del
+   * organigrama). Misma fuente que el dashboard de arriba; lo que cambia es el recorte.
+   *
+   * ⚠️ El tipo viene de `@megadulces/contracts`, no se re-declara acá: un tipo de backend
+   * copiado a mano al front diverge a los tres días (ADR-052).
+   */
+  misRutas(desde: string, hasta: string, verTodas = false) {
+    let params = new HttpParams().set('desde', desde).set('hasta', hasta);
+    if (verTodas) params = params.set('ver_todas', 'true');
+    return this.http.get<SupervisorTablero>(`${this.base}/analytics/sales-by-route/mis-rutas`, {
+      params,
     });
   }
 

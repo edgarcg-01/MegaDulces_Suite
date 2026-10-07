@@ -231,6 +231,12 @@ export const ALMACEN_LANDING: LandingCandidate[] = withTreeCandidates('almacen',
   { perm: Permission.COMMERCIAL_EXPIRY_VER, url: '/almacen/inventory/caducidades' },
   { perm: Permission.COMMERCIAL_MOVEMENTS_VER, url: '/almacen/movimientos' },
   { perm: Permission.COMMERCIAL_PREVENTION_VER, url: '/almacen/prevencion' },
+  // `[VEC.11]` Surtido se mudó acá desde Reparto. Va ÚLTIMO a propósito: de los 7 roles con
+  // `PICKING_VER`, 6 ya aterrizaban antes en otra pantalla de almacén, y moverles el aterrizaje
+  // es un cambio que nadie pidió. Lo que esta línea arregla es el caso que no tenía salida:
+  // quien llega a `/almacen` con `PICKING_VER` y nada más, que antes caía al fallback
+  // `/almacen/inventory` — exige `_INVENTORY_VER` — y de ahí a `/sin-acceso`.
+  { perm: Permission.COMMERCIAL_PICKING_VER, url: '/almacen/surtido' },
 ]);
 
 /** Landing de `/almacen`. */
@@ -241,14 +247,18 @@ export const almacenHomeGuard: CanActivateFn = landingRedirectGuard(ALMACEN_LAND
  * `REPARTO_DESPACHAR`: al sumarse **Surtido** (Fase SU) con su propio permiso, quien sólo tiene
  * ése habría rebotado a `/projects` sin ver nunca su pantalla. Medido: `almacenista` tiene
  * `REPARTO_DESPACHAR` en **false explícito**.
+ *
+ * `[VEC.11]` **Ese motivo ya no existe acá**: Surtido se mudó a Almacén y su candidatura vive
+ * ahora en `ALMACEN_LANDING`. Dejar la línea vieja no era inofensivo — seguía anunciando Reparto
+ * como la casa de Surtido y mandaba a quien sólo tiene `PICKING_VER` a una ruta que hoy es un
+ * redirect. Quien sólo tenga `PICKING_VER` ya **no** es candidato a aterrizar en `/reparto`, que
+ * es lo correcto: nunca tuvo un permiso de reparto.
  */
 export const REPARTO_LANDING: LandingCandidate[] = withTreeCandidates('reparto', [
   { perm: Permission.REPARTO_DESPACHAR, url: '/reparto/asignar' },
-  { perm: Permission.COMMERCIAL_PICKING_VER, url: '/reparto/surtido' },
 ]);
 
-/** Landing de `/reparto`. El fallback es Surtido: es la única pantalla del proyecto que hoy
- *  alcanza el piso de almacén, y mandar a `asignar` a quien no puede abrirlo es el rebote. */
+/** Landing de `/reparto`. */
 export const repartoHomeGuard: CanActivateFn = landingRedirectGuard(REPARTO_LANDING, '/reparto/asignar');
 
 export const COMPRAS_LANDING: LandingCandidate[] = withTreeCandidates('compras', [
