@@ -257,13 +257,16 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                         <!-- [VE.7.1] Un canal sin historia propia usa el respaldo, y hay que
                              DECIRLO: mostrarlo igual que uno derivado es como Mayoreo exhibia
                              2.6% teniendo -8.4% de verdad. -->
-                        <span class="pres-assump-val pres-muted pres-mono" title="Este canal no tiene par de años con que calcular su propio crecimiento; usa el respaldo"><span class="pres-assump-num">{{ asVentasDefault }} %</span> · respaldo</span>
+                        <span class="pres-assump-val pres-muted pres-mono" title="Este canal no tiene par de años con que calcular su propio crecimiento; usa el respaldo"><span class="pres-assump-num">{{ asVentasDefault }} %</span><span class="pres-assump-suf">· respaldo</span></span>
                       } @else {
-                        <span class="pres-assump-val"><strong class="pres-mono pres-assump-num">{{ asVentasGrowth[ch] }} %</strong></span>
+                        <span class="pres-assump-val"><strong class="pres-mono pres-assump-num">{{ asVentasGrowth[ch] }} %</strong><span class="pres-assump-suf"></span></span>
                       }
                     </div>
                   }
-                  <div class="pres-assump-row"><span class="pres-muted">Respaldo — para un canal sin par de años</span><strong class="pres-mono">{{ asVentasDefault == null ? '—' : asVentasDefault + ' %' }}</strong></div>
+                  <!-- [PU.VA] Mismo markup que los canales: es otra cosa (un parámetro, no un canal),
+                       pero vive en la misma lista, y una columna de números que se rompe en el último
+                       renglón se lee como un error de dato. -->
+                  <div class="pres-assump-row"><span class="pres-muted">Respaldo — para un canal sin par de años</span><span class="pres-assump-val"><strong class="pres-mono pres-assump-num">{{ asVentasDefault == null ? '—' : asVentasDefault + ' %' }}</strong><span class="pres-assump-suf"></span></span></div>
                 </div>
                 <div class="pres-assump-col">
                   <h4>Gastos</h4>
@@ -1075,6 +1078,11 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-assump-row .pres-mono { font-variant-numeric: tabular-nums; }
     .pres-assump-val { display:inline-flex; align-items:baseline; gap:.35rem; justify-content:flex-end; }
     .pres-assump-val > .pres-assump-num { min-width:4.2rem; text-align:right; }
+    /* [PU.VA] El sufijo reserva su ancho SIEMPRE, incluso vacío. Sin esto no alcanzaba con darle
+       ancho al número: el «· respaldo» va después y lo corre hacia la izquierda, así que el único
+       renglón que avisa que no es una medición propia era el único que no se podía escanear.
+       Medido en pantalla: el primer intento (ancho sólo en el número) NO lo arregló. */
+    .pres-assump-val > .pres-assump-suf { min-width:5.2rem; text-align:left; }
     /* [VE.7] Separa lo que el sistema CALCULA de lo que la persona DECIDE. */
     .pres-assump-sub { margin:1rem 0 .35rem; padding-top:.6rem; border-top:1px solid var(--border-subtle,#e5e1dc); font-size:var(--fs-xs); color:var(--text-muted); }
     .pres-assump-in { width:8rem; }
@@ -1315,6 +1323,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.selected.set(b);
     this.summary.set(null); this.lines.set([]); this.salesCmp.set(null);
     this.loadingDetail.set(true);
+    // `[PU.VA]` El latido de la pasada, para que el vacío de la tabla no tenga que conjeturar.
+    // Va APARTE del `forkJoin`: si no se puede leer, la pantalla igual tiene que pintar el
+    // ejercicio, y el signal queda en `null`, que el vacío lee como «no sé si corrió» (ADR-056).
+    this.autopilot.set(null);
+    this.http.get<AutopilotStatus>(`${this.base}/autopilot/status`).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (a) => this.autopilot.set(a), error: () => this.autopilot.set(null) });
     forkJoin({
       summary: this.http.get<Summary>(`${this.base}/budgets/${b.id}/summary`),
       lines: this.http.get<BudgetLine[]>(`${this.base}/budgets/${b.id}/lines`),
