@@ -1723,7 +1723,11 @@ export class FinanzasPresupuestoComponent implements OnInit {
    *  escribía — o sea que ni siquiera se podía fijar un supuesto para ellos. */
   channelsList: string[] = ['mostrador', 'credito', 'ruta', 'preventa'];
   channelLabels: Record<string, string> = {};
-  asVentasGrowth: Record<string, number> = { mostrador: 8, credito: 8, ruta: 8, preventa: 8 };
+  // `[VE.7.2]` `number | null` porque un canal SIN supuesto propio se declara, no cae al respaldo
+  // en silencio. Y arranca VACÍO: la semilla era `{ mostrador: 8, credito: 8, ruta: 8, preventa: 8 }`
+  // — un 8 % inventado en cuatro canales, uno de ellos (`credito`) muerto desde el 2026-09-18. El
+  // vocabulario lo trae el backend desde `v_sales_entity`; sembrarlo acá era adivinarlo.
+  asVentasGrowth: Record<string, number | null> = {};
   asVentasDefault: number | null = 8;
   asGastosDefault: number | null = 8;
   asGastosFamilies = '6';
@@ -1777,9 +1781,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: (p) => {
         const g = Math.round((p.global?.growth_pct || 0) * 1000) / 10; // fracción → %
         this.asVentasDefault = g;
-        for (const ch of this.channelsList) { const c = p.by_channel?.[ch]; this.asVentasGrowth[ch] = c ? Math.round((c.growth_pct || 0) * 1000) / 10 : g; }
+        // `[VE.7.2]` Un canal sin base propia queda en `null` — antes se le copiaba el global `g`,
+        // que es cómo Mayoreo terminaba exhibiendo 2.6 % con aspecto de cifra calculada. El
+        // «· respaldo» de la pantalla sale justamente de este null.
+        for (const ch of this.channelsList) { const c = p.by_channel?.[ch]; this.asVentasGrowth[ch] = c && c.basis === 'yoy_paired' ? Math.round((c.growth_pct || 0) * 1000) / 10 : null; }
         const yoy = Object.values(p.by_channel || {}).filter((c) => c.basis === 'yoy_paired').length;
-        this.toast.add({ severity: 'success', summary: 'Crecimiento sugerido', detail: `Ventas: ${yoy} canal(es) con base histórica año-contra-año; el resto por tendencia global. Revisá, ajustá y Guardá.` });
+        this.toast.add({ severity: 'success', summary: 'Crecimiento calculado', detail: `${yoy} canal(es) con base histórica año-contra-año; el resto usa el respaldo y así se muestra.` });
         done();
       },
       error: (e) => { this.toast.add({ severity: 'warn', summary: 'Ventas', detail: e?.error?.message || 'Sin historia suficiente para estimar el crecimiento de ventas.' }); done(); },
