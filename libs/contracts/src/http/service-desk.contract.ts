@@ -73,6 +73,25 @@ export interface SdQueueDto {
   name: string;
   /** `[MS.7.7]` Para que el formulario sepa QUÉ preguntar al reportar en esta cola. */
   priority_model: SdPriorityModel;
+  /** `[MS.7.3]` Si el formulario de esta cola PREGUNTA la zona (el lugar dentro de la ubicación). Se elige por este valor, nunca por el nombre. */
+  asks_zone: boolean;
+}
+
+/** `[MS.7.3]` El lugar dentro de la ubicación (bodega, andén, oficina, baños, exterior…). Catálogo editable. */
+export interface SdZoneDto {
+  code: string;
+  name: string;
+}
+export interface SdZoneAdminDto extends SdZoneDto {
+  id: string;
+  sort_order: number;
+  active: boolean;
+}
+export interface SdUpsertZoneDto {
+  code?: string;
+  name?: string;
+  sort_order?: number;
+  active?: boolean;
 }
 
 export interface SdCategoryDto {
@@ -87,6 +106,8 @@ export interface SdCategoryDto {
 export interface SdCatalogResponse {
   queues: SdQueueDto[];
   categories: SdCategoryDto[];
+  /** `[MS.7.3]` Las zonas ACTIVAS (para el selector de las colas que la preguntan). */
+  zones: SdZoneDto[];
   impacts: readonly SdImpact[];
 }
 
@@ -107,6 +128,8 @@ export interface SdCreateRequestDto {
   blocks_work?: boolean;
   /** `[MS.7.7]` «¿Hay riesgo para personas?». **Obligatorio** en una cola con modelo `riesgo_operacion`; se ignora en una de `impacto`. */
   safety_risk?: boolean;
+  /** `[MS.7.3]` La zona (código del catálogo). Opcional; se ignora si la cola no pregunta la zona. */
+  zone_code?: string | null;
   /** Código de sucursal (`'01'`…). Obligatorio si la categoría exige sucursal. */
   warehouse_code?: string | null;
   attachments?: SdAttachmentInput[];
@@ -171,6 +194,9 @@ export interface SdRequestRow {
   requester_name: string | null;
   warehouse_code: string | null;
   warehouse_name: string | null;
+  /** `[MS.7.3]` La zona del ticket (opcional). */
+  zone_code: string | null;
+  zone_name: string | null;
   assigned_to: string | null;
   assigned_to_name: string | null;
   assigned_at: string | null;
@@ -515,6 +541,8 @@ export interface SdConfigResponse {
   policies: SdSlaPolicyDto[];
   queues: SdQueueAdminDto[];
   categories: SdCategoryAdminDto[];
+  /** `[MS.7.3]` Todas las zonas, también las apagadas (para administrarlas). */
+  zones: SdZoneAdminDto[];
 }
 
 export interface SdUpsertCategoryDto {
@@ -565,6 +593,8 @@ export interface SdUpsertQueueDto {
   name?: string;
   /** `[MS.7.7]` Cambia cómo se sugiere la prioridad de la cola. Sólo la coordinación de esa cola. */
   priority_model?: SdPriorityModel;
+  /** `[MS.7.3]` Si el formulario de la cola pregunta la zona. Sólo la coordinación de esa cola. */
+  asks_zone?: boolean;
   department_code?: string | null;
   active?: boolean;
   sort_order?: number;

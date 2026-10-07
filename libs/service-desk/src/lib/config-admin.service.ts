@@ -22,6 +22,8 @@ import {
   type SdSlaPolicyDto,
   type SdUpsertCategoryDto,
   type SdUpsertQueueDto,
+  type SdUpsertZoneDto,
+  type SdZoneAdminDto,
 } from '@megadulces/contracts';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { parseHHMM } from './domain/business-clock';
@@ -65,8 +67,9 @@ export class ServiceDeskConfigAdminService {
       const s = await trx('servicedesk.settings').first();
       if (!s) throw new NotFoundException('La Mesa de Servicio no está configurada para este tenant');
       const policies = await trx('servicedesk.sla_policies').select('queue_id', 'priority', 'first_response_minutes', 'resolution_minutes', 'clock');
-      const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order', 'priority_model');
+      const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order', 'priority_model', 'asks_zone');
       const cats = await trx('servicedesk.categories').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'queue_id', 'code', 'name', 'default_priority', 'requires_branch', 'active', 'sort_order');
+      const zones = await trx('servicedesk.zones').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'sort_order', 'active');
       const orden = (p: SdPriority): number => SD_PRIORITIES.indexOf(p);
       return {
         settings: {
@@ -86,6 +89,7 @@ export class ServiceDeskConfigAdminService {
           .sort((a, b) => (a.queue_id ?? '').localeCompare(b.queue_id ?? '') || orden(a.priority) - orden(b.priority)),
         queues: queues as SdQueueAdminDto[],
         categories: cats as SdCategoryAdminDto[],
+        zones: zones as SdZoneAdminDto[],
       };
     });
   }
@@ -230,6 +234,7 @@ export class ServiceDeskConfigAdminService {
             code,
             name,
             priority_model: modelo,
+            asks_zone: dto.asks_zone === true,
             department_code: dto.department_code ? String(dto.department_code) : null,
             active: dto.active ?? true,
             sort_order: orden,
@@ -260,6 +265,10 @@ export class ServiceDeskConfigAdminService {
     }
     if (dto.sort_order !== undefined) patch['sort_order'] = this.orden(dto.sort_order);
     if (dto.priority_model !== undefined) patch['priority_model'] = this.modelo(dto.priority_model);
+    if (dto.asks_zone !== undefined) {
+      if (typeof dto.asks_zone !== 'boolean') throw new BadRequestException('asks_zone debe ser verdadero o falso');
+      patch['asks_zone'] = dto.asks_zone;
+    }
     if (!Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
     // `[MS.7.6]` Sólo la coordinación de ESA cola (o el god-mode) edita su cola.
     if (!puedeCoordinarCola(ctx.colas, id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiarla');
@@ -359,6 +368,56 @@ export class ServiceDeskConfigAdminService {
       throw new BadRequestException(`${campo} debe tener el formato HH:MM`);
     }
     return String(v).slice(0, 5);
+  }
+
+  // ── `[MS.7.3]` Zonas ──────────────────────────────────────────────────────────────────────────
+  /**
+   * Las zonas son un catálogo del TENANT (la misma «bodega» sirve a todas las colas), no de una cola: por eso las administra quien
+   * coordina ALGUNA cola (o el god-mode), no cualquiera que tenga la clave sin cola. El código es inmutable (los tickets lo guardan);
+   * apagar no borra.
+   */
+  async createZone(ctx: ActorCtx, dto: SdUpsertZoneDto): Promise<SdConfigResponse> {
+    this.exigirAdministraZonas(ctx);
+    const code = String(dto?.code ?? '').trim();
+    const name = String(dto?.name ?? '').trim();
+    if (!/^[a-z][a-z0-9_]{0,29}$/.test(code)) throw new BadRequestException('code debe ir en minúsculas, empezar con letra y usar sólo letras, números y guion bajo (máx. 30)');
+    if (!name || name.length > 60) throw new BadRequestException('Escribe el nombre de la zona (hasta 60 caracteres)');
+    const orden = dto.sort_order !== undefined ? this.orden(dto.sort_order) : 100;
+    await this.tk.run(async (trx) => {
+      try {
+        await trx('servicedesk.zones').insert({ tenant_id: this.tenantCtx.requireTenantId(), code, name, sort_order: orden, active: dto.active ?? true, created_by: ctx.userId, updated_by: ctx.userId });
+      } catch (e) {
+        traducir(e);
+      }
+    });
+    return this.get();
+  }
+
+  async updateZone(ctx: ActorCtx, id: string, dto: SdUpsertZoneDto): Promise<SdConfigResponse> {
+    this.exigirAdministraZonas(ctx);
+    if (!UUID_RE.test(id)) throw new NotFoundException('Zona no encontrada');
+    if (dto.code !== undefined) throw new BadRequestException('El código de una zona no se cambia (los tickets ya lo guardan): apaga ésta y crea otra');
+    const patch: Record<string, unknown> = {};
+    if (dto.name !== undefined) {
+      const n = String(dto.name).trim();
+      if (!n || n.length > 60) throw new BadRequestException('El nombre de la zona no puede quedar vacío (hasta 60 caracteres)');
+      patch['name'] = n;
+    }
+    if (dto.sort_order !== undefined) patch['sort_order'] = this.orden(dto.sort_order);
+    if (dto.active !== undefined) {
+      if (typeof dto.active !== 'boolean') throw new BadRequestException('active debe ser verdadero o falso');
+      patch['active'] = dto.active;
+    }
+    if (!Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
+    await this.tk.run(async (trx) => {
+      const n = await trx('servicedesk.zones').where({ id }).update({ ...patch, updated_at: trx.fn.now(), updated_by: ctx.userId });
+      if (!n) throw new NotFoundException('Zona no encontrada');
+    });
+    return this.get();
+  }
+
+  private exigirAdministraZonas(ctx: ActorCtx): void {
+    if (!ctx.esGod && ctx.colas.coordina.size === 0) throw new ForbiddenException('Las zonas las administra quien coordina alguna cola de la Mesa de Servicio');
   }
 
   /** `[MS.7.7]` El modelo con el que se sugiere la prioridad de la cola: sólo los que el código sabe aplicar. */

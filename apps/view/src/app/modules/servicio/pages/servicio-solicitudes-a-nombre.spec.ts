@@ -18,7 +18,8 @@ import { ServicioSolicitudesComponent } from './servicio-solicitudes.component';
  *  · lo levantado a nombre de otra persona no es «mío»: se abre en la bandeja, no en «Mis solicitudes».
  */
 const CATALOGO: SdCatalogResponse = {
-  queues: [{ id: 'q1', code: 'ti', name: 'TI' }],
+  queues: [{ id: 'q1', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false }],
+  zones: [],
   categories: [{ id: 'c-libre', queue_id: 'q1', code: 'reportes', name: 'Reportes', default_priority: 'baja', requires_branch: false }],
   impacts: ['yo', 'varios', 'sucursal', 'red'],
 };

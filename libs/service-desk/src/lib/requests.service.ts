@@ -78,6 +78,8 @@ interface RequestRow {
   impact: SdImpact;
   blocks_work: boolean;
   safety_risk?: boolean | null;
+  zone_code?: string | null;
+  zone_name?: string | null;
   status: SdStatus;
   requester_id: string;
   requester_name: string | null;
@@ -220,7 +222,7 @@ export class ServiceDeskRequestsService {
           .where('c.id', dto.category_id)
           .where({ 'c.active': true, 'q.active': true })
           .whereNull('c.deleted_at')
-          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model');
+          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model', 'q.asks_zone');
         if (!cat) throw new BadRequestException('La categoría no existe o no está disponible');
         if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la ubicación');
         /*
@@ -233,6 +235,17 @@ export class ServiceDeskRequestsService {
           throw new BadRequestException('Indica si hay riesgo para personas (sí o no): sin eso no se puede sugerir la prioridad de esta área');
         }
         const riesgo: boolean | null = modelo === 'riesgo_operacion' ? (dto.safety_risk as boolean) : null;
+        /*
+         * `[MS.7.3]` La zona es el LUGAR dentro de la ubicación y sólo la pregunta una cola que lo declara (`asks_zone`, por
+         * valor, no por nombre). Si la cola no la pregunta se IGNORA y queda NULL; si la pregunta y llega, debe ser una zona
+         * ACTIVA del catálogo (no hay zonas inventadas). Es opcional: sin zona se levanta igual.
+         */
+        let zona: string | null = null;
+        if (cat.asks_zone && typeof dto.zone_code === 'string' && dto.zone_code.trim() !== '') {
+          const z = await trx('servicedesk.zones').where({ code: dto.zone_code.trim(), active: true }).first('code');
+          if (!z) throw new BadRequestException('La zona indicada no existe o está apagada');
+          zona = z.code as string;
+        }
 
         // El solicitante es quien llama, salvo que quien atiende haya indicado a otra persona.
         const solicitanteId = pidioOtro ? (dto.requester_id as string) : ctx.userId;
@@ -275,6 +288,7 @@ export class ServiceDeskRequestsService {
             impact,
             blocks_work: blocksWork,
             safety_risk: riesgo,
+            zone_code: zona,
             status: 'nuevo',
             requester_id: solicitanteId,
             requester_name: nombreSolicitante,
@@ -1048,8 +1062,11 @@ export class ServiceDeskRequestsService {
       .leftJoin('identity.users as ua', function () {
         this.on('ua.tenant_id', 'r.tenant_id').andOn('ua.id', 'r.assigned_to');
       })
+      .leftJoin('servicedesk.zones as z', function () {
+        this.on('z.tenant_id', 'r.tenant_id').andOn('z.code', 'r.zone_code');
+      })
       .whereNull('r.deleted_at')
-      .select('r.*', 'q.name as queue_name', 'c.name as category_name', 'ua.nombre as assigned_nombre', 'ua.username as assigned_username');
+      .select('r.*', 'q.name as queue_name', 'c.name as category_name', 'ua.nombre as assigned_nombre', 'ua.username as assigned_username', 'z.name as zone_name');
   }
 
   private buscar(qb: Knex.QueryBuilder, search: string | undefined): void {
@@ -1083,6 +1100,8 @@ export class ServiceDeskRequestsService {
       requester_name: r.requester_name ?? null,
       warehouse_code: r.warehouse_code ?? null,
       warehouse_name: r.warehouse_code ? nombreUbicacionExtra(r.warehouse_code) ?? branchName(r.warehouse_code) : null,
+      zone_code: r.zone_code ?? null,
+      zone_name: r.zone_name ?? null,
       assigned_to: r.assigned_to ?? null,
       assigned_to_name: r.assigned_to ? r.assigned_nombre || r.assigned_username || null : null,
       assigned_at: iso(r.assigned_at),

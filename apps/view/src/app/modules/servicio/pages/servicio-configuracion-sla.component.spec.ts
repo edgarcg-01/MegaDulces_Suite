@@ -25,10 +25,11 @@ const CFG: SdConfigResponse = {
     { queue_id: 'q-mto', priority: 'urgente', first_response_minutes: 60, resolution_minutes: 240, clock: 'business' },
   ],
   queues: [
-    { id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', department_code: null, active: true, sort_order: 10, priority_model: 'impacto' },
-    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: false, sort_order: 20, priority_model: 'riesgo_operacion' },
+    { id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', department_code: null, active: true, sort_order: 10, priority_model: 'impacto', asks_zone: false },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: false, sort_order: 20, priority_model: 'riesgo_operacion', asks_zone: true },
   ],
   categories: [],
+  zones: [],
 };
 
 describe('[MS.7.2] ServicioConfiguracionComponent — plazos por cola', () => {

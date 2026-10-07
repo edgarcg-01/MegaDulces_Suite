@@ -451,6 +451,8 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 
 **Prioridad por riesgo en Mantenimiento (MS.7.7):** al reportar a Mantenimiento se pregunta «¿hay riesgo para personas?» y «¿detiene la operación?» en lugar de «¿a cuántas personas afecta?»; con ambas se sugiere la prioridad (riesgo y paro → Urgente; uno de los dos → Alta; ninguno → Media). La pregunta del riesgo es obligatoria. TI sigue como siempre y cada cola puede elegir su modelo desde Configuración.
 
+**Zonas en la Mesa de Servicio (MS.7.3):** además de la ubicación, las colas que lo piden (hoy Mantenimiento) preguntan **en qué parte** — bodega, andén, oficina, baños, exterior — de forma opcional; la ficha la muestra y la coordinación administra el catálogo desde Configuración (apagar una zona no borra: los tickets viejos la conservan). Para TI no cambia nada. **Nada aplicado a prod** (migración `20261007270000`).
+
 **Plazos (SLA) por cola (MS.7.2):** cada cola puede tener sus propios plazos de primera respuesta y resolución, y lo que no cambia lo hereda de los generales; Configuración trae un selector «¿De qué cola?» con «propio/heredado». Mantenimiento ya trae los suyos, en horario hábil. Para TI no cambia nada.
 
 **Mantenimiento sembrada, apagada (MS.7.14):** la Mesa tiene la cola de Mantenimiento con sus 11 categorías y la ubicación «Estacionamiento CEDIS». Nace apagada y sin miembros: no se ofrece a nadie hasta que un administrador nombre a su coordinación y ésta la encienda desde Configuración.

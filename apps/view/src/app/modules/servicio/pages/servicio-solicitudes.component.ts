@@ -149,6 +149,13 @@ function dataUri(f: File): Promise<string> {
                   <p-select [options]="sucursales" optionLabel="name" optionValue="code" [(ngModel)]="form.warehouse_code" placeholder="Elige la ubicación"
                             [showClear]="!requiereSucursal()" appendTo="body" ariaLabel="Ubicación" /></label>
 
+                <!-- [MS.7.3] La zona (el lugar DENTRO de la ubicación) sólo si la cola la pregunta; es opcional. -->
+                @if (preguntaZona()) {
+                  <label class="ss-field"><span>Zona (opcional)</span>
+                    <p-select [options]="zonas()" optionLabel="name" optionValue="code" [(ngModel)]="form.zone_code" placeholder="¿En qué parte?"
+                              [showClear]="true" appendTo="body" ariaLabel="Zona" /></label>
+                }
+
                 <!-- [MS.7.7] Qué se pregunta lo dicta el MODELO de la cola (no su nombre): impacto × bloqueo, o riesgo × operación. -->
                 @if (modeloRiesgo()) {
                   <fieldset class="ss-impact">
@@ -344,7 +351,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly archivos = signal<File[]>([]);
   readonly enviando = signal(false);
   readonly formError = signal<string | null>(null);
-  form: { category_id: string | null; title: string; description: string; impact: SdImpact; blocks_work: boolean; warehouse_code: string | null; /** `[MS.7.7]` `null` = sin contestar (en una cola de riesgo es obligatoria). */ safety_risk: boolean | null } = this.formVacio();
+  form: { category_id: string | null; title: string; description: string; impact: SdImpact; blocks_work: boolean; warehouse_code: string | null; /** `[MS.7.7]` `null` = sin contestar (en una cola de riesgo es obligatoria). */ safety_risk: boolean | null; /** `[MS.7.3]` Zona opcional. */ zone_code: string | null } = this.formVacio();
 
   /** Categorías agrupadas por cola (`p-select` con `group`). Hoy hay una sola cola (TI). */
   readonly categorias = computed(() => {
@@ -359,6 +366,13 @@ export class ServicioSolicitudesComponent implements OnInit {
    */
   readonly categoriaId = signal<string | null>(null);
   readonly requiereSucursal = computed(() => !!this.catalogo()?.categories.find((k) => k.id === this.categoriaId())?.requires_branch);
+  /** `[MS.7.3]` ¿La cola de la categoría elegida pregunta la zona? (lo dice la cola, no su nombre) y las zonas que se ofrecen. */
+  readonly preguntaZona = computed(() => {
+    const c = this.catalogo();
+    const cat = c?.categories.find((k) => k.id === this.categoriaId());
+    return !!cat && c?.queues.find((q) => q.id === cat.queue_id)?.asks_zone === true;
+  });
+  readonly zonas = computed(() => this.catalogo()?.zones ?? []);
   /** `[MS.7.7]` ¿La cola de la categoría elegida sugiere la prioridad por riesgo × operación? (lo dice la cola, no su nombre) */
   readonly modeloRiesgo = computed(() => {
     const c = this.catalogo();
@@ -374,7 +388,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   pForm = { email: '', phone: '', email_enabled: true, whatsapp_enabled: false };
 
   private formVacio() {
-    return { category_id: null as string | null, title: '', description: '', impact: 'yo' as SdImpact, blocks_work: false, warehouse_code: null as string | null, safety_risk: null as boolean | null };
+    return { category_id: null as string | null, title: '', description: '', impact: 'yo' as SdImpact, blocks_work: false, warehouse_code: null as string | null, safety_risk: null as boolean | null, zone_code: null as string | null };
   }
 
   ngOnInit(): void {
@@ -512,6 +526,8 @@ export class ServicioSolicitudesComponent implements OnInit {
         blocks_work: this.form.blocks_work,
         safety_risk: this.modeloRiesgo() ? (this.form.safety_risk ?? undefined) : undefined,
         warehouse_code: this.form.warehouse_code || null,
+        // `[MS.7.3]` La zona sólo viaja si la cola la pregunta (si no, el servidor la ignora de todos modos).
+        zone_code: this.preguntaZona() ? this.form.zone_code || null : undefined,
         attachments: attachments.length ? attachments : undefined,
         // Sólo viaja si quien atiende ELIGIÓ a la persona: sin ella, la solicitud es de quien la escribe (lo de siempre).
         requester_id: this.solicitante()?.user_id,

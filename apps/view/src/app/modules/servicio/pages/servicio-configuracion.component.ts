@@ -155,6 +155,29 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
           </div>
         </section>
 
+        <section class="sc-card" aria-labelledby="h-zonas">
+          <h2 id="h-zonas">Zonas</h2>
+          <p class="sc-hint">El <b>lugar dentro de la ubicación</b> (bodega, andén, baños…). Se ofrece sólo en las colas que la preguntan (se enciende en cada cola, abajo). Apagar una zona no borra: los tickets viejos la conservan.</p>
+          <table class="sc-table">
+            <thead><tr><th>Zona</th><th>Orden</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              @for (z of c.zones; track z.id) {
+                <tr [class.apagada]="!z.active">
+                  <td>{{ z.name }} <span class="sc-mono">{{ z.code }}</span></td>
+                  <td>{{ z.sort_order }}</td>
+                  <td>{{ z.active ? 'Activa' : 'Apagada' }}</td>
+                  <td><p-button [label]="z.active ? 'Apagar' : 'Encender'" size="small" severity="secondary" [text]="true" (onClick)="alternarZona(z.id, z.active)" /></td>
+                </tr>
+              } @empty { <tr><td colspan="4" class="sc-vacio">Sin zonas.</td></tr> }
+            </tbody>
+          </table>
+          <div class="sc-grid sc-zona-nueva">
+            <label class="sc-field"><span>Nombre</span><input pInputText [(ngModel)]="zonaNueva.name" placeholder="Ej. Patio de maniobras" /></label>
+            <label class="sc-field"><span>Código (minúsculas y guion bajo)</span><input pInputText [(ngModel)]="zonaNueva.code" placeholder="patio_maniobras" /></label>
+            <div class="sc-foot"><p-button label="Agregar zona" icon="pi pi-plus" [loading]="guardando()" [disabled]="!zonaValida()" (onClick)="agregarZona()" /></div>
+          </div>
+        </section>
+
         <section class="sc-card" aria-labelledby="h-cat">
           <h2 id="h-cat">Colas y categorías</h2>
           @for (q of c.queues; track q.id) {
@@ -167,6 +190,8 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <label class="sc-modelo"><span>Prioridad sugerida por</span>
                   <p-select [options]="modelos" optionLabel="label" optionValue="value" [ngModel]="q.priority_model" (ngModelChange)="cambiarModelo(q.id, q.priority_model, $event)"
                             appendTo="body" [ariaLabel]="'Cómo se sugiere la prioridad en ' + q.name" /></label>
+                <!-- [MS.7.3] Si el formulario de esta cola pregunta la zona. -->
+                <label class="sc-modelo sc-chk"><input type="checkbox" [ngModel]="q.asks_zone" (ngModelChange)="cambiarPreguntaZona(q.id, q.asks_zone, $event)" [attr.aria-label]="'Preguntar la zona en ' + q.name" /> Pregunta la zona</label>
                 <p-button [label]="q.active ? 'Apagar cola' : 'Encender cola'" size="small" severity="secondary" [text]="true" (onClick)="alternarCola(q.id, q.active)" />
               </div>
               <!-- [MS.7.17] Quién atiende esta cola: la coordinación de ESA cola administra a sus miembros. -->
@@ -407,6 +432,19 @@ export class ServicioConfiguracionComponent implements OnInit {
     const q = this.ambito();
     if (!q) return;
     this.guardar(this.api.removeQueuePolicy(p.priority, q), `${this.nombreAmbito()} vuelve a usar el plazo general de «${PRIORITY_LABEL[p.priority]}».`);
+  }
+  // ── `[MS.7.3]` Zonas ──
+  zonaNueva = { name: '', code: '' };
+  zonaValida(): boolean { return !!this.zonaNueva.name.trim() && /^[a-z][a-z0-9_]{0,29}$/.test(this.zonaNueva.code.trim()); }
+  agregarZona(): void {
+    if (!this.zonaValida()) return;
+    this.guardar(this.api.createZone({ name: this.zonaNueva.name.trim(), code: this.zonaNueva.code.trim() }), 'Zona agregada.');
+    this.zonaNueva = { name: '', code: '' };
+  }
+  alternarZona(id: string, activa: boolean): void { this.guardar(this.api.updateZone(id, { active: !activa }), activa ? 'Zona apagada.' : 'Zona encendida.'); }
+  cambiarPreguntaZona(id: string, actual: boolean, nuevo: boolean): void {
+    if (nuevo === actual) return;
+    this.guardar(this.api.updateQueue(id, { asks_zone: nuevo }), nuevo ? 'El formulario de esta cola ahora pregunta la zona.' : 'El formulario de esta cola ya no pregunta la zona.');
   }
   cambiarModelo(id: string, actual: string, nuevo: string): void {
     if (nuevo === actual) return;

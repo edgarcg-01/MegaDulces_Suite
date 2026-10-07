@@ -1269,6 +1269,78 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⭐ TI sigue en impacto: no se le pide el riesgo y su ticket queda con safety_risk NULL', ti.status === 201 && ti.body?.safety_risk === null, dump(ti));
     }
 
+    // ── 27. [MS.7.3] Zonas: el lugar DENTRO de la ubicación (sólo la pregunta la cola que lo declara) ─────
+    {
+      console.log('\n27 — zonas: catálogo editable, ticket con zona opcional, y sólo en la cola que la pregunta');
+      const [{ id: qZ }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_zn73', name: 'SMOKE Zonas', sort_order: 904 }).returning('id');
+      const [{ id: catZ }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qZ, code: 'smoke_zn73_cat', name: 'SMOKE Z', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeZ = await crearUsuario('zn_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qZ, role: 'coordinador' }]);
+      const sinCola = await crearUsuario('zn_sincola', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], []);
+      usuarios.push(jefeZ, sinCola);
+      const mk = (cat, extra = {}) => req('POST', `${SD}/requests`, sol.token, { category_id: cat, title: 'SMOKE 7.3 ' + Math.random().toString(36).slice(2, 7), ...extra });
+      const pregunta = (token, v) => req('PUT', `${SD}/config/queues/${qZ}`, token, { asks_zone: v });
+
+      // El catálogo trae las zonas y declara qué colas la preguntan.
+      const c0 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('⭐ el catálogo trae las 5 zonas sembradas, activas y ordenadas', ['bodega', 'anden', 'oficina', 'banos', 'exterior'].every((z) => (c0?.zones ?? []).some((k) => k.code === z)), JSON.stringify((c0?.zones ?? []).map((k) => k.code)));
+      check('y cada cola declara `asks_zone` (por valor); TI NO la pregunta', (c0?.queues ?? []).every((q) => typeof q.asks_zone === 'boolean') && (c0?.queues ?? []).filter((q) => q.code === 'ti').every((q) => q.asks_zone === false), JSON.stringify((c0?.queues ?? []).map((q) => [q.code, q.asks_zone])));
+
+      // Una cola que NO la pregunta IGNORA la zona (no se guarda).
+      const ignorada = await mk(catZ, { zone_code: 'bodega' });
+      check('⛔ en una cola que NO pregunta la zona, la zona se IGNORA (queda sin zona)', ignorada.status === 201 && ignorada.body?.zone_code === null && ignorada.body?.zone_name === null, dump(ignorada));
+
+      // Quién enciende la pregunta.
+      check('⛔ quien coordina OTRA cola no cambia lo que ésta pregunta → 403', (await pregunta(coord.token, true)).status === 403);
+      check('⛔ asks_zone que no es verdadero/falso → 400', (await req('PUT', `${SD}/config/queues/${qZ}`, jefeZ.token, { asks_zone: 'si' })).status === 400);
+      const enciende = await pregunta(jefeZ.token, true);
+      check('⭐ la coordinación DE LA COLA enciende la pregunta', enciende.status === 200 && (enciende.body?.queues ?? []).find((q) => q.id === qZ)?.asks_zone === true, dump(enciende));
+
+      // Con la pregunta encendida.
+      const conZona = await mk(catZ, { zone_code: 'anden' });
+      check('⭐ con la pregunta encendida la zona se GUARDA y la ficha trae su nombre', conZona.status === 201 && conZona.body?.zone_code === 'anden' && conZona.body?.zone_name === 'Andén', dump(conZona));
+      const detalle = await req('GET', `${SD}/requests/${conZona.body?.id}`, sol.token);
+      check('y el detalle (para quien reportó) también la muestra', detalle.status === 200 && detalle.body?.zone_name === 'Andén', dump(detalle));
+      const sinZona = await mk(catZ);
+      check('la zona es OPCIONAL: sin ella el ticket se levanta igual', sinZona.status === 201 && sinZona.body?.zone_code === null, dump(sinZona));
+      const vacia = await mk(catZ, { zone_code: '  ' });
+      check('una zona en blanco se trata como «sin zona» (no como error)', vacia.status === 201 && vacia.body?.zone_code === null, dump(vacia));
+      const falsa = await mk(catZ, { zone_code: 'sotano_secreto' });
+      check('⛔ una zona que no existe → 400 (no hay zonas inventadas)', falsa.status === 400, dump(falsa));
+
+      // Administrar el catálogo.
+      const alta = (token, dto) => req('POST', `${SD}/config/zones`, token, dto);
+      check('⛔ quien reportó (sin permisos) NO da de alta zonas → 403', (await alta(sol.token, { code: 'smoke_a', name: 'A' })).status === 403);
+      check('⛔ quien tiene las claves pero no coordina NINGUNA cola → 403', (await alta(sinCola.token, { code: 'smoke_a', name: 'A' })).status === 403);
+      check('⛔ un código mal formado → 400', (await alta(jefeZ.token, { code: 'Con Espacios', name: 'A' })).status === 400);
+      check('⛔ sin nombre → 400', (await alta(jefeZ.token, { code: 'smoke_a', name: '  ' })).status === 400);
+      const nueva = await alta(jefeZ.token, { code: 'smoke_patio', name: 'Patio de maniobras' });
+      check('⭐ quien coordina una cola da de alta una zona (aparece en la configuración)', nueva.status < 300 && (nueva.body?.zones ?? []).some((z) => z.code === 'smoke_patio' && z.active === true), dump(nueva));
+      check('⛔ el código no se repite', [400, 409].includes((await alta(jefeZ.token, { code: 'smoke_patio', name: 'Otra' })).status));
+      const zid = (nueva.body?.zones ?? []).find((z) => z.code === 'smoke_patio')?.id;
+      check('⛔ el código de una zona NO se cambia → 400', (await req('PUT', `${SD}/config/zones/${zid}`, jefeZ.token, { code: 'otro_codigo' })).status === 400);
+      const renombra = await req('PUT', `${SD}/config/zones/${zid}`, jefeZ.token, { name: 'Patio' });
+      check('se renombra', renombra.status === 200 && (renombra.body?.zones ?? []).some((z) => z.id === zid && z.name === 'Patio'), dump(renombra));
+      const usaPatio = await mk(catZ, { zone_code: 'smoke_patio' });
+      check('⭐ la zona nueva ya se puede elegir al reportar', usaPatio.status === 201 && usaPatio.body?.zone_name === 'Patio', dump(usaPatio));
+      const apaga = await req('PUT', `${SD}/config/zones/${zid}`, jefeZ.token, { active: false });
+      check('apagar no borra: sigue en la configuración, apagada', apaga.status === 200 && (apaga.body?.zones ?? []).some((z) => z.id === zid && z.active === false), dump(apaga));
+      const c1 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('⭐ apagada, el catálogo ya no la ofrece', !(c1?.zones ?? []).some((z) => z.code === 'smoke_patio'));
+      check('⛔ y elegirla a mano → 400', (await mk(catZ, { zone_code: 'smoke_patio' })).status === 400);
+      const vieja = await req('GET', `${SD}/requests/${usaPatio.body?.id}`, sol.token);
+      check('⭐ pero el ticket viejo CONSERVA su zona apagada (el historial no se reescribe)', vieja.status === 200 && vieja.body?.zone_name === 'Patio', dump(vieja));
+      check('⛔ una zona inexistente al editar → 404', (await req('PUT', `${SD}/config/zones/00000000-0000-0000-0000-0000000000ee`, jefeZ.token, { active: true })).status === 404);
+
+      // Apagar la pregunta: la zona deja de viajar de nuevo.
+      await pregunta(jefeZ.token, false);
+      const otraVez = await mk(catZ, { zone_code: 'bodega' });
+      check('⛔ al apagar la pregunta la zona vuelve a ignorarse', otraVez.status === 201 && otraVez.body?.zone_code === null, dump(otraVez));
+
+      // TI no cambió.
+      const ti = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.3 TI', impact: 'yo', blocks_work: false, zone_code: 'bodega' });
+      check('⭐ TI sigue igual: la zona no se pregunta, no se guarda y el ticket se levanta', ti.status === 201 && ti.body?.zone_code === null, dump(ti));
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
@@ -1455,6 +1527,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     await knex('servicedesk.queue_members').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.sla_policies').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.categories').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
+    await knex('servicedesk.zones').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex.destroy();
   }

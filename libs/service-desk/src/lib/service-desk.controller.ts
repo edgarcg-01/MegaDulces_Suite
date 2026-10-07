@@ -30,6 +30,7 @@ import {
   type SdQueueMembersResponse,
   type SdUpsertQueueDto,
   type SdUpsertQueueMemberDto,
+  type SdUpsertZoneDto,
   type SdLogTimeDto,
   type SdPostMessageDto,
   type SdRequestDetail,
@@ -327,6 +328,20 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Quita a una persona de la cola. No si es la única coordinación ni si tiene solicitudes abiertas asignadas.' })
   removeQueueMember(@Param('id') id: string, @Param('userId') userId: string, @Req() req: AuthedRequest): Promise<SdQueueMembersResponse> {
     return this.actors.resolve(req).then((ctx) => this.members.remove(ctx, id, userId));
+  }
+
+  @Post('config/zones')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Alta de una zona (el lugar dentro de la ubicación). La administra quien coordina alguna cola.' })
+  createZone(@Body() dto: SdUpsertZoneDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.createZone(ctx, dto));
+  }
+
+  @Put('config/zones/:id')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Renombra, reordena o apaga una zona. El código no se cambia; apagar no borra.' })
+  updateZone(@Param('id') id: string, @Body() dto: SdUpsertZoneDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.updateZone(ctx, id, dto));
   }
 
   @Post('config/categories')
