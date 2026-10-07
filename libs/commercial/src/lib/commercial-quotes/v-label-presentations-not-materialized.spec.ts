@@ -5,6 +5,13 @@
  * `NOT MATERIALIZED` agregado". Esta prueba lo comprueba, en lugar de confiar en el comentario:
  * si alguien cambia una regla de negocio en la vista nueva, o se pierde un `NOT MATERIALIZED`
  * (y la vista previa vuelve a tardar 3 s), se pone roja.
+ *
+ * ⚠️ **Esto fija un PAR HISTÓRICO (20260924 ↔ 20261002), no la definición viva.** Desde
+ * `[ETQ.NIV.1]` (20261007155746) la vista en prod ya NO es "la original + NOT MATERIALIZED": el
+ * CTE `esc` agrupa por nivel de precio (`c3`) y hay una columna `mayoreo_nivel`. Quien vigila la
+ * definición vigente es `v-label-presentations-nivel-publico.spec.ts`. Se deja esta prueba porque
+ * el eslabón 20260924→20261002 sigue siendo cierto y comprobable — pero no hay que leerla como
+ * "así está la vista hoy".
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
