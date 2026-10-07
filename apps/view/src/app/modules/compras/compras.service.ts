@@ -546,6 +546,13 @@ export interface RequisitionBatchListDto {
   total: number; page: number; pageSize: number; rows: RequisitionBatchRow[];
   /** `false` = falta la migración 20261006190000. La pantalla lo DECLARA en vez de salir vacía. */
   disponible: boolean;
+  /**
+   * `[RQ.11]` Cuántos lotes DE VERDAD existen (con `batch_id`). `0` = todavía no se armó ninguno
+   * desde que existe la columna, así que cada requisición vieja sale como **lote de uno** y
+   * agrupar no aporta nada — medido en prod: 619 lotes de un documento, ninguno con folio. La
+   * pantalla arranca por documento y lo dice, en vez de abrir en una vista que no agrupa nada.
+   */
+  con_lote?: number;
 }
 
 /** `[RQ.2]` Cuántas requisiciones hay en cada estado, su monto y su antigüedad. */
