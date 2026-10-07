@@ -10,46 +10,47 @@
 # Un Prometheus + Grafana + cAdvisor + exporters son 4-5 contenedores y ~500 MB para mirar una
 # máquina que ya va apretada: el monitoreo se comería lo que vino a vigilar.
 #
-#   · `dozzle`  — logs en vivo de TODOS los contenedores, buscables, en una pantalla. ~15 MB.
 #   · `netdata` — CPU/RAM/disco/red por contenedor y del host, más los tres Postgres. ~200 MB.
 #
-# ⚠️ AMBOS SON SÓLO LAN. No van por el túnel de Cloudflare ni tienen ruta en Caddy, a propósito:
-#    un visor de logs es un lector de todo lo que la aplicación imprime, y publicar eso a
-#    internet es publicar lo que se filtre en un stack trace. Se llega por `192.168.0.222:<puerto>`
-#    igual que al Postgres del 5434, que es la frontera de confianza que esta red ya usa.
+# ── ⛔ `[OBS.8]` EL VISOR DE LOGS SE FUE DE ACÁ (2026-10-06) ─────────────────────────────────
+# Este archivo declaraba un segundo servicio, `dozzle` (`obs-dozzle`, puerto 8085). Se retiró, y
+# el motivo es que **se había quedado sin sujeto**: lee el socket de Docker, y producción dejó de
+# correr en Docker el 2026-10-02, cuando se mudó a k3s (containerd). Medido antes de sacarlo, los
+# 7 contenedores que listaba eran `sonar-server`, `sonar-db`, `obs-netdata`, `prod-registry`,
+# `prod-backup`, `ods-autoheal` y él mismo — **ni una sola línea de la aplicación**.
 #
-# ⚠️ DEUDA DECLARADA, no resuelta: sin autenticación. Cualquiera en la LAN que sepa el puerto los
-#    abre. Para los logs eso importa — un error puede imprimir datos de negocio. Ponerle auth a
-#    Dozzle exige un archivo de usuarios con hash bcrypt; queda pendiente con nombre.
+# ⭐ Y había quedado al revés de lo que conviene: la instancia CON llave (la de k3s,
+# `ops/k3s/60-dozzle.deployment.yaml`, `DOZZLE_AUTH_PROVIDER=simple`) era la que mostraba prod, y
+# la ABIERTA era ésta, que no mostraba nada de prod. Verificado el día que se retiró:
+# `:8085` contestaba **HTTP 200 sin login** y `:30085` contestaba **307** al login.
+#
+# El visor vive ahora SÓLO en k3s: http://192.168.0.222:30085
+# Los logs de estos 7 laterales se leen con `docker logs <nombre>` por ssh, que es lo que se hacía
+# antes de que existiera y alcanza para un contenedor que nadie mira a diario. Si algún día se
+# quieren los dos mundos en una pantalla, el camino es el MODO AGENTE de Dozzle v11 (este pasa a
+# `DOZZLE_MODE=agent` sin publicar puerto y el de k3s lo consume) — ⚠️ sin verificar que una
+# instancia en modo `k8s` pueda además consumir un agente remoto; comprobarlo antes de intentarlo.
+#
+# ⚠️ SÓLO LAN. No va por el túnel de Cloudflare ni tiene ruta en Caddy, a propósito. Se llega por
+#    `192.168.0.222:<puerto>` igual que al Postgres del 5434, que es la frontera de confianza que
+#    esta red ya usa.
+#
+# ⚠️ DEUDA DECLARADA, no resuelta: **netdata sigue sin autenticación**. Cualquiera en la LAN que
+#    sepa el puerto lo abre. Retirar Dozzle cerró el agujero de los logs, NO éste: las métricas
+#    exponen nombres de base, de contenedor y de tablas. Queda pendiente con nombre.
 #
 #   despliegue:  scp ops/obs/docker-compose.yml superoot@192.168.0.222:~/ops/obs/
-#                ssh superoot@192.168.0.222 'cd ~/ops/obs && docker compose -p obs up -d'
-#                (no hay `deploy.sh` acá a propósito: son dos contenedores sin construcción,
-#                 sin secretos y sin orden de arranque — un script sería una capa que ocultar)
-#   logs:        http://192.168.0.222:8085
+#                ssh superoot@192.168.0.222 'cd ~/ops/obs && docker compose -p obs up -d --remove-orphans'
+#                ⛔ `--remove-orphans` NO es opcional desde que este archivo tiene UN servicio:
+#                sin él, `up -d` deja a `obs-dozzle` corriendo aunque ya no esté declarado — que
+#                es exactamente cómo un contenedor sobrevive a su propia eliminación del repo.
+#                (no hay `deploy.sh` acá a propósito: es un contenedor sin construcción, sin
+#                 secretos y sin orden de arranque — un script sería una capa que ocultar)
+#   logs:        http://192.168.0.222:30085   (en k3s, con login)
 #   métricas:    http://192.168.0.222:19999
 # ─────────────────────────────────────────────────────────────────────────────
 
 services:
-
-  # ── LOS LOGS ────────────────────────────────────────────────────────────────
-  # Lee el socket de Docker en SÓLO LECTURA: no puede arrancar, parar ni crear nada — sólo leer
-  # la lista de contenedores y sus flujos de log. Es el mismo socket que el `ods-autoheal` ya usa.
-  dozzle:
-    image: amir20/dozzle:latest
-    container_name: obs-dozzle
-    restart: unless-stopped
-    environment:
-      TZ: America/Mexico_City
-      # Sin esto el visor arranca en el primer contenedor alfabético y hay que buscar el que importa.
-      DOZZLE_ENABLE_ACTIONS: "false"     # nada de reiniciar contenedores desde la web
-      DOZZLE_NO_ANALYTICS: "true"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      - "8085:8080"
-    logging: { driver: json-file, options: { max-size: "10m", max-file: "2" } }
-    mem_limit: 128m
 
   # ── LAS MÉTRICAS ────────────────────────────────────────────────────────────
   # ⚠️ Los montajes de `/proc`, `/sys` y `/etc/os-release` NO son opcionales: sin ellos Netdata

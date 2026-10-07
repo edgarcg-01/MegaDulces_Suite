@@ -21,9 +21,17 @@
 #    caído 50 min**. No se reabre esa puerta.
 #
 # ── ⛔ LA AUTENTICACIÓN NO ES OPCIONAL ACÁ, Y ESTO ES UN CAMBIO DE RIESGO ────────────────────
-# El `obs-dozzle` de Compose corre SIN clave, y eso estaba declarado como deuda tolerable porque
+# El `obs-dozzle` de Compose corría SIN clave, y eso estaba declarado como deuda tolerable porque
 # mostraba 5 contenedores sin nada adentro. Éste muestra **la aplicación entera**: un stack trace
 # de la API imprime parámetros, y los parámetros de este negocio son datos de clientes y dinero.
+#
+# ⭐ `[OBS.8]` (2026-10-06) **El de Compose se retiró**, y la razón es que durante cuatro días
+# convivieron los dos y habían quedado al revés: el que tenía llave mostraba prod, y el ABIERTO
+# era el que no mostraba nada de prod. Verificado ese día: `:8085` → **HTTP 200 sin login**,
+# `:30085` → **307** al login. Este archivo es ahora el ÚNICO visor de logs; el detalle del
+# retiro y cómo leer los 7 laterales está en `ops/obs/docker-compose.yml`.
+# ⚠️ El 8085 queda libre, pero el `NodePort` NO se mueve ahí: el rango de k3s sigue siendo el
+#    motivo (ver abajo), no la ocupación del puerto.
 # Pasar de "nada sensible, sin clave" a "todo, sin clave" sin decirlo sería subir el riesgo en
 # silencio. Va con `simple` + un `users.yml` generado, en un Secret que NO vive en este repo:
 #
