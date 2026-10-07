@@ -507,7 +507,7 @@ esta sesión no se levanta el front (regla del repo); se valida en el despliegue
 
 **Migraciones renombradas.** Cuatro timestamps de esta fase ya los usaban migraciones de `main` del 7-oct
 (knex desempata por alfabeto). Ninguna se había aplicado en ningún lado, así que se renombraron:
-`120000→300000` (incidencias, en #281), `130000→310000` (agente), `140000→320000` (órdenes),
+`120000→300000→304401` (incidencias, en #281: el mismo día `main` tomó también `300000`), `130000→310000` (agente), `140000→320000` (órdenes),
 y el reparto nació en `330000`.
 
 ### 5.4 `[RH.1.8]` — pre-vuelo, carga a prod y runbook del corte (2026-10-07)

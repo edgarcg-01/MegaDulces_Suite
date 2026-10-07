@@ -51,15 +51,16 @@ const CADENA = [
   '20260817220000_hr_attendance.js',
   '20261007100000_hr_relojes_y_checadas.js',
   '20261007110000_hr_horarios_y_alertas.js',
-  '20261007300000_hr_incidencias_y_cierres.js',
+  '20261007304401_hr_incidencias_y_cierres.js',
   '20261007310000_hr_agente_corridas.js',
   '20261007320000_hr_ordenes_quien.js',
   '20261007330000_hr_reparto_asistencia.js',
 ];
 
-/** Nombres que estas migraciones tuvieron antes de renombrarlas (2026-10-07, chocaban con `main`). */
+/** Nombres que estas migraciones tuvieron antes de renombrarlas (2026-10-07, chocaban con `main` — dos veces). */
 const NOMBRES_VIEJOS = [
   '20261007120000_hr_incidencias_y_cierres.js',
+  '20261007300000_hr_incidencias_y_cierres.js',
   '20261007130000_hr_agente_corridas.js',
   '20261007140000_hr_ordenes_quien.js',
   '20261007150000_hr_reparto_asistencia.js',

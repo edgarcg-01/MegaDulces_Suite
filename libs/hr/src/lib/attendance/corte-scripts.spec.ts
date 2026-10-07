@@ -51,7 +51,8 @@ describe('[RH.1.8] guiones del corte — copias que no pueden divergir', () => {
 
 describe('[RH.1.8] pre-vuelo — evaluarLedger', () => {
   const C: string[] = prevuelo.CADENA;
-  const otras = ['20260101000000_cualquiera.js', '20261007120000_rd_route_apertura_conteo_fisico.js'];
+  // Las de main que chocaban con nuestros nombres VIEJOS (la de `re32` llegó el mismo 7-oct, ya renombrada la nuestra).
+  const otras = ['20260101000000_cualquiera.js', '20261007120000_rd_route_apertura_conteo_fisico.js', '20261007300000_re32_referencia_orden_entrada.js'];
 
   it('todo aplicado: nada pendiente ni raro', () => {
     expect(prevuelo.evaluarLedger([...otras, ...C])).toEqual({ pendientes: [], fueraDeOrden: [], viejas: [], colisiones: [] });
@@ -75,8 +76,8 @@ describe('[RH.1.8] pre-vuelo — evaluarLedger', () => {
   });
 
   it('⛔ NEGATIVA — otra migración de main con el mismo timestamp que una nuestra: colisión', () => {
-    const r = prevuelo.evaluarLedger([...otras, '20261007300000_otra_de_main.js']);
-    expect(r.colisiones).toEqual([{ aplicada: '20261007300000_otra_de_main.js', choca_con: '20261007300000_hr_incidencias_y_cierres.js' }]);
+    const r = prevuelo.evaluarLedger([...otras, '20261007304401_otra_de_main.js']);
+    expect(r.colisiones).toEqual([{ aplicada: '20261007304401_otra_de_main.js', choca_con: '20261007304401_hr_incidencias_y_cierres.js' }]);
   });
 
   it('las de main que chocaban con los nombres VIEJOS ya no cuentan como colisión', () => {
