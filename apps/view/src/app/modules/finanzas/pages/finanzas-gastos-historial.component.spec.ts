@@ -245,6 +245,23 @@ describe('FinanzasGastosHistorialComponent', () => {
       expect(fix.nativeElement.querySelector('.hist-seg')).toBeNull();
     });
 
+    /** ⭐ `[GX.71]` La llave por persona abre «Todos» sin ser admin (el caso de Mayra). */
+    it('⭐ con FINANCE_EXPENSES_HISTORIAL_TODOS ve el interruptor sin ser admin', () => {
+      montar('finanzas_operativo', {
+        [Permission.FINANCE_EXPENSES_VER]: true,
+        [Permission.FINANCE_EXPENSES_HISTORIAL_TODOS]: true,
+      });
+      expect(c.puedeVerTodos()).toBe(true);
+      const tabs = [...fix.nativeElement.querySelectorAll('.hist-seg button')]
+        .map((b: Element) => b.textContent?.trim());
+      expect(tabs).toEqual(['Míos', 'Todos']);
+    });
+
+    it('⛔ la llave en false no abre «Todos»', () => {
+      montar('finanzas_operativo', { [Permission.FINANCE_EXPENSES_HISTORIAL_TODOS]: false });
+      expect(c.puedeVerTodos()).toBe(false);
+    });
+
     it('quien sólo captura ve lo suyo y nada más', () => {
       const req = montar('cajero', { [Permission.FINANCE_EXPENSES_CAPTURAR]: true });
       expect(req.request.params.get('alcance')).toBe('mios');

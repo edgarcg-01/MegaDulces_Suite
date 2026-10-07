@@ -9,7 +9,7 @@ import type { FormaPagoId } from '@megadulces/contracts';
 // exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
 import type { AutorizacionKepler, EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
 // [GX.59] El Expediente por persona: la forma la define el contrato, no esta clase.
-import type { RespuestaExpediente } from '@megadulces/contracts';
+import type { FiltroExpediente, RespuestaExpediente } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -612,10 +612,17 @@ export class ComprobacionesService {
    *
    * El veredicto del protocolo lo calcula el SERVIDOR con la regla de `@megadulces/contracts`:
    * la pantalla lo muestra, no lo re-deriva. Dos cálculos del mismo hecho se separan.
+   *
+   * `[GX.72]` El filtro (fechas de levantamiento + departamento) lo aplica el SERVIDOR: así
+   * los KPIs salen de lo filtrado y un periodo viejo no se pierde por el tope de filas. Sólo
+   * viajan los filtros puestos; uno vacío no se manda.
    */
-  expedientePorUsuario(limit = 2000): Observable<RespuestaExpediente> {
-    return this.http.get<RespuestaExpediente>(`${this.base}/expediente`,
-      { params: new HttpParams().set('limit', String(limit)) });
+  expedientePorUsuario(filtro: Partial<FiltroExpediente> = {}, limit = 2000): Observable<RespuestaExpediente> {
+    let params = new HttpParams().set('limit', String(limit));
+    if (filtro.desde) params = params.set('desde', filtro.desde);
+    if (filtro.hasta) params = params.set('hasta', filtro.hasta);
+    if (filtro.departamento) params = params.set('departamento', filtro.departamento);
+    return this.http.get<RespuestaExpediente>(`${this.base}/expediente`, { params });
   }
 
   statusByFolio(): Observable<Record<string, ProofByFolio>> { return this.http.get<Record<string, ProofByFolio>>(`${this.base}/status-by-folio`); }

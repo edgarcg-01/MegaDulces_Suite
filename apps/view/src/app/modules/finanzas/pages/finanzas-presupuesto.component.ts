@@ -1026,7 +1026,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
        Propia)". Los rotulos ya vienen escritos como deben leerse. */
     .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; }
     /* [VE.7] Separa lo que el sistema CALCULA de lo que la persona DECIDE. */
-    .pres-assump-sub { margin:1rem 0 .35rem; padding-top:.6rem; border-top:1px solid var(--border-subtle,#e5e1dc); font-size:.78rem; color:var(--text-muted); }
+    .pres-assump-sub { margin:1rem 0 .35rem; padding-top:.6rem; border-top:1px solid var(--border-subtle,#e5e1dc); font-size:var(--fs-xs); color:var(--text-muted); }
     .pres-assump-in { width:8rem; }
     /* [PU.R] La cascada del estado de resultados. El renglon de corte va en negritas y con
        linea arriba: es lo que separa margen bruto de resultado al leerla de corrido. */

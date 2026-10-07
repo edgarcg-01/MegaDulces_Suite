@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, comp
 import { CommonModule } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { parseLocalDate, todayMx } from '../../../core/utils/mx-date';
 import {
   ComprobacionesService, type CalendarioDelMes, type ExpenseProof, type ExpenseProofsReport, type ValeGasto,
@@ -288,8 +289,12 @@ export class FinanzasGastosHistorialComponent {
    *
    * ⚠️ Se mira el ROL, no una clave del mapa de permisos. `perms.isAdmin()` es el espejo de
    * `isPlatformAdminRole` del servidor — el mismo criterio de los dos lados.
+   *
+   * `[GX.71]` Ahora también la llave por persona `FINANCE_EXPENSES_HISTORIAL_TODOS`. `perms.has()`
+   * da `true` al admin de plataforma y, si no, mira la clave exacta: es la misma regla que
+   * `puedeVerHistorialDeTodos()` aplica en el servidor. `_VER` sigue sin alcanzar.
    */
-  readonly puedeVerTodos = computed(() => this.perms.isAdmin());
+  readonly puedeVerTodos = computed(() => this.perms.has(Permission.FINANCE_EXPENSES_HISTORIAL_TODOS));
 
   readonly ambito = signal<'mios' | 'todos'>('mios');
   /** El mes que se mira. Vacío = el actual, y quién es «el actual» lo decide el servidor. */
