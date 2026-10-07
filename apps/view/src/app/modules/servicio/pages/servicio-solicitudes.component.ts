@@ -149,13 +149,27 @@ function dataUri(f: File): Promise<string> {
                   <p-select [options]="sucursales" optionLabel="name" optionValue="code" [(ngModel)]="form.warehouse_code" placeholder="Elige la ubicación"
                             [showClear]="!requiereSucursal()" appendTo="body" ariaLabel="Ubicación" /></label>
 
-                <fieldset class="ss-impact">
-                  <legend>¿A cuántas personas afecta?</legend>
-                  @for (i of impactos; track i.value) {
-                    <label class="ss-radio"><input type="radio" name="impact" [value]="i.value" [(ngModel)]="form.impact" /> {{ i.label }}</label>
-                  }
-                  <label class="ss-chk"><input type="checkbox" [(ngModel)]="form.blocks_work" /> <b>Me impide trabajar</b></label>
-                </fieldset>
+                <!-- [MS.7.7] Qué se pregunta lo dicta el MODELO de la cola (no su nombre): impacto × bloqueo, o riesgo × operación. -->
+                @if (modeloRiesgo()) {
+                  <fieldset class="ss-impact">
+                    <legend>¿Hay riesgo para personas? *</legend>
+                    <label class="ss-radio"><input type="radio" name="safety_risk" [value]="true" [(ngModel)]="form.safety_risk" /> Sí</label>
+                    <label class="ss-radio"><input type="radio" name="safety_risk" [value]="false" [(ngModel)]="form.safety_risk" /> No</label>
+                  </fieldset>
+                  <fieldset class="ss-impact">
+                    <legend>¿Detiene la operación?</legend>
+                    <label class="ss-radio"><input type="radio" name="detiene_operacion" [value]="true" [(ngModel)]="form.blocks_work" /> Sí</label>
+                    <label class="ss-radio"><input type="radio" name="detiene_operacion" [value]="false" [(ngModel)]="form.blocks_work" /> No</label>
+                  </fieldset>
+                } @else {
+                  <fieldset class="ss-impact">
+                    <legend>¿A cuántas personas afecta?</legend>
+                    @for (i of impactos; track i.value) {
+                      <label class="ss-radio"><input type="radio" name="impact" [value]="i.value" [(ngModel)]="form.impact" /> {{ i.label }}</label>
+                    }
+                    <label class="ss-chk"><input type="checkbox" [(ngModel)]="form.blocks_work" /> <b>Me impide trabajar</b></label>
+                  </fieldset>
+                }
 
                 <div class="ss-field">
                   <span>Fotos o PDF (opcional)</span>
@@ -330,7 +344,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly archivos = signal<File[]>([]);
   readonly enviando = signal(false);
   readonly formError = signal<string | null>(null);
-  form: { category_id: string | null; title: string; description: string; impact: SdImpact; blocks_work: boolean; warehouse_code: string | null } = this.formVacio();
+  form: { category_id: string | null; title: string; description: string; impact: SdImpact; blocks_work: boolean; warehouse_code: string | null; /** `[MS.7.7]` `null` = sin contestar (en una cola de riesgo es obligatoria). */ safety_risk: boolean | null } = this.formVacio();
 
   /** Categorías agrupadas por cola (`p-select` con `group`). Hoy hay una sola cola (TI). */
   readonly categorias = computed(() => {
@@ -345,6 +359,12 @@ export class ServicioSolicitudesComponent implements OnInit {
    */
   readonly categoriaId = signal<string | null>(null);
   readonly requiereSucursal = computed(() => !!this.catalogo()?.categories.find((k) => k.id === this.categoriaId())?.requires_branch);
+  /** `[MS.7.7]` ¿La cola de la categoría elegida sugiere la prioridad por riesgo × operación? (lo dice la cola, no su nombre) */
+  readonly modeloRiesgo = computed(() => {
+    const c = this.catalogo();
+    const cat = c?.categories.find((k) => k.id === this.categoriaId());
+    return !!cat && c?.queues.find((q) => q.id === cat.queue_id)?.priority_model === 'riesgo_operacion';
+  });
 
   // ── preferencias ──
   readonly prefsAbierto = signal(false);
@@ -354,7 +374,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   pForm = { email: '', phone: '', email_enabled: true, whatsapp_enabled: false };
 
   private formVacio() {
-    return { category_id: null as string | null, title: '', description: '', impact: 'yo' as SdImpact, blocks_work: false, warehouse_code: null as string | null };
+    return { category_id: null as string | null, title: '', description: '', impact: 'yo' as SdImpact, blocks_work: false, warehouse_code: null as string | null, safety_risk: null as boolean | null };
   }
 
   ngOnInit(): void {
@@ -412,6 +432,8 @@ export class ServicioSolicitudesComponent implements OnInit {
     if (this.optimizando()) return false;
     // Con «a nombre de otra persona» encendido hay que haber ELEGIDO a la persona: si no, se levantaría a nombre de quien llama sin que lo note.
     if (this.aNombreDe() && !this.solicitante()) return false;
+    // `[MS.7.7]` En una cola de riesgo hay que CONTESTAR si hay riesgo para personas: sin respuesta no se sugiere prioridad (y no se adivina «no»).
+    if (this.modeloRiesgo() && this.form.safety_risk === null) return false;
     return !!this.form.category_id && !!this.form.title.trim() && (!this.requiereSucursal() || !!this.form.warehouse_code);
   }
 
@@ -485,8 +507,10 @@ export class ServicioSolicitudesComponent implements OnInit {
         category_id: this.form.category_id as string,
         title: this.form.title.trim(),
         description: this.form.description.trim() || undefined,
-        impact: this.form.impact,
+        // `[MS.7.7]` En una cola de riesgo el impacto no se pregunta (el servidor lo ignora); sí viaja el riesgo.
+        impact: this.modeloRiesgo() ? 'yo' : this.form.impact,
         blocks_work: this.form.blocks_work,
+        safety_risk: this.modeloRiesgo() ? (this.form.safety_risk ?? undefined) : undefined,
         warehouse_code: this.form.warehouse_code || null,
         attachments: attachments.length ? attachments : undefined,
         // Sólo viaja si quien atiende ELIGIÓ a la persona: sin ella, la solicitud es de quien la escribe (lo de siempre).

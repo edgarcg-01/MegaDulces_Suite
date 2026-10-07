@@ -69,6 +69,25 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
+  describe('`[MS.7.7]` lo que se preguntó al reportar', () => {
+    it('⭐ en una cola de riesgo muestra el riesgo para personas y si detiene la operación (no el impacto)', async () => {
+      await render('en_proceso', true, false, { safety_risk: true, blocks_work: false });
+      expect(texto()).toContain('Riesgo para personas');
+      expect(texto()).toContain('Detiene la operación');
+      expect(texto()).not.toContain('Afecta');
+    });
+    it('⛔ NEGATIVA — en una cola de impacto (safety_risk null) NO inventa el riesgo: muestra «Afecta» como siempre', async () => {
+      await render('en_proceso', true, false, { safety_risk: null });
+      expect(texto()).toContain('Afecta');
+      expect(texto()).not.toContain('Riesgo para personas');
+    });
+    it('un ticket anterior a MS.7.7 (sin el campo) se ve como siempre', async () => {
+      await render('en_proceso', true);
+      expect(texto()).toContain('Afecta');
+      expect(texto()).not.toContain('Riesgo para personas');
+    });
+  });
+
   describe('`[MS.3.15]` el tiempo registrado', () => {
     const ENTRADAS = [
       { id: 'w1', user_name: 'Felipe Galván', minutes: 30, note: 'Cambié el cable de red', started_at: null, ended_at: null, source: 'suite' as const, created_at: '2026-10-05T16:00:00.000Z' },

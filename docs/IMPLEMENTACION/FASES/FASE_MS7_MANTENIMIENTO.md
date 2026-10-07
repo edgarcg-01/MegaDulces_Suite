@@ -216,7 +216,7 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 - ✅ Cola + 11 categorías (eléctrico e iluminación, climatización y refrigeración, plomería, obra civil y pintura, herrería/puertas/cortinas, mobiliario y anaqueles, equipo de almacén, seguridad y protección civil, plagas y limpieza, fachada y rotulación, estacionamiento) + la ubicación `EC`.
 - ⚠️ **Dos valores por validar con Frank** (se cambian desde la pantalla): todas las categorías nacen con prioridad por defecto `media` (el plan no fija ninguna) y todas **exigen ubicación**.
 - ✅ **SLA propio en horario hábil → MS.7.2** (§9.4, ya construido). Mientras no estuviera, sus tickets habrían heredado los generales (la urgente de TI corre corrida).
-- ❌ **Prioridad por riesgo × operación → MS.7.7** (`priority_model` sigue en `impacto`: la cola no clama una matriz que el código no aplica).
+- ✅ **Prioridad por riesgo × operación → MS.7.7** (§9.5, ya construido; la cola pasó a `riesgo_operacion` hasta que el código la aplicó, no antes).
 - ❌ **Zonas (MS.7.3) y los dos campos de riesgo (MS.7.4/7.8).**
 - ❌ Un departamento «Mantenimiento» en el catálogo de áreas **no existe**; la cola va sin `department_code` (es opcional).
 
@@ -234,4 +234,21 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 - **Pantalla:** en «Plazos por prioridad» un selector «¿De qué cola?» (General / cada cola): en una cola cada prioridad sale **«propio»** o **«heredado»** y hay «Volver al general».
 - **Pruebas:** `test-newdb-sla-por-cola` **21/0** (la general no cambió; **no se puede duplicar la general**, la negativa que un UNIQUE normal no atrapa; una cola sólo una política por prioridad; FK; invariantes; los plazos de Mantenimiento; permisos reales como `app_runtime`) · `service-desk` 185 (la herencia parcial y que lo de una cola no se filtre a otra) · 8 pruebas de la pantalla · E2E **491/0** (bloque 25: otra coordinación → 403; el ticket nuevo se mide a los 100 min de SU cola y uno de TI sigue con la general; cambiar otra vez edita sin duplicar; **herencia parcial**; volver a heredar; la general sigue editable sin `queue_id`). **Mutación atrapada:** leer la política general en el alta pone en rojo la comprobación.
 - **Declarado:** la política **general** sigue editable por cualquier coordinación (afecta a toda cola que herede); un ticket **ya creado** conserva su `due_at` (sólo cambia con una nueva prioridad o una pausa), como siempre; el **horario hábil** (días y horas) sigue siendo **uno solo** del tenant.
+
+### 9.5 MS.7.7 construido (2026-10-07): la prioridad por modelo de cola — la matriz de Mantenimiento
+
+- **Qué es:** cada cola elige **cómo se sugiere la prioridad** por el VALOR `queues.priority_model` (nunca por su nombre): `impacto` (cuántas personas afecta × me impide trabajar — TI, sin cambio alguno) o `riesgo_operacion` (**¿hay riesgo para personas? × ¿detiene la operación?**):
+
+  | | detiene la operación | no detiene |
+  |---|---|---|
+  | **riesgo: sí** | Urgente («Crítica») | Alta |
+  | **riesgo: no** | Alta | Media |
+
+  Sigue siendo **sugerida**: quien atiende la confirma y **la persona no la baja** (decisión M4). La mínima es `media`, no `baja`; la categoría pone su piso también aquí; y **el impacto ya no cuenta** en esa cola (esa pregunta no se hace).
+- **⛔ El riesgo es obligatorio y nunca se adivina:** en una cola de riesgo, sin contestar «¿hay riesgo para personas?» (o con algo que no sea verdadero/falso) el alta es **400**. «Detiene la operación» es el `blocks_work` de siempre. En una cola de impacto la respuesta se ignora y se guarda **NULL** («no se preguntó»), nunca un `false` inventado (`requests.safety_risk boolean NULL`, migración `20261007260000`).
+- **Quién lo elige:** `PUT config/queues/:id {priority_model}` — sólo la coordinación de esa cola; un valor que el código no sabe aplicar es 400. La pantalla de Configuración trae un selector «Prioridad sugerida por» en cada cola; el **catálogo** declara el modelo de cada cola para que el formulario sepa qué preguntar.
+- **Formulario y ficha:** al elegir una categoría de una cola de riesgo, «Nueva solicitud» cambia sus preguntas (¿riesgo? obligatoria, ¿detiene la operación?) en lugar de «¿a cuántas personas afecta?», y no deja enviar sin contestar el riesgo; la ficha muestra lo que **sí** se preguntó.
+- **Mantenimiento** pasa a `riesgo_operacion` con la migración `20261007260000` (sólo si nadie le había cambiado el modelo): el valor se declara **cuando el código ya lo aplica**, no antes (la siembra se negó a clamarlo).
+- **Pruebas:** `service-desk` 195 (las 4 combinaciones exactas; **el modelo de impacto es idéntico a lo de siempre para toda combinación**; el riesgo ausente lanza; modelo desconocido cae a impacto) · view 170 (qué se pregunta según el modelo; sin contestar el riesgo no se envía; lo que viaja es lo que se preguntó) · E2E **515/0** (bloque 26: la cola nueva nace en impacto; otra coordinación → 403; modelo inventado → 400; las 4 combinaciones; riesgo guardado y devuelto; **impacto sin peso**; piso de categoría; riesgo ausente / «no» / nulo → 400 sin tickets a medias; la persona no baja la prioridad; volver a «impacto» restaura a TI) · **dos mutaciones atrapadas** (la matriz alterada → 2 rojas; ignorar el modelo en el alta → 11 rojas). El bloque 24 (camino real de Mantenimiento) **se actualizó**: ahora el alta exige el riesgo — y lo comprueba.
+- **Declarado:** `safety_risk` es una columna propia, no un campo configurable por cola (eso es MS.7.4/7.8: el día que existan los campos por cola, éste puede pasar a ser uno de ellos); un ticket **ya creado** conserva su prioridad si luego se cambia el modelo de la cola; el nombre «Crítica» no se usa en pantalla (decisión de Sistemas: sigue «Urgente»).
 

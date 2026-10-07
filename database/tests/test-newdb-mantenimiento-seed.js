@@ -51,7 +51,11 @@ const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓', msg); } els
     ok(Number(ajenas.n) === 0, 'CONTROL: ninguna de esas categorías se coló en otra cola');
 
     console.log('\n3 — no finge lo que todavía no existe');
-    ok(cola.priority_model === 'impacto', '⭐ priority_model sigue en «impacto»: la lógica de riesgo × operación es MS.7.7 y la cola no clama una matriz que no se aplica');
+    // El modelo SÓLO se declara cuando el código ya lo aplica: antes de MS.7.7 (20261007260000) es `impacto`; después, `riesgo_operacion`
+    // y la columna `requests.safety_risk` (la respuesta que la matriz necesita) ya existe. Un modelo sin su columna sería clamar de más.
+    const riesgoCol = await knex.raw(`SELECT 1 FROM information_schema.columns WHERE table_schema='servicedesk' AND table_name='requests' AND column_name='safety_risk'`);
+    if (riesgoCol.rows.length === 0) ok(cola.priority_model === 'impacto', '⭐ priority_model sigue en «impacto»: la lógica de riesgo × operación aún no existe y la cola no clama una matriz que no se aplica');
+    else ok(cola.priority_model === 'riesgo_operacion', '⭐ MS.7.7 aplicada: el modelo es «riesgo_operacion» Y existe la columna que su matriz necesita (safety_risk) — nunca uno sin lo otro');
     const slaCol = await knex.raw(`SELECT 1 FROM information_schema.columns WHERE table_schema='servicedesk' AND table_name='sla_policies' AND column_name='queue_id'`);
     // Desde MS.7.2 (20261007250000) la política puede ser por cola: este control sólo aplica ANTES de esa migración.
     // Cuando MS.7.2 llegue este control se actualiza JUNTO con la siembra de su SLA (es un recordatorio, no un freno).
