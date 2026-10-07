@@ -10839,3 +10839,69 @@ corra. 21 ✓ / 1 ✗ / 2 NO MEDIDO.
   mientras el arreglo siga sin desplegarse.
 - ⬜ **`recalcRetorno` sigue pidiendo clic**, y está bien: su parámetro es un juicio humano.
 - ⬜ **Validación visual** de los supuestos auto-sugeridos y la capacidad auto-propuesta.
+
+---
+
+## 2026-10-07 — `[VE.5]` Folio, procedencia y la compuerta de lo vacío (opciones A · D · F)
+
+Edgar: *«todo valor manual es posible error, cada que se genere uno se le puede asignar un folio»*.
+Medido: de los **30 campos que alguien teclea** en la pantalla, 13 tienen de dónde derivarse y 17
+son juicio humano o dato externo. Se eligieron **A + D + F + B + C**; esta entrega trae A, D y F.
+
+### La evidencia estaba en los dos únicos ejercicios de prod
+
+    name        FY    status      ventas  gastos  partidas
+    prueba      2026  pendiente        0       0         0   ← firmado a medias, VACÍO
+    presupesto  2027  borrador       418       0         0   ← el nombre es un typo
+
+### `[A]` El ejercicio nace solo, con folio
+
+`budgets.folio` (`PRE-2027-001`), único por tenant, con secuencia atómica
+(`INSERT … ON CONFLICT … RETURNING`, **no** `max()+1`: dos corridas simultáneas sacarían el mismo
+número). El `name` se conserva para que una persona lo reconozca, pero **deja de ser la identidad**.
+El piloto crea el FY siguiente si falta, en `borrador`. Los 2 existentes quedaron backfilleados por
+año y orden de creación — información que ya estaba en la fila, no inventada.
+
+### `[D]` Cada generación deja con QUÉ se calculó
+
+`budget.generation_runs`: supuestos vigentes al momento, salida **por paso** (un total como
+«escribió 418 celdas» no dice si el plan de gastos corrió), y el error si lo hubo.
+
+⭐ Es la pieza que contesta la objeción que el propio pedido tiene adentro: *«todo valor manual es
+posible error»* es cierto, **pero un valor derivado también puede estar mal — y es peor, porque
+nadie lo revisa**. Sin saber con qué supuestos se calculó una meta, automatizarla sólo cambia quién
+se equivoca.
+
+### `[F]` Lo vacío no se firma
+
+`submitBudget` consulta completitud y **rechaza** si hay bloqueos; `GET budgets/:id/completeness`
+los expone. Separa **bloqueos** (ni un renglón; plan que cubre menos de 13 periodos) de **avisos**
+(sin plan de gastos, sin partidas, sin supuestos) — fundirlos frenaría por algo leve o dejaría
+pasar algo grave.
+
+⛔ **No arregla el que ya pasó:** `PRE-2026-001` sigue en `pendiente` con todo en cero, y el candado
+lo deja **en rojo** hasta que alguien lo cancele o lo devuelva a borrador.
+
+**Candado:** 24 ✓ / **2 ✗** / 3 NO MEDIDO. Las dos fallas son reales y vivas: el ejercicio vacío
+esperando firma, y el bug de RLS de `[VE.4]` que sigue sin desplegarse.
+
+### ⭐ El hallazgo que cambia cómo hay que hacer `[C]`
+
+P11–P12–P13 del FY2027 valen **$0**, y **no es un bug del motor**: el año base (2026) **está en
+curso** — su última venta es del **2026-10-06**, o sea P10. No hay histórico de noviembre–diciembre
+porque todavía no ocurrió.
+
+El arreglo correcto no es «rellenar»: es **derivar esos periodos del año anterior COMPLETO**
+(2025 tiene 2,487,899 filas, ene–dic) **declarando el método por celda** — la columna `method` ya
+existe para eso. Hacerlo a ciegas habría metido una estacionalidad inventada en la temporada alta.
+
+### Pendientes con nombre
+
+- ⬜ **`[B]`** — que los supuestos se GUARDEN solos (hoy se sugieren; falta persistirlos marcados
+  como derivados, con el override humano como excepción).
+- ⬜ **`[C]`** — segunda base para los periodos que el año en curso todavía no tiene.
+- ⬜ **`[G]`** — la banda de capacidad de pago: **construida a medias a propósito**. Falta que
+  Dirección defina el ±X y quién responde; una banda sin dueño es peor que no tenerla.
+- ⬜ **Push + redeploy.** El bug de RLS de `[VE.4]` corre cada madrugada en prod reportando `ok`
+  sobre cero.
+- ⬜ **Limpiar `PRE-2026-001`** (cancelarlo o devolverlo a borrador).
