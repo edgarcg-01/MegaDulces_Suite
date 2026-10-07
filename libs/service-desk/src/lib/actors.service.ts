@@ -11,6 +11,7 @@
  */
 import { Injectable } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
+import { construirAcceso, type Membresia } from './domain/queue-access';
 import { actorDesdeRequest, type ActorCtx, type AuthedRequest } from './service-desk.types';
 
 @Injectable()
@@ -19,7 +20,17 @@ export class ServiceDeskActorsService {
 
   async resolve(req: AuthedRequest): Promise<ActorCtx> {
     const base = actorDesdeRequest(req);
-    const u: { nombre: string | null } | undefined = await this.tk.run((trx) => trx('identity.users').where({ id: base.userId }).first('nombre'));
-    return { ...base, nombre: u?.nombre?.trim() || base.nombre };
+    const { u, membresias } = await this.tk.run(async (trx) => ({
+      u: (await trx('identity.users').where({ id: base.userId }).first('nombre')) as { nombre: string | null } | undefined,
+      // `[MS.7.6]` Las colas de la persona. Una lectura por llamada; el god-mode no la necesita (ve todas).
+      membresias: base.esGod
+        ? []
+        : ((await trx('servicedesk.queue_members').where({ user_id: base.userId, active: true }).select('queue_id', 'role')) as Membresia[]),
+    }));
+    return {
+      ...base,
+      nombre: u?.nombre?.trim() || base.nombre,
+      colas: construirAcceso({ god: base.esGod, esAgente: base.esAgente, esCoordinador: base.esCoordinador, membresias }),
+    };
   }
 }

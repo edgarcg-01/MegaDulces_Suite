@@ -45,6 +45,12 @@ import {
 
 type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 
+/** `YYYY-MM-DD` con las partes LOCALES de la fecha (no UTC). */
+export function fechaLocal(d: Date): string {
+  const p = (x: number) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /** Route minimal — usar config endpoint en lugar de un endpoint dedicado. */
 interface RouteOption {
   id: string;
@@ -609,8 +615,10 @@ export class ShipmentFormDialogComponent {
     }
     const raw = this.form.getRawValue();
     const shipmentPayload: Partial<Shipment> = {
+      // ⚠️ Fecha LOCAL, no toISOString(): el valor por defecto es `new Date()` con la hora actual,
+      // y en México (UTC-6) después de las 18:00 el ISO ya es el día siguiente.
       shipment_date: raw.shipment_date instanceof Date
-        ? raw.shipment_date.toISOString().slice(0, 10)
+        ? fechaLocal(raw.shipment_date)
         : raw.shipment_date,
       type: raw.type,
       vehicle_id: raw.vehicle_id || undefined,
@@ -624,6 +632,8 @@ export class ShipmentFormDialogComponent {
       cargo_value: Number(raw.cargo_value) || 0,
       freight_revenue: Number(raw.freight_revenue) || 0,
       notes: raw.notes || undefined,
+      // EMB.12 — se pedía en el formulario y no se mandaba: no existía la columna.
+      delivery_type: raw.delivery_type || undefined,
     };
 
     this.saving.set(true);
