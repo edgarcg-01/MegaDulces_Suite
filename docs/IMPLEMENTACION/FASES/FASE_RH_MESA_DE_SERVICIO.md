@@ -15,7 +15,7 @@
 | 3 | Prioridad | RH **no tiene prioridad, ni semáforo, ni «urgente»**; no se hacen las dos preguntas de impacto. |
 | 4 | Coordinación | **Lesly Berber y Tania Solorio** (rol coordinador). Por ahora no hay técnicos. |
 | 5 | Administrador | **No ve** los tickets confidenciales de RH. Sólo información básica (que existe el registro y si se resolvió). |
-| 6 | Transferencia | Un ticket confidencial se transfiere **sólo entre responsables del área** (ver R3). |
+| 6 | Transferencia | Un ticket de RH **no sale a una cola no confidencial**; entre las coordinadoras se reasigna (**R3, confirmado por Sistemas el 2026-10-06**). |
 | 7 | Reportes | Sólo agregados, con un **mínimo de casos**. |
 | 8 | Alcance v1 | La receta ya establecida para agregar un área + la verificación cruzada. |
 | 9 | Fuera de v1 | Tickets padre-hijo (altas de empleado), campos extra, SLA calibrado, ruteo por ubicación y definir «urgente» en RH. |
@@ -31,7 +31,7 @@ El plan decía «MS.7 (PR #269) se cierra hoy; RH no arranca hasta que esté mer
 
 `MS.7.1` miembros por cola → `MS.7.6` acceso por cola → `MS.7.11` transferir → `MS.7.13` avisos por cola → `MS.7.17` configuración de colas → `MS.7.18` Mi trabajo y reportes → **RH**.
 
-**Compuerta de entrada de RH.1:** `MS.7.1` y `MS.7.6` mergeados y verificados. Y `MS.7.6` se diseña **ya con el hueco para la confidencialidad** (una función única `accesoATicket` que devuelve `completo | basico | ninguno`): reescribir `puedeVer` dos veces sería peor que una.
+**Compuerta de entrada de RH.1:** `MS.7.1` y `MS.7.6` mergeados y verificados (**construidos el 2026-10-06**, ver [`FASE_MS7`](FASE_MS7_MANTENIMIENTO.md); `accesoATicket` ya existe y ya devuelve `completo | basico | ninguno`). Y `MS.7.6` se diseña **ya con el hueco para la confidencialidad** (una función única `accesoATicket` que devuelve `completo | basico | ninguno`): reescribir `puedeVer` dos veces sería peor que una.
 
 ### 2.2 Lo que el plan no cubría (con evidencia)
 
@@ -61,13 +61,32 @@ Hoy la base sólo fija el tenant por sesión (`app.tenant_id`). Agregar el actor
 |---|---|---|
 | **R1** (A) | ¿Dónde vive la marca? | `queues.confidential`; al crear el ticket **se copia y ya no cambia** (trigger). El ticket **no puede** declararse confidencial ni no confidencial por el cliente: la base lo fija desde la cola. |
 | **R2** (B) | ¿Qué es «información básica» del administrador? | Folio, cola, fecha de alta, estado y fecha de resolución. **Sin** título, descripción, hilo, adjuntos, ni nombre del solicitante, **ni conteos por categoría**. La **API** tampoco envía los campos ocultos (no basta esconderlos en pantalla). |
-| **R3** (C, D) ⚠️ | ¿Qué significa «sólo entre responsables» y qué pasa al salir de RH? | **Un ticket de RH NO se puede transferir a una cola no confidencial** (si no, los miembros de TI verían un ticket de RH). Entre Lesly y Tania se usa **reasignar**, no transferir. Hacia otra cola confidencial: sólo un coordinador, y sólo hacia un coordinador de la cola destino. Es la decisión de fondo del plan: pide confirmación expresa. |
+| **R3** (C, D) ✅ | ¿Qué significa «sólo entre responsables» y qué pasa al salir de RH? | **Un ticket de RH NO se puede transferir a una cola no confidencial** (si no, los miembros de TI verían un ticket de RH). Entre Lesly y Tania se usa **reasignar**, no transferir. Hacia otra cola confidencial: sólo un coordinador, y sólo hacia un coordinador de la cola destino. **Confirmado por Sistemas el 2026-10-06.** |
 | **R4** (E) | Mínimo de casos en reportes. | `queues.report_min_cases`, configurable; propuesta inicial **5**. Bajo el mínimo se muestra «—». |
 | **R5** (F) | SLA sin prioridad. | v1 **sin SLA en RH**: se declara «—», nunca 0. El SLA calibrado queda para después. |
 | **R6** (G) | Responsable por omisión. | Ninguno (son dos coordinadoras): el ticket queda «Sin asignar» y lo ven ambas. |
-| **R7** (H) | Categorías. | Nómina, vacaciones, incapacidades, altas y bajas, constancias, credenciales, capacitación, conflicto laboral. **Faltan validar con RH.** La ubicación es opcional. |
-| **R8** | **¿Cómo llega un ticket a RH?** (las decisiones 1 y 2 del plan dicen «redirige la solicitud a RH»). | La persona **elige explícitamente el área RH** al levantar el ticket (con el aviso «esta solicitud será confidencial»). **Sin** un botón de «reporte confidencial» dentro de otra cola. |
+| **R7** (H) ✅ | Categorías. | **Resuelto por Sistemas el 2026-10-06: las 10 de §3.3** (nómina, vacaciones y permisos, incapacidades, altas y bajas, constancias y documentos, credenciales y uniformes, capacitación, conflicto laboral, prestaciones y préstamos, datos personales y expediente). Se afinan con RH al abrir. La ubicación es opcional. |
+| **R8** | **¿Cómo llega un ticket a RH?** (sin respuesta aún: rige la propuesta «de momento») (las decisiones 1 y 2 del plan dicen «redirige la solicitud a RH»). | La persona **elige explícitamente el área RH** al levantar el ticket (con el aviso «esta solicitud será confidencial»). **Sin** un botón de «reporte confidencial» dentro de otra cola. |
 | **R9** | ¿Quién ve un ticket levantado a nombre de otra persona? | Sólo el solicitante y los miembros de RH (H7). |
+
+### 3.3 Categorías de RH (resueltas por Sistemas el 2026-10-06)
+
+Son las más comunes del departamento; se **siembran en RH.4 como configuración** (nada de código) y se afinan con RH cuando abra. Toda la cola es confidencial, así que ninguna categoría necesita su propia marca. Ninguna exige ubicación.
+
+| Categoría | Peticiones típicas |
+|---|---|
+| Nómina | Aclarar un pago o un descuento, recibo de nómina no recibido o con error, pago incompleto o retrasado, aguinaldo, PTU, finiquito o liquidación |
+| Vacaciones y permisos | Solicitar vacaciones, consultar días disponibles, permiso con o sin goce de sueldo, cambio de turno, día por evento personal |
+| Incapacidades | Entregar una incapacidad del IMSS, dudas sobre el pago durante la incapacidad, reincorporación |
+| Altas y bajas | Alta de nuevo empleado, renuncia, baja, trámites de IMSS e Infonavit, entrega de documentos de ingreso |
+| Constancias y documentos | Carta laboral o constancia de trabajo, constancia de sueldo para un crédito, constancia de semanas cotizadas, copia de contrato |
+| Credenciales y uniformes | Credencial nueva o por pérdida, reposición de uniforme o equipo de seguridad |
+| Capacitación | Solicitar un curso, constancias de capacitación, dudas sobre la inducción |
+| Conflicto laboral | Queja contra un compañero o jefe, acoso, discriminación, desacuerdo con una sanción |
+| Prestaciones y préstamos | Fondo de ahorro, préstamo de nómina, seguro de vida o gastos médicos, vales, beneficios |
+| Datos personales y expediente | Cambiar domicilio, cuenta bancaria, estado civil, beneficiarios o contacto de emergencia; corregir datos en el expediente |
+
+⚠️ «Altas y bajas» y «Datos personales y expediente» disparan trámites con **otras áreas** (TI crea el usuario, Mantenimiento entrega equipo): hoy no se pueden coordinar desde la Mesa. Es el caso de los **tickets padre-hijo** (fuera de v1) y por eso un ticket de RH **no sale** a otra cola (R3).
 
 ### 3.2 Reglas que se heredan de la Mesa
 Folio único `SRV-AAAA-NNNNN`; mismos estados para todas las áreas más motivo de pausa; quién atiende qué área vive en `queue_members` (coordinador/técnico) y las claves `SERVICIO_*` siguen siendo capacidades; todo es **configuración, nunca lógica por nombre de cola**; no hay permisos nuevos.
@@ -151,10 +170,10 @@ Más una **prueba de build**: el candado estático falla si un archivo nuevo, fu
 
 ## 8. Preguntas abiertas
 
-1. **R3:** ¿confirman que un ticket de RH **no** sale a una cola no confidencial? (Es la decisión de fondo.)
+1. ~~**R3:**~~ ✅ resuelto el 2026-10-06: un ticket de RH **no** sale a una cola no confidencial.
 2. **R8:** ¿la persona elige RH explícitamente, o debe existir otra puerta («reporte confidencial» desde cualquier lado)?
 3. **R2/R4:** ¿«información básica» y el mínimo de 5 casos, tal cual?
-4. **R7:** categorías a validar con RH.
+4. ~~**R7:**~~ ✅ resuelto el 2026-10-06 (las 10 categorías de §3.3); sólo falta afinarlas con RH al abrir.
 5. **Alta de usuarios:** confirmar en producción que Lesly Berber y Tania Solorio tienen usuario y las capacidades `SERVICIO_ATENDER` y `SERVICIO_COORDINAR` (esta máquina no tiene sus fichas).
 6. **Legal:** aviso de privacidad y retención.
 
@@ -180,13 +199,13 @@ Comprueba que existen y están mergeados: la tabla servicedesk.queue_members, el
 - Folio único SRV; mismos estados para todas las áreas más motivo de pausa; quién atiende qué área vive en queue_members (coordinador/tecnico); las claves SERVICIO_* son capacidades; NO hay permisos nuevos; agregar un área es CONFIGURACIÓN, nunca lógica por nombre de cola.
 
 # Decisiones tomadas por Sistemas (no las cuestiones)
-1) Todo ticket levantado a RH nace confidencial. 2) La marca vive a nivel de cola. 3) RH no tiene prioridad, semáforo ni "urgente"; no se hacen las dos preguntas de impacto. 4) Coordinan Lesly Berber y Tania Solorio (rol coordinador), sin técnicos por ahora. 5) El administrador NO ve los tickets confidenciales de RH, sólo información básica. 6) Los reportes de RH son sólo agregados con mínimo de casos. 7) Fuera de v1: padre-hijo, campos extra, SLA calibrado, ruteo por ubicación, definir "urgente".
+1) Todo ticket levantado a RH nace confidencial. 2) La marca vive a nivel de cola. 3) RH no tiene prioridad, semáforo ni "urgente"; no se hacen las dos preguntas de impacto. 4) Coordinan Lesly Berber y Tania Solorio (rol coordinador), sin técnicos por ahora. 5) El administrador NO ve los tickets confidenciales de RH, sólo información básica. 6) Los reportes de RH son sólo agregados con mínimo de casos. 7) Fuera de v1: padre-hijo, campos extra, SLA calibrado, ruteo por ubicación, definir "urgente". 8) R3 CONFIRMADO: un ticket de RH NO se transfiere a una cola no confidencial; entre las dos coordinadoras se reasigna. 9) Las 10 categorías de RH están decididas (FASE_RH §3.3): nómina, vacaciones y permisos, incapacidades, altas y bajas, constancias y documentos, credenciales y uniformes, capacitación, conflicto laboral, prestaciones y préstamos, datos personales y expediente.
 
 # Hallazgos ya medidos (úsalos, no los redescubras; verifica sólo que sigan vigentes)
 H1 el administrador puede agregarse como miembro de RH; H2 hay 9 archivos que leen servicedesk.requests, incluidos me-work.ts y me-tasks.ts (libs/trade); H3 el título se copia a notification_log.payload, al correo y al aviso de SLA; H4 las URLs de adjunto duran 600 s; H5 requests.priority es NOT NULL con CHECK y el barredor de SLA falla sin política; H6 app_runtime puede hacer UPDATE sobre requests; H7 se puede levantar a nombre de otra persona; H8 los reportes y stats cubren todas las colas; H9 el puerto de Bitácora no filtra. No se usa RLS por ticket (ver §2.3 del plan).
 
 # Propuestas a confirmar conmigo (pregúntamelas; no las des por hechas)
-R1 la marca la fija la base desde la cola y es inmutable (trigger). R2 "información básica" = folio, cola, fecha de alta, estado y fecha de resolución, sin título, descripción, hilo, adjuntos, solicitante ni conteos por categoría, y la API tampoco envía lo oculto. R3 un ticket de RH NO se transfiere a una cola no confidencial; entre las dos coordinadoras se reasigna. R4 mínimo de casos configurable por cola, inicial 5, bajo el mínimo "—". R5 RH sin SLA en v1, se declara "—", nunca 0. R6 sin responsable por omisión: "Sin asignar" visible a ambas. R7 categorías: nómina, vacaciones, incapacidades, altas y bajas, constancias, credenciales, capacitación, conflicto laboral (falta validarlas con RH); ubicación opcional. R8 la persona elige RH explícitamente al levantar el ticket, sin botón de "reporte confidencial" en otras colas. R9 un ticket levantado a nombre de otra persona lo ven sólo el solicitante y los miembros de RH.
+R1 la marca la fija la base desde la cola y es inmutable (trigger). R2 "información básica" = folio, cola, fecha de alta, estado y fecha de resolución, sin título, descripción, hilo, adjuntos, solicitante ni conteos por categoría, y la API tampoco envía lo oculto. R4 mínimo de casos configurable por cola, inicial 5, bajo el mínimo "—". R5 RH sin SLA en v1, se declara "—", nunca 0. R6 sin responsable por omisión: "Sin asignar" visible a ambas. R7 (resuelta) ubicación opcional en las categorías de RH. R8 la persona elige RH explícitamente al levantar el ticket, sin botón de "reporte confidencial" en otras colas. R9 un ticket levantado a nombre de otra persona lo ven sólo el solicitante y los miembros de RH.
 
 # Reglas que no se negocian
 - Una rama y un PR por sprint. Migraciones aditivas, idempotentes y reversibles; nunca contra producción; en prod se aplican una por una con apply-one-migration-prod.js, nunca migrate:latest.
@@ -200,7 +219,7 @@ R1 la marca la fija la base desde la cola y es inmutable (trigger). R2 "informac
 1. Ejecuta la compuerta de entrada y dime el resultado.
 2. Verifica que H1–H9 siguen vigentes en el código de hoy y corrige lo que haya cambiado (con rutas de archivo).
 3. Revisa cómo MS.7.6 implementó el acceso por ticket y qué falta para que devuelva completo | basico | ninguno.
-4. Entrégame: (a) hallazgos nuevos o cambios respecto a H1–H9, (b) el diseño detallado de RH.1–RH.4 con archivos a tocar, (c) la lista blanca inicial del candado estático de lecturas de servicedesk.requests, (d) las preguntas R1–R9 que sigan abiertas y cualquier otra que encuentres.
+4. Entrégame: (a) hallazgos nuevos o cambios respecto a H1–H9, (b) el diseño detallado de RH.1–RH.4 con archivos a tocar, (c) la lista blanca inicial del candado estático de lecturas de servicedesk.requests, (d) las preguntas que sigan abiertas (R3 y R7 ya están resueltas) y cualquier otra que encuentres.
 5. Termina y espera mi aprobación. No avances a RH.1.
 ```
 
