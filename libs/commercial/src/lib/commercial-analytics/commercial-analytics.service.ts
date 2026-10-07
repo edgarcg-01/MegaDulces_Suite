@@ -204,6 +204,19 @@ export interface SalesByRouteOption {
 const DETALLE_TOPE = 1000;
 
 /**
+ * `[VEC.2]` Código de RUTA VECINAL en Kepler (`kdm1.c12`): `1V001`, `2V003`, `3V001`…
+ *
+ * ⚠️ El discriminante es el CÓDIGO, no el nombre. En Michoacán las rutas se llaman con el
+ * nombre de la persona (`RVMM01 GUILLERMO HERNANDEZ`), así que filtrar por `'RUTA VECINAL%'`
+ * deja fuera dos rutas que venden. Medido 2026-10-06 contra prod.
+ *
+ * Sirve para dos cosas opuestas y por eso vive acá, en un solo lugar: **excluir** la vecinal del
+ * rollup `sales_by_route_monthly` (donde quedó dato de un importer retirado) e **incluirla**
+ * desde `analytics.v_kepler_vecinal_monthly`, que la deriva del ODS.
+ */
+const VECINAL_RX = '^[0-9]V[0-9]';
+
+/**
  * `[RD.10]` Una ruta en el cuadre de inventario. **Las dos columnas cierran**:
  * `carga_* − (cogs_costo | venta_cliente) − inventario_* = 0`, y `delta_*` lo lleva a pantalla.
  */
@@ -6913,14 +6926,22 @@ export class CommercialAnalyticsService {
    * porque el route_code de Kepler (serie UD100N) se repite entre sucursales. */
   async salesByRouteRoutes(): Promise<SalesByRouteOption[]> {
     const tenantId = this.tenantCtx.requireTenantId();
-    const rows: any[] = await this.tk.run(async (trx) =>
-      trx('analytics.sales_by_route_monthly as s')
-        .join('commercial.warehouses as w', 'w.id', 's.warehouse_id')
-        .where('s.tenant_id', tenantId)
-        .andWhereRaw(`s.route_code LIKE 'WIN-%'`) // solo rutas reales (venta a bordo Wincaja)
-        .distinct('w.code as warehouse_code', 'w.name as warehouse_name', 's.route_code as route_code', 's.route_no as route_no')
-        .orderBy([{ column: 'w.name' }, { column: 's.route_no' }]),
-    );
+    // `[VEC.2]` Dos piernas: el rollup (camionetas + Wincaja) y la vecinal DERIVADA del ODS.
+    // La vecinal ya no sale de `sales_by_route_monthly` ni de `wincaja.branches` — una ruta
+    // nueva aparece sola el día que vende, sin que nadie la dé de alta en ninguna lista.
+    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+      `SELECT w.code AS warehouse_code, w.name AS warehouse_name, s.route_code, s.route_no
+         FROM analytics.sales_by_route_monthly s
+         JOIN commercial.warehouses w ON w.id = s.warehouse_id
+        WHERE s.tenant_id = ? AND s.route_code LIKE 'WIN-%'
+          AND COALESCE(s.route_no, '') !~ '${VECINAL_RX}'
+       UNION
+       SELECT v.warehouse_code, w.name, v.route_code, v.route_no
+         FROM analytics.v_kepler_vecinal_monthly v
+         JOIN commercial.warehouses w ON w.tenant_id = v.tenant_id
+          AND w.code = v.warehouse_code AND w.deleted_at IS NULL
+        WHERE v.tenant_id = ?
+        ORDER BY 2, 4`, [tenantId, tenantId])).rows);
     return rows.map((r) => ({
       value: `${r.warehouse_code}|${r.route_code}`,
       label: `${r.warehouse_name} · Ruta ${r.route_no ?? r.route_code}`,
@@ -7301,55 +7322,99 @@ export class CommercialAnalyticsService {
     // cargado hoy es fresco, y uno de hoy que nunca se cargó no existe para el reporte.
     let freshness: Freshness = FRESHNESS_UNKNOWN;
     const rawRows: any[] = await this.tk.run(async (trx) => {
-      freshness = await this.feedFreshness(trx, factFilter
+      const medidas = await this.feedFreshness(trx, factFilter
         ? [
           ['analytics.route_push_lines', 'imported_at', 'Empuje a ruta'],
           ['wincaja.maestro_mov_almacen', 'imported_at', 'Venta Wincaja (carga)'],
         ]
         : [['analytics.sales_by_route_monthly', 'updated_at', 'Venta por ruta (mensual)']]);
+      // `[VEC.2]` La vecinal ya no sale de una tabla copiada: se deriva del ODS. Su frescura es
+      // la del carril que lo alimenta, y por eso entra como eslabón propio — declarar sólo la
+      // del rollup sería hablar de una tabla que ya no gobierna esa parte del número.
+      freshness = composeFreshness([
+        ...(medidas.inputs ?? []),
+        evalInput('ods_live_hot', 'Venta ERP en vivo (ODS)', await laneAt(trx, 'ods_live_hot'), 2),
+      ]);
       if (factFilter) {
-        const params: any[] = [tenantId, from, to];
+        // `[VEC.2]` Los dos primeros tenant son del CTE `rutas` (ver abajo).
+        const params: any[] = [tenantId, tenantId, tenantId, from, to];
         let extra = '';
         if (q.sku) { extra += ' AND sl.sku = ?'; params.push(q.sku); }
         if (q.client) { extra += ' AND sl.cliente = ?'; params.push(q.client); }
         let scope = '';
-        if (routeFilter) { scope = ` AND (w.code || '|' || ('WIN-' || b.source_branch)) = ANY(?)`; params.push(routeFilter); }
-        else if (whFilter) { scope = ' AND w.code = ANY(?)'; params.push(whFilter); }
+        if (routeFilter) { scope = ` AND (r.wcode || '|' || ('WIN-' || sl.source_branch)) = ANY(?)`; params.push(routeFilter); }
+        else if (whFilter) { scope = ' AND r.wcode = ANY(?)'; params.push(whFilter); }
+        // `[VEC.2]` El mapeo ruta→almacén sale de DOS lados: `wincaja.branches` para las
+        // camionetas y el histórico, y la propia vista vecinal para las rutas del ODS — que no
+        // están dadas de alta en ese catálogo y, si dependieran de él, desaparecerían del
+        // reporte en cuanto alguien filtra por producto o cliente.
         const res = await trx.raw(
-          `SELECT w.code AS wcode, COALESCE(w.name, initcap(pb.branch_name)) AS wname,
-                  ('WIN-' || b.source_branch) AS route_code, b.source_branch AS route_no,
+          `WITH rutas AS (
+             SELECT b.source_branch, w.code AS wcode,
+                    COALESCE(w.name, initcap(pb.branch_name)) AS wname
+               FROM wincaja.branches b
+               JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
+               LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
+                    AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+              WHERE b.tenant_id=? AND b.is_route=true
+                AND COALESCE(b.source_branch,'') !~ '${VECINAL_RX}'
+              UNION
+             SELECT DISTINCT v.route_no, v.warehouse_code, w.name
+               FROM analytics.v_kepler_vecinal_monthly v
+               JOIN commercial.warehouses w ON w.tenant_id=v.tenant_id
+                AND w.code=v.warehouse_code AND w.deleted_at IS NULL
+              WHERE v.tenant_id=?
+           )
+           SELECT r.wcode, r.wname,
+                  ('WIN-' || sl.source_branch) AS route_code, sl.source_branch AS route_no,
                   to_char(sl.business_date,'MM') AS mes,
                   sum(sl.importe) AS revenue, sum(sl.qty) AS units, count(distinct sl.consecutivo) AS tickets
            FROM analytics.v_route_sales_lines sl
-           JOIN wincaja.branches b ON b.tenant_id=sl.tenant_id AND b.source_branch=sl.source_branch AND b.is_route=true
-           JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
-           LEFT JOIN commercial.warehouses w ON w.tenant_id=b.tenant_id
-                AND w.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND w.deleted_at IS NULL
+           JOIN rutas r ON r.source_branch = sl.source_branch
            WHERE sl.tenant_id=? AND sl.sale_channel='ruta_venta'
              AND sl.business_date>=? AND sl.business_date<? AND sl.business_date<=CURRENT_DATE
              ${extra}${scope}
-           GROUP BY w.code, w.name, pb.branch_name, b.source_branch, to_char(sl.business_date,'MM')`,
+           GROUP BY r.wcode, r.wname, sl.source_branch, to_char(sl.business_date,'MM')`,
           params,
         );
         return res.rows;
       }
-      const qb = trx('analytics.sales_by_route_monthly as s')
-        .join('commercial.warehouses as w', 'w.id', 's.warehouse_id')
-        .where('s.tenant_id', tenantId)
-        .andWhere('s.month', '>=', from)
-        .andWhere('s.month', '<', to)
-        .andWhereRaw(`s.route_code LIKE 'WIN-%'`) // solo rutas reales (venta a bordo Wincaja); las series Kepler UD100N son CAJAS de mostrador, no rutas
-        .select(
-          'w.code as wcode', 'w.name as wname', 's.route_code as route_code', 's.route_no as route_no',
-          trx.raw(`to_char(s.month,'MM') as mes`),
-        )
-        .sum({ units: 's.units' })
-        .sum({ revenue: 's.revenue' })
-        .sum({ tickets: 's.tickets' })
-        .groupByRaw(`w.code, w.name, s.route_code, s.route_no, to_char(s.month,'MM')`);
-      if (routeFilter) qb.whereRaw(`(w.code || '|' || s.route_code) = ANY(?)`, [routeFilter]);
-      else if (whFilter) qb.whereIn('w.code', whFilter);
-      return qb;
+      // `[VEC.2]` La matriz se arma de DOS piernas, no de una tabla:
+      //   · el rollup `sales_by_route_monthly` — camionetas (push `.249`) e histórico Wincaja;
+      //   · `analytics.v_kepler_vecinal_monthly` — la vecinal, DERIVADA del ODS en vivo.
+      //
+      // ⛔ La vecinal se excluye del rollup a propósito. Ahí quedó lo que escribió
+      // `import-kepler-vecinal-routes.js` (retirado): un monto **2.07×** el real, porque unía
+      // cabecera y líneas sin la CAJA (`c5`) y le pegaba a cada ticket las líneas de los
+      // tickets homónimos de las otras cajas. Y como ese rollup sube con `GREATEST(...)`,
+      // **nunca baja**: no se corrige re-corriendo nada, se corrige dejando de leerlo.
+      const params: any[] = [tenantId, from, to, tenantId, from, to];
+      let filtro = '';
+      if (routeFilter) { filtro = ` AND (wcode || '|' || route_code) = ANY(?)`; params.push(routeFilter); }
+      else if (whFilter) { filtro = ' AND wcode = ANY(?)'; params.push(whFilter); }
+      const res = await trx.raw(
+        `WITH base AS (
+           SELECT w.code AS wcode, w.name AS wname, s.route_code, s.route_no,
+                  to_char(s.month,'MM') AS mes, s.units, s.revenue, s.tickets
+             FROM analytics.sales_by_route_monthly s
+             JOIN commercial.warehouses w ON w.id = s.warehouse_id
+            WHERE s.tenant_id = ? AND s.month >= ? AND s.month < ?
+              AND s.route_code LIKE 'WIN-%'
+              AND COALESCE(s.route_no, '') !~ '${VECINAL_RX}'
+           UNION ALL
+           SELECT v.warehouse_code, w.name, v.route_code, v.route_no,
+                  to_char(v.month,'MM'), v.units, v.revenue, v.tickets
+             FROM analytics.v_kepler_vecinal_monthly v
+             JOIN commercial.warehouses w ON w.tenant_id = v.tenant_id
+              AND w.code = v.warehouse_code AND w.deleted_at IS NULL
+            WHERE v.tenant_id = ? AND v.month >= ? AND v.month < ?
+         )
+         SELECT wcode, wname, route_code, route_no, mes,
+                sum(units) AS units, sum(revenue) AS revenue, sum(tickets) AS tickets
+           FROM base
+          WHERE true ${filtro}
+          GROUP BY wcode, wname, route_code, route_no, mes`, params);
+      return res.rows;
     });
 
     const round = (v: number, d = 2) => Math.round(v * 10 ** d) / 10 ** d;
@@ -7430,13 +7495,24 @@ export class CommercialAnalyticsService {
     const num = (v: any) => Number(v) || 0;
 
     return this.tk.run(async (trx) => {
+      // `[VEC.2]` La cabecera se resuelve por el catálogo de rutas (camionetas e histórico) o,
+      // si la ruta es vecinal, por la vista derivada del ODS: esas rutas no están dadas de alta
+      // en `wincaja.branches` y pedirles que lo estén es volver a la lista a mano que dejaba
+      // fuera a Zamora y a las dos de Morelia.
       const head = (await trx.raw(
         `SELECT b.source_branch AS route_no, COALESCE(pw.name, initcap(pb.branch_name)) AS wname
          FROM wincaja.branches b
          JOIN wincaja.branches pb ON pb.tenant_id=b.tenant_id AND pb.source_branch=b.parent_branch
          LEFT JOIN commercial.warehouses pw ON pw.tenant_id=b.tenant_id
            AND pw.code=COALESCE(pb.kepler_code, pb.warehouse_code) AND pw.deleted_at IS NULL
-         WHERE b.tenant_id=? AND b.source_branch=? AND b.is_route=true`, [tenantId, src])).rows[0];
+         WHERE b.tenant_id=? AND b.source_branch=? AND b.is_route=true
+         UNION ALL
+         SELECT v.route_no, COALESCE(w.name, v.route_name)
+         FROM analytics.v_kepler_vecinal_monthly v
+         LEFT JOIN commercial.warehouses w ON w.tenant_id=v.tenant_id
+           AND w.code=v.warehouse_code AND w.deleted_at IS NULL
+         WHERE v.tenant_id=? AND v.route_no=?
+         LIMIT 1`, [tenantId, src, tenantId, src])).rows[0];
       if (!head) throw new NotFoundException('ruta no encontrada');
 
       // WHERE común (mismo scope que el feed: canal ruta, año, sin fechas futuras corruptas)
