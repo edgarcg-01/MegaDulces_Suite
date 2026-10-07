@@ -89,6 +89,52 @@ Y se actualiza el símbolo al avanzar:
 
 ## 🎯 EN PROGRESO
 
+### Fase VEC-VERDAD — La VENTA de la ruta vecinal: publicaba 2.07× · 2026-10-06 · ADR-056 / ADR-059
+
+> ⚠️ **COLISIÓN DE CÓDIGO, declarada:** los commits de esta fase usan `[VEC.0]`…`[VEC.7.1]` y la
+> fase de abajo —**Flujo del vendedor vecinal**, del mismo día y de otra sesión— usará los suyos.
+> Son temas distintos: aquélla es el **flujo** (pedido → almacén), ésta es la **verdad de la
+> cifra**. Renombrar implica editar los `COMMENT ON` ya grabados en prod, así que **se declara en
+> vez de arreglarse a medias**. Decisión pendiente de Edgar.
+
+- [x] **[VEC.0]** 🚀 La venta vecinal se deriva del ODS; se **retira** `import-kepler-vecinal-routes.js`.
+  **Medido: $9,164,175.91 publicados contra $4,417,300.50 reales en 2026 — 2.07×.** El feed unía
+  cabecera y líneas **sin `c5`** creyendo que era el número de renglón (es `c7`; `c5` es la
+  **caja**), y como los folios se numeran por caja, a cada ticket se le pegaban las líneas de los
+  tickets homónimos de las otras cuatro: **9,021 líneas donde había 1,515**. Árbitro `kdm1.c16`,
+  cuadra al centavo. *(batch 744)*
+- [x] **[VEC.1]** 🚀 `v_route_sales_lines` toma la vecinal del ODS; la pierna del push queda acotada
+  a las camionetas. ⚠️ **`pg_get_viewdef` imprime según el `search_path` de quien pregunta** — la
+  misma vista decía `catalog.products` desde una sesión y `products` desde el pod. *(batch 751)*
+- [x] **[VEC.4]** 🚀 El importe sale de la **cabecera**: incluye los 24 tickets cobrados cuyas líneas
+  no llegaron al ODS ($25,760.98) y viene neto de descuento. `units` se **declara incompleta** en
+  vez de estimarse. *(batch 745)*
+- [x] **[VEC.5]** 🚀 Índice parcial `ix_kdm1_ruta_vecinal`: la cabecera pasa de 1,506 a **54 ms**.
+  ⛔ **`CREATE INDEX CONCURRENTLY … IF NOT EXISTS` miente tras un intento fallido**: encontró el
+  índice **inválido** y reportó OK en 0.1 s sobre una tabla de 555 MB. *(batches 746-747)*
+- [x] **[VEC.6.2]** 🚀 El rollup mensual: 6,959 → 6,559 → 1,565 → **1,099 ms**. Tres intentos, y en
+  los dos primeros el efecto fue casi nulo porque **el cuello estaba un piso más abajo** de donde
+  se miraba. ⬜ Sigue sobre el gate de 1,000 ms — **el candado lo deja en rojo a propósito**.
+  *(batches 748-750)*
+- [x] **[VEC.7]** 🚀 `analytics.v_kepler_sales_lines`: la línea de venta de Kepler resuelta **una
+  vez**, compartida por el sell-out y la venta por ruta (pedido de Edgar). Su `canal` es **carácter
+  por carácter** el del sell-out — verificado contra prod, **los 5 canales coinciden al centavo**
+  (39.5 MDP, Δ 0.00). *(batches 752-753)*
+- [x] **[VEC.3]** ✅ Candado `test-newdb-vecinal-truth.js` **en la regresión**: 12 ✓ / 2 ✗
+  declaradas, con **prueba negativa** (ejerce el join malo y exige que dé más).
+- ⬜ **[VEC.8]** El sell-out sigue **doblando** la vecinal ($1,205,244.01 en sep-2026, 62%) porque
+  suma `U-D-12`, que en estas rutas re-factura el ticket. Migrar `mv_kepler_sales_daily` exige
+  `DROP CASCADE` sobre **15 objetos en 3 niveles (5 matviews, 2,453 MB)** y su refresco **bloquea
+  lecturas** → ventana. Runbook en [`VEC8`](RUNBOOKS/VEC8_SELLOUT_A_FUENTE_COMPARTIDA.md).
+- ⬜ **Camionetas (58% del reporte) siguen en importer.** ⭐ El ODS **sí las tiene** (`01-001`…
+  `01-006`), pero **no es copiar y pegar**: en sep-2026 el push declara **$311,652 más (12.7%)** que
+  el ODS en las mismas 6 rutas, y **no son doctypes** (en el ODS esas rutas sólo tienen `U-D-10`).
+  Explicar esa diferencia es requisito previo.
+- ⬜ Histórico Wincaja `VEC-PH-H` ($3,011,913.36 en 2026): **no medido** en esta fase.
+- ⬜ Limpiar las filas inertes del importer retirado en `sales_by_route_monthly` y
+  `route_push_lines` (~103k líneas vecinales). Ya nadie las lee.
+
+
 > Items que un dev está trabajando AHORA. Idealmente 1-3 a la vez. Más que eso = pérdida de foco.
 
 ### Fase RH — Recursos Humanos: migración de Mega Talento · 2026-10-06 · plan en [`FASE_RH`](FASES/FASE_RH_MIGRACION_MEGA_TALENTO.md) · ADR-084
