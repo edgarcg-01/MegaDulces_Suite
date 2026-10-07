@@ -1065,6 +1065,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
     // Entrar a Ventas abre la pestaña «Plan», y `setSalesTab` no corre si no se cambia de
     // pestaña: sin esta línea la comparación seguiría esperando un clic en el caso más común.
     if (v === 'ventas' && this.salesTab() === 'plan' && !this.salesCmp()) this.loadSalesComparison();
+    // `[VE.4]` La capacidad de pago abría con las dos fechas en blanco y un botón «Proponer» que,
+    // sin elegirlas, sólo contestaba «Elegí desde y hasta». Ahora entra con una ventana por
+    // default (hoy → +30 días) y la propuesta ya calculada. ⚠️ Proponer NO autoriza: la capacidad
+    // se fija con «Guardar», que es el acto que el Calendario después consume como tope.
+    if (v === 'capacidad') {
+      if (!this.capProposeFrom || !this.capProposeTo) {
+        const hoy = new Date();
+        const mas30 = new Date(hoy.getTime() + 30 * 864e5);
+        const iso = (d: Date) => d.toISOString().slice(0, 10);
+        this.capProposeFrom = iso(hoy); this.capProposeTo = iso(mas30);
+      }
+      if (!this.capProposal()) this.proposeCapacity();
+    }
     // 'ventas': el pivote meta-vs-real consulta el sell-out del ODS (lento) → opt-in por botón, no al cargar
     if (v === 'gasto-op') this.loadExpensePlan();
     if (v === 'ejercicios') this.loadAssumptions();
@@ -1699,6 +1712,16 @@ export class FinanzasPresupuestoComponent implements OnInit {
         const g = s.growth_by_channel || {};
         for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : this.asVentasDefault;
         this.assumpLoaded.set(true); this.loadingAssump.set(false);
+        // `[VE.4]` Si el ejercicio todavía no tiene supuestos, la pantalla mostraba 0 % en todos
+        // los canales y había que apretar «Sugerir» para ver la propuesta del histórico. Un cero
+        // de ausencia se lee como una decisión (ADR-056), y acá además era la que alimenta todo
+        // el plan. Se sugiere solo, y SÓLO si está todo en cero: si alguien ya configuró algo
+        // —aunque sea un canal—, no se le pisa el formulario.
+        // ⚠️ Sugerir NO guarda: `saveAssumptions` es el acto explícito. Esto llena la pantalla,
+        // no el presupuesto.
+        const vacio = !this.asVentasDefault
+          && this.channelsList.every((ch) => !this.asVentasGrowth[ch]);
+        if (vacio) this.suggestAssumptions();
       },
       error: () => this.loadingAssump.set(false),
     });

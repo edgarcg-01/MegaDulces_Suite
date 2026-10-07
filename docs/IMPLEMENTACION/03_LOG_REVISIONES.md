@@ -10686,3 +10686,60 @@ precomputado) queda **declarado, no hecho**.
 - ⬜ **Primera corrida real**: hoy hay 1 ejercicio en `borrador` (FY2027) y 1 en `pendiente` (que el
   piloto no toca). La primera pasada debería llenar gastos, targets y partidas.
 - ⬜ **El agregado del real sigue costando 1.9 s en frío.** Declarado arriba.
+
+---
+
+## 2026-10-07 — `[VE.4]` El quinto motor, y el bug que el primero se cobró en su primera noche
+
+Edgar: *«todo debe estar automatizado»*.
+
+### `[VE.4]` Las obligaciones de gasto se proponen solas
+
+De las 31 acciones de la pantalla, la mayoría son decisiones (aprobar, autorizar, mover el ledger) o
+navegación. Quedaban **cuatro que son cálculo y seguían pidiendo clic**:
+
+| acción | qué era | qué se hizo |
+|---|---|---|
+| `generateObligFromPlan` | **escribe** obligaciones desde el plan | cron propio, 03:50 MX |
+| `suggestAssumptions` | GET, llena el formulario | se sugiere sola si el ejercicio **no tiene** supuestos |
+| `proposeCapacity` | GET, exigía elegir dos fechas a mano | entra con ventana por default y la propuesta ya hecha |
+| `recalcRetorno` | necesita el **margen incremental** que captura una persona | **no se automatiza**: no hay de dónde sacar ese número |
+
+⛔ **El quinto motor no pudo entrar al cron de `[VE.3]`:** `FinancePaymentCalendarModule` ya
+**importa** `FinanceBudgetModule`, y al revés sería un ciclo. El puerto que existe en esa frontera
+(`BUDGET_LEDGER_PORT`) va en la dirección contraria, así que proveerlo al revés habría dejado al
+piloto con una dependencia que **nunca** se resuelve — un paso saltado en silencio cada noche con el
+tablero en verde. Va en `ObligationsAutopilotService`, de ese lado, con su propio latido. El corte
+además es el correcto por dominio (ADR-064 separa Presupuestos de Tesorería a propósito).
+
+Es seguro porque **lo generado nace en `propuesta`**: el paso `propuesta → pending` escribe
+`authorized_by` y es HITL. El automático prepara la lista; la persona firma.
+
+### ⛔⛔ Y el piloto de `[VE.3]` falló en su PRIMERA corrida real, reportando `ok`
+
+Medido hoy: latió a las **2026-10-07 03:30:00** con **`ok · 0/0 ejercicios · 0 celdas`**… y hay
+**2 ejercicios en la tabla, uno en `borrador`**.
+
+La causa: la consulta que **lista** los ejercicios corría **fuera** del contexto de tenant.
+`budget.budgets` tiene **RLS forzado** (`relforcerowsecurity = true`), así que sin `app.tenant_id`
+no falla: **devuelve cero filas**.
+
+⭐ Es la falla canónica de este repo, y lo que más duele es que **el comentario de `conTenant` en
+ese mismo archivo ya la advertía** —para las consultas de adentro— y la de afuera se escribió
+igual. *El cero se lee como «no había nada que hacer».*
+
+Arreglado en los dos pilotos: la lista sale de `public.tenants` (que **no** tiene RLS, verificado) y
+los budgets de cada uno se leen con su contexto abierto. Y un universo entero vacío ahora **se
+declara como falla**, porque «no vi nada» y «no hay nada» son indistinguibles desde afuera.
+
+**El candado nace en ROJO a propósito**, cazando el estado real de prod:
+`budget_autopilot recorrió 0 ejercicios y hay 1 que le tocan`. Se pondrá verde cuando el arreglo
+corra. 21 ✓ / 1 ✗ / 2 NO MEDIDO.
+
+### Pendientes con nombre
+
+- ⬜ **Push.** ⚠️ Esta vez no es cosmético: `[VE.1]`–`[VE.3]` **ya están en `origin/main` y en prod**
+  (alguien pusheó anoche), así que **el cron corre cada madrugada reportando `ok` sobre cero**
+  mientras el arreglo siga sin desplegarse.
+- ⬜ **`recalcRetorno` sigue pidiendo clic**, y está bien: su parámetro es un juicio humano.
+- ⬜ **Validación visual** de los supuestos auto-sugeridos y la capacidad auto-propuesta.

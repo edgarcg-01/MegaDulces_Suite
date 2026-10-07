@@ -3,6 +3,7 @@ import { BudgetCapacityService } from './budget-capacity.service';
 import { BudgetCapacityController } from './budget-capacity.controller';
 import { BudgetExpenseObligationsService } from './budget-expense-obligations.service';
 import { BudgetExpenseObligationsController } from './budget-expense-obligations.controller';
+import { ObligationsAutopilotService } from './obligations-autopilot.service';
 import { FinancialCommitmentsService } from './financial-commitments.service';
 import { FinancialCommitmentsController } from './financial-commitments.controller';
 import { PaymentCalendarService } from './payment-calendar.service';
@@ -31,6 +32,10 @@ import { BUDGET_LEDGER_PORT } from '../budget/budget-ledger.port';
     PaymentCalendarController,
   ],
   providers: [
+    // `[VE.4]` El quinto motor del presupuesto, que vive de este lado de la frontera: genera las
+    // obligaciones recurrentes en estado `propuesta`. No se pudo sumar al piloto de `[VE.3]`
+    // porque este módulo YA importa `FinanceBudgetModule` y al revés sería un ciclo.
+    ObligationsAutopilotService,
     BudgetCapacityService,
     BudgetExpenseObligationsService,
     FinancialCommitmentsService,

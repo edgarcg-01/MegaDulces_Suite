@@ -110,25 +110,56 @@ export class BudgetAutopilotService {
     let celdas = 0;
 
     try {
-      // Sólo los ejercicios que los motores aceptan tocar. Si un día alguien agrega un estado
-      // nuevo, este filtro se queda corto y el ejercicio simplemente no entra — que es el lado
-      // seguro de equivocarse.
-      const abiertos = await this.knex('budget.budgets')
-        .select('id', 'name', 'fiscal_year', 'tenant_id')
-        .whereIn('status', ['borrador', 'en_revision'])
-        .orderBy('fiscal_year', 'asc');
+      // ⛔⛔ ESTA LISTA TIENE QUE SALIR DE ADENTRO DEL CONTEXTO DE TENANT, y la primera versión
+      // la sacaba de afuera. `budget.budgets` tiene **RLS forzado** (verificado en prod:
+      // `relforcerowsecurity = true`), así que sin `app.tenant_id` la consulta no falla: devuelve
+      // CERO FILAS. Medido en la primera corrida real, 2026-10-07 03:30:00 — el cron recorrió
+      // «0/0 ejercicios» con 2 en la tabla (uno en borrador) y el latido dijo **ok**.
+      //
+      // ⭐ Es la falla canónica de este repo y la razón de ser de ADR-056: *el cero se lee como
+      // «no había nada que hacer»*. El comentario de `conTenant` ya advertía exactamente esto
+      // para las consultas de adentro — y la de afuera se escribió igual.
+      //
+      // `public.tenants` NO tiene RLS (verificado), así que de ahí sale la lista de a quién
+      // mirar, y los budgets de cada uno se leen con su contexto abierto.
+      const tenants = await this.knex('public.tenants').select('id').orderBy('created_at', 'asc');
+      let vistos = 0;
 
-      for (const b of abiertos) {
-        const r = await this.unEjercicio(String(b.tenant_id), String(b.id), String(b.name), Number(b.fiscal_year));
-        detalle.push(r);
-        celdas += (r.ventas?.escritas ?? 0) + (r.gastos?.escritas ?? 0)
-          + (r.targets?.filas ?? 0) + (r.partidas?.creadas ?? 0) + (r.partidas?.ajustadas ?? 0);
-        // La falla de un ejercicio viaja hacia arriba con su nombre: `continue` mudo no.
-        for (const e of r.errores) errores.push(`${r.name} (FY${r.fiscal_year}): ${e}`);
+      for (const t of tenants) {
+        const tid = String(t.id);
+        const { abiertos, totales } = await this.conTenant(tid, async () => {
+          const rows = await this.knex('budget.budgets')
+            .select('id', 'name', 'fiscal_year', 'status')
+            .where({ tenant_id: tid })
+            .orderBy('fiscal_year', 'asc');
+          return {
+            // Si un día alguien agrega un estado nuevo, este filtro se queda corto y el ejercicio
+            // no entra — que es el lado seguro de equivocarse.
+            abiertos: rows.filter((r) => ['borrador', 'en_revision'].includes(String(r.status))),
+            totales: rows.length,
+          };
+        });
+        vistos += totales;
+
+        for (const b of abiertos) {
+          const r = await this.unEjercicio(tid, String(b.id), String(b.name), Number(b.fiscal_year));
+          detalle.push(r);
+          celdas += (r.ventas?.escritas ?? 0) + (r.gastos?.escritas ?? 0)
+            + (r.targets?.filas ?? 0) + (r.partidas?.creadas ?? 0) + (r.partidas?.ajustadas ?? 0);
+          // La falla de un ejercicio viaja hacia arriba con su nombre: `continue` mudo no.
+          for (const e of r.errores) errores.push(`${r.name} (FY${r.fiscal_year}): ${e}`);
+        }
+      }
+
+      // ⚠️ «No vi ni una fila de presupuesto» NO es lo mismo que «no hay ejercicios abiertos», y
+      // con RLS de por medio son indistinguibles desde afuera. Si el universo entero salió vacío
+      // se DECLARA como falla: es el síntoma exacto del bug de arriba volviendo.
+      if (tenants.length > 0 && vistos === 0) {
+        errores.push('no se vio ni un ejercicio en ninguna tabla: ¿contexto de tenant / RLS?');
       }
 
       const res: AutopilotResult = {
-        ejercicios: abiertos.length,
+        ejercicios: detalle.length,
         tocados: detalle.filter((d) => d.errores.length === 0).length,
         celdas, errores, detalle, ms: Date.now() - t0,
       };
