@@ -5,7 +5,19 @@ import { SparklineComponent } from '../charts/sparkline.component';
 import { RingGaugeComponent } from '../charts/ring-gauge.component';
 
 export type MetricStripMode = 'strip' | 'spark' | 'ring' | 'bullet' | 'composition';
-export type MetricTone = 'default' | 'ok' | 'warn' | 'bad' | 'brand';
+/**
+ * `muted` es el tono de **lo que no se pudo medir**, y no es lo mismo que `default`.
+ *
+ * Nació de un caso real: una métrica de "Mes a la fecha" sin meta capturada, que dice *Sin meta
+ * capturada* en vez de rellenar el hueco con un 0 % (ADR-056). Ponerle `default` compila, pero
+ * deja el valor con el mismo peso visual que una cifra medida — y la plantilla ya cae a
+ * `default` cuando el tono viene vacío, así que escribirlo sería una línea que aparenta hacer
+ * algo y no hace nada.
+ *
+ * ⚠️ Esta unión **no es la misma** que la de `metric-card`, que además tiene `ember`. Son dos
+ * tipos con el mismo nombre en dos archivos: agregar un tono acá no lo agrega allá.
+ */
+export type MetricTone = 'default' | 'ok' | 'warn' | 'bad' | 'brand' | 'muted';
 /** `currency2` = moneda CON centavos, para precios unitarios ($/unidad, $/partida). */
 export type MetricFormat = 'number' | 'decimal1' | 'currency' | 'currency2' | 'currency-short' | 'percent' | 'text';
 
@@ -127,6 +139,8 @@ export interface MetricStripItem {
     .ms-item.tone-warn .ms-v { color:var(--warn-fg); }
     .ms-item.tone-bad .ms-v { color:var(--bad-fg); }
     .ms-item.tone-brand .ms-v { color:var(--action); }
+    /* El valor que no se pudo medir baja de peso, no desaparece: sigue leyendose. */
+    .ms-item.tone-muted .ms-v { color:var(--text-muted); }
     .ms-sub { font-size:.7rem; color:var(--text-faint); font-variant-numeric:tabular-nums; }
     /* delta multimodal */
     .ms-delta { font-family:var(--font-mono); font-size:.72rem; font-weight:600; color:var(--text-faint); }
@@ -150,6 +164,9 @@ export interface MetricStripItem {
        imperceptible, y a porcentajes chicos el relleno es una astilla donde no se ve. */
     .ms-bfill { position:absolute; inset:0 auto 0 0; width:100%; height:100%; border-radius:999px; background:var(--action); transform:scaleX(var(--fill,0)); transform-origin:left center; transition:transform var(--dur-standard,250ms) var(--ease-standard,cubic-bezier(.4,0,.2,1)); }
     .ms-bfill.tone-ok { background:var(--ok-fg); } .ms-bfill.tone-warn { background:var(--warn-fg); } .ms-bfill.tone-bad { background:var(--bad-fg); }
+    /* Los otros modos tambien lo entienden: sin esto, un tono muted caeria al color de marca
+       y la barra se veria igual de firme que una medida. */
+    .ms-bfill.tone-muted { background:var(--text-muted); }
     .ms-btarget { position:absolute; top:-3px; bottom:-3px; width:2px; background:var(--text-main); border-radius:2px; }
     /* ── composición: una barra segmentada + leyenda ── */
     .ms-band { width:100%; }
@@ -161,11 +178,11 @@ export interface MetricStripItem {
        tira de 14px con 2-5 spans vacios, sin texto adentro. Lo que SI se corrige es la
        duracion: 900ms -> --dur-standard. Deuda con nombre: [DS.1] segmentos a transform. */
     .ms-seg { transition:width var(--dur-standard,250ms) var(--ease-standard,cubic-bezier(.4,0,.2,1)); }
-    .ms-seg.tone-ok { background:var(--ok-fg); } .ms-seg.tone-warn { background:var(--warn-fg); } .ms-seg.tone-bad { background:var(--bad-fg); } .ms-seg.tone-brand { background:var(--action); } .ms-seg.tone-default { background:var(--text-faint); }
+    .ms-seg.tone-ok { background:var(--ok-fg); } .ms-seg.tone-warn { background:var(--warn-fg); } .ms-seg.tone-bad { background:var(--bad-fg); } .ms-seg.tone-brand { background:var(--action); } .ms-seg.tone-muted { background:var(--text-muted); } .ms-seg.tone-default { background:var(--text-faint); }
     .ms-leg { display:flex; flex-wrap:wrap; gap:1.3rem; margin-top:.85rem; }
     .ms-leg span { display:inline-flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--text-muted); }
     .ms-leg i { width:9px; height:9px; border-radius:3px; }
-    .ms-leg i.tone-ok { background:var(--ok-fg); } .ms-leg i.tone-warn { background:var(--warn-fg); } .ms-leg i.tone-bad { background:var(--bad-fg); } .ms-leg i.tone-brand { background:var(--action); } .ms-leg i.tone-default { background:var(--text-faint); }
+    .ms-leg i.tone-ok { background:var(--ok-fg); } .ms-leg i.tone-warn { background:var(--warn-fg); } .ms-leg i.tone-bad { background:var(--bad-fg); } .ms-leg i.tone-brand { background:var(--action); } .ms-leg i.tone-muted { background:var(--text-muted); } .ms-leg i.tone-default { background:var(--text-faint); }
     .ms-leg b { font-family:var(--font-mono); font-weight:600; color:var(--text-main); font-variant-numeric:tabular-nums; }
     /* móvil: grid 2 columnas con un divisor central por fila */
     @media (max-width:35rem) {
