@@ -5,6 +5,7 @@ import {
   BudgetLinesService, CreateBudgetDto, CreateBudgetLineDto, MovementOpts,
 } from './budget-lines.service';
 import { BudgetGenerationService } from './budget-generation.service';
+import { BudgetAutopilotService } from './budget-autopilot.service';
 import { BudgetMaterializeService } from './budget-materialize.service';
 
 interface AuthedRequest { user?: { username?: string } }
@@ -26,6 +27,7 @@ export class BudgetLinesController {
     private readonly svc: BudgetLinesService,
     private readonly materialize: BudgetMaterializeService,
     private readonly generation: BudgetGenerationService,
+    private readonly autopilot: BudgetAutopilotService,
   ) {}
 
   private who(req: AuthedRequest) { return req.user?.username || 'sistema'; }
@@ -42,6 +44,22 @@ export class BudgetLinesController {
   @Get('budgets/:id')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   getBudget(@Param('id') id: string) { return this.svc.getBudget(id); }
+
+  /**
+   * `[VE.8]` Dispara la pasada del piloto AHORA, sin esperar a las 03:30.
+   *
+   * No existía: `BudgetAutopilotService.run()` era público pero ningún controller lo exponía, así
+   * que la única forma de ejercerlo era esperar al cron — y con eso cada corrección tardaba un día
+   * en poder comprobarse.
+   *
+   * ⚠️ Es la MISMA pasada que corre de noche, no una versión recortada: deriva supuestos, propone
+   * los dos planes, proyecta a meses y materializa partidas, respetando todo lo capturado a mano.
+   * Pide `PRESUPUESTOS_GESTIONAR` porque escribe.
+   */
+  @Post('autopilot/run')
+  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
+  @ApiOperation({ summary: '[VE.8] Corre la pasada del piloto ahora (la misma del cron 03:30): supuestos + plan de ventas + plan de gastos + proyección + partidas. Respeta lo manual.' })
+  runAutopilot() { return this.autopilot.run(); }
 
   @Get('budgets/:id/completeness')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
