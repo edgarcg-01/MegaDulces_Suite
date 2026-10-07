@@ -223,8 +223,8 @@ con un permiso que oculte un menú.
 
 ### 4.3 Pantallas
 
-Espacio **Recursos Humanos** del mapa de la suite (hoy `planned`, vacío) pasa a `active` con el
-proyecto `rh` en `/rh/*`:
+Espacio **Recursos Humanos** del mapa de la suite (`planned` hasta `[RH.1.7]`) pasa a `active` con el
+proyecto `rh` («Personal») en `/rh/*` — hecho el 2026-10-07 para las tres primeras filas, ver §5.3:
 
 | Ruta | Viene de |
 |---|---|
@@ -278,7 +278,8 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
   hoy está duplicada en la API y en el bot). Decidir revisión vs incidencia. → En código 2026-10-07, ver §5.1.
 - [ ] **[RH.1.6]** 🧪 Incidencias y cierre semanal jueves→miércoles. Permisos `HR_INCIDENTS_*`, `HR_PERIOD_CLOSE`.
   Son **6** estados, no 4 (rechazada y anulada son salidas del flujo). → En código 2026-10-07, ver §5.1.
-- [ ] **[RH.1.7]** Pantallas `/rh/asistencia`, `/rh/incidencias`, `/rh/relojes`; espacio RH `active`.
+- [ ] **[RH.1.7]** 🧪 Pantallas `/rh/asistencia`, `/rh/incidencias`, `/rh/relojes`; espacio RH `active`; reparto
+  de permisos por rol. → En código 2026-10-07, ver §5.3.
 - [ ] **[RH.1.8]** Corte de asistencia (§6): carga única verificada de checadas, incidencias y cierres; el
   agente apunta a la Suite; las pantallas de asistencia de Mega Talento quedan de sólo lectura 2 semanas.
 - [ ] **[RH.1.9]** (opcional) Modo push ADMS para las plazas sin ruta (PH, Morelia Abastos): endpoint `/iclock`
@@ -322,7 +323,7 @@ comprobante sellado (NOM-151). Se construye sobre RH.1 cuando se decida.
 textual (`logic/horario-deducido.ts`, `logic/reglas.ts`, `logic/tipos.ts`, `detalleDia`) para que se audite
 con un diff; lo que mezclaba consulta y cálculo (`asistenciaPersonas`, `detectar`) se partió en una función
 pura y una lectura (`attendance-reader.ts`), sin tocar el recorrido. Encima: el agente (`@Cron` cada 30 min
-con candado por sitio y bitácora en `hr.attendance_agent_runs`, mig `20261007130000`), la cola de alertas,
+con candado por sitio y bitácora en `hr.attendance_agent_runs`, mig `20261007310000`), la cola de alertas,
 los horarios (por sitio y por persona), las incidencias con su bitácora y el cierre de semana.
 API en `/api/hr/attendance/*` (asistencia, checadas, horarios, agente, alertas, incidencias, cierres).
 
@@ -422,6 +423,63 @@ diferencias, las 3 explicadas (abajo).
 relojes. Las checadas sin reloj de Mega Talento salieron de esa fuente: cargarlas tal cual las
 duplicaría en la vista (misma persona y minuto, dos relojes). La carga a prod tiene que reconocerlas.
 En desarrollo no se ve: la base local no trae las de CH.
+
+### 5.3 `[RH.1.7]` — las pantallas, el espacio y el reparto (2026-10-07)
+
+**Lo que hay.** Tres pantallas Operations (tabla densa + ficha) en el proyecto `rh`, que se llama
+**«Personal»** y no «Recursos Humanos» a propósito: así se llama el ESPACIO, y la migaja deduplica
+etiquetas iguales — se perdería el enlace al inicio del proyecto.
+
+| Ruta | Qué hace | Entra con |
+|---|---|---|
+| `/rh/asistencia` | Semana de nómina (jueves→miércoles, recortada a hoy) por sitio; planta o promotoras; ficha con días, comida, horas, bolsa restante y por qué revisar. Asignar o quitar el horario de una persona. «Capturar incidencia» lleva a Incidencias con persona, sitio y semana puestos. | `HR_ATTENDANCE_VER` o `_GESTIONAR` |
+| `/rh/incidencias` | Por calificar / cuentan / rechazadas / anuladas / todas; capturar, calificar, rechazar, quitar, auditar, con su bitácora. Cierre de la semana para prenómina y reabrir con motivo. | cualquiera de VER, CAPTURAR, CALIFICAR, AUDITAR, PERIOD_CLOSE |
+| `/rh/relojes` | Semáforo por **señal del lector** (no por última checada), lotes que llegaron sin aplicar y su reproceso, alta/edición/pausa, renombrar o volver a dar de alta a alguien en los relojes del sitio. | VER (consulta) o `HR_DEVICES_GESTIONAR` |
+
+**Decisiones.**
+- **Gestionar implica ver.** Siete lecturas de asistencia (`report`, `punches`, `schedules`, `agent/status`,
+  `alerts`…) pasaron de exigir `HR_ATTENDANCE_VER` a aceptar `VER` **o** `GESTIONAR`. Sin eso, quien sólo
+  tuviera GESTIONAR aterrizaba en una pantalla que le daba 403. Cada ruta pide lo mismo que su lectura.
+- La pantalla sólo **ofrece** los botones que pueden servir; el servidor vuelve a decidir y su motivo se
+  muestra tal cual (409 de semana cerrada incluido). Auditar no se ofrece sobre lo que no está cerrado.
+- Lo que no hay se dice: «—» en vez de 0 minutos, «nunca» en un reloj que nunca habló, los cuatro colores
+  del semáforo se cuentan aunque sean cero.
+
+**El reparto** (mig `20261007330000`), derivado del flujo que **Mega Talento documenta en su código**
+(«el encargado entrega, servicios al personal califica, contabilidad audita» — allá todos eran el mismo
+administrador porque no había roles):
+
+| Rol | Claves |
+|---|---|
+| `recursos_humanos` (`[IDG.8]`) | VER, GESTIONAR, CAPTURAR, CALIFICAR, PERIOD_CLOSE, DEVICES_GESTIONAR |
+| `contabilidad` (4 personas en prod, medido el 06/10) | AUDITAR |
+
+- ⚠️ **`recursos_humanos` no tiene a nadie** en la base local, y en prod `[IDG.8]` lo creó vacío (desde esta
+  sesión no se alcanza `md` para medirlo). Mientras nadie de RH esté en ese rol, las pantallas sólo las abre
+  un superadmin. La compuerta de reparto lo declara en `SIN_PERSONAS` y se pone roja cuando alguien entre,
+  para sacarlo de la lista. **Lo hace un humano desde `/admin/personas`** (el puesto «Auxiliar de RR-HH» cae
+  por defecto en `administracion`, que no es sólo RH: por eso no se repartió por ahí).
+- ⛔ **El encargado de tienda no captura todavía.** La captura no está acotada por sitio: quien tiene
+  CAPTURAR mete incidencias en cualquier plaza. Primero el alcance por sitio, después el reparto.
+- La separación de funciones no depende del reparto: la hacen cumplir el servidor y un CHECK.
+- Probada contra la base local dentro de una transacción revertida: otorga, es idempotente, **no pisa un
+  `false` explícito** (lo declara) y `down` deja todo como estaba.
+
+**Lo que NO se construyó (declarado).**
+- La pantalla de la **cola de alertas**: 10,429 sugeridas y cero decididas en Mega Talento (§5.2). Se
+  pregunta a RH antes de construirla.
+- Presencia en vivo, «ubicación de mi equipo», cruces entre plazas, la papelera y el padrón de los relojes,
+  la pestaña de checadas crudas. Antes de portar, `[RH.0.5]`: qué se usa de verdad.
+
+**Pruebas.** 44 del front (cliente + 3 pantallas), con **prueba de mutación**: se rompieron a propósito tres
+guardas de permiso y las tres pruebas negativas se pusieron rojas. Contratos 388 (mapa de la suite: el
+espacio pasa a `active`, 16 puertas para el admin); «Mi trabajo» 97. ⚠️ **Validación visual pendiente**: en
+esta sesión no se levanta el front (regla del repo); se valida en el despliegue.
+
+**Migraciones renombradas.** Cuatro timestamps de esta fase ya los usaban migraciones de `main` del 7-oct
+(knex desempata por alfabeto). Ninguna se había aplicado en ningún lado, así que se renombraron:
+`120000→300000` (incidencias, en #281), `130000→310000` (agente), `140000→320000` (órdenes),
+y el reparto nació en `330000`.
 
 ## 6. Cómo se hace cada corte
 

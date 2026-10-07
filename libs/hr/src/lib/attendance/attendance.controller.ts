@@ -37,10 +37,22 @@ function actorDe(req: ReqUsuario): ActorIncidencia {
   };
 }
 
+/**
+ * Leer incidencias y cierres: cualquier clave de RH. Quien sólo CIERRA la semana necesita ver las
+ * incidencias (lo pendiente es lo que bloquea el cierre), y quien sólo captura necesita ver si la
+ * semana ya se cerró (si no, su captura rebota con 409 sin que sepa por qué).
+ */
 const VER_INCIDENCIAS = [
-  Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR,
-  Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR,
+  Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR,
+  Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE,
 ];
+/**
+ * Leer la asistencia (y sus checadas, horarios y alertas): VER, o GESTIONAR — quien asigna horarios o decide
+ * alertas no puede hacerlo sin ver a quién. Así el permiso de gestionar nunca aterriza en una pantalla que rebota.
+ */
+const VER_ASISTENCIA = [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR];
+/** Los sitios de checado los necesita cualquier pantalla de RH (es el selector). */
+const VER_ALGO_DE_RH = [...VER_INCIDENCIAS, Permission.HR_ATTENDANCE_GESTIONAR, Permission.HR_DEVICES_GESTIONAR];
 
 @ApiTags('hr')
 @ApiBearerAuth()
@@ -56,24 +68,33 @@ export class HrAttendanceController {
     private readonly schedules: HrAttendanceSchedulesService,
   ) {}
 
+  // ── Sitios ───────────────────────────────────────────────────────────────────────────────
+
+  @Get('sites')
+  @RequireAnyPermission(...VER_ALGO_DE_RH)
+  @ApiOperation({ summary: 'RH — los sitios de checado (el selector de todas las pantallas de RH).' })
+  sitios() {
+    return this.report.sitios();
+  }
+
   // ── Asistencia y checadas ────────────────────────────────────────────────────────────────
 
   @Get('report')
-  @RequirePermissions(Permission.HR_ATTENDANCE_VER)
+  @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — asistencia por persona de un sitio (horario deducido, bolsa semanal, faltas, horas).' })
   asistencia(@Query() q: { site_code?: string; date_from?: string; date_to?: string; only_promoters?: string }) {
     return this.report.asistencia({ ...q, only_promoters: q.only_promoters === '1' || q.only_promoters === 'true' });
   }
 
   @Get('punches')
-  @RequirePermissions(Permission.HR_ATTENDANCE_VER)
+  @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — checadas crudas de un sitio y un rango.' })
   checadas(@Query() q: { site_code?: string; date_from?: string; date_to?: string; person_code?: string }) {
     return this.report.checadas(q);
   }
 
   @Get('punches/range')
-  @RequirePermissions(Permission.HR_ATTENDANCE_VER)
+  @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — primer y último día con checadas de un sitio.' })
   rango(@Query('site_code') site: string) {
     return this.report.rango(site);
@@ -82,7 +103,7 @@ export class HrAttendanceController {
   // ── Horarios ─────────────────────────────────────────────────────────────────────────────
 
   @Get('schedules')
-  @RequirePermissions(Permission.HR_ATTENDANCE_VER)
+  @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — horarios del sitio.' })
   horarios(@Query('site_code') site: string) {
     return this.schedules.horariosDeSitio(site);
@@ -126,7 +147,7 @@ export class HrAttendanceController {
   // ── Agente de alertas ────────────────────────────────────────────────────────────────────
 
   @Get('agent/status')
-  @RequirePermissions(Permission.HR_ATTENDANCE_VER)
+  @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — qué revisó el agente por su cuenta y cuándo, por sitio.' })
   estadoAgente() {
     return this.agent.estado();
@@ -155,14 +176,14 @@ export class HrAttendanceController {
   // ── Alertas (RH decide) ──────────────────────────────────────────────────────────────────
 
   @Get('alerts')
-  @RequirePermissions(Permission.HR_ATTENDANCE_VER)
+  @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — alertas del agente de un sitio.' })
   listarAlertas(@Query() q: { site_code: string; date_from?: string; date_to?: string; status?: string; person_code?: string }) {
     return this.alerts.listar(q);
   }
 
   @Get('alerts/grouped')
-  @RequirePermissions(Permission.HR_ATTENDANCE_VER)
+  @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — la cola agrupada por regla + sitio (+ persona).' })
   agrupar(@Query() q: { site_code?: string; date_from?: string; date_to?: string; status?: string; level?: string }) {
     return this.alerts.agrupar(q);
@@ -223,7 +244,7 @@ export class HrAttendanceController {
   // ── Cierre de semana ─────────────────────────────────────────────────────────────────────
 
   @Get('closures')
-  @RequireAnyPermission(Permission.HR_ATTENDANCE_VER, Permission.HR_PERIOD_CLOSE, Permission.HR_INCIDENTS_AUDITAR)
+  @RequireAnyPermission(...VER_INCIDENCIAS)
   @ApiOperation({ summary: 'RH — cierres de un sitio (sin la foto).' })
   cierres(@Query('site_code') site: string) {
     return this.closures.listar(site);
@@ -231,14 +252,14 @@ export class HrAttendanceController {
 
   // Antes de `closures/:id`.
   @Get('closures/status')
-  @RequireAnyPermission(Permission.HR_ATTENDANCE_VER, Permission.HR_PERIOD_CLOSE, Permission.HR_INCIDENTS_AUDITAR)
+  @RequireAnyPermission(...VER_INCIDENCIAS)
   @ApiOperation({ summary: 'RH — semanas cerradas que toca un periodo.' })
   estadoCierre(@Query() q: { site_code?: string; date_from?: string; date_to?: string }) {
     return this.closures.estado(q);
   }
 
   @Get('closures/:id')
-  @RequireAnyPermission(Permission.HR_ATTENDANCE_VER, Permission.HR_PERIOD_CLOSE, Permission.HR_INCIDENTS_AUDITAR)
+  @RequireAnyPermission(...VER_INCIDENCIAS)
   @ApiOperation({ summary: 'RH — un cierre con su foto.' })
   cierre(@Param('id') id: string) {
     return this.closures.uno(id);

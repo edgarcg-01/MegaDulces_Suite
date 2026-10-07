@@ -4,6 +4,7 @@ import { TenantContextService, TenantKnexService } from '@megadulces/platform-co
 import * as reader from './attendance-reader';
 import { calcularAsistencia, desdeVentanaHorario, type AsistenciaPersonas } from './logic/asistencia-persona';
 import { diasEntre, RE_FECHA } from './logic/fechas';
+import type { HrSiteDto } from '@megadulces/contracts';
 
 /**
  * Fase RH · `[RH.1.5]` — la ASISTENCIA POR PERSONA de un sitio y un rango: lo que pinta la
@@ -57,6 +58,12 @@ export class HrAttendanceReportService {
       silencio: ctx.silencio, unaMarca: ctx.unaMarca, padron: padron.fichas,
       turnosConfirmados: conf.turnos, asignados: conf.asignados, revisiones, incidencias,
     });
+  }
+
+  /** Los sitios de checado, para el selector de las pantallas. */
+  async sitios(): Promise<HrSiteDto[]> {
+    return this.tk.run(this.tenantCtx.requireTenantId(), (trx) =>
+      trx('hr.attendance_sites').orderBy('name').select('code', 'name', 'warehouse_code', 'is_active'));
   }
 
   /** Las checadas crudas de un sitio y un rango (para la tabla de checadas). */

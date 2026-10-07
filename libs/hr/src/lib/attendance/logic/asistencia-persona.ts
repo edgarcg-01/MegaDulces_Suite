@@ -1,3 +1,7 @@
+import type {
+  HrAsistenciaResponse, HrDiaAsistencia, HrGravedad, HrHorarioAsignado, HrIncidenciaDelDia, HrMarcaAsistencia,
+  HrPersonaAsistencia,
+} from '@megadulces/contracts';
 import * as hd from './horario-deducido';
 import { detalleDia, formatHoras, type ConfigDesayuno } from './detalle-dia';
 import { esPromotora, type ReglaConfig } from './tipos';
@@ -49,54 +53,14 @@ const UMBRAL_UNA_MARCA = 0.7;
  */
 const JUSTIFICAN_AUSENCIA = ['vacaciones', 'incapacidad', 'permiso'];
 
-export type Gravedad = 'alta' | 'media' | 'info' | 'ok';
-
-export interface Marca {
-  codigo: string;
-  gravedad: Gravedad;
-  detalle: string;
-  opciones?: (string | null)[];
-  impacto?: Array<{ turno: string; retardoRealMin: number | null; diasConRetardo: number | null }>;
-  turnoActual?: string | null;
-  turnosActuales?: (string | null)[];
-}
-
-export interface IncidenciaDia {
-  id: string;
-  tipo: string;
-  codigo: string;
-  etiqueta: string;
-  nota: string;
-  minutos?: number | null;
-}
-
-export interface DiaVista extends hd.DiaMedido {
-  comida: string;
-  horasNetas: string;
-  justificacion?: string;
-  desayunoMin?: number | null;
-  desayunoExcesoMin?: number | null;
-  netasMin?: number | null;
-  desayunoPagado?: boolean;
-  horasExtraUsadasMin?: number;
-  incidencias?: IncidenciaDia[];
-  comidaMin?: number | null;
-  comidaExcesoMin?: number | null;
-  salidaAntesMin?: number | null;
-  esperadoMin?: number | null;
-}
-
-/** El horario completo que RH le asignó a una persona (`hr.person_schedules` con salida). */
-export interface HorarioAsignado {
-  entrada: string;
-  salida: string;
-  comidaMin: number;
-  sabado: boolean;
-  sabadoEntrada: string | null;
-  sabadoSalida: string | null;
-  asignadoPor: string | null;
-  actualizadoEn: string | null;
-}
+// Los tipos de la RESPUESTA viven en el contrato (`@megadulces/contracts`, `hr-attendance.contract.ts`):
+// la pantalla los importa de ahí, y que esta función los construya hace que el compilador avise si
+// la copia textual de la regla (`horario-deducido.ts`) cambia de forma.
+export type Gravedad = HrGravedad;
+export type Marca = HrMarcaAsistencia;
+export type IncidenciaDia = HrIncidenciaDelDia;
+export type DiaVista = HrDiaAsistencia;
+export type HorarioAsignado = HrHorarioAsignado;
 
 /** La persona en el padrón del sitio, tal como la arma el lector. */
 export interface FichaPadron {
@@ -155,92 +119,8 @@ export interface EntradaAsistencia {
   ventanaHorarioDias?: number;
 }
 
-export interface PersonaAsistencia {
-  codigo: string;
-  userId: string | null;
-  nombre: string;
-  nombreCompleto: string;
-  departamento: string | null;
-  esPracticante: boolean;
-  puesto: string;
-  fotoUrl: string;
-  registrado: boolean;
-  activo: boolean | null;
-  tipo: hd.HorarioDeducido['tipo'];
-  horario: string | null;
-  turnos: (string | null)[];
-  horarioConfirmado: boolean;
-  costumbre: string | null;
-  desfaseMin: number | null;
-  salida: string | null;
-  dispersionMin: number | null;
-  diasLaborales: number[];
-  diasUsados: number;
-  diasEnRango: number;
-  silencioDias: number | null;
-  pctUnaMarca: number;
-  retardoRealMin: number;
-  atrasoBrutoMin: number;
-  absorbidoMin: number;
-  diasConRetardo: number;
-  diasEvaluados: number;
-  faltas: number;
-  faltasJustificadas: number;
-  diasNoMedibles: number;
-  diasAtipicos: number;
-  horasTrabajadas: number;
-  minutosTrabajados: number;
-  diasConIncidencia: number;
-  incidencias: Array<IncidenciaDia & { desde: string; hasta: string }>;
-  desayunoExcesoMin: number;
-  diasDesayunoExcedido: number;
-  pctATiempo: number | null;
-  semanas: Array<hd.SemanaMedida & { dias: DiaVista[]; minutosTrabajados: number }>;
-  marcas: Marca[];
-  usable: boolean;
-  bloqueadoPor: string[];
-  horarioAsignado: HorarioAsignado | null;
-  minutosEsperados: number | null;
-}
-
-export interface AsistenciaPersonas {
-  sucursalId: string;
-  desde: string;
-  hasta: string;
-  desdeHorario: string;
-  ventanaHorarioDias: number;
-  bolsaSemanalMin: number;
-  corteSemana: string;
-  diaInicioSemana: number;
-  diasExTrabajador: number;
-  desayunoAlertaMin: number;
-  mideRetardo: boolean;
-  resumen: {
-    personas: number;
-    usables: number;
-    conPendiente: number;
-    fijos: number;
-    rotativos: number;
-    sinPatron: number;
-    sinDatos: number;
-    horarioAmbiguo: number;
-    horarioConfirmado: number;
-    soloUnaMarca: number;
-    exTrabajadores: number;
-    fueraDelPadron: number;
-    retardoRealMin: number;
-    retardoRealUsableMin: number;
-    atrasoBrutoMin: number;
-    absorbidoMin: number;
-    faltas: number;
-    faltasJustificadas: number;
-    diasNoMedibles: number;
-    horasTrabajadas: number;
-    desayunoExcesoMin: number;
-    diasDesayunoExcedido: number;
-  };
-  personas: PersonaAsistencia[];
-}
+export type PersonaAsistencia = HrPersonaAsistencia;
+export type AsistenciaPersonas = HrAsistenciaResponse;
 
 /** Desde cuándo hay que leer para DEDUCIR el horario: nunca menos que el rango pedido. */
 export function desdeVentanaHorario(desde: string, hasta: string, ventana = VENTANA_HORARIO_DIAS): string {

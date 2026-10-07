@@ -261,7 +261,7 @@ Implementado 2026-06-24 en [`tokens.css`](libs/design-tokens/tokens.css). Regla:
 | Surface | App | Alcance (raíces de ruta reales) | Mode | Decoración | Display font |
 |---|---|---|---|---|---|
 | **Storefront** | `apps/portal` | todo el portal B2B (se sirve en `/portal/*`) | storefront + tool | intencional (ilustraciones SVG, eyebrows) | Poppins + Hanken Grotesk + Geist Mono |
-| **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/servicio` · **`/mkt`** · **`/presupuesto`** · **`/desarrolladores`** · **`/diagnostico`** | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
+| **Operations** | `apps/view` | `/dashboard` · `/comercial` · `/finanzas` · `/contabilidad` · `/compras` · `/almacen` · `/tienda` · `/logistica` · `/admin` · `/telemarketing` (`/televenta` redirige) · `/reparto` · `/projects` · `/servicio` · **`/mkt`** · **`/presupuesto`** · **`/desarrolladores`** · **`/diagnostico`** · **`/rh`** | **solo tool** | nula | Hanken Grotesk + Geist Mono (+ Sniglet, **sólo** en la excepción `/tienda/verificador` → §O.3) |
 | **Operations** | `apps/view` | **`/captura/:token`** — captura de gasto por link desde el celular, **sin sesión y sin guard** (GX.9) | **solo tool**, mobile-first | nula | Hanken Grotesk + Geist Mono |
 | **Operations** | `apps/vendor` | app instalable del vendedor en campo (Capacitor) | **solo tool**, mobile-first | nula, **pero con radios propios** (ver abajo) | Hanken Grotesk + Geist Mono |
 
