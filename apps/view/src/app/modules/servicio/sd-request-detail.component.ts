@@ -350,6 +350,8 @@ export class SdRequestDetailComponent {
   readonly minutos = signal<number | null>(null);
   readonly notaTiempo = signal('');
   private readonly agentesRaw = signal<SdAgentDto[]>([]);
+  /** Cola de la que se cargó la lista de `agentesRaw`: al abrir un ticket de otra cola se vuelve a pedir. */
+  private agentesDe: string | null = null;
   readonly agentes = computed(() => this.agentesRaw().map((a) => ({ ...a, etiqueta: `${a.name || a.username} (${a.open_count})` })));
 
   readonly sla = computed(() => { const t = this.r(); return t ? slaTexto(t.sla, t.status) : { texto: '—', tono: 'mute' as const }; });
@@ -367,8 +369,12 @@ export class SdRequestDetailComponent {
       untracked(() => this.cargar(id));
     });
     effect(() => {
-      if (this.agent() && this.coord()) untracked(() => {
-        if (!this.agentesRaw().length) this.api.agents().subscribe({ next: (a) => this.agentesRaw.set(a), error: () => undefined });
+      // `[MS.7.6]` Quien se ofrece al asignar es de la COLA de este ticket, no cualquiera que tenga la clave.
+      const cola = this.r()?.queue_id;
+      if (this.agent() && this.coord() && cola) untracked(() => {
+        if (this.agentesDe === cola) return;
+        this.agentesDe = cola;
+        this.api.agents(cola).subscribe({ next: (a) => this.agentesRaw.set(a), error: () => undefined });
       });
     });
   }

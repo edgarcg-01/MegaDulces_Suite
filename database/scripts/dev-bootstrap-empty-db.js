@@ -79,13 +79,16 @@ function args(argv) {
 }
 
 function ayuda() {
-  console.log(`Uso: node database/scripts/dev-bootstrap-empty-db.js --url <postgres://postgres@127.0.0.1:PUERTO/base> [--resume]
-
-  // El ejemplo de arriba va SIN contrasena a proposito: si tu Postgres la pide, va donde
-  // corresponde en la cadena. Con un `usuario:clave@` literal el escaneo de secretos marca
+  // El ejemplo de abajo va SIN contrasena a proposito: si tu Postgres la pide, va donde
+  // corresponde en la cadena. Con un usuario:clave@ literal el escaneo de secretos marca
   // esta linea de AYUDA como hallazgo, y poner una excepcion para un texto de uso seria
   // aflojar la compuerta por comodidad.
-  --url                  OBLIGATORIA (o DEV_BOOTSTRAP_URL). Superusuario de un Postgres LOCAL, base ya creada y vacía.
+  // ⚠️ Este comentario vivia DENTRO del template literal de abajo, con comillas invertidas
+  // alrededor de usuario:clave@: la primera cerraba el texto y el script entero no arrancaba
+  // (SyntaxError en la linea 82, medido 2026-10-06). Fuera del texto, y sin comillas invertidas.
+  console.log(`Uso: node database/scripts/dev-bootstrap-empty-db.js --url <postgres://postgres@127.0.0.1:PUERTO/base> [--resume]
+
+  --url                 OBLIGATORIA (o DEV_BOOTSTRAP_URL). Superusuario de un Postgres LOCAL, base ya creada y vacía.
   --resume               reanuda una base que ya tiene migraciones aplicadas (sin esto se niega)
   --cluster-compartido   acepta correr en un clúster con bases ajenas al stack (los roles son del clúster)
   --max-skips N          tope de migraciones que se pueden saltar (120)

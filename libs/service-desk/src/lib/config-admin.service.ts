@@ -7,7 +7,7 @@
  *
  * Todo lo que se cambia aplica de inmediato: el resto del módulo lee la configuración en cada operación.
  */
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
 import {
   SD_PRIORITIES,
@@ -23,6 +23,8 @@ import {
 } from '@megadulces/contracts';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { parseHHMM } from './domain/business-clock';
+import { puedeCoordinarCola } from './domain/queue-access';
+import { ServiceDeskQueueMembersService } from './queue-members.service';
 import type { ActorCtx } from './service-desk.types';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -53,6 +55,7 @@ export class ServiceDeskConfigAdminService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly members: ServiceDeskQueueMembersService,
   ) {}
 
   async get(): Promise<SdConfigResponse> {
@@ -175,16 +178,20 @@ export class ServiceDeskConfigAdminService {
     const orden = dto.sort_order !== undefined ? this.orden(dto.sort_order) : 100;
     await this.tk.run(async (trx) => {
       try {
-        await trx('servicedesk.queues').insert({
-          tenant_id: this.tenantCtx.requireTenantId(),
-          code,
-          name,
-          department_code: dto.department_code ? String(dto.department_code) : null,
-          active: dto.active ?? true,
-          sort_order: orden,
-          created_by: ctx.userId,
-          updated_by: ctx.userId,
-        });
+        const [{ id }] = await trx('servicedesk.queues')
+          .insert({
+            tenant_id: this.tenantCtx.requireTenantId(),
+            code,
+            name,
+            department_code: dto.department_code ? String(dto.department_code) : null,
+            active: dto.active ?? true,
+            sort_order: orden,
+            created_by: ctx.userId,
+            updated_by: ctx.userId,
+          })
+          .returning('id');
+        // `[MS.7.6]` Quien crea la cola queda como su coordinador: si no, crearía algo que ya no puede ver ni administrar.
+        await this.members.altaComoCoordinador(trx, ctx, id as string);
       } catch (e) {
         traducir(e);
       }
@@ -206,6 +213,8 @@ export class ServiceDeskConfigAdminService {
     }
     if (dto.sort_order !== undefined) patch['sort_order'] = this.orden(dto.sort_order);
     if (!Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
+    // `[MS.7.6]` Sólo la coordinación de ESA cola (o el god-mode) edita su cola.
+    if (!puedeCoordinarCola(ctx.colas, id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiarla');
     await this.tk.run(async (trx) => {
       try {
         const n = await trx('servicedesk.queues').where({ id }).whereNull('deleted_at').update({ ...patch, updated_at: trx.fn.now(), updated_by: ctx.userId });
@@ -228,6 +237,10 @@ export class ServiceDeskConfigAdminService {
     if (!SD_PRIORITIES.includes(prioridad)) throw new BadRequestException(`default_priority debe ser una de: ${SD_PRIORITIES.join(', ')}`);
     const orden = dto.sort_order !== undefined ? this.orden(dto.sort_order) : 100;
     await this.tk.run(async (trx) => {
+      // La cola debe existir (400, como siempre) y, `[MS.7.6]`, las categorías de una cola las edita la coordinación de ESA cola.
+      const cola = await trx('servicedesk.queues').where({ id: dto.queue_id }).whereNull('deleted_at').first('id');
+      if (!cola) throw new BadRequestException('La cola indicada no existe');
+      if (!puedeCoordinarCola(ctx.colas, dto.queue_id as string)) throw new ForbiddenException('Sólo la coordinación de esa cola puede agregarle categorías');
       try {
         await trx('servicedesk.categories').insert({
           tenant_id: this.tenantCtx.requireTenantId(),
@@ -270,6 +283,10 @@ export class ServiceDeskConfigAdminService {
     if (dto.sort_order !== undefined) patch['sort_order'] = this.orden(dto.sort_order);
     if (!Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
     await this.tk.run(async (trx) => {
+      const cat = await trx('servicedesk.categories').where({ id }).whereNull('deleted_at').first('queue_id');
+      if (!cat) throw new NotFoundException('Categoría no encontrada');
+      // `[MS.7.6]` Las categorías de una cola las edita la coordinación de ESA cola.
+      if (!puedeCoordinarCola(ctx.colas, cat.queue_id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiar sus categorías');
       try {
         const n = await this.actualizarCategoria(trx, id, patch, ctx.userId);
         if (!n) throw new NotFoundException('Categoría no encontrada');
