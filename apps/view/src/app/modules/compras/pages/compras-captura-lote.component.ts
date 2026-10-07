@@ -174,13 +174,14 @@ export interface CapturaLoteGuardada { guardados: number; pasanSolas: number }
                   @if (f.elegido; as p) {
                     <span class="cl-pk"><span class="mono">{{ etiqueta(p) }}</span> · {{ p.proveedor_nombre || '—' }}</span>
                     <span class="cl-sub">{{ p.receipt_date || '' }} · {{ money(p.monto) }}@if (p.deposits > 0) { · <em class="warn">ya tiene documento</em> }</span>
-                    <span class="cl-motivo" [attr.data-conf]="f.ident?.confianza">{{ motivos(f) }}</span>
-                    @if ((f.ident?.candidatas?.length || 0) > 1 || !esPropuesta(f, p)) { <button type="button" class="cl-link" (click)="cambiar(f.id)">Cambiar entrada</button> }
+                    <span class="cl-motivo" [attr.data-conf]="f.ident?.confianza">{{ esPropuesta(f, p) ? motivos(f) : 'Elegida por ti' }}</span>
+                    @if (repetidas().has(llave(p))) { <span class="cl-motivo bad">Otro archivo del lote va a esta misma entrada: no se guarda hasta resolverlo</span> }
+                    @if ((f.ident?.candidatas?.length || 0) > 1 || !esPropuesta(f, p)) { <button type="button" class="cl-link" (click)="cambiar(f.id)" [disabled]="guardando()">Cambiar entrada</button> }
                   } @else if ((f.ident?.candidatas?.length || 0) > 1) {
                     <span class="cl-motivo" data-conf="elegir">{{ motivos(f) }}</span>
                     <div class="cl-cands" role="list">
                       @for (c of f.ident?.candidatas || []; track c.sucursal + c.folio) {
-                        <button type="button" class="cl-cand" role="listitem" (click)="elegir(f.id, c)">
+                        <button type="button" class="cl-cand" role="listitem" (click)="elegir(f.id, c)" [disabled]="guardando()">
                           <span class="mono">{{ etiqueta(c) }}</span>
                           <span class="cl-cand-p">{{ c.proveedor_nombre || '—' }}</span>
                           <span class="cl-sub">{{ c.receipt_date || '' }} · {{ money(c.monto) }}@if (c.deposits > 0) { · <em class="warn">ya tiene documento</em> }</span>
@@ -197,7 +198,7 @@ export interface CapturaLoteGuardada { guardados: number; pasanSolas: number }
                     @if (f.resultados.length) {
                       <div class="cl-cands" role="list">
                         @for (c of f.resultados; track c.sucursal + c.folio) {
-                          <button type="button" class="cl-cand" role="listitem" (click)="elegir(f.id, c)">
+                          <button type="button" class="cl-cand" role="listitem" (click)="elegir(f.id, c)" [disabled]="guardando()">
                             <span class="mono">{{ etiqueta(c) }}</span>
                             <span class="cl-cand-p">{{ c.proveedor_nombre || '—' }}</span>
                             <span class="cl-sub">{{ c.receipt_date || '' }} · {{ money(c.monto) }}@if (c.deposits > 0) { · <em class="warn">ya tiene documento</em> }</span>
@@ -333,7 +334,18 @@ export class ComprasCapturaLoteComponent {
     });
   }
 
-  readonly guardables = computed(() => this.filas().filter((f) => f.fase === 'listo' && !!f.elegido && f.confirmado));
+  /** Entradas a las que apunta MÁS DE UNA fila del lote: ninguna se guarda hasta que la persona lo resuelva (como pagos). */
+  readonly repetidas = computed(() => {
+    const vistas = new Set<string>(); const rep = new Set<string>();
+    for (const f of this.filas()) {
+      if (f.fase !== 'listo' || !f.elegido) continue;
+      const k = this.llave(f.elegido);
+      if (vistas.has(k)) rep.add(k); else vistas.add(k);
+    }
+    return rep;
+  });
+  readonly guardables = computed(() => this.filas().filter((f) =>
+    f.fase === 'listo' && !!f.elegido && f.confirmado && !this.repetidas().has(this.llave(f.elegido))));
   readonly cuenta = computed(() => {
     const l = this.filas();
     return {
@@ -350,6 +362,7 @@ export class ComprasCapturaLoteComponent {
   }
   kb(b: number): string { return b >= 1024 * 1024 ? `${(b / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`; }
   etiqueta(d: { sucursal: string; folio: string }): string { return `${branchName(d.sucursal)} · ${d.folio}`; }
+  llave(d: { sucursal: string; folio: string }): string { return `${d.sucursal}/${d.folio}`; }
   v(b: boolean | null | undefined): 'ok' | 'no' | 'sin_dato' { return b === true ? 'ok' : b === false ? 'no' : 'sin_dato'; }
   ico(b: boolean | null | undefined): string { return b === true ? 'pi-check' : b === false ? 'pi-times' : 'pi-question'; }
   motivos(f: FilaLote): string { return (f.ident?.motivos || []).map(textoMotivoIdentificacion).join(' · '); }
@@ -390,7 +403,7 @@ export class ComprasCapturaLoteComponent {
       const igual = this.filas().find((f) => f.fase !== 'guardado' && f.bytes === file.size && f.dataUri === dataUri);
       this.filas.update((l) => l.concat(this.nueva(original.name, file.size, dataUri, foto, igual?.nombre ?? null)));
     }
-    this.aviso.set(omitidos.length ? `No se agregaron: ${omitidos.join(' · ')}.` : '');
+    if (omitidos.length) this.aviso.set(`No se agregaron: ${omitidos.join(' · ')}.`);
     this.bombear();
   }
 
@@ -436,7 +449,7 @@ export class ComprasCapturaLoteComponent {
     if (!this.fila(id)) return;
     const gemela = ocr.sha256 ? this.filas().find((o) => o.id !== id && o.ocr?.sha256 === ocr.sha256) : undefined;
     if (gemela) { this.patch(id, { ocr, fase: 'duplicado', copiaDe: gemela.nombre }); return; }
-    if (ocr.duplicate) {
+    if (ocr.duplicate && ocr.duplicate.vigente !== false) {
       this.patch(id, { ocr, fase: 'duplicado', copiaDe: `ya está archivada en ${this.etiqueta(ocr.duplicate)}` });
       return;
     }
@@ -469,9 +482,12 @@ export class ComprasCapturaLoteComponent {
   }
 
   // ── acciones de la persona ─────────────────────────────────────────────────
-  toggle(id: number) { const f = this.fila(id); if (f) this.patch(id, { confirmado: !f.confirmado }); }
-  elegir(id: number, c: IdentificacionCandidata | Destino) { this.patch(id, { elegido: this.destino(c), confirmado: true, resultados: [] }); }
-  cambiar(id: number) { this.patch(id, { elegido: null, confirmado: false }); }
+  toggle(id: number) { const f = this.fila(id); if (f && !this.guardando()) this.patch(id, { confirmado: !f.confirmado }); }
+  elegir(id: number, c: IdentificacionCandidata | Destino) {
+    if (this.guardando()) return;
+    this.patch(id, { elegido: this.destino(c), confirmado: true, resultados: [] });
+  }
+  cambiar(id: number) { if (!this.guardando()) this.patch(id, { elegido: null, confirmado: false }); }
   setBusqueda(id: number, v: string) { this.patch(id, { busqueda: v }); }
   async buscar(id: number) {
     const f = this.fila(id);
@@ -501,8 +517,11 @@ export class ComprasCapturaLoteComponent {
     this.guardando.set(true);
     let ok = 0;
     let pasan = 0;
-    for (const f of lote) {
-      const d = f.elegido as Destino;
+    for (const g of lote) {
+      // Se relee la fila: si la quitaron o cambió mientras se guardaban las anteriores, no se guarda.
+      const f = this.fila(g.id);
+      if (!f || f.fase !== 'listo' || !f.confirmado || !f.elegido || this.llave(f.elegido) !== this.llave(g.elegido as Destino)) continue;
+      const d = f.elegido;
       this.patch(f.id, { fase: 'guardando' });
       try {
         const subido = await firstValueFrom(this.svc.uploadFile(f.dataUri, f.rol));

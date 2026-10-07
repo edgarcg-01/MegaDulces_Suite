@@ -26,7 +26,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { ComprasEntradaExpedienteComponent } from './compras-entrada-expediente.component';
 import { ComprasCapturaLoteComponent } from './compras-captura-lote.component';
 import { MultiSelectModule } from 'primeng/multiselect';
-import { prepararArchivos } from '../imagenes-a-pdf';
+import { esImagen, prepararArchivos } from '../imagenes-a-pdf';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { AuthService } from '../../../core/services/auth.service';
@@ -174,7 +174,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
               <span class="p-button-icon pi pi-plus" aria-hidden="true"></span>
               <span class="cb-upload-txt"><b>Subir factura</b><small>o arrástrala aquí · PDF o fotos</small></span>
             </button>
-            <!-- [RE.35.7] Varias recepciones a la vez (como pagos a proveedores). Soltar 2 o más archivos aquí abre lo mismo. -->
+            <!-- [RE.35.7] Varias recepciones a la vez (como pagos a proveedores). Soltar 2 o más PDF aquí abre lo mismo (fotos solas = una factura). -->
             @if (canManage()) {
               <button pButton type="button" severity="secondary" outlined class="cb-upload-varias" (click)="abrirCapturaLote()"
                       title="Varias facturas recibidas a la vez (PDF o fotos, una recepción por archivo): la IA identifica cada una y tú confirmas">
@@ -2485,9 +2485,10 @@ export class ComprasEntradasComponent {
     this.draggingBarra.set(false);
     const files = ev.dataTransfer?.files ? Array.from(ev.dataTransfer.files) : [];
     if (!files.length) return;
-    // [RE.35.7] Dos o más archivos = varias recepciones: van a la captura por lote. Para juntar
-    // varias fotos de UNA misma factura está el botón «Subir factura».
-    if (files.length > 1 && this.canManage()) { this.abrirCapturaLote(files); return; }
+    // [RE.35.7] Dos o más PDF = varias recepciones: van a la captura por lote. Si son sólo FOTOS, se
+    // conserva lo de antes (las páginas de UNA factura se juntan en un PDF); para varias facturas en
+    // foto está el botón «Varias».
+    if (files.length > 1 && this.canManage() && !files.every((f) => esImagen(f))) { this.abrirCapturaLote(files); return; }
     this.openAttachPhotoFirst();
     this.desdeBarra = true;
     await this.agregarArchivos(files);

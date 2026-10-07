@@ -34,7 +34,7 @@ describe('[RE.35.6] el CFDI que cuadra manda sobre el OCR', () => {
   it('con el CFDI que cuadra, el aviso es verde y el OCR queda desmentido', () => {
     const v = receiptVerdict(detalle(3320584.53), true, cfdiQueCuadra(expediente()));
     expect(v.tone).toBe('ok');
-    expect(v.titulo).toBe('Cuadra con el CFDI de ContPAQi');
+    expect(v.titulo).toBe('El total cuadra con el CFDI de ContPAQi');
     expect(v.ocrDesmentido).toBe(true);
     expect(v.lectura).toMatch(/error de lectura/);
   });

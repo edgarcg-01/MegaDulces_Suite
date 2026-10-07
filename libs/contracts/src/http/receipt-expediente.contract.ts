@@ -229,6 +229,8 @@ export type IdentificacionMotivo =
   | 'sello_no_visible'
   | 'ya_tiene_papel'
   | 'varias_entradas'
+  | 'otras_parecidas'
+  | 'fecha_lejana'
   | 'sin_lectura'
   | 'sin_candidatas';
 
@@ -260,6 +262,8 @@ export function textoMotivoIdentificacion(m: IdentificacionMotivo): string {
     case 'sello_no_visible': return 'No se distinguió el sello o la firma';
     case 'ya_tiene_papel': return 'Esa entrada ya tiene documento: confirma';
     case 'varias_entradas': return 'Varias entradas posibles: elige';
+    case 'fecha_lejana': return 'La entrada está lejos de la fecha de la factura: confirma';
+    case 'otras_parecidas': return 'Hay otras entradas del mismo proveedor e importe: confirma la fecha';
     case 'sin_lectura': return 'No se leyó ni el total ni el UUID';
     case 'sin_candidatas': return 'Ninguna entrada de Kepler cuadra';
   }

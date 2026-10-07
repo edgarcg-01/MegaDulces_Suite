@@ -42,7 +42,7 @@ export interface ReceiptVerdict {
 }
 
 /** `[RE.35.6]` El CFDI de ContPAQi que cuadra con la entrada, si lo hay. */
-export interface CfdiQueCuadra { uuid: string; total: number }
+export interface CfdiQueCuadra { uuid: string; total: number; /** La nota de crédito con que cuadra, si fue así. */ nota: number | null }
 
 /**
  * `[RE.35.6]` — **¿el CFDI de ContPAQi ya cuadra con Kepler?** Sólo cuando las tres cosas son
@@ -54,7 +54,7 @@ export interface CfdiQueCuadra { uuid: string; total: number }
 export function cfdiQueCuadra(x: ReceiptExpediente | null | undefined): CfdiQueCuadra | null {
   if (!x?.cfdi || x.via !== 'factura' || !x.liga?.exacta) return null;
   const e1 = x.checks.find((c) => c.clave === 'E1_cuadre');
-  return e1?.estado === 'ok' ? { uuid: x.cfdi.uuid, total: Number(x.cfdi.total) } : null;
+  return e1?.estado === 'ok' ? { uuid: x.cfdi.uuid, total: Number(x.cfdi.total), nota: x.nota_credito ? Number(x.nota_credito.total) : null } : null;
 }
 
 /**
@@ -128,8 +128,11 @@ export function receiptVerdict(d: EntradaDetail, hayAjustes = false, cfdi: CfdiQ
   // diga el OCR (que puede no haber leído el total, o haberlo leído mal).
   if (cfdi) {
     return { ...base, tone: 'ok', icon: 'pi-check-circle',
-      titulo: 'Cuadra con el CFDI de ContPAQi',
-      lectura: `El CFDI dice ${money(cfdi.total)} y Kepler registró ${money(kepler)}.`
+      // Habla del TOTAL: el resto (OC, fiscal, sello, firma) lo dice el expediente de abajo.
+      titulo: 'El total cuadra con el CFDI de ContPAQi',
+      lectura: (cfdi.nota != null
+        ? `El CFDI dice ${money(cfdi.total)} menos su nota de crédito de ${money(cfdi.nota)}, y Kepler registró ${money(kepler)}.`
+        : `El CFDI dice ${money(cfdi.total)} y Kepler registró ${money(kepler)}.`)
         + (ocrDesmentido ? ` El OCR leyó ${money(ocr as number)} del papel: es un error de lectura y no cuenta.` : '') };
   }
   if (ocr == null) {

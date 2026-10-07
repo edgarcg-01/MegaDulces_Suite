@@ -8,7 +8,7 @@ const cand = (over: Partial<IdentificacionCandidata> = {}): IdentificacionCandid
   ...over,
 });
 const exacta = { metodo: 'uuid' as const, exacta: true, candidatos: 1 };
-const base = { hayLectura: true, cfdi: true, liga: exacta, sello: true, firma: true, candidatas: [cand()] };
+const base = { hayLectura: true, cfdi: true, liga: exacta, sello: true, firma: true, candidatas: [cand()], fechaDocumento: '2026-09-21' };
 
 describe('[RE.35.7] identificar la entrada de un papel escaneado', () => {
   it('CFDI exacto + una entrada libre que cuadra + sello y firma = listo', () => {
@@ -31,16 +31,30 @@ describe('[RE.35.7] identificar la entrada de un papel escaneado', () => {
     expect(sin.motivos).toContain('sin_cfdi');
   });
 
-  it('dos entradas libres que cuadran: elige la persona', () => {
+  it('dos entradas que cuadran y la fecha no distingue: elige la persona', () => {
     const r = clasificarIdentificacion({ ...base, candidatas: [cand(), cand({ folio: '0009873' })] });
     expect(r.confianza).toBe('elegir');
     expect(r.propuesta).toBeNull();
   });
 
-  it('una libre y otra que ya tiene papel: se propone la libre', () => {
-    const r = clasificarIdentificacion({ ...base, candidatas: [cand({ folio: 'X', deposits: 1 }), cand()] });
-    expect(r.confianza).toBe('listo');
+  it('gemelas semanales (medido en prod): la que ya tiene papel CUENTA, y la libre de otra semana no se propone', () => {
+    // La correcta (22-sep) ya tiene documento; la libre es de hace un mes. Antes se proponía la libre.
+    const r = clasificarIdentificacion({ ...base, candidatas: [cand({ folio: 'OTRA', receipt_date: '2026-08-18' }), cand({ deposits: 1 })] });
     expect(r.propuesta?.folio).toBe('0009872');
+    expect(r.confianza).toBe('revisar');
+    expect(r.motivos).toEqual(expect.arrayContaining(['otras_parecidas', 'ya_tiene_papel']));
+  });
+
+  it('con gemelas nunca sale listo, aunque la fecha distinga a una libre', () => {
+    const r = clasificarIdentificacion({ ...base, candidatas: [cand(), cand({ folio: 'OTRA', receipt_date: '2026-08-25' })] });
+    expect(r.propuesta?.folio).toBe('0009872');
+    expect(r.confianza).toBe('revisar');
+  });
+
+  it('una sola candidata pero lejos de la fecha de la factura (medido: otra sucursal, 14 días antes): no se pre-marca', () => {
+    const r = clasificarIdentificacion({ ...base, candidatas: [cand({ receipt_date: '2026-09-07' })] });
+    expect(r.confianza).toBe('revisar');
+    expect(r.motivos).toContain('fecha_lejana');
   });
 
   it('la única que cuadra ya tiene papel: revisar (puede ser el mismo papel dos veces)', () => {

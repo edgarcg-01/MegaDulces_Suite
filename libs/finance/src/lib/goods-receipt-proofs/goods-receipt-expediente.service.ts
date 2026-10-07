@@ -496,13 +496,15 @@ export class GoodsReceiptExpedienteService {
               : null;
             return { ...e, monto, diferencia, proveedor_ok, deposits: Number(e.deposits) || 0 };
           })
-          .filter((c) => cuadra(c.diferencia, c.monto) && c.proveedor_ok !== false)
+          // Sólo donde se puede ESCRIBIR: proponer una entrada de una sucursal que sólo se ve terminaría
+          // en un 403 al guardar.
+          .filter((c) => cuadra(c.diferencia, c.monto) && c.proveedor_ok !== false && this.scope.canWrite(alcance, 'warehouse', c.sucursal))
           .sort((a, b) => a.deposits - b.deposits || Math.abs(a.diferencia) - Math.abs(b.diferencia));
       }
 
       const c = clasificarIdentificacion({
         hayLectura: !!uuid || total != null || !!cfdi, cfdi: !!cfdi, liga,
-        sello: l?.sello, firma: l?.firma, candidatas,
+        sello: l?.sello, firma: l?.firma, candidatas, fechaDocumento: fechaObj,
       });
       return {
         cfdi: cfdi ? { uuid: cfdi.uuid, emisor_rfc: cfdi.emisor_rfc, emisor_nombre: cfdi.emisor_nombre, folio: cfdi.folio, total: cfdi.total, fecha: cfdi.fecha } : null,
