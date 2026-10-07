@@ -43,6 +43,7 @@ import { diasDesde, hoyMexico } from '../dia-mx';
                   @if (v.por_fechar) { faltan {{ v.por_fechar | number }} } @else { todo fechado }
                 </span>
                 <span class="ec-quien">
+                  @if (porEnviar().has(v.id)) { <span class="ec-envio">por mandar</span> · }
                   {{ desde(v.created_at) }}@if (v.abierto_por) { · lo abrió {{ v.abierto_por }} }
                 </span>
               </button>
@@ -89,6 +90,8 @@ import { diasDesde, hoyMexico } from '../dia-mx';
       color: var(--warn-fg); font-variant-numeric: tabular-nums; }
     .ec-ok { color: var(--ok-fg); }
     .ec-quien { grid-column: 3; grid-row: 2; justify-self: end; font-size: var(--fs-micro); color: var(--text-faint); }
+    /* [WMS-REC.20] Hecho sin conexión y todavía en este equipo. */
+    .ec-envio { font-weight: var(--fw-bold); color: var(--warn-fg); }
     .ec-mal {
       margin: 0 0 var(--sp-3); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm);
       background: var(--bad-soft-bg, var(--surface-ground)); color: var(--bad-fg);
@@ -100,6 +103,8 @@ export class AndenEnCursoComponent {
   readonly vales = input.required<AndenValeEnCurso[]>();
   readonly abriendo = input(false);
   readonly error = input<string | null>(null);
+  /** `[WMS-REC.20]` Los vales con algo hecho sin conexión que todavía no se manda. */
+  readonly porEnviar = input<ReadonlySet<string>>(new Set());
 
   readonly retomar = output<AndenValeEnCurso>();
 

@@ -5,8 +5,8 @@ import { environment } from '../../../environments/environment';
 // [WMS-REC.15] La forma del menu del Anden y del vale del ERP vive en el contrato
 // compartido (ADR-052): el backend devuelve ESTE tipo. Se re-exporta para que los
 // componentes sigan importando desde este servicio, que es donde ya lo buscan.
-import type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso } from '@megadulces/contracts';
-export type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso } from '@megadulces/contracts';
+import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline } from '@megadulces/contracts';
+export type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline } from '@megadulces/contracts';
 
 /**
  * Fase WMS-REC (Pieza 1 — Modo recepción por escaneo / Vale vivo, ADR-044).
@@ -136,6 +136,8 @@ export interface OpenSessionDto {
   notes?: string;
   /** Recibir a propósito un folio que ya tiene vale: salta el guard de folio repetido. */
   force?: boolean;
+  /** `[WMS-REC.19]` Llave de reintento: abrir dos veces con la misma devuelve el mismo vale. */
+  client_uuid?: string;
 }
 
 /** Payload del 409 `folio_ya_recibido`: con qué vale choca y si se puede cancelar. */
@@ -230,6 +232,11 @@ export class ReceivingSessionService {
   }
 
   /** `[WMS-REC.17]` Los vales abiertos sin cerrar: a los que se vuelve tras atender otro camión. */
+  /** `[WMS-REC.20]` Los vales pendientes de una sucursal con sus renglones, para seguir sin red. */
+  offlinePack(sucursal: string): Observable<AndenPaqueteOffline> {
+    return this.http.get<AndenPaqueteOffline>(`${this.base}/offline-pack`, { params: new HttpParams().set('sucursal', sucursal) });
+  }
+
   enCurso(): Observable<AndenValeEnCurso[]> {
     return this.http.get<AndenValeEnCurso[]>(`${this.base}/en-curso`);
   }

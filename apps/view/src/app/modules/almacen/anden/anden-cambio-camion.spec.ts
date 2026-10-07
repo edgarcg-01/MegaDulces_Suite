@@ -9,6 +9,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { environment } from '../../../../environments/environment';
 import type { AndenValeEnCurso, ErpOrderMatch, ErpPendingMenu, ReceivingSession } from '../receiving-session.service';
+import { ANDEN_STORE, MemoriaAndenStore } from './anden-offline.store';
 
 /**
  * `[WMS-REC.17]` — **el Andén entero: recibir un traspaso y cambiar de camión.**
@@ -76,6 +77,11 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
     Array.from(el().querySelectorAll<HTMLButtonElement>('button')).find((b) =>
       (b.textContent || '').toLowerCase().includes(t.toLowerCase()));
   const pinta = async () => { fixture.detectChanges(); await fixture.whenStable(); fixture.detectChanges(); };
+  /**
+   * `[WMS-REC.20]` Deja correr las promesas del almacén local: cargar un vale primero pregunta al
+   * equipo cómo lo llama (`sesionDe`) y recién después pide el detalle al servidor.
+   */
+  const respira = async () => { await new Promise((r) => setTimeout(r, 0)); await pinta(); };
 
   /** Contesta lo que la pantalla pide de ACOMPAÑAMIENTO (racks, congelado, por acomodar). */
   function contestarAccesorios(): void {
@@ -83,7 +89,21 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
       const u = r.request.url;
       if (u.includes('/warehouse-freeze')) r.flush({ warehouse_id: WH, frozen: false });
       else if (u.includes('/bins') || u.includes('/unlocated') || u.includes('/pick-suggestion')) r.flush([]);
+      else if (u.endsWith('/offline-pack')) r.flush(paquete());
       else throw new Error(`petición inesperada: ${r.request.method} ${u}`);
+    }
+  }
+
+  /**
+   * `[WMS-REC.20]` Lo que la pantalla baja en SEGUNDO PLANO para poder seguir sin red: el paquete de
+   * la sucursal y el detalle de cada incompleto.
+   */
+  const paquete = () => ({ sucursal: '01', generado_en: '2026-10-07T18:00:00.000Z', vales: [] });
+  async function contestarPaquetes(): Promise<void> {
+    for (let i = 0; i < 3; i++) {
+      for (const r of http.match((x) => x.url.endsWith('/offline-pack'))) r.flush(paquete());
+      for (const r of http.match((x) => x.method === 'GET' && x.url === `${BASE}/${SES_ID}`)) r.flush(sesion);
+      await respira();
     }
   }
 
@@ -92,6 +112,7 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
     http.expectOne(`${BASE}/en-curso`).flush(enCursoResp);
     http.expectOne(`${BASE}/erp-pending-branches`).flush(menu);
     await pinta();
+    await contestarPaquetes();
   }
 
   beforeEach(async () => {
@@ -104,6 +125,8 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
         provideRouter([]),
         { provide: AuthService, useValue: { user: signal({ permissions: {} }) } },
         { provide: PermissionsService, useValue: { isAdmin: () => false } },
+        // [WMS-REC.20] La cola sin red guarda en memoria: en las pruebas no hay IndexedDB.
+        { provide: ANDEN_STORE, useValue: new MemoriaAndenStore() },
       ],
     });
     http = TestBed.inject(HttpTestingController);
@@ -125,6 +148,7 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
     (el().querySelector('button.su-row') as HTMLButtonElement).click();
     http.expectOne((r) => r.url === `${BASE}/erp-pending` && r.params.get('sucursal') === '01').flush([embarque]);
     await pinta();
+    await contestarPaquetes();
     expect(texto()).toContain('Embarque 0001048');
     expect(texto()).toContain('De CEDIS BPIRAPUATO');
 
@@ -133,9 +157,13 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
     const abrir = http.expectOne((r) => r.method === 'POST' && r.url === BASE);
     expect(abrir.request.body).toEqual({
       source_kind: 'erp_transfer', erp_sucursal: '00', erp_serie: 2, erp_folio: '0001048',
+      // [WMS-REC.19] La llave de reintento viaja desde el primer intento.
+      client_uuid: expect.stringMatching(/^[0-9a-f-]{36}$/),
     });
     abrir.flush(sesion);
+    await respira();
     http.expectOne(`${BASE}/${SES_ID}`).flush(sesion);
+    await respira();
     await pinta();
     http.expectNone((r) => r.url.includes('/unlocated') || r.url.endsWith('/bins'));
     contestarAccesorios();
@@ -168,7 +196,9 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
 
     // Retomar el vale desde «En curso».
     (el().querySelector('button.ec-row') as HTMLButtonElement).click();
+    await respira();
     http.expectOne(`${BASE}/${SES_ID}`).flush(sesion);
+    await respira();
     await pinta();
     contestarAccesorios();
     await pinta();
@@ -209,6 +239,7 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
     http.expectOne(`${BASE}/en-curso`).flush({ message: 'boom' }, { status: 500, statusText: 'Server Error' });
     http.expectOne(`${BASE}/erp-pending-branches`).flush(menu);
     await pinta();
+    await contestarPaquetes();
     expect(texto()).toContain('No se pudieron leer los vales incompletos');
     expect(el().querySelector('button.su-row')).toBeTruthy();
   });

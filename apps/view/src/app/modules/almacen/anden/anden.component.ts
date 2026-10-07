@@ -1,11 +1,13 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, effect, inject, signal, untracked, viewChild } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { firstValueFrom } from 'rxjs';
-import { AndenValeEnCurso, ErpOrderMatch, ErpPendingBranch, ReceivingSessionService } from '../receiving-session.service';
+import { firstValueFrom, timeout } from 'rxjs';
+import {
+  AndenValeEnCurso, ErpOrderMatch, ErpPendingBranch, ErpPendingMenu, OpenSessionDto, ReceivingSession, ReceivingSessionService,
+} from '../receiving-session.service';
 import { ReceivingAuditorService, ReceivingCapture } from '../receiving-auditor.service';
 import { RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
@@ -27,6 +29,13 @@ import { ScanFieldComponent } from './components/scan-field.component';
 import { formatExpiryEcho } from '../shared/expiry-short';
 import { unidadDelVale } from '../shared/unidad-vale';
 import { Buscable, coincide, normalizar } from './filtro.util';
+import { AndenRedComponent } from './components/anden-red.component';
+import { AndenOfflineService, EnvioVale } from './anden-offline.service';
+import {
+  TOPE, esLocal, esSinRed, incompletosLocales, menuDesdePaquetes, mismoDocumento, nuevaLlave, valeLocal,
+  valesDisponibles,
+} from './anden-offline';
+import { hoyMexico } from './dia-mx';
 
 /**
  * **Andén de Entrada** — del folio del papel a la mercancía con lote y caducidad.
@@ -50,6 +59,11 @@ import { Buscable, coincide, normalizar } from './filtro.util';
  *
  * El paso activo **no vive en la ruta**: es estado de pantalla. En la URL, el back
  * del navegador rompería el flujo a media captura.
+ *
+ * `[WMS-REC.20]` **Sin conexión se sigue trabajando.** Lo que se hace se guarda en el equipo
+ * y se manda solo al volver la red (`AndenOfflineService`); el vale se puede abrir sin red desde
+ * los vales que el equipo bajó con red. Cada escritura lleva su llave desde el primer intento, así
+ * que reintentarla nunca duplica (WMS-REC.19).
  */
 @Component({
   selector: 'app-anden',
@@ -58,7 +72,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
     DecimalPipe, ButtonModule, ToastModule,
     RouterLink,
     AndenFolioComponent, AndenSucursalesComponent, AndenValesComponent, AndenEnCursoComponent, AndenCongeladoComponent,
-    AndenCaducidadComponent, AndenFechaMasivaComponent, ScanFieldComponent,
+    AndenCaducidadComponent, AndenFechaMasivaComponent, ScanFieldComponent, AndenRedComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -76,9 +90,17 @@ import { Buscable, coincide, normalizar } from './filtro.util';
             <span class="an-pill an-org" [class.an-tr]="o.kind === 'transfer'">{{ o.label }}</span>
           }
           <span class="an-pill" [class.an-on]="s.cerrado()">{{ s.estado() }}</span>
+          @if (valeEnCola()) { <span class="an-pill an-cola">por mandar</span> }
           @if (s.guardado()) { <span class="an-save">Guardado ✓</span> }
         </div>
       </header>
+
+      <!-- [WMS-REC.20] Sin conexion se sigue trabajando: esto dice que falta mandar y deja
+           reintentar o descartar un vale que el servidor rechazo. -->
+      <app-anden-red
+        [online]="red.online()" [enviando]="red.enviando()" [pendientes]="red.pendientes()"
+        [errores]="red.conError()" [paqueteAl]="paqueteAl()"
+        (enviar)="mandarAhora()" (reintentar)="reintentarVale($event)" (descartar)="descartarVale($event)" />
 
       <!-- [WMS-REC.17] Cambiar de camion. Llega otro camion mientras se fecha este: el
            bodeguero sale al menu, lo atiende y vuelve. Lo ya fechado vive en el servidor,
@@ -180,6 +202,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
             <button type="button" class="an-volver" (click)="modo.set('inicio')">← Menú</button>
             <app-anden-en-curso
               [vales]="enCurso()" [abriendo]="s.cargando()" [error]="errorEnCurso()"
+              [porEnviar]="red.valesEnCola()"
               (retomar)="retomar($event)" />
             <app-anden-sucursales
               [sucursales]="sucursales()" [cargando]="cargandoMenu()" [error]="errorMenu()"
@@ -366,6 +389,8 @@ import { Buscable, coincide, normalizar } from './filtro.util';
        "ojo con esto" porque el reclamo es interno; proveedor queda neutro. */
     .an-org { font-weight: var(--fw-bold); }
     .an-tr { background: var(--warn-soft-bg); color: var(--warn-fg); border-color: transparent; }
+    /* [WMS-REC.20] Algo de este vale se hizo sin conexion y no se ha mandado. */
+    .an-cola { background: var(--warn-soft-bg); color: var(--warn-fg); border-color: transparent; }
     .an-save { font-size: var(--fs-micro); color: var(--text-faint); }
     .an-bd { display: flex; flex-direction: column; gap: var(--sp-3); margin-top: var(--sp-3); }
     .an-nota {
@@ -415,6 +440,17 @@ export class AndenComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
+  /** `[WMS-REC.20]` La cola de lo hecho sin conexión. */
+  readonly red = inject(AndenOfflineService);
+  /** Cuándo se bajaron los vales que se están usando sin red (ISO), para decirlo. */
+  readonly paqueteAl = signal<string | null>(null);
+  /** Cómo llama la cola al vale abierto (su id, o `local:…` si se abrió sin red). */
+  private readonly llaveActual = signal<string | null>(null);
+  /** El vale abierto tiene algo hecho sin conexión que todavía no se manda. */
+  readonly valeEnCola = computed(() => {
+    const k = this.llaveActual();
+    return !!k && !!this.s.vale() && (esLocal(k) || this.red.valesEnCola().has(k));
+  });
 
   readonly s = new AndenState();
   readonly minShelfLife = signal<number | null>(null);
@@ -499,19 +535,31 @@ export class AndenComponent implements OnInit {
 
   private readonly fechar = viewChild<AndenCaducidadComponent>('fechar');
   private readonly masivo = viewChild<AndenFechaMasivaComponent>('masivo');
+
+  constructor() {
+    // [WMS-REC.20] Cuando la cola manda algo, la pantalla lo dice y, si es el vale abierto, lo recarga.
+    effect(() => {
+      const r = this.red.ultimoEnvio();
+      if (r) untracked(() => void this.alMandar(r));
+    });
+  }
+
   ngOnInit(): void {
     // Si este equipo dejó un vale a medias, se retoma donde estaba. Es la razón
     // de existir del borrador: el bodeguero no vuelve a capturar lo ya capturado.
+    // `[WMS-REC.20]` Sin red se recupera de lo que guardó el equipo, y el borrador SÓLO se borra
+    // si el vale de verdad ya no existe: antes se borraba ante cualquier error, y abrir la
+    // pantalla sin internet perdía el vale a medias.
     this.drafts.ultimoAbierto().then((b) => {
       if (!b) return;
-      this.sessions.detail(b.sessionId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (v) => {
-          this.s.cargarDesdeVale(v);
+      this.cargarDetalle(
+        b.sessionId,
+        () => {
           this.s.guardado.set(true);
-          this.toast.add({ severity: 'info', summary: 'Vale recuperado', detail: `${v.folio} — seguí donde lo dejaste.` });
+          this.toast.add({ severity: 'info', summary: 'Vale recuperado', detail: `${this.s.vale()?.folio} — seguí donde lo dejaste.` });
         },
-        error: () => this.drafts.borrar(b.sessionId),
-      });
+        () => this.drafts.borrar(b.sessionId),
+      );
     });
   }
 
@@ -601,6 +649,13 @@ export class AndenComponent implements OnInit {
       },
       error: (e) => {
         this.resolviendo.set(false);
+        if (esSinRed(e)) {
+          this.toast.add({
+            severity: 'warn', summary: 'Sin conexión',
+            detail: 'Lo que no viene en el vale se busca en el catálogo: hacelo cuando vuelva la red.',
+          });
+          return;
+        }
         this.toast.add({
           severity: 'warn',
           summary: 'No se encontró',
@@ -689,7 +744,12 @@ export class AndenComponent implements OnInit {
       },
       error: (e) => {
         this.s.buscando.set(false);
-        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo buscar el vale' });
+        this.toast.add({
+          severity: 'error', summary: esSinRed(e) ? 'Sin conexión' : 'Error',
+          detail: esSinRed(e)
+            ? 'Buscar por folio necesita red. Sin conexión, abrí el vale desde el menú de la sucursal.'
+            : e?.error?.message || 'No se pudo buscar el vale',
+        });
       },
     });
   }
@@ -700,13 +760,28 @@ export class AndenComponent implements OnInit {
     // El almacén NO se manda: lo deriva el backend (mapa sucursal→almacén, o el destino del
     // traspaso). `[WMS-REC.17]` Un traspaso se abre desde el EMBARQUE de quien mandó: ahí
     // `sucursal` es el origen y la serie es parte de la llave (el folio se repite entre series).
-    const dto = m.fuente === 'embarque'
-      ? { source_kind: 'erp_transfer' as const, erp_sucursal: m.sucursal, erp_serie: m.serie ?? undefined, erp_folio: m.folio }
-      : { source_kind: 'erp_receipt' as const, erp_sucursal: m.sucursal, erp_folio: m.folio };
+    // `[WMS-REC.20]` La llave va desde el PRIMER intento: si la respuesta se pierde y se reintenta
+    // (o se encola), el servidor devuelve el mismo vale en vez de abrir otro.
+    const llave = nuevaLlave();
+    const dto: OpenSessionDto & { client_uuid: string } = m.fuente === 'embarque'
+      ? { source_kind: 'erp_transfer', erp_sucursal: m.sucursal, erp_serie: m.serie ?? undefined, erp_folio: m.folio, client_uuid: llave }
+      : { source_kind: 'erp_receipt', erp_sucursal: m.sucursal, erp_folio: m.folio, client_uuid: llave };
+    if (sinRedDelTodo()) {
+      void this.abrirSinRed(m, dto);
+      return;
+    }
     this.sessions.open(dto)
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (v) => this.cargarDetalle(v.id),
+      .pipe(timeout(TOPE.escritura), takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (v) => {
+          this.red.marcarConRed();
+          this.cargarDetalle(v.id);
+        },
         error: (e) => {
+          if (esSinRed(e)) {
+            this.red.marcarSinRed();
+            void this.abrirSinRed(m, dto);
+            return;
+          }
           this.s.cargando.set(false);
           const dup = /ya.*recib/i.test(e?.error?.message || '');
           this.toast.add({
@@ -718,21 +793,99 @@ export class AndenComponent implements OnInit {
       });
   }
 
-  private cargarDetalle(id: string, tras?: () => void): void {
-    this.sessions.detail(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (v) => {
-        this.s.cargando.set(false);
-        this.s.cargarDesdeVale(v);
-        this.consultarCongelamiento();
-        this.guardarBorrador();
-        tras?.();
-      },
-      error: (e) => {
-        this.s.cargando.set(false);
-        // No tragarse la falla: un vale vacío y un 500 se ven igual en pantalla.
-        this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cargar el vale' });
-      },
+  /**
+   * `[WMS-REC.20]` **Abrir sin red.** El vale se arma de los que el equipo bajó con red (el paquete
+   * de la sucursal) y se encola su apertura con la MISMA llave que ya se intentó: si el servidor sí
+   * la recibió, al reintentar devuelve ese vale en vez de abrir otro.
+   */
+  private async abrirSinRed(m: ErpOrderMatch, dto: OpenSessionDto & { client_uuid: string }): Promise<void> {
+    const suc = this.sucursalElegida()?.sucursal ?? m.sucursal;
+    const p = await this.red.paquete(suc);
+    const pv = p?.vales.find((x) => mismoDocumento(x, m));
+    if (!pv) {
+      this.s.cargando.set(false);
+      this.toast.add({
+        severity: 'warn', summary: 'Sin conexión',
+        detail: `${m.folio} no está entre los vales que este equipo bajó. Se puede abrir cuando vuelva la red.`,
+        life: 7000,
+      });
+      return;
+    }
+    const vale = valeLocal(pv, dto.client_uuid);
+    await this.red.guardarValeLocal(vale, { sucursal: suc, erp: m });
+    await this.red.encolar({ tipo: 'abrir', valeKey: vale.id, dto });
+    this.s.cargando.set(false);
+    await this.mostrar(vale);
+    this.toast.add({
+      severity: 'info', summary: 'Abierto sin conexión',
+      detail: `${m.folio}: se puede fechar igual. Se manda solo al servidor cuando vuelva la red.`,
+      life: 7000,
     });
+  }
+
+  /**
+   * Carga un vale y lo pone en pantalla. `[WMS-REC.20]` Con red, del servidor (y queda como su
+   * base en el equipo); sin red, de lo que guardó el equipo. En los dos casos lo que falta mandar
+   * va encima: sin eso, lo fechado sin conexión desaparecería y el bodeguero lo fecharía otra vez.
+   *
+   * `siNoExiste` sólo se llama cuando el vale de verdad no está — nunca por una caída de red.
+   */
+  private cargarDetalle(id: string, tras?: () => void, siNoExiste?: () => void): void {
+    void (async () => {
+      const desdeEquipo = async (e: unknown) => {
+        const v = await this.red.vista(id);
+        this.s.cargando.set(false);
+        if (v) {
+          await this.mostrar(v);
+          tras?.();
+          return;
+        }
+        // El borrador sólo se suelta si el vale DE VERDAD no existe (404): un 500 o la red caída no
+        // dicen nada de eso, y soltarlo ahí perdería el vale a medias.
+        if (siNoExiste && [404, 410].includes((e as { status?: number } | null)?.status ?? 0)) {
+          siNoExiste();
+          return;
+        }
+        // No tragarse la falla: un vale vacío y un 500 se ven igual en pantalla.
+        this.toast.add({
+          severity: 'error', summary: 'No se pudo cargar el vale',
+          detail: esSinRed(e) ? 'Sin conexión, y este equipo no tiene guardado ese vale.' : motivoHttp(e, 'cargar el vale'),
+        });
+      };
+      const sesion = await this.red.sesionDe(id);
+      // Un vale abierto sin red que el equipo ya no tiene: no hay de dónde sacarlo.
+      if (!sesion) return desdeEquipo(esLocal(id) ? { status: 404 } : null);
+      if (sinRedDelTodo()) return desdeEquipo(null);
+      this.sessions.detail(sesion).pipe(timeout(TOPE.lectura), takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: async (v) => {
+          this.red.marcarConRed();
+          await this.red.registrarDetalle(v, { sucursal: this.sucursalElegida()?.sucursal ?? null, erp: this.s.erp() });
+          this.s.cargando.set(false);
+          await this.mostrar(await this.red.superponerCola(v));
+          tras?.();
+        },
+        error: (e) => {
+          if (esSinRed(e)) this.red.marcarSinRed();
+          void desdeEquipo(e);
+        },
+      });
+    })();
+  }
+
+  /** Pone un vale en pantalla (del servidor o del equipo) y anota cómo lo llama la cola. */
+  private async mostrar(v: ReceivingSession): Promise<void> {
+    this.s.cargarDesdeVale(v);
+    this.llaveActual.set(await this.red.llaveDe(v.id));
+    this.consultarCongelamiento();
+    this.guardarBorrador();
+  }
+
+  /** Vuelve a pintar el vale con lo que tiene el equipo: su base más lo que falta mandar. */
+  private async refrescarDesdeEquipo(): Promise<void> {
+    const v = this.s.vale();
+    if (!v) return;
+    const vista = await this.red.vista(v.id);
+    if (vista) await this.mostrar(vista);
   }
 
   /**
@@ -745,8 +898,9 @@ export class AndenComponent implements OnInit {
    */
   private consultarCongelamiento(): void {
     const wh = this.s.warehouseId();
-    if (!wh) return;
-    this.binsSvc.warehouseFreeze(wh).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    // Sin red no se pregunta: el guard del servidor sigue frenando al MANDAR, y la cola lo dice.
+    if (!wh || sinRedDelTodo()) return;
+    this.binsSvc.warehouseFreeze(wh).pipe(timeout(TOPE.lectura), takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.congelado.set(r),
       error: () => this.congelado.set(null),
     });
@@ -817,8 +971,9 @@ export class AndenComponent implements OnInit {
     this.minShelfLife.set(null);
     this.existingMinExpiry.set(null);
     const wh = this.s.warehouseId();
-    if (!wh || !l.product_id) return;
-    this.binsSvc.pickSuggestion(wh, l.product_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    // Sin red el semáforo no tiene contexto: muestra sólo los días, como cuando la consulta falla.
+    if (!wh || !l.product_id || sinRedDelTodo()) return;
+    this.binsSvc.pickSuggestion(wh, l.product_id).pipe(timeout(TOPE.lectura), takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (ss) => {
         const fechas = (ss || []).map((x) => x.expiry_date).filter((d): d is string => !!d).sort();
         this.existingMinExpiry.set(fechas[0] ?? null);
@@ -832,9 +987,14 @@ export class AndenComponent implements OnInit {
   correrOcr(dataUri: string): void {
     this.auditor.ocr(dataUri).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.fechar()?.aplicarOcr(r),
-      error: () => {
+      error: (e) => {
         this.fechar()?.ocrFallo();
-        this.toast.add({ severity: 'warn', summary: 'OCR', detail: 'No se distinguió lote/caducidad. Capturalo a mano.' });
+        this.toast.add({
+          severity: 'warn', summary: 'OCR',
+          detail: esSinRed(e)
+            ? 'Sin conexión no hay lectura de la etiqueta: capturá el lote y la caducidad a mano. La foto se guarda igual.'
+            : 'No se distinguió lote/caducidad. Capturalo a mano.',
+        });
       },
     });
   }
@@ -859,6 +1019,7 @@ export class AndenComponent implements OnInit {
     let declarado = f.linea.declarado;
     let retenidas = 0;
     let ok = 0;
+    let enCola = 0;
     const fallas: string[] = [];
 
     for (const e of f.entradas) {
@@ -867,6 +1028,7 @@ export class AndenComponent implements OnInit {
         ok++;
         declarado += e.cantidad;
         if (cap.verdict === 'red') retenidas++;
+        if (cap.verdict === 'en_cola') enCola++;
       } catch (err: unknown) {
         const x = err as { error?: { message?: string }; message?: string };
         fallas.push(`${formatExpiryEcho(e.caducidadIso)}: ${x?.error?.message || x?.message || 'error'}`);
@@ -885,7 +1047,7 @@ export class AndenComponent implements OnInit {
     }
 
     this.s.guardando.set(false);
-    this.avisarFechado(f, ok, retenidas, fallas);
+    this.avisarFechado(f, ok, retenidas, fallas, enCola);
 
     if (!ok) return;
     this.cargarDetalle(v.id, () => {
@@ -900,7 +1062,7 @@ export class AndenComponent implements OnInit {
   }
 
   /** Lo que pasó, dicho como pasó: nada de un "listo" sobre 2 de 3. */
-  private avisarFechado(f: FechadoConfirmado, ok: number, retenidas: number, fallas: string[]): void {
+  private avisarFechado(f: FechadoConfirmado, ok: number, retenidas: number, fallas: string[], enCola = 0): void {
     const n = f.entradas.length;
     const unidad = unidadDelVale(f.linea.expected_unit);
     if (fallas.length) {
@@ -923,6 +1085,15 @@ export class AndenComponent implements OnInit {
       });
       return;
     }
+    if (enCola > 0) {
+      // Sin red no hay semáforo: el veredicto llega al mandarla, y si queda retenida se avisa entonces.
+      this.toast.add({
+        severity: 'info', summary: 'Guardada en el equipo',
+        detail: `${this.nombre(f.linea)}: sin conexión. Se manda sola al volver la red, y ahí se ve si queda retenida.`,
+        life: 6000,
+      });
+      return;
+    }
     const cantidad = f.entradas.reduce((a, e) => a + e.cantidad, 0);
     this.toast.add({
       severity: 'success', summary: 'Fechada',
@@ -936,23 +1107,68 @@ export class AndenComponent implements OnInit {
    * **Una caducidad.** Sólo evalúa; cerrar el renglón es decisión de quien la
    * llama, porque con varias fechas el renglón se cierra UNA vez al final.
    */
-  private async guardarUna(linea: AndenLinea, e: FechadoEntrada): Promise<ReceivingCapture> {
+  private async guardarUna(linea: AndenLinea, e: FechadoEntrada): Promise<Pick<ReceivingCapture, 'verdict'> | { verdict: 'en_cola' }> {
     const v = this.s.vale()!;
     const wh = this.s.warehouseId()!;
-    return firstValueFrom(this.auditor.evaluate({
+    const key = await this.red.llaveDe(v.id);
+    // `[WMS-REC.20]` La llave nace con la captura: si se encola después de un intento fallido,
+    // viaja la MISMA, y si el servidor sí la había recibido no mete la mercancía dos veces.
+    const payload = {
       warehouse_id: wh,
       product_id: linea.product_id!,
       supplier_code: v.supplier_code || undefined,
-      source_ref: v.folio,
-      // Sin `id` es una captura SUELTA (el producto no venía en el vale). El
-      // backend acepta `receiving_line_id` nulo desde WMS-REC.4; mandarlo vacío
-      // lo haría fallar la validación de UUID.
-      receiving_line_id: linea.id || undefined,
       quantity: e.cantidad,
       confirmed_lot: e.lote,
       confirmed_expiry: e.caducidadIso,
       photo_data_uri: e.fotoDataUri || undefined,
-    }));
+      client_uuid: nuevaLlave(),
+    };
+    const encolar = async () => {
+      await this.red.encolar({ tipo: 'fechar', valeKey: key, lineaId: linea.id || '', payload });
+      return { verdict: 'en_cola' as const };
+    };
+    if (this.red.usaCola(key)) return encolar();
+    try {
+      const cap = await firstValueFrom(this.auditor.evaluate({
+        ...payload,
+        source_ref: v.folio,
+        // Sin `id` es una captura SUELTA (el producto no venía en el vale). El
+        // backend acepta `receiving_line_id` nulo desde WMS-REC.4; mandarlo vacío
+        // lo haría fallar la validación de UUID.
+        receiving_line_id: linea.id || undefined,
+      }).pipe(timeout(TOPE.captura)));
+      await this.red.anotarCapturaEnviada(v.id, linea.id, e.cantidad, cap.verdict === 'red');
+      return cap;
+    } catch (err) {
+      if (!esSinRed(err)) throw err;
+      this.red.marcarSinRed();
+      return encolar();
+    }
+  }
+
+  /**
+   * `[WMS-REC.20]` Cierra un renglón: directo si hay red, a la cola si no (o si el vale ya tiene
+   * algo en la cola: saltárselo cerraría el renglón antes de mandar sus caducidades). Escribir una
+   * cantidad absoluta dos veces da lo mismo, así que reintentarlo es seguro.
+   */
+  private async setLineOEncolar(lineaId: string, recibido: number): Promise<ReceivingSession | null> {
+    const v = this.s.vale();
+    if (!v) return null;
+    const key = await this.red.llaveDe(v.id);
+    const encolar = async () => {
+      await this.red.encolar({ tipo: 'renglon', valeKey: key, lineaId, received_qty: recibido });
+      return null;
+    };
+    if (this.red.usaCola(key)) return encolar();
+    try {
+      const s = await firstValueFrom(this.sessions.setLine(v.id, lineaId, { received_qty: recibido }).pipe(timeout(TOPE.escritura)));
+      await this.red.registrarDetalle(s);
+      return s;
+    } catch (err) {
+      if (!esSinRed(err)) throw err;
+      this.red.marcarSinRed();
+      return encolar();
+    }
   }
 
   /**
@@ -964,10 +1180,9 @@ export class AndenComponent implements OnInit {
    * se declaró, que es la única que alguien miró de verdad.
    */
   private async cerrarSiCompleto(linea: AndenLinea, declarado: number): Promise<void> {
-    const v = this.s.vale()!;
     if (!linea.id) return;
     if (declarado + linea.retenido < Number(linea.expected_qty)) return;
-    await firstValueFrom(this.sessions.setLine(v.id, linea.id, { received_qty: declarado }));
+    await this.setLineOEncolar(linea.id, declarado);
   }
 
   /**
@@ -976,29 +1191,28 @@ export class AndenComponent implements OnInit {
    * vale convierte en reclamo. Sin esta salida, un renglón corto quedaría
    * pendiente para siempre y el vale no podría cerrarse.
    */
-  cerrarRenglon(l: AndenLinea): void {
+  async cerrarRenglon(l: AndenLinea): Promise<void> {
     const v = this.s.vale();
     if (!v || !l.id) return;
     this.s.guardando.set(true);
-    this.sessions.setLine(v.id, l.id, { received_qty: l.declarado })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (upd) => {
-          this.s.guardando.set(false);
-          this.s.cargarDesdeVale(upd);
-          this.s.actual.set(null);
-          this.volverALaBarra();
-          const esp = Number(l.expected_qty) || 0;
-          this.toast.add({
-            severity: 'warn', summary: 'Faltante',
-            detail: `Kepler manda ${esp} y llegaron ${l.declarado}. Al cerrar el vale se levanta el reclamo.`,
-          });
-          this.siguienteFechar();
-        },
-        error: (e) => {
-          this.s.guardando.set(false);
-          this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo cerrar el renglón' });
-        },
-      });
+    try {
+      const upd = await this.setLineOEncolar(l.id, l.declarado);
+      if (upd) await this.mostrar(await this.red.superponerCola(upd));
+      else await this.refrescarDesdeEquipo();
+    } catch (e) {
+      this.s.guardando.set(false);
+      this.toast.add({ severity: 'error', summary: 'Error', detail: motivoHttp(e, 'cerrar el renglón') });
+      return;
+    }
+    this.s.guardando.set(false);
+    this.s.actual.set(null);
+    this.volverALaBarra();
+    const esp = Number(l.expected_qty) || 0;
+    this.toast.add({
+      severity: 'warn', summary: 'Faltante',
+      detail: `Kepler manda ${esp} y llegaron ${l.declarado}. Al cerrar el vale se levanta el reclamo.`,
+    });
+    this.siguienteFechar();
   }
 
   cerrarMasiva(): void {
@@ -1022,6 +1236,7 @@ export class AndenComponent implements OnInit {
     const total = m.lineas.length;
     const fallas: { nombre: string; motivo: string }[] = [];
     let retenidas = 0;
+    let enCola = 0;
     this.avance.set({ hechas: 0, total, fallas: [], retenidas: 0, terminado: false });
 
     for (const l of m.lineas) {
@@ -1031,6 +1246,7 @@ export class AndenComponent implements OnInit {
           cantidad: l.faltaFechar, lote: m.lote, caducidadIso: m.caducidadIso, fotoDataUri: null,
         });
         if (cap.verdict === 'red') retenidas++;
+        if (cap.verdict === 'en_cola') enCola++;
         // El renglón queda completo por construcción (se declaró lo que faltaba),
         // así que acá es donde el faltante/sobrante contra Kepler queda firme.
         await this.cerrarSiCompleto(l, l.declarado + l.faltaFechar);
@@ -1042,6 +1258,12 @@ export class AndenComponent implements OnInit {
     }
 
     this.avance.update((a) => (a ? { ...a, terminado: true } : a));
+    if (enCola > 0)
+      this.toast.add({
+        severity: 'info', summary: 'Guardado en el equipo',
+        detail: `${enCola} de ${total} sin conexión: se mandan solos al volver la red.`,
+        life: 6000,
+      });
     // El detalle se recarga UNA vez al final: recargarlo por renglón son N viajes
     // y hace parpadear la lista mientras corre.
     this.cargarDetalle(v.id);
@@ -1058,14 +1280,29 @@ export class AndenComponent implements OnInit {
    * dieron de alta, así que cerrar después de fechar **no cuenta la mercancía dos
    * veces**.
    */
-  cerrarVale(): void {
+  async cerrarVale(): Promise<void> {
     const v = this.s.vale();
     if (!v || this.s.cerrado()) return;
+    const key = await this.red.llaveDe(v.id);
+    // `[WMS-REC.20]` Sin red se cierra en el equipo y se manda después; los reclamos se levantan
+    // al mandarlo. Cerrar dos veces no hace daño: el segundo cierre se toma como hecho.
+    const encolar = async () => {
+      await this.red.encolar({ tipo: 'cerrar', valeKey: key });
+      this.s.guardando.set(false);
+      await this.refrescarDesdeEquipo();
+      this.toast.add({
+        severity: 'info', summary: 'Vale cerrado en el equipo',
+        detail: 'Sin conexión: se manda solo al volver la red, y ahí se levantan los reclamos.',
+        life: 7000,
+      });
+    };
+    if (this.red.usaCola(key)) return encolar();
     this.s.guardando.set(true);
-    this.sessions.close(v.id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.sessions.close(v.id).pipe(timeout(TOPE.escritura), takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (upd) => {
         this.s.guardando.set(false);
         this.s.cargarDesdeVale(upd);
+        void this.red.registrarDetalle(upd);
         this.guardarBorrador();
         const n = upd?.claims?.raised ?? 0;
         const aQuien = upd?.origin?.kind === 'transfer'
@@ -1080,6 +1317,11 @@ export class AndenComponent implements OnInit {
         });
       },
       error: (e) => {
+        if (esSinRed(e)) {
+          this.red.marcarSinRed();
+          void encolar();
+          return;
+        }
         this.s.guardando.set(false);
         this.toast.add({ severity: 'error', summary: 'No se pudo cerrar', detail: e?.error?.message || 'Error' });
       },
@@ -1102,13 +1344,24 @@ export class AndenComponent implements OnInit {
     this.cargarEnCurso();
     this.cargandoMenu.set(true);
     this.errorMenu.set(null);
-    this.sessions.pendingErpBranches().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    if (sinRedDelTodo()) {
+      void this.menuSinRed();
+      return;
+    }
+    this.sessions.pendingErpBranches().pipe(timeout(TOPE.lectura), takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
+        this.red.marcarConRed();
         this.cargandoMenu.set(false);
         this.sucursales.set(r?.sucursales ?? []);
         this.alcanceAbierto.set(r?.alcance === 'all');
+        this.paqueteAl.set(null);
+        this.bajarPaquetes(r);
       },
       error: (e) => {
+        if (esSinRed(e)) {
+          void this.menuSinRed();
+          return;
+        }
         this.cargandoMenu.set(false);
         // Un error NO se muestra como "hoy no hay vales": son cosas distintas y
         // confundirlas manda al bodeguero a buscar un camión que sí llegó.
@@ -1128,13 +1381,65 @@ export class AndenComponent implements OnInit {
     this.errorVales.set(null);
     this.cargandoVales.set(true);
     this.modo.set('vales');
-    this.sessions.pendingErpOrders(b.sucursal).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => { this.cargandoVales.set(false); this.valesDelDia.set(r || []); },
+    if (sinRedDelTodo()) {
+      void this.valesSinRed(b);
+      return;
+    }
+    this.sessions.pendingErpOrders(b.sucursal).pipe(timeout(TOPE.lectura), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.red.marcarConRed();
+        this.cargandoVales.set(false);
+        this.valesDelDia.set(r || []);
+        // Con red, se baja lo de esta sucursal para poder seguir si se va la conexión.
+        void this.red.bajarPaquete(b.sucursal);
+      },
       error: (e) => {
+        if (esSinRed(e)) {
+          void this.valesSinRed(b);
+          return;
+        }
         this.cargandoVales.set(false);
         this.errorVales.set(e?.error?.message || 'No se pudieron leer los vales de esa sucursal.');
       },
     });
+  }
+
+  /**
+   * `[WMS-REC.20]` Con red, el equipo baja de una vez los vales de sus sucursales para poder seguir
+   * si se va la conexión. Sólo con el alcance acotado (pocas sucursales): a quien ve todas se le
+   * baja la que elige, al entrar a ella.
+   */
+  private bajarPaquetes(r: ErpPendingMenu): void {
+    if (r?.alcance === 'all') return;
+    for (const b of (r?.sucursales ?? []).filter((x) => !x.sin_almacen).slice(0, 3)) void this.red.bajarPaquete(b.sucursal);
+  }
+
+  /** El menú armado con los vales que el equipo bajó: se dice de cuándo son. */
+  private async menuSinRed(): Promise<void> {
+    this.red.marcarSinRed();
+    const [paqs, guardados] = await Promise.all([this.red.paquetes(), this.red.valesGuardados()]);
+    this.cargandoMenu.set(false);
+    this.alcanceAbierto.set(false);
+    if (!paqs.length) {
+      this.sucursales.set([]);
+      this.errorMenu.set('Sin conexión, y este equipo todavía no bajó los vales de ninguna sucursal. Se bajan solos la próxima vez que haya red.');
+      return;
+    }
+    this.sucursales.set(menuDesdePaquetes(paqs, guardados, hoyMexico()));
+    this.paqueteAl.set(paqs.map((p) => p.generado_en).sort()[0] ?? null);
+  }
+
+  /** Los vales de una sucursal, de lo que bajó el equipo. */
+  private async valesSinRed(b: ErpPendingBranch): Promise<void> {
+    this.red.marcarSinRed();
+    const [p, guardados] = await Promise.all([this.red.paquete(b.sucursal), this.red.valesGuardados()]);
+    this.cargandoVales.set(false);
+    if (!p) {
+      this.errorVales.set('Sin conexión, y este equipo no tiene bajados los vales de esta sucursal.');
+      return;
+    }
+    this.valesDelDia.set(valesDisponibles(p, guardados));
+    this.paqueteAl.set(p.generado_en);
   }
 
   /** Vuelve al menú y lo recarga: lo que se abrió ya no debe seguir contado. */
@@ -1196,13 +1501,82 @@ export class AndenComponent implements OnInit {
   /** Los vales abiertos sin cerrar, para el menu. Si falla, se DICE (no se pinta "no hay"). */
   cargarEnCurso(): void {
     this.errorEnCurso.set(null);
-    this.sessions.enCurso().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => this.enCurso.set(r ?? []),
+    // `[WMS-REC.20]` Van primero los del equipo que el servidor todavía no ve completos: los
+    // abiertos sin red y los que tienen algo por mandar. Esos tapan su versión del servidor.
+    const conLosDelEquipo = async (servidor: AndenValeEnCurso[]) => {
+      const enCola = this.red.valesEnCola();
+      const propios = (await this.red.valesGuardados()).filter((g) => !g.sessionId || enCola.has(g.key));
+      const tapados = new Set(propios.map((g) => g.sessionId).filter((x): x is string => !!x));
+      this.enCurso.set([...incompletosLocales(propios, this.red.ops()), ...servidor.filter((v) => !tapados.has(v.id))]);
+    };
+    if (sinRedDelTodo()) {
+      void conLosDelEquipo([]);
+      return;
+    }
+    this.sessions.enCurso().pipe(timeout(TOPE.lectura), takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => {
+        this.red.marcarConRed();
+        void conLosDelEquipo(r ?? []);
+        void this.guardarIncompletos(r ?? []);
+      },
       error: (e) => {
+        if (esSinRed(e)) {
+          void conLosDelEquipo([]);
+          return;
+        }
         this.enCurso.set([]);
         this.errorEnCurso.set(motivoHttp(e, 'leer los vales en curso'));
       },
     });
+  }
+
+  /**
+   * `[WMS-REC.20]` Los incompletos se guardan en el equipo con su detalle, para poder seguirlos si se
+   * va la red. Mejor esfuerzo, de a uno, sólo los que el equipo no tiene, y se corta al primer fallo.
+   */
+  private async guardarIncompletos(vs: AndenValeEnCurso[]): Promise<void> {
+    const tiene = new Set((await this.red.valesGuardados()).map((g) => g.sessionId));
+    for (const v of vs.filter((x) => !esLocal(x.id) && !tiene.has(x.id)).slice(0, 10)) {
+      try {
+        await this.red.registrarDetalle(await firstValueFrom(this.sessions.detail(v.id).pipe(timeout(TOPE.lectura))));
+      } catch {
+        return;
+      }
+    }
+  }
+
+  // ── La cola ───────────────────────────────────────────────────────────────
+
+  /** Lo que pasó al mandar un vale: se dice, y si es el que está abierto se recarga. */
+  private async alMandar(r: EnvioVale): Promise<void> {
+    for (const a of r.avisos) this.toast.add({ severity: 'warn', summary: 'Al mandar', detail: a, life: 8000 });
+    if (r.error) this.toast.add({ severity: 'error', summary: 'Un vale no se pudo mandar', detail: r.error, life: 9000 });
+    else if (r.vale) this.toast.add({ severity: 'success', summary: 'Mandado', detail: `${r.vale.folio}: lo hecho sin conexión ya está en el servidor.` });
+    const v = this.s.vale();
+    if (v && (await this.red.llaveDe(v.id)) === r.key) {
+      // Sólo si nadie está escribiendo un renglón: tumbar una captura a medias sería peor.
+      if (!this.s.actual() && !this.masiva()) this.cargarDetalle(r.sessionId ?? v.id);
+    } else if (!v && this.modo() === 'alta') {
+      this.cargarEnCurso();
+    }
+  }
+
+  mandarAhora(): void {
+    void this.red.flush();
+  }
+
+  reintentarVale(key: string): void {
+    void this.red.reintentar(key);
+  }
+
+  /** Tira lo pendiente de un vale (el banner ya pidió confirmación). Si es el abierto, se sale de él. */
+  async descartarVale(key: string): Promise<void> {
+    const v = this.s.vale();
+    const eraElAbierto = !!v && (await this.red.llaveDe(v.id)) === key;
+    await this.red.descartar(key);
+    this.toast.add({ severity: 'warn', summary: 'Descartado', detail: 'Lo hecho sin conexión en ese vale se tiró.' });
+    if (eraElAbierto) this.otroCamion();
+    else if (this.modo() === 'alta') this.cargarEnCurso();
   }
 
   /** Vuelve a un vale que quedó a medias: el mismo camino que el borrador de este equipo. */
@@ -1214,4 +1588,12 @@ export class AndenComponent implements OnInit {
       this.toast.add({ severity: 'info', summary: 'Vale retomado', detail: `${v.folio} — seguí donde lo dejaste.` });
     });
   }
+}
+
+/**
+ * `[WMS-REC.20]` El equipo SABE que no tiene red (modo avión, sin señal). Ahí ni se intenta: se va
+ * directo a lo guardado. Con "poca" red el navegador dice que sí hay, y entonces se intenta con tope.
+ */
+function sinRedDelTodo(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false;
 }
