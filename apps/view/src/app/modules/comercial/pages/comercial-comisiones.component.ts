@@ -30,6 +30,22 @@ import {
  *  · La deducción del supervisor es por PERSONA y agregada sobre sus rutas, no por ruta:
  *    la línea de supervisor trae la contribución de cada ruta y el neto se suma abajo.
  */
+
+/**
+ * Lo que esta pantalla PINTA de una corrida, y nada más.
+ *
+ * `[RD.40]` agregó a `CommissionRunPayload` ocho campos obligatorios (deducción, neto,
+ * traslape, rutas fuera, frescura, compuertas, beneficiarios, fuera) que esta pantalla no
+ * muestra. Al reabrir una corrida GUARDADA, `CommissionRunDetail` no trae `beneficiarios` ni
+ * `fuera`, y sus totales de deducción/neto pueden venir null: exigir el payload completo
+ * obligaba a inventarlos en cero —lo que no se midió se declara, no se dibuja como cero— y
+ * dejó a `main` sin compilar (TS2345 en `loadRun`). La vista previa trae el payload entero y
+ * encaja igual: es un superconjunto de esto.
+ */
+type CorridaEnPantalla = Pick<CommissionRunPayload,
+  'run_id' | 'status' | 'period' | 'scale' | 'total_subtotal' | 'total_venta' | 'total_comision'
+  | 'total_a_pagar' | 'rutas_con_dato' | 'rutas_sin_dato' | 'lines'>;
+
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
@@ -241,7 +257,7 @@ export class ComercialComisionesComponent {
   readonly anio = signal(2026);
   readonly periods = signal<CommissionPeriod[]>([]);
   readonly selected = signal<CommissionPeriod | null>(null);
-  readonly run = signal<CommissionRunPayload | null>(null);
+  readonly run = signal<CorridaEnPantalla | null>(null);
   readonly tab = signal<string>('chofer');
   readonly loadingPeriods = signal(false);
   readonly busy = signal(false);
@@ -289,6 +305,12 @@ export class ComercialComisionesComponent {
           total_subtotal: +d.total_subtotal, total_venta: +d.total_venta,
           total_comision: +d.total_comision, total_a_pagar: +d.total_a_pagar,
           rutas_con_dato: d.rutas_con_dato, rutas_sin_dato: d.rutas_sin_dato,
+          // ⚠️ Acá iban los ocho campos que `[RD.40]` agregó al payload (deducción, neto,
+          // traslape, rutas fuera, frescura, compuertas, beneficiarios, fuera). Se retiran:
+          // `CorridaEnPantalla` es un `Pick` de lo que esta pantalla PINTA, y ninguno de los
+          // ocho se pinta. Mapearlos acá los volvía a exigir y rompía el build (TS2353).
+          // Si algún día la pantalla muestra alguno, se agrega al `Pick` y recién ahí se mapea
+          // —preservando el `null`, que dice «no se midió», en vez de caer a `0`.
           lines: d.lines,
         });
         this.busy.set(false);
@@ -338,7 +360,7 @@ export class ComercialComisionesComponent {
   }
 
   /** KPI header sin caja (ADR-033): la cobertura va con las cifras, no en un renglón aparte. */
-  kpis(r: CommissionRunPayload): MetricStripItem[] {
+  kpis(r: CorridaEnPantalla): MetricStripItem[] {
     const total = r.rutas_con_dato + r.rutas_sin_dato;
     return [
       { label: 'Subtotal', value: Number(r.total_subtotal), format: 'currency' },
