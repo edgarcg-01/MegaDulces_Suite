@@ -166,7 +166,7 @@ y aun así publicaba el UxC desde otra columna.
 | **Egreso · qué cuenta como egreso** | la familia contable, con la compra **siempre al lado y nunca sumada** | el **87.8 %** de lo que sale por esa puerta es compra de mercancía (511), no gasto: $453.7 M contra $56.0 M. Llamar «gasto» al total lo multiplica por nueve | ✅ **sí, partido en 4 bloques** — §21 |
 | **Supuesto de crecimiento · GASTO** | ⭐ los mismos libros de §21, pareando **meses completos de cada lado por separado** | el signo se **invierte**: Kepler puede parear 3 meses (uno es el mes en curso) y da **−40.04 %**; los libros parean 9 completos y dan **+10.55 %**. El `0 %` que publica la pantalla no es un cero medido: es `basis:'default'` por 3 pares contra un mínimo de 4 | ⚠️ **refutado el publicado, NO sustituido**: `familia 6` ≠ agrupador SAT (§21.3) y la correspondencia sigue sin firmar — §22 |
 | **Supuesto de crecimiento · VENTAS** | para `mostrador`/`credito`/`mayoreo`, el ingreso fiscal — **para `ruta` y `preventa` NO puede serlo**: esa venta cobra en efectivo fuera del circuito fiscal | en prod `sales_plan_settings` tiene **0 filas**: los 20.1/10.6/62.1/29.3 que se ven **no están guardados** — el motor leería 0. El `+62.1 %` de Vecinal es el mayor crecimiento declarado **y** uno de los dos canales sin testigo fiscal | ⛔ **declarado, no arbitrado** — §22.6/22.7/22.9 |
-| **Ingreso · lo que NO llega a los libros** | el sell-out canónico contra el agrupador `401%` de ContPAQi, por periodo | 2026 ene–sep: brecha **$78.60 M** (16.6 %) y `ruta + vecinal` son el **84.0 %** de ella. ⛔ Pero en **2025** la misma cuenta da **306.9 %** — esa venta sí llegaba a los libros — y el salto es el **1-ene-2026**, no una migración de plaza | ⚠️ **la causa tiene fecha, no nombre**: 3 lecturas vivas, ninguna medida — §22.9 |
+| **Ingreso · lo que NO llega a los libros** | ⭐ **cuenta nombrada contra plaza nombrada** — NO el agregado anual, que compara universos distintos | la contabilidad tiene **10 cuentas con el nombre de una ruta** y **seis nunca movieron un peso** desde 2018; las diez juntas registran **$281,816** contra **$66,055,835** de venta de ruta y vecinal (2026 ene–sep) = **0.43 %**. Control positivo con el mismo método: La Piedad Abastos cuadra al **0.03 %** | ✅ **sí: la venta de ruta no pasa por los libros** — §22.10. ⛔ El **destino** de ese efectivo NO se midió |
 
 ---
 
@@ -2982,6 +2982,10 @@ protegida de envejecer** — que es exactamente lo que `[CDRP.2.1]` cobró hace 
 
 ### 22.9 ⭐⭐ El alcance del árbitro: la ruta cobra en efectivo no fiscal — y eso encaja en 2026, **no** en 2025
 
+> ⛔⛔ **CORREGIDA POR §22.10.** Su conclusión central —*«la tesis se rompe en 2025»*— **es falsa**, y
+> el método que la produjo también: el agregado anual compara dos universos distintos. Se conserva
+> entera porque el error es instructivo. **Leer §22.10 antes de citar nada de acá.**
+
 Edgar, al leer §22: *«rutas mete su dinero en efectivo (no fiscal), así que no se considera en
 ContPAQi. Sus ventas vienen de `/finanzas/ingresos` o ventas-por-ruta»*.
 
@@ -3041,3 +3045,105 @@ $279,093,917 y `credito` $104,318,070 — los dos **exceden la brecha entera** p
 3. **El `+62.1 %` de Vecinal queda peor parado, no mejor.** Es uno de los dos canales sin testigo
    fiscal **y** el de mayor crecimiento declarado en pantalla. Su único árbitro posible es el
    control manual de la operación.
+
+### 22.10 ⭐⭐⭐ Es DINERO, no artefacto — y lo prueba el plan de cuentas, no el residuo (2026-10-07)
+
+Edgar: *«investígalo a profundidad»*. La pregunta era si los **$78.60 M** de brecha de 2026 son
+venta real fuera de los libros o un efecto de cómo quedó nuestra ingesta después del concentrador.
+
+**Son dinero.** Y la prueba no es el 84 % de §22.9 —un residuo del tamaño correcto no prueba nada,
+porque siempre hay algún sumando que cabe— sino que **la contabilidad tiene cuentas con el nombre
+de la ruta escrito, y están vacías**.
+
+#### El control negativo: la cuenta se llama «RUTA 23»
+
+Es el único caso del catálogo donde el mapeo no admite interpretación: la cuenta dice qué ruta es.
+
+| periodo | sell-out de Ruta 23 | lo que registran sus 2 cuentas | ratio |
+|---|---:|---:|---:|
+| 2025 (12 m) | 5,641,204.42 | 267,035.86 | **4.73 %** |
+| 2026 ene–sep | 5,157,746.76 | 171,099.72 | **3.32 %** |
+
+#### El control positivo, con el MISMO método
+
+Sin esto el 4.73 % podría ser un problema de mapeo, no un hecho (R5). Sucursales con cuenta propia
+e inequívoca, 2026 ene–sep, excluyendo del sell-out los canales de ruta:
+
+| plaza | sell-out | libros | ratio |
+|---|---:|---:|---:|
+| **La Piedad Abastos** | 18,168,438.65 | 18,162,310.00 | **100.0 %** (difieren en $6,128 = 0.03 %) |
+| Morelia Madero | 17,948,360.11 | 18,412,901.54 | 102.6 % |
+| Padre Hidalgo (SUC + TLMKT) | 84,235,901 | 73,432,769 | 87.2 % |
+
+**Donde la venta se factura, los dos lados cuadran al centavo. Donde es ruta, los libros tienen el
+3 %.** El método discrimina, que es lo único que vuelve interpretable al 3 %.
+
+#### El plan de cuentas lo dice solo
+
+De las 47 cuentas de familia 4, **diez** nombran una ruta. Su vida completa, desde 2018:
+
+| cuenta | nombre | desde | hasta | total histórico |
+|---|---|---|---|---:|
+| 4010090000 · 4030090000 | VENTAS 0% / 16% **RUTA 23** | 2018-01 | 2026-09 | 438,136 |
+| 4010100000 · 4030100000 | VENTAS 0% / c/IVA **RD ZAMORA** | 2018-01 | 2026-08 | 252,131 |
+| 4010110000 · 4030110000 | VENTAS 0% / c/IVA **RUTA 26** | 2018-03 | 2020 | **0** |
+| 4010160000 · 4030160000 | VENTAS 0% / c/IVA **RUTA 502** | 2020-01 | 2024 | **0** |
+| 4010170000 · 4030170000 | VENTAS 0% / c/IVA **RUTA 24** | 2022-03 | 2022 | **0** |
+
+⭐ **Las cuentas existen desde 2018 y seis de las diez nunca movieron un peso.** No es que falte la
+cuenta: está abierta, nombrada, y nadie contabiliza contra ella. En 2026 ene–sep **las diez juntas
+registran $281,816 contra $66,055,835 de venta de ruta y vecinal en 20 plazas — el 0.43 %.**
+
+#### ⛔ Y mi §22.9 estaba mal: 2025 no refutaba nada
+
+La contradicción que publiqué hace una hora (*«en 2025 la ruta sí llegaba a los libros»*) **no
+existe**. Ruta 23 registraba **4.73 %** en 2025, prácticamente lo mismo que el 3.32 % de 2026: la
+práctica no cambió el 1-ene-2026.
+
+Lo que cambió fue **nuestro lado**. Medido: el sell-out de 2025 **no ve cuatro plazas enteras** que
+los libros sí registran —
+
+| plaza | en los libros, 2025 | en el sell-out, 2025 |
+|---|---:|---:|
+| 8 Esquinas | 50,932,768 | **230,601** (un solo mes) |
+| Zamora | 64,251,419 | **0** |
+| Zamora Centro | 7,847,254 | **0** |
+| Yurécuaro | 7,155,487 | **0** |
+| **total** | **130,186,929** | 230,601 |
+
+— y esas plazas entran al sell-out recién en 2026, cuando migran a Kepler. O sea que en 2025 **dos
+ausencias de signo opuesto se cancelaron**: a los libros les faltaba la ruta (−$73 M) y a nosotros
+nos faltaban cuatro plazas (−$130 M). La brecha neta salió chica, **$23.8 M (3.9 %)**, y se leyó
+como si todo cuadrara.
+
+⭐⭐ **La lección, que es más valiosa que el número:** *dos huecos opuestos en un agregado se suman a
+«cuadra».* Un total que parece sano es la evidencia más débil que existe cuando los dos lados
+cubren universos distintos — y acá el universo lo cambiaba un cutover de ERP en curso. Es la misma
+familia que §21.5(a) (*«un total que suma meses comparables con meses que no lo son»*) y que la
+regla de que la divergencia se localiza en el periodo que cuadra.
+
+⚠️ **Por eso el agregado de 2025 no se recompone y no se intenta.** Restando del fiscal las cuatro
+plazas invisibles, la brecha "comparable" salta a **$154.0 M** contra $73.1 M de ruta — peor, no
+mejor. Wincaja agrupa las plazas con otro corte del que usan las cuentas, así que **cuenta nombrada
+contra plaza nombrada es el único cruce defendible**; el agregado anual no lo es.
+
+#### Qué queda establecido, y qué no
+
+✅ **La venta de ruta y vecinal no pasa por la contabilidad.** Evidencia directa (cuentas con su
+nombre, vacías), control positivo que cuadra al 0.03 %, y estable en el tiempo (4.73 % → 3.32 %).
+
+✅ **No es artefacto de la ingesta.** El artefacto está del otro lado: era la comparación de 2025.
+
+⛔ **El monto exacto NO es $78.60 M.** Esa cifra es el residuo de un agregado que mezcla la ruta con
+diferencias de cobertura por plaza. Lo defendible hoy es el **canal**: $66,055,835 de venta de ruta
+y vecinal en 2026 ene–sep, de los cuales los libros reconocen $281,816.
+
+⛔ **Esto NO dice a dónde va ese dinero.** Dice que no se factura. Si entra a caja, a banco o se
+liquida contra el camión es otra pregunta, y tiene fuentes propias que esta sesión no tocó
+(`finance.bank_movements` de la Fase CB, las liquidaciones de la Fase RD, el control manual de
+§19.3). **Nadie debería leer esta sección como una afirmación sobre el destino del efectivo.**
+
+⛔ **Y el egreso sigue sin medirse.** §22.4 usa los libros como árbitro del gasto. Si hay una
+operación que cobra fuera del circuito fiscal, es plausible —no probado— que pague parte de su
+gasto por el mismo lado. Hasta que se mida, el `+10.55 %` cubre un universo **declaradamente
+parcial**, y ésa es la deuda que esta investigación deja abierta.
