@@ -40,7 +40,32 @@
 set -u
 
 REMOTO="git@github.com:edgarcg-01/MegaDulces_Suite.git"
-REF="refs/heads/ci-green"
+
+# ── Config sin root ─────────────────────────────────────────────────────────────────────────
+# El modo (automático o manual) se cambia editando ESTE archivo, no la unidad de systemd:
+# `/etc/systemd/system/` exige `sudo`, y `sudo` sobre SSH no autenticado pide terminal — medido
+# el 2026-10-07. El archivo es opcional: si no está, todo sigue como vino.
+#
+#   ~/ops/prod/vigia.env     VIGIA_REF=refs/heads/prod-release
+#                            AUTO_DEPLOY_BRANCH=prod-release
+#
+# ⚠️ Se EXPORTAN: `AUTO_DEPLOY_BRANCH` no lo lee este guion sino `auto-deploy.sh`, que corre como
+# hijo. Sin `export` el vigía miraría la ref nueva y el hijo seguiría desplegando `main`.
+# Para volver al modo automático: borrar el archivo y reiniciar el vigía.
+if [ -f "$HOME/ops/prod/vigia.env" ]; then
+  . "$HOME/ops/prod/vigia.env"
+  [ -n "${VIGIA_REF:-}" ] && export VIGIA_REF
+  [ -n "${AUTO_DEPLOY_BRANCH:-}" ] && export AUTO_DEPLOY_BRANCH
+fi
+
+# Qué ref DISPARA el despliegue. Por omisión `ci-green`, que es como vino: cada commit verde de
+# `main` sale solo. Con `VIGIA_REF=refs/heads/prod-release` el disparo pasa a ser manual y lo da
+# `ops/prod/soltar.sh` — ver la cabecera de ese guion para el porqué.
+#
+# ⚠️ `ci-green` NO deja de usarse al cambiar esto: sigue siendo el SELLO del CI, y
+# `compuerta-ci.sh` se niega igual a desplegar un commit que no esté en su historia. Son dos
+# preguntas distintas y por eso son dos refs: «¿el CI lo aprobó?» y «¿lo queremos afuera?».
+REF="${VIGIA_REF:-refs/heads/ci-green}"
 INTERVALO="${VIGIA_INTERVALO:-30}"
 # `[CD.21]` Cuando el despliegue queda FRENADO por migraciones se sigue reintentando, pero más
 # espaciado: la condición la levanta una persona aplicando la migración, no pasa sola en 30 s.

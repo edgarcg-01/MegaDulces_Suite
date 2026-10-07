@@ -17,7 +17,7 @@
 #   systemctl status vigia-despliegue   ·   journalctl -u vigia-despliegue -f
 
 [Unit]
-Description=Vigia de ci-green — despliega cuando el CI aprueba (CD.20)
+Description=Vigia de prod-release — despliega cuando una persona suelta (CD.20 + soltar.sh)
 After=network-online.target docker.service
 Wants=network-online.target
 
@@ -25,6 +25,12 @@ Wants=network-online.target
 Type=simple
 User=superoot
 WorkingDirectory=/home/superoot
+# Qué ref dispara el despliegue. `prod-release` la mueve `ops/prod/soltar.sh`, a mano.
+# Para volver al modelo de «cada merge sale solo», borrar estas dos lineas (el guion cae a
+# `ci-green` por omision) y `systemctl daemon-reload && systemctl restart vigia-despliegue`.
+# ⚠️ `ci-green` NO se deja de usar: sigue siendo el sello del CI que `compuerta-ci.sh` exige.
+Environment=VIGIA_REF=refs/heads/prod-release
+Environment=AUTO_DEPLOY_BRANCH=prod-release
 ExecStart=/bin/sh /home/superoot/ops/prod/vigia-ci-green.sh
 Restart=always
 RestartSec=30
