@@ -509,6 +509,29 @@ export interface SdUpsertCategoryDto {
   sort_order?: number;
 }
 
+/** `[MS.7.6]` Roles de quien atiende una cola. `coordinador` es el responsable del área. */
+export const SD_QUEUE_ROLES = ['coordinador', 'tecnico'] as const;
+export type SdQueueRole = (typeof SD_QUEUE_ROLES)[number];
+
+export interface SdQueueMemberDto {
+  user_id: string;
+  username: string;
+  name: string | null;
+  role: SdQueueRole;
+  /** Tiene la clave de atender (o la de coordinar): sin ella la pertenencia no le sirve de nada. */
+  can_attend: boolean;
+  can_coordinate: boolean;
+}
+
+export interface SdQueueMembersResponse {
+  queue_id: string;
+  members: SdQueueMemberDto[];
+}
+
+export interface SdUpsertQueueMemberDto {
+  role?: SdQueueRole;
+}
+
 export interface SdUpsertQueueDto {
   code?: string;
   name?: string;

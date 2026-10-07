@@ -21,6 +21,7 @@ describe('almacen-tabs · el tab de Análisis BI cruza las áreas', () => {
     // primera del área Control y su URL representativa.
     control: '/almacen/prevencion',
     entrada: '/almacen/inventory/recepcion-sesiones',
+    salida: '/almacen/pedidos',
   };
 
   for (const [area, url] of Object.entries(URLS_POR_AREA)) {

@@ -6929,7 +6929,8 @@ export class CommercialAnalyticsService {
     // `[VEC.2]` Dos piernas: el rollup (camionetas + Wincaja) y la vecinal DERIVADA del ODS.
     // La vecinal ya no sale de `sales_by_route_monthly` ni de `wincaja.branches` — una ruta
     // nueva aparece sola el día que vende, sin que nadie la dé de alta en ninguna lista.
-    const rows: any[] = await this.tk.run(async (trx) => (await trx.raw(
+    type FilaRuta = { warehouse_code: string; warehouse_name: string; route_code: string; route_no: string | null };
+    const rows: FilaRuta[] = await this.tk.run(async (trx) => (await trx.raw(
       `SELECT w.code AS warehouse_code, w.name AS warehouse_name, s.route_code, s.route_no
          FROM analytics.sales_by_route_monthly s
          JOIN commercial.warehouses w ON w.id = s.warehouse_id
@@ -6994,6 +6995,14 @@ export class CommercialAnalyticsService {
          SELECT rpl.tenant_id, rpl.cliente, rpl.sku, rpl.importe
            FROM analytics.route_push_lines rpl
           WHERE rpl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
+            AND COALESCE(rpl.route_no, '') !~ '${VECINAL_RX}'
+         UNION ALL
+         -- [VEC.9] La vecinal sale de su fuente derivada del ODS. En route_push_lines quedo
+         -- lo que escribio el importer retirado, con SKUs y clientes de otras cajas: un combo
+         -- armado con eso ofrece productos que esa ruta nunca vendio.
+         SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
+           FROM analytics.v_kepler_vecinal_sales_lines vl
+          WHERE vl.business_date >= (CURRENT_DATE - INTERVAL '2 years')
          UNION ALL
          SELECT vl.tenant_id, vl.cliente, vl.sku, vl.importe
            FROM wincaja.v_sales_lines vl
@@ -7192,11 +7201,23 @@ export class CommercialAnalyticsService {
     const tenantId = this.tenantCtx.requireTenantId();
     const num = (v: any) => Number(v) || 0;
 
+    // `[VEC.9]` La pierna del push queda acotada a las CAMIONETAS (`route_no` numérico). Lo
+    // vecinal que quedó en esa tabla lo escribió el importer retirado y viene inflado 2.07× —
+    // mientras esta rama lo leía, la matriz del reporte decía la verdad y **el Top de productos
+    // y clientes de la misma pantalla seguía mintiendo**.
     const RAMA_PUSH = `
       SELECT rpl.tenant_id, rpl.business_date, rpl.cliente, rpl.sku, rpl.qty, rpl.importe,
              rpl.folio AS consecutivo
         FROM analytics.route_push_lines rpl
-       WHERE rpl.business_date >= ? AND rpl.business_date <= ? AND rpl.business_date <= CURRENT_DATE`;
+       WHERE rpl.business_date >= ? AND rpl.business_date <= ? AND rpl.business_date <= CURRENT_DATE
+         AND COALESCE(rpl.route_no, '') !~ '${VECINAL_RX}'`;
+    // La vecinal entra por su fuente derivada del ODS. Va SIEMPRE: no depende del corte de
+    // Wincaja, que es de otra era y de otra pierna.
+    const RAMA_VECINAL = `
+      SELECT vl.tenant_id, vl.business_date, vl.cliente, vl.sku, vl.qty, vl.importe,
+             (vl.caja || '-' || vl.folio) AS consecutivo
+        FROM analytics.v_kepler_vecinal_sales_lines vl
+       WHERE vl.business_date >= ? AND vl.business_date <= ? AND vl.business_date <= CURRENT_DATE`;
     // ⚠️ El push va PRIMERO: en un UNION los nombres de columna los pone la primera rama, y por
     // eso "folio" lleva alias explicito. Sin el alias la consulta truena con
     // "column l.consecutivo does not exist" -- paso al escribir el candado.
@@ -7235,8 +7256,8 @@ export class CommercialAnalyticsService {
               + 'no pueden aportar ni una linea.'
             : `Wincaja aporta venta de ruta hasta el ${wUlt}, dentro de la ventana: se leen las tres ramas.`;
 
-      const ramas = [RAMA_PUSH];
-      const params: any[] = [from, to];
+      const ramas = [RAMA_PUSH, RAMA_VECINAL];
+      const params: Array<string | number> = [from, to, from, to];
       if (!saltar) {
         ramas.push(RAMA_WCJ_RUTA, RAMA_WCJ_VECINAL);
         params.push(from, to, from, to);
@@ -7337,7 +7358,7 @@ export class CommercialAnalyticsService {
       ]);
       if (factFilter) {
         // `[VEC.2]` Los dos primeros tenant son del CTE `rutas` (ver abajo).
-        const params: any[] = [tenantId, tenantId, tenantId, from, to];
+        const params: Array<string | string[]> = [tenantId, tenantId, tenantId, from, to];
         let extra = '';
         if (q.sku) { extra += ' AND sl.sku = ?'; params.push(q.sku); }
         if (q.client) { extra += ' AND sl.cliente = ?'; params.push(q.client); }
@@ -7388,7 +7409,7 @@ export class CommercialAnalyticsService {
       // cabecera y líneas sin la CAJA (`c5`) y le pegaba a cada ticket las líneas de los
       // tickets homónimos de las otras cajas. Y como ese rollup sube con `GREATEST(...)`,
       // **nunca baja**: no se corrige re-corriendo nada, se corrige dejando de leerlo.
-      const params: any[] = [tenantId, from, to, tenantId, from, to];
+      const params: Array<string | string[]> = [tenantId, from, to, tenantId, from, to];
       let filtro = '';
       if (routeFilter) { filtro = ` AND (wcode || '|' || route_code) = ANY(?)`; params.push(routeFilter); }
       else if (whFilter) { filtro = ' AND wcode = ANY(?)'; params.push(whFilter); }

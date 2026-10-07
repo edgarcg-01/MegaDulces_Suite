@@ -35,6 +35,7 @@ export * from './lib/commercial-rider-liquidation/commercial-rider-liquidation.m
 // Fase SU.2 — pool de pedidos por surtir + olas de surtido (ADR-067)
 export * from './lib/commercial-picking/commercial-picking.module';
 export * from './lib/commercial-picking/picking.service';
+export * from './lib/warehouse-orders/warehouse-orders.module';
 export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-replenishment/commercial-replenishment.module';

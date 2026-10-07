@@ -36,6 +36,7 @@ export const SLA_JOB_KEY = 'service_desk_sla';
 interface TicketAbierto {
   id: string;
   tenant_id: string;
+  queue_id: string;
   folio: string;
   title: string;
   priority: SdPriority;
@@ -121,13 +122,21 @@ export class ServiceDeskSlaService {
         const abiertos: TicketAbierto[] = await trx('servicedesk.requests')
           .whereNull('deleted_at')
           .whereIn('status', ['nuevo', 'asignado', 'en_proceso', 'en_espera'])
-          .select('id', 'tenant_id', 'folio', 'title', 'priority', 'status', 'assigned_to', 'due_at', 'first_response_due_at', 'first_responded_at', 'paused_at', 'sla_first_breached_at', 'sla_resolution_breached_at', 'escalated_at');
+          .select('id', 'tenant_id', 'queue_id', 'folio', 'title', 'priority', 'status', 'assigned_to', 'due_at', 'first_response_due_at', 'first_responded_at', 'paused_at', 'sla_first_breached_at', 'sla_resolution_breached_at', 'escalated_at');
 
         let marcados = 0;
         const avisos: SdEvento[] = [];
         // Sin asignado el aviso va a quien coordina/atiende; con asignado, a esa persona.
-        let agentes: string[] | null = null;
-        const aQuienAtiende = async (): Promise<string[]> => (agentes ??= (await this.agents.listIn(trx)).map((a) => a.user_id));
+        // `[MS.7.6]` Por COLA del ticket: el atraso de un ticket de Mantenimiento no se avisa a TI. Una lectura por cola.
+        const porCola = new Map<string, string[]>();
+        const aQuienAtiende = async (queueId: string): Promise<string[]> => {
+          let l = porCola.get(queueId);
+          if (!l) {
+            l = (await this.agents.listIn(trx, queueId)).map((a) => a.user_id);
+            porCola.set(queueId, l);
+          }
+          return l;
+        };
 
         for (const r of abiertos) {
           const politica = config.policies[r.priority];
@@ -164,12 +173,12 @@ export class ServiceDeskSlaService {
 
           // Con la escalación apagada se MIDE y se marca, pero no se avisa a nadie.
           if (!config.settings.escalationEnabled) continue;
-          const destino = r.assigned_to ? [r.assigned_to] : await aQuienAtiende();
+          const destino = r.assigned_to ? [r.assigned_to] : await aQuienAtiende(r.queue_id);
           const base = { request_id: r.id, folio: r.folio, title: r.title, priority: r.priority, recipients: destino };
           const plazo = r.due_at ? new Date(r.due_at).getTime() : 0;
           const plazo1 = r.first_response_due_at ? new Date(r.first_response_due_at).getTime() : 0;
           if (porVencer) avisos.push({ ...base, event: 'sla_por_vencer', discriminador: plazo });
-          if (v.primera_respuesta_vencida) avisos.push({ ...base, event: 'sla_primera_respuesta_vencida', recipients: await aQuienAtiende(), discriminador: plazo1 });
+          if (v.primera_respuesta_vencida) avisos.push({ ...base, event: 'sla_primera_respuesta_vencida', recipients: await aQuienAtiende(r.queue_id), discriminador: plazo1 });
           if (v.resolucion_vencida) avisos.push({ ...base, event: 'sla_vencido', discriminador: plazo });
         }
 

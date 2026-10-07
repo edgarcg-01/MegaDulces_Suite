@@ -42,6 +42,13 @@ export const ENTRADAS_CONTROL_TABS: PageTab[] = [
     permission: Permission.COMPRAS_ENTRADAS_VER,
   },
   {
+    // [RE.35.3] Dónde y quién captura entradas sin orden de compra: el correctivo en el origen.
+    label: 'Sin orden de compra',
+    route: '/compras/entradas/control/sin-oc',
+    icon: 'pi pi-exclamation-circle',
+    permission: Permission.COMPRAS_ENTRADAS_VER,
+  },
+  {
     // RE.20.0 — "Ajustes" chocaba con los **ajustes de compra** (notas de crédito X-D-55 y
     // devoluciones X-D-40), que son otra cosa y viven en /compras/descuentos.
     label: 'Parámetros',

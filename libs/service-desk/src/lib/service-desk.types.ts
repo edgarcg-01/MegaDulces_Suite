@@ -8,6 +8,7 @@
  * (ADR-054, medido en prod).
  */
 import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
+import { SIN_COLAS, TODAS_LAS_COLAS, type AccesoColas } from './domain/queue-access';
 
 export interface ActorCtx {
   userId: string;
@@ -18,6 +19,14 @@ export interface ActorCtx {
   esAgente: boolean;
   /** Reasigna y cambia prioridades: `SERVICIO_COORDINAR` o god-mode. */
   esCoordinador: boolean;
+  /** God-mode (por nombre de rol, ADR-054). */
+  esGod: boolean;
+  /**
+   * `[MS.7.6]` DÓNDE puede lo anterior: las colas que atiende y las que coordina (clave ∩ pertenencia a `queue_members`).
+   * `actorDesdeRequest` sólo sabe lo que viaja en el JWT, así que deja `SIN_COLAS` (o todas, si es god-mode); las
+   * membresías las completa `ServiceDeskActorsService.resolve` con una lectura.
+   */
+  colas: AccesoColas;
 }
 
 export interface AuthedRequest {
@@ -48,5 +57,7 @@ export function actorDesdeRequest(req: AuthedRequest): ActorCtx {
     nombre: u?.full_name || u?.nombre || u?.username || 'Usuario',
     esAgente: atiende,
     esCoordinador: coordina,
+    esGod: god,
+    colas: god ? TODAS_LAS_COLAS : SIN_COLAS,
   };
 }
