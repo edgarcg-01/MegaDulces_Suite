@@ -1552,3 +1552,67 @@ Quedó congelado con una prueba que lee el CSS del componente y exige que los do
 
 **Validación visual a 1285 px**, que es el ancho de la captura del reporte. La aritmética dice que
 entra; nadie lo vio todavía.
+
+---
+
+## 19. `[CG.53]` La forma del diseño, no sólo sus decisiones (2026-10-07)
+
+**Edgar, mirando la pantalla en vivo:** *"pero el artefacto no se ve para nada igual que el diseño
+… de la interfaz actual"*.
+
+**Tiene razón, y es una omisión mía.** `[CG.48]`–`[CG.52]` portaron las **decisiones** del tablero
+—arqueo único con desglose, arqueo primero, flechas, la jornada por default, el ancho que sigue a
+la tarea— y **ninguna portó la forma**. La pantalla seguía siendo PrimeNG con sus etiquetas, sus
+pistas repetidas y su total en un campo apagado.
+
+### Las dos diferencias de forma que más pesaban
+
+**1. La reja, en dos columnas.** Once renglones apilados son ~470 px dentro de un panel de ~780: el
+arqueo solo ya pedía scroll. Billetes (5) y monedas (6) lado a lado lo bajan a ~230.
+
+⚠️ **Siguen siendo dos `<p-table>`, no una reja de `div`s con `aria-label`.** `[CG.23]` eligió tabla
+a propósito — *"esto es dato tabular, así el encabezado de columna existe de verdad para un lector
+de pantalla en vez de repetir una etiqueta por celda"* — y eso no caduca por acomodarlas distinto.
+Con dos tablas cada una conserva sus `<th>`, y de paso el *"moneda"* que se repetía en los 6
+renglones se fue: lo dice el encabezado de **su** tabla. Era, textual, la «información repetitiva»
+del reporte original.
+
+⚠️ **Y el teclado no se rompe**, que era el riesgo real justo después de `[CG.50]`: `moverFoco`
+recorre `input.cg-pieza` en **orden del DOM** = 5 billetes y después 6 monedas. Cada sub-columna se
+lee de arriba a abajo, así que bajar con la flecha sigue coincidiendo con lo que ve el ojo — que es
+exactamente la razón por la que `[CG.23]` las quería en una sola columna.
+
+**2. El número de la pantalla.** El total era un `<input disabled>` en el pie de la tabla, rotulado
+«Monto del movimiento»: el resultado de contar, en gris, del tamaño de una celda y con cara de
+campo apagado. Ahora es el bloque del tablero — **`--fs-display`**, que es el token de *«headline
+metric, UNA por vista»* y que esta pantalla **no estaba usando en ningún lado** (medido: 0
+ocurrencias). El efectivo contado es exactamente la cifra que lo merece.
+
+El veredicto viaja **con** el número, no en una pista tres bloques abajo, y distingue **tres
+ausencias** (ADR-056): `sin_contar` (no hay cifra) ≠ `sin_documento` (hay conteo pero **no hay
+contra qué cuadrarlo**) ≠ `cuadra`. Los colores salen de `--ok-soft-*` / `--warn-soft-*`, que
+voltean solos en oscuro — en el tablero estaban a mano.
+
+### Lo que esta entrega encontró
+
+⭐ **La prueba del veredicto se escribió mal y se delató sola.** Afirmaba `'cuadra'` sobre una
+captura abierta con `capturaEnPantalla()`, que es una captura **libre, sin documento anclado** — o
+sea pedía exactamente el cuadre inventado que el tercer estado existe para evitar. El código dijo
+`sin_documento` y tenía razón: **la premisa estaba mal, no la implementación.**
+
+### Verificación
+
+- `nx test view` caja-general: **208/208** (3 pruebas nuevas, 2 reescritas). `typecheck` de `view`
+  verde · `check:templates` y `check:teclado` verdes · `check:tokens` acotado a este archivo: **sin
+  un solo token inexistente**.
+- La aserción del total se **endureció**: antes exigía un campo deshabilitado, ahora exige que **no
+  haya campo** y que dentro del bloque del total no exista ni un `input`.
+- Medido sobre el diff: **0** `font-size` con literal y **0** hex crudos agregados. El rojo de
+  `check:estilos` (+2) **no es de acá** — es trabajo a medias de otra sesión en el árbol.
+
+### Lo que sigue faltando del tablero
+
+La reja del **cambio devuelto** y la del **corte** siguen en una columna (la primera está plegada
+por default, la segunda es otra superficie). La tira de KPIs del encabezado, la paginación de la
+bandeja y la de-duplicación de las pistas del panel **tampoco** se portaron. Y falta la
+**validación visual**: nadie vio esto renderizado todavía.

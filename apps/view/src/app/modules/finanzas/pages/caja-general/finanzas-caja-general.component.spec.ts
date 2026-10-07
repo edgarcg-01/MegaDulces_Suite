@@ -1153,11 +1153,49 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.piezasDe(den('20'))).toBe(3);
   });
 
-  it('[negativa] el MONTO no se puede teclear: sale del conteo y va deshabilitado', async () => {
+  it('[negativa] el MONTO no se puede teclear: sale del conteo y NO es un campo', async () => {
     const fx = await capturaEnPantalla();
-    const monto: HTMLInputElement | null = fx.nativeElement.querySelector('input#cg-monto');
-    expect(monto).not.toBeNull();
-    expect(monto!.disabled).toBe(true);
+    // ⭐ `[CG.53]` Esto era un `<input disabled>` en el pie de la tabla y ahora es el número grande
+    // de la pantalla. La afirmación se endurece: antes había un campo apagado, hoy **no hay campo**.
+    expect(fx.nativeElement.querySelector('input#cg-monto')).toBeNull();
+    expect(fx.nativeElement.querySelector('.cg-total-n')).not.toBeNull();
+
+    // Y sigue sin haber ninguna forma de teclear el monto dentro del bloque del total.
+    const bloque: Element = fx.nativeElement.querySelector('.cg-total-bloque');
+    expect(bloque.querySelectorAll('input, textarea, select').length).toBe(0);
+  });
+
+  it('el veredicto del arqueo distingue TRES ausencias, no dos', () => {
+    // ⚠️ Anclado a un documento DE VERDAD: `capturaEnPantalla()` abre una captura libre y ahí no
+    // hay contra qué cuadrar. Lo encontró esta misma prueba, afirmando 'cuadra' sobre una captura
+    // sin documento — que es exactamente el cuadre inventado que el tercer estado existe para
+    // evitar.
+    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);          // el documento dice 1060
+
+    // Sin contar no es "no cuadra": es que todavía no hay cifra.
+    expect(comp.arqueoVeredicto().estado).toBe('sin_contar');
+
+    contar({ 500: 2, 20: 3 });                  // 1060
+    expect(comp.arqueoVeredicto().estado).toBe('cuadra');
+
+    contar({ 500: 2, 20: 4 });                  // 1080
+    const v = comp.arqueoVeredicto();
+    expect(v.estado).toBe('sobra');
+    expect(v.dif).toBe(20);
+    expect(comp.textoVeredicto(v)).toContain('Sobra');
+    expect(v.esperado).toBe(1060);
+  });
+
+  it('⛔ [negativa] sin documento anclado NO se pinta un cuadre que nadie comprobó', () => {
+    montar();
+    comp.abrirCaptura();          // captura libre: sin ancla en Kepler
+    comp.setPiezas(den(500), 2);
+    const v = comp.arqueoVeredicto();
+    expect(v.estado).toBe('sin_documento');
+    expect(v.esperado).toBeNull();
+    // Lo contado es la verdad, pero no hay contra qué cuadrarlo — y eso se dice.
+    expect(comp.textoVeredicto(v)).toContain('Sin documento');
   });
 
   it('contar llena el monto y el importe del renglón, sin tocar el teclado del total', async () => {
@@ -1169,8 +1207,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.subtotalDe(den(20))).toBe(60);
     expect(comp.f().monto).toBe(1060);
 
-    const monto: HTMLInputElement = fx.nativeElement.querySelector('input#cg-monto');
-    expect(monto.value).toContain('1,060');
+    // `[CG.53]` El total dejó de ser un input apagado y es el número grande de la pantalla.
+    const monto: Element | null = fx.nativeElement.querySelector('.cg-total-n');
+    expect(monto).not.toBeNull();
+    expect(monto!.textContent).toContain('1,060');
   });
 
   it('la morralla suma al monto sin desglosarse: "en morralla queda perfecto"', async () => {

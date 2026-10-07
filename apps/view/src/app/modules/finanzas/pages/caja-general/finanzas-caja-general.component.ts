@@ -35,7 +35,7 @@ import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
   BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
-  textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN,
+  textoCobertura, sumaDesglose, redondea, puedeAutorizarUI, puedeCerrarUI, textoSaldo, GLOSA_MIN, ARQUEO_EPSILON,
   type DenominacionCapturada, type MotivoBloqueo, type CorteVista,
 } from './caja-captura.util';
 
@@ -354,6 +354,42 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⛔ [CG.48] Acá vivía ".cg-contado", el input de conteo por renglón de la bandeja. Se fue
        con su columna: era la única forma de meter una cifra contada al libro SIN desglose. */
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
+
+    /* [CG.53] La reja en dos columnas y el numero grande. Una caja con borde y SIN sombra -- in-page
+       es una de las dos, nunca las dos. */
+    .cg-reja2 { display:grid; grid-template-columns:minmax(0,1fr) 1px minmax(0,1fr);
+                border:1px solid var(--border-color); border-radius:var(--r-md); overflow:hidden; }
+    .cg-reja-sep { background:var(--border-color); }
+    .cg-reja-col { min-width:0; padding:var(--sp-1) var(--sp-2) var(--sp-2); }
+    .cg-reja-mor { grid-column:1 / -1; border-top:1px solid var(--border-color);
+                   display:flex; align-items:center; gap:var(--sp-2);
+                   padding:var(--sp-2) var(--sp-3); font-size:var(--fs-sm); }
+    /* ⛔ Con el panel angosto las dos columnas se desbordarian: se apilan, igual que el formulario.
+       Mismo umbral complementario que .cg-grid, por la misma razon. */
+    @container (max-width:26rem) {
+      .cg-reja2 { grid-template-columns:1fr; }
+      .cg-reja-sep { display:none; }
+    }
+
+    /* EL numero de la pantalla. --fs-display es "headline metric, UNA por vista" y esta pantalla
+       no lo usaba en ningun lado: lo contado es exactamente la cifra que lo merece. */
+    .cg-total-bloque { display:flex; align-items:center; gap:var(--sp-3); margin-top:var(--sp-2);
+                       padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color);
+                       border-radius:var(--r-md); }
+    .cg-total-bloque.es-ok   { background:var(--ok-soft-bg);   border-color:var(--ok-border); }
+    .cg-total-bloque.es-warn { background:var(--warn-soft-bg); border-color:var(--warn-border); }
+    .cg-lbl-micro { font-size:var(--fs-nano); font-weight:500; color:var(--text-muted);
+                    text-transform:uppercase; letter-spacing:.06em; }
+    .cg-total-n { font-size:var(--fs-display); font-weight:700; line-height:1.05;
+                  letter-spacing:-.03em; font-variant-numeric:tabular-nums; }
+    .cg-total-bloque.es-ok   .cg-total-n { color:var(--ok-soft-fg); }
+    .cg-total-bloque.es-warn .cg-total-n { color:var(--warn-soft-fg); }
+    .cg-total-der { text-align:right; min-width:0; }
+    .cg-total-v { display:inline-flex; align-items:center; gap:var(--sp-1);
+                  font-size:var(--fs-sm); font-weight:700; color:var(--text-muted); }
+    .cg-total-bloque.es-ok   .cg-total-v { color:var(--ok-soft-fg); }
+    .cg-total-bloque.es-warn .cg-total-v { color:var(--warn-soft-fg); }
+    .cg-total-esp { font-size:var(--fs-xs); color:var(--text-muted); margin-top:var(--sp-1); }
     /* [CG.51] La cabecera del historial plegado. Es un <button> y no un <h2> con (click): lo que
        hace es abrir y cerrar, asi que el teclado lo alcanza solo y anuncia su aria-expanded. */
     .cg-historial { margin-top:var(--sp-5); }
@@ -1488,59 +1524,126 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                      aca las flechas BAJAN POR LA COLUMNA, que es como se cuenta un fajo. Cambiarlas
                      seria cambiar lo contado sin querer. La tabla si pasa a p-table: asi el borde, la
                      cabecera y el flip a oscuro los pone el tema y no una regla a mano por pantalla. -->
-                <p class="cg-cap">Desglose del efectivo por denominación</p>
-                <p-table [value]="reja" size="small" class="cg-arqueo-tbl">
-                  <ng-template #header>
-                    <tr>
-                      <th scope="col">Denominación</th>
-                      <th scope="col">Piezas</th>
-                      <th scope="col">Importe</th>
-                    </tr>
-                  </ng-template>
-                  <ng-template #body let-b>
-                    <tr [class.cg-fila-moneda]="b.familia === 'moneda'">
-                      <th scope="row" class="mono">{{ b.label }}<!--
-                        --><span class="cg-fam" aria-hidden="true">{{ b.familia === 'moneda' ? 'moneda' : '' }}</span></th>
-                      <td>
-                        <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
-                               [ngModel]="piezasDe(b)" (ngModelChange)="setPiezas(b, $event)"
-                               (keydown.enter)="moverEnReja($event, 1)"
-                               (keydown.arrowdown)="moverEnReja($event, 1)"
-                               (keydown.arrowup)="moverEnReja($event, -1)"
-                               [attr.aria-label]="'Piezas de ' + (b.familia === 'moneda' ? 'la moneda de ' : 'el billete de ') + b.label" />
-                      </td>
-                      <td class="mono cg-sub">{{ money(subtotalDe(b)) }}</td>
-                    </tr>
-                  </ng-template>
-                  <ng-template #footer>
-                    <tr>
-                      <!-- ⚠️ [CG.48] Acá decia "Morralla" a secas y su aria-label "todas las monedas
-                           juntas". Eso era cierto hasta [CG.38], que le dio renglon propio a las seis
-                           monedas: hoy la morralla es SOLO el metal de menos de 50 centavos. El rotulo
-                           viejo invitaba a volcar ahi monedas que si tienen renglon, y un bulto dentro
-                           del arqueo es justo lo que el arqueo existe para que no haya. -->
-                      <th scope="row">Morralla <span class="fin-dim">· menos de 50&cent;</span></th>
-                      <td class="fin-dim cg-na">—</td>
-                      <td>
-                        <input pInputText type="number" class="cg-pieza cg-morralla-in" min="0" step="0.01"
-                               inputmode="decimal"
-                               [ngModel]="f().morralla" (ngModelChange)="setMorralla($event)"
-                               (keydown.enter)="moverEnReja($event, 1)"
-                               (keydown.arrowdown)="moverEnReja($event, 1)"
-                               (keydown.arrowup)="moverEnReja($event, -1)"
-                               aria-label="Importe de morralla: el metal de menos de 50 centavos, que no tiene renglón" />
-                      </td>
-                    </tr>
-                    <tr>
-                      <th scope="row">Monto del movimiento</th>
-                      <td class="fin-dim cg-na">{{ hayCajero() ? 'cajero + a mano' : 'del conteo' }}</td>
-                      <td>
-                        <input pInputText id="cg-monto" class="mono cg-total" [value]="money(f().monto)"
-                               disabled tabindex="-1" aria-label="Monto del movimiento, calculado del conteo" />
-                      </td>
-                    </tr>
-                  </ng-template>
-                </p-table>
+                <!-- ⭐ [CG.53] LA REJA, EN DOS COLUMNAS. Once renglones apilados son ~470px de alto
+                     dentro de un panel que tiene ~780: el arqueo solo ya pedia scroll.
+                     Billetes (5) y monedas (6) lado a lado lo bajan a ~230.
+
+                     ⚠️ Siguen siendo DOS <p-table>, no una reja de divs con aria-label. [CG.23] eligio
+                     tabla a proposito --"esto es dato tabular, asi el encabezado de columna existe de
+                     verdad para un lector de pantalla en vez de repetir una etiqueta por celda"-- y eso
+                     no caduca por acomodarlas distinto. Con dos tablas cada una conserva sus <th>.
+
+                     ⚠️ Y el teclado tampoco se rompe: moverFoco recorre 'input.cg-pieza' en orden del
+                     DOM, o sea los 5 billetes y despues las 6 monedas. Cada sub-columna se lee de
+                     arriba a abajo, asi que bajar con la flecha sigue coincidiendo con lo que ve el
+                     ojo -- que es la razon por la que [CG.23] las queria en una sola columna. -->
+                <div class="cg-reja2">
+                  <div class="cg-reja-col">
+                    <p-table [value]="rejaBilletes" size="small" class="cg-arqueo-tbl">
+                      <ng-template #header>
+                        <tr>
+                          <th scope="col">Billetes</th>
+                          <th scope="col">Piezas</th>
+                          <th scope="col">Importe</th>
+                        </tr>
+                      </ng-template>
+                      <ng-template #body let-b>
+                        <tr>
+                          <th scope="row" class="mono">{{ b.label }}</th>
+                          <td>
+                            <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                                   [ngModel]="piezasDe(b)" (ngModelChange)="setPiezas(b, $event)"
+                                   (keydown.enter)="moverEnReja($event, 1)"
+                                   (keydown.arrowdown)="moverEnReja($event, 1)"
+                                   (keydown.arrowup)="moverEnReja($event, -1)"
+                                   [attr.aria-label]="'Piezas del billete de ' + b.label" />
+                          </td>
+                          <td class="mono cg-sub">{{ money(subtotalDe(b)) }}</td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                  </div>
+
+                  <div class="cg-reja-sep" aria-hidden="true"></div>
+
+                  <div class="cg-reja-col">
+                    <p-table [value]="rejaMonedas" size="small" class="cg-arqueo-tbl">
+                      <ng-template #header>
+                        <tr>
+                          <th scope="col">Monedas</th>
+                          <th scope="col">Piezas</th>
+                          <th scope="col">Importe</th>
+                        </tr>
+                      </ng-template>
+                      <ng-template #body let-b>
+                        <tr>
+                          <!-- El "moneda" por fila se fue: lo dice el encabezado de SU tabla. Repetirlo
+                               once veces era la informacion repetitiva que el rediseno vino a sacar. -->
+                          <th scope="row" class="mono">{{ b.label }}</th>
+                          <td>
+                            <input pInputText type="number" class="cg-pieza" min="0" step="1" inputmode="numeric"
+                                   [ngModel]="piezasDe(b)" (ngModelChange)="setPiezas(b, $event)"
+                                   (keydown.enter)="moverEnReja($event, 1)"
+                                   (keydown.arrowdown)="moverEnReja($event, 1)"
+                                   (keydown.arrowup)="moverEnReja($event, -1)"
+                                   [attr.aria-label]="'Piezas de la moneda de ' + b.label" />
+                          </td>
+                          <td class="mono cg-sub">{{ money(subtotalDe(b)) }}</td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                  </div>
+
+                  <!-- ⚠️ [CG.48] Acá decia "Morralla" a secas y su aria-label "todas las monedas
+                       juntas". Eso era cierto hasta [CG.38], que le dio renglon propio a las seis
+                       monedas: hoy la morralla es SOLO el metal de menos de 50 centavos. El rotulo
+                       viejo invitaba a volcar ahi monedas que si tienen renglon, y un bulto dentro
+                       del arqueo es justo lo que el arqueo existe para que no haya. -->
+                  <div class="cg-reja-mor">
+                    <label for="cg-morralla">Morralla <span class="fin-dim">· menos de 50&cent;</span></label>
+                    <span class="cg-bandeja-sp"></span>
+                    <input pInputText id="cg-morralla" type="number" class="cg-pieza cg-morralla-in"
+                           min="0" step="0.01" inputmode="decimal"
+                           [ngModel]="f().morralla" (ngModelChange)="setMorralla($event)"
+                           (keydown.enter)="moverEnReja($event, 1)"
+                           (keydown.arrowdown)="moverEnReja($event, 1)"
+                           (keydown.arrowup)="moverEnReja($event, -1)"
+                           aria-label="Importe de morralla: el metal de menos de 50 centavos, que no tiene renglón" />
+                  </div>
+                </div>
+
+                <!-- ⭐ [CG.53] EL NUMERO DE LA PANTALLA. Esto era un <input disabled> en el pie de la
+                     tabla, rotulado "Monto del movimiento": el resultado de contar, en gris, del
+                     tamano de una celda y con cara de campo apagado. Es LA cifra de la pantalla y
+                     ahora se ve como tal -- --fs-display, que es el token de "headline metric, UNA por
+                     vista" y que esta pantalla no estaba usando en ningun lado.
+
+                     El veredicto viaja con el numero, no en una pista aparte tres bloques abajo, y
+                     distingue TRES ausencias (ADR-056): sin contar / sin documento contra que cuadrar
+                     / cuadra. Las dos primeras no son lo mismo y no se pintan igual. -->
+                @if (arqueoVeredicto(); as v) {
+                  <div class="cg-total-bloque"
+                       [class.es-ok]="v.estado === 'cuadra'"
+                       [class.es-warn]="v.estado === 'sobra' || v.estado === 'falta'">
+                    <div class="cg-total-izq">
+                      <div class="cg-lbl-micro">{{ hayCajero() ? 'Contado · cajero + a mano' : 'Contado' }}</div>
+                      <div class="cg-total-n mono">{{ money(f().monto) }}</div>
+                    </div>
+                    <span class="cg-bandeja-sp"></span>
+                    <div class="cg-total-der">
+                      <div class="cg-total-v">
+                        <i class="pi" aria-hidden="true"
+                           [class.pi-check]="v.estado === 'cuadra'"
+                           [class.pi-exclamation-circle]="v.estado === 'sobra' || v.estado === 'falta'"
+                           [class.pi-minus-circle]="v.estado === 'sin_contar' || v.estado === 'sin_documento'"></i>
+                        {{ textoVeredicto(v) }}
+                      </div>
+                      @if (v.esperado !== null) {
+                        <div class="mono cg-total-esp">documento {{ money(v.esperado) }}</div>
+                      }
+                    </div>
+                  </div>
+                }
 
                 <!-- ⭐ [CG.38] EL CAMBIO QUE SE DEVUELVE. Hasta hoy no había dónde registrarlo: si te
                      daban $5,000 por un documento de $4,830, los $170 que volvían al cliente no
@@ -2056,6 +2159,43 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * arreglo.
    */
   readonly reja = [...BILLETES_CAJA, ...MONEDAS_CAJA];
+  /**
+   * `[CG.53]` Las dos mitades de la reja, para pintarlas lado a lado. `reja` sigue existiendo y
+   * sigue siendo la misma lista: lo que cambia es cómo se acomoda, no qué se cuenta.
+   */
+  readonly rejaBilletes = BILLETES_CAJA;
+  readonly rejaMonedas = MONEDAS_CAJA;
+
+  /**
+   * `[CG.53]` El veredicto del arqueo, pegado al número en vez de en una pista tres bloques abajo.
+   *
+   * ⚠️ **Tres ausencias distintas** (ADR-056), y las tres se dicen distinto:
+   *   · `sin_contar` — todavía no hay efectivo contado. No es que no cuadre: es que no hay cifra.
+   *   · `sin_documento` — hay conteo pero **no hay contra qué cuadrarlo** (captura libre, sin ancla
+   *     en Kepler). Lo contado ES la verdad y no hay veredicto que dar; pintarlo verde sería
+   *     afirmar un cuadre que nadie comprobó.
+   *   · `cuadra` / `sobra` / `falta` — hay documento y hay conteo.
+   */
+  arqueoVeredicto = computed<{ estado: 'sin_contar' | 'sin_documento' | 'cuadra' | 'sobra' | 'falta'; dif: number; esperado: number | null }>(() => {
+    const contado = Number(this.f().monto) || 0;
+    const doc = this.cobroElegido();
+    const esperado = doc ? Number(doc.monto) : null;
+    if (!(contado > 0)) return { estado: 'sin_contar', dif: 0, esperado };
+    if (esperado === null) return { estado: 'sin_documento', dif: 0, esperado: null };
+    const dif = redondea(contado - esperado);
+    if (Math.abs(dif) < ARQUEO_EPSILON) return { estado: 'cuadra', dif: 0, esperado };
+    return { estado: dif > 0 ? 'sobra' : 'falta', dif, esperado };
+  });
+
+  textoVeredicto(v: { estado: string; dif: number }): string {
+    switch (v.estado) {
+      case 'sin_contar': return 'Sin contar';
+      case 'sin_documento': return 'Sin documento contra qué cuadrar';
+      case 'cuadra': return 'Cuadra con el documento';
+      case 'sobra': return `Sobra ${money(Math.abs(v.dif))}`;
+      default: return `Falta ${money(Math.abs(v.dif))}`;
+    }
+  }
 
   readonly GLOSA_MIN = GLOSA_MIN;
 
