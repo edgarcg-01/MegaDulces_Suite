@@ -10,4 +10,7 @@ export * from './lib/attendance/attendance-incidents.service';
 export * from './lib/attendance/attendance-closures.service';
 export * from './lib/attendance/attendance-schedules.service';
 export * from './lib/attendance/attendance.controller';
+export * from './lib/attendance/attendance-devices.service';
+export * from './lib/attendance/attendance-devices.controller';
+export * from './lib/attendance/logic/relojes';
 export * from './lib/hr.module';

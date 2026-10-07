@@ -50,6 +50,7 @@ const MIGRACIONES_FASE = [
   '20261007110000_hr_horarios_y_alertas',
   '20261007120000_hr_incidencias_y_cierres',
   '20261007130000_hr_agente_corridas',
+  '20261007140000_hr_ordenes_quien',
 ];
 
 const limpio = (v) => String(v ?? '').trim();
@@ -237,6 +238,36 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
   if (conflictos.codigo_crudo_con_dos_personas) {
     if (avisar) avisar(`  (${conflictos.codigo_crudo_con_dos_personas} checadas cuyo código crudo ya era de otra persona en su reloj: cargadas en el reloj desconocido del sitio)`);
   }
+
+  // ── Órdenes a los relojes (con los RESPALDOS que permiten restaurar a alguien) ───────────
+  // Mega Talento guardaba el código del SITIO; aquí cada orden lleva el código CRUDO de su reloj
+  // (es el que usa el agente para encontrar a la persona en el equipo).
+  const ordenes = await q(`SELECT *, btrim(empleado_codigo) AS codigo FROM reloj_comandos ORDER BY creado_en`);
+  const TIPO = { borrar_usuario: 'borrar', renombrar_usuario: 'renombrar', restaurar_usuario: 'restaurar' };
+  const descOrd = {};
+  const filasOrd = [];
+  for (const c of ordenes) {
+    const d = devPorSerie.get(c.serie);
+    const orden = TIPO[c.tipo];
+    if (!d) { descOrd.reloj_no_registrado = (descOrd.reloj_no_registrado || 0) + 1; continue; }
+    if (!orden) { descOrd.tipo_desconocido = (descOrd.tipo_desconocido || 0) + 1; continue; }
+    const terminada = ['hecho', 'error', 'cancelado'].includes(c.estado);
+    filasOrd.push({
+      device_id: d.id, device_user_id: crudoDe.get(`${c.serie}|${c.codigo}`) || c.codigo, command: orden,
+      payload: c.payload || {}, status: c.estado, attempts: Math.min(Number(c.intentos) || 0, 3), detail: c.detalle,
+      backup: c.respaldo, requested_by_name: c.creado_por, requested_at: c.creado_en,
+      completed_at: terminada ? (c.actualizado_en || c.creado_en) : null, updated_at: c.actualizado_en || c.creado_en,
+    });
+  }
+  const nOrd = await insertarLotes(trx, filasOrd, `
+    INSERT INTO hr.device_commands (tenant_id, device_id, device_user_id, command, payload, status, attempts, detail,
+           backup, requested_by_name, requested_at, completed_at, updated_at)
+    SELECT '${tenantId}'::uuid, x.device_id, x.device_user_id, x.command, x.payload, x.status, x.attempts, x.detail,
+           x.backup, x.requested_by_name, x.requested_at, x.completed_at, x.updated_at
+      FROM jsonb_to_recordset(?::jsonb) AS x(device_id uuid, device_user_id text, command text, payload jsonb, status text,
+           attempts int, detail text, backup jsonb, requested_by_name text, requested_at timestamptz,
+           completed_at timestamptz, updated_at timestamptz)`);
+  anotar('device_commands', ordenes.length, nOrd, descOrd);
 
   // ── Horarios y reglas ──────────────────────────────────────────────────────────────────
   const horarios = await q(`SELECT * FROM horarios_sucursal`);

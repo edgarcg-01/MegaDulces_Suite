@@ -70,7 +70,7 @@ const SIN_REPARTIR = {
   // nada. Y A QUIEN le toca calificar y a quien auditar es separacion de funciones (quien captura
   // no califica, quien califica no audita): lo decide RH, no se deriva del estado vivo.
   ...Object.fromEntries(['HR_ATTENDANCE_VER', 'HR_ATTENDANCE_GESTIONAR', 'HR_INCIDENTS_CAPTURAR',
-    'HR_INCIDENTS_CALIFICAR', 'HR_INCIDENTS_AUDITAR', 'HR_PERIOD_CLOSE'].map((k) => [k,
+    'HR_INCIDENTS_CALIFICAR', 'HR_INCIDENTS_AUDITAR', 'HR_PERIOD_CLOSE', 'HR_DEVICES_GESTIONAR'].map((k) => [k,
     'Fase RH: la API la exige desde [RH.1.5]/[RH.1.6]; sin pantalla hasta [RH.1.7], y el reparto ' +
     '(quien captura, califica, audita, cierra) es separacion de funciones que decide RH. ' +
     'Pendiente: David con RH.'])),

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, latirCron } from '@megadulces/platform-core';
+import { estadoTrasIntento, tipoParaAgente, type Orden } from './logic/relojes';
 import {
   IncomingBatch,
   NormalizedPunch,
@@ -80,6 +81,27 @@ export const HR_INGEST_JOB_KEY = 'hr_attendance_ingest';
 const MEGA_DULCES_TENANT = '00000000-0000-0000-0000-00000000d01c';
 const CHUNK = 500;
 
+/** El tenant de lo que llega de máquina a máquina (el lector no tiene sesión). */
+export function tenantDeMaquina(): string {
+  return process.env['HR_INGEST_TENANT_ID'] || process.env['DEFAULT_TENANT_ID'] || MEGA_DULCES_TENANT;
+}
+
+/** Una orden al reloj tal como la espera el agente de Mega Talento (`escritura.js`). */
+export interface OrdenParaAgente {
+  id: string;
+  serie: string;
+  sucursalId: string | null;
+  /** El código CRUDO del usuario en ESE reloj (no el del sitio: ver `[RH.1.2]` en la fase). */
+  empleadoCodigo: string;
+  tipo: string;
+  payload: Record<string, unknown>;
+  estado: string;
+  intentos: number;
+  detalle: string;
+  alias: string;
+  creadoEn: string;
+}
+
 @Injectable()
 export class HrAttendanceIngestService {
   private readonly logger = new Logger(HrAttendanceIngestService.name);
@@ -87,7 +109,7 @@ export class HrAttendanceIngestService {
   constructor(private readonly tk: TenantKnexService) {}
 
   private tenantId(): string {
-    return process.env['HR_INGEST_TENANT_ID'] || process.env['DEFAULT_TENANT_ID'] || MEGA_DULCES_TENANT;
+    return tenantDeMaquina();
   }
 
   private backfillMinutes(): number {
@@ -100,7 +122,6 @@ export class HrAttendanceIngestService {
     const started = Date.now();
     const serial = String(batch?.serie ?? '').trim();
     if (!serial) throw new BadRequestException('Falta la serie del reloj.');
-    const source = normalizeSource(batch.origen);
     const incoming = Array.isArray(batch.checadas) ? batch.checadas : [];
     const tenant = this.tenantId();
     const base: IngestResult = {
@@ -109,39 +130,129 @@ export class HrAttendanceIngestService {
       loteId: null, siguienteBackfillMin: this.backfillMinutes(),
     };
 
-    const result = await this.tk.run(tenant, async (trx) => {
-      const device = await this.findDevice(trx, serial);
-
-      if (!device) {
-        const loteId = await this.saveBatch(trx, tenant, null, serial, source, incoming.length, 0, 'sin_registrar', batch, 'serie desconocida');
-        return { ...base, estado: 'serie_desconocida' as const, loteId,
-          mensaje: `La serie ${serial} no está en el padrón de relojes. El lote se guardó sin aplicar.` };
-      }
-      base.sucursalId = device.site_code;
-
-      if (device.is_paused || !device.is_active) {
-        const motivo = device.is_paused ? 'reloj en pausa (pendiente de identificar o mapear)' : 'reloj inactivo';
-        const loteId = await this.saveBatch(trx, tenant, device.id, serial, source, incoming.length, 0, 'en_pausa', batch, motivo);
-        await this.touch(trx, tenant, device, batch, null);
-        return { ...base, estado: 'pendiente' as const, loteId,
-          mensaje: `El reloj ${serial} está en pausa: el lote se guardó pero no se aplicó.` };
-      }
-
-      const { rows, rejected } = normalizePunches(incoming);
-      base.rechazadas = rejected;
-      await this.upsertEnrollments(trx, tenant, device.id, deviceUsers(batch.usuarios), rows);
-      const reaparecidos = await this.flagReappearances(trx, tenant, device.id, rows);
-      const aceptadas = await this.insertPunches(trx, tenant, device, source, rows);
-      await this.touch(trx, tenant, device, batch, latestLocal(rows));
-      const loteId = await this.saveBatch(trx, tenant, device.id, serial, source, incoming.length, aceptadas, 'aplicado', null, null);
-      if (reaparecidos.length) {
-        this.logger.warn(`reloj ${serial}: ${reaparecidos.length} número(s) ignorado(s) volvieron a checar y quedan para revisión: ${reaparecidos.join(', ')}`);
-      }
-      return { ...base, aceptadas, duplicadas: rows.length - aceptadas, loteId, reaparecidos };
-    });
-
+    const result = await this.tk.run(tenant, (trx) => this.aplicar(trx, tenant, batch, base, true));
     await this.beat(tenant, result.aceptadas, Date.now() - started);
     return result;
+  }
+
+  /**
+   * El corazón de la ingesta, dentro de una transacción ya abierta. `guardarLote = false` es
+   * para el REPROCESO: el lote ya tiene su renglón en `hr.ingest_batches` y no se duplica.
+   */
+  private async aplicar(
+    trx: Knex.Transaction, tenant: string, batch: IncomingBatch, base: IngestResult, guardarLote: boolean,
+  ): Promise<IngestResult> {
+    const serial = base.serie;
+    const source = normalizeSource(batch.origen);
+    const incoming = Array.isArray(batch.checadas) ? batch.checadas : [];
+    const device = await this.findDevice(trx, serial);
+
+    if (!device) {
+      const loteId = guardarLote
+        ? await this.saveBatch(trx, tenant, null, serial, source, incoming.length, 0, 'sin_registrar', batch, 'serie desconocida')
+        : null;
+      return { ...base, estado: 'serie_desconocida' as const, loteId,
+        mensaje: `La serie ${serial} no está en el padrón de relojes. El lote se guardó sin aplicar.` };
+    }
+    base.sucursalId = device.site_code;
+
+    if (device.is_paused || !device.is_active) {
+      const motivo = device.is_paused ? 'reloj en pausa (pendiente de identificar o mapear)' : 'reloj inactivo';
+      const loteId = guardarLote
+        ? await this.saveBatch(trx, tenant, device.id, serial, source, incoming.length, 0, 'en_pausa', batch, motivo)
+        : null;
+      if (guardarLote) await this.touch(trx, tenant, device, batch, null);
+      return { ...base, estado: 'pendiente' as const, loteId,
+        mensaje: `El reloj ${serial} está en pausa: el lote se guardó pero no se aplicó.` };
+    }
+
+    const { rows, rejected } = normalizePunches(incoming);
+    base.rechazadas = rejected;
+    await this.upsertEnrollments(trx, tenant, device.id, deviceUsers(batch.usuarios), rows);
+    const reaparecidos = await this.flagReappearances(trx, tenant, device.id, rows);
+    const aceptadas = await this.insertPunches(trx, tenant, device, source, rows);
+    // En el reproceso el lote es VIEJO: no es señal de vida del reloj, así que no toca su latido.
+    if (guardarLote) await this.touch(trx, tenant, device, batch, latestLocal(rows));
+    const loteId = guardarLote
+      ? await this.saveBatch(trx, tenant, device.id, serial, source, incoming.length, aceptadas, 'aplicado', null, null)
+      : null;
+    if (reaparecidos.length) {
+      this.logger.warn(`reloj ${serial}: ${reaparecidos.length} número(s) ignorado(s) volvieron a checar y quedan para revisión: ${reaparecidos.join(', ')}`);
+    }
+    return { ...base, aceptadas, duplicadas: rows.length - aceptadas, loteId, reaparecidos };
+  }
+
+  /**
+   * Aplica los lotes que se habían guardado sin aplicar (serie sin registrar o reloj en pausa),
+   * ya que se dio de alta la serie o el reloj salió de pausa. Es lo que hace que «no perder el
+   * dato» sea verdad. En orden de llegada; se detiene en el primero que todavía no se puede.
+   */
+  async reprocesar(serial: string, tenantId: string): Promise<{ lotes: number; aplicados: number; aceptadas: number }> {
+    return this.tk.run(tenantId, async (trx) => {
+      const pendientes: Array<{ id: string; raw: IncomingBatch; records: number }> = await trx('hr.ingest_batches')
+        .where({ serial_number: serial }).whereIn('status', ['sin_registrar', 'en_pausa'])
+        .whereNull('reprocessed_at').whereNotNull('raw')
+        .orderBy('received_at').select('id', 'raw', 'records');
+      let aplicados = 0, aceptadas = 0;
+      for (const lote of pendientes) {
+        const base: IngestResult = {
+          estado: 'aplicado', serie: serial, sucursalId: null, recibidas: lote.records, aceptadas: 0,
+          duplicadas: 0, rechazadas: 0, loteId: lote.id, siguienteBackfillMin: this.backfillMinutes(),
+        };
+        const r = await this.aplicar(trx, tenantId, { ...lote.raw, serie: serial }, base, false);
+        if (r.estado !== 'aplicado') break;
+        aplicados++;
+        aceptadas += r.aceptadas;
+        const device = await this.findDevice(trx, serial);
+        await trx('hr.ingest_batches').where({ id: lote.id }).update({
+          status: 'aplicado', accepted: Math.min(r.aceptadas, lote.records), raw: null,
+          device_id: device?.id ?? null, reprocessed_at: trx.fn.now(),
+        });
+      }
+      return { lotes: pendientes.length, aplicados, aceptadas };
+    });
+  }
+
+  /** Las órdenes pendientes para un reloj, de la más vieja a la más nueva (el agente las ejecuta). */
+  async ordenesPendientes(serial: string): Promise<OrdenParaAgente[]> {
+    const serie = String(serial || '').trim();
+    if (!serie) throw new BadRequestException('Falta serie.');
+    return this.tk.run(this.tenantId(), async (trx) => {
+      const rows: Array<{ id: string; device_user_id: string; command: Orden; payload: Record<string, unknown> | null;
+        status: string; attempts: number; detail: string | null; requested_at: Date; serial_number: string;
+        site_code: string | null; label: string | null }> = await trx('hr.device_commands as c')
+        .join('hr.attendance_devices as d', function () { this.on('d.tenant_id', 'c.tenant_id').andOn('d.id', 'c.device_id'); })
+        .where('d.serial_number', serie).where('c.status', 'pendiente')
+        .orderBy('c.requested_at').limit(20)
+        .select('c.id', 'c.device_user_id', 'c.command', 'c.payload', 'c.status', 'c.attempts', 'c.detail', 'c.requested_at',
+          'd.serial_number', 'd.site_code', 'd.label');
+      return rows.map((r) => ({
+        id: r.id, serie: r.serial_number, sucursalId: r.site_code, empleadoCodigo: r.device_user_id,
+        tipo: tipoParaAgente(r.command), payload: r.payload || {}, estado: r.status, intentos: r.attempts,
+        detalle: r.detail || '', alias: r.label || '', creadoEn: new Date(r.requested_at).toISOString(),
+      }));
+    });
+  }
+
+  /**
+   * El agente reporta un intento. Un error se reintenta hasta 3 veces; después se queda en
+   * `error`, a la vista. El respaldo (el usuario como estaba ANTES de tocarlo) se conserva.
+   */
+  async reportarOrden(id: string, body: { estado?: string; detalle?: string; respaldo?: unknown }): Promise<{ ok: true }> {
+    if (body?.estado !== 'hecho' && body?.estado !== 'error') throw new BadRequestException('estado inválido');
+    const reporte = body.estado;
+    await this.tk.run(this.tenantId(), async (trx) => {
+      const cmd: { attempts: number } | undefined = await trx('hr.device_commands')
+        .where({ id, status: 'pendiente' }).forUpdate().first('attempts');
+      if (!cmd) return;
+      const status = estadoTrasIntento(reporte, cmd.attempts);
+      await trx('hr.device_commands').where({ id }).update({
+        attempts: Math.min(cmd.attempts + 1, 3), status, detail: String(body.detalle || '').slice(0, 500),
+        backup: body.respaldo ? trx.raw('?::jsonb', [JSON.stringify(body.respaldo)]) : trx.raw('backup'),
+        completed_at: status === 'pendiente' ? null : trx.fn.now(), updated_at: trx.fn.now(),
+      });
+    });
+    return { ok: true };
   }
 
   /** El lector avisa que sigue vivo (y qué falla, si algo falla). */
@@ -201,8 +312,8 @@ export class HrAttendanceIngestService {
     trx: Knex.Transaction, tenant: string, deviceId: string, names: Map<string, string>, rows: NormalizedPunch[],
   ): Promise<void> {
     if (names.size) {
-      // El nombre del reloj sólo RELLENA: si RH corrigió «Franciscomtz» a «Francisco
-      // Martínez», el siguiente lote no se lo deshace. `updated_at` NO se toca aquí: marca
+      // El nombre del reloj sólo RELLENA: si RH corrigió el apodo del reloj por el nombre
+      // completo de la persona, el siguiente lote no se lo deshace. `updated_at` NO se toca aquí: marca
       // cambios humanos, y de eso depende saber si un número ignorado volvió a checar después.
       await trx.raw(
         `INSERT INTO hr.device_enrollments (tenant_id, device_id, device_user_id, device_name, is_present, first_seen_at, last_seen_at)

@@ -367,6 +367,25 @@ alcance de datos del rol Promotoría (ADR-050, con las pantallas); editar el pad
 (`[RH.1.4]`); repartir las claves `HR_*` (con las pantallas; mientras, `SIN_REPARTIR`). Las áreas de
 `horarios_sucursal` no se trasladan: el horario por persona ya cubre ese caso.
 
+### 5.1b `[RH.1.2]` (resto) — administrar los relojes, y cómo se corta el agente (2026-10-07)
+
+`/api/hr/attendance/devices`: alta/edición/pausa por serie, semáforo, lotes guardados sin aplicar y su
+reproceso, y las órdenes al reloj (renombrar, restaurar con el respaldo de un borrado, cancelar). El
+borrado no se expone: Mega Talento lo retiró el 29/09 (RH da de baja, no borra). Clave
+`HR_DEVICES_GESTIONAR`.
+
+**Dos defectos de Mega Talento que aquí no pasan:** su orden llevaba el código del SITIO y el agente
+busca a la persona en el reloj por ese código; en el reloj de comida de corporativo (que numera distinto)
+un «renombrar» habría tocado a otra persona o a nadie. Aquí cada orden lleva el código **crudo de su
+reloj**, y sólo va a los relojes donde la persona está enrolada.
+
+⚠️ **Corrección:** en `[RH.1.2]` se dijo que, para el corte, al agente de la laptop sólo había que
+cambiarle dirección y llave. **No era cierto**: tiene fijas sus rutas (`/checador/ingesta`, `/latido`,
+`/relojes`, `/comandos`) y su encabezado (`X-Agente-Token`). Se agregó una **entrada compatible**
+(`/api/hr/attendance/ingest/mt/checador/ingesta`, mismo servicio, acepta `X-Agente-Token`): ahora sí,
+el corte del agente es sólo su `config.json` (`apiUrl` = `…/api/hr/attendance/ingest/mt`, `token` =
+`HR_INGEST_KEY`), y no depende de mudarlo al servidor (`[RH.1.3]`).
+
 ### 5.2 Paridad contra Mega Talento con datos reales (2026-10-07)
 
 Lo que prueba que el traslado da **el mismo número que RH ve hoy**, no sólo que pasa casos armados:

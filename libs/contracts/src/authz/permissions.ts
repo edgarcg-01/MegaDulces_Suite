@@ -105,6 +105,9 @@ export enum Permission {
   HR_INCIDENTS_AUDITAR = 'HR_INCIDENTS_AUDITAR',
   // Cerrar (y reabrir, con motivo) la semana jueves→miércoles para prenómina.
   HR_PERIOD_CLOSE = 'HR_PERIOD_CLOSE',
+  // Dar de alta y pausar relojes, y mandarles órdenes (renombrar, restaurar a alguien). Fuera de
+  // los grupos «de paquete»: una orden se ejecuta en el equipo físico de una plaza.
+  HR_DEVICES_GESTIONAR = 'HR_DEVICES_GESTIONAR',
 
   // Módulo: Tienda — verificador de precios de mostrador (kiosco con lector de barras).
   // Sólo lectura de precio de venta: nunca costo ni margen. Los endpoints que consume

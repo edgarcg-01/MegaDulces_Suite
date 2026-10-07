@@ -27,6 +27,7 @@ const MIGS = [
   '20261007110000_hr_horarios_y_alertas',
   '20261007304401_hr_incidencias_y_cierres',
   '20261007130000_hr_agente_corridas',
+  '20261007140000_hr_ordenes_quien',
 ].map((n) => require(path.resolve(__dirname, '../migrations-newdb', `${n}.js`)));
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
