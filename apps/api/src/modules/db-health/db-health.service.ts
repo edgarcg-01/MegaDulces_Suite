@@ -941,6 +941,10 @@ const CRON_JOBS: CronCfg[] = [
   // `sales_daily`. Sin esta fila, `db-health` lo clasifica con el `cfg ? classify : 'ok'` que
   // la Fase VP midió dando verde incondicional a las 3 matvistas del sell-out.
   { key: 'budget_autopilot',    label: 'Presupuesto que se mantiene solo',  cadence: 'diario 03:30 MX', warnH: 30, critH: 54 },
+  // `[VE.4]` El quinto motor, que vive en `FinancePaymentCalendarModule` porque éste ya importa
+  // al de Presupuestos y al revés sería un ciclo. Corre 20 min después, porque lee el plan de
+  // gastos que el de arriba acaba de escribir. Mismo criterio de umbral: job diario.
+  { key: 'obligations_autopilot', label: 'Obligaciones de gasto propuestas solas', cadence: 'diario 03:50 MX', warnH: 30, critH: 54 },
   // Respaldo del dataset 'concentrada' (mes que rueda del 'actual'). Semanal → umbral holgado:
   // warn a ~9 días (una corrida perdida), critical a ~16 (dos). Ver wincaja_month_coverage.
   // [VL.6.3] EL RESPALDO DE PROD. Era invisible: 36 job_key vigilados y ninguno era el

@@ -110,6 +110,40 @@ const TIENE_GUARDA = (src) =>
     chk(/@Cron\(/.test(auto) && /timeZone:\s*'America\/Mexico_City'/.test(auto),
       'tiene @Cron con timeZone MX explícita (sin ella el contenedor corre en UTC)');
     chk(/cron_runs/.test(auto), 'deja latido en analytics.cron_runs');
+
+    // ⛔⛔ EL BUG QUE ESTO CAZA, y que ya ocurrió: `budget.budgets` tiene RLS FORZADO, así que
+    // listarla sin contexto de tenant no falla — devuelve CERO FILAS. En la primera corrida real
+    // (2026-10-07 03:30) el piloto recorrió «0/0 ejercicios» con 2 en la tabla y latió **ok**.
+    // La lista TIENE que salir de `public.tenants` (que no tiene RLS) y leerse con el contexto
+    // abierto.
+    const codAuto = sinComentarios(auto);
+    chk(/public\.tenants/.test(codAuto),
+      'la lista de a-quién-mirar sale de public.tenants (sin RLS), no de una tabla con RLS forzado');
+    chk(/conTenant\([\s\S]{0,400}budget\.budgets/.test(codAuto),
+      'budget.budgets se lee DENTRO del contexto de tenant — afuera devuelve 0 filas en silencio');
+    chk(/vistos === 0/.test(codAuto) || /vistos\s*===\s*0/.test(codAuto),
+      'un universo vacío se DECLARA como falla: «no vi nada» y «no hay nada» son indistinguibles con RLS');
+  }
+
+  // ── 2b. `[VE.4]` El quinto motor: obligaciones que se proponen SIN FIRMA ──────────────────
+  console.log('\n[2b] Las obligaciones nacen en propuesta, no comprometidas');
+  const obl = leer('libs/finance/src/lib/payment-calendar/budget-expense-obligations.service.ts');
+  const oblAuto = leer('libs/finance/src/lib/payment-calendar/obligations-autopilot.service.ts');
+  if (obl === null || oblAuto === null) nm('no se encontró el servicio de obligaciones o su piloto');
+  else {
+    const codigo = sinComentarios(obl);
+    // ⛔ LO QUE NO PUEDE CAMBIAR: si el insert pasara a 'pending', el automático dejaría de
+    // preparar una lista y empezaría a COMPROMETER PAGOS SOLO todas las noches. El paso
+    // propuesta→pending tiene que seguir siendo un acto humano con firma (`authorized_by`).
+    chk(/status:\s*'propuesta'/.test(codigo),
+      "generateFromPlan inserta en estado 'propuesta' — lo generado NO entra al Calendario");
+    chk(/status:\s*'pending'[\s\S]{0,200}authorized_by/.test(codigo),
+      'el paso propuesta→pending escribe authorized_by: sigue siendo un acto humano con firma');
+    chk(!/authorize\s*\(/.test(sinComentarios(oblAuto)),
+      'el piloto NO llama a authorize — propone y se detiene antes de la firma');
+    chk(/@Cron\(/.test(oblAuto) && /timeZone:\s*'America\/Mexico_City'/.test(oblAuto),
+      'tiene @Cron con timeZone MX explícita');
+    chk(/cron_runs/.test(oblAuto), 'deja latido en analytics.cron_runs');
   }
 
   // ── 3. Declarado en CRON_JOBS ─────────────────────────────────────────────────────────────
@@ -119,6 +153,8 @@ const TIENE_GUARDA = (src) =>
   else {
     chk(/key:\s*'budget_autopilot'/.test(dh),
       "budget_autopilot está en CRON_JOBS — sin esa fila db-health lo clasifica con `cfg ? classify : 'ok'`");
+    chk(/key:\s*'obligations_autopilot'/.test(dh),
+      'obligations_autopilot está en CRON_JOBS');
   }
 
   // ── 4 y 5. Contra la base ─────────────────────────────────────────────────────────────────
@@ -147,16 +183,50 @@ const TIENE_GUARDA = (src) =>
     }
 
     console.log('\n[5] El latido');
-    const [lat] = await q(
-      `SELECT status, rows_affected, note, error, last_finish
-         FROM analytics.cron_runs WHERE job_key = 'budget_autopilot'`);
-    if (!lat) {
-      // No es fallo: el cron corre a las 03:30 y puede no haber corrido todavía. Se DECLARA —
-      // «no latió» y «latió mal» se leen distinto y significan cosas distintas.
-      nm('budget_autopilot nunca latió todavía (el cron corre 03:30 MX; ¿está desplegado?)');
-    } else {
-      chk(lat.status === 'ok',
-        `último latido: ${lat.status} · ${lat.note ?? 'sin nota'}${lat.error ? ` · ${lat.error}` : ''}`);
+    for (const job of ['budget_autopilot', 'obligations_autopilot']) {
+      const [lat] = await q(
+        `SELECT status, rows_affected, note, error FROM analytics.cron_runs WHERE job_key = $1`, [job]);
+      if (!lat) {
+        // No es fallo: los crons corren de madrugada y pueden no haber corrido todavía. Se
+        // DECLARA — «no latió» y «latió mal» se leen distinto y significan cosas distintas.
+        nm(`${job} nunca latió todavía (¿está desplegado?)`);
+      } else {
+        chk(lat.status === 'ok',
+          `${job}: ${lat.status} · ${lat.note ?? 'sin nota'}${lat.error ? ` · ${lat.error}` : ''}`);
+
+        // ⭐⭐ LA ASERCIÓN QUE HABRÍA CAZADO EL BUG SOLA, y por la que existe este bloque: el
+        // latido puede decir `ok` sobre CERO. Si el piloto no recorrió ningún ejercicio pero la
+        // tabla tiene alguno que le corresponde, no terminó bien: no vio nada.
+        const [u] = await q(
+          `SELECT count(*) FILTER (WHERE status IN ('borrador','en_revision'))::int abiertos,
+                  count(*) FILTER (WHERE status <> 'cerrado')::int no_cerrados
+             FROM budget.budgets`);
+        const debio = job === 'budget_autopilot' ? Number(u.abiertos) : Number(u.no_cerrados);
+        const recorrio = /^(\d+)[/ ]/.exec(String(lat.note ?? ''));
+        const vistos = recorrio ? Number(recorrio[1]) : null;
+        if (vistos === null) nm(`${job}: la nota no dice cuántos recorrió`);
+        else {
+          chk(!(debio > 0 && vistos === 0),
+            vistos === 0 && debio > 0
+              ? `${job} recorrió 0 ejercicios y hay ${debio} que le tocan — no vio nada (¿RLS sin contexto?)`
+              : `${job} recorrió ${vistos} y le tocan ${debio}`);
+        }
+      }
+    }
+
+    // `[VE.4]` Y lo que de verdad importa del automático de obligaciones: que lo que generó
+    // siga ESPERANDO FIRMA. Una propuesta que se autoriza sola sería un pago comprometido por
+    // un cron.
+    const oblEst = await q(
+      `SELECT status, count(*)::int n, count(*) FILTER (WHERE authorized_by IS NOT NULL)::int firmadas
+         FROM budget.expense_obligations GROUP BY 1 ORDER BY 1`);
+    if (!oblEst.length) nm('no hay obligaciones todavía: el automático no ha corrido o no hay plan de gastos');
+    else {
+      const malas = oblEst.filter((r) => r.status !== 'propuesta' && r.status !== 'cancelled' && r.firmadas < r.n);
+      chk(malas.length === 0,
+        malas.length === 0
+          ? `${oblEst.map((r) => `${r.status}:${r.n}`).join(' · ')} — toda obligación comprometida tiene firma`
+          : `obligaciones comprometidas SIN authorized_by: ${malas.map((r) => `${r.status} ${r.n - r.firmadas}`).join(', ')}`);
     }
   } finally {
     await c.end().catch(() => undefined);
