@@ -141,7 +141,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               <th class="num" title="La última vez que se le cargó, y cuánto. No se pregunta por «ayer»: el domingo es inhábil y la respuesta sería siempre cero">Última carga</th>
               <th class="num" title="La última vez que vendió, y cuánto">Última venta</th>
               <th class="num" title="Mercancía que ya traía antes de su primer embarque y fue vendiendo. Se declara, no se resta">Traía sin contar</th>
-              <th class="num" title="Mercancía que el camión trae y el documento de embarque no explica. Positivo = trae de más. No es un error de cuenta: es lo que llegó sin papel">Llegó sin embarque</th>
+              <th class="num" title="Mercancía que el camión trae y el documento de embarque no explica. Positivo = trae de más. «no medible» = a esa ruta le falta uno de los dos lados del periodo, así que el hueco de medición es más grande que la cifra y publicarla sería inventarla">Llegó sin embarque</th>
               <th class="num"><span class="ir-sr">Detalle</span></th>
             </tr>
           </ng-template>
@@ -189,8 +189,16 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               -->
               <td class="num ir-mono ir-tenue" role="cell" data-label="Traía sin contar"
                   [title]="'Neto si se restara: ' + (invNeto(r) | currency:'MXN':'symbol-narrow':'1.2-2')">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono" role="cell" data-label="Llegó sin embarque">
-                @if (cierra(r)) { <span class="ir-tenue">0</span> }
+              <!--
+                RD.40 — la cifra se publica SOLO si el artefacto de medición no la tapa. Antes
+                salía siempre, y en 8 de 11 rutas el artefacto la explicaba entera: el número se
+                leía como mercancía perdida cuando era cómo medimos.
+              -->
+              <td class="num ir-mono" role="cell" data-label="Llegó sin embarque"
+                  [title]="tituloSinEmbarque(r)">
+                @if (!medible(r)) {
+                  <span class="ir-tenue">no medible</span>
+                } @else if (cierra(r)) { <span class="ir-tenue">0</span> }
                 @else { <strong>{{ sinEmbarque(r) | number:'1.2-2' }}</strong> }
               </td>
               <td class="num" role="cell" data-label="">
@@ -834,6 +842,26 @@ export class ComercialInventarioRutaComponent {
   sinEmbarque = (r: RouteInventoryRow) => -(Number(this.delta(r)) || 0);
 
   /**
+   * RD.40 — ¿se puede creer el descuadre de esta ruta? El servidor lo decide contra
+   * `analytics.v_rd_route_opening`; acá NO se recalcula. `undefined` (una respuesta vieja en
+   * caché) se trata como NO medible: ante la duda se declara, no se publica.
+   */
+  medible = (r: RouteInventoryRow) => r.descuadre_medible === true;
+  sinMedir = (r: RouteInventoryRow) => Number(r.sin_medir_costo) || 0;
+
+  /** Lo que la celda explica al pasar el cursor. Sin esto, "no medible" se lee como un error. */
+  tituloSinEmbarque(r: RouteInventoryRow): string {
+    if (this.medible(r)) {
+      return 'Mercancía que el camión trae y el documento de embarque no explica.';
+    }
+    const motivo = r.sin_medir_motivo || 'faltan las dos mitades del periodo';
+    return 'No se puede medir: ' + motivo + '. La cuenta tendría que restar '
+      + this.money(this.sinMedir(r)) + ' que ninguna fuente cubre, contra un descuadre de '
+      + this.money(Math.abs(this.sinEmbarque(r))) + ' — el hueco es más grande que la cifra, '
+      + 'así que publicarla sería inventarla.';
+  }
+
+  /**
    * Días desde el último movimiento. `null` si no hay dato del día.
    * ⚠️ Es la columna que delata a una ruta parada: medido, la 505 lleva 22 días sin cargar ni
    * vender y hasta ahora se veía igual que las diez vivas.
@@ -920,6 +948,22 @@ export class ComercialInventarioRutaComponent {
    * como nota. Un agregado que se cancela esconde justo lo que hay que mirar.
    */
   readonly brutoSinEmbarque = computed(() => this.suma((r) => Math.abs(this.sinEmbarque(r))));
+
+  /**
+   * RD.40 — **el piso defendible**: la parte del descuadre que el artefacto de medición NO
+   * puede explicar. Se calcula POR RUTA y recién después se suma; restarle la exposición total
+   * al descuadre total mezclaría una ruta donde el artefacto sobra con otra donde falta y
+   * dejaría pasar la diferencia como si fuera real.
+   *
+   * Medido contra prod el 2026-10-07: bruto $301,834 · exposición $413,464 · piso $94,096.
+   * El servidor lo manda calculado en `totales.descuadre_piso`; esto es el mismo cálculo sobre
+   * las filas que la pantalla tiene a la vista, para que respete el filtro.
+   */
+  readonly pisoSinEmbarque = computed(() =>
+    this.suma((r) => Math.max(0, Math.abs(this.sinEmbarque(r)) - this.sinMedir(r))));
+
+  readonly expuestoSinMedir = computed(() => this.suma((r) => this.sinMedir(r)));
+  readonly rutasSinMedir = computed(() => this.filas().filter((r) => !this.medible(r)).length);
   readonly llegoSinEmbarque = computed(() => this.suma((r) => Math.max(0, this.sinEmbarque(r))));
   readonly salioSinEmbarque = computed(() => this.suma((r) => Math.min(0, this.sinEmbarque(r))));
   readonly totalCogsErp = computed(() => this.suma((r) => Number(r.cogs_erp) || 0));
@@ -993,11 +1037,20 @@ export class ComercialInventarioRutaComponent {
     // camión trae es lo que él mismo mide, y lo que NO cuadra contra el embarque es el dato.
     // ⚠️ Se dicen las DOS mitades, nunca el neto: se cancelan y el titular quedaria en una
     //    fraccion de lo que de verdad no esta explicado.
+    // ⛔ RD.40 — y nunca sin decir cuánto de eso no se puede medir. Antes el titular afirmaba
+    //    $309,033 "sin documento" cuando el artefacto de medición explicaba $413,464: la frase
+    //    era cierta en aritmética y falsa en significado.
     const entro = this.llegoSinEmbarque();
     const salio = Math.abs(this.salioSinEmbarque());
-    const cierre = (entro + salio) > 0
-      ? `. Sin documento que lo explique: ${this.money(entro)} que llegó y ${this.money(salio)} que salió.`
-      : '.';
+    const piso = this.pisoSinEmbarque();
+    const sinMedir = this.rutasSinMedir();
+    const cierre = sinMedir > 0
+      ? `. Sin documento que lo explique: al menos ${this.money(piso)} — y en ${sinMedir} de `
+        + `${this.filas().length} rutas la cifra no es medible, porque les falta uno de los dos `
+        + `lados del periodo (${this.money(this.expuestoSinMedir())} que ninguna fuente cubre).`
+      : (entro + salio) > 0
+        ? `. Sin documento que lo explique: ${this.money(entro)} que llegó y ${this.money(salio)} que salió.`
+        : '.';
     const p = `${Math.abs(pct).toFixed(1)} %`;
     const previa = Math.abs(this.totalNeg());
     // Lo que el camion ya traia, dicho SIEMPRE: es la cifra que antes se restaba en silencio.
@@ -1073,13 +1126,18 @@ export class ComercialInventarioRutaComponent {
         // El mosaico ya no anuncia si "la cuenta cierra": con el ancla puesta esa igualdad es
         // cierta por construcción y publicarla sería teatro. Lo que sí vale decir es cuánta
         // mercancía llegó sin documento de embarque.
+        // RD.40 — el mosaico publica el PISO, no el bruto. Medido el 2026-10-07: el bruto era
+        // $301,834 y el artefacto de medición explicaba $413,464 de él. Publicar el bruto
+        // afirmaba que faltaban tres pesos donde a lo sumo se puede sostener uno.
         label: 'Sin documento',
-        value: this.brutoSinEmbarque(),
+        value: this.pisoSinEmbarque(),
         format: 'currency2',
         tone: 'default',
         sub: d?.cuadra === 'sin_medir'
           ? 'ninguna ruta se movió: no hay qué medir'
-          : `${this.money(this.llegoSinEmbarque())} llegó · ${this.money(Math.abs(this.salioSinEmbarque()))} salió`,
+          : this.rutasSinMedir() > 0
+            ? `lo que no explica cómo medimos · ${this.rutasSinMedir()} de ${this.filas().length} rutas sin medir (${this.money(this.expuestoSinMedir())})`
+            : `${this.money(this.llegoSinEmbarque())} llegó · ${this.money(Math.abs(this.salioSinEmbarque()))} salió`,
       },
     ];
   });

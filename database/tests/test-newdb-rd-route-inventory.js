@@ -86,12 +86,20 @@ async function cuerposDeLaMigracion() {
     let PRE;
     if (aplicada) {
       console.log('  ⓘ las vistas están aplicadas → se ejercen los objetos reales\n');
-      PRE = `WITH _ident AS (SELECT * FROM analytics.v_rd_route_identity),
-                  LEDGER AS (SELECT * FROM analytics.v_rd_route_ledger) `;
+      // ⭐ `MATERIALIZED` no es cosmético: sin él Postgres INLINE el CTE, y en la consulta del
+      //    árbitro —que lleva una subconsulta correlacionada por ruta— eso reevalúa la vista
+      //    viva una vez por ruta. Medido el 2026-10-07: **80.1 s contra el `statement_timeout`
+      //    de 90 s** de abajo, o sea el candado en el filo, pasando o fallando según la carga
+      //    del momento. La vista viva sola cuesta 9.6 s; computarla UNA vez y reusarla es la
+      //    diferencia. (Se midió que NO es regresión de `[RD.40]`: el CTE del embarque cuesta
+      //    lo mismo con y sin el filtro de sucursal, 107 ms vs 95 ms. El "~4.3 s" que este
+      //    archivo decía más abajo quedó viejo — la vista creció con `[RD.34]` y `[RD.36]`.)
+      PRE = `WITH _ident AS MATERIALIZED (SELECT * FROM analytics.v_rd_route_identity),
+                  LEDGER AS MATERIALIZED (SELECT * FROM analytics.v_rd_route_ledger) `;
     } else {
       console.log('  ⓘ las vistas NO están aplicadas → se ejerce el SELECT de la migración\n');
       const { ident, ledger } = await cuerposDeLaMigracion();
-      PRE = `WITH _ident AS (${ident}), LEDGER AS (${ledger}) `;
+      PRE = `WITH _ident AS MATERIALIZED (${ident}), LEDGER AS MATERIALIZED (${ledger}) `;
     }
 
     const tenant = (await db.raw(`SELECT id FROM identity.tenants WHERE slug='mega_dulces'`)).rows[0]?.id;
@@ -109,27 +117,51 @@ async function cuerposDeLaMigracion() {
       'el CEDIS emitió UN solo embarque a una ruta, anterior al cutover de Canindo');
 
     // ── El cuadre, que es lo que se publica ──────────────────────────────────────────────
+    /**
+     * ⛔ `[RD.42]` **Esta copia estaba RANCIA y su aserción estrella pasaba sola.**
+     *
+     * Hasta hoy el candado calculaba `saldo = cargado − vendido` (sin la clase `conteo`, que
+     * `[RD.33]` agregó) y derivaba su propio unitario (`cv/cq`). Con esa fórmula,
+     * `carga − COGS − inventario` da 0 **por álgebra**, pase lo que pase en producción: el
+     * candado comparaba su copia contra sí misma y la aserción no podía fallar. Medido: decía
+     * que la ruta 21 tenía $12,118.69 de inventario cuando publica $41,693.42.
+     *
+     * Ahora:
+     *   · el unitario se LEE del resolvedor — el mismo que lee la pantalla; lo que tiene que ser
+     *     independiente es la ARITMÉTICA, no la entrada, y una entrada propia y vieja es peor
+     *     que ninguna;
+     *   · el saldo incluye el ajuste del conteo, que es la identidad que producción mantiene:
+     *     **cargado + conteo − vendido = inventario**.
+     */
     const CUADRE = `${PRE}, win AS (
         SELECT route_no, sku, unidad,
-               sum(qty)       FILTER (WHERE clase='carga') cq,
-               sum(costo_doc) FILTER (WHERE clase='carga') cv,
-               sum(qty)       FILTER (WHERE clase='venta') vq,
-               sum(venta_doc) FILTER (WHERE clase='venta') vi,
-               sum(costo_erp) FILTER (WHERE clase='venta') ce
+               sum(qty)       FILTER (WHERE clase='carga')  cq,
+               sum(qty)       FILTER (WHERE clase='conteo') kq,
+               sum(qty)       FILTER (WHERE clase='venta')  vq,
+               sum(venta_doc) FILTER (WHERE clase='venta')  vi,
+               sum(costo_erp) FILTER (WHERE clase='venta')  ce
           FROM LEDGER WHERE tenant_id = ? GROUP BY 1,2,3
       ), val AS (
-        SELECT w.*, w.cv/nullif(w.cq,0) costo_u, w.vi/nullif(w.vq,0) precio_u,
-               coalesce(w.cq,0)-coalesce(w.vq,0) saldo FROM win w
+        SELECT w.*, u.costo_u, u.precio_u,
+               coalesce(w.cq,0)+coalesce(w.kq,0)-coalesce(w.vq,0) saldo
+          FROM win w
+          LEFT JOIN analytics.mv_rd_route_unit_value u
+            ON u.route_no = w.route_no AND u.sku = w.sku AND u.unidad = w.unidad
       )
       SELECT route_no,
              round(sum(cq*costo_u),2) carga_costo,
+             round(sum(coalesce(kq,0)*costo_u),2) conteo_costo,
              round(sum(coalesce(vq,0)*costo_u),2) cogs_costo,
              round(sum(saldo*costo_u),2) inv_costo,
-             round(sum(cq*costo_u) - sum(coalesce(vq,0)*costo_u) - sum(saldo*costo_u),2) delta_costo,
+             round(sum(cq*costo_u) + sum(coalesce(kq,0)*costo_u)
+                   - sum(coalesce(vq,0)*costo_u) - sum(saldo*costo_u),2) delta_costo,
              round(sum(coalesce(cq,0)*precio_u),2) carga_venta,
-             round(sum(vi),2) venta_cliente,
+             round(sum(coalesce(kq,0)*precio_u),2) conteo_venta,
+             round(sum(coalesce(vq,0)*precio_u),2) venta_cliente,
+             round(sum(vi),2) cobrado_real,
              round(sum(saldo*precio_u),2) inv_venta,
-             round(sum(coalesce(cq,0)*precio_u) - sum(vi) - sum(saldo*precio_u),2) delta_venta,
+             round(sum(coalesce(cq,0)*precio_u) + sum(coalesce(kq,0)*precio_u)
+                   - sum(coalesce(vq,0)*precio_u) - sum(saldo*precio_u),2) delta_venta,
              round(sum(ce),2) cogs_erp,
              count(*) FILTER (WHERE saldo>0) pos, count(*) FILTER (WHERE saldo<0) neg
         FROM val GROUP BY 1 ORDER BY 1`;
@@ -137,13 +169,35 @@ async function cuerposDeLaMigracion() {
 
     t('el cuadre devuelve las 11 rutas', cuadre.length === 11, `devolvió ${cuadre.length}`);
     const malCosto = cuadre.filter((r) => Math.abs(n(r.delta_costo)) >= 0.01);
-    t('COLUMNA COSTO: carga − COGS − inventario = 0 en las 11 rutas', malCosto.length === 0,
+    t('COLUMNA COSTO: cargado + conteo − vendido = inventario en las 11 rutas', malCosto.length === 0,
       malCosto.map((r) => `${r.route_no}:${r.delta_costo}`).join(' '));
     const malVenta = cuadre.filter((r) => Math.abs(n(r.delta_venta)) >= 0.01);
-    t('COLUMNA VENTA: carga − venta a cliente − inventario = 0 en las 11 rutas', malVenta.length === 0,
+    t('COLUMNA VENTA: cargado + conteo − vendido = inventario en las 11 rutas', malVenta.length === 0,
       malVenta.map((r) => `${r.route_no}:${r.delta_venta}`).join(' '));
     t('toda ruta mueve dinero (ninguna columna de carga en cero)',
       cuadre.every((r) => n(r.carga_costo) > 0 && n(r.venta_cliente) > 0));
+
+    /**
+     * ⭐ `[RD.42]` PRUEBA NEGATIVA de la identidad, y es LA que faltaba.
+     *
+     * Las dos aserciones de arriba venían pasando **por álgebra**: el candado calculaba el saldo
+     * sin el conteo y luego verificaba una resta que, con ese saldo, da 0 pase lo que pase. Un
+     * candado que no puede ponerse rojo no es un candado.
+     *
+     * Acá se saca el término del conteo a propósito. Si la identidad SIGUE cerrando sin él, es
+     * que el término no está haciendo nada y la aserción volvió a ser decorativa.
+     */
+    const sinConteo = cuadre.filter((r) => Math.abs(n(r.conteo_costo)) >= 0.01);
+    if (!sinConteo.length) {
+      noMedido('la prueba negativa de la identidad',
+        'hoy ninguna ruta tiene ajuste de conteo, así que quitarlo no cambia nada');
+    } else {
+      t('PRUEBA NEGATIVA: sin el término del conteo la identidad se ROMPE',
+        sinConteo.every((r) => Math.abs(n(r.delta_costo) - n(r.conteo_costo)) >= 0.01),
+        `el conteo no mueve la identidad en ${sinConteo.length} ruta(s): el término es decorativo`);
+      console.log(`     (${sinConteo.length} rutas con ajuste · ` +
+        `$${sinConteo.reduce((a, r) => a + Math.abs(n(r.conteo_costo)), 0).toFixed(2)} en juego)`);
+    }
 
     // ── El contraste NO se fundió con la cifra ───────────────────────────────────────────
     const conErp = cuadre.filter((r) => n(r.cogs_erp) > 0);
@@ -398,11 +452,18 @@ async function cuerposDeLaMigracion() {
       const RANGO = ['2000-01-01', '2999-12-31'];
 
       // (a) La serie: el acumulado tiene que ser el acumulado, no una columna suelta.
-      const serie = (await db.raw(sqlDe('routeSeries'), [tenant, ruta, ...RANGO, tenant, ruta, ...RANGO])).rows;
+      const serie = (await db.raw(sqlDe('routeSeries'), [tenant, ruta, tenant, ruta, ...RANGO])).rows;
       t('la SERIE del servicio corre contra prod', serie.length > 0, `${serie.length} días`);
-      const sumaNeta = serie.reduce((a, p) => a + (Number(p.cargado_qty) - Number(p.vendido_qty)), 0);
+      // ⛔ `[RD.42]` El AJUSTE del conteo entra al acumulado y NO a «cargado» (`[RD.31]`), así que
+      //    `Σ(cargado − vendido)` NO puede dar el saldo: le falta el conteo. Esta aserción
+      //    comparaba dos cosas distintas desde `[RD.33]` y fallaba por eso, no por un defecto —
+      //    un candado que grita en falso enseña a ignorar el tablero. Ahora suma las TRES clases,
+      //    que es lo que el acumulado de verdad acumula; y la serie publica `conteo_qty` para
+      //    que en la pantalla las tres columnas también reconcilien a la vista.
+      const sumaNeta = serie.reduce((a, p) =>
+        a + (Number(p.cargado_qty) + Number(p.conteo_qty || 0) - Number(p.vendido_qty)), 0);
       const ultimo = serie.length ? Number(serie[serie.length - 1].saldo_qty_acum) : 0;
-      t('el saldo acumulado del último día == la suma de todos los días',
+      t('el saldo acumulado del último día == cargado + conteo − vendido de todos los días',
         Math.abs(sumaNeta - ultimo) < 0.01, `${sumaNeta.toFixed(2)} vs ${ultimo.toFixed(2)}`);
       t('la serie está ordenada por día (el acumulado no significa nada si no lo está)',
         serie.every((p, i) => i === 0 || p.fecha > serie[i - 1].fecha));
@@ -477,7 +538,16 @@ async function cuerposDeLaMigracion() {
       // (d) Los rojos: las dos familias, y que `nunca_cargado` NO traiga cifra inventada.
       const neg = (await db.raw(sqlDe('routeNegatives'),
         [tenant, ruta, ...RANGO, tenant, 1000])).rows;
-      t('los ROJOS del servicio corren contra prod', neg.length > 0, `${neg.length} pares`);
+      // ⛔ `[RD.42]` Que una ruta NO tenga rojos es un resultado válido, no una falla. La ruta
+      //    que el candado elige es la primera por plaza — hoy la 501, que tiene 340 pares
+      //    positivos y CERO negativos. Exigir `> 0` convertía un dato sano en rojo del tablero,
+      //    y además volvía vacuas las tres aserciones de abajo sin avisar. Se declara.
+      if (!neg.length) {
+        noMedido('los ROJOS de esta ruta',
+          `la ruta ${ruta} no tiene ni un par en negativo: no hay qué comprobar`);
+      } else {
+        t('los ROJOS del servicio corren contra prod', true, `${neg.length} pares`);
+      }
       t('todo rojo tiene saldo negativo (si no, no es un rojo)',
         neg.every((n) => Number(n.saldo) < 0));
       const flias = [...new Set(neg.map((n) => n.familia))];
@@ -492,7 +562,7 @@ async function cuerposDeLaMigracion() {
 
       // (e) El presupuesto, para los cuatro.
       const presup = [
-        ['serie', sqlDe('routeSeries'), [tenant, ruta, ...RANGO, tenant, ruta, ...RANGO]],
+        ['serie', sqlDe('routeSeries'), [tenant, ruta, tenant, ruta, ...RANGO]],
         ['embarques', sqlDe('routeShipments'), [tenant, ruta, ...RANGO]],
         ['líneas', sqlDe('routeShipmentLines'),
           [tenant, ruta, e0.folio, e0.serie, e0.serie, tenant, ruta, tenant]],
@@ -665,6 +735,113 @@ async function cuerposDeLaMigracion() {
     if (!aplicada) {
       noMedido('que las vistas EXISTAN en el destino',
         'la migración 20261003120000 todavía no se aplicó: se ejerció su SELECT');
+    }
+
+    // ── `[RD.40]`+`[RD.41]` La DECLARACIÓN: hasta dónde se puede creer el descuadre ─────────
+    //
+    // El descuadre publicado convivía con un artefacto de medición MÁS GRANDE que él: la carga
+    // que entra antes de que el push traiga ventas (el push pide `current_date - 15 días`) y la
+    // venta que el ledger descarta por caer antes de su ventana. Medido el 2026-10-07: residuo
+    // bruto $301,834 contra $413,464 de exposición. Estas aserciones protegen lo que puede
+    // romperse en silencio — que la declaración y la cifra publicada vuelvan a contradecirse.
+    console.log('\n  — la declaración de lo que no se puede medir —');
+    const decl = await db.raw(`SELECT to_regclass('analytics.v_rd_route_opening') AS v,
+                                      to_regclass('analytics.mv_rd_route_opening') AS m`);
+    const tieneDecl = decl.rows[0] && decl.rows[0].v;
+    if (!tieneDecl) {
+      noMedido('la declaración de [RD.40]', 'analytics.v_rd_route_opening todavía no existe');
+    } else {
+      const { rows: op } = await db.raw('SELECT * FROM analytics.v_rd_route_opening ORDER BY route_no');
+      t('la declaración cubre las 11 rutas', op.length === 11, `trae ${op.length}`);
+
+      /**
+       * ⭐ EL CANDADO QUE IMPORTA: la contradicción no puede volver.
+       *
+       * Entre `[RD.37]` y `[RD.40]` el ledger contó como carga exactamente el dinero que esta
+       * misma vista rotulaba "mercancía real que ninguna fuente mide". El mismo peso, declarado
+       * no medible y publicado a la vez. Lo único legítimo antes de la ventana es la `apertura`
+       * de `[RD.36]` — un conteo físico, que SÍ está medido.
+       */
+      const { rows: [contra] } = await db.raw(`
+        WITH previo AS (
+          SELECT l.route_no, round(coalesce(sum(l.costo_doc), 0), 2) AS imp
+            FROM analytics.mv_rd_route_ledger l
+            JOIN analytics.mv_rd_route_identity i
+              ON i.tenant_id = l.tenant_id AND i.route_no = l.route_no
+           WHERE l.clase = 'carga' AND l.business_date < i.carga_desde
+           GROUP BY 1
+        ), apertura AS (
+          SELECT i.route_no,
+                 round(sum(CASE WHEN v.signo = 'faltante' THEN -v.importe ELSE v.importe END), 2) AS imp
+            FROM analytics.mv_rd_route_identity i
+            JOIN analytics.mv_erp_physical_count_variance v
+              ON v.kepler_sucursal = i.suc_emisor AND v.kepler_almacen = i.almacen_erp
+             AND v.fecha < i.carga_desde
+           WHERE i.almacen_erp IS NOT NULL
+             AND coalesce(btrim(v.sku), '') <> '' AND coalesce(btrim(v.unidad_erp), '') <> ''
+           GROUP BY 1
+        )
+        SELECT count(*)::int AS rotas,
+               coalesce(sum(abs(coalesce(p.imp,0) - coalesce(a.imp,0))), 0)::float AS imp
+          FROM previo p FULL JOIN apertura a ON a.route_no = p.route_no
+         WHERE abs(coalesce(p.imp, 0) - coalesce(a.imp, 0)) > 0.01`);
+      t('el ledger NO cuenta lo que la declaración llama "sin medir"',
+        n(contra.rotas) === 0,
+        `${contra.rotas} ruta(s) / $${n(contra.imp).toFixed(2)} contados dos veces con sentidos opuestos`);
+
+      // El veredicto no puede ser decorativo: es el `cfg ? classify : 'ok'` que la Fase VP midió
+      // dando verde incondicional. Se prueba en los DOS sentidos.
+      const mentira = op.filter((r) => r.medible && n(r.exposicion_costo) > 0);
+      t('ninguna ruta sale medible teniendo exposición',
+        mentira.length === 0, mentira.map((r) => r.route_no).join(', '));
+      const clavado = op.filter((r) => !r.medible && n(r.exposicion_costo) === 0
+        && n(r.docs_sin_medir) === 0 && r.primera_venta);
+      t('el veredicto no está clavado en false',
+        clavado.length === 0, clavado.map((r) => r.route_no).join(', '));
+
+      // La aserción no puede ser vacua: si hoy ninguna ruta tuviera exposición, lo de arriba
+      // pasaría solo. Se mide que la hay antes de afirmar que el candado sirve.
+      const conExp = op.filter((r) => n(r.exposicion_costo) > 0);
+      if (!conExp.length) {
+        noMedido('que el veredicto discrimine',
+          'hoy ninguna ruta tiene exposición, así que las dos aserciones de arriba son vacuas');
+      } else {
+        t('hay rutas con exposición (la aserción no es vacua)', true);
+        console.log(`     (${conExp.length} de ${op.length} rutas · $${op.reduce((a, r) => a + n(r.exposicion_costo), 0).toFixed(2)} declarados)`);
+      }
+
+      // Las dos mitades son DISTINTAS y las dos tienen que estar cubiertas: `[RD.30]` sólo medía
+      // la carga ciega, y las cinco de Canindo tienen el defecto al revés (venden antes de su
+      // primer embarque). Una declaración que sólo ve un lado deja el otro en cero silencioso.
+      t('la declaración mide los DOS lados (carga ciega y venta descartada)',
+        op.some((r) => n(r.carga_sin_medir) > 0) && op.some((r) => n(r.venta_sin_medir) > 0),
+        'una de las dos mitades está en cero en todas las rutas');
+
+      // El motivo acompaña SIEMPRE al veredicto: "no medible" sin por qué se lee como un error
+      // del sistema y no como una ausencia de dato.
+      t('toda ruta no medible dice por qué',
+        op.filter((r) => !r.medible && !r.motivo).length === 0);
+
+      if (decl.rows[0].m) {
+        const { rows: [par] } = await db.raw(`
+          SELECT count(*)::int AS n FROM (
+            SELECT tenant_id, route_no, exposicion_costo, medible FROM analytics.mv_rd_route_opening
+            EXCEPT
+            SELECT tenant_id, route_no, exposicion_costo, medible FROM analytics.v_rd_route_opening
+          ) d`);
+        t('[RD.41] la copia por costo coincide con la vista viva', n(par.n) === 0,
+          `${par.n} fila(s) divergen — la copia sería una segunda verdad`);
+      } else {
+        noMedido('[RD.41] la copia por costo', 'analytics.mv_rd_route_opening todavía no existe');
+      }
+
+      console.table(op.map((r) => ({
+        ruta: r.route_no,
+        carga_sin_medir: n(r.carga_sin_medir).toFixed(2),
+        venta_sin_medir: n(r.venta_sin_medir).toFixed(2),
+        exposicion: n(r.exposicion_costo).toFixed(2),
+        medible: r.medible,
+      })));
     }
   } catch (e) {
     bad++;
