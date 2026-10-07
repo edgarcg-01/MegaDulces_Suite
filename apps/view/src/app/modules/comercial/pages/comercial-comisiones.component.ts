@@ -5,7 +5,8 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
-  ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine, CommissionGate,
+  ComercialService, CommissionBoardRow, CommissionMotor, CommissionRunDetail, CommissionLine,
+  CommissionGate,
 } from '../comercial.service';
 
 /**
@@ -94,23 +95,15 @@ import {
             [loading]="cargando()" [isEmpty]="!board().length" [skeletonRows]="6"
             emptyIcon="pi-calendar" emptyTitle="Sin quincenas"
             [emptyHint]="'El calendario de ' + anio() + ' no tiene periodos cargados.'">
-            @if (sinCorrida().length) {
-              <details class="cm-colapso">
-                <summary>{{ sinCorrida().length }} quincena(s) sin corrida</summary>
-                <p>
-                  El motor las calcula solo: las cerradas a las 08:30 y la que corre, cada 30 minutos.
-                  Si siguen así, mirá el latido de <span class="cm-mono">rd_commission_runner</span>.
-                </p>
-              </details>
-            }
             @for (g of porMes(); track g.mes) {
               <p class="cm-mes">{{ g.mes }}</p>
               @for (p of g.filas; track p.period_id) {
                 <button type="button" class="cm-per" [class.sel]="sel()?.period_id === p.period_id"
-                        (click)="elegir(p)">
+                        [class.hoy]="esHoy(p)" (click)="elegir(p)">
                   <span class="cm-per-top">
                     <span class="cm-per-no">Q{{ p.period_no }}</span>
                     <span class="cm-per-fechas">{{ rango(p) }}</span>
+                    @if (esHoy(p)) { <span class="cm-hoy">hoy</span> }
                   </span>
                   <span class="cm-per-bot">
                     <p-tag [severity]="sev(p.status)" [value]="etiquetaEstado(p.status)" />
@@ -118,6 +111,12 @@ import {
                   </span>
                 </button>
               }
+            }
+            @if (futuras().length) {
+              <p class="cm-futuras">
+                Q{{ futuras()[0].period_no }}–Q{{ futuras()[futuras().length - 1].period_no }} ·
+                {{ futuras().length }} quincena(s) que aún no empiezan
+              </p>
             }
           </app-load-state>
         </aside>
@@ -128,10 +127,50 @@ import {
           } @else if (!sel()!.run_id) {
             <div class="cm-card">
               <h2>Quincena {{ sel()!.period_no }} · {{ rango(sel()!) }}</h2>
-              <p class="cm-muted">
-                Todavía no tiene corrida. El motor calcula las quincenas cerradas a las 08:30 y la que
-                corre cada 30 minutos; esta pantalla sólo las muestra.
+              <p class="cm-muted cm-card-pie">
+                @if (esHoy(sel()!)) { Está corriendo: cierra el {{ dia(sel()!.date_to) }}. }
+                @else { Cerró el {{ dia(sel()!.date_to) }}. }
+                Todavía no tiene corrida — y esta pantalla sólo las muestra.
               </p>
+
+              <ol class="cm-ciclo">
+                <li class="act">
+                  <span class="cm-paso">1</span> Calcular
+                  <span>El motor lee la venta del ERP y aplica el tabulador. Nace en borrador.</span>
+                </li>
+                <li>
+                  <span class="cm-paso">2</span> Revisar
+                  <span>Compuertas, cobertura y la procedencia de cada cifra.</span>
+                </li>
+                <li>
+                  <span class="cm-paso">3</span> Aprobar
+                  <span>Lo hace una persona. El motor nunca aprueba solo.</span>
+                </li>
+                <li>
+                  <span class="cm-paso">4</span> Pagar
+                  <span>Se marca pagada y el recibo queda reproducible.</span>
+                </li>
+              </ol>
+
+              @if (nadaCalculado() && motor(); as m) {
+                <p class="cm-warn" [class.bad]="m.veredicto !== 'corre'">
+                  <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
+                  <span>
+                    <strong>Ninguna quincena de {{ anio() }} tiene corrida.</strong>
+                    El carril <span class="cm-mono">rd_commission_runner</span>
+                    @switch (m.veredicto) {
+                      @case ('nunca_reporto') { <strong>nunca ha reportado</strong>. }
+                      @case ('con_error') { reportó <strong>error</strong> {{ cuando(m.last_finish) }}. }
+                      @case ('corre') { corrió {{ cuando(m.last_finish) }} sin error. }
+                    }
+                    {{ m.detalle }}
+                    @if (m.veredicto === 'corre') {
+                      Entonces el hueco no está en el carril: o no hay venta en la fuente, o las
+                      quincenas no cumplen la condición para calcularse.
+                    }
+                  </span>
+                </p>
+              }
             </div>
           } @else if (run(); as r) {
             @if (bloqueantes(r).length) {
@@ -272,9 +311,9 @@ import {
     :host { display:block; }
     .cm-page { padding:1rem 1.1rem 2rem; }
     .cm-head { display:flex; align-items:flex-start; gap:1rem; margin-bottom:1rem; }
-    .cm-head h1 { margin:0; font-size:var(--fs-xl,1.25rem); font-weight:var(--fw-bold); color:var(--c-text-1); }
+    .cm-head h1 { margin:0; font-size:var(--fs-h2); font-weight:var(--fw-bold); color:var(--c-text-1); }
     .cm-sub { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-3); }
-    .cm-sub strong { color:var(--c-text-2); font-weight:var(--fw-semibold,600); }
+    .cm-sub strong { color:var(--c-text-2); font-weight:var(--fw-medium); }
     .cm-year { margin-left:auto; display:inline-flex; gap:.4rem; align-items:center; font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-year select { padding:.3rem .45rem; border:1px solid var(--border-color); border-radius:var(--r-sm,6px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
 
@@ -284,17 +323,17 @@ import {
     .cm-answer.abierta { border-left-color:var(--c-text-3); }
     .cm-answer-que { flex:1 1 16rem; min-width:0; }
     .cm-eyebrow { margin:0; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase; color:var(--c-text-3); }
-    .cm-answer-q { margin:.2rem 0 0; font-size:var(--fs-base,1rem); font-weight:var(--fw-semibold,600); color:var(--c-text-1); }
+    .cm-answer-q { margin:.2rem 0 0; font-size:var(--fs-h3); font-weight:var(--fw-bold); color:var(--c-text-1); }
     .cm-answer-pie { margin:.1rem 0 0; font-size:var(--fs-micro); color:var(--c-text-3); }
     .cm-answer-monto { margin:.1rem 0 0; font-family:var(--font-mono,'Geist Mono',monospace);
-      font-size:1.5rem; font-weight:var(--fw-semibold,600); font-variant-numeric:tabular-nums; color:var(--c-text-1); }
+      font-size:1.5rem; font-weight:var(--fw-bold); font-variant-numeric:tabular-nums; color:var(--c-text-1); }
 
     .cm-split { display:grid; grid-template-columns:minmax(240px,300px) 1fr; gap:1rem; align-items:start; }
     @media (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
 
     .cm-rail { display:flex; flex-direction:column; max-height:78vh; overflow-y:auto; }
     .cm-mes { margin:.9rem 0 .35rem; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase;
-      color:var(--c-text-3); font-weight:var(--fw-semibold,600); }
+      color:var(--c-text-3); font-weight:var(--fw-medium); }
     .cm-mes:first-child { margin-top:0; }
     .cm-colapso { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); margin-bottom:.4rem; }
     .cm-colapso summary { padding:.5rem .7rem; font-size:var(--fs-sm); color:var(--c-text-3); cursor:pointer; }
@@ -310,10 +349,30 @@ import {
     .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-3); }
     .cm-per-monto { font-size:var(--fs-micro); color:var(--c-text-2); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
 
+    .cm-per.hoy { border-color:color-mix(in srgb, var(--action) 45%, var(--border-color)); }
+    .cm-hoy { margin-left:auto; font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase;
+      color:var(--action); font-weight:var(--fw-bold); }
+    .cm-futuras { margin:.7rem 0 0; padding:.5rem .6rem; border:1px dashed var(--border-color);
+      border-radius:var(--r-md,8px); font-size:var(--fs-micro); color:var(--c-text-3); text-align:center; }
+
     .cm-detail { min-width:0; }
     .cm-card { border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); padding:1rem 1.1rem; }
-    .cm-card h2 { margin:0 0 .3rem; font-size:var(--fs-base,1rem); font-weight:var(--fw-semibold,600); color:var(--c-text-1); }
+    .cm-card h2 { margin:0 0 .3rem; font-size:var(--fs-h3); font-weight:var(--fw-bold); color:var(--c-text-1); }
     .cm-card p { margin:0; font-size:var(--fs-sm); }
+    .cm-card-pie { margin-bottom:1rem !important; }
+
+    /* El ciclo: lo que va a pasar solo, para que el vacío explique en vez de quedarse callado. */
+    .cm-ciclo { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:1px; margin:0;
+      padding:0; list-style:none; background:var(--border-color); border:1px solid var(--border-color);
+      border-radius:var(--r-md,8px); overflow:hidden; }
+    @media (max-width:46rem) { .cm-ciclo { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+    .cm-ciclo li { display:flex; flex-direction:column; gap:.3rem; padding:.7rem .8rem;
+      background:var(--card-bg); font-size:var(--fs-sm); font-weight:var(--fw-medium); color:var(--c-text-3); }
+    .cm-ciclo li.act { background:color-mix(in srgb, var(--action) 7%, var(--card-bg)); color:var(--action); }
+    .cm-ciclo li span:last-child { font-size:var(--fs-micro); font-weight:400; color:var(--c-text-3); }
+    .cm-paso { display:inline-flex; align-items:center; justify-content:center; width:1.15rem; height:1.15rem;
+      border:1px solid currentColor; border-radius:50%; font-family:var(--font-mono,'Geist Mono',monospace);
+      font-size:var(--fs-micro); }
 
     .cm-table-wrap { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); margin-top:.6rem; }
     .cm-table-wrap tbody tr.muted td { color:var(--c-text-3); }
@@ -333,6 +392,8 @@ import {
 
     .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-3);
       font-family:var(--font-mono,'Geist Mono',monospace); }
+    .cm-warn.bad { border-color:color-mix(in srgb, var(--bad-fg) 45%, transparent);
+      background:color-mix(in srgb, var(--bad-fg) 9%, transparent); }
     .cm-warn { display:flex; gap:.4rem; align-items:flex-start; margin:.7rem 0 0; padding:.5rem .65rem;
       border:1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent); border-radius:var(--r-md,8px);
       background:color-mix(in srgb, var(--warn-fg) 8%, transparent); font-size:var(--fs-sm); color:var(--c-text-2); }
@@ -347,26 +408,52 @@ export class ComercialComisionesComponent {
   readonly anios = [2026, 2027];
   readonly anio = signal(new Date().getFullYear() >= 2027 ? 2027 : 2026);
   readonly board = signal<CommissionBoardRow[]>([]);
+  /** Lo que el carril DICE de sí mismo. Medido, no supuesto: viaja con el tablero. */
+  readonly motor = signal<CommissionMotor | null>(null);
   readonly sel = signal<CommissionBoardRow | null>(null);
   readonly run = signal<CommissionRunDetail | null>(null);
   readonly tab = signal<string>('chofer');
   readonly cargando = signal(false);
   readonly err = signal<string | null>(null);
 
-  /** La quincena que importa: la ultima cerrada con corrida; si no hay, la que corre. */
+  /** Hoy en texto `YYYY-MM-DD`, para comparar con las fechas del servidor SIN construir `Date`. */
+  private readonly hoy = (() => {
+    const d = new Date();
+    const p = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+  })();
+
+  /** La quincena que corre hoy. Existe aunque nadie la haya calculado todavia. */
+  readonly enCurso = computed<CommissionBoardRow | null>(() =>
+    this.board().find((p) => p.date_from <= this.hoy && this.hoy <= p.date_to) ?? null);
+
+  /**
+   * La quincena que importa. ⚠️ El ultimo recurso es **la que corre hoy, tenga corrida o no**:
+   * la primera version caia a `null` cuando no habia ninguna corrida, y entonces la pantalla
+   * abria sin nada que mirar y sin nada que elegir. Un tablero vacio tiene que seguir diciendo
+   * en que dia vive.
+   */
   readonly destacada = computed<CommissionBoardRow | null>(() => {
     const b = this.board();
     const pagable = [...b].reverse().find((r) => r.status === 'borrador' || r.status === 'aprobado');
-    return pagable ?? b.find((r) => r.status === 'en_curso') ?? null;
+    return pagable ?? b.find((r) => r.status === 'en_curso') ?? this.enCurso() ?? null;
   });
 
-  readonly sinCorrida = computed(() => this.board().filter((r) => !r.run_id));
+  readonly sinCorrida = computed(() => this.board().filter((r) => !r.run_id && r.date_from <= this.hoy));
 
-  /** Agrupado por mes: 27 tarjetas identicas no son una lista, son ruido. */
+  /** Ninguna quincena del año tiene corrida: el motor no ha corrido nunca. */
+  readonly nadaCalculado = computed(() => this.board().length > 0 && !this.board().some((r) => r.run_id));
+
+  /**
+   * El rail, agrupado por mes. ⛔ La primera version filtraba `if (!p.run_id) continue` y con
+   * cero corridas dejaba el rail VACIO — 27 quincenas reales escondidas y un "Elegí una
+   * quincena" sin nada que elegir. Las quincenas existen aunque no esten calculadas: el chip
+   * dice cual es cual, que es distinto de no mostrarlas.
+   */
   readonly porMes = computed(() => {
     const out: { mes: string; filas: CommissionBoardRow[] }[] = [];
     for (const p of this.board()) {
-      if (!p.run_id) continue;   // las sin corrida van en el plegable
+      if (p.date_from > this.hoy) continue;   // las que no empezaron van al pie
       const m = this.MESES[Number(p.date_to.slice(5, 7)) - 1] ?? '';
       const nombre = m.charAt(0).toUpperCase() + m.slice(1) + ' ' + p.date_to.slice(0, 4);
       const ult = out[out.length - 1];
@@ -375,6 +462,13 @@ export class ComercialComisionesComponent {
     }
     return out;
   });
+
+  /** Lo que todavia no empieza no es "sin corrida": es futuro, y ocupa una linea. */
+  readonly futuras = computed(() => this.board().filter((p) => p.date_from > this.hoy));
+
+  esHoy(p: CommissionBoardRow): boolean {
+    return p.date_from <= this.hoy && this.hoy <= p.date_to;
+  }
 
   readonly choferes = computed(() =>
     (this.run()?.lines ?? []).filter((l) => l.beneficiario === 'chofer' && !this.esFuera(l)));
@@ -409,7 +503,8 @@ export class ComercialComisionesComponent {
     this.err.set(null);
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
-        this.board.set(b);
+        this.board.set(b.periodos);
+        this.motor.set(b.motor);
         this.cargando.set(false);
         const d = this.destacada();
         if (d) this.elegir(d);

@@ -219,6 +219,15 @@ export class CommercialCommissionsService {
   async board(anio: number) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // ⭐ El latido del carril viaja CON el tablero. Sin esto la pantalla vacia tenia que
+      // ADIVINAR por que no hay corridas, y adivinaba mal: mandaba a mirar un latido que
+      // (medido) nunca reporto, y "no encuentro nada" se lee igual que "esta bien". Cuesta
+      // 0.97 ms, asi que no hay razon para no saberlo.
+      const { rows: hb } = await trx.raw(
+        `SELECT job_key, status, last_finish, rows_affected, error, host
+           FROM analytics.cron_runs WHERE tenant_id = ? AND job_key = 'rd_commission_runner'`,
+        [tenantId],
+      );
       const { rows } = await trx.raw(
         `SELECT p.id AS period_id, p.period_no,
                 to_char(p.date_from, 'YYYY-MM-DD') AS date_from,
@@ -239,12 +248,40 @@ export class CommercialCommissionsService {
       // ⚠️ `to_char` en la lista de seleccion es gratis y evita el defecto de LC.16: pg devuelve
       // `date` como objeto Date y `String()` lo imprime en UTC, o sea con el DIA cambiado en
       // hora de Mexico. La pantalla recibe texto ya correcto, no un ISO que tenga que recortar.
-      return rows.map((r: Record<string, unknown>) => ({
+      const periodos = rows.map((r: Record<string, unknown>) => ({
         ...r,
         total_subtotal: n0(r.total_subtotal), total_comision: n0(r.total_comision),
         total_a_pagar: n0(r.total_a_pagar), total_deduccion: n0(r.total_deduccion),
         total_neto: n0(r.total_neto),
       }));
+
+      /**
+       * ⭐ TRES causas distintas, que se arreglan en tres lugares distintos. Tratarlas como una
+       * sola es lo que hacia que la pantalla mandara a todo el mundo al mismo lugar equivocado.
+       * La redaccion de `nunca_reporto` es la de `veredictoSinLatido()` de `db-health`, que ya
+       * tenia resuelto como se dice esto: no se puede saber cual de las tres sin mirarlo.
+       */
+      const h = hb[0] ?? null;
+      const motor = !h
+        ? {
+          veredicto: 'nunca_reporto' as const,
+          detalle: 'El carril está declarado y no ha escrito ni un latido: o no está desplegado, '
+                 + 'o no corre, o corre y no late. No se puede saber cuál sin mirarlo.',
+          last_finish: null, status: null, error: null,
+        }
+        : h.status === 'error'
+          ? {
+            veredicto: 'con_error' as const,
+            detalle: String(h.error ?? 'sin detalle'),
+            last_finish: h.last_finish, status: h.status, error: h.error,
+          }
+          : {
+            veredicto: 'corre' as const,
+            detalle: `Corrió y escribió ${h.rows_affected ?? 0} corrida(s).`,
+            last_finish: h.last_finish, status: h.status, error: null,
+          };
+
+      return { periodos, motor };
     });
   }
 
