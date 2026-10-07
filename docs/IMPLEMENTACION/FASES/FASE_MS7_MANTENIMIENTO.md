@@ -190,3 +190,11 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 - **Configuración global** (horario hábil, SLA por prioridad, reglas de ruteo): sigue editable por cualquier coordinador; llega por cola con MS.7.2 y MS.7.17.
 - **Levantar a nombre de otra persona** sigue siendo una capacidad global (no se acota por cola): importa a partir de RH (hallazgo H7).
 - `priority_model` y `default_assignee_id` son sólo columnas; todavía nada las lee.
+
+### 9.1 MS.7.18 construido (2026-10-07): «Mi trabajo» y Reportes por cola
+
+- **«Mi trabajo»** (`libs/trade/.../me-work.ts`, bandeja `servicio-sin-asignar`): ahora cuenta **sólo las colas a las que la persona pertenece** (mismas colas y mismo filtro que su alcance «Sin asignar» de la bandeja). ⛔ **Sin ninguna cola NO devuelve 0**: se declara en `no_medido` con el motivo («no perteneces a ninguna cola… la coordinación te agrega»), porque un «0 por asignar» se leería «estás al día» cuando la persona no puede ver ninguna bandeja. **Con esto cae la compuerta que impedía sembrar Mantenimiento (MS.7.14).**
+- **Reportes:** la respuesta declara `colas` (las que la persona coordina; el god-mode, todas) y `cola_id` (la elegida), y la pantalla ofrece el selector de cola **sólo si coordina más de una**. El filtro en el servidor (`queue_id`) ya existía desde MS.7.6.
+- **Pruebas:** E2E **445/0** (bloque 23: la cola nueva cuenta sus 2 y no los de TI; TI no suma la cola nueva; quien responde pero no tiene cola sale en `no_medido`; al agregarlo, la siguiente lectura ya cuenta; el reporte declara sus colas) · view (servicio) con 4 pruebas nuevas del selector (incluida la negativa: con una sola cola no aparece). **Mutación atrapada:** quitar el `whereIn('queue_id', …)` pone en rojo 3 comprobaciones.
+- **Declarado:** `me-tasks.ts` («Solicitudes a tu cargo», `assigned_to = tú`) **no se acota por cola a propósito**: un ticket asignado a ti es tuyo aunque cambie la membresía, y el API no deja quitar a quien tiene tickets abiertos. Cuando RH llegue, esa fuente **no debe mostrar títulos** de tickets confidenciales (hoy sólo cuenta).
+
