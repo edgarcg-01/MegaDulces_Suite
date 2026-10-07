@@ -247,14 +247,14 @@ vista derivada sobre `kepler_ods`, nunca copia.
 |---|---|---|
 | **GP.0** | Decode del pedido `U-D-40` + medición | ✅ parcial (§2). Falta: catálogos de responsables (no están en el ODS), unidad de `c51` vs `c52`, qué es `c69` |
 | **GP.1** 🧪 | Tablero `/almacen/pedidos`: periodo (default mes en curso), filtro por estatus con conteos, origen, sucursal, texto; detalle por renglón y embarques. SQL directo sobre `kepler_ods`, **sin migración**. Código en `libs/commercial/src/lib/warehouse-orders/` + `apps/view/.../almacen-pedidos.component.ts` | GP.0 |
-| **GP.2** | Origen Kepler para `commercial-picking`: el pool lee pedidos `U-D-40` `AUTORIZADO` | GP.1 |
+| **GP.2** | Origen Kepler para `commercial-picking`: el pool lee pedidos `U-D-40` `AUTORIZADO`. Agrupa por tamaño: 1–5 renglones en tandas, más de 5 pedido por pedido (§5.1) | GP.1 |
 | **GP.3** | Pantalla del surtidor (móvil): lista por ubicación, marca por renglón (reemplaza el círculo de pluma), faltantes. **Reemplaza el ticket `Referencia SURTIDO`** | GP.2 + P3 |
 | **GP.4** | Checado 3 · **unidad mayor**: escaneo de `C`+clave, conteo, espacio de espera. **Reemplaza el ticket `Referencia CHECADO`** | GP.3 |
 | **GP.4b** | **Bultos de entrega** (§5c): abrir/cerrar `P1`, `P2`… al checar, contenido por bulto, etiqueta impresa, ubicación por bulto | GP.4 |
 | **GP.5** | Embarque: se escanea **cada bulto** a su estiba; la Suite avisa los que faltan; liga a transporte y guía. **Reemplaza el ticket `Referencia EMBARCADO`** y el comentario escrito a mano | GP.4b |
 | **GP.6** | Cuadre Suite ↔ Kepler: lo capturado en Kepler contra lo registrado en piso; y pedidos avanzados en Kepler **sin** paso por la Suite | GP.5 |
 | **GP.7** | Indicadores: tiempo por etapa, productividad por persona, surtido completo (con unidad resuelta) | GP.6 |
-| **GP.8** | Piloto: un origen, una sucursal (propuesta: **sucursal en PH**) | GP.3–GP.6 |
+| **GP.8** | Piloto: **PH, telemarketing** (decidido 2026-10-07, §5.1) | GP.3–GP.6 |
 
 ---
 
@@ -274,13 +274,24 @@ vista derivada sobre `kepler_ods`, nunca copia.
 | ~~P16~~ | ✅ 40–50 carretas por almacén | — |
 | ~~P17~~ | ✅ 10–30 estibas según la unidad | — |
 | ~~P18~~ | ✅ Hay wifi | — |
-| P19 | ¿Qué tipos de unidad hay y cuántas estibas tiene cada uno? (para dibujar el esquema) | GP.5 |
-| P4 | ¿El checador es siempre otra persona? En el embarque 2683 los tres responsables son `01` | GP.4 |
-| P5 | ¿Se surte pedido por pedido o se juntan en olas (sobre todo telemarketing)? | GP.2 |
-| P6 | ¿Qué es el "tercer tipo, tienda"? ¿Las `TI00x` de §2.1? | GP.1 |
-| P7 | Si falta un producto: ¿se manda incompleto, se espera, se sustituye? ¿Depende del origen? | GP.3 |
-| P8 | ¿Con qué origen y sucursal arranca el piloto? | GP.8 |
-| P9 | ¿El pedido de sucursal tiene precio de traspaso? El 2781 marca $395,127.54 de subtotal y $372,742.68 de descuento | Ninguno (dato) |
+| ~~P4~~ | ✅ El checador es **siempre otra persona** que el surtidor (§5.1) | — |
+| ~~P5~~ | ✅ **Por tamaño, no por origen**: 1–5 renglones en tandas; más de 5, pedido por pedido; un pedido grande de sucursal se reparte entre varios surtidores (§5.1) | — |
+| ~~P6~~ | ✅ Sí: el tercer tipo "tienda" son las `TI00x` (§5.1) | — |
+| ~~P7~~ | ✅ Si falta producto, **el pedido sale incompleto** (§5.1) | — |
+| ~~P8~~ | ✅ Piloto: **PH, telemarketing** (§5.1) | — |
+| ~~P9~~ | ✅ Sí: el pedido de sucursal se traspasa **a costo** (§5.1) | — |
+| P19 | ¿Qué tipos de unidad hay y cuántas estibas tiene cada uno? (para dibujar el esquema). Francisco lo pasa | GP.5 |
+
+### 5.1 Respuestas de Francisco (2026-10-07) y qué cambian
+
+| # | Respuesta | Qué cambia en el diseño |
+|---|---|---|
+| P5 | Los pedidos **chicos (1–5 renglones) se surten en tandas**; los **más grandes, uno por uno**; y **en sucursal un pedido grande lo surten varias personas** según su tamaño | **GP.2:** el pool agrupa por **número de renglones**, no por origen (umbral 5, configurable). ⚠️ **Hueco del motor:** en `commercial-picking` una ola tiene **un solo** `assigned_to` → hoy no puede repartir **un** pedido entre varios surtidores. GP.2/GP.3 tienen que partir el pedido en tramos, cada uno con su surtidor. **Cómo se hace hoy (Francisco, 2026-10-07):** el sistema anterior **imprimía la hoja ordenada por pasillo** (A, B, C…), y quien organiza el surtido **rompe la hoja en un cambio de pasillo**: uno surte de la **A a la L** y otro de la **M en adelante**. La Suite copia eso: el pedido se ordena por pasillo y se parte en **rangos de pasillos** (normalmente 2), con el corte **siempre entre pasillos, nunca a mitad de uno**. Lo decide quien organiza; la Suite le propone el corte que deja las dos mitades con un número de renglones parecido. El código de ubicación vuelve a ser **pasillo-rack-nivel** como en Wincaja (`BC110` = pasillo B, rack C, nivel 1, posición 10; `FASE_WMS` §12.5). ⚠️ **Depende de que cada producto tenga ubicación** (capa 2 de ubicaciones, ADR-087 / `FASE_WMS` §12, piloto PH). Hoy **ningún** producto la tiene en la Suite; Wincaja la tenía para el **38%** de los productos de PH con existencia y sirve de propuesta para el censo: un producto sin pasillo va en un bloque aparte, **"sin pasillo"**, a la vista, nunca escondido en alguna de las dos mitades |
+| P7 | Si falta producto, **se manda incompleto** | **GP.3:** el surtidor marca el faltante con su cantidad y el pedido sigue a checado. No hay estado "en espera" ni sustitución. El faltante queda registrado para el cuadre con Kepler (GP.6) |
+| P4 | El checador es **siempre otra persona** | **GP.4:** la Suite **impide** que quien surtió un renglón lo cheque. Si en Kepler los tres responsables salen iguales (embarque 2683, todos `01`), es dato de captura, no de piso |
+| P8 | Piloto en **PH, telemarketing** | **GP.8** deja de proponer "sucursal en PH". Telemarketing tiene mediana de 7 renglones: el piloto ejercita las tandas (1–5) y el pedido por pedido, pero **no** el reparto entre varios surtidores, que se prueba después con sucursal |
+| P6 | El "tercer tipo, tienda" son las `TI00x` | El tablero separa el destino de un pedido de sucursal en **tienda (`TI00x`)**, **ruta (`RUTA 21/22`)** y **reparto directo (`RD 50x`)** |
+| P9 | El pedido de sucursal se traspasa **a costo** | El descuento lleva el precio de lista al costo. **Un pedido de sucursal no es venta**: el tablero no debe sumar su importe junto con el de telemarketing |
 
 ---
 
