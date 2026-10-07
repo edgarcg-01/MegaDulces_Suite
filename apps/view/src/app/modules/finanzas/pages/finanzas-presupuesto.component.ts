@@ -27,7 +27,7 @@ interface ExpenseObligation {
   original_amount: number; reserved_amount: number; paid_amount: number; available_amount: number;
   original_due_date: string | null; status: string; is_critical: boolean; critical_reason: string | null;
 }
-interface BudgetHeader { id: string; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number }
+interface BudgetHeader { id: string; folio: string | null; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number }
 interface BudgetLine {
   id: string; concept: string; line_type: string; area: string | null;
   vigente_amount: number; reserved_amount: number; committed_amount: number; exercised_amount: number;
@@ -177,8 +177,14 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
           @if (budgets().length) {
             <div class="pres-budget-chips">
               @for (b of budgets(); track b.id) {
+                <!-- [VE.5-A] El FOLIO adelante y el nombre despues: el folio se genera, el nombre
+                     es texto libre que se teclea una vez y queda para siempre (de ahi salio
+                     "presupesto"). Si el folio falta -- fila anterior a la migracion -- se declara
+                     en vez de dejar un hueco mudo. -->
                 <button type="button" class="pres-chip" [class.on]="selected()?.id === b.id" (click)="selectBudget(b)">
-                  {{ b.name }} <span class="pres-chip-yr pres-mono">{{ b.fiscal_year }}</span>
+                  <span class="pres-mono">{{ b.folio || 'sin folio' }}</span>
+                  <span class="pres-chip-name">{{ b.name }}</span>
+                  <span class="pres-chip-yr pres-mono">{{ b.fiscal_year }}</span>
                   <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" />
                 </button>
               }
@@ -286,9 +292,12 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin partidas todavía. Las partidas se <strong>materializan de los planes</strong> (Ventas + Gastos) al aprobar el ejercicio — no se capturan a mano.</td></tr></ng-template>
+              <!-- [VE.5] El texto decia "al aprobar" y quedo viejo: materialize acepta borrador y
+                   revision, y desde [VE.3] el piloto lo corre cada noche. Decir "al aprobar" hace
+                   que una tabla vacia parezca normal cuando en realidad el automatico no corrio. -->
+              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) en la pasada nocturna — no se capturan a mano. Si el ejercicio ya tiene planes y esto sigue vacío, la pasada no corrió.</td></tr></ng-template>
             </p-table>
-            <p class="pres-hint"><span class="pi pi-info-circle"></span> Las partidas son un <strong>derivado del plan</strong> (ingreso = plan de ventas · gasto = plan de gastos). Se materializan al aprobar (o con «Re-materializar»). Los movimientos (reservar / comprometer / ejercer / pagar) se habilitan con el ejercicio <strong>aprobado</strong>.</p>
+            <p class="pres-hint"><span class="pi pi-info-circle"></span> Las partidas son un <strong>derivado del plan</strong> (ingreso = plan de ventas · gasto = plan de gastos). Se materializan <strong>solas cada noche</strong> mientras el ejercicio esté en borrador o revisión, y otra vez al aprobar. Los movimientos (reservar / comprometer / ejercer / pagar) se habilitan con el ejercicio <strong>aprobado</strong>.</p>
           }
         </section>
       }
@@ -959,6 +968,8 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-chip { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:.82rem; cursor:pointer; }
     .pres-chip.on { border-color:var(--action); box-shadow:0 0 0 1px var(--action); }
     .pres-chip-yr { color:var(--text-muted); }
+    /* El nombre acompana al folio, no compite con el: el folio es la identidad. */
+    .pres-chip-name { color:var(--text-muted); }
     .pres-summary-head { display:flex; justify-content:flex-end; align-items:center; gap:.75rem; flex-wrap:wrap; margin:.6rem 0 .4rem; }
     .pres-summary-title { font-size:.9rem; font-weight:600; display:inline-flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
     .pres-detail-bar { display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; margin:.4rem 0 .2rem; }
