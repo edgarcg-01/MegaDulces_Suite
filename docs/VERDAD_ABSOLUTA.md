@@ -164,6 +164,9 @@ y aun así publicaba el UxC desde otra columna.
 | **Wincaja (histórico)** | tiene árbitro propio, sin cablear | sigue sin cablear, y es el único acceso al pasado de cada plaza antes de su corte | ⬜ **no empezado** — §8 |
 | **Egreso · gasto operativo** | ⭐ los **libros del contador** (`analytics.contpaqi_ledger_monthly`), que **no comparten fuente primaria** con nosotros — a diferencia de la balanza, que lee el mismo `kdc2YYMM` | el testigo **muerde**: 34 de 39 celdas (bloque × mes) difieren en 2026. La brecha **no es un factor constante** — va de −7.2 % a −44.1 % según el bloque — así que no hay una sola causa | ⚠️ **cableado y DECLARADO, no arbitrado**: falta que Contabilidad firme la correspondencia concepto→agrupador SAT — §21 |
 | **Egreso · qué cuenta como egreso** | la familia contable, con la compra **siempre al lado y nunca sumada** | el **87.8 %** de lo que sale por esa puerta es compra de mercancía (511), no gasto: $453.7 M contra $56.0 M. Llamar «gasto» al total lo multiplica por nueve | ✅ **sí, partido en 4 bloques** — §21 |
+| **Supuesto de crecimiento · GASTO** | ⭐ los mismos libros de §21, pareando **meses completos de cada lado por separado** | el signo se **invierte**: Kepler puede parear 3 meses (uno es el mes en curso) y da **−40.04 %**; los libros parean 9 completos y dan **+10.55 %**. El `0 %` que publica la pantalla no es un cero medido: es `basis:'default'` por 3 pares contra un mínimo de 4 | ⚠️ **refutado el publicado, NO sustituido**: `familia 6` ≠ agrupador SAT (§21.3) y la correspondencia sigue sin firmar — §22 |
+| **Supuesto de crecimiento · VENTAS** | para `mostrador`/`credito`/`mayoreo`, el ingreso fiscal — **para `ruta` y `preventa` NO puede serlo**: esa venta cobra en efectivo fuera del circuito fiscal | en prod `sales_plan_settings` tiene **0 filas**: los 20.1/10.6/62.1/29.3 que se ven **no están guardados** — el motor leería 0. El `+62.1 %` de Vecinal es el mayor crecimiento declarado **y** uno de los dos canales sin testigo fiscal | ⛔ **declarado, no arbitrado** — §22.6/22.7/22.9 |
+| **Ingreso · lo que NO llega a los libros** | ⭐ **cuenta nombrada contra plaza nombrada** — NO el agregado anual, que compara universos distintos | la contabilidad tiene **10 cuentas con el nombre de una ruta** y **seis nunca movieron un peso** desde 2018; las diez juntas registran **$281,816** contra **$66,055,835** de venta de ruta y vecinal (2026 ene–sep) = **0.43 %**. Control positivo con el mismo método: La Piedad Abastos cuadra al **0.03 %** | ✅ **sí: la venta de ruta no pasa por los libros** — §22.10. ⛔ El **destino** de ese efectivo NO se midió |
 
 ---
 
@@ -2812,3 +2815,341 @@ nunca mostraba.
 **Candado:** `database/tests/test-newdb-expense-arbiter.js` — **9 ✓ / 0 ✗ / 0 NO MEDIDO** contra
 prod. Prueba negativa del subnivel, vigilancia de la premisa del corte contra el catálogo, y **tres
 mutaciones ejercibles** (`VE_MUTAR=delta_cero|espejo|mes_abierto`): las tres lo ponen en rojo.
+
+---
+
+## 22. ⭐⭐ El SUPUESTO de crecimiento: el número que gobierna todo el plan, y el único que nadie arbitra (PU, 2026-10-07)
+
+### 22.1 Por qué es un número publicado
+
+Las 21 secciones de arriba arbitran **hechos**: lo que se vendió, lo que se pagó, lo que hay en el
+anaquel. El supuesto de crecimiento no es un hecho — es una **derivación del hecho**, y la pantalla
+de Presupuesto la publica con la leyenda *«los calcula el sistema desde la historia; no se
+capturan»*. Eso lo vuelve exactamente lo que ADR-059 cubre: un número que alguien va a leer y
+firmar. Y multiplica: de él sale **cada celda** del plan de ventas y del plan de gastos.
+
+Medido antes de escribir una línea: en este documento, `supuesto`, `crecimiento`, `growth` y
+`presupuesto` aparecían **0 veces** como dimensión arbitrada.
+
+### 22.2 ⛔ Lo primero que la medición tumbó: no hay plan, y el motor lo sabe
+
+Contra **prod** (`192.168.0.222:5434`, `system_identifier` 7688376744939610156), 2026-10-07:
+
+| tabla | filas |
+|---|---:|
+| `budget.budgets` | **1** (`PRE-2027-002`, FY2027, borrador) |
+| `budget.sales_plan_settings` | **0** |
+| `budget.expense_plan_settings` | **0** |
+| `budget.sales_plan_lines` · `expense_plan_lines` · `budget_lines` · `line_movements` | **0** |
+| `budget.generation_runs` | **0** |
+
+`generation_runs` en cero significa que **ninguna pasada llegó nunca a abrir su registro de
+procedencia**. Y el latido lo dice con todas las letras:
+
+    job_key          budget_autopilot  ·  «Presupuesto que se mantiene solo»
+    status           error
+    last_start       2026-10-07 13:07 MX   (duración: 4 ms)
+    error            no se vio ni un ejercicio en ninguna tabla: ¿contexto de tenant / RLS?
+
+⭐ **El guardián funcionó.** `budget-autopilot.service.ts:180` distingue a propósito «no hay
+ejercicios abiertos» de «no vi ni una fila» y declara la segunda como falla — si no, el cron habría
+reportado `ok` recorriendo *0/0 ejercicios* sobre uno que acababa de crear él mismo. Es ADR-056
+aplicado bien, y es lo único que permitió encontrar todo lo demás.
+
+⚠️ **Y por eso la pantalla especula sobre algo que el sistema tiene medido.** El vacío de la tabla
+dice *«si el ejercicio ya tiene planes y esto sigue vacío, la pasada no corrió»*. La pasada **sí
+corrió**, falló, y dejó la causa probable escrita. Ningún componente lee `analytics.cron_runs`.
+
+La causa está arreglada (`listBudgets()` pasa por `tk.run()`), y **el arreglo ya llegó a prod**
+ese mismo día — el commit entró por otra sesión, con otro hash, y prod pasó de `a8b4abb7` a
+`99cda14a`.
+
+⛔ **Pero no hay evidencia de que haya funcionado, y no la habrá hasta que la pasada vuelva a
+correr.** A las 14:40 MX el latido seguía mostrando la falla de las 13:07 y `generation_runs`
+seguía en **0**: el cron es a las 03:30. *Un arreglo desplegado no es un arreglo verificado* — lo
+que lo cierra es el latido en verde, no el merge (ADR-056). Hasta entonces, todo lo que sigue está
+**latente**.
+
+### 22.3 El «0 %» de gastos no es un cero medido: es `basis: 'default'`
+
+`proposeExpenseGrowth` **declara su base** (`yoy_paired` = medido · `default` = no pude). La
+pantalla lee sólo `growth_pct` y tira el `basis`
+(`finanzas-presupuesto.component.ts:1845`). Lo que hay detrás del `0 %` que se ve, medido en prod
+sobre `analytics.expense_entries`, familia 6:
+
+| mes | 2025 | n | 2026 | n | ¿parea? |
+|---|---:|---:|---:|---:|:--|
+| ene–jul | **0** | **0** | 5.3–7.6 M | ~2,100 c/u | no |
+| ago | 6,149,901 | 405 | 5,247,296 | 2,624 | sí (−14.7 %) |
+| sep | 7,503,549 | 413 | 7,198,462 | 2,410 | sí (−4.1 %) |
+| oct | 6,250,219 | 424 | **910,934** | 379 | sí (−85.4 %) ← mes en curso, día 7 |
+| nov · dic | 6.4 M · 6.2 M | 398 · 344 | 0 | 0 | no |
+
+**El egreso de familia 6 arranca en agosto de 2025.** Son 3 pares contra un `MIN_PAIRED_MONTHS = 4`
+→ `yoy()` devuelve `null` → `basis: 'default'` con `def = 0` (y `def` sale de una tabla de
+supuestos que tiene **cero filas**). El `0 %` es **ausencia pura**, dos veces.
+
+⚠️ Y los 405 renglones de agosto-2025 contra 2,624 de agosto-2026 no son una caída del gasto: son
+**cobertura de ingesta**. Un YoY sobre esa base mide nuestra historia, no la del negocio.
+
+### 22.4 ⭐⭐ El árbitro invierte el signo: −40.04 % contra **+10.55 %**
+
+El testigo independiente ya existía y ya estaba cableado desde §21 —
+`analytics.v_expense_arbiter`, los libros que ve el contador — y el motor que más lo necesita **no
+lo lee**. Bloque `gasto_resto`, 2026 contra 2025, cada lado pareando **sus propios** meses:
+
+| fuente | pares | 2025 | 2026 | crecimiento |
+|---|---:|---:|---:|---:|
+| **Kepler** (lo que usa el presupuesto) | **3** — ago, sep, **oct parcial** | 10,514,057 | 6,303,732 | **−40.04 %** |
+| **ContPAQi** (los libros) | **9** — ene a sep, completos | 16,737,164 | 18,503,254 | **+10.55 %** |
+
+El signo se da vuelta, y la causa está medida, no supuesta: Kepler tiene **5 meses** de 2025
+(ago–dic) y ContPAQi tiene los **12**. El mismo patrón en los otros bloques — 2025 por el lado de
+Kepler: compra 5 meses, nómina 5, financieros **0**.
+
+⚠️ **Salvedad de universo, declarada:** el plan de gastos corre sobre `familia 6` de Kepler y el
+árbitro sobre el **agrupador SAT**. §21.3 ya midió que `familia` **no cruza**. Entonces el
+`+10.55 %` **no se puede transponer** al plan sin que Contabilidad firme la correspondencia: sirve
+para **refutar** el `−40 %` y para **declarar** que el `0 %` no tiene respaldo, no para sustituirlo.
+
+### 22.5 ⛔ El mes en curso es PEOR que un mes vacío
+
+`proposeExpensePlan` toma el año anterior mes por mes. Si el mes tiene base > 0 lo trata como
+completo; si viene en cero y la cuenta es recurrente, lo rellena con su promedio. **Un peso basta
+para que un mes parcial se tome por completo.** Simulando el plan FY2027 (familia 6, consolidado,
+crecimiento 0 %) contra prod:
+
+    ene 6,961,695   feb 5,332,508   mar 7,635,111   abr 5,696,106
+    may 6,755,667   jun 5,816,859   jul 5,490,791   ago 5,247,296
+    sep 7,198,462   oct   915,446 <--  nov 5,700,684   dic 5,700,684
+                                       ─────────────────────────────
+                                       TOTAL AÑO   68,451,309
+
+**Noviembre y diciembre salen bien** ($5,700,684) justamente porque su base es cero y caen al
+relleno estacional. **Octubre sale en $915,446** porque su base es octubre-2026 al día 7. Contra la
+mediana de los otros once meses, el hueco es **$4,785,238** en un solo renglón del año.
+
+Es la trampa que §21.5(b) ya se había cobrado en el árbitro — *«el mes en curso contamina»* — y que
+el motor del presupuesto **reincide**, en los dos lados: `yoy()` de gastos y `yoy()` de ventas sólo
+exigen `> 0` en ambos años.
+
+⚠️ Y hay una segunda razón para no fiarse del borde: `max(fecha)` de `expense_entries` es
+**2026-10-27**, veinte días en el futuro. El mes en curso no sólo está incompleto: además tiene
+renglones adelantados.
+
+Tamaño del otro error, con la salvedad de §22.4 puesta: $68,451,309 × 1.1055 = **$75,672,922**,
+**$7,221,613** de diferencia entre presupuestar a 0 % y presupuestar al crecimiento que los libros
+sostienen.
+
+### 22.6 ⚠️ Dos cosas que yo mismo afirmé hoy, y que la medición corrigió
+
+**(a) «El lado de ventas no tiene este bug».** Lo dije leyendo el código: el autopiloto escribe
+`salesPlan.upsertSettings({ default_growth_pct })` y nunca el de gastos, así que la asimetría
+parecía estar del lado del gasto. **En prod los dos están igual de vacíos**: `sales_plan_settings`
+tiene 0 filas. Los `20.1 % · 10.6 % · 62.1 % · 29.3 %` que la pantalla exhibe **no están guardados
+en ninguna parte** — son el resultado en vivo de `suggestAssumptions()`, que por diseño **no
+guarda**, y `saveAssumptions()` dejó de mandarlos a propósito en `[VE.7]`. El motor que armaría el
+plan lee `settings.default_growth_pct || 0`. *La pantalla publica 20.1/10.6/62.1/29.3 y el motor
+usaría 0/0/0/0.* Leer el código dice qué pasaría; sólo la tabla dice qué pasa.
+
+**(b) «Coinciden de casualidad porque los dos son 0».** No es casualidad y tiene nombre:
+`MIN_PAIRED_MONTHS = 4` contra 3 pares disponibles. El umbral está haciendo **exactamente su
+trabajo** — se niega a publicar una tendencia que no se sostiene. El defecto no es el umbral: es
+que su veredicto (`basis`) se pierde entre el servicio y la pantalla.
+
+### 22.7 Los huecos, declarados
+
+⛔ **No hay árbitro para el supuesto de VENTAS.** El de gastos se puede contrastar contra los
+libros; el crecimiento por canal no tiene un testigo que no comparta fuente primaria con el
+sell-out. El `+62.1 %` de Vecinal queda **sin verificar** — y es el candidato obvio a artefacto de
+reclasificación, que es justo lo que ya pasó con el `−29.4 %` de Crédito.
+
+⛔ **La correspondencia `familia 6` ↔ agrupador SAT no está firmada** (hereda §21.6). Sin eso, el
+`+10.55 %` declara que el `0 %` no tiene respaldo, pero **no lo reemplaza**.
+
+⚠️ **`analytics.cron_runs` no tiene histórico**: guarda la última corrida. Se puede afirmar que
+`budget_autopilot` falló hoy a las 13:07 y que `generation_runs` está en cero desde siempre; **no**
+se puede afirmar desde cuándo viene fallando.
+
+### 22.8 Lo que falta, y de quién es
+
+| | de quién |
+|---|---|
+| Pushear `99e48735` + redeploy — hasta entonces no hay pasada y nada de esto se vuelve vivo | Sistemas |
+| Que la pantalla publique el `basis`, no sólo el número (el de ventas ya lo hace con «· respaldo») | Sistemas |
+| Excluir el mes en curso de la base y del pareo, en los dos `yoy()` y en `proposeExpensePlan` | Sistemas |
+| Que el vacío lea `cron_runs` en vez de conjeturar que «la pasada no corrió» | Sistemas |
+| Firmar `familia 6` ↔ agrupador SAT | Contabilidad |
+| Decidir qué se hace con un supuesto que no se puede medir: ¿se bloquea el plan, o se presupuesta con lo que diga el árbitro? | Dirección |
+
+**Sin candado todavía.** Esta sección se midió con consultas de lectura contra prod; no hay un
+`test-newdb-*` que la vigile. Hasta que lo haya, cada cifra de acá es reproducible pero **no está
+protegida de envejecer** — que es exactamente lo que `[CDRP.2.1]` cobró hace dos semanas.
+
+### 22.9 ⭐⭐ El alcance del árbitro: la ruta cobra en efectivo no fiscal — y eso encaja en 2026, **no** en 2025
+
+> ⛔⛔ **CORREGIDA POR §22.10.** Su conclusión central —*«la tesis se rompe en 2025»*— **es falsa**, y
+> el método que la produjo también: el agregado anual compara dos universos distintos. Se conserva
+> entera porque el error es instructivo. **Leer §22.10 antes de citar nada de acá.**
+
+Edgar, al leer §22: *«rutas mete su dinero en efectivo (no fiscal), así que no se considera en
+ContPAQi. Sus ventas vienen de `/finanzas/ingresos` o ventas-por-ruta»*.
+
+Es un dato de operación, no de datos, y **acota el árbitro de §22.4**: ContPAQi mide lo que pasa por
+los libros, así que un universo que cobra fuera de los libros le es invisible por construcción. Se
+midió en vez de anotarse.
+
+**Sell-out canónico (`mv_sellout_monthly`, neto) contra el ingreso fiscal (ContPAQi, agrupador
+`401%`), prod, 2026-10-07:**
+
+| periodo | sell-out | fiscal | brecha | ruta + vecinal | ¿la explica? |
+|---|---:|---:|---:|---:|---:|
+| **2026 ene–sep** (cerrados) | 474,440,587.75 | 395,845,483.79 | **78,595,103.96** (16.6 %) | 66,055,834.84 | **84.0 %** ✅ |
+| **2025 completo** | 608,566,631.41 | 584,735,177.80 | **23,831,453.61** (3.9 %) | 73,143,304.48 | **306.9 %** ⛔ |
+
+⭐⭐ **La tesis encaja en 2026 y se rompe en 2025.** Si la ruta siempre hubiera cobrado fuera de los
+libros, 2025 tendría una brecha de **al menos $73.1 M** y tiene **$23.8 M** — la ruta vendió **tres
+veces** lo que falta en la contabilidad de ese año. O sea: en 2025 esa venta **sí llegaba a los
+libros**, de una forma u otra.
+
+**Y el cambio tiene fecha.** La brecha mensual salta justo en la frontera de año, no en agosto
+—cuando migraron 06, 07 y 08— ni en ningún otro punto:
+
+    2025-10   1,533,034      2026-01   6,113,827      2026-05   8,558,673
+    2025-11   2,837,913      2026-02   6,652,259      2026-06   7,897,520
+    2025-12   1,099,572      2026-03   8,484,708      2026-07   8,602,652
+                             2026-04   8,883,874      2026-08   9,969,650
+                                                      2026-09  13,431,940
+
+De **$1.10 M en diciembre a $6.11 M en enero**, y de ahí para arriba. Es exactamente el 1-ene-2026,
+la fecha en que la sucursal `00` se volvió el **concentrador** de la migración Wincaja→Kepler
+(Fase PO). *La divergencia se localiza en el periodo que cuadra, no en el que falla.*
+
+⚠️ **Lo que esto NO autoriza a decir.** Tres lecturas siguen vivas y ninguna está medida: (a) la
+práctica de cobro cambió con el ERP; (b) el sell-out de 2026 incorporó plazas que en 2025 no
+reportaba, y entonces parte de la brecha es **cobertura nuestra**, no dinero; (c) en 2025 la venta
+de ruta entraba a los libros por una cuenta que en 2026 dejó de usarse. Separarlas es trabajo de
+una sesión propia y **empieza por el corte de enero**, no por el canal.
+
+**Control, para que el 84 % signifique algo:** en el mismo periodo, `mostrador` vende
+$279,093,917 y `credito` $104,318,070 — los dos **exceden la brecha entera** por sí solos. Que
+`ruta + vecinal` caiga en 84 % no es una coincidencia aritmética disponible para cualquier canal.
+
+**Qué cambia en esta sección:**
+
+1. **§22.4 se acota, no se cae.** El `+10.55 %` sigue refutando el `−40.04 %` —la cobertura de
+   Kepler en 2025 es el problema, y eso es independiente del alcance fiscal— pero ahora carga una
+   segunda salvedad: mide **el gasto que pasa por los libros**. ⛔ Si la ruta mueve efectivo fuera
+   del circuito fiscal, es plausible que parte del **gasto** salga por ahí también. **No se midió
+   hoy**, y hasta que se mida, el árbitro del egreso cubre un universo **declaradamente parcial**.
+2. **§22.7 se corrige en un punto.** Escribí *«no hay árbitro para el supuesto de VENTAS»*. Lo
+   correcto es que **ContPAQi no puede serlo para ruta y vecinal**, por diseño del negocio y no por
+   una falla; el testigo de esos dos canales es el que Edgar nombra —`/finanzas/ingresos` y
+   ventas-por-ruta— más el **control manual** que §19.3 ya validó al 93.5 % contra un placebo de
+   0.0 %. Para `mostrador`, `credito` y `mayoreo` el árbitro fiscal **sí aplica** y sigue sin
+   cablearse.
+3. **El `+62.1 %` de Vecinal queda peor parado, no mejor.** Es uno de los dos canales sin testigo
+   fiscal **y** el de mayor crecimiento declarado en pantalla. Su único árbitro posible es el
+   control manual de la operación.
+
+### 22.10 ⭐⭐⭐ Es DINERO, no artefacto — y lo prueba el plan de cuentas, no el residuo (2026-10-07)
+
+Edgar: *«investígalo a profundidad»*. La pregunta era si los **$78.60 M** de brecha de 2026 son
+venta real fuera de los libros o un efecto de cómo quedó nuestra ingesta después del concentrador.
+
+**Son dinero.** Y la prueba no es el 84 % de §22.9 —un residuo del tamaño correcto no prueba nada,
+porque siempre hay algún sumando que cabe— sino que **la contabilidad tiene cuentas con el nombre
+de la ruta escrito, y están vacías**.
+
+#### El control negativo: la cuenta se llama «RUTA 23»
+
+Es el único caso del catálogo donde el mapeo no admite interpretación: la cuenta dice qué ruta es.
+
+| periodo | sell-out de Ruta 23 | lo que registran sus 2 cuentas | ratio |
+|---|---:|---:|---:|
+| 2025 (12 m) | 5,641,204.42 | 267,035.86 | **4.73 %** |
+| 2026 ene–sep | 5,157,746.76 | 171,099.72 | **3.32 %** |
+
+#### El control positivo, con el MISMO método
+
+Sin esto el 4.73 % podría ser un problema de mapeo, no un hecho (R5). Sucursales con cuenta propia
+e inequívoca, 2026 ene–sep, excluyendo del sell-out los canales de ruta:
+
+| plaza | sell-out | libros | ratio |
+|---|---:|---:|---:|
+| **La Piedad Abastos** | 18,168,438.65 | 18,162,310.00 | **100.0 %** (difieren en $6,128 = 0.03 %) |
+| Morelia Madero | 17,948,360.11 | 18,412,901.54 | 102.6 % |
+| Padre Hidalgo (SUC + TLMKT) | 84,235,901 | 73,432,769 | 87.2 % |
+
+**Donde la venta se factura, los dos lados cuadran al centavo. Donde es ruta, los libros tienen el
+3 %.** El método discrimina, que es lo único que vuelve interpretable al 3 %.
+
+#### El plan de cuentas lo dice solo
+
+De las 47 cuentas de familia 4, **diez** nombran una ruta. Su vida completa, desde 2018:
+
+| cuenta | nombre | desde | hasta | total histórico |
+|---|---|---|---|---:|
+| 4010090000 · 4030090000 | VENTAS 0% / 16% **RUTA 23** | 2018-01 | 2026-09 | 438,136 |
+| 4010100000 · 4030100000 | VENTAS 0% / c/IVA **RD ZAMORA** | 2018-01 | 2026-08 | 252,131 |
+| 4010110000 · 4030110000 | VENTAS 0% / c/IVA **RUTA 26** | 2018-03 | 2020 | **0** |
+| 4010160000 · 4030160000 | VENTAS 0% / c/IVA **RUTA 502** | 2020-01 | 2024 | **0** |
+| 4010170000 · 4030170000 | VENTAS 0% / c/IVA **RUTA 24** | 2022-03 | 2022 | **0** |
+
+⭐ **Las cuentas existen desde 2018 y seis de las diez nunca movieron un peso.** No es que falte la
+cuenta: está abierta, nombrada, y nadie contabiliza contra ella. En 2026 ene–sep **las diez juntas
+registran $281,816 contra $66,055,835 de venta de ruta y vecinal en 20 plazas — el 0.43 %.**
+
+#### ⛔ Y mi §22.9 estaba mal: 2025 no refutaba nada
+
+La contradicción que publiqué hace una hora (*«en 2025 la ruta sí llegaba a los libros»*) **no
+existe**. Ruta 23 registraba **4.73 %** en 2025, prácticamente lo mismo que el 3.32 % de 2026: la
+práctica no cambió el 1-ene-2026.
+
+Lo que cambió fue **nuestro lado**. Medido: el sell-out de 2025 **no ve cuatro plazas enteras** que
+los libros sí registran —
+
+| plaza | en los libros, 2025 | en el sell-out, 2025 |
+|---|---:|---:|
+| 8 Esquinas | 50,932,768 | **230,601** (un solo mes) |
+| Zamora | 64,251,419 | **0** |
+| Zamora Centro | 7,847,254 | **0** |
+| Yurécuaro | 7,155,487 | **0** |
+| **total** | **130,186,929** | 230,601 |
+
+— y esas plazas entran al sell-out recién en 2026, cuando migran a Kepler. O sea que en 2025 **dos
+ausencias de signo opuesto se cancelaron**: a los libros les faltaba la ruta (−$73 M) y a nosotros
+nos faltaban cuatro plazas (−$130 M). La brecha neta salió chica, **$23.8 M (3.9 %)**, y se leyó
+como si todo cuadrara.
+
+⭐⭐ **La lección, que es más valiosa que el número:** *dos huecos opuestos en un agregado se suman a
+«cuadra».* Un total que parece sano es la evidencia más débil que existe cuando los dos lados
+cubren universos distintos — y acá el universo lo cambiaba un cutover de ERP en curso. Es la misma
+familia que §21.5(a) (*«un total que suma meses comparables con meses que no lo son»*) y que la
+regla de que la divergencia se localiza en el periodo que cuadra.
+
+⚠️ **Por eso el agregado de 2025 no se recompone y no se intenta.** Restando del fiscal las cuatro
+plazas invisibles, la brecha "comparable" salta a **$154.0 M** contra $73.1 M de ruta — peor, no
+mejor. Wincaja agrupa las plazas con otro corte del que usan las cuentas, así que **cuenta nombrada
+contra plaza nombrada es el único cruce defendible**; el agregado anual no lo es.
+
+#### Qué queda establecido, y qué no
+
+✅ **La venta de ruta y vecinal no pasa por la contabilidad.** Evidencia directa (cuentas con su
+nombre, vacías), control positivo que cuadra al 0.03 %, y estable en el tiempo (4.73 % → 3.32 %).
+
+✅ **No es artefacto de la ingesta.** El artefacto está del otro lado: era la comparación de 2025.
+
+⛔ **El monto exacto NO es $78.60 M.** Esa cifra es el residuo de un agregado que mezcla la ruta con
+diferencias de cobertura por plaza. Lo defendible hoy es el **canal**: $66,055,835 de venta de ruta
+y vecinal en 2026 ene–sep, de los cuales los libros reconocen $281,816.
+
+⛔ **Esto NO dice a dónde va ese dinero.** Dice que no se factura. Si entra a caja, a banco o se
+liquida contra el camión es otra pregunta, y tiene fuentes propias que esta sesión no tocó
+(`finance.bank_movements` de la Fase CB, las liquidaciones de la Fase RD, el control manual de
+§19.3). **Nadie debería leer esta sección como una afirmación sobre el destino del efectivo.**
+
+⛔ **Y el egreso sigue sin medirse.** §22.4 usa los libros como árbitro del gasto. Si hay una
+operación que cobra fuera del circuito fiscal, es plausible —no probado— que pague parte de su
+gasto por el mismo lado. Hasta que se mida, el `+10.55 %` cubre un universo **declaradamente
+parcial**, y ésa es la deuda que esta investigación deja abierta.

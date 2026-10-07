@@ -1616,3 +1616,223 @@ La reja del **cambio devuelto** y la del **corte** siguen en una columna (la pri
 por default, la segunda es otra superficie). La tira de KPIs del encabezado, la paginación de la
 bandeja y la de-duplicación de las pistas del panel **tampoco** se portaron. Y falta la
 **validación visual**: nadie vio esto renderizado todavía.
+
+---
+
+## 20. `[CG.54]` Limpieza: el mismo hecho, en un solo lugar (2026-10-07)
+
+**Edgar:** *"¿para qué sirve el checkbox?"* … *"no lo veo funcional, qué función cumple?"* …
+*"limpiemos cosas innecesarias. hay que optimizar la vista. mantener un control y un formato
+adecuado"*.
+
+### ⛔ Primero, lo que la medición dice del acto central de la pantalla
+
+Medido contra prod el 2026-10-07:
+
+| | |
+|---|---|
+| Movimientos confirmados en `finance.cash_ledger`, **en toda la vida del módulo** | **2** |
+| Quién | `superoot`, una sola persona |
+| Cuándo | los dos el **2026-09-28** |
+| Pendientes por confirmar | **12,976** |
+| Cortes de caja hechos | **0** |
+| Reglas de cuenta declaradas | **1** |
+
+La casilla **funciona**; lo que no funciona es el circuito. Tres razones estructurales, ninguna de
+interfaz: **nada río abajo lee el libro** (ni CB, ni Maat, ni contabilidad, ni ContPAQi), **hay 1
+sola regla declarada** así que casi toda la bandeja nace trabada, y desde `[CG.48]` el lote
+**espeja** al ERP campo por campo — lo único que aporta la persona es el «sí». Si nadie lee el
+libro, ese «sí» no compra nada. **Queda declarado: pulir esta pantalla no lo arregla.**
+
+### La limpieza, medida antes de cortar
+
+El importe del documento anclado aparecía **CINCO veces en el mismo panel**: el encabezado, la
+pista «Kepler: …», el pie del crédito, la cabecera del arqueo y el bloque del número. ⚠️ **Tres de
+las cinco las había puesto yo** en `[CG.49]` y `[CG.53]` sin sacar las que ya estaban.
+
+Cinco cortes:
+
+1. **Fuera la pista «Kepler: X-D-26 … · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
+   documento.»** — dos renglones para repetir lo que ya estaba en otros cuatro lugares.
+2. **Fuera «El documento dice $144.00»** de la cabecera del arqueo — lo dice el bloque del número,
+   pegado a la cifra con la que se compara.
+3. **La fórmula del crédito, sólo cuando hay crédito.** Con 0 publicaba *«documento $144 − crédito
+   $0.00 = $144»*: un renglón para una resta de cero.
+4. ⛔ **«Venta a crédito» ya no aparece en un GASTO.** Colgaba de `cobroElegido()` a secas y desde
+   que `[CG.21]` dejó anclar también el egreso, un comprobante de gasto mostraba un campo que ahí
+   **no significa nada** — una venta a crédito es, por definición, parte de un cobro que no llegó
+   en efectivo. El servidor acepta `venta_credito` sin mirar el tipo, así que el freno va en la
+   pantalla.
+5. **La consecuencia del descuadre se mudó al bloque del número.** La pista vieja decía *«contaste
+   1100 vs documento 1060: 40 de diferencia — se registra y queda un hallazgo»* al lado del
+   **selector de documento**, o sea mandaba a buscar el dato al otro extremo del panel. La cifra y
+   el veredicto ya viven juntos; lo único que esa pista agregaba era la consecuencia, y ahora va
+   pegada a la diferencia.
+
+Quedan **dos** menciones del importe, y cada una tiene su oficio: el encabezado dice **cuál**
+documento es, el bloque del número dice contra **cuánto** cuadra.
+
+**Y el rótulo que faltaba:** la columna de marcar llevaba sólo la casilla de «marcar todas»; su
+único texto era un `ariaLabel`. El control más importante de la pantalla **no decía qué hace**
+salvo para un lector de pantalla — que es exactamente por qué se preguntó dos veces para qué sirve.
+Ahora el encabezado dice **«Confirmar»**, y la palabra va dentro del `<label>`, así que el blanco
+del clic deja de ser una casilla de 14 px.
+
+### Verificación
+
+- `nx test view` caja-general: **211/211** (3 pruebas nuevas). `typecheck` de `view`,
+  `check:templates`, `check:tokens` (acotado) y `check:teclado` verdes.
+- **Mutación**: devolver el crédito a cualquier tipo → 1 roja; devolver «El documento dice» → 1
+  roja (el conteo pasa de 2 a 3).
+- ⚠️ **Ninguna prueba estaba protegiendo el texto que se borró** — coherente con que fuera
+  decoración, pero vale decirlo: se fue sin que nada se pusiera rojo.
+- ⚠️⚠️ **Novena vez** que un acento grave en un comentario del `template:` rompe el build acá.
+
+---
+
+## 21. `[CG.55]` La casilla que no se puede tocar, fuera (2026-10-07)
+
+**Edgar, sobre la pantalla corriendo en local:** *"se siguen mostrando los checkbox"*.
+
+### Qué pasaba, medido en su propia captura
+
+La bandeja decía *«23 de 44 se confirman de un clic · el resto necesita que su cuenta esté
+declarada»* — y mostraba **44 casillas**. Las otras **21 estaban deshabilitadas**, y en tema oscuro
+una casilla apagada se ve casi igual que una viva. La columna ofrecía 44 veces algo que podía hacer
+23: un control que promete lo que no puede cumplir.
+
+**La fila que no se puede confirmar ya no muestra casilla.** Lo que esa fila *sí* puede hacer ya
+estaba dicho dos veces: su etiqueta de motivo («ruta sin declarar», «falta elegir concepto») y su
+botón **«Capturar»**.
+
+### ⚠️ Lo que se verificó antes de elegir el mecanismo
+
+La salida obvia era `[pSelectableRowDisabled]`. **No sirve, y se comprobó en el fuente de
+`primeng@22` en vez de suponerlo:** `findNextSelectableRow()` recorre hermanos buscando
+`[data-p-selectable-row="true"]` y **salta** los que no lo tienen. Marcar la fila como no
+seleccionable la volvería **inalcanzable con las flechas** — y hay que llegar a ella justamente para
+apretar «Capturar». Las filas trabadas siguen navegables; lo que se fue es la casilla.
+
+⚠️ **Se declara el borde:** con la fila trabada enfocada, `Space` no hace nada y no lo explica.
+El filtro por `confirmable` vive en `onSeleccionTabla` (`[CG.50]`), así que la selección se descarta
+en silencio. La señal visual existe —no hay casilla y hay etiqueta de motivo—, pero el teclado no
+dice nada. Queda anotado, no resuelto.
+
+### Verificación
+
+- `nx test view` caja-general: **212/212** (1 prueba nueva, 1 endurecida). `typecheck`,
+  `check:templates` y `check:teclado` verdes.
+- **Mutación**: devolver la casilla a todas las filas → 1 roja.
+- ⭐ La prueba nueva es la que impide que «limpiar» se pase de rosca: afirma que la fila
+  **confirmable SÍ** tiene casilla. Sin ella, borrar la casilla de *todas* las filas dejaría la
+  bandeja sin forma de marcar nada y la otra prueba seguiría verde.
+
+### Lo que esto NO toca
+
+El acto sigue siendo el mismo y su circuito sigue roto (§20): **2 movimientos en el libro contra
+12,976 pendientes, 0 cortes, 1 regla declarada, y nada río abajo lee `finance.cash_ledger`.**
+Esconder la casilla donde no sirve es higiene de interfaz; que confirmar le sirva a alguien es otra
+decisión, y está abierta.
+
+---
+
+## 22. `[CG.56]` Sin casillas: la fila ES el control (2026-10-07)
+
+**Decisión de Edgar:** *"hazlo, no son necesarias"*.
+
+La columna de casillas se retiró **entera**. El camino quedó uno: `pSelectableRow` (`[CG.50]`) ya
+hace la fila seleccionable con el **clic**, con **Space** y con las **flechas**, y PrimeNG le pone
+`aria-selected`. La casilla era una segunda forma de hacer exactamente lo mismo — y aparecía 44
+veces para 23 acciones posibles (`[CG.55]`).
+
+### ⚠️ Lo que una casilla daba y una fila seleccionada no
+
+**Que el estado se lea de un vistazo.** Por eso la fila marcada no se queda en el `p-highlight` del
+tema: lleva fondo propio **y** una barra sólida en `--action` al borde izquierdo
+(`.cg-fila-marcada`), más un ✓ en su celda. Dos señales, ninguna dependiente de que el tema pinte
+su resaltado ni del contraste de un fondo solo.
+
+Y **«marcar todas» se mudó a la barra**, al lado de la acción que habilita: *«Marcar las 23»* /
+*«Quitar la marca»*. Una casilla en el encabezado de una columna que ya no tiene casillas no
+significa nada — y de paso el botón **dice cuántas son**, que es el dato que la casilla nunca pudo
+dar.
+
+### ⛔ Un token inventado que se habría caído en silencio
+
+Escribí `background: var(--action-soft-bg)` para la fila marcada. **Ese token no existe**: la
+familia es `action / hover / press / ink / ring`, sin fondo suave. Una declaración con un token
+inexistente **no falla** — se cae callada, y la fila marcada se habría visto **igual que las demás**,
+que es justo lo único que esa celda viene a resolver. Lo agarró `check:tokens`. Quedó
+`--action-ring`, que **es** el translúcido de esa familia.
+
+### Verificación
+
+- `nx test view` caja-general: **213/213** (3 pruebas nuevas, 2 retiradas por contradecir la
+  decisión). `typecheck`, `check:templates`, `check:tokens` y `check:teclado` verdes.
+- **Mutación**: sacar `.cg-fila-marcada` de la fila → 1 roja.
+- ⭐ La prueba que importa no es la que dice «no hay casillas» sino la que dice **«marcar sigue
+  siendo posible y se VE»**. Sin ella, «limpiar» podía dejar la bandeja sin forma de marcar nada y
+  la otra prueba seguiría verde — *una compuerta que sólo mide lo que se quitó aprueba el vacío*.
+- ⚠️ `[CG.54]` había puesto un rótulo «Confirmar» en el encabezado de esa columna. `[CG.56]` la
+  retiró: el rótulo que había que arreglar dejó de existir. Queda una nota en el spec para que
+  nadie reponga el encabezado de una columna que ya no es.
+
+### Sigue sin resolverse
+
+Lo de §20: **2 movimientos en el libro contra 12,976 pendientes, 0 cortes, 1 regla declarada, y
+nada río abajo lee `finance.cash_ledger`.** Esta entrega hace que marcar se vea mejor; no hace que
+marcar le sirva a alguien.
+
+---
+
+## 23. `[CG.57]` La consulta medía la caja equivocada (2026-10-07)
+
+**Edgar, con captura del panel abierto:** *"tu diseño se rompe"*. Y se rompía: cada sub-tabla de la
+reja a ~150 px, con **scroll horizontal**, el encabezado «Piezas» recortado a «Pie» y la columna
+«Importe» fuera de vista.
+
+### El defecto: anidé dos layouts de dos columnas y la consulta no lo supo
+
+`[CG.52]` puso el panel en dos columnas (QUÉ | CUÁNTO, ~311 px cada una). `[CG.53]` puso la reja en
+dos columnas (Billetes | Monedas). **Dentro de 311 px, eso son ~150 px por sub-tabla para una tabla
+de tres columnas.**
+
+Yo había previsto el caso — `.cg-reja2` lleva `@container (max-width:26rem) { grid-template-columns:1fr }`
+para apilarse cuando no hay lugar. **Nunca disparó**, y la razón es la que importa:
+
+> El único `container-type` del componente estaba en **`.cg-detail-cuerpo`**. Una consulta de
+> contenedor se resuelve contra el **ancestro más cercano que declare contención**, así que la reja
+> estaba midiendo los **646 px del panel** en vez de los **311 px de la columna** donde vive.
+> `646 px = 40.4rem > 26rem` → «hay lugar de sobra» → dos columnas.
+
+⛔ **Una consulta de contenedor no falla cuando apunta a la caja equivocada: contesta, y contesta
+sobre otra cosa.** Es la tercera vez en esta fase que un umbral se compara contra el contenedor que
+no gobierna al elemento (`[CG.49]`, `[CG.52]`, y ésta) — y las tres se vieron sólo mirando la
+pantalla.
+
+### El arreglo se corrige solo en los dos sentidos
+
+`.cg-grid > .cg-col` pasa a declarar `container-type: inline-size`. Con eso:
+
+| Panel | Columna mide | Reja |
+|---|---|---|
+| lado a lado (`[CG.52]`) | ~311 px = 19rem | **se apila** — y no hace falta que no, porque el panel ya son dos columnas |
+| apilado (pantalla angosta) | ~646 px = 40rem | **dos columnas** — que es donde la altura importaba |
+
+### Verificación
+
+- `nx test view` caja-general: **214/214** (1 prueba nueva). `typecheck`, `check:templates` y
+  `check:tokens` (acotado a este archivo) verdes.
+- **Mutación**: quitarle `container-type` a la columna → 1 roja.
+- ⚠️ **jsdom no hace layout**, así que esto no se puede probar renderizando: la prueba exige que la
+  columna **declare** que es un contenedor, y que sigan existiendo **dos** contenedores distintos.
+  Es lo más cerca que llega una prueba unitaria de un defecto que sólo se ve con píxeles.
+- ⚠️ **Segunda vez en la sesión** que una mutación no se aplicó por CRLF y casi doy por verificado
+  un candado que no se había ejercido. Lo aprendí en `[CG.52]` y volví a caer: el patrón con `\n`
+  literal no matchea este archivo.
+
+### Y lo que esto confirma sobre el método
+
+Las seis entregas anteriores pasaron **todos** los gates y la suite entera, y tres de ellas
+llegaron rotas a la pantalla. **Ninguna compuerta de este repo mide layout.** La validación visual
+no es un trámite al final: es la única que ve esta familia de defectos.

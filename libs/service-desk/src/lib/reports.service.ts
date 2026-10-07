@@ -79,7 +79,7 @@ export class ServiceDeskReportsService {
         })
         .orderBy('sort_order')
         .orderBy('name')
-        .select('id', 'code', 'name')) as { id: string; code: string; name: string }[];
+        .select('id', 'code', 'name', 'priority_model')) as { id: string; code: string; name: string; priority_model: 'impacto' | 'riesgo_operacion' }[];
       return { ...reporte, colas: colasPosibles, cola_id: q.queue_id ?? null };
     });
   }

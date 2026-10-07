@@ -66,10 +66,19 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
     <div>
       <h1>Qué trae cada camión</h1>
       <p class="ir-sub">
-        Lo que cada ruta tiene arriba <strong>hoy</strong>: lo que su sucursal le cargó, menos lo
-        que ya vendió. Para ver todo su historial, abrí la ruta.
-        <strong>Kepler no guarda el saldo de un camión</strong> — guarda los embarques y los
-        tickets, y esta pantalla los resta.
+        <!--
+          ⛔ RD.43 — este párrafo decía "lo que su sucursal le cargó, menos lo que ya vendió …
+          esta pantalla los resta", y eso dejó de ser cierto con RD.34. Desde entonces el número
+          NO se reconstruye: lo declara la propia camioneta, de su Kepler local, y lo que la
+          pantalla resta es el ajuste contra el papel. Es la frase que le dice al lector de dónde
+          sale la cifra, y describía el método anterior: quien la leyera defendería el número por
+          una razón equivocada.
+        -->
+        Lo que cada ruta tiene arriba <strong>hoy</strong>, según <strong>su propia camioneta</strong>:
+        cada una manda su existencia y eso es lo que se publica. Lo que la sucursal le cargó y lo
+        que vendió se usan para <em>contrastarla</em>, no para calcularla.
+        <strong>Kepler no guarda el saldo de un camión</strong> — por eso el saldo lo pone el
+        camión y el papel lo audita. Para ver todo su historial, abrí la ruta.
       </p>
     </div>
     <app-context-help topic="inventario-de-ruta" />
@@ -992,6 +1001,9 @@ export class ComercialInventarioRutaComponent {
   });
 
   readonly rutasSinMedir = computed(() => this.filas().filter((r) => !this.medible(r)).length);
+
+  /** En cuántas rutas la mercancía previa ASOMA como saldo negativo. Hoy: una. */
+  readonly rutasConPrevio = computed(() => this.filas().filter((r) => this.invNeg(r) < 0).length);
   readonly llegoSinEmbarque = computed(() => this.suma((r) => Math.max(0, this.sinEmbarque(r))));
   readonly salioSinEmbarque = computed(() => this.suma((r) => Math.min(0, this.sinEmbarque(r))));
   readonly totalCogsErp = computed(() => this.suma((r) => Number(r.cogs_erp) || 0));
@@ -1079,18 +1091,25 @@ export class ComercialInventarioRutaComponent {
         + 'se pudo descontar cuánto de eso lo explica cómo medimos, porque el servidor no informa '
         + 'la exposición. Tomarlo como mercancía perdida sería afirmar de más.'
       : sinMedir > 0
-        ? `. Sin documento que lo explique: al menos ${this.money(piso)} — y en ${sinMedir} de `
-          + `${this.filas().length} rutas la cifra no es medible, porque les falta uno de los dos `
-          + `lados del periodo (${this.money(expuesto as number)} que ninguna fuente cubre).`
+        ? `. Sin documento que lo explique: de ${this.money(this.brutoSinEmbarque())} que no `
+          + `cuadran, ${this.money(expuesto as number)} los explica cómo medimos, así que lo que `
+          + `se sostiene son ${this.money(piso)} — y en ${sinMedir} de ${this.filas().length} `
+          + 'rutas ni eso es medible, porque les falta uno de los dos lados del periodo.'
         : (entro + salio) > 0
           ? `. Sin documento que lo explique: ${this.money(entro)} que llegó y ${this.money(salio)} que salió.`
           : '.';
     const p = `${Math.abs(pct).toFixed(1)} %`;
     const previa = Math.abs(this.totalNeg());
     // Lo que el camion ya traia, dicho SIEMPRE: es la cifra que antes se restaba en silencio.
+    // ⛔ RD.43 — decía "vendieron $X de mercancía que ya traían", a secas, y esa cifra sólo
+    //    cuenta lo que ASOMÓ como saldo negativo: hoy, UNA ruta. El lector la tomaba como el
+    //    total de mercancía previa de la flota, que es la otra —y es 17 veces más grande—.
     const nota = previa > 0
-      ? ` Aparte, vendieron ${this.money(previa)} de mercancía que ya traían antes de su primer `
-        + 'embarque: existió y se cobró, pero nadie la contó, así que se declara y no se resta.'
+      ? ` Aparte, en ${this.rutasConPrevio()} de ${this.filas().length} rutas asomaron `
+        + `${this.money(previa)} de mercancía que ya traían antes de su primer embarque: existió `
+        + 'y se cobró, pero nadie la contó, así que se declara y no se resta. En las demás no '
+        + 'asoma porque su cuenta arranca donde las dos mitades son observables — lo que traían '
+        + 'de antes está en lo no medible, no acá.'
       : '';
     if (pct > 20) {
       return {
@@ -1151,11 +1170,22 @@ export class ComercialInventarioRutaComponent {
           ? `${this.money(this.sobreTope())} arriba del tope`
           : `el más cargado va al ${this.masCargado().toFixed(0)}%`,
       },
-      // Tono neutro a proposito: NO es un faltante ni un error. Es mercancia real, vendida y
-      // cobrada, de antes del primer embarque. Se declara para que no desaparezca, pero pintarla
-      // en rojo la convertiria en una alarma que nadie puede accionar.
+      /**
+       * Tono neutro a propósito: NO es un faltante ni un error. Es mercancía real, vendida y
+       * cobrada, de antes del primer embarque. Se declara para que no desaparezca, pero pintarla
+       * en rojo la convertiría en una alarma que nadie puede accionar.
+       *
+       * ⛔ `[RD.43]` — el subtítulo decía sólo «vendido de antes del primer embarque», y en la
+       * misma pantalla la declaración dice que lo que ninguna fuente cubre son **$413,464**. Dos
+       * cifras del mismo concepto, 17× apartadas, sin nada que las relacione: el lector concluye
+       * que la flota traía $24 mil. No es lo mismo —ésta sólo ve lo que **asomó** como saldo
+       * negativo, y desde que `[RD.40]` devolvió la ventana al `GREATEST` eso pasó a ocurrir en
+       * una sola ruta— pero si no se dice, la cifra chica tapa a la grande.
+       */
       { label: 'Traían sin contar', value: this.totalNeg(), format: 'currency2', tone: 'default',
-        sub: 'vendido de antes del primer embarque — no se resta' },
+        sub: this.rutasConPrevio() > 0 && this.expuestoSinMedir() !== null
+          ? `sólo donde asomó en negativo · ${this.rutasConPrevio()} de ${rutas} rutas — el resto va en lo no medible`
+          : 'vendido de antes del primer embarque — no se resta' },
       {
         // El mosaico ya no anuncia si "la cuenta cierra": con el ancla puesta esa igualdad es
         // cierta por construcción y publicarla sería teatro. Lo que sí vale decir es cuánta
@@ -1175,7 +1205,10 @@ export class ComercialInventarioRutaComponent {
           : this.pisoSinEmbarque() === null
             ? 'no se pudo descontar lo que explica cómo medimos: el servidor no informa la exposición'
             : this.rutasSinMedir() > 0
-              ? `lo que no explica cómo medimos · ${this.rutasSinMedir()} de ${this.filas().length} rutas sin medir (${this.money(this.expuestoSinMedir() as number)})`
+              // ⛔ RD.43 — el BRUTO vuelve a decirse. Publicar sólo el piso es correcto pero
+              //    deja fuera la cifra que alguien va a querer auditar: de cuánto se descontó.
+              //    Sin el minuendo, el descuento es una afirmación sin comprobante.
+              ? `de ${this.money(this.brutoSinEmbarque())} que no cuadran, ${this.money(this.expuestoSinMedir() as number)} los explica cómo medimos · ${this.rutasSinMedir()} de ${this.filas().length} rutas sin medir`
               : `${this.money(this.llegoSinEmbarque())} llegó · ${this.money(Math.abs(this.salioSinEmbarque()))} salió`,
       },
     ];

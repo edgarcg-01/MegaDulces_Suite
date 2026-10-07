@@ -86,7 +86,13 @@ function leerComoDataUri(f: File): Promise<string> {
           @if (t.requester_department_name) { <div><dt>Área</dt><dd>{{ t.requester_department_name }}</dd></div> }
           <div><dt>Atiende</dt><dd>{{ t.assigned_to_name || 'Sin asignar' }}</dd></div>
           <div><dt>Cola</dt><dd>{{ t.queue_name }} · {{ t.category_name }}</dd></div>
-          <div><dt>Afecta</dt><dd>{{ impactLabel[t.impact] }}{{ t.blocks_work ? ' · me bloquea el trabajo' : '' }}</dd></div>
+          @if (t.safety_risk === true || t.safety_risk === false) {
+            <!-- [MS.7.7] Cola de riesgo × operación: se muestra lo que SÍ se preguntó (el impacto no). -->
+            <div><dt>Riesgo para personas</dt><dd>{{ t.safety_risk ? 'Sí' : 'No' }}</dd></div>
+            <div><dt>Detiene la operación</dt><dd>{{ t.blocks_work ? 'Sí' : 'No' }}</dd></div>
+          } @else {
+            <div><dt>Afecta</dt><dd>{{ impactLabel[t.impact] }}{{ t.blocks_work ? ' · me bloquea el trabajo' : '' }}</dd></div>
+          }
           @if (t.warehouse_name) { <div><dt>Ubicación</dt><dd>{{ t.warehouse_name }}</dd></div> }
           <div><dt>Alta</dt><dd>{{ t.created_at | date:'dd/MM/yy HH:mm' }}</dd></div>
           @if (agent() && t.priority_suggested && t.priority_suggested !== t.priority) {

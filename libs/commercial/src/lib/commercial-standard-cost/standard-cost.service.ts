@@ -251,6 +251,20 @@ export interface FilaCostoEstandar {
   origen_cantidad: number | null;
   origen_unidad: string | null;
   /**
+   * `[CE.13]` ¿La unidad del documento concuerda con el peldaño que resolvió la aritmética?
+   *
+   * El documento NO se elige por su unidad: se busca uno cuyo **precio** se parezca a `kdik.c16`
+   * dentro del 1 % y se desempata por `fecha DESC, folio DESC`. Medido en el SKU 30540, la plaza
+   * 00 tiene **19 documentos empatados con dos etiquetas distintas** ("500" y "KG"), y en la 05
+   * ese desempate rotuló en kilos un costo que es de la unidad base de 500 g.
+   *
+   * **Ternaria a propósito**: `null` = no se pudo juzgar, y son tres ausencias distintas (sin
+   * etiqueta · sin peldaño resuelto · el rótulo choca entre peldaños, que pasa en el 24.8 % del
+   * catálogo). Un booleano no puede decir "no sé" — mismo defecto que `FRESHNESS_UNKNOWN` con
+   * `stale:false` en VP.0. Medido en prod: 14,682 concuerdan · 65 se contradicen (32 accionables).
+   */
+  origen_unidad_coherente: boolean | null;
+  /**
    * El TAMAÑO del documento, para que el renglón no se lea como si fuera el movimiento entero.
    * El caso que lo motivó: «1 PAQ a $189.07» pertenece a un conteo físico de **897 partidas
    * por $4,246,558.27** — verificado contra la pantalla del propio Kepler.
@@ -317,6 +331,7 @@ const COLUMNAS = `
   es_plaza_operativa, precio_si_conserva_margen, margen_real_pct, vende_bajo_costo,
   origen_familia, origen_doctype, origen_nombre, origen_nombre_ambiguo,
   origen_fecha_txt, origen_folio, origen_precio, origen_cantidad, origen_unidad,
+  origen_unidad_coherente,
   origen_almacen, origen_doc_id, origen_doc_renglones, origen_doc_total`;
 
 const VEREDICTOS: VeredictoCostoEstandar[] = [

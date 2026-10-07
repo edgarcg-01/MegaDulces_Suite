@@ -13,6 +13,21 @@
 - Columna **Referencia** antes de *Folio Kepler* en **Por entregar**, en el detalle de **Entregas** y en el **PDF de firmas**. Es el dato que Kepler muestra junto a «Referencia» en el documento *Aplica Orden Entrada* (p. ej. `30-0822`); lo pidieron los usuarios de Compras que ya lo usan en prod.
 - **De dónde sale:** `kdm1.c11` de la cabecera XA2001, verificado contra la pantalla de Kepler con un caso real (Morelia Abastos `XA2001-0000165` → `30-0822`; casan también el «Docto previo» y el importe). Es texto capturado a mano: se muestra tal cual, y «—» cuando no se capturó (3 % desde el 1-sep).
 - **Migraciones (2):** `20261007300000` agrega `referencia` al final de `analytics.erp_goods_receipts` (ninguna columna existente cambia; sus 3 dependientes no se tocan; misma velocidad, medido 153 vs 144 ms) y `20261007300100` la guarda en los renglones de cada entrega (snapshot de lo firmado) y rellena las entregas que ya existen. El servicio sondea las dos columnas: el código se puede desplegar antes que las migraciones sin dar error. Sin permisos nuevos → **sin re-login**.
+
+### Fixed — Presupuesto: el mes en curso dejó de ser base del plan, y el «0 %» dejó de ser un cero dibujado (PU.VA, 2026-10-07)
+
+- **El motor tomaba un mes a medio llenar por un mes completo.** Los dos cálculos (`yoy()` de gastos y de ventas, y la base de `proposeExpensePlan`) sólo exigían `> 0`, así que **un peso bastaba**. Medido contra prod: el plan FY2027 de familia 6 pasa de **$68,451,309 a $74,852,188 (+$6.40 M)** — y no era sólo octubre ($915,446 → $6,234,091): **noviembre y diciembre subían $533,407 cada uno** porque el promedio de relleno también venía contaminado. Criterio idéntico al de `analytics.v_expense_arbiter.mes_en_curso`; en ventas, el periodo abierto sale del calendario 13×4 real (`analytics.v_retail_calendar`).
+- **El `basis` llega a la pantalla.** El servicio ya declaraba si el crecimiento estaba medido (`yoy_paired`) o no (`default`); el front leía sólo el número, así que *«no pude medir»* y *«medí cero»* se pintaban igual. Ahora el gasto declara «· sin medir», como ventas ya declaraba «· respaldo».
+- **`Ocupación` imprimía el literal `0` debajo de la leyenda «sin base».** Un cero dibujado con su propia desmentida al lado (ADR-056).
+- **El vacío de la tabla dejó de conjeturar.** Decía «si el ejercicio ya tiene planes y esto sigue vacío, la pasada no corrió» mientras `analytics.cron_runs` tenía el veredicto escrito. Nuevo `GET finance/budget/autopilot/status`.
+- **Español de México**: 5 formas de voseo → tuteo. **Layout**: el checkbox y su rótulo estaban a ~700 px (`space-between` con el texto como hermano suelto) y la columna de porcentajes alineaba por el borde, no por el dígito.
+
+
+### Added — El supuesto de crecimiento gana su árbitro (PU.VA, 2026-10-07)
+
+- `docs/VERDAD_ABSOLUTA.md` **§22**: la dimensión que faltaba. El crecimiento derivable de Kepler y el que sostienen los libros (ContPAQi) **no coinciden**, y la causa está medida: el egreso de familia 6 arranca en agosto de 2025. **§22.10** establece que la venta de ruta no pasa por la contabilidad —las 10 cuentas que nombran una ruta mueven **$281,816 contra $66,055,835** de venta, el 0.43 %, con control positivo que cuadra al 0.03 %— y **retracta §22.9**, que había leído un total sano como prueba de que algo cuadraba.
+- Candado `database/tests/test-newdb-budget-assumption.js` — 11 ✓ / 0 ✗ / 0 NO MEDIDO contra prod, con tres mutaciones ejercibles (`PU_MUTAR`).
+
 ### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
 - En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
 - **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.
@@ -433,6 +448,8 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 
 **Oficinas Corporativas (MS.3.14):** al levantar una solicitud, la lista de ubicaciones (antes «Sucursal»; el campo ahora se llama «Ubicación» en toda la mesa) ofrece «Oficinas Corporativas» (al final). No es una sucursal de la red: se guarda con su propio código (`OF`) sin tocar los de Kepler, y funciona en toda la mesa (categorías que exigen sucursal, filtro de la bandeja, ficha y reporte por sucursal).
 **La ubicación se ve siempre (MS.3.17):** al levantar una solicitud, el campo «Ubicación (opcional)» ya no está escondido tras un enlace; se muestra desde el principio (y con asterisco si la categoría la exige).
+
+**Prioridad por riesgo en Mantenimiento (MS.7.7):** al reportar a Mantenimiento se pregunta «¿hay riesgo para personas?» y «¿detiene la operación?» en lugar de «¿a cuántas personas afecta?»; con ambas se sugiere la prioridad (riesgo y paro → Urgente; uno de los dos → Alta; ninguno → Media). La pregunta del riesgo es obligatoria. TI sigue como siempre y cada cola puede elegir su modelo desde Configuración.
 
 **Plazos (SLA) por cola (MS.7.2):** cada cola puede tener sus propios plazos de primera respuesta y resolución, y lo que no cambia lo hereda de los generales; Configuración trae un selector «¿De qué cola?» con «propio/heredado». Mantenimiento ya trae los suyos, en horario hábil. Para TI no cambia nada.
 

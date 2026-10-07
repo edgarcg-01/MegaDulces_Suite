@@ -41,4 +41,11 @@ export class BudgetPlanningController {
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Proyección de cierre computada (firme y plena). No altera el presupuesto autorizado.' })
   projection(@Param('id') id: string) { return this.svc.projectionToClose(id); }
+
+  // `[PU.VA]` Va ANTES de cualquier `@Get('budgets/:id/...')` nuevo con un segmento fijo que pudiera
+  // confundirse con un id — el orden de las rutas en Nest es el de declaración.
+  @Get('autopilot/status')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Estado real de la pasada que arma el presupuesto (latido + pasadas completadas). Reemplaza la conjetura «la pasada no corrió».' })
+  autopilotStatus() { return this.svc.autopilotStatus(); }
 }

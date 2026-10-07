@@ -417,6 +417,70 @@ hardcodea un regex.** Entregable: `analytics.wincaja_internal_parties` (tenant, 
 nombre, clase) sembrada del catálogo `Clientes` y **revisada por una persona**, con lo no
 clasificado **declarado con su monto** — nunca descartado ni incluido en silencio.
 
+---
+
+#### 📒 EL CATÁLOGO DE CONTRAPARTES (barrido de las 9 sucursales, 2017–2025)
+
+Tres cosas salieron de correrlo, y **dos corrigen lo que yo había escrito**.
+
+**A. ⭐⭐ El CEDIS es 100 % interno. No tiene venta.**
+
+Sus **ocho** contrapartes son todas `ALMACEN *`:
+
+| tercero | nombre | tickets | `ValorVenta` |
+|---|---|---:|---:|
+| 10 | ALMACEN PADRE HIDALGO | 3,568 | $386,268,956 |
+| 30 | ALMACEN MORELIA ABASTOS | 1,295 | $340,440,157 |
+| 50 | ALMACEN ZAMORA CANINDO | 1,047 | $239,678,078 |
+| 40 | ALMACEN 8 ESQUINAS | 1,140 | $62,519,612 |
+| 42 · 32 · 44 · 54 | las otras cuatro | 1,105 | $33,641,389 |
+| | | **8,155** | **$1,062,548,192** |
+
+**$1,062 millones** que, cargados como venta, serían doble conteo **puro** — el CEDIS surte, no
+vende. ⛔ Y explica por qué el `00` aparece con tan pocos tickets (8,165 en 9 años): no es una
+tienda floja, **es un almacén**.
+
+**B. ⛔ Mi patrón por nombre tenía falsos positivos, y son obvios en cuanto se ven.**
+
+`RUTA` casa dentro de **`FRUTA`**: quedaron marcados como internos ~60 clientes reales —
+*FRUTAS Y VERDURAS RIVERA*, *CECY FRUTA*, *SRA FRUTA*, *FRUTA TIANGUIS*, *MARTIN MATA (FRUTA)*…—
+y `ALMACEN` casa dentro de *FUMIGACIONES A GRANOS **ALMACEN**ADOS* y *COMERCIALIZADORA
+**ALMACEN**ES GARCÍA*. Poco dinero (~$340 k en PH), pero marca a clientes de verdad como
+movimiento interno. **El patrón tiene que ir anclado** (`^ALMACEN\b`, `^RUTA\b`, `^SUC\b`,
+`^CEDIS\b`, `^[0-9]+ RUTA\b`).
+
+**C. ⭐⭐ Y el hallazgo que cierra la salvedad de Canindo: el NOMBRE no alcanza — manda el CÓDIGO.**
+
+Canindo daba cero surtido a ruta porque **sus rutas están registradas con el nombre de la
+persona**:
+
+| tercero | nombre en el catálogo | tickets | `ValorVenta` | es |
+|---|---|---:|---:|---|
+| 501 | VICTOR MANUEL ZALAPA BARRIGA | 2,092 | $24,453,433 | **RUTA-501** |
+| 502 | DANIEL PADILLA ROJANO | 1,733 | $22,218,785 | **RUTA-502** |
+| 503 | JOSE ZAVALA VILLALOBOS | 1,310 | $18,129,805 | **RUTA-503** |
+| | | **5,135** | **$64,802,023** | |
+
+**$64.8 millones de surtido a ruta que una regla por nombre publica como venta.** Y los códigos
+`501/502/503` son exactamente los de `RUTA-501/502/503` que ya publican en `wincaja_ruta`: el
+mismo dinero, dos veces.
+
+⭐ **Es la lección ya documentada en `[VEC.0-6.2]`**, que yo volví a tropezar: *"el discriminante
+tenía que ser el CÓDIGO, no el nombre: en Michoacán las rutas se llaman con el nombre de la
+persona"*. Verificado que los códigos **sí** son estables entre sucursales:
+
+- **Almacenes:** `0` · `10` · `30` · `32` · `40` · `42` · `44` · `50` · `54` — son los códigos de
+  rama de Wincaja, los mismos de `v_branch_erp_cutover`.
+- **Rutas:** `21`–`28` (PH) · `300` · `301` · `321` · `322` (Madero) · `501`–`505` (Canindo) · `61`.
+
+**Regla final: el tercero es interno si su CÓDIGO está en el padrón de almacenes/rutas; el nombre
+sólo sirve para proponer candidatos y para que un humano revise.** Lo que no case por código ni
+por nombre anclado queda `sin_clasificar` **con su monto declarado**.
+
+⚠️ **Quedan candidatos sin resolver que la revisión humana tiene que mirar**, el mayor:
+`06_CAN` tercero **`70790` KARLA PAULINA YADEZ TREJO**, 904 tickets / **$17,344,443** a
+**$19,186 por ticket** — ese ticket promedio es de ruta o de mayoreo, no de mostrador.
+
 **WH.0 queda CERRADO** salvo esa revisión humana de contrapartes, que ya no bloquea el diseño:
 bloquea la publicación de la cifra final, que es donde debe bloquear.
 
@@ -439,7 +503,56 @@ Sin esto no se carga una sola fila. Lo que hay que contestar, con evidencia inde
 **Entregable:** una sección en [`VERDAD_ABSOLUTA.md`](../../VERDAD_ABSOLUTA.md) que diga qué
 arbitra la venta histórica de Wincaja y cuánto aguanta. **Sin firma, la fase no avanza.**
 
-### `[WH.1]` — Inventario y arbitraje de CORTES
+### ✅ `[WH.1]` — Arbitraje de CORTES · **EJECUTADO 2026-10-07**
+
+**1. La premisa del repo era cierta, y ahora está medida, no supuesta.** Cada carpeta-año contiene
+**≥ 99.9 % de su propio año**. El residuo, cuantificado sobre las nueve sucursales:
+
+| corte | de SU año | de otro año | centinela 2000 | futuro |
+|---|---:|---:|---:|---:|
+| 2017 | 1,091,021 | 0 | 1,573 | — |
+| 2020 | 960,774 | **1,059** (0.11 %) | 35 | — |
+| 2022 | 1,082,977 | 634 (0.06 %) | 1,029 | — |
+| 2025 | 1,185,696 | 4 | 111 | **1** |
+| los otros cinco | 5,479,018 | ≤ 338 c/u | ~2,400 | — |
+
+⭐ **Consecuencia de diseño: el día de la venta sale de la FECHA parseada, no del nombre del corte.**
+El `_dataset` sirve para la identidad y la deduplicación, nunca para fechar. Con ~2,000 tickets
+mal ubicados si se fechara por carpeta, es barato hacerlo bien.
+
+**2. ⭐⭐ Y la duplicación entre cortes está EXACTAMENTE acotada.** Identidad de ticket =
+`(Documento, Caja, Fecha)`, sobre los cortes anuales + los de nombre propio (sin
+`Actuales`/`Concentradas`):
+
+| sucursal | filas | tickets únicos | repetidos | % |
+|---|---:|---:|---:|---:|
+| 00 · 03 · 04 · 05 · 06 · 08 | 5,430,440 | 5,430,440 | **0** | 0.00 |
+| 01 Padre Hidalgo | 2,280,567 | 2,250,870 | 29,697 | 1.30 |
+| 02 La Piedad | 1,131,814 | 1,013,084 | 118,730 | 10.49 |
+| 07 Morelia Madero | 1,068,599 | 1,030,026 | 38,573 | 3.61 |
+| **total** | **10,055,420** | **9,724,420** | **187,000** | 1.86 |
+
+**Los repetidos cuadran al ticket con los cortes de nombre propio:**
+
+- 01 → **29,697** = `2025-2025_dic` (29,697) ✔ exacto
+- 07 → **38,573** = `2021-32_morelia_madero_01_21` (11,794) + `..._dic` (26,779) ✔ exacto
+- 02 → **118,730** ≈ `2023-42_piedad_abastos2` (118,731) — **1 ticket de diferencia**, declarado
+
+⭐ **Las seis sucursales sin cortes de nombre propio tienen CERO duplicación**: las carpetas
+anuales son una partición limpia. Eso es lo que convierte §2.1 de sospecha en veredicto.
+
+**3. El veredicto, y por qué NO es "borrar los cortes malos".** Lo obvio sería descartar los cinco
+cortes con nombre; sería correcto hoy y frágil mañana (exige mantener una lista a mano, y pierde
+el ticket huérfano de La Piedad). **La regla va por la identidad**: `DISTINCT ON (Documento, Caja,
+Fecha)` prefiriendo el corte anual. Recupera exactamente los mismos 9,724,420 tickets, recoge el
+huérfano solo, y no necesita que nadie mantenga nada.
+
+⚠️ `2018-70_telemarketing_cia` y `2019-70_telemarketing_error` viven en `h70` (telemarketing), no
+en las nueve de tienda → se arbitran en **WH.8** con las rutas.
+
+---
+
+### `[WH.1]` — enunciado original
 
 Por cada `(sucursal, _dataset)`: días cubiertos, tickets por día, y el veredicto
 `canónico | subconjunto_de_X | complementario | sin_arbitrar`. El criterio es el de §2.1 (días
@@ -473,6 +586,81 @@ de las fechas futuras, join cabecera↔detalle **con `AND d._dataset = m._datase
 el importe según lo que firme WH.0.
 
 ⚠️ **El crudo NO se copia a prod.** FDW lee donde está; los 35 GB se quedan en el espejo.
+
+### 🚀 `[WH.2]` + `[WH.3]` — **EN PROD 2026-10-07**
+
+**`[WH.2]` el FDW, aprovisionado y verificado.** `database/importers/wincaja/FDW-WINCAJA-HIST.sh`
+(corrido por Edgar en `md`; la credencial se genera ahí y nunca toca el repo, patrón `[RD.34]`):
+
+- servidor `wincaja_hist` → `host=pgvector-md, port=5432, dbname=wincaja, fetch_size=50000`
+- **27 tablas foráneas en 9 schemas** `wincaja_hNN`
+- rol `prod_wincaja_ro` acotado a SELECT sobre **3 tablas × 9 sucursales** (no las otras 67)
+- ✔ prueba **positiva**: `wincaja_h40."MaestroMovAlmacen"` corte 2023 → **278,888**, el mismo
+  número medido en el espejo esa mañana
+- ✔ prueba **negativa**: `wincaja_h40."Cajas"` **no existe** → el alcance quedó acotado
+
+**`[WH.3]` el padrón, aplicado como `batch 780` (0.1 s), con la identidad del clúster verificada.**
+`analytics.wincaja_internal_parties`, **104 filas sembradas**:
+
+| clase | origen | filas | tickets observados |
+|---|---|---:|---:|
+| `traspaso_interno` | nombre anclado | 75 | 31,935 |
+| `surtido_ruta` | nombre anclado | 19 | 14,862 |
+| `surtido_ruta` | **código** (el nombre no lo delata) | 8 | 8,185 |
+| `sin_clasificar` | código ambiguo | **2** | 2,817 |
+
+✔ prueba **negativa** en prod: el `CHECK` rechaza marcar `revisado` sin autor ni fecha.
+
+⚠️ **La lista de revisión humana son DOS renglones**, los dos en Canindo:
+
+| sucursal | tercero | nombre | tickets |
+|---|---|---|---:|
+| 06 | `24` | LUIS GABRIEL ALVAREZ MOLINA | 1,302 |
+| 06 | `25` | MUNICIPIO DE JACONA MICHOACAN | 1,515 |
+
+Hasta que alguien firme, los dos quedan fuera de la venta **y declarados** — ni descartados (sería
+perder venta) ni incluidos (sería doble conteo).
+
+⚠️ **Trampa vivida al aplicar, para la próxima:** el pod abortó con *«migration directory is
+corrupt»* porque prod tenía **4 migraciones aplicadas hoy por otras sesiones** cuyos archivos no
+están en la imagen del pod. Se resuelve copiando esos 4 archivos al pod antes de aplicar
+(`knex.migrate.list()` compara la tabla contra el DIRECTORIO, no contra `main`). Ver
+[[feedback_pod_migration_list_is_relative_to_image]].
+
+---
+
+### 🚀 `[WH.2b]` — La vista, **EN PROD 2026-10-07** (`batch 782`)
+
+`analytics.v_wincaja_hist_sales` — derive-no-copy sobre el FDW, con las cinco decisiones medidas
+adentro (dinero sin impuesto · día de la fecha parseada · dedup por identidad · clase desde el
+padrón · cordura como **veredicto, no filtro**).
+
+**El candado: reproduce lo ya medido.** Padre Hidalgo 2023:
+
+| clase | tickets | `valor_venta` | margen |
+|---|---:|---:|---:|
+| `venta_cliente` | 269,554 | $147,289,045 | **12.21 %** |
+| `traspaso_interno` | 1,042 | $58,033,035 | **2.00 %** |
+| `surtido_ruta` | 1,737 | $25,983,201 | **15.06 %** |
+| **total** | | **$231,305,281** | |
+
+Contra los **$231,340,190** del barrido crudo: Δ **$34,909 (0.015 %)**, explicable por el dedup y
+por acotar la ventana con la FECHA en vez del nombre del corte.
+
+⭐ **Y una corroboración que no se buscaba: el traspaso interno da 2.00 % de margen** —
+prácticamente a costo, que es exactamente lo que un movimiento interno tiene que ser — contra
+12.21 % de la venta. Si el padrón estuviera mal clasificando, esos tres márgenes saldrían
+mezclados. **El margen valida la clasificación sin que nadie se lo haya pedido.**
+
+**Prueba negativa, en prod:** Padre Hidalgo 2025 devuelve **1 renglón `fuera_de_rango` con
+$995,263,779,541,730 A LA VISTA** y 1,488,064 renglones `ok` con $239,654,860. El veneno se
+**marca**, no se borra. Y son 1 y no 2 porque el dedup colapsó el ticket duplicado: esa pieza
+también quedó probada.
+
+⚠️ **53 s y 31 s por consulta** — confirmado lo que la migración ya declaraba: **la vista NO es
+interactiva**. Es la definición auditable; quien la consume es la matvista de `[WH.4]`.
+
+---
 
 ### `[WH.3]` — El puente producto: Wincaja `Articulo` → `catalog.products.id`
 
@@ -521,6 +709,39 @@ venta si la ventana queda mal. El candado de paridad del sell-out (`test-newdb-s
 Fase VP) ya mide traslape **y hueco**: se corre antes y después, y tiene que seguir en 0.00.
 
 ### `[WH.6]` — Cobertura y procedencia en pantalla
+
+> **Para qué sirve todo esto, en palabras de Edgar (2026-10-07):** *"más que nada para métricas y
+> gráficas que importan bastante a la hora de hacer una compra"*. El consumidor concreto es el
+> globo **«Venta por mes»** de `/compras/pedido` (`[RA-PRO.65]`), que hoy enseña trece meses con la
+> serie **«año anterior» vacía** y el prorrateo 60/40 en `—`.
+
+**Cuánto de eso arregla esta fase, medido en Padre Hidalgo:**
+
+| | SKUs |
+|---|---:|
+| activos que **venden hoy** y **no tienen con qué comparar** (su serie de año anterior está muda) | **1,352** |
+| …de ésos, los que **sí tienen historia en Wincaja** → recuperan la comparación | **698 (51.6 %)** |
+| …los que **no** la tienen: son productos nuevos, su gráfica está muda **con razón** | 654 |
+
+⭐ **Más de la mitad de las gráficas mudas se arreglan. La otra mitad está muda con razón** — y eso
+también hay que decirlo, no esconderlo.
+
+⛔ **Y ahí está el defecto que esta fase tiene que corregir en la pantalla.** El globo dice hoy
+**«sin venta registrada el año anterior»** en los dos casos, y **no son el mismo caso**:
+
+- **No vendió** → afirmación medida. Correcta.
+- **No hay historia cargada** → *no se midió*, y decir «no vendió» es afirmar un cero que nadie
+  comprobó. Es exactamente ADR-056 sobre la pantalla en la que más cuesta: la de decidir una compra.
+
+**Ejemplo real, de la captura que lo disparó:** SKU **95775** (*EST GOM PELAFRUT MANGO 800GR /
+KALU*) en 01 Padre Hidalgo. Su serie de año anterior está vacía, y **está bien**: el producto se dio
+de alta en el catálogo el **2026-06-29**, dos días después de que PH migrara a Kepler, y **no existe
+en el espejo de Wincaja** (0 renglones en 9 años). Para ese SKU la fase no aporta nada — y la
+pantalla debería decir *«producto nuevo: no hay año anterior»*, no *«sin venta registrada»*.
+
+**Entregable de WH.6:** cada serie histórica viaja con su cobertura (`Coverage` del contrato de
+procedencia) y la pantalla distingue **tres** estados, no dos: *vendió X · no vendió · no hay
+historia para este producto/sucursal*.
 
 Que las pantallas que ya consumen el fact (sell-out, `/comercial/ventas-por-ruta`, Command Center,
 Rentabilidad) **declaren** desde cuándo hay historia por sucursal. Hoy un comparativo 2024 vs 2025

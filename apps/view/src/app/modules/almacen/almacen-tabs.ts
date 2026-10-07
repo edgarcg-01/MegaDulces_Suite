@@ -58,6 +58,19 @@ export interface AlmacenArea {
    * pintaría en el sidebar.
    */
   focusEntries?: PageTab[];
+  /**
+   * **Dónde ENTRA cada quien, cuando no es lo mismo que dónde empieza el proceso.**
+   *
+   * Por default el aterrizaje del item de sidebar es el primer tab que la persona puede
+   * ver, o sea `tabs[0]`. Eso confunde dos preguntas distintas: **el orden de lectura**
+   * (en qué secuencia ocurre el trabajo) y **el punto de entrada** (qué querés ver al
+   * llegar). Casi siempre coinciden; cuando no, forzar que coincidan degrada una de las dos.
+   *
+   * Si está presente, el aterrizaje se resuelve sobre ESTA lista y la barra se sigue
+   * pintando en el orden de `tabs`. Se usa sólo con una razón medida y con condición de
+   * retiro escrita — ver el área `conteo`.
+   */
+  landing?: PageTab[];
 }
 
 export const ALMACEN_AREAS: AlmacenArea[] = [
@@ -165,16 +178,67 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       '/almacen/inventory/diferencias',
       '/almacen/inventory/count',
     ],
+    /**
+     * `[IC.22]` — **la barra sigue el ciclo del conteo, no el orden en que se construyeron
+     * las pantallas.** Antes era `Folios · Cíclico · Pasillos · IRA · Diferencias`, que no es
+     * ninguna secuencia: mezclaba el trabajo de hoy, la configuración del almacén y el
+     * resultado del trimestre. Cada posición se decidió mirando qué pregunta contesta la
+     * pantalla, verificada contra su componente en `app.routes.ts`:
+     *
+     *  1. **Programa** (`inventory/abc`) — *¿qué toca contar?* Es la agenda, no un reporte:
+     *     la ruta es «conteo cíclico (clasificación ABC + agenda)». Abre el ciclo.
+     *  2. **Folios** — *¿qué se está contando y quién lo cuenta?* Abrir, asignar y seguir.
+     *  3. *(**Contar** vive en `focusEntries`: es el acto, no una pantalla de consulta, y se
+     *     llega desde el folio. Si fuera tab, al entrar desaparecería la barra.)*
+     *  4. **Diferencias** — *¿qué salió descuadrado?* El trimestral de Kepler, que es el
+     *     tercero de los tres ritmos.
+     *  5. **Exactitud (IRA)** — *¿estamos mejorando?* El resultado acumulado. Va después de
+     *     lo que lo produce.
+     *  6. **Pasillos** — **no es un paso del ciclo, es configuración** del almacén (editor 2D
+     *     de layout y mapeo SKU→pasillo). Se hace una vez y se consulta rara vez: al final.
+     *
+     * ⚠️ `Cíclico (ABC)` pasa a llamarse **Programa**: la etiqueta vieja nombraba el método
+     * (Pareto ABC) y no la pregunta que contesta. La ruta NO cambia — los deep-links siguen.
+     */
     tabs: [
+      // ABC.3b — la agenda: qué toca contar hoy. Primera porque abre el ciclo.
+      { label: 'Programa', icon: 'pi pi-sync', route: '/almacen/inventory/abc', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
       // exact:false — el tab sigue activo en el detalle del folio y en Equipos.
       // [IC.23] `anyOf` y no `permission`: el encargado de sucursal entra con ASIGNAR a armar
       // el equipo del conteo diario. Con permiso único perdía el tab aunque el guard lo dejara pasar.
       { label: 'Folios', icon: 'pi pi-clipboard', route: '/almacen/inventory/sessions', anyOf: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR], exact: false },
-      { label: 'Cíclico (ABC)', icon: 'pi pi-sync', route: '/almacen/inventory/abc', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
-      { label: 'Pasillos', icon: 'pi pi-th-large', route: '/almacen/inventory/aisles', permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR, exact: true },
-      { label: 'Exactitud (IRA)', icon: 'pi pi-verified', route: '/almacen/inventory/ira', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
       // [IC.0] El descuadre del trimestral de Kepler. Gate VER (lectura) y no SUPERVISAR:
       // el permiso ya esta repartido a 10 roles, incluida direccion y prevencion.
+      { label: 'Diferencias', icon: 'pi pi-exclamation-triangle', route: '/almacen/inventory/diferencias', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
+      { label: 'Exactitud (IRA)', icon: 'pi pi-verified', route: '/almacen/inventory/ira', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
+      // Configuración, no ciclo: el editor 2D de pasillos y el mapeo SKU→pasillo.
+      { label: 'Pasillos', icon: 'pi pi-th-large', route: '/almacen/inventory/aisles', permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR, exact: true },
+    ],
+    /**
+     * ⛔ **El aterrizaje NO sigue al orden de lectura, y la razón está medida.**
+     *
+     * El default es `tabs[0]`, así que poner *Programa* primero mandaría a **5 roles / 15
+     * personas** (superadmin, compras, gerente_compras, marketing, supervisor) a aterrizar
+     * ahí en vez de en *Folios*. Y hoy eso sería peor que antes: **el reloj de la cadencia
+     * nunca arrancó** —`last_counted_at` cuelga de `MAX(reconciled_at)` y no hay un solo
+     * folio reconciliado (§2.2 de `FASE_IC_RITMOS_Y_ABC`)— así que *Programa* publica el
+     * catálogo entero como vencido. Aterrizar a alguien en una pantalla que grita «39,480
+     * pendientes» no es un punto de entrada: es ruido con permiso.
+     *
+     * *Folios* sigue siendo la entrada porque contesta **qué está pasando ahora**, que es lo
+     * que alguien quiere ver al llegar, y desde `[IC.13]` trae avance, última actividad y las
+     * alertas.
+     *
+     * ⭐ **Condición de retiro, explícita:** cuando `[IC.16]` ponga el reloj por ritmo con
+     * arranque declarado, *Programa* deja de mentir y esta lista se borra — el aterrizaje
+     * vuelve a ser `tabs[0]` y pasa a coincidir con el inicio del proceso. Borrarla es el
+     * cambio, no agregar otra cosa.
+     */
+    landing: [
+      { label: 'Folios', icon: 'pi pi-clipboard', route: '/almacen/inventory/sessions', anyOf: [Permission.COMMERCIAL_INVENTORY_SUPERVISAR, Permission.COMMERCIAL_INVENTORY_ASIGNAR], exact: false },
+      { label: 'Programa', icon: 'pi pi-sync', route: '/almacen/inventory/abc', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
+      { label: 'Pasillos', icon: 'pi pi-th-large', route: '/almacen/inventory/aisles', permission: Permission.COMMERCIAL_INVENTORY_ASIGNAR, exact: true },
+      { label: 'Exactitud (IRA)', icon: 'pi pi-verified', route: '/almacen/inventory/ira', permission: Permission.COMMERCIAL_INVENTORY_SUPERVISAR, exact: true },
       { label: 'Diferencias', icon: 'pi pi-exclamation-triangle', route: '/almacen/inventory/diferencias', permission: Permission.COMMERCIAL_INVENTORY_VER, exact: true },
     ],
     focusEntries: [
@@ -312,5 +376,7 @@ export function almacenTabsForUrl(url: string): PageTab[] {
  * `CONTAR` no alcanza ningún tab de Conteo y aterriza en *Contar*.
  */
 export function almacenLandingCandidates(area: AlmacenArea): PageTab[] {
-  return [...area.tabs, ...(area.focusEntries ?? [])];
+  // `landing` sólo existe donde el orden de lectura y el punto de entrada NO coinciden
+  // (hoy: `conteo`, ver la razón medida ahí). Sin él, el default sigue siendo `tabs`.
+  return [...(area.landing ?? area.tabs), ...(area.focusEntries ?? [])];
 }

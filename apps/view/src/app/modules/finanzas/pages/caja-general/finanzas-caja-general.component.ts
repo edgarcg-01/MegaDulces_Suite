@@ -166,7 +166,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .fin-form { display:flex; flex-direction:column; gap:var(--sp-3); }
     /* CS.3.7 — Dos columnas para que la captura entre en una pantalla sin scroll. Apila en angosto. */
     .cg-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-3) var(--sp-6); align-items:start; }
-    .cg-grid > .cg-col { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
+    /* ⛔ [CG.57] CADA COLUMNA ES SU PROPIO CONTENEDOR DE CONSULTA, y sin esto el diseño se rompe.
+       La reja del arqueo pregunta "@container (max-width:26rem)" para apilarse, pero el único
+       container-type estaba en .cg-detail-cuerpo: la consulta medía los 646px del PANEL en vez de
+       los ~311px de la COLUMNA donde la reja vive de verdad. Nunca disparaba, así que la reja
+       quedaba en dos columnas dentro de una de 311px -- cada sub-tabla a ~150px, con scroll
+       horizontal y la columna "Importe" cortada. Reportado por Edgar con captura.
+       Con esto se corrige sola en los dos sentidos: panel lado a lado -> la columna mide 19rem y
+       la reja se apila (y no hace falta que no se apile, porque el panel YA son dos columnas);
+       panel apilado -> la columna mide 40rem y la reja se abre en dos, que es donde la altura
+       importaba. */
+    .cg-grid > .cg-col { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0;
+                         container-type:inline-size; }
     /* ⛔ [CG.46] Acá había un "@media (max-width:47.5rem)". Con el formulario dentro del panel de
        detalle eso es el antipatrón que DESIGN.md §R nombra: el ancho que decide el layout de este
        bloque es el del PANEL (32rem), no el de la ventana. En un monitor ancho el media query
@@ -354,6 +365,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⛔ [CG.48] Acá vivía ".cg-contado", el input de conteo por renglón de la bandeja. Se fue
        con su columna: era la única forma de meter una cifra contada al libro SIN desglose. */
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
+    /* [CG.56] La columna de la MARCA. Ya no hay casilla: la fila es el control y esta celda sólo
+       publica el estado. Angosta a proposito -- es una senial, no un boton. */
+    .cg-th-marca, .cg-td-marca { width:2.25rem; text-align:center; padding-left:var(--sp-2); }
+    .cg-td-marca > i { font-size:var(--fs-xs); color:var(--action); }
+    /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
+       Fondo propio MAS una barra en --action, para que no dependa de que el tema pinte su
+       p-highlight ni del contraste de un fondo solo. */
+    /* ⛔ Acá escribí "var(--action-soft-bg)" y ESE TOKEN NO EXISTE: la familia --action son
+       action/hover/press/ink/ring, sin fondo suave. Una declaración con un token inexistente no
+       falla: se cae en silencio y la fila marcada se habría visto igual que las demás --
+       justo lo único que esta celda viene a resolver. Lo agarró check:tokens.
+       Se usa --action-ring, que ES el translúcido de esta familia, y la barra sólida al borde. */
+    .cg-fila-marcada > td, .cg-fila-marcada > th { background:var(--action-ring); }
+    .cg-fila-marcada > td:first-child { box-shadow:inset 3px 0 0 0 var(--action); }
 
     /* [CG.53] La reja en dos columnas y el numero grande. Una caja con borde y SIN sombra -- in-page
        es una de las dos, nunca las dos. */
@@ -390,6 +415,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-total-bloque.es-ok   .cg-total-v { color:var(--ok-soft-fg); }
     .cg-total-bloque.es-warn .cg-total-v { color:var(--warn-soft-fg); }
     .cg-total-esp { font-size:var(--fs-xs); color:var(--text-muted); margin-top:var(--sp-1); }
+    .cg-total-regla { margin:var(--sp-1) 0 0; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.45; }
     /* [CG.51] La cabecera del historial plegado. Es un <button> y no un <h2> con (click): lo que
        hace es abrir y cerrar, asi que el teclado lo alcanza solo y anuncia su aria-expanded. */
     .cg-historial { margin-top:var(--sp-5); }
@@ -873,6 +899,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <input pInputText [(ngModel)]="searchPend" (keyup.enter)="cargarPendientes()" class="cg-sel cg-buscar"
                  placeholder="Buscar: folio Kepler, concepto, beneficiario…" aria-label="Buscar en por confirmar" />
           <span class="cg-bandeja-sp"></span>
+          <!-- [CG.56] "Marcar todas" vivia como una casilla en el encabezado de la columna. Al
+               retirarse la columna entera, una casilla suelta en un th sin casillas debajo no
+               significa nada: la accion se muda a la barra, al lado de la accion que habilita, y
+               DICE CUANTAS son -- que es el dato que la casilla nunca pudo dar. -->
+          @if (confirmables(); as n) {
+            @if (n > 0) {
+              <p-button [label]="todasMarcadas() ? 'Quitar la marca' : 'Marcar las ' + n"
+                        [icon]="todasMarcadas() ? 'pi pi-times' : 'pi pi-check-square'"
+                        size="small" severity="secondary" [text]="true"
+                        (onClick)="marcarTodas(!todasMarcadas())"></p-button>
+            }
+          }
           <!-- ⛔ [CG.47] "Confirmar 0" se pintaba en --action estando APAGADO: un boton de marca,
                grande y naranja, que no hace nada y ademas publica un cero. El color de marca
                significa "apreta aca"; en el estado en el que arranca la pantalla -sin nada
@@ -966,9 +1004,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    [selection]="filasMarcadas()" (selectionChange)="onSeleccionTabla($event)">
             <ng-template #header>
               <tr>
-                <th scope="col" class="ta-c"><p-checkbox [binary]="true" [ngModel]="todasMarcadas()"
-                                        (ngModelChange)="marcarTodas($event)"
-                                        ariaLabel="Marcar todas las confirmables"></p-checkbox></th>
+                <!-- ⛔ [CG.56] ACA VIVIA LA COLUMNA DE CASILLAS, y se retiro entera por decision de
+                     Edgar: "no son necesarias".
+
+                     El camino quedo UNO: la fila ES el control. pSelectableRow ([CG.50]) ya la hace
+                     seleccionable con el clic, con Space y con las flechas, y PrimeNG le pone
+                     aria-selected. La casilla era una segunda forma de hacer lo mismo, y encima
+                     aparecia 44 veces para 23 acciones posibles ([CG.55]).
+
+                     ⚠️ Lo que una casilla SI daba y una fila seleccionada no: el estado se ve de
+                     un vistazo. Por eso la fila marcada lleva fondo propio y una barra en
+                     --action a la izquierda (.cg-fila-marcada), que no depende del tema. -->
+                <th scope="col" class="cg-th-marca"><span class="sr-only">Marcada</span></th>
                 <th scope="col">Fecha</th>
                 <th scope="col"><span class="sr-only">Entra o sale</span></th>
                 <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
@@ -980,12 +1027,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               </tr>
             </ng-template>
             <ng-template #body let-p>
-                <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p">
-                  <td class="ta-c">
-                    <p-checkbox [binary]="true" [disabled]="!p.confirmable"
-                           [ngModel]="estaMarcada(p.origen_ref)"
-                           (ngModelChange)="marcar(p.origen_ref, $event)"
-                           [ariaLabel]="'Confirmar ' + p.doc_tipo + ' ' + p.folio"></p-checkbox>
+                <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p"
+                    [class.cg-fila-marcada]="estaMarcada(p.origen_ref)">
+                  <!-- [CG.56] La celda de la marca: una barra, no una casilla. Lo que se ve es el
+                       ESTADO (marcada o no); el acto de marcar es la fila entera. -->
+                  <td class="cg-td-marca">
+                    @if (estaMarcada(p.origen_ref)) {
+                      <i class="pi pi-check" [attr.aria-label]="'Marcada: ' + p.doc_tipo + ' ' + p.folio"></i>
+                    }
                   </td>
                   <td>
                     {{ dmy(p.fecha_valor) }}
@@ -1490,8 +1539,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
               <!-- CS.3.13 — Venta a crédito: la parte que NO llega en efectivo (queda como saldo del cliente).
                    Se auto-rellena con el total cuando el cliente es de crédito; SIEMPRE editable. Se descuenta
-                   del efectivo esperado. Sólo con un cobro anclado (que trae el cliente). -->
-              @if (cobroElegido(); as c) {
+                   del efectivo esperado. Sólo con un cobro anclado (que trae el cliente).
+
+                   ⛔ [CG.54] Y sólo en un INGRESO. Acá colgaba de cobroElegido() a secas, y desde que
+                   CG.21 dejó anclar también el egreso, un comprobante de GASTO mostraba un campo
+                   "Venta a crédito" — que ahí no significa nada: una venta a crédito es, por
+                   definición, parte de un cobro que no llegó en efectivo. El servidor no lo frena
+                   (acepta venta_credito sin mirar el tipo), así que el freno va acá. -->
+              @if (f().tipo === 'ingreso' && cobroElegido(); as c) {
                 <div class="cg-credito">
                   <div class="cg-credito-head">
                     <label for="cg-vcredito">Venta a crédito</label>
@@ -1502,19 +1557,24 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <input pInputText id="cg-vcredito" type="number" min="0" step="0.01" inputmode="decimal" class="cg-vcredito"
                          [ngModel]="ventaCredito()" (ngModelChange)="setVentaCredito($event)"
                          aria-label="Monto de la venta a crédito" />
-                  <small class="fin-dim">
-                    Efectivo esperado = documento {{ money(c.monto) }} − crédito {{ money(ventaCredito()) }} =
-                    <strong>{{ money(c.monto - ventaCredito()) }}</strong>
-                  </small>
+                  <!-- La fórmula sólo cuando hay crédito: con 0 era "documento $144 − crédito $0.00 =
+                       $144", o sea un renglón para publicar una resta de cero. -->
+                  @if (ventaCredito() > 0) {
+                    <small class="fin-dim">
+                      Efectivo esperado = documento {{ money(c.monto) }} − crédito {{ money(ventaCredito()) }} =
+                      <strong>{{ money(c.monto - ventaCredito()) }}</strong>
+                    </small>
+                  }
                 </div>
               }
 
               <div class="cg-arqueo">
                 <div class="cg-arqueo-head">
                   <strong>{{ hayCajero() ? 'La diferencia, a mano' : 'Contá el efectivo' }}</strong>
-                  @if (cobroElegido(); as c) {
-                    <span class="fin-dim">El documento dice <span class="mono">{{ money(c.monto) }}</span></span>
-                  }
+                  <!-- ⛔ [CG.54] Acá decía "El documento dice $144.00". Lo dice el bloque del número,
+                       tres renglones abajo y PEGADO a la cifra con la que se compara, que es donde
+                       sirve. Repetirlo arriba no agrega el dato: agrega una segunda cifra en pantalla
+                       que hay que verificar que sea la misma. -->
                   @if (hayCajero()) {
                     <span class="fin-dim">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
                   }
@@ -1643,6 +1703,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       }
                     </div>
                   </div>
+                  <!-- [CG.54] La CONSECUENCIA, que es lo unico que la pista vieja agregaba y que el
+                       veredicto solo no dice. Va pegada a la diferencia, no al selector de documento
+                       del otro extremo del panel. El efectivo nunca se rechaza: se guarda lo contado. -->
+                  @if (v.estado === 'sobra' || v.estado === 'falta') {
+                    <p class="cg-total-regla">
+                      El efectivo <strong>no se rechaza</strong>: se guarda lo contado y la diferencia
+                      queda como hallazgo a nombre de quien confirma.
+                    </p>
+                  }
                 }
 
                 <!-- ⭐ [CG.38] EL CAMBIO QUE SE DEVUELVE. Hasta hoy no había dónde registrarlo: si te
@@ -1750,22 +1819,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                   [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
                                   placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
                   @if (cobroElegido(); as c) {
-                    <!-- [CG.37] Era verde. El verde significa "esto quedo bien"; esto es el ECO de lo
-                         que elegiste, o sea explicacion. Y la linea de abajo, que hace exactamente lo
-                         mismo, ya iba en fin-dim: dos hermanas con el mismo papel y distinto color. -->
-                    <small class="fin-dim">
-                      Kepler: {{ c.doc_tipo }} {{ c.folio }} · {{ c.beneficiario || c.entidad_code }} ·
-                      {{ money(c.monto) }}@if (c.caja_nombre) { · {{ c.caja_nombre }} }. El monto sale del arqueo, no del documento.
-                    </small>
-                    <!-- ⛔ [CG.48] Acá se mostraba "ya habías contado X en la bandeja": la referencia
-                         al conteo por renglón, que ya no existe. Se cuenta una sola vez, acá abajo. -->
-                    <!-- La diferencia se DICE antes de guardar: el hallazgo del servidor no sirve si la persona no la vio. -->
-                    @if (montoContado(); as mc) {
-                      <small class="fin-hint-warn">
-                        Contaste {{ money(mc) }} vs documento {{ money(c.monto) }}:
-                        <strong>{{ money(mc - c.monto) }}</strong> de diferencia — se registra y queda un hallazgo.
-                      </small>
-                    }
+                    <!-- ⛔ [CG.54] Acá vivia el eco del documento: "Kepler: X-D-26 0022707 ·
+                         BENEFICIARIO · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
+                         documento." Dos renglones para repetir lo que ya estaba en otros cuatro
+                         lugares del MISMO panel. Medido: el importe del documento aparecia CINCO
+                         veces (encabezado, esta pista, el pie del credito, la cabecera del arqueo y
+                         el bloque del numero). Quedan DOS, y cada una tiene su oficio: el encabezado
+                         dice CUAL documento es, y el bloque del numero dice contra CUANTO cuadra.
+                         ⛔ Y la pista de la diferencia tambien se fue de aca: la cifra, el veredicto
+                         y la consecuencia viajan juntos en el bloque del numero, que es donde esta
+                         lo contado. Decir "contaste 1100 vs documento 1060" al lado del selector de
+                         documento era mandar a la persona a buscar el dato al otro extremo. -->
                   } @else {
                     <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
                   }

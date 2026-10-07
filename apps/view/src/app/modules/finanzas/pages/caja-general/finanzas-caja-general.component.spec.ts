@@ -446,10 +446,56 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
     // Lo que NO cambió: la fila trabada sigue sin poder marcarse. Confirmar sin cuenta
     // declarada no se puede, y eso es independiente de dónde se cuente el efectivo.
-    const check: HTMLInputElement | null =
-      fixture.nativeElement.querySelector('tbody p-checkbox input[type="checkbox"]');
-    expect(check).not.toBeNull();
-    expect(check!.disabled).toBe(true);
+    //
+    // ⭐ `[CG.55]` Y la afirmación se ENDURECE: antes había una casilla deshabilitada, hoy **no hay
+    // casilla**. Una casilla apagada en oscuro se ve casi igual que una viva, así que la columna
+    // ofrecía 44 veces algo que podía hacer 23. Lo que la fila sí puede hacer lo dicen su etiqueta
+    // de motivo y su botón «Capturar».
+    expect(fixture.nativeElement.querySelector('tbody p-checkbox')).toBeNull();
+  });
+
+  // ── [CG.56] Sin casillas: la fila ES el control ──────────────────────────────────────────
+  //
+  // Decisión de Edgar: *"hazlo, no son necesarias"*. La columna de casillas se retiró entera.
+  // El camino quedó uno: `pSelectableRow` ([CG.50]) hace la fila seleccionable con clic, con
+  // Space y con las flechas. Lo que una casilla daba y una fila no —ver el estado de un
+  // vistazo— lo da `.cg-fila-marcada`.
+
+  it('⛔ [negativa] no queda NINGUNA casilla en la bandeja', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelectorAll('.cg-bandeja-tbl p-checkbox').length).toBe(0);
+  });
+
+  it('⭐ pero marcar SIGUE siendo posible y se VE: sin esto, limpiar dejaría la bandeja muerta', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const fila = () => fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr') as HTMLElement;
+    expect(fila().classList.contains('cg-fila-marcada')).toBe(false);
+
+    comp.marcar(FILA_A.origen_ref, true);
+    fx.detectChanges();
+
+    // El estado se ve: la fila cambia de clase y aparece su marca.
+    expect(fila().classList.contains('cg-fila-marcada')).toBe(true);
+    expect(fila().querySelector('.cg-td-marca i')).not.toBeNull();
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
+  });
+
+  it('«Marcar las N» reemplaza a la casilla del encabezado, y DICE cuántas son', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    // La casilla de "marcar todas" nunca pudo decir cuántas eran; el botón sí.
+    expect(fx.nativeElement.textContent).toContain('Marcar las 2');
+    comp.marcarTodas(true);
+    expect(comp.marcadas().length).toBe(2);
+    fx.detectChanges();
+    expect(fx.nativeElement.textContent).toContain('Quitar la marca');
   });
 
   it('[negativa] el lote manda SÓLO la referencia: ningún importe propio viaja al libro', () => {
@@ -795,6 +841,12 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(conAncla).toBeLessThanOrEqual(2);
   });
 
+  // ⚠️ `[CG.54]` puso un rótulo visible «Confirmar» en el encabezado de la columna de casillas,
+  // porque el control no decía qué hacía. `[CG.56]` retiró la columna entera: el rótulo que había
+  // que arreglar dejó de existir, y la acción se nombra donde ahora vive — la barra, que además
+  // dice CUÁNTAS son, que es lo que la casilla nunca pudo decir. Lo cubre la prueba de «Marcar
+  // las N»; acá queda la nota para que nadie reponga un encabezado de una columna que ya no es.
+
   it('marcar con el teclado NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
     // Lo que emite p-table al marcar con Space sobre una fila trabada.
@@ -836,6 +888,34 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.cerrarConFoco(comp.capturaAbierta);
     fx.detectChanges();
     expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+  });
+
+  it('⛔ [negativa] la reja pregunta por SU columna, no por el panel entero', () => {
+    // El defecto que esto congela, reportado por Edgar con captura: la reja del arqueo se apila con
+    // `@container (max-width:26rem)`, pero el único `container-type` estaba en `.cg-detail-cuerpo`.
+    // O sea que la consulta medía los ~646px del PANEL en vez de los ~311px de la COLUMNA donde la
+    // reja vive. Nunca disparaba: dos columnas de reja dentro de una columna de 311px, cada
+    // sub-tabla a ~150px, con scroll horizontal y la columna «Importe» cortada.
+    //
+    // ⚠️ Una consulta de contenedor NO falla cuando apunta a la caja equivocada: contesta, y
+    // contesta sobre otra cosa. jsdom no hace layout, así que esto no se puede probar renderizando;
+    // lo que sí se puede exigir es que la columna DECLARE que es un contenedor.
+    const meta = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
+    const css = (meta.ɵcmp?.styles ?? []).join('\n');
+
+    expect(css).toContain('26rem');                      // la reja pregunta
+
+    // ⚠️ El CSS compilado lleva los atributos `_ngcontent-…` inyectados en cada selector, así que
+    // un regex pegado al selector literal es frágil. Se busca por VENTANA: alguna regla que
+    // mencione `.cg-col` y declare `container-type` cerca.
+    const declaraContenedor = css
+      .split('.cg-col')
+      .slice(1)
+      .some((trozo) => /^[^}]{0,400}container-type\s*:\s*inline-size/.test(trozo));
+    expect(declaraContenedor).toBe(true);
+    // Y siguen siendo DOS contenedores distintos: el panel (para repartir QUÉ/CUÁNTO) y cada
+    // columna (para que lo de adentro mida lo suyo). Si quedara uno solo, vuelve el defecto.
+    expect((css.match(/container-type\s*:\s*inline-size/g) ?? []).length).toBeGreaterThanOrEqual(2);
   });
 
   it('⛔ [negativa] los dos umbrales del panel son COMPLEMENTARIOS, o las columnas se invierten', () => {
@@ -1163,6 +1243,46 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // Y sigue sin haber ninguna forma de teclear el monto dentro del bloque del total.
     const bloque: Element = fx.nativeElement.querySelector('.cg-total-bloque');
     expect(bloque.querySelectorAll('input, textarea, select').length).toBe(0);
+  });
+
+  // ── [CG.54] Limpieza: el mismo hecho, en UN lugar ────────────────────────────────────────
+  //
+  // Edgar: *"limpiemos cosas innecesarias. hay que optimizar la vista"*. Medido antes de cortar:
+  // el importe del documento anclado aparecía **cinco veces** en el mismo panel — el encabezado,
+  // la pista «Kepler: …», el pie del crédito, la cabecera del arqueo y el bloque del número.
+  // Tres de las cinco las había agregado yo en `[CG.49]` y `[CG.53]`.
+
+  it('el importe del documento se dice DOS veces, y cada una tiene su oficio', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);        // el documento dice 1060
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const panel: Element = fx.nativeElement.querySelector('.cg-detail');
+    const texto = panel.textContent ?? '';
+    const veces = texto.split('1,060.00').length - 1;
+
+    // Dos, no cinco: el encabezado dice CUÁL documento es, el bloque del número dice contra
+    // CUÁNTO cuadra. Cualquier tercera es un eco que hay que ir a verificar que diga lo mismo.
+    expect(veces).toBe(2);
+
+    // Y lo que se fue, se fue: la pista larga ya no está.
+    expect(texto).not.toContain('El monto sale del arqueo, no del documento');
+    expect(texto).not.toContain('El documento dice');
+  });
+
+  it('⛔ [negativa] en un GASTO no se ofrece «Venta a crédito»: ahí no significa nada', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);        // GASTO_TRABADO.tipo === 'gasto'
+    await Promise.resolve();
+    fx.detectChanges();
+
+    expect(comp.f().tipo).toBe('gasto');
+    // Una venta a crédito es, por definición, parte de un COBRO que no llegó en efectivo. Colgaba
+    // de `cobroElegido()` a secas y desde CG.21 el egreso también se ancla, así que un comprobante
+    // de gasto mostraba el campo. El servidor acepta `venta_credito` sin mirar el tipo: el freno va
+    // en la pantalla.
+    expect(fx.nativeElement.querySelector('#cg-vcredito')).toBeNull();
   });
 
   it('el veredicto del arqueo distingue TRES ausencias, no dos', () => {

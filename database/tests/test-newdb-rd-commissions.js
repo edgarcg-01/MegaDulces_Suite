@@ -177,7 +177,11 @@ const TIER_SQL = `
            (SELECT count(*) FROM pg_policies p WHERE p.schemaname='commercial' AND p.tablename=c.relname)::int pol
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname='commercial' AND c.relkind='r' AND c.relname LIKE 'commission%'`);
-  check(`las 7 tablas existen (${rls.length})`, rls.length === 7);
+  // ⚠️ Eran 7 y son 8 desde RD.19 (`commission_beneficiary_config`, la deduccion por persona).
+  // El numero se actualiza a mano a proposito: si alguien agrega una tabla al dominio, esta
+  // asercion se pone roja y lo obliga a mirar que quede con RLS forzado, que es la de abajo.
+  check(`las 8 tablas del dominio existen (${rls.length})`, rls.length === 8,
+    `si subio o bajo, revisar que la tabla nueva/retirada tenga su RLS: ${rls.map((r) => r.relname).sort().join(', ')}`);
   check('todas con RLS FORZADO y su política', rls.every((r) => r.en && r.forced && r.pol >= 1),
     rls.filter((r) => !(r.en && r.forced && r.pol >= 1)).map((r) => r.relname).join(', '));
 

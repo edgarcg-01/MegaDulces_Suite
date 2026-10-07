@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 
 /**
  * Fase PVG — Presupuesto de GASTOS auto-propuesto desde los egresos de Kepler (ADR-073).
@@ -56,6 +56,28 @@ const MIN_MONTHS_RECURRENT = 6;
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const round4 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 10000) / 10000;
 const ym = (year: number, month: number) => `${year}-${String(month).padStart(2, '0')}`;
+
+/**
+ * `[PU.VA]` ⛔ **El mes EN CURSO no es un mes: es una fracción, y acá entraba como mes completo.**
+ *
+ * Los dos cálculos de este archivo preguntaban sólo `> 0`, así que **un peso bastaba** para que un
+ * mes a medio llenar se tomara por cerrado. Medido contra prod el 2026-10-07, con el plan FY2027:
+ * octubre-2026 al día 7 traía **$910,934** y se convertía en la base de octubre-2027 — **$915,446
+ * contra una mediana de $5,700,684**, un hueco de **$4,785,238 en un solo renglón del año**.
+ *
+ * ⭐ Y la ironía que lo delata: **noviembre y diciembre salían bien**, justamente porque venían en
+ * CERO y caían al relleno estacional. *Para este motor, un mes vacío era mejor que uno a medias.*
+ *
+ * Es la trampa que `[VE.1]` ya se había cobrado del lado del árbitro (ver `VERDAD_ABSOLUTA` §21.5b,
+ * donde incluir octubre movía la brecha de nómina un **55 %** sin que pasara nada en el negocio).
+ * Allá se resolvió DECLARANDO la celda (`mes_en_curso`) porque la vista **publica**; acá hay que
+ * EXCLUIRLA porque el motor **calcula** — un promedio no se puede marcar, se contamina.
+ *
+ * El criterio es **idéntico** al de `analytics.v_expense_arbiter.mes_en_curso`
+ * (mig `20261006340000`): `anio_mes >= to_char(current_date,'YYYY-MM')`. Un segundo criterio para
+ * la misma idea sería un segundo primitivo, y eso es justo lo que ADR-056 prohíbe.
+ */
+const mesEnCurso = (year: number, month: number) => ym(year, month) >= todayMx().slice(0, 7);
 
 @Injectable()
 export class BudgetExpensePlanService {
@@ -208,13 +230,27 @@ export class BudgetExpensePlanService {
           if (r.year === y0) e.a += r.monto; else if (r.year === y1) e.b += r.monto;
           byMonth.set(r.month, e);
         }
-        let a = 0, bb = 0, paired = 0;
-        for (const [, e] of byMonth) { if (e.a > 0 && e.b > 0) { a += e.a; bb += e.b; paired++; } }
-        return paired >= MIN_PAIRED_MONTHS && a > 0 ? { growth_pct: round4((bb - a) / a), paired } : null;
+        let a = 0, bb = 0, paired = 0, abiertos = 0;
+        for (const [m, e] of byMonth) {
+          // `[PU.VA]` El mes en curso no se parea contra uno cerrado: ver `mesEnCurso`. Medido en
+          // prod — octubre al día 7 daba **−85.4 %** contra octubre completo del año anterior, y
+          // arrastraba el promedio de los tres únicos pares disponibles.
+          if (mesEnCurso(y1, m) || mesEnCurso(y0, m)) { abiertos++; continue; }
+          if (e.a > 0 && e.b > 0) { a += e.a; bb += e.b; paired++; }
+        }
+        return paired >= MIN_PAIRED_MONTHS && a > 0
+          ? { growth_pct: round4((bb - a) / a), paired, abiertos }
+          : null;
       };
 
       const g = yoy(() => true);
-      const global = g ? { growth_pct: g.growth_pct, basis: 'yoy_paired' as const, paired_months: g.paired } : { growth_pct: def, basis: 'default' as const, paired_months: 0 };
+      // `[PU.VA]` `basis` es el VEREDICTO, no un adorno: `yoy_paired` = medido · `default` = no se
+      // pudo medir y esto es el respaldo guardado (hoy, cero). La pantalla lo descartaba y pintaba
+      // los dos casos igual — ver `VERDAD_ABSOLUTA` §22.3. Viaja también `meses_abiertos_excluidos`
+      // para que «no alcanzaron los pares» se pueda distinguir de «se excluyó el mes en curso».
+      const global = g
+        ? { growth_pct: g.growth_pct, basis: 'yoy_paired' as const, paired_months: g.paired, meses_abiertos_excluidos: g.abiertos }
+        : { growth_pct: def, basis: 'default' as const, paired_months: 0, meses_abiertos_excluidos: 0 };
       const accounts = [...new Set(rows.map((r) => r.account_code))];
       const nameByAcc = new Map(rows.map((r) => [r.account_code, r.account_name]));
       const by_account: Record<string, { growth_pct: number; basis: string; paired_months: number; account_name: string | null }> = {};
@@ -265,19 +301,27 @@ export class BudgetExpensePlanService {
         g.byMonth.set(r.month, (g.byMonth.get(r.month) || 0) + r.monto);
       }
 
-      const cov = { historico_ajustado: 0, estacional: 0, no_signal: 0, manual_kept: 0, accounts: groups.size };
+      const cov = { historico_ajustado: 0, estacional: 0, no_signal: 0, manual_kept: 0, accounts: groups.size, mes_en_curso_excluido: 0 };
       for (const [key, g] of groups) {
         const sep = key.indexOf('|');
         const accountCode = key.slice(0, sep);
         const sucursal = key.slice(sep + 1);
         const growth = growthFor(accountCode);
-        const present = [...g.byMonth.values()].filter((v) => v > 0);
+        // `[PU.VA]` El promedio se calcula SÓLO sobre meses cerrados. Si el mes en curso entra acá,
+        // no sólo arruina su propia celda: baja el promedio con el que se rellenan las demás.
+        const present = [...g.byMonth.entries()].filter(([m, v]) => v > 0 && !mesEnCurso(priorYear, m)).map(([, v]) => v);
         const monthsPresent = present.length;
         const avg = monthsPresent ? present.reduce((a, c) => a + c, 0) / monthsPresent : 0;
         const recurrent = monthsPresent >= MIN_MONTHS_RECURRENT;
 
         for (let month = 1; month <= 12; month++) {
-          const base = g.byMonth.get(month) || 0;
+          // `[PU.VA]` ⛔ El mes en curso del año base NO es base. Se trata como ausente, que es lo
+          // que de hecho es: una fracción. Así cae al relleno estacional —el mismo camino por el
+          // que nov y dic salían BIEN— en vez de clavar el plan del año que viene en lo poco que
+          // llevaba acumulado el mes al momento de la pasada. Medido: $4,785,238 en un renglón.
+          const enCurso = mesEnCurso(priorYear, month);
+          if (enCurso) cov.mes_en_curso_excluido++;
+          const base = enCurso ? 0 : (g.byMonth.get(month) || 0);
           const yym = ym(fy, month);
           const existing = await trx('budget.expense_plan_lines')
             .where({ tenant_id: tenantId, budget_id: budgetId, account_code: accountCode, sucursal, year_month: yym }).first();
