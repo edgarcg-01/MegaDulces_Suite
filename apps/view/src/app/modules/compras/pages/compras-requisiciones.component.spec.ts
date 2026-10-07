@@ -223,7 +223,21 @@ describe('[MT] el drill-down renderizado', () => {
     expect(comp.sel().has(FILA.id)).toBe(true);
   });
 
-  it('[RQ.8] abre agrupado POR LOTE y pide los lotes de la pestaña', () => {
+  /**
+   * `[RQ.11]` La vista de arranque la decide el DATO, no una constante. Medido en prod el
+   * 2026-10-06: 0 lotes y 619 requisiciones viejas, así que abrir agrupado mostraría 619
+   * «lotes» de un documento sin folio — la misma lista con una columna de más. Por eso abre
+   * por DOCUMENTO y se pasa a LOTE sola la primera vez que el servidor reporta `con_lote > 0`.
+   *
+   * ⚠️ Este bloque reemplaza a `[RQ.8] abre agrupado POR LOTE y pide los lotes de la pestaña`,
+   * que afirmaba lo contrario y llevaba días en rojo SIN QUE SE VIERA: `Lint & test` corre
+   * `--affected`, y como ningún push tocaba a la vez el componente y el spec, no se ejecutaban
+   * juntos. Falló al primer PR que sí los puso en el mismo conjunto. El spec pedía además
+   * `source_type`, que `[RQ.11]` quitó a propósito de esa llamada: el lote es la unidad del
+   * «Armar» y abarca compra Y traspaso, así que filtrarlo por la pestaña lo cortaba a la mitad
+   * (65 de 83 lotes mezclan los dos tipos).
+   */
+  function montarConLotes(conLote: number) {
     let pedido: { source_type?: string } | null = null;
     TestBed.configureTestingModule({
       providers: [
@@ -231,7 +245,7 @@ describe('[MT] el drill-down renderizado', () => {
         { provide: ComprasService, useValue: apiFalsa({
           listRequisitionBatches: (q: { source_type?: string }) => {
             pedido = q;
-            return of({ rows: [], total: 0, page: 1, pageSize: 25, disponible: true });
+            return of({ rows: [], total: 0, page: 1, pageSize: 25, disponible: true, con_lote: conLote });
           },
         }) },
       ],
@@ -239,10 +253,26 @@ describe('[MT] el drill-down renderizado', () => {
     });
     const fix = TestBed.createComponent(ComprasRequisicionesComponent);
     fix.detectChanges();
+    return { fix, pedido: () => pedido };
+  }
+
+  it('[RQ.11] sin lotes reales abre por DOCUMENTO — agrupar no aportaría nada', () => {
+    const { fix } = montarConLotes(0);
+    expect(fix.componentInstance.vista()).toBe('documento');
+    expect(fix.componentInstance['lotesReales']()).toBe(0);
+  });
+
+  it('[RQ.11] con lotes reales se pasa sola a LOTE', () => {
+    const { fix } = montarConLotes(3);
     expect(fix.componentInstance.vista()).toBe('lote');
-    expect(pedido).toMatchObject({ source_type: 'supplier' });
     // En «Por lote» no hay filas de requisición sueltas: es la otra vista.
     expect(anclaDelFolio(fix)).toBeNull();
+  });
+
+  it('[RQ.11] NEGATIVA: los lotes NO se piden filtrados por la pestaña', () => {
+    const { pedido } = montarConLotes(0);
+    expect(pedido()).not.toBeNull();
+    expect(pedido()?.source_type).toBeUndefined();
   });
 
   describe('[RQ.9] el catálogo de sucursales', () => {
