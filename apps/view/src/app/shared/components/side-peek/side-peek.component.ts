@@ -227,7 +227,7 @@ import {
       }
       /* En pantalla chica la ventana ocupa casi todo: a 1180px de ancho pedido sobre 390px
          de pantalla, lo que se gana en una no se puede perder en la otra. */
-      @media (max-width: 860px) {
+      @media (max-width: 53.75rem) {
         .sp-root.is-window {
           padding: 0;
         }
