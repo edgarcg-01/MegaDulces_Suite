@@ -173,13 +173,22 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        jamás se dispara y las dos columnas se desbordarían del panel. @container mira al
        contenedor, que es lo correcto — y sigue siendo mejora progresiva: sin soporte queda en una
        columna, que es el caso que de todos modos aplica a 32rem. */
-    @container (max-width:46rem) { .cg-grid { grid-template-columns:1fr; } }
+    /* [CG.52] El umbral baja de 46rem a 39rem, MEDIDO y no a ojo: con el panel ensanchado a 42rem
+       el contenedor de consulta (.cg-detail-cuerpo) mide 672 - 2 de borde - 24 de padding = 646px
+       = 40.4rem. Con 46 no entraba por 90px y el formulario se apilaba igual. Cada columna queda
+       en ~311px, que es lo que necesitan una etiqueta de 6.5rem y su control. */
+    @container (max-width:39rem) { .cg-grid { grid-template-columns:1fr; } }
     @supports not (container-type: inline-size) { .cg-grid { grid-template-columns:1fr; } }
-    /* [CG.49] Apilado (que es lo que pasa SIEMPRE dentro del aside de 32rem) manda el orden del
-       DOM, y ahi el arqueo va primero porque es la tarea. Estas dos reglas fijan la posicion para
-       el caso ancho, para que el diseno de CS.3.7 -- QUE a la izquierda, CUANTO a la derecha -- no
-       dependa de en que orden esten escritas las columnas. */
-    @container (min-width:46rem) {
+    /* [CG.49] Apilado manda el orden del DOM, y ahi el arqueo va primero porque es la tarea. Estas
+       dos reglas fijan la posicion para el caso ancho, para que el diseno de CS.3.7 -- QUE a la
+       izquierda, CUANTO a la derecha -- no dependa de en que orden esten escritas las columnas.
+       ⚠️ Esto decia "lo que pasa SIEMPRE dentro del aside de 32rem", y desde [CG.52] ya no es
+       siempre: capturando el panel mide 42rem y las dos columnas SI entran. */
+    /* ⚠️ [CG.52] Este umbral es el COMPLEMENTO EXACTO del de arriba, y tiene que seguir siéndolo:
+       si el colapso cae en 39rem y la posición se fija recién en 46, entre medio hay dos columnas
+       SIN posición asignada — gana el orden del DOM y el CUÁNTO se va a la izquierda. Dos columnas
+       invertidas y en silencio. Por eso van pegados, no sueltos. */
+    @container (min-width:39.01rem) {
       .cg-grid > .cg-col-que    { grid-column:1; grid-row:1; }
       .cg-grid > .cg-col-cuanto { grid-column:2; grid-row:1; }
     }
@@ -259,8 +268,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⭐ [CG.46] O.1 — MASTER-DETAIL PERMANENTE. El ancho del detalle (32rem) cae dentro de la
        banda que datos densos 8 fija para el panel de detalle (480-560px) y le deja al maestro lo
        suficiente para sus nueve columnas. */
-    .cg-split { display:grid; grid-template-columns:minmax(0,1fr) 32rem; gap:var(--sp-6);
+    /* [CG.52] EL ANCHO SIGUE A LA TAREA.
+       Mientras se recorre la bandeja, el panel es angosto y la lista manda. Al capturar se invierte:
+       el panel se ensancha hasta que sus DOS columnas caben, y el movimiento entra entero sin
+       scroll. Antes era 32rem fijo -- o sea un contenedor de ~486px contra un umbral de 736px: la
+       condicion para mostrar dos columnas era INALCANZABLE, y por eso el formulario se apilaba y
+       pedia scroll. Reordenarlo ([CG.49]) puso el arqueo arriba pero no devolvio el ancho. */
+    .cg-split { display:grid; grid-template-columns:minmax(0,1fr) 24rem; gap:var(--sp-6);
                 align-items:start; }
+    /* El ensanche pide pantalla: por debajo de esto, robarle 42rem a la bandeja la deja en ~300px
+       y se rompe lo que se venia a arreglar. Va en @media y no en @container porque es cromo de
+       pagina, no del componente (DESIGN R). */
+    @media (min-width:74rem) {
+      .cg-split-capturando { grid-template-columns:minmax(0,1fr) 42rem; }
+    }
     .cg-main { min-width:0; }
     /* Pegado: la bandeja es larga y el detalle tiene que seguir ahi mientras se recorre. La caja
        lleva borde 1px y NINGUNA sombra -- in-page es una de las dos, nunca las dos. */
@@ -769,7 +790,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            Este formulario tiene documento, contraparte, cuenta, concepto, glosa, monto, la
            reja de 16 denominaciones y el panel del cajero: de corto no tiene nada.
            Ahora la lista queda a la izquierda y lo elegido al lado, sin perder la cola. -->
-      <div class="cg-split">
+      <div class="cg-split" [class.cg-split-capturando]="capturaAbierta()">
         <div class="cg-main">
       <section class="cg-bandeja">
         <header class="cg-bandeja-head">
@@ -1343,13 +1364,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
                    La causa NO era falta de diseno: estas dos columnas existen justamente "para que
                    TODO entre en una pantalla sin scroll". Lo que paso es que [CG.46] mudo la captura
-                   de un p-dialog ancho a este aside, que .cg-split dimensiona en 32rem -- y .cg-grid
+                   de un p-dialog ancho a este aside. Lo arreglo [CG.52] ensanchando el panel a 42rem al capturar; antes media 32rem fijo y .cg-grid
                    colapsa a una columna por debajo de 46rem. O sea que la condicion para mostrar dos
                    columnas NO SE PUEDE CUMPLIR aca, y al apilarse el arqueo quedaba detras de todo el
                    contexto: la tarea, al final. Fue una regresion de [CG.46] que ningun gate ve.
 
                    Apilado manda el orden del DOM, asi que el CUANTO va primero. Las reglas de
-                   @container (min-width:46rem) fijan la posicion de cada columna, para que si algun
+                   @container (min-width:39.01rem) fijan la posicion de cada columna, para que si algun
                    dia esto vive en un contenedor ancho el QUE siga a la izquierda y el CUANTO a la
                    derecha: el diseno de CS.3.7 intacto, sin depender del orden del DOM. -->
               <div class="cg-col cg-col-cuanto"><!-- el CUANTO: cajero aparte + arqueo. Va PRIMERO porque es la tarea -->

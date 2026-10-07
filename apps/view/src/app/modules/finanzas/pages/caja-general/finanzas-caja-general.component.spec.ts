@@ -816,6 +816,48 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toEqual([FILA_A.origen_ref, FILA_B.origen_ref].sort());
   });
 
+  // ── [CG.52] El movimiento entra ENTERO: el ancho sigue a la tarea ─────────────────────────
+  //
+  // Edgar: *"para ver el movimiento completo tengo que hacer scroll, este es un antipatrón"*.
+  // `[CG.49]` había puesto el arqueo arriba pero NO devuelto el ancho: el panel medía 32rem fijo,
+  // o sea un contenedor de ~486px contra un umbral de 736px — la condición para mostrar las dos
+  // columnas era **inalcanzable por construcción**, y por eso el formulario se apilaba.
+
+  it('el panel se ensancha SÓLO mientras se captura: la lista manda hasta que hay algo que contar', () => {
+    const fx = montar();
+    const split: HTMLElement | null = fx.nativeElement.querySelector('.cg-split');
+    expect(split).not.toBeNull();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+
+    comp.abrirCaptura();
+    fx.detectChanges();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(true);
+
+    comp.cerrarConFoco(comp.capturaAbierta);
+    fx.detectChanges();
+    expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+  });
+
+  it('⛔ [negativa] los dos umbrales del panel son COMPLEMENTARIOS, o las columnas se invierten', () => {
+    // Si el colapso cae en 39rem y la posición se fija recién en 46, entre medio hay dos columnas
+    // SIN `grid-column` asignado: gana el orden del DOM y el CUÁNTO se va a la izquierda. Dos
+    // columnas invertidas, en silencio, en una franja de anchos. Esto lo congela.
+    const meta = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
+    const css = (meta.ɵcmp?.styles ?? []).join('\n');
+    expect(css.length).toBeGreaterThan(0);
+
+    const colapso = css.match(/@container\s*\(max-width:\s*([\d.]+)rem\)/);
+    const posicion = css.match(/@container\s*\(min-width:\s*([\d.]+)rem\)/);
+    expect(colapso).not.toBeNull();
+    expect(posicion).not.toBeNull();
+
+    const hastaUna = Number(colapso![1]);
+    const desdeDos = Number(posicion![1]);
+    expect(desdeDos).toBeGreaterThan(hastaUna);
+    // Pegados: sin franja muerta entre los dos.
+    expect(desdeDos - hastaUna).toBeLessThanOrEqual(0.5);
+  });
+
   it('la primera columna del panel es la del CUÁNTO, y la segunda la del QUÉ', async () => {
     const fx = montar();
     comp.abrirCaptura();

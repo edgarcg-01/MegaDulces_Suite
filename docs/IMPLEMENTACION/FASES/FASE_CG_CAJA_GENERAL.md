@@ -1492,3 +1492,63 @@ El scroll que queda arriba del área de trabajo: encabezado de página (título 
 bloque «Cierre de la jornada», ~360 px antes de que empiece el split. Es lo próximo a recortar si
 hace falta; no se tocó acá porque el «Cierre de la jornada» es el único lugar donde se rinde cuentas
 y esconderlo tendría el costo opuesto.
+
+---
+
+## 18. `[CG.52]` El movimiento entra entero: el ancho sigue a la tarea (2026-10-07)
+
+**Pedido de Edgar:** *"para ver el movimiento completo tengo que hacer scroll, este es un
+antipatrón. dificulta la visibilidad"*.
+
+### Es la misma raíz que `[CG.49]` diagnosticó y NO arregló
+
+`[CG.49]` encontró que el panel tiene dos columnas desde CS.3.7 —*"para que TODO entre en una
+pantalla sin scroll"*— y que nunca se muestran, porque `.cg-split` le da **32rem** al `aside`
+mientras `.cg-grid` pide **46rem**. Y después lo esquivó: puso el arqueo arriba para que al menos
+*lo importante* quedara a la vista. **El scroll siguió ahí**, y con razón — reordenar no devuelve
+el ancho.
+
+La aritmética que faltaba hacer: el contenedor de consulta es `.cg-detail-cuerpo`, o sea el `aside`
+menos 2 px de borde y 24 de padding. Con 32rem son **486 px contra un umbral de 736**: la condición
+para dos columnas era **inalcanzable por construcción**, no "a veces no se cumple".
+
+### Lo que se hizo
+
+1. **El ancho sigue a la tarea.** `.cg-split` arranca en `minmax(0,1fr) 24rem` — recorriendo la
+   bandeja, la lista manda. Con la captura abierta pasa a **42rem**, y ahí el contenedor mide
+   `672 − 26 = 646 px = 40.4rem`: las dos columnas entran y el movimiento se ve entero.
+2. **El umbral baja de 46rem a 39rem**, medido contra ese 40.4 y no elegido a ojo. Cada columna
+   queda en ~311 px, que es lo que necesitan una etiqueta de 6.5rem y su control.
+3. **El ensanche pide pantalla**: va bajo `@media (min-width:74rem)`. Por debajo, robarle 42rem a
+   la bandeja la dejaría en ~300 px y rompería lo que se vino a arreglar. `@media` y no
+   `@container` porque es cromo de página (DESIGN §R).
+
+### ⚠️ La trampa que casi se cuela: dos umbrales que dejan de ser complementarios
+
+El colapso (`max-width`) y la fijación de posición (`min-width`) son **el mismo límite visto desde
+los dos lados**. Al bajar el primero a 39rem y dejar el segundo en 46, entre medio hay una franja
+con **dos columnas y ningún `grid-column` asignado**: gana el orden del DOM, y como `[CG.49]` puso
+el CUÁNTO primero, las columnas salen **invertidas**. En silencio, sólo en esa franja de anchos.
+
+Quedó congelado con una prueba que lee el CSS del componente y exige que los dos umbrales estén
+**pegados** (≤ 0.5rem de distancia).
+
+### Verificación
+
+- `nx test view` caja-general: **206/206** (2 pruebas nuevas). `check:templates` y `typecheck` de
+  `view` verdes.
+- **Mutación**: quitar el binding del ancho → 1 roja; devolver la posición a 46rem dejando el
+  colapso en 39 → **2 rojas**.
+- ⚠️ **Las dos primeras mutaciones no se aplicaron y el test salió verde igual.** El archivo está
+  en **CRLF** y los `perl -0p` con `\n` en el patrón no matcheaban. Durante dos corridas creí tener
+  un candado verificado que no se había ejercido nunca. *Una mutación que no modifica el archivo se
+  lee exactamente igual que un test que no muerde* — hay que verificar que el fuente cambió, no
+  sólo que la suite siguió verde.
+- ⚠️ `check:estilos` está rojo por `font-size` con literal (+2 sobre la deuda declarada). **No es
+  de acá**: `git diff` de este archivo no agrega ni un `font-size`, y `caja-general` no aparece en
+  la lista del gate. Es trabajo a medias de otra sesión en el árbol.
+
+### Lo que falta
+
+**Validación visual a 1285 px**, que es el ancho de la captura del reporte. La aritmética dice que
+entra; nadie lo vio todavía.
