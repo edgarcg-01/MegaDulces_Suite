@@ -32,6 +32,16 @@ Más las rutas (`h20`–`h27`, `h50x`, `h51`, `h70`, `h321`, `h322`, `hcedis_b`)
 `analytics.sales_daily`. Ese tramo nunca se construyó, y por eso el dato existe en disco y no
 existe en ninguna pantalla.
 
+⭐⭐ **Y prod lo alcanza DIRECTO** (verificado 2026-10-07 desde `pg-prod`; ver WH.2). La base
+`wincaja` vive en `md` desde `[VL.7.3]` y prod corre en `md` desde el 22-sep: son el mismo nodo, y
+prod ya tiene `postgres_fdw` con un servidor foráneo funcionando contra ese host. **Por eso esto
+se resuelve con una VISTA `derive-no-copy`, no con un importer** — que es la regla principal del
+proyecto, y lo que la primera versión de este plan tenía mal.
+
+⚠️ **Wincaja ya no es fuente viva.** Medido: el espejo se detuvo en el corte a Kepler de cada
+sucursal (`w32` 2026-09-08 · `w30` 2026-09-18 · `w00` 2026-09-30). El corpus es **cerrado**: no
+llega un ticket más. Eso vuelve segura cualquier materialización — no puede quedar rezagada.
+
 ---
 
 ## 1. Lo medido
@@ -225,14 +235,31 @@ exclusivos y conteo por día), aplicado a los ~15 cortes, no sólo a los tres qu
 **Entregable:** tabla `analytics.wincaja_hist_datasets` (dato propio, HITL) + el candado que
 **bloquea la carga de cualquier corte `sin_arbitrar`**.
 
-### `[WH.2]` — La vista de venta histórica (derive-no-copy sobre el espejo)
+### `[WH.2]` — La vista de venta histórica (derive-no-copy **desde prod, por FDW**)
 
-Vista por sucursal en la base `wincaja` que normaliza: `_dataset` + `Fecha` → día,
-`Tipo='V'`, exclusión del centinela y de las fechas futuras, join cabecera↔detalle **con
-`_dataset`**, y la unidad y el importe según lo que firme WH.0.
+⭐ **CORREGIDO 2026-10-07 (Edgar: *"esta bd según yo ya estaba en postgres"*).** La primera versión
+de este plan decía *"la vista vive en el espejo, no en prod: prod no alcanza a `:5433`"*. **Es
+falso.** Era cierto cuando la réplica vivía en `.249` y prod en Railway; desde `[VL.7.3]` la base
+`wincaja` se mudó a `md` y desde el 22-sep prod también corre ahí. Medido el 2026-10-07 desde
+`pg-prod`:
 
-⚠️ **La vista vive en el espejo, no en prod**: prod no alcanza a `:5433` y el crudo pesa 35 GB.
-Lo que viaja a prod es el agregado día×producto×almacén, no el renglón.
+```
+psql postgresql://…@pgvector-md:5432/wincaja -c 'SELECT count(*) FROM h40."MaestroMovAlmacen" …'
+→ ALCANZA, filas h40 2023 = 278,888
+```
+
+Y prod **ya tiene `postgres_fdw` con un servidor foráneo vivo** al mismo host
+(`runner_rutas` → `host=pgvector-md, port=5432, dbname=kepler_consolidado`). O sea: el precedente
+existe, funciona, y sólo falta un segundo servidor apuntando a `dbname=wincaja`.
+
+⭐⭐ **Eso cambia el diseño hacia la REGLA PRINCIPAL del proyecto: esto es una VISTA
+`derive-no-copy`, no un importer.** No hay `script → tabla` que agendar ni re-correr.
+
+La vista normaliza: `_dataset` + `Fecha` → día, `Tipo='V'`, exclusión del centinela `2000-01-01` y
+de las fechas futuras, join cabecera↔detalle **con `AND d._dataset = m._dataset`**, y la unidad y
+el importe según lo que firme WH.0.
+
+⚠️ **El crudo NO se copia a prod.** FDW lee donde está; los 35 GB se quedan en el espejo.
 
 ### `[WH.3]` — El puente producto: Wincaja `Articulo` → `catalog.products.id`
 
@@ -244,14 +271,31 @@ existen, renombrados y fusionados. Ya hay piezas: `import-wincaja-missing-produc
 «sin identificar» con su importe, para que la cobertura de WH.6 lo pueda publicar. Un SKU perdido
 que desaparece es venta que se evapora sin que nadie lo note.
 
-### `[WH.4]` — El cargador por lote (sucursal × corte)
+### `[WH.4]` — La materialización, **por costo, no por falta de fuente**
 
-`import-wincaja-hist-sales.js`: lee la vista de WH.2, agrega a día×producto×almacén×canal, y hace
-UPSERT contra `analytics.sales_daily` por su llave única. One-shot, idempotente, reanudable por
-`(sucursal, corte)`, con latido propio (`fact_wincaja_hist_sales`) y umbral en `CRON_JOBS`.
+⭐ **CORREGIDO 2026-10-07.** La primera versión pedía un importer
+(`import-wincaja-hist-sales.js`). **Con WH.2 por FDW, el importer sobra** — y un `script → tabla`
+que haya que re-correr o agendar es justo lo que la regla principal del proyecto prohíbe.
 
-⚠️ **Ventana:** ~9.7M tickets / ~60M líneas. Va **fuera de horario hábil** y por lotes, con la
-misma regla de siempre: nada de escrituras pesadas contra prod en horario de trabajo.
+Lo que queda es una **migración**, no un script: crea el servidor foráneo a `dbname=wincaja`, las
+tablas foráneas, las vistas de WH.2, y una **matview** `analytics.mv_wincaja_hist_sales` agregada a
+día×producto×almacén×canal.
+
+La matview se justifica **por costo** (GOTCHAS §19: materializar por costo es legítimo; el pecado
+es materializar un valor inventado): son ~60M líneas por FDW, y el pushdown de agregados sobre
+`postgres_fdw` es limitado — leer eso en cada consulta está dos órdenes de magnitud por encima del
+gate de 500 ms.
+
+⭐ **Y hay un argumento que lo vuelve seguro: la historia es ESTÁTICA.** Medido el 2026-10-07, el
+espejo vivo se detuvo exactamente en el corte a Kepler de cada sucursal — `w32` el **2026-09-08**,
+`w30` el **2026-09-18**, `w00` el **2026-09-30** — porque **Wincaja ya no es fuente viva de nada**.
+No va a llegar un ticket más. Una matview de un corpus cerrado no puede quedar rezagada.
+
+⚠️ **Ventana:** el `REFRESH` inicial toca ~60M líneas por red. Va **fuera de horario hábil**, con la
+misma regla de siempre.
+
+De ahí, el volcado a `analytics.sales_daily` es un `INSERT … SELECT` desde la matview por su llave
+única `(tenant_id, product_id, warehouse_id, channel, sale_date)`. Idempotente por construcción.
 
 ### `[WH.5]` — El corte, corregido en el resolvedor
 
@@ -293,8 +337,11 @@ el CEDIS son 8,165 tickets en nueve años — no es venta de mostrador.
 - **No se inventa un canal `wincaja_hist`**: el canal dice qué venta es, no cuándo se cargó.
 - **No se "rellena" lo que falta.** Yurécuaro no tiene 2017 porque la tienda no existía; eso se
   declara, no se interpola.
-- **No se sube el crudo a prod.** 35 GB de renglones no tienen consumidor; el agregado sí.
-- **No entra a `run-prod-feeds.js`.** Es una carga por lote que termina, no un carril.
+- **No se sube el crudo a prod.** 35 GB de renglones no tienen consumidor; FDW los lee donde están.
+- **No entra a `run-prod-feeds.js`, y tampoco se escribe un importer** (ver WH.4 corregido): con
+  prod leyendo el espejo por FDW, esto es una vista derivada con una materialización por costo.
+- **No se reactiva nada de Wincaja.** Medido: el espejo vivo se detuvo en el corte a Kepler de cada
+  sucursal (la última, el CEDIS, el **2026-09-30**). Wincaja es un **acervo**, no una fuente.
 
 ---
 
