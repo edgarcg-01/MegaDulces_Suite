@@ -242,9 +242,15 @@ const DOCS_VECINALES = `
          SELECT date_trunc('month', (now() AT TIME ZONE 'America/Mexico_City'))::date - interval '1 month' AS ini
        ),
        ruta AS (
+         -- ⚠️ Se filtra por es_vecinal, NO por canal. El canal de la canónica es el del sell-out
+         -- carácter por carácter, y ahí la vecinal se llama 'preventa' desde el relabel de
+         -- [RS.9]. Este candado llegó a preguntar por canal = 'vecinal' y pasó de ROJO a
+         -- NO MEDIDO sin que nadie lo tocara: dejó de vigilar la divergencia que lo justifica.
+         -- Que haya quedado en NO MEDIDO y no en verde es exactamente para lo que existe el
+         -- tercer estado (ADR-056).
          SELECT COALESCE(sum(importe),0)::numeric AS v
            FROM analytics.v_kepler_sales_lines, mes
-          WHERE tenant_id = ? AND canal = 'vecinal' AND doc_tipo = 10
+          WHERE tenant_id = ? AND es_vecinal AND doc_tipo = 10
             AND business_date >= mes.ini AND business_date < mes.ini + interval '1 month'),
        sellout AS (
          SELECT COALESCE(sum(s.monto),0)::numeric AS v

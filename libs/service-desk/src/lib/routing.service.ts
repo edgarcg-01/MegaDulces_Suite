@@ -52,11 +52,25 @@ export class ServiceDeskRoutingService {
   // ───────────────────────────── resolución (la usa `create`) ─────────────────────────────
 
   /** Decide a quién le toca un ticket nuevo, dentro de la transacción de su alta. `null` = ninguna regla aplica. */
-  async resolver(trx: Knex.Transaction, entrada: EntradaRuteo): Promise<DestinoRuteo | null> {
+  async resolver(trx: Knex.Transaction, entrada: EntradaRuteo, queueId?: string | null): Promise<DestinoRuteo | null> {
     const filas = (await trx('servicedesk.routing_rules')
       .whereNull('deleted_at')
       .select('id', 'name', 'keywords', 'category_id', 'assignee_id', 'sort_order', 'active')) as FilaRegla[];
-    const reglas: ReglaRuteo[] = filas.map((f) => ({
+    /*
+     * `[MS.7.6]` Una regla de PALABRA CLAVE no lleva cola, y «impresora → Felipe» (TI) no debe disparar sobre un ticket de
+     * Mantenimiento que también dice «impresora»: esa regla «pertenece» a la cola de su destino. Se descartan, antes de
+     * elegir, las de palabra clave cuyo destino atiende OTRA cola y no ésta. Las de CATEGORÍA no necesitan esto (la categoría
+     * ya es de una sola cola). Y un destino que no es miembro de NINGUNA cola (sin permiso, o mal configurado) NO se
+     * descarta: la regla gana y deja su nota interna, para que el error se vea y no se esconda.
+     */
+    let aplican = filas;
+    if (queueId) {
+      const miembros = (await trx('servicedesk.queue_members').where({ active: true }).select('queue_id', 'user_id')) as { queue_id: string; user_id: string }[];
+      const deEstaCola = new Set(miembros.filter((m) => m.queue_id === queueId).map((m) => m.user_id));
+      const deOtra = new Set(miembros.filter((m) => m.queue_id !== queueId).map((m) => m.user_id));
+      aplican = filas.filter((f) => f.category_id !== null || deEstaCola.has(f.assignee_id) || !deOtra.has(f.assignee_id));
+    }
+    const reglas: ReglaRuteo[] = aplican.map((f) => ({
       id: f.id,
       name: f.name,
       keywords: f.keywords ?? [],
@@ -68,7 +82,7 @@ export class ServiceDeskRoutingService {
     const resultado = elegirRegla(reglas, entrada);
     if (!resultado) return null;
     const persona = await trx('identity.users').where({ id: resultado.regla.assignee_id }).whereNull('deleted_at').first('nombre', 'username');
-    const asignable = !!persona && (await this.agents.esAsignable(trx, resultado.regla.assignee_id));
+    const asignable = !!persona && (await this.agents.esAsignable(trx, resultado.regla.assignee_id, queueId));
     return { resultado, assigneeName: persona ? persona.nombre || persona.username : null, asignable };
   }
 

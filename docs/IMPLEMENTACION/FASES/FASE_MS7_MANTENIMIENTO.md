@@ -1,6 +1,6 @@
 # FASE MS.7 — La Mesa de Servicio multi-área: empezar por Mantenimiento
 
-> **Estado:** 📋 DISEÑADO (planeación) 2026-10-06 — sin código. **Decisiones de Sistemas del 2026-10-06 incorporadas** (M2, M3, M4, M5, M11 y lo de infraestructura; ver §2 y §7). Sub-fase de [`FASE_MS`](FASE_MS_MESA_DE_SERVICIO.md) (ADR-081); ocupa el renglón *«MS.7 más colas (Mantenimiento)»* que esa fase dejó reservado.
+> **Estado:** 🧪 **MS.7.1 y MS.7.6 EN CÓDIGO 2026-10-06** (el resto: 📋 diseñado). Ver §9. **Decisiones de Sistemas del 2026-10-06 incorporadas** (M2, M3, M4, M5, M11 y lo de infraestructura; ver §2 y §7). Sub-fase de [`FASE_MS`](FASE_MS_MESA_DE_SERVICIO.md) (ADR-081); ocupa el renglón *«MS.7 más colas (Mantenimiento)»* que esa fase dejó reservado.
 > **Origen:** pedido de Sistemas: agregar todos los departamentos de la empresa a la Mesa de Servicio, con **un responsable por área** que atienda cada orden. Se empieza por **Mantenimiento**. Llegó con un plan en dos archivos (`CLAUDE.md` + `PLAN_MANTENIMIENTO.md`, de la parte de Sistemas/Frank); este documento **lo contrasta con el código real** y lo adecua.
 > **Para quién:** Sistemas (dueño de la Mesa), Frank (negocio de Mantenimiento), Edgar (revisión) y el dev que lo construya.
 
@@ -167,3 +167,26 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 - **Lo que no se pudo medir se declara**, no se dibuja como cero (hereda ADR-056): una cola sin tickets muestra «—», no «0 min».
 - **Al cerrar un sprint:** tracker (⬜→🔨→🧪→🚀→✅), CHANGELOG, `03_LOG_REVISIONES` y la fila **MS** de `CLAUDE.md`. Interfaz y mensajes en español.
 - **Sin secretos en código ni commits**; `SMTP_*`, `S3_*` y las credenciales van por entorno.
+
+---
+
+## 9. Avance — MS.7.1 y MS.7.6 construidos (2026-10-06)
+
+**Lo construido** (rama `feat/ms-7-1-acceso-por-cola`):
+
+- **MS.7.1 — base:** migración `20261006130000_servicedesk_queue_members.js` (aditiva, idempotente, reversible; probada subida/reversa/subida): `servicedesk.queue_members` (`coordinador | tecnico`, RLS forzado, sin DELETE: quitar = `active=false`), `queues.default_assignee_id`, `queues.priority_model` (sólo la columna; la lógica es MS.7.7) y el **backfill**: quien hoy atiende TI (permiso EFECTIVO, mismo cálculo que `agents.service`) queda como miembro de `ti`.
+- **MS.7.6 — acceso por cola** (`domain/queue-access.ts`, puro): poder efectivo = **clave ∩ pertenencia**. `accesoATicket` ya devuelve `completo | basico | ninguno` (el hueco de RH; `basico` hoy cae del lado seguro: no abre la ficha). Acota `puedeVer`, la bandeja, el tablero, el reporte, tomar / asignar / notas internas / tiempo / prioridad, los avisos (`nuevo_prioritario` y los de SLA van a la cola del ticket) y el ruteo (una regla de palabra clave cuyo destino atiende OTRA cola no dispara aquí; un destino sin cola alguna sí gana y deja su nota). `GET /agents` y las personas que se ofrecen al asignar salen de la cola del ticket.
+- **API de miembros:** `GET/PUT/DELETE /service-desk/config/queues/:id/members[/:userId]`. Sólo la coordinación **de esa cola** (o el god-mode) agrega, cambia de rol o quita; no se agrega a quien no tiene la clave (con mensaje que dice cuál pedir a Administración); la cola **nunca se queda sin coordinación**; no se quita a quien tiene solicitudes abiertas asignadas. Quien crea una cola queda como su coordinador.
+- **Pruebas:** `service-desk` 179 · view (servicio) 132 · E2E **438/0** (bloque 22: técnico de Mantenimiento no ve TI y al revés, ni el coordinador de TI ve Mantenimiento, quien tiene las claves pero ninguna cola ve **0** y no «todo», god-mode ve ambas, asignar sólo a miembros, miembros, configuración, ruteo y avisos por cola) · `test-newdb-service-desk` 130/0. **Mutaciones atrapadas:** `puedeAtenderCola` siempre verdadero + `colasDeLectura` sin acotar ponen rojas **6 pruebas unitarias y 28 comprobaciones de HTTP**.
+
+**⚠️ Cómo se despliega (el orden importa):**
+1. **Aplicar la migración ANTES del deploy** (una por una, `apply-one-migration-prod.js`). Es aditiva: el código viejo la ignora. **Con la tabla vacía el código nuevo no deja ver ningún ticket a nadie**; el backfill es lo que lo evita.
+2. Desplegar api + view. No hay permisos nuevos → **sin re-login**.
+3. A partir de aquí, **dar `SERVICIO_ATENDER` ya no basta**: la persona debe ser además **miembro de una cola** (la coordinación la agrega con `PUT …/members/:userId`). Esto aplica a Felipe Galván y David Cisneros si todavía no estaban entre quienes atendían al aplicar la migración.
+
+**Declarado, no construido (siguen en el plan):**
+- **La pantalla de miembros** (MS.7.17): hoy se administran por API. Es la deuda que más se va a sentir al dar de alta a alguien nuevo.
+- **«Mi trabajo»** (`me-work.ts` y `me-tasks.ts`, en `libs/trade`) **sigue sin acotar por cola**: sus conteos de «por asignar» y «a tu cargo» no miran la cola (MS.7.18). ⛔ **Debe resolverse antes de sembrar Mantenimiento (MS.7.14)**, o los conteos de TI incluirían los de Mantenimiento.
+- **Configuración global** (horario hábil, SLA por prioridad, reglas de ruteo): sigue editable por cualquier coordinador; llega por cola con MS.7.2 y MS.7.17.
+- **Levantar a nombre de otra persona** sigue siendo una capacidad global (no se acota por cola): importa a partir de RH (hallazgo H7).
+- `priority_model` y `default_assignee_id` son sólo columnas; todavía nada las lee.
