@@ -176,12 +176,16 @@ exports.up = async function (knex) {
         accepted        integer NOT NULL DEFAULT 0,
         status          text NOT NULL
                           CHECK (status IN ('aplicado','sin_registrar','en_pausa','error')),
-        raw             jsonb NOT NULL,                    -- el lote tal como llegó, para reprocesar
+        raw             jsonb,                             -- el lote tal como llegó; sólo si NO se aplicó
         error           text,
         reprocessed_at  timestamptz,
         UNIQUE (tenant_id, id),
         FOREIGN KEY (tenant_id, device_id) REFERENCES hr.attendance_devices (tenant_id, id) ON DELETE SET NULL,
-        CONSTRAINT ingest_batches_counts_ck CHECK (accepted BETWEEN 0 AND records)
+        CONSTRAINT ingest_batches_counts_ck CHECK (accepted BETWEEN 0 AND records),
+        -- Lo aplicado ya está en attendance_logs: guardar el crudo cada vez sería una copia
+        -- (un respaldo completo de un reloj son ~50 mil checadas, cada hora). Sólo se guarda
+        -- cuando NO se pudo aplicar, que es cuando hace falta para reprocesar.
+        CONSTRAINT ingest_batches_raw_ck CHECK (status = 'aplicado' OR raw IS NOT NULL)
       )`);
     await knex.raw(`CREATE INDEX ix_hr_batch_recent ON hr.ingest_batches (tenant_id, received_at DESC)`);
     await knex.raw(`CREATE INDEX ix_hr_batch_pending ON hr.ingest_batches (tenant_id, serial_number) WHERE status IN ('sin_registrar','en_pausa') AND reprocessed_at IS NULL`);

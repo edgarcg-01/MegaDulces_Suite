@@ -192,6 +192,10 @@ const check = (cond, msg) => {
         `INSERT INTO hr.device_commands (tenant_id, device_id, device_user_id, command, payload) VALUES (?, ?, '15', 'renombrar', '{"nombre":"Ana"}')`, [TENANT, deviceId]);
       await expectFail('lote con más aceptadas que registros',
         `INSERT INTO hr.ingest_batches (tenant_id, serial_number, source, records, accepted, status, raw) VALUES (?, 'X', 'agente', 2, 3, 'aplicado', '[]')`, [TENANT]);
+      await expectFail('lote sin aplicar y sin el crudo para reprocesar',
+        `INSERT INTO hr.ingest_batches (tenant_id, serial_number, source, records, status) VALUES (?, 'X', 'agente', 2, 'sin_registrar')`, [TENANT]);
+      await expectOk('lote aplicado sin guardar el crudo',
+        `INSERT INTO hr.ingest_batches (tenant_id, serial_number, source, records, accepted, status) VALUES (?, 'X', 'agente', 2, 2, 'aplicado')`, [TENANT]);
       await expectFail('checada con origen que no existe',
         `INSERT INTO hr.attendance_logs (tenant_id, device_id, device_user_id, punched_at, punched_local, source) VALUES (?, ?, '15', now(), now(), 'excel')`, [TENANT, deviceId]);
       await expectOk('checada de carga única',
