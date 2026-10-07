@@ -234,9 +234,19 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <div class="pres-assump-col">
                   <h4>Ventas — crecimiento por canal (%)</h4>
                   @for (ch of channelsList; track ch) {
-                    <div class="pres-assump-row"><span>{{ channelLabels[ch] || ch }}</span><strong class="pres-mono">{{ asVentasGrowth[ch] == null ? '—' : asVentasGrowth[ch] + ' %' }}</strong></div>
+                    <div class="pres-assump-row">
+                      <span>{{ channelLabels[ch] || ch }}</span>
+                      @if (asVentasGrowth[ch] == null) {
+                        <!-- [VE.7.1] Un canal sin historia propia usa el respaldo, y hay que
+                             DECIRLO: mostrarlo igual que uno derivado es como `mayoreo` exhibia
+                             2.6% teniendo -8.4% de verdad. -->
+                        <span class="pres-muted pres-mono" title="Este canal no tiene par de años con que calcular su propio crecimiento; usa el respaldo">{{ asVentasDefault }} % · respaldo</span>
+                      } @else {
+                        <strong class="pres-mono">{{ asVentasGrowth[ch] }} %</strong>
+                      }
+                    </div>
                   }
-                  <div class="pres-assump-row"><span class="pres-muted">Respaldo (canal sin historia propia)</span><strong class="pres-mono">{{ asVentasDefault == null ? '—' : asVentasDefault + ' %' }}</strong></div>
+                  <div class="pres-assump-row"><span class="pres-muted">Respaldo — para un canal sin par de años</span><strong class="pres-mono">{{ asVentasDefault == null ? '—' : asVentasDefault + ' %' }}</strong></div>
                 </div>
                 <div class="pres-assump-col">
                   <h4>Gastos</h4>
@@ -1000,7 +1010,10 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-assump-grid { display:flex; gap:1.4rem; flex-wrap:wrap; }
     .pres-assump-col { flex:1; min-width:14rem; }
     .pres-assump-col h4 { margin:.2rem 0 .4rem; font-size:.8rem; color:var(--text-muted); }
-    .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; text-transform:capitalize; }
+    /* [VE.7.1] Sin `text-transform: capitalize`: capitaliza CADA palabra y producia
+       "Presupuestar Por Sucursal", "Control De Sobregiro" y "Respaldo (Canal Sin Historia
+       Propia)". Los rotulos ya vienen escritos como deben leerse. */
+    .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; }
     /* [VE.7] Separa lo que el sistema CALCULA de lo que la persona DECIDE. */
     .pres-assump-sub { margin:1rem 0 .35rem; padding-top:.6rem; border-top:1px solid var(--border-subtle,#e5e1dc); font-size:.78rem; color:var(--text-muted); }
     .pres-assump-in { width:8rem; }
@@ -1729,7 +1742,10 @@ export class FinanzasPresupuestoComponent implements OnInit {
         }
         this.asVentasDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10;
         const g = s.growth_by_channel || {};
-        for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : this.asVentasDefault;
+        // `[VE.7.1]` Un canal SIN supuesto propio queda en `null`, no cae al respaldo en silencio.
+        // Antes mostraba el default como si fuera su cifra: `mayoreo` exhibía 2.6 % cuando su
+        // valor derivado es −8.4 %, y nada en pantalla decía que ese 2.6 % era genérico.
+        for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : null;
         this.assumpLoaded.set(true); this.loadingAssump.set(false);
         // `[VE.4]` Si el ejercicio todavía no tiene supuestos, la pantalla mostraba 0 % en todos
         // los canales y había que apretar «Sugerir» para ver la propuesta del histórico. Un cero
