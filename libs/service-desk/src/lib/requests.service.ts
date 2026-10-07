@@ -53,6 +53,7 @@ import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments
 import { efectosDe, motivoDeCierre, puedeTransicionar, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
+import { accesoATicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
 import { fechaValida } from './domain/report-period';
 import { puedeCambiarPrioridad, sugerirPrioridad } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
@@ -67,6 +68,8 @@ interface RequestRow {
   tenant_id: string;
   folio: string;
   queue_id: string;
+  /** `[MS.7.6]` Hueco de la Fase RH: la columna llega con RH.1; hasta entonces es `undefined` (nada es confidencial). */
+  confidential?: boolean;
   category_id: string;
   title: string;
   description: string;
@@ -293,7 +296,7 @@ export class ServiceDeskRequestsService {
          * nace — nunca queda «nuevo» un instante en que otra persona pueda tomarlo y pelearse con la regla.
          * Si la regla gana pero su destino no puede atender, el ticket queda SIN asignar y una nota interna lo dice.
          */
-        const destino = await this.routing.resolver(trx, { title, description, categoryId: cat.id });
+        const destino = await this.routing.resolver(trx, { title, description, categoryId: cat.id }, cat.queue_id);
         let asignadoA: string | null = null;
         if (destino?.asignable) {
           const row = await this.bloquear(trx, id);
@@ -322,7 +325,8 @@ export class ServiceDeskRequestsService {
         // Lo urgente y lo alto no pueden esperar a que alguien abra la bandeja: se avisa a quien atiende
         // (menos a quien la regla ya le asignó el ticket, que recibe su propio aviso de asignación).
         if (priority === 'alta' || priority === 'urgente') {
-          const agentes = (await this.agents.listIn(trx)).map((a) => a.user_id).filter((u) => u !== asignadoA);
+          // `[MS.7.6]` Sólo a quien atiende ESA cola: un ticket de Mantenimiento no despierta a TI.
+          const agentes = (await this.agents.listIn(trx, cat.queue_id)).map((a) => a.user_id).filter((u) => u !== asignadoA);
           if (agentes.length) efectos.avisos.push({ event: 'nuevo_prioritario', request_id: id, folio, title, priority, recipients: agentes, actor_id: ctx.userId, actor_name: ctx.nombre });
         }
         return { id: id as string, efectos };
@@ -404,6 +408,9 @@ export class ServiceDeskRequestsService {
         default:
           throw new BadRequestException('scope debe ser unassigned, mine, waiting, resolved, open o all');
       }
+      // `[MS.7.6]` Sólo las colas que esta persona atiende (clave ∩ pertenencia). `[]` = ninguna: no devuelve nada, no TODO.
+      const colas = colasDeLectura(ctx.colas);
+      if (colas) qb.whereIn('r.queue_id', colas);
       if (q.queue_id) {
         if (!esUuid(q.queue_id)) throw new BadRequestException('queue_id inválido');
         qb.where('r.queue_id', q.queue_id);
@@ -447,11 +454,13 @@ export class ServiceDeskRequestsService {
       const config = await this.cfg.load(trx);
       const r = await this.base(trx).where('r.id', id).first();
       if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
+      // `[MS.7.6]` «Quien atiende» es POR TICKET: la capacidad de atender y ser de la cola de ESTE ticket.
+      const atiendeAqui = ctx.esAgente && puedeAtenderCola(ctx.colas, r.queue_id);
 
       const msgs = await trx('servicedesk.request_messages')
         .where({ request_id: id })
         .modify((qb) => {
-          if (!ctx.esAgente) qb.where('visibility', 'public');
+          if (!atiendeAqui) qb.where('visibility', 'public');
         })
         .orderBy('created_at', 'asc')
         .select('id', 'kind', 'visibility', 'author_id', 'author_label', 'body', 'meta', 'created_at');
@@ -462,7 +471,7 @@ export class ServiceDeskRequestsService {
         })
         .where('a.request_id', id)
         .modify((qb) => {
-          if (!ctx.esAgente) qb.where((w) => w.whereNull('a.message_id').orWhere('m.visibility', 'public'));
+          if (!atiendeAqui) qb.where((w) => w.whereNull('a.message_id').orWhere('m.visibility', 'public'));
         })
         .orderBy('a.created_at', 'asc')
         .select('a.id', 'a.message_id', 'a.file_name', 'a.content_type', 'a.size_bytes', 'a.storage_key', 'a.created_at');
@@ -471,7 +480,7 @@ export class ServiceDeskRequestsService {
       // es `null` (no «vacío»: no tiene acceso).
       let logged: number | null = null;
       let entradasTiempo: SdWorkLogEntryDto[] | null = null;
-      if (ctx.esAgente) {
+      if (atiendeAqui) {
         const filas = await trx('servicedesk.work_log as w')
           .leftJoin('identity.users as uw', function () {
             this.on('uw.tenant_id', 'w.tenant_id').andOn('uw.id', 'w.user_id');
@@ -537,8 +546,12 @@ export class ServiceDeskRequestsService {
   /** Tablero de la coordinación. */
   async stats(ctx: ActorCtx): Promise<SdStatsResponse> {
     if (!ctx.esAgente) throw new ForbiddenException('El tablero es para quien atiende solicitudes');
+    // `[MS.7.6]` Los números son sólo de las colas de esta persona (`[]` = ninguna → todo en 0, no el total de la empresa).
+    const colas = colasDeLectura(ctx.colas);
+    const deMisColas = (qb: Knex.QueryBuilder): Knex.QueryBuilder => (colas ? qb.whereIn('queue_id', colas) : qb);
     return this.tk.run(async (trx) => {
       const rows: { status: SdStatus; priority: SdPriority; n: string | number }[] = await trx('servicedesk.requests')
+        .modify(deMisColas)
         .whereNull('deleted_at')
         .whereNotIn('status', FINALES)
         .select('status', 'priority')
@@ -553,9 +566,10 @@ export class ServiceDeskRequestsService {
         by_status[r.status as SdStatus] = (by_status[r.status as SdStatus] ?? 0) + n;
         by_priority[r.priority as SdPriority] = (by_priority[r.priority as SdPriority] ?? 0) + n;
       }
-      const un = await trx('servicedesk.requests').whereNull('deleted_at').where('status', 'nuevo').whereNull('assigned_to').count({ n: '*' }).first();
+      const un = await trx('servicedesk.requests').modify(deMisColas).whereNull('deleted_at').where('status', 'nuevo').whereNull('assigned_to').count({ n: '*' }).first();
       // Los contadores salen de las marcas que deja el barrido del SLA (idempotentes), no de recalcular acá.
       const br = await trx('servicedesk.requests')
+        .modify(deMisColas)
         .whereNull('deleted_at')
         .whereNotIn('status', FINALES)
         .select(
@@ -608,7 +622,9 @@ export class ServiceDeskRequestsService {
         const tenantId = r.tenant_id as string;
         const now = new Date();
         const comoSolicitante = r.requester_id === ctx.userId;
-        const atiende = ctx.esAgente && !comoSolicitante;
+        const atiendeAqui = ctx.esAgente && puedeAtenderCola(ctx.colas, r.queue_id);
+        if (visibility === 'internal' && !atiendeAqui) throw new ForbiddenException('Sólo quien atiende puede dejar notas internas');
+        const atiende = atiendeAqui && !comoSolicitante;
 
         const msgId = await this.addMessage(trx, tenantId, id, {
           kind: visibility === 'internal' ? 'internal_note' : 'comment',
@@ -670,7 +686,8 @@ export class ServiceDeskRequestsService {
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
     const efectos = await this.tk.run(async (trx) => {
       const r = await this.bloquear(trx, id);
-      if (!r) throw new NotFoundException('Solicitud no encontrada');
+      // `[MS.7.6]` Una solicitud de otra cola no existe para quien no la atiende (404, no 403: no se revela que existe).
+      if (!r || !puedeAtenderCola(ctx.colas, r.queue_id)) throw new NotFoundException('Solicitud no encontrada');
       if (r.status !== 'nuevo' || r.assigned_to) throw new ConflictException('La solicitud ya fue tomada por alguien más');
       return this.asignarA(trx, r, ctx.userId, ctx, new Date(), null);
     });
@@ -687,10 +704,12 @@ export class ServiceDeskRequestsService {
     const destino: string = dto.user_id;
     const efectos = await this.tk.run(async (trx) => {
       const r = await this.bloquear(trx, id);
-      if (!r) throw new NotFoundException('Solicitud no encontrada');
+      if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
+      // `[MS.7.6]` Reparte la coordinación DE ESA COLA (rol coordinador + clave), no cualquier coordinador de otra área.
+      if (!puedeCoordinarCola(ctx.colas, r.queue_id)) throw new ForbiddenException('Sólo la coordinación de esta área asigna solicitudes a otra persona');
       if (FINALES.includes(r.status) || r.status === 'resuelto') throw new ConflictException('La solicitud ya no admite reasignación');
-      // El destino debe ser alguien que atiende; quien asigna puede asignarse a sí mismo aunque entre por god-mode.
-      if (destino !== ctx.userId && !(await this.agents.esAsignable(trx, destino))) {
+      // El destino debe ser alguien que atiende ESA cola; quien asigna puede asignarse a sí mismo aunque entre por god-mode.
+      if (destino !== ctx.userId && !(await this.agents.esAsignable(trx, destino, r.queue_id))) {
         throw new BadRequestException('Esa persona no atiende solicitudes de la Mesa de Servicio');
       }
       return this.asignarA(trx, r, destino, ctx, new Date(), r.assigned_to);
@@ -707,7 +726,7 @@ export class ServiceDeskRequestsService {
       const config = await this.cfg.load(trx);
       const r = await this.bloquear(trx, id);
       if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
-      const actor: SdActor = ctx.esCoordinador ? 'coordinator' : ctx.esAgente ? 'agent' : 'requester';
+      const actor: SdActor = ctx.esCoordinador && puedeCoordinarCola(ctx.colas, r.queue_id) ? 'coordinator' : ctx.esAgente && puedeAtenderCola(ctx.colas, r.queue_id) ? 'agent' : 'requester';
       if (!puedeCambiarPrioridad(actor)) throw new ForbiddenException('La prioridad la define quien atiende la solicitud');
       if (FINALES.includes(r.status) || r.status === 'resuelto') throw new ConflictException('La solicitud ya no admite cambio de prioridad');
       if (r.priority === dto.priority) throw new BadRequestException('La solicitud ya tiene esa prioridad');
@@ -747,7 +766,7 @@ export class ServiceDeskRequestsService {
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
     await this.tk.run(async (trx) => {
       const r = await this.bloquear(trx, id);
-      if (!r) throw new NotFoundException('Solicitud no encontrada');
+      if (!r || !puedeAtenderCola(ctx.colas, r.queue_id)) throw new NotFoundException('Solicitud no encontrada');
       if (r.status === 'cancelado') throw new ConflictException('La solicitud está cancelada');
       await trx('servicedesk.work_log').insert({
         tenant_id: r.tenant_id,
@@ -925,14 +944,20 @@ export class ServiceDeskRequestsService {
   /** Los roles que `ctx` tiene SOBRE este ticket, del más fuerte al más débil. */
   private actoresDe(r: RequestRow, ctx: ActorCtx): SdActor[] {
     const a: SdActor[] = [];
-    if (ctx.esCoordinador) a.push('coordinator');
-    if (ctx.esAgente) a.push('agent');
+    // `[MS.7.6]` Los roles son POR COLA del ticket: ser coordinador de TI no te hace coordinador de Mantenimiento.
+    if (ctx.esCoordinador && puedeCoordinarCola(ctx.colas, r.queue_id)) a.push('coordinator');
+    if (ctx.esAgente && puedeAtenderCola(ctx.colas, r.queue_id)) a.push('agent');
     if (r.requester_id === ctx.userId) a.push('requester');
     return a;
   }
 
+  /**
+   * `[MS.7.6]` Ver un ticket = acceso COMPLETO, por la función única de acceso. El acceso `basico` (el god-mode ante un
+   * ticket confidencial, Fase RH) NO abre la ficha: la vista limitada la arma RH.2 con su propio DTO; mientras tanto
+   * `basico` cae del lado seguro (no se ve).
+   */
   private puedeVer(r: RequestRow, ctx: ActorCtx): boolean {
-    return ctx.esAgente || r.requester_id === ctx.userId;
+    return accesoATicket(ctx, { requester_id: r.requester_id, queue_id: r.queue_id, confidential: r.confidential }) === 'completo';
   }
 
   private bloquear(trx: Knex.Transaction, id: string): Promise<RequestRow | undefined> {
