@@ -587,6 +587,48 @@ el importe según lo que firme WH.0.
 
 ⚠️ **El crudo NO se copia a prod.** FDW lee donde está; los 35 GB se quedan en el espejo.
 
+### 🚀 `[WH.2]` + `[WH.3]` — **EN PROD 2026-10-07**
+
+**`[WH.2]` el FDW, aprovisionado y verificado.** `database/importers/wincaja/FDW-WINCAJA-HIST.sh`
+(corrido por Edgar en `md`; la credencial se genera ahí y nunca toca el repo, patrón `[RD.34]`):
+
+- servidor `wincaja_hist` → `host=pgvector-md, port=5432, dbname=wincaja, fetch_size=50000`
+- **27 tablas foráneas en 9 schemas** `wincaja_hNN`
+- rol `prod_wincaja_ro` acotado a SELECT sobre **3 tablas × 9 sucursales** (no las otras 67)
+- ✔ prueba **positiva**: `wincaja_h40."MaestroMovAlmacen"` corte 2023 → **278,888**, el mismo
+  número medido en el espejo esa mañana
+- ✔ prueba **negativa**: `wincaja_h40."Cajas"` **no existe** → el alcance quedó acotado
+
+**`[WH.3]` el padrón, aplicado como `batch 780` (0.1 s), con la identidad del clúster verificada.**
+`analytics.wincaja_internal_parties`, **104 filas sembradas**:
+
+| clase | origen | filas | tickets observados |
+|---|---|---:|---:|
+| `traspaso_interno` | nombre anclado | 75 | 31,935 |
+| `surtido_ruta` | nombre anclado | 19 | 14,862 |
+| `surtido_ruta` | **código** (el nombre no lo delata) | 8 | 8,185 |
+| `sin_clasificar` | código ambiguo | **2** | 2,817 |
+
+✔ prueba **negativa** en prod: el `CHECK` rechaza marcar `revisado` sin autor ni fecha.
+
+⚠️ **La lista de revisión humana son DOS renglones**, los dos en Canindo:
+
+| sucursal | tercero | nombre | tickets |
+|---|---|---|---:|
+| 06 | `24` | LUIS GABRIEL ALVAREZ MOLINA | 1,302 |
+| 06 | `25` | MUNICIPIO DE JACONA MICHOACAN | 1,515 |
+
+Hasta que alguien firme, los dos quedan fuera de la venta **y declarados** — ni descartados (sería
+perder venta) ni incluidos (sería doble conteo).
+
+⚠️ **Trampa vivida al aplicar, para la próxima:** el pod abortó con *«migration directory is
+corrupt»* porque prod tenía **4 migraciones aplicadas hoy por otras sesiones** cuyos archivos no
+están en la imagen del pod. Se resuelve copiando esos 4 archivos al pod antes de aplicar
+(`knex.migrate.list()` compara la tabla contra el DIRECTORIO, no contra `main`). Ver
+[[feedback_pod_migration_list_is_relative_to_image]].
+
+---
+
 ### `[WH.3]` — El puente producto: Wincaja `Articulo` → `catalog.products.id`
 
 Es el riesgo silencioso más grande de la fase. Nueve años de catálogo incluyen SKUs que ya no
