@@ -75,6 +75,7 @@ import { agruparPorSucursal, dia, evidenciaLabel, nombreSucursal, periodoPorDefe
             <th>Recepción</th>
             <th>Factura</th>
             <th>Proveedor</th>
+            <th title="«Referencia» del documento en Kepler (la captura quien da entrada)">Referencia</th>
             <th>Folio Kepler</th>
             <th>OC</th>
             <th>Evidencia</th>
@@ -90,7 +91,7 @@ import { agruparPorSucursal, dia, evidenciaLabel, nombreSucursal, periodoPorDefe
                             [ariaLabel]="'Marcar todas las de ' + nombre(r.sucursal)" />
               }
             </td>
-            <td colspan="7" role="cell"><b>{{ nombre(r.sucursal) }}</b> · {{ grupo(r.sucursal)?.rows?.length }} entradas</td>
+            <td colspan="8" role="cell"><b>{{ nombre(r.sucursal) }}</b> · {{ grupo(r.sucursal)?.rows?.length }} entradas</td>
             <td class="ta-r mono dt-num" role="cell" data-label="Total sucursal"><b>{{ money(grupo(r.sucursal)?.total ?? 0) }}</b></td>
           </tr>
         </ng-template>
@@ -110,6 +111,7 @@ import { agruparPorSucursal, dia, evidenciaLabel, nombreSucursal, periodoPorDefe
                 @if (r.last_rejection_reason) { <span class="ep-reason">{{ r.last_rejection_reason }}</span> }
               }
             </td>
+            <td class="mono" role="cell" data-label="Referencia">{{ r.referencia || '—' }}</td>
             <td class="mono" role="cell" data-label="Folio Kepler">{{ r.folio }}</td>
             <td class="mono ep-muted" role="cell" data-label="OC">{{ r.oc_folio || '—' }}</td>
             <td role="cell" data-label="Evidencia"><span class="ep-ev" [class.ep-ev-none]="r.evidence_status === 'sin_evidencia'">{{ evidencia(r.evidence_status) }}</span></td>
