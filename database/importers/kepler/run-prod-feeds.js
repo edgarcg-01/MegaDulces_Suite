@@ -177,7 +177,10 @@ const STEPS = {
   stock:   [
     path.join(K, 'import-branch-stock-live.js'),
     path.join(DIR, 'wincaja', 'import-cedis-stock-wincaja.js'), // RA-PRO.24 CEDIS '00' = Wincaja Irapuato (NO Kepler) — tras stock Kepler, ANTES del fact (guard: no borra si Irapuato vacío)
-    path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 refresca el fact tras cambiar existencia
+    // `[RA-PERF.8]` `--hb=stock`: llave de latido PROPIA de este carril. Sin el sufijo, este paso y
+    // el del nightly se pisarían el renglón de `analytics.cron_runs` (PK sin host) y fabricarían
+    // falsos "la corrida anterior no reportó cierre" cada vez que se cruzaran.
+    [path.join(K, 'import-replenishment-plan.js'), '--hb=stock'], // RA-PRO.31 refresca el fact tras cambiar existencia
   ],
   // RECEIPTS — la copia se RETIRÓ 2026-08-19 (`analytics.erp_goods_receipts` es VISTA derive-no-copy
   // sobre kepler_ods.kdm1 XA2001 + Wincaja movimiento_proveedores, mig 20260819120000). Lo único que
@@ -316,7 +319,7 @@ const STEPS = {
     path.join(K, 'import-box-price.js'),           // RA-PRO.39 precio de CJA por producto (kdpv) — base de cajas money-anchored en sell-out
     path.join(K, 'import-label-data.js'),          // Etiquetas de anaquel (kdii c90/91/92 precio pieza/paq/caja) → product_label_prices. ANTES quedaba stale (no estaba en nightly) → precios de anaquel ~10% abajo del Kepler vigente (bug 30061 ago-2026)
     path.join(DIR, 'wincaja', 'import-wincaja-caja-factor.js'), // Factor de caja Wincaja (factor_venta) para MOSTRAR cajas en almacenes ciegos MD-30/32/50 — depende de box-factor(c84)+label(c81). Set doble-testigo (anida+costo=paquete)
-    path.join(K, 'import-replenishment-plan.js'), // RA-PRO.31 fact del pedido — AL FINAL (tras demanda/stock/velocity/tránsito/reorden)
+    [path.join(K, 'import-replenishment-plan.js'), '--hb=nightly'], // RA-PRO.31 fact del pedido — AL FINAL (tras demanda/stock/velocity/tránsito/reorden). `--hb`: ver el carril `stock`.
     // Norm ALMACÉN Paso 2b (BARRIDO): tras todos los importers, llena warehouse_id NULL de las
     // tablas normalizadas (batch 1 warehouse_code + batch 2 sucursal). Idempotente (solo toca NULL),
     // barato. Batch 1 ya va inline en sus writers; esto cubre batch 2 (~15 importers) sin editarlos +

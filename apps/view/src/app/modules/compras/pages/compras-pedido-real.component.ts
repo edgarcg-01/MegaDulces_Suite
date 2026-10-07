@@ -5,7 +5,7 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
-import { compareWarehouseCodes, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
+import { compareWarehouseCodes, type Freshness, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
 import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, roundSeed, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -22,6 +22,9 @@ import { DialogModule } from 'primeng/dialog';
 import { Popover, PopoverModule } from 'primeng/popover';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
+import { UsoService } from '../../../core/services/uso.service';
+import { analizarStack, capturarStack } from '../pedido-recursion';
+import { agruparPorProducto, filtrarPorTipo } from '../pedido-indices';
 import { generarRequisicionGlobalPdf, generarRequisicionPdf, ReqGlobalPdfData, ReqPdfData, ReqPdfFila, ReqPdfGrupo } from '../pedido-requisicion-pdf';
 import { agruparPorProveedor, LineaCompra, repartoProducto } from '../pedido-requisicion-global';
 import {
@@ -54,6 +57,17 @@ interface URow {
   buy: PurchaseSuggestionRow | null;   // ref al row de compra (override de unidad)
 }
 interface Grp { code: string; name: string; buy: number; tr: number; over: number; buyCj: number; trCj: number; n: number; }
+
+/** `[RA-PERF.7]` La ausencia, con una sola identidad. Ver `trasRows()`. */
+const SIN_FILAS: URow[] = [];
+/**
+ * `[RA-PERF.8]` Lo que se publica cuando el servidor NO mandó frescura (backend viejo, error de
+ * red, o el latido del importer todavía sin estrenar): se **declara sin medir**, no se esconde la
+ * píldora ni se cae a la hora del navegador. Es el tercer estado de ADR-056: "no sé" no es "al día".
+ */
+const FRESCURA_SIN_MEDIR: Freshness = { data_as_of: null, status: 'unknown', stale: true, age_human: null, inputs: [] };
+/** `[RA-PERF.7]` Proveedor sin nada capturado todavía. Ceros REALES (no se midió nada mal). */
+const SIN_PEDIDO = { cajas: 0, monto: 0, productos: 0 };
 
 /**
  * RA-PRO.47 — Renglón de COMPRA por sucursal del desglose.
@@ -142,12 +156,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
            días publicando precios viejos sin que nadie lo notara).
            Ahora usa el componente canónico con 'measures="fetch"', que dice "cargado hace N" —
            verdad, y no promete nada sobre la edad del dato.
-           ⚠️ Para poder pasar a 'measures="data"' el backend tiene que mandar un 'data_as_of'
-           en 'WorkbookResponse'; hoy no lo manda (verificado 2026-09-14). Queda declarado. -->
-      <!-- La píldora mide la carga del pedido/stock muerto: en "Flujo" daría una hora que no es la suya. -->
+           [RA-PERF.8] YA LO MANDA. El backend devuelve un 'Freshness' compuesto del LATIDO del
+           importer que escribe el fact — no de 'replenishment_plan.computed_at', que por el UPSERT
+           sin churn dice cuándo CAMBIÓ cada fila y no cuándo se verificó (medido en prod el
+           2026-10-07: 415 sellos distintos en 34 días sobre una tabla sana; un max() diría "hace 4
+           min" y un min() "hace 34 días"). Si el servidor todavía no lo manda, el veredicto llega
+           'unknown' y la píldora dice "datos sin medir" — nunca se esconde ni dibuja un verde.
+           En "Flujo" no se muestra: esa pestaña tiene su propia fuente y daría una hora ajena. -->
       @if (mode() !== 'flujo') {
         <div class="pr-fresh">
-          <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
+          @if (mode() === 'pedido') {
+            <app-freshness-pill measures="data" [freshness]="frescura()" />
+          } @else {
+            <app-freshness-pill measures="fetch" [since]="loadedAt()" [staleAfterSec]="900" />
+          }
         </div>
       }
 
@@ -1378,6 +1400,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly auth = inject(AuthService);
+  // `[RA-PERF.6]` El canal por el que SÍ sale un crash de render (ver `reportarIncidente`).
+  private readonly uso = inject(UsoService);
 
   // P2 — cantidades editadas sin armar requisición = trabajo volátil. dirty protege contra
   // navegación interna (unsavedChangesGuard) + salida externa (beforeunload).
@@ -1431,6 +1455,8 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     { pedido: 0, venta: 0, exis: 0 });
   // U.2 — el hueco del valuado. null cuando no hay nada sin verificar (el banner no se pinta).
   private readonly wbRung = signal<{ skus: number; celdas: number; arbitrado: number } | null>(null);
+  /** `[RA-PERF.8]` Con qué se calculó la tabla, según el SERVIDOR. Arranca «sin medir» a propósito. */
+  readonly frescura = signal<Freshness>(FRESCURA_SIN_MEDIR);
   rungGap(): { skus: number; celdas: number; arbitrado: number } | null {
     const g = this.wbRung();
     return g && g.skus > 0 ? g : null;
@@ -1565,18 +1591,33 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // `import-supplier-params.js` (RA-PRO.10) del historial — el pedido típico del almacén principal
   // del proveedor —, y no hay columna que separe lo capturado de lo derivado. Se dice lo que es y se
   // compara contra lo que llevas de ESE proveedor en las filas cargadas. No se rellena nada.
+  /**
+   * `[RA-PERF.7]` Lo que llevas, agrupado por proveedor: **un barrido por tick**, no uno por fila.
+   *
+   * Esto vivía DENTRO de `pedidoTipico(r)`, que el template llama una vez por fila abierta: cada
+   * llamada recorría `knownRows()` entero evaluando `sumCajas` + `sumValor` en cada renglón, o sea
+   * O(filas²) para publicar un dato que es el MISMO para todas las filas del mismo proveedor.
+   */
+  private readonly porProveedor = computed(() => {
+    this.tickN();
+    const m = new Map<string, { cajas: number; monto: number; productos: number }>();
+    for (const row of this.knownRows().values()) {
+      if (!row.supplier_id) continue;
+      const c = this.sumCajas(row);
+      if (!(c > 0)) continue;
+      const g = m.get(row.supplier_id) ?? { cajas: 0, monto: 0, productos: 0 };
+      g.cajas += c; g.monto += this.sumValor(row); g.productos++;
+      m.set(row.supplier_id, g);
+    }
+    return m;
+  });
   pedidoTipico(r: WorkbookRow): PedidoTipicoEval & { supplierName: string; productos: number } | null {
     if (!r.supplier_id) return null;
     const s = (this.filters()?.suppliers ?? []).find((x) => x.id === r.supplier_id);
     if (!s) return null;
-    let cajas = 0, monto = 0, productos = 0;
-    for (const row of this.knownRows().values()) {
-      if (row.supplier_id !== r.supplier_id) continue;
-      const c = this.sumCajas(row);
-      if (c > 0) { cajas += c; monto += this.sumValor(row); productos++; }
-    }
-    const e = evaluarPedidoTipico(cajas, monto, s.min_order_boxes, s.min_order_amount);
-    return e.nivel === 'sin_dato' ? null : { ...e, supplierName: s.name, productos };
+    const g = this.porProveedor().get(r.supplier_id) ?? SIN_PEDIDO;
+    const e = evaluarPedidoTipico(g.cajas, g.monto, s.min_order_boxes, s.min_order_amount);
+    return e.nivel === 'sin_dato' ? null : { ...e, supplierName: s.name, productos: g.productos };
   }
   pedidoTipicoTxt(e: PedidoTipicoEval): string {
     const f = (v: number) => (e.criterio === 'monto' ? this.money(v) : `${Math.round(v).toLocaleString('es-MX')} cj`);
@@ -1925,7 +1966,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   tabOf(pid: string): 'buy' | 'tr' { return this.detTab()[pid] ?? 'buy'; }
   setTab(pid: string, t: 'buy' | 'tr'): void { this.detTab.update((m) => ({ ...m, [pid]: t })); }
   /** Sólo los traspasos del producto (la cejita de traspasos queda como estaba). */
-  trasRows(pid: string): URow[] { return this.detailRows(pid).filter((u) => u.type === 'traspaso'); }
+  // `[RA-PERF.7]` Lee del índice (`trasMap`), no vuelve a filtrar `urows` en cada llamada.
+  // Devolver SIEMPRE la MISMA referencia cuando está vacío evita que el `@for` del template
+  // se reconstruya en cada pasada por recibir un arreglo nuevo que contiene lo mismo: nada.
+  trasRows(pid: string): URow[] { return this.trasMap().get(pid) ?? SIN_FILAS; }
 
   /** code → warehouse_id, para armar la requisición desde las celdas (que vienen por código). */
   private readonly whIdByCode = computed(() => {
@@ -2625,15 +2669,32 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (s.has(r.product_id)) s.delete(r.product_id); else s.add(r.product_id);
     this.wbOpen.set(s);
   }
+  /**
+   * `[RA-PERF.7]` Índice producto → sus filas por sucursal, ya ordenadas: **un barrido por tick,
+   * no uno por llamada.**
+   *
+   * Antes `detailRows(pid)` filtraba y ordenaba `urows()` COMPLETO en cada invocación, y el
+   * template la llama **7 veces por fila abierta** (`trasRows` ×4 + `prodTr` ×3). Con `urows` de
+   * hasta 3,000 renglones (3 endpoints × `pageSize: 1000`) y 20 filas expandidas, eso son
+   * **140 barridos ≈ 420,000 iteraciones por pasada de detección de cambios**, más 140 arreglos
+   * intermedios que el recolector tiene que limpiar. Y como `onQtyEdit()` llama `tick()`,
+   * **cada tecla en una cantidad pagaba la factura entera**.
+   *
+   * Es el mismo patrón que `branchBuyMap` ya usa 1,100 líneas más arriba en este archivo: agrupar
+   * una vez, leer por clave. ⚠️ Devuelve el arreglo COMPARTIDO del mapa — nadie debe mutarlo
+   * (hoy los dos consumidores sólo filtran y reducen).
+   */
+  private readonly detailMap = computed(() => {
+    this.tickN();
+    return agruparPorProducto(this.urows(), (a, b) =>
+      this.typeOrder[a.type] - this.typeOrder[b.type] || compareWarehouseCodes(a.warehouse_code, b.warehouse_code));
+  });
+  /** `[RA-PERF.7]` Sólo los traspasos, también indexados: `trasRows` se llama 4 veces por fila. */
+  private readonly trasMap = computed(() => filtrarPorTipo(this.detailMap(), 'traspaso'));
   /** Filas por-sucursal (comprar/traspaso/sobre) del producto, ordenadas acción→sucursal
    *  (sucursal en el orden canónico PH · MA · MM · 8ESQ · LPA · YUR · CAN · Zamora · CEDIS). */
-  detailRows(pid: string): URow[] {
-    this.tickN();
-    return this.urows()
-      .filter((u) => u.product_id === pid)
-      .sort((a, b) => this.typeOrder[a.type] - this.typeOrder[b.type] || compareWarehouseCodes(a.warehouse_code, b.warehouse_code));
-  }
-  prodTr(pid: string): number { return this.detailRows(pid).filter((u) => u.type === 'traspaso').reduce((s, u) => s + u.qty * u.unit_cost, 0); }
+  detailRows(pid: string): URow[] { return this.detailMap().get(pid) ?? SIN_FILAS; }
+  prodTr(pid: string): number { return this.trasRows(pid).reduce((s, u) => s + u.qty * u.unit_cost, 0); }
 
   // RA-PRO.47 — el toggle Englobar/Desglosar se retiró: ya no hay columnas por sucursal que abrir
   // o cerrar. La consulta pide SIEMPRE grano sucursal, porque es lo que alimenta el desglose.
@@ -2916,9 +2977,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       .subscribe((r) => {
         if (gen !== this.reqGen) return;   // llegó tarde: otra consulta ya la reemplazó
         this.loading.set(false);
-        if (!r) { this.error.set(true); this.wbRows.set([]); return; }
+        // `[RA-PERF.8]` Una consulta que falló NO deja en pantalla la frescura de la anterior:
+        // sería la edad de un dato que ya no se está mostrando.
+        if (!r) { this.error.set(true); this.wbRows.set([]); this.frescura.set(FRESCURA_SIN_MEDIR); return; }
         this.wbRows.set(r.rows); this.wbTotals.set(r.totals); this.wbTotal.set(r.total);
         this.wbRung.set(r.unit_rung ?? null);
+        this.frescura.set(r.freshness ?? FRESCURA_SIN_MEDIR);
         this.loadedAt.set(Date.now());
         if (reloadEnrichment) {
           this.fetchConsolidated(true).pipe(takeUntilDestroyed(this.destroyRef)).subscribe((res) => {
@@ -3629,23 +3693,39 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
 
   private _mc = 0;
   private _mcReset = false;
+  private _mcAvisado = false;
   money(v: number | string | null | undefined): string {
-    // DIAGNÓSTICO PROD (temporal): /compras/pedido crashea con "Maximum call stack" — una recursión
-    // de render que pasa por money(). El volumen normal (p.ej. expand-all) llama money muchas veces
-    // pero con stack SHALLOW; la recursión lo llama con stack PROFUNDO. Contamos por tick (reset en
-    // microtask) y sólo tras muchas llamadas medimos la profundidad del stack: si es honda, logueamos
-    // el contexto (qué modo/cuántas filas/qué valor) y CORTAMOS con throw para no congelar la pestaña.
+    // `[RA-PERF.6]` DIAGNÓSTICO del "Maximum call stack" de esta pantalla. El volumen normal
+    // (expandir todo) llama money() muchas veces pero con stack CORTO; la recursión lo llama con
+    // stack HONDO y re-entrante. Se cuenta por tick (reset en microtask) y sólo tras muchas
+    // llamadas se mide, para no pagar la captura en el camino caliente.
+    //
+    // ⛔ Acá vivía un guard que NO PODÍA DISPARAR NUNCA: medía
+    //      (new Error().stack || '').split('\n').length > 300
+    //    y `Error.stackTraceLimit` vale 10 por default en V8, sin subirse en ningún lado del repo.
+    //    Medido el 2026-10-07: con 500 marcos reales esa expresión devuelve 11. O sea que el
+    //    testigo del crash llevaba desde el 2026-07-30 sin poder ver nada, y por eso la causa
+    //    nunca se identificó. El detalle y las dos señales que lo reemplazan, en pedido-recursion.
     if (!this._mcReset) { this._mcReset = true; queueMicrotask(() => { this._mc = 0; this._mcReset = false; }); }
     if (++this._mc > 800) {
-      const depth = (new Error().stack || '').split('\n').length;
-      if (depth > 300) {
-        // eslint-disable-next-line no-console
-        console.error('[pedido][RECURSION] money() stack=' + depth + ' frames; arg=', v, {
+      const d = analizarStack(capturarStack());
+      if (d.recursion && !this._mcAvisado) {
+        this._mcAvisado = true;   // una vez por carga: diagnosticar, no inundar
+        const ctx = {
+          marcos: d.marcos, vueltas: d.vueltas, cima: d.cima, arg: String(v), calls: this._mc,
           mode: this.mode(), flat: this.flatRows().length, disp: this.displayRows().length,
-          wb: this.wbRows().length, dead: this.deadRows().length, calls: this._mc,
-        });
-        throw new Error('[pedido] recursion guard @money depth=' + depth + ' mode=' + this.mode());
+          wb: this.wbRows().length, dead: this.deadRows().length, urows: this.urows().length,
+          abiertas: this.wbOpen().size,
+        };
+        // eslint-disable-next-line no-console
+        console.error('[pedido][RECURSION]', ctx);
+        // ⚠️ El throw de abajo muere DENTRO de una expresión de template: lo come el ErrorHandler
+        // de Angular y nunca salió del navegador. Medido: en 30 días hay 1 solo evento kind=error
+        // en prod y es de /portal/login. Por eso el reporte va por el canal de telemetría acá.
+        this.uso.reportarIncidente('pedido_recursion', ctx);
       }
+      // Se corta igual para no congelar la pestaña (el motivo original del guard).
+      if (d.recursion) throw new Error('[pedido] recursion guard @money marcos=' + d.marcos + ' vueltas=' + d.vueltas + ' mode=' + this.mode());
     }
     return (Number(v ?? 0) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
   }

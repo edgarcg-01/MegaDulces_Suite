@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { ClaseOc, EstadoCadena, FlujoComprasDto, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, WorkbookSkuSignals } from '@megadulces/contracts';
+import { ClaseOc, EstadoCadena, FlujoComprasDto, type Freshness, MonthlySalesResponse, OcSeguimiento, OcSeguimientoEstatus, OcSeguimientoGuardadoDto, OcSeguimientoInputDto, WorkbookSkuSignals } from '@megadulces/contracts';
 import type { OcDetalle } from './oc-kepler-pdf';
 
 /** Fase RA (ADR-030) — cliente del proyecto Compras: existencia crítica + requisiciones. */
@@ -324,6 +324,16 @@ export interface WorkbookResponse {
   // U.2 — el hueco del inventario valuado, declarado. `exis` de arriba es sólo lo verificado, así
   // que sin esto el total bajaría en silencio y se leería como "hay menos inventario".
   unit_rung?: { skus: number; celdas: number; arbitrado: number };
+  /**
+   * `[RA-PERF.8]` Con qué se calculó esto: la edad del DATO, medida por el servidor.
+   *
+   * Sale del latido del importer que escribe `analytics.replenishment_plan`, **no** de la columna
+   * `computed_at` de esa tabla — su UPSERT es sin churn, así que esa columna dice cuándo CAMBIÓ
+   * cada fila, no cuándo se verificó (medido en prod: 415 sellos distintos en 34 días sobre una
+   * tabla sana). Opcional porque el backend puede no haber desplegado todavía; cuando falta, la
+   * píldora declara «sin medir» en vez de esconderse.
+   */
+  freshness?: Freshness | null;
   rows: WorkbookRow[];
 }
 export interface WorkbookQuery {
