@@ -30,7 +30,7 @@ const menu: ErpPendingMenu = {
   alcance: 'listed',
   sucursales: [{
     sucursal: '01', warehouse_id: WH, warehouse_code: '01', warehouse_name: 'Padre Hidalgo',
-    pendientes: 1, compras: 0, traspasos: 1, ultimo: '2026-10-04', sin_almacen: false,
+    pendientes: 1, compras: 0, anteriores: 0, traspasos: 1, ultimo: '2026-10-04', sin_almacen: false,
   }],
 };
 
@@ -206,7 +206,7 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
     http.expectOne(`${BASE}/en-curso`).flush({ message: 'boom' }, { status: 500, statusText: 'Server Error' });
     http.expectOne(`${BASE}/erp-pending-branches`).flush(menu);
     await pinta();
-    expect(texto()).toContain('No se pudieron leer los vales en curso');
+    expect(texto()).toContain('No se pudieron leer los vales incompletos');
     expect(el().querySelector('button.su-row')).toBeTruthy();
   });
 });

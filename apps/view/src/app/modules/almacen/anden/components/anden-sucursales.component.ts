@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import { DecimalPipe } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { ErpPendingBranch } from '../../receiving-session.service';
+import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
 
 /**
  * Andén · **paso 0 — a qué sucursal entra la mercancía.**
@@ -64,10 +65,10 @@ import { ErpPendingBranch } from '../../receiving-session.service';
               <path d="M16 8V15M32 8V15" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
             </svg>
           </div>
-          <h3>Hoy no hay vales</h3>
+          <h3>No hay vales por recibir</h3>
           <p>
-            Kepler no tiene ninguna entrada con fecha de hoy ni traspasos en camino a las
-            sucursales que te tocan. En cuanto capturen una, aparece acá.
+            Kepler no tiene entradas sin recibir de hoy ni de los últimos {{ diasAtras }} días, ni
+            traspasos en camino a las sucursales que te tocan. En cuanto capturen una, aparece acá.
           </p>
           <p class="su-cero-hint">
             <b>¿Llegó un camión igual?</b> El papel puede llegar antes que Kepler. Buscá el vale
@@ -78,7 +79,7 @@ import { ErpPendingBranch } from '../../receiving-session.service';
       } @else {
         <div class="su-cab">
           <span>Por recibir</span>
-          <span>compras de hoy · traspasos en camino</span>
+          <span>compras de hoy y atrasadas · traspasos en camino</span>
         </div>
 
         <ul class="su-lista">
@@ -90,7 +91,11 @@ import { ErpPendingBranch } from '../../receiving-session.service';
                 <span class="su-nm">
                   {{ b.warehouse_name || 'Sucursal ' + b.sucursal }}
                   @if (b.sin_almacen) { <small>sin almacén configurado — no se puede recibir</small> }
-                  @else if (b.traspasos) {
+                  @else if (b.anteriores) {
+                    <!-- [WMS-REC.18] Las atrasadas se dicen: son las que ayer se quedaron sin hacer. -->
+                    <small class="su-antes">{{ b.anteriores | number }} de días anteriores</small>
+                  }
+                  @if (!b.sin_almacen && b.traspasos) {
                     <!-- [WMS-REC.17] Se dice cuántos son traspasos: llegan con otro papel (el
                          embarque de quien manda), y el bodeguero lo tiene que buscar distinto. -->
                     <small class="su-tr">{{ b.traspasos | number }} {{ b.traspasos === 1 ? 'traspaso' : 'traspasos' }} en camino</small>
@@ -111,6 +116,7 @@ import { ErpPendingBranch } from '../../receiving-session.service';
   styles: [`
     :host { display: block; }
     .su { display: flex; flex-direction: column; gap: var(--sp-3); }
+    .su-antes { color: var(--warn-fg); font-weight: var(--fw-medium); }
     .su-hd { display: flex; align-items: flex-end; justify-content: space-between; gap: var(--sp-2); }
     .su-t { margin: 0; font-size: var(--fs-h2); font-weight: var(--fw-black); letter-spacing: -0.01em; }
     .su-s { margin: 2px 0 0; font-size: var(--fs-sm); color: var(--text-muted); }
@@ -198,6 +204,9 @@ export class AndenSucursalesComponent {
   readonly elegir = output<ErpPendingBranch>();
   readonly verFolio = output<void>();
   readonly reintentar = output<void>();
+
+  /** `[WMS-REC.18]` Hasta cuántos días atrás se siguen mostrando los vales sin recibir. */
+  readonly diasAtras = DIAS_PENDIENTES_ANDEN;
 
   /** El día que se está mostrando, en hora de México — la misma que filtra el backend. */
   readonly hoy = computed(() =>

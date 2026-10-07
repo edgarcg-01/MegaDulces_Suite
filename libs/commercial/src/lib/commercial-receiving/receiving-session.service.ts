@@ -9,6 +9,7 @@ import {
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
 import type { ErpPendingMenu, ErpPendingBranch, ErpOrderMatch, AndenValeEnCurso } from '@megadulces/contracts';
+import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { classifyReceivingOrigin } from './receiving-origin';
 import { ReceivingClaimsService } from './receiving-claims.service';
@@ -116,6 +117,21 @@ export interface ScanDto {
 const HOY_MX = "r.receipt_date = (now() AT TIME ZONE 'America/Mexico_City')::date";
 
 /**
+ * `[WMS-REC.18]` **Hoy y los ultimos `DIAS_PENDIENTES_ANDEN` dias, nunca el futuro.**
+ *
+ * La regla de solo-hoy de arriba se amplio el 2026-10-07 a pedido de quien recibe: "si ayer
+ * llegaron 8 y solo hizo 6, al dia siguiente siguen esos 2". Lo de hoy sigue apartado y primero
+ * (eso lo hace la pantalla); lo atrasado no desaparece. Lo fechado a futuro sigue fuera, que es el
+ * motivo de fondo de la regla de Edgar. ⚠️ Cambia una decision suya: avisarle (ver el PR).
+ *
+ * Costo: la fecha es `kdm1.c9::date` sin indice de fecha para `X-A-20`, asi que la igualdad ya
+ * recorria todas las ordenes de entrada; el rango no cambia el plan. No medido en prod.
+ */
+const VENTANA_MX =
+  `r.receipt_date BETWEEN (now() AT TIME ZONE 'America/Mexico_City')::date - ${DIAS_PENDIENTES_ANDEN} ` +
+  `AND (now() AT TIME ZONE 'America/Mexico_City')::date`;
+
+/**
  * La fila CRUDA que devuelve el select del menu, con los alias tal como los renombra la
  * consulta (`w.id as warehouse_id`, `COUNT(*)::int as pendientes`...).
  *
@@ -135,6 +151,8 @@ interface FilaMenuAnden {
   warehouse_code: string | null;
   warehouse_name: string | null;
   pendientes: number | string;
+  /** `[WMS-REC.18]` De `pendientes`, las de dias anteriores. */
+  anteriores: number | string;
   ultimo: string | null;
 }
 
@@ -668,7 +686,7 @@ export class ReceivingSessionService {
       const q = trx('analytics.erp_goods_receipts as r')
         .where({ 'r.tenant_id': tenantId })
         .whereNull('r.dup_of_folio')
-        .whereRaw(HOY_MX)
+        .whereRaw(VENTANA_MX)
         .whereNotExists(function (this: Knex.QueryBuilder) {
           // `[WMS-REC.17]` Un vale CANCELADO ya no tapa al documento: `open()` deja reabrirlo
           // sin `force`, y el menu lo escondia para siempre — el bodeguero no tenia como volver.
@@ -692,6 +710,8 @@ export class ReceivingSessionService {
           'w.code as warehouse_code',
           'w.name as warehouse_name',
           trx.raw('COUNT(*)::int as pendientes'),
+          // `[WMS-REC.18]` Las atrasadas se cuentan aparte: la insignia dice cuantas son de antes.
+          trx.raw(`COUNT(*) FILTER (WHERE NOT (${HOY_MX}))::int as anteriores`),
           // `[WMS-REC.17]` Como TEXTO `YYYY-MM-DD`: pg entrega un `date` como `Date` a medianoche
           // UTC, que en hora de Mexico es el dia ANTERIOR (LC.16). Y se compara contra la fecha
           // de los traspasos, que ya viene como texto.
@@ -706,6 +726,7 @@ export class ReceivingSessionService {
         ...f,
         pendientes: Number(f.pendientes) || 0,
         compras: Number(f.pendientes) || 0,
+        anteriores: Number(f.anteriores) || 0,
         traspasos: 0,
         // Sin mapa no se puede abrir el vale: la pantalla lo dice antes del toque.
         sin_almacen: !f.warehouse_id,
@@ -747,6 +768,7 @@ export class ReceivingSessionService {
             warehouse_name: e0.warehouse_name,
             pendientes: es.length,
             compras: 0,
+            anteriores: 0,
             traspasos: es.length,
             ultimo: ultimo(es),
             sin_almacen: false,
@@ -761,6 +783,7 @@ export class ReceivingSessionService {
           warehouse_name: es[0].destino_nombre || code,
           pendientes: es.length,
           compras: 0,
+          anteriores: 0,
           traspasos: es.length,
           ultimo: ultimo(es),
           sin_almacen: true,
@@ -797,7 +820,7 @@ export class ReceivingSessionService {
       const filas = await trx('analytics.erp_goods_receipts as r')
         .where({ 'r.tenant_id': tenantId, 'r.sucursal': suc })
         .whereNull('r.dup_of_folio')
-        .whereRaw(HOY_MX)
+        .whereRaw(VENTANA_MX)
         .whereNotExists(function (this: Knex.QueryBuilder) {
           this.select(trx.raw('1'))
             .from('commercial.receiving_sessions as s')
@@ -815,7 +838,10 @@ export class ReceivingSessionService {
         .orderBy('r.folio', 'desc')
         .limit(Math.min(200, Math.max(1, Number(limit) || 100)))
         .select(
-          'r.sucursal', 'r.folio', 'r.receipt_date',
+          'r.sucursal', 'r.folio',
+          // `[WMS-REC.18]` Como TEXTO: la pantalla separa hoy de lo atrasado comparando contra la
+          // fecha de Mexico, y un `date` de pg llega como medianoche UTC = el dia anterior (LC.16).
+          trx.raw(`to_char(r.receipt_date, 'YYYY-MM-DD') AS receipt_date`),
           'r.proveedor_code', 'r.proveedor_nombre', 'r.proveedor_rfc',
           'r.oc_folio', 'r.vale_folio', 'r.concepto', 'r.monto',
           'w.id as warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',

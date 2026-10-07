@@ -34,6 +34,16 @@ export type AndenScopeMode = 'none' | 'own' | 'listed' | 'all';
  * Una sucursal del menu del Anden: a donde entra la mercancia y cuantos vales de
  * HOY quedan sin abrir ahi.
  */
+/**
+ * `[WMS-REC.18]` Cuantos dias atras se siguen mostrando las ordenes de entrada que nadie recibio.
+ *
+ * Cambia la regla de "solo hoy" (Edgar, 2026-09-24) a pedido de quien recibe (2026-10-07): si
+ * ayer llegaron 8 y se recibieron 6, las 2 tienen que seguir a la vista al dia siguiente. Hoy
+ * sigue arriba, igual que antes; lo atrasado va en su propio grupo. Lo fechado a FUTURO en Kepler
+ * sigue fuera (el motivo de la regla original: Kepler adelanta documentos).
+ */
+export const DIAS_PENDIENTES_ANDEN = 7;
+
 export interface ErpPendingBranch {
   sucursal: string;
   warehouse_id: string | null;
@@ -41,8 +51,13 @@ export interface ErpPendingBranch {
   warehouse_name: string | null;
   /** Total por abrir: `compras + traspasos`. Es el numero que pinta la insignia. */
   pendientes: number;
-  /** Ordenes de entrada de HOY (las compras; regla de solo-hoy). */
+  /** Ordenes de entrada sin recibir: las de hoy y las de los ultimos `DIAS_PENDIENTES_ANDEN` dias. */
   compras: number;
+  /**
+   * `[WMS-REC.18]` De `compras`, cuantas son de DIAS ANTERIORES (no de hoy). La pantalla las
+   * separa: hoy sigue arriba, como decidio Edgar; lo atrasado va aparte para que no se pierda.
+   */
+  anteriores: number;
   /**
    * `[WMS-REC.17]` Embarques de otra sucursal o del CEDIS que vienen a esta y nadie abrio.
    * Su regla de dia es distinta (salio hoy, o sigue en camino): ver `transferVisible()`.

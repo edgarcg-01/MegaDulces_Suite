@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
 import { AndenValeEnCurso } from '../../receiving-session.service';
+import { diasDesde, hoyMexico } from '../dia-mx';
 
 /**
  * Andén · **los vales que quedaron a medias** (`[WMS-REC.17]`).
@@ -23,10 +24,10 @@ import { AndenValeEnCurso } from '../../receiving-session.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (vales().length) {
-      <section class="ec" aria-label="Vales en curso">
+      <section class="ec" aria-label="Vales incompletos">
         <div class="ec-cab">
-          <span>En curso</span>
-          <span>{{ vales().length | number }} sin cerrar · tocá uno para seguir</span>
+          <span>Incompletos</span>
+          <span>{{ vales().length | number }} sin terminar · tocá uno para seguir</span>
         </div>
         <ul class="ec-lista">
           @for (v of vales(); track v.id) {
@@ -41,9 +42,9 @@ import { AndenValeEnCurso } from '../../receiving-session.service';
                 <span class="ec-pend" [class.ec-ok]="!v.por_fechar">
                   @if (v.por_fechar) { faltan {{ v.por_fechar | number }} } @else { todo fechado }
                 </span>
-                @if (v.abierto_por) {
-                  <span class="ec-quien">lo abrió {{ v.abierto_por }}</span>
-                }
+                <span class="ec-quien">
+                  {{ desde(v.created_at) }}@if (v.abierto_por) { · lo abrió {{ v.abierto_por }} }
+                </span>
               </button>
             </li>
           }
@@ -51,7 +52,7 @@ import { AndenValeEnCurso } from '../../receiving-session.service';
       </section>
     } @else if (error()) {
       <!-- Si la lista no se pudo leer se dice: callarlo haría creer que no hay nada a medias. -->
-      <p class="ec-mal">No se pudieron leer los vales en curso: {{ error() }}</p>
+      <p class="ec-mal">No se pudieron leer los vales incompletos: {{ error() }}</p>
     }
   `,
   styles: [`
@@ -101,4 +102,17 @@ export class AndenEnCursoComponent {
   readonly error = input<string | null>(null);
 
   readonly retomar = output<AndenValeEnCurso>();
+
+  private readonly hoy = hoyMexico();
+
+  /**
+   * `[WMS-REC.18]` Desde cuándo está abierto. Un incompleto de hace días es el que hay que ver
+   * primero: el camión ya se fue y la mercancía sigue sin caducidad.
+   */
+  desde(createdAt: string): string {
+    const d = diasDesde(createdAt, this.hoy);
+    if (d === null || d <= 0) return 'abierto hoy';
+    if (d === 1) return 'abierto ayer';
+    return `abierto hace ${d} días`;
+  }
 }

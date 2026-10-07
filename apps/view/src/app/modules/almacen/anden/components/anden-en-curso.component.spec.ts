@@ -101,7 +101,7 @@ describe('AndenEnCursoComponent', () => {
     fixture.componentRef.setInput('vales', []);
     fixture.componentRef.setInput('error', 'Tu sesión expiró.');
     fixture.detectChanges();
-    expect(el().textContent).toContain('No se pudieron leer los vales en curso');
+    expect(el().textContent).toContain('No se pudieron leer los vales incompletos');
     expect(el().textContent).toContain('Tu sesión expiró.');
   });
 });

@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { AndenValesComponent } from './anden-vales.component';
 import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service';
+import { hoyMexico } from '../dia-mx';
 
 /**
  * `[WMS-REC.17]` — **los vales de una sucursal: compras de hoy y traspasos en camino.**
@@ -11,7 +12,7 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
  */
 const PH: ErpPendingBranch = {
   sucursal: '01', warehouse_id: 'wh-01', warehouse_code: '01', warehouse_name: 'Padre Hidalgo',
-  pendientes: 2, compras: 1, traspasos: 1, ultimo: '2026-10-06', sin_almacen: false,
+  pendientes: 2, compras: 1, anteriores: 0, traspasos: 1, ultimo: '2026-10-06', sin_almacen: false,
 };
 
 const embarque = (extra: Partial<ErpOrderMatch> = {}): ErpOrderMatch => ({
@@ -25,8 +26,10 @@ const embarque = (extra: Partial<ErpOrderMatch> = {}): ErpOrderMatch => ({
   ...extra,
 });
 
+/** `[WMS-REC.18]` La compra de ejemplo es de HOY: lo atrasado tiene su propio grupo (abajo). */
+const HOY = hoyMexico();
 const compra: ErpOrderMatch = {
-  sucursal: '01', folio: '0000412', receipt_date: '2026-10-06',
+  sucursal: '01', folio: '0000412', receipt_date: HOY,
   proveedor_code: 'CD015', proveedor_nombre: 'DE LA ROSA', monto: 5000,
   warehouse_id: 'wh-01', warehouse_code: '01', warehouse_name: 'Padre Hidalgo',
   line_count: 12, service_count: 0,
@@ -57,7 +60,7 @@ describe('AndenValesComponent', () => {
     expect(rows[1].classList.contains('va-row-tr')).toBe(false);
     const cabs = Array.from(el().querySelectorAll('.va-cab')).map((c) => c.textContent || '');
     expect(cabs[0]).toContain('Traspasos');
-    expect(cabs[1]).toContain('Compras');
+    expect(cabs[1]).toContain('Compras de hoy');
   });
 
   it('dice de dónde viene y cuándo salió', () => {
@@ -93,7 +96,36 @@ describe('AndenValesComponent', () => {
     fixture.componentRef.setInput('vales', [compra]);
     fixture.detectChanges();
     expect(el().querySelectorAll('.va-row-tr').length).toBe(0);
-    expect(el().querySelector('.va-cab')?.textContent).toContain('Elegí el vale');
+    expect(el().querySelector('.va-cab')?.textContent).toContain('De hoy');
+  });
+
+  /**
+   * `[WMS-REC.18]` "Si ayer llegaron 8 y sólo hizo 6, al día siguiente siguen esos 2": lo atrasado
+   * aparece APARTE y abajo de lo de hoy, con cuánto lleva esperando.
+   */
+  it('lo de días anteriores va aparte, abajo de hoy, y dice cuánto lleva esperando', () => {
+    const ayer = { ...compra, folio: '0000398', receipt_date: diaAntes(1) };
+    const hace3 = { ...compra, folio: '0000377', receipt_date: diaAntes(3) };
+    fixture.componentRef.setInput('vales', [ayer, compra, hace3]);
+    fixture.detectChanges();
+    const cmp = fixture.componentInstance;
+    expect(cmp.comprasHoy().map((v) => v.folio)).toEqual(['0000412']);
+    expect(cmp.comprasAntes().map((v) => v.folio)).toEqual(['0000398', '0000377']);
+    const cabs = Array.from(el().querySelectorAll('.va-cab')).map((c) => c.textContent || '');
+    expect(cabs[0]).toContain('De hoy');
+    expect(cabs[1]).toContain('De días anteriores');
+    const rows = filas();
+    expect(rows[0].textContent).toContain('0000412');
+    expect(rows[1].textContent).toContain('de ayer');
+    expect(rows[2].textContent).toContain('de hace 3 días');
+    expect(rows[1].classList.contains('va-row-antes')).toBe(true);
+  });
+
+  it('prueba negativa: un documento fechado a FUTURO no se mete con los atrasados', () => {
+    const manana = { ...compra, folio: '0000500', receipt_date: diaAntes(-1) };
+    fixture.componentRef.setInput('vales', [manana]);
+    fixture.detectChanges();
+    expect(fixture.componentInstance.comprasAntes()).toEqual([]);
   });
 
   it('una respuesta vieja (sin `fuente`) se lee como orden de entrada, no como traspaso', () => {
@@ -105,3 +137,10 @@ describe('AndenValesComponent', () => {
     expect(fixture.componentInstance.traspasos()).toHaveLength(0);
   });
 });
+
+/** La fecha de hace `n` días en México (`-1` = mañana). */
+function diaAntes(n: number): string {
+  const [y, m, d] = HOY.split('-').map(Number);
+  const f = new Date(Date.UTC(y, m - 1, d - n));
+  return f.toISOString().slice(0, 10);
+}

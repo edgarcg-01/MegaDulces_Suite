@@ -2,6 +2,8 @@ import { ChangeDetectionStrategy, Component, computed, input, output } from '@an
 import { CurrencyPipe, DecimalPipe } from '@angular/common';
 import { ButtonModule } from 'primeng/button';
 import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service';
+import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
+import { diasDesde, esAnterior, hoyMexico } from '../dia-mx';
 
 /**
  * Andén · **paso 1 — cuál de los vales de hoy.**
@@ -76,18 +78,39 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
           </ul>
         }
 
-        @if (compras().length) {
+        @if (comprasHoy().length) {
           <div class="va-cab">
-            <span>{{ traspasos().length ? 'Compras' : 'Elegí el vale' }}</span>
-            <span>sólo la fecha de hoy</span>
+            <span>{{ traspasos().length ? 'Compras de hoy' : 'De hoy' }}</span>
+            <span>con fecha de hoy en Kepler</span>
           </div>
           <ul class="va-lista">
-            @for (v of compras(); track v.sucursal + '/' + v.folio) {
+            @for (v of comprasHoy(); track v.sucursal + '/' + v.folio) {
               <li>
                 <button type="button" class="va-row" [disabled]="abriendo()" (click)="abrir.emit(v)">
                   <span class="va-folio">{{ v.folio }}</span>
                   <span class="va-monto">{{ v.monto | currency: 'MXN' : 'symbol-narrow' : '1.2-2' }}</span>
                   <span class="va-prov">{{ v.proveedor_nombre || v.proveedor_code || 'Sin proveedor' }}</span>
+                  <span class="va-reng">{{ v.line_count | number }} {{ v.line_count === 1 ? 'renglón' : 'renglones' }}</span>
+                </button>
+              </li>
+            }
+          </ul>
+        }
+
+        <!-- [WMS-REC.18] Lo que llegó otro día y nadie recibió. Aparte y abajo: lo de hoy
+             sigue primero, pero lo atrasado ya no desaparece al cambiar el día. -->
+        @if (comprasAntes().length) {
+          <div class="va-cab va-cab-antes">
+            <span>De días anteriores</span>
+            <span>siguen sin recibir · hasta {{ diasAtras }} días</span>
+          </div>
+          <ul class="va-lista">
+            @for (v of comprasAntes(); track v.sucursal + '/' + v.folio) {
+              <li>
+                <button type="button" class="va-row va-row-antes" [disabled]="abriendo()" (click)="abrir.emit(v)">
+                  <span class="va-folio">{{ v.folio }}</span>
+                  <span class="va-monto">{{ v.monto | currency: 'MXN' : 'symbol-narrow' : '1.2-2' }}</span>
+                  <span class="va-prov">{{ v.proveedor_nombre || v.proveedor_code || 'Sin proveedor' }} · {{ antiguedad(v) }}</span>
                   <span class="va-reng">{{ v.line_count | number }} {{ v.line_count === 1 ? 'renglón' : 'renglones' }}</span>
                 </button>
               </li>
@@ -158,6 +181,8 @@ import { ErpOrderMatch, ErpPendingBranch } from '../../receiving-session.service
     .va-cero { display: flex; flex-direction: column; align-items: center; gap: var(--sp-2);
       text-align: center; padding: var(--sp-6) var(--sp-3); }
     .va-cero h3 { margin: 0; font-size: var(--fs-h3); font-weight: var(--fw-bold); }
+    .va-cab-antes span:first-child { color: var(--warn-fg); }
+    .va-row-antes { border-left: 3px solid var(--warn-fg); }
     .va-cero p { margin: 0 0 var(--sp-2); max-width: 32ch; font-size: var(--fs-sm); color: var(--text-muted); }
   `],
 })
@@ -174,8 +199,22 @@ export class AndenValesComponent {
 
   /** Embarques de traspaso (`fuente = 'embarque'`): van primero y con su propia regla de día. */
   readonly traspasos = computed(() => this.vales().filter((v) => v.fuente === 'embarque'));
-  /** Órdenes de entrada de hoy. Sin `fuente` = orden de entrada (lo que existía antes). */
+  /** Órdenes de entrada (sin `fuente` = orden de entrada, lo que existía antes). */
   readonly compras = computed(() => this.vales().filter((v) => v.fuente !== 'embarque'));
+  /** `[WMS-REC.18]` Hoy en México como `YYYY-MM-DD` (el mismo día con que filtra el servidor). */
+  readonly hoyIso = hoyMexico();
+  /** Las de hoy van primero; las atrasadas, en su grupo. */
+  readonly comprasHoy = computed(() => this.compras().filter((v) => !esAnterior(v.receipt_date, this.hoyIso)));
+  readonly comprasAntes = computed(() => this.compras().filter((v) => esAnterior(v.receipt_date, this.hoyIso)));
+  readonly diasAtras = DIAS_PENDIENTES_ANDEN;
+
+  /** "de ayer", "de hace 3 días": cuánto lleva esperando. */
+  antiguedad(v: ErpOrderMatch): string {
+    const d = diasDesde(v.receipt_date, this.hoyIso);
+    if (d === null) return 'sin fecha';
+    if (d <= 1) return 'de ayer';
+    return `de hace ${d} días`;
+  }
 
   /**
    * Cómo va el traspaso, en palabras de andén. Que Kepler ya tenga la recepción NO quiere
