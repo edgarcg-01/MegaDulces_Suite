@@ -73,6 +73,7 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // GESTIONAR sin VER no aterriza en ningún lado).
   { perm: Permission.RECONCILIATION_GESTIONAR, url: '/finanzas/cuadre', motivo: 'manage sin view' },
   { perm: Permission.COMMERCIAL_MOVEMENTS_GESTIONAR, url: '/almacen/movimientos', motivo: 'manage sin view' },
+  { perm: Permission.COMMERCIAL_PICKING_GESTIONAR, url: '/almacen/surtido', motivo: 'manage sin view: la ruta exige PICKING_VER. Medido contra prod el 2026-10-06: CERO roles tienen GESTIONAR sin VER (la derivacion de [VEC.0], mig 20261006120000, deja VER como superset), asi que hoy no rebota a nadie' },
   // compras
   { perm: Permission.EXISTENCIA_GESTIONAR, url: '/compras/existencia', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_PEDIDO_GESTIONAR, url: '/compras/pedido', motivo: 'manage sin view' },

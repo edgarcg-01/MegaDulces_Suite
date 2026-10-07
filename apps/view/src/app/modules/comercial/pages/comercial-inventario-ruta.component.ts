@@ -141,12 +141,20 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               <th class="num" title="La última vez que se le cargó, y cuánto. No se pregunta por «ayer»: el domingo es inhábil y la respuesta sería siempre cero">Última carga</th>
               <th class="num" title="La última vez que vendió, y cuánto">Última venta</th>
               <th class="num" title="Mercancía que ya traía antes de su primer embarque y fue vendiendo. Se declara, no se resta">Traía sin contar</th>
-              <th class="num" title="Diferencia del cuadre: cargado − vendido − lo que trae. Tiene que ser 0">Descuadre</th>
+              <th class="num" title="Mercancía que el camión trae y el documento de embarque no explica. Positivo = trae de más. No es un error de cuenta: es lo que llegó sin papel">Llegó sin embarque</th>
               <th class="num"><span class="ir-sr">Detalle</span></th>
             </tr>
           </ng-template>
           <ng-template #body let-r>
-            <tr [class.ir-fila-mal]="!cierra(r)" [class.ir-fila-parada]="parada(r)">
+            <!--
+              La fila ya NO se pinta de rojo por el descuadre. Con el ancla de RD.34 puesta,
+              saldo = carga + conteo - venta, asi que (carga - venta) - saldo = -conteo y
+              NUNCA da 0 en una ruta anclada. Pintarlo rojo convertia el exito de la fase en
+              una alarma: las 10 camionetas salian en rojo el dia que empezaron a medirse.
+              Ese numero dice cuanto llego sin documento de embarque -- informacion, no falla.
+              Medido el 2026-10-07: 314,738 pesos en la flota.
+            -->
+            <tr [class.ir-fila-parada]="parada(r)">
               <td class="dt-id ir-mono" role="cell"><strong>{{ r.route_no }}</strong></td>
               <td class="ir-tenue" role="cell" data-label="Plaza">{{ r.plaza }}</td>
               <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy"
@@ -183,9 +191,9 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
               -->
               <td class="num ir-mono ir-tenue" role="cell" data-label="Traía sin contar"
                   [title]="'Neto si se restara: ' + (invNeto(r) | currency:'MXN':'symbol-narrow':'1.2-2')">{{ invNeg(r) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-              <td class="num ir-mono" role="cell" data-label="Descuadre">
+              <td class="num ir-mono" role="cell" data-label="Llegó sin embarque">
                 @if (cierra(r)) { <span class="ir-tenue">0</span> }
-                @else { <strong class="ir-bad">{{ delta(r) | number:'1.2-2' }}</strong> }
+                @else { <strong>{{ sinEmbarque(r) | number:'1.2-2' }}</strong> }
               </td>
               <td class="num" role="cell" data-label="">
                 <p-button icon="pi pi-list" severity="secondary" [text]="true" size="small"
@@ -809,6 +817,25 @@ export class ComercialInventarioRutaComponent {
   cierra = (r: RouteInventoryRow) => Math.abs(Number(this.delta(r)) || 0) < 0.01;
 
   /**
+   * ⭐ **Lo que llegó al camión sin documento de embarque.**
+   *
+   * El backend publica `delta = (carga − venta) − saldo`, y desde `[RD.34]` el saldo lleva el
+   * ancla de la foto: `saldo = carga + conteo − venta`. Haciendo la cuenta, `delta = −conteo`.
+   *
+   * O sea que ese número **no es un descuadre contable** —la igualdad con el ancla es cierta por
+   * construcción— sino la mercancía que el camión declara tener y que el embarque no explica.
+   * Se invierte el signo para que se lea natural: **positivo = trae de más**.
+   *
+   * Medido el 2026-10-07, flota completa: **$314,738**. Las dos pruebas de que es real y no un
+   * artefacto: el saldo acumulado `carga − venta` se vuelve negativo en 10 de 11 rutas (un camión
+   * no puede vender lo que nunca recibió), y la sucursal sólo tiene 2 a 6 recepciones `U-A-50` en
+   * toda la vida de cada ruta.
+   *
+   * ⚠️ La ruta 504 sale al revés (trae de MENOS): es la que no registra venta desde el 1-oct.
+   */
+  sinEmbarque = (r: RouteInventoryRow) => -(Number(this.delta(r)) || 0);
+
+  /**
    * Días desde el último movimiento. `null` si no hay dato del día.
    * ⚠️ Es la columna que delata a una ruta parada: medido, la 505 lleva 22 días sin cargar ni
    * vender y hasta ahora se veía igual que las diez vivas.
@@ -886,6 +913,8 @@ export class ComercialInventarioRutaComponent {
   readonly totalInv = computed(() => this.suma((r) => this.inv(r)));
   readonly totalPos = computed(() => this.suma((r) => this.invPos(r)));
   readonly totalNeg = computed(() => this.suma((r) => this.invNeg(r)));
+  /** Lo que la flota entera trae y el embarque no explica. Ver `sinEmbarque()`. */
+  readonly totalSinEmbarque = computed(() => this.suma((r) => this.sinEmbarque(r)));
   readonly totalCogsErp = computed(() => this.suma((r) => Number(r.cogs_erp) || 0));
   /** El COGS que SÍ se publica: valuado al costo del embarque, cobertura 100% de las cargas. */
   /** Camiones que pasan su tope, y por cuánto. Es la pregunta del negocio, no un adorno. */
@@ -937,13 +966,11 @@ export class ComercialInventarioRutaComponent {
    */
   readonly veredicto = computed<{ tono: string; icono: string; titulo: string; cuerpo: string }>(() => {
     const d = this.data();
-    if (d?.cuadra === 'no_cierra') {
-      return {
-        tono: 'mal', icono: 'pi-times-circle', titulo: 'La cuenta no cierra: no te fíes de estas cifras.',
-        cuerpo: 'Alguna fila se valuó con dos varas distintas: el resto de la pantalla no se '
-          + 'puede usar hasta resolverlo. Mirá la columna Δ.',
-      };
-    }
+    // ⛔ Se retiró el veredicto "la cuenta no cierra". Desde `[RD.34]` el saldo de una ruta
+    // anclada ES lo que su camión declara, así que `(carga − venta) − saldo` no puede dar 0 y
+    // ese aviso salía SIEMPRE, diciendo "no te fíes de estas cifras" justo cuando las cifras
+    // pasaron a ser medidas en vez de reconstruidas. Lo que esa diferencia mide ahora vive en
+    // la columna "Llegó sin embarque", que es información y no una falla.
     const pct = this.pctDeLoCargado();
     if (d?.cuadra === 'sin_medir' || pct === null) {
       return {
@@ -954,7 +981,13 @@ export class ComercialInventarioRutaComponent {
     }
     const dias = this.diasDeVenta();
     const cola = dias === null ? '' : ` — unos ${Math.round(dias)} días de venta`;
-    const cierre = '. La cuenta cierra al centavo contra lo cargado y lo vendido.';
+    // ⛔ Antes decía "la cuenta cierra al centavo contra lo cargado y lo vendido". Con el ancla
+    // de [RD.34] eso dejó de ser cierto y pasó a ser lo contrario de lo interesante: lo que el
+    // camión trae es lo que él mismo mide, y lo que NO cuadra contra el embarque es el dato.
+    const sinEmb = Math.abs(this.totalSinEmbarque());
+    const cierre = sinEmb > 0
+      ? `. De eso, ${this.money(sinEmb)} llegó sin documento de embarque.`
+      : '.';
     const p = `${Math.abs(pct).toFixed(1)} %`;
     const previa = Math.abs(this.totalNeg());
     // Lo que el camion ya traia, dicho SIEMPRE: es la cifra que antes se restaba en silencio.
@@ -1027,13 +1060,16 @@ export class ComercialInventarioRutaComponent {
       { label: 'Traían sin contar', value: this.totalNeg(), format: 'currency2', tone: 'default',
         sub: 'vendido de antes del primer embarque — no se resta' },
       {
-        label: 'La cuenta',
-        value: d?.cuadra === 'no_cierra' ? 'NO cierra' : d?.cuadra === 'cierra' ? 'Cierra' : 'Sin medir',
-        format: 'text',
-        tone: d?.cuadra === 'no_cierra' ? 'bad' : d?.cuadra === 'cierra' ? 'ok' : 'default',
+        // El mosaico ya no anuncia si "la cuenta cierra": con el ancla puesta esa igualdad es
+        // cierta por construcción y publicarla sería teatro. Lo que sí vale decir es cuánta
+        // mercancía llegó sin documento de embarque.
+        label: 'Llegó sin embarque',
+        value: this.totalSinEmbarque(),
+        format: 'currency2',
+        tone: 'default',
         sub: d?.cuadra === 'sin_medir'
-          ? 'ninguna ruta se movió: no hay qué cuadrar'
-          : 'lo cargado − lo vendido = lo que traen + lo que traían',
+          ? 'ninguna ruta se movió: no hay qué medir'
+          : 'lo que traen y el embarque no explica',
       },
     ];
   });

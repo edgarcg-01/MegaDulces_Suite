@@ -1,0 +1,45 @@
+[RD.32] PARCHE DE EXISTENCIA — UNA SOLA LINEA
+==============================================
+
+Por que una sola linea: la consola de las camionetas recibe el pegado LINEA POR
+LINEA, asi que cualquier bloque multilinea (if/else, foreach, arreglos abiertos)
+se parte y falla. Medido en la ruta_22 el 2026-10-06: el `else {` quedo huerfano
+y el script "corrio" sin tocar nada. Una linea no se puede partir.
+
+Se copia TODO el bloque de abajo (es una sola linea, aunque se vea envuelta) y se
+pega en PowerShell dentro de la camioneta. Es idempotente: correrlo dos veces
+dice YA PARCHADO.
+
+--- COPIAR DESDE AQUI ---------------------------------------------------------
+
+$p='C:\KeplerPush\push-ruta.cmd'; $e=[Text.Encoding]::Default; $t=[IO.File]::ReadAllText($p,$e); if($t -match 'route_stock_stg'){'YA PARCHADO'}elseif($t -notmatch '(?m)^echo \[%date% %time%\] OK %TRUCK%'){'ERROR: no encuentro donde insertar -- parar y avisar'}else{[IO.File]::Copy($p,$p+'.bak',$true); $b=(@('','REM [RD.32] LA EXISTENCIA DEL CAMION. kdii.c1=sku c2=desc c11=unidad | kdik.c2=sku c5=exist c16=costo','%PSQL% "%DST%" -c "delete from ingest.route_stock_stg where truck=''%TRUCK%''" >> "%LOG%" 2>&1','','%PSQL% "%SRC%" -c "\copy (select ''%TRUCK%'',btrim(k.c2),btrim(i.c2),btrim(i.c11),k.c5::numeric,k.c16::numeric,(k.c5*k.c16)::numeric from md.kdik k join md.kdii i on btrim(i.c1)=btrim(k.c2) where k.c5 > 0) to stdout csv" | %PSQL% "%DST%" -c "\copy ingest.route_stock_stg (truck,sku,producto,unidad,existencia,costo,importe) from stdin csv" >> "%LOG%" 2>&1','','echo [%date% %time%] merge existencia -^> filas: >> "%LOG%"','%PSQL% "%DST%" -c "select ingest.merge_route_stock(''%TRUCK%'')" >> "%LOG%" 2>&1','') -join "`r`n"); [IO.File]::WriteAllText($p,($t -replace '(?m)^(echo \[%date% %time%\] OK %TRUCK%)',($b+'$1')),$e); if([IO.File]::ReadAllText($p,$e) -match 'route_stock_stg'){'PARCHADO OK'}else{[IO.File]::Copy($p+'.bak',$p,$true);'FALLO: se restauro el respaldo'}}
+
+--- HASTA AQUI ----------------------------------------------------------------
+
+
+DESPUES, estas tres, tambien de a UNA LINEA:
+
+1) Disparar la tarea (cambiar el 22 por el numero de la camioneta):
+
+schtasks /Run /TN "Ruta22"
+
+2) Ver si corrio el paso nuevo (esperar ~40 s despues de lo anterior):
+
+Get-Content C:\KeplerPush\push_ruta_22.log -Tail 25 | Select-String 'existencia|error|FATAL|OFFLINE'
+
+3) Preguntarle a ESTA laptop cuanto trae: ver ABRIR-PSQL-LOCAL.txt.
+
+   ⛔ NO usar `& $psql "<cadena>" -tAc "..."`: PowerShell 5.1 estropea los
+   argumentos nativos con `=` y espacios. Medido en la ruta_22 el 2026-10-06:
+   psql ignoro el -c y quedo en modo interactivo. La conexion va por variables
+   PG*, que ademas evita que la contrasena pase por la linea de ordenes.
+
+
+SI ALGO FALLA, este diagnostico (una linea, SOLO LEE, no imprime contrasenas):
+
+$p='C:\KeplerPush\push-ruta.cmd'; $t=Get-Content $p -Raw; "parchado=$($t -match 'route_stock_stg') veces=$(([regex]::Matches($t,'route_stock_stg')).Count)"; (Get-Content $p) -match '^\s*set ' -replace '://[^@]*@','://***@' -replace '(?i)(password\s*=\s*)\S+','${1}***'; (Get-ChildItem 'C:\Program Files\PostgreSQL' -Dir -ea 0 | %{ "$($_.FullName)\bin\psql.exe" } | ?{ Test-Path $_ })
+
+   ⚠️ La mascara cubre las DOS formas de cadena. La primera version solo cubria
+   `://usuario:clave@host` y en esta van —que usa `password=...`— dejo las dos
+   claves a la vista. Ya rotadas o por rotar: la local de Postgres y la del rol
+   `ingest` del runner.

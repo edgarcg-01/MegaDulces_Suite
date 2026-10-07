@@ -12,10 +12,11 @@ import { WincajaController } from './wincaja.controller';
 import { WincajaService } from './wincaja.service';
 import { SelloutChatService } from './sellout-chat.service';
 import { SelloutChatToolsService } from './sellout-chat-tools.service';
+import { SupervisorRoutesService } from './supervisor-routes.service';
 
 @Module({
   controllers: [CommercialAnalyticsController, StoreAnalyticsController, WincajaController],
-  providers: [CommercialAnalyticsService, AnalyticsRefreshService, PeriodCloseCheckService, SellOutExportService, WeeklyAnalyticsService, RoutePromoService, AnthropicService, WincajaService, SelloutChatService, SelloutChatToolsService],
+  providers: [CommercialAnalyticsService, AnalyticsRefreshService, PeriodCloseCheckService, SellOutExportService, WeeklyAnalyticsService, RoutePromoService, AnthropicService, WincajaService, SelloutChatService, SelloutChatToolsService, SupervisorRoutesService],
   exports: [CommercialAnalyticsService, AnalyticsRefreshService, PeriodCloseCheckService],
 })
 export class CommercialAnalyticsModule {}

@@ -41,6 +41,7 @@ export * from './http/identity-me.contract';
 export * from './http/suite-usage.contract';
 // [CDRP.2] Registro de umbrales: la forma y el clasificador de 5 estados del tablero directivo.
 export * from './http/kpi-threshold.contract';
+export * from './http/supervisor.contract';
 // [AU.0] Identidad: la ORGANIZACIÓN (puesto, cadena de mando, responsabilidad, historia).
 // Producer `OrgController` y consumer `/admin/*` importan de acá: un cambio de forma es error de
 // compilación en los dos lados. La pantalla que esto reemplaza declaraba sus 12 tipos adentro.

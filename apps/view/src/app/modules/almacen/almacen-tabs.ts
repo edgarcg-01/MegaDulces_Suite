@@ -181,6 +181,39 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     ],
   },
   {
+    /**
+     * `[VEC.11]` Surtido — preparar lo que sale. Entre Inventario y Andén, que es el orden
+     * real del trabajo: se recibe, se guarda, **se surte**, se embarca.
+     *
+     * ── Por qué está acá y no en Reparto ────────────────────────────────────────────────
+     * La Fase SU (ADR-067) la puso en Reparto con un criterio razonable («el surtido prepara
+     * lo que se reparte»). Medido el 2026-10-06, el criterio no sobrevive al uso: **quien
+     * surte es `almacenista`**, cuyo mundo es Almacén — y no llegaba por NINGÚN camino. No
+     * estaba en el sidebar (hasta `[VEC.7]`), y la tarjeta de Reparto en `/projects` la tapa
+     * un `gate` que exige `REPARTO_DESPACHAR`, que `almacenista` tiene en **false explícito**.
+     *
+     * ⭐ Moverla acá además **arregla ese gate sin tocarlo**: si Surtido ya no es un módulo de
+     * Reparto, exigir `REPARTO_DESPACHAR` para esa tarjeta vuelve a ser cierto.
+     *
+     * Pantalla de FOCO como el Andén: tiene su propia navegación interna por pasos
+     * (Pendientes · Faltantes · Avisos · Recorrido), así que una barra de tabs encima sería
+     * una segunda navegación compitiendo con la que ya tiene.
+     */
+    key: 'surtido',
+    label: 'Surtido',
+    match: ['/almacen/surtido'],
+    tabs: [],
+    focusEntries: [
+      {
+        label: 'Surtido',
+        icon: 'pi pi-list-check',
+        route: '/almacen/surtido',
+        permission: Permission.COMMERCIAL_PICKING_VER,
+        exact: true,
+      },
+    ],
+  },
+  {
     key: 'control',
     label: 'Control',
     // `/almacen/movimientos` NO está acá a propósito: el **Diario de

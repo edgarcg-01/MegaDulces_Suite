@@ -1,0 +1,60 @@
+
+  // ── [CG.46] O.1: master-detail permanente, la captura fuera del modal ───────────────────────
+  //
+  // DESIGN.md O.1 es BINDING para /finanzas/*: split permanente, y el modal queda para
+  // "confirmar/crear CORTO". La captura de caja tiene documento, contraparte, cuenta, concepto,
+  // glosa, monto, la reja de 16 denominaciones y el panel del cajero: 397 lineas de formulario
+  // dentro de un dialogo de 62rem que tapaba la bandeja entera mientras se capturaba.
+  describe('[CG.46] la captura vive en el detalle, no en un modal', () => {
+    it('el panel de detalle es PERMANENTE: existe sin nada elegido, y dice que espera', () => {
+      const fx = montar();
+      const panel = fx.nativeElement.querySelector('.cg-detail');
+      expect(panel, 'el detalle tiene que existir siempre, no aparecer al elegir').toBeTruthy();
+      expect(comp.capturaAbierta()).toBe(false);
+      // Vacio operacional: no "sin datos" a secas -- dice que hacer y ofrece una accion.
+      expect(panel.textContent).toContain('Nada elegido');
+      expect(panel.querySelector('p-button'), 'el vacio lleva su accion').toBeTruthy();
+    });
+
+    it('⛔ la captura NO se pinta dentro de un p-dialog', () => {
+      const fx = montar();
+      comp.capturarDesde(FILA_A);
+      fx.detectChanges();
+
+      const panel = fx.nativeElement.querySelector('.cg-detail');
+      // El formulario esta DENTRO del detalle...
+      expect(panel.querySelector('.fin-form'), 'el formulario va en el panel').toBeTruthy();
+      // ...y Guardar tambien, pegado al pie del panel.
+      expect(panel.querySelector('.cg-detail-pie'), 'el pie va en el panel').toBeTruthy();
+      expect(panel.querySelector('.cg-detail-pie').textContent).toContain('Guardar');
+
+      // ⛔ Y NINGUN dialogo abierto lo contiene. Es la asercion que define O.1: si manana alguien
+      // lo devuelve a un p-dialog, esto cae.
+      for (const d of Array.from(fx.nativeElement.querySelectorAll('p-dialog'))) {
+        expect((d as HTMLElement).querySelector('.fin-form'),
+          'el formulario de captura volvio a un modal').toBeFalsy();
+      }
+    });
+
+    it('✔ [negativa] la apertura de caja SI se queda como modal: es confirmar corto', () => {
+      // O.1 no prohibe el modal: lo reserva. Sin esta prueba, "sacar los dialogos" se leeria
+      // como que hay que sacarlos todos, y el de apertura son tres campos.
+      const fx = montar();
+      comp.abrirApertura();
+      fx.detectChanges();
+      expect(comp.aperturaAbierta()).toBe(true);
+      expect(fx.nativeElement.querySelector('p-dialog'),
+        'la apertura sigue siendo un dialogo').toBeTruthy();
+    });
+
+    it('el formulario del panel se arma en UNA columna por el ancho del PANEL, no de la ventana', () => {
+      // §R: un bloque que se embebe decide su layout con @container. Con @media, en un monitor
+      // ancho las dos columnas se desbordarian del panel de 32rem.
+      const fuente = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
+      const css = (fuente.ɵcmp?.styles ?? []).join('\n');
+      expect(css).toContain('@container');
+      // La regla vieja no puede seguir viva: decidiria por el ancho equivocado.
+      expect(css).not.toMatch(/@media[^{]*47\.5rem/);
+    });
+  });
+});

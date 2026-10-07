@@ -1,0 +1,35 @@
+[RD.32] CORREGIR LOS NOMBRES DE CONEXION — UNA SOLA LINEA
+==========================================================
+
+Para que sirve: el bloque de existencia se inserto usando %SRC% y %DST%, que es
+como se llaman en las PLANTILLAS del repo. La camioneta ruta_22 resulto usar
+OTROS nombres (LOCAL_CONN / RUNNER_CONN) y un formato distinto de cadena
+(palabras clave `host=... user=...`, no URI). Resultado medido el 2026-10-06:
+
+    psql: precaucion: se ignoro argumento extra «delete from ingest...»
+
+o sea, psql recibia una cadena VACIA. El parche estaba puesto y no hacia nada.
+
+Esta linea NO teclea los nombres: los DETECTA del propio agente.
+  · la LOCAL  = la linea `set X=` cuyo valor apunta a localhost
+  · el RUNNER = la linea `set X=` que tiene conexion y NO es localhost
+Si no encuentra alguna de las dos, se detiene y lo dice en vez de adivinar.
+
+Es idempotente: si ya quedo con los nombres buenos, lo dice y no toca nada.
+
+--- COPIAR DESDE AQUI (una sola linea) ----------------------------------------
+
+$p='C:\KeplerPush\push-ruta.cmd'; $e=[Text.Encoding]::Default; $t=[IO.File]::ReadAllText($p,$e); $l=([regex]::Match($t,'(?im)^\s*set\s+(\w+)\s*=\s*(?=.*(?:host=|postgresql://)).*localhost.*$')).Groups[1].Value; $r=([regex]::Match($t,'(?im)^\s*set\s+(\w+)\s*=\s*(?=.*(?:host=|postgresql://))(?!.*localhost).*$')).Groups[1].Value; if(-not $l -or -not $r){"NO ENCONTRE LAS CONEXIONES (local=$l runner=$r) -- parar y avisar"}elseif($t -notmatch '%SRC%|%DST%'){"YA USA LOS NOMBRES BUENOS (local=$l runner=$r)"}else{[IO.File]::Copy($p,$p+'.bak2',$true); [IO.File]::WriteAllText($p,($t -replace '%SRC%',"%$l%" -replace '%DST%',"%$r%"),$e); if([IO.File]::ReadAllText($p,$e) -notmatch '%SRC%|%DST%'){"CORREGIDO: SRC-> $l   DST-> $r"}else{[IO.File]::Copy($p+'.bak2',$p,$true);'FALLO: se restauro el respaldo'}}
+
+--- HASTA AQUI ----------------------------------------------------------------
+
+DESPUES: disparar y mirar (una linea cada una, cambiando el 22 si hace falta)
+
+schtasks /Run /TN "Ruta22"
+
+Get-Content C:\KeplerPush\push_ruta_22.log -Tail 15 | Select-String 'existencia|error|FATAL|precauc'
+
+
+Y el total de ESTA laptop, que es con lo que se compara (una linea):
+
+$t=Get-Content C:\KeplerPush\push-ruta.cmd -Raw; $n=([regex]::Match($t,'(?im)^\s*set\s+(\w+)\s*=\s*(?=.*(?:host=|postgresql://)).*localhost.*$')).Groups[1].Value; $s=([regex]::Match($t,"(?im)^\s*set\s+$n\s*=\s*(.+?)\s*$")).Groups[1].Value; $q=([regex]::Match($t,'(?im)^\s*set\s+PSQL\s*=\s*"?(.+?psql\.exe)"?\s*$')).Groups[1].Value; & $q $s -tAc "select count(*)::text || ' productos | ' || to_char(sum(k.c5*k.c16),'FM999,999,990.00') from md.kdik k join md.kdii i on btrim(i.c1)=btrim(k.c2) where k.c5 > 0"

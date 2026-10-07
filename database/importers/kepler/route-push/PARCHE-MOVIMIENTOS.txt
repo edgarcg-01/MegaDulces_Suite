@@ -1,0 +1,42 @@
+# `[RD.35]` EL TERCER TESTIGO — movimientos del camion por tipo de documento
+
+Cierra la brecha foto-vs-reconstruccion ATRIBUYENDOLA a documentos, en vez de
+dejarla declarada. Medido el 2026-10-06 con las 10 camionetas:
+
+    foto                  $505,153.32
+    reconstruccion NETA   $120,651.48
+    Δ                     $384,501.84   -- cierra al centavo, pero algebraicamente
+
+La reconstruccion solo conoce `U-D-41` (embarque) y el ticket. El kardex de la van
+tiene mas: medido en la 27 aparecen `N-A-30` (ajuste de entrada), `X-D-40`
+(devolucion de compra), `U-A-25`, `N-D-5` y `N-D-30`. Con esta tabla, cada peso de
+la brecha queda con un tipo de documento pegado.
+
+REQUISITOS
+  1. La van ya tiene el parche de existencia (PARCHE-DEFINITIVO). Si no, se detiene.
+  2. En el runner ya corrio `runner-moves-setup.sql` (aplicado el 2026-10-06).
+
+⚠️ Se usa `concat()` y NO `||`: dentro de un `.cmd`, el doble pipe es el operador OR
+   de cmd.exe y es terreno minado. Verificado: la linea generada tiene UN solo `|`,
+   el que une los dos psql.
+
+⚠️ Mismo filtro de almacen que la existencia (`regexp_replace(current_database(),...)`)
+   y ventana de 200 dias, que cubre toda la vida del ledger con margen.
+
+--- COPIAR DESDE AQUI (una sola linea) ----------------------------------------
+
+$p='C:\KeplerPush\push-ruta.cmd'; $e=[Text.Encoding]::Default; $t=[IO.File]::ReadAllText($p,$e); $l=([regex]::Match($t,'(?im)^\s*set\s+(\w+)\s*=\s*(?=.*(?:host=|postgresql://)).*localhost.*$')).Groups[1].Value; $r=([regex]::Match($t,'(?im)^\s*set\s+(\w+)\s*=\s*(?=.*(?:host=|postgresql://))(?!.*localhost).*$')).Groups[1].Value; $a=[regex]::Matches($t,'(?im)^echo .*OK .*%TRUCK%.*$'); if($a.Count -eq 0){$a=[regex]::Matches($t,'(?im)^endlocal\s*$')}; if($t -match 'route_moves_stg'){'YA PARCHADO'}elseif($t -notmatch 'route_stock_stg'){'FALTA EL PARCHE DE EXISTENCIA -- correr primero PARCHE-DEFINITIVO'}elseif(-not $l -or -not $r){"NO ENCONTRE LAS CONEXIONES (local=$l runner=$r) -- parar y avisar"}elseif($a.Count -eq 0){'NO ENCONTRE DONDE INSERTAR -- parar y avisar'}else{[IO.File]::Copy($p,$p+'.bak4',$true); $b=(@('', 'REM [RD.35] EL TERCER TESTIGO: movimientos del camion por tipo de documento.', ('%PSQL% -d "%'+$r+'%" -c "delete from ingest.route_moves_stg where truck=''%TRUCK%''" >> "%LOG%" 2>&1'), '', ('%PSQL% -d "%'+$l+'%" -c "\copy (select ''%TRUCK%'',btrim(j.c3),btrim(i.c11),concat(btrim(j.c4),''-'',btrim(j.c5),''-'',j.c6),sum(case when j.c5=''A'' then j.c11 else 0 end),sum(case when j.c5=''D'' then j.c11 else 0 end),count(*),min(j.c10)::date,max(j.c10)::date from md.kdij j join md.kdii i on btrim(i.c1)=btrim(j.c3) where btrim(j.c1) = regexp_replace(current_database(),''^md_'','''') and j.c10 >= current_date - 200 group by 1,2,3,4) to stdout csv" | %PSQL% -d "%'+$r+'%" -c "\copy ingest.route_moves_stg (truck,sku,unidad,doctype,entradas,salidas,docs,primera,ultima) from stdin csv" >> "%LOG%" 2>&1'), '', 'echo [%date% %time%] merge movimientos -^> filas: >> "%LOG%"', ('%PSQL% -d "%'+$r+'%" -c "select ingest.merge_route_moves(''%TRUCK%'')" >> "%LOG%" 2>&1'), '') -join "`r`n"); $i=$a[$a.Count-1].Index; [IO.File]::WriteAllText($p,($t.Substring(0,$i)+$b+$t.Substring($i)),$e); $v=[IO.File]::ReadAllText($p,$e); if(($v -match 'md\.kdij j') -and ($v -match 'merge_route_moves') -and ($v -match 'merge_route_stock') -and ($v -match 'merge_route_sales') -and (([regex]::Matches($v,'route_moves_stg')).Count -eq 2) -and (([regex]::Matches($v,'route_stock_stg')).Count -eq 2) -and ($v -notmatch '(?m)^\s*\w+_CONN\s*$') -and (([regex]::Matches($v,'(?m)^%PSQL% -d "%\w+%" -c ')).Count -ge 6)){"MOVIMIENTOS OK  (local=$l runner=$r)"}else{[IO.File]::Copy($p+'.bak4',$p,$true);'FALLO: se restauro el respaldo'}}
+
+--- HASTA AQUI ----------------------------------------------------------------
+
+DESPUES (cambiar el numero de la camioneta):
+
+schtasks /End /TN "Ruta27" 2>$null; Start-Sleep 3; schtasks /Run /TN "Ruta27"; Start-Sleep 90; Get-Content C:\KeplerPush\push_ruta_27.log -Tail 12
+
+Tiene que aparecer `merge movimientos` con un numero de filas, ademas de los dos
+que ya estaban (`merge_route_sales` y `merge_route_stock`).
+
+PROBADO el 2026-10-06: aplica, es idempotente (2a corrida dice YA PARCHADO), agrega
+8 lineas, deja un `.bak4`, y el .cmd queda con 6 lineas `%PSQL% -d` completas y las
+tres funciones de merge. El SQL se valido contra la replica de PH (15,930 renglones,
+11 tipos de documento).

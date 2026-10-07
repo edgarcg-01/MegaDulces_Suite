@@ -511,8 +511,14 @@ y la fila marcada por `vende_bajo_costo` en vez de por `estandar_bajo`.
 (+$317,835) · `estandar_alto` 2,441 (−$161,769) · `sin_operacion` 47,679 · `sin_estandar` 435 ·
 `sin_testigo` 409 · `no_comparable` 113 · `testigo_inverosimil` 88.
 
-**Falta:** redeploy api + view, re-login y validación visual. Mockup aprobado en
-`https://claude.ai/artifact/3uv1LMqq6AEtHxuEfN2Dea`.
+**Falta:** redeploy api + view, re-login y validación visual.
+
+⚠️ El mockup aprobado vivía en `https://claude.ai/artifact/3uv1LMqq6AEtHxuEfN2Dea` y el
+**enlace ya no resuelve** (2026-09-30): el artefacto se borró o nunca se compartió con la
+cuenta. No bloquea nada —lo que especificaba está construido y en prod— pero la referencia
+visual del rediseño **se perdió**, así que la validación visual se hace contra lo escrito en
+§11 y §12, no contra el mockup. *Un acuerdo de diseño que sólo vive en un enlace externo no
+es parte del repo.*
 
 ---
 

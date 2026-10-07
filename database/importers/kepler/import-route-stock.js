@@ -118,7 +118,10 @@ const money = (v) => '$' + Math.round(Number(v || 0)).toLocaleString('en-US');
 
       await dst.query('BEGIN');
       try {
-        await dst.query(`SET LOCAL app.tenant_id = $1`, [M]);
+        // ⛔ `SET LOCAL x = $1` NO existe: SET no acepta parametros y Postgres responde
+        // "syntax error at or near $1". La forma parametrizable es set_config(), con el
+        // tercer argumento en true para que valga solo dentro de esta transaccion.
+        await dst.query(`SELECT set_config('app.tenant_id', $1, true)`, [M]);
         const { rows: [cab] } = await dst.query(
           `INSERT INTO commercial.route_counts
              (tenant_id, warehouse_id, count_date, status, source, declared_total, note, counted_by_username)

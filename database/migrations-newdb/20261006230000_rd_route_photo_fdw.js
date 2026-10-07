@@ -131,6 +131,48 @@ exports.up = async function up(knex) {
   await knex.raw(`COMMENT ON VIEW ${FOTO} IS
     'La existencia que cada camioneta declara de si misma, leida por FDW del runner. [RD.34] Reemplaza a import-route-stock.js: no se copia, se deriva. "aceptada" es el piso de empalme que impidio que la ruta 27 anclara en 596 millones.'`);
   await knex.raw(`GRANT SELECT ON ${FOTO} TO app_runtime`);
+  await knex.raw(`GRANT SELECT ON ${FOTO} TO dev_ro`);
+
+  // ── El COSTO: manda la foto ───────────────────────────────────────────────────────────────
+  //
+  // `v_rd_route_unit_value` elegia el costo con
+  //     COALESCE(carga_imp/carga_qty, conteo, kepler)
+  // o sea que valuaba la existencia de HOY con el promedio ponderado de TODO lo embarcado en la
+  // vida de la ruta. Medido el 2026-10-06 contra el reporte que Kepler emite para la ruta 21:
+  // de 231 pares en comun, 223 tienen el costo de la foto IDENTICO al de Kepler (96.5 %, y 3 de
+  // los 8 restantes son solo el redondeo a 2 decimales del Excel -> 97.8 %).
+  //
+  // ⇒ El costo del camion ES el de Kepler. Pasa a mandar.
+  //
+  // Esto cambia la valuacion publicada de todas las rutas: la ruta 502 difiere 2.17 %
+  // ($48,440 que declara el camion contra $47,387 que publicaba el promedio de carga).
+  //
+  // ⚠️ Se opera por CIRUGIA sobre la definicion VIVA, no incrustando la de hoy: el repo lo tocan
+  //    varias sesiones y reescribir la vista entera revertiria en silencio un cambio ajeno.
+  //    Cada fragmento tiene que aparecer EXACTAMENTE una vez o la migracion se detiene.
+  const { rows: [vd] } = await knex.raw(
+    `SELECT pg_get_viewdef('analytics.v_rd_route_unit_value'::regclass, true) AS def`);
+  let nueva = vd.def;
+  const PARCHES = [
+    ['COALESCE(b.carga_imp / NULLIF(b.carga_qty, 0::numeric), b.conteo_imp / NULLIF(b.conteo_qty, 0::numeric), f.costo) AS costo_u',
+      'COALESCE(p.costo_unitario, b.carga_imp / NULLIF(b.carga_qty, 0::numeric), b.conteo_imp / NULLIF(b.conteo_qty, 0::numeric), f.costo) AS costo_u'],
+    ["WHEN (b.carga_imp / NULLIF(b.carga_qty, 0::numeric)) IS NOT NULL THEN 'ruta'::text",
+      "WHEN p.costo_unitario IS NOT NULL THEN 'foto'::text\n            WHEN (b.carga_imp / NULLIF(b.carga_qty, 0::numeric)) IS NOT NULL THEN 'ruta'::text"],
+    ['LEFT JOIN f ON f.sucursal = b.suc_emisor AND f.sku = b.sku AND f.unidad = b.unidad;',
+      `LEFT JOIN f ON f.sucursal = b.suc_emisor AND f.sku = b.sku AND f.unidad = b.unidad\n     LEFT JOIN ${FOTO} p ON p.tenant_id = b.tenant_id AND p.route_no = b.route_no\n       AND p.sku = b.sku AND p.unidad = b.unidad AND p.aceptada;`],
+  ];
+  for (const [viejo, nuevoTxt] of PARCHES) {
+    const veces = nueva.split(viejo).length - 1;
+    if (veces !== 1) {
+      throw new Error(`[RD.34] el fragmento aparece ${veces} veces (esperaba 1) en v_rd_route_unit_value: ${viejo.slice(0, 70)}`);
+    }
+    nueva = nueva.replace(viejo, nuevoTxt);
+  }
+  await knex.raw(`CREATE OR REPLACE VIEW analytics.v_rd_route_unit_value AS ${nueva.replace(/;\s*$/, '')}`);
+  // ⚠️ `security_invoker` y los GRANT NO sobreviven a un CREATE OR REPLACE. Se reponen.
+  await knex.raw(`ALTER VIEW analytics.v_rd_route_unit_value SET (security_invoker = true)`);
+  await knex.raw(`GRANT SELECT ON analytics.v_rd_route_unit_value TO app_runtime`);
+  await knex.raw(`GRANT SELECT ON analytics.v_rd_route_unit_value TO dev_ro`);
 
   // ── El ledger: el ancla sale de la foto, o de un conteo humano si es mas nuevo ────────────
   await knex.raw(`
@@ -321,9 +363,11 @@ exports.up = async function up(knex) {
       console.log(`  . [RD.34] ruta ${a.route_no}: ${a.mov_post} renglones posteriores a la foto -> cuadre exacto NO MEDIDO (publicado=${a.publicado})`);
       continue;
     }
+    // Con el costo de la foto mandando, esto tiene que dar CASI exacto: lo que sobra es el
+    // redondeo de costo_unitario por par. 0.5 % es holgado; si no entra, algo mas cambio.
     const dif = Math.abs(a.publicado - a.declarado);
-    if (dif > Math.max(1, Math.abs(a.declarado) * 0.01)) {
-      throw new Error(`[RD.34] ruta ${a.route_no}: el ancla NO ancla. declarado=${a.declarado} publicado=${a.publicado}`);
+    if (dif > Math.max(1, Math.abs(a.declarado) * 0.005)) {
+      throw new Error(`[RD.34] ruta ${a.route_no}: el ancla NO ancla. declarado=${a.declarado} publicado=${a.publicado} dif=${dif.toFixed(2)}`);
     }
     if (Number(a.negativos) > 0) {
       throw new Error(`[RD.34] ruta ${a.route_no}: ${a.negativos} pares en negativo sin movimiento posterior a la foto`);
