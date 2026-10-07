@@ -802,7 +802,7 @@ function deRutaDinero(data: { [k: string]: unknown } | undefined): boolean { ret
     <!-- [RE.35.7] Captura por lote: el papel con su sello y firma se archiva; la IA identifica su entrada. -->
     <p-dialog [visible]="showCapturaLote()" (visibleChange)="onCapturaLoteVisible($event)" [modal]="true" [draggable]="false"
               [style]="{ width: '72rem', maxWidth: '96vw' }" header="Archivar varias facturas recibidas">
-      <app-compras-captura-lote [entrantes]="archivosLote()" (guardados)="load()" />
+      <app-compras-captura-lote [entrantes]="archivosLote()" (guardados)="load()" (verPorRevisar)="verPorRevisarLote()" />
     </p-dialog>
 
     <p-dialog [visible]="showLote()" (visibleChange)="onLoteVisible($event)" [modal]="true"
@@ -2504,6 +2504,11 @@ export class ComprasEntradasComponent {
   onCapturaLoteVisible(v: boolean): void {
     this.showCapturaLote.set(v);
     if (!v) this.archivosLote.set(null);
+  }
+  /** Del resumen del lote a la bandeja donde quedaron las que no pasaron solas. */
+  verPorRevisarLote(): void {
+    this.onCapturaLoteVisible(false);
+    this.setBandeja('revisar');
   }
 
   /** PDF tal cual; si hay fotos, se juntan en UN PDF (regla: un expediente, un archivo). */

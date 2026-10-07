@@ -10,7 +10,7 @@
 
 ## [Unreleased]
 ### Added — Costo por compra: archivar varias facturas recibidas a la vez, con sello y firma (RE.35.7, 2026-10-06)
-- Botón **Varias** (y soltar 2 o más archivos en la barra): PDF o fotos, **una recepción por archivo**. Como la captura por lote de pagos a proveedores: la IA lee cada papel de 3 en 3, busca su **CFDI en ContPAQi** y la **entrada de Kepler** que cuadra, y la fila viene lista / por confirmar / elegir / sin entrada. Nada se guarda sin «Guardar»; al guardar, cada fila dice si su expediente pasa solo.
+- Botón **Varias** (y soltar 2 o más archivos en la barra): PDF o fotos, **una recepción por archivo**. Como la captura por lote de pagos a proveedores: la IA lee cada papel de 3 en 3, busca su **CFDI en ContPAQi** y la **entrada de Kepler** que cuadra, y la fila viene lista / por confirmar / elegir / sin entrada. Nada se guarda sin «Guardar». Al guardar, lo archivado **sale de la lista** (como en pagos, PC.8) y queda un resumen: cuántas pasan solas, cuántas por revisar y el atajo «Ver por revisar».
 - El OCR ahora lee el **UUID**, el **sello de recibido** y la **firma** de quien recibió (lo que da valor al papel archivado). El expediente suma los checks **Sello de recibido** y **Firma** (regla **R-v2**): si el papel no los trae no pasa solo; las lecturas anteriores quedan «sin medir» y no bloquean.
 - `POST /finance/goods-receipts/identificar` (sólo lectura): de lo leído a su CFDI y a las entradas que cuadran.
 ### Fixed — Costo por compra: el CFDI de ContPAQi que cuadra con Kepler manda sobre el OCR (RE.35.6, 2026-10-06)

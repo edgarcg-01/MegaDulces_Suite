@@ -80,6 +80,9 @@ export interface CapturaLoteGuardada { guardados: number; pasanSolas: number }
         <span><strong>{{ r.guardados }} {{ r.guardados === 1 ? 'archivada' : 'archivadas' }}</strong>
           · <span class="ok">{{ r.pasanSolas }} {{ r.pasanSolas === 1 ? 'pasa sola' : 'pasan solas' }}</span>
           @if (r.guardados - r.pasanSolas) { · <span class="warn">{{ r.guardados - r.pasanSolas }} por revisar</span> }</span>
+        @if (r.guardados - r.pasanSolas) {
+          <button type="button" class="cl-link" (click)="verPorRevisar.emit()">Ver por revisar</button>
+        }
         <button type="button" class="cl-xbtn cl-resumen-x" (click)="resumen.set(null)" aria-label="Cerrar resumen"><i class="pi pi-times" aria-hidden="true"></i></button>
       </div>
     }
@@ -308,6 +311,8 @@ export class ComprasCapturaLoteComponent {
 
   /** Se archivaron facturas: la página recarga su tabla. */
   readonly guardados = output<CapturaLoteGuardada>();
+  /** «Ver por revisar» del resumen: la página abre esa bandeja. */
+  readonly verPorRevisar = output<void>();
   /** Archivos que llegan de afuera (lo soltado en la barra de costo por compra). Cada arreglo nuevo se agrega una vez. */
   readonly entrantes = input<File[] | null>(null);
 
@@ -524,7 +529,11 @@ export class ComprasCapturaLoteComponent {
       }
     }
     this.guardando.set(false);
+    // Como en pagos ([PC.8]): lo archivado SALE de la lista y queda el resumen. Se quedan sólo las
+    // filas que todavía piden algo (sin confirmar, sin entrada, con error); la pantalla queda limpia
+    // para el siguiente lote. Lo que quedó por revisar vive en la bandeja «Por revisar».
     if (ok) {
+      this.filas.update((l) => l.filter((f) => f.fase !== 'guardado'));
       this.resumen.set({ guardados: ok, pasanSolas: pasan });
       this.guardados.emit({ guardados: ok, pasanSolas: pasan });
     }
