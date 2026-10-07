@@ -650,6 +650,50 @@ Una sola pantalla con los tres: qué toca hoy, qué toca este mes, cuándo fue e
 Kepler, y **qué pasó con lo de ayer**. Reusa la lista de folios de `[IC.13]` (que ya trae avance,
 última actividad y el chip de congelado) con un filtro por `ritmo`.
 
+#### `[IC.22.1]` — El área Conteo, en orden de proceso · 🧪 EN CÓDIGO (2026-10-07)
+
+Primer paso, y **no requiere ninguna pantalla nueva**: la barra del área ya tenía las piezas, pero
+en un orden que no era ninguna secuencia — `Folios · Cíclico (ABC) · Pasillos · Exactitud ·
+Diferencias` mezclaba el trabajo de hoy, la configuración del almacén y el resultado del trimestre.
+
+Cada posición se decidió **mirando qué pregunta contesta la pantalla**, verificada contra su
+componente en `app.routes.ts`, no contra su nombre:
+
+| # | Pantalla | Qué contesta | Por qué ahí |
+|---|---|---|---|
+| 1 | **Programa** (`inventory/abc`) | ¿qué toca contar? | Es la **agenda** — la ruta es «clasificación ABC + agenda», no un reporte. Abre el ciclo |
+| 2 | **Folios** | ¿qué se cuenta y quién? | Abrir, asignar, seguir |
+| — | *(Contar)* | el acto de contar | Vive en `focusEntries`: si fuera tab, al entrar desaparecería la barra |
+| 3 | **Diferencias** | ¿qué salió descuadrado? | El trimestral de Kepler, tercero de los tres ritmos |
+| 4 | **Exactitud (IRA)** | ¿estamos mejorando? | El resultado va después de lo que lo produce |
+| 5 | **Pasillos** | cómo está organizado el almacén | ⛔ **No es un paso del ciclo: es configuración** (editor 2D + mapeo SKU→pasillo) |
+
+⚠️ **`Cíclico (ABC)` pasa a llamarse `Programa`**: la etiqueta vieja nombraba el **método** (Pareto
+ABC) y no la pregunta. **La ruta no cambia** — los deep-links siguen vivos, y el candado lo verifica.
+
+⛔ **El hallazgo que obligó a separar dos conceptos.** `almacenLandingCandidates` lee **el mismo
+array** para decidir dónde aterriza el item del sidebar, o sea que **reordenar la barra mueve el
+punto de entrada de gente real**. Medido contra prod: poner *Programa* primero movía a **5 roles /
+15 personas** (superadmin, compras, gerente_compras, marketing, supervisor) de *Folios* a *Programa*.
+
+Y hoy eso sería **peor que antes**, por una razón que esta misma fase midió: **el reloj de la
+cadencia nunca arrancó** (§2.2 — `last_counted_at` cuelga de `MAX(reconciled_at)` y no hay un solo
+folio reconciliado), así que *Programa* publica el catálogo entero como vencido. Aterrizar a alguien
+en una pantalla que grita «39,480 pendientes» no es un punto de entrada: es ruido con permiso.
+
+**Solución: `AlmacenArea.landing`** — el **orden de lectura** (el proceso) y el **punto de entrada**
+(qué querés ver al llegar) son preguntas distintas, y forzarlas a coincidir degrada una de las dos.
+⭐ **Con condición de retiro escrita:** cuando `[IC.16]` ponga el reloj por ritmo, *Programa* deja de
+mentir y **esa lista se borra** — el aterrizaje vuelve al default y pasa a coincidir con el inicio
+del proceso. El cambio es borrarla, no agregar otra cosa.
+
+**Candado** (`almacen-tabs.spec.ts`, 17 ✓ en total): la aserción que de verdad protege esto no es
+«el orden es el que quiero» sino **«el aterrizaje de NADIE cambió»**, probada contra las **16
+combinaciones** posibles de los 4 permisos —no contra los 11 roles de hoy, para que un rol nuevo no
+pueda romperla en silencio— más un **control de arnés** que exige que los dos órdenes SÍ se
+distingan (si no, esa prueba pasaría por vacía). **Mutado a rojo**: quitando el desvío, **8 de 16
+combinaciones** se mueven y la suite falla. `nx test view` completo: **2,066 ✓ / 0 ✗**.
+
 ---
 
 ## 6. Lo que NO se construye, y por qué
