@@ -4003,6 +4003,19 @@ export interface CommissionLine {
   markup_sobre_costo_pct: number | null;
   margen_sobre_venta_pct: number | null;
   venta_arbitro: string | null; costo_veredicto: string | null; traslape_subtotal: number;
+  /**
+   * `[RD.40]` De dónde salió el subtotal: `erp` o el tramo DERIVADO de la tasa del push. La
+   * pantalla sólo lo nombra cuando NO es `erp` (`comercial-comisiones.component.ts:145`).
+   *
+   * ⚠️ Copiado VERBATIM del DTO del servidor (`commercial-commissions.service.ts:74`). Faltaba
+   * acá y rompía el build de `main` con TS2339: el servidor lo agregó y esta copia no se enteró
+   * —el mismo defecto que `link_to` el 2026-10-06, en otro archivo—. Es ADR-052: mientras
+   * `CommissionLine` esté escrita DOS veces (servidor y front) en vez de vivir en
+   * `libs/contracts`, el compilador no puede avisar hasta que alguien usa el campo nuevo.
+   */
+  subtotal_origen: string | null;
+  /** Hermano de `subtotal_origen`, del mismo DTO. Se declara junto para que no se vuelvan a separar. */
+  costo_status: string | null;
   pct_aplicado: number | null; comision: number; bonos: number;
   bonos_detalle: { nombre: string; monto: number; metrica: string; umbral: number }[];
   bono_veredicto: string | null;
