@@ -4,6 +4,20 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-07 — `[AB.12]` Autoabasto: el reparto del sobrante de red, y un resumen que llevaba 4 semanas muerto
+
+**Disparador:** revisión de `/almacen/autoabasto` antes de construir el pedido del almacenista (§15 de [FASE_AB](FASES/FASE_AB_AUTOABASTO.md)). Con solicitudes reales, el sobrante prometido varias veces se vuelve dos sucursales pidiéndole las mismas cajas al mismo origen.
+
+**Medido en prod (solo lectura):** 1,819 de 4,157 productos con traspaso prometidos de más; 600,838 unidades prometidas contra 445,017 que existen (+35%).
+
+**Hecho:** `networkSurplus()` agrega a la subconsulta de red lo que la red PIDE (`need_total`); `transferIn()` da a cada sucursal `faltante × min(1, sobrante ÷ Σ faltantes)` — el reparto que `transferPlan()` ya usaba (RA-PRO.29.1), no uno nuevo. Proporcional y no por prioridad para no decidir quién va primero; si el negocio lo decide, cambia una función. Se ejecutó el método REAL (bundle con esbuild, conexión de solo lectura, sin levantar el backend): Σ traspaso de la red = 445,017 exacto, 0 renglones con falta ≠ traspaso + compra, base por cadencia válida.
+
+**Encontrado de paso:** `summary()` usaba `costUnit()` (lee `euc.*`) sin joinear `analytics.v_erp_unit_cost` desde [VA.4] (2026-09-11). Cada llamada respondía 500; las dos pantallas que lo leen lo tragaban y dejaban los KPIs vacíos. Verificado: la versión de `origin/main` falla, la nueva responde.
+
+**Tiempos (prod, 2 rondas):** mesa pág. 1 ~5.7–7.7 s (antes 7.4–8.2 s) · red completa 8.6–9.3 s (antes 7.0–8.5 s). La mesa ya era lenta antes del cambio — deuda aparte.
+
+**Lección:** un error de un endpoint secundario tragado en el front (`error: () => this.resumen.set(null)`) escondió un 500 cuatro semanas. Un fallo silenciado se lee igual que un dato vacío.
+
 ---
 ## 2026-10-06 — `[GP.1]` Revisión de PM (Edgar) al PR #271
 
