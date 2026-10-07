@@ -1616,3 +1616,74 @@ La reja del **cambio devuelto** y la del **corte** siguen en una columna (la pri
 por default, la segunda es otra superficie). La tira de KPIs del encabezado, la paginación de la
 bandeja y la de-duplicación de las pistas del panel **tampoco** se portaron. Y falta la
 **validación visual**: nadie vio esto renderizado todavía.
+
+---
+
+## 20. `[CG.54]` Limpieza: el mismo hecho, en un solo lugar (2026-10-07)
+
+**Edgar:** *"¿para qué sirve el checkbox?"* … *"no lo veo funcional, qué función cumple?"* …
+*"limpiemos cosas innecesarias. hay que optimizar la vista. mantener un control y un formato
+adecuado"*.
+
+### ⛔ Primero, lo que la medición dice del acto central de la pantalla
+
+Medido contra prod el 2026-10-07:
+
+| | |
+|---|---|
+| Movimientos confirmados en `finance.cash_ledger`, **en toda la vida del módulo** | **2** |
+| Quién | `superoot`, una sola persona |
+| Cuándo | los dos el **2026-09-28** |
+| Pendientes por confirmar | **12,976** |
+| Cortes de caja hechos | **0** |
+| Reglas de cuenta declaradas | **1** |
+
+La casilla **funciona**; lo que no funciona es el circuito. Tres razones estructurales, ninguna de
+interfaz: **nada río abajo lee el libro** (ni CB, ni Maat, ni contabilidad, ni ContPAQi), **hay 1
+sola regla declarada** así que casi toda la bandeja nace trabada, y desde `[CG.48]` el lote
+**espeja** al ERP campo por campo — lo único que aporta la persona es el «sí». Si nadie lee el
+libro, ese «sí» no compra nada. **Queda declarado: pulir esta pantalla no lo arregla.**
+
+### La limpieza, medida antes de cortar
+
+El importe del documento anclado aparecía **CINCO veces en el mismo panel**: el encabezado, la
+pista «Kepler: …», el pie del crédito, la cabecera del arqueo y el bloque del número. ⚠️ **Tres de
+las cinco las había puesto yo** en `[CG.49]` y `[CG.53]` sin sacar las que ya estaban.
+
+Cinco cortes:
+
+1. **Fuera la pista «Kepler: X-D-26 … · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
+   documento.»** — dos renglones para repetir lo que ya estaba en otros cuatro lugares.
+2. **Fuera «El documento dice $144.00»** de la cabecera del arqueo — lo dice el bloque del número,
+   pegado a la cifra con la que se compara.
+3. **La fórmula del crédito, sólo cuando hay crédito.** Con 0 publicaba *«documento $144 − crédito
+   $0.00 = $144»*: un renglón para una resta de cero.
+4. ⛔ **«Venta a crédito» ya no aparece en un GASTO.** Colgaba de `cobroElegido()` a secas y desde
+   que `[CG.21]` dejó anclar también el egreso, un comprobante de gasto mostraba un campo que ahí
+   **no significa nada** — una venta a crédito es, por definición, parte de un cobro que no llegó
+   en efectivo. El servidor acepta `venta_credito` sin mirar el tipo, así que el freno va en la
+   pantalla.
+5. **La consecuencia del descuadre se mudó al bloque del número.** La pista vieja decía *«contaste
+   1100 vs documento 1060: 40 de diferencia — se registra y queda un hallazgo»* al lado del
+   **selector de documento**, o sea mandaba a buscar el dato al otro extremo del panel. La cifra y
+   el veredicto ya viven juntos; lo único que esa pista agregaba era la consecuencia, y ahora va
+   pegada a la diferencia.
+
+Quedan **dos** menciones del importe, y cada una tiene su oficio: el encabezado dice **cuál**
+documento es, el bloque del número dice contra **cuánto** cuadra.
+
+**Y el rótulo que faltaba:** la columna de marcar llevaba sólo la casilla de «marcar todas»; su
+único texto era un `ariaLabel`. El control más importante de la pantalla **no decía qué hace**
+salvo para un lector de pantalla — que es exactamente por qué se preguntó dos veces para qué sirve.
+Ahora el encabezado dice **«Confirmar»**, y la palabra va dentro del `<label>`, así que el blanco
+del clic deja de ser una casilla de 14 px.
+
+### Verificación
+
+- `nx test view` caja-general: **211/211** (3 pruebas nuevas). `typecheck` de `view`,
+  `check:templates`, `check:tokens` (acotado) y `check:teclado` verdes.
+- **Mutación**: devolver el crédito a cualquier tipo → 1 roja; devolver «El documento dice» → 1
+  roja (el conteo pasa de 2 a 3).
+- ⚠️ **Ninguna prueba estaba protegiendo el texto que se borró** — coherente con que fuera
+  decoración, pero vale decirlo: se fue sin que nada se pusiera rojo.
+- ⚠️⚠️ **Novena vez** que un acento grave en un comentario del `template:` rompe el build acá.
