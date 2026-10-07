@@ -48,9 +48,9 @@ const LOTE = 5000;
 const MIGRACIONES_FASE = [
   '20261007100000_hr_relojes_y_checadas',
   '20261007110000_hr_horarios_y_alertas',
-  '20261007120000_hr_incidencias_y_cierres',
-  '20261007130000_hr_agente_corridas',
-  '20261007140000_hr_ordenes_quien',
+  '20261007300000_hr_incidencias_y_cierres',
+  '20261007310000_hr_agente_corridas',
+  '20261007320000_hr_ordenes_quien',
 ];
 
 const limpio = (v) => String(v ?? '').trim();
