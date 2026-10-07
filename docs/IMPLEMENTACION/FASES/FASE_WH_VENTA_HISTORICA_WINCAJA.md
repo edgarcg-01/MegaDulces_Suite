@@ -417,6 +417,70 @@ hardcodea un regex.** Entregable: `analytics.wincaja_internal_parties` (tenant, 
 nombre, clase) sembrada del catálogo `Clientes` y **revisada por una persona**, con lo no
 clasificado **declarado con su monto** — nunca descartado ni incluido en silencio.
 
+---
+
+#### 📒 EL CATÁLOGO DE CONTRAPARTES (barrido de las 9 sucursales, 2017–2025)
+
+Tres cosas salieron de correrlo, y **dos corrigen lo que yo había escrito**.
+
+**A. ⭐⭐ El CEDIS es 100 % interno. No tiene venta.**
+
+Sus **ocho** contrapartes son todas `ALMACEN *`:
+
+| tercero | nombre | tickets | `ValorVenta` |
+|---|---|---:|---:|
+| 10 | ALMACEN PADRE HIDALGO | 3,568 | $386,268,956 |
+| 30 | ALMACEN MORELIA ABASTOS | 1,295 | $340,440,157 |
+| 50 | ALMACEN ZAMORA CANINDO | 1,047 | $239,678,078 |
+| 40 | ALMACEN 8 ESQUINAS | 1,140 | $62,519,612 |
+| 42 · 32 · 44 · 54 | las otras cuatro | 1,105 | $33,641,389 |
+| | | **8,155** | **$1,062,548,192** |
+
+**$1,062 millones** que, cargados como venta, serían doble conteo **puro** — el CEDIS surte, no
+vende. ⛔ Y explica por qué el `00` aparece con tan pocos tickets (8,165 en 9 años): no es una
+tienda floja, **es un almacén**.
+
+**B. ⛔ Mi patrón por nombre tenía falsos positivos, y son obvios en cuanto se ven.**
+
+`RUTA` casa dentro de **`FRUTA`**: quedaron marcados como internos ~60 clientes reales —
+*FRUTAS Y VERDURAS RIVERA*, *CECY FRUTA*, *SRA FRUTA*, *FRUTA TIANGUIS*, *MARTIN MATA (FRUTA)*…—
+y `ALMACEN` casa dentro de *FUMIGACIONES A GRANOS **ALMACEN**ADOS* y *COMERCIALIZADORA
+**ALMACEN**ES GARCÍA*. Poco dinero (~$340 k en PH), pero marca a clientes de verdad como
+movimiento interno. **El patrón tiene que ir anclado** (`^ALMACEN\b`, `^RUTA\b`, `^SUC\b`,
+`^CEDIS\b`, `^[0-9]+ RUTA\b`).
+
+**C. ⭐⭐ Y el hallazgo que cierra la salvedad de Canindo: el NOMBRE no alcanza — manda el CÓDIGO.**
+
+Canindo daba cero surtido a ruta porque **sus rutas están registradas con el nombre de la
+persona**:
+
+| tercero | nombre en el catálogo | tickets | `ValorVenta` | es |
+|---|---|---:|---:|---|
+| 501 | VICTOR MANUEL ZALAPA BARRIGA | 2,092 | $24,453,433 | **RUTA-501** |
+| 502 | DANIEL PADILLA ROJANO | 1,733 | $22,218,785 | **RUTA-502** |
+| 503 | JOSE ZAVALA VILLALOBOS | 1,310 | $18,129,805 | **RUTA-503** |
+| | | **5,135** | **$64,802,023** | |
+
+**$64.8 millones de surtido a ruta que una regla por nombre publica como venta.** Y los códigos
+`501/502/503` son exactamente los de `RUTA-501/502/503` que ya publican en `wincaja_ruta`: el
+mismo dinero, dos veces.
+
+⭐ **Es la lección ya documentada en `[VEC.0-6.2]`**, que yo volví a tropezar: *"el discriminante
+tenía que ser el CÓDIGO, no el nombre: en Michoacán las rutas se llaman con el nombre de la
+persona"*. Verificado que los códigos **sí** son estables entre sucursales:
+
+- **Almacenes:** `0` · `10` · `30` · `32` · `40` · `42` · `44` · `50` · `54` — son los códigos de
+  rama de Wincaja, los mismos de `v_branch_erp_cutover`.
+- **Rutas:** `21`–`28` (PH) · `300` · `301` · `321` · `322` (Madero) · `501`–`505` (Canindo) · `61`.
+
+**Regla final: el tercero es interno si su CÓDIGO está en el padrón de almacenes/rutas; el nombre
+sólo sirve para proponer candidatos y para que un humano revise.** Lo que no case por código ni
+por nombre anclado queda `sin_clasificar` **con su monto declarado**.
+
+⚠️ **Quedan candidatos sin resolver que la revisión humana tiene que mirar**, el mayor:
+`06_CAN` tercero **`70790` KARLA PAULINA YADEZ TREJO**, 904 tickets / **$17,344,443** a
+**$19,186 por ticket** — ese ticket promedio es de ruta o de mayoreo, no de mostrador.
+
 **WH.0 queda CERRADO** salvo esa revisión humana de contrapartes, que ya no bloquea el diseño:
 bloquea la publicación de la cifra final, que es donde debe bloquear.
 
