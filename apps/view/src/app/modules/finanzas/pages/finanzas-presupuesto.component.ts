@@ -238,7 +238,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                       <span>{{ channelLabels[ch] || ch }}</span>
                       @if (asVentasGrowth[ch] == null) {
                         <!-- [VE.7.1] Un canal sin historia propia usa el respaldo, y hay que
-                             DECIRLO: mostrarlo igual que uno derivado es como `mayoreo` exhibia
+                             DECIRLO: mostrarlo igual que uno derivado es como Mayoreo exhibia
                              2.6% teniendo -8.4% de verdad. -->
                         <span class="pres-muted pres-mono" title="Este canal no tiene par de años con que calcular su propio crecimiento; usa el respaldo">{{ asVentasDefault }} % · respaldo</span>
                       } @else {
@@ -1010,7 +1010,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-assump-grid { display:flex; gap:1.4rem; flex-wrap:wrap; }
     .pres-assump-col { flex:1; min-width:14rem; }
     .pres-assump-col h4 { margin:.2rem 0 .4rem; font-size:.8rem; color:var(--text-muted); }
-    /* [VE.7.1] Sin `text-transform: capitalize`: capitaliza CADA palabra y producia
+    /* [VE.7.1] Sin text-transform capitalize: capitalizaba CADA palabra y producia
        "Presupuestar Por Sucursal", "Control De Sobregiro" y "Respaldo (Canal Sin Historia
        Propia)". Los rotulos ya vienen escritos como deben leerse. */
     .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; }
