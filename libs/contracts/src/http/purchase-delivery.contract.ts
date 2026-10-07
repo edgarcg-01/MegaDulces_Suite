@@ -27,6 +27,8 @@ export interface ReceiptKey {
 /** Una compra recibida que todavía no se entrega a Finanzas. */
 export interface PendingReceiptRow extends ReceiptKey {
   oc_folio: string | null;
+  /** «Referencia» de la orden de entrada en Kepler (`kdm1.c11` del XA2001, texto capturado a mano). NULL en Wincaja o sin capturar. */
+  referencia: string | null;
   supplier_code: string | null;
   supplier_name: string | null;
   /** Fecha del documento en Kepler (`receipt_date` de la vista) = fecha de FACTURA. */
@@ -76,6 +78,8 @@ export interface CreatePurchaseDeliveryDto {
 export interface PurchaseDeliveryLine extends ReceiptKey {
   id: string;
   oc_folio: string | null;
+  /** «Referencia» de la orden de entrada en Kepler (`kdm1.c11` del XA2001, texto capturado a mano). NULL en Wincaja o sin capturar. */
+  referencia: string | null;
   supplier_code: string | null;
   supplier_name: string | null;
   invoice_date: string | null;
