@@ -831,7 +831,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
     .tw-amb { color:var(--warn-fg); font-weight:700; margin-left:2px; cursor:help; }
     /* [CG.20.1] La marca de procedencia de la celda de Kepler. Discreta a proposito: informa
        de que metodo salio el par sin competir con la cifra, que es lo que la persona lee. */
-    .tw-ident { color:var(--text-muted); font-size:.72rem; margin-left:4px; vertical-align:baseline; }
+    .tw-ident { color:var(--text-muted); font-size:var(--fs-xs); margin-left:4px; vertical-align:baseline; }
     /* CG.18 — grid de detalle del movimiento */
     .cg-movd { margin:0; }
     .cg-movd-row { display:grid; grid-template-columns:11rem 1fr; gap:.5rem; padding:.3rem .1rem; border-bottom:1px solid var(--border-color); }
