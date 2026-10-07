@@ -72,8 +72,10 @@ en la suite. Tres mutaciones (`PU_MUTAR=sin_basis | mes_abierto | espejo`), **la
 
 ### Lo que queda, y de quién es
 
-⛔ **El arreglo del autopiloto (`99e48735`) sigue sin pushear** — hasta el redeploy nada de esto se
-vuelve vivo, porque la pasada no corre. ⛔ **La correspondencia `familia 6` ↔ agrupador SAT no está
+⛔ **El arreglo del autopiloto YA está en prod** (entró por otra sesión; prod pasó de `a8b4abb7` a
+`99cda14a`) **pero sin evidencia de que funcionó**: a las 14:40 MX el latido seguía mostrando la falla
+de las 13:07 y `generation_runs` seguía en 0 — el cron es a las 03:30. *Un arreglo desplegado no es un
+arreglo verificado.* ⛔ **La correspondencia `familia 6` ↔ agrupador SAT no está
 firmada** (Contabilidad): el `+10.55 %` de los libros refuta el publicado pero **no lo reemplaza**.
 ⛔ **Qué hace el sistema con un supuesto que no se puede medir** —¿bloquea el plan o lo arma con el
 árbitro?— es decisión de Dirección. ⛔ **El egreso del lado no fiscal sigue sin medirse**: la venta de

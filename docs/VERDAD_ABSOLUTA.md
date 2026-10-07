@@ -2860,9 +2860,15 @@ aplicado bien, y es lo único que permitió encontrar todo lo demás.
 dice *«si el ejercicio ya tiene planes y esto sigue vacío, la pasada no corrió»*. La pasada **sí
 corrió**, falló, y dejó la causa probable escrita. Ningún componente lee `analytics.cron_runs`.
 
-La causa está arreglada en local (`99e48735`, hoy 13:33 MX — `listBudgets()` pasa por `tk.run()`),
-**sin pushear**: prod sirve `a8b4abb7`. O sea que todo lo que sigue está **latente, no vivo** — y
-se vuelve vivo el día del redeploy.
+La causa está arreglada (`listBudgets()` pasa por `tk.run()`), y **el arreglo ya llegó a prod**
+ese mismo día — el commit entró por otra sesión, con otro hash, y prod pasó de `a8b4abb7` a
+`99cda14a`.
+
+⛔ **Pero no hay evidencia de que haya funcionado, y no la habrá hasta que la pasada vuelva a
+correr.** A las 14:40 MX el latido seguía mostrando la falla de las 13:07 y `generation_runs`
+seguía en **0**: el cron es a las 03:30. *Un arreglo desplegado no es un arreglo verificado* — lo
+que lo cierra es el latido en verde, no el merge (ADR-056). Hasta entonces, todo lo que sigue está
+**latente**.
 
 ### 22.3 El «0 %» de gastos no es un cero medido: es `basis: 'default'`
 
