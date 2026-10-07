@@ -8,9 +8,9 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import type { Observable } from 'rxjs';
-import type { SdAgentDto, SdAttachmentInput, SdPriority, SdRequestDetail, SdStatus } from '@megadulces/contracts';
+import type { SdAgentDto, SdAttachmentInput, SdPauseReason, SdPriority, SdRequestDetail, SdStatus } from '@megadulces/contracts';
 import { SD_PRIORITIES } from '@megadulces/contracts';
-import { PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError, slaTexto } from './service-desk.service';
+import { PAUSE_REASONS, PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError, slaTexto } from './service-desk.service';
 
 /** Máximo de archivos por envío: el mismo tope que el servidor (`MAX_ADJUNTOS_POR_ENVIO`). */
 export const MAX_ARCHIVOS = 5;
@@ -94,6 +94,7 @@ function leerComoDataUri(f: File): Promise<string> {
             <div><dt>Afecta</dt><dd>{{ impactLabel[t.impact] }}{{ t.blocks_work ? ' · me bloquea el trabajo' : '' }}</dd></div>
           }
           @if (t.warehouse_name) { <div><dt>Ubicación</dt><dd>{{ t.warehouse_name }}</dd></div> }
+          @if (t.pause_reason) { <div><dt>En espera</dt><dd>{{ motivoTexto(t.pause_reason) }}</dd></div> }
           @if (t.zone_name) { <div><dt>Zona</dt><dd>{{ t.zone_name }}</dd></div> }
           @for (e of t.extra ?? []; track e.code) { <div><dt>{{ e.label }}</dt><dd>{{ e.type === 'boolean' ? (e.value ? 'Sí' : 'No') : e.value }}</dd></div> }
           <div><dt>Alta</dt><dd>{{ t.created_at | date:'dd/MM/yy HH:mm' }}</dd></div>
@@ -156,12 +157,19 @@ function leerComoDataUri(f: File): Promise<string> {
 
           @if (modo(); as m) {
             <div class="sd-modo" role="group" [attr.aria-label]="tituloModo()">
+              <!-- [MS.7.9] Qué se espera: decide si la respuesta de quien reportó reanuda el ticket y se ve en la bandeja. -->
+              @if (m === 'espera') {
+                <label class="sd-field">
+                  <span>¿Qué se espera? *</span>
+                  <p-select [options]="motivosPausa" optionLabel="label" optionValue="value" [ngModel]="motivoPausa()" (ngModelChange)="motivoPausa.set($event)" placeholder="Elige el motivo" appendTo="body" ariaLabel="Motivo de la espera" />
+                </label>
+              }
               <label class="sd-field">
                 <span>{{ tituloModo() }}{{ nota_obligatoria() ? ' *' : '' }}</span>
                 <textarea pTextarea rows="3" [ngModel]="notaModo()" (ngModelChange)="notaModo.set($event)" [placeholder]="placeholderModo()"></textarea>
               </label>
               <div class="sd-modo-foot">
-                <p-button label="Confirmar" size="small" [loading]="busy()" [disabled]="nota_obligatoria() && !notaModo().trim()" (onClick)="ejecutarModo()" />
+                <p-button label="Confirmar" size="small" [loading]="busy()" [disabled]="(nota_obligatoria() && !notaModo().trim()) || (m === 'espera' && !motivoPausa())" (onClick)="ejecutarModo()" />
                 <p-button label="Volver" size="small" [text]="true" severity="secondary" (onClick)="cerrarModo()" />
               </div>
             </div>
@@ -351,6 +359,10 @@ export class SdRequestDetailComponent {
 
   readonly modo = signal<'reabrir' | 'cancelar' | 'resolver' | 'espera' | null>(null);
   readonly notaModo = signal('');
+  /** `[MS.7.9]` Lo que se espera al poner en espera (obligatorio: el servidor lo exige). */
+  readonly motivoPausa = signal<SdPauseReason | null>(null);
+  readonly motivosPausa = PAUSE_REASONS;
+  motivoTexto(m: SdPauseReason): string { return PAUSE_REASON_LABEL[m]; }
   private readonly estadoPendiente = signal<SdStatus | null>(null);
 
   readonly asignarA = signal<string | null>(null);
@@ -452,7 +464,7 @@ export class SdRequestDetailComponent {
   /** Reabrir y resolver exigen nota: el servidor también lo exige, esto evita el viaje. */
   readonly nota_obligatoria = computed(() => this.modo() === 'reabrir' || this.modo() === 'resolver');
 
-  cerrarModo(): void { this.modo.set(null); this.notaModo.set(''); this.estadoPendiente.set(null); }
+  cerrarModo(): void { this.modo.set(null); this.notaModo.set(''); this.motivoPausa.set(null); this.estadoPendiente.set(null); }
   ejecutarModo(): void {
     const m = this.modo();
     const nota = this.notaModo().trim();
@@ -462,7 +474,9 @@ export class SdRequestDetailComponent {
     if (m === 'cancelar') return this.ejecutar(this.api.cancel(id, nota || undefined), 'Solicitud cancelada.', fin);
     if (m === 'reabrir' && !this.agent()) return this.ejecutar(this.api.reopen(id, nota), 'Solicitud reabierta.', fin);
     const destino = this.estadoPendiente() ?? (m === 'resolver' ? 'resuelto' : m === 'espera' ? 'en_espera' : 'en_proceso');
-    this.ejecutar(this.api.status(id, { status: destino, note: nota || undefined }), `Estado: ${STATUS_LABEL[destino]}.`, fin);
+    // `[MS.7.9]` Poner en espera lleva el motivo; el servidor lo exige (y rechaza uno con cualquier otro estado).
+    if (destino === 'en_espera' && !this.motivoPausa()) return;
+    this.ejecutar(this.api.status(id, { status: destino, note: nota || undefined, pause_reason: destino === 'en_espera' ? this.motivoPausa() ?? undefined : undefined }), `Estado: ${STATUS_LABEL[destino]}.`, fin);
   }
 
   // ── hilo ──

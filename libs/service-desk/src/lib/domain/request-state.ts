@@ -50,6 +50,16 @@ export const TRANSICIONES: Readonly<Record<SdStatus, Readonly<Partial<Record<SdS
   cancelado: {},
 };
 
+/**
+ * `[MS.7.9]` ¿La respuesta PÚBLICA de quien reportó reanuda un ticket en espera? Sólo si lo que se esperaba era a esa persona
+ * (`solicitante`) o si la espera es anterior al motivo (`null`: el comportamiento de siempre). Si se espera a un proveedor, una
+ * refacción o una aprobación, que la persona comente NO termina la espera —y el reloj del SLA sigue pausado—: eso lo reanuda
+ * quien atiende cuando llega lo que se esperaba.
+ */
+export function respuestaReanuda(motivo: string | null | undefined): boolean {
+  return motivo == null || motivo === 'solicitante';
+}
+
 export function puedeTransicionar(from: SdStatus, to: SdStatus, actor: SdActor): boolean {
   return TRANSICIONES[from]?.[to]?.includes(actor) ?? false;
 }

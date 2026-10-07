@@ -266,7 +266,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     check('⭐ el solicitante NO resuelve su propio ticket → 403', (await req('POST', `${SD}/requests/${T1.id}/status`, sol.token, { status: 'resuelto', note: 'ya quedó' })).status === 403);
     check('el solicitante NO cancela uno en proceso (sólo coordinación) → 403', (await req('POST', `${SD}/requests/${T1.id}/cancel`, sol.token, {})).status === 403);
 
-    const espera = await req('POST', `${SD}/requests/${T1.id}/status`, agente.token, { status: 'en_espera', note: 'Espero que me confirmes tu usuario' });
+    const espera = await req('POST', `${SD}/requests/${T1.id}/status`, agente.token, { status: 'en_espera', pause_reason: 'solicitante', note: 'Espero que me confirmes tu usuario' });
     check('el agente pone «en_espera»', espera.status < 300 && espera.body?.status === 'en_espera', dump(espera));
     check('⭐ en espera el reloj del SLA queda PAUSADO', espera.body?.sla?.paused === true);
     const responde = await req('POST', `${SD}/requests/${T1.id}/messages`, sol.token, { body: 'Mi usuario es jperez' });
@@ -510,7 +510,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     // Un ticket en ESPERA, vencido: sigue siendo del agente pero su reloj está pausado.
     const tp = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: en espera, con plazo viejo' });
     await req('POST', `${SD}/requests/${tp.body?.id}/take`, agente.token);
-    await req('POST', `${SD}/requests/${tp.body?.id}/status`, agente.token, { status: 'en_espera', note: 'Espero al solicitante' });
+    await req('POST', `${SD}/requests/${tp.body?.id}/status`, agente.token, { status: 'en_espera', pause_reason: 'solicitante', note: 'Espero al solicitante' });
     await knex('servicedesk.requests').where({ id: tp.body?.id }).update({ due_at: new Date(Date.now() - 5 * 3600e3) });
     // Y uno vencido de verdad, con el reloj corriendo.
     const tv = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: vencido con reloj corriendo' });
@@ -1447,6 +1447,58 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⛔ TI no declara ese campo: mandarlo → 400 (los campos son por cola)', ti.status === 400, dump(ti));
       const ti2 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.4 TI ok', impact: 'yo', blocks_work: false });
       check('⭐ TI sigue igual: sin campos propios se levanta como siempre', ti2.status === 201 && (ti2.body?.extra ?? []).length === 0, dump(ti2));
+    }
+
+    // ── 29. [MS.7.9] Motivo de pausa: qué se espera decide si la respuesta de la persona reanuda el ticket ───
+    {
+      console.log('\n29 — motivo de pausa en «en espera»');
+      const nuevoTicket = async (t) => {
+        const r = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.9 ' + t, impact: 'yo', blocks_work: false });
+        await req('POST', `${SD}/requests/${r.body?.id}/assign`, coord.token, { user_id: agente.id });
+        await req('POST', `${SD}/requests/${r.body?.id}/status`, agente.token, { status: 'en_proceso' });
+        return r.body?.id;
+      };
+      const estado = (id, body, token = agente.token) => req('POST', `${SD}/requests/${id}/status`, token, body);
+      const ver = async (id) => (await req('GET', `${SD}/requests/${id}`, sol.token)).body;
+
+      const a = await nuevoTicket('sin motivo');
+      const sinMotivo = await estado(a, { status: 'en_espera' });
+      check('⛔ poner en espera SIN motivo → 400 (sin él «en espera» no dice qué se espera)', sinMotivo.status === 400, dump(sinMotivo));
+      check('⛔ motivo inventado → 400', (await estado(a, { status: 'en_espera', pause_reason: 'porque_si' })).status === 400);
+      check('⛔ motivo con un estado que no es «en espera» → 400 (no se ignora)', (await estado(a, { status: 'resuelto', note: 'x', pause_reason: 'proveedor' })).status === 400);
+      check('⛔ y el ticket no cambió con las peticiones rechazadas', (await ver(a))?.status === 'en_proceso');
+
+      const pa = await estado(a, { status: 'en_espera', pause_reason: 'proveedor', note: 'Espero la pieza del proveedor' });
+      check('⭐ con motivo: queda en espera, con su motivo y el reloj pausado', pa.status < 300 && pa.body?.status === 'en_espera' && pa.body?.pause_reason === 'proveedor' && pa.body?.sla?.paused === true, dump(pa));
+      const hilo = (await req('GET', `${SD}/requests/${a}`, agente.token)).body?.messages ?? [];
+      check('el hilo deja el motivo en el mensaje de estado', hilo.some((m) => m.kind === 'status' && m.meta?.pause_reason === 'proveedor'), JSON.stringify(hilo.map((m) => m.meta)));
+
+      const dueAntes = (await ver(a))?.sla?.due_at;
+      const comenta = await req('POST', `${SD}/requests/${a}/messages`, sol.token, { body: '¿Ya llegó la pieza?' });
+      const despues = await ver(a);
+      check('⭐ esperando al PROVEEDOR, que la persona comente NO reanuda (sigue en espera y pausado)', comenta.status < 300 && despues?.status === 'en_espera' && despues?.pause_reason === 'proveedor' && despues?.sla?.paused === true, `${despues?.status} ${despues?.pause_reason} paused=${despues?.sla?.paused}`);
+      check('y el plazo no se movió: el reloj no corre en pausa', despues?.sla?.due_at === dueAntes, `${dueAntes} → ${despues?.sla?.due_at}`);
+
+      const reanuda = await estado(a, { status: 'en_proceso', note: 'Llegó la pieza' });
+      check('⭐ quien atiende reanuda: vuelve a en proceso, el reloj corre y el motivo SE VA', reanuda.status < 300 && reanuda.body?.status === 'en_proceso' && reanuda.body?.pause_reason === null && reanuda.body?.sla?.paused === false, dump(reanuda));
+
+      const b = await nuevoTicket('solicitante');
+      await estado(b, { status: 'en_espera', pause_reason: 'solicitante', note: 'Necesito que me digas el equipo' });
+      const resp = await req('POST', `${SD}/requests/${b}/messages`, sol.token, { body: 'Es la caja 3' });
+      const rb = await ver(b);
+      check('⭐ esperando a la PERSONA, su respuesta SÍ reanuda sola y se va el motivo', resp.status < 300 && rb?.status === 'en_proceso' && rb?.pause_reason === null && rb?.sla?.paused === false, `${rb?.status} ${rb?.pause_reason}`);
+
+      const c = await nuevoTicket('resolver desde la espera');
+      await estado(c, { status: 'en_espera', pause_reason: 'refaccion' });
+      const res = await estado(c, { status: 'resuelto', note: 'Se resolvió sin la refacción' });
+      check('resolver desde «en espera» también limpia el motivo', res.status < 300 && res.body?.status === 'resuelto' && res.body?.pause_reason === null, dump(res));
+      const d = await nuevoTicket('cancelar desde la espera');
+      await estado(d, { status: 'en_espera', pause_reason: 'aprobacion' });
+      const can = await req('POST', `${SD}/requests/${d}/cancel`, coord.token, {});
+      check('cancelar desde «en espera» limpia el motivo (no queda un motivo huérfano)', can.status < 300 && can.body?.status === 'cancelado' && can.body?.pause_reason === null, dump(can));
+      const enBase = await knex('servicedesk.requests').whereIn('id', [a, b, c, d]).whereNotNull('pause_reason').count({ n: '*' }).first();
+      check('⭐ en la base no quedó ningún motivo fuera de «en espera»', Number(enBase.n) === 0, String(enBase.n));
+      check('⛔ quien reportó no pone en espera → 403', (await estado(a, { status: 'en_espera', pause_reason: 'otro' }, sol.token)).status === 403);
     }
 
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────

@@ -67,6 +67,13 @@ export type SdActor = 'requester' | 'agent' | 'coordinator' | 'system';
 /**
  * `[MS.7.4]` Campos propios de una cola: qué MÁS pregunta al reportar. `photo` no viaja en `extra`: es un adjunto.
  */
+/**
+ * `[MS.7.9]` Por qué un ticket está en espera. Sin estado nuevo (decisión M3): «esperando refacción» es `en_espera` + motivo, y
+ * `en_espera` ya pausa el reloj del SLA. Sólo `solicitante` es una espera que la respuesta de quien reportó resuelve.
+ */
+export const SD_PAUSE_REASONS = ['proveedor', 'refaccion', 'aprobacion', 'solicitante', 'otro'] as const;
+export type SdPauseReason = (typeof SD_PAUSE_REASONS)[number];
+
 export const SD_FIELD_TYPES = ['boolean', 'select', 'text', 'photo'] as const;
 export type SdFieldType = (typeof SD_FIELD_TYPES)[number];
 /** Tope de un campo de texto libre (la base lo repite como CHECK en `requests.extra`: no depende sólo del servidor). */
@@ -234,6 +241,8 @@ export interface SdRequestRow {
   priority_suggested: SdPriority | null;
   impact: SdImpact;
   blocks_work: boolean;
+  /** `[MS.7.9]` Por qué está en espera (sólo mientras `status = en_espera`; `null` si no, o si la espera es anterior al motivo). */
+  pause_reason: SdPauseReason | null;
   /** `[MS.7.7]` «¿Hay riesgo para personas?». `null` = no se preguntó (cola de impacto): nunca un `false` inventado. */
   safety_risk: boolean | null;
   status: SdStatus;
@@ -331,6 +340,8 @@ export interface SdPostMessageDto {
 export interface SdChangeStatusDto {
   status: SdStatus;
   note?: string;
+  /** `[MS.7.9]` OBLIGATORIO al pasar a `en_espera`; con cualquier otro estado → 400. */
+  pause_reason?: SdPauseReason;
 }
 
 export interface SdAssignDto {

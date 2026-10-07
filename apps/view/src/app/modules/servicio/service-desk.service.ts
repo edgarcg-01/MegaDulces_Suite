@@ -2,12 +2,14 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
+  SdPauseReason,
   SdAgentDto, SdAssignDto, SdCatalogResponse, SdChangePriorityDto, SdChangeStatusDto, SdConfigResponse,
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
   SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
   SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdUpsertFieldDto, SdUpsertZoneDto,
 } from '@megadulces/contracts';
+import { SD_PAUSE_REASONS } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 export const PRIORITY_LABEL: Readonly<Record<SdPriority, string>> = { baja: 'Baja', media: 'Media', alta: 'Alta', urgente: 'Urgente' };
@@ -28,6 +30,16 @@ export interface SdInboxQuery {
   limit?: number;
   offset?: number;
 }
+
+/** `[MS.7.9]` Por qué un ticket queda en espera (lo que se espera, en palabras de quien atiende). */
+export const PAUSE_REASON_LABEL: Record<SdPauseReason, string> = {
+  proveedor: 'Esperando al proveedor',
+  refaccion: 'Esperando una refacción',
+  aprobacion: 'Esperando una aprobación',
+  solicitante: 'Esperando a quien reportó',
+  otro: 'Otro motivo',
+};
+export const PAUSE_REASONS: { value: SdPauseReason; label: string }[] = SD_PAUSE_REASONS.map((value) => ({ value, label: PAUSE_REASON_LABEL[value] }));
 
 export const STATUS_LABEL: Readonly<Record<SdStatus, string>> = {
   nuevo: 'Nuevo', asignado: 'Asignado', en_proceso: 'En proceso', en_espera: 'En espera',

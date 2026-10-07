@@ -17,6 +17,7 @@ import type { Knex } from 'knex';
 import {
   BITACORA_PORT,
   SD_IMPACTS,
+  SD_PAUSE_REASONS,
   SD_PRIORITIES,
   SD_STATUSES,
   type SdActor,
@@ -33,6 +34,7 @@ import {
   type SdLogTimeDto,
   type SdMessageDto,
   type SdMessageKind,
+  type SdPauseReason,
   type SdPostMessageDto,
   type SdPriority,
   type SdRequestDetail,
@@ -51,7 +53,7 @@ import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskRoutingService } from './routing.service';
 import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
-import { efectosDe, motivoDeCierre, puedeTransicionar, TRANSICIONES } from './domain/request-state';
+import { efectosDe, motivoDeCierre, puedeTransicionar, respuestaReanuda, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
 import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
@@ -82,6 +84,7 @@ interface RequestRow {
   safety_risk?: boolean | null;
   zone_code?: string | null;
   zone_name?: string | null;
+  pause_reason?: string | null;
   extra?: Record<string, unknown> | null;
   status: SdStatus;
   requester_id: string;
@@ -693,7 +696,9 @@ export class ServiceDeskRequestsService {
           await trx('servicedesk.requests').where({ id }).update({ first_responded_at: now, updated_at: now, updated_by: ctx.userId });
         }
         // El solicitante que contesta reanuda un ticket que estaba esperándolo a él.
-        if (comoSolicitante && visibility === 'public' && r.status === 'en_espera') {
+        // `[MS.7.9]` …pero sólo si lo que se esperaba era a esa persona: si se espera a un proveedor o una refacción, su comentario es
+        // un comentario y la pausa del SLA sigue hasta que quien atiende la levante.
+        if (comoSolicitante && visibility === 'public' && r.status === 'en_espera' && respuestaReanuda(r.pause_reason)) {
           fx = juntar(fx, await this.moverEstado(trx, config, r, 'en_proceso', ['requester'], ctx, now, 'El solicitante respondió'));
         }
         // Un mensaje PÚBLICO le avisa a la otra parte. Una nota interna no avisa a nadie: no sale del equipo.
@@ -718,7 +723,20 @@ export class ServiceDeskRequestsService {
     if (!SD_STATUSES.includes(to)) throw new BadRequestException(`status debe ser uno de: ${SD_STATUSES.join(', ')}`);
     // `asignado` lo fija una asignación, no un cambio de estado: sin asignado el CHECK lo rechazaría.
     if (to === 'asignado') throw new BadRequestException('Para asignar usa «tomar» o «asignar»');
-    return this.moverPorId(ctx, id, to, dto.note);
+    /*
+     * `[MS.7.9]` Poner en espera EXIGE el motivo (qué se espera): sin él «en espera» no dice nada y no se puede saber si la respuesta de
+     * quien reportó debe reanudarlo. Un motivo con cualquier otro estado es un error de quien llama, no algo que se ignore.
+     */
+    let motivo: SdPauseReason | undefined;
+    if (to === 'en_espera') {
+      if (!SD_PAUSE_REASONS.includes(dto.pause_reason as SdPauseReason)) {
+        throw new BadRequestException(`Indica por qué queda en espera (pause_reason: ${SD_PAUSE_REASONS.join(', ')})`);
+      }
+      motivo = dto.pause_reason;
+    } else if (dto.pause_reason !== undefined && dto.pause_reason !== null) {
+      throw new BadRequestException('El motivo de pausa sólo aplica al poner la solicitud en espera');
+    }
+    return this.moverPorId(ctx, id, to, dto.note, { motivoPausa: motivo });
   }
 
   confirm(ctx: ActorCtx, id: string, note?: string): Promise<SdRequestDetail> {
@@ -838,7 +856,7 @@ export class ServiceDeskRequestsService {
   // ───────────────────────────── internos ─────────────────────────────
 
   /** El camino común de confirmar / reabrir / cancelar / cambiar estado. */
-  private async moverPorId(ctx: ActorCtx, id: string, to: SdStatus, note?: string, opc: { exigirNota?: string } = {}): Promise<SdRequestDetail> {
+  private async moverPorId(ctx: ActorCtx, id: string, to: SdStatus, note?: string, opc: { exigirNota?: string; motivoPausa?: SdPauseReason } = {}): Promise<SdRequestDetail> {
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
     const nota = String(note ?? '').trim();
     if (nota.length > MAX_TEXTO) throw new BadRequestException(`La nota admite hasta ${MAX_TEXTO} caracteres`);
@@ -852,7 +870,7 @@ export class ServiceDeskRequestsService {
       }
       if (opc.exigirNota && !nota) throw new BadRequestException(opc.exigirNota);
       if (to === 'resuelto' && !nota) throw new BadRequestException('Describe cómo se resolvió para poder marcarla como resuelta');
-      return this.moverEstado(trx, config, r, to, actores, ctx, new Date(), nota);
+      return this.moverEstado(trx, config, r, to, actores, ctx, new Date(), nota, opc.motivoPausa);
     });
     await this.despachar(efectos);
     return this.detail(ctx, id);
@@ -862,15 +880,20 @@ export class ServiceDeskRequestsService {
    * LA función que escribe `status`. Recibe la fila ya bloqueada (`FOR UPDATE`) y la deja coherente con el
    * reloj del SLA. Lanza 403 si ninguno de los roles que `ctx` tiene sobre el ticket puede hacer la transición.
    */
-  private async moverEstado(trx: Knex.Transaction, config: SdConfig, r: RequestRow, to: SdStatus, actores: SdActor[], ctx: Autor, now: Date, nota: string | null): Promise<Efectos> {
+  private async moverEstado(trx: Knex.Transaction, config: SdConfig, r: RequestRow, to: SdStatus, actores: SdActor[], ctx: Autor, now: Date, nota: string | null, motivoPausa?: SdPauseReason): Promise<Efectos> {
     const from = r.status as SdStatus;
     const actor = actores.find((a) => puedeTransicionar(from, to, a));
     if (!actor) throw new ForbiddenException('No tienes permiso para hacer ese cambio en esta solicitud');
     const ef = efectosDe(from, to);
     const patch: Patch = { status: to, updated_at: now, updated_by: ctx.userId };
 
-    if (ef.pausa) patch.paused_at = now;
+    if (ef.pausa) {
+      patch.paused_at = now;
+      patch.pause_reason = motivoPausa ?? null;
+    }
     if (ef.reanuda) {
+      // La base exige que el motivo sólo exista MIENTRAS está en espera: se va con la pausa, en la misma operación.
+      patch.pause_reason = null;
       const politica = politicaDe(config, r.queue_id, r.priority as SdPriority);
       if (!politica) throw new ConflictException(`No hay política de SLA para la prioridad «${r.priority}»`);
       // Un CHECK de la base garantiza `paused_at` mientras está en espera; si falta, el dato mintió: no se adivina.
@@ -906,7 +929,7 @@ export class ServiceDeskRequestsService {
       authorId: ctx.userId,
       authorLabel: ctx.nombre,
       body: nota ?? '',
-      meta: { from, to },
+      meta: { from, to, ...(ef.pausa && motivoPausa ? { pause_reason: motivoPausa } : {}) },
     });
 
     const fx = sinEfectos();
@@ -1129,6 +1152,7 @@ export class ServiceDeskRequestsService {
       warehouse_name: r.warehouse_code ? nombreUbicacionExtra(r.warehouse_code) ?? branchName(r.warehouse_code) : null,
       zone_code: r.zone_code ?? null,
       zone_name: r.zone_name ?? null,
+      pause_reason: (r.pause_reason ?? null) as SdPauseReason | null,
       assigned_to: r.assigned_to ?? null,
       assigned_to_name: r.assigned_to ? r.assigned_nombre || r.assigned_username || null : null,
       assigned_at: iso(r.assigned_at),
