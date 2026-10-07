@@ -119,8 +119,6 @@ const TIENE_GUARDA = (src) =>
     const codAuto = sinComentarios(auto);
     chk(/public\.tenants/.test(codAuto),
       'la lista de a-quién-mirar sale de public.tenants (sin RLS), no de una tabla con RLS forzado');
-    chk(/conTenant\([\s\S]{0,400}budget\.budgets/.test(codAuto),
-      'budget.budgets se lee DENTRO del contexto de tenant — afuera devuelve 0 filas en silencio');
     chk(/vistos === 0/.test(codAuto) || /vistos\s*===\s*0/.test(codAuto),
       'un universo vacío se DECLARA como falla: «no vi nada» y «no hay nada» son indistinguibles con RLS');
   }
@@ -145,6 +143,54 @@ const TIENE_GUARDA = (src) =>
       'tiene @Cron con timeZone MX explícita');
     chk(/cron_runs/.test(oblAuto), 'deja latido en analytics.cron_runs');
   }
+
+  // ── 2c. `[VE.9.2]` ⛔ QUIÉN EMITE la consulta ──────────────────────────────────────────────
+  //
+  // El bug que se cobró esta pasada DOS veces. Los dos pilotos listaban `budget.budgets` con el
+  // knex CRUDO (`KNEX_NEW_DB`) desde adentro de su helper de contexto, y eso NO alcanza: abrir el
+  // contexto CLS dice *qué* tenant es, pero el `set_config('app.tenant_id')` lo emite
+  // `TenantKnexService.run()`. Con RLS **forzado** en `budget.*`, el crudo no falla: devuelve CERO
+  // FILAS, y la pasada reporta sobre nada.
+  //
+  // ⚠️ Acá vivía la aserción EQUIVOCADA: pedía que la consulta estuviera «dentro de conTenant(…)»
+  // — y eso era cierto mientras el bug estaba vivo. Un candado puede estar verde sobre el
+  // invariante que no es. La lección no es *abrí el contexto*, es **quién emite la consulta**.
+  //
+  // ⭐ Y va en el bloque de CÓDIGO, no en el de resultado: mirando sólo la base, este bug se ve
+  // igual que «todavía no corrió» y sale NO MEDIDO, nunca rojo.
+  console.log('\n[2c] Ningún piloto lee budget.* por el knex crudo');
+  /** Devuelve las lecturas crudas sobre un schema con RLS forzado. Vacío = limpio. */
+  const CRUDO_SOBRE_BUDGET = (src) => {
+    const hits = [];
+    const re = /this\.knex(?:\.raw)?\s*\(\s*(['"`])([\s\S]*?)\1/g;
+    let m;
+    while ((m = re.exec(sinComentarios(src))) !== null) {
+      if (/\bbudget\./.test(m[2])) hits.push(m[2].replace(/\s+/g, ' ').slice(0, 70));
+    }
+    return hits;
+  };
+  for (const [nombre, src] of [['budget-autopilot', auto], ['obligations-autopilot', oblAuto]]) {
+    if (src === null) { nm(`no se encontró ${nombre}: no se puede juzgar quién emite sus consultas`); continue; }
+    const hits = CRUDO_SOBRE_BUDGET(src);
+    chk(hits.length === 0, hits.length === 0
+      ? `${nombre}: ninguna lectura de budget.* por el knex crudo`
+      : `${nombre}: lee budget.* con el knex CRUDO → ${hits.join(' | ')} (RLS forzado devuelve 0 filas SIN fallar)`);
+    chk(/this\.tk\.run\(|listBudgets\(/.test(sinComentarios(src)),
+      `${nombre}: la lista de ejercicios pasa por TenantKnexService`);
+  }
+  // Y que el intermediario no sea el mismo bug mudado de archivo.
+  const gen = leer('libs/finance/src/lib/budget/budget-generation.service.ts');
+  if (gen === null) nm('no se encontró budget-generation.service.ts');
+  else {
+    chk(/async listBudgets\([\s\S]{0,200}this\.tk\.run\(/.test(sinComentarios(gen)),
+      'listBudgets() emite por this.tk.run() — es el único punto que aplica app.tenant_id');
+  }
+  // ⭐ PRUEBAS NEGATIVAS: un gate sin ellas es una intención (ADR-056). Y las dos direcciones,
+  // porque un detector que marca todo es tan inútil como uno que no marca nada.
+  chk(CRUDO_SOBRE_BUDGET("const x = this.knex('budget.budgets').select('id');").length === 1,
+    'PRUEBA NEGATIVA: el detector SÍ ve una lectura cruda de budget.* cuando la hay');
+  chk(CRUDO_SOBRE_BUDGET("const t = this.knex('public.tenants').select('id');").length === 0,
+    'PRUEBA NEGATIVA: no marca public.tenants, que no tiene RLS y de ahí TIENE que salir la lista');
 
   // ── 3. Declarado en CRON_JOBS ─────────────────────────────────────────────────────────────
   console.log('\n[3] El job está declarado con umbral');
@@ -290,8 +336,19 @@ const TIENE_GUARDA = (src) =>
       `SELECT folio, status, output, assumptions, started_at
          FROM budget.generation_runs ORDER BY started_at DESC LIMIT 1`);
 
-    if (!pasada) {
-      nm('ninguna pasada registrada todavía: la cadena no se puede juzgar');
+    // ⛔ `[VE.9.2]` «No hay pasada registrada» tiene DOS causas y no son la misma: o nunca corrió
+    // —y entonces no hay nada que juzgar— o corrió y se cayó ANTES de abrir el registro, que es
+    // exactamente lo que pasó el 2026-10-07 (el piloto creó el ejercicio, no vio ninguno, y no
+    // abrió ni un `generation_runs`). El latido distingue las dos, así que lo medible se mide.
+    const [latido] = await q(
+      `SELECT status, note, error, last_finish FROM analytics.cron_runs
+        WHERE job_key = 'budget_autopilot' LIMIT 1`);
+
+    if (!pasada && latido && String(latido.status) === 'error') {
+      fail++;
+      console.log(`  ✖ el piloto corrió y NO dejó registro de generación: ${latido.error || latido.note}`);
+    } else if (!pasada) {
+      nm('ninguna pasada registrada y el latido no declara error: la cadena no se puede juzgar todavía');
     } else {
       console.log(`    · última pasada ${pasada.folio} (${pasada.status})`);
       chk(pasada.status === 'ok', `la pasada ${pasada.folio} terminó en «${pasada.status}»`);
