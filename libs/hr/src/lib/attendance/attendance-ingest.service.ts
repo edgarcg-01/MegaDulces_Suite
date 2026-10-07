@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, latirCron } from '@megadulces/platform-core';
-import { estadoTrasIntento, tipoParaAgente, type Orden } from './logic/relojes';
+import { PREFIJO_RELOJ_DESCONOCIDO, estadoTrasIntento, tipoParaAgente, type Orden } from './logic/relojes';
 import {
   IncomingBatch,
   NormalizedPunch,
@@ -28,6 +28,9 @@ import {
  *     alguien trabaja con ese número y esconderlo lo sacaba de todo.
  *   - El nombre que manda el reloj sólo RELLENA, nunca pisa lo que corrigió RH.
  *   - Idempotente: la llave natural de la checada es (reloj, usuario del reloj, instante).
+ *   - Puente con el histórico (`[RH.1.8]`, traslado del `NOT EXISTS` de Mega Talento): una checada
+ *     que ya está en el RELOJ DESCONOCIDO de su sitio (misma persona, mismo instante de pared) no se
+ *     vuelve a meter. Ver `insertPunches`.
  *   - El lote crudo sólo se guarda si NO se aplicó (lo aplicado ya está en attendance_logs).
  *
  * El tenant es explícito (`HR_INGEST_TENANT_ID`, o el de Mega Dulces): quien llama es una
@@ -363,9 +366,29 @@ export class HrAttendanceIngestService {
     return (res.rows || []).map((r: { device_user_id: string }) => r.device_user_id);
   }
 
+  /**
+   * Inserta las checadas de UN reloj real. Además de la llave natural (reloj, usuario, instante), se salta
+   * la checada que ya está en el RELOJ DESCONOCIDO de su sitio con la misma persona y la misma hora de pared.
+   *
+   * ⭐ Por qué (traslado del `NOT EXISTS` de `api/src/ingesta.ts` de Mega Talento, medido el 2026-10-07):
+   * de las 214,784 checadas de Mega Talento, **119,260 no traen reloj**: entraron por la base de la Fase CH
+   * hasta el 5-ago-2026 y la carga única las deja en `MT-SIN-RELOJ-<sitio>` (no se adivina su reloj). Los
+   * relojes guardan años de historia en su buffer, así que un lector SIN marca de agua — el de `md` en
+   * `[RH.1.3]`, o el agente si pierde su `cola.db` — manda todo eso otra vez, ahora con su serie, y la llave
+   * natural no lo frena porque el reloj es otro. Mega Talento tiene este mismo puente por esa razón («sin
+   * este filtro el primer backfill del agente las volvería a insertar todas») y hoy tiene CERO gemelas.
+   *
+   * La persona se compara con su código de SITIO (`person_code` del enrolamiento, o el crudo si no se
+   * traduce): es como quedó en el desconocido. La hora se compara con el `punched_at` que tendría en el
+   * desconocido (su propia zona), para entrar por la llave primaria en vez de recorrer el histórico.
+   */
   private async insertPunches(
     trx: Knex.Transaction, tenant: string, device: DeviceRow, source: string, rows: NormalizedPunch[],
   ): Promise<number> {
+    const unknown = device.site_code
+      ? await trx('hr.attendance_devices').where({ serial_number: `${PREFIJO_RELOJ_DESCONOCIDO}${device.site_code}` })
+        .first<{ id: string; timezone: string } | undefined>('id', 'timezone')
+      : undefined;
     let accepted = 0;
     for (let i = 0; i < rows.length; i += CHUNK) {
       const chunk = rows.slice(i, i + CHUNK).map((r) => ({ code: r.code, local: r.local, ptype: r.punchType, vmode: r.verifyMode }));
@@ -379,8 +402,15 @@ export class HrAttendanceIngestService {
            FROM jsonb_to_recordset(?::jsonb) AS v(code text, local text, ptype int, vmode int)
            LEFT JOIN hr.device_enrollments e
              ON e.tenant_id = ?::uuid AND e.device_id = ?::uuid AND e.device_user_id = v.code
+          WHERE ?::uuid IS NULL OR NOT EXISTS (
+            SELECT 1 FROM hr.attendance_logs h
+             WHERE h.tenant_id = ?::uuid AND h.device_id = ?::uuid
+               AND h.device_user_id = COALESCE(e.person_code, v.code)
+               AND h.punched_at = (v.local::timestamp AT TIME ZONE ?)
+               AND h.punched_local = v.local::timestamp)
          ON CONFLICT (tenant_id, device_id, device_user_id, punched_at) DO NOTHING`,
-        [tenant, device.id, device.timezone, source, JSON.stringify(chunk), tenant, device.id],
+        [tenant, device.id, device.timezone, source, JSON.stringify(chunk), tenant, device.id,
+          unknown?.id ?? null, tenant, unknown?.id ?? null, unknown?.timezone ?? device.timezone],
       );
       accepted += res.rowCount || 0;
     }

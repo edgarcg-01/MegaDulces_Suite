@@ -30,12 +30,17 @@
  * Lo que NO hace: crear personas (`identity.users`) — eso es `[RH.1.4]`, con los mapeos de RH.
  * Hasta entonces el padrón queda en los enrolamientos y el reporte marca `fuera_del_padron`.
  *
- * ⛔ ANTES DE APLICARLO EN PROD (abierto, `[RH.1.8]`): prod ya tiene ~129 mil checadas de la Fase
- * CH (2026-08-17) en esos mismos relojes, leídas con su código crudo. Las checadas SIN reloj de
- * Mega Talento salieron de esa misma fuente: cargarlas al reloj desconocido las DUPLICARÍA en la
- * vista (misma persona, mismo minuto, dos relojes) y `checada_duplicada` saltaría en cada una. La
- * carga a prod tiene que reconocer esas filas antes de insertar. En desarrollo no se ve: la base
- * local no trae las de CH.
+ * ── Duplicados con el histórico (resuelto 2026-10-07, `[RH.1.8]`) ───────────────────────────────
+ * Esta cabecera decía que prod «ya tiene ~129 mil checadas de la Fase CH». **Era falso:** CH cargó sus
+ * 129,461 en su base DEDICADA `hr` de `.245` (`knexfile-hr.js`; `[CH.0.5]` se validó en local y
+ * `[CH.0.9]` «aplicar a Railway» nunca se hizo). No se pudo leer prod desde la máquina de trabajo para
+ * confirmarlo, así que la carga NO depende de eso: una checada del reloj desconocido CEDE ante la misma
+ * (sitio, persona, hora de pared) en un reloj real del destino — venga de esta carga, de CH o de la
+ * ingesta viva. Lo que se descarta así sale en el cuadre como `ya_en_un_reloj_del_sitio`.
+ * El riesgo real estaba del otro lado: un lector sin marca de agua reenvía el buffer completo del
+ * reloj (años) con su serie. Eso lo frena la ingesta (`insertPunches`), con el mismo puente que ya
+ * tenía Mega Talento. Medido: Mega Talento tiene 0 gemelas al segundo entre lo que trae reloj y lo
+ * que no (corte limpio el 5-ago-2026: antes todo sin reloj, después todo con serie).
  */
 const path = require('path');
 const crypto = require('crypto');
@@ -187,7 +192,7 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
 
   // ── Checadas, sitio por sitio ──────────────────────────────────────────────────────────
   let origenChecadas = 0, cargadasChecadas = 0;
-  const descChecadas = { fecha_basura: 0, duplicada_en_destino: 0 };
+  const descChecadas = { fecha_basura: 0, duplicada_en_destino: 0, ya_en_un_reloj_del_sitio: 0 };
   for (const s of sitiosMt) {
     const filas = await q(
       `SELECT btrim(empleado_codigo) AS codigo, empleado_nombre AS nombre, fecha_hora, fecha, tipo, serie_reloj
@@ -215,14 +220,58 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
       if (!enrolar(deviceId, crudo, f.codigo, s, f.nombre)) { deviceId = desconocido.get(s); crudo = f.codigo; enrolar(deviceId, crudo, f.codigo, s, f.nombre); }
       logs.push({ d: deviceId, u: crudo, l: String(f.fecha_hora).replace(' ', 'T').slice(0, 19), t: f.tipo });
     }
-    const n = await insertarLotes(trx, logs, `
+    // Primero las que traen su reloj; después las del reloj desconocido, que CEDEN ante una checada
+    // del mismo sitio, persona e instante que ya esté en un reloj real (de esta carga, de la Fase CH si
+    // el destino la tuviera, o de la ingesta viva si la carga corre tarde). Es el mismo puente que la
+    // ingesta (`insertPunches`) aplica en sentido contrario. Medido 2026-10-07: Mega Talento tiene CERO
+    // gemelas al segundo, así que en una base vacía esto no descarta nada — protege el destino que no
+    // se pudo medir desde aquí (prod).
+    const desc = desconocido.get(s);
+    const reales = logs.filter((x) => x.d !== desc);
+    const sinReloj = logs.filter((x) => x.d === desc);
+    const nReales = await insertarLotes(trx, reales, `
       INSERT INTO hr.attendance_logs (tenant_id, device_id, device_user_id, punched_at, punched_local, punch_type, source)
       SELECT '${tenantId}'::uuid, x.d, x.u, (x.l::timestamp AT TIME ZONE dv.timezone), x.l::timestamp, x.t, 'carga_unica'
         FROM jsonb_to_recordset(?::jsonb) AS x(d uuid, u text, l text, t smallint)
         JOIN hr.attendance_devices dv ON dv.id = x.d
       ON CONFLICT DO NOTHING`);
-    cargadasChecadas += n;
-    descChecadas.duplicada_en_destino += logs.length - n;
+    // Los relojes REALES del sitio en el destino (de esta carga, de CH o dados de alta a mano). Se pasan
+    // como lista para entrar por el índice (tenant, reloj, instante): con un EXISTS que los buscaba por
+    // sitio, cada lote de 5,000 tardaba ~15 s (medido; el ensayo pasó de ~20 s a más de 10 min).
+    // El instante se compara con la zona del reloj desconocido; los relojes de la empresa están todos en
+    // la zona de México, y la hora de pared se compara además textual (si un día no coinciden las zonas,
+    // el puente deja pasar — duplica, nunca borra ni atribuye mal).
+    const relojesDelSitio = (await trx('hr.attendance_devices').where({ site_code: s }).whereNot({ id: desc }).pluck('id'));
+    let yaEnReloj = 0, nSinReloj = 0;
+    for (let i = 0; i < sinReloj.length; i += LOTE) {
+      const r = await trx.raw(`
+        WITH x AS (
+          SELECT x.d, x.u, x.l, x.t, (x.l::timestamp AT TIME ZONE dv.timezone) AS at
+            FROM jsonb_to_recordset(?::jsonb) AS x(d uuid, u text, l text, t smallint)
+            JOIN hr.attendance_devices dv ON dv.id = x.d
+        ), m AS (
+          SELECT x.*, EXISTS (
+            SELECT 1 FROM hr.attendance_logs r
+              LEFT JOIN hr.device_enrollments re
+                ON re.tenant_id = r.tenant_id AND re.device_id = r.device_id AND re.device_user_id = r.device_user_id
+             WHERE r.tenant_id = '${tenantId}'::uuid AND r.device_id = ANY(?::uuid[])
+               AND r.punched_at = x.at AND r.punched_local = x.l::timestamp
+               AND COALESCE(re.person_code, r.device_user_id) = x.u) AS ya
+            FROM x
+        ), ins AS (
+          INSERT INTO hr.attendance_logs (tenant_id, device_id, device_user_id, punched_at, punched_local, punch_type, source)
+          SELECT '${tenantId}'::uuid, m.d, m.u, m.at, m.l::timestamp, m.t, 'carga_unica' FROM m WHERE NOT m.ya
+          ON CONFLICT DO NOTHING
+          RETURNING 1
+        )
+        SELECT (SELECT count(*)::int FROM m WHERE m.ya) AS ya, (SELECT count(*)::int FROM ins) AS n`,
+        [JSON.stringify(sinReloj.slice(i, i + LOTE)), relojesDelSitio]);
+      yaEnReloj += r.rows[0].ya;
+      nSinReloj += r.rows[0].n;
+    }
+    cargadasChecadas += nReales + nSinReloj;
+    descChecadas.ya_en_un_reloj_del_sitio += yaEnReloj;
+    descChecadas.duplicada_en_destino += (reales.length - nReales) + (sinReloj.length - yaEnReloj - nSinReloj);
   }
 
   // Los enrolamientos se escriben DESPUÉS de las checadas para que traigan todos los nombres.

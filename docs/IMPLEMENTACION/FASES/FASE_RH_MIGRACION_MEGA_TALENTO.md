@@ -419,10 +419,37 @@ diferencias, las 3 explicadas (abajo).
 - **La cola de alertas no la usa nadie**: 10,429 sugeridas y **cero decididas** en toda su historia.
   Antes de construir su pantalla (`[RH.1.7]`) hay que preguntarle a RH si la quiere.
 
-⛔ **Abierto para el corte (`[RH.1.8]`):** prod ya tiene ~129 mil checadas de la Fase CH en los mismos
-relojes. Las checadas sin reloj de Mega Talento salieron de esa fuente: cargarlas tal cual las
-duplicaría en la vista (misma persona y minuto, dos relojes). La carga a prod tiene que reconocerlas.
-En desarrollo no se ve: la base local no trae las de CH.
+✅ **Duplicados con el histórico — resuelto (2026-10-07).** Esta sección afirmaba que «prod ya tiene ~129 mil
+checadas de la Fase CH». **Era falso**, y lo había escrito yo sin medirlo: CH cargó sus 129,461 en su base
+**dedicada** `hr` de `.245` (`database/knexfile-hr.js`); `[CH.0.5]` se validó en local y `[CH.0.9]` («aplicar
+la migración a Railway») nunca se hizo. ⚠️ Prod no se pudo leer desde la máquina de trabajo para cerrarlo del
+todo, así que la solución no depende de eso.
+
+Lo medido en Mega Talento (sólo lectura): de 215,137 checadas, **119,260 no traen reloj**. Hay un **corte limpio
+el 5-ago-2026**: antes todo entró sin reloj (por la base de CH), después todo con serie (el agente). Los segundos
+son reales (sólo ~1.6% caen en `:00`), y hay **cero gemelas** al segundo entre lo que trae reloj y lo que no. La
+razón: su ingesta tiene un puente (`NOT EXISTS` contra lo sin reloj del sitio) que **la ingesta portada a la Suite
+no traía**. La paridad no lo podía ver: compara datos cargados, no el comportamiento de la ingesta.
+
+El riesgo real estaba ahí: los relojes guardan **años** en su buffer, y un lector sin marca de agua —el de `md` en
+`[RH.1.3]`, o el agente si pierde su `cola.db`— reenvía todo con su serie. El corte por configuración NO lo
+dispara: el agente conserva su marca y sólo reenvía desde ella menos 36 h.
+
+**Qué se hizo** (dos lados del mismo puente, cada uno con prueba negativa ejercida: sin el puente, rojo):
+- **Ingesta** (`insertPunches`): una checada que ya está en el reloj desconocido del sitio (misma persona en código
+  de sitio, misma hora de pared) no entra. Entra por la llave primaria, no recorre el histórico.
+- **Carga única**: la copia del reloj desconocido **cede** ante la misma checada en un reloj real del destino (de
+  esta carga, de CH si prod la tuviera, o de la ingesta viva si la carga corre tarde). Sale en el cuadre como
+  `ya_en_un_reloj_del_sitio`. Primer intento: un `EXISTS` por sitio tardaba ~15 s por lote (el ensayo pasó de ~20 s
+  a más de 10 min); con la lista de relojes del sitio entra por índice → **ensayo completo en 41 s**.
+
+**Verificado con datos reales** (transacción revertida): carga completa y luego reenvío por la ingesta, con la
+serie del reloj real, de todo el histórico sin reloj de tres sitios — **8 Esquinas 50,688 → 0 nuevas (7 s), CEDIS
+23,384 → 0 (3 s), Zamora Canindo 9,440 → 0 (1 s)**. Cuadre de la carga: 215,134 de 215,137 (3 con fecha basura).
+
+⚠️ **Límite declarado:** el puente compara con el código de SITIO. En el reloj de comida de corporativo (traduce
+códigos) depende de que el enrolamiento tenga su `person_code`; la carga lo pone para los 41 del mapa. Un código
+crudo sin mapa podría duplicarse ahí — el cálculo lo colapsa igual (marcas a <5 min), sólo sería ruido.
 
 ### 5.3 `[RH.1.7]` — las pantallas, el espacio y el reparto (2026-10-07)
 
