@@ -109,6 +109,27 @@ export class BudgetGenerationService {
     });
   }
 
+  /**
+   * `[VE.9.2]` Los ejercicios de un tenant, leídos **por `TenantKnexService`**.
+   *
+   * ⛔ Existe porque los dos pilotos listaban con el knex CRUDO (`KNEX_NEW_DB`) desde adentro de
+   * su helper de contexto, y eso **no alcanza**: abrir el contexto CLS no aplica `app.tenant_id`
+   * — lo aplica `tk.run()`, que es quien emite el `set_config`. Con RLS **forzado** en
+   * `budget.*`, el knex crudo no falla: devuelve **cero filas**.
+   *
+   * Medido en la primera pasada real (2026-10-07): `ensureBudgetForYear` creó `PRE-2027-002`
+   * —usa `tk.run`— y acto seguido la lista devolvió 0, así que la pasada recorrió «0/0
+   * ejercicios» sobre un ejercicio que acababa de crear ella misma.
+   *
+   * ⚠️ Es la SEGUNDA vez que el mismo bug se cobra esta pasada. `[VE.4]` ya lo había arreglado
+   * moviendo la consulta adentro del contexto — y el contexto nunca fue lo que faltaba.
+   */
+  async listBudgets(): Promise<Array<{ id: string; name: string; fiscal_year: number; status: string }>> {
+    return this.tk.run(async (trx) => trx('budget.budgets')
+      .select('id', 'name', 'fiscal_year', 'status')
+      .orderBy('fiscal_year', 'asc')) as unknown as Array<{ id: string; name: string; fiscal_year: number; status: string }>;
+  }
+
   /** `[D]` Abre el registro de una generación y devuelve su folio. */
   async openRun(
     tenantId: string, kind: string, trigger: 'cron' | 'manual',
