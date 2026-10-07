@@ -795,6 +795,21 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(conAncla).toBeLessThanOrEqual(2);
   });
 
+  it('⛔ [negativa] la columna de marcar tiene ROTULO VISIBLE, no sólo un aria-label', async () => {
+    // Edgar preguntó DOS veces "¿para qué sirve el checkbox?". La columna llevaba sólo la casilla
+    // de «marcar todas» y su único texto era un `ariaLabel`: el control más importante de la
+    // pantalla no decía qué hace, salvo para un lector de pantalla.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const th: Element | null = fx.nativeElement.querySelector('.cg-bandeja-tbl thead th');
+    expect(th).not.toBeNull();
+    expect(th!.textContent!.trim()).toContain('Confirmar');
+    // Y no vale esconderlo en un sr-only: tiene que verlo el ojo.
+    expect(th!.querySelector('.sr-only')).toBeNull();
+  });
+
   it('marcar con el teclado NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
     // Lo que emite p-table al marcar con Space sobre una fila trabada.
@@ -1163,6 +1178,46 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // Y sigue sin haber ninguna forma de teclear el monto dentro del bloque del total.
     const bloque: Element = fx.nativeElement.querySelector('.cg-total-bloque');
     expect(bloque.querySelectorAll('input, textarea, select').length).toBe(0);
+  });
+
+  // ── [CG.54] Limpieza: el mismo hecho, en UN lugar ────────────────────────────────────────
+  //
+  // Edgar: *"limpiemos cosas innecesarias. hay que optimizar la vista"*. Medido antes de cortar:
+  // el importe del documento anclado aparecía **cinco veces** en el mismo panel — el encabezado,
+  // la pista «Kepler: …», el pie del crédito, la cabecera del arqueo y el bloque del número.
+  // Tres de las cinco las había agregado yo en `[CG.49]` y `[CG.53]`.
+
+  it('el importe del documento se dice DOS veces, y cada una tiene su oficio', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);        // el documento dice 1060
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const panel: Element = fx.nativeElement.querySelector('.cg-detail');
+    const texto = panel.textContent ?? '';
+    const veces = texto.split('1,060.00').length - 1;
+
+    // Dos, no cinco: el encabezado dice CUÁL documento es, el bloque del número dice contra
+    // CUÁNTO cuadra. Cualquier tercera es un eco que hay que ir a verificar que diga lo mismo.
+    expect(veces).toBe(2);
+
+    // Y lo que se fue, se fue: la pista larga ya no está.
+    expect(texto).not.toContain('El monto sale del arqueo, no del documento');
+    expect(texto).not.toContain('El documento dice');
+  });
+
+  it('⛔ [negativa] en un GASTO no se ofrece «Venta a crédito»: ahí no significa nada', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);        // GASTO_TRABADO.tipo === 'gasto'
+    await Promise.resolve();
+    fx.detectChanges();
+
+    expect(comp.f().tipo).toBe('gasto');
+    // Una venta a crédito es, por definición, parte de un COBRO que no llegó en efectivo. Colgaba
+    // de `cobroElegido()` a secas y desde CG.21 el egreso también se ancla, así que un comprobante
+    // de gasto mostraba el campo. El servidor acepta `venta_credito` sin mirar el tipo: el freno va
+    // en la pantalla.
+    expect(fx.nativeElement.querySelector('#cg-vcredito')).toBeNull();
   });
 
   it('el veredicto del arqueo distingue TRES ausencias, no dos', () => {

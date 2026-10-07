@@ -354,6 +354,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⛔ [CG.48] Acá vivía ".cg-contado", el input de conteo por renglón de la bandeja. Se fue
        con su columna: era la única forma de meter una cifra contada al libro SIN desglose. */
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
+    /* [CG.54] El rotulo de la columna de marcar. La casilla y la palabra van en un <label>, asi que
+       hacer clic en "Confirmar" tambien marca todas -- el blanco deja de ser una casilla de 14px. */
+    .cg-th-conf { white-space:nowrap; }
+    .cg-conf-lbl { display:inline-flex; align-items:center; gap:var(--sp-2); cursor:pointer; }
 
     /* [CG.53] La reja en dos columnas y el numero grande. Una caja con borde y SIN sombra -- in-page
        es una de las dos, nunca las dos. */
@@ -390,6 +394,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-total-bloque.es-ok   .cg-total-v { color:var(--ok-soft-fg); }
     .cg-total-bloque.es-warn .cg-total-v { color:var(--warn-soft-fg); }
     .cg-total-esp { font-size:var(--fs-xs); color:var(--text-muted); margin-top:var(--sp-1); }
+    .cg-total-regla { margin:var(--sp-1) 0 0; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.45; }
     /* [CG.51] La cabecera del historial plegado. Es un <button> y no un <h2> con (click): lo que
        hace es abrir y cerrar, asi que el teclado lo alcanza solo y anuncia su aria-expanded. */
     .cg-historial { margin-top:var(--sp-5); }
@@ -966,9 +971,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    [selection]="filasMarcadas()" (selectionChange)="onSeleccionTabla($event)">
             <ng-template #header>
               <tr>
-                <th scope="col" class="ta-c"><p-checkbox [binary]="true" [ngModel]="todasMarcadas()"
-                                        (ngModelChange)="marcarTodas($event)"
-                                        ariaLabel="Marcar todas las confirmables"></p-checkbox></th>
+                <!-- ⛔ [CG.54] Esta columna NO TENIA ROTULO VISIBLE: el th llevaba solo la casilla de
+                     "marcar todas", y el unico texto era un ariaLabel que nada mas oye un lector de
+                     pantalla. O sea que el control MAS IMPORTANTE de la pantalla no decia que hace.
+                     Lo reporto Edgar dos veces ("no entiendo para que es el checkbox") y las dos
+                     veces se respondio con una explicacion en el chat en vez de arreglar la pantalla.
+                     Marcar significa: este efectivo SI paso por la caja, espejalo al libro. -->
+                <th scope="col" class="cg-th-conf">
+                  <label class="cg-conf-lbl">
+                    <p-checkbox [binary]="true" [ngModel]="todasMarcadas()"
+                                (ngModelChange)="marcarTodas($event)"
+                                ariaLabel="Marcar todas las confirmables"></p-checkbox>
+                    <span>Confirmar</span>
+                  </label>
+                </th>
                 <th scope="col">Fecha</th>
                 <th scope="col"><span class="sr-only">Entra o sale</span></th>
                 <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
@@ -1490,8 +1506,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
               <!-- CS.3.13 — Venta a crédito: la parte que NO llega en efectivo (queda como saldo del cliente).
                    Se auto-rellena con el total cuando el cliente es de crédito; SIEMPRE editable. Se descuenta
-                   del efectivo esperado. Sólo con un cobro anclado (que trae el cliente). -->
-              @if (cobroElegido(); as c) {
+                   del efectivo esperado. Sólo con un cobro anclado (que trae el cliente).
+
+                   ⛔ [CG.54] Y sólo en un INGRESO. Acá colgaba de cobroElegido() a secas, y desde que
+                   CG.21 dejó anclar también el egreso, un comprobante de GASTO mostraba un campo
+                   "Venta a crédito" — que ahí no significa nada: una venta a crédito es, por
+                   definición, parte de un cobro que no llegó en efectivo. El servidor no lo frena
+                   (acepta venta_credito sin mirar el tipo), así que el freno va acá. -->
+              @if (f().tipo === 'ingreso' && cobroElegido(); as c) {
                 <div class="cg-credito">
                   <div class="cg-credito-head">
                     <label for="cg-vcredito">Venta a crédito</label>
@@ -1502,19 +1524,24 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   <input pInputText id="cg-vcredito" type="number" min="0" step="0.01" inputmode="decimal" class="cg-vcredito"
                          [ngModel]="ventaCredito()" (ngModelChange)="setVentaCredito($event)"
                          aria-label="Monto de la venta a crédito" />
-                  <small class="fin-dim">
-                    Efectivo esperado = documento {{ money(c.monto) }} − crédito {{ money(ventaCredito()) }} =
-                    <strong>{{ money(c.monto - ventaCredito()) }}</strong>
-                  </small>
+                  <!-- La fórmula sólo cuando hay crédito: con 0 era "documento $144 − crédito $0.00 =
+                       $144", o sea un renglón para publicar una resta de cero. -->
+                  @if (ventaCredito() > 0) {
+                    <small class="fin-dim">
+                      Efectivo esperado = documento {{ money(c.monto) }} − crédito {{ money(ventaCredito()) }} =
+                      <strong>{{ money(c.monto - ventaCredito()) }}</strong>
+                    </small>
+                  }
                 </div>
               }
 
               <div class="cg-arqueo">
                 <div class="cg-arqueo-head">
                   <strong>{{ hayCajero() ? 'La diferencia, a mano' : 'Contá el efectivo' }}</strong>
-                  @if (cobroElegido(); as c) {
-                    <span class="fin-dim">El documento dice <span class="mono">{{ money(c.monto) }}</span></span>
-                  }
+                  <!-- ⛔ [CG.54] Acá decía "El documento dice $144.00". Lo dice el bloque del número,
+                       tres renglones abajo y PEGADO a la cifra con la que se compara, que es donde
+                       sirve. Repetirlo arriba no agrega el dato: agrega una segunda cifra en pantalla
+                       que hay que verificar que sea la misma. -->
                   @if (hayCajero()) {
                     <span class="fin-dim">El cajero ya aportó {{ money(aporteCajero()) }} — contá acá sólo lo que falta o la morralla (arranca en cero).</span>
                   }
@@ -1643,6 +1670,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       }
                     </div>
                   </div>
+                  <!-- [CG.54] La CONSECUENCIA, que es lo unico que la pista vieja agregaba y que el
+                       veredicto solo no dice. Va pegada a la diferencia, no al selector de documento
+                       del otro extremo del panel. El efectivo nunca se rechaza: se guarda lo contado. -->
+                  @if (v.estado === 'sobra' || v.estado === 'falta') {
+                    <p class="cg-total-regla">
+                      El efectivo <strong>no se rechaza</strong>: se guarda lo contado y la diferencia
+                      queda como hallazgo a nombre de quien confirma.
+                    </p>
+                  }
                 }
 
                 <!-- ⭐ [CG.38] EL CAMBIO QUE SE DEVUELVE. Hasta hoy no había dónde registrarlo: si te
@@ -1750,22 +1786,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                   [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
                                   placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
                   @if (cobroElegido(); as c) {
-                    <!-- [CG.37] Era verde. El verde significa "esto quedo bien"; esto es el ECO de lo
-                         que elegiste, o sea explicacion. Y la linea de abajo, que hace exactamente lo
-                         mismo, ya iba en fin-dim: dos hermanas con el mismo papel y distinto color. -->
-                    <small class="fin-dim">
-                      Kepler: {{ c.doc_tipo }} {{ c.folio }} · {{ c.beneficiario || c.entidad_code }} ·
-                      {{ money(c.monto) }}@if (c.caja_nombre) { · {{ c.caja_nombre }} }. El monto sale del arqueo, no del documento.
-                    </small>
-                    <!-- ⛔ [CG.48] Acá se mostraba "ya habías contado X en la bandeja": la referencia
-                         al conteo por renglón, que ya no existe. Se cuenta una sola vez, acá abajo. -->
-                    <!-- La diferencia se DICE antes de guardar: el hallazgo del servidor no sirve si la persona no la vio. -->
-                    @if (montoContado(); as mc) {
-                      <small class="fin-hint-warn">
-                        Contaste {{ money(mc) }} vs documento {{ money(c.monto) }}:
-                        <strong>{{ money(mc - c.monto) }}</strong> de diferencia — se registra y queda un hallazgo.
-                      </small>
-                    }
+                    <!-- ⛔ [CG.54] Acá vivia el eco del documento: "Kepler: X-D-26 0022707 ·
+                         BENEFICIARIO · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
+                         documento." Dos renglones para repetir lo que ya estaba en otros cuatro
+                         lugares del MISMO panel. Medido: el importe del documento aparecia CINCO
+                         veces (encabezado, esta pista, el pie del credito, la cabecera del arqueo y
+                         el bloque del numero). Quedan DOS, y cada una tiene su oficio: el encabezado
+                         dice CUAL documento es, y el bloque del numero dice contra CUANTO cuadra.
+                         ⛔ Y la pista de la diferencia tambien se fue de aca: la cifra, el veredicto
+                         y la consecuencia viajan juntos en el bloque del numero, que es donde esta
+                         lo contado. Decir "contaste 1100 vs documento 1060" al lado del selector de
+                         documento era mandar a la persona a buscar el dato al otro extremo. -->
                   } @else {
                     <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
                   }
