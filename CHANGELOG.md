@@ -13,8 +13,8 @@
 - En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
 - **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.
 - **Arreglo:** `display:flex` (una línea, con comentario del porqué). Era la única pantalla de `apps/view` con ese patrón. Sin migraciones ni permisos → **sin re-login**.
-### Changed — Arqueo de caja: monedas y billetes en una sola lista, de 50¢ a $1,000 (SM.42, 2026-10-07)
-- `/tienda/arqueo`: el conteo deja de ser dos columnas (billetes | monedas, de mayor a menor) y pasa a **una tabla «Monedas / billetes» de menor a mayor** —50¢, $1, $2, $5, $10, $20 moneda, $20 billete, $50 … $1,000— con cantidad, importe y **«Total en efectivo»** al pie, como la hoja de arqueo de la operación. En todas las pestañas.
+### Changed — Arqueo de caja: billetes y monedas en una sola lista, de $1,000 a 50¢ (SM.42, 2026-10-07)
+- `/tienda/arqueo`: el conteo deja de ser dos columnas (billetes | monedas, de mayor a menor) y pasa a **una tabla «Monedas / billetes»: billetes primero y monedas al final, de mayor a menor** —$1,000, $500 … $20 billete, $20 moneda, $10 … 50¢— con cantidad, importe y **«Total en efectivo»** al pie, como la hoja de arqueo de la operación. En todas las pestañas.
 - Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
