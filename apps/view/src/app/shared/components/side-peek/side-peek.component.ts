@@ -30,7 +30,8 @@ import {
   imports: [],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="sp-root" [class.is-open]="open()" [class.is-above-modals]="aboveModals()">
+    <div class="sp-root" [class.is-open]="open()" [class.is-above-modals]="aboveModals()"
+         [class.is-window]="mode() === 'window'">
       <div class="sp-backdrop" (click)="close()" aria-hidden="true"></div>
       <aside
         #panel
@@ -184,11 +185,70 @@ import {
         overflow-y: auto;
         padding: 1.25rem;
       }
+      /* ── Modo VENTANA ──────────────────────────────────────────────────────────────────
+         Mismo organismo, otra forma. Existe porque hay detalles que NO caben en 520px: el
+         de venta por ruta trae nueve metricas y una tabla de productos, y en el cajon la
+         tabla salia con el nombre partido en tres renglones.
+
+         Se sacrifica a proposito lo que el cajon da -ver el detalle SIN perder la lista- a
+         cambio de poder leer el contenido. Por eso es un modo y no el default: las otras
+         pantallas, que muestran un registro, siguen con el cajon.
+
+         Lo que NO cambia: role=dialog, aria-modal, Esc, clic en el fondo, bloqueo de scroll
+         y foco al abrir. Son del organismo, no del modo. */
+      .sp-root.is-window {
+        display: grid;
+        place-items: center;
+        padding: var(--space-4, 1rem);
+      }
+      .sp-root.is-window .sp-panel {
+        position: relative;
+        top: auto;
+        right: auto;
+        width: min(var(--sp-w, 1180px), 100%);
+        /* Alto por contenido pero con techo: una ventana que crece hasta tapar la pantalla
+           deja de leerse como ventana. El cuerpo scrollea solo (.sp-body ya es flex:1). */
+        height: auto;
+        max-height: min(88vh, 900px);
+        border: 1px solid var(--border-color);
+        border-radius: var(--r-lg, 14px);
+        box-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.35);
+        /* Entra con escala y no con deslizamiento: el deslizamiento lateral dice "esto viene
+           del borde", y esta no viene del borde. */
+        transform: translateY(8px) scale(0.98);
+        opacity: 0;
+        transition:
+          transform 200ms var(--ease-emphasized, cubic-bezier(0.2, 0, 0, 1)),
+          opacity 150ms var(--ease-out, ease);
+      }
+      .sp-root.is-window.is-open .sp-panel {
+        transform: translateY(0) scale(1);
+        opacity: 1;
+      }
+      /* En pantalla chica la ventana ocupa casi todo: a 1180px de ancho pedido sobre 390px
+         de pantalla, lo que se gana en una no se puede perder en la otra. */
+      @media (max-width: 860px) {
+        .sp-root.is-window {
+          padding: 0;
+        }
+        .sp-root.is-window .sp-panel {
+          width: 100%;
+          max-height: 100%;
+          height: 100%;
+          border-radius: 0;
+          border: none;
+        }
+      }
       @media (prefers-reduced-motion: reduce) {
         .sp-root,
         .sp-backdrop,
         .sp-panel {
           transition: none;
+        }
+        /* Sin animacion, pero visible: sin esto la ventana se queda en opacity 0. */
+        .sp-root.is-window .sp-panel {
+          transform: none;
+          opacity: 1;
         }
       }
     `,
@@ -198,10 +258,27 @@ export class SidePeekComponent {
   readonly open = model(false);
   /** Apilar por encima de los diálogos de PrimeNG. Ver la nota de z-index en los estilos. */
   readonly aboveModals = input(false);
-  /** Ancho del panel en px. Default 520 (detalle ligero). Subilo sólo si adentro va un
-   *  documento que se tiene que poder leer (O.1). */
-  readonly width = input(520);
-  protected readonly widthPx = computed(() => `${this.width()}px`);
+  /**
+   * `drawer` (default) = cajón lateral, el patrón canónico: ver el detalle **sin perder la
+   * lista** (DESIGN.md §datos densos 8).
+   *
+   * `window` = ventana centrada. ⚠️ **Es una desviación consciente de esa regla**, no el
+   * camino fácil: se usa cuando el detalle no cabe en un cajón y la lista pasa a segundo
+   * plano. El caso que lo justificó: venta por ruta, con nueve métricas y una tabla de
+   * productos que en 520px salía con el nombre partido en tres renglones.
+   *
+   * Si el detalle es un registro, va `drawer`. Elegir `window` porque "se ve más grande"
+   * cambia el patrón de toda una superficie por una pantalla.
+   */
+  readonly mode = input<'drawer' | 'window'>('drawer');
+  /** Ancho del panel en px. `0` = el que corresponde al modo (520 cajón / 1180 ventana).
+   *  Subilo sólo si adentro va un documento que se tiene que poder leer (O.1). */
+  readonly width = input(0);
+  protected readonly widthPx = computed(() => {
+    const w = this.width();
+    if (w > 0) return `${w}px`;
+    return this.mode() === 'window' ? '1180px' : '520px';
+  });
   readonly title = input('');
   readonly subtitle = input<string | null>(null);
 

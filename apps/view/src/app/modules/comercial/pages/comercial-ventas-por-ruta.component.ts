@@ -226,7 +226,11 @@ const MES: Record<string, string> = {
           <h3>Ventas por ruta</h3><p>Elegí las rutas; el reporte carga automáticamente.</p></div>
       }
 
+      <!-- Ventana y no cajón: el desglose trae nueve métricas y una tabla de productos, y en
+           los 520px del cajón el nombre del producto salía partido en tres renglones. Se cede
+           el ver-sin-perder-la-lista a cambio de poder leer. Ver la nota del input mode. -->
       <app-side-peek [(open)]="peekOpen"
+                     mode="window"
                      [title]="detail()?.warehouse_name || 'Ruta'"
                      [subtitle]="detailSubtitle()">
         @if (detailLoading()) {
@@ -565,7 +569,10 @@ const MES: Record<string, string> = {
     .rr-error span { margin-right:auto; }
     /* Detalle (side-peek) */
     .rr-detail-loading { color:var(--text-muted); font-size:.85rem; padding:1rem 0; display:flex; align-items:center; gap:.5rem; }
-    .rr-dkpis { display:grid; grid-template-columns:repeat(2,1fr); gap:.5rem; margin-bottom:1rem; }
+    /* Fluye con el ancho en vez de quedarse en dos columnas: en la ventana las nueve metricas
+       entran en dos renglones, y en pantalla chica caen solas a una columna. Agrandar el
+       contenedor sin esto no mejoraba nada -las tarjetas seguian apiladas igual de altas. */
+    .rr-dkpis { display:grid; grid-template-columns:repeat(auto-fit,minmax(190px,1fr)); gap:.5rem; margin-bottom:1rem; }
     .rr-dkpi { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.5rem .7rem; background:var(--card-bg); }
     .rr-dkpi span { display:block; font-size:.64rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--text-muted); }
     .rr-dkpi b { display:block; font-size:1.05rem; margin-top:.1rem; font-variant-numeric:tabular-nums; }
