@@ -278,13 +278,88 @@ Las dos lecturas posibles, y ninguna está comprobada:
   publicarlas duplicaría.
 - **(b) Hueco**: simplemente nunca se mapearon.
 
-⛔ **Esto se resuelve antes de cargar nueve años, porque decide si la historia se publica con el
-41 % de más o con el 41 % de menos.** Y es una pregunta que vale por sí sola aunque esta fase se
-cancele: si es (b), hoy hay venta de mostrador de PH que ninguna pantalla ve.
+**✅ RESUELTO el 2026-10-07 — Lupita Sánchez:**
+
+> *"la 99 era la caja que usaban para cobrar un traspaso a sucursal"*
+> *"y la 98 era donde se les cobraba a las rutas directas"*
+
+⭐⭐ **Ninguna de las dos es venta a cliente final, y las dos se venden OTRA VEZ río abajo:**
+
+- **Caja 99 — traspaso a sucursal.** Movimiento interno. La mercancía se vuelve a vender en la
+  sucursal que la recibe, donde sí hay un ticket.
+- **Caja 98 — cobro a rutas directas.** Es el **surtido del camión** (el equivalente Wincaja del
+  `U-D-41` de Kepler, ver [[reference_kepler_route_inventory_docs]]). Esa mercancía se vuelve a
+  vender en el `.mdb` de cada ruta (`h21`, `h22`, `h23`…), que ya alimenta `wincaja_ruta`.
+
+Así que la lectura **(a) era la correcta y el carril vivo hace bien en excluirlas** — pero por una
+razón mejor que la que yo había supuesto: no es que dupliquen contra Kepler, es que **duplican
+contra el eslabón siguiente de la propia Wincaja**.
+
+**Lo que esa respuesta vale, medido en los 9 años de Padre Hidalgo:**
+
+| `Caja` | tickets | `ValorVenta` 2017-2025 | por ticket |
+|---|---:|---:|---:|
+| 99 traspaso a sucursal | 7,153 | **$301,031,704** | $42,085 |
+| 98 surtido a ruta | 11,707 | **$163,550,917** | $13,970 |
+| | | **$464,582,621** | |
+
+**$464.6 millones de doble conteo evitados, sólo en una sucursal.**
+
+---
+
+#### ⛔ Y al medir eso apareció el riesgo REAL de la fase: la lista blanca
+
+Censo de cajas de Padre Hidalgo a lo largo de los nueve años: **20 cajas distintas**. La ventana
+de 2026 con la que hice el placebo sólo mostraba **8**. Las que existen en la historia y **no** en
+esa ventana:
+
+| `Caja` | tickets | `ValorVenta` | vigencia |
+|---|---:|---:|---|
+| 19 | 51,703 | $9,821,642 | sólo 2020 |
+| 17 | 32,128 | $6,399,251 | 2019–2020 |
+| 18 | 6,849 | $2,055,299 | 2019–2025 |
+| 16 | 4,946 | $1,742,999 | 2021–2025 |
+| 11 | 2,185 | $481,470 | 2018–2025 |
+| 81 · 82 | 1,082 | $369,098 | sólo 2021 |
+| 72 · 96 · 71 · 01 | 79 | $79,113 | sueltas |
+| | | **≈ $20,948,872** | |
+
+⛔ **Una lista blanca de «cajas buenas» construida con la ventana de 2026 tiraría $20.9 millones de
+venta real, en silencio, sólo en Padre Hidalgo.** Es exactamente
+[[feedback_filter_validated_on_one_branch_deletes_another]]: un filtro validado en una ventana
+borra otra sin un solo error.
+
+**Por eso el mapa `Caja → naturaleza` es un DATO declarado (tabla), no un literal en una consulta**,
+con cuatro valores — `venta_cliente` · `traspaso_interno` · `surtido_ruta` · **`sin_clasificar`** —
+y **lo `sin_clasificar` NO se descarta ni se incluye: se declara con su monto** para que la
+cobertura de WH.6 lo publique. Un peso que desaparece sin que nadie lo note es peor que uno mal
+clasificado.
+
+---
+
+#### ⛔ Dos renglones envenenan $1.99 **billones**
+
+Al poner precio a cada caja, la 15 de Padre Hidalgo devolvió **$995,263,852,035,419** —
+$8,480 millones por ticket, cuando en 2026 esa misma caja da $658.
+
+Localizado: **son DOS renglones en ~67 millones**, los dos en `h10` corte `2025`, el mismo
+`Articulo` 83400 capturado dos veces (`Consecutivo` 158338 y 158439), con
+`CantidadRegular = 207,502,247,423,428` y `ValorVenta = 995,263,779,541,730` cada uno. El resto de
+ese año en esa caja suma $7,750,380.
+
+Censo en las nueve sucursales (`abs(ValorVenta) > 1,000,000`): **2 renglones en `h10`** y **1 en
+`h00`** de $1,464,548, que es grande pero plausible para el CEDIS y hay que revisar, no filtrar.
+
+⭐ **Consecuencia de diseño: una cota de cordura es obligatoria y va como COMPUERTA, no como
+filtro silencioso.** Dos filas de 67 millones bastan para que todo total, margen y gráfica de esta
+fase sean basura. La compuerta se rompe a propósito una vez (prueba negativa) y lo que caiga fuera
+de la cota se **declara con su monto y su `Consecutivo`**, no se borra.
+
+---
 
 **Pendiente de WH.0:** repetir el placebo en una segunda sucursal (`h50`→06, que también tiene
-crédito publicado) para confirmar que el discriminante `Caja` no es particular de PH, y declarar el
-mapa `Caja → canal` por sucursal como dato, no como literal en una consulta.
+crédito publicado) para confirmar que el discriminante `Caja` no es particular de PH, y levantar el
+censo de cajas de las nueve para saber cuánto falta clasificar en total.
 
 ---
 
