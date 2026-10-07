@@ -4133,6 +4133,37 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.71] · Mayra Gutiérrez ve el historial de gastos de ella y de todos — 2026-10-07
+
+- [x] **[GX.71]** 🧪 Pedido: *«al usuario de mayra_gutierrez dale el permiso de que pueda ver el historial de ella
+  y de todos»*. La pestaña «Todos» de `/finanzas/gastos-historial` (+ `GET /finance/expenses/proofs` y el
+  calendario con `alcance=todos`) era **sólo god-mode** desde `[GX.26]`. Llave nueva
+  `FINANCE_EXPENSES_HISTORIAL_TODOS`, **fuera de todo MODULE_GROUP y de todo rol**, dada **por persona**
+  (`identity.user_permissions`, mig `20261007230000`, molde `[GX.17]`): su rol lo comparten otras personas y
+  dárselo al rol les abriría el gasto de toda la empresa sin que nadie las nombrara. La regla vive UNA vez en
+  el contrato (`puedeVerHistorialDeTodos`: god-mode **o** la llave) y la usan las dos rutas y la pantalla;
+  `FINANCE_EXPENSES_VER` **sigue sin alcanzar** (candado negativo). La llave también abre `/mine`, el
+  calendario propio y el detalle `:id` (`PERMISOS_VEN_CUALQUIER_EXPEDIENTE`): sin eso «Todos» mostraría vales
+  que responden 403. Ruta, pestaña y menú del Historial la aceptan. Migración probada en local dentro de una
+  transacción revertida: up → 1 fila · 2º up → 0 (idempotente) · down → 0.
+  ⚠️ En local Mayra es `finanzas_operativo`; los docs dicen `auxiliar_finanzas` en prod — por eso la llave
+  sola alcanza para abrir el Historial, sin depender de su rol.
+- [ ] **[GX.71.p]** Aplicar `20261007230000` a prod (una por una) + redeploy api+view + re-login de Mayra.
+
+### 🔨 [GX.72] · Expediente: filtro por fechas y por departamento — 2026-10-07
+
+- [x] **[GX.72]** 🧪 Pedido: *«en la sección de expedientes agrega un filtro para fechas y departamentos»*.
+  **En el SERVIDOR**, no en la pantalla: filtrar lo ya cargado dejaba los KPIs contando todo y, con el tope de
+  filas, un periodo viejo salía vacío. `GET /expediente?desde&hasta&departamento`; la fecha es la del
+  **levantamiento** en hora de México (la misma que muestra cada vale), cortada como instante sobre
+  `created_at` — **verificado en local: 72/72 días idénticos** al día MX calculado directo, incluidos 47 vales
+  levantados después de las 18:00 (UTC ya es el día siguiente). Filtro inválido o rango al revés → **400**,
+  nunca «sin filtro» en silencio. Departamento = texto libre del vale: las opciones salen de los DATOS con su
+  conteo (sin fusionar «RRHH» con «RECURSOS HUMANOS»: nadie decidió esa equivalencia) + «Sin departamento»
+  (`__sin__`). La respuesta devuelve el filtro aplicado y el rótulo se arma con él. Petición anterior se
+  cancela al cambiar el filtro. Specs: view 1956/1956 · finance 590/590 · contracts 393/393.
+- [ ] **[GX.72.u]** Validación visual de la barra de filtros (no se levanta el front en local por regla).
+
 ### 🔨 [GX.70] · el «Expediente en PDF» respondía «No se pudo armar el expediente» — 2026-10-07
 
 - [x] **[GX.70]** 🧪 Reporte: en `/finanzas/expediente` el botón «Expediente en PDF» sólo decía *«No se pudo

@@ -27,10 +27,10 @@ const servicioFalso = () => {
   return { svc, llamadas };
 };
 
-const pedirHistorial = (role_name?: string | null) => {
+const pedirHistorial = (role_name?: string | null, permissions?: Record<string, boolean>) => {
   const { svc, llamadas } = servicioFalso();
   const ctrl = new ExpenseProofsController(svc);
-  const req = role_name === undefined ? undefined : { user: { role_name } };
+  const req = role_name === undefined ? undefined : { user: { role_name: role_name ?? undefined, permissions } };
   // (status, folio, search, from, to, limit, dia, req) -- `req` es el ULTIMO. Si la firma
   // gana otro @Query, esta llamada se corre: por eso las 3 pruebas de god-mode se pusieron
   // en rojo cuando `[GX.27]` agrego `dia`, y por eso el conteo va explicito aca.
@@ -93,5 +93,43 @@ describe('[GX.26] el historial de toda la empresa es sólo god-mode', () => {
   it('el rechazo explica que lo propio está en /mine', () => {
     const { correr } = pedirHistorial('tesoreria');
     expect(correr).toThrow(/mine/);
+  });
+});
+
+/**
+ * `[GX.71]` La llave por persona. Mayra Gutiérrez (`finanzas_operativo` en local) tiene que
+ * ver el historial de todos SIN volverse superadmin — y sin que la puerta se abra a su rol.
+ */
+describe('[GX.71] la llave HISTORIAL_TODOS abre el historial de todos, nada más', () => {
+  const LLAVE = { FINANCE_EXPENSES_HISTORIAL_TODOS: true };
+
+  it('⭐ con la llave por persona pasa, aunque su rol no sea de plataforma', async () => {
+    const { correr, llamadas } = pedirHistorial('finanzas_operativo', LLAVE);
+    await correr();
+    expect(llamadas).toHaveLength(1);
+  });
+
+  /** ⛔ La misma persona sin la llave — el resto de su rol — sigue afuera. */
+  it('⛔ su mismo rol con VER pero sin la llave NO pasa', () => {
+    const { correr, llamadas } = pedirHistorial('finanzas_operativo', { FINANCE_EXPENSES_VER: true, FINANCE_EXPENSES_CAPTURAR: true });
+    expect(correr).toThrow(ForbiddenException);
+    expect(llamadas).toHaveLength(0);
+  });
+
+  it('⛔ la llave en false NO pasa', () => {
+    const { correr } = pedirHistorial('finanzas_operativo', { FINANCE_EXPENSES_HISTORIAL_TODOS: false });
+    expect(correr).toThrow(ForbiddenException);
+  });
+
+  /** El calendario de toda la empresa sigue la MISMA regla: si no, contaría lo que la colección niega. */
+  it('el calendario de todos: la llave pasa, VER solo no', async () => {
+    const llamadas: unknown[] = [];
+    const svc = { calendarioMes: (...a: unknown[]) => { llamadas.push(a); return Promise.resolve({}); } } as unknown as ExpenseProofsService;
+    const ctrl = new ExpenseProofsController(svc);
+    await ctrl.calendario('2026-10', 'todos', { user: { role_name: 'finanzas_operativo', permissions: LLAVE } });
+    expect(llamadas).toHaveLength(1);
+    expect(() => ctrl.calendario('2026-10', 'todos', { user: { role_name: 'tesoreria', permissions: { FINANCE_EXPENSES_VER: true } } }))
+      .toThrow(ForbiddenException);
+    expect(llamadas).toHaveLength(1);
   });
 });
