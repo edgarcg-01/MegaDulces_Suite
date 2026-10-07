@@ -14,6 +14,7 @@ import { ToastModule } from 'primeng/toast';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
 import { AuthService } from '../../../core/services/auth.service';
+import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 import { ActivatedRoute } from '@angular/router';
 import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseProof,
   ExpenseClasificacion, ProofByFolio, requiereEvidencia, ROLES_COMPROBANTE, ROLES_COTIZACION,
@@ -1302,10 +1303,14 @@ export class FinanzasCapturarGastoComponent {
         this.pdfCargando.set(null);
         this.cdr.markForCheck();
       },
-      error: () => {
+      // `[GX.70]` El motivo del servidor viaja DENTRO del blob; sin leerlo, el aviso no dice por qué.
+      error: (e) => {
         this.pdfCargando.set(null);
-        this.toast.add({ severity: "error", summary: "No se pudo armar el expediente", detail: `Solicitud ${folio}` });
         this.cdr.markForCheck();
+        mensajeDeErrorBlob(e, "Intenta de nuevo.").then((motivo) => {
+          this.toast.add({ severity: "error", summary: "No se pudo armar el expediente", detail: `Solicitud ${folio}: ${motivo}`, life: 8000 });
+          this.cdr.markForCheck();
+        });
       },
     });
   }

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
-import { ORDER_FULFILLMENT_PORT, OrderFulfillmentPort } from '@megadulces/contracts';
+import { comisionesDeLaGuia, ORDER_FULFILLMENT_PORT, OrderFulfillmentPort } from '@megadulces/contracts';
 import type { TomaKeplerResultado } from '@megadulces/contracts';
 import { haversineKm } from '../logistics-routing/route-solver';
 import { ErpShipmentsService } from '../logistics-erp-shipments/erp-shipments.service';
@@ -123,12 +123,16 @@ export class LogisticsShipmentsService {
     const errores = validarToma(dto, {
       chofer_kepler_driver_id: hoja.chofer.driver_id,
       ya_tomado_folio: hoja.tomado?.folio ?? null,
+      comision: hoja.comision,
+      paradas_sin_ruta: hoja.resumen.paradas_sin_ruta,
     });
     if (hoja.tomado) throw new ConflictException(errores[0]);
     if (errores.length) throw new BadRequestException(errores.join(' '));
 
     const driverId = dto.driver_id || hoja.chofer.driver_id;
     const destinatarios = armarDestinatarios(hoja.paradas, sucursal);
+    // La comisión se CALCULA de la tarifa del viaje (validarToma ya frenó si falta una tarifa).
+    const comisiones = comisionesDeLaGuia(hoja.comision, { helper1: !!dto.helper1_id, helper2: !!dto.helper2_id });
 
     return this.tk.run(async (trx) => {
       for (const [id, rol] of [[driverId, 'chofer'], [dto.helper1_id, 'ayudante 1'], [dto.helper2_id, 'ayudante 2']] as const) {
@@ -183,11 +187,11 @@ export class LogisticsShipmentsService {
           type: hoja.viaje.tipo.tipo,
           status: 'pendiente',
           driver_id: driverId,
-          driver_commission: dto.driver_commission ?? 0,
+          driver_commission: comisiones.driver_commission,
           helper1_id: dto.helper1_id || null,
-          helper1_commission: dto.helper1_commission ?? 0,
+          helper1_commission: comisiones.helper1_commission,
           helper2_id: dto.helper2_id || null,
-          helper2_commission: dto.helper2_commission ?? 0,
+          helper2_commission: comisiones.helper2_commission,
           overnight: dto.overnight ?? false,
           per_diem_total: dto.per_diem_total ?? 0,
           per_diem_breakdown: dto.per_diem_breakdown ? JSON.stringify(dto.per_diem_breakdown) : null,

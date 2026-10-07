@@ -695,7 +695,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Expediente', icon: 'pi pi-folder-open', route: '/finanzas/expediente',
           permission: Permission.FINANCE_EXPENSES_COMPROBAR },
         { label: 'Historial', icon: 'pi pi-history', route: '/finanzas/gastos-historial',
-          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR] },
+          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS] },
         // `[GX.18]` El «Tablero de gastos» salió del menú por pedido del usuario. ⚠️ La RUTA
         // `/finanzas/gastos-tablero` sigue viva: 25 personas con `_VER` la tenían en
         // marcadores y hay enlaces internos que apuntan ahí. Quitar el renglón es esconder

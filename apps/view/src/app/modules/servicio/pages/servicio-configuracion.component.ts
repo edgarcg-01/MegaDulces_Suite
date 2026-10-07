@@ -7,6 +7,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import type { Observable } from 'rxjs';
 import { SD_PRIORITIES, type SdAgentDto, type SdClock, type SdConfigResponse, type SdPriority, type SdRoutingResponse, type SdRoutingRuleDto, type SdSlaScanResult } from '@megadulces/contracts';
 import { PRIORITY_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
+import { SdQueueMembersComponent } from '../sd-queue-members.component';
 
 const DIAS = [
   { n: 1, l: 'Lun' }, { n: 2, l: 'Mar' }, { n: 3, l: 'Mié' }, { n: 4, l: 'Jue' }, { n: 5, l: 'Vie' }, { n: 6, l: 'Sáb' }, { n: 0, l: 'Dom' },
@@ -25,7 +26,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
 @Component({
   selector: 'app-servicio-configuracion',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, SdQueueMembersComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sc-page">
@@ -151,6 +152,8 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <span class="sc-sp"></span>
                 <p-button [label]="q.active ? 'Apagar cola' : 'Encender cola'" size="small" severity="secondary" [text]="true" (onClick)="alternarCola(q.id, q.active)" />
               </div>
+              <!-- [MS.7.17] Quién atiende esta cola: la coordinación de ESA cola administra a sus miembros. -->
+              <app-sd-queue-members [queueId]="q.id" />
               <table class="sc-table">
                 <thead><tr><th>Categoría</th><th>Prioridad por defecto</th><th>Exige ubicación</th><th>Estado</th><th></th></tr></thead>
                 <tbody>
