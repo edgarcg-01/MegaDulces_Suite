@@ -6,6 +6,7 @@ import {
   type MisAccesos,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
+import { valorWebVital } from './web-vital-valor';
 
 /**
  * `[SN.12]` — Registro de USO de la suite: qué abre cada persona.
@@ -79,7 +80,11 @@ export class UsoService {
         this.enviar({
           kind: 'event',
           name: 'web_vital',
-          props: { metric: m.name, value: Math.round(m.value), rating: m.rating },
+          // `[RA-PERF.5]` El redondeo lo decide la UNIDAD de la métrica, no la comodidad del
+          // entero: acá decía `Math.round(m.value)` para las tres, y CLS es un score 0..1 →
+          // `Math.round(0.31)` = 0. Medido en prod: 236 muestras malas guardadas como perfectas.
+          // Ver `web-vital-valor.ts` para la medición completa.
+          props: { metric: m.name, value: valorWebVital(m.name, m.value), rating: m.rating },
         });
       onINP(reportar);
       onLCP(reportar);
@@ -143,6 +148,22 @@ export class UsoService {
    */
   reset(): void {
     this.accesos$ = undefined;
+  }
+
+  /**
+   * `[RA-PERF.6]` **Un incidente del cliente, por el canal que sí llega.**
+   *
+   * Existe porque un `throw` dentro de una expresión de template **lo come el `ErrorHandler` de
+   * Angular y nunca sale del navegador**. Medido en prod el 2026-10-07: en 30 días hay **un solo**
+   * evento `kind='error'` en `commercial.portal_telemetry_events`, y es de `/portal/login`. O sea
+   * que el crash de render de `/compras/pedido` —abierto desde julio— es invisible para el único
+   * canal que podría probar que sigue pasando.
+   *
+   * Hereda el "dispara y olvida" de `enviar()`: si la API está caída no cambia nada de lo que la
+   * persona estaba haciendo. `kind: 'error'` para que se separe del uso normal al consultarlo.
+   */
+  reportarIncidente(nombre: string, props: Record<string, unknown>): void {
+    this.enviar({ kind: 'error', name: nombre, props });
   }
 
   private enviar(evento: Record<string, unknown>): void {
