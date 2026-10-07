@@ -847,16 +847,35 @@ export class ComercialInventarioRutaComponent {
    * caché) se trata como NO medible: ante la duda se declara, no se publica.
    */
   medible = (r: RouteInventoryRow) => r.descuadre_medible === true;
-  sinMedir = (r: RouteInventoryRow) => Number(r.sin_medir_costo) || 0;
+
+  /**
+   * ⛔ Devuelve `null` —NO cero— cuando el servidor no informó la exposición.
+   *
+   * La primera versión hacía `Number(r.sin_medir_costo) || 0`, y contra una API que todavía no
+   * manda el campo eso pintó **«$0 que ninguna fuente cubre»** donde lo medido son $413,464, y
+   * degeneró el piso al bruto dejando la etiqueta «lo que no explica cómo medimos» encima de
+   * justo lo contrario. Un cero dibujado es indistinguible de un cero medido: es el defecto que
+   * esta misma entrega existe para matar (ADR-056).
+   */
+  sinMedir = (r: RouteInventoryRow): number | null =>
+    r.sin_medir_costo === null || r.sin_medir_costo === undefined ? null : Number(r.sin_medir_costo);
 
   /** Lo que la celda explica al pasar el cursor. Sin esto, "no medible" se lee como un error. */
   tituloSinEmbarque(r: RouteInventoryRow): string {
     if (this.medible(r)) {
       return 'Mercancía que el camión trae y el documento de embarque no explica.';
     }
+    const exp = this.sinMedir(r);
+    // Sin exposición informada no se puede decir CUÁNTO falta; decir "$0" sería inventar el dato
+    // que justifica no publicar el otro. Se dice lo único cierto: que no se sabe.
+    if (exp === null) {
+      return 'No se puede medir: el servidor no informa cuánto de este descuadre lo explica cómo '
+        + 'medimos. En bruto son ' + this.money(Math.abs(this.sinEmbarque(r)))
+        + ', pero publicarlo como mercancía perdida sería afirmar de más.';
+    }
     const motivo = r.sin_medir_motivo || 'faltan las dos mitades del periodo';
     return 'No se puede medir: ' + motivo + '. La cuenta tendría que restar '
-      + this.money(this.sinMedir(r)) + ' que ninguna fuente cubre, contra un descuadre de '
+      + this.money(exp) + ' que ninguna fuente cubre, contra un descuadre de '
       + this.money(Math.abs(this.sinEmbarque(r))) + ' — el hueco es más grande que la cifra, '
       + 'así que publicarla sería inventarla.';
   }
@@ -959,10 +978,19 @@ export class ComercialInventarioRutaComponent {
    * El servidor lo manda calculado en `totales.descuadre_piso`; esto es el mismo cálculo sobre
    * las filas que la pantalla tiene a la vista, para que respete el filtro.
    */
-  readonly pisoSinEmbarque = computed(() =>
-    this.suma((r) => Math.max(0, Math.abs(this.sinEmbarque(r)) - this.sinMedir(r))));
+  readonly pisoSinEmbarque = computed<number | null>(() => {
+    const f = this.filas();
+    if (!f.length || f.some((r) => this.sinMedir(r) === null)) return null;
+    return f.reduce((a, r) => a + Math.max(0, Math.abs(this.sinEmbarque(r)) - (this.sinMedir(r) as number)), 0);
+  });
 
-  readonly expuestoSinMedir = computed(() => this.suma((r) => this.sinMedir(r)));
+  /** `null` = el servidor no informó la exposición. No es cero: es que no se sabe. */
+  readonly expuestoSinMedir = computed<number | null>(() => {
+    const f = this.filas();
+    if (!f.length || f.some((r) => this.sinMedir(r) === null)) return null;
+    return f.reduce((a, r) => a + (this.sinMedir(r) as number), 0);
+  });
+
   readonly rutasSinMedir = computed(() => this.filas().filter((r) => !this.medible(r)).length);
   readonly llegoSinEmbarque = computed(() => this.suma((r) => Math.max(0, this.sinEmbarque(r))));
   readonly salioSinEmbarque = computed(() => this.suma((r) => Math.min(0, this.sinEmbarque(r))));
@@ -1043,14 +1071,20 @@ export class ComercialInventarioRutaComponent {
     const entro = this.llegoSinEmbarque();
     const salio = Math.abs(this.salioSinEmbarque());
     const piso = this.pisoSinEmbarque();
+    const expuesto = this.expuestoSinMedir();
     const sinMedir = this.rutasSinMedir();
-    const cierre = sinMedir > 0
-      ? `. Sin documento que lo explique: al menos ${this.money(piso)} — y en ${sinMedir} de `
-        + `${this.filas().length} rutas la cifra no es medible, porque les falta uno de los dos `
-        + `lados del periodo (${this.money(this.expuestoSinMedir())} que ninguna fuente cubre).`
-      : (entro + salio) > 0
-        ? `. Sin documento que lo explique: ${this.money(entro)} que llegó y ${this.money(salio)} que salió.`
-        : '.';
+    const cierre = piso === null
+      // El servidor no informó la exposición: se dice el bruto y se dice que no se pudo acotar.
+      ? `. Sin documento que lo explique: ${this.money(this.brutoSinEmbarque())} en bruto — y no `
+        + 'se pudo descontar cuánto de eso lo explica cómo medimos, porque el servidor no informa '
+        + 'la exposición. Tomarlo como mercancía perdida sería afirmar de más.'
+      : sinMedir > 0
+        ? `. Sin documento que lo explique: al menos ${this.money(piso)} — y en ${sinMedir} de `
+          + `${this.filas().length} rutas la cifra no es medible, porque les falta uno de los dos `
+          + `lados del periodo (${this.money(expuesto as number)} que ninguna fuente cubre).`
+        : (entro + salio) > 0
+          ? `. Sin documento que lo explique: ${this.money(entro)} que llegó y ${this.money(salio)} que salió.`
+          : '.';
     const p = `${Math.abs(pct).toFixed(1)} %`;
     const previa = Math.abs(this.totalNeg());
     // Lo que el camion ya traia, dicho SIEMPRE: es la cifra que antes se restaba en silencio.
@@ -1129,15 +1163,20 @@ export class ComercialInventarioRutaComponent {
         // RD.40 — el mosaico publica el PISO, no el bruto. Medido el 2026-10-07: el bruto era
         // $301,834 y el artefacto de medición explicaba $413,464 de él. Publicar el bruto
         // afirmaba que faltaban tres pesos donde a lo sumo se puede sostener uno.
-        label: 'Sin documento',
-        value: this.pisoSinEmbarque(),
+        // ⛔ Si el servidor no informó la exposición, el piso NO es calculable y el mosaico
+        //    publica el BRUTO diciendo que es el bruto. Antes degeneraba a `piso = bruto` con
+        //    la etiqueta del piso encima: la cifra correcta con el rótulo equivocado.
+        label: this.pisoSinEmbarque() === null ? 'Sin documento (bruto)' : 'Sin documento',
+        value: this.pisoSinEmbarque() ?? this.brutoSinEmbarque(),
         format: 'currency2',
         tone: 'default',
         sub: d?.cuadra === 'sin_medir'
           ? 'ninguna ruta se movió: no hay qué medir'
-          : this.rutasSinMedir() > 0
-            ? `lo que no explica cómo medimos · ${this.rutasSinMedir()} de ${this.filas().length} rutas sin medir (${this.money(this.expuestoSinMedir())})`
-            : `${this.money(this.llegoSinEmbarque())} llegó · ${this.money(Math.abs(this.salioSinEmbarque()))} salió`,
+          : this.pisoSinEmbarque() === null
+            ? 'no se pudo descontar lo que explica cómo medimos: el servidor no informa la exposición'
+            : this.rutasSinMedir() > 0
+              ? `lo que no explica cómo medimos · ${this.rutasSinMedir()} de ${this.filas().length} rutas sin medir (${this.money(this.expuestoSinMedir() as number)})`
+              : `${this.money(this.llegoSinEmbarque())} llegó · ${this.money(Math.abs(this.salioSinEmbarque()))} salió`,
       },
     ];
   });
