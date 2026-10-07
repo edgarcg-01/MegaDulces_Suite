@@ -129,6 +129,9 @@ exports.up = async function up(knex) {
   }
 };
 
+/** Para `corte-scripts.spec.ts`: el pre-vuelo del corte revisa exactamente este reparto. Knex ignora otras exportaciones. */
+exports.REPARTO = REPARTO;
+
 /** Quita sólo lo que esta migración puede haber puesto (en `true`); un `false` manual se respeta. */
 exports.down = async function down(knex) {
   for (const [rol, claves] of Object.entries(REPARTO)) {

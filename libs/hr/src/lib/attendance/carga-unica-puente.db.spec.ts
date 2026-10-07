@@ -104,4 +104,36 @@ suite('carga única contra la base: el reloj desconocido cede ante un reloj real
     ]);
     expect(r['otraVez']).toBe(0);
   }, 60000);
+
+  /** `[RH.1.8]` El camino a prod: sin la identidad correcta o sin la cadena aplicada, no escribe. */
+  it('--destino-prod: frena con otro clúster y con migraciones faltantes; pasa con las dos', async () => {
+    const carga = require(path.resolve(__dirname, '../../../../../database/scripts/rh/carga-unica-mega-talento.js'));
+    const knex: Knex = knexLib({ client: 'pg', connection: URL, pool: { min: 0, max: 1 } });
+    const r: Record<string, unknown> = {};
+    const motivo = async (p: Promise<unknown>) => p.then(() => 'pasó', (e: Error) => e.message);
+    try {
+      await knex.transaction(async (trx) => {
+        const local = (await trx.raw('select (select system_identifier from pg_control_system())::text as id')).rows[0].id;
+        // Por omisión espera la identidad de PROD: esta base no lo es.
+        r['otroCluster'] = await motivo(carga.verificarDestinoProd(trx));
+        // Con la identidad de esta base pero sin la cadena en el ledger: nombra las que faltan.
+        await trx.raw(`DELETE FROM public.knex_migrations WHERE name LIKE '20261007%hr_%'`);
+        r['faltan'] = await motivo(carga.verificarDestinoProd(trx, { clusterId: local }));
+        // Con todo registrado: pasa.
+        for (const m of [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE]) {
+          await trx.raw(`INSERT INTO public.knex_migrations (name, batch, migration_time)
+                         SELECT ?, 0, now() WHERE NOT EXISTS (SELECT 1 FROM public.knex_migrations WHERE name = ?)`, [`${m}.js`, `${m}.js`]);
+        }
+        r['completo'] = await motivo(carga.verificarDestinoProd(trx, { clusterId: local }));
+        throw ROLLBACK;
+      });
+    } catch (e) {
+      if (e !== ROLLBACK) throw e;
+    } finally {
+      await knex.destroy();
+    }
+    expect(r['otroCluster']).toMatch(/^DESTINO EQUIVOCADO/);
+    expect(r['faltan']).toMatch(/faltan migraciones en prod.*20261007100000_hr_relojes_y_checadas.*20261007320000_hr_ordenes_quien/);
+    expect(r['completo']).toBe('pasó');
+  }, 60000);
 });

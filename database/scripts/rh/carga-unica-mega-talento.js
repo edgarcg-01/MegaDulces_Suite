@@ -10,8 +10,15 @@
  *   MT_DATABASE_URL=… DATABASE_URL_NEW=… node database/scripts/rh/carga-unica-mega-talento.js --aplicar  # deja lo cargado
  *
  * La base de Mega Talento se abre en SÓLO LECTURA (`default_transaction_read_only=on`) y el script
- * aborta si la sesión no lo confirma. El destino pasa por `assert-safe-target`: hoy sólo bases de
- * desarrollo; apuntarlo a prod es parte de `[RH.1.8]` y se agrega con el corte.
+ * aborta si la sesión no lo confirma.
+ *
+ * El DESTINO tiene dos caminos, y ninguno es por omisión hacia prod:
+ *   · desarrollo (por omisión): `DATABASE_URL_NEW` + `assert-safe-target`, que rechaza prod.
+ *   · `--destino-prod` (el corte, `[RH.1.8]`): corre DENTRO del pod `api` con
+ *     `CARGA_URL="$DATABASE_URL_NEW"` y exige (1) que el clúster sea el de prod (misma identidad que
+ *     `apply-one-migration-prod.js`) y (2) que la cadena de migraciones ya esté aplicada. Sigue siendo
+ *     ENSAYO salvo `--aplicar`. El paso a paso está en `docs/IMPLEMENTACION/RUNBOOKS/RH_CORTE_ASISTENCIA.md`.
+ *     ⚠️ La imagen de prod no trae `libs/`: por eso este modo no usa `assert-safe-target`.
  *
  * ── Lo que se medía antes de escribir esto (2026-10-07) ──────────────────────────────────────
  *   · 214,784 checadas, y la mayoría SIN reloj de origen (`serie_reloj` NULL: 8-Esquinas 50,688
@@ -49,6 +56,14 @@ const TENANT_MD = '00000000-0000-0000-0000-00000000d01c';
 /** La misma regla que la ingesta: una fecha anterior es la de un reloj sin hora (2000-01-01). */
 const FECHA_MINIMA = '2001-01-01';
 const LOTE = 5000;
+/**
+ * La identidad del clúster de PROD. COPIA de `apply-one-migration-prod.js` (la fuente): este archivo
+ * se ejecuta solo dentro del pod y no puede requerir otro script. `corte-scripts.spec.ts` exige que
+ * las copias coincidan.
+ */
+const PROD_CLUSTER_ID = '7688376744939610156';
+/** La base de la Fase CH: las de RH la extienden. En prod la carga exige que esté aplicada. */
+const MIGRACION_BASE_CH = '20260817220000_hr_attendance';
 /** Las migraciones de la fase RH que la carga necesita. */
 const MIGRACIONES_FASE = [
   '20261007100000_hr_relojes_y_checadas',
@@ -450,11 +465,42 @@ async function cargarMegaTalento(trx, mt, { tenantId = TENANT_MD, log = null, re
   return cuadre;
 }
 
+/**
+ * `--destino-prod`: antes de escribir una sola fila, que el clúster SEA prod y que la cadena de
+ * migraciones esté aplicada. Un destino equivocado no falla: triunfa en el lugar equivocado.
+ */
+async function verificarDestinoProd(knex, { clusterId = PROD_CLUSTER_ID } = {}) {
+  const { rows: [id] } = await knex.raw(
+    'select (select system_identifier from pg_control_system())::text as id, current_database() as db');
+  if (id.id !== clusterId) {
+    throw new Error(`DESTINO EQUIVOCADO — no se escribe nada. Clúster ${id.id} (base "${id.db}"), se esperaba ${clusterId}.`);
+  }
+  const aplicadas = new Set((await knex.raw('SELECT name FROM public.knex_migrations')).rows.map((r) => r.name.replace(/\.js$/, '')));
+  const faltan = [MIGRACION_BASE_CH, ...MIGRACIONES_FASE].filter((m) => !aplicadas.has(m));
+  if (faltan.length) {
+    throw new Error(`faltan migraciones en prod (se aplican antes, una por una): ${faltan.join(', ')}`);
+  }
+  console.log(`  destino verificado: prod (clúster ${id.id}, base "${id.db}"), cadena de migraciones aplicada`);
+}
+
 async function main() {
   const aplicar = process.argv.includes('--aplicar');
-  require('dotenv').config({ path: process.env.DOTENV_PATH || path.resolve(__dirname, '../../../.env') });
-  require('../../tests/_lib/assert-safe-target').assertSafeTarget('carga-unica-mega-talento');
-  const knex = require('knex')({ client: 'pg', connection: process.env.DATABASE_URL_NEW, pool: { min: 0, max: 1 } });
+  const destinoProd = process.argv.includes('--destino-prod');
+  // En el pod no hay `.env` ni, quizá, `dotenv`: ahí las URLs ya vienen del entorno.
+  try { require('dotenv').config({ path: process.env.DOTENV_PATH || path.resolve(__dirname, '../../../.env') }); } catch { /* sin dotenv */ }
+  let url;
+  if (destinoProd) {
+    if (process.argv.includes('--con-migraciones')) throw new Error('--con-migraciones no va con --destino-prod: en prod las migraciones se aplican aparte, una por una.');
+    url = process.env.CARGA_URL;
+    if (!url) throw new Error('--destino-prod necesita CARGA_URL (dentro del pod: CARGA_URL="$DATABASE_URL_NEW"). Ver el runbook.');
+  } else {
+    require('../../tests/_lib/assert-safe-target').assertSafeTarget('carga-unica-mega-talento');
+    url = process.env.DATABASE_URL_NEW;
+  }
+  const knex = require('knex')({ client: 'pg', connection: url, pool: { min: 0, max: 1 } });
+  if (destinoProd) {
+    try { await verificarDestinoProd(knex); } catch (e) { await knex.destroy(); throw e; }
+  }
   const mt = await conectarMegaTalento(process.env.MT_DATABASE_URL);
   const t0 = Date.now();
   const DESHACER = new Error('ensayo');
@@ -467,7 +513,7 @@ async function main() {
         for (const m of MIGRACIONES_FASE) await require(path.resolve(__dirname, '../../migrations-newdb', `${m}.js`)).up(trx);
       }
       await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT_MD]);
-      console.log(`Carga única de Mega Talento → ${aplicar ? 'SE APLICA' : 'ENSAYO (se deshace al final)'}`);
+      console.log(`Carga única de Mega Talento → ${destinoProd ? 'PROD · ' : ''}${aplicar ? 'SE APLICA' : 'ENSAYO (se deshace al final)'}`);
       const cuadre = await cargarMegaTalento(trx, mt, { log: console.log });
       const fuera = Object.values(cuadre).reduce((s, c) => s + Object.values(c.descartes).reduce((a, b) => a + b, 0), 0);
       console.log(`\nListo en ${Math.round((Date.now() - t0) / 1000)} s · ${fuera} fila(s) fuera, todas con motivo arriba.`);
@@ -486,4 +532,4 @@ if (require.main === module) {
   main().catch((e) => { console.error('ERROR:', e.message); process.exit(1); });
 }
 
-module.exports = { cargarMegaTalento, conectarMegaTalento, serieDesconocida, TENANT_MD, MIGRACIONES_FASE };
+module.exports = { cargarMegaTalento, conectarMegaTalento, serieDesconocida, verificarDestinoProd, TENANT_MD, MIGRACIONES_FASE, MIGRACION_BASE_CH, PROD_CLUSTER_ID };

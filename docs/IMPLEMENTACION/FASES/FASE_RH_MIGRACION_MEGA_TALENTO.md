@@ -274,6 +274,8 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
 - [ ] **[RH.1.3]** Agente al monorepo: código del agente de Mega Talento + `verify_mode`; contenedor en el
   namespace `ingesta` de `md`; latido en `cron_runs` + umbral en `CRON_JOBS`; prueba negativa (apagar un reloj y ver el rojo).
 - [ ] **[RH.1.4]** Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4.
+  ⛔ **Es prerrequisito del corte del 7-nov, no «después»** (medido 2026-10-07, ver §5.4): la paridad se midió con
+  las personas ligadas; sin ellas no hay faltas de quien no checó, ni planta/promotoras, ni bajas.
 - [ ] **[RH.1.5]** 🧪 Horarios deducidos y agente de alertas como `@Cron` del worker (una sola implementación;
   hoy está duplicada en la API y en el bot). Decidir revisión vs incidencia. → En código 2026-10-07, ver §5.1.
 - [ ] **[RH.1.6]** 🧪 Incidencias y cierre semanal jueves→miércoles. Permisos `HR_INCIDENTS_*`, `HR_PERIOD_CLOSE`.
@@ -507,6 +509,33 @@ esta sesión no se levanta el front (regla del repo); se valida en el despliegue
 (knex desempata por alfabeto). Ninguna se había aplicado en ningún lado, así que se renombraron:
 `120000→300000` (incidencias, en #281), `130000→310000` (agente), `140000→320000` (órdenes),
 y el reparto nació en `330000`.
+
+### 5.4 `[RH.1.8]` — pre-vuelo, carga a prod y runbook del corte (2026-10-07)
+
+Paso a paso en [`RUNBOOKS/RH_CORTE_ASISTENCIA.md`](../RUNBOOKS/RH_CORTE_ASISTENCIA.md).
+
+- **Pre-vuelo** `database/scripts/rh/prevuelo-corte-asistencia.js`, sólo lectura, se corre dentro del pod `api`
+  como el aplicador de migraciones. Revisa identidad del clúster, migraciones pendientes **y su orden** (nombres
+  viejos, colisiones con `main`), datos previos en `hr.*` (de dónde salieron), padrón ligado, roles del reparto,
+  variables de entorno, latidos, transacciones largas, horario y que Mega Talento sea alcanzable. OK / AVISO /
+  BLOQUEA / NO MEDIDO; sale con 1 si algo bloquea.
+- **Carga a prod** `--destino-prod`: corre en el pod (`CARGA_URL="$DATABASE_URL_NEW"`), exige la identidad del clúster
+  de prod y la cadena aplicada, y sigue siendo ensayo salvo `--aplicar`. Sin el candado de `libs/` (la imagen no lo
+  trae): por eso la verificación propia.
+- **Candado de que los guiones no se desfasan** (`corte-scripts.spec.ts`, corre en CI): las tres copias de la
+  identidad de prod coinciden, la cadena existe archivo por archivo y sin nombres viejos, no hay timestamps repetidos,
+  y el reparto que revisa el pre-vuelo es el de la migración.
+
+**Lo que destapó:**
+- ⛔ **`[RH.1.4]` es prerrequisito del corte.** La paridad de 0 diferencias se midió con personas ligadas (la prueba
+  las creó desde `empleados`). Tras la carga real: **991 enrolamientos activos, 0 ligados** → el pre-vuelo BLOQUEA.
+  Y depende de que RH valide los mapeos: hoy está en la ruta crítica del 7-nov.
+- La migración base de CH (`20260817220000_hr_attendance`) probablemente **no está en prod** (`[CH.0.9]` nunca se
+  aplicó): va primera en la cadena. El pre-vuelo lo confirma.
+- Prod corre en **k3s** desde el 2026-10-02; el §3 de `ops/prod/RUNBOOK-despliegue.md` todavía dice `docker cp`.
+- Mergear la pila **frena todos los despliegues** hasta aplicar sus migraciones (compuerta 2 de `soltar.sh`): se
+  aplican el mismo día del merge. Desplegar el código antes del corte es seguro (agente apagado, ingesta sin llave
+  = 401, pantallas vacías).
 
 ## 6. Cómo se hace cada corte
 
