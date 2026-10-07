@@ -203,7 +203,7 @@ export class ExpenseCaptureLinksService {
         .whereNull('deleted_at').orderBy('code')
         .select('code', 'name');
 
-      const mias = await trx('finance.expense_proofs')
+      const mias = await trx('finance.v_expense_proofs')
         .where({ capture_link_id: link.id })
         .orderBy('created_at', 'desc').limit(20)
         .select('id', 'folio_solicitud', 'status', 'proveedor', 'comentarios',

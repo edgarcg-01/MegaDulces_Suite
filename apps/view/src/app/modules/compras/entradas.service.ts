@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type { EntradasSinOcResumen, ExpedienteConteos, ExpedienteHallazgo, ExpedienteResumenFila, ReceiptExpediente } from '@megadulces/contracts';
 
 /**
  * CC (extensión) — cliente de Comprobantes de Orden de Entrada (proyecto Compras).
@@ -13,6 +14,8 @@ import { environment } from '../../../environments/environment';
 export type ProofStatus = 'recibido' | 'validado' | 'rechazado';
 
 export interface EntradaRow {
+  /** `[RE.35.5]` Veredicto del expediente de la fila (null si ya se decidió). */
+  expediente?: ExpedienteResumenFila | null;
   sucursal: string;
   folio: string;
   receipt_date: string | null;
@@ -230,6 +233,10 @@ export interface EntradasQuery {
   lente?: 'proceso' | 'dinero';
   ajuste?: 'con' | 'sin' | 'operativo' | 'comercial';
   con_oc?: 'con' | 'sin';
+  /** `[RE.35.5]` Bandeja por veredicto del expediente (documentos esperando decisión). */
+  bandeja?: 'auto' | 'revisar' | 'sin_cfdi_aun';
+  /** `[RE.35.5]` Hallazgo calculado por el expediente. */
+  hallazgo?: ExpedienteHallazgo;
   /**
    * `[DM.19]` De qué plaza es la compra. ⛔ `sin_declarar` NO es "del CEDIS": es que el
    * documento no lo dice (1,239 por $91.5M, casi todos de nov-2025 a ene-2026).
@@ -318,6 +325,8 @@ export interface EntradaFrescura {
 }
 
 export interface EntradasReport {
+  /** `[RE.35.5]` Conteos de la Bandeja y del Hallazgo (sólo con lente dinero). */
+  expediente?: ExpedienteConteos | null;
   kpis: {
     entradas: number; con_comprobante: number; validados: number; monto_pendiente: number;
     // RE.13.0 — lo que las vistas nuevas necesitan contar sin traerse las filas.
@@ -622,6 +631,17 @@ export class EntradasService {
   /** Detalle de la entrada + sus líneas (kdm2) para auditar renglón por renglón. */
   detail(sucursal: string, folio: string): Observable<EntradaDetail> {
     return this.http.get<EntradaDetail>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}`);
+  }
+  /**
+   * `[RE.35]` El expediente de la factura: el CFDI de ContPAQi ligado a la entrada, los checks y el
+   * veredicto (pasa sola / revisar / sin CFDI aún). Sólo lectura.
+   */
+  expediente(sucursal: string, folio: string): Observable<ReceiptExpediente> {
+    return this.http.get<ReceiptExpediente>(`${this.base}/${encodeURIComponent(sucursal)}/${encodeURIComponent(folio)}/expediente`);
+  }
+  /** `[RE.35.3]` Entradas sin orden de compra por sucursal y por quién las capturó en Kepler. */
+  sinOc(from: string, to: string): Observable<EntradasSinOcResumen> {
+    return this.http.get<EntradasSinOcResumen>(`${this.base}/sin-oc`, { params: new HttpParams().set('from', from).set('to', to) });
   }
   /** Corre OCR sobre una hoja (data URI, **sólo PDF**) — preview, no guarda. Devuelve
    *  también el hash + si es duplicada (misma hoja o folio ya subido). `role` afina el dedup. */

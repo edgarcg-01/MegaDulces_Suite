@@ -1096,6 +1096,12 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
       },
       {
+        // [RE.35.3] Entradas sin orden de compra por quién las capturó en Kepler (sólo lectura).
+        path: 'entradas/control/sin-oc',
+        loadComponent: () => import('./modules/compras/pages/compras-entradas-sin-oc.component').then(m => m.ComprasEntradasSinOcComponent),
+        canActivate: [permissionGuard(Permission.COMPRAS_ENTRADAS_VER)]
+      },
+      {
         // RE.16.3 — parámetros del proceso (arranque, tolerancia, los dos SLA, tope de lote).
         // VALIDAR y no VER: mover la fecha de arranque cambia el tablero de toda la red.
         path: 'entradas/control/ajustes',
@@ -1666,6 +1672,18 @@ export const routes: Routes = [
         path: 'traspasos',
         loadComponent: () => import('./modules/logistica/pages/logistica-traspasos.component').then(m => m.LogisticaTraspasosComponent),
         canActivate: [permissionGuard(Permission.LOGISTICS_TRANSFERS_VER)]
+      },
+      {
+        // EMB.12 — «Nuevo embarque» toma el viaje que almacén ya dio de salida en Kepler.
+        // ⚠️ Van ANTES de 'shipments/:id': si no, Angular resuelve «nuevo» como un id.
+        path: 'shipments/nuevo',
+        loadComponent: () => import('./modules/logistica/pages/logistica-nuevo-embarque.component').then(m => m.LogisticaNuevoEmbarqueComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
+      },
+      {
+        path: 'shipments/nuevo/:sucursal/:guia',
+        loadComponent: () => import('./modules/logistica/pages/logistica-nuevo-embarque-form.component').then(m => m.LogisticaNuevoEmbarqueFormComponent),
+        canActivate: [permissionGuard(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
       },
       {
         path: 'shipments/:id',

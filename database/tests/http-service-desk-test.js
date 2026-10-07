@@ -73,7 +73,18 @@ async function req(method, p, token, body) {
 
 const dump = (r) => `status ${r.status} ${JSON.stringify(r.body).slice(0, 140)}`;
 
-async function crearUsuario(etiqueta, overrides = []) {
+let _colaTi = null;
+async function idColaTi() {
+  _colaTi ??= (await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id')).id;
+  return _colaTi;
+}
+
+/**
+ * `membresias`: a qué colas pertenece (`[{ queue_id, role }]`). `[MS.7.6]` Sin indicarlo, quien recibe SERVICIO_ATENDER o
+ * SERVICIO_COORDINAR queda como miembro de TI (coordinador si tiene la de coordinar): es lo que hace la migración de
+ * respaldo con quien ya atendía TI. Con `[]` se prueba al que tiene la clave pero NINGUNA cola.
+ */
+async function crearUsuario(etiqueta, overrides = [], membresias) {
   const username = `smoke_sd_${etiqueta}_${SUF}`.slice(0, 40);
   const [{ id }] = await knex('identity.users')
     .insert({ tenant_id: T, username, nombre: `SMOKE ${etiqueta}`, password_hash: await bcrypt.hash(PASS_PLANO, 10), role_name: ROL_BASE })
@@ -81,6 +92,9 @@ async function crearUsuario(etiqueta, overrides = []) {
   for (const k of overrides) {
     await knex('identity.user_permissions').insert({ tenant_id: T, user_id: id, permission_key: k, allow: true, nota: 'smoke http-service-desk-test' });
   }
+  const atiende = overrides.includes('SERVICIO_ATENDER') || overrides.includes('SERVICIO_COORDINAR');
+  const miembro = membresias ?? (atiende ? [{ queue_id: await idColaTi(), role: overrides.includes('SERVICIO_COORDINAR') ? 'coordinador' : 'tecnico' }] : []);
+  for (const m of miembro) await knex('servicedesk.queue_members').insert({ tenant_id: T, queue_id: m.queue_id, user_id: id, role: m.role });
   const r = await req('POST', '/auth-mt/login', null, { tenant_slug: 'mega_dulces', username, password: PASS_PLANO });
   return { id, username, token: r.body?.access_token ?? null, loginStatus: r.status };
 }
@@ -853,6 +867,146 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('requester_id que no es uuid → 400', (await req('POST', `${SD}/requests`, agente.token, { category_id: catSimple.id, title: 'x', requester_id: 'no-soy-uuid' })).status === 400);
     }
 
+    // ── 22. [MS.7.6] Acceso por cola: clave ∩ pertenencia, y el god-mode como única excepción ───────────
+    {
+      console.log('\n22 — acceso por cola: un técnico de Mantenimiento no ve TI (y al revés)');
+      const colaTi = await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id');
+      const [{ id: qMto }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_mto76', name: 'SMOKE Mantenimiento', sort_order: 900 }).returning('id');
+      const [{ id: catMto }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qMto, code: 'smoke_mto76_cat', name: 'SMOKE Mto categoría', default_priority: 'media', requires_branch: false }).returning('id');
+      const tecMto = await crearUsuario('tecmto', ['SERVICIO_ATENDER'], [{ queue_id: qMto, role: 'tecnico' }]);
+      const coordMto = await crearUsuario('coordmto', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qMto, role: 'coordinador' }]);
+      const huerfano = await crearUsuario('huerfano', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], []);
+      const dios = await crearUsuario('dios');
+      await knex('identity.users').where({ id: dios.id }).update({ role_name: 'superadmin' });
+      dios.token = (await req('POST', '/auth-mt/login', null, { tenant_slug: 'mega_dulces', username: dios.username, password: PASS_PLANO })).body?.access_token ?? null;
+      usuarios.push(tecMto, coordMto, huerfano, dios);
+      check('los usuarios de la prueba entran', [tecMto, coordMto, huerfano, dios].every((u) => !!u.token));
+
+      const palabra = `smokepalabra${SUF}`;
+      const mk = (token, categoria, title, extra = {}) => req('POST', `${SD}/requests`, token, { category_id: categoria, title, ...extra });
+      const tMto = await mk(sol.token, catMto, 'SMOKE 7.6 ticket de Mantenimiento');
+      const tTi = await mk(sol.token, catSimple.id, 'SMOKE 7.6 ticket de TI');
+      check('quien reporta puede levantar a cualquier cola (el alta no se acota)', tMto.status === 201 && tTi.status === 201, dump(tMto) + dump(tTi));
+      const idMto = tMto.body?.id;
+      const idTi = tTi.body?.id;
+      const filasDe = async (token, qs = '') => (await req('GET', `${SD}/requests/inbox?scope=all&limit=200${qs}`, token)).body?.rows ?? [];
+      const ids = (rows) => new Set(rows.map((r) => r.id));
+
+      // ── bandeja, ficha y tablero ──
+      const bTec = ids(await filasDe(tecMto.token));
+      check('⭐ el técnico de Mantenimiento ve el ticket de Mantenimiento en su bandeja', bTec.has(idMto));
+      check('⭐ y NO ve el de TI', !bTec.has(idTi));
+      const bAg = ids(await filasDe(agente.token));
+      check('⭐ el agente de TI ve el de TI y NO el de Mantenimiento', bAg.has(idTi) && !bAg.has(idMto));
+      const bCoord = ids(await filasDe(coord.token));
+      check('⭐ ni siquiera el COORDINADOR de TI ve el de Mantenimiento (otra cola, otra coordinación)', bCoord.has(idTi) && !bCoord.has(idMto));
+      check('⛔ el técnico de Mantenimiento NO abre el ticket de TI por URL directa → 404', (await req('GET', `${SD}/requests/${idTi}`, tecMto.token)).status === 404);
+      check('⛔ el agente de TI NO abre el de Mantenimiento por URL directa → 404', (await req('GET', `${SD}/requests/${idMto}`, agente.token)).status === 404);
+      check('⛔ el coordinador de TI tampoco → 404', (await req('GET', `${SD}/requests/${idMto}`, coord.token)).status === 404);
+      check('quien reportó SÍ ve su ticket de Mantenimiento', (await req('GET', `${SD}/requests/${idMto}`, sol.token)).status === 200);
+      check('otro solicitante NO lo ve → 404', (await req('GET', `${SD}/requests/${idMto}`, otro.token)).status === 404);
+
+      const abiertosMto = Number((await knex('servicedesk.requests').where({ queue_id: qMto }).whereNull('deleted_at').whereNotIn('status', ['cerrado', 'cancelado']).count({ n: '*' }).first()).n);
+      const stTec = (await req('GET', `${SD}/requests/stats`, tecMto.token)).body;
+      check('⭐ el tablero del técnico cuenta SÓLO su cola', stTec?.open_total === abiertosMto, JSON.stringify(stTec));
+      const abiertosTi = Number((await knex('servicedesk.requests').where({ queue_id: colaTi.id }).whereNull('deleted_at').whereNotIn('status', ['cerrado', 'cancelado']).count({ n: '*' }).first()).n);
+      const stAg = (await req('GET', `${SD}/requests/stats`, agente.token)).body;
+      check('⭐ el tablero del agente de TI NO suma Mantenimiento', stAg?.open_total === abiertosTi, `${stAg?.open_total} vs ${abiertosTi}`);
+
+      // ── la clave SOLA no basta ──
+      const bHue = await req('GET', `${SD}/requests/inbox?scope=all&limit=200`, huerfano.token);
+      check('⛔ NEGATIVA — quien tiene las claves pero NINGUNA cola ve 0 solicitudes (no «todas»)', bHue.status === 200 && (bHue.body?.rows ?? []).length === 0 && bHue.body?.total === 0, dump(bHue));
+      const stHue = (await req('GET', `${SD}/requests/stats`, huerfano.token)).body;
+      check('⛔ y su tablero sale en ceros (no el total de la empresa)', stHue?.open_total === 0 && stHue?.unassigned === 0, JSON.stringify(stHue));
+      check('⛔ no abre ninguna ficha ajena → 404', (await req('GET', `${SD}/requests/${idTi}`, huerfano.token)).status === 404);
+      check('⛔ no tiene reporte (no coordina ninguna cola) → 403, no un reporte vacío', (await req('GET', `${SD}/reports`, huerfano.token)).status === 403);
+
+      // ── el god-mode es la única excepción ──
+      const bDios = ids(await filasDe(dios.token));
+      check('⭐ el god-mode ve las dos colas', bDios.has(idMto) && bDios.has(idTi));
+      check('y abre cualquier ficha', (await req('GET', `${SD}/requests/${idMto}`, dios.token)).status === 200);
+
+      // ── acciones sobre el ticket ──
+      check('⛔ el agente de TI NO toma el ticket de Mantenimiento → 404', (await req('POST', `${SD}/requests/${idMto}/take`, agente.token)).status === 404);
+      check('⛔ el agente de TI NO deja una nota interna en él → 404', (await req('POST', `${SD}/requests/${idMto}/messages`, agente.token, { body: 'intruso', visibility: 'internal' })).status === 404);
+      check('⛔ ni registra tiempo en él → 404', (await req('POST', `${SD}/requests/${idMto}/time`, agente.token, { minutes: 5 })).status === 404);
+      check('⛔ el coordinador de TI NO cambia su prioridad → 404', (await req('POST', `${SD}/requests/${idMto}/priority`, coord.token, { priority: 'alta', reason: 'intruso' })).status === 404);
+      check('⛔ el coordinador de TI NO lo asigna → 404', (await req('POST', `${SD}/requests/${idMto}/assign`, coord.token, { user_id: tecMto.id })).status === 404);
+      check('el técnico de Mantenimiento SÍ lo toma', (await req('POST', `${SD}/requests/${idMto}/take`, tecMto.token)).status < 300);
+      const tMto2 = await mk(sol.token, catMto, 'SMOKE 7.6 segundo de Mantenimiento');
+      check('⛔ el técnico (sin la clave de coordinar) no asigna a otro → 403', (await req('POST', `${SD}/requests/${tMto2.body?.id}/assign`, tecMto.token, { user_id: coordMto.id })).status === 403);
+      check('⭐ la coordinación de Mantenimiento asigna a su técnico', (await req('POST', `${SD}/requests/${tMto2.body?.id}/assign`, coordMto.token, { user_id: tecMto.id })).status < 300);
+      const tMto3 = await mk(sol.token, catMto, 'SMOKE 7.6 tercero de Mantenimiento');
+      const aTi = await req('POST', `${SD}/requests/${tMto3.body?.id}/assign`, coordMto.token, { user_id: agente.id });
+      check('⛔ NO se asigna a alguien que no es de ESA cola (el agente de TI) → 400', aTi.status === 400, dump(aTi));
+
+      // ── la lista de quien se puede asignar ──
+      const agTecnico = (await req('GET', `${SD}/agents`, tecMto.token)).body ?? [];
+      check('⭐ el técnico de Mantenimiento ve a su coordinación y a sí mismo, y a NADIE de TI', agTecnico.some((a) => a.user_id === coordMto.id) && agTecnico.every((a) => a.user_id !== agente.id && a.user_id !== coord.id), JSON.stringify(agTecnico.map((a) => a.username)));
+      const agTi = (await req('GET', `${SD}/agents`, agente.token)).body ?? [];
+      check('⭐ el agente de TI no ve a nadie de Mantenimiento', agTi.some((a) => a.user_id === coord.id) && agTi.every((a) => a.user_id !== tecMto.id && a.user_id !== coordMto.id), JSON.stringify(agTi.map((a) => a.username)));
+      check('⛔ pedir los agentes de una cola ajena → 404', (await req('GET', `${SD}/agents?queue_id=${qMto}`, agente.token)).status === 404);
+
+      // ── reporte ──
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const repMto = await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}`, coordMto.token);
+      const creadosMto = Number((await knex('servicedesk.requests').where({ queue_id: qMto }).whereNull('deleted_at').count({ n: '*' }).first()).n);
+      check('⭐ el reporte de la coordinación de Mantenimiento cuenta SÓLO sus tickets', repMto.status === 200 && repMto.body?.totales?.creados === creadosMto, `${repMto.body?.totales?.creados} vs ${creadosMto}`);
+      const repTi = await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}`, coord.token);
+      const creadosTi = Number((await knex('servicedesk.requests').where({ queue_id: colaTi.id }).whereNull('deleted_at').where('created_at', '>=', knex.raw(`(?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [hoy])).count({ n: '*' }).first()).n);
+      check('⭐ el de la coordinación de TI NO suma Mantenimiento', repTi.status === 200 && repTi.body?.totales?.creados === creadosTi, `${repTi.body?.totales?.creados} vs ${creadosTi}`);
+      check('⛔ pedir el reporte de una cola que no coordina → 403', (await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}&queue_id=${qMto}`, coord.token)).status === 403);
+      check('⛔ el técnico (sin la clave de coordinar) no tiene reporte → 403', (await req('GET', `${SD}/reports`, tecMto.token)).status === 403);
+
+      // ── miembros ──
+      const mMto = await req('GET', `${SD}/config/queues/${qMto}/members`, coordMto.token);
+      check('⭐ la coordinación ve a los miembros de su cola, con quién es coordinador', mMto.status === 200 && mMto.body?.members?.some((m) => m.user_id === coordMto.id && m.role === 'coordinador') && mMto.body?.members?.some((m) => m.user_id === tecMto.id && m.role === 'tecnico'), dump(mMto));
+      check('⛔ quien no atiende esa cola no ve sus miembros → 404', (await req('GET', `${SD}/config/queues/${qMto}/members`, agente.token)).status === 404);
+      check('⛔ el COORDINADOR DE TI no se agrega a Mantenimiento → 403', (await req('PUT', `${SD}/config/queues/${qMto}/members/${coord.id}`, coord.token, { role: 'tecnico' })).status === 403);
+      check('⛔ el técnico no agrega a nadie → 403', (await req('PUT', `${SD}/config/queues/${qMto}/members/${agente.id}`, tecMto.token, { role: 'tecnico' })).status === 403);
+      check('⛔ no se agrega a quien no tiene la clave de atender (el solicitante) → 400', (await req('PUT', `${SD}/config/queues/${qMto}/members/${sol.id}`, coordMto.token, { role: 'tecnico' })).status === 400);
+      check('⛔ no se nombra coordinador a quien no tiene la clave de coordinar → 400', (await req('PUT', `${SD}/config/queues/${qMto}/members/${agente.id}`, coordMto.token, { role: 'coordinador' })).status === 400);
+      check('⛔ un rol inventado → 400', (await req('PUT', `${SD}/config/queues/${qMto}/members/${agente.id}`, coordMto.token, { role: 'rey' })).status === 400);
+      check('⛔ la cola no se queda sin coordinación (la única no se baja a técnico) → 409', (await req('PUT', `${SD}/config/queues/${qMto}/members/${coordMto.id}`, coordMto.token, { role: 'tecnico' })).status === 409);
+      check('⛔ ni se quita a la única coordinación → 409', (await req('DELETE', `${SD}/config/queues/${qMto}/members/${coordMto.id}`, coordMto.token)).status === 409);
+      check('⛔ no se quita a quien tiene solicitudes abiertas asignadas → 409', (await req('DELETE', `${SD}/config/queues/${qMto}/members/${tecMto.id}`, coordMto.token)).status === 409);
+      const aHue = await req('PUT', `${SD}/config/queues/${qMto}/members/${huerfano.id}`, coordMto.token, { role: 'tecnico' });
+      check('⭐ la coordinación de la cola agrega a una persona con la clave', aHue.status === 200 && aHue.body?.members?.some((m) => m.user_id === huerfano.id), dump(aHue));
+      check('⭐ y esa persona YA ve los tickets de la cola', ids(await filasDe(huerfano.token)).has(idMto));
+      const qHue = await req('DELETE', `${SD}/config/queues/${qMto}/members/${huerfano.id}`, coordMto.token);
+      check('se le puede quitar (sin solicitudes asignadas)', qHue.status === 200 && !qHue.body?.members?.some((m) => m.user_id === huerfano.id), dump(qHue));
+      check('⭐ y deja de verlos', !ids(await filasDe(huerfano.token)).has(idMto));
+      check('el god-mode también administra miembros', (await req('PUT', `${SD}/config/queues/${qMto}/members/${huerfano.id}`, dios.token, { role: 'tecnico' })).status === 200);
+
+      // ── configuración de la cola ──
+      check('⛔ la coordinación de TI NO cambia una categoría de Mantenimiento → 403', (await req('PUT', `${SD}/config/categories/${catMto}`, coord.token, { name: 'robada' })).status === 403);
+      check('⛔ ni le agrega una → 403', (await req('POST', `${SD}/config/categories`, coord.token, { queue_id: qMto, code: 'smoke_x', name: 'x' })).status === 403);
+      check('⛔ ni renombra la cola → 403', (await req('PUT', `${SD}/config/queues/${qMto}`, coord.token, { name: 'robada' })).status === 403);
+      check('la coordinación de Mantenimiento SÍ edita su categoría', (await req('PUT', `${SD}/config/categories/${catMto}`, coordMto.token, { name: 'SMOKE Mto categoría' })).status === 200);
+      const nueva = await req('POST', `${SD}/config/queues`, coordMto.token, { code: 'smoke_mto76_b', name: 'SMOKE cola creada' });
+      const colaB = (nueva.body?.queues ?? []).find((q) => q.code === 'smoke_mto76_b');
+      const mB = colaB ? await req('GET', `${SD}/config/queues/${colaB.id}/members`, coordMto.token) : null;
+      check('⭐ quien crea una cola queda como su coordinador (si no, crearía algo que ya no ve)', !!colaB && mB?.status === 200 && mB.body?.members?.some((m) => m.user_id === coordMto.id && m.role === 'coordinador'), dump(nueva));
+
+      // ── ruteo: una regla de palabra clave de TI no dispara sobre Mantenimiento ──
+      const regla = await req('POST', `${SD}/config/routing`, coord.token, { name: `SMOKE 7.6 ${SUF}`, keywords: [palabra], assignee_id: agente.id });
+      check('la regla de palabra clave se crea', regla.status === 200 || regla.status === 201, dump(regla));
+      const rTi = await mk(sol.token, catSimple.id, `SMOKE 7.6 ${palabra} en TI`);
+      const rMto = await mk(sol.token, catMto, `SMOKE 7.6 ${palabra} en Mantenimiento`);
+      check('⭐ en TI la regla sigue asignando (nada cambia para TI)', rTi.body?.assigned_to === agente.id, JSON.stringify([rTi.body?.assigned_to, rTi.body?.status]));
+      check('⭐ en Mantenimiento NO dispara (su destino no es de esa cola): queda sin asignar', !rMto.body?.assigned_to && rMto.body?.status === 'nuevo', JSON.stringify([rMto.body?.assigned_to, rMto.body?.status]));
+
+      // ── avisos por cola ──
+      const urgMto = await mk(sol.token, catMto, 'SMOKE 7.6 urgente de Mantenimiento', { impact: 'red', blocks_work: true });
+      const dest = new Set((await knex('servicedesk.notification_log').where({ request_id: urgMto.body?.id }).pluck('recipient_id')));
+      if (dest.size) {
+        check('⭐ el aviso de «nuevo prioritario» llega a la cola de Mantenimiento', dest.has(tecMto.id) || dest.has(coordMto.id), JSON.stringify([...dest]));
+        check('⛔ y NO despierta a TI', !dest.has(agente.id) && !dest.has(coord.id), JSON.stringify([...dest]));
+      } else {
+        noMedido.push('avisos por cola: el aviso «nuevo prioritario» no dejó filas en notification_log (canal apagado en este entorno)');
+      }
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
@@ -1029,11 +1183,13 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
         await knex('servicedesk.requests').whereIn('id', reqs).del();
       }
       await knex('servicedesk.routing_rules').whereIn('assignee_id', ids).del();
+      await knex('servicedesk.queue_members').whereIn('user_id', ids).del();
       await knex('servicedesk.notification_prefs').whereIn('user_id', ids).del();
       await knex('identity.user_permissions').whereIn('user_id', ids).del();
       await knex('identity.user_roles').whereIn('user_id', ids).del();
       await knex('identity.users').whereIn('id', ids).del();
     }
+    await knex('servicedesk.queue_members').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.categories').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex.destroy();

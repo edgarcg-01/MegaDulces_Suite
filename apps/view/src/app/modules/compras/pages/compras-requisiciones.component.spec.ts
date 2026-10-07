@@ -1,6 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { ActivatedRoute, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
+import { MessageService } from 'primeng/api';
 import { ComprasRequisicionesComponent } from './compras-requisiciones.component';
 import { ComprasService } from '../compras.service';
 import { MultitareaService } from '../../../core/services/multitarea.service';
@@ -40,17 +41,40 @@ const FILA = {
   supplier_name: 'Dulces del Norte',
 };
 
+/**
+ * `[RQ.9]` El doble de `ComprasService`. Arranca con TODO lo que la pantalla pide al montar:
+ * desde RQ.9 eso incluye `filters()` (el catálogo de sucursales) y desde RQ.8 los lotes; los
+ * dobles que sólo traían `listRequisitions` reventaban las 10 pruebas en ngOnInit sin decir nada útil.
+ */
+const SUCURSALES = [{ id: 'w1', code: '06', name: 'Canindo' }];
+function apiFalsa(over: Record<string, unknown> = {}) {
+  return {
+    filters: () => of({ warehouses: SUCURSALES }),
+    listRequisitions: () => of({ rows: [FILA], total: 1 }),
+    listRequisitionBatches: () => of({ rows: [], total: 0, page: 1, pageSize: 25, disponible: true }),
+    ...over,
+  };
+}
+
+/**
+ * `[RQ.8]` La pantalla abre «Por lote». Lo que miden estas pruebas —el ancla del folio, la casilla,
+ * el clic de la fila— es la fila de REQUISICIÓN, que sólo existe en «Por documento».
+ */
+function porDocumento<T extends { componentInstance: ComprasRequisicionesComponent; detectChanges(): void }>(fix: T): T {
+  fix.componentInstance.vista.set('documento');
+  fix.detectChanges();
+  return fix;
+}
+
 function montar() {
   TestBed.configureTestingModule({
     imports: [ComprasRequisicionesComponent],
     providers: [
       provideRouter([]),
-      { provide: ComprasService, useValue: { listRequisitions: () => of({ rows: [FILA], total: 1 }) } },
+      { provide: ComprasService, useValue: apiFalsa() },
     ],
   });
-  const fix = TestBed.createComponent(ComprasRequisicionesComponent);
-  fix.detectChanges();
-  return fix;
+  return porDocumento(TestBed.createComponent(ComprasRequisicionesComponent));
 }
 
 /** El ancla del folio, que es la celda que identifica la fila. */
@@ -84,13 +108,12 @@ describe('[MT] el drill-down renderizado', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        { provide: ComprasService, useValue: { listRequisitions: () => of({ rows: [FILA], total: 1 }) } },
+        { provide: ComprasService, useValue: apiFalsa() },
       ],
       imports: [ComprasRequisicionesComponent],
     });
     TestBed.inject(MultitareaService).ponerModo('ventana');
-    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
-    fix.detectChanges();
+    const fix = porDocumento(TestBed.createComponent(ComprasRequisicionesComponent));
     const a = anclaDelFolio(fix);
     expect(a!.getAttribute('target')).toBe('_blank');
     // El href NO cambia: la preferencia elige dónde abre, no a dónde va.
@@ -106,15 +129,14 @@ describe('[MT] el drill-down renderizado', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        { provide: ComprasService, useValue: { listRequisitions: () => of({ rows: [FILA], total: 1 }) } },
+        { provide: ComprasService, useValue: apiFalsa() },
       ],
       imports: [ComprasRequisicionesComponent],
     });
     const mt = TestBed.inject(MultitareaService);
     mt.registrarRutaDelArea(TestBed.inject(ActivatedRoute));
     mt.ponerModo('lado');
-    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
-    fix.detectChanges();
+    const fix = porDocumento(TestBed.createComponent(ComprasRequisicionesComponent));
 
     const href = anclaDelFolio(fix)!.getAttribute('href')!;
     expect(href).toContain('panel:');
@@ -132,13 +154,12 @@ describe('[MT] el drill-down renderizado', () => {
     TestBed.configureTestingModule({
       providers: [
         provideRouter([]),
-        { provide: ComprasService, useValue: { listRequisitions: () => of({ rows: [FILA], total: 1 }) } },
+        { provide: ComprasService, useValue: apiFalsa() },
       ],
       imports: [ComprasRequisicionesComponent],
     });
     TestBed.inject(MultitareaService).ponerModo('lado'); // sin registrarRutaDelArea
-    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
-    fix.detectChanges();
+    const fix = porDocumento(TestBed.createComponent(ComprasRequisicionesComponent));
     expect(anclaDelFolio(fix)!.getAttribute('href')).toBe(`/compras/requisiciones/${FILA.id}`);
   });
 
@@ -202,6 +223,54 @@ describe('[MT] el drill-down renderizado', () => {
     expect(comp.sel().has(FILA.id)).toBe(true);
   });
 
+  it('[RQ.8] abre agrupado POR LOTE y pide los lotes de la pestaña', () => {
+    let pedido: { source_type?: string } | null = null;
+    TestBed.configureTestingModule({
+      providers: [
+        provideRouter([]),
+        { provide: ComprasService, useValue: apiFalsa({
+          listRequisitionBatches: (q: { source_type?: string }) => {
+            pedido = q;
+            return of({ rows: [], total: 0, page: 1, pageSize: 25, disponible: true });
+          },
+        }) },
+      ],
+      imports: [ComprasRequisicionesComponent],
+    });
+    const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+    fix.detectChanges();
+    expect(fix.componentInstance.vista()).toBe('lote');
+    expect(pedido).toMatchObject({ source_type: 'supplier' });
+    // En «Por lote» no hay filas de requisición sueltas: es la otra vista.
+    expect(anclaDelFolio(fix)).toBeNull();
+  });
+
+  describe('[RQ.9] el catálogo de sucursales', () => {
+    it('sale de /filters y llena el selector', () => {
+      const fix = montar();
+      expect(fix.componentInstance['almacenes']()).toEqual(SUCURSALES);
+    });
+
+    it('si /filters falla, la bandeja carga igual y lo avisa — no se calla', () => {
+      TestBed.configureTestingModule({
+        providers: [
+          provideRouter([]),
+          { provide: ComprasService, useValue: apiFalsa({ filters: () => throwError(() => new Error('503')) }) },
+        ],
+        imports: [ComprasRequisicionesComponent],
+      });
+      const fix = TestBed.createComponent(ComprasRequisicionesComponent);
+      const toast = fix.debugElement.injector.get(MessageService);
+      const avisos: Array<{ severity?: string; summary?: string }> = [];
+      vi.spyOn(toast, 'add').mockImplementation((m) => { avisos.push(m); });
+      porDocumento(fix);
+
+      expect(fix.componentInstance['almacenes']()).toEqual([]);
+      expect(avisos).toContainEqual(expect.objectContaining({ severity: 'warn', summary: 'Sin catálogo de sucursales' }));
+      expect(anclaDelFolio(fix)).not.toBeNull(); // la lista de requisiciones salió igual
+    });
+  });
+
   describe('segmentación en pestañas (Requerimientos a Proveedor vs Traspaso)', () => {
     it('inicia por defecto en la pestaña supplier y consulta con source_type: supplier', () => {
       let ultParams: any = null;
@@ -210,12 +279,12 @@ describe('[MT] el drill-down renderizado', () => {
           provideRouter([]),
           {
             provide: ComprasService,
-            useValue: {
+            useValue: apiFalsa({
               listRequisitions: (q: any) => {
                 ultParams = q;
                 return of({ rows: [FILA], total: 1 });
               },
-            },
+            }),
           },
         ],
         imports: [ComprasRequisicionesComponent],
@@ -234,12 +303,12 @@ describe('[MT] el drill-down renderizado', () => {
           provideRouter([]),
           {
             provide: ComprasService,
-            useValue: {
+            useValue: apiFalsa({
               listRequisitions: (q: any) => {
                 ultParams = q;
                 return of({ rows: [], total: 0 });
               },
-            },
+            }),
           },
         ],
         imports: [ComprasRequisicionesComponent],
