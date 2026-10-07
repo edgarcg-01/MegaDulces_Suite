@@ -7,6 +7,7 @@ import { GoodsReceiptsGateway } from './goods-receipts.gateway';
 import { GoodsReceiptsWatcherService } from './goods-receipts-watcher.service';
 import { GoodsReceiptTwinsService } from './goods-receipt-twins.service';
 import { ReceiptSlaService } from './receipt-sla.service';
+import { GoodsReceiptExpedienteService } from './goods-receipt-expediente.service';
 
 /**
  * Fase CC (extensión) — Comprobantes de Orden de Entrada. Adjunta la remisión/
@@ -33,6 +34,8 @@ import { ReceiptSlaService } from './receipt-sla.service';
     // `[RE.27.C]` El reloj de la cola. Los dos plazos ya vivían en
     // `finance.receipt_settings` y ninguno disparaba nada.
     ReceiptSlaService,
+    // `[RE.35]` El expediente de la factura (sólo lectura, ADR-085).
+    GoodsReceiptExpedienteService,
   ],
   exports: [GoodsReceiptProofsService, ReceiptSlaService],
 })
