@@ -63,10 +63,16 @@ export type SdActor = 'requester' | 'agent' | 'coordinator' | 'system';
 
 // ── Catálogo (lo que la pantalla «Nueva solicitud» necesita para pintarse) ─────────────────────
 
+/** `[MS.7.7]` Qué matriz sugiere la prioridad de una cola: `impacto` (cuántas personas afecta × me impide trabajar) o `riesgo_operacion` (riesgo para personas × detiene la operación). Se elige por este VALOR, nunca por el nombre de la cola. */
+export const SD_PRIORITY_MODELS = ['impacto', 'riesgo_operacion'] as const;
+export type SdPriorityModel = (typeof SD_PRIORITY_MODELS)[number];
+
 export interface SdQueueDto {
   id: string;
   code: string;
   name: string;
+  /** `[MS.7.7]` Para que el formulario sepa QUÉ preguntar al reportar en esta cola. */
+  priority_model: SdPriorityModel;
 }
 
 export interface SdCategoryDto {
@@ -97,8 +103,10 @@ export interface SdCreateRequestDto {
   title: string;
   description?: string;
   impact?: SdImpact;
-  /** «Me bloquea el trabajo». Con el impacto, alimenta la prioridad SUGERIDA; no la fija. */
+  /** «Me bloquea el trabajo» (en una cola de riesgo: «detiene la operación»). Con el impacto —o con el riesgo—, alimenta la prioridad SUGERIDA; no la fija. */
   blocks_work?: boolean;
+  /** `[MS.7.7]` «¿Hay riesgo para personas?». **Obligatorio** en una cola con modelo `riesgo_operacion`; se ignora en una de `impacto`. */
+  safety_risk?: boolean;
   /** Código de sucursal (`'01'`…). Obligatorio si la categoría exige sucursal. */
   warehouse_code?: string | null;
   attachments?: SdAttachmentInput[];
@@ -156,6 +164,8 @@ export interface SdRequestRow {
   priority_suggested: SdPriority | null;
   impact: SdImpact;
   blocks_work: boolean;
+  /** `[MS.7.7]` «¿Hay riesgo para personas?». `null` = no se preguntó (cola de impacto): nunca un `false` inventado. */
+  safety_risk: boolean | null;
   status: SdStatus;
   requester_id: string;
   requester_name: string | null;
@@ -553,6 +563,8 @@ export interface SdUpsertQueueMemberDto {
 export interface SdUpsertQueueDto {
   code?: string;
   name?: string;
+  /** `[MS.7.7]` Cambia cómo se sugiere la prioridad de la cola. Sólo la coordinación de esa cola. */
+  priority_model?: SdPriorityModel;
   department_code?: string | null;
   active?: boolean;
   sort_order?: number;

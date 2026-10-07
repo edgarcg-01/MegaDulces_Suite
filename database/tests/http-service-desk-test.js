@@ -1104,9 +1104,12 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
         const susCats = (cat1?.categories ?? []).filter((k) => k.queue_id === mto.id);
         check('⭐ encendida, el catálogo ofrece sus 11 categorías', susCats.length === 11, String(susCats.length));
         check('y todas exigen ubicación', susCats.every((k) => k.requires_branch === true));
-        const sinUbic = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 sin ubicación' });
+        // `[MS.7.7]` Mantenimiento usa riesgo × operación: el alta lleva SIEMPRE la respuesta de riesgo (si no, el 400 sería por eso y no por la ubicación).
+        const sinUbic = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 sin ubicación', safety_risk: false });
         check('⛔ sin ubicación → 400 (una falla de mantenimiento es EN un sitio)', sinUbic.status === 400, dump(sinUbic));
-        const tEc = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 fuga en el estacionamiento', warehouse_code: 'EC' });
+        const sinRiesgo = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 sin contestar el riesgo', warehouse_code: 'EC' });
+        check('⭐ `[MS.7.7]` Mantenimiento ya sugiere la prioridad por riesgo × operación: SIN contestar el riesgo → 400', sinRiesgo.status === 400, dump(sinRiesgo));
+        const tEc = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlomeria.id, title: 'SMOKE 7.14 fuga en el estacionamiento', warehouse_code: 'EC', safety_risk: false, blocks_work: false });
         check('⭐ «Estacionamiento CEDIS» (EC) es una ubicación válida y se nombra bien', tEc.status === 201 && tEc.body?.warehouse_name === 'Estacionamiento CEDIS', dump(tEc));
         const bJefe = await idsDe(jefe.token);
         check('⭐ la coordinación de Mantenimiento ve el ticket en SU bandeja', bJefe.has(tEc.body?.id));
@@ -1199,6 +1202,71 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       const filasAntes = (await knex('servicedesk.sla_policies').where({ tenant_id: T }).whereNotNull('queue_id')).length;
       check('la política general se sigue editando sin queue_id (compatibilidad)', (await req('PUT', `${SD}/config/policies/media`, coord.token, { first_response_minutes: generalMedia.first_response_minutes })).status === 200);
       check('…y no crea filas por cola', (await knex('servicedesk.sla_policies').where({ tenant_id: T }).whereNotNull('queue_id')).length === filasAntes);
+    }
+
+    // ── 26. [MS.7.7] Prioridad por modelo de cola: riesgo × operación (Mantenimiento) vs impacto (TI) ───
+    {
+      console.log('\n26 — la prioridad se sugiere según el MODELO de la cola (por valor, no por nombre)');
+      const [{ id: qR }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_rsk77', name: 'SMOKE Riesgo', sort_order: 903 }).returning('id');
+      const [{ id: catR }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qR, code: 'smoke_rsk77_cat', name: 'SMOKE R media', default_priority: 'media', requires_branch: false }).returning('id');
+      const [{ id: catRAlta }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qR, code: 'smoke_rsk77_alta', name: 'SMOKE R alta', default_priority: 'alta', requires_branch: false }).returning('id');
+      const jefeR = await crearUsuario('rsk_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qR, role: 'coordinador' }]);
+      usuarios.push(jefeR);
+      const mk = (cat, extra = {}) => req('POST', `${SD}/requests`, sol.token, { category_id: cat, title: 'SMOKE 7.7 ' + Math.random().toString(36).slice(2, 7), ...extra });
+      const cambiaModelo = (token, valor) => req('PUT', `${SD}/config/queues/${qR}`, token, { priority_model: valor });
+
+      // La cola nace con el modelo de siempre: nada cambia para quien no lo toque.
+      const antes = await mk(catR, { impact: 'red', blocks_work: true });
+      check('⭐ una cola NUEVA nace en el modelo de IMPACTO (como TI): bloquea + red → urgente', antes.status === 201 && antes.body?.priority === 'urgente', dump(antes));
+      check('⭐ y en ese modelo `safety_risk` queda NULL («no se preguntó»), no un false inventado', antes.body?.safety_risk === null, JSON.stringify(antes.body?.safety_risk));
+      const conRiesgoEnImpacto = await mk(catR, { impact: 'yo', blocks_work: false, safety_risk: true });
+      check('⛔ en el modelo de impacto el riesgo se IGNORA (no sube la prioridad de TI) y no se guarda', conRiesgoEnImpacto.status === 201 && conRiesgoEnImpacto.body?.priority !== 'alta' && conRiesgoEnImpacto.body?.safety_risk === null, dump(conRiesgoEnImpacto));
+      const catalogo = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('el catálogo declara el modelo de cada cola (para que el formulario sepa qué preguntar)', (catalogo?.queues ?? []).every((q) => ['impacto', 'riesgo_operacion'].includes(q.priority_model)) && (catalogo?.queues ?? []).find((q) => q.id === qR)?.priority_model === 'impacto', JSON.stringify((catalogo?.queues ?? []).map((q) => [q.code, q.priority_model])));
+
+      // Quién puede cambiar el modelo.
+      check('⛔ el coordinador de TI NO cambia el modelo de OTRA cola → 403', (await cambiaModelo(coord.token, 'riesgo_operacion')).status === 403);
+      check('⛔ un modelo inventado → 400', (await cambiaModelo(jefeR.token, 'por_tamano')).status === 400);
+      check('⛔ y no cambió nada con las peticiones rechazadas', (await knex('servicedesk.queues').where({ id: qR }).first('priority_model')).priority_model === 'impacto');
+      const ok = await cambiaModelo(jefeR.token, 'riesgo_operacion');
+      check('⭐ la coordinación DE LA COLA cambia su modelo', ok.status === 200 && (ok.body?.queues ?? []).find((q) => q.id === qR)?.priority_model === 'riesgo_operacion', dump(ok));
+
+      // La matriz de riesgo × operación.
+      const caso = async (riesgo, detiene, esperada, cat = catR) => {
+        const r = await mk(cat, { safety_risk: riesgo, blocks_work: detiene, impact: 'yo' });
+        check(`riesgo ${riesgo ? 'SÍ' : 'no'} × detiene ${detiene ? 'SÍ' : 'no'} → ${esperada}`, r.status === 201 && r.body?.priority === esperada && r.body?.priority_suggested === esperada, dump(r));
+        return r;
+      };
+      const rUrg = await caso(true, true, 'urgente');
+      await caso(true, false, 'alta');
+      await caso(false, true, 'alta');
+      const rMed = await caso(false, false, 'media');
+      check('⭐ el riesgo se GUARDA y la ficha lo devuelve (para mostrarlo)', rUrg.body?.safety_risk === true && rMed.body?.safety_risk === false && rUrg.body?.blocks_work === true, JSON.stringify([rUrg.body?.safety_risk, rMed.body?.safety_risk]));
+      const rImp = await mk(catR, { safety_risk: false, blocks_work: false, impact: 'red' });
+      check('⭐ el IMPACTO ya no cuenta en esta cola (aunque llegue «red», sin riesgo ni paro es media)', rImp.status === 201 && rImp.body?.priority === 'media', dump(rImp));
+      const piso = await mk(catRAlta, { safety_risk: false, blocks_work: false });
+      check('la categoría pone su PISO también aquí (una categoría «alta» no baja a media)', piso.status === 201 && piso.body?.priority === 'alta', dump(piso));
+
+      // El riesgo es obligatorio: nunca se adivina «no hay riesgo».
+      const sin = await mk(catR, { blocks_work: true });
+      check('⛔ SIN contestar el riesgo → 400 (el peligro no se infiere por omisión)', sin.status === 400, dump(sin));
+      check('⛔ riesgo que no es verdadero/falso («no») → 400', (await mk(catR, { safety_risk: 'no', blocks_work: false })).status === 400);
+      check('⛔ riesgo nulo → 400', (await mk(catR, { safety_risk: null })).status === 400);
+      const huerfanos = await knex('servicedesk.requests').where({ queue_id: qR }).whereRaw(`title like 'SMOKE 7.7%'`).count({ n: '*' }).first();
+      check('y las peticiones rechazadas no dejaron tickets a medias', Number(huerfanos.n) === 8, String(huerfanos.n)); // 8 creados: antes, riesgo-ignorado, 4 de la matriz, impacto-sin-peso y piso; los 3 rechazados no dejaron nada
+
+      // El cambio de prioridad lo sigue haciendo sólo quien atiende (la persona NO la baja).
+      check('⛔ quien reportó NO baja la prioridad de su propio ticket → 403', (await req('POST', `${SD}/requests/${rUrg.body?.id}/priority`, sol.token, { priority: 'baja', reason: 'yo' })).status === 403);
+      check('la coordinación de la cola SÍ la cambia', (await req('POST', `${SD}/requests/${rUrg.body?.id}/priority`, jefeR.token, { priority: 'alta', reason: 'revisado' })).status < 300);
+
+      // Volver al modelo de impacto devuelve el comportamiento de siempre.
+      await cambiaModelo(jefeR.token, 'impacto');
+      const vuelta = await mk(catR, { impact: 'red', blocks_work: true });
+      check('⭐ al volver a «impacto» la cola se comporta como TI otra vez', vuelta.status === 201 && vuelta.body?.priority === 'urgente' && vuelta.body?.safety_risk === null, dump(vuelta));
+
+      // TI no cambió.
+      const ti = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.7 TI', impact: 'yo', blocks_work: false });
+      check('⭐ TI sigue en impacto: no se le pide el riesgo y su ticket queda con safety_risk NULL', ti.status === 201 && ti.body?.safety_risk === null, dump(ti));
     }
 
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────

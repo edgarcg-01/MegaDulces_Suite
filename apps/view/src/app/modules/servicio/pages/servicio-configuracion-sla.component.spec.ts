@@ -25,8 +25,8 @@ const CFG: SdConfigResponse = {
     { queue_id: 'q-mto', priority: 'urgente', first_response_minutes: 60, resolution_minutes: 240, clock: 'business' },
   ],
   queues: [
-    { id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', department_code: null, active: true, sort_order: 10 },
-    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: false, sort_order: 20 },
+    { id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', department_code: null, active: true, sort_order: 10, priority_model: 'impacto' },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: false, sort_order: 20, priority_model: 'riesgo_operacion' },
   ],
   categories: [],
 };
@@ -44,6 +44,7 @@ describe('[MS.7.2] ServicioConfiguracionComponent — plazos por cola', () => {
       routing: vi.fn(() => of({ rules: [] })),
       agents: vi.fn(() => of([])),
       updatePolicy: vi.fn(() => of(CFG)),
+      updateQueue: vi.fn(() => of(CFG)),
       removeQueuePolicy: vi.fn(() => of(CFG)),
     };
     await TestBed.configureTestingModule({
@@ -123,5 +124,22 @@ describe('[MS.7.2] ServicioConfiguracionComponent — plazos por cola', () => {
     c.elegirAmbito('q-mto');
     c.elegirAmbito(null);
     expect(c.pol.find((p) => p.priority === 'urgente')).toMatchObject({ clock: 'calendar', propia: false });
+  });
+
+  it('⭐ `[MS.7.7]` cambiar cómo se sugiere la prioridad de una cola manda el modelo elegido (por valor, no por nombre)', async () => {
+    await render();
+    c.cambiarModelo('q-ti', 'impacto', 'riesgo_operacion');
+    expect(api['updateQueue']).toHaveBeenCalledWith('q-ti', { priority_model: 'riesgo_operacion' });
+  });
+
+  it('elegir el modelo que la cola ya tiene no llama al servidor', async () => {
+    await render();
+    c.cambiarModelo('q-mto', 'riesgo_operacion', 'riesgo_operacion');
+    expect(api['updateQueue']).not.toHaveBeenCalled();
+  });
+
+  it('el selector de modelo ofrece sólo las dos matrices que el código sabe aplicar', async () => {
+    await render();
+    expect(c.modelos.map((m) => m.value)).toEqual(['impacto', 'riesgo_operacion']);
   });
 });
