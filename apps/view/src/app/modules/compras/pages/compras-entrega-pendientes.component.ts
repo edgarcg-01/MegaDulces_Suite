@@ -176,7 +176,8 @@ import { agruparPorSucursal, dia, evidenciaLabel, nombreSucursal, periodoPorDefe
     .ep-sum-list { margin: 0 0 .6rem 1rem; padding: 0; font-size:.8rem; color: var(--text-muted); }
     .ep-lbl { display:block; font-size:.76rem; color: var(--text-muted); margin: .7rem 0 .25rem; }
     .ep-full { width:100%; }
-    .ep-select p-select { display:block; width:100%; }
+    /* flex, no block: el label de p-select trae width:1% y solo crece con flex:1 (PrimeNG 22); con block se queda en una letra y la flecha baja de renglón. */
+    .ep-select p-select { display:flex; width:100%; }
     .ep-hint { margin:.6rem 0 0; font-size:.76rem; color: var(--text-muted); }
   `],
 })

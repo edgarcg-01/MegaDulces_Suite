@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
+- En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
+- **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.
+- **Arreglo:** `display:flex` (una línea, con comentario del porqué). Era la única pantalla de `apps/view` con ese patrón. Sin migraciones ni permisos → **sin re-login**.
 ### Fixed — `/compras/pedido`: el testigo del crash estaba ciego, el CLS de toda la app se guardaba en 0, y la píldora no podía decir la edad del dato (RA-PERF.5–8, 2026-10-07)
 - **El guard del "Maximum call stack" llevaba 69 días sin poder disparar.** Medía `(new Error().stack).split('\n').length > 300` y **`Error.stackTraceLimit` vale 10 por default en V8**: con **500 marcos reales anidados esa expresión devuelve 11**. Por eso la causa del crash nunca se identificó — el instrumento no veía nada, y encima pagaba un `queueMicrotask` por tick. Ahora sube el límite antes de capturar y mide **dos** señales: profundidad real y **re-entrada** (cuántas veces aparece `money` en su propio stack), que es la señal sin umbral. ⚠️ **La causa raíz sigue abierta**; lo que se arregló es que ahora haya cómo verla.
 - **Y el crash no salía del navegador**: el `throw` muere dentro de una expresión de template y lo come el `ErrorHandler` de Angular. Medido en prod: en 30 días hay **un solo** evento `kind='error'`, de `/portal/login`. El diagnóstico ahora se reporta por telemetría.
