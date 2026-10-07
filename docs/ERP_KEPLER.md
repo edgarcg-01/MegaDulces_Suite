@@ -60,7 +60,7 @@ consulta escrita contra una rama **puede no compilar en otra**.
 | `kdij` | Kardex de movimientos con fecha inline (595k) | |
 | `kdc2YYMM` | Pólizas contables por mes | |
 | `kdb1` | Cuentas bancarias | |
-| `kdxd/kdxe/kdxf` | CxP proveedores (estado de cuenta / saldos / facturas-cobros) | |
+| `kdxd/kdxe/kdxf` | CxP proveedores (estado de cuenta / saldos / facturas-cobros) | **`kdxd`** catálogo: `c2` clave · `c3` nombre · `c10` RFC · `c12` agente · **`c13` grupo** (11 códigos; nombres deducidos en `GRUPOS_KEPLER`) · `c14` zona · `c15` límite · `c16` días. **`kdxe`** documentos: `c1` almacén · `c2` acreedor · `c3` naturaleza (`A` sube la deuda / `D` la baja) · `c4/c5` tipo/subtipo (nombre en `kdmm` `c1='X'`) · `c6` folio · `c7` fecha · `c10` vence (1800 = sin fecha) · `c11` importe · `c16` referencia. **`kdxf`** casamiento: cargo `(c4,c5,c6)` aplicado al abono `(c7,c8,c9)` por `c10` — 30,073 de 30,073 son D→A (medido 2026-10-07). Prefijos de clave: `C` compra · `G` gasto (`GB` bancos = comisiones) · `A` préstamos · `TC` tarjetas · `B.B.FAC` factoraje · `TI` sucursales (traspaso interno). Ver [`FASE_ECA`](IMPLEMENTACION/FASES/FASE_ECA_ESTADO_CUENTA_ACREEDORES.md). |
 
 **No existe tabla de conteo físico** — Kepler ajusta inventario vía documento (`kdm1`/`kdm2`).
 La "existencia actual" del reporte NO está en `kdii`; se deriva de `kdil`/`kdik`.
