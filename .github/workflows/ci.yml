@@ -451,6 +451,79 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:docker
 
+      # ── `[PROC.1]` Las compuertas que vivían SÓLO en `.githooks/pre-push` ────────────────────
+      #
+      # ⛔ El defecto que esto cierra, medido el 2026-10-07: `scripts/compuertas.js` declaraba 23
+      # compuertas y el CI corría 7. Las otras 16 sólo se ejecutaban en el `pre-push` — y los
+      # merges se hacen en GitHub, que NO ejecuta hooks locales. O sea que el camino por el que
+      # entra el 95 % del código (190 de los últimos 200 commits llegaron por PR) las esquivaba
+      # por construcción.
+      #
+      # ⭐ Un trinquete que sólo vive en el hook únicamente puede AFLOJARSE: la deuda entra por
+      # PR sin ser vista, y el rojo se lo come el primero que empuja a mano después. Medido ese
+      # día en PrimeNG: los techos habían derivado a 272/305/43 contra 270/303/41 sin que nadie
+      # lo introdujera por push directo.
+      #
+      # Y lo que encontraron al correrlas por primera vez en CI, ninguno de los dos visible:
+      #   · un `computed()` sobre un campo plano que quedaba CONGELADO en `null` para siempre,
+      #     arrastrando la línea de lectura de la pantalla a cadena vacía (sin un solo error);
+      #   · un `SET LOCAL app.tenant_id = $1` que Postgres rechaza con 42601.
+      #
+      # ⚠️ Se agregan sólo las que están VERDES hoy. Las que no, se declaran abajo con su motivo
+      # en vez de meterse en rojo: una compuerta que entra fallando frena a todo el equipo y la
+      # reacción es desactivarla, que nos deja peor que ahora.
+      - name: Compuertas del pre-push — estructura y datos
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/check-conflict-markers.js
+          node scripts/check-commit-wiring.js
+          node scripts/check-branch-catalog.js
+          node scripts/check-set-bind-param.js
+          node scripts/check-adr-duplicados.js
+          # `--solo-git` porque el modo completo LEE el ledger de migraciones de prod para saber
+          # cuáles ya se aplicaron, y el runner no alcanza `192.168.0.222`. Sin esa lectura el
+          # candado se niega a reportar verde —y hace bien, es ADR-056— así que acá corre su
+          # análisis parcial, declarado como tal. El modo completo sigue en el `pre-push`.
+          node scripts/check-migration-collisions.js --solo-git
+
+      - name: Compuertas del pre-push — frontend y arranque
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/check-signal-reactivity.js
+          node scripts/check-primeng-api.js
+          node scripts/check-spec-vivo.js
+          node scripts/check-keyboard-nav.js
+          node scripts/check-css-tokens.js
+          node scripts/check-busqueda.js
+
+      # ── Las que NO pueden correr acá porque necesitan ENTORNO, no código ────────────────────
+      #
+      # ⛔ Lección propia, del primer intento (2026-10-07): las medí en mi máquina, con mi `.env`,
+      # y las declaré «verdes». El runner no tiene ese `.env` y tres se cayeron. **Una compuerta
+      # se mide en el entorno donde va a correr, no en el que la escribiste.**
+      #
+      #   · `check-migration-collisions`  LEE el ledger de migraciones de prod para saber cuáles
+      #                                   ya se aplicaron. Acá corre `--solo-git` (arriba); el
+      #                                   modo completo se queda en el `pre-push`.
+      #   · `check-prod-target`           lo mismo: sin `PROD_DB_URL` se niega a decir verde, y
+      #                                   hace bien — un candado que no pudo leer no es un verde.
+      #   · `check-candado-target`        necesita `DATABASE_URL_NEW`.
+      #   · `check-boot`                  ARRANCA el API. Exige `ENABLE_MULTITENANT=true` y aborta
+      #                                   a propósito sin él. Es una prueba de arranque, no de
+      #                                   código: su lugar es el `pre-push` y el despliegue.
+      #
+      # ── Declaradas, NO agregadas (rojas el 2026-10-07, con su motivo) ───────────────────────
+      #   · `check-no-emoji-ui`      84 emoji en texto visible contra un techo de 75. El trinquete
+      #                              se soltó igual que el de PrimeNG. Re-basar el techo es una
+      #                              decisión de diseño (hay emoji decorativos con `aria-hidden`),
+      #                              no de proceso.
+      #   · `check-etiqueta-gate`    meta-compuerta: se queja de que `npm run check` no corre el
+      #                              arnés de la etiqueta. Se arregla en `package.json`, no acá.
+      #   · `check-k3s-manifests`    falla contra los 20 manifiestos de `ops/k3s/`; hay que leer
+      #                              cuál regla y por qué antes de exigirla.
+      #   · `check-bundle-externals` NO es una compuerta: es una herramienta que toma
+      #                              `<bundle.js> <node_modules>` como argumentos.
+
       # `[NX.7]` Va ANTES del typecheck: `tsconfig.ts7.json` no puede extender
       # `tsconfig.base.json` (TS 7 removió `baseUrl` y exige paths relativos — verificado con
       # TS5102/TS5090), así que el mapa de `paths` está duplicado a la fuerza y se desfasa solo.

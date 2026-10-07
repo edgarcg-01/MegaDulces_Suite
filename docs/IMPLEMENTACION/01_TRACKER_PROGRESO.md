@@ -3529,6 +3529,80 @@ cerrados con `validated_by = 'Claude Vision'`.
   1 ms**. Los estaba ahogando el workbook.
   ⚠️ El commit de la copia materializada (`257244bc`) se rotuló `[RA-PERF.1]`, **código ya
   ocupado** arriba por el reparto de tránsito por ventana; en el código se lo referencia por hash.
+- [x] **[RA-PERF.5]** 🧪 **El CLS de toda la app se guardaba en CERO.** `UsoService.medirWebVitals()`
+  hacía `Math.round(m.value)` para las tres métricas por igual. INP y LCP son milisegundos y está
+  bien; **CLS es un score sin unidad entre 0 y ~1**, cuyos umbrales son 0.1 y 0.25 — así que
+  `Math.round(0.31)` da **0**. Medido contra prod el 2026-10-07 sobre las 795 muestras existentes:
+  **145 de 145** `needs-improvement` y **91 de 188** `poor` quedaron archivadas con valor 0, o sea
+  **236 mediciones malas con cara de score perfecto**. ⭐ Lo que permitió verlo es que el `rating`
+  viaja al lado y **lo calcula la librería, no nosotros**: siempre dijo la verdad. ⚠️ **Lo ya
+  guardado no se puede reparar** — el análisis histórico de CLS tiene que agrupar por `rating`.
+  Arreglo en `web-vital-valor.ts` (la unidad decide el redondeo); candado `web-vital-valor.spec.ts`
+  **13/13 verde, 6/13 rojo** al devolver el `Math.round`.
+  ⛔ **Y lo que destapó:** con el `rating` a la vista, `/compras/pedido` es **la pantalla con peor
+  estabilidad visual de toda la suite** — **37 de 49 muestras `poor` (75.5 %)**, contra `/projects`
+  21 de 96 (22 %). La causa es la secuencia de carga de la propia pantalla (tabla primero, y hasta
+  8 s después el `forkJoin` rellena cada fila): **se declara, no se arregló acá** — reservar el
+  alto de las filas es rediseño, y se mide después de que esta medición acumule historia.
+- [x] **[RA-PERF.6]** 🧪 **El testigo del crash llevaba 69 días sin poder ver nada.** El guard de
+  `money()` (commit `c684fc36d`, 2026-07-30, *"quitar cuando se identifique la causa"*) medía
+  `(new Error().stack || '').split('\n').length > 300`, y **`Error.stackTraceLimit` vale 10 por
+  default en V8** — no se sube en ningún lado del repo. Medido: con **500 marcos reales anidados
+  esa expresión devuelve 11**. La condición no podía ser verdad nunca: no logueaba, no cortaba, y
+  pagaba un `queueMicrotask` por tick para siempre. La causa del "Maximum call stack" nunca se
+  identificó porque **el instrumento era ciego**. ⭐ Es ADR-056 aplicado a un instrumento: *un gate
+  sin prueba negativa es una intención* — nadie lo rompió a propósito ni una vez.
+  Ahora `pedido-recursion.ts` sube el límite antes de capturar y mide **dos señales**: `marcos`
+  (profundidad real) y `vueltas` (cuántas veces aparece `money` en su propio stack), que es la
+  señal **sin umbral** — tres vueltas no son volumen, son re-entrada.
+  ⛔ **Y el reporte no salía del navegador**: el `throw` muere dentro de una expresión de template
+  y lo come el `ErrorHandler` de Angular. Medido en prod: en 30 días hay **un solo** evento
+  `kind='error'`, y es de `/portal/login`. Se agrega `UsoService.reportarIncidente()` para que el
+  diagnóstico (marcos, vueltas, la cima del stack y el contexto de la pantalla) llegue por el canal
+  de telemetría. Candado `pedido-recursion.spec.ts` **12/12 verde, 1/12 rojo** al devolver el
+  límite a 10. ⚠️ **La causa raíz del crash sigue abierta** — lo que esta entrega arregla es que
+  ahora haya cómo verla.
+- [x] **[RA-PERF.7]** 🧪 `/compras/pedido` — **el trabajo O(n²) estaba en el template.** Por cada
+  fila expandida y en cada pasada de detección de cambios, la plantilla llamaba `trasRows(pid)` ×4
+  y `prodTr(pid)` ×3, y las dos colgaban de un `detailRows(pid)` que **filtraba y ordenaba `urows()`
+  completo en cada invocación** — hasta 3,000 renglones (3 endpoints × `pageSize: 1000`). Con 20
+  filas abiertas son **~140 barridos ≈ 420,000 iteraciones por pasada**, más 140 arreglos
+  intermedios; y como `onQtyEdit()` dispara `tick()`, **cada tecla en una cantidad lo pagaba
+  entero**. `pedidoTipico(r)` era peor: recorría `knownRows()` **dentro de cada fila** para publicar
+  un dato idéntico para todas las filas del mismo proveedor. Ahora son índices memoizados
+  (`pedido-indices.ts`), el mismo patrón que `branchBuyMap` ya usaba 1,100 líneas más arriba en el
+  mismo archivo. ⭐ El candado **cruza dos implementaciones** —el índice contra el
+  `filter().sort()` que reemplaza, producto por producto— en vez de verificar el índice contra sí
+  mismo: `pedido-indices.spec.ts` **10/10 verde, 2/10 rojo** al quitar el orden.
+  ⚠️ **La mejora no está medida en campo.** Lo medido es el trabajo que se evita, no el INP
+  resultante; el INP p75 de la pantalla ya era 130 ms (bueno) y la cola llegaba a 576 ms.
+- [x] **[RA-PERF.8]** 🧪 **La píldora decía la edad de la CONSULTA porque no había de dónde sacar la
+  del DATO** — y al ir a buscarla, la fuente obvia resultó ser una trampa.
+  ⛔ **`analytics.replenishment_plan.computed_at` NO sirve.** El UPSERT del importer es **sin
+  churn** (`WHERE … IS DISTINCT FROM …`), así que esa columna dice *cuándo cambió esa fila*, no
+  *cuándo se verificó*. Medido contra prod el 2026-10-07: **415 sellos distintos repartidos en 34
+  días**, con el 31.5 % de las filas de más de un día — **todas correctas, simplemente quietas**.
+  Un `max()` publicaría «hace 4 minutos» y un `min()` «hace 34 días»: las dos mentira, en
+  direcciones opuestas. *(Mi primer diagnóstico fue el del `max()`; lo corrigió la medición.)*
+  ⛔ **El latido del CARRIL (`feed_stock`) tampoco alcanza**: `run-prod-feeds.js` sólo reporta
+  `error` si fallan **todos** sus pasos, así que un fallo de este paso salía en verde.
+  Se le pone al importer un **latido propio** (ADR-053: lo que late es la ENTREGA del fact), con
+  llave parametrizable por carril (`--hb=stock` / `--hb=nightly`) porque la PK de
+  `analytics.cron_runs` es `(tenant_id, job_key)` sin host y dos emisores sobre una llave fabrican
+  falsos *"no reportó cierre"* — la misma trampa que ya documentó `SALES_FACT_HB_KEY` (304 falsos
+  en 7 días). Dos entradas nuevas en `CRON_JOBS` con umbrales distintos, porque sus cadencias lo
+  son. El backend compone un `Freshness` con el primitivo canónico (`laneAt`/`evalInput`/
+  `composeFreshness`) y la píldora pasa a `measures="data"`.
+  ⚠️ **Se mide sólo el carril de 15 min**, a propósito: las dos llaves no son una cadena sino
+  alternativas, y componer las dos publicaría «hace 20 h» cuando el carril rápido corrió hace 3
+  minutos. ⚠️ Sin latido el veredicto es **`unknown` y la pantalla dice «datos sin medir»** — no se
+  esconde la píldora ni se cae a `now()`, que es el bug que VP.0 corrigió en 21 de 24 píldoras.
+  Candado `compras-pedido-real.component.spec.ts` **8/8** — y es **la primera prueba que existe
+  sobre este componente**: las cuatro specs del módulo cubrían los ayudantes ya extraídos, y las
+  3,652 líneas con la orquestación, el grafo de signals y el guard no tenían ninguna.
+  ⚠️ **Pendiente prod:** desplegar api + view + la imagen `trade-ingest` (el importer va por imagen
+  `trade-ingest:__COMMIT__`, ya **no** es deploy instantáneo). Hasta entonces la píldora dirá
+  «datos sin medir», que es lo correcto. Sin migraciones ni permisos nuevos → **sin re-login**.
 
 ### `[RQ]` — Lo que pasa DESPUÉS de generar una requisición en `/compras/pedido`
 

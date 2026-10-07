@@ -9,6 +9,7 @@ import { Knex } from 'knex';
 import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
+import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
  * `[ZN.8]` — **El proyecto desde el que este servicio pregunta por el alcance.**
@@ -1367,6 +1368,27 @@ export class CommercialReplenishmentService {
    *
    *   pedido(territorio) = max(0, venta_diaria × cobertura − existencia − tránsito)   [cajas]
    */
+  /**
+   * `[RA-PERF.8]` Frescura del fact que publica `/compras/pedido`, con el primitivo canónico.
+   *
+   * El umbral es **2 h y no 15 min** con motivo: el carril corre cada 15 minutos, pero una corrida
+   * cuesta ~174 s y el `flock` del runner serializa, así que marcar «viejo» al primer retraso
+   * convertiría la píldora en una alarma permanente — que es exactamente como se enseña a ignorar
+   * un tablero. Queda entre el `warnH: 1.5` y el `critH: 4` con los que `db-health` ya vigila ese
+   * mismo carril: un solo umbral, porque es lo único que la píldora sabe mostrar.
+   */
+  private async frescuraDelFact(trx: Knex.Transaction): Promise<Freshness> {
+    try {
+      return composeFreshness([
+        evalInput('fact_replenishment_plan_stock', 'Fact del pedido (existencia + demanda)',
+          await laneAt(trx, 'fact_replenishment_plan_stock'), 2),
+      ]);
+    } catch {
+      // Que falle el medidor no autoriza a afirmar lo que no se midió (regla 2 de shared/freshness).
+      return FRESHNESS_UNKNOWN;
+    }
+  }
+
   async workbook(q: WorkbookQuery) {
     const tenantId = this.tenantCtx.requireTenantId();
     const cov = Math.min(120, Math.max(1, Number(q.coverage_days) || 30));
@@ -1832,9 +1854,41 @@ export class CommercialReplenishmentService {
             // decide qué entra cuando hay tope; la secuencia de columnas la fija el negocio.
             .sort((a: { code: string }, b: { code: string }) => compareWarehouseCodes(a.code, b.code));
 
+      /**
+       * `[RA-PERF.8]` **La edad del DATO, no la de la consulta.**
+       *
+       * `/compras/pedido` mostraba una píldora `measures="fetch"` ("cargado hace N"), honesta pero
+       * muda sobre el dato, y el propio componente dejaba declarado que para pasar a `"data"`
+       * faltaba este campo. Al ir a buscarlo apareció la trampa:
+       *
+       *   ⛔ `analytics.replenishment_plan.computed_at` **NO sirve**. El UPSERT del importer es sin
+       *      churn (`WHERE … IS DISTINCT FROM …`), así que esa columna dice *cuándo cambió esa
+       *      fila*, no *cuándo se verificó*. Medido en prod el 2026-10-07: **415 sellos distintos
+       *      repartidos en 34 días** sobre una tabla sana (31.5 % de las filas con más de un día,
+       *      simplemente quietas). Un `max()` publicaría "hace 4 minutos" y un `min()` "hace 34
+       *      días": las dos serían mentira, sólo que en direcciones opuestas.
+       *
+       * La fuente correcta es el LATIDO del importer que escribe el fact — lo que ADR-053 llama
+       * medir la ENTREGA. Llave propia y no la del carril (`feed_stock`), porque
+       * `run-prod-feeds.js` sólo reporta `error` si fallan TODOS sus pasos: un fallo de este paso
+       * salía en verde. `LIKE` porque lo corren dos carriles con llaves distintas.
+       *
+       * ⚠️ Se mide **sólo el carril de 15 min** (`_stock`), no los dos. Las dos llaves existen para
+       * que `db-health` vigile cada carril por separado, pero acá no son una CADENA sino
+       * ALTERNATIVAS: componer las dos publicaría "hace 20 h" (el nightly) cuando el carril rápido
+       * corrió hace 3 minutos. Si el de 15 min muere, la píldora se pone vieja — y eso es la verdad
+       * que la pantalla tiene que decir, aunque el nightly haya refrescado la tabla.
+       *
+       * ⚠️ Sin latido (importer todavía sin desplegar, o que nunca cerró en `ok`) el veredicto es
+       * `unknown` y la píldora dice **«datos sin medir»**: no se esconde ni se cae a `now()`, que
+       * es exactamente el bug que VP.0 corrigió en 21 de 24 píldoras de la app.
+       */
+      const freshness = await this.frescuraDelFact(trx);
+
       return {
         total: Number(tot?.c || 0),
         page, pageSize, coverage_days: cov,
+        freshness,
         territories,
         totals: {
           pedido: Number(tot?.total_pedido || 0),

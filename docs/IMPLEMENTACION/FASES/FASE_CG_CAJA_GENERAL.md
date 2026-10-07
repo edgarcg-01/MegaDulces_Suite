@@ -1283,3 +1283,336 @@ podía reconstruir, y el arqueo del día no cuadraba contra el libro que lo regi
   `compras-requisiciones.component.spec.ts`, más `lint`/`build`/`sin emojis`/`migrations` sobre
   trabajo a medias de otras sesiones en el árbol. `typecheck` de api y de `view` en verde, y los
   ocho archivos tocados acá lintean con **0 errores**.
+
+---
+
+## 15. `[CG.49]` El arqueo encabeza el panel (2026-10-07)
+
+**Reportado por Edgar sobre la pantalla en vivo**, con captura: *"menciona que todo tiene que
+entrar en la interfaz principal. y tengo que hacer scroll para ver todo el contenido, al menos el
+importante que es el arqueo"*.
+
+### La causa NO era falta de diseño — era una regresión de `[CG.46]`
+
+El panel **ya estaba diseñado en dos columnas**, y el comentario que las abre lo dice textual:
+*«CS.3.7 — Dos columnas para que TODO entre en una pantalla sin scroll. Izquierda: el QUÉ/QUIÉN
+(documento, beneficiario, cuenta, glosa). Derecha: el CUÁNTO (cajero + arqueo)»*.
+
+Lo que pasó:
+
+| | |
+|---|---|
+| `.cg-grid` colapsa a una columna | `@container (max-width:46rem)` |
+| `[CG.46]` mudó la captura de un `p-dialog` ancho a un `aside` | `.cg-split { grid-template-columns: minmax(0,1fr) **32rem** }` |
+
+**32rem < 46rem, siempre.** O sea que la condición para mostrar dos columnas **no se puede
+cumplir dentro de ese `aside`**: el diseño que existía para que todo entrara en una pantalla quedó
+desactivado por construcción, y apilado manda el orden del DOM — donde el arqueo venía **último**,
+detrás del tipo, la fecha, la sucursal, el documento, el beneficiario, la cuenta, el concepto, la
+glosa, el bloque de CAOS y la venta a crédito. La tarea, al final de su propio formulario.
+
+⚠️ **Ningún gate ve esto.** El build compila, los tipos cierran, los 196 tests pasaban y
+`check:templates` está verde. Lo que se rompió fue la *relación* entre un umbral de CSS y el ancho
+que otro commit le asignó al contenedor — y eso sólo se ve mirando la pantalla.
+
+### Lo que se hizo
+
+1. **La columna del CUÁNTO va primero en el DOM** (arqueo + cajero), y la del QUÉ segunda, con
+   `Tipo/Fecha/Sucursal` movidos adentro. Es un cambio de **orden**, no de contenido: ni un campo
+   cambió de forma.
+2. **Dos reglas `@container (min-width:46rem)`** fijan `grid-column` de cada columna, para que si
+   algún día el panel vive en un contenedor ancho el QUÉ siga a la izquierda y el CUÁNTO a la
+   derecha — el diseño de CS.3.7 intacto, **sin depender del orden del DOM**.
+3. **El documento anclado sube al encabezado** del panel (`X-D-26 0022707 · $144.00`). Con el
+   arqueo arriba, contar sin ver contra qué documento sería contar a ciegas del lado equivocado;
+   la ficha completa sigue abajo, en su columna.
+
+### Verificación
+
+- `nx test view` caja-general: **198/198** (2 pruebas nuevas). `typecheck` de `view` en verde.
+- **Mutación**, las dos: intercambiar los rótulos de columna → 1 roja; devolver el QUÉ al primer
+  lugar del DOM → **2 rojas**.
+- La prueba del orden le pregunta al **DOM** (`compareDocumentPosition`), no a una clase de CSS:
+  con el panel apilado —que es lo que pasa siempre dentro del `aside`— el DOM *es* lo que se ve.
+
+### Lo que sigue sin entrar, y es deliberado
+
+Debajo del arqueo quedan la clasificación (documento, beneficiario, cuenta, concepto, glosa) y el
+pie con Guardar, y **eso sí scrollea**. Es el orden correcto del trabajo: se cuenta primero y se
+clasifica después. Si hace falta que entre literalmente todo, lo que hay que recortar es el
+**encabezado de página + el bloque «Cierre de la jornada»**, que juntos se comen ~360 px antes de
+que el panel empiece — no el formulario.
+
+---
+
+## 16. `[CG.50]` La pantalla se recorre con las flechas (2026-10-07)
+
+**Pedido de Edgar:** *"necesito que toda la interfaz se pueda usar con las flechas del teclado"*.
+
+### Lo primero fue NO escribir una directiva
+
+DESIGN **D.7** es explícito: *"Lo que se hace con el mouse se tiene que poder hacer con el teclado.
+Y el primitivo YA EXISTE: no se escribe otro"*. `pSelectableRow` de PrimeNG da `↑↓`, `Home`/`End`,
+`Enter`/`Space`; la guarda global [`installRowNavGuard`](libs/ui-web/src/keyboard/row-nav.ts) —ya
+instalada en el `main.ts` de las 3 apps— impide que PrimeNG le robe esas teclas a los campos de la
+fila. Escribir una navegación propia para una tabla está listado como **antipatrón** en la propia D.7.
+
+### Medición antes de tocar
+
+| | |
+|---|---|
+| Tablas reales en la pantalla | **8** |
+| Con `pSelectableRow` | **0** |
+| Con `selectionMode` | **0** |
+| Guardas globales instaladas | ✅ las 3 apps |
+
+Con 100 filas de bandeja, el teclado sólo podía **tabular**: casilla → Abrir → casilla → Abrir… =
+**200 paradas** para cruzar la lista.
+
+⚠️ **Y la compuerta `check:teclado` aprobaba esta pantalla.** Su criterio es `selectionMode="single"`
+o un `<tr (click)>`; la bandeja no tiene ninguno de los dos (su acción es una casilla y un botón),
+así que el archivo pasaba limpio y la tabla no se recorría. *Una compuerta verde no dice que la
+pantalla esté bien: dice que no cayó en el patrón que esa compuerta busca.*
+
+### Lo que se encendió
+
+- **Bandeja** (`.cg-bandeja-tbl`): `selectionMode="multiple"` + `[pSelectableRow]`. ⭐ La verdad de
+  la selección **sigue en la señal `seleccion`**: `[selection]` va de una vía y `(selectionChange)`
+  escribe en la señal. PrimeNG entra como **dispositivo de entrada**, no como segundo dueño del
+  estado — dos dueños del mismo estado es cómo una selección se desincroniza de lo que se confirma.
+  Y el filtro por `confirmable` se mueve al handler: con el teclado no hay casilla deshabilitada que
+  frene una fila sin cuenta declarada.
+- **Libro, Cortes y Recurrentes**: `selectionMode="single"` + `pSelectableRow`. Sus filas llevan
+  acciones (comprobante, autorizar, declarar) y sin esto sólo se llegaba tabulando fila por fila.
+- **No se tocó** la tabla de 3 renglones del cuadre (`cj.por_tipo`): es de sólo lectura y sin
+  acciones. D.7 exime a las de sólo lectura, *"y exigirle navegación sería ruido"*.
+- El único grupo de controles de la pantalla ya es `app-segmented`, que trae sus flechas.
+
+Verificado en el bundle **antes** de cablear: `handleRowClick` de PrimeNG **aborta** cuando el blanco
+del clic es `INPUT`, `BUTTON`, `A` o es clicable, así que la casilla y «Abrir» no se disparan dos
+veces. En este repo suponer sobre la API de PrimeNG ya costó dos veces (`styleClass` en `p-tag`,
+`pTemplate="footer"`).
+
+### Dos hallazgos que salieron de medir en vez de citar
+
+1. ⛔ **El roving de `pSelectableRow` NO arranca encendido, y DESIGN decía que sí.** Leído el fuente
+   de `primeng@22`: `setRowTabIndex()` devuelve `anchorIndex != null ? (anchorIndex === index ? 0 :
+   -1) : 0` — o sea que **mientras no haya fila ancla, todas devuelven `0`**, y una tabla recién
+   pintada son N paradas de tabulador: justo lo que D.4a quiere evitar. Empieza a rotar recién tras
+   el primer clic o la primera selección por teclado. **DESIGN quedó enmendado** con la medición, y
+   la prueba afirma el estado real (2 filas con `tabindex=0`) en vez del deseado. Deuda con nombre:
+   no hay API pública para sembrar el ancla.
+2. ⛔ **El `← →` de D.5 no existe en ningún lado del repo.** D.5 prescribe para una columna de
+   captura: *`↑↓` y `Enter`/`Shift+Enter` mueven · `← →` restan/suman un paso · `Alt+↑↓` el mismo
+   paso*. Medido: **cero** `keydown.arrowleft` / `keydown.arrowright` / `keydown.alt.arrow` en las
+   tres apps. Las rejas de arqueo tienen la mitad navegable (`↑↓`/`Enter` mueven, `select()` al
+   llegar, sin vuelta en el borde) y les falta el paso. **No se construyó acá a propósito**: es un
+   mecanismo genérico y escribirlo en una pantalla es el primitivo-en-un-solo-lugar que ADR-056
+   prohíbe; como guarda global cambiaría **todo** `input[type=number]` de las 3 apps. Queda
+   declarado para `libs/ui-web/src/keyboard/`.
+
+### Verificación
+
+- `nx test view` caja-general: **201/201** (3 pruebas nuevas). `check:teclado` y `check:templates`
+  verdes; `typecheck` de `view` verde.
+- **Mutación**: quitar `[pSelectableRow]` de la bandeja → 1 roja.
+- ⚠️ La prueba del `tabindex` nació con un selector `tbody tr` pelado y agarró **7 filas** — las del
+  libro y los cortes. La encontró ella sola; quedó acotada a `.cg-bandeja-tbl`.
+- ⚠️⚠️ **Octava vez** que un acento grave en un comentario del `template:` rompe el build acá.
+
+---
+
+## 17. `[CG.51]` La jornada por default, y el historial plegado (2026-10-07)
+
+**Pedido de Edgar:** *"demasiado scroll en general. y por default sólo deben ser los movimientos
+del día"*.
+
+### ⛔ «El día» literal ya se intentó, y ya se revirtió
+
+El default **estuvo en 1 día** desde el 2026-09-22 (*"puesto para las PRUEBAS de CG.21, con este
+mismo comentario diciendo que antes de operar de verdad tenía que volver — y se quedó"*). Lo que
+causaba, medido en prod el 2026-09-30: la bandeja devolvía **7 filas y las 7 eran documentos mal
+fechados**, porque la ventana no tenía tope de arriba y lo único que pasaba un filtro de «último
+día» eran los de diciembre.
+
+**Re-medido contra prod el 2026-10-07, antes de tocar nada:**
+
+| Ventana | Movimientos |
+|---|---|
+| **hoy (07/10)** | **0** |
+| hoy + ayer | 7 |
+| últimos 7 días | 201 |
+| ventana de 45 días | **12,976** |
+| día más reciente con volumen | **05/10, con 40** |
+
+⛔ **«Hoy» abre la pantalla vacía, todos los días.** `fecha_valor` es la fecha del DOCUMENTO en
+Kepler, no la de cuándo el trabajo llega, y el ERP captura con una mediana de **3 días** de rezago.
+El propio código ya lo tenía escrito: *"ningún documento legítimo tiene `fecha_valor` de hoy"*. Hay
+hasta un contador aparte (`malFechados`) para los que vienen fechados **en el futuro**: hoy son 7,
+entre el 1 y el 14 de diciembre.
+
+### Lo que se hizo
+
+1. **`CAJA_JORNADA_DIAS = 3`**, constante propia en `libs/contracts` al lado de `CAJA_VENTANA_DIAS`,
+   con su medición. Son dos preguntas distintas: 45 es **el borde** (hasta dónde un movimiento sigue
+   siendo trabajo, y lo consume también «Mi trabajo»); 3 es **con cuánto arranca la pantalla**. La
+   jornada *y su rezago normal* = **~40 renglones** en vez de 12,976.
+   La opción del selector se llama **«La jornada»**, no «3 días»: dice para qué sirve.
+2. **El historial se pliega y arranca cerrado.** Debajo del área de trabajo vivían el libro (título
+   + tira de KPIs + 4 filtros + tabla) y los cortes (título + tabla): **128 líneas de plantilla**,
+   ~800 px de archivo que nadie necesita para confirmar efectivo.
+
+⚠️ **Plegado NO es escondido**, y eso es la mitad del diseño: la cabecera publica *«Historial — del
+X al Y · N movimiento(s) en el libro · M corte(s)»*, así que cerrado se lee igual que abierto para
+decidir si vale la pena abrirlo. Es un `<button>` con `aria-expanded`, no un `<h2>` con `(click)`.
+
+⚠️ Y lo que la ventana deja fuera **tampoco** se esconde: `rezago()` publica cuántos quedan antes
+del corte y por cuánto dinero. Verificado en el servicio antes de angostar la ventana: `atras` se
+calcula con `fecha_valor < desde` contra **el `from` que manda la pantalla**, no contra el default
+del servidor — al angostarla, el aviso crece solo.
+
+### Un test que pasaba por acumulación
+
+`'sin resultados, los selectores de la bandeja SIGUEN en pantalla'` afirmaba *"los tres `p-select`
+viven en el encabezado de la sección"* y contaba `p-select` de **toda la página**. El tercero vivía
+en los filtros del libro, 300 líneas más abajo. Plegar el historial lo destapó. Quedó acotado a
+`.cg-bandeja` y afirmando lo que hay de verdad: **2 selects + 1 segmented + 1 buscador**.
+
+### Verificación
+
+- `nx test view` caja-general **204/204** (5 pruebas nuevas) · `nx test contracts` **387/387** ·
+  `check:teclado` y `check:templates` verdes · `typecheck` de `view` verde.
+- **Mutación**: devolver el default a 45 → 1 roja; abrir el historial por default → 2 rojas.
+- La medición de hoy se corrió **read-only** contra `pg-prod` (`DATABASE_URL_NEW`), sólo `SELECT`
+  con `GROUP BY` sobre la vista de pendientes.
+
+### Lo que sigue abierto
+
+El scroll que queda arriba del área de trabajo: encabezado de página (título + 2 subtítulos) más el
+bloque «Cierre de la jornada», ~360 px antes de que empiece el split. Es lo próximo a recortar si
+hace falta; no se tocó acá porque el «Cierre de la jornada» es el único lugar donde se rinde cuentas
+y esconderlo tendría el costo opuesto.
+
+---
+
+## 18. `[CG.52]` El movimiento entra entero: el ancho sigue a la tarea (2026-10-07)
+
+**Pedido de Edgar:** *"para ver el movimiento completo tengo que hacer scroll, este es un
+antipatrón. dificulta la visibilidad"*.
+
+### Es la misma raíz que `[CG.49]` diagnosticó y NO arregló
+
+`[CG.49]` encontró que el panel tiene dos columnas desde CS.3.7 —*"para que TODO entre en una
+pantalla sin scroll"*— y que nunca se muestran, porque `.cg-split` le da **32rem** al `aside`
+mientras `.cg-grid` pide **46rem**. Y después lo esquivó: puso el arqueo arriba para que al menos
+*lo importante* quedara a la vista. **El scroll siguió ahí**, y con razón — reordenar no devuelve
+el ancho.
+
+La aritmética que faltaba hacer: el contenedor de consulta es `.cg-detail-cuerpo`, o sea el `aside`
+menos 2 px de borde y 24 de padding. Con 32rem son **486 px contra un umbral de 736**: la condición
+para dos columnas era **inalcanzable por construcción**, no "a veces no se cumple".
+
+### Lo que se hizo
+
+1. **El ancho sigue a la tarea.** `.cg-split` arranca en `minmax(0,1fr) 24rem` — recorriendo la
+   bandeja, la lista manda. Con la captura abierta pasa a **42rem**, y ahí el contenedor mide
+   `672 − 26 = 646 px = 40.4rem`: las dos columnas entran y el movimiento se ve entero.
+2. **El umbral baja de 46rem a 39rem**, medido contra ese 40.4 y no elegido a ojo. Cada columna
+   queda en ~311 px, que es lo que necesitan una etiqueta de 6.5rem y su control.
+3. **El ensanche pide pantalla**: va bajo `@media (min-width:74rem)`. Por debajo, robarle 42rem a
+   la bandeja la dejaría en ~300 px y rompería lo que se vino a arreglar. `@media` y no
+   `@container` porque es cromo de página (DESIGN §R).
+
+### ⚠️ La trampa que casi se cuela: dos umbrales que dejan de ser complementarios
+
+El colapso (`max-width`) y la fijación de posición (`min-width`) son **el mismo límite visto desde
+los dos lados**. Al bajar el primero a 39rem y dejar el segundo en 46, entre medio hay una franja
+con **dos columnas y ningún `grid-column` asignado**: gana el orden del DOM, y como `[CG.49]` puso
+el CUÁNTO primero, las columnas salen **invertidas**. En silencio, sólo en esa franja de anchos.
+
+Quedó congelado con una prueba que lee el CSS del componente y exige que los dos umbrales estén
+**pegados** (≤ 0.5rem de distancia).
+
+### Verificación
+
+- `nx test view` caja-general: **206/206** (2 pruebas nuevas). `check:templates` y `typecheck` de
+  `view` verdes.
+- **Mutación**: quitar el binding del ancho → 1 roja; devolver la posición a 46rem dejando el
+  colapso en 39 → **2 rojas**.
+- ⚠️ **Las dos primeras mutaciones no se aplicaron y el test salió verde igual.** El archivo está
+  en **CRLF** y los `perl -0p` con `\n` en el patrón no matcheaban. Durante dos corridas creí tener
+  un candado verificado que no se había ejercido nunca. *Una mutación que no modifica el archivo se
+  lee exactamente igual que un test que no muerde* — hay que verificar que el fuente cambió, no
+  sólo que la suite siguió verde.
+- ⚠️ `check:estilos` está rojo por `font-size` con literal (+2 sobre la deuda declarada). **No es
+  de acá**: `git diff` de este archivo no agrega ni un `font-size`, y `caja-general` no aparece en
+  la lista del gate. Es trabajo a medias de otra sesión en el árbol.
+
+### Lo que falta
+
+**Validación visual a 1285 px**, que es el ancho de la captura del reporte. La aritmética dice que
+entra; nadie lo vio todavía.
+
+---
+
+## 19. `[CG.53]` La forma del diseño, no sólo sus decisiones (2026-10-07)
+
+**Edgar, mirando la pantalla en vivo:** *"pero el artefacto no se ve para nada igual que el diseño
+… de la interfaz actual"*.
+
+**Tiene razón, y es una omisión mía.** `[CG.48]`–`[CG.52]` portaron las **decisiones** del tablero
+—arqueo único con desglose, arqueo primero, flechas, la jornada por default, el ancho que sigue a
+la tarea— y **ninguna portó la forma**. La pantalla seguía siendo PrimeNG con sus etiquetas, sus
+pistas repetidas y su total en un campo apagado.
+
+### Las dos diferencias de forma que más pesaban
+
+**1. La reja, en dos columnas.** Once renglones apilados son ~470 px dentro de un panel de ~780: el
+arqueo solo ya pedía scroll. Billetes (5) y monedas (6) lado a lado lo bajan a ~230.
+
+⚠️ **Siguen siendo dos `<p-table>`, no una reja de `div`s con `aria-label`.** `[CG.23]` eligió tabla
+a propósito — *"esto es dato tabular, así el encabezado de columna existe de verdad para un lector
+de pantalla en vez de repetir una etiqueta por celda"* — y eso no caduca por acomodarlas distinto.
+Con dos tablas cada una conserva sus `<th>`, y de paso el *"moneda"* que se repetía en los 6
+renglones se fue: lo dice el encabezado de **su** tabla. Era, textual, la «información repetitiva»
+del reporte original.
+
+⚠️ **Y el teclado no se rompe**, que era el riesgo real justo después de `[CG.50]`: `moverFoco`
+recorre `input.cg-pieza` en **orden del DOM** = 5 billetes y después 6 monedas. Cada sub-columna se
+lee de arriba a abajo, así que bajar con la flecha sigue coincidiendo con lo que ve el ojo — que es
+exactamente la razón por la que `[CG.23]` las quería en una sola columna.
+
+**2. El número de la pantalla.** El total era un `<input disabled>` en el pie de la tabla, rotulado
+«Monto del movimiento»: el resultado de contar, en gris, del tamaño de una celda y con cara de
+campo apagado. Ahora es el bloque del tablero — **`--fs-display`**, que es el token de *«headline
+metric, UNA por vista»* y que esta pantalla **no estaba usando en ningún lado** (medido: 0
+ocurrencias). El efectivo contado es exactamente la cifra que lo merece.
+
+El veredicto viaja **con** el número, no en una pista tres bloques abajo, y distingue **tres
+ausencias** (ADR-056): `sin_contar` (no hay cifra) ≠ `sin_documento` (hay conteo pero **no hay
+contra qué cuadrarlo**) ≠ `cuadra`. Los colores salen de `--ok-soft-*` / `--warn-soft-*`, que
+voltean solos en oscuro — en el tablero estaban a mano.
+
+### Lo que esta entrega encontró
+
+⭐ **La prueba del veredicto se escribió mal y se delató sola.** Afirmaba `'cuadra'` sobre una
+captura abierta con `capturaEnPantalla()`, que es una captura **libre, sin documento anclado** — o
+sea pedía exactamente el cuadre inventado que el tercer estado existe para evitar. El código dijo
+`sin_documento` y tenía razón: **la premisa estaba mal, no la implementación.**
+
+### Verificación
+
+- `nx test view` caja-general: **208/208** (3 pruebas nuevas, 2 reescritas). `typecheck` de `view`
+  verde · `check:templates` y `check:teclado` verdes · `check:tokens` acotado a este archivo: **sin
+  un solo token inexistente**.
+- La aserción del total se **endureció**: antes exigía un campo deshabilitado, ahora exige que **no
+  haya campo** y que dentro del bloque del total no exista ni un `input`.
+- Medido sobre el diff: **0** `font-size` con literal y **0** hex crudos agregados. El rojo de
+  `check:estilos` (+2) **no es de acá** — es trabajo a medias de otra sesión en el árbol.
+
+### Lo que sigue faltando del tablero
+
+La reja del **cambio devuelto** y la del **corte** siguen en una columna (la primera está plegada
+por default, la segunda es otra superficie). La tira de KPIs del encabezado, la paginación de la
+bandeja y la de-duplicación de las pistas del panel **tampoco** se portaron. Y falta la
+**validación visual**: nadie vio esto renderizado todavía.

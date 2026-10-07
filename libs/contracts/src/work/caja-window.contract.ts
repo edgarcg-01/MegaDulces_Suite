@@ -26,3 +26,36 @@
  * medir es la frase de arriba — si el rezago de captura baja, este número puede bajar con él.
  */
 export const CAJA_VENTANA_DIAS = 45;
+
+/**
+ * `[CG.51]` — **Cuánto se muestra AL ABRIR la pantalla.** No es lo mismo que el techo de arriba.
+ *
+ * `CAJA_VENTANA_DIAS` es hasta dónde un movimiento sigue siendo trabajo: el BORDE. Éste es con
+ * cuánto arranca la bandeja, que es otra pregunta — una cola de 12,976 renglones es correcta y
+ * también es inservible como primera pantalla del día.
+ *
+ * ── Por qué NO es 1 (o sea, «hoy») ───────────────────────────────────────────────────────────
+ * Pedido de Edgar el 2026-10-07: *"por default sólo deben ser los movimientos del día"*. Medido
+ * contra prod ese mismo día, antes de implementarlo:
+ *
+ *     hoy (2026-10-07) ........      0 movimientos
+ *     hoy + ayer ..............      7
+ *     últimos 7 días ..........    201
+ *     en la ventana de 45 .....  12,976
+ *     día más reciente con volumen: 2026-10-05, con 40
+ *
+ * ⛔ **«Hoy» da la pantalla VACÍA**, y no por casualidad: `fecha_valor` es la fecha del DOCUMENTO
+ * en Kepler, no la de cuándo el trabajo llega. El propio código ya lo tenía escrito — *"el ERP
+ * captura con 3 días de mediana, y ninguno legítimo tiene `fecha_valor` de hoy"*— y hasta tiene
+ * un contador aparte (`malFechados`) para los que vienen fechados **en el futuro**: medidos hoy,
+ * 7 documentos entre el 01 y el 14 de diciembre.
+ *
+ * ── De dónde sale el 3 ───────────────────────────────────────────────────────────────────────
+ * De esa misma mediana de captura. Tres días es «la jornada y su rezago normal»: lo que de verdad
+ * llegó para trabajarse hoy. Medido: **48 movimientos**, contra 12,976 de la ventana completa.
+ *
+ * ⚠️ Lo de atrás NO se esconde: la bandeja publica cuántos quedan antes del corte y con cuánto
+ * dinero, y el selector los trae en un clic. Una bandeja acotada que no publica dónde cortó es
+ * indistinguible de una bandeja vacía.
+ */
+export const CAJA_JORNADA_DIAS = 3;
