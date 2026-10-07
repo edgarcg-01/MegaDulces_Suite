@@ -111,9 +111,19 @@ if [ ! -d "$REPO_DIR/.git" ]; then
 fi
 
 cd "$REPO_DIR" || { di "FALLO: no existe $REPO_DIR"; exit 1; }
-git fetch --depth 50 origin "$RAMA" >/dev/null 2>&1 \
+# ⛔ El refspec va EXPLÍCITO. `git clone --depth` implica `--single-branch`, así que este clon
+# tiene `remote.origin.fetch = +refs/heads/main:refs/remotes/origin/main` y nada más: un
+# `git fetch origin otra-rama` **sale con éxito** y escribe sólo `FETCH_HEAD`, sin crear
+# `origin/otra-rama`. Medido el 2026-10-07 al apuntar `AUTO_DEPLOY_BRANCH=prod-release`.
+git fetch --depth 50 origin "+refs/heads/$RAMA:refs/remotes/origin/$RAMA" >/dev/null 2>&1 \
   || { di "FALLO: no se pudo hacer fetch de origin/$RAMA"; latir error "fetch falló (llave o red)"; exit 1; }
-git reset --hard "origin/$RAMA" >/dev/null 2>&1
+# ⛔ Y el reset SE VERIFICA. Antes no, y era la mitad peligrosa del defecto de arriba: con
+# `origin/$RAMA` inexistente el reset fallaba callado, `HEAD` se quedaba donde estuviera —`main`—
+# y `DESEADO` salía del commit EQUIVOCADO. O sea: el despliegue manual se habría visto funcionar
+# mientras seguía soltando `main` en automático. Una rama que no se puede resolver es NO MEDIDO,
+# no "no hay nada nuevo".
+git reset --hard "origin/$RAMA" >/dev/null 2>&1 \
+  || { di "FALLO: no se pudo resolver origin/$RAMA — ¿existe la rama?"; latir error "no se pudo resolver origin/$RAMA"; exit 1; }
 DESEADO=$(git rev-parse --short HEAD)
 
 # ── Qué está corriendo, según la IMAGEN (no según lo que alguien anotó) ─────
