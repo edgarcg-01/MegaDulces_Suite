@@ -23,6 +23,7 @@ const CATALOGO: SdCatalogResponse = {
     { id: 'c-mto', queue_id: 'q-mto', code: 'plomeria', name: 'Plomería', default_priority: 'media', requires_branch: false },
   ],
   zones: [],
+  fields: [],
   impacts: ['yo', 'varios', 'sucursal', 'red'],
 };
 

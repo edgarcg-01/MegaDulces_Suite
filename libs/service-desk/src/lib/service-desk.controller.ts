@@ -29,6 +29,7 @@ import {
   type SdQueueCandidateDto,
   type SdQueueMembersResponse,
   type SdUpsertQueueDto,
+  type SdUpsertFieldDto,
   type SdUpsertQueueMemberDto,
   type SdUpsertZoneDto,
   type SdLogTimeDto,
@@ -328,6 +329,20 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Quita a una persona de la cola. No si es la única coordinación ni si tiene solicitudes abiertas asignadas.' })
   removeQueueMember(@Param('id') id: string, @Param('userId') userId: string, @Req() req: AuthedRequest): Promise<SdQueueMembersResponse> {
     return this.actors.resolve(req).then((ctx) => this.members.remove(ctx, id, userId));
+  }
+
+  @Post('config/queues/:id/fields')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Alta de un campo propio de la cola (sí/no, opción, texto o foto). Sólo la coordinación de esa cola.' })
+  createField(@Param('id') id: string, @Body() dto: SdUpsertFieldDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.createField(ctx, id, dto));
+  }
+
+  @Put('config/fields/:id')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Cambia la pregunta, lo requerido, las opciones, el orden o apaga un campo. El código y el tipo no cambian.' })
+  updateField(@Param('id') id: string, @Body() dto: SdUpsertFieldDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.updateField(ctx, id, dto));
   }
 
   @Post('config/zones')

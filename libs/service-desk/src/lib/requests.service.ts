@@ -27,6 +27,7 @@ import {
   type SdChannel,
   type SdCloseReason,
   type SdCreateRequestDto,
+  type SdExtraValueDto,
   type SdImpact,
   type SdListResponse,
   type SdLogTimeDto,
@@ -52,6 +53,7 @@ import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
+import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
 import { accesoATicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
 import { fechaValida } from './domain/report-period';
@@ -80,6 +82,7 @@ interface RequestRow {
   safety_risk?: boolean | null;
   zone_code?: string | null;
   zone_name?: string | null;
+  extra?: Record<string, unknown> | null;
   status: SdStatus;
   requester_id: string;
   requester_name: string | null;
@@ -246,6 +249,17 @@ export class ServiceDeskRequestsService {
           if (!z) throw new BadRequestException('La zona indicada no existe o está apagada');
           zona = z.code as string;
         }
+        /*
+         * `[MS.7.4]` + `[MS.7.8]` Los campos propios de la cola: se validan contra sus definiciones ACTIVAS. Una clave que la cola no
+         * declara se RECHAZA (no se ignora); un requerido sin contestar, un tipo equivocado o una opción fuera de la lista → 400; una
+         * foto requerida exige al menos un adjunto. Una cola sin campos ni `extra` guarda `{}` (TI no cambia).
+         */
+        const defs = (await trx('servicedesk.queue_fields')
+          .where({ queue_id: cat.queue_id, active: true })
+          .orderBy([{ column: 'sort_order' }, { column: 'label' }])
+          .select('code', 'label', 'type', 'required', 'options')) as { code: string; label: string; type: CampoDef['type']; required: boolean; options: string[] }[];
+        const extraValidado = validarCamposExtra(defs, dto.extra, preparados.length);
+        if (extraValidado.errores.length) throw new BadRequestException(extraValidado.errores.join('. '));
 
         // El solicitante es quien llama, salvo que quien atiende haya indicado a otra persona.
         const solicitanteId = pidioOtro ? (dto.requester_id as string) : ctx.userId;
@@ -289,6 +303,7 @@ export class ServiceDeskRequestsService {
             blocks_work: blocksWork,
             safety_risk: riesgo,
             zone_code: zona,
+            extra: JSON.stringify(extraValidado.valores),
             status: 'nuevo',
             requester_id: solicitanteId,
             requester_name: nombreSolicitante,
@@ -548,8 +563,20 @@ export class ServiceDeskRequestsService {
         })),
       );
 
+      // `[MS.7.4]` Lo contestado en los campos propios, con la pregunta tal como se llamaba. Se leen TAMBIÉN los apagados: apagar
+      // un campo no borra la respuesta de los tickets viejos ni su pregunta.
+      const camposDeLaCola = (await trx('servicedesk.queue_fields')
+        .where({ queue_id: r.queue_id })
+        .orderBy([{ column: 'sort_order' }, { column: 'label' }])
+        .select('code', 'label', 'type')) as { code: string; label: string; type: SdExtraValueDto['type'] }[];
+      const guardado = r.extra ?? {};
+      const extra: SdExtraValueDto[] = camposDeLaCola
+        .filter((f) => f.type !== 'photo' && (typeof guardado[f.code] === 'boolean' || typeof guardado[f.code] === 'string'))
+        .map((f) => ({ code: f.code, label: f.label, type: f.type, value: guardado[f.code] as boolean | string }));
+
       return {
         ...this.mapRow(r, config),
+        extra,
         description: r.description,
         requester_department_code: r.requester_department_code ?? null,
         requester_department_name: departamentoNombre,

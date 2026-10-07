@@ -84,9 +84,15 @@ export class ServiceDeskConfigService {
         .orderBy([{ column: 'sort_order' }, { column: 'name' }])
         .select('id', 'queue_id', 'code', 'name', 'default_priority', 'requires_branch');
       const zones = await trx('servicedesk.zones').where({ active: true }).orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('code', 'name');
+      // `[MS.7.4]` Los campos propios ACTIVOS de las colas que se ofrecen (los de una cola apagada no se piden: nadie la atiende).
+      const fieldRows = await trx('servicedesk.queue_fields')
+        .where({ active: true })
+        .orderBy([{ column: 'sort_order' }, { column: 'label' }])
+        .select('queue_id', 'code', 'label', 'type', 'required', 'options');
       return {
         queues,
         zones,
+        fields: fieldRows.filter((f: { queue_id: string }) => activas.has(f.queue_id)),
         // Una categoría de una cola apagada no se ofrece: crearía un ticket que nadie atiende.
         categories: cats.filter((c: { queue_id: string }) => activas.has(c.queue_id)),
         impacts: SD_IMPACTS,

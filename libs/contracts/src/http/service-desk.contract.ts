@@ -64,6 +64,14 @@ export type SdActor = 'requester' | 'agent' | 'coordinator' | 'system';
 // ── Catálogo (lo que la pantalla «Nueva solicitud» necesita para pintarse) ─────────────────────
 
 /** `[MS.7.7]` Qué matriz sugiere la prioridad de una cola: `impacto` (cuántas personas afecta × me impide trabajar) o `riesgo_operacion` (riesgo para personas × detiene la operación). Se elige por este VALOR, nunca por el nombre de la cola. */
+/**
+ * `[MS.7.4]` Campos propios de una cola: qué MÁS pregunta al reportar. `photo` no viaja en `extra`: es un adjunto.
+ */
+export const SD_FIELD_TYPES = ['boolean', 'select', 'text', 'photo'] as const;
+export type SdFieldType = (typeof SD_FIELD_TYPES)[number];
+/** Tope de un campo de texto libre (la base lo repite como CHECK en `requests.extra`: no depende sólo del servidor). */
+export const SD_FIELD_MAX_TEXT = 500;
+
 export const SD_PRIORITY_MODELS = ['impacto', 'riesgo_operacion'] as const;
 export type SdPriorityModel = (typeof SD_PRIORITY_MODELS)[number];
 
@@ -75,6 +83,41 @@ export interface SdQueueDto {
   priority_model: SdPriorityModel;
   /** `[MS.7.3]` Si el formulario de esta cola PREGUNTA la zona (el lugar dentro de la ubicación). Se elige por este valor, nunca por el nombre. */
   asks_zone: boolean;
+}
+
+/** `[MS.7.4]` Un campo propio de la cola, como lo ve quien reporta (sólo los ACTIVOS). */
+export interface SdFieldDto {
+  code: string;
+  queue_id: string;
+  label: string;
+  type: SdFieldType;
+  required: boolean;
+  /** Las opciones de un campo `select` (vacío en los demás tipos). */
+  options: string[];
+}
+/** Como lo ve quien configura: también los apagados. */
+export interface SdFieldAdminDto extends SdFieldDto {
+  id: string;
+  sort_order: number;
+  active: boolean;
+}
+export interface SdUpsertFieldDto {
+  /** Sólo al crear: el código no se cambia (los tickets ya lo guardan). */
+  code?: string;
+  label?: string;
+  /** Sólo al crear: cambiar el tipo invalidaría lo ya guardado (apaga éste y crea otro). */
+  type?: SdFieldType;
+  required?: boolean;
+  options?: string[];
+  sort_order?: number;
+  active?: boolean;
+}
+/** `[MS.7.4]` Lo contestado en un ticket, con la pregunta tal como se llamaba (también si el campo se apagó después). */
+export interface SdExtraValueDto {
+  code: string;
+  label: string;
+  type: SdFieldType;
+  value: boolean | string;
 }
 
 /** `[MS.7.3]` El lugar dentro de la ubicación (bodega, andén, oficina, baños, exterior…). Catálogo editable. */
@@ -108,6 +151,8 @@ export interface SdCatalogResponse {
   categories: SdCategoryDto[];
   /** `[MS.7.3]` Las zonas ACTIVAS (para el selector de las colas que la preguntan). */
   zones: SdZoneDto[];
+  /** `[MS.7.4]` Los campos propios ACTIVOS de cada cola (agrupables por `queue_id`). */
+  fields: SdFieldDto[];
   impacts: readonly SdImpact[];
 }
 
@@ -130,6 +175,8 @@ export interface SdCreateRequestDto {
   safety_risk?: boolean;
   /** `[MS.7.3]` La zona (código del catálogo). Opcional; se ignora si la cola no pregunta la zona. */
   zone_code?: string | null;
+  /** `[MS.7.4]` Respuestas a los campos propios de la cola `{ codigo: valor }`. Una clave que la cola no declara → 400. */
+  extra?: Record<string, unknown>;
   /** Código de sucursal (`'01'`…). Obligatorio si la categoría exige sucursal. */
   warehouse_code?: string | null;
   attachments?: SdAttachmentInput[];
@@ -197,6 +244,8 @@ export interface SdRequestRow {
   /** `[MS.7.3]` La zona del ticket (opcional). */
   zone_code: string | null;
   zone_name: string | null;
+  /** `[MS.7.4]` Lo contestado en los campos propios de la cola (vacío si no tiene). Sólo en la ficha. */
+  extra?: SdExtraValueDto[];
   assigned_to: string | null;
   assigned_to_name: string | null;
   assigned_at: string | null;
@@ -543,6 +592,8 @@ export interface SdConfigResponse {
   categories: SdCategoryAdminDto[];
   /** `[MS.7.3]` Todas las zonas, también las apagadas (para administrarlas). */
   zones: SdZoneAdminDto[];
+  /** `[MS.7.4]` Todos los campos propios, también los apagados. */
+  fields: SdFieldAdminDto[];
 }
 
 export interface SdUpsertCategoryDto {

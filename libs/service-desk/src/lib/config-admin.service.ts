@@ -15,18 +15,21 @@ import {
   type SdCategoryAdminDto,
   type SdClock,
   type SdConfigResponse,
+  type SdFieldAdminDto,
   type SdPriority,
   type SdPriorityModel,
   type SdQueueAdminDto,
   type SdSettingsDto,
   type SdSlaPolicyDto,
   type SdUpsertCategoryDto,
+  type SdUpsertFieldDto,
   type SdUpsertQueueDto,
   type SdUpsertZoneDto,
   type SdZoneAdminDto,
 } from '@megadulces/contracts';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { parseHHMM } from './domain/business-clock';
+import { validarDefinicionCampo } from './domain/campos-extra';
 import { puedeCoordinarCola } from './domain/queue-access';
 import { ServiceDeskQueueMembersService } from './queue-members.service';
 import type { ActorCtx } from './service-desk.types';
@@ -70,6 +73,7 @@ export class ServiceDeskConfigAdminService {
       const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order', 'priority_model', 'asks_zone');
       const cats = await trx('servicedesk.categories').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'queue_id', 'code', 'name', 'default_priority', 'requires_branch', 'active', 'sort_order');
       const zones = await trx('servicedesk.zones').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'sort_order', 'active');
+      const fields = await trx('servicedesk.queue_fields').orderBy([{ column: 'sort_order' }, { column: 'label' }]).select('id', 'queue_id', 'code', 'label', 'type', 'required', 'options', 'sort_order', 'active');
       const orden = (p: SdPriority): number => SD_PRIORITIES.indexOf(p);
       return {
         settings: {
@@ -90,6 +94,7 @@ export class ServiceDeskConfigAdminService {
         queues: queues as SdQueueAdminDto[],
         categories: cats as SdCategoryAdminDto[],
         zones: zones as SdZoneAdminDto[],
+        fields: fields as SdFieldAdminDto[],
       };
     });
   }
@@ -368,6 +373,83 @@ export class ServiceDeskConfigAdminService {
       throw new BadRequestException(`${campo} debe tener el formato HH:MM`);
     }
     return String(v).slice(0, 5);
+  }
+
+  // ── `[MS.7.4]` Campos propios de una cola ─────────────────────────────────────────────────────
+  /**
+   * Los campos son de UNA cola, así que los administra la coordinación de ESA cola (o el god-mode) — a diferencia de las zonas, que
+   * son del tenant. El código y el tipo no cambian (los tickets ya guardan respuestas con ellos); apagar no borra.
+   */
+  async createField(ctx: ActorCtx, queueId: string, dto: SdUpsertFieldDto): Promise<SdConfigResponse> {
+    if (!UUID_RE.test(queueId)) throw new NotFoundException('Cola no encontrada');
+    if (!puedeCoordinarCola(ctx.colas, queueId)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiar sus campos');
+    const errores = validarDefinicionCampo({ code: dto?.code, label: dto?.label, type: dto?.type, options: dto?.options });
+    if (errores.length) throw new BadRequestException(errores.join('. '));
+    if (dto.required !== undefined && typeof dto.required !== 'boolean') throw new BadRequestException('required debe ser verdadero o falso');
+    const orden = dto.sort_order !== undefined ? this.orden(dto.sort_order) : 100;
+    const opciones = dto.type === 'select' ? (dto.options as string[]).map((o) => o.trim()) : [];
+    await this.tk.run(async (trx) => {
+      const cola = await trx('servicedesk.queues').where({ id: queueId }).whereNull('deleted_at').first('id');
+      if (!cola) throw new NotFoundException('Cola no encontrada');
+      try {
+        await trx('servicedesk.queue_fields').insert({
+          tenant_id: this.tenantCtx.requireTenantId(),
+          queue_id: queueId,
+          code: dto.code,
+          label: String(dto.label).trim(),
+          type: dto.type,
+          required: dto.required === true,
+          options: JSON.stringify(opciones),
+          sort_order: orden,
+          active: dto.active ?? true,
+          created_by: ctx.userId,
+          updated_by: ctx.userId,
+        });
+      } catch (e) {
+        traducir(e);
+      }
+    });
+    return this.get();
+  }
+
+  async updateField(ctx: ActorCtx, id: string, dto: SdUpsertFieldDto): Promise<SdConfigResponse> {
+    if (!UUID_RE.test(id)) throw new NotFoundException('Campo no encontrado');
+    if (dto.code !== undefined) throw new BadRequestException('El código de un campo no se cambia (los tickets ya guardan respuestas con él): apaga éste y crea otro');
+    if (dto.type !== undefined) throw new BadRequestException('El tipo de un campo no se cambia (invalidaría lo ya guardado): apaga éste y crea otro');
+    const patch: Record<string, unknown> = {};
+    if (dto.label !== undefined) {
+      const l = String(dto.label).trim();
+      if (!l || l.length > 80) throw new BadRequestException('Escribe la pregunta del campo (hasta 80 caracteres)');
+      patch['label'] = l;
+    }
+    if (dto.required !== undefined) {
+      if (typeof dto.required !== 'boolean') throw new BadRequestException('required debe ser verdadero o falso');
+      patch['required'] = dto.required;
+    }
+    if (dto.sort_order !== undefined) patch['sort_order'] = this.orden(dto.sort_order);
+    if (dto.active !== undefined) {
+      if (typeof dto.active !== 'boolean') throw new BadRequestException('active debe ser verdadero o falso');
+      patch['active'] = dto.active;
+    }
+    if (dto.options === undefined && !Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
+    await this.tk.run(async (trx) => {
+      const f = await trx('servicedesk.queue_fields').where({ id }).first('id', 'queue_id', 'type');
+      if (!f) throw new NotFoundException('Campo no encontrado');
+      // La autorización es por la cola DEL CAMPO (no por lo que diga el cuerpo).
+      if (!puedeCoordinarCola(ctx.colas, f.queue_id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiar sus campos');
+      if (dto.options !== undefined) {
+        if (f.type !== 'select') throw new BadRequestException('Sólo un campo de tipo «opciones» lleva lista de opciones');
+        const errores = validarDefinicionCampo({ code: 'x', label: 'x', type: 'select', options: dto.options });
+        if (errores.length) throw new BadRequestException(errores.join('. '));
+        patch['options'] = JSON.stringify((dto.options as string[]).map((o) => o.trim()));
+      }
+      try {
+        await trx('servicedesk.queue_fields').where({ id }).update({ ...patch, updated_at: trx.fn.now(), updated_by: ctx.userId });
+      } catch (e) {
+        traducir(e);
+      }
+    });
+    return this.get();
   }
 
   // ── `[MS.7.3]` Zonas ──────────────────────────────────────────────────────────────────────────

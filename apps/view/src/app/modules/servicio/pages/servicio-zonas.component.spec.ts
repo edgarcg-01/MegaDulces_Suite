@@ -20,6 +20,7 @@ const CATALOGO: SdCatalogResponse = {
     { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'riesgo_operacion', asks_zone: true },
   ],
   zones: [{ code: 'bodega', name: 'Bodega' }, { code: 'anden', name: 'Andén' }],
+  fields: [],
   categories: [
     { id: 'c-ti', queue_id: 'q-ti', code: 'reportes', name: 'Reportes', default_priority: 'baja', requires_branch: false },
     { id: 'c-mto', queue_id: 'q-mto', code: 'plomeria', name: 'Plomería', default_priority: 'media', requires_branch: false },
@@ -113,6 +114,7 @@ describe('[MS.7.3] configuración — la tarjeta Zonas', () => {
       { id: 'z2', code: 'anden', name: 'Andén', sort_order: 20, active: false },
     ],
     categories: [],
+    fields: [],
   };
   let fix: ComponentFixture<ServicioConfiguracionComponent>;
   let c: ServicioConfiguracionComponent;

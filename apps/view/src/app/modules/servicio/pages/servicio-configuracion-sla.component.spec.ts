@@ -30,6 +30,7 @@ const CFG: SdConfigResponse = {
   ],
   categories: [],
   zones: [],
+  fields: [],
 };
 
 describe('[MS.7.2] ServicioConfiguracionComponent — plazos por cola', () => {

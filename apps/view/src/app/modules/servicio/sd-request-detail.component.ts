@@ -95,6 +95,7 @@ function leerComoDataUri(f: File): Promise<string> {
           }
           @if (t.warehouse_name) { <div><dt>Ubicación</dt><dd>{{ t.warehouse_name }}</dd></div> }
           @if (t.zone_name) { <div><dt>Zona</dt><dd>{{ t.zone_name }}</dd></div> }
+          @for (e of t.extra ?? []; track e.code) { <div><dt>{{ e.label }}</dt><dd>{{ e.type === 'boolean' ? (e.value ? 'Sí' : 'No') : e.value }}</dd></div> }
           <div><dt>Alta</dt><dd>{{ t.created_at | date:'dd/MM/yy HH:mm' }}</dd></div>
           @if (agent() && t.priority_suggested && t.priority_suggested !== t.priority) {
             <div><dt>Sugerida</dt><dd>{{ priorityLabel[t.priority_suggested] }}</dd></div>

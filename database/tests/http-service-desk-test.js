@@ -1341,6 +1341,114 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⭐ TI sigue igual: la zona no se pregunta, no se guarda y el ticket se levanta', ti.status === 201 && ti.body?.zone_code === null, dump(ti));
     }
 
+    // ── 28. [MS.7.4] + [MS.7.8] Campos propios por cola: se declaran por configuración y se validan al reportar ───
+    {
+      console.log('\n28 — campos propios por cola: alta, validación al reportar, ficha etiquetada y permisos');
+      const [{ id: qC }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_cf74', name: 'SMOKE Campos', sort_order: 905 }).returning('id');
+      const [{ id: catC }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qC, code: 'smoke_cf74_cat', name: 'SMOKE C', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeC = await crearUsuario('cf_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qC, role: 'coordinador' }]);
+      usuarios.push(jefeC);
+      const mk = (extra, adjuntos) => req('POST', `${SD}/requests`, sol.token, { category_id: catC, title: 'SMOKE 7.4 ' + Math.random().toString(36).slice(2, 7), ...(extra !== undefined ? { extra } : {}), ...(adjuntos ? { attachments: adjuntos } : {}) });
+      const alta = (token, dto, cola = qC) => req('POST', `${SD}/config/queues/${cola}/fields`, token, dto);
+      const PNG = { file_base64: dataUri('image/png', PNG_1X1), file_name: 'falla.png' };
+
+      // Una cola sin campos se comporta como siempre.
+      const base = await mk();
+      check('⭐ una cola SIN campos se levanta como siempre y guarda extra vacío', base.status === 201 && Array.isArray(base.body?.extra) && base.body.extra.length === 0, dump(base));
+      const c0 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('el catálogo declara `fields` (vacío para las colas que no tienen)', Array.isArray(c0?.fields) && !(c0.fields ?? []).some((f) => f.queue_id === qC), JSON.stringify(c0?.fields));
+
+      // Quién declara campos.
+      check('⛔ quien coordina OTRA cola no declara campos en ésta → 403', (await alta(coord.token, { code: 'afecta', label: '¿Afecta a clientes?', type: 'boolean' })).status === 403);
+      check('⛔ quien reportó (sin permisos) → 403', (await alta(sol.token, { code: 'afecta', label: '¿Afecta a clientes?', type: 'boolean' })).status === 403);
+      check('⛔ código mal formado → 400', (await alta(jefeC.token, { code: 'Con Espacios', label: 'x', type: 'boolean' })).status === 400);
+      check('⛔ tipo desconocido → 400', (await alta(jefeC.token, { code: 'fecha', label: 'Fecha', type: 'fecha' })).status === 400);
+      check('⛔ un select con UNA opción → 400', (await alta(jefeC.token, { code: 'tipo', label: 'Tipo', type: 'select', options: ['sola'] })).status === 400);
+      check('⛔ una pregunta vacía → 400', (await alta(jefeC.token, { code: 'afecta', label: '  ', type: 'boolean' })).status === 400);
+      check('⛔ una cola inexistente → 403/404 (nadie la coordina)', [403, 404].includes((await alta(jefeC.token, { code: 'afecta', label: 'x', type: 'boolean' }, '00000000-0000-0000-0000-0000000000ee')).status));
+      const a1 = await alta(jefeC.token, { code: 'afecta', label: '¿Afecta a clientes?', type: 'boolean', required: true, sort_order: 10 });
+      check('⭐ la coordinación DE LA COLA declara un sí/no requerido', a1.status < 300 && (a1.body?.fields ?? []).some((f) => f.queue_id === qC && f.code === 'afecta' && f.required === true && f.active === true), dump(a1));
+      await alta(jefeC.token, { code: 'tipo_falla', label: 'Tipo de falla', type: 'select', options: ['Eléctrica', 'Hidráulica', 'Otra'], sort_order: 20 });
+      await alta(jefeC.token, { code: 'equipo', label: 'Equipo', type: 'text', sort_order: 30 });
+      const aFoto = await alta(jefeC.token, { code: 'foto', label: 'Foto de la falla', type: 'photo', required: false, sort_order: 40 });
+      check('⛔ el código no se repite en la misma cola', [400, 409].includes((await alta(jefeC.token, { code: 'afecta', label: 'otra', type: 'boolean' })).status));
+      const fAfecta = (a1.body?.fields ?? []).find((f) => f.code === 'afecta');
+      const fFoto = (aFoto.body?.fields ?? []).find((f) => f.code === 'foto');
+      check('⛔ el código de un campo NO se cambia → 400', (await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { code: 'otro' })).status === 400);
+      check('⛔ el tipo de un campo NO se cambia → 400', (await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { type: 'text' })).status === 400);
+      check('⛔ quien coordina OTRA cola no edita este campo → 403 (se autoriza por la cola DEL CAMPO)', (await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, coord.token, { label: 'hackeado' })).status === 403);
+      check('⛔ opciones en un campo que no es select → 400', (await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { options: ['a', 'b'] })).status === 400);
+
+      // El catálogo los ofrece (sólo activos, en su orden).
+      const c1 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      const susCampos = (c1?.fields ?? []).filter((f) => f.queue_id === qC);
+      check('⭐ el catálogo ofrece sus 4 campos ordenados', susCampos.map((f) => f.code).join(',') === 'afecta,tipo_falla,equipo,foto', JSON.stringify(susCampos.map((f) => f.code)));
+      check('y las opciones del select viajan', susCampos.find((f) => f.code === 'tipo_falla')?.options?.length === 3);
+
+      // Validación al reportar.
+      const sinContestar = await mk({});
+      check('⛔ un requerido sin contestar → 400 con la razón', sinContestar.status === 400 && /obligatorio/.test(JSON.stringify(sinContestar.body)), dump(sinContestar));
+      const sinExtra = await mk();
+      check('⛔ sin mandar `extra` con un requerido declarado → 400', sinExtra.status === 400, dump(sinExtra));
+      check('⛔ un sí/no que no es booleano → 400', (await mk({ afecta: 'no' })).status === 400);
+      check('⛔ una opción fuera de la lista → 400', (await mk({ afecta: true, tipo_falla: 'Mecánica' })).status === 400);
+      check('⛔ un campo que la cola NO declara → 400 (no se ignora)', (await mk({ afecta: true, inventado: 'x' })).status === 400);
+      check('⛔ un texto de más de 500 caracteres → 400', (await mk({ afecta: true, equipo: 'a'.repeat(501) })).status === 400);
+      check('⛔ `extra` que no es un objeto → 400', (await mk([1, 2])).status === 400);
+      check('⛔ la foto no viaja en `extra` → 400', (await mk({ afecta: true, foto: 'data:image/png;base64,xx' })).status === 400);
+      const huerfanos = await knex('servicedesk.requests').where({ queue_id: qC }).whereRaw(`title like 'SMOKE 7.4%'`).count({ n: '*' }).first();
+      check('y las peticiones rechazadas no dejaron tickets a medias (sólo el primero, sin campos)', Number(huerfanos.n) === 1, String(huerfanos.n));
+
+      const bien = await mk({ afecta: false, tipo_falla: 'Eléctrica', equipo: '  Compresor 2  ' });
+      check('⭐ con todo bien se levanta; `false` ES una respuesta', bien.status === 201, dump(bien));
+      const ficha = await req('GET', `${SD}/requests/${bien.body?.id}`, sol.token);
+      const ex = ficha.body?.extra ?? [];
+      check('⭐ la ficha devuelve lo contestado CON la pregunta, en el orden de los campos y normalizado', ex.map((e) => `${e.label}=${e.value}`).join('|') === '¿Afecta a clientes?=false|Tipo de falla=Eléctrica|Equipo=Compresor 2', JSON.stringify(ex));
+      const guardado = await knex('servicedesk.requests').where({ id: bien.body?.id }).first('extra');
+      check('en la base queda sólo lo contestado, por código', JSON.stringify(Object.keys(guardado.extra).sort()) === JSON.stringify(['afecta', 'equipo', 'tipo_falla']), JSON.stringify(guardado.extra));
+      const parcial = await mk({ afecta: true });
+      check('lo OPCIONAL sin contestar no se guarda (ni null ni vacío)', parcial.status === 201 && (await knex('servicedesk.requests').where({ id: parcial.body?.id }).first('extra')).extra?.tipo_falla === undefined, dump(parcial));
+
+      // Foto requerida (la capacidad existe; ninguna cola real la activa).
+      const req1 = await req('PUT', `${SD}/config/fields/${fFoto?.id}`, jefeC.token, { required: true });
+      check('la coordinación puede volver requerida la foto', req1.status === 200 && (req1.body?.fields ?? []).find((f) => f.id === fFoto?.id)?.required === true, dump(req1));
+      const sinFoto = await mk({ afecta: true });
+      check('⛔ foto requerida SIN adjunto → 400', sinFoto.status === 400 && /foto/i.test(JSON.stringify(sinFoto.body)), dump(sinFoto));
+      const conFoto = await mk({ afecta: true }, [PNG]);
+      if (conFoto.status === 201) check('⭐ foto requerida CON adjunto → se levanta y el adjunto queda ligado', (conFoto.body?.attachments ?? []).length === 1, dump(conFoto));
+      else noMedido.push(`foto requerida CON adjunto válido (MS.7.4): el bucket no respondió (${conFoto.status}); la negativa «sin foto → 400» sí se midió`);
+      await req('PUT', `${SD}/config/fields/${fFoto?.id}`, jefeC.token, { required: false }); // los siguientes no llevan adjunto
+
+      // Editar: la pregunta cambia para lo nuevo; el ticket viejo conserva SU pregunta... (la etiqueta sale de la definición vigente).
+      const renombra = await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { label: '¿Afecta a los clientes?' });
+      check('se renombra la pregunta', renombra.status === 200 && (renombra.body?.fields ?? []).some((f) => f.id === fAfecta?.id && f.label === '¿Afecta a los clientes?'), dump(renombra));
+      // Apagar un campo requerido: deja de pedirse, el ticket viejo conserva su respuesta.
+      const apaga = await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { active: false });
+      check('apagar no borra: sigue en la configuración, apagado', apaga.status === 200 && (apaga.body?.fields ?? []).some((f) => f.id === fAfecta?.id && f.active === false), dump(apaga));
+      const c2 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('⭐ apagado, el catálogo ya no lo ofrece', !(c2?.fields ?? []).some((f) => f.code === 'afecta'));
+      const yaNoPide = await mk({ tipo_falla: 'Otra' });
+      check('⭐ y ya no se exige aunque fuera requerido', yaNoPide.status === 201, dump(yaNoPide));
+      check('⛔ mandar la respuesta de un campo apagado → 400 (la cola ya no lo declara)', (await mk({ afecta: true })).status === 400);
+      const vieja = await req('GET', `${SD}/requests/${bien.body?.id}`, sol.token);
+      check('⭐ el ticket viejo CONSERVA su respuesta del campo apagado, con su pregunta', (vieja.body?.extra ?? []).some((e) => e.code === 'afecta' && e.value === false), JSON.stringify(vieja.body?.extra));
+      check('⛔ editar un campo inexistente → 404', (await req('PUT', `${SD}/config/fields/00000000-0000-0000-0000-0000000000ee`, jefeC.token, { active: true })).status === 404);
+
+      // Opciones editables.
+      const fTipo = (c1?.fields ?? []).find((f) => f.code === 'tipo_falla');
+      const [rowTipo] = await knex('servicedesk.queue_fields').where({ queue_id: qC, code: 'tipo_falla' }).select('id');
+      const cambia = await req('PUT', `${SD}/config/fields/${rowTipo.id}`, jefeC.token, { options: ['Eléctrica', 'Hidráulica', 'Mecánica'] });
+      check('las opciones de un select se editan', cambia.status === 200 && (cambia.body?.fields ?? []).find((f) => f.id === rowTipo.id)?.options?.includes('Mecánica'), dump(cambia));
+      check('⛔ pero una sola opción → 400', (await req('PUT', `${SD}/config/fields/${rowTipo.id}`, jefeC.token, { options: ['sola'] })).status === 400);
+      check('(control) el campo de opciones sigue declarado', !!fTipo);
+
+      // TI no cambió.
+      const ti = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.4 TI', impact: 'yo', blocks_work: false, extra: { afecta: true } });
+      check('⛔ TI no declara ese campo: mandarlo → 400 (los campos son por cola)', ti.status === 400, dump(ti));
+      const ti2 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.4 TI ok', impact: 'yo', blocks_work: false });
+      check('⭐ TI sigue igual: sin campos propios se levanta como siempre', ti2.status === 201 && (ti2.body?.extra ?? []).length === 0, dump(ti2));
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
@@ -1527,6 +1635,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     await knex('servicedesk.queue_members').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.sla_policies').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.categories').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
+    await knex('servicedesk.queue_fields').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.zones').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex.destroy();

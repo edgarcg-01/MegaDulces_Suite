@@ -156,6 +156,23 @@ function dataUri(f: File): Promise<string> {
                               [showClear]="true" appendTo="body" ariaLabel="Zona" /></label>
                 }
 
+                <!-- [MS.7.4] Los campos PROPIOS de la cola de la categoría (los declara su coordinación, sin tocar código). -->
+                @for (c of camposCola(); track c.code) {
+                  @if (c.type === 'boolean') {
+                    <fieldset class="ss-impact">
+                      <legend>{{ c.label }}{{ c.required ? ' *' : '' }}</legend>
+                      <label class="ss-radio"><input type="radio" [name]="'extra_' + c.code" [value]="true" [(ngModel)]="extraForm[c.code]" /> Sí</label>
+                      <label class="ss-radio"><input type="radio" [name]="'extra_' + c.code" [value]="false" [(ngModel)]="extraForm[c.code]" /> No</label>
+                    </fieldset>
+                  } @else if (c.type === 'select') {
+                    <label class="ss-field"><span>{{ c.label }} {{ c.required ? '*' : '(opcional)' }}</span>
+                      <p-select [options]="c.options" [(ngModel)]="extraForm[c.code]" placeholder="Elige una opción" [showClear]="!c.required" appendTo="body" [ariaLabel]="c.label" /></label>
+                  } @else if (c.type === 'text') {
+                    <label class="ss-field"><span>{{ c.label }} {{ c.required ? '*' : '(opcional)' }}</span>
+                      <input pInputText [(ngModel)]="extraForm[c.code]" maxlength="500" /></label>
+                  }
+                }
+
                 <!-- [MS.7.7] Qué se pregunta lo dicta el MODELO de la cola (no su nombre): impacto × bloqueo, o riesgo × operación. -->
                 @if (modeloRiesgo()) {
                   <fieldset class="ss-impact">
@@ -179,7 +196,8 @@ function dataUri(f: File): Promise<string> {
                 }
 
                 <div class="ss-field">
-                  <span>Fotos o PDF (opcional)</span>
+                  <span>Fotos o PDF {{ fotoRequerida() ? '*' : '(opcional)' }}</span>
+                  @if (fotoRequerida(); as f) { <span class="ss-hint">{{ f.label }}: adjunta al menos una.</span> }
                   <div class="ss-att">
                     <p-button icon="pi pi-camera" label="Cámara" severity="secondary" [outlined]="true" size="small" (onClick)="cam.click()" />
                     <input #cam type="file" hidden accept="image/*" capture="environment" (change)="elegirArchivos($event)" />
@@ -373,6 +391,16 @@ export class ServicioSolicitudesComponent implements OnInit {
     return !!cat && c?.queues.find((q) => q.id === cat.queue_id)?.asks_zone === true;
   });
   readonly zonas = computed(() => this.catalogo()?.zones ?? []);
+  /** `[MS.7.4]` Los campos propios de la cola de la categoría elegida (lo dice la cola, no su nombre). */
+  readonly camposCola = computed(() => {
+    const c = this.catalogo();
+    const cat = c?.categories.find((k) => k.id === this.categoriaId());
+    return cat ? (c?.fields ?? []).filter((f) => f.queue_id === cat.queue_id) : [];
+  });
+  /** `[MS.7.4]` La foto de un campo requerido es un ADJUNTO: se exige al menos un archivo, no un valor en `extra`. */
+  readonly fotoRequerida = computed(() => this.camposCola().find((f) => f.type === 'photo' && f.required) ?? null);
+  /** `[MS.7.4]` Lo contestado en los campos propios `{ codigo: valor }`. Plano porque `ngModel` escribe ahí. */
+  extraForm: Record<string, unknown> = {};
   /** `[MS.7.7]` ¿La cola de la categoría elegida sugiere la prioridad por riesgo × operación? (lo dice la cola, no su nombre) */
   readonly modeloRiesgo = computed(() => {
     const c = this.catalogo();
@@ -429,6 +457,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   // ── alta ──
   nueva(): void {
     this.form = this.formVacio();
+    this.extraForm = {};
     this.aNombreDe.set(false);
     this.quitarPersona();
     this.categoriaId.set(null);
@@ -438,7 +467,12 @@ export class ServicioSolicitudesComponent implements OnInit {
     this.creando.set(true);
     if (!this.catalogo()) this.api.catalog().subscribe({ next: (c) => this.catalogo.set(c), error: (e) => this.formError.set(sdError(e, 'No se pudo cargar el catálogo.')) });
   }
-  elegirCategoria(id: string): void { this.form.category_id = id; this.categoriaId.set(id); }
+  elegirCategoria(id: string): void {
+    // Cambiar de categoría cambia (o no) la cola, y con ella los campos: lo contestado de otra cola no viaja.
+    if (id !== this.categoriaId()) this.extraForm = {};
+    this.form.category_id = id;
+    this.categoriaId.set(id);
+  }
   /** `[MS.3.12]` Mientras se achican las fotos de la cámara no se deja enviar. */
   readonly optimizando = signal(false);
 
@@ -448,6 +482,12 @@ export class ServicioSolicitudesComponent implements OnInit {
     if (this.aNombreDe() && !this.solicitante()) return false;
     // `[MS.7.7]` En una cola de riesgo hay que CONTESTAR si hay riesgo para personas: sin respuesta no se sugiere prioridad (y no se adivina «no»).
     if (this.modeloRiesgo() && this.form.safety_risk === null) return false;
+    // `[MS.7.4]` Cada campo requerido de la cola necesita una respuesta de verdad («No» cuenta; un texto en blanco no) y la foto requerida, un archivo.
+    for (const c of this.camposCola()) {
+      if (!c.required) continue;
+      const v = this.extraForm[c.code];
+      if (c.type === 'photo' ? this.archivos().length < 1 : c.type === 'boolean' ? typeof v !== 'boolean' : typeof v !== 'string' || !v.trim()) return false;
+    }
     return !!this.form.category_id && !!this.form.title.trim() && (!this.requiereSucursal() || !!this.form.warehouse_code);
   }
 
@@ -512,6 +552,17 @@ export class ServicioSolicitudesComponent implements OnInit {
   }
   quitar(f: File): void { this.archivos.update((a) => a.filter((x) => x !== f)); }
 
+  /** `[MS.7.4]` Sólo lo contestado de los campos de ESTA cola (la foto no viaja aquí: es un adjunto). Sin nada, no se manda. */
+  private extraPayload(): Record<string, unknown> | undefined {
+    const out: Record<string, unknown> = {};
+    for (const c of this.camposCola()) {
+      if (c.type === 'photo') continue;
+      const v = this.extraForm[c.code];
+      if (typeof v === 'boolean' || (typeof v === 'string' && v.trim() !== '')) out[c.code] = typeof v === 'string' ? v.trim() : v;
+    }
+    return Object.keys(out).length ? out : undefined;
+  }
+
   enviar(): void {
     if (!this.puedeEnviar() || !this.form.category_id) return;
     this.enviando.set(true);
@@ -528,6 +579,7 @@ export class ServicioSolicitudesComponent implements OnInit {
         warehouse_code: this.form.warehouse_code || null,
         // `[MS.7.3]` La zona sólo viaja si la cola la pregunta (si no, el servidor la ignora de todos modos).
         zone_code: this.preguntaZona() ? this.form.zone_code || null : undefined,
+        extra: this.extraPayload(),
         attachments: attachments.length ? attachments : undefined,
         // Sólo viaja si quien atiende ELIGIÓ a la persona: sin ella, la solicitud es de quien la escribe (lo de siempre).
         requester_id: this.solicitante()?.user_id,

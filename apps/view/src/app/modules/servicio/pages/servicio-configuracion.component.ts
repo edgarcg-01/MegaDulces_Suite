@@ -5,7 +5,7 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import type { Observable } from 'rxjs';
-import { SD_PRIORITIES, type SdAgentDto, type SdClock, type SdConfigResponse, type SdPriority, type SdRoutingResponse, type SdRoutingRuleDto, type SdSlaScanResult } from '@megadulces/contracts';
+import { SD_PRIORITIES, type SdAgentDto, type SdClock, type SdConfigResponse, type SdFieldType, type SdPriority, type SdRoutingResponse, type SdRoutingRuleDto, type SdSlaScanResult } from '@megadulces/contracts';
 import { PRIORITY_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
 import { SdQueueMembersComponent } from '../sd-queue-members.component';
 
@@ -210,6 +210,33 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                   } @empty { <tr><td colspan="5" class="sc-vacio">Sin categorías.</td></tr> }
                 </tbody>
               </table>
+              <!-- [MS.7.4] Qué MÁS pregunta esta cola al reportar. La coordinación de ESA cola los declara; el servidor lo exige. -->
+              <h3 class="sc-sub">Campos propios de esta cola</h3>
+              <p class="sc-hint">Preguntas extra al reportar (sí/no, opción, texto o foto). Apagar no borra: los tickets viejos conservan su respuesta.</p>
+              <table class="sc-table">
+                <thead><tr><th>Pregunta</th><th>Tipo</th><th>Obligatoria</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                  @for (f of camposDe(q.id); track f.id) {
+                    <tr [class.apagada]="!f.active">
+                      <td>{{ f.label }} <span class="sc-mono">{{ f.code }}</span>@if (f.type === 'select') { <span class="sc-hint"> · {{ f.options.join(', ') }}</span> }</td>
+                      <td>{{ tipoCampo[f.type] }}</td>
+                      <td><input type="checkbox" [ngModel]="f.required" (ngModelChange)="cambiarRequerido(f.id, f.required, $event)" [attr.aria-label]="'Obligatoria: ' + f.label" /></td>
+                      <td>{{ f.active ? 'Activo' : 'Apagado' }}</td>
+                      <td><p-button [label]="f.active ? 'Apagar' : 'Encender'" size="small" severity="secondary" [text]="true" (onClick)="alternarCampo(f.id, f.active)" /></td>
+                    </tr>
+                  } @empty { <tr><td colspan="5" class="sc-vacio">Esta cola no pregunta nada extra.</td></tr> }
+                </tbody>
+              </table>
+              <div class="sc-grid sc-campo-nuevo">
+                <label class="sc-field"><span>Pregunta</span><input pInputText [(ngModel)]="campoForm(q.id).label" maxlength="80" placeholder="Ej. ¿Afecta a clientes?" /></label>
+                <label class="sc-field"><span>Tipo</span>
+                  <p-select [options]="tiposCampo" optionLabel="label" optionValue="value" [(ngModel)]="campoForm(q.id).type" appendTo="body" [ariaLabel]="'Tipo del campo nuevo en ' + q.name" /></label>
+                @if (campoForm(q.id).type === 'select') {
+                  <label class="sc-field"><span>Opciones (separadas por coma)</span><input pInputText [(ngModel)]="campoForm(q.id).options" placeholder="Eléctrica, Hidráulica, Otra" /></label>
+                }
+                <label class="sc-modelo sc-chk"><input type="checkbox" [(ngModel)]="campoForm(q.id).required" /> Obligatoria</label>
+                <div class="sc-foot"><p-button label="Agregar campo" icon="pi pi-plus" [loading]="guardando()" [disabled]="!campoValido(q.id)" (onClick)="agregarCampo(q.id)" /></div>
+              </div>
             </div>
           }
 
@@ -246,6 +273,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-card h2 { margin: 0; font: 700 var(--fs-h3)/1.2 var(--font-body); color: var(--text-main); }
     .sc-card h3 { margin: 0; font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
     .sc-hint { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .sc-sub { margin: var(--sp-3) 0 var(--sp-1); font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
     .sc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--sp-3); align-items: end; }
     .sc-field { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); }
     .sc-field > span { font-weight: 600; font-size: var(--fs-xs); color: var(--text-main); }
@@ -433,6 +461,42 @@ export class ServicioConfiguracionComponent implements OnInit {
     if (!q) return;
     this.guardar(this.api.removeQueuePolicy(p.priority, q), `${this.nombreAmbito()} vuelve a usar el plazo general de «${PRIORITY_LABEL[p.priority]}».`);
   }
+  // ── `[MS.7.4]` Campos propios de una cola ──
+  readonly tipoCampo: Record<SdFieldType, string> = { boolean: 'Sí / No', select: 'Opciones', text: 'Texto', photo: 'Foto' };
+  readonly tiposCampo: { label: string; value: SdFieldType }[] = [
+    { label: 'Sí / No', value: 'boolean' }, { label: 'Opciones', value: 'select' }, { label: 'Texto', value: 'text' }, { label: 'Foto', value: 'photo' },
+  ];
+  private readonly camposNuevos: Record<string, { label: string; type: SdFieldType; options: string; required: boolean }> = {};
+  camposDe(queueId: string) { return (this.cfg()?.fields ?? []).filter((f) => f.queue_id === queueId); }
+  campoForm(queueId: string) { return (this.camposNuevos[queueId] ??= { label: '', type: 'boolean', options: '', required: false }); }
+  /** El código se deriva de la pregunta (minúsculas, sin acentos, guion bajo): nadie tiene que inventarlo. */
+  codigoDe(label: string): string {
+    const base = label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return (/^[a-z]/.test(base) ? base : `c_${base}`).slice(0, 30).replace(/_+$/, '');
+  }
+  private opcionesDe(texto: string): string[] { return texto.split(',').map((x) => x.trim()).filter(Boolean); }
+  campoValido(queueId: string): boolean {
+    const f = this.campoForm(queueId);
+    if (!f.label.trim() || !/^[a-z][a-z0-9_]{0,29}$/.test(this.codigoDe(f.label))) return false;
+    if (f.type !== 'select') return true;
+    const o = this.opcionesDe(f.options);
+    return o.length >= 2 && o.length <= 20 && new Set(o).size === o.length;
+  }
+  agregarCampo(queueId: string): void {
+    if (!this.campoValido(queueId)) return;
+    const f = this.campoForm(queueId);
+    this.guardar(this.api.createField(queueId, {
+      code: this.codigoDe(f.label), label: f.label.trim(), type: f.type, required: f.required,
+      options: f.type === 'select' ? this.opcionesDe(f.options) : undefined,
+    }), 'Campo agregado.');
+    this.camposNuevos[queueId] = { label: '', type: 'boolean', options: '', required: false };
+  }
+  alternarCampo(id: string, activo: boolean): void { this.guardar(this.api.updateField(id, { active: !activo }), activo ? 'Campo apagado.' : 'Campo encendido.'); }
+  cambiarRequerido(id: string, actual: boolean, nuevo: boolean): void {
+    if (nuevo === actual) return;
+    this.guardar(this.api.updateField(id, { required: nuevo }), nuevo ? 'El campo ahora es obligatorio.' : 'El campo ya no es obligatorio.');
+  }
+
   // ── `[MS.7.3]` Zonas ──
   zonaNueva = { name: '', code: '' };
   zonaValida(): boolean { return !!this.zonaNueva.name.trim() && /^[a-z][a-z0-9_]{0,29}$/.test(this.zonaNueva.code.trim()); }

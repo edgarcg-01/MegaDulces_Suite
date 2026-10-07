@@ -6,7 +6,7 @@ import type {
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
   SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
-  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdUpsertZoneDto,
+  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdUpsertFieldDto, SdUpsertZoneDto,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
@@ -109,6 +109,9 @@ export class ServiceDeskService {
     return this.http.delete<SdConfigResponse>(`${this.base}/config/policies/${priority}`, { params: this.params({ queue_id: queueId }) });
   }
   createQueue(dto: SdUpsertQueueDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/queues`, dto); }
+  /** `[MS.7.4]` Campos propios de una cola. */
+  createField(queueId: string, dto: SdUpsertFieldDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/queues/${queueId}/fields`, dto); }
+  updateField(id: string, dto: SdUpsertFieldDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/fields/${id}`, dto); }
   /** `[MS.7.3]` Zonas: el catálogo del lugar dentro de la ubicación. */
   createZone(dto: SdUpsertZoneDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/zones`, dto); }
   updateZone(id: string, dto: SdUpsertZoneDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/zones/${id}`, dto); }

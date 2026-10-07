@@ -24,6 +24,7 @@ const CFG: SdConfigResponse = {
     { id: 'z1', code: 'bodega', name: 'Bodega', sort_order: 10, active: true },
     { id: 'z2', code: 'anden', name: 'Andén', sort_order: 20, active: false },
   ],
+  fields: [],
   categories: [
     { id: 'c-dev', queue_id: 'q1', code: 'desarrollo', name: 'Desarrollo', default_priority: 'media', requires_branch: false, active: true, sort_order: 95 },
   ],
