@@ -4,6 +4,16 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-07 — `[AB.13]` Reporte PDF del almacenista, restringido a su almacén
+
+**Medido antes de construir (prod, solo lectura):** el rol `almacenista` **no tenía** `AUTOABASTO_VER` (la migración del 19-sep lo derivó de `COMMERCIAL_INVENTORY_VER`, que el almacenista recibió el 29-sep con [IC.2]); su alcance de almacén era `all`; y **5 de 6 almacenistas no tienen `warehouse_code`** en su ficha. Ningún módulo consultaba aún el área de alcance `almacen`, así que una regla por área no le cambia nada fuera de Autoabasto.
+
+**Simulación como almacenista** (código real de ScopeService + controlador + motor, contra prod en solo lectura; la fila de la migración se inyectó EN MEMORIA al leer `role_scopes`): luis_espino (01) pasa de ver 20 almacenes / 21,409 renglones a ver sólo 01 / 3,209; pedir el reporte de 02 o 00 → 403; brian_zavala (sin almacén) → 0 y 403. PDF generado y revisado página por página (Chrome + pdf.js).
+
+**Lo que la simulación encontró y se corrigió antes del commit:** (1) 7 MB por falta de `compress` → 550 KB; (2) 3,209 renglones incluían 289 ya cubiertos por lo que viene en camino → sólo lo que falta; (3) «sin venta» clasificaba por `avg_daily_units`, que llega en cajas redondeado a 2 decimales → 1,440 en vez de ~1,011; ahora por `sales_rank` (973); (4) «cada 1.0 d» (numeric de Postgres como texto).
+
+**Lo que queda abierto, visto en el papel:** Padre Hidalgo son **96 páginas** (2,920 productos con faltante, 973 sin venta); hay renglones de 0.1 caja que la regla de redondeo (§15.2) convertirá a piezas; aparecen códigos `* DESC…` (descuentos, no mercancía, ver CV.12) y TIEMPO AIRE (un servicio) con 2,326 cajas de faltante; y el grupo «De 00» dice «Comprar» en la acción — el origen configurado es el 00, pero en la red no sobra, así que alguien tiene que comprarlo.
+
 ## 2026-10-07 — `[AB.12]` Autoabasto: el reparto del sobrante de red, y un resumen que llevaba 4 semanas muerto
 
 **Disparador:** revisión de `/almacen/autoabasto` antes de construir el pedido del almacenista (§15 de [FASE_AB](FASES/FASE_AB_AUTOABASTO.md)). Con solicitudes reales, el sobrante prometido varias veces se vuelve dos sucursales pidiéndole las mismas cajas al mismo origen.

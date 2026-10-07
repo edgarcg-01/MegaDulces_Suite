@@ -510,11 +510,13 @@ export class CommercialReplenishmentService {
    * Por eso las llamadas quedaron `if (whIds)`, no `if (whIds.length)`: en SQL crudo, donde un
    * `IN ()` vacío no compila, el equivalente es un `false` explícito.
    */
-  private async whIds(q: object): Promise<string[] | null> {
+  private async whIds(q: object, area: string = AREA): Promise<string[] | null> {
     // `object` y no `Record<string, unknown>`: las Query de este archivo son interfaces con
     // campos declarados, y TS no las considera asignables a un indice de string. El cast es de
     // FORMA, no de contenido — `warehouseIds` sólo lee los alias de `PARAM_ALIASES`.
-    return this.scope.warehouseIds(q as Record<string, unknown>, 'compras/pedido', AREA);
+    // `[AB.13]` El área la decide quien llama: Autoabasto vive en el proyecto Almacén y su
+    // alcance es el del almacenista ahí, no el que tenga en Compras.
+    return this.scope.warehouseIds(q as Record<string, unknown>, area === AREA ? 'compras/pedido' : 'almacen/autoabasto', area);
   }
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
@@ -749,7 +751,8 @@ export class CommercialReplenishmentService {
   }
 
   // ── Reporte Existencia Crítica ────────────────────────────────────────
-  async criticalStock(q: CriticalStockQuery) {
+  // `area`: el proyecto cuyo alcance manda ([ZN.8]). Default Compras; Autoabasto pasa 'almacen'.
+  async criticalStock(q: CriticalStockQuery, area: string = AREA) {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const oh = this.onHand();
@@ -762,7 +765,7 @@ export class CommercialReplenishmentService {
     const cap = q.export ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     // `[ZN.3.3]` Una sola vez por request: `criticalFilters` corre dos veces (pagina + conteo).
-    const whIds = await this.whIds(q);
+    const whIds = await this.whIds(q, area);
 
     return this.tk.run(async (trx) => {
       // Ranking POR DINERO (venta/mes est.) RELATIVO al filtro activo: cuando se selecciona
@@ -1011,7 +1014,7 @@ export class CommercialReplenishmentService {
   }
 
   /** KPIs por bucket (para las tarjetas de la página). */
-  async summary(q: CriticalStockQuery) {
+  async summary(q: CriticalStockQuery, area: string = AREA) {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const target = this.targetCol(basis);
@@ -1040,7 +1043,7 @@ export class CommercialReplenishmentService {
           (j: any) => j.on('sbp.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('pr.activo', true); // no contar productos descontinuados en los KPIs
-      const whIds = await this.whIds(q);
+      const whIds = await this.whIds(q, area);
       if (whIds) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.category_id && UUID_RX.test(q.category_id)) base.andWhere('pr.category_id', q.category_id);
@@ -3026,9 +3029,9 @@ export class CommercialReplenishmentService {
    * devolvían vacío. Una pantalla que ofrece una sucursal y después la muestra en cero se lee
    * como «ahí no falta nada», que es peor que no ofrecerla.
    */
-  async filters() {
+  async filters(area: string = AREA) {
     const tenantId = this.tenantCtx.requireTenantId();
-    const permitidos = await this.whIds({});
+    const permitidos = await this.whIds({}, area);
     return this.tk.run(async (trx) => {
       // RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
       // pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la

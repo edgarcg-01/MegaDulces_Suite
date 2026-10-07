@@ -106,7 +106,8 @@ export function origenPorQue(r: Pick<PorqueRow, 'replenish_via' | 'source_wareho
 export function cuandoTexto(r: Pick<PorqueRow, 'next_due_date' | 'cadence_days'>): string {
   const f = fechaCorta(r.next_due_date);
   if (f) return f;
-  return r.cadence_days ? `cada ${r.cadence_days} d` : '—';
+  // `qty()` y no la cifra cruda: Postgres manda `numeric` como texto ("1.0") y se leía «cada 1.0 d».
+  return Number(r.cadence_days) ? `cada ${qty(r.cadence_days)} d` : '—';
 }
 
 /** ¿Por qué debo pedir hoy? — la explicación larga. */
@@ -120,8 +121,8 @@ export function cuandoPorQue(r: PorqueRow, hoy: Date = new Date()): string {
         : d < 0 ? `La entrega del ${f} está vencida por ${-d} día(s).`
         : d === 0 ? `La entrega es HOY (${f}).`
         : `Próxima entrega: ${f}, en ${d} día(s).`);
-  } else if (r.cadence_days) {
-    partes.push(`El canal entrega cada ${r.cadence_days} día(s), pero no hay fecha de próxima entrega registrada.`);
+  } else if (Number(r.cadence_days)) {
+    partes.push(`El canal entrega cada ${qty(r.cadence_days)} día(s), pero no hay fecha de próxima entrega registrada.`);
   } else {
     partes.push('Sin calendario de entregas configurado para este origen.');
   }
