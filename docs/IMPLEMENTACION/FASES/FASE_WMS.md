@@ -332,7 +332,9 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
    **`tienda_piso`** · **`tienda_cabecera`** · `espera` · `anden` · `cuarentena` · `merma` ·
    **`contenedor`** (carretas, tarimas y estibas de camión: **las ubicaciones móviles de GP entran
    en este mismo catálogo**) · zonas especiales (p. ej. fresco), que **sí existen** según Francisco.
-4. **Formato de código: el que ya usa el piso** (Francisco, 2026-10-06). La propuesta inicial
+4. ⛔ **REEMPLAZADO el 2026-10-07 por §12.5** (pasillo-rack-nivel, como Wincaja). Se deja el texto
+   original para que se vea qué se decidió y por qué cambió.
+   **Formato de código: el que ya usa el piso** (Francisco, 2026-10-06). La propuesta inicial
    (`B03-05-2` pasillo-rack-nivel) **se descarta**: la numeración física ya existe y es más simple.
    - **Bodega `B01`, `B02`…** y **tienda `T01`, `T02`…**, consecutivos y **sin tope en 99**
      (Francisco amplió el rango, 2026-10-06): 4 pasillos en planta baja y 4 en planta alta de 15
@@ -382,6 +384,56 @@ Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones
 | ~~U7~~ | ✅ Se amplía el rango (`B100`+). Los rangos de cada pasillo se capturan en la pantalla de ubicaciones (planta, pasillo, desde, hasta), no bloquean: el orden de surtido es el número | — |
 | ~~U8~~ | ✅ El checado tiene báscula; ahí se cobra el peso exacto | — |
 | U3 | ¿Cómo sabe hoy el anaquelista qué subir? (recorrido, lista, a ojo) | Reposición (WMS.7) |
+
+### 12.5 Cambio 2026-10-07: el código es pasillo-rack-nivel, como en Wincaja
+
+**Origen:** al diseñar el reparto de pedidos grandes (`FASE_GP` §5.1) Francisco explicó cómo se
+organizaba antes: la hoja de surtido salía **ordenada por pasillo** y el código de ubicación decía
+**pasillo, rack y nivel**. Decidió volver a ese formato. **Reemplaza el punto 4 de §12.2.** Y
+recordó que **hay posiciones tanto en tienda como en bodega** (lo mismo que dice §12.2 punto 1).
+
+**Lo medido en prod (solo lectura, 2026-10-07):**
+
+| Fuente | Qué tiene |
+|---|---|
+| Suite (`warehouse_aisles` / `warehouse_bins`) | PH: 4 pasillos (`P-01`…`P-04`) y **1** ubicación en todo el sistema. Ningún producto con ubicación |
+| Kepler (`catalog.products.location`) | Los 11,816 productos con `Z000` = **sin ubicación**. Kepler no la lleva |
+| **Wincaja** (`wincaja.existencias.ubicacion`) | **Sí la llevaba**, **una sola por producto**. PH (Wincaja `10`): de 2,966 productos con existencia, **1,119 (38%) con ubicación**. Congelado el 2026-07-30, cuando PH dejó Wincaja |
+
+**Formato en PH (Wincaja `10`):**
+
+| Código | Lectura | Productos |
+|---|---|---|
+| `BC110` (2 letras + 3 dígitos) | **Confirmada por Francisco:** pasillo `B` · rack `C` · nivel `1` · posición `10` | 893 |
+| `A001`, `I009`, `T020` (1 letra + 3 dígitos) | ❓ La letra siempre coincide con su número (A=1 … T=20); no encaja en pasillo-rack-nivel. **Hipótesis sin verificar:** son las de tienda | 226 |
+
+Rangos vistos: pasillo `A`–`D` (4, igual que los 4 de la Suite), rack `A`–`Ñ` (hasta 14), nivel
+`1`–`5`, posición casi siempre `10`–`15`.
+
+**Decisiones:**
+1. **Cada posición dice si es de tienda o de bodega** (zona `tienda_piso` / `reserva`·`surtido` de
+   §12.2 punto 3) y luego **pasillo, rack, nivel y posición**, guardados por separado. El texto
+   (`BC110`) se arma a partir de ellos. Así se ordena y filtra por zona y por pasillo sin descomponer
+   texto, y un mismo `BC110` puede existir en tienda y en bodega sin chocar.
+2. **Un producto puede tener posición en tienda Y en bodega** (§12.2 punto 2, capa de asignación con
+   su papel). Wincaja sólo guardaba **una**, así que su dato no dice cuál de las dos era.
+3. **El orden de surtido es zona → pasillo → rack → nivel → posición.** ⚠️ **La `Ñ` va después de la
+   `N`:** se ordena con el alfabeto explícito, no con el orden de texto de la base, que según la
+   collation puede ponerla al final o junto a la `N`.
+4. **El reparto de un pedido grande se corta en un cambio de pasillo** (`FASE_GP` §5.1).
+5. **Las ubicaciones de Wincaja sirven de punto de partida, no de verdad**: tienen 2+ meses, cubren
+   38% y no dicen tienda o bodega. Se leen con una **vista** sobre `wincaja.existencias` (ya está en
+   prod, sin importer) para **proponer** la posición en el censo de PH (WMS.3); quien hace el censo
+   la confirma o la corrige.
+6. Espera (`E01`), carreta (`C52`) y estibas de §12.2 siguen igual.
+
+**Preguntas abiertas:**
+
+| # | Pregunta | Bloquea |
+|---|---|---|
+| U9 | ¿Qué son los códigos de 4 caracteres de PH (`A001`, `I009`, `T020`)? ¿Son las posiciones de tienda? | Censo (WMS.3) |
+| U10 | ¿Cómo se distingue en la etiqueta una posición de tienda de una de bodega? (antes: prefijo `T`/`B`) | Censo (WMS.3) |
+| U11 | El ejemplo de reparto fue "de la A a la L y de la M en adelante", pero PH sólo tiene pasillos `A`–`D`. ¿Es de otro almacén, o en pedidos grandes se corta por rack? | GP.3 |
 
 ---
 
