@@ -148,11 +148,13 @@ export class BudgetAutopilotService {
           errores.push(`crear ejercicio FY${fySiguiente}: ${(e as Error)?.message ?? e}`);
         }
 
+        // ⛔ `[VE.9.2]` POR `TenantKnexService`, no por el knex crudo. Abrir el contexto CLS NO
+        // aplica `app.tenant_id` — lo aplica `tk.run()`, y con RLS forzado el knex crudo no
+        // falla: devuelve CERO FILAS. Medido en la primera pasada real: `ensureBudgetForYear`
+        // creó `PRE-2027-002` y la línea de abajo devolvió 0, así que la pasada recorrió «0/0
+        // ejercicios» sobre uno que acababa de crear ella misma.
         const { abiertos, totales } = await this.conTenant(tid, async () => {
-          const rows = await this.knex('budget.budgets')
-            .select('id', 'name', 'fiscal_year', 'status')
-            .where({ tenant_id: tid })
-            .orderBy('fiscal_year', 'asc');
+          const rows = await this.generation.listBudgets();
           return {
             // Si un día alguien agrega un estado nuevo, este filtro se queda corto y el ejercicio
             // no entra — que es el lado seguro de equivocarse.

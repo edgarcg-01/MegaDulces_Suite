@@ -1,7 +1,7 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB, TenantContextService } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { BudgetExpenseObligationsService } from './budget-expense-obligations.service';
 
 /**
@@ -59,6 +59,7 @@ export class ObligationsAutopilotService {
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly obligaciones: BudgetExpenseObligationsService,
+    private readonly tk: TenantKnexService,
     @Optional() private readonly tenantCtx?: TenantContextService,
   ) {}
 
@@ -88,10 +89,12 @@ export class ObligationsAutopilotService {
         const tid = String(t.id);
         // `cerrado` lo rechaza el servicio; se filtra acá para no provocar un error por cada uno.
         const { abiertos, totales } = await this.conTenant(tid, async () => {
-          const rows = await this.knex('budget.budgets')
+          // ⛔ `[VE.9.2]` Por `tk.run()`, no por el knex crudo: abrir el contexto CLS no aplica
+          // `app.tenant_id`, y con RLS forzado el crudo devuelve CERO FILAS sin fallar. Mismo
+          // bug que se midió en el piloto hermano en su primera pasada real.
+          const rows = await this.tk.run(async (trx) => trx('budget.budgets')
             .select('id', 'name', 'fiscal_year', 'status')
-            .where({ tenant_id: tid })
-            .orderBy('fiscal_year', 'asc');
+            .orderBy('fiscal_year', 'asc')) as unknown as Array<{ id: string; name: string; fiscal_year: number; status: string }>;
           return { abiertos: rows.filter((r) => String(r.status) !== 'cerrado'), totales: rows.length };
         });
         vistos += totales;
