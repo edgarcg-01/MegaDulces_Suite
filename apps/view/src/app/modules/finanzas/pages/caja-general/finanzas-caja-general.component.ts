@@ -18,6 +18,11 @@ import { MessageService } from 'primeng/api';
 import { CAJA_VENTANA_DIAS, evaluarCambio, type Denominacion } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
+// `[CG.45]` Tres piezas del repertorio compartido que esta pantalla se había construido a mano
+// (o no tenía). De 13 componentes compartidos usaba 2; el resto del módulo finanzas ya los usa.
+import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
+import { SegmentedComponent } from '../../../../shared/components/segmented/segmented.component';
+import { ContextHelpComponent } from '../../../../shared/context-help/context-help.component';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
 import { todayMx, toMxDateKey, parseLocalDate } from '../../../../core/utils/mx-date';
@@ -120,6 +125,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     ChipModule, DatePickerModule, SelectModule, TagModule, DialogModule, AutoCompleteModule,
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
+    FreshnessPillComponent, SegmentedComponent, ContextHelpComponent,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -137,18 +143,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
    * fin-* en vez de renombrar 19 usos: el arreglo es que EXISTAN, no cómo se llamen.
    */
   styles: [FINANZAS_SHARED_STYLES, `
-    .cg-head-actions { display:flex; align-items:center; gap:.5rem; }
+    .cg-head-actions { display:flex; align-items:center; gap:var(--sp-2); }
 
     /* La barra del corte: saldo + estado + acción, en una línea que se lee de un vistazo. */
-    .fin-corte-bar { display:flex; align-items:center; flex-wrap:wrap; gap:.75rem; margin:.75rem 0 1rem; }
+    .fin-corte-bar { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-3); margin:var(--sp-3) 0 var(--sp-4); }
     .fin-saldo { font-weight:600; font-variant-numeric:tabular-nums; }
 
-    .fin-filters { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; margin:1rem 0 .75rem; }
+    .fin-filters { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); margin:var(--sp-4) 0 var(--sp-3); }
     .fin-filters input, .fin-filters p-select { min-width:11rem; }
 
-    .fin-h2 { font-size:var(--fs-h3); font-weight:700; margin:1.5rem 0 .5rem; }
+    .fin-h2 { font-size:var(--fs-h3); font-weight:700; margin:var(--sp-6) 0 var(--sp-2); }
     .fin-dim { color:var(--text-muted); font-size:var(--fs-xs); }
-    .fin-empty { text-align:center; color:var(--text-muted); padding:1.25rem 0; }
+    .fin-empty { text-align:center; color:var(--text-muted); padding:var(--sp-5) 0; }
     /* ⚠️ Acá decía "var(--danger-fg, #b42318)" y --danger-fg NO EXISTE en tokens.css: ganaba
        siempre el hex de fallback, que es un rojo de tema claro. O sea que en modo oscuro un
        faltante de caja se pintaba ilegible. El token de la casa es --bad-fg y sí flipea. */
@@ -157,14 +163,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
     /* Formulario de captura. fin-row-col apila cuando el campo necesita su propia explicación
        debajo (el selector de cobro de Kepler), en vez de meterla en la misma línea. */
-    .fin-form { display:flex; flex-direction:column; gap:.85rem; }
+    .fin-form { display:flex; flex-direction:column; gap:var(--sp-3); }
     /* CS.3.7 — Dos columnas para que la captura entre en una pantalla sin scroll. Apila en angosto. */
-    .cg-grid { display:grid; grid-template-columns:1fr 1fr; gap:.85rem 1.5rem; align-items:start; }
-    .cg-grid > .cg-col { display:flex; flex-direction:column; gap:.7rem; min-width:0; }
+    .cg-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-3) var(--sp-6); align-items:start; }
+    .cg-grid > .cg-col { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
     @media (max-width:47.5rem) { .cg-grid { grid-template-columns:1fr; } }
-    .fin-row { display:flex; align-items:center; flex-wrap:wrap; gap:.5rem; }
+    .fin-row { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); }
     .fin-row > label { min-width:6.5rem; font-size:var(--fs-sm); color:var(--text-muted); }
-    .fin-row-col { flex-direction:column; align-items:stretch; gap:.35rem; }
+    .fin-row-col { flex-direction:column; align-items:stretch; gap:var(--sp-1); }
     .fin-row-col > label { min-width:0; }
     .w-full { width:100%; }
 
@@ -178,9 +184,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        lo que ve el ojo. Con la reja de "auto-fill" el orden visual dependia del ancho.
        Se fueron con el cambio ".fin-denoms", ".fin-denom" y ".fin-details": el desglose ya
        no es un detalle plegable. */
-    .cg-arqueo { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .75rem; }
+    .cg-arqueo { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:var(--sp-3); }
     .cg-arqueo-head { display:flex; align-items:baseline; justify-content:space-between;
-                      flex-wrap:wrap; gap:.5rem; margin-bottom:.4rem; font-size:var(--fs-sm); }
+                      flex-wrap:wrap; gap:var(--sp-2); margin-bottom:var(--sp-2); font-size:var(--fs-sm); }
     /* El caption es para el lector de pantalla; en pantalla la cabecera ya lo dice. */
     .cg-cap { position:absolute; width:1px; height:1px; overflow:hidden;
               clip-path:inset(50%); white-space:nowrap; }
@@ -190,46 +196,52 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        gobierna el componente. Los selectores de abajo SI llegan: th/td viven en nuestras
        <ng-template>, asi que llevan el atributo de encapsulacion de esta pantalla. */
     .cg-arqueo-tbl { display:block; font-size:var(--fs-sm); }
-    .cg-arqueo-tbl th, .cg-arqueo-tbl td { padding:.2rem .4rem; text-align:right; }
+    .cg-arqueo-tbl th, .cg-arqueo-tbl td { padding:var(--sp-1) var(--sp-2); text-align:right; }
     .cg-arqueo-tbl thead th { font-weight:600; color:var(--text-muted); font-size:var(--fs-xs);
                               border-bottom:1px solid var(--border-color); }
     .cg-arqueo-tbl thead th:first-child { text-align:left; }
     .cg-arqueo-tbl tbody th, .cg-arqueo-tbl tfoot th { text-align:left; font-weight:500; }
     .cg-arqueo-tbl tfoot th, .cg-arqueo-tbl tfoot td { border-top:1px solid var(--border-color);
-                                                       padding-top:.4rem; font-weight:700; }
+                                                       padding-top:var(--sp-2); font-weight:700; }
     /* Piezas: angosto, a la derecha y tabular. Contar es teclear numeros cortos en columna. */
     /* [CG.38] El bloque del cambio devuelto. Separado por una línea y atenuado: es la excepción,
        no el camino. */
-    .cg-cambio { margin-top:.5rem; border-top:1px solid var(--border-color); padding-top:.4rem; }
-    .cg-cambio-head { display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
-    .cg-cambio-cuenta { margin:.35rem 0 .2rem; }
+    .cg-cambio { margin-top:var(--sp-2); border-top:1px solid var(--border-color); padding-top:var(--sp-2); }
+    .cg-cambio-head { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+    .cg-cambio-cuenta { margin:var(--sp-1) 0 var(--sp-1); }
     .cg-arqueo-tbl input.cg-pieza, .cg-arqueo-tbl input.cg-pieza-corte, .cg-arqueo-tbl input.cg-pieza-dev {
-      width:5.5rem; text-align:right; font-variant-numeric:tabular-nums; padding:.2rem .4rem; }
+      width:5.5rem; text-align:right; font-variant-numeric:tabular-nums; padding:var(--sp-1) var(--sp-2); }
     .cg-arqueo-tbl input.cg-morralla-in { width:7.5rem; }
     /* [CG.38] La reja pasó de 5 renglones a 11: hay que poder ver de un vistazo dónde empieza el
        metal. La marca es TEXTO, no sólo un tono -- el color nunca es el único portador (DESIGN).
        La línea va en la PRIMERA moneda, no en todas: es un corte, no un borde por fila. */
-    .cg-fam { font-size:var(--fs-micro); color:var(--text-muted); margin-left:.3rem;
+    .cg-fam { font-size:var(--fs-micro); color:var(--text-muted); margin-left:var(--sp-1);
       font-family:var(--font-body); }
     /* ⚠️ El selector es el HERMANO, no ":first-of-type". Todos los renglones son <tr>, así que
        ":first-of-type" habría marcado el PRIMER renglón de la tabla —un billete— y la línea
        nunca habría caído donde empieza el metal. Habría quedado puesta y sin efecto visible. */
     tr:not(.cg-fila-moneda) + tr.cg-fila-moneda th,
     tr:not(.cg-fila-moneda) + tr.cg-fila-moneda td {
-      border-top:1px solid var(--border-color); padding-top:.35rem; }
+      border-top:1px solid var(--border-color); padding-top:var(--sp-1); }
     /* El importe NO se teclea: sale del conteo. Se pinta como dato, no como campo. */
     .cg-sub { font-variant-numeric:tabular-nums; color:var(--text-muted); }
     .cg-na { text-align:center; font-size:var(--fs-xs); }
-    .cg-arqueo-tbl input.cg-total { width:7.5rem; text-align:right; padding:.2rem .4rem;
+    .cg-arqueo-tbl input.cg-total { width:7.5rem; text-align:right; padding:var(--sp-1) var(--sp-2);
                                     font-variant-numeric:tabular-nums; font-weight:700; }
 
     /* Los motivos de bloqueo van TODOS juntos: que se vea de una vez lo que falta. */
-    .fin-blocks { margin:.25rem 0 0; padding-left:1.1rem; color:var(--warn-fg); font-size:var(--fs-sm); }
+    .fin-blocks { margin:var(--sp-1) 0 0; padding-left:var(--sp-4); color:var(--warn-fg); font-size:var(--fs-sm); }
 
     /* CG.20 - la bandeja de entregas. Densa, tipo Operations: la persona la recorre marcando. */
     .cg-bandeja { border:1px solid var(--border-color); border-radius:var(--r-md,8px);
-                  padding:.75rem .9rem; margin:1rem 0; }
-    .cg-bandeja-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:.6rem; margin-bottom:.5rem; }
+                  padding:var(--sp-3); margin:var(--sp-4) 0; }
+    .cg-bandeja-head { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); margin-bottom:var(--sp-2); }
+    /* [CG.45] Los TRES niveles de Q.5, por tipo y contraste -- nunca por color ni por otra caja.
+       Primario: la cifra accionable, mono tabular para que se lea como cifra. Secundario: de
+       cuantas. Terciario: el alcance, que ya lo pinta .fin-dim. */
+    .cg-lead { font-family:var(--font-mono); font-variant-numeric:tabular-nums;
+               font-size:var(--fs-sm); font-weight:700; color:var(--fg-1); }
+    .cg-lead-sub { font-family:var(--font-body); font-weight:400; color:var(--text-muted); }
     .cg-bandeja-head .fin-h2 { margin:0; }
     .cg-bandeja-sp { flex:1 1 auto; }
     /* ⛔ ACA VIVIA ".cg-tbl": una tabla entera dibujada a mano (ancho, colapso de bordes, color
@@ -247,7 +259,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        4.10 y deja de pasar AA. Medido en vivo, no estimado. */
     .cg-trabada .cg-motivo { opacity:1; }
     .cg-contado { width:7.5rem; text-align:right; font-variant-numeric:tabular-nums; }
-    .cg-rezago { margin:.5rem 0 0; font-size:var(--fs-xs); }
+    .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
     /* ⛔ ACA VIVIA ".cg-check", un <input type="checkbox"> nativo con alto y accent-color a mano.
        El control principal de la bandeja es marcar fila por fila, asi que era el objetivo mas
        chico de la pantalla Y el mas usado. Hoy es p-checkbox: el alto, el anillo de foco y el
@@ -264,12 +276,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        ⛔ Aca vivian ".cg-chip", ".cg-chip-n", ".cg-chip-x" y ".cg-link": cuatro controles
        dibujados a mano (borde, radio, hover, anillo de foco y alto de toque, todo repetido).
        Los cubren p-button y p-chip. Queda SOLO el contenedor, que es reparto, no control. */
-    .cg-chips { display:flex; flex-wrap:wrap; gap:.4rem; }
-    .cg-caos-list { display:flex; flex-direction:column; gap:.35rem; }
+    .cg-chips { display:flex; flex-wrap:wrap; gap:var(--sp-2); }
+    .cg-caos-list { display:flex; flex-direction:column; gap:var(--sp-1); }
     /* El renglon del cajero: el borde, el hover, el foco y el alto los da el p-button que lo
        envuelve. Esta regla ya solo REPARTE el contenido proyectado -- que es nuestro, asi que
        la agarra el CSS encapsulado sin ::ng-deep. */
-    .cg-caos-row { display:flex; align-items:center; gap:.75rem; width:100%; text-align:left; }
+    .cg-caos-row { display:flex; align-items:center; gap:var(--sp-3); width:100%; text-align:left; }
     .cg-caos-tag { font-size:var(--fs-micro); font-weight:600; padding:.1rem .45rem; border-radius:999px;
       border:1px solid var(--border-color); color:var(--text-muted); white-space:nowrap; }
     /* Sobre el p-chip del cajero: el color CASCADEA hasta su rotulo. El borde lo pinta el
@@ -280,8 +292,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
     .cg-caos-attach { color:var(--text-muted); font-size:var(--fs-micro); }
     .cg-caos-attach.cg-caos-alta { color:var(--action); }
-    .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .7rem; }
-    .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; }
+    .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:var(--sp-3); }
+    .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); }
     .cg-cajero-head label { margin:0; }
     /* CS.3.7 — La mención APARTE del efectivo del cajero (CAOS): ya contado por la máquina, no en la reja.
        ⛔ [CG.37] El borde y el icono iban en --action. DESIGN.md reserva el color de marca para
@@ -290,11 +302,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        color MAS GRANDE del dialogo, asi que competia con "Guardar", que es el unico control que
        escribe en la base. Cuando el naranja significa cuatro cosas deja de significar "apreta
        aca". Panel en neutro; el acento queda para el boton. */
-    .cg-caja-aparte { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.5rem .7rem;
-      display:flex; flex-direction:column; gap:.35rem; }
-    .cg-caja-aparte-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:.4rem; }
+    .cg-caja-aparte { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:var(--sp-3);
+      display:flex; flex-direction:column; gap:var(--sp-1); }
+    .cg-caja-aparte-top { display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2); }
     .cg-caja-ico { color:var(--text-muted); font-weight:700; }
-    .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:.15rem .6rem; font-size:var(--fs-micro); }
+    .cg-caja-denoms { display:flex; flex-wrap:wrap; gap:var(--sp-1) var(--sp-2); font-size:var(--fs-micro); }
     /* CS.3.8 — botón de imprimir comprobante en la lista de movimientos. */
     .ta-c { text-align:center; }
     /* [CG.26] .ta-r se usaba 12 veces en esta plantilla y NO ESTABA DEFINIDA en ningun lado
@@ -305,12 +317,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⛔ ".cg-print" retirada: era un <button> con la impresora adentro, con su borde, su hover
        y su anillo a mano. Hoy es un p-button redondo de icono. */
     /* CS.3.11 — panel de conciliación caja chica vs cajero (CAOS). */
-    .cg-conc { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:.6rem .8rem;
-      display:flex; flex-direction:column; gap:.3rem; max-width:34rem; }
+    .cg-conc { border:1px solid var(--border-color); border-radius:var(--r-md,8px); padding:var(--sp-3);
+      display:flex; flex-direction:column; gap:var(--sp-1); max-width:34rem; }
     .cg-conc-h { font-size:var(--fs-sm); }
-    .cg-conc-row { display:flex; justify-content:space-between; gap:1rem; font-size:var(--fs-sm); }
+    .cg-conc-row { display:flex; justify-content:space-between; gap:var(--sp-4); font-size:var(--fs-sm); }
     .cg-conc-row .mono { font-variant-numeric:tabular-nums; white-space:nowrap; }
-    .cg-conc-tot { border-top:1px solid var(--border-color); padding-top:.3rem; font-weight:600; }
+    .cg-conc-tot { border-top:1px solid var(--border-color); padding-top:var(--sp-1); font-weight:600; }
     /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
     /* [CG.27] La lista de recurrentes sin regla. */
@@ -325,7 +337,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        sistema, es un mal uso local -- asi que se corrige aca y NO se toca la clase compartida.
        ⚠️ La primera busqueda concluyo "no tiene display" habiendo leido 5 lineas de una regla
        de 9. Leer media regla y concluir sobre el todo. */
-    .cg-sub-dim { display:block; opacity:.62; font-size:var(--fs-xs); margin-top:.15rem; }
+    .cg-sub-dim { display:block; opacity:.62; font-size:var(--fs-xs); margin-top:var(--sp-1); }
     /* [CG.33] EL RESUMEN agrupado + la marca del motivo. MEDIDO EN EL DOM VIVO de prod, no
        razonado: el contraste de cada candidato sobre el fondo real (rgb 244,244,245), a 12px,
        contra el piso AA de 4.5 --
@@ -341,51 +353,51 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        y DESIGN.md lo lista como antipatron explicito de Operations. */
     /* El p-tag del motivo: su color y su forma son del tema. Lo unico propio es que ocupe su
        renglon y no compita de tamano con el beneficiario, que es el dato de la celda. */
-    .cg-motivo-tag { display:inline-flex; margin-top:.15rem; font-size:var(--fs-xs); }
+    .cg-motivo-tag { display:inline-flex; margin-top:var(--sp-1); font-size:var(--fs-xs); }
     /* [CG.37] Era una columna: un renglon por motivo, porque cada uno llevaba su frase al lado.
        Ahora es UNA fila que envuelve -- los motivos son tres etiquetas cortas y entran juntas. */
-    .cg-motivos-res { margin:.1rem 0 .6rem; display:flex; align-items:center;
-      flex-wrap:wrap; gap:.4rem; font-size:var(--fs-xs); }
+    .cg-motivos-res { margin:var(--sp-1) 0 var(--sp-2); display:flex; align-items:center;
+      flex-wrap:wrap; gap:var(--sp-2); font-size:var(--fs-xs); }
     /* El p-tag trae su color y su forma del tema; lo unico propio es la CIFRA en mono tabular
        (checklist 4: toda cifra, sin excepcion). Sin ::ng-deep: va proyectada adentro. */
     .cg-motivos-n { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-weight:600; }
     /* El porque, desplegado. Neutro a proposito: el aviso ya lo dio la etiqueta de arriba, y
        repetirlo en naranja convertia el bloque en un muro de color. */
-    .cg-motivos-por { list-style:none; margin:-.35rem 0 .6rem; padding:0; display:flex;
-      flex-direction:column; gap:.2rem; font-size:var(--fs-xs); color:var(--text-muted); }
+    .cg-motivos-por { list-style:none; margin:calc(-1 * var(--sp-1)) 0 var(--sp-2); padding:0; display:flex;
+      flex-direction:column; gap:var(--sp-1); font-size:var(--fs-xs); color:var(--text-muted); }
     /* [CG.32] El renglon que queda cuando el cuadre esta plegado. */
-    .cg-conc-plegado { display:flex; align-items:center; gap:.6rem; flex-wrap:wrap;
-      font-size:var(--fs-sm); color:var(--text-muted); padding:.2rem 0 .1rem; }
+    .cg-conc-plegado { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap;
+      font-size:var(--fs-sm); color:var(--text-muted); padding:var(--sp-1) 0; }
     /* ⛔ ACA VIVIA ".cg-lim-tog" MAS un @media (pointer: coarse) que le subia el alto a 44px,
        porque la clase medía ~20px (padding .25rem) y era la UNICA forma de abrir el cuadre en
        el telefono. Las dos se retiran juntas: el p-button que la reemplaza ya nace con su alto
        de toque, su anillo de foco y su hover. Es exactamente el tipo de regla que PrimeNG-first
        evita tener que acordarse de escribir. */
-    .cg-kpi-h { margin-top:1.25rem; }
-    .cg-conc-lim { margin:.2rem 0 0; padding-left:1.1rem; font-size:var(--fs-xs);
-      color:var(--text-soft); display:flex; flex-direction:column; gap:.2rem; }
+    .cg-kpi-h { margin-top:var(--sp-5); }
+    .cg-conc-lim { margin:var(--sp-1) 0 0; padding-left:var(--sp-4); font-size:var(--fs-xs);
+      color:var(--text-soft); display:flex; flex-direction:column; gap:var(--sp-1); }
     .cg-conc-wide { max-width:none; }
-    .cg-conc-head { display:flex; align-items:center; justify-content:space-between; gap:.75rem; flex-wrap:wrap; }
+    .cg-conc-head { display:flex; align-items:center; justify-content:space-between; gap:var(--sp-3); flex-wrap:wrap; }
     .cg-conc-fecha { max-width:11rem; }
-    .cg-conc-cols { display:grid; grid-template-columns:1fr 1fr; gap:1rem 1.75rem; margin-top:.35rem; }
+    .cg-conc-cols { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-4) var(--sp-6); margin-top:var(--sp-1); }
     /* [CG.32] SIN esta linea el [hidden] no oculta NADA: el display:grid de arriba le gana al
        display:none que el navegador le da a [hidden], y el bloque se seguiria viendo plegado.
        Es el mismo descuido que hace creer que un toggle no funciona. */
     .cg-conc-cols[hidden] { display:none; }
     @media (max-width:47.5rem) { .cg-conc-cols { grid-template-columns:1fr; } }
-    .cg-conc-col { display:flex; flex-direction:column; gap:.3rem; min-width:0; }
+    .cg-conc-col { display:flex; flex-direction:column; gap:var(--sp-1); min-width:0; }
     .cg-conc-sub { font-size:var(--fs-sm); }
-    .cg-conc-tbl { margin-bottom:.3rem; }
+    .cg-conc-tbl { margin-bottom:var(--sp-1); }
     /* Lo no medido se ve COMO aviso, no como letra chica decorativa: es la diferencia entre
        "movimiento del dia" y "cuanto hay en el cajero". */
-    .cg-conc-nm { margin:.5rem 0 0; padding-left:1.1rem; font-size:var(--fs-xs);
-      color:var(--warn-fg, var(--text-soft)); display:flex; flex-direction:column; gap:.2rem; }
+    .cg-conc-nm { margin:var(--sp-2) 0 0; padding-left:var(--sp-4); font-size:var(--fs-xs);
+      color:var(--warn-fg, var(--text-soft)); display:flex; flex-direction:column; gap:var(--sp-1); }
     /* CS.3.13 — campo «venta a crédito» (se descuenta del efectivo esperado). */
-    .cg-credito { display:flex; flex-direction:column; gap:.3rem; border:1px solid var(--border-color);
-      border-radius:var(--r-md,8px); padding:.5rem .7rem; }
-    .cg-credito-head { display:flex; align-items:baseline; justify-content:space-between; gap:.5rem; flex-wrap:wrap; }
+    .cg-credito { display:flex; flex-direction:column; gap:var(--sp-1); border:1px solid var(--border-color);
+      border-radius:var(--r-md,8px); padding:var(--sp-3); }
+    .cg-credito-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); flex-wrap:wrap; }
     .cg-credito-head label { margin:0; font-size:var(--fs-sm); color:var(--text-muted); }
-    input.cg-vcredito { width:9rem; text-align:right; font-variant-numeric:tabular-nums; padding:.25rem .5rem; }
+    input.cg-vcredito { width:9rem; text-align:right; font-variant-numeric:tabular-nums; padding:var(--sp-1) var(--sp-2); }
     .cg-caos-alta { color:var(--action); border-color:var(--action); font-weight:700; }
     /* CS.3.1c — El billete que la máquina ya contó se ve BLOQUEADO (readonly), no editable. */
     .cg-arqueo-tbl input.cg-pieza:read-only { color:var(--text-muted); cursor:not-allowed;
@@ -416,8 +428,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             selector quedaba con la etiqueta cortada a UNA LETRA y el chevron abajo.
        La regla que queda: sobre un componente de PrimeNG se toca el ANCHO, nunca el "display".
        Un inline-flex con width:100% ya ocupa todo; un grid tambien. */
-    .cg-declara { align-items:flex-start; gap:.6rem; border:1px solid var(--border-color);
-                  border-radius:var(--r-sm,6px); padding:.6rem .75rem; cursor:pointer; }
+    .cg-declara { align-items:flex-start; gap:var(--sp-2); border:1px solid var(--border-color);
+                  border-radius:var(--r-sm,6px); padding:var(--sp-3); cursor:pointer; }
     .cg-declara span { font-size:var(--fs-sm); }
     .cg-full { width:100%; }
     .cg-sel { min-width:9rem; }
@@ -670,12 +682,32 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
       <section class="cg-bandeja">
         <header class="cg-bandeja-head">
           <h2 class="fin-h2">Movimientos por confirmar</h2>
-          <span class="fin-dim">{{ textoBandeja() }}</span>
+          <!-- ⛔ [CG.45] Acá iba UNA frase gris con CINCO hechos pegados con puntos medios:
+               "N de las M que se ven se confirman sin elegir nada · el resto necesita que su
+               cuenta esté declarada · últimos 45 días · hace 3 min". Cinco cosas de distinto
+               tipo, todas al mismo peso y al mismo color, o sea cero jerarquía (Q.5).
+               Ahora: la cifra accionable primero y con peso, el resto subordinado, y la EDAD
+               del dato en su píldora -- que es la que se pone ámbar sola. Como prosa gris,
+               "hace 3 min" y "hace 9 horas" se veían idénticos. -->
+          <span class="cg-lead">{{ confirmables() }} <span class="cg-lead-sub">de {{ pendientes().length }} se confirman de un clic</span></span>
+          <span class="fin-dim">{{ textoAlcance() }}</span>
+          <!-- §9 + inventario: la frescura es un COMPONENTE, no una frase. measures="data" es
+               honesto: datos_al lo manda el servidor, no es el reloj del navegador. -->
+          @if (datosAl(); as al) {
+            <app-freshness-pill measures="data" [since]="al" label="Kepler" />
+          } @else {
+            <span class="fin-hint-warn">frescura sin medir</span>
+          }
           <span class="cg-bandeja-sp"></span>
+          <!-- Regla P: la jerga de esta pantalla (corte, arqueo, fondo, veredicto, contracuenta,
+               ventana, rezago) se explica desde el diccionario versionado, sin salir de acá. -->
+          <app-context-help topic="caja-general" />
           <p-select [options]="opcionesVentana" [ngModel]="ventanaDias()" optionLabel="label" optionValue="value"
                     (ngModelChange)="setVentana($event)" class="cg-sel" [ariaLabel]="'Desde cuándo'"></p-select>
-          <p-select [options]="opcionesSigno" [ngModel]="signoBandeja()" optionLabel="label" optionValue="value"
-                    (ngModelChange)="setSigno($event)" class="cg-sel" [ariaLabel]="'Signo'"></p-select>
+          <!-- Tres valores excluyentes = control segmentado, no un desplegable: se ve el estado
+               actual y las dos alternativas sin abrir nada. Es el patrón canónico del repertorio. -->
+          <app-segmented [options]="opcionesSigno" [value]="signoBandeja()"
+                         (valueChange)="setSigno($any($event))" ariaLabel="Signo" />
           <p-select [options]="opcionesCaja()" [ngModel]="cajaActiva()" optionLabel="label" optionValue="value"
                     (ngModelChange)="setCaja($event)" class="cg-sel" [ariaLabel]="'Caja'"></p-select>
           <!-- CS.3.9 — El buscador universal es de «por confirmar»: acá se busca el movimiento que se
@@ -2307,36 +2339,35 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       .sort((a, b) => b.n - a.n);
   });
 
-  textoBandeja = computed(() => {
+  /**
+   * ⛔ `[CG.45]` **Esto era UNA frase con cinco hechos pegados con puntos medios**, toda en
+   * `--fs-xs` y `--text-muted`: la cifra accionable, la explicación del resto, la ventana y la
+   * edad del dato, las cuatro al mismo peso. Q.5 pide tres niveles explícitos por **tipo y
+   * contraste**; esto tenía uno solo.
+   *
+   * Ahora se reparte: la cifra va con peso en la cabecera, **el alcance** (lo que esta consulta
+   * abarca) queda acá subordinado, y la **edad del dato** se fue a app-freshness-pill, que es
+   * el componente del repertorio y el único que se pone ámbar solo. Como prosa gris al final de
+   * una frase, "hace 3 min" y "hace 9 horas" se leían exactamente igual.
+   */
+  textoAlcance = computed(() => {
     const enPagina = this.pendientes().length;
     const ok = this.confirmables();
     const srv = this.ventanaSrv();
     const dias = srv?.dias ?? this.ventanaDias();
-    const partes = [`${ok} de las ${enPagina.toLocaleString('es-MX')} que se ven se confirman sin elegir nada`];
+    const partes: string[] = [];
     if (ok < enPagina) partes.push('el resto necesita que su cuenta esté declarada');
     if (dias) partes.push(`últimos ${dias} día${dias === 1 ? '' : 's'}`);
     else if (srv?.desde) partes.push(`desde ${dmy(srv.desde)}`);
-    // La EDAD del dato, siempre. La lista sale de una foto que refresca un carril cada minuto;
-    // si ese carril se cae, la foto se congela sin dar error y esto es lo único que lo delata.
-    partes.push(this.textoFrescura());
     return partes.join(' · ');
   });
 
-  /**
-   * "hace N min" o "frescura sin medir". Nunca se omite: una cifra sin edad, en una pantalla que
-   * se mira para decidir sobre efectivo, es una cifra que se cree más reciente de lo que es.
-   */
-  textoFrescura(): string {
-    const al = this.datosAl();
-    if (!al) return 'frescura sin medir';
-    const ms = Date.now() - new Date(al).getTime();
-    if (!Number.isFinite(ms) || ms < 0) return 'frescura sin medir';
-    const min = Math.floor(ms / 60000);
-    if (min < 2) return 'al minuto';
-    if (min < 60) return `hace ${min} min`;
-    const h = Math.floor(min / 60);
-    return h < 24 ? `hace ${h} h` : `hace ${Math.floor(h / 24)} d`;
-  }
+  // ⛔ `[CG.45]` Acá vivía `textoFrescura()`: "hace N min" calculado a mano y devuelto como
+  // TEXTO, que terminaba pegado al final de una frase gris. El contrato que cumplía —nunca
+  // omitir la edad del dato— se mantiene, pero lo cumple app-freshness-pill, que además hace
+  // lo que una cadena no puede: pasar a ámbar cuando el dato envejece, refrescarse sola cada
+  // 15 s y declarar el tercer estado. Un helper propio que duplica un componente del repertorio
+  // es el antipatrón #1 de Atomic Design, y acá encima perdía la señal.
 
   /**
    * ⛔ Acá se DIBUJABAN CEROS. `String(k?.movimientos ?? 0)` y `money(k?.ingresos ?? 0)` publicaban
