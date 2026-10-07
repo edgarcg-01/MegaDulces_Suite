@@ -12,6 +12,7 @@ import {
   LlmExtractorService,
 } from '@megadulces/platform-core';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
+import { UX_CAPTURAS_CLIENT_UUID, conLlave, esChoqueDe } from './receiving-idempotency';
 
 /**
  * Fase WMS-REC (Pieza 2 — Auditor de recepción por caducidad, ADR-044).
@@ -50,6 +51,12 @@ export interface EvaluateDto {
   ocr_expiry?: string;
   ocr_confidence?: number;
   photo_data_uri?: string; // opcional; se sube a object storage
+  /**
+   * `[WMS-REC.19]` Id que el equipo le pone a ESTA captura antes de mandarla. Si la respuesta se
+   * pierde y reintenta, recibe la captura que ya existe en vez de meter la mercancía dos veces.
+   * Opcional: sin él, cada llamada es una captura nueva (como antes).
+   */
+  client_uuid?: string;
 }
 
 export interface PolicyDto {
@@ -170,6 +177,15 @@ export class ReceivingAuditorService {
       throw new BadRequestException('receiving_line_id inválido');
     if (dto.confirmed_expiry && !ISO_DATE.test(dto.confirmed_expiry))
       throw new BadRequestException('confirmed_expiry debe ser YYYY-MM-DD');
+    const clientUuid: string | null = conLlave(dto.client_uuid) ? dto.client_uuid : null;
+
+    // `[WMS-REC.19]` Reintento de una captura que ya entró: se devuelve ESA, tal como está. Va ANTES
+    // de subir la foto (si no, cada reintento sube otra) y NO vuelve a escribir stock: si el envío
+    // original todavía está escribiéndolo, hacerlo acá también duplicaría la existencia.
+    if (clientUuid) {
+      const previa = await this.capturaPorLlave(clientUuid);
+      if (previa) return this.getCapture(previa);
+    }
 
     const confirmedLot = (dto.confirmed_lot || 'NA').trim().slice(0, 60) || 'NA';
     const confirmedExpiry = dto.confirmed_expiry || null;
@@ -187,7 +203,75 @@ export class ReceivingAuditorService {
       }
     }
 
-    const captureId = await this.tk.run(async (trx) => {
+    let captureId: string;
+    try {
+      captureId = await this.guardarCaptura(dto, { confirmedLot, confirmedExpiry, photoKey, clientUuid });
+    } catch (e) {
+      // `[WMS-REC.19]` Dos envíos de la MISMA captura a la vez: el segundo choca con el índice
+      // único y se le contesta con la del primero, que es la que escribe el stock.
+      if (clientUuid && esChoqueDe(e, UX_CAPTURAS_CLIENT_UUID)) {
+        const previa = await this.capturaPorLlave(clientUuid);
+        if (previa) return this.getCapture(previa);
+      }
+      throw e;
+    }
+
+    // green/yellow → escribe stock (fuera de la trx de captura; recordMovement
+    // abre la suya). El rojo NO escribe: espera autorización.
+    const capture = await this.getCapture(captureId);
+    if (capture.verdict !== 'red') {
+      try {
+        await this.writeStockForCapture(capture);
+      } catch (e: any) {
+        // COMPENSACIÓN (WMS-REC.7.2). La captura ya hizo commit arriba, así que si
+        // el alta de stock falla acá queda una fila `accepted` sin movimiento:
+        // `declared_qty` la cuenta (filtra por status='accepted'), el renglón se
+        // ve fechado y la mercancía NUNCA entró. Existencia fantasma, y el vale
+        // aparenta estar completo.
+        //
+        // Se marca `rejected` —dentro del CHECK de la tabla— que es el único
+        // estado que la saca del declarado sin romper el append-only: la fila
+        // queda con su evidencia y su foto, pero deja de contar, y el renglón
+        // vuelve a la cola de Caducidad para reintentarlo.
+        //
+        // `authorize()` ya hacía exactamente esto desde WMS-REC.4; `evaluate()`
+        // era el camino que faltaba, y es el que usa el 100% de las capturas
+        // verdes y amarillas.
+        //
+        // `[WMS-REC.19]` Y se SUELTA la llave: la captura no ocurrió, así que el reintento del
+        // equipo tiene que poder intentarla de nuevo. Si la conservara, cada reintento recibiría
+        // esta captura muerta y la mercancía no entraría nunca.
+        await this.tk.run(async (trx) => {
+          await trx('commercial.receiving_lot_captures')
+            .where({ id: captureId })
+            .update({ status: 'rejected', resolution_notes: 'alta de stock fallida — captura revertida', client_uuid: null });
+        });
+        this.logger.error(`Captura ${captureId} revertida (falló el alta de stock): ${e?.message || e}`);
+        throw e;
+      }
+    }
+    return this.getCapture(captureId);
+  }
+
+  /** `[WMS-REC.19]` La captura que ya hizo esta llave. `null` si no existe. */
+  private async capturaPorLlave(clientUuid: string): Promise<string | null> {
+    return this.tk.run(async (trx) => {
+      const r = await trx('commercial.receiving_lot_captures').where({ client_uuid: clientUuid }).first('id');
+      return (r?.id as string | undefined) ?? null;
+    });
+  }
+
+  /**
+   * Resuelve política y contexto, decide el veredicto y GUARDA la captura (sin tocar stock).
+   * Devuelve el id. Separado de `evaluate()` para que el choque de la llave se atrape afuera
+   * de la transacción, que en Postgres queda abortada después de un `23505`.
+   */
+  private guardarCaptura(
+    dto: EvaluateDto,
+    v: { confirmedLot: string; confirmedExpiry: string | null; photoKey: string | null; clientUuid: string | null },
+  ): Promise<string> {
+    const { confirmedLot, confirmedExpiry, photoKey, clientUuid } = v;
+    return this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
 
       // Taxonomía del producto para resolver la política por ámbito (ADR-044).
@@ -279,42 +363,11 @@ export class ReceivingAuditorService {
           rule_broken,
           status,
           created_by: userId,
+          client_uuid: clientUuid,
         })
         .returning('id');
       return cap.id as string;
     });
-
-    // green/yellow → escribe stock (fuera de la trx de captura; recordMovement
-    // abre la suya). El rojo NO escribe: espera autorización.
-    const capture = await this.getCapture(captureId);
-    if (capture.verdict !== 'red') {
-      try {
-        await this.writeStockForCapture(capture);
-      } catch (e: any) {
-        // COMPENSACIÓN (WMS-REC.7.2). La captura ya hizo commit arriba, así que si
-        // el alta de stock falla acá queda una fila `accepted` sin movimiento:
-        // `declared_qty` la cuenta (filtra por status='accepted'), el renglón se
-        // ve fechado y la mercancía NUNCA entró. Existencia fantasma, y el vale
-        // aparenta estar completo.
-        //
-        // Se marca `rejected` —dentro del CHECK de la tabla— que es el único
-        // estado que la saca del declarado sin romper el append-only: la fila
-        // queda con su evidencia y su foto, pero deja de contar, y el renglón
-        // vuelve a la cola de Caducidad para reintentarlo.
-        //
-        // `authorize()` ya hacía exactamente esto desde WMS-REC.4; `evaluate()`
-        // era el camino que faltaba, y es el que usa el 100% de las capturas
-        // verdes y amarillas.
-        await this.tk.run(async (trx) => {
-          await trx('commercial.receiving_lot_captures')
-            .where({ id: captureId })
-            .update({ status: 'rejected', resolution_notes: 'alta de stock fallida — captura revertida' });
-        });
-        this.logger.error(`Captura ${captureId} revertida (falló el alta de stock): ${e?.message || e}`);
-        throw e;
-      }
-    }
-    return this.getCapture(captureId);
   }
 
   /**

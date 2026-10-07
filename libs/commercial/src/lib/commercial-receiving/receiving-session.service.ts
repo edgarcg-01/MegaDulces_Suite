@@ -13,6 +13,7 @@ import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { classifyReceivingOrigin } from './receiving-origin';
 import { ReceivingClaimsService } from './receiving-claims.service';
+import { UX_SESIONES_CLIENT_UUID, conLlave, esChoqueDe } from './receiving-idempotency';
 import {
   TRANSFER_REF_PREFIX,
   TRANSFER_WINDOW_DAYS,
@@ -64,6 +65,12 @@ export interface OpenSessionDto {
   erp_serie?: number;
   erp_folio?: string;
   notes?: string;
+  /**
+   * `[WMS-REC.19]` Id que el equipo le pone a ESTA apertura antes de mandarla. Si la respuesta se
+   * pierde y reintenta, recibe el vale que ya abrió en vez de chocar con `folio_ya_recibido` (su
+   * propio vale) o, con `force`, abrir un segundo vale del mismo camión. Opcional.
+   */
+  client_uuid?: string;
 }
 
 /**
@@ -233,9 +240,37 @@ export class ReceivingSessionService {
       throw new BadRequestException('warehouse_id inválido');
     if (dto.warehouse_id && !UUID.test(dto.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
+    const clientUuid: string | null = conLlave(dto.client_uuid) ? dto.client_uuid : null;
 
+    try {
+      return await this.abrir(dto, sourceKind, clientUuid);
+    } catch (e) {
+      // `[WMS-REC.19]` Dos envíos de la MISMA apertura a la vez: el segundo choca con el índice
+      // único y se le contesta con el vale del primero. Cualquier otro error sigue su camino.
+      if (clientUuid && esChoqueDe(e, UX_SESIONES_CLIENT_UUID)) {
+        const ya = await this.tk.run((trx) => this.sesionPorLlave(trx, clientUuid));
+        if (ya) return ya;
+      }
+      throw e;
+    }
+  }
+
+  /** `[WMS-REC.19]` El vale que ya abrió esta llave, con su detalle. `null` si no existe. */
+  private async sesionPorLlave(trx: Knex.Transaction, clientUuid: string) {
+    const ya = await trx('commercial.receiving_sessions').where({ client_uuid: clientUuid }).first('id');
+    return ya ? this.detailTx(trx, ya.id) : null;
+  }
+
+  private abrir(dto: OpenSessionDto, sourceKind: NonNullable<OpenSessionDto['source_kind']>, clientUuid: string | null) {
     return this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
+
+      // `[WMS-REC.19]` Reintento de una apertura que ya entró: se devuelve ESE vale. Va antes del
+      // guardia de "folio ya recibido", que si no le contestaría al equipo con su propio vale.
+      if (clientUuid) {
+        const ya = await this.sesionPorLlave(trx, clientUuid);
+        if (ya) return ya;
+      }
 
       // Para órdenes del ERP: resuelve la cabecera (folio completo + proveedor) desde el espejo.
       let erpHeader: any = null;
@@ -350,6 +385,7 @@ export class ReceivingSessionService {
           status: 'open',
           notes: dto.notes || null,
           created_by: userId,
+          client_uuid: clientUuid,
         })
         .returning('*');
 
