@@ -3258,7 +3258,16 @@ export class CommercialReplenishmentService {
       const tot = (await trx.raw(`SELECT count(*)::int c FROM (${inner}) z`, binds)).rows[0];
       const rows = (await trx.raw(
         `${inner} ORDER BY min(r.created_at) DESC LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
-      return { total: Number(tot?.c || 0), page, pageSize, rows, disponible: true };
+      // `[RQ.11]` CUÁNTOS LOTES DE VERDAD HAY. Sin esto la pantalla no puede distinguir
+      // "agrupado por lote" de "la misma lista con una columna de más": lo anterior a la
+      // migración se agrupa por su propio id, o sea **619 lotes de un documento, ninguno con
+      // folio** (medido en prod el 2026-10-06). Abrir ahí por default sería peor que la lista
+      // plana, y el front necesita el dato para decidir — no se adivina desde las filas de UNA
+      // página.
+      const real = (await trx.raw(
+        `SELECT count(DISTINCT r.batch_id)::int c FROM commercial.purchase_requisitions r
+          WHERE r.tenant_id = :t AND r.batch_id IS NOT NULL`, { t: tenantId })).rows[0];
+      return { total: Number(tot?.c || 0), page, pageSize, rows, disponible: true, con_lote: Number(real?.c || 0) };
     });
   }
 
