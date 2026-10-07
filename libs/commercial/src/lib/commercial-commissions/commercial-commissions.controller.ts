@@ -2,6 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
+import { CommissionRunnerService } from './commission-runner.service';
 
 /**
  * RD.6 — Comisiones de Ruta Directa.
@@ -17,7 +18,52 @@ import { CommercialCommissionsService } from './commercial-commissions.service';
 @UseGuards(RolesGuard)
 @Controller('commercial/commissions')
 export class CommercialCommissionsController {
-  constructor(private readonly service: CommercialCommissionsService) {}
+  constructor(
+    private readonly service: CommercialCommissionsService,
+    private readonly runner: CommissionRunnerService,
+  ) {}
+
+  @Get('board')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({
+    summary: 'El tablero del año — lo unico que la pantalla pide al abrir',
+    description:
+      'RD.21. Query: `anio` (default el actual). UNA consulta sobre tablas: 27 quincenas con su '
+      + 'corrida viva, totales, compuertas y frescura. Medido contra prod: **2.2 ms**, contra los '
+      + '6,491 ms que cuesta CALCULAR una quincena. Por eso la pantalla no tiene botones: calcular '
+      + 'es trabajo del cron (`/run-now`, `@Cron` 08:30 y cada 30 min), leer es trabajo de la pantalla.',
+  })
+  board(@Query('anio') anio?: string) {
+    return this.service.board(anio ? Number(anio) : new Date().getFullYear());
+  }
+
+  @Get('universe')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({
+    summary: 'El universo DERIVADO de rutas, con el veredicto de cada una',
+    description:
+      'RD.17. Junta el resolvedor `mv_rd_route_identity` (11 camiones, por PK y FK), la config de '
+      + 'nomina y lo que de verdad vende. Cada route_code sale con su veredicto: comisiona | '
+      + 'config_inactiva | fuera_no_es_camion | camion_sin_config | camion_sin_identidad | '
+      + 'tipo_sin_declarar. Antes el motor iteraba la config y 9 rutas que venden ($9.37M en 2026) '
+      + 'se caian sin linea y sin aviso.',
+  })
+  universe() {
+    return this.service.listUniverse();
+  }
+
+  @Post('run-now')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Dispara la corrida automatica sin esperar a las 08:30',
+    description:
+      'RD.20. Calcula las quincenas cerradas sin corrida viva (y reintenta las que el propio cron '
+      + 'dejo bloqueadas). NO aprueba ni paga: una corrida que no pasa una compuerta dura nace '
+      + '`bloqueada`, estado desde el que no se puede aprobar.',
+  })
+  runNow() {
+    return this.runner.run('manual');
+  }
 
   @Get('periods')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)

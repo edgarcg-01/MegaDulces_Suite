@@ -1,51 +1,46 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
-import { AuthService } from '../../../core/services/auth.service';
-import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
-  ComercialService, CommissionPeriod, CommissionRunPayload, CommissionLine,
+  ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine, CommissionGate,
 } from '../comercial.service';
 
 /**
- * RD.6 — Comisiones de Ruta Directa. Reemplaza las hojas `COMISIONES`,
- * `FORMATO DE PAGO` y `FORMATO DE SUPERVISOR` del workbook `INDICADORES RD 2026`.
+ * RD.6 / RD.17-RD.21 — Comisiones de Ruta Directa. **Pantalla de verificacion, sin acciones.**
  *
- * Surface Operations: tabla densa, sin zebra, cifras en Geist Mono con `tabular-nums`,
- * divisor 1px por fila. Master-detail: quincenas a la izquierda, el detalle de la corrida
- * a la derecha.
+ * ── Por que no tiene botones ─────────────────────────────────────────────────────────────
+ * Medido contra prod el 2026-10-07, con el liston en 500 ms:
  *
- * Motor decide / humano aprueba (ADR-016). El botón de Vista previa calcula sin persistir,
- * para poder cuadrar contra el Excel del periodo ANTES de crear la corrida; recién después
- * se crea el borrador, se aprueba y se marca pagada.
+ *     tablero del año (27 quincenas + su corrida) ....     2.7 ms
+ *     detalle de una corrida .........................    23.8 ms
+ *     calcular UNA quincena (lo que hacia el boton) .. 5,762.0 ms
  *
- * Lo que la pantalla NO esconde:
- *  · `rutas_sin_dato` — una ruta sin venta en el periodo sale con motivo y no con $0, que
- *    se leería como "vendió cero" en vez de "no sabemos".
- *  · `subtotal_origen` — el tramo del push tiene el subtotal DERIVADO de la tasa de
- *    catálogo (±0.25% medido), no del ERP. Se marca en la fila.
- *  · La deducción del supervisor es por PERSONA y agregada sobre sus rutas, no por ruta:
- *    la línea de supervisor trae la contribución de cada ruta y el neto se suma abajo.
+ * ⭐ **El unico camino lento del modulo eran las acciones.** `Vista previa` y `Crear corrida`
+ * tocan `v_rd_route_daily`, que se materializa entera en cada consulta; leer una corrida ya
+ * persistida es leer una tabla de 26 filas. Quitarlas no es una concesion: es lo que vuelve
+ * rapida la pantalla — y de paso honesta, porque lo que se ve es lo que el motor realmente
+ * calculo, no un numero que aparecio porque alguien apreto algo.
+ *
+ * Quien calcula es `CommissionRunnerService`: 08:30 MX las quincenas cerradas, y cada 30 min la
+ * que todavia corre. La pantalla **no tiene camino lento**.
+ *
+ * ── Lo que esta pantalla no esconde ──────────────────────────────────────────────────────
+ *  · El **neto**, no el bruto. La deduccion del supervisor es por persona y agregada sobre sus
+ *    rutas, y el motor no la restaba en ningun lado.
+ *  · Las **compuertas** con su motivo, y la distincion entre `en_curso` (le falta terminar) y
+ *    `bloqueada` (le falla algo): son dos cosas que se arreglan distinto.
+ *  · El **markup** con su nombre y la procedencia del costo que lo respalda — el bono del
+ *    supervisor cuelga de ahi y antes no se veia.
+ *  · Las rutas que **venden y no comisionan**, con su veredicto.
+ *  · Hasta cuando llega el dato y cuando se calculo la corrida.
+ *
+ * ⚠️ Las fechas llegan del servidor como texto `YYYY-MM-DD` y se formatean CORTANDO LA CADENA,
+ * nunca con `new Date(...)`: un `date` de pg llega a medianoche UTC y en hora de Mexico eso es
+ * el dia ANTERIOR. Es el defecto que `[LC.16]` ya pago una vez.
  */
-
-/**
- * Lo que esta pantalla PINTA de una corrida, y nada más.
- *
- * `[RD.40]` agregó a `CommissionRunPayload` ocho campos obligatorios (deducción, neto,
- * traslape, rutas fuera, frescura, compuertas, beneficiarios, fuera) que esta pantalla no
- * muestra. Al reabrir una corrida GUARDADA, `CommissionRunDetail` no trae `beneficiarios` ni
- * `fuera`, y sus totales de deducción/neto pueden venir null: exigir el payload completo
- * obligaba a inventarlos en cero —lo que no se midió se declara, no se dibuja como cero— y
- * dejó a `main` sin compilar (TS2345 en `loadRun`). La vista previa trae el payload entero y
- * encaja igual: es un superconjunto de esto.
- */
-type CorridaEnPantalla = Pick<CommissionRunPayload,
-  'run_id' | 'status' | 'period' | 'scale' | 'total_subtotal' | 'total_venta' | 'total_comision'
-  | 'total_a_pagar' | 'rutas_con_dato' | 'rutas_sin_dato' | 'lines'>;
-
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
@@ -55,145 +50,218 @@ type CorridaEnPantalla = Pick<CommissionRunPayload,
       <header class="cm-head">
         <div>
           <h1>Comisiones de Ruta Directa</h1>
-          <p class="cm-sub">Quincena de 14 días · la comisión va sobre el subtotal y la compuerta la abre la venta total</p>
+          <p class="cm-sub">
+            Quincena de 14 días · la comisión va sobre el <strong>subtotal</strong>
+            y la compuerta la abre la <strong>venta total</strong>
+          </p>
         </div>
         <label class="cm-year">Año
-          <select [ngModel]="anio()" (ngModelChange)="anio.set(+$event); loadPeriods()">
+          <select [ngModel]="anio()" (ngModelChange)="anio.set(+$event); cargar()">
             @for (y of anios; track y) { <option [value]="y">{{ y }}</option> }
           </select>
         </label>
       </header>
 
+      @if (destacada(); as d) {
+        <section class="cm-answer" [class.abierta]="d.status === 'en_curso'">
+          <div class="cm-answer-que">
+            <p class="cm-eyebrow">{{ d.status === 'en_curso' ? 'Quincena en curso' : 'Lo que toca pagar' }}</p>
+            <p class="cm-answer-q">
+              Quincena {{ d.period_no }} <span class="cm-muted">· {{ rango(d) }}</span>
+            </p>
+            <p class="cm-answer-pie">
+              @if (d.pay_date) { Se paga el <span class="cm-mono">{{ dia(d.pay_date) }}</span> · }
+              calculada {{ cuando(d.updated_at) }}
+              @if (d.origen === 'cron') { <span class="cm-muted">(sola)</span> }
+            </p>
+          </div>
+          <div>
+            <p class="cm-eyebrow">{{ d.status === 'en_curso' ? 'Neto acumulado' : 'Neto a pagar' }}</p>
+            <p class="cm-answer-monto">{{ money(d.total_neto) }}</p>
+            <p class="cm-answer-pie cm-mono">
+              bruto {{ money(d.total_a_pagar) }} − deducciones {{ money(d.total_deduccion) }}
+            </p>
+          </div>
+          <p-tag [severity]="sev(d.status)" [value]="etiquetaEstado(d.status)" />
+        </section>
+      }
+
+      @if (err()) { <p class="cm-err"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ err() }}</p> }
+
       <div class="cm-split">
-        <!-- ── Quincenas ─────────────────────────────────────────────── -->
         <aside class="cm-rail">
           <app-load-state
-            [loading]="loadingPeriods()" [isEmpty]="!periods().length" [skeletonRows]="6"
-            emptyIcon="pi-calendar"
-            emptyTitle="Sin quincenas"
+            [loading]="cargando()" [isEmpty]="!board().length" [skeletonRows]="6"
+            emptyIcon="pi-calendar" emptyTitle="Sin quincenas"
             [emptyHint]="'El calendario de ' + anio() + ' no tiene periodos cargados.'">
-            @for (p of periods(); track p.id) {
-              <button type="button" class="cm-per" [class.sel]="selected()?.id === p.id" (click)="pick(p)">
-                <span class="cm-per-no">Q{{ p.period_no }}</span>
-                <span class="cm-per-fechas">{{ p.date_from }} → {{ p.date_to }}</span>
-                @if (p.run) {
-                  <p-tag [severity]="sevRun(p.run.status)" [value]="p.run.status" />
-                  <span class="cm-per-monto">{{ money(+p.run.total_a_pagar) }}</span>
-                  @if (p.run.rutas_sin_dato) { <p-tag severity="warn" [value]="p.run.rutas_sin_dato + ' sin dato'" /> }
-                } @else {
-                  <p-tag severity="secondary" value="sin corrida" />
-                }
-              </button>
+            @if (sinCorrida().length) {
+              <details class="cm-colapso">
+                <summary>{{ sinCorrida().length }} quincena(s) sin corrida</summary>
+                <p>
+                  El motor las calcula solo: las cerradas a las 08:30 y la que corre, cada 30 minutos.
+                  Si siguen así, mirá el latido de <span class="cm-mono">rd_commission_runner</span>.
+                </p>
+              </details>
+            }
+            @for (g of porMes(); track g.mes) {
+              <p class="cm-mes">{{ g.mes }}</p>
+              @for (p of g.filas; track p.period_id) {
+                <button type="button" class="cm-per" [class.sel]="sel()?.period_id === p.period_id"
+                        (click)="elegir(p)">
+                  <span class="cm-per-top">
+                    <span class="cm-per-no">Q{{ p.period_no }}</span>
+                    <span class="cm-per-fechas">{{ rango(p) }}</span>
+                  </span>
+                  <span class="cm-per-bot">
+                    <p-tag [severity]="sev(p.status)" [value]="etiquetaEstado(p.status)" />
+                    <span class="cm-per-monto">{{ p.run_id ? money(p.total_neto) : '—' }}</span>
+                  </span>
+                </button>
+              }
             }
           </app-load-state>
         </aside>
 
-        <!-- ── Detalle ───────────────────────────────────────────────── -->
         <section class="cm-detail">
-          @if (!selected()) {
+          @if (!sel()) {
             <p class="cm-empty">Elegí una quincena.</p>
-          } @else {
-            <div class="cm-actions">
-              <strong class="cm-detail-title">Q{{ selected()!.period_no }} · {{ selected()!.date_from }} → {{ selected()!.date_to }}</strong>
-              @if (selected()!.pay_date) { <span class="cm-muted">pago {{ selected()!.pay_date }}</span> }
-              <span class="cm-spacer"></span>
-              <button type="button" class="cm-btn" (click)="preview()" [disabled]="busy()">
-                <i class="pi pi-calculator" aria-hidden="true"></i> Vista previa
-              </button>
-              @if (canManage()) {
-                <button type="button" class="cm-btn primary" (click)="compute()" [disabled]="busy()">
-                  <i class="pi pi-play" aria-hidden="true"></i> {{ selected()!.run ? 'Recalcular borrador' : 'Crear corrida' }}
-                </button>
-                @if (selected()!.run?.status === 'borrador') {
-                  <button type="button" class="cm-btn ok" (click)="status('approve')" [disabled]="busy()">
-                    <i class="pi pi-check" aria-hidden="true"></i> Aprobar
-                  </button>
-                }
-                @if (selected()!.run?.status === 'aprobado') {
-                  <button type="button" class="cm-btn ok" (click)="status('pay')" [disabled]="busy()">
-                    <i class="pi pi-wallet" aria-hidden="true"></i> Marcar pagada
-                  </button>
-                }
-              }
+          } @else if (!sel()!.run_id) {
+            <div class="cm-card">
+              <h2>Quincena {{ sel()!.period_no }} · {{ rango(sel()!) }}</h2>
+              <p class="cm-muted">
+                Todavía no tiene corrida. El motor calcula las quincenas cerradas a las 08:30 y la que
+                corre cada 30 minutos; esta pantalla sólo las muestra.
+              </p>
             </div>
+          } @else if (run(); as r) {
+            @if (bloqueantes(r).length) {
+              <div class="cm-gate bad">
+                <strong><i class="pi pi-ban" aria-hidden="true"></i> No se puede aprobar</strong>
+                <ul>@for (g of bloqueantes(r); track g.gate) { <li><b>{{ etiquetaGate(g.gate) }}</b>: {{ g.detalle }}</li> }</ul>
+              </div>
+            }
+            @if (avisos(r).length) {
+              <div class="cm-gate warn">
+                <strong><i class="pi pi-exclamation-circle" aria-hidden="true"></i> Pasa, con reservas</strong>
+                <ul>@for (g of avisos(r); track g.gate) { <li><b>{{ etiquetaGate(g.gate) }}</b>: {{ g.detalle }}</li> }</ul>
+              </div>
+            }
 
-            @if (err()) { <p class="cm-err"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ err() }}</p> }
+            <app-metric-strip [items]="kpis(r)" ariaLabel="Totales de la quincena" />
 
-            @if (run(); as r) {
-              <app-metric-strip [items]="kpis(r)" ariaLabel="Totales de la quincena" />
+            <p class="cm-proc">
+              dato hasta <b>{{ r.data_as_of ? dia(r.data_as_of) : 'sin medir' }}</b>
+              · corrida {{ cuando(r.updated_at) }}
+              @if (r.origen) { · origen {{ r.origen === 'cron' ? 'automático' : 'manual' }} }
+            </p>
 
-              @if (r.rutas_sin_dato) {
-                <p class="cm-warn">
-                  <i class="pi pi-info-circle" aria-hidden="true"></i>
-                  {{ r.rutas_sin_dato }} ruta(s) sin venta en la fuente para este periodo. Salen declaradas, no en cero:
-                  cero se leería como "vendió nada" en vez de "no sabemos".
-                </p>
-              }
+            <app-segmented [options]="pestanas()" [value]="tab()" (valueChange)="tab.set($event)"
+                           ariaLabel="Qué se está viendo" />
 
-              <app-segmented [options]="beneficiarios()" [value]="tab()" (valueChange)="tab.set($event)"
-                             ariaLabel="Beneficiario de la comisión" />
-
+            @if (tab() === 'supervisor') {
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain surf-table--sticky">
+                  <thead><tr>
+                    <th>Supervisor</th><th>Zona</th><th>Rutas</th>
+                    <th class="comm-num">Comisión</th><th class="comm-num">Bonos</th><th class="comm-num">Contribución</th>
+                  </tr></thead>
+                  <tbody>
+                    @for (s of supervisores(); track s.clave) {
+                      <tr>
+                        <td class="cm-name">{{ s.nombre }}</td>
+                        <td class="cm-muted">{{ s.zona || '—' }}</td>
+                        <td class="cm-mono cm-micro">{{ s.rutas.join(' · ') }}</td>
+                        <td class="comm-num">{{ money(s.comision) }}</td>
+                        <td class="comm-num">{{ s.bonos ? money(s.bonos) : '—' }}</td>
+                        <td class="comm-num is-strong">{{ money(s.bruto) }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="cm-warn">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por
+                ruta: por eso estas filas traen su <em>contribución</em> y el neto del periodo ya la resta
+                arriba. El total descontado de la quincena es {{ money(run()?.total_deduccion) }}.
+              </p>
+            } @else if (tab() === 'fuera') {
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain surf-table--sticky">
+                  <thead><tr><th>Ruta</th><th>Por qué no comisiona</th><th class="comm-num">Subtotal</th></tr></thead>
+                  <tbody>
+                    @for (l of fuera(); track l.route_code) {
+                      <tr>
+                        <td class="comm-num">{{ l.route_code }}</td>
+                        <td><p-tag severity="secondary" [value]="etiquetaVeredicto(l.motivo_no_pago)" /></td>
+                        <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="cm-warn">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                Estas rutas <strong>venden y no pagan comisión de Ruta Directa</strong>. Salen con su motivo
+                para que la ausencia sea una decisión y no un descuido.
+              </p>
+            } @else {
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
-                  <thead>
-                    <tr>
-                      <th>Ruta</th><th>{{ tab() === 'chofer' ? 'Chofer' : 'Supervisor' }}</th>
-                      <th class="comm-num">Subtotal</th><th class="comm-num">Venta</th><th class="comm-num">%</th>
-                      <th class="comm-num">Comisión</th><th class="comm-num">Bonos</th>
-                      @if (tab() === 'chofer') { <th class="comm-num">Nómina banco</th> }
-                      <th class="comm-num">A pagar</th><th>Nota</th>
-                    </tr>
-                  </thead>
+                  <thead><tr>
+                    <th>Ruta</th><th>Chofer</th>
+                    <th class="comm-num">Subtotal</th><th class="comm-num">Venta</th><th class="comm-num">%</th>
+                    <th class="comm-num">Markup</th><th class="comm-num">Comisión</th><th class="comm-num">Bonos</th>
+                    <th class="comm-num">Nómina</th><th class="comm-num">A pagar</th><th>Procedencia</th>
+                  </tr></thead>
                   <tbody>
-                    @for (l of visibles(); track l.route_code + l.beneficiario) {
+                    @for (l of choferes(); track l.route_code) {
                       <tr [class.muted]="!!l.motivo_no_pago">
-                        <td class="comm-num">R-{{ l.route_code }}</td>
-                        <td class="cm-name">{{ (tab() === 'chofer' ? l.chofer_nombre : l.supervisor_nombre) || '—' }}</td>
+                        <td class="comm-num">{{ l.route_code }}</td>
+                        <td class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
                         <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
-                        <td class="comm-num">{{ l.venta != null ? money(l.venta) : '—' }}</td>
-                        <td class="comm-num">{{ l.pct_aplicado != null ? (l.pct_aplicado + '%') : '—' }}</td>
+                        <td class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
+                        <td class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
+                        <td class="comm-num cm-muted" [title]="tipMarkup(l)">
+                          {{ l.markup_sobre_costo_pct != null ? (pct(l.markup_sobre_costo_pct) + '%') : '—' }}
+                        </td>
                         <td class="comm-num">{{ money(l.comision) }}</td>
                         <td class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
-                        @if (tab() === 'chofer') { <td class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td> }
+                        <td class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
                         <td class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
                         <td class="cm-nota">
-                          @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="motivo(l.motivo_no_pago)" /> }
-                          @if (l.subtotal_origen && l.subtotal_origen !== 'erp') {
-                            <span title="El subtotal del tramo push se deriva de la tasa de catálogo (±0.25% medido), no viene del ERP">
-                              <p-tag severity="secondary" value="derivado" />
+                          @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
+                          @if (l.dias_multifuente) {
+                            <span title="La quincena cruza un cambio de sistema: la venta de esos días viene de dos capturas. Medido: no comparten folio.">
+                              <p-tag severity="secondary" value="corte" />
+                            </span>
+                          }
+                          @if (l.costo_veredicto && l.costo_veredicto !== 'dos_fuentes') {
+                            <span [title]="tipCosto(l.costo_veredicto)">
+                              <p-tag [severity]="l.costo_veredicto === 'sin_costo' ? 'warn' : 'secondary'"
+                                     [value]="etiquetaCosto(l.costo_veredicto)" />
                             </span>
                           }
                         </td>
                       </tr>
                     }
                   </tbody>
-                  <tfoot>
-                    <tr>
-                      <td colspan="2">Total {{ tab() === 'chofer' ? 'choferes' : 'supervisores' }}</td>
-                      <td class="comm-num">{{ money(sum('subtotal')) }}</td>
-                      <td class="comm-num">{{ money(sum('venta')) }}</td>
-                      <td></td>
-                      <td class="comm-num">{{ money(sum('comision')) }}</td>
-                      <td class="comm-num">{{ money(sum('bonos')) }}</td>
-                      @if (tab() === 'chofer') { <td class="comm-num cm-neg">−{{ money(sum('nomina_banco')) }}</td> }
-                      <td class="comm-num is-strong">{{ money(sum('a_pagar')) }}</td>
-                      <td></td>
-                    </tr>
-                  </tfoot>
+                  <tfoot><tr>
+                    <td colspan="2">{{ pagan() }} de {{ choferes().length }} pagan</td>
+                    <td class="comm-num">{{ money(sumCh('subtotal')) }}</td>
+                    <td class="comm-num">{{ money(sumCh('venta')) }}</td>
+                    <td></td><td></td>
+                    <td class="comm-num">{{ money(sumCh('comision')) }}</td>
+                    <td class="comm-num">{{ money(sumCh('bonos')) }}</td>
+                    <td class="comm-num cm-neg">−{{ money(sumCh('nomina_banco')) }}</td>
+                    <td class="comm-num is-strong">{{ money(sumCh('a_pagar')) }}</td>
+                    <td></td>
+                  </tr></tfoot>
                 </table>
               </div>
-
-              @if (tab() === 'supervisor') {
-                <p class="cm-warn">
-                  <i class="pi pi-info-circle" aria-hidden="true"></i>
-                  La deducción del supervisor es por <strong>persona</strong> y agregada sobre sus rutas, no por ruta.
-                  Estas filas traen la <em>contribución</em> de cada ruta; el neto por persona se arma sumando sus rutas
-                  y restando su deducción. No se reparte entre rutas para no inventar una regla que el Excel no tiene.
-                </p>
-              }
-            } @else if (!busy()) {
-              <p class="cm-empty">Sin corrida todavía. Empezá por <strong>Vista previa</strong> para cuadrar contra el Excel del periodo.</p>
             }
+          } @else {
+            <p class="cm-empty">Cargando la corrida…</p>
           }
         </section>
       </div>
@@ -206,146 +274,307 @@ type CorridaEnPantalla = Pick<CommissionRunPayload,
     .cm-head { display:flex; align-items:flex-start; gap:1rem; margin-bottom:1rem; }
     .cm-head h1 { margin:0; font-size:var(--fs-xl,1.25rem); font-weight:var(--fw-bold); color:var(--c-text-1); }
     .cm-sub { margin:.15rem 0 0; font-size:var(--fs-sm); color:var(--c-text-3); }
+    .cm-sub strong { color:var(--c-text-2); font-weight:var(--fw-semibold,600); }
     .cm-year { margin-left:auto; display:inline-flex; gap:.4rem; align-items:center; font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-year select { padding:.3rem .45rem; border:1px solid var(--border-color); border-radius:var(--r-sm,6px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); }
+
+    .cm-answer { display:flex; flex-wrap:wrap; align-items:center; gap:1rem 1.75rem; margin-bottom:1rem;
+      padding:.9rem 1.1rem; border:1px solid var(--border-color); border-left:3px solid var(--action);
+      border-radius:var(--r-md,8px); background:var(--card-bg); }
+    .cm-answer.abierta { border-left-color:var(--c-text-3); }
+    .cm-answer-que { flex:1 1 16rem; min-width:0; }
+    .cm-eyebrow { margin:0; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase; color:var(--c-text-3); }
+    .cm-answer-q { margin:.2rem 0 0; font-size:var(--fs-base,1rem); font-weight:var(--fw-semibold,600); color:var(--c-text-1); }
+    .cm-answer-pie { margin:.1rem 0 0; font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-answer-monto { margin:.1rem 0 0; font-family:var(--font-mono,'Geist Mono',monospace);
+      font-size:1.5rem; font-weight:var(--fw-semibold,600); font-variant-numeric:tabular-nums; color:var(--c-text-1); }
 
     .cm-split { display:grid; grid-template-columns:minmax(240px,300px) 1fr; gap:1rem; align-items:start; }
     @media (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
 
-    .cm-rail { display:flex; flex-direction:column; gap:.25rem; max-height:78vh; overflow-y:auto; }
-    .cm-per { display:grid; grid-template-columns:auto 1fr; gap:.15rem .5rem; align-items:center; text-align:left;
+    .cm-rail { display:flex; flex-direction:column; max-height:78vh; overflow-y:auto; }
+    .cm-mes { margin:.9rem 0 .35rem; font-size:var(--fs-micro); letter-spacing:.07em; text-transform:uppercase;
+      color:var(--c-text-3); font-weight:var(--fw-semibold,600); }
+    .cm-mes:first-child { margin-top:0; }
+    .cm-colapso { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); margin-bottom:.4rem; }
+    .cm-colapso summary { padding:.5rem .7rem; font-size:var(--fs-sm); color:var(--c-text-3); cursor:pointer; }
+    .cm-colapso p { margin:0; padding:0 .7rem .55rem; font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-per { display:flex; flex-direction:column; gap:.3rem; text-align:left; margin-bottom:.3rem;
       padding:.45rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px);
       background:var(--card-bg); font:inherit; cursor:pointer; }
     .cm-per:hover { background:var(--overlay-hover); }
     .cm-per.sel { border-color:var(--action); background:color-mix(in srgb, var(--action) 8%, transparent); }
+    .cm-per-top { display:flex; align-items:baseline; gap:.45rem; }
+    .cm-per-bot { display:flex; align-items:center; justify-content:space-between; gap:.4rem; }
     .cm-per-no { font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); font-family:var(--font-mono,'Geist Mono',monospace); }
-    .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-3); font-family:var(--font-mono,'Geist Mono',monospace); }
-    .cm-per-monto { grid-column:2; font-size:var(--fs-micro); color:var(--c-text-2); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
+    .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-3); }
+    .cm-per-monto { font-size:var(--fs-micro); color:var(--c-text-2); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
 
     .cm-detail { min-width:0; }
-    .cm-actions { display:flex; gap:.5rem; align-items:center; flex-wrap:wrap; margin-bottom:.8rem; }
-    .cm-detail-title { font-size:var(--fs-sm); color:var(--c-text-1); }
-    .cm-spacer { flex:1 1 auto; }
-    .cm-btn { display:inline-flex; gap:.35rem; align-items:center; padding:.35rem .7rem; border:1px solid var(--border-color);
-      border-radius:var(--r-sm,6px); background:var(--card-bg); color:var(--c-text-1); font:inherit; font-size:var(--fs-sm); cursor:pointer; }
-    .cm-btn:hover:not(:disabled) { background:var(--overlay-hover); }
-    .cm-btn:disabled { opacity:.5; cursor:default; }
-    .cm-btn.primary { background:var(--action); border-color:var(--action); color:#fff; }
-    .cm-btn.ok { border-color:var(--ok-fg); color:var(--ok-fg); }
+    .cm-card { border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); padding:1rem 1.1rem; }
+    .cm-card h2 { margin:0 0 .3rem; font-size:var(--fs-base,1rem); font-weight:var(--fw-semibold,600); color:var(--c-text-1); }
+    .cm-card p { margin:0; font-size:var(--fs-sm); }
 
-    /* La tabla la viste surf-table--plain; acá sólo el contenedor que scrollea. */
     .cm-table-wrap { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); margin-top:.6rem; }
     .cm-table-wrap tbody tr.muted td { color:var(--c-text-3); }
     .cm-neg { color:var(--bad-fg); }
     .cm-name { max-width:14rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    .cm-nota { display:flex; gap:.25rem; align-items:center; }
+    .cm-nota { display:flex; gap:.25rem; align-items:center; flex-wrap:wrap; }
+    .cm-mono { font-family:var(--font-mono,'Geist Mono',monospace); }
+    .cm-micro { font-size:var(--fs-micro); }
 
+    .cm-gate { display:block; margin:0 0 .6rem; padding:.55rem .7rem; border-radius:var(--r-md,8px); font-size:var(--fs-sm); }
+    .cm-gate strong { display:flex; gap:.4rem; align-items:center; }
+    .cm-gate ul { margin:.35rem 0 0; padding-left:1.4rem; color:var(--c-text-2); }
+    .cm-gate.bad { border:1px solid color-mix(in srgb, var(--bad-fg) 45%, transparent);
+      background:color-mix(in srgb, var(--bad-fg) 9%, transparent); color:var(--bad-fg); }
+    .cm-gate.warn { border:1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent);
+      background:color-mix(in srgb, var(--warn-fg) 8%, transparent); color:var(--c-text-2); }
+
+    .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-3);
+      font-family:var(--font-mono,'Geist Mono',monospace); }
     .cm-warn { display:flex; gap:.4rem; align-items:flex-start; margin:.7rem 0 0; padding:.5rem .65rem;
       border:1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent); border-radius:var(--r-md,8px);
       background:color-mix(in srgb, var(--warn-fg) 8%, transparent); font-size:var(--fs-sm); color:var(--c-text-2); }
     .cm-err { display:flex; gap:.4rem; align-items:center; color:var(--bad-fg); font-size:var(--fs-sm); margin:.4rem 0; }
     .cm-empty { color:var(--c-text-3); font-size:var(--fs-sm); }
-    .cm-muted { color:var(--c-text-3); font-size:var(--fs-micro); }
+    .cm-muted { color:var(--c-text-3); }
   `],
 })
 export class ComercialComisionesComponent {
   private readonly api = inject(ComercialService);
-  private readonly auth = inject(AuthService);
 
   readonly anios = [2026, 2027];
-  readonly skeleton = Array.from({ length: 6 }, (_, i) => i);
-  readonly anio = signal(2026);
-  readonly periods = signal<CommissionPeriod[]>([]);
-  readonly selected = signal<CommissionPeriod | null>(null);
-  readonly run = signal<CorridaEnPantalla | null>(null);
+  readonly anio = signal(new Date().getFullYear() >= 2027 ? 2027 : 2026);
+  readonly board = signal<CommissionBoardRow[]>([]);
+  readonly sel = signal<CommissionBoardRow | null>(null);
+  readonly run = signal<CommissionRunDetail | null>(null);
   readonly tab = signal<string>('chofer');
-  readonly loadingPeriods = signal(false);
-  readonly busy = signal(false);
+  readonly cargando = signal(false);
   readonly err = signal<string | null>(null);
 
-  readonly canManage = computed(() =>
-    !!this.auth.user()?.permissions?.[Permission.COMMERCIAL_COMMISSIONS_GESTIONAR]);
+  /** La quincena que importa: la ultima cerrada con corrida; si no hay, la que corre. */
+  readonly destacada = computed<CommissionBoardRow | null>(() => {
+    const b = this.board();
+    const pagable = [...b].reverse().find((r) => r.status === 'borrador' || r.status === 'aprobado');
+    return pagable ?? b.find((r) => r.status === 'en_curso') ?? null;
+  });
 
-  readonly visibles = computed<CommissionLine[]>(() =>
-    (this.run()?.lines ?? []).filter((l) => l.beneficiario === this.tab()));
+  readonly sinCorrida = computed(() => this.board().filter((r) => !r.run_id));
 
-  constructor() { this.loadPeriods(); }
+  /** Agrupado por mes: 27 tarjetas identicas no son una lista, son ruido. */
+  readonly porMes = computed(() => {
+    const out: { mes: string; filas: CommissionBoardRow[] }[] = [];
+    for (const p of this.board()) {
+      if (!p.run_id) continue;   // las sin corrida van en el plegable
+      const m = this.MESES[Number(p.date_to.slice(5, 7)) - 1] ?? '';
+      const nombre = m.charAt(0).toUpperCase() + m.slice(1) + ' ' + p.date_to.slice(0, 4);
+      const ult = out[out.length - 1];
+      if (ult && ult.mes === nombre) ult.filas.push(p);
+      else out.push({ mes: nombre, filas: [p] });
+    }
+    return out;
+  });
 
-  loadPeriods() {
-    this.loadingPeriods.set(true);
-    this.api.commissionPeriods(this.anio()).subscribe({
-      next: (ps) => {
-        this.periods.set(ps);
-        this.loadingPeriods.set(false);
-        // Al cambiar de año, la selección vieja ya no aplica.
-        const sel = this.selected();
-        if (sel && !ps.some((p) => p.id === sel.id)) { this.selected.set(null); this.run.set(null); }
+  readonly choferes = computed(() =>
+    (this.run()?.lines ?? []).filter((l) => l.beneficiario === 'chofer' && !this.esFuera(l)));
+
+  readonly fuera = computed(() =>
+    (this.run()?.lines ?? []).filter((l) => l.beneficiario === 'chofer' && this.esFuera(l)));
+
+  readonly supervisores = computed(() => {
+    const acc = new Map<string, {
+      clave: string; nombre: string; zona: string | null; rutas: string[];
+      comision: number; bonos: number; bruto: number;
+    }>();
+    for (const l of this.run()?.lines ?? []) {
+      if (l.beneficiario !== 'supervisor' || l.motivo_no_pago) continue;
+      const nombre = l.beneficiario_nombre || '—';
+      const cur = acc.get(nombre) ?? {
+        clave: nombre, nombre, zona: l.zona ?? null, rutas: [], comision: 0, bonos: 0, bruto: 0,
+      };
+      cur.rutas.push(l.route_code);
+      cur.comision += Number(l.comision) || 0;
+      cur.bonos += Number(l.bonos) || 0;
+      cur.bruto += Number(l.a_pagar) || 0;
+      acc.set(nombre, cur);
+    }
+    return [...acc.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
+  });
+
+  constructor() { this.cargar(); }
+
+  cargar() {
+    this.cargando.set(true);
+    this.err.set(null);
+    this.api.commissionBoard(this.anio()).subscribe({
+      next: (b) => {
+        this.board.set(b);
+        this.cargando.set(false);
+        const d = this.destacada();
+        if (d) this.elegir(d);
+        else { this.sel.set(null); this.run.set(null); }
       },
-      error: () => { this.loadingPeriods.set(false); this.err.set('No se pudieron cargar las quincenas.'); },
+      error: () => { this.cargando.set(false); this.err.set('No se pudo cargar el tablero.'); },
     });
   }
 
-  pick(p: CommissionPeriod) {
-    this.selected.set(p);
+  elegir(p: CommissionBoardRow) {
+    this.sel.set(p);
     this.run.set(null);
-    this.err.set(null);
-    if (p.run) this.loadRun(p.run.run_id);
+    if (!p.run_id) return;
+    this.api.commissionRun(p.run_id).subscribe({
+      next: (d) => this.run.set(d),
+      error: () => this.err.set('No se pudo cargar la corrida.'),
+    });
   }
 
-  private loadRun(runId: string) {
-    this.busy.set(true);
-    this.api.commissionRun(runId).subscribe({
-      next: (d) => {
-        // El detalle persistido y el payload del cálculo comparten forma salvo la cabecera.
-        this.run.set({
-          run_id: d.id, status: d.status,
-          period: { id: '', anio: d.period?.anio ?? 0, period_no: d.period?.period_no ?? 0,
-            date_from: d.period?.date_from ?? '', date_to: d.period?.date_to ?? '', pay_date: d.period?.pay_date ?? null },
-          scale: { id: '', code: '', base_field: 'subtotal', gate_field: 'venta', share_supervisor_pct: 20 },
-          total_subtotal: +d.total_subtotal, total_venta: +d.total_venta,
-          total_comision: +d.total_comision, total_a_pagar: +d.total_a_pagar,
-          rutas_con_dato: d.rutas_con_dato, rutas_sin_dato: d.rutas_sin_dato,
-          // ⚠️ Acá iban los ocho campos que `[RD.40]` agregó al payload (deducción, neto,
-          // traslape, rutas fuera, frescura, compuertas, beneficiarios, fuera). Se retiran:
-          // `CorridaEnPantalla` es un `Pick` de lo que esta pantalla PINTA, y ninguno de los
-          // ocho se pinta. Mapearlos acá los volvía a exigir y rompía el build (TS2353).
-          // Si algún día la pantalla muestra alguno, se agrega al `Pick` y recién ahí se mapea
-          // —preservando el `null`, que dice «no se midió», en vez de caer a `0`.
-          lines: d.lines,
-        });
-        this.busy.set(false);
+  // ── Lectura ────────────────────────────────────────────────────────────────────────────
+
+  private esFuera(l: CommissionLine): boolean {
+    const DENTRO = new Set(['sin_dato_en_la_fuente', 'bajo_umbral']);
+    return !!l.motivo_no_pago && !DENTRO.has(l.motivo_no_pago);
+  }
+
+  pagan(): number { return this.choferes().filter((l) => !l.motivo_no_pago).length; }
+
+  sumCh(campo: keyof CommissionLine): number {
+    return this.choferes().reduce((s, l) => s + (Number(l[campo]) || 0), 0);
+  }
+
+  bloqueantes(r: CommissionRunDetail): CommissionGate[] {
+    return (r.gates ?? []).filter((g) => g.estado === 'bloquea');
+  }
+
+  avisos(r: CommissionRunDetail): CommissionGate[] {
+    return (r.gates ?? []).filter((g) => g.estado === 'advierte' || g.estado === 'no_medido');
+  }
+
+  pestanas(): SegOption[] {
+    return [
+      { label: `Choferes · ${this.pagan()}`, value: 'chofer' },
+      { label: `Supervisores · ${this.supervisores().length}`, value: 'supervisor' },
+      ...(this.fuera().length ? [{ label: `No comisionan · ${this.fuera().length}`, value: 'fuera' }] : []),
+    ];
+  }
+
+  kpis(r: CommissionRunDetail): MetricStripItem[] {
+    const conDato = r.rutas_con_dato ?? 0;
+    const sinDato = r.rutas_sin_dato ?? 0;
+    return [
+      { label: 'Subtotal', value: Number(r.total_subtotal), format: 'currency' },
+      { label: 'Comisión', value: Number(r.total_comision), format: 'currency' },
+      { label: 'Bruto', value: Number(r.total_a_pagar), format: 'currency' },
+      {
+        label: 'Neto', value: Number(r.total_neto), format: 'currency', tone: 'brand',
+        sub: `menos ${this.money(r.total_deduccion)} de deducciones`,
       },
-      error: () => { this.busy.set(false); this.err.set('No se pudo cargar la corrida.'); },
-    });
+      {
+        label: 'Cobertura', value: conDato, format: 'number',
+        tone: sinDato ? 'warn' : 'ok',
+        sub: `de ${conDato + sinDato} que comisionan${r.rutas_fuera ? ` · ${r.rutas_fuera} fuera` : ''}`,
+      },
+    ];
   }
 
-  preview() { this.exec(this.api.commissionPreview(this.selected()!.id)); }
-  compute() { this.exec(this.api.commissionCompute(this.selected()!.id, !!this.selected()!.run), true); }
+  // ── Formato ────────────────────────────────────────────────────────────────────────────
 
-  private exec(obs: ReturnType<ComercialService['commissionPreview']>, refresh = false) {
-    this.busy.set(true);
-    this.err.set(null);
-    obs.subscribe({
-      next: (r) => { this.run.set(r); this.busy.set(false); if (refresh) this.loadPeriods(); },
-      error: (e) => { this.busy.set(false); this.err.set(e?.error?.message || 'No se pudo calcular el periodo.'); },
-    });
+  private readonly MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+
+  /**
+   * ⚠️ Corta la cadena, NO construye un `Date`: un `date` de pg llega a medianoche UTC y en
+   * hora de Mexico eso es el dia ANTERIOR (`[LC.16]`).
+   */
+  dia(iso: string | null): string {
+    if (!iso) return '—';
+    const d = Number(iso.slice(8, 10));
+    const m = this.MESES[Number(iso.slice(5, 7)) - 1] ?? '';
+    return `${d} ${m}`;
   }
 
-  status(accion: 'approve' | 'pay' | 'void') {
-    const id = this.selected()?.run?.run_id;
-    if (!id) return;
-    this.busy.set(true);
-    this.err.set(null);
-    this.api.commissionSetStatus(id, accion).subscribe({
-      next: () => { this.busy.set(false); this.loadPeriods(); this.loadRun(id); },
-      error: (e) => { this.busy.set(false); this.err.set(e?.error?.message || 'No se pudo cambiar el estado.'); },
-    });
+  rango(p: { date_from: string; date_to: string }): string {
+    const mf = Number(p.date_from.slice(5, 7));
+    const mt = Number(p.date_to.slice(5, 7));
+    const df = Number(p.date_from.slice(8, 10));
+    return mf === mt ? `${df} – ${this.dia(p.date_to)}`
+      : `${df} ${this.MESES[mf - 1]} – ${this.dia(p.date_to)}`;
   }
 
-  count(b: string) { return (this.run()?.lines ?? []).filter((l) => l.beneficiario === b).length; }
+  /** Para un timestamp si vale `Date`: es un instante, no una fecha de negocio. */
+  cuando(ts: string | null): string {
+    if (!ts) return 'sin fecha';
+    const d = new Date(ts);
+    if (Number.isNaN(d.getTime())) return 'sin fecha';
+    const min = Math.round((Date.now() - d.getTime()) / 60000);
+    if (min < 1) return 'hace un momento';
+    if (min < 60) return `hace ${min} min`;
+    if (min < 1440) return `hace ${Math.round(min / 60)} h`;
+    return `hace ${Math.round(min / 1440)} d`;
+  }
 
-  sum(campo: keyof CommissionLine): number {
-    return this.visibles().reduce((s, l) => s + (Number(l[campo]) || 0), 0);
+  etiquetaEstado(s: string | null): string {
+    const M: Record<string, string> = {
+      en_curso: 'en curso', borrador: 'borrador', bloqueada: 'bloqueada',
+      aprobado: 'aprobada', pagado: 'pagada',
+    };
+    return s ? (M[s] ?? s) : 'sin corrida';
+  }
+
+  sev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' | 'info' {
+    if (s === 'pagado') return 'success';
+    if (s === 'aprobado') return 'info';
+    if (s === 'bloqueada') return 'danger';
+    return 'secondary';
+  }
+
+  etiquetaGate(g: string): string {
+    const M: Record<string, string> = {
+      periodo_cerrado: 'La quincena no cerró',
+      corte_de_sistema: 'Cruza un cambio de sistema',
+      cobertura: 'Cobertura',
+      frescura: 'El dato no llegó completo',
+      bono_arbitrado: 'Bono sobre costo no arbitrado',
+      deduccion_configurada: 'Deducción sin cargar',
+    };
+    return M[g] ?? g;
+  }
+
+  etiquetaVeredicto(v: string | null): string {
+    const M: Record<string, string> = {
+      bajo_umbral: 'bajo umbral',
+      sin_dato_en_la_fuente: 'sin dato en la fuente',
+      fuera_no_es_camion: 'no es ruta de camión',
+      camion_sin_config: 'camión sin configurar',
+      camion_sin_identidad: 'sin embarque documentado',
+      config_inactiva: 'configuración inactiva',
+      tipo_sin_declarar: 'tipo de ruta sin declarar',
+    };
+    return v ? (M[v] ?? v) : '';
+  }
+
+  etiquetaCosto(v: string): string {
+    const M: Record<string, string> = {
+      sin_costo: 'sin costo',
+      solo_wincaja_reexpresado: 'costo inestable',
+      una_fuente_embarque: 'costo de una fuente',
+      una_fuente_erp: 'costo de una fuente',
+      una_fuente: 'costo de una fuente',
+    };
+    return M[v] ?? v;
+  }
+
+  tipCosto(v: string): string {
+    if (v === 'sin_costo') return 'No hay costo en la fuente para estos días: el markup no se puede medir y el bono del supervisor no paga.';
+    if (v === 'solo_wincaja_reexpresado') return 'El único costo disponible es el que Wincaja re-expresa cada noche: el markup de un mes cerrado cambia solo.';
+    return 'El markup descansa en una sola fuente de costo, sin un segundo testigo que lo arbitre.';
+  }
+
+  tipMarkup(l: CommissionLine): string {
+    const p: string[] = ['Markup sobre costo = (subtotal / costo − 1) × 100. NO es margen sobre venta.'];
+    if (l.margen_sobre_venta_pct != null) p.push(`Margen sobre venta: ${this.pct(l.margen_sobre_venta_pct)}%`);
+    if (l.cogs_ruta != null) p.push(`Costo del embarque: ${this.money(l.cogs_ruta)}`);
+    if (l.cogs_erp != null) p.push(`Costo del ERP (c62): ${this.money(l.cogs_erp)}`);
+    return p.join(' · ');
   }
 
   bonosTip(l: CommissionLine): string {
@@ -353,43 +582,12 @@ export class ComercialComisionesComponent {
     return l.bonos_detalle.map((b) => `${b.nombre}: ${this.money(b.monto)} (${b.metrica} > ${b.umbral})`).join(' · ');
   }
 
-  motivo(m: string): string {
-    return m === 'bajo_umbral' ? 'bajo umbral'
-      : m === 'sin_dato_en_la_fuente' ? 'sin dato en la fuente'
-      : m;
+  pct(n: number | null | undefined): string {
+    if (n == null) return '—';
+    return String(Math.round(Number(n) * 1000) / 1000);
   }
 
-  /** KPI header sin caja (ADR-033): la cobertura va con las cifras, no en un renglón aparte. */
-  kpis(r: CorridaEnPantalla): MetricStripItem[] {
-    const total = r.rutas_con_dato + r.rutas_sin_dato;
-    return [
-      { label: 'Subtotal', value: Number(r.total_subtotal), format: 'currency' },
-      { label: 'Venta', value: Number(r.total_venta), format: 'currency' },
-      { label: 'Comisión', value: Number(r.total_comision), format: 'currency' },
-      { label: 'A pagar', value: Number(r.total_a_pagar), format: 'currency', tone: 'brand' },
-      {
-        label: 'Cobertura', value: r.rutas_con_dato, format: 'number',
-        tone: r.rutas_sin_dato ? 'warn' : 'ok',
-        sub: `de ${total} rutas${r.rutas_sin_dato ? ` · ${r.rutas_sin_dato} sin dato` : ''}`,
-      },
-    ];
-  }
-
-  beneficiarios(): SegOption[] {
-    return [
-      { label: `Choferes (${this.count('chofer')})`, value: 'chofer' },
-      { label: `Supervisores (${this.count('supervisor')})`, value: 'supervisor' },
-    ];
-  }
-
-  sevRun(s: string): 'success' | 'warn' | 'danger' | 'secondary' | 'info' {
-    if (s === 'pagado') return 'success';
-    if (s === 'aprobado') return 'info';
-    if (s === 'anulado') return 'danger';
-    return 'secondary';
-  }
-
-  money(n: number | null | undefined): string {
+  money(n: number | string | null | undefined): string {
     if (n == null) return '—';
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 2 }).format(Number(n));
   }
