@@ -86,6 +86,20 @@ export interface FilaCostoEstandar {
   origen_precio?: number | null;
   origen_cantidad?: number | null;
   origen_unidad?: string | null;
+  /**
+   * `[CE.13]` ¿La unidad del documento concuerda con el peldaño que resolvió la aritmética?
+   *
+   * `origen_unidad` NO decide el peldaño: el documento se elige por **parecido de precio** y se
+   * desempata por fecha/folio, así que su etiqueta puede contradecir al número. Medido en el SKU
+   * 30540: la plaza 00 tiene 19 documentos dentro del 1 % con dos etiquetas distintas ("500" y
+   * "KG"), y en la 05 el desempate rotuló en kilos un costo de 500 g.
+   *
+   * **Ternaria a propósito**: `null` = no se pudo juzgar, y son tres ausencias distintas (sin
+   * etiqueta, sin peldaño resuelto, o el rótulo choca entre peldaños — 24.8 % del catálogo tiene
+   * la unidad base con el mismo nombre que la segunda). Un booleano no puede decir "no sé".
+   * Medido en prod al cerrarlo: 14,682 concuerdan · **65 se contradicen** (32 accionables).
+   */
+  origen_unidad_coherente?: boolean | null;
   /** `[CE.12]` el almacén que lo dejó, el folio como lo numera Kepler, y el tamaño del papel. */
   origen_almacen?: string | null;
   origen_doc_id?: string | null;

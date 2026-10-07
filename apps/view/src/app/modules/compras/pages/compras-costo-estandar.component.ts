@@ -413,6 +413,9 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
                   @if (d.origen_nombre_ambiguo) {
                     <span class="ce-warn">⚠ El catálogo del ERP trae más de un nombre para este mismo código: el rótulo puede no ser exacto.</span>
                   }
+                  @if (d.origen_unidad_coherente === false) {
+                    <span class="ce-warn">⚠ La unidad de este documento NO concuerda con el peldaño en el que vive el costo. El documento se encuentra buscando un precio parecido al 1 %, y cuando varios empatan gana el más reciente: la unidad que dice acá salió de ese desempate, no del costo. El número de arriba se resolvió contra los peldaños de la ficha y no cambia.</span>
+                  }
                 </p>
               } @else if (d.origen_familia === null) {
                 <p class="ce-origen is-nd">
