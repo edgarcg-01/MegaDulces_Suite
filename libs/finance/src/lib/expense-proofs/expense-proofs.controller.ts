@@ -10,7 +10,10 @@ import { ExpenseProofsService, CreateExpenseProofDto, ListExpenseProofsQuery, ty
 import type { SolicitudKepler } from './expense-proofs.service';
 // `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
 import type { ValeAsignado } from '@megadulces/contracts';
+// `[GX.71]` Quién ve el historial de TODOS: una regla, la misma que usa la pantalla.
+import { puedeVerHistorialDeTodos } from '@megadulces/contracts';
 import type { CalendarioDelMes } from './calendario-gastos';
+import { filtroExpedienteDesdeQuery } from './expediente-filtro';
 
 interface AuthedRequest { user?: { sub?: string; username?: string; full_name?: string; role_name?: string; permissions?: Record<string, boolean> }; }
 
@@ -49,10 +52,14 @@ export class ExpenseProofsController {
    *
    * ⚠️ Quien sólo captura NO pierde nada: `GET /mine` le sigue dando lo suyo, acotado por
    * su token.
+   *
+   * `[GX.71]` Además del rol de plataforma, abre la llave `FINANCE_EXPENSES_HISTORIAL_TODOS`,
+   * que se da **por persona** (primera: Mayra Gutiérrez, 2026-10-07). `_VER` sigue sin alcanzar.
+   * La regla vive en `puedeVerHistorialDeTodos` (contrato), la misma que decide la pestaña.
    */
   @Get()
-  @RequirePermissions(Permission.FINANCE_EXPENSES_VER)
-  @ApiOperation({ summary: '[GX.26] Historial de gasto de toda la empresa + KPIs. SÓLO god-mode (admin/superadmin): devuelve los expedientes de todas las personas. Lo propio se pide por /mine.' })
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS)
+  @ApiOperation({ summary: '[GX.26/GX.71] Historial de gasto de toda la empresa + KPIs. Sólo god-mode (admin/superadmin) o quien tenga FINANCE_EXPENSES_HISTORIAL_TODOS (por persona): devuelve los expedientes de todas las personas. Lo propio se pide por /mine.' })
   list(
     @Query('status') status?: string,
     @Query('folio_solicitud') folio_solicitud?: string,
@@ -63,8 +70,8 @@ export class ExpenseProofsController {
     @Query('dia') dia?: string,
     @Req() req?: AuthedRequest,
   ): ReturnType<ExpenseProofsService['list']> {
-    if (!isPlatformAdminRole(req?.user?.role_name)) {
-      throw new ForbiddenException('el historial de toda la empresa es sólo para administradores de la plataforma; lo tuyo está en /mine');
+    if (!puedeVerHistorialDeTodos(req?.user, isPlatformAdminRole)) {
+      throw new ForbiddenException('el historial de toda la empresa es sólo para administradores de la plataforma o con el permiso «Ver el historial de gastos de TODOS»; lo tuyo está en /mine');
     }
     const q: ListExpenseProofsQuery = { status, folio_solicitud, search, from, to, dia, limit: limit ? Number(limit) : undefined };
     return this.svc.list(q);
@@ -96,8 +103,9 @@ export class ExpenseProofsController {
     return this.svc.solicitudExacta(folio, sucursal, req?.user);
   }
 
+  // `[GX.71]` HISTORIAL_TODOS también abre lo propio: quien ve el historial de todos ve el suyo.
   @Get('mine')
-  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS)
   @ApiOperation({ summary: 'Lo que capturó ESTE usuario. Ruta propia: abrir la bandeja completa a quien sólo captura le daría los comprobantes de toda la empresa.' })
   async mine(@Query('limit') limit?: string, @Query('search') search?: string, @Query('dia') dia?: string, @Req() req?: AuthedRequest):
     Promise<Awaited<ReturnType<ExpenseProofsService['list']>> & { asignados: ValeAsignado[] }> {
@@ -157,16 +165,17 @@ export class ExpenseProofsController {
    * Cualquier otro valor cae en «lo mío», que es lo que todos pueden ver de sí mismos.
    */
   @Get('calendario')
-  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)
-  @ApiOperation({ summary: '[GX.27] Calendario del mes (YYYY-MM): por día, cuántos levantamientos y cuánto sumaron. `alcance=todos` es de toda la empresa y exige god-mode; cualquier otro valor devuelve lo del propio usuario.' })
+  @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS)
+  @ApiOperation({ summary: '[GX.27/GX.71] Calendario del mes (YYYY-MM): por día, cuántos levantamientos y cuánto sumaron. `alcance=todos` es de toda la empresa y exige god-mode o FINANCE_EXPENSES_HISTORIAL_TODOS; cualquier otro valor devuelve lo del propio usuario.' })
   calendario(
     @Query('mes') mes?: string,
     @Query('alcance') alcance?: string,
     @Req() req?: AuthedRequest,
   ): Promise<CalendarioDelMes> {
-    const esGod = isPlatformAdminRole(req?.user?.role_name);
-    if (alcance === 'todos' && !esGod) {
-      throw new ForbiddenException('el calendario de toda la empresa es sólo para administradores de la plataforma');
+    // `[GX.71]` La MISMA regla que `GET /`: si divergieran, el calendario contaría por área lo
+    // que la colección niega.
+    if (alcance === 'todos' && !puedeVerHistorialDeTodos(req?.user, isPlatformAdminRole)) {
+      throw new ForbiddenException('el calendario de toda la empresa es sólo para administradores de la plataforma o con el permiso «Ver el historial de gastos de TODOS»');
     }
     if (alcance === 'todos') return this.svc.calendarioMes(mes);
     const actor = req?.user?.full_name || req?.user?.username || '';
@@ -220,9 +229,15 @@ export class ExpenseProofsController {
   // Va ANTES de ':id' o la ruta paramétrica se la traga (misma trampa que las de arriba).
   @Get('expediente')
   @RequirePermissions(Permission.FINANCE_EXPENSES_COMPROBAR)
-  @ApiOperation({ summary: '[GX.59] Expediente: los vales de todas las personas, agrupados por usuario (nombre + username), con el veredicto del protocolo. Para quien autoriza gastos.' })
-  expediente(@Query('limit') limit?: string): ReturnType<ExpenseProofsService['expedientePorUsuario']> {
-    return this.svc.expedientePorUsuario(limit ? Number(limit) : undefined);
+  @ApiOperation({ summary: '[GX.59/GX.72] Expediente: los vales de todas las personas, agrupados por usuario (nombre + username), con el veredicto del protocolo. Para quien autoriza gastos. Filtros opcionales: `desde`/`hasta` (AAAA-MM-DD, día de México en que se levantó el vale, inclusive) y `departamento` (exacto, o `__sin__` para los que no traen). Un filtro inválido da 400, nunca se ignora.' })
+  expediente(
+    @Query('limit') limit?: string,
+    @Query('desde') desde?: string,
+    @Query('hasta') hasta?: string,
+    @Query('departamento') departamento?: string,
+  ): ReturnType<ExpenseProofsService['expedientePorUsuario']> {
+    return this.svc.expedientePorUsuario(limit ? Number(limit) : undefined,
+      filtroExpedienteDesdeQuery({ desde, hasta, departamento }));
   }
 
   // Va después de las rutas GET estáticas: declarada antes, ':id' se tragaría
@@ -251,6 +266,8 @@ export class ExpenseProofsController {
     Permission.FINANCE_EXPENSES_VER,
     Permission.FINANCE_EXPENSES_CAPTURAR,
     Permission.FINANCE_EXPENSES_COMPROBAR,
+    // `[GX.71]` Quien ve el historial de todos abre el vale que ese historial le muestra.
+    Permission.FINANCE_EXPENSES_HISTORIAL_TODOS,
   )
   @ApiOperation({
     summary: 'Detalle de una solicitud con los adjuntos re-firmados (el visor de la evidencia).',

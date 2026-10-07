@@ -12,6 +12,12 @@ describe('MS.3.14 · ubicaciones que no son sucursal', () => {
     expect(ubicacionExtra('OF')).toBe('OF');
     expect(nombreUbicacionExtra('OF')).toBe('Oficinas Corporativas');
   });
+  it('⭐ `[MS.7.14]` «EC» es el Estacionamiento CEDIS, y no se confunde con el CEDIS (`00`) ni con las oficinas', () => {
+    expect(nombreUbicacionExtra('EC')).toBe('Estacionamiento CEDIS');
+    expect(ubicacionExtra('ec')).toBe('EC');
+    expect(nombreUbicacionExtra('OF')).toBe('Oficinas Corporativas');
+    expect(ubicacionExtra('00')).toBeNull();
+  });
   it('se acepta sin distinguir mayúsculas ni espacios, y se guarda en el código canónico', () => {
     expect(ubicacionExtra('of')).toBe('OF');
     expect(ubicacionExtra('  Of ')).toBe('OF');

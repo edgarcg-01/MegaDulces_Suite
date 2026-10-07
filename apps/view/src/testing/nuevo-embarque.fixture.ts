@@ -85,6 +85,26 @@ export function hojaGuia0001419(over: Partial<NuevoEmbarqueHoja> = {}): NuevoEmb
   };
 }
 
+/**
+ * La guía con TODAS sus rutas tarifadas. La real trae SANTAGIO TANGAMNADAPIO sin tarifa, y desde
+ * que la comisión se calcula (2026-10-07) eso frena la toma — es lo correcto, pero las pruebas de
+ * lo que pasa cuando SÍ se puede crear necesitan una guía tarifada. La tarifa de SANTAGIO aquí es
+ * SUPUESTA (menor que JIQUILPAN, así que la del viaje sigue siendo 98.04 / 57.76).
+ */
+export function conTarifaCompleta(h: NuevoEmbarqueHoja): NuevoEmbarqueHoja {
+  return {
+    ...h,
+    comision: {
+      ...h.comision,
+      emparejadas: [
+        ...h.comision.emparejadas,
+        { clave: 'R0041', nombre: 'SANTAGIO TANGAMNADAPIO', route_id: 'cccccccc-0000-4000-8000-000000000041', metodo: 'kepler_code', driver: 87.72, helper: 54.72 },
+      ],
+      sin_tarifa: [],
+    },
+  };
+}
+
 /** La misma guía, pero como sale la unidad 00008 de Padre Hidalgo: sin chofer en Kepler. */
 export function hojaSinChofer(): NuevoEmbarqueHoja {
   const h = hojaGuia0001419();

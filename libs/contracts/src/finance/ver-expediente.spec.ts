@@ -1,6 +1,8 @@
 import {
-  MENSAJE_EXPEDIENTE_AJENO, PERMISOS_VEN_CUALQUIER_EXPEDIENTE, puedeVerCualquierExpediente,
+  MENSAJE_EXPEDIENTE_AJENO, PERMISOS_VEN_CUALQUIER_EXPEDIENTE, PERMISO_HISTORIAL_TODOS,
+  puedeVerCualquierExpediente, puedeVerHistorialDeTodos,
 } from './ver-expediente.contract';
+import { Permission } from '../authz/permissions';
 import { esDuenoDelVale } from './dueno-del-vale.contract';
 
 /**
@@ -66,9 +68,48 @@ describe('[GX.68] puedeVerCualquierExpediente', () => {
   });
 
   /** La lista es la del contrato: si alguien agrega una clave, que se vea acá. */
-  it('las claves que abren son exactamente dos', () => {
+  it('las claves que abren son exactamente tres', () => {
     expect([...PERMISOS_VEN_CUALQUIER_EXPEDIENTE])
-      .toEqual(['FINANCE_EXPENSES_VER', 'FINANCE_EXPENSES_COMPROBAR']);
+      .toEqual(['FINANCE_EXPENSES_VER', 'FINANCE_EXPENSES_COMPROBAR', 'FINANCE_EXPENSES_HISTORIAL_TODOS']);
+  });
+
+  /** `[GX.71]` Quien ve el historial de todos abre los vales que ese historial le muestra. */
+  it('`[GX.71]` HISTORIAL_TODOS también abre el vale de cualquiera', () => {
+    expect(puedeVerCualquierExpediente({ permissions: { FINANCE_EXPENSES_HISTORIAL_TODOS: true } })).toBe(true);
+  });
+});
+
+/**
+ * `[GX.71]` El historial de TODA la empresa: god-mode o la llave por persona. Nada más.
+ * La puerta angosta de `[GX.26]` se conserva — sólo se le agrega una llave con nombre.
+ */
+describe('[GX.71] puedeVerHistorialDeTodos', () => {
+  it('admin de plataforma lo ve sin la llave', () => {
+    expect(puedeVerHistorialDeTodos({ role_name: 'superadmin', permissions: {} }, esAdmin)).toBe(true);
+  });
+
+  it('⭐ la llave por persona lo abre sin ser admin (el caso de Mayra)', () => {
+    expect(puedeVerHistorialDeTodos({ role_name: 'finanzas_operativo', permissions: { [PERMISO_HISTORIAL_TODOS]: true } }, esAdmin)).toBe(true);
+  });
+
+  /** ⛔ La razón de `[GX.26]`: ver gastos (25 personas) o firmarlos NO alcanza. */
+  it('⛔ NEGATIVA: VER, VER_ALL, COMPROBAR o CAPTURAR no abren el historial de todos', () => {
+    for (const k of ['FINANCE_EXPENSES_VER', 'FINANCE_EXPENSES_VER_ALL', 'FINANCE_EXPENSES_COMPROBAR', 'FINANCE_EXPENSES_CAPTURAR']) {
+      expect(puedeVerHistorialDeTodos({ role_name: 'tesoreria', permissions: { [k]: true } }, esAdmin)).toBe(false);
+    }
+  });
+
+  /** Las claves van como literales (el contrato no importa el enum): que no se separen de él. */
+  it('los literales del contrato existen en el enum Permission', () => {
+    expect(PERMISO_HISTORIAL_TODOS).toBe(Permission.FINANCE_EXPENSES_HISTORIAL_TODOS);
+    const enumValues = Object.values(Permission) as string[];
+    for (const k of PERMISOS_VEN_CUALQUIER_EXPEDIENTE) expect(enumValues).toContain(k);
+  });
+
+  it('⛔ NEGATIVA: la llave en `false` no abre, ni sin usuario', () => {
+    expect(puedeVerHistorialDeTodos({ permissions: { [PERMISO_HISTORIAL_TODOS]: false } }, esAdmin)).toBe(false);
+    expect(puedeVerHistorialDeTodos(null, esAdmin)).toBe(false);
+    expect(puedeVerHistorialDeTodos({}, esAdmin)).toBe(false);
   });
 });
 

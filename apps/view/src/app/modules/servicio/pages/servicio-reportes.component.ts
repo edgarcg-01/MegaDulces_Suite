@@ -1,8 +1,9 @@
-import { ChangeDetectionStrategy, Component, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
+import { SelectModule } from 'primeng/select';
 import type { SdReportResponse } from '@megadulces/contracts';
 import { PRIORITY_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
 import { fmtCumplimiento, fmtMin, fmtPct, fmtTiempo, notaCumplimiento } from '../report-format';
@@ -28,7 +29,7 @@ function restarDias(fecha: string, n: number): string {
 @Component({
   selector: 'app-servicio-reportes',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, SelectModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="sr-page">
@@ -42,6 +43,12 @@ function restarDias(fecha: string, n: number): string {
       <section class="sr-filtros" aria-label="Periodo">
         @for (p of presets; track p.dias) {
           <button type="button" class="sr-chip" [class.on]="preset() === p.dias" (click)="aplicarPreset(p.dias)">{{ p.label }}</button>
+        }
+        <!-- [MS.7.18] Sólo si coordina MÁS de una cola: con una sola no hay nada que elegir. -->
+        @if ((r()?.colas?.length ?? 0) > 1) {
+          <label class="sr-fecha"><span>Cola</span>
+            <p-select [options]="opcionesCola()" optionLabel="name" optionValue="id" [ngModel]="cola()" (ngModelChange)="elegirCola($event)"
+                      appendTo="body" ariaLabel="Cola" /></label>
         }
         <label class="sr-fecha"><span>Desde</span><input pInputText type="date" [(ngModel)]="desde" aria-label="Desde" /></label>
         <label class="sr-fecha"><span>Hasta</span><input pInputText type="date" [(ngModel)]="hasta" aria-label="Hasta" /></label>
@@ -208,6 +215,9 @@ export class ServicioReportesComponent implements OnInit {
   readonly r = signal<SdReportResponse | null>(null);
   readonly error = signal<string | null>(null);
   readonly cargando = signal(false);
+  /** `[MS.7.18]` La cola elegida (`null` = todas las que coordina). */
+  readonly cola = signal<string | null>(null);
+  readonly opcionesCola = computed(() => [{ id: null as string | null, name: 'Todas mis colas' }, ...(this.r()?.colas ?? []).map((c) => ({ id: c.id as string | null, name: c.name }))]);
   /** Cuál preset está activo (`null` = fechas a mano). */
   readonly preset = signal<number | null>(30);
   desde = restarDias(hoyMx(), 29);
@@ -227,6 +237,11 @@ export class ServicioReportesComponent implements OnInit {
     this.cargar();
   }
 
+  elegirCola(id: string | null): void {
+    this.cola.set(id);
+    this.cargar();
+  }
+
   medido(iso: string): string {
     return new Date(iso).toLocaleString('es-MX', { timeZone: 'America/Mexico_City', dateStyle: 'medium', timeStyle: 'short' });
   }
@@ -234,7 +249,7 @@ export class ServicioReportesComponent implements OnInit {
   private cargar(): void {
     this.cargando.set(true);
     this.error.set(null);
-    this.api.report(this.desde, this.hasta).subscribe({
+    this.api.report(this.desde, this.hasta, this.cola() ?? undefined).subscribe({
       next: (d) => { this.r.set(d); this.cargando.set(false); },
       error: (e) => { this.cargando.set(false); this.error.set(sdError(e, 'No se pudo cargar el reporte.')); },
     });
