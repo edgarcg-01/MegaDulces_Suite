@@ -941,6 +941,13 @@ const CRON_JOBS: CronCfg[] = [
   // `sales_daily`. Sin esta fila, `db-health` lo clasifica con el `cfg ? classify : 'ok'` que
   // la Fase VP midió dando verde incondicional a las 3 matvistas del sell-out.
   { key: 'budget_autopilot',    label: 'Presupuesto que se mantiene solo',  cadence: 'diario 03:30 MX', warnH: 30, critH: 54 },
+  // `[RD.20]` La quincena de comisiones que se calcula sola (`CommissionRunnerService`, 08:30 MX).
+  // Existe porque el motor llevaba un mes en prod con **cero corridas**: calcular dependia de que
+  // alguien abriera la pantalla, y la costumbre del Excel ganaba. Esto paga a 13 choferes y 3
+  // supervisores, asi que el carril que lo prepara tiene que ser visible.
+  // ⚠️ Late TODOS los dias aunque no haya quincena que cerrar (declara su cero con motivo), por
+  // eso el umbral es el de un job diario: warn al saltarse una corrida, critico a las dos.
+  { key: 'rd_commission_runner', label: 'Comisiones RD — corrida de la quincena', cadence: 'diario 08:30 MX', warnH: 30, critH: 54 },
   // `[VE.4]` El quinto motor, que vive en `FinancePaymentCalendarModule` porque éste ya importa
   // al de Presupuestos y al revés sería un ciclo. Corre 20 min después, porque lee el plan de
   // gastos que el de arriba acaba de escribir. Mismo criterio de umbral: job diario.
