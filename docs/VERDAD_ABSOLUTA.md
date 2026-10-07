@@ -377,6 +377,39 @@ es ruido con voto.
 | `U-D-13` | Factura Cred No Fiscal | ⛔ es el **traspaso** al CEDIS |
 | `U-D-40` / `U-D-41` | Pedido / Embarque | ⛔ no son venta |
 
+⛔ **Excepción medida: en las RUTAS VECINALES, `U-D-12` re-factura el ticket.** Al repartidor le
+piden comprobante, así que la misma venta queda dos veces. Medido por línea (mismo cliente, día,
+SKU y cantidad), **con placebo contra otra ruta**:
+
+```
+ruta vecinal PH (ago)   2,870 de 2,876 líneas ya estaban en U-D-10   99.8%   placebo 0
+resto de la sucursal       58 de   184                               31.5%
+Morelia 2V001 (sep)     1,686 de 1,686                              100.0%   placebo 0
+Morelia 2V003 (sep)     3,194 de 3,262                               97.9%   placebo 0
+```
+
+El contraste con *"el resto de la sucursal"* es lo que lo vuelve un hallazgo y no una corazonada:
+fuera de las rutas, `U-D-12` es venta genuina en su mayoría. **La regla general no cambia; se
+precisa para ese universo** — *una medición sobre otro universo es otra afirmación*.
+⚠️ `analytics.mv_kepler_sales_daily` **sí lo suma**, así que el sell-out dobla la venta vecinal
+($577,086 sólo en PH agosto). Pendiente: exige recrear una matview de 878k filas con 5
+dependientes.
+
+### 4.4-bis ⭐ La CAJA es parte de la llave del ticket (`c5`), y el folio no es único sin ella
+
+`U-D-10` es *"Ticket Contado Caja N"*: **`kdm1.c5` y `kdm2.c5` son la caja** — en las líneas, lo
+que varía por renglón es **`c7`** — y **los folios se numeran por caja**, así que el ticket 881
+existe en la caja 1, en la 2 y en la 4.
+
+Unir cabecera y líneas sin `c5` le pega a cada ticket las líneas de sus homónimos de las otras
+cajas. Medido el 2026-10-06, es lo que hacía el feed de rutas vecinales: **$9,164,175.91
+publicados contra $4,417,300.50 reales, 2.07×**, sostenido durante meses porque nada comparaba la
+cifra contra un testigo que no compartiera el método.
+
+**El árbitro es `kdm1.c16`** (total del documento): no depende del join y cuadra al centavo con el
+join correcto. El ticket se cuenta por **`(caja, folio)`**; contarlo por folio sub-cuenta (6,497
+tickets reales contra 4,883).
+
 ⚠️ **El corte tiene que ser el MISMO en el fact y en el sell-out** (`mart.ventas` y
 `analytics.mv_kepler_sales_daily`). Cuando divergieron, las dos superficies se contradecían entre sí
 por **$16,071,965 / 90 d**.
