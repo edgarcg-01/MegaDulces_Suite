@@ -2579,3 +2579,24 @@ Plan, capas y sprints en [`FASE_MS_MESA_DE_SERVICIO.md`](FASES/FASE_MS_MESA_DE_S
 **Lo que se DECLARA y no se hace (ADR-056).** El regalo por cantidad (`free_goods`) no genera renglón hijo; el descuento del cliente (capa de documento, `kdud`) no se aplica todavía al pedido; la reserva de inventario y el bot de WhatsApp siguen con `resolvePriceForQty` y van a mostrar otro precio hasta migrarlos; varios productos traen `tax_rate = 0` en la lista de precios (42029, 70001, 57009), lo que no cambia el total cobrado pero sí el reparto subtotal/impuesto.
 
 **Hereda:** ADR-016 (el motor pone el número; el vendedor no inventa descuentos) · ADR-040 (read-only sobre el ERP) · ADR-055/057 (la unidad se resuelve contra la escalera de ese SKU, no por rótulo) · ADR-056 · ADR-059 (el precio se arbitra con evidencia del mismo ERP y la misma sucursal).
+
+## ADR-084 — Mega Talento entra a la Suite como el espacio Recursos Humanos: una persona, un lector de relojes, un libro de WhatsApp
+
+**Estado:** propuesto 2026-10-06 (Fase RH). **Contexto.** Mega Talento (reclutamiento con bot de WhatsApp, asistencia de 12 relojes ZKTeco, incidencias y cierre semanal para prenómina) corre fuera de la Suite: API Express + front Angular + bot en Railway, un agente de Windows en una PC del corporativo, y su esquema en una base Postgres de Railway **compartida con otros cuatro sistemas**. Medido antes de decidir: (1) el "sistema del proveedor" del que el agente leía checadas es la **Fase CH de la propia Suite** (mismo esquema `hr.*`, misma carga del 2026-08-17: 129,461 vs 129,477 filas); (2) se escribieron **cuatro lectores** para los mismos relojes (un ZKTeco acepta una sola sesión TCP) y el único vivo corre en **una laptop**; (3) la Suite ya decidió que **el usuario ES la persona** (`[OR.0]`) y tiene el espacio Recursos Humanos `planned` y vacío, con `[ID.16]` bloqueado por falta de módulo; (4) Mega Talento expone en producción endpoints sin autenticación con datos personales.
+
+**Decisión.**
+
+1. **Persona = `identity.users`.** Los ~500 empleados del padrón de relojes entran como `kind='interno'`, `status='invited'` sin contraseña (o `terminated`), con `department_code`, `position_code` y `warehouse_code` mapeados **y validados por RH**. `hr.employees` se retira; `hr.device_enrollments` apunta a `identity.users`.
+2. **Un solo lector de relojes:** el agente de Mega Talento, movido al monorepo y corriendo en el namespace `ingesta` de `md`, empuja a la API con llave que falla cerrada; latido de entrega con umbral en `CRON_JOBS`. Es la **excepción declarada** a "CERO importers": la marca del reloj no existe en el ODS.
+3. **Los datos históricos entran por una carga única y verificada por corte**, no por un importer: se corre una vez, deja un reporte de cuadre, y si no cuadra no hay corte.
+4. **Esquemas:** asistencia en `hr.*` (extiende la Fase CH); reclutamiento en `talent.*`; la conversación del bot en `whatsapp.*` (un solo libro). Permisos con prefijo `HR_*`, cada uno repartido por migración.
+5. **Orden:** asistencia primero; reclutamiento y bot en el **mismo** corte (el bot escribe directo en candidatos). La app vieja queda de sólo lectura dos semanas tras cada corte.
+6. **El portal de candidatos** son rutas públicas de `apps/view` con token firmado (patrón `/captura/:token`); el id del candidato deja de funcionar como contraseña.
+
+**Se rechaza:** mantener Mega Talento o el bot como apps con entrypoint propio (estándar de la Fase CV); una tabla de empleados paralela a `identity.users`; dos lectores de relojes "mientras tanto"; sincronizar dos bases durante la transición; copiar el CSS y las pantallas tal cual en lugar de reescribirlas con `DESIGN.md`; migrar los esquemas de los otros sistemas que comparten la base de Railway.
+
+**Consecuencias.** `identity.users` crece de ~130 a ~600 filas y `/admin/users` necesita distinguir "con acceso / sin acceso". La Suite gana asistencia real (la base de la nómina) y un segundo número de WhatsApp en `libs/whatsapp`. Al terminar se apagan tres servicios de Railway y un servicio de Windows, y se rota la contraseña de la base compartida.
+
+**Hereda:** ADR-010 (`tenant_id` + RLS) · ADR-053 (el latido mide entrega) · ADR-054 (permiso = clave; declarar no es entregar) · ADR-056 (lo no medido se declara) · ADR-061 (el espacio se deriva del mapa de la suite) · ADR-081 (no hay tabla `tickets`; el patrón de reparto de permisos).
+
+Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FASE_RH_MIGRACION_MEGA_TALENTO.md).
