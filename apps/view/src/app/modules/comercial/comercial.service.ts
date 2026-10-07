@@ -2010,6 +2010,15 @@ export class ComercialService {
 
   // ── RD.6 · comisiones de Ruta Directa ────────────────────────────────────────
   /** Quincenas del año, cada una con su corrida viva si la tiene. */
+  /**
+   * RD.21 — el tablero del año en UNA consulta sobre tablas. Es lo único que la pantalla pide
+   * al abrir. Medido contra prod: **2.7 ms**, contra los 5,762 ms que cuesta calcular una
+   * quincena. Por eso la pantalla no dispara cálculos: eso lo hace el cron.
+   */
+  commissionBoard(anio: number) {
+    return this.http.get<CommissionBoardRow[]>(`${this.base}/commissions/board`,
+      { params: new HttpParams().set('anio', String(anio)) });
+  }
   commissionPeriods(anio?: number) {
     let params = new HttpParams();
     if (anio) params = params.set('anio', String(anio));
@@ -3997,25 +4006,16 @@ export interface CommissionPeriod {
 export interface CommissionLine {
   route_code: string; beneficiario: 'chofer' | 'supervisor';
   chofer_nombre?: string | null; supervisor_nombre?: string | null;
+  /** RD.21 — a quién se le paga, CONGELADO en la línea. Es lo que lee la pantalla. */
+  beneficiario_nombre?: string | null;
+  zona?: string | null;
   subtotal: number | null; venta: number | null; costo: number | null;
   cogs_ruta: number | null; cogs_erp: number | null;
   /** ⚠️ Es MARKUP sobre costo, no margen. Los umbrales del bono están calibrados contra ésta. */
   markup_sobre_costo_pct: number | null;
   margen_sobre_venta_pct: number | null;
-  venta_arbitro: string | null; costo_veredicto: string | null; traslape_subtotal: number;
-  /**
-   * `[RD.40]` De dónde salió el subtotal: `erp` o el tramo DERIVADO de la tasa del push. La
-   * pantalla sólo lo nombra cuando NO es `erp` (`comercial-comisiones.component.ts:145`).
-   *
-   * ⚠️ Copiado VERBATIM del DTO del servidor (`commercial-commissions.service.ts:74`). Faltaba
-   * acá y rompía el build de `main` con TS2339: el servidor lo agregó y esta copia no se enteró
-   * —el mismo defecto que `link_to` el 2026-10-06, en otro archivo—. Es ADR-052: mientras
-   * `CommissionLine` esté escrita DOS veces (servidor y front) en vez de vivir en
-   * `libs/contracts`, el compilador no puede avisar hasta que alguien usa el campo nuevo.
-   */
-  subtotal_origen?: string | null;
-  /** Hermano de `subtotal_origen`, del mismo DTO. Se declara junto para que no se vuelvan a separar. */
-  costo_status?: string | null;
+  /** Las capturas que compusieron el periodo (wincaja/push/kepler_vecinal), unidas por +. */
+  fuentes: string | null; costo_veredicto: string | null; dias_multifuente: number;
   pct_aplicado: number | null; comision: number; bonos: number;
   bonos_detalle: { nombre: string; monto: number; metrica: string; umbral: number }[];
   bono_veredicto: string | null;
@@ -4028,19 +4028,9 @@ export interface CommissionRunPayload {
   scale: { id: string; code: string; base_field: string; gate_field: string; share_supervisor_pct: number };
   total_subtotal: number; total_venta: number; total_comision: number;
   /** Bruto. El neto es `total_neto`. */
-  total_a_pagar: number;
-  /**
-   * ⚠️ NULABLES a propósito. Este payload lo llenan DOS caminos: el cálculo en vivo, que siempre
-   * los computa, y `loadRun`, que lee una corrida GUARDADA (`CommissionRunDetail`), donde la
-   * columna puede venir en `null` porque esa corrida es anterior a `[RD.40]`.
-   *
-   * Poner `0` ahí sería dibujar un cero sobre algo que no se midió — lo que el proyecto prohíbe.
-   * `null` dice «esta corrida no lo trae», que es la verdad. Hoy nadie los lee en la pantalla
-   * (verificado); quien los pinte tiene que decidir qué mostrar cuando son `null`.
-   */
-  total_deduccion: number | null; total_neto: number | null;
-  traslape_subtotal: number | null;
-  rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number | null;
+  total_a_pagar: number; total_deduccion: number; total_neto: number;
+  dias_multifuente: number;
+  rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number;
   data_as_of: string | null;
   gates: CommissionGate[];
   beneficiarios: CommissionBeneficiario[];
@@ -4051,12 +4041,36 @@ export interface CommissionRunDetail {
   id: string; status: string; total_subtotal: string | number; total_venta: string | number;
   total_comision: string | number; total_a_pagar: string | number;
   total_deduccion: string | number | null; total_neto: string | number | null;
-  traslape_subtotal: string | number | null;
+  dias_multifuente: number | null;
   rutas_con_dato: number; rutas_sin_dato: number; rutas_fuera: number | null;
   data_as_of: string | null; gates: CommissionGate[] | null; origen: string | null;
+  /** Cuándo se calculó esta corrida. La pantalla lo publica: una cifra sin su hora no se defiende. */
+  updated_at: string | null;
   notes: string | null;
   period?: { anio: number; period_no: number; date_from: string; date_to: string; pay_date: string | null };
   lines: (CommissionLine & { id: string })[];
+}
+/**
+ * RD.21 — una quincena del tablero, con su corrida si la tiene. Es la forma que devuelve
+ * `GET /commissions/board`: una fila por periodo, ya resuelta en el servidor.
+ *
+ * ⚠️ Las fechas llegan como **texto `YYYY-MM-DD`**, no como ISO con hora. El servidor las
+ * formatea con `to_char` a propósito: `pg` devuelve `date` como objeto `Date` y convertirlo a
+ * texto en el cliente lo imprime en UTC, o sea con el **día cambiado** en hora de México — el
+ * defecto que `[LC.16]` ya pagó una vez.
+ */
+export interface CommissionBoardRow {
+  period_id: string; period_no: number;
+  date_from: string; date_to: string; pay_date: string | null;
+  run_id: string | null;
+  status: 'en_curso' | 'borrador' | 'bloqueada' | 'aprobado' | 'pagado' | null;
+  origen: string | null;
+  total_subtotal: number | null; total_comision: number | null;
+  total_a_pagar: number | null; total_deduccion: number | null; total_neto: number | null;
+  rutas_con_dato: number | null; rutas_sin_dato: number | null; rutas_fuera: number | null;
+  gates: CommissionGate[] | null;
+  data_as_of: string | null;
+  updated_at: string | null;
 }
 /** RD.17 — una fila del universo derivado de rutas. */
 export interface CommissionUniverseRow {
