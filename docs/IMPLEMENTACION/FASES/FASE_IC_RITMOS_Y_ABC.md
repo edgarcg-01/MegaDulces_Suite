@@ -33,7 +33,7 @@ encima de un ciclo que no cierra, en un mes vamos a estar midiendo lo mismo.
 
 | Lo que pediste | Qué existe hoy | Qué le falta |
 |---|---|---|
-| **Diario · productos top por sucursal** | `analytics.v_count_priority_score` (IC.4): 4 señales — `s_abc`, `s_venta`, `s_parado`, `s_descuadre` — con `senales_usadas` y `score_salvedad`. **Es exactamente el motor que esto necesita.** | No hay cadencia diaria (hoy A=30 · B=90 · C=365), tarda **10.6 s**, y no hay quien abra el folio |
+| **Diario · productos top por sucursal** | ⛔ **Esta fila decía que `v_count_priority_score` (IC.4) «es exactamente el motor que esto necesita». Medido el 2026-10-07, es falso** (ver `[IC.17]`): cubre el **5.5% del COGS con 4× el esfuerzo**, porque suma `s_venta` y `s_parado`, que se oponen. El motor del diario es **`analytics.sales_daily`**, el hecho de venta | Cadencia diaria (hoy A=30 · B=90 · C=365), el filtro de velocidad por `v_unit_truth`, el cupo en piezas, y quien abra el folio |
 | **Mensual · mayor diferencia** | `analytics.v_sku_count_variance_history` (IC.3): `veces_descuadro`, `tasa_descuadre`, `pesos_abs/neto`, `retencion` y **`patron`** (sobra / merma / se_compensa / mixto / sin_dinero) | No hay un folio que se siembre *desde* esta vista; el `patron` no llega a ninguna bandeja de causa |
 | **Trimestral · Kepler** | `analytics.mv_erp_physical_count_variance` + `/almacen/inventory/diferencias` (IC.0/IC.12). **Correcto: ya lo tenemos.** | Nada de fondo. Pendiente sólo el redeploy que ya está en cola |
 | **ABC desglosado** | `commercial.abc_classification` con `annual_value`, `value_share`, `costo_source`, `clase_motivo`; definición en `analytics.v_abc_class` | El «por qué» que guarda hoy responde *otra* pregunta; falta el rango, el aporte individual y la distancia al corte |
@@ -130,7 +130,7 @@ materializarlo, igual que se hizo con `mv_erp_physical_count_variance` en IC.12.
 | **1** | **Nadie ha cerrado un folio** | La cadencia no arranca, el IRA no tiene base, el historial propio no existe | IC.14 — un folio chico, real, cerrado de punta a punta |
 | **2** | **Un folio vivo por almacén** | El diario y el mensual **no pueden coexistir** | IC.15 — la llave pasa a `(almacén, ritmo)` + un SKU en un solo folio vivo |
 | **3** | **El reloj cuelga de `reconciled_at`** | Todo «vencido» para siempre; la priorización no ordena nada | IC.16 — el reloj por ritmo, con arranque declarado |
-| **4** | **El motor diario tarda 10.6 s** | El cron no escala y la pantalla no abre | IC.17 — materializar el score |
+| **4** | ⛔ **El motor diario era el equivocado** (el score mezcla dos ritmos opuestos: cubre 5.5% del COGS con 4× el esfuerzo) | El diario contaría pilas que no se mueven | IC.18 — el motor pasa a `sales_daily`. El score queda **sólo** para el mensual, y ahí se materializa (IC.17 re-alcanzado) |
 | **5** | **El ABC responde una sola pregunta** | $20.85 M de capital en clase C, mirado una vez al año | IC.19/IC.20 — el desglose y el eje de capital |
 
 ⭐ **La ruta crítica es 1 → 2 → 3.** Los otros dos son paralelizables. Y el #1 **no es un sprint de
@@ -151,6 +151,39 @@ Pareto **por almacén**: A hasta el 80% del valor acumulado · B 80–95% · C e
 de consumo anualizado, valuado a costo.** No es «ventas» ni «costo» — es el **movimiento de dinero**.
 
 Foto vigente en prod: **A 5,051 SKUs / $219.6 M · B 6,946 / $41.1 M · C 17,953 / $13.7 M.**
+
+De dónde sale cada ingrediente, leído de `pg_get_viewdef` el 2026-10-07 (no de memoria):
+
+| Ingrediente | Fuente real | Estado medido |
+|---|---|---|
+| `avg_daily_units` | `analytics.inventory_health` | ventana **90 días fijos** — ver §4.5 |
+| `costo_unitario` | `analytics.v_erp_unit_cost` | **29,138 de 30,059 (96.9%) de `kepler_kdik` con `tiene_testigo`** |
+| corte | Pareto por almacén | `(cum_value − annual_value) / total < 0.80` → A |
+
+⚠️ **Corrección a una afirmación previa de esta misma fase:** el costo del ABC **no sale de
+`catalog.products.cost_base`**. Sale de `v_erp_unit_cost`, que ya viene arbitrado según ADR-059.
+Sólo 917 filas caen a `catalogo_neto` sin testigo (9 de ellas clase A) y 4 a
+`catalogo_columnas_invertidas`. **El problema del `57009` es el peldaño** (`kdik.c16` viene en un
+peldaño fijo que no siempre es el base — hallazgo de `[CE.8]`), no el catálogo.
+
+Y el `clase_motivo` vivo, medido sobre los 30,059 pares: `pareto` 29,693 · `sin_demanda` 366 (**los
+366 son del CEDIS**) · `sin_costo` **cero**. La cobertura de costo está sana; el defecto está en el
+otro factor.
+
+### 4.1b El eje XYZ ya existe — y hoy no discrimina
+
+`inventory_health.xyz_class` (de `RA-PRO.2`) clasifica por variabilidad de la demanda (CV = σ/μ).
+Medido en Padre Hidalgo:
+
+| | X (estable) | Y (variable) | Z (errática) |
+|---|---:|---:|---:|
+| A | **12** | 158 | **536** |
+| B | 0 | 17 | 1,158 |
+| C | 0 | 0 | 2,142 |
+
+**536 de 706 clase A son Z.** Con esa distribución XYZ no separa nada: sólo está diciendo que la
+demanda de dulcería es errática, que ya se sabía. **No se usa como criterio de conteo** — se declara
+acá para que nadie lo vuelva a proponer sin medirlo.
 
 ### 4.2 El «por qué» que ya guarda, y el que falta
 
@@ -235,6 +268,85 @@ Pareto —hace bien su trabajo, que es ordenar por movimiento— es que **falta 
 **Recomendación:** las dos parametrizaciones son **consumo** (la de hoy, que manda en el reabasto y
 no se toca) y **capital parado** (nueva, que manda en el conteo). No ventas-vs-costo.
 
+### 4.5 ⛔ La ventana de 90 días fijos rompe la clase en Morelia
+
+`v_abc_class` divide siempre entre 90 días. Medido contra el COGS real de `analytics.sales_daily`
+(últimos 30 días), el flujo que el ABC implica (`Σ annual_value / 365`) contra el que de verdad
+ocurre:
+
+| | 01 | 02 | 03 | 04 | 05 | 06 | **07** | **08** |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| ABC ÷ COGS real | 0.64 | 0.95 | 0.90 | 0.93 | 1.20 | 0.61 | **0.30** | **0.22** |
+| días reales con datos | 2,265 | 9,776 | 270 | 278 | 9,776 | 9,776 | **29** | **18** |
+
+La causa está medida: `sales_daily` arranca el **8-sep en `07`** y el **19-sep en `08`**. Repartir 18
+días de venta entre 90 subdeclara 5×. **La clase ABC de Morelia Madero y Morelia Abastos está mal
+calculada por construcción**, y de ahí salen el 0.30 y el 0.22.
+
+⛔ **El 0.61–0.64 de Padre Hidalgo y Canindo NO queda explicado** por la ventana: tienen años de
+datos. Se declara sin causa establecida; no se inventa una.
+
+**Arreglo:** dividir entre los **días reales con datos** del almacén, no entre 90, y **publicar
+`window_days_efectivo`** al lado de la clase. Un almacén con 18 días de historia no produce la
+misma clase que uno con 9,776, y eso tiene que decirlo la columna, no adivinarlo quien la lee.
+
+### 4.6 ⭐ El ritmo decide el eje — y los dos ritmos PARTEN el catálogo
+
+Con el diario corriendo todos los días y un mensual encima, la pregunta deja de ser *«¿cuál es el
+mejor selector?»* y pasa a ser *«¿cómo se reparten el trabajo sin repetirlo?»*.
+
+**Primero, un miedo que la medición descartó.** Se asumía que una lista diaria por flujo sería
+siempre la misma y el mes entero se gastaría en 25 productos. Medido en PH, falso: el top-25 por
+COGS **del día** repite sólo **9 a 15 de 25** semana contra semana (11 semanas, jul–sep), y acumula
+**251 SKUs distintos en 30 días** (434 en 60, 510 en 84). **La cola rota sola; no hace falta
+inventar rotación artificial.**
+
+⚠️ Pero eso sólo vale si el selector es **lo que se movió ayer**, no el promedio de 30 días — ése da
+una lista casi congelada. Y el de ayer es además el correcto por otra razón: **es donde la pista
+está fresca**. Una diferencia de hoy se rastrea contra los tickets y las entradas de hoy; una de
+hace 90 días no se rastrea contra nada. ⭐ **El producto del ritmo diario es la rastreabilidad, no
+la detección.**
+
+**La partición, medida en PH (3,238 SKUs con existencia):**
+
+| | SKUs | piezas | capital | % del capital |
+|---|---:|---:|---:|---:|
+| Lo toca el **diario** (top-25 del día, 30 d) | 251 | 202,198 | $4,945,566 | **33.5%** |
+| Queda para el **mensual** | **2,987** | 468,702 | **$9,800,638** | **66.5%** |
+
+El diario se come un tercio del capital con el 8% de los productos. **Los otros dos tercios no los
+ve nunca** — y ése es el trabajo del mensual, que por lo tanto **no se define por un ranking propio
+sino por el complemento**.
+
+| | Diario | Mensual |
+|---|---|---|
+| **Pregunta** | ¿cuadra lo que se movió? | ¿dónde se acumuló la diferencia? |
+| **Selector** | COGS **de ayer**, descendente | el **complemento**: lo que el diario no tocó en *k* días |
+| **Eje ABC** | **consumo** (§4.1, el que ya existe) | **capital parado** (§4.4, el eje nuevo) |
+| **Desempate** | — | historial de descuadre (`[IC.3]`) |
+| **Cupo** | presupuesto de **piezas** | presupuesto de **piezas** |
+| **Entrega** | rastreabilidad | cobertura + dinero dormido |
+
+⭐ **El diario no necesita la letra A/B/C**: `annual_value = flujo_diario × 365`, así que ordenar la
+clase A por `annual_value` **es** ordenar por flujo. La letra sirve donde sí hay que elegir montón:
+el mensual.
+
+**La aritmética que hay que aceptar, no tapar.** Lo que el diario no toca son 2,987 SKUs:
+
+| SKUs por sesión mensual | meses para una vuelta completa |
+|---:|---:|
+| 300 | **9** |
+| 450 | 6 |
+| 900 | 3 |
+
+Con un cupo razonable **el mensual no da una vuelta al año**. No es un defecto del diseño: es el
+tamaño real del problema. Quien cierra la cobertura es el trimestral de Kepler — que §2 ya midió que
+**deja fuera 4,022 SKUs con existencia** (cobertura 69–93%). Ese hueco se **declara en la pantalla**.
+
+⚠️ **El cupo de ambos ritmos sale de un dato que no existe: piezas por hora por persona.** Lo mide
+`[IC.14]`. Hasta entonces el diseño queda parametrizado, no clavado — y «25 diarios» es, literal,
+una propuesta y no una medición.
+
 ---
 
 ## 5. Plan de implementación
@@ -305,41 +417,107 @@ es otra cosa y se muestra distinto (ADR-056: las dos ausencias no son la misma).
 
 ---
 
-### `[IC.17]` — Materializar el motor diario · paralelizable
+### `[IC.17]` — ⛔ RE-ALCANCE: el score **no** se materializa para el diario · paralelizable
 
-`analytics.mv_count_priority_score`, mismo patrón que IC.12: refresco nocturno, `UNIQUE` para
-`REFRESH CONCURRENTLY`, umbral registrado en `CRON_JOBS`, `security_invoker` y `GRANT` re-aplicados.
-**Aceptación: de 10,618 ms a <500 ms, con los mismos valores fila por fila** (candado de paridad
-vista-vs-matvista, como el del sell-out en VP.1).
+> **Este sprint decía: «materializar `v_count_priority_score` porque es el motor del ritmo diario».
+> La medición del 2026-10-07 lo tumbó.** El score no es el motor del diario (ver `[IC.18]`), así
+> que materializarlo no desbloquea nada de la ruta crítica.
 
-⚠️ Y de paso **declarar `senales_usadas`**: en 5 de los 9 almacenes el score se arma con 3 señales de
-4. Un score de 3 señales y uno de 4 **no son comparables entre sí**, y hoy se publican en la misma
-columna sin decirlo.
+**Lo medido** (prod, 2026-10-07), top-25 de cada selector en Padre Hidalgo, contra el COGS real:
+
+| Selector (top-25) | % del COGS diario | Piezas a contar | Mediana días de cobertura |
+|---|---:|---:|---:|
+| `v_count_priority_score` | **5.5%** | **94,739** | **93** |
+| Clase A por `annual_value` | 32.3% | 23,758 | 19 |
+| Flujo + rota ≤30 d | 31.1% | 9,660 | 13 |
+
+**Cuatro veces el esfuerzo por una sexta parte del dinero.** Y la mediana de 93 días dice lo
+esencial: **contar mañana un SKU con 93 días de cobertura es contar la misma pila.** En el CEDIS es
+peor — los 25 del score tienen **cero venta** y 365 días de cobertura.
+
+⭐ **La causa de fondo: el score suma dos ritmos que se oponen.** `s_venta` premia lo que rota;
+`s_parado` premia lo que NO rota. Medido, sus top-25 comparten **0 a 5 de 25** en los 9 almacenes, y
+la suma produce una lista que no es ninguna de las dos (`score ∩ venta` 3–12, `score ∩ parado` 1–8).
+**Para el diario `s_parado` tiene que pesar cero** — es la señal del mensual.
+
+Y el traslape contra lo que de verdad mueve el dinero confirma el veredicto:
+
+| | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| hecho ∩ clase A | 13 | 19 | 21 | 19 | 20 | 16 | 23 | 17 |
+| **hecho ∩ score** | **4** | **3** | **4** | **6** | **2** | **3** | **8** | **8** |
+
+**Qué queda de este sprint:** el score **se conserva como insumo del mensual** (donde `s_parado` sí
+corresponde) y ahí sí se materializa, con el mismo patrón de IC.12 — refresco nocturno, `UNIQUE`
+para `REFRESH CONCURRENTLY`, umbral en `CRON_JOBS`, `security_invoker` y `GRANT` re-aplicados.
+Aceptación: de **7.9–9.3 s** (re-medido 2026-10-07) a <500 ms, con paridad fila por fila.
+
+⚠️ Y **declarar `senales_usadas`**, que es peor de lo que decía esta fase: medido sobre los 30,059
+pares, **sólo 8,722 (29%) tienen las 4 señales**; 19,033 vienen `sin_historia_de_conteo` y 2,852
+`sin_datos`. Un score de 3 señales y uno de 4 **no son comparables**, y hoy comparten columna sin
+decirlo.
 
 ---
 
 ### `[IC.18]` — El ritmo diario · *productos top por sucursal*
 
-**Motor:** `mv_count_priority_score`, que ya existe. **No se inventa una fórmula nueva.**
+> ⛔ **Corregido el 2026-10-07.** Este sprint decía *«Motor: `mv_count_priority_score`, que ya
+> existe. No se inventa una fórmula nueva.»* La medición lo desmintió (ver `[IC.17]`): el score
+> cubre el 5.5% del COGS con 4× el esfuerzo. **El motor cambia.**
 
-- Cron matutino por sucursal → folio `ritmo='diario'` con los **top N** por `score`, excluyendo lo
-  que ya esté en un folio vivo (IC.15) y lo contado en los últimos *k* días (IC.16).
-- **N arranca en 25 y se calibra con la productividad real de IC.14.** Sale a pantalla como
-  parámetro por sucursal, no como constante en el código.
+**Motor:** `analytics.sales_daily`, el **hecho de venta**. El folio de hoy se siembra con lo que se
+vendió **ayer**, ordenado por `cost` descendente. No es una fórmula nueva: es el fact que ya manda
+en el margen (ADR-051) y en la verdad absoluta (ADR-059).
+
+**Por qué el hecho y no el catálogo:**
+
+- Es **pesos**, así que es inmune a la unidad — el problema que infló al `57009` a $42,536/día
+  cuando lo real son $4,594 (18.5× por el peldaño cubeta-vs-kilo).
+- Es el **grano correcto**: producto × almacén × día.
+- Es una **tabla con índices**, no una vista de 8 segundos.
+- Y **rota sola**: 9–15 de 25 repiten semana contra semana, 251 SKUs distintos en 30 días (§4.6).
+
+**Criterio completo:**
+
+1. `cost` de ayer, descendente.
+2. Filtro de velocidad: **días de cobertura ≤ 30**. Un SKU con 93 días de cobertura no cambia de un
+   día a otro; contarlo a diario es recontar la misma pila. ⚠️ Este filtro **tiene que pasar por
+   `analytics.v_unit_truth`** (ADR-057): existencia en cubetas sobre venta en kilos da una cobertura
+   falsa.
+3. Excluir lo que ya esté en un folio vivo (IC.15) y lo contado en los últimos *k* días (IC.16).
+4. **Corte por presupuesto de PIEZAS, no por número de SKUs.**
+
+⭐ **El cupo se mide en piezas.** «25 diarios» es la unidad equivocada: el top-25 de PH son **~18,400
+piezas**; quitando los de cobertura >30 días quedan **18 SKUs / ~8,400 piezas / ~$38,000 de COGS**,
+con mejor rendimiento por pieza ($4.55 contra $2.80). El presupuesto sale de la productividad real
+de `[IC.14]`, y hasta entonces **el parámetro se declara sin medir**.
+
+**Cuánto alcanza** (% del COGS diario real, medido): top-25 cubre **14–28%** según almacén; top-100
+cubre **32–54%**. Entre **120 y 233 SKUs** son la mitad del dinero que se mueve cada día.
+
 - ⛔ **Nunca congela el almacén.** Un conteo diario que para la operación no se hace dos veces.
 - **Auto-cancelación al cierre del día:** un folio diario que no se cerró **se cancela solo** y sus
   SKUs vuelven a la cola de mañana. Sin esto, el primer día que alguien no termine, la sucursal
   queda bloqueada — y ésa es exactamente la historia de los 6 folios de §2.1.
 
-**Lo que la pantalla tiene que decir:** cuántas señales sostienen cada fila, y que **el ritmo diario
-sólo existe en 9 almacenes**.
+**Lo que la pantalla tiene que decir:** el presupuesto de piezas y cuánto se consumió, que **el
+ritmo diario sólo existe en 9 almacenes**, y el hueco de **venta sin costo** — 1–2% de los
+renglones, $681/día en PH: no se puede rankear por dinero lo que no tiene costo, así que **se
+declara, no se asume cero**.
 
 ---
 
 ### `[IC.19]` — El ritmo mensual · *mayor diferencia, y su causa*
 
-**Motor:** `v_sku_count_variance_history`, que ya existe, ordenado por `pesos_abs` con `retencion` y
-`patron` al lado.
+> ⭐ **Re-definido el 2026-10-07.** Con el diario corriendo todos los días, el mensual **deja de
+> tener un ranking propio y pasa a definirse por el COMPLEMENTO**: su universo es lo que el diario
+> no alcanza. Medido en PH: el diario toca 251 SKUs (33.5% del capital); al mensual le quedan
+> **2,987 SKUs, 468,702 piezas y $9,800,638 — el 66.5% del capital** (§4.6).
+
+**Universo:** lo que el ritmo diario **no tocó** en los últimos *k* días.
+**Orden:** `capital parado` (eje de `[IC.21]`) × evidencia de descuadre (`v_sku_count_variance_history`,
+por `pesos_abs`, con `retencion` y `patron` al lado).
+**Cupo:** presupuesto de piezas, igual que el diario.
 
 ⭐ **Lo que vuelve útil este ritmo no es contar otra vez: es el `patron`**, que ya está calculado y
 hoy no llega a ninguna bandeja. Medido en prod:
@@ -357,7 +535,36 @@ sucursal 02 por $6.29 M**, contra $343 mil en la 03 y $173 mil en la 05. Un foli
 **cuente los pares que se compensan juntos** es lo que separa «error de captura» de «merma real» —
 hoy los dos se cuentan como descuadre.
 
-- Cron mensual → folio `ritmo='mensual'` con el top por `pesos_abs`.
+#### ⭐ En Padre Hidalgo el dinero está en el SOBRANTE, no en la merma
+
+Evidencia disponible para ordenar el mensual, medida sólo sobre PH el 2026-10-07:
+
+| patrón | SKUs | descuadre histórico |
+|---|---:|---:|
+| **`sobra`** | 897 | **$4,246,558** |
+| `merma` | 1,296 | $1,248,543 |
+| `sin_dinero` | 668 | $0 |
+
+**El sobrante carga 3.4× el dinero de la merma.** El reflejo es diseñar el inventario para cazar
+robo; acá lo que hay es **producto que está y el sistema no sabe**. Enlaza con los $4.25 M de
+sobrante de PH que §6 arrastra sin explicar — y es **el mensual, no el diario**, el que lo va a
+encontrar, porque el sobrante se acumula justo donde nadie mira.
+
+#### La aritmética del ciclo, que se acepta y no se tapa
+
+Lo que el diario no toca son 2,987 SKUs. Con **una** sesión mensual:
+
+| SKUs por sesión | meses para una vuelta completa |
+|---:|---:|
+| 300 | **9** |
+| 450 | 6 |
+| 900 | 3 |
+
+⛔ **Con un cupo razonable el mensual no da una vuelta al año.** No es un defecto del diseño: es el
+tamaño del problema. Quien cierra la cobertura es el trimestral de Kepler, que §2 midió que **deja
+fuera 4,022 SKUs con existencia** (cobertura 69–93%). Ese hueco **se declara en la pantalla**.
+
+- Cron mensual → folio `ritmo='mensual'` sobre el complemento del diario.
 - Al resolver, el `reason_code` es **obligatorio** (el guard de varianza sin motivo ya existe: acá
   se enciende a propósito), y alimenta el *shrinkage por causa* del IRA (IC.8).
 - **Sólo 6 almacenes (01–06).** 07, 08 y el CEDIS no tienen historia: se declaran, no se omiten.
@@ -520,6 +727,34 @@ cronometradas (§2.5) · `commercial.abc_classification` + `analytics.v_abc_clas
 Pareto recalculado sobre `analytics.sales_daily` 90 d (§4.3) · Pareto sobre
 `v_erp_stock_on_hand × v_erp_unit_cost` (§4.4).
 
-⚠️ **Lo no medido, declarado:** la **productividad de conteo** (SKUs/hora/persona) no existe en
-ningún lado porque nunca se cerró un folio. Todo número de cupo diario en este plan es una
-**propuesta**, no una medición — y por eso IC.14 va primero.
+**Segunda ronda, 2026-10-07** (misma conexión, lectura pura), que es la que corrige `[IC.17]`,
+`[IC.18]` y `[IC.19]`:
+
+| Afirmación | Cómo se midió |
+|---|---|
+| Definición real del ABC (§4.1) | `pg_get_viewdef('analytics.v_abc_class')` |
+| Costo `kepler_kdik` con testigo 96.9% | `v_abc_class` agrupada por `costo_source`/`tiene_testigo` (59 s) |
+| Matriz ABC × XYZ (§4.1b) | `abc_classification` ⋈ `inventory_health.xyz_class`, PH |
+| ABC ÷ COGS real por almacén (§4.5) | `Σ annual_value/365` contra `Σ sales_daily.cost / 30` |
+| Arranque de `sales_daily` por almacén (§4.5) | `MIN(sale_date)` por `warehouse_id` |
+| Traslape de señales y selectores (§4.6, IC.17) | top-25 de cada criterio, 9 almacenes |
+| Rotación semanal 9–15 de 25 (§4.6) | top-25 por `cost` por semana, 11 semanas jul–sep, PH |
+| 251 vs 2,987 SKUs y el 33.5%/66.5% (§4.6) | top-25 **del día** acumulado 30 d contra `inventory_health` |
+| Cobertura 14–28% / 32–54% (IC.18) | `row_number()` sobre `sales_daily.cost` 30 d por almacén |
+| `sobra` $4.25 M vs `merma` $1.25 M (IC.19) | `v_sku_count_variance_history` agrupada por `patron`, PH |
+
+⚠️ **Lo no medido, declarado:**
+
+- La **productividad de conteo** (piezas/hora/persona) no existe en ningún lado porque nunca se
+  cerró un folio. Todo número de cupo en este plan es una **propuesta**, no una medición — y por eso
+  IC.14 va primero.
+- **El 0.61–0.64 de PH y Canindo** en §4.5 no tiene causa establecida. Se declara así.
+- **Venta sin costo**: 1–2% de los renglones de `sales_daily` ($681/día en PH). No se puede rankear
+  por dinero lo que no tiene costo.
+- **Los días de cobertura mezclan unidades** en los casos tipo `57009` (existencia en cubetas, venta
+  en kilos). El filtro de velocidad de IC.18 **tiene que pasar por `analytics.v_unit_truth`**.
+
+⛔ **Una hipótesis propia que la medición refutó, anotada para que nadie la reconstruya:** supuse
+que los SKUs con la unidad rota secuestraban la cabeza del ranking por `annual_value`. Medido, son
+**1 a 4 de cada top-25** contra 7–25 por almacén — hay sobrerrepresentación de ~2×, **no secuestro**.
+El caso `57009` es real y es grave, pero es individual, no sistémico.
