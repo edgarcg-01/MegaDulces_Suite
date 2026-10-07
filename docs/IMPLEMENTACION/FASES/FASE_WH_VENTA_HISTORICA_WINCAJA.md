@@ -236,7 +236,59 @@ Corolarios:
 
 ## 4. Sprints
 
-### ⛔ `[WH.0]` — Arbitrar `ValorVenta` · **RUTA CRÍTICA, bloquea todo lo demás**
+### 🧪 `[WH.0]` — Arbitrar `ValorVenta` · **EJECUTADO 2026-10-07, con un hallazgo abierto**
+
+Medido sobre `h10` corte `Actuales` (Padre Hidalgo, 2026-06-01..06-26) — elegido a propósito
+**porque es una ventana que `sales_daily` ya publica**, así que sirve de placebo.
+
+**1. ✅ `ValorVenta` es el importe del renglón SIN impuesto.** `IVA` e `IEPS` son columnas
+aparte. El árbitro no es otra columna del mismo renglón sino el **margen**: contra `ValorCosto` da
+**10.2 %–10.4 %**, consistente con el ~11.5 % que el negocio reporta. (Σ `ValorVenta` 14,196,781 ·
++IVA+IEPS 14,974,029 · `ValorCosto` 12,727,766.)
+
+**2. ✅ La alarma del ticket de $849 era un artefacto de mezclar clases de documento.** Separado,
+cada universo es coherente: **mostrador $235 · preventa $659 · crédito $9,936 · mayoreo
+$17,182–$27,113**. El `.mdb` de una sucursal **no es un canal: son varios**.
+
+**3. ⭐ El discriminante es `Caja`, no el prefijo del documento.** Reproduce al carril vivo al peso:
+
+| `Caja` | crudo `h10` | canal publicado | publicado | Δ |
+|---|---:|---|---:|---:|
+| 70 (`F`) | $3,864,990 | `wincaja_credito` 01 | $3,864,990 | **$0** |
+| 15 (`T`) | $460,364 | `wincaja_preventa` 01 | $460,364 | **$0** |
+| 10·12·13·14 | $4,025,837 | `wincaja_mostrador` 01 | $4,025,133 | $704 (redondeo) |
+
+⭐ **El placebo funcionó**: el método reproduce lo ya publicado, así que sirve para lo no publicado.
+
+**4. ⛔ Y el residuo es el hallazgo: las cajas 98 y 99 no están publicadas en NINGÚN lado.**
+
+| `Caja` | tickets | `ValorVenta` | por ticket |
+|---|---:|---:|---:|
+| 99 | 130 | $3,524,641 | $27,112.62 |
+| 98 | 135 | $2,319,597 | $17,182.20 |
+| | **265** | **$5,844,238** | |
+
+**$5.84 millones en 26 días** — el **41 %** de la venta Wincaja de Padre Hidalgo en esa ventana.
+Verificado que no están en otro almacén ni en otro canal: el total del almacén `01` para esa
+ventana es $8,350,487 y lo explican exactamente los tres canales de la tabla de arriba.
+
+Las dos lecturas posibles, y ninguna está comprobada:
+- **(a) Exclusión deliberada**: por el tamaño del ticket son **mayoreo**, y existe un canal
+  `mayoreo` ($27.3M desde 2025-12-22) que podría ser el mismo dinero por la pierna Kepler →
+  publicarlas duplicaría.
+- **(b) Hueco**: simplemente nunca se mapearon.
+
+⛔ **Esto se resuelve antes de cargar nueve años, porque decide si la historia se publica con el
+41 % de más o con el 41 % de menos.** Y es una pregunta que vale por sí sola aunque esta fase se
+cancele: si es (b), hoy hay venta de mostrador de PH que ninguna pantalla ve.
+
+**Pendiente de WH.0:** repetir el placebo en una segunda sucursal (`h50`→06, que también tiene
+crédito publicado) para confirmar que el discriminante `Caja` no es particular de PH, y declarar el
+mapa `Caja → canal` por sucursal como dato, no como literal en una consulta.
+
+---
+
+### 📋 `[WH.0]` — enunciado original
 
 Sin esto no se carga una sola fila. Lo que hay que contestar, con evidencia independiente:
 
@@ -374,14 +426,14 @@ el CEDIS son 8,165 tickets en nueve años — no es venta de mostrador.
 
 ## 6. Decisiones abiertas (Edgar)
 
-1. **¿Hasta dónde atrás?** El espejo tiene **9 años (2017–2025)**; el histórico completo son **17**.
-   Faltan **2009–2016**, que son ocho `.7z` de **0.94 GB en total** (§1.2.bis) — mucho más barato
-   de lo que esta fase asumía en su primera versión.
-   **Recomiendo igual cargarlos DESPUÉS, y el motivo no es el costo sino el orden:** el método de
-   lectura no está firmado hasta `[WH.0]`, y meter ocho años más antes de arbitrar `ValorVenta`
-   multiplica por dos el retrabajo si el arbitraje cambia la fórmula. Nueve años cubren cualquier
-   comparativo que el negocio pida hoy; los otros ocho entran corriendo el mismo cargador con
-   `WINCAJA_HIST_YEARS`, sin código nuevo.
+1. ✅ **RESUELTA (Edgar, 2026-10-07): «con los 9 son suficientes».** El alcance de esta fase es
+   **2017–2025**. Los ocho años de 2009–2016 **no entran**.
+   ⚠️ **Y por eso se declara, no se olvida:** esos ocho años existen **sólo** como `2009.7z` …
+   `2016.7z` (0.94 GB) en `Z:\Salidas\Bases`. Nadie los tiene en Postgres, y el share ya demostró
+   que se vacía (2017 y 2018 ya no están descomprimidos allá). **No se borran**; si algún día se
+   quieren, entran con el mismo cargador vía `WINCAJA_HIST_YEARS`, sin código nuevo.
+   Cualquier pantalla que publique «desde cuándo hay historia» tiene que decir **2017**, no
+   insinuar que antes no hubo venta.
 2. **¿A qué almacén va la historia de `03`, `07` y `08`?** Los otros cinco ya tienen precedente
    medido (escriben al mismo código que Kepler). Estos tres no tienen ni una fila Wincaja hoy.
 3. **El corte de `03`/`04`/`05`** (§2.7): hay que fijar la fecha real de traspaso de cada una.
