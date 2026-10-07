@@ -20,11 +20,12 @@ import { esPromotora } from './logic/tipos';
  * del día es el del reloj, no el de UTC.
  *
  * ── `tipo` (entrada/salida) NO se usa, a propósito ──
- * El agente que alimenta Mega Talento nunca lo manda (la librería ZK no lo trae): sus reglas se
- * calibraron con `tipo` vacío en el 100% de las checadas. El lector de la Fase CH sí decodificaba
- * el estado del reloj (`punch_type`), así que mezclarlo encendería las ramas "con tipo" de cuatro
- * reglas sólo para la parte vieja de la historia. El dato queda guardado; usarlo es una decisión
- * de RH sobre relojes que lo marquen bien, no de la mudanza.
+ * Medido en Mega Talento el 2026-10-07: de 214 mil checadas sólo 10,220 traen tipo, todas del
+ * agente entre el 13/01 y el 17/08/2026; desde el 18/08 no llega ninguno. Usarlo encendería las
+ * ramas "con tipo" de cuatro reglas sólo para ese tramo de la historia (y el lector de la Fase CH
+ * también lo decodificaba, a su manera). Sin tipo, la paridad contra Mega Talento sobre semanas
+ * reales dio 0 diferencias. El dato queda guardado; usarlo es una decisión de RH sobre relojes
+ * que lo marquen bien, no de la mudanza.
  *
  * ── Fechas con `to_char` ──
  * Toda fecha sale como texto 'yyyy-MM-dd': un `date` de pg convertido en JS se corre un día en MX
@@ -62,15 +63,19 @@ interface FilaPadron {
 }
 
 /**
- * El padrón del sitio: cada código con el que alguien está enrolado en un reloj del sitio, sin
- * los que RH marcó `ignorado` (lo que Mega Talento llamaba `padron_depurado`), con la persona de
- * la Suite cuando el código ya está ligado (ADR-084 D1).
+ * El padrón del sitio: los códigos de sus relojes LIGADOS a una persona de la Suite (ADR-084 D1:
+ * la persona es `identity.users`), sin los que RH marcó `ignorado` (el `padron_depurado` de Mega
+ * Talento). Es el equivalente de la tabla `empleados` de allá.
+ *
+ * Un código SIN ligar no es del padrón: entra al cálculo sólo si checó en el periodo, y sale
+ * marcado `fuera_del_padron`. Es lo que hace Mega Talento con un código sin ficha. Medido en la
+ * paridad del 2026-10-07: tomar todo código enrolado como padrón listaba 12 códigos viejos sin
+ * ficha (uno sin checar desde 2025) que allá no aparecen.
  *
  * Si el mismo código aparece en dos relojes del sitio, manda el que está ligado y, entre iguales,
  * el que se vio más recientemente.
  *
- * `activo`: sin ligar, se mide (es lo que hacía Mega Talento con una ficha nueva); ligado, sólo
- * si la persona está `invited`/`active` y no borrada. `suspended` cuenta como baja: sus
+ * `activo`: la persona está `invited`/`active` y no borrada. `suspended` cuenta como baja: sus
  * ausencias se esperan.
  */
 export async function padron(trx: Knex.Transaction, siteCode: string): Promise<{
@@ -100,15 +105,16 @@ export async function padron(trx: Knex.Transaction, siteCode: string): Promise<{
   const fichas = new Map<string, FichaPadron>();
   const personas: PersonaDetector[] = [];
   for (const r of rows) {
-    const ligado = !!r.user_id && r.nombre !== null;
-    const activo = !ligado || ((r.status === 'invited' || r.status === 'active') && !r.deleted_at);
+    const ligado = !!r.user_id && r.status !== null;   // status nunca es nulo si la persona existe
+    if (!ligado) continue;
+    const activo = (r.status === 'invited' || r.status === 'active') && !r.deleted_at;
     // El departamento con su código y su nombre: `esPromotora` busca "promotor" en el texto.
-    const departamento = ligado ? [r.department_name, r.department_code].filter(Boolean).join(' · ') || null : null;
+    const departamento = [r.department_name, r.department_code].filter(Boolean).join(' · ') || null;
     const ficha: FichaPadron = {
-      userId: ligado ? r.user_id : null,
-      registrado: ligado,
-      nombre: (ligado && r.nombre) || r.device_name || null,
-      nombreCompleto: ligado ? r.nombre : null,
+      userId: r.user_id,
+      registrado: true,
+      nombre: r.nombre || r.device_name || null,
+      nombreCompleto: r.nombre,
       departamento,
       puesto: r.position_name,
       fotoUrl: null,

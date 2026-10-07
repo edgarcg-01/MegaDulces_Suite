@@ -367,6 +367,43 @@ alcance de datos del rol Promotoría (ADR-050, con las pantallas); editar el pad
 (`[RH.1.4]`); repartir las claves `HR_*` (con las pantallas; mientras, `SIN_REPARTIR`). Las áreas de
 `horarios_sucursal` no se trasladan: el horario por persona ya cubre ese caso.
 
+### 5.2 Paridad contra Mega Talento con datos reales (2026-10-07)
+
+Lo que prueba que el traslado da **el mismo número que RH ve hoy**, no sólo que pasa casos armados:
+
+1. `database/scripts/rh/mt-exportar-asistencia.ts` corre **el código real de Mega Talento** sobre su base
+   (sesión forzada a sólo lectura: la escritura se rechaza con `25006`) y guarda cada cálculo.
+2. `database/scripts/rh/carga-unica-mega-talento.js` carga a `hr.*` la misma foto (corte por hora de
+   recepción). Por omisión es ENSAYO: carga en una transacción, imprime el cuadre y la deshace.
+3. `libs/hr/.../paridad-mega-talento.db.spec.ts` simula `[RH.1.4]` (una persona por ficha, con su
+   estado y si es promotora), calcula con la Suite y compara campo por campo y día por día.
+
+**Resultado:** 72 cálculos (12 sitios × 3 semanas de nómina × planta/promotoras), **1,464 personas,
+5,464 días, 0 diferencias** y nadie de más ni de menos. La carga cuadra al registro: 214,792 checadas +
+3 con fecha de reloj sin hora; 1,540 enrolamientos; 99 incidencias y su bitácora; 10,429 alertas. Tarda
+25 s. El agente de alertas, sobre la ventana de la última corrida de Mega Talento: 4,296 alertas, 3
+diferencias, las 3 explicadas (abajo).
+
+**Lo que destapó** (la primera corrida salió ROJA: 37 personas en un solo lado):
+- El padrón de la Suite tiene que ser lo **ligado a una persona**, no todo código enrolado: listaba 12
+  códigos viejos sin ficha (uno sin checar desde 2025) que Mega Talento no muestra. Corregido.
+- Una lápida de `padron_depurado` **no cuenta si la ficha está activa** (#172 de Morelia Abastos: alguien
+  la reactivó sin quitar la lápida, y Mega Talento la mide). Corregido en la carga.
+- **Defecto de Mega Talento, corregido aquí:** su huella de corrida no llevaba el día, así que un día que
+  CIERRA sin datos nuevos no se vuelve a revisar. CEDIS #10 tuvo una sola marca el 06/10, se analizó
+  antes de cerrar el día, el reloj se cayó y la «entrada sin salida» no apareció nunca.
+- La cuenta «Admin» de PH (dada de baja y depurada) genera alertas en Mega Talento; aquí sus checadas
+  se ignoran. Es ruido menos; se declara.
+- El `tipo` de checada SÍ llegó: 10,220 checadas del 13/01 al 17/08/2026, ninguna después. Sin usarlo,
+  la paridad da 0: la decisión de §5.1 se sostiene con el dato corregido.
+- **La cola de alertas no la usa nadie**: 10,429 sugeridas y **cero decididas** en toda su historia.
+  Antes de construir su pantalla (`[RH.1.7]`) hay que preguntarle a RH si la quiere.
+
+⛔ **Abierto para el corte (`[RH.1.8]`):** prod ya tiene ~129 mil checadas de la Fase CH en los mismos
+relojes. Las checadas sin reloj de Mega Talento salieron de esa fuente: cargarlas tal cual las
+duplicaría en la vista (misma persona y minuto, dos relojes). La carga a prod tiene que reconocerlas.
+En desarrollo no se ve: la base local no trae las de CH.
+
 ## 6. Cómo se hace cada corte
 
 1. **Ventana corta fuera de horario.** La app vieja sigue viva hasta el corte.

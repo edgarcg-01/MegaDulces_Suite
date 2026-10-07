@@ -113,7 +113,12 @@ export class HrAttendanceAgentService {
     for (const v of objetivo) {
       const inicio = menosDias(v.ultimo, VENTANA_AGENTE_DIAS - 1);
       const desde = inicio > v.primero ? inicio : v.primero;
-      const huella = `${v.ultimo}|${v.en_ventana}`;
+      // La huella lleva el DÍA, no sólo los datos. En Mega Talento era `último dato|checadas` y un
+      // día que cerraba sin datos nuevos no se volvía a revisar: el 06/10 CEDIS tuvo una sola marca,
+      // se analizó a las 17:18 (el día aún no cerraba: sin alerta), el reloj se cayó, la huella no
+      // cambió y la "entrada sin salida" no apareció nunca (medido en la paridad del 2026-10-07).
+      // Con el día en la huella cada sitio se revisa al menos una vez al día.
+      const huella = `${v.ultimo}|${v.en_ventana}|${hoy}`;
       sitios.push(await this.revisarSitio(tenantId, {
         siteCode: v.site_code, desde, hasta: v.ultimo, primero: v.primero, ultimo: v.ultimo, huella,
       }, op.forzar ? undefined : previas.get(v.site_code)));

@@ -4,8 +4,9 @@
  * Viene de `agente_corridas` de Mega Talento. No es adorno:
  *   · la pantalla puede decir «revisado solo, hace 12 min» en vez de pedir que alguien apriete
  *     un botón;
- *   · la HUELLA (`último dato | checadas en la ventana`) deja SALTAR un sitio cuyos datos no se
- *     movieron, en vez de re-analizar todos cada media hora;
+ *   · la HUELLA (`último dato | checadas en la ventana | día`) deja SALTAR un sitio cuyos datos no
+ *     se movieron, en vez de re-analizar todos cada media hora. El día va en la huella porque un día
+ *     que CIERRA sin datos nuevos también hay que revisarlo (Mega Talento no lo hacía);
  *   · un fallo queda guardado con su mensaje REAL, por sitio. El latido de `analytics.cron_runs`
  *     dice si la pasada corrió; esto dice qué pasó en cada sitio.
  *
@@ -29,7 +30,7 @@ exports.up = async function (knex) {
       window_to       date,
       first_data      date,
       last_data       date,
-      fingerprint     text,                                -- 'último dato|checadas en la ventana'
+      fingerprint     text,                                -- 'último dato|checadas en la ventana|día'
       skipped         boolean NOT NULL DEFAULT false,      -- la huella no cambió: no se re-analizó
       persons         integer,
       ex_workers      integer,                             -- personas cuyo análisis se cortó en su última checada

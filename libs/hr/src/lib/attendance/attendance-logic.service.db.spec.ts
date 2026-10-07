@@ -213,7 +213,8 @@ suite('lógica de asistencia contra la base', () => {
     expect(r['decididaNoSePisa']).toEqual([1, 'descartada']);
     expect(r['grupoAprobar']).toBe('400');
     expect(r['pasadas']).toEqual([false, true, false]);
-    expect(String(r['corrida'])).toMatch(/^2026-09-16\|\d+$/);
+    // Último dato | checadas en la ventana | el día: un día que cierra se revisa aunque no lleguen datos.
+    expect(String(r['corrida'])).toMatch(/^2026-09-16\|\d+\|\d{4}-\d{2}-\d{2}$/);
 
     // Capturada hoy por algo de septiembre: además de autocalificada, es retroactiva (> 7 días).
     expect(r['vacaciones']).toEqual(['calificada', ['autocalificada', 'retroactiva']]);
