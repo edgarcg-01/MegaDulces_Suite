@@ -4133,6 +4133,25 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.70] · el «Expediente en PDF» respondía «No se pudo armar el expediente» — 2026-10-07
+
+- [x] **[GX.70]** 🧪 Reporte: en `/finanzas/expediente` el botón «Expediente en PDF» sólo decía *«No se pudo
+  armar el expediente»*. **Dos fallas apiladas:** (1) **alcance distinto entre la lista y el PDF** — la lista
+  (`[GX.59]`) muestra los vales **de todos** a quien tiene `FINANCE_EXPENSES_COMPROBAR`, pero el PDF pasaba por
+  `alcanceDelUsuario` (sólo abre todo con god-mode o `VER_ALL`). Medido en local: Jesús Carrillo
+  (`finanzas_operativo` + `COMPROBAR` por persona, `[GX.17]`, **0 áreas, sin `VER_ALL`**) recibía 404 «fuera de
+  tu alcance» en **8 de 8** vales. Fix: `veCualquierExpediente()` en `expediente-gasto.service.ts` (COMPROBAR ve
+  todo, **sólo en esta superficie**; `alcanceDelUsuario` no se toca) + `COMPROBAR` en el `RequireAnyPermission`
+  de las dos rutas del expediente; `listas-para-comprobar` NO se ensancha (candado negativo). (2) **el aviso era
+  mudo**: con `responseType: 'blob'` el motivo del servidor llega dentro del Blob y nadie lo leía. Fix: helper
+  `core/http/blob-error.ts` (`mensajeDeErrorBlob`, sube el privado de `comercial-documentos`, que además
+  **no funcionaba bajo jsdom**: `Blob.text()` no existe ahí → respaldo `FileReader`); lo usan Expediente y
+  Capturar gasto. Specs: finance 20/20 (con mutación: quitar COMPROBAR → rojo) · view 65/65.
+  ⚠️ **No verificado contra prod** (sin SSH ni sesión desde esta máquina): si quien reportó es superadmin o
+  tesorería, la causa (1) no le aplica — con este cambio el aviso dirá el motivo real.
+- [ ] **[GX.70.f]** El PDF muestra la fecha de la solicitud como `Mon Sep 28` (`fecha()` hace `String(Date)` sobre
+  un `date` de pg; mismo síndrome que LC.16). Cosmético, no rompe el PDF.
+
 ### 🔨 [GX.69] · el importe del vale es el SALDO del gasto en Kepler — 2026-10-06
 
 - [x] **[GX.69]** 🧪 Regla del usuario: el importe del vale = **«Saldo» del gasto** (`X-A-10`, `kdm1.c42`),

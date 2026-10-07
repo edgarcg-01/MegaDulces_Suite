@@ -13,6 +13,7 @@ import {
   type EtapaProtocolo, type PersonaExpediente, type RespuestaExpediente, type ValeExpediente,
 } from '@megadulces/contracts';
 import { ComprobacionesService } from '../comprobaciones.service';
+import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
 /**
@@ -402,10 +403,13 @@ export class FinanzasExpedienteComponent {
           setTimeout(() => URL.revokeObjectURL(url), 60_000);
           this.pdfCargando.set(null);
         },
-        error: () => {
+        // `[GX.70]` El motivo del servidor viaja DENTRO del blob: sin leerlo, un 404 de
+        // alcance y una falla del motor de PDF se veían igual — «no se pudo», sin pista.
+        error: (e) => {
           this.pdfCargando.set(null);
-          this.toast.add({ severity: 'error', summary: 'No se pudo armar el expediente',
-            detail: `Solicitud ${v.folio_solicitud}` });
+          mensajeDeErrorBlob(e, 'Intenta de nuevo.').then((motivo) => this.toast.add({
+            severity: 'error', summary: 'No se pudo armar el expediente',
+            detail: `Solicitud ${v.folio_solicitud}: ${motivo}`, life: 8000 }));
         },
       });
   }

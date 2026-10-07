@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { MessageService } from 'primeng/api';
 import type { RespuestaExpediente, ValeExpediente, VeredictoProtocolo } from '@megadulces/contracts';
 import { FinanzasExpedienteComponent } from './finanzas-expediente.component';
 
@@ -270,6 +271,45 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       expect(c.pdfCargando()).toBe(vale.id);
       c.verExpediente(vale);   // segundo clic: no debe salir otra petición
       http.expectOne((q) => q.url.includes('/pdf')).flush(new Blob(['%PDF']));
+    });
+
+    /**
+     * ⭐ `[GX.70]` Si el PDF falla, el aviso dice POR QUÉ. El cuerpo del error llega como
+     * Blob (la petición es `responseType: 'blob'`) y antes nadie lo leía: un 404 de alcance
+     * y una falla del motor de PDF se veían igual, «No se pudo armar el expediente».
+     */
+    it('⭐ si el PDF falla, el aviso trae el motivo del servidor', async () => {
+      montar();
+      const toast = fix.debugElement.injector.get(MessageService);
+      const avisos: Array<{ severity?: string; summary?: string; detail?: string }> = [];
+      vi.spyOn(toast, 'add').mockImplementation((m) => { avisos.push(m); });
+
+      c.verExpediente(c.persona()!.vales[0]);
+      http.expectOne((q) => q.url.includes('/pdf')).flush(
+        new Blob([JSON.stringify({ statusCode: 404, message: 'la solicitud 0009946 no está dentro de tu alcance' })],
+          { type: 'application/json' }),
+        { status: 404, statusText: 'Not Found' });
+
+      await vi.waitFor(() => expect(avisos.length).toBe(1));
+      expect(avisos[0].severity).toBe('error');
+      expect(avisos[0].detail).toContain('0009946');
+      expect(avisos[0].detail).toContain('no está dentro de tu alcance');
+      expect(c.pdfCargando()).toBeNull();   // el botón se vuelve a habilitar
+    });
+
+    /** Si el cuerpo no trae motivo legible, igual avisa — nunca se queda callado. */
+    it('sin motivo legible en el cuerpo, avisa igual con el folio', async () => {
+      montar();
+      const toast = fix.debugElement.injector.get(MessageService);
+      const avisos: Array<{ detail?: string }> = [];
+      vi.spyOn(toast, 'add').mockImplementation((m) => { avisos.push(m); });
+
+      c.verExpediente(c.persona()!.vales[0]);
+      http.expectOne((q) => q.url.includes('/pdf')).flush(new Blob(['<html>502</html>']),
+        { status: 502, statusText: 'Bad Gateway' });
+
+      await vi.waitFor(() => expect(avisos.length).toBe(1));
+      expect(avisos[0].detail).toContain('0009946');
     });
 
     /** ⛔ Sin folio o sin sucursal no hay expediente que armar. */
