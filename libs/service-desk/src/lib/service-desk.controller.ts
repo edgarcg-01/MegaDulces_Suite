@@ -26,7 +26,9 @@ import {
   type SdSlaScanResult,
   type SdUpdatePreferencesDto,
   type SdUpsertCategoryDto,
+  type SdQueueMembersResponse,
   type SdUpsertQueueDto,
+  type SdUpsertQueueMemberDto,
   type SdLogTimeDto,
   type SdPostMessageDto,
   type SdRequestDetail,
@@ -43,6 +45,7 @@ import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskConfigAdminService } from './config-admin.service';
 import { ServiceDeskNotificationsService } from './notifications.service';
 import { ServiceDeskPreferencesService } from './preferences.service';
+import { ServiceDeskQueueMembersService } from './queue-members.service';
 import { ServiceDeskReportsService } from './reports.service';
 import { ServiceDeskRequestersService } from './requesters.service';
 import { ServiceDeskRoutingService } from './routing.service';
@@ -67,6 +70,7 @@ export class ServiceDeskController {
     private readonly admin: ServiceDeskConfigAdminService,
     private readonly routing: ServiceDeskRoutingService,
     private readonly reports: ServiceDeskReportsService,
+    private readonly members: ServiceDeskQueueMembersService,
     private readonly requesters: ServiceDeskRequestersService,
     private readonly sla: ServiceDeskSlaService,
     private readonly actors: ServiceDeskActorsService,
@@ -81,9 +85,10 @@ export class ServiceDeskController {
 
   @Get('agents')
   @RequireAnyPermission(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)
-  @ApiOperation({ summary: 'Personas asignables, con su carga abierta.' })
-  agentsList(): Promise<SdAgentDto[]> {
-    return this.agents.list();
+  @ApiOperation({ summary: 'Personas asignables, con su carga abierta. Con `queue_id`, las de esa cola; sin él, las de las colas de quien pregunta.' })
+  agentsList(@Query('queue_id') queue_id: string | undefined, @Req() req: AuthedRequest): Promise<SdAgentDto[]> {
+    // `[MS.7.6]` No se lista a quien atiende colas AJENAS.
+    return this.actors.resolve(req).then((ctx) => this.agents.listFor(ctx, queue_id || undefined));
   }
 
   @Get('requesters')
@@ -272,28 +277,49 @@ export class ServiceDeskController {
   @RequirePermissions(Permission.SERVICIO_COORDINAR)
   @ApiOperation({ summary: 'Alta de una cola (departamento que atiende). El modelo es multi-cola; hoy sólo existe TI.' })
   createQueue(@Body() dto: SdUpsertQueueDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
-    return this.admin.createQueue(actorDesdeRequest(req), dto);
+    return this.actors.resolve(req).then((ctx) => this.admin.createQueue(ctx, dto));
   }
 
   @Put('config/queues/:id')
   @RequirePermissions(Permission.SERVICIO_COORDINAR)
   @ApiOperation({ summary: 'Renombra, ordena o apaga una cola.' })
   updateQueue(@Param('id') id: string, @Body() dto: SdUpsertQueueDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
-    return this.admin.updateQueue(actorDesdeRequest(req), id, dto);
+    return this.actors.resolve(req).then((ctx) => this.admin.updateQueue(ctx, id, dto));
+  }
+
+  @Get('config/queues/:id/members')
+  @RequireAnyPermission(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Quién atiende una cola (coordinador / técnico). Lo ve quien la atiende.' })
+  queueMembers(@Param('id') id: string, @Req() req: AuthedRequest): Promise<SdQueueMembersResponse> {
+    return this.actors.resolve(req).then((ctx) => this.members.list(ctx, id));
+  }
+
+  @Put('config/queues/:id/members/:userId')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Agrega a una persona a la cola o cambia su rol. Sólo la coordinación de esa cola. La persona debe tener la clave de atender/coordinar.' })
+  upsertQueueMember(@Param('id') id: string, @Param('userId') userId: string, @Body() dto: SdUpsertQueueMemberDto, @Req() req: AuthedRequest): Promise<SdQueueMembersResponse> {
+    return this.actors.resolve(req).then((ctx) => this.members.upsert(ctx, id, userId, dto?.role));
+  }
+
+  @Delete('config/queues/:id/members/:userId')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Quita a una persona de la cola. No si es la única coordinación ni si tiene solicitudes abiertas asignadas.' })
+  removeQueueMember(@Param('id') id: string, @Param('userId') userId: string, @Req() req: AuthedRequest): Promise<SdQueueMembersResponse> {
+    return this.actors.resolve(req).then((ctx) => this.members.remove(ctx, id, userId));
   }
 
   @Post('config/categories')
   @RequirePermissions(Permission.SERVICIO_COORDINAR)
   @ApiOperation({ summary: 'Alta de una categoría con su prioridad por defecto.' })
   createCategory(@Body() dto: SdUpsertCategoryDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
-    return this.admin.createCategory(actorDesdeRequest(req), dto);
+    return this.actors.resolve(req).then((ctx) => this.admin.createCategory(ctx, dto));
   }
 
   @Put('config/categories/:id')
   @RequirePermissions(Permission.SERVICIO_COORDINAR)
   @ApiOperation({ summary: 'Edita o apaga una categoría. Apagar no borra: los tickets viejos la conservan.' })
   updateCategory(@Param('id') id: string, @Body() dto: SdUpsertCategoryDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
-    return this.admin.updateCategory(actorDesdeRequest(req), id, dto);
+    return this.actors.resolve(req).then((ctx) => this.admin.updateCategory(ctx, id, dto));
   }
 
   // ── Reportes (coordinación) ──
@@ -301,8 +327,8 @@ export class ServiceDeskController {
   @Get('reports')
   @RequirePermissions(Permission.SERVICIO_COORDINAR)
   @ApiOperation({ summary: 'Cumplimiento de SLA, tiempos, categorías, sucursales y recurrentes de un periodo (por creación).' })
-  report(@Query('from') from: string | undefined, @Query('to') to: string | undefined, @Req() req: AuthedRequest): Promise<SdReportResponse> {
-    return this.actors.resolve(req).then((ctx) => this.reports.report(ctx, { from, to }));
+  report(@Query('from') from: string | undefined, @Query('to') to: string | undefined, @Query('queue_id') queue_id: string | undefined, @Req() req: AuthedRequest): Promise<SdReportResponse> {
+    return this.actors.resolve(req).then((ctx) => this.reports.report(ctx, { from, to, queue_id }));
   }
 
   // ── Asignación automática (coordinación) ──

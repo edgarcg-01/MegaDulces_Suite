@@ -12,6 +12,7 @@ import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/com
 import type { SdReportResponse } from '@megadulces/contracts';
 import { TenantKnexService, branchName, toMxDateKey } from '@megadulces/platform-core';
 import { armarReporte, type FilaReporte } from './domain/report';
+import { colasDeLectura } from './domain/queue-access';
 import { nombreUbicacionExtra } from './domain/ubicaciones';
 import { resolverPeriodo } from './domain/report-period';
 import { ServiceDeskConfigService } from './service-desk-config.service';
@@ -27,8 +28,17 @@ export class ServiceDeskReportsService {
     private readonly cfg: ServiceDeskConfigService,
   ) {}
 
-  async report(ctx: ActorCtx, q: { from?: string; to?: string }): Promise<SdReportResponse> {
+  async report(ctx: ActorCtx, q: { from?: string; to?: string; queue_id?: string }): Promise<SdReportResponse> {
     if (!ctx.esCoordinador) throw new ForbiddenException('El reporte es para la coordinación de la Mesa de Servicio');
+    /*
+     * `[MS.7.6]` El reporte es de las colas que esta persona COORDINA (clave + rol coordinador), no de toda la empresa.
+     * Sin ninguna → 403 (no un reporte vacío que se lea como «no pasó nada»). `queue_id` acota a una de ellas.
+     */
+    const coordina = colasDeLectura(ctx.colas, 'coordina');
+    if (coordina && coordina.length === 0) throw new ForbiddenException('No coordinas ninguna cola de la Mesa de Servicio');
+    if (q.queue_id && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(q.queue_id)) throw new BadRequestException('queue_id inválido');
+    if (q.queue_id && coordina && !coordina.includes(q.queue_id)) throw new ForbiddenException('No coordinas esa cola');
+    const colas: string[] | null = q.queue_id ? [q.queue_id] : coordina;
     const periodo = resolverPeriodo(q.from, q.to, toMxDateKey(new Date()));
     if (!periodo.ok) throw new BadRequestException(periodo.motivo);
     const { desde, hasta } = periodo;
@@ -47,9 +57,10 @@ export class ServiceDeskReportsService {
           WHERE r.deleted_at IS NULL
             AND r.created_at >= (?::date)::timestamp AT TIME ZONE ?
             AND r.created_at <  ((?::date + 1))::timestamp AT TIME ZONE ?
+            ${colas ? "AND r.queue_id = ANY(string_to_array(?, ',')::uuid[])" : ''}
           ORDER BY r.created_at DESC
           LIMIT ?`,
-        [desde, tz, hasta, tz, TOPE_FILAS + 1],
+        [desde, tz, hasta, tz, ...(colas ? [colas.join(',')] : []), TOPE_FILAS + 1],
       );
       const todas = rows as FilaReporte[];
       const truncado = todas.length > TOPE_FILAS;

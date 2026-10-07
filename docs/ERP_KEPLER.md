@@ -579,6 +579,145 @@ testigos que no comparten origen (uno de la cabecera, otro de los renglones). �
 hacerlo: un embarque dirigido a una **RUTA** (`RD 5xx`) comparte folio con recepciones de sucursal,
 y desempatar por fecha le acreditaba **39 recepciones que nunca existieron, por $494,300**.
 
+#### 3.y.1 Lo que la cabecera NO trae y Kepler sí tiene (EMB.12, medido 2026-10-05)
+
+Medido directo en los POS de Padre Hidalgo (`md_01`) y Canindo (`md_06`), 60 días. **Corrige dos
+afirmaciones de arriba**: la ruta sí se puede derivar, y los catálogos de responsables sí llegan al
+ODS (el esquema de `kepler_ods` los trae; falta confirmar filas en prod).
+
+| Dato | Dónde está | Nota |
+|---|---|---|
+| **Ruta de la parada** | `kdm1.c10` (cliente) + **`c85` (domicilio de entrega)** → `kdudent.c13` → `kdm_rutas` | **100%** en ambas sucursales; sólo 4 de 715 contradicen `kdm_rutas2`. `c85` vacío = domicilio `1` (declararlo). La clave de ruta es **por sucursal**. |
+| Orden de visita | `kdm_rutas2.c4` por (ruta, cliente `c2`, domicilio `c3`) | Es una clave de orden (`9.50` entre `9` y `10`), no km. |
+| Domicilio | `kdudent`: `c1` cliente · `c2` número · `c3` calle · `c5` ciudad · `c6` teléfono · **`c13` ruta** | El cliente C1087 va a Zinapáro con `c85=2` y a Churintzio con `c85=3`. |
+| Facturación | `kdm1.c43` | `F` = 879/879 con factura hija `U-D-8`; `R` también; `N` sin factura; `A` sin decodificar. |
+| Usuario que capturó | `kdm1.c67` | Valores como `VIVIANA`, `01JZICO`: no es zona. |
+| Hora de captura | `kdm1.c69` (`HH:MM`) | **No es la hora de salida** (Telemarketing de PH captura entre 18:00 y 19:50). |
+| Nota de almacén | `kdm1.c24`–`c26` | Dos dialectos: PH «CJ 13 PQ 1 UB 3», Canindo «10 CAJAS A-1». **UB / A-1 = ubicación en el andén**, no un conteo. «CJ n» cuadra con los renglones en el 77% (327/424). |
+| Cajas | `kdm2.c54` en la **unidad de manejo** `c55` (CJA/BTO/PAQ/KG…), `c58` = piezas por empaque | `c9 = c54 × c58` en el 100%. Cajas = `c54` donde `c55` ∈ {CJA, BTO}; el resto son sueltos. Fuente mejor que la nota. |
+| Peso | **No existe** | `kdii` no trae kg ni volumen por producto. Sólo se conocen los kilos de renglones vendidos por KG. |
+| Estado por renglón | `kdm2.c28` CREADO → AUTORIZADO → SURTIDO → CHECADO → EMBARCADO | El pedido `U-D-40` lleva el mismo flujo en `kdm1.c11` y ya trae la unidad (`c83`) antes de la guía. |
+| Responsables | `c80` surtidor → `kdm_cat_sur` · `c81` checador → `kdm_cat_che` · `c82` embarcador → `kdm_cat_emb` | ⚠️ Clave corta colisionada: en checadores de PH `1` = JUAN DIEGO y `01` = IRENE. Exacto → normalizado → NULL. |
+| Chofer vacío | `c84` lo **precarga** el chofer asignado a la unidad (`kdm_transporte.c4`) | 10 de 30 unidades de PH no tienen chofer asignado; la `00008` (la que más embarca) trae chofer en el **0.2%** de sus embarques. |
+| **Llegada del traspaso** | `U-A-50` en la sucursal destino: `c10` = origen `TI###`, **`c37/c38/c39` = el `U-D-41-2` que la envió** | PH → Canindo: 18 de 19 con recepción, mismo importe al centavo, 1–5 días después **en esa muestra**. Es la confirmación de entrega que sí existe (para traspasos). ⛔ **No ligar por fecha**: en general el desfase va de −2 a +63 días y el folio se repite entre plazas — se liga por el back-pointer y el destino (ver arriba, `[DM.20]`). |
+| Serie 2 | `c10` = `TI###` (sucursal, ver `pv_suc_ip`) o `RUTA 2x`/`RD 50x` (camión de ruta) | Una misma guía puede mezclar serie 1 (venta con impuestos) y serie 2 (traspaso **a costo**): no se suman. |
+
+Vistas: `analytics.erp_shipment_stops`, `analytics.erp_shipment_stop_load`,
+`analytics.v_kepler_responsables` (mig `20261006210000`).
+
+#### 3.y.2 El gasto del embarque en Kepler (medido 2026-10-05)
+
+Solicitud `X-A-15` → Gasto `X-A-10` (`c37/c39` apunta a la solicitud) → Pago `X-D-26`. **Los
+renglones del gasto viven en `kdm6`, no en `kdm2`**: `c8` cuenta · `c9` texto · `c11` importe ·
+**`c12` concepto** (`kdco`: código → nombre → cuenta) · **`c13` proyecto** (`kdcp`, p. ej.
+«PRESUPUESTO 2026 CANINDO TLMKT») · **`c16` departamento** (`kdc3`, p. ej. «TLMKT CANINDO»,
+«RD PADRE HIDALGO», «LOGISTICA GENERAL»). En la póliza (`kdc2YYMM`) el mismo concepto va en `c20`
+y los segmentos en `c13`/`c21`.
+
+- ⛔ **Cada gasto aparece dos veces en `kdm6`**: en la solicitud y en el gasto. Contar uno.
+- El grano más fino es **sucursal × departamento × concepto × día**. No hay departamento por
+  unidad, por ruta individual ni por guía; la unidad, el chofer y el periodo **sólo vienen en el
+  texto libre** (`kdm1.c24`–`c26`: «combustible para la unidad RAM 4000», «viáticos del 24/09 al
+  01/10»).
+- Cuentas de logística: **602** (`-003` combustibles, `-004` casetas, `-007…-012/-018`
+  mantenimiento, `-013` permisos, `-015` viáticos y comisiones, `-021` pensión), **514** (fletes,
+  combustible y casetas de compras/traspasos), **611-006** combustibles ventas. ⚠️ El combustible
+  de reparto se está registrando en `611-006` y no en `602-003`.
+- No existe concepto de **hospedaje** de logística (sólo «hotel administración», `608-005`) ni
+  concepto que use `602-006` (macheteros).
+- Desde el corte del 1-oct las sucursales registran su propio gasto; antes todo pasaba por el CEDIS.
+
+### 3.y.3 ⭐ El PEDIDO `U-D-40` y sus cantidades por etapa (decodificado 2026-10-06)
+
+`U-D-40` = **Pedido**, pantalla *Ventas › TeleMarketing › Pedido Telemarketing* y *Almacenes ›
+Control de Pedidos › Pedido de Sucursal*: **es la misma pantalla (`pv_tk.kpl`) y el mismo
+documento**. Los separa sólo el **Origen** (`c27` = `TELEMARK` / `SUCURSAL`). Anclado a la captura
+de `UD4001-0002781` (PH, cliente `RUTA 21`, 05-oct-2026), comprobado campo por campo:
+
+| en la pantalla | columna | valor en el 2781 |
+|---|---|---|
+| Origen | **`c27`** | `SUCURSAL` |
+| Estatus | **`c11`** | `EMBARCADO` (`CREADO → AUTORIZADO → SURTIDO → CHECADO → EMBARCADO`) |
+| Folio · prefijo | `c6` · `c63` | `0002781` · `PD-` |
+| Cliente · vendedor | `c10` · `c12` | `RUTA 21` · `00021` |
+| Resp. Surtido / Checado / Embarque | **`c100` / `c102` / `c103`** | `06` / `03` / `02` |
+| Transporte / Chofer / Dir. envío / Guía | `c83` / `c84` / `c85` / `c86` | `00013` / `00014` / `1` / `0001644` |
+| Hora ticket | `c62` | `18:10` |
+| IVA / IEPS / Importe | `c14` / `c15` / `c16` | `22.59` / `183.90` / `22,591.35` |
+
+⛔ **Los responsables cambian de columna según el documento:** en el pedido son `c100`/`c102`/`c103`;
+en el embarque `U-D-41` son `c80`/`c81`/`c82` (§3.y).
+
+**El embarque apunta a su pedido** con `c37` = tipo del padre (`'40'`) y `c39` = folio del pedido.
+Verificado: embarque `0002683` → `c37='40'`, `c39='0002749'`.
+
+**Renglón (`kdm2`):** cantidad **pedida / surtida / checada / embarcada** = **`c51` / `c52` / `c53` /
+`c54`**, en la unidad de **`c55`** (la presentación, p. ej. `BTO`); `c9` es la cantidad en la unidad
+de `c11` (p. ej. `KG`). El orden se probó porque las columnas se llenan **en el mismo orden en que
+avanza el estatus** (21 días, 29,551 renglones): `CREADO`/`AUTORIZADO` sólo traen `c51`;
+`SURTIDO` agrega `c52`; `CHECADO` agrega `c53`; `EMBARCADO` las cuatro.
+
+**Ubicación por etapa, por renglón:** **`c59` = ubicación de surtido** (la carreta), **`c60` = de
+checado**, **`c61` = de embarque** (la estiba o posición en el camión). Anclado al embarque 2683:
+`c61 = 8` en todos los renglones, igual que la pantalla. En la pantalla de Kepler estas columnas
+quedan **a la derecha, fuera de la vista**, y hay que desplazar la tabla para llenarlas.
+⛔ **Casi no traen dato real** (embarcados, 21 días): PH `c59`/`c60` vacíos en el **100%** y `c61`
+lleno en 33%; Morelia Abastos y CEDIS ~0%; Canindo las llena en ~66–70% pero **el 99% es el número
+de la etapa** (`1`/`A1` en surtido, `2`/`A2` en checado, `3`/`A3` en embarque): relleno para
+pasar, no una carreta. Ninguna carreta real (p. ej. 52) aparece entre los valores frecuentes.
+
+**Tres trampas:**
+1. **`kdm2.c28` NO es el estatus del renglón: es la ETAPA EN QUE SE AGREGÓ.** En 21 días, 921
+   renglones embarcados (~3.2%) nacieron después del pedido: 375 en `SURTIDO`, 377 en `CHECADO`,
+   169 en `EMBARCADO`. Esos renglones **no tienen `c51`** (y los de checado/embarque tampoco
+   `c52`). Ejemplo: POPULAR CAM GRANDE (17111) del pedido 2749 nació en `CHECADO` y no tiene
+   cantidad surtida. El estatus del pedido lo manda `kdm1.c11`. **Hipótesis:** la "Cant. Ped" de
+   la pantalla es `c56` (llena en el 100%) y `c51` es la cantidad original del pedido.
+2. **`c51` y `c52` no siempre están en la misma unidad** (1 pedido contra 21.18 kg surtidos; `c51`
+   vacío en algunos renglones). "Embarcado ÷ pedido" da 102–103%: **no publicar % de surtido** sin
+   resolver la unidad.
+3. **No hay hora por etapa.** Sólo `c62` (ticket) y `c69` (sin decodificar: 18:27 en el pedido,
+   19:30 en su embarque). El tiempo de surtido/checado/embarque **no existe en Kepler**.
+
+**Sucursal ≠ tienda.** Los pedidos `SUCURSAL` van a clientes internos de tres clases: `TI00x`
+(tiendas), `RD 50x` (reparto directo) y `RUTA nn`. Nacen `AUTORIZADO` (nunca `CREADO`). Fase GP.
+
+### 3.y.4 ⭐ Códigos de barras: TRES casillas por unidad (corregido 2026-10-06)
+
+Pantalla *Catálogo de productos › Estructura de Unidades para POS*: tres unidades (Base / Dos /
+Tres), cada una con **tres casillas de código**. Anclado a capturas de `78158` (LECHITA SANTA
+CLARA) y `06001` (CHOC SNICKERS /6), sucursal 01, cada código ubicado en `kdii`:
+
+| Unidad | Nombre · factor | Casilla 1 | Casilla 2 | Casilla 3 |
+|---|---|---|---|---|
+| Base | `c11` · 1 | `c7` | `c93` | **`c102`** ⭐ nuevo |
+| Dos | `c80` · `c81` | `c82` | `c95` | **`c96`** ⭐ corregido |
+| Tres | `c83` · `c84` | `c85` | sin decodificar | sin decodificar |
+
+⛔ **Dos correcciones al decode que usan el verificador (`kp.service.ts`) y `barcode-compute.js`:**
+1. **`c102` no estaba**: es la tercera casilla de la unidad base (`7501055377213`, `7502271917405`).
+2. **`c96` SÍ es un código**: la tercera casilla de la unidad dos (`7502271917412` en el 06001).
+   Se había descartado como "código interno" porque a veces trae cosas como `CB2383139`, pero es
+   una casilla libre: el valor depende de lo que se capturó.
+
+Las casillas 2 y 3 de la unidad tres venían vacías en las dos capturas: **quedan sin decodificar**.
+
+**Cobertura medida** (renglones de pedido `U-D-40` embarcados en PH, 21 días, según la unidad en
+que se pidió y si esa unidad tiene un EAN de 8–14 dígitos en alguna de sus casillas):
+
+| Unidad pedida | Renglones | Con EAN |
+|---|---|---|
+| Base | 6,888 | 94% |
+| Dos | 2,739 | 51% |
+| Tres (caja) | 2,366 | **1%** con EAN: el 99% trae `C`+clave (`C06001`) |
+
+**El `C`+clave SÍ está impreso**: Mega Dulces **reetiqueta todo al ingresar** con ese código
+(Francisco, 2026-10-06). O sea que `c85` es escaneable aunque no sea un EAN.
+
+⚠️ La tabla `catalog.product_barcodes` (importer `import-product-barcodes.js`) **no es la fuente**:
+es un importer, contra la regla principal. Para escanear se lee `kdii` **de la misma sucursal**,
+igual que el verificador.
+
 ---
 
 ### 3.x ⭐ El folio es POR SUCURSAL, no global — y es diseño, no un defecto

@@ -215,6 +215,11 @@ describe('[MS.3.3] SdRequestDetailComponent', () => {
       await render('asignado', true, true);
       expect(api.agents).toHaveBeenCalled();
     });
+    it('⭐ `[MS.7.6]` las personas que se ofrecen al asignar son las de la COLA del ticket, no las de cualquier cola', async () => {
+      await render('asignado', true, true);
+      expect(api.agents).toHaveBeenCalledWith('q'); // el queue_id del ticket de prueba
+      expect(api.agents).toHaveBeenCalledTimes(1);
+    });
     it('⭐ `[MS.3.13]` una nota interna con archivos SÍ se puede enviar, y la pantalla dice que quien reportó tampoco los ve', async () => {
       await render('en_proceso', true);
       const c = fix.componentInstance;

@@ -520,10 +520,21 @@ export class ThotToolsService implements ThotToolProvider {
     const from = norm(args.from);
     const to = norm(args.to);
     const params: any[] = [tenantId];
+    // `[VEC.9]` Dos piernas, igual que la pantalla: el rollup (camionetas + histórico Wincaja) y
+    // la vecinal DERIVADA del ODS. La vecinal se excluye del rollup porque ahí quedó lo que
+    // escribió un importer retirado, con un monto 2.07× el real — y Thot responde preguntas de
+    // dinero: una cifra inflada acá se cita como si fuera del ERP.
     let sql = `SELECT route_code, route_no,
                  COALESCE(SUM(revenue),0)::numeric AS revenue,
                  COALESCE(SUM(tickets),0)::bigint AS tickets
-               FROM analytics.sales_by_route_monthly
+               FROM (
+                 SELECT route_code, route_no, revenue, tickets, month, tenant_id
+                   FROM analytics.sales_by_route_monthly
+                  WHERE COALESCE(route_no, '') !~ '^[0-9]V[0-9]'
+                 UNION ALL
+                 SELECT route_code, route_no, revenue, tickets, month, tenant_id
+                   FROM analytics.v_kepler_vecinal_monthly
+               ) s
                WHERE tenant_id = ?`;
     if (from) { sql += ` AND month >= ?::date`; params.push(from); }
     else sql += ` AND month >= date_trunc('month', current_date - interval '5 months')`;
