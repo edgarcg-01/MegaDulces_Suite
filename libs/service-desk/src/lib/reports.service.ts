@@ -64,13 +64,23 @@ export class ServiceDeskReportsService {
       );
       const todas = rows as FilaReporte[];
       const truncado = todas.length > TOPE_FILAS;
-      return armarReporte(truncado ? todas.slice(0, TOPE_FILAS) : todas, { calendar: config.settings.calendar, policies: config.policies }, {
+      const reporte = armarReporte(truncado ? todas.slice(0, TOPE_FILAS) : todas, { calendar: config.settings.calendar, policies: config.policies }, {
         desde,
         hasta,
         ahora: Date.now(),
         truncado,
         nombreSucursal: (code) => nombreUbicacionExtra(code) ?? branchName(code),
       });
+      // `[MS.7.18]` Para que la pantalla ofrezca el selector de cola: las colas de las que este reporte puede ser.
+      const colasPosibles = (await trx('servicedesk.queues')
+        .whereNull('deleted_at')
+        .modify((qb) => {
+          if (coordina) qb.whereIn('id', coordina);
+        })
+        .orderBy('sort_order')
+        .orderBy('name')
+        .select('id', 'code', 'name')) as { id: string; code: string; name: string }[];
+      return { ...reporte, colas: colasPosibles, cola_id: q.queue_id ?? null };
     });
   }
 }
