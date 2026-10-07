@@ -25,7 +25,7 @@ const knexLib = require('knex');
 const MIGS = [
   '20261007100000_hr_relojes_y_checadas',
   '20261007110000_hr_horarios_y_alertas',
-  '20261007120000_hr_incidencias_y_cierres',
+  '20261007300000_hr_incidencias_y_cierres',
 ].map((n) => require(path.resolve(__dirname, '../migrations-newdb', `${n}.js`)));
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
