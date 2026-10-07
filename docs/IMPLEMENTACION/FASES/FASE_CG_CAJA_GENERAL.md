@@ -1782,3 +1782,57 @@ que es justo lo único que esa celda viene a resolver. Lo agarró `check:tokens`
 Lo de §20: **2 movimientos en el libro contra 12,976 pendientes, 0 cortes, 1 regla declarada, y
 nada río abajo lee `finance.cash_ledger`.** Esta entrega hace que marcar se vea mejor; no hace que
 marcar le sirva a alguien.
+
+---
+
+## 23. `[CG.57]` La consulta medía la caja equivocada (2026-10-07)
+
+**Edgar, con captura del panel abierto:** *"tu diseño se rompe"*. Y se rompía: cada sub-tabla de la
+reja a ~150 px, con **scroll horizontal**, el encabezado «Piezas» recortado a «Pie» y la columna
+«Importe» fuera de vista.
+
+### El defecto: anidé dos layouts de dos columnas y la consulta no lo supo
+
+`[CG.52]` puso el panel en dos columnas (QUÉ | CUÁNTO, ~311 px cada una). `[CG.53]` puso la reja en
+dos columnas (Billetes | Monedas). **Dentro de 311 px, eso son ~150 px por sub-tabla para una tabla
+de tres columnas.**
+
+Yo había previsto el caso — `.cg-reja2` lleva `@container (max-width:26rem) { grid-template-columns:1fr }`
+para apilarse cuando no hay lugar. **Nunca disparó**, y la razón es la que importa:
+
+> El único `container-type` del componente estaba en **`.cg-detail-cuerpo`**. Una consulta de
+> contenedor se resuelve contra el **ancestro más cercano que declare contención**, así que la reja
+> estaba midiendo los **646 px del panel** en vez de los **311 px de la columna** donde vive.
+> `646 px = 40.4rem > 26rem` → «hay lugar de sobra» → dos columnas.
+
+⛔ **Una consulta de contenedor no falla cuando apunta a la caja equivocada: contesta, y contesta
+sobre otra cosa.** Es la tercera vez en esta fase que un umbral se compara contra el contenedor que
+no gobierna al elemento (`[CG.49]`, `[CG.52]`, y ésta) — y las tres se vieron sólo mirando la
+pantalla.
+
+### El arreglo se corrige solo en los dos sentidos
+
+`.cg-grid > .cg-col` pasa a declarar `container-type: inline-size`. Con eso:
+
+| Panel | Columna mide | Reja |
+|---|---|---|
+| lado a lado (`[CG.52]`) | ~311 px = 19rem | **se apila** — y no hace falta que no, porque el panel ya son dos columnas |
+| apilado (pantalla angosta) | ~646 px = 40rem | **dos columnas** — que es donde la altura importaba |
+
+### Verificación
+
+- `nx test view` caja-general: **214/214** (1 prueba nueva). `typecheck`, `check:templates` y
+  `check:tokens` (acotado a este archivo) verdes.
+- **Mutación**: quitarle `container-type` a la columna → 1 roja.
+- ⚠️ **jsdom no hace layout**, así que esto no se puede probar renderizando: la prueba exige que la
+  columna **declare** que es un contenedor, y que sigan existiendo **dos** contenedores distintos.
+  Es lo más cerca que llega una prueba unitaria de un defecto que sólo se ve con píxeles.
+- ⚠️ **Segunda vez en la sesión** que una mutación no se aplicó por CRLF y casi doy por verificado
+  un candado que no se había ejercido. Lo aprendí en `[CG.52]` y volví a caer: el patrón con `\n`
+  literal no matchea este archivo.
+
+### Y lo que esto confirma sobre el método
+
+Las seis entregas anteriores pasaron **todos** los gates y la suite entera, y tres de ellas
+llegaron rotas a la pantalla. **Ninguna compuerta de este repo mide layout.** La validación visual
+no es un trámite al final: es la única que ve esta familia de defectos.
