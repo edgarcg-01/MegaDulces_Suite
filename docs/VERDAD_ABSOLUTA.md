@@ -3153,3 +3153,57 @@ liquida contra el camión es otra pregunta, y tiene fuentes propias que esta ses
 operación que cobra fuera del circuito fiscal, es plausible —no probado— que pague parte de su
 gasto por el mismo lado. Hasta que se mida, el `+10.55 %` cubre un universo **declaradamente
 parcial**, y ésa es la deuda que esta investigación deja abierta.
+
+### 22.11 ⭐⭐ Eran DOS causas, no una — y la segunda la encontró el HTTP, no la base (2026-10-07)
+
+§22.2 atribuyó el presupuesto vacío al contexto de tenant (RLS), que es lo que el latido declaraba.
+Era cierto y **estaba incompleto**: arreglar sólo eso no habría alcanzado.
+
+La verificación **por HTTP** —ejecutar el endpoint, no replicar su consulta— devolvió **500** en
+`expense-plan/propose-growth`. Replicando la consulta del servicio tal como él la arma:
+
+    ERROR: non-integer constant in GROUP BY
+
+`netByAccountYearMonth` interpola la columna de sucursal en el `SELECT` **y en el `GROUP BY`**:
+
+```sql
+SELECT ..., '' AS sucursal, ...
+ GROUP BY cuenta_mayor, '', extract(year from fecha), ...   -- ⛔ ilegal
+```
+
+En el `SELECT` la constante es válida; en el `GROUP BY` Postgres la rechaza. Y `by_sucursal` es
+**`false` por defecto**, así que esto **no era un caso de borde: era el camino normal**. O sea que
+`proposeExpensePlan` y `proposeExpenseGrowth` **nunca pudieron correr** con la configuración que
+usa todo el mundo — con RLS o sin RLS.
+
+⚠️ **Está en `origin/main` desde que el archivo existe** y nadie lo tocó nunca. No lo introdujo
+esta fase: lo destapó.
+
+#### ⭐⭐ Por qué seis bloques de candado no lo vieron
+
+El candado DB-direct de esta misma fase pasaba en **verde**, y lo hacía honestamente: sus bloques
+**replican** la consulta —escrita a mano, con `GROUP BY 1, 2`— en vez de armarla como la arma el
+servicio. *Reproducir una consulta no es ejecutarla.* La diferencia no es de rigor: es que un
+error de **sintaxis SQL** sólo existe en el momento en que el motor parsea la cadena real, y una
+réplica fiel al resultado puede no serlo a la cadena.
+
+Es la misma lección que `[CV.7]` dejó escrita en este repo —*«build/lint/boot simulado no detecta
+bugs de binding, sólo una query real los expone»*— reaprendida en otro dominio. Y empareja con la
+regla de ADR-059 R5 llevada al harness: **dos implementaciones, no una vista contra sí misma**.
+
+El bloque `[7]` del candado ahora arma el SQL **con la misma interpolación del servicio** y lo
+corre en los dos modos (185 filas consolidado · 249 por sucursal), con **prueba negativa**: la
+forma vieja tiene que seguir siendo rechazada por el motor, porque si algún día Postgres la
+tolerara, el arreglo dejaría de tener premisa y nadie se enteraría.
+
+#### Lo que esto corrige del relato
+
+| | |
+|---|---|
+| §22.2 decía | el presupuesto está vacío **por RLS** |
+| lo medido | **dos causas independientes**: el RLS (arreglado y ya en prod, sin verificar) **y** esta consulta (arreglada acá) |
+| consecuencia | el plan de gastos no se iba a armar aunque el autopiloto corriera bien |
+
+⛔ **Y sigue sin verificarse en vivo.** El arreglo de la consulta no está compilado en la API que
+corre; el del RLS está en prod pero su pasada todavía no volvió a correr. Lo que cierra esto es un
+latido en verde con `generation_runs > 0`, no dos commits.
