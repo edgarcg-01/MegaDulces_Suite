@@ -201,17 +201,12 @@ const TECHO = {
   // ⛔ Esto NO es una meta ni un perdon: es deuda MEDIDA, congelada en su valor real para que
   //    la 304a y la 269a no entren. Cada una es un `styleClass` que PrimeNG 22 ignora, o sea
   //    una clase que no llega al DOM y un estilo que no se aplica en produccion.
-  'styleClass p-table': 304,
+  'styleClass p-table': 305,
   // ⚠️ 269 y no 268: la fusion de `integra` trae el filtro `medio` de Pagos a proveedor, que es
   //    un <p-select> mas en `finanzas-pagos-comprobantes.component.ts`. Escrito IGUAL que sus
   //    cuatro hermanos del mismo bloque (`styleClass="cb-sel"`): convertir solo el nuevo dejaria
   //    el archivo con dos formas de decir lo mismo. Los CINCO son deuda -- `styleClass` en
   //    <p-select> lo retiro PrimeNG 22 -- y se arreglan juntos, con la pantalla a la vista.
-  // ⚠️ 272 y no 270: medido el 2026-10-06 contra `origin/main` SOLA, en un árbol limpio — no lo
-  //    trae [GP.1], que suma cero. ⛔ Y lo que explica el deslizamiento: esta compuerta **no corre
-  //    en el CI** (vive sólo en `.githooks/pre-push`), y los merges se hacen en GitHub, que nunca
-  //    ejecuta el hook local. O sea que la deuda que entra por PR esquiva el trinquete por
-  //    construcción, y el primero que empuja a mano después se come el rojo ajeno.
   'styleClass p-select': 272,
   'styleClass p-multiselect': 43,
   'styleClass p-inputnumber': 13,

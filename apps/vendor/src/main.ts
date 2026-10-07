@@ -21,6 +21,45 @@ installRowNavGuard(document);
 // nada -- simplemente vuelve a quedar sin teclado. Deja en paz a los que ya se administran.
 installRadioGroupNav(document);
 
+// `[CD.23]` EL SELLO DE BUILD SE PIDE, YA NO VIENE HORNEADO EN `index.html`.
+// Hasta hoy `index.html` traía un `<script>` con el commit, escrito por un `sed` del Dockerfile
+// ANTES de compilar. Eso metía el commit dentro del hash de Nx, así que el bundle del vendedor
+// se recompilaba entero en cada despliegue — 34-49 s, en 6 de 6 despliegues medidos, aunque no
+// se hubiera tocado una línea de esta app. Ahora `start.sh` publica el sello en runtime y acá
+// se lee de ahí.
+//
+// Se pueblan las MISMAS dos variables globales que ya leía la sonda de diagnóstico de
+// `vendor-shell.component.ts`, a propósito: así ese archivo no cambia ni una línea.
+// ⚠️ Es asíncrono, o sea que hay una ventana de unos ms en la que la sonda diría `n/a` — ya
+//    tenía ese fallback. En la práctica la sonda la abre una persona desde Ajustes, mucho
+//    después. No se bloquea el arranque por un dato de diagnóstico.
+// ⛔ `.catch()` que no hace nada a propósito: sin red (el vendedor trabaja offline) esto falla,
+//    y un 404 en la consola no debe parecer un error de la app.
+//
+// ⚠️ HUECO DECLARADO — EN LA APK NO HAY SELLO, Y NUNCA LO HUBO.
+// Esto funciona por la vía PWA (nginx sirve `/assets/version.json`, lo escribe `start.sh`).
+// La vía nativa es otra: `nx build vendor` → `npx cap sync android` copia
+// `dist/apps/vendor/browser` dentro del APK (ver `capacitor.config.ts`), y ahí no hay nginx
+// ni `start.sh` que escriba nada, así que este `fetch` da 404 y la sonda dice `n/a`.
+// No es una regresión de `[CD.23]`: el `sed` que sellaba vivía en el Dockerfile, que la vía
+// nativa tampoco atraviesa — el APK venía mostrando el literal `BUILD_COMMIT_PLACEHOLDER`.
+// O sea que el cambio es de un placeholder confuso a una ausencia declarada, pero el dato
+// sigue sin existir justo donde más se necesita: el teléfono del vendedor en campo es el
+// caso en que «qué build tiene esto» es una pregunta de soporte.
+// Arreglarlo es un paso post-build en el empaquetado de Android (escribir
+// `dist/apps/vendor/browser/assets/version.json` antes del `cap sync`), NO acá, y es seguro
+// porque ngsw.json se genera durante el build: un archivo agregado después no entra en su
+// tabla de hashes. Fuera del alcance de `[CD.23]`, que es el carril de despliegue.
+fetch('/assets/version.json', { cache: 'no-store' })
+  .then((r) => (r.ok ? r.json() : null))
+  .then((v: { commit?: string; timestamp?: string } | null) => {
+    if (!v) return;
+    const w = window as unknown as { __BUILD_VERSION__?: string; __BUILD_TIMESTAMP__?: string };
+    w.__BUILD_VERSION__ = v.commit;
+    w.__BUILD_TIMESTAMP__ = v.timestamp;
+  })
+  .catch(() => undefined);
+
 bootstrapApplication(AppComponent, appConfig).catch((err) =>
   console.error(err),
 );

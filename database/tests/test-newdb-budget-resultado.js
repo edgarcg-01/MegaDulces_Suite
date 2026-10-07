@@ -37,8 +37,15 @@
  * Es de SOLO LECTURA. No escribe una sola fila.
  */
 'use strict';
+const path = require('path');
 const { Client } = require('pg');
 const { noMedido, esFaltaDeAcceso } = require('./_lib/no-medido');
+
+// `[VE.1]` `run-all-tests.js` carga el `.env`; corriendo el archivo suelto no hay quien lo haga, el
+// destino llega vacío y el candado reporta NO MEDIDO — que se lee igual que «no hay nada que
+// comprobar». Un candado que no se puede correr a mano es un candado que nadie corre al tocar su
+// dominio.
+require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env') });
 
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL;
 const ANIO = Number(process.env.PU_ANIO || 2026);

@@ -163,6 +163,58 @@ const SIN_REPARTIR_ACEPTADAS = {
       check(true, 'toda clave concedida le toca a alguien activo');
     }
 
+    // ── [4b] `[VE.2]` Y las que SÓLO concede el god-mode ────────────────────
+    // El bloque [4] no puede ver este caso: `superadmin` tiene 8 personas
+    // activas, así que una clave que sólo él concede pasa los dos filtros
+    // anteriores con toda confianza. Y es el estado en que vivía
+    // `PRESUPUESTOS_GESTIONAR`: el módulo entero de Presupuestos —12 tablas,
+    // 45 endpoints, 2,010 líneas de pantalla— con CERO personas de negocio que
+    // pudieran capturar un presupuesto, y 10 de sus 12 tablas en 0 filas. El
+    // diagnóstico que circulaba era «falta que alguien le dé al botón»; la
+    // causa medida era que quien tendría que darle no podía abrir la pantalla.
+    //
+    // ⚠️ Es DECLARACIÓN, no fallo: hay claves que legítimamente son de
+    // plataforma. Lo que falla es la SORPRESA — una clave nueva en esta
+    // situación que nadie puso en la lista.
+    const SOLO_PLATAFORMA = {
+      ROLES_CONFIGURAR: 'legítimo: configurar roles y permisos ES la facultad de plataforma',
+      SERVICIO_ATENDER: 'pendiente declarado de Fase MS — falta dárselo a Felipe y David, sin él las reglas de asignación los saltan',
+      SERVICIO_COORDINAR: 'pendiente declarado de Fase MS — la cola de la Mesa de Servicio no la coordina nadie todavía',
+      SUPERVISOR_AI_APROBAR: 'Horus co-piloto (ADR-020): aprobar una acción del motor sigue sin dueño de negocio',
+      LOGISTICS_PAYROLL_GESTIONAR: 'nómina de logística: sin responsable asignado',
+      COMMERCIAL_MAP_PROSPECTS_GESTIONAR: 'mapa de prospectos: sin responsable asignado',
+    };
+    const { rows: soloGod } = await k.raw(
+      `WITH otorgan AS (
+          SELECT e.k AS clave, rp.role_name
+            FROM identity.role_permissions rp
+            CROSS JOIN LATERAL jsonb_each(rp.permissions) e(k, v)
+           WHERE rp.tenant_id = ? AND rp.deleted_at IS NULL AND e.v = 'true'::jsonb)
+       SELECT clave FROM (
+         SELECT clave, bool_and(lower(role_name) IN ('superadmin', 'admin')) AS solo_god
+           FROM otorgan GROUP BY clave) s
+        WHERE solo_god ORDER BY clave`,
+      [TENANT],
+    );
+    const hoy = soloGod.map((r) => r.clave);
+    const sorpresa = hoy.filter((c) => !(c in SOLO_PLATAFORMA));
+    const yaNo = Object.keys(SOLO_PLATAFORMA).filter((c) => !hoy.includes(c));
+    check(
+      sorpresa.length === 0,
+      sorpresa.length === 0
+        ? `${hoy.length} clave(s) sólo las concede el god-mode, todas declaradas con motivo`
+        : `clave(s) nueva(s) que SÓLO concede el god-mode y nadie declaró: ${sorpresa.join(', ')} ` +
+          '→ es un módulo entregado a nadie; o se reparte, o se declara acá con su motivo',
+    );
+    if (yaNo.length) {
+      // Una declaración que dejó de describir algo también es deuda: se repartió
+      // y nadie borró el renglón. Se nombra, no se falla.
+      declarar(
+        `${yaNo.length} clave(s) declarada(s) como sólo-plataforma que YA se repartieron: ` +
+          `${yaNo.join(', ')} → sacarlas de SOLO_PLATAFORMA`,
+      );
+    }
+
     console.log('\n[5] Los `retirado_*` siguen parados y sin gente');
     // Con la cascada puesta ya no hace falta crear más. Los 14 que existen
     // quedan: hard-borrar filas de rol es autorización aparte, y son inertes.

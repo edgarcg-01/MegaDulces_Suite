@@ -10619,3 +10619,141 @@ entera una vez por recepción** (~600 × ~2,000 = 2.6 s) y que no se puede index
   mes entero y recién al final filtra por origen y destino; empujar el filtro hacia arriba no es
   seguro de un tirón, porque las filas `sin_origen` y `sin_recepcion` no sacan su origen ni su
   destino del mismo lado.
+
+---
+
+## 2026-10-06 — `[VE.1]` + `[VE.2]` El egreso gana testigo, y Presupuestos gana a quien lo use
+
+Arrancó como *«analiza el módulo de presupuestos»*. Lo que apareció al medirlo contra prod fueron
+dos cosas de distinta naturaleza, y las dos estaban invisibles por la misma razón: nadie las había
+contado.
+
+### `[VE.1]` El egreso no tenía árbitro — y el que se usaba no era un testigo
+
+Medido sobre `docs/VERDAD_ABSOLUTA.md`: `egreso`, `gasto`, `familia 6`, `expense_entries` y
+`cuenta por pagar` aparecían **0 veces** en un documento con 18 dimensiones arbitradas.
+
+Y `BudgetResultService.arbitroGasto` comparaba `expense_entries` contra `ledger_monthly`, que
+**leen la misma tabla primaria** (`kepler_ods.kdc2YYMM`): atrapa un error de filtro —por eso ene–mar
+salta y de abril en adelante cuadra al centavo— y no uno de la fuente. El testigo independiente
+(`contpaqi_ledger_monthly`, los libros del contador) existía, estaba fresco y **no estaba cableado
+a nada**.
+
+Entregado: `analytics.v_expense_arbiter` (migs **754** y **755** en prod, 143–186 ms, 452 celdas) ·
+los **dos** árbitros publicados en `/presupuesto` · los **huecos**, que el backend armaba desde
+`[PU.R]` y la pantalla nunca mostró · `VERDAD_ABSOLUTA.md` §21 + 2 renglones en §2 · candado
+`test-newdb-expense-arbiter.js` **9 ✓ / 0 ✗ / 0 NO MEDIDO** contra prod, con tres mutaciones
+(`VE_MUTAR=delta_cero|espejo|mes_abierto`) que lo ponen en rojo.
+
+**Dos conclusiones que la propia medición tumbó**, y que son la lección de esta entrada:
+
+1. *«El signo se invierte en financieros, luego no es recorte de alcance»* salía de comparar
+   **totales anuales**; ese signo venía de ene–mar, **donde Kepler no tiene la pierna**. Sobre los
+   6 meses comparables alterna 3 y 3.
+2. El **mes en curso** contaminaba: incluir octubre —día 6— movía la brecha de nómina de
+   −5,745,896 a −2,582,497, un **55 %**, sin que pasara nada en el negocio. Lo encontró el candado
+   dos minutos después de aplicar la vista.
+
+*Un total que suma lo comparable con lo que no lo es se lee como un hallazgo y no lo es.*
+
+### `[VE.2]` El módulo tenía dueño declarado, y ese dueño no existe
+
+La migración de Fase TP.2 dice que *el dueño de Presupuestos es `coordinador_presupuestos`* y le
+otorga las dos claves. **Ese rol no existe en prod** —ni `gerente_finanzas`, al que la misma
+migración daba VER— y el `UPDATE` filtra por una lista que no matchea: cero filas, cero ruido.
+
+Lo que quedaba: `PRESUPUESTOS_GESTIONAR` sólo en `superadmin`. **Ninguna persona de negocio podía
+capturar un presupuesto**, que es la causa real de que 10 de las 12 tablas de `budget.*` estén en 0
+y de que las 418 metas del plan las escribiera `superoot`. El diagnóstico que circulaba —*«falta
+que alguien le dé al botón de proponer»*— describía el síntoma.
+
+Decisión de Edgar: las dos claves a **`direccion`** y nadie más, calcando al permiso hermano
+`FINANCE_PAYMENT_CALENDAR_AUTORIZAR` — por ADR-064 Presupuestos **fija** el tope que el Calendario
+**consume**, así que quien fija no puede estar repartido más laxo. Mig **759**: `direccion` pasó de
+122 a **124 claves exactas**; ahora **11 personas pueden abrir** el módulo y **10 capturar**.
+
+⭐ **Y el candado que debía verlo no podía.** `[LC.6.2]` vigila que *cada clave la conceda alguien*,
+y `superadmin` concede todo: una clave entregada a nadie pasa en verde. Bloque `[4b]` nuevo en
+`test-newdb-role-rename.js` — **6 claves** están hoy en esa situación
+(`ROLES_CONFIGURAR`, `SERVICIO_ATENDER`, `SERVICIO_COORDINAR`, `SUPERVISOR_AI_APROBAR`,
+`LOGISTICS_PAYROLL_GESTIONAR`, `COMMERCIAL_MAP_PROSPECTS_GESTIONAR`), declaradas con motivo; una
+séptima sin declarar **falla**.
+
+### Pendientes con nombre
+
+- ⬜ **Push + redeploy api+view.** La vista y el permiso YA están en prod; el código del servicio y
+  de la pantalla no. ⚠️ `main` local arrastra **25 commits de 7 fases** (CG · IC · VEC · RD · RQ ·
+  DM · CD además de ésta): empujar los lleva a todos.
+- ⬜ **Re-login de las 2 personas de `direccion`** — los permisos viajan en el JWT.
+- ⬜ **La correspondencia concepto → agrupador SAT, sin firmar por Contabilidad.** Mientras
+  `mapeo_firmado` siga en `false`, un `difiere` declara una brecha y **no imputa un error**. No se
+  puede deducir de los datos cuál de los dos lados tiene razón.
+- ⬜ **El bloque `[4b]` no se ejerció dentro de su runner**: `test-newdb-role-rename.js` escribe y
+  aborta contra prod. Su consulta SÍ se midió contra prod por separado (devolvió las 6 exactas) y
+  el archivo pasa `node --check`; falta correrlo en un destino de escritura.
+- ⬜ **Validación visual** de `/presupuesto` con el árbitro nuevo y los huecos.
+- ⬜ **`[VE]` no tiene renglón en el roadmap.** Nació en esta sesión; falta decidir si cuelga de
+  Fase PU o abre fase propia.
+
+---
+
+## 2026-10-06 — `[VE.3]` El presupuesto se mantiene solo
+
+Edgar: *«todo presupuestos debe funcionar en automático. Botones innecesarios o métricas de inicio
+que se piden son innecesarias»*.
+
+### El módulo tenía cuatro motores y ningún reloj
+
+Medido: `budget/` tiene **cero `@Cron`**. Los cuatro motores que producen el presupuesto —plan de
+ventas desde el histórico, plan de gastos desde Kepler, proyección 13×4→mes y materialización a
+partidas— salían **únicamente apretando un botón**. El resultado en prod: `expense_plan_lines`
+**0** · `budget_lines` **0** · `line_movements` **0** · `commercial.sales_targets` **0**, y la
+materialización nunca corrió.
+
+⭐ El diagnóstico que circulaba —*«falta que alguien le dé al botón de proponer»*— describe el
+síntoma **y acepta la causa**. Un número que sólo existe si alguien se acuerda de pedirlo no es un
+presupuesto: es un reporte a demanda.
+
+`BudgetAutopilotService`, `@Cron` 03:30 MX, latido `budget_autopilot` con umbral en `CRON_JOBS`.
+
+### Por qué fue seguro, y por qué el candado mira el código
+
+Los tres pasos **ya nacieron respetando la mano humana**: `proposePlan` y `proposeExpensePlan`
+saltan toda celda `method='manual'` y la cuentan en `coverage.manual_kept`; `materialize` sólo toca
+`source='plan'` y ajusta el vigente de las partidas con saldo en vez de reescribirlas. Los tres
+exigen `borrador`/`en_revision`: **un presupuesto aprobado no lo toca nadie.**
+
+⛔ **Si alguien quita esa guarda en un refactor, el cron pasa de rellenar huecos a borrar el trabajo
+de la gente todas las noches** — y ningún test de datos se enteraría, porque la guarda es una línea.
+Por eso `test-newdb-budget-autopilot.js` lee el **código fuente**: **11 ✓ / 0 ✗ / 1 NO MEDIDO**.
+
+⚠️ Y el candado se puso rojo por su propio comentario en la primera corrida: buscaba la palabra
+`overwrite_manual` y la encontró en el JSDoc que explica *que nunca se manda*. El criterio no puede
+ser que la palabra no exista, sino el **paso real** (`overwrite_manual:` como clave). *Un detector
+que no distingue el código de lo que lo explica no está midiendo el código.*
+
+### Lo que NO se automatizó, a propósito
+
+El piloto **no aprueba, no cierra, no fija la capacidad de pago y no crea ejercicios**. Eso no son
+métricas, son decisiones, y `PRESUPUESTOS_GESTIONAR` las reparte a personas (`[VE.2]`).
+*Automatizar una decisión no es quitar un botón innecesario: es quitarle la firma a quien responde
+por ella.* El candado lo vigila por nombre de método.
+
+### Las métricas que había que pedir
+
+`loadSummaryReal`, `loadSalesComparison` y `loadCashflow` no cargaban hasta apretar. Ahora se
+disparan solas al entrar a su pestaña; el botón se queda, pero ahora significa *«volvé a
+consultar»*, no *«traémelo por primera vez»*.
+
+⚠️ **El diferimiento del backend NO era una precaución vieja.** Medido contra prod: el agregado del
+real recorre **2.2 M filas** de `mv_sales_blended` y tarda **1,893 ms en frío** (283 ms caliente).
+Por eso se dispara **en segundo plano** y fuera del `forkJoin` que pinta el ejercicio — meterlo
+adentro haría esperar 2 s a la pantalla entera. El arreglo de fondo (un agregado mensual
+precomputado) queda **declarado, no hecho**.
+
+### Pendientes con nombre
+
+- ⬜ **Redeploy** — sin él no hay cron, y el bloque [5] del candado seguirá en NO MEDIDO.
+- ⬜ **Primera corrida real**: hoy hay 1 ejercicio en `borrador` (FY2027) y 1 en `pendiente` (que el
+  piloto no toca). La primera pasada debería llenar gastos, targets y partidas.
+- ⬜ **El agregado del real sigue costando 1.9 s en frío.** Declarado arriba.

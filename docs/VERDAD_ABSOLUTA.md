@@ -162,6 +162,8 @@ y aun así publicaba el UxC desde otra columna.
 | **Ingreso · CÓMO entró** | `kdm1.c45` (100 % presente en cobros) contra el catálogo `kdb1` de 26 cuentas | la **ruta cobra en efectivo** (99.7 %), la **tienda por depósito** (96.4 %), con el banco nombrado y hasta **36 pagos** contra una sola factura | ✅ **sí** — §18.4 |
 | **Wincaja (operación viva)** | — | ⭐⭐ **ya no hay**: la venta de Wincaja es **0.0%** de los últimos 30 d ($230 contra $44.5M). Migró entera a Kepler | ✅ **hueco CERRADO** — §8 |
 | **Wincaja (histórico)** | tiene árbitro propio, sin cablear | sigue sin cablear, y es el único acceso al pasado de cada plaza antes de su corte | ⬜ **no empezado** — §8 |
+| **Egreso · gasto operativo** | ⭐ los **libros del contador** (`analytics.contpaqi_ledger_monthly`), que **no comparten fuente primaria** con nosotros — a diferencia de la balanza, que lee el mismo `kdc2YYMM` | el testigo **muerde**: 34 de 39 celdas (bloque × mes) difieren en 2026. La brecha **no es un factor constante** — va de −7.2 % a −44.1 % según el bloque — así que no hay una sola causa | ⚠️ **cableado y DECLARADO, no arbitrado**: falta que Contabilidad firme la correspondencia concepto→agrupador SAT — §21 |
+| **Egreso · qué cuenta como egreso** | la familia contable, con la compra **siempre al lado y nunca sumada** | el **87.8 %** de lo que sale por esa puerta es compra de mercancía (511), no gasto: $453.7 M contra $56.0 M. Llamar «gasto» al total lo multiplica por nueve | ✅ **sí, partido en 4 bloques** — §21 |
 
 ---
 
@@ -2711,3 +2713,102 @@ pareo que inventa tránsitos y uno que inventa recepciones salen de la misma lí
 **Candado:** `database/tests/test-newdb-transfer-pairing.js` — 19 ✓ / 0 ✗ / 1 NO MEDIDO contra
 prod. Vigila la **premisa** (si dejaran de existir los desfases negativos, esta regla sobraría) y
 trae **prueba negativa con control positivo**.
+
+---
+
+## 21. ⭐⭐ El EGRESO no tenía testigo — y el que se usaba leía la misma fuente (VE.1, 2026-10-06)
+
+### 21.1 El hallazgo: 18 dimensiones arbitradas, ninguna de egreso
+
+Medido sobre **este mismo documento**, el 2026-10-06, antes de escribir una línea de código:
+
+| término | veces en el doc |
+|---|---:|
+| `ingreso` | 24 |
+| `egreso` · `gasto` · `familia 6` · `expense_entries` · `cuenta por pagar` | **0** |
+
+No era un olvido de redacción. El egreso **nunca tuvo testigo**, y la mitad del estado de
+resultados de una distribuidora vive de ese lado.
+
+### 21.2 Lo que se usaba como árbitro no era un testigo
+
+`BudgetResultService.arbitroGasto` compara `analytics.expense_entries` contra
+`analytics.ledger_monthly`. Las dos leen **la misma tabla primaria**, `kepler_ods.kdc2YYMM`.
+
+    ene  −175,314   feb  −17,838   mar  +1,005,421
+    abr         0   may        0   jun          0   jul  502   ago  3,883   sep  9,586
+
+Eso es exactamente lo que se espera de dos derivaciones de una sola fuente: atrapan un error de
+**filtro o de agregación** —por eso ene–mar salta y de abril en adelante cuadra al centavo— y **no
+pueden atrapar un error de la fuente**. *Otra implementación no es otro testigo* (R5).
+
+El testigo independiente existía, estaba poblado, estaba **fresco** (última carga 2026-10-06
+18:25, hasta `2026-10`) y **no estaba cableado a nada**: `analytics.contpaqi_ledger_monthly`, los
+libros que ve el contador y el SAT (Fase CP, ADR-040). Es el mismo patrón que ADR-056 nombra —el
+primitivo existe y no se generalizó— sólo que acá nunca llegó a tener un solo consumidor.
+
+### 21.3 ⛔ Los dos planes de cuentas NO son el mismo, y `familia` no cruza
+
+ContPAQi **no tiene familia 6**: sus familias vivas en 2026 son `1`, `2`, `4`, `5` y `_`, y el
+gasto está dentro de la 5. El único eje común es el **agrupador SAT** de contabilidad electrónica.
+
+⚠️ **Y el agrupador trae SUBNIVEL.** El dato real es `601.01`, `602.56`, `701.01`. Un filtro
+`agrupador_sat IN ('601','602')` —que es como lo describía el comentario de `BudgetResultService`—
+devuelve **0 filas contra 690** con `LIKE`. Devuelve **NULL, no cero**, o sea que el árbitro
+hubiera quedado mudo sin que nadie se enterara. Es la trampa que se cobró primero al medir esto, y
+por eso el candado la ejerce como prueba negativa permanente.
+
+### 21.4 La brecha, partida en bloques — meses terminados, ene–sep 2026
+
+| bloque | meses | Kepler↑ | CP↑ | Kepler | ContPAQi | delta | pct |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| compra | 9 | **9** | 0 | 453,680,343 | 314,919,449 | −138,760,895 | −44.1 % |
+| gasto_resto | 9 | 8 | 1 | 24,802,458 | 18,503,254 | −6,299,204 | −34.0 % |
+| nómina | 9 | 8 | 1 | 31,153,775 | 25,407,879 | −5,745,896 | −22.6 % |
+| financieros | 6 | 3 | 3 | 4,461,317 | 5,400,621 | −301,484 | −7.2 % |
+
+El corte de **nómina** (`601.01`–`601.33`) sale de los **nombres del propio catálogo SAT**, no de
+una opinión: ahí caen sueldos, premios, vacaciones, prima vacacional y dominical, antigüedad,
+aguinaldo, IMSS, Infonavit, SAR e ISN; `601.34` ya es *Honorarios a personas físicas*. El candado
+vigila esa premisa contra el catálogo, porque **un comentario no avisa cuando deja de ser cierto**.
+
+⚠️ `cuenta_mayor = '601'` del lado de Kepler es su *SUELDOS Y SALARIOS*, que coincide de número con
+el agrupador SAT `601` **por casualidad del plan de cuentas**. No se apoya nada en esa coincidencia.
+
+### 21.5 ⭐⭐ Dos conclusiones que la propia medición tumbó
+
+**(a) «El signo se invierte en financieros, luego no es recorte de alcance».** Comparando
+**totales anuales**, ContPAQi salía $939,304 **más alto** en financieros (+21.1 %), y de ahí salía
+un argumento limpio. Partido por mes, ese signo venía de **ene–feb–mar, donde Kepler no tiene la
+pierna** ($1,240,788 de intereses que los libros registran y la operación no). Sobre los 6 meses
+comparables el signo **alterna 3 y 3**. *Un total que suma meses comparables con meses que no lo
+son se lee como un hallazgo y no lo es.*
+
+**(b) El mes EN CURSO contamina.** Lo encontró el candado a los dos minutos de aplicar la vista:
+incluir octubre —día 6— movía la brecha de nómina de **−$5,745,896 a −$2,582,497**, un 55 %, sin
+que pasara nada en el negocio. Los dos lados llenan el mes a ritmos distintos. Se **declara**
+(`mes_en_curso`), no se filtra: la celda se publica igual, pero se puede excluir de un acumulado
+sin adivinar la fecha.
+
+Lo que queda en pie: el sentido es **dominante pero no uniforme** y la magnitud cambia **6×** entre
+bloques. Eso descarta un factor de escala único y **no alcanza para nombrar la causa**.
+
+### 21.6 Lo que falta, y de quién es
+
+⛔ **La correspondencia concepto → agrupador SAT no está firmada por Contabilidad.** Mientras
+`mapeo_firmado` siga en `false`, un veredicto `difiere` **declara una brecha y NO imputa un error**
+a ninguno de los dos lados. No se puede deducir desde los datos cuál tiene razón: hace falta que
+alguien diga qué cuenta de Kepler corresponde a qué agrupador.
+
+⚠️ La hipótesis «el hueco es el alcance de la entidad fiscal» sigue **sin verificar**, y §21.5 la
+deja peor parada de lo que estaba: si fuera un recorte limpio, la brecha sería proporcional, y va
+de −7.2 % a −44.1 %.
+
+**Lo cableado:** `analytics.v_expense_arbiter` (vista, 143–186 ms, 452 celdas, 2017-12 → 2026-10) ·
+migs `20261006330000` y `20261006340000` en prod (batches 754 y 755) · `BudgetResultService`
+publica los **dos** árbitros y los **huecos**, que el backend armaba desde `[PU.R]` y la pantalla
+nunca mostraba.
+
+**Candado:** `database/tests/test-newdb-expense-arbiter.js` — **9 ✓ / 0 ✗ / 0 NO MEDIDO** contra
+prod. Prueba negativa del subnivel, vigilancia de la premisa del corte contra el catálogo, y **tres
+mutaciones ejercibles** (`VE_MUTAR=delta_cero|espejo|mes_abierto`): las tres lo ponen en rojo.

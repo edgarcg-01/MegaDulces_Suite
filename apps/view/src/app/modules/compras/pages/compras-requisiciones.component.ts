@@ -52,12 +52,30 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
       <!-- [RQ.8] POR LOTE o POR DOCUMENTO. Un «Armar» genera 8.2 documentos en promedio y 117 en
            el peor (82 generaciones medidas en prod), así que la lista plana obliga a leer 117
            renglones para entender UN clic. La vista por lote es la que contesta «¿qué pedí?». -->
+      @if (atascadas(); as a) {
+        <div class="rq-alerta" role="status">
+          <i class="pi pi-clock" aria-hidden="true"></i>
+          <span><strong>{{ a.n | number }}</strong> requisición(es) llevan más de 30 días sin resolverse ({{ money(a.monto) }}).
+            A esa edad el costo capturado ya no es el de hoy en la mayoría de los renglones: hay que <strong>recalcular</strong> antes de aprobar, o rechazarlas.</span>
+          <button pButton type="button" class="p-button-sm p-button-text" (click)="verPendientes()"><span class="p-button-label">Ver pendientes</span></button>
+        </div>
+      }
+
       <div class="rq-vista">
         <app-segmented [options]="vistaOpts" [value]="vista()" ariaLabel="Agrupación"
                        (valueChange)="setVista($any($event))"></app-segmented>
-        @if (vista() === 'lote' && lotesNoDisponible()) {
+        @if (lotesNoDisponible()) {
           <span class="rq-vista-warn"><i class="pi pi-info-circle" aria-hidden="true"></i>
             El agrupado por lote necesita la migración <code>20261006190000</code>. Mientras tanto, cada requisición sale como lote de uno — no se inventa uno hacia atrás.</span>
+        } @else if (lotesReales() === 0) {
+          <!-- [RQ.11] Se DICE por qué agrupar todavía no muestra nada, en vez de abrir en una
+               vista donde cada requisición es su propio lote. Medido: 619 lotes de un documento. -->
+          <span class="rq-vista-warn"><i class="pi pi-info-circle" aria-hidden="true"></i>
+            Todavía no hay lotes: las requisiciones de antes se crearon sueltas y cada una sale como lote de uno.
+            El agrupado empieza a servir con lo que se arme desde ahora en <strong>Pedido</strong>.</span>
+        } @else {
+          <span class="rq-vista-warn"><i class="pi pi-objects-column" aria-hidden="true"></i>
+            <strong>{{ lotesReales() }}</strong> lote(s) armado(s) desde Pedido.</span>
         }
       </div>
 
@@ -115,16 +133,57 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             </td></tr>
           </ng-template>
         </p-table>
+      } @else if (loteAbierto()) {
+        <!-- [RQ.11] LOS DOCUMENTOS DE UN LOTE, SIN PESTAÑAS Y CON SU TIPO A LA VISTA.
+             Las pestañas separan «Proveedor» de «Traspaso» y eso parte justo lo que el lote
+             junta: medido en prod, **65 de 83 lotes (78 %) mezclan los dos**. Acá van en una
+             sola tabla con la columna Tipo, que es lo que contesta «qué compré y qué se
+             traspasa» — la pregunta por la que existe esta vista. -->
+        <p-table [value]="rows()" [loading]="loading()" styleClass="p-datatable-sm rq-table"
+                 [paginator]="true" [rows]="50" [totalRecords]="total()" [lazy]="true" (onLazyLoad)="onPage($event)">
+          <ng-template #header>
+            <tr>
+              <th style="width:7rem">Tipo</th><th>Folio</th><th>De dónde · a dónde</th>
+              <th class="rq-r">Líneas</th><th class="rq-r">Costo</th>
+              <th>Estado</th><th class="rq-r">Días</th><th>Vigencia</th><th><span class="sr-only">Acciones</span></th>
+            </tr>
+          </ng-template>
+          <ng-template #body let-r>
+            <tr class="rq-row" (click)="open(r)">
+              <td>
+                @if (r.source_type === 'branch') { <span class="rq-pill rq-pill-tr">TRASPASO</span> }
+                @else { <span class="rq-pill rq-pill-buy">COMPRA</span> }
+              </td>
+              <td class="rq-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/compras/requisiciones', r.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
+              <td>
+                @if (r.source_type === 'branch') {
+                  <span class="rq-wh-cell"><i class="pi pi-building rq-origin-icon" aria-hidden="true"></i> {{ r.source_warehouse_code || 'CEDIS' }}</span>
+                  <i class="pi pi-arrow-right rq-muted rq-flecha" aria-hidden="true"></i>
+                  <span class="rq-wh-cell"><i class="pi pi-map-marker rq-dest-icon" aria-hidden="true"></i> {{ r.warehouse_code || '—' }}</span>
+                } @else {
+                  <span>{{ r.supplier_name || 'Varios' }}</span>
+                  <div class="rq-sub rq-muted">entrega en <strong>{{ r.warehouse_code || '—' }}</strong></div>
+                }
+              </td>
+              <td class="rq-r">{{ r.total_lines | number }}</td>
+              <td class="rq-r">{{ money(r.total_cost) }}</td>
+              <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></td>
+              <td class="rq-r" [class.rq-viejo]="(r.dias ?? 0) > 30">{{ r.dias ?? '—' }}</td>
+              <td><p-tag [value]="vigLabel(r)" [severity]="vigSev(r)" [attr.title]="vigTitle(r)"></p-tag></td>
+              <td><i class="pi pi-angle-right rq-muted"></i></td>
+            </tr>
+          </ng-template>
+          <ng-template #emptymessage>
+            <tr><td colspan="9" class="rq-empty">
+              @if (error()) {
+                <i class="pi pi-exclamation-triangle"></i> No se pudieron cargar los documentos del lote.
+                <button pButton type="button" class="p-button-text p-button-sm" (click)="reload()"><span class="p-button-label">Reintentar</span></button>
+              } @else { Este lote no tiene documentos con el filtro de estado puesto. }
+            </td></tr>
+          </ng-template>
+        </p-table>
       } @else {
 
-      @if (atascadas(); as a) {
-        <div class="rq-alerta" role="status">
-          <i class="pi pi-clock" aria-hidden="true"></i>
-          <span><strong>{{ a.n | number }}</strong> requisición(es) llevan más de 30 días sin resolverse ({{ money(a.monto) }}).
-            A esa edad el costo capturado ya no es el de hoy en la mayoría de los renglones: hay que <strong>recalcular</strong> antes de aprobar, o rechazarlas.</span>
-          <button pButton type="button" class="p-button-sm p-button-text" (click)="verPendientes()"><span class="p-button-label">Ver pendientes</span></button>
-        </div>
-      }
 
       <p-tabs [value]="tab()" (valueChange)="onTabChange($any($event))" styleClass="rq-tabs">
         <p-tablist>
@@ -299,6 +358,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                border: 1px solid var(--surface-border); }
     .rq-pill-buy { color: var(--action); border-color: var(--action); }
     .rq-pill-tr  { color: var(--text-muted); }
+    .rq-flecha { margin: 0 .3rem; font-size: var(--fs-xs); }
     .rq-chk { width: 2.25rem; text-align: center; }
     .rq-chk input { cursor: pointer; }
     /* El rojo es del renglón que ya pasó los 30 días: a esa edad el costo capturado dejó de ser
@@ -358,7 +418,15 @@ export class ComprasRequisicionesComponent implements OnInit {
    * de promedio y 117 en el peor (82 generaciones medidas en prod el 2026-10-06). La lista plana
    * sigue estando a un clic — es la que sirve para buscar UN folio, no para entender un pedido.
    */
-  vista = signal<'lote' | 'documento'>('lote');
+  /**
+   * `[RQ.11]` Arranca por DOCUMENTO y se pasa a LOTE sola **cuando hay lotes de verdad**.
+   * Medido en prod: hoy hay 0 lotes y 619 requisiciones viejas, así que abrir agrupado mostraría
+   * 619 «lotes» de un documento sin folio — la misma lista con una columna de más. El agrupado
+   * empieza a servir con lo que se arme desde ahora; mientras tanto se DICE, no se simula.
+   */
+  vista = signal<'lote' | 'documento'>('documento');
+  /** Cuántos lotes reales reportó el servidor. 0 = agrupar no aporta todavía. */
+  lotesReales = signal(0);
   readonly vistaOpts: SegOption[] = [
     { label: 'Por lote', value: 'lote' },
     { label: 'Por documento', value: 'documento' },
@@ -405,8 +473,12 @@ export class ComprasRequisicionesComponent implements OnInit {
       error: () => this.toast.add({ severity: 'warn', summary: 'Sin catálogo de sucursales',
         detail: 'El filtro por sucursal queda vacío; el resto de la bandeja funciona.' }),
     });
+    // `[RQ.11]` Se pregunta por los lotes al abrir —aunque la vista arranque por documento—
+    // para poder decidir si agrupar aporta. Cuesta 7 ms medidos contra prod.
+    this.loadLotes();
     this.reload();
   }
+  private vistaDecidida = false;
 
   onTabChange(newTab: 'supplier' | 'branch'): void {
     if (this.tab() === newTab) return;
@@ -428,13 +500,27 @@ export class ComprasRequisicionesComponent implements OnInit {
   }
   private loadLotes(): void {
     this.loadingLotes.set(true);
+    // `[RQ.11]` ⛔ ACÁ IBA `source_type: this.tab()` Y ERA EL DEFECTO.
+    // El filtro corta las filas ANTES del GROUP BY, así que un lote de 6 compras + 15 traspasos
+    // se publicaba como "6 documentos" en una pestaña y "15" en la otra — nunca 21. Medido
+    // contra prod: **65 de 83 lotes (78 %) mezclan los dos tipos**, 632 documentos y $38,992,900;
+    // en ésos el lote real tiene 9.7 documentos y la pestaña mostraba 5.0 o 4.7, con $28.7M o
+    // $10.3M en vez de $39.0M. Y las dos píldoras "N compras / M traspasos" —que existen justo
+    // para distinguir lo comprado de lo traspasado— quedaban con una SIEMPRE en cero.
+    // Peor: en la vista por lote las pestañas **ni se dibujan**, o sea que filtraba por un
+    // control invisible. El lote es la unidad del «Armar» y abarca los dos tipos: no se filtra.
     this.api.listRequisitionBatches({
-      estado: this.fEstado || undefined, source_type: this.tab(),
+      estado: this.fEstado || undefined,
       page: this.pageLotes(), pageSize: 25,
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.lotes.set(r.rows ?? []); this.totalLotes.set(r.total ?? 0);
         this.lotesNoDisponible.set(r.disponible === false);
+        this.lotesReales.set(r.con_lote ?? 0);
+        // La primera vez que HAY lotes, la pantalla se pasa sola a la vista que los muestra.
+        // Después respeta lo que el usuario eligió: no se le cambia la vista bajo el mouse.
+        if (!this.vistaDecidida && (r.con_lote ?? 0) > 0) { this.vistaDecidida = true; this.vista.set('lote'); }
+        else if (!this.vistaDecidida) { this.vistaDecidida = true; }
         this.loadingLotes.set(false); this.error.set(false);
       },
       error: () => { this.loadingLotes.set(false); this.error.set(true); },
@@ -464,7 +550,9 @@ export class ComprasRequisicionesComponent implements OnInit {
     this.loading.set(true);
     this.api.listRequisitions({
       estado: this.fEstado || undefined,
-      source_type: this.tab(),
+      // `[RQ.11]` Misma razón: los documentos DE UN LOTE son de los dos tipos, y el resumen que
+      // alimenta el tablero de arriba tiene que contar el universo entero, no media pestaña.
+      source_type: (this.vista() === 'lote' || this.loteAbierto()) ? undefined : this.tab(),
       warehouse_id: this.fAlmacen || undefined,
       search: this.fBuscar.trim() || undefined,
       // `[RQ.8]` Abrir un lote = la misma lista, acotada a sus documentos.

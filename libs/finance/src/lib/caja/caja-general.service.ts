@@ -3,6 +3,7 @@ import { TenantKnexService, TenantContextService, applySmartSearch, branchName }
 import { evalInput, composeFreshness, FRESHNESS_UNKNOWN } from '@megadulces/platform-core';
 import type { Freshness } from '@megadulces/contracts';
 import { casarPorImporte, canonBank, escapaLike, type MovCuadre } from './caja-cuadre.engine';
+import { fechaDeVentaDeclarada, leerVentaDeRuta } from './caja-ruta.engine';
 
 /**
  * Fase CG.3 — Caja General (control venta diaria → depósito bancario + arqueo).
@@ -555,7 +556,79 @@ export class CajaGeneralService {
         .andWhere('fecha_valor', '>=', from).andWhere('fecha_valor', '<=', to)
         .select('sucursal', 'clave_banco', 'folio', 'fecha_valor as fecha', 'concepto', 'beneficiario', 'doc_tipo', 'importe', 'signo');
 
-      const key = (f: any) => String(f).slice(0, 10);
+      /**
+       * ⛔ Acá decía `const key = (f: any) => String(f).slice(0, 10)`, y eso **no devuelve una
+       * fecha**: pg entrega un `date` como objeto `Date`, y `String(new Date(...)).slice(0,10)`
+       * da **`"Sat Oct 03"`**. Estaba a la vista en la columna FECHA del detalle del día y nadie
+       * lo leyó como un defecto — parecía un formato feo, no un dato roto.
+       *
+       * Rompía tres cosas a la vez:
+       *   1. la fecha que se imprime (`dmy()` no puede formatear "Sat Oct 03");
+       *   2. **el orden de las filas**: el `.sort()` de abajo hace `a.fecha.localeCompare(b.fecha)`
+       *      sobre ese texto, o sea alfabético por día de la semana — `Fri < Mon < Sat < Tue`;
+       *   3. cualquier consumidor que intente parsearla (el resolvedor de ruta de `[CG.20]`
+       *      recibía `"Sat Oct 03"` y devolvía null en TODAS las filas, que es como se encontró).
+       *
+       * `ymd` ya vive en este archivo —y dos métodos más abajo ya se usa como `const key = ymd`—
+       * y arma la fecha con las partes LOCALES, no por UTC. Es el mismo defecto de `[LC.16]`.
+       */
+      const key = ymd;
+
+      /**
+       * ⭐ [CG.20] CUARTA FUENTE: **la venta que registró el Kepler de la propia camioneta.**
+       *
+       * El Cuadre tenía tres columnas y para la venta de ruta la de Kepler sale casi siempre
+       * vacía. Medido el 2026-10-06 contra prod: la tesorería de Kepler (el cobro `U-A-5` a la
+       * cuenta CAJA GENERAL) **sólo llega al día de venta 1 de octubre y sólo para Padre
+       * Hidalgo**; Canindo tiene CERO cobros de octubre, así que sus tres movimientos del 03-oct
+       * —$25,728.50, $22,891.50 y $19,909.00— se publicaban con un guion. Ese guion era honesto
+       * pero inútil: decía "la tesorería no lo registró", no "esta venta no existe".
+       *
+       * Y sí existe: la camioneta la registró en SU Kepler el mismo día. Los tres casan con
+       * $25,728.75 / $22,891.56 / $19,908.71 — **tres, seis y veintinueve centavos**.
+       *
+       * ⛔ Y no se casa por importe: se casa por IDENTIDAD. El texto del capturista declara la
+       * ruta y el día (`Ventas Canindo 01/10 RD 501`), así que la llave es (ruta, día de venta) y
+       * no "dos números parecidos". Por eso esta fuente NO pasa por `casarPorImporte` y no puede
+       * salir `ambiguo`: o el texto declara una ruta del registro y hay venta ese día, o no.
+       *
+       * ⚠️ La ruta declarada se valida contra `analytics.v_route_zone`. Sin eso, el
+       * `Ventas Canindo 02/10 RD501` que está en producción —y cuyo importe es el de la ruta
+       * **502**— se postearía a la 501 sin que nada avise. Un número que no es ruta se rechaza.
+       */
+      const declarado = (mdb as any[]).map((r) => {
+        if (n(r.ingreso) <= 0) return null;   // la venta de ruta ENTRA; un gasto nunca es una venta
+        const d = leerVentaDeRuta(r.nombre_cliente);
+        if (!d) return null;
+        const dia = fechaDeVentaDeclarada(r.nombre_cliente, key(r.fecha));
+        return dia ? { mov: `${r.tipo_dto}|${r.mov_id}`, ruta: d.ruta, dia } : null;
+      }).filter(Boolean) as { mov: string; ruta: string; dia: string }[];
+
+      const rutaPorMov = new Map<string, { ruta: string; dia: string }>();
+      const ventaRuta = new Map<string, { venta: number; tickets: number }>();
+      const rutasInvalidas = new Set<string>();
+      if (declarado.length) {
+        const registro = new Set((await trx('analytics.v_route_zone')
+          .where('tenant_id', tenantId).select('route_code')).map((r: any) => String(r.route_code)));
+        const pares = declarado.filter((d) => {
+          if (registro.has(d.ruta)) return true;
+          rutasInvalidas.add(d.ruta);
+          return false;
+        });
+        for (const d of pares) rutaPorMov.set(d.mov, { ruta: d.ruta, dia: d.dia });
+        if (pares.length) {
+          const rutas = [...new Set(pares.map((d) => d.ruta))];
+          const dias = pares.map((d) => d.dia).sort();
+          const ventas = await trx('analytics.v_rd_route_daily')
+            .where('tenant_id', tenantId).whereIn('route_code', rutas)
+            .whereBetween('business_date', [dias[0], dias[dias.length - 1]])
+            .select('route_code', 'business_date', 'venta', 'tickets');
+          for (const v of ventas as any[]) {
+            ventaRuta.set(`${v.route_code}|${key(v.business_date)}`, { venta: r2(n(v.venta)), tickets: n(v.tickets) });
+          }
+        }
+      }
+
       // Sucursal con nombre en la referencia de cada lado (el drill imprimía el número crudo: "42 · 510").
       const suc = await this.finanzasSucursalNamer(trx, tenantId, this.inst(q));
       const mdbSide = (dir: 'ingreso' | 'gasto') => (mdb as any[]).filter((r) => n(r[dir]) > 0).map((r) => ({
@@ -592,9 +665,21 @@ export class CajaGeneralService {
         // un mes), y esta pantalla tiene presupuesto de 1 s.
         const man = (dir === 'in' ? idxManIn : idxManOut).get(m.lbl.key) ?? null;
         const kep2 = (dir === 'in' ? idxKepIn : idxKepOut).get(m.lbl.key) ?? null;
+        // [CG.20] La cuarta vía. `rt` = lo que el texto declara; `vt` = lo que la camioneta
+        // registró. Que `rt` exista y `vt` no es un hallazgo, no un hueco de render: significa
+        // que entró el efectivo de una venta que la ruta no reportó (medido: la 504 el 02-oct,
+        // $28,678 en la caja contra cero venta en su Kepler). Por eso viaja `ruta_motivo`.
+        const rt = rutaPorMov.get(m.lbl.key) ?? null;
+        const vt = rt ? (ventaRuta.get(`${rt.ruta}|${rt.dia}`) ?? null) : null;
         return {
           id: m.lbl.id, key: m.lbl.key, fecha: m.lbl.fecha, dir, importe: m.lbl.importe,
           concepto: m.lbl.concepto, extra: m.lbl.extra,
+          ruta: !!vt,
+          ruta_importe: vt ? vt.venta : null,
+          ruta_ref: rt ? `Ruta ${rt.ruta} · venta del ${rt.dia}` : null,
+          ruta_key: rt && vt ? `${rt.ruta}|${rt.dia}` : null,
+          ruta_delta: vt ? r2(m.lbl.importe - vt.venta) : null,
+          ruta_motivo: rt && !vt ? `la ruta ${rt.ruta} no reportó venta el ${rt.dia}` : null,
           manual: !!man, manual_importe: man ? man.other.importe : null, manual_ref: man ? man.other.extra : null, manual_key: man ? man.other.key : null,
           kepler: !!kep2, kepler_importe: kep2 ? kep2.other.importe : null, kepler_ref: kep2 ? kep2.other.extra : null, kepler_key: kep2 ? kep2.other.key : null,
           // ⭐ Cuánto vale ESTE casamiento. `ambiguo` = había más de un candidato a la misma
@@ -627,6 +712,15 @@ export class CajaGeneralService {
         manual_disponible: (man as any[]).length > 0,
         kepler_disponible: (kep as any[]).length > 0,
         tolerancia: MATCH_EPS,
+        // [CG.20] La cuarta vía se mide aparte porque su universo es otro: sólo aplica a los
+        // movimientos que DECLARAN una venta de ruta, no a los 11 del día. Publicar
+        // "3 de 11 en Ruta" leería como cobertura mala cuando 8 de esos 11 no son ventas de ruta.
+        ruta_declarados: rows.filter((r) => r.ruta || r.ruta_motivo).length,
+        ruta_casados: rows.filter((r) => r.ruta).length,
+        ruta_sin_venta: rows.filter((r) => !!r.ruta_motivo).length,
+        // Un número que el texto llama ruta y el registro operativo no conoce. Se cuenta, porque
+        // si esto sube es que alguien está tecleando una ruta que no existe.
+        ruta_no_reconocidas: [...rutasInvalidas],
       };
 
       return { period: { from, to }, vs_manual, vs_kepler, rows, totals };
