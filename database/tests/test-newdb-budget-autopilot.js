@@ -280,6 +280,67 @@ const TIENE_GUARDA = (src) =>
         : `${vacios.length} ejercicio(s) VACÍOS fuera de borrador: `
           + `${vacios.map((v) => `${v.folio ?? v.name} FY${v.fiscal_year} (${v.status})`).join(', ')}`
           + ' — aprobarlos es aprobar nada, y salen del alcance del piloto para siempre');
+    // ── 7. `[VE.9]` LA CADENA COMPLETA, de punta a punta ────────────────────────────────
+    //
+    // Los bloques de arriba miran el código y la forma; éste mira el RESULTADO: que una pasada
+    // real haya producido un presupuesto armado. Es la prueba e2e — si nunca corrió, se DECLARA
+    // (no hay nada que juzgar), pero si corrió y dejó la cadena a medias, falla.
+    console.log('\n[7] Una pasada real arma la cadena entera');
+    const [pasada] = await q(
+      `SELECT folio, status, output, assumptions, started_at
+         FROM budget.generation_runs ORDER BY started_at DESC LIMIT 1`);
+
+    if (!pasada) {
+      nm('ninguna pasada registrada todavía: la cadena no se puede juzgar');
+    } else {
+      console.log(`    · última pasada ${pasada.folio} (${pasada.status})`);
+      chk(pasada.status === 'ok', `la pasada ${pasada.folio} terminó en «${pasada.status}»`);
+
+      // 7.1 — el ejercicio existe y lo creó el sistema
+      const [ej] = await q(
+        `SELECT folio, name, fiscal_year, status, created_by FROM budget.budgets
+          ORDER BY created_at DESC LIMIT 1`);
+      if (!ej) { fail++; console.log('  ✖ hubo pasada y NO hay ejercicio'); }
+      else {
+        chk(/^PRE-\d{4}-\d{3}$/.test(String(ej.folio)),
+          `ejercicio ${ej.folio} «${ej.name}» FY${ej.fiscal_year} (${ej.status}), creado por ${ej.created_by}`);
+      }
+
+      // 7.2 — los supuestos se derivaron sobre el canal CANÓNICO
+      const [sup] = await q(
+        `SELECT growth_by_channel gbc,
+                (SELECT count(*) FROM jsonb_object_keys(growth_by_channel))::int n
+           FROM budget.sales_plan_settings ORDER BY updated_at DESC LIMIT 1`);
+      if (!sup) nm('sin supuestos guardados: la pasada no llegó a derivarlos');
+      else {
+        const alias = await q(
+          `SELECT DISTINCT raw_channel FROM analytics.sellout_channel_map
+            WHERE raw_channel <> canonical_channel`);
+        const muertos = alias.map((r) => r.raw_channel);
+        const claves = Object.keys(sup.gbc || {});
+        const colados = claves.filter((k) => muertos.includes(k));
+        chk(colados.length === 0,
+          colados.length === 0
+            ? `${sup.n} supuestos derivados, ninguno sobre un canal alias (${claves.join(', ')})`
+            : `supuestos sobre canal ALIAS: ${colados.join(', ')} — el derivador leyó el vocabulario crudo`);
+      }
+
+      // 7.3 — el plan, las partidas y las obligaciones
+      const [cad] = await q(
+        `SELECT (SELECT count(*) FROM budget.sales_plan_lines)::int plan,
+                (SELECT count(DISTINCT period_no) FROM budget.sales_plan_lines)::int periodos,
+                (SELECT count(*) FROM budget.expense_plan_lines)::int gastos,
+                (SELECT count(*) FROM budget.budget_lines)::int partidas,
+                (SELECT count(*) FROM budget.expense_obligations)::int oblig,
+                (SELECT count(*) FROM budget.expense_obligations WHERE status <> 'propuesta')::int oblig_firmadas`);
+      chk(cad.plan > 0, `plan de ventas: ${cad.plan} celdas en ${cad.periodos} de 13 periodos`);
+      console.log(`    · gastos ${cad.gastos} · partidas ${cad.partidas} · obligaciones ${cad.oblig}`);
+      // ⛔ Lo único inadmisible de este bloque: que el automático haya FIRMADO algo.
+      chk(Number(cad.oblig_firmadas) === 0,
+        `${cad.oblig_firmadas} obligaciones fuera de «propuesta» — el piloto no autoriza, eso lo firma una persona`);
+      if (!cad.gastos) nm('plan de gastos en 0: o no hay histórico de egresos, o ese paso falló');
+      if (!cad.partidas) nm('partidas en 0: la materialización no llegó a correr');
+    }
   } finally {
     await c.end().catch(() => undefined);
   }
