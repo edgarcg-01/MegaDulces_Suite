@@ -192,10 +192,17 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
           } @else if (loadingBudgets()) {
             <p class="pres-muted">Cargando ejercicios…</p>
           } @else {
+            <!-- [VE.9] El vacio decia "Crear el primero" y contradecia a la cabecera de arriba:
+                 si el sistema arma solo, no puede pedirte que lo crees. El ejercicio del ano
+                 siguiente lo crea la pasada nocturna; el boton solo ADELANTA esa pasada. Crear uno
+                 a mano queda como la excepcion (otro ano, otro escenario), no como el camino. -->
             <div class="pres-empty-block">
               <span class="pi pi-chart-pie pres-empty-ico"></span>
-              <p>Aún no hay ejercicios presupuestales.</p>
-              <button pButton type="button" class="p-button-sm" (click)="openNewBudget()"><span class="pi pi-plus"></span>&nbsp;Crear el primero</button>
+              <p>No hay ejercicios todavía. <strong>El sistema crea el del año siguiente solo</strong>, en la pasada de las 03:30, y lo arma con los supuestos derivados del ODS y de Kepler.</p>
+              <div class="pres-detail-actions">
+                <button pButton type="button" class="p-button-sm" (click)="runAutopilot()" [loading]="runningAutopilot()" title="Corre ahora la misma pasada del cron: crea el ejercicio del año siguiente si falta, deriva los supuestos y propone ventas, gastos y partidas"><span class="pi pi-bolt"></span>&nbsp;Armarlo ahora</button>
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="openNewBudget()" title="Para un año o escenario distinto del que arma el sistema"><span class="pi pi-plus"></span>&nbsp;Crear uno a mano</button>
+              </div>
             </div>
           }
 
@@ -204,6 +211,10 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <span class="pres-summary-title">{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span> <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" /></span>
               <div class="pres-detail-actions">
                 @if (b.status === 'borrador' || b.status === 'en_revision') {
+                  <!-- [VE.9] Adelanta la pasada nocturna sobre ESTE ejercicio. No reemplaza al
+                       cron: lo que hace es no tener que esperar a manana para ver el efecto de un
+                       cambio en los supuestos o en el catalogo. -->
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="runAutopilot()" [loading]="runningAutopilot()" title="Corre ahora la pasada del cron: supuestos derivados + plan de ventas + plan de gastos + partidas. Respeta lo capturado a mano"><span class="pi pi-bolt"></span>&nbsp;Re-armar ahora</button>
                   <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'submit')" [loading]="savingLifecycle()">Enviar a autorización</button>
                 }
                 @if (b.status === 'pendiente') {
@@ -1119,6 +1130,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // ── Ejercicios (PU) ──
   budgets = signal<BudgetHeader[]>([]);
   loadingBudgets = signal(false);
+  /** `[VE.9]` La pasada del piloto, disparada a mano desde la pantalla. */
+  runningAutopilot = signal(false);
   selected = signal<BudgetHeader | null>(null);
   summary = signal<Summary | null>(null);
   lines = signal<BudgetLine[]>([]);
@@ -1271,6 +1284,43 @@ export class FinanzasPresupuestoComponent implements OnInit {
     if (this.view() === 'flujo') this.loadResultado();
     if (this.view() === 'gasto-op') this.loadExpensePlan();
     if (this.view() === 'gastos') this.loadExpenses();
+  }
+
+  /**
+   * `[VE.9]` Adelanta la pasada nocturna. Es la MISMA que corre a las 03:30, no una versión
+   * recortada: crea el ejercicio del año siguiente si falta, deriva los supuestos del histórico y
+   * propone ventas, gastos, proyección y partidas, respetando todo lo capturado a mano.
+   *
+   * Las dos llamadas van en orden porque la segunda lee el plan de gastos que escribe la primera
+   * (viven en módulos distintos, `[VE.4]`). Si la primera falla, la segunda no corre: generar
+   * obligaciones de un plan que no se escribió sería proponer pagos sobre nada.
+   */
+  runAutopilot(): void {
+    this.runningAutopilot.set(true);
+    this.http.post<{ ejercicios: number; tocados: number; celdas: number; errores: string[] }>(`${this.base}/autopilot/run`, {})
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          const detalle = `${r.tocados}/${r.ejercicios} ejercicios · ${r.celdas} celdas escritas`;
+          if (r.errores?.length) {
+            // No se dibuja como éxito: una pasada con fallas que dice «listo» es justo lo que el
+            // latido de este módulo ya hizo una vez (ok sobre cero).
+            this.toast.add({ severity: 'warn', summary: 'Pasada con fallas', detail: `${detalle} — ${r.errores.join(' · ')}`, life: 12000 });
+          } else {
+            this.toast.add({ severity: 'success', summary: 'Presupuesto armado', detail: detalle });
+          }
+          this.http.post<{ generadas: number; actualizadas: number; errores: string[] }>(`${this.base}/expenses/autopilot/run`, {})
+            .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+              next: (o) => {
+                this.runningAutopilot.set(false); this.loadBudgets();
+                if (o.generadas || o.actualizadas) {
+                  this.toast.add({ severity: 'info', summary: 'Obligaciones propuestas', detail: `${o.generadas} nuevas · ${o.actualizadas} actualizadas — esperan tu autorización` });
+                }
+              },
+              error: (e) => { this.runningAutopilot.set(false); this.loadBudgets(); this.toast.add({ severity: 'warn', summary: 'Obligaciones', detail: e?.error?.message || 'El presupuesto se armó; las obligaciones no.' }); },
+            });
+        },
+        error: (e) => { this.runningAutopilot.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo armar el presupuesto.' }); },
+      });
   }
 
   openNewBudget(): void { this.budgetForm = { fiscal_year: new Date().getFullYear() + 1, scenario: 'base' }; this.newBudgetVisible = true; }
