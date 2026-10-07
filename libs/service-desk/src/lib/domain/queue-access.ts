@@ -10,8 +10,8 @@
  * Quien tiene la clave pero ninguna membresía NO ve ningún ticket de nadie: la clave sola ya no abre la bandeja
  * (es el cambio de fondo). Y quien es miembro pero no tiene la clave tampoco puede nada: la pertenencia sola no basta.
  *
- * `accesoATicket` ya nace con el hueco de la confidencialidad (Fase RH): `completo | basico | ninguno`.
- * Hoy ningún ticket es confidencial (la columna llega con RH.1), así que `basico` sólo existe aquí, probado y
+ * `accesoATicket` ya nace con el hueco de la confidencialidad (Fase MSH): `completo | basico | ninguno`.
+ * Hoy ningún ticket es confidencial (la columna llega con MSH.1), así que `basico` sólo existe aquí, probado y
  * sin uso: reescribir esta función dos veces —una por Mantenimiento y otra por RH— sería peor que una.
  */
 

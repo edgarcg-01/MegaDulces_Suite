@@ -77,7 +77,7 @@ interface RequestRow {
   tenant_id: string;
   folio: string;
   queue_id: string;
-  /** `[MS.7.6]` Hueco de la Fase RH: la columna llega con RH.1; hasta entonces es `undefined` (nada es confidencial). */
+  /** `[MS.7.6]` Hueco de la Fase MSH: la columna llega con MSH.1; hasta entonces es `undefined` (nada es confidencial). */
   confidential?: boolean;
   category_id: string;
   title: string;
@@ -1182,7 +1182,7 @@ export class ServiceDeskRequestsService {
 
   /**
    * `[MS.7.6]` Ver un ticket = acceso COMPLETO, por la función única de acceso. El acceso `basico` (el god-mode ante un
-   * ticket confidencial, Fase RH) NO abre la ficha: la vista limitada la arma RH.2 con su propio DTO; mientras tanto
+   * ticket confidencial, Fase MSH) NO abre la ficha: la vista limitada la arma MSH.2 con su propio DTO; mientras tanto
    * `basico` cae del lado seguro (no se ve).
    */
   private puedeVer(r: RequestRow, ctx: ActorCtx): boolean {
