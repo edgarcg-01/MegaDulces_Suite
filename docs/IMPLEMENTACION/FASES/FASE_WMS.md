@@ -426,6 +426,13 @@ Rangos vistos: pasillo `A`–`D` (4, igual que los 4 de la Suite), rack `A`–`�
    prod, sin importer) para **proponer** la posición en el censo de PH (WMS.3); quien hace el censo
    la confirma o la corrige.
 6. Espera (`E01`), carreta (`C52`) y estibas de §12.2 siguen igual.
+7. **Un producto en varias posiciones (Francisco, 2026-10-07).** Como en los WMS de referencia: una
+   **posición de surtido fija** por producto (de donde siempre se surte; es la que sale en la hoja) y
+   las demás son **reserva**, de donde se repone la de surtido. **Orden acordado:** primero las capas 1
+   (posiciones) y 2 (asignación surtido/reserva/tienda, **sin cantidad**); la capa 3 (cantidad por
+   posición, `stock_lot_locations`, con putaway sugerido y salida FEFO) **se prende en PH cuando el
+   escaneo al acomodar y al surtir ya sea costumbre**. Prenderla antes da cantidades por posición que no
+   cuadran con Kepler, y eso es peor que no tenerlas.
 
 **Preguntas abiertas:**
 
