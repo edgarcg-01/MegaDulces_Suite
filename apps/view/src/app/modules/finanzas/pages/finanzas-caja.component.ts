@@ -62,6 +62,14 @@ interface DiaRow {
   manual: boolean; manual_importe: number | null; manual_ref: string | null; manual_key: string | null;
   kepler: boolean; kepler_importe: number | null; kepler_ref: string | null; kepler_key: string | null;
   /**
+   * [CG.20] La cuarta vía: la venta que registró el Kepler DE LA CAMIONETA. No casa por importe
+   * sino por identidad (la ruta y el día que el propio texto declara), así que no puede ser
+   * ambigua — por eso no trae `_ambiguo`. `ruta_motivo` es el caso que importa: el texto declara
+   * una venta de ruta y la ruta no reportó ninguna ese día.
+   */
+  ruta: boolean; ruta_importe: number | null; ruta_ref: string | null; ruta_key: string | null;
+  ruta_delta: number | null; ruta_motivo: string | null;
+  /**
    * CG.19 — Qué tan firme es ESTE casamiento. El cruce es por importe+fecha (atributo débil, no
    * hay llave entre el Access y Kepler), así que un par que salió de entre 40 iguales no puede
    * pintarse igual que uno forzado. `ambiguo` = había otro candidato tan bueno; `delta` ≠ 0 = casó
@@ -80,6 +88,9 @@ interface DiaTotals {
   /** Un lado sin datos NO es "todo descuadrado": es una fuente apagada en el periodo. */
   manual_disponible: boolean; kepler_disponible: boolean;
   tolerancia: number;
+  /** [CG.20] Universo propio: sólo los movimientos que DECLARAN una venta de ruta. */
+  ruta_declarados: number; ruta_casados: number; ruta_sin_venta: number;
+  ruta_no_reconocidas: string[];
 }
 interface ConcDia {
   period: { from: string; to: string };
@@ -583,6 +594,13 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
         <p class="dlg-lead muted">No existe un folio común entre las tres fuentes: el casamiento es
           <b>por importe</b>, así que un movimiento puede haber casado con otro igual. Los marcados con
           <b>~</b> tenían más de un candidato.</p>
+        <!-- [CG.20] La cuarta via se explica aparte porque su metodo es OTRO, y mezclarla en el
+             parrafo de arriba haria creer que tambien casa por importe. -->
+        <p class="dlg-lead muted"><b>Ruta</b> es la excepción: ahí el texto declara la ruta y el día
+          (<i>Ventas 01/10 RD 23</i>), así que casa por <b>identidad</b> contra lo que registró el
+          Kepler de esa camioneta — sin tolerancia y sin candidatos. Un
+          <i class="pi pi-exclamation-triangle warn"></i> significa que entró efectivo de una venta
+          que la ruta no reportó.</p>
 
         <div class="tw-drill-kpis">
           <span><b>{{ cd.totals.control_n }}</b> movs Control</span>
@@ -592,6 +610,23 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
           @else { <span class="muted">Kepler sin datos en el periodo</span> }
           @if (cd.totals.manual_only_n) { <span class="warn"><b>{{ cd.totals.manual_only_n }}</b> solo Workbook ({{ money(cd.totals.manual_only_monto) }})</span> }
           @if (cd.totals.kepler_only_n) { <span class="warn"><b>{{ cd.totals.kepler_only_n }}</b> solo Kepler ({{ money(cd.totals.kepler_only_monto) }})</span> }
+          <!-- [CG.20] Se publica sobre SU universo (los que declaran venta de ruta), no sobre los
+               movimientos del dia: "3 de 11" leeria como cobertura mala cuando 8 no son ventas. -->
+          @if (cd.totals.ruta_declarados) {
+            <span class="ok" title="Movimientos cuyo texto declara una venta de ruta y casaron con la venta que registró esa camioneta.">
+              <b>{{ cd.totals.ruta_casados }}</b> de {{ cd.totals.ruta_declarados }} en Ruta
+            </span>
+          }
+          @if (cd.totals.ruta_sin_venta) {
+            <span class="warn" title="El texto declara una venta de ruta y esa ruta no reportó venta ese día: entró efectivo que su Kepler no registra.">
+              <b>{{ cd.totals.ruta_sin_venta }}</b> sin venta en la ruta
+            </span>
+          }
+          @if (cd.totals.ruta_no_reconocidas?.length) {
+            <span class="warn" title="El texto nombra una ruta que no existe en el registro operativo: casi siempre es un número mal tecleado.">
+              ruta no reconocida: {{ cd.totals.ruta_no_reconocidas.join(', ') }}
+            </span>
+          }
           @if (ambiguosTotal(cd)) {
             <span class="warn" title="Casaron teniendo más de un candidato al mismo importe: el par pudo haber sido otro.">
               <b>{{ ambiguosTotal(cd) }}</b> casamientos ambiguos
@@ -641,10 +676,14 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
                        template es un literal y un acento grave lo cierra — ya pasó cinco veces.) -->
                   <td class="ta-r num">@if (e.manual) { <button type="button" class="tw-mlink" [class.tw-cent]="e.manual_importe !== e.importe" [title]="tituloPar('Workbook', e.manual_ref, e.manual_ambiguo, e.manual_delta)" (click)="openMovement('workbook', e.manual_key)">{{ money(e.manual_importe) }}</button>@if (e.manual_ambiguo) { <span class="tw-amb" aria-label="casamiento ambiguo">~</span> } } @else { <i class="pi pi-minus tw-faint" title="No está en el Workbook"></i> }</td>
                   <td class="ta-r num tw-kep">@if (e.kepler) { <button type="button" class="tw-mlink" [class.tw-cent]="e.kepler_importe !== e.importe" [title]="tituloPar('Kepler', e.kepler_ref, e.kepler_ambiguo, e.kepler_delta)" (click)="openMovement('kepler', e.kepler_key)">{{ money(e.kepler_importe) }}</button>@if (e.kepler_ambiguo) { <span class="tw-amb" aria-label="casamiento ambiguo">~</span> } } @else { <i class="pi pi-minus tw-faint" title="No está en Kepler"></i> }</td>
+                  <!-- [CG.20] La venta de la camioneta. Sin virgulilla a proposito: casa por
+                       identidad (ruta + dia declarados), no por importe, asi que no hay candidatos
+                       que desempatar. El guion con motivo NO es lo mismo que el guion vacio. -->
+                  <td class="ta-r num">@if (e.ruta) { <span class="tw-mlink" [class.tw-cent]="e.ruta_importe !== e.importe" [title]="tituloRuta(e)">{{ money(e.ruta_importe) }}</span> } @else if (e.ruta_motivo) { <i class="pi pi-exclamation-triangle warn" [title]="e.ruta_motivo"></i> } @else { <i class="pi pi-minus tw-faint" title="No declara una venta de ruta"></i> }</td>
                   <td class="tw-concept" [title]="(e.extra || '') + ' ' + (e.concepto || '')">{{ e.concepto || e.extra || '—' }}</td>
                 </tr>
               }
-              @if (!dayRows(cd).length) { <tr><td colspan="6" class="ta-c muted tw-empty">Sin movimientos con estos filtros.</td></tr> }
+              @if (!dayRows(cd).length) { <tr><td colspan="7" class="ta-c muted tw-empty">Sin movimientos con estos filtros.</td></tr> }
             </tbody>
           </table>
         </div>
@@ -1050,6 +1089,9 @@ export class FinanzasCajaComponent implements OnInit {
     { field: 'importe',        label: 'Control',  cls: 'ta-r' },
     { field: 'manual_importe', label: 'Workbook', cls: 'ta-r' },
     { field: 'kepler_importe', label: 'Kepler',   cls: 'ta-r' },
+    // [CG.20] "Ruta" y no "Kepler ruta": para quien opera la caja son dos cosas distintas —
+    // la tesorería del ERP y lo que vendió el camión— y el encabezado tiene que decir cuál es.
+    { field: 'ruta_importe',   label: 'Ruta',     cls: 'ta-r' },
     { field: 'concepto',       label: 'Concepto', cls: '' },
   ];
 
@@ -1077,6 +1119,21 @@ export class FinanzasCajaComponent implements OnInit {
    */
   ambiguosTotal(cd: ConcDia): number {
     return (cd.totals.manual_ambiguos_n || 0) + (cd.totals.kepler_ambiguos_n || 0);
+  }
+
+  /**
+   * [CG.20] Título de la celda de Ruta. Dice de qué ruta y de qué día es la venta —la identidad
+   * con la que casó— y, si el efectivo no coincide, cuánto falta o sobra. Esa diferencia es el
+   * hallazgo: la ruta 22 del 1-oct vendió $235.36 más de lo que entregó.
+   */
+  tituloRuta(e: DiaRow): string {
+    const p = [e.ruta_ref || 'Venta registrada por la camioneta'];
+    if (e.ruta_delta) {
+      p.push(e.ruta_delta < 0
+        ? `entró ${this.money(Math.abs(e.ruta_delta))} MENOS de lo que vendió`
+        : `entró ${this.money(e.ruta_delta)} MÁS de lo que vendió`);
+    } else { p.push('coincide al peso con lo que entró'); }
+    return p.join(' · ');
   }
 
   /** Título del par: de dónde salió, si pudo ser otro, y si casó al peso o por tolerancia. */
@@ -1122,6 +1179,10 @@ export class FinanzasCajaComponent implements OnInit {
           { header: 'Workbook', get: (r: any) => r.manual_importe, type: 'money', total: true },
           { header: 'Ref Workbook', get: (r: any) => r.manual_ref, width: 20 },
           { header: 'Kepler', get: (r: any) => r.kepler_importe, type: 'money', total: true },
+          // [CG.20] En el Excel va tambien el MOTIVO: una celda vacia no distingue "no es venta
+          // de ruta" de "la ruta no reporto venta ese dia", y la segunda es el hallazgo.
+          { header: 'Ruta', get: (r: any) => r.ruta_importe, type: 'money', total: true },
+          { header: 'Ref Ruta', get: (r: any) => r.ruta_ref || r.ruta_motivo, width: 26 },
           { header: 'Ref Kepler', get: (r: any) => r.kepler_ref, width: 20 },
           { header: 'Concepto', get: (r: any) => r.concepto, width: 46 },
         ],
