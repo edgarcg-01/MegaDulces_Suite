@@ -985,6 +985,13 @@ export const routes: Routes = [
         data: { catalogoApartado: 'listas-precios' }
       },
       {
+        // [NP.5] Productos nuevos: seguimiento a 30/60/90 dias de cada codigo que entra al catalogo.
+        // Mismo permiso que el catalogo; la inversion la recorta el SERVIDOR sin permiso de costo.
+        path: 'catalogo/nuevos',
+        loadComponent: () => import('./modules/compras/pages/compras-catalogo-nuevos.component').then(m => m.ComprasCatalogoNuevosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)]
+      },
+      {
         // [CAT.3] El mismo producto a distinto precio segun la plaza.
         path: 'catalogo/precios',
         loadComponent: () => import('./modules/compras/pages/compras-catalogo-precios.component').then(m => m.ComprasCatalogoPreciosComponent),

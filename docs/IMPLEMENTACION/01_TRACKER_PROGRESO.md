@@ -9549,3 +9549,18 @@ _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FA
 - **Cerrar item**: marcar checkbox + agregar fecha de cierre en comentario.
 - **Bloqueado**: agregar `🚫 BLOQUEADO: <razón>` en el item.
 - **Si descubrís un item nuevo durante una fase**: agregarlo al sprint con el siguiente número correlativo.
+
+---
+
+## NP — Productos nuevos: seguimiento a 30, 60 y 90 días 🧪 2026-10-07 (en código, probado en local)
+
+Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUEVOS.md).
+
+- [ ] ⬜ `[NP.0]` Decodificar la fecha de alta de Kepler (`kdii.c50…c75`) contra prod; re-medir el umbral de carga masiva (50/día, medido en local); medir refresco y gate de 1 s con volumen real.
+- [x] 🧪 `[NP.1]` `analytics.mv_new_products` (mig `20261007200000`) — etiqueta derivada del ODS, historia por fuente, refresco 0.49 s en local.
+- [x] 🧪 `[NP.2]` Lógica pura + servicio + `GET/PUT /commercial/products/new-products` + refresco nocturno + umbral `analytics_refresh_new_products`.
+- [x] 🧪 `[NP.3]` Candado `test-newdb-new-products.js` 102/102 (negativa: 4 rojas con la recompra rota) + demo local con `--undo`.
+- [x] 🧪 `[NP.4]` `catalog.new_product_reviews` (mig `20261007200100`) — clasificación de Compras, RLS forzado, soft-delete.
+- [x] 🧪 `[NP.5]` Pestaña Productos nuevos + etiqueta "Nuevo · día N" en Productos. Unitarias 12 + 7; suite de Compras 308/308.
+- [ ] ⬜ `[NP.6]` Umbrales/veredicto en `analytics.kpi_thresholds` + hitos 30/60/90 congelados.
+- [ ] ⬜ `[NP.7]` Alta solicitada en la app con inversión y meta planeadas (plan contra real).

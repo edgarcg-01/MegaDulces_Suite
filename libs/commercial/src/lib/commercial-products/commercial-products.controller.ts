@@ -4,14 +4,17 @@ import {
   Get,
   Param,
   Patch,
+  Put,
   Query,
+  Req,
   UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { CommercialProductsService, UpdateProductDto } from './commercial-products.service';
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
-import { Permission } from '@megadulces/platform-core';
+import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
+import { NewProductsService } from './new-products.service';
 
 /**
  * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
@@ -23,7 +26,10 @@ import { Permission } from '@megadulces/platform-core';
 @UseGuards(RolesGuard)
 @Controller('commercial/products')
 export class CommercialProductsController {
-  constructor(private readonly service: CommercialProductsService) {}
+  constructor(
+    private readonly service: CommercialProductsService,
+    private readonly newProducts: NewProductsService,
+  ) {}
 
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
@@ -154,6 +160,37 @@ export class CommercialProductsController {
       only_with_price: onlyWithPrice === 'true',
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  // `[NP.2]` Productos nuevos. Van ANTES de `@Get(':id')` por la misma razón que `price-report`.
+  @Get('new-products')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[NP.2]` Productos nuevos: etiqueta, etapa y seguimiento a 30/60/90 días (inversión, '
+      + 'venta, recompra) + cohortes por mes de lanzamiento. La inversión sólo viaja con permiso de costo.',
+  })
+  newProductsList(
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ) {
+    // `req.user.permissions` lo escribe RolesGuard con el mapa fresco de la DB. El costo de compra
+    // es dato sensible: mismo permiso que la pestaña Costos (`[CAT-COSTO.4]`).
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.newProducts.list({ puedeVerCosto });
+  }
+
+  @Put('new-products/:id/classification')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_GESTIONAR)
+  @ApiOperation({
+    summary: '`[NP.4]` Compras confirma qué es un código nuevo (nuevo / recodificacion / promocion / '
+      + 'no_mercancia). `kind: null` quita la clasificación.',
+  })
+  newProductsClassify(
+    @Param('id') id: string,
+    @Body() body: { kind?: string | null; note?: string | null },
+  ) {
+    return this.newProducts.classify(id, body);
   }
 
   @Get(':id')

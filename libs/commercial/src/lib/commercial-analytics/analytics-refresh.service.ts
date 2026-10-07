@@ -338,6 +338,14 @@ export class AnalyticsRefreshService {
       // un gate de 1 s. ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_cost_origin`): sin el, una MV
       // parada se ve VERDE (OBS.1), y acá eso seria la pantalla explicando con un movimiento viejo.
       ['analytics.mv_kepler_cost_origin', 'analytics_refresh_cost_origin', 'Refresh MV origen del costo (nightly)', []],
+      // [NP.1] Productos nuevos: la primera actividad de cada producto exige recorrer TODA la
+      // historia de venta y de entradas, y eso no cabe en el gate de 1 s de la pantalla. Deriva de
+      // `v_sellout_daily` → depende de las dos piernas de venta: si una no refrescó, se sirve la de
+      // ayer en vez de una etiqueta calculada con media venta. Nace `WITH NO DATA`: su primer
+      // poblado es este lote, de noche. ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_new_products`):
+      // sin él una MV parada se ve VERDE (OBS.1) y la pestaña seguiría contando días sobre cifras viejas.
+      ['analytics.mv_new_products', 'analytics_refresh_new_products', 'Refresh MV productos nuevos (nightly)',
+        ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
       /**
        * ⭐⭐ `[PR.R1]` EL ÁRBITRO DEL COSTO. La MV que decide si el margen de toda la Suite
        * es una medición o un espejo del markup.
