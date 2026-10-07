@@ -165,7 +165,8 @@ y aun así publicaba el UxC desde otra columna.
 | **Egreso · gasto operativo** | ⭐ los **libros del contador** (`analytics.contpaqi_ledger_monthly`), que **no comparten fuente primaria** con nosotros — a diferencia de la balanza, que lee el mismo `kdc2YYMM` | el testigo **muerde**: 34 de 39 celdas (bloque × mes) difieren en 2026. La brecha **no es un factor constante** — va de −7.2 % a −44.1 % según el bloque — así que no hay una sola causa | ⚠️ **cableado y DECLARADO, no arbitrado**: falta que Contabilidad firme la correspondencia concepto→agrupador SAT — §21 |
 | **Egreso · qué cuenta como egreso** | la familia contable, con la compra **siempre al lado y nunca sumada** | el **87.8 %** de lo que sale por esa puerta es compra de mercancía (511), no gasto: $453.7 M contra $56.0 M. Llamar «gasto» al total lo multiplica por nueve | ✅ **sí, partido en 4 bloques** — §21 |
 | **Supuesto de crecimiento · GASTO** | ⭐ los mismos libros de §21, pareando **meses completos de cada lado por separado** | el signo se **invierte**: Kepler puede parear 3 meses (uno es el mes en curso) y da **−40.04 %**; los libros parean 9 completos y dan **+10.55 %**. El `0 %` que publica la pantalla no es un cero medido: es `basis:'default'` por 3 pares contra un mínimo de 4 | ⚠️ **refutado el publicado, NO sustituido**: `familia 6` ≠ agrupador SAT (§21.3) y la correspondencia sigue sin firmar — §22 |
-| **Supuesto de crecimiento · VENTAS** | — | **sin testigo que no comparta fuente** con el sell-out. Y en prod `sales_plan_settings` tiene **0 filas**: los 20.1/10.6/62.1/29.3 que se ven **no están guardados** — el motor leería 0 | ⛔ **declarado, no arbitrado** — §22.6/22.7 |
+| **Supuesto de crecimiento · VENTAS** | para `mostrador`/`credito`/`mayoreo`, el ingreso fiscal — **para `ruta` y `preventa` NO puede serlo**: esa venta cobra en efectivo fuera del circuito fiscal | en prod `sales_plan_settings` tiene **0 filas**: los 20.1/10.6/62.1/29.3 que se ven **no están guardados** — el motor leería 0. El `+62.1 %` de Vecinal es el mayor crecimiento declarado **y** uno de los dos canales sin testigo fiscal | ⛔ **declarado, no arbitrado** — §22.6/22.7/22.9 |
+| **Ingreso · lo que NO llega a los libros** | el sell-out canónico contra el agrupador `401%` de ContPAQi, por periodo | 2026 ene–sep: brecha **$78.60 M** (16.6 %) y `ruta + vecinal` son el **84.0 %** de ella. ⛔ Pero en **2025** la misma cuenta da **306.9 %** — esa venta sí llegaba a los libros — y el salto es el **1-ene-2026**, no una migración de plaza | ⚠️ **la causa tiene fecha, no nombre**: 3 lecturas vivas, ninguna medida — §22.9 |
 
 ---
 
@@ -2978,3 +2979,65 @@ se puede afirmar desde cuándo viene fallando.
 **Sin candado todavía.** Esta sección se midió con consultas de lectura contra prod; no hay un
 `test-newdb-*` que la vigile. Hasta que lo haya, cada cifra de acá es reproducible pero **no está
 protegida de envejecer** — que es exactamente lo que `[CDRP.2.1]` cobró hace dos semanas.
+
+### 22.9 ⭐⭐ El alcance del árbitro: la ruta cobra en efectivo no fiscal — y eso encaja en 2026, **no** en 2025
+
+Edgar, al leer §22: *«rutas mete su dinero en efectivo (no fiscal), así que no se considera en
+ContPAQi. Sus ventas vienen de `/finanzas/ingresos` o ventas-por-ruta»*.
+
+Es un dato de operación, no de datos, y **acota el árbitro de §22.4**: ContPAQi mide lo que pasa por
+los libros, así que un universo que cobra fuera de los libros le es invisible por construcción. Se
+midió en vez de anotarse.
+
+**Sell-out canónico (`mv_sellout_monthly`, neto) contra el ingreso fiscal (ContPAQi, agrupador
+`401%`), prod, 2026-10-07:**
+
+| periodo | sell-out | fiscal | brecha | ruta + vecinal | ¿la explica? |
+|---|---:|---:|---:|---:|---:|
+| **2026 ene–sep** (cerrados) | 474,440,587.75 | 395,845,483.79 | **78,595,103.96** (16.6 %) | 66,055,834.84 | **84.0 %** ✅ |
+| **2025 completo** | 608,566,631.41 | 584,735,177.80 | **23,831,453.61** (3.9 %) | 73,143,304.48 | **306.9 %** ⛔ |
+
+⭐⭐ **La tesis encaja en 2026 y se rompe en 2025.** Si la ruta siempre hubiera cobrado fuera de los
+libros, 2025 tendría una brecha de **al menos $73.1 M** y tiene **$23.8 M** — la ruta vendió **tres
+veces** lo que falta en la contabilidad de ese año. O sea: en 2025 esa venta **sí llegaba a los
+libros**, de una forma u otra.
+
+**Y el cambio tiene fecha.** La brecha mensual salta justo en la frontera de año, no en agosto
+—cuando migraron 06, 07 y 08— ni en ningún otro punto:
+
+    2025-10   1,533,034      2026-01   6,113,827      2026-05   8,558,673
+    2025-11   2,837,913      2026-02   6,652,259      2026-06   7,897,520
+    2025-12   1,099,572      2026-03   8,484,708      2026-07   8,602,652
+                             2026-04   8,883,874      2026-08   9,969,650
+                                                      2026-09  13,431,940
+
+De **$1.10 M en diciembre a $6.11 M en enero**, y de ahí para arriba. Es exactamente el 1-ene-2026,
+la fecha en que la sucursal `00` se volvió el **concentrador** de la migración Wincaja→Kepler
+(Fase PO). *La divergencia se localiza en el periodo que cuadra, no en el que falla.*
+
+⚠️ **Lo que esto NO autoriza a decir.** Tres lecturas siguen vivas y ninguna está medida: (a) la
+práctica de cobro cambió con el ERP; (b) el sell-out de 2026 incorporó plazas que en 2025 no
+reportaba, y entonces parte de la brecha es **cobertura nuestra**, no dinero; (c) en 2025 la venta
+de ruta entraba a los libros por una cuenta que en 2026 dejó de usarse. Separarlas es trabajo de
+una sesión propia y **empieza por el corte de enero**, no por el canal.
+
+**Control, para que el 84 % signifique algo:** en el mismo periodo, `mostrador` vende
+$279,093,917 y `credito` $104,318,070 — los dos **exceden la brecha entera** por sí solos. Que
+`ruta + vecinal` caiga en 84 % no es una coincidencia aritmética disponible para cualquier canal.
+
+**Qué cambia en esta sección:**
+
+1. **§22.4 se acota, no se cae.** El `+10.55 %` sigue refutando el `−40.04 %` —la cobertura de
+   Kepler en 2025 es el problema, y eso es independiente del alcance fiscal— pero ahora carga una
+   segunda salvedad: mide **el gasto que pasa por los libros**. ⛔ Si la ruta mueve efectivo fuera
+   del circuito fiscal, es plausible que parte del **gasto** salga por ahí también. **No se midió
+   hoy**, y hasta que se mida, el árbitro del egreso cubre un universo **declaradamente parcial**.
+2. **§22.7 se corrige en un punto.** Escribí *«no hay árbitro para el supuesto de VENTAS»*. Lo
+   correcto es que **ContPAQi no puede serlo para ruta y vecinal**, por diseño del negocio y no por
+   una falla; el testigo de esos dos canales es el que Edgar nombra —`/finanzas/ingresos` y
+   ventas-por-ruta— más el **control manual** que §19.3 ya validó al 93.5 % contra un placebo de
+   0.0 %. Para `mostrador`, `credito` y `mayoreo` el árbitro fiscal **sí aplica** y sigue sin
+   cablearse.
+3. **El `+62.1 %` de Vecinal queda peor parado, no mejor.** Es uno de los dos canales sin testigo
+   fiscal **y** el de mayor crecimiento declarado en pantalla. Su único árbitro posible es el
+   control manual de la operación.
