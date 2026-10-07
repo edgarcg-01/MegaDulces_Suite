@@ -430,6 +430,8 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 **Oficinas Corporativas (MS.3.14):** al levantar una solicitud, la lista de ubicaciones (antes «Sucursal»; el campo ahora se llama «Ubicación» en toda la mesa) ofrece «Oficinas Corporativas» (al final). No es una sucursal de la red: se guarda con su propio código (`OF`) sin tocar los de Kepler, y funciona en toda la mesa (categorías que exigen sucursal, filtro de la bandeja, ficha y reporte por sucursal).
 **La ubicación se ve siempre (MS.3.17):** al levantar una solicitud, el campo «Ubicación (opcional)» ya no está escondido tras un enlace; se muestra desde el principio (y con asterisco si la categoría la exige).
 
+**Plazos (SLA) por cola (MS.7.2):** cada cola puede tener sus propios plazos de primera respuesta y resolución, y lo que no cambia lo hereda de los generales; Configuración trae un selector «¿De qué cola?» con «propio/heredado». Mantenimiento ya trae los suyos, en horario hábil. Para TI no cambia nada.
+
 **Mantenimiento sembrada, apagada (MS.7.14):** la Mesa tiene la cola de Mantenimiento con sus 11 categorías y la ubicación «Estacionamiento CEDIS». Nace apagada y sin miembros: no se ofrece a nadie hasta que un administrador nombre a su coordinación y ésta la encienda desde Configuración.
 **Pantalla de miembros de la cola (MS.7.17):** en Configuración de la Mesa, cada cola muestra quién la atiende y la coordinación de esa cola puede agregar personas (las que ya tienen el permiso de atender), cambiar su rol o quitarlas, sin pasar por la API. Marca a quien perdió el permiso y explica con claridad lo que no se puede (la cola no se queda sin coordinación; no se quita a quien tiene solicitudes abiertas).
 

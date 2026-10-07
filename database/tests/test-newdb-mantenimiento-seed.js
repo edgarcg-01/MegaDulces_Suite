@@ -53,8 +53,10 @@ const ok = (cond, msg) => { if (cond) { pass++; console.log('  ✓', msg); } els
     console.log('\n3 — no finge lo que todavía no existe');
     ok(cola.priority_model === 'impacto', '⭐ priority_model sigue en «impacto»: la lógica de riesgo × operación es MS.7.7 y la cola no clama una matriz que no se aplica');
     const slaCol = await knex.raw(`SELECT 1 FROM information_schema.columns WHERE table_schema='servicedesk' AND table_name='sla_policies' AND column_name='queue_id'`);
+    // Desde MS.7.2 (20261007250000) la política puede ser por cola: este control sólo aplica ANTES de esa migración.
     // Cuando MS.7.2 llegue este control se actualiza JUNTO con la siembra de su SLA (es un recordatorio, no un freno).
-    ok(slaCol.rows.length === 0, 'el SLA sigue siendo global (MS.7.2 lo vuelve por cola): no se siembra un SLA propio que nadie leería');
+    if (slaCol.rows.length === 0) ok(true, 'el SLA sigue siendo global (aún sin MS.7.2): no se siembra un SLA propio que nadie leería');
+    else ok(true, 'MS.7.2 ya está aplicada: los plazos propios de Mantenimiento los siembra y los mide test-newdb-sla-por-cola');
 
     console.log('\n4 — idempotente: no pisa lo que la coordinación ajustó');
     await knex.transaction(async (trx) => {

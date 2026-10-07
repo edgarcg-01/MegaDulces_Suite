@@ -28,7 +28,7 @@ import { TenantContextService, TenantKnexService, latirCron, tomarCandadoDeCron 
 import { evaluarSla } from './domain/sla';
 import { ServiceDeskAgentsService } from './agents.service';
 import { juntar, ServiceDeskRequestsService, sinEfectos, type Efectos } from './requests.service';
-import { ServiceDeskConfigService } from './service-desk-config.service';
+import { ServiceDeskConfigService, politicaDe } from './service-desk-config.service';
 import type { SdEvento } from './notifications.service';
 
 export const SLA_JOB_KEY = 'service_desk_sla';
@@ -139,7 +139,7 @@ export class ServiceDeskSlaService {
         };
 
         for (const r of abiertos) {
-          const politica = config.policies[r.priority];
+          const politica = politicaDe(config, r.queue_id, r.priority);
           if (!politica) {
             fallas.push(`${r.folio}: sin política de SLA para «${r.priority}»`);
             continue;

@@ -270,8 +270,21 @@ export class ServiceDeskController {
   @Put('config/policies/:priority')
   @RequirePermissions(Permission.SERVICIO_COORDINAR)
   @ApiOperation({ summary: 'Cambia los plazos y el reloj (hábil/corrido) de una prioridad.' })
-  updatePolicy(@Param('priority') priority: string, @Body() dto: Partial<Omit<SdSlaPolicyDto, 'priority'>>, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
-    return this.admin.updatePolicy(actorDesdeRequest(req), priority, dto);
+  updatePolicy(
+    @Param('priority') priority: string,
+    @Body() dto: Partial<Omit<SdSlaPolicyDto, 'priority' | 'queue_id'>>,
+    @Query('queue_id') queue_id: string | undefined,
+    @Req() req: AuthedRequest,
+  ): Promise<SdConfigResponse> {
+    // `[MS.7.2]` Con `queue_id` son los plazos de ESA cola (hace falta coordinarla: se resuelve con sus membresías).
+    return this.actors.resolve(req).then((ctx) => this.admin.updatePolicy(ctx, priority, dto, queue_id || undefined));
+  }
+
+  @Delete('config/policies/:priority')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'La cola vuelve a heredar el plazo general de esa prioridad (borra su plazo propio). Requiere `queue_id`.' })
+  removeQueuePolicy(@Param('priority') priority: string, @Query('queue_id') queue_id: string | undefined, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.removeQueuePolicy(ctx, priority, queue_id ?? ''));
   }
 
   @Post('config/queues')

@@ -100,8 +100,13 @@ export class ServiceDeskService {
 
   config(): Observable<SdConfigResponse> { return this.http.get<SdConfigResponse>(`${this.base}/config`); }
   updateSettings(dto: Partial<SdSettingsDto>): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/settings`, dto); }
-  updatePolicy(priority: SdPriority, dto: Partial<Omit<SdSlaPolicyDto, 'priority'>>): Observable<SdConfigResponse> {
-    return this.http.put<SdConfigResponse>(`${this.base}/config/policies/${priority}`, dto);
+  /** `[MS.7.2]` Con `queueId` son los plazos de ESA cola (nacen como copia de la general con el cambio); sin él, la política general. */
+  updatePolicy(priority: SdPriority, dto: Partial<Omit<SdSlaPolicyDto, 'priority' | 'queue_id'>>, queueId?: string | null): Observable<SdConfigResponse> {
+    return this.http.put<SdConfigResponse>(`${this.base}/config/policies/${priority}`, dto, { params: this.params({ queue_id: queueId ?? undefined }) });
+  }
+  /** `[MS.7.2]` La cola vuelve a heredar el plazo general de esa prioridad. */
+  removeQueuePolicy(priority: SdPriority, queueId: string): Observable<SdConfigResponse> {
+    return this.http.delete<SdConfigResponse>(`${this.base}/config/policies/${priority}`, { params: this.params({ queue_id: queueId }) });
   }
   createQueue(dto: SdUpsertQueueDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/queues`, dto); }
   updateQueue(id: string, dto: SdUpsertQueueDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/queues/${id}`, dto); }

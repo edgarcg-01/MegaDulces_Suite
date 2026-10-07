@@ -47,7 +47,7 @@ export class ServiceDeskReportsService {
       const tz = config.settings.calendar.tz;
       // `TOPE_FILAS + 1` para saber si hay más sin traerlas todas.
       const { rows } = await trx.raw(
-        `SELECT r.priority, r.category_id, c.name AS category_name, r.warehouse_code, r.status,
+        `SELECT r.queue_id, r.priority, r.category_id, c.name AS category_name, r.warehouse_code, r.status,
                 r.created_at, r.first_responded_at, r.first_response_due_at, r.resolved_at, r.due_at,
                 r.paused_minutes, r.reopened_count,
                 (SELECT COALESCE(SUM(w.minutes), 0)::int FROM servicedesk.work_log w
@@ -64,7 +64,7 @@ export class ServiceDeskReportsService {
       );
       const todas = rows as FilaReporte[];
       const truncado = todas.length > TOPE_FILAS;
-      const reporte = armarReporte(truncado ? todas.slice(0, TOPE_FILAS) : todas, { calendar: config.settings.calendar, policies: config.policies }, {
+      const reporte = armarReporte(truncado ? todas.slice(0, TOPE_FILAS) : todas, { calendar: config.settings.calendar, policies: config.policies, queuePolicies: config.queuePolicies }, {
         desde,
         hasta,
         ahora: Date.now(),

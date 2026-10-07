@@ -291,7 +291,7 @@ A partir de la fase multi-área ([`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md
 
 **Antes de empezar (todo debe estar listo; si falta algo, NO encender):** `20261006130000` (miembros) aplicada y verificada (§11); el código con **acceso por cola**, **«Mi trabajo» por cola** (MS.7.18) y **la pantalla de miembros** (MS.7.17) desplegado; y la persona que coordinará con **`SERVICIO_ATENDER` y `SERVICIO_COORDINAR`** dados desde Personas.
 
-1. Aplicar **una** migración, con el candado de identidad: `20261007240000_servicedesk_seed_mantenimiento.js`. Es segura en cualquier momento: la cola nace **apagada** y el catálogo esconde las categorías de una cola apagada, así que no cambia nada visible.
+1. Aplicar **dos** migraciones, **una por una y en este orden**, con el candado de identidad: `20261007240000_servicedesk_seed_mantenimiento.js` (la cola y sus categorías) y `20261007250000_servicedesk_sla_por_cola.js` (el SLA por cola, con los plazos de Mantenimiento en horario hábil). Son seguras en cualquier momento: la cola nace **apagada** y el catálogo esconde las categorías de una cola apagada; para TI el SLA no cambia (sus 4 filas siguen siendo la general). La segunda **cambia la unicidad** de `sla_policies`: aplicarla con el código nuevo ya desplegado o en la misma ventana (el código viejo no conoce `queue_id` y, con filas por cola, leería mal las generales).
 2. **Verificar** (debe dar `false`, 11 y 0):
    ```sql
    SELECT q.active, (SELECT count(*) FROM servicedesk.categories c WHERE c.queue_id = q.id) AS categorias,
@@ -303,7 +303,7 @@ A partir de la fase multi-área ([`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md
 5. **Verificar con dos personas:** alguien de TI **no** ve el ticket de prueba de Mantenimiento; la coordinación de Mantenimiento **sí**, sin asignar.
 6. **Validar con Frank** (se cambia desde la pantalla): la prioridad por defecto de cada categoría (nacen en `media`) y si todas deben exigir ubicación.
 
-**Lo que Mantenimiento NO tiene aún:** SLA propio en horario hábil (hereda los plazos generales; MS.7.2), prioridad por riesgo × operación (MS.7.7), zonas (MS.7.3) ni los dos campos de riesgo (MS.7.4). Hasta entonces la prioridad se sugiere con la matriz de impacto de siempre.
+**Lo que Mantenimiento ya tiene:** su **SLA en horario hábil** (MS.7.2). **Lo que NO tiene aún:** prioridad por riesgo × operación (MS.7.7), zonas (MS.7.3) ni los dos campos de riesgo (MS.7.4). Hasta entonces la prioridad se sugiere con la matriz de impacto de siempre. ⚠️ Confirmar con Frank las dos lecturas del SLA (el «24 h» de Alta = 1 día hábil; la Urgente en horario hábil no corre de noche): se cambian en `/servicio/configuracion` › «Plazos por prioridad» › ¿De qué cola? › Mantenimiento.
 
 **Reversa:** apagar la cola desde la pantalla (los tickets ya levantados se conservan). La migración trae `down`, pero **conserva** la cola si ya tiene tickets.
 
