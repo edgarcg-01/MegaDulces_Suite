@@ -9298,6 +9298,43 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 
 ---
 
+## 📦 FASE GP — Gestión de pedidos en almacén (surtido, checado y embarque sin papel) · ADR-084 · plan en [`FASE_GP`](FASES/FASE_GP_GESTION_PEDIDOS_ALMACEN.md)
+
+- [x] **[GP.0]** 🧪 Decode del pedido `U-D-40` contra prod (solo lectura): origen `c27`, estatus `c11`, responsables
+      `c100/c102/c103`, cantidades por etapa `kdm2.c51`–`c54`, liga embarque→pedido `c37`+`c39`. (2026-10-06)
+      Falta: catálogos de responsables, unidad de `c51` vs `c52`, qué es `c69`.
+- [ ] **[GP.1]** 🧪 Tablero `/almacen/pedidos` (2026-10-06): pedidos Kepler U-D-40 del periodo (default **mes en curso**; hoy/semana/mes anterior/rango), botones por **estatus** con conteo, casilla «Sólo autorizados en adelante», origen, sucursal y búsqueda; **volumen por unidad** bajo los renglones (`16 CJA · 58 PAQ`); detalle en panel lateral con cantidad y **ubicación por etapa** (Surt/Chec/Emb) y embarques ligados. Diseñado para monitor de 16" (1366×768) y verificado en navegador, claro y oscuro. API en inglés `/api/warehouse/orders` (`status`, `origin`, `branch`). **Sin migración de esquema**: SQL directo sobre `kepler_ods`. Medido en prod: octubre 514–532 pedidos en 55–215 ms; un pedido 6–38 ms. **Acceso:** permiso propio `ALMACEN_PEDIDOS_VER` + migración de datos `20261006200000` (perfiles `facturacion` y `coordinador_embarques`, reparto, CEDIS para `encargado_bodega`, baja de la cuenta duplicada `maria_mendez`, ajuste de Estefanía y Juan Diego) — **NO aplicada en prod**; la compuerta de migraciones la clasifica NO_MEDIDO (sólo datos), así que hay que **aplicarla ANTES del merge** o el auto-deploy queda frenado para todos. Pruebas: motor 14/14 (negativa vista en rojo), contratos 387/387, pestañas 9/9, compuerta de push 12 gates sin rojo.
+- [ ] **[GP.2]** ⬜ Origen Kepler para `commercial-picking` (pool lee `U-D-40` `AUTORIZADO`).
+- [ ] **[GP.3]** ⬜ Pantalla del surtidor (móvil), reemplaza el ticket `Referencia SURTIDO`. Pendiente P3 (equipo en piso).
+- [x] **[GP.0.1]** 🧪 Carga de operación medida (FASE_GP §4b): 33 pedidos sucursal + 40 telemarketing al día; sucursal 66% de renglones en unidad menor; PH telemarketing 25% pedidos muy chicos. (2026-10-06)
+- [ ] **[GP.4]** ⬜ Checado **por escaneo**, dividido en 3 (unidad mayor) y 3b (unidades menores, con bultos y báscula) (rastrillo): el código resuelve producto + unidad desde `kdii` de la sucursal; alerta de producto ajeno y de sobrante; peso de báscula en productos `KG`; cajas sin código → escanear la pieza y teclear cajas (FASE_GP §5a).
+- [ ] **[GP.4.1]** ⬜ Corregir el decode de códigos en el verificador: falta `c102` (base, casilla 3) y `c96` sí es código (unidad dos, casilla 3). ERP_KEPLER §3.y.4.
+- [ ] **[GP.4b]** ⬜ Bultos de entrega (FASE_GP §5c): **CJ** (caja cerrada), **P** (caja de un pedido, etiqueta impresa) y **contenedor de plástico** (varios clientes, número fijo, regresa); contenido por bulto y por pedido; ubicación por bulto; contenedores sin regresar.
+- [ ] **[GP.5]** ⬜ Embarque: escaneo de cada bulto a su estiba, aviso de bultos faltantes, liga a transporte y guía.
+- [ ] **[GP.6]** ⬜ Cuadre Suite ↔ Kepler (diferencias de captura y pedidos sin paso por la Suite).
+- [ ] **[GP.7]** ⬜ Indicadores (tiempo por etapa, productividad, surtido completo con unidad resuelta).
+- [ ] **[GP.8]** ⬜ Piloto: un origen, una sucursal.
+
+**Ubicaciones (addendum [`FASE_WMS` §12](FASES/FASE_WMS.md), ADR-085)**
+- [ ] **[WMS.2]** ⬜ Tipos de zona, ampliados con `tienda_piso`, `tienda_cabecera`, `contenedor` y zonas especiales.
+- [ ] **[WMS.3]** ⬜ Censo y etiquetas de PH: `B01`–`B99` bodega y `T01`–`T99` tienda, pasillos de 15. Falta U4/U5 (cuántos pasillos y cuáles son superiores).
+- [ ] **[WMS.3b]** ⬜ Asignación producto × ubicación × papel + mínimo/máximo (slotting). Nuevo.
+- [ ] **[WMS.4]** ⬜ Secuencia de recorrido = orden numérico de la sección (`B01` → `B99`), corregible por columna.
+- [ ] **[WMS.7]** ⬜ Reposición: bodega → frente de surtido y bodega → anaquel (anaquelistas). Pendiente U3.
+- [ ] **[WMS.10]** ⬜ Maestro logístico (FASE_WMS §13): peso y medidas por producto × unidad, con origen (medido / ficha del proveedor / estimado). **Pestaña "Medidas y peso" en `/compras/catalogo`**; captura en recepción (hay báscula y cinta); Pareto PH (~200 SKUs = 50% de renglones).
+- [ ] **[WMS.11]** ⬜ Catálogo de tipos de unidad (tortón 18 t · rabón 10 t · 5 t · 3.5 t · Nissan 1 t · ligeras 600 kg) y asignación de cada vehículo a su tipo; la capacidad se hereda. Hoy 1 de 97 tiene kg y 33 son de prueba.
+
+**Pendientes de negocio (Francisco, 2026-10-06)**
+- [ ] **[GP.P5]** ⬜ Dar de alta a **Fany** (CEDIS): no tiene usuario.
+- [ ] **[GP.P6]** ⬜ Revisar qué usan María del Carmen García y Monserrath Frausto (facturadoras en `telemarketing`) antes de moverlas al perfil `facturacion`.
+- [ ] **[GP.P7]** ⬜ `.env.dev.example` apunta `DATABASE_URL` a `megadulces_logistica` (vacía): el guardia de permisos da 500 en local. En local se usó `postgres_platform` (decisión del equipo para la plantilla).
+- [ ] **[GP.P1]** ⬜ Asignar cada vehículo a su tipo de unidad; decidir la baja de los 33 vehículos de prueba ("MODELO TEST"). ⚠️ No se toca prod sin autorización.
+- [ ] **[GP.P2]** ⬜ Número de estibas por tipo de unidad (para el esquema del camión en GP.5).
+- [ ] **[GP.P3]** ⬜ Cómo decide hoy el anaquelista qué subir (diseño de WMS.7).
+- [ ] **[GP.P4]** ⬜ Rangos de secciones por pasillo y planta en PH (se capturan en la pantalla de ubicaciones).
+
+---
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_
