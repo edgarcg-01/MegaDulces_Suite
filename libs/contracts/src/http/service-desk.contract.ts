@@ -551,6 +551,9 @@ export interface SdRoutingRuleDto {
   keywords: string[];
   category_id: string | null;
   category_name: string | null;
+  /** `[MS.7.10]` Filtro de ubicación: la regla sólo aplica a tickets de ahí (`null` = no mira la ubicación). */
+  warehouse_code: string | null;
+  warehouse_name: string | null;
   assignee_id: string;
   assignee_name: string | null;
   assignee_username: string;
@@ -571,6 +574,8 @@ export interface SdUpsertRoutingRuleDto {
   name?: string;
   keywords?: string[];
   category_id?: string | null;
+  /** `[MS.7.10]` Código de ubicación (sucursal o extra). `null`/vacío = sin filtro de ubicación. */
+  warehouse_code?: string | null;
   assignee_id?: string;
   sort_order?: number;
   active?: boolean;
@@ -586,6 +591,9 @@ export interface SdSlaPolicyDto {
 }
 
 export interface SdQueueAdminDto extends SdQueueDto {
+  /** `[MS.7.10]` Responsable por omisión del área: a quien cae un ticket sin regla (`null` = «Sin asignar»). Siempre un miembro de la cola. */
+  default_assignee_id: string | null;
+  default_assignee_name: string | null;
   department_code: string | null;
   active: boolean;
   sort_order: number;
@@ -657,6 +665,8 @@ export interface SdUpsertQueueDto {
   priority_model?: SdPriorityModel;
   /** `[MS.7.3]` Si el formulario de la cola pregunta la zona. Sólo la coordinación de esa cola. */
   asks_zone?: boolean;
+  /** `[MS.7.10]` Responsable por omisión del área. Debe ser un miembro activo de la cola que pueda atender; `null` lo quita. */
+  default_assignee_id?: string | null;
   department_code?: string | null;
   active?: boolean;
   sort_order?: number;

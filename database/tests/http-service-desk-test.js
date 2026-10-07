@@ -1501,6 +1501,101 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⛔ quien reportó no pone en espera → 403', (await estado(a, { status: 'en_espera', pause_reason: 'otro' }, sol.token)).status === 403);
     }
 
+    // ── 30. [MS.7.10] Ruteo por ubicación + responsable por omisión (sólo a miembros de la cola) ───────
+    {
+      console.log('\n30 — ruteo por ubicación y responsable por omisión');
+      const [{ id: qR }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_rt710', name: 'SMOKE Ruteo', sort_order: 906 }).returning('id');
+      const [{ id: catR }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qR, code: 'smoke_rt710_a', name: 'SMOKE RT a', default_priority: 'media', requires_branch: false }).returning('id');
+      const [{ id: catR2 }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qR, code: 'smoke_rt710_b', name: 'SMOKE RT b', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeR = await crearUsuario('rt_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qR, role: 'coordinador' }]);
+      const tecR = await crearUsuario('rt_tec', ['SERVICIO_ATENDER'], [{ queue_id: qR, role: 'tecnico' }]);
+      usuarios.push(jefeR, tecR);
+      const mk = (cat, extra = {}) => req('POST', `${SD}/requests`, sol.token, { category_id: cat, title: 'SMOKE 7.10 ' + Math.random().toString(36).slice(2, 7), ...extra });
+      const ficha = async (r) => (await req('GET', `${SD}/requests/${r.body?.id}`, jefeR.token)).body;
+      const regla = (token, dto) => req('POST', `${SD}/config/routing`, token, dto);
+      const quien = async (r) => (await ficha(r))?.assigned_to ?? null;
+
+      // Validación de la regla.
+      check('⛔ una ubicación que no existe → 400', (await regla(coord.token, { name: 'SMOKE 710 mala', warehouse_code: 'ZZ', assignee_id: tecR.id })).status === 400);
+      check('⛔ sin categoría, palabras NI ubicación sigue siendo → 400', (await regla(coord.token, { name: 'SMOKE 710 vacía', assignee_id: tecR.id })).status === 400);
+      check('⛔ quitarle a una regla su ÚNICO disparador (la ubicación) → 400', await (async () => {
+        const a = await regla(coord.token, { name: 'SMOKE 710 temporal', warehouse_code: 'OF', assignee_id: tecR.id, sort_order: 5000 });
+        const id = (a.body?.rules ?? []).find((r) => r.name === 'SMOKE 710 temporal')?.id;
+        const r = await req('PUT', `${SD}/config/routing/${id}`, coord.token, { warehouse_code: null });
+        await knex('servicedesk.routing_rules').where({ id }).del();
+        return r.status === 400;
+      })());
+
+      // A) sólo ubicación.
+      const rA = await regla(coord.token, { name: 'SMOKE 710 oficinas', warehouse_code: 'OF', assignee_id: tecR.id, sort_order: 50 });
+      const ruleA = (rA.body?.rules ?? []).find((r) => r.name === 'SMOKE 710 oficinas');
+      check('⭐ una regla sólo por UBICACIÓN se da de alta y la lista dice su nombre', rA.status < 300 && ruleA?.warehouse_code === 'OF' && ruleA?.warehouse_name === 'Oficinas Corporativas', dump(rA));
+      const t1 = await mk(catR, { warehouse_code: 'OF' });
+      const f1 = await ficha(t1);
+      check('⭐ un ticket de esa ubicación cae a su persona, ya asignado', f1?.assigned_to === tecR.id && f1?.status === 'asignado', JSON.stringify([f1?.status, f1?.assigned_to]));
+      const m1 = (f1?.messages ?? []).find((m) => m.kind === 'assignment');
+      check('el hilo dice que fue por UBICACIÓN y por qué regla', m1?.meta?.reason === 'location' && m1?.meta?.rule_name === 'SMOKE 710 oficinas', JSON.stringify(m1?.meta));
+      check('⛔ de OTRA ubicación la regla NO aplica (queda sin asignar)', (await quien(await mk(catR, { warehouse_code: 'EC' }))) === null);
+      check('⛔ y sin ubicación tampoco', (await quien(await mk(catR))) === null);
+
+      // B) la más específica gana, aunque vaya después en el orden.
+      await regla(coord.token, { name: 'SMOKE 710 cat+ubic', category_id: catR, warehouse_code: 'OF', assignee_id: jefeR.id, sort_order: 90 });
+      check('⭐ categoría + ubicación le gana a ubicación sola, AUNQUE vaya después (orden 90 > 50)', (await quien(await mk(catR, { warehouse_code: 'OF' }))) === jefeR.id);
+      check('⭐ otra categoría de la cola, misma ubicación → la regla de ubicación (la específica no aplica)', (await quien(await mk(catR2, { warehouse_code: 'OF' }))) === tecR.id);
+      check('⛔ la categoría correcta en OTRA ubicación → nadie (ninguna regla aplica)', (await quien(await mk(catR, { warehouse_code: 'EC' }))) === null);
+
+      // C) responsable por omisión.
+      const def = (token, v) => req('PUT', `${SD}/config/queues/${qR}`, token, { default_assignee_id: v });
+      const cfg0 = (await req('GET', `${SD}/config`, jefeR.token)).body;
+      check('la cola nace SIN responsable por omisión (los sin regla quedan «Sin asignar»)', (cfg0?.queues ?? []).find((q) => q.id === qR)?.default_assignee_id === null);
+      check('⛔ un id mal formado → 400', (await def(jefeR.token, 'no-es-uuid')).status === 400);
+      check('⛔ alguien que NO es de la cola (la persona que reporta) → 400', (await def(jefeR.token, sol.id)).status === 400);
+      check('⛔ alguien con permiso pero miembro de OTRA cola (el agente de TI) → 400', (await def(jefeR.token, agente.id)).status === 400);
+      check('⛔ un usuario que no existe → 400', (await def(jefeR.token, '00000000-0000-4000-8000-000000000000')).status === 400);
+      check('⛔ quien coordina OTRA cola no lo cambia → 403', (await def(coord.token, tecR.id)).status === 403);
+      const ponDef = await def(jefeR.token, tecR.id);
+      const qCfg = (ponDef.body?.queues ?? []).find((q) => q.id === qR);
+      check('⭐ la coordinación DE LA COLA lo pone (un miembro) y la configuración dice su nombre', ponDef.status === 200 && qCfg?.default_assignee_id === tecR.id && !!qCfg?.default_assignee_name, dump(ponDef));
+
+      const tDef = await mk(catR, { warehouse_code: 'EC' });
+      const fDef = await ficha(tDef);
+      check('⭐ sin regla que aplique, cae el responsable por omisión (asignado)', fDef?.assigned_to === tecR.id && fDef?.status === 'asignado', JSON.stringify([fDef?.status, fDef?.assigned_to]));
+      const mDef = (fDef?.messages ?? []).find((m) => m.kind === 'assignment');
+      check('el hilo dice que fue por OMISIÓN (sin regla)', mDef?.meta?.reason === 'default' && mDef?.meta?.rule_id === null, JSON.stringify(mDef?.meta));
+      check('⭐ una regla que aplica le GANA al responsable por omisión', (await quien(await mk(catR, { warehouse_code: 'OF' }))) === jefeR.id);
+
+      // D) nunca a quien no es miembro.
+      await knex('servicedesk.queue_members').where({ queue_id: qR, user_id: tecR.id }).update({ active: false });
+      const tFuera = await mk(catR, { warehouse_code: 'EC' });
+      const fFuera = await ficha(tFuera);
+      check('⛔ si el responsable YA NO es miembro de la cola, el ticket queda SIN asignar (nunca a un no-miembro)', fFuera?.assigned_to === null && fFuera?.status === 'nuevo', JSON.stringify([fFuera?.status, fFuera?.assigned_to]));
+      check('⭐ y una nota interna lo dice, para que el error se vea', (fFuera?.messages ?? []).some((m) => m.visibility === 'internal' && /responsable por omisi/i.test(m.body)), JSON.stringify((fFuera?.messages ?? []).map((m) => m.body)));
+      const fFueraSol = (await req('GET', `${SD}/requests/${tFuera.body?.id}`, sol.token)).body;
+      check('⛔ y quien reportó NO ve esa nota interna', !(fFueraSol?.messages ?? []).some((m) => /responsable por omisi/i.test(m.body)));
+      await knex('servicedesk.queue_members').where({ queue_id: qR, user_id: tecR.id }).update({ active: true });
+
+      // E) se puede quitar.
+      const quita = await def(jefeR.token, null);
+      check('se quita el responsable por omisión (null)', quita.status === 200 && (quita.body?.queues ?? []).find((q) => q.id === qR)?.default_assignee_id === null, dump(quita));
+      check('⭐ sin él, lo sin regla vuelve a quedar «Sin asignar»', (await quien(await mk(catR, { warehouse_code: 'EC' }))) === null);
+
+      // F) quien sale de la cola deja de ser su responsable por omisión (no queda un responsable fantasma).
+      const tec2 = await crearUsuario('rt_tec2', ['SERVICIO_ATENDER'], [{ queue_id: qR, role: 'tecnico' }]);
+      usuarios.push(tec2);
+      await def(jefeR.token, tec2.id);
+      const sale = await req('DELETE', `${SD}/config/queues/${qR}/members/${tec2.id}`, jefeR.token);
+      const tras = (await req('GET', `${SD}/config`, jefeR.token)).body;
+      check('⭐ al quitar de la cola a su responsable por omisión, éste se limpia', sale.status < 300 && (tras?.queues ?? []).find((q) => q.id === qR)?.default_assignee_id === null, dump(sale));
+
+      // TI no cambió.
+      const cfgTi = (await req('GET', `${SD}/config`, coord.token)).body;
+      check('⭐ TI sigue sin responsable por omisión', (cfgTi?.queues ?? []).filter((q) => q.code === 'ti').every((q) => q.default_assignee_id === null));
+      const tiOf = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.10 TI en oficinas', impact: 'yo', blocks_work: false, warehouse_code: 'OF' });
+      check('⛔ las reglas de OTRA cola (ubicación Oficinas → persona de Ruteo) NO tocan un ticket de TI', tiOf.status === 201 && ((await req('GET', `${SD}/requests/${tiOf.body?.id}`, coord.token)).body?.assigned_to ?? null) !== tecR.id);
+
+      await knex('servicedesk.routing_rules').whereIn('assignee_id', [tecR.id, jefeR.id]).del();
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');

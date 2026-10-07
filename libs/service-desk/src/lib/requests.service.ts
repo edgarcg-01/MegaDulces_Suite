@@ -55,6 +55,7 @@ import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, respuestaReanuda, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
+import { normalizarUbicacion } from './ubicacion.util';
 import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
 import { accesoATicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
@@ -340,20 +341,20 @@ export class ServiceDeskRequestsService {
          * nace — nunca queda «nuevo» un instante en que otra persona pueda tomarlo y pelearse con la regla.
          * Si la regla gana pero su destino no puede atender, el ticket queda SIN asignar y una nota interna lo dice.
          */
-        const destino = await this.routing.resolver(trx, { title, description, categoryId: cat.id }, cat.queue_id);
+        const destino = await this.routing.resolver(trx, { title, description, categoryId: cat.id, warehouseCode: warehouse }, cat.queue_id);
         let asignadoA: string | null = null;
         if (destino?.asignable) {
           const row = await this.bloquear(trx, id);
           if (row) {
-            const m = destino.resultado.motivo;
-            efectos = juntar(
-              efectos,
-              await this.asignarA(trx, row, destino.resultado.regla.assignee_id, SISTEMA, now, null, {
-                automatico: true,
-                meta: { auto: true, rule_id: destino.resultado.regla.id, rule_name: destino.resultado.regla.name, reason: m.tipo === 'categoria' ? 'category' : 'keyword', keyword: m.tipo === 'palabra' ? m.palabra : null },
-              }),
-            );
-            asignadoA = destino.resultado.regla.assignee_id;
+            const o = destino.origen;
+            // `[MS.7.10]` Por qué le tocó se guarda en el hilo, para que se vea: una regla (por categoría, palabra o ubicación) o el
+            // responsable por omisión del área cuando ninguna regla aplicó.
+            const meta =
+              o.tipo === 'default'
+                ? { auto: true, rule_id: null, rule_name: null, reason: 'default', keyword: null }
+                : { auto: true, rule_id: o.regla.id, rule_name: o.regla.name, reason: o.motivo.tipo === 'categoria' ? 'category' : o.motivo.tipo === 'ubicacion' ? 'location' : 'keyword', keyword: o.motivo.tipo === 'palabra' ? o.motivo.palabra : null };
+            efectos = juntar(efectos, await this.asignarA(trx, row, destino.assigneeId, SISTEMA, now, null, { automatico: true, meta }));
+            asignadoA = destino.assigneeId;
           }
         } else if (destino) {
           await this.addMessage(trx, tenantId, id, {
@@ -361,8 +362,11 @@ export class ServiceDeskRequestsService {
             visibility: 'internal',
             authorId: null,
             authorLabel: 'Sistema',
-            body: `Asignación automática omitida: la regla «${destino.resultado.regla.name}» apunta a ${destino.assigneeName ?? 'una persona que ya no existe'}, que hoy no puede atender solicitudes de la Mesa de Servicio. Queda sin asignar.`,
-            meta: { auto: true, skipped: true, rule_id: destino.resultado.regla.id },
+            body:
+              destino.origen.tipo === 'default'
+                ? `Asignación automática omitida: el responsable por omisión del área es ${destino.assigneeName ?? 'una persona que ya no existe'}, que hoy no puede atender solicitudes de esta cola. Queda sin asignar.`
+                : `Asignación automática omitida: la regla «${destino.origen.regla.name}» apunta a ${destino.assigneeName ?? 'una persona que ya no existe'}, que hoy no puede atender solicitudes de la Mesa de Servicio. Queda sin asignar.`,
+            meta: { auto: true, skipped: true, rule_id: destino.origen.tipo === 'default' ? null : destino.origen.regla.id, ...(destino.origen.tipo === 'default' ? { reason: 'default' } : {}) },
           });
         }
 
@@ -1089,14 +1093,7 @@ export class ServiceDeskRequestsService {
   }
 
   private normalizarSucursal(code: string | null | undefined): string | null {
-    const c = String(code ?? '').trim();
-    if (!c) return null;
-    // `[MS.3.14]` Una ubicación que no es sucursal (oficinas corporativas) es válida y se guarda en su código canónico.
-    const extra = ubicacionExtra(c);
-    if (extra) return extra;
-    // Sólo el espacio de códigos vigente de Kepler (00–08): '30','32','50' son eras de Wincaja ya cerradas.
-    if (!/^0[0-8]$/.test(c) || !(c in KEPLER_BRANCH_NAMES)) throw new BadRequestException('Ubicación desconocida');
-    return c;
+    return normalizarUbicacion(code);
   }
 
   // ── consultas y mapeo ──

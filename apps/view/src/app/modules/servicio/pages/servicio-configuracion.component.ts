@@ -5,7 +5,8 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import type { Observable } from 'rxjs';
-import { SD_PRIORITIES, type SdAgentDto, type SdClock, type SdConfigResponse, type SdFieldType, type SdPriority, type SdRoutingResponse, type SdRoutingRuleDto, type SdSlaScanResult } from '@megadulces/contracts';
+import { SD_PRIORITIES, SD_UBICACIONES_EXTRA, type SdAgentDto, type SdClock, type SdConfigResponse, type SdFieldType, type SdPriority, type SdRoutingResponse, type SdRoutingRuleDto, type SdSlaScanResult } from '@megadulces/contracts';
+import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { PRIORITY_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
 import { SdQueueMembersComponent } from '../sd-queue-members.component';
 
@@ -116,6 +117,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                     <td class="dt-id" role="cell" data-label="Regla">{{ r.name }}</td>
                     <td role="cell" data-label="Se dispara por">
                       @if (r.category_name) { <div>Categoría: <b>{{ r.category_name }}</b></div> }
+                      @if (r.warehouse_name) { <div>Ubicación: <b>{{ r.warehouse_name }}</b></div> }
                       @if (r.keywords.length) { <div class="sc-mono">{{ r.keywords.join(', ') }}</div> }
                     </td>
                     <td role="cell" data-label="Asigna a">
@@ -142,11 +144,14 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <p-select [options]="agentes()" optionLabel="label" optionValue="user_id" [(ngModel)]="formRegla.assignee_id" placeholder="Elige" appendTo="body" ariaLabel="Asigna a" /></label>
               <label class="sc-field"><span>Categoría (opcional)</span>
                 <p-select [options]="categoriasOpc()" optionLabel="name" optionValue="id" [(ngModel)]="formRegla.category_id" [showClear]="true" placeholder="Cualquiera" appendTo="body" ariaLabel="Categoría" /></label>
+              <label class="sc-field"><span>Ubicación (opcional)</span>
+                <p-select [options]="ubicaciones" optionLabel="name" optionValue="code" [(ngModel)]="formRegla.warehouse_code" [showClear]="true" placeholder="Cualquiera" appendTo="body" ariaLabel="Ubicación" /></label>
               <label class="sc-field"><span>Orden</span><input pInputText type="number" min="0" [(ngModel)]="formRegla.sort_order" /></label>
             </div>
             <label class="sc-field"><span>Palabras clave (separadas por coma)</span>
               <input pInputText [(ngModel)]="formRegla.keywords" placeholder="sistemas, cpu, impresora" />
               <small>Una palabra del texto que EMPIECE con la clave la dispara. Ojo con las muy cortas o genéricas: «red» también encuentra «redes» y «redacción».</small></label>
+            <p class="sc-hint">Con ubicación, la regla sólo aplica a solicitudes de ahí; con ubicación y categoría (o palabras) gana a una regla que sólo trae la categoría. Si ninguna regla aplica, cae el <b>responsable por omisión</b> de la cola.</p>
             <p class="sc-hint">En «Asigna a» sólo aparece quien ya <b>puede atender</b>. Si falta alguien, dale primero el permiso de atender solicitudes.</p>
             <div class="sc-foot">
               <p-button [label]="editandoRegla() ? 'Guardar regla' : 'Agregar regla'" icon="pi pi-check" [loading]="guardando()" [disabled]="!reglaValida()" (onClick)="guardarRegla()" />
@@ -195,7 +200,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <p-button [label]="q.active ? 'Apagar cola' : 'Encender cola'" size="small" severity="secondary" [text]="true" (onClick)="alternarCola(q.id, q.active)" />
               </div>
               <!-- [MS.7.17] Quién atiende esta cola: la coordinación de ESA cola administra a sus miembros. -->
-              <app-sd-queue-members [queueId]="q.id" />
+              <app-sd-queue-members [queueId]="q.id" [defaultAssigneeId]="q.default_assignee_id" (configChange)="cfg.set($event)" />
               <table class="sc-table">
                 <thead><tr><th>Categoría</th><th>Prioridad por defecto</th><th>Exige ubicación</th><th>Estado</th><th></th></tr></thead>
                 <tbody>
@@ -339,7 +344,9 @@ export class ServicioConfiguracionComponent implements OnInit {
   readonly agentes = computed(() => this.agentesRaw().map((a) => ({ user_id: a.user_id, label: a.name || a.username })));
   readonly categoriasOpc = computed(() => (this.cfg()?.categories ?? []).filter((k) => k.active));
   readonly editandoRegla = signal<string | null>(null);
-  formRegla: { name: string; assignee_id: string | null; category_id: string | null; sort_order: number; keywords: string } = { name: '', assignee_id: null, category_id: null, sort_order: 100, keywords: '' };
+  formRegla: { name: string; assignee_id: string | null; category_id: string | null; warehouse_code: string | null; sort_order: number; keywords: string } = { name: '', assignee_id: null, category_id: null, warehouse_code: null, sort_order: 100, keywords: '' };
+  /** `[MS.7.10]` Las ubicaciones que una regla puede mirar: las sucursales de la red y las que no son sucursal (oficinas, estacionamiento). */
+  readonly ubicaciones: { code: string; name: string }[] = [...STORE_BRANCHES, ...Object.entries(SD_UBICACIONES_EXTRA).map(([code, name]) => ({ code, name }))];
 
   reglas = { business_days: [] as number[], business_start: '08:00', business_end: '19:00', tz: 'America/Mexico_City', auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60 };
   pol: PolForm[] = [];
@@ -374,23 +381,23 @@ export class ServicioConfiguracionComponent implements OnInit {
   private clavesDeTexto(): string[] { return this.formRegla.keywords.split(',').map((x) => x.trim()).filter(Boolean); }
   reglaValida(): boolean {
     const f = this.formRegla;
-    return !!f.name.trim() && !!f.assignee_id && (!!f.category_id || this.clavesDeTexto().length > 0);
+    return !!f.name.trim() && !!f.assignee_id && (!!f.category_id || !!f.warehouse_code || this.clavesDeTexto().length > 0);
   }
   guardarRegla(): void {
     const f = this.formRegla;
     if (!this.reglaValida() || !f.assignee_id) return;
-    const dto = { name: f.name.trim(), assignee_id: f.assignee_id, category_id: f.category_id, sort_order: Number(f.sort_order), keywords: this.clavesDeTexto() };
+    const dto = { name: f.name.trim(), assignee_id: f.assignee_id, category_id: f.category_id, warehouse_code: f.warehouse_code, sort_order: Number(f.sort_order), keywords: this.clavesDeTexto() };
     const id = this.editandoRegla();
     this.guardarRuteo(id ? this.api.updateRouting(id, dto) : this.api.createRouting(dto), id ? 'Regla guardada.' : 'Regla agregada.');
     this.cancelarRegla();
   }
   editarRegla(r: SdRoutingRuleDto): void {
     this.editandoRegla.set(r.id);
-    this.formRegla = { name: r.name, assignee_id: r.assignee_id, category_id: r.category_id, sort_order: r.sort_order, keywords: r.keywords.join(', ') };
+    this.formRegla = { name: r.name, assignee_id: r.assignee_id, category_id: r.category_id, warehouse_code: r.warehouse_code, sort_order: r.sort_order, keywords: r.keywords.join(', ') };
   }
   cancelarRegla(): void {
     this.editandoRegla.set(null);
-    this.formRegla = { name: '', assignee_id: null, category_id: null, sort_order: 100, keywords: '' };
+    this.formRegla = { name: '', assignee_id: null, category_id: null, warehouse_code: null, sort_order: 100, keywords: '' };
   }
   alternarRegla(r: SdRoutingRuleDto): void { this.guardarRuteo(this.api.updateRouting(r.id, { active: !r.active }), r.active ? 'Regla apagada.' : 'Regla encendida.'); }
   cambiarOrden(r: SdRoutingRuleDto, valor: string): void {

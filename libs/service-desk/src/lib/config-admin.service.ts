@@ -31,6 +31,7 @@ import { TenantContextService, TenantKnexService } from '@megadulces/platform-co
 import { parseHHMM } from './domain/business-clock';
 import { validarDefinicionCampo } from './domain/campos-extra';
 import { puedeCoordinarCola } from './domain/queue-access';
+import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskQueueMembersService } from './queue-members.service';
 import type { ActorCtx } from './service-desk.types';
 
@@ -63,6 +64,7 @@ export class ServiceDeskConfigAdminService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
     private readonly members: ServiceDeskQueueMembersService,
+    private readonly agents: ServiceDeskAgentsService,
   ) {}
 
   async get(): Promise<SdConfigResponse> {
@@ -70,7 +72,11 @@ export class ServiceDeskConfigAdminService {
       const s = await trx('servicedesk.settings').first();
       if (!s) throw new NotFoundException('La Mesa de Servicio no está configurada para este tenant');
       const policies = await trx('servicedesk.sla_policies').select('queue_id', 'priority', 'first_response_minutes', 'resolution_minutes', 'clock');
-      const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order', 'priority_model', 'asks_zone');
+      const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order', 'priority_model', 'asks_zone', 'default_assignee_id');
+      // `[MS.7.10]` El nombre del responsable por omisión de cada cola (para mostrarlo sin otra consulta).
+      const respIds = [...new Set(queues.map((q: { default_assignee_id: string | null }) => q.default_assignee_id).filter((x: string | null): x is string => !!x))];
+      const respNombres = new Map<string, string>();
+      if (respIds.length) for (const u of await trx('identity.users').whereIn('id', respIds).select('id', 'nombre', 'username')) respNombres.set(u.id, u.nombre || u.username);
       const cats = await trx('servicedesk.categories').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'queue_id', 'code', 'name', 'default_priority', 'requires_branch', 'active', 'sort_order');
       const zones = await trx('servicedesk.zones').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'sort_order', 'active');
       const fields = await trx('servicedesk.queue_fields').orderBy([{ column: 'sort_order' }, { column: 'label' }]).select('id', 'queue_id', 'code', 'label', 'type', 'required', 'options', 'sort_order', 'active');
@@ -91,7 +97,7 @@ export class ServiceDeskConfigAdminService {
           .map((p) => ({ queue_id: p.queue_id ?? null, priority: p.priority, first_response_minutes: Number(p.first_response_minutes), resolution_minutes: Number(p.resolution_minutes), clock: p.clock }))
           // La general primero (queue_id null), luego las de cada cola; dentro de cada una, de la más baja a la más urgente.
           .sort((a, b) => (a.queue_id ?? '').localeCompare(b.queue_id ?? '') || orden(a.priority) - orden(b.priority)),
-        queues: queues as SdQueueAdminDto[],
+        queues: queues.map((q: { default_assignee_id: string | null }) => ({ ...q, default_assignee_name: q.default_assignee_id ? respNombres.get(q.default_assignee_id) ?? null : null })) as SdQueueAdminDto[],
         categories: cats as SdCategoryAdminDto[],
         zones: zones as SdZoneAdminDto[],
         fields: fields as SdFieldAdminDto[],
@@ -274,10 +280,23 @@ export class ServiceDeskConfigAdminService {
       if (typeof dto.asks_zone !== 'boolean') throw new BadRequestException('asks_zone debe ser verdadero o falso');
       patch['asks_zone'] = dto.asks_zone;
     }
-    if (!Object.keys(patch).length) throw new BadRequestException('No se indicó ningún campo para cambiar');
+    const cambiaResponsable = dto.default_assignee_id !== undefined;
+    if (cambiaResponsable && dto.default_assignee_id !== null && !UUID_RE.test(String(dto.default_assignee_id))) throw new BadRequestException('default_assignee_id inválido');
+    if (!Object.keys(patch).length && !cambiaResponsable) throw new BadRequestException('No se indicó ningún campo para cambiar');
     // `[MS.7.6]` Sólo la coordinación de ESA cola (o el god-mode) edita su cola.
     if (!puedeCoordinarCola(ctx.colas, id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiarla');
     await this.tk.run(async (trx) => {
+      if (cambiaResponsable) {
+        /*
+         * `[MS.7.10]` El responsable por omisión es a quien cae un ticket sin regla: **nunca** alguien que no sea miembro activo de
+         * ESTA cola con permiso de atender (un ticket en la mesa de quien no lo ve cuenta como asignado y sale de la cola de «sin
+         * asignar»: el peor lugar para perderlo). Se valida al ponerlo; el ruteo lo vuelve a validar al usarlo.
+         */
+        if (dto.default_assignee_id !== null && !(await this.agents.esAsignable(trx, String(dto.default_assignee_id), id))) {
+          throw new BadRequestException('El responsable por omisión debe ser un miembro de esta cola que pueda atender solicitudes');
+        }
+        patch['default_assignee_id'] = dto.default_assignee_id;
+      }
       try {
         const n = await trx('servicedesk.queues').where({ id }).whereNull('deleted_at').update({ ...patch, updated_at: trx.fn.now(), updated_by: ctx.userId });
         if (!n) throw new NotFoundException('Cola no encontrada');
