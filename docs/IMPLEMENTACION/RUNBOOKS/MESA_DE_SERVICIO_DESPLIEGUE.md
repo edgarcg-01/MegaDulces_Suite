@@ -291,7 +291,7 @@ A partir de la fase multi-área ([`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md
 
 **Antes de empezar (todo debe estar listo; si falta algo, NO encender):** `20261006130000` (miembros) aplicada y verificada (§11); el código con **acceso por cola**, **«Mi trabajo» por cola** (MS.7.18) y **la pantalla de miembros** (MS.7.17) desplegado; y la persona que coordinará con **`SERVICIO_ATENDER` y `SERVICIO_COORDINAR`** dados desde Personas.
 
-1. Aplicar **una** migración, con el candado de identidad: `20261007120000_servicedesk_seed_mantenimiento.js`. Es segura en cualquier momento: la cola nace **apagada** y el catálogo esconde las categorías de una cola apagada, así que no cambia nada visible.
+1. Aplicar **una** migración, con el candado de identidad: `20261007240000_servicedesk_seed_mantenimiento.js`. Es segura en cualquier momento: la cola nace **apagada** y el catálogo esconde las categorías de una cola apagada, así que no cambia nada visible.
 2. **Verificar** (debe dar `false`, 11 y 0):
    ```sql
    SELECT q.active, (SELECT count(*) FROM servicedesk.categories c WHERE c.queue_id = q.id) AS categorias,

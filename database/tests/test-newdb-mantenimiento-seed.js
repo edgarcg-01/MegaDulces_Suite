@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 /**
- * `[MS.7.14]` Siembra de la cola «Mantenimiento» (`20261007120000_servicedesk_seed_mantenimiento.js`). Smoke DB-direct:
+ * `[MS.7.14]` Siembra de la cola «Mantenimiento» (`20261007240000_servicedesk_seed_mantenimiento.js`). Smoke DB-direct:
  * todo lo que escribe corre dentro de una transacción que se REVIERTE.
  *
  * Qué defiende (cada bloque con su negativa, y cada negativa con su control positivo):
@@ -13,7 +13,7 @@
  */
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-mantenimiento-seed');
-const seed = require('../migrations-newdb/20261007120000_servicedesk_seed_mantenimiento.js');
+const seed = require('../migrations-newdb/20261007240000_servicedesk_seed_mantenimiento.js');
 
 const T = '00000000-0000-0000-0000-00000000d01c';
 const ESPERADAS = [

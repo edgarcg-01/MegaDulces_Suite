@@ -208,7 +208,7 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 
 ### 9.3 MS.7.14 preparada (2026-10-07): la siembra de Mantenimiento
 
-**Qué es:** la migración `20261007120000_servicedesk_seed_mantenimiento.js` (aditiva, idempotente, reversible): la cola **Mantenimiento** y sus **11 categorías**. Sólo configuración; ninguna línea de lógica por nombre de cola. Más `EC` = «Estacionamiento CEDIS» en `SD_UBICACIONES_EXTRA` (la 11.ª ubicación; sin migración).
+**Qué es:** la migración `20261007240000_servicedesk_seed_mantenimiento.js` (aditiva, idempotente, reversible): la cola **Mantenimiento** y sus **11 categorías**. Sólo configuración; ninguna línea de lógica por nombre de cola. Más `EC` = «Estacionamiento CEDIS» en `SD_UBICACIONES_EXTRA` (la 11.ª ubicación; sin migración).
 
 **⛔ Nace APAGADA y SIN miembros, a propósito.** Encendida y sin nadie, el catálogo ofrecería sus categorías a toda la empresa y cada ticket nacería en una bandeja que nadie ve. El catálogo ya esconde las categorías de una cola apagada, así que **sembrarla no cambia nada visible**. El camino para activarla es el de la pantalla (MS.7.17): 1) un administrador nombra coordinador a Ubaldo Barajas Valencia; 2) él agrega a su gente y **enciende la cola**. La migración no agrega a nadie (su usuario no está confirmado en prod y no se adivina).
 
