@@ -97,6 +97,12 @@ export interface AutoabastoRow {
    * almacén). `0` o `null` = **sin venta medida**: con eso no se calcula fecha de agotamiento.
    */
   avg_daily_units: number | null;
+  /**
+   * `[AB.13]` Lugar del producto por venta en $ dentro del almacén (#1 = el que más vende).
+   * **`null` = no vendió en el periodo medido.** Es la señal de «sin venta» confiable:
+   * `avg_daily_units` llega redondeado a 2 decimales en cajas y una venta chica sale 0.00.
+   */
+  sales_rank: number | null;
 }
 
 export interface AutoabastoMesaResponse {
@@ -144,6 +150,31 @@ export interface AutoabastoFiltros {
   suppliers: AutoabastoSupplierOpt[];
 }
 
+/**
+ * `[AB.13]` El reporte imprimible de UN almacén. La fecha y la hora vienen del SERVIDOR, en hora
+ * de México: la computadora de quien imprime puede tener la hora mal y el papel no debe mentir.
+ */
+export interface AutoabastoReporte {
+  almacen: { id: string; code: string; name: string };
+  generado_en: string;
+  /** AAAA-MM-DD en hora de México. */
+  fecha_mx: string;
+  /** HH:mm en hora de México. */
+  hora_mx: string;
+  generado_por: string | null;
+  resumen: AutoabastoResumen;
+  mesa: AutoabastoMesaResponse;
+}
+
+export interface AutoabastoReporteQuery {
+  warehouse_id: string;
+  supplier_id?: string;
+  bucket?: string;
+  search?: string;
+  sort_by?: string;
+  sort_dir?: string;
+}
+
 export interface AutoabastoQuery {
   warehouse_id?: string;
   warehouse_ids?: string;
@@ -183,5 +214,10 @@ export class AutoabastoService {
 
   filtros(): Observable<AutoabastoFiltros> {
     return this.http.get<AutoabastoFiltros>(`${this.base}/filtros`);
+  }
+
+  /** `[AB.13]` Todas las filas + resumen + sello de fecha y hora, de un almacén de tu alcance. */
+  reporte(q: AutoabastoReporteQuery): Observable<AutoabastoReporte> {
+    return this.http.get<AutoabastoReporte>(`${this.base}/reporte`, { params: this.params(q) });
   }
 }
