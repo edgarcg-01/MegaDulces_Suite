@@ -157,7 +157,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Presupuesto</h1>
-          <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler; vos ajustás los <strong>supuestos del año</strong> y autorizás. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
+          <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler — supuestos, plan y partidas. Vos <strong>autorizás</strong>. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
         </div>
         <div class="pres-nav">
           <app-segmented [options]="viewOptsArmar" [value]="view()" (valueChange)="setView($event)" ariaLabel="Armar el presupuesto" />
@@ -192,10 +192,17 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
           } @else if (loadingBudgets()) {
             <p class="pres-muted">Cargando ejercicios…</p>
           } @else {
+            <!-- [VE.9] El vacio decia "Crear el primero" y contradecia a la cabecera de arriba:
+                 si el sistema arma solo, no puede pedirte que lo crees. El ejercicio del ano
+                 siguiente lo crea la pasada nocturna; el boton solo ADELANTA esa pasada. Crear uno
+                 a mano queda como la excepcion (otro ano, otro escenario), no como el camino. -->
             <div class="pres-empty-block">
               <span class="pi pi-chart-pie pres-empty-ico"></span>
-              <p>Aún no hay ejercicios presupuestales.</p>
-              <button pButton type="button" class="p-button-sm" (click)="openNewBudget()"><span class="pi pi-plus"></span>&nbsp;Crear el primero</button>
+              <p>No hay ejercicios todavía. <strong>El sistema crea el del año siguiente solo</strong>, en la pasada de las 03:30, y lo arma con los supuestos derivados del ODS y de Kepler.</p>
+              <div class="pres-detail-actions">
+                <button pButton type="button" class="p-button-sm" (click)="runAutopilot()" [loading]="runningAutopilot()" title="Corre ahora la misma pasada del cron: crea el ejercicio del año siguiente si falta, deriva los supuestos y propone ventas, gastos y partidas"><span class="pi pi-bolt"></span>&nbsp;Armarlo ahora</button>
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="openNewBudget()" title="Para un año o escenario distinto del que arma el sistema"><span class="pi pi-plus"></span>&nbsp;Crear uno a mano</button>
+              </div>
             </div>
           }
 
@@ -204,6 +211,10 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <span class="pres-summary-title">{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span> <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" /></span>
               <div class="pres-detail-actions">
                 @if (b.status === 'borrador' || b.status === 'en_revision') {
+                  <!-- [VE.9] Adelanta la pasada nocturna sobre ESTE ejercicio. No reemplaza al
+                       cron: lo que hace es no tener que esperar a manana para ver el efecto de un
+                       cambio en los supuestos o en el catalogo. -->
+                  <button pButton type="button" class="p-button-sm p-button-text" (click)="runAutopilot()" [loading]="runningAutopilot()" title="Corre ahora la pasada del cron: supuestos derivados + plan de ventas + plan de gastos + partidas. Respeta lo capturado a mano"><span class="pi pi-bolt"></span>&nbsp;Re-armar ahora</button>
                   <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'submit')" [loading]="savingLifecycle()">Enviar a autorización</button>
                 }
                 @if (b.status === 'pendiente') {
@@ -217,28 +228,41 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               </div>
             </div>
 
-            <!-- Supuestos del año: lo ÚNICO que ajusta el humano; el sistema propone con esto (PR.5) -->
+            <!-- [VE.7] Los supuestos DEJARON DE CAPTURARSE. Antes eran seis inputs y un boton
+                 «Guardar»: el numero que gobierna todo el plan dependia de que alguien se
+                 acordara, y el que estaba guardado (credito -29.4%) resulto ser una
+                 reclasificacion de canal, no una caida. Ahora los calcula el sistema desde la
+                 historia y se muestran. Si uno esta mal, se corrige LA FUENTE -- que es como se
+                 arreglo ese -29.4%, normalizando el canal, no tecleando otro numero.
+                 Lo que sigue siendo del humano es la POLITICA (que familias presupuestar, si se
+                 abre por sucursal, que hace el control de sobregiro): eso no es un dato que la
+                 historia pueda derivar, es una decision. -->
             <div class="pres-assump">
               <div class="pres-assump-head">
-                <h3><span class="pi pi-sliders-h"></span> Supuestos del año <span class="pres-muted">— lo único que ajustás; el sistema propone ventas y gastos con esto</span></h3>
-                @if (b.status === 'borrador' || b.status === 'en_revision') {
-                  <div class="pres-detail-actions">
-                    <button pButton type="button" class="p-button-sm p-button-text" (click)="suggestAssumptions()" [loading]="suggestingAssump()" title="Estima el crecimiento desde la historia: ventas año-contra-año del sell-out + egresos de Kepler"><span class="pi pi-bolt"></span>&nbsp;Sugerir automáticamente</button>
-                    <button pButton type="button" class="p-button-sm" (click)="saveAssumptions()" [loading]="savingAssump()">Guardar supuestos</button>
-                  </div>
-                }
+                <h3><span class="pi pi-sliders-h"></span> Supuestos del año <span class="pres-muted">— los calcula el sistema desde la historia; no se capturan</span></h3>
               </div>
               <div class="pres-assump-grid">
                 <div class="pres-assump-col">
                   <h4>Ventas — crecimiento por canal (%)</h4>
                   @for (ch of channelsList; track ch) {
-                    <label class="pres-assump-row"><span>{{ channelLabels[ch] || ch }}</span><input pInputText type="number" [(ngModel)]="asVentasGrowth[ch]" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                    <div class="pres-assump-row">
+                      <span>{{ channelLabels[ch] || ch }}</span>
+                      @if (asVentasGrowth[ch] == null) {
+                        <!-- [VE.7.1] Un canal sin historia propia usa el respaldo, y hay que
+                             DECIRLO: mostrarlo igual que uno derivado es como Mayoreo exhibia
+                             2.6% teniendo -8.4% de verdad. -->
+                        <span class="pres-muted pres-mono" title="Este canal no tiene par de años con que calcular su propio crecimiento; usa el respaldo">{{ asVentasDefault }} % · respaldo</span>
+                      } @else {
+                        <strong class="pres-mono">{{ asVentasGrowth[ch] }} %</strong>
+                      }
+                    </div>
                   }
-                  <label class="pres-assump-row"><span>Respaldo</span><input pInputText type="number" [(ngModel)]="asVentasDefault" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                  <div class="pres-assump-row"><span class="pres-muted">Respaldo — para un canal sin par de años</span><strong class="pres-mono">{{ asVentasDefault == null ? '—' : asVentasDefault + ' %' }}</strong></div>
                 </div>
                 <div class="pres-assump-col">
                   <h4>Gastos</h4>
-                  <label class="pres-assump-row"><span>Crecimiento (%)</span><input pInputText type="number" [(ngModel)]="asGastosDefault" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" /></label>
+                  <div class="pres-assump-row"><span>Crecimiento (%)</span><strong class="pres-mono">{{ asGastosDefault == null ? '—' : asGastosDefault + ' %' }}</strong></div>
+                  <h4 class="pres-assump-sub">Política — esto sí lo decidís</h4>
                   <label class="pres-assump-row"><span>Familias Kepler</span><input pInputText type="text" [(ngModel)]="asGastosFamilies" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" placeholder="6" /></label>
                   <label class="pres-assump-row"><p-checkbox [(ngModel)]="asGastosBySucursal" [binary]="true" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" /> &nbsp;Presupuestar por sucursal</label>
                   <label class="pres-assump-row"><span>Control de sobregiro</span>
@@ -248,10 +272,13 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                       <option value="bloqueo">Bloqueo (impide sobregirar)</option>
                     </select>
                   </label>
+                  @if (b.status === 'borrador' || b.status === 'en_revision') {
+                    <button pButton type="button" class="p-button-sm" (click)="saveAssumptions()" [loading]="savingAssump()">Guardar política</button>
+                  }
                   <p class="pres-lbl-hint">6 = gasto operativo · 5 = compras · 7 = financieros · 1 = inversión. <strong>Bloqueo</strong> impide autorizar un gasto que exceda la partida.</p>
                 </div>
               </div>
-              <p class="pres-lbl-hint">Usá «<strong>Sugerir automáticamente</strong>» para estimar el crecimiento desde la historia (ventas año-contra-año + egresos de Kepler), ajustá lo que cambie este año y <strong>Guardá</strong>. Luego «Proponer plan» en Ventas y «Proponer gastos» en Gastos. Al <strong>aprobar</strong>, el sistema materializa las partidas y proyecta las metas a Análisis.</p>
+              <p class="pres-lbl-hint">El crecimiento sale de la historia (ventas año-contra-año del sell-out + egresos de Kepler) y se recalcula en la <strong>pasada nocturna</strong>, junto con el plan. <strong>Si un supuesto no cuadra, el arreglo es la fuente, no el número</strong>: el «−29.4 %» que mostraba Crédito era el canal reclasificándose, y se corrigió normalizando el catálogo.</p>
             </div>
 
             <!-- Answer-first: el resumen ejecutivo antes del grid (DESIGN §15) -->
@@ -994,7 +1021,12 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-assump-grid { display:flex; gap:1.4rem; flex-wrap:wrap; }
     .pres-assump-col { flex:1; min-width:14rem; }
     .pres-assump-col h4 { margin:.2rem 0 .4rem; font-size:.8rem; color:var(--text-muted); }
-    .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; text-transform:capitalize; }
+    /* [VE.7.1] Sin text-transform capitalize: capitalizaba CADA palabra y producia
+       "Presupuestar Por Sucursal", "Control De Sobregiro" y "Respaldo (Canal Sin Historia
+       Propia)". Los rotulos ya vienen escritos como deben leerse. */
+    .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; }
+    /* [VE.7] Separa lo que el sistema CALCULA de lo que la persona DECIDE. */
+    .pres-assump-sub { margin:1rem 0 .35rem; padding-top:.6rem; border-top:1px solid var(--border-subtle,#e5e1dc); font-size:.78rem; color:var(--text-muted); }
     .pres-assump-in { width:8rem; }
     /* [PU.R] La cascada del estado de resultados. El renglon de corte va en negritas y con
        linea arriba: es lo que separa margen bruto de resultado al leerla de corrido. */
@@ -1098,6 +1130,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // ── Ejercicios (PU) ──
   budgets = signal<BudgetHeader[]>([]);
   loadingBudgets = signal(false);
+  /** `[VE.9]` La pasada del piloto, disparada a mano desde la pantalla. */
+  runningAutopilot = signal(false);
   selected = signal<BudgetHeader | null>(null);
   summary = signal<Summary | null>(null);
   lines = signal<BudgetLine[]>([]);
@@ -1250,6 +1284,43 @@ export class FinanzasPresupuestoComponent implements OnInit {
     if (this.view() === 'flujo') this.loadResultado();
     if (this.view() === 'gasto-op') this.loadExpensePlan();
     if (this.view() === 'gastos') this.loadExpenses();
+  }
+
+  /**
+   * `[VE.9]` Adelanta la pasada nocturna. Es la MISMA que corre a las 03:30, no una versión
+   * recortada: crea el ejercicio del año siguiente si falta, deriva los supuestos del histórico y
+   * propone ventas, gastos, proyección y partidas, respetando todo lo capturado a mano.
+   *
+   * Las dos llamadas van en orden porque la segunda lee el plan de gastos que escribe la primera
+   * (viven en módulos distintos, `[VE.4]`). Si la primera falla, la segunda no corre: generar
+   * obligaciones de un plan que no se escribió sería proponer pagos sobre nada.
+   */
+  runAutopilot(): void {
+    this.runningAutopilot.set(true);
+    this.http.post<{ ejercicios: number; tocados: number; celdas: number; errores: string[] }>(`${this.base}/autopilot/run`, {})
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          const detalle = `${r.tocados}/${r.ejercicios} ejercicios · ${r.celdas} celdas escritas`;
+          if (r.errores?.length) {
+            // No se dibuja como éxito: una pasada con fallas que dice «listo» es justo lo que el
+            // latido de este módulo ya hizo una vez (ok sobre cero).
+            this.toast.add({ severity: 'warn', summary: 'Pasada con fallas', detail: `${detalle} — ${r.errores.join(' · ')}`, life: 12000 });
+          } else {
+            this.toast.add({ severity: 'success', summary: 'Presupuesto armado', detail: detalle });
+          }
+          this.http.post<{ generadas: number; actualizadas: number; errores: string[] }>(`${this.base}/expenses/autopilot/run`, {})
+            .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+              next: (o) => {
+                this.runningAutopilot.set(false); this.loadBudgets();
+                if (o.generadas || o.actualizadas) {
+                  this.toast.add({ severity: 'info', summary: 'Obligaciones propuestas', detail: `${o.generadas} nuevas · ${o.actualizadas} actualizadas — esperan tu autorización` });
+                }
+              },
+              error: (e) => { this.runningAutopilot.set(false); this.loadBudgets(); this.toast.add({ severity: 'warn', summary: 'Obligaciones', detail: e?.error?.message || 'El presupuesto se armó; las obligaciones no.' }); },
+            });
+        },
+        error: (e) => { this.runningAutopilot.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo armar el presupuesto.' }); },
+      });
   }
 
   openNewBudget(): void { this.budgetForm = { fiscal_year: new Date().getFullYear() + 1, scenario: 'base' }; this.newBudgetVisible = true; }
@@ -1702,7 +1773,11 @@ export class FinanzasPresupuestoComponent implements OnInit {
    *  escribía — o sea que ni siquiera se podía fijar un supuesto para ellos. */
   channelsList: string[] = ['mostrador', 'credito', 'ruta', 'preventa'];
   channelLabels: Record<string, string> = {};
-  asVentasGrowth: Record<string, number> = { mostrador: 8, credito: 8, ruta: 8, preventa: 8 };
+  // `[VE.7.2]` `number | null` porque un canal SIN supuesto propio se declara, no cae al respaldo
+  // en silencio. Y arranca VACÍO: la semilla era `{ mostrador: 8, credito: 8, ruta: 8, preventa: 8 }`
+  // — un 8 % inventado en cuatro canales, uno de ellos (`credito`) muerto desde el 2026-09-18. El
+  // vocabulario lo trae el backend desde `v_sales_entity`; sembrarlo acá era adivinarlo.
+  asVentasGrowth: Record<string, number | null> = {};
   asVentasDefault: number | null = 8;
   asGastosDefault: number | null = 8;
   asGastosFamilies = '6';
@@ -1721,7 +1796,10 @@ export class FinanzasPresupuestoComponent implements OnInit {
         }
         this.asVentasDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10;
         const g = s.growth_by_channel || {};
-        for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : this.asVentasDefault;
+        // `[VE.7.1]` Un canal SIN supuesto propio queda en `null`, no cae al respaldo en silencio.
+        // Antes mostraba el default como si fuera su cifra: `mayoreo` exhibía 2.6 % cuando su
+        // valor derivado es −8.4 %, y nada en pantalla decía que ese 2.6 % era genérico.
+        for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : null;
         this.assumpLoaded.set(true); this.loadingAssump.set(false);
         // `[VE.4]` Si el ejercicio todavía no tiene supuestos, la pantalla mostraba 0 % en todos
         // los canales y había que apretar «Sugerir» para ver la propuesta del histórico. Un cero
@@ -1753,9 +1831,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: (p) => {
         const g = Math.round((p.global?.growth_pct || 0) * 1000) / 10; // fracción → %
         this.asVentasDefault = g;
-        for (const ch of this.channelsList) { const c = p.by_channel?.[ch]; this.asVentasGrowth[ch] = c ? Math.round((c.growth_pct || 0) * 1000) / 10 : g; }
+        // `[VE.7.2]` Un canal sin base propia queda en `null` — antes se le copiaba el global `g`,
+        // que es cómo Mayoreo terminaba exhibiendo 2.6 % con aspecto de cifra calculada. El
+        // «· respaldo» de la pantalla sale justamente de este null.
+        for (const ch of this.channelsList) { const c = p.by_channel?.[ch]; this.asVentasGrowth[ch] = c && c.basis === 'yoy_paired' ? Math.round((c.growth_pct || 0) * 1000) / 10 : null; }
         const yoy = Object.values(p.by_channel || {}).filter((c) => c.basis === 'yoy_paired').length;
-        this.toast.add({ severity: 'success', summary: 'Crecimiento sugerido', detail: `Ventas: ${yoy} canal(es) con base histórica año-contra-año; el resto por tendencia global. Revisá, ajustá y Guardá.` });
+        this.toast.add({ severity: 'success', summary: 'Crecimiento calculado', detail: `${yoy} canal(es) con base histórica año-contra-año; el resto usa el respaldo y así se muestra.` });
         done();
       },
       error: (e) => { this.toast.add({ severity: 'warn', summary: 'Ventas', detail: e?.error?.message || 'Sin historia suficiente para estimar el crecimiento de ventas.' }); done(); },
@@ -1769,11 +1850,16 @@ export class FinanzasPresupuestoComponent implements OnInit {
   saveAssumptions(): void {
     const b = this.selected(); if (!b) return;
     this.savingAssump.set(true);
-    const gbc: Record<string, number> = {}; for (const ch of this.channelsList) gbc[ch] = (Number(this.asVentasGrowth[ch]) || 0) / 100;
     const families = this.asGastosFamilies.split(',').map((s) => s.trim()).filter(Boolean);
-    let done = 0; const finish = () => { if (++done === 2) { this.savingAssump.set(false); this.toast.add({ severity: 'success', summary: 'Supuestos guardados', detail: 'El sistema propondrá ventas y gastos con estos supuestos.' }); } };
-    this.http.put(`${this.base}/budgets/${b.id}/sales-plan/settings`, { default_growth_pct: (Number(this.asVentasDefault) || 0) / 100, growth_by_channel: gbc }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de ventas.' }); } });
-    this.http.put(`${this.base}/budgets/${b.id}/expense-plan/settings`, { default_growth_pct: (Number(this.asGastosDefault) || 0) / 100, proposal_families: families, by_sucursal: this.asGastosBySucursal, control_level: this.asGastosControl }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({ next: finish, error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudieron guardar los supuestos de gastos.' }); } });
+    // `[VE.7]` Guarda SÓLO la política. ⛔ Antes mandaba también `growth_by_channel` con lo que
+    // hubiera en pantalla, y ahora eso sería un bug grave: el piloto respeta todo canal que ya
+    // tenga valor guardado (misma regla que `method='manual'`), así que apretar «Guardar» una vez
+    // CONGELARÍA los supuestos derivados para siempre — el presupuesto dejaría de actualizarse
+    // solo sin que nadie se entere. El crecimiento lo escribe la pasada nocturna, no esta pantalla.
+    this.http.put(`${this.base}/budgets/${b.id}/expense-plan/settings`, { proposal_families: families, by_sucursal: this.asGastosBySucursal, control_level: this.asGastosControl }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: () => { this.savingAssump.set(false); this.toast.add({ severity: 'success', summary: 'Política guardada', detail: 'El crecimiento lo sigue calculando el sistema desde la historia.' }); },
+      error: (e) => { this.savingAssump.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo guardar la política de gastos.' }); },
+    });
   }
 
   // ── `[PU.R]` Estado de resultados: PLAN contra REAL, renglón por renglón ──

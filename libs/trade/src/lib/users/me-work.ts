@@ -1113,10 +1113,23 @@ export const BANDEJAS: readonly BandejaDef[] = [
      * que lleva semanas en proceso). Un ticket cancelado sin haberse asignado nunca no cuenta como salida:
      * es raro y sub-cuenta (nunca sobre-cuenta), que es el lado seguro para `se_acumula`.
      */
-    medir: (knex, { tenantId }) =>
-      medirCola(
+    medir: async (knex, { tenantId, userId }) => {
+      /*
+       * `[MS.7.18]` **Sólo las colas a las que esta persona pertenece.** Desde `[MS.7.6]` quien atiende ve los tickets de SU
+       * cola y no los de toda la empresa; si este número siguiera contando todo, el conteo de TI incluiría los de
+       * Mantenimiento (o los confidenciales de RH) y la persona haría clic en «sin asignar» para encontrar menos de lo que
+       * le dijeron. Sigue siendo la MISMA definición que el alcance «Sin asignar» de la bandeja: mismas colas, mismo filtro.
+       *
+       * ⛔ Sin ninguna cola NO se devuelve 0: «0 por asignar» se leería «estás al día» cuando en realidad la persona no puede ver
+       * ninguna bandeja. Se declara que no se pudo medir y por qué (cae a `no_medido`, ADR-056).
+       */
+      const colas = (await knex('servicedesk.queue_members').where({ tenant_id: tenantId, user_id: userId, active: true }).pluck('queue_id')) as string[];
+      if (!colas.length) {
+        throw new Error('no perteneces a ninguna cola de la Mesa de Servicio (la coordinación de la cola te agrega): no se puede medir lo que te toca repartir');
+      }
+      return medirCola(
         knex,
-        knex('servicedesk.requests').where({ tenant_id: tenantId }).whereNull('deleted_at'),
+        knex('servicedesk.requests').where({ tenant_id: tenantId }).whereNull('deleted_at').whereIn('queue_id', colas),
         {
           estadoCol: 'status',
           estadoAbierto: 'nuevo',
@@ -1124,7 +1137,8 @@ export const BANDEJAS: readonly BandejaDef[] = [
           cierre: 'assigned_at',
           abiertaExtra: { sql: 'assigned_to is null', args: [] },
         },
-      ),
+      );
+    },
   },
 ];
 

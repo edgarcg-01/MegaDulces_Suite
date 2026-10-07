@@ -566,7 +566,10 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     check('calendario corrido para medir sin depender de la hora de la corrida', (await put('/config/settings', { business_days: [0, 1, 2, 3, 4, 5, 6], business_start: '00:00', business_end: '23:59' })).status < 300);
     const tn = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: nadie lo ha tomado' });
     await knex('servicedesk.requests').where({ id: tn.body?.id }).update({ created_at: new Date(Date.now() - 3 * 3600e3) });
-    const viejoDb = await knex('servicedesk.requests').where({ tenant_id: T, status: 'nuevo' }).whereNull('assigned_to').whereNull('deleted_at').min({ m: 'created_at' }).count({ n: '*' }).first();
+    // `[MS.7.18]` «Sin asignar» es el de las colas de ESTA persona (coord es de TI), no el de toda la empresa.
+    const viejoDb = await knex('servicedesk.requests').where({ tenant_id: T, status: 'nuevo' }).whereNull('assigned_to').whereNull('deleted_at')
+      .whereIn('queue_id', knex('servicedesk.queue_members').where({ user_id: coord.id, active: true }).select('queue_id'))
+      .min({ m: 'created_at' }).count({ n: '*' }).first();
 
     const w16 = await req('GET', '/users/me/work', coord.token);
     const b16 = pendDe(w16);
@@ -1005,6 +1008,47 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       } else {
         noMedido.push('avisos por cola: el aviso «nuevo prioritario» no dejó filas en notification_log (canal apagado en este entorno)');
       }
+    }
+
+    // ── 23. [MS.7.18] «Mi trabajo»: lo sin asignar es de TUS colas ───────────────────────────────────
+    {
+      console.log('\n23 — Mi trabajo › lo sin asignar se cuenta sólo en las colas de cada persona');
+      const BAND = 'servicio-sin-asignar';
+      const colaTi = await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id');
+      const [{ id: qCnt }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_mw718', name: 'SMOKE Mi trabajo', sort_order: 901 }).returning('id');
+      const [{ id: catCnt }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qCnt, code: 'smoke_mw718_cat', name: 'SMOKE MW cat', default_priority: 'media', requires_branch: false }).returning('id');
+      const reparte = await crearUsuario('mw_reparte', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qCnt, role: 'coordinador' }]);
+      const sinCola = await crearUsuario('mw_sincola', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], []);
+      usuarios.push(reparte, sinCola);
+      for (const u of [reparte, sinCola]) {
+        await knex('identity.user_responsibilities').insert({ tenant_id: T, user_id: u.id, responsibility_key: 'servicio.atender', accion: 'suma', nota: 'smoke http-service-desk-test' });
+      }
+      // Dos sin asignar en la cola nueva, uno más en TI.
+      await req('POST', `${SD}/requests`, sol.token, { category_id: catCnt, title: 'SMOKE 7.18 sin asignar A' });
+      await req('POST', `${SD}/requests`, sol.token, { category_id: catCnt, title: 'SMOKE 7.18 sin asignar B' });
+      await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.18 sin asignar en TI' });
+      const sinAsignarDe = async (queueIds) => Number((await knex('servicedesk.requests').where({ tenant_id: T, status: 'nuevo' }).whereNull('assigned_to').whereNull('deleted_at').whereIn('queue_id', queueIds).count({ n: '*' }).first()).n);
+      const pend = (r) => (r.body?.pendientes ?? []).find((p) => p.id === BAND);
+      const wR = await req('GET', '/users/me/work', reparte.token);
+      check('⭐ quien reparte la cola nueva ve sus 2 sin asignar, y NO los de TI', pend(wR)?.total === (await sinAsignarDe([qCnt])) && pend(wR)?.total === 2, JSON.stringify([pend(wR)?.total, await sinAsignarDe([qCnt])]));
+      const wC = await req('GET', '/users/me/work', coord.token);
+      const totalTi = await sinAsignarDe([colaTi.id]);
+      check('⭐ y quien reparte TI cuenta SÓLO los de TI (no suma la cola nueva)', pend(wC)?.total === totalTi, JSON.stringify([pend(wC)?.total, totalTi]));
+      const wS = await req('GET', '/users/me/work', sinCola.token);
+      check('⛔ NEGATIVA — quien responde de repartir pero NO pertenece a ninguna cola no ve «0 por asignar»', !pend(wS), JSON.stringify(pend(wS)));
+      const noMed = (wS.body?.no_medido ?? []).find((n) => n.id === BAND);
+      check('⭐ …se DECLARA que no se pudo medir, con el motivo (no se dibuja un cero que se lea «estás al día»)', !!noMed && /ninguna cola/i.test(noMed.motivo ?? ''), JSON.stringify(wS.body?.no_medido));
+      // Agregarlo a una cola lo arregla en la SIGUIENTE lectura.
+      await knex('servicedesk.queue_members').insert({ tenant_id: T, queue_id: qCnt, user_id: sinCola.id, role: 'tecnico' });
+      const wS2 = await req('GET', '/users/me/work', sinCola.token);
+      check('al agregarlo a la cola, la siguiente lectura ya cuenta lo suyo', pend(wS2)?.total === 2, JSON.stringify(pend(wS2)?.total));
+
+      // El reporte dice de qué colas puede ser, para el selector.
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const repR = await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}`, reparte.token);
+      check('⭐ el reporte declara las colas de las que puede ser (sólo las que coordina) y que no se acotó', repR.status === 200 && repR.body?.colas?.length === 1 && repR.body.colas[0].id === qCnt && repR.body.cola_id === null, JSON.stringify([repR.body?.colas, repR.body?.cola_id]));
+      const repR2 = await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}&queue_id=${qCnt}`, reparte.token);
+      check('y al acotar por queue_id lo repite en cola_id', repR2.status === 200 && repR2.body?.cola_id === qCnt);
     }
 
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────

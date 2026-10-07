@@ -1048,6 +1048,15 @@ const CRON_JOBS: CronCfg[] = [
   // en `running` de más de una hora sólo puede significar que el proceso murió sin cerrar.
   { key: 'consolidado_refresh', label: 'Consolidado Kepler (mart.refresh_si_cambio)', cadence: 'cada 2 min', warnH: 0.5, critH: 2, maxRunH: 1 },
   { key: 'feed_stock',          label: 'Feed stock (batch existencia)',     cadence: 'cada 15 min',  warnH: 1.5, critH: 4, maxRunH: 1 },
+  // `[RA-PERF.8]` El fact que publica `/compras/pedido`, con latido PROPIO. El del carril
+  // (`feed_stock`, arriba) NO alcanza: `run-prod-feeds.js` sólo reporta `error` si fallan TODOS
+  // sus pasos, así que un fallo de este paso salía en VERDE — y la pantalla seguía publicando el
+  // sugerido de compra sin que nada dijera con qué se calculó. Dos llaves porque lo corren dos
+  // carriles (`--hb=stock` / `--hb=nightly`) y una sola se pisarían el renglón; umbrales distintos
+  // porque sus cadencias lo son, igual que `feed_receipts` más abajo.
+  // ⚠️ `maxRunH: 1` con holgura medida: el `CREATE TEMP TABLE stg_rplan` cuesta ~174 s por corrida.
+  { key: 'fact_replenishment_plan_stock',   label: 'Fact del pedido (replenishment_plan, stock)',   cadence: 'cada 15 min',   warnH: 1.5, critH: 4,  maxRunH: 1 },
+  { key: 'fact_replenishment_plan_nightly', label: 'Fact del pedido (replenishment_plan, nightly)', cadence: 'diario 03:00 MX', warnH: 26,  critH: 50, maxRunH: 2 },
   // [DB-MEM.2] Pasó de "cada minuto" a diario 04:30 — y con él, su umbral. NO es un feed: es el
   // BARRIDO HISTÓRICO (`detect-goods-receipt-duplicates.js`, ventana `--from=2026-01-01`), que
   // costaba el 42.8% del tiempo de ejecución de la base para procesar 1-54 recepciones por DÍA.

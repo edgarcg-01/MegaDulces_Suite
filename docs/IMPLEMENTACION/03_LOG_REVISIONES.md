@@ -10905,3 +10905,80 @@ existe para eso. Hacerlo a ciegas habría metido una estacionalidad inventada en
 - ⬜ **Push + redeploy.** El bug de RLS de `[VE.4]` corre cada madrugada en prod reportando `ok`
   sobre cero.
 - ⬜ **Limpiar `PRE-2026-001`** (cancelarlo o devolverlo a borrador).
+
+---
+
+## 2026-10-07 — `[VE.6]` El presupuesto deja de partir canales que el negocio une
+
+Edgar: *«todo debe salir de un canal verdadero y normalizado, del ODS o fuente confiable; los
+importers pueden tener información duplicada, falsa o vieja»*.
+
+### La auditoría de procedencia del módulo
+
+Las 11 fuentes que lee Presupuestos, clasificadas contra prod:
+
+| | |
+|---|---|
+| ✅ **derivadas** | `mv_sales_blended` · `v_sellout_daily` · `v_sales_entity` · `v_retail_calendar` · `customer_receivables` — **0 filas con fecha futura** en las que el módulo consume |
+| ⚠️ **copias del ODS** | `analytics.expense_entries` (35,084) y `analytics.ledger_monthly` (3,073): **dos materializaciones de la MISMA primaria**, `kepler_ods.kdc2YYMM` |
+| ✅ **feeds externos legítimos** | `contpaqi_ledger_monthly` (SQL Server) y `finance.bank_movements` (workbooks): el dato **no vive en el ODS**, no son copias |
+
+Se buscó específicamente «viejo o falso»: ambas tablas se recalcularon **hoy 03:22**, y las fechas
+futuras son marginales (10 filas / $1,579 en gasto; 4 / $230 en `sales_daily`, que el módulo ya no
+consume). No se infló el problema.
+
+### ⛔ El incumplimiento grande no era el importer: era la normalización
+
+`v_sales_entity` **es** una vista derivada —cumple la mitad— pero publicaba el canal **CRUDO**:
+seis rótulos donde el negocio tiene cuatro. `analytics.sellout_channel_map` ya declaraba las
+equivalencias **con su evidencia escrita** y esta vista no lo leía.
+
+⭐ **Y no era teoría: `credito` dejó de existir el 2026-09-18.** Sus tres plazas (01, 06, 08) dejan
+de aportar el 19-sep, y la 08 aparece en `mayoreo` **ese mismo día** — su cutover a Kepler. El canal
+no cayó: **se renombró**.
+
+Lo que provocaba, medido sobre el plan FY2027 real:
+
+- **$76.0 M de meta (16.2 %) en rótulos muertos** — `credito` $74,950,668 · `contado_nf` $1,049,299.
+  El real de 2027 entra por `mayoreo` y `mostrador`: esas filas habrían marcado **0 % de
+  cumplimiento para siempre** y `mayoreo` un sobrecumplimiento falso con $20.7 M de meta para lo que
+  factura ~$95 M.
+- **El supuesto decía −29.4 % y el correcto es −8.4 %** (crédito+mayoreo: $140.2 M → $128.4 M).
+  21 puntos sobre el segundo canal más grande, mientras el negocio entero creció **+12.4 %**.
+
+### Lo delicado: 90 colisiones, y el candado adentro de la migración
+
+Al remapear, **93 líneas cambian de llave** y **90 pisan una que ya existe** ($261.9 M
+involucrados). Un `ON CONFLICT DO UPDATE` **se habría quedado con una sola meta de cada par**. Se
+**fusionan sumando**; el `method` conserva `manual` si alguna pierna lo era, y `growth_pct`/
+`base_amount` van a **NULL** porque el supuesto que produjo cada pedazo ya no describe la celda.
+
+⚠️ Y el `DELETE`+`INSERT` va en **tres pasos explícitos con tabla temporal**, no en un
+`WITH borrado AS (DELETE …) INSERT …`: ahí el orden de los sub-statements lo decide el planner y el
+`DELETE` es **sin WHERE**. No es algo que convenga dejar a una garantía sutil de visibilidad cuando
+en juego están las 418 metas del único plan que existe.
+
+**El candado vive DENTRO de la migración**: la suma total tiene que ser idéntica al centavo o
+aborta. Ensayada primero en transacción revertida contra prod.
+
+**Resultado en prod (batch 765):** 418 → **328 líneas**, total **$468,804,497.42 intacto**, 90
+fusiones con rastro en `notes`, 6 canales → **4**. `mayoreo` pasa de $20.7 M a **$95,655,735**.
+
+### El agujero que `[VSO.8]` no podía ver
+
+Ese candado vigila que la llave **exista** en el catálogo, y `credito` existía: pasaba en verde.
+Bloque nuevo ahí mismo — ningún canal alias en la vista, ninguna meta apuntando a uno.
+
+### Pendientes con nombre
+
+- ⬜ **Los rótulos ahora salen del mapa**, que es lo correcto, pero cambian: `ruta` pasa de
+  «Ruta directa (RD)» a «Ruta». Si Dirección prefiere el nombre largo se cambia **en el mapa**
+  (un UPDATE), no en la vista — que es justamente el punto de normalizar.
+- ⬜ **Retirar una de las dos copias del gasto** (paso 2 de la auditoría): `ledger_monthly` es un
+  agregado mensual de 3,073 filas, candidata a vista sobre el ODS. ⚠️ La leen Maat y la
+  conciliación bancaria además del presupuesto.
+- ⬜ **El bloque nuevo de `[VSO.8]` no se pudo ejercer desde esta máquina**: la prueba negativa de
+  ese test ESCRIBE y la conexión a prod es read-only, así que aborta antes. Su contenido se
+  verificó con lectura directa contra prod (4 canales, 0 metas alias, total intacto).
+- ⬜ **Re-proponer el plan** con los supuestos corregidos: las metas quedaron bien agrupadas, pero
+  el crecimiento con que se calcularon sigue siendo el del canal partido.

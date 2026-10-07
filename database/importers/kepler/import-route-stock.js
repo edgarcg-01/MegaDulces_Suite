@@ -118,7 +118,11 @@ const money = (v) => '$' + Math.round(Number(v || 0)).toLocaleString('en-US');
 
       await dst.query('BEGIN');
       try {
-        await dst.query(`SET LOCAL app.tenant_id = $1`, [M]);
+        // ⛔ NO `SET LOCAL app.tenant_id = $1`: Postgres NO admite parametros ligados en un `SET`
+        // y lo rechaza con 42601 (syntax error). Es `set_config(clave, valor, is_local)`, que es
+        // una funcion y si acepta parametros. El tercer argumento en `true` = alcance de la
+        // transaccion, igual que `SET LOCAL`.
+        await dst.query(`SELECT set_config('app.tenant_id', $1, true)`, [M]);
         const { rows: [cab] } = await dst.query(
           `INSERT INTO commercial.route_counts
              (tenant_id, warehouse_id, count_date, status, source, declared_total, note, counted_by_username)
