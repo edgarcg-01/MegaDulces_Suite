@@ -588,19 +588,59 @@ fila sin valor que ordenar es una explicación falsa.
 
 ---
 
-### `[IC.21]` — El segundo eje: capital parado
+### `[IC.21]` — El segundo eje: capital parado · 🧪 EN CÓDIGO (2026-10-07)
 
 `analytics.v_abc_capital` — mismo Pareto, métrica `existencia × costo_unitario`, **al lado** de la
-de consumo, nunca en su lugar. Pantalla con la matriz cruzada de §4.4 y el foco en el cuadrante
-**consumo C × capital A**: 98 SKUs / $1.63 M sólo en la 01.
+de consumo, nunca en su lugar. Migración `20261007131819_v_abc_capital.js`.
 
 **Y ahí es donde se conecta con los ritmos:** un SKU `consumo C` pero `capital A` **entra al ritmo
 mensual aunque su cadencia diga 365 días**. Es el aporte concreto de este eje — si no cambia a quién
-se cuenta, es una pantalla bonita.
+se cuenta, es una pantalla bonita. Medido en PH con la vista ya escrita: **108 SKUs** en ese
+cuadrante.
 
-⚠️ El costo unitario tiene cobertura desigual: `tiene_testigo` va de **2,855 (sucursal 04) a 4,718
-(CEDIS)** sobre 9,215 filas con costo. El eje de capital **declara su cobertura** o repite el error
-que la Fase MR ya pagó.
+**Medido al construirla (prod, 2026-10-07, lectura pura):**
+
+| | |
+|---|---|
+| Reparto | A 5,598 (80.0%) · B 5,876 (15.0%) · C 10,087 (5.0%) |
+| Capital total | **$64,497,408** en 9 almacenes · 21,561 filas |
+| Cobertura de costo | **21,562 de 21,562** — no hay hueco `sin_costo` hoy |
+| Veredicto del costo | `confirmado` 16,461 ($48.6 M) · `precio_movido` 4,617 ($13.2 M) · `contradicho_por_factor` **453 ($2.7 M)** · `sin_testigo` 31 |
+| Acuerdo con el eje de consumo | **55.6%** — confirma el 56.7% de §4.4: no es un espejo |
+
+⭐ **Este eje es estructuralmente más confiable que el de flujo**, y vale decir por qué: la
+existencia y el costo salen **los dos de Kepler** (`unit_source='kepler'` y `erp='kepler'` en
+21,562 de 21,562), o sea de la misma ficha y el mismo peldaño, así que el producto es
+**conmensurable**. El eje de flujo no tiene esa propiedad — ahí `avg_daily_units` viene del peldaño
+*vendido* y el costo de la ficha, que es lo que infló al `57009` 9.3×.
+
+⛔ **La regla que esta vista NO hereda de su hermana.** `v_abc_class` hace
+`COALESCE(costo_unitario, 0)`: un costo desconocido se vuelve valor 0 y el SKU **cae a C en
+silencio**. Para el capital sería peor — una tarima de 5,000 piezas publicada como $0. Acá el
+capital sin costo es **NULL**, la clase es **NULL** y `clase_motivo` dice `sin_costo` (ADR-056).
+
+⚠️ **Y como hoy no hay ninguna fila sin costo, ese camino nunca se ejerce solo.** El candado
+`test-newdb-abc-capital.js` **inyecta una fila sintética** de 5,000 piezas sin costo sobre el SELECT
+de la migración (leído del archivo, no copiado). **Mutado a rojo**: reintroduciendo el `COALESCE`
+pasa de **15 ✓ / 0 ✗** a **13 ✓ / 2 ✗**, con `capital = 0.00` y `clase = C` — exit 1 contra exit 0.
+
+⭐ El candado también vigila que este eje **contradiga** al de consumo (coincidencia <90%): *un
+árbitro que nunca contradice es un espejo* (ADR-059). Es el modo de falla que esta fase ya pagó una
+vez con el placebo de §4.3.
+
+⚠️ **453 filas ($2,725,042) traen `costo_veredicto = 'contradicho_por_factor'`.** Se publican **con
+su veredicto al lado**, no se esconden ni se corrigen: el costo se arregla en Kepler (ADR-040).
+
+⚠️ **La vista publica de más que su hermana**: `rango_almacen`, `skus_en_almacen` y
+`aporte_individual` — las tres piezas que `[IC.20]` pide y que `v_abc_class` calcula y tira. Acá
+nacen publicadas, así que IC.20 se reduce a hacer lo mismo del lado de consumo.
+
+⛔ **Rendimiento, declarado: la vista tarda 1.9 s** y el gate de interfaz es <500 ms. El costo es de
+las fuentes (`v_erp_unit_cost` sola son **1,515 ms**), y **la hermana `v_abc_class` tampoco pasa el
+gate (1,424 ms)** — nadie lo nota porque la app lee la foto `commercial.abc_classification` en
+**13 ms**. Conclusión medida: **1.9 s alcanza de sobra para el cron mensual de `[IC.19]`**, que es
+quien consume este eje; **la pantalla necesita una foto**, y ésa es pieza aparte — no se declara
+hecha acá.
 
 ---
 
