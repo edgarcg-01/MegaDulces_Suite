@@ -76,6 +76,12 @@ interface CampaignEval {
   warnings: string[];
 }
 
+/** `[PU.VA]` Latido de la pasada que arma el presupuesto. `status: null` = no sé, nunca «ok». */
+interface AutopilotStatus {
+  status: string | null; last_start: string | null; last_finish: string | null;
+  note: string | null; error: string | null; host: string | null;
+  pasadas_completadas: number; nunca_completo: boolean;
+}
 interface ImportPreview { summary: { total: number; create: number; update: number; errors: number }; rows: { i: number; concept: string; action: string; error?: string }[] }
 interface Projection { authorized_vigente: number; proyeccion_firme: number; proyeccion_plena: number; actual: { exercised: number; committed: number; reserved: number; disponible: number }; note: string }
 interface CompareRow { concept: string; area: string | null; line_type: string; vigente_a: number | null; vigente_b: number | null; delta: number | null; estado: string }
@@ -132,7 +138,7 @@ interface ExpensePlanLine { account_code: string; account_name: string | null; f
 interface ExpensePlanSettings { proposal_families: string[]; default_growth_pct: number; growth_by_account: Record<string, number>; by_sucursal: boolean; control_level: string; exists?: boolean }
 interface ExpensePlan { budget: BudgetHeader; settings: ExpensePlanSettings; lines: ExpensePlanLine[] }
 interface ExpenseCoverage { historico_ajustado: number; estacional: number; no_signal: number; manual_kept: number; accounts: number }
-interface ExpenseGrowthProposal { global: { growth_pct: number; basis: string; paired_months: number }; years_available: number[]; fiscal_year: number; families: string[]; as_of: string | null; by_account: Record<string, { growth_pct: number; basis: string; paired_months: number; account_name: string | null }> }
+interface ExpenseGrowthProposal { global: { growth_pct: number; basis: string; paired_months: number; meses_abiertos_excluidos?: number }; years_available: number[]; fiscal_year: number; families: string[]; as_of: string | null; min_paired_months?: number; by_account: Record<string, { growth_pct: number; basis: string; paired_months: number; account_name: string | null }> }
 
 type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
@@ -157,7 +163,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       <header class="surf-page-head">
         <div class="surf-page-head-text">
           <h1>Presupuesto</h1>
-          <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler — supuestos, plan y partidas. Vos <strong>autorizás</strong>. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
+          <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler — supuestos, plan y partidas. Tú <strong>autorizas</strong>. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
         </div>
         <div class="pres-nav">
           <app-segmented [options]="viewOptsArmar" [value]="view()" (valueChange)="setView($event)" ariaLabel="Armar el presupuesto" />
@@ -251,9 +257,9 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                         <!-- [VE.7.1] Un canal sin historia propia usa el respaldo, y hay que
                              DECIRLO: mostrarlo igual que uno derivado es como Mayoreo exhibia
                              2.6% teniendo -8.4% de verdad. -->
-                        <span class="pres-muted pres-mono" title="Este canal no tiene par de años con que calcular su propio crecimiento; usa el respaldo">{{ asVentasDefault }} % · respaldo</span>
+                        <span class="pres-assump-val pres-muted pres-mono" title="Este canal no tiene par de años con que calcular su propio crecimiento; usa el respaldo"><span class="pres-assump-num">{{ asVentasDefault }} %</span> · respaldo</span>
                       } @else {
-                        <strong class="pres-mono">{{ asVentasGrowth[ch] }} %</strong>
+                        <span class="pres-assump-val"><strong class="pres-mono pres-assump-num">{{ asVentasGrowth[ch] }} %</strong></span>
                       }
                     </div>
                   }
@@ -261,10 +267,27 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 </div>
                 <div class="pres-assump-col">
                   <h4>Gastos</h4>
-                  <div class="pres-assump-row"><span>Crecimiento (%)</span><strong class="pres-mono">{{ asGastosDefault == null ? '—' : asGastosDefault + ' %' }}</strong></div>
-                  <h4 class="pres-assump-sub">Política — esto sí lo decidís</h4>
+                  <!-- [PU.VA] El servicio DECLARA su base ('yoy_paired' = medido · 'default' = no se
+                       pudo) y la pantalla leía sólo el número: un «0 %» de ausencia se veía igual que
+                       un 0 % medido. Medido en prod: son 3 pares contra un mínimo de 4, porque el
+                       egreso de familia 6 arranca en agosto de 2025. Ahora se dice, igual que el
+                       «· respaldo» de la columna de ventas. VERDAD_ABSOLUTA §22.3. -->
+                  <div class="pres-assump-row">
+                    <span>Crecimiento (%)</span>
+                    @if (asGastosDefault == null) {
+                      <span class="pres-muted pres-mono">—</span>
+                    } @else if (asGastosBasis !== 'yoy_paired') {
+                      <span class="pres-muted pres-mono" [title]="asGastosMotivo">{{ asGastosDefault }} % · sin medir</span>
+                    } @else {
+                      <strong class="pres-mono" [title]="asGastosMotivo">{{ asGastosDefault }} %</strong>
+                    }
+                  </div>
+                  <h4 class="pres-assump-sub">Política — esto sí lo decides tú</h4>
                   <label class="pres-assump-row"><span>Familias Kepler</span><input pInputText type="text" [(ngModel)]="asGastosFamilies" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in" placeholder="6" /></label>
-                  <label class="pres-assump-row"><p-checkbox [(ngModel)]="asGastosBySucursal" [binary]="true" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" /> &nbsp;Presupuestar por sucursal</label>
+                  <!-- [PU.VA] '.pres-assump-row' es 'space-between', así que el control y su texto
+                       suelto se iban cada uno a un extremo: ~700 px de aire entre la casilla y lo
+                       que dice. Envueltos en un mismo hijo, viajan juntos. -->
+                  <label class="pres-assump-row"><span class="pres-assump-check"><p-checkbox [(ngModel)]="asGastosBySucursal" [binary]="true" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" /> Presupuestar por sucursal</span></label>
                   <label class="pres-assump-row"><span>Control de sobregiro</span>
                     <select [(ngModel)]="asGastosControl" [disabled]="b.status !== 'borrador' && b.status !== 'en_revision'" class="pres-assump-in">
                       <option value="informativo">Informativo (no avisa)</option>
@@ -322,7 +345,24 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <!-- [VE.5] El texto decia "al aprobar" y quedo viejo: materialize acepta borrador y
                    revision, y desde [VE.3] el piloto lo corre cada noche. Decir "al aprobar" hace
                    que una tabla vacia parezca normal cuando en realidad el automatico no corrio. -->
-              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) en la pasada nocturna — no se capturan a mano. Si el ejercicio ya tiene planes y esto sigue vacío, la pasada no corrió.</td></tr></ng-template>
+              <!-- [PU.VA] Dejó de CONJETURAR. El texto anterior ofrecía una hipótesis («la pasada
+                   no corrió») mientras 'analytics.cron_runs' tenía el veredicto escrito: el
+                   2026-10-07 en prod, 'budget_autopilot' estaba en **error** con la causa probable
+                   («¿contexto de tenant / RLS?») y 'generation_runs' en cero. Ahora se pregunta. -->
+              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">
+                Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) en la pasada nocturna — no se capturan a mano.
+                @if (autopilot(); as a) {
+                  @if (a.status === 'error') {
+                    <div class="pres-empty-diag bad"><span class="pi pi-times-circle"></span> La pasada <strong>falló</strong>{{ a.last_start ? ' (' + (a.last_start | date:'dd/MM HH:mm') + ')' : '' }}: {{ a.error || 'sin detalle' }}</div>
+                  } @else if (a.nunca_completo) {
+                    <div class="pres-empty-diag bad"><span class="pi pi-exclamation-triangle"></span> La pasada <strong>nunca completó</strong>: no hay ni un registro en el historial de generaciones.</div>
+                  } @else if (a.status == null) {
+                    <div class="pres-empty-diag"><span class="pi pi-question-circle"></span> La pasada <strong>no reporta latido</strong> — no se puede saber si corrió.</div>
+                  } @else {
+                    <div class="pres-empty-diag"><span class="pi pi-info-circle"></span> Última pasada: <strong>{{ a.status }}</strong>{{ a.last_finish ? ' · ' + (a.last_finish | date:'dd/MM HH:mm') : '' }} · {{ a.pasadas_completadas }} completada(s).</div>
+                  }
+                }
+              </td></tr></ng-template>
             </p-table>
             <p class="pres-hint"><span class="pi pi-info-circle"></span> Las partidas son un <strong>derivado del plan</strong> (ingreso = plan de ventas · gasto = plan de gastos). Se materializan <strong>solas cada noche</strong> mientras el ejercicio esté en borrador o revisión, y otra vez al aprobar. Los movimientos (reservar / comprometer / ejercer / pagar) se habilitan con el ejercicio <strong>aprobado</strong>.</p>
           }
@@ -805,7 +845,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         <section class="pres-section">
           <!-- Proponer capacidad desde el flujo (cobranza esperada) · PR.2 -->
           <div class="pres-section-head">
-            <h2>Capacidad de pago <span class="pres-muted">— el sistema la propone desde el flujo; vos confirmás</span></h2>
+            <h2>Capacidad de pago <span class="pres-muted">— el sistema la propone desde el flujo; tú confirmas</span></h2>
           </div>
           <div class="pres-cap-form">
             <input type="date" [(ngModel)]="capProposeFrom" class="pres-date" aria-label="Desde" />
@@ -862,7 +902,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       @if (view() === 'gastos') {
         <section class="pres-section">
           <div class="pres-section-head">
-            <h2>Obligaciones <span class="pres-muted">— se auto-generan del plan de gastos; vos autorizás</span></h2>
+            <h2>Obligaciones <span class="pres-muted">— se auto-generan del plan de gastos; tú autorizas</span></h2>
             <div class="pres-detail-actions">
               <button pButton type="button" class="p-button-sm" (click)="generateObligFromPlan()" [loading]="generatingOblig()" title="Genera obligaciones recurrentes del plan de gastos aprobado"><span class="pi pi-bolt"></span>&nbsp;Generar del plan</button>
               <button pButton type="button" class="p-button-sm" (click)="authorizeOblig()" [loading]="authorizingOblig()" title="Autoriza las seleccionadas (entran al Calendario)"><span class="pi pi-check"></span>&nbsp;Autorizar seleccionadas</button>
@@ -904,7 +944,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
 
     <!-- Copiar del año anterior -->
     <p-dialog [(visible)]="copyVisible" [modal]="true" header="Copiar del año anterior" [style]="{ width: '26rem' }">
-      <p class="pres-lbl-hint">Crea un ejercicio nuevo en <strong>borrador</strong> clonando el actual (sin autorizaciones). Luego ajustás los supuestos y proponés.</p>
+      <p class="pres-lbl-hint">Crea un ejercicio nuevo en <strong>borrador</strong> clonando el actual (sin autorizaciones). Luego ajustas los supuestos y propones.</p>
       <label class="pres-lbl">Nombre</label>
       <input pInputText type="text" [(ngModel)]="copyForm.name" class="pres-full" />
       <label class="pres-lbl">Año fiscal</label>
@@ -1025,6 +1065,16 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
        "Presupuestar Por Sucursal", "Control De Sobregiro" y "Respaldo (Canal Sin Historia
        Propia)". Los rotulos ya vienen escritos como deben leerse. */
     .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; }
+    /* [PU.VA] La casilla y su rótulo son UNA cosa: sin esto 'space-between' los manda a los
+       extremos opuestos del renglón. */
+    .pres-assump-check { display:inline-flex; align-items:center; gap:.45rem; }
+    /* [PU.VA] Los valores de la columna se alineaban por su BORDE derecho, no por el dígito: el
+       renglón del respaldo («29.3 % · respaldo») es más ancho y su número quedaba corrido, o sea
+       que el único que avisa que no es una medición propia era el único que no se podía escanear.
+       Un ancho fijo para el número y el sufijo afuera arregla las dos cosas. */
+    .pres-assump-row .pres-mono { font-variant-numeric: tabular-nums; }
+    .pres-assump-val { display:inline-flex; align-items:baseline; gap:.35rem; justify-content:flex-end; }
+    .pres-assump-val > .pres-assump-num { min-width:4.2rem; text-align:right; }
     /* [VE.7] Separa lo que el sistema CALCULA de lo que la persona DECIDE. */
     .pres-assump-sub { margin:1rem 0 .35rem; padding-top:.6rem; border-top:1px solid var(--border-subtle,#e5e1dc); font-size:var(--fs-xs); color:var(--text-muted); }
     .pres-assump-in { width:8rem; }
@@ -1136,6 +1186,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
   summary = signal<Summary | null>(null);
   lines = signal<BudgetLine[]>([]);
   loadingDetail = signal(false);
+  /** `[PU.VA]` El estado real de la pasada, para que el vacío de la tabla no tenga que adivinar. */
+  autopilot = signal<AutopilotStatus | null>(null);
   newBudgetVisible = false;
   savingBudget = signal(false);
   budgetForm: { name?: string; fiscal_year?: number; scenario?: string } = {};
@@ -1779,7 +1831,13 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // vocabulario lo trae el backend desde `v_sales_entity`; sembrarlo acá era adivinarlo.
   asVentasGrowth: Record<string, number | null> = {};
   asVentasDefault: number | null = 8;
-  asGastosDefault: number | null = 8;
+  // `[PU.VA]` Arranca en `null`, no en 8: ese 8 era un número inventado que se mostraba como si el
+  // sistema lo hubiera medido —el mismo pecado que `[VE.7.2]` ya había sacado de los canales— y
+  // sobrevivía acá porque si `propose-growth` falla, el `error:` del suscriptor no lo toca.
+  asGastosDefault: number | null = null;
+  /** `yoy_paired` = medido contra la historia · `default` = no se pudo medir. Lo manda el servicio. */
+  asGastosBasis: string | null = null;
+  asGastosMotivo = '';
   asGastosFamilies = '6';
   asGastosBySucursal = false;
   asGastosControl: 'informativo' | 'advertencia' | 'bloqueo' = 'advertencia';
@@ -1814,8 +1872,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
       },
       error: () => this.loadingAssump.set(false),
     });
-    this.http.get<{ default_growth_pct: number; proposal_families: string[]; by_sucursal: boolean; control_level?: 'informativo' | 'advertencia' | 'bloqueo' }>(`${this.base}/budgets/${b.id}/expense-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (s) => { this.asGastosDefault = Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10; this.asGastosFamilies = (s.proposal_families || ['6']).join(','); this.asGastosBySucursal = !!s.by_sucursal; this.asGastosControl = s.control_level || 'advertencia'; },
+    this.http.get<{ default_growth_pct: number; proposal_families: string[]; by_sucursal: boolean; control_level?: 'informativo' | 'advertencia' | 'bloqueo'; exists?: boolean }>(`${this.base}/budgets/${b.id}/expense-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (s) => {
+        // `[PU.VA]` ⛔ El servicio devuelve `default_growth_pct: 0, exists: false` cuando NO HAY
+        // fila de supuestos — y en prod esa tabla tiene **cero filas**. El `|| 0` de acá convertía
+        // esa ausencia en un «0 %» que la pantalla presentaba bajo el rótulo «los calcula el
+        // sistema desde la historia». Si no existe, no se pinta: lo llena `suggestAssumptions()`,
+        // que sí trae el `basis`.
+        this.asGastosDefault = s.exists === false ? null : Math.round((Number(s.default_growth_pct) || 0) * 1000) / 10;
+        this.asGastosBasis = s.exists === false ? null : 'guardado';
+        this.asGastosFamilies = (s.proposal_families || ['6']).join(',');
+        this.asGastosBySucursal = !!s.by_sucursal;
+        this.asGastosControl = s.control_level || 'advertencia';
+      },
       error: () => { /* declara defaults */ },
     });
   }
@@ -1842,8 +1911,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
       error: (e) => { this.toast.add({ severity: 'warn', summary: 'Ventas', detail: e?.error?.message || 'Sin historia suficiente para estimar el crecimiento de ventas.' }); done(); },
     });
     this.http.get<ExpenseGrowthProposal>(`${this.base}/budgets/${b.id}/expense-plan/propose-growth`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (p) => { this.asGastosDefault = Math.round((p.global?.growth_pct || 0) * 1000) / 10; done(); },
-      error: () => { done(); },
+      next: (p) => {
+        // `[PU.VA]` El `basis` viaja junto al número y decide cómo se pinta. Un `|| 0` suelto acá
+        // convertía «no se pudo medir» en «medí cero», que es lo que la pantalla publicaba.
+        const g = p.global;
+        this.asGastosBasis = g?.basis ?? null;
+        this.asGastosDefault = g?.growth_pct == null ? null : Math.round(Number(g.growth_pct) * 1000) / 10;
+        this.asGastosMotivo = g?.basis === 'yoy_paired'
+          ? `Año contra año sobre ${g.paired_months} mes(es) apareado(s) y cerrados.`
+          : `Sin par de años suficiente (${g?.paired_months ?? 0} mes(es) apareado(s); hacen falta ${p.min_paired_months ?? 4}). Se usa el respaldo guardado.`;
+        done();
+      },
+      // Que falle la estimación NO puede dejar en pantalla el número anterior como si fuera nuevo.
+      error: () => { this.asGastosBasis = null; this.asGastosDefault = null; this.asGastosMotivo = 'No se pudo consultar la historia de egresos.'; done(); },
     });
   }
 
@@ -2085,7 +2165,11 @@ export class FinanzasPresupuestoComponent implements OnInit {
     const items: MetricStripItem[] = [
       { label: 'Vigente', value: s.ejecucion.vigente, format: 'currency-short' },
       { label: 'Disponible', value: s.ejecucion.disponible, format: 'currency-short', tone: s.ejecucion.disponible < 0 ? 'bad' : 'ok' },
-      { label: 'Ocupación', value: s.ejecucion.ocupacion_pct ?? 0, format: s.ejecucion.ocupacion_pct == null ? 'text' : 'percent', sub: s.ejecucion.ocupacion_pct == null ? 'sin base' : undefined },
+      // `[PU.VA]` ⛔ Decía `?? 0` con `format:'text'`, o sea que imprimía el literal **0** debajo de
+      // la leyenda «sin base» — un cero dibujado con su propia desmentida al lado, y en el mismo
+      // archivo que dos funciones más abajo declara «Sin datos» ≠ cero (ADR-056). Sin partidas no
+      // hay ocupación que medir: eso es «—», no 0 %.
+      { label: 'Ocupación', value: s.ejecucion.ocupacion_pct ?? '—', format: s.ejecucion.ocupacion_pct == null ? 'text' : 'percent', sub: s.ejecucion.ocupacion_pct == null ? 'sin base' : undefined },
     ];
     if (s.real.available) {
       items.push({ label: 'Ventas real', value: s.real.ventas as number, format: 'currency-short' });

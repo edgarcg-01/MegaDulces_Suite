@@ -5,6 +5,86 @@
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
 ---
+## 2026-10-07 — `[PU.VA]` El supuesto de crecimiento gana árbitro, y el mes en curso deja de ser base
+
+Disparado por *«analiza esta interfaz»* sobre `/finanzas/presupuesto`. Lo que empezó como una revisión
+visual terminó en tres capas, cada una debajo de la anterior. Todo medido contra **prod**
+(`system_identifier` 7688376744939610156), sólo lectura.
+
+### Lo que la medición encontró
+
+1. **No había presupuesto.** `budget.budgets` tiene un ejercicio y todo lo demás en cero: supuestos,
+   planes, partidas, pasadas. `budget_autopilot` estaba en **`error`** con *«no se vio ni un ejercicio
+   en ninguna tabla: ¿contexto de tenant / RLS?»* y `generation_runs` en **0 filas** — ninguna pasada
+   completó nunca. ⭐ El guardián de `budget-autopilot.service.ts:180` funcionó: distingue a propósito
+   «no hay ejercicios abiertos» de «no vi ni una fila». Sin eso, el cron habría dicho `ok`.
+2. **Los supuestos no se guardan ni se arbitran.** Las dos tablas de settings con **cero filas**: los
+   `20.1 / 10.6 / 62.1 / 29.3 %` que la pantalla exhibe se calculan en vivo y **nunca se persisten**,
+   mientras el motor lee `settings.default_growth_pct || 0`. *El número publicado no es el que se usa.*
+3. **El `0 %` del gasto era ausencia, no medición**: 3 pares contra un mínimo de 4, porque el egreso de
+   familia 6 **arranca en agosto de 2025**. El servicio lo declaraba (`basis: 'default'`) y la pantalla
+   descartaba ese campo.
+4. **El mes en curso entraba como mes completo** a los dos cálculos (sólo se exigía `> 0`).
+
+### Lo que se cambió, con su medición
+
+| | antes | después |
+|---|---:|---:|
+| Plan de gastos FY2027 (familia 6, simulado contra prod) | 68,451,309 | **74,852,188** |
+| · octubre (base = oct-2026 al día 7) | 915,446 | 6,234,091 |
+| · noviembre y diciembre (promedio contaminado) | 5,700,684 c/u | 6,234,091 c/u |
+| Crecimiento derivable de Kepler (pareo) | −40.04 % (3 pares) | −20.71 % (2 pares, declarado insuficiente) |
+
+⭐ **El daño no era sólo octubre.** Nov y dic subieron $533,407 cada uno: un mes parcial no sólo
+arruina su propia celda, **baja el promedio con el que se rellenan todas las demás**. Eso no estaba
+en el diagnóstico inicial y apareció al medir el antes/después.
+
+**Backend** — `budget-expense-plan.service.ts`: helper `mesEnCurso` con el criterio **idéntico** al de
+`analytics.v_expense_arbiter.mes_en_curso` (mig `20261006340000`), aplicado al pareo del `yoy()` y a la
+base del plan; el promedio de relleno se calcula sólo sobre meses cerrados. `budget-sales-plan.service.ts`:
+`periodoAbierto()` leyendo el calendario 13×4 real (`analytics.v_retail_calendar`) — un periodo está
+cerrado cuando su último día ya pasó; el periodo abierto del año base se **sustituye** por el promedio
+de los cerrados en vez de borrarse (borrarlo dejaría el anual corto y un hueco en el índice estacional).
+`budget-planning.service.ts`: `autopilotStatus()` nuevo (`GET finance/budget/autopilot/status`).
+
+**Frontend** — el `basis` viaja a la pantalla y el gasto declara «· sin medir» igual que ventas declara
+«· respaldo»; `Ocupación` dejó de imprimir el literal `0` bajo la leyenda «sin base» (ADR-056, y estaba
+dos funciones arriba de un comentario que decía exactamente eso); el vacío de la tabla **lee el latido**
+en vez de conjeturar *«la pasada no corrió»*; 5 voseos → tuteo mexicano; el checkbox y su rótulo dejan
+de estar a ~700 px (era `space-between` con el texto como hermano suelto); la columna de porcentajes
+alinea por el dígito y no por el borde derecho.
+
+### Lecciones
+
+⚠️ **Sexta o séptima vez: acentos graves dentro de un template literal.** Seis en mis comentarios, y
+esta vez **`check:templates` los dio por buenos y el IDE no reportó nada** — el gate que existe para
+esto tiene un hueco. Se quitaron a mano; queda anotado que el checker no los agarra.
+
+⭐⭐ **Una mutación tiene que romper lo que se prueba, no la capacidad de probarlo.** La mutación
+`mes_abierto` del candado salía **verde con 2 NO MEDIDO**: al apagar el criterio, el propio test
+concluía «no hay mes abierto que excluir» y se declaraba sin medir. Se separó `enCursoReal` (nunca
+mutado, decide si hay algo que medir) de `enCurso` (la regla bajo prueba).
+
+### Candado
+
+`database/tests/test-newdb-budget-assumption.js` — **11 ✓ / 0 ✗ / 0 NO MEDIDO** contra prod, registrado
+en la suite. Tres mutaciones (`PU_MUTAR=sin_basis | mes_abierto | espejo`), **las tres en rojo**.
+
+### Lo que queda, y de quién es
+
+⛔ **El arreglo del autopiloto (`99e48735`) sigue sin pushear** — hasta el redeploy nada de esto se
+vuelve vivo, porque la pasada no corre. ⛔ **La correspondencia `familia 6` ↔ agrupador SAT no está
+firmada** (Contabilidad): el `+10.55 %` de los libros refuta el publicado pero **no lo reemplaza**.
+⛔ **Qué hace el sistema con un supuesto que no se puede medir** —¿bloquea el plan o lo arma con el
+árbitro?— es decisión de Dirección. ⛔ **El egreso del lado no fiscal sigue sin medirse**: la venta de
+ruta no pasa por la contabilidad (§22.10), así que el árbitro del gasto cubre un universo parcial.
+
+⚠️ Sin verificación HTTP ni visual: no se compila ni se levanta nada en local (regla dura), así que el
+build lo confirma el CI al pushear. Los cuatro archivos de backend y el componente: **0 diagnósticos**.
+
+Detalle completo en [`VERDAD_ABSOLUTA.md` §22](../VERDAD_ABSOLUTA.md).
+
+---
 ## 2026-10-06 — `[GP.1]` Revisión de PM (Edgar) al PR #271
 
 **Lo que resolvió Edgar en la rama** (`00a42cf16`, `c33b5e094`, `df4285581`, `f61196f90`): merge de `main`, ADR-084/085 →
