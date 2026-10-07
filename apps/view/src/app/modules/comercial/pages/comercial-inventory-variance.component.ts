@@ -172,7 +172,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
         <section class="inv-var-prog">
           <div class="inv-var-filters">
             <p-select [options]="rfOpciones()" optionLabel="label" optionValue="value"
-              [(ngModel)]="rfSel" (onChange)="loadRf()" placeholder="Elegí un período"
+              [ngModel]="rfSel()" (ngModelChange)="rfSel.set($event)" (onChange)="loadRf()" placeholder="Elegí un período"
               styleClass="inv-var-wh" [filter]="true"></p-select>
             <p-select [options]="rfVeredictos" optionLabel="label" optionValue="value"
               [(ngModel)]="rfVeredicto" (onChange)="loadRf()" placeholder="Todos"
@@ -290,7 +290,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
                 </td></tr>
               </ng-template>
             </p-table>
-          } @else if (!rfSel) {
+          } @else if (!rfSel()) {
             <p class="inv-var-note">Elegí un período para ver a dónde se fue la mercancía.</p>
           }
 
@@ -959,7 +959,14 @@ export class ComercialInventoryVarianceComponent {
     { label: 'Conciliación', value: 'conciliacion' },
   ];
   vista: 'diferencias' | 'programa' | 'reincidencia' | 'conciliacion' = 'diferencias';
-  rfSel: string | null = null;
+  /**
+   * El período elegido. Es SEÑAL y no un campo plano porque `rfPeriodoSel` lo lee dentro de un
+   * `computed()`: un campo plano no notifica, así que el computed se evaluaba UNA vez —con la
+   * pantalla recién abierta y esto en `null`— y quedaba congelado en `null` para siempre, sin un
+   * solo error. Arrastraba a `rfLectura`, que devolvía `''` y dejaba la pantalla SIN su línea de
+   * lectura: la conclusión que va antes que la evidencia (Q.1, answer-first) no aparecía nunca.
+   */
+  readonly rfSel = signal<string | null>(null);
   rfVeredicto: string | null = null;
 
   readonly rfVeredictos = [
@@ -976,7 +983,7 @@ export class ComercialInventoryVarianceComponent {
   })));
 
   readonly rfPeriodoSel = computed<RollforwardPeriodo | null>(() => {
-    const v = this.rfSel; if (!v) return null;
+    const v = this.rfSel(); if (!v) return null;
     const [id, d, h] = v.split('|');
     return (this.rfPeriodos()?.periodos ?? []).find(
       (x) => x.warehouse_id === id && x.desde === d && x.hasta === h) ?? null;
@@ -1079,16 +1086,17 @@ export class ComercialInventoryVarianceComponent {
           const pref = this.warehouseFilter
             ? r.periodos.find((x) => x.warehouse_id === this.warehouseFilter)
             : r.periodos[0];
-          if (pref) { this.rfSel = `${pref.warehouse_id}|${pref.desde}|${pref.hasta}`; this.loadRf(); }
+          if (pref) { this.rfSel.set(`${pref.warehouse_id}|${pref.desde}|${pref.hasta}`); this.loadRf(); }
         },
         error: () => this.rfPeriodos.set(null),
       });
-    } else if (this.rfSel) this.loadRf();
+    } else if (this.rfSel()) this.loadRf();
   }
 
   loadRf() {
-    if (!this.rfSel) { this.rf.set(null); return; }
-    const [warehouse_id, desde, hasta] = this.rfSel.split('|');
+    const sel = this.rfSel();
+    if (!sel) { this.rf.set(null); return; }
+    const [warehouse_id, desde, hasta] = sel.split('|');
     this.loadingRf.set(true);
     this.api.inventoryRollforward({
       warehouse_id, desde, hasta,
