@@ -15,7 +15,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CAJA_VENTANA_DIAS, evaluarCambio, type Denominacion } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion } from '@megadulces/contracts';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 // `[CG.45]` Tres piezas del repertorio compartido que esta pantalla se había construido a mano
@@ -333,6 +333,16 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⛔ [CG.48] Acá vivía ".cg-contado", el input de conteo por renglón de la bandeja. Se fue
        con su columna: era la única forma de meter una cifra contada al libro SIN desglose. */
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
+    /* [CG.51] La cabecera del historial plegado. Es un <button> y no un <h2> con (click): lo que
+       hace es abrir y cerrar, asi que el teclado lo alcanza solo y anuncia su aria-expanded. */
+    .cg-historial { margin-top:var(--sp-5); }
+    .cg-historial-h { display:flex; align-items:baseline; gap:var(--sp-2); width:100%;
+                      background:none; border:0; padding:var(--sp-2) 0; cursor:pointer;
+                      font-family:inherit; color:var(--fg-1); text-align:left; }
+    .cg-historial-h > i { font-size:var(--fs-xs); color:var(--text-muted); align-self:center; }
+    .cg-historial-t { font-size:var(--fs-h3); font-weight:700; letter-spacing:-.01em; }
+    .cg-historial-h:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px;
+                                    border-radius:var(--r-sm); }
     /* ⛔ ACA VIVIA ".cg-check", un <input type="checkbox"> nativo con alto y accent-color a mano.
        El control principal de la bandeja es marcar fila por fila, asi que era el objetivo mas
        chico de la pantalla Y el mas usado. Hoy es p-checkbox: el alto, el anillo de foco y el
@@ -1142,6 +1152,30 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         }
       </section>
 
+      <!-- [CG.51] EL HISTORIAL SE PLIEGA, y arranca CERRADO.
+
+           Edgar: "demasiado scroll en general". Debajo del area de trabajo vivian el libro
+           (titulo + tira de KPIs + 4 filtros + tabla) y los cortes (titulo + tabla): dos
+           secciones de referencia que suman ~800px y que nadie necesita para confirmar
+           efectivo. La tarea del dia es la bandeja y el arqueo; esto es el archivo.
+
+           ⚠️ Plegado NO es escondido: la cabecera DICE que hay adentro -- el rango, cuantos
+           movimientos y cuantos cortes-- asi que cerrado se lee igual que abierto para saber
+           si vale la pena abrirlo. Y los datos se siguen cargando al entrar, que es lo que
+           permite que ese resumen exista. -->
+      <section class="cg-historial">
+        <button type="button" class="cg-historial-h" (click)="historialAbierto.set(!historialAbierto())"
+                [attr.aria-expanded]="historialAbierto()">
+          <i class="pi" [class.pi-chevron-right]="!historialAbierto()"
+             [class.pi-chevron-down]="historialAbierto()" aria-hidden="true"></i>
+          <span class="cg-historial-t">Historial</span>
+          <small class="fin-dim">
+            del {{ dmy(from) }} al {{ dmy(to) }} ·
+            {{ rows().length }} movimiento(s) en el libro · {{ cortes().length }} corte(s)
+          </small>
+        </button>
+
+        @if (historialAbierto()) {
       <!-- ⚠️ [CG.29] Esta tira es del LIBRO (el rango de acá abajo), no del día. Sin rótulo, su
            "Gastos $130,000.00" quedaba pegado al "Gastos $0.00" del cierre de la jornada: dos
            números con la misma etiqueta, distinto periodo y un centímetro de distancia.
@@ -1270,6 +1304,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         </ng-template>
       </p-table>
       </app-load-state>
+        }
+      </section>
         </div><!-- /cg-main -->
 
         <!-- El detalle. PERMANENTE: cuando no hay nada elegido NO desaparece -- dice que
@@ -2176,25 +2212,41 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   ];
 
   /**
-   * ⭐ `[CG.28]` **De vuelta en `CAJA_VENTANA_DIAS` (45).** Estuvo en 1 día desde el 2026-09-22,
-   * puesto para las PRUEBAS de CG.21, con este mismo comentario diciendo que antes de operar de
-   * verdad tenía que volver — y se quedó.
+   * ⭐ `[CG.51]` **Arranca en LA JORNADA (3 días), no en los 45.**
    *
-   * Lo que el 1 día causaba, medido en prod el 2026-09-30: la bandeja devolvía **7 filas y las 7
-   * eran documentos mal fechados**. La razón es que la ventana no tenía tope de arriba (arreglado
-   * en el servidor), así que los únicos que pasaban un filtro de "último día" eran los de
-   * diciembre. Con el tope puesto, 1 día devolvería **cero**: el ERP captura con una mediana de
-   * **3 días** de rezago, así que ningún documento legítimo tiene `fecha_valor` de hoy.
+   * Pedido de Edgar el 2026-10-07: *"por default sólo deben ser los movimientos del día"*.
    *
-   * Medido por ventana (filas · gastos · ingresos): 1d → 7·6·1 (todas basura) · 3d → 19·6·13 ·
-   * 7d → 115·24·91 · **45d → 1,777·1,217·560**.
+   * ⛔ **«El día» literal NO se puede.** Y no es una opinión: ya se intentó. El default estuvo en
+   * **1 día** desde el 2026-09-22 y se revirtió, porque la bandeja devolvía **7 filas y las 7 eran
+   * documentos mal fechados** — la ventana no tenía tope de arriba, así que lo único que pasaba un
+   * filtro de «último día» eran los de diciembre. Con el tope ya puesto, 1 día devuelve **cero**:
+   * `fecha_valor` es la fecha del DOCUMENTO en Kepler y el ERP captura con una mediana de **3 días**
+   * de rezago, así que ningún documento legítimo tiene fecha de hoy.
    *
-   * Es un selector y no una constante escondida justamente para que moverlo no sea un deploy.
+   * Re-medido contra prod el 2026-10-07, antes de tocar esto: **hoy = 0 movimientos**, hoy+ayer = 7,
+   * 7 días = 201, la ventana de 45 = **12,976**, y el día más reciente con volumen real es el 05/10
+   * con 40. Un default de «hoy» abriría la pantalla vacía todos los días.
+   *
+   * Por eso arranca en `CAJA_JORNADA_DIAS`: la jornada **y su rezago normal**, que es lo que de
+   * verdad llegó para trabajarse hoy. La serie histórica por ventana (filas · gastos · ingresos),
+   * medida el 2026-09-30: 1d → 7·6·1 (todas basura) · 3d → 19·6·13 · 7d → 115·24·91 ·
+   * 45d → 1,777·1,217·560.
+   *
+   * ⚠️ Lo de atrás NO se esconde: `rezago()` publica cuántos quedan antes del corte y por cuánto
+   * dinero, y lo calcula el servidor contra **esta** ventana, no contra la suya — al angostarla, el
+   * aviso crece solo. Y sigue siendo un selector, no una constante escondida, para que moverlo no
+   * sea un deploy.
    */
-  ventanaDias = signal(CAJA_VENTANA_DIAS);
+  /**
+   * `[CG.51]` El historial (el libro + los cortes) arranca CERRADO. Es referencia, no la tarea.
+   * Su cabecera publica el rango y los conteos, así que plegado no es escondido.
+   */
+  historialAbierto = signal(false);
+
+  ventanaDias = signal<number>(CAJA_JORNADA_DIAS);
   readonly opcionesVentana = [
     { label: 'Desde ayer', value: 1 },
-    { label: '3 días', value: 3 },
+    { label: 'La jornada', value: CAJA_JORNADA_DIAS },
     { label: '7 días', value: 7 },
     // El 45 se reteclaba acá teniendo la constante a mano. Así es como terminan "cinco familias
     // de constantes duplicadas" (ADR-056): el día que el rezago se re-mida, esto queda viejo.
