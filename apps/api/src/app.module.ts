@@ -149,6 +149,7 @@ import { FiscalImpuestosModule } from '@megadulces/fiscal';
 import { FiscalEmisionModule } from '@megadulces/fiscal';
 import { ReconciliationModule } from '@megadulces/reconciliation';
 import { ServiceDeskModule } from '@megadulces/service-desk';
+import { HrModule } from '@megadulces/hr';
 // Fase F (ADR-006/007/034) — Comercio conversacional por WhatsApp (canal + cola + estado).
 import { WhatsAppModule } from '@megadulces/whatsapp';
 // F.2 — binding del Port conversacional → catálogo commercial (DI inversion).
@@ -314,6 +315,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       ReconciliationModule,
       // [MS.2] Mesa de Servicio (ADR-081): tickets para toda la suite.
       ServiceDeskModule,
+      // [RH.1.2] Recursos Humanos (ADR-084): por ahora, la entrada de checadas de los relojes.
+      HrModule,
       // Binding del Port ANTES de WhatsApp (provee el token @Global que inyecta).
       CommerceConversationBindingModule,
       // CBW (ADR-042): binding de captura bancaria por WhatsApp (BANK_CAPTURE_PORT).
