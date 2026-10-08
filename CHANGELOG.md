@@ -116,6 +116,11 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Fixed — Productos nuevos: el primer cálculo en producción no terminaba (NP.14, 2026-10-08)
+- La serie diaria se arma buscando cada día en un mapa, sin cruzar tablas: el plan de producción la cruzaba con un ciclo anidado que podía tardar horas.
+- La función de movimientos se planea con sus valores reales (la lista de códigos se busca por hash). La consulta no cambia.
+- El refresco de esta matvista tiene un tope de 3 minutos, para no detener el ciclo de las demás; y una matvista vacía se puebla en el siguiente ciclo sin esperar su turno.
+
 ### Changed — Productos nuevos: sólo Kepler y en vivo las 24 horas (NP.13, 2026-10-08)
 - Las cifras salen sólo de Kepler (venta de las tiendas y entradas); Wincaja queda fuera, también en la existencia.
 - Se recalcula cada 30 minutos: la pantalla ya no espera al lote nocturno, y un producto que se estrena hoy aparece el mismo día aunque se haya dado de alta hace meses.
