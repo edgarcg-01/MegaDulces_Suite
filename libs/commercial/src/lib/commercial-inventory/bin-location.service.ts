@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { defaultPickSequence, LOCATION_CODE_RE, parseLocationCode } from '@megadulces/contracts';
 
 /**
  * Fase WMS-REC (Pieza 3 — Ubicación bin-level lote×posición, ADR-044).
@@ -191,6 +192,23 @@ export class BinLocationService {
         .whereRaw('UPPER(code) = ?', [code])
         .first('id', 'code');
       if (dup) throw new ConflictException(`Ya existe la ubicación '${dup.code}' en ese almacén`);
+      // `[UB.1]` Si el código que tecleó el Andén ya es del formato nuevo (`BA053`), se guarda como
+      // ubicación con sus partes — si no, quedaría como "legado" y el CHECK de la base la dejaría
+      // pasar sin pasillo/rack/nivel, invisible para el mapa y la hoja de surtido. Un código libre
+      // (`R-12`) sigue siendo legado, como siempre.
+      const formato = LOCATION_CODE_RE.test(code) ? parseLocationCode(code) : null;
+      const partes =
+        formato && formato.ok
+          ? {
+              familia: 'ubicacion',
+              zona: formato.parts.zona,
+              pasillo: formato.parts.pasillo,
+              rack: formato.parts.rack,
+              nivel: formato.parts.nivel,
+              pick_sequence: defaultPickSequence(formato.parts),
+              created_by: userId,
+            }
+          : {};
       const [row] = await trx('commercial.warehouse_bins')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
@@ -199,6 +217,7 @@ export class BinLocationService {
           code,
           label: label || null,
           updated_by: userId,
+          ...partes,
         })
         .returning('*');
       return row;
