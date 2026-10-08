@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 // `[GX.74]` El detalle del pago puede traer varios renglones: se muestran como `1234 · 5678`.
-import { detallesParaMostrar } from '@megadulces/contracts';
-import { resumenTransferencias, type TransferenciaGasto } from '@megadulces/contracts';
+// `[GX.75]` La transferencia XD2601 que pagó el gasto: su resumen sale del contrato.
+import { detallesParaMostrar, resumenTransferencias, type TransferenciaGasto } from '@megadulces/contracts';
 import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { ExpedienteGastoService, type ExpedienteGasto } from './expediente-gasto.service';
 
