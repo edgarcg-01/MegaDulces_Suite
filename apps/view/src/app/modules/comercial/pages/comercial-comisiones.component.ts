@@ -7,6 +7,7 @@ import { SegmentedComponent, SegOption } from '../../../shared/components/segmen
 import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
+  CommissionHeadroom, CommissionHeadroomRow,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -291,10 +292,89 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
             </p>
 
+            @if (faltoDelPeriodo().length) {
+              <section class="cm-falto">
+                <div class="cm-falto-tit">
+                  <p class="cm-eyebrow">Lo que faltó</p>
+                  @if (acantilado(); as a) {
+                    <p class="cm-falto-grito">
+                      <strong>{{ a.beneficiario_nombre || ('Ruta ' + a.route_code) }}</strong>
+                      vendió <span class="cm-mono">{{ money(a.venta) }}</span> —
+                      le faltaron <strong class="cm-neg cm-mono">{{ money(a.escalon_falta) }}</strong>
+                      y cobró <strong class="cm-neg">$0</strong> en vez de
+                      <span class="cm-mono">{{ money(a.escalon_ganancia) }}</span>.
+                    </p>
+                  } @else {
+                    <p class="cm-falto-grito">
+                      <strong>{{ faltoDelPeriodo().length }}</strong> ruta(s) con margen para subir de escalón.
+                    </p>
+                  }
+                  <p class="cm-muted cm-micro">
+                    El tabulador es <strong>escalonado</strong>: quedarse corto no paga «un poco
+                    menos», paga el escalón de abajo o <strong>cero</strong>.
+                    @if (enElTopeDelPeriodo()) {
+                      · {{ enElTopeDelPeriodo() }} ruta(s) ya están en el tope — ahí no hay nada que perseguir.
+                    }
+                  </p>
+                </div>
+                @if (oportunidadDelPeriodo()) {
+                  <div class="cm-falto-monto">
+                    <p class="cm-eyebrow">Estuvo al alcance</p>
+                    <p class="cm-answer-monto">{{ money(oportunidadDelPeriodo()) }}</p>
+                    <p class="cm-answer-pie">con menos de $5,000 más de venta</p>
+                  </div>
+                }
+              </section>
+            }
+
             <app-segmented [options]="pestanas()" [value]="tab()" (valueChange)="tab.set($event)"
                            ariaLabel="Qué se está viendo" />
 
-            @if (tab() === 'contraste') {
+            @if (tab() === 'falto') {
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain surf-table--sticky">
+                  <thead><tr>
+                    <th>Ruta</th><th>Chofer</th>
+                    <th class="comm-num">Vendió</th><th class="comm-num">%</th>
+                    <th class="comm-num">Siguiente escalón</th><th class="comm-num">Le faltó</th>
+                    <th class="comm-num">Habría ganado</th>
+                    <th>Bono al alcance</th><th></th>
+                  </tr></thead>
+                  <tbody>
+                    @for (f of faltoDelPeriodo(); track f.route_code) {
+                      <tr [class.cm-fila-grito]="f.cercania === 'sin_cobrar_por_poco'">
+                        <td class="comm-num">{{ f.route_code }}</td>
+                        <td class="cm-name">{{ f.beneficiario_nombre || '—' }}</td>
+                        <td class="comm-num cm-mono">{{ money(f.venta) }}</td>
+                        <td class="comm-num">{{ f.pct_aplicado != null ? (pct(f.pct_aplicado) + '%') : '—' }}</td>
+                        <td class="comm-num cm-muted">
+                          {{ money(f.escalon_umbral) }}
+                          @if (f.escalon_pct != null) { <span class="cm-micro">· {{ pct(f.escalon_pct) }}%</span> }
+                        </td>
+                        <td class="comm-num is-strong cm-neg">{{ money(f.escalon_falta) }}</td>
+                        <td class="comm-num is-strong">{{ money(f.escalon_ganancia) }}</td>
+                        <td class="cm-micro cm-muted">
+                          @if (f.bono_nombre) {
+                            {{ f.bono_nombre }} {{ money(f.bono_monto) }}
+                            <span class="cm-neg">(faltan {{ money(f.bono_falta) }})</span>
+                          } @else { — }
+                        </td>
+                        <td><p-tag [severity]="sevCercania(f.cercania)" [value]="etiquetaCercania(f.cercania)" /></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="cm-warn">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>
+                  <strong>«Habría ganado» mantiene el subtotal fijo</strong> y sólo mueve el
+                  porcentaje: es el <em>piso</em> de lo que se habría ganado, no una proyección —
+                  vender más también subiría el subtotal. Se queda corto a propósito: una pantalla
+                  que promete de más sobre el sueldo de alguien se deja de leer a la segunda vez.
+                </span>
+              </p>
+            } @else if (tab() === 'contraste') {
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky">
                   <thead><tr>
@@ -488,6 +568,16 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-chip[data-sev="warn"] { border-color:color-mix(in srgb, var(--c-warn) 45%, transparent); }
     .cm-chip[data-sev="success"] { border-color:color-mix(in srgb, var(--c-ok) 40%, transparent); }
     .cm-btn-sec { background:transparent; color:var(--c-text-1); border:1px solid var(--border-color); }
+
+    /* RD.56 - "Lo que falto". Va ARRIBA de la tabla porque es la respuesta, no un anexo. */
+    .cm-falto { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem 1.5rem; margin:.9rem 0;
+      padding:.8rem 1rem; border:1px solid var(--border-color); border-left:3px solid var(--c-warn);
+      border-radius:var(--r-md,8px); background:var(--card-bg); }
+    .cm-falto-tit { flex:1 1 22rem; min-width:0; }
+    /* `--fs-base` no existe: los reales son --fs-body / --fs-sm / --fs-lg. Sin respaldo. */
+    .cm-falto-grito { margin:.2rem 0 .15rem; font-size:var(--fs-body); color:var(--c-text-1); }
+    .cm-falto-monto { text-align:right; }
+    .cm-fila-grito td { background:color-mix(in srgb, var(--c-bad) 7%, transparent); }
 
     .cm-split { display:grid; grid-template-columns:minmax(240px,300px) 1fr; gap:1rem; align-items:start; }
     @media (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
@@ -701,6 +791,8 @@ export class ComercialComisionesComponent {
     // medidos) y si falla, la pestaña no aparece y la pantalla sigue sirviendo igual.
     this.contraste.set(null);
     this.cargarContraste();
+    this.falto.set(null);
+    this.cargarFalto();
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
         this.board.set(b.periodos);
@@ -751,6 +843,8 @@ export class ComercialComisionesComponent {
       { label: `Choferes · ${this.pagan()}`, value: 'chofer' },
       { label: `Supervisores · ${this.supervisores().length}`, value: 'supervisor' },
       ...(this.fuera().length ? [{ label: `No comisionan · ${this.fuera().length}`, value: 'fuera' }] : []),
+      ...(this.faltoDelPeriodo().length
+        ? [{ label: `Lo que faltó · ${this.faltoDelPeriodo().length}`, value: 'falto' }] : []),
       ...(c.length ? [{ label: `Libro vs motor · ${c.length}`, value: 'contraste' }] : []),
     ];
   }
@@ -759,6 +853,56 @@ export class ComercialComisionesComponent {
 
   readonly contraste = signal<CommissionContrast | null>(null);
   readonly contrastando = signal(false);
+
+  // ── `[RD.56]` Lo que faltó ────────────────────────────────────────────────────────────────
+
+  readonly falto = signal<CommissionHeadroom | null>(null);
+
+  /** Las filas de la quincena elegida que tienen algo que perseguir, lo más cerca primero. */
+  readonly faltoDelPeriodo = computed<CommissionHeadroomRow[]>(() => {
+    const f = this.falto(); const p = this.sel();
+    if (!f || !p) return [];
+    return f.filas
+      .filter((x) => x.period_no === p.period_no && x.cercania !== 'en_el_tope')
+      .sort((a, b) => (a.escalon_falta ?? 9e9) - (b.escalon_falta ?? 9e9));
+  });
+
+  /** ⭐ El caso que la pantalla tiene que gritar: quien no cobró nada por quedarse corto. */
+  readonly acantilado = computed<CommissionHeadroomRow | null>(() =>
+    this.faltoDelPeriodo().find((x) => x.cercania === 'sin_cobrar_por_poco') ?? null);
+
+  /** Lo que estuvo al alcance de la mano en esta quincena, en pesos. */
+  readonly oportunidadDelPeriodo = computed(() => this.faltoDelPeriodo()
+    .filter((x) => x.cercania === 'sin_cobrar_por_poco' || x.cercania === 'al_alcance')
+    .reduce((s, x) => s + (x.oportunidad ?? 0), 0));
+
+  readonly enElTopeDelPeriodo = computed(() => {
+    const f = this.falto(); const p = this.sel();
+    if (!f || !p) return 0;
+    return f.filas.filter((x) => x.period_no === p.period_no && x.cercania === 'en_el_tope').length;
+  });
+
+  etiquetaCercania(c: string): string {
+    const M: Record<string, string> = {
+      sin_cobrar_por_poco: 'No cobró por poco', sin_cobrar: 'No cobró',
+      al_alcance: 'Al alcance', cerca: 'Cerca', lejos: 'Lejos', en_el_tope: 'En el tope',
+    };
+    return M[c] ?? c;
+  }
+
+  sevCercania(c: string): 'danger' | 'warn' | 'secondary' | 'success' {
+    if (c === 'sin_cobrar_por_poco') return 'danger';
+    if (c === 'al_alcance') return 'warn';
+    if (c === 'en_el_tope') return 'success';
+    return 'secondary';
+  }
+
+  cargarFalto(): void {
+    this.api.commissionHeadroom(this.anio()).subscribe({
+      next: (f) => this.falto.set(f),
+      error: () => this.falto.set(null),
+    });
+  }
 
   /** Las filas del contraste de la quincena que esté seleccionada. */
   readonly contrasteDelPeriodo = computed<CommissionContrastRow[]>(() => {

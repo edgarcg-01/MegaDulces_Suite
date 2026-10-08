@@ -2211,6 +2211,16 @@ export class ComercialService {
     return this.http.post<CommissionContrastRunResult>(`${this.base}/commissions/contrast/run`, { anio });
   }
 
+  /**
+   * RD.56 — **lo que faltó**: cuánto le faltó a cada ruta para el siguiente escalón o bono.
+   * El tabulador es escalonado, así que quedarse corto por poco no paga «un poco menos»:
+   * paga el escalón de abajo o **cero**. Lee vista — 16 ms medidos.
+   */
+  commissionHeadroom(anio: number) {
+    return this.http.get<CommissionHeadroom>(
+      `${this.base}/commissions/headroom`, { params: new HttpParams().set('anio', String(anio)) });
+  }
+
   /** BI.4 — Serie mensual (tendencia). */
   sellOutSeries(opts: { to_month?: string; months?: number; brand_id?: string; channel?: string }) {
     let params = new HttpParams();
@@ -4387,6 +4397,32 @@ export interface CommissionContrast {
 }
 export interface CommissionContrastRunResult {
   anio: number; periodos: number; hechas: number[]; fallas: string[]; duracion_ms: number;
+}
+
+/**
+ * `RD.56` **Lo que faltó.** El tabulador NO es proporcional: por debajo de $189,999.99 de venta
+ * la comisión es **cero**, no «menos». Por eso `sin_cobrar_por_poco` no es un grado de
+ * `al_alcance` — es el acantilado, y se lee distinto: a esa persona le faltaron unos pesos y
+ * cobró nada. `en_el_tope` dice dónde **no** hay nada que perseguir, que también es información.
+ */
+export interface CommissionHeadroomRow {
+  period_no: number; route_code: string;
+  beneficiario_nombre: string | null; zona: string | null;
+  venta: number | null; pct_aplicado: number | null;
+  a_pagar: number | null; motivo_no_pago: string | null;
+  escalon_umbral: number | null; escalon_pct: number | null;
+  escalon_falta: number | null;
+  /** ⚠️ Mantiene el subtotal FIJO: es el PISO de lo que se habría ganado, no una proyección. */
+  escalon_ganancia: number | null;
+  bono_nombre: string | null; bono_umbral: number | null;
+  bono_falta: number | null; bono_monto: number | null;
+  oportunidad: number | null;
+  cercania: 'sin_cobrar_por_poco' | 'sin_cobrar' | 'al_alcance' | 'cerca' | 'lejos' | 'en_el_tope';
+}
+export interface CommissionHeadroomSummary { cercania: string; n: number; oportunidad: number }
+export interface CommissionHeadroom {
+  resumen: CommissionHeadroomSummary[];
+  filas: CommissionHeadroomRow[];
 }
 
 export interface CommissionBoardRow {
