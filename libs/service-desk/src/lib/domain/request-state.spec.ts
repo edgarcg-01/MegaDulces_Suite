@@ -3,7 +3,7 @@
  * (11 CHECK); esto protege el proceso de una persona.
  */
 import { SD_STATUSES, type SdActor, type SdStatus } from '@megadulces/contracts';
-import { efectosDe, esFinal, exigeAsignado, motivoDeCierre, puedeTransicionar, transicionesPosibles, TRANSICIONES } from './request-state';
+import { efectosDe, esFinal, exigeAsignado, motivoDeCierre, puedeTransicionar, transicionesPosibles, TRANSICIONES, respuestaReanuda } from './request-state';
 
 const ACTORES: SdActor[] = ['requester', 'agent', 'coordinator', 'system'];
 
@@ -102,5 +102,20 @@ describe('motivoDeCierre', () => {
     expect(motivoDeCierre('cerrado', 'requester')).toBe('confirmado');
     expect(motivoDeCierre('cerrado', 'coordinator')).toBe('confirmado');
     expect(motivoDeCierre('cerrado', 'system')).toBe('auto');
+  });
+});
+
+describe('`[MS.7.9]` respuestaReanuda — qué espera termina con la respuesta de quien reportó', () => {
+  it('⭐ sólo la espera AL SOLICITANTE (o la anterior al motivo) se reanuda con su respuesta', () => {
+    expect(respuestaReanuda('solicitante')).toBe(true);
+    expect(respuestaReanuda(null)).toBe(true); // una espera anterior al motivo: el comportamiento de siempre
+    expect(respuestaReanuda(undefined)).toBe(true);
+  });
+  it('⛔ NEGATIVA — esperar a un proveedor, una refacción, una aprobación u «otro» NO se reanuda porque la persona comente', () => {
+    for (const m of ['proveedor', 'refaccion', 'aprobacion', 'otro']) expect(respuestaReanuda(m)).toBe(false);
+  });
+  it('⛔ un motivo desconocido tampoco reanuda (ante la duda el reloj sigue pausado, no corriendo)', () => {
+    expect(respuestaReanuda('cualquier_cosa')).toBe(false);
+    expect(respuestaReanuda('')).toBe(false);
   });
 });

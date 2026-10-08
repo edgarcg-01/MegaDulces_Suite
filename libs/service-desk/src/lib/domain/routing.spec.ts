@@ -1,4 +1,4 @@
-import { claveEncontrada, contieneClave, elegirRegla, normalizarClaves, normalizarTexto, type ReglaRuteo } from './routing';
+import { claveEncontrada, contieneClave, elegirRegla, especificidad, normalizarClaves, normalizarTexto, type ReglaRuteo } from './routing';
 
 /**
  * `[MS.3.10]` La asignación automática. Lo que se defiende, con el texto que de verdad escribe la gente:
@@ -114,5 +114,85 @@ describe('MS.3.10 · elegirRegla', () => {
     const a = regla({ id: 'a', name: 'Alfa', assignee_id: 'u-a', keywords: ['pantalla'] });
     const b = regla({ id: 'b', name: 'Beta', assignee_id: 'u-b', keywords: ['pantalla'] });
     expect(aQuien('pantalla rota', '', CAT_OTRO, [b, a])).toBe('u-a');
+  });
+});
+
+/**
+ * `[MS.7.10]` La ubicación como condición de una regla. Lo que se defiende:
+ *  · ⛔ la ubicación es un FILTRO: una regla de «Oficinas» no aplica a un ticket del CEDIS ni a uno sin ubicación;
+ *  · una regla con ubicación y sin categoría ni palabras se dispara por la ubicación sola;
+ *  · gana la MÁS ESPECÍFICA (categoría + ubicación le gana a categoría) aunque vaya después en la lista;
+ *  · ⭐ las reglas de antes (sin ubicación) conservan EXACTAMENTE su orden: nada de lo que ya funcionaba cambia de dueño.
+ */
+const PEDRO = 'u-pedro';
+const UBALDO = 'u-ubaldo';
+const CAT_PLOMERIA = 'c-plomeria';
+const OF = 'OF';
+const EC = 'EC';
+
+const aQuienEn = (reglas: ReglaRuteo[], ubicacion: string | null, categoryId = CAT_PLOMERIA, title = 'Fuga'): string | null =>
+  elegirRegla(reglas, { title, description: '', categoryId, warehouseCode: ubicacion })?.regla.assignee_id ?? null;
+
+describe('MS.7.10 · la ubicación como filtro', () => {
+  const soloOficinas = regla({ id: 'oficinas', assignee_id: PEDRO, warehouse_code: OF });
+
+  it('⭐ una regla sólo por UBICACIÓN se dispara con esa ubicación, aunque el texto no diga nada', () => {
+    const r = elegirRegla([soloOficinas], { title: 'algo', description: '', categoryId: CAT_OTRO, warehouseCode: OF });
+    expect(r?.regla.assignee_id).toBe(PEDRO);
+    expect(r?.motivo).toEqual({ tipo: 'ubicacion' });
+  });
+
+  it('⛔ NEGATIVA — con otra ubicación, o sin ubicación, esa regla NO aplica', () => {
+    expect(aQuienEn([soloOficinas], EC)).toBeNull();
+    expect(aQuienEn([soloOficinas], null)).toBeNull();
+    expect(aQuienEn([soloOficinas], undefined as unknown as null)).toBeNull();
+  });
+
+  it('⛔ NEGATIVA — categoría + ubicación: la categoría correcta en OTRA ubicación no dispara', () => {
+    const r = regla({ id: 'plom-of', assignee_id: PEDRO, category_id: CAT_PLOMERIA, warehouse_code: OF });
+    expect(aQuienEn([r], OF)).toBe(PEDRO);
+    expect(aQuienEn([r], EC)).toBeNull();
+    expect(aQuienEn([r], OF, CAT_OTRO)).toBeNull(); // la ubicación correcta con OTRA categoría tampoco
+  });
+
+  it('palabras + ubicación: la palabra dispara sólo en esa ubicación', () => {
+    const r = regla({ id: 'luz-of', assignee_id: PEDRO, keywords: ['luz'], warehouse_code: OF });
+    expect(aQuienEn([r], OF, CAT_OTRO, 'No hay luz')).toBe(PEDRO);
+    expect(aQuienEn([r], EC, CAT_OTRO, 'No hay luz')).toBeNull();
+  });
+});
+
+describe('MS.7.10 · la más específica gana', () => {
+  it('⭐ categoría + ubicación le gana a categoría sola, AUNQUE vaya después en la lista', () => {
+    const general = regla({ id: 'plom', assignee_id: UBALDO, sort_order: 10, category_id: CAT_PLOMERIA });
+    const enOficinas = regla({ id: 'plom-of', assignee_id: PEDRO, sort_order: 99, category_id: CAT_PLOMERIA, warehouse_code: OF });
+    expect(aQuienEn([general, enOficinas], OF)).toBe(PEDRO);
+    expect(aQuienEn([general, enOficinas], EC)).toBe(UBALDO); // fuera de Oficinas la específica no aplica: gana la general
+  });
+
+  it('a igual especificidad gana la primera por orden (y luego por nombre)', () => {
+    const a = regla({ id: 'a', assignee_id: UBALDO, sort_order: 20, warehouse_code: OF });
+    const b = regla({ id: 'b', assignee_id: PEDRO, sort_order: 10, warehouse_code: OF });
+    expect(aQuienEn([a, b], OF)).toBe(PEDRO);
+  });
+
+  it('⭐ las reglas de ANTES (sin ubicación) conservan exactamente su orden: nada cambia de dueño', () => {
+    // El caso de siempre: una regla con categoría Y palabras (especificidad 1) y otra sólo de palabras (1): manda el orden.
+    expect(REGLAS.map(especificidad)).toEqual([1, 1]);
+    expect(aQuien('Falla la impresora de caja')).toBe(FELIPE);
+    expect(aQuien('Hay que programar el desarrollo de la impresora')).toBe(FELIPE); // «impresora» va primero: el orden desambigua
+    expect(aQuien('Nueva funcionalidad', '', CAT_DESARROLLO)).toBe(DAVID);
+  });
+
+  it('especificidad: el disparador categoría/palabras cuenta UNA vez, la ubicación otra', () => {
+    expect(especificidad(regla({ id: 'x', assignee_id: 'u', category_id: 'c', keywords: ['a'] }))).toBe(1);
+    expect(especificidad(regla({ id: 'x', assignee_id: 'u', warehouse_code: OF }))).toBe(1);
+    expect(especificidad(regla({ id: 'x', assignee_id: 'u', category_id: 'c', warehouse_code: OF }))).toBe(2);
+  });
+
+  it('una regla apagada no gana aunque sea la más específica', () => {
+    const apagada = regla({ id: 'ap', assignee_id: PEDRO, category_id: CAT_PLOMERIA, warehouse_code: OF, active: false });
+    const general = regla({ id: 'plom', assignee_id: UBALDO, category_id: CAT_PLOMERIA });
+    expect(aQuienEn([apagada, general], OF)).toBe(UBALDO);
   });
 });

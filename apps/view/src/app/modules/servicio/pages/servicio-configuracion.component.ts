@@ -5,7 +5,8 @@ import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import type { Observable } from 'rxjs';
-import { SD_PRIORITIES, type SdAgentDto, type SdClock, type SdConfigResponse, type SdPriority, type SdRoutingResponse, type SdRoutingRuleDto, type SdSlaScanResult } from '@megadulces/contracts';
+import { SD_PRIORITIES, SD_UBICACIONES_EXTRA, type SdAgentDto, type SdClock, type SdConfigResponse, type SdFieldType, type SdPriority, type SdRoutingResponse, type SdRoutingRuleDto, type SdSlaScanResult } from '@megadulces/contracts';
+import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { PRIORITY_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
 import { SdQueueMembersComponent } from '../sd-queue-members.component';
 
@@ -116,6 +117,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                     <td class="dt-id" role="cell" data-label="Regla">{{ r.name }}</td>
                     <td role="cell" data-label="Se dispara por">
                       @if (r.category_name) { <div>Categoría: <b>{{ r.category_name }}</b></div> }
+                      @if (r.warehouse_name) { <div>Ubicación: <b>{{ r.warehouse_name }}</b></div> }
                       @if (r.keywords.length) { <div class="sc-mono">{{ r.keywords.join(', ') }}</div> }
                     </td>
                     <td role="cell" data-label="Asigna a">
@@ -142,16 +144,42 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <p-select [options]="agentes()" optionLabel="label" optionValue="user_id" [(ngModel)]="formRegla.assignee_id" placeholder="Elige" appendTo="body" ariaLabel="Asigna a" /></label>
               <label class="sc-field"><span>Categoría (opcional)</span>
                 <p-select [options]="categoriasOpc()" optionLabel="name" optionValue="id" [(ngModel)]="formRegla.category_id" [showClear]="true" placeholder="Cualquiera" appendTo="body" ariaLabel="Categoría" /></label>
+              <label class="sc-field"><span>Ubicación (opcional)</span>
+                <p-select [options]="ubicaciones" optionLabel="name" optionValue="code" [(ngModel)]="formRegla.warehouse_code" [showClear]="true" placeholder="Cualquiera" appendTo="body" ariaLabel="Ubicación" /></label>
               <label class="sc-field"><span>Orden</span><input pInputText type="number" min="0" [(ngModel)]="formRegla.sort_order" /></label>
             </div>
             <label class="sc-field"><span>Palabras clave (separadas por coma)</span>
               <input pInputText [(ngModel)]="formRegla.keywords" placeholder="sistemas, cpu, impresora" />
               <small>Una palabra del texto que EMPIECE con la clave la dispara. Ojo con las muy cortas o genéricas: «red» también encuentra «redes» y «redacción».</small></label>
+            <p class="sc-hint">Con ubicación, la regla sólo aplica a solicitudes de ahí; con ubicación y categoría (o palabras) gana a una regla que sólo trae la categoría. Si ninguna regla aplica, cae el <b>responsable por omisión</b> de la cola.</p>
             <p class="sc-hint">En «Asigna a» sólo aparece quien ya <b>puede atender</b>. Si falta alguien, dale primero el permiso de atender solicitudes.</p>
             <div class="sc-foot">
               <p-button [label]="editandoRegla() ? 'Guardar regla' : 'Agregar regla'" icon="pi pi-check" [loading]="guardando()" [disabled]="!reglaValida()" (onClick)="guardarRegla()" />
               @if (editandoRegla()) { <p-button label="Cancelar" severity="secondary" [outlined]="true" (onClick)="cancelarRegla()" /> }
             </div>
+          </div>
+        </section>
+
+        <section class="sc-card" aria-labelledby="h-zonas">
+          <h2 id="h-zonas">Zonas</h2>
+          <p class="sc-hint">El <b>lugar dentro de la ubicación</b> (bodega, andén, baños…). Se ofrece sólo en las colas que la preguntan (se enciende en cada cola, abajo). Apagar una zona no borra: los tickets viejos la conservan.</p>
+          <table class="sc-table">
+            <thead><tr><th>Zona</th><th>Orden</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              @for (z of c.zones; track z.id) {
+                <tr [class.apagada]="!z.active">
+                  <td>{{ z.name }} <span class="sc-mono">{{ z.code }}</span></td>
+                  <td>{{ z.sort_order }}</td>
+                  <td>{{ z.active ? 'Activa' : 'Apagada' }}</td>
+                  <td><p-button [label]="z.active ? 'Apagar' : 'Encender'" size="small" severity="secondary" [text]="true" (onClick)="alternarZona(z.id, z.active)" /></td>
+                </tr>
+              } @empty { <tr><td colspan="4" class="sc-vacio">Sin zonas.</td></tr> }
+            </tbody>
+          </table>
+          <div class="sc-grid sc-zona-nueva">
+            <label class="sc-field"><span>Nombre</span><input pInputText [(ngModel)]="zonaNueva.name" placeholder="Ej. Patio de maniobras" /></label>
+            <label class="sc-field"><span>Código (minúsculas y guion bajo)</span><input pInputText [(ngModel)]="zonaNueva.code" placeholder="patio_maniobras" /></label>
+            <div class="sc-foot"><p-button label="Agregar zona" icon="pi pi-plus" [loading]="guardando()" [disabled]="!zonaValida()" (onClick)="agregarZona()" /></div>
           </div>
         </section>
 
@@ -167,10 +195,12 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 <label class="sc-modelo"><span>Prioridad sugerida por</span>
                   <p-select [options]="modelos" optionLabel="label" optionValue="value" [ngModel]="q.priority_model" (ngModelChange)="cambiarModelo(q.id, q.priority_model, $event)"
                             appendTo="body" [ariaLabel]="'Cómo se sugiere la prioridad en ' + q.name" /></label>
+                <!-- [MS.7.3] Si el formulario de esta cola pregunta la zona. -->
+                <label class="sc-modelo sc-chk"><input type="checkbox" [ngModel]="q.asks_zone" (ngModelChange)="cambiarPreguntaZona(q.id, q.asks_zone, $event)" [attr.aria-label]="'Preguntar la zona en ' + q.name" /> Pregunta la zona</label>
                 <p-button [label]="q.active ? 'Apagar cola' : 'Encender cola'" size="small" severity="secondary" [text]="true" (onClick)="alternarCola(q.id, q.active)" />
               </div>
               <!-- [MS.7.17] Quién atiende esta cola: la coordinación de ESA cola administra a sus miembros. -->
-              <app-sd-queue-members [queueId]="q.id" />
+              <app-sd-queue-members [queueId]="q.id" [defaultAssigneeId]="q.default_assignee_id" (configChange)="cfg.set($event)" />
               <table class="sc-table">
                 <thead><tr><th>Categoría</th><th>Prioridad por defecto</th><th>Exige ubicación</th><th>Estado</th><th></th></tr></thead>
                 <tbody>
@@ -185,6 +215,33 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                   } @empty { <tr><td colspan="5" class="sc-vacio">Sin categorías.</td></tr> }
                 </tbody>
               </table>
+              <!-- [MS.7.4] Qué MÁS pregunta esta cola al reportar. La coordinación de ESA cola los declara; el servidor lo exige. -->
+              <h3 class="sc-sub">Campos propios de esta cola</h3>
+              <p class="sc-hint">Preguntas extra al reportar (sí/no, opción, texto o foto). Apagar no borra: los tickets viejos conservan su respuesta.</p>
+              <table class="sc-table">
+                <thead><tr><th>Pregunta</th><th>Tipo</th><th>Obligatoria</th><th>Estado</th><th></th></tr></thead>
+                <tbody>
+                  @for (f of camposDe(q.id); track f.id) {
+                    <tr [class.apagada]="!f.active">
+                      <td>{{ f.label }} <span class="sc-mono">{{ f.code }}</span>@if (f.type === 'select') { <span class="sc-hint"> · {{ f.options.join(', ') }}</span> }</td>
+                      <td>{{ tipoCampo[f.type] }}</td>
+                      <td><input type="checkbox" [ngModel]="f.required" (ngModelChange)="cambiarRequerido(f.id, f.required, $event)" [attr.aria-label]="'Obligatoria: ' + f.label" /></td>
+                      <td>{{ f.active ? 'Activo' : 'Apagado' }}</td>
+                      <td><p-button [label]="f.active ? 'Apagar' : 'Encender'" size="small" severity="secondary" [text]="true" (onClick)="alternarCampo(f.id, f.active)" /></td>
+                    </tr>
+                  } @empty { <tr><td colspan="5" class="sc-vacio">Esta cola no pregunta nada extra.</td></tr> }
+                </tbody>
+              </table>
+              <div class="sc-grid sc-campo-nuevo">
+                <label class="sc-field"><span>Pregunta</span><input pInputText [(ngModel)]="campoForm(q.id).label" maxlength="80" placeholder="Ej. ¿Afecta a clientes?" /></label>
+                <label class="sc-field"><span>Tipo</span>
+                  <p-select [options]="tiposCampo" optionLabel="label" optionValue="value" [(ngModel)]="campoForm(q.id).type" appendTo="body" [ariaLabel]="'Tipo del campo nuevo en ' + q.name" /></label>
+                @if (campoForm(q.id).type === 'select') {
+                  <label class="sc-field"><span>Opciones (separadas por coma)</span><input pInputText [(ngModel)]="campoForm(q.id).options" placeholder="Eléctrica, Hidráulica, Otra" /></label>
+                }
+                <label class="sc-modelo sc-chk"><input type="checkbox" [(ngModel)]="campoForm(q.id).required" /> Obligatoria</label>
+                <div class="sc-foot"><p-button label="Agregar campo" icon="pi pi-plus" [loading]="guardando()" [disabled]="!campoValido(q.id)" (onClick)="agregarCampo(q.id)" /></div>
+              </div>
             </div>
           }
 
@@ -221,6 +278,7 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-card h2 { margin: 0; font: 700 var(--fs-h3)/1.2 var(--font-body); color: var(--text-main); }
     .sc-card h3 { margin: 0; font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
     .sc-hint { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .sc-sub { margin: var(--sp-3) 0 var(--sp-1); font-size: var(--fs-sm); font-weight: 600; color: var(--text-main); }
     .sc-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: var(--sp-3); align-items: end; }
     .sc-field { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); }
     .sc-field > span { font-weight: 600; font-size: var(--fs-xs); color: var(--text-main); }
@@ -286,7 +344,9 @@ export class ServicioConfiguracionComponent implements OnInit {
   readonly agentes = computed(() => this.agentesRaw().map((a) => ({ user_id: a.user_id, label: a.name || a.username })));
   readonly categoriasOpc = computed(() => (this.cfg()?.categories ?? []).filter((k) => k.active));
   readonly editandoRegla = signal<string | null>(null);
-  formRegla: { name: string; assignee_id: string | null; category_id: string | null; sort_order: number; keywords: string } = { name: '', assignee_id: null, category_id: null, sort_order: 100, keywords: '' };
+  formRegla: { name: string; assignee_id: string | null; category_id: string | null; warehouse_code: string | null; sort_order: number; keywords: string } = { name: '', assignee_id: null, category_id: null, warehouse_code: null, sort_order: 100, keywords: '' };
+  /** `[MS.7.10]` Las ubicaciones que una regla puede mirar: las sucursales de la red y las que no son sucursal (oficinas, estacionamiento). */
+  readonly ubicaciones: { code: string; name: string }[] = [...STORE_BRANCHES, ...Object.entries(SD_UBICACIONES_EXTRA).map(([code, name]) => ({ code, name }))];
 
   reglas = { business_days: [] as number[], business_start: '08:00', business_end: '19:00', tz: 'America/Mexico_City', auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60 };
   pol: PolForm[] = [];
@@ -321,23 +381,23 @@ export class ServicioConfiguracionComponent implements OnInit {
   private clavesDeTexto(): string[] { return this.formRegla.keywords.split(',').map((x) => x.trim()).filter(Boolean); }
   reglaValida(): boolean {
     const f = this.formRegla;
-    return !!f.name.trim() && !!f.assignee_id && (!!f.category_id || this.clavesDeTexto().length > 0);
+    return !!f.name.trim() && !!f.assignee_id && (!!f.category_id || !!f.warehouse_code || this.clavesDeTexto().length > 0);
   }
   guardarRegla(): void {
     const f = this.formRegla;
     if (!this.reglaValida() || !f.assignee_id) return;
-    const dto = { name: f.name.trim(), assignee_id: f.assignee_id, category_id: f.category_id, sort_order: Number(f.sort_order), keywords: this.clavesDeTexto() };
+    const dto = { name: f.name.trim(), assignee_id: f.assignee_id, category_id: f.category_id, warehouse_code: f.warehouse_code, sort_order: Number(f.sort_order), keywords: this.clavesDeTexto() };
     const id = this.editandoRegla();
     this.guardarRuteo(id ? this.api.updateRouting(id, dto) : this.api.createRouting(dto), id ? 'Regla guardada.' : 'Regla agregada.');
     this.cancelarRegla();
   }
   editarRegla(r: SdRoutingRuleDto): void {
     this.editandoRegla.set(r.id);
-    this.formRegla = { name: r.name, assignee_id: r.assignee_id, category_id: r.category_id, sort_order: r.sort_order, keywords: r.keywords.join(', ') };
+    this.formRegla = { name: r.name, assignee_id: r.assignee_id, category_id: r.category_id, warehouse_code: r.warehouse_code, sort_order: r.sort_order, keywords: r.keywords.join(', ') };
   }
   cancelarRegla(): void {
     this.editandoRegla.set(null);
-    this.formRegla = { name: '', assignee_id: null, category_id: null, sort_order: 100, keywords: '' };
+    this.formRegla = { name: '', assignee_id: null, category_id: null, warehouse_code: null, sort_order: 100, keywords: '' };
   }
   alternarRegla(r: SdRoutingRuleDto): void { this.guardarRuteo(this.api.updateRouting(r.id, { active: !r.active }), r.active ? 'Regla apagada.' : 'Regla encendida.'); }
   cambiarOrden(r: SdRoutingRuleDto, valor: string): void {
@@ -407,6 +467,55 @@ export class ServicioConfiguracionComponent implements OnInit {
     const q = this.ambito();
     if (!q) return;
     this.guardar(this.api.removeQueuePolicy(p.priority, q), `${this.nombreAmbito()} vuelve a usar el plazo general de «${PRIORITY_LABEL[p.priority]}».`);
+  }
+  // ── `[MS.7.4]` Campos propios de una cola ──
+  readonly tipoCampo: Record<SdFieldType, string> = { boolean: 'Sí / No', select: 'Opciones', text: 'Texto', photo: 'Foto' };
+  readonly tiposCampo: { label: string; value: SdFieldType }[] = [
+    { label: 'Sí / No', value: 'boolean' }, { label: 'Opciones', value: 'select' }, { label: 'Texto', value: 'text' }, { label: 'Foto', value: 'photo' },
+  ];
+  private readonly camposNuevos: Record<string, { label: string; type: SdFieldType; options: string; required: boolean }> = {};
+  camposDe(queueId: string) { return (this.cfg()?.fields ?? []).filter((f) => f.queue_id === queueId); }
+  campoForm(queueId: string) { return (this.camposNuevos[queueId] ??= { label: '', type: 'boolean', options: '', required: false }); }
+  /** El código se deriva de la pregunta (minúsculas, sin acentos, guion bajo): nadie tiene que inventarlo. */
+  codigoDe(label: string): string {
+    const base = label.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    return (/^[a-z]/.test(base) ? base : `c_${base}`).slice(0, 30).replace(/_+$/, '');
+  }
+  private opcionesDe(texto: string): string[] { return texto.split(',').map((x) => x.trim()).filter(Boolean); }
+  campoValido(queueId: string): boolean {
+    const f = this.campoForm(queueId);
+    if (!f.label.trim() || !/^[a-z][a-z0-9_]{0,29}$/.test(this.codigoDe(f.label))) return false;
+    if (f.type !== 'select') return true;
+    const o = this.opcionesDe(f.options);
+    return o.length >= 2 && o.length <= 20 && new Set(o).size === o.length;
+  }
+  agregarCampo(queueId: string): void {
+    if (!this.campoValido(queueId)) return;
+    const f = this.campoForm(queueId);
+    this.guardar(this.api.createField(queueId, {
+      code: this.codigoDe(f.label), label: f.label.trim(), type: f.type, required: f.required,
+      options: f.type === 'select' ? this.opcionesDe(f.options) : undefined,
+    }), 'Campo agregado.');
+    this.camposNuevos[queueId] = { label: '', type: 'boolean', options: '', required: false };
+  }
+  alternarCampo(id: string, activo: boolean): void { this.guardar(this.api.updateField(id, { active: !activo }), activo ? 'Campo apagado.' : 'Campo encendido.'); }
+  cambiarRequerido(id: string, actual: boolean, nuevo: boolean): void {
+    if (nuevo === actual) return;
+    this.guardar(this.api.updateField(id, { required: nuevo }), nuevo ? 'El campo ahora es obligatorio.' : 'El campo ya no es obligatorio.');
+  }
+
+  // ── `[MS.7.3]` Zonas ──
+  zonaNueva = { name: '', code: '' };
+  zonaValida(): boolean { return !!this.zonaNueva.name.trim() && /^[a-z][a-z0-9_]{0,29}$/.test(this.zonaNueva.code.trim()); }
+  agregarZona(): void {
+    if (!this.zonaValida()) return;
+    this.guardar(this.api.createZone({ name: this.zonaNueva.name.trim(), code: this.zonaNueva.code.trim() }), 'Zona agregada.');
+    this.zonaNueva = { name: '', code: '' };
+  }
+  alternarZona(id: string, activa: boolean): void { this.guardar(this.api.updateZone(id, { active: !activa }), activa ? 'Zona apagada.' : 'Zona encendida.'); }
+  cambiarPreguntaZona(id: string, actual: boolean, nuevo: boolean): void {
+    if (nuevo === actual) return;
+    this.guardar(this.api.updateQueue(id, { asks_zone: nuevo }), nuevo ? 'El formulario de esta cola ahora pregunta la zona.' : 'El formulario de esta cola ya no pregunta la zona.');
   }
   cambiarModelo(id: string, actual: string, nuevo: string): void {
     if (nuevo === actual) return;

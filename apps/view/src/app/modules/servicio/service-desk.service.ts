@@ -2,12 +2,14 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
+  SdPauseReason,
   SdAgentDto, SdAssignDto, SdCatalogResponse, SdChangePriorityDto, SdChangeStatusDto, SdConfigResponse,
   SdCreateRequestDto, SdListResponse, SdLogTimeDto, SdNotificationDto, SdPostMessageDto, SdPreferencesDto,
   SdPriority, SdRequestDetail, SdSettingsDto, SdSlaPolicyDto, SdSlaScanResult, SdStatsResponse, SdStatus,
   SdUpdatePreferencesDto, SdUpsertCategoryDto, SdUpsertQueueDto, SdImpact, SdRoutingResponse, SdUpsertRoutingRuleDto, SdReportResponse, SdRequesterDto, SdDepartmentDto,
-  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole,
+  SdQueueCandidateDto, SdQueueMembersResponse, SdQueueRole, SdTransferDto, SdTransferResult, SdUpsertFieldDto, SdUpsertZoneDto,
 } from '@megadulces/contracts';
+import { SD_PAUSE_REASONS } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 export const PRIORITY_LABEL: Readonly<Record<SdPriority, string>> = { baja: 'Baja', media: 'Media', alta: 'Alta', urgente: 'Urgente' };
@@ -28,6 +30,16 @@ export interface SdInboxQuery {
   limit?: number;
   offset?: number;
 }
+
+/** `[MS.7.9]` Por qué un ticket queda en espera (lo que se espera, en palabras de quien atiende). */
+export const PAUSE_REASON_LABEL: Record<SdPauseReason, string> = {
+  proveedor: 'Esperando al proveedor',
+  refaccion: 'Esperando una refacción',
+  aprobacion: 'Esperando una aprobación',
+  solicitante: 'Esperando a quien reportó',
+  otro: 'Otro motivo',
+};
+export const PAUSE_REASONS: { value: SdPauseReason; label: string }[] = SD_PAUSE_REASONS.map((value) => ({ value, label: PAUSE_REASON_LABEL[value] }));
 
 export const STATUS_LABEL: Readonly<Record<SdStatus, string>> = {
   nuevo: 'Nuevo', asignado: 'Asignado', en_proceso: 'En proceso', en_espera: 'En espera',
@@ -79,6 +91,8 @@ export class ServiceDeskService {
   inbox(q: SdInboxQuery = {}): Observable<SdListResponse> {
     return this.http.get<SdListResponse>(`${this.base}/requests/inbox`, { params: this.params(q) });
   }
+  /** `[MS.7.11]` Traslada un ticket a otra cola. Devuelve un resultado, NO la ficha: quien traslada ya no la ve. */
+  transfer(id: string, dto: SdTransferDto): Observable<SdTransferResult> { return this.http.post<SdTransferResult>(`${this.base}/requests/${id}/transfer`, dto); }
   stats(): Observable<SdStatsResponse> { return this.http.get<SdStatsResponse>(`${this.base}/requests/stats`); }
   detail(id: string): Observable<SdRequestDetail> { return this.http.get<SdRequestDetail>(`${this.base}/requests/${id}`); }
 
@@ -109,6 +123,12 @@ export class ServiceDeskService {
     return this.http.delete<SdConfigResponse>(`${this.base}/config/policies/${priority}`, { params: this.params({ queue_id: queueId }) });
   }
   createQueue(dto: SdUpsertQueueDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/queues`, dto); }
+  /** `[MS.7.4]` Campos propios de una cola. */
+  createField(queueId: string, dto: SdUpsertFieldDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/queues/${queueId}/fields`, dto); }
+  updateField(id: string, dto: SdUpsertFieldDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/fields/${id}`, dto); }
+  /** `[MS.7.3]` Zonas: el catálogo del lugar dentro de la ubicación. */
+  createZone(dto: SdUpsertZoneDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/zones`, dto); }
+  updateZone(id: string, dto: SdUpsertZoneDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/zones/${id}`, dto); }
   updateQueue(id: string, dto: SdUpsertQueueDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/queues/${id}`, dto); }
   createCategory(dto: SdUpsertCategoryDto): Observable<SdConfigResponse> { return this.http.post<SdConfigResponse>(`${this.base}/config/categories`, dto); }
   updateCategory(id: string, dto: SdUpsertCategoryDto): Observable<SdConfigResponse> { return this.http.put<SdConfigResponse>(`${this.base}/config/categories/${id}`, dto); }

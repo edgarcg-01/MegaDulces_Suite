@@ -18,6 +18,7 @@ export type SdEventoClave =
   | 'reabierto'
   | 'cancelado'
   | 'autocerrado'
+  | 'transferido'
   | 'sla_por_vencer'
   | 'sla_primera_respuesta_vencida'
   | 'sla_vencido';
@@ -78,6 +79,9 @@ export function armarAviso(e: EntradaAviso): Aviso {
       return { title: 'Reabrieron una solicitud', message: `${ref}${quien ? ` — la reabrió ${quien}` : ''}.`, severity: 'warn' };
     case 'cancelado':
       return { title: 'Se canceló una solicitud', message: `${ref}${quien ? ` — la canceló ${quien}` : ''}.`, severity: 'info' };
+    case 'transferido':
+      // `[MS.7.11]` `extracto` lleva el nombre del área destino. Le llega a quien atiende esa área.
+      return { title: 'Te trasladaron una solicitud', message: `${ref}${quien ? ` — la trasladó ${quien}` : ''}${e.extracto ? ` a ${recortar(e.extracto, 60)}` : ''}.`, severity: e.priority === 'urgente' ? 'critical' : 'info' };
     case 'autocerrado':
       return {
         title: 'Cerramos tu solicitud',

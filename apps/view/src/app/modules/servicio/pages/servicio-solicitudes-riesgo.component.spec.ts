@@ -15,13 +15,15 @@ import { ServicioSolicitudesComponent } from './servicio-solicitudes.component';
  */
 const CATALOGO: SdCatalogResponse = {
   queues: [
-    { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto' },
-    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'riesgo_operacion' },
+    { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'riesgo_operacion', asks_zone: true },
   ],
   categories: [
     { id: 'c-ti', queue_id: 'q-ti', code: 'reportes', name: 'Reportes', default_priority: 'baja', requires_branch: false },
     { id: 'c-mto', queue_id: 'q-mto', code: 'plomeria', name: 'Plomería', default_priority: 'media', requires_branch: false },
   ],
+  zones: [],
+  fields: [],
   impacts: ['yo', 'varios', 'sucursal', 'red'],
 };
 

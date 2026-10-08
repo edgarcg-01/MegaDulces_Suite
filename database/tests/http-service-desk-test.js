@@ -266,7 +266,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     check('⭐ el solicitante NO resuelve su propio ticket → 403', (await req('POST', `${SD}/requests/${T1.id}/status`, sol.token, { status: 'resuelto', note: 'ya quedó' })).status === 403);
     check('el solicitante NO cancela uno en proceso (sólo coordinación) → 403', (await req('POST', `${SD}/requests/${T1.id}/cancel`, sol.token, {})).status === 403);
 
-    const espera = await req('POST', `${SD}/requests/${T1.id}/status`, agente.token, { status: 'en_espera', note: 'Espero que me confirmes tu usuario' });
+    const espera = await req('POST', `${SD}/requests/${T1.id}/status`, agente.token, { status: 'en_espera', pause_reason: 'solicitante', note: 'Espero que me confirmes tu usuario' });
     check('el agente pone «en_espera»', espera.status < 300 && espera.body?.status === 'en_espera', dump(espera));
     check('⭐ en espera el reloj del SLA queda PAUSADO', espera.body?.sla?.paused === true);
     const responde = await req('POST', `${SD}/requests/${T1.id}/messages`, sol.token, { body: 'Mi usuario es jperez' });
@@ -510,7 +510,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     // Un ticket en ESPERA, vencido: sigue siendo del agente pero su reloj está pausado.
     const tp = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: en espera, con plazo viejo' });
     await req('POST', `${SD}/requests/${tp.body?.id}/take`, agente.token);
-    await req('POST', `${SD}/requests/${tp.body?.id}/status`, agente.token, { status: 'en_espera', note: 'Espero al solicitante' });
+    await req('POST', `${SD}/requests/${tp.body?.id}/status`, agente.token, { status: 'en_espera', pause_reason: 'solicitante', note: 'Espero al solicitante' });
     await knex('servicedesk.requests').where({ id: tp.body?.id }).update({ due_at: new Date(Date.now() - 5 * 3600e3) });
     // Y uno vencido de verdad, con el reloj corriendo.
     const tv = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE: vencido con reloj corriendo' });
@@ -1269,6 +1269,513 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⭐ TI sigue en impacto: no se le pide el riesgo y su ticket queda con safety_risk NULL', ti.status === 201 && ti.body?.safety_risk === null, dump(ti));
     }
 
+    // ── 27. [MS.7.3] Zonas: el lugar DENTRO de la ubicación (sólo la pregunta la cola que lo declara) ─────
+    {
+      console.log('\n27 — zonas: catálogo editable, ticket con zona opcional, y sólo en la cola que la pregunta');
+      const [{ id: qZ }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_zn73', name: 'SMOKE Zonas', sort_order: 904 }).returning('id');
+      const [{ id: catZ }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qZ, code: 'smoke_zn73_cat', name: 'SMOKE Z', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeZ = await crearUsuario('zn_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qZ, role: 'coordinador' }]);
+      const sinCola = await crearUsuario('zn_sincola', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], []);
+      usuarios.push(jefeZ, sinCola);
+      const mk = (cat, extra = {}) => req('POST', `${SD}/requests`, sol.token, { category_id: cat, title: 'SMOKE 7.3 ' + Math.random().toString(36).slice(2, 7), ...extra });
+      const pregunta = (token, v) => req('PUT', `${SD}/config/queues/${qZ}`, token, { asks_zone: v });
+
+      // El catálogo trae las zonas y declara qué colas la preguntan.
+      const c0 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('⭐ el catálogo trae las 5 zonas sembradas, activas y ordenadas', ['bodega', 'anden', 'oficina', 'banos', 'exterior'].every((z) => (c0?.zones ?? []).some((k) => k.code === z)), JSON.stringify((c0?.zones ?? []).map((k) => k.code)));
+      check('y cada cola declara `asks_zone` (por valor); TI NO la pregunta', (c0?.queues ?? []).every((q) => typeof q.asks_zone === 'boolean') && (c0?.queues ?? []).filter((q) => q.code === 'ti').every((q) => q.asks_zone === false), JSON.stringify((c0?.queues ?? []).map((q) => [q.code, q.asks_zone])));
+
+      // Una cola que NO la pregunta IGNORA la zona (no se guarda).
+      const ignorada = await mk(catZ, { zone_code: 'bodega' });
+      check('⛔ en una cola que NO pregunta la zona, la zona se IGNORA (queda sin zona)', ignorada.status === 201 && ignorada.body?.zone_code === null && ignorada.body?.zone_name === null, dump(ignorada));
+
+      // Quién enciende la pregunta.
+      check('⛔ quien coordina OTRA cola no cambia lo que ésta pregunta → 403', (await pregunta(coord.token, true)).status === 403);
+      check('⛔ asks_zone que no es verdadero/falso → 400', (await req('PUT', `${SD}/config/queues/${qZ}`, jefeZ.token, { asks_zone: 'si' })).status === 400);
+      const enciende = await pregunta(jefeZ.token, true);
+      check('⭐ la coordinación DE LA COLA enciende la pregunta', enciende.status === 200 && (enciende.body?.queues ?? []).find((q) => q.id === qZ)?.asks_zone === true, dump(enciende));
+
+      // Con la pregunta encendida.
+      const conZona = await mk(catZ, { zone_code: 'anden' });
+      check('⭐ con la pregunta encendida la zona se GUARDA y la ficha trae su nombre', conZona.status === 201 && conZona.body?.zone_code === 'anden' && conZona.body?.zone_name === 'Andén', dump(conZona));
+      const detalle = await req('GET', `${SD}/requests/${conZona.body?.id}`, sol.token);
+      check('y el detalle (para quien reportó) también la muestra', detalle.status === 200 && detalle.body?.zone_name === 'Andén', dump(detalle));
+      const sinZona = await mk(catZ);
+      check('la zona es OPCIONAL: sin ella el ticket se levanta igual', sinZona.status === 201 && sinZona.body?.zone_code === null, dump(sinZona));
+      const vacia = await mk(catZ, { zone_code: '  ' });
+      check('una zona en blanco se trata como «sin zona» (no como error)', vacia.status === 201 && vacia.body?.zone_code === null, dump(vacia));
+      const falsa = await mk(catZ, { zone_code: 'sotano_secreto' });
+      check('⛔ una zona que no existe → 400 (no hay zonas inventadas)', falsa.status === 400, dump(falsa));
+
+      // Administrar el catálogo.
+      const alta = (token, dto) => req('POST', `${SD}/config/zones`, token, dto);
+      check('⛔ quien reportó (sin permisos) NO da de alta zonas → 403', (await alta(sol.token, { code: 'smoke_a', name: 'A' })).status === 403);
+      check('⛔ quien tiene las claves pero no coordina NINGUNA cola → 403', (await alta(sinCola.token, { code: 'smoke_a', name: 'A' })).status === 403);
+      check('⛔ un código mal formado → 400', (await alta(jefeZ.token, { code: 'Con Espacios', name: 'A' })).status === 400);
+      check('⛔ sin nombre → 400', (await alta(jefeZ.token, { code: 'smoke_a', name: '  ' })).status === 400);
+      const nueva = await alta(jefeZ.token, { code: 'smoke_patio', name: 'Patio de maniobras' });
+      check('⭐ quien coordina una cola da de alta una zona (aparece en la configuración)', nueva.status < 300 && (nueva.body?.zones ?? []).some((z) => z.code === 'smoke_patio' && z.active === true), dump(nueva));
+      check('⛔ el código no se repite', [400, 409].includes((await alta(jefeZ.token, { code: 'smoke_patio', name: 'Otra' })).status));
+      const zid = (nueva.body?.zones ?? []).find((z) => z.code === 'smoke_patio')?.id;
+      check('⛔ el código de una zona NO se cambia → 400', (await req('PUT', `${SD}/config/zones/${zid}`, jefeZ.token, { code: 'otro_codigo' })).status === 400);
+      const renombra = await req('PUT', `${SD}/config/zones/${zid}`, jefeZ.token, { name: 'Patio' });
+      check('se renombra', renombra.status === 200 && (renombra.body?.zones ?? []).some((z) => z.id === zid && z.name === 'Patio'), dump(renombra));
+      const usaPatio = await mk(catZ, { zone_code: 'smoke_patio' });
+      check('⭐ la zona nueva ya se puede elegir al reportar', usaPatio.status === 201 && usaPatio.body?.zone_name === 'Patio', dump(usaPatio));
+      const apaga = await req('PUT', `${SD}/config/zones/${zid}`, jefeZ.token, { active: false });
+      check('apagar no borra: sigue en la configuración, apagada', apaga.status === 200 && (apaga.body?.zones ?? []).some((z) => z.id === zid && z.active === false), dump(apaga));
+      const c1 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('⭐ apagada, el catálogo ya no la ofrece', !(c1?.zones ?? []).some((z) => z.code === 'smoke_patio'));
+      check('⛔ y elegirla a mano → 400', (await mk(catZ, { zone_code: 'smoke_patio' })).status === 400);
+      const vieja = await req('GET', `${SD}/requests/${usaPatio.body?.id}`, sol.token);
+      check('⭐ pero el ticket viejo CONSERVA su zona apagada (el historial no se reescribe)', vieja.status === 200 && vieja.body?.zone_name === 'Patio', dump(vieja));
+      check('⛔ una zona inexistente al editar → 404', (await req('PUT', `${SD}/config/zones/00000000-0000-0000-0000-0000000000ee`, jefeZ.token, { active: true })).status === 404);
+
+      // Apagar la pregunta: la zona deja de viajar de nuevo.
+      await pregunta(jefeZ.token, false);
+      const otraVez = await mk(catZ, { zone_code: 'bodega' });
+      check('⛔ al apagar la pregunta la zona vuelve a ignorarse', otraVez.status === 201 && otraVez.body?.zone_code === null, dump(otraVez));
+
+      // TI no cambió.
+      const ti = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.3 TI', impact: 'yo', blocks_work: false, zone_code: 'bodega' });
+      check('⭐ TI sigue igual: la zona no se pregunta, no se guarda y el ticket se levanta', ti.status === 201 && ti.body?.zone_code === null, dump(ti));
+    }
+
+    // ── 28. [MS.7.4] + [MS.7.8] Campos propios por cola: se declaran por configuración y se validan al reportar ───
+    {
+      console.log('\n28 — campos propios por cola: alta, validación al reportar, ficha etiquetada y permisos');
+      const [{ id: qC }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_cf74', name: 'SMOKE Campos', sort_order: 905 }).returning('id');
+      const [{ id: catC }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qC, code: 'smoke_cf74_cat', name: 'SMOKE C', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeC = await crearUsuario('cf_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qC, role: 'coordinador' }]);
+      usuarios.push(jefeC);
+      const mk = (extra, adjuntos) => req('POST', `${SD}/requests`, sol.token, { category_id: catC, title: 'SMOKE 7.4 ' + Math.random().toString(36).slice(2, 7), ...(extra !== undefined ? { extra } : {}), ...(adjuntos ? { attachments: adjuntos } : {}) });
+      const alta = (token, dto, cola = qC) => req('POST', `${SD}/config/queues/${cola}/fields`, token, dto);
+      const PNG = { file_base64: dataUri('image/png', PNG_1X1), file_name: 'falla.png' };
+
+      // Una cola sin campos se comporta como siempre.
+      const base = await mk();
+      check('⭐ una cola SIN campos se levanta como siempre y guarda extra vacío', base.status === 201 && Array.isArray(base.body?.extra) && base.body.extra.length === 0, dump(base));
+      const c0 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('el catálogo declara `fields` (vacío para las colas que no tienen)', Array.isArray(c0?.fields) && !(c0.fields ?? []).some((f) => f.queue_id === qC), JSON.stringify(c0?.fields));
+
+      // Quién declara campos.
+      check('⛔ quien coordina OTRA cola no declara campos en ésta → 403', (await alta(coord.token, { code: 'afecta', label: '¿Afecta a clientes?', type: 'boolean' })).status === 403);
+      check('⛔ quien reportó (sin permisos) → 403', (await alta(sol.token, { code: 'afecta', label: '¿Afecta a clientes?', type: 'boolean' })).status === 403);
+      check('⛔ código mal formado → 400', (await alta(jefeC.token, { code: 'Con Espacios', label: 'x', type: 'boolean' })).status === 400);
+      check('⛔ tipo desconocido → 400', (await alta(jefeC.token, { code: 'fecha', label: 'Fecha', type: 'fecha' })).status === 400);
+      check('⛔ un select con UNA opción → 400', (await alta(jefeC.token, { code: 'tipo', label: 'Tipo', type: 'select', options: ['sola'] })).status === 400);
+      check('⛔ una pregunta vacía → 400', (await alta(jefeC.token, { code: 'afecta', label: '  ', type: 'boolean' })).status === 400);
+      check('⛔ una cola inexistente → 403/404 (nadie la coordina)', [403, 404].includes((await alta(jefeC.token, { code: 'afecta', label: 'x', type: 'boolean' }, '00000000-0000-0000-0000-0000000000ee')).status));
+      const a1 = await alta(jefeC.token, { code: 'afecta', label: '¿Afecta a clientes?', type: 'boolean', required: true, sort_order: 10 });
+      check('⭐ la coordinación DE LA COLA declara un sí/no requerido', a1.status < 300 && (a1.body?.fields ?? []).some((f) => f.queue_id === qC && f.code === 'afecta' && f.required === true && f.active === true), dump(a1));
+      await alta(jefeC.token, { code: 'tipo_falla', label: 'Tipo de falla', type: 'select', options: ['Eléctrica', 'Hidráulica', 'Otra'], sort_order: 20 });
+      await alta(jefeC.token, { code: 'equipo', label: 'Equipo', type: 'text', sort_order: 30 });
+      const aFoto = await alta(jefeC.token, { code: 'foto', label: 'Foto de la falla', type: 'photo', required: false, sort_order: 40 });
+      check('⛔ el código no se repite en la misma cola', [400, 409].includes((await alta(jefeC.token, { code: 'afecta', label: 'otra', type: 'boolean' })).status));
+      const fAfecta = (a1.body?.fields ?? []).find((f) => f.code === 'afecta');
+      const fFoto = (aFoto.body?.fields ?? []).find((f) => f.code === 'foto');
+      check('⛔ el código de un campo NO se cambia → 400', (await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { code: 'otro' })).status === 400);
+      check('⛔ el tipo de un campo NO se cambia → 400', (await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { type: 'text' })).status === 400);
+      check('⛔ quien coordina OTRA cola no edita este campo → 403 (se autoriza por la cola DEL CAMPO)', (await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, coord.token, { label: 'hackeado' })).status === 403);
+      check('⛔ opciones en un campo que no es select → 400', (await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { options: ['a', 'b'] })).status === 400);
+
+      // El catálogo los ofrece (sólo activos, en su orden).
+      const c1 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      const susCampos = (c1?.fields ?? []).filter((f) => f.queue_id === qC);
+      check('⭐ el catálogo ofrece sus 4 campos ordenados', susCampos.map((f) => f.code).join(',') === 'afecta,tipo_falla,equipo,foto', JSON.stringify(susCampos.map((f) => f.code)));
+      check('y las opciones del select viajan', susCampos.find((f) => f.code === 'tipo_falla')?.options?.length === 3);
+
+      // Validación al reportar.
+      const sinContestar = await mk({});
+      check('⛔ un requerido sin contestar → 400 con la razón', sinContestar.status === 400 && /obligatorio/.test(JSON.stringify(sinContestar.body)), dump(sinContestar));
+      const sinExtra = await mk();
+      check('⛔ sin mandar `extra` con un requerido declarado → 400', sinExtra.status === 400, dump(sinExtra));
+      check('⛔ un sí/no que no es booleano → 400', (await mk({ afecta: 'no' })).status === 400);
+      check('⛔ una opción fuera de la lista → 400', (await mk({ afecta: true, tipo_falla: 'Mecánica' })).status === 400);
+      check('⛔ un campo que la cola NO declara → 400 (no se ignora)', (await mk({ afecta: true, inventado: 'x' })).status === 400);
+      check('⛔ un texto de más de 500 caracteres → 400', (await mk({ afecta: true, equipo: 'a'.repeat(501) })).status === 400);
+      check('⛔ `extra` que no es un objeto → 400', (await mk([1, 2])).status === 400);
+      check('⛔ la foto no viaja en `extra` → 400', (await mk({ afecta: true, foto: 'data:image/png;base64,xx' })).status === 400);
+      const huerfanos = await knex('servicedesk.requests').where({ queue_id: qC }).whereRaw(`title like 'SMOKE 7.4%'`).count({ n: '*' }).first();
+      check('y las peticiones rechazadas no dejaron tickets a medias (sólo el primero, sin campos)', Number(huerfanos.n) === 1, String(huerfanos.n));
+
+      const bien = await mk({ afecta: false, tipo_falla: 'Eléctrica', equipo: '  Compresor 2  ' });
+      check('⭐ con todo bien se levanta; `false` ES una respuesta', bien.status === 201, dump(bien));
+      const ficha = await req('GET', `${SD}/requests/${bien.body?.id}`, sol.token);
+      const ex = ficha.body?.extra ?? [];
+      check('⭐ la ficha devuelve lo contestado CON la pregunta, en el orden de los campos y normalizado', ex.map((e) => `${e.label}=${e.value}`).join('|') === '¿Afecta a clientes?=false|Tipo de falla=Eléctrica|Equipo=Compresor 2', JSON.stringify(ex));
+      const guardado = await knex('servicedesk.requests').where({ id: bien.body?.id }).first('extra');
+      check('en la base queda sólo lo contestado, por código', JSON.stringify(Object.keys(guardado.extra).sort()) === JSON.stringify(['afecta', 'equipo', 'tipo_falla']), JSON.stringify(guardado.extra));
+      const parcial = await mk({ afecta: true });
+      check('lo OPCIONAL sin contestar no se guarda (ni null ni vacío)', parcial.status === 201 && (await knex('servicedesk.requests').where({ id: parcial.body?.id }).first('extra')).extra?.tipo_falla === undefined, dump(parcial));
+
+      // Foto requerida (la capacidad existe; ninguna cola real la activa).
+      const req1 = await req('PUT', `${SD}/config/fields/${fFoto?.id}`, jefeC.token, { required: true });
+      check('la coordinación puede volver requerida la foto', req1.status === 200 && (req1.body?.fields ?? []).find((f) => f.id === fFoto?.id)?.required === true, dump(req1));
+      const sinFoto = await mk({ afecta: true });
+      check('⛔ foto requerida SIN adjunto → 400', sinFoto.status === 400 && /foto/i.test(JSON.stringify(sinFoto.body)), dump(sinFoto));
+      const conFoto = await mk({ afecta: true }, [PNG]);
+      if (conFoto.status === 201) check('⭐ foto requerida CON adjunto → se levanta y el adjunto queda ligado', (conFoto.body?.attachments ?? []).length === 1, dump(conFoto));
+      else noMedido.push(`foto requerida CON adjunto válido (MS.7.4): el bucket no respondió (${conFoto.status}); la negativa «sin foto → 400» sí se midió`);
+      await req('PUT', `${SD}/config/fields/${fFoto?.id}`, jefeC.token, { required: false }); // los siguientes no llevan adjunto
+
+      // Editar: la pregunta cambia para lo nuevo; el ticket viejo conserva SU pregunta... (la etiqueta sale de la definición vigente).
+      const renombra = await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { label: '¿Afecta a los clientes?' });
+      check('se renombra la pregunta', renombra.status === 200 && (renombra.body?.fields ?? []).some((f) => f.id === fAfecta?.id && f.label === '¿Afecta a los clientes?'), dump(renombra));
+      // Apagar un campo requerido: deja de pedirse, el ticket viejo conserva su respuesta.
+      const apaga = await req('PUT', `${SD}/config/fields/${fAfecta?.id}`, jefeC.token, { active: false });
+      check('apagar no borra: sigue en la configuración, apagado', apaga.status === 200 && (apaga.body?.fields ?? []).some((f) => f.id === fAfecta?.id && f.active === false), dump(apaga));
+      const c2 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      check('⭐ apagado, el catálogo ya no lo ofrece', !(c2?.fields ?? []).some((f) => f.code === 'afecta'));
+      const yaNoPide = await mk({ tipo_falla: 'Otra' });
+      check('⭐ y ya no se exige aunque fuera requerido', yaNoPide.status === 201, dump(yaNoPide));
+      check('⛔ mandar la respuesta de un campo apagado → 400 (la cola ya no lo declara)', (await mk({ afecta: true })).status === 400);
+      const vieja = await req('GET', `${SD}/requests/${bien.body?.id}`, sol.token);
+      check('⭐ el ticket viejo CONSERVA su respuesta del campo apagado, con su pregunta', (vieja.body?.extra ?? []).some((e) => e.code === 'afecta' && e.value === false), JSON.stringify(vieja.body?.extra));
+      check('⛔ editar un campo inexistente → 404', (await req('PUT', `${SD}/config/fields/00000000-0000-0000-0000-0000000000ee`, jefeC.token, { active: true })).status === 404);
+
+      // Opciones editables.
+      const fTipo = (c1?.fields ?? []).find((f) => f.code === 'tipo_falla');
+      const [rowTipo] = await knex('servicedesk.queue_fields').where({ queue_id: qC, code: 'tipo_falla' }).select('id');
+      const cambia = await req('PUT', `${SD}/config/fields/${rowTipo.id}`, jefeC.token, { options: ['Eléctrica', 'Hidráulica', 'Mecánica'] });
+      check('las opciones de un select se editan', cambia.status === 200 && (cambia.body?.fields ?? []).find((f) => f.id === rowTipo.id)?.options?.includes('Mecánica'), dump(cambia));
+      check('⛔ pero una sola opción → 400', (await req('PUT', `${SD}/config/fields/${rowTipo.id}`, jefeC.token, { options: ['sola'] })).status === 400);
+      check('(control) el campo de opciones sigue declarado', !!fTipo);
+
+      // TI no cambió.
+      const ti = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.4 TI', impact: 'yo', blocks_work: false, extra: { afecta: true } });
+      check('⛔ TI no declara ese campo: mandarlo → 400 (los campos son por cola)', ti.status === 400, dump(ti));
+      const ti2 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.4 TI ok', impact: 'yo', blocks_work: false });
+      check('⭐ TI sigue igual: sin campos propios se levanta como siempre', ti2.status === 201 && (ti2.body?.extra ?? []).length === 0, dump(ti2));
+    }
+
+    // ── 29. [MS.7.9] Motivo de pausa: qué se espera decide si la respuesta de la persona reanuda el ticket ───
+    {
+      console.log('\n29 — motivo de pausa en «en espera»');
+      const nuevoTicket = async (t) => {
+        const r = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.9 ' + t, impact: 'yo', blocks_work: false });
+        await req('POST', `${SD}/requests/${r.body?.id}/assign`, coord.token, { user_id: agente.id });
+        await req('POST', `${SD}/requests/${r.body?.id}/status`, agente.token, { status: 'en_proceso' });
+        return r.body?.id;
+      };
+      const estado = (id, body, token = agente.token) => req('POST', `${SD}/requests/${id}/status`, token, body);
+      const ver = async (id) => (await req('GET', `${SD}/requests/${id}`, sol.token)).body;
+
+      const a = await nuevoTicket('sin motivo');
+      const sinMotivo = await estado(a, { status: 'en_espera' });
+      check('⛔ poner en espera SIN motivo → 400 (sin él «en espera» no dice qué se espera)', sinMotivo.status === 400, dump(sinMotivo));
+      check('⛔ motivo inventado → 400', (await estado(a, { status: 'en_espera', pause_reason: 'porque_si' })).status === 400);
+      check('⛔ motivo con un estado que no es «en espera» → 400 (no se ignora)', (await estado(a, { status: 'resuelto', note: 'x', pause_reason: 'proveedor' })).status === 400);
+      check('⛔ y el ticket no cambió con las peticiones rechazadas', (await ver(a))?.status === 'en_proceso');
+
+      const pa = await estado(a, { status: 'en_espera', pause_reason: 'proveedor', note: 'Espero la pieza del proveedor' });
+      check('⭐ con motivo: queda en espera, con su motivo y el reloj pausado', pa.status < 300 && pa.body?.status === 'en_espera' && pa.body?.pause_reason === 'proveedor' && pa.body?.sla?.paused === true, dump(pa));
+      const hilo = (await req('GET', `${SD}/requests/${a}`, agente.token)).body?.messages ?? [];
+      check('el hilo deja el motivo en el mensaje de estado', hilo.some((m) => m.kind === 'status' && m.meta?.pause_reason === 'proveedor'), JSON.stringify(hilo.map((m) => m.meta)));
+
+      const dueAntes = (await ver(a))?.sla?.due_at;
+      const comenta = await req('POST', `${SD}/requests/${a}/messages`, sol.token, { body: '¿Ya llegó la pieza?' });
+      const despues = await ver(a);
+      check('⭐ esperando al PROVEEDOR, que la persona comente NO reanuda (sigue en espera y pausado)', comenta.status < 300 && despues?.status === 'en_espera' && despues?.pause_reason === 'proveedor' && despues?.sla?.paused === true, `${despues?.status} ${despues?.pause_reason} paused=${despues?.sla?.paused}`);
+      check('y el plazo no se movió: el reloj no corre en pausa', despues?.sla?.due_at === dueAntes, `${dueAntes} → ${despues?.sla?.due_at}`);
+
+      const reanuda = await estado(a, { status: 'en_proceso', note: 'Llegó la pieza' });
+      check('⭐ quien atiende reanuda: vuelve a en proceso, el reloj corre y el motivo SE VA', reanuda.status < 300 && reanuda.body?.status === 'en_proceso' && reanuda.body?.pause_reason === null && reanuda.body?.sla?.paused === false, dump(reanuda));
+
+      const b = await nuevoTicket('solicitante');
+      await estado(b, { status: 'en_espera', pause_reason: 'solicitante', note: 'Necesito que me digas el equipo' });
+      const resp = await req('POST', `${SD}/requests/${b}/messages`, sol.token, { body: 'Es la caja 3' });
+      const rb = await ver(b);
+      check('⭐ esperando a la PERSONA, su respuesta SÍ reanuda sola y se va el motivo', resp.status < 300 && rb?.status === 'en_proceso' && rb?.pause_reason === null && rb?.sla?.paused === false, `${rb?.status} ${rb?.pause_reason}`);
+
+      const c = await nuevoTicket('resolver desde la espera');
+      await estado(c, { status: 'en_espera', pause_reason: 'refaccion' });
+      const res = await estado(c, { status: 'resuelto', note: 'Se resolvió sin la refacción' });
+      check('resolver desde «en espera» también limpia el motivo', res.status < 300 && res.body?.status === 'resuelto' && res.body?.pause_reason === null, dump(res));
+      const d = await nuevoTicket('cancelar desde la espera');
+      await estado(d, { status: 'en_espera', pause_reason: 'aprobacion' });
+      const can = await req('POST', `${SD}/requests/${d}/cancel`, coord.token, {});
+      check('cancelar desde «en espera» limpia el motivo (no queda un motivo huérfano)', can.status < 300 && can.body?.status === 'cancelado' && can.body?.pause_reason === null, dump(can));
+      const enBase = await knex('servicedesk.requests').whereIn('id', [a, b, c, d]).whereNotNull('pause_reason').count({ n: '*' }).first();
+      check('⭐ en la base no quedó ningún motivo fuera de «en espera»', Number(enBase.n) === 0, String(enBase.n));
+      check('⛔ quien reportó no pone en espera → 403', (await estado(a, { status: 'en_espera', pause_reason: 'otro' }, sol.token)).status === 403);
+    }
+
+    // ── 30. [MS.7.10] Ruteo por ubicación + responsable por omisión (sólo a miembros de la cola) ───────
+    {
+      console.log('\n30 — ruteo por ubicación y responsable por omisión');
+      const [{ id: qR }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_rt710', name: 'SMOKE Ruteo', sort_order: 906 }).returning('id');
+      const [{ id: catR }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qR, code: 'smoke_rt710_a', name: 'SMOKE RT a', default_priority: 'media', requires_branch: false }).returning('id');
+      const [{ id: catR2 }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qR, code: 'smoke_rt710_b', name: 'SMOKE RT b', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeR = await crearUsuario('rt_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qR, role: 'coordinador' }]);
+      const tecR = await crearUsuario('rt_tec', ['SERVICIO_ATENDER'], [{ queue_id: qR, role: 'tecnico' }]);
+      usuarios.push(jefeR, tecR);
+      const mk = (cat, extra = {}) => req('POST', `${SD}/requests`, sol.token, { category_id: cat, title: 'SMOKE 7.10 ' + Math.random().toString(36).slice(2, 7), ...extra });
+      const ficha = async (r) => (await req('GET', `${SD}/requests/${r.body?.id}`, jefeR.token)).body;
+      const regla = (token, dto) => req('POST', `${SD}/config/routing`, token, dto);
+      const quien = async (r) => (await ficha(r))?.assigned_to ?? null;
+
+      // Validación de la regla.
+      check('⛔ una ubicación que no existe → 400', (await regla(coord.token, { name: 'SMOKE 710 mala', warehouse_code: 'ZZ', assignee_id: tecR.id })).status === 400);
+      check('⛔ sin categoría, palabras NI ubicación sigue siendo → 400', (await regla(coord.token, { name: 'SMOKE 710 vacía', assignee_id: tecR.id })).status === 400);
+      check('⛔ quitarle a una regla su ÚNICO disparador (la ubicación) → 400', await (async () => {
+        const a = await regla(coord.token, { name: 'SMOKE 710 temporal', warehouse_code: 'OF', assignee_id: tecR.id, sort_order: 5000 });
+        const id = (a.body?.rules ?? []).find((r) => r.name === 'SMOKE 710 temporal')?.id;
+        const r = await req('PUT', `${SD}/config/routing/${id}`, coord.token, { warehouse_code: null });
+        await knex('servicedesk.routing_rules').where({ id }).del();
+        return r.status === 400;
+      })());
+
+      // A) sólo ubicación.
+      const rA = await regla(coord.token, { name: 'SMOKE 710 oficinas', warehouse_code: 'OF', assignee_id: tecR.id, sort_order: 50 });
+      const ruleA = (rA.body?.rules ?? []).find((r) => r.name === 'SMOKE 710 oficinas');
+      check('⭐ una regla sólo por UBICACIÓN se da de alta y la lista dice su nombre', rA.status < 300 && ruleA?.warehouse_code === 'OF' && ruleA?.warehouse_name === 'Oficinas Corporativas', dump(rA));
+      const t1 = await mk(catR, { warehouse_code: 'OF' });
+      const f1 = await ficha(t1);
+      check('⭐ un ticket de esa ubicación cae a su persona, ya asignado', f1?.assigned_to === tecR.id && f1?.status === 'asignado', JSON.stringify([f1?.status, f1?.assigned_to]));
+      const m1 = (f1?.messages ?? []).find((m) => m.kind === 'assignment');
+      check('el hilo dice que fue por UBICACIÓN y por qué regla', m1?.meta?.reason === 'location' && m1?.meta?.rule_name === 'SMOKE 710 oficinas', JSON.stringify(m1?.meta));
+      check('⛔ de OTRA ubicación la regla NO aplica (queda sin asignar)', (await quien(await mk(catR, { warehouse_code: 'EC' }))) === null);
+      check('⛔ y sin ubicación tampoco', (await quien(await mk(catR))) === null);
+
+      // B) la más específica gana, aunque vaya después en el orden.
+      await regla(coord.token, { name: 'SMOKE 710 cat+ubic', category_id: catR, warehouse_code: 'OF', assignee_id: jefeR.id, sort_order: 90 });
+      check('⭐ categoría + ubicación le gana a ubicación sola, AUNQUE vaya después (orden 90 > 50)', (await quien(await mk(catR, { warehouse_code: 'OF' }))) === jefeR.id);
+      check('⭐ otra categoría de la cola, misma ubicación → la regla de ubicación (la específica no aplica)', (await quien(await mk(catR2, { warehouse_code: 'OF' }))) === tecR.id);
+      check('⛔ la categoría correcta en OTRA ubicación → nadie (ninguna regla aplica)', (await quien(await mk(catR, { warehouse_code: 'EC' }))) === null);
+
+      // C) responsable por omisión.
+      const def = (token, v) => req('PUT', `${SD}/config/queues/${qR}`, token, { default_assignee_id: v });
+      const cfg0 = (await req('GET', `${SD}/config`, jefeR.token)).body;
+      check('la cola nace SIN responsable por omisión (los sin regla quedan «Sin asignar»)', (cfg0?.queues ?? []).find((q) => q.id === qR)?.default_assignee_id === null);
+      check('⛔ un id mal formado → 400', (await def(jefeR.token, 'no-es-uuid')).status === 400);
+      check('⛔ alguien que NO es de la cola (la persona que reporta) → 400', (await def(jefeR.token, sol.id)).status === 400);
+      check('⛔ alguien con permiso pero miembro de OTRA cola (el agente de TI) → 400', (await def(jefeR.token, agente.id)).status === 400);
+      check('⛔ un usuario que no existe → 400', (await def(jefeR.token, '00000000-0000-4000-8000-000000000000')).status === 400);
+      check('⛔ quien coordina OTRA cola no lo cambia → 403', (await def(coord.token, tecR.id)).status === 403);
+      const ponDef = await def(jefeR.token, tecR.id);
+      const qCfg = (ponDef.body?.queues ?? []).find((q) => q.id === qR);
+      check('⭐ la coordinación DE LA COLA lo pone (un miembro) y la configuración dice su nombre', ponDef.status === 200 && qCfg?.default_assignee_id === tecR.id && !!qCfg?.default_assignee_name, dump(ponDef));
+
+      const tDef = await mk(catR, { warehouse_code: 'EC' });
+      const fDef = await ficha(tDef);
+      check('⭐ sin regla que aplique, cae el responsable por omisión (asignado)', fDef?.assigned_to === tecR.id && fDef?.status === 'asignado', JSON.stringify([fDef?.status, fDef?.assigned_to]));
+      const mDef = (fDef?.messages ?? []).find((m) => m.kind === 'assignment');
+      check('el hilo dice que fue por OMISIÓN (sin regla)', mDef?.meta?.reason === 'default' && mDef?.meta?.rule_id === null, JSON.stringify(mDef?.meta));
+      check('⭐ una regla que aplica le GANA al responsable por omisión', (await quien(await mk(catR, { warehouse_code: 'OF' }))) === jefeR.id);
+
+      // D) nunca a quien no es miembro.
+      await knex('servicedesk.queue_members').where({ queue_id: qR, user_id: tecR.id }).update({ active: false });
+      const tFuera = await mk(catR, { warehouse_code: 'EC' });
+      const fFuera = await ficha(tFuera);
+      check('⛔ si el responsable YA NO es miembro de la cola, el ticket queda SIN asignar (nunca a un no-miembro)', fFuera?.assigned_to === null && fFuera?.status === 'nuevo', JSON.stringify([fFuera?.status, fFuera?.assigned_to]));
+      check('⭐ y una nota interna lo dice, para que el error se vea', (fFuera?.messages ?? []).some((m) => m.visibility === 'internal' && /responsable por omisi/i.test(m.body)), JSON.stringify((fFuera?.messages ?? []).map((m) => m.body)));
+      const fFueraSol = (await req('GET', `${SD}/requests/${tFuera.body?.id}`, sol.token)).body;
+      check('⛔ y quien reportó NO ve esa nota interna', !(fFueraSol?.messages ?? []).some((m) => /responsable por omisi/i.test(m.body)));
+      await knex('servicedesk.queue_members').where({ queue_id: qR, user_id: tecR.id }).update({ active: true });
+
+      // E) se puede quitar.
+      const quita = await def(jefeR.token, null);
+      check('se quita el responsable por omisión (null)', quita.status === 200 && (quita.body?.queues ?? []).find((q) => q.id === qR)?.default_assignee_id === null, dump(quita));
+      check('⭐ sin él, lo sin regla vuelve a quedar «Sin asignar»', (await quien(await mk(catR, { warehouse_code: 'EC' }))) === null);
+
+      // F) quien sale de la cola deja de ser su responsable por omisión (no queda un responsable fantasma).
+      const tec2 = await crearUsuario('rt_tec2', ['SERVICIO_ATENDER'], [{ queue_id: qR, role: 'tecnico' }]);
+      usuarios.push(tec2);
+      await def(jefeR.token, tec2.id);
+      const sale = await req('DELETE', `${SD}/config/queues/${qR}/members/${tec2.id}`, jefeR.token);
+      const tras = (await req('GET', `${SD}/config`, jefeR.token)).body;
+      check('⭐ al quitar de la cola a su responsable por omisión, éste se limpia', sale.status < 300 && (tras?.queues ?? []).find((q) => q.id === qR)?.default_assignee_id === null, dump(sale));
+
+      // TI no cambió.
+      const cfgTi = (await req('GET', `${SD}/config`, coord.token)).body;
+      check('⭐ TI sigue sin responsable por omisión', (cfgTi?.queues ?? []).filter((q) => q.code === 'ti').every((q) => q.default_assignee_id === null));
+      const tiOf = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.10 TI en oficinas', impact: 'yo', blocks_work: false, warehouse_code: 'OF' });
+      check('⛔ las reglas de OTRA cola (ubicación Oficinas → persona de Ruteo) NO tocan un ticket de TI', tiOf.status === 201 && ((await req('GET', `${SD}/requests/${tiOf.body?.id}`, coord.token)).body?.assigned_to ?? null) !== tecR.id);
+
+      await knex('servicedesk.routing_rules').whereIn('assignee_id', [tecR.id, jefeR.id]).del();
+    }
+
+    // ── 31. [MS.7.11] Transferir un ticket a otra cola: mismo folio e hilo, plazos de la cola destino ────
+    {
+      console.log('\n31 — transferir entre colas');
+      const [{ id: qO }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_tr_o', name: 'SMOKE Origen', sort_order: 907 }).returning('id');
+      const [{ id: qD }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_tr_d', name: 'SMOKE Destino', sort_order: 908 }).returning('id');
+      const [{ id: qV }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_tr_v', name: 'SMOKE Vacía', sort_order: 909 }).returning('id');
+      const [{ id: catO }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qO, code: 'smoke_tr_co', name: 'SMOKE TR o', default_priority: 'media', requires_branch: false }).returning('id');
+      const [{ id: catD }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qD, code: 'smoke_tr_cd', name: 'SMOKE TR d', default_priority: 'media', requires_branch: false }).returning('id');
+      const [{ id: catV }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qV, code: 'smoke_tr_cv', name: 'SMOKE TR v', default_priority: 'media', requires_branch: false }).returning('id');
+      // El destino con plazos PROPIOS (más cortos que los generales) para ver que se recalculan.
+      await knex('servicedesk.sla_policies').insert({ tenant_id: T, queue_id: qD, priority: 'media', first_response_minutes: 15, resolution_minutes: 30, clock: 'calendar' });
+      const jefeO = await crearUsuario('tr_jefeo', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qO, role: 'coordinador' }]);
+      const tecO = await crearUsuario('tr_teco', ['SERVICIO_ATENDER'], [{ queue_id: qO, role: 'tecnico' }]);
+      const jefeD = await crearUsuario('tr_jefed', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qD, role: 'coordinador' }]);
+      usuarios.push(jefeO, tecO, jefeD);
+      const mk = async (extra = {}) => {
+        const r = await req('POST', `${SD}/requests`, sol.token, { category_id: catO, title: 'SMOKE 7.11 ' + Math.random().toString(36).slice(2, 7), ...extra });
+        return r.body;
+      };
+      const traslada = (id, token, dto) => req('POST', `${SD}/requests/${id}/transfer`, token, dto);
+      const ok = { queue_id: qD, category_id: catD, reason: 'Es una falla del área destino' };
+      const fichaD = async (id) => (await req('GET', `${SD}/requests/${id}`, jefeD.token)).body;
+
+      // Rechazos.
+      const t0 = await mk();
+      await req('POST', `${SD}/requests/${t0.id}/assign`, jefeO.token, { user_id: tecO.id });
+      check('⛔ quien reportó no traslada → 403', (await traslada(t0.id, sol.token, ok)).status === 403);
+      check('⛔ un técnico (sin COORDINAR) no traslada → 403', (await traslada(t0.id, tecO.token, ok)).status === 403);
+      check('⛔ quien coordina OTRA cola (TI) ni la ve → 404', (await traslada(t0.id, coord.token, ok)).status === 404);
+      check('⛔ la coordinación del DESTINO tampoco puede «traer» un ticket que no es de su cola → 404', (await traslada(t0.id, jefeD.token, ok)).status === 404);
+      check('⛔ sin motivo → 400', (await traslada(t0.id, jefeO.token, { ...ok, reason: '  ' })).status === 400);
+      check('⛔ a la misma cola → 400', (await traslada(t0.id, jefeO.token, { queue_id: qO, category_id: catO, reason: 'x' })).status === 400);
+      check('⛔ con una categoría que NO es del destino → 400', (await traslada(t0.id, jefeO.token, { queue_id: qD, category_id: catO, reason: 'x' })).status === 400);
+      check('⛔ a una cola que no existe → 400', (await traslada(t0.id, jefeO.token, { queue_id: '00000000-0000-4000-8000-000000000000', category_id: catD, reason: 'x' })).status === 400);
+      check('⛔ ids mal formados → 400', (await traslada(t0.id, jefeO.token, { queue_id: 'x', category_id: catD, reason: 'x' })).status === 400);
+      const vacia = await traslada(t0.id, jefeO.token, { queue_id: qV, category_id: catV, reason: 'x' });
+      check('⭐ a una cola que NADIE atiende → 409 (el ticket se perdería)', vacia.status === 409 && /nadie atiende/i.test(JSON.stringify(vacia.body)), dump(vacia));
+      const intacto = await knex('servicedesk.requests').where({ id: t0.id }).first('queue_id', 'assigned_to', 'status');
+      check('⭐ y nada cambió con los rechazos (misma cola, misma persona)', intacto.queue_id === qO && intacto.assigned_to === tecO.id && intacto.status === 'asignado', JSON.stringify(intacto));
+
+      // Traslado feliz, de un ticket ASIGNADO y en proceso, con hilo, adjunto, zona y campos.
+      await req('POST', `${SD}/requests/${t0.id}/status`, tecO.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${t0.id}/messages`, tecO.token, { body: 'Nota del área de origen', visibility: 'internal' });
+      await req('POST', `${SD}/requests/${t0.id}/messages`, sol.token, { body: 'Comentario público de quien reportó' });
+      const dueAntes = (await req('GET', `${SD}/requests/${t0.id}`, jefeO.token)).body?.sla?.due_at;
+      const trs = await traslada(t0.id, jefeO.token, ok);
+      check('⭐ la coordinación del ORIGEN traslada y recibe un resultado (no la ficha: ya no la ve)', trs.status < 300 && trs.body?.id === t0.id && trs.body?.queue_id === qD && trs.body?.queue_name === 'SMOKE Destino' && trs.body?.status === 'nuevo', dump(trs));
+      check('⭐ MISMO folio (no se clona ni se renumera)', trs.body?.folio === t0.folio);
+      check('⛔ y quien trasladó YA NO ve el ticket (es de otra cola) → 404', (await req('GET', `${SD}/requests/${t0.id}`, jefeO.token)).status === 404);
+      const f = await fichaD(t0.id);
+      check('⭐ la coordinación del DESTINO lo ve, en la cola y categoría nuevas, SIN asignar y en «nuevo»', f?.queue_id === qD && f?.category_id === catD && f?.assigned_to === null && f?.status === 'nuevo', JSON.stringify([f?.queue_id === qD, f?.category_id === catD, f?.assigned_to, f?.status]));
+      check('⭐ la PRIORIDAD ya confirmada se conserva', f?.priority === 'media');
+      check('⭐ los plazos se recalculan con la política de la cola DESTINO (la propia, no la general)', f?.sla?.due_at !== dueAntes && !!f?.sla?.due_at, `${dueAntes} → ${f?.sla?.due_at}`);
+      const hilo = f?.messages ?? [];
+      check('⭐ el hilo se conserva ENTERO (nota interna y comentario público) y suma el mensaje de traslado', hilo.some((m) => m.body === 'Nota del área de origen') && hilo.some((m) => m.body === 'Comentario público de quien reportó') && hilo.some((m) => m.kind === 'transfer'), JSON.stringify(hilo.map((m) => m.kind)));
+      const mt = hilo.find((m) => m.kind === 'transfer');
+      check('el mensaje dice de→a, quién y por qué', mt?.body === 'Es una falla del área destino' && mt?.meta?.from_queue === 'SMOKE Origen' && mt?.meta?.to_queue === 'SMOKE Destino' && mt?.meta?.from_assignee === tecO.id && mt?.author_label, JSON.stringify(mt));
+      const fSol = (await req('GET', `${SD}/requests/${t0.id}`, sol.token)).body;
+      check('⭐ quien reportó ve su solicitud (con el traslado en el hilo) y la cola nueva', fSol?.queue_name === 'SMOKE Destino' && (fSol?.messages ?? []).some((m) => m.kind === 'transfer'), JSON.stringify(fSol?.queue_name));
+      check('⛔ quien reportó NO ve la nota interna del área de origen', !(fSol?.messages ?? []).some((m) => m.body === 'Nota del área de origen'));
+      const aviso = await req('GET', `${SD}/me/notifications`, jefeD.token);
+      check('⭐ el DESTINO recibe «Te trasladaron una solicitud» con el nombre del área', (aviso.body ?? []).some((n) => n.event === 'transferido' && n.folio === t0.folio && /SMOKE Destino/.test(n.message)), JSON.stringify((aviso.body ?? []).slice(0, 2)));
+      const avisoOrigen = await req('GET', `${SD}/me/notifications`, jefeO.token);
+      check('⛔ y quien traslada NO se avisa a sí mismo', !(avisoOrigen.body ?? []).some((n) => n.event === 'transferido'));
+      check('⭐ el destino ya puede tomarla o asignarla (y el técnico del origen ya NO la ve)', (await req('POST', `${SD}/requests/${t0.id}/assign`, jefeD.token, { user_id: jefeD.id })).status < 300 && (await req('GET', `${SD}/requests/${t0.id}`, tecO.token)).status === 404);
+
+      // Estados que no se trasladan; en espera se queda en espera.
+      const tr = await mk();
+      await req('POST', `${SD}/requests/${tr.id}/assign`, jefeO.token, { user_id: tecO.id });
+      await req('POST', `${SD}/requests/${tr.id}/status`, tecO.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${tr.id}/status`, tecO.token, { status: 'resuelto', note: 'listo' });
+      check('⛔ una solicitud RESUELTA no se traslada → 409', (await traslada(tr.id, jefeO.token, ok)).status === 409);
+      const te = await mk();
+      await req('POST', `${SD}/requests/${te.id}/assign`, jefeO.token, { user_id: tecO.id });
+      await req('POST', `${SD}/requests/${te.id}/status`, tecO.token, { status: 'en_espera', pause_reason: 'proveedor' });
+      const trE = await traslada(te.id, jefeO.token, ok);
+      check('⭐ una solicitud EN ESPERA llega al destino como «nuevo» (la espera termina)', trE.status < 300 && trE.body?.status === 'nuevo', dump(trE));
+      const fE = await fichaD(te.id);
+      check('⭐ la espera TERMINA: sin motivo, el reloj corriendo y sin asignar (no queda atorada en espera sin asignado)', fE?.pause_reason === null && fE?.sla?.paused === false && fE?.assigned_to === null && fE?.status === 'nuevo', JSON.stringify([fE?.pause_reason, fE?.sla?.paused, fE?.assigned_to, fE?.status]));
+      const enBase = await knex('servicedesk.requests').where({ id: te.id }).first('paused_at', 'pause_reason', 'paused_minutes');
+      check('en la base: pausa cerrada y el tiempo en pausa acreditado (>= 0)', enBase.paused_at === null && enBase.pause_reason === null && Number(enBase.paused_minutes) >= 0, JSON.stringify(enBase));
+      const toma = await req('POST', `${SD}/requests/${te.id}/assign`, jefeD.token, { user_id: jefeD.id });
+      const sigue = await req('POST', `${SD}/requests/${te.id}/status`, jefeD.token, { status: 'en_proceso' });
+      check('⭐ el destino la toma y la inicia con normalidad', toma.status < 300 && sigue.status < 300 && sigue.body?.status === 'en_proceso', dump(sigue));
+      const reEspera = await req('POST', `${SD}/requests/${te.id}/status`, jefeD.token, { status: 'en_espera', pause_reason: 'refaccion' });
+      check('y si lo esperado sigue pendiente la vuelve a poner en espera con SU motivo', reEspera.status < 300 && reEspera.body?.pause_reason === 'refaccion', dump(reEspera));
+
+      // TI no se tocó.
+      check('⛔ el agente de TI no ve ninguno de estos tickets en su bandeja', await (async () => {
+        const ids = new Set(((await req('GET', `${SD}/requests/inbox?scope=all&limit=200`, agente.token)).body?.rows ?? []).map((r) => r.id));
+        return !ids.has(t0.id) && !ids.has(te.id);
+      })());
+
+      // `[MS.7.16]` El selector de cola de la bandeja ofrece SÓLO las colas que cada persona lee.
+      const colasDe = async (tok) => ((await req('GET', `${SD}/requests/stats`, tok)).body?.queues ?? []).map((q) => q.id);
+      const cO = await colasDe(jefeO.token);
+      const cD = await colasDe(jefeD.token);
+      const cTi = await colasDe(agente.token);
+      check('⭐ `stats.queues`: la coordinación del origen lee SU cola y no la del destino', cO.includes(qO) && !cO.includes(qD) && !cO.includes(qV), JSON.stringify(cO));
+      check('⭐ y la del destino lee la suya y no la del origen', cD.includes(qD) && !cD.includes(qO), JSON.stringify(cD));
+      check('⛔ el agente de TI no ve ninguna de las colas de este bloque en su selector', !cTi.some((id) => [qO, qD, qV].includes(id)) && cTi.length >= 1, JSON.stringify(cTi));
+      check('⛔ quien sólo reporta no tiene tablero (403): no hay selector que filtrar', (await req('GET', `${SD}/requests/stats`, sol.token)).status === 403);
+      const filtro = await req('GET', `${SD}/requests/inbox?scope=all&queue_id=${qD}&limit=200`, jefeD.token);
+      check('⭐ filtrar la bandeja por una cola (queue_id) devuelve sólo los tickets de esa cola', (filtro.body?.rows ?? []).length >= 2 && (filtro.body?.rows ?? []).every((r) => r.queue_id === qD), JSON.stringify((filtro.body?.rows ?? []).map((r) => r.queue_id === qD)));
+      const ajena = await req('GET', `${SD}/requests/inbox?scope=all&queue_id=${qO}&limit=200`, jefeD.token);
+      check('⛔ pedir la cola de OTRA área no revela nada (la lectura por cola manda sobre el filtro)', (ajena.body?.rows ?? []).length === 0, JSON.stringify((ajena.body?.rows ?? []).length));
+
+      await knex('servicedesk.sla_policies').whereIn('queue_id', [qO, qD, qV]).del();
+    }
+
+    // ── 32. [MS.7.19] Punta a punta con las DOS áreas reales (TI y Mantenimiento): ciclo completo, traslado y acceso cruzado ──
+    {
+      console.log('\n32 — punta a punta: levantar → asignar → pausar → resolver → cerrar → transferir; acceso cruzado TI ↔ Mantenimiento');
+      const mto = await knex('servicedesk.queues').where({ tenant_id: T, code: 'mantenimiento' }).first('id', 'active');
+      if (!mto) {
+        noMedido.push('punta a punta con Mantenimiento (MS.7.19): la cola no está sembrada en este destino');
+      } else {
+        if (mtoActivaAntes === null) mtoActivaAntes = mto.active; // la restaura el cierre del test
+        await knex('servicedesk.queues').where({ id: mto.id }).update({ active: true });
+        const catPlom = await knex('servicedesk.categories').where({ queue_id: mto.id, code: 'plomeria' }).first('id');
+        const jefeM = await crearUsuario('e2e_mjefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: mto.id, role: 'coordinador' }]);
+        const tecM = await crearUsuario('e2e_mtec', ['SERVICIO_ATENDER'], [{ queue_id: mto.id, role: 'tecnico' }]);
+        usuarios.push(jefeM, tecM);
+        const st = (id, tok, body) => req('POST', `${SD}/requests/${id}/status`, tok, body);
+        const ver = async (id, tok) => req('GET', `${SD}/requests/${id}`, tok);
+        const inbox = async (tok) => new Set(((await req('GET', `${SD}/requests/inbox?scope=all&limit=300`, tok)).body?.rows ?? []).map((r) => r.id));
+
+        // ── Historia 1: un ticket de Mantenimiento, de principio a fin ──
+        const t1 = await req('POST', `${SD}/requests`, sol.token, { category_id: catPlom.id, title: 'SMOKE 7.19 fuga en el andén', warehouse_code: 'EC', zone_code: 'anden', safety_risk: true, blocks_work: true });
+        check('1. levantar: Mantenimiento, urgente por riesgo×operación, con su zona y SIN asignar', t1.status === 201 && t1.body?.priority === 'urgente' && t1.body?.zone_name === 'Andén' && t1.body?.status === 'nuevo' && t1.body?.assigned_to === null, dump(t1));
+        const id1 = t1.body?.id;
+        const folio1 = t1.body?.folio;
+        check('⛔ acceso cruzado: el agente de TI NO ve ese ticket (404) ni en su bandeja', (await ver(id1, agente.token)).status === 404 && !(await inbox(agente.token)).has(id1));
+        check('⛔ y la coordinación de TI tampoco puede asignarlo ni cambiarle el estado (404)', (await req('POST', `${SD}/requests/${id1}/assign`, coord.token, { user_id: agente.id })).status === 404 && (await st(id1, coord.token, { status: 'en_proceso' })).status === 404);
+        check('⭐ el técnico de Mantenimiento SÍ lo ve en su bandeja', (await inbox(tecM.token)).has(id1));
+        check('2. asignar: la coordinación de Mantenimiento lo asigna a su técnico', (await req('POST', `${SD}/requests/${id1}/assign`, jefeM.token, { user_id: tecM.id })).status < 300);
+        check('⛔ y no a alguien de TI (no es de esa cola) → 400', (await req('POST', `${SD}/requests/${id1}/assign`, jefeM.token, { user_id: agente.id })).status === 400);
+        check('el técnico inicia', (await st(id1, tecM.token, { status: 'en_proceso' })).status < 300);
+        const pausa = await st(id1, tecM.token, { status: 'en_espera', pause_reason: 'refaccion', note: 'Espero la pieza' });
+        check('3. pausar: en espera por REFACCIÓN, con el reloj pausado', pausa.status < 300 && pausa.body?.pause_reason === 'refaccion' && pausa.body?.sla?.paused === true, dump(pausa));
+        await req('POST', `${SD}/requests/${id1}/messages`, sol.token, { body: '¿Ya llegó la pieza?' });
+        const sigue = (await ver(id1, sol.token)).body;
+        check('⭐ quien reportó pregunta y la espera por refacción NO se reanuda sola', sigue?.status === 'en_espera' && sigue?.sla?.paused === true, `${sigue?.status} paused=${sigue?.sla?.paused}`);
+        check('el técnico reanuda cuando llega la pieza', (await st(id1, tecM.token, { status: 'en_proceso', note: 'Llegó' })).status < 300);
+        const res1 = await st(id1, tecM.token, { status: 'resuelto', note: 'Se cambió la tubería' });
+        check('4. resolver: con nota', res1.status < 300 && res1.body?.status === 'resuelto', dump(res1));
+        check('⛔ el técnico no cierra su propio trabajo (lo confirma quien reportó) → 403', (await req('POST', `${SD}/requests/${id1}/confirm`, tecM.token, {})).status === 403);
+        const cierre = await req('POST', `${SD}/requests/${id1}/confirm`, sol.token, {});
+        check('5. cerrar: quien reportó confirma → cerrado', cierre.status < 300 && cierre.body?.status === 'cerrado' && cierre.body?.close_reason === 'confirmado', dump(cierre));
+        check('⛔ lo cerrado ya no se traslada (409)', (await req('POST', `${SD}/requests/${id1}/transfer`, jefeM.token, { queue_id: (await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id')).id, category_id: catSimple.id, reason: 'x' })).status === 409);
+        const hilo1 = (await ver(id1, jefeM.token)).body?.messages ?? [];
+        check('el hilo cuenta toda la historia (asignación, pausa con motivo, comentario, resolución y cierre)', ['assignment', 'status', 'comment'].every((k) => hilo1.some((m) => m.kind === k)) && hilo1.some((m) => m.meta?.pause_reason === 'refaccion'), JSON.stringify(hilo1.map((m) => m.kind)));
+
+        // ── Historia 2: se reportó en TI pero es de Mantenimiento: transferir, y de vuelta ──
+        const ti = (await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id')).id;
+        const t2 = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 7.19 en realidad es una fuga', impact: 'yo', blocks_work: false });
+        const id2 = t2.body?.id;
+        check('6. levantar en TI', t2.status === 201 && (await inbox(agente.token)).has(id2) && !(await inbox(tecM.token)).has(id2));
+        await req('POST', `${SD}/requests/${id2}/assign`, coord.token, { user_id: agente.id });
+        await req('POST', `${SD}/requests/${id2}/messages`, agente.token, { body: 'Nota de TI antes de trasladar', visibility: 'internal' });
+        check('⛔ un técnico de Mantenimiento (sin la clave de coordinar) no traslada → 403', (await req('POST', `${SD}/requests/${id2}/transfer`, tecM.token, { queue_id: mto.id, category_id: catPlom.id, reason: 'x' })).status === 403);
+        check('⛔ y la coordinación de Mantenimiento no puede «traer» un ticket de TI: ni lo ve → 404', (await req('POST', `${SD}/requests/${id2}/transfer`, jefeM.token, { queue_id: mto.id, category_id: catPlom.id, reason: 'x' })).status === 404);
+        const tr = await req('POST', `${SD}/requests/${id2}/transfer`, coord.token, { queue_id: mto.id, category_id: catPlom.id, reason: 'Es una fuga: es de Mantenimiento' });
+        check('7. transferir TI → Mantenimiento: mismo folio, ahora en Mantenimiento y sin asignar', tr.status < 300 && tr.body?.folio === t2.body?.folio && tr.body?.queue_name === 'Mantenimiento' && tr.body?.status === 'nuevo', dump(tr));
+        check('⛔ acceso cruzado tras el traslado: TI ya no lo ve; Mantenimiento sí', (await ver(id2, agente.token)).status === 404 && (await ver(id2, tecM.token)).status === 200 && (await inbox(jefeM.token)).has(id2));
+        const f2 = (await ver(id2, jefeM.token)).body;
+        check('⭐ el hilo viaja entero (incluida la nota interna de TI) y trae el traslado con quién y por qué', (f2?.messages ?? []).some((m) => m.body === 'Nota de TI antes de trasladar') && (f2?.messages ?? []).some((m) => m.kind === 'transfer' && m.meta?.from_queue && m.meta?.to_queue === 'Mantenimiento'), JSON.stringify((f2?.messages ?? []).map((m) => m.kind)));
+        const vuelta = await req('POST', `${SD}/requests/${id2}/transfer`, jefeM.token, { queue_id: ti, category_id: catSimple.id, reason: 'Mejor lo ve TI al final' });
+        check('8. y de vuelta: Mantenimiento → TI con el mismo folio', vuelta.status < 300 && vuelta.body?.folio === t2.body?.folio && vuelta.body?.queue_id === ti, dump(vuelta));
+        const f3 = (await ver(id2, coord.token)).body;
+        check('el hilo suma los DOS traslados (ida y vuelta) y conserva todo lo anterior', (f3?.messages ?? []).filter((m) => m.kind === 'transfer').length === 2 && (f3?.messages ?? []).some((m) => m.body === 'Nota de TI antes de trasladar'), JSON.stringify((f3?.messages ?? []).map((m) => m.kind)));
+        check('⭐ y TI vuelve a verlo mientras Mantenimiento ya no', (await inbox(agente.token)).has(id2) && !(await inbox(tecM.token)).has(id2));
+
+        // ── Cierre: ninguno de estos tickets contaminó al otro área en los números ──
+        const stTi = (await req('GET', `${SD}/requests/stats`, coord.token)).body;
+        const stM = (await req('GET', `${SD}/requests/stats`, jefeM.token)).body;
+        check('⭐ cada área cuenta SÓLO lo suyo (Mantenimiento no ve las colas de TI en su selector y viceversa)', !(stM?.queues ?? []).some((q) => q.id === ti) && !(stTi?.queues ?? []).some((q) => q.id === mto.id), JSON.stringify([stM?.queues, stTi?.queues]));
+      }
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
@@ -1455,6 +1962,8 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     await knex('servicedesk.queue_members').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.sla_policies').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.categories').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
+    await knex('servicedesk.queue_fields').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
+    await knex('servicedesk.zones').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex.destroy();
   }

@@ -14,9 +14,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
 import type { SdRoutingResponse, SdRoutingRuleDto, SdUpsertRoutingRuleDto } from '@megadulces/contracts';
-import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService, TenantKnexService, branchName } from '@megadulces/platform-core';
 import { ServiceDeskAgentsService } from './agents.service';
 import { elegirRegla, normalizarClaves, type EntradaRuteo, type ReglaRuteo, type ResultadoRuteo } from './domain/routing';
+import { nombreUbicacionExtra } from './domain/ubicaciones';
+import { normalizarUbicacion } from './ubicacion.util';
 import type { ActorCtx } from './service-desk.types';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -25,7 +27,12 @@ const MAX_LARGO_CLAVE = 60;
 const MAX_NOMBRE = 120;
 
 export interface DestinoRuteo {
-  resultado: ResultadoRuteo;
+  /**
+   * Por qué le toca: una `regla` (con su motivo: categoría, palabra o ubicación) o el responsable por omisión (`default`) de la cola
+   * cuando ninguna regla aplicó. `[MS.7.10]`
+   */
+  origen: { tipo: 'regla'; regla: ReglaRuteo; motivo: ResultadoRuteo['motivo'] } | { tipo: 'default' };
+  assigneeId: string;
   assigneeName: string | null;
   /** `false` = la regla ganó pero su destino no puede atender: NO se asigna. */
   asignable: boolean;
@@ -39,6 +46,7 @@ interface FilaRegla {
   assignee_id: string;
   sort_order: number | string;
   active: boolean;
+  warehouse_code: string | null;
 }
 
 @Injectable()
@@ -55,7 +63,7 @@ export class ServiceDeskRoutingService {
   async resolver(trx: Knex.Transaction, entrada: EntradaRuteo, queueId?: string | null): Promise<DestinoRuteo | null> {
     const filas = (await trx('servicedesk.routing_rules')
       .whereNull('deleted_at')
-      .select('id', 'name', 'keywords', 'category_id', 'assignee_id', 'sort_order', 'active')) as FilaRegla[];
+      .select('id', 'name', 'keywords', 'category_id', 'assignee_id', 'sort_order', 'active', 'warehouse_code')) as FilaRegla[];
     /*
      * `[MS.7.6]` Una regla de PALABRA CLAVE no lleva cola, y «impresora → Felipe» (TI) no debe disparar sobre un ticket de
      * Mantenimiento que también dice «impresora»: esa regla «pertenece» a la cola de su destino. Se descartan, antes de
@@ -78,12 +86,26 @@ export class ServiceDeskRoutingService {
       assignee_id: f.assignee_id,
       sort_order: Number(f.sort_order),
       active: f.active,
+      warehouse_code: f.warehouse_code ?? null,
     }));
     const resultado = elegirRegla(reglas, entrada);
-    if (!resultado) return null;
-    const persona = await trx('identity.users').where({ id: resultado.regla.assignee_id }).whereNull('deleted_at').first('nombre', 'username');
-    const asignable = !!persona && (await this.agents.esAsignable(trx, resultado.regla.assignee_id, queueId));
-    return { resultado, assigneeName: persona ? persona.nombre || persona.username : null, asignable };
+    if (resultado) {
+      const persona = await trx('identity.users').where({ id: resultado.regla.assignee_id }).whereNull('deleted_at').first('nombre', 'username');
+      const asignable = !!persona && (await this.agents.esAsignable(trx, resultado.regla.assignee_id, queueId));
+      return { origen: { tipo: 'regla', regla: resultado.regla, motivo: resultado.motivo }, assigneeId: resultado.regla.assignee_id, assigneeName: persona ? persona.nombre || persona.username : null, asignable };
+    }
+    /*
+     * `[MS.7.10]` Ninguna regla aplicó: cae el responsable por omisión del área (`queues.default_assignee_id`), si lo hay. Sin él el
+     * ticket queda «Sin asignar» y lo ven todos los miembros de la cola (lo de siempre). Igual que con una regla: **nunca** se asigna a
+     * quien no es miembro que pueda atender ESA cola — si el responsable dejó de serlo, el ticket queda sin asignar y una nota lo dice.
+     */
+    if (!queueId) return null;
+    const cola = await trx('servicedesk.queues').where({ id: queueId }).first('default_assignee_id');
+    const porDefecto = (cola?.default_assignee_id as string | null | undefined) ?? null;
+    if (!porDefecto) return null;
+    const p = await trx('identity.users').where({ id: porDefecto }).whereNull('deleted_at').first('nombre', 'username');
+    const asignable = !!p && (await this.agents.esAsignable(trx, porDefecto, queueId));
+    return { origen: { tipo: 'default' }, assigneeId: porDefecto, assigneeName: p ? p.nombre || p.username : null, asignable };
   }
 
   // ───────────────────────────── administración ─────────────────────────────
@@ -92,7 +114,7 @@ export class ServiceDeskRoutingService {
     return this.tk.run(async (trx) => {
       const asignables = new Set((await this.agents.listIn(trx)).map((a) => a.user_id));
       const { rows } = await trx.raw(
-        `SELECT r.id, r.name, r.keywords, r.category_id, c.name AS category_name, r.assignee_id,
+        `SELECT r.id, r.name, r.keywords, r.category_id, c.name AS category_name, r.assignee_id, r.warehouse_code,
                 u.nombre AS assignee_name, u.username AS assignee_username, r.sort_order, r.active
            FROM servicedesk.routing_rules r
            JOIN identity.users u ON u.tenant_id = r.tenant_id AND u.id = r.assignee_id
@@ -106,6 +128,8 @@ export class ServiceDeskRoutingService {
         keywords: (r['keywords'] as string[]) ?? [],
         category_id: (r['category_id'] as string | null) ?? null,
         category_name: (r['category_name'] as string | null) ?? null,
+        warehouse_code: (r['warehouse_code'] as string | null) ?? null,
+        warehouse_name: r['warehouse_code'] ? nombreUbicacionExtra(String(r['warehouse_code'])) ?? branchName(String(r['warehouse_code'])) : null,
         assignee_id: String(r['assignee_id']),
         assignee_name: (r['assignee_name'] as string | null) ?? null,
         assignee_username: String(r['assignee_username']),
@@ -123,7 +147,8 @@ export class ServiceDeskRoutingService {
     const keywords = dto.keywords !== undefined ? this.claves(dto.keywords) : [];
     const categoryId = dto.category_id ?? null;
     if (categoryId !== null && !UUID_RE.test(categoryId)) throw new BadRequestException('category_id inválido');
-    if (categoryId === null && keywords.length === 0) throw new BadRequestException(SIN_DISPARADOR);
+    const ubicacion = dto.warehouse_code !== undefined && dto.warehouse_code !== null && String(dto.warehouse_code).trim() !== '' ? normalizarUbicacion(dto.warehouse_code) : null;
+    if (categoryId === null && keywords.length === 0 && ubicacion === null) throw new BadRequestException(SIN_DISPARADOR);
     const assigneeId = dto.assignee_id;
     if (!assigneeId || !UUID_RE.test(assigneeId)) throw new BadRequestException('Elige a quién se asigna');
     const orden = dto.sort_order !== undefined ? this.orden(dto.sort_order) : 100;
@@ -134,6 +159,7 @@ export class ServiceDeskRoutingService {
         name,
         keywords,
         category_id: categoryId,
+        warehouse_code: ubicacion,
         assignee_id: assigneeId,
         sort_order: orden,
         active: dto.active ?? true,
@@ -157,6 +183,7 @@ export class ServiceDeskRoutingService {
       if (dto.category_id !== null && !UUID_RE.test(dto.category_id)) throw new BadRequestException('category_id inválido');
       patch['category_id'] = dto.category_id;
     }
+    if (dto.warehouse_code !== undefined) patch['warehouse_code'] = dto.warehouse_code === null || String(dto.warehouse_code).trim() === '' ? null : normalizarUbicacion(dto.warehouse_code);
     if (dto.assignee_id !== undefined) {
       if (!UUID_RE.test(dto.assignee_id)) throw new BadRequestException('assignee_id inválido');
       patch['assignee_id'] = dto.assignee_id;
@@ -174,7 +201,8 @@ export class ServiceDeskRoutingService {
       // El disparador se valida contra lo que QUEDARÍA, no sólo contra lo que llega.
       const keywords = (patch['keywords'] ?? actual.keywords) as string[];
       const categoryId = (patch['category_id'] !== undefined ? patch['category_id'] : actual.category_id) as string | null;
-      if (categoryId === null && keywords.length === 0) throw new BadRequestException(SIN_DISPARADOR);
+      const ubicacion = (patch['warehouse_code'] !== undefined ? patch['warehouse_code'] : actual.warehouse_code) as string | null;
+      if (categoryId === null && keywords.length === 0 && ubicacion === null) throw new BadRequestException(SIN_DISPARADOR);
       await this.exigirExistentes(trx, patch['category_id'] as string | null | undefined, patch['assignee_id'] as string | undefined);
       await trx('servicedesk.routing_rules').where({ id }).update({ ...patch, updated_at: trx.fn.now(), updated_by: ctx.userId });
     });
@@ -228,4 +256,4 @@ export class ServiceDeskRoutingService {
   }
 }
 
-const SIN_DISPARADOR = 'La regla necesita una categoría o al menos una palabra clave: sin eso no se dispararía nunca';
+const SIN_DISPARADOR = 'La regla necesita una categoría, al menos una palabra clave o una ubicación: sin eso no se dispararía nunca';

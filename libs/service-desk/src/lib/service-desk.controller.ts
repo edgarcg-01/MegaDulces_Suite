@@ -29,7 +29,11 @@ import {
   type SdQueueCandidateDto,
   type SdQueueMembersResponse,
   type SdUpsertQueueDto,
+  type SdTransferDto,
+  type SdTransferResult,
+  type SdUpsertFieldDto,
   type SdUpsertQueueMemberDto,
+  type SdUpsertZoneDto,
   type SdLogTimeDto,
   type SdPostMessageDto,
   type SdRequestDetail,
@@ -214,6 +218,13 @@ export class ServiceDeskController {
     return this.actors.resolve(req).then((ctx) => this.requests.assign(ctx, id, dto));
   }
 
+  @Post('requests/:id/transfer')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Traslada la solicitud a otra cola (mismo folio, hilo y adjuntos). Sólo la coordinación del área de origen; el destino debe tener quién la atienda.' })
+  transfer(@Param('id') id: string, @Body() dto: SdTransferDto, @Req() req: AuthedRequest): Promise<SdTransferResult> {
+    return this.actors.resolve(req).then((ctx) => this.requests.transfer(ctx, id, dto));
+  }
+
   @Post('requests/:id/priority')
   @RequireAnyPermission(Permission.SERVICIO_ATENDER, Permission.SERVICIO_COORDINAR)
   @ApiOperation({ summary: 'Cambia la prioridad (recalcula los plazos). El solicitante no puede.' })
@@ -327,6 +338,34 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'Quita a una persona de la cola. No si es la única coordinación ni si tiene solicitudes abiertas asignadas.' })
   removeQueueMember(@Param('id') id: string, @Param('userId') userId: string, @Req() req: AuthedRequest): Promise<SdQueueMembersResponse> {
     return this.actors.resolve(req).then((ctx) => this.members.remove(ctx, id, userId));
+  }
+
+  @Post('config/queues/:id/fields')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Alta de un campo propio de la cola (sí/no, opción, texto o foto). Sólo la coordinación de esa cola.' })
+  createField(@Param('id') id: string, @Body() dto: SdUpsertFieldDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.createField(ctx, id, dto));
+  }
+
+  @Put('config/fields/:id')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Cambia la pregunta, lo requerido, las opciones, el orden o apaga un campo. El código y el tipo no cambian.' })
+  updateField(@Param('id') id: string, @Body() dto: SdUpsertFieldDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.updateField(ctx, id, dto));
+  }
+
+  @Post('config/zones')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Alta de una zona (el lugar dentro de la ubicación). La administra quien coordina alguna cola.' })
+  createZone(@Body() dto: SdUpsertZoneDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.createZone(ctx, dto));
+  }
+
+  @Put('config/zones/:id')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Renombra, reordena o apaga una zona. El código no se cambia; apagar no borra.' })
+  updateZone(@Param('id') id: string, @Body() dto: SdUpsertZoneDto, @Req() req: AuthedRequest): Promise<SdConfigResponse> {
+    return this.actors.resolve(req).then((ctx) => this.admin.updateZone(ctx, id, dto));
   }
 
   @Post('config/categories')

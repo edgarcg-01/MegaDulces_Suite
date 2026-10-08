@@ -117,6 +117,8 @@ export class ServiceDeskQueueMembersService {
         throw new ConflictException(`Tiene ${n} solicitud${n === 1 ? '' : 'es'} abierta${n === 1 ? '' : 's'} asignada${n === 1 ? '' : 's'}: reasígnalas antes de quitarla de la cola`);
       }
       await trx('servicedesk.queue_members').where({ id: m.id }).update({ active: false, updated_at: trx.fn.now(), updated_by: ctx.userId });
+      // `[MS.7.10]` Quien sale de la cola ya no puede ser su responsable por omisión: no se deja un responsable fantasma.
+      await trx('servicedesk.queues').where({ id: queueId, default_assignee_id: userId }).update({ default_assignee_id: null, updated_at: trx.fn.now(), updated_by: ctx.userId });
       return this.leer(trx, queueId, ctx);
     });
   }
