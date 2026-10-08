@@ -718,6 +718,15 @@ lectura); 14 pruebas de la pantalla montada y 4 de la pestaña.
   no tiene esa clave, así que veía "No se pudo leer la lista de almacenes". Ahora la lista sale de
   `GET /reparto/surtido/almacenes` con el permiso de surtir y el alcance de la persona.
 
+**Perfil `surtidor` (`[GP.3c.5]`, mig `20261008035511`).** Para que el surtidor entre directo a "Tomar
+siguiente" (como el contador a "Contar camión"), su perfil debe surtir y NO ver el Tablero: el área
+aterriza en el primer tab que alcanza. Francisco creó el rol en prod desde `/admin/roles` con sus 4
+claves, pero esa pantalla no da alcance y el alcance es fail-closed: con 0 reglas el rol no veía
+ninguna sucursal. La migración lo deja reproducible: 4 claves (se suman, no se pisan) + su sucursal y
+su zona. Sólo toca datos: se aplica a mano ANTES de mergear. Al cambiar de perfil base, el anterior
+queda como complemento ([ID.13], a propósito): a quien venía de `almacenista` hay que quitárselo en
+Personas › Acceso › Complementos.
+
 **Deuda declarada (no se toca en esta fase).** `POST /reparto/surtido/waves/:id/assign` y
 `/cancel` (pantalla vieja de Reparto) piden sólo `COMMERCIAL_PICKING_GESTIONAR`, que tiene el
 surtidor, y no aplican alcance por sucursal: quien conozca el id de una ola puede asignarla o
