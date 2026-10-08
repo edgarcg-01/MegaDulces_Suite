@@ -60,6 +60,6 @@ describe('[UB.2] CSV', () => {
   });
 
   it('coma por default y BOM de Excel', () => {
-    expect(csvATabla('﻿codigo,tipo\r\nBA011,reserva')).toEqual([['codigo', 'tipo'], ['BA011', 'reserva']]);
+    expect(csvATabla('\uFEFFcodigo,tipo\r\nBA011,reserva')).toEqual([['codigo', 'tipo'], ['BA011', 'reserva']]);
   });
 });

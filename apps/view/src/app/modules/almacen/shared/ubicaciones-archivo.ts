@@ -84,7 +84,7 @@ export function decodificarCsv(bytes: ArrayBuffer): string {
 
 /** CSV mínimo: separador `,` o `;` (el que más aparezca en el encabezado) y comillas dobles. */
 export function csvATabla(texto: string): string[][] {
-  const lineas = texto.replace(/^﻿/, '').split(/\r?\n/);
+  const lineas = texto.replace(/^\uFEFF/, '').split(/\r?\n/);
   const sep = (lineas[0]?.split(';').length ?? 0) > (lineas[0]?.split(',').length ?? 0) ? ';' : ',';
   // Las líneas en blanco SE QUEDAN: si se quitaran, la fila que se reporta se recorre y deja de ser
   // la del archivo. El lector de tabla ya las salta y las cuenta como vacías.

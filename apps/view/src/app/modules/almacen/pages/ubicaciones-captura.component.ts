@@ -260,7 +260,9 @@ export class UbicacionesCapturaComponent {
     // Si cambia el almacén estando en la captura, lo visto era del almacén anterior: se limpia todo y
     // se cargan los lotes del nuevo. Sin esto, «Crear 180» de PH se mandaba a 8ESQ (revisión del PR).
     effect(() => {
-      this.warehouse().id;
+      // Leer el id es lo que suscribe el effect al cambio de almacén.
+      const id = this.warehouse().id;
+      if (!id) return;
       untracked(() => {
         this.previa.set(null);
         this.resultado.set(null);
