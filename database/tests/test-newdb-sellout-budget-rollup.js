@@ -104,6 +104,30 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
       SELECT has_table_privilege('app_runtime', ?::regclass, 'SELECT') AS puede`, [MV])).rows[0];
     t('`app_runtime` puede leerla (el API corre con ese rol)', grant.puede === true);
 
+    // [PU.V3] El rollup de canal × mes que sirve la Conciliación. Es OTRA pregunta, no otra copia:
+    // el mes calendario NO es el periodo fiscal 13×4, así que ninguna de las dos MV deriva de la otra.
+    const ch = (await db.raw(`SELECT to_regclass('analytics.mv_sellout_channel_monthly') AS t`)).rows[0].t;
+    if (!ch) {
+      noMedido('mv_sellout_channel_monthly', 'falta aplicar la migración 20261008082018');
+    } else {
+      const chk = (await db.raw(`
+        SELECT count(*) AS filas,
+               count(DISTINCT (tenant_id::text || '|' || channel || '|' || year_month)) AS llaves,
+               count(*) FILTER (WHERE tenant_id IS NULL OR channel IS NULL OR year_month IS NULL) AS nulos
+          FROM analytics.mv_sellout_channel_monthly`)).rows[0];
+      t('mv_sellout_channel_monthly: la llave es única y sin NULL',
+        Number(chk.filas) === Number(chk.llaves) && Number(chk.nulos) === 0,
+        `${chk.filas} filas / ${chk.llaves} llaves / ${chk.nulos} nulos`);
+      t('`app_runtime` puede leer el rollup de canal',
+        (await db.raw(`SELECT has_table_privilege('app_runtime','analytics.mv_sellout_channel_monthly','SELECT') AS p`)).rows[0].p === true);
+      // ⭐ Y que siga siendo el MISMO universo que su fuente: un rollup que se desincroniza del
+      //    espejo mensual publicaría una conciliación contra un sell-out que ya no existe.
+      const par = (await db.raw(`
+        SELECT round(abs((SELECT sum(sell_out) FROM analytics.mv_sellout_channel_monthly)
+                       - (SELECT sum(monto)    FROM analytics.mv_sellout_monthly)), 2) AS d`)).rows[0];
+      t('el rollup de canal cuadra al peso con el espejo mensual', Number(par.d) < 1, `Δ ${mx(par.d)}`);
+    }
+
     // ── [2] El NÚMERO: prueba negativa + control de placebo ───────────────────────────────
     console.log('\n[2] El número — el join por el mapa de canal');
     const cmp = (await db.raw(`
@@ -210,10 +234,12 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
       t(`el sondeo de frescura baja de 14,587 ms al gate de ${GATE_MS} ms`,
         msFresh < GATE_MS, `${msFresh} ms`);
 
-      // La conciliación es OTRO objeto y otro grano: su gate es más holgado (lee 444 MB).
+      // La conciliación es OTRO objeto y otro grano (canal × mes calendario, no periodo fiscal),
+      // pero el gate es el MISMO. [PU.V2] la dejó en 592 ms y eso seguía siendo «más de medio
+      // segundo», que es la queja que abrió la fase; [PU.V3] le dio su propio rollup de ~97 filas.
       const msRec = await medir(`SELECT count(*), sum(sell_out) FROM analytics.v_sellout_vs_facturacion`);
-      t('/sales-reconciliation deja de morir en el statement_timeout (<2 s; medía >300 s)',
-        msRec < 2000, `${msRec} ms`);
+      t(`/sales-reconciliation baja al gate de ${GATE_MS} ms (medía >300,000 ms: moría en el timeout)`,
+        msRec < GATE_MS, `${msRec} ms`);
 
       // Control negativo de tenant: la MV no tiene RLS, el filtro lo pone el service.
       const falso = (await db.raw(`SELECT count(*) n FROM ${MV} WHERE tenant_id = ?`, [TENANT_FALSO])).rows[0];
