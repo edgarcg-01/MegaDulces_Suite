@@ -46,6 +46,14 @@ import type { Coverage, Freshness } from '@megadulces/contracts';
  *   - Tenant EXPLÍCITO en el filtro (los objetos de `analytics.*` no siempre traen RLS forzado).
  */
 
+/**
+ * Fila de `budget.budget_lines` agregada por `line_type` — lo que devuelve el `GROUP BY` de
+ * `executiveSummary`. El índice abierto es deliberado: `suma(f)` elige la columna por NOMBRE
+ * (`vigente`/`reserved`/`committed`/`exercised`/`paid`), que es justo lo que evita escribir cinco
+ * veces la misma reducción. Reemplaza tres `any` que la compuerta de tipado (ADR-052) marcó.
+ */
+type FilaPorTipo = { line_type: string } & Record<string, unknown>;
+
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const pct = (num: number, den: number) => (den > 0 ? round2((num / den) * 100) : null);
 
@@ -92,7 +100,7 @@ export class BudgetComparisonService {
       const byType = await trx('budget.budget_lines').where({ budget_id: budgetId })
         .groupBy('line_type').select('line_type')
         .sum({ vigente: 'vigente_amount', reserved: 'reserved_amount', committed: 'committed_amount', exercised: 'exercised_amount', paid: 'paid_amount' });
-      const t = (type: string, field: string) => round2(Number(byType.find((r: any) => r.line_type === type)?.[field] ?? 0));
+      const t = (type: string, field: string) => round2(Number(byType.find((r: FilaPorTipo) => r.line_type === type)?.[field] ?? 0));
 
       // `[PU.VA]` ⛔ **Los cinco estados del ledger son del EGRESO, y esto sumaba el INGRESO con
       // ellos.** Medido contra prod el 2026-10-07, con el primer ejercicio que el motor llegó a
@@ -110,9 +118,9 @@ export class BudgetComparisonService {
       // blanca, un `line_type` nuevo que nadie agregue queda fuera del egreso y el disponible sale
       // **más alto de lo que es** — se autorizaría gasto contra un saldo que no existe. Excluyendo,
       // el tipo nuevo entra al egreso y el error cae del lado prudente.
-      const esEgreso = (r: any) => String(r.line_type) !== 'ingreso';
+      const esEgreso = (r: FilaPorTipo) => String(r.line_type) !== 'ingreso';
       const egreso = byType.filter(esEgreso);
-      const suma = (f: string) => round2(egreso.reduce((s: number, r: any) => s + Number(r[f] ?? 0), 0));
+      const suma = (f: string) => round2(egreso.reduce((s: number, r: FilaPorTipo) => s + Number(r[f] ?? 0), 0));
       const totals = {
         vigente: suma('vigente'), reserved: suma('reserved'), committed: suma('committed'),
         exercised: suma('exercised'), paid: suma('paid'),
@@ -202,7 +210,7 @@ export class BudgetComparisonService {
         // compararía peras con lo de antes. `ingreso_meta` viaja al lado para que nada se pierda.
         ejecucion: {
           ...totals, disponible, ocupacion_pct: ocupacion, alcance: 'egreso' as const, ingreso_meta,
-          by_type: byType.map((r: any) => this.withOccupancy(r)),
+          by_type: byType.map((r: FilaPorTipo) => this.withOccupancy(r)),
         },
         presupuesto,
         real,
