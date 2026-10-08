@@ -1876,11 +1876,37 @@ export class CashLedgerService {
         .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
         .limit(limit).offset(offset);
 
+      /**
+       * ⛔ `[CG.72]` **EL KPI SUMABA LOS CANCELADOS.** Encontrado corriendo la pantalla de verdad
+       * en producción: se guardó un movimiento de prueba de $20, se canceló, y el encabezado del
+       * libro siguió publicando ese gasto. Medido contra prod antes de tocar nada:
+       *
+       *   movimientos 3 · cancelados 1 · monto cancelado $20.00
+       *   gastos ANTES $131,080.00  →  gastos AHORA $131,060.00
+       *
+       * Un movimiento cancelado es, por definición, dinero que **no se movió**: sumarlo en
+       * «Gastos» publica una salida de caja que no existió. Hoy el libro tiene 3 filas y el daño
+       * son $20; con volumen, cada cancelación infla el gasto del período.
+       *
+       * ⭐ Y el arreglo NO es sólo restarlos, porque el principio de este método —«KPIs del mismo
+       * filtro: el encabezado no puede contar otra cosa»— es correcto y hay que conservarlo: la
+       * lista SÍ muestra los cancelados (son auditoría, no basura). Así que el encabezado sigue
+       * describiendo exactamente lo que se ve, pero **declarando** la parte cancelada en vez de
+       * mezclarla con el dinero (ADR-056): `movimientos` cuenta todo, `cancelados` y
+       * `monto_cancelado` dicen cuánto de eso no es dinero, y los tres importes son de lo vivo.
+       *
+       * ⚠️ `IS DISTINCT FROM` y no `<>`: hoy `estado` es NOT NULL con default `registrado`
+       * (verificado en prod), pero con `<>` un `NULL` futuro saldría de los tres importes **en
+       * silencio** — o sea que el día que alguien haga la columna nullable, el gasto publicado
+       * empezaría a faltar sin que nada se rompa.
+       */
       const [kpi] = await base().select(
         trx.raw(`count(*)::int AS movimientos`),
-        trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='ingreso'),0)::numeric AS ingresos`),
-        trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='gasto'),0)::numeric AS gastos`),
-        trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='deposito'),0)::numeric AS depositos`),
+        trx.raw(`count(*) FILTER (WHERE estado = 'cancelado')::int AS cancelados`),
+        trx.raw(`coalesce(sum(monto) FILTER (WHERE estado = 'cancelado'),0)::numeric AS monto_cancelado`),
+        trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='ingreso' AND estado IS DISTINCT FROM 'cancelado'),0)::numeric AS ingresos`),
+        trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='gasto' AND estado IS DISTINCT FROM 'cancelado'),0)::numeric AS gastos`),
+        trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='deposito' AND estado IS DISTINCT FROM 'cancelado'),0)::numeric AS depositos`),
       );
 
       return { rows, kpi, limit, offset, has_more: rows.length === limit };

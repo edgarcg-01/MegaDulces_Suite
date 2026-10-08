@@ -48,7 +48,15 @@ export interface MovimientoCaja {
 
 export interface LibroResponse {
   rows: MovimientoCaja[];
-  kpi: { movimientos: number; ingresos: number; gastos: number; depositos: number };
+  /**
+   * `[CG.72]` Los tres importes son de lo VIVO: un movimiento cancelado es dinero que no se movió.
+   * `cancelados`/`monto_cancelado` existen para DECLARAR la parte que la lista sí muestra —son
+   * auditoría— y que por eso no cuadra con la suma de las filas.
+   */
+  kpi: {
+    movimientos: number; ingresos: number; gastos: number; depositos: number;
+    cancelados?: number; monto_cancelado?: number;
+  };
   limit: number;
   offset: number;
   has_more: boolean;

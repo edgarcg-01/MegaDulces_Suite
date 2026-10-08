@@ -3060,7 +3060,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Medir CERO y NO PODER medir son cosas distintas y se dicen distinto (ADR-056). */
   coberturaSinMedir = signal(false);
   propuesta = signal<AutofillResponse | null>(null);
-  kpiRaw = signal<{ movimientos: number; ingresos: number; gastos: number; depositos: number } | null>(null);
+  kpiRaw = signal<{ movimientos: number; ingresos: number; gastos: number; depositos: number; cancelados?: number; monto_cancelado?: number } | null>(null);
 
   /**
    * ⚠️ Señales, no campos planos. La app corre ZONELESS: un callback de HttpClient no agenda
@@ -3520,8 +3520,22 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         { label: 'Depósitos', value: '—', format: 'text' as const, sub: 'sin medir' },
       ];
     }
+    /**
+     * ⭐ `[CG.72]` La parte cancelada se DECLARA, no se esconde ni se mezcla.
+     *
+     * El servidor dejó de sumar los cancelados en los importes (eran dinero que no se movió),
+     * pero la lista sí los muestra —son auditoría— así que el encabezado tiene que explicar la
+     * diferencia. Sin este subtítulo, «Movimientos 3 · Gastos $131,060» contra una lista de 3
+     * filas que suman $131,080 se lee como un error de la pantalla.
+     *
+     * ⚠️ Sólo aparece si hay alguno: un «0 cancelados» permanente es ruido que entrena a no leer.
+     */
+    const canc = Number(k.cancelados ?? 0);
+    const subCancelados = canc > 0
+      ? `incluye ${canc} cancelado${canc === 1 ? '' : 's'} por ${money(k.monto_cancelado ?? 0)}, fuera de los importes`
+      : undefined;
     return [
-      { label: 'Movimientos', value: String(k.movimientos ?? 0) },
+      { label: 'Movimientos', value: String(k.movimientos ?? 0), sub: subCancelados },
       { label: 'Ingresos', value: money(k.ingresos) },
       { label: 'Gastos', value: money(k.gastos) },
       { label: 'Depósitos', value: money(k.depositos) },
@@ -4077,6 +4091,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
             totales: {
               movimientos: r.kpi?.movimientos ?? (r.rows?.length ?? 0),
               ingresos: Number(r.kpi?.ingresos ?? 0), gastos: Number(r.kpi?.gastos ?? 0), depositos: Number(r.kpi?.depositos ?? 0),
+              // `[CG.72]` Viaja la parte cancelada: el papel lista esos renglones, así que sin
+              // esto la suma a mano no da y el ticket parece equivocado.
+              cancelados: Number(r.kpi?.cancelados ?? 0), monto_cancelado: Number(r.kpi?.monto_cancelado ?? 0),
             },
             generado_por: this.auth.user()?.username ?? null,
             truncado: !!r.has_more,

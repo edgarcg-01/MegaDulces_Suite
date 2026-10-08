@@ -401,6 +401,47 @@ const baseMov = (over = {}) => ({
         }
       }
     }
+    /**
+     * ⛔ `[CG.72]` El KPI del libro SUMABA los cancelados.
+     *
+     * Encontrado corriendo la pantalla de verdad en producción: se guardó un movimiento de $20,
+     * se canceló, y el encabezado siguió publicando ese gasto. Medido contra prod antes de tocar
+     * nada: gastos $131,080.00 → $131,060.00, y la diferencia era exactamente ese movimiento.
+     *
+     * Un cancelado es dinero que NO se movió. La lista sí lo muestra (es auditoría), así que el
+     * encabezado lo DECLARA en vez de mezclarlo (ADR-056).
+     */
+    console.log('\n── 7bis. [CG.72] el KPI no cuenta los cancelados, y lo declara ──');
+    await knex.transaction(async (trx) => {
+      const sello = `CG-T72-${Date.now()}`;
+      await trx('finance.cash_ledger').insert([
+        baseMov({ folio: `${sello}-vivo`, tipo: 'gasto', monto: 100, estado: 'registrado' }),
+        baseMov({ folio: `${sello}-canc`, tipo: 'gasto', monto: 20, estado: 'cancelado' }),
+      ]);
+      const [k] = await trx('finance.cash_ledger')
+        .where({ tenant_id: T }).whereNull('deleted_at').where('folio', 'like', `${sello}-%`)
+        .select(
+          trx.raw(`count(*)::int AS movimientos`),
+          trx.raw(`count(*) FILTER (WHERE estado = 'cancelado')::int AS cancelados`),
+          trx.raw(`coalesce(sum(monto) FILTER (WHERE estado = 'cancelado'),0)::numeric AS monto_cancelado`),
+          trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='gasto' AND estado IS DISTINCT FROM 'cancelado'),0)::numeric AS gastos`),
+          // ⭐ PLACEBO: la forma VIEJA, sobre las mismas filas. Sin esto, un candado que diera 100
+          // podría estar midiendo que no hay datos en vez de que la regla funciona.
+          trx.raw(`coalesce(sum(monto) FILTER (WHERE tipo='gasto'),0)::numeric AS gastos_viejo`),
+        );
+      ok(Number(k.gastos) === 100, `el gasto publicado es el VIVO: ${k.gastos} (no ${k.gastos_viejo})`);
+      ok(Number(k.gastos_viejo) === 120, `placebo: la forma vieja SÍ los sumaba (${k.gastos_viejo}) — el candado no pasa por vacuidad`);
+      ok(Number(k.cancelados) === 1 && Number(k.monto_cancelado) === 20,
+        `la parte cancelada se DECLARA: ${k.cancelados} por ${k.monto_cancelado}`);
+      ok(Number(k.movimientos) === 2, `"movimientos" sigue contando TODO (${k.movimientos}): la lista los muestra, el encabezado describe la lista`);
+      // ⚠️ `estado` es NOT NULL con default 'registrado' (verificado en prod). El SQL usa
+      // IS DISTINCT FROM igual, porque con `<>` un NULL futuro saldría de los importes EN SILENCIO.
+      const nn = (await trx.raw(`SELECT is_nullable FROM information_schema.columns
+         WHERE table_schema='finance' AND table_name='cash_ledger' AND column_name='estado'`)).rows[0];
+      ok(nn?.is_nullable === 'NO', `estado es NOT NULL (${nn?.is_nullable}) — y aun así el SQL no depende de eso`);
+      throw new Error('ROLLBACK_CG72');
+    }).catch((e) => { if (!/ROLLBACK_CG72/.test(e.message)) throw e; });
+
     console.log('\n── 8. Lo que NO se puede medir acá, declarado ──');
     const ee = await knex.raw(`SELECT count(*)::int n FROM analytics.expense_entries`);
     if (ee.rows[0].n === 0) {
