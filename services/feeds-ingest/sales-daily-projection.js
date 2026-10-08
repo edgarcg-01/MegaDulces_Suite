@@ -25,6 +25,30 @@ const ZAMORA_CUTOVER = "DATE '2026-03-16'";
 // desde 15-ago (0 días de solape, verificado). Sin el remap 50→'06' + esta cláusula, su historia se
 // caía (warehouse_code 'MD-50' ya no existe) y el blend la excluía (ya no es wincaja_only).
 const CANINDO_CUTOVER = "DATE '2026-08-15'";
+// [WH.6] Morelia Madero (branch 32 → almacén '07') y Morelia Abastos (branch 30 → '08'): el MISMO
+// caso que Canindo, y se cayeron por la MISMA razón. Al migrar su POS a Kepler, el script de
+// identidad les puso `kepler_code` (→ `wincaja_only` pasó a FALSE) y renombró su almacén a '07'/'08'
+// — pero nadie les escribió la cláusula de abajo. Sin ella, el `WHERE` de esta proyección las
+// excluye ENTERAS: el `wincaja_only = true` ya no las toma y no hay OR que las rescate.
+//
+// ⭐ Es la tercera vez que esta omisión cobra, y el comentario de Canindo la había predicho
+// textual: *"Sin el remap + esta cláusula, su historia se caía"*. El síntoma no es un error: la
+// pantalla simplemente muestra MENOS — en `/compras/pedido` el globo de 12 meses de Morelia salía
+// vacío para casi todo el catálogo, porque `analytics.sales_daily` arrancaba el día del corte.
+//
+// Medido en prod el 2026-10-07, antes de tocar nada:
+//   · branch 32 → 495,438 filas · 5,788 SKUs · $54,361,801 · hasta 2026-09-07
+//   · branch 30 → 1,089,384 filas · 6,874 SKUs · $351,934,029 · hasta 2026-09-18
+//   · `analytics.sales_daily` tenía CERO filas `wincaja_*` para '07' y '08'.
+//
+// Los dos cortes NO se inventaron: salen de `analytics.v_branch_erp_cutover` (el resolvedor
+// canónico, que ya los declaraba) y coinciden al día con lo que miden las dos fuentes — Wincaja 32
+// termina el 09-07 y Kepler '07' arranca el 09-08; Wincaja 30 termina el 09-18 y Kepler '08'
+// arranca el 09-19. CERO días de solape en ambas, o sea cero doble conteo.
+// ⚠️ NO se remapea `warehouse_code`: `wincaja.branches` ya dice '07'/'08', así que el `ELSE` del
+// CASE de abajo acierta solo. Agregar un remap sería duplicar un dato que ya está bien.
+const MADERO_CUTOVER = "DATE '2026-09-08'";
+const ABASTOS_CUTOVER = "DATE '2026-09-19'";
 
 /**
  * @param {object} o
@@ -110,7 +134,9 @@ function buildSalesDailySrc({ tenantId, branches = null, days = null } = {}) {
           OR (s.source_branch = '42' AND s.business_date < ${LP_CUTOVER})
           OR (s.source_branch = '44' AND s.business_date < ${YURE_CUTOVER})
           OR (s.source_branch = '54' AND s.business_date < ${ZAMORA_CUTOVER})
-          OR (s.source_branch = '50' AND s.business_date < ${CANINDO_CUTOVER}) )
+          OR (s.source_branch = '50' AND s.business_date < ${CANINDO_CUTOVER})
+          OR (s.source_branch = '32' AND s.business_date < ${MADERO_CUTOVER})
+          OR (s.source_branch = '30' AND s.business_date < ${ABASTOS_CUTOVER}) )
     ${scope}
   GROUP BY p.id, w.id, s.business_date, channel`;
 }
