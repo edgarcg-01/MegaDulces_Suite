@@ -587,9 +587,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-caos-go { color:var(--action); font-size:var(--fs-micro); white-space:nowrap; }
     .cg-caos-attach { color:var(--text-muted); font-size:var(--fs-micro); }
     .cg-caos-attach.cg-caos-alta { color:var(--action); }
-    .cg-cajero { border:1px dashed var(--border-color); border-radius:var(--r-md,8px); padding:var(--sp-3); }
-    .cg-cajero-head { display:flex; align-items:baseline; justify-content:space-between; gap:var(--sp-2); }
-    .cg-cajero-head label { margin:0; }
+    /* ⛔ [CG.70] Aca vivian ".cg-cajero" (recuadro punteado) y ".cg-cajero-head": el SEGUNDO panel
+       del cajero, el que repetia el rotulo. Se fueron con el; el que queda es el neutro de abajo.
+       Se borran y no se dejan huerfanas a proposito: una regla sin dueño es la que despues alguien
+       reusa por el nombre -- y eso fue exactamente [CG.69], que dejo dos apartados en 1x1 pixel. */
     /* CS.3.7 — La mención APARTE del efectivo del cajero (CAOS): ya contado por la máquina, no en la reja.
        ⛔ [CG.37] El borde y el icono iban en --action. DESIGN.md reserva el color de marca para
        CTA, chip activo, badge, "en vivo" y anillo de foco -- este panel no es ninguno de los
@@ -1854,19 +1855,46 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    Con eso "arqueo_no_cuadra" ya no puede ocurrir por construccion.
                    Billetes de 500 a 20 (los que circulan en la caja); el metal entero va en Morralla,
                    que es lo unico editable de la columna de importes porque es un importe, no piezas. -->
-              <!-- CS.3.4 — El detector: ¿este gasto salió del cajero (CAOS)? Propone los retiros por
-                   patrones (mismo día + ref + monto + aprendido); al vincular uno, su efectivo se suma al
-                   arqueo y el resto se cuenta a mano. NO aparece si la captura YA es un movimiento de CAOS. -->
-              @if (!caosElegido()) {
-                <div class="fin-row fin-row-col cg-cajero">
-                  <div class="cg-cajero-head">
-                    <label>Del cajero (CAOS)</label>
-                    <!-- El "buscando…" deja de ser un rotulo que se cambia a mano: [loading] pone el
-                         spinner Y desactiva el boton, que es lo que evita la segunda busqueda. -->
-                    <p-button label="¿salió del cajero? buscar retiros" icon="pi pi-search" size="small"
-                              severity="secondary" [text]="true" [loading]="buscandoCajero()"
-                              (onClick)="buscarEnCajero()"></p-button>
+              <!-- ⛔ [CG.70] ACA HABIA DOS BLOQUES Y LOS DOS SE ROTULABAN "Del cajero (CAOS)".
+                   CS.3.4 traia el detector (buscar retiros) y CS.3.7 la mencion aparte del efectivo
+                   ya contado, cada uno en SU recuadro, uno debajo del otro. Sus condiciones no son
+                   excluyentes: en el camino normal -- anclar un cobro de Kepler, buscar, vincular un
+                   retiro -- "no hay CAOS anclado" y "hay efectivo del cajero" son verdaderas A LA
+                   VEZ (es decir: !caosElegido() y hayCajero() al mismo tiempo), asi que la
+                   pantalla decia dos veces lo mismo y el capturista tenia que adivinar en que se
+                   diferencian. Y la unica vez que NO se repetia era anclando un movimiento de CAOS,
+                   el caso menos frecuente.
+                   Es UN solo asunto: cuanto del efectivo lo puso la boveda. Un panel y un rotulo --
+                   el monto cuando hay, el boton de buscar mientras se pueda, y debajo lo vinculado
+                   con su desglose. El boton tambien deja de repetirlo ("¿salio del cajero? buscar
+                   retiros" bajo un titulo que ya dice "Del cajero").
+                   ⚠️ Cuando aparece NO cambio: el panel se muestra en los mismos estados en que se
+                   mostraba alguno de los dos. Queda el recuadro NEUTRO de CS.3.7 ([CG.37] ya habia
+                   retirado el naranja por competir con Guardar) y se va el punteado de CS.3.4. -->
+              @if (hayCajero() || !caosElegido()) {
+                <div class="fin-row fin-row-col cg-caja-aparte">
+                  <div class="cg-caja-aparte-top">
+                    <span class="cg-caja-ico mono" aria-hidden="true">⇄</span>
+                    <strong>Del cajero (CAOS)</strong>
+                    @if (hayCajero()) {
+                      <strong class="mono cg-caos-monto">{{ money(aporteCajero()) }}</strong>
+                      <span class="fin-dim">ya contado por la máquina</span>
+                    } @else {
+                      <span class="fin-dim">¿parte de esto salió de la bóveda?</span>
+                    }
+                    @if (!caosElegido()) {
+                      <span class="cg-bandeja-sp"></span>
+                      <!-- El "buscando…" deja de ser un rotulo que se cambia a mano: [loading] pone el
+                           spinner Y desactiva el boton, que es lo que evita la segunda busqueda. -->
+                      <p-button label="buscar retiros" icon="pi pi-search" size="small"
+                                severity="secondary" [text]="true" [loading]="buscandoCajero()"
+                                (onClick)="buscarEnCajero()"></p-button>
+                    }
                   </div>
+                  <!-- CS.3.4 — El detector: propone los retiros por patrones (mismo día + ref + monto +
+                       aprendido); al vincular uno, su efectivo se suma al arqueo y el resto se cuenta a
+                       mano. No se ofrece si la captura YA es un movimiento de CAOS: ahí el origen es el
+                       movimiento entero, no un retiro suelto. -->
                   @if (caosSugeridos().length) {
                     <div class="cg-caos-list">
                       @for (c of caosSugeridos(); track c.external_id) {
@@ -1887,19 +1915,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       }
                     </div>
                   }
-                </div>
-              }
-
-              <!-- CS.3.7 — El efectivo del cajero (CAOS) se muestra APARTE, ya contado por la máquina. NO
-                   entra en la reja de abajo: ésa queda para la DIFERENCIA (morralla, un faltante). Sólo se
-                   muestra o se menciona; nunca se re-teclea. -->
-              @if (hayCajero()) {
-                <div class="cg-caja-aparte">
-                  <div class="cg-caja-aparte-top">
-                    <span class="cg-caja-ico mono" aria-hidden="true">⇄</span>
-                    <strong>Del cajero (CAOS): {{ money(aporteCajero()) }}</strong>
-                    <span class="fin-dim">ya contado por la máquina</span>
-                  </div>
                   @if (caosVinculados().length) {
                     <div class="cg-chips">
                       @for (v of caosVinculados(); track v.external_id) {
@@ -1911,11 +1926,15 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                       }
                     </div>
                   }
-                  <div class="cg-caja-denoms fin-dim mono">
-                    @for (d of denominacionesCajero(); track d.denom_key) {
-                      <span>{{ d.piezas }}×{{ money(d.denominacion) }}</span>
-                    }
-                  </div>
+                  <!-- CS.3.7 — Lo que la maquina ya conto NO entra en la reja de abajo: esa queda para la
+                       DIFERENCIA (morralla, un faltante). Aca solo se muestra; nunca se re-teclea. -->
+                  @if (hayCajero()) {
+                    <div class="cg-caja-denoms fin-dim mono">
+                      @for (d of denominacionesCajero(); track d.denom_key) {
+                        <span>{{ d.piezas }}×{{ money(d.denominacion) }}</span>
+                      }
+                    </div>
+                  }
                 </div>
               }
 

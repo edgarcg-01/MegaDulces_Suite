@@ -2468,3 +2468,103 @@ Verificado contra prod, y **con prueba negativa dentro de una transacción rever
    Mismo criterio que Fase AX con su pagaré.
 3. **Falta probarlo con un teléfono de verdad**, que es lo único que ve si el dedo dibuja.
 4. **Redeploy de api+view**: el código está commiteado y sin pushear.
+
+---
+
+## §31 · `[CG.69]` + `[CG.70]` — dos defectos que sólo se ven mirando la pantalla (2026-10-08)
+
+Los dos los encontró Edgar abriendo la pantalla, no una compuerta. Y los dos son de la misma
+familia: **escribí algo sin mirar lo que ya estaba al lado.**
+
+### `[CG.69]` — los dos apartados salían VACÍOS
+
+Reportado con captura: *«llevaste a producción el error de que no se abren los arqueos al
+seleccionarlos»*.
+
+**No era la lógica.** Medido con una sonda sobre el DOM vivo: al hacer clic en la fila,
+`capturaAbierta()` pasa a `true` y la reja renderiza (`abierto:capturaAbierta=true |
+abierto:hayReja=true`). El clic funcionaba.
+
+En `[CG.63]` envolví el contenido de los dos apartados en `<div class="cg-cap cg-entra">` **sin
+comprobar que `.cg-cap` ya existía en el mismo archivo de 4,500 líneas**, como la mordaza de
+accesibilidad de tres leyendas de tabla:
+
+```css
+.cg-cap { position:absolute; width:1px; height:1px; overflow:hidden; … }
+```
+
+Las dos reglas declaran propiedades distintas, así que **no compiten: se suman**. Los cuerpos
+quedaron `display:flex` **y** de 1×1 píxel con `overflow:hidden`.
+
+⛔ **Lo que no lo vio, y por qué:**
+
+| Compuerta | Veredicto | Por qué |
+|---|---|---|
+| `check:templates` | pasa | el CSS parsea perfecto |
+| `check:tokens` | pasa | todos los tokens existen |
+| 175 pruebas | pasan | **jsdom no aplica CSS** |
+| `typecheck` | pasa | es una clase, no un tipo |
+
+Atravesó cuatro compuertas y quince commits sin que ninguna se moviera.
+
+**Arreglo:** la envoltura se renombra a `.cg-captura` y la clase de accesibilidad queda intacta.
+Dos candados, los dos mutados a rojo: (a) en el CSS, ninguna clase amordazada con el truco de 1 px
+puede además declarar `display:flex|grid|block` —y el detector **tiene que encontrar al menos una
+mordaza** o está ciego—; (b) en el DOM, `.cg-ap-que .cg-captura` y `.cg-ap-arqueo .cg-captura`
+existen y su `className` **no** matchea `/\bcg-cap\b/`.
+
+⚠️ **Dos correcciones a lo que dije en el camino:**
+
+1. **Mi primera sonda estaba mal** y casi la presento como medición: leía nodos vivos *después* del
+   clic, así que rotulaba «cerrado» un estado ya abierto.
+2. **Esto nunca llegó a producción.** El commit desplegado era `9dd57123` (`[NP]`) y
+   `merge-base --is-ancestor` dice que **no contiene** ninguno de mis commits. Era el dev server.
+
+### `[CG.70]` — el cajero se nombraba dos veces
+
+Reportado igual de corto: *«repetiste lo de caos dos veces»*.
+
+En el apartado del arqueo había **dos paneles**, cada uno con su recuadro y los dos rotulados
+`Del cajero (CAOS)`: el detector de CS.3.4 (buscar retiros, recuadro punteado) y la mención aparte
+de CS.3.7 (el efectivo ya contado, recuadro neutro).
+
+⭐ **Sus condiciones no son excluyentes**, y eso es el defecto: `!caosElegido()` y `hayCajero()` son
+verdaderas **a la vez** en el camino normal —anclar un cobro de Kepler → buscar → vincular un
+retiro—. La única vez que *no* se repetía era anclando un movimiento de CAOS, el caso menos
+frecuente. Encima el botón lo decía por tercera vez («¿salió del cajero? buscar retiros») debajo de
+un título que ya decía «Del cajero».
+
+**Arreglo:** es **un** asunto —cuánto del efectivo lo puso la bóveda—, así que es **un** panel y
+**un** rótulo: el monto cuando hay, el botón mientras se pueda, y debajo lo vinculado con su
+desglose. Cuándo aparece **no cambió**: se muestra en los mismos estados en que se mostraba alguno
+de los dos (`hayCajero() || !caosElegido()`). Quedó el recuadro neutro —`[CG.37]` ya había retirado
+el naranja por competir con Guardar— y se fueron `.cg-cajero` y `.cg-cajero-head`.
+
+⭐ Las reglas muertas **se borran, no se dejan huérfanas**: una regla sin dueño es la que después
+alguien reusa por el nombre, que es exactamente `[CG.69]`.
+
+**Candado** (178 pruebas en la pantalla), con las dos mutaciones en rojo:
+
+| Mutación | Resultado |
+|---|---|
+| Devolver el segundo panel con el mismo rótulo | **rojo** — `expected 2 to be 1` |
+| Dejar el panel sólo con `hayCajero()` (se pierde la puerta de buscar) | **rojo** — `expected 0 to be 1` |
+
+⚠️ La cuenta va contra el **texto** del apartado, no contra `strong`/`label`: lo que se afirma es
+que la frase no aparezca dos veces, y amarrarla a una etiqueta concreta deja pasar la repetición si
+alguien la vuelve a poner con otro elemento.
+
+⚠️ Y el mensaje de la aserción se corrigió **después** de que la segunda mutación lo disparara:
+decía sólo «ya se repetía» y la falla había sido la contraria (el panel desapareció). Un mensaje
+que apunta al lado equivocado manda al próximo a buscar donde no está.
+
+### Lo que estos dos dejan dicho
+
+⭐⭐ **Lo que yo verifico (tipos, parseo, DOM) no es lo que se ve (píxeles y redundancia).** Está
+escrito en §26, §28 y §29 de esta misma fase, y lo volví a pisar dos veces el mismo día. La
+validación visual no es el último paso opcional: es la única compuerta que ve esta familia.
+
+⚠️⚠️ **Séptima vez que un acento grave en un comentario rompe el build**, y van dos en esta fase.
+Lo agarró `check:templates`.
+
+✅ `[CG.70]` **validado visualmente** con captura de Edgar: un solo panel, el botón a la derecha.
