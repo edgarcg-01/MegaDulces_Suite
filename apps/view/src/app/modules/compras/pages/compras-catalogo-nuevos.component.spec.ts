@@ -167,6 +167,11 @@ describe('[NP.5] funciones puras de Productos nuevos', () => {
   it('la búsqueda mira SKU, nombre, marca y proveedor', () => {
     expect(pasaBusqueda(FILAS[0], 'prov a')).toBe(true);
     expect(pasaBusqueda(FILAS[0], 'chicle')).toBe(false);
+    // Varias palabras, en cualquier orden y de campos distintos (nombre + SKU).
+    expect(pasaBusqueda(FILAS[0], 'mango np01')).toBe(true);
+    expect(pasaBusqueda(FILAS[0], 'mango chicle')).toBe(false);
+    // Sin importar acentos.
+    expect(pasaBusqueda(producto({ nombre: 'PALETA PIÑA' }), 'pina')).toBe(true);
   });
 });
 

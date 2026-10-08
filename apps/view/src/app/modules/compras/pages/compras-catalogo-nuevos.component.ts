@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, linkedSignal, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { rxResource } from '@angular/core/rxjs-interop';
@@ -10,6 +10,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { SparklineComponent } from '../../../shared/components/charts/sparkline.component';
 import { unidadLegible } from '@megadulces/contracts';
+import { coincideBusqueda } from '@megadulces/ui-web';
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import {
   HitoNuevo,
@@ -57,9 +58,8 @@ export function pasaFiltro(f: ProductoNuevo, filtro: FiltroNuevos): boolean {
 }
 
 export function pasaBusqueda(f: ProductoNuevo, q: string): boolean {
-  const t = q.trim().toLowerCase();
-  if (!t) return true;
-  return [f.sku, f.nombre, f.marca, f.proveedor].some((x) => (x || '').toLowerCase().includes(t));
+  // Cada palabra en cualquier campo y en cualquier orden, sin importar acentos ni mayúsculas.
+  return coincideBusqueda(q, f.sku, f.nombre, f.marca, f.proveedor);
 }
 
 /**
@@ -694,14 +694,13 @@ export class ComprasCatalogoNuevosComponent {
    * El último dato bueno se conserva mientras se recarga o si una recarga falla: refrescar cada
    * minuto no puede dejar la pantalla en blanco ni pintar ceros. El error se DICE en la franja.
    */
-  private ultimo: RespuestaNuevos | undefined = undefined;
-  readonly datos = computed(() => {
+  readonly datos = linkedSignal<RespuestaNuevos | undefined, RespuestaNuevos | undefined>({
     // Primero el error: leer el valor de un recurso en error LANZA, y la pantalla reventaría en
-    // vez de decir "sin conexión".
-    if (this.res.error()) return this.ultimo;
-    const v = this.res.value();
-    if (v !== undefined) this.ultimo = v;
-    return v ?? this.ultimo;
+    // vez de decir "sin conexión". Mientras recarga o si falla, `nuevo` es undefined y se queda
+    // el anterior. linkedSignal y no un campo plano: un computed que lee un campo no se entera
+    // de que cambió.
+    source: () => (this.res.error() ? undefined : this.res.value()),
+    computation: (nuevo, previo) => nuevo ?? previo?.value,
   });
   readonly cargando = computed(() => this.res.isLoading());
   readonly error = computed(() => !!this.res.error());
