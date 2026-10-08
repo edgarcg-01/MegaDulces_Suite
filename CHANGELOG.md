@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Etiquetera: el aviso dice POR QUÉ un producto no se puede etiquetar (ETQ-ESTADO.1, 2026-10-08)
+- Antes tres situaciones distintas decían «sin precio en Kepler». Caso real: el SKU 78180 («500 GR CONF BLANCO/ TURIN», pasó a granel) **no existía en `kdii` en ninguna tienda** y se buscó un precio en 0 que no estaba. Ahora el aviso distingue **no existe en Kepler** (darlo de alta), **existe pero no en esta tienda** y **está con precio 0 en esta tienda**; la carga masiva lista los códigos que no existen.
+- `POST /store/labels/resolve` agrega `erp_estado` por etiqueta (`cotizado` · `sin_precio` · `no_existe_en_plaza` · `no_existe_en_erp` · `null`). Se calcula con dos consultas a `kepler_ods.kdii` **sólo** para los productos sin precio; sin tienda o sin SKU va `null` y la pantalla cae al mensaje genérico.
+- Cambio de comportamiento: ninguno en qué se imprime. Un producto sin precio sigue sin entrar a la cola. Sin migraciones ni permisos nuevos → sin re-login. Requiere redeploy api+view (cada lado funciona solo, el diagnóstico completo necesita los dos).
 ### Fixed — Almacén: vuelve el botón «Surtir» del tablero de pedidos (GP.3, 2026-10-08)
 - `/almacen/pedidos` había perdido el botón que lleva a `/almacen/surtir` (la pantalla del surtidor es de foco y no tiene otra entrada desde el tablero). Lo agregó GP.3c (#319) y el barrido de nombres de sucursal SUC.1 (`fcf85959c`) lo borró sin querer al reescribir el archivo; su prueba quedó roja en `main`. Se restaura tal cual, conservando el nombre de sucursal de SUC.1.
 

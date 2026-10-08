@@ -1117,12 +1117,12 @@ export class TiendaEtiquetasComponent {
     this.svc.resolve([code], suc).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
-        const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
+        const { added, skipped, skippedModels, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
         if (!added) {
           this.msg.set({
             text: leftover.length ? this.topeMsg()
               : skipped.length
-                ? `"${h.name}" no tiene precio en Kepler → no se puede etiquetar.`
+                ? `"${h.name}" ${this.motivoSinPrecio(skippedModels[0])}`
                 : `No se pudo agregar "${h.name}" (sin datos de etiqueta).`,
             kind: 'warn',
           });
@@ -1146,13 +1146,13 @@ export class TiendaEtiquetasComponent {
     this.svc.resolve([code], suc).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
-        const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
+        const { added, skipped, skippedModels, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
         if (added) {
           this.msg.set({ text: `Agregado: ${r.labels.find((l) => this.usable(l))?.name ?? code}`, kind: 'ok' });
         } else if (leftover.length) {
           this.msg.set({ text: this.topeMsg(), kind: 'warn' });
         } else if (skipped.length) {
-          this.msg.set({ text: `${skipped[0]}: sin precio en Kepler → no se puede etiquetar.`, kind: 'warn' });
+          this.msg.set({ text: `${skipped[0]}: ${this.motivoSinPrecio(skippedModels[0])}`, kind: 'warn' });
         } else {
           this.msg.set({ text: `No encontrado: ${code}`, kind: 'warn' });
         }
@@ -1176,11 +1176,18 @@ export class TiendaEtiquetasComponent {
     this.svc.resolve(codes, suc).subscribe({
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
-        const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
+        const { added, skipped, skippedModels, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
         this.notFound.set(r.not_found || []);
         const nf = r.not_found?.length || 0;
         let text = `Agregados ${added}`;
-        if (skipped.length) text += ` · sin precio ${skipped.length}`;
+        if (skipped.length) {
+          // [ETQ-ESTADO.1] Lo que no existe en el ERP se separa de lo que existe sin precio: se
+          // arreglan en lugares distintos y la lista dice cuales son, no solo cuantos.
+          const noExiste = skippedModels.filter((m) => m.erp_estado === 'no_existe_en_erp' || m.erp_estado === 'no_existe_en_plaza');
+          const resto = skippedModels.length - noExiste.length;
+          if (noExiste.length) text += ` · no existen en Kepler ${noExiste.length} (${noExiste.map((m) => m.sku || m.name).join(', ')})`;
+          if (resto) text += ` · sin precio ${resto}`;
+        }
         if (nf) text += ` · no encontrados ${nf}`;
         if (leftover.length) text += ` · ${leftover.length} fuera por el tope de ${this.MAX_LABELS} etiquetas (siguen en la lista)`;
         this.msg.set({ text, kind: (skipped.length || nf || leftover.length) ? 'warn' : 'ok' });
@@ -1197,15 +1204,16 @@ export class TiendaEtiquetasComponent {
    * sin fila en Kepler, como "OJILOCOS…") se omiten y se devuelven en `skipped` para avisar —
    * antes se agregaba una etiqueta vacía ($0, sin código, sin tiers) = "no muestra info".
    */
-  private pushLabels(labels: LabelModel[], freshness: Freshness | null): { added: number; skipped: string[]; leftover: string[] } {
+  private pushLabels(labels: LabelModel[], freshness: Freshness | null): { added: number; skipped: string[]; skippedModels: LabelModel[]; leftover: string[] } {
     const q = [...this.queue()];
     const skipped: string[] = [];
+    const skippedModels: LabelModel[] = [];
     // Lo que no entró por el tope, por su código: vuelve al textarea (ver addBulk).
     const leftover: string[] = [];
     let total = q.reduce((s, it) => s + it.copies, 0);
     let added = 0;
     for (const m of labels) {
-      if (!this.usable(m)) { skipped.push(m.name); continue; }
+      if (!this.usable(m)) { skipped.push(m.name); skippedModels.push(m); continue; }
       if (total >= this.MAX_LABELS) { leftover.push(m.code || m.sku || m.name); continue; }
       const existing = q.find((it) => it.model.product_id === m.product_id);
       // Re-escaneado: se queda con el modelo y la frescura de ESTE resolve, que es el más reciente.
@@ -1216,7 +1224,28 @@ export class TiendaEtiquetasComponent {
       added++;
     }
     this.queue.set(q);
-    return { added, skipped, leftover };
+    return { added, skipped, skippedModels, leftover };
+  }
+
+  /**
+   * [ETQ-ESTADO.1] Por que un producto no se puede etiquetar, dicho para quien tiene que arreglarlo.
+   *
+   * Antes los tres casos decian "sin precio en Kepler" y mandaban a buscar un precio en 0 aunque el
+   * producto ni existiera en el ERP (SKU 78180, que paso a granel). Sin estado del servidor (API
+   * vieja, o sin tienda) cae al mensaje generico de siempre.
+   */
+  private motivoSinPrecio(m: LabelModel): string {
+    const suc = this.sucursal() ?? '';
+    switch (m.erp_estado) {
+      case 'no_existe_en_erp':
+        return 'no existe en Kepler (en ninguna tienda): hay que darlo de alta en Kepler con su precio → no se puede etiquetar.';
+      case 'no_existe_en_plaza':
+        return `existe en Kepler pero no en la tienda ${suc}: hay que darlo de alta ahí → no se puede etiquetar.`;
+      case 'sin_precio':
+        return `está en Kepler pero con precio 0 en la tienda ${suc}: hay que ponerle precio en Kepler → no se puede etiquetar.`;
+      default:
+        return 'sin precio en Kepler → no se puede etiquetar.';
+    }
   }
 
   private topeMsg(): string {
