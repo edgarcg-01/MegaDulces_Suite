@@ -9555,7 +9555,7 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 
 > 🔨 PLANEADA 2026-10-08. Código `[T|B][pasillo][rack 01–99][nivel 1–6]` (ej. `BA053`). Piloto PH. Absorbe WMS.2/3/3b/4/7.
 
-- [ ] **[UB.0]** ⬜ ADR-090 + claves `ALMACEN_UBICACIONES_VER/_ACOMODAR/_GESTIONAR` (enum + `authz-tree`) + **migración de reparto** (FASE_UB §4.2) con los roles verificados contra prod.
+- [ ] **[UB.0]** 🧪 (2026-10-08 · mig `20261008011555` probada con up() real en transacción + rollback contra Docker: 14 roles, idempotente, down limpio, false explícito respetado; contracts 414/414, view authz 73/73) ADR-090 + claves `ALMACEN_UBICACIONES_VER/_ACOMODAR/_GESTIONAR` (enum + `authz-tree`) + **migración de reparto** (FASE_UB §4.2) con los roles verificados contra prod.
 - [ ] **[UB.1]** ⬜ Catálogo: `warehouse_bins` + zona/pasillo/rack/nivel/familia/tipo_zona/estado/`pick_sequence`; validación del código; `tipo-ubicacion.ts` por columna (la `T` deja de ser tarima); pantalla Mapa `/almacen/ubicaciones`.
 - [ ] **[UB.2]** ⬜ Captura masiva: generar por rango con vista previa + Excel/CSV producto→ubicación→papel + etiquetas por lote + deshacer por `batch_id`.
 - [ ] **[UB.3]** ⬜ `bin_assignments` **por presentación** (peldaño de `kdii` de la sucursal; caja, paquete y pieza con lugar propio) (surtido_fijo / exhibicion_tienda / reserva_preferida + mín/máx) + pantalla de asignación + medición de la propuesta Wincaja PH (§2.1) + censo en celular.
