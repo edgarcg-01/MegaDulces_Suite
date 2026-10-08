@@ -178,6 +178,17 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
       @if (mode()==='pedido') {
         <!-- RA-PRO.32.3 — PEDIDO unificado: workbook por SKU + desglose por sucursal (compra/traspaso/sobre) en el acordeón -->
         <app-metric-strip [items]="pedidoKpi()" ariaLabel="Resumen del pedido" />
+        <!-- [RA-BORR.2] Lo recuperado se DICE, con su hora y con salida. Restaurar en silencio es
+             peor que no restaurar: el comprador armaría sobre números que no escribió hoy. -->
+        @if (borradorRecuperado(); as b) {
+          <div class="pr-borrador" role="status">
+            <i class="pi pi-history" aria-hidden="true"></i>
+            <p>Recuperé tu pedido a medio capturar: <strong>{{ b.n }}</strong>
+              {{ b.n === 1 ? 'cantidad escrita' : 'cantidades escritas' }} de <strong>{{ borradorHora(b.at) }}</strong>.
+              <span class="pr-borrador-sub">Las marcas de los productos no se guardan — marcá y armá como siempre.</span></p>
+            <button type="button" class="pr-zlink" (click)="descartarBorrador()">Descartar y empezar de cero</button>
+          </div>
+        }
         <div class="pr-filters">
           <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="loadWorkbook()"
                     optionLabel="label" optionValue="value" placeholder="Todos los proveedores" [showClear]="true"
@@ -1369,6 +1380,14 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        normal. Queda en el gris de la insignia base y sube a .pr-bflag-bad recien cuando son DOS o
        mas, que ahi si es lo mismo pedido dos veces. */
     .pr-bflag-pend { color: var(--text-main); border-color: var(--border-color); }
+    /* RA-BORR.2 — el aviso de pedido recuperado. Informativo, no alarma: el tono de la superficie
+       con un filo de acento, nunca el rojo de un problema. */
+    .pr-borrador { display: flex; align-items: center; gap: .6rem; margin: .5rem 0 0;
+      padding: .5rem .75rem; border: 1px solid var(--border-color); border-left: 3px solid var(--action);
+      border-radius: var(--r-sm, 8px); background: var(--surface-soft, transparent); font-size: var(--fs-sm); }
+    .pr-borrador p { margin: 0; flex: 1; color: var(--text-main); }
+    .pr-borrador i { color: var(--action); }
+    .pr-borrador-sub { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     /* RA-PEND.2 — lo que impide generar, arriba del boton apagado. */
     .pr-plan-stop { margin: .6rem 0 0; padding: .55rem .7rem; border: 1px solid var(--bad-border);
       border-radius: var(--r-sm, 8px); background: var(--bad-bg, transparent); color: var(--bad-fg); font-size: var(--fs-sm); }
@@ -1525,10 +1544,120 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // P2 — cantidades editadas sin armar requisición = trabajo volátil. dirty protege contra
   // navegación interna (unsavedChangesGuard) + salida externa (beforeunload).
   private readonly dirty = signal(false);
-  onQtyEdit(): void { this.dirty.set(true); this.tick(); }
+  onQtyEdit(): void { this.marcarSucio(); this.tick(); }
+
+  // ── `[RA-BORR.2]` EL PEDIDO A MEDIO CAPTURAR SOBREVIVE A UN F5 ──────────────────────────────
+  /**
+   * Lo que se guarda son **las cantidades escritas, no la pantalla**: un objeto disperso
+   * `producto|sucursal → cajas`, más la unidad de captura y el punto de entrega elegidos. El
+   * sugerido del motor NO se guarda —se vuelve a calcular y debe hacerlo: si cambió la existencia,
+   * lo que el comprador quiere ver es el número de hoy, no el de ayer—; lo que se conserva es
+   * exactamente lo que una persona tecleó.
+   *
+   * ⚠️ **Lo MARCADO no se guarda, a propósito.** `selRows()` resuelve cada id contra la página
+   * abierta más su caché de renglones, y lo que no puede resolver lo **descarta en silencio**: tras
+   * un F5 esa caché está vacía, así que restaurar las marcas armaría un pedido más chico que el
+   * marcado sin decirlo. Un pedido parcial que se cree completo es peor que volver a marcar.
+   *
+   * Tamaño medido sobre 686 pedidos reales de prod: 7 renglones el típico, 13 el p90, **190 el
+   * mayor de todos** ≈ 9 KB — contra los ~5 MB de cupo. Saturar no es el riesgo; por eso no hace
+   * falta IndexedDB, que sólo compraría cupo que sobra.
+   */
+  private readonly BORRADOR_V = 1;
+  /** Se descarta solo a los 3 días: una captura más vieja que eso es de otro ciclo de compra. */
+  private static readonly BORRADOR_TTL_MS = 3 * 24 * 60 * 60 * 1000;
+  /** Lo recuperado, para poder DECIRLO en pantalla. `null` = no había nada que recuperar. */
+  readonly borradorRecuperado = signal<{ n: number; at: number } | null>(null);
+  private guardarTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * Al salir de la pantalla se escribe lo que quedó en el respiro. ⚠️ Sin esto, irse a otra ruta
+   * dentro de la app dentro de los 500 ms de la última tecla perdía ESA tecla — y el guard de
+   * navegación no puede verlo porque pregunta por `dirty`, que sí estaba puesto.
+   */
+  private readonly borradorCleanup = this.destroyRef.onDestroy(() => {
+    if (this.guardarTimer) { clearTimeout(this.guardarTimer); this.guardarTimer = null; }
+    this.guardarBorradorYa();
+  });
+
+  /**
+   * ⚠️ La llave lleva el `sub` del usuario. En una sucursal la misma computadora la usan varias
+   * personas, y heredar el pedido a medio armar de la anterior sería peor que perderlo.
+   */
+  private bkey(): string | null {
+    const sub = this.auth.user()?.sub;
+    return sub ? `pedido-borrador:${sub}` : null;
+  }
+
+  /** Marca trabajo pendiente (guard de ruta + beforeunload) y agenda el guardado. */
+  private marcarSucio(): void { this.dirty.set(true); this.guardarBorrador(); }
+
+  /** Escribe con un respiro: `onQtyEdit` dispara por tecla y no hace falta pagar cada una. */
+  private guardarBorrador(): void {
+    if (this.guardarTimer) clearTimeout(this.guardarTimer);
+    this.guardarTimer = setTimeout(() => this.guardarBorradorYa(), 500);
+  }
+  private guardarBorradorYa(): void {
+    const k = this.bkey();
+    if (!k) return;
+    try {
+      const q = this.buyQty();
+      // Sin cantidades no hay borrador: dejar un cascarón haría que la próxima sesión anuncie
+      // "recuperé tu pedido" sobre cero renglones.
+      if (!Object.keys(q).length) { localStorage.removeItem(k); return; }
+      localStorage.setItem(k, JSON.stringify({ v: this.BORRADOR_V, at: Date.now(), q, u: this.buyUnit(), d: this.buyDeliver() }));
+    } catch { /* cupo lleno o modo privado: el pedido sigue vivo en memoria */ }
+  }
+
+  private restaurarBorrador(): void {
+    const k = this.bkey();
+    if (!k) return;
+    try {
+      const raw = localStorage.getItem(k);
+      if (!raw) return;
+      const s = JSON.parse(raw);
+      if (s?.v !== this.BORRADOR_V || !s.q || typeof s.at !== 'number') { localStorage.removeItem(k); return; }
+      if (Date.now() - s.at > ComprasPedidoRealComponent.BORRADOR_TTL_MS) { localStorage.removeItem(k); return; }
+      const n = Object.keys(s.q).length;
+      if (!n) { localStorage.removeItem(k); return; }
+      this.buyQty.set(s.q);
+      if (s.u && typeof s.u === 'object') this.buyUnit.set(s.u);
+      if (s.d && typeof s.d === 'object') this.buyDeliver.set(s.d);
+      // Hay trabajo sin armar: los dos guards tienen que poder avisar desde el primer segundo.
+      this.dirty.set(true);
+      this.borradorRecuperado.set({ n, at: s.at });
+    } catch { /* JSON inválido: no se arrastra basura */ }
+  }
+
+  /** El comprador decide tirarlo. Es la salida que vuelve honesto al aviso de recuperación. */
+  descartarBorrador(): void {
+    const k = this.bkey();
+    try { if (k) localStorage.removeItem(k); } catch { /* idem */ }
+    this.buyQty.set({}); this.buyUnit.set({}); this.buyDeliver.set({});
+    this.borradorRecuperado.set(null);
+    this.dirty.set(false);
+    this.tick();
+  }
+  /** Se armó la requisición: el trabajo ya vive en la base y el borrador sobra. */
+  private borradorCumplido(): void {
+    const k = this.bkey();
+    try { if (k) localStorage.removeItem(k); } catch { /* idem */ }
+    this.borradorRecuperado.set(null);
+  }
+  /** Hora del borrador recuperado, para decirla sin adivinar el formato. */
+  borradorHora(at: number): string {
+    const d = new Date(at);
+    const hoy = new Date().toDateString() === d.toDateString();
+    const hh = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+    return hoy ? `hoy ${hh}` : `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')} ${hh}`;
+  }
   hasUnsavedChanges(): boolean { return this.dirty(); }
   @HostListener('window:beforeunload', ['$event'])
-  onBeforeUnload(e: BeforeUnloadEvent): void { if (this.dirty()) e.preventDefault(); }
+  onBeforeUnload(e: BeforeUnloadEvent): void {
+    // `[RA-BORR.2]` Se escribe YA, sin esperar el respiro de 500 ms: si la persona confirma salir,
+    // no hay otro momento. Es justo el medio segundo que el debounce se jugaba.
+    this.guardarBorradorYa();
+    if (this.dirty()) e.preventDefault();
+  }
 
   // P2 — frescura del dato (el pedido se calcula sobre feeds que pueden estar stale).
   /** Cuándo se pidió la página. Lo consume `app-freshness-pill` con `measures="fetch"`. */
@@ -2094,7 +2223,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   setDispOf(r: WorkbookRow, b: BranchBuy, v: number | string): void {
     const cajas = Math.max(0, Number(v) || 0) / (this.bFactor(r, b) || 1);
     this.buyQty.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: cajas }));
-    this.dirty.set(true);
+    this.marcarSucio();
   }
 
   /**
@@ -2218,7 +2347,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   isConsolidated(r: WorkbookRow, b: BranchBuy): boolean { return !!this.deliverOf(r, b); }
   private setDeliver(r: WorkbookRow, b: BranchBuy, code: string | null): void {
     this.buyDeliver.update((m) => ({ ...m, [this.bk(r.product_id, b.code)]: code }));
-    this.dirty.set(true);
+    this.marcarSucio();
   }
   setDirect(r: WorkbookRow, b: BranchBuy): void { this.setDeliver(r, b, null); }
   /** Al marcar Consolidado se propone el CEDIS de SU zona; si esa sucursal ya es el CEDIS, el primero que no sea ella. */
@@ -2235,7 +2364,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.buyDeliver.update((m) => {
       const n = { ...m }; for (const b of z.rows) n[this.bk(r.product_id, b.code)] = null; return n;
     });
-    this.dirty.set(true);
+    this.marcarSucio();
   }
   zoneAllToHub(r: WorkbookRow, z: ZoneGroup): void {
     if (!z.hubCode) return;
@@ -2245,7 +2374,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       for (const b of z.rows) n[this.bk(r.product_id, b.code)] = b.code === z.hubCode ? null : z.hubCode;
       return n;
     });
-    this.dirty.set(true);
+    this.marcarSucio();
   }
   /**
    * El CEDIS PRINCIPAL de la empresa (hoy `00`, y se llama **«CEDIS»** a secas desde la mig
@@ -2275,7 +2404,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       for (const b of z.rows) n[this.bk(r.product_id, b.code)] = b.code === m.code ? null : m.code;
       return n;
     });
-    this.dirty.set(true);
+    this.marcarSucio();
   }
   /** CEDIS elegibles para este renglón: todos menos él mismo (consolidarse en sí mismo no es nada). */
   cedisFor(b: BranchBuy): { code: string; name: string }[] { return this.cedisList().filter((cd) => cd.code !== b.code); }
@@ -2478,9 +2607,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.selected.set(s);
   }
   clearSel(): void { this.selected.set(new Set()); }
-  private resetSel(): void {
-    this.selected.set(new Set()); this.rowCache.set(new Map()); this.queryEligible.set(null);
-  }
+  // `[RA-BORR.1]` Acá vivía `resetSel()`, que vaciaba selección + caché de renglones en cada cambio
+  // de filtro. Se retira con su llamador: ahora lo marcado sobrevive, y lo único que de verdad
+  // caduca con la consulta (`queryEligible`) se limpia en su sitio.
 
   /** Casilla general: si ya está todo marcado, limpia; si no, trae TODA la consulta con pedido y la marca. */
   toggleSelAll(ev?: Event): void {
@@ -3043,6 +3172,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       }),
     });
     this.restoreFilters();
+    // `[RA-BORR.2]` ANTES de la primera carga: así el pedido recuperado ya está puesto cuando
+    // llegan las filas, y no se ve un parpadeo del sugerido del motor pisado medio segundo después.
+    this.restaurarBorrador();
     // Q.4 — hidratación por query-params, DESPUÉS de restoreFilters para que el link gane sobre
     // el localStorage. Es lo que hace navegable "todo dato accionable a su lugar de arreglo con
     // el filtro puesto": Existencia manda acá con ?search=<sku>. Sin esto el enlace no hacía nada
@@ -3129,11 +3261,27 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.wbOpen.set(new Set());   // nueva página/data → colapsa el acordeón
     if (reloadEnrichment) {
       this.detailReady.set(false);
-      // Cambio de filtro = otro universo: las cantidades editadas vuelven al sugerido del motor.
-      // Al paginar NO se limpian (están indexadas por producto×sucursal), así que ir y volver de
-      // página conserva lo capturado.
-      this.buyQty.set({}); this.buyUnit.set({}); this.buyDeliver.set({}); this.dirty.set(false);
-      this.resetSel();   // [RA-PRO.54] otra consulta: lo marcado ya no aplica
+      // `[RA-BORR.1]` ⛔ **ACÁ SE BORRABA EL PEDIDO, Y ÉSE ERA EL ACCIDENTE.**
+      //
+      // Vivían un `buyQty.set({})` + `buyUnit` + `buyDeliver` + `resetSel()` + `dirty.set(false)`,
+      // con el argumento de que "cambio de filtro = otro universo". **No lo es:** las cantidades
+      // están indexadas por `producto|sucursal`, llaves que NO cambian al filtrar — tanto, que el
+      // propio código ya conservaba todo al PAGINAR, por esa misma razón. Lo único que un filtro
+      // mueve es el *sugerido*, y una cantidad escrita a mano le gana a un sugerido por definición:
+      // para eso se escribió.
+      //
+      // El costo era doble, y la segunda mitad es la que lo volvía invisible: `dirty.set(false)` en
+      // la misma línea **apagaba las dos protecciones que ya existían** —el `unsavedChangesGuard` de
+      // la ruta y el `beforeunload`— así que la pantalla no podía avisar ni queriendo. Medido el
+      // 2026-10-08: **18 sitios llaman `loadWorkbook()`** (cada chip, el selector de cobertura, el
+      // buscador, proveedor, marca, categoría, sucursales, cambiar de pestaña…), o sea 18 formas de
+      // perder el trabajo sin una pregunta. Lo capturado típico son 7 renglones, p90 13 y 190 el
+      // mayor de 686 pedidos reales.
+      //
+      // ⚠️ `queryEligible` SÍ se limpia: es "los productos con pedido de TODA la consulta", y la
+      // consulta sí cambió. Lo marcado y su caché de renglones se conservan, que es lo que permite
+      // armar una canasta de varios proveedores sin perder lo de antes.
+      this.queryEligible.set(null);
     }
     this.api.workbook({
       ...this.wbQuery(),
@@ -3454,7 +3602,11 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.urows.set(out);
     this.tick();
     this.loadedAt.set(Date.now());   // sella frescura
-    this.dirty.set(false);           // datos frescos = sin ediciones pendientes
+    // `[RA-BORR.1]` Datos frescos NO quiere decir "sin ediciones pendientes": desde que el cambio
+    // de filtro dejó de borrar lo capturado, puede haber cantidades escritas a mano que sobreviven
+    // a esta recarga. Apagar `dirty` acá dejaría mudo al guard de la ruta y al `beforeunload`
+    // justo cuando hay trabajo que perder — que es la mitad silenciosa del defecto de arriba.
+    if (!Object.keys(this.buyQty()).length) this.dirty.set(false);
   }
 
   private readonly typeOrder: Record<UType, number> = { comprar: 0, traspaso: 1, sobre: 2 };
@@ -3906,6 +4058,9 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       next: (r) => {
         this.saving.set(false);
         this.planVisible = false; this.plan.set([]);
+        // `[RA-BORR.2]` El trabajo ya vive en la base: el borrador sobra y arrastrarlo haría que la
+        // próxima sesión ofrezca "recuperar" un pedido que ya se armó.
+        this.borradorCumplido();
         const nombre = r.batch_folio ? `Lote ${r.batch_folio}` : `${r.total} requisición(es)`;
         this.toast.add({
           severity: 'success', life: 12000,
