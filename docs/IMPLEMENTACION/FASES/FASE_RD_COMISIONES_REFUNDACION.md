@@ -113,6 +113,46 @@ Carga **única y verificada** de las 20 quincenas de `INDICADORES RD 2026` a `co
 **Medición de cierre**: la pantalla abre en 2026 y muestra 20 quincenas con monto, origen `libro`
 y estado `pagado`. El tablero sigue costando milisegundos, porque lee tabla y no vista.
 
+#### Estado 2026-10-08 — cargador escrito y cuadrado en seco, carga BLOQUEADA
+
+`database/scripts/cargar-libro-comisiones-rd.js`. Medido contra prod, sin escribir:
+
+```
+238 ruta-periodo (190 con pago, 48 sin tramo)
+comision del chofer      1,580,327.48   Δ 0.00
+a pagar (neto)             796,981.88   Δ 0.00
+20% del supervisor         395,081.87   Δ 0.00   (informativo, NO se carga)
+precondiciones: escala ✔ · 20 quincenas ✔ · rutas ✔ · fechas 20/20 ✔ · tabla vacia ✔
+```
+
+⭐ **El mapa ruta → bloque sale del propio workbook**, no de los rótulos: las fórmulas de
+`FORMATO DE PAGO` apuntan a `COMISIONES!<col><fila>`. Los rótulos dicen `RUTA CANINDO 503 (501)`
+y el número entre paréntesis es un nombre viejo — leerlo mal cambia a quién se le paga.
+
+⚠️ La primera versión comparaba la fecha de cierre tomando sólo las que están en **texto**:
+**1 de 20** comprobadas, y la precondición salía ✔ igual. La cobertura es parte de la aserción.
+
+#### ⛔ La línea del SUPERVISOR no se carga — y no es por falta de dato
+
+Medido en `FORMATO DE SUPERVISOR`: **el libro le paga dos cosas distintas a dos supervisores.**
+
+```
+T19 (ANGEL)      → INDEX(… MATCH($T$16, $B$12:$E$12) …)  → columna E = "Comisión"  (el 20 %)
+T25 (FRANCISCO)  → INDEX(… MATCH($G$12, $B$12:$G$12) …)  → columna G = "Bono por alcance"
+```
+
+Y el pie del recibo de FRANCISCO suma el bono **dos veces** — «Suma de Comisiónes a Pagar»
+`2,400` + «Bono por alcance de %» `2,400` = «Total a Pagar» `4,800` — mientras su 20 % del
+periodo (2,004.77 + 1,771.86 + 2,405.04 + 1,680.81 = **7,862.48**) **no entra en ningún
+renglón**. El mismo recibo publica además «Neto del recibo» `2,400` contra «Total a Pagar»
+`4,800`.
+
+Escribir eso como `pagado` afirmaría un hecho que el archivo no sostiene. Se declara en la nota
+de cada corrida y pasa a ser decisión (abierto #3). ⭐ Y tiene consecuencia sobre el motor: su
+modelo limpio —20 % por ruta menos deducción por persona— **no reproduce lo que se le pagó a por
+lo menos un supervisor**, así que la compuerta de promoción de `[RD.52]` debe medirse **sólo
+sobre la línea del chofer** hasta que esto se resuelva.
+
 ---
 
 ### [RD.52] El contraste — el valor que hoy no existe en ninguna pantalla
