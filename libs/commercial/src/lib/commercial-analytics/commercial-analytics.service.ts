@@ -392,6 +392,62 @@ export interface RouteCountResult {
   aviso: string;
 }
 
+/**
+ * `[RD.45]` Una ruta en la pantalla de conteo: **la hoja que hoy se imprime en papel**, más lo
+ * que hace falta para decidir si vale la pena contarla.
+ *
+ * ⚠️ `foto_fecha` nunca se omite. Una hoja sin fecha es una hoja que el contador supone de hoy.
+ */
+export interface RouteCountSheetRow {
+  route_no: string;
+  /** El día de la foto. `null` = la camioneta no reportó: **no es cero, es sin medir**. */
+  foto_fecha: string | null;
+  renglones: number;
+  importe: number | null;
+  /** El piso de empalme de `[RD.34]`. `false` = la foto no es confiable ni para anclar. */
+  aceptada: boolean | null;
+  motivo: string | null;
+  /** Último conteo registrado de esa ruta; `null` si nunca se contó. */
+  ultimo_conteo: string | null;
+  /** Días desde ese conteo. `null` cuando nunca hubo uno — distinto de `0`. */
+  dias_desde_conteo: number | null;
+}
+
+/** `[RD.45]` Un renglón de la hoja: el producto y **lo que el camión dice que trae**. */
+export interface RouteCountSheetLine {
+  sku: string;
+  unidad: string;
+  producto: string;
+  /** Lo que la foto declara. Es contra esto que la persona dice «igual» o «difiere». */
+  esperado: number;
+  costo_unitario: number | null;
+  importe: number | null;
+  /**
+   * El código de barras, para **saltar al renglón escaneándolo** en vez de buscarlo a mano.
+   *
+   * Medido el 2026-10-07: los 2,263 SKUs que mueven las rutas lo tienen (100%). ⚠️ No se usa
+   * para *resolver* un producto contra el catálogo —eso es lo que la regla del proyecto prohíbe
+   * hacer con `sku OR barcode`— sino para ubicarlo dentro de una hoja de ~300 renglones que ya
+   * está fija; y si dos renglones empatan, la pantalla muestra los dos en vez de elegir.
+   */
+  barcode: string | null;
+}
+
+/** `[RD.45]` La hoja completa de una ruta, lista para recorrer renglón por renglón. */
+export interface RouteCountSheet extends RouteCountSheetRow {
+  lines: RouteCountSheetLine[];
+  /**
+   * Hoy en TZ MX, resuelto por el **servidor**. Es la fecha que la pantalla propone como
+   * `count_date`.
+   *
+   * ⚠️ No sale del navegador a propósito. `[RD.31]` documenta que la fecha equivocada es el
+   * modo de falla conocido de esta tabla (el archivo que fundó la fase decía «05-sep» y era del
+   * 5 de octubre), y un reloj de laptop mal puesto escribiría el ancla en otro día sin que nadie
+   * lo note. La persona la puede cambiar — la declara — pero el default no lo pone su máquina.
+   */
+  hoy: string;
+}
+
 export interface RouteInventoryReport {
   desde: string; hasta: string;
   /** El día que la pantalla llama «ayer», resuelto en TZ MX por el servidor, no por el navegador. */
@@ -9087,6 +9143,111 @@ export class CommercialAnalyticsService {
         aviso: 'El saldo de la pantalla cambia cuando se refresque la copia (hasta 30 min).',
       };
     });
+  }
+
+  /**
+   * `[RD.45]` **El índice de la pantalla de conteo: qué camión se puede contar hoy.**
+   *
+   * Una fila por ruta de `mv_rd_route_identity` — **las 11, no las 10 que tienen foto**. La que
+   * no reportó sale con `foto_fecha: null` y `renglones: 0`, que es lo que ADR-056 pide: la 505
+   * lleva sin mover desde el 10-sep y esconderla haría ver una flota de 10 camiones sana en vez
+   * de una de 11 con uno apagado.
+   *
+   * ⚠️ `dias_desde_conteo` es `null` cuando **nunca** se contó, no `0`. Son dos cosas distintas
+   * y la pantalla las pinta distinto: «nunca» es la que hay que atender.
+   */
+  async routeCountSheets(): Promise<RouteCountSheetRow[]> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => (await trx.raw(
+      `WITH foto AS (
+         SELECT f.route_no, f.foto_fecha,
+                count(*)::int   AS renglones,
+                sum(f.importe)  AS importe,
+                bool_and(f.aceptada) AS aceptada,
+                min(f.motivo)   AS motivo
+           FROM analytics.mv_rd_route_photo f
+          WHERE f.tenant_id = ?
+          GROUP BY 1,2
+       ), ult AS (
+         -- El último conteo VIGENTE. Los cancelados quedan en la tabla a propósito (el reemplazo
+         -- idempotente cancela en vez de borrar) y contarlos diría que una ruta se contó cuando
+         -- lo que pasó fue que se corrigió.
+         SELECT split_part(w.code,'-',2) AS route_no, max(rc.count_date) AS ultimo
+           FROM commercial.route_counts rc
+           JOIN commercial.warehouses w ON w.id = rc.warehouse_id
+          WHERE rc.tenant_id = ? AND rc.status = 'active' AND rc.deleted_at IS NULL
+          GROUP BY 1
+       )
+       SELECT i.route_no,
+              to_char(f.foto_fecha,'YYYY-MM-DD')               AS foto_fecha,
+              coalesce(f.renglones,0)                          AS renglones,
+              round(f.importe,2)::float                        AS importe,
+              f.aceptada,
+              f.motivo,
+              to_char(u.ultimo,'YYYY-MM-DD')                   AS ultimo_conteo,
+              -- ⚠️ El "hoy" lo pone el servidor de APLICACIÓN en TZ MX, no `CURRENT_DATE`: el
+              -- Postgres corre en UTC y entre las 18:00 y la medianoche de México allá ya es
+              -- mañana, así que un conteo de hoy saldría rotulado «hace 1 día». Es el mismo
+              -- descuido que `[LC.16]` pagó con fechas corridas un día en tres pantallas.
+              (?::date - u.ultimo)::int                        AS dias_desde_conteo
+         FROM analytics.mv_rd_route_identity i
+         LEFT JOIN foto f ON f.route_no = i.route_no
+         LEFT JOIN ult  u ON u.route_no = i.route_no
+        WHERE i.tenant_id = ?
+        ORDER BY i.route_no`,
+      [tenantId, tenantId, this.todayMx(), tenantId],
+    )).rows as RouteCountSheetRow[]);
+  }
+
+  /**
+   * `[RD.45]` **La hoja de UNA ruta: el renglón por renglón que hoy se recorre con una regla.**
+   *
+   * El esperado sale de la **foto del propio camión**, no del ledger reconstruido, y la razón no
+   * es de comodidad: el conteo existe para arbitrar lo que la camioneta declara de sí misma.
+   * Contra el ledger, el conteo compararía nuestra cuenta con nuestra cuenta.
+   *
+   * ⚠️ **Se devuelve completa, sin tope.** El resto del servicio corta en `DETALLE_TOPE` porque
+   * son pantallas de consulta; una hoja de conteo truncada manda a cero lo que no viajó —
+   * `registerRouteCount` RESETEA. El tamaño real lo permite: 254 a 342 renglones por camión.
+   *
+   * El orden es alfabético por nombre de producto **a propósito**: es el mismo del papel que
+   * sustituye, así que quien ya cuenta no tiene que reaprender el recorrido. No es el orden
+   * físico del camión — ese no está en ninguna fuente.
+   */
+  async routeCountSheet(routeNo: string): Promise<RouteCountSheet> {
+    const ruta = this.routeNoValido(routeNo);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const [cab] = await this.routeCountSheets().then((rs) => rs.filter((r) => r.route_no === ruta));
+    if (!cab) throw new BadRequestException(`la ruta ${ruta} no existe`);
+
+    const lines = await this.tk.run(async (trx) => (await trx.raw(
+      // ⚠️ `btrim(p.sku)` en los DOS lados. Medido el 2026-10-07: sin el btrim del catálogo, 14
+      // de los 267 renglones de la ruta 21 caían a `coalesce(..., sku)` y el contador habría
+      // leído «00412» en vez del nombre del producto. Con btrim, 2,989 de 2,992 de la flota
+      // tienen nombre. El seq scan sobre ~10k productos cuesta milisegundos; el bug costaba 5%
+      // de la hoja ilegible.
+      `SELECT f.sku, f.unidad,
+              coalesce(nullif(btrim(p.description),''), v.producto, f.sku) AS producto,
+              round(f.qty,3)::float             AS esperado,
+              round(f.costo_unitario,4)::float  AS costo_unitario,
+              round(f.importe,2)::float         AS importe,
+              nullif(btrim(p.barcode),'')       AS barcode
+         FROM analytics.mv_rd_route_photo f
+         LEFT JOIN catalog.products p
+           ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
+         -- Segundo recurso: cómo llama el propio camión a ese producto cuando lo vende. Cubre
+         -- los que el catálogo central no tiene (2 de 2,992).
+         LEFT JOIN LATERAL (
+           SELECT max(l.producto) AS producto
+             FROM analytics.route_push_lines l
+            WHERE l.tenant_id = f.tenant_id AND l.route_no = f.route_no AND btrim(l.sku) = f.sku
+         ) v ON true
+        WHERE f.tenant_id = ? AND f.route_no = ?
+        ORDER BY producto, f.unidad`,
+      [tenantId, ruta],
+    )).rows as RouteCountSheetLine[]);
+
+    return { ...cab, lines, hoy: this.todayMx() };
   }
 
   /** `route_no` sale de un código canónico (`RUTA-23` -> `23`): acotado y validado en un solo lugar. */

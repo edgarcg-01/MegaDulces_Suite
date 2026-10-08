@@ -875,6 +875,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     entrada: 'pi pi-inbox',
     inventario: 'pi pi-box',
     abasto: 'pi pi-shopping-cart',
+    // [RD.45] Ruta Directa: la flota. No reusa `pi pi-truck` del Andén — dos items del mismo
+    // sidebar con el mismo icono se leen como el mismo lugar.
+    rutas: 'pi pi-directions',
     conteo: 'pi pi-qrcode',
     control: 'pi pi-shield',
     'analisis-bi': 'pi pi-chart-line',

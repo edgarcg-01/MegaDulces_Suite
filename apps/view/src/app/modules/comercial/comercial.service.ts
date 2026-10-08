@@ -1844,6 +1844,27 @@ export class ComercialService {
     return this.http.get<RouteInventoryDetail>(`${this.base}/analytics/route-inventory/detail`, { params });
   }
 
+  // ── RD.45 — la pantalla de CONTEO de un camión ──
+  /** Las 11 rutas con su foto y su último conteo. La que no reportó viene con `renglones: 0`. */
+  routeCountSheets() {
+    return this.http.get<RouteCountSheetRow[]>(`${this.base}/analytics/route-inventory/count-sheets`);
+  }
+
+  /** La hoja completa de una ruta: lo que hoy se imprime en papel, sin tope de renglones. */
+  routeCountSheet(routeNo: string) {
+    return this.http.get<RouteCountSheet>(`${this.base}/analytics/route-inventory/count-sheet`, {
+      params: new HttpParams().set('route_no', routeNo),
+    });
+  }
+
+  /**
+   * `[RD.31]` Cierra el conteo. ⚠️ **RESETEA**: lo que no viaja en `lines` queda en CERO, así que
+   * sólo se manda una hoja completa — la pantalla lo exige antes de habilitar el botón.
+   */
+  registerRouteCount(body: RouteCountInput) {
+    return this.http.post<RouteCountResult>(`${this.base}/analytics/route-inventory/count`, body);
+  }
+
   routeSeries(routeNo: string, from?: string, to?: string) {
     return this.http.get<RouteSeriesPoint[]>(`${this.base}/analytics/route-inventory/series`,
       { params: this.routeParams(routeNo, from, to) });
@@ -2550,6 +2571,70 @@ export interface RouteInventoryDetail {
   rows: RouteInventoryDetailRow[];
   total: number;
   truncado: boolean;
+}
+
+// ── RD.45 — la hoja de conteo de un camion (espejo del contrato del backend) ──
+
+/** Una ruta en el indice de conteo. `foto_fecha: null` = la camioneta no reporto. */
+export interface RouteCountSheetRow {
+  route_no: string;
+  foto_fecha: string | null;
+  renglones: number;
+  importe: number | null;
+  aceptada: boolean | null;
+  motivo: string | null;
+  ultimo_conteo: string | null;
+  /** `null` = NUNCA se conto. Distinto de `0`, y la pantalla los pinta distinto. */
+  dias_desde_conteo: number | null;
+}
+
+/** Un renglon de la hoja: el producto y lo que el camion dice que trae. */
+export interface RouteCountSheetLine {
+  sku: string;
+  unidad: string;
+  producto: string;
+  esperado: number;
+  costo_unitario: number | null;
+  importe: number | null;
+  /** Para SALTAR al renglon escaneandolo. No resuelve productos: ubica dentro de la hoja. */
+  barcode: string | null;
+}
+
+export interface RouteCountSheet extends RouteCountSheetRow {
+  lines: RouteCountSheetLine[];
+  /** Hoy en TZ MX resuelto por el SERVIDOR: el reloj del navegador no decide la fecha del ancla. */
+  hoy: string;
+}
+
+/** Un renglon que se MANDA al cerrar el conteo. `qty` es lo CONTADO, no lo esperado. */
+export interface RouteCountLineInput {
+  sku: string;
+  unidad: string;
+  qty: number;
+  descripcion?: string | null;
+  costo_unitario?: number | null;
+  importe?: number | null;
+}
+
+export interface RouteCountInput {
+  route_no: string;
+  count_date: string;
+  lines: RouteCountLineInput[];
+  source?: 'excel' | 'manual' | 'kepler';
+  declared_total?: number | null;
+  note?: string | null;
+  counted_by_username?: string | null;
+}
+
+export interface RouteCountResult {
+  count_id: string;
+  route_no: string;
+  count_date: string;
+  renglones: number;
+  importe_sumado: number;
+  importe_declarado: number | null;
+  cuadra: boolean | null;
+  aviso: string;
 }
 
 export interface RouteInventoryReport {
