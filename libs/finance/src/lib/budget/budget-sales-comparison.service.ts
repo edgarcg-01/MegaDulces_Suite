@@ -69,19 +69,25 @@ export class BudgetSalesComparisonService {
         methodMap.set(`${p.entity_key}|${p.period_no}`, p.method);
       }
 
-      // real (FY y FY-1) por (entity_key, period_no) — del sell-out diario por el calendario 13×4
-      const realRows = await trx('analytics.v_sellout_daily as sd')
-        .join('analytics.v_retail_calendar as cal', 'cal.date', 'sd.business_date')
-        .join('analytics.v_sales_entity as se', function () {
-          this.on('se.tenant_id', '=', 'sd.tenant_id')
-            .andOn('se.channel', '=', 'sd.channel')
-            .andOn('se.warehouse_code', '=', 'sd.warehouse_code');
-        })
-        .where('sd.tenant_id', tenantId)
-        .whereIn('cal.fiscal_year', [fy, priorYear])
-        .groupBy('se.entity_key', 'cal.fiscal_year', 'cal.period_no')
-        .select('se.entity_key', 'cal.fiscal_year', 'cal.period_no')
-        .sum({ real_monto: 'sd.monto' }) as unknown as Array<{ entity_key: string; fiscal_year: number; period_no: number | string; real_monto: number | string | null }>;
+      // real (FY y FY-1) por (entity_key, period_no) — del rollup del sell-out al grano 13×4.
+      //
+      // [PU.V1] Antes esto agregaba `v_sellout_daily × v_retail_calendar × v_sales_entity` EN VIVO,
+      // y traía dos defectos que se arreglaron juntos en `mv_sellout_budget_rollup`:
+      //
+      //   ⛔ EL NÚMERO. Joineaba `se.channel = sd.channel`, pero `v_sales_entity` publica el canal
+      //      CANÓNICO y el sell-out emite el CRUDO. Sólo casaban cuando coincidían, así que se
+      //      caían enteros `credito`→`mayoreo` ($312,951,449) y `contado_nf`→`mostrador`
+      //      ($1,477,412): **28.70 % del sell-out**, con `mayoreo:01/06/08` publicando **$0 sobre
+      //      $208M** en FY2025. La MV pasa por `sellout_channel_map`, igual que `v_sales_entity`.
+      //   ⛔ EL TIEMPO. Medido en prod: 56,397 ms máx / 45,796 ms prom contra un gate de 500 ms.
+      //
+      // ⚠️ Las MV no soportan RLS: el `tenant_id` va EXPLÍCITO (no lo pone `tk.run`).
+      const realRows = await trx('analytics.mv_sellout_budget_rollup')
+        .where({ tenant_id: tenantId })
+        .whereIn('fiscal_year', [fy, priorYear])
+        .groupBy('entity_key', 'fiscal_year', 'period_no')
+        .select('entity_key', 'fiscal_year', 'period_no')
+        .sum({ real_monto: 'monto' }) as unknown as Array<{ entity_key: string; fiscal_year: number; period_no: number | string; real_monto: number | string | null }>;
 
       const realMap = new Map<string, number>();      // FY
       const realPriorMap = new Map<string, number>(); // FY-1
@@ -126,8 +132,12 @@ export class BudgetSalesComparisonService {
       const totalMeta = planRows.reduce((s, p) => s + Number(p.meta_amount), 0);
       const totalRealPrior = [...realPriorMap.values()].reduce((s, v) => s + v, 0);
 
-      // frescura declarada
-      const fresh = await trx('analytics.v_sellout_daily').where({ tenant_id: tenantId }).max({ mx: 'business_date' }).first();
+      // Frescura declarada. [PU.V1] Sale del MISMO rollup que las cifras — antes era
+      // `max(business_date)` sobre `v_sellout_daily`, que medido en prod costaba **14,587 ms**:
+      // sin esto, arreglar la consulta principal habría dejado la ruta en 14.6 s de todos modos.
+      // Y además declara la fecha de lo que se PUBLICA, no la de un dato que vive en otro lado.
+      const fresh = await trx('analytics.mv_sellout_budget_rollup')
+        .where({ tenant_id: tenantId }).max({ mx: 'max_business_date' }).first();
       const dataAsOf = fresh?.mx ? new Date(fresh.mx).toISOString().slice(0, 10) : null;
       const cellsWithReal = cells.filter((c) => c.real != null).length;
 

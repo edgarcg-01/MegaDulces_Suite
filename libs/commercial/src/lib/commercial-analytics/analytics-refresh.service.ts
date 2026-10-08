@@ -221,6 +221,34 @@ export class AnalyticsRefreshService {
       // Rollup mensual del sell-out (deriva de v_sellout_daily → de los dos anteriores) → va DESPUÉS de ellos.
       ['analytics.mv_sellout_monthly', 'analytics_refresh_sellout_monthly', 'Refresh MV sell-out mensual (nightly)',
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
+      /**
+       * ⭐ `[PU.V1]` El real del sell-out al grano de Presupuestos (entidad × año fiscal × periodo
+       * 13×4). **Sustituye el Parquet+DuckDB de ADR-075**, que calculaba exactamente esto pero
+       * vivía en el `/tmp` efímero de cada pod: `BUDGET_ROLLUP_DIR` no está definida en ningún
+       * lado, el Deployment `api` corre `replicas: 2` y no monta volumen, y el archivo se perdía
+       * en cada despliegue — el primer request después de cada deploy devolvía 503 «se está
+       * generando». Acá los dos pods leen lo MISMO y sobrevive a los despliegues.
+       *
+       * Se materializa por COSTO, medido contra prod: agregar `v_sellout_daily` (UNION de 359 MB
+       * + 1,335 MB con un EXISTS correlacionado por fila) daba **56,397 ms** en
+       * `/sales-comparison` y **61,182 ms** en `/sales-indicators`, contra un gate de 500 ms.
+       * Son ~520 filas: la lectura queda en milisegundos.
+       *
+       * ⭐ `deps` NO está vacío, y acá importa de verdad: esta MV deriva de `v_sellout_daily`, que
+       * hace UNION de las dos piernas de arriba. **Ordenar no es depender** (ADR-056) — es la
+       * misma trampa que el comentario de `mv_sellout_monthly` ya documenta: sin declararlo, si
+       * falla la pierna Kepler esta MV se materializa IGUAL, con la pierna rancia unida a la
+       * fresca, y el resultado no se ve a medias: se ve completo.
+       *
+       * ⚠️ Su umbral vive en `CRON_JOBS` (`analytics_refresh_sellout_budget`): sin esa fila el
+       * sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (lección OBS.1). Y acá
+       * el modo de falla es el peor de todos: la pantalla de Presupuestos seguiría publicando el
+       * real de ayer como si fuera el de hoy, y encima el motor propondría el crecimiento del
+       * próximo ejercicio sobre esa base.
+       */
+      ['analytics.mv_sellout_budget_rollup', 'analytics_refresh_sellout_budget',
+        'Refresh MV rollup de Presupuestos (nightly)',
+        ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
       // ⚠️ EL POBLADO INICIAL DE ESTA MV CUESTA 6 h 15 min. El refresco diario NO.
       //
       // Medido el 2026-09-23/24, y la distinción importa porque yo mismo la confundí primero y

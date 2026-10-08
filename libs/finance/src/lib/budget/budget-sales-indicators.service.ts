@@ -38,17 +38,23 @@ export class BudgetSalesIndicatorsService {
       const fy = Number(budget.fiscal_year);
       const priorYear = fy - 1;
 
-      // real anual por (entidad, canal, año) del sell-out por el calendario
-      const rows = await trx('analytics.v_sellout_daily as sd')
-        .join('analytics.v_retail_calendar as cal', 'cal.date', 'sd.business_date')
-        .join('analytics.v_sales_entity as se', function () {
-          this.on('se.tenant_id', '=', 'sd.tenant_id').andOn('se.channel', '=', 'sd.channel').andOn('se.warehouse_code', '=', 'sd.warehouse_code');
-        })
-        .where('sd.tenant_id', tenantId)
-        .andWhere('cal.fiscal_year', '<=', fy)
-        .groupBy('se.entity_key', 'se.channel', 'se.branch_name', 'cal.fiscal_year')
-        .select('se.entity_key', 'se.channel', 'se.branch_name', 'cal.fiscal_year')
-        .sum({ real_monto: 'sd.monto' }) as unknown as Array<{ entity_key: string; channel: string; branch_name: string | null; fiscal_year: number | string; real_monto: number | string | null }>;
+      // real anual por (entidad, canal, año) — del rollup del sell-out al grano 13×4.
+      //
+      // [PU.V1] Antes agregaba `v_sellout_daily × v_retail_calendar × v_sales_entity` EN VIVO sobre
+      // TODOS los años (`fiscal_year <= fy`), con dos defectos que se arreglaron juntos:
+      //
+      //   ⛔ EL NÚMERO. `se.channel = sd.channel` une el canal CANÓNICO de la entidad contra el
+      //      CRUDO del sell-out: se caían `credito`→`mayoreo` y `contado_nf`→`mostrador`, o sea
+      //      **28.70 % del sell-out**. La MV pasa por `sellout_channel_map`, como `v_sales_entity`.
+      //   ⛔ EL TIEMPO. Medido en prod: 61,182 ms contra un gate de 500 ms.
+      //
+      // ⚠️ Las MV no soportan RLS: el `tenant_id` va EXPLÍCITO (no lo pone `tk.run`).
+      const rows = await trx('analytics.mv_sellout_budget_rollup')
+        .where({ tenant_id: tenantId })
+        .andWhere('fiscal_year', '<=', fy)
+        .groupBy('entity_key', 'channel', 'branch_name', 'fiscal_year')
+        .select('entity_key', 'channel', 'branch_name', 'fiscal_year')
+        .sum({ real_monto: 'monto' }) as unknown as Array<{ entity_key: string; channel: string; branch_name: string | null; fiscal_year: number | string; real_monto: number | string | null }>;
 
       const years = [...new Set(rows.map((r) => Number(r.fiscal_year)))].sort((a, b) => a - b);
       // acumuladores
@@ -107,7 +113,11 @@ export class BudgetSalesIndicatorsService {
         }))
         .sort((a, b) => a.channel.localeCompare(b.channel) || a.label.localeCompare(b.label));
 
-      const fresh = await trx('analytics.v_sellout_daily').where({ tenant_id: tenantId }).max({ mx: 'business_date' }).first();
+      // [PU.V1] Frescura del MISMO rollup que las cifras. El sondeo anterior —`max(business_date)`
+      // sobre `v_sellout_daily`— costaba **14,587 ms** medidos en prod: sin cambiarlo, arreglar la
+      // consulta principal habría dejado la ruta en 14.6 s igual.
+      const fresh = await trx('analytics.mv_sellout_budget_rollup')
+        .where({ tenant_id: tenantId }).max({ mx: 'max_business_date' }).first();
       const dataAsOf = fresh?.mx ? new Date(fresh.mx).toISOString().slice(0, 10) : null;
 
       return {
@@ -163,11 +173,23 @@ export class BudgetSalesIndicatorsService {
         sell_out: Number(r.sell_out), facturacion: Number(r.facturacion), ratio_pct: r.ratio_pct == null ? null : Number(r.ratio_pct), status: r.status,
       }));
 
-      const fresh = await trx('analytics.v_sellout_daily').where({ tenant_id: tenantId }).max({ mx: 'business_date' }).first();
+      // [PU.V1] Frescura barata y con FECHA REAL. El sondeo anterior era `max(business_date)` sobre
+      // `v_sellout_daily` (**14,587 ms** medidos) — y esta ruta ya moría por timeout sin él.
+      // ⚠️ NO se usa `max(year_month)` de `mv_sellout_monthly` aunque sea la fuente de las cifras:
+      //    daría el string '2026-10', y `new Date('2026-10')` es el DÍA 1 del mes → la pantalla
+      //    declararía hasta 30 días de rezago en un dato de ayer, y el umbral de 26 h saltaría en
+      //    falso todos los meses. Se lee la fecha del rollup, que se refresca en el MISMO lote
+      //    nocturno y sí es un `date`.
+      const fresh = await trx('analytics.mv_sellout_budget_rollup')
+        .where({ tenant_id: tenantId }).max({ mx: 'max_business_date' }).first();
       return {
         annual, monthly,
         notes: [
           'El real del presupuesto es el SELL-OUT; esta conciliación es sólo documentación — no ajusta ni reescala cifras.',
+          // [PU.V1] Frescura DECLARADA (ADR-056): la pierna de sell-out pasó de la vista viva al
+          // rollup mensual, que se refresca de noche. Para conciliar contra una balanza mensual es
+          // lo correcto, pero el mes en curso va atrás y eso se dice, no se esconde.
+          'La pierna de sell-out sale del rollup mensual (snapshot nocturno), no de la vista viva: el mes en curso puede ir un día atrás.',
           'Facturación = cuenta contable 401 producto (PISO/MAYOREO/VECINAL/RD), excluye fletes (401-002).',
           'Reconcilia a grano ANUAL: mostrador/credito/ruta caen en banda ~118-138% (el sell-out es el neto/parcial del bruto facturado). El grano mensual es lumpy por la irregularidad de los asientos contables.',
           'Preventa NO reconcilia: el vecinal en 401-003 aparece como un asiento de jul-ago 2026 (~$17M en 2 meses), no como flujo parejo — anomalía contable declarada.',
