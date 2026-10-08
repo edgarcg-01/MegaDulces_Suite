@@ -173,6 +173,7 @@ function plural(n: number, uno: string, varios: string): string {
           <span class="sr-ola-code">{{ o.code }}</span>
           <span class="sr-ola-ped">{{ plural(o.pedidos.length, 'pedido', 'pedidos') }}: {{ o.pedidos.join(', ') }}</span>
           <span class="sr-ola-ped"><i class="pi pi-cloud" aria-hidden="true"></i> Cada toque se guarda al momento.</span>
+          <span class="sr-ola-ped"><i class="pi pi-clock" aria-hidden="true"></i> {{ existenciaAlTexto(o.existencia_al) }}</span>
         </section>
 
         <section class="sr-buscar">
@@ -214,6 +215,18 @@ function plural(n: number, uno: string, varios: string): string {
                 <span class="sr-cant-n">{{ cantidadNumero(l) }}</span>
                 <span class="sr-cant-u">{{ unidadConteo(l) }}</span>
                 @if (cantidadBase(l); as b) { <span class="sr-cant-b">{{ b }}</span> }
+              </div>
+              <!-- [GP.3c] Certeza antes de caminar: cuánto dice el sistema que hay, y dónde. -->
+              <div class="sr-datos">
+                <span class="sr-dato" [ngClass]="'sr-exist-' + existenciaEstado(l)">
+                  <i class="pi" [class.pi-box]="existenciaEstado(l) !== 'cero' && existenciaEstado(l) !== 'poca'"
+                     [class.pi-exclamation-triangle]="existenciaEstado(l) === 'cero' || existenciaEstado(l) === 'poca'" aria-hidden="true"></i>
+                  {{ existenciaTexto(l) }}
+                </span>
+                <span class="sr-dato sr-ubic">
+                  <i class="pi pi-map-marker" aria-hidden="true"></i>
+                  {{ l.bin_code ? 'Ubicación ' + l.bin_code : 'Sin ubicación dada de alta' }}
+                </span>
               </div>
               @if (l.unidad_mixta) {
                 <p class="sr-tip"><i class="pi pi-info-circle" aria-hidden="true"></i> Los pedidos lo piden en unidades distintas: cuenta en {{ unidadConteo(l) }}.</p>
@@ -361,6 +374,9 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-btn-go { background: var(--action); color: var(--action-ink); margin-top: .4rem; font-size: var(--fs-h2); }
     .sr-btn-go:not(:disabled):hover { background: var(--action-hover); }
     .sr-btn-go:not(:disabled):active { background: var(--action-press); }
+    /* [GP.3c] Apagado se ve GRIS, no naranja tenue: medido en prod (captura de Francisco,
+       2026-10-08), el naranja al 55% se leía como "listo para tocar". */
+    .sr-btn-go:disabled { opacity: 1; background: var(--surface-border); color: var(--text-muted); }
     .sr-btn-ok { background: var(--ok-soft-bg); color: var(--ok-fg); border-color: var(--ok-fg); }
     .sr-btn-falta { background: var(--surface-card); color: var(--text-main); border-color: var(--surface-border); }
     .sr-btn-ok:not(:disabled):hover, .sr-btn-falta:not(:disabled):hover { filter: brightness(.97); }
@@ -406,6 +422,11 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-cant-n { font-size: var(--fs-display); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
     .sr-cant-u { font-size: var(--fs-h2); font-weight: 800; }
     .sr-cant-b { flex-basis: 100%; font-size: var(--fs-body); color: var(--text-muted); }
+    .sr-datos { display: flex; flex-wrap: wrap; gap: .4rem .9rem; }
+    .sr-dato { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-body); color: var(--text-muted); }
+    .sr-exist-ok, .sr-exist-neutral { color: var(--text-main); }
+    .sr-exist-poca { color: var(--warn-fg); font-weight: 700; }
+    .sr-exist-cero { color: var(--bad-fg); font-weight: 700; }
 
     .sr-acc { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
     .sr-falta { display: flex; flex-direction: column; align-items: stretch; gap: .5rem; }
@@ -727,6 +748,38 @@ export class AlmacenSurtirComponent implements OnInit {
 
   unidadConteo(l: PickerWaveLine): string {
     return this.tienePresentacion(l) ? (l.unidad_presentacion ?? '') : (l.qty_unit ?? 'la unidad del pedido');
+  }
+
+  /**
+   * `[GP.3c]` Cómo pintar la existencia contra lo pedido:
+   *  · `sin_dato`: el sistema no la trae (null), que NO es "no hay".
+   *  · `neutral`: la unidad de la existencia no es la del pedido (0.35% medido): no se compara.
+   *  · `cero` / `poca` / `ok`: comparadas en la misma unidad base.
+   */
+  existenciaEstado(l: PickerWaveLine): 'sin_dato' | 'neutral' | 'cero' | 'poca' | 'ok' {
+    if (l.existencia == null) return 'sin_dato';
+    const misma = !!l.existencia_unidad && !!l.qty_unit && l.existencia_unidad === l.qty_unit.toUpperCase();
+    if (!misma) return 'neutral';
+    if (l.existencia <= 0) return 'cero';
+    return l.existencia < l.qty_requested ? 'poca' : 'ok';
+  }
+
+  existenciaTexto(l: PickerWaveLine): string {
+    const e = this.existenciaEstado(l);
+    if (e === 'sin_dato') return 'Existencia: sin dato en el sistema';
+    if (e === 'cero') return 'Sin existencia en el sistema';
+    const n = `${this.fmt(Number(l.existencia))} ${l.existencia_unidad ?? ''}`.trim();
+    return e === 'poca' ? `Hay sólo ${n} en el sistema` : `Hay ${n} en el sistema`;
+  }
+
+  /** "Existencia de Kepler de hace 42 min": el dato llega con atraso y hay que decirlo. */
+  existenciaAlTexto(al: string | null): string {
+    if (!al) return 'Existencia de Kepler: sin medir cuándo es';
+    const min = Math.max(0, Math.round((Date.now() - new Date(al).getTime()) / 60000));
+    if (min < 1) return 'Existencia de Kepler al momento';
+    if (min < 60) return `Existencia de Kepler de hace ${min} min`;
+    const h = Math.floor(min / 60);
+    return `Existencia de Kepler de hace ${plural(h, 'hora', 'horas')}`;
   }
 
   /** Teclado entero para cajas y bultos; con punto decimal sólo cuando se cuenta por peso. */

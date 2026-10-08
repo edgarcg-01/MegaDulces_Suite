@@ -13,6 +13,8 @@
 - `GET /warehouse/presale`: los pedidos de preventa que levanta el vendedor, por sucursal, con su etapa (esperando alta / por surtir / en surtido / en caja / cobrado / entregado / cancelado), el semáforo contra la fecha de entrega prometida y cuántos documentos de Kepler podrían ser su cobro.
 - `GET /warehouse/presale/:id/candidates` + `POST :id/link` / `:id/unlink`: los documentos de Kepler del cliente (leídos en vivo del ODS, sin copiarlos), ordenados por productos en común con el pedido; ligar uno y corregir una liga con motivo. Mig `20261008012420` (`commercial.order_kepler_documents`).
 - `GET /warehouse/presale/:id`: recorrido del pedido, historial de ligas y pedido contra lo cobrado, renglón por renglón.
+### Added — Surtido: existencia y ubicación en la tarjeta del surtidor (GP.3c.1, 2026-10-08)
+- `/almacen/surtir` muestra cuánto dice el sistema que hay ("Hay 618 PAQ en el sistema", en ámbar si alcanza para menos y en rojo si no hay) y la ubicación, con de cuándo es la existencia. Sin dato no se dibuja como cero; si la unidad de la existencia no es la del pedido (0.35% medido) se muestra sin comparar.
 
 ### Added — Surtido: "tomar el siguiente" (GP.3a, 2026-10-08)
 - `POST /reparto/surtido/waves/next`: el surtidor recibe la ola que ya trae o la libre más vieja de su almacén (dos a la vez nunca se llevan la misma); si no hay, se arman desde los pedidos autorizados de Kepler. `GET /reparto/surtido/waves/mine`.

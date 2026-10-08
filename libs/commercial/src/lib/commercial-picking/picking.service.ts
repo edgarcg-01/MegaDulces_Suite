@@ -714,6 +714,7 @@ export class PickingService {
       const cab = await this.cabecerasDe(trx, waveId);
       const lineas: Array<Record<string, unknown>> = await this.lineasDe(trx, waveId);
       const n = (v: unknown): number | null => (v == null ? null : Number(v));
+      const exist = await this.existenciaDe(trx, w.warehouse_id, lineas.map((l) => String(l['product_id'])));
       return {
         id: w.id,
         code: w.code,
@@ -722,8 +723,11 @@ export class PickingService {
         notes: w.notes,
         started_at: w.started_at ? new Date(w.started_at).toISOString() : null,
         pedidos: [...cab.values()].map((c) => c.code).sort(),
+        existencia_al: exist.al,
         lines: lineas.map(
           (l): PickerWaveLine => ({
+            existencia: exist.porProducto.get(String(l['product_id']))?.qty ?? null,
+            existencia_unidad: exist.porProducto.get(String(l['product_id']))?.unidad ?? null,
             id: String(l['id']),
             product_id: String(l['product_id']),
             product_name: (l['product_name'] as string | null) ?? null,
@@ -742,6 +746,49 @@ export class PickingService {
         ),
       };
     });
+  }
+
+  /**
+   * `[GP.3c]` Existencia en el sistema de cada producto en el almacén de la ola, con su unidad base
+   * y de cuándo es el dato. Fuente canónica `analytics.v_erp_stock_on_hand` (la misma de
+   * `/almacen/inventory/existencia`, en la unidad BASE de Kepler) filtrada por almacén y productos
+   * —sin filtro la vista tarda más de un minuto—; la unidad base sale de `kdii.c11` de la sucursal.
+   *
+   * ⚠️ Medido en prod (2026-10-08, 42,957 renglones `U-D-40` de 30 días): la unidad del pedido es
+   * la base del producto en el 99.65%. En el 0.35% restante (PAQ pedido / KG en existencia) la
+   * pantalla NO compara: muestra la existencia con su propia unidad.
+   * ⚠️ El dato llega con atraso (`kdil` iba 42 min atrás al medir): se devuelve `al` para decirlo.
+   */
+  private async existenciaDe(
+    trx: Knex.Transaction,
+    warehouseId: string,
+    productIds: readonly string[],
+  ): Promise<{ al: string | null; porProducto: Map<string, { qty: number | null; unidad: string | null }> }> {
+    const porProducto = new Map<string, { qty: number | null; unidad: string | null }>();
+    if (!productIds.length) return { al: null, porProducto };
+    const { rows } = await trx.raw(
+      `SELECT p.id AS product_id,
+              s.qty_stock_units AS qty,
+              upper(NULLIF(btrim(i.c11::text), '')) AS unidad
+         FROM catalog.products p
+         JOIN commercial.warehouses w ON w.id = ?
+         LEFT JOIN analytics.v_erp_stock_on_hand s ON s.warehouse_id = w.id AND s.product_id = p.id
+         LEFT JOIN LATERAL (
+           SELECT k.c11 FROM kepler_ods.kdii k
+            WHERE k.sucursal = w.code AND btrim(k.c1) = p.sku
+            LIMIT 1
+         ) i ON true
+        WHERE p.id = ANY(?::uuid[])`,
+      [warehouseId, [...productIds]],
+    );
+    for (const r of rows as Array<{ product_id: string; qty: string | null; unidad: string | null }>) {
+      porProducto.set(r.product_id, { qty: r.qty == null ? null : Number(r.qty), unidad: r.unidad });
+    }
+    const { rows: f } = await trx.raw(
+      `SELECT dato_al FROM analytics.v_feed_freshness WHERE feed = 'kdil' LIMIT 1`,
+    );
+    const al = (f as Array<{ dato_al: Date | null }>)[0]?.dato_al;
+    return { al: al ? new Date(al).toISOString() : null, porProducto };
   }
 
   /**

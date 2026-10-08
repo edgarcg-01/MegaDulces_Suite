@@ -617,6 +617,35 @@ teclado encima de la lista); el skeleton de carga (la pantalla hermana usa el mi
 **Declarado, sin cambiar:** el factor de conversión de un faltante capturado en bultos es el **promedio**
 del renglón (75 KG / 3 BTO); con bultos de peso variable entre pedidos no es el peso de cada bulto.
 
+### 8.3 GP.3c — quién decide la fila (Francisco, 2026-10-08)
+
+Pregunta de Francisco al ver la pantalla en prod: *¿quién prioriza la fila, quién decide las tandas o
+partir un pedido? Es delicado por los cuellos de botella. Y la tarjeta debería traer existencia y
+ubicación: da certeza y orden.*
+
+**Decisiones (Francisco, 2026-10-08):**
+- **Manejan la consola de surtido:** coordinador de embarques, encargado de tienda, supervisor y
+  gerente de zona. Permiso propio (no `COMMERCIAL_PICKING_GESTIONAR`, que tiene el surtidor: el que
+  surte no se prioriza a sí mismo).
+- **La hora de salida la captura el coordinador** cada día, por destino; la fila se ordena por ella
+  (urgentes primero, luego la salida más próxima, luego lo más viejo).
+- **El sistema propone, el coordinador decide**: el umbral de la tanda se ajusta por almacén y partir
+  un pedido grande por pasillos es decisión del coordinador (cuando haya ubicaciones, Fase UB).
+
+#### 8.3.1 GP.3c.1 — existencia y ubicación en la tarjeta (🧪 en código)
+
+La tarjeta del surtidor dice **"Hay 618 PAQ en el sistema"** (ámbar si alcanza para menos de lo pedido,
+rojo si no hay) y la **ubicación** ("Sin ubicación dada de alta" hasta la Fase UB), y arriba **de cuándo
+es la existencia** ("de hace 42 min").
+
+- Fuente: `analytics.v_erp_stock_on_hand` (la de `/almacen/inventory/existencia`) filtrada por almacén
+  y productos — 314 ms medidos con 25 productos de Morelia Abastos; sin filtro tarda más de un minuto.
+- **Unidad verificada, no supuesta**: en 42,957 renglones `U-D-40` de 30 días la unidad del pedido
+  (`kdm2.c11`) es la base del producto (`kdii.c11`) en el **99.65%**. En el 0.35% que difiere
+  (PAQ pedido / KG en existencia) la pantalla la muestra **sin comparar**.
+- **Sin dato no es cero**: `existencia: null` dice "sin dato en el sistema", nunca "sin existencia".
+- El botón principal apagado se ve **gris** (el naranja al 55% se leía como "listo para tocar").
+
 ### 8.3 Pendiente de GP.3
 
 - **GP.3c, consola de excepciones**: partir un pedido grande por rango de pasillos (necesita ubicaciones,

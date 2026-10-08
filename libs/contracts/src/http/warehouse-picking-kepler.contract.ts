@@ -95,6 +95,13 @@ export interface PickerWaveLine {
   status: 'pendiente' | 'surtido' | 'faltante' | 'agotado' | 'danado';
   bin_code: string | null;
   note: string | null;
+  /**
+   * [GP.3c] Existencia en sistema en el almacén de la ola (Kepler, unidad BASE). null = no se pudo
+   * medir (sin ficha o sin dato), que NO es lo mismo que 0.
+   */
+  existencia: number | null;
+  /** Unidad de esa existencia (kdii.c11). Si difiere de `qty_unit`, la pantalla no compara. */
+  existencia_unidad: string | null;
 }
 
 /** La ola que trae el surtidor, con sus renglones (lo pendiente primero). */
@@ -107,6 +114,8 @@ export interface PickerWave {
   started_at: string | null;
   /** Folios de los pedidos que van en la ola (`UD4001-0002840`, `PD-2026-00012`). */
   pedidos: string[];
+  /** [GP.3c] De cuándo es la existencia (último dato de kdil). null = no se pudo medir. */
+  existencia_al: string | null;
   lines: PickerWaveLine[];
 }
 
