@@ -126,6 +126,11 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Added — Productos nuevos: márgenes y dónde se mueve mejor (NP.15, 2026-10-08)
+- Tres márgenes por producto y por sucursal, sin IVA ni IEPS: de lista (la meta de la ficha de Kepler por la unidad que se vendió), real (con el costo que Kepler registró en cada venta) y sobre lo pagado (lo que costó en sus compras). Cada uno dice qué parte de la venta cubre.
+- Ranking de sucursales: venta por día desde que el producto llegó a cada una, y qué parte de lo que llegó ya se vendió.
+- Los márgenes sólo se ven con permiso de costo.
+
 ### Fixed — Productos nuevos: el primer cálculo en producción no terminaba (NP.14, 2026-10-08)
 - La serie diaria se arma buscando cada día en un mapa, sin cruzar tablas: el plan de producción la cruzaba con un ciclo anidado que podía tardar horas.
 - La función de movimientos se planea con sus valores reales (la lista de códigos se busca por hash). La consulta no cambia.

@@ -49,6 +49,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.12]` | **Sin clasificación manual en pantalla** (pedido del usuario): se quitó el formulario "¿Qué es este código?" del panel, el filtro "Por confirmar" y la frase "N esperan que Compras confirme". Las exclusiones automáticas (promoción, código DESC, descontinuado) siguen. El endpoint `PUT …/classification` y `catalog.new_product_reviews` quedan **sin consumidor en la pantalla**. | 🧪 |
 | `[NP.13]` | **Sólo Kepler y en vivo las 24 h** (pedido del usuario): mig `20261008091317` rehace la matvista sobre Kepler (sin Wincaja ni ruta por push), con la primera venta de `mv_kepler_sales_daily`, el corte en lo que esa matvista ya tiene cerrado, lanzamientos detectados en vivo y la historia medida POR SUCURSAL; se refresca cada 30 min y sin JIT. | 🧪 |
 | `[NP.14]` | **El primer cálculo en producción no terminaba**: mig `20261008111426` arma las series buscando cada día en un mapa (sin unir tablas) y pasa `fn_new_products_movimientos` a `plpgsql` planeada con sus valores reales (misma consulta, leída de `pg_proc`); el refresco lleva tope de 3 min y una matvista vacía no espera su cadencia. | 🧪 |
+| `[NP.15]` | **Los tres márgenes y dónde se mueve mejor** (pedido del jefe de Compras): mig `20261008131320` — la función trae venta neta de IVA/IEPS, costo del renglón, peldaño y unidad base; la matvista guarda por plaza `margen_plaza` y la compra por unidad base `compra_base`. Márgenes de lista (meta de la ficha por peldaño vendido), real (`c62`) y sobre lo pagado, cada uno con su cobertura; ranking de sucursales por venta neta por día. Revisa la decisión #7: el margen ya se mide con el costo del renglón, no con el álgebra del markup. | 🧪 |
 | `[NP.11]` | **Unidades de Kepler**: lo vendido y lo recibido en la unidad que declara el renglón (cajas, paquetes, piezas, gramaje), global y por sucursal; la existencia en la unidad base de la ficha de cada sucursal con su equivalente en la unidad mayor. | 🧪 |
 
 ## Medido (base local, 2026-10-07)
@@ -336,3 +337,75 @@ el acceso de sólo lectura no se pudo ver qué lo reinició.
    migración esté aplicada.
 3. ⚠️ **Sigue sin medirse el refresco completo en prod.** Leer el log `Refreshed
    analytics.mv_new_products (Nms)` de la primera corrida; si pasa de ~20 s, subir la cadencia a 60.
+
+---
+
+## Séptima entrega (2026-10-08): los tres márgenes y dónde se mueve mejor (`NP.15`)
+
+Pedido del jefe de Compras: ver márgenes de los productos nuevos, y en qué sucursal se mueve mejor
+cada uno. Se publican **tres márgenes**, porque contestan preguntas distintas, y cada uno con lo que
+alcanza a cubrir:
+
+| Margen | Pregunta | Fuente |
+|---|---|---|
+| De lista | ¿Con qué margen lo pusimos a la venta? | La meta de la ficha (`v_kepler_margin_target`, ya convertida de markup a margen sobre venta), ponderada por la venta de cada peldaño VENDIDO |
+| Real | ¿Cuánto dejó? | Venta sin impuesto menos `kdm2.c62 × coalesce(c56, c9)`: el costo que Kepler escribió en el renglón (mismas fórmulas que `mv_erp_margin_daily`, `[MR.8.2]`) |
+| Sobre lo pagado | ¿La ficha tiene el costo correcto? | Lo vendido en la misma unidad base que sus compras `XA2001`, contra lo que costó esa unidad |
+
+Y **dónde se mueve mejor**: venta sin impuesto por día desde que el producto llegó a cada sucursal.
+Una sucursal con menos de 7 días no compite (una sola venta la pondría arriba). Al lado, qué parte de
+lo que pasó por la sucursal ya se vendió (vendido contra vendido + existencia de hoy, en la unidad de
+la ficha).
+
+### Por qué cambia la decisión #7
+
+La decisión #7 decía "sin margen" porque el costo del hecho de venta (`sales_daily.cost`) es álgebra
+sobre el markup (ADR-051). El costo del renglón `kdm2.c62` no lo es: tiene su propio árbitro
+(`c62 = u1_cost × c58` en el 98.39% de los renglones, VERDAD §4.2) y ADR-051 enmendado lo declara el
+costo canónico. La recomendación de recompra sigue sin usar margen; los márgenes se muestran aparte.
+
+### Lo medido antes (prod, sólo lectura)
+
+- **El importe de COMPRA viene sin impuesto; el de VENTA, con impuesto.** Una semana de `XA2001`:
+  renglones + IVA + IEPS del encabezado = total en 256 de 259 documentos. Por eso la compra no se
+  divide y la venta sí.
+- **El costo del renglón falta en mucha venta de mayoreo (`U-D-8`).** En un producto, sólo el 6% de
+  la venta de una sucursal traía costo. El margen real se calcula sobre la venta que sí lo trae y dice
+  su cobertura; la venta sin costo no entra como margen cero.
+- **La meta de la ficha tiene peldaños repetidos** con el mismo factor (base y Unidad Dos de factor 1):
+  sin quitarlos la cobertura daba hasta 200%. Se toma un margen por (sucursal, SKU, factor); si hay dos
+  distintos para el mismo factor (27 casos en ~1,200 productos) queda fuera. Leer la meta cuesta ~0.7 s.
+- **Contra `mv_erp_margin_daily`** (segunda implementación, 3 productos): venta neta y costo al
+  centavo en 01/02/03/07. En 06/08 aquélla cuenta días anteriores a que la sucursal pasara a Kepler,
+  que esta pantalla excluye a propósito. **En la 05 quedan $230 sin explicar** (pendiente).
+- **knex convertía el `'?'` literal en `'$1'`.** La matvista de prod (`NP.13`/`NP.14`) dice `'$1'` donde
+  debía decir `'?'` para la unidad no declarada. Todavía no afecta datos (ninguna fila la usa); esta
+  migración lo escribe escapado (`'\\?'` en el fuente).
+
+### Lo que encontró la vista previa (3 productos reales)
+
+- Doritos Nacho 33 g: de lista 15.6%, real 10.0% (88% de la venta), sobre lo pagado 9.9%. Se vende
+  ~5.6 puntos por debajo del margen con el que se dio de alta.
+- Candy Party 1 kg: el real sólo cubre el 22% de la venta (mayoreo sin costo en el renglón); el de lo
+  pagado (9.7%) es el que cubre todo.
+- El CEDIS aparece entre las sucursales (recibe, no vende): queda fuera del ranking.
+
+### ⚠️ Hallazgo sin resolver: "venta por cada peso invertido" está inflado
+
+Compara venta **con** impuesto contra compra **sin** impuesto: en un producto con IEPS 8% sale 8%
+arriba, y con IVA 16%, 16%. Alimenta la recomendación ("recuperado alto" ≥ 0.8). Corregirlo cambia
+recomendaciones, así que se deja para decidirlo aparte.
+
+### Medido (local)
+
+Candado `test-newdb-new-products.js` **145/145** (11 nuevas: margen por sucursal y compra por unidad
+base contra una segunda implementación calculada de lo sembrado, más los casos que el escenario
+ejerce). Prueba negativa: sin quitar el impuesto fallan los 2 productos con IVA/IEPS. La migración va
+y vuelve (`down` → `up` → `up`). Lógica 50/50, pantalla 24/24.
+
+### Para llevarlo a producción
+
+1. Aplicar la migración `20261008131320` sola. Si un `REFRESH` de la matvista está corriendo, el `DROP`
+   espera 5 s y falla entero: cancelarlo antes.
+2. Nace vacía; el ciclo la llena en el siguiente tick (una vacía no espera su cadencia, `[NP.14]`).
+3. Medir el refresco: suma la lectura de la meta (~0.7 s) al de `NP.14`.
