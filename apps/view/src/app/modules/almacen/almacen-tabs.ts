@@ -123,14 +123,34 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       // punta, pero no cubre la deuda que dejaron los vales anteriores (Por
       // fechar) ni la consulta de dónde vive cada lote (Ubicaciones).
       { label: 'Por fechar', icon: 'pi pi-clock', route: '/almacen/inventory/por-fechar', permission: Permission.COMMERCIAL_EXPIRY_CAPTURAR, exact: true },
-      // `anyOf`: quien RECIBE tiene que poder ver donde acomodo. En prod el rol
-      // `almacenista` solo tiene RECIBIR y esta pestana le estaba OCULTA.
-      { label: 'Ubicaciones', icon: 'pi pi-map-marker', route: '/almacen/inventory/ubicaciones', anyOf: [Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR], exact: true },
       // exact:false a propósito — el tab sigue activo en el detalle `/:id`.
       { label: 'Hojas de anaquel', icon: 'pi pi-clipboard', route: '/almacen/inventory/caducidades', permission: Permission.COMMERCIAL_EXPIRY_VER, exact: false },
       { label: 'Stock muerto', icon: 'pi pi-exclamation-triangle', route: '/almacen/dead-stock', permission: Permission.COMMERCIAL_DEADSTOCK_VER, exact: false },
       { label: 'Salud inv.', icon: 'pi pi-heart', route: '/almacen/inventory-health', permission: Permission.COMMERCIAL_INVHEALTH_VER, exact: false },
       { label: 'Almacenes', icon: 'pi pi-warehouse', route: '/almacen/warehouses', permission: Permission.COMMERCIAL_WAREHOUSES_VER, exact: false },
+    ],
+  },
+  {
+    key: 'ubicaciones',
+    label: 'Ubicaciones',
+    /**
+     * `[UB.1]` Fase UB (ADR-090) — dónde vive cada producto, por presentación, en bodega y tienda.
+     * Junta en un área lo que antes era una pestaña suelta de Inventario:
+     *  · **Mapa** — el catálogo nuevo (código BA053), permiso propio ALMACEN_UBICACIONES_VER.
+     *  · **Contenido** — la pantalla de WMS-REC (qué hay en cada rack). Conserva su ruta y sus
+     *    permisos de siempre (`anyOf` VER/RECIBIR): quien RECIBE tiene que poder ver dónde acomodó
+     *    (en prod el rol `almacenista` sólo tenía RECIBIR y esta pestaña le estaba oculta).
+     * Captura masiva, excedente, rotación y mantenimiento entran como tabs con su pantalla
+     * (UB.2–UB.6); no se declaran antes porque sin ruta el tab tiraría 404.
+     */
+    match: ['/almacen/ubicaciones', '/almacen/inventory/ubicaciones'],
+    tabs: [
+      // `permission` y no `anyOf`: el menú lateral (layout.component) elige el destino del área con
+      // `t.permission` e ignora `anyOf` — con `anyOf` la pestaña se tomaba como abierta para todos y
+      // quien no tenía ninguna clave de Ubicaciones veía el área y rebotaba (revisión del PR). El
+      // reparto da VER a todo rol que acomoda o gestiona; la RUTA sí acepta las tres (candado SN.4).
+      { label: 'Mapa', icon: 'pi pi-map', route: '/almacen/ubicaciones', permission: Permission.ALMACEN_UBICACIONES_VER, exact: true },
+      { label: 'Contenido', icon: 'pi pi-map-marker', route: '/almacen/inventory/ubicaciones', anyOf: [Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR], exact: true },
     ],
   },
   {
