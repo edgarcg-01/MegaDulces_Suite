@@ -189,6 +189,36 @@ const medir = async (ruta, token) => { await get(ruta, token); return get(ruta, 
       'declara `coverage.measured` — «no se pudo medir» ≠ 0 %');
     chk(typeof comp.cuerpo.data_as_of === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(comp.cuerpo.data_as_of),
       `declara hasta qué día tiene datos (${comp.cuerpo.data_as_of})`);
+
+    // ⭐ [PU.V6] CUÁNTO AÑO cubre el total. Medido en prod: el plan 2027 publicaba $604.8M y eran
+    // **10 de 13 períodos** — los tres que faltaban (nov–ene) valieron $166.6M en 2025 y son los
+    // MEJORES del año. El motor hizo bien en no inventarlos (`sin_base_declarado`), pero escribió
+    // el aviso en `method` y un **$0** en `meta_amount`, que es el campo que el encabezado suma.
+    const per = comp.cuerpo.periodos;
+    chk(per && typeof per.completo === 'boolean' && Number(per.del_anio) > 0,
+      'declara cuántos períodos del ejercicio cubre el total');
+    if (per) {
+      // Partición: lo que tiene meta más lo que no, tiene que dar el año entero. Si no cerrara,
+      // habría períodos que no caen en ninguna de las dos categorías y nadie los vería.
+      chk(Number(per.con_meta) + (per.sin_meta?.length ?? 0) === Number(per.del_anio),
+        `las dos categorías particionan el año (${per.con_meta} + ${per.sin_meta?.length} = ${per.del_anio})`);
+      chk(per.completo === ((per.sin_meta?.length ?? 0) === 0),
+        '`completo` concuerda con la lista de períodos sin meta — no son dos verdades distintas');
+      if (!per.completo) {
+        // La MAGNITUD de lo que falta. `null` es aceptable sólo si no hay un año completo con qué
+        // dimensionarlo: «no se pudo medir» ≠ $0 (ADR-056). Lo que NO se acepta es un 0 numérico.
+        chk(per.referencia === null || Number(per.referencia.monto) > 0,
+          `dimensiona lo que falta, o lo declara sin medir — nunca $0`,
+          `referencia = ${JSON.stringify(per.referencia)}`);
+        chk(typeof per.nota === 'string' && /\d+ de \d+/.test(per.nota),
+          `la nota dice la cobertura en palabras: «${per.nota}»`);
+        // ⭐ CONTROL: los períodos que el servidor llama «sin meta» tienen que ser exactamente los
+        //    que no tienen meta en las celdas. Si no coincidieran, el aviso hablaría de otra cosa.
+        const conMetaEnCeldas = new Set(cells.filter((x) => Number(x.meta ?? 0) > 0).map((x) => x.period_no));
+        chk(per.sin_meta.every((p) => !conMetaEnCeldas.has(p)),
+          'los períodos declarados sin meta no tienen meta en ninguna celda');
+      }
+    }
   }
 
   // ── [3] Indicadores y conciliación ────────────────────────────────────────────────────────

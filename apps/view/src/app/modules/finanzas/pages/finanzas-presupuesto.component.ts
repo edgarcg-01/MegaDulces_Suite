@@ -80,7 +80,7 @@ interface CampaignEval {
   warnings: string[];
 }
 
-/** `[PU.VA]` Latido de la pasada que arma el presupuesto. `status: null` = no sé, nunca «ok». */
+/** [PU.VA] Latido de la pasada que arma el presupuesto. status: null = no sé, nunca «ok». */
 interface AutopilotStatus {
   status: string | null; last_start: string | null; last_finish: string | null;
   note: string | null; error: string | null; host: string | null;
@@ -104,6 +104,13 @@ interface SalesComparison {
   prior_year: number;
   cells: SalesCell[];
   totals: { meta: number; real: number | null; real_prior: number; cumplimiento_pct: number | null; crec_pct: number | null };
+  /** [PU.V6] Cuánto AÑO cubre `totals.meta`. Va fuera de `totals` a propósito: adentro, alguien lo sumaría. */
+  periodos?: {
+    del_anio: number; con_meta: number; sin_meta: number[]; completo: boolean;
+    /** Lo que esos períodos valieron en el último ejercicio COMPLETO. `null` = no se pudo medir, nunca $0. */
+    referencia: { fiscal_year: number; monto: number } | null;
+    nota: string;
+  };
   data_as_of: string | null;
   real_available: boolean;
   freshness: Freshness; coverage: Coverage;
@@ -493,6 +500,17 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   }
                 </div>
                 <app-metric-strip [items]="salesKpis(c)" mode="strip" ariaLabel="Resumen del presupuesto de ventas" />
+                <!-- [PU.V6] El total cubre PARTE del año y eso se dice acá, no en un tooltip. El
+                     motor hace bien en no inventar los periodos sin base; lo que estaba mal era
+                     que el aviso viviera en la columna method -que el encabezado no suma- y el
+                     $0 en el campo que si suma. Dice ademas CUANTO falta, porque "incompleto" no
+                     deja decidir y "faltan ~$166M" si. -->
+                @if (c.periodos && !c.periodos.completo) {
+                  <p class="pres-warn">
+                    <span class="pi pi-exclamation-triangle"></span>
+                    <span>{{ c.periodos.nota }}</span>
+                  </p>
+                }
                 @if (lastCoverage(); as cov) {
                   <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.proxy_canal }}</strong> proxy de canal · <strong>{{ cov.sin_base_declarado }}</strong> sin base (declaradas en 0) · <strong>{{ cov.no_signal }}</strong> sin señal · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
                 }
@@ -1133,6 +1151,12 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-table { font-size:.84rem; margin-top:.4rem; }
     .pres-muted { color:var(--text-muted); }
     .pres-hint { font-size:.76rem; color:var(--text-muted); margin-top:.5rem; display:flex; align-items:center; gap:.35rem; }
+    /* [PU.V6] El aviso de que el total cubre PARTE del ejercicio. No es un hint apagado: una
+       persona esta por aprobar un presupuesto al que le falta su mejor trimestre. */
+    .pres-warn { font-size:.8rem; margin:.5rem 0 0; padding:.5rem .7rem; display:flex; align-items:flex-start; gap:.45rem;
+      border-radius:var(--radius-sm); border:1px solid var(--warn-border, var(--border));
+      background:var(--warn-bg, var(--surface-2)); color:var(--warn-text, var(--text)); }
+    .pres-warn .pi { margin-top:.1rem; flex:0 0 auto; }
     .pres-crit { color:var(--bad-fg); margin-left:.3rem; }
     .pres-row-critical { background:color-mix(in srgb, var(--bad-fg) 5%, transparent); }
     .pres-empty-block { text-align:center; padding:1.6rem; color:var(--text-muted); display:flex; flex-direction:column; align-items:center; gap:.5rem; }
@@ -1696,8 +1720,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
 
   salesKpis(c: SalesComparison): MetricStripItem[] {
+    // [PU.V6] El total NO se rotula «Meta total» a secas cuando cubre parte del año. Medido en
+    // prod: el «Presupuesto 2027» publicaba $604.8M y eran 10 de 13 períodos — los tres que
+    // faltaban (nov–ene) valieron $166.6M en 2025 y son los MEJORES del año. El motor hizo bien
+    // en no inventarlos; lo que estaba mal era presentar el subtotal como si fuera el ejercicio.
+    const per = c.periodos;
+    const parcial = per != null && per.completo === false;
     return [
-      { label: 'Meta total', value: c.totals.meta, format: 'currency-short' },
+      {
+        label: parcial ? `Meta de ${per.con_meta} de ${per.del_anio} períodos` : 'Meta total',
+        value: c.totals.meta, format: 'currency-short',
+        sub: parcial ? `faltan ${per.sin_meta.join(', ')} — sin base aún` : undefined,
+        tone: parcial ? 'warn' : undefined,
+      },
       { label: 'Real', value: c.totals.real == null ? '—' : c.totals.real, format: c.totals.real == null ? 'text' : 'currency-short', sub: c.totals.real == null ? 'sin datos' : undefined },
       { label: 'Cumplimiento', value: c.totals.cumplimiento_pct ?? 0, format: c.totals.cumplimiento_pct == null ? 'text' : 'percent', sub: c.totals.cumplimiento_pct == null ? 's/meta' : undefined, tone: c.totals.cumplimiento_pct != null && c.totals.cumplimiento_pct >= 100 ? 'ok' : undefined },
       { label: `CREC vs ${c.prior_year}`, value: c.totals.crec_pct ?? 0, format: c.totals.crec_pct == null ? 'text' : 'percent', sub: c.totals.crec_pct == null ? 's/base' : undefined, tone: c.totals.crec_pct != null && c.totals.crec_pct < 0 ? 'bad' : undefined },
