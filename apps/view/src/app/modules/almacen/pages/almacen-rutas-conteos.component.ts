@@ -65,6 +65,12 @@ import { ComercialService, RouteCountSheetRow } from '../../comercial/comercial.
           </div>
         </div>
 
+        <!-- ⚠️ El dt-scope va en el CONTENEDOR y no en la tabla: un elemento no puede ser
+             su propio contenedor de consulta, así que con dt-stack sin un dt-scope
+             alrededor la consulta no mide nada y el apilado NUNCA ocurre. La tabla se veía
+             igual de rota en pantalla angosta, pero la compuerta la daba por resuelta.
+             (Sin acentos graves acá: adentro de un template literal parten el archivo.) -->
+        <div class="dt-scope">
         <!-- PrimeNG 22: la clase va en el host y las plantillas se nombran con #; con
              styleClass + pTemplate la tabla carga los datos y no dibuja ni una fila. -->
         <p-table [value]="filas()" dataKey="route_no" [scrollable]="true"
@@ -82,8 +88,8 @@ import { ComercialService, RouteCountSheetRow } from '../../comercial/comercial.
           </ng-template>
           <ng-template #body let-r>
             <tr [class.rc-row-off]="!r.renglones">
-              <td class="rc-ruta">{{ r.route_no }}</td>
-              <td>
+              <td class="rc-ruta" data-label="Ruta" role="cell">{{ r.route_no }}</td>
+              <td data-label="Lo que declara" role="cell">
                 @if (r.foto_fecha) {
                   <span class="rc-fecha">{{ r.foto_fecha }}</span>
                   @if (r.aceptada === false) {
@@ -96,9 +102,9 @@ import { ComercialService, RouteCountSheetRow } from '../../comercial/comercial.
                   </span>
                 }
               </td>
-              <td class="rc-num">{{ r.renglones ? (r.renglones | number) : '—' }}</td>
-              <td class="rc-num">{{ r.importe != null ? (r.importe | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
-              <td>
+              <td class="rc-num" data-label="Renglones" role="cell">{{ r.renglones ? (r.renglones | number) : '—' }}</td>
+              <td class="rc-num" data-label="Importe" role="cell">{{ r.importe != null ? (r.importe | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+              <td data-label="Último conteo" role="cell">
                 @if (r.ultimo_conteo) {
                   {{ r.ultimo_conteo }}
                   <small class="rc-dias">{{ etiquetaDias(r.dias_desde_conteo) }}</small>
@@ -106,7 +112,7 @@ import { ComercialService, RouteCountSheetRow } from '../../comercial/comercial.
                   <span class="rc-nunca">nunca</span>
                 }
               </td>
-              <td class="rc-acc">
+              <td class="rc-acc" data-label="" role="cell">
                 @if (r.renglones) {
                   <a pButton size="small" [routerLink]="['/almacen/rutas/contar', r.route_no]">
                     <span class="p-button-icon p-button-icon-left pi pi-list-check" aria-hidden="true"></span>
@@ -117,6 +123,7 @@ import { ComercialService, RouteCountSheetRow } from '../../comercial/comercial.
             </tr>
           </ng-template>
         </p-table>
+        </div>
 
         <p class="rc-pie">
           <i class="pi pi-info-circle" aria-hidden="true"></i>

@@ -11,6 +11,7 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
+import { coincideBusqueda } from '@megadulces/ui-web';
 import {
   ComercialService, RouteCountSheet, RouteCountSheetLine, RouteCountResult,
 } from '../../comercial/comercial.service';
@@ -518,15 +519,20 @@ export class AlmacenRutasContarComponent implements OnInit {
 
   /** Hasta 8 coincidencias, para que un empate se vea en vez de elegirse solo. */
   readonly coincidencias = computed(() => {
-    const t = this.busqueda().trim().toLowerCase();
+    const t = this.busqueda().trim();
     if (!t) return [];
+    const exacto = t.toLowerCase();
     return this.renglones()
       .map((r, i) => ({ r, i }))
       .filter(({ r }) =>
-        r.sku.toLowerCase() === t
-        || (r.barcode ?? '').toLowerCase() === t
-        || r.producto.toLowerCase().includes(t)
-        || r.sku.toLowerCase().includes(t))
+        // ⛔ El código de barras casa SÓLO exacto, a propósito: un fragmento de código de
+        // barras no significa nada y arrastraría medio catálogo. Por eso queda fuera del
+        // buscador tokenizado y se compara aparte.
+        (r.barcode ?? '').toLowerCase() === exacto
+        // `coincideBusqueda` en vez de `.toLowerCase().includes()`: normaliza acentos
+        // («pina» encuentra «PIÑA»), parte en palabras y las exige TODAS sin importar el
+        // orden. El `includes` crudo fallaba en las tres cosas, y miraba un campo por vez.
+        || coincideBusqueda(t, r.sku, r.producto))
       .slice(0, 8);
   });
 
