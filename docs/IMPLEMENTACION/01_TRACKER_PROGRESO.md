@@ -9567,3 +9567,4 @@ Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUE
 - [x] 🧪 `[NP.8]` En vivo: `fn_new_products_movimientos` (venta y entradas de hoy desde el ODS, mismas reglas; corte por `v_branch_erp_cutover`) + índice `ix_kdm1_compra_fecha`. Coincide con `v_sellout_daily` renglón por renglón en días cerrados.
 - [x] 🧪 `[NP.9]` Recomendación de recompra global y por sucursal (`CRITERIO_RECOMPRA`, propuesta a calibrar) + `GET new-products/:id`.
 - [x] 🧪 `[NP.10]` Rediseño: respuesta arriba, filtros por recomendación, venta semanal por fila, panel lateral por sucursal, refresco cada minuto.
+- [x] 🧪 `[NP.11]` Unidades de Kepler: vendido y recibido en la unidad que declara el renglón (`c55/c56` si `c9 = c56 × c58` cierra; si no, la base `c11/c9`), global y por sucursal; existencia en la unidad de la ficha de cada sucursal (`v_kepler_unit_ladder`). Lo que no trae unidad (ruta, Wincaja) se declara en pesos.

@@ -64,6 +64,13 @@ export interface Recomendacion {
   motivos: string[];
 }
 
+/**
+ * Cantidad por rótulo de Kepler, tal como lo declara el renglón: `{ CJA: 3, PZA: 40 }`. Cada
+ * rótulo va por su lado: cajas y piezas no se suman (la unidad es de la celda, UNIDADES §8nonies).
+ * `?` = renglones que no declaran unidad.
+ */
+export type Unidades = Record<string, number>;
+
 /** Una fila tal como sale de la matvista, con la clasificación de Compras unida. */
 export interface NewProductSource {
   product_id: string;
@@ -87,7 +94,9 @@ export interface NewProductSource {
   /** Venta en pesos de cada día, del lanzamiento a `corte - 1`. */
   venta_dia: Array<number | string>;
   venta_por_plaza: Record<string, Array<number | string>>;
-  entradas: Array<{ f: string; p: string; folio?: string; i: number | string }>;
+  /** Venta de TIENDA KEPLER en sus unidades, por plaza; `i` = los pesos que cubren esas unidades. */
+  venta_unidades?: Record<string, { u: Record<string, number | string>; i: number | string }>;
+  entradas: Array<{ f: string; p: string; folio?: string; i: number | string; u?: Record<string, number | string> }>;
   clasificacion: NewProductKind | null;
   nota: string | null;
   clasificado_por: string | null;
@@ -100,6 +109,9 @@ export interface Movimiento {
   plaza: string;
   fecha: string;
   folio?: string | null;
+  /** El rótulo que declara el renglón de Kepler (`c55` si su identidad cierra; si no, `c11`). */
+  unidad?: string | null;
+  cantidad?: number | string | null;
   importe: number | string;
 }
 
@@ -108,8 +120,21 @@ export interface Existencia {
   product_id: string;
   plaza: string;
   cantidad: number | string;
-  /** Divisor de presentación de esa plaza (ADR-055): con > 1 se puede decir "cajas". */
+  /** Divisor de presentación de esa plaza (ADR-055). Sólo se usa para Wincaja. */
   factor: number | string | null;
+  /** `kepler` | `wincaja`: de qué ERP sale la existencia, y por tanto en qué unidad viene. */
+  fuente?: string | null;
+  /** Rótulo base de la ficha de Kepler de ESA plaza (`kdii.c11`): Kepler guarda el inventario en él. */
+  unidad?: string | null;
+  /** El peldaño mayor de esa misma ficha y su factor (en unidades base). */
+  unidad_mayor?: string | null;
+  factor_mayor?: number | string | null;
+}
+
+/** La existencia dicha también en la unidad mayor de la plaza. */
+export interface CantidadEnUnidad {
+  unidad: string;
+  cantidad: number;
 }
 
 export interface HitoValores {
@@ -182,6 +207,13 @@ export interface NewProductRow {
   semanas: number[];
   /** Venta de HOY (en vivo). */
   venta_hoy: number;
+  /** Lo vendido en tienda Kepler, en las unidades en que se vendió (historia + hoy). */
+  unidades_vendidas: Unidades;
+  /** Pesos vendidos SIN unidad de Kepler (ruta y plazas en Wincaja). 0 = toda la venta la trae. */
+  venta_sin_unidad: number;
+  /** Lo recibido (entradas de Kepler), en las unidades en que entró. */
+  unidades_recibidas: Unidades;
+  unidades_hoy: Unidades;
   recomendacion: Recomendacion | null;
 }
 
@@ -199,8 +231,16 @@ export interface PlazaRow {
   primera_recompra: string | null;
   /** Existencia de hoy en la unidad de inventario de la plaza; NULL = no hay renglón de existencia. */
   existencia: number | null;
-  /** Existencia en cajas, sólo si la plaza declara un divisor de presentación > 1. */
-  existencia_cajas: number | null;
+  /** El rótulo de esa existencia según la ficha de Kepler de la plaza. NULL = no se sabe (se declara). */
+  existencia_unidad: string | null;
+  /** `kepler` | `wincaja` | NULL. */
+  existencia_fuente: string | null;
+  /** La misma existencia en la unidad mayor de la plaza, si la ficha la declara con su factor. */
+  existencia_mayor: CantidadEnUnidad | null;
+  unidades_vendidas: Unidades;
+  venta_sin_unidad: number;
+  unidades_recibidas: Unidades;
+  unidades_hoy: Unidades;
   ultima_venta: string | null;
   /** Venta por semana de las últimas 8 semanas (la última puede ir incompleta). */
   semanas: number[];
@@ -257,6 +297,49 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 const r2 = (v: number | null): number | null => (v === null ? null : Math.round(v * 100) / 100);
+const r1 = (v: number) => Math.round(v * 10) / 10;
+
+/** Suma rótulo por rótulo (nunca entre rótulos distintos). */
+function sumarUnidades(dst: Unidades, src: Record<string, number | string> | null | undefined): Unidades {
+  for (const [u, q] of Object.entries(src ?? {})) {
+    const n = num(q);
+    if (n !== null) dst[u] = (dst[u] ?? 0) + n;
+  }
+  return dst;
+}
+/** Quita los rótulos que suman cero (una venta y su devolución) y redondea. */
+function limpiarUnidades(u: Unidades): Unidades {
+  return Object.fromEntries(Object.entries(u)
+    .filter(([, q]) => Math.abs(q) >= 0.0005)
+    .map(([k, q]) => [k, Math.round(q * 1000) / 1000]));
+}
+/** Las unidades de un movimiento en vivo, como el mismo objeto `{ rótulo: cantidad }`. */
+const unidadesDe = (m: Movimiento): Record<string, number | string> =>
+  (m.cantidad === null || m.cantidad === undefined ? {} : { [m.unidad || '?']: m.cantidad });
+/** Pesos sin unidad: lo vendido menos lo que trae unidad. Diferencias de centavos no cuentan. */
+const sinUnidad = (total: number, cubierto: number) => {
+  const d = Math.round((total - cubierto) * 100) / 100;
+  return d >= 1 ? d : 0;
+};
+
+/**
+ * La existencia en la unidad mayor de la plaza. Kepler: el peldaño mayor de SU ficha (`kdii`),
+ * nunca de otra plaza ni de un catálogo. Wincaja: el divisor de presentación (ADR-055), que es
+ * la caja. Sin factor > 1 no se dice nada: no se inventa la caja.
+ */
+export function existenciaMayor(e: Existencia | undefined): CantidadEnUnidad | null {
+  if (!e) return null;
+  const cant = num(e.cantidad) ?? 0;
+  if (e.fuente === 'wincaja') {
+    const f = num(e.factor);
+    return f !== null && f > 1 ? { unidad: 'CJA', cantidad: r1(cant / f) } : null;
+  }
+  const f = num(e.factor_mayor);
+  const mayor = (e.unidad_mayor ?? '').trim().toUpperCase();
+  const base = (e.unidad ?? '').trim().toUpperCase();
+  if (!mayor || f === null || f <= 1 || mayor === base) return null;
+  return { unidad: mayor, cantidad: r1(cant / f) };
+}
 const pesos = (v: number) => `$${Math.round(v).toLocaleString('es-MX')}`;
 
 const DIA_MS = 86_400_000;
@@ -432,9 +515,10 @@ export function armarProducto(
   const ventasVivo = vivo.filter((m) => m.tipo === 'venta');
   const entradasVivo = vivo.filter((m) => m.tipo === 'entrada');
   const todasEntradas = [
-    ...(Array.isArray(f.entradas) ? f.entradas : []).map((e) => ({ f: e.f, p: e.p, i: num(e.i) ?? 0 })),
-    ...entradasVivo.map((m) => ({ f: m.fecha, p: m.plaza, i: num(m.importe) ?? 0 })),
+    ...(Array.isArray(f.entradas) ? f.entradas : []).map((e) => ({ f: e.f, p: e.p, i: num(e.i) ?? 0, u: e.u ?? {} })),
+    ...entradasVivo.map((m) => ({ f: m.fecha, p: m.plaza, i: num(m.importe) ?? 0, u: unidadesDe(m) })),
   ];
+  const ventaUnidades = f.venta_unidades ?? {};
 
   // Un producto sin historia que HOY entra o se vende arranca hoy: "Nuevo · día 0".
   const primeraViva = vivo.map((m) => m.fecha).sort()[0] ?? null;
@@ -450,10 +534,14 @@ export function armarProducto(
     : [];
   const v = ventana(serie, CRITERIO_RECOMPRA.ventana);
 
-  const exPorPlaza = new Map<string, { cantidad: number; factor: number | null }>();
+  const exPorPlaza = new Map<string, { cantidad: number; fila: Existencia }>();
   for (const e of existencia) {
-    exPorPlaza.set(e.plaza, { cantidad: num(e.cantidad) ?? 0, factor: num(e.factor) });
+    exPorPlaza.set(e.plaza, { cantidad: num(e.cantidad) ?? 0, fila: e });
   }
+  const unidadesVendidas: Unidades = {};
+  const unidadesRecibidas: Unidades = {};
+  const unidadesHoy: Unidades = {};
+  let cubierto = 0;
 
   // ── Por plaza ──
   const codigos = new Set<string>([
@@ -485,6 +573,19 @@ export function armarProducto(
     const agotadaAqui = vp.dias > 0 && !hayExistencia;
     if (agotadaAqui) agotadoEn += 1;
     const diaP = primeraAct ? diasEntre(primeraAct, hoy) : null;
+    // Unidades de ESTA plaza: historia (matvista) + lo de hoy (en vivo). Venta y entradas aparte.
+    const ventasVivoP = ventasVivo.filter((m) => m.plaza === p);
+    const vendidasP: Unidades = sumarUnidades({}, ventaUnidades[p]?.u);
+    for (const m of ventasVivoP) sumarUnidades(vendidasP, unidadesDe(m));
+    const recibidasP: Unidades = {};
+    for (const e of entradasP) sumarUnidades(recibidasP, e.u);
+    const hoyP: Unidades = {};
+    for (const m of ventasVivoP.filter((x) => x.fecha === hoy)) sumarUnidades(hoyP, unidadesDe(m));
+    const cubiertoP = (num(ventaUnidades[p]?.i) ?? 0) + ventasVivoP.reduce((a, m) => a + (num(m.importe) ?? 0), 0);
+    sumarUnidades(unidadesVendidas, vendidasP);
+    sumarUnidades(unidadesRecibidas, recibidasP);
+    sumarUnidades(unidadesHoy, hoyP);
+    cubierto += cubiertoP;
     plazas.push({
       plaza: p,
       nombre: nombres.get(p) ?? null,
@@ -497,7 +598,13 @@ export function armarProducto(
       entradas: new Set(entradasP.map((e) => `${e.f}|${e.p}`)).size,
       primera_recompra: primeraRecompra(entradasP),
       existencia: ex ? ex.cantidad : null,
-      existencia_cajas: ex && ex.factor !== null && ex.factor > 1 ? Math.round((ex.cantidad / ex.factor) * 10) / 10 : null,
+      existencia_unidad: ex && ex.fila.fuente !== 'wincaja' ? (ex.fila.unidad ?? null) : null,
+      existencia_fuente: ex ? (ex.fila.fuente ?? null) : null,
+      existencia_mayor: ex ? existenciaMayor(ex.fila) : null,
+      unidades_vendidas: limpiarUnidades(vendidasP),
+      venta_sin_unidad: sinUnidad(totalP, cubiertoP),
+      unidades_recibidas: limpiarUnidades(recibidasP),
+      unidades_hoy: limpiarUnidades(hoyP),
       ultima_venta: vp.ultima === null ? null : sumarDias(hoy, -vp.ultima),
       semanas: porSemana(serieDesde).slice(-8),
       venta_hoy: Math.round(ventasVivo.filter((m) => m.plaza === p && m.fecha === hoy)
@@ -566,6 +673,10 @@ export function armarProducto(
     semanas: porSemana(serie),
     venta_hoy: Math.round(ventasVivo.filter((m) => m.fecha === hoy)
       .reduce((a, m) => a + (num(m.importe) ?? 0), 0) * 100) / 100,
+    unidades_vendidas: limpiarUnidades(unidadesVendidas),
+    venta_sin_unidad: lanzamiento ? sinUnidad(ventaTotal, cubierto) : 0,
+    unidades_recibidas: limpiarUnidades(unidadesRecibidas),
+    unidades_hoy: limpiarUnidades(unidadesHoy),
     recomendacion: estado === 'seguimiento'
       ? recomendar({
         dia, venta_total: ventaTotal, inversion_total: invTotal, dias_con_venta_28: v.dias, venta_28: v.venta,

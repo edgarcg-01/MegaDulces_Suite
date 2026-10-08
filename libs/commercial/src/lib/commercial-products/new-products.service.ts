@@ -63,7 +63,7 @@ const COLUMNAS = `
   to_char(m.historia_desde, 'YYYY-MM-DD')    AS historia_desde,
   m.fuentes, m.sin_movimiento, m.no_medible, m.exclusion_auto, m.posible_recodificacion,
   to_char(m.corte, 'YYYY-MM-DD')             AS corte,
-  m.venta_dia, m.venta_por_plaza, m.entradas,
+  m.venta_dia, m.venta_por_plaza, m.venta_unidades, m.entradas,
   r.kind                                     AS clasificacion,
   r.note                                     AS nota,
   r.updated_by_username                      AS clasificado_por,
@@ -75,9 +75,12 @@ const COLUMNAS = `
  *
  * Tres lecturas, siempre para TODOS los productos a la vez (nunca una por producto):
  *   1. `analytics.mv_new_products` — la historia cerrada (refresco nocturno).
- *   2. `analytics.fn_new_products_movimientos(corte, hoy)` — la venta y las entradas de hoy, del
- *      ODS en vivo, con las mismas reglas que la historia.
- *   3. `analytics.v_erp_stock_on_hand` — la existencia de este momento.
+ *   2. `analytics.fn_new_products_movimientos(tenant, skus, corte, hoy)` — la venta y las entradas
+ *      de hoy, del ODS en vivo: la MISMA función con la que la matvista armó su historia, así
+ *      que las reglas y la unidad del renglón son las mismas.
+ *   3. `analytics.v_erp_stock_on_hand` — la existencia de este momento, con el rótulo de la ficha
+ *      de Kepler de CADA plaza (`analytics.v_kepler_unit_ladder`, grano sucursal × SKU): Kepler
+ *      guarda el inventario en la unidad base de esa ficha.
  * La matvista no tiene RLS (Postgres no la soporta en matvistas): el tenant se filtra EXPLÍCITO con
  * `public.current_tenant_id()`, que `tk.run` deja puesto.
  *
@@ -102,17 +105,31 @@ export class NewProductsService {
   }
 
   /** Lo de hoy (ODS en vivo) y la existencia actual de estos productos. */
-  private async enVivo(trx: Knex.Transaction, ids: string[], corte: string, hoy: string) {
-    if (!ids.length) return { vivo: [] as Movimiento[], existencia: [] as Existencia[] };
-    const vivo = (await trx.raw(`
-      SELECT product_id, tipo, plaza, to_char(fecha, 'YYYY-MM-DD') AS fecha, folio, importe
-        FROM analytics.fn_new_products_movimientos(?::date, ?::date)
-       WHERE tenant_id = public.current_tenant_id() AND product_id = ANY(?::uuid[])`,
-    [corte, hoy, ids])).rows as Movimiento[];
+  private async enVivo(trx: Knex.Transaction, prods: Array<{ product_id: string; sku: string }>, corte: string, hoy: string) {
+    if (!prods.length) return { vivo: [] as Movimiento[], existencia: [] as Existencia[] };
+    const ids = prods.map((p) => p.product_id);
+    // La función trabaja por SKU (entra por los índices del ODS); aquí se vuelve a producto.
+    const porSku = new Map<string, string[]>();
+    for (const p of prods) porSku.set(p.sku, [...(porSku.get(p.sku) ?? []), p.product_id]);
+    const crudo = (await trx.raw(`
+      SELECT sku, tipo, plaza, to_char(fecha, 'YYYY-MM-DD') AS fecha, folio, unidad, cantidad, importe
+        FROM analytics.fn_new_products_movimientos(public.current_tenant_id(), ?::text[], ?::date, ?::date)`,
+    [[...porSku.keys()], corte, hoy])).rows as Array<Omit<Movimiento, 'product_id'> & { sku: string }>;
+    const vivo: Movimiento[] = crudo.flatMap(({ sku, ...m }) =>
+      (porSku.get(sku) ?? []).map((product_id) => ({ ...m, product_id })));
+    // ⚠️ El rótulo y el peldaño mayor salen de la ficha de ESA plaza: el factor de caja puede
+    // cambiar de una sucursal a otra, y Wincaja no tiene ficha de Kepler (se declara aparte).
     const existencia = (await trx.raw(`
       SELECT s.product_id, s.warehouse_code AS plaza, s.qty_stock_units AS cantidad,
-             s.display_box_factor AS factor
+             s.display_box_factor AS factor,
+             -- unit_source dice en qué unidad viene la cantidad ('kepler' = la base de su ficha;
+             -- 'wincaja' / 'wincaja_multipack' = la de Wincaja). source NO sirve: vale 'kepler_ods'.
+             CASE WHEN s.unit_source LIKE 'wincaja%' THEN 'wincaja' ELSE s.unit_source END AS fuente,
+             l.u1_label AS unidad, l.unidad_caja AS unidad_mayor, l.factor_caja AS factor_mayor
         FROM analytics.v_erp_stock_on_hand s
+        LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
+        LEFT JOIN analytics.v_kepler_unit_ladder l
+          ON s.unit_source = 'kepler' AND l.sucursal = w.kepler_code AND l.sku = btrim(s.sku)
        WHERE s.tenant_id = public.current_tenant_id() AND s.product_id = ANY(?::uuid[])`,
     [ids])).rows as Existencia[];
     return { vivo, existencia };
@@ -136,7 +153,7 @@ export class NewProductsService {
         return { ...vacio({ historia_al: null, corte: null, en_vivo_al: new Date().toISOString(), hoy }), calculado: true };
       }
       const corte = rows[0].corte;
-      const { vivo, existencia } = await this.enVivo(trx, rows.map((r) => r.product_id), corte, hoy);
+      const { vivo, existencia } = await this.enVivo(trx, rows, corte, hoy);
       const vivoPor = agrupar(vivo);
       const exPor = agrupar(existencia);
 
@@ -176,7 +193,7 @@ export class NewProductsService {
       [productId])).rows[0] as (NewProductSource & { calculado_at: Date | string }) | undefined;
       if (!row) throw new NotFoundException('El producto no está en seguimiento de productos nuevos');
 
-      const { vivo, existencia } = await this.enVivo(trx, [productId], row.corte, hoy);
+      const { vivo, existencia } = await this.enVivo(trx, [row], row.corte, hoy);
       const nombres = new Map<string, string>((await trx.raw(`
         SELECT code, name FROM commercial.warehouses
          WHERE tenant_id = public.current_tenant_id() AND deleted_at IS NULL`)).rows

@@ -10,6 +10,7 @@ import { TooltipModule } from 'primeng/tooltip';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { SparklineComponent } from '../../../shared/components/charts/sparkline.component';
+import { unidadLegible } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CATALOGO_TABS } from '../catalogo-tabs';
@@ -20,6 +21,7 @@ import {
   ProductoNuevo,
   ProductosNuevosService,
   RespuestaNuevos,
+  UnidadesKepler,
   VeredictoNuevo,
 } from '../productos-nuevos.service';
 
@@ -94,12 +96,50 @@ export function fechaCorta(iso: string | null): string {
   return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(t);
 }
 
-/** La existencia de una plaza, en palabras. Nunca inventa "cajas" si la plaza no declara divisor. */
-export function existenciaTexto(p: Pick<PlazaNueva, 'existencia' | 'existencia_cajas'>): string {
+/** La escalera de Kepler, de lo grande a lo chico: así se lee "3 cajas · 40 piezas". */
+const ORDEN_UNIDAD: Record<string, number> = { CJA: 0, BTO: 1, CUB: 2, PAQ: 3, KG: 4, PZA: 5 };
+const rangoUnidad = (u: string) => ORDEN_UNIDAD[u] ?? (/^[0-9]+$/.test(u) ? 6 : u === '?' ? 8 : 7);
+const cifra = (q: number) => q.toLocaleString('es-MX', { maximumFractionDigits: 2 });
+
+/**
+ * Una cantidad con su rótulo de Kepler, en palabras: "3 cajas", "1 paquete", "6 de 500 g".
+ * El rótulo se traduce con `unidadLegible` (el censo medido del repo); uno que no se conoce se
+ * imprime TAL CUAL (`SER`), y sin rótulo se dice "sin unidad" — nunca se le llama pieza.
+ */
+export function cantidadTexto(q: number, unidad: string | null | undefined): string {
+  const u = (unidad ?? '').trim().toUpperCase();
+  if (!u || u === '?') return `${cifra(q)} sin unidad`;
+  // Gramaje de la bolsa (500, 250): no es un nombre de unidad.
+  if (/^[0-9]+$/.test(u)) return `${cifra(q)} de ${u} g`;
+  const leg = unidadLegible(u);
+  if (!leg.conocida) return `${cifra(q)} ${u}`;
+  return `${cifra(q)} ${Math.abs(q) === 1 ? leg.singular : leg.plural}`;
+}
+
+/** Todas las unidades de un producto, cada rótulo por su lado: "3 cajas · 40 piezas". */
+export function textoUnidades(u: UnidadesKepler | null | undefined): string {
+  return Object.entries(u ?? {})
+    .filter(([, q]) => Math.abs(q) >= 0.0005)
+    .sort(([a], [b]) => rangoUnidad(a) - rangoUnidad(b) || a.localeCompare(b))
+    .map(([k, q]) => cantidadTexto(q, k))
+    .join(' · ');
+}
+
+/**
+ * La existencia de una plaza, en palabras y en la unidad de SU ficha de Kepler: "Hay 24 piezas
+ * (2 cajas)". La caja sólo aparece si la ficha la declara con su factor; nunca se inventa.
+ */
+export function existenciaTexto(
+  p: Pick<PlazaNueva, 'existencia' | 'existencia_unidad' | 'existencia_fuente' | 'existencia_mayor'>,
+): string {
   if (p.existencia === null) return 'Sin existencia registrada';
   if (p.existencia <= 0) return 'Agotado';
-  if (p.existencia_cajas !== null) return `Hay ${p.existencia_cajas.toLocaleString('es-MX')} cajas`;
-  return `Hay ${p.existencia.toLocaleString('es-MX')} unidades`;
+  const base = p.existencia_unidad
+    ? cantidadTexto(p.existencia, p.existencia_unidad)
+    : `${cifra(p.existencia)} ${p.existencia_fuente === 'wincaja' ? 'unidades de Wincaja' : '(unidad sin declarar en Kepler)'}`;
+  const m = p.existencia_mayor;
+  if (!m) return `Hay ${base}`;
+  return `Hay ${base} (${Number.isInteger(m.cantidad) ? '' : '≈ '}${cantidadTexto(m.cantidad, m.unidad)})`;
 }
 
 /**
@@ -273,11 +313,19 @@ export function tendenciaTexto(t: number | null): string {
                         <span class="pn-muted">—</span>
                       }
                     }
-                    @if (f.venta_hoy > 0) { <div class="pn-hoy"><span class="pn-punto" aria-hidden="true"></span>Hoy {{ dinero(f.venta_hoy) }}</div> }
+                    @if (f.venta_hoy > 0) {
+                      <div class="pn-hoy"><span class="pn-punto" aria-hidden="true"></span>Hoy {{ dinero(f.venta_hoy) }}</div>
+                      @if (textoUnidades(f.unidades_hoy); as u) { <div class="pn-meta pn-hoy-u">{{ u }}</div> }
+                    }
                   </td>
                   <td class="pn-num">
                     @if (f.venta_total !== null) {
                       <div class="pn-mono pn-fuerte">{{ dinero(f.venta_total) }}</div>
+                      @if (textoUnidades(f.unidades_vendidas); as u) {
+                        <div class="pn-unid" [pTooltip]="tipUnidades(f)">{{ u }}</div>
+                      } @else if (f.venta_total > 0) {
+                        <div class="pn-meta" [pTooltip]="tipUnidades(f)">sólo en pesos</div>
+                      }
                       @if (d.costo_visible) {
                         @if (f.venta_por_peso !== null) {
                           <div class="pn-barra" [attr.aria-label]="'Vendió ' + veces(f.venta_por_peso) + ' por cada peso invertido'">
@@ -404,15 +452,22 @@ export function tendenciaTexto(t: number | null): string {
               <section class="pk-bloque" aria-labelledby="pk-global">
                 <h3 id="pk-global" class="pk-h">Comportamiento global</h3>
                 <div class="pk-kpis">
-                  <div><span>Vendido</span><b>{{ dt.producto.venta_total === null ? '—' : dinero(dt.producto.venta_total) }}</b></div>
+                  <div><span>Vendido</span><b>{{ dt.producto.venta_total === null ? '—' : dinero(dt.producto.venta_total) }}</b>
+                    @if (textoUnidades(dt.producto.unidades_vendidas); as u) { <small>{{ u }}</small> }</div>
+                  <div><span>Recibido</span><b class="pk-txt">{{ textoUnidades(dt.producto.unidades_recibidas) || 'Sin entradas en Kepler' }}</b></div>
                   @if (dt.costo_visible) {
                     <div><span>Invertido</span><b>{{ dt.producto.inversion_total === null ? 'No medido' : dinero(dt.producto.inversion_total) }}</b></div>
                     <div><span>Por $1 invertido</span><b>{{ dt.producto.venta_por_peso === null ? '—' : veces(dt.producto.venta_por_peso) }}</b></div>
                   }
                   <div><span>Días con venta (28)</span><b>{{ dt.producto.dias_con_venta_28 }} de 28</b></div>
                   <div><span>Última venta</span><b>{{ fecha(dt.producto.ultima_venta) }}</b></div>
-                  <div><span>Hoy</span><b>{{ dinero(dt.producto.venta_hoy) }}</b></div>
+                  <div><span>Hoy</span><b>{{ dinero(dt.producto.venta_hoy) }}</b>
+                    @if (textoUnidades(dt.producto.unidades_hoy); as u) { <small>{{ u }}</small> }</div>
                 </div>
+                @if (dt.producto.venta_sin_unidad > 0) {
+                  <p class="pn-meta">{{ dinero(dt.producto.venta_sin_unidad) }} de la venta vienen de ruta o de plazas en Wincaja:
+                    Kepler no registra su unidad y van sólo en pesos.</p>
+                }
                 <p class="pn-meta">{{ tendenciaTexto(dt.producto.tendencia) }} · {{ recompraTexto(dt.producto) }}</p>
                 @if (cerradas(dt.producto.semanas, dt.producto.dia); as sem) {
                   @if (sem.length > 1) {
@@ -458,13 +513,16 @@ export function tendenciaTexto(t: number | null): string {
                     </header>
                     <div class="pk-plaza-cuerpo">
                       <div class="pk-plaza-datos">
-                        <div><span>Vendido</span><b>{{ dinero(p.venta_total) }}</b></div>
+                        <div><span>Vendido</span><b>{{ dinero(p.venta_total) }}</b>
+                          @if (textoUnidades(p.unidades_vendidas); as u) { <small>{{ u }}</small> }
+                          @else if (p.venta_sin_unidad > 0) { <small>sólo en pesos</small> }</div>
                         <div><span>Últimas 4 semanas</span><b>{{ dinero(p.venta_28) }}</b></div>
-                        <div><span>Existencia hoy</span><b [class.pn-agotado]="p.existencia !== null && p.existencia <= 0">{{ existenciaTexto(p) }}</b></div>
+                        <div><span>Existencia hoy</span><b class="pk-txt" [class.pn-agotado]="p.existencia !== null && p.existencia <= 0">{{ existenciaTexto(p) }}</b></div>
                         <div><span>Última venta</span><b>{{ fecha(p.ultima_venta) }}</b></div>
                         @if (dt.costo_visible) {
                           <div><span>Invertido</span><b>{{ p.inversion_total === null ? 'No medido' : dinero(p.inversion_total) }}</b></div>
                         }
+                        <div><span>Recibido</span><b class="pk-txt">{{ textoUnidades(p.unidades_recibidas) || 'Sin entradas en Kepler' }}</b></div>
                         <div><span>Recompra</span><b>{{ p.primera_recompra ? fecha(p.primera_recompra) : 'Todavía no' }}</b></div>
                       </div>
                       @if (cerradas(p.semanas, p.dia); as sem) {
@@ -474,7 +532,7 @@ export function tendenciaTexto(t: number | null): string {
                         }
                       }
                     </div>
-                    <p class="pn-meta">{{ p.recomendacion.motivos.join(' · ') }}@if (p.venta_hoy > 0) { · Hoy {{ dinero(p.venta_hoy) }} }</p>
+                    <p class="pn-meta">{{ p.recomendacion.motivos.join(' · ') }}@if (p.venta_hoy > 0) { · Hoy {{ dinero(p.venta_hoy) }}@if (textoUnidades(p.unidades_hoy); as u) { ({{ u }}) } }</p>
                   </article>
                 }
               </section>
@@ -504,7 +562,8 @@ export function tendenciaTexto(t: number | null): string {
               </form>
 
               <p class="pn-meta">Hoy en vivo al {{ hora(dt.frescura.en_vivo_al) }} · historia al cierre de anoche.
-                No incluye ruta ni plazas en Wincaja hasta el cierre.</p>
+                No incluye ruta ni plazas en Wincaja hasta el cierre. Las unidades son las que registró Kepler en cada
+                venta y entrada (caja, paquete, pieza), sin convertir; la existencia, en la unidad de la ficha de cada sucursal.</p>
             </div>
           } @else if (detError()) {
             <p class="pn-error" role="alert">No se pudo cargar el detalle por sucursal.</p>
@@ -618,6 +677,10 @@ export function tendenciaTexto(t: number | null): string {
     .pk-kpis div, .pk-plaza-datos div { display: flex; flex-direction: column; gap: .1rem; }
     .pk-kpis span, .pk-plaza-datos span { font-size: var(--fs-xs); color: var(--c-text-3); }
     .pk-kpis b, .pk-plaza-datos b { font-size: var(--fs-sm); color: var(--c-text-1); font-family: var(--font-mono); }
+    .pk-kpis b.pk-txt, .pk-plaza-datos b.pk-txt { font-family: inherit; font-weight: 600; }
+    .pk-kpis small, .pk-plaza-datos small { font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pn-unid { margin-top: .15rem; font-size: var(--fs-xs); color: var(--c-text-2); white-space: normal; }
+    .pn-hoy-u { padding-left: .7rem; }
     .pk-spk { --spk-h: 64px; }
     .pk-spk-mini { --spk-h: 40px; }
     .pk-hitos { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
@@ -647,6 +710,7 @@ export class ComprasCatalogoNuevosComponent {
   readonly hitos: HitoNuevo[] = [30, 60, 90];
   readonly hitoVisible = hitoVisible;
   readonly existenciaTexto = existenciaTexto;
+  readonly textoUnidades = textoUnidades;
   readonly tendenciaTexto = tendenciaTexto;
 
   private readonly api = inject(ProductosNuevosService);
@@ -803,6 +867,14 @@ export class ComprasCatalogoNuevosComponent {
     const partes = [x.cerrado ? 'Cerrado' : 'En curso'];
     if (this.datos()?.costo_visible) partes.push(x.inversion === null ? 'inversión no medida' : 'invertido ' + this.dinero(x.inversion));
     return partes.join(' · ');
+  }
+
+  /** De dónde salen las unidades, y cuánto de la venta no las trae. */
+  tipUnidades(f: ProductoNuevo): string {
+    const base = 'Tal como lo registró Kepler en cada venta, sin convertir.';
+    return f.venta_sin_unidad > 0
+      ? `${base} ${this.dinero(f.venta_sin_unidad)} vienen de ruta o de plazas en Wincaja y van sólo en pesos.`
+      : base;
   }
 
   recompraTexto(f: ProductoNuevo): string {

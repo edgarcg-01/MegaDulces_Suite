@@ -25,7 +25,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | 4 | **Carga masiva = día con ≥ 50 altas en la Suite.** | Medido en local: los días de alta a goteo tienen hasta 23; las cargas arrancan en 59. Sin el corte, 1,821 códigos muertos salían como "dados de alta sin recibir"; con él, 116. Se vuelve a medir en prod. |
 | 5 | **"No medible" se mide POR FUENTE** (tienda Kepler, ruta, Wincaja, entradas): hacen falta 90 días de historia antes de la primera actividad en cada fuente donde aparece el producto. | Las fuentes no arrancan juntas (en local: tienda desde el 21-sep, ruta desde el 1-jul). Con un "desde" global se afirmaría "antes no se vendía" donde no hay historia. |
 | 6 | **Recompra = segunda entrada en una plaza que ya lo había recibido.** | La primera entrada en varias plazas es surtido inicial, no recompra. La recompra del CLIENTE no se mide: el mostrador es anónimo (~1.4 % de la venta de tienda tiene cliente identificado). |
-| 7 | **Todo en pesos y sin margen.** | Entrada y venta pueden venir en peldaños distintos (caja/paquete/pieza). El costo del hecho de venta es álgebra sobre el markup (ADR-051): publicarlo como retorno sería inventar. |
+| 7 | **Decisiones en pesos y sin margen; cantidades en la unidad de Kepler.** | Entrada y venta pueden venir en peldaños distintos (caja/paquete/pieza): para decidir se usan pesos. Las cantidades se MUESTRAN como Kepler las registró (`NP.11`), cada rótulo por su lado, sin convertir ni sumar entre sí. El costo del hecho de venta es álgebra sobre el markup (ADR-051): publicarlo como retorno sería inventar. |
 | 8 | **Inversión sin entrada en Kepler = NULL ("no medida"), nunca 0.** "Venta por cada $1 invertido" usa el MISMO universo arriba y abajo. | El CEDIS fue Wincaja hasta el 30-sep, y las plazas 01/02/06 antes de pasar a Kepler. Un 0 daría retorno infinito o un fracaso falso. |
 | 9 | **El costo viaja sólo con `COMPRAS_COSTO_ESTANDAR_VER`** (o admin), y se quita en el SERVIDOR antes de agregar. | Mismo criterio que la pestaña Costos (`[CAT-COSTO.4]`). Ocultarlo en pantalla no lo protege. |
 | 10 | **Compras confirma qué es cada código** (`catalog.new_product_reviews`): nuevo / recodificación / promoción / no mercancía. La decisión humana manda sobre la automática. | Un código nuevo no siempre es un producto nuevo. El sistema sólo propone (DESC, promoción, descontinuado, mismo código de barras que uno más viejo). |
@@ -35,7 +35,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 
 | Item | Qué | Estado |
 |---|---|---|
-| `[NP.0]` | Decodificar la fecha de alta de Kepler (`kdii.c50…c75`) contra prod; re-medir el umbral de carga masiva; medir el refresco y el gate de 1 s con volumen real. | ⬜ requiere acceso de lectura a prod |
+| `[NP.0]` | Decodificar la fecha de alta de Kepler (`kdii.c50…c75`) contra prod; re-medir el umbral de carga masiva; medir el refresco y el gate de 1 s con volumen real; medir qué parte de las entradas `XA2001` declara su caja (`c55/c56` con identidad que cierra). | ⬜ requiere acceso de lectura a prod |
 | `[NP.1]` | Mig `20261007200000_np_mv_new_products.js` — matvista + índice único + grants. | 🧪 aplicada en local |
 | `[NP.2]` | `libs/commercial/.../new-products.ts` (lógica pura) + `new-products.service.ts` + 2 endpoints en `commercial-products.controller.ts` (`GET new-products`, `PUT new-products/:id/classification`) + refresco nocturno + umbral en `db-health`. | 🧪 |
 | `[NP.3]` | Candado `database/tests/test-newdb-new-products.js` sobre el escenario `database/tests/_lib/new-products-scenario.js` + demo `database/scripts/seed-local-new-products-demo.js` (`--undo`). | 🧪 |
@@ -43,9 +43,10 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.5]` | Pestaña `compras-catalogo-nuevos.component.ts` + `productos-nuevos.service.ts` + etiqueta en la lista de Productos. | 🧪 |
 | `[NP.6]` | Umbrales y veredicto (en `analytics.kpi_thresholds`, nacen vacíos → "sin meta") + hitos 30/60/90 **congelados** en tabla propia. | ⬜ |
 | `[NP.7]` | Alta solicitada en la app (pestaña Solicitudes) con inversión y meta planeadas → plan contra real. | ⬜ decisión de proceso |
-| `[NP.8]` | **En vivo**: mig `20261007200200` — índice `ix_kdm1_compra_fecha` + función `analytics.fn_new_products_movimientos(desde, hasta)` (venta y entradas de hoy desde el ODS). La matvista pasa a guardar SERIES hasta el corte. | 🧪 aplicada en local |
+| `[NP.8]` | **En vivo**: función `analytics.fn_new_products_movimientos(tenant, skus, desde, hasta)` (venta y entradas desde el ODS; desde `NP.11` vive en la mig `20261007200000` porque la matvista la usa para su historia) + índice `ix_kdm1_compra_fecha` (mig `20261007200200`). La matvista guarda SERIES hasta el corte. | 🧪 aplicada en local |
 | `[NP.9]` | **Recomendación de recompra** global y por sucursal (`recomendar` + `CRITERIO_RECOMPRA`) + `GET new-products/:id` (comportamiento por sucursal). | 🧪 |
 | `[NP.10]` | **Rediseño**: respuesta arriba, filtros por recomendación, venta por semana en cada fila, panel lateral por sucursal, refresco solo cada minuto. | 🧪 |
+| `[NP.11]` | **Unidades de Kepler**: lo vendido y lo recibido en la unidad que declara el renglón (cajas, paquetes, piezas, gramaje), global y por sucursal; la existencia en la unidad base de la ficha de cada sucursal con su equivalente en la unidad mayor. | 🧪 |
 
 ## Medido (base local, 2026-10-07)
 
@@ -63,7 +64,9 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 ## Para llevarlo a prod
 
 1. Aplicar las 3 migraciones **una por una** (`apply-one-migration-prod.js`), fuera de horario. La
+   `20261007200000` crea la función y la matvista (`WITH NO DATA`, no recorre nada). La
    `20261007200200` crea `ix_kdm1_compra_fecha` CONCURRENTLY sobre `kdm1` (493 MB): no bloquea, pero tarda.
+   La pantalla usa además `analytics.v_kepler_unit_ladder` (mig `20260915120000`, ya en prod por la Fase CE).
 2. Redeploy api + view. La pestaña dirá "todavía no se calculan" hasta el primer lote nocturno (06:20).
 3. Re-login no hace falta: no hay permisos nuevos.
 4. Antes de publicar cifras: `[NP.0]`.
@@ -130,3 +133,58 @@ Listado completo **0.56 s** · detalle por sucursal **0.09 s** · función en vi
 de la matvista 1.4 s. Candado de base **94/94** (+ 2 pruebas negativas), lógica 27/27, componente
 17/17, Compras 313/313, comercial 519/519. ⚠️ En prod hay que volver a medir: la función recorre los
 documentos de hoy de todas las sucursales.
+
+---
+
+## Tercera entrega (2026-10-07): las unidades de Kepler (`NP.11`)
+
+Pedido: *"quiero que uses las unidades de medida de Kepler: si se vendieron cajas, muestra cajas,
+paquetes o piezas"*.
+
+### De dónde sale la unidad — se lee, no se calcula
+
+Cada renglón de `kdm2` trae su unidad base (`c11`, cantidad `c9`) y la unidad en que se compró o
+vendió (`c55`, cantidad `c56`) con su factor (`c58`); `c9 = c56 × c58` se cumple en el 99.99% de la
+venta (`UNIDADES_DE_MEDIDA` §8octies). La regla:
+
+| El renglón… | Se publica |
+|---|---|
+| declara `c55` y su identidad `c9 = c56 × c58` cierra | `c55` / `c56` (p. ej. 1 CJA) |
+| no declara `c55`, o la identidad NO cierra | su base `c11` / `c9` (p. ej. 12 PZA) |
+| no declara ningún rótulo | `?` → "sin unidad" (nunca "pieza") |
+
+Nunca se convierte ni se suman rótulos distintos: "23 cajas · 86 piezas" son dos cifras.
+
+La existencia: Kepler la guarda en la unidad **base** de la ficha (`kdii`) de cada sucursal; el
+rótulo y el peldaño mayor salen de `analytics.v_kepler_unit_ladder` (grano sucursal × SKU, no una
+moda de las plazas). "Hay 24 piezas (2 cajas)" sólo si esa ficha declara la caja con su factor.
+Wincaja no tiene ficha de Kepler: va como "unidades de Wincaja" con el divisor de ADR-055.
+
+### Una sola regla para la historia y lo de hoy
+
+La función en vivo (`fn_new_products_movimientos`) pasó a recibir **SKUs** y a devolver la unidad,
+y la matvista la usa para armar su historia de Kepler (`venta_unidades`, y `entradas` con `u`). Así
+la regla de unidad —y las de venta y entradas— vive en UN lugar. Por SKU y no por producto: no lee
+el catálogo con RLS y entra por `ix_kdm2_sku_venta`. La venta de ruta y de plazas en Wincaja no trae
+unidad de Kepler: se **declara** cuánto es ("$X van sólo en pesos"), no se reparte.
+
+### Hallazgos
+
+- ⛔ **En `v_erp_stock_on_hand`, `source` vale `kepler_ods`, no `kepler`.** La primera versión unía la
+  ficha con `source = 'kepler'` y la existencia salía sin rótulo en todas las plazas, en silencio. La
+  unidad de la cantidad la dice `unit_source` (`kepler` / `wincaja` / `wincaja_multipack`). Lo vio la
+  prueba por HTTP, no las unitarias (que fingían el valor); ahora el candado verifica esa premisa.
+- La base local no tenía fichas `kdii` ni la vista de escalera: el escenario siembra fichas por
+  sucursal y la vista se aplicó en local.
+- `erp_purchase_doc_lines` (RA-PRO.43) usa `c55/c58` en compras pero no `c56`; en las entradas
+  `XA2001` la presencia de `c56` **no está medida en prod**. La regla se protege sola (si `c56` no es
+  la cantidad en `c55`, la identidad no cierra y cae a la base), pero cuántas entradas salen en caja
+  hay que medirlo en `[NP.0]`.
+
+### Medido (local)
+
+Candado de base **126/126** (+ prueba negativa: sin la condición de identidad, el renglón que dice
+"caja" sin cuadrar se cuenta como 4 cajas y fallan exactamente esas 2 aserciones). Entradas de la
+función contra `erp_goods_receipt_lines` folio por folio; primera entrada de la lista contra
+`primera_recepcion` (otra consulta). Lógica 38/38 · componente 20/20 · Compras 316/316 · comercial
+530/530. HTTP: listado **0.56 s**, detalle **0.28 s**.

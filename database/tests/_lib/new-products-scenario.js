@@ -16,6 +16,14 @@
  * Todo lo sembrado se reconoce por su marca: SKU `NPDEMO-*`, folios `NPD*` con serie 99.
  * Las fechas son RELATIVAS a hoy (TZ México), así que el escenario no envejece.
  *
+ * ── Unidades (NP.11) ──
+ * Cada renglón se siembra como lo escribe Kepler: unidad base `c11` con su cantidad `c9`, y —si el
+ * movimiento fue en otra unidad— `c55` (unidad), `c56` (cuántas) y `c58` (factor), con
+ * `c9 = c56 × c58`. En cada producto: `base` (rótulo `c11`, `PZA` si no se dice) y, por renglón,
+ * `u`/`f` (unidad y factor declarados). `rota: true` siembra un renglón que DECLARA caja pero cuya
+ * identidad no cierra: tiene que contarse en su unidad base, no en cajas. `ficha` es la ficha de
+ * Kepler (`kdii`) por plaza: los rótulos y factores de su escalera, para nombrar la existencia.
+ *
  * ⚠️ Las plazas no se eligen al azar. `v_sellout_daily` toma la venta de Kepler de cada plaza
  * sólo desde que esa plaza pasó a Kepler (01 desde el 1-jul-2026, 02 desde el 1-oct-2025, 06
  * desde el 15-ago-2026; antes su verdad es Wincaja). Una venta de Kepler sembrada en la 01 en
@@ -46,39 +54,51 @@ const PRODUCTOS = [
       { d: -118, plaza: '04', qty: 300, costo: 12 },
       { d: -75, plaza: '03', qty: 400, costo: 12 }, // recompra en una plaza que ya lo tenía
     ],
+    // Vendida en su unidad base, y el renglón lo DECLARA (c55 = PZA, factor 1).
     ventas: Array.from({ length: 59 }, (_, i) => ({
-      d: -119 + i * 2, plaza: ['03', '04', '05'][i % 3], qty: 6, precio: 19.5,
+      d: -119 + i * 2, plaza: ['03', '04', '05'][i % 3], qty: 6, precio: 19.5, u: 'PZA', f: 1,
     })),
     existencia: ['03', '04', '05'],
+    ficha: { c80: 'PAQ', c81: 12 },
   },
   {
     clave: '02', nombre: 'NPDEMO GOMITA ACIDA SANDIA 1KG', alta: -78, L: -75,
     entradas: [{ d: -75, plaza: '02', qty: 40, costo: 150 }],
+    // Sin c55: el renglón sólo dice su unidad base, y eso es lo que se publica.
     ventas: Array.from({ length: 18 }, (_, i) => ({ d: -73 + i * 4, plaza: '02', qty: 2, precio: 210 })),
     existencia: ['02'],
+    ficha: {},
   },
   {
     clave: '03', nombre: 'NPDEMO CHOCOLATE RELLENO CAJETA 12PZ', alta: -48, L: -45,
+    // Se compra por CAJA de 12 y se vende por caja en la 01 y por pieza en la 04.
     entradas: [
-      { d: -45, plaza: '01', qty: 50, costo: 190 },
-      { d: -44, plaza: '04', qty: 35, costo: 200 },
-      { d: -20, plaza: '01', qty: 50, costo: 190 },
+      { d: -45, plaza: '01', qty: 50, costo: 190, u: 'CJA', f: 12 },
+      { d: -44, plaza: '04', qty: 35, costo: 200, u: 'CJA', f: 12 },
+      { d: -20, plaza: '01', qty: 50, costo: 190, u: 'CJA', f: 12 },
     ],
-    ventas: Array.from({ length: 43 }, (_, i) => ({ d: -43 + i, plaza: i % 2 ? '04' : '01', qty: 3, precio: 265 })),
+    ventas: Array.from({ length: 43 }, (_, i) => (i % 2
+      ? { d: -43 + i, plaza: '04', qty: 4, precio: 24, u: 'PZA', f: 1 }
+      : { d: -43 + i, plaza: '01', qty: 1, precio: 265, u: 'CJA', f: 12 })),
     existencia: ['01', '04'],
+    ficha: { c80: 'CJA', c81: 12 },
   },
   {
     // Entró y NO se vendió: es la señal temprana de un lanzamiento que no despegó.
     clave: '04', nombre: 'NPDEMO CHICLE MENTA XTRA 100PZ', alta: -53, L: -50,
-    entradas: [{ d: -50, plaza: '05', qty: 40, costo: 130 }],
+    entradas: [{ d: -50, plaza: '05', qty: 4, costo: 1300, u: 'CJA', f: 100 }],
     ventas: [],
     existencia: ['05'],
+    stock: 400,
+    ficha: { c80: 'CJA', c81: 100 },
   },
   {
-    clave: '05', nombre: 'NPDEMO CACAHUATE JAPONES LIMON 500G', alta: -15, L: -12,
+    // Base "500": el gramaje de la bolsa. No es un nombre de unidad y no se traduce como tal.
+    clave: '05', nombre: 'NPDEMO CACAHUATE JAPONES LIMON 500G', alta: -15, L: -12, base: '500',
     entradas: [{ d: -12, plaza: '06', qty: 60, costo: 40 }],
     ventas: [-10, -6, -2].map((d) => ({ d, plaza: '06', qty: 2, precio: 58 })),
     existencia: ['06'],
+    ficha: {},
   },
   {
     // Mismo código de barras que un producto más viejo: posible recodificación.
@@ -86,6 +106,7 @@ const PRODUCTOS = [
     entradas: [{ d: -40, plaza: '01', qty: 30, costo: 95 }],
     ventas: Array.from({ length: 13 }, (_, i) => ({ d: -39 + i * 3, plaza: '01', qty: 2, precio: 130 })),
     existencia: ['01'],
+    ficha: { c80: 'CJA', c81: 30 },
   },
   {
     // Código de descuento por volumen (CV.12): se excluye solo.
@@ -103,15 +124,41 @@ const PRODUCTOS = [
   },
   {
     // Se vende pero NO tiene entrada en Kepler (llegó por traspaso del CEDIS): inversión no medida.
+    // Sin ficha en Kepler para su plaza: la existencia sale sin rótulo (se declara, no se inventa).
+    // Y un renglón que dice "caja" sin que su identidad cierre: cuenta en su base, no en cajas.
     clave: '09', nombre: 'NPDEMO PALOMITAS CARAMELO 80G', alta: -38, L: -35,
     entradas: [],
-    ventas: Array.from({ length: 17 }, (_, i) => ({ d: -35 + i * 2, plaza: '03', qty: 4, precio: 22 })),
+    ventas: Array.from({ length: 17 }, (_, i) => ({
+      d: -35 + i * 2, plaza: '03', qty: 4, precio: 22, ...(i === 0 ? { u: 'CJA', f: 24, rota: true } : {}),
+    })),
     existencia: ['03'],
   },
 ];
 
 const sku = (p) => `${PREFIJO_SKU}${p.clave}`;
 const r2 = (v) => Math.round(v * 100) / 100;
+const r3 = (v) => Math.round(v * 1000) / 1000;
+
+/**
+ * Las columnas de unidad de un renglón, como las escribe Kepler. Con `u` declarada, `c9` es la
+ * cantidad en la base (`qty × f`), salvo `rota`, que deja `c9 = qty` y rompe la identidad.
+ */
+function unidadRenglon(p, x) {
+  const base = p.base || 'PZA';
+  if (!x.u) return { c9: x.qty, c11: base, c55: null, c56: null, c58: null };
+  return { c9: x.rota ? x.qty : x.qty * x.f, c11: base, c55: x.u, c56: String(x.qty), c58: String(x.f) };
+}
+/** La unidad que el candado espera ver publicada: la declarada sólo si su identidad cierra. */
+const unidadEsperada = (p, x) => (x.u && !x.rota ? x.u : (p.base || 'PZA'));
+function acumularUnidades(lista, p) {
+  const out = {};
+  for (const x of lista) {
+    out[x.plaza] = out[x.plaza] || {};
+    const u = unidadEsperada(p, x);
+    out[x.plaza][u] = r3((out[x.plaza][u] || 0) + x.qty);
+  }
+  return out;
+}
 
 function fecha(hoy, d) {
   const t = Date.parse(`${hoy}T12:00:00Z`) + d * 86_400_000;
@@ -152,6 +199,9 @@ function esperado(p) {
     plazas_venta: new Set(p.ventas.map((v) => v.plaza)).size,
     dias_con_venta_30: new Set(p.ventas.filter((v) => v.d < L + 30).map((v) => v.d)).size,
     plazas_con_existencia: p.existencia.length,
+    // `{ plaza: { unidad: cantidad } }`, calculado aquí de lo sembrado.
+    unidades_venta: acumularUnidades(p.ventas, p),
+    unidades_entrada: acumularUnidades(p.entradas, p),
   };
 }
 
@@ -188,10 +238,12 @@ async function sembrar(db) {
       await db.raw(
         `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c43)
          VALUES (?, ?, 'X', 'A', 20, ?, ?, ?::timestamp, 'N')`, [e.plaza, e.plaza, SERIE, f, fecha(hoy, e.d)]);
+      const ue = unidadRenglon(p, e);
       await db.raw(
-        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13)
-         VALUES (?, ?, 'X', 'A', 20, ?, ?, 1, ?, ?, ?, 'PZA', ?, ?)`,
-        [e.plaza, e.plaza, SERIE, f, sku(p), e.qty, p.nombre, e.costo, r2(e.qty * e.costo)]);
+        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c55, c56, c58)
+         VALUES (?, ?, 'X', 'A', 20, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [e.plaza, e.plaza, SERIE, f, sku(p), ue.c9, p.nombre, ue.c11, r2(e.costo / (e.f || 1)), r2(e.qty * e.costo),
+          ue.c55, ue.c56, ue.c58]);
     }
     for (const v of p.ventas) {
       folio += 1;
@@ -201,15 +253,24 @@ async function sembrar(db) {
         `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c12, c13, c16, c43)
          VALUES (?, ?, 'U', 'D', 10, ?, ?, ?::timestamp, '991', 0, ?, 'N')`,
         [v.plaza, v.plaza, SERIE, f, fecha(hoy, v.d), importe]);
+      const uv = unidadRenglon(p, v);
       await db.raw(
-        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c11, c12, c13)
-         VALUES (?, ?, 'U', 'D', 10, ?, ?, 1, ?, ?, 'PZA', ?, ?)`,
-        [v.plaza, v.plaza, SERIE, f, sku(p), v.qty, v.precio, importe]);
+        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c11, c12, c13, c55, c56, c58)
+         VALUES (?, ?, 'U', 'D', 10, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [v.plaza, v.plaza, SERIE, f, sku(p), uv.c9, uv.c11, r2(v.precio / (v.f || 1)), importe, uv.c55, uv.c56, uv.c58]);
     }
     for (const plaza of p.existencia) {
       await db.raw(
-        `INSERT INTO kepler_ods.kdil (sucursal, c1, c2, c3, c4, c8, c9) VALUES (?, ?, 1, ?, 24, 0, 0)`,
-        [plaza, plaza, sku(p)]);
+        `INSERT INTO kepler_ods.kdil (sucursal, c1, c2, c3, c4, c8, c9) VALUES (?, ?, 1, ?, ?, 0, 0)`,
+        [plaza, plaza, sku(p), p.stock ?? 24]);
+      // La ficha de Kepler de esa plaza: rótulo base y, si tiene, la Unidad Dos con su factor.
+      if (p.ficha) {
+        await db.raw(
+          `INSERT INTO kepler_ods.kdii (sucursal, c1, c2, c11, c77, c80, c81, c78)
+           VALUES (?, ?, ?, ?, '10', ?, ?, ?)`,
+          [plaza, sku(p), p.nombre, p.base || 'PZA', p.ficha.c80 ?? null, p.ficha.c81 ?? null,
+            p.ficha.c81 ? 10 * p.ficha.c81 : null]);
+      }
     }
     out.push({ clave: p.clave, sku: sku(p), product_id: productId, esperado: esperado(p) });
   }
@@ -222,7 +283,8 @@ async function sembrar(db) {
  * movimiento (que tiene que pasar a "día 0").
  */
 const VIVO = [
-  { clave: '03', tipo: 'venta', plaza: '04', qty: 2, precio: 265 },
+  { clave: '03', tipo: 'venta', plaza: '04', qty: 2, precio: 24, u: 'PZA', f: 1 },
+  { clave: '03', tipo: 'venta', plaza: '01', qty: 1, precio: 265, u: 'CJA', f: 12 },
   { clave: '02', tipo: 'entrada', plaza: '02', qty: 40, costo: 150 },
   { clave: '08', tipo: 'entrada', plaza: '01', qty: 24, costo: 35 },
 ];
@@ -233,7 +295,9 @@ async function sembrarVivo(db, hoy) {
   for (const v of VIVO) {
     folio += 1;
     const sk = `${PREFIJO_SKU}${v.clave}`;
-    const nombre = PRODUCTOS.find((p) => p.clave === v.clave).nombre;
+    const prod = PRODUCTOS.find((p) => p.clave === v.clave);
+    const nombre = prod.nombre;
+    const uv = unidadRenglon(prod, v);
     if (v.tipo === 'venta') {
       const f = `NPDV${folio}`;
       const importe = r2(v.qty * v.precio);
@@ -241,9 +305,10 @@ async function sembrarVivo(db, hoy) {
         `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c12, c13, c16, c43)
          VALUES (?, ?, 'U', 'D', 10, ?, ?, ?::timestamp, '991', 0, ?, 'N')`, [v.plaza, v.plaza, SERIE, f, hoy, importe]);
       await db.raw(
-        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c11, c12, c13)
-         VALUES (?, ?, 'U', 'D', 10, ?, ?, 1, ?, ?, 'PZA', ?, ?)`, [v.plaza, v.plaza, SERIE, f, sk, v.qty, v.precio, importe]);
-      out.push({ clave: v.clave, tipo: 'venta', plaza: v.plaza, importe });
+        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c11, c12, c13, c55, c56, c58)
+         VALUES (?, ?, 'U', 'D', 10, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [v.plaza, v.plaza, SERIE, f, sk, uv.c9, uv.c11, r2(v.precio / (v.f || 1)), importe, uv.c55, uv.c56, uv.c58]);
+      out.push({ clave: v.clave, tipo: 'venta', plaza: v.plaza, importe, unidad: unidadEsperada(prod, v), cantidad: v.qty });
     } else {
       const f = `NPDR${folio}`;
       const importe = r2(v.qty * v.costo);
@@ -251,10 +316,10 @@ async function sembrarVivo(db, hoy) {
         `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c43)
          VALUES (?, ?, 'X', 'A', 20, ?, ?, ?::timestamp, 'N')`, [v.plaza, v.plaza, SERIE, f, hoy]);
       await db.raw(
-        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13)
-         VALUES (?, ?, 'X', 'A', 20, ?, ?, 1, ?, ?, ?, 'PZA', ?, ?)`,
-        [v.plaza, v.plaza, SERIE, f, sk, v.qty, nombre, v.costo, importe]);
-      out.push({ clave: v.clave, tipo: 'entrada', plaza: v.plaza, importe, folio: f });
+        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c55, c56, c58)
+         VALUES (?, ?, 'X', 'A', 20, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [v.plaza, v.plaza, SERIE, f, sk, uv.c9, nombre, uv.c11, r2(v.costo / (v.f || 1)), importe, uv.c55, uv.c56, uv.c58]);
+      out.push({ clave: v.clave, tipo: 'entrada', plaza: v.plaza, importe, folio: f, unidad: unidadEsperada(prod, v), cantidad: v.qty });
     }
   }
   return out;
@@ -265,6 +330,7 @@ async function limpiar(db) {
   await db.raw(`DELETE FROM kepler_ods.kdm2 WHERE c5 = ? AND c6 LIKE 'NPD%'`, [SERIE]);
   await db.raw(`DELETE FROM kepler_ods.kdm1 WHERE c5 = ? AND c6 LIKE 'NPD%'`, [SERIE]);
   await db.raw(`DELETE FROM kepler_ods.kdil WHERE c3 LIKE ?`, [`${PREFIJO_SKU}%`]);
+  await db.raw(`DELETE FROM kepler_ods.kdii WHERE c1 LIKE ?`, [`${PREFIJO_SKU}%`]);
   await db.raw(`DELETE FROM catalog.new_product_reviews WHERE product_id IN (SELECT id FROM catalog.products WHERE sku LIKE ?)`, [`${PREFIJO_SKU}%`]);
   await db.raw(`DELETE FROM catalog.products WHERE sku LIKE ?`, [`${PREFIJO_SKU}%`]);
 }

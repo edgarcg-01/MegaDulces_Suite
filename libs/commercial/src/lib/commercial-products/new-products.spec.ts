@@ -9,6 +9,7 @@ import {
   esKindValido,
   estadoDe,
   etapaDe,
+  existenciaMayor,
   ocultarCosto,
   porSemana,
   recomendar,
@@ -193,14 +194,15 @@ describe('armarProducto — por sucursal', () => {
   it('una plaza que vende y hoy no tiene existencia cuenta como agotada', () => {
     const { fila, plazas } = armarProducto(f, HOY, [], [
       { product_id: 'p1', plaza: '03', cantidad: 0, factor: 12 },
-      { product_id: 'p1', plaza: '05', cantidad: 36, factor: 12 },
+      { product_id: 'p1', plaza: '05', cantidad: 36, factor: 12, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'CJA', factor_mayor: 12 },
     ]);
     expect(fila.agotado_en).toBe(1);
     const p03 = plazas.find((p) => p.plaza === '03')!;
     const p05 = plazas.find((p) => p.plaza === '05')!;
     expect(p03.recomendacion.veredicto).toBe('recomprar');
     expect(p03.recomendacion.motivos.join(' ')).toContain('Se agotó');
-    expect(p05.existencia_cajas).toBe(3);
+    expect(p05.existencia_unidad).toBe('PZA');
+    expect(p05.existencia_mayor).toEqual({ unidad: 'CJA', cantidad: 3 });
   });
 
   it('cada plaza cuenta sus días desde SU primera actividad', () => {
@@ -217,6 +219,83 @@ describe('armarProducto — por sucursal', () => {
   it('los nombres de plaza llegan si se pasan', () => {
     const { plazas } = armarProducto(f, HOY, [], [], { conCosto: true, nombres: new Map([['03', '8ESQ']]) });
     expect(plazas.find((p) => p.plaza === '03')?.nombre).toBe('8ESQ');
+  });
+});
+
+describe('unidades de Kepler (NP.11)', () => {
+  const vivoCaja: Movimiento = { product_id: 'p1', tipo: 'venta', plaza: '03', fecha: HOY, unidad: 'CJA', cantidad: 1, importe: 300 };
+
+  it('suma historia + hoy rótulo por rótulo, sin mezclar cajas con piezas', () => {
+    const f = fuente({ venta_unidades: { '03': { u: { CJA: 2, PZA: 10 }, i: 4000 } } });
+    const { fila, plazas } = armarProducto(f, HOY, [vivoCaja], []);
+    expect(fila.unidades_vendidas).toEqual({ CJA: 3, PZA: 10 });
+    expect(fila.unidades_hoy).toEqual({ CJA: 1 });
+    expect(plazas.find((p) => p.plaza === '03')!.unidades_vendidas).toEqual({ CJA: 3, PZA: 10 });
+  });
+
+  it('⛔ los pesos sin unidad se DECLARAN (ruta o Wincaja), no se reparten', () => {
+    // La plaza vendió $4,500 de historia + $300 hoy; las unidades cubren $4,000 + $300.
+    const f = fuente({ venta_unidades: { '03': { u: { PZA: 40 }, i: 4000 } } });
+    const { fila, plazas } = armarProducto(f, HOY, [vivoCaja], []);
+    expect(fila.venta_sin_unidad).toBe(500);
+    expect(plazas.find((p) => p.plaza === '03')!.venta_sin_unidad).toBe(500);
+  });
+
+  it('sin unidades en la historia, toda la venta queda sin unidad (no se inventan piezas)', () => {
+    const { fila } = armarProducto(fuente(), HOY, [], []);
+    expect(fila.unidades_vendidas).toEqual({});
+    expect(fila.venta_sin_unidad).toBe(4500);
+  });
+
+  it('centavos de redondeo no cuentan como venta sin unidad', () => {
+    const f = fuente({ venta_unidades: { '03': { u: { PZA: 40 }, i: 4499.6 } } });
+    expect(armarProducto(f, HOY, [], []).fila.venta_sin_unidad).toBe(0);
+  });
+
+  it('las entradas suman su unidad de historia y la de hoy', () => {
+    const f = fuente({ entradas: [{ f: sumarDias(HOY, -45), p: '03', i: 2000, u: { CJA: 5 } }] });
+    const hoyEntra: Movimiento = { product_id: 'p1', tipo: 'entrada', plaza: '03', fecha: HOY, folio: 'X1', unidad: 'CJA', cantidad: 2, importe: 800 };
+    const { fila, plazas } = armarProducto(f, HOY, [hoyEntra], []);
+    expect(fila.unidades_recibidas).toEqual({ CJA: 7 });
+    expect(plazas.find((p) => p.plaza === '03')!.unidades_recibidas).toEqual({ CJA: 7 });
+  });
+
+  it('una venta y su devolución que se anulan no dejan un rótulo en cero', () => {
+    const f = fuente({ venta_unidades: { '03': { u: { CJA: 0, PZA: 10 }, i: 4500 } } });
+    expect(armarProducto(f, HOY, [], []).fila.unidades_vendidas).toEqual({ PZA: 10 });
+  });
+
+  it('un movimiento sin rótulo se cuenta como "?" (sin unidad), no como pieza', () => {
+    const sinRotulo: Movimiento = { ...vivoCaja, unidad: null, cantidad: 4 };
+    expect(armarProducto(fuente(), HOY, [sinRotulo], []).fila.unidades_hoy).toEqual({ '?': 4 });
+  });
+});
+
+describe('existencia en la unidad mayor de cada plaza', () => {
+  const ex = { product_id: 'p1', plaza: '03', cantidad: 36, factor: 1 };
+
+  it('Kepler: el peldaño mayor de la ficha de ESA plaza', () => {
+    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'PAQ', factor_mayor: 12 }))
+      .toEqual({ unidad: 'PAQ', cantidad: 3 });
+  });
+
+  it('⛔ sin ficha, o con una sola unidad, NO se inventa la caja', () => {
+    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: null, unidad_mayor: null, factor_mayor: null })).toBeNull();
+    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'PZA', factor_mayor: 1 })).toBeNull();
+    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'CJA', factor_mayor: null })).toBeNull();
+  });
+
+  it('Wincaja: el divisor de presentación (ADR-055), y la base queda sin rótulo de Kepler', () => {
+    expect(existenciaMayor({ ...ex, cantidad: 50, factor: 10, fuente: 'wincaja', unidad: 'PZA' }))
+      .toEqual({ unidad: 'CJA', cantidad: 5 });
+    const { plazas } = armarProducto(fuente(), HOY, [], [{ ...ex, cantidad: 50, factor: 10, fuente: 'wincaja', unidad: 'PZA' }]);
+    expect(plazas[0].existencia_unidad).toBeNull();
+    expect(plazas[0].existencia_fuente).toBe('wincaja');
+  });
+
+  it('una fracción de caja se dice con un decimal', () => {
+    expect(existenciaMayor({ ...ex, cantidad: 24, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'CJA', factor_mayor: 30 }))
+      .toEqual({ unidad: 'CJA', cantidad: 0.8 });
   });
 });
 

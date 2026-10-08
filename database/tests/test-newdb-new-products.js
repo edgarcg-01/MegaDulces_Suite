@@ -10,10 +10,13 @@
  * Tres cruces, ninguno de la vista contra sí misma:
  *   1. Las SERIES de la matvista contra un cálculo hecho aparte en JavaScript sobre lo sembrado.
  *   2. La función EN VIVO contra las fuentes canónicas en días ya CERRADOS: la venta contra
- *      `v_sellout_daily` (pierna Kepler de tienda) y las entradas contra la lista de la matvista
- *      (que sale de `erp_goods_receipt_lines`). Si alguien cambia una regla de un lado y no del
- *      otro, aquí se pone rojo.
+ *      `v_sellout_daily` (pierna Kepler de tienda) y las entradas contra
+ *      `erp_goods_receipt_lines`. Si alguien cambia una regla de un lado y no del otro, aquí se
+ *      pone rojo.
  *   3. Lo que pasa HOY: lo trae la función y la matvista NO lo trae (nada se cuenta dos veces).
+ *   4. Las UNIDADES de Kepler (NP.11): lo publicado por plaza y por rótulo contra lo sembrado; un
+ *      renglón que dice "caja" sin que su identidad cierre se cuenta en su base; y la fecha de la
+ *      primera entrada de la lista contra `primera_recepcion`, que sale de OTRA consulta.
  *
  * Además vigila: un producto que se mueve desde hace 262 días NO es nuevo; la historia se exige
  * POR FUENTE; la recompra es en una plaza que ya lo tenía; sin entrada en Kepler la inversión es
@@ -47,7 +50,7 @@ const nulo = (v) => (v === 0 ? null : v);
   console.log('\n=== [NP.3] Productos nuevos — historia + en vivo contra un escenario conocido ===\n');
   const existe = await knex.raw(`SELECT to_regclass('analytics.mv_new_products') AS mv,
                                         to_regclass('catalog.new_product_reviews') AS tabla,
-                                        to_regprocedure('analytics.fn_new_products_movimientos(date,date)') AS fn`);
+                                        to_regprocedure('analytics.fn_new_products_movimientos(uuid,text[],date,date)') AS fn`);
   if (!existe.rows[0].mv || !existe.rows[0].tabla || !existe.rows[0].fn) {
     console.log('  NO MEDIDO — faltan las migraciones 20261007200000/200100/200200 en esta base.');
     await knex.destroy();
@@ -121,48 +124,62 @@ const nulo = (v) => (v === 0 ? null : v);
     console.log('\n── 4. La función EN VIVO da lo mismo que las fuentes canónicas en días CERRADOS ──');
     const desde = esc.fecha(hoy, -130);
     const ayer = esc.fecha(hoy, -1);
-    const fnVenta = (await trx.raw(`
-      SELECT f.product_id, f.plaza, f.fecha::text AS fecha, f.importe
-        FROM analytics.fn_new_products_movimientos(?::date, ?::date) f
-        JOIN catalog.products p ON p.id = f.product_id
-       WHERE f.tipo = 'venta' AND p.sku LIKE ?`, [desde, ayer, `${esc.PREFIJO_SKU}%`])).rows;
+    // El mismo universo que la matvista (el producto viejo no esta), por SKU como la llama el servidor.
+    const skus = rows.map((r) => r.sku);
+    const fn = async (d, h) => (await trx.raw(`
+      SELECT f.sku, f.tipo, f.plaza, f.fecha::text AS fecha, f.folio, f.unidad, f.cantidad, f.importe
+        FROM analytics.fn_new_products_movimientos(?::uuid, ?::text[], ?::date, ?::date) f`,
+    [esc.TENANT, skus, d, h])).rows;
+    const cerrado = await fn(desde, ayer);
+    // La funcion separa por unidad; el sell-out no. Se junta por (sku, plaza, dia) para comparar.
+    const juntar = (lista, campos) => {
+      const m = new Map();
+      for (const x of lista) {
+        const k = campos.map((c) => x[c]).join('|');
+        m.set(k, r2((m.get(k) || 0) + Number(x.importe)));
+      }
+      return new Set([...m.entries()].map(([k, v]) => `${k}|${v}`));
+    };
     const canon = (await trx.raw(`
-      SELECT s.product_id, s.warehouse_code AS plaza, s.business_date::text AS fecha, sum(s.monto) AS importe
+      SELECT s.sku, s.warehouse_code AS plaza, s.business_date::text AS fecha, sum(s.monto) AS importe
         FROM analytics.v_sellout_daily s
-       WHERE s.source = 'kepler' AND s.channel <> 'ruta' AND s.sku LIKE ?
+       WHERE s.source = 'kepler' AND s.channel <> 'ruta' AND s.sku = ANY(?::text[])
          AND s.business_date BETWEEN ?::date AND ?::date
-         -- El mismo universo que la funcion: los productos de la matvista (el viejo no esta).
-         AND s.product_id IN (SELECT product_id FROM analytics.mv_new_products)
-       GROUP BY 1, 2, 3`, [`${esc.PREFIJO_SKU}%`, desde, ayer])).rows;
-    const llave = (x) => `${x.product_id}|${x.plaza}|${x.fecha}|${r2(x.importe)}`;
-    const a = new Set(fnVenta.map(llave));
-    const b = new Set(canon.map(llave));
+       GROUP BY 1, 2, 3`, [skus, desde, ayer])).rows;
+    const a = juntar(cerrado.filter((x) => x.tipo === 'venta'), ['sku', 'plaza', 'fecha']);
+    const b = juntar(canon, ['sku', 'plaza', 'fecha']);
     const soloFn = [...a].filter((k) => !b.has(k));
     const soloCanon = [...b].filter((k) => !a.has(k));
     check(`venta: la función y v_sellout_daily coinciden renglón por renglón (${a.size} días-plaza)`,
       a.size > 0 && soloFn.length === 0 && soloCanon.length === 0, { soloFn: soloFn.slice(0, 3), soloCanon: soloCanon.slice(0, 3) });
-    const fnEnt = (await trx.raw(`
-      SELECT p.sku, f.plaza, f.fecha::text AS fecha, f.importe
-        FROM analytics.fn_new_products_movimientos(?::date, ?::date) f
-        JOIN catalog.products p ON p.id = f.product_id
-       WHERE f.tipo = 'entrada' AND p.sku LIKE ?`, [desde, ayer, `${esc.PREFIJO_SKU}%`])).rows;
-    const histEnt = rows.flatMap((r) => (r.entradas || []).filter((x) => x.f >= desde)
-      .map((x) => `${r.sku}|${x.p}|${x.f}|${r2(x.i)}`));
-    const fnEntK = fnEnt.map((x) => `${x.sku}|${x.plaza}|${x.fecha}|${r2(x.importe)}`);
-    check(`entradas: la función y la historia (erp_goods_receipt_lines) coinciden (${fnEntK.length})`,
-      fnEntK.length > 0 && fnEntK.length === histEnt.length && fnEntK.every((k) => histEnt.includes(k)),
-      { fn: fnEntK.length, historia: histEnt.length });
+    // Entradas contra la vista canonica de renglones; la fecha, del encabezado de cada folio.
+    const canonEnt = (await trx.raw(`
+      SELECT l.sku, btrim(l.sucursal) AS plaza, h.c9::date::text AS fecha, l.folio, sum(l.importe) AS importe
+        FROM analytics.erp_goods_receipt_lines l
+        JOIN kepler_ods.kdm1 h
+          ON h.sucursal = l.sucursal AND btrim(h.c6) = l.folio AND h.c2 = 'X' AND h.c3 = 'A'
+         AND btrim(h.c4::text) = '20' AND btrim(h.c1) = h.sucursal
+       WHERE l.sku = ANY(?::text[]) AND h.c9::date BETWEEN ?::date AND ?::date
+       GROUP BY 1, 2, 3, 4`, [skus, desde, ayer])).rows;
+    const ea = juntar(cerrado.filter((x) => x.tipo === 'entrada'), ['sku', 'plaza', 'fecha', 'folio']);
+    const eb = juntar(canonEnt, ['sku', 'plaza', 'fecha', 'folio']);
+    check(`entradas: la función y erp_goods_receipt_lines coinciden folio por folio (${ea.size})`,
+      ea.size > 0 && ea.size === eb.size && [...ea].every((k) => eb.has(k)),
+      { soloFn: [...ea].filter((k) => !eb.has(k)).slice(0, 3), soloCanon: [...eb].filter((k) => !ea.has(k)).slice(0, 3) });
+    // Y la lista de la matvista sale de la MISMA funcion: tiene que ser lo mismo, folio por folio.
+    const histEnt = new Set(rows.flatMap((r) => (r.entradas || []).filter((x) => x.f >= desde)
+      .map((x) => `${r.sku}|${x.p}|${x.f}|${x.folio}|${r2(x.i)}`)));
+    check(`entradas: la lista de la matvista es la de la función (${histEnt.size})`,
+      histEnt.size === ea.size && [...ea].every((k) => histEnt.has(k)), { historia: histEnt.size, fn: ea.size });
 
     console.log('\n── 5. Lo de HOY: lo trae la función y la historia NO ──');
-    const hoyFn = (await trx.raw(`
-      SELECT p.sku, f.tipo, f.plaza, f.importe
-        FROM analytics.fn_new_products_movimientos(?::date, ?::date) f
-        JOIN catalog.products p ON p.id = f.product_id
-       WHERE p.sku LIKE ?`, [hoy, hoy, `${esc.PREFIJO_SKU}%`])).rows;
+    // Con todos los SKUs de la matvista, como el servidor: el 08 está "sin movimiento" y hoy entra.
+    const hoyFn = await fn(hoy, hoy);
     for (const v of vivo) {
       const sk = `${esc.PREFIJO_SKU}${v.clave}`;
-      const enc = hoyFn.find((x) => x.sku === sk && x.tipo === v.tipo && x.plaza === v.plaza);
-      check(`hoy: ${v.tipo} de ${sk} en ${v.plaza} por ${v.importe}`, enc && r2(enc.importe) === v.importe, enc && enc.importe);
+      const enc = hoyFn.find((x) => x.sku === sk && x.tipo === v.tipo && x.plaza === v.plaza && x.unidad === v.unidad);
+      check(`hoy: ${v.tipo} de ${sk} en ${v.plaza}: ${v.cantidad} ${v.unidad} por ${v.importe}`,
+        enc && r2(enc.importe) === v.importe && Number(enc.cantidad) === v.cantidad, enc && { u: enc.unidad, q: enc.cantidad, i: enc.importe });
     }
     check('la venta de hoy NO está en la serie de la historia (NPDEMO-03 sigue en su total cerrado)',
       fila('03') && suma(fila('03').venta_dia) === P('03').esperado.venta_total, fila('03') && suma(fila('03').venta_dia));
@@ -184,7 +201,58 @@ const nulo = (v) => (v === 0 ? null : v);
     else { noMedido += 1; console.log('  · NO MEDIDO — la base no tiene un producto con EAN-13 para copiarle el código'); }
     check('un producto normal NO levanta la señal de recodificación', fila('01') && fila('01').posible_recodificacion === false);
 
-    console.log('\n── 7. Prueba negativa: la historia se exige POR FUENTE ──');
+    console.log('\n── 7. Unidades de Kepler, tal como las declara el renglón ──');
+    const norm = (o) => JSON.stringify(Object.keys(o || {}).sort().map((p) => [p,
+      Object.keys(o[p]).sort().map((u) => [u, Number(o[p][u])])]));
+    for (const c of ['01', '02', '03', '04', '05', '06', '09']) {
+      const f = fila(c);
+      const e = P(c).esperado;
+      const pub = Object.fromEntries(Object.entries((f && f.venta_unidades) || {}).map(([p, x]) => [p, x.u]));
+      check(`NPDEMO-${c}: venta por plaza y unidad = ${norm(e.unidades_venta)}`, norm(pub) === norm(e.unidades_venta), pub);
+      const ent = {};
+      for (const x of (f && f.entradas) || []) {
+        ent[x.p] = ent[x.p] || {};
+        for (const [u, q] of Object.entries(x.u || {})) ent[x.p][u] = Math.round(((ent[x.p][u] || 0) + Number(q)) * 1000) / 1000;
+      }
+      check(`NPDEMO-${c}: entradas por plaza y unidad = ${norm(e.unidades_entrada)}`, norm(ent) === norm(e.unidades_entrada), ent);
+      // Los pesos que cubren las unidades: toda la venta sembrada es de tienda Kepler.
+      const cubierto = f ? r2(Object.values(f.venta_unidades).reduce((s2, x) => s2 + Number(x.i), 0)) : null;
+      check(`NPDEMO-${c}: los pesos con unidad son toda su venta de tienda (${e.venta_total ?? 0})`,
+        cubierto === (e.venta_total ?? 0), cubierto);
+    }
+    const u09 = fila('09') && fila('09').venta_unidades['03'] && fila('09').venta_unidades['03'].u;
+    check('un renglón que DICE caja pero cuya identidad no cierra se cuenta en piezas, no en cajas',
+      u09 && u09.CJA === undefined && Number(u09.PZA) === 68, u09);
+    const u03 = fila('03') && fila('03').venta_unidades;
+    check('la misma venta se publica en la unidad de cada plaza: cajas en la 01, piezas en la 04',
+      u03 && Object.keys(u03['01'].u).join() === 'CJA' && Object.keys(u03['04'].u).join() === 'PZA', u03);
+    // Segunda implementacion del lanzamiento: primera_recepcion sale de erp_goods_receipt_lines
+    // (todo el ODS) y la lista de entradas de la funcion. Tienen que decir la misma fecha.
+    for (const c of ['01', '02', '03', '04', '05', '06']) {
+      const f = fila(c);
+      const primera = f && (f.entradas || []).map((x) => x.f).sort()[0];
+      check(`NPDEMO-${c}: la primera entrada de la lista = primera_recepcion`, f && primera === iso(f.primera_recepcion),
+        { lista: primera, columna: f && iso(f.primera_recepcion) });
+    }
+
+    // Las premisas del cruce que hace el servidor para nombrar la existencia: la cantidad de Kepler
+    // viene marcada unit_source = 'kepler' (source vale 'kepler_ods' y NO sirve: así falló la
+    // primera versión, y sólo lo vio la prueba por HTTP) y la ficha de la plaza se encuentra por
+    // (kepler_code, sku).
+    if (!(await trx.raw(`SELECT to_regclass('analytics.v_kepler_unit_ladder') AS v`)).rows[0].v) {
+      noMedido += 1; console.log('  · NO MEDIDO — falta analytics.v_kepler_unit_ladder en esta base');
+    } else {
+      const ficha = (await trx.raw(`
+        SELECT s.unit_source, l.u1_label, l.unidad_caja, l.factor_caja::int AS factor_caja
+          FROM analytics.v_erp_stock_on_hand s
+          JOIN commercial.warehouses w ON w.id = s.warehouse_id
+          LEFT JOIN analytics.v_kepler_unit_ladder l ON l.sucursal = w.kepler_code AND l.sku = btrim(s.sku)
+         WHERE s.sku = ? AND s.warehouse_code = '01'`, [`${esc.PREFIJO_SKU}03`])).rows[0];
+      check('existencia de Kepler: unit_source = kepler y la ficha de la 01 dice PZA / CJA de 12',
+        ficha && ficha.unit_source === 'kepler' && ficha.u1_label === 'PZA' && ficha.unidad_caja === 'CJA' && ficha.factor_caja === 12, ficha);
+    }
+
+    console.log('\n── 8. Prueba negativa: la historia se exige POR FUENTE ──');
     const rutaSinHistoria = (await trx.raw(
       `SELECT count(*)::int AS n FROM analytics.mv_new_products m
         WHERE m.tenant_id = ? AND m.fuentes = ARRAY['ruta'] AND m.no_medible = false

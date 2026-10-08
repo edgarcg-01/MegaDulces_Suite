@@ -48,6 +48,10 @@
 - Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+### Added — Productos nuevos en las unidades de Kepler (NP.11, 2026-10-07)
+- Lo vendido y lo recibido se muestran como Kepler los registró: "23 cajas · 86 piezas", "6 de 500 g". Cada rótulo por su lado, sin convertir. Sale del renglón (`c55/c56` cuando su identidad cierra; si no, la unidad base).
+- La existencia de cada sucursal va en la unidad de su ficha de Kepler, con su equivalente en la unidad mayor sólo si la ficha la declara: "Hay 24 piezas (2 cajas)".
+- La venta de ruta y de plazas en Wincaja no trae unidad de Kepler: se dice cuánto es, en pesos.
 
 ### Added — Productos nuevos: ¿conviene volver a comprarlo?, en vivo y por sucursal (NP.8–NP.10, 2026-10-07)
 - Cada producto nuevo trae una **recomendación** (Recomprar · Esperar · Revisar · No recomprar · Aún es pronto) con sus motivos, global y por sucursal. Criterio visible en pantalla y en `CRITERIO_RECOMPRA`; es una propuesta a calibrar con Compras. Mide rotación y recuperación de lo invertido, no margen.

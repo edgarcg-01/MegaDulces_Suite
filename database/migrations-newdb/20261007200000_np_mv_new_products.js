@@ -8,9 +8,10 @@
  *
  * ── Historia aquí, hoy en vivo ──────────────────────────────────────────────────────────────
  * Esta matvista guarda lo CERRADO: todo lo anterior a `corte` (el día en que se refrescó). Lo que
- * pasa desde `corte` hasta este momento lo trae en vivo `analytics.fn_new_products_movimientos`
- * (mig `20261007200200`), que lee el ODS con las mismas reglas. Nada se cuenta dos veces: aquí
- * `fecha < corte`, allá `fecha >= corte`.
+ * pasa desde `corte` hasta este momento lo trae en vivo `analytics.fn_new_products_movimientos`,
+ * que se crea AQUÍ MISMO y que esta matvista también usa para su historia de Kepler: una sola
+ * función con las reglas de venta y de entradas, para la historia y para lo de hoy. Nada se
+ * cuenta dos veces: aquí `fecha < corte`, allá `fecha >= corte`.
  *
  * No se calculan aquí los cortes de 30/60/90, la tendencia ni la recomendación: se guardan las
  * SERIES (venta diaria global y por plaza, y la lista de entradas) y el servidor decide sobre la
@@ -55,12 +56,25 @@
  *     De `analytics.v_sellout_daily`: todas las plazas y canales, y esa vista ya decide si cada
  *     plaza manda Kepler o Wincaja según su fecha de migración.
  *   · `venta_por_plaza` — la misma serie, por plaza: `{ "01": [..], "03": [..] }`.
- *   · `entradas` — cada entrada `XA2001`: fecha, plaza, folio e importe del renglón, vía
- *     `analytics.erp_goods_receipt_lines`. Sólo Kepler: el CEDIS operó en Wincaja hasta el 30-sep
+ *   · `venta_unidades` — la venta de TIENDA KEPLER en sus propias unidades, por plaza:
+ *     `{ "04": { "u": { "CJA": 3, "PZA": 40 }, "i": 1234.50 } }` (`i` = los pesos que cubren esas
+ *     unidades). La ruta y Wincaja no traen la unidad del renglón de Kepler: van sólo en pesos, y
+ *     la diferencia entre `venta_dia` y `i` es justo eso.
+ *   · `entradas` — cada entrada `XA2001`: fecha, plaza, folio, importe y unidades del renglón
+ *     (`u`), de la misma función. Sólo Kepler: el CEDIS operó en Wincaja hasta el 30-sep
  *     y las plazas 01, 02 y 06 antes de pasar a Kepler, así que lo que entró por ahí no está. Por
  *     eso la inversión de un producto sin entradas es "no medida", nunca 0.
- * Todo en PESOS, no en piezas: la entrada y la venta pueden venir en peldaños distintos (caja,
- * paquete, pieza). Sin margen: el costo del hecho de venta es álgebra sobre el markup (ADR-051).
+ * Las decisiones (hitos, recomendación) van en PESOS: la entrada y la venta pueden venir en
+ * peldaños distintos (caja, paquete, pieza) y no se suman entre sí. Las UNIDADES se muestran tal
+ * como Kepler las registró —"3 cajas · 40 piezas"—, cada rótulo por su lado, sin convertir.
+ * Sin margen: el costo del hecho de venta es álgebra sobre el markup (ADR-051).
+ *
+ * ── La unidad: la que declara el renglón de Kepler ─────────────────────────────────────────
+ * Cada renglón de `kdm2` trae su unidad base (`c11`, cantidad `c9`) y la unidad en que se compró o
+ * vendió (`c55`, cantidad `c56`) con el factor entre las dos (`c58`); `c9 = c56 × c58` se cumple
+ * en el 99.99% de la venta (docs/UNIDADES_DE_MEDIDA §8octies). Se publica `c55/c56` SÓLO si esa
+ * identidad se cumple EN ESE renglón; si no, la base `c11/c9`, que también es lo que el renglón
+ * dice. Nunca se convierte ni se rellena: un renglón sin rótulo sale como `?` (sin unidad).
  *
  * ── Por qué MATERIALIZADA ───────────────────────────────────────────────────────────────────
  * La primera actividad exige recorrer TODA la historia de venta y de entradas por producto, y
@@ -77,14 +91,97 @@
  */
 
 const MV = 'analytics.mv_new_products';
+const FN = 'analytics.fn_new_products_movimientos';
 const HOY = "(now() AT TIME ZONE 'America/Mexico_City')::date";
+/** Numérico de Kepler (texto con formato), preservando NULL: "no declarado" no es cero. */
+const N = (col) => `nullif(regexp_replace(${col}::text, '[^0-9.-]', '', 'g'), '')::numeric`;
+const IMPORTE = `round(coalesce(${N('l.c13')}, 0), 2)`;
+/** El renglón declara su unidad de compra/venta y su identidad c9 = c56 × c58 se cumple. */
+const DECLARA = `(nullif(btrim(l.c55::text), '') IS NOT NULL AND ${N('l.c56')} <> 0 AND ${N('l.c58')} > 0
+                  AND abs(l.c9::numeric - ${N('l.c56')} * ${N('l.c58')}) <= 0.001)`;
+const UNIDAD = `CASE WHEN ${DECLARA} THEN upper(btrim(l.c55::text))
+                     ELSE upper(nullif(btrim(l.c11::text), '')) END`;
+const CANTIDAD = `CASE WHEN ${DECLARA} THEN ${N('l.c56')} ELSE l.c9::numeric END`;
 /** Un día con al menos tantas altas en la Suite es una carga masiva, no un lote de altas. */
 const ALTAS_POR_DIA_CARGA_MASIVA = 50;
 
 exports.up = async function up(knex) {
-  // CASCADE por si algo llegara a depender de ella. La función en vivo (mig 200200) es SQL y no
-  // queda atada en pg_depend: sobrevive al DROP y vuelve a leer la matvista nueva.
+  // CASCADE por si algo llegara a depender de ella.
   await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS ${MV} CASCADE`);
+
+  /*
+   * La venta en tienda y las entradas de Kepler de una lista de SKUs, en un rango de fechas, con
+   * la unidad del renglón. La usan esta matvista (historia) y el servidor (lo de hoy).
+   *
+   * Las reglas son LAS MISMAS, no unas parecidas:
+   *   · VENTA = la definición de analytics.mv_kepler_sales_daily (documentos U-D 8/10/12 de su
+   *     propia plaza, no cancelados, sin renglones de servicio, cantidad distinta de cero) más el
+   *     corte Kepler/Wincaja de v_sellout_daily, leído del RESOLVEDOR ÚNICO
+   *     analytics.v_branch_erp_cutover y no copiado como lista de sucursales (ADR-056: así fue
+   *     como Abastos estuvo $1.63M invisible).
+   *   · ENTRADAS = el filtro de analytics.erp_goods_receipt_lines (XA2001 de su propia plaza, no
+   *     cancelada), uniendo el renglón por la llave COMPLETA para poder entrar por el índice.
+   * El candado la compara contra esas fuentes canónicas en días ya cerrados: si alguien cambia
+   * una regla de un lado y no del otro, se nota.
+   *
+   * Por SKU y no por producto: así no lee el catálogo (con RLS) y entra por los índices del ODS
+   * (ix_kdm2_sku_venta para la historia, ix_kdm1_venta_fecha / ix_kdm1_compra_fecha para hoy).
+   * El tenant sólo hace falta para el corte de cada plaza.
+   *
+   * ⚠️ No trae la venta de ruta (entra por su propio carril) ni la de plazas en Wincaja.
+   */
+  await knex.raw(`DROP FUNCTION IF EXISTS ${FN}(uuid, text[], date, date)`);
+  await knex.raw(`
+    CREATE FUNCTION ${FN}(p_tenant uuid, p_skus text[], p_desde date, p_hasta date)
+    RETURNS TABLE (sku text, tipo text, plaza text, fecha date, folio text,
+                   unidad text, cantidad numeric, importe numeric)
+    LANGUAGE sql STABLE AS $fn$
+      SELECT x.sku, x.tipo, x.plaza, x.fecha, x.folio, x.unidad,
+             round(sum(x.cantidad), 4), sum(x.importe)
+        FROM (
+          -- VENTA en tienda: la definicion de mv_kepler_sales_daily + el corte de v_sellout_daily.
+          SELECT btrim(l.c8) AS sku, 'venta'::text AS tipo, btrim(h.sucursal) AS plaza,
+                 h.c9::date AS fecha, NULL::text AS folio,
+                 ${UNIDAD} AS unidad, ${CANTIDAD} AS cantidad, ${IMPORTE} AS importe
+            FROM kepler_ods.kdm1 h
+            JOIN kepler_ods.kdm2 l
+              ON btrim(l.sucursal) = btrim(h.sucursal) AND btrim(l.c1) = btrim(h.c1)
+             AND l.c2 = h.c2 AND l.c3 = h.c3 AND l.c4::integer = h.c4::integer
+             AND l.c5::integer = h.c5::integer AND btrim(l.c6) = btrim(h.c6)
+           WHERE l.c2 = 'U' AND l.c3 = 'D' AND btrim(l.c8) = ANY(p_skus)
+             AND h.c2 = 'U' AND h.c3 = 'D' AND h.c4::integer IN (8, 10, 12)
+             AND h.c9::date BETWEEN p_desde AND least(p_hasta, ${HOY})
+             AND btrim(h.c1) = btrim(h.sucursal)
+             AND coalesce(nullif(btrim(h.c43), ''), '') <> 'C'
+             AND coalesce(btrim(l.c11), '') <> 'SER'
+             AND abs(coalesce(l.c9::numeric, 0)) > 0
+             AND EXISTS (SELECT 1 FROM analytics.v_branch_erp_cutover c
+                          WHERE c.tenant_id = p_tenant AND c.kepler_code = btrim(h.sucursal)
+                            AND h.c9::date >= c.cutover_date)
+          UNION ALL
+          -- ENTRADAS: el filtro de erp_goods_receipt_lines, con la llave completa del renglon.
+          SELECT nullif(btrim(l.c8::text), ''), 'entrada'::text, btrim(h.sucursal::text),
+                 h.c9::date, btrim(h.c6::text),
+                 ${UNIDAD}, ${CANTIDAD}, ${IMPORTE}
+            FROM kepler_ods.kdm1 h
+            JOIN kepler_ods.kdm2 l
+              ON l.sucursal = h.sucursal AND l.c1 = h.c1 AND l.c2 = h.c2 AND l.c3 = h.c3
+             AND l.c4 = h.c4 AND l.c5 = h.c5 AND l.c6 = h.c6
+           WHERE nullif(btrim(l.c8::text), '') = ANY(p_skus)
+             AND h.c2 = 'X' AND h.c3 = 'A' AND btrim(h.c4::text) = '20'
+             AND h.c9::date BETWEEN p_desde AND p_hasta
+             AND btrim(h.c1::text) = h.sucursal::text
+             AND btrim(coalesce(h.c43::text, '')) <> 'C'
+        ) x
+       GROUP BY 1, 2, 3, 4, 5, 6
+    $fn$`);
+  await knex.raw(`GRANT EXECUTE ON FUNCTION ${FN}(uuid, text[], date, date) TO app_runtime`);
+  await knex.raw(`
+    COMMENT ON FUNCTION ${FN}(uuid, text[], date, date) IS
+      '[NP.8/NP.11] Venta en tienda (reglas de mv_kepler_sales_daily + corte de v_branch_erp_cutover) y '
+      'entradas XA2001 (filtro de erp_goods_receipt_lines) de una lista de SKUs, con la UNIDAD que '
+      'declara el renglon (c55/c56 si c9 = c56 x c58 se cumple; si no, la base c11/c9). La usa '
+      'mv_new_products para su historia y el servidor para lo de hoy. No trae ruta ni Wincaja.'`);
 
   await knex.raw(`
     CREATE MATERIALIZED VIEW ${MV} AS
@@ -167,6 +264,17 @@ exports.up = async function up(knex) {
                   AND p.created_at::date >= pa.corte - 90
                   AND p.source = 'kepler'
                   AND lo.dia IS NULL))
+    ), kepler AS (
+      -- Venta en tienda y entradas de Kepler de los productos del universo, CON SU UNIDAD. La
+      -- misma funcion que trae lo de hoy. 180 dias alcanzan: el lanzamiento de todo producto del
+      -- universo cae dentro de esa ventana, y antes de su lanzamiento no tiene movimientos.
+      SELECT u.tenant_id, u.product_id, k.tipo, k.plaza, k.fecha, k.folio,
+             k.unidad, k.cantidad, k.importe
+        FROM (SELECT tenant_id, array_agg(sku) AS skus
+                FROM universo WHERE lanzamiento IS NOT NULL GROUP BY 1) t
+        CROSS JOIN params pa
+        CROSS JOIN LATERAL ${FN}(t.tenant_id, t.skus, pa.corte - 180, pa.corte - 1) k
+        JOIN universo u ON u.tenant_id = t.tenant_id AND u.sku = k.sku
     ), codigos AS (
       -- Para la senal de recodificacion: el alta mas vieja de cada codigo de barras. Va como
       -- agregado y no como EXISTS por renglon: en la lista de salida el EXISTS no se puede
@@ -214,13 +322,29 @@ exports.up = async function up(knex) {
       SELECT tenant_id, product_id, jsonb_object_agg(plaza, serie) AS venta_por_plaza
         FROM serie_plaza
        GROUP BY 1, 2
+    ), venta_unidades AS (
+      -- Cuanto se vendio en tienda Kepler en cada unidad, por plaza, y cuantos pesos cubren esas
+      -- unidades. Cada rotulo por su lado: cajas y piezas no se suman.
+      SELECT p.tenant_id, p.product_id,
+             jsonb_object_agg(p.plaza, jsonb_build_object('u', p.u, 'i', round(p.i, 2))) AS venta_unidades
+        FROM (SELECT q.tenant_id, q.product_id, q.plaza,
+                     jsonb_object_agg(coalesce(q.unidad, '?'), round(q.cantidad, 3)) AS u,
+                     sum(q.importe) AS i
+                FROM (SELECT tenant_id, product_id, plaza, unidad,
+                             sum(cantidad) AS cantidad, sum(importe) AS importe
+                        FROM kepler WHERE tipo = 'venta'
+                       GROUP BY 1, 2, 3, 4) q
+               GROUP BY 1, 2, 3) p
+       GROUP BY 1, 2
     ), entradas AS (
-      SELECT r.tenant_id, r.product_id,
+      SELECT e.tenant_id, e.product_id,
              jsonb_agg(jsonb_build_object(
-               'f', to_char(r.fecha, 'YYYY-MM-DD'), 'p', r.sucursal, 'folio', r.folio,
-               'i', round(r.importe, 2)) ORDER BY r.fecha, r.sucursal, r.folio) AS entradas
-        FROM rec r
-        JOIN universo u ON u.tenant_id = r.tenant_id AND u.product_id = r.product_id
+               'f', to_char(e.fecha, 'YYYY-MM-DD'), 'p', e.plaza, 'folio', e.folio,
+               'i', round(e.importe, 2), 'u', e.u) ORDER BY e.fecha, e.plaza, e.folio) AS entradas
+        FROM (SELECT tenant_id, product_id, plaza, fecha, folio, sum(importe) AS importe,
+                     jsonb_object_agg(coalesce(unidad, '?'), round(cantidad, 3)) AS u
+                FROM kepler WHERE tipo = 'entrada'
+               GROUP BY 1, 2, 3, 4, 5) e
        GROUP BY 1, 2
     )
     SELECT
@@ -243,6 +367,7 @@ exports.up = async function up(knex) {
       pa.corte,
       coalesce(s.venta_dia, ARRAY[]::numeric[])                           AS venta_dia,
       coalesce(pp.venta_por_plaza, '{}'::jsonb)                           AS venta_por_plaza,
+      coalesce(vu.venta_unidades, '{}'::jsonb)                            AS venta_unidades,
       coalesce(e.entradas, '[]'::jsonb)                                   AS entradas,
       now()                                                               AS calculado_at
       FROM universo u
@@ -251,6 +376,7 @@ exports.up = async function up(knex) {
       LEFT JOIN catalog.suppliers sp ON sp.id = u.supplier_id AND sp.tenant_id = u.tenant_id
       LEFT JOIN serie s     ON s.tenant_id = u.tenant_id AND s.product_id = u.product_id
       LEFT JOIN por_plaza pp ON pp.tenant_id = u.tenant_id AND pp.product_id = u.product_id
+      LEFT JOIN venta_unidades vu ON vu.tenant_id = u.tenant_id AND vu.product_id = u.product_id
       LEFT JOIN entradas e  ON e.tenant_id = u.tenant_id AND e.product_id = u.product_id
       LEFT JOIN codigos cb  ON cb.tenant_id = u.tenant_id AND cb.barcode = btrim(u.barcode)
     WITH NO DATA
@@ -273,10 +399,13 @@ exports.up = async function up(knex) {
     COMMENT ON MATERIALIZED VIEW ${MV} IS
       '[NP.1] Productos nuevos: primera actividad (entrada XA2001 o venta) en los ultimos 180 dias, '
       'o sin movimiento y vistos por la Suite en 90. Guarda la HISTORIA hasta corte-1 como series '
-      '(venta_dia, venta_por_plaza, entradas); lo de hoy lo trae en vivo fn_new_products_movimientos. '
-      'En pesos, sin margen (ADR-051). Materializada por COSTO; la refresca el lote nocturno.'`);
+      '(venta_dia, venta_por_plaza, venta_unidades, entradas); lo de hoy lo trae en vivo '
+      'fn_new_products_movimientos, la misma funcion que arma su historia de Kepler. Decisiones en '
+      'pesos, unidades tal como las declara Kepler; sin margen (ADR-051). Materializada por COSTO; '
+      'la refresca el lote nocturno.'`);
 };
 
 exports.down = async function down(knex) {
   await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS ${MV} CASCADE`);
+  await knex.raw(`DROP FUNCTION IF EXISTS ${FN}(uuid, text[], date, date)`);
 };

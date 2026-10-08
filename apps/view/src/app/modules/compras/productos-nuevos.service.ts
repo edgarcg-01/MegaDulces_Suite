@@ -21,6 +21,17 @@ export interface Recomendacion {
   motivos: string[];
 }
 
+/**
+ * Cantidad por rótulo de Kepler (`{ CJA: 3, PZA: 40 }`), tal como lo declaró el renglón. Cada
+ * rótulo por su lado: no se suman entre sí. `?` = renglón sin unidad declarada.
+ */
+export type UnidadesKepler = Record<string, number>;
+
+export interface CantidadEnUnidad {
+  unidad: string;
+  cantidad: number;
+}
+
 export interface HitoValores {
   cerrado: boolean;
   inversion: number | null;
@@ -66,6 +77,12 @@ export interface ProductoNuevo {
   sin_venta_30: boolean;
   semanas: number[];
   venta_hoy: number;
+  /** Venta en tienda Kepler, en las unidades en que se vendió. */
+  unidades_vendidas: UnidadesKepler;
+  /** Pesos sin unidad de Kepler (ruta y plazas en Wincaja). */
+  venta_sin_unidad: number;
+  unidades_recibidas: UnidadesKepler;
+  unidades_hoy: UnidadesKepler;
   recomendacion: Recomendacion | null;
 }
 
@@ -81,7 +98,14 @@ export interface PlazaNueva {
   entradas: number;
   primera_recompra: string | null;
   existencia: number | null;
-  existencia_cajas: number | null;
+  /** Rótulo de la ficha de Kepler de la plaza; NULL = no se sabe (Wincaja o sin ficha). */
+  existencia_unidad: string | null;
+  existencia_fuente: string | null;
+  existencia_mayor: CantidadEnUnidad | null;
+  unidades_vendidas: UnidadesKepler;
+  venta_sin_unidad: number;
+  unidades_recibidas: UnidadesKepler;
+  unidades_hoy: UnidadesKepler;
   ultima_venta: string | null;
   semanas: number[];
   venta_hoy: number;

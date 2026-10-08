@@ -13,6 +13,7 @@ import {
 } from '../productos-nuevos.service';
 import {
   ComprasCatalogoNuevosComponent,
+  cantidadTexto,
   existenciaTexto,
   fechaCorta,
   hitoVisible,
@@ -20,6 +21,7 @@ import {
   pasaFiltro,
   semanasCerradas,
   tendenciaTexto,
+  textoUnidades,
 } from './compras-catalogo-nuevos.component';
 
 function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
@@ -37,6 +39,7 @@ function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
     primera_recompra: '2026-09-17', dia_recompra: 25, plazas_venta: 2, plazas_con_existencia: 1, agotado_en: 1,
     dias_con_venta_30: 28, dias_con_venta_28: 27, venta_28: 20000, tendencia: 1.1, ultima_venta: '2026-10-06',
     sin_venta_30: false, semanas: [1000, 2000, 3000, 2500, 2800, 3100, 900], venta_hoy: 530,
+    unidades_vendidas: { PZA: 40, CJA: 22 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 135 }, unidades_hoy: { CJA: 1 },
     recomendacion: { veredicto: 'recomprar', motivos: ['Se vendió 27 de los últimos 28 días', 'Se agotó en 1 plaza que lo vende'] },
     ...over,
   };
@@ -52,6 +55,7 @@ const FILAS: ProductoNuevo[] = [
       90: { cerrado: false, inversion: null, venta: 1496 },
     },
     sin_venta_30: true, entradas: 0, dia_recompra: null, primera_recompra: null, venta_hoy: 0,
+    unidades_vendidas: {}, venta_sin_unidad: 1496, unidades_recibidas: {}, unidades_hoy: {},
     recomendacion: { veredicto: 'esperar', motivos: ['Se vende bien, pero todavía hay existencia'] },
   }),
   producto({ product_id: 'p-3', sku: 'DESC1', nombre: 'DESC VOLUMEN', estado: 'excluido', motivo: 'Código de descuento', recomendacion: null }),
@@ -80,11 +84,15 @@ const DETALLE: DetalleNuevo = {
   plazas: [
     { plaza: '01', nombre: 'Padre Hidalgo', dia: 45, primera_actividad: '2026-08-23', venta_total: 20000, venta_28: 12000,
       dias_con_venta_28: 20, inversion_total: 19000, entradas: 2, primera_recompra: '2026-09-17', existencia: 0,
-      existencia_cajas: null, ultima_venta: '2026-10-06', semanas: [100, 200, 300], venta_hoy: 0,
+      existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: null,
+      unidades_vendidas: { CJA: 22 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 100 }, unidades_hoy: {},
+      ultima_venta: '2026-10-06', semanas: [100, 200, 300], venta_hoy: 0,
       recomendacion: { veredicto: 'recomprar', motivos: ['Se agotó en 1 plaza que lo vende'] } },
     { plaza: '04', nombre: 'Yurécuaro', dia: 44, primera_actividad: '2026-08-24', venta_total: 14185, venta_28: 8000,
       dias_con_venta_28: 22, inversion_total: 7000, entradas: 1, primera_recompra: null, existencia: 36,
-      existencia_cajas: 3, ultima_venta: '2026-10-07', semanas: [100, 150, 120], venta_hoy: 530,
+      existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: { unidad: 'CJA', cantidad: 3 },
+      unidades_vendidas: { PZA: 40 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 35 }, unidades_hoy: { PZA: 2 },
+      ultima_venta: '2026-10-07', semanas: [100, 150, 120], venta_hoy: 530,
       recomendacion: { veredicto: 'esperar', motivos: ['Se vende bien, pero todavía hay existencia'] } },
   ],
 };
@@ -113,11 +121,33 @@ describe('[NP.5] funciones puras de Productos nuevos', () => {
     expect(fechaCorta('2026-09-01')).toMatch(/^1 /);
   });
 
-  it('⛔ la existencia no inventa cajas: sólo si la plaza declara divisor', () => {
-    expect(existenciaTexto({ existencia: 36, existencia_cajas: 3 })).toBe('Hay 3 cajas');
-    expect(existenciaTexto({ existencia: 36, existencia_cajas: null })).toBe('Hay 36 unidades');
-    expect(existenciaTexto({ existencia: 0, existencia_cajas: null })).toBe('Agotado');
-    expect(existenciaTexto({ existencia: null, existencia_cajas: null })).toBe('Sin existencia registrada');
+  it('⛔ la existencia va en la unidad de la ficha de Kepler, y la caja sólo si la ficha la declara', () => {
+    const k = { existencia_fuente: 'kepler' as const };
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_mayor: { unidad: 'CJA', cantidad: 3 } }))
+      .toBe('Hay 36 piezas (3 cajas)');
+    expect(existenciaTexto({ ...k, existencia: 24, existencia_unidad: 'PZA', existencia_mayor: { unidad: 'CJA', cantidad: 0.8 } }))
+      .toBe('Hay 24 piezas (≈ 0.8 cajas)');
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_mayor: null })).toBe('Hay 36 piezas');
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: null, existencia_mayor: null }))
+      .toBe('Hay 36 (unidad sin declarar en Kepler)');
+    expect(existenciaTexto({ existencia: 50, existencia_unidad: null, existencia_fuente: 'wincaja', existencia_mayor: { unidad: 'CJA', cantidad: 5 } }))
+      .toBe('Hay 50 unidades de Wincaja (5 cajas)');
+    expect(existenciaTexto({ ...k, existencia: 0, existencia_unidad: 'PZA', existencia_mayor: null })).toBe('Agotado');
+    expect(existenciaTexto({ ...k, existencia: null, existencia_unidad: null, existencia_mayor: null })).toBe('Sin existencia registrada');
+  });
+
+  it('⭐ las unidades se dicen como Kepler las registró, de lo grande a lo chico, sin sumarse', () => {
+    expect(textoUnidades({ PZA: 40, CJA: 3, PAQ: 1 })).toBe('3 cajas · 1 paquete · 40 piezas');
+    expect(textoUnidades({ KG: 2.5 })).toBe('2.5 kg');
+    expect(textoUnidades({ CJA: 1 })).toBe('1 caja');
+    expect(textoUnidades({})).toBe('');
+  });
+
+  it('⛔ un gramaje no es una unidad, uno desconocido va crudo, y sin rótulo no es "pieza"', () => {
+    expect(cantidadTexto(6, '500')).toBe('6 de 500 g');
+    expect(cantidadTexto(2, 'SER')).toBe('2 SER');
+    expect(cantidadTexto(4, '?')).toBe('4 sin unidad');
+    expect(cantidadTexto(4, null)).toBe('4 sin unidad');
   });
 
   it('la tendencia se dice en palabras, y sin 8 semanas no se inventa', () => {
@@ -215,7 +245,21 @@ describe('[NP.5] ComprasCatalogoNuevosComponent', () => {
     expect(plazas.length).toBe(2);
     expect(plazas[0].textContent).toContain('Padre Hidalgo');
     expect(plazas[0].textContent).toContain('Agotado');
-    expect(plazas[1].textContent).toContain('Hay 3 cajas');
+    expect(plazas[1].textContent).toContain('Hay 36 piezas (3 cajas)');
+    // Lo vendido y lo recibido, en la unidad de Kepler de cada plaza.
+    expect(plazas[0].textContent).toContain('22 cajas');
+    expect(plazas[1].textContent).toContain('40 piezas');
+    expect(plazas[1].textContent).toContain('35 cajas');
+  });
+
+  it('⭐ la fila dice cuánto se vendió en las unidades de Kepler, y lo que no las trae va "sólo en pesos"', async () => {
+    const el = await montar(of(RESPUESTA));
+    const filas = Array.from(el.querySelectorAll('tbody tr'));
+    const paleta = filas.find((tr) => tr.textContent?.includes('PALETA'));
+    const palomitas = filas.find((tr) => tr.textContent?.includes('PALOMITAS'));
+    expect(paleta?.querySelector('.pn-unid')?.textContent).toBe('22 cajas · 40 piezas');
+    expect(paleta?.querySelector('.pn-hoy-u')?.textContent).toBe('1 caja');
+    expect(palomitas?.textContent).toContain('sólo en pesos');
   });
 
   it('⭐ en vivo: se vuelve a pedir sola cada minuto', async () => {
