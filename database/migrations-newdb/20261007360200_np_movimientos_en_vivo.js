@@ -4,7 +4,7 @@
  *
  * `analytics.mv_new_products` guarda la historia CERRADA; lo de hoy (venta en tienda y entradas)
  * lo trae en cada consulta `analytics.fn_new_products_movimientos`, creada junto con la matvista
- * (mig `20261007200000`, que la usa también para su historia). La existencia ya es en vivo por sí
+ * (mig `20261007360000`, que la usa también para su historia). La existencia ya es en vivo por sí
  * sola (`v_erp_stock_on_hand`).
  *
  * Las entradas de hoy no tenían por dónde entrar: `ix_kdm1_venta_fecha` es parcial a ventas

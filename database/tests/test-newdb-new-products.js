@@ -52,7 +52,7 @@ const nulo = (v) => (v === 0 ? null : v);
                                         to_regclass('catalog.new_product_reviews') AS tabla,
                                         to_regprocedure('analytics.fn_new_products_movimientos(uuid,text[],date,date)') AS fn`);
   if (!existe.rows[0].mv || !existe.rows[0].tabla || !existe.rows[0].fn) {
-    console.log('  NO MEDIDO — faltan las migraciones 20261007200000/200100/200200 en esta base.');
+    console.log('  NO MEDIDO — faltan las migraciones 20261007360000/360100/360200 en esta base.');
     await knex.destroy();
     process.exit(1);
   }

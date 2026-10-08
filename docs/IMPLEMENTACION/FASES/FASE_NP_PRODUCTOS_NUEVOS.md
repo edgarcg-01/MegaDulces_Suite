@@ -36,14 +36,14 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | Item | Qué | Estado |
 |---|---|---|
 | `[NP.0]` | Decodificar la fecha de alta de Kepler (`kdii.c50…c75`) contra prod; re-medir el umbral de carga masiva; medir el refresco y el gate de 1 s con volumen real; medir qué parte de las entradas `XA2001` declara su caja (`c55/c56` con identidad que cierra). | ⬜ requiere acceso de lectura a prod |
-| `[NP.1]` | Mig `20261007200000_np_mv_new_products.js` — matvista + índice único + grants. | 🧪 aplicada en local |
+| `[NP.1]` | Mig `20261007360000_np_mv_new_products.js` — matvista + índice único + grants. | 🧪 aplicada en local |
 | `[NP.2]` | `libs/commercial/.../new-products.ts` (lógica pura) + `new-products.service.ts` + 2 endpoints en `commercial-products.controller.ts` (`GET new-products`, `PUT new-products/:id/classification`) + refresco nocturno + umbral en `db-health`. | 🧪 |
 | `[NP.3]` | Candado `database/tests/test-newdb-new-products.js` sobre el escenario `database/tests/_lib/new-products-scenario.js` + demo `database/scripts/seed-local-new-products-demo.js` (`--undo`). | 🧪 |
-| `[NP.4]` | Mig `20261007200100_np_new_product_reviews.js` — clasificación de Compras (RLS forzado, auditoría completa, soft-delete). | 🧪 aplicada en local |
+| `[NP.4]` | Mig `20261007360100_np_new_product_reviews.js` — clasificación de Compras (RLS forzado, auditoría completa, soft-delete). | 🧪 aplicada en local |
 | `[NP.5]` | Pestaña `compras-catalogo-nuevos.component.ts` + `productos-nuevos.service.ts` + etiqueta en la lista de Productos. | 🧪 |
 | `[NP.6]` | Umbrales y veredicto (en `analytics.kpi_thresholds`, nacen vacíos → "sin meta") + hitos 30/60/90 **congelados** en tabla propia. | ⬜ |
 | `[NP.7]` | Alta solicitada en la app (pestaña Solicitudes) con inversión y meta planeadas → plan contra real. | ⬜ decisión de proceso |
-| `[NP.8]` | **En vivo**: función `analytics.fn_new_products_movimientos(tenant, skus, desde, hasta)` (venta y entradas desde el ODS; desde `NP.11` vive en la mig `20261007200000` porque la matvista la usa para su historia) + índice `ix_kdm1_compra_fecha` (mig `20261007200200`). La matvista guarda SERIES hasta el corte. | 🧪 aplicada en local |
+| `[NP.8]` | **En vivo**: función `analytics.fn_new_products_movimientos(tenant, skus, desde, hasta)` (venta y entradas desde el ODS; desde `NP.11` vive en la mig `20261007360000` porque la matvista la usa para su historia) + índice `ix_kdm1_compra_fecha` (mig `20261007360200`). La matvista guarda SERIES hasta el corte. | 🧪 aplicada en local |
 | `[NP.9]` | **Recomendación de recompra** global y por sucursal (`recomendar` + `CRITERIO_RECOMPRA`) + `GET new-products/:id` (comportamiento por sucursal). | 🧪 |
 | `[NP.10]` | **Rediseño**: respuesta arriba, filtros por recomendación, venta por semana en cada fila, panel lateral por sucursal, refresco solo cada minuto. | 🧪 |
 | `[NP.12]` | **Sin clasificación manual en pantalla** (pedido del usuario): se quitó el formulario "¿Qué es este código?" del panel, el filtro "Por confirmar" y la frase "N esperan que Compras confirme". Las exclusiones automáticas (promoción, código DESC, descontinuado) siguen. El endpoint `PUT …/classification` y `catalog.new_product_reviews` quedan **sin consumidor en la pantalla**. | 🧪 |
@@ -65,8 +65,8 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 ## Para llevarlo a prod
 
 1. Aplicar las 3 migraciones **una por una** (`apply-one-migration-prod.js`), fuera de horario. La
-   `20261007200000` crea la función y la matvista (`WITH NO DATA`, no recorre nada). La
-   `20261007200200` crea `ix_kdm1_compra_fecha` CONCURRENTLY sobre `kdm1` (493 MB): no bloquea, pero tarda.
+   `20261007360000` crea la función y la matvista (`WITH NO DATA`, no recorre nada). La
+   `20261007360200` crea `ix_kdm1_compra_fecha` CONCURRENTLY sobre `kdm1` (493 MB): no bloquea, pero tarda.
    La pantalla usa además `analytics.v_kepler_unit_ladder` (mig `20260915120000`, ya en prod por la Fase CE).
 2. Redeploy api + view. La pestaña dirá "todavía no se calculan" hasta el primer lote nocturno (06:20).
 3. Re-login no hace falta: no hay permisos nuevos.
@@ -210,5 +210,5 @@ ya nadie puede hacer).
 
 **Lo que quedó sin consumidor** (no se borró, a propósito): el endpoint
 `PUT /commercial/products/new-products/:id/classification`, `NewProductsService.classify` y la tabla
-`catalog.new_product_reviews` (mig `20261007200100`). Si la clasificación no va a volver, se quitan
+`catalog.new_product_reviews` (mig `20261007360100`). Si la clasificación no va a volver, se quitan
 en otra entrega; si va a volver por otro lado (p. ej. desde Solicitudes de alta), se reusan.
