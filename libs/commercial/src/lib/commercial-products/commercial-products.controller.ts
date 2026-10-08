@@ -14,7 +14,12 @@ import { CommercialProductsService, UpdateProductDto } from './commercial-produc
 import { RolesGuard } from '@megadulces/platform-core';
 import { RequirePermissions, RequireAnyPermission } from '@megadulces/platform-core';
 import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
-import { NewProductsService } from './new-products.service';
+import {
+  NewProductClassification,
+  NewProductDetail,
+  NewProductsResponse,
+  NewProductsService,
+} from './new-products.service';
 
 /**
  * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
@@ -171,7 +176,7 @@ export class CommercialProductsController {
   })
   newProductsList(
     @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
-  ) {
+  ): Promise<NewProductsResponse> {
     // `req.user.permissions` lo escribe RolesGuard con el mapa fresco de la DB. El costo de compra
     // es dato sensible: mismo permiso que la pestaña Costos (`[CAT-COSTO.4]`).
     const puedeVerCosto =
@@ -189,7 +194,7 @@ export class CommercialProductsController {
   newProductsDetail(
     @Param('id') id: string,
     @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
-  ) {
+  ): Promise<NewProductDetail> {
     const puedeVerCosto =
       req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
       isPlatformAdminRole(req?.user?.role_name);
@@ -205,7 +210,7 @@ export class CommercialProductsController {
   newProductsClassify(
     @Param('id') id: string,
     @Body() body: { kind?: string | null; note?: string | null },
-  ) {
+  ): Promise<NewProductClassification> {
     return this.newProducts.classify(id, body);
   }
 

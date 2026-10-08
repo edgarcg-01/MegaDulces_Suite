@@ -49,6 +49,13 @@ export interface NewProductDetail {
   plazas: PlazaRow[];
 }
 
+/** Lo que queda guardado al clasificar: `clasificacion = null` = se quitó. */
+export interface NewProductClassification {
+  product_id: string;
+  clasificacion: NewProductKind | null;
+  nota: string | null;
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HOY = "(now() AT TIME ZONE 'America/Mexico_City')::date";
 
@@ -216,7 +223,7 @@ export class NewProductsService {
    * Compras confirma qué es cada código. `kind = null` quita la clasificación (soft-delete): el
    * producto vuelve a "por confirmar" y queda el rastro de quién decidió qué.
    */
-  async classify(productId: string, body: { kind?: string | null; note?: string | null }) {
+  async classify(productId: string, body: { kind?: string | null; note?: string | null }): Promise<NewProductClassification> {
     if (!UUID_RE.test(productId || '')) throw new BadRequestException('Producto inválido');
     const kind = body?.kind ?? null;
     if (kind !== null && !esKindValido(kind)) {
