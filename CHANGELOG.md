@@ -9,6 +9,20 @@
 ---
 
 ## [Unreleased]
+### Added — Andén sin internet: se sigue trabajando y lo terminado se manda solo (WMS-REC.20, 2026-10-08)
+- Sin conexión se puede **seguir un vale abierto** y **abrir uno nuevo** de los que el equipo bajó con red. Lo que se fecha o se cierra se guarda en el equipo y **se manda solo** al volver la conexión, en el orden en que se hizo.
+- Un aviso arriba dice si no hay red, cuánto falta mandar y, si el servidor rechazó algo de un vale, el motivo, con **Reintentar** o **Descartar** (pide confirmación: lo capturado sin red se pierde).
+- Sin red no hay semáforo ni lectura de la etiqueta: se capturan a mano y el veredicto llega al mandarla.
+### Changed — Andén: lo de días anteriores sigue a la vista, lo a medias es «Incompletos» y la ubicación va aparte (WMS-REC.18/21, 2026-10-08)
+- El menú muestra los vales de **hoy y de los últimos 7 días** que nadie abrió; los atrasados van en un grupo aparte. Nada fechado a futuro. Cambia la regla de *sólo hoy* (Edgar, 2026-09-24).
+- «En curso» se llama **«Incompletos»** y dice desde cuándo está abierto cada vale.
+- El Andén se queda con las caducidades: acomodar se hace en **Ubicaciones**, en su sección «Por acomodar». Cambia la regla R2 del Andén (2026-09-23).
+### Fixed — Abrir el Andén sin internet borraba el vale a medias (WMS-REC.20, 2026-10-08)
+- El borrador del vale se soltaba ante cualquier error al recuperarlo. Ahora sólo si el vale de verdad ya no existe; sin red se recupera de lo guardado en el equipo.
+### Internal — Andén: llave de reintento y paquete sin red (WMS-REC.19/20, 2026-10-08)
+- Mig `20261007213847`: `client_uuid` con índice único parcial en `commercial.receiving_sessions` y `commercial.receiving_lot_captures`. Reintentar abrir o fechar devuelve lo existente en vez de duplicar existencia. El código sólo escribe la columna cuando viene la llave.
+- `GET /commercial/receiving/sessions/offline-pack?sucursal=`: los vales del menú con sus renglones, armados por la misma función que usa abrir el vale.
+- ⚠️ **Pendiente:** aplicar a prod, una por una, `20261006143917` (REC.17) y `20261007213847` (REC.19) + redeploy api+view + validación en un equipo sin señal. Sin permisos nuevos → sin re-login.
 ### Added — Mesa de Control de Preventa: la pantalla (MCP.2, 2026-10-08)
 - Almacén › Pedidos › **Preventa** (`/almacen/pedidos/preventa`): los pedidos de preventa del vendedor por etapa y contra la fecha de entrega, con su documento de Kepler; desde el panel se elige el documento correcto ("Es este") o se corrige una liga con motivo, y se ve lo pedido contra lo cobrado renglón por renglón.
 

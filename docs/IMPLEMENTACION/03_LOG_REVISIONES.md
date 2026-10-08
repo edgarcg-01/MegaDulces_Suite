@@ -4,6 +4,47 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-08 — `[WMS-REC.18–21]` El Andén no pierde vales, se queda con las caducidades y sigue sin internet
+
+**Qué se pidió (quien recibe).** (1) Si los vales no se terminan y "se va el internet", *se borran*:
+que queden como **incompletos** para terminarlos después. (2) Con poco internet, seguir trabajando y
+que lo terminado **se mande solo** al volver la conexión. (3) Que lo no terminado en el día **siga
+pendiente** al siguiente. (4) La **ubicación** va aparte; el Andén se queda con las caducidades.
+Decisiones del usuario: lo de días anteriores **aparte**; sin red, **las dos cosas** (seguir un vale
+abierto y abrir uno nuevo). El trabajo de Ubicaciones por sección (WMS-UB) se deja fuera de este PR.
+
+**Diagnóstico de "se borra" (medido en el código).** En el servidor no se perdía nada. Se perdía en
+tres lugares: el vale abierto salía del menú de pendientes; la regla de *sólo hoy* (Edgar, 2026-09-24)
+escondía los de ayer; y **abrir la pantalla sin internet borraba el borrador del vale a medias**.
+
+**Qué quedó (rama `feat/anden-caducidades`, sobre `main`):**
+- **REC.18** — ventana de **hoy y 7 días atrás**, nunca a futuro (`DIAS_PENDIENTES_ANDEN`), lo
+  atrasado en un grupo aparte, y «Incompletos» (antes «En curso») con su antigüedad.
+- **REC.21** — el Andén pierde su sección Ubicación y `anden-flujo` la regla R2. «Acomodar mercancía»
+  lleva a `/almacen/inventory/ubicaciones`, que ya tiene «Por acomodar». Tuteo en lo que toca el PR.
+- **REC.19** — `client_uuid` + índice único parcial (mig `20261007213847`): abrir y fechar cuentan
+  **una vez** aunque se reintente. La captura escribe existencia: sin esto, un reintento la duplicaba.
+- **REC.20** — `GET /commercial/receiving/sessions/offline-pack` + la cola del equipo
+  (`AndenOfflineService`, Dexie v7) + menú, vales e incompletos sin red + aviso de red y cola.
+
+**Verificado:** pruebas unitarias de view, commercial-receiving y contracts; contra la base local en
+transacción revertida, REC.19 7/7 y REC.20 3/3 (este **sin** la migración: abrir sin llave no depende
+de ella). Pruebas negativas en rojo: soltar la llave al revertir, emparejar por id local, soltar el
+borrador ante cualquier error, la hora con punto doble. ⛔ **No verificado:** el build (lo hace el CI),
+la pantalla en un equipo real sin señal y el costo del paquete en prod.
+
+**Lecciones:**
+1. **"Se borra" no era una sola falla, eran tres**, y la peor era la que nadie veía: abrir la pantalla
+   sin internet tiraba el vale a medias. La cola sin red no la habría arreglado.
+2. **El orden del detalle del servidor no es el de Kepler**: todos los renglones de un vale nacen con
+   el mismo `created_at`. Se empareja por SKU + cantidad, no por posición.
+3. **Una columna nueva en un INSERT obliga a desplegar la migración primero**, o se escribe sólo
+   cuando viene. La prueba local corrida sin la migración lo destapó.
+4. **"Sin red" y "el servidor falló" son preguntas distintas.** Mezclarlas escondía un 500 detrás de
+   datos guardados; el candado de REC.17 lo atrapó.
+
+⚠️ **Avisar a Edgar:** cambian la regla de *sólo hoy* (2026-09-24) y la R2 del Andén (2026-09-23).
+
 ## 2026-10-07 — `[AB.13]` Reporte PDF del almacenista, restringido a su almacén
 
 **Medido antes de construir (prod, solo lectura):** el rol `almacenista` **no tenía** `AUTOABASTO_VER` (la migración del 19-sep lo derivó de `COMMERCIAL_INVENTORY_VER`, que el almacenista recibió el 29-sep con [IC.2]); su alcance de almacén era `all`; y **5 de 6 almacenistas no tienen `warehouse_code`** en su ficha. Ningún módulo consultaba aún el área de alcance `almacen`, así que una regla por área no le cambia nada fuera de Autoabasto.
