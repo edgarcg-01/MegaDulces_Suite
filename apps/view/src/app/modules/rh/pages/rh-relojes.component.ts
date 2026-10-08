@@ -8,6 +8,7 @@ import type { HrLotePendienteDto, HrOrdenDto, HrRelojBody, HrRelojDto, HrRelojEs
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { RhMarcoComponent } from '../components/rh-marco.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { RhService, rhError } from '../rh.service';
 import { RhRelojesFranjaComponent } from '../components/rh-relojes-franja.component';
@@ -29,20 +30,18 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
 @Component({
   selector: 'app-rh-relojes',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhRelojesFranjaComponent],
+  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhRelojesFranjaComponent, RhMarcoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rr-page">
-      <header class="rr-head">
-        <div>
-          <h1>Relojes checadores</h1>
-          <p>Lo que importa es la última señal del lector: un reloj sin señal puede tener checadas guardadas que todavía no llegan.</p>
-        </div>
-        <div class="rr-head-btns">
+      <app-rh-marco [barra]="false" [franja]="false">
+        <div acciones class="rr-head-btns">
           @if (gestiona()) { <p-button icon="pi pi-plus" label="Agregar reloj" severity="secondary" [outlined]="true" (onClick)="editar(null)" /> }
           <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
         </div>
-      </header>
+      </app-rh-marco>
+      <p class="rr-intro">Los relojes checadores de todas las plazas. Lo que importa es la última señal del lector: un reloj sin señal puede tener
+        checadas guardadas que todavía no llegan.</p>
 
       <app-load-state [loading]="loading() && !estado().length" [error]="error()" [isEmpty]="!loading() && !error() && !estado().length"
                       emptyIcon="pi-clock" emptyTitle="No hay relojes dados de alta" [emptyHint]="gestiona() ? 'Agrega el primero con su número de serie.' : null" (retry)="cargar()">
@@ -131,9 +130,7 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
   styles: [`
     :host { display: block; }
     .rr-page { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4); }
-    .rr-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
-    .rr-head h1 { margin: 0; font: 700 var(--fs-h2)/1.2 var(--font-body); color: var(--text-main); letter-spacing: -0.01em; }
-    .rr-head p { margin: var(--sp-1) 0 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 70ch; }
+    .rr-intro { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 90ch; }
     .rr-head-btns { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .rr-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
     .rr-card { padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); }

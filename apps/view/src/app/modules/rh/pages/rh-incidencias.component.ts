@@ -11,6 +11,8 @@ import type {
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { RhMarcoComponent } from '../components/rh-marco.component';
+import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import {
   BANDERA_LABEL, ESTADO_INCIDENCIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError, sumarDias,
 } from '../rh.service';
@@ -40,21 +42,18 @@ interface FormCaptura {
 @Component({
   selector: 'app-rh-incidencias',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent],
+  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, RhMarcoComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ri-page" [class.con-ficha]="!!sel()">
-      <header class="ri-head">
-        <div>
-          <h1>Incidencias</h1>
-          <p>Vacaciones, permisos, incapacidades, horas extra… Lo capturado no cuenta hasta que lo califica otra persona;
-            al cerrar la semana para prenómina ya no se puede cambiar sin reabrirla.</p>
-        </div>
-        <div class="ri-head-btns">
+      <app-rh-marco [barra]="false" [franja]="false">
+        <div acciones class="ri-head-btns">
           @if (puede.capturar()) { <p-button icon="pi pi-plus" label="Capturar incidencia" (onClick)="abrirCaptura()" /> }
           <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
         </div>
-      </header>
+      </app-rh-marco>
+      <p class="ri-intro">Vacaciones, permisos, incapacidades, horas extra… Lo capturado no cuenta hasta que lo califica otra persona;
+        al cerrar la semana para prenómina ya no se puede cambiar sin reabrirla.</p>
 
       <section class="ri-ctl" aria-label="Qué ver">
         <p-select [options]="sitios()" optionLabel="name" optionValue="code" [ngModel]="sitio()" (ngModelChange)="setSitio($event)"
@@ -201,9 +200,7 @@ interface FormCaptura {
   styles: [`
     :host { display: block; }
     .ri-page { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4); }
-    .ri-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
-    .ri-head h1 { margin: 0; font: 700 var(--fs-h2)/1.2 var(--font-body); color: var(--text-main); letter-spacing: -0.01em; }
-    .ri-head p { margin: var(--sp-1) 0 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 70ch; }
+    .ri-intro { margin: 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 90ch; }
     .ri-head-btns { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
     .ri-ctl { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
     .ri-sitio { min-width: 200px; }
@@ -271,6 +268,8 @@ export class RhIncidenciasComponent implements OnInit {
   private readonly api = inject(RhService);
   private readonly perms = inject(PermissionsService);
   private readonly route = inject(ActivatedRoute);
+  /** `[RH.1.7c]` La plaza y la semana que se estaban viendo en las otras pestañas. */
+  private readonly est = inject(RhAsistenciaEstado);
 
   readonly filtros = FILTROS;
   readonly estadoLabel = ESTADO_INCIDENCIA_LABEL;
@@ -312,12 +311,15 @@ export class RhIncidenciasComponent implements OnInit {
     const siteQ = q?.get('site');
     const desdeQ = q?.get('desde');
     if (desdeQ) this.jueves.set(juevesDeLaSemana(desdeQ));
+    else if (this.est.sitio()) this.jueves.set(this.est.modoHoy() ? juevesDeLaSemana(this.est.hoy()) : this.est.jueves());
     this.api.tiposIncidencia().subscribe({ next: (t) => this.tipos.set(t), error: () => this.tipos.set([]) });
     this.api.sitios().subscribe({
       next: (s) => {
         const activos = s.filter((x) => x.is_active);
         this.sitios.set(activos);
-        const inicial = siteQ && activos.some((x) => x.code === siteQ) ? siteQ : activos[0]?.code ?? null;
+        const previo = this.est.sitio();
+        const inicial = siteQ && activos.some((x) => x.code === siteQ) ? siteQ
+          : previo && activos.some((x) => x.code === previo) ? previo : activos[0]?.code ?? null;
         this.sitio.set(inicial);
         if (inicial) this.cargar();
         if (q?.get('nueva') === '1') this.abrirCaptura(q.get('persona') ?? '', desdeQ ?? '');
@@ -339,6 +341,7 @@ export class RhIncidenciasComponent implements OnInit {
         if (mi !== this.seq) return;
         this.lista.set(l);
         this.loading.set(false);
+        this.est.refrescarIncidencias();
         const s = this.sel();
         if (s) this.sel.set(l.find((x) => x.id === s.id) ?? null);
       },
@@ -347,9 +350,9 @@ export class RhIncidenciasComponent implements OnInit {
     this.api.cierres(site).subscribe({ next: (c) => this.cierres.set(c), error: () => this.cierres.set([]) });
   }
 
-  setSitio(s: string): void { this.sitio.set(s); this.sel.set(null); this.cargar(); }
+  setSitio(s: string): void { this.sitio.set(s); this.sel.set(null); this.est.setSitio(s); this.cargar(); }
   setFiltro(f: FiltroEstado): void { this.filtro.set(f); this.cargar(); }
-  moverSemana(d: number): void { this.jueves.set(sumarDias(this.jueves(), d)); this.sel.set(null); this.cargar(); }
+  moverSemana(d: number): void { this.jueves.set(sumarDias(this.jueves(), d)); this.sel.set(null); this.est.irASemana(this.jueves()); this.cargar(); }
 
   abrir(i: HrIncidenciaDto): void {
     this.sel.set(i);

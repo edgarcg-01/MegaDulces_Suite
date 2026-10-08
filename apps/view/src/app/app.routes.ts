@@ -771,6 +771,18 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
         loadComponent: () => import('./modules/rh/pages/rh-asistencia.component').then(m => m.RhAsistenciaComponent),
       },
+      // `[RH.1.7c]` Las pestañas de Mega Talento (Checadas · Tolerancia · Faltas) son páginas hermanas que comparten
+      // la plaza y el periodo (RhAsistenciaEstado); Incidencias y Relojes conservan su ruta y llevan las mismas pestañas.
+      {
+        path: 'asistencia/tolerancia',
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-tolerancia.component').then(m => m.RhToleranciaComponent),
+      },
+      {
+        path: 'asistencia/faltas',
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-faltas.component').then(m => m.RhFaltasComponent),
+      },
       {
         path: 'incidencias',
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE)],

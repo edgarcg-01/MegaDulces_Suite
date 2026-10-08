@@ -503,6 +503,56 @@ motivo accionable. Y vuelve a **Asistencia**, donde vivía allá: chip «En vivo
 dato es de hoy. Se trasladó el formato, no el CSS (tokens de la Suite). No se trasladó `origenAtrasado`: allá había
 dos lectores en cadena, aquí uno. Lógica pura en `relojes-formato.ts`, componente `RhRelojesFranjaComponent`.
 
+**`[RH.1.7c]` La sección con la forma de Horarios de Mega Talento (2026-10-08, maqueta aprobada por David).** Lo que
+RH conoce es UNA página con pestañas y, en el centro, el **reporte semanal «calcado»** (el papel que firma); la
+Suite tenía tres pantallas sueltas y una lista con ficha. Se rehízo con las piezas de la Suite, no con el CSS de
+Mega Talento (DESIGN.md: el azul marino y el dorado no se trasladan sin aprobación):
+
+- **Pestañas** Checadas · Tolerancia · Faltas · Incidencias · Relojes, con lo que espera en cada una (`app-page-tabs`
+  gana un `badge`; cero o «no se pudo medir» no se dibujan). Son **páginas hermanas**, no un layout anidado: la
+  prueba de rutas de entrada (`landing-guards.spec`) sólo lee hijas de un nivel. La plaza, el periodo y los filtros
+  viven en `RhAsistenciaEstado`, así que cambiar de pestaña no los pierde ni vuelve a pedir el cálculo.
+- **Barra** como la de Mega Talento: plaza, atajos (Hoy · Esta semana · Semana pasada) con flechas para semanas
+  anteriores, **Personas** (departamentos), planta/promotoras y **buscar en todas las plazas** (endpoint nuevo
+  `GET /hr/attendance/people`, el directorio con la misma regla que el padrón; al elegir a alguien de otra plaza se
+  va a ella y se abre su ficha).
+- **El reporte**: una fila por persona y una columna por día, por departamento, con subtotales del departamento
+  completo y totales; debajo de cada día las pausas y **D/C**, en ámbar si se pasó; en rojo la entrada tarde, la
+  falta (`0 - 0`) y la marca sola (`08:02 - 0`); `VAC`, `DESC.`, `JUST.` como en el papel. La fila en rojo es la que
+  tiene una irregularidad (falta, retardo usable, desayuno), derivada día por día como allá; «Solo irregulares» la
+  aísla. **Lo parcial dice que lo es** (regla 8 de RH): «· solo SISTEMAS» en pantalla, PDF y Excel.
+- **La ficha** se abre encima, de lado (`app-side-peek`), sin encoger el reporte: cifras, irregularidades por día,
+  «por qué su número puede no servir», el horario (asignar / cambiar / volver al deducido), la semana día por día
+  con «+N min» y las acciones. «Ver solo a esta persona» deja la vista de una persona.
+- **Exportar**: PDF para firmar (plaza horizontal por departamento, ahora **con D/C**, que el PDF de Mega Talento
+  no traía; una persona vertical con líneas de firma) y Excel. Reusa el encabezado de los PDF de Compras.
+- **Lo único propio de la pantalla: el día en curso.** El servidor (igual que Mega Talento) mide hoy como si ya
+  hubiera terminado: a las 7 de la mañana quien no ha llegado saldría con falta y quien salió a desayunar, con
+  «salida» a las 11. Hoy se pinta «·» o «08:01 - …» y no cuenta en Faltas ni en irregularidades. No se cambió la
+  regla del servidor (paridad).
+- Tolerancia en una sucursal sin hora límite lo dice y no lleva contador; Faltas trae «Capturar incidencia» con el
+  día puesto. Incidencias y Relojes conservan su ruta y sus controles, dentro del mismo marco.
+
+**`[RH.1.5b]`/`[RH.1.5c]` Lo que Mega Talento cambió después del port (08/10).** Al revisar se encontraron cinco
+commits de Mega Talento posteriores a la versión portada. Se portaron dos, medidos:
+- **Desayuno** (091ea65 + 14c2b60): con una sola pausa, esa pausa es la comida; la alerta junta las lecturas
+  repetidas. Antes/después sobre 6,137 días-persona reales (35 días, todas las plazas, sólo lectura): 1,629 días
+  dejan de llamar «desayuno» a la comida, **horas netas: 0 cambian**, días con desayuno excedido 1,257 → 90,
+  alertas de desayuno 683 → 4.
+- **Promotoría** (3938723): «PROMOTORIA MEGA DULCES» es personal de piso. Efecto sin medir: hoy ningún código está
+  ligado a una persona con departamento (`[RH.1.4]`).
+- **No portado, declarado `[RH.1.6b]`**: «nadie a prenómina sin identificar» (64ae212): el cierre se niega si
+  alguien checó sin nombre completo o departamento, salvo con motivo. En la Suite «identificado» es estar ligado
+  (`[RH.1.4]`), y con 0 ligados bloquearía todo cierre: se porta junto con `[RH.1.4]`. Mientras, la pantalla
+  dice cuántos checan sin estar ligados. También quedan fuera «Por identificar en los relojes» (db7ee1b, va con
+  la pestaña Empleados) y la conciliación promotora y departamento al guardar la ficha (va con `[RH.1.4]`).
+
+**Pruebas `[RH.1.7c]`.** Vista: 109 de RH (formato del reporte 22, estado 9, exportación 3, Checadas 15,
+Tolerancia/Faltas 4, Incidencias y Relojes ajustadas al marco) + 2 de `app-page-tabs`; la vista completa 2,536
+verdes. `libs/hr` 132 contra la base local (directorio con prueba de mutación); contratos 469. Validación visual
+hecha en el navegador con datos simulados (Checadas de una tienda y de Oficinas, ficha, Incidencias). ⚠️ No
+probado con un usuario real de RH ni con datos de producción.
+
 **Lo que NO se construyó (declarado).**
 - La pantalla de la **cola de alertas**: 10,429 sugeridas y cero decididas en Mega Talento (§5.2). Se
   pregunta a RH antes de construirla.
