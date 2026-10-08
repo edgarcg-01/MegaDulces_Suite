@@ -3397,3 +3397,151 @@ refresco nocturno + umbral; ése era el único que no.
    los mismos >300 s: su `FULL JOIN` obliga a materializar el CTE caro **aunque sólo pidas la otra
    columna**. Sale de `ledger_monthly` directo en 10 ms. ⭐ *Filtrar una columna no evita calcular
    la otra.*
+
+---
+
+## 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 % (PU.VI, 2026-10-08)
+
+### 24.1 Qué cambió desde §22: la pasada corrió
+
+§22.2 cerró con *«todo lo que sigue está latente hasta que la pasada vuelva a correr»* —
+`generation_runs` en **0**, `sales_plan_lines` en **0**, el autopilot en `error`.
+
+**La pasada corrió.** Medido contra prod (`system_identifier` 7688376744939610156, PG 18.6) el
+**2026-10-08 ~16:15 MX**, dentro del pod `api-75c847b79b-cvqpl`:
+
+| tabla | 2026-10-07 (§22.2) | 2026-10-08 |
+|---|---:|---:|
+| `budget.budgets` | 1 | **3** |
+| `budget.sales_plan_lines` | 0 | **1,287** |
+| `budget.sales_plan_settings` | 0 | **3** |
+| `budget.generation_runs` | 0 | **20** |
+
+Ésta es la primera medición de **lo que esa pasada produjo**. §22 arbitró el supuesto de GASTO;
+esta sección arbitra el de VENTA, que §22 no alcanzó a medir.
+
+### 24.2 ⛔ El criterio de comparabilidad deja pasar una base casi-cero
+
+`proposeGrowth` parea por periodo y exige `e.a > 0 && e.b > 0`
+(`budget-sales-plan.service.ts:283`) **sobre el agregado del canal**. Dos agujeros, no uno:
+
+1. **No exige pareo a nivel ENTIDAD.** Una sucursal que sólo existe en el año nuevo entra en `e.b`
+   sin contraparte en `e.a`.
+2. **`> 0` no es un umbral.** Basta una fila.
+
+El caso testigo:
+
+    mostrador:03 (8ESQ)   $230,601  ->  $39,240,479   = +16,916.62 %
+                          venta en 1 de 9 periodos de 2025
+
+8ESQ **no creció**: entró al fact en 2026 (ya estaba declarado — `sales_daily` arranca 2026-01 para
+`03`, y `mv_sales_blended` le da 262 de 634 días). Pero `$230,601 > 0`, así que **parea**. Esa sola
+entidad aporta **24.28 pp** de los 21.46 % que el canal publicaba.
+
+⭐ **Una base casi-cero no es una base.** Y la prueba que lo detecta no es «¿hay fila?» sino
+**«¿en cuántos periodos vendió, en los dos años?»**.
+
+### 24.3 La tabla: presupuestado contra real comparable
+
+Comparable = venta en **≥ 8 de 9** periodos cerrados, en **ambos** años (P10 abierto, excluido):
+
+| canal | % meta | presupuestado | motor (todo) | **real comparable** | Δ | veredicto |
+|---|---:|---:|---:|---:|---:|---|
+| **mostrador** | 58.46 % | +21.05 % | +21.46 % | **−2.82 %** | −23.87 pp | ⛔ signo invertido |
+| **mayoreo** | 28.10 % | +26.67 % | −8.76 % | **−9.36 %** | −36.03 pp | ⛔ signo invertido |
+| **preventa** | 4.60 % | +51.21 % | +51.21 % | **+18.62 %** | −32.59 pp | ⛔ desviado 32.6 pp |
+| **ruta** | 8.84 % | +8.26 % | +8.26 % | **+13.98 %** | +5.72 pp | ⚠️ **subestimado** |
+
+⛔ **Meta construida sobre crecimiento defendible: $0 de $604,775,116. El 100 %.**
+
+### 24.4 El negocio establecido se CONTRAE
+
+Sólo entidades comparables, P1–P9:
+
+    2025  $393,041,551   ->   2026  $381,431,040   =   -2.95 %
+
+Sucursal por sucursal, y es consistente:
+
+| mostrador | | mayoreo | |
+|---|---:|---|---:|
+| `:06` | **−11.45 %** | `:08` | **−14.10 %** |
+| `:02` | −6.57 % | `:01` | **−13.01 %** |
+| `:01` | −0.82 % | `:06` | −0.77 % |
+| `:08` | +0.24 % | | |
+| `:07` | +3.29 % | | |
+
+Lo que creció en 2026 **es cobertura**: 8ESQ ($39.2 M), Zamora ($8.7 M), Yurécuaro ($4.7 M) y los
+cinco `preventa` nuevos entrando al fact. **Es venta real, pero no es crecimiento del mismo negocio
+y no se repite en 2027** — esas plazas ya están adentro.
+
+### 24.5 ⭐ La excepción va al revés: `ruta` está SUBESTIMADA
+
+Único canal que crece de verdad: **+13.98 %** contra **+8.26 %** presupuestado. Diez rutas
+comparables, **las diez positivas** (`RUTA-22` +48.65 %, `RUTA-21` +18.07 %, `RUTA-23` +15.25 %).
+
+⚠️ **Con un matiz que no se puede omitir:** quedan fuera `RUTA-321` (9 periodos en 2025, 6 en 2026)
+y `RUTA-322` (9 → 7) porque **cerraron**. Las dos cifras contestan preguntas distintas: si esas
+rutas no vuelven, el canal crece 13.98 %; si el negocio contaba con ellas, el +8.26 % del motor ya
+absorbe su caída. **Ninguna de las dos es «la» verdad sin decir cuál se preguntó.**
+
+### 24.6 ⚠️ Tres cosas que yo mismo afirmé en esta auditoría, y la medición corrigió
+
+Mismo formato que §22.6, porque el error se repitió igual:
+
+1. **Certifiqué `mostrador` como defendible aplicándole una prueba que nunca le corrí.** Le había
+   corrido la prueba de cobertura a `preventa` —donde dio 51.21 % de puro nacimiento— y concluí
+   sobre `mostrador` sin repetirla. Cuando la corrí, el canal que sostiene el **58.46 %** de la meta
+   pasó de «✔ defendible» a **signo invertido**.
+2. **Mi propio test de cobertura tenía el agujero del motor.** Clasificaba por `NULL` contra
+   `no-NULL`, así que `mostrador:03` con $230,601 pasaba como comparable. *El test heredó el
+   defecto que venía a buscar.*
+3. **Mi reconstrucción de «meta defendible» en $748,059,625 queda REFUTADA.** Usaba el global
+   10.87 %, contaminado por la misma cobertura. Con el comparable (−2.95 %) esa cifra no se sostiene.
+
+⭐ Y las tres fallas —más dos bugs de alias de columna y un veredicto que imprimía **«✔ defendible»
+sobre cuatro NULL** (el `cfg ? classify : 'ok'` de la Fase VP, reproducido por mí)— las encontró
+**un bloque de la misma corrida contradiciendo a otro**, nunca una relectura del código.
+
+### 24.7 Los huecos declarados, con nombre
+
+| hueco | medido | efecto |
+|---|---|---|
+| **`proxy_canal` escribe `base_amount` NULL** | 104 renglones · **$197,160,564** · FY2026 | reparte **el mismo importe a cada entidad del canal** sin mirar su tamaño: `mayoreo:05` recibe $52.2 M contra **$18,254** de real (**2,860×**); las 8 entidades suman $19.1 M de historia contra $197.2 M de meta (**10.3×**). Una meta inventada **se ve igual que una medida**. |
+| **`basis` no se persiste** | `growth_by_channel` es un jsonb de números pelados | `proposeGrowth` calcula `yoy_paired` / `global` / `default` y la tabla guarda sólo el número. `mayoreo` quedó en **26.67 % = el `default` exacto** — huella de que su YoY no se pudo calcular, invisible sin recomputar. |
+| **La etiqueta `method` no carga información** | `estacional` = índice por entidad en ventas · promedio plano en gastos | el mismo string, dos cálculos. Quien lea `method` y crea que sabe cómo se calculó el renglón, acierta la mitad de las veces. |
+| **Basura de fecha en el rollup** | 6 filas · FY2014/2020/2024 · **$40,292** | poco dinero, pero envenena cualquier YoY que tome «primer y último año con dato» (a mí me dio **+877,002 %**). |
+| **Los supuestos son PRE-fix** | settings `2026-10-08 00:16 Z` · fix del canal `14:15 Z` | §23 corrigió $314 M de real **14 horas después** de que se calcularan los supuestos, y **nunca se recomputaron**. |
+| **FY2027 duplicado** | 2 ejercicios byte a byte, timestamps a 1 s | agregar por `fiscal_year` publica **$1,209,550,232** en vez de $604,775,116. |
+
+### 24.8 Qué arbitra qué
+
+| pregunta | resolvedor | NO usar |
+|---|---|---|
+| ¿cuánto creció un canal? | `mv_sellout_budget_rollup` con **pareo por entidad y cobertura de periodos** | el agregado del canal (mezcla negocio con cobertura) |
+| ¿esta entidad es comparable? | ≥ 8 de 9 periodos con venta **en ambos años** | `monto > 0` (deja pasar $230,601 contra $39 M) |
+| ¿el periodo cerró? | `v_retail_calendar` contra `current_date`; excluir `p >= abierto` | sumar el año completo (2026 llevaba 10 de 13) |
+| ¿cuál es el margen real? | `analytics.sales_daily`: **11.87 %** (2026: $491,286,704 − $432,986,385) | meta − egreso presupuestado (da **87.62 %**: el COGS no está presupuestado) |
+| ¿cuánto sale de la caja? | `finance.payment_program` — **85.70 % es compra** | su bucket de gasto como gasto operativo: **la nómina no pasa por ahí** (§24.9) |
+
+### 24.9 ⛔ La trampa de universo: `payment_program` NO es el gasto operativo
+
+`finance.payment_program` es **tesorería** (desembolso bancario, filtro de proveedor de compra
+`c10 LIKE 'C%'`); `analytics.expense_entries` es **contable por mayor 6xx** e incluye `601` Sueldos.
+
+**La prueba que lo cierra sola:** Sueldos son ~$3.46 M/mes y **todo** el bucket de gasto de
+`payment_program` son $3.34 M/mes. La nómina no cabe adentro.
+
+⚠️ Cruzarlos anualizando ese bucket ($23.35 M / 7 m → $40.03 M) contra el OPEX presupuestado
+($74.85 M) reporta **«el presupuesto es 187 % del real»**, que es falso. *Un denominador sin
+declarar produce un hallazgo falso en la primera consulta* — le pasó al carril de gastos
+**inmediatamente después de escribir esta misma advertencia**.
+
+⭐ Para qué **sí** sirve: el 85.70 % prueba que **la compra de mercancía no está presupuestada**.
+`budget.budget_lines` sólo tiene `ingreso` y `gasto`; los tipos `costo_ventas`, `compra_inventario`,
+`inversion` y `flujo` existen en el CHECK con **cero** filas. Por eso meta ($604,775,116) menos
+egreso ($74,852,191) da **87.62 %**, imposible contra un margen medido de **11.87 %**.
+**No hay margen que dictaminar hasta que el COGS esté presupuestado.**
+
+**Medición reproducible:** los 11 scripts de esta auditoría corrieron read-only dentro del pod de
+prod. El decisivo es el pareo por cobertura de periodos (§24.3), cuyo control negativo es el propio
+`mostrador:03`: con el criterio `> 0` da +16,916 %, con el de cobertura queda **excluido**.
