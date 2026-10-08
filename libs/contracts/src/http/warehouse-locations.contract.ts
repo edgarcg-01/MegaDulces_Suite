@@ -188,3 +188,119 @@ export interface CreateWarehouseLocationBody {
   tipo?: LocationKind | null;
   label?: string | null;
 }
+
+// ── `[UB.2]` Captura masiva ────────────────────────────────────────────────────────────────────
+
+/** Tope por captura: más que esto es un error de rango, no una bodega (PH: ~4 pasillos × 15 × 3). */
+export const LOCATION_BULK_MAX = 2000;
+
+/** Un rango: bodega · pasillos A–D · racks 01–15 · niveles 1–3. Los extremos se incluyen. */
+export interface LocationRangeSpec {
+  zona: LocationZone;
+  pasillo_desde: string;
+  pasillo_hasta: string;
+  rack_desde: number;
+  rack_hasta: number;
+  nivel_desde: number;
+  nivel_hasta: number;
+}
+
+export type LocationRangeExpand =
+  | { ok: true; total: number; partes: LocationCodeParts[] }
+  | { ok: false; motivo: string };
+
+/**
+ * Expande un rango a sus códigos, en orden de recorrido. La usan la vista previa del servidor y la
+ * cuenta en vivo de la pantalla ("4 pasillos × 15 racks × 3 niveles = 180"), para que las dos
+ * digan lo mismo.
+ */
+export function expandLocationRange(r: LocationRangeSpec): LocationRangeExpand {
+  if (r.zona !== 'T' && r.zona !== 'B') return { ok: false, motivo: 'Elige la zona: T (tienda) o B (bodega).' };
+  const pd = String(r.pasillo_desde ?? '').trim().toUpperCase();
+  const ph = String(r.pasillo_hasta ?? '').trim().toUpperCase();
+  if (!/^[A-Z]$/.test(pd) || !/^[A-Z]$/.test(ph)) return { ok: false, motivo: 'Los pasillos van de la A a la Z (una letra, sin Ñ).' };
+  if (pd > ph) return { ok: false, motivo: `El pasillo inicial (${pd}) va antes que el final (${ph}).` };
+  const entero = (v: unknown) => (Number.isInteger(Number(v)) ? Number(v) : NaN);
+  const rd = entero(r.rack_desde), rh = entero(r.rack_hasta), nd = entero(r.nivel_desde), nh = entero(r.nivel_hasta);
+  if (!(rd >= 1 && rh <= LOCATION_RACK_MAX && rd <= rh)) return { ok: false, motivo: 'Los racks van del 01 al 99 y el inicial no puede pasar al final.' };
+  if (!(nd >= 1 && nh <= LOCATION_LEVEL_MAX && nd <= nh)) return { ok: false, motivo: `Los niveles van del 1 al ${LOCATION_LEVEL_MAX} y el inicial no puede pasar al final.` };
+  const pasillos = ph.charCodeAt(0) - pd.charCodeAt(0) + 1;
+  const total = pasillos * (rh - rd + 1) * (nh - nd + 1);
+  if (total > LOCATION_BULK_MAX) {
+    return { ok: false, motivo: `Son ${total} ubicaciones; el tope por captura es ${LOCATION_BULK_MAX}. Pártelo en varios rangos.` };
+  }
+  const partes: LocationCodeParts[] = [];
+  for (let a = pd.charCodeAt(0); a <= ph.charCodeAt(0); a++) {
+    for (let rack = rd; rack <= rh; rack++) {
+      for (let nivel = nd; nivel <= nh; nivel++) partes.push({ zona: r.zona, pasillo: String.fromCharCode(a), rack, nivel });
+    }
+  }
+  return { ok: true, total, partes };
+}
+
+/** Un renglón de archivo: código + (opcional) tipo y nombre. `fila` = renglón del Excel, para señalarlo. */
+export interface BulkLocationInputRow {
+  fila?: number | null;
+  code: string;
+  tipo?: string | null;
+  label?: string | null;
+}
+
+/** Cuerpo de vista previa y de aplicar: o un rango, o los renglones de un archivo. */
+export interface BulkLocationsBody {
+  warehouse_id: string;
+  /** Tipo para todo el rango (en archivo, el de cada renglón gana). */
+  tipo?: LocationKind | null;
+  rango?: LocationRangeSpec | null;
+  filas?: BulkLocationInputRow[] | null;
+  /** Nombre del archivo, para la bitácora del lote. */
+  archivo?: string | null;
+}
+
+/** Qué pasará con cada renglón. `baja` no se reactiva aquí: se hace en Mantenimiento (`[UB.4]`). */
+export type BulkLocationAction = 'nueva' | 'existe' | 'baja' | 'repetida' | 'error';
+
+export interface BulkLocationPreviewRow {
+  fila: number | null;
+  code: string;
+  tipo: LocationKind | null;
+  label: string | null;
+  accion: BulkLocationAction;
+  motivo: string | null;
+}
+
+export interface BulkLocationsPreview {
+  warehouse: { id: string; code: string; name: string };
+  total: number;
+  conteo: Record<BulkLocationAction, number>;
+  /** Para pintar: hasta 500 renglones, primero los que tienen algo que decir (error, repetida, baja). */
+  filas: BulkLocationPreviewRow[];
+  truncado: boolean;
+}
+
+export interface BulkLocationsResult {
+  batch_id: string;
+  creadas: number;
+  omitidas: number;
+  /** Las creadas, para imprimir sus carteles. */
+  codigos: string[];
+}
+
+export interface LocationCaptureBatch {
+  id: string;
+  kind: 'rango' | 'archivo';
+  descripcion: string;
+  created_count: number;
+  skipped_count: number;
+  created_at: string;
+  created_by_name: string | null;
+  undone_at: string | null;
+  undone_count: number | null;
+  /** Ubicaciones del lote que ya tienen mercancía: si hay alguna, el lote no se puede deshacer. */
+  en_uso: number;
+}
+
+export interface UndoLocationBatchResult {
+  batch_id: string;
+  retiradas: number;
+}

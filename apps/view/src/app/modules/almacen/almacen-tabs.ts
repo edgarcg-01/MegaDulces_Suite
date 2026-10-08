@@ -182,11 +182,13 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
      * entran aquí como tabs con su pantalla; no se declaran antes porque sin ruta el tab tiraría
      * 404. Permiso propio `ALMACEN_PEDIDOS_VER` (ver el comentario en `authz-tree.ts`).
      */
-    match: ['/almacen/pedidos', '/almacen/surtido-consola', '/almacen/surtir'],
+    match: ['/almacen/pedidos', '/almacen/pedidos-por-capturar', '/almacen/surtido-consola', '/almacen/surtir'],
     tabs: [
       { label: 'Tablero', icon: 'pi pi-list-check', route: '/almacen/pedidos', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
       // [MCP.2] Los pedidos de preventa del vendedor (Suite) junto a los de Kepler. Mismo permiso del tablero.
       { label: 'Preventa', icon: 'pi pi-mobile', route: '/almacen/pedidos/preventa', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
+      // [GP.3d] Lo que Facturación tiene que cerrar en Kepler después del surtido.
+      { label: 'Por capturar en Kepler', icon: 'pi pi-file-edit', route: '/almacen/pedidos-por-capturar', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
       // [MCP.5] La caja imprime aquí la guía de carga que firma el repartidor. Permiso propio.
       { label: 'Guías de carga', icon: 'pi pi-print', route: '/almacen/pedidos/guias', permission: Permission.PREVENTA_GUIAS_GESTIONAR, exact: true },
       // [GP.3c.2] El coordinador ordena la fila que el surtidor toma con "Tomar siguiente".
