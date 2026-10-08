@@ -1,6 +1,6 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, NgZone, OnInit, QueryList, ViewChild, ViewChildren, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, LOCALE_ID, NgZone, OnInit, QueryList, ViewChild, ViewChildren, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { CommonModule } from '@angular/common';
+import { CommonModule, formatDate } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -8,6 +8,8 @@ import { ToastModule } from 'primeng/toast';
 import { SelectModule } from 'primeng/select';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { InputTextModule } from 'primeng/inputtext';
+import { IconFieldModule } from 'primeng/iconfield';
+import { InputIconModule } from 'primeng/inputicon';
 import { TagModule } from 'primeng/tag';
 import { DialogModule } from 'primeng/dialog';
 import { MessageService } from 'primeng/api';
@@ -18,7 +20,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { FaltanteExpressComponent } from '../components/faltante-express.component';
 import { branchName } from '../../../core/constants/store-branches';
 import { ArqueoService, ArqueoResult, ArqueoRow, ArqueoTipo, AvisoDobleCaja, RutaArqueo, Turno, TurnoCorte } from '../arqueo.service';
-import { BILLETES_MXN, MONEDAS_MXN, DENOMINACIONES_MXN, Denominacion } from '@megadulces/contracts';
+import { BILLETES_MXN, MONEDAS_MXN, DENOMINACIONES_MXN, Denominacion, denomDe } from '@megadulces/contracts';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { HasUnsavedChanges } from '../../../core/guards/unsaved-changes.guard';
@@ -60,7 +62,7 @@ interface CortesPersona {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, ToastModule,
-    SelectModule, SegmentedComponent, InputTextModule, TagModule, DialogModule,
+    SelectModule, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule,
     ContextHelpComponent, FreshnessPillComponent, PageTabsComponent,
     FaltanteExpressComponent,
   ],
@@ -547,11 +549,31 @@ interface CortesPersona {
                mentir sobre lo que hay, y la cajera creeria que perdio
                arqueos viejos. -->
           <h3 class="arq-card-title">{{ revela ? 'Arqueos recientes' : 'Tus cortes de hoy' }}</h3>
-          <p-table [value]="rows()" dataKey="id" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
+          <!-- [SM.43] Buscador del historial: por monto, hora, caja o cajera (y fecha, tipo,
+               sucursal o folio). Varias palabras se combinan: "caja 2 retiro" deja solo los
+               retiros de la caja 2. Busca en lo que ya se cargo, y lo DICE: no es una
+               busqueda en todo el archivo. NO PONER ACENTOS GRAVES ACA (template literal). -->
+          @if (rows().length) {
+            <div class="arq-hist-bar">
+              <p-iconfield styleClass="arq-hist-search">
+                <p-inputicon styleClass="pi pi-search" />
+                <input pInputText type="search" class="p-inputtext-sm" autocomplete="off"
+                       placeholder="Buscar por monto, hora, caja o cajera"
+                       aria-label="Buscar arqueos por monto, hora, caja o cajera"
+                       [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)" />
+              </p-iconfield>
+              <span class="muted arq-hist-n">
+                @if (busqueda().trim()) { {{ filasVisibles().length }} de {{ rows().length }} · }
+                {{ revela ? 'busca en los ' + rows().length + ' arqueos más recientes' : 'busca en tus cortes de hoy' }}
+              </span>
+            </div>
+          }
+          <p-table [value]="filasVisibles()" dataKey="id" styleClass="p-datatable-sm arq-table" [rowHover]="true" [loading]="loading()">
             <ng-template #header>
               <tr>
                 <th class="arq-ex-th" scope="col"><span class="sr-only">Detalle</span></th>
                 <th scope="col">Fecha</th>
+                <th scope="col">Hora</th>
                 @if (variasSucursales()) { <th scope="col">Sucursal</th> }
                 <th scope="col">Caja</th><th scope="col">Cajero</th>
                 @if (revela) {
@@ -565,6 +587,7 @@ interface CortesPersona {
                   <th scope="col" class="ta-r">Contado</th>
                 }
                 <th scope="col">Validado</th>
+                <th scope="col" class="arq-tk-th">Ticket</th>
               </tr>
             </ng-template>
             <ng-template #body let-b let-expanded="expanded">
@@ -576,6 +599,7 @@ interface CortesPersona {
                             [pRowToggler]="b" (click)="onExpand(b)"></p-button>
                 </td>
                 <td>{{ b.business_date | date:'dd/MM/yy' }}</td>
+                <td class="arq-mono">{{ horaDe(b.captured_at) }}</td>
                 @if (variasSucursales()) { <td>{{ branchLabel(b.warehouse_code) }}</td> }
                 <td>{{ b.caja }}@if (b.tipo === 'relevo') { <p-tag value="Relevo" severity="info" styleClass="arq-tag-mini" /> }
                   <!-- [SM.41] Que numero de sangria es. Sin esto, tres retiros del
@@ -617,6 +641,13 @@ interface CortesPersona {
                   } @else {
                     <span class="muted">Pendiente</span>
                   }
+                </td>
+                <!-- [SM.43] Cada arqueo se puede reimprimir desde aca. Sale con lo GUARDADO
+                     (no con el formulario) y marcado REIMPRESION: el original ya va en el sobre. -->
+                <td class="arq-tk-td">
+                  <p-button type="button" label="Reimprimir" icon="pi pi-print" [text]="true" size="small"
+                            [ariaLabel]="'Reimprimir el ticket del arqueo de la caja ' + b.caja + ' de las ' + horaDe(b.captured_at)"
+                            (click)="reimprimir(b)"></p-button>
                 </td>
               </tr>
             </ng-template>
@@ -771,7 +802,7 @@ interface CortesPersona {
                 </td>
               </tr>
             </ng-template>
-            <ng-template #emptymessage><tr><td [attr.colspan]="colspan()" class="arq-empty">{{ revela ? 'Sin arqueos aún.' : 'Todavía no capturaste ningún corte hoy.' }}</td></tr></ng-template>
+            <ng-template #emptymessage><tr><td [attr.colspan]="colspan()" class="arq-empty">{{ busqueda().trim() && rows().length ? 'Ningún arqueo coincide con «' + busqueda().trim() + '».' : (revela ? 'Sin arqueos aún.' : 'Todavía no capturaste ningún corte hoy.') }}</td></tr></ng-template>
           </p-table>
         </div>
         }
@@ -1088,6 +1119,13 @@ interface CortesPersona {
     .arq-ev-v { font-size: .95rem; font-variant-numeric: tabular-nums; }
     .arq-mt { margin: .6rem 0 0; font-size: .78rem; }
     .arq-table { font-variant-numeric: tabular-nums; }
+    /* [SM.43] Barra del buscador del historial: el campo crece y el conteo «N de M · busca
+       en ...» se va abajo si no cabe. */
+    .arq-hist-bar { display: flex; align-items: center; flex-wrap: wrap; gap: .4rem .9rem; margin: 0 0 .6rem; }
+    :host ::ng-deep .arq-hist-search { flex: 1 1 18rem; max-width: 26rem; }
+    :host ::ng-deep .arq-hist-search input { width: 100%; }
+    .arq-hist-n { font-size: var(--fs-xs); }
+    .arq-tk-th, .arq-tk-td { width: 1%; white-space: nowrap; }
     /* El historial tiene hasta 10 columnas: en un telefono no cabe de ninguna
        forma. Scrollea DENTRO de su contenedor - que la pagina entera se corra en
        horizontal mueve tambien el encabezado y la barra de guardar. */
@@ -1200,6 +1238,8 @@ interface CortesPersona {
                                  font-size: 1rem; padding: .4rem .55rem; }
       .arq-den { gap: .5rem; padding: .18rem 0; }
       .arq-turno { min-height: var(--tap-min, 44px); padding: .6rem .8rem; }
+      /* [SM.43] El buscador del historial también se toca con el dedo. */
+      :host ::ng-deep .arq-hist-search input { min-height: var(--tap-min, 44px); font-size: var(--fs-h3); }
       :host ::ng-deep .arq-panel .p-button { min-height: var(--tap-min, 44px); }
       /* El dialogo de confirmacion cuelga de .surf-page, no del panel: sus dos
          botones (y la X de cerrar) median 35px. Son los que SELLAN el conteo. */
@@ -1552,8 +1592,8 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     if (t === 'retiro') return 'Guardar retiro';
     return this.revela ? 'Guardar y revelar diferencia' : 'Guardar arqueo';
   });
-  /** +1 por la columna del expander. */
-  readonly colspan = computed(() => 6 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
+  /** +1 por la columna del expander; [SM.43] +2 por la hora y el ticket. */
+  readonly colspan = computed(() => 8 + (this.variasSucursales() ? 1 : 0) + (this.revela ? 3 : 0));
 
   /** §13 — el diálogo de confirmación: sellar un corte no se hace de un clic. */
   readonly confirmando = signal(false);
@@ -2281,10 +2321,103 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
     return Math.round(this.retirosDelTurno().reduce((s, r) => s + r.total, 0) * 100) / 100;
   }
 
-  private horaDe(iso: string | null | undefined): string {
+  horaDe(iso: string | null | undefined): string {
     const d = iso ? new Date(iso) : null;
     if (!d || Number.isNaN(d.getTime())) return '—';
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+  }
+
+  // ─────────────── [SM.43] buscador y reimpresión del historial ───────────────
+
+  private readonly locale = inject(LOCALE_ID);
+
+  /** Lo que se escribe en el buscador de «Arqueos recientes». */
+  readonly busqueda = signal('');
+
+  /**
+   * Las filas que quedan con la búsqueda. Cada palabra tiene que aparecer en algún dato
+   * de la fila (monto, hora, caja, cajera, fecha, tipo, sucursal, folio), así que varias
+   * palabras ACOTAN: «caja 2 retiro» deja los retiros de la caja 2. Sin acentos ni
+   * mayúsculas, y el monto se encuentra escrito como sea («8000», «8,000», «$8,000.50»).
+   *
+   * Busca en lo que la pantalla ya cargó (el día de la cajera, o los arqueos más recientes
+   * de la encargada), y la barra lo dice: no es una búsqueda en todo el archivo.
+   */
+  readonly filasVisibles = computed(() => {
+    const rows = this.rows();
+    const crudas = this.sinAcentos(this.busqueda()).split(/\s+/).map((p) => p.replace(/^\$/, '')).filter(Boolean);
+    if (!crudas.length) return rows;
+    // «caja 7» y «retiro 2» se leen JUNTAS y como palabra completa: sueltas, el 7 casaba
+    // con la fecha de cualquier 7 de octubre y «caja 7» traía la caja 2 de ese día.
+    const palabras: string[] = [];
+    for (let i = 0; i < crudas.length; i++) {
+      const sig = crudas[i + 1];
+      if ((crudas[i] === 'caja' || crudas[i] === 'retiro') && sig && /^\d+$/.test(sig)) { palabras.push(`${crudas[i]} ${sig}`); i++; }
+      else palabras.push(crudas[i]);
+    }
+    return rows.filter((r) => {
+      const pajar = this.pajarDe(r);
+      return palabras.every((p) => (p.includes(' ') ? new RegExp(`\\b${p}\\b`).test(pajar) : pajar.includes(p)));
+    });
+  });
+
+  /**
+   * Todo lo buscable de una fila, en un solo texto. El monto va en dos formas: con
+   * separadores ($18,500.00, como se ve) y sin ellos (18500.00, como se teclea rápido).
+   * Solo lo que la persona puede ver: para la cajera no entra el esperado (el arqueo es ciego).
+   */
+  private pajarDe(r: ArqueoRow): string {
+    const total = Number(r.total_contado) || 0;
+    const tipo = r.tipo === 'retiro' ? `retiro ${r.secuencia ?? 1}`
+      : r.tipo === 'cierre' ? 'cierre corte' : r.tipo === 'relevo' ? 'relevo' : String(r.tipo || '');
+    let fecha = '';
+    try { fecha = r.business_date ? formatDate(r.business_date, 'dd/MM/yy', this.locale) : ''; } catch { fecha = ''; }
+    return this.sinAcentos([
+      `caja ${r.caja}`, r.cajero_nombre, r.cajero_code, r.cajero_entrante,
+      this.branchLabel(r.warehouse_code), tipo, this.horaDe(r.captured_at), fecha,
+      this.money(total), total.toFixed(2), r.cash_cut_folio ? `#${r.cash_cut_folio}` : '',
+    ].filter(Boolean).join(' | '));
+  }
+
+  private sinAcentos(s: string): string {
+    return String(s ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim();
+  }
+
+  /**
+   * Reimprime el ticket de un arqueo YA GUARDADO, desde el historial.
+   *
+   * Sale con lo que quedó sellado —denominaciones y medios declarados del servidor—, no
+   * con lo que haya en el formulario, y marcado REIMPRESIÓN con la hora: el original ya
+   * viajó en el sobre, y dos papeles idénticos se leerían como dos entregas. `revela`
+   * decide igual que en el original si lleva el bloque contra Kepler.
+   */
+  reimprimir(b: ArqueoRow) {
+    const medios = this.mediosCampos
+      .map((m) => ({ label: m.label, monto: Number(b.medios?.[m.key]) || 0 }))
+      .filter((m) => m.monto > 0);
+    const ok = imprimirTicket({
+      sucursal: this.branchLabel(b.warehouse_code), caja: b.caja,
+      fecha: String(b.business_date ?? '').slice(0, 10), folio: b.cash_cut_folio ?? null,
+      cajera: b.cajero_nombre || b.cajero_code || '',
+      denominaciones: (b.denominaciones ?? []).map((d) => ({
+        denominacion: Number(d.denominacion), cantidad: Number(d.cantidad), subtotal: Number(d.subtotal),
+        // La familia separa el billete y la moneda de $20 (SM.39).
+        familia: d.familia ?? denomDe(d.key ?? '')?.familia ?? (Number(d.denominacion) >= 20 ? 'billete' : 'moneda'),
+        label: d.label,
+      })),
+      total_contado: Number(b.total_contado) || 0,
+      medios_declarados: medios,
+      tipo: b.tipo, cajero_entrante: b.cajero_entrante, turno: b.turno,
+      arqueo_id: b.id, incidencia_tipo: b.incidencia_tipo, nota: b.nota, validado_nota: b.validado_nota ?? null,
+      capturado_at: b.captured_at, capturado_por: b.captured_by,
+      validado_por: b.validado_por ?? null, validado_at: b.validado_at ?? null,
+      // Solo llegan a quien revela: para la cajera el servidor ya los quitó.
+      esperado: b.esperado ?? null, diff_real: b.diff_real ?? null,
+      kepler_contado: b.kepler_contado ?? null, kepler_billetes: b.kepler_billetes ?? null,
+      kepler_monedas: b.kepler_monedas ?? null, kepler_retirado: b.kepler_retirado ?? null,
+      reimpresion: new Date().toISOString(),
+    }, { revela: this.revela }, () => this.avisarImpresion());
+    if (!ok) this.avisarImpresion();
   }
 
   /** 'YYYY-MM-DD' de hace N días, en la fecha local (la misma que usa el resto). */

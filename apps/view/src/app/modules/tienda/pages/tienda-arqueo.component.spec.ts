@@ -533,4 +533,80 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     // El que se está contando es el siguiente.
     expect(html()).toContain('Retiro 3');
   });
+
+  // ── `[SM.43]` Buscador y reimpresión en «Arqueos recientes» ─────────────────────────────
+  const filaH = (over: Partial<ArqueoRow>): ArqueoRow => ({
+    id: 'h', tipo: 'cierre', warehouse_code: '01', caja: '2', business_date: '2026-10-07', turno: '01',
+    cajero_code: '10C02', cajero_entrante: null, cajero_nombre: 'LUPITA PEREZ', total_contado: 0,
+    captured_by: '10c02', captured_at: '2026-10-07T15:12:00.000Z', nota: null, incidencia_tipo: null,
+    ...over,
+  });
+  const historial = async (rows: ArqueoRow[]): Promise<void> => {
+    svc.resp = { turnos: [turno()], aviso: null };
+    cmp.ngOnInit();
+    await tick();
+    cmp.rows.set(rows);
+    await tick();
+  };
+
+  it('⭐ el buscador encuentra por monto, hora, caja y cajera — y varias palabras acotan', async () => {
+    const a = filaH({ id: 'a', caja: '2', cajero_nombre: 'LUPITA PEREZ', tipo: 'retiro', secuencia: 1, total_contado: 8000 });
+    const b = filaH({ id: 'b', caja: '7', cajero_nombre: 'MARÍA LÓPEZ', total_contado: 10500.5, captured_at: '2026-10-07T22:40:00.000Z' });
+    await historial([a, b]);
+    const ids = (q: string): string[] => { cmp.busqueda.set(q); return cmp.filasVisibles().map((r) => r.id); };
+
+    expect(ids('')).toEqual(['a', 'b']);
+    // Monto, escrito como sea.
+    expect(ids('8000')).toEqual(['a']);
+    expect(ids('8,000')).toEqual(['a']);
+    expect(ids('$10,500.50')).toEqual(['b']);
+    // Hora (la que se ve en la columna).
+    expect(ids(cmp.horaDe(b.captured_at))).toEqual(['b']);
+    // Cajera, sin importar mayúsculas ni acentos.
+    expect(ids('lupita')).toEqual(['a']);
+    expect(ids('maria')).toEqual(['b']);
+    // «caja 7» es la caja 7 — NO la caja 2 de un 7 de octubre (la fecha lleva un 7).
+    expect(ids('caja 7')).toEqual(['b']);
+    // Varias palabras acotan.
+    expect(ids('caja 2 retiro')).toEqual(['a']);
+    expect(ids('caja 2 cierre')).toEqual([]);
+
+    // Sin resultados se DICE, no se deja la tabla muda.
+    cmp.busqueda.set('zzz');
+    await tick();
+    expect(html()).toContain('Ningún arqueo coincide');
+  });
+
+  it('⭐ cada arqueo se reimprime con lo GUARDADO, marcado REIMPRESION, y sigue ciego', async () => {
+    const r = filaH({
+      id: 'r1', tipo: 'retiro', secuencia: 2, total_contado: 10500,
+      denominaciones: [
+        { key: '1000', denominacion: 1000, cantidad: 3, subtotal: 3000, familia: 'billete', label: '$1,000' },
+        { key: '500', denominacion: 500, cantidad: 15, subtotal: 7500, familia: 'billete', label: '$500' },
+      ],
+      medios: { tarjeta: 1234.5 },
+      // Un esperado que la cajera NO puede ver: el papel tampoco.
+      esperado: 99999,
+    });
+    await historial([r]);
+    const antes = document.querySelectorAll('iframe').length;
+
+    // Desde el botón de la fila, como lo usa la cajera.
+    const boton = Array.from((fix.nativeElement as HTMLElement).querySelectorAll<HTMLButtonElement>('button'))
+      .find((x) => (x.getAttribute('aria-label') || '').startsWith('Reimprimir'));
+    expect(boton).toBeTruthy();
+    boton!.click();
+
+    const marcos = document.querySelectorAll('iframe');
+    expect(marcos.length).toBe(antes + 1);
+    const papel = (marcos[marcos.length - 1] as HTMLIFrameElement).contentDocument?.body.textContent ?? '';
+    expect(papel).toContain('REIMPRESION');
+    expect(papel).toContain('RETIRO DE CAJA');
+    // Las denominaciones guardadas (el ticket las rotula sin `$`; el subtotal sí va en pesos).
+    expect(papel).toContain('$3,000.00');
+    expect(papel).toContain('$7,500.00');
+    expect(papel).toContain('Tarjeta');          // los medios guardados viajan en la copia
+    expect(papel).toContain('$10,500.00');
+    expect(papel).not.toContain('99,999');      // ciego: sin esperado para la cajera
+  });
 });
