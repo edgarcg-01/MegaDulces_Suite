@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén: vuelve el botón «Surtir» del tablero de pedidos (GP.3, 2026-10-08)
+- `/almacen/pedidos` había perdido el botón que lleva a `/almacen/surtir` (la pantalla del surtidor es de foco y no tiene otra entrada desde el tablero). Lo agregó GP.3c (#319) y el barrido de nombres de sucursal SUC.1 (`fcf85959c`) lo borró sin querer al reescribir el archivo; su prueba quedó roja en `main`. Se restaura tal cual, conservando el nombre de sucursal de SUC.1.
+
 ### Added — Andén sin internet: se sigue trabajando y lo terminado se manda solo (WMS-REC.20, 2026-10-08)
 - Sin conexión se puede **seguir un vale abierto** y **abrir uno nuevo** de los que el equipo bajó con red. Lo que se fecha o se cierra se guarda en el equipo y **se manda solo** al volver la conexión, en el orden en que se hizo.
 - Un aviso arriba dice si no hay red, cuánto falta mandar y, si el servidor rechazó algo de un vale, el motivo, con **Reintentar** o **Descartar** (pide confirmación: lo capturado sin red se pierde).
@@ -61,6 +64,13 @@
 
 ### Fixed — El reparto del surtido ordenaba la prioridad de entrega por día de la semana (GP.3a, 2026-10-08)
 - La fecha de entrega llegaba como `"Thu Oct 08"` (`String()` sobre el `date` de pg) y se comparaba como texto. Ahora sale de `to_char` en el SQL.
+### Changed — Logística: la guía ya no se teclea, comisión y viáticos se calculan (EMB.19, 2026-10-07)
+- **«Nueva guía» del detalle del embarque:** en un embarque de Kepler ya no aparece (su guía sale de la hoja). En uno manual se eligen chofer, ayudantes y **horario** (salida, llegada, si duerme fuera); la comisión sale de la tarifa de la ruta del embarque y los viáticos del horario, en una tabla bloqueada por persona.
+- **Regla de viáticos de la beta:** café si sale antes de 6:00 · desayuno antes de 7:00 · comida si llega después de 15:00 · cena si duerme fuera o llega después de 20:00, a cada persona que va, con las tarifas de Logística › Configuración › Viáticos.
+- La misma regla en la hoja de «Nuevo embarque» de Kepler (antes, casillas por comida y total a mano) y en «Asignar guía» del embarque manual (antes, comisiones y viáticos tecleados).
+- **No se crea con un cero que no es real:** sin ruta tarifada, sin horario o sin la tarifa de una comida que toca, el botón se apaga y dice qué falta. Con la guía incompleta, el embarque manual tampoco se crea (antes quedaba creado y la guía fallaba aparte).
+- **API:** `POST /logistics/guides` y la toma de Kepler calculan y rechazan montos tecleados distintos (400); `POST /logistics/guides` en un embarque de Kepler responde 409; `PATCH /logistics/guides/:id` ya no cambia tripulación, horario, comisión ni viáticos (409). Sin migraciones.
+- ⚠️ Liquidaciones sigue pagando viáticos sólo con pernocta y sólo al chofer: abierto como EMB.20.
 
 ### Added — Arqueo de caja: buscador en «Arqueos recientes» y reimpresión de cada arqueo (SM.43, 2026-10-07)
 - `/tienda/arqueo`: buscador sobre el historial por **monto, hora, caja o cajera** (también fecha, tipo, sucursal o folio). Varias palabras acotan («caja 2 retiro»); «caja 7» es la caja 7, no cualquier fila con un 7. Dice cuántas filas coinciden y en qué universo busca (lo ya cargado). Columna nueva **Hora**.

@@ -15,9 +15,10 @@
  */
 import type {
   KeplerDestinoTipo, KeplerMetodoResolucion, NuevoEmbarqueComision, NuevoEmbarqueResumen,
-  NuevoEmbarqueTipoViaje,
+  NuevoEmbarqueTipoViaje, TarifasViatico,
 } from '@megadulces/contracts';
-import { comisionesDeLaGuia, erroresDeTarifa } from '@megadulces/contracts';
+import { comisionesDeLaGuia, erroresDeTarifa, erroresDeViaticos, viaticosDeLaGuia } from '@megadulces/contracts';
+import { capturasQueNoCoinciden, horarioDe } from '../logistics-guides/guia-calculada.logic';
 
 export type MetodoResolucion = KeplerMetodoResolucion;
 
@@ -272,6 +273,9 @@ export interface TomaInput {
   helper2_commission?: number | null;
   per_diem_total?: number | null;
   per_diem_breakdown?: unknown;
+  /** EMB.19 — el horario del viaje (`HH:MM`): de él salen los viáticos. */
+  departure_time?: string | null;
+  arrival_time?: string | null;
   overnight?: boolean | null;
   freight_revenue?: number | null;
   actual_km?: number | null;
@@ -288,6 +292,8 @@ export interface TomaContexto {
   comision: Pick<NuevoEmbarqueComision, 'driver' | 'helper' | 'sin_tarifa' | 'ruta_usada'>;
   /** Paradas sin ruta en Kepler: sin ruta no hay tarifa que aplicar. */
   paradas_sin_ruta: number;
+  /** Tarifas de viático por comida (`config_finance`, categoría `viatico`). */
+  tarifas_viatico: TarifasViatico;
 }
 
 /** Errores en lenguaje del usuario. Lista vacía = se puede tomar. */
@@ -314,17 +320,24 @@ export function validarToma(input: TomaInput, ctx: TomaContexto): string[] {
   if (h1 && h2 && h1 === h2) errores.push('Ayudante 1 y ayudante 2 son la misma persona.');
   if (h2 && !h1) errores.push('Captura primero al ayudante 1.');
 
-  // La comisión se CALCULA de la tarifa de las rutas del viaje (fórmula de la beta de Logística):
-  // sin tarifa no se crea, y una comisión tecleada que no coincide con la calculada se rechaza.
+  // La comisión se CALCULA de la tarifa de las rutas del viaje (fórmula de la beta de Logística) y
+  // los viáticos del horario (EMB.19): sin tarifa o sin horario no se crea, y un monto tecleado que
+  // no coincide con el calculado se rechaza.
   const ayudantes = { helper1: !!h1, helper2: !!h2 };
-  errores.push(...erroresDeTarifa(ctx.comision, ctx.paradas_sin_ruta, ayudantes));
-  const calculada = comisionesDeLaGuia(ctx.comision, ayudantes);
-  const tecleada = (['driver_commission', 'helper1_commission', 'helper2_commission'] as const)
-    .some((k) => input[k] != null && Number(input[k]) !== calculada[k]);
-  if (tecleada) errores.push('La comisión se calcula de la tarifa de la ruta; no se captura.');
+  const horario = horarioDe(input);
+  const faltan = [
+    ...erroresDeTarifa(ctx.comision, ctx.paradas_sin_ruta, ayudantes),
+    ...erroresDeViaticos(horario, ctx.tarifas_viatico),
+  ];
+  errores.push(...faltan);
+  if (!faltan.length) {
+    errores.push(...capturasQueNoCoinciden(input, {
+      comisiones: comisionesDeLaGuia(ctx.comision, ayudantes),
+      viaticos: viaticosDeLaGuia(horario, ctx.tarifas_viatico, { driver: !!chofer, ...ayudantes }),
+    }));
+  }
 
   const montos: Array<[keyof TomaInput, string]> = [
-    ['per_diem_total', 'Los viáticos'],
     ['freight_revenue', 'El flete cobrado'],
     ['total_weight_kg', 'El peso'],
   ];

@@ -6,6 +6,12 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
+import type { TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
+import { tarifasDeViatico } from '@megadulces/contracts';
+import {
+  calcularGuia, cambiosACamposCalculados, GUIA_NO_SE_EDITA, validarGuiaManual,
+} from './guia-calculada.logic';
 
 export type GuideStatus = 'pendiente' | 'en_ruta' | 'entregada' | 'cancelada';
 export type RecipientStatus = 'pendiente' | 'entregado' | 'no_entregado' | 'rechazado';
@@ -16,29 +22,26 @@ export interface CreateGuideDto {
   driver_id?: string;
   helper1_id?: string;
   helper2_id?: string;
+  /** EMB.19 — el horario del viaje: de él salen los viáticos (`HH:MM`). */
+  departure_time?: string | null;
+  arrival_time?: string | null;
+  /** Se queda a dormir fuera: da cena (regla de la beta). */
+  overnight?: boolean;
+  /**
+   * EMB.19 — comisión y viáticos NO se capturan: se calculan de la tarifa de la ruta del embarque
+   * y del horario. Si vienen, tienen que coincidir con el cálculo o la guía no se crea.
+   */
   driver_commission?: number;
   helper1_commission?: number;
   helper2_commission?: number;
-  overnight?: boolean;
   per_diem_total?: number;
-  per_diem_breakdown?: any;
   notes?: string;
-  /**
-   * Si true, auto-calcula comisiones leyendo route.driver_commission y
-   * route.helper_commission (NO toca valores que vengan explícitamente en el dto).
-   */
-  auto_commissions?: boolean;
-  /**
-   * Si true, computa `per_diem_total` y enriquece `per_diem_breakdown` con
-   * `subtotal` por persona a partir del checklist café/desayuno/comida/cena
-   * × tarifas de `config_finance` categoría `viatico`. Sobrescribe el
-   * `per_diem_total` del dto si auto=true.
-   */
-  auto_per_diem?: boolean;
 }
 
-export interface UpdateGuideDto extends Partial<Omit<CreateGuideDto, 'shipment_id' | 'auto_commissions' | 'auto_per_diem'>> {
+export interface UpdateGuideDto extends Partial<Omit<CreateGuideDto, 'shipment_id'>> {
   status?: GuideStatus;
+  /** Ya no se aceptan: el desglose lo escribe el cálculo (EMB.19). Declarados para rechazarlos. */
+  per_diem_breakdown?: unknown;
   auto_per_diem?: boolean;
 }
 
@@ -92,7 +95,18 @@ export class LogisticsGuidesService {
         throw new ConflictException(`Shipment ${shipment.folio} está ${shipment.status}, no admite guías nuevas.`);
       }
 
-      // Validar driver/helpers
+      // EMB.19 — la guía de un embarque de Kepler sale de su hoja (con sus paradas): no se agrega a mano.
+      if (shipment.kepler_guia) {
+        throw new ConflictException(
+          `El embarque ${shipment.folio} viene de la guía ${shipment.kepler_sucursal}-G${shipment.kepler_guia} de Kepler: su guía sale de la hoja, no se agrega a mano.`,
+        );
+      }
+
+      // Comisión y viáticos se CALCULAN (tarifa de la ruta + horario); lo que falte frena.
+      const ctx = { ruta: await this.tarifaDeRuta(trx, shipment.route_id), tarifas: await this.tarifasViatico(trx) };
+      const errores = validarGuiaManual(dto, ctx);
+      if (errores.length) throw new BadRequestException(errores.join(' '));
+
       for (const [k, v] of Object.entries({
         driver_id: dto.driver_id,
         helper1_id: dto.helper1_id,
@@ -101,17 +115,7 @@ export class LogisticsGuidesService {
         if (v) await this.assertDriverActive(trx, v, k);
       }
 
-      // Auto-calc comisiones desde route si se pidió y la guía no override
-      const commissions = await this.resolveCommissions(trx, shipment.route_id, dto);
-
-      // Auto-calc viáticos desde checklist si se pidió
-      let perDiemTotal = dto.per_diem_total ?? 0;
-      let perDiemBreakdown: any = dto.per_diem_breakdown || null;
-      if (dto.auto_per_diem && perDiemBreakdown) {
-        const r = await this.computePerDiemFromChecklist(trx, perDiemBreakdown);
-        perDiemTotal = r.total;
-        perDiemBreakdown = r.enriched;
-      }
+      const { comisiones, viaticos } = calcularGuia(dto, ctx);
 
       const number = await this.nextGuideFolio(trx);
 
@@ -123,16 +127,16 @@ export class LogisticsGuidesService {
           type: dto.type || 'entrega',
           status: 'pendiente',
           driver_id: dto.driver_id || null,
-          driver_commission: commissions.driver,
+          driver_commission: comisiones.driver_commission,
           helper1_id: dto.helper1_id || null,
-          helper1_commission: commissions.helper1,
+          helper1_commission: comisiones.helper1_commission,
           helper2_id: dto.helper2_id || null,
-          helper2_commission: commissions.helper2,
-          overnight: dto.overnight ?? false,
-          per_diem_total: perDiemTotal,
-          per_diem_breakdown: perDiemBreakdown
-            ? JSON.stringify(perDiemBreakdown)
-            : null,
+          helper2_commission: comisiones.helper2_commission,
+          departure_time: viaticos.horario.salida,
+          arrival_time: viaticos.horario.llegada,
+          overnight: viaticos.horario.duerme_fuera,
+          per_diem_total: viaticos.total,
+          per_diem_breakdown: JSON.stringify(viaticos),
           notes: dto.notes || null,
         })
         .returning('*');
@@ -176,13 +180,8 @@ export class LogisticsGuidesService {
         throw new ConflictException(`Guide ${existing.number} ya está ${existing.status}, no editable.`);
       }
 
-      for (const [k, v] of Object.entries({
-        driver_id: dto.driver_id,
-        helper1_id: dto.helper1_id,
-        helper2_id: dto.helper2_id,
-      })) {
-        if (v) await this.assertDriverActive(trx, v as string, k);
-      }
+      // EMB.19 — tripulación, horario, comisión y viáticos se calculan al crear la guía.
+      if (cambiosACamposCalculados(existing, dto).length) throw new ConflictException(GUIA_NO_SE_EDITA);
 
       if (dto.status !== undefined) {
         const allowed = GUIDE_TRANSITIONS[existing.status as GuideStatus] || [];
@@ -194,28 +193,8 @@ export class LogisticsGuidesService {
       }
 
       const patch: Record<string, any> = { updated_at: trx.fn.now() };
-      for (const k of [
-        'type', 'status', 'driver_id', 'helper1_id', 'helper2_id',
-        'driver_commission', 'helper1_commission', 'helper2_commission',
-        'overnight', 'per_diem_total', 'notes',
-      ] as const) {
+      for (const k of ['type', 'status', 'notes'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
-      }
-      if (dto.per_diem_breakdown !== undefined) {
-        patch.per_diem_breakdown = dto.per_diem_breakdown
-          ? JSON.stringify(dto.per_diem_breakdown)
-          : null;
-      }
-      // Auto-calc viáticos si se pidió y hay breakdown (en dto o existente)
-      if (dto.auto_per_diem) {
-        const breakdown = dto.per_diem_breakdown !== undefined
-          ? dto.per_diem_breakdown
-          : (existing.per_diem_breakdown || null);
-        if (breakdown) {
-          const r = await this.computePerDiemFromChecklist(trx, breakdown);
-          patch.per_diem_total = r.total;
-          patch.per_diem_breakdown = JSON.stringify(r.enriched);
-        }
       }
 
       const [row] = await trx('logistics.delivery_guides')
@@ -342,73 +321,23 @@ export class LogisticsGuidesService {
 
   // ── Helpers internos ─────────────────────────────────────────────────────
 
-  /**
-   * Resuelve qué comisión asignar al chofer/ayudantes:
-   *  - Si el dto trae valor explícito, lo respeta.
-   *  - Si dto.auto_commissions=true Y hay route_id, lee route.driver_commission / helper_commission.
-   *  - Si no, 0.
-   */
-  private async resolveCommissions(
-    trx: any,
-    routeId: string | null,
-    dto: CreateGuideDto,
-  ): Promise<{ driver: number; helper1: number; helper2: number }> {
-    let routeDriver = 0;
-    let routeHelper = 0;
-    if (dto.auto_commissions && routeId) {
-      const r = await trx('logistics.routes').where({ id: routeId }).first();
-      if (r) {
-        routeDriver = Number(r.driver_commission) || 0;
-        routeHelper = Number(r.helper_commission) || 0;
-      }
-    }
+  /** La ruta del embarque con su tarifa de comisión. null = el embarque no tiene ruta. */
+  private async tarifaDeRuta(trx: Knex.Transaction, routeId: string | null): Promise<TarifaDeRuta | null> {
+    if (!routeId) return null;
+    const r = await trx('logistics.routes').where({ id: routeId }).first('id', 'name', 'driver_commission', 'helper_commission');
+    if (!r) return null;
     return {
-      driver: dto.driver_commission ?? (dto.driver_id ? routeDriver : 0),
-      helper1: dto.helper1_commission ?? (dto.helper1_id ? routeHelper : 0),
-      helper2: dto.helper2_commission ?? (dto.helper2_id ? routeHelper : 0),
+      route_id: r.id,
+      nombre: r.name,
+      driver: r.driver_commission == null ? null : Number(r.driver_commission),
+      helper: r.helper_commission == null ? null : Number(r.helper_commission),
     };
   }
 
-  /**
-   * Calcula el monto total de viáticos a partir del checklist por persona
-   * y las tarifas del catálogo `config_finance` (categoría 'viatico').
-   *
-   * Estructura esperada de `breakdown`:
-   *   {
-   *     driver: { cafe: bool, desayuno: bool, comida: bool, cena: bool },
-   *     helper1: { ... },
-   *     helper2: { ... },
-   *   }
-   *
-   * Si el checklist no incluye alguna persona, asume false en todos los meals.
-   * Retorna { total, breakdown_enriched } donde breakdown_enriched agrega
-   * el campo `subtotal` calculado por persona.
-   */
-  async computePerDiemFromChecklist(
-    trx: any,
-    breakdown: any,
-  ): Promise<{ total: number; enriched: any }> {
-    const rates: Record<string, number> = {};
-    const rows = await trx('logistics.config_finance')
-      .where({ category: 'viatico', active: true })
-      .select('key', 'value');
-    for (const r of rows) {
-      const meal = r.key.replace(/^viatico_/, '');
-      rates[meal] = Number(r.value) || 0;
-    }
-
-    const enriched: any = {};
-    let total = 0;
-    for (const person of ['driver', 'helper1', 'helper2']) {
-      const checks = breakdown?.[person] || {};
-      let subtotal = 0;
-      for (const meal of ['cafe', 'desayuno', 'comida', 'cena']) {
-        if (checks[meal] === true) subtotal += rates[meal] || 0;
-      }
-      enriched[person] = { ...checks, subtotal };
-      total += subtotal;
-    }
-    return { total, enriched };
+  /** Tarifas de viático por comida (`config_finance`, categoría `viatico`). */
+  async tarifasViatico(trx: Knex.Transaction): Promise<TarifasViatico> {
+    const rows = await trx('logistics.config_finance').where({ category: 'viatico', active: true }).select('key', 'value');
+    return tarifasDeViatico(rows);
   }
 
   private async assertDriverActive(trx: any, driverId: string, field: string): Promise<void> {

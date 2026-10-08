@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { Subject, debounceTime } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -15,6 +16,8 @@ import { DrawerModule } from 'primeng/drawer';
 import type { WarehouseOrderDetail, WarehouseOrderRow, WarehouseOrdersResponse } from '@megadulces/contracts';
 import { money } from '../../../shared/util/money.util';
 import { AlmacenPedidosService, type AlmacenPedidosFiltro } from '../almacen-pedidos.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary';
 type Preset = 'hoy' | 'semana' | 'mes' | 'mes_anterior' | 'rango';
@@ -56,7 +59,7 @@ const dmy = (v: string | null | undefined): string => {
   selector: 'app-almacen-pedidos',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, InputTextModule, TagModule, CheckboxModule, DrawerModule, SucursalPipe],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, SelectModule, DatePickerModule, InputTextModule, TagModule, CheckboxModule, DrawerModule, SucursalPipe],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head gp-head">
@@ -67,6 +70,9 @@ const dmy = (v: string | null | undefined): string => {
           }
         </div>
         <div class="gp-actions">
+          @if (puedeSurtir()) {
+            <a pButton routerLink="/almacen/surtir" class="p-button-sm gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-shopping-bag" aria-hidden="true"></span><span class="p-button-label">Surtir</span></a>
+          }
           <div class="gp-seg" role="group" aria-label="Periodo">
             @for (p of presets; track p.key) {
               <button type="button" class="gp-seg-b" [class.on]="preset() === p.key" [attr.aria-pressed]="preset() === p.key" (click)="pickPreset(p.key)">{{ p.label }}</button>
@@ -206,6 +212,7 @@ const dmy = (v: string | null | undefined): string => {
     :host { display:block; }
     .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
     .gp-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+    .gp-surtir { min-height:var(--tap-min); text-decoration:none; }
     .gp-head { align-items:center; margin-bottom:.5rem; }
     .gp-head-text { display:flex; flex-wrap:wrap; align-items:baseline; gap:.35rem .75rem; min-width:0; }
     .gp-head-text h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.01em; }
@@ -267,6 +274,13 @@ const dmy = (v: string | null | undefined): string => {
 })
 export class AlmacenPedidosComponent implements OnInit {
   private readonly api = inject(AlmacenPedidosService);
+  private readonly perms = inject(PermissionsService);
+  /**
+   * [GP.3] La pantalla del surtidor es de FOCO (sin barra de pestañas), así que desde el tablero no
+   * había cómo llegar: la entrada de foco sólo decide a dónde cae quien abre el área. Este botón es
+   * la puerta para quien ve el tablero y también surte.
+   */
+  readonly puedeSurtir = this.perms.has$(Permission.COMMERCIAL_PICKING_GESTIONAR);
   private readonly destroyRef = inject(DestroyRef);
   private readonly q$ = new Subject<string>();
 

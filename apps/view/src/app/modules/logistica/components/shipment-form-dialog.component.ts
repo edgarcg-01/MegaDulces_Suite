@@ -33,10 +33,16 @@ import { TagModule } from 'primeng/tag';
 import { ToastModule } from 'primeng/toast';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService } from 'primeng/api';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { startWith } from 'rxjs';
+import type { NuevaGuiaBody, TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
+import {
+  comisionesDeLaGuia, erroresDeGuiaManual, erroresDeTarifaDeRuta, erroresDeViaticos, tarifasDeViatico, viaticosDeLaGuia,
+} from '@megadulces/contracts';
+import { GuiaCalculadaComponent, PersonaDeLaGuia } from './guia-calculada.component';
 import { forkJoin } from 'rxjs';
 import {
   ConfigItem,
-  DeliveryGuide,
   Driver,
   LogisticaService,
   Shipment,
@@ -70,9 +76,9 @@ interface RouteOption {
  *  - Auto-folio: backend genera EMB-YYYY-NNNNN (no se muestra editable).
  *  - FormGroup con todos los campos de logistics.shipments.
  *  - Selectores cargados via forkJoin (vehicles + drivers + routes config).
- *  - Sección expandible "Asignar guía + comisiones" que crea delivery_guide
- *    inmediatamente tras el shipment, con comisiones auto-calculadas desde
- *    la route si está seleccionada.
+ *  - Sección expandible "Asignar guía" que crea delivery_guide inmediatamente tras
+ *    el shipment. EMB.19: se eligen tripulación y horario; la comisión (tarifa de la
+ *    ruta) y los viáticos (regla de horario de la beta) se calculan y no se teclean.
  *  - Cálculo computed de margen estimado en vivo.
  *  - Auto-cálculo de km×2 (ida+vuelta) y flete sugerido si hay route con km.
  *
@@ -87,7 +93,7 @@ interface RouteOption {
     ButtonModule, CardModule, DialogModule,
     InputTextModule, InputNumberModule, TextareaModule, DatePickerModule,
     SelectModule, SelectButtonModule, CheckboxModule, DividerModule, TagModule,
-    ToastModule, TooltipModule,
+    ToastModule, TooltipModule, GuiaCalculadaComponent,
   ],
   providers: [MessageService],
   template: `
@@ -199,95 +205,54 @@ interface RouteOption {
           [attr.aria-expanded]="includeGuide()"
           (click)="toggleGuideSection()" (keydown.enter)="toggleGuideSection()" (keydown.space)="$event.preventDefault(); toggleGuideSection()">
           <i class="pi" [class.pi-chevron-down]="includeGuide()" [class.pi-chevron-right]="!includeGuide()"></i>
-          <h4 class="section-title inline">Asignar guía + comisiones (opcional)</h4>
+          <h4 class="section-title inline">Asignar guía (opcional)</h4>
           <p-checkbox [binary]="true" [ngModel]="includeGuide()" (onChange)="setIncludeGuide($event.checked)" [ngModelOptions]="{ standalone: true }"></p-checkbox>
         </div>
     
         @if (includeGuide()) {
           <div class="guide-section" formGroupName="guide">
-            <p class="muted small">Se creará una delivery_guide vinculada al embarque tras crearlo. Comisiones sugeridas desde la ruta seleccionada.</p>
-            <div class="row two">
-              <label>
-                Chofer *
-                <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="full_name" optionValue="id" [filter]="true" placeholder="Seleccionar chofer"></p-select>
-              </label>
-              <label>
-                Comisión chofer
-                <p-inputnumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-              </label>
-            </div>
+            <p class="muted small">Se crea la guía del embarque al guardarlo. La comisión sale de la tarifa de la ruta y los viáticos del horario: se calculan, no se teclean.</p>
+            <label>
+              Chofer
+              <p-select formControlName="driver_id" [options]="driverOptions()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true" placeholder="Seleccionar chofer"></p-select>
+            </label>
             <div class="row two">
               <label>
                 Ayudante 1
                 <p-select formControlName="helper1_id" [options]="helperOptions()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true" placeholder="Sin ayudante"></p-select>
               </label>
               <label>
-                Comisión ayudante 1
-                <p-inputnumber formControlName="helper1_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-              </label>
-            </div>
-            <div class="row two">
-              <label>
                 Ayudante 2
                 <p-select formControlName="helper2_id" [options]="helperOptions()" optionLabel="full_name" optionValue="id" [filter]="true" [showClear]="true" placeholder="Sin ayudante"></p-select>
               </label>
-              <label>
-                Comisión ayudante 2
-                <p-inputnumber formControlName="helper2_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
-              </label>
             </div>
-            <div class="row two">
+            <div class="row three">
               <label>
-                Viáticos totales
-                <p-inputnumber formControlName="per_diem_total" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2" [readonly]="autoPerDiem()"></p-inputnumber>
+                Hora de salida
+                <input pInputText type="time" formControlName="departure_time" />
+              </label>
+              <label>
+                Hora de llegada (estimada)
+                <input pInputText type="time" formControlName="arrival_time" />
               </label>
               <label class="checkbox-label">
                 <p-checkbox formControlName="overnight" [binary]="true" inputId="overnight"></p-checkbox>
-                Pernocta (chofer duerme fuera)
+                Se queda a dormir fuera
               </label>
             </div>
-            <!-- Viáticos: checklist auto-cálculo -->
-            <div class="per-diem-toggle">
-              <label class="checkbox-label">
-                <p-checkbox [(ngModel)]="autoPerDiemModel" [ngModelOptions]="{ standalone: true }" [binary]="true" inputId="auto-per-diem" (onChange)="onAutoPerDiemToggle($event.checked)"></p-checkbox>
-                Calcular viáticos automáticamente desde checklist (café / desayuno / comida / cena por persona)
-              </label>
-            </div>
-            @if (autoPerDiem()) {
-              <div class="per-diem-checklist">
-                <table class="pd-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Persona</th>
-                      @for (m of mealColumns; track m) {
-                        <th scope="col" class="meal-col">
-                          {{ m.label }}<br>
-                          <small>\${{ viaticoRate(m.key) | number:'1.2-2' }}</small>
-                        </th>
-                      }
-                      <th scope="col" class="num">Subtotal</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (p of personRows; track p) {
-                      <tr>
-                        <td>{{ p.label }}</td>
-                        @for (m of mealColumns; track m) {
-                          <td class="meal-col">
-                            <p-checkbox [(ngModel)]="perDiemCheck()[p.key][m.key]" [ngModelOptions]="{ standalone: true }" [binary]="true" (onChange)="recalcPerDiem()"></p-checkbox>
-                          </td>
-                        }
-                        <td class="num">\${{ perDiemSubtotal(p.key) | number:'1.2-2' }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-                <p class="muted small">Tarifas de <code>config_finance.viatico_*</code>. El backend recalcula al guardar — este preview es solo informativo.</p>
+            <app-guia-calculada [personas]="guiaPersonas()" [comisiones]="guiaComisiones()"
+              [viaticos]="guiaViaticos()" [tarifas]="viaticoRates()"></app-guia-calculada>
+            @if (guiaErrores().length) {
+              <div class="faltan">
+                <p class="faltan-titulo">Para crear la guía falta:</p>
+                <ul id="sf-guia-faltan" role="status">
+                  @for (e of guiaErrores(); track e) { <li>{{ e }}</li> }
+                </ul>
               </div>
             }
           </div>
         }
-    
+
         <!-- ─── Cálculo de margen estimado ─── -->
         <p-divider></p-divider>
         <div class="margin-summary">
@@ -321,7 +286,8 @@ interface RouteOption {
     
       <ng-template #footer>
         <button pButton severity="secondary" [text]="true" (click)="cancel()" [disabled]="saving()"><span class="p-button-label">Cancelar</span></button>
-        <button pButton [loading]="saving()" [disabled]="form.invalid" (click)="submit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear embarque</span></button>
+        <button pButton [loading]="saving()" [disabled]="form.invalid || (includeGuide() && guiaErrores().length > 0)"
+          [attr.aria-describedby]="includeGuide() && guiaErrores().length ? 'sf-guia-faltan' : null" (click)="submit()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear embarque</span></button>
       </ng-template>
     </p-dialog>
     `,
@@ -362,15 +328,9 @@ interface RouteOption {
       .row.two, .row.three { grid-template-columns: 1fr; }
     }
 
-    .per-diem-toggle { background: var(--c-surface-2); padding: .65rem .85rem; border-radius: 6px; margin-top: .5rem; }
-    .per-diem-checklist { background: var(--c-surface-2); padding: .85rem; border-radius: 6px; margin-top: .5rem; }
-    .pd-table { width: 100%; border-collapse: collapse; font-size: .85rem; }
-    .pd-table th { text-align: center; padding: .5rem; font-weight: 600; color: var(--c-text-2); font-size: .8rem; }
-    .pd-table th small { font-weight: 400; font-size: .7rem; color: var(--c-text-2); }
-    .pd-table td { padding: .5rem; text-align: center; border-top: 1px solid var(--c-divider); }
-    .pd-table td:first-child { text-align: left; font-weight: 500; }
-    .pd-table .meal-col { width: 5rem; }
-    .pd-table .num { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+    .faltan { font-size: var(--fs-xs); color: var(--bad-soft-fg); }
+    .faltan-titulo { margin: 0; font-weight: var(--fw-bold); }
+    .faltan ul { margin: .2rem 0 0; padding-left: 1rem; }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -393,26 +353,8 @@ export class ShipmentFormDialogComponent {
   readonly vehicles = signal<{ id: string; plate: string; model?: string | null }[]>([]);
   readonly routes = signal<RouteOption[]>([]);
   readonly includeGuide = signal(false);
-  readonly autoPerDiem = signal(false);
-  autoPerDiemModel = false;
-  readonly viaticoRates = signal<Record<string, number>>({ cafe: 0, desayuno: 0, comida: 0, cena: 0 });
-  readonly perDiemCheck = signal<Record<'driver' | 'helper1' | 'helper2', Record<'cafe' | 'desayuno' | 'comida' | 'cena', boolean>>>({
-    driver:  { cafe: false, desayuno: false, comida: false, cena: false },
-    helper1: { cafe: false, desayuno: false, comida: false, cena: false },
-    helper2: { cafe: false, desayuno: false, comida: false, cena: false },
-  });
-
-  readonly personRows = [
-    { key: 'driver',  label: 'Chofer' },
-    { key: 'helper1', label: 'Ayudante 1' },
-    { key: 'helper2', label: 'Ayudante 2' },
-  ] as const;
-  readonly mealColumns = [
-    { key: 'cafe',     label: '☕ Café' },
-    { key: 'desayuno', label: '🍳 Desayuno' },
-    { key: 'comida',   label: '🍽️ Comida' },
-    { key: 'cena',     label: '🌙 Cena' },
-  ] as const;
+  /** Tarifas de viático por comida (`config_finance`, categoría `viatico`). null = aún no se leen. */
+  readonly viaticoRates = signal<TarifasViatico | null>(null);
 
   readonly typeOptions: { label: string; value: ShipmentType }[] = [
     { label: 'Entrega', value: 'entrega' },
@@ -450,22 +392,62 @@ export class ShipmentFormDialogComponent {
     cargo_value: [0],
     freight_revenue: [0],
     notes: [''],
+    // EMB.19 — sólo lo que se elige. Comisión y viáticos se calculan (ver `guiaComisiones`/`guiaViaticos`).
     guide: this.fb.group({
-      driver_id: [null],
-      driver_commission: [0],
-      helper1_id: [null],
-      helper1_commission: [0],
-      helper2_id: [null],
-      helper2_commission: [0],
-      per_diem_total: [0],
+      driver_id: [null as string | null],
+      helper1_id: [null as string | null],
+      helper2_id: [null as string | null],
+      departure_time: [''],
+      arrival_time: [''],
       overnight: [false],
     }),
   });
 
+  private readonly valor = toSignal(this.form.valueChanges.pipe(startWith(this.form.value)), { initialValue: this.form.value });
+  /** La ruta elegida con su tarifa. null = sin ruta. */
+  readonly rutaGuia = computed((): TarifaDeRuta | null => {
+    const r = this.routes().find((x) => x.id === this.valor().route_id);
+    return r ? { route_id: r.id, nombre: r.name, driver: r.driver_commission, helper: r.helper_commission } : null;
+  });
+  private readonly guiaVa = computed(() => {
+    const g = this.valor().guide || {};
+    return { driver: !!g.driver_id, helper1: !!g.helper1_id, helper2: !!g.helper2_id };
+  });
+  readonly guiaErrores = computed(() => {
+    const t = this.viaticoRates();
+    if (!t) return ['Leyendo las tarifas de viáticos…'];
+    return erroresDeGuiaManual(this.valor().guide || {}, this.rutaGuia(), t);
+  });
+  readonly guiaComisiones = computed(() => {
+    const r = this.rutaGuia();
+    const va = this.guiaVa();
+    if (!r || erroresDeTarifaDeRuta(r, va).length) return null;
+    return comisionesDeLaGuia({ driver: r.driver, helper: r.helper }, va);
+  });
+  readonly guiaViaticos = computed(() => {
+    const t = this.viaticoRates();
+    const g = this.valor().guide || {};
+    if (!t) return null;
+    const h = { salida: g.departure_time || null, llegada: g.arrival_time || null, duerme_fuera: !!g.overnight };
+    return erroresDeViaticos(h, t).length ? null : viaticosDeLaGuia(h, t, this.guiaVa());
+  });
+  readonly guiaPersonas = computed((): PersonaDeLaGuia[] => {
+    const g = this.valor().guide || {};
+    const nombre = (id: string | null | undefined) => (id ? this.drivers().find((d) => d.id === id)?.full_name ?? null : null);
+    const xs: PersonaDeLaGuia[] = [{ key: 'driver', rol: 'Chofer', nombre: nombre(g.driver_id) }];
+    if (g.helper1_id) xs.push({ key: 'helper1', rol: 'Ayudante 1', nombre: nombre(g.helper1_id) });
+    if (g.helper2_id) xs.push({ key: 'helper2', rol: 'Ayudante 2', nombre: nombre(g.helper2_id) });
+    return xs;
+  });
+
   // ── Computed financiero ─────────────────────────────────────────────────
-  readonly revenue = signal(0);
-  readonly totalCommissions = signal(0);
-  readonly perDiem = signal(0);
+  readonly revenue = computed(() => Number(this.valor().freight_revenue || 0));
+  /** Sin guía, o con la guía incompleta, no hay comisión ni viático que restar: el margen lo dice. */
+  readonly totalCommissions = computed(() => {
+    const k = this.includeGuide() ? this.guiaComisiones() : null;
+    return k ? k.driver_commission + k.helper1_commission + k.helper2_commission : 0;
+  });
+  readonly perDiem = computed(() => (this.includeGuide() ? this.guiaViaticos()?.total ?? 0 : 0));
   readonly estimatedMargin = computed(() => this.revenue() - this.totalCommissions() - this.perDiem());
 
   constructor() {
@@ -474,7 +456,7 @@ export class ShipmentFormDialogComponent {
       drivers: this.api.listDrivers({ active: true }),
       vehicles: this.api.listVehicles({ active: true }),
       routes: this.api.listRoutes({ active: true }),
-      viatico: this.api.listConfig('viatico'),
+      viatico: this.api.listConfig('viatico', true),
     }).subscribe({
       next: ({ drivers, vehicles, routes, viatico }) => {
         this.drivers.set(drivers || []);
@@ -490,12 +472,7 @@ export class ShipmentFormDialogComponent {
             estimated_km: r.estimated_km != null ? Number(r.estimated_km) : null,
           })),
         );
-        const rates: Record<string, number> = { cafe: 0, desayuno: 0, comida: 0, cena: 0 };
-        for (const v of (viatico as ConfigItem[]) || []) {
-          const meal = v.key.replace(/^viatico_/, '');
-          rates[meal] = Number(v.value) || 0;
-        }
-        this.viaticoRates.set(rates);
+        this.viaticoRates.set(tarifasDeViatico((viatico as ConfigItem[]) || []));
       },
       error: () => {
         this.toast.add({ severity: 'warn', summary: 'Carga parcial', detail: 'Algunos catálogos no se cargaron' });
@@ -523,31 +500,7 @@ export class ShipmentFormDialogComponent {
       if (route.origin && !this.form.get('origin')?.value) patch.origin = route.origin;
       if (!this.form.get('destination')?.value) patch.destination = route.destination || route.name;
       if (Object.keys(patch).length) this.form.patchValue(patch);
-      // Auto-fill comisiones de guía si la sección está activa
-      if (this.includeGuide()) {
-        this.form.get('guide')?.patchValue({
-          driver_commission: route.driver_commission || 0,
-          helper1_commission: route.helper_commission || 0,
-          helper2_commission: route.helper_commission || 0,
-        });
-      }
-    });
-
-    // Effect: recalcular margen en vivo
-    this.form.valueChanges.subscribe((v) => {
-      this.revenue.set(Number(v.freight_revenue || 0));
-      if (this.includeGuide()) {
-        const g = v.guide || {};
-        this.totalCommissions.set(
-          Number(g.driver_commission || 0) +
-          Number(g.helper1_commission || 0) +
-          Number(g.helper2_commission || 0),
-        );
-        this.perDiem.set(Number(g.per_diem_total || 0));
-      } else {
-        this.totalCommissions.set(0);
-        this.perDiem.set(0);
-      }
+      // La comisión de la guía no se copia aquí: se calcula de la ruta (`guiaComisiones`).
     });
   }
 
@@ -556,30 +509,6 @@ export class ShipmentFormDialogComponent {
   }
   setIncludeGuide(v: boolean): void {
     this.includeGuide.set(v);
-  }
-
-  // ── Auto per-diem helpers ──────────────────────────────────────────────
-  onAutoPerDiemToggle(on: boolean): void {
-    this.autoPerDiem.set(!!on);
-    if (on) this.recalcPerDiem();
-  }
-  viaticoRate(meal: string): number {
-    return this.viaticoRates()[meal] || 0;
-  }
-  perDiemSubtotal(person: 'driver' | 'helper1' | 'helper2'): number {
-    const checks = this.perDiemCheck()[person];
-    let s = 0;
-    for (const m of ['cafe', 'desayuno', 'comida', 'cena'] as const) {
-      if (checks[m]) s += this.viaticoRates()[m] || 0;
-    }
-    return s;
-  }
-  recalcPerDiem(): void {
-    if (!this.autoPerDiem()) return;
-    // Force signal re-emission (object mutation no triggers it)
-    this.perDiemCheck.set({ ...this.perDiemCheck() });
-    const total = this.perDiemSubtotal('driver') + this.perDiemSubtotal('helper1') + this.perDiemSubtotal('helper2');
-    this.form.get('guide')?.patchValue({ per_diem_total: total });
   }
 
   cancel(): void {
@@ -592,25 +521,21 @@ export class ShipmentFormDialogComponent {
       actual_km: 0, boxes_count: 0, total_weight_kg: 0, cargo_value: 0, freight_revenue: 0,
       notes: '',
       guide: {
-        driver_id: null, driver_commission: 0,
-        helper1_id: null, helper1_commission: 0,
-        helper2_id: null, helper2_commission: 0,
-        per_diem_total: 0, overnight: false,
+        driver_id: null, helper1_id: null, helper2_id: null,
+        departure_time: '', arrival_time: '', overnight: false,
       },
     });
     this.includeGuide.set(false);
-    this.autoPerDiem.set(false);
-    this.autoPerDiemModel = false;
-    this.perDiemCheck.set({
-      driver:  { cafe: false, desayuno: false, comida: false, cena: false },
-      helper1: { cafe: false, desayuno: false, comida: false, cena: false },
-      helper2: { cafe: false, desayuno: false, comida: false, cena: false },
-    });
   }
 
   submit(): void {
     if (this.form.invalid) {
       this.toast.add({ severity: 'warn', summary: 'Form inválido', detail: 'Revisá los campos obligatorios' });
+      return;
+    }
+    // Con guía incompleta no se crea ni el embarque: antes quedaba creado y la guía fallaba aparte.
+    if (this.includeGuide() && this.guiaErrores().length) {
+      this.toast.add({ severity: 'warn', summary: 'Falta para la guía', detail: this.guiaErrores().join(' ') });
       return;
     }
     const raw = this.form.getRawValue();
@@ -640,26 +565,16 @@ export class ShipmentFormDialogComponent {
     this.api.createShipment(shipmentPayload).subscribe({
       next: (ship) => {
         // Si incluyó guide, crearla
-        if (this.includeGuide() && raw.guide?.driver_id) {
-          const guideBody: Partial<DeliveryGuide> & {
-            shipment_id: string;
-            auto_per_diem?: boolean;
-            per_diem_breakdown?: any;
-          } = {
+        if (this.includeGuide()) {
+          const guideBody: NuevaGuiaBody = {
             shipment_id: ship.id,
-            driver_id: raw.guide.driver_id,
-            driver_commission: Number(raw.guide.driver_commission) || 0,
-            helper1_id: raw.guide.helper1_id || undefined,
-            helper1_commission: Number(raw.guide.helper1_commission) || 0,
-            helper2_id: raw.guide.helper2_id || undefined,
-            helper2_commission: Number(raw.guide.helper2_commission) || 0,
-            per_diem_total: Number(raw.guide.per_diem_total) || 0,
-            overnight: raw.guide.overnight || false,
+            driver_id: raw.guide.driver_id || null,
+            helper1_id: raw.guide.helper1_id || null,
+            helper2_id: raw.guide.helper2_id || null,
+            departure_time: raw.guide.departure_time || null,
+            arrival_time: raw.guide.arrival_time || null,
+            overnight: !!raw.guide.overnight,
           };
-          if (this.autoPerDiem()) {
-            guideBody.auto_per_diem = true;
-            guideBody.per_diem_breakdown = this.perDiemCheck();
-          }
           this.api.createGuide(guideBody).subscribe({
             next: () => {
               this.saving.set(false);
