@@ -4,6 +4,30 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-07 — `[AB.13]` Reporte PDF del almacenista, restringido a su almacén
+
+**Medido antes de construir (prod, solo lectura):** el rol `almacenista` **no tenía** `AUTOABASTO_VER` (la migración del 19-sep lo derivó de `COMMERCIAL_INVENTORY_VER`, que el almacenista recibió el 29-sep con [IC.2]); su alcance de almacén era `all`; y **5 de 6 almacenistas no tienen `warehouse_code`** en su ficha. Ningún módulo consultaba aún el área de alcance `almacen`, así que una regla por área no le cambia nada fuera de Autoabasto.
+
+**Simulación como almacenista** (código real de ScopeService + controlador + motor, contra prod en solo lectura; la fila de la migración se inyectó EN MEMORIA al leer `role_scopes`): luis_espino (01) pasa de ver 20 almacenes / 21,409 renglones a ver sólo 01 / 3,209; pedir el reporte de 02 o 00 → 403; brian_zavala (sin almacén) → 0 y 403. PDF generado y revisado página por página (Chrome + pdf.js).
+
+**Lo que la simulación encontró y se corrigió antes del commit:** (1) 7 MB por falta de `compress` → 550 KB; (2) 3,209 renglones incluían 289 ya cubiertos por lo que viene en camino → sólo lo que falta; (3) «sin venta» clasificaba por `avg_daily_units`, que llega en cajas redondeado a 2 decimales → 1,440 en vez de ~1,011; ahora por `sales_rank` (973); (4) «cada 1.0 d» (numeric de Postgres como texto).
+
+**Lo que queda abierto, visto en el papel:** Padre Hidalgo son **96 páginas** (2,920 productos con faltante, 973 sin venta); hay renglones de 0.1 caja que la regla de redondeo (§15.2) convertirá a piezas; aparecen códigos `* DESC…` (descuentos, no mercancía, ver CV.12) y TIEMPO AIRE (un servicio) con 2,326 cajas de faltante; y el grupo «De 00» dice «Comprar» en la acción — el origen configurado es el 00, pero en la red no sobra, así que alguien tiene que comprarlo.
+
+## 2026-10-07 — `[AB.12]` Autoabasto: el reparto del sobrante de red, y un resumen que llevaba 4 semanas muerto
+
+**Disparador:** revisión de `/almacen/autoabasto` antes de construir el pedido del almacenista (§15 de [FASE_AB](FASES/FASE_AB_AUTOABASTO.md)). Con solicitudes reales, el sobrante prometido varias veces se vuelve dos sucursales pidiéndole las mismas cajas al mismo origen.
+
+**Medido en prod (solo lectura):** 1,819 de 4,157 productos con traspaso prometidos de más; 600,838 unidades prometidas contra 445,017 que existen (+35%).
+
+**Hecho:** `networkSurplus()` agrega a la subconsulta de red lo que la red PIDE (`need_total`); `transferIn()` da a cada sucursal `faltante × min(1, sobrante ÷ Σ faltantes)` — el reparto que `transferPlan()` ya usaba (RA-PRO.29.1), no uno nuevo. Proporcional y no por prioridad para no decidir quién va primero; si el negocio lo decide, cambia una función. Se ejecutó el método REAL (bundle con esbuild, conexión de solo lectura, sin levantar el backend): Σ traspaso de la red = 445,017 exacto, 0 renglones con falta ≠ traspaso + compra, base por cadencia válida.
+
+**Encontrado de paso:** `summary()` usaba `costUnit()` (lee `euc.*`) sin joinear `analytics.v_erp_unit_cost` desde [VA.4] (2026-09-11). Cada llamada respondía 500; las dos pantallas que lo leen lo tragaban y dejaban los KPIs vacíos. Verificado: la versión de `origin/main` falla, la nueva responde.
+
+**Tiempos (prod, 2 rondas):** mesa pág. 1 ~5.7–7.7 s (antes 7.4–8.2 s) · red completa 8.6–9.3 s (antes 7.0–8.5 s). La mesa ya era lenta antes del cambio — deuda aparte.
+
+**Lección:** un error de un endpoint secundario tragado en el front (`error: () => this.resumen.set(null)`) escondió un 500 cuatro semanas. Un fallo silenciado se lee igual que un dato vacío.
+
 ---
 ## 2026-10-07 — `[PU.VA]` El supuesto de crecimiento gana árbitro, y el mes en curso deja de ser base
 
