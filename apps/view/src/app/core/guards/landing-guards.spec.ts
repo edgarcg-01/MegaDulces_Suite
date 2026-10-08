@@ -82,6 +82,10 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // se la da sólo a roles que también reciben OBLIGACIONES_VER (gerente_compras, compras, direccion).
   { perm: Permission.COMPRAS_PLAZOS_AUTORIZAR, url: '/compras/obligaciones', motivo: 'facultad de firma: la ruta exige OBLIGACIONES_VER' },
   { perm: Permission.COMPRAS_REQUISICIONES_GESTIONAR, url: '/compras/requisiciones', motivo: 'manage sin view' },
+  // `[RQ.12]` (2026-10-08) entró al árbol como `manage` y la ruta exige VER. Hoy no rebota a nadie: se reparte POR
+  // PERSONA (`identity.user_permissions`) a una gerente de compras que ya tiene VER. Si algún día se reparte a quien
+  // no ve requisiciones, la ruta tiene que aceptarla (y el GET de la lista también). Mismo caso que PLAZOS_AUTORIZAR.
+  { perm: Permission.COMPRAS_REQUISICIONES_AUTORIZAR, url: '/compras/requisiciones', motivo: 'facultad de firma: se reparte por persona a quien ya tiene REQUISICIONES_VER; la ruta exige VER' },
   { perm: Permission.COMPRAS_ORDENES_GESTIONAR, url: '/compras/ordenes', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_ENTRADAS_VALIDAR, url: '/compras/entradas', motivo: 'la bandeja exige GESTIONAR; VALIDAR solo no abre nada' },
   { perm: Permission.COMPRAS_360_VER, url: '/compras/costo-por-compra', motivo: 'la ruta exige ENTRADAS_VER; medido 2026-08-29: todo rol con 360 tiene ENTRADAS_VER' },

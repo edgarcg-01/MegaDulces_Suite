@@ -10,6 +10,7 @@ import { HrAttendanceIncidentsService, type ActorIncidencia } from './attendance
 import { HrAttendanceClosuresService } from './attendance-closures.service';
 import { HrAttendanceSchedulesService, type HorarioPersonaDto, type HorarioSitioDto } from './attendance-schedules.service';
 import type { CapturaIncidencia } from './logic/incidencias';
+import type { HrPersonaDirectorioDto } from '@megadulces/contracts';
 import { RE_FECHA } from './logic/fechas';
 
 /**
@@ -89,7 +90,7 @@ export class HrAttendanceController {
   @Get('people')
   @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — el directorio de todas las plazas (para buscar a alguien sin saber dónde checa).' })
-  directorio() {
+  directorio(): Promise<HrPersonaDirectorioDto[]> {
     return this.report.directorio();
   }
 
