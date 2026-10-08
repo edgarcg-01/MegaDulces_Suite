@@ -2242,6 +2242,58 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.caosVinculados().length).toBe(0);
   });
 
+  /**
+   * ⛔ `[CG.70]` **El cajero se nombra UNA vez.** Reportado por Edgar mirando la pantalla:
+   * *"repetiste lo de caos dos veces"*.
+   *
+   * Había dos paneles —el detector de CS.3.4 y la mención aparte de CS.3.7— cada uno con su
+   * recuadro y los dos rotulados `Del cajero (CAOS)`. Sus condiciones **no son excluyentes**:
+   * `!caosElegido()` y `hayCajero()` son verdaderas a la vez en el camino normal (anclar un cobro
+   * de Kepler → buscar → vincular un retiro), que es justo el que este test reproduce.
+   *
+   * ⚠️ La cuenta va contra el **texto** del apartado, no contra `strong`/`label`: lo que se afirma
+   * es que la frase no aparezca dos veces, y amarrarla a una etiqueta concreta deja pasar la
+   * repetición si alguien la vuelve a poner con otro elemento.
+   */
+  it('⛔ [CG.70] el apartado del arqueo nombra al cajero UNA sola vez, con y sin efectivo vinculado', async () => {
+    const fx = montar({ caosCandidatos: vi.fn(() => of({ rows: [CANDIDATO], fecha: '2026-09-24', datos_al: null })) });
+    comp.abrirCaptura();
+    fx.detectChanges();
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const veces = () => {
+      const ap = fx.nativeElement.querySelector('.cg-ap-arqueo') as HTMLElement | null;
+      expect(ap, 'no hay apartado de arqueo que medir').not.toBeNull();
+      return (ap!.textContent ?? '').match(/[Dd]el cajero \(CAOS\)/g)?.length ?? 0;
+    };
+    const paneles = () => fx.nativeElement.querySelectorAll('.cg-ap-arqueo .cg-caja-aparte').length;
+
+    // (a) Sin nada del cajero: el panel está —es la puerta para buscar retiros— y se nombra una vez.
+    expect(comp.hayCajero()).toBe(false);
+    // ⚠️ El mensaje nombra las DOS fallas posibles: la primera redacción decía sólo "ya se
+    // repetía" y la mutación que hizo desaparecer el panel disparó justo acá — con un texto que
+    // mandaba a buscar una repetición que no existía.
+    expect(veces(), 'sin efectivo del cajero el rótulo debe estar UNA vez: 0 = se perdió el panel, 2 = se repite').toBe(1);
+    expect(paneles(), 'sin efectivo del cajero debe haber UN panel: 0 = no hay puerta para buscar retiros').toBe(1);
+    // Y la búsqueda sigue a mano: la fusión no se llevó el control (era lo único de CS.3.4).
+    const botones = Array.from(fx.nativeElement.querySelectorAll('button')) as HTMLButtonElement[];
+    expect(botones.some((b) => /buscar retiros/i.test(b.textContent ?? '')),
+      'se perdió el botón de buscar retiros').toBe(true);
+
+    // (b) Con un retiro vinculado —las DOS condiciones verdaderas, el caso del reporte—: sigue una.
+    comp.buscarEnCajero();
+    comp.vincularCaos(comp.caosSugeridos()[0] as any);
+    fx.detectChanges();
+    expect(comp.hayCajero()).toBe(true);
+    expect(comp.caosElegido()).toBeNull();
+    expect(veces(), 'el rótulo del cajero aparece dos veces').toBe(1);
+    expect(paneles(), 'dos recuadros para el mismo asunto').toBe(1);
+    // El monto del cajero sigue dicho (la fusión no lo tiró al unir los dos rótulos).
+    expect((fx.nativeElement.querySelector('.cg-ap-arqueo') as HTMLElement).textContent)
+      .toContain(comp.money(comp.aporteCajero()));
+  });
+
   // ── CS.3.13 · VENTA A CRÉDITO (cliente de crédito) ──────────────────────────────────────────
   it('CS.3.13 — capturar un cobro de cliente de crédito auto-rellena «venta a crédito» = el total', () => {
     montar();
