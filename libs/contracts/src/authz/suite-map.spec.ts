@@ -68,11 +68,12 @@ describe('SUITE_SPACES · el mapa contra el árbol', () => {
     expect(ordenados.map((s) => s.order)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
   });
 
-  it('los dos espacios sin módulo son planned y no llevan entradas', () => {
+  it('el único espacio sin módulo es planned y no lleva entradas', () => {
     // Eran tres: «Sistemas, Servicios y Mantenimiento» se activó con Desarrolladores › Proyectos
-    // (Fase DEV, 2026-10-01). Si vuelve a quedar sin entradas, tiene que volver a `planned`.
+    // (Fase DEV, 2026-10-01) y «Recursos Humanos» con Personal ([RH.1.7], Fase RH). Si alguno vuelve
+    // a quedar sin entradas, tiene que volver a `planned`.
     const planned = SUITE_SPACES.filter((s) => s.status === 'planned').map((s) => s.id).sort();
-    expect(planned).toEqual(['operacion-por-zonas', 'recursos-humanos']);
+    expect(planned).toEqual(['operacion-por-zonas']);
     for (const s of SUITE_SPACES.filter((x) => x.status === 'planned')) expect(s.entries).toEqual([]);
   });
 
@@ -85,6 +86,23 @@ describe('SUITE_SPACES · el mapa contra el árbol', () => {
     expect(entryPermissions(entrada).sort()).toEqual(
       [Permission.DEV_PROJECTS_GESTIONAR, Permission.DEV_PROJECTS_VER].sort(),
     );
+  });
+
+  it('Personal vive en «Recursos Humanos» y abre con cualquiera de sus siete claves de pantalla', () => {
+    const rh = SUITE_SPACES.find((s) => s.id === 'recursos-humanos')!;
+    expect(rh.status).toBe('active');
+    const e = rh.entries.find((x) => x.project === 'rh')!;
+    expect(e).toBeDefined();
+    expect(entryRoute(e)).toBe('/rh');
+    expect(entryPermissions(e).sort()).toEqual(
+      [
+        Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR, Permission.HR_INCIDENTS_CAPTURAR,
+        Permission.HR_INCIDENTS_AUDITAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_PERIOD_CLOSE,
+        Permission.HR_DEVICES_GESTIONAR,
+      ].sort(),
+    );
+    // El kiosco sigue siendo otra puerta: checar no abre RH.
+    expect(entryPermissions(e)).not.toContain(Permission.HR_ATTENDANCE_CHECAR);
   });
 
   it('cada proyecto de la app view tiene exactamente una casa primaria (espacio o sin clasificar)', () => {
@@ -149,14 +167,14 @@ describe('validateSuiteMap · pruebas NEGATIVAS (el validador tiene que ponerse 
 
   it('un espacio planned con entradas, y uno activo vacío', () => {
     const mapa = clonar();
-    const rh = espacio(mapa, 'recursos-humanos');
-    (rh as { entries: SuiteEntry[] }).entries = [
-      { id: 'rh-x', kind: 'module', project: 'trade', module: 'catalogs', crossLink: true, source: { status: 'propuesta', cite: 'x' } },
+    const zonas = espacio(mapa, 'operacion-por-zonas');
+    (zonas as { entries: SuiteEntry[] }).entries = [
+      { id: 'zonas-x', kind: 'module', project: 'trade', module: 'catalogs', crossLink: true, source: { status: 'propuesta', cite: 'x' } },
     ];
     const fin = espacio(mapa, 'administracion-y-finanzas');
     (fin as { entries: SuiteEntry[] }).entries = [];
     const errores = validateSuiteMap(mapa).join('\n');
-    expect(errores).toMatch(/recursos-humanos: planned con entradas/);
+    expect(errores).toMatch(/operacion-por-zonas: planned con entradas/);
     expect(errores).toMatch(/administracion-y-finanzas: active sin entradas/);
     // …y los proyectos que perdieron casa también se acusan.
     expect(errores).toMatch(/proyecto finanzas: 0 entradas primarias/);
@@ -228,7 +246,7 @@ describe('visibleSuiteMap · lo que ve cada persona', () => {
   it('sin permisos: ningún espacio, y los planned igual se DECLARAN', () => {
     const vis = visibleSuiteMap({}, false, null);
     expect(vis.spaces).toEqual([]);
-    expect(vis.declared.map((s) => s.id)).toEqual(['operacion-por-zonas', 'recursos-humanos']);
+    expect(vis.declared.map((s) => s.id)).toEqual(['operacion-por-zonas']);
   });
 
   it('permisos en null (todavía no cargaron) se tratan como vacío, no como error', () => {
@@ -256,13 +274,15 @@ describe('visibleSuiteMap · lo que ve cada persona', () => {
       'almacenes-y-logistica',
       'administracion-y-finanzas',
       'auditoria-prevencion-control',
+      'recursos-humanos',
       'sistemas-servicios-mantenimiento',
       'configuracion-de-la-suite',
     ]);
-    // Quince puertas primarias: los 16 proyectos menos WhatsApp, que no tiene ruta.
+    // Dieciséis puertas primarias: los 17 proyectos menos WhatsApp, que no tiene ruta.
     // (+1 Presupuestos, módulo propio desde Fase PU; +1 MKT, proyecto propio desde [MKT.0];
-    //  +1 Desarrolladores, Fase DEV 2026-10-01; +1 Mesa de Servicio, [MS.3.1] 2026-10-02.)
-    expect(primaryDestinations(vis)).toHaveLength(15);
+    //  +1 Desarrolladores, Fase DEV 2026-10-01; +1 Mesa de Servicio, [MS.3.1] 2026-10-02;
+    //  +1 Personal, [RH.1.7] 2026-10-07.)
+    expect(primaryDestinations(vis)).toHaveLength(16);
     expect(ids(vis)).not.toContain('whatsapp-bot');
   });
 

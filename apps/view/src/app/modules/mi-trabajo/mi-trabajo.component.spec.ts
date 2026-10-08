@@ -351,19 +351,28 @@ describe('MiTrabajoComponent · lo que ve cada persona', () => {
     expect(tarjetas().length).toBe(0);
   });
 
-  it('el admin de plataforma ve los 7 espacios (5 activos + 2 propuestos con su P-xx) y los planned sólo declarados', async () => {
+  it('el admin de plataforma ve los 8 espacios (6 activos + 2 propuestos con su P-xx) y el planned sólo declarado', async () => {
     await montar({ perms: [], role: 'superadmin' });
     expect(navigate).not.toHaveBeenCalled();
-    // 7 desde Fase DEV: «Sistemas, Servicios y Mantenimiento» se activó con Desarrolladores.
-    expect(q('section.mt-space').length).toBe(7);
+    // 7 desde Fase DEV («Sistemas, Servicios y Mantenimiento» se activó con Desarrolladores);
+    // 8 desde [RH.1.7] («Recursos Humanos» se activó con Personal).
+    expect(q('section.mt-space').length).toBe(8);
     expect(html()).toContain('P-03');
     expect(html()).toContain('P-06');
     expect(html()).toContain('Configuración de la suite');
-    // Los planned no son sección: son una línea al pie.
-    expect(q('#espacio-recursos-humanos').length).toBe(0);
+    expect(q('#espacio-recursos-humanos').length).toBe(1);
+    // El planned no es sección: es una línea al pie.
+    expect(q('#espacio-operacion-por-zonas').length).toBe(0);
     expect(html()).toContain('Espacios sin funciones todavía');
     expect(html()).toContain('Operación por zonas');
+  });
+
+  it('quien sólo captura incidencias ve «Recursos Humanos › Personal» y entra a /rh', async () => {
+    await montar({ perms: [Permission.HR_INCIDENTS_CAPTURAR], role: 'rh_captura', stay: true });
+    const hrefs = Array.from(tarjetas()).map((a) => a.getAttribute('href'));
+    expect(hrefs).toEqual(['/rh']);
     expect(html()).toContain('Recursos Humanos');
+    expect(html()).toContain('Personal');
   });
 
   it('el vendedor no ve el back-office de Ventas aunque tenga la clave', async () => {

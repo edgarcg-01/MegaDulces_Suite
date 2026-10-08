@@ -2,7 +2,7 @@ import { inject } from '@angular/core';
 import { Router, Routes, UrlMatcher } from '@angular/router';
 import { LayoutComponent } from './modules/dashboard/layout/layout.component';
 import { authGuard } from './core/guards/auth.guard';
-import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard } from './core/guards/permission.guard';
+import { permissionGuard, anyPermissionGuard, carteraEntryGuard, colaboradorGuard, comercialHomeGuard, mktHomeGuard, almacenHomeGuard, logisticaHomeGuard, comprasHomeGuard, finanzasHomeGuard, contabilidadHomeGuard, adminHomeGuard, repartoHomeGuard, preciosHomeGuard, desarrolladoresHomeGuard, servicioHomeGuard, rhHomeGuard } from './core/guards/permission.guard';
 import { Permission } from './core/constants/permissions';
 import { televentaGuard } from './modules/televenta/televenta.guard';
 import { repartoGuard } from './modules/reparto/reparto.guard';
@@ -748,6 +748,38 @@ export const routes: Routes = [
         path: 'proyectos',
         canActivate: [anyPermissionGuard(Permission.DEV_PROJECTS_VER, Permission.DEV_PROJECTS_GESTIONAR)],
         loadComponent: () => import('./modules/desarrolladores/pages/dev-proyectos.component').then(m => m.DevProyectosComponent),
+      },
+    ]
+  },
+  // ── Proyecto Personal (Fase RH, ADR-084) ────────────────────────────
+  // `[RH.1.7]` La asistencia que hoy vive en Mega Talento: asistencia por persona, incidencias con su
+  // cierre semanal, y los relojes checadores. Cada ruta pide lo mismo que su endpoint de lectura: gestionar
+  // implica ver (el servidor lo acepta igual), así que ningún permiso del árbol aterriza en un rebote.
+  {
+    path: 'rh',
+    canActivate: [authGuard],
+    component: LayoutComponent,
+    children: [
+      {
+        path: '',
+        pathMatch: 'full',
+        canActivate: [rhHomeGuard],
+        loadComponent: () => import('./modules/rh/pages/rh-asistencia.component').then(m => m.RhAsistenciaComponent),
+      },
+      {
+        path: 'asistencia',
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-asistencia.component').then(m => m.RhAsistenciaComponent),
+      },
+      {
+        path: 'incidencias',
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE)],
+        loadComponent: () => import('./modules/rh/pages/rh-incidencias.component').then(m => m.RhIncidenciasComponent),
+      },
+      {
+        path: 'relojes',
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-relojes.component').then(m => m.RhRelojesComponent),
       },
     ]
   },
