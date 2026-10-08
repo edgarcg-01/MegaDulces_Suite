@@ -3545,3 +3545,155 @@ egreso ($74,852,191) da **87.62 %**, imposible contra un margen medido de **11.8
 **Medición reproducible:** los 11 scripts de esta auditoría corrieron read-only dentro del pod de
 prod. El decisivo es el pareo por cobertura de periodos (§24.3), cuyo control negativo es el propio
 `mostrador:03`: con el criterio `> 0` da +16,916 %, con el de cobertura queda **excluido**.
+
+---
+
+## 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08)
+
+### 25.1 Qué arbitra esta sección
+
+§24 arbitró el crecimiento de **ventas** y encontró que era cobertura. Ésta arbitra el otro lado
+del mismo plan: **el egreso**. No es la misma pregunta ni la misma fuente, y el resultado es el
+opuesto — el gasto es **trazable al centavo y no crece nada**.
+
+Medido contra **prod** (`192.168.0.222:5434`, usuario `edgar` con
+`default_transaction_read_only = on`), **2026-10-08 16:13 MX**, read-only.
+
+### 25.2 ⛔ Los 374 renglones del plan de gasto son copia exacta de la historia
+
+| afirmación | medición |
+|---|---|
+| `monto = base_amount` | **374 de 374** renglones, en los 3 ejercicios |
+| `Σ\|monto − base\|` | **$0.00** |
+| `growth_pct` | **0.0000** en los 374, cero nulos, en los dos métodos |
+| `budget.expense_plan_settings` | **0 filas** — nadie firmó un supuesto de gasto |
+
+### 25.3 El árbitro, y cuadra al centavo
+
+La base **no es una derivación**: es el gasto contable realizado. Fuente declarada en
+`budget-expense-plan.service.ts:181` → `analytics.expense_entries`, acotado a las cuentas del plan.
+
+| cuenta | base del plan FY2027 | `expense_entries` ene–sep 2026 | Δ |
+|---|---:|---:|---:|
+| 601 Sueldos | $31,153,775.32 | $31,153,775.32 | $0.00 |
+| 602 Logística | $6,923,063.02 | $6,923,063.02 | $0.00 |
+| 611 Venta | $6,529,448.74 | $6,529,448.74 | $0.00 |
+| 603 Local | $5,187,149.60 | $5,187,149.60 | $0.00 |
+| **14 de 14 cuentas** | | | **Σ = $0.00** |
+
+FY2026 `prueba 2` usa la misma mecánica con otro año: su base ago–dic 2026 **es `expense_entries`
+ago–dic 2025**, al centavo en los 5 meses. ⭐ El motor toma el mismo mes del año completo más
+reciente — **esa parte está bien hecha**. El defecto no es de dónde sale la base.
+
+### 25.4 ⭐⭐ La asimetría: el margen del ejercicio mejora por construcción
+
+`budget.generation_runs.assumptions` (GEN-20261008-019, `trigger: cron`) guarda **sólo supuestos de
+venta**: `growth_by_channel` = ruta 8.26 % · mayoreo 26.67 % · preventa 51.21 % · mostrador
+21.05 %; `default_growth_pct` 26.67 %. Del lado del gasto, **0.0000**.
+
+⛔ **Ningún «margen operativo proyectado» que cruce meta contra egreso es defendible**: la mejora no
+viene de una decisión, viene de que un lado crece y el otro está congelado. Puesto junto a §24 —donde
+el comparable de venta **cae 2.95 %**— el ejercicio proyecta margen creciente sobre una venta que se
+contrae y un gasto que se repite.
+
+### 25.5 El método `estacional` del gasto es el PROMEDIO PLANO
+
+Rellena oct/nov/dic con `suma(ene–sep) / 9`, idéntico en los tres meses, verificado al centavo:
+
+| cuenta | observado (9m) | promedio | relleno (3m) |
+|---|---:|---:|---:|
+| 601 | $31,153,775.32 | $3,461,530.59 | $3,461,530.59 ×3 |
+| 602 | $6,923,063.02 | $769,229.22 | $769,229.22 ×3 |
+| 611 | $6,529,448.74 | $725,494.30 | $725,494.30 ×3 |
+
+⛔ Para una dulcería eso **subestima el trimestre más caro del año**, y en 601 aplana diciembre, que
+lleva aguinaldo por ley. ⭐ Y cae en **el mismo trimestre** que el hueco de ventas de §24: el
+presupuesto no ve la temporada alta por **ninguno** de los dos lados — no le pone venta y le pone
+gasto promedio. Es un solo defecto estructural visto dos veces.
+
+⚠️ **Alcance:** esto es de `budget-expense-plan`. El `estacional` de `budget-sales-plan` **sí** varía
+por entidad. Ese contraste es el defecto de contrato de **§24.7**: la etiqueta `method` no carga
+información.
+
+### 25.6 ⛔ El presupuesto no contempla la compra de mercancía
+
+`budget.budget_lines` tiene **sólo dos `line_type`: `ingreso` (99) y `gasto` (40)**. Los tipos
+`costo_ventas`, `compra_inventario`, `inversion` y `flujo` existen en el CHECK y **no tienen ni una
+sola partida**.
+
+Testigo independiente — `finance.payment_program`, ene–jul 2026 ($354,486,680.75): `compra` =
+**$303,802,201.44 = 85.70 %** del desembolso de tesorería (de la rosa, mondelez, ferrero, mars,
+hershey, bimbo). ⚠️ Ese 85.70 % es *share del desembolso de tesorería* y **no sirve de denominador
+del gasto operativo**: ver la trampa de universo en **§24.9**.
+
+### 25.7 ⛔ FY2027 está duplicado: todo agregado por `fiscal_year` publica el DOBLE
+
+| id | FY | folio | creado | huella md5 | nombre |
+|---|---|---|---|---|---|
+| `e6c86aab…871723` | 2027 | `PRE-2027-002` | 10-07 13:07 | `12e0cfab…` | Presupuesto 2027 |
+| `f517eabd…1fef64e` | 2027 | **(sin folio)** | 10-07 19:40 | `12e0cfab…` | PRUEBA ciclo ledger — no usar |
+
+Huella sobre `(concept, line_type, vigente_amount)`, 47 partidas cada uno.
+
+| | agrupado por año | real |
+|---|---:|---:|
+| Gasto FY2027 | $149,704,381.64 | **$74,852,190.82** |
+| Ingreso FY2027 | $1,209,550,232.42 | **$604,775,116.21** |
+| Obligaciones FY2027 | $149,618,183.14 | **$74,809,091.57** |
+
+⭐ **Tres señales independientes** identifican al duplicado sin depender del nombre: huella
+repetida, **sin folio** (el real lo creó `ensureBudgetForYear`, que asigna `PRE-YYYY-NNN`; éste lo
+creó alguien a mano) y `created_at` más nuevo. **Hoy el filtro seguro es por `budget_id`, nunca por
+`fiscal_year`** hasta que `is_test` esté aplicado y marcado (`[PU.VG.1]`).
+
+### 25.8 El ledger nunca se operó, y el cuadre obvio no puede fallar
+
+`budget.line_movements` = **139 filas y las 139 son `apertura`**. Diez tipos sin una sola fila:
+`reserva`, `compromiso`, `ejercido`, `pago`, `cancelacion`, `reversion`, `ampliacion`, `reduccion`,
+`transferencia_in`, `transferencia_out`. → `reserved = committed = exercised = paid = $0.00` en el
+**100 %** de las partidas; ocupación 0 % en todas. Causa: las **312 `expense_obligations` están
+ligadas a partida y las 312 en `propuesta`**.
+
+⚠️ **`available_amount` no es columna** — se calcula en `budget-lines.service.ts:243` con la misma
+resta. Verificar `vigente − (res+com+eje) = disponible` es **auditar una expresión contra sí misma:
+no puede fallar**. El cuadre que SÍ puede fallar es acumuladores contra `SUM(line_movements)` por
+tipo, y `vigente = original + ampliaciones − reducciones + transferencias`.
+
+⚠️ Y un `disponible` negativo **no es un error de datos**: es el resultado legítimo de una partida en
+`informativo`/`advertencia`. Medido: `control_level` = **99 `informativo` + 40 `advertencia` + 0
+`bloqueo`**, con el default de la columna en `'bloqueo'`. **Ninguna partida puede frenar hoy un
+sobregiro.**
+
+### 25.9 Dos ausencias que se leen como cero
+
+- **10 celdas (cuenta, mes) sin renglón**: la cuenta `612` sólo existe en marzo y junio. Una ausencia
+  suma `$0.00` en cualquier agregado sin marcar nada.
+- **FY2026 publica $32,425,843.06 como presupuesto ANUAL y son 5 meses.** `period_month = NULL` en
+  las 12 partidas, pero su importe **es exactamente la suma de ago–dic**. Quien lo lea como año
+  subestima ~58 %.
+
+### 25.10 Lo que queda SIN arbitrar
+
+- Por qué el motor elige `estacional` para unas cuentas y `historico_ajustado` para otras.
+- Si las 2 cuentas extra de FY2027 (14 vs 12) explican parte del corrimiento de participaciones.
+- Los umbrales de «Sueldos > 45 % / > 40 % del gasto total»: hay **al menos tres briefs en
+  circulación** con números distintos para el mismo sujeto y el mismo denominador. Y aunque se
+  fijara, como `plan == base` el **55.49 %** medido *es la participación histórica realizada*, no una
+  decisión presupuestal. Por ADR-076 va a `analytics.kpi_thresholds` con dueño, o el estado es
+  `sin_meta`.
+- «Gastos logísticos proporcionales al crecimiento del canal Ruta»: compara participación sobre el
+  GASTO contra participación sobre el CRECIMIENTO DE LA META — **no son conmensurables**, y la
+  atribución partida↔canal **no existe en el dato** (`budget-comparison.service.ts` la declara como
+  no construida).
+- `605 GASTO EN TECNOLOGIA` ($1,147,589.24) y `613 GASTOS EN TECNOLOGIA` ($533,603.88) son **dos
+  cuentas distintas del catálogo**, no un concepto mal escrito dos veces. El catálogo viene de
+  Kepler → el arreglo es allá (ADR-040).
+
+**Medición reproducible:** 18 scripts read-only contra `pg-prod`. Detalle completo en
+[`FASE_PU_VERDAD_GASTOS.md`](IMPLEMENTACION/FASES/FASE_PU_VERDAD_GASTOS.md). El primer arreglo
+—`budget.budgets.is_test`, con su prueba negativa mutada a rojo— es `[PU.VG.1]`.
+
+⚠️ **Lección de método, propia:** la comparación de 25.3 se corrió primero **sin acotar a las cuentas
+del plan** y dio un desfase de **12×** que parecía hallazgo. Lo detectó el bloque siguiente de la
+misma corrida, no una relectura. Un denominador sin declarar fabrica una anomalía en la primera
+consulta — incluso cuando quien consulta acaba de escribir la advertencia (§24.9).
