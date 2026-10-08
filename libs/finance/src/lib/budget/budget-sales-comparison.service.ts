@@ -132,6 +132,70 @@ export class BudgetSalesComparisonService {
       const totalMeta = planRows.reduce((s, p) => s + Number(p.meta_amount), 0);
       const totalRealPrior = [...realPriorMap.values()].reduce((s, v) => s + v, 0);
 
+      // ════════════════════════════════════════════════════════════════════════════════════
+      // [PU.V6] ⛔ CUÁNTO AÑO cubre este total. Medido en prod el 2026-10-08 sobre el
+      // «Presupuesto 2027», y es la razón de que esto exista:
+      //
+      //   periodos 1–10 ... $604,775,116   (method `estacional`/`historico_ajustado`)
+      //   periodos 11–13 ... **$0**        (method `sin_base_declarado`, 99 líneas)
+      //
+      // Los períodos 11, 12 y 13 son nov–ene, y en FY2025 fueron **$166,571,226: los tres
+      // mejores del año** (una distribuidora de dulces). El motor hizo lo correcto —no inventó
+      // una base que no existe, porque FY2026 va en el período 10— pero escribió el aviso en
+      // `method` y un **$0 en `meta_amount`**, que es el campo que el encabezado suma.
+      //
+      // ⭐ Resultado: la pantalla publicaba «META TOTAL $604.8M» y una persona leía un año
+      // completo. Son 10 de 13. Peor aún, invita a una conclusión al revés: parece +23.9 %
+      // contra FY2026, y contra FY2025 **completo** ($608,567,893) es **−0.6 %** — plano.
+      //
+      // Acá NO se corrige el número (el motor tiene razón en no inventar): se DECLARA cuánto
+      // año cubre, y con qué magnitud, para que el total no se lea como lo que no es (ADR-056).
+      const PERIODOS_ANIO = 13;
+      const metaPorPeriodo = new Map<number, number>();
+      for (const p of planRows) {
+        const n = Number(p.period_no);
+        metaPorPeriodo.set(n, (metaPorPeriodo.get(n) ?? 0) + Number(p.meta_amount ?? 0));
+      }
+      const sinMeta: number[] = [];
+      for (let p = 1; p <= PERIODOS_ANIO; p++) if (!(Number(metaPorPeriodo.get(p) ?? 0) > 0)) sinMeta.push(p);
+
+      // La MAGNITUD de lo que falta: cuánto valieron esos períodos en el último año fiscal
+      // COMPLETO. No se usa `prior_year` a secas porque justamente puede estar en curso —que es
+      // la causa del hueco—; se busca el año más reciente con los 13 períodos.
+      let referencia: { fiscal_year: number; monto: number } | null = null;
+      if (sinMeta.length) {
+        const completos = await trx('analytics.mv_sellout_budget_rollup')
+          .where({ tenant_id: tenantId })
+          .groupBy('fiscal_year')
+          .havingRaw('count(distinct period_no) = ?', [PERIODOS_ANIO])
+          .select('fiscal_year')
+          .orderBy('fiscal_year', 'desc')
+          .limit(1);
+        const fyRef = completos.length ? Number(completos[0].fiscal_year) : null;
+        if (fyRef != null) {
+          const r = await trx('analytics.mv_sellout_budget_rollup')
+            .where({ tenant_id: tenantId, fiscal_year: fyRef })
+            .whereIn('period_no', sinMeta)
+            .sum({ v: 'monto' })
+            .first();
+          referencia = { fiscal_year: fyRef, monto: round2(Number(r?.v ?? 0)) };
+        }
+      }
+      const periodos = {
+        del_anio: PERIODOS_ANIO,
+        con_meta: PERIODOS_ANIO - sinMeta.length,
+        sin_meta: sinMeta,
+        completo: sinMeta.length === 0,
+        // Magnitud declarada de lo que NO está presupuestado. `null` cuando no hay un año
+        // completo con qué dimensionarlo: «no se pudo medir» ≠ $0 (ADR-056).
+        referencia,
+        nota: sinMeta.length === 0
+          ? `El plan cubre los ${PERIODOS_ANIO} períodos del ejercicio.`
+          : `El total cubre ${PERIODOS_ANIO - sinMeta.length} de ${PERIODOS_ANIO} períodos: `
+            + `${sinMeta.join(', ')} no tienen meta porque ${priorYear} aún no llega a ellos`
+            + (referencia ? `. En ${referencia.fiscal_year}, el último ejercicio completo, esos períodos valieron ${referencia.monto.toLocaleString('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 })}.` : '.'),
+      };
+
       // Frescura declarada. [PU.V1] Sale del MISMO rollup que las cifras — antes era
       // `max(business_date)` sobre `v_sellout_daily`, que medido en prod costaba **14,587 ms**:
       // sin esto, arreglar la consulta principal habría dejado la ruta en 14.6 s de todos modos.
@@ -145,6 +209,9 @@ export class BudgetSalesComparisonService {
         budget: { id: budget.id, name: budget.name, fiscal_year: fy, status: budget.status },
         prior_year: priorYear,
         cells,
+        // [PU.V6] Cuánto año cubre el total de arriba. Va FUERA de `totals` a propósito: si
+        // viviera adentro, alguien lo sumaría.
+        periodos,
         totals: {
           meta: round2(totalMeta),
           // «Sin datos» ≠ cero (ADR-056): sin real del ejercicio, el total va NULL, nunca $0.
