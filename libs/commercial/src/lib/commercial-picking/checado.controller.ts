@@ -3,8 +3,12 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Permission, RequireAuthGuard, RequirePermissions, RolesGuard } from '@megadulces/platform-core';
 import type {
   ChecadoCerrarCajaResponse,
+  ChecadoEscanearDto,
   ChecadoEscaneoResponse,
+  ChecadoEtiquetasResponse,
   ChecadoPedido,
+  ChecadoSiguienteDto,
+  ChecadoTerminarDto,
   ChecadoTerminarResponse,
   ChecadoTomarResponse,
   ConsolaSurtidoAlmacen,
@@ -40,14 +44,14 @@ export class ChecadoController {
   @Post('siguiente')
   @RequirePermissions(Permission.ALMACEN_CHECADO_GESTIONAR)
   @ApiOperation({ summary: 'Da el siguiente pedido surtido, ya en SURTIDO en Kepler y que quien pide no surtió.' })
-  siguiente(@Body() body: { warehouse_id: string; origen?: string }): Promise<ChecadoTomarResponse> {
+  siguiente(@Body() body: ChecadoSiguienteDto): Promise<ChecadoTomarResponse> {
     return this.service.tomarSiguiente(body);
   }
 
   @Post(':id/escanear')
   @RequirePermissions(Permission.ALMACEN_CHECADO_GESTIONAR)
-  @ApiOperation({ summary: 'Un escaneo: caja de unidad mayor, o paquetería a la caja P abierta.' })
-  escanear(@Param('id') id: string, @Body() body: { code?: string; cantidad?: number; peso_kg?: number }): Promise<ChecadoEscaneoResponse> {
+  @ApiOperation({ summary: 'Un escaneo: caja cerrada (CJA/BTO/CUB), o paquetería a la caja P abierta. Lo que sobra no se registra.' })
+  escanear(@Param('id') id: string, @Body() body: ChecadoEscanearDto): Promise<ChecadoEscaneoResponse> {
     return this.service.escanear(id, body);
   }
 
@@ -67,8 +71,22 @@ export class ChecadoController {
 
   @Post(':id/terminar')
   @RequirePermissions(Permission.ALMACEN_CHECADO_GESTIONAR)
-  @ApiOperation({ summary: 'Termina el checado: diferencias y etiquetas de unidad mayor (1/N).' })
-  terminar(@Param('id') id: string, @Body() body: { wait_location?: string | null }): Promise<ChecadoTerminarResponse> {
+  @ApiOperation({ summary: 'Termina el checado: diferencias y etiquetas de cajas (1/N).' })
+  terminar(@Param('id') id: string, @Body() body: ChecadoTerminarDto): Promise<ChecadoTerminarResponse> {
     return this.service.terminar(id, body);
+  }
+
+  @Post(':id/soltar')
+  @RequirePermissions(Permission.ALMACEN_CHECADO_GESTIONAR)
+  @ApiOperation({ summary: 'El checador suelta el pedido: vuelve a la fila y otro lo checa desde cero.' })
+  soltar(@Param('id') id: string): Promise<{ id: string; soltado: true }> {
+    return this.service.soltar(id);
+  }
+
+  @Get(':id/etiquetas')
+  @RequirePermissions(Permission.ALMACEN_CHECADO_GESTIONAR)
+  @ApiOperation({ summary: 'Las etiquetas de un pedido ya checado por quien consulta, para reimprimir.' })
+  etiquetas(@Param('id') id: string): Promise<ChecadoEtiquetasResponse> {
+    return this.service.etiquetas(id);
   }
 }

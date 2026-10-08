@@ -1,5 +1,5 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (ver la nota de `allocation.spec.ts`).
-import { resolverCodigo, unidadDelCodigo, unidadMayor, type KdiiFila } from './checado-codigo';
+import { esCerrada, resolverCodigo, unidadDelCodigo, unidadMayor, type KdiiFila } from './checado-codigo';
 
 /**
  * `[GP.4]` El lector de códigos del checado, con las filas REALES de `kdii` (sucursal 01) de las
@@ -62,12 +62,21 @@ describe('resolverCodigo · entre varios productos', () => {
   });
 });
 
-describe('unidadMayor', () => {
-  it('la de mayor factor: la caja', () => {
+describe('unidad cerrada (CJA, BTO, CUB): la que lleva etiqueta n/N', () => {
+  it('la caja del producto', () => {
     expect(unidadMayor(SNICKERS)).toEqual({ unidad: 'CJA', factor: 192 });
   });
 
-  it('sin unidades mayores a 1 → null (se vende suelto)', () => {
-    expect(unidadMayor({ ...LECHITA, f2: 1, f3: null })).toBeNull();
+  it('⭐ un producto que sólo tiene PAQUETE no tiene unidad cerrada (su paquete va a la caja P)', () => {
+    expect(unidadMayor({ ...SNICKERS, u3: null, f3: null })).toBeNull();
+  });
+
+  it('⭐ un producto que se vende por caja (base = CJA, factor 1) sí la tiene', () => {
+    expect(unidadMayor({ ...SNICKERS, u1: 'CJA', u2: null, f2: null, u3: null, f3: null })).toEqual({ unidad: 'CJA', factor: 1 });
+  });
+
+  it('bulto y cubeta también son cerradas; paquete, pieza y kilo no', () => {
+    expect(['CJA', 'BTO', 'CUB', 'cja'].map(esCerrada)).toEqual([true, true, true, true]);
+    expect(['PAQ', 'PZA', 'KG', '500', null].map(esCerrada)).toEqual([false, false, false, false, false]);
   });
 });

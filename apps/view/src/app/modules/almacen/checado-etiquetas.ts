@@ -30,8 +30,17 @@ export interface Etiqueta {
   codigo: string;
 }
 
-/** Folio sin el prefijo de serie: "UD4001-0002781" → "0002781". */
-const folioCorto = (code: string): string => code.split('-').pop() ?? code;
+/**
+ * El código de barras: SÓLO dígitos y de longitud par (12), para que CODE128 lo meta en su juego
+ * compacto C (~101 módulos) y quepa a 2 puntos por módulo (0.25 mm a 203 dpi) en ~25 mm, con margen
+ * blanco a los lados. "0002781" + "1" (caja P) o "2" (caja cerrada) + número a 4 dígitos.
+ * ⚠️ No distingue la serie ni la sucursal del pedido: identifica la caja dentro de su pedido. Si el
+ * embarque (GP.5) lo escanea, que lo cruce con el pedido que está cargando.
+ */
+export function codigoEtiqueta(orderCode: string, tipo: 'P' | 'C', numero: number): string {
+  const folio = (orderCode.split('-').pop() ?? orderCode).replace(/\D/g, '').slice(-7).padStart(7, '0');
+  return `${folio}${tipo === 'P' ? '1' : '2'}${String(Math.max(0, numero) % 10000).padStart(4, '0')}`;
+}
 
 export function etiquetaDeCajaP(e: ChecadoEtiquetaP): Etiqueta {
   return {
@@ -39,7 +48,7 @@ export function etiquetaDeCajaP(e: ChecadoEtiquetaP): Etiqueta {
     destino: e.destino,
     grande: `P${e.numero}`,
     detalle: `${e.articulos} ${e.articulos === 1 ? 'artículo' : 'artículos'} · ${e.productos} ${e.productos === 1 ? 'producto' : 'productos'}`,
-    codigo: `${folioCorto(e.order_code)}P${e.numero}`,
+    codigo: codigoEtiqueta(e.order_code, 'P', e.numero),
   };
 }
 
@@ -49,7 +58,7 @@ export function etiquetaDeCaja(e: ChecadoEtiquetaCJ, orderCode: string, destino:
     destino,
     grande: `${e.n}/${e.total}`,
     detalle: e.producto ?? e.sku ?? '',
-    codigo: `${folioCorto(orderCode)}C${e.n}`,
+    codigo: codigoEtiqueta(orderCode, 'C', e.n),
   };
 }
 
@@ -67,7 +76,7 @@ const esc = (s: string): string =>
 function barras(codigo: string): string {
   try {
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-    JsBarcode(svg, codigo, { format: 'CODE128', displayValue: false, width: 2, height: 60, margin: 0 });
+    JsBarcode(svg, codigo, { format: /^(\d\d)+$/.test(codigo) ? 'CODE128C' : 'CODE128', displayValue: false, width: 2, height: 60, margin: 0 });
     const w = parseFloat(svg.getAttribute('width') || '');
     const h = parseFloat(svg.getAttribute('height') || '');
     // Sin el viewBox numérico se ve bien en pantalla y sale cortado al imprimir (lección del andén).
@@ -84,6 +93,12 @@ function barras(codigo: string): string {
   }
 }
 
+/** "12/12" cabe a 11 mm; "100/120" no: se achica con el número de caracteres. */
+export function tamanoGrande(t: string): string {
+  if (t.length <= 5) return '';
+  return t.length <= 7 ? 'et-g-m' : 'et-g-s';
+}
+
 export function etiquetasHtml(etiquetas: Etiqueta[]): string {
   return enFilas(etiquetas)
     .map((fila) => {
@@ -92,7 +107,7 @@ export function etiquetasHtml(etiquetas: Etiqueta[]): string {
           <div class="et">
             <div class="et-pedido">${esc(e.pedido)}</div>
             <div class="et-destino">${esc(e.destino ?? '')}</div>
-            <div class="et-grande">${esc(e.grande)}</div>
+            <div class="et-grande ${tamanoGrande(e.grande)}">${esc(e.grande)}</div>
             <div class="et-detalle">${esc(e.detalle)}</div>
             ${barras(e.codigo)}
             <div class="et-codigo">${esc(e.codigo)}</div>
@@ -105,15 +120,20 @@ export function etiquetasHtml(etiquetas: Etiqueta[]): string {
 
 const CSS = [
   'body{margin:0}',
-  '.et-fila{display:flex;gap:2mm;width:100mm;height:48mm;box-sizing:border-box;break-after:page;page-break-after:always;overflow:hidden}',
+  // 47.6 y no 48: con la fila exacta a la hoja, el redondeo del navegador mete una hoja en blanco,
+  // que en la etiquetera es una fila de 3 etiquetas tirada.
+  '.et-fila{display:flex;gap:2mm;width:100mm;height:47.6mm;box-sizing:border-box;break-after:page;page-break-after:always;overflow:hidden}',
   '.et-fila:last-child{break-after:auto;page-break-after:auto}',
-  '.et{box-sizing:border-box;width:32mm;height:48mm;padding:1.5mm;display:flex;flex-direction:column;align-items:stretch;',
+  '.et{box-sizing:border-box;width:32mm;height:100%;padding:1.5mm;display:flex;flex-direction:column;align-items:stretch;',
   'background:white;color:black;font-family:Arial,Helvetica,sans-serif;overflow:hidden}',
   '.et-pedido{font-size:2.6mm;font-weight:700;line-height:1.1;white-space:nowrap;overflow:hidden}',
-  '.et-destino{font-size:2.3mm;line-height:1.1;max-height:5mm;overflow:hidden}',
-  '.et-grande{font-size:11mm;font-weight:900;line-height:1;text-align:center;margin:auto 0}',
-  '.et-detalle{font-size:2.3mm;line-height:1.1;max-height:7.5mm;overflow:hidden;text-align:center}',
-  '.et-bar{display:block;width:29mm;height:7mm;margin-top:1mm}',
+  '.et-destino{font-size:2.3mm;line-height:1.15;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}',
+  '.et-grande{font-size:11mm;font-weight:900;line-height:1;text-align:center;margin:auto 0;white-space:nowrap}',
+  '.et-g-m{font-size:8mm}',
+  '.et-g-s{font-size:6.5mm}',
+  '.et-detalle{font-size:2.4mm;line-height:1.15;text-align:center;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}',
+  // ~25 mm de barras centradas: deja ~2 mm de margen blanco a cada lado dentro de la etiqueta.
+  '.et-bar{display:block;width:25.25mm;height:7mm;margin:1mm auto 0}',
   '.et-codigo{font-size:2mm;text-align:center;line-height:1.1}',
 ].join('');
 

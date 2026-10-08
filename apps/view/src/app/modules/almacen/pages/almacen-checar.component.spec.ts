@@ -1,7 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
-import { of, throwError } from 'rxjs';
-import type { ChecadoPedido, ChecadoRenglon } from '@megadulces/contracts';
+import { Subject, of, throwError } from 'rxjs';
+import type { ChecadoEscaneoResponse, ChecadoPedido, ChecadoRenglon } from '@megadulces/contracts';
 import { AlmacenChecarComponent } from './almacen-checar.component';
 import { PickingService } from '../../reparto/picking.service';
 import { AuthService } from '../../../core/services/auth.service';
@@ -9,16 +9,21 @@ import * as etiquetas from '../checado-etiquetas';
 
 /**
  * `[GP.4]` La pantalla del checador montada de verdad, con el servidor simulado. Se prueba por lo
- * que hace la persona: tomar, escanear (bien, ajeno, pide peso), deshacer, cerrar caja P (sale la
- * etiqueta por triplicado) y terminar.
+ * que hace la persona: tomar, rastrillar (incluido el doble escaneo rápido), cajas sin etiqueta,
+ * peso, cerrar caja P (etiqueta por triplicado), terminar (etiquetas 1/N solas), soltar, reimprimir.
  */
 const R = (o: Partial<ChecadoRenglon> = {}): ChecadoRenglon => ({
   id: 'l1', sku: '06001', producto: 'CHOC SNICKERS /6', unidad: 'PZA', esperado: 384, checado: 0,
-  unidad_mayor: 'CJA', factor_mayor: 192, esperado_mayor: 2, checado_mayor: 0, se_pesa: false, estado: 'pendiente', ...o,
+  unidad_mayor: 'CJA', factor_mayor: 192, esperado_mayor: 2, checado_mayor: 0, checado_sueltas: 0, se_pesa: false, estado: 'pendiente', ...o,
 });
 const P = (o: Partial<ChecadoPedido> = {}): ChecadoPedido => ({
   id: 'chk-1', order_code: 'UD4001-0002781', destino: 'ABARROTES LUPITA', sucursal: '01', warehouse_id: 'w-01',
   started_at: new Date().toISOString(), renglones: [R()], cajas_p: [], ultimo_escaneo: null, ...o,
+});
+const OK = (o: Partial<ChecadoEscaneoResponse> = {}): ChecadoEscaneoResponse => ({
+  resultado: 'ok', mensaje: '+1 CJA · CHOC SNICKERS /6', producto: 'CHOC SNICKERS /6',
+  pedido: P({ renglones: [R({ checado: 192, checado_mayor: 1, estado: 'falta' })], ultimo_escaneo: { id: 's1', producto: 'CHOC SNICKERS /6', unidad: 'CJA', cantidad: 1, kind: 'mayor' } }),
+  ...o,
 });
 
 describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
@@ -32,17 +37,27 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
   const boton = (t: string): HTMLButtonElement | undefined =>
     Array.from(el().querySelectorAll('button')).find((b) => (b.textContent ?? '').replace(/\s+/g, ' ').trim().includes(t)) as HTMLButtonElement | undefined;
   const render = (): void => fix.detectChanges();
+  const escanea = (code: string): void => {
+    c.codigo.set(code);
+    c.enviar();
+    render();
+  };
 
-  async function montar(mio: ChecadoPedido | null = null): Promise<void> {
-    try { localStorage.clear(); } catch { /* sin almacenamiento */ }
+  async function montar(mio: ChecadoPedido | null = null, prefs: Record<string, string> = {}): Promise<void> {
+    try {
+      localStorage.clear();
+      for (const [k, v] of Object.entries(prefs)) localStorage.setItem(k, v);
+    } catch { /* sin almacenamiento */ }
     api = {
       checadoAlmacenes: vi.fn(() => of([{ id: 'w-01', code: '01', nombre: 'Padre Hidalgo' }])),
       checadoMio: vi.fn(() => of(mio)),
       checadoSiguiente: vi.fn(() => of({ estado: 'asignado', ya_era_tuyo: false, pedido: P() })),
-      checadoEscanear: vi.fn(() => of({ resultado: 'ok', mensaje: '+1 CJA · CHOC SNICKERS /6', producto: 'CHOC SNICKERS /6', pedido: P({ renglones: [R({ checado: 192, checado_mayor: 1, estado: 'falta' })], ultimo_escaneo: { id: 's1', producto: 'CHOC SNICKERS /6', unidad: 'CJA', cantidad: 1, kind: 'mayor' } }) })),
+      checadoEscanear: vi.fn(() => of(OK())),
       checadoDeshacer: vi.fn(() => of(P())),
       checadoCerrarCaja: vi.fn(() => of({ etiqueta: { id: 'p1', numero: 1, order_code: 'UD4001-0002781', destino: 'ABARROTES LUPITA', articulos: 12, productos: 3 }, pedido: P() })),
       checadoTerminar: vi.fn(() => of({ order_code: 'UD4001-0002781', destino: 'ABARROTES LUPITA', diferencias: [], etiquetas_cj: [{ n: 1, total: 2, sku: '06001', producto: 'SNICKERS', unidad: 'CJA' }, { n: 2, total: 2, sku: '06001', producto: 'SNICKERS', unidad: 'CJA' }], etiqueta_p: null, cajas_p: 1 })),
+      checadoSoltar: vi.fn(() => of({ id: 'chk-1', soltado: true })),
+      checadoEtiquetas: vi.fn(() => of({ order_code: 'UD4001-0002781', destino: 'X', etiquetas_cj: [{ n: 1, total: 1, sku: '06001', producto: 'SNICKERS', unidad: 'CJA' }], cajas_p: [{ id: 'p1', numero: 1, order_code: 'UD4001-0002781', destino: 'X', articulos: 4, productos: 1 }] })),
     };
     imprimir = vi.spyOn(etiquetas, 'imprimirEtiquetas').mockImplementation(() => undefined);
     await TestBed.configureTestingModule({
@@ -74,82 +89,133 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     await montar(P());
     expect(c.fase()).toBe('checando');
     expect(texto()).toContain('Retomaste el pedido que traías.');
+    expect(texto()).toContain('Pedido: 2 CJA');
   });
 
-  it('tomar manda almacén y origen; sin trabajo dice por qué', async () => {
+  it('sin trabajo lo dice con su porqué', async () => {
     await montar();
-    api['checadoSiguiente'].mockReturnValueOnce(of({ estado: 'sin_trabajo', motivo: 'Hay 2 pedidos surtidos esperando a que Facturación los pase a SURTIDO en Kepler.', esperando_facturacion: 2 }));
+    api['checadoSiguiente'].mockReturnValueOnce(of({ estado: 'sin_trabajo', motivo: '2 pedidos surtidos esperan a que Facturación los pase a SURTIDO en Kepler.', esperando_facturacion: 2, checados_fuera: 0 }));
     c.elegirOrigen('TELEMARK');
     boton('Tomar siguiente')?.click();
     render();
     expect(api['checadoSiguiente']).toHaveBeenCalledWith('w-01', 'TELEMARK');
-    expect(texto()).toContain('esperando a que Facturación los pase a SURTIDO');
+    expect(texto()).toContain('No hay pedidos por checar');
+    expect(texto()).toContain('esperan a que Facturación');
   });
 
-  it('⭐ escanear manda el código y la cantidad, muestra el aviso y limpia el campo', async () => {
+  it('⭐ escanear manda el código, avisa y deja el campo libre para el siguiente', async () => {
     await montar(P());
-    c.codigo.set('C06001');
-    c.escanear();
-    render();
-    expect(api['checadoEscanear']).toHaveBeenCalledWith('chk-1', { code: 'C06001', cantidad: 1, peso_kg: undefined });
+    escanea('C06001');
+    expect(api['checadoEscanear']).toHaveBeenCalledWith('chk-1', { code: 'C06001', cantidad: 1, como_cajas: undefined, peso_kg: undefined });
     expect(texto()).toContain('+1 CJA · CHOC SNICKERS /6');
     expect(c.codigo()).toBe('');
-    expect(texto()).toContain('Último: 1 CJA');
+    expect(texto()).toContain('Llevas: 1 CJA');
+  });
+
+  it('⭐ prueba negativa del doble escaneo: el segundo NO se pierde mientras el primero viaja', async () => {
+    await montar(P());
+    const primero = new Subject<ChecadoEscaneoResponse>();
+    api['checadoEscanear'].mockReturnValueOnce(primero.asObservable());
+    escanea('C06001');
+    escanea('C06001');
+    expect(api['checadoEscanear']).toHaveBeenCalledTimes(1);
+    expect(c.pendientesEnCola()).toBe(2);
+    expect(texto()).toContain('guardando 2');
+    primero.next(OK());
+    primero.complete();
+    render();
+    expect(api['checadoEscanear']).toHaveBeenCalledTimes(2);
+  });
+
+  it('cajas sin etiqueta: cantidad + "son cajas" viajan con el escaneo y luego se reinician', async () => {
+    await montar(P());
+    c.paso(1);
+    c.paso(1);
+    c.comoCajas.set(true);
+    escanea('006001');
+    expect(api['checadoEscanear']).toHaveBeenCalledWith('chk-1', { code: '006001', cantidad: 3, como_cajas: true, peso_kg: undefined });
+    expect(c.cantidad()).toBe(1);
+    expect(c.comoCajas()).toBe(false);
   });
 
   it('un producto ajeno se avisa en rojo', async () => {
     await montar(P());
-    api['checadoEscanear'].mockReturnValueOnce(of({ resultado: 'ajeno', mensaje: 'MAZAPAN no va en este pedido. Sepáralo.', producto: 'MAZAPAN', pedido: P() }));
-    c.codigo.set('C99999');
-    c.escanear();
-    render();
+    api['checadoEscanear'].mockReturnValueOnce(of(OK({ resultado: 'ajeno', mensaje: 'MAZAPAN no va en este pedido. Sepáralo.', producto: 'MAZAPAN', pedido: P() })));
+    escanea('C99999');
     expect(el().querySelector('.ck-aviso.ck-bad')?.textContent).toContain('no va en este pedido');
   });
 
-  it('⭐ por kilo pide el peso y lo manda con el mismo código', async () => {
+  it('⭐ por kilo pide el peso del producto y lo manda con el mismo código', async () => {
     await montar(P());
-    api['checadoEscanear'].mockReturnValueOnce(of({ resultado: 'pide_peso', mensaje: 'Pesa ALTOS y escribe los kilos.', producto: 'ALTOS', pedido: P() }));
-    c.codigo.set('17083');
-    c.escanear();
-    render();
-    expect(c.pidePeso()).toBe('17083');
-    expect(texto()).toContain('Peso en la báscula (kg)');
+    api['checadoEscanear'].mockReturnValueOnce(of(OK({ resultado: 'pide_peso', mensaje: 'Pesa ALTOS y escribe los kilos.', producto: 'ALTOS', pedido: P() })));
+    escanea('17083');
+    expect(texto()).toContain('Peso de ALTOS en la báscula (kg)');
     c.peso.set(6.14);
-    c.escanear();
-    expect(api['checadoEscanear']).toHaveBeenLastCalledWith('chk-1', { code: '17083', cantidad: 1, peso_kg: 6.14 });
+    c.enviar();
+    expect(api['checadoEscanear']).toHaveBeenLastCalledWith('chk-1', { code: '17083', cantidad: 1, como_cajas: undefined, peso_kg: 6.14 });
   });
 
   it('⭐ cerrar la caja P imprime su etiqueta por TRIPLICADO (la fila de 3 del rollo)', async () => {
     await montar(P({ cajas_p: [{ id: 'p1', numero: 1, status: 'abierta', contenido: [{ sku: '06001', producto: 'SNICKERS', unidad: 'PAQ', cantidad: 12 }] }] }));
     expect(texto()).toContain('Caja P1 abierta · 12 artículos');
-    boton('Cerrar caja P1')?.click();
+    boton('Cerrar caja P1 e imprimir sus 3 etiquetas')?.click();
     render();
-    expect(imprimir).toHaveBeenCalledTimes(1);
     const [lista] = imprimir.mock.calls[0];
     expect(lista).toHaveLength(3);
-    expect(lista[0]).toMatchObject({ grande: 'P1', pedido: 'UD4001-0002781', codigo: '0002781P1' });
+    expect(lista[0]).toMatchObject({ grande: 'P1', pedido: 'UD4001-0002781', codigo: '000278110001' });
   });
 
-  it('terminar con pendientes avisa que sale incompleto; luego imprime las cajas 1/N', async () => {
+  it('⭐ antes de terminar enseña qué no cuadra; al terminar las etiquetas 1/N salen solas', async () => {
     await montar(P());
     boton('Terminar checado')?.click();
     render();
-    expect(texto()).toContain('1 producto no cuadra');
+    expect(texto()).toContain('Si terminas así, lo que falta sale incompleto');
+    expect(texto()).toContain('CHOC SNICKERS /6: Pendiente');
     boton('Sí, terminar')?.click();
     render();
     expect(c.fase()).toBe('terminado');
-    boton('Imprimir etiquetas de cajas (2)')?.click();
     const [lista] = imprimir.mock.calls.at(-1) ?? [[]];
     expect(lista.map((e: { grande: string }) => e.grande)).toEqual(['1/2', '2/2']);
+    expect(boton('Reimprimir etiquetas de cajas')).toBeDefined();
   });
 
-  it('un error al escanear se dice y no se pierde el pedido', async () => {
+  it('soltar el pedido pide confirmar y regresa a la fila', async () => {
+    await montar(P());
+    boton('Soltar este pedido')?.click();
+    render();
+    expect(api['checadoSoltar']).not.toHaveBeenCalled();
+    boton('Sí, soltarlo')?.click();
+    render();
+    expect(api['checadoSoltar']).toHaveBeenCalledWith('chk-1');
+    expect(c.fase()).toBe('listo');
+    expect(texto()).toContain('volvió a la fila');
+  });
+
+  it('reimprime todo el último pedido aunque se haya recargado la página', async () => {
+    await montar(null, { 'gp.checar.ultimo': JSON.stringify({ id: 'chk-9', code: 'UD4001-0000009' }) });
+    boton('Reimprimir etiquetas de UD4001-0000009')?.click();
+    render();
+    expect(api['checadoEtiquetas']).toHaveBeenCalledWith('chk-9');
+    const [lista] = imprimir.mock.calls.at(-1) ?? [[]];
+    expect(lista.map((e: { grande: string }) => e.grande)).toEqual(['P1', 'P1', 'P1', '1/1']);
+  });
+
+  it('un error al escanear dice qué código falló y no pierde el pedido', async () => {
     await montar(P());
     api['checadoEscanear'].mockReturnValueOnce(throwError(() => ({ error: { message: 'Este pedido lo está checando otra persona.' } })));
-    c.codigo.set('X');
-    c.escanear();
-    render();
-    expect(texto()).toContain('Este pedido lo está checando otra persona.');
+    escanea('X1');
+    expect(texto()).toContain('X1: Este pedido lo está checando otra persona.');
     expect(c.pedido()).not.toBeNull();
+  });
+
+  it('prueba negativa: si falla leer los almacenes NO manda a pedir sucursal a Sistemas', async () => {
+    await montar();
+    fix.destroy();
+    api['checadoAlmacenes'].mockReturnValueOnce(throwError(() => new Error('red')));
+    fix = TestBed.createComponent(AlmacenChecarComponent);
+    c = fix.componentInstance;
+    render();
+    expect(texto()).toContain('No se pudo leer la lista de almacenes.');
+    expect(texto()).not.toContain('No tienes una sucursal asignada');
   });
 });

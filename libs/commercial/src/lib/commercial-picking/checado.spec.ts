@@ -1,5 +1,5 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (ver la nota de `allocation.spec.ts`).
-import { cuadraChecado, estadoRenglon, etiquetasCJ } from './checado.service';
+import { cuadraChecado, estadoRenglon, etiquetasCJ, excede } from './checado.service';
 
 /** `[GP.4]` Las reglas del checado que deciden qué sale y qué etiquetas se imprimen. */
 describe('cuadraChecado', () => {
@@ -39,5 +39,23 @@ describe('etiquetasCJ · "1/7 … 7/7" sobre todo el pedido', () => {
 
   it('sin cajas no hay etiquetas', () => {
     expect(etiquetasCJ([{ sku: 'x', producto: 'x', unidad: 'CJA', cajas: 0 }])).toEqual([]);
+  });
+});
+
+describe('excede · lo que sobra no se cuenta', () => {
+  it('⭐ ya iban 384 de 384: otra caja excede (no se registra, se regresa)', () => {
+    expect(excede(384, 384, 192, false)).toBe(true);
+  });
+
+  it('completar lo que falta no excede', () => {
+    expect(excede(384, 192, 192, false)).toBe(false);
+  });
+
+  it('en kilos, pasarse por menos de medio por ciento no excede', () => {
+    expect(excede(50, 49.9, 0.3, true)).toBe(false);
+  });
+
+  it('prueba negativa del peso: pasarse 4% sí excede', () => {
+    expect(excede(50, 50, 2, true)).toBe(true);
   });
 });

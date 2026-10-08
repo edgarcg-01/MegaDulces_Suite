@@ -296,8 +296,10 @@ export interface ChecadoRenglon {
   factor_mayor: number | null;
   /** Cajas cerradas que se esperan (sólo si lo esperado da cajas enteras). */
   esperado_mayor: number | null;
-  /** Cajas escaneadas. */
+  /** Cajas escaneadas (unidad cerrada: CJA, BTO o CUB). */
   checado_mayor: number;
+  /** Lo checado SUELTO (no en caja), en la unidad base. Con cajas: "1 CJA + 5 PZA". */
+  checado_sueltas: number;
   /** Se vende por kilo: el escaneo pide el peso de la báscula. */
   se_pesa: boolean;
   estado: 'pendiente' | 'completo' | 'falta' | 'sobra';
@@ -336,11 +338,37 @@ export type ChecadoTomarResponse =
   | {
       estado: 'sin_trabajo';
       motivo: string;
-      /** Pedidos surtidos que esperan a que Facturación los pase a SURTIDO en Kepler. */
+      /** Pedidos surtidos que esperan a que Facturación los pase a SURTIDO en Kepler (o los corrija). */
       esperando_facturacion: number;
+      /** Pedidos surtidos en la Suite que Kepler ya trae CHECADO o EMBARCADO sin haber pasado por aquí. */
+      checados_fuera: number;
     };
 
-export type ChecadoEscaneoResultado = 'ok' | 'sobra' | 'ajeno' | 'desconocido' | 'ambiguo' | 'pide_peso';
+/**
+ * 'sobra' = ya iban completas: NO se registró (regresa la pieza a su lugar).
+ * 'no_es_caja' = se pidió contar como cajas un producto que no tiene caja cerrada.
+ */
+export type ChecadoEscaneoResultado = 'ok' | 'sobra' | 'ajeno' | 'desconocido' | 'ambiguo' | 'pide_peso' | 'no_es_caja';
+
+/** Lo que manda la pantalla al escanear. */
+export interface ChecadoEscanearDto {
+  code: string;
+  /** Cuántas iguales (1 a 999). */
+  cantidad?: number;
+  /** Cajas sin etiqueta: se escaneó la pieza pero son N CAJAS cerradas del producto. */
+  como_cajas?: boolean;
+  /** Kilos de la báscula, para lo que se vende por kilo y va suelto. */
+  peso_kg?: number;
+}
+
+export interface ChecadoSiguienteDto {
+  warehouse_id: string;
+  origen?: 'TELEMARK' | 'SUCURSAL';
+}
+
+export interface ChecadoTerminarDto {
+  wait_location?: string | null;
+}
 
 export interface ChecadoEscaneoResponse {
   resultado: ChecadoEscaneoResultado;
@@ -382,4 +410,12 @@ export interface ChecadoTerminarResponse {
   /** La caja P que seguía abierta y se cerró al terminar (su etiqueta sale aquí). */
   etiqueta_p: ChecadoEtiquetaP | null;
   cajas_p: number;
+}
+
+/** Para reimprimir las etiquetas de un pedido ya checado (la pantalla las perdió al recargar). */
+export interface ChecadoEtiquetasResponse {
+  order_code: string;
+  destino: string | null;
+  etiquetas_cj: ChecadoEtiquetaCJ[];
+  cajas_p: ChecadoEtiquetaP[];
 }

@@ -4,7 +4,9 @@ import { Observable } from 'rxjs';
 import type {
   CapturaKeplerResponse,
   ChecadoCerrarCajaResponse,
+  ChecadoEscanearDto,
   ChecadoEscaneoResponse,
+  ChecadoEtiquetasResponse,
   ChecadoPedido,
   ChecadoTerminarResponse,
   ChecadoTomarResponse,
@@ -352,7 +354,7 @@ export class PickingService {
     return this.http.post<ChecadoTomarResponse>(`${this.baseChecado}/siguiente`, { warehouse_id: warehouseId, origen });
   }
 
-  checadoEscanear(id: string, dto: { code: string; cantidad?: number; peso_kg?: number }): Observable<ChecadoEscaneoResponse> {
+  checadoEscanear(id: string, dto: ChecadoEscanearDto): Observable<ChecadoEscaneoResponse> {
     return this.http.post<ChecadoEscaneoResponse>(`${this.baseChecado}/${id}/escanear`, dto);
   }
 
@@ -366,6 +368,14 @@ export class PickingService {
 
   checadoTerminar(id: string, waitLocation?: string | null): Observable<ChecadoTerminarResponse> {
     return this.http.post<ChecadoTerminarResponse>(`${this.baseChecado}/${id}/terminar`, { wait_location: waitLocation ?? null });
+  }
+
+  checadoSoltar(id: string): Observable<{ id: string; soltado: true }> {
+    return this.http.post<{ id: string; soltado: true }>(`${this.baseChecado}/${id}/soltar`, {});
+  }
+
+  checadoEtiquetas(id: string): Observable<ChecadoEtiquetasResponse> {
+    return this.http.get<ChecadoEtiquetasResponse>(`${this.baseChecado}/${id}/etiquetas`);
   }
 
   /** `[GP.3d]` Surtidos por capturar en Kepler (Facturación). Sólo lectura, clave del Tablero. */

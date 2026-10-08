@@ -243,3 +243,21 @@ describe('SN.4 · la puerta que la landing abre no rebota en el índice del proy
     expect(guardsDelProyecto('almacen').get('/almacen/movimientos')).toEqual([Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER]);
   });
 });
+
+describe('GP.4 · el surtidor y el checador entran a su pantalla, no al Mapa de Ubicaciones', () => {
+  const almacen = LANDINGS_BY_PROJECT['almacen'] ?? [];
+  const entrada = (claves: Permission[]): string | undefined =>
+    almacen.find((c: LandingCandidate) => claves.includes(c.perm))?.url;
+
+  it('⭐ perfil surtidor (sus claves reales) → /almacen/surtir', () => {
+    expect(entrada([Permission.COMMERCIAL_PICKING_VER, Permission.COMMERCIAL_PICKING_GESTIONAR, Permission.ALMACEN_UBICACIONES_VER, Permission.SERVICIO_REPORTAR])).toBe('/almacen/surtir');
+  });
+
+  it('⭐ perfil checador (sus claves reales) → /almacen/checar', () => {
+    expect(entrada([Permission.ALMACEN_CHECADO_GESTIONAR, Permission.ALMACEN_UBICACIONES_VER, Permission.SERVICIO_REPORTAR])).toBe('/almacen/checar');
+  });
+
+  it('prueba negativa: almacenista sigue entrando por su trabajo del día, no por Surtir', () => {
+    expect(entrada([Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_PICKING_GESTIONAR, Permission.ALMACEN_CHECADO_GESTIONAR])).not.toBe('/almacen/surtir');
+  });
+});

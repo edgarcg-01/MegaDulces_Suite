@@ -893,11 +893,41 @@ Junta lo que el plan tenía en GP.4 (checado) y GP.4b (bultos), porque así lo t
 - **Etiquetas** (`checado-etiquetas.ts`): `printIsolated` con papel `100mm × 48mm` (una fila de 3
   por hoja); código de barras CODE128 corto (`0002781P3`, `0002781C5`) para que quepa en 29 mm.
 
-**Probado:** lector de códigos con las filas reales de `kdii` (10 pruebas); reglas del checado
-(9); pantalla montada (9, incluida la etiqueta P por triplicado); entrada directa (3); las dos
-lecturas de `kdii` del servicio contra prod, sólo lectura (~40 ms por código, 2 ms por clave).
-**Pendiente de probar:** la migración y las consultas del servicio en Postgres local (Docker apagado
-al momento de escribir esto), y la impresión en la TSC real.
+#### 9.6.1 Correcciones de las revisiones independientes (código y usabilidad, antes del PR)
+
+| Defecto | Corrección |
+|---|---|
+| ⚠️ Abrir caja P, deshacer y terminar daba error 500 y el pedido quedaba **atorado para siempre** (no había forma de soltarlo) | Terminar descarta la caja P vacía (antes borra sus escaneos deshechos); **"Soltar este pedido"** lo regresa a la fila |
+| ⚠️ "Tomar siguiente" podía decir "no hay pedidos" habiendo listos: los que Kepler ya checó por fuera ocupaban el lote | El estatus de Kepler se lee EN la consulta y se filtra antes de recortar; los checados por fuera **se cuentan y se dicen** |
+| P4 con olas soltadas y retomadas | Se excluye también a quien terminó la ola y a quien se la quitaron (`liberada_de`) |
+| "Cajas sin etiqueta" contaba piezas | Casilla **"Son cajas cerradas"**: la pieza + cantidad cuenta N cajas (`factor_mayor`) |
+| "Unidad mayor" = factor más grande: un paquete sin caja salía con etiqueta n/N y un producto que se vende por caja entraba a la caja P | Se decide por el **nombre**: CJA, BTO, CUB (medido: los únicos de Kepler; `FASE_GP` §2.5) |
+| Lo que sobraba se registraba | **No se registra**: "esto sobra, regrésalo a su lugar (no se contó)" |
+| Sin índices para `line_id`/`package_id` (cada escaneo) | Índices parciales en la migración |
+| El puesto nuevo podía tumbar la migración en un tenant sin "almacen"/"embarques" | `AND EXISTS` de los dos (prod: 1 tenant, ambos existen) |
+| El checador y el surtidor entraban al Mapa de Ubicaciones | Candidatos explícitos en la entrada de Almacén (medido: sólo cambia `surtidor`, 2 personas) |
+| El segundo escaneo rápido se perdía (campo bloqueado) | **Cola de escaneos**: el campo nunca se bloquea; prueba negativa + mutación |
+| Etiquetas: código de 29 mm sin margen, fila de 48 mm (hoja en blanco), "100/120" cortado | Código de 12 dígitos (CODE128-C, 25 mm, ~2 mm de margen), fila de 47.6 mm, tamaño según caracteres |
+
+Pantalla: cantidades grandes, "Pedido / Llevas / Faltan" en una sola unidad (o "1 CJA + 5 PZA"),
+diferencias a la vista ANTES de terminar, etiquetas de cajas que salen solas al terminar y
+reimpresión (por caja P y del último pedido, aunque se recargue), aviso de sin conexión, foco del
+escáner en todos los caminos, peso con el nombre del producto, `inputmode="none"` con botón
+"Teclado". Además, Postgres real encontró dos errores que ninguna prueba pura veía: `org_labels` es
+`text[]` (no JSON) y el `down` debía soltar los puestos antes de borrar el perfil.
+
+**Probado:**
+- **De punta a punta en Postgres real, con el código REAL del servicio** (transpilado) y rollback:
+  **31/31** — P4, un checador un pedido, caja por `C`+clave, paquete a la caja P, ajeno,
+  desconocido, lo que sobra no se registra, "son cajas", cerrar caja P y su etiqueta, no se deshace
+  lo ya etiquetado, terminar con etiquetas 1/N, reimpresión, terminado no acepta escaneos, el caso
+  del pedido atorado, soltar, Kepler CHECADO por fuera y AUTORIZADO; y la bandeja de Facturación
+  sigue clasificando igual tras el refactor.
+- Migración en Postgres real: **11/11** (dos veces, RLS, rol, alcance, puesto, 3 candados, `down`).
+- Lector de códigos con filas reales (13), reglas (13), pantalla montada (14, mutación de la cola),
+  entrada directa (3 + 3). Lecturas de `kdii` contra prod: ~40 ms por código.
+- **Pendiente:** la impresión en la TSC real (imprimir una fila de prueba y leer el código con el
+  handheld). Liberar un checado desde la consola del coordinador (hoy sólo lo suelta el checador).
 
 ### 9.7 Fuera de esta entrega
 

@@ -103,13 +103,12 @@ exports.up = async function up(knex) {
         product_id       uuid NOT NULL,
         sku              varchar(20),
         product_name     varchar(200),
-        qty_unit         varchar(12),
+        qty_unit         varchar(20),
         qty_expected     numeric(14,3) NOT NULL,
         qty_checked      numeric(14,3) NOT NULL DEFAULT 0,
-        unidad_mayor     varchar(12),
+        unidad_mayor     varchar(20),
         factor_mayor     numeric(14,3),
         se_pesa          boolean NOT NULL DEFAULT false,
-        weight_kg        numeric(14,3),
         picked_by        uuid,
         created_at       timestamptz NOT NULL DEFAULT now(),
         updated_at       timestamptz NOT NULL DEFAULT now(),
@@ -154,7 +153,7 @@ exports.up = async function up(knex) {
         package_id       uuid REFERENCES commercial.check_packages(id),
         code             varchar(40) NOT NULL,
         sku              varchar(20),
-        unidad           varchar(12),
+        unidad           varchar(20),
         factor           numeric(14,3) NOT NULL DEFAULT 1,
         qty_units        numeric(14,3) NOT NULL,
         qty_base         numeric(14,3) NOT NULL,
@@ -166,6 +165,10 @@ exports.up = async function up(knex) {
         CHECK (kind <> 'menor' OR package_id IS NOT NULL)
       )`);
     await knex.raw(`CREATE INDEX ix_check_scans_check ON commercial.check_scans (check_id, scanned_at)`);
+    // Cada toque del escáner relee lo checado por renglón y por caja P: sin estos, lecturas
+    // secuenciales de una tabla que crece para siempre (y la cascada de line_id también los usa).
+    await knex.raw(`CREATE INDEX ix_check_scans_line ON commercial.check_scans (line_id) WHERE line_id IS NOT NULL`);
+    await knex.raw(`CREATE INDEX ix_check_scans_package ON commercial.check_scans (package_id) WHERE package_id IS NOT NULL`);
     await tenantRls(knex, 'check_scans');
     await knex.raw(`COMMENT ON TABLE commercial.check_scans IS
       '[GP.4] Cada escaneo del checador. mayor = una caja de unidad mayor (CJ); menor = paquetería dentro de la caja P abierta; ajeno = no va en el pedido (no suma).'`);
@@ -201,11 +204,15 @@ exports.up = async function up(knex) {
     await knex.raw(
       `INSERT INTO identity.positions (tenant_id, code, name, org_labels, orden, department_code, default_role,
                                        reports_to_position_code, nivel, proposito)
-       SELECT ?, 'checador_pedidos', 'Checador de Pedidos', '["unidad:sucursal"]'::jsonb, 765, 'almacen', ?,
+       SELECT ?, 'checador_pedidos', 'Checador de Pedidos', ARRAY['unidad:sucursal']::text[], 765, 'almacen', ?,
               'embarques', 'operativo',
               'Checar cada pedido surtido escaneando todo, armar las cajas de paquetería y etiquetarlas.'
-        WHERE NOT EXISTS (SELECT 1 FROM identity.positions WHERE tenant_id = ? AND code = 'checador_pedidos')`,
-      [t.id, ROL, t.id],
+        WHERE NOT EXISTS (SELECT 1 FROM identity.positions WHERE tenant_id = ? AND code = 'checador_pedidos')
+          -- Departamento y jefe son FK por tenant: un tenant sin ellos (los de prueba de
+          -- aislamiento) no recibe el puesto, en vez de tumbar toda la migración.
+          AND EXISTS (SELECT 1 FROM identity.departments WHERE tenant_id = ? AND code = 'almacen')
+          AND EXISTS (SELECT 1 FROM identity.positions WHERE tenant_id = ? AND code = 'embarques')`,
+      [t.id, ROL, t.id, t.id, t.id],
     );
     await knex.raw(
       `UPDATE identity.positions SET default_role = ?, updated_at = now()
@@ -232,14 +239,22 @@ exports.down = async function down(knex) {
   for (const t of ['check_scans', 'check_packages', 'order_check_lines', 'order_checks']) {
     await knex.raw(`DROP TABLE IF EXISTS commercial.${t}`);
   }
-  const { rows: cuentas } = await knex.raw(`SELECT count(*)::int AS n FROM identity.users WHERE role_name = ? AND deleted_at IS NULL`, [ROL]);
-  if (cuentas[0].n === 0) {
+  // El rol se borra sólo si nadie lo usa, ni como perfil base ni como complemento ([ID.13]).
+  const { rows: cuentas } = await knex.raw(
+    `SELECT (SELECT count(*) FROM identity.users WHERE role_name = ? AND deleted_at IS NULL)
+          + (SELECT count(*) FROM identity.user_roles WHERE role_name = ?) AS n`,
+    [ROL, ROL],
+  );
+  // Primero los puestos: apuntan al rol con una FK (tenant_id, default_role) que al borrar el rol
+  // intentaría dejar tenant_id en NULL (medido en Postgres real: el down tronaba).
+  await knex.raw(`DELETE FROM identity.positions WHERE code = 'checador_pedidos'
+                   AND NOT EXISTS (SELECT 1 FROM identity.users u WHERE u.position_code = 'checador_pedidos')`);
+  await knex.raw(`UPDATE identity.positions SET default_role = NULL WHERE code = 'checador_cedis' AND default_role = ?`, [ROL]);
+  const { rows: apuntan } = await knex.raw(`SELECT count(*)::int AS n FROM identity.positions WHERE default_role = ?`, [ROL]);
+  if (Number(cuentas[0].n) === 0 && Number(apuntan[0].n) === 0) {
     await knex.raw(`DELETE FROM identity.role_scopes WHERE role_name = ? AND area = '*'`, [ROL]);
     await knex.raw(`DELETE FROM identity.role_permissions WHERE role_name = ?`, [ROL]);
-    await knex.raw(`DELETE FROM identity.positions WHERE code = 'checador_pedidos'
-                     AND NOT EXISTS (SELECT 1 FROM identity.users u WHERE u.position_code = 'checador_pedidos')`);
   }
-  await knex.raw(`UPDATE identity.positions SET default_role = NULL WHERE code = 'checador_cedis' AND default_role = ?`, [ROL]);
   await knex.raw(
     `UPDATE identity.role_permissions SET permissions = permissions - ?::text, updated_at = now()
       WHERE role_name = ANY(?::text[]) AND (permissions -> ?)::text = 'true'`,

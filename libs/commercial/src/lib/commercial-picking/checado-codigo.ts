@@ -72,12 +72,26 @@ export function resolverCodigo(codigo: string, filas: KdiiFila[], skusDelPedido:
   return { tipo: 'ambiguo', candidatos: (delPedido.length ? delPedido : todos).map((r) => r.sku) };
 }
 
-/** La unidad MAYOR del producto (la caja): la de mayor factor > 1. null = sólo se vende suelto. */
+/**
+ * Unidades CERRADAS: cada una es un bulto `CJ` con su etiqueta "n/N" (`FASE_GP` §2.5: cajas, bultos o
+ * cubetas). Medido en prod (sucursal 01): Kepler usa exactamente `CJA`, `BTO` y `CUB`. Todo lo
+ * demás (PAQ, PZA, KG, 500, 250…) es paquetería y va a la caja P. Se decide por el NOMBRE y no por
+ * "el factor más grande": un producto sin caja tendría su paquete como "mayor", y uno que se vende
+ * por caja (base = CJA, factor 1) se metería a la caja P.
+ */
+export const UNIDADES_CERRADAS: ReadonlySet<string> = new Set(['CJA', 'BTO', 'CUB']);
+
+export function esCerrada(unidad: string | null | undefined): boolean {
+  return UNIDADES_CERRADAS.has(String(unidad ?? '').trim().toUpperCase());
+}
+
+/** La unidad cerrada del producto (la de mayor factor entre CJA/BTO/CUB). null = sólo paquetería. */
 export function unidadMayor(f: KdiiFila): { unidad: string | null; factor: number } | null {
   const opciones = [
     { unidad: f.u3, factor: Number(f.f3 ?? 0) },
     { unidad: f.u2, factor: Number(f.f2 ?? 0) },
-  ].filter((o) => o.factor > 1);
+    { unidad: f.u1, factor: 1 },
+  ].filter((o) => o.factor > 0 && esCerrada(o.unidad));
   if (!opciones.length) return null;
-  return opciones.sort((a, b) => b.factor - a.factor)[0];
+  return opciones.sort((x, y) => y.factor - x.factor)[0];
 }
