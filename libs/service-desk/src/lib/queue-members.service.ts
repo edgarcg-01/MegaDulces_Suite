@@ -4,8 +4,8 @@
  * Reglas, y por qué:
  *  · **Sólo la coordinación DE ESA COLA** (clave `SERVICIO_COORDINAR` + rol `coordinador` ahí) o el god-mode agrega, cambia
  *    de rol o quita miembros. Que un coordinador de TI pueda meterse a Mantenimiento «para ver» sería exactamente la fuga que
- *    esta fase cierra; y cuando la cola sea confidencial (Fase RH) el god-mode dejará de poder, para que un administrador no
- *    se agregue a sí mismo y lo vea todo (hallazgo H1 de `FASE_RH_MESA_DE_SERVICIO.md`).
+ *    esta fase cierra; y cuando la cola sea confidencial (Fase MSH) el god-mode dejará de poder, para que un administrador no
+ *    se agregue a sí mismo y lo vea todo (hallazgo H1 de `FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md`).
  *  · **No se agrega a quien no podría actuar**: un `coordinador` debe tener la clave de coordinar y un `tecnico` la de atender
  *    (o coordinar). Un miembro sin la clave no ve ni hace nada: ofrecerlo como destino de una asignación sería un callejón.
  *    La clave la da Administración (`/admin/personas`); aquí se dice con claridad que falta.
@@ -117,6 +117,8 @@ export class ServiceDeskQueueMembersService {
         throw new ConflictException(`Tiene ${n} solicitud${n === 1 ? '' : 'es'} abierta${n === 1 ? '' : 's'} asignada${n === 1 ? '' : 's'}: reasígnalas antes de quitarla de la cola`);
       }
       await trx('servicedesk.queue_members').where({ id: m.id }).update({ active: false, updated_at: trx.fn.now(), updated_by: ctx.userId });
+      // `[MS.7.10]` Quien sale de la cola ya no puede ser su responsable por omisión: no se deja un responsable fantasma.
+      await trx('servicedesk.queues').where({ id: queueId, default_assignee_id: userId }).update({ default_assignee_id: null, updated_at: trx.fn.now(), updated_by: ctx.userId });
       return this.leer(trx, queueId, ctx);
     });
   }

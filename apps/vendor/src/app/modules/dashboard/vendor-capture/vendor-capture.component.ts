@@ -946,7 +946,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
         this.toast.add({
           severity: 'error',
           summary: 'No se pudo guardar offline',
-          detail: offErr?.message || 'Storage local no disponible. Reintentá.',
+          detail: offErr?.message || 'Storage local no disponible. Vuelve a intentar.',
         });
       } finally {
         this.saving.set(false);
@@ -1012,7 +1012,7 @@ export class VendorCaptureComponent implements OnInit, OnDestroy {
       this.toast.add({
         severity: 'error',
         summary: 'No se pudo guardar',
-        detail: e?.error?.message || e?.message || 'Reintentá — no se duplicará.',
+        detail: e?.error?.message || e?.message || 'Vuelve a intentar — no se duplicará.',
       });
     } finally {
       this.saving.set(false);

@@ -1923,3 +1923,128 @@ sin `ORDER BY`.
 3. La pantalla: los tres cubos —**cubierto · sin respaldo · sin depositar**— y el enlace a sus
    cobros.
 4. ⛔ **La migración no se aplica a prod sin autorización** (regla de la casa).
+
+### `[CG.58.1]` La tabla, el servicio y los dos endpoints (2026-10-07)
+
+**Migración `20261007330000_cg58_caos_ingreso_atribucion`** — `finance.caos_ingreso_atribucion`,
+RLS forzado, aditiva, idempotente. Guarda **los tramos**: qué parte de qué cobro entró a qué
+depósito. No copia ni el cobro ni el depósito — ésos viven en `kepler_ods` y en
+`analytics.caos_cash_movements`.
+
+Dos candados, **en la base y no en el servicio**:
+
+- `ux_caos_atrib_cobro_vivo` — **un cobro no se atribuye dos veces.** Sin esto el 100% sería de
+  mentira: bastaría con reusar el mismo cobro hasta cubrir todo.
+- `caos_atrib_orden_chk` — `cobro_fecha <= caos_occurred_at::date`. **La ley del proceso, como
+  CHECK.** Un reparto que la viole no es un reparto: es un respaldo inventado.
+
+⚠️ El timestamp original `…300000` **colisionaba con una migración congelada de otra sesión**
+(`re32_referencia_orden_entrada`); lo agarró `check:mig-colisiones` y se renombró a `…330000`.
+
+⚠️ `COMMENT ON` va con el escapador `lit()`: **no admite binds**, y esta misma sesión ya se comió
+ese bug (`syntax error at or near "$1"`) en dos migraciones.
+
+**`CaosIngresoReconService`** — lee, llama al motor y escribe. Toda la aritmética sigue en el motor
+puro: si viviera en el servicio haría falta un doble de Knex para probarla, y un doble de Knex no
+ejecuta SQL.
+
+⭐ **Es idempotente**: descuenta del pool lo **ya atribuido** antes de repartir, así que correrlo
+dos veces no duplica tramos ni cambia el reparto. Inserta en lotes de 500 — 708 depósitos pueden
+dar miles de tramos y un `INSERT` único sería una sentencia de megabytes.
+
+**Dos endpoints** en `/finance/caos`:
+
+| | Permiso | Qué hace |
+|---|---|---|
+| `GET ingresos/estado` | `FINANCE_CAOS_VER` | la foto, sin escribir |
+| `POST ingresos/conciliar` | `FINANCE_CAJA_GESTIONAR` | reparte y guarda |
+
+⚠️ **No se inventó un permiso nuevo.** La conciliación corre *al generar el arqueo*, que ya exige
+`FINANCE_CAJA_GESTIONAR` — y un permiso nuevo sin repartir es un módulo que nadie puede abrir
+(`[LC.6.2]`). Cero migraciones de permisos.
+
+⚠️ El `GET` publica **tres cantidades separadas** (ADR-056): *conciliado* · *pendiente* (depósito
+sin cobros que lo expliquen) · *sin depositar* (cobros que todavía no entraron al equipo). Las dos
+últimas **no son lo mismo y las arregla gente distinta**.
+
+### Verificación
+
+- `nx test finance` **608/608** · `nx run api:typecheck` verde · `check:mig-colisiones`,
+  `check:migrations`, `check:sql-backticks` y `check:wiring` verdes.
+
+### ⛔ Lo que falta
+
+1. **Aplicar la migración a prod** — no se hace sin autorización explícita, y va **una por una** con
+   `apply-one-migration-prod.js` dentro de `prod-api` (nunca `migrate:latest`: hay dos
+   `knex_migrations`).
+2. **Correr el primer reparto** y contrastar el resultado contra la medición: deben salir **708
+   cubiertos, 0 sin respaldo**. Si no sale eso, la implementación no coincide con lo medido y hay
+   que parar.
+3. **La pantalla** con los tres cubos.
+4. El enganche automático al cerrar la jornada (hoy el `POST` es manual).
+
+---
+
+## 25. `[CG.59]` La pantalla es la tarea: 90 % los dos apartados, 10 % la jornada (2026-10-07)
+
+**Edgar, tras aprobar el tablero rediseñado:** *"lo primero que debe ver el usuario es qué ingreso
+o egreso va a arquear, luego el arqueo. estos dos son importantísimos que se vean en pantalla
+completa, el 90% de la pantalla debe ser ESTOS DOS APARTADOS, ES NUESTRA PRIORIDAD, EN ESE 10%
+MOSTRARLE UN DESPLEGABLE DE CÓMO VA SU JORNADA"* → *"diseñémoslo idéntico"*.
+
+Tablero: **https://claude.ai/artifact/K4p1CMkAKkUGuCCsggXt6v**
+
+### El esqueleto
+
+La página pasa a **`100vh` sin scroll**: arriba la **barra** (el 10 %), abajo **los dos apartados**
+(el 90 %). Lo que scrollea es el contenido de cada apartado, **nunca la página** — con la página
+scrolleando, el arqueo se iba de la vista justo mientras se cuenta, que es el defecto que Edgar
+reportó tres veces seguidas.
+
+### Lo que se MUDÓ — y la prueba que lo garantiza
+
+El encabezado de página (título + dos subtítulos) más el bloque «Cierre de la jornada» se comían
+**~360 px** antes de que empezara el trabajo. Hoy la barra es **una línea** con el desplegable, y
+adentro entraron **cinco bloques, 447 líneas de plantilla**:
+
+| Bloque | Líneas |
+|---|---|
+| El aviso de cobertura de conceptos | 19 |
+| **El cierre de la jornada** (el cuadre del día, el cajero, los límites) | **174** |
+| Los documentos por pagar (gastos y órdenes de entrada) | 25 |
+| Los que repiten y nadie declaró su cuenta | 86 |
+| El historial (el libro + los cortes) | 143 |
+
+⭐ **Nada se borró, y hay una prueba que lo exige**: `[negativa] abrir la jornada NO pierde nada`
+busca los cinco bloques dentro del desplegable. Si uno se cayó en la mudanza, se pone roja — que es
+la diferencia entre **mover** y borrar.
+
+⚠️ **Plegar no es esconder**: cerrada, la barra ya publica `subtituloJornada()` — cuánto falta
+confirmar y si se rindió cuentas. Es un `<button>` con `aria-expanded`, no un div con `(click)`. Y
+abierta tiene **su propio scroll con techo de 52 vh**: no puede empujar la tarea fuera de la
+pantalla, que es exactamente lo que hacía antes.
+
+### Las 16 pruebas que se movieron con el contenido
+
+Afirmaban que el cuadre del día, el cajero, los recurrentes y el historial estaban en pantalla.
+Siguen afirmando **lo mismo** — cambió *dónde está*, así que abren el desplegable con un helper
+(`montarJornada`) en vez de aflojar la aserción. ⛔ **No se tocó ni una expectativa.**
+
+### Verificación
+
+- `nx test view` caja-general: **216/216** (2 pruebas nuevas, 16 reapuntadas). `typecheck`,
+  `check:templates`, `check:tokens` y `check:teclado` verdes.
+- **Mutación**: abrir la jornada por default → **4 rojas** (y dos de ellas son pruebas viejas de
+  `[CG.47]`, que ya exigían que el subtítulo y la cabecera no dijeran el mismo hecho).
+
+### Lo que falta para que sea idéntico al tablero
+
+Esta entrega es **el esqueleto**. Falta el contenido de los dos apartados:
+
+1. **Apartado 1** — la ficha del movimiento elegido (signo, beneficiario, importe del ERP a 30 px)
+   y la cola compacta debajo. Hoy el apartado 1 sigue siendo la bandeja tal cual.
+2. **Apartado 2** — el arqueo ya está ahí, pero la clasificación (tipo, fecha, sucursal, documento,
+   beneficiario, cuenta, glosa) todavía vive en su columna del panel y tiene que bajar al
+   apartado 1, que es donde el tablero la pone.
+3. **Validación visual**, que en esta pantalla ya demostró ser la única que ve los defectos de
+   layout: ninguna compuerta del repo mide píxeles.

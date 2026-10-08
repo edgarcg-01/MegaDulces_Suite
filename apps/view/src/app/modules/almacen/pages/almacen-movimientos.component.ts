@@ -1367,7 +1367,7 @@ export class AlmacenMovimientosComponent implements OnInit, AfterViewInit {
         this.cuadreLoading.set(false); this.cuadreLoaded.set(true);
       },
       // No tragar la falla: si un endpoint 500ea, mostrar error + reintentar (no "Sin datos" engañoso).
-      error: () => { this.cuadreError.set('No se pudo cargar el informe de cuadre. Reintentá.'); this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
+      error: () => { this.cuadreError.set('No se pudo cargar el informe de cuadre. Vuelve a intentar.'); this.cuadreLoading.set(false); this.cuadreLoaded.set(true); },
     });
     this.loadDetail();
   }

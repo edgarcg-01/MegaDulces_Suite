@@ -2,7 +2,7 @@ import { SD_PRIORITIES } from '@megadulces/contracts';
 import { armarAviso, llaveDeAviso, type SdEventoClave } from './notice';
 
 const EVENTOS: SdEventoClave[] = [
-  'nuevo_prioritario', 'levantada', 'asignado', 'comentario', 'resuelto', 'reabierto', 'cancelado', 'autocerrado',
+  'nuevo_prioritario', 'levantada', 'asignado', 'comentario', 'resuelto', 'reabierto', 'cancelado', 'autocerrado', 'transferido',
   'sla_por_vencer', 'sla_primera_respuesta_vencida', 'sla_vencido',
 ];
 const base = { folio: 'SRV-2026-00042', title: 'No abre el ERP', priority: 'alta' as const };
@@ -41,6 +41,32 @@ describe('armarAviso', () => {
   it('colapsa saltos de línea del extracto: un aviso es de una sola línea', () => {
     const c = armarAviso({ ...base, event: 'comentario', extracto: 'línea 1\n\n línea 2\t fin' });
     expect(c.message).not.toMatch(/[\n\t]/);
+  });
+  it('`[MS.7.11]` transferido dice quién la trasladó y a qué área, y no inventa ninguna', () => {
+    const a = armarAviso({ ...base, event: 'transferido', actor: 'Ana', extracto: 'Mantenimiento' });
+    expect(a.title).toContain('trasladaron');
+    expect(a.message).toContain('la trasladó Ana a Mantenimiento');
+    const sin = armarAviso({ ...base, event: 'transferido' });
+    expect(sin.message).not.toContain('la trasladó');
+    expect(sin.message).not.toContain(' a .');
+  });
+  it('`[MS.7.13]` con más de un área el aviso nombra la del ticket, con el folio siempre al frente', () => {
+    for (const event of EVENTOS) {
+      const a = armarAviso({ ...base, event, cola: 'Mantenimiento' });
+      expect(a.message.startsWith('SRV-2026-00042')).toBe(true);
+    }
+    expect(armarAviso({ ...base, event: 'asignado', cola: 'Mantenimiento' }).message).toContain('SRV-2026-00042 (Mantenimiento) · No abre el ERP');
+  });
+  it('⭐ con UNA sola área (sin `cola`) el aviso es EXACTAMENTE el de siempre (TI no cambia)', () => {
+    for (const event of EVENTOS) {
+      expect(armarAviso({ ...base, event })).toEqual(armarAviso({ ...base, event, cola: null }));
+      expect(armarAviso({ ...base, event }).message).not.toContain('(');
+    }
+  });
+  it('`transferido` no repite el área (ya nombra la destino) y una cola vacía no deja paréntesis', () => {
+    expect(armarAviso({ ...base, event: 'transferido', extracto: 'Mantenimiento', cola: 'Mantenimiento' }).message).not.toContain('(Mantenimiento)');
+    expect(armarAviso({ ...base, event: 'asignado', cola: '' }).message).not.toContain('()');
+    expect(armarAviso({ ...base, event: 'asignado', cola: 'x'.repeat(100) }).message).toContain('…)');
   });
   it('autocerrado dice cuántos días y cómo reabrir', () => {
     const a = armarAviso({ ...base, event: 'autocerrado', dias: 3 });

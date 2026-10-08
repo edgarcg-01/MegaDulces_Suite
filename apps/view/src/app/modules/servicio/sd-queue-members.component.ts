@@ -1,9 +1,9 @@
-import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
-import { SD_QUEUE_ROLES, type SdQueueCandidateDto, type SdQueueMemberDto, type SdQueueRole } from '@megadulces/contracts';
+import { SD_QUEUE_ROLES, type SdConfigResponse, type SdQueueCandidateDto, type SdQueueMemberDto, type SdQueueRole } from '@megadulces/contracts';
 import { ServiceDeskService, sdError } from './service-desk.service';
 
 export const ROL_COLA_LABEL: Readonly<Record<SdQueueRole, string>> = { coordinador: 'Coordinación (responsable)', tecnico: 'Técnico' };
@@ -68,6 +68,15 @@ export const ROL_COLA_LABEL: Readonly<Record<SdQueueRole, string>> = { coordinad
             </tbody>
           </table>
 
+          <!-- [MS.7.10] A quien cae un ticket que ninguna regla reparte. Siempre un miembro de ESTA cola (el servidor lo exige). -->
+          @if (puedeAdministrar()) {
+            <label class="qm-field qm-default"><span>Responsable por omisión</span>
+              <p-select [options]="opcionesResponsable()" optionLabel="label" optionValue="user_id" [ngModel]="defaultAssigneeId()" (ngModelChange)="cambiarResponsable($event)"
+                        [showClear]="true" placeholder="Nadie: los tickets sin regla quedan «Sin asignar»" appendTo="body" ariaLabel="Responsable por omisión" /></label>
+          } @else if (nombreResponsable(); as r) {
+            <p class="qm-hint">Responsable por omisión: <b>{{ r }}</b></p>
+          }
+
           @if (puedeAdministrar()) {
             <div class="qm-add">
               <label class="qm-field"><span>Agregar a la cola</span>
@@ -114,6 +123,10 @@ export class SdQueueMembersComponent {
   private readonly api = inject(ServiceDeskService);
 
   readonly queueId = input.required<string>();
+  /** `[MS.7.10]` El responsable por omisión actual de la cola (lo trae la configuración). */
+  readonly defaultAssigneeId = input<string | null>(null);
+  /** Devuelve la configuración nueva cuando se cambia el responsable por omisión (la pantalla la refresca). */
+  readonly configChange = output<SdConfigResponse>();
 
   readonly rolLabel = ROL_COLA_LABEL;
   readonly roles = SD_QUEUE_ROLES.map((r) => ({ value: r, label: ROL_COLA_LABEL[r] }));
@@ -136,6 +149,13 @@ export class SdQueueMembersComponent {
   readonly opcionesCandidatos = computed(() =>
     this.candidatos().map((c) => ({ user_id: c.user_id, label: `${c.name || c.username}${c.can_coordinate ? '' : ' (sin permiso de coordinar)'}` })),
   );
+  /** `[MS.7.10]` Sólo quien ya es miembro y puede atender: no se ofrece lo que el servidor va a rechazar. */
+  readonly opcionesResponsable = computed(() => (this.miembros() ?? []).filter((m) => m.can_attend).map((m) => ({ user_id: m.user_id, label: m.name || m.username })));
+  readonly nombreResponsable = computed(() => {
+    const id = this.defaultAssigneeId();
+    const m = id ? (this.miembros() ?? []).find((x) => x.user_id === id) : null;
+    return m ? m.name || m.username : null;
+  });
   readonly sinCandidatos = computed(() => !this.cargando() && this.candidatos().length === 0);
 
   /** Para nombrar COORDINACIÓN hace falta la clave de coordinar: se dice aquí, no con un error del servidor. */
@@ -182,6 +202,22 @@ export class SdQueueMembersComponent {
     this.api.upsertQueueMember(this.queueId(), this.elegido, this.rolNuevo).subscribe({
       next: (r) => { this.miembros.set(r.members); this.trabajando.set(null); this.aviso.set('Persona agregada a la cola.'); this.elegido = null; this.recargarCandidatos(); },
       error: (e) => { this.trabajando.set(null); this.error.set(sdError(e, 'No se pudo agregar a la persona.')); },
+    });
+  }
+
+  cambiarResponsable(id: string | null): void {
+    const nuevo = id ?? null;
+    if (nuevo === this.defaultAssigneeId()) return;
+    this.trabajando.set('responsable');
+    this.error.set(null);
+    this.aviso.set(null);
+    this.api.updateQueue(this.queueId(), { default_assignee_id: nuevo }).subscribe({
+      next: (cfg) => {
+        this.trabajando.set(null);
+        this.aviso.set(nuevo ? 'Responsable por omisión actualizado.' : 'Sin responsable por omisión: lo que ninguna regla reparta queda «Sin asignar».');
+        this.configChange.emit(cfg);
+      },
+      error: (e) => { this.trabajando.set(null); this.error.set(sdError(e, 'No se pudo cambiar el responsable por omisión.')); },
     });
   }
 

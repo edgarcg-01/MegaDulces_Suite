@@ -19,14 +19,19 @@ const CFG: SdConfigResponse = {
     auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60,
   },
   policies: [],
-  queues: [{ id: 'q1', code: 'ti', name: 'TI', department_code: null, active: true, sort_order: 10 }],
+  queues: [{ id: 'q1', code: 'ti', name: 'TI', department_code: null, active: true, sort_order: 10, priority_model: 'impacto', asks_zone: false, default_assignee_id: null, default_assignee_name: null }],
+  zones: [
+    { id: 'z1', code: 'bodega', name: 'Bodega', sort_order: 10, active: true },
+    { id: 'z2', code: 'anden', name: 'Andén', sort_order: 20, active: false },
+  ],
+  fields: [],
   categories: [
     { id: 'c-dev', queue_id: 'q1', code: 'desarrollo', name: 'Desarrollo', default_priority: 'media', requires_branch: false, active: true, sort_order: 95 },
   ],
 };
 
 const REGLA_OK: SdRoutingRuleDto = {
-  id: 'r1', name: 'Equipo de cómputo', keywords: ['cpu', 'impresora'], category_id: null, category_name: null,
+  id: 'r1', name: 'Equipo de cómputo', keywords: ['cpu', 'impresora'], category_id: null, category_name: null, warehouse_code: null, warehouse_name: null,
   assignee_id: 'u-felipe', assignee_name: 'Felipe Galván', assignee_username: 'felipe_galvan', assignee_ok: true, sort_order: 10, active: true,
 };
 const REGLA_SIN_PERMISO: SdRoutingRuleDto = {
@@ -82,27 +87,27 @@ describe('[MS.3.10] ServicioConfiguracionComponent — asignación automática',
 
   it('⛔ NEGATIVA — una regla sin nombre, sin persona o sin disparador NO es válida', async () => {
     await render();
-    c.formRegla = { name: '', assignee_id: 'u-felipe', category_id: null, sort_order: 100, keywords: 'cpu' };
+    c.formRegla = { name: '', assignee_id: 'u-felipe', category_id: null, warehouse_code: null, sort_order: 100, keywords: 'cpu' };
     expect(c.reglaValida()).toBe(false);
-    c.formRegla = { name: 'x', assignee_id: null, category_id: null, sort_order: 100, keywords: 'cpu' };
+    c.formRegla = { name: 'x', assignee_id: null, category_id: null, warehouse_code: null, sort_order: 100, keywords: 'cpu' };
     expect(c.reglaValida()).toBe(false);
-    c.formRegla = { name: 'x', assignee_id: 'u-felipe', category_id: null, sort_order: 100, keywords: ' , ,  ' };
+    c.formRegla = { name: 'x', assignee_id: 'u-felipe', category_id: null, warehouse_code: null, sort_order: 100, keywords: ' , ,  ' };
     expect(c.reglaValida()).toBe(false);
   });
 
   it('con una categoría basta, o con palabras: cualquiera de las dos la dispara', async () => {
     await render();
-    c.formRegla = { name: 'x', assignee_id: 'u-felipe', category_id: 'c-dev', sort_order: 100, keywords: '' };
+    c.formRegla = { name: 'x', assignee_id: 'u-felipe', category_id: 'c-dev', warehouse_code: null, sort_order: 100, keywords: '' };
     expect(c.reglaValida()).toBe(true);
-    c.formRegla = { name: 'x', assignee_id: 'u-felipe', category_id: null, sort_order: 100, keywords: 'cpu' };
+    c.formRegla = { name: 'x', assignee_id: 'u-felipe', category_id: null, warehouse_code: null, sort_order: 100, keywords: 'cpu' };
     expect(c.reglaValida()).toBe(true);
   });
 
   it('⭐ guardar manda las palabras como lista, sin vacíos ni espacios de más', async () => {
     await render();
-    c.formRegla = { name: '  Equipo  ', assignee_id: 'u-felipe', category_id: null, sort_order: 15, keywords: ' cpu , impresora,, sistemas ,' };
+    c.formRegla = { name: '  Equipo  ', assignee_id: 'u-felipe', category_id: null, warehouse_code: null, sort_order: 15, keywords: ' cpu , impresora,, sistemas ,' };
     c.guardarRegla();
-    expect(api['createRouting']).toHaveBeenCalledWith({ name: 'Equipo', assignee_id: 'u-felipe', category_id: null, sort_order: 15, keywords: ['cpu', 'impresora', 'sistemas'] });
+    expect(api['createRouting']).toHaveBeenCalledWith({ name: 'Equipo', assignee_id: 'u-felipe', category_id: null, warehouse_code: null, sort_order: 15, keywords: ['cpu', 'impresora', 'sistemas'] });
     expect(api['updateRouting']).not.toHaveBeenCalled();
     // y deja el formulario limpio
     expect(c.formRegla.name).toBe('');
@@ -126,7 +131,7 @@ describe('[MS.3.10] ServicioConfiguracionComponent — asignación automática',
     c.editarRegla(REGLA_OK);
     c.cancelarRegla();
     expect(c.editandoRegla()).toBeNull();
-    expect(c.formRegla).toEqual({ name: '', assignee_id: null, category_id: null, sort_order: 100, keywords: '' });
+    expect(c.formRegla).toEqual({ name: '', assignee_id: null, category_id: null, warehouse_code: null, sort_order: 100, keywords: '' });
   });
 
   it('apagar, cambiar el orden y retirar llaman a la API con lo que toca', async () => {

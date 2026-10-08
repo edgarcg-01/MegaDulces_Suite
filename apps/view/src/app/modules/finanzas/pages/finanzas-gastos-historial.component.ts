@@ -381,7 +381,7 @@ export class FinanzasGastosHistorialComponent {
         next: (m: CalendarioDelMes) => { this.mesDatos.set(m); this.cargando.set(false); this.cdr.markForCheck(); },
         // Un error NO se pinta como mes vacío: es otra afirmación, y la equivocada haría creer
         // que no hubo gasto.
-        error: () => { this.error.set('No se pudo cargar el mes. Reintentá.'); this.cargando.set(false); this.cdr.markForCheck(); },
+        error: () => { this.error.set('No se pudo cargar el mes. Vuelve a intentar.'); this.cargando.set(false); this.cdr.markForCheck(); },
       });
   }
 
@@ -428,7 +428,7 @@ export class FinanzasGastosHistorialComponent {
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (r: ExpenseProofsReport) => { this.filasDia.set(r?.rows || []); this.cargandoDia.set(false); this.cdr.markForCheck(); },
-        error: () => { this.errorDia.set('No se pudieron traer los vales de ese día. Reintentá.'); this.cargandoDia.set(false); this.cdr.markForCheck(); },
+        error: () => { this.errorDia.set('No se pudieron traer los vales de ese día. Vuelve a intentar.'); this.cargandoDia.set(false); this.cdr.markForCheck(); },
       });
   }
 
@@ -484,7 +484,7 @@ export class FinanzasGastosHistorialComponent {
       },
       error: (e) => {
         this.pidiendo.set(false);
-        const detail = (e as { error?: { message?: string } })?.error?.message || 'Reintentá';
+        const detail = (e as { error?: { message?: string } })?.error?.message || 'Vuelve a intentar';
         this.toast.add({ severity: 'error', summary: 'No se pudo pedir', detail });
         this.cdr.markForCheck();
       },

@@ -484,7 +484,7 @@ export class FinanzasMisGastosComponent {
       next: (r) => { this.aplicar(r); this.cargando.set(false); },
       // Un error NO se pinta como «no levantaste nada»: es otra afirmación, y la equivocada
       // manda a alguien a capturar de nuevo un gasto que ya mandó.
-      error: () => { this.error.set('No se pudieron cargar tus gastos. Reintentá.'); this.cargando.set(false); },
+      error: () => { this.error.set('No se pudieron cargar tus gastos. Vuelve a intentar.'); this.cargando.set(false); },
     });
   }
 

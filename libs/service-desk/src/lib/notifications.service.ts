@@ -34,6 +34,7 @@ import {
   type ServiceDeskChannelPort,
 } from '@megadulces/contracts';
 import { TenantKnexService } from '@megadulces/platform-core';
+import { filtrarDestinatarios } from './domain/destinatarios';
 import { armarAviso, llaveDeAviso, type SdEventoClave } from './domain/notice';
 
 /** Lo que pasó y a quién le toca saberlo. Lo arma quien provoca el evento, DESPUÉS de confirmar su transacción. */
@@ -83,7 +84,9 @@ export class ServiceDeskNotificationsService {
     if (!eventos.length) return;
     try {
       await this.tk.run(tenantId, async (trx) => {
-        for (const ev of eventos) await this.entregarEvento(trx, tenantId, ev);
+        // `[MS.7.13]` ¿Hay más de un área? Sólo entonces el aviso nombra la suya (con una sola, el texto no cambia). Una lectura por lote.
+        const variasAreas = Number((await trx('servicedesk.queues').where({ active: true }).whereNull('deleted_at').count({ n: '*' }).first())?.n ?? 0) > 1;
+        for (const ev of eventos) await this.entregarEvento(trx, tenantId, ev, variasAreas);
       });
     } catch (e) {
       this.logger.warn(`Los avisos de ${eventos.length} evento(s) no se pudieron entregar: ${e instanceof Error ? e.message : String(e)}`);
@@ -120,10 +123,32 @@ export class ServiceDeskNotificationsService {
 
   // ───────────────────────────── internos ─────────────────────────────
 
-  private async entregarEvento(trx: Knex.Transaction, tenantId: string, ev: SdEvento): Promise<void> {
-    const ids = [...new Set(ev.recipients)].filter((id) => id && id !== ev.actor_id);
+  private async entregarEvento(trx: Knex.Transaction, tenantId: string, ev: SdEvento, variasAreas: boolean): Promise<void> {
+    const candidatos = [...new Set(ev.recipients)].filter((id) => id && id !== ev.actor_id);
+    if (!candidatos.length) return;
+    // `[MS.7.12]` Un ticket de prueba no avisa a nadie. Aquí, en el punto único de entrega, para que lo cubra TODO lo que avisa
+    // (el alta, los comentarios, el barrido del SLA): ninguna rama nueva tiene que acordarse de excluirlo.
+    const ticket = await trx('servicedesk.requests as r')
+      .leftJoin('servicedesk.queues as q', function () {
+        this.on('q.tenant_id', 'r.tenant_id').andOn('q.id', 'r.queue_id');
+      })
+      .where('r.id', ev.request_id)
+      .first('r.is_test', 'r.queue_id', 'r.requester_id', 'r.assigned_to', 'q.name as queue_name');
+    if (ticket?.is_test) return;
+    /*
+     * `[MS.7.13]` «Nadie fuera de la cola recibe el aviso»: segunda llave en el punto único de entrega. Quien armó el evento ya calculó los
+     * destinatarios por cola (MS.7.6); aquí se vuelve a exigir contra la cola del ticket AHORA (tras un traslado, la destino). Pueden recibirlo
+     * quien reportó, quien lo tiene asignado y los miembros activos de esa cola. Lo descartado deja rastro: es un cálculo que falló.
+     */
+    let ids = candidatos;
+    if (ticket) {
+      const miembros = new Set((await trx('servicedesk.queue_members').where({ queue_id: ticket.queue_id, active: true }).pluck('user_id')) as string[]);
+      const f = filtrarDestinatarios(candidatos, { requesterId: ticket.requester_id, assignedTo: ticket.assigned_to ?? null, miembrosDeLaCola: miembros });
+      if (f.descartados.length) this.logger.warn(`aviso ${ev.event} de ${ev.folio}: se descartaron ${f.descartados.length} destinatario(s) que no son de la cola del ticket`);
+      ids = f.permitidos;
+    }
     if (!ids.length) return;
-    const aviso = armarAviso({ event: ev.event, folio: ev.folio, title: ev.title, priority: ev.priority, actor: ev.actor_name, extracto: ev.extracto, dias: ev.dias, automatico: ev.automatico });
+    const aviso = armarAviso({ event: ev.event, folio: ev.folio, title: ev.title, priority: ev.priority, actor: ev.actor_name, extracto: ev.extracto, dias: ev.dias, automatico: ev.automatico, cola: variasAreas ? ticket?.queue_name ?? null : null });
 
     const contactos: Contacto[] = await trx('identity.users as u')
       .leftJoin('servicedesk.notification_prefs as p', function () {

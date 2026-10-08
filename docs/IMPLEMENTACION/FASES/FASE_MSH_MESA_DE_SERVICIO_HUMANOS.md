@@ -1,6 +1,7 @@
-# FASE RH — La Mesa de Servicio de Recursos Humanos (cola confidencial)
+# FASE MSH — La Mesa de Servicio de Recursos Humanos (cola confidencial)
 
 > **Estado:** 📋 DISEÑADO (planeación) 2026-10-06 — sin código. Segunda cola de la Mesa después de Mantenimiento ([`FASE_MS7_MANTENIMIENTO`](FASE_MS7_MANTENIMIENTO.md)); hereda de ADR-081 y del diseño de MS.7. **ADR por asignar** (la numeración 082 y 083 ya está ocupada).
+> **Nombre de los sprints (cambio 2026-10-07):** esta fase es **MSH** («Mesa de Servicio · Humanos»), sus sprints son **MSH.0–MSH.4** y el archivo se llama `FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md`. Antes se llamaban `RH.0–RH.4` y el archivo `FASE_RH_MESA_DE_SERVICIO.md`, **códigos que chocaban con la Fase RH de la migración de Mega Talento** ([`FASE_RH_MIGRACION_MEGA_TALENTO`](FASE_RH_MIGRACION_MEGA_TALENTO.md): `[RH.0.x]`, `[RH.1]` asistencia, `[RH.2]` reclutamiento, `[RH.3]` bot, `[RH.4]` retiro de Railway). **Esta fase NO es esa**: es la cola confidencial de RH dentro de la Mesa de Servicio. Si ves `RH.n` sin prefijo, es Mega Talento; si ves `MSH.n`, es este plan.
 > **Origen:** `PLAN_MESA_SERVICIO_RH.md` + `PROMPT_CLAUDE_CODE_RH.md` (Sistemas), contrastados con el código real. Este documento reemplaza a ambos como fuente: trae el plan ajustado, la matriz de **20 casos** y el prompt maestro corregido (Apéndice).
 > **Para quién:** Sistemas (dueño de la Mesa), RH (Lesly Berber y Tania Solorio), Edgar (revisión) y el dev que lo construya.
 
@@ -31,7 +32,7 @@ El plan decía «MS.7 (PR #269) se cierra hoy; RH no arranca hasta que esté mer
 
 `MS.7.1` miembros por cola → `MS.7.6` acceso por cola → `MS.7.11` transferir → `MS.7.13` avisos por cola → `MS.7.17` configuración de colas → `MS.7.18` Mi trabajo y reportes → **RH**.
 
-**Compuerta de entrada de RH.1:** `MS.7.1` y `MS.7.6` mergeados y verificados (**construidos el 2026-10-06**, ver [`FASE_MS7`](FASE_MS7_MANTENIMIENTO.md); `accesoATicket` ya existe y ya devuelve `completo | basico | ninguno`). Y `MS.7.6` se diseña **ya con el hueco para la confidencialidad** (una función única `accesoATicket` que devuelve `completo | basico | ninguno`): reescribir `puedeVer` dos veces sería peor que una.
+**Compuerta de entrada de MSH.1:** `MS.7.1` y `MS.7.6` mergeados y verificados (**construidos el 2026-10-06**, ver [`FASE_MS7`](FASE_MS7_MANTENIMIENTO.md); `accesoATicket` ya existe y ya devuelve `completo | basico | ninguno`). Y `MS.7.6` se diseña **ya con el hueco para la confidencialidad** (una función única `accesoATicket` que devuelve `completo | basico | ninguno`): reescribir `puedeVer` dos veces sería peor que una.
 
 ### 2.2 Lo que el plan no cubría (con evidencia)
 
@@ -71,7 +72,7 @@ Hoy la base sólo fija el tenant por sesión (`app.tenant_id`). Agregar el actor
 
 ### 3.3 Categorías de RH (resueltas por Sistemas el 2026-10-06)
 
-Son las más comunes del departamento; se **siembran en RH.4 como configuración** (nada de código) y se afinan con RH cuando abra. Toda la cola es confidencial, así que ninguna categoría necesita su propia marca. Ninguna exige ubicación.
+Son las más comunes del departamento; se **siembran en MSH.4 como configuración** (nada de código) y se afinan con RH cuando abra. Toda la cola es confidencial, así que ninguna categoría necesita su propia marca. Ninguna exige ubicación.
 
 | Categoría | Peticiones típicas |
 |---|---|
@@ -93,7 +94,7 @@ Folio único `SRV-AAAA-NNNNN`; mismos estados para todas las áreas más motivo 
 
 ---
 
-## 4. Modelo de datos (RH.1, todo aditivo e idempotente)
+## 4. Modelo de datos (MSH.1, todo aditivo e idempotente)
 
 | Objeto | Cambio |
 |---|---|
@@ -112,13 +113,13 @@ Una rama y un PR por sprint. Migraciones aditivas, idempotentes y reversibles, *
 
 | Sprint | Contenido | Se cierra cuando |
 |---|---|---|
-| **RH.0** Reconocimiento | **Hecho como análisis (§2).** Queda: confirmar en el código del momento que `MS.7.1` y `MS.7.6` están mergeados y que `accesoATicket` existe. | Compuerta de entrada verificada y R1–R9 respondidas. |
-| **RH.1** Base de datos | Columnas de cola, `requests.confidential` y sus **dos triggers**. Pruebas de subida y reversa en copia. | Un ticket no puede cambiar su marca ni salir a una cola no confidencial, ni por SQL con `app_runtime`. |
-| **RH.2** Lógica y pruebas | `accesoATicket` completo (incluye `basico` para el administrador); `queue_members` de una cola confidencial sólo los edita su coordinador (H1); **candado estático** de lecturas (H2); `me-work`/`me-tasks` acotados por cola (H2); avisos neutros **al escribir** (H3); URL prefirmada corta (H4); modelo sin prioridad y barredor que salta la cola (H5); levantar a nombre de otro (H7); transferencia (R3); reportes con mínimo y supresión complementaria (H8); filtro del puerto de Bitácora (H9). | Cada regla probada **rompiéndola a propósito**. TI y Mantenimiento sin regresión. |
-| **RH.3** Pantalla | Aviso «esta solicitud será confidencial» al elegir RH; formulario sin preguntas de prioridad; **sin semáforo ni chip** en listados y fichas de RH; vista limitada del administrador; bandera y mínimo de casos en `/servicio/configuracion`. Todo en español. | E2E pasando. |
-| **RH.4** Siembra y verificación cruzada | La cola RH **sólo con configuración** (cola confidencial, sin prioridad ni SLA, categorías validadas, Lesly Berber y Tania Solorio coordinadoras). Se corre la **matriz de 20 casos**. | Matriz en verde, caso por caso; los fallos se reportan, no se maquillan. |
+| **MSH.0** Reconocimiento | **Hecho como análisis (§2).** Queda: confirmar en el código del momento que `MS.7.1` y `MS.7.6` están mergeados y que `accesoATicket` existe. | Compuerta de entrada verificada y R1–R9 respondidas. |
+| **MSH.1** Base de datos | Columnas de cola, `requests.confidential` y sus **dos triggers**. Pruebas de subida y reversa en copia. | Un ticket no puede cambiar su marca ni salir a una cola no confidencial, ni por SQL con `app_runtime`. |
+| **MSH.2** Lógica y pruebas | `accesoATicket` completo (incluye `basico` para el administrador); `queue_members` de una cola confidencial sólo los edita su coordinador (H1); **candado estático** de lecturas (H2); `me-work`/`me-tasks` acotados por cola (H2); avisos neutros **al escribir** (H3); URL prefirmada corta (H4); modelo sin prioridad y barredor que salta la cola (H5); levantar a nombre de otro (H7); transferencia (R3); reportes con mínimo y supresión complementaria (H8); filtro del puerto de Bitácora (H9). | Cada regla probada **rompiéndola a propósito**. TI y Mantenimiento sin regresión. |
+| **MSH.3** Pantalla | Aviso «esta solicitud será confidencial» al elegir RH; formulario sin preguntas de prioridad; **sin semáforo ni chip** en listados y fichas de RH; vista limitada del administrador; bandera y mínimo de casos en `/servicio/configuracion`. Todo en español. | E2E pasando. |
+| **MSH.4** Siembra y verificación cruzada | La cola RH **sólo con configuración** (cola confidencial, sin prioridad ni SLA, categorías validadas, Lesly Berber y Tania Solorio coordinadoras). Se corre la **matriz de 20 casos**. | Matriz en verde, caso por caso; los fallos se reportan, no se maquillan. |
 
-**Regla de entrada de RH.4:** nunca se siembra la cola antes de que el acceso por cola y la confidencialidad pasen sus pruebas.
+**Regla de entrada de MSH.4:** nunca se siembra la cola antes de que el acceso por cola y la confidencialidad pasen sus pruebas.
 **Fuera de v1:** tickets padre-hijo (altas de empleado), campos extra, SLA calibrado, ruteo por ubicación y definir «urgente» en RH.
 
 ---
@@ -188,7 +189,7 @@ Rol: eres el ingeniero y program manager de la extensión de la Mesa de Servicio
 
 # Lee primero (y respétalo, no sobrescribas nada)
 - CLAUDE.md del repo.
-- docs/IMPLEMENTACION/FASES/FASE_RH_MESA_DE_SERVICIO.md  (ESTE es el plan: hallazgos H1–H9, propuestas R1–R9, sprints y la matriz de 20 casos).
+- docs/IMPLEMENTACION/FASES/FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md  (ESTE es el plan: hallazgos H1–H9, propuestas R1–R9, sprints y la matriz de 20 casos).
 - docs/IMPLEMENTACION/FASES/FASE_MS7_MANTENIMIENTO.md  (el diseño multi-área del que RH depende).
 
 # Compuerta de entrada (verifícala EN EL CÓDIGO, no por número de PR)
@@ -215,32 +216,32 @@ R1 la marca la fija la base desde la cola y es inmutable (trigger). R2 "informac
 - La confidencialidad se aplica en la API y en la base (trigger + candado estático), no sólo en la interfaz. Los avisos neutros se escriben neutros, no se enmascaran al mostrar.
 - Interfaz y mensajes en español. No inventes reglas de negocio: ante una duda, pregunta.
 
-# Qué hacer ahora (Sprint RH.0, SOLO LECTURA: no modifiques archivos)
+# Qué hacer ahora (Sprint MSH.0, SOLO LECTURA: no modifiques archivos)
 1. Ejecuta la compuerta de entrada y dime el resultado.
 2. Verifica que H1–H9 siguen vigentes en el código de hoy y corrige lo que haya cambiado (con rutas de archivo).
 3. Revisa cómo MS.7.6 implementó el acceso por ticket y qué falta para que devuelva completo | basico | ninguno.
-4. Entrégame: (a) hallazgos nuevos o cambios respecto a H1–H9, (b) el diseño detallado de RH.1–RH.4 con archivos a tocar, (c) la lista blanca inicial del candado estático de lecturas de servicedesk.requests, (d) las preguntas que sigan abiertas (R3 y R7 ya están resueltas) y cualquier otra que encuentres.
-5. Termina y espera mi aprobación. No avances a RH.1.
+4. Entrégame: (a) hallazgos nuevos o cambios respecto a H1–H9, (b) el diseño detallado de MSH.1–MSH.4 con archivos a tocar, (c) la lista blanca inicial del candado estático de lecturas de servicedesk.requests, (d) las preguntas que sigan abiertas (R3 y R7 ya están resueltas) y cualquier otra que encuentres.
+5. Termina y espera mi aprobación. No avances a MSH.1.
 ```
 
-### Prompts de seguimiento (uno por sprint, tras aprobar RH.0)
+### Prompts de seguimiento (uno por sprint, tras aprobar MSH.0)
 
-**RH.1 — Base de datos**
+**MSH.1 — Base de datos**
 ```
-Ejecuta el Sprint RH.1 del plan aprobado. Rama nueva. Sólo base de datos: columnas confidential / uses_priority / sla_enabled / report_min_cases en queues, requests.confidential y los DOS triggers (BEFORE INSERT fija desde la cola; BEFORE UPDATE rechaza cambiar la marca y sacar un confidencial a una cola no confidencial). Migraciones aditivas, idempotentes y reversibles; tenant_id y RLS en lo nuevo. Pruébalas en una copia, con subida y reversa, y demuestra con app_runtime que NO se puede quitar la marca por SQL. No toques lógica ni pantalla. Resume cómo aplicarlas una por una.
-```
-
-**RH.2 — Lógica y pruebas**
-```
-Ejecuta el Sprint RH.2. Rama nueva. En libs/service-desk (y los puntos de libs/trade que lean servicedesk.requests): acceso por ticket completo|basico|ninguno con vista básica del administrador (la API no envía campos ocultos); edición de miembros de una cola confidencial sólo por su coordinador; candado estático de lecturas con lista blanca; me-work y me-tasks acotados por cola; avisos neutros escritos neutros (correo, WhatsApp, campana, notification_log, aviso de SLA); URL de adjunto de vida corta en confidenciales; modelo sin prioridad (priority null en la API, barredor de SLA que salta la cola); levantar a nombre de otro hacia cola confidencial; transferencia según R3; reportes con mínimo de casos y supresión complementaria; filtro del puerto de Bitácora. Escribe las pruebas de los casos 1–20 de la matriz y rompe cada regla a propósito una vez. Corre vitest y el E2E: TI y Mantenimiento no deben tener regresiones.
+Ejecuta el Sprint MSH.1 del plan aprobado. Rama nueva. Sólo base de datos: columnas confidential / uses_priority / sla_enabled / report_min_cases en queues, requests.confidential y los DOS triggers (BEFORE INSERT fija desde la cola; BEFORE UPDATE rechaza cambiar la marca y sacar un confidencial a una cola no confidencial). Migraciones aditivas, idempotentes y reversibles; tenant_id y RLS en lo nuevo. Pruébalas en una copia, con subida y reversa, y demuestra con app_runtime que NO se puede quitar la marca por SQL. No toques lógica ni pantalla. Resume cómo aplicarlas una por una.
 ```
 
-**RH.3 — Pantalla**
+**MSH.2 — Lógica y pruebas**
 ```
-Ejecuta el Sprint RH.3. Rama nueva. En Angular: aviso "esta solicitud será confidencial" al elegir RH, formulario sin preguntas de prioridad, sin semáforo ni chip de prioridad en ningún listado ni ficha de RH, vista limitada del administrador, y la bandera de confidencial y el mínimo de casos en /servicio/configuracion. Todo en español. Corre el E2E y revisa en navegador.
+Ejecuta el Sprint MSH.2. Rama nueva. En libs/service-desk (y los puntos de libs/trade que lean servicedesk.requests): acceso por ticket completo|basico|ninguno con vista básica del administrador (la API no envía campos ocultos); edición de miembros de una cola confidencial sólo por su coordinador; candado estático de lecturas con lista blanca; me-work y me-tasks acotados por cola; avisos neutros escritos neutros (correo, WhatsApp, campana, notification_log, aviso de SLA); URL de adjunto de vida corta en confidenciales; modelo sin prioridad (priority null en la API, barredor de SLA que salta la cola); levantar a nombre de otro hacia cola confidencial; transferencia según R3; reportes con mínimo de casos y supresión complementaria; filtro del puerto de Bitácora. Escribe las pruebas de los casos 1–20 de la matriz y rompe cada regla a propósito una vez. Corre vitest y el E2E: TI y Mantenimiento no deben tener regresiones.
 ```
 
-**RH.4 — Siembra y verificación cruzada**
+**MSH.3 — Pantalla**
 ```
-Ejecuta el Sprint RH.4. Rama nueva. Primero confirma que el acceso por cola y la confidencialidad pasan sus pruebas. Después crea la cola RH SOLO con configuración (sin lógica por nombre): cola confidencial, sin prioridad ni SLA, categorías validadas con RH, Lesly Berber y Tania Solorio como coordinadoras. Corre la matriz de 20 casos de FASE_RH_MESA_DE_SERVICIO.md y entrégame el resultado caso por caso. Los fallos se reportan, no se maquillan.
+Ejecuta el Sprint MSH.3. Rama nueva. En Angular: aviso "esta solicitud será confidencial" al elegir RH, formulario sin preguntas de prioridad, sin semáforo ni chip de prioridad en ningún listado ni ficha de RH, vista limitada del administrador, y la bandera de confidencial y el mínimo de casos en /servicio/configuracion. Todo en español. Corre el E2E y revisa en navegador.
+```
+
+**MSH.4 — Siembra y verificación cruzada**
+```
+Ejecuta el Sprint MSH.4. Rama nueva. Primero confirma que el acceso por cola y la confidencialidad pasan sus pruebas. Después crea la cola RH SOLO con configuración (sin lógica por nombre): cola confidencial, sin prioridad ni SLA, categorías validadas con RH, Lesly Berber y Tania Solorio como coordinadoras. Corre la matriz de 20 casos de FASE_MSH_MESA_DE_SERVICIO_HUMANOS.md y entrégame el resultado caso por caso. Los fallos se reportan, no se maquillan.
 ```

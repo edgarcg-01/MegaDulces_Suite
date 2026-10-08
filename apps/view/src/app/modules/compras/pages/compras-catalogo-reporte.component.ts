@@ -201,7 +201,7 @@ interface GrupoImpresion {
                 <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
                 <div>
                   <strong>No se pudo cargar el reporte.</strong>
-                  <span>Puede ser un corte de red o un permiso. Reintentá; si sigue, avisá a sistemas.</span>
+                  <span>Puede ser un corte de red o un permiso. Vuelve a intentar; si sigue, avisá a sistemas.</span>
                 </div>
                 <button pButton size="small" [outlined]="true" (click)="recargar()">
                   <span class="p-button-label">Reintentar</span>

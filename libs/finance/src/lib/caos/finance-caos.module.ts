@@ -5,6 +5,7 @@ import { CaosService } from './caos.service';
 import { CaosController } from './caos.controller';
 import { CaosGateway } from './caos.gateway';
 import { CaosRealtimeService } from './caos-realtime.service';
+import { CaosIngresoReconService } from './caos-ingreso-recon.service';
 
 /**
  * CS.2 — Módulo de lectura de CAOS (caja fuerte de efectivo): el reporte de movimientos + su
@@ -20,7 +21,7 @@ import { CaosRealtimeService } from './caos-realtime.service';
     }),
   ],
   controllers: [CaosController],
-  providers: [CaosService, CaosGateway, CaosRealtimeService, PgListenService],
-  exports: [CaosService, CaosGateway],
+  providers: [CaosService, CaosGateway, CaosRealtimeService, CaosIngresoReconService, PgListenService],
+  exports: [CaosService, CaosGateway, CaosIngresoReconService],
 })
 export class FinanceCaosModule {}

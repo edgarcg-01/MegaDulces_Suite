@@ -8,9 +8,9 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { TextareaModule } from 'primeng/textarea';
 import type { Observable } from 'rxjs';
-import type { SdAgentDto, SdAttachmentInput, SdPriority, SdRequestDetail, SdStatus } from '@megadulces/contracts';
+import type { SdAgentDto, SdAttachmentInput, SdCatalogResponse, SdPauseReason, SdPriority, SdRequestDetail, SdStatus, SdTransferResult } from '@megadulces/contracts';
 import { SD_PRIORITIES } from '@megadulces/contracts';
-import { PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError, slaTexto } from './service-desk.service';
+import { PAUSE_REASONS, PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError, slaTexto } from './service-desk.service';
 
 /** Máximo de archivos por envío: el mismo tope que el servidor (`MAX_ADJUNTOS_POR_ENVIO`). */
 export const MAX_ARCHIVOS = 5;
@@ -73,6 +73,7 @@ function leerComoDataUri(f: File): Promise<string> {
 
         <div class="sd-badges">
           <span class="sd-st" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span>
+          @if (t.is_test) { <span class="sd-test" title="Solicitud de prueba: no cuenta en reportes, tablero, Mi trabajo ni avisos.">Prueba</span> }
           <span class="sd-pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span>
           @if (sla().texto !== '—') { <span class="sd-sla" [attr.data-t]="sla().tono">{{ sla().texto }}</span> }
         </div>
@@ -94,6 +95,9 @@ function leerComoDataUri(f: File): Promise<string> {
             <div><dt>Afecta</dt><dd>{{ impactLabel[t.impact] }}{{ t.blocks_work ? ' · me bloquea el trabajo' : '' }}</dd></div>
           }
           @if (t.warehouse_name) { <div><dt>Ubicación</dt><dd>{{ t.warehouse_name }}</dd></div> }
+          @if (t.pause_reason) { <div><dt>En espera</dt><dd>{{ motivoTexto(t.pause_reason) }}</dd></div> }
+          @if (t.zone_name) { <div><dt>Zona</dt><dd>{{ t.zone_name }}</dd></div> }
+          @for (e of t.extra ?? []; track e.code) { <div><dt>{{ e.label }}</dt><dd>{{ e.type === 'boolean' ? (e.value ? 'Sí' : 'No') : e.value }}</dd></div> }
           <div><dt>Alta</dt><dd>{{ t.created_at | date:'dd/MM/yy HH:mm' }}</dd></div>
           @if (agent() && t.priority_suggested && t.priority_suggested !== t.priority) {
             <div><dt>Sugerida</dt><dd>{{ priorityLabel[t.priority_suggested] }}</dd></div>
@@ -138,6 +142,13 @@ function leerComoDataUri(f: File): Promise<string> {
                           (ngModelChange)="asignarA.set($event)" placeholder="Asignar a…" [showClear]="true" appendTo="body" ariaLabel="Asignar a" />
                 @if (asignarA()) { <p-button label="Asignar" size="small" [loading]="busy()" (onClick)="asignar()" /> }
               }
+              <!-- [MS.7.11] Trasladar a otra área: es una acción de quien coordina, junto a las demás acciones de quien atiende. -->
+              @if (coord()) {
+                <p-button [icon]="t.is_test ? 'pi pi-flag-fill' : 'pi pi-flag'" [label]="t.is_test ? 'Quitar marca de prueba' : 'Marcar como prueba'" size="small" severity="secondary" [text]="true" (onClick)="modo.set('prueba')" />
+              }
+              @if (puedeTransferir()) {
+                <p-button icon="pi pi-arrow-right-arrow-left" label="Transferir a otra área" size="small" severity="secondary" [text]="true" (onClick)="pedirTraslado()" />
+              }
               <p-select [options]="prioridades" optionLabel="label" optionValue="value" [ngModel]="nuevaPrio()"
                         (ngModelChange)="nuevaPrio.set($event)" placeholder="Cambiar prioridad…" appendTo="body" ariaLabel="Cambiar prioridad" />
               @if (nuevaPrio() && nuevaPrio() !== t.priority) { <p-button label="Aplicar prioridad" size="small" [loading]="busy()" (onClick)="cambiarPrioridad()" /> }
@@ -154,12 +165,38 @@ function leerComoDataUri(f: File): Promise<string> {
 
           @if (modo(); as m) {
             <div class="sd-modo" role="group" [attr.aria-label]="tituloModo()">
+              <!-- [MS.7.9] Qué se espera: decide si la respuesta de quien reportó reanuda el ticket y se ve en la bandeja. -->
+              @if (m === 'espera') {
+                <label class="sd-field">
+                  <span>¿Qué se espera? *</span>
+                  <p-select [options]="motivosPausa" optionLabel="label" optionValue="value" [ngModel]="motivoPausa()" (ngModelChange)="motivoPausa.set($event)" placeholder="Elige el motivo" appendTo="body" ariaLabel="Motivo de la espera" />
+                </label>
+              }
+              <!-- [MS.7.12] Qué hace marcar un ticket como de prueba (para que nadie lo haga a ciegas). -->
+              @if (m === 'prueba') {
+                <p class="sd-hint" role="note">
+                  {{ r()?.is_test
+                    ? 'Al quitar la marca, la solicitud vuelve a contar en reportes, tablero, Mi trabajo y avisos.'
+                    : 'Una solicitud de prueba NO cuenta en reportes, tablero, carga de trabajo, Mi trabajo ni avisos. Sigue visible en la bandeja para poder quitarle la marca. Queda registrado en el historial.' }}
+                </p>
+              }
+              <!-- [MS.7.11] A qué área se traslada y con qué categoría (la del área destino). El servidor vuelve a exigirlo todo. -->
+              @if (m === 'transferir') {
+                <label class="sd-field">
+                  <span>¿A qué área? *</span>
+                  <p-select [options]="areasDestino()" optionLabel="name" optionValue="id" [ngModel]="destinoArea()" (ngModelChange)="elegirDestino($event)" placeholder="Elige el área" appendTo="body" ariaLabel="Área destino" />
+                </label>
+                <label class="sd-field">
+                  <span>Categoría en esa área *</span>
+                  <p-select [options]="categoriasDestino()" optionLabel="name" optionValue="id" [ngModel]="destinoCategoria()" (ngModelChange)="destinoCategoria.set($event)" [disabled]="!destinoArea()" [placeholder]="destinoArea() ? 'Elige una categoría' : 'Primero elige el área'" appendTo="body" ariaLabel="Categoría destino" />
+                </label>
+              }
               <label class="sd-field">
                 <span>{{ tituloModo() }}{{ nota_obligatoria() ? ' *' : '' }}</span>
                 <textarea pTextarea rows="3" [ngModel]="notaModo()" (ngModelChange)="notaModo.set($event)" [placeholder]="placeholderModo()"></textarea>
               </label>
               <div class="sd-modo-foot">
-                <p-button label="Confirmar" size="small" [loading]="busy()" [disabled]="nota_obligatoria() && !notaModo().trim()" (onClick)="ejecutarModo()" />
+                <p-button label="Confirmar" size="small" [loading]="busy()" [disabled]="(nota_obligatoria() && !notaModo().trim()) || (m === 'espera' && !motivoPausa()) || (m === 'transferir' && (!destinoArea() || !destinoCategoria()))" (onClick)="ejecutarModo()" />
                 <p-button label="Volver" size="small" [text]="true" severity="secondary" (onClick)="cerrarModo()" />
               </div>
             </div>
@@ -185,6 +222,31 @@ function leerComoDataUri(f: File): Promise<string> {
                 </ul>
               }
             </details>
+          }
+        }
+
+        <!-- [MS.7.12] Un ticket FINAL (cerrado/cancelado) no tiene barra de acciones, pero es justo el caso típico de «era de prueba»:
+             la coordinación puede marcarlo para sacarlo de los reportes. Mismo diálogo, mismas reglas del servidor. -->
+        @if (esFinal() && coord()) {
+          <div class="sd-actions" role="group" aria-label="Acciones de la coordinación">
+            <p-button [icon]="t.is_test ? 'pi pi-flag-fill' : 'pi pi-flag'" [label]="t.is_test ? 'Quitar marca de prueba' : 'Marcar como prueba'" size="small" severity="secondary" [text]="true" (onClick)="modo.set('prueba')" />
+          </div>
+          @if (modo() === 'prueba') {
+            <div class="sd-modo" role="group" aria-label="Marcar como prueba">
+              <p class="sd-hint" role="note">
+                {{ t.is_test
+                  ? 'Al quitar la marca, la solicitud vuelve a contar en reportes, tablero, Mi trabajo y avisos.'
+                  : 'Una solicitud de prueba NO cuenta en reportes, tablero, carga de trabajo, Mi trabajo ni avisos. Sigue visible en la bandeja para poder quitarle la marca. Queda registrado en el historial.' }}
+              </p>
+              <label class="sd-field">
+                <span>{{ tituloModo() }}</span>
+                <textarea pTextarea rows="2" [ngModel]="notaModo()" (ngModelChange)="notaModo.set($event)" [placeholder]="placeholderModo()"></textarea>
+              </label>
+              <div class="sd-modo-foot">
+                <p-button label="Confirmar" size="small" [loading]="busy()" (onClick)="ejecutarModo()" />
+                <p-button label="Volver" size="small" [text]="true" severity="secondary" (onClick)="cerrarModo()" />
+              </div>
+            </div>
           }
         }
 
@@ -247,6 +309,7 @@ function leerComoDataUri(f: File): Promise<string> {
     .sd-badges { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
     .sd-st, .sd-pri, .sd-sla { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; }
     .sd-st { background: var(--surface-2); color: var(--text-muted); }
+    .sd-test { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); background: var(--warn-soft-bg); color: var(--warn-soft-fg); border: 1px dashed currentColor; }
     .sd-st[data-s='asignado'], .sd-st[data-s='en_proceso'] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
     .sd-st[data-s='en_espera'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .sd-st[data-s='resuelto'], .sd-st[data-s='cerrado'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
@@ -330,6 +393,8 @@ export class SdRequestDetailComponent {
   /** Avisa al padre que el ticket cambió (para refrescar su lista). */
   readonly cambio = output<SdRequestDetail>();
   readonly cerrar = output<void>();
+  /** `[MS.7.11]` Se trasladó a otra área: la ficha ya no es de quien la trasladó, así que la bandeja la cierra y se refresca. */
+  readonly trasladada = output<SdTransferResult>();
 
   readonly statusLabel = STATUS_LABEL;
   readonly priorityLabel = PRIORITY_LABEL;
@@ -347,8 +412,12 @@ export class SdRequestDetailComponent {
   readonly interna = signal(false);
   readonly archivos = signal<File[]>([]);
 
-  readonly modo = signal<'reabrir' | 'cancelar' | 'resolver' | 'espera' | null>(null);
+  readonly modo = signal<'reabrir' | 'cancelar' | 'resolver' | 'espera' | 'transferir' | 'prueba' | null>(null);
   readonly notaModo = signal('');
+  /** `[MS.7.9]` Lo que se espera al poner en espera (obligatorio: el servidor lo exige). */
+  readonly motivoPausa = signal<SdPauseReason | null>(null);
+  readonly motivosPausa = PAUSE_REASONS;
+  motivoTexto(m: SdPauseReason): string { return PAUSE_REASON_LABEL[m]; }
   private readonly estadoPendiente = signal<SdStatus | null>(null);
 
   readonly asignarA = signal<string | null>(null);
@@ -445,22 +514,67 @@ export class SdRequestDetailComponent {
     return ({ en_proceso: this.r()?.status === 'resuelto' ? 'Reabrir' : 'Iniciar', en_espera: 'Poner en espera', resuelto: 'Marcar resuelta' } as Partial<Record<SdStatus, string>>)[s] ?? STATUS_LABEL[s];
   }
 
-  readonly tituloModo = computed(() => ({ reabrir: '¿Qué sigue sin funcionar?', cancelar: 'Motivo de la cancelación', resolver: 'Cómo se resolvió', espera: 'Qué se espera y de quién' } as const)[this.modo() ?? 'cancelar']);
-  readonly placeholderModo = computed(() => ({ reabrir: 'Cuéntanos qué pasa todavía', cancelar: 'Opcional', resolver: 'Describe la solución para que quede registrada', espera: 'Opcional, pero ayuda a quien reportó' } as const)[this.modo() ?? 'cancelar']);
+  readonly tituloModo = computed(() => ({ reabrir: '¿Qué sigue sin funcionar?', cancelar: 'Motivo de la cancelación', resolver: 'Cómo se resolvió', espera: 'Qué se espera y de quién', transferir: 'Por qué se traslada a otra área', prueba: 'Motivo (opcional)' } as const)[this.modo() ?? 'cancelar']);
+  readonly placeholderModo = computed(() => ({ reabrir: 'Cuéntanos qué pasa todavía', cancelar: 'Opcional', resolver: 'Describe la solución para que quede registrada', espera: 'Opcional, pero ayuda a quien reportó', transferir: 'Lo leerán las dos áreas en el historial', prueba: 'Ej. prueba del flujo de Mantenimiento' } as const)[this.modo() ?? 'cancelar']);
   /** Reabrir y resolver exigen nota: el servidor también lo exige, esto evita el viaje. */
-  readonly nota_obligatoria = computed(() => this.modo() === 'reabrir' || this.modo() === 'resolver');
+  readonly nota_obligatoria = computed(() => this.modo() === 'reabrir' || this.modo() === 'resolver' || this.modo() === 'transferir');
 
-  cerrarModo(): void { this.modo.set(null); this.notaModo.set(''); this.estadoPendiente.set(null); }
+  // ── `[MS.7.11]` trasladar a otra área ──
+  private readonly catalogoTraslado = signal<SdCatalogResponse | null>(null);
+  readonly destinoArea = signal<string | null>(null);
+  readonly destinoCategoria = signal<string | null>(null);
+  /** Las áreas a las que se puede trasladar: las que ofrecen categorías, menos en la que ya está. */
+  readonly areasDestino = computed(() => {
+    const c = this.catalogoTraslado();
+    const actual = this.r()?.queue_id;
+    return c ? c.queues.filter((q) => q.id !== actual && c.categories.some((k) => k.queue_id === q.id)).map((q) => ({ id: q.id, name: q.name })) : [];
+  });
+  readonly categoriasDestino = computed(() => {
+    const c = this.catalogoTraslado();
+    const q = this.destinoArea();
+    return c && q ? c.categories.filter((k) => k.queue_id === q) : [];
+  });
+  /** Sólo quien coordina; el servidor exige que sea la coordinación del área donde está. Lo resuelto o cerrado no se traslada. */
+  readonly puedeTransferir = computed(() => this.coord() && ['nuevo', 'asignado', 'en_proceso', 'en_espera'].includes(this.r()?.status ?? ''));
+  pedirTraslado(): void {
+    this.modo.set('transferir');
+    if (!this.catalogoTraslado()) this.api.catalog().subscribe({ next: (c) => this.catalogoTraslado.set(c), error: (e) => this.error.set(sdError(e, 'No se pudo cargar el catálogo de áreas.')) });
+  }
+  elegirDestino(id: string): void {
+    if (id === this.destinoArea()) return;
+    this.destinoArea.set(id);
+    this.destinoCategoria.set(null); // la categoría era de otra área
+  }
+
+  cerrarModo(): void { this.modo.set(null); this.notaModo.set(''); this.motivoPausa.set(null); this.estadoPendiente.set(null); this.destinoArea.set(null); this.destinoCategoria.set(null); }
   ejecutarModo(): void {
     const m = this.modo();
     const nota = this.notaModo().trim();
     if (!m) return;
     const id = this.id();
     const fin = () => this.cerrarModo();
+    if (m === 'prueba') {
+      const esPrueba = !this.r()?.is_test; // lo contrario de lo que es hoy
+      return this.ejecutar(this.api.markTest(id, { is_test: esPrueba, reason: nota || undefined }), esPrueba ? 'Marcada como solicitud de prueba.' : 'Se quitó la marca de prueba.', fin);
+    }
+    if (m === 'transferir') {
+      const q = this.destinoArea();
+      const c = this.destinoCategoria();
+      if (!q || !c || !nota) return;
+      this.busy.set(true);
+      this.error.set(null);
+      this.api.transfer(id, { queue_id: q, category_id: c, reason: nota }).subscribe({
+        next: (res) => { this.busy.set(false); fin(); this.trasladada.emit(res); },
+        error: (e) => { this.busy.set(false); this.error.set(sdError(e, 'No se pudo trasladar la solicitud.')); },
+      });
+      return;
+    }
     if (m === 'cancelar') return this.ejecutar(this.api.cancel(id, nota || undefined), 'Solicitud cancelada.', fin);
     if (m === 'reabrir' && !this.agent()) return this.ejecutar(this.api.reopen(id, nota), 'Solicitud reabierta.', fin);
     const destino = this.estadoPendiente() ?? (m === 'resolver' ? 'resuelto' : m === 'espera' ? 'en_espera' : 'en_proceso');
-    this.ejecutar(this.api.status(id, { status: destino, note: nota || undefined }), `Estado: ${STATUS_LABEL[destino]}.`, fin);
+    // `[MS.7.9]` Poner en espera lleva el motivo; el servidor lo exige (y rechaza uno con cualquier otro estado).
+    if (destino === 'en_espera' && !this.motivoPausa()) return;
+    this.ejecutar(this.api.status(id, { status: destino, note: nota || undefined, pause_reason: destino === 'en_espera' ? this.motivoPausa() ?? undefined : undefined }), `Estado: ${STATUS_LABEL[destino]}.`, fin);
   }
 
   // ── hilo ──
@@ -511,6 +625,11 @@ export class SdRequestDetailComponent {
       return m.body ? `${cambio} · ${m.body}` : cambio;
     }
     if (m.kind === 'assignment') return `Asignada a ${meta.to_name || 'otra persona'}`;
+    if (m.kind === 'transfer') {
+      const tr = m.meta as { from_queue?: string | null; to_queue?: string | null };
+      const cambio = `Trasladada de ${tr.from_queue || 'otra área'} a ${tr.to_queue || 'otra área'}`;
+      return m.body ? `${cambio} · ${m.body}` : cambio;
+    }
     if (m.kind === 'priority') {
       const cambio = `Prioridad: ${PRIORITY_LABEL[meta.from as SdPriority] ?? meta.from} → ${PRIORITY_LABEL[meta.to as SdPriority] ?? meta.to}`;
       return m.body ? `${cambio} · ${m.body}` : cambio;
@@ -518,7 +637,7 @@ export class SdRequestDetailComponent {
     return m.body;
   }
   iconoMsg(kind: string): string {
-    return ({ comment: 'pi pi-comment', internal_note: 'pi pi-lock', status: 'pi pi-sync', assignment: 'pi pi-user', priority: 'pi pi-flag', system: 'pi pi-info-circle' } as Record<string, string>)[kind] ?? 'pi pi-circle';
+    return ({ comment: 'pi pi-comment', internal_note: 'pi pi-lock', status: 'pi pi-sync', assignment: 'pi pi-user', priority: 'pi pi-flag', system: 'pi pi-info-circle', transfer: 'pi pi-arrow-right-arrow-left' } as Record<string, string>)[kind] ?? 'pi pi-circle';
   }
   tam(b: number): string { return b < 1048576 ? `${Math.max(1, Math.round(b / 1024))} KB` : `${(b / 1048576).toFixed(1)} MB`; }
   horas(min: number): string { return min < 60 ? `${min} min` : `${Math.floor(min / 60)} h ${min % 60 ? `${min % 60} min` : ''}`.trim(); }
