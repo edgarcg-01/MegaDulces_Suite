@@ -234,7 +234,7 @@ describe('validarToma', () => {
   const tarifa = { driver: 98.04, helper: 57.76, ruta_usada: { clave: 'R0057', nombre: 'JIQUILPAN', route_id: 'r57' }, sin_tarifa: [] };
   // Las tarifas de viático de la beta (logistics_baseline.js).
   const tarifas_viatico = { cafe: 50, desayuno: 100, comida: 100, cena: 100 };
-  const ctxConChofer = { chofer_kepler_driver_id: 'd-cesar', ya_tomado_folio: null, comision: tarifa, paradas_sin_ruta: 0, tarifas_viatico };
+  const ctxConChofer = { chofer_kepler_driver_id: 'd-kepler', ya_tomado_folio: null, comision: tarifa, paradas_sin_ruta: 0, tarifas_viatico };
   const ctxSinChofer = { ...ctxConChofer, chofer_kepler_driver_id: null };
 
   it('con chofer de Kepler y tipo de entrega, se puede tomar', () => {
@@ -250,7 +250,7 @@ describe('validarToma', () => {
     expect(validarToma({ ...base, driver_id: 'd-otro' }, ctxConChofer))
       .toContain('El chofer viene de Kepler y no se cambia aquí: corrígelo en Kepler.');
     // Mandar el mismo que trae Kepler no es un cambio.
-    expect(validarToma({ ...base, driver_id: 'd-cesar' }, ctxConChofer)).toEqual([]);
+    expect(validarToma({ ...base, driver_id: 'd-kepler' }, ctxConChofer)).toEqual([]);
   });
 
   it('una guía ya tomada no se toma otra vez, y dice en qué embarque está', () => {
@@ -264,7 +264,7 @@ describe('validarToma', () => {
   });
 
   it('el chofer no puede ser ayudante, y los ayudantes no se repiten', () => {
-    expect(validarToma({ ...base, helper1_id: 'd-cesar' }, ctxConChofer)).toContain('El chofer no puede ir también como ayudante.');
+    expect(validarToma({ ...base, helper1_id: 'd-kepler' }, ctxConChofer)).toContain('El chofer no puede ir también como ayudante.');
     expect(validarToma({ ...base, helper1_id: 'a', helper2_id: 'a' }, ctxConChofer)).toContain('Ayudante 1 y ayudante 2 son la misma persona.');
     expect(validarToma({ ...base, helper2_id: 'a' }, ctxConChofer)).toContain('Captura primero al ayudante 1.');
   });
