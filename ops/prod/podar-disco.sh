@@ -80,7 +80,30 @@ PISO_LIBRE_GB="${PODA_PISO_LIBRE_GB:-60}"
 # imágenes base de la semana (volver a bajarlas cuesta segundos, pero sin motivo no se tiran).
 EDAD_IMG="${PODA_EDAD_IMG:-168h}"
 TENANT="${CRON_TENANT_ID:-00000000-0000-0000-0000-00000000d01c}"
+# ⛔⛔ **CADA IMAGEN VA DOS VECES: con el nombre pelado Y con el prefijo del registro.**
+# Medido el 2026-10-08, y es la causa exacta de que esta poda informara `imágenes 74→74GB`:
+#
+#     trade-prod-api:33d64470            → a13a8183c3dd
+#     localhost:5000/trade-prod-api:…    → a13a8183c3dd   ← EL MISMO ID
+#
+# `auto-deploy.sh` construye con el nombre pelado y después re-etiqueta al registro para que k3s
+# pueda tirar de ahí. Son **dos etiquetas del mismo ID**, no dos imágenes. Y esta lista sólo tenía
+# las peladas, así que `docker rmi trade-prod-api:<viejo>` **borraba el alias y el ID sobrevivía**
+# colgado de la etiqueta del registro: cero bytes liberados, sin error, sin aviso.
+#
+# ⭐ Lo que eso significa es peor que un desperdicio: **la retención de 5 nunca existió.** Medido
+# ese día: 6 etiquetas peladas por imagen contra **44 del registro** — o sea 44 versiones vivas de
+# ~2.1 GB cada una sólo en `api`. La política estaba escrita y no se aplicaba a nada.
+#
+# ⚠️ Por eso NO hace falta bajar `RETENER_IMG`: no es cuántos puntos de regreso conservar, es que
+# no se estaba conservando 5 sino 44. Con los dos nombres acá, 5 vuelve a significar 5.
+#
+# ⚠️ El blob del REGISTRO es otra cosa y sigue aparte (`prod_registry-data`, 20.33 GB): esto borra
+# la etiqueta local, no lo que el registro guarda. Eso pide su propio `registry garbage-collect`,
+# y queda DECLARADO, no resuelto acá.
 IMAGENES="trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup trade-prod-caddy"
+IMAGENES="$IMAGENES localhost:5000/trade-prod-pg localhost:5000/trade-prod-api localhost:5000/trade-prod-worker"
+IMAGENES="$IMAGENES localhost:5000/trade-prod-portal localhost:5000/trade-prod-vendor localhost:5000/trade-prod-caddy"
 
 di() { echo "[$(date '+%F %T')] $*"; }
 
