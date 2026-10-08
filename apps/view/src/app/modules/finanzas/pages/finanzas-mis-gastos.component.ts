@@ -17,9 +17,9 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
 import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
-import { estadoPagoDelVale, type EstadoPagoVale, type TransferenciaGasto } from '@megadulces/contracts';
+import type { TransferenciaGasto } from '@megadulces/contracts';
 import {
-  DIAS_ATORADO, agruparPorProveedor, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
+  DIAS_ATORADO, agruparPorProveedor, cicloCerrado, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
   type ColumnaId, type GrupoProveedor, type NotaDePago, type ZonaId,
 } from '../mis-gastos-columnas';
 
@@ -55,8 +55,6 @@ interface FilaLista {
   gasto_folios: string[];
   /** `[GX.75]` Las transferencias XD2601 de esos gastos. `null` = no se midió. */
   transferencias: TransferenciaGasto[] | null;
-  /** `[GX.75]` Si ya está pagado: decide «Sin pago» / «Pagados» del validado. */
-  pago: EstadoPagoVale | null;
   /** `[GX.75]` Lo que la tarjeta dice del pago; `null` = nada que decir. */
   notaPago: NotaDePago | null;
   /** `null` = viene de Kepler y no tiene expediente: no se puede abrir. */
@@ -183,13 +181,15 @@ interface Columna {
                 </header>
 
                 <div class="mg-zona">
-                  <div class="mg-zona-h rojo">{{ col.pendLabel }} <span class="mg-n">{{ col.pendientes.length }}</span></div>
+                  <div class="mg-zona-h" [class.rojo]="col.id !== 'expedientes'">{{ col.pendLabel }} <span class="mg-n">{{ col.pendientes.length }}</span></div>
                   @for (p of col.pendientes; track p.key) {
                     <ng-container [ngTemplateOutlet]="tarjeta" [ngTemplateOutletContext]="{ $implicit: p, pendiente: col.id !== 'expedientes' }" />
                   }
                   @if (!col.pendientes.length) { <div class="mg-zona-vacia">Nada por aquí.</div> }
                 </div>
 
+                <!-- [GX.77] Expedientes no tiene zona de abajo: lo revisado con gasto ya cerró. -->
+                @if (col.id !== 'expedientes') {
                 <div class="mg-zona">
                   <div class="mg-zona-h verde">{{ col.esperaLabel }} <span class="mg-n">{{ col.espera.length }}</span></div>
                   @if (col.esperaAyuda) { <div class="mg-faint mg-zona-ayuda">{{ col.esperaAyuda }}</div> }
@@ -206,21 +206,30 @@ interface Columna {
                       }
                     </details>
                   }
-                  @if (!col.espera.length) {
-                    <div class="mg-zona-vacia">
-                      @if (col.id === 'expedientes') {
-                        @if (pagosSinMedir()) {
-                          No se pudo consultar Kepler para saber cuáles ya se pagaron.
-                        } @else {
-                          Todavía ninguno: Kepler no tiene transferencia para tus expedientes revisados.
-                        }
-                      } @else { Nada por aquí. }
-                    </div>
-                  }
+                  @if (!col.espera.length) { <div class="mg-zona-vacia">Nada por aquí.</div> }
                 </div>
+                }
               </section>
             }
           </div>
+
+          <!--
+            [GX.77] El ciclo cerrado (revisado + gasto aplicado en Kepler) sale del tablero, pero no se
+            pierde: queda aquí, plegado. No se manda al Historial: esa ruta no admite a quien sólo captura.
+          -->
+          @if (cerrados().length) {
+            <details class="mg-cerrados">
+              <summary>
+                Ver {{ cerrados().length === 1 ? 'el vale cerrado' : 'los ' + cerrados().length + ' vales cerrados' }}
+                <span class="mg-faint">· revisados y con el gasto aplicado en Kepler</span>
+              </summary>
+              <div class="mg-cerrados-lista">
+                @for (p of cerrados(); track p.key) {
+                  <ng-container [ngTemplateOutlet]="tarjeta" [ngTemplateOutletContext]="{ $implicit: p, pendiente: false }" />
+                }
+              </div>
+            </details>
+          }
         }
       }
 
@@ -379,6 +388,14 @@ interface Columna {
       padding: 0.3rem 0.7rem; font-size: var(--fs-xs); text-decoration: none; margin-top: var(--sp-1); }
     .mg-asig-b:hover { filter: brightness(0.92); }
     .mg-asig-b:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+    /* [GX.77] Los cerrados: fuera del tablero, plegados al pie. Discretos a propósito. */
+    .mg-cerrados { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
+    .mg-cerrados > summary { padding: var(--sp-3); cursor: pointer; font-size: var(--fs-sm); color: var(--fg-2); list-style: none; }
+    .mg-cerrados > summary::-webkit-details-marker { display: none; }
+    .mg-cerrados > summary:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .mg-cerrados[open] > summary { border-bottom: 1px solid var(--border-color); }
+    .mg-cerrados-lista { display: grid; grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr)); gap: var(--sp-2); padding: var(--sp-2); }
   `],
 })
 export class FinanzasMisGastosComponent {
@@ -422,7 +439,7 @@ export class FinanzasMisGastosComponent {
       debeFactura: false, puedeSubir: true,
       proveedor_clave: null, proveedor_nombre: null, gasto_folios: [],
       // Sin expediente nuestro todavía: no hay vale revisado que pagar ni qué decir del pago.
-      transferencias: null, pago: null, notaPago: null,
+      transferencias: null, notaPago: null,
     })),
     ...this.filas().map((p): FilaLista => ({
       key: `p:${p.id}`,
@@ -439,17 +456,17 @@ export class FinanzasMisGastosComponent {
       gasto_folios: p.gasto_folios ?? [],
       // `[GX.75]` Ausente (servidor viejo) = no medido: ni «pagado» ni «sin pago».
       transferencias: p.transferencias ?? null,
-      pago: estadoPagoDelVale(p.transferencias ?? null, p.importe),
       notaPago: notaDePago(p.transferencias ?? null, p.importe),
     })),
   ]);
 
   /**
-   * `[GX.75]` ¿Hay revisados cuyo pago no se pudo consultar? Entonces «Pagados» vacío NO significa
-   * «nada pagado», y el vacío lo tiene que decir.
+   * `[GX.77]` El ciclo cerrado (revisado + gasto aplicado en Kepler) sale del tablero. NO se
+   * borra: queda al pie, plegado. ⚠️ No se manda al Historial porque esa ruta NO admite a quien
+   * sólo captura (`FINANCE_EXPENSES_CAPTURAR`), y «Mis gastos» sí: se le perdería lo suyo.
    */
-  readonly pagosSinMedir = computed(() => this.unificadas()
-    .some((f) => f.status === 'validada' && f.pago === 'sin_medir'));
+  readonly cerrados = computed(() => this.unificadas().filter((f) => cicloCerrado(f)));
+  readonly abiertas = computed(() => this.unificadas().filter((f) => !cicloCerrado(f)));
 
   /** `[GX.65.5]` Las tres columnas, armadas con la regla de `mis-gastos-columnas.ts`. */
   readonly columnas = computed<Columna[]>(() => {
@@ -458,7 +475,7 @@ export class FinanzasMisGastosComponent {
       comprobacion: { pendiente: [], espera: [] },
       expedientes: { pendiente: [], espera: [] },
     };
-    for (const f of this.unificadas()) {
+    for (const f of this.abiertas()) {
       const u = ubicacionDe(f);
       if (u) cajon[u.columna][u.zona].push(f);
     }
@@ -476,14 +493,15 @@ export class FinanzasMisGastosComponent {
         'Pendientes', 'Enviadas · esperan «Revisado»', ''),
       armar('comprobacion', 2, 'Pendientes de comprobación', 'factura', 'Aprobados como prefactura o cotización, o que todavía deben su evidencia.',
         'Te toca subirla', 'Enviada · en revisión', ''),
-      // ⚠️ En Expedientes la zona de arriba es «sin pago» y NO va en rojo: espera a Finanzas.
-      armar('expedientes', 3, 'Expedientes', 'XD2601', 'Revisados. Se cierran cuando Finanzas registra el pago.',
-        'Sin pago', 'Pagados', 'Por proveedor y fecha de pago.'),
+      // ⚠️ En Expedientes la zona NO va en rojo: espera a Kepler, no a ti. `[GX.77]` Sin zona de
+      // abajo: el revisado con gasto aplicado ya cerró y salió del tablero.
+      armar('expedientes', 3, 'Expedientes', 'XA1001', 'Revisados. Se cierran cuando Kepler aplica el gasto.',
+        'Falta el gasto en Kepler', '', ''),
     ];
   });
 
   /** Lo que la regla no sabe ubicar: se cuenta para DECIRLO. */
-  readonly fueraDeColumnas = computed(() => this.unificadas().filter((f) => ubicacionDe(f) === null).length);
+  readonly fueraDeColumnas = computed(() => this.abiertas().filter((f) => ubicacionDe(f) === null).length);
 
   /** Lo que te pide algo a ti: los rojos de Solicitudes y de Pendientes de comprobación. */
   readonly teTocan = computed(() => this.columnas()
@@ -498,7 +516,7 @@ export class FinanzasMisGastosComponent {
   });
 
   /** Dinero de lo que todavía no está cerrado de nuestro lado (todo menos lo validado). */
-  readonly enJuego = computed(() => this.unificadas()
+  readonly enJuego = computed(() => this.abiertas()
     .filter((f) => { const u = ubicacionDe(f); return !!u && u.columna !== 'expedientes'; })
     .reduce((s, f) => s + (Number(f.importe) || 0), 0));
 

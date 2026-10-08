@@ -187,6 +187,9 @@
 - **La píldora pasa a decir la edad del DATO.** ⛔ `replenishment_plan.computed_at` **no servía**: el UPSERT es sin churn, así que dice *cuándo cambió esa fila*, no *cuándo se verificó* — **415 sellos distintos en 34 días** sobre una tabla sana, donde un `max()` diría «hace 4 min» y un `min()` «hace 34 días». La fuente correcta es un **latido propio del importer** (el del carril `feed_stock` tampoco sirve: `run-prod-feeds.js` reporta `ok` salvo que fallen *todos* sus pasos). Sin latido, la pantalla dice **«datos sin medir»** en vez de esconderse.
 - **Primera prueba que existe sobre este componente** (3,652 líneas: las 4 specs del módulo cubrían sólo los ayudantes ya extraídos). 43 aserciones nuevas en 4 archivos, **las cuatro mutadas a rojo**. Suite de `view`: 1,991 verdes.
 - ⚠️ **Pendiente: desplegar api + view + la imagen `trade-ingest`.** Sin migraciones ni permisos nuevos → **sin re-login**.
+### Changed — Finanzas › Mis gastos: el ciclo cerrado sale del tablero (GX.77, 2026-10-08)
+- Un vale **revisado y con su gasto aplicado en Kepler** ya terminó: sale de las columnas y queda al pie, plegado («Ver los N vales cerrados»). No se manda al Historial porque esa pantalla no admite a quien sólo captura.
+- La columna Expedientes muestra sólo los revisados a los que les falta el gasto en Kepler; se quita la zona «Pagados» (GX.75).
 ### Added — Finanzas › Expediente en PDF: las evidencias adentro (GX.76, 2026-10-07)
 - Las **fotos** de evidencia van reducidas en la sección nueva «6 · Las evidencias», y los **PDF** de evidencia (71 % de los archivos) se anexan al final, cada página marcada con su expediente y su archivo. Lo que no se puede incluir (otro tipo, no se pudo bajar, dañado) se dice en la sección.
 - Fixed: una solicitud autorizada **sin gasto aplicado** decía «No falta nada»; ahora dice que falta que Kepler aplique el gasto.

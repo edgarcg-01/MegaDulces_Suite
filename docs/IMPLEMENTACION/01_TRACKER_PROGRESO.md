@@ -4370,6 +4370,22 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   una persona, 95 vales → **25 a «Pagados»**, 69 «Sin pago». De paso: dos `'\s+'` más (resumen del
   solicitante) con el mismo bug. Specs: contracts 409 · finance 625 · view finanzas 584.
 
+### 🔨 [GX.77] · Mis gastos: el ciclo cerrado sale del tablero — 2026-10-08
+
+- [x] **[GX.77]** 🧪 Pedido: *«quiero que cuando se cierre el ciclo desaparezcan»*. **Qué cierra el ciclo lo
+  decidió el usuario con el dato a la vista**: revisado (`validada`) **y** con su gasto `XA1001` aplicado en
+  Kepler — sobre «pagado en Kepler», porque medido en prod (sólo lectura), de **227 revisados con gasto, 157
+  no tienen NINGÚN documento de pago** (efectivo 71, tarjeta 45…: se pagaron en el momento; en Kepler
+  un gasto se paga con `XD2601` transferencia, `XD2501` cheque o `XD6001` anticipo) y con esa regla nunca se
+  habrían ido. `cicloCerrado()` en `mis-gastos-columnas.ts` (pura, una sola regla para cualquier diseño). La
+  columna Expedientes queda con los revisados a los que **les falta el gasto en Kepler** (sin rojo: espera a
+  Kepler, no a ti) y **pierde la zona «Pagados» de `[GX.75]`** (un revisado con gasto ya se fue; uno sin
+  gasto no puede tener transferencia). ⛔ **Los cerrados NO se mandan al Historial:** esa ruta no admite a
+  quien sólo captura (`FINANCE_EXPENSES_CAPTURAR`) y «Mis gastos» sí — se le perdería lo suyo. Quedan al pie,
+  plegados: «Ver los N vales cerrados». Specs: finanzas 618/618; mutación (regla en `false`) → 2 rojas.
+- [ ] **[GX.77.d]** Rediseño propuesto (maqueta `mis-gastos-propuesta-v2.html`, local): pasos + tabla densa +
+  detalle lado a lado. **Sin decidir** — cambia el diseño de 3 columnas de `[GX.65.5]`.
+
 ### 🔨 [GX.76] · Expediente en PDF: las evidencias adentro, y ya no dice «no falta nada» sin gasto — 2026-10-07
 
 - [x] **[GX.76]** 🧪 Reporte con el PDF de PRODUCCIÓN de la `06-0000045`: *«por qué no me muestra los datos del

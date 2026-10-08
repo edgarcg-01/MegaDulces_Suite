@@ -1,7 +1,32 @@
 import type { TransferenciaGasto } from '@megadulces/contracts';
 import {
-  DIAS_ATORADO, agruparPorProveedor, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
+  DIAS_ATORADO, agruparPorProveedor, cicloCerrado, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
 } from './mis-gastos-columnas';
+
+/**
+ * `[GX.77]` El ciclo cerrado sale del tablero: revisado Y con su gasto aplicado en Kepler.
+ * Decisión del usuario sobre «pagado en Kepler», porque 157 de 227 revisados con gasto no tienen
+ * ningún documento de pago (efectivo, tarjeta) y nunca se habrían ido.
+ */
+describe('[GX.77] cicloCerrado', () => {
+  it('revisado y con gasto aplicado: cerrado', () => {
+    expect(cicloCerrado({ status: 'validada', gasto_folios: ['0008879'] })).toBe(true);
+    expect(cicloCerrado({ status: 'validada', gasto_folios: ['1', '2'] })).toBe(true);
+  });
+
+  it('revisado SIN gasto aplicado: sigue abierto (falta Kepler)', () => {
+    expect(cicloCerrado({ status: 'validada', gasto_folios: [] })).toBe(false);
+    expect(cicloCerrado({ status: 'validada', gasto_folios: null })).toBe(false);
+    expect(cicloCerrado({ status: 'validada' })).toBe(false);
+  });
+
+  it('⛔ con gasto aplicado pero SIN revisar no se cierra: todavía le debe algo a alguien', () => {
+    for (const status of ['recibida', 'aprobada', 'revision', 'rechazada']) {
+      expect(cicloCerrado({ status, gasto_folios: ['0008879'] })).toBe(false);
+    }
+    expect(cicloCerrado({ etapa: 'asignado', status: null, gasto_folios: ['0008879'] })).toBe(false);
+  });
+});
 
 /** `[GX.75]` La nota de pago de la tarjeta. */
 describe('[GX.75] notaDePago', () => {
@@ -53,24 +78,6 @@ describe('[GX.65.5] ubicacionDe', () => {
   it('⛔ la etapa de Kepler no decide la columna', () => {
     expect(ubicacionDe({ status: 'validada', etapa: 'ejercido' })?.columna).toBe('expedientes');
     expect(ubicacionDe({ status: 'recibida', etapa: 'autorizado' })?.columna).toBe('solicitudes');
-  });
-
-  /**
-   * `[GX.75]` «Pagados» por fin se llena: el validado que Kepler ya pagó por transferencia baja a
-   * la zona de abajo. ⛔ Parcial y sin medir NO: afirmar pagado lo que no se comprobó es inventar.
-   */
-  it('[GX.75] el validado pagado va a «Pagados»; parcial, sin pago y sin medir se quedan en «Sin pago»', () => {
-    expect(ubicacionDe({ status: 'validada', pago: 'pagado' })).toEqual({ columna: 'expedientes', zona: 'espera' });
-    for (const pago of ['parcial', 'sin_pago', 'sin_medir', null, undefined] as const) {
-      expect(ubicacionDe({ status: 'validada', pago })).toEqual({ columna: 'expedientes', zona: 'pendiente' });
-    }
-  });
-
-  /** ⛔ El pago NO mueve de columna a lo que no está validado: la columna sale de NUESTRO estado. */
-  it('⛔ [GX.75] un pago de Kepler no saca de su columna a un vale sin validar', () => {
-    expect(ubicacionDe({ status: 'aprobada', pago: 'pagado' })).toEqual({ columna: 'comprobacion', zona: 'pendiente' });
-    expect(ubicacionDe({ status: 'rechazada', pago: 'pagado' })).toEqual({ columna: 'solicitudes', zona: 'pendiente' });
-    expect(ubicacionDe({ status: 'revision', pago: 'pagado' })).toEqual({ columna: 'comprobacion', zona: 'espera' });
   });
 
   /** ⛔ Prueba NEGATIVA: un estado desconocido NO cae callado en ninguna columna. */
