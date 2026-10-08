@@ -452,7 +452,42 @@ base**, no sólo en el servicio.
 
 ---
 
-### `[IC.16]` — El reloj, por ritmo y con arranque declarado · ⛔ ruta crítica
+### `[IC.16]` — El reloj, por ritmo y con arranque declarado · 🚀 EN PROD (batch 806, 2026-10-07)
+
+**Aplicado:** `analytics.v_count_clock`, grano **(almacén, producto, ritmo)**.
+
+⭐ **Lo que lo destrabó no fue contar más, sino mirar lo que ya estaba.** El reloj leía sólo
+*nuestros* folios reconciliados — de los que hay **cero** — mientras el físico de Kepler tiene
+fechas reales de septiembre. Medido: cubre el **48–87% de los SKUs del ABC** según el almacén
+(0% en el CEDIS, que es Wincaja). *El dato existía; el reloj no lo miraba.*
+
+| Ritmo | Antes | Después |
+|---|---|---|
+| Trimestral | 30,059 «vencido» | **14,556 al día · 4,826 vencido · 10,677 nunca contado** |
+| Mensual | «vencido» | `nunca_contado` — nunca corrió, y se **declara** |
+| Diario | «vencido» | `sin_cadencia` — tiene **cupo**, no cadencia por SKU |
+
+⛔ **El bug de fondo era fundir dos ausencias.** «Nunca se contó» y «se contó y venció» se
+escribían igual (`NULL`) y se mostraban igual, cuando piden acciones distintas: **arrancar** contra
+**volver**. Por eso `estado` tiene **cuatro** valores y no dos.
+
+⚠️ **La vista emite la rejilla COMPLETA** (cada SKU × cada ritmo = 90,177 filas) a propósito: si
+sólo emitiera las filas *con* historia, un SKU sin contar llegaría **ausente** a un `LEFT JOIN`,
+saldría `NULL` y **se leería como sano**. Es el modo de falla que ADR-057 documenta.
+
+⚠️ **`fuente` declara de dónde salió la fecha** (`folio_propio` | `kepler`), porque no son lo
+mismo: el folio propio cuenta lo que nosotros sembramos; Kepler cuenta lo que Kepler decidió, y su
+«completo» deja fuera SKUs con existencia.
+
+**Costo: 115 ms** — lee la foto `abc_classification` y la matvista de Kepler, las dos indexadas.
+**Candado** `test-newdb-count-clock.js`: **12 ✓ / 0 ✗ / 1 no medido** (la cadencia del mensual, que
+nunca corrió).
+
+**Falta:** cablear `cycleDue()` a la vista — hoy sigue con su propio `MAX(reconciled_at)`.
+
+---
+
+### `[IC.16]` — Alcance original (referencia)
 
 **El problema:** `last_counted_at = MAX(reconciled_at)` y no hay reconciliados → todo vencido.
 
