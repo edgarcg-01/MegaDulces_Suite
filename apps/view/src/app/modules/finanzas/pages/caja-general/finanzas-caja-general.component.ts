@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, inject, signal, ViewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
 import { SucursalPipe } from '../../../../shared/pipes/sucursal.pipe';
@@ -17,6 +17,7 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion } from '@megadulces/contracts';
+import { prepararFirma, type FirmaCanvas } from '@megadulces/ui-web';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 // `[CG.45]` Tres piezas del repertorio compartido que esta pantalla se había construido a mano
@@ -335,6 +336,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        juntos abajo, el que cierra sin guardar quedaba del mismo tamano que el que guarda. */
     .cg-pie-cancelar { justify-content:flex-start; }
     .cg-conf { display:flex; flex-direction:column; gap:var(--sp-3); }
+    /* ⭐ [CG.67] El recuadro de la firma. Va pegado al pie del arqueo: se firma el monto
+       CONTADO, asi que no puede estar arriba de donde se cuenta. */
+    .cg-firma { display:flex; flex-direction:column; gap:var(--sp-2); margin-top:var(--sp-3);
+                padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
+    .cg-firma-head { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+    .cg-firma-ok { display:inline-flex; align-items:center; gap:var(--sp-1);
+                   font-size:var(--fs-xs); font-weight:700; color:var(--ok-soft-fg); }
+    .cg-firma-falta { font-size:var(--fs-xs); }
+    /* ⛔ touch-action:none es lo que impide que el dedo SCROLLEE en vez de dibujar. Sin esto,
+       en un telefono la firma es imposible: el gesto se lo come la pagina. */
+    .cg-firma-pad { width:100%; height:9rem; touch-action:none; cursor:crosshair;
+                    background:#FFFFFF; border:1px dashed var(--border-color);
+                    border-radius:var(--r-md); }
     .cg-conf-que { margin:0; font-size:var(--fs-sm); line-height:1.5; }
     .cg-detail-nada, .cg-ap-nada {
                       display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-2);
@@ -2146,6 +2160,51 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                  abierto la columna pasa el alto de la pantalla, y un Guardar que hay que ir a
                  buscar scrolleando es el mismo defecto que [CG.46] ya habia arreglado una vez.
                  ⚠️ Y el ultimo campo de la reja llega hasta aca con la flecha: ver moverEnReja. -->
+            <!-- ⭐⭐ [CG.67] LA FIRMA DE CONFORMIDAD. Edgar: "necesito que anejemos una firma
+                 digital... para que pueda firmar e imprimir su ticket digital".
+
+                 Va ACA, entre el conteo y Guardar, y no en el apartado 1 con los demas datos de
+                 la persona: se firma DESPUES de contar, porque lo que se firma es el monto
+                 contado. Puesta arriba, se firmaria sobre una cifra que todavia puede cambiar.
+
+                 ⚠️ Solo en el GASTO. Decision de Edgar: "firma quien RECIBE el efectivo que
+                 sale". El deposito tambien sale y NO la pide, con motivo: quien lo recibe es el
+                 banco y su respaldo es la ficha de deposito, que Fase CC ya guarda con su OCR.
+                 ⚠️ Y NO bloquea el guardado: el efectivo ya se movio, y una caja que no puede
+                 cerrar un movimiento es una caja parada. Sin firma se guarda y queda marcado
+                 "sin firma" -- declarar, no frenar (ADR-056). -->
+            @if (firmaPide()) {
+              <div class="cg-firma">
+                <div class="cg-firma-head">
+                  <span class="cg-lbl-micro">Recibí conforme</span>
+                  @if (firmaHecha()) {
+                    <span class="cg-firma-ok"><i class="pi pi-check" aria-hidden="true"></i> firmado</span>
+                  } @else {
+                    <span class="fin-dim cg-firma-falta">sin firma — se puede guardar igual</span>
+                  }
+                  <span class="cg-bandeja-sp"></span>
+                  <p-button label="Limpiar" icon="pi pi-eraser" size="small" severity="secondary"
+                            [text]="true" [disabled]="!firmaHecha()"
+                            (onClick)="firmaLimpiar()"></p-button>
+                </div>
+                <!-- touch-action:none es lo que impide que el dedo scrollee la pantalla en vez
+                     de dibujar. Sin eso, en un telefono no se puede firmar. -->
+                <canvas #firmaCanvas class="cg-firma-pad"
+                        (pointerdown)="firmaAbajo($event)" (pointermove)="firmaMueve($event)"
+                        (pointerup)="firmaArriba()" (pointerleave)="firmaArriba()"
+                        aria-label="Firma de quien recibe el efectivo"></canvas>
+                <div class="fin-row">
+                  <label for="cg-firma-nombre">Nombre</label>
+                  <input pInputText id="cg-firma-nombre" class="w-full"
+                         [ngModel]="firmaNombre()" (ngModelChange)="firmaNombre.set($event)"
+                         placeholder="Quién recibe el efectivo" maxlength="120" />
+                </div>
+                <!-- ⚠️ Se DICE lo que esto es y lo que no. Es el renglon "Recibi conforme" del
+                     ticket, ahora como dato; no es una firma electronica con valor legal. -->
+                <small class="fin-dim">Vale como evidencia de conformidad, igual que la firma del
+                  ticket en papel. No es una firma electrónica con validez fiscal.</small>
+              </div>
+            }
             <div class="cg-detail-pie cg-pie-arqueo">
               @if (bloqueos().length) {
                 <span class="fin-hint-warn cg-pie-falta">{{ bloqueos().length }} cosa(s) por resolver</span>
@@ -2226,6 +2285,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           }
           @if (v.estado === 'sin_contar') {
             <p class="cg-total-regla">Todavía no contaste nada. Se va a guardar en cero.</p>
+          }
+        }
+
+        <!-- ⚠️ [CG.67] La ventana DICE si va firmado. Es lo ultimo que se puede corregir sin
+             deshacer nada: despues, el movimiento ya esta en el libro. -->
+        @if (firmaPide()) {
+          @if (firmaHecha()) {
+            <p class="cg-total-regla">Va <strong>firmado</strong>@if (firmaNombre().trim()) { por {{ firmaNombre().trim() }} }.</p>
+          } @else {
+            <p class="cg-total-regla">Va <strong>sin firma</strong>: se guarda igual y queda
+               marcado asi en el libro, para que alguien lo pueda resolver.</p>
           }
         }
       </div>
@@ -2906,6 +2976,62 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   capturaAbierta = signal(false);
   /** `[CG.62]` La ventana de "seguro que queres guardar". Es una PREGUNTA, no el guardado. */
   confirmarGuardar = signal(false);
+
+  // ── `[CG.67]` LA FIRMA DE CONFORMIDAD ───────────────────────────────────────────────────
+  //
+  // El dibujo lo hace `prepararFirma` de `@megadulces/ui-web` (`[CG.66]`), compartido con la
+  // firma del cliente en la entrega a domicilio. Acá vive sólo el pegamento con Angular.
+
+  @ViewChild('firmaCanvas') firmaRef?: ElementRef<HTMLCanvasElement>;
+  private firmaPad: FirmaCanvas | null = null;
+  /** El canvas sobre el que se preparó `firmaPad`. Cambia cada vez que el `@if` lo re-crea. */
+  private firmaEl: HTMLCanvasElement | null = null;
+
+  /**
+   * ⚠️ Señal y no un `computed` sobre el primitivo: el primitivo NO es reactivo (es un objeto
+   * con estado, no una señal), así que la plantilla no se enteraría de que alguien firmó. Esto
+   * es el puente, y se mueve en los tres lugares que mueven el trazo.
+   */
+  firmaHecha = signal(false);
+  firmaNombre = signal('');
+
+  /** Sólo el gasto la pide. El depósito lo respalda la ficha del banco (Fase CC). */
+  firmaPide = computed(() => this.f().tipo === 'gasto');
+
+  /**
+   * ⛔ Se re-prepara cuando el `<canvas>` cambia de identidad. El `@if` de la captura destruye y
+   * re-crea el elemento, y un `FirmaCanvas` apuntando a un canvas desprendido dibuja en la nada:
+   * la persona firma, no ve nada, y el guardado manda una firma vacía.
+   */
+  private pad(): FirmaCanvas | null {
+    const c = this.firmaRef?.nativeElement;
+    if (!c) return null;
+    if (!this.firmaPad || this.firmaEl !== c) {
+      this.firmaPad = prepararFirma(c);
+      this.firmaEl = c;
+    }
+    return this.firmaPad;
+  }
+
+  firmaAbajo(ev: PointerEvent): void { this.pad()?.abajo(ev.offsetX, ev.offsetY); }
+  firmaMueve(ev: PointerEvent): void {
+    const p = this.pad();
+    if (!p) return;
+    p.mueve(ev.offsetX, ev.offsetY);
+    // Se avisa en cuanto el trazo alcanza el mínimo, no al soltar: el rótulo "firmado" tiene que
+    // aparecer mientras la persona todavía tiene el dedo apoyado, o parece que no tomó nada.
+    if (p.firmada() !== this.firmaHecha()) this.firmaHecha.set(p.firmada());
+  }
+  firmaArriba(): void {
+    const p = this.pad();
+    if (!p) return;
+    p.arriba();
+    this.firmaHecha.set(p.firmada());
+  }
+  firmaLimpiar(): void {
+    this.pad()?.limpiar();
+    this.firmaHecha.set(false);
+  }
   aperturaAbierta = signal(false);
   cierreAbierto = signal(false);
   /**
@@ -3802,6 +3928,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.caosSugeridos.set([]);
     this.caosVinculados.set([]);
     this.buscandoCajero.set(false);
+    // ⛔ `[CG.67]` La firma TAMPOCO sobrevive al movimiento anterior. Sin esto, la firma de un
+    // gasto se guardaría en el siguiente: evidencia atribuida a quien no firmó, y en silencio
+    // porque el trazo ya está dibujado en el canvas y se ve igual que uno recién hecho.
+    this.firmaPad?.limpiar();
+    this.firmaHecha.set(false);
+    this.firmaNombre.set('');
     this.abrirConFoco(this.capturaAbierta);
     // ⛔ `[CG.46]` Esto lo hacía `p-dialog` solo y un `<aside>` NO. Sin esto, quien elige una fila
     // con el teclado se queda con el foco en la tabla y el panel se abre a su lado sin que nada
@@ -4738,6 +4870,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // guardaba lo que decía Kepler y el efectivo de más (o de menos) se evaporaba. El backend ya
       // tenía `monto_contado` resuelto; lo que faltaba era que la pantalla lo mandara.
       monto_contado: this.montoContado() ?? undefined,
+      // ⭐ `[CG.67]` La firma viaja como imagen y nombre. ⛔ NO se manda `firma_estado`: lo
+      // calcula el servidor (`revisarFirma`, ADR-076). Si la pantalla lo mandara, podría
+      // declarar "firmado" sin imagen.
+      firma_png: this.firmaPad?.aPng() ?? undefined,
+      firma_nombre: this.firmaNombre().trim() || undefined,
       // CS.3.13 — la parte a crédito (no efectivo). El servidor la persiste y el arqueo la cuenta como
       // parte del total (efectivo + crédito = monto).
       venta_credito: this.ventaCredito() || undefined,
