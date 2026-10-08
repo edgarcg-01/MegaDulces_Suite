@@ -178,6 +178,10 @@ export class OfflineDatabaseService extends Dexie {
   routePings!: Table<RoutePing, string>;
   inventoryScans!: Table<InventoryScanPending, string>;
   inventoryCatalog!: Table<InventoryCatalogEntry, string>;
+  /** `[WMS-REC.20]` Andén sin red. Los tipos viven en `modules/almacen/anden/anden-offline.ts`. */
+  andenPaquetes!: Table<{ sucursal: string }, string>;
+  andenVales!: Table<{ key: string }, string>;
+  andenOps!: Table<{ id: string }, string>;
 
   constructor() {
     super('TradeMarketingOfflineDB');
@@ -247,6 +251,24 @@ export class OfflineDatabaseService extends Dexie {
       routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
       inventoryScans: 'scan_uuid, count_id, sincronizado, intentos_fallidos',
       inventoryCatalog: 'id, count_id, barcode',
+    });
+
+    // v7: `[WMS-REC.20]` el Andén sin red. andenPaquetes = los vales de cada sucursal bajados
+    // con red; andenVales = la base de cada vale trabajado en el equipo; andenOps = la cola de lo
+    // que falta mandar (abrir, fechar, cerrar renglón, cerrar vale), en orden por vale.
+    this.version(7).stores({
+      tiendas: 'id, nombre, zona, ultima_sincronizacion',
+      visitas: 'id, tiendaId, userId, sincronizado, fecha, intentos_fallidos',
+      catalogos: 'id, tipo, version, ultima_sincronizacion',
+      syncLogs: 'id, tipo, entidad_id, estado, fecha',
+      photos: 'id, visitaId, createdAt',
+      tiendasPendientes: 'id, nombre, sincronizado, intentos_fallidos',
+      routePings: 'id, userId, sincronizado, capturedAt, intentos_fallidos',
+      inventoryScans: 'scan_uuid, count_id, sincronizado, intentos_fallidos',
+      inventoryCatalog: 'id, count_id, barcode',
+      andenPaquetes: 'sucursal',
+      andenVales: 'key, sessionId',
+      andenOps: 'id, valeKey, seq',
     });
 
     // Hooks para auditoría

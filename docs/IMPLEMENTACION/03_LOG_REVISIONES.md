@@ -4,6 +4,47 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-08 — `[WMS-REC.18–21]` El Andén no pierde vales, se queda con las caducidades y sigue sin internet
+
+**Qué se pidió (quien recibe).** (1) Si los vales no se terminan y "se va el internet", *se borran*:
+que queden como **incompletos** para terminarlos después. (2) Con poco internet, seguir trabajando y
+que lo terminado **se mande solo** al volver la conexión. (3) Que lo no terminado en el día **siga
+pendiente** al siguiente. (4) La **ubicación** va aparte; el Andén se queda con las caducidades.
+Decisiones del usuario: lo de días anteriores **aparte**; sin red, **las dos cosas** (seguir un vale
+abierto y abrir uno nuevo). El trabajo de Ubicaciones por sección (WMS-UB) se deja fuera de este PR.
+
+**Diagnóstico de "se borra" (medido en el código).** En el servidor no se perdía nada. Se perdía en
+tres lugares: el vale abierto salía del menú de pendientes; la regla de *sólo hoy* (Edgar, 2026-09-24)
+escondía los de ayer; y **abrir la pantalla sin internet borraba el borrador del vale a medias**.
+
+**Qué quedó (rama `feat/anden-caducidades`, sobre `main`):**
+- **REC.18** — ventana de **hoy y 7 días atrás**, nunca a futuro (`DIAS_PENDIENTES_ANDEN`), lo
+  atrasado en un grupo aparte, y «Incompletos» (antes «En curso») con su antigüedad.
+- **REC.21** — el Andén pierde su sección Ubicación y `anden-flujo` la regla R2. «Acomodar mercancía»
+  lleva a `/almacen/inventory/ubicaciones`, que ya tiene «Por acomodar». Tuteo en lo que toca el PR.
+- **REC.19** — `client_uuid` + índice único parcial (mig `20261007213847`): abrir y fechar cuentan
+  **una vez** aunque se reintente. La captura escribe existencia: sin esto, un reintento la duplicaba.
+- **REC.20** — `GET /commercial/receiving/sessions/offline-pack` + la cola del equipo
+  (`AndenOfflineService`, Dexie v7) + menú, vales e incompletos sin red + aviso de red y cola.
+
+**Verificado:** pruebas unitarias de view, commercial-receiving y contracts; contra la base local en
+transacción revertida, REC.19 7/7 y REC.20 3/3 (este **sin** la migración: abrir sin llave no depende
+de ella). Pruebas negativas en rojo: soltar la llave al revertir, emparejar por id local, soltar el
+borrador ante cualquier error, la hora con punto doble. ⛔ **No verificado:** el build (lo hace el CI),
+la pantalla en un equipo real sin señal y el costo del paquete en prod.
+
+**Lecciones:**
+1. **"Se borra" no era una sola falla, eran tres**, y la peor era la que nadie veía: abrir la pantalla
+   sin internet tiraba el vale a medias. La cola sin red no la habría arreglado.
+2. **El orden del detalle del servidor no es el de Kepler**: todos los renglones de un vale nacen con
+   el mismo `created_at`. Se empareja por SKU + cantidad, no por posición.
+3. **Una columna nueva en un INSERT obliga a desplegar la migración primero**, o se escribe sólo
+   cuando viene. La prueba local corrida sin la migración lo destapó.
+4. **"Sin red" y "el servidor falló" son preguntas distintas.** Mezclarlas escondía un 500 detrás de
+   datos guardados; el candado de REC.17 lo atrapó.
+
+⚠️ **Avisar a Edgar:** cambian la regla de *sólo hoy* (2026-09-24) y la R2 del Andén (2026-09-23).
+
 ## 2026-10-07 — `[AB.13]` Reporte PDF del almacenista, restringido a su almacén
 
 **Medido antes de construir (prod, solo lectura):** el rol `almacenista` **no tenía** `AUTOABASTO_VER` (la migración del 19-sep lo derivó de `COMMERCIAL_INVENTORY_VER`, que el almacenista recibió el 29-sep con [IC.2]); su alcance de almacén era `all`; y **5 de 6 almacenistas no tienen `warehouse_code`** en su ficha. Ningún módulo consultaba aún el área de alcance `almacen`, así que una regla por área no le cambia nada fuera de Autoabasto.
@@ -348,6 +389,47 @@ las 24 h.
 
 ---
 
+## 2026-10-06 — `[WMS-REC.17]` El traspaso entra al Andén por su embarque, y se puede cambiar de camión
+
+**Reporte:** «CEDIS mandó mercancía a la sucursal de PH (Padre Hidalgo) y no aparece en la sección
+para dar de alta las caducidades».
+
+**Causa (por código, decode ya existente en el repo):** el Andén sólo lista la orden de entrada
+`XA2001` de la sucursal que recibe, que es el documento de las COMPRAS. Un traspaso en Kepler es
+**embarque `U-D-41`** en quien manda (`c10` = destino `TI###`) → **recepción `U-A-50`** en quien
+recibe (`c37`=41 · `c38`=serie · `c39`=folio del embarque). Mientras el CEDIS vivió en Wincaja, la
+sucursal registraba su mercancía como compra a `TI000` y por eso se veía; desde el 30-sep el CEDIS
+está en Kepler y manda con su embarque.
+
+**Qué se entregó:** el Andén ofrece los embarques que vienen a cada almacén (destino resuelto por el
+mapa curado `analytics.transfer_dest_map`, sólo almacenes vivos), abre el vale desde el embarque
+(`erp_transfer`, migración `20261006143917` amplía el CHECK), busca por folio de embarque, y el
+reclamo de un faltante va a la sucursal que embarcó con el costo del embarque. Más: botón «Cambiar
+de camión» + lista «En curso» para volver a un vale a medias, sin cancelarlo.
+
+**Verificado:** el SQL REAL del servicio corrió contra la base local en una transacción revertida
+(menú, lista, búsqueda, abrir, en curso, cerrar con reclamo): el embarque `06-2-0001048` (Canindo →
+PH, $10,670.88) aparece, se abre con sus 3 renglones en `PAQ`, sale del menú y entra a «En curso»,
+y los 3 reclamos suman **exacto** el total del embarque, a nombre de Canindo. Unitarias: 15 de la
+lógica del traspaso + 13 de componentes + 3 del flujo completo montado, y las dos mutaciones
+(regla de día, abrir como compra) se ponen rojas.
+
+**NO verificado (declarado):**
+1. **Prod no se leyó** (sin credencial de lectura en esta máquina). Falta medir: que PH reciba lo de
+   CEDIS con `U-A-50` y no con la orden de entrada vieja (si fuera la vieja, el mismo traspaso saldría
+   **dos veces**); la demora real embarque→recepción (la ventana de 7 días es decisión, no medición);
+   y que `transfer_dest_map` tenga los `TI###` vivos (`TI000` no está mapeado a propósito, `[DM.11e]`).
+   Script listo: `medir-traspasos.js` (7 consultas, sólo lectura).
+2. **La pantalla en el navegador** (regla 2026-10-02: no se levanta la app en local).
+3. **La regla de día de los traspasos es de Edgar**: la de compras («sólo hoy») no se tocó.
+
+**Lecciones:**
+1. **Que un documento no aparezca no siempre es un filtro: puede ser OTRO documento.** El corte del
+   1-oct no cambió una columna; cambió por qué puerta entra la mercancía.
+2. **«Ya tiene sesión» no es lo mismo que «ya se recibió»**: contar una sesión cancelada como recibida
+   escondía el vale para siempre.
+
+---
 ## 2026-10-05 — `[CSU.0–CSU.2]` Cortes/Sucursales: el corte es lo contado, y el cuadre va por turno
 
 **Qué se entregó:** `/finanzas/cortes-sucursales` sigue cada corte de caja POS (`U-D-23`, cliente

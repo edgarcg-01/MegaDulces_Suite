@@ -5,8 +5,8 @@ import { environment } from '../../../environments/environment';
 // [WMS-REC.15] La forma del menu del Anden y del vale del ERP vive en el contrato
 // compartido (ADR-052): el backend devuelve ESTE tipo. Se re-exporta para que los
 // componentes sigan importando desde este servicio, que es donde ya lo buscan.
-import type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch } from '@megadulces/contracts';
-export type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch } from '@megadulces/contracts';
+import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline } from '@megadulces/contracts';
+export type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline } from '@megadulces/contracts';
 
 /**
  * Fase WMS-REC (Pieza 1 — Modo recepción por escaneo / Vale vivo, ADR-044).
@@ -52,6 +52,13 @@ export interface ErpVale {
   monto: number;
   tipo: 'compra' | 'traspaso';
   services?: { nombre?: string | null; cantidad?: number | string | null; importe?: number | string | null }[];
+  /** `[WMS-REC.17]` `embarque` = el vale salió de un traspaso (`U-D-41` de quien mandó). */
+  fuente?: 'orden_entrada' | 'embarque';
+  serie?: number | null;
+  destino_code?: string | null;
+  destino_nombre?: string | null;
+  /** Fecha en que Kepler registró la recepción `U-A-50`; `null` = aún no. */
+  recibido_kepler?: string | null;
 }
 
 export interface ReceivingSessionProgress {
@@ -77,7 +84,7 @@ export interface ReceivingSession {
   warehouse_code?: string;
   warehouse_name?: string;
   supplier_code?: string | null;
-  source_kind: 'manual' | 'erp_receipt';
+  source_kind: 'manual' | 'erp_receipt' | 'erp_transfer';
   source_ref?: string | null;
   status: 'open' | 'validating' | 'closed' | 'cancelled';
   notes?: string | null;
@@ -120,12 +127,17 @@ export interface OpenSessionDto {
   /** Opcional desde el ERP: el backend lo deriva de la orden elegida (ADR-044). */
   warehouse_id?: string;
   supplier_code?: string;
-  source_kind?: 'manual' | 'erp_receipt';
+  source_kind?: 'manual' | 'erp_receipt' | 'erp_transfer';
+  /** En `erp_transfer` es la sucursal que EMBARCA (donde vive el embarque). */
   erp_sucursal?: string;
+  /** Serie del embarque: el folio de Kepler se repite entre series. */
+  erp_serie?: number;
   erp_folio?: string;
   notes?: string;
   /** Recibir a propósito un folio que ya tiene vale: salta el guard de folio repetido. */
   force?: boolean;
+  /** `[WMS-REC.19]` Llave de reintento: abrir dos veces con la misma devuelve el mismo vale. */
+  client_uuid?: string;
 }
 
 /** Payload del 409 `folio_ya_recibido`: con qué vale choca y si se puede cancelar. */
@@ -217,6 +229,16 @@ export class ReceivingSessionService {
   pendingErpOrders(sucursal: string): Observable<ErpOrderMatch[]> {
     const params = new HttpParams().set('sucursal', sucursal);
     return this.http.get<ErpOrderMatch[]>(`${this.base}/erp-pending`, { params });
+  }
+
+  /** `[WMS-REC.17]` Los vales abiertos sin cerrar: a los que se vuelve tras atender otro camión. */
+  /** `[WMS-REC.20]` Los vales pendientes de una sucursal con sus renglones, para seguir sin red. */
+  offlinePack(sucursal: string): Observable<AndenPaqueteOffline> {
+    return this.http.get<AndenPaqueteOffline>(`${this.base}/offline-pack`, { params: new HttpParams().set('sucursal', sucursal) });
+  }
+
+  enCurso(): Observable<AndenValeEnCurso[]> {
+    return this.http.get<AndenValeEnCurso[]>(`${this.base}/en-curso`);
   }
 
   lookupErpOrder(sucursal: string, folio: string): Observable<ErpOrderLookup> {

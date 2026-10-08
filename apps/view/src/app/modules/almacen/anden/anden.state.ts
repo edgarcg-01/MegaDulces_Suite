@@ -1,31 +1,25 @@
 import { computed, signal } from '@angular/core';
 import { ErpOrderMatch, ReceivingLine, ReceivingSession } from '../receiving-session.service';
-import { UnlocatedLot } from '../bin-location.service';
 
 /**
  * Fase WMS-REC — Andén de Entrada. Estado puro, sin red.
  *
- * **Dos secciones, en este orden: Fechas → Ubicación.**
+ * Con el folio aparece el vale y sus renglones, y lo único que se captura es
+ * lote + caducidad + cuántas piezas llegaron. Ahí entra la mercancía a existencia.
  *
- *  - **Fechas** es la puerta: con el folio aparece el vale y sus renglones, y lo
- *    único que se captura es lote + caducidad + cuántas piezas llegaron. Ahí
- *    entra la mercancía a existencia.
- *  - **Ubicación** es lo que sigue: a cada lote ya fechado se le da su rack o su
- *    tarima. Va después porque **se ubica un LOTE, no un renglón** — mientras no
- *    haya fecha, lo que hay en existencia es el lote `NA`, y acomodarlo sería
- *    acomodar algo que después se reclasifica.
+ * `[WMS-REC.21]` Hasta el 2026-10-07 había una segunda sección, *Ubicación*, con la
+ * cola de lotes por acomodar. Acomodar se hace ahora en Ubicaciones («Por acomodar»),
+ * por almacén y no por vale. Acá se queda `AndenLote` porque es lo que entiende el
+ * panel de ubicación (`app-anden-ubicacion`), que se conserva para reusarlo.
  *
  * **Fechar es contar.** No hay un paso de cotejo aparte: la cantidad que se
  * declara al fechar es la que se recibió, y se escribe en `received_qty` cuando
  * el renglón queda cerrado. Así el cierre del vale sigue viendo faltantes y
  * sobrantes contra Kepler, y los reclamos de WMS-REC.8 conservan su insumo.
  *
- * La sección activa **no vive en la ruta**: es estado de pantalla. El vale es el
- * contexto y se conserva al saltar; meterlo en la URL rompe el flujo con el back
- * del navegador.
+ * El vale abierto **no vive en la ruta**: es estado de pantalla. Meterlo en la
+ * URL rompe el flujo con el back del navegador.
  */
-
-export type Seccion = 'fechas' | 'ubicacion';
 
 /** Renglón enriquecido con lo que la pantalla deriva. */
 export interface AndenLinea extends ReceivingLine {
@@ -49,7 +43,7 @@ export interface AndenLinea extends ReceivingLine {
 }
 
 /**
- * Un lote esperando rack. **Es la unidad de la cola de Ubicación**, y sale del
+ * Un lote esperando lugar. **Es la unidad de la cola de Por acomodar**, y sale del
  * backend (`/unlocated`), no de la memoria de la pantalla: el put-away exige el
  * lote y la caducidad exactos, y recordarlos en el navegador los desfasa en
  * cuanto otra persona fecha desde otro equipo.
@@ -69,7 +63,6 @@ export interface AndenLote {
 /** Lo que se persiste como borrador. Sólo lo que no se puede re-derivar del server. */
 export interface AndenBorrador {
   sessionId: string;
-  seccion: Seccion;
   guardadoEn: number;
 }
 
@@ -91,17 +84,10 @@ export class AndenState {
   readonly vale = signal<ReceivingSession | null>(null);
   readonly erp = signal<ErpOrderMatch | null>(null);
 
-  // ── Navegación entre secciones (NO va en la ruta) ──
-  readonly seccion = signal<Seccion>('fechas');
-
-  // ── Renglones y lotes ──
+  // ── Renglones ──
   readonly lineas = signal<AndenLinea[]>([]);
-  /** Lotes por acomodar, tal como los reporta el backend. */
-  readonly lotes = signal<AndenLote[]>([]);
   /** Renglón abierto para fechar. */
   readonly actual = signal<AndenLinea | null>(null);
-  /** Lote abierto para ubicar. */
-  readonly loteActual = signal<AndenLote | null>(null);
 
   readonly cargando = signal(false);
   readonly guardando = signal(false);
@@ -120,12 +106,23 @@ export class AndenState {
     return v ? v.warehouse_code || v.warehouse_name || null : null;
   });
 
+  /**
+   * Quién manda y qué documento respalda el vale, en una línea.
+   *
+   * Lee primero lo que se eligió en el menú (`erp`) y, si el vale se RETOMÓ desde «En
+   * curso» o desde el borrador, la ficha que trae el propio vale (`vale().erp`) y su
+   * origen. Sin eso, un traspaso retomado se leía sólo por su código `TI###` — o vacío.
+   */
   readonly proveedor = computed(() => {
     const e = this.erp();
     const v = this.vale();
     if (!v) return 'Esperando camión';
-    const partes = [e?.proveedor_nombre || v.supplier_code, e?.folio ? `Kepler ${e.folio}` : null,
-      v.warehouse_name || v.warehouse_code].filter(Boolean);
+    const ficha = v.erp ?? null;
+    const quien = e?.proveedor_nombre || ficha?.proveedor_nombre || v.origin?.name || v.supplier_code;
+    const folio = e?.folio || ficha?.folio || null;
+    const esEmbarque = (e?.fuente ?? ficha?.fuente) === 'embarque';
+    const documento = folio ? (esEmbarque ? `Embarque ${folio}` : `Kepler ${folio}`) : null;
+    const partes = [quien, documento, v.warehouse_name || v.warehouse_code].filter(Boolean);
     return partes.join(' · ');
   });
 
@@ -146,8 +143,6 @@ export class AndenState {
 
   /** Cola de Fechas: renglones que todavía esperan lote y caducidad. */
   readonly pendientesFechar = computed(() => this.lineas().filter((l) => l.faltaFechar > 0));
-  /** Cola de Ubicación: lotes ya fechados sin rack. */
-  readonly pendientesUbicar = computed(() => this.lotes().filter((l) => l.porUbicar > 0));
 
   /** Piezas declaradas con fecha en todo el vale — lo que de verdad entró. */
   readonly unidades = computed(() => this.lineas().reduce((a, l) => a + l.declarado, 0));
@@ -160,7 +155,6 @@ export class AndenState {
   );
 
   readonly siguienteFechar = computed(() => this.pendientesFechar()[0] ?? null);
-  readonly siguienteUbicar = computed(() => this.pendientesUbicar()[0] ?? null);
 
   // ── Mutaciones ──
 
@@ -196,48 +190,14 @@ export class AndenState {
     );
   }
 
-  /**
-   * Carga la cola de Ubicación con lo que el backend reporta sin acomodar,
-   * **acotado a los productos de este vale**: `/unlocated` contesta por almacén, y
-   * sin este filtro el andén arrastraría pendientes de recepciones de otro día que
-   * nadie pidió resolver ahora.
-   */
-  cargarLotes(rows: UnlocatedLot[]): void {
-    const delVale = new Set(this.lineas().map((l) => l.product_id).filter((x): x is string => !!x));
-    const previos = new Map(this.lotes().map((l) => [claveLote(l), l]));
-    this.lotes.set(
-      (rows || [])
-        .filter((r) => delVale.has(r.product_id))
-        .map((r) => {
-          const lote: AndenLote = {
-            product_id: r.product_id,
-            sku: r.sku ?? null,
-            product_name: r.product_name ?? null,
-            lot_code: r.lot_code,
-            expiry_date: r.expiry_date,
-            porUbicar: num(r.to_locate),
-            binSugerido: null,
-          };
-          lote.binSugerido = previos.get(claveLote(lote))?.binSugerido ?? null;
-          return lote;
-        })
-        .filter((l) => l.porUbicar > 0)
-        .sort((a, b) => (a.product_name || '').localeCompare(b.product_name || '')),
-    );
-  }
-
   parchear(lineId: string, patch: Partial<AndenLinea>): void {
     this.lineas.update((ls) => ls.map((l) => (l.id === lineId ? { ...l, ...patch } : l)));
-  }
-
-  parchearLote(clave: string, patch: Partial<AndenLote>): void {
-    this.lotes.update((ls) => ls.map((l) => (claveLote(l) === clave ? { ...l, ...patch } : l)));
   }
 
   aBorrador(): AndenBorrador | null {
     const v = this.vale();
     if (!v) return null;
-    return { sessionId: v.id, seccion: this.seccion(), guardadoEn: Date.now() };
+    return { sessionId: v.id, guardadoEn: Date.now() };
   }
 
   reset(): void {
@@ -246,10 +206,7 @@ export class AndenState {
     this.vale.set(null);
     this.erp.set(null);
     this.lineas.set([]);
-    this.lotes.set([]);
     this.actual.set(null);
-    this.loteActual.set(null);
-    this.seccion.set('fechas');
     this.guardado.set(false);
   }
 }

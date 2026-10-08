@@ -56,6 +56,8 @@ export interface EvaluatePayload {
   ocr_expiry?: string;
   ocr_confidence?: number;
   photo_data_uri?: string;
+  /** `[WMS-REC.19]` Llave de reintento: mandar dos veces la misma captura no mete la mercancía dos veces. */
+  client_uuid?: string;
 }
 
 export interface SupplierScore {

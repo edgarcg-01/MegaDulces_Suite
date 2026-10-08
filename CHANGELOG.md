@@ -9,6 +9,20 @@
 ---
 
 ## [Unreleased]
+### Added — Andén sin internet: se sigue trabajando y lo terminado se manda solo (WMS-REC.20, 2026-10-08)
+- Sin conexión se puede **seguir un vale abierto** y **abrir uno nuevo** de los que el equipo bajó con red. Lo que se fecha o se cierra se guarda en el equipo y **se manda solo** al volver la conexión, en el orden en que se hizo.
+- Un aviso arriba dice si no hay red, cuánto falta mandar y, si el servidor rechazó algo de un vale, el motivo, con **Reintentar** o **Descartar** (pide confirmación: lo capturado sin red se pierde).
+- Sin red no hay semáforo ni lectura de la etiqueta: se capturan a mano y el veredicto llega al mandarla.
+### Changed — Andén: lo de días anteriores sigue a la vista, lo a medias es «Incompletos» y la ubicación va aparte (WMS-REC.18/21, 2026-10-08)
+- El menú muestra los vales de **hoy y de los últimos 7 días** que nadie abrió; los atrasados van en un grupo aparte. Nada fechado a futuro. Cambia la regla de *sólo hoy* (Edgar, 2026-09-24).
+- «En curso» se llama **«Incompletos»** y dice desde cuándo está abierto cada vale.
+- El Andén se queda con las caducidades: acomodar se hace en **Ubicaciones**, en su sección «Por acomodar». Cambia la regla R2 del Andén (2026-09-23).
+### Fixed — Abrir el Andén sin internet borraba el vale a medias (WMS-REC.20, 2026-10-08)
+- El borrador del vale se soltaba ante cualquier error al recuperarlo. Ahora sólo si el vale de verdad ya no existe; sin red se recupera de lo guardado en el equipo.
+### Internal — Andén: llave de reintento y paquete sin red (WMS-REC.19/20, 2026-10-08)
+- Mig `20261007213847`: `client_uuid` con índice único parcial en `commercial.receiving_sessions` y `commercial.receiving_lot_captures`. Reintentar abrir o fechar devuelve lo existente en vez de duplicar existencia. El código sólo escribe la columna cuando viene la llave.
+- `GET /commercial/receiving/sessions/offline-pack?sucursal=`: los vales del menú con sus renglones, armados por la misma función que usa abrir el vale.
+- ⚠️ **Pendiente:** aplicar a prod, una por una, `20261006143917` (REC.17) y `20261007213847` (REC.19) + redeploy api+view + validación en un equipo sin señal. Sin permisos nuevos → sin re-login.
 ### Added — Preventa: llevar pedidos y guía de carga (MCP.5, 2026-10-08)
 - Celular del repartidor (**Llevar**) y del vendedor (desde **Mi día**): elige los pedidos de preventa que se lleva; quedan en su guía de carga del día, una por ruta.
 - Almacén › Pedidos › **Guías de carga** (`/almacen/pedidos/guias`): la caja imprime la guía en PDF para que la firme quien se lleva la carga; la reimpresión sale igual, marcada REIMPRESIÓN. Si un pedido regresa sin entregarse, la caja lo registra con motivo (**Regresó sin entregar**) y puede salir otro día. Permiso nuevo `PREVENTA_GUIAS_GESTIONAR` (lo recibe quien hace el arqueo de caja).
@@ -214,6 +228,18 @@
 - Vistas nuevas sobre el ODS: `analytics.erp_shipment_stops` (ruta por domicilio de entrega), `erp_shipment_stop_load` (cajas y sueltos desde los renglones) y `v_kepler_responsables` (mig `20261006210000`). «Embarque manual» sigue para lo que Kepler no emite.
 - Fixed: el formulario manual pedía «Por ruta / Viaje largo» y no se guardaba, y la fecha se mandaba en UTC (después de las 18:00 quedaba el día siguiente).
 - Internal: `libs/logistics` estrena pruebas con Vitest.
+### Added — Andén: los traspasos (CEDIS y entre sucursales) aparecen para dar de alta sus caducidades (WMS-REC.17, 2026-10-06)
+- Reporte: «CEDIS mandó mercancía a Padre Hidalgo y no aparece en el Andén». El Andén sólo leía la orden de entrada `XA2001` (compras). Un traspaso viaja en otro documento: el **embarque `U-D-41`** de quien manda y la **recepción `U-A-50`** de quien recibe. Desde que el CEDIS entró a Kepler (30-sep) manda con su embarque, y el Andén no lo veía.
+- El menú y la lista de cada sucursal traen ahora los **embarques que vienen a su almacén** (destino `TI###` → `analytics.transfer_dest_map`), con origen, cuándo salió y si Kepler ya registró la recepción. El vale se abre **desde el embarque** (`source_kind = 'erp_transfer'`, `source_ref = UD41/<origen>/<serie>/<folio>`) y la búsqueda por folio encuentra el folio del embarque. Lectura en vivo de `kepler_ods`, sin importer.
+- Regla de día propia para traspasos (`transferVisible`): salió hoy, o sigue en camino hasta 7 días, o Kepler lo recibió hoy. La de compras («sólo hoy») no cambia.
+- Un faltante de traspaso se reclama a la **sucursal que embarcó** (el almacén se sabe del documento) con el costo del embarque.
+
+### Added — Andén: botón «Cambiar de camión» y lista «En curso» (WMS-REC.17, 2026-10-06)
+- A media captura se puede salir al menú **sin cancelar el vale**: queda en «En curso» (`GET /commercial/receiving/sessions/en-curso`, acotado al alcance) y se retoma de un toque. Sólo pide confirmación si hay un renglón abierto, que es lo único sin guardar.
+
+### Fixed — Andén: un vale cancelado escondía su documento para siempre, y «Salir» del almacén congelado no salía (WMS-REC.17, 2026-10-06)
+- El menú excluía cualquier documento con sesión, incluso cancelada, aunque `open()` deja reabrirlo. Ahora sólo lo tapa una sesión viva.
+- El muro del inventario físico quedaba puesto al salir y tapaba el menú.
 ### Added — Anexo de venta: suma de unidades por grupo y total del documento (AX.13, 2026-10-05)
 - Cada rótulo de grupo del anexo imprimible («Comprado por caja · 3 productos») suma sus unidades bajo la columna Cantidad («10 CJA»); al pie, el total del documento por unidad (CJA · PAQ · PZA · KG por separado, nunca mezcladas).
 - Fixed: el reparto caja/paquete/pieza truncaba la cantidad decimal de la base (2.5 KG salía «2 KG»).
