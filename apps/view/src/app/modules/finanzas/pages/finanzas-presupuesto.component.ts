@@ -180,7 +180,10 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         <section class="pres-section">
           <div class="pres-section-head">
             <h2>Ejercicios</h2>
-            <button pButton type="button" class="p-button-sm" (click)="openNewBudget()"><span class="pi pi-plus"></span>&nbsp;Nuevo ejercicio</button>
+            <!-- [PU.VA] Acá estaba «Nuevo ejercicio» en PRIMARIO (relleno naranja, x=1887 y=220: la
+                 posición más fuerte de la página), compitiendo con «Enviar a autorización», que es
+                 la única acción que el subtítulo declara tuya. Dos primarios no jerarquizan nada.
+                 Se mudó a la barra del ejercicio, en secundario, con las demás. -->
           </div>
 
           @if (budgets().length) {
@@ -223,7 +226,10 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <!-- [VE.9] Adelanta la pasada nocturna sobre ESTE ejercicio. No reemplaza al
                        cron: lo que hace es no tener que esperar a manana para ver el efecto de un
                        cambio en los supuestos o en el catalogo. -->
-                  <button pButton type="button" class="p-button-sm p-button-text" (click)="runAutopilot()" [loading]="runningAutopilot()" title="Corre ahora la pasada del cron: supuestos derivados + plan de ventas + plan de gastos + partidas. Respeta lo capturado a mano"><span class="pi pi-bolt"></span>&nbsp;Re-armar ahora</button>
+                  <!-- [PU.VA] Re-armar es una HERRAMIENTA, no una decisión: adelanta el cron para
+                       no esperar a mañana. Pasa a icono con tooltip, para que no compita con la
+                       única acción que el subtítulo declara tuya. -->
+                  <button pButton type="button" class="p-button-sm p-button-text pres-act-ico" (click)="runAutopilot()" [loading]="runningAutopilot()" aria-label="Re-armar ahora" title="Re-armar ahora — corre la pasada del cron sobre este ejercicio: supuestos derivados + plan de ventas + plan de gastos + partidas. Respeta lo capturado a mano"><span class="pi pi-bolt"></span></button>
                   <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'submit')" [loading]="savingLifecycle()">Enviar a autorización</button>
                 }
                 @if (b.status === 'pendiente') {
@@ -233,7 +239,17 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="materializeNow(b)" [loading]="materializing()" title="Re-sincronizar las partidas desde los planes"><span class="pi pi-sync"></span>&nbsp;Re-materializar</button>
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="lifecycle(b, 'close')" [loading]="savingLifecycle()">Cerrar</button>
                 }
-                <button pButton type="button" class="p-button-sm p-button-text" (click)="openCopy()" title="Copiar del año anterior"><span class="pi pi-copy"></span>&nbsp;Copiar del año anterior</button>
+                <!-- [PU.VA] ⛔ Decía «Copiar del año anterior» y **no es lo que hace**: 'copyBudget'
+                     clona el ejercicio SELECCIONADO, con el MISMO año fiscal por default
+                     ('dto.fiscal_year ?? src.fiscal_year'). Sirve para armar un escenario
+                     —conservador, expansión— sobre el base, que es algo que el piloto NO cubre.
+                     El botón no sobraba: su rótulo mentía. -->
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="openCopy()" title="Duplica ESTE ejercicio como una versión nueva en borrador (para un escenario alterno). No copia del año anterior."><span class="pi pi-copy"></span>&nbsp;Duplicar como escenario</button>
+                <!-- [PU.VA] «Nuevo ejercicio» baja de primario a secundario y se muda acá, con las
+                     demás. Estaba arriba a la derecha —la posición más fuerte de la página— y en
+                     naranja, compitiendo con la acción real; el propio '[VE.9]' lo llama «la
+                     excepción, no el camino», porque el del año siguiente lo crea el piloto solo. -->
+                <button pButton type="button" class="p-button-sm p-button-text" (click)="openNewBudget()" title="Para un año o escenario distinto del que arma el sistema. El del año siguiente lo crea solo, cada noche."><span class="pi pi-plus"></span>&nbsp;Nuevo ejercicio</button>
               </div>
             </div>
 
@@ -1060,7 +1076,13 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     .pres-nodata { font-size:.76rem; color:var(--warn-fg,#b45309); display:inline-flex; align-items:center; gap:.3rem; }
     .pres-cap-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
     .pres-nav { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
-    .pres-nav-sep { font-size:.68rem; color:var(--text-faint); text-transform:uppercase; letter-spacing:.05em; padding-left:.3rem; border-left:1px solid var(--border-color); }
+    /* [PU.VA] Era texto gris en MAYÚSCULAS pegado a las pestañas, y se leía como una octava
+       pestaña deshabilitada. Ahora es un rótulo de grupo: minúscula, sin tracking de botón, con
+       el divisor separado del texto y el cursor de texto apagado. */
+    .pres-nav-sep { font-size:.7rem; color:var(--text-muted); letter-spacing:0; margin-left:.5rem;
+      padding-left:.75rem; border-left:1px solid var(--border-color); cursor:default; user-select:none; }
+    /* [PU.VA] Acción-herramienta: ícono sin rótulo, para que no compita con la acción de negocio. */
+    .pres-act-ico { min-width:2rem; padding-inline:.5rem; }
     .pres-assump { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem .8rem; margin:.6rem 0 1rem; background:color-mix(in srgb, var(--action, #d97706) 4%, transparent); }
     .pres-assump-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; margin-bottom:.5rem; }
     .pres-assump-head h3 { margin:0; font-size:.92rem; }
