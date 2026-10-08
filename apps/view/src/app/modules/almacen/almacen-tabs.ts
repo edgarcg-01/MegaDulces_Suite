@@ -168,6 +168,48 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
     ],
   },
   {
+    key: 'rutas',
+    label: 'Ruta Directa',
+    /**
+     * `[RD.45]` **La flota de Ruta Directa como un trabajo del almacén.**
+     *
+     * Las tres primeras pantallas ya vivían en `/comercial` y se sirven acá con el MISMO
+     * componente (ver `app.routes.ts`): no hay copia, hay una segunda puerta. La cuarta —
+     * *Conteos* — es nueva y es el punto de la entrada: cuenta el camión, que es lo único que
+     * arbitra lo que la camioneta declara de sí misma.
+     *
+     * **El orden lo decide la pregunta que trae a alguien a ESTE proyecto, no el relato de la
+     * operación.** En `/comercial` el orden natural es «qué vendió → qué le queda», porque ahí
+     * se entra a leer la venta. Acá se entra desde el almacén, y la pregunta es *qué trae ese
+     * camión* y *andá a contarlo*: por eso **Inventario** abre y **Conteos** va segundo, con la
+     * venta y la comisión detrás como contexto.
+     *
+     * ⛔ **Sin desvío de aterrizaje**, y es a propósito: el default (`tabs[0]`) ya resuelve bien
+     * los dos casos. Medido el 2026-10-07, los **16** de piso que estrenan
+     * `ROUTE_COUNT_REGISTRAR` tienen `COMMERCIAL_ROUTE_SALES_VER` en **`false` explícito**, así
+     * que *Inventario* no les existe y el sidebar los degrada solo a *Conteos*; quien tiene
+     * todas las llaves aterriza en *Inventario*, que es la pregunta del almacén. Un `landing`
+     * acá habría sido una excepción escrita para un caso **hipotético** —«por si algún día les
+     * dan ROUTE_SALES_VER»— y el área `conteo` es la única con una razón **medida** para tenerlo.
+     *
+     * ⚠️ Los permisos son heterogéneos a propósito: `ROUTE_SALES_VER` (operación),
+     * `ROUTE_COUNT_REGISTRAR` (escritura que RESETEA) y `COMMISSIONS_VER` (nómina). Ver cuánto
+     * vendió una ruta y ver cuánto cobra su chofer siguen siendo cosas distintas.
+     */
+    match: ['/almacen/rutas'],
+    tabs: [
+      { label: 'Inventario', icon: 'pi pi-truck', route: '/almacen/rutas/inventario', permission: Permission.COMMERCIAL_ROUTE_SALES_VER, exact: true },
+      { label: 'Conteos', icon: 'pi pi-list-check', route: '/almacen/rutas/conteos', permission: Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR, exact: true },
+      { label: 'Ventas', icon: 'pi pi-directions', route: '/almacen/rutas/ventas', permission: Permission.COMMERCIAL_ROUTE_SALES_VER, exact: true },
+      { label: 'Comisiones', icon: 'pi pi-percentage', route: '/almacen/rutas/comisiones', permission: Permission.COMMERCIAL_COMMISSIONS_VER, exact: true },
+    ],
+    focusEntries: [
+      // Contar un camión: handheld, sin barra. Se llega desde *Conteos*, eligiendo la ruta —
+      // nunca directo, porque sin ruta la pantalla no tiene hoja que mostrar.
+      { label: 'Contar camión', icon: 'pi pi-list-check', route: '/almacen/rutas/contar', permission: Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR, exact: false },
+    ],
+  },
+  {
     key: 'conteo',
     label: 'Conteo',
     match: [

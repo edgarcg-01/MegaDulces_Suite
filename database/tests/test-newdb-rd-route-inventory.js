@@ -843,6 +843,134 @@ async function cuerposDeLaMigracion() {
         medible: r.medible,
       })));
     }
+
+    // ── `[RD.45]` La HOJA DE CONTEO: lo que una persona va a tener enfrente ───────────────────
+    //
+    // La pantalla de conteo le pone a alguien 300 renglones delante y después ESCRIBE un ancla
+    // que resetea el saldo de la ruta. Lo que se vigila acá es por qué la hoja sale de la foto
+    // y no del ledger, que la hoja llegue COMPLETA, y que la copia por costo no sea una segunda
+    // verdad.
+    console.log('\n── [RD.45] la hoja de conteo ──');
+    const { rows: [hayMat] } = await db.raw(
+      `SELECT to_regclass('analytics.mv_rd_route_photo') IS NOT NULL AS m,
+              to_regclass('analytics.v_rd_route_photo')  IS NOT NULL AS v`);
+
+    if (!hayMat.v) {
+      noMedido('[RD.45] la hoja de conteo', 'analytics.v_rd_route_photo todavía no existe (falta el FDW al runner)');
+    } else if (!hayMat.m) {
+      noMedido('[RD.45] la hoja de conteo', 'analytics.mv_rd_route_photo todavía no existe (falta la migración 20261007182824)');
+    } else {
+      // 1 · Paridad: la copia dice exactamente lo que la vista. Sin esto, materializar crea una
+      //     segunda verdad sobre el mismo camión.
+      const { rows: [par] } = await db.raw(`
+        SELECT count(*)::int AS n FROM (
+          SELECT tenant_id, route_no, sku, unidad, qty, importe FROM analytics.mv_rd_route_photo
+          EXCEPT
+          SELECT tenant_id, route_no, sku, unidad, qty, importe FROM analytics.v_rd_route_photo
+        ) d`);
+      t('[RD.45] la copia por costo coincide con la foto viva', n(par.n) === 0,
+        `${par.n} renglón(es) divergen — la hoja impresa diría otra cosa que la pantalla`);
+
+      // 2 · La hoja llega COMPLETA. Es la aserción que evita un desastre, no un detalle de UX:
+      //     `registerRouteCount` RESETEA, así que un renglón que no viaja queda en CERO. Si
+      //     alguna vez alguien le pone un LIMIT a la consulta de la hoja, esto se pone rojo.
+      const { rows: [comp] } = await db.raw(`
+        WITH foto AS (
+          SELECT route_no, count(*)::int AS n FROM analytics.mv_rd_route_photo GROUP BY 1
+        ), hoja AS (
+          SELECT f.route_no, count(*)::int AS n
+            FROM analytics.mv_rd_route_photo f
+            LEFT JOIN catalog.products p
+              ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
+           GROUP BY 1
+        )
+        SELECT count(*)::int AS rutas,
+               count(*) FILTER (WHERE foto.n <> hoja.n)::int AS difieren,
+               min(foto.n)::int AS menor, max(foto.n)::int AS mayor
+          FROM foto JOIN hoja USING (route_no)`);
+      t('[RD.45] la hoja trae TODOS los renglones de la foto, en las ' + comp.rutas + ' rutas',
+        n(comp.difieren) === 0 && n(comp.rutas) > 0,
+        `${comp.difieren} ruta(s) con distinto número de renglones — el join al catálogo está duplicando o perdiendo`);
+      t(`[RD.45] ninguna hoja pasa de 1,000 renglones (hoy ${comp.menor}–${comp.mayor})`,
+        n(comp.mayor) > 0 && n(comp.mayor) <= 1000,
+        `la mayor tiene ${comp.mayor}: a ese tamaño el conteo de una sentada deja de ser realista y hay que partirlo`);
+
+      // 3 · El NOMBRE del producto. Una hoja que dice «00412» es ilegible para quien cuenta.
+      //     ⚠️ Esto ya cobró: con el join sin `btrim` del lado del catálogo, 14 de los 267
+      //     renglones de la ruta 21 caían al SKU pelado y el defecto no se veía en ninguna cifra.
+      const { rows: [nom] } = await db.raw(`
+        SELECT count(*)::int AS total,
+               count(*) FILTER (WHERE coalesce(nullif(btrim(p.description),''), v.producto) IS NULL)::int AS sin_nombre
+          FROM analytics.mv_rd_route_photo f
+          LEFT JOIN catalog.products p
+            ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
+          LEFT JOIN LATERAL (
+            SELECT max(l.producto) AS producto FROM analytics.route_push_lines l
+             WHERE l.tenant_id = f.tenant_id AND l.route_no = f.route_no AND btrim(l.sku) = f.sku
+          ) v ON true`);
+      const pctNom = n(nom.total) ? (100 * (n(nom.total) - n(nom.sin_nombre)) / n(nom.total)) : 0;
+      t(`[RD.45] el 99%+ de los renglones tiene nombre (hoy ${pctNom.toFixed(2)}%, ${nom.sin_nombre} sin nombre de ${nom.total})`,
+        pctNom >= 99,
+        'demasiados renglones se le mostrarían al contador como un código pelado');
+
+      // 4 · ⭐ PRUEBA NEGATIVA — y es la que justifica la decisión de diseño.
+      //
+      //     La hoja sale de la FOTO y no del ledger. Si las dos dijeran lo mismo, la elección
+      //     daría igual y este comentario sería decorativo. Se exige que DIVERJAN: es lo que
+      //     prueba que el conteo arbitra algo. El día que coincidan al 100% hay que mirar por
+      //     qué — o el ledger dejó de ser una reconstrucción, o la foto dejó de ser su testigo.
+      const { rows: [dif] } = await db.raw(`
+        WITH led AS (
+          SELECT tenant_id, route_no, sku, unidad,
+                 sum(qty * CASE WHEN clase='venta' THEN -1 ELSE 1 END) AS saldo
+            FROM analytics.mv_rd_route_ledger GROUP BY 1,2,3,4
+        )
+        SELECT count(*)::int AS comunes,
+               count(*) FILTER (WHERE round(f.qty,3) <> round(coalesce(l.saldo,0),3))::int AS difieren
+          FROM analytics.mv_rd_route_photo f
+          LEFT JOIN led l ON l.tenant_id=f.tenant_id AND l.route_no=f.route_no
+                         AND l.sku=f.sku AND l.unidad=f.unidad`);
+      const pctDif = n(dif.comunes) ? (100 * n(dif.difieren) / n(dif.comunes)) : 0;
+      t(`[RD.45] PRUEBA NEGATIVA: la foto y el ledger NO dicen lo mismo (${dif.difieren} de ${dif.comunes} renglones, ${pctDif.toFixed(1)}%)`,
+        n(dif.difieren) > 0,
+        'coinciden en todo: o el ledger dejó de ser una reconstrucción, o la foto dejó de ser un testigo independiente — en cualquier caso el conteo ya no arbitra nada');
+
+      // 5 · La ruta sin foto se DECLARA, no se esconde (ADR-056). El índice de la pantalla sale
+      //     de `mv_rd_route_identity`, no de la foto, justo para que la apagada siga a la vista.
+      const { rows: [huerf] } = await db.raw(`
+        SELECT count(*)::int AS rutas,
+               count(*) FILTER (WHERE f.route_no IS NULL)::int AS sin_foto
+          FROM analytics.mv_rd_route_identity i
+          LEFT JOIN (SELECT DISTINCT route_no FROM analytics.mv_rd_route_photo) f
+            ON f.route_no = i.route_no`);
+      t(`[RD.45] el índice cubre las ${huerf.rutas} rutas, incluidas las ${huerf.sin_foto} que no reportan`,
+        n(huerf.rutas) > n(huerf.sin_foto) && n(huerf.rutas) > 0,
+        'o no hay rutas, o ninguna reporta: en los dos casos la pantalla no tiene nada que mostrar');
+
+      // 6 · El presupuesto de la pantalla. Es la razón de existir de la copia.
+      const t0 = Date.now();
+      const { rows: unaHoja } = await db.raw(`
+        SELECT f.sku, f.unidad, coalesce(nullif(btrim(p.description),''), f.sku) AS producto,
+               f.qty, f.costo_unitario, nullif(btrim(p.barcode),'') AS barcode
+          FROM analytics.mv_rd_route_photo f
+          LEFT JOIN catalog.products p
+            ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
+         WHERE f.route_no = (SELECT route_no FROM analytics.mv_rd_route_photo
+                              GROUP BY 1 ORDER BY count(*) DESC LIMIT 1)`);
+      const msHoja = Date.now() - t0;
+      t(`[RD.45] la hoja más grande (${unaHoja.length} renglones) se sirve en ${msHoja} ms`,
+        msHoja < 500,
+        'por encima de 500 ms la pantalla "no funciona" según la regla del proyecto');
+
+      // 7 · El código de barras: es lo que permite SALTAR al renglón escaneando en vez de
+      //     buscarlo a mano en una lista de 300. Si la cobertura cae, la pantalla sigue
+      //     funcionando pero pierde su mejor atajo, y conviene enterarse.
+      const conCodigo = unaHoja.filter((r) => r.barcode).length;
+      const pctCod = unaHoja.length ? (100 * conCodigo / unaHoja.length) : 0;
+      t(`[RD.45] el 95%+ de esa hoja se puede escanear (hoy ${pctCod.toFixed(1)}%)`,
+        pctCod >= 95,
+        'sin código de barras el contador vuelve a buscar a mano en una lista de cientos');
+    }
   } catch (e) {
     bad++;
     console.error('  ✘ excepción:', e.message);

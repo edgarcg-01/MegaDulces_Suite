@@ -8,6 +8,8 @@ import {
   type RouteInventoryDetail,
   type RouteCountInput,
   type RouteCountResult,
+  type RouteCountSheet,
+  type RouteCountSheetRow,
 } from './commercial-analytics.service';
 import { AnalyticsRefreshService } from './analytics-refresh.service';
 import { SellOutExportService } from './sell-out-export.service';
@@ -1096,6 +1098,34 @@ export class CommercialAnalyticsController {
   })
   registerRouteCount(@Body() body: RouteCountInput): Promise<RouteCountResult> {
     return this.service.registerRouteCount(body);
+  }
+
+  @Get('route-inventory/count-sheets')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR)
+  @ApiOperation({
+    summary:
+      'RD.45 - Indice de la pantalla de conteo: las 11 rutas con su foto (renglones, importe, '
+      + 'dia) y su ultimo conteo. La ruta que no reporto sale con foto_fecha null y renglones 0 '
+      + '-- se DECLARA, no se esconde (la 505 lleva sin mover desde el 10-sep). '
+      + 'dias_desde_conteo es null cuando nunca se conto, que no es lo mismo que 0.',
+  })
+  routeCountSheets(): Promise<RouteCountSheetRow[]> {
+    return this.service.routeCountSheets();
+  }
+
+  @Get('route-inventory/count-sheet')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR)
+  @ApiOperation({
+    summary:
+      'RD.45 - La HOJA DE CONTEO de una ruta, renglon por renglon: es lo que hoy se imprime en '
+      + 'papel y se recorre con una regla. El esperado sale de la FOTO del propio camion, no del '
+      + 'ledger reconstruido: el conteo existe para arbitrar lo que la camioneta declara de si '
+      + 'misma, y contra el ledger compararia nuestra cuenta con nuestra cuenta. '
+      + 'Se devuelve COMPLETA, sin tope: un conteo RESETEA, y una hoja truncada manda a cero lo '
+      + 'que no viajo. Param: route_no.',
+  })
+  routeCountSheet(@Query('route_no') routeNo: string): Promise<RouteCountSheet> {
+    return this.service.routeCountSheet(routeNo);
   }
 
   @Get('route-inventory/series')
