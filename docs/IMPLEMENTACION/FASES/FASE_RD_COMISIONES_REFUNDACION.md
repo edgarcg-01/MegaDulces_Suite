@@ -169,6 +169,37 @@ que le faltan a la fuente, y **3 descuadran sin causa conocida** — esas 3 son 
 consecutivas cuadren dentro de X%**. N y X los fija Edgar, pero el mecanismo se construye acá, y
 mientras no se cumpla la pantalla lo **declara** en vez de sugerir que el motor ya manda.
 
+#### La medición, 2026-10-08 — las 238 ruta-periodo, ya con los dos lados comparables
+
+Lo que se le pagó al chofer según el recibo, contra lo que el motor pagaría hoy:
+
+| veredicto | n | pago libro | pago motor | Δ |
+|---|---:|---:|---:|---:|
+| cuadra (≤ $1) | **111** | 551,006.43 | 551,006.22 | −0.21 |
+| difiere ≤ 5 % | 46 | 230,925.98 | 231,031.08 | **+105.10** |
+| difiere > 5 % | 22 | 120,555.20 | 79,291.15 | −41,264.05 |
+| el libro pagó y el motor **NO** (acantilado) | **9** | 26,932.74 | 0.00 | **−26,932.74** |
+| sin fuente en el motor | 5 | 8,361.52 | 0.00 | −8,361.52 |
+| ninguno paga (coinciden) | 45 | 0 | 0 | 0 |
+| | **238** | **937,781.87** | **861,328.45** | **−76,453.42** |
+
+⭐ **111 de las 193 que pagan cuadran al peso (57.5 %)**, y el total del libro reproduce exacto el
+que quedó cargado — o sea que el contraste no arrastra un error de lectura.
+
+⛔ **Lo que duele está concentrado en 14 filas**: 9 por el acantilado del tramo y 5 sin fuente,
+**$35,294 que el motor tiraría a CERO**. Más 22 que difieren más de 5 % por −$41,264. Si el motor
+hubiera pagado 2026, los choferes habrían cobrado **$76,453 menos — el 8.2 %**.
+
+⚠️ El bucket de ≤5 % es el único donde el motor paga **de más** (+$105): ahí los bonos compensan
+la diferencia de venta. No es ruido simétrico.
+
+⚠️ La medición se hizo con SQL que **reimplementa** la regla del motor leyendo sus propias tablas
+(`commission_scale_tiers`, `commission_bonuses`, `share_supervisor_pct`). Sirve para dimensionar;
+**la pantalla tiene que llamar al motor real** (`computeRun` en modo vista previa), porque una
+copia se desincroniza. Y no puede vivir en `commission_runs`: el índice
+`commission_runs_una_viva_por_periodo` prohíbe una segunda corrida viva por periodo, así que el
+contraste necesita tabla propia.
+
 ---
 
 ### [RD.53] La fuente — lo que hace que el motor pague mal
