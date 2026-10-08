@@ -540,6 +540,12 @@ export interface SdReportResponse {
   recurrentes: SdReportRecurringRow[];
   /** Lo que este reporte NO puede contestar, dicho en voz alta (no se dibuja como cero). */
   no_medido: string[];
+  /**
+   * `[MSH.2]` H8 — presente cuando el reporte es de una cola CONFIDENCIAL y tiene MENOS casos que su mínimo (`report_min_cases`): **NINGUNA cifra
+   * de este reporte es válida** (vienen en cero/vacío sólo para cumplir el tipo) y la pantalla debe mostrar «—». Un agregado de 2 casos de RH
+   * es casi un caso individual.
+   */
+  suprimido?: { minimo: number; motivo: string };
 }
 
 // ── Avisos y preferencias ───────────────────────────────────────────────────────────────────────

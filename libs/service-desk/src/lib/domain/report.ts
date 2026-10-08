@@ -116,6 +116,58 @@ class Cuenta {
   }
 }
 
+/**
+ * `[MSH.2]` H8 — el reporte de una cola CONFIDENCIAL (RH): sólo agregados, con un MÍNIMO de casos y supresión COMPLEMENTARIA.
+ *
+ *  · Con menos de `minimo` casos en total, el reporte entero se SUPRIME (`suprimido`): un agregado de 2 casos es casi un caso individual.
+ *  · Cada fila de categoría, ubicación o recurrente con menos de `minimo` casos se OCULTA.
+ *  · **Complementaria:** si quedó oculta UNA sola fila, también se oculta la visible más chica. Si no, `total − suma de las visibles` revelaría
+ *    EXACTAMENTE la que se ocultó (restando totales). Con dos ocultas sólo se deduce su suma.
+ *  · Lo que se oculta se DECLARA en `no_medido` (cuántas filas y por qué), no desaparece en silencio.
+ *
+ * Límite declarado: los subtotales de `totales` (resueltos, abiertos, cancelados, reabiertos) no se suprimen por separado; salen de un total que
+ * ya cumple el mínimo.
+ */
+export function suprimirFilas<T>(filas: readonly T[], casos: (f: T) => number, minimo: number): { visibles: T[]; ocultas: number } {
+  let visibles = filas.filter((f) => casos(f) >= minimo);
+  let ocultas = filas.length - visibles.length;
+  if (ocultas === 1 && visibles.length > 0) {
+    // Complementaria: la visible más chica también se oculta (a igualdad, la última: es la menos relevante en un orden descendente).
+    let menor = 0;
+    visibles.forEach((f, i) => { if (casos(f) <= casos(visibles[menor])) menor = i; });
+    visibles = visibles.filter((_, i) => i !== menor);
+    ocultas = 2;
+  }
+  return { visibles, ocultas };
+}
+
+type ReporteBase = Omit<SdReportResponse, 'colas' | 'cola_id'>;
+
+export function aplicarMinimoDeCasos(r: ReporteBase, minimo: number): ReporteBase {
+  if (r.totales.creados < minimo) {
+    const vacio = { cumplidos: 0, incumplidos: 0, en_plazo: 0, sin_plazo: 0, cumplimiento_pct: null } as unknown as SdSlaCompliance;
+    return {
+      ...r,
+      totales: { creados: 0, resueltos: 0, abiertos: 0, cancelados: 0, reabiertos: 0, reabiertos_pct: null, minutos_trabajados: null, con_tiempo: 0 },
+      primera_respuesta: vacio,
+      resolucion: vacio,
+      por_prioridad: [],
+      por_categoria: [],
+      por_sucursal: [],
+      recurrentes: [],
+      no_medido: [`Esta área es confidencial: con menos de ${minimo} casos en el periodo no se muestra ninguna cifra (un agregado tan chico es casi un caso individual).`],
+      suprimido: { minimo, motivo: `menos de ${minimo} casos en el periodo` },
+    };
+  }
+  const cat = suprimirFilas(r.por_categoria, (c) => c.creados, minimo);
+  const suc = suprimirFilas(r.por_sucursal, (s) => s.creados, minimo);
+  const rec = suprimirFilas(r.recurrentes, (x) => x.n, minimo);
+  const no_medido = [...r.no_medido];
+  const ocultas = cat.ocultas + suc.ocultas + rec.ocultas;
+  if (ocultas > 0) no_medido.push(`Área confidencial: ${ocultas} fila(s) con menos de ${minimo} casos no se muestran (y, para que no se deduzcan restando totales, tampoco la visible más chica cuando sólo quedaba una oculta).`);
+  return { ...r, por_categoria: cat.visibles, por_sucursal: suc.visibles, recurrentes: rec.visibles, no_medido };
+}
+
 export interface OpcionesReporte {
   desde: string;
   hasta: string;
