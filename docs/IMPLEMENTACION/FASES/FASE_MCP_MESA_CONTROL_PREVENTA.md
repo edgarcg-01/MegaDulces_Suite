@@ -332,10 +332,10 @@ la lista responde 500) · redeploy api.
 
 ### 6.3 MCP.2 — pantalla del encargado (🧪 en código, 2026-10-08)
 
-Pestaña **Preventa** junto al Tablero de Kepler en Almacén › Pedidos ().
-Mismo permiso del tablero (); ligar y corregir exigen .
-Superuser y Guillermo no son  en el frente (rol principal ), pero su mapa de
-permisos incluye el de : ven y operan la pantalla.
+Pestaña **Preventa** junto al Tablero de Kepler en Almacén › Pedidos (`/almacen/pedidos/preventa`).
+Mismo permiso del tablero (`ALMACEN_PEDIDOS_VER`); ligar y corregir exigen `COMMERCIAL_PICKING_GESTIONAR`.
+Superuser y Guillermo no son `isAdmin` en el frente (rol principal `direccion`), pero su mapa de
+permisos incluye el de `superadmin`: ven y operan la pantalla.
 
 Revisión independiente: 12 hallazgos, todos corregidos — las respuestas de un pedido anterior ya no
 pisan el panel del nuevo (peticiones canceladas al cambiar de pedido; las acciones de ligar no se
@@ -343,7 +343,7 @@ cancelan, sólo dejan de pintar), la lista recargada descarta respuestas viejas 
 panel si el pedido cambió por fuera, se limpian filtros que dejaron de existir, el total cobrado
 declara los documentos sin total en vez de sumarlos como 0, y ajustes de accesibilidad.
 
-**Verificado:**  · eslint · compuertas de plantillas, tokens, tablas, teclado,
+**Verificado:** `nx build view` · eslint · compuertas de plantillas, tokens, tablas, teclado,
 búsqueda, estilos y animación · 54 pruebas de pestañas y guards. **No verificado:** el navegador.
 
 ## 7. Fuera de alcance
