@@ -134,22 +134,37 @@ function check(name, condition, detail) {
 
   // 5. Guides + recipients
   console.log('\n── 5. Guides + recipients ──');
+  // EMB.19 — la comisión de la guía sale de la tarifa de la RUTA del embarque: sin ruta tarifada
+  // no se crea. Se arma una ruta de prueba con tarifa y se borra al final.
+  const ruta = await req('POST', '/logistics/config/routes', {
+    name: `E2E RUTA ${Date.now().toString().slice(-6)}`, driver_commission: 150, helper_commission: 90,
+  }, token);
+  check('POST route con tarifa 201', ruta.status === 201, ruta.body);
+  const routeId = ruta.body?.id;
+
   // Creamos un shipment fresco (el anterior está cerrado, no admite guías)
   const ship2 = await req('POST', '/logistics/shipments', {
     shipment_date: today,
     vehicle_id: vehicleId,
+    route_id: routeId,
     type: 'entrega',
   }, token);
   const shipment2Id = ship2.body?.id;
   check('shipment2 creado', !!shipment2Id);
 
-  const guide = await req('POST', '/logistics/guides', {
-    shipment_id: shipment2Id,
-    driver_id: driverId,
-    driver_commission: 150,
-    auto_commissions: false,
-  }, token);
-  check('POST guide 201', guide.status === 201);
+  // Sale 8:00, llega 14:00: el horario no da comidas, así que no depende de las tarifas de viático.
+  const viaje = { shipment_id: shipment2Id, driver_id: driverId, departure_time: '08:00', arrival_time: '14:00' };
+  const tecleada = await req('POST', '/logistics/guides', { ...viaje, driver_commission: 999 }, token);
+  check('guide con comisión tecleada distinta → 400', tecleada.status === 400, tecleada.body);
+  const sinHorario = await req('POST', '/logistics/guides', { shipment_id: shipment2Id, driver_id: driverId }, token);
+  check('guide sin horario → 400', sinHorario.status === 400, sinHorario.body);
+
+  const guide = await req('POST', '/logistics/guides', viaje, token);
+  check('POST guide 201', guide.status === 201, guide.body);
+  check('comisión = tarifa de la ruta', Number(guide.body?.driver_commission) === 150, guide.body?.driver_commission);
+  check('viáticos calculados del horario (0)', Number(guide.body?.per_diem_total) === 0, guide.body?.per_diem_total);
+  const editada = await req('PATCH', `/logistics/guides/${guide.body?.id}`, { driver_commission: 1 }, token);
+  check('PATCH de la comisión → 409 (se calcula, no se edita)', editada.status === 409, editada.body);
   check('folio GUIA-* generado', /^GUIA-\d{4}-\d{5}$/.test(guide.body?.number), guide.body?.number);
   const guideId = guide.body?.id;
 
@@ -241,6 +256,7 @@ function check(name, condition, detail) {
   await req('DELETE', `/logistics/shipments/${shipmentId}`, null, token).catch(() => null);
   const delV = await req('DELETE', `/logistics/fleet/vehicles/${vehicleId}`, null, token);
   check('DELETE vehicle test', delV.status === 200);
+  if (routeId) await req('DELETE', `/logistics/config/routes/${routeId}`, null, token).catch(() => null);
 
   console.log(`\n═══ Total: ${pass} pass / ${fail} fail ═══`);
   if (failures.length) {
