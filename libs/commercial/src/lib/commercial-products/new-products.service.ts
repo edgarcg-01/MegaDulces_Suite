@@ -137,7 +137,9 @@ export class NewProductsService {
         LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
         LEFT JOIN analytics.v_kepler_unit_ladder l
           ON s.unit_source = 'kepler' AND l.sucursal = w.kepler_code AND l.sku = btrim(s.sku)
-       WHERE s.tenant_id = public.current_tenant_id() AND s.product_id = ANY(?::uuid[])`,
+       WHERE s.tenant_id = public.current_tenant_id() AND s.product_id = ANY(?::uuid[])
+         -- [NP.13] Sólo Kepler: la existencia de las plazas que siguen en Wincaja no entra.
+         AND s.unit_source = 'kepler'`,
     [ids])).rows as Existencia[];
     return { vivo, existencia };
   }

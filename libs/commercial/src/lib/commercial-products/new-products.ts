@@ -376,7 +376,10 @@ export function estadoDe(f: Pick<NewProductSource,
   }
   if (f.sin_movimiento) return { estado: 'sin_movimiento', motivo: 'Dado de alta, sin entrada ni venta' };
   if (f.no_medible) {
-    return { estado: 'no_medible', motivo: 'No hay 90 días de historia antes de su primera actividad' };
+    return {
+      estado: 'no_medible',
+      motivo: 'Sólo se ha movido en sucursales con menos de 90 días en Kepler: no se puede afirmar que antes no se vendía',
+    };
   }
   return { estado: 'seguimiento', motivo: null };
 }

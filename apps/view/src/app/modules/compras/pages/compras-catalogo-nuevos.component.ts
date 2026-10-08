@@ -176,15 +176,15 @@ export function tendenciaTexto(t: number | null): string {
       @if (datos(); as d) {
         @if (!d.calculado) {
           <section class="pn-aviso" role="status">
-            <strong>Las cifras todavía no se calculan.</strong>
-            <span>La historia se calcula cada noche a las 6:20. Vuelve mañana.</span>
+            <strong>Las cifras se están calculando por primera vez.</strong>
+            <span>Aparecen solas en unos minutos y después se recalculan cada 30 minutos.</span>
           </section>
         } @else {
           <div class="pn-vivo" role="status">
             <span class="pn-punto" [class.is-off]="error()" aria-hidden="true"></span>
             <span class="pn-vivo-t">{{ error() ? 'Sin conexión' : 'En vivo' }}</span>
             <span class="pn-vivo-d">
-              Venta, entradas y existencia de hoy al {{ hora(d.frescura?.en_vivo_al) }} · historia al cierre de anoche.
+              Venta, entradas y existencia de hoy al {{ hora(d.frescura?.en_vivo_al) }} · días anteriores al {{ hora(d.frescura?.historia_al) }}.
               Se actualiza solo cada minuto.
             </span>
             <button pButton type="button" class="p-button-sm p-button-text" [loading]="cargando()" (click)="recargar()"
@@ -406,7 +406,8 @@ export function tendenciaTexto(t: number | null): string {
             </ul>
             <p class="pn-meta">Es una propuesta del sistema; la decisión es de Compras. Mide rotación y recuperación de lo invertido
               (a precio de venta), no margen: el costo de lo vendido todavía no se puede medir bien para un producto nuevo.
-              Lo de hoy no incluye la venta de ruta ni la de las plazas en Wincaja: esas se suman al cierre.</p>
+              Cuenta sólo lo que registra Kepler: la venta de las tiendas y las entradas de mercancía. No incluye Wincaja.
+              Un producto que sólo se ha movido en sucursales con menos de 90 días en Kepler no se puede medir todavía.</p>
           </details>
         }
       } @else if (cargando()) {
@@ -446,8 +447,7 @@ export function tendenciaTexto(t: number | null): string {
                     @if (textoUnidades(dt.producto.unidades_hoy); as u) { <small>{{ u }}</small> }</div>
                 </div>
                 @if (dt.producto.venta_sin_unidad > 0) {
-                  <p class="pn-meta">{{ dinero(dt.producto.venta_sin_unidad) }} de la venta vienen de ruta o de plazas en Wincaja:
-                    Kepler no registra su unidad y van sólo en pesos.</p>
+                  <p class="pn-meta">{{ dinero(dt.producto.venta_sin_unidad) }} de la venta no traen la unidad de Kepler y van sólo en pesos.</p>
                 }
                 <p class="pn-meta">{{ tendenciaTexto(dt.producto.tendencia) }} · {{ recompraTexto(dt.producto) }}</p>
                 @if (cerradas(dt.producto.semanas, dt.producto.dia); as sem) {
@@ -518,8 +518,8 @@ export function tendenciaTexto(t: number | null): string {
                 }
               </section>
 
-              <p class="pn-meta">Hoy en vivo al {{ hora(dt.frescura.en_vivo_al) }} · historia al cierre de anoche.
-                No incluye ruta ni plazas en Wincaja hasta el cierre. Las unidades son las que registró Kepler en cada
+              <p class="pn-meta">Hoy en vivo al {{ hora(dt.frescura.en_vivo_al) }} · días anteriores al {{ hora(dt.frescura.historia_al) }}.
+                Sólo Kepler: venta de las tiendas y entradas; sin Wincaja. Las unidades son las que registró Kepler en cada
                 venta y entrada (caja, paquete, pieza), sin convertir; la existencia, en la unidad de la ficha de cada sucursal.</p>
             </div>
           } @else if (detError()) {
@@ -786,7 +786,7 @@ export class ComprasCatalogoNuevosComponent {
   tipUnidades(f: ProductoNuevo): string {
     const base = 'Tal como lo registró Kepler en cada venta, sin convertir.';
     return f.venta_sin_unidad > 0
-      ? `${base} ${this.dinero(f.venta_sin_unidad)} vienen de ruta o de plazas en Wincaja y van sólo en pesos.`
+      ? `${base} ${this.dinero(f.venta_sin_unidad)} no traen la unidad de Kepler y van sólo en pesos.`
       : base;
   }
 

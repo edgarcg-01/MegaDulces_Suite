@@ -47,6 +47,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.9]` | **Recomendación de recompra** global y por sucursal (`recomendar` + `CRITERIO_RECOMPRA`) + `GET new-products/:id` (comportamiento por sucursal). | 🧪 |
 | `[NP.10]` | **Rediseño**: respuesta arriba, filtros por recomendación, venta por semana en cada fila, panel lateral por sucursal, refresco solo cada minuto. | 🧪 |
 | `[NP.12]` | **Sin clasificación manual en pantalla** (pedido del usuario): se quitó el formulario "¿Qué es este código?" del panel, el filtro "Por confirmar" y la frase "N esperan que Compras confirme". Las exclusiones automáticas (promoción, código DESC, descontinuado) siguen. El endpoint `PUT …/classification` y `catalog.new_product_reviews` quedan **sin consumidor en la pantalla**. | 🧪 |
+| `[NP.13]` | **Sólo Kepler y en vivo las 24 h** (pedido del usuario): mig `20261008091317` rehace la matvista sobre Kepler (sin Wincaja ni ruta por push), con la primera venta de `mv_kepler_sales_daily`, el corte en lo que esa matvista ya tiene cerrado, lanzamientos detectados en vivo y la historia medida POR SUCURSAL; se refresca cada 30 min y sin JIT. | 🧪 |
 | `[NP.11]` | **Unidades de Kepler**: lo vendido y lo recibido en la unidad que declara el renglón (cajas, paquetes, piezas, gramaje), global y por sucursal; la existencia en la unidad base de la ficha de cada sucursal con su equivalente en la unidad mayor. | 🧪 |
 
 ## Medido (base local, 2026-10-07)
@@ -212,3 +213,62 @@ ya nadie puede hacer).
 `PUT /commercial/products/new-products/:id/classification`, `NewProductsService.classify` y la tabla
 `catalog.new_product_reviews` (mig `20261007360100`). Si la clasificación no va a volver, se quitan
 en otra entrega; si va a volver por otro lado (p. ej. desde Solicitudes de alta), se reusan.
+
+---
+
+## Quinta entrega (2026-10-08): sólo Kepler y en vivo las 24 h (`NP.13`)
+
+Pedidos: *"quiero los datos activos 24/7, o sea en vivo"* y *"no los quiero de Wincaja, solo de
+Kepler"*. Disparador: el día del despliegue la pantalla dijo *"Las cifras todavía no se calculan…
+vuelve mañana"* — las migraciones entraron a las 8:19, después del lote nocturno de las 6:20.
+
+### Lo medido en producción antes de cambiar (sólo lectura)
+
+| Pieza | Tiempo |
+|---|---|
+| La matvista de `NP.1`–`NP.12` completa | **> 150 s** (se cortó ahí; en local 1.4 s) |
+| Su parte cara: agrupar `v_sellout_daily` por producto y día | **> 60 s**, aun acotada a 7 meses |
+| Primera venta por producto desde un resumen ya materializado | ~1 s |
+| Lo de hoy, por la función en vivo | **21 ms** |
+| Unidades de 180 días de ~736 productos nuevos | 11 s |
+
+⚠️ Esas consultas pesadas se corrieron en horario de trabajo, contra la regla del proyecto. Justo
+después **el Postgres de producción se reinició** (09:07:32 MX); no se pudo establecer desde aquí si
+fue por ellas. No se volvió a medir contra producción en horario.
+
+### Qué cambió
+
+1. **Sólo Kepler.** Venta en tienda de `kepler_ods` (todas las de la tienda, también las de
+   vendedores de ruta, con el corte Kepler/Wincaja de cada sucursal) y entradas `XA2001`. Sin
+   Wincaja (tampoco su existencia) y sin la ruta que llega por push.
+2. **La primera venta sale de `mv_kepler_sales_daily`**, no de recorrer `v_sellout_daily`. Las
+   series y las unidades salen de `fn_new_products_movimientos`: historia y hoy con una sola regla.
+3. **El corte es lo que `mv_kepler_sales_daily` ya tiene cerrado** (su última fecha no futura), no
+   "hoy": si esa matvista va un día atrás, lo que falta lo trae la función en vivo, sin hueco.
+4. **Lanzamientos en vivo.** Un producto sin ninguna actividad Kepler antes del corte que se mueve
+   desde el corte entra al universo en el siguiente refresco, como día 0 — aunque se haya dado de
+   alta hace mucho (antes sólo entraban los dados de alta en los últimos 90 días).
+5. **La historia se mide por sucursal.** Con sólo Kepler, una sucursal que pasó a Kepler hace poco
+   no puede afirmar que algo "no se vendía antes". La historia de un producto empieza en el corte
+   (`v_branch_erp_cutover`) de la sucursal con más historia entre las que lo movieron. Si se movió en
+   la 03/04/05 (Kepler siempre) se mide; si sólo en la 08 (Kepler desde 2026-09-18), es **no medible**
+   hasta que esa sucursal junte 90 días. El CEDIS `00` no está en el resolvedor y no aporta historia.
+6. **Refresco cada 30 min** (además del lote nocturno, justo después de `mv_kepler_sales_daily`). La
+   pantalla se llena sola minutos después de desplegar; el aviso ya no manda a nadie a "volver mañana".
+7. **Sin JIT.** La causa de que el refresco local tardara 5 s no estaba en ningún nodo del plan: era
+   el JIT de Postgres compilando una consulta que se ejecuta en milisegundos (las estimaciones de las
+   funciones en `LATERAL` la hacen parecer cara). **4.8 s con JIT, 70 ms sin él.** El servicio de
+   refresco apaga el JIT sólo para esta matvista (`SET LOCAL jit = off` en una transacción).
+
+### Medido (local)
+
+Candado **134/134**, con dos pruebas negativas: con la historia por sucursal rota (`max` en vez de
+`min`) falla 1; sin la detección en vivo fallan 5. Refresco 70–131 ms. Comercial 621/621 (incluye la
+prueba nueva del refresco sin JIT, que falla 2 de 3 al quitar la matvista de la lista), Compras 315/315.
+
+### Pendiente antes de dar por buena la cadencia
+
+- **Medir el refresco nuevo en producción, fuera de horario** (sólo lectura, con `jit = off`). La
+  cadencia de 30 min está estimada sumando las piezas medidas (~13 s); si el log
+  `Refreshed analytics.mv_new_products (Nms)` pasa de ~20 s, subirla a 60.
+- La migración se aplica como siempre, una por una. Nace vacía y el ciclo la llena en ≤ 30 min.

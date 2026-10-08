@@ -200,7 +200,9 @@ describe('[NP.5] ComprasCatalogoNuevosComponent', () => {
 
   it('mientras la historia no se calcula lo DICE, en vez de pintar ceros', async () => {
     const el = await montar(of({ ...RESPUESTA, calculado: false, resumen: null, cohortes: [], filas: [] }));
-    expect(el.querySelector('.pn-aviso')?.textContent).toContain('todavía no se calculan');
+    expect(el.querySelector('.pn-aviso')?.textContent).toContain('se están calculando por primera vez');
+    // [NP.13] Se refresca cada 30 min: ya no se manda a nadie a volver mañana.
+    expect(el.querySelector('.pn-aviso')?.textContent).not.toContain('mañana');
     expect(el.querySelector('.pn-titular')).toBeNull();
   });
 

@@ -133,6 +133,23 @@ const PRODUCTOS = [
     })),
     existencia: ['03'],
   },
+  {
+    // [NP.13] Viejo en el catálogo (la Suite lo vio hace 400 días) y SIN ningún movimiento hasta
+    // HOY, cuando se vende por primera vez: un lanzamiento EN VIVO. No entra por fecha de alta
+    // (tiene más de 90 días): sólo la detección en vivo lo puede traer.
+    clave: '10', nombre: 'NPDEMO GOMITA ENCHILADA ESTRENO HOY', alta: -400,
+    entradas: [],
+    ventas: [],
+    existencia: [],
+  },
+  {
+    // [NP.13] Dado de alta hace 3 días y sin ningún movimiento: el caso "sin movimiento" (el 08,
+    // que lo era, ahora recibe hoy y pasa a lanzamiento en vivo).
+    clave: '11', nombre: 'NPDEMO OBLEA CAJETA SIN MOVIMIENTO', alta: -3,
+    entradas: [],
+    ventas: [],
+    existencia: [],
+  },
 ];
 
 const sku = (p) => `${PREFIJO_SKU}${p.clave}`;
@@ -287,6 +304,8 @@ const VIVO = [
   { clave: '03', tipo: 'venta', plaza: '01', qty: 1, precio: 265, u: 'CJA', f: 12 },
   { clave: '02', tipo: 'entrada', plaza: '02', qty: 40, costo: 150 },
   { clave: '08', tipo: 'entrada', plaza: '01', qty: 24, costo: 35 },
+  // [NP.13] La primera venta de su vida, hoy: tiene que entrar al universo en el refresco siguiente.
+  { clave: '10', tipo: 'venta', plaza: '03', qty: 3, precio: 15, u: 'PZA', f: 1 },
 ];
 
 async function sembrarVivo(db, hoy) {

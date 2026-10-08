@@ -41,7 +41,12 @@ const check = (desc, cond, detalle) => {
   else { ko += 1; console.log(`  ✗ ${desc}${detalle !== undefined ? `  → ${JSON.stringify(detalle)}` : ''}`); }
 };
 const r2 = (v) => Math.round(Number(v) * 100) / 100;
-const iso = (v) => (v === null || v === undefined ? null : new Date(v).toISOString().slice(0, 10));
+// `-infinity` (sucursal que siempre fue Kepler) llega como Infinity: se deja como texto.
+const iso = (v) => {
+  if (v === null || v === undefined) return null;
+  const d = new Date(v);
+  return Number.isFinite(d.getTime()) ? d.toISOString().slice(0, 10) : String(v);
+};
 const suma = (arr) => r2((arr || []).reduce((a, b) => a + Number(b), 0));
 const primeros = (arr, n) => (arr || []).slice(0, n);
 const nulo = (v) => (v === 0 ? null : v);
@@ -80,18 +85,38 @@ const nulo = (v) => (v === 0 ? null : v);
 
     console.log('── 1. Quién es nuevo y quién no ──');
     check('el producto que se mueve desde hace 262 días NO aparece como nuevo', !fila('OLD'));
-    for (const c of ['01', '02', '03', '04', '05', '06', '07', '08', '09']) check(`NPDEMO-${c} aparece`, !!fila(c));
+    for (const c of ['01', '02', '03', '04', '05', '06', '07', '08', '09', '10', '11']) check(`NPDEMO-${c} aparece`, !!fila(c));
     check('el corte de la historia es HOY', iso(rows[0] && rows[0].corte) === hoy, rows[0] && iso(rows[0].corte));
 
-    console.log('\n── 2. Lanzamiento = primera actividad, con historia suficiente ──');
+    console.log('\n── 2. Lanzamiento = primera actividad; la historia se mide POR SUCURSAL ──');
+    // Segunda implementación del "¿se puede medir?": la historia Kepler de cada plaza es su corte
+    // (v_branch_erp_cutover). Se mide si alguna plaza donde se movió tiene 90 días de Kepler antes
+    // del lanzamiento. Una plaza fuera del resolvedor no aporta.
+    const cortes = new Map((await trx.raw(
+      `SELECT kepler_code, cutover_date::text AS d FROM analytics.v_branch_erp_cutover WHERE tenant_id = ?`,
+      [esc.TENANT])).rows.map((r) => [r.kepler_code, r.d]));
+    const medibleEsperado = (c) => {
+      const p = esc.PRODUCTOS.find((x) => x.clave === c);
+      const plazas = [...new Set([...p.entradas, ...p.ventas].map((x) => x.plaza))].filter((pl) => cortes.has(pl));
+      if (!plazas.length) return false;
+      if (plazas.some((pl) => cortes.get(pl) === '-infinity')) return true;
+      const historia = plazas.map((pl) => cortes.get(pl)).sort()[0];
+      return historia <= esc.fecha(hoy, P(c).esperado.lanzamiento - 90);
+    };
     for (const c of ['01', '02', '03', '04', '05', '06', '09']) {
       const f = fila(c);
       const L = P(c).esperado.lanzamiento;
+      const esperado = medibleEsperado(c);
       check(`NPDEMO-${c}: lanzamiento = hoy ${L}`, f && iso(f.lanzamiento) === esc.fecha(hoy, L), f && iso(f.lanzamiento));
-      check(`NPDEMO-${c}: medible (90 días de historia en sus fuentes)`, f && f.no_medible === false, f && iso(f.historia_desde));
+      check(`NPDEMO-${c}: ${esperado ? 'medible' : 'NO medible'} (historia Kepler de sus plazas)`,
+        f && f.no_medible === !esperado, f && { no_medible: f.no_medible, historia: iso(f.historia_desde) });
       check(`NPDEMO-${c}: la serie diaria cubre del lanzamiento a ayer (${-L} días)`,
         f && f.venta_dia.length === -L, f && f.venta_dia.length);
     }
+    // Que la regla de verdad separe: con estas fechas tiene que haber de los dos.
+    const medibles = ['01', '02', '03', '04', '05', '06', '09'].map(medibleEsperado);
+    check('el escenario ejercita los dos lados (hay medibles y NO medibles por historia de plaza)',
+      medibles.includes(true) && medibles.includes(false), medibles);
 
     console.log('\n── 3. Series contra el cálculo independiente ──');
     for (const c of ['01', '02', '03', '05', '06']) {
@@ -140,17 +165,22 @@ const nulo = (v) => (v === 0 ? null : v);
       }
       return new Set([...m.entries()].map(([k, v]) => `${k}|${v}`));
     };
+    // [NP.13] Contra la venta Kepler canónica (mv_kepler_sales_daily, con el corte de cada plaza):
+    // es la misma fuente de la que la matvista saca la primera venta.
     const canon = (await trx.raw(`
-      SELECT s.sku, s.warehouse_code AS plaza, s.business_date::text AS fecha, sum(s.monto) AS importe
-        FROM analytics.v_sellout_daily s
-       WHERE s.source = 'kepler' AND s.channel <> 'ruta' AND s.sku = ANY(?::text[])
-         AND s.business_date BETWEEN ?::date AND ?::date
+      SELECT k.sku, k.source_branch AS plaza, k.business_date::text AS fecha, sum(k.monto) AS importe
+        FROM analytics.mv_kepler_sales_daily k
+       WHERE k.sku = ANY(?::text[]) AND k.product_deleted = false
+         AND k.business_date BETWEEN ?::date AND ?::date
+         AND EXISTS (SELECT 1 FROM analytics.v_branch_erp_cutover x
+                      WHERE x.tenant_id = k.tenant_id AND x.kepler_code = k.source_branch
+                        AND k.business_date >= x.cutover_date)
        GROUP BY 1, 2, 3`, [skus, desde, ayer])).rows;
     const a = juntar(cerrado.filter((x) => x.tipo === 'venta'), ['sku', 'plaza', 'fecha']);
     const b = juntar(canon, ['sku', 'plaza', 'fecha']);
     const soloFn = [...a].filter((k) => !b.has(k));
     const soloCanon = [...b].filter((k) => !a.has(k));
-    check(`venta: la función y v_sellout_daily coinciden renglón por renglón (${a.size} días-plaza)`,
+    check(`venta: la función y mv_kepler_sales_daily coinciden renglón por renglón (${a.size} días-plaza)`,
       a.size > 0 && soloFn.length === 0 && soloCanon.length === 0, { soloFn: soloFn.slice(0, 3), soloCanon: soloCanon.slice(0, 3) });
     // Entradas contra la vista canonica de renglones; la fecha, del encabezado de cada folio.
     const canonEnt = (await trx.raw(`
@@ -185,14 +215,25 @@ const nulo = (v) => (v === 0 ? null : v);
       fila('03') && suma(fila('03').venta_dia) === P('03').esperado.venta_total, fila('03') && suma(fila('03').venta_dia));
     check('la entrada de hoy NO está en la lista de la historia (NPDEMO-02 sigue con 1 entrada)',
       fila('02') && fila('02').entradas.length === 1, fila('02') && fila('02').entradas.length);
+    // [NP.13] Lanzamientos EN VIVO: sin ninguna actividad antes del corte y movidos desde el corte.
+    const f10 = fila('10');
+    check('un producto viejo sin movimiento que HOY se vende por primera vez entra como lanzamiento de hoy',
+      f10 && iso(f10.lanzamiento) === hoy && f10.sin_movimiento === false && f10.venta_dia.length === 0,
+      f10 && { lanzamiento: iso(f10.lanzamiento), sin_mov: f10.sin_movimiento, dias: f10.venta_dia.length });
+    check('…y lo hace por la venta de hoy (fuente kepler, primera venta hoy)',
+      f10 && iso(f10.primera_venta) === hoy && (f10.fuentes || []).join() === 'kepler', f10 && f10.fuentes);
+    const f08 = fila('08');
+    check('el que estaba "sin movimiento" y HOY recibe pasa a lanzamiento de hoy',
+      f08 && iso(f08.lanzamiento) === hoy && iso(f08.primera_recepcion) === hoy && f08.sin_movimiento === false,
+      f08 && { lanzamiento: iso(f08.lanzamiento), sin_mov: f08.sin_movimiento });
 
     console.log('\n── 6. Lo que no se mide se declara, y las señales ──');
     const f09 = fila('09');
     check('sin entrada en Kepler → lista de entradas vacía (la inversión será "no medida")', f09 && f09.entradas.length === 0);
     check('…y su venta sí se mide', f09 && suma(f09.venta_dia) === P('09').esperado.venta_total);
     check('entró y no se vendió → serie en ceros', fila('04') && suma(fila('04').venta_dia) === 0);
-    const f08 = fila('08');
-    check('dado de alta sin movimiento → sin_movimiento, sin lanzamiento', f08 && f08.sin_movimiento === true && f08.lanzamiento === null);
+    const f11 = fila('11');
+    check('dado de alta sin movimiento → sin_movimiento, sin lanzamiento', f11 && f11.sin_movimiento === true && f11.lanzamiento === null);
     check('el código DESC se excluye solo', fila('07') && fila('07').exclusion_auto === 'descuento');
     const hayViejo = (await trx.raw(
       `SELECT 1 FROM catalog.products WHERE tenant_id = ? AND sku NOT LIKE ? AND btrim(coalesce(barcode,'')) ~ '^[0-9]{13}$' LIMIT 1`,
@@ -252,13 +293,20 @@ const nulo = (v) => (v === 0 ? null : v);
         ficha && ficha.unit_source === 'kepler' && ficha.u1_label === 'PZA' && ficha.unidad_caja === 'CJA' && ficha.factor_caja === 12, ficha);
     }
 
-    console.log('\n── 8. Prueba negativa: la historia se exige POR FUENTE ──');
-    const rutaSinHistoria = (await trx.raw(
-      `SELECT count(*)::int AS n FROM analytics.mv_new_products m
-        WHERE m.tenant_id = ? AND m.fuentes = ARRAY['ruta'] AND m.no_medible = false
-          AND m.lanzamiento < (SELECT min(business_date) FROM analytics.v_sellout_daily WHERE channel = 'ruta') + 90`,
-      [esc.TENANT])).rows[0].n;
-    check('ningún producto que sólo se vio en ruta sale medible antes de 90 días de historia de ruta', rutaSinHistoria === 0, rutaSinHistoria);
+    console.log('\n── 8. Sólo Kepler, y dos implementaciones de la primera venta ──');
+    const fuentesRaras = rows.filter((r) => (r.fuentes || []).some((x) => !['kepler', 'entradas'].includes(x)));
+    check('ninguna fila trae una fuente que no sea Kepler (venta en tienda o entradas)', fuentesRaras.length === 0,
+      fuentesRaras.map((r) => [r.sku, r.fuentes]).slice(0, 3));
+    // primera_venta sale de mv_kepler_sales_daily; la serie, de la función. Tienen que decir lo mismo.
+    const primeraPorFn = new Map();
+    for (const x of cerrado.filter((y) => y.tipo === 'venta')) {
+      if (!primeraPorFn.has(x.sku) || x.fecha < primeraPorFn.get(x.sku)) primeraPorFn.set(x.sku, x.fecha);
+    }
+    const conVenta = rows.filter((r) => r.primera_venta && iso(r.primera_venta) < hoy && r.sku !== `${esc.PREFIJO_SKU}10`);
+    const discrepan = conVenta.filter((r) => primeraPorFn.get(r.sku) !== iso(r.primera_venta));
+    check(`primera venta: mv_kepler_sales_daily y la función dicen la misma fecha (${conVenta.length} productos)`,
+      conVenta.length > 0 && discrepan.length === 0,
+      discrepan.map((r) => [r.sku, iso(r.primera_venta), primeraPorFn.get(r.sku)]).slice(0, 3));
   } catch (e) {
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);
