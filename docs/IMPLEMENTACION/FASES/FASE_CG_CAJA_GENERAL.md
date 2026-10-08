@@ -2135,3 +2135,66 @@ el alto a la página.
    pantalla, y `check:dense-tables` lo confirma: `finanzas-caja-general` queda en **deuda por
    ancho de columnas (9)**, tracker `[UIM.2]`. El tablero la quiere compacta — fecha, nombre,
    «sin cuenta», importe — y el documento y la cuenta pasan a la ficha al elegirla.
+
+---
+
+## §27 · `[CG.61]` — la cola compacta: ocho columnas no se leen en media pantalla
+
+> Commit `6997a15b2`.
+
+`[CG.60]` metió la cola dentro del apartado 1, y eso le dejó **media pantalla** a una tabla de
+ocho columnas. No es una opinión: `check:dense-tables` la marcó en deuda por su **2ª aguja** —
+*"ocho columnas o más y sin `min-width` declarado, o sea nada dice qué hacen en un teléfono"*.
+El tablero la quiere de **una línea**: fecha, nombre, «sin cuenta», importe.
+
+### Lo que se retira es la COLUMNA, no el dato
+
+| Columna | Qué pasó |
+|---|---|
+| **Documento** | **Baja a su fila**, bajo la contraparte, en chico y mono. Sigue ahí porque es con lo que se identifica el movimiento, y el buscador promete *"folio Kepler"* |
+| **Cuenta** | **Sí sale de la cola.** Cuando falta, la marca «sin regla» ya lo dice; cuando está, es dato de clasificación y vive en la ficha |
+
+Y el botón de capturar pasa a **icono**: se comía ~5 rem por fila, y su rótulo cambiaba entre
+«Abrir» y «Capturar» **sin que esa diferencia significara nada** — las dos abren la misma ficha
+sobre el mismo documento. ⚠️ Pierde el rótulo **visible**, no el **accesible**: el `ariaLabel`
+dice el documento entero, porque un icono sin nombre accesible es un botón que un lector de
+pantalla anuncia como *"botón"* y nada más.
+
+**8 columnas → 6.** La contraparte es la única de ancho libre, así que es la que cede: el nombre
+se corta con puntos suspensivos y no empuja al importe fuera de la vista.
+
+### Las dos pruebas nuevas, y por qué son dos
+
+⭐ La primera cuenta las columnas (≤ 6) **y exige que el documento siga en la fila**. Esa segunda
+mitad **es el punto**: sin ella, *"cortar columnas"* puntúa igual que perder el dato con el que se
+identifica el movimiento — la prueba premiaría justo el atajo que hay que evitar.
+
+La segunda congela el **nombre accesible** del botón de icono.
+
+**Mutadas, las tres rojas**: agregar dos columnas · quitar el `ariaLabel` · borrar la línea del
+documento (que rompe la primera por su segunda mitad, que es exactamente lo que se quería).
+
+### ⛔ Una afirmación que escribí y era falsa
+
+Escribí que *"`finanzas-caja-general` ya no figura en la deuda por columnas"*. **Es falso.** La
+cola bajó de 8 a 6, pero **la compuerta mide el ARCHIVO**, y el archivo tiene **nueve tablas**: el
+**libro** y los **cortes** siguen en **9 columnas cada uno**. Esos dos viven dentro del
+desplegable de la jornada (`[CG.59]`), que ocupa el ancho entero de la página — ahí nueve columnas
+sí entran, y lo que la 2ª aguja les reclama es `min-width` para teléfono, que es el tracker
+`[UIM.2]` y no esta entrega. **La pantalla sigue en deuda por columnas, con otro motivo.**
+
+⚠️ **Y el pie del que casi me caigo:** el barrido acotado al diff tenía **un** archivo, así que
+`caja-general` salió como *"la peor"* de una lista de uno; el barrido completo tiene **78**
+pantallas en deuda e **imprime sólo las peores**, así que `caja-general` no aparecía. Leí esa
+ausencia como *"salió de la deuda"*. ⭐ **Una ausencia en una lista recortada no es una ausencia.**
+
+### Verificación
+
+`nx test view` caja-general **162/162**; suite completa de view **2,185 pasadas, ninguna roja**.
+`typecheck`, `check:templates`, `check:teclado`, `check:primeng` y `check:tokens` verdes.
+
+### ⛔ Lo que falta, y ya es lo único
+
+**Validación visual.** Cuarta vez que se difiere en esta pantalla, y es la única que ve esta
+familia de defectos: **ninguna compuerta del repo mide píxeles**, y tres veces seguidas el defecto
+llegó a la pantalla con todos los gates en verde (`[CG.49]`, `[CG.52]`, `[CG.57]`).
