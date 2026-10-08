@@ -9185,10 +9185,11 @@ export class CommercialAnalyticsService {
               f.aceptada,
               f.motivo,
               to_char(u.ultimo,'YYYY-MM-DD')                   AS ultimo_conteo,
-              -- ⚠️ El "hoy" lo pone el servidor de APLICACIÓN en TZ MX, no `CURRENT_DATE`: el
-              -- Postgres corre en UTC y entre las 18:00 y la medianoche de México allá ya es
-              -- mañana, así que un conteo de hoy saldría rotulado «hace 1 día». Es el mismo
-              -- descuido que `[LC.16]` pagó con fechas corridas un día en tres pantallas.
+              -- ⚠️ El "hoy" lo pone el servidor de APLICACION en TZ MX, NO el CURRENT_DATE de
+              -- Postgres, que corre en UTC: entre las 18:00 y la medianoche de Mexico alla ya
+              -- es manana, asi que un conteo de hoy saldria rotulado "hace 1 dia". Es el mismo
+              -- descuido que LC.16 pago con fechas corridas un dia en tres pantallas.
+              -- (Sin acentos graves aca adentro: cierran el template literal.)
               (?::date - u.ultimo)::int                        AS dias_desde_conteo
          FROM analytics.mv_rd_route_identity i
          LEFT JOIN foto f ON f.route_no = i.route_no
