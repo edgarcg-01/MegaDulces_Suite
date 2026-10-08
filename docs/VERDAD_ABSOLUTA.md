@@ -3289,3 +3289,111 @@ universo, cualquiera de las tres opciones se construiría sobre una brecha sin n
 **Mientras tanto el resultado planeado se sigue DECLARANDO ausente**, que es lo correcto:
 `budget-result.service.ts` ya publica `costo_plan: available:false` con su razón, y no inventa un
 margen. La pestaña Ejercicio dejó de sumar la meta de ventas con el gasto en el mismo trabajo: el saldo pasó de 547,249,778 a 74,852,188 y la meta de ventas se publica aparte.
+
+---
+
+## 23. ⭐⭐ El REAL de ventas del presupuesto publicaba $0 sobre $208M — el join unía el canal CANÓNICO contra el CRUDO (PU.V, 2026-10-07)
+
+Salió investigando un reporte de **lentitud** ("el presupuesto de venta tarda más de medio
+segundo"). Lo que había abajo no era velocidad.
+
+### El defecto
+
+`analytics.v_sales_entity` —el catálogo de entidades del presupuesto— **traduce** el canal crudo al
+canónico puertas adentro, pasando por `analytics.sellout_channel_map`. Los consumidores lo unían
+directo contra el sell-out, que emite el canal **crudo**:
+
+```sql
+se.channel = sd.channel     -- se.channel es CANÓNICO, sd.channel es CRUDO
+```
+
+Sólo casan cuando crudo == canónico. Los dos que no casan **se caen enteros**, sin error y sin
+fila: un renglón que no aparece no deja rastro.
+
+| canal crudo | canónico | monto que se caía |
+|---|---|---:|
+| `credito` (Wincaja) | `mayoreo` | **$312,951,449** |
+| `contado_nf` (Kepler) | `mostrador` | $1,477,412 |
+| | | **$314,428,861 = 28.70 %** |
+
+### Lo que publicaba la pantalla
+
+No era un sesgo parejo: se concentraba en las tres plazas mayoristas.
+
+| celda | publicaba | real | |
+|---|---:|---:|---|
+| `mayoreo:01` FY2025 | **$0** | $67,746,920 | Padre Hidalgo |
+| `mayoreo:06` FY2025 | **$0** | $67,130,507 | Canindo |
+| `mayoreo:08` FY2025 | **$0** | $73,499,658 | Morelia Abastos |
+| `mayoreo:08` FY2026 | $2,736,550 | $44,492,091 | |
+| **TOTAL FY2025+FY2026** | **$780,918,721** | **$1,095,091,288** | **+40.2 %** |
+
+⛔ **Tres celdas dibujando $0 sobre $208 millones** — exactamente lo que ADR-056 prohíbe. Y lo
+arrastraba también el motor que **propone** el presupuesto (`SelloutRollupService.refresh()` tenía
+el mismo join), o sea que el crecimiento del ejercicio siguiente se calculó sobre una base **sin
+mayoreo**.
+
+### El árbitro, y por qué este caso es de manual
+
+⭐ **El primitivo correcto ya existía y estaba aplicado a UN solo consumidor.** La vista
+`analytics.v_sellout_vs_facturacion`, del **mismo módulo**, sí pasa por `sellout_channel_map`.
+ADR-056 otra vez: el mecanismo bien hecho, vivo, y nunca generalizado.
+
+**El resolvedor canónico del canal es `analytics.sellout_channel_map`**, y la regla es:
+
+> Para unir el sell-out con cualquier catálogo que declare canal CANÓNICO, el canal se traduce
+> primero: `COALESCE(cm.canonical_channel, sd.channel)` con `LEFT JOIN` sobre
+> `(tenant_id, source, raw_channel)`. **`LEFT` y no `JOIN`**: un canal sin fila en el mapa tiene que
+> pasar con su nombre crudo, no desaparecer — que es como se perdieron los $314M.
+
+### Cómo se comprobó (y las dos pruebas que lo hacen significar algo)
+
+- **PRUEBA NEGATIVA**: el join viejo tiene que dar **estrictamente menos**. Medido:
+  **+$314,428,861** exactos, el mismo número por dos caminos distintos.
+- ⭐ **CONTROL DE PLACEBO**: los canales que el mapa **no** traduce (`mostrador` de Kepler, `ruta`,
+  `preventa`) tienen que quedar **idénticos**. Medido: **$0.00 de diferencia**. *Un arreglo que
+  mueve todo no es un arreglo, es otra consulta.*
+- **CRUCE con una segunda derivación**: contra `mv_sellout_monthly` (otro objeto, otro grano), no
+  contra sí misma — la lección de IC.0.
+- **Cobertura declarada**: con el arreglo, el join por entidad deja fuera **0.000 %**. Lo único que
+  queda afuera del rollup son **$249,727 (0.023 %)** de fechas sin fila en `v_retail_calendar`
+  (hay `business_date` en 2000 y 2014).
+
+### El tiempo, que fue lo que se reportó
+
+Medido en `analytics.ui_usage` contra el gate de 500 ms:
+
+| ruta | medido | |
+|---|---:|---|
+| `/sales-reconciliation` | **120,007 ms** | = el `statement_timeout`: **murió**, nunca cargó (1 hit en 8 días) |
+| `/budgets/:id/sales-indicators` | 61,182 ms | |
+| `/budgets/:id/sales-comparison` | 56,397 ms máx · 45,796 prom | |
+
+⚠️ **Y el sondeo de frescura costaba 14,587 ms POR RUTA**, él solo: `max(business_date)` sobre
+`v_sellout_daily`. Arreglar la consulta principal sin tocarlo habría dejado las tres rutas en
+14.6 s — *la consulta que se ve chica puede ser la que manda.*
+
+Se resolvió con `analytics.mv_sellout_budget_rollup` (575 filas, nocturna, latido
+`analytics_refresh_sellout_budget` con umbral en `CRON_JOBS`) y apuntando
+`v_sellout_vs_facturacion` a `mv_sellout_monthly`, que **ya existía con latido verde**: **>300 s →
+232 ms**, sin un solo objeto nuevo.
+
+### Lo que queda escrito para no repetirlo
+
+⛔ **El Parquet+DuckDB de ADR-075 queda sustituido, y no por gusto:** `BUDGET_ROLLUP_DIR` no está
+definida en ningún lado → caía a `os.tmpdir()` del contenedor; el Deployment `api` corre
+`replicas: 2` **sin montar volumen** → dos pods, dos snapshots, y la cifra dependía de a cuál pod
+mandara el balanceador; se perdía en cada despliegue → el primer request devolvía 503 *"el
+histórico se está generando"*. En este repo hay **20 agregados pesados** servidos por matvista +
+refresco nocturno + umbral; ése era el único que no.
+
+⚠️ **Dos correcciones a la propia medición de esta sección**, porque las dos engañan igual:
+
+1. El poblado de la MV **no cuesta 28 s, cuesta 281.1 s**. Los 28 s eran la consulta **filtrada a un
+   tenant**; el `CREATE MATERIALIZED VIEW` corre **sin filtro**, y sin él el planner cambia de
+   `HashAggregate` a `GroupAggregate` —ordena— con el mismo costo estimado (6.77M vs 6.67M) y diez
+   veces el tiempo. ⭐ *Medir la consulta parecida no es medir la consulta real.*
+2. Sacar la pierna contable de `v_sellout_vs_facturacion` para fotografiar el «antes» habría costado
+   los mismos >300 s: su `FULL JOIN` obliga a materializar el CTE caro **aunque sólo pidas la otra
+   columna**. Sale de `ledger_monthly` directo en 10 ms. ⭐ *Filtrar una columna no evita calcular
+   la otra.*
