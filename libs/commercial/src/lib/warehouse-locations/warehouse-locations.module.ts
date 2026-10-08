@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { WarehouseLocationsController } from './warehouse-locations.controller';
 import { WarehouseLocationsService } from './warehouse-locations.service';
+import { WarehouseLocationsBulkService } from './warehouse-locations-bulk.service';
 
 /**
  * `[UB.1]` Ubicaciones de mercancía (Fase UB, ADR-090).
@@ -8,7 +9,7 @@ import { WarehouseLocationsService } from './warehouse-locations.service';
  */
 @Module({
   controllers: [WarehouseLocationsController],
-  providers: [WarehouseLocationsService],
-  exports: [WarehouseLocationsService],
+  providers: [WarehouseLocationsService, WarehouseLocationsBulkService],
+  exports: [WarehouseLocationsService, WarehouseLocationsBulkService],
 })
 export class WarehouseLocationsModule {}

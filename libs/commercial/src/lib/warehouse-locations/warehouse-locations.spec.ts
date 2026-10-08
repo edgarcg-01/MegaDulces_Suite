@@ -37,6 +37,17 @@ describe('[UB.1] ubicaciones · permisos', () => {
     expect(g).not.toContain('ALMACEN_UBICACIONES_ACOMODAR');
   });
 
+  it.each([
+    ['Post', 'bulk/preview'],
+    ['Post', 'bulk'],
+    ['Get', 'batches'],
+    ['Post', 'batches/:id/undo'],
+  ] as const)('[UB.2] %s %s pide GESTIONAR, y sólo GESTIONAR', (m, ruta) => {
+    const g = gateDe(m, ruta);
+    expect(g).toContain('@RequirePermissions(Permission.ALMACEN_UBICACIONES_GESTIONAR)');
+    expect(g).not.toContain('RequireAnyPermission');
+  });
+
   it('ninguna ruta se cuelga de la clave de equipos de conteo', () => {
     expect(FUENTE).not.toContain('COMMERCIAL_INVENTORY_ASIGNAR');
   });
