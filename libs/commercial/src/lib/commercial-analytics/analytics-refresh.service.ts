@@ -83,6 +83,14 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // contra `kepler_ods.kdm1`/`kdm2` con tres laterales por ruta) y la pantalla que la consume
   // tiene un listón de 500 ms; materializada, 1 ms.
   { name: 'analytics.mv_rd_route_opening', everyMin: 30 },
+  // `[RD.44]` (mig 20261007180000) El inventario DÍA POR DÍA y el descuadre del tramo entre dos
+  // fotos — el único que no depende de la apertura, porque las dos mitades existen dentro del
+  // tramo. Va al final: cruza el FDW al runner y además lee el ledger y el resolvedor.
+  //
+  // ⚠️ La vista viva compara una foto que llega por FDW (fresca al segundo) contra un ledger
+  // materializado (hasta 30 min viejo). En un tramo de días CERRADOS eso da igual —ambos lados
+  // llevan horas quietos—, y los tramos abiertos ya salen `medible = false` por su propia regla.
+  { name: 'analytics.mv_rd_route_day', everyMin: 30 },
   // `[CDRP.4-perf]` (mig 20260922000000) La otra pierna de la misma portada: venta por
   // almacén × canal × día. `sales_daily` está al grano de PRODUCTO y el bloque sumaba 249,389
   // filas por carga; **1,124,926 filas de 200 d colapsan a 4,447** (253×).
