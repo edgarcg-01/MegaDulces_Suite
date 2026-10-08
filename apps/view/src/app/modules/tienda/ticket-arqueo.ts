@@ -89,6 +89,12 @@ export interface TicketArqueo {
   capturado_por?: string | null;
   validado_por?: string | null;
   validado_at?: string | null;
+  /**
+   * `[SM.43]` Cuándo se REIMPRIMIÓ (ISO), si este papel es una copia sacada del historial.
+   * El original ya viajó en el sobre: sin la marca, dos papeles idénticos del mismo conteo
+   * se leen como dos entregas.
+   */
+  reimpresion?: string | null;
 }
 
 const ANCHO = 32; // caracteres por línea a 80 mm / fuente 14px monoespaciada
@@ -154,6 +160,11 @@ export function cuerpoTicket(a: TicketArqueo, opts: { revela: boolean }): string
   const retiro = a.tipo === 'retiro';
   L.push('MEGA DULCES');
   L.push(relevo ? 'RELEVO DE CAJA' : retiro ? 'RETIRO DE CAJA' : 'ARQUEO DE CAJA');
+  // [SM.43] La copia se marca arriba, donde se lee primero: el original ya está en el sobre.
+  if (a.reimpresion) {
+    L.push('*** REIMPRESION ***');
+    L.push(fila('Reimpreso', fechaHora(a.reimpresion)));
+  }
   L.push(linea('='));
   // `etiquetado`, no `fila`: el nombre de la sucursal es texto libre y con uno
   // largo ('Zamora Centro Comercial Norte') la linea salia de 38 caracteres,
