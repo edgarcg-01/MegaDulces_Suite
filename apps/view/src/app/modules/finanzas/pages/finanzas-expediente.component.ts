@@ -16,6 +16,8 @@ import {
 } from '@megadulces/contracts';
 import { ComprobacionesService } from '../comprobaciones.service';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
+import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 
 /**
@@ -558,15 +560,7 @@ export class FinanzasExpedienteComponent {
       hasta: this.fHasta() || null,
       departamento: this.fDepto(),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (d) => {
-        this.datos.set(d);
-        this.cargando.set(false);
-        // Se conserva la persona elegida si sigue en el resultado; si no, la primera.
-        const sel = this.seleccion();
-        if (!sel || !d.personas.some((p) => p.clave === sel)) {
-          this.seleccion.set(d.personas.length ? d.personas[0].clave : null);
-        }
-      },
+      next: (d) => { this.aplicar(d); this.cargando.set(false); },
       error: (e) => {
         this.cargando.set(false);
         this.error.set(e?.error?.message || 'No se pudo cargar el expediente.');
@@ -574,7 +568,45 @@ export class FinanzasExpedienteComponent {
     });
   }
 
+  private aplicar(d: RespuestaExpediente): void {
+    this.datos.set(d);
+    // Se conserva la persona elegida si sigue en el resultado; si no, la primera.
+    const sel = this.seleccion();
+    if (!sel || !d.personas.some((p) => p.clave === sel)) {
+      this.seleccion.set(d.personas.length ? d.personas[0].clave : null);
+    }
+  }
+
+  /** Hay un refresco en vuelo: el siguiente no se encima. */
+  private refrescando = false;
+
+  /**
+   * `[GX.73]` **El refresco en segundo plano**, con el filtro vigente. Sin aviso de carga y sin
+   * pisar con un error lo que ya está en pantalla.
+   *
+   * ⛔ No corre mientras se arma un PDF ni mientras una carga pedida a mano está en vuelo: no puede
+   * ganarle la carrera a lo que la persona acaba de pedir. Y si el filtro cambió mientras volaba,
+   * la respuesta es de otro filtro y se descarta — publicarla mostraría KPIs de un periodo con el
+   * rótulo de otro.
+   */
+  refrescar(): void {
+    if (this.cargando() || this.pdfCargando() || this.rangoAlReves() || this.refrescando) return;
+    this.refrescando = true;
+    const filtro = { desde: this.fDesde() || null, hasta: this.fHasta() || null, departamento: this.fDepto() };
+    this.svc.expedientePorUsuario(filtro).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        const mismo = filtro.desde === (this.fDesde() || null) && filtro.hasta === (this.fHasta() || null)
+          && filtro.departamento === this.fDepto();
+        if (mismo && !this.cargando()) this.aplicar(d);
+        this.refrescando = false;
+      },
+      error: () => { this.refrescando = false; },
+    });
+  }
+
   constructor() {
     this.cargar();
+    // `[GX.73]` Se refresca sola mientras la pestaña se ve.
+    encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
   }
 }

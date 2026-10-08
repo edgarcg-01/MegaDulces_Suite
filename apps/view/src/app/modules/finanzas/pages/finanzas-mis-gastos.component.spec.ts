@@ -372,4 +372,48 @@ describe('FinanzasMisGastosComponent', () => {
       expect(fix.nativeElement.querySelectorAll('.mg-item').length).toBe(2);
     });
   });
+
+  /**
+   * `[GX.73]` **Se refresca sola.** Reporte: quien sube el vale no veía que se lo aprobaron
+   * hasta recargar. Lo que se cuida: que refresque, que NO parpadee ni pise la lista buena con un
+   * error, que no le cambie la fila a quien la está leyendo, y que no se encimen dos pedidos.
+   */
+  describe('[GX.73] el refresco en segundo plano', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+    const pedidoMine = () => http.expectOne((x) => x.url.includes('/finance/expenses/proofs/mine'));
+
+    it('⭐ al minuto vuelve a pedir lo suyo y aplica el estado nuevo', () => {
+      montar();
+      vi.advanceTimersByTime(60_000);
+      const req = pedidoMine();
+      expect(c.cargando()).toBe(false); // sin aviso de carga: la lista no parpadea
+      req.flush(REPORTE({ rows: [FILA({ status: 'aprobada' }), FILA({ id: 'p2', status: 'validada', folio_solicitud: '0049651' })] }));
+      expect(c.filas()[0].status).toBe('aprobada');
+    });
+
+    it('⛔ con un vale abierto NO refresca (no le mueve la fila a quien la lee)', () => {
+      montar();
+      c.abrir(FILA());
+      vi.advanceTimersByTime(60_000);
+      http.expectNone((x) => x.url.includes('/mine'));
+    });
+
+    it('⛔ un refresco que falla NO pisa la lista buena ni muestra error', () => {
+      montar();
+      vi.advanceTimersByTime(60_000);
+      pedidoMine().flush('boom', { status: 500, statusText: 'Server Error' });
+      expect(c.error()).toBe('');
+      expect(c.filas().length).toBe(2);
+    });
+
+    it('⛔ no encima dos refrescos: si el anterior sigue en vuelo, espera', () => {
+      montar();
+      vi.advanceTimersByTime(60_000);
+      const primero = pedidoMine();
+      vi.advanceTimersByTime(60_000);
+      http.expectNone((x) => x.url.includes('/mine'));
+      primero.flush(REPORTE());
+    });
+  });
 });

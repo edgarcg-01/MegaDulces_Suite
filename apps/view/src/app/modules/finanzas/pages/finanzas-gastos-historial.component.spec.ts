@@ -350,4 +350,63 @@ describe('FinanzasGastosHistorialComponent', () => {
     expect(txt).toContain('No se pudo cargar el mes');
     expect(txt).not.toContain('no tiene levantamientos');
   });
+
+  /**
+   * `[GX.73]` **El historial se refresca solo**: el mes y, si hay uno abierto, el día — que es
+   * donde se ve la etapa de cada vale. Se cuida que no refresque encima de un vale abierto, que
+   * un fallo no pise lo que hay, y que una respuesta de OTRA vista (otro ámbito) se descarte.
+   */
+  describe('[GX.73] el refresco en segundo plano', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+    const pedidoMes = () => http.expectOne((r) => r.url.includes('/finance/expenses/proofs/calendario'));
+
+    it('⭐ al minuto vuelve a pedir el mes, sin aviso de carga', () => {
+      montar('superadmin');
+      vi.advanceTimersByTime(60_000);
+      const req = pedidoMes();
+      expect(c.cargando()).toBe(false);
+      req.flush(CAL());
+    });
+
+    it('⭐ con un día abierto refresca también la lista de ese día', () => {
+      montar('superadmin');
+      const celda = c.semanas().flat().find((x) => x.dia === D1)!;
+      c.abrirDia(celda);
+      http.expectOne((r) => r.url.includes('/proofs/mine')).flush(DIA_ROWS);
+      vi.advanceTimersByTime(60_000);
+      pedidoMes().flush(CAL());
+      const dia = http.expectOne((r) => r.url.includes('/proofs/mine') && r.params.get('dia') === D1);
+      dia.flush({ ...DIA_ROWS, rows: [DIA_ROWS.rows[0]] });
+      expect(c.filasDia().map((r) => r.id)).toEqual(['p1']);
+    });
+
+    it('⛔ con un vale abierto NO refresca', () => {
+      montar('superadmin');
+      c.abrirVale(DIA_ROWS.rows[0]);
+      vi.advanceTimersByTime(60_000);
+      http.expectNone((r) => r.url.includes('/calendario'));
+    });
+
+    it('⛔ un refresco que falla NO pisa el mes ni muestra error', () => {
+      montar('superadmin');
+      const antes = c.mesDatos();
+      vi.advanceTimersByTime(60_000);
+      pedidoMes().flush('boom', { status: 500, statusText: 'Server Error' });
+      expect(c.error()).toBe('');
+      expect(c.mesDatos()).toBe(antes);
+    });
+
+    it('⛔ si mientras volaba cambió el ámbito, la respuesta vieja se descarta', () => {
+      montar('superadmin');
+      vi.advanceTimersByTime(60_000);
+      const viejo = pedidoMes();
+      c.cambiar('todos');
+      const nuevo = http.expectOne((r) => r.url.includes('/calendario') && r.params.get('alcance') === 'todos');
+      const delNuevo = CAL({ mes: MES });
+      nuevo.flush(delNuevo);
+      viejo.flush(CAL({ mes: MES, dias: [] }));
+      expect(c.mesDatos()).toBe(delNuevo);
+    });
+  });
 });

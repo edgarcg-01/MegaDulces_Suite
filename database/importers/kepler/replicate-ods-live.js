@@ -145,6 +145,16 @@ const SAFETY_INTERVAL_MS = Number(process.env.ODS_SAFETY_INTERVAL_SEC || 300) * 
 const { recentWindowSql } = require('../lib/ods-recent-window');
 const _lastSafety = new Map();
 
+// [GX.73] RED DE SEGURIDAD DE ESTADO: los documentos de kdm1 que todavía pueden cambiar de estado
+// (hoy: solicitudes de gasto XA1501) se re-envían SIN depender de su fecha. Autorizar en Kepler
+// sólo cambia `c43` (N → A) en el renglón existente, sin tocar ninguna fecha: si la solicitud es
+// de hace más de SAFETY_DAYS, la ventana no la cubre y el `ctid` salta el UPDATE. Detalle y medición
+// en ../lib/ods-open-docs.js. Throttle propio por tabla×sucursal (mismo default que la ventana).
+const { openDocsSql } = require('../lib/ods-open-docs');
+const OPEN_DOCS_DIAS = Number(process.env.ODS_OPEN_DOCS_DAYS || 120);
+const OPEN_DOCS_INTERVAL_MS = Number(process.env.ODS_OPEN_DOCS_INTERVAL_SEC || process.env.ODS_SAFETY_INTERVAL_SEC || 300) * 1000;
+const _lastOpenDocs = new Map();
+
 // RED DE SEGURIDAD del carril HASH (bug 2026-09-02): el shadow se marca para TODAS las filas
 // enviadas, sin poder confirmar que el destino las aplicó — y NO se puede validar por `rowCount`,
 // porque el upsert del ODS filtra las idénticas (medido: 2804 enviadas → 897 escritas es lo NORMAL).
@@ -512,7 +522,49 @@ async function syncCtid(p, code, table, meta, { apply, full }) {
       if (sChanged) console.log(`  ⛑ ${code}/${table} [safety ${SAFETY_DAYS}d]: ${sSeen} revisadas · ${sChanged} recuperadas/actualizadas`);
     }
   }
+
+  // [GX.73] Y los documentos que todavía cambian de estado, sin importar su fecha.
+  await reenviarAbiertos(p, code, table, meta, { full });
   return { suc: code, tabla: table, carril: 'ctid', leidas: seen, escritas: changed };
+}
+
+/**
+ * `[GX.73]` Re-envía los documentos de `table` que todavía pueden cambiar de estado (ver
+ * `../lib/ods-open-docs.js`). Va APARTE de la ventana a propósito: la ventana filtra por fecha y su
+ * plan no se toca; este filtra por la llave del índice `(c1, c2, c3, c4, c5)` de la réplica.
+ *
+ * Idempotente (`raw-upsert` filtra las idénticas), así que re-enviar lo que no cambió no escribe.
+ * `shipFn`, `ahora` y `ultimas` se inyectan sólo para la prueba (`test-ods-open-docs.js`).
+ *
+ * @returns {Promise<null | { omitida: true } | { revisadas: number, actualizadas: number }>}
+ *   `null` = la tabla no tiene documentos con estado declarados (o le falta una columna).
+ */
+async function reenviarAbiertos(p, code, table, meta, {
+  full = false, shipFn = ship, ahora = Date.now, ultimas = _lastOpenDocs,
+} = {}) {
+  const pred = openDocsSql(table, meta.cols, { dias: OPEN_DOCS_DIAS });
+  if (!pred) return null;
+  const key = `${code}/${table}`;
+  const nowMs = ahora();
+  if (!full && (nowMs - (ultimas.get(key) || 0)) < OPEN_DOCS_INTERVAL_MS) return { omitida: true };
+  ultimas.set(key, nowMs);
+
+  const selList = meta.cols.map((c) => qid(c.column_name)).join(', ');
+  const shipMeta = shipMetaOf(table, meta);
+  // La sucursal viaja como parámetro: es la columna que abre el índice (sin ella, 1.8 GB).
+  const rows = (await p.query(`SELECT ${selList} FROM md.${qid(table)} WHERE ${pred.sql}`, [code])).rows;
+  let buf = [], revisadas = 0, actualizadas = 0;
+  for (const row of rows) {
+    const o = { sucursal: code };
+    for (const c of meta.cols) o[c.column_name] = row[c.column_name];
+    buf.push(o); revisadas++;
+    if (buf.length >= SHIP_BATCH) { const r = await shipFn(buf, shipMeta); actualizadas += Number(r.rowCount || 0); buf = []; }
+  }
+  if (buf.length) { const r = await shipFn(buf, shipMeta); actualizadas += Number(r.rowCount || 0); }
+  // Se avisa sólo cuando algo CAMBIÓ: con el ODS al día las ~2k revisadas no escriben nada, y un
+  // renglón por pasada en el log enterraría el que sí dice que se recuperó un estado.
+  if (actualizadas) console.log(`  ⛑ ${code}/${table} [estado: ${pred.nombres.join(', ')}]: ${revisadas} revisadas · ${actualizadas} actualizadas`);
+  return { revisadas, actualizadas };
 }
 
 /** Carril HASH: catálogos chicos mutables. Delta = filas cuyo md5(fila) difiere del shadow local. */
@@ -821,4 +873,9 @@ module.exports.__test = {
   _globs,
   _lits,
   matchesGlob,
+  // [GX.73] La red de seguridad de estado (test-ods-open-docs.js), con su intervalo real, y el
+  // carril que la llama: sin probar el CABLEADO, la función podría estar bien y nunca correr.
+  reenviarAbiertos,
+  OPEN_DOCS_INTERVAL_MS,
+  syncCtid,
 };

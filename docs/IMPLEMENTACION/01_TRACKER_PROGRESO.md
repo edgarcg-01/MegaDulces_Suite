@@ -4153,6 +4153,40 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.73] · el vale se veía en una fase anterior a la de Kepler — 2026-10-07
+
+- [x] **[GX.73]** 🧪 Reporte: *«a los usuarios les tarda mucho cuando el estatus de su vale cambia, aún lo ven en
+  una fase anterior cuando en Kepler ya queda»*. **Dos causas.** (1) **Ingesta:** la etapa se calcula en vivo
+  sobre `kepler_ods.kdm1`, pero el carril CTID copia `kdm1` por posición física suponiendo que sólo crece.
+  Autorizar en Kepler sólo cambia `c43` (N → A) en el renglón existente, **sin tocar ninguna fecha** (medido en
+  `[GX.48]`): el `ctid > wm` salta el UPDATE y la red de 3 días (`c9`/`c68`) no lo cubre si la solicitud es más
+  vieja — lo común. Las reconciliaciones sólo comparan llaves. Fix: `lib/ods-open-docs.js` + `reenviarAbiertos()`
+  en `replicate-ods-live.js`: cada 5 min re-envía las solicitudes XA1501 **abiertas (N/A) de cualquier fecha** y
+  **todas las capturadas en 120 días** (lleva la transición final A → F / → C), con igualdad exacta sobre el índice
+  `(c1..c5)` (sin `c1` la consulta lee 1.8 GB). (2) **Pantallas:** Mis gastos, Aprobación, Historial y Expediente
+  cargaban una vez; ahora se refrescan cada 60 s con la pestaña visible (`encuestarVisible`, ya existía), sin
+  parpadear, sin pisar con un error, sin refrescar encima de un vale abierto / firma / PDF en vuelo, y descartando
+  la respuesta de otra vista. Script de medición **sólo lectura** `database/scripts/medir-frescura-kdm1.js`
+  (réplica vs ODS por folio + candado «filtro exacto = tolerante»). Pruebas: ODS 34/34 (con el SQL contra un
+  `kdm1` real: 78 = 78) + medición 16/16 + mutaciones en rojo · view 2079/2079 · finance 599/599.
+  ⚠️ **No medido contra prod** (sin acceso desde la máquina de trabajo).
+- [ ] **[GX.73.m]** Correr `medir-frescura-kdm1.js` en `md` ANTES y DESPUÉS del despliegue; si el filtro exacto ≠
+  tolerante en alguna sucursal, NO desplegar el carril.
+- [ ] **[GX.73.d]** Desplegar `ods-live-hot` (K3s, en `md`). Opcional: un `--full` de `kdm1` fuera de horario para
+  traer de una vez lo que ya se perdió.
+- [ ] **[GX.73.x]** Declarado, no cubierto: el mismo punto ciego afecta a CUALQUIER documento de `kdm1` que cambie
+  de estado después de 3 días (cancelaciones de venta, etc.). Medir antes de ampliar.
+
+### 🔨 [GX.74] · varios renglones en el detalle del método de pago — 2026-10-07
+
+- [x] **[GX.74]** 🧪 Pedido: *«cuando tengan que agregar un número de tarjeta, folio, etc. después de elegir un
+  método de pago, hay que darles la opción de agregar un renglón más y más»*. En la captura del gasto el detalle
+  pasa a ser una lista de renglones («Agregar otro», × para quitar, tope 10). Se guarda en la MISMA columna
+  `forma_pago_detalle`, un renglón por línea — **sin migración**; los vales viejos se leen como un renglón.
+  Separar/unir/mostrar y la regla viven en `forma-pago.contract.ts`; `detalleInvalido` juzga **cada renglón**
+  (una tarjeta completa en el segundo no se cuela) y dice cuál. El servidor normaliza; visor, bandeja y PDF
+  muestran `1234 · 5678`. Pruebas: contratos 414/414 · captura 41/41 (con plantilla) · mutación en rojo.
+
 ### 🔨 [GX.71] · Mayra Gutiérrez ve el historial de gastos de ella y de todos — 2026-10-07
 
 - [x] **[GX.71]** 🧪 Pedido: *«al usuario de mayra_gutierrez dale el permiso de que pueda ver el historial de ella

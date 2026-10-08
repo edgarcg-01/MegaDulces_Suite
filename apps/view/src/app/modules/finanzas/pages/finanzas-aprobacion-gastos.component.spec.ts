@@ -746,4 +746,75 @@ describe('FinanzasAprobacionGastosComponent', () => {
       expect(c.esMio(F({ created_by: 'maria.tesoreria' }))).toBe(false);
     });
   });
+
+  /**
+   * `[GX.73]` **La bandeja se refresca sola.** Reporte: quien aprueba no veía llegar los vales
+   * nuevos hasta recargar. Lo que se cuida: que refresque sin parpadear, que NO le borre el filtro
+   * de departamento a quien está trabajando (`cargar()` sí lo borra), que no refresque encima de
+   * un vale abierto o de una firma en vuelo, y que un fallo no pise la bandeja buena.
+   */
+  describe('[GX.73] el refresco en segundo plano', () => {
+    beforeEach(() => vi.useFakeTimers());
+    afterEach(() => vi.useRealTimers());
+    const pedidos = () => ({
+      dia: http.expectOne((r) => r.url.includes('/finance/expenses/proofs/del-dia')),
+      reap: http.expectOne((r) => r.url.includes('/reaperturas/pendientes')),
+    });
+
+    it('⭐ al minuto vuelve a pedir el día y las reaperturas, sin aviso de carga', () => {
+      montar();
+      vi.advanceTimersByTime(60_000);
+      const { dia, reap } = pedidos();
+      expect(c.cargando()).toBe(false);
+      dia.flush(DIA({ total: 6 }));
+      reap.flush([]);
+      expect(c.datos()?.total).toBe(6);
+    });
+
+    it('⭐ conserva el filtro de departamento (cargar() lo borra; el refresco no)', () => {
+      montar();
+      c.grupo.set('LOGISTICA');
+      vi.advanceTimersByTime(60_000);
+      const { dia, reap } = pedidos();
+      dia.flush(DIA());
+      reap.flush([]);
+      expect(c.grupo()).toBe('LOGISTICA');
+    });
+
+    it('si el departamento elegido ya no tiene nada, suelta el filtro (no deja atrapado)', () => {
+      montar();
+      c.grupo.set('SISTEMAS');
+      vi.advanceTimersByTime(60_000);
+      const { dia, reap } = pedidos();
+      dia.flush(DIA({ entrada: { total: 1, monto_total: 100, por_fecha: [], por_departamento: [
+        { clave: 'LOGISTICA', etiqueta: 'LOGISTICA', origen: 'capturado', n: 1, monto: 100, ids: ['a1'] },
+      ] } }));
+      reap.flush([]);
+      expect(c.grupo()).toBeNull();
+    });
+
+    it('⛔ con un vale abierto NO refresca', () => {
+      montar();
+      c.abrir(F({ id: 'a1', status: 'recibida' }));
+      vi.advanceTimersByTime(60_000);
+      http.expectNone((r) => r.url.includes('/del-dia'));
+    });
+
+    it('⛔ con una firma en vuelo NO refresca', () => {
+      montar();
+      c.actuando.set('a1');
+      vi.advanceTimersByTime(60_000);
+      http.expectNone((r) => r.url.includes('/del-dia'));
+    });
+
+    it('⛔ un refresco que falla NO pisa la bandeja ni muestra error', () => {
+      montar();
+      vi.advanceTimersByTime(60_000);
+      const { dia, reap } = pedidos();
+      dia.flush('boom', { status: 500, statusText: 'Server Error' });
+      reap.flush([]);
+      expect(c.error()).toBe('');
+      expect(c.datos()?.total).toBe(5);
+    });
+  });
 });

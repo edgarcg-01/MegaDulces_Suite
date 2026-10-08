@@ -14,9 +14,11 @@ import {
 } from '../comprobaciones.service';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { ValeGastoPeekComponent, type AccionVale, type AprobacionVale } from '../components/vale-gasto-peek.component';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
+import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.65.4a]` La MISMA regla que aplica el servidor, desde el contrato: dos copias se separan.
-import { esDuenoDelVale } from '@megadulces/contracts';
+import { esDuenoDelVale, detallesParaMostrar } from '@megadulces/contracts';
 import { AuthService, type JwtPayload } from '../../../core/services/auth.service';
 
 const FORMA_PAGO_LABEL: Record<string, string> = {
@@ -284,7 +286,7 @@ const ESTADO_LABEL: Record<string, string> = {
                       <span class="ap-chip bad" title="El servidor no reconoce este estado">estado desconocido</span>
                     }
                     @if (p.forma_pago) {
-                      <span class="ap-chip ok">{{ formaPago(p.forma_pago) }}@if (p.forma_pago_detalle) { · {{ p.forma_pago_detalle }} }</span>
+                      <span class="ap-chip ok">{{ formaPago(p.forma_pago) }}@if (p.forma_pago_detalle) { · {{ detallePago(p.forma_pago_detalle) }} }</span>
                     } @else {
                       <span class="ap-chip bad">sin forma de pago</span>
                     }
@@ -512,7 +514,45 @@ export class FinanzasAprobacionGastosComponent {
     { id: 'entrada', label: 'Bandeja de entrada' },
   ];
 
-  constructor() { this.cargar(); }
+  constructor() {
+    this.cargar();
+    // `[GX.73]` Se refresca sola mientras la pestaña se ve: los vales nuevos llegan sin recargar.
+    encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
+  }
+
+  /** Hay un refresco en vuelo: el siguiente no se encima. */
+  private refrescando = false;
+
+  /**
+   * `[GX.73]` **El refresco en segundo plano.** No es `cargar()`, en tres cosas:
+   *  · no muestra el aviso de carga (la bandeja no parpadea cada minuto);
+   *  · NO borra el filtro de departamento (`cargar()` lo limpia porque cambia el día; acá el día
+   *    es el mismo y perder el filtro le cambiaría la lista a quien está trabajando sobre ella);
+   *  · un fallo NO pisa la bandeja buena con un error.
+   *
+   * ⛔ No corre con un vale abierto ni con una decisión en vuelo: refrescar debajo de quien está
+   * firmando podría quitarle el vale de la lista a mitad de la lectura.
+   */
+  refrescar(): void {
+    if (this.abierto() || this.actuando() || this.cargando() || this.refrescando) return;
+    this.refrescando = true;
+    this.svc.delDia(this.fecha() || undefined)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => {
+          this.datos.set(d);
+          // Si el departamento elegido ya no tiene nada (otra persona firmó lo último), se suelta
+          // el filtro: con un solo departamento la barra se esconde y no habría cómo quitarlo.
+          const g = this.grupo();
+          if (g && !d.entrada?.por_departamento?.some((x) => x.clave === g)) this.grupo.set(null);
+          this.refrescando = false;
+        },
+        error: () => { this.refrescando = false; },
+      });
+    this.svc.reaperturasPendientes()
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (rs) => this.reaperturas.set(rs ?? []), error: () => undefined });
+  }
 
   /** El día que se está mirando. Mientras no haya respuesta, lo que se pidió. */
   readonly fechaActiva = computed(() => this.datos()?.fecha || this.fecha());
@@ -657,6 +697,8 @@ export class FinanzasAprobacionGastosComponent {
   }
 
   formaPago(id: string): string { return FORMA_PAGO_LABEL[id] ?? id; }
+  /** `[GX.74]` Varios renglones de detalle (dos tarjetas, dos referencias) en una línea. */
+  readonly detallePago = detallesParaMostrar;
   estado(s: string): string { return ESTADO_LABEL[s] ?? s; }
   /** El tipo de gasto en palabras. Sin la clave cruda: `no_fiscal_comprobable` es cómo
    *  se guarda, no cómo se dice. */

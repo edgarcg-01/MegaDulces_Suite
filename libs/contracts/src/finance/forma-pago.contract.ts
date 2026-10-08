@@ -98,6 +98,50 @@ export function codigoKepler(id: string | null | undefined): string | null {
 }
 
 /**
+ * `[GX.74]` **Varios renglones de detalle por vale.**
+ *
+ * Pedido del usuario (2026-10-07): *«cuando tengan que agregar un número de tarjeta, folio, etc.
+ * después de elegir un método de pago, hay que darles la opción de agregar un renglón más y más,
+ * dependiendo de la necesidad»*. Un gasto se pudo pagar con dos tarjetas, o en dos transferencias.
+ *
+ * ## Se guardan en la MISMA columna, un renglón por línea
+ * `finance.expense_proofs.forma_pago_detalle` es texto. Cada renglón va en su línea (`\n`). No hace
+ * falta migración, y no hay ambigüedad: las cajas del formulario son de UNA línea, así que nadie
+ * puede escribir un salto adentro de un renglón. Los vales viejos —un solo valor— se leen como un
+ * renglón, sin tocarlos.
+ *
+ * ⛔ Separar y unir vive ACÁ, no en cada pantalla: la captura, la compuerta del servidor, el visor,
+ * la bandeja y el PDF tienen que partir el texto exactamente igual.
+ */
+export const MAX_DETALLES_PAGO = 10;
+
+/** Los renglones del detalle, sin vacíos ni espacios sobrantes. Texto viejo = un renglón. */
+export function detallesDePago(texto: string | null | undefined): string[] {
+  return String(texto ?? '').split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+}
+
+/** Une los renglones para guardarlos. Los vacíos (un renglón agregado y no escrito) no viajan. */
+export function unirDetallesDePago(lista: readonly (string | null | undefined)[]): string {
+  return lista.map((s) => String(s ?? '').trim()).filter(Boolean).join('\n');
+}
+
+/** Para mostrar en una sola línea: `1234 · 5678`. */
+export function detallesParaMostrar(texto: string | null | undefined): string {
+  return detallesDePago(texto).join(' · ');
+}
+
+/** La regla de UN renglón (tope y sólo dígitos). */
+function renglonInvalido(f: FormaPago, v: string): string | null {
+  if (f.detalle_solo_digitos && !/^[0-9]+$/.test(v)) {
+    return `${f.detalle_label}: sólo números.`;
+  }
+  if (f.detalle_max != null && v.length > f.detalle_max) {
+    return `${f.detalle_label}: máximo ${f.detalle_max} caracteres (escribiste ${v.length}).`;
+  }
+  return null;
+}
+
+/**
  * `[GX.53]` **Por qué NO sirve este detalle**, o `null` si está bien.
  *
  * Vive acá y no en la pantalla porque la usan los dos lados: el input la consulta para el
@@ -105,19 +149,24 @@ export function codigoKepler(id: string | null | undefined): string | null {
  * sólo en el input, se salta llamando a la API — y justo acá eso significaría guardar un
  * número de tarjeta completo.
  *
+ * `[GX.74]` Con varios renglones se juzga **CADA UNO**: que el primero tenga 4 dígitos no puede
+ * dejar pasar una tarjeta completa en el tercero. El error dice en qué renglón está.
+ *
  * ⚠️ El vacío NO es asunto de esta función: de eso ya se ocupa `exigeDetalle`. Acá se juzga
  * lo que la persona escribió, no si escribió.
  */
 export function detalleInvalido(id: string | null | undefined, valor: string | null | undefined): string | null {
   const f = formaPago(id ?? undefined);
   if (!f || f.detalle_label == null) return null;
-  const v = String(valor ?? '').trim();
-  if (!v) return null;
-  if (f.detalle_solo_digitos && !/^[0-9]+$/.test(v)) {
-    return `${f.detalle_label}: sólo números.`;
+  const renglones = detallesDePago(valor);
+  if (!renglones.length) return null;
+  if (renglones.length > MAX_DETALLES_PAGO) {
+    return `${f.detalle_label}: máximo ${MAX_DETALLES_PAGO} renglones (escribiste ${renglones.length}).`;
   }
-  if (f.detalle_max != null && v.length > f.detalle_max) {
-    return `${f.detalle_label}: máximo ${f.detalle_max} caracteres (escribiste ${v.length}).`;
+  for (let i = 0; i < renglones.length; i++) {
+    const mal = renglonInvalido(f, renglones[i]);
+    // Con un solo renglón el mensaje queda como siempre; con varios, se dice cuál.
+    if (mal) return renglones.length > 1 ? `Renglón ${i + 1} — ${mal}` : mal;
   }
   return null;
 }

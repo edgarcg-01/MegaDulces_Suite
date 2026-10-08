@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+// `[GX.74]` El detalle del pago puede traer varios renglones: se muestran como `1234 · 5678`.
+import { detallesParaMostrar } from '@megadulces/contracts';
 import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { ExpedienteGastoService, type ExpedienteGasto } from './expediente-gasto.service';
 
@@ -109,7 +111,7 @@ export class ExpedienteGastoDocumentService {
     return `<table class="datos">
       ${this.fila('Tipo de gasto', esc(CLASIFICACION_LABEL[p.clasificacion] || p.clasificacion || '—'))}
       ${this.fila('Cómo se pagó', p.forma_pago
-        ? `${esc(FORMA_PAGO_LABEL[p.forma_pago] || p.forma_pago)}${p.forma_pago_detalle ? ` · <span class="mono">${esc(p.forma_pago_detalle)}</span>` : ''}`
+        ? `${esc(FORMA_PAGO_LABEL[p.forma_pago] || p.forma_pago)}${p.forma_pago_detalle ? ` · <span class="mono">${esc(detallesParaMostrar(p.forma_pago_detalle))}</span>` : ''}`
         : '<em class="mut">no se declaró — el expediente es anterior a que se pidiera</em>')}
       ${this.fila('Estado', esc(ESTADO_NUESTRO[p.status] || p.status || '—'))}
       ${this.fila('Capturó', `${esc(p.created_by || '—')} <span class="mut">${esc(fechaHora(p.created_at))}</span>`)}

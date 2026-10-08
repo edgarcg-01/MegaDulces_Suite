@@ -5,6 +5,7 @@ import { TenantKnexService, TenantContextService, CloudinaryService, ObjectStora
 // [GX.14] La compuerta y el catalogo de formas de pago viven en libs/contracts: los lee
 // este servicio (que devuelve el 400) y el boton del frontend. Una sola regla, no dos.
 import { FINANCE_NOTIFIER_PORT, type FinanceNotifierPort, esFormaPagoValida, exigeDetalle, faltaParaMandar, type EstadoAporte } from '@megadulces/contracts';
+import { detallesDePago, unirDetallesDePago } from '@megadulces/contracts';
 // [GX.17] La agrupacion de la pantalla de Aprobacion vive aparte, sin knex, porque decide
 // QUE VE quien firma y eso se prueba sin base.
 import { agruparParaAprobacion, type AgrupadoAprobacion, type ExpedientePendiente } from './aprobacion-agrupar';
@@ -888,7 +889,9 @@ export class ExpenseProofsService {
     //
     // Que el botón esté apagado no es un control, es una cortesía. El control es este 400.
     const formaPago = req(dto.forma_pago);
-    const formaPagoDetalle = req(dto.forma_pago_detalle);
+    // `[GX.74]` Varios renglones, uno por línea. Se normaliza con la MISMA función del contrato
+    // que usan la pantalla y el visor: sin renglones vacíos ni espacios sobrantes.
+    const formaPagoDetalle = unirDetallesDePago(detallesDePago(dto.forma_pago_detalle));
     const faltan = faltaParaMandar({
       forma_pago: formaPago,
       forma_pago_detalle: formaPagoDetalle,
