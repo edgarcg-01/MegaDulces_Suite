@@ -49,9 +49,38 @@ const REEMPLAZAR = process.argv.includes('--reemplazar');
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL;
 
-/** Los tres totales del libro, medidos el 2026-10-08. El cuadre es PRECONDICIÓN, no reporte. */
+/** Los tres totales de la hoja COMISIONES, medidos el 2026-10-08. El cuadre es PRECONDICIÓN. */
 const ESPERADO = { comision: 1580327.48, a_pagar: 796981.88, supervisor: 395081.87 };
 const TOLERANCIA = 0.01;
+
+/**
+ * ⛔ **Los bonos del chofer NO están en la hoja `COMISIONES`** — están en el recibo
+ * (`FORMATO DE PAGO`, filas 40-42), y por eso la primera carga los dejó en cero y publicó
+ * **$140,800 de menos, el 17.67 %** de lo que decía que se había pagado. Lo encontró el
+ * contraste de `[RD.52]`, que es exactamente para lo que existe.
+ *
+ * La regla, leída de las fórmulas `BN40`/`BN41`/`BN42` del propio recibo:
+ *
+ *     Lavadas  IF(venta >= 215999.99,  200, 0)
+ *     Lonche   IF(venta >= 239999.99,  800, 0)
+ *     Chalan   IF(venta >= 259999.99, 1000, 0)
+ *     Total a Pagar = IF(comision = "NO APLICA", banco, comision - banco + los tres bonos)
+ *
+ * ⭐ Corroboración independiente: `commercial.commission_bonuses` trae los **mismos tres
+ * umbrales y los mismos tres montos**, sembrados por `[RD.6]` desde este mismo workbook.
+ *
+ * ⚠️ Y acá hay una diferencia de rango con el resto del espejo, que se DECLARA: esto se
+ * **deriva**, no se lee. El workbook no guarda historia de bonos — el recibo los recalcula
+ * para la quincena que tengas seleccionada en `BQ7`, así que no hay una celda por periodo que
+ * copiar. Si la regla cambió a mitad de año, el espejo no lo vería.
+ */
+const BONOS_CHOFER = [
+  { nombre: 'Lavadas', umbral: 215999.99, monto: 200 },
+  { nombre: 'Lonche', umbral: 239999.99, monto: 800 },
+  { nombre: 'Chalan', umbral: 259999.99, monto: 1000 },
+];
+const bonosDe = (venta, paga) => (!paga || venta == null ? 0
+  : BONOS_CHOFER.reduce((s, b) => s + (venta >= b.umbral ? b.monto : 0), 0));
 
 const V = (cell) => {
   const v = cell && cell.value;
@@ -144,10 +173,22 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
       supervisor: cent(num(g(6))),
       comision: cent(num(g(7))),
       nomina_banco: cent(num(g(8))),
-      a_pagar: cent(num(g(9))),
+      // `a_pagar_hoja` es lo que trae la columna A PAGAR de COMISIONES (comision - nomina).
+      // Lo que de verdad se le deposita al chofer lleva los bonos encima: se arma abajo.
+      a_pagar_hoja: cent(num(g(9))),
       /** El libro dice `NO APLICA` cuando la venta no alcanzó el tramo: NO es cero. */
       motivo_no_pago: typeof g(9) === 'string' ? 'bajo_umbral' : null,
     });
+  }
+  // Los bonos se derivan de la venta YA redondeada, y el pago real del recibo se arma acá:
+  // `comision - nomina + bonos`, que es la formula BN43 del propio FORMATO DE PAGO.
+  for (const f of out) {
+    f.bonos = bonosDe(f.venta, f.motivo_no_pago === null);
+    f.a_pagar = f.a_pagar_hoja === null ? null : cent(f.a_pagar_hoja + f.bonos);
+    // ⚠️ `a_pagar_crudo` se deja COMO LO TRAE LA HOJA (sin bonos): es contra eso que se valida
+    // el parseo. El del recibo va aparte -- mezclarlos hacía que el cuadre comparara una cifra
+    // contra otra que no es la suya, y el chequeo de redondeo marcara $140,800 de "redondeo".
+    f.a_pagar_recibo_crudo = f.a_pagar_crudo === null ? null : f.a_pagar_crudo + f.bonos;
   }
   return out;
 }
@@ -169,7 +210,11 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
   // ── Cuadre, antes de mirar la base ────────────────────────────────────────────────────────
   const suma = (k, f = () => true) => filas.filter(f).reduce((s, x) => s + (x[k] ?? 0), 0);
   const totComision = suma('comision_crudo');
+  // ⚠️ Contra la HOJA se valida lo que la hoja trae: `A PAGAR` es comision - nomina, SIN bonos.
+  // El pago real del recibo se declara aparte, abajo, porque es derivado y no leído.
   const totPagar = suma('a_pagar_crudo');
+  const totBonos = suma('bonos');
+  const totPagarRecibo = suma('a_pagar_recibo_crudo');
   const totSuper = suma('supervisor_crudo');
   // Lo que de verdad se va a guardar: la suma de los renglones YA redondeados a centavos.
   const centavos = (k) => filas.reduce((s, x) => s + Math.round((x[k] ?? 0) * 100), 0) / 100;
@@ -182,7 +227,7 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
   console.log(`  ruta-periodo leidas            : ${filas.length}  (con pago: ${filasConPago}, sin tramo: ${filas.length - filasConPago})`);
   const pruebas = [
     ['comision del chofer', totComision, ESPERADO.comision],
-    ['a pagar (neto al chofer)', totPagar, ESPERADO.a_pagar],
+    ['a pagar segun la HOJA (sin bonos)', totPagar, ESPERADO.a_pagar],
     ['20% del supervisor (NO se carga)', totSuper, ESPERADO.supervisor],
   ];
   let cuadra = true;
@@ -201,11 +246,21 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
   // ⭐ Y lo que se GUARDA es otro número: el libro lleva full precision (su comisión de Q1
   // ruta 21 es 9135.2008) y las columnas son numeric(14,2). El efecto del redondeo se DECLARA
   // con su monto, no se esconde detrás de un "cuadra al centavo" que compara contra otra cosa.
+  // ── Los bonos del recibo: DERIVADOS, no leídos. Se declaran con su regla y su monto. ──────
+  const conBono = filas.filter((f) => (f.bonos ?? 0) > 0).length;
+  console.log(`\n--- los bonos del RECIBO (FORMATO DE PAGO 40-42), derivados de la venta ---`);
+  for (const b of BONOS_CHOFER) {
+    const n = filas.filter((f) => f.motivo_no_pago === null && (f.venta ?? 0) >= b.umbral).length;
+    console.log(`  ${b.nombre.padEnd(9)} venta >= ${money(b.umbral)} → $${String(b.monto).padStart(5)}  ·  ${String(n).padStart(3)} renglon(es)`);
+  }
+  console.log(`  total de bonos ${money(totBonos).padStart(14)}  en ${conBono} de ${filas.length} renglones`);
+  console.log(`  ⭐ pago real del recibo = hoja ${money(totPagar)} + bonos ${money(totBonos)} = ${money(totPagar + totBonos)}`);
+
   console.log(`\n--- lo que se GUARDA (${filas.length} renglones redondeados a centavos) ---`);
   console.log(`  comision   ${money(guardComision).padStart(14)}  · el libro a full precision ${money(totComision)}  → redondeo ${money(guardComision - totComision)}`);
-  console.log(`  a pagar    ${money(guardPagar).padStart(14)}  · el libro a full precision ${money(totPagar)}  → redondeo ${money(guardPagar - totPagar)}`);
+  console.log(`  a pagar    ${money(guardPagar).padStart(14)}  · el recibo a full precision ${money(totPagarRecibo)}  → redondeo ${money(guardPagar - totPagarRecibo)}`);
   const techo = filas.length * 0.005;
-  const redondeoOk = d(guardComision, totComision) <= techo && d(guardPagar, totPagar) <= techo;
+  const redondeoOk = d(guardComision, totComision) <= techo && d(guardPagar, totPagarRecibo) <= techo;
   console.log(`  ${redondeoOk ? '✔' : '✖'} el desvio por redondeo cabe en el techo teorico (${filas.length} × 0.005 = ${techo.toFixed(2)})`);
   if (!redondeoOk) { console.log('\n⛔ el redondeo mueve mas de lo que puede: no se carga.\n'); process.exit(1); }
 
@@ -352,11 +407,15 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
               comision, bonos, bonos_detalle, nomina_banco, a_pagar, motivo_no_pago,
               subtotal_origen, costo_status, venta_arbitro, costo_veredicto,
               dias_multifuente, dias_con_venta, dias_esperados, deduccion_status)
-           VALUES ($1,$2,$3,'chofer',$4,$5,$6,$7,$8,$9,$10,$11,0,'[]'::jsonb,$12,$13,$14,
-                   'libro','libro','libro','libro', NULL, NULL, NULL, $15)`,
+           VALUES ($1,$2,$3,'chofer',$4,$5,$6,$7,$8,$9,$10,$11,$12,$13::jsonb,$14,$15,$16,
+                   'libro','libro','libro','libro', NULL, NULL, NULL, $17)`,
           [TENANT, run.id, f.route_code, c.chofer_nombre ?? null, c.zona ?? null,
             f.subtotal, f.venta, f.costo, f.markup, f.pct_aplicado,
-            f.comision ?? 0, f.nomina_banco ?? 0, f.a_pagar ?? 0, f.motivo_no_pago,
+            f.comision ?? 0, f.bonos ?? 0,
+            JSON.stringify(BONOS_CHOFER
+              .filter((b) => f.motivo_no_pago === null && (f.venta ?? 0) >= b.umbral)
+              .map((b) => ({ nombre: b.nombre, monto: b.monto, metrica: 'venta', umbral: b.umbral }))),
+            f.nomina_banco ?? 0, f.a_pagar ?? 0, f.motivo_no_pago,
             f.nomina_banco ? 'aplicada' : 'no_aplica']);
         lineas++;
       }
