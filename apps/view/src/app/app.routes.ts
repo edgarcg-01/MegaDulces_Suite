@@ -1332,6 +1332,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ALMACEN_BI_VER)]
       },
       {
+        // [UB.1] Mapa de ubicaciones (Fase UB, ADR-090): catálogo con código BA053 por zona.
+        path: 'ubicaciones',
+        loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones-mapa.component').then(m => m.AlmacenUbicacionesMapaComponent),
+        // Cualquiera de las tres: quien acomoda o gestiona también tiene que poder ver el mapa
+        // (si no, la landing lo manda aquí y la ruta lo rebota — candado SN.4).
+        canActivate: [anyPermissionGuard(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)]
+      },
+      {
         // [GP.1] Tablero de pedidos Kepler U-D-40 (telemarketing y sucursal), sólo lectura.
         path: 'pedidos',
         loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),
