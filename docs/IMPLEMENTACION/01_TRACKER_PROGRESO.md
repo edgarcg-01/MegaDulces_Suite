@@ -4370,6 +4370,32 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   una persona, 95 vales → **25 a «Pagados»**, 69 «Sin pago». De paso: dos `'\s+'` más (resumen del
   solicitante) con el mismo bug. Specs: contracts 409 · finance 625 · view finanzas 584.
 
+### 🔨 [GX.76] · Expediente en PDF: las evidencias adentro, y ya no dice «no falta nada» sin gasto — 2026-10-07
+
+- [x] **[GX.76]** 🧪 Reporte con el PDF de PRODUCCIÓN de la `06-0000045`: *«por qué no me muestra los datos del
+  punto 3 y 4, además de que también debe de tener ahí la evidencia»*. **Puntos 3 y 4: el dato es correcto**
+  — medido en `kdm1`: la solicitud sigue en estado `A` (autorizada) y **ningún `XA1001` de la 06 la
+  referencia** (los últimos gastos de la 06 apuntan a 47/37/44/43/42; la réplica está al día). Lo que estaba
+  MAL era el cierre: decía **«No falta nada. Los cuatro eslabones están completos»** con las secciones 3 y 4
+  vacías — `derivarEtapa` no anotaba lo que falta de KEPLER. Ahora `autorizada_sin_gasto` → «que Kepler
+  aplique el gasto (XA1001)» y `por_autorizar` → «que Kepler autorice la solicitud».
+  **Evidencias dentro del PDF** — ⚠️ **revierte una decisión de `[GX.15]`** (no embeber por tamaño y por
+  volver permanente una evidencia de URL que caduca); lo decidió el usuario. **Medido antes:** de 480
+  archivos, **342 son PDF (71 %)**, 136 fotos, 1 Excel y 1 con tipo de ejecutable de Windows → no alcanza
+  con `<img>`. `evidencias-pdf.ts`: las fotos se reducen con `sharp` (1400 px, JPEG 78) y van en la sección
+  nueva «6 · Las evidencias» (página nueva, nunca partidas); los PDF se **anexan al final con `pdf-lib`**,
+  cada página marcada «Anexo · Expediente 06-… · archivo · pág. i de n»; lo que no es foto ni PDF, no se
+  pudo bajar o está dañado **se declara** en la sección. Si unir los PDF fallara, el documento se vuelve a
+  armar declarándolos (nunca dice «anexados» sin anexarlos). **Dependencia nueva: `pdf-lib@1.17.1`** (MIT,
+  JS puro); el lockfile se generó con npm 11 para no perder los campos `libc` (npm 10 los borraba).
+  Probado de punta a punta con el código real contra prod (sólo lectura); ⚠️ **el bucket del `.env` local
+  NO es el de producción** (las llaves de los vales responden «no existe»), así que la vista se armó con
+  evidencias de MUESTRA. Specs: finance 634 (34 del expediente, con negativas de dañado/tipo raro/no
+  descargado).
+- [ ] **[GX.76.u]** Verificar en prod con un vale real que la descarga del bucket de prod funciona (el
+  servicio ya la usa para OCR: `getDataUri`) + redeploy. ⚠️ **Fuentes:** el PDF de prod sale en tipografía
+  monoespaciada (Chromium del contenedor sin Hanken/Segoe) — fuera de alcance, queda declarado.
+
 ### 🔨 [GX.70] · el «Expediente en PDF» respondía «No se pudo armar el expediente» — 2026-10-07
 
 - [x] **[GX.70]** 🧪 Reporte: en `/finanzas/expediente` el botón «Expediente en PDF» sólo decía *«No se pudo

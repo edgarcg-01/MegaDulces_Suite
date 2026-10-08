@@ -177,6 +177,7 @@
     "nodemailer": "^9.1.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.20.0",
     "pg-boss": "^12.27.0",
     "pg-logical-replication": "^2.5.0",

@@ -123,6 +123,14 @@ export function derivarEtapa(e: EntradaEtapa): { etapa: EtapaExpediente; label: 
       falta.push('la foto del comprobante en el expediente');
     }
   }
+  /**
+   * `[GX.76]` ⛔ Lo que falta de KEPLER también falta. Sin estas dos líneas, una solicitud
+   * autorizada SIN gasto aplicado —y con su expediente propio completo— decía «No falta nada.
+   * Los cuatro eslabones están completos» con las secciones 3 y 4 vacías debajo. Visto en el
+   * PDF de producción de la 06-0000045 el 2026-10-07 (estado «A», ningún XA1001 la referencia).
+   */
+  if (etapa === 'por_autorizar') falta.push('que Kepler autorice la solicitud');
+  if (etapa === 'autorizada_sin_gasto') falta.push('que Kepler aplique el gasto (XA1001) de esta solicitud');
   if (etapa === 'gastada_sin_comprobar') falta.push('la comprobación del gasto');
   if (etapa === 'comprobada_sin_validar') falta.push('que Finanzas valide la comprobación');
   // El descuadre se DECLARA, no se corrige solo: con varios gastos la pregunta es la SUMA.

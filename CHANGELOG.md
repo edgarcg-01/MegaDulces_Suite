@@ -187,6 +187,10 @@
 - **La píldora pasa a decir la edad del DATO.** ⛔ `replenishment_plan.computed_at` **no servía**: el UPSERT es sin churn, así que dice *cuándo cambió esa fila*, no *cuándo se verificó* — **415 sellos distintos en 34 días** sobre una tabla sana, donde un `max()` diría «hace 4 min» y un `min()` «hace 34 días». La fuente correcta es un **latido propio del importer** (el del carril `feed_stock` tampoco sirve: `run-prod-feeds.js` reporta `ok` salvo que fallen *todos* sus pasos). Sin latido, la pantalla dice **«datos sin medir»** en vez de esconderse.
 - **Primera prueba que existe sobre este componente** (3,652 líneas: las 4 specs del módulo cubrían sólo los ayudantes ya extraídos). 43 aserciones nuevas en 4 archivos, **las cuatro mutadas a rojo**. Suite de `view`: 1,991 verdes.
 - ⚠️ **Pendiente: desplegar api + view + la imagen `trade-ingest`.** Sin migraciones ni permisos nuevos → **sin re-login**.
+### Added — Finanzas › Expediente en PDF: las evidencias adentro (GX.76, 2026-10-07)
+- Las **fotos** de evidencia van reducidas en la sección nueva «6 · Las evidencias», y los **PDF** de evidencia (71 % de los archivos) se anexan al final, cada página marcada con su expediente y su archivo. Lo que no se puede incluir (otro tipo, no se pudo bajar, dañado) se dice en la sección.
+- Fixed: una solicitud autorizada **sin gasto aplicado** decía «No falta nada»; ahora dice que falta que Kepler aplique el gasto.
+- Dependencia nueva: `pdf-lib` (para anexar los PDF). ⚠️ Pendiente: redeploy api.
 ### Added — Finanzas › Expediente: la transferencia que pagó el gasto (GX.75, 2026-10-07)
 - Cada vale muestra la cadena completa **`XA1501` → `XA1001` → `XD2601`**: la transferencia de «Alta transferencias» que Kepler aplicó a su gasto, con «transferido $… el …». Si se pagó en varias, salen todas; la **cancelada** se tacha y no suma. El **Expediente en PDF** gana la sección «La transferencia».
 - Fuente: `kepler_ods.kdm5` (sin importer). En prod: 58 de 342 vales tienen transferencia; la consulta cuesta ~25 ms.
