@@ -145,7 +145,11 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
      */
     match: ['/almacen/ubicaciones', '/almacen/inventory/ubicaciones'],
     tabs: [
-      { label: 'Mapa', icon: 'pi pi-map', route: '/almacen/ubicaciones', anyOf: [Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR], exact: true },
+      // `permission` y no `anyOf`: el menú lateral (layout.component) elige el destino del área con
+      // `t.permission` e ignora `anyOf` — con `anyOf` la pestaña se tomaba como abierta para todos y
+      // quien no tenía ninguna clave de Ubicaciones veía el área y rebotaba (revisión del PR). El
+      // reparto da VER a todo rol que acomoda o gestiona; la RUTA sí acepta las tres (candado SN.4).
+      { label: 'Mapa', icon: 'pi pi-map', route: '/almacen/ubicaciones', permission: Permission.ALMACEN_UBICACIONES_VER, exact: true },
       { label: 'Contenido', icon: 'pi pi-map-marker', route: '/almacen/inventory/ubicaciones', anyOf: [Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_INVENTORY_RECIBIR], exact: true },
     ],
   },

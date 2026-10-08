@@ -12,7 +12,8 @@
  *    nuevo se deriva de ella sin ambigüedad y un CHECK los mantiene de acuerdo.
  *
  * ── El código ───────────────────────────────────────────────────────────────────────────────────
- *  `[T|B][pasillo A–Z/Ñ][rack 01–99][nivel 1–6]` — ej. `BA053`. Es la MISMA expresión que
+ *  `[T|B][pasillo A–Z][rack 01–99][nivel 1–6]` — ej. `BA053`. Sin Ñ: el escáner y el código de
+ *  barras del cartel sólo leen ASCII (revisión del PR). Es la MISMA expresión que
  *  `LOCATION_CODE_RE` en `libs/contracts/src/http/warehouse-locations.contract.ts`; la prueba de
  *  ese archivo la fija. La base la exige sólo a la familia `ubicacion`: lo `legado` (códigos libres
  *  que creó el Andén, como `R-12`) y las otras familias (carretas, espera…) siguen su propia regla.
@@ -23,7 +24,7 @@
  */
 
 const T = 'commercial.warehouse_bins';
-const CODE_RE = '^([TB])([A-ZÑ])(0[1-9]|[1-9][0-9])([1-6])$';
+const CODE_RE = '^([TB])([A-Z])(0[1-9]|[1-9][0-9])([1-6])$';
 
 const COLUMNAS = [
   ['familia', (t) => t.string('familia', 20).notNullable().defaultTo('legado')],
@@ -84,7 +85,7 @@ exports.up = async function up(knex) {
   await knex.raw(`
     UPDATE ${T} SET pick_sequence =
         (CASE WHEN zona = 'T' THEN 0 ELSE 1 END) * 1000000
-      + (CASE WHEN pasillo = 'Ñ' THEN 29 ELSE (ascii(pasillo) - 64) * 2 END) * 10000
+      + (ascii(pasillo) - 64) * 2 * 10000
       + rack * 10 + nivel
     WHERE familia = 'ubicacion' AND pick_sequence IS NULL`);
 

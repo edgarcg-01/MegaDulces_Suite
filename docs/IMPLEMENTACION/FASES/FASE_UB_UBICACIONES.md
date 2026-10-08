@@ -33,6 +33,7 @@ Kepler no gestiona ubicaciones: los 11,816 productos tienen `Z000`. La Suite se 
 | D7 | Reparto de roles del §4 aprobado | 2026-10-08 |
 | D8 | Carretas `C`, espacios de espera `E` y estibas: misma tabla, otra familia de código | 2026-10-06 |
 | D9 | Piloto en PH | 2026-10-06 |
+| D11 | **Sin Ñ en el pasillo.** El escáner del Andén y el código de barras del cartel (CODE128) sólo leen ASCII: una `BÑ053` se podía dar de alta pero nunca escanear. Si un almacén tiene pasillo Ñ, se le asigna otra letra | 2026-10-08 (revisión del PR UB.0–UB.1) |
 | D10 | **La ubicación guarda producto + PRESENTACIÓN** (caja, paquete, pieza). El mismo Mazapán De la Rosa puede estar en caja en `BA053`, en paquete en `BA052`, en paquete en tienda `TA021` y en caja en el rack superior de tienda `TA024`. Cada presentación tiene su propio lugar fijo, su mínimo/máximo y su reserva | 2026-10-08 |
 
 > ⚠️ **Interpretación de D6, por confirmar.** La regla es PEPS por fecha de entrada **para todos los productos**. Si una reserva más nueva caduca **antes** que la más vieja, el sistema **avisa**, pero no reordena. Si Francisco quiere que la caducidad mande en ese caso (FEFO), es un cambio de una línea en UB.6.
@@ -45,13 +46,13 @@ Kepler no gestiona ubicaciones: los 11,816 productos tienen `Z000`. La Suite se 
 B  A  05  3
 │  │  │   └─ nivel dentro del rack: 1–6
 │  │  └───── rack: 01–99
-│  └──────── pasillo: A–Z (con Ñ, ordenada después de la N)
+│  └──────── pasillo: A–Z (sin Ñ, ver D11)
 └─────────── zona general: T = tienda · B = bodega
 ```
 
-- **Validación**: `^[TB][A-ZÑ](0[1-9]|[1-9][0-9])[1-6]$`. Lo que no cumpla se rechaza **con su motivo**, en pantalla y en captura masiva.
+- **Validación**: `^[TB][A-Z](0[1-9]|[1-9][0-9])[1-6]$`. Lo que no cumpla se rechaza **con su motivo**, en pantalla y en captura masiva.
 - **Se guarda en partes**: `zona`, `pasillo`, `rack`, `nivel`, cada una en su columna. El código es la concatenación, nunca se teclea suelto contra la base. Así no hay `BA5 3` contra `BA053`.
-- **Orden de recorrido** (hoja de surtido): zona → pasillo (N < Ñ < O) → rack → nivel. Se puede corregir por ubicación (`pick_sequence`) cuando el recorrido físico no sigue el alfabeto.
+- **Orden de recorrido** (hoja de surtido): zona → pasillo → rack → nivel. Se puede corregir por ubicación (`pick_sequence`) cuando el recorrido físico no sigue el alfabeto.
 - **Sin posición dentro del nivel**: varios productos comparten `BA053`. El producto se identifica por su etiqueta, y la ubicación dice dónde buscar.
 - **Otras familias** (D8), con prefijo propio que no choca con `T`/`B`: carretas `C01`–`C99`, espacios de espera `E01`…, contenedores de plástico `K01`… y estibas por vehículo. Comparten tabla y estados, pero no siguen la regla de 5 caracteres.
 - ⚠️ **Cambio obligado en el código actual**: `apps/view/.../almacen/shared/tipo-ubicacion.ts` deduce "tarima" de una `T` inicial. Con D2, la `T` es **tienda**. El tipo pasa a una **columna**, no se deduce del nombre.

@@ -1,5 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, branchKeySql } from '@megadulces/platform-core';
 import {
   defaultPickSequence,
   LOCATION_KINDS,
@@ -49,8 +49,10 @@ export class WarehouseLocationsService {
     return this.scope.warehouseIds({}, 'warehouse/locations', 'almacen');
   }
 
-  async list(warehouseId?: string): Promise<WarehouseLocationsResponse> {
+  async list(warehouseIdRaw?: string): Promise<WarehouseLocationsResponse> {
     this.tenantCtx.requireTenantId();
+    // La base devuelve el uuid en minúsculas; compararlo tal cual llegó daba 404 a un id en mayúsculas.
+    const warehouseId = warehouseIdRaw?.toLowerCase();
     if (warehouseId && !UUID.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
     const visibles = await this.visibles();
     const t0 = Date.now();
@@ -85,6 +87,7 @@ export class WarehouseLocationsService {
   async create(body: CreateWarehouseLocationBody): Promise<WarehouseLocationRow> {
     this.tenantCtx.requireTenantId();
     if (!body || !UUID.test(String(body.warehouse_id ?? ''))) throw new BadRequestException('warehouse_id inválido');
+    const warehouseId = String(body.warehouse_id).toLowerCase();
     const parsed = parseLocationCode(body.code);
     if (!parsed.ok) throw new BadRequestException(parsed.motivo);
     const tipo = body.tipo ?? null;
@@ -93,14 +96,20 @@ export class WarehouseLocationsService {
     if (label.length > LABEL_MAX) throw new BadRequestException(`El nombre no puede pasar de ${LABEL_MAX} caracteres.`);
 
     const visibles = await this.visibles();
-    if (visibles !== null && !visibles.includes(body.warehouse_id)) throw new NotFoundException('Almacén no encontrado.');
+    if (visibles !== null && !visibles.includes(warehouseId)) throw new NotFoundException('Almacén no encontrado.');
     const resuelto = await this.scope.current('almacen');
 
     return this.tk.run(async (trx) => {
-      const wh = await trx('commercial.warehouses').where({ id: body.warehouse_id }).whereNull('deleted_at').first('id', 'code');
+      // `clave` = la llave canónica de la sucursal (branchKeySql), NO `code`: en Morelia `code` es
+      // 'MD-30' y la clave del alcance es '30'. Comparar contra `code` le negaba al encargado su
+      // propia sucursal (revisión del PR).
+      const wh = await trx('commercial.warehouses as w')
+        .where('w.id', warehouseId)
+        .whereNull('w.deleted_at')
+        .first('w.id', 'w.code', trx.raw(`${branchKeySql('w')} AS clave`));
       if (!wh || ES_RUTA.test(wh.code)) throw new NotFoundException('Almacén no encontrado.');
       // Leer no es escribir: el alcance de escritura puede ser más corto que el de lectura.
-      if (!this.scope.canWrite(resuelto, 'warehouse', wh.code)) {
+      if (!this.scope.canWrite(resuelto, 'warehouse', wh.clave)) {
         throw new ForbiddenException(`No puedes dar de alta ubicaciones en el almacén ${wh.code}.`);
       }
       const dup = await trx('commercial.warehouse_bins')
@@ -132,7 +141,13 @@ export class WarehouseLocationsService {
           created_by: userId,
           updated_by: userId,
         })
-        .returning(['id', 'warehouse_id', 'code', 'label', 'familia', 'zona', 'pasillo', 'rack', 'nivel', 'tipo', 'estado', 'motivo_estado', 'pick_sequence', 'updated_at']);
+        .returning(['id', 'warehouse_id', 'code', 'label', 'familia', 'zona', 'pasillo', 'rack', 'nivel', 'tipo', 'estado', 'motivo_estado', 'pick_sequence', 'updated_at'])
+        .catch((e: { code?: string }) => {
+          // Dos altas del mismo código al mismo tiempo: la segunda choca con el índice único.
+          // Es la misma respuesta que la búsqueda previa, no un 500.
+          if (e?.code === '23505') throw new ConflictException(`Ya existe la ubicación ${parsed.code} en ese almacén.`);
+          throw e;
+        });
       return aFila({ ...row, warehouse_code: wh.code, renglones_con_cantidad: 0 });
     });
   }

@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -20,6 +20,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalogo.service';
+import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
 type EstadoRack = 'bloqueada' | 'contenido' | 'activa' | 'baja' | 'vacio';
@@ -57,7 +59,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
   selector: 'app-almacen-ubicaciones-mapa',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, MetricStripComponent, SegmentedComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head ub-head">
@@ -80,43 +82,43 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
         @if (!d.warehouse) {
           <div class="ub-note ub-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene un almacén asignado, así que no hay ubicaciones que mostrarte. Pide que te lo asignen en <b>Administración › Personas</b>.</span></div>
         } @else {
-          <section class="ub-kpis" aria-label="Resumen">
-            <div class="ub-kpi"><span class="ub-kpi-l">Ubicaciones activas</span><span class="ub-kpi-v num">{{ d.resumen.activas }}</span><span class="ub-kpi-s">de {{ d.resumen.total }} dadas de alta</span></div>
-            <div class="ub-kpi"><span class="ub-kpi-l">Bloqueadas</span><span class="ub-kpi-v num" [class.ub-bad]="d.resumen.bloqueadas > 0">{{ d.resumen.bloqueadas }}</span><span class="ub-kpi-s">no se sugieren</span></div>
-            <div class="ub-kpi"><span class="ub-kpi-l">Con mercancía</span><span class="ub-kpi-v num">{{ d.resumen.con_contenido }}</span><span class="ub-kpi-s">acomodada con escaneo</span></div>
-            <div class="ub-kpi"><span class="ub-kpi-l">Código libre</span><span class="ub-kpi-v num" [class.ub-warn]="d.resumen.legado > 0">{{ d.resumen.legado }}</span><span class="ub-kpi-s">sin el formato BA053</span></div>
-          </section>
+          <app-metric-strip [items]="kpis()" ariaLabel="Resumen de ubicaciones" />
 
           <div class="ub-split">
             <section class="ub-block" aria-labelledby="ub-h-mapa">
               <div class="ub-bh">
                 <h2 id="ub-h-mapa" class="sr-only">Mapa</h2>
-                <div class="ub-seg" role="group" aria-label="Zona">
-                  <button type="button" class="ub-seg-b" [class.on]="zona() === 'B'" [attr.aria-pressed]="zona() === 'B'" (click)="pickZona('B')">B · Bodega <span class="num">{{ cuentaZona('B') }}</span></button>
-                  <button type="button" class="ub-seg-b" [class.on]="zona() === 'T'" [attr.aria-pressed]="zona() === 'T'" (click)="pickZona('T')">T · Tienda <span class="num">{{ cuentaZona('T') }}</span></button>
-                </div>
+                <app-segmented [options]="zonaOpts()" [value]="zona()" (valueChange)="pickZona($any($event))" ariaLabel="Zona" />
                 <div class="ub-legend" aria-hidden="true">
                   <span><i class="ub-sw ub-c-activa"></i>Dada de alta</span>
-                  <span><i class="ub-sw ub-c-contenido"></i>Con mercancía</span>
-                  <span><i class="ub-sw ub-c-bloqueada"></i>Bloqueada</span>
+                  <span><i class="ub-sw ub-c-contenido"><i class="pi pi-box"></i></i>Con mercancía</span>
+                  <span><i class="ub-sw ub-c-bloqueada"><i class="pi pi-ban"></i></i>Bloqueada</span>
+                  <span><i class="ub-sw ub-c-baja"></i>Dada de baja</span>
                   <span><i class="ub-sw ub-c-vacio"></i>Sin dar de alta</span>
                 </div>
               </div>
 
               @if (filas().length) {
                 <div class="ub-grid-wrap">
-                  <div class="ub-grid" [style.--ub-cols]="racks().length">
+                  <!-- Una sola parada de tabulador para todo el mapa; las flechas mueven entre racks (D.4a). -->
+                  <div class="ub-grid" role="group" aria-label="Mapa de racks: flechas para moverse, Enter para ver el rack" [style.--ub-cols]="racks().length" (keydown)="onGridKey($event)">
                     <span></span>
                     @for (r of racks(); track r) { <span class="ub-rh num">{{ dos(r) }}</span> }
-                    @for (f of filas(); track f.pasillo) {
+                    @for (f of filas(); track f.pasillo; let fi = $index) {
                       <span class="ub-ah">Pasillo <b class="num">{{ f.pasillo }}</b></span>
-                      @for (c of f.celdas; track c.rack) {
-                        <button type="button" class="ub-cell ub-c-{{ c.estado }}" [class.sel]="selKey() === f.pasillo + c.rack" [attr.aria-label]="c.aria" [attr.aria-pressed]="selKey() === f.pasillo + c.rack" (click)="pickRack(f.pasillo, c)"></button>
+                      @for (c of f.celdas; track c.rack; let ci = $index) {
+                        <button type="button" class="ub-cell ub-c-{{ c.estado }}" [class.sel]="selKey() === f.pasillo + c.rack"
+                          [attr.data-pos]="fi + '-' + ci" [attr.tabindex]="esFoco(fi, ci) ? 0 : -1"
+                          [attr.aria-label]="c.aria" [attr.aria-pressed]="selKey() === f.pasillo + c.rack" (click)="pickRack(f.pasillo, c, fi, ci)">
+                          @if (c.estado === 'bloqueada') { <i class="pi pi-ban" aria-hidden="true"></i> }
+                          @else if (c.estado === 'contenido') { <i class="pi pi-box" aria-hidden="true"></i> }
+                          @else if (c.estado === 'activa') { <span class="ub-cell-n num" aria-hidden="true">{{ c.niveles.length }}</span> }
+                        </button>
                       }
                     }
                   </div>
                 </div>
-                <p class="ub-hint">Cada cuadro es un rack; el color es el estado más urgente de sus niveles. Tócalo para ver sus niveles.</p>
+                <p class="ub-hint">Cada cuadro es un rack: el número es cuántos niveles tiene dados de alta; el ícono marca si alguno está bloqueado o tiene mercancía. Tócalo para ver sus niveles.</p>
               } @else {
                 <div class="ub-empty"><i class="pi pi-map" aria-hidden="true"></i><span>Todavía no hay ubicaciones de {{ zona() === 'B' ? 'bodega' : 'tienda' }} con el formato nuevo en {{ d.warehouse.code }}.</span>@if (puedeGestionar()) { <span>Da de alta la primera aquí a la derecha; la captura masiva por rango llega en la siguiente entrega.</span> }</div>
               }
@@ -183,32 +185,30 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-head-text h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.01em; }
     .ub-meta { font-size:var(--fs-xs); color:var(--text-muted); }
     .ub-actions { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
+    /* ::ng-deep sólo para el ancho del p-select de PrimeNG (vendor). */
     :host ::ng-deep .ub-sel { min-width:12rem; }
-    .ub-kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(10rem, 1fr)); gap:.6rem; margin-bottom:.75rem; }
-    .ub-kpi { display:flex; flex-direction:column; gap:.15rem; padding:.6rem .8rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); }
-    .ub-kpi-l, .ub-kpi-s { font-size:var(--fs-xs); color:var(--text-muted); }
-    .ub-kpi-v { font-size:var(--fs-h2); font-weight:600; }
+    app-metric-strip { display:block; margin-bottom:.75rem; }
     .ub-split { display:flex; flex-wrap:wrap; gap:.75rem; align-items:flex-start; }
     .ub-block { border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); min-width:0; flex:999 1 36rem; }
     .ub-side { flex:1 1 20rem; }
     .ub-bh { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:center; gap:.5rem; padding:.6rem .85rem; border-bottom:1px solid var(--border-color); }
-    .ub-seg { display:inline-flex; border:1px solid var(--border-color); border-radius:var(--r-sm); overflow:hidden; }
-    .ub-seg-b { height:2.25rem; padding:0 .8rem; border:0; border-left:1px solid var(--border-color); background:transparent; color:var(--text-main); font:inherit; font-size:var(--fs-sm); cursor:pointer; display:inline-flex; align-items:center; gap:.4rem; }
-    .ub-seg-b:first-child { border-left:0; }
-    .ub-seg-b.on { background:var(--text-main); color:var(--card-bg); }
-    .ub-seg-b:focus-visible, .ub-cell:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .ub-cell:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .ub-legend { display:flex; flex-wrap:wrap; gap:.4rem .9rem; font-size:var(--fs-xs); color:var(--text-muted); }
     .ub-legend span { display:inline-flex; align-items:center; gap:.35rem; }
-    .ub-sw { display:inline-block; width:.85rem; height:.85rem; border-radius:3px; }
+    .ub-sw { display:inline-flex; align-items:center; justify-content:center; width:1rem; height:1rem; border-radius:3px; }
+    .ub-sw .pi { font-size:var(--fs-nano); }
     .ub-grid-wrap { overflow-x:auto; padding:.75rem .85rem .25rem; }
     .ub-grid { display:grid; grid-template-columns:4.75rem repeat(var(--ub-cols), minmax(1.75rem, 1fr)); gap:.25rem; align-items:center; min-width:min-content; }
     .ub-rh { text-align:center; font-size:var(--fs-nano); color:var(--text-muted); }
     .ub-ah { font-size:var(--fs-xs); color:var(--text-muted); white-space:nowrap; }
-    .ub-cell { height:2.25rem; border-radius:var(--r-sm); border:1px solid transparent; cursor:pointer; padding:0; }
+    .ub-cell { height:2.25rem; border-radius:var(--r-sm); border:1px solid transparent; cursor:pointer; padding:0; display:inline-flex; align-items:center; justify-content:center; color:var(--text-main); }
+    .ub-cell .pi { font-size:var(--fs-xs); }
+    .ub-cell-n { font-size:var(--fs-nano); color:var(--card-bg); }
+    @media (pointer: coarse) { .ub-cell { height:2.75rem; } }
     .ub-cell.sel { outline:3px solid var(--action); outline-offset:2px; }
     .ub-c-activa { background:var(--text-muted); border-color:var(--text-muted); }
-    .ub-c-contenido { background:var(--warn-soft-bg); border-color:var(--warn-border); }
-    .ub-c-bloqueada { background:var(--bad-soft-bg); border:2px solid var(--bad-fg); }
+    .ub-c-contenido { background:var(--warn-soft-bg); border-color:var(--warn-border); color:var(--warn-soft-fg); }
+    .ub-c-bloqueada { background:var(--bad-soft-bg); border:2px solid var(--bad-fg); color:var(--bad-fg); }
     .ub-c-baja { background:var(--hover-bg); border:1px solid var(--border-color); }
     .ub-c-vacio { background:transparent; border:1px dashed var(--border-color); }
     .ub-step { padding:.75rem .85rem; border-top:1px solid var(--border-color); display:flex; flex-direction:column; gap:.5rem; }
@@ -217,7 +217,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-levels { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:.4rem; }
     .ub-level { display:grid; grid-template-columns:auto 1fr auto; gap:.15rem .6rem; align-items:center; padding:.45rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-sm); }
     .ub-level .ub-sub { grid-column:1 / -1; }
-    .ub-code { font-size:var(--fs-md); font-weight:600; }
+    .ub-code { font-size:var(--fs-lg); font-weight:600; }
     .ub-level-txt { font-size:var(--fs-xs); color:var(--text-muted); min-width:0; }
     .ub-level-txt b { color:var(--text-main); font-weight:600; }
     .ub-chip { font-size:var(--fs-nano); padding:.1rem .45rem; border-radius:999px; border:1px solid var(--border-color); white-space:nowrap; }
@@ -225,11 +225,10 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
     .ub-chip-bloqueada { background:var(--bad-soft-bg); color:var(--bad-soft-fg); border-color:var(--bad-border); }
     .ub-chip-baja { background:var(--hover-bg); color:var(--text-muted); }
     .ub-field { display:flex; flex-direction:column; gap:.25rem; font-size:var(--fs-xs); color:var(--text-muted); }
-    .ub-field input { font-size:var(--fs-md); height:2.5rem; }
+    .ub-field input { font-size:var(--fs-body); height:2.5rem; }
     .ub-sub { font-size:var(--fs-xs); color:var(--text-muted); }
-    .ub-bad { color:var(--bad-fg) !important; }
-    .ub-warn { color:var(--warn-soft-fg) !important; }
-    .ub-ok { color:var(--ok-fg) !important; }
+    .ub-sub.ub-bad { color:var(--bad-fg); }
+    .ub-sub.ub-ok { color:var(--ok-fg); }
     .ub-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:0; padding:0 .85rem .7rem; }
     .ub-step .ub-hint { padding:0; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -252,11 +251,14 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   private readonly auth = inject(AuthService);
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
 
   readonly skel = Array.from({ length: 6 });
   readonly tipos = [...LOCATION_KINDS];
 
   readonly data = signal<WarehouseLocationsResponse | null>(null);
+  /** Folio de la consulta vigente: una respuesta vieja (cambio rápido de almacén) no pisa a la nueva. */
+  private consulta = 0;
   readonly loading = signal(false);
   readonly err = signal<string | null>(null);
   readonly warehouseId = signal<string | null>(null);
@@ -265,6 +267,25 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   readonly selKey = computed(() => {
     const s = this.sel();
     return s ? s.pasillo + s.celda.rack : null;
+  });
+
+  /** Celda que recibe el foco del tabulador (roving): la elegida, o la primera. */
+  readonly foco = signal<{ fi: number; ci: number }>({ fi: 0, ci: 0 });
+
+  readonly zonaOpts = computed<SegOption[]>(() => [
+    { label: `B · Bodega (${this.cuentaZona('B')})`, value: 'B' },
+    { label: `T · Tienda (${this.cuentaZona('T')})`, value: 'T' },
+  ]);
+
+  readonly kpis = computed<MetricStripItem[]>(() => {
+    const r = this.data()?.resumen;
+    if (!r) return [];
+    return [
+      { label: 'Ubicaciones activas', value: r.activas, sub: `de ${r.total} dadas de alta` },
+      { label: 'Bloqueadas', value: r.bloqueadas, tone: r.bloqueadas > 0 ? 'bad' : 'default', sub: 'no se sugieren' },
+      { label: 'Con mercancía', value: r.con_contenido, sub: 'acomodada con escaneo' },
+      { label: 'Código libre', value: r.legado, tone: r.legado > 0 ? 'warn' : 'default', sub: 'sin el formato BA053' },
+    ];
   });
 
   readonly codigo = signal('');
@@ -309,18 +330,23 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   }
 
   reload(): void {
+    const folio = ++this.consulta;
     this.loading.set(true);
     this.err.set(null);
     this.api.list(this.warehouseId()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
+        if (folio !== this.consulta) return;
         this.data.set(d);
         if (!this.warehouseId() && d.warehouse) this.warehouseId.set(d.warehouse.id);
         this.refrescarSel();
+        this.foco.set({ fi: 0, ci: 0 });
         this.loading.set(false);
       },
-      error: () => {
+      error: (e: HttpErrorResponse) => {
+        if (folio !== this.consulta) return;
         this.loading.set(false);
-        this.err.set('No se pudieron cargar las ubicaciones.');
+        const m = e.error?.message;
+        this.err.set(typeof m === 'string' ? `No se pudieron cargar las ubicaciones: ${m}` : 'No se pudieron cargar las ubicaciones.');
       },
     });
   }
@@ -334,10 +360,37 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   pickZona(z: LocationZone): void {
     this.zona.set(z);
     this.sel.set(null);
+    this.foco.set({ fi: 0, ci: 0 });
   }
 
-  pickRack(pasillo: string, celda: Celda): void {
+  pickRack(pasillo: string, celda: Celda, fi: number, ci: number): void {
+    this.foco.set({ fi, ci });
     this.sel.set(this.selKey() === pasillo + celda.rack ? null : { pasillo, celda });
+  }
+
+  esFoco(fi: number, ci: number): boolean {
+    const f = this.foco();
+    return f.fi === fi && f.ci === ci;
+  }
+
+  /** Flechas mueven entre racks; Inicio/Fin al principio/fin del pasillo. Enter/Espacio los da el botón. */
+  onGridKey(ev: KeyboardEvent): void {
+    const filas = this.filas().length;
+    const cols = this.racks().length;
+    if (!filas || !cols) return;
+    let { fi, ci } = this.foco();
+    switch (ev.key) {
+      case 'ArrowRight': ci = Math.min(cols - 1, ci + 1); break;
+      case 'ArrowLeft': ci = Math.max(0, ci - 1); break;
+      case 'ArrowDown': fi = Math.min(filas - 1, fi + 1); break;
+      case 'ArrowUp': fi = Math.max(0, fi - 1); break;
+      case 'Home': ci = 0; break;
+      case 'End': ci = cols - 1; break;
+      default: return;
+    }
+    ev.preventDefault();
+    this.foco.set({ fi, ci });
+    this.host.nativeElement.querySelector<HTMLButtonElement>(`[data-pos="${fi}-${ci}"]`)?.focus();
   }
 
   /** Tras recargar, el rack elegido se vuelve a leer de los datos nuevos (si no, mostraría niveles viejos). */
@@ -376,7 +429,8 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
         this.creando.set(false);
         this.creada.set(row.code);
         this.codigo.set('');
-        if (row.zona) this.zona.set(row.zona);
+        // Si la nueva es de la otra zona, el rack elegido ya no corresponde: se limpia.
+        if (row.zona && row.zona !== this.zona()) this.pickZona(row.zona);
         this.reload();
       },
       error: (e: HttpErrorResponse) => {

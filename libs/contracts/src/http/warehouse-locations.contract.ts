@@ -7,7 +7,7 @@
  *   B  A  05  3
  *   │  │  │   └─ nivel dentro del rack: 1–6
  *   │  │  └───── rack: 01–99
- *   │  └──────── pasillo: A–Z (con Ñ, que se ordena después de la N)
+ *   │  └──────── pasillo: A–Z (sin Ñ: ver abajo)
  *   └─────────── zona general: T = tienda · B = bodega
  * ```
  *
@@ -15,6 +15,10 @@
  * antes de guardar, la base lo vuelve a exigir con un CHECK, y la pantalla avisa mientras se
  * teclea. Una sola regla, tres compuertas — si cada lado tuviera su copia, la primera vez que una
  * cambiara la otra rechazaría códigos buenos (o aceptaría malos) sin que nadie lo notara.
+ *
+ * **Sin Ñ (revisión del PR, 2026-10-08):** el escáner del Andén (`normalizeBinCode`) y el código de
+ * barras del cartel (CODE128) sólo leen ASCII, así que una ubicación `BÑ053` se podía dar de alta
+ * pero nunca escanear. Si un almacén tiene un pasillo Ñ, se le asigna otra letra.
  *
  * Las otras familias del mismo catálogo (carretas `C`, espera `E`, contenedores `K`, estibas) NO
  * siguen esta regla: tienen su propio prefijo y no llevan pasillo/rack/nivel.
@@ -56,7 +60,7 @@ export const LOCATION_RACK_MAX = 99;
  * La regla del código. La misma expresión va en el CHECK de la base
  * (`20261008*_ub1_ubicaciones_catalogo`): si se cambia acá, se cambia allá.
  */
-export const LOCATION_CODE_RE = /^([TB])([A-ZÑ])(0[1-9]|[1-9][0-9])([1-6])$/;
+export const LOCATION_CODE_RE = /^([TB])([A-Z])(0[1-9]|[1-9][0-9])([1-6])$/;
 
 export interface LocationCodeParts {
   zona: LocationZone;
@@ -97,7 +101,7 @@ export function parseLocationCode(raw: string | null | undefined): LocationCodeP
   if (code[0] !== 'T' && code[0] !== 'B') {
     return { ok: false, code, motivo: 'La primera letra es la zona: T (tienda) o B (bodega).' };
   }
-  if (!/[A-ZÑ]/.test(code[1])) return { ok: false, code, motivo: 'La segunda letra es el pasillo (A, B, C…).' };
+  if (!/[A-Z]/.test(code[1])) return { ok: false, code, motivo: 'La segunda letra es el pasillo (A, B, C…, sin Ñ: el código de barras no la lee).' };
   if (!/^\d\d$/.test(code.slice(2, 4)) || code.slice(2, 4) === '00') {
     return { ok: false, code, motivo: 'El rack va en 2 dígitos, del 01 al 99.' };
   }
@@ -116,11 +120,9 @@ export function describeLocationCode(p: LocationCodeParts): string {
   return `${p.zona === 'T' ? 'Tienda' : 'Bodega'} · pasillo ${p.pasillo} · rack ${String(p.rack).padStart(2, '0')} · nivel ${p.nivel}`;
 }
 
-/** Posición del pasillo en el orden de recorrido: la Ñ va entre la N y la O. */
+/** Posición del pasillo en el orden de recorrido (A = 1). */
 export function aisleOrder(pasillo: string): number {
-  const p = pasillo.toUpperCase();
-  if (p === 'Ñ') return 'N'.charCodeAt(0) - 64 + 0.5;
-  return p.charCodeAt(0) - 64;
+  return pasillo.toUpperCase().charCodeAt(0) - 64;
 }
 
 /**

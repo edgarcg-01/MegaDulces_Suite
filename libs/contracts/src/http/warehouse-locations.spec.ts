@@ -25,9 +25,15 @@ describe('[UB.1] código de ubicación', () => {
     }
   });
 
-  it('acepta más de 4 pasillos (cualquier letra) y la Ñ', () => {
+  it('acepta más de 4 pasillos (cualquier letra A–Z)', () => {
     expect(parseLocationCode('TZ991').ok).toBe(true);
-    expect(parseLocationCode('BÑ016').ok).toBe(true);
+  });
+
+  // Prueba negativa de la decisión de la revisión: la Ñ no la lee el escáner ni el código de barras.
+  it('rechaza la Ñ, con su motivo', () => {
+    const r = parseLocationCode('BÑ016');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.motivo).toContain('sin Ñ');
   });
 
   it('el nivel va de 1 a 6', () => {
@@ -63,18 +69,18 @@ describe('[UB.1] código de ubicación', () => {
     expect(() => formatLocationCode({ zona: 'B', pasillo: 'A', rack: 1, nivel: 7 })).toThrow();
   });
 
-  it('orden de recorrido: tienda antes que bodega, la Ñ entre la N y la O', () => {
+  it('orden de recorrido: tienda antes que bodega, luego pasillo, rack y nivel', () => {
     const seq = (c: string) => {
       const r = parseLocationCode(c);
       if (!r.ok) throw new Error(c);
       return defaultPickSequence(r.parts);
     };
-    const codes = ['BO011', 'BÑ011', 'TZ991', 'BN011', 'BA052', 'BA053', 'BA061'];
+    const codes = ['BO011', 'BB011', 'TZ991', 'BN011', 'BA052', 'BA053', 'BA061'];
     const ordenados = [...codes].sort((a, b) => seq(a) - seq(b));
-    expect(ordenados).toEqual(['TZ991', 'BA052', 'BA053', 'BA061', 'BN011', 'BÑ011', 'BO011']);
+    expect(ordenados).toEqual(['TZ991', 'BA052', 'BA053', 'BA061', 'BB011', 'BN011', 'BO011']);
   });
 
   it('la regla del CHECK de la base es la misma expresión (si cambia una, que se note)', () => {
-    expect(LOCATION_CODE_RE.source).toBe('^([TB])([A-ZÑ])(0[1-9]|[1-9][0-9])([1-6])$');
+    expect(LOCATION_CODE_RE.source).toBe('^([TB])([A-Z])(0[1-9]|[1-9][0-9])([1-6])$');
   });
 });

@@ -9573,6 +9573,9 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[UB.P5]** ⬜ Confirmar D6: PEPS siempre y la caducidad sólo avisa (U13).
 
 **Deuda con nombre**
+- [ ] **[UB.D3]** ⬜ El menú lateral (`layout.component.ts`) elige el destino de un área con `t.permission` e ignora `anyOf`: una pestaña con sólo `anyOf` se toma como abierta para todos. En UB se esquivó con `permission` en la pestaña Mapa; el defecto ya estaba latente en Conteo › Folios.
+- [ ] **[UB.D4]** ⬜ El Andén (`DELETE /commercial/inventory/bins/:id`) borra de verdad también ubicaciones del formato nuevo; la regla «nunca se borra» llega con Mantenimiento (`[UB.4]`).
+- [ ] **[UB.D5]** ⬜ Con alcance «todos», el selector de almacén trae también almacenes que no son sucursal (sólo se excluyen `RUTA-*`).
 - [ ] **[UB.D1]** ⬜ `stock_lots.received_at` se sobrescribe en cada upsert (3 servicios): no es fecha de entrada.
 - [ ] **[UB.D2]** ⬜ La ocupación de la posición de surtido es estimada hasta escanear también al surtir.
 
