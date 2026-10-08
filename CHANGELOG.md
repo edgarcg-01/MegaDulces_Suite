@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Fixed — Almacén: vuelve el botón «Surtir» del tablero de pedidos (GP.3, 2026-10-08)
+- `/almacen/pedidos` había perdido el botón que lleva a `/almacen/surtir` (la pantalla del surtidor es de foco y no tiene otra entrada desde el tablero). Lo agregó GP.3c (#319) y el barrido de nombres de sucursal SUC.1 (`fcf85959c`) lo borró sin querer al reescribir el archivo; su prueba quedó roja en `main`. Se restaura tal cual, conservando el nombre de sucursal de SUC.1.
+
 ### Added — Andén sin internet: se sigue trabajando y lo terminado se manda solo (WMS-REC.20, 2026-10-08)
 - Sin conexión se puede **seguir un vale abierto** y **abrir uno nuevo** de los que el equipo bajó con red. Lo que se fecha o se cierra se guarda en el equipo y **se manda solo** al volver la conexión, en el orden en que se hizo.
 - Un aviso arriba dice si no hay red, cuánto falta mandar y, si el servidor rechazó algo de un vale, el motivo, con **Reintentar** o **Descartar** (pide confirmación: lo capturado sin red se pierde).
