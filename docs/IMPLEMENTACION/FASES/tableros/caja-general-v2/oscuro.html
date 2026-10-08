@@ -1,0 +1,438 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Caja General — arqueo (oscuro)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    body { margin: 0; font-family: 'Hanken Grotesk', system-ui, sans-serif; }
+    a { color: #71717A; } a:hover { color: #FAFAFA; }
+    .b { font-family: inherit; cursor: pointer; border-radius: 12px; }
+    .b:focus-visible { outline: 2px solid #F05A28; outline-offset: 2px; }
+    input:focus-visible, select:focus-visible { outline: 2px solid #F05A28; outline-offset: 1px; }
+    .mono { font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; }
+    .lbl { font-size: 11px; font-weight: 500; color: #71717A; text-transform: uppercase; letter-spacing: .07em; }
+    /* El renglón de la reja: grande y legible, porque contar es la tarea. */
+    .dn { display: grid; grid-template-columns: 56px 68px minmax(0,1fr); align-items: center; gap: 10px; height: 34px; }
+    .dn > b { font-family: 'Geist Mono', monospace; font-size: 14px; font-weight: 500; text-align: right; color: #71717A; }
+    .dn > em { font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; font-size: 12px; font-style: normal; text-align: right; color: #71717A; }
+    .pz { width: 100%; box-sizing: border-box; text-align: right; font-family: 'Geist Mono', monospace; font-variant-numeric: tabular-nums; font-size: 14px; padding: 4px 8px; border: 1px solid #27272A; border-radius: 8px; background: #18181B; color: #FAFAFA; }
+    .cola-fila:hover { background: #1F1F23; }
+  </style>
+</helmet>
+
+<div style="height: 100vh; overflow: hidden; background: #09090B; color: #FAFAFA; font-size: 14px; display: flex; flex-direction: column">
+
+  <!-- ══ EL 10% · LA JORNADA, PLEGADA ════════════════════════════════════════════════════
+       Cerrado dice CÓMO VA en una línea; abierto da los números. No ocupa la pantalla
+       porque no es la tarea: es el contexto. -->
+  <header style="flex: none; background: #18181B; border-bottom: 1px solid #27272A">
+    <div style="max-width: 1400px; margin: 0 auto; padding: 0 20px; display: flex; align-items: center; gap: 14px; height: 56px">
+      <div style="min-width: 0">
+        <nav style="font-size: 11px; color: #71717A; letter-spacing: .04em">
+          <a href="#x" style="text-decoration: none">Finanzas</a><span style="padding: 0 5px">/</span><span style="color: #71717A">Caja</span>
+        </nav>
+        <h1 style="margin: 0; font-size: 17px; font-weight: 700; letter-spacing: -.02em">Caja General</h1>
+      </div>
+
+      <div style="flex: 1 1 auto"></div>
+
+      <button type="button" class="b" onClick="{{verJornada}}" aria-expanded="{{jornadaOn}}"
+              style="border: 1px solid #3F3F46; background: #18181B; padding: 7px 13px; display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; color: #FAFAFA">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#71717A" stroke-width="2.5" style="{{caret}}" aria-hidden="true"><path d="M6 9l6 6 6-6"></path></svg>
+        <span style="font-size: 13px; font-weight: 600">Tu jornada</span>
+        <span style="width: 1px; height: 16px; background: #27272A"></span>
+        <span class="mono" style="font-size: 13px; color: #71717A">{{resumenJornada}}</span>
+        <span style="display: inline-flex; align-items: center; gap: 5px; background: #2A1F07; color: #FDE68A; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px">sin rendir</span>
+      </button>
+
+      <button type="button" class="b" style="border: 0; background: #F05A28; color: #FFFFFF; font-size: 13px; font-weight: 600; padding: 8px 14px; white-space: nowrap">
+        Cerrar jornada
+      </button>
+    </div>
+
+    <sc-if value="{{jornadaOn}}" hint-placeholder-val="{{ true }}">
+      <div style="max-width: 1400px; margin: 0 auto; padding: 0 20px 14px; display: flex; align-items: stretch; gap: 0; flex-wrap: wrap">
+        <div style="padding: 8px 18px 8px 0"><div class="lbl" style="font-size: 10px">Por confirmar</div><div class="mono" style="font-size: 18px; font-weight: 600">44</div></div>
+        <div style="width: 1px; background: #27272A"></div>
+        <div style="padding: 8px 18px"><div class="lbl" style="font-size: 10px">En el libro hoy</div><div class="mono" style="font-size: 18px; font-weight: 600">$0.00</div></div>
+        <div style="width: 1px; background: #27272A"></div>
+        <div style="padding: 8px 18px"><div class="lbl" style="font-size: 10px">El cajero movió</div><div class="mono" style="font-size: 18px; font-weight: 600">$407,850.00</div></div>
+        <div style="width: 1px; background: #27272A"></div>
+        <div style="padding: 8px 18px"><div class="lbl" style="font-size: 10px">Confirmados hoy</div><div class="mono" style="font-size: 18px; font-weight: 600; color: #4ADE80">{{hechos}}</div></div>
+        <div style="flex: 1 1 auto"></div>
+        <!-- Lo que NO cubre el cuadre se declara acá, no se esconde (ADR-056). -->
+        <p style="margin: 8px 0 0; max-width: 460px; font-size: 12px; color: #FDE68A; line-height: 1.45">
+          El cajero registró <strong class="mono">8</strong> movimientos por <strong class="mono">$407,850.00</strong>
+          y el libro ninguno: el efectivo se movió y nadie lo capturó.
+          <a href="#x" style="font-weight: 600; color: #FDE68A">Ver el cuadre</a>
+        </p>
+      </div>
+    </sc-if>
+  </header>
+
+  <!-- ══ EL 90% · LOS DOS APARTADOS ═══════════════════════════════════════════════════════ -->
+  <div style="flex: 1 1 auto; min-height: 0; max-width: 1400px; width: 100%; margin: 0 auto; box-sizing: border-box; padding: 14px 20px 18px; display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 16px">
+
+    <!-- ── 1 · QUÉ VAS A ARQUEAR ─────────────────────────────────────────────────────────
+         Lo primero que ve la persona. El movimiento, con su signo y su importe del ERP,
+         y debajo la cola para elegir el siguiente sin salir de la tarea. -->
+    <section style="min-width: 0; display: flex; flex-direction: column; min-height: 0; background: #18181B; border: 1px solid #27272A; border-radius: 12px; overflow: hidden">
+      <div style="flex: none; padding: 12px 16px 0">
+        <div class="lbl">1 · Qué vas a arquear</div>
+      </div>
+
+      <!-- La ficha: grande, porque es la pregunta que el arqueo contesta. -->
+      <div style="flex: none; padding: 10px 16px 14px">
+        <div style="display: flex; align-items: center; gap: 10px">
+          <span style="display: inline-flex; align-items: center; gap: 6px; background: {{signoBg}}; color: {{signoFg}}; font-size: 12px; font-weight: 700; padding: 3px 10px; border-radius: 999px">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" aria-hidden="true"><path d="{{signoIcono}}"></path></svg>
+            {{signoTexto}}
+          </span>
+          <span class="mono" style="font-size: 13px; color: #71717A">{{movDoc}}</span>
+          <div style="flex: 1 1 auto"></div>
+          <span class="mono" style="font-size: 12px; color: #71717A">{{movFecha}}</span>
+        </div>
+
+        <h2 style="margin: 10px 0 0; font-size: 20px; font-weight: 700; letter-spacing: -.02em; line-height: 1.25">{{movNombre}}</h2>
+
+        <div style="display: flex; align-items: baseline; gap: 10px; margin-top: 8px">
+          <div class="mono" style="font-size: 30px; font-weight: 700; letter-spacing: -.02em; line-height: 1">{{movImporte}}</div>
+          <span style="font-size: 12px; color: #71717A">según el documento del ERP</span>
+        </div>
+
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap">
+          <span class="mono" style="font-size: 12px; color: #71717A; background: #09090B; padding: 3px 9px; border-radius: 999px">{{movCuenta}}</span>
+          <select class="b" aria-label="Concepto contable" style="font-family: inherit; font-size: 13px; padding: 5px 10px; border: 1px solid #3F3F46; background: #18181B; color: #FAFAFA">
+            <option>Elegir el concepto…</option>
+          </select>
+          <input type="text" placeholder="Qué pasó, en una línea" aria-label="Glosa"
+                 style="flex: 1 1 180px; min-width: 0; font-family: inherit; font-size: 13px; padding: 6px 10px; border: 1px solid #3F3F46; border-radius: 12px; background: #18181B; color: #FAFAFA">
+        </div>
+      </div>
+
+      <!-- La cola: compacta, para elegir el siguiente. Es un medio, no el protagonista. -->
+      <div style="flex: none; padding: 0 16px 8px; display: flex; align-items: center; gap: 9px; border-top: 1px solid #27272A; padding-top: 10px">
+        <span class="lbl" style="font-size: 10px">Siguen</span>
+        <span class="mono" style="font-size: 12px; color: #71717A">{{quedan}} por confirmar</span>
+        <div style="flex: 1 1 auto"></div>
+        <input type="search" placeholder="Buscar folio o beneficiario…" aria-label="Buscar en la cola"
+               style="width: 210px; font-family: inherit; font-size: 12px; padding: 5px 10px; border: 1px solid #3F3F46; border-radius: 12px; background: #18181B; color: #FAFAFA">
+      </div>
+
+      <div style="flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 8px 10px">
+        <sc-for list="{{cola}}" as="f" hint-placeholder-count="8">
+          <button type="button" class="b cola-fila" onClick="{{f.elegir}}"
+                  style="width: 100%; text-align: left; border: 0; background: {{f.bg}}; padding: 8px 8px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #27272A; border-radius: 0">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="{{f.signoFg}}" stroke-width="3" style="flex: none" aria-hidden="true"><path d="{{f.signoIcono}}"></path></svg>
+            <span class="mono" style="flex: none; font-size: 12px; color: #71717A">{{f.fecha}}</span>
+            <span style="flex: 1 1 auto; min-width: 0; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #FAFAFA">{{f.nombre}}</span>
+            <sc-if value="{{f.trabada}}" hint-placeholder-val="{{ true }}">
+              <span style="flex: none; background: #09090B; color: #71717A; font-size: 11px; padding: 1px 8px; border-radius: 999px; white-space: nowrap">sin cuenta</span>
+            </sc-if>
+            <span class="mono" style="flex: none; font-size: 13px; font-weight: 500">{{f.importe}}</span>
+          </button>
+        </sc-for>
+      </div>
+    </section>
+
+    <!-- ── 2 · EL ARQUEO ─────────────────────────────────────────────────────────────────
+         La reja entera, sin plegar y sin scroll: contar es la tarea. -->
+    <section style="min-width: 0; display: flex; flex-direction: column; min-height: 0; background: #18181B; border: 1px solid #27272A; border-radius: 12px; overflow: hidden">
+      <div style="flex: none; padding: 12px 16px 10px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap">
+        <div class="lbl">2 · El arqueo</div>
+        <span style="font-size: 12px; color: #71717A">contá el efectivo, pieza por pieza</span>
+        <div style="flex: 1 1 auto"></div>
+        <button type="button" class="b" onClick="{{verCanje}}"
+                style="border: 1px solid #3F3F46; background: #18181B; color: #FAFAFA; font-size: 11px; font-weight: 600; padding: 4px 10px; display: inline-flex; align-items: center; gap: 6px; white-space: nowrap">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M4 8h13l-3-3"></path><path d="M20 16H7l3 3"></path></svg>
+          Cambiar billetes o monedas
+        </button>
+      </div>
+
+      <div style="flex: 1 1 auto; min-height: 0; overflow: auto; padding: 0 16px 14px; display: flex; flex-direction: column; gap: 10px">
+
+        <!-- Cinco billetes y seis monedas: el catálogo REAL de la caja. El metal de menos de
+             50¢ no tiene renglón y por eso existe Morralla — que dice de qué es. -->
+        <div style="flex: none; display: grid; grid-template-columns: minmax(0,1fr) 1px minmax(0,1fr); border: 1px solid #27272A; border-radius: 12px; overflow: hidden">
+          <div style="padding: 8px 12px 10px; min-width: 0">
+            <div class="lbl" style="font-size: 10px; margin-bottom: 4px">Billetes</div>
+            <sc-for list="{{billetes}}" as="d" hint-placeholder-count="5">
+              <div class="dn">
+                <b>{{d.etiqueta}}</b>
+                <input type="text" class="pz" value="{{d.piezas}}" aria-label="{{d.aria}}">
+                <em>{{d.importe}}</em>
+              </div>
+            </sc-for>
+          </div>
+          <div style="background: #27272A"></div>
+          <div style="padding: 8px 12px 10px; min-width: 0">
+            <div class="lbl" style="font-size: 10px; margin-bottom: 4px">Monedas</div>
+            <sc-for list="{{monedas}}" as="d" hint-placeholder-count="6">
+              <div class="dn">
+                <b>{{d.etiqueta}}</b>
+                <input type="text" class="pz" value="{{d.piezas}}" aria-label="{{d.aria}}">
+                <em>{{d.importe}}</em>
+              </div>
+            </sc-for>
+          </div>
+          <div style="grid-column: 1 / -1; border-top: 1px solid #27272A; padding: 8px 12px; display: flex; align-items: center; gap: 10px">
+            <label for="mor" style="font-size: 13px; color: #71717A">Morralla <span style="color: #71717A">· menos de 50&cent;</span></label>
+            <div style="flex: 1 1 auto"></div>
+            <input id="mor" type="text" class="pz" style="width: 86px" value="{{morralla}}">
+          </div>
+        </div>
+
+        <!-- EL NÚMERO DE LA PANTALLA. Una sola cifra en este tamaño en toda la vista. -->
+        <div style="flex: none; display: flex; align-items: center; gap: 14px; padding: 12px 14px; border: 1px solid {{vBorde}}; background: {{vBg}}; border-radius: 12px">
+          <div style="min-width: 0">
+            <div class="lbl" style="font-size: 10px">Contado</div>
+            <div class="mono" style="font-size: 40px; font-weight: 700; line-height: 1.02; letter-spacing: -.03em; color: {{vFg}}">{{totalContado}}</div>
+          </div>
+          <div style="flex: 1 1 auto"></div>
+          <div style="text-align: right; min-width: 0">
+            <div style="display: inline-flex; align-items: center; gap: 7px; font-size: 14px; font-weight: 700; color: {{vFg}}">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="{{vIcono}}"></path></svg>
+              {{vTexto}}
+            </div>
+            <div class="mono" style="font-size: 12px; color: #71717A; margin-top: 4px">documento {{movImporte}}</div>
+          </div>
+        </div>
+
+        <sc-if value="{{hayDif}}" hint-placeholder-val="{{ true }}">
+          <p style="margin: 0; font-size: 12px; color: #71717A; line-height: 1.45">
+            El efectivo <strong style="color: #FAFAFA; font-weight: 600">no se rechaza</strong>: se guarda lo contado
+            y la diferencia queda como hallazgo a nombre de quien confirma.
+          </p>
+        </sc-if>
+      </div>
+
+      <!-- La acción, al pie de SU apartado. -->
+      <div style="flex: none; display: flex; align-items: center; gap: 10px; padding: 10px 16px; border-top: 1px solid #27272A">
+        <span style="font-size: 12px; color: #71717A">{{pie}}</span>
+        <div style="flex: 1 1 auto"></div>
+        <button type="button" class="b" style="border: 1px solid #3F3F46; background: #18181B; color: #FAFAFA; font-size: 13px; font-weight: 600; padding: 8px 14px">Saltar</button>
+        <button type="button" class="b" onClick="{{guardar}}" disabled="{{noGuardar}}"
+                style="border: 0; background: {{okBg}}; color: {{okFg}}; font-size: 13px; font-weight: 600; padding: 8px 16px; display: inline-flex; align-items: center; gap: 7px; cursor: {{okCursor}}">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="M4 12.5 9.5 18 20 6.5"></path></svg>
+          Guardar y seguir
+        </button>
+      </div>
+
+      <!-- ⚡ El canje flota: se abre, se resuelve y se va, sin empujar el layout. Es overlay,
+           así que acá sí corresponde sombra + borde (in-page sería sólo borde). -->
+      <sc-if value="{{canje}}" hint-placeholder-val="{{ true }}">
+        <div role="dialog" aria-label="Cambiar billetes o monedas"
+             style="position: fixed; right: 36px; bottom: 36px; width: 420px; background: #18181B; border: 1px solid #3F3F46; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.55); z-index: 5">
+          <div style="display: flex; align-items: center; gap: 8px; padding: 10px 13px; border-bottom: 1px solid #27272A">
+            <strong style="font-size: 13px; font-weight: 700">Cambiar billetes o monedas</strong>
+            <div style="flex: 1 1 auto"></div>
+            <button type="button" class="b" onClick="{{invertir}}"
+                    style="border: 1px solid #3F3F46; background: #18181B; color: #FAFAFA; font-size: 11px; font-weight: 600; padding: 3px 9px">Invertir</button>
+            <button type="button" class="b" aria-label="Cerrar" onClick="{{verCanje}}"
+                    style="border: 0; background: transparent; color: #71717A; width: 24px; height: 24px; display: inline-flex; align-items: center; justify-content: center; padding: 0">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg>
+            </button>
+          </div>
+          <div style="padding: 8px 13px 10px">
+            <div style="display: grid; grid-template-columns: minmax(0,1fr) 58px 58px; gap: 8px; height: 22px; align-items: center">
+              <span></span>
+              <span class="lbl" style="font-size: 10px; text-align: right">Entra</span>
+              <span class="lbl" style="font-size: 10px; text-align: right">Sale</span>
+            </div>
+            <sc-for list="{{canjeFilas}}" as="d" hint-placeholder-count="11">
+              <div style="display: grid; grid-template-columns: minmax(0,1fr) 58px 58px; gap: 8px; height: 28px; align-items: center">
+                <b class="mono" style="font-size: 13px; font-weight: 500; color: #71717A">{{d.etiqueta}}</b>
+                <input type="text" class="pz" value="{{d.entra}}" aria-label="{{d.ariaEntra}}">
+                <input type="text" class="pz" value="{{d.sale}}" aria-label="{{d.ariaSale}}">
+              </div>
+            </sc-for>
+          </div>
+          <div style="padding: 9px 13px; border-top: 1px solid #27272A; background: {{canjeBg}}; display: flex; align-items: center; gap: 10px">
+            <div style="min-width: 0">
+              <div class="mono" style="font-size: 11px; color: #71717A">entra {{canjeIn}} · sale {{canjeOut}}</div>
+              <div style="font-size: 13px; font-weight: 700; color: {{canjeFg}}; margin-top: 2px">{{canjeTexto}}</div>
+            </div>
+            <div style="flex: 1 1 auto"></div>
+            <button type="button" class="b" disabled="{{canjeNo}}"
+                    style="border: 0; background: {{canjeBtnBg}}; color: {{canjeBtnFg}}; font-size: 12px; font-weight: 600; padding: 6px 12px; cursor: {{canjeCursor}}">Aplicar</button>
+          </div>
+          <p style="margin: 0; padding: 0 13px 10px; font-size: 11px; color: #71717A">
+            No mueve el monto de la caja: sólo cambia la mezcla. Va en los dos sentidos.
+          </p>
+        </div>
+      </sc-if>
+    </section>
+  </div>
+</div>
+</x-dc>
+
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+// La reja, en UN solo lugar: el arqueo y el canje cuentan la misma caja. Cinco billetes y seis
+// monedas, que es lo que la caja desglosa de verdad (el de $1,000 no circula acá).
+// ⚠️ '20m' es la MONEDA de $20, no el billete: valen lo mismo y son dos pilas distintas.
+const BILLETES = [
+  { k: '500', v: 500 }, { k: '200', v: 200 }, { k: '100', v: 100 },
+  { k: '50', v: 50 }, { k: '20', v: 20 }
+];
+const MONEDAS = [
+  { k: '20m', v: 20, suf: ' moneda' }, { k: '10', v: 10 }, { k: '5', v: 5 },
+  { k: '2', v: 2 }, { k: '1', v: 1 }, { k: '0.5', v: 0.5 }
+];
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = {
+      jornada: false,
+      canje: false,
+      sel: 0,
+      hechos: 0,
+      piezas: { '500': 6, '200': 1, '100': 1, '2': 4 },
+      morralla: 0.5,
+      cEntra: { '500': 1 },
+      cSale: { '20m': 10, '10': 20, '5': 20 }
+    };
+  }
+
+  renderVals() {
+    const mx = (x) => '$' + Number(x).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    // La cola real de la pantalla: cuatro ingresos de ruta y los gastos de caja chica.
+    const filas = [
+      { f: '07/10/26', n: 'SUPER SERVICIOS GARBRI SA DE CV', doc: 'X-D-26 0022799', m: 3308.94, sale: true, trabada: true, cuenta: 'sin cuenta declarada' },
+      { f: '07/10/26', n: 'PASE, SERVICIOS ELECTRONICOS', doc: 'X-A-45 0000281', m: 1900.00, sale: false, trabada: true, cuenta: 'sin cuenta declarada' },
+      { f: '07/10/26', n: 'MARIA DEL CARMEN MONROY MIER', doc: 'X-A-45 0000280', m: 1090.00, sale: false, trabada: true, cuenta: 'sin cuenta declarada' },
+      { f: '07/10/26', n: 'TONY TIENDAS SA DE CV', doc: 'X-A-45 0000278', m: 297.24, sale: false, trabada: true, cuenta: 'sin cuenta declarada' },
+      { f: '05/10/26', n: 'RED DE CARRETERAS DE OCCIDENTE', doc: 'X-D-26 0022708', m: 261.00, sale: true, trabada: false, cuenta: '201 · GASTOS GENERALES' },
+      { f: '05/10/26', n: 'GASTOS GENERALES CAJA CHICA MORELIA ABASTOS', doc: 'X-D-26 0022707', m: 144.00, sale: true, trabada: false, cuenta: '201 · GASTOS GENERALES' },
+      { f: '05/10/26', n: 'GASTOS GENERALES CAJA CHICA MORELIA MADERO', doc: 'X-D-26 0022705', m: 201.00, sale: true, trabada: false, cuenta: '201 · GASTOS GENERALES' },
+      { f: '05/10/26', n: 'GASTOS GENERALES CAJA CHICA LOGISTICA', doc: 'X-D-26 0022703', m: 60.00, sale: true, trabada: false, cuenta: '201 · GASTOS GENERALES' },
+      { f: '05/10/26', n: 'GASTOS GENERALES CAJA CHICA LOGISTICA', doc: 'X-D-26 0022702', m: 98.00, sale: true, trabada: false, cuenta: '201 · GASTOS GENERALES' },
+      { f: '05/10/26', n: 'COMBUSTIBLES Y LUBRICANTES CEDIS', doc: 'X-D-26 0022701', m: 700.00, sale: true, trabada: false, cuenta: '606 · COMBUSTIBLES' }
+    ];
+
+    const sel = Math.min(this.state.sel || 0, filas.length - 1);
+    const act = filas[sel];
+    const FLECHA_SALE = 'M12 19V5M5 12l7-7 7 7';
+    const FLECHA_ENTRA = 'M12 5v14M5 12l7 7 7-7';
+
+    const pz = this.state.piezas || {};
+    let total = 0;
+    const arma = (lista) => lista.map((d) => {
+      const q = Number(pz[d.k] || 0);
+      total += q * d.v;
+      return {
+        etiqueta: (d.v >= 1 ? '$' + d.v : '$0.50'),
+        piezas: q ? String(q) : '',
+        importe: q ? mx(q * d.v) : '—',
+        aria: 'Piezas de ' + (d.suf ? 'la moneda de ' : 'el billete de ') + d.v
+      };
+    });
+    const billetes = arma(BILLETES);
+    const monedas = arma(MONEDAS);
+    const morralla = Math.max(0, Number(this.state.morralla) || 0);
+    total += morralla;
+
+    // Tres ausencias distintas, tres textos distintos (ADR-056): sin contar no es que no
+    // cuadre, y "sin documento" no es un cuadre verde que nadie comprobó.
+    const esperado = act.m;
+    const vacio = total <= 0;
+    const dif = Math.round((total - esperado) * 100) / 100;
+    const cuadra = !vacio && Math.abs(dif) < 0.005;
+    const neutro = vacio;
+
+    // ── El canje: una sola reja, dos columnas. Entra y Sale son simétricas ───────────────
+    const TODAS = BILLETES.concat(MONEDAS);
+    const eIn = this.state.cEntra || {};
+    const eOut = this.state.cSale || {};
+    const suma = (m) => TODAS.reduce((a, d) => a + Number(m[d.k] || 0) * d.v, 0);
+    const entra = suma(eIn); const sale = suma(eOut);
+    const cuadraCanje = entra > 0 && Math.abs(entra - sale) < 0.005;
+
+    return {
+      // ── la jornada, plegada ──────────────────────────────────────────────────────────
+      jornadaOn: !!this.state.jornada,
+      caret: this.state.jornada ? 'transform: rotate(180deg)' : '',
+      verJornada: () => this.setState({ jornada: !this.state.jornada }),
+      resumenJornada: '44 por confirmar · libro $0.00',
+      hechos: String(this.state.hechos || 0),
+
+      // ── 1 · qué vas a arquear ────────────────────────────────────────────────────────
+      movNombre: act.n,
+      movDoc: act.doc,
+      movFecha: act.f,
+      movImporte: mx(act.m),
+      movCuenta: act.cuenta,
+      signoTexto: act.sale ? 'Sale' : 'Entra',
+      signoIcono: act.sale ? FLECHA_SALE : FLECHA_ENTRA,
+      signoBg: act.sale ? '#2A1F07' : '#0B2E18',
+      signoFg: act.sale ? '#FDE68A' : '#4ADE80',
+
+      quedan: String(filas.length - 1),
+      cola: filas.map((x, i) => ({
+        fecha: x.f,
+        nombre: x.n,
+        importe: mx(x.m),
+        trabada: x.trabada,
+        signoIcono: x.sale ? FLECHA_SALE : FLECHA_ENTRA,
+        signoFg: x.sale ? '#FDE68A' : '#4ADE80',
+        bg: i === sel ? '#2A1A10' : 'transparent',
+        elegir: () => this.setState({ sel: i })
+      })),
+
+      // ── 2 · el arqueo ────────────────────────────────────────────────────────────────
+      billetes, monedas,
+      morralla: morralla ? morralla.toFixed(2) : '',
+      totalContado: mx(total),
+      vBg: neutro ? '#09090B' : (cuadra ? '#0B2E18' : '#2A1F07'),
+      vBorde: neutro ? '#27272A' : (cuadra ? '#4ADE80' : '#78501A'),
+      vFg: neutro ? '#71717A' : (cuadra ? '#4ADE80' : '#FDE68A'),
+      vTexto: vacio ? 'Sin contar' : (cuadra ? 'Cuadra con el documento'
+        : (dif > 0 ? 'Sobra ' + mx(dif) : 'Falta ' + mx(-dif))),
+      vIcono: (!neutro && cuadra) ? 'M4 12.5 9.5 18 20 6.5' : 'M12 7v6M12 16h.01',
+      hayDif: !neutro && !cuadra,
+
+      pie: act.trabada ? 'Falta declarar la cuenta de este beneficiario.' : 'Falta elegir el concepto.',
+      noGuardar: vacio,
+      okBg: vacio ? '#27272A' : '#F05A28',
+      okFg: vacio ? '#71717A' : '#18181B',
+      okCursor: vacio ? 'not-allowed' : 'pointer',
+      guardar: () => this.setState({
+        hechos: (this.state.hechos || 0) + 1,
+        sel: Math.min(sel + 1, filas.length - 1),
+        piezas: {}, morralla: 0
+      }),
+
+      // ── el canje ─────────────────────────────────────────────────────────────────────
+      canje: !!this.state.canje,
+      verCanje: () => this.setState({ canje: !this.state.canje }),
+      invertir: () => this.setState({ cEntra: this.state.cSale || {}, cSale: this.state.cEntra || {} }),
+      canjeFilas: TODAS.map((d) => ({
+        etiqueta: (d.v >= 1 ? '$' + d.v : '$0.50') + (d.suf || ''),
+        entra: eIn[d.k] ? String(eIn[d.k]) : '',
+        sale: eOut[d.k] ? String(eOut[d.k]) : '',
+        ariaEntra: 'Entran piezas de ' + d.v + (d.suf || ''),
+        ariaSale: 'Salen piezas de ' + d.v + (d.suf || '')
+      })),
+      canjeIn: mx(entra),
+      canjeOut: mx(sale),
+      canjeTexto: cuadraCanje ? 'Cuadra'
+        : (entra === 0 && sale === 0 ? 'Sin canje' : 'Difieren ' + mx(Math.abs(entra - sale)) + ' — esto no es un canje'),
+      canjeFg: cuadraCanje ? '#4ADE80' : (entra === 0 && sale === 0 ? '#71717A' : '#FDE68A'),
+      canjeBg: cuadraCanje ? '#0B2E18' : (entra === 0 && sale === 0 ? '#09090B' : '#2A1F07'),
+      canjeNo: !cuadraCanje,
+      canjeBtnBg: cuadraCanje ? '#F05A28' : '#27272A',
+      canjeBtnFg: cuadraCanje ? '#18181B' : '#71717A',
+      canjeCursor: cuadraCanje ? 'pointer' : 'not-allowed'
+    };
+  }
+}
+</script>
+</body>
+</html>
