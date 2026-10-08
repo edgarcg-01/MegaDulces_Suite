@@ -168,7 +168,7 @@ describe('[MS.7.3] configuración — la tarjeta Zonas', () => {
     c.alternarZona('z2', false);
     expect(api['updateZone']).toHaveBeenCalledWith('z2', { active: true });
     c.cambiarPreguntaZona('q1', false, true);
-    expect(api['updateQueue']).toHaveBeenCalledWith('q1', { asks_zone: true, confidential: false, uses_priority: true, sla_enabled: true });
+    expect(api['updateQueue']).toHaveBeenCalledWith('q1', { asks_zone: true });
     c.cambiarPreguntaZona('q1', true, true); // sin cambio → no llama
     expect(api['updateQueue']).toHaveBeenCalledTimes(1);
   });
