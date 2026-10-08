@@ -25,6 +25,7 @@ describe('CATALOGO_TABS', () => {
     expect(CATALOGO_TABS.map((tab) => [tab.label, tab.route])).toEqual([
       ['Resumen', '/compras/catalogo/resumen'],
       ['Productos', '/compras/catalogo'],
+      ['Productos nuevos', '/compras/catalogo/nuevos'],
       ['Solicitudes', '/compras/catalogo/solicitudes'],
       ['Incidencias', '/compras/catalogo/incidencias'],
       ['Costos', '/compras/catalogo/costos'],
@@ -69,6 +70,25 @@ describe('CATALOGO_TABS', () => {
     const bloque = fuente.slice(i, fuente.indexOf('}', i));
     expect(bloque).toContain('ComprasCatalogoCostosComponent');
     expect(bloque).toContain('permissionGuard(Permission.COMPRAS_COSTO_ESTANDAR_VER)');
+  });
+
+  /**
+   * `[NP.5]` Productos nuevos es pantalla real, con el permiso del catálogo en tab y ruta.
+   * `[negativa]` Si la ruta pidiera el permiso de costo, quien ve el catálogo vería un tab que
+   * rebota; el costo lo recorta el servidor, no la ruta.
+   */
+  it('Productos nuevos: tab y ruta piden COMMERCIAL_PRODUCTS_VER y abren su componente', () => {
+    const tab = CATALOGO_TABS.find((t) => t.label === 'Productos nuevos');
+    expect(tab?.permission).toBe(Permission.COMMERCIAL_PRODUCTS_VER);
+
+    const ruta = TODAS.find((r) => r.path === 'catalogo/nuevos');
+    expect(ruta?.data?.['catalogoApartado']).toBeUndefined();
+
+    const fuente = readFileSync(join(__dirname, '../../app.routes.ts'), 'utf8');
+    const i = fuente.indexOf(`path: 'catalogo/nuevos'`);
+    const bloque = fuente.slice(i, fuente.indexOf('}', i));
+    expect(bloque).toContain('ComprasCatalogoNuevosComponent');
+    expect(bloque).toContain('permissionGuard(Permission.COMMERCIAL_PRODUCTS_VER)');
   });
 
   it('cada tab apunta a una ruta que existe en el árbol real', () => {

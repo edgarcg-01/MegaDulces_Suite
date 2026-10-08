@@ -28,6 +28,8 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CATALOGO_TABS } from '../catalogo-tabs';
+import { ProductosNuevosService } from '../productos-nuevos.service';
+import { catchError, of } from 'rxjs';
 
 @Component({
   selector: 'app-compras-catalogo',
@@ -227,6 +229,9 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
                     <div class="comm-cell-strong" [pTooltip]="p.description || ''" tooltipPosition="right" [tooltipDisabled]="!p.description">
                       {{ p.nombre }}
                     </div>
+                    @if (nuevo(p.id); as nv) {
+                      <span class="pp-nuevo" pTooltip="Producto nuevo en seguimiento: ver la pestaña Productos nuevos">{{ nv }}</span>
+                    }
                     @if (p.barcode) {
                       <div class="comm-muted is-small">{{ p.barcode }}</div>
                     }
@@ -395,6 +400,8 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
       </p-dialog>
     `,
   styles: [`
+    .pp-nuevo { display: inline-block; margin-top: .2rem; padding: .05rem .45rem; border-radius: 999px;
+      border: 1px solid var(--action); font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--c-text-1); }
     :host { display: block; }
     .pp-head-actions { display: flex; gap: 0.5rem; align-items: center; }
     .pp-divider { opacity: 0.4; }
@@ -630,6 +637,25 @@ export class ComprasCatalogoComponent {
     stream: () => this.api.productSuppliers(),
   });
   readonly suppliers = computed<ProductSupplierOption[]>(() => this.suppliersRes.value() ?? []);
+
+  // [NP.5] La etiqueta "Nuevo · dia N". Se pide UNA vez; si falla, la lista sigue sin etiqueta:
+  // el catalogo no puede caerse porque el seguimiento de nuevos no respondio.
+  private readonly nuevos = inject(ProductosNuevosService);
+  private readonly nuevosRes = rxResource({
+    params: () => true,
+    stream: () => this.nuevos.listar().pipe(catchError(() => of(null))),
+  });
+  private readonly etiquetasNuevo = computed(() => {
+    const m = new Map<string, string>();
+    for (const f of this.nuevosRes.value()?.filas ?? []) {
+      if (f.estado === 'seguimiento' && f.etapa !== 'graduado' && f.dia !== null) m.set(f.product_id, `Nuevo · día ${f.dia}`);
+      else if (f.estado === 'sin_movimiento') m.set(f.product_id, 'Nuevo · sin movimiento');
+    }
+    return m;
+  });
+  nuevo(id: string): string | null {
+    return this.etiquetasNuevo().get(id) ?? null;
+  }
 
   // Edit dialog
   readonly editing = signal<Product | null>(null);

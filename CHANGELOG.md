@@ -92,6 +92,23 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Added — Productos nuevos en las unidades de Kepler (NP.11, 2026-10-07)
+- Lo vendido y lo recibido se muestran como Kepler los registró: "23 cajas · 86 piezas", "6 de 500 g". Cada rótulo por su lado, sin convertir. Sale del renglón (`c55/c56` cuando su identidad cierra; si no, la unidad base).
+- La existencia de cada sucursal va en la unidad de su ficha de Kepler, con su equivalente en la unidad mayor sólo si la ficha la declara: "Hay 24 piezas (2 cajas)".
+- La venta de ruta y de plazas en Wincaja no trae unidad de Kepler: se dice cuánto es, en pesos.
+- Se quitó del panel la clasificación manual ("¿Qué es este código?") y el filtro "Por confirmar" (NP.12). Las exclusiones automáticas siguen.
+
+### Added — Productos nuevos: ¿conviene volver a comprarlo?, en vivo y por sucursal (NP.8–NP.10, 2026-10-07)
+- Cada producto nuevo trae una **recomendación** (Recomprar · Esperar · Revisar · No recomprar · Aún es pronto) con sus motivos, global y por sucursal. Criterio visible en pantalla y en `CRITERIO_RECOMPRA`; es una propuesta a calibrar con Compras. Mide rotación y recuperación de lo invertido, no margen.
+- **En vivo**: la venta, las entradas y la existencia de hoy salen del ODS (`fn_new_products_movimientos`, índice nuevo `ix_kdm1_compra_fecha`); la historia cierra de noche y nada se cuenta dos veces. La pantalla se actualiza sola cada minuto. La venta de ruta y de plazas en Wincaja se suma al cierre (declarado).
+- **Rediseño**: la lista muestra el comportamiento global (venta por semana, vendido contra invertido, hitos, sucursales) y al hacer clic un panel lateral con cada sucursal.
+
+### Added — Compras › Catálogo › Productos nuevos: seguimiento a 30, 60 y 90 días (NP.1–NP.5, 2026-10-07)
+- **Pestaña nueva** `/compras/catalogo/nuevos` y etiqueta **"Nuevo · día N"** en la lista de Productos. Cada código que entra al catálogo se sigue 90 días desde su **primera entrada o venta** (no desde el alta): inversión (importe de las entradas de Kepler), venta, venta por cada $1 invertido, recompra al proveedor y plazas, por producto y por **mes de lanzamiento**.
+- **Se deriva del ODS** (`analytics.mv_new_products`, refresco nocturno con latido y umbral): nadie tiene que etiquetar nada. Compras sólo **confirma** qué es cada código (nuevo / recodificación / promoción / no mercancía) en `catalog.new_product_reviews`, y lo que no es lanzamiento sale de los KPIs.
+- **Lo que no se mide se declara**: inversión sin entrada en Kepler = "no medida" (no $0); sin 90 días de historia en sus fuentes = "no medible"; las cargas masivas al catálogo no cuentan como altas; sin margen (ADR-051). El costo sólo viaja con `COMPRAS_COSTO_ESTANDAR_VER`.
+- Candado de base **102/102** con prueba negativa; unitarias 20 + 12 + 7. ⚠️ **Nada en prod**: falta `[NP.0]` (decodificar la fecha de alta de Kepler y medir contra prod), aplicar 2 migraciones y redeploy. Plan en [`FASE_NP`](docs/IMPLEMENTACION/FASES/FASE_NP_PRODUCTOS_NUEVOS.md).
+
 ### Fixed — `/compras/pedido`: el testigo del crash estaba ciego, el CLS de toda la app se guardaba en 0, y la píldora no podía decir la edad del dato (RA-PERF.5–8, 2026-10-07)
 - **El guard del "Maximum call stack" llevaba 69 días sin poder disparar.** Medía `(new Error().stack).split('\n').length > 300` y **`Error.stackTraceLimit` vale 10 por default en V8**: con **500 marcos reales anidados esa expresión devuelve 11**. Por eso la causa del crash nunca se identificó — el instrumento no veía nada, y encima pagaba un `queueMicrotask` por tick. Ahora sube el límite antes de capturar y mide **dos** señales: profundidad real y **re-entrada** (cuántas veces aparece `money` en su propio stack), que es la señal sin umbral. ⚠️ **La causa raíz sigue abierta**; lo que se arregló es que ahora haya cómo verla.
 - **Y el crash no salía del navegador**: el `throw` muere dentro de una expresión de template y lo come el `ErrorHandler` de Angular. Medido en prod: en 30 días hay **un solo** evento `kind='error'`, de `/portal/login`. El diagnóstico ahora se reporta por telemetría.
