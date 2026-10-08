@@ -412,3 +412,89 @@ manual se **retira** (segura porque en la misma fase se construye la materializa
 **Pendiente:** verificación HTTP (ADR-044); migs `20260918220000`/`230000` a prod; push + redeploy.
 **Declarado (trade-off):** retirar el «Meta» por celda quita la válvula de escape de ADR-069 (corregir una celda
 obliga a re-proponer). Reversible si estorba.
+
+---
+
+## Fase PVI — Integridad del supuesto de VENTAS (auditoría PU.VI · 2026-10-08)
+
+⚠️ **ADR pendiente de número** — asignar contra `02_DECISIONES_ARQUITECTURA.md` antes de citarlo.
+No se reserva uno acá a propósito: ADR-052 ya estuvo **triple-ocupado** y ADR-048 colisionó con CxC.
+
+Auditoría de ingresos pedida por Edgar (*«necesitamos una verdad absoluta antes de iniciar… antes de
+crear todas nuestras herramientas»*), corrida **read-only contra prod** el 2026-10-08 dentro del pod
+`api-75c847b79b-cvqpl`. Hermana del carril de GASTOS (ledger/egresos) y del de TESORERÍA, que
+midieron en paralelo. **Verdades completas en [`VERDAD_ABSOLUTA.md` §24](../../VERDAD_ABSOLUTA.md).**
+
+**El veredicto, en una línea:** el plan proyecta **+26.67 %** sobre un negocio comparable que se
+**contrae 2.95 %**; el crecimiento que el motor cree ver es **cobertura del propio pipeline**
+entrando al fact. **$0 de los $604,775,116 de meta** descansan sobre un crecimiento defendible.
+
+| canal | % meta | presupuestado | real comparable | veredicto |
+|---|---:|---:|---:|---|
+| mostrador | 58.46 % | +21.05 % | **−2.82 %** | ⛔ signo invertido |
+| mayoreo | 28.10 % | +26.67 % | **−9.36 %** | ⛔ signo invertido |
+| preventa | 4.60 % | +51.21 % | +18.62 % | ⛔ desviado 32.6 pp |
+| ruta | 8.84 % | +8.26 % | **+13.98 %** | ⚠️ **subestimado** |
+
+⭐ **Dos ejercicios con defectos OPUESTOS, y ninguno sirve de base:** el FY2026 cubre los 13 periodos
+con forma de año correcta pero **24.5 % de su meta es `proxy_canal` fabricado**; el FY2027 tiene
+importes honestos pero **le faltan P11/P12/P13** (27.37 % del año en FY2025).
+
+### El plan
+
+- **PVI.0 ⬜ Recomputar los supuestos (sin código, ruta crítica).** Los `sales_plan_settings` del
+  ejercicio vivo son de las **00:16 Z**; el fix del canal canónico (§23, mig `20261007202137`)
+  entró a prod a las **14:15 Z** y los supuestos **nunca se recomputaron**. Volver a correr
+  `proposeGrowth` + `proposePlan`. **Prueba negativa obligatoria:** si `mayoreo` vuelve a dar
+  **exactamente** el `default_growth_pct`, su YoY sigue sin poder calcularse y hay una segunda
+  causa — no se da por arreglado.
+- **PVI.1 ⬜ Pareo por ENTIDAD con cobertura de periodos** ⭐ *lo que cierra el defecto de fondo*.
+  Hoy `yoy` exige `e.a > 0 && e.b > 0` sobre el **agregado del canal**
+  (`budget-sales-plan.service.ts:283`), así que una plaza que nace en el año nuevo infla sin
+  contraparte y una base de $230,601 contra $39 M **parea**. Cambiar a: entidad comparable = venta
+  en **≥ N de los periodos cerrados en AMBOS años**; las no comparables se **declaran**, no se
+  promedian ni se descartan en silencio. **Prueba negativa:** `mostrador:03` tiene que quedar
+  **EXCLUIDO**; si entra, el gate es un no-op y se lee igual que «no hay contaminación».
+- **PVI.2 ⬜ `proxy_canal` no puede publicar sin declarar que no tiene base.** Hoy escribe
+  `base_amount` **NULL** y reparte **el mismo importe a cada entidad del canal** sin mirar su
+  tamaño: **$197,160,564** sobre 8 entidades cuya historia real suma **$19,063,383** (10.3×;
+  `mayoreo:05` recibe 2,860× lo suyo). Dos caminos: (a) escribir el proxy en `base_amount` con su
+  origen explícito, o (b) bloquear el método y caer a `sin_base_declarado`. **Lo que no puede
+  seguir** es que una meta inventada se vea igual que una medida.
+- **PVI.3 ⬜ Persistir el `basis` del supuesto.** `proposeGrowth` calcula
+  `yoy_paired | global | default` + `paired_periods` y **los tira**: `growth_by_channel` guarda
+  números pelados. Sin eso nadie puede auditar un supuesto sin recomputarlo — y fue lo único que
+  delató a `mayoreo` (26.67 % = el `default` al decimal). Hereda ADR-056 (el número carga con qué
+  se calculó).
+- **PVI.4 ⬜ El hueco del Q4 — decisión de negocio, no técnica.** 99 renglones (33 entidades ×
+  P11/P12/P13) en `sin_base_declarado` con meta **$0.00**. En FY2025 esos tres periodos valieron
+  **$166,571,225 = 27.37 %** del año, y son los más fuertes. O se proyectan, o el ejercicio
+  **declara que cubre 10 de 13 periodos**. ⛔ Lo que no se puede es publicarlo como si fuera un año.
+  ⚠️ Cae en **el mismo trimestre** que el relleno plano del lado del gasto: es un solo defecto
+  estructural visto de dos lados, no dos.
+- **PVI.5 ⬜ Desambiguar `method`.** `estacional` significa **índice por entidad con fallback al
+  canal** en ventas y **promedio plano** en gastos. El mismo string, dos cálculos. Renombrar uno de
+  los dos; es defecto de contrato, no bug de ninguno.
+- **PVI.6 ⬜ Limpieza.** (a) Borrar el FY2027 **duplicado** (dos ejercicios byte a byte, timestamps
+  a 1 s) — agregado por `fiscal_year` publica **$1,209,550,232** en vez de $604,775,116. (b) Filtrar
+  la basura de fecha del rollup (6 filas en FY2014/2020/2024, **$40,292**).
+- **PVI.7 ⬜ El COGS en el presupuesto — decisión de negocio.** `budget.budget_lines` sólo tiene
+  `ingreso` y `gasto`; `costo_ventas`, `compra_inventario`, `inversion` y `flujo` existen en el
+  CHECK con **cero** filas. Por eso meta − egreso da **87.62 %** contra un margen medido de
+  **11.87 %**. **Sin esto no hay margen ni viabilidad que dictaminar** (pregunta 4 del encargo).
+- **PVI.8 ⬜ El candado.** Test que compara, por canal, el crecimiento **publicado** contra el
+  **comparable**, y se pone rojo pasados N pp. Con **control positivo del propio detector**: un
+  umbral que nunca dispara se lee igual que «no hay desviación». Patrón de
+  `test-newdb-branch-cutover.js`.
+
+**MVP = PVI.0 → PVI.1 → PVI.3.** Sin esos tres, cualquier herramienta que se construya encima
+hereda un supuesto refutado.
+
+**Pendiente humano (no es código):** asignar el ADR · decidir el Q4 (PVI.4) · decidir el COGS
+(PVI.7) · **fijar los umbrales en `analytics.kpi_thresholds`** — hay **tres encargos en circulación**
+con cifras distintas para la misma regla, y un umbral escrito en un prompt no tiene versión ni dueño
+y **se bifurca cada vez que se escribe un encargo**.
+
+**Declarado, no construido:** la reconstrucción de «meta defendible» (mi primer intento dio
+$748,059,625 y quedó **refutado** — usaba un global contaminado por la misma cobertura). Proyectar
+2027 exige decidir antes PVI.1 y PVI.4; no se dibuja una cifra mientras tanto.
