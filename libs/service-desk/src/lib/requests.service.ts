@@ -17,6 +17,7 @@ import type { Knex } from 'knex';
 import {
   BITACORA_PORT,
   SD_IMPACTS,
+  SD_PAUSE_REASONS,
   SD_PRIORITIES,
   SD_STATUSES,
   type SdActor,
@@ -27,17 +28,21 @@ import {
   type SdChannel,
   type SdCloseReason,
   type SdCreateRequestDto,
+  type SdExtraValueDto,
   type SdImpact,
   type SdListResponse,
   type SdLogTimeDto,
   type SdMessageDto,
   type SdMessageKind,
+  type SdPauseReason,
   type SdPostMessageDto,
   type SdPriority,
   type SdRequestDetail,
   type SdRequestRow,
   type SdSlaView,
   type SdStatsResponse,
+  type SdTransferDto,
+  type SdTransferResult,
   type SdWorkLogEntryDto,
   type SdStatus,
   type SdVisibility,
@@ -50,8 +55,11 @@ import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskRoutingService } from './routing.service';
 import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
-import { efectosDe, motivoDeCierre, puedeTransicionar, TRANSICIONES } from './domain/request-state';
+import { efectosDe, motivoDeCierre, puedeTransicionar, respuestaReanuda, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
+import { estadoTrasTraslado, terminaEspera, validarTraslado } from './domain/traslado';
+import { normalizarUbicacion } from './ubicacion.util';
+import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
 import { accesoATicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
 import { fechaValida } from './domain/report-period';
@@ -78,6 +86,10 @@ interface RequestRow {
   impact: SdImpact;
   blocks_work: boolean;
   safety_risk?: boolean | null;
+  zone_code?: string | null;
+  zone_name?: string | null;
+  pause_reason?: string | null;
+  extra?: Record<string, unknown> | null;
   status: SdStatus;
   requester_id: string;
   requester_name: string | null;
@@ -220,7 +232,7 @@ export class ServiceDeskRequestsService {
           .where('c.id', dto.category_id)
           .where({ 'c.active': true, 'q.active': true })
           .whereNull('c.deleted_at')
-          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model');
+          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model', 'q.asks_zone');
         if (!cat) throw new BadRequestException('La categoría no existe o no está disponible');
         if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la ubicación');
         /*
@@ -233,6 +245,28 @@ export class ServiceDeskRequestsService {
           throw new BadRequestException('Indica si hay riesgo para personas (sí o no): sin eso no se puede sugerir la prioridad de esta área');
         }
         const riesgo: boolean | null = modelo === 'riesgo_operacion' ? (dto.safety_risk as boolean) : null;
+        /*
+         * `[MS.7.3]` La zona es el LUGAR dentro de la ubicación y sólo la pregunta una cola que lo declara (`asks_zone`, por
+         * valor, no por nombre). Si la cola no la pregunta se IGNORA y queda NULL; si la pregunta y llega, debe ser una zona
+         * ACTIVA del catálogo (no hay zonas inventadas). Es opcional: sin zona se levanta igual.
+         */
+        let zona: string | null = null;
+        if (cat.asks_zone && typeof dto.zone_code === 'string' && dto.zone_code.trim() !== '') {
+          const z = await trx('servicedesk.zones').where({ code: dto.zone_code.trim(), active: true }).first('code');
+          if (!z) throw new BadRequestException('La zona indicada no existe o está apagada');
+          zona = z.code as string;
+        }
+        /*
+         * `[MS.7.4]` + `[MS.7.8]` Los campos propios de la cola: se validan contra sus definiciones ACTIVAS. Una clave que la cola no
+         * declara se RECHAZA (no se ignora); un requerido sin contestar, un tipo equivocado o una opción fuera de la lista → 400; una
+         * foto requerida exige al menos un adjunto. Una cola sin campos ni `extra` guarda `{}` (TI no cambia).
+         */
+        const defs = (await trx('servicedesk.queue_fields')
+          .where({ queue_id: cat.queue_id, active: true })
+          .orderBy([{ column: 'sort_order' }, { column: 'label' }])
+          .select('code', 'label', 'type', 'required', 'options')) as { code: string; label: string; type: CampoDef['type']; required: boolean; options: string[] }[];
+        const extraValidado = validarCamposExtra(defs, dto.extra, preparados.length);
+        if (extraValidado.errores.length) throw new BadRequestException(extraValidado.errores.join('. '));
 
         // El solicitante es quien llama, salvo que quien atiende haya indicado a otra persona.
         const solicitanteId = pidioOtro ? (dto.requester_id as string) : ctx.userId;
@@ -275,6 +309,8 @@ export class ServiceDeskRequestsService {
             impact,
             blocks_work: blocksWork,
             safety_risk: riesgo,
+            zone_code: zona,
+            extra: JSON.stringify(extraValidado.valores),
             status: 'nuevo',
             requester_id: solicitanteId,
             requester_name: nombreSolicitante,
@@ -308,20 +344,20 @@ export class ServiceDeskRequestsService {
          * nace — nunca queda «nuevo» un instante en que otra persona pueda tomarlo y pelearse con la regla.
          * Si la regla gana pero su destino no puede atender, el ticket queda SIN asignar y una nota interna lo dice.
          */
-        const destino = await this.routing.resolver(trx, { title, description, categoryId: cat.id }, cat.queue_id);
+        const destino = await this.routing.resolver(trx, { title, description, categoryId: cat.id, warehouseCode: warehouse }, cat.queue_id);
         let asignadoA: string | null = null;
         if (destino?.asignable) {
           const row = await this.bloquear(trx, id);
           if (row) {
-            const m = destino.resultado.motivo;
-            efectos = juntar(
-              efectos,
-              await this.asignarA(trx, row, destino.resultado.regla.assignee_id, SISTEMA, now, null, {
-                automatico: true,
-                meta: { auto: true, rule_id: destino.resultado.regla.id, rule_name: destino.resultado.regla.name, reason: m.tipo === 'categoria' ? 'category' : 'keyword', keyword: m.tipo === 'palabra' ? m.palabra : null },
-              }),
-            );
-            asignadoA = destino.resultado.regla.assignee_id;
+            const o = destino.origen;
+            // `[MS.7.10]` Por qué le tocó se guarda en el hilo, para que se vea: una regla (por categoría, palabra o ubicación) o el
+            // responsable por omisión del área cuando ninguna regla aplicó.
+            const meta =
+              o.tipo === 'default'
+                ? { auto: true, rule_id: null, rule_name: null, reason: 'default', keyword: null }
+                : { auto: true, rule_id: o.regla.id, rule_name: o.regla.name, reason: o.motivo.tipo === 'categoria' ? 'category' : o.motivo.tipo === 'ubicacion' ? 'location' : 'keyword', keyword: o.motivo.tipo === 'palabra' ? o.motivo.palabra : null };
+            efectos = juntar(efectos, await this.asignarA(trx, row, destino.assigneeId, SISTEMA, now, null, { automatico: true, meta }));
+            asignadoA = destino.assigneeId;
           }
         } else if (destino) {
           await this.addMessage(trx, tenantId, id, {
@@ -329,8 +365,11 @@ export class ServiceDeskRequestsService {
             visibility: 'internal',
             authorId: null,
             authorLabel: 'Sistema',
-            body: `Asignación automática omitida: la regla «${destino.resultado.regla.name}» apunta a ${destino.assigneeName ?? 'una persona que ya no existe'}, que hoy no puede atender solicitudes de la Mesa de Servicio. Queda sin asignar.`,
-            meta: { auto: true, skipped: true, rule_id: destino.resultado.regla.id },
+            body:
+              destino.origen.tipo === 'default'
+                ? `Asignación automática omitida: el responsable por omisión del área es ${destino.assigneeName ?? 'una persona que ya no existe'}, que hoy no puede atender solicitudes de esta cola. Queda sin asignar.`
+                : `Asignación automática omitida: la regla «${destino.origen.regla.name}» apunta a ${destino.assigneeName ?? 'una persona que ya no existe'}, que hoy no puede atender solicitudes de la Mesa de Servicio. Queda sin asignar.`,
+            meta: { auto: true, skipped: true, rule_id: destino.origen.tipo === 'default' ? null : destino.origen.regla.id, ...(destino.origen.tipo === 'default' ? { reason: 'default' } : {}) },
           });
         }
 
@@ -534,8 +573,20 @@ export class ServiceDeskRequestsService {
         })),
       );
 
+      // `[MS.7.4]` Lo contestado en los campos propios, con la pregunta tal como se llamaba. Se leen TAMBIÉN los apagados: apagar
+      // un campo no borra la respuesta de los tickets viejos ni su pregunta.
+      const camposDeLaCola = (await trx('servicedesk.queue_fields')
+        .where({ queue_id: r.queue_id })
+        .orderBy([{ column: 'sort_order' }, { column: 'label' }])
+        .select('code', 'label', 'type')) as { code: string; label: string; type: SdExtraValueDto['type'] }[];
+      const guardado = r.extra ?? {};
+      const extra: SdExtraValueDto[] = camposDeLaCola
+        .filter((f) => f.type !== 'photo' && (typeof guardado[f.code] === 'boolean' || typeof guardado[f.code] === 'string'))
+        .map((f) => ({ code: f.code, label: f.label, type: f.type, value: guardado[f.code] as boolean | string }));
+
       return {
         ...this.mapRow(r, config),
+        extra,
         description: r.description,
         requester_department_code: r.requester_department_code ?? null,
         requester_department_name: departamentoNombre,
@@ -589,7 +640,14 @@ export class ServiceDeskRequestsService {
           trx.raw('count(*) FILTER (WHERE sla_resolution_breached_at IS NOT NULL)::int AS resolucion'),
         )
         .first();
+      // `[MS.7.16]` El selector de cola de la bandeja ofrece SÓLO las colas que esta persona lee (`[]` = ninguna).
+      const colasLeidas = (await trx('servicedesk.queues')
+        .whereNull('deleted_at')
+        .modify((qb) => { if (colas) qb.whereIn('id', colas); })
+        .orderBy([{ column: 'sort_order' }, { column: 'name' }])
+        .select('id', 'name')) as { id: string; name: string }[];
       return {
+        queues: colasLeidas,
         open_total,
         unassigned: Number(un?.n ?? 0),
         first_response_breached: Number(br?.primera ?? 0),
@@ -652,7 +710,9 @@ export class ServiceDeskRequestsService {
           await trx('servicedesk.requests').where({ id }).update({ first_responded_at: now, updated_at: now, updated_by: ctx.userId });
         }
         // El solicitante que contesta reanuda un ticket que estaba esperándolo a él.
-        if (comoSolicitante && visibility === 'public' && r.status === 'en_espera') {
+        // `[MS.7.9]` …pero sólo si lo que se esperaba era a esa persona: si se espera a un proveedor o una refacción, su comentario es
+        // un comentario y la pausa del SLA sigue hasta que quien atiende la levante.
+        if (comoSolicitante && visibility === 'public' && r.status === 'en_espera' && respuestaReanuda(r.pause_reason)) {
           fx = juntar(fx, await this.moverEstado(trx, config, r, 'en_proceso', ['requester'], ctx, now, 'El solicitante respondió'));
         }
         // Un mensaje PÚBLICO le avisa a la otra parte. Una nota interna no avisa a nadie: no sale del equipo.
@@ -677,7 +737,20 @@ export class ServiceDeskRequestsService {
     if (!SD_STATUSES.includes(to)) throw new BadRequestException(`status debe ser uno de: ${SD_STATUSES.join(', ')}`);
     // `asignado` lo fija una asignación, no un cambio de estado: sin asignado el CHECK lo rechazaría.
     if (to === 'asignado') throw new BadRequestException('Para asignar usa «tomar» o «asignar»');
-    return this.moverPorId(ctx, id, to, dto.note);
+    /*
+     * `[MS.7.9]` Poner en espera EXIGE el motivo (qué se espera): sin él «en espera» no dice nada y no se puede saber si la respuesta de
+     * quien reportó debe reanudarlo. Un motivo con cualquier otro estado es un error de quien llama, no algo que se ignore.
+     */
+    let motivo: SdPauseReason | undefined;
+    if (to === 'en_espera') {
+      if (!SD_PAUSE_REASONS.includes(dto.pause_reason as SdPauseReason)) {
+        throw new BadRequestException(`Indica por qué queda en espera (pause_reason: ${SD_PAUSE_REASONS.join(', ')})`);
+      }
+      motivo = dto.pause_reason;
+    } else if (dto.pause_reason !== undefined && dto.pause_reason !== null) {
+      throw new BadRequestException('El motivo de pausa sólo aplica al poner la solicitud en espera');
+    }
+    return this.moverPorId(ctx, id, to, dto.note, { motivoPausa: motivo });
   }
 
   confirm(ctx: ActorCtx, id: string, note?: string): Promise<SdRequestDetail> {
@@ -728,6 +801,112 @@ export class ServiceDeskRequestsService {
     });
     await this.despachar(efectos);
     return this.detail(ctx, id);
+  }
+
+  /**
+   * `[MS.7.11]` Traslada el MISMO ticket a otra cola (M6): mismo folio, hilo y adjuntos. Sólo la coordinación del área de ORIGEN.
+   * Qué se puede y qué estado queda lo decide `domain/traslado` (puro); acá se leen los datos y se escribe en UNA transacción:
+   * cola + categoría + asignación + plazos + el mensaje del hilo, o nada.
+   *
+   * La prioridad que una persona ya confirmó se conserva (el modelo de la cola nueva pide datos que el ticket quizá no tiene);
+   * se recalculan los PLAZOS con la política de la cola destino para esa prioridad.
+   */
+  async transfer(ctx: ActorCtx, id: string, dto: SdTransferDto): Promise<SdTransferResult> {
+    if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
+    if (!esUuid(dto?.queue_id)) throw new BadRequestException('queue_id inválido');
+    if (!esUuid(dto?.category_id)) throw new BadRequestException('category_id inválido');
+    const motivo = String(dto?.reason ?? '').trim();
+    if (motivo.length > MAX_TEXTO) throw new BadRequestException(`El motivo admite hasta ${MAX_TEXTO} caracteres`);
+    const { efectos, resultado } = await this.tk.run(async (trx) => {
+      const config = await this.cfg.load(trx);
+      const r = await this.bloquear(trx, id);
+      if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
+      if (!ctx.esCoordinador || !puedeCoordinarCola(ctx.colas, r.queue_id)) throw new ForbiddenException('Sólo la coordinación del área donde está la solicitud puede trasladarla');
+
+      const destino = await trx('servicedesk.queues').where({ id: dto.queue_id, active: true }).whereNull('deleted_at').first('id', 'name');
+      const categoria = destino
+        ? await trx('servicedesk.categories').where({ id: dto.category_id, queue_id: dto.queue_id, active: true }).whereNull('deleted_at').first('id', 'name')
+        : null;
+      const miembros = destino ? (await this.agents.listIn(trx, dto.queue_id)).map((a) => a.user_id) : [];
+      const veto = validarTraslado({
+        status: r.status as SdStatus,
+        origenId: r.queue_id,
+        destinoId: dto.queue_id,
+        destinoActiva: !!destino,
+        categoriaEsDelDestino: !!categoria,
+        miembrosDestino: miembros.length,
+        motivo,
+      });
+      if (veto) throw veto.http === 400 ? new BadRequestException(veto.mensaje) : new ConflictException(veto.mensaje);
+
+      const politica = politicaDe(config, dto.queue_id, r.priority as SdPriority);
+      if (!politica) throw new ConflictException(`El área destino no tiene política de SLA para la prioridad «${r.priority}»`);
+      const now = new Date();
+      /*
+       * Un ticket EN ESPERA termina su espera al trasladarse (ver `estadoTrasTraslado`): se acredita lo que ya estuvo en pausa
+       * —con el calendario, igual que al reanudar— y los plazos se calculan sobre ese total, con la política del área destino.
+       */
+      let pausado = Number(r.paused_minutes);
+      let liberaPausa = false;
+      if (terminaEspera(r.status as SdStatus)) {
+        if (!r.paused_at) throw new ConflictException('La solicitud está en espera pero no tiene hora de pausa registrada');
+        const rr = reanudarTrasPausa(
+          { due_at: r.due_at ? new Date(r.due_at) : null, first_response_due_at: r.first_response_due_at ? new Date(r.first_response_due_at) : null, first_responded_at: r.first_responded_at ? new Date(r.first_responded_at) : null, paused_at: new Date(r.paused_at) },
+          now,
+          politica,
+          config.settings.calendar,
+        );
+        pausado += rr.paused_delta_minutes;
+        liberaPausa = true;
+      }
+      const plazos = plazosTrasCambioDePrioridad(new Date(r.created_at), pausado, r.first_responded_at ? new Date(r.first_responded_at) : null, politica, config.settings.calendar);
+      const origen = await trx('servicedesk.queues').where({ id: r.queue_id }).first('name');
+      const catOrigen = await trx('servicedesk.categories').where({ id: r.category_id }).first('name');
+      const nuevoEstado = estadoTrasTraslado(r.status as SdStatus);
+      await trx('servicedesk.requests').where({ id }).update({
+        queue_id: dto.queue_id,
+        category_id: dto.category_id,
+        status: nuevoEstado,
+        assigned_to: null,
+        assigned_by: null,
+        assigned_at: null,
+        due_at: plazos.due_at,
+        first_response_due_at: plazos.first_response_due_at,
+        ...(liberaPausa ? { paused_at: null, pause_reason: null, paused_minutes: pausado } : {}),
+        // Un plazo nuevo es una medición nueva: lo ya marcado como vencido bajo la política de la otra área deja de valer.
+        sla_first_breached_at: null,
+        sla_resolution_breached_at: null,
+        updated_at: now,
+        updated_by: ctx.userId,
+      });
+      // El hilo es el registro del traslado (no hay tabla aparte): de→a, quién y por qué. Es público: quien reportó ve que su solicitud
+      // cambió de área. Las respuestas de los campos propios del área de origen se conservan en la base y se anotan aquí.
+      await this.addMessage(trx, r.tenant_id, id, {
+        kind: 'transfer',
+        visibility: 'public',
+        authorId: ctx.userId,
+        authorLabel: ctx.nombre,
+        body: motivo,
+        meta: {
+          from_queue_id: r.queue_id,
+          from_queue: origen?.name ?? null,
+          to_queue_id: dto.queue_id,
+          to_queue: destino.name,
+          from_category: catOrigen?.name ?? null,
+          to_category: categoria?.name ?? null,
+          from_assignee: r.assigned_to ?? null,
+          ...(r.extra && Object.keys(r.extra).length ? { extra_origen: r.extra } : {}),
+        },
+      });
+      const fx = sinEfectos();
+      fx.bitacora.push({ tenantId: r.tenant_id, requestId: id, folio: r.folio, event: 'assigned', status: nuevoEstado, assignedTo: null });
+      // Le avisa a quien atiende el área DESTINO (menos a quien traslada).
+      fx.avisos.push(this.evento(r, 'transferido', miembros, ctx, { extracto: destino.name, discriminador: now.getTime() }));
+      const resultado: SdTransferResult = { id, folio: r.folio, queue_id: dto.queue_id, queue_name: destino.name, category_name: categoria?.name ?? '', status: nuevoEstado };
+      return { efectos: fx, resultado };
+    });
+    await this.despachar(efectos);
+    return resultado;
   }
 
   async changePriority(ctx: ActorCtx, id: string, dto: SdChangePriorityDto): Promise<SdRequestDetail> {
@@ -797,7 +976,7 @@ export class ServiceDeskRequestsService {
   // ───────────────────────────── internos ─────────────────────────────
 
   /** El camino común de confirmar / reabrir / cancelar / cambiar estado. */
-  private async moverPorId(ctx: ActorCtx, id: string, to: SdStatus, note?: string, opc: { exigirNota?: string } = {}): Promise<SdRequestDetail> {
+  private async moverPorId(ctx: ActorCtx, id: string, to: SdStatus, note?: string, opc: { exigirNota?: string; motivoPausa?: SdPauseReason } = {}): Promise<SdRequestDetail> {
     if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
     const nota = String(note ?? '').trim();
     if (nota.length > MAX_TEXTO) throw new BadRequestException(`La nota admite hasta ${MAX_TEXTO} caracteres`);
@@ -811,7 +990,7 @@ export class ServiceDeskRequestsService {
       }
       if (opc.exigirNota && !nota) throw new BadRequestException(opc.exigirNota);
       if (to === 'resuelto' && !nota) throw new BadRequestException('Describe cómo se resolvió para poder marcarla como resuelta');
-      return this.moverEstado(trx, config, r, to, actores, ctx, new Date(), nota);
+      return this.moverEstado(trx, config, r, to, actores, ctx, new Date(), nota, opc.motivoPausa);
     });
     await this.despachar(efectos);
     return this.detail(ctx, id);
@@ -821,15 +1000,20 @@ export class ServiceDeskRequestsService {
    * LA función que escribe `status`. Recibe la fila ya bloqueada (`FOR UPDATE`) y la deja coherente con el
    * reloj del SLA. Lanza 403 si ninguno de los roles que `ctx` tiene sobre el ticket puede hacer la transición.
    */
-  private async moverEstado(trx: Knex.Transaction, config: SdConfig, r: RequestRow, to: SdStatus, actores: SdActor[], ctx: Autor, now: Date, nota: string | null): Promise<Efectos> {
+  private async moverEstado(trx: Knex.Transaction, config: SdConfig, r: RequestRow, to: SdStatus, actores: SdActor[], ctx: Autor, now: Date, nota: string | null, motivoPausa?: SdPauseReason): Promise<Efectos> {
     const from = r.status as SdStatus;
     const actor = actores.find((a) => puedeTransicionar(from, to, a));
     if (!actor) throw new ForbiddenException('No tienes permiso para hacer ese cambio en esta solicitud');
     const ef = efectosDe(from, to);
     const patch: Patch = { status: to, updated_at: now, updated_by: ctx.userId };
 
-    if (ef.pausa) patch.paused_at = now;
+    if (ef.pausa) {
+      patch.paused_at = now;
+      patch.pause_reason = motivoPausa ?? null;
+    }
     if (ef.reanuda) {
+      // La base exige que el motivo sólo exista MIENTRAS está en espera: se va con la pausa, en la misma operación.
+      patch.pause_reason = null;
       const politica = politicaDe(config, r.queue_id, r.priority as SdPriority);
       if (!politica) throw new ConflictException(`No hay política de SLA para la prioridad «${r.priority}»`);
       // Un CHECK de la base garantiza `paused_at` mientras está en espera; si falta, el dato mintió: no se adivina.
@@ -865,7 +1049,7 @@ export class ServiceDeskRequestsService {
       authorId: ctx.userId,
       authorLabel: ctx.nombre,
       body: nota ?? '',
-      meta: { from, to },
+      meta: { from, to, ...(ef.pausa && motivoPausa ? { pause_reason: motivoPausa } : {}) },
     });
 
     const fx = sinEfectos();
@@ -1025,14 +1209,7 @@ export class ServiceDeskRequestsService {
   }
 
   private normalizarSucursal(code: string | null | undefined): string | null {
-    const c = String(code ?? '').trim();
-    if (!c) return null;
-    // `[MS.3.14]` Una ubicación que no es sucursal (oficinas corporativas) es válida y se guarda en su código canónico.
-    const extra = ubicacionExtra(c);
-    if (extra) return extra;
-    // Sólo el espacio de códigos vigente de Kepler (00–08): '30','32','50' son eras de Wincaja ya cerradas.
-    if (!/^0[0-8]$/.test(c) || !(c in KEPLER_BRANCH_NAMES)) throw new BadRequestException('Ubicación desconocida');
-    return c;
+    return normalizarUbicacion(code);
   }
 
   // ── consultas y mapeo ──
@@ -1048,8 +1225,11 @@ export class ServiceDeskRequestsService {
       .leftJoin('identity.users as ua', function () {
         this.on('ua.tenant_id', 'r.tenant_id').andOn('ua.id', 'r.assigned_to');
       })
+      .leftJoin('servicedesk.zones as z', function () {
+        this.on('z.tenant_id', 'r.tenant_id').andOn('z.code', 'r.zone_code');
+      })
       .whereNull('r.deleted_at')
-      .select('r.*', 'q.name as queue_name', 'c.name as category_name', 'ua.nombre as assigned_nombre', 'ua.username as assigned_username');
+      .select('r.*', 'q.name as queue_name', 'c.name as category_name', 'ua.nombre as assigned_nombre', 'ua.username as assigned_username', 'z.name as zone_name');
   }
 
   private buscar(qb: Knex.QueryBuilder, search: string | undefined): void {
@@ -1083,6 +1263,9 @@ export class ServiceDeskRequestsService {
       requester_name: r.requester_name ?? null,
       warehouse_code: r.warehouse_code ?? null,
       warehouse_name: r.warehouse_code ? nombreUbicacionExtra(r.warehouse_code) ?? branchName(r.warehouse_code) : null,
+      zone_code: r.zone_code ?? null,
+      zone_name: r.zone_name ?? null,
+      pause_reason: (r.pause_reason ?? null) as SdPauseReason | null,
       assigned_to: r.assigned_to ?? null,
       assigned_to_name: r.assigned_to ? r.assigned_nombre || r.assigned_username || null : null,
       assigned_at: iso(r.assigned_at),

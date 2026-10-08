@@ -23,6 +23,16 @@
  * «redacción». Es el costo de aceptar plurales; por eso las claves se declaran a mano y se ven en pantalla, no se
  * deducen. Lo que NO hace esta función es adivinar sinónimos ni corregir faltas de ortografía.
  *
+ * ── `[MS.7.10]` La ubicación ─────────────────────────────────────────────────────────────────
+ * Una regla puede traer además una UBICACIÓN (`warehouse_code`). Es un FILTRO: si la regla la trae, el ticket debe venir de ahí o
+ * la regla no aplica — «Plomería en Oficinas → Pedro» no se dispara con una fuga en el CEDIS. Una regla con ubicación y SIN
+ * categoría ni palabras se dispara por la ubicación sola («todo lo de Oficinas → Pedro»).
+ *
+ * Cuál gana: **la más específica, y entre iguales la primera por orden.** Especificidad = cuántas CONDICIONES trae: el disparador
+ * (categoría o palabras, que son un solo «o») cuenta una vez y la ubicación otra. Así «categoría + ubicación» (2) le gana a
+ * «categoría» (1) aunque vaya después en la lista, y TODA regla anterior (sin ubicación, especificidad 1) conserva exactamente su
+ * orden de siempre: nada de lo que ya funciona cambia de dueño.
+ *
  * ⛔ Esto elige a QUIÉN le toca, no si PUEDE atenderlo: que el destino tenga permiso lo verifica quien llama
  * (`routing.service`), y si no puede el ticket se queda sin asignar. Nunca se le asigna a alguien que no puede
  * abrir su propia ficha.
@@ -36,12 +46,16 @@ export interface ReglaRuteo {
   assignee_id: string;
   sort_order: number;
   active: boolean;
+  /** `[MS.7.10]` Filtro de ubicación (código de sucursal o ubicación extra). `null`/ausente = no mira la ubicación. */
+  warehouse_code?: string | null;
 }
 
 export interface EntradaRuteo {
   title: string;
   description: string;
   categoryId: string;
+  /** `[MS.7.10]` La ubicación del ticket (si la indicó). */
+  warehouseCode?: string | null;
 }
 
 /**
@@ -80,20 +94,38 @@ export function claveEncontrada(texto: string, claves: readonly string[]): strin
 
 export interface ResultadoRuteo {
   regla: ReglaRuteo;
-  /** Por qué le tocó: `categoria` o la `palabra` exacta que la disparó. Se guarda en el hilo, para que se vea. */
-  motivo: { tipo: 'categoria' } | { tipo: 'palabra'; palabra: string };
+  /** Por qué le tocó: `categoria`, la `palabra` exacta que la disparó o la `ubicacion`. Se guarda en el hilo, para que se vea. */
+  motivo: MotivoRuteo;
 }
 
-/** La primera regla activa que aplica (por `sort_order`, luego por nombre), o `null`. */
+export type MotivoRuteo = { tipo: 'categoria' } | { tipo: 'palabra'; palabra: string } | { tipo: 'ubicacion' };
+
+/** `[MS.7.10]` Cuántas condiciones trae la regla (el disparador categoría/palabras es UNA; la ubicación, otra). */
+export function especificidad(r: ReglaRuteo): number {
+  return (r.warehouse_code ? 1 : 0) + (r.category_id || r.keywords.length > 0 ? 1 : 0);
+}
+
+/** ¿La regla aplica a este ticket y por qué? (`null` = no aplica). No mira si está activa. */
+function motivoDe(r: ReglaRuteo, e: EntradaRuteo, texto: string): MotivoRuteo | null {
+  // La ubicación es un filtro: una regla de «Oficinas» no aplica a un ticket del CEDIS (ni a uno sin ubicación).
+  if (r.warehouse_code && r.warehouse_code !== (e.warehouseCode ?? null)) return null;
+  if (r.category_id && r.category_id === e.categoryId) return { tipo: 'categoria' };
+  const palabra = claveEncontrada(texto, r.keywords);
+  if (palabra) return { tipo: 'palabra', palabra };
+  // Sin categoría ni palabras, la ubicación (que ya coincidió) es el disparador.
+  if (!r.category_id && r.keywords.length === 0 && r.warehouse_code) return { tipo: 'ubicacion' };
+  return null;
+}
+
+/** La regla activa MÁS ESPECÍFICA que aplica (a igualdad, la primera por `sort_order`, luego por nombre), o `null`. */
 export function elegirRegla(reglas: readonly ReglaRuteo[], e: EntradaRuteo): ResultadoRuteo | null {
   const texto = normalizarTexto(`${e.title} ${e.description}`);
-  const ordenadas = [...reglas]
-    .filter((r) => r.active)
-    .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name));
-  for (const regla of ordenadas) {
-    if (regla.category_id && regla.category_id === e.categoryId) return { regla, motivo: { tipo: 'categoria' } };
-    const palabra = claveEncontrada(texto, regla.keywords);
-    if (palabra) return { regla, motivo: { tipo: 'palabra', palabra } };
+  const aplican: ResultadoRuteo[] = [];
+  for (const regla of reglas) {
+    if (!regla.active) continue;
+    const motivo = motivoDe(regla, e, texto);
+    if (motivo) aplican.push({ regla, motivo });
   }
-  return null;
+  aplican.sort((a, b) => especificidad(b.regla) - especificidad(a.regla) || a.regla.sort_order - b.regla.sort_order || a.regla.name.localeCompare(b.regla.name));
+  return aplican[0] ?? null;
 }

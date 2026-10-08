@@ -303,7 +303,35 @@ A partir de la fase multi-área ([`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md
 5. **Verificar con dos personas:** alguien de TI **no** ve el ticket de prueba de Mantenimiento; la coordinación de Mantenimiento **sí**, sin asignar.
 6. **Validar con Frank** (se cambia desde la pantalla): la prioridad por defecto de cada categoría (nacen en `media`) y si todas deben exigir ubicación.
 
-**Lo que Mantenimiento ya tiene:** su **SLA en horario hábil** (MS.7.2) y su **prioridad por riesgo × operación** (MS.7.7: «Nueva solicitud» pregunta ¿hay riesgo para personas? y ¿detiene la operación?). **Lo que NO tiene aún:** zonas (MS.7.3) ni campos propios por cola (MS.7.4). ⚠️ Confirmar con Frank las dos lecturas del SLA (el «24 h» de Alta = 1 día hábil; la Urgente en horario hábil no corre de noche): se cambian en `/servicio/configuracion` › «Plazos por prioridad» › ¿De qué cola? › Mantenimiento.
+**Lo que Mantenimiento ya tiene:** su **SLA en horario hábil** (MS.7.2) y su **prioridad por riesgo × operación** (MS.7.7: «Nueva solicitud» pregunta ¿hay riesgo para personas? y ¿detiene la operación?). **Zonas (MS.7.3):** migración `20261007310000` (después de `…260000` y **antes** de desplegar el código que la lee: el código nuevo consulta `zones` y `asks_zone`; el viejo las ignora) — siembra las 5 zonas y enciende la pregunta en Mantenimiento. **Campos propios por cola (MS.7.4):** migración `20261007320000` (después de `…310000` y **antes** de desplegar el código que la lee: el alta inserta `requests.extra`) — crea la tabla y `requests.extra`, **sin sembrar campos**. Nadie los usa hasta que una coordinación los declare desde Configuración. **Pausa con motivo, ruteo por ubicación y traslado entre áreas (MS.7.5/7.9–7.11):** migración `20261007350000` (también **antes** del código). Ver el resumen y los cambios de comportamiento en §13. ⚠️ Confirmar con Frank las dos lecturas del SLA (el «24 h» de Alta = 1 día hábil; la Urgente en horario hábil no corre de noche): se cambian en `/servicio/configuracion` › «Plazos por prioridad» › ¿De qué cola? › Mantenimiento.
 
 **Reversa:** apagar la cola desde la pantalla (los tickets ya levantados se conservan). La migración trae `down`, pero **conserva** la cola si ya tiene tickets.
 
+---
+
+## 13. Todo MS.7 junto: el orden, lo que cambia para la gente y cómo verificarlo (MS.7.19)
+
+**Migraciones, una por una (nunca `migrate:latest`: hay dos `knex_migrations`), con `apply-one-migration-prod.js` dentro de `prod-api` y su candado de identidad. Orden y momento:**
+
+| # | Archivo | ¿Antes o después del código? | Qué hace |
+|---|---|---|---|
+| 1 | `20261006130000_servicedesk_queue_members` | **ANTES** (§11, y medir el respaldo) | Quién atiende cada cola. |
+| 2 | `20261007240000_servicedesk_seed_mantenimiento` | cualquier momento | La cola Mantenimiento y sus 11 categorías, **apagada**. |
+| 3 | `20261007250000_servicedesk_sla_por_cola` | **con el código nuevo** (cambia la unicidad de `sla_policies`) | SLA por cola; TI no cambia. |
+| 4 | `20261007260000_servicedesk_prioridad_riesgo` | **después** del código (§12) | `safety_risk` + Mantenimiento por riesgo × operación. |
+| 5 | `20261007310000_servicedesk_zonas` | **ANTES** del código | Zonas y `asks_zone`. |
+| 6 | `20261007320000_servicedesk_campos_por_cola` | **ANTES** del código | `queue_fields` y `requests.extra`; **no siembra campos**. |
+| 7 | `20261007350000_servicedesk_pausa_ruteo_traslado` | **ANTES** del código | `pause_reason`, `routing_rules.warehouse_code`, `kind='transfer'`. |
+
+Regla para decidir el momento: una migración **aditiva que el código nuevo lee** (columnas y tablas nuevas) va **antes** — el código viejo las ignora y el nuevo no se cae; una que **cambia el significado de datos que el código viejo lee** (la unicidad del SLA) o **declara un valor que sólo el código nuevo sabe aplicar** (el modelo de riesgo) va con el código o después. Cada una trae `down`; revertir el **código primero**.
+
+**Lo que cambia para la gente que ya usa la Mesa (avisarlo antes de desplegar):**
+1. **Poner en espera ahora pide el motivo** (proveedor, refacción, aprobación, a quien reportó u otro). Es obligatorio también en TI. ⚠️ Cualquier integración que ponga tickets en espera por la API sin `pause_reason` recibirá 400.
+2. **La respuesta de quien reportó ya no reanuda una espera que no es a él** (proveedor/refacción/aprobación/otro): el reloj sigue pausado hasta que quien atiende la reanuda. Lo que ya estaba en espera se comporta como siempre.
+3. **«Nueva solicitud» pregunta el área primero** cuando hay más de una; con sólo TI encendida se ve igual que antes.
+4. **La bandeja** muestra un filtro de área (sólo si se atiende más de una) y, en la ficha, **«Transferir a otra área»** para la coordinación.
+5. Nada de esto toca los permisos: **sin re-login**.
+
+**Verificación en producción después de desplegar (punta a punta, con tickets de prueba que se cancelan al terminar):** con **dos personas** —una de TI y una de Mantenimiento— comprobar: (a) levantar → asignar → poner en espera con motivo → quien reportó comenta y **no** reanuda → reanudar → resolver → confirmar/cerrar; (b) **acceso cruzado**: la de TI no ve ni toca el ticket de Mantenimiento, y al revés; (c) levantar en TI y **transferir** a Mantenimiento: mismo folio, el hilo viaja entero, TI ya no lo ve y Mantenimiento sí; trasladarlo de vuelta; (d) lo cerrado ya no se traslada. La misma historia está automatizada en el E2E (bloque 32, 691 aserciones) contra una base local — **no sustituye** esta verificación, porque prod tiene sus propios datos.
+
+**Lo que sigue pendiente a propósito:** `is_test` y reportes que lo excluyen (MS.7.12), avisos por cola con plantillas propias (MS.7.13), «Marcar como prueba» en la ficha (7.16), y el resto de lo declarado en cada sección de [`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md) §9.

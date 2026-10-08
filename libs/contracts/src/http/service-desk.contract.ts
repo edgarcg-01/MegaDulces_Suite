@@ -51,7 +51,7 @@ export type SdImpact = (typeof SD_IMPACTS)[number];
 export const SD_CHANNELS = ['web', 'vendor', 'public_link', 'whatsapp', 'bitacora'] as const;
 export type SdChannel = (typeof SD_CHANNELS)[number];
 
-export const SD_MESSAGE_KINDS = ['comment', 'status', 'assignment', 'priority', 'system', 'internal_note'] as const;
+export const SD_MESSAGE_KINDS = ['comment', 'status', 'assignment', 'priority', 'system', 'internal_note', 'transfer'] as const;
 export type SdMessageKind = (typeof SD_MESSAGE_KINDS)[number];
 
 export type SdVisibility = 'public' | 'internal';
@@ -64,6 +64,21 @@ export type SdActor = 'requester' | 'agent' | 'coordinator' | 'system';
 // ── Catálogo (lo que la pantalla «Nueva solicitud» necesita para pintarse) ─────────────────────
 
 /** `[MS.7.7]` Qué matriz sugiere la prioridad de una cola: `impacto` (cuántas personas afecta × me impide trabajar) o `riesgo_operacion` (riesgo para personas × detiene la operación). Se elige por este VALOR, nunca por el nombre de la cola. */
+/**
+ * `[MS.7.4]` Campos propios de una cola: qué MÁS pregunta al reportar. `photo` no viaja en `extra`: es un adjunto.
+ */
+/**
+ * `[MS.7.9]` Por qué un ticket está en espera. Sin estado nuevo (decisión M3): «esperando refacción» es `en_espera` + motivo, y
+ * `en_espera` ya pausa el reloj del SLA. Sólo `solicitante` es una espera que la respuesta de quien reportó resuelve.
+ */
+export const SD_PAUSE_REASONS = ['proveedor', 'refaccion', 'aprobacion', 'solicitante', 'otro'] as const;
+export type SdPauseReason = (typeof SD_PAUSE_REASONS)[number];
+
+export const SD_FIELD_TYPES = ['boolean', 'select', 'text', 'photo'] as const;
+export type SdFieldType = (typeof SD_FIELD_TYPES)[number];
+/** Tope de un campo de texto libre (la base lo repite como CHECK en `requests.extra`: no depende sólo del servidor). */
+export const SD_FIELD_MAX_TEXT = 500;
+
 export const SD_PRIORITY_MODELS = ['impacto', 'riesgo_operacion'] as const;
 export type SdPriorityModel = (typeof SD_PRIORITY_MODELS)[number];
 
@@ -73,6 +88,60 @@ export interface SdQueueDto {
   name: string;
   /** `[MS.7.7]` Para que el formulario sepa QUÉ preguntar al reportar en esta cola. */
   priority_model: SdPriorityModel;
+  /** `[MS.7.3]` Si el formulario de esta cola PREGUNTA la zona (el lugar dentro de la ubicación). Se elige por este valor, nunca por el nombre. */
+  asks_zone: boolean;
+}
+
+/** `[MS.7.4]` Un campo propio de la cola, como lo ve quien reporta (sólo los ACTIVOS). */
+export interface SdFieldDto {
+  code: string;
+  queue_id: string;
+  label: string;
+  type: SdFieldType;
+  required: boolean;
+  /** Las opciones de un campo `select` (vacío en los demás tipos). */
+  options: string[];
+}
+/** Como lo ve quien configura: también los apagados. */
+export interface SdFieldAdminDto extends SdFieldDto {
+  id: string;
+  sort_order: number;
+  active: boolean;
+}
+export interface SdUpsertFieldDto {
+  /** Sólo al crear: el código no se cambia (los tickets ya lo guardan). */
+  code?: string;
+  label?: string;
+  /** Sólo al crear: cambiar el tipo invalidaría lo ya guardado (apaga éste y crea otro). */
+  type?: SdFieldType;
+  required?: boolean;
+  options?: string[];
+  sort_order?: number;
+  active?: boolean;
+}
+/** `[MS.7.4]` Lo contestado en un ticket, con la pregunta tal como se llamaba (también si el campo se apagó después). */
+export interface SdExtraValueDto {
+  code: string;
+  label: string;
+  type: SdFieldType;
+  value: boolean | string;
+}
+
+/** `[MS.7.3]` El lugar dentro de la ubicación (bodega, andén, oficina, baños, exterior…). Catálogo editable. */
+export interface SdZoneDto {
+  code: string;
+  name: string;
+}
+export interface SdZoneAdminDto extends SdZoneDto {
+  id: string;
+  sort_order: number;
+  active: boolean;
+}
+export interface SdUpsertZoneDto {
+  code?: string;
+  name?: string;
+  sort_order?: number;
+  active?: boolean;
 }
 
 export interface SdCategoryDto {
@@ -87,6 +156,10 @@ export interface SdCategoryDto {
 export interface SdCatalogResponse {
   queues: SdQueueDto[];
   categories: SdCategoryDto[];
+  /** `[MS.7.3]` Las zonas ACTIVAS (para el selector de las colas que la preguntan). */
+  zones: SdZoneDto[];
+  /** `[MS.7.4]` Los campos propios ACTIVOS de cada cola (agrupables por `queue_id`). */
+  fields: SdFieldDto[];
   impacts: readonly SdImpact[];
 }
 
@@ -107,6 +180,10 @@ export interface SdCreateRequestDto {
   blocks_work?: boolean;
   /** `[MS.7.7]` «¿Hay riesgo para personas?». **Obligatorio** en una cola con modelo `riesgo_operacion`; se ignora en una de `impacto`. */
   safety_risk?: boolean;
+  /** `[MS.7.3]` La zona (código del catálogo). Opcional; se ignora si la cola no pregunta la zona. */
+  zone_code?: string | null;
+  /** `[MS.7.4]` Respuestas a los campos propios de la cola `{ codigo: valor }`. Una clave que la cola no declara → 400. */
+  extra?: Record<string, unknown>;
   /** Código de sucursal (`'01'`…). Obligatorio si la categoría exige sucursal. */
   warehouse_code?: string | null;
   attachments?: SdAttachmentInput[];
@@ -164,6 +241,8 @@ export interface SdRequestRow {
   priority_suggested: SdPriority | null;
   impact: SdImpact;
   blocks_work: boolean;
+  /** `[MS.7.9]` Por qué está en espera (sólo mientras `status = en_espera`; `null` si no, o si la espera es anterior al motivo). */
+  pause_reason: SdPauseReason | null;
   /** `[MS.7.7]` «¿Hay riesgo para personas?». `null` = no se preguntó (cola de impacto): nunca un `false` inventado. */
   safety_risk: boolean | null;
   status: SdStatus;
@@ -171,6 +250,11 @@ export interface SdRequestRow {
   requester_name: string | null;
   warehouse_code: string | null;
   warehouse_name: string | null;
+  /** `[MS.7.3]` La zona del ticket (opcional). */
+  zone_code: string | null;
+  zone_name: string | null;
+  /** `[MS.7.4]` Lo contestado en los campos propios de la cola (vacío si no tiene). Sólo en la ficha. */
+  extra?: SdExtraValueDto[];
   assigned_to: string | null;
   assigned_to_name: string | null;
   assigned_at: string | null;
@@ -256,6 +340,34 @@ export interface SdPostMessageDto {
 export interface SdChangeStatusDto {
   status: SdStatus;
   note?: string;
+  /** `[MS.7.9]` OBLIGATORIO al pasar a `en_espera`; con cualquier otro estado → 400. */
+  pause_reason?: SdPauseReason;
+}
+
+/**
+ * `[MS.7.11]` Trasladar un ticket a otra cola. Mueve el MISMO ticket (folio, hilo y adjuntos se conservan): cambia cola y categoría, quita
+ * la asignación y recalcula los plazos con la política de la cola destino. Sólo la coordinación del área de origen.
+ */
+export interface SdTransferDto {
+  /** La cola destino. Debe estar encendida y tener al menos una persona que la atienda. */
+  queue_id: string;
+  /** Una categoría DE la cola destino. */
+  category_id: string;
+  /** Por qué: lo leen las dos áreas en el hilo. Obligatorio. */
+  reason: string;
+}
+
+/**
+ * `[MS.7.11]` Lo que devuelve un traslado. NO es la ficha: tras trasladar, quien coordina el área de origen deja de ver el ticket (ya es
+ * de otra cola), así que devolver su ficha sería un 404 disfrazado de éxito.
+ */
+export interface SdTransferResult {
+  id: string;
+  folio: string;
+  queue_id: string;
+  queue_name: string;
+  category_name: string;
+  status: SdStatus;
 }
 
 export interface SdAssignDto {
@@ -291,6 +403,8 @@ export interface SdStatsResponse {
   resolution_breached: number;
   by_status: Partial<Record<SdStatus, number>>;
   by_priority: Partial<Record<SdPriority, number>>;
+  /** `[MS.7.16]` Las colas que esta persona lee (clave ∩ pertenencia; el god-mode, todas): lo que ofrece el selector de la bandeja. */
+  queues: { id: string; name: string }[];
 }
 
 // ── Reportes (coordinación) ────────────────────────────────────────────────────────────────────
@@ -465,6 +579,9 @@ export interface SdRoutingRuleDto {
   keywords: string[];
   category_id: string | null;
   category_name: string | null;
+  /** `[MS.7.10]` Filtro de ubicación: la regla sólo aplica a tickets de ahí (`null` = no mira la ubicación). */
+  warehouse_code: string | null;
+  warehouse_name: string | null;
   assignee_id: string;
   assignee_name: string | null;
   assignee_username: string;
@@ -485,6 +602,8 @@ export interface SdUpsertRoutingRuleDto {
   name?: string;
   keywords?: string[];
   category_id?: string | null;
+  /** `[MS.7.10]` Código de ubicación (sucursal o extra). `null`/vacío = sin filtro de ubicación. */
+  warehouse_code?: string | null;
   assignee_id?: string;
   sort_order?: number;
   active?: boolean;
@@ -500,6 +619,9 @@ export interface SdSlaPolicyDto {
 }
 
 export interface SdQueueAdminDto extends SdQueueDto {
+  /** `[MS.7.10]` Responsable por omisión del área: a quien cae un ticket sin regla (`null` = «Sin asignar»). Siempre un miembro de la cola. */
+  default_assignee_id: string | null;
+  default_assignee_name: string | null;
   department_code: string | null;
   active: boolean;
   sort_order: number;
@@ -515,6 +637,10 @@ export interface SdConfigResponse {
   policies: SdSlaPolicyDto[];
   queues: SdQueueAdminDto[];
   categories: SdCategoryAdminDto[];
+  /** `[MS.7.3]` Todas las zonas, también las apagadas (para administrarlas). */
+  zones: SdZoneAdminDto[];
+  /** `[MS.7.4]` Todos los campos propios, también los apagados. */
+  fields: SdFieldAdminDto[];
 }
 
 export interface SdUpsertCategoryDto {
@@ -565,6 +691,10 @@ export interface SdUpsertQueueDto {
   name?: string;
   /** `[MS.7.7]` Cambia cómo se sugiere la prioridad de la cola. Sólo la coordinación de esa cola. */
   priority_model?: SdPriorityModel;
+  /** `[MS.7.3]` Si el formulario de la cola pregunta la zona. Sólo la coordinación de esa cola. */
+  asks_zone?: boolean;
+  /** `[MS.7.10]` Responsable por omisión del área. Debe ser un miembro activo de la cola que pueda atender; `null` lo quita. */
+  default_assignee_id?: string | null;
   department_code?: string | null;
   active?: boolean;
   sort_order?: number;
