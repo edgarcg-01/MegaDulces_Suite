@@ -7519,9 +7519,15 @@ export class CommercialAnalyticsService {
               AND s.route_code LIKE 'WIN-%'
               AND COALESCE(s.route_no, '') !~ '${VECINAL_RX}'
            UNION ALL
+           -- [RR.31] La COPIA de la vecinal, no la vista. Medido el 2026-10-07 aislando las dos
+           -- piernas de este UNION: la tabla de arriba cuesta 5 ms y esta vista costaba
+           -- **1,087 ms para 61 filas** -- el 99% de lo que tardaba la pantalla en abrir. Con la
+           -- copia, la consulta entera pasa de 1,101 ms a 5 ms.
+           -- ⚠️ El precio es hasta 30 min de rezago en las rutas vecinales (se refresca con las
+           -- demas). La vista viva sigue existiendo para quien necesite el dato al segundo.
            SELECT v.warehouse_code, w.name, v.route_code, v.route_no,
                   to_char(v.month,'MM'), v.units, v.revenue, v.tickets
-             FROM analytics.v_kepler_vecinal_monthly v
+             FROM analytics.mv_kepler_vecinal_monthly v
              JOIN commercial.warehouses w ON w.tenant_id = v.tenant_id
               AND w.code = v.warehouse_code AND w.deleted_at IS NULL
             WHERE v.tenant_id = ? AND v.month >= ? AND v.month < ?
@@ -8416,8 +8422,26 @@ export class CommercialAnalyticsService {
     const { desde, hasta } = this.routeInventoryRange(from, to);
     const tenantId = this.tenantCtx.requireTenantId();
     const ayer = this.ayerMx();
+    /**
+     * `[RD.47]` ¿Es el rango por DEFAULT, el que la pantalla pide al abrir? Entonces la respuesta
+     * ya está precomputada en `analytics.mv_rd_route_inventory`.
+     *
+     * Medido el 2026-10-07: esta consulta cuesta **414 ms de servidor** (729 ms de cliente en
+     * frío) para devolver **11 filas**, agregando 9,103 del ledger. Por la copia, **0.057 ms**.
+     * El gate del proyecto es 500 ms, así que en vivo la cruzaba en frío y la rozaba siempre.
+     *
+     * ⚠️ Con un rango explícito NO se usa la copia: está materializada para la ventana completa
+     * y servirla para otro rango sería publicar la cifra equivocada rapidísimo. Ese caso paga
+     * los 414 ms, y es el caso raro.
+     */
+    const esRangoPorDefecto = desde === '2000-01-01' && hasta === this.todayMx();
     return this.tk.run(async (trx) => {
-      const rows = (await trx.raw(
+      const rows = esRangoPorDefecto
+        ? (await trx.raw(
+          `SELECT * FROM analytics.mv_rd_route_inventory
+            WHERE tenant_id = ? ORDER BY plaza, route_no`, [tenantId],
+        )).rows
+        : (await trx.raw(
         `WITH win AS (
            SELECT l.route_no, l.sku, l.unidad,
                   sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
@@ -8581,8 +8605,8 @@ export class CommercialAnalyticsService {
           WHERE i.tenant_id = ?
           GROUP BY i.route_no, i.plaza, i.carga_desde
           ORDER BY i.plaza, i.route_no`,
-        [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId, tenantId],
-      )).rows;
+          [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId, tenantId],
+        )).rows;
 
       const asOf = (await trx.raw(
         `SELECT to_char(max(business_date),'YYYY-MM-DD') AS data_as_of

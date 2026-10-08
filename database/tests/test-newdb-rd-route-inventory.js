@@ -590,12 +590,55 @@ async function cuerposDeLaMigracion() {
     if (aplicada) {
       const src = fs.readFileSync(SERVICIO, 'utf8');
       const i = src.indexOf('async routeInventory(');
-      const a = src.indexOf('`', i); const b = src.indexOf('`', a + 1);
-      const sqlInv = src.slice(a + 1, b);
+      // ⛔ **El primer literal del método ya NO es la consulta con la lógica.** Desde `[RD.47]`
+      // el método se bifurca: con el rango por default lee la copia (`mv_rd_route_inventory`,
+      // un literal de UN binding) y sólo con rango explícito arma la consulta grande. Tomar «el
+      // primer backtick» apuntaba este candado a la copia y lo volvía ciego a la lógica que
+      // vino a vigilar — reventó con `Expected 9 bindings, saw 0`, que fue suerte: si la copia
+      // hubiera aceptado los bindings, habría pasado en verde midiendo otra cosa.
+      //
+      // Se busca el literal POR SU FORMA: el que lleva los 9 parámetros. Eso sobrevive a que
+      // alguien reordene las ramas.
+      let sqlInv = null;
+      for (let p = src.indexOf('`', i); p > 0 && p < i + 40000; p = src.indexOf('`', p + 1)) {
+        const q2 = src.indexOf('`', p + 1);
+        if (q2 < 0) break;
+        const cand = src.slice(p + 1, q2);
+        if ((cand.match(/\?/g) || []).length === 9 && cand.includes('WITH win AS')) { sqlInv = cand; break; }
+        p = q2;
+      }
+      t('el candado encuentra la consulta VIVA del servicio (la de 9 parámetros)', sqlInv !== null,
+        'sin esto, todo lo de abajo mide la copia o no mide nada');
       const ayer = new Date(Date.now() - 6 * 3600 * 1000 - 24 * 3600 * 1000)
         .toISOString().slice(0, 10);
       const inv = (await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', tenant, ayer, ayer, tenant, tenant, tenant])).rows;
       t('el DEFAULT de la pantalla corre contra prod', inv.length > 0, `${inv.length} rutas`);
+
+      // ⭐ **La paridad que la migración `[RD.47]` prometió.** La copia trae un duplicado del SQL
+      // de arriba con el rango resuelto; dos copias de la misma lógica son una segunda verdad
+      // esperando, salvo que algo las compare. Esto es ese algo.
+      const { rows: [hayCopia] } = await db.raw(
+        `SELECT to_regclass('analytics.mv_rd_route_inventory') IS NOT NULL AS m`);
+      if (!hayCopia.m) {
+        noMedido('[RD.47] paridad copia vs viva', 'analytics.mv_rd_route_inventory todavía no existe');
+      } else {
+        const copia = (await db.raw(
+          `SELECT * FROM analytics.mv_rd_route_inventory WHERE tenant_id = ? ORDER BY plaza, route_no`,
+          [tenant])).rows;
+        // Se comparan las columnas de dinero, que son las que alguien lee. El `hasta` del test
+        // es 2999 y el de la copia es hoy: en una ruta sin movimientos futuros da igual, y si
+        // algún día no diera igual, esta aserción es justo la que tiene que avisar.
+        const clave = (r) => `${r.route_no}`;
+        const porRuta = new Map(copia.map((r) => [clave(r), r]));
+        const difieren = inv.filter((r) => {
+          const c = porRuta.get(clave(r));
+          if (!c) return true;
+          return Math.abs(Number(r.inventario_costo ?? 0) - Number(c.inventario_costo ?? 0)) > 0.01;
+        });
+        t(`[RD.47] la copia dice lo MISMO que la consulta viva en las ${inv.length} rutas`,
+          difieren.length === 0,
+          `${difieren.length} ruta(s) divergen (${difieren.slice(0, 3).map((r) => r.route_no).join(', ')}) — alguien cambió una de las dos copias del SQL y no la otra`);
+      }
 
       // ⚠️ La comparación va ESTRICTA contra 0, no por `Number(...)`: `Number(null)` es 0, así
       // que la versión obvia marca en rojo justo las filas que están bien. Es el mismo descuido
@@ -972,6 +1015,50 @@ async function cuerposDeLaMigracion() {
       t(`[RD.45] el 95%+ de esa hoja se puede escanear (hoy ${pctCod.toFixed(1)}%)`,
         pctCod >= 95,
         'sin código de barras el contador vuelve a buscar a mano en una lista de cientos');
+    }
+
+    // ── `[RD.47]` La copia del tablero: la deuda que esa migración declaró ───────────────────
+    //
+    // ⛔ `analytics.mv_rd_route_inventory` trae una COPIA del SQL del servicio (la del servicio
+    // es parametrizada; la de la matvista tiene el rango por default resuelto). Dos copias de la
+    // misma lógica es una segunda verdad **esperando** — salvo que algo las compare. Esto es ese
+    // algo: si alguien toca una y no la otra, acá se pone rojo.
+    console.log('\n── [RD.47] la copia del tablero de inventario ──');
+    const { rows: [hayInv] } = await db.raw(
+      `SELECT to_regclass('analytics.mv_rd_route_inventory') IS NOT NULL AS m`);
+    if (!hayInv.m) {
+      noMedido('[RD.47] la copia del tablero', 'analytics.mv_rd_route_inventory todavía no existe');
+    } else {
+      const { rows: [cmp] } = await db.raw(`
+        SELECT count(*)::int AS rutas,
+               count(*) FILTER (WHERE m.route_no IS NULL)::int AS solo_en_vivo,
+               count(*) FILTER (WHERE i.route_no IS NULL)::int AS solo_en_copia
+          FROM analytics.mv_rd_route_identity i
+          FULL JOIN analytics.mv_rd_route_inventory m ON m.route_no = i.route_no`);
+      t(`[RD.47] la copia cubre las mismas ${cmp.rutas} rutas que la identidad`,
+        n(cmp.solo_en_vivo) === 0 && n(cmp.solo_en_copia) === 0,
+        `${cmp.solo_en_vivo} ruta(s) sólo en vivo, ${cmp.solo_en_copia} sólo en la copia — el LATERAL perdió o inventó`);
+
+      // El presupuesto. Es la razón por la que la copia existe.
+      const tInv = Date.now();
+      const { rows: tablero } = await db.raw(
+        `SELECT * FROM analytics.mv_rd_route_inventory ORDER BY plaza, route_no`);
+      const msInv = Date.now() - tInv;
+      t(`[RD.47] el tablero (${tablero.length} rutas) se sirve en ${msInv} ms`, msInv < 500,
+        'por encima de 500 ms la pantalla "no funciona" según la regla del proyecto');
+
+      // ⭐ PRUEBA NEGATIVA de la copia: tiene que ser más rápida que recalcular. Si no lo fuera,
+      // la deuda de mantener dos SQL iguales no se estaría pagando con nada.
+      const tViva = Date.now();
+      await db.raw(`SELECT count(*) FROM (
+        SELECT l.route_no, l.sku, l.unidad,
+               sum(l.qty) FILTER (WHERE l.clase='carga') AS cq,
+               sum(l.qty) FILTER (WHERE l.clase='venta') AS vq
+          FROM analytics.mv_rd_route_ledger l GROUP BY 1,2,3) w`);
+      const msViva = Date.now() - tViva;
+      t(`[RD.47] PRUEBA NEGATIVA: recalcular cuesta más que leer la copia (${msViva} ms vs ${msInv} ms)`,
+        msViva > msInv,
+        'leer la copia no es más barato que recalcular: entonces la copia sólo aporta deuda');
     }
   } catch (e) {
     bad++;
