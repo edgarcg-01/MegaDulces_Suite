@@ -6,6 +6,7 @@ import { BudgetSalesPlanService } from './budget-sales-plan.service';
 import { BudgetExpensePlanService } from './budget-expense-plan.service';
 import { BudgetMaterializeService } from './budget-materialize.service';
 import { BudgetGenerationService } from './budget-generation.service';
+import { SelloutRollupService } from './sellout-rollup.service';
 
 /**
  * `[VE.3]` — **El presupuesto se mantiene solo.** Pedido de Edgar, 2026-10-06: *«todo presupuestos
@@ -55,6 +56,12 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
 /** Quién queda como autor de lo que escribe el piloto. Se distingue de una persona a propósito. */
 const AUTOR = 'autopilot';
 
+/**
+ * Horas máximas de antigüedad del rollup del sell-out para que el piloto se atreva a proponer.
+ * Es el MISMO umbral que `CRON_JOBS` registra para `analytics_refresh_sellout_budget`.
+ */
+const ROLLUP_MAX_H = 26;
+
 export interface AutopilotBudgetResult {
   budget_id: string;
   name: string;
@@ -90,14 +97,25 @@ export class BudgetAutopilotService {
     private readonly expensePlan: BudgetExpensePlanService,
     private readonly materialize: BudgetMaterializeService,
     private readonly generation: BudgetGenerationService,
+    private readonly rollup: SelloutRollupService,
     @Optional() private readonly tenantCtx?: TenantContextService,
   ) {}
 
   /**
-   * 03:30 MX. Después del refresco nocturno de analytics (que es de donde sale el real con el que
-   * se propone) y antes de que alguien abra la pantalla por la mañana.
+   * 07:30 MX. **Después** del refresco nocturno de analytics, que es de donde sale el real con el
+   * que se propone, y antes de que alguien abra la pantalla por la mañana.
+   *
+   * ⛔ Acá decía `03:30` y el comentario afirmaba «después del refresco nocturno». **Era falso, y
+   * se midió**: `AnalyticsRefreshService` corre a las **06:20** y su lote cierra cerca de las
+   * **06:50** (`analytics_refresh_erp_margin` 06:49 el 2026-10-07). O sea que el piloto planeaba
+   * con el rollup de la mañana ANTERIOR, y el comentario decía lo contrario — una premisa escrita
+   * como ley que nadie había medido.
+   *
+   * ⚠️ Mover la hora NO alcanza: **ordenar no es depender** (ADR-056). Si el refresco falla, a las
+   * 07:30 el rollup sigue ahí, viejo, y planear sobre él produce metas que se ven perfectas. Por
+   * eso `baseServible()` comprueba la frescura y, si no está, **declara y no escribe**.
    */
-  @Cron('0 30 3 * * *', { timeZone: 'America/Mexico_City' })
+  @Cron('0 30 7 * * *', { timeZone: 'America/Mexico_City' })
   async scheduled(): Promise<void> {
     if (process.env.ENABLE_BUDGET_AUTOPILOT === 'false') return;
     if (this.running) { this.logger.warn('Skip: una pasada sigue en curso'); return; }
@@ -206,6 +224,34 @@ export class BudgetAutopilotService {
     return ctx.run({ tenantId, userId: null, username: AUTOR }, fn);
   }
 
+  /**
+   * ¿La base con la que se propone está SERVIBLE? Devuelve el motivo cuando no.
+   *
+   * ⭐ Existe por una falla real, con recibo en `analytics.cron_runs`: el 2026-10-08 a las 03:30 la
+   * pasada cerró en `error` con **`0/2 ejercicios`** y el mensaje *«El histórico de ventas se está
+   * generando (primera vez)»* — el 503 del Parquet que vivía en el `/tmp` del pod y que cada
+   * despliegue borraba. El plan de GASTOS sí se escribía (838 celdas), el de VENTAS no, y eso dejó
+   * el mayoreo congelado sobre una base vieja durante semanas sin que nadie lo mirara.
+   *
+   * Ese modo de falla ya no existe (el rollup vive en Postgres), pero el que lo reemplaza es peor
+   * de ver: una matvista **rancia** no tira excepción, devuelve filas. Planear sobre ella escribe
+   * metas que se ven perfectas. Por eso acá no se pregunta «¿hay datos?» sino «¿de cuándo son?».
+   *
+   * El umbral es el MISMO que `CRON_JOBS` registra para `analytics_refresh_sellout_budget` (26 h):
+   * dos sitios con el mismo número, y si alguien mueve uno, el otro queda mintiendo — queda dicho.
+   */
+  private async baseServible(tenantId: string): Promise<{ ok: boolean; motivo?: string; asOf: string | null }> {
+    const asOf = await this.rollup.dataAsOf(tenantId).catch(() => null);
+    if (!asOf) {
+      return { ok: false, asOf: null, motivo: 'el rollup del sell-out no tiene filas para este tenant (¿falta el refresco nocturno?)' };
+    }
+    const horas = (Date.now() - new Date(asOf).getTime()) / 36e5;
+    if (horas > ROLLUP_MAX_H) {
+      return { ok: false, asOf, motivo: `el rollup del sell-out se construyó hace ${horas.toFixed(1)} h (umbral ${ROLLUP_MAX_H} h): no se planea sobre una base rancia` };
+    }
+    return { ok: true, asOf };
+  }
+
   private async unEjercicio(
     tenantId: string, budgetId: string, name: string, fy: number,
   ): Promise<AutopilotBudgetResult> {
@@ -230,7 +276,15 @@ export class BudgetAutopilotService {
       // ⛔ Sólo se escriben los canales que NO tienen un valor guardado. Si alguien ajustó uno a
       // mano, ese se respeta — misma regla que `method='manual'` en las celdas del plan. Lo que
       // desaparece es la obligación de capturar, no la posibilidad de corregir.
-      try {
+      // ⭐ La base ANTES que nada: los supuestos y el plan de ventas leen los dos el mismo rollup,
+      // así que se pregunta UNA vez. Si no está servible, ninguno de los dos escribe — y el motivo
+      // viaja al latido. «Sin datos» ≠ cero, y «base vieja» ≠ base (ADR-056).
+      const base = await this.baseServible(tenantId);
+      if (!base.ok) {
+        out.errores.push(`base del sell-out: ${base.motivo}`);
+      }
+
+      if (base.ok) try {
         const g = await this.salesPlan.proposeGrowth(budgetId);
         const actual = await this.salesPlan.getSettings(budgetId).catch(() => null);
         const yaGuardado = (actual?.growth_by_channel ?? {}) as Record<string, number>;
@@ -257,7 +311,7 @@ export class BudgetAutopilotService {
         out.errores.push(`registro de procedencia: ${(e as Error)?.message ?? e}`);
       }
 
-      try {
+      if (base.ok) try {
         const r = await this.salesPlan.proposePlan(budgetId, {}, AUTOR);
         const c = r.coverage as Record<string, number>;
         out.ventas = {

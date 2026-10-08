@@ -940,7 +940,11 @@ const CRON_JOBS: CronCfg[] = [
   // Job diario: warn al saltarse una corrida, crítico al saltarse dos — mismo criterio que
   // `sales_daily`. Sin esta fila, `db-health` lo clasifica con el `cfg ? classify : 'ok'` que
   // la Fase VP midió dando verde incondicional a las 3 matvistas del sell-out.
-  { key: 'budget_autopilot',    label: 'Presupuesto que se mantiene solo',  cadence: 'diario 03:30 MX', warnH: 30, critH: 54 },
+  // [PU.V4] 03:30 -> 07:30: corria ANTES del refresco de analytics (06:20, cierra ~06:50), o sea
+  // que planeaba con el rollup de la manana anterior -- y su propio comentario afirmaba que corria
+  // despues. La cadencia va aca tambien, asi que si alguien mueve el @Cron sin tocar esta linea el
+  // umbral queda mintiendo.
+  { key: 'budget_autopilot',    label: 'Presupuesto que se mantiene solo',  cadence: 'diario 07:30 MX', warnH: 30, critH: 54 },
   // ⛔ `[RD.22]` Aca estaba `rd_commission_runner`, el cron que calculaba la quincena de
   // comisiones a las 08:30. Se RETIRO el 2026-10-07 junto con el cron: una quincena cerrada es
   // un valor estatico que se calcula una vez, no un derivado que haya que refrescar, y dejar su
