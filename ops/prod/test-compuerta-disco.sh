@@ -117,6 +117,19 @@ else
   grep -q 'PISO_LIBRE_GB' "$PODA" \
     && bien "el disparador del escalón es el PISO de disco, no el techo del caché" \
     || mal "el escalón se dispara por el piso" "no usa PISO_LIBRE_GB"
+
+  # ⛔ El candado que más duele de perder. `auto-deploy.sh` etiqueta cada imagen DOS veces: con el
+  # nombre pelado y con el prefijo del registro, y son el MISMO id. Si la lista trae sólo una,
+  # `docker rmi` borra un alias, el id sobrevive colgado del otro, y la poda libera cero sin dar
+  # error — que es exactamente lo que paso el 2026-10-08 (`imágenes 74→74GB`, 44 versiones vivas
+  # donde la política decía 5).
+  _FALTAN=''
+  for _n in api worker portal vendor caddy pg; do
+    grep -q "localhost:5000/trade-prod-$_n" "$PODA" || _FALTAN="$_FALTAN $_n"
+  done
+  [ -z "$_FALTAN" ] \
+    && bien "la poda borra TAMBIÉN las etiquetas del registro (si no, rmi borra un alias y no libera nada)" \
+    || mal "faltan las etiquetas del registro" "sin localhost:5000/trade-prod-{$_FALTAN } la retención no libera un byte"
 fi
 
 echo
