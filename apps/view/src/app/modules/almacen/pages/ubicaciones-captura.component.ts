@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal, untracked } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -25,7 +25,7 @@ import {
 import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalogo.service';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
 import { AndenCartelComponent, type CartelUbicacion } from '../anden/components/anden-cartel.component';
-import { csvATabla, leerTablaUbicaciones } from '../shared/ubicaciones-archivo';
+import { csvATabla, decodificarCsv, leerTablaUbicaciones } from '../shared/ubicaciones-archivo';
 
 type Modo = 'rango' | 'archivo';
 type Sev = 'success' | 'secondary' | 'warn' | 'danger' | 'info';
@@ -102,6 +102,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
             <p-select inputId="uc-tipo-a" [options]="tipos" optionLabel="label" optionValue="key" [ngModel]="tipo()" (onChange)="tipo.set($event.value); limpiarPrevia()" appendTo="body" placeholder="Sin tipo" [showClear]="true" />
           </label>
           <p class="uc-sub">Columnas: <b>Código</b> (obligatoria), Tipo y Nombre. Tope {{ max }} renglones.</p>
+          <div><button pButton type="button" class="p-button-sm p-button-outlined" [disabled]="!filas().length || cargando()" [loading]="cargando() && !aplicando()" (click)="revisar()"><span class="p-button-label">Revisar</span></button></div>
         </div>
       }
 
@@ -157,7 +158,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
                 @if (l.undone_at) {
                   <span class="uc-sub">Deshecho {{ fecha(l.undone_at) }} ({{ l.undone_count }} retiradas)</span>
                 } @else if (l.en_uso) {
-                  <span class="uc-sub">{{ l.en_uso }} con mercancía: ya no se deshace</span>
+                  <span class="uc-sub">{{ l.en_uso }} con mercancía acomodada: ya no se deshace</span>
                 } @else if (confirmar() === l.id) {
                   <span class="uc-confirm">
                     <span class="uc-sub">¿Retirar las {{ l.created_count }}?</span>
@@ -190,6 +191,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
     .uc-pair .uc-l { grid-column:1 / -1; }
     .uc-l { font-size:var(--fs-xs); color:var(--text-muted); }
     .uc-mini input { width:4rem; height:2.5rem; text-align:center; }
+    @media (pointer: coarse) { .uc-mini input, .uc-filebtn { height:2.75rem; } }
     .uc-a { font-size:var(--fs-xs); color:var(--text-muted); }
     .uc-cuenta { margin:0; font-size:var(--fs-sm); flex-basis:100%; }
     .uc-file { display:flex; flex-wrap:wrap; gap:.5rem; align-items:center; }
@@ -213,7 +215,7 @@ const ACCION: Record<BulkLocationAction, { label: string; sev: Sev }> = {
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
   `],
 })
-export class UbicacionesCapturaComponent implements OnInit {
+export class UbicacionesCapturaComponent {
   private readonly api = inject(AlmacenUbicacionesCatalogoService);
   private readonly destroyRef = inject(DestroyRef);
 
@@ -254,8 +256,21 @@ export class UbicacionesCapturaComponent implements OnInit {
   /** La misma regla que usa el servidor: lo que dice esta línea es lo que dirá la vista previa. */
   readonly cuenta = computed(() => expandLocationRange(this.rango()));
 
-  ngOnInit(): void {
-    this.cargarLotes();
+  constructor() {
+    // Si cambia el almacén estando en la captura, lo visto era del almacén anterior: se limpia todo y
+    // se cargan los lotes del nuevo. Sin esto, «Crear 180» de PH se mandaba a 8ESQ (revisión del PR).
+    effect(() => {
+      this.warehouse().id;
+      untracked(() => {
+        this.previa.set(null);
+        this.resultado.set(null);
+        this.carteles.set([]);
+        this.confirmar.set(null);
+        this.err.set(null);
+        this.lotes.set([]);
+        this.cargarLotes();
+      });
+    });
   }
 
   cuentaTxt(): string {
@@ -327,7 +342,7 @@ export class UbicacionesCapturaComponent implements OnInit {
     this.archivo.set(f.name);
     this.filas.set([]);
     try {
-      const tabla = /\.csv$/i.test(f.name) ? csvATabla(await f.text()) : await leerXlsx(await f.arrayBuffer());
+      const tabla = /\.csv$/i.test(f.name) ? csvATabla(decodificarCsv(await f.arrayBuffer())) : await leerXlsx(await f.arrayBuffer());
       const r = leerTablaUbicaciones(tabla);
       if (!r.ok) { this.errArchivo.set(r.motivo); return; }
       if (r.filas.length > LOCATION_BULK_MAX) { this.errArchivo.set(`El archivo trae ${r.filas.length} renglones; el tope por captura es ${LOCATION_BULK_MAX}. Pártelo en varios.`); return; }
@@ -340,6 +355,14 @@ export class UbicacionesCapturaComponent implements OnInit {
   }
 
   async plantilla(): Promise<void> {
+    try {
+      await this.armarPlantilla();
+    } catch {
+      this.err.set('No se pudo generar la plantilla. Vuelve a intentar.');
+    }
+  }
+
+  private async armarPlantilla(): Promise<void> {
     const mod = (await import('exceljs')) as unknown as Record<string, any>;
     const ExcelJS = mod['default'] ?? mod;
     const wb = new ExcelJS.Workbook();
@@ -358,8 +381,11 @@ export class UbicacionesCapturaComponent implements OnInit {
     const a = document.createElement('a');
     a.href = url;
     a.download = 'plantilla-ubicaciones.xlsx';
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    a.remove();
+    // Revocar en el mismo tick a veces corta la descarga en Firefox/Safari.
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   cargarLotes(): void {

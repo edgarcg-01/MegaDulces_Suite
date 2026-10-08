@@ -219,6 +219,8 @@ export class WarehouseLocationsBulkService {
         .onConflict(['tenant_id', 'warehouse_id', 'code'])
         .ignore()
         .returning(['code']);
+      // Si una carrera dejó TODAS omitidas, no queda un lote vacío en el historial: se revierte.
+      if (!creadas.length) throw new ConflictException('Mientras revisabas, alguien más creó esas ubicaciones. Vuelve a revisar.');
       const omitidas = plan.filas.length - creadas.length;
       await trx('commercial.location_capture_batches')
         .where({ id: lote.id })
@@ -233,13 +235,16 @@ export class WarehouseLocationsBulkService {
     const warehouseId = String(warehouseIdRaw ?? '').toLowerCase();
     if (!UUID.test(warehouseId)) throw new BadRequestException('warehouse_id inválido');
     const visibles = await this.scope.warehouseIds({}, 'warehouse/locations/batches', 'almacen');
-    if (visibles !== null && !visibles.includes(warehouseId)) throw new NotFoundException('Almacén no encontrado.');
+    const resuelto = await this.scope.current('almacen');
     return this.tk.run(async (trx) => {
+      // Escritura, no sólo lectura: el historial existe para deshacer, y sin alcance de escritura
+      // el botón Deshacer contestaría 403 (revisión del PR).
+      await this.almacenEscribible(trx, warehouseId, visibles, resuelto);
       const r = await trx.raw(
         `SELECT b.id, b.kind, b.params, b.created_count, b.skipped_count, b.created_at, b.undone_at, b.undone_count,
                 COALESCE(u.nombre, u.username) AS created_by_name,
                 (SELECT count(DISTINCT wb.id) FROM commercial.warehouse_bins wb
-                   JOIN commercial.stock_lot_locations l ON l.tenant_id = wb.tenant_id AND l.bin_id = wb.id
+                   JOIN commercial.stock_lot_locations l ON l.tenant_id = wb.tenant_id AND l.bin_id = wb.id AND l.quantity > 0
                   WHERE wb.tenant_id = b.tenant_id AND wb.capture_batch_id = b.id) AS en_uso
            FROM commercial.location_capture_batches b
            LEFT JOIN identity.users u ON u.id = b.created_by
@@ -280,6 +285,7 @@ export class WarehouseLocationsBulkService {
           this.on('l.tenant_id', 'wb.tenant_id').andOn('l.bin_id', 'wb.id');
         })
         .where('wb.capture_batch_id', batchId)
+        .where('l.quantity', '>', 0)
         .distinct('wb.code')
         .orderBy('wb.code')
         .limit(11);
@@ -289,8 +295,31 @@ export class WarehouseLocationsBulkService {
           `No se puede deshacer: ${usadas.length > 10 ? 'más de 10' : usadas.length} ubicación(es) del lote ya tienen mercancía (${lista}). Dalas de baja una por una desde Mantenimiento.`,
         );
       }
-      // Ninguna se usó: nunca existieron en la operación, así que se retiran.
-      const retiradas = await trx('commercial.warehouse_bins').where({ capture_batch_id: batchId }).del();
+      // Lo que alguien ya bloqueó o dio de baja tiene un motivo registrado: se respeta, no se borra.
+      const tocadas = await trx('commercial.warehouse_bins')
+        .where({ capture_batch_id: batchId })
+        .whereNot({ estado: 'activa' })
+        .orderBy('code')
+        .limit(11)
+        .pluck('code');
+      if (tocadas.length) {
+        throw new ConflictException(
+          `No se puede deshacer: ${tocadas.length > 10 ? 'más de 10' : tocadas.length} ubicación(es) del lote ya se bloquearon o dieron de baja (${tocadas.slice(0, 10).join(', ')}).`,
+        );
+      }
+      // Ninguna se usó: nunca existieron en la operación, así que se retiran. Los renglones en CERO
+      // (un rack que se vació con moveLot) se limpian primero, igual que deleteBin del Andén: la FK
+      // es RESTRICT y existir alcanza para reventar el DELETE.
+      const ids = trx('commercial.warehouse_bins').where({ capture_batch_id: batchId }).select('id');
+      await trx('commercial.stock_lot_locations').whereIn('bin_id', ids).where('quantity', '<=', 0).del();
+      const retiradas = await trx('commercial.warehouse_bins')
+        .where({ capture_batch_id: batchId })
+        .del()
+        .catch((e: { code?: string }) => {
+          // Un acomodo que entró entre la revisión y el borrado: mismo 409, no un 500.
+          if (e?.code === '23503') throw new ConflictException('Mientras deshacías, se acomodó mercancía en una ubicación del lote. Ya no se puede deshacer.');
+          throw e;
+        });
       await trx('commercial.location_capture_batches')
         .where({ id: batchId })
         .update({ undone_at: trx.fn.now(), undone_by: userId, undone_count: retiradas });

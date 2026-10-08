@@ -42,7 +42,7 @@ exports.up = async function up(knex) {
       t.index(['tenant_id', 'warehouse_id', 'created_at'], 'idx_commercial_loc_capture_batches_wh');
       t.check(`?? IN ('rango', 'archivo')`, ['kind'], 'ck_loc_capture_batches_kind');
       t.check('?? >= 0 AND ?? >= 0', ['created_count', 'skipped_count'], 'ck_loc_capture_batches_counts');
-      // Deshecho = las tres juntas, o ninguna.
+      // Deshecho = fecha y cuántas, juntas (quién puede faltar si la sesión no traía usuario).
       t.check(
         '(?? IS NULL AND ?? IS NULL AND ?? IS NULL) OR (?? IS NOT NULL AND ?? IS NOT NULL)',
         ['undone_at', 'undone_by', 'undone_count', 'undone_at', 'undone_count'],

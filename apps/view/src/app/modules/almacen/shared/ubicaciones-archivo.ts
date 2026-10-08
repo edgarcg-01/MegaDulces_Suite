@@ -33,8 +33,9 @@ function celda(v: unknown): string {
   if (v == null) return '';
   if (typeof v === 'object') {
     // exceljs: celdas con texto enriquecido o fórmulas llegan como objeto.
-    const o = v as { text?: unknown; result?: unknown; richText?: Array<{ text: string }> };
+    const o = v as { text?: unknown; result?: unknown; error?: unknown; richText?: Array<{ text: string }> };
     if (Array.isArray(o.richText)) return o.richText.map((r) => r.text).join('');
+    if (o.error != null) return String(o.error); // #N/A, #REF!… se ven como tales, no como [object Object]
     if (o.text != null) return String(o.text);
     if (o.result != null) return String(o.result);
   }
@@ -69,12 +70,26 @@ export function leerTablaUbicaciones(tabla: unknown[][]): LecturaArchivo {
   return { ok: true, filas, vacias };
 }
 
+/**
+ * Texto de un CSV respetando el acento: Excel en español lo guarda en Windows-1252 y leído como
+ * UTF-8 «Código» llega como «C\uFFFDdigo». Se intenta UTF-8 estricto y, si falla, Windows-1252.
+ */
+export function decodificarCsv(bytes: ArrayBuffer): string {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder('windows-1252').decode(bytes);
+  }
+}
+
 /** CSV mínimo: separador `,` o `;` (el que más aparezca en el encabezado) y comillas dobles. */
 export function csvATabla(texto: string): string[][] {
   const lineas = texto.replace(/^﻿/, '').split(/\r?\n/);
   const sep = (lineas[0]?.split(';').length ?? 0) > (lineas[0]?.split(',').length ?? 0) ? ';' : ',';
+  // Las líneas en blanco SE QUEDAN: si se quitaran, la fila que se reporta se recorre y deja de ser
+  // la del archivo. El lector de tabla ya las salta y las cuenta como vacías.
+  if (lineas.length > 1 && lineas[lineas.length - 1] === '') lineas.pop(); // el salto final
   return lineas
-    .filter((l, i) => l.trim() !== '' || i === 0)
     .map((l) => {
       const out: string[] = [];
       let cur = '';

@@ -1,4 +1,4 @@
-import { csvATabla, leerTablaUbicaciones } from './ubicaciones-archivo';
+import { csvATabla, decodificarCsv, leerTablaUbicaciones } from './ubicaciones-archivo';
 
 describe('[UB.2] leer archivo de ubicaciones', () => {
   it('reconoce encabezados con acentos, mayúsculas y en cualquier orden', () => {
@@ -40,6 +40,23 @@ describe('[UB.2] leer archivo de ubicaciones', () => {
 describe('[UB.2] CSV', () => {
   it('detecta ; como separador y respeta comillas', () => {
     expect(csvATabla('Código;Nombre\nBA053;"Rack; esquina"\n')).toEqual([['Código', 'Nombre'], ['BA053', 'Rack; esquina']]);
+  });
+
+  it('la fila reportada es la del archivo aunque haya líneas en blanco', () => {
+    const r = leerTablaUbicaciones(csvATabla('codigo\nBA011\n\nBA012\n'));
+    expect(r.ok && r.filas.map((f) => [f.fila, f.code])).toEqual([[2, 'BA011'], [4, 'BA012']]);
+    expect(r.ok && r.vacias).toBe(1);
+  });
+
+  it('Excel en español guarda el CSV en Windows-1252: el acento se respeta', () => {
+    const ansi = new Uint8Array([0x43, 0xf3, 0x64, 0x69, 0x67, 0x6f]); // "Código" en 1252
+    expect(decodificarCsv(ansi.buffer)).toBe('Código');
+    expect(decodificarCsv(new TextEncoder().encode('Código').buffer as ArrayBuffer)).toBe('Código');
+  });
+
+  it('una celda de error de Excel se ve como tal', () => {
+    const r = leerTablaUbicaciones([['codigo'], [{ error: '#N/A' }]]);
+    expect(r.ok && r.filas[0].code).toBe('#N/A');
   });
 
   it('coma por default y BOM de Excel', () => {
