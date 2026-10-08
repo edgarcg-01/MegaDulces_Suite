@@ -21,7 +21,36 @@
  * lejos y en diagonal) y no obliga a pasar por `bypassSecurityTrustHtml`, que es la puerta por la
  * que se cuela el XSS cuando alguien, más adelante, mete texto de un usuario acá.
  */
-import { BrowserQRCodeSvgWriter } from '@zxing/browser';
+/**
+ * ⛔ **El `import` de `@zxing/browser` va DINÁMICO, y esto no es un detalle de estilo: el estático
+ * rompió `main`.**
+ *
+ * Medido en el CI de `889c579af`: `bundle initial exceeded maximum budget. Budget 1.65 MB was not
+ * met by 448.92 kB with a total of 2.10 MB` — o sea **449 kB de más** en el paquete inicial.
+ *
+ * ⭐ La causa no es el paquete: es **el barril**. `libs/ui-web/src/index.ts` re-exporta esto, y ese
+ * barril lo importa medio `apps/view` desde código que carga al arrancar. Con un `import`
+ * estático, el codificador entero entra al bundle inicial **aunque nadie pinte un QR nunca**. Y el
+ * comentario de arriba era cierto y aun así insuficiente: `@zxing/browser` ya estaba declarada,
+ * pero su uso previo —ESCANEAR códigos— vive en una pantalla perezosa. Exportarlo desde el barril
+ * lo volvió eager. *Reusar una dependencia que ya existe no dice nada sobre dónde va a aterrizar.*
+ *
+ * Con `import()` el empaquetador lo corta en un trozo aparte que se baja la primera vez que se
+ * pinta un QR. El costo es que las dos funciones pasan a ser `async`.
+ */
+type EscritorQr = { write(contenido: string, ancho: number, alto: number): SVGSVGElement };
+
+/** Se resuelve una sola vez: la segunda llamada reusa el módulo ya bajado. */
+let escritorPendiente: Promise<new () => EscritorQr> | null = null;
+
+function cargarEscritor(): Promise<new () => EscritorQr> {
+  if (!escritorPendiente) {
+    escritorPendiente = import('@zxing/browser').then(
+      (m) => m.BrowserQRCodeSvgWriter as unknown as new () => EscritorQr,
+    );
+  }
+  return escritorPendiente;
+}
 
 /** Lado mínimo en píxeles. Por debajo, la cámara de un teléfono viejo no engancha. */
 export const QR_LADO_MINIMO = 96;
@@ -37,12 +66,13 @@ export const QR_LADO_MINIMO = 96;
  * sigue escrito al lado. Si esto reventara, se llevaría puesta toda la captura del movimiento —
  * y perder un arqueo contado por un adorno sería absurdo.
  */
-export function qrSvg(texto: string | null | undefined, lado = 160): SVGSVGElement | null {
+export async function qrSvg(texto: string | null | undefined, lado = 160): Promise<SVGSVGElement | null> {
   const t = typeof texto === 'string' ? texto.trim() : '';
   if (!t) return null;
   const px = Math.max(Math.round(lado) || 0, QR_LADO_MINIMO);
   try {
-    const svg = new BrowserQRCodeSvgWriter().write(t, px, px);
+    const Escritor = await cargarEscritor();
+    const svg = new Escritor().write(t, px, px);
     // El writer no pone ninguno: sin esto, un lector de pantalla anuncia "gráfico" y nada más.
     svg.setAttribute('role', 'img');
     svg.setAttribute('aria-label', 'Código QR para abrir la página en el teléfono');
@@ -60,10 +90,17 @@ export function qrSvg(texto: string | null | undefined, lado = 160): SVGSVGEleme
  *
  * @returns `true` si quedó pintado; `false` si no había texto, no había contenedor o falló.
  */
-export function pintarQr(destino: Element | null | undefined, texto: string | null | undefined, lado = 160): boolean {
+export async function pintarQr(
+  destino: Element | null | undefined, texto: string | null | undefined, lado = 160,
+): Promise<boolean> {
   if (!destino) return false;
+  // ⚠️ Vacía PRIMERO, aunque ahora haya una espera en medio. Se intentó al revés —esperar al SVG y
+  // recién entonces reemplazar, para que no parpadeara mientras baja el trozo diferido— y la
+  // prueba de abajo lo rechazó con razón: dejaba el QR ANTERIOR a la vista cuando la nueva llamada
+  // no produce ninguno. Un QR vencido que alguien escanea es peor que un hueco, porque el hueco se
+  // ve y el vencido no. El parpadeo dura lo que tarda la primera carga del codificador, una vez.
   destino.replaceChildren();
-  const svg = qrSvg(texto, lado);
+  const svg = await qrSvg(texto, lado);
   if (!svg) return false;
   destino.appendChild(svg);
   return true;

@@ -3145,8 +3145,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   private pintarQrFirma(reintentar = true): void {
     const cod = this.firmaCodigo();
-    const ok = pintarQr(this.qrRef?.nativeElement ?? null, cod ? this.urlFirmaTelefono(cod) : null, 148);
-    if (!ok && cod && reintentar) setTimeout(() => this.pintarQrFirma(false));
+    // `[CG.74]` `pintarQr` pasó a ser asincrónica: el codificador de QR se carga diferido para no
+    // meter 449 kB en el paquete inicial de TODA la app (rompió el presupuesto de Angular y dejó
+    // `main` sin poder desplegar). Acá no se espera a nadie — se encadena el reintento, que es lo
+    // único que dependía del resultado. El método sigue devolviendo `void` a propósito: quien lo
+    // llama lo hace desde un efecto de vista y no tiene nada que hacer con la promesa.
+    void pintarQr(this.qrRef?.nativeElement ?? null, cod ? this.urlFirmaTelefono(cod) : null, 148)
+      .then((ok) => { if (!ok && cod && reintentar) setTimeout(() => this.pintarQrFirma(false)); });
   }
   private firmaPad: FirmaCanvas | null = null;
   /** El canvas sobre el que se preparó `firmaPad`. Cambia cada vez que el `@if` lo re-crea. */
