@@ -121,6 +121,26 @@ export class CommissionRecalcService {
       + `${fallas.length ? ` · ${fallas.length} falla(s)` : ''} · ${Date.now() - t0} ms`,
     );
 
+    // `[RD.50]` ⛔ **El MOTIVO tambien al log, no solo a la respuesta.** El 2026-10-08 esto
+    // imprimio `20 falla(s)` y nada mas, mientras las 20 traian el mismo `42703` en el cuerpo
+    // del HTTP: quien cerro la pestaña se quedo sin diagnostico, y desde el servidor no habia
+    // forma de saber por que llevaba dias sin guardar una corrida. Se agrupan los motivos
+    // identicos -- 20 lineas iguales no informan 20 veces, informan una vez y tapan el resto.
+    if (fallas.length) {
+      const porMotivo = new Map<string, string[]>();
+      for (const f of fallas) {
+        const i = f.indexOf(': ');
+        const [q, motivo] = i > 0 ? [f.slice(0, i), f.slice(i + 2)] : ['?', f];
+        const prev = porMotivo.get(motivo);
+        if (prev) prev.push(q); else porMotivo.set(motivo, [q]);
+      }
+      for (const [motivo, quincenas] of porMotivo) {
+        this.logger.error(
+          `falla en ${quincenas.length} quincena(s) [${quincenas.join(', ')}]: ${motivo}`,
+        );
+      }
+    }
+
     // ⚠️ Las fallas NO se tragan: esto lo dispara una persona y tiene que enterarse. Pero se
     // devuelven junto con lo que SI se calculo, porque lanzar borraria el resultado parcial y
     // obligaria a adivinar cuales quincenas quedaron hechas.

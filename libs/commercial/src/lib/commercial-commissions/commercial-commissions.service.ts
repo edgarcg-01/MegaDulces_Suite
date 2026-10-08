@@ -6,6 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { totalesDeCorrida } from './commission-totales.logic';
 
 /**
  * RD.6 / **RD.17-RD.19** — Motor de comisiones de Ruta Directa.
@@ -834,39 +835,18 @@ export class CommercialCommissionsService {
   }
 
   /**
-   * ⚠️ El universo de la SUMA no es el de las lineas pagables. Una ruta bajo el umbral
-   * **vendio** -- su subtotal cuenta para el total del periodo y su traslape tambien -- pero no
-   * paga. Y las rutas que no comisionan no entran en ninguna de las dos. Contarlo con
-   * `lines.filter(l => !l.motivo_no_pago)` metia a las de `bajo_umbral` en `rutas_sin_dato`,
-   * que es un hueco de fuente y no una venta chica: dos cosas distintas con el mismo nombre.
+   * `[RD.50]` El cuerpo vive en `commission-totales.logic.ts`, **sin Nest y sin alias**, para
+   * que `ts-node` pueda cargarlo y el candado compare sus claves contra las columnas REALES de
+   * `commission_runs`. Cada clave de esto entra tal cual al `INSERT` de `persist()`: cuando
+   * `dias_multifuente` salio de aca sin tener columna, el motor fallo el 100% de las veces
+   * durante dias y nadie lo vio, porque los dobles de knex no devuelven un `42703`.
    */
   private totales(
     lines: CommissionLine[], universo: RutaUniverso[],
     beneficiarios: BeneficiarioNeto[], fuera: unknown[],
     conDato: number, sinDato: number,
   ) {
-    const comisionan = new Set(universo.filter((u) => u.comisiona).map((u) => u.route_code));
-    // Lo que VENDIO: una fila por ruta que comisiona y tuvo fuente, haya pagado o no.
-    const vendieron = lines.filter((l) => l.beneficiario === 'chofer'
-      && comisionan.has(l.route_code) && l.motivo_no_pago !== 'sin_dato_en_la_fuente');
-    // Lo que PAGA.
-    const pagables = lines.filter((l) => !l.motivo_no_pago);
-    const bruto = r2(pagables.reduce((s, l) => s + l.a_pagar, 0));
-    const deduccion = r2(beneficiarios.reduce((s, b) => s + b.deduccion, 0));
-    return {
-      total_subtotal: r2(vendieron.reduce((s, l) => s + (l.subtotal ?? 0), 0)),
-      total_venta: r2(vendieron.reduce((s, l) => s + (l.venta ?? 0), 0)),
-      total_comision: r2(pagables.reduce((s, l) => s + l.comision, 0)),
-      /** Bruto. Se conserva el nombre porque lo leen `v_rd_period_summary` y la pantalla. */
-      total_a_pagar: bruto,
-      total_deduccion: deduccion,
-      /** ⭐ Lo que de verdad sale del banco. */
-      total_neto: r2(bruto - deduccion),
-      dias_multifuente: vendieron.reduce((s, l) => s + l.dias_multifuente, 0),
-      rutas_con_dato: conDato,
-      rutas_sin_dato: sinDato,
-      rutas_fuera: fuera.length,
-    };
+    return totalesDeCorrida(lines, universo, beneficiarios, fuera, conDato, sinDato);
   }
 
   /**
