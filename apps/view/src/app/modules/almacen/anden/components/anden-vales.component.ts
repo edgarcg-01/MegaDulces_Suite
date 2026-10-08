@@ -52,7 +52,7 @@ import { diasDesde, esAnterior, hoyMexico } from '../dia-mx';
              entre una pantalla y la otra. Se dice, no se deja una lista muda. -->
         <div class="va-cero">
           <h3>Ya no queda ninguno</h3>
-          <p>Los vales de esta sucursal ya se abrieron. Puede haberlos tomado otra persona: buscalos en «En curso».</p>
+          <p>Los vales de esta sucursal ya se abrieron. Puede haberlos tomado otra persona: buscalos en «Incompletos».</p>
           <button pButton type="button" [outlined]="true" (click)="volver.emit()">Volver a sucursales</button>
         </div>
       } @else {

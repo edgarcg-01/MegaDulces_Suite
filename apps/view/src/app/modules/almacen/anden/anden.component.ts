@@ -11,19 +11,16 @@ import { RouterLink } from '@angular/router';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { BinLocationService, WarehouseBin, WarehouseFreeze } from '../bin-location.service';
+import { BinLocationService, WarehouseFreeze } from '../bin-location.service';
 import { siguientePaso, avance, motivoNoCerrable, FlujoEstado, FlujoAvance } from './anden-flujo';
-import { AndenState, AndenLinea, AndenLote, Seccion, claveLote } from './anden.state';
+import { AndenState, AndenLinea } from './anden.state';
 import { AndenDraftService } from './anden-draft.service';
 import { AndenFolioComponent } from './components/anden-folio.component';
 import { AndenSucursalesComponent } from './components/anden-sucursales.component';
 import { AndenValesComponent } from './components/anden-vales.component';
 import { AndenEnCursoComponent } from './components/anden-en-curso.component';
-import { AndenSegmentedComponent, SegItem } from './components/anden-segmented.component';
 import { AndenCaducidadComponent, FechadoConfirmado, FechadoEntrada } from './components/anden-caducidad.component';
 import { AndenFechaMasivaComponent, AvanceMasivo, FechadoMasivo } from './components/anden-fecha-masiva.component';
-import { AndenUbicacionComponent, UbicacionNueva, UbicadoConfirmado } from './components/anden-ubicacion.component';
-import { AndenCartelComponent, CartelUbicacion } from './components/anden-cartel.component';
 import { AndenCongeladoComponent } from './components/anden-congelado.component';
 import { motivoHttp } from '../shared/http-motivo';
 import { ScanFieldComponent } from './components/scan-field.component';
@@ -32,28 +29,27 @@ import { unidadDelVale } from '../shared/unidad-vale';
 import { Buscable, coincide, normalizar } from './filtro.util';
 
 /**
- * **Andén de Entrada** — del folio del papel a la mercancía fechada y acomodada,
- * en una sola pasada.
+ * **Andén de Entrada** — del folio del papel a la mercancía con lote y caducidad.
  *
- * **Dos secciones, en este orden:**
+ * Con el folio aparece el vale de Kepler con sus renglones. Lo único que se
+ * captura es lote, caducidad y cuántas piezas llegaron — y cuando toda la entrega
+ * caduca el mismo día (el caso normal de un proveedor) se captura **una vez para
+ * todos**. Ahí entra la mercancía a existencia.
  *
- *  - **Fechas.** Con el folio aparece el vale de Kepler con sus renglones. Lo
- *    único que se captura es lote, caducidad y cuántas piezas llegaron — y
- *    cuando toda la entrega caduca el mismo día (el caso normal de un proveedor)
- *    se captura **una vez para todos**. Ahí entra la mercancía a existencia.
- *  - **Ubicación.** A cada lote ya fechado se le da su rack o su tarima. Si la
- *    ubicación todavía no existe, se crea acá mismo y **se imprime su cartel**:
- *    medido, `warehouse_bins` está en CERO, así que crear es el camino normal,
- *    no la excepción.
+ * `[WMS-REC.21]` **Acomodar ya no vive acá.** Hasta el 2026-10-07 el Andén tenía una
+ * segunda sección, *Ubicación*, que mandaba cada lote recién fechado a su rack
+ * (regla R2 de `anden-flujo`, decisión de negocio del 2026-09-23). Se separó a
+ * pedido de quien recibe: con el camión enfrente se fecha, y acomodar es otro
+ * trabajo que se hace cuando se puede, en Ubicaciones («Por acomodar»). Lo fechado
+ * sin lugar no se pierde: esa cola es del almacén y la arma el servidor.
  *
  * **Fechar es contar.** No hay un paso de cotejo aparte: la cantidad declarada al
  * fechar es la recibida y se escribe en `received_qty` cuando el renglón queda
  * cerrado. Eso es lo que mantiene vivos los reclamos de WMS-REC.8 — el faltante
  * contra Kepler se sigue viendo, y se levanta al cerrar el vale.
  *
- * La sección activa **no vive en la ruta**: es estado de pantalla. El vale es el
- * contexto y sobrevive al salto; en la URL, el back del navegador rompería el
- * flujo a media captura.
+ * El paso activo **no vive en la ruta**: es estado de pantalla. En la URL, el back
+ * del navegador rompería el flujo a media captura.
  */
 @Component({
   selector: 'app-anden',
@@ -62,8 +58,7 @@ import { Buscable, coincide, normalizar } from './filtro.util';
     DecimalPipe, ButtonModule, ToastModule,
     RouterLink,
     AndenFolioComponent, AndenSucursalesComponent, AndenValesComponent, AndenEnCursoComponent, AndenCongeladoComponent,
-    AndenSegmentedComponent, AndenCaducidadComponent,
-    AndenFechaMasivaComponent, AndenUbicacionComponent, AndenCartelComponent, ScanFieldComponent,
+    AndenCaducidadComponent, AndenFechaMasivaComponent, ScanFieldComponent,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -86,14 +81,14 @@ import { Buscable, coincide, normalizar } from './filtro.util';
       </header>
 
       <!-- [WMS-REC.17] Cambiar de camion. Llega otro camion mientras se fecha este: el
-           bodeguero sale al menu, lo atiende y vuelve. Lo ya fechado y acomodado vive en el
-           servidor, asi que salir no pierde nada; el vale queda en En curso. Solo se pide
+           bodeguero sale al menu, lo atiende y vuelve. Lo ya fechado vive en el servidor,
+           asi que salir no pierde nada; el vale queda en Incompletos. Solo se pide
            confirmacion si hay un renglon abierto, que es lo unico que todavia no se guardo. -->
       @if (s.abierto()) {
         @if (confirmandoCambio()) {
           <div class="an-cambio" role="alertdialog" aria-label="Cambiar de camión">
             <p>
-              <b>{{ s.vale()!.folio }}</b> queda <b>en curso</b>: lo ya fechado y acomodado está guardado y lo
+              <b>{{ s.vale()!.folio }}</b> queda <b>en curso</b>: lo ya fechado está guardado y lo
               retomás desde el menú. Lo que estás escribiendo en este renglón y no guardaste se pierde.
             </p>
             <div class="an-cambio-bt">
@@ -107,9 +102,8 @@ import { Buscable, coincide, normalizar } from './filtro.util';
         }
       }
 
-      <!-- El avance cuenta LAS DOS mitades del trabajo. Sin esto se llegaba a
-           "todo fechado" con lotes sin rack, y la pantalla no lo decía: así es
-           como la mercancía se queda sin acomodar. -->
+      <!-- El avance del vale, siempre a la vista. Desde WMS-REC.21 cuenta sólo lo
+           fechado: acomodar se sigue en Ubicaciones, sección Por acomodar. -->
       @if (s.abierto() && !congelado()?.frozen) {
         <div class="an-prog">
           <div class="an-prog-bar" role="img"
@@ -118,17 +112,11 @@ import { Buscable, coincide, normalizar } from './filtro.util';
           </div>
           <div class="an-prog-tx">
             <span><b>{{ avanceVale().renglonesListos }}</b> de {{ avanceVale().renglonesTotales }} fechados</span>
-            @if (avanceVale().lotesPorAcomodar) {
-              <span class="an-prog-warn"><b>{{ avanceVale().lotesPorAcomodar }}</b> sin rack</span>
-            } @else if (avanceVale().todoListo) {
-              <span class="an-prog-ok-tx">todo acomodado</span>
+            @if (avanceVale().todoListo) {
+              <span class="an-prog-ok-tx">todo fechado</span>
             }
           </div>
         </div>
-      }
-
-      @if (s.abierto()) {
-        <app-anden-segmented [items]="segmentos()" [activa]="s.seccion()" (elegir)="irA($event)" />
       }
 
       <main class="an-bd">
@@ -149,220 +137,144 @@ import { Buscable, coincide, normalizar } from './filtro.util';
         }
         @if (congelado()?.frozen) {
           <!-- cuerpo bloqueado a propósito -->
-        } @else if (carteles().length) {
-          <!-- El cartel manda mientras está arriba: acabar de crear una ubicación y
-               no imprimirla es dejarla sin nombre en el mundo físico. -->
-          <app-anden-cartel [ubicaciones]="carteles()" (cerrar)="cerrarCartel()" />
         } @else {
-          @switch (s.seccion()) {
+          @if (!s.abierto() && modo() === 'inicio') {
+            <!-- Los dos trabajos del almacén, separados en la portada: son
+                 distintos y los hace gente distinta. Acomodar se hace
+                 cualquier día; dar de alta, sólo cuando llega un camión.
+                 WMS-REC.21: acomodar lleva a Ubicaciones, donde vive ahora. -->
+            <div class="an-inicio">
+              <a class="an-card" routerLink="/almacen/inventory/ubicaciones">
+                <span class="an-card-ic an-card-ic--suave" aria-hidden="true">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="3" width="18" height="6" rx="1"></rect>
+                    <rect x="3" y="9" width="18" height="6" rx="1"></rect>
+                    <rect x="3" y="15" width="18" height="6" rx="1"></rect>
+                  </svg>
+                </span>
+                <span class="an-card-tx">
+                  <b>Acomodar mercancía</b>
+                  <small>Lo ya fechado que todavía no tiene lugar, para dejarlo en su rack o tarima.</small>
+                </span>
+              </a>
 
-            @case ('fechas') {
-              @if (!s.abierto() && modo() === 'inicio') {
-                <!-- Los dos trabajos del almacén, separados en la portada: son
-                     distintos y los hace gente distinta. Acomodar se hace
-                     cualquier día; dar de alta, sólo cuando llega un camión. -->
-                <div class="an-inicio">
-                  <a class="an-card" routerLink="/almacen/inventory/ubicaciones">
-                    <span class="an-card-ic an-card-ic--suave" aria-hidden="true">
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="3" width="18" height="6" rx="1"></rect>
-                        <rect x="3" y="9" width="18" height="6" rx="1"></rect>
-                        <rect x="3" y="15" width="18" height="6" rx="1"></rect>
-                      </svg>
-                    </span>
-                    <span class="an-card-tx">
-                      <b>Ubicación de mercancía</b>
-                      <small>Cómo está acomodada y en qué rack, con lo que ya está fechado.</small>
-                    </span>
-                  </a>
-
-                  <button type="button" class="an-card an-card--go" (click)="irAAlta()">
-                    <span class="an-card-ic" aria-hidden="true">
-                      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
-                        <rect x="3" y="4" width="18" height="17" rx="2"></rect>
-                        <path d="M16 2v4"></path><path d="M8 2v4"></path>
-                        <path d="M3 10h18"></path><path d="M9 15h6"></path>
-                      </svg>
-                    </span>
-                    <span class="an-card-tx">
-                      <b>Dar de alta caducidades</b>
-                      <small>Del folio del vale a la mercancía fechada y acomodada.</small>
-                    </span>
-                  </button>
-                </div>
-              } @else if (!s.abierto() && modo() === 'alta') {
-                <!-- Paso 0: a qué sucursal entra la mercancía. Antes acá se
-                     tecleaba el folio del papel; ahora el folio es el respaldo. -->
-                <button type="button" class="an-volver" (click)="modo.set('inicio')">← Menú</button>
-                <app-anden-en-curso
-                  [vales]="enCurso()" [abriendo]="s.cargando()" [error]="errorEnCurso()"
-                  (retomar)="retomar($event)" />
-                <app-anden-sucursales
-                  [sucursales]="sucursales()" [cargando]="cargandoMenu()" [error]="errorMenu()"
-                  [alcanceAbierto]="alcanceAbierto()"
-                  (elegir)="elegirSucursal($event)" (verFolio)="modo.set('folio')"
-                  (reintentar)="cargarSucursales()" />
-              } @else if (!s.abierto() && modo() === 'vales') {
-                <app-anden-vales
-                  [sucursal]="sucursalElegida()!" [vales]="valesDelDia()"
-                  [cargando]="cargandoVales()" [abriendo]="s.cargando()" [error]="errorVales()"
-                  (abrir)="abrirVale($event)" (volver)="volverASucursales()"
-                  (reintentar)="elegirSucursal(sucursalElegida()!)" />
-              } @else if (!s.abierto()) {
-                <button type="button" class="an-volver" (click)="volverASucursales()">← Sucursales</button>
-                <app-anden-folio
-                  [folio]="s.folio()" [buscando]="s.buscando()" [candidatos]="s.candidatos()"
-                  (folioChange)="s.folio.set($event)" (buscar)="buscar()" (elegir)="abrirVale($event)" />
-              } @else if (masiva()) {
-                <app-anden-fecha-masiva #masivo
-                  [lineas]="s.pendientesFechar()" [avance]="avance()"
-                  (aplicar)="fecharTodo($event)" (volver)="cerrarMasiva()" />
-              } @else if (s.actual(); as l) {
-                <app-anden-caducidad #fechar
-                  [linea]="l" [minShelfLife]="minShelfLife()" [existingMinExpiry]="existingMinExpiry()"
-                  [guardando]="s.guardando()"
-                  (pedirOcr)="correrOcr($event)" (confirmar)="confirmarFechado($event)"
-                  (cerrarRenglon)="cerrarRenglon($event)" (volver)="volverALista()" />
-              } @else if (!s.pendientesFechar().length) {
-                <div class="an-fin">
-                  <div class="an-big">✓</div>
-                  <h2>Todo fechado</h2>
-                  <p>
-                    {{ s.unidades() | number }} piezas entraron con lote y caducidad.
-                    @if (s.pendientesUbicar().length) {
-                      Quedan <b>{{ s.pendientesUbicar().length }}</b> lotes por acomodar.
-                    } @else if (s.cerrado()) { El vale quedó cerrado. }
-                    @else { Nada pendiente de acomodar tampoco. }
-                  </p>
-                  @if (s.pendientesUbicar().length) {
-                    <button pButton type="button" [outlined]="true" (click)="irA('ubicacion')">Ir a Ubicación →</button>
-                  } @else if (!s.cerrado()) {
-                    <button pButton type="button" [loading]="s.guardando()" (click)="cerrarVale()">
-                      Cerrar el vale
-                    </button>
-                  }
-                  <button pButton type="button" [text]="true" severity="secondary" (click)="otroCamion()">
-                    Recibir otro camión
-                  </button>
-                </div>
-              } @else {
-                <p class="an-nota">
-                  Capturá lote y caducidad de cada renglón. La cantidad viene con lo que manda
-                  Kepler: <b>corregila si llegó de menos</b>, porque de ahí sale el reclamo.
-                </p>
-
-                <!-- El caso normal de una entrega es una sola fecha para toda la tarima.
-                     Va arriba de la lista porque resuelve el vale entero de un golpe. -->
-                <button pButton type="button" class="an-masiva" [outlined]="true" (click)="masiva.set(true)">
-                  Todos caducan el mismo día →
+              <button type="button" class="an-card an-card--go" (click)="irAAlta()">
+                <span class="an-card-ic" aria-hidden="true">
+                  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                    stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="4" width="18" height="17" rx="2"></rect>
+                    <path d="M16 2v4"></path><path d="M8 2v4"></path>
+                    <path d="M3 10h18"></path><path d="M9 15h6"></path>
+                  </svg>
+                </span>
+                <span class="an-card-tx">
+                  <b>Dar de alta caducidades</b>
+                  <small>Del folio del vale a la mercancía con lote y caducidad.</small>
+                </span>
+              </button>
+            </div>
+          } @else if (!s.abierto() && modo() === 'alta') {
+            <!-- Paso 0: a qué sucursal entra la mercancía. Antes acá se
+                 tecleaba el folio del papel; ahora el folio es el respaldo. -->
+            <button type="button" class="an-volver" (click)="modo.set('inicio')">← Menú</button>
+            <app-anden-en-curso
+              [vales]="enCurso()" [abriendo]="s.cargando()" [error]="errorEnCurso()"
+              (retomar)="retomar($event)" />
+            <app-anden-sucursales
+              [sucursales]="sucursales()" [cargando]="cargandoMenu()" [error]="errorMenu()"
+              [alcanceAbierto]="alcanceAbierto()"
+              (elegir)="elegirSucursal($event)" (verFolio)="modo.set('folio')"
+              (reintentar)="cargarSucursales()" />
+          } @else if (!s.abierto() && modo() === 'vales') {
+            <app-anden-vales
+              [sucursal]="sucursalElegida()!" [vales]="valesDelDia()"
+              [cargando]="cargandoVales()" [abriendo]="s.cargando()" [error]="errorVales()"
+              (abrir)="abrirVale($event)" (volver)="volverASucursales()"
+              (reintentar)="elegirSucursal(sucursalElegida()!)" />
+          } @else if (!s.abierto()) {
+            <button type="button" class="an-volver" (click)="volverASucursales()">← Sucursales</button>
+            <app-anden-folio
+              [folio]="s.folio()" [buscando]="s.buscando()" [candidatos]="s.candidatos()"
+              (folioChange)="s.folio.set($event)" (buscar)="buscar()" (elegir)="abrirVale($event)" />
+          } @else if (masiva()) {
+            <app-anden-fecha-masiva #masivo
+              [lineas]="s.pendientesFechar()" [avance]="avance()"
+              (aplicar)="fecharTodo($event)" (volver)="cerrarMasiva()" />
+          } @else if (s.actual(); as l) {
+            <app-anden-caducidad #fechar
+              [linea]="l" [minShelfLife]="minShelfLife()" [existingMinExpiry]="existingMinExpiry()"
+              [guardando]="s.guardando()"
+              (pedirOcr)="correrOcr($event)" (confirmar)="confirmarFechado($event)"
+              (cerrarRenglon)="cerrarRenglon($event)" (volver)="volverALista()" />
+          } @else if (!s.pendientesFechar().length) {
+            <div class="an-fin">
+              <div class="an-big">✓</div>
+              <h2>Todo fechado</h2>
+              <p>
+                {{ s.unidades() | number }} piezas entraron con lote y caducidad.
+                @if (s.cerrado()) { El vale quedó cerrado. }
+                @else { Lo que falte acomodar se ve en Ubicaciones, en «Por acomodar». }
+              </p>
+              @if (!s.cerrado()) {
+                <button pButton type="button" [loading]="s.guardando()" (click)="cerrarVale()">
+                  Cerrar el vale
                 </button>
-
-                <app-scan-field
-                  [valor]="consulta()" [visibles]="visFechar().length" [total]="s.pendientesFechar().length"
-                  [refocoTick]="refoco()"
-                  etiqueta="Escanear o buscar"
-                  placeholder="Escaneá la caja o buscá por nombre"
-                  (valorChange)="consulta.set($event)" (enter)="enter()"
-                  (sinCamara)="avisarCamara($event)" />
-
-                @if (sinCoincidencias(visFechar())) {
-                  <!-- Salida accionable: que un producto no esté en el vale no
-                       significa que no haya llegado. Se resuelve el código contra
-                       el catálogo y se fecha igual, sin renglón: la captura suelta
-                       ya es válida en el backend. -->
-                  <div class="an-vacio">
-                    <p class="an-vacio-t">
-                      Nada por fechar coincide con <b>«{{ consulta() }}»</b>. Puede que ya esté
-                      fechado, o que haya llegado sin venir en el vale.
-                    </p>
-                    <button pButton type="button" [outlined]="true" [loading]="resolviendo()"
-                      (click)="fecharSuelto()">
-                      Buscar «{{ consulta() }}» en el catálogo y fecharlo
-                    </button>
-                  </div>
-                }
-
-                <ul class="an-lista">
-                  @for (l of visFechar(); track l.id) {
-                    <li><button type="button" class="an-row" (click)="abrirFechar(l)">
-                      <span class="an-row-nm">{{ nombre(l) }}</span>
-                      <span class="an-row-sk">
-                        {{ l.sku || l.expected_sku || '—' }} ·
-                        @if (l.declarado > 0) { faltan {{ l.faltaFechar | number }} de {{ +l.expected_qty | number }} }
-                        @else { sin fecha · lote NA }
-                      </span>
-                      <span class="an-row-qt">{{ l.faltaFechar | number }}</span>
-                    </button></li>
-                  }
-                </ul>
               }
-            }
+              <button pButton type="button" [text]="true" severity="secondary" (click)="otroCamion()">
+                Recibir otro camión
+              </button>
+            </div>
+          } @else {
+            <p class="an-nota">
+              Capturá lote y caducidad de cada renglón. La cantidad viene con lo que manda
+              Kepler: <b>corregila si llegó de menos</b>, porque de ahí sale el reclamo.
+            </p>
 
-            @case ('ubicacion') {
-              @if (s.loteActual(); as l) {
-                <app-anden-ubicacion #ubicar
-                  [lote]="l" [bins]="bins()" [guardando]="s.guardando()" [creandoBusy]="creandoBin()"
-                  [codigoNuevo]="codigoNuevo()"
-                  (confirmar)="confirmarUbicado($event)" (crear)="crearUbicacion($event)"
-                  (volver)="volverALista()" (sinCamara)="avisarCamara($event)" />
-              } @else if (!s.pendientesUbicar().length) {
-                <div class="an-fin">
-                  <div class="an-big">✓</div>
-                  <h2>Todo acomodado</h2>
-                  <p>
-                    @if (s.pendientesFechar().length) {
-                      Quedan <b>{{ s.pendientesFechar().length }}</b> renglones por fechar antes de cerrar el vale.
-                    } @else if (s.cerrado()) { El vale quedó cerrado: cero pendientes. }
-                    @else { Cero pendientes en las dos secciones. }
-                  </p>
-                  @if (s.pendientesFechar().length) {
-                    <button pButton type="button" [outlined]="true" (click)="irA('fechas')">Ir a Fechas →</button>
-                  } @else if (!s.cerrado()) {
-                    <button pButton type="button" [loading]="s.guardando()" (click)="cerrarVale()">
-                      Cerrar el vale
-                    </button>
-                  }
-                  @if (creadas().length) {
-                    <button pButton type="button" [text]="true" (click)="reimprimir()">
-                      Reimprimir los {{ creadas().length }} carteles de esta sesión
-                    </button>
-                  }
-                </div>
-              } @else {
-                <p class="an-nota">
-                  Mercancía ya fechada que todavía no tiene rack. El surtidor no la encuentra.
+            <!-- El caso normal de una entrega es una sola fecha para toda la tarima.
+                 Va arriba de la lista porque resuelve el vale entero de un golpe. -->
+            <button pButton type="button" class="an-masiva" [outlined]="true" (click)="masiva.set(true)">
+              Todos caducan el mismo día →
+            </button>
+
+            <app-scan-field
+              [valor]="consulta()" [visibles]="visFechar().length" [total]="s.pendientesFechar().length"
+              [refocoTick]="refoco()"
+              etiqueta="Escanear o buscar"
+              placeholder="Escaneá la caja o buscá por nombre"
+              (valorChange)="consulta.set($event)" (enter)="enter()"
+              (sinCamara)="avisarCamara($event)" />
+
+            @if (sinCoincidencias(visFechar())) {
+              <!-- Salida accionable: que un producto no esté en el vale no
+                   significa que no haya llegado. Se resuelve el código contra
+                   el catálogo y se fecha igual, sin renglón: la captura suelta
+                   ya es válida en el backend. -->
+              <div class="an-vacio">
+                <p class="an-vacio-t">
+                  Nada por fechar coincide con <b>«{{ consulta() }}»</b>. Puede que ya esté
+                  fechado, o que haya llegado sin venir en el vale.
                 </p>
-                <!-- Acá la barra también busca por rack: teclear R-04 deja a la vista todo lo que
-                     va a ese pasillo, y el bodeguero camina una sola vez en vez de cuatro. -->
-                <app-scan-field
-                  [valor]="consulta()" [visibles]="visUbicar().length" [total]="s.pendientesUbicar().length"
-                  [refocoTick]="refoco()"
-                  etiqueta="Escanear o buscar"
-                  placeholder="Escaneá la caja, o buscá por nombre o rack"
-                  (valorChange)="consulta.set($event)" (enter)="enter()"
-                  (sinCamara)="avisarCamara($event)" />
-                @if (sinCoincidencias(visUbicar())) {
-                  <p class="an-vacio">
-                    Nada por acomodar coincide con <b>«{{ consulta() }}»</b>. Si buscaste por rack,
-                    puede que ese pasillo ya esté acomodado.
-                  </p>
-                }
-                <ul class="an-lista">
-                  @for (l of visUbicar(); track clave(l)) {
-                    <li><button type="button" class="an-row" (click)="abrirUbicar(l)">
-                      <span class="an-row-nm">{{ l.product_name || l.sku || 'Sin nombre' }}</span>
-                      <span class="an-row-sk">
-                        lote {{ l.lot_code }}@if (l.expiry_date) { · caduca {{ fecha(l.expiry_date) }} }
-                        @if (l.binSugerido) { · sugerido {{ l.binSugerido }} }
-                      </span>
-                      <span class="an-row-qt">{{ l.porUbicar | number }}</span>
-                    </button></li>
-                  }
-                </ul>
-              }
+                <button pButton type="button" [outlined]="true" [loading]="resolviendo()"
+                  (click)="fecharSuelto()">
+                  Buscar «{{ consulta() }}» en el catálogo y fecharlo
+                </button>
+              </div>
             }
+
+            <ul class="an-lista">
+              @for (l of visFechar(); track l.id) {
+                <li><button type="button" class="an-row" (click)="abrirFechar(l)">
+                  <span class="an-row-nm">{{ nombre(l) }}</span>
+                  <span class="an-row-sk">
+                    {{ l.sku || l.expected_sku || '—' }} ·
+                    @if (l.declarado > 0) { faltan {{ l.faltaFechar | number }} de {{ +l.expected_qty | number }} }
+                    @else { sin fecha · lote NA }
+                  </span>
+                  <span class="an-row-qt">{{ l.faltaFechar | number }}</span>
+                </button></li>
+              }
+            </ul>
           }
         }
       </main>
@@ -387,8 +299,6 @@ import { Buscable, coincide, normalizar } from './filtro.util';
     .an-prog-ok { display: block; height: 100%; background: var(--tone-ok, #15803d); transition: width .2s ease; }
     .an-prog-tx { display: flex; gap: var(--sp-3); font-size: var(--fs-xs); color: var(--text-muted); }
     .an-prog-tx b { color: var(--text-main); font-variant-numeric: tabular-nums; }
-    .an-prog-warn { color: var(--tone-warn, #b45309); }
-    .an-prog-warn b { color: var(--tone-warn, #b45309); }
     .an-prog-ok-tx { color: var(--tone-ok, #15803d); }
 
     /* Almacén congelado: el cuerpo entero se reemplaza, no es un aviso al costado. */
@@ -510,16 +420,6 @@ export class AndenComponent implements OnInit {
   readonly minShelfLife = signal<number | null>(null);
   readonly existingMinExpiry = signal<string | null>(null);
 
-  /** Ubicaciones que ya existen en el almacén del vale. Se recarga al crear una. */
-  readonly bins = signal<WarehouseBin[]>([]);
-  readonly creandoBin = signal(false);
-  /** Ubicaciones creadas en esta sesión de pantalla: las que hay que rotular. */
-  readonly creadas = signal<CartelUbicacion[]>([]);
-  /** Lo que el panel de carteles tiene arriba. Vacío = no hay cartel en pantalla. */
-  readonly carteles = signal<CartelUbicacion[]>([]);
-  /** La ubicación recién creada, para que el panel vuelva con ella puesta. */
-  readonly codigoNuevo = signal<string | null>(null);
-
   /** Panel de "todos caducan el mismo día" abierto. */
   readonly masiva = signal(false);
   readonly avance = signal<AvanceMasivo | null>(null);
@@ -599,22 +499,6 @@ export class AndenComponent implements OnInit {
 
   private readonly fechar = viewChild<AndenCaducidadComponent>('fechar');
   private readonly masivo = viewChild<AndenFechaMasivaComponent>('masivo');
-  private readonly ubicar = viewChild<AndenUbicacionComponent>('ubicar');
-
-  readonly segmentos = computed<SegItem[]>(() => {
-    const abierto = this.s.abierto();
-    const porFechar = this.s.pendientesFechar().length;
-    const porUbicar = this.s.pendientesUbicar().length;
-    return [
-      { key: 'fechas', label: 'Fechas', on: true, pend: abierto ? porFechar : 0,
-        done: abierto && porFechar === 0 },
-      // Ubicación se habilita en cuanto hay UN lote fechado: no hace falta terminar
-      // de fechar todo para que alguien empiece a acomodar lo que ya tiene fecha.
-      { key: 'ubicacion', label: 'Ubicación', on: abierto && (porUbicar > 0 || this.s.unidades() > 0),
-        pend: porUbicar, done: abierto && this.s.unidades() > 0 && porUbicar === 0 },
-    ];
-  });
-
   ngOnInit(): void {
     // Si este equipo dejó un vale a medias, se retoma donde estaba. Es la razón
     // de existir del borrador: el bodeguero no vuelve a capturar lo ya capturado.
@@ -623,10 +507,7 @@ export class AndenComponent implements OnInit {
       this.sessions.detail(b.sessionId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (v) => {
           this.s.cargarDesdeVale(v);
-          this.s.seccion.set(b.seccion);
           this.s.guardado.set(true);
-          this.cargarBins();
-          this.cargarLotes();
           this.toast.add({ severity: 'info', summary: 'Vale recuperado', detail: `${v.folio} — seguí donde lo dejaste.` });
         },
         error: () => this.drafts.borrar(b.sessionId),
@@ -637,9 +518,6 @@ export class AndenComponent implements OnInit {
   nombre(l: AndenLinea): string {
     return l.product_name || l.expected_name || l.sku || l.expected_sku || 'Sin nombre';
   }
-
-  clave(l: AndenLote): string { return claveLote(l); }
-  fecha(iso: string | null): string { return formatExpiryEcho(iso); }
 
   // ── Barra única ───────────────────────────────────────────────────────────
 
@@ -660,15 +538,6 @@ export class AndenComponent implements OnInit {
     return ls.filter((l) => coincide(this.buscable(l), q));
   });
 
-  readonly visUbicar = computed(() => {
-    const q = this.consulta();
-    const ls = this.s.pendientesUbicar();
-    if (!normalizar(q)) return ls;
-    return ls.filter((l) =>
-      coincide({ nombre: l.product_name, sku: l.sku, barcode: null, rack: l.binSugerido }, q),
-    );
-  });
-
   /** Vacío por filtro (hay que decir algo) vs. vacío real (ya hay otra pantalla). */
   sinCoincidencias(vis: unknown[]): boolean {
     return !!normalizar(this.consulta()) && !vis.length;
@@ -681,13 +550,8 @@ export class AndenComponent implements OnInit {
    */
   enter(): void {
     if (!normalizar(this.consulta())) return;
-    if (this.s.seccion() === 'fechas') {
-      const vis = this.visFechar();
-      if (vis.length === 1) this.abrirFechar(vis[0]);
-      return;
-    }
-    const vis = this.visUbicar();
-    if (vis.length === 1) this.abrirUbicar(vis[0]);
+    const vis = this.visFechar();
+    if (vis.length === 1) this.abrirFechar(vis[0]);
   }
 
   /**
@@ -768,22 +632,6 @@ export class AndenComponent implements OnInit {
     this.drafts.guardar(b).then((ok) => this.s.guardado.set(ok));
   }
 
-  irA(sec: Seccion): void {
-    this.s.seccion.set(sec);
-    this.s.actual.set(null);
-    this.s.loteActual.set(null);
-    this.masiva.set(false);
-    this.avance.set(null);
-    this.volverALaBarra();
-    if (sec === 'ubicacion') {
-      this.cargarLotes(() => {
-        const l = this.s.siguienteUbicar();
-        if (l) this.abrirUbicar(l);
-      });
-    }
-    this.guardarBorrador();
-  }
-
   /**
    * El estado que la decisión necesita, reducido. Se arma acá y se le pasa a
    * `anden-flujo`, que es puro y está probado aparte: la pantalla no vuelve a
@@ -795,22 +643,7 @@ export class AndenComponent implements OnInit {
       valeCerrado: this.s.cerrado(),
       congeladoPorFolio: this.congelado()?.frozen ? (this.congelado()?.folio ?? 'sin folio') : null,
       lineas: this.s.lineas().map((l) => ({ id: l.id, faltaFechar: l.faltaFechar })),
-      lotes: this.s.lotes().map((l) => ({
-        clave: claveLote(l),
-        lineaId: this.lineaDeLote(l),
-        porUbicar: l.porUbicar,
-        rackSugerido: l.binSugerido,
-      })),
     };
-  }
-
-  /**
-   * De qué renglón salió un lote. `/unlocated` contesta por producto, no por
-   * renglón, así que se ata por `product_id` — que es lo que hace falta para
-   * saber si el lote es el de la caja que el operario tiene en la mano.
-   */
-  private lineaDeLote(l: AndenLote): string | null {
-    return this.s.lineas().find((x) => x.product_id === l.product_id)?.id ?? null;
   }
 
   readonly avanceVale = computed<FlujoAvance>(() => avance({
@@ -818,40 +651,19 @@ export class AndenComponent implements OnInit {
     valeCerrado: this.s.cerrado(),
     congeladoPorFolio: null,
     lineas: this.s.lineas().map((l) => ({ id: l.id, faltaFechar: l.faltaFechar })),
-    lotes: this.s.lotes().map((l) => ({
-      clave: claveLote(l), lineaId: null, porUbicar: l.porUbicar, rackSugerido: l.binSugerido,
-    })),
   }));
 
   /**
-   * **Qué sigue después de guardar.** Reemplaza a `siguienteFechar()`, que sólo
-   * miraba la cola de fechado: con eso, el lote recién creado se iba a una cola
-   * y la misma caja se tocaba dos veces.
-   *
-   * `recienFechada` es el renglón que se acaba de guardar — es lo que habilita
-   * resolver su ubicación con la caja todavía en la mano.
+   * **Qué sigue después de guardar**: el siguiente renglón por fechar, sin
+   * devolver al operario a la lista. Lo decide `anden-flujo`, que es puro.
+   * `[WMS-REC.21]` Ya no salta a acomodar el lote recién fechado: eso pasó a
+   * Ubicaciones, sección «Por acomodar».
    */
-  private avanzar(recienFechada?: string | null): void {
-    const paso = siguientePaso(this.flujo(), recienFechada);
-    switch (paso.tipo) {
-      case 'fechar': {
-        const l = this.s.lineas().find((x) => x.id === paso.lineaId);
-        if (l) this.abrirFechar(l);
-        return;
-      }
-      case 'ubicar': {
-        const lote = this.s.lotes().find((x) => claveLote(x) === paso.clave);
-        if (!lote) return;
-        // Se salta a la sección de ubicación con el lote abierto: el operario no
-        // pasa por ninguna lista. Si el lote no tiene rack conocido, el panel de
-        // ubicación ofrece crear la ubicación ahí mismo.
-        this.s.seccion.set('ubicacion');
-        this.abrirUbicar(lote);
-        return;
-      }
-      default:
-        return;
-    }
+  private avanzar(): void {
+    const paso = siguientePaso(this.flujo());
+    if (paso.tipo !== 'fechar') return;
+    const l = this.s.lineas().find((x) => x.id === paso.lineaId);
+    if (l) this.abrirFechar(l);
   }
 
   /** Por qué no se puede cerrar todavía. `null` = se puede. */
@@ -893,7 +705,7 @@ export class AndenComponent implements OnInit {
       : { source_kind: 'erp_receipt' as const, erp_sucursal: m.sucursal, erp_folio: m.folio };
     this.sessions.open(dto)
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (v) => this.cargarDetalle(v.id, () => { this.cargarBins(); this.cargarLotes(); }),
+        next: (v) => this.cargarDetalle(v.id),
         error: (e) => {
           this.s.cargando.set(false);
           const dup = /ya.*recib/i.test(e?.error?.message || '');
@@ -975,38 +787,6 @@ export class AndenComponent implements OnInit {
           this.consultarCongelamiento();
         },
       });
-  }
-
-  /** Las ubicaciones que ya existen. Sin esto, el panel no puede decir si un código existe. */
-  private cargarBins(tras?: () => void): void {
-    const wh = this.s.warehouseId();
-    if (!wh) return;
-    this.binsSvc.listBins(wh).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (bs) => { this.bins.set(bs || []); tras?.(); },
-      // Sin la lista, el panel no puede resolver un código: se dice, no se finge
-      // que el almacén está vacío (que invitaría a crear una ubicación duplicada).
-      error: () => this.toast.add({
-        severity: 'warn', summary: 'Ubicaciones',
-        detail: 'No se pudo leer la lista de racks. Vuelve a intentar antes de crear uno nuevo.',
-      }),
-    });
-  }
-
-  /**
-   * La cola de Ubicación sale del backend (`/unlocated`), no de la pantalla: el
-   * put-away exige el lote y la caducidad exactos, y recordarlos acá los desfasa
-   * en cuanto otra persona fecha desde otro equipo.
-   */
-  private cargarLotes(tras?: () => void): void {
-    const wh = this.s.warehouseId();
-    if (!wh) return;
-    this.binsSvc.unlocated(wh).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => { this.s.cargarLotes(rows || []); tras?.(); },
-      error: (e) => this.toast.add({
-        severity: 'error', summary: 'Por acomodar',
-        detail: e?.error?.message || 'No se pudo leer qué falta acomodar',
-      }),
-    });
   }
 
   // ── Fechas ────────────────────────────────────────────────────────────────
@@ -1111,12 +891,11 @@ export class AndenComponent implements OnInit {
     this.cargarDetalle(v.id, () => {
       this.s.actual.set(null);
       this.volverALaBarra();
-      this.cargarLotes();
       // Una captura suelta no destraba ningún renglón del vale: encadenar al
       // "siguiente pendiente" mandaría al operario a otro producto sin que lo
       // pidiera. Sólo se encadena cuando lo que se fechó era del vale, y sólo si
       // no quedó nada a medias que el operario tenga que mirar.
-      if (f.linea.id && !fallas.length) this.avanzar(f.linea.id);
+      if (f.linea.id && !fallas.length) this.avanzar();
     });
   }
 
@@ -1265,134 +1044,11 @@ export class AndenComponent implements OnInit {
     this.avance.update((a) => (a ? { ...a, terminado: true } : a));
     // El detalle se recarga UNA vez al final: recargarlo por renglón son N viajes
     // y hace parpadear la lista mientras corre.
-    this.cargarDetalle(v.id, () => this.cargarLotes());
-  }
-
-  // ── Ubicación ─────────────────────────────────────────────────────────────
-
-  abrirUbicar(l: AndenLote): void {
-    this.s.loteActual.set(l);
-    this.limpiarBarra();
-    if (!l.binSugerido) this.cargarSugerencia(l);
-  }
-
-  private siguienteUbicar(): void {
-    const l = this.s.siguienteUbicar();
-    if (l) this.abrirUbicar(l);
-  }
-
-  private cargarSugerencia(l: AndenLote): void {
-    const wh = this.s.warehouseId();
-    if (!wh) return;
-    this.binsSvc.pickSuggestion(wh, l.product_id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (ss) => {
-        const bin = (ss || []).find((x) => x.bin_code)?.bin_code ?? null;
-        if (bin) {
-          this.s.parchearLote(claveLote(l), { binSugerido: bin });
-          const act = this.s.loteActual();
-          if (act && claveLote(act) === claveLote(l)) this.s.loteActual.set({ ...act, binSugerido: bin });
-        }
-      },
-      error: () => { /* sin sugerencia: se escanea el rack */ },
-    });
-  }
-
-  /**
-   * **Crear la ubicación que no existe.** Es el camino normal, no la excepción:
-   * `warehouse_bins` arrancó en cero, así que la bodega se rotula a medida que se
-   * usa. Al crearla se ofrece su cartel de una — una ubicación sin cartel pegado
-   * es una ubicación que nadie vuelve a encontrar.
-   */
-  crearUbicacion(u: UbicacionNueva): void {
-    const wh = this.s.warehouseId();
-    if (!wh || this.creandoBin()) return;
-    this.creandoBin.set(true);
-    this.binsSvc.createBin({ warehouse_id: wh, code: u.code, label: u.label })
-      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-        next: (b) => {
-          this.creandoBin.set(false);
-          const cartel: CartelUbicacion = { code: b.code, label: b.label || u.label, almacen: this.s.almacen() };
-          this.creadas.update((cs) => [...cs, cartel]);
-          this.codigoNuevo.set(b.code);
-          this.cargarBins();
-          this.carteles.set([cartel]);
-          this.toast.add({
-            severity: 'success', summary: 'Ubicación creada',
-            detail: `${b.code} — imprimí el cartel y pegalo en el rack.`,
-          });
-        },
-        error: (e) => {
-          this.creandoBin.set(false);
-          const dup = e?.status === 409;
-          this.toast.add({
-            severity: dup ? 'warn' : 'error',
-            summary: dup ? 'Ese código ya existe' : 'No se pudo crear',
-            // El motivo REAL y no un genérico: este mismo toast decía "Error al
-            // crear la ubicación" para un 500, para un 403, para la sesión vencida
-            // y para una petición que ni salió — y con eso la falla que se reportó
-            // desde la bodega fue imposible de diagnosticar. `motivoHttp` los
-            // separa y nunca devuelve "Error" pelado.
-            detail: motivoHttp(e, 'crear la ubicación'),
-          });
-          if (dup) this.cargarBins();
-        },
-      });
-  }
-
-  cerrarCartel(): void {
-    this.carteles.set([]);
-    setTimeout(() => this.ubicar()?.enfocar(), 0);
-  }
-
-  reimprimir(): void {
-    if (this.creadas().length) this.carteles.set(this.creadas());
-  }
-
-  /**
-   * **El put-away lleva el lote y la caducidad exactos.**
-   *
-   * Antes mandaba sólo producto y cantidad, así que el backend caía en el lote
-   * `NA`. Con el fechado por delante, `NA` ya no existe — fechar RECLASIFICA el
-   * lote (`assignLotToUndeclared`), y el put-away moría con "El lote no existe en
-   * stock". El lote sale de `/unlocated`, que es el que lleva la cuenta de lo que
-   * falta acomodar.
-   */
-  confirmarUbicado(u: UbicadoConfirmado): void {
-    const wh = this.s.warehouseId();
-    if (!wh) return;
-    this.s.guardando.set(true);
-    this.binsSvc.putAway({
-      warehouse_id: wh,
-      product_id: u.lote.product_id,
-      lot_code: u.lote.lot_code,
-      expiry_date: u.lote.expiry_date || undefined,
-      bin_code: u.binCode,
-      quantity: u.cantidad,
-    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: () => {
-        this.s.guardando.set(false);
-        this.toast.add({ severity: 'success', summary: 'Acomodado',
-          detail: `${u.lote.product_name || u.lote.sku} — ${u.cantidad} pz en ${u.binCode}.` });
-        this.s.loteActual.set(null);
-        this.volverALaBarra();
-        // El código recién creado deja de mandar en cuanto se usó: el siguiente
-        // lote merece SU sugerencia, que es dónde vive ese SKU.
-        this.codigoNuevo.set(null);
-        this.cargarLotes(() => {
-          this.siguienteUbicar();
-          setTimeout(() => this.ubicar()?.enfocar(), 0);
-        });
-      },
-      error: (e) => {
-        this.s.guardando.set(false);
-        this.toast.add({ severity: 'error', summary: 'No se pudo acomodar', detail: e?.error?.message || 'Error' });
-      },
-    });
+    this.cargarDetalle(v.id);
   }
 
   volverALista(): void {
     this.s.actual.set(null);
-    this.s.loteActual.set(null);
     this.volverALaBarra();
   }
 
@@ -1493,10 +1149,6 @@ export class AndenComponent implements OnInit {
   otroCamion(): void {
     const v = this.s.vale();
     if (v) this.drafts.borrar(v.id);
-    this.bins.set([]);
-    this.creadas.set([]);
-    this.carteles.set([]);
-    this.codigoNuevo.set(null);
     this.masiva.set(false);
     this.avance.set(null);
     this.confirmandoCambio.set(false);
@@ -1511,12 +1163,12 @@ export class AndenComponent implements OnInit {
   /**
    * `[WMS-REC.17]` **Cambiar de camion a media captura.**
    *
-   * Sin renglon abierto se sale directo: todo lo fechado y acomodado ya esta en el servidor.
+   * Sin renglon abierto se sale directo: todo lo fechado ya esta en el servidor.
    * Con un renglon (o el fechado masivo) abierto se pide confirmacion, porque eso que se esta
    * escribiendo es lo UNICO que todavia no se guardo.
    */
   pedirCambio(): void {
-    if (this.s.actual() || this.s.loteActual() || this.masiva()) {
+    if (this.s.actual() || this.masiva()) {
       this.confirmandoCambio.set(true);
       return;
     }
@@ -1524,7 +1176,7 @@ export class AndenComponent implements OnInit {
   }
 
   /**
-   * Sale al menu SIN cancelar el vale: queda abierto en el servidor y aparece en «En curso».
+   * Sale al menu SIN cancelar el vale: queda abierto en el servidor y aparece en «Incompletos».
    * El borrador local se borra a proposito — si quedara, al volver a entrar la pantalla
    * reabriria este vale sola, y el bodeguero ya esta con otro camion.
    */
@@ -1536,7 +1188,7 @@ export class AndenComponent implements OnInit {
       this.toast.add({
         severity: 'info',
         summary: 'Vale en curso',
-        detail: `${v.folio} quedó en «En curso». Tocalo en el menú para seguir donde lo dejaste.`,
+        detail: `${v.folio} quedó en «Incompletos». Tocalo en el menú para seguir donde lo dejaste.`,
       });
     }
   }
@@ -1559,8 +1211,6 @@ export class AndenComponent implements OnInit {
     this.s.reset();
     this.s.cargando.set(true);
     this.cargarDetalle(v.id, () => {
-      this.cargarBins();
-      this.cargarLotes();
       this.toast.add({ severity: 'info', summary: 'Vale retomado', detail: `${v.folio} — seguí donde lo dejaste.` });
     });
   }

@@ -20,7 +20,9 @@ import type { AndenValeEnCurso, ErpOrderMatch, ErpPendingMenu, ReceivingSession 
  *     (`erp_transfer` con origen, serie y folio — no como orden de entrada);
  *  2. a media captura hay un botón para **ir a otro camión**, que sale al menú **sin
  *     cancelar** el vale (no se manda ni un `/cancel`);
- *  3. el vale que se dejó aparece en **«En curso»** y se **retoma** de un toque.
+ *  3. el vale que se dejó aparece en **«Incompletos»** y se **retoma** de un toque.
+ *
+ * `[WMS-REC.21]` Y de paso: abrir un vale ya NO pide la cola de acomodo ni los racks.
  */
 const BASE = `${environment.apiUrl}/commercial/receiving/sessions`;
 const SES_ID = '11111111-1111-1111-1111-111111111111';
@@ -135,6 +137,7 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
     abrir.flush(sesion);
     http.expectOne(`${BASE}/${SES_ID}`).flush(sesion);
     await pinta();
+    http.expectNone((r) => r.url.includes('/unlocated') || r.url.endsWith('/bins'));
     contestarAccesorios();
     await pinta();
 
@@ -151,8 +154,8 @@ describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {
     http.expectNone((r) => r.url.includes('/cancel'));
     await abrirMenu([enCurso]);
 
-    // El vale que se dejó está en «En curso» y el menú sigue ahí para el siguiente camión.
-    expect(texto()).toContain('En curso');
+    // El vale que se dejó está en «Incompletos» y el menú sigue ahí para el siguiente camión.
+    expect(texto()).toContain('Incompletos');
     expect(texto()).toContain('VE-2026-00013');
     expect(texto()).toContain('¿A qué sucursal entra la mercancía?');
     // Y no se reabre solo al volver a entrar: el borrador local se soltó.
