@@ -74,6 +74,8 @@ export * from './http/sales-channel.contract';
 export * from './http/income.contract';
 // [CSU.1] Cortes/Sucursales: corte de caja POS → cobro aplicado → arqueo del turno.
 export * from './http/cortes-sucursales.contract';
+// [ECA.1] Estado de cuenta de acreedores: documento de Kepler con sus pagos casados (kdxe + kdxf).
+export * from './http/creditor-statements.contract';
 export * from './http/warehouse-orders.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a
 // la versión anterior le faltaba (y que es el 88 % del egreso).
