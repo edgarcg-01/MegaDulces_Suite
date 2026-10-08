@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 
@@ -57,6 +57,27 @@ export class CommissionContrastService {
   async contrastarPeriodo(periodId: string): Promise<ContrasteResultado> {
     if (!periodId) throw new NotFoundException('period_id requerido');
     const t0 = Date.now();
+
+    // ⛔ Una quincena que TODAVIA CORRE no se contrasta. `computeRun` en modo vista previa la
+    // acepta -- para eso existe la vista previa -- pero guardar ese numero parcial como "lo que
+    // el motor pagaria" lo vuelve comparable con algo que no tiene contraparte: nadie la pago
+    // todavia, asi que saldria `solo_el_motor` y se quedaria asi hasta que alguien lo pise.
+    // `contrastarAnio` ya filtraba por `date_to < current_date`; este camino no, y el endpoint
+    // acepta `{ period_id }` directo. Es el mismo defecto de siempre: un valor que PARECE
+    // comparable y no lo es.
+    const { rows: [per] } = await this.tk.run(async (trx) => trx.raw(
+      `SELECT p.anio, p.period_no, to_char(p.date_to, 'YYYY-MM-DD') date_to,
+              (p.date_to < current_date) cerrada
+         FROM commercial.commission_periods p
+        WHERE p.id = ? AND p.deleted_at IS NULL`, [periodId]));
+    if (!per) throw new NotFoundException(`Periodo ${periodId} no existe`);
+    if (!per.cerrada) {
+      throw new ConflictException(
+        `La quincena ${per.anio}-${per.period_no} cierra el ${per.date_to} y todavia corre: `
+        + 'no hay con que contrastarla. El contraste mide lo que se PAGO contra lo que el motor '
+        + 'pagaria, y a un periodo abierto no se le pago nada. Para mirar como va esta la vista previa.',
+      );
+    }
 
     // ⚠️ `dryRun` a propósito: el motor NO debe dejar una corrida. Si la dejara, chocaría con
     // el espejo en el índice de una-viva-por-periodo y, peor, una simulación entraría al libro
