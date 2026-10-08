@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
-import { CommissionRecalcService } from './commission-recalc.service';
+import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
 
 /**
  * RD.6 — Comisiones de Ruta Directa.
@@ -64,7 +64,7 @@ export class CommercialCommissionsController {
       + 'ocurrio, y la diferencia va como ajuste en la siguiente) ni lo aprobado (hay que anularlo '
       + 'a mano primero, para que el acto quede registrado). No aprueba ni paga: ADR-016.',
   })
-  recalculateFrom(@Body() body: { period_id: string }) {
+  recalculateFrom(@Body() body: { period_id: string }): Promise<RecalcResultado> {
     return this.recalc.recalcularDesde(body?.period_id);
   }
 
