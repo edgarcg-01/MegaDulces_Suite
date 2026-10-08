@@ -2093,6 +2093,24 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   un PATCH que cambie tripulación, horario, comisión o viáticos (409: se cancela y se crea otra). Se
   guardan `departure_time`, `arrival_time` y el cálculo completo en `per_diem_breakdown` (horario,
   tarifas, comidas por persona). Sin migraciones: las columnas ya existían.
+- [x] **[EMB.21]** 🧪 **Lo capturado en la guía, revisado contra el GPS** (2026-10-08, decidido con el usuario:
+  «capturar y revisar con GPS»). Medido en prod antes de construir: el embarque `U-D-41` **no tiene**
+  ayudantes, flete, peso, kilómetros ni hora de salida/llegada (las 200 columnas, 600 embarques de 10
+  días; `c106`–`c114` en 0.00); los catálogos de transporte y chofer tampoco, el GPS no trae operador
+  (0 de 57 rastreadores) y Kepler no tiene producto «flete» ni peso por producto (1,500 productos con el
+  peso en la descripción, ninguna columna coincide). Peso y flete quedan **en blanco para capturar**
+  (se quitó el «0.00» de ejemplo del flete, que parecía un valor). Horario y km: el GPS los da sólo
+  **después** del viaje y no siempre — con ventana de 48 h desde la captura de Kepler, **29 de 42** viajes
+  con rastreador se reconstruyen; el odómetro va en km y casi siempre queda en 1.0–1.3× el trazo, pero
+  en **9 de 34** es basura (negativo o 37–133×) y ahí se usa el trazo y se declara. Por eso **no
+  reemplaza: revisa**. `GET /logistics/shipments/:id/gps-review` (dos consultas por índice, ~20 ms en
+  prod) → recuadro «Revisión con GPS» en la pestaña Guías: capturado contra GPS (salida, llegada,
+  durmió fuera, km, viáticos), y marca **difiere** si una hora se separa >60 min, los km >20 % o **cambian
+  los viáticos** (cruzar las 7:00 cambia el desayuno aunque sean minutos). Lo que no se puede medir
+  dice POR QUÉ (embarque manual, sin rastreador, sucursal sin coordenadas —el CEDIS `00` no tiene—,
+  no regresa en 48 h, en curso…), nunca «coincide». Regla en `revision-gps.contract.ts` + `gps-viaje.logic.ts`.
+  Sin migraciones. **Pendiente:** una lista para revisar las guías que difieren (hoy se ve embarque por
+  embarque) y coordenadas del CEDIS.
 - [ ] **[EMB.20]** ⚠️ **Liquidaciones no paga los viáticos que la guía calcula.**
   `logistics-payroll.service.ts` suma `per_diem_total` **sólo si `overnight`** y **sólo al chofer**
   (decisión «beta, intencional» de su docblock). Con la regla de horario (EMB.19), una salida a las

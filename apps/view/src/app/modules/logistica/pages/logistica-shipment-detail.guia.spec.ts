@@ -43,7 +43,7 @@ const base = {
   freight_revenue: 0, cargo_value: 0, boxes_count: 0, total_weight_kg: 0, route_id: 'r1',
 };
 
-function montar(shipment: Record<string, unknown>) {
+function montar(shipment: Record<string, unknown>, guias: unknown[] = []) {
   TestBed.configureTestingModule({
     imports: [LogisticaShipmentDetailComponent],
     providers: [
@@ -55,7 +55,8 @@ function montar(shipment: Record<string, unknown>) {
   const http = TestBed.inject(HttpTestingController);
   const mapa: Array<[RegExp, unknown]> = [
     [/\/shipments\/e1$/, shipment],
-    [/\/guides(\?|$)/, []],
+    [/\/gps-review$/, REVISION],
+    [/\/guides(\?|$)/, guias],
     [/\/fleet\/drivers/, PERSONAS],
     [/\/config\/routes\/list/, [RUTA]],
     [/\/config(\?|$)/, VIATICO],
@@ -67,6 +68,15 @@ function montar(shipment: Record<string, unknown>) {
   f.detectChanges();
   return { f, http, comp, el: f.nativeElement as HTMLElement, responder: () => contestar(http, mapa) };
 }
+
+const REVISION = {
+  estado: 'difiere', motivo: null, tolerancias: { minutos: 60, km: 0.2 },
+  capturado: { salida: '06:30', llegada: '17:30', duerme_fuera: false, km: 40, viaticos: 200 },
+  gps: { salida: '08:30', llegada: '17:30', duerme_fuera: false, km: 40, km_metodo: 'odometro', puntos: 300, viaticos: 100 },
+  diferencias: ['Viáticos: con el horario del GPS serían $100.00 en vez de $200.00 (cambia desayuno).'],
+};
+const GUIA = { id: 'g1', number: 'GUIA-2026-00001', shipment_id: 'e1', type: 'entrega', status: 'pendiente',
+  driver_id: 'd1', driver_commission: 120, helper1_commission: 0, helper2_commission: 0, overnight: false, per_diem_total: 200 };
 
 const botonNuevaGuia = (el: HTMLElement) => [...el.querySelectorAll('button')].filter((b) => b.textContent?.includes('Nueva guía'));
 
@@ -122,5 +132,23 @@ describe('Detalle de embarque — «Nueva guía» (EMB.19)', () => {
     comp.guideForm.patchValue({ driver_id: 'd1' });
     expect(comp.choferOptions().map((o) => o.value)).toEqual(['d1']);
     expect(comp.ayudanteOptions().map((o) => o.value)).toEqual(['d2']);
+  });
+
+  // ── EMB.21: la revisión con GPS ─────────────────────────────────────────────────────────
+
+  it('al abrir Guías se pide la revisión con GPS y se pinta debajo de la guía', () => {
+    const { f, el, comp, responder } = montar({ ...base, kepler_sucursal: '06', kepler_guia: '0009999' }, [GUIA]);
+    responder();
+    f.detectChanges();
+    expect(comp.gpsReview()?.estado).toBe('difiere');
+    const card = el.querySelector('app-revision-gps')!;
+    expect(card).not.toBeNull();
+    expect(card.textContent).toContain('Difiere del GPS');
+    expect(card.textContent).toContain('cambia desayuno');
+  });
+
+  it('sin guía no hay nada que revisar: no se pinta', () => {
+    const { el } = montar({ ...base, kepler_sucursal: null, kepler_guia: null });
+    expect(el.querySelector('app-revision-gps')).toBeNull();
   });
 });

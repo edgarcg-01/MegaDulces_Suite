@@ -24,6 +24,8 @@ import {
 import { KeplerHojaComponent } from '../components/kepler-hoja.component';
 import { KeplerCostoComponent } from '../components/kepler-costo.component';
 import { GuiaCalculadaComponent, PersonaDeLaGuia } from '../components/guia-calculada.component';
+import { RevisionGpsComponent } from '../components/revision-gps.component';
+import type { RevisionGps } from '@megadulces/contracts';
 import type { TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
 import {
   comisionesDeLaGuia, erroresDeGuiaManual, erroresDeTarifaDeRuta, erroresDeViaticos, tarifasDeViatico, viaticosDeLaGuia,
@@ -40,7 +42,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, CheckboxModule, SelectModule, AutoCompleteModule,
     TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
-    KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent,
+    KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent, RevisionGpsComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -312,6 +314,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </p-table>
             </article>
           </div>
+          <!-- EMB.21: lo capturado en la guía contra el GPS de la unidad -->
+          @if (guides().length) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12">
+                <app-revision-gps [revision]="gpsReview()" [cargando]="gpsReviewLoading()" [error]="gpsReviewError()"></app-revision-gps>
+              </article>
+            </div>
+          }
           <!-- ETA de ruta (J12.4) -->
           @if (guides().length) {
             <div class="sheet cols-12">
@@ -956,6 +966,23 @@ export class LogisticaShipmentDetailComponent {
   setTab(t: 'info' | 'guides' | 'expenses' | 'cartaporte') {
     this.tab.set(t);
     if (t === 'cartaporte') this.loadCp();
+    if (t === 'guides' && !this.gpsReview() && !this.gpsReviewLoading()) this.loadGpsReview();
+  }
+
+  // ── EMB.21 Revisión con GPS ──────────────────────────────────────────────
+  readonly gpsReview = signal<RevisionGps | null>(null);
+  readonly gpsReviewLoading = signal(false);
+  readonly gpsReviewError = signal<string | null>(null);
+  loadGpsReview() {
+    this.gpsReviewLoading.set(true);
+    this.gpsReviewError.set(null);
+    this.api.shipmentGpsReview(this.shipmentId()).subscribe({
+      next: (r) => { this.gpsReview.set(r); this.gpsReviewLoading.set(false); },
+      error: (err) => {
+        this.gpsReviewLoading.set(false);
+        this.gpsReviewError.set(err?.error?.message || 'intenta de nuevo en un momento.');
+      },
+    });
   }
 
   metricsDialog = false;

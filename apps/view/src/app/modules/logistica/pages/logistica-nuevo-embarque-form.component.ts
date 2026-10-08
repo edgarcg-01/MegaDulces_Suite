@@ -218,7 +218,7 @@ export function cuerpoDeToma(c: CapturaEmbarque): TomaKeplerBody {
               </label>
               <label class="hj-f" for="hj-flete">
                 <span>Flete cobrado</span>
-                <input id="hj-flete" class="hj-txt" type="number" min="0" step="0.01" name="flete" [(ngModel)]="c.freight_revenue" (ngModelChange)="tocar()" placeholder="0.00" />
+                <input id="hj-flete" class="hj-txt" type="number" min="0" step="0.01" name="flete" [(ngModel)]="c.freight_revenue" (ngModelChange)="tocar()" />
               </label>
             </div>
           </section>
