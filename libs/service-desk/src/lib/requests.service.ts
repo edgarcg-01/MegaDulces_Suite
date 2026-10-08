@@ -58,11 +58,12 @@ import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, respuestaReanuda, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
+import { sinConfidenciales, vidaDeUrlAdjunto } from './domain/destinatarios';
 import { estadoTrasTraslado, terminaEspera, validarTraslado } from './domain/traslado';
 import { normalizarUbicacion } from './ubicacion.util';
 import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
-import { accesoATicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
+import { accesoATicket, type AccesoTicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
 import { fechaValida } from './domain/report-period';
 import { puedeCambiarPrioridad, sugerirPrioridadPorModelo } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
@@ -426,7 +427,7 @@ export class ServiceDeskRequestsService {
       else if (scope !== 'all') throw new BadRequestException('scope debe ser open, closed o all');
       this.buscar(qb, q.search);
       qb.orderBy('r.created_at', 'desc');
-      return this.paginar(qb, config, q.limit, q.offset);
+      return this.paginar(qb, config, ctx, q.limit, q.offset);
     });
   }
 
@@ -485,6 +486,13 @@ export class ServiceDeskRequestsService {
       // `[MS.7.6]` Sólo las colas que esta persona atiende (clave ∩ pertenencia). `[]` = ninguna: no devuelve nada, no TODO.
       const colas = colasDeLectura(ctx.colas);
       if (colas) qb.whereIn('r.queue_id', colas);
+      /*
+       * `[MSH.2]` R2: el god-mode ve lo confidencial SÓLO en vista limitada (folio, cola, estado, fechas)… y sólo si la consulta no sirve de
+       * ORÁCULO. Buscar un texto, filtrar por categoría, ubicación, prioridad o persona sobre filas confidenciales respondería «hay un caso de
+       * “despido” / en “conflicto laboral” / de Ana»: aunque la fila salga enmascarada, el filtro ya contó. Con cualquiera de esos filtros se
+       * EXCLUYEN las confidenciales. (Quien es miembro de la cola no pasa por aquí: la ve completa y puede filtrar lo que quiera.)
+       */
+      if (ctx.colas.todas && (q.search?.trim() || q.category_id || q.warehouse_code || q.priority || q.assigned_to)) qb.where('r.confidential', false);
       if (q.queue_id) {
         if (!esUuid(q.queue_id)) throw new BadRequestException('queue_id inválido');
         qb.where('r.queue_id', q.queue_id);
@@ -518,7 +526,7 @@ export class ServiceDeskRequestsService {
           .orderByRaw('r.due_at ASC NULLS LAST')
           .orderBy('r.created_at', 'asc');
       }
-      return this.paginar(qb, config, q.limit, q.offset);
+      return this.paginar(qb, config, ctx, q.limit, q.offset);
     });
   }
 
@@ -527,7 +535,10 @@ export class ServiceDeskRequestsService {
     return this.tk.run(async (trx) => {
       const config = await this.cfg.load(trx);
       const r = await this.base(trx).where('r.id', id).first();
-      if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
+      const acceso = r ? this.accesoDe(r, ctx) : 'ninguno';
+      if (!r || acceso === 'ninguno') throw new NotFoundException('Solicitud no encontrada');
+      // `[MSH.2]` R2: el administrador (god-mode) ve de un ticket confidencial sólo lo básico; la API no envía el resto.
+      if (acceso === 'basico') return this.detalleBasico(r);
       // `[MS.7.6]` «Quien atiende» es POR TICKET: la capacidad de atender y ser de la cola de ESTE ticket.
       const atiendeAqui = ctx.esAgente && puedeAtenderCola(ctx.colas, r.queue_id);
 
@@ -591,7 +602,8 @@ export class ServiceDeskRequestsService {
           file_name: a.file_name,
           content_type: a.content_type,
           size_bytes: Number(a.size_bytes),
-          url: await this.att.firmar(a.storage_key),
+          // `[MSH.2]` H4: en un ticket confidencial la URL vive 60 s (la matriz sólo garantiza el acceso AL EMITIRLA; una URL reenviada vale 10 min).
+          url: await this.att.firmar(a.storage_key, vidaDeUrlAdjunto(r.confidential === true)),
           created_at: iso(a.created_at) as string,
         })),
       );
@@ -634,7 +646,9 @@ export class ServiceDeskRequestsService {
     if (!ctx.esAgente) throw new ForbiddenException('El tablero es para quien atiende solicitudes');
     // `[MS.7.6]` Los números son sólo de las colas de esta persona (`[]` = ninguna → todo en 0, no el total de la empresa).
     const colas = colasDeLectura(ctx.colas);
-    const deMisColas = (qb: Knex.QueryBuilder): Knex.QueryBuilder => (colas ? qb.whereIn('queue_id', colas) : qb);
+    // `[MSH.2]` H8: el tablero del god-mode NO cuenta lo confidencial (no es de ninguna de sus colas: la lectura por membresía ya lo excluye
+    // para los demás). Quien SÍ es miembro de la cola confidencial la cuenta como suya.
+    const deMisColas = (qb: Knex.QueryBuilder): Knex.QueryBuilder => (colas ? qb.whereIn('queue_id', colas) : qb.where({ confidential: false }));
     return this.tk.run(async (trx) => {
       // `[MS.7.12]` Los tickets de prueba no cuentan en el tablero.
       const rows: { status: SdStatus; priority: SdPriority; n: string | number }[] = await trx('servicedesk.requests')
@@ -1159,7 +1173,20 @@ export class ServiceDeskRequestsService {
     } catch (e) {
       this.logger.warn(`avisos no despachados: ${e instanceof Error ? e.message : String(e)}`);
     }
-    for (const b of fx.bitacora) {
+    // `[MSH.2]` H9: la Bitácora no se entera de los tickets confidenciales.
+    let paraBitacora = fx.bitacora;
+    if (fx.bitacora.length) {
+      try {
+        const ids = [...new Set(fx.bitacora.map((b) => b.requestId))];
+        const conf = new Set((await this.tk.run(tenantId ?? this.tenantCtx.requireTenantId(), (trx) => trx('servicedesk.requests').whereIn('id', ids).where({ confidential: true }).pluck('id'))) as string[]);
+        paraBitacora = sinConfidenciales(fx.bitacora, conf);
+      } catch (e) {
+        // Ante la duda NO se manda: un espejo que falla es un reintento; uno que filtra un ticket confidencial no se arregla.
+        this.logger.warn(`Bitácora: no se pudo saber qué tickets son confidenciales; no se notifica este lote (${e instanceof Error ? e.message : String(e)})`);
+        paraBitacora = [];
+      }
+    }
+    for (const b of paraBitacora) {
       try {
         await this.bitacora?.onTicketChanged(b);
       } catch (e) {
@@ -1218,6 +1245,71 @@ export class ServiceDeskRequestsService {
    * ticket confidencial, Fase MSH) NO abre la ficha: la vista limitada la arma MSH.2 con su propio DTO; mientras tanto
    * `basico` cae del lado seguro (no se ve).
    */
+  private accesoDe(r: RequestRow, ctx: ActorCtx): AccesoTicket {
+    return accesoATicket(ctx, { requester_id: r.requester_id, queue_id: r.queue_id, confidential: r.confidential });
+  }
+
+  /**
+   * `[MSH.2]` R2 — la vista LIMITADA de un ticket confidencial: folio, cola, fecha de alta, estado y fecha de resolución. **Todo lo demás
+   * viene vacío**: ni título, ni descripción, ni hilo, ni adjuntos, ni nombre del solicitante, ni categoría, ni quién lo atiende. No basta
+   * esconderlo en pantalla: la API no lo envía. (`updated_at` se iguala a la fecha de alta: la última actividad también delata.)
+   */
+  private mapBasico(r: RequestRow): SdRequestRow {
+    return {
+      basic: true,
+      confidential: true,
+      id: r.id,
+      folio: r.folio,
+      queue_id: r.queue_id,
+      queue_name: r.queue_name ?? null,
+      category_id: '',
+      category_name: null,
+      title: '',
+      priority: null,
+      priority_suggested: null,
+      impact: 'yo',
+      blocks_work: false,
+      safety_risk: null,
+      status: r.status,
+      requester_id: '',
+      requester_name: null,
+      warehouse_code: null,
+      warehouse_name: null,
+      zone_code: null,
+      zone_name: null,
+      pause_reason: null,
+      is_test: false,
+      assigned_to: null,
+      assigned_to_name: null,
+      assigned_at: null,
+      created_at: iso(r.created_at) as string,
+      updated_at: iso(r.created_at) as string,
+      resolved_at: iso(r.resolved_at),
+      sla: { first_response_due_at: null, due_at: null, first_responded_at: null, paused: false, first_breached: false, resolution_breached: false, used_ratio: null },
+    };
+  }
+
+  private detalleBasico(r: RequestRow): SdRequestDetail {
+    return {
+      ...this.mapBasico(r),
+      description: '',
+      requester_department_code: null,
+      requester_department_name: null,
+      opened_by_name: null,
+      requester_position_code: null,
+      channel: 'web',
+      resolved_at: iso(r.resolved_at),
+      resolution_note: null,
+      closed_at: null,
+      close_reason: null,
+      reopened_count: 0,
+      messages: [],
+      attachments: [],
+      time_logged_minutes: null,
+      time_entries: null,
+    };
+  }
+
   private puedeVer(r: RequestRow, ctx: ActorCtx): boolean {
     return accesoATicket(ctx, { requester_id: r.requester_id, queue_id: r.queue_id, confidential: r.confidential }) === 'completo';
   }
@@ -1311,12 +1403,13 @@ export class ServiceDeskRequestsService {
     applySmartSearch(qb, search, { columns: ['r.folio', 'r.title', 'r.description', 'r.requester_name', 'c.name'] });
   }
 
-  private async paginar(qb: Knex.QueryBuilder, config: SdConfig, limit?: number, offset?: number): Promise<SdListResponse> {
+  private async paginar(qb: Knex.QueryBuilder, config: SdConfig, ctx: ActorCtx, limit?: number, offset?: number): Promise<SdListResponse> {
     const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const off = Math.max(Number(offset) || 0, 0);
     const total = await qb.clone().clearSelect().clearOrder().count({ n: 'r.id' }).first();
     const rows = await qb.limit(lim).offset(off);
-    return { rows: (rows as RequestRow[]).map((r) => this.mapRow(r, config)), total: Number(total?.n ?? 0) };
+    // `[MSH.2]` Un ticket confidencial al que esta persona NO tiene acceso completo (el god-mode) sale en VISTA LIMITADA: la API no envía el contenido.
+    return { rows: (rows as RequestRow[]).map((r) => (this.accesoDe(r, ctx) === 'basico' ? this.mapBasico(r) : this.mapRow(r, config))), total: Number(total?.n ?? 0) };
   }
 
   private mapRow(r: RequestRow, config: SdConfig, now = new Date()): SdRequestRow {
