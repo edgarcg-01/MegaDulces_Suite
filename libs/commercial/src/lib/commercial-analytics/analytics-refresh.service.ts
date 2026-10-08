@@ -102,6 +102,14 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // publica arriba. Un conteo contra la foto de ayer es válido; contra la de ayer creyéndola
   // de hoy, no.
   { name: 'analytics.mv_rd_route_photo', everyMin: 30 },
+  // `[RD.47]` (mig 20261007200219) El tablero de Inventario de ruta, precomputado para el rango
+  // por DEFAULT. Va DESPUÉS del ledger, del resolvedor y de la foto, porque sale de los tres.
+  // Medido: 414 ms de servidor para 11 filas → 0.057 ms.
+  { name: 'analytics.mv_rd_route_inventory', everyMin: 30 },
+  // `[RR.31]` (mig 20261007201545) La venta mensual de las rutas VECINALES, derivada del ODS.
+  // Medido aislando las dos piernas de Ventas por ruta: la tabla `sales_by_route_monthly` cuesta
+  // 5 ms y esta vista costaba **1,087 ms para 61 filas** — el 99% del tiempo de esa pantalla.
+  { name: 'analytics.mv_kepler_vecinal_monthly', everyMin: 30 },
   // `[CDRP.4-perf]` (mig 20260922000000) La otra pierna de la misma portada: venta por
   // almacén × canal × día. `sales_daily` está al grano de PRODUCTO y el bloque sumaba 249,389
   // filas por carga; **1,124,926 filas de 200 d colapsan a 4,447** (253×).
