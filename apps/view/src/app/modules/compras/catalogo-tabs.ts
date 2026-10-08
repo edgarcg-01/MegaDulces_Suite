@@ -15,6 +15,16 @@ export const CATALOGO_TABS: PageTab[] = [
     icon: 'pi pi-shopping-bag',
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
+  /**
+   * `[NP.5]` Productos nuevos: cada código que entra al catálogo, seguido 30, 60 y 90 días desde
+   * su primera entrada o venta. Junto a Productos porque es una vista del mismo catálogo.
+   */
+  {
+    label: 'Productos nuevos',
+    route: '/compras/catalogo/nuevos',
+    icon: 'pi pi-star',
+    permission: Permission.COMMERCIAL_PRODUCTS_VER,
+  },
   {
     label: 'Solicitudes',
     route: '/compras/catalogo/solicitudes',

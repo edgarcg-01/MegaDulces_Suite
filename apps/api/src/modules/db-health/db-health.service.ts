@@ -1268,6 +1268,8 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'analytics_refresh_unit_truth',      label: 'Refresh MV verdad de unidad',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_standard_cost',   label: 'Refresh MV actividad costo estándar (CE.0)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_cost_origin',     label: 'Refresh MV origen del costo (CE.11)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [NP.1] Productos nuevos. Parada, la pestaña sigue contando días sobre cifras de otra noche.
+  { key: 'analytics_refresh_new_products',    label: 'Refresh MV productos nuevos (NP.1)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [IC.10] Roll-forward entre conteos. Mismo motivo que las dos de arriba, con un agravante:
   // cuando envejece la pantalla de Conciliacion no se vacia ni avisa -- sigue mostrando la
   // merma del periodo anterior como si fuera la del actual, que es la clase de fallo que no
