@@ -102,7 +102,7 @@ SELECT btrim(c3) AS nombre, nullif(btrim(c10), '') AS rfc, nullif(btrim(c7), '')
 const TIPOS: AcreedorTipo[] = ['mercancia', 'servicios', 'financiero', 'sin_clasificar', 'interno'];
 const ISO = /^\d{4}-\d{2}-\d{2}$/;
 /** Claves de Kepler: letras, números, punto y guion (`CM009`, `B.B.FAC`, `TC1852`). */
-const CODIGO = /^[A-Za-z0-9.\-]{1,20}$/;
+const CODIGO = /^[A-Za-z0-9.-]{1,20}$/;
 
 const numOnull = (v: unknown): number | null => {
   const n = Number(v);
