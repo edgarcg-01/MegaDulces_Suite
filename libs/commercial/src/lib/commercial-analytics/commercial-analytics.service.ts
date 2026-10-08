@@ -9214,6 +9214,10 @@ export class CommercialAnalyticsService {
    * El orden es alfabético por nombre de producto **a propósito**: es el mismo del papel que
    * sustituye, así que quien ya cuenta no tiene que reaprender el recorrido. No es el orden
    * físico del camión — ese no está en ninguna fuente.
+   *
+   * ⚠️ **54 de 3,035 renglones (1.8%) salen con el código pelado** porque el catálogo los tiene
+   * con la descripción vacía y el propio camión tampoco los nombra al venderlos. No se disfraza:
+   * se muestra el SKU, que es lo único que hay. Medido el 2026-10-07.
    */
   async routeCountSheet(routeNo: string): Promise<RouteCountSheet> {
     const ruta = this.routeNoValido(routeNo);
@@ -9222,29 +9226,23 @@ export class CommercialAnalyticsService {
     if (!cab) throw new BadRequestException(`la ruta ${ruta} no existe`);
 
     const lines = await this.tk.run(async (trx) => (await trx.raw(
-      // ⚠️ `btrim(p.sku)` en los DOS lados. Medido el 2026-10-07: sin el btrim del catálogo, 14
-      // de los 267 renglones de la ruta 21 caían a `coalesce(..., sku)` y el contador habría
-      // leído «00412» en vez del nombre del producto. Con btrim, 2,989 de 2,992 de la flota
-      // tienen nombre. El seq scan sobre ~10k productos cuesta milisegundos; el bug costaba 5%
-      // de la hoja ilegible.
-      `SELECT f.sku, f.unidad,
-              coalesce(nullif(btrim(p.description),''), v.producto, f.sku) AS producto,
-              round(f.qty,3)::float             AS esperado,
-              round(f.costo_unitario,4)::float  AS costo_unitario,
-              round(f.importe,2)::float         AS importe,
-              nullif(btrim(p.barcode),'')       AS barcode
-         FROM analytics.mv_rd_route_photo f
-         LEFT JOIN catalog.products p
-           ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
-         -- Segundo recurso: cómo llama el propio camión a ese producto cuando lo vende. Cubre
-         -- los que el catálogo central no tiene (2 de 2,992).
-         LEFT JOIN LATERAL (
-           SELECT max(l.producto) AS producto
-             FROM analytics.route_push_lines l
-            WHERE l.tenant_id = f.tenant_id AND l.route_no = f.route_no AND btrim(l.sku) = f.sku
-         ) v ON true
-        WHERE f.tenant_id = ? AND f.route_no = ?
-        ORDER BY producto, f.unidad`,
+      // ⭐ UNA tabla, CERO joins: el nombre y el código de barras ya vienen resueltos dentro de
+      // la copia (`[RD.45]`). Esta consulta la abre una persona 300 veces seguidas, así que no
+      // paga una búsqueda de catálogo por renglón cada vez — se paga una vez cada 30 minutos
+      // para toda la flota, al refrescar.
+      //
+      // ⛔ Acá hubo un `LEFT JOIN catalog.products ON btrim(p.sku) = f.sku` y era el 70% del
+      // costo de la pantalla: anulaba `products_tenant_sku_unique` y forzaba un seq scan de
+      // 14,887 filas POR RENGLÓN (3.1 s en la ruta 28). Medido el 2026-10-07, no rescataba ni
+      // una fila: **0 de los 11,301 SKUs del catálogo tienen espacios**.
+      `SELECT sku, unidad, producto,
+              round(qty,3)::float             AS esperado,
+              round(costo_unitario,4)::float  AS costo_unitario,
+              round(importe,2)::float         AS importe,
+              barcode
+         FROM analytics.mv_rd_route_photo
+        WHERE tenant_id = ? AND route_no = ?
+        ORDER BY producto, unidad`,
       [tenantId, ruta],
     )).rows as RouteCountSheetLine[]);
 
