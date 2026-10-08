@@ -53,6 +53,15 @@ export function colasDeLectura(a: AccesoColas, que: 'atiende' | 'coordina' = 'at
   return [...(que === 'atiende' ? a.atiende : a.coordina)];
 }
 
+/**
+ * `[MSH.2]` H1 — ¿quién ADMINISTRA una cola (sus miembros, categorías, campos, ajustes)? Una cola NORMAL la administra su coordinación o el
+ * god-mode (como siempre). Una cola CONFIDENCIAL **sólo su coordinación**: el god-mode NO, porque podría agregarse a sí mismo como miembro y
+ * leerlo todo (hallazgo H1 del plan). La excepción de ver el contenido ya no existe para el administrador; tampoco la de editar quién lo ve.
+ */
+export function puedeAdministrarCola(a: AccesoColas, queueId: string, confidencial: boolean): boolean {
+  return confidencial ? a.coordina.has(queueId) : puedeCoordinarCola(a, queueId);
+}
+
 export type AccesoTicket = 'completo' | 'basico' | 'ninguno';
 
 /**

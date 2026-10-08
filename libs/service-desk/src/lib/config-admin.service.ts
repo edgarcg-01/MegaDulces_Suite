@@ -30,7 +30,7 @@ import {
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { parseHHMM } from './domain/business-clock';
 import { validarDefinicionCampo } from './domain/campos-extra';
-import { puedeCoordinarCola } from './domain/queue-access';
+import { puedeAdministrarCola, puedeCoordinarCola } from './domain/queue-access';
 import { ServiceDeskAgentsService } from './agents.service';
 import { ServiceDeskQueueMembersService } from './queue-members.service';
 import type { ActorCtx } from './service-desk.types';
@@ -54,7 +54,12 @@ function traducir(e: unknown): never {
   const code = (e as { code?: string })?.code;
   if (code === '23505') throw new ConflictException('Ya existe un registro con ese código');
   if (code === '23503') throw new BadRequestException('La referencia indicada no existe (cola o departamento)');
-  if (code === '23514') throw new BadRequestException('El valor no cumple una regla de la base de datos');
+  if (code === '23514') {
+    // `[MSH.2]` Los triggers de la marca confidencial explican POR QUÉ en su mensaje: se muestra, no un genérico.
+    const msg = (e as { message?: string })?.message ?? '';
+    const motivo = /confidencial/i.test(msg) ? msg.replace(/^.*?error:\s*/i, '') : null;
+    throw new BadRequestException(motivo ?? 'El valor no cumple una regla de la base de datos');
+  }
   throw e;
 }
 
@@ -230,6 +235,30 @@ export class ServiceDeskConfigAdminService {
     return this.get();
   }
 
+  /** `[MSH.2]` ¿La cola es confidencial? De eso depende quién la administra (H1). Una cola inexistente cuenta como no confidencial: el 404/400 lo da quien llama. */
+  private async esConfidencial(trx: Knex.Transaction, queueId: string): Promise<boolean> {
+    const q = await trx('servicedesk.queues').where({ id: queueId }).whereNull('deleted_at').first('confidential');
+    return q?.confidential === true;
+  }
+
+  /** `[MSH.2]` Valida y normaliza las banderas de una cola (confidencial, prioridad, SLA, mínimo de casos). Devuelve sólo lo que llegó. */
+  private banderasDeCola(dto: SdUpsertQueueDto): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    for (const k of ['confidential', 'uses_priority', 'sla_enabled'] as const) {
+      if (dto[k] !== undefined) {
+        if (typeof dto[k] !== 'boolean') throw new BadRequestException(`${k} debe ser verdadero o falso`);
+        out[k] = dto[k];
+      }
+    }
+    if (dto.report_min_cases !== undefined) {
+      if (!Number.isInteger(dto.report_min_cases) || (dto.report_min_cases as number) < 1 || (dto.report_min_cases as number) > 1000) {
+        throw new BadRequestException('report_min_cases debe ser un entero de 1 a 1000 (un agregado de menos de 1 caso no protege a nadie)');
+      }
+      out['report_min_cases'] = dto.report_min_cases;
+    }
+    return out;
+  }
+
   async createQueue(ctx: ActorCtx, dto: SdUpsertQueueDto): Promise<SdConfigResponse> {
     const code = String(dto?.code ?? '').trim();
     const name = String(dto?.name ?? '').trim();
@@ -246,6 +275,7 @@ export class ServiceDeskConfigAdminService {
             name,
             priority_model: modelo,
             asks_zone: dto.asks_zone === true,
+            ...this.banderasDeCola(dto),
             department_code: dto.department_code ? String(dto.department_code) : null,
             active: dto.active ?? true,
             sort_order: orden,
@@ -280,12 +310,15 @@ export class ServiceDeskConfigAdminService {
       if (typeof dto.asks_zone !== 'boolean') throw new BadRequestException('asks_zone debe ser verdadero o falso');
       patch['asks_zone'] = dto.asks_zone;
     }
+    Object.assign(patch, this.banderasDeCola(dto));
     const cambiaResponsable = dto.default_assignee_id !== undefined;
     if (cambiaResponsable && dto.default_assignee_id !== null && !UUID_RE.test(String(dto.default_assignee_id))) throw new BadRequestException('default_assignee_id inválido');
     if (!Object.keys(patch).length && !cambiaResponsable) throw new BadRequestException('No se indicó ningún campo para cambiar');
     // `[MS.7.6]` Sólo la coordinación de ESA cola (o el god-mode) edita su cola.
     if (!puedeCoordinarCola(ctx.colas, id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiarla');
     await this.tk.run(async (trx) => {
+      // `[MSH.2]` H1: una cola confidencial sólo la cambia SU coordinación (no el god-mode).
+      if (!puedeAdministrarCola(ctx.colas, id, await this.esConfidencial(trx, id))) throw new ForbiddenException('Esta área es confidencial: sólo su coordinación puede cambiarla');
       if (cambiaResponsable) {
         /*
          * `[MS.7.10]` El responsable por omisión es a quien cae un ticket sin regla: **nunca** alguien que no sea miembro activo de
@@ -321,7 +354,7 @@ export class ServiceDeskConfigAdminService {
       // La cola debe existir (400, como siempre) y, `[MS.7.6]`, las categorías de una cola las edita la coordinación de ESA cola.
       const cola = await trx('servicedesk.queues').where({ id: dto.queue_id }).whereNull('deleted_at').first('id');
       if (!cola) throw new BadRequestException('La cola indicada no existe');
-      if (!puedeCoordinarCola(ctx.colas, dto.queue_id as string)) throw new ForbiddenException('Sólo la coordinación de esa cola puede agregarle categorías');
+      if (!puedeAdministrarCola(ctx.colas, dto.queue_id as string, await this.esConfidencial(trx, dto.queue_id as string))) throw new ForbiddenException('Sólo la coordinación de esa cola puede agregarle categorías');
       try {
         await trx('servicedesk.categories').insert({
           tenant_id: this.tenantCtx.requireTenantId(),
@@ -367,7 +400,7 @@ export class ServiceDeskConfigAdminService {
       const cat = await trx('servicedesk.categories').where({ id }).whereNull('deleted_at').first('queue_id');
       if (!cat) throw new NotFoundException('Categoría no encontrada');
       // `[MS.7.6]` Las categorías de una cola las edita la coordinación de ESA cola.
-      if (!puedeCoordinarCola(ctx.colas, cat.queue_id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiar sus categorías');
+      if (!puedeAdministrarCola(ctx.colas, cat.queue_id, await this.esConfidencial(trx, cat.queue_id))) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiar sus categorías');
       try {
         const n = await this.actualizarCategoria(trx, id, patch, ctx.userId);
         if (!n) throw new NotFoundException('Categoría no encontrada');
@@ -408,8 +441,9 @@ export class ServiceDeskConfigAdminService {
     const orden = dto.sort_order !== undefined ? this.orden(dto.sort_order) : 100;
     const opciones = dto.type === 'select' ? (dto.options as string[]).map((o) => o.trim()) : [];
     await this.tk.run(async (trx) => {
-      const cola = await trx('servicedesk.queues').where({ id: queueId }).whereNull('deleted_at').first('id');
+      const cola = await trx('servicedesk.queues').where({ id: queueId }).whereNull('deleted_at').first('id', 'confidential');
       if (!cola) throw new NotFoundException('Cola no encontrada');
+      if (!puedeAdministrarCola(ctx.colas, queueId, cola.confidential === true)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiar sus campos');
       try {
         await trx('servicedesk.queue_fields').insert({
           tenant_id: this.tenantCtx.requireTenantId(),
@@ -455,7 +489,7 @@ export class ServiceDeskConfigAdminService {
       const f = await trx('servicedesk.queue_fields').where({ id }).first('id', 'queue_id', 'type');
       if (!f) throw new NotFoundException('Campo no encontrado');
       // La autorización es por la cola DEL CAMPO (no por lo que diga el cuerpo).
-      if (!puedeCoordinarCola(ctx.colas, f.queue_id)) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiar sus campos');
+      if (!puedeAdministrarCola(ctx.colas, f.queue_id, await this.esConfidencial(trx, f.queue_id))) throw new ForbiddenException('Sólo la coordinación de esa cola puede cambiar sus campos');
       if (dto.options !== undefined) {
         if (f.type !== 'select') throw new BadRequestException('Sólo un campo de tipo «opciones» lleva lista de opciones');
         const errores = validarDefinicionCampo({ code: 'x', label: 'x', type: 'select', options: dto.options });

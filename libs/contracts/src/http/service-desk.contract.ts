@@ -725,6 +725,12 @@ export interface SdUpsertQueueDto {
   asks_zone?: boolean;
   /** `[MS.7.10]` Responsable por omisión del área. Debe ser un miembro activo de la cola que pueda atender; `null` lo quita. */
   default_assignee_id?: string | null;
+  /** `[MSH.2]` Cola confidencial. La base no deja cambiarla si la cola ya tiene solicitudes. */
+  confidential?: boolean;
+  uses_priority?: boolean;
+  sla_enabled?: boolean;
+  /** Mínimo de casos para mostrar un agregado en reportes (≥ 1). */
+  report_min_cases?: number;
   department_code?: string | null;
   active?: boolean;
   sort_order?: number;

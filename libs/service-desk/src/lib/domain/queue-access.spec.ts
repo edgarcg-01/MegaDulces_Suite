@@ -1,4 +1,4 @@
-import { SIN_COLAS, TODAS_LAS_COLAS, accesoATicket, colasDeLectura, construirAcceso, puedeAtenderCola, puedeCoordinarCola } from './queue-access';
+import { SIN_COLAS, TODAS_LAS_COLAS, accesoATicket, colasDeLectura, construirAcceso, puedeAdministrarCola, puedeAtenderCola, puedeCoordinarCola } from './queue-access';
 
 const TI = 'q-ti';
 const MTO = 'q-mto';
@@ -64,5 +64,30 @@ describe('`[MS.7.6]` accesoATicket', () => {
     expect(accesoATicket(yo(miembro), ticket('q-rh', 'u-9', true))).toBe('completo');
     expect(accesoATicket(yo(tecnicoMto), ticket('q-rh', 'u-9', true))).toBe('ninguno');
     expect(accesoATicket(yo(), ticket('q-rh', 'u-1', true))).toBe('completo'); // su propio ticket
+  });
+});
+
+/**
+ * `[MSH.2]` H1: el god-mode NO administra una cola confidencial (podría agregarse como miembro y leerlo todo). Sólo su coordinación.
+ */
+describe('MSH.2 · puedeAdministrarCola', () => {
+  const COLA = 'q-rh';
+  const god = { todas: true, atiende: new Set<string>(), coordina: new Set<string>() };
+  const coord = { todas: false, atiende: new Set([COLA]), coordina: new Set([COLA]) };
+  const tecnico = { todas: false, atiende: new Set([COLA]), coordina: new Set<string>() };
+  const otra = { todas: false, atiende: new Set(['q-ti']), coordina: new Set(['q-ti']) };
+
+  it('⭐ una cola NORMAL la administra su coordinación o el god-mode (como siempre)', () => {
+    expect(puedeAdministrarCola(coord, COLA, false)).toBe(true);
+    expect(puedeAdministrarCola(god, COLA, false)).toBe(true);
+  });
+  it('⛔ NEGATIVA — una cola CONFIDENCIAL NO la administra el god-mode (H1)', () => {
+    expect(puedeAdministrarCola(god, COLA, true)).toBe(false);
+  });
+  it('⭐ CONTROL: una cola confidencial SÍ la administra su coordinación', () => {
+    expect(puedeAdministrarCola(coord, COLA, true)).toBe(true);
+  });
+  it('⛔ ni un técnico de la cola ni la coordinación de OTRA cola, normal o confidencial', () => {
+    for (const c of [tecnico, otra]) for (const conf of [false, true]) expect(puedeAdministrarCola(c, COLA, conf)).toBe(false);
   });
 });
