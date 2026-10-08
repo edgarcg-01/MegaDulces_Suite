@@ -3636,6 +3636,73 @@ cerrados con `validated_by = 'Claude Vision'`.
   `trade-ingest:__COMMIT__`, ya **no** es deploy instantáneo). Hasta entonces la píldora dirá
   «datos sin medir», que es lo correcto. Sin migraciones ni permisos nuevos → **sin re-login**.
 
+### `[RA-CICLO]` / `[RA-PEND]` — La auditoría de `/compras/pedido`: qué le falta al armar el pedido
+
+> **Disparador (2026-10-08):** *"hay que auditar y ver si nos falta algo en esta interfaz, algo de
+> valor agregado a la hora de generar el pedido"*. La pantalla respondía muy bien **cuánto** pedir
+> (margen de tres costos, venta perdida de dos fuentes, estacionalidad, IAD, fill rate, en camino
+> pesado por probabilidad, unidades con su peldaño declarado) y era **muda en el resto del acto**.
+> Todo lo de abajo está medido contra prod, de lectura, el mismo día.
+
+- [x] **[RA-CICLO.1]** 🧪 **Faltaba el CUÁNDO: a quién le toca pedir hoy no estaba en ninguna
+  pantalla viva.** `commercial.replenishment_channel` se recalcula cada noche con la cadencia
+  derivada de las entregas reales de Kepler, y el endpoint `worklist` lo publica desde `[RA-PRO.8]`.
+  ⛔ Su único consumidor, `compras-que-toca.component.ts` (**1,037 líneas**), quedó **huérfano**
+  cuando `/compras/que-toca` pasó a redirigir a `/compras/pedido` — y lo mismo
+  `compras-existencia-critica.component.ts` (**951 líneas**). *La "fusión de las 3 vistas" se quedó
+  con una.* Medido: `worklist` **0 hits en 90 días**, `critical-stock` **0 en 30**.
+  **Medido en prod (canales de COMPRA activos): 472 de 737 VENCIDOS (64 %), atraso medio 23 d, el
+  peor 70 d; de ellos cuelgan 3,598 pares SKU×almacén, 787 ya AGOTADOS, y $11,771,782 de venta de
+  30 días.** Pestaña **Ciclo** en la misma pantalla (no una landing nueva: rompería `[SN.30]`), que
+  LEE el mismo motor —no recalcula— y cuyo botón «Armar» deja proveedor y sucursal puestos en el
+  Pedido. ⚠️ Los cuatro KPI **declaran «sin medir»** antes de consultar y si la consulta falla: un
+  «0 vencidos» sobre una consulta rota afirma lo contrario de lo que pasa (ADR-056).
+- [x] **[RA-CICLO.2]** 🧪 **El agregado del `worklist` se calculaba una vez por RENGLÓN.** Un
+  `LEFT JOIN LATERAL` recorría la política de reorden del **almacén entero** por cada canal y recién
+  después filtraba por proveedor vía el join de productos. **Medido contra prod: 3,330 ms → 251 ms.**
+  ⭐ La reescritura se **CRUZÓ con la vieja antes** de reemplazarla: sobre los **1,836 canales** de
+  las dos vías, **0 difieren** en `n_skus`, `n_below` ni costo, mismo total **$6,475,548**. *Una
+  consulta que da otro número no es más rápida: es otra.* `cadenceTarget()` se reusa tal cual para
+  que el "Sugerido" del Ciclo y el del Pedido salgan de la misma álgebra.
+- [x] **[RA-PEND.1]** 🧪 **La pantalla no sabía lo que vos mismo pediste.** El motor descuenta las
+  OC de Kepler (`transit_eff_cajas`) y **no menciona ni una vez** sus propias requisiciones
+  (`import-replenishment-plan.js`). **Medido: 645 requisiciones en `pending_approval` por
+  $44,035,078** (la más vieja del 21-jul) y **651 combinaciones (proveedor, almacén, producto)
+  REPETIDAS por $33,214,614** — 394 pedidas dos veces con **6 días** de separación media, 221 tres
+  veces, una seis; **de 707 creadas, 645 (91 %) nunca salieron de pendiente**. Señal nueva
+  `signals.pendiente` con insignia en el producto y en cada sucursal del desglose.
+  ⛔ **NO se descuenta del sugerido, a propósito:** una requisición pendiente no es mercancía
+  comprometida y restarla dejaría de pedir lo que sí hace falta. ⛔ `ordered`/`received` quedan
+  fuera: ésas ya son OC en Kepler y se contarían dos veces. ⚠️ **Unidad verificada antes de sumar**
+  (la trampa documentada del repo): los dos productores vivos capturan en **CAJAS**; contra
+  `replenishment_plan.caja_cost`, de 919 líneas con costo **404 cuadran con el costo de CAJA y 14
+  con el de pieza** (el resto no cuadra con ninguno porque el costo se movió desde julio).
+- [x] **[RA-PEND.2]** 🧪 **«Armar» fallaba 9 de 15 veces y no dejaba rastro de por qué.** Medido el
+  2026-10-07 sobre `POST requisitions/batch`: `gerente_compras` **6 de 7** fallidas,
+  `auxiliar_compras` **3 de 7**, `superadmin` 1/1 bien; los 6 lotes que entraron
+  (`RQ-LOTE-2026-00001..06`) cuadran exacto con 15−9. Fallan en **~12 ms** → una validación
+  rechazando, no un timeout, y el permiso está bien en los tres roles. El lote es todo-o-nada, así
+  que el comprador recibía *"No se creó NINGUNA requisición"* tras armar la selección entera.
+  ⚠️ **No se afirma cuál regla fue:** `ui_usage` cuenta errores y no guarda el motivo, y los pods ya
+  habían rotado. Se vuelve **decible** (el servidor pega el rechazo al documento que lo causó, en el
+  mensaje y en el log) y **evitable** (el diálogo replica las cuatro reglas del servidor y frena
+  antes del clic, con los bloqueantes **arriba** del botón apagado — esconderlos deja un botón
+  muerto sin explicación, el defecto que `[CG.22]` ya había encontrado en esta suite).
+- [ ] **[RA-PERF.9]** ⬜ **Lo que queda de velocidad, medido hoy y NO cerrado.** El `13.3 s` de media
+  a 30 días es real pero pertenece al 3–6 de octubre (24–40 s de media, **192 s** el peor); tras
+  `[RA-PERF.2/.3]` la pantalla quedó en **workbook 2,231 ms · transfer-suggestion 1,868 ms ·
+  purchase-suggestion 1,685 ms · overstock 133 ms** (2026-10-08). Sigue **4× sobre el techo de 500
+  ms** y es trabajo aparte, con su propio antes/después. ⭐ **Hallazgo colateral, fuera de esta
+  pantalla y mayor que ella:** `normalizeSalePrice` (`services/feeds-ingest/ods-derived.js`) es el
+  **primer consumidor de toda la base** — 6,387 llamadas × 1,771 ms = **3.14 h de CPU de base en
+  25 h**. Declarado acá para que no se redescubra.
+- ⚠️ **Pendiente prod de todo este bloque:** `git push` + redeploy api+view. **Sin migraciones ni
+  permisos nuevos → sin re-login.** Validación visual pendiente.
+- ⛔ **Deuda declarada:** `compras-que-toca.component.ts` y `compras-existencia-critica.component.ts`
+  siguen en el repo **sin ruta** (1,988 líneas), y `compras-hallazgos.component.ts` cita una regla
+  que vive en uno de ellos. Y `workbookDetail()` del front es **código muerto**: transporta
+  `last_purchase` y `order_days` que ninguna pantalla pinta.
+
 ### `[RQ]` — Lo que pasa DESPUÉS de generar una requisición en `/compras/pedido`
 
 > El flujo estaba construido entero y correcto; lo que no funcionaba es que **casi nada lo
