@@ -58,7 +58,10 @@ export class BudgetLinesController {
    */
   @Post('autopilot/run')
   @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
-  @ApiOperation({ summary: '[VE.8] Corre la pasada del piloto ahora (la misma del cron 03:30): supuestos + plan de ventas + plan de gastos + proyección + partidas. Respeta lo manual.' })
+  // [PU.V7] Decía «la misma del cron 03:30» y [PU.V4] lo movió a las 07:30 — corría ANTES del
+  // refresco de analytics que lo alimenta. Y no toma id: barre TODOS los ejercicios del tenant,
+  // que es lo que el tooltip del botón también decía mal.
+  @ApiOperation({ summary: '[VE.8] Corre la pasada del piloto ahora (la misma del cron de las 07:30), sobre TODOS los ejercicios: supuestos + plan de ventas + plan de gastos + proyección + partidas. Respeta lo manual.' })
   runAutopilot() { return this.autopilot.run(); }
 
   @Get('budgets/:id/completeness')

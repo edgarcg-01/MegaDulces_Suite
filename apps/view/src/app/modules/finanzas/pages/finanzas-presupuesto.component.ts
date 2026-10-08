@@ -237,7 +237,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <!-- [PU.VA] Re-armar es una HERRAMIENTA, no una decisión: adelanta el cron para
                        no esperar a mañana. Pasa a icono con tooltip, para que no compita con la
                        única acción que el subtítulo declara tuya. -->
-                  <button pButton type="button" class="p-button-sm p-button-text pres-act-ico" (click)="runAutopilot()" [loading]="runningAutopilot()" aria-label="Re-armar ahora" title="Re-armar ahora — corre la pasada del cron sobre este ejercicio: supuestos derivados + plan de ventas + plan de gastos + partidas. Respeta lo capturado a mano"><span class="pi pi-bolt"></span></button>
+                  <button pButton type="button" class="p-button-sm p-button-text pres-act-ico" (click)="runAutopilot()" [loading]="runningAutopilot()" aria-label="Re-armar ahora" title="Re-armar ahora — corre la pasada de la mañana sobre TODOS los ejercicios (no sólo éste): supuestos derivados + plan de ventas + plan de gastos + partidas. Respeta lo capturado a mano"><span class="pi pi-bolt"></span></button>
                   <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'submit')" [loading]="savingLifecycle()">Enviar a autorización</button>
                 }
                 @if (b.status === 'pendiente') {
@@ -380,7 +380,11 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                    2026-10-07 en prod, 'budget_autopilot' estaba en **error** con la causa probable
                    («¿contexto de tenant / RLS?») y 'generation_runs' en cero. Ahora se pregunta. -->
               <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">
-                Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) en la pasada nocturna — no se capturan a mano.
+                <!-- [PU.V7] Decia solo "en la pasada nocturna" y mandaba a esperar hasta manana a
+                     quien acababa de crear un ejercicio. El boton de rayo de arriba corre la MISMA
+                     pasada ahora mismo; omitirlo convertia un clic en un dia de espera. -->
+                Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) — no se capturan a mano.
+                Si acabás de crear este ejercicio, dale al botón <span class="pi pi-bolt"></span> <strong>Re-armar ahora</strong> de arriba y las arma en el momento; si no, entran solas en la pasada de la mañana.
                 @if (autopilot(); as a) {
                   @if (a.status === 'error') {
                     <div class="pres-empty-diag bad"><span class="pi pi-times-circle"></span> La pasada <strong>falló</strong>{{ a.last_start ? ' (' + (a.last_start | date:'dd/MM HH:mm') + ')' : '' }}: {{ a.error || 'sin detalle' }}</div>
