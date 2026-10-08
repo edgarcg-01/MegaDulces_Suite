@@ -574,7 +574,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
       padding:.8rem 1rem; border:1px solid var(--border-color); border-left:3px solid var(--c-warn);
       border-radius:var(--r-md,8px); background:var(--card-bg); }
     .cm-falto-tit { flex:1 1 22rem; min-width:0; }
-    /* `--fs-base` no existe: los reales son --fs-body / --fs-sm / --fs-lg. Sin respaldo. */
+    /* El token --fs-base NO existe: los reales son --fs-body / --fs-sm / --fs-lg. Sin respaldo. */
     .cm-falto-grito { margin:.2rem 0 .15rem; font-size:var(--fs-body); color:var(--c-text-1); }
     .cm-falto-monto { text-align:right; }
     .cm-fila-grito td { background:color-mix(in srgb, var(--c-bad) 7%, transparent); }
