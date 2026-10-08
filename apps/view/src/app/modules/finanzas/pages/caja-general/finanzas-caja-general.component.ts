@@ -1629,7 +1629,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                una via y (selectionChange) escribe en la senal. -->
           <p-table [value]="pendientes()" size="small" class="cg-bandeja-tbl" dataKey="origen_ref"
                    selectionMode="single" [metaKeySelection]="false"
-                   [selection]="filaEnCaptura()" (selectionChange)="abrirDeLaCola($event)">
+                   [selection]="filaEnCaptura()">
             <ng-template #header>
               <tr>
                 <!-- ⛔ [CG.56] ACA VIVIA LA COLUMNA DE CASILLAS, y se retiro entera por decision de
@@ -1661,9 +1661,25 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               </tr>
             </ng-template>
             <ng-template #body let-p>
+                <!-- ⭐⭐ [CG.64] EL CLIC ES NUESTRO, NO DE PrimeNG. Reportado por Edgar: "estoy
+                     dando clic y no me despliega la informacion".
+
+                     [CG.63] colgaba la accion principal de la pantalla de "(selectionChange)", o
+                     sea del "handleRowClick" de p-table -- y ese metodo SE DESCARTA SOLO. Leido en
+                     @primeuix/utils: no atiende el clic si el blanco (o su padre) es INPUT,
+                     TEXTAREA, BUTTON o A, ni si hace "closest('.p-button, .p-checkbox,
+                     .p-radiobutton')". La fila lleva componentes de PrimeNG adentro, asi que esa
+                     lista es una superficie que no controlamos y que puede crecer con cada
+                     version.
+
+                     ⛔ La interaccion principal de una pantalla no se cuelga de la lista de
+                     descarte de una libreria. El (click) va en el <tr>, es nuestro, y abre siempre.
+                     pSelectableRow SE QUEDA -- da el recorrido con flechas, el roving tabindex y
+                     el resalte (D.7) -- pero ya no decide si esto abre o no. -->
                 <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p"
                     [class.cg-fila-marcada]="estaMarcada(p.origen_ref)"
-                    [class.cg-fila-abierta]="p.origen_ref === cobroElegido()?.origen_ref">
+                    [class.cg-fila-abierta]="p.origen_ref === cobroElegido()?.origen_ref"
+                    (click)="abrirDeLaCola(p)" (keydown.enter)="abrirDeLaCola(p)">
                   <!-- [CG.56] La celda de la marca: una barra, no una casilla. Lo que se ve es el
                        ESTADO (marcada o no); el acto de marcar es la fila entera. -->
                   <td class="cg-td-marca">
@@ -2812,6 +2828,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * entra como dispositivo de entrada, nunca como segundo dueño del dato.
    */
   filaEnCaptura = computed(() => {
+    // ⛔⛔ `[CG.64]` ACÁ ESTABA EL DEFECTO QUE EDGAR REPORTÓ: *"estoy dando clic y no me despliega
+    // la información"*. Y no era de PrimeNG: era de esta línea.
+    //
+    // `cobroElegido` NO se limpia al cerrar la captura — a propósito, porque `guardar()` lo lee.
+    // Pero esta proyección lo ignoraba, así que después de cancelar, la fila SEGUÍA contando como
+    // seleccionada para `p-table`. Y con `metaKeySelection=false`, hacer clic en una fila ya
+    // seleccionada la DESELECCIONA: emitía `null`, y el guarda de «no cerrar con null» convertía
+    // eso en silencio absoluto. Cerrar y volver a tocar el MISMO movimiento no hacía nada.
+    //
+    // ⭐ Medido: reconstruida la configuración de `[CG.63]`, la primera celda abría y la segunda
+    // ya no. El error no era «el clic no llega» sino «el clic llega y significa deseleccionar».
+    //
+    // La definición correcta es ésta: no puede haber una fila EN CAPTURA si no hay captura.
+    if (!this.capturaAbierta()) return null;
     const ref = this.cobroElegido()?.origen_ref;
     return ref ? (this.pendientes().find((x) => x.origen_ref === ref) ?? null) : null;
   });
@@ -2825,6 +2855,12 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   /**
    * `[CG.63]` El clic en la fila ABRE el movimiento. Antes marcaba para el lote.
+   *
+   * ⭐ `[CG.64]` Lo llama el `(click)` del `<tr>`, NO el `(selectionChange)` de `p-table`:
+   * `handleRowClick` se descarta solo cuando el blanco es `INPUT/TEXTAREA/BUTTON/A` o tiene un
+   * `.p-button/.p-checkbox/.p-radiobutton` por encima, y la acción principal de la pantalla no
+   * puede depender de una lista de descarte ajena. Acepta `null` porque la firma sigue sirviendo
+   * al camino de la selección si alguna vez vuelve.
    *
    * ⚠️ Y hay que decir lo que cuesta: marcar fila por fila CON EL MOUSE ya no existe. El lote se
    * arma con "Marcar las N" de la barra: todas las confirmables del filtro, de un golpe.

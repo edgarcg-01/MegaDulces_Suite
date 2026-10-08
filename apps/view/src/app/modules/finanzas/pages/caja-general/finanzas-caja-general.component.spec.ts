@@ -534,6 +534,69 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .not.toBeNull();
   });
 
+  it('⭐⭐ EL CLIC REAL abre, caiga donde caiga dentro de la fila', async () => {
+    // ⛔ Reportado por Edgar: «estoy dando clic y no me despliega la información». Las pruebas de
+    // `[CG.63]` llamaban a `abrirDeLaCola(...)` — el MÉTODO — así que ninguna podía ver si el clic
+    // del navegador llega hasta ahí. Es exactamente el pie que `[CG.62]` ya había pisado con el
+    // botón de Guardar, repetido doce líneas más abajo. Ésta entra por el `<tr>`.
+    //
+    // ⭐ Y no clickea una celda cómoda: recorre TODAS las celdas de la fila, incluida la del
+    // galón y la de la marca. El `handleRowClick` de PrimeNG se descarta solo cuando el blanco —o
+    // su padre— es `INPUT/TEXTAREA/BUTTON/A`, o tiene un `.p-button/.p-checkbox/.p-radiobutton`
+    // por encima (leído en `@primeuix/utils`). Una prueba que apunte siempre al mismo `<td>`
+    // puede pasar con la mitad de la fila muerta.
+    const celdas = (fx: { nativeElement: HTMLElement }) =>
+      Array.from(
+        fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody tr:first-child td'),
+      ) as HTMLElement[];
+
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+    expect(celdas(fx).length, 'no hay filas').toBeGreaterThan(0);
+
+    for (let i = 0; i < celdas(fx).length; i++) {
+      comp.cerrarConFoco(comp.capturaAbierta);
+      fx.detectChanges();
+      expect(comp.capturaAbierta()).toBe(false);
+
+      // El blanco real es lo MÁS profundo de la celda, que es donde cae el dedo.
+      const td = celdas(fx)[i];
+      const blanco = (td.querySelector('*') as HTMLElement) ?? td;
+      blanco.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      fx.detectChanges();
+
+      expect(comp.capturaAbierta(), 'la celda ' + i + ' no abre la captura').toBe(true);
+      expect(comp.cobroElegido()?.origen_ref).toBe(FILA_A.origen_ref);
+    }
+  });
+
+  it('⛔ [regresión] cerrar y volver a tocar el MISMO movimiento lo vuelve a abrir', async () => {
+    // El defecto exacto que reportó Edgar, aislado. `cobroElegido` no se limpia al cerrar —a
+    // propósito, `guardar()` lo lee— y `filaEnCaptura` lo ignoraba, así que la fila seguía
+    // contando como seleccionada para `p-table`. Con `metaKeySelection=false`, tocar una fila ya
+    // seleccionada la DESELECCIONA: emitía `null`, y el guarda de «no cerrar con null» convertía
+    // eso en silencio absoluto.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const fila = (): HTMLElement => fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    fila().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fx.detectChanges();
+    expect(comp.capturaAbierta()).toBe(true);
+
+    comp.cerrarConFoco(comp.capturaAbierta);
+    fx.detectChanges();
+    // ⭐ La proyección tiene que soltar la fila: no puede haber una fila EN CAPTURA sin captura.
+    expect(comp.filaEnCaptura(), 'la fila quedó seleccionada con la captura cerrada').toBeNull();
+
+    fila().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    fx.detectChanges();
+    expect(comp.capturaAbierta(), 'el segundo clic en la misma fila no abrió').toBe(true);
+    expect(comp.cobroElegido()?.origen_ref).toBe(FILA_A.origen_ref);
+  });
+
   it('abrir desde la cola marca la fila como ABIERTA, que no es lo mismo que marcada', async () => {
     const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     await Promise.resolve();
