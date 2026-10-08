@@ -94,7 +94,51 @@ export interface SkuLostDemandSignal {
   };
 }
 
+/** Lo ya requisado de UN almacén, sin aprobar. */
+export interface SkuPendingReqBranch {
+  cajas: number;
+  documentos: number;
+}
+
+/**
+ * `[RA-PEND.1]` LO QUE YA PEDISTE POR ESTE MISMO CAMINO.
+ *
+ * El motor descuenta las órdenes de compra de Kepler (`transit_eff_cajas`, pesadas por la
+ * probabilidad de que lleguen) y **no sabe nada de sus propias requisiciones**: `import-replenishment-plan.js`
+ * no las menciona ni una vez. Así que el comprador abre la pantalla, ve el mismo sugerido de la
+ * semana pasada y lo vuelve a armar.
+ *
+ * Medido en prod el 2026-10-08: **645 requisiciones en `pending_approval` por $44,035,078**, la más
+ * vieja del 21-jul, y **651 combinaciones (proveedor, almacén, producto) repetidas por $33,214,614**
+ * — 394 pedidas dos veces con 6 días de separación media, 221 tres veces, una seis. De 707
+ * requisiciones creadas, 645 (91 %) nunca salieron de pendiente.
+ *
+ * ⛔ **NO se descuenta del sugerido, a propósito.** Una requisición pendiente no es mercancía
+ * comprometida: puede no aprobarse nunca, y restarla dejaría de pedir lo que sí hace falta. Se
+ * MUESTRA y se declara su antigüedad, que es lo que el comprador necesita para decidir si vuelve a
+ * pedir o va a destrabar la que ya existe. Es el mismo criterio que "En camino", que enseña las
+ * cajas del papel y descuenta otras.
+ *
+ * ⚠️ La cantidad va en **CAJAS**, la unidad en que capturan los dos productores vivos
+ * (`/compras/pedido` y la herramienta de Thot). Medido contra `replenishment_plan.caja_cost`:
+ * de 919 líneas con costo, 404 cuadran al centavo con el costo de CAJA y 14 con el de pieza; las
+ * demás no cuadran con ninguno porque el costo se movió desde que se creó la requisición.
+ */
+export interface SkuPendingReqSignal {
+  /** Cajas ya requisadas y sin aprobar, en toda la red. */
+  cajas: number;
+  /** Cuántas requisiciones distintas la contienen. >1 es el síntoma de la repetición. */
+  documentos: number;
+  /** Fecha de la requisición pendiente más vieja (AAAA-MM-DD). */
+  desde: string | null;
+  /** Días que lleva esperando la más vieja. */
+  dias: number | null;
+  por_sucursal: Record<string, SkuPendingReqBranch>;
+}
+
 export interface WorkbookSkuSignals {
   margin: SkuMarginSignal | null;
   lost: SkuLostDemandSignal | null;
+  /** `[RA-PEND.1]` Lo ya requisado y sin aprobar. `null` = este SKU no tiene nada pendiente. */
+  pendiente: SkuPendingReqSignal | null;
 }

@@ -4,7 +4,7 @@
  * servicio hace las consultas y le pasa las filas. Aislado para probarlo (ADR-056: lo que decide un
  * número se prueba). Las reglas y su medición están en `replenishment-signals.contract.ts`.
  */
-import type { SkuLostBranch, SkuMarginBranch, WorkbookSkuSignals } from '@megadulces/contracts';
+import type { SkuLostBranch, SkuMarginBranch, SkuPendingReqBranch, WorkbookSkuSignals } from '@megadulces/contracts';
 
 export interface SenalesProducto { product_id: string; sku: string; uxc?: number | string | null; pack_size?: number | string | null; caja_cost?: number | string | null }
 export interface FilaCostoEstandar {
@@ -15,6 +15,8 @@ export interface FilaCostoEstandar {
 export interface FilaPagado { product_id: string; real_buy_cost: string | number | null; last_purchase: string | null }
 export interface FilaPerdidaWincaja { sucursal: string; sku: string; importe: string | number; unidades: string | number; reportes: string | number; ultimo: string | null }
 export interface FilaPerdidaMostrador { product_id: string; code: string; reportes: string | number; importe: string | number; ultimo: string | null }
+/** `[RA-PEND.1]` Lo ya requisado y sin aprobar, por (producto, almacén). `cajas` ya viene en CAJAS. */
+export interface FilaPendiente { product_id: string; code: string; cajas: string | number; documentos: string | number; desde: string | null; dias: string | number | null }
 
 /** Banda del árbitro de la venta perdida: precio implícito ÷ precio de ficha de algún peldaño. */
 export const PRECIO_MIN = 0.6;
@@ -26,8 +28,10 @@ export const COSTO_MAX = 2;
 export function armarSenales(i: {
   rows: SenalesProducto[]; mRows: FilaCostoEstandar[]; pRows: FilaPagado[];
   lRows: FilaPerdidaWincaja[]; fRows: FilaPerdidaMostrador[]; desde: string;
+  /** `[RA-PEND.1]` Opcional: un backend sin la consulta deja la señal en `null`, no en cero. */
+  qRows?: FilaPendiente[];
 }): Map<string, WorkbookSkuSignals> {
-  const { rows, mRows, pRows, lRows, fRows, desde } = i;
+  const { rows, mRows, pRows, lRows, fRows, desde, qRows } = i;
   const out = new Map<string, WorkbookSkuSignals>();
   const idBySku = new Map(rows.map((r) => [r.sku, r.product_id] as const));
   // Peldaños del producto (pieza, paquete, caja) para el árbitro de la venta perdida.
@@ -38,7 +42,7 @@ export function armarSenales(i: {
 
   const get = (pid: string): WorkbookSkuSignals => {
     let s = out.get(pid);
-    if (!s) { s = { margin: null, lost: null }; out.set(pid, s); }
+    if (!s) { s = { margin: null, lost: null, pendiente: null }; out.set(pid, s); }
     return s;
   };
   const emptyLost = () => ({
@@ -127,7 +131,29 @@ export function armarSenales(i: {
     if (r.ultimo && (!l.mostrador.ultimo || r.ultimo > l.mostrador.ultimo)) l.mostrador.ultimo = r.ultimo;
     l.mostrador.por_sucursal[r.code] = { importe: Math.round(imp * 100) / 100, reportes: rep };
   }
+  // `[RA-PEND.1]` Lo ya requisado y SIN APROBAR. ⛔ No toca el sugerido: sólo se publica. El motivo
+  // está en `SkuPendingReqSignal` — una requisición pendiente no es mercancía comprometida, y
+  // restarla dejaría de pedir lo que sí hace falta.
+  for (const r of qRows ?? []) {
+    const cajas = Number(r.cajas) || 0;
+    if (!(cajas > 0)) continue;
+    const s = get(r.product_id);
+    const p = s.pendiente ?? (s.pendiente = { cajas: 0, documentos: 0, desde: null as string | null, dias: null as number | null, por_sucursal: {} as Record<string, SkuPendingReqBranch> });
+    const docs = Number(r.documentos) || 0;
+    p.cajas += cajas;
+    p.documentos += docs;
+    // La fecha y la antigüedad son las de la requisición MÁS VIEJA de todo el SKU: es lo que dice
+    // si hay algo atorado. Un promedio escondería justo el documento de julio que nadie aprobó.
+    if (r.desde && (!p.desde || r.desde < p.desde)) {
+      p.desde = r.desde;
+      p.dias = r.dias == null ? null : Number(r.dias);
+    }
+    const b = p.por_sucursal[r.code] ?? (p.por_sucursal[r.code] = { cajas: 0, documentos: 0 });
+    b.cajas = Math.round((b.cajas + cajas) * 10) / 10;
+    b.documentos += docs;
+  }
   for (const s of out.values()) {
+    if (s.pendiente) s.pendiente.cajas = Math.round(s.pendiente.cajas * 10) / 10;
     if (!s.lost) continue;
     s.lost.wincaja.importe = Math.round(s.lost.wincaja.importe * 100) / 100;
     s.lost.mostrador.importe_estimado = Math.round(s.lost.mostrador.importe_estimado * 100) / 100;

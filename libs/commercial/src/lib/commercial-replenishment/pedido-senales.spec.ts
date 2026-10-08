@@ -93,3 +93,48 @@ describe('[RA-PRO.67] venta perdida — sólo se suma lo que cuadra con el preci
     expect(armarSenales(base).get('p-nikolo')?.lost).toBeNull();
   });
 });
+
+describe('[RA-PEND.1] lo ya requisado y sin aprobar: se MUESTRA, no se descuenta', () => {
+  // Tomado de prod el 2026-10-08: 651 combinaciones (proveedor, almacén, producto) con MÁS DE UNA
+  // requisición pendiente, por $33.2M, con 6 días de separación media entre la 1ª y la 2ª.
+  const pend = (o: Partial<{ code: string; cajas: number; documentos: number; desde: string | null; dias: number | null }> = {}) =>
+    ({ product_id: 'p-nikolo', code: '01', cajas: 12, documentos: 1, desde: '2026-10-02', dias: 6, ...o });
+
+  it('suma las cajas de la red y conserva el desglose por sucursal', () => {
+    const p = armarSenales({ ...base, qRows: [pend(), pend({ code: '08', cajas: 7.5 })] }).get('p-nikolo')?.pendiente;
+    expect(p?.cajas).toBe(19.5);
+    expect(p?.por_sucursal['01'].cajas).toBe(12);
+    expect(p?.por_sucursal['08'].cajas).toBe(7.5);
+  });
+
+  it('⭐ la fecha es la de la requisición MÁS VIEJA — un promedio escondería la de julio', () => {
+    const p = armarSenales({ ...base, qRows: [
+      pend({ code: '01', desde: '2026-10-02', dias: 6 }),
+      pend({ code: '08', desde: '2026-07-21', dias: 79 }),
+    ] }).get('p-nikolo')?.pendiente;
+    expect(p?.desde).toBe('2026-07-21');
+    expect(p?.dias).toBe(79);
+  });
+
+  it('dos documentos de la misma sucursal es la repetición, y se cuenta', () => {
+    const p = armarSenales({ ...base, qRows: [pend({ documentos: 3 })] }).get('p-nikolo')?.pendiente;
+    expect(p?.documentos).toBe(3);
+    expect(p?.por_sucursal['01'].documentos).toBe(3);
+  });
+
+  it('⭐ NEGATIVA: un backend SIN la consulta deja null — no un cero que diga «nada pendiente»', () => {
+    expect(armarSenales(base).get('p-nikolo')?.pendiente).toBeNull();
+    expect(armarSenales({ ...base, qRows: [] }).get('p-nikolo')?.pendiente).toBeNull();
+  });
+
+  it('⭐ NEGATIVA: una línea en 0 cajas no inventa un pendiente', () => {
+    expect(armarSenales({ ...base, qRows: [pend({ cajas: 0 })] }).get('p-nikolo')?.pendiente).toBeNull();
+  });
+
+  it('⛔ la señal NO toca el margen ni la venta perdida: sólo se publica al lado', () => {
+    const s = armarSenales({ ...base, qRows: [pend()] }).get('p-nikolo');
+    expect(s?.pendiente?.cajas).toBe(12);
+    expect(s?.margin?.margen_pct).toBeCloseTo(-21.28, 1);
+    expect(s?.lost).toBeNull();
+  });
+});
