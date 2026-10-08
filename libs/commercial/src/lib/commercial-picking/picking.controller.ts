@@ -6,6 +6,7 @@ import {
   RequirePermissions,
   Permission,
 } from '@megadulces/platform-core';
+import type { KeplerPickPoolResponse, KeplerWavesAutoResponse } from '@megadulces/contracts';
 import { CreateWaveDto, PickingService } from './picking.service';
 
 /**
@@ -47,6 +48,29 @@ export class PickingController {
         ? routeKind.split(',').map((k) => k.trim()).filter(Boolean)
         : undefined,
       sales_route: salesRoute || undefined,
+    });
+  }
+
+  /**
+   * `[GP.2]` Pedidos de Kepler (`U-D-40`) en `AUTORIZADO` de la sucursal del almacén, fuera de
+   * cualquier ola. `?origen=TELEMARK|SUCURSAL`, `?days=7` (ventana hacia atrás, 0–60). Los más
+   * viejos que la ventana se cuentan en `atorados`, no se esconden.
+   */
+  @Get('pool-kepler')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({
+    summary:
+      'Pedidos de Kepler autorizados y fuera de ola, con su tamaño (tanda ≤5 renglones / individual). Lectura del ODS.',
+  })
+  poolKepler(
+    @Query('warehouse_id') warehouseId: string,
+    @Query('origen') origen?: string,
+    @Query('days') days?: string,
+  ): Promise<KeplerPickPoolResponse> {
+    return this.service.poolKepler({
+      warehouse_id: warehouseId,
+      origen: origen || undefined,
+      days: days == null || days === '' ? undefined : Number(days),
     });
   }
 
@@ -125,9 +149,29 @@ export class PickingController {
 
   @Post('waves')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
-  @ApiOperation({ summary: 'Arma una ola con los pedidos dados (folio W-YYYY-NNNNN).' })
+  @ApiOperation({
+    summary:
+      'Arma una ola con los pedidos dados (folio W-YYYY-NNNNN): order_ids de la Suite y/o kepler_orders [{ sucursal, serie, folio }].',
+  })
   create(@Body() dto: CreateWaveDto) {
     return this.service.createWave(dto);
+  }
+
+  /**
+   * `[GP.2]` Arma las olas de los pedidos de Kepler pendientes: los de 1–5 renglones en UNA
+   * tanda y una ola por cada pedido más grande (`FASE_GP` §5.1). `{ warehouse_id, origen?, days? }`.
+   * No crea olas vacías ni toca olas existentes; lo que no pudo armar lo devuelve con su motivo.
+   */
+  @Post('waves/auto-kepler')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Arma las olas de los pedidos de Kepler autorizados: tanda para los de 1–5 renglones, una ola por cada pedido mayor.',
+  })
+  crearOlasKepler(
+    @Body() body: { warehouse_id: string; origen?: string; days?: number },
+  ): Promise<KeplerWavesAutoResponse> {
+    return this.service.crearOlasKepler(body);
   }
 
   /**

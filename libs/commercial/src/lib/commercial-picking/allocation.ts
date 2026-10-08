@@ -67,10 +67,22 @@ function ordenDeAtencion(a: PedidoDeProducto, b: PedidoDeProducto): number {
   return a.order_code < b.order_code ? -1 : a.order_code > b.order_code ? 1 : 0;
 }
 
-const entero = (n: unknown): number => {
-  const v = Math.floor(Number(n));
+/**
+ * `[GP.2]` La cantidad se sanea a MILÉSIMAS enteras, no a unidades enteras.
+ *
+ * Antes se truncaba a entero (`7.9 → 7`) tratando la fracción como dato sucio. En dulcería a
+ * granel no lo es: medido en prod (telemarketing PH, 30 días), cientos de renglones van en KG
+ * (`61.74 KG`), y truncar repartía 61 y perdía 0.74 kg por renglón. Las milésimas son la
+ * precisión de la base (`numeric(14,3)` en `order_lines`, `wave_lines` y `wave_allocations`).
+ *
+ * Se cuenta en enteros de milésimas para que las restas no acumulen error de coma flotante
+ * (`10.5 − 6.25` tiene que dar exactamente `4.25`, no `4.249999…`).
+ */
+const milesimas = (n: unknown): number => {
+  const v = Math.round(Number(n) * 1000);
   return Number.isFinite(v) && v > 0 ? v : 0;
 };
+const deMilesimas = (m: number): number => m / 1000;
 
 /**
  * Reparte `levantado` entre los pedidos que piden ese producto.
@@ -89,14 +101,14 @@ export function repartirProducto(
   levantado: number,
 ): RepartoDeProducto[] {
   const enOrden = [...pedidos].sort(ordenDeAtencion);
-  const disponible0 = entero(levantado);
-  const total = enOrden.reduce((s, p) => s + entero(p.qty_requested), 0);
+  const disponible0 = milesimas(levantado);
+  const total = enOrden.reduce((s, p) => s + milesimas(p.qty_requested), 0);
 
   if (disponible0 <= 0) {
     return enOrden.map((p) => ({
       order_id: p.order_id,
       order_code: p.order_code,
-      qty_requested: entero(p.qty_requested),
+      qty_requested: deMilesimas(milesimas(p.qty_requested)),
       qty_allocated: 0,
       regla: 'sin_mercancia' as const,
     }));
@@ -107,22 +119,22 @@ export function repartirProducto(
     return enOrden.map((p) => ({
       order_id: p.order_id,
       order_code: p.order_code,
-      qty_requested: entero(p.qty_requested),
-      qty_allocated: entero(p.qty_requested),
+      qty_requested: deMilesimas(milesimas(p.qty_requested)),
+      qty_allocated: deMilesimas(milesimas(p.qty_requested)),
       regla: 'completo' as const,
     }));
   }
 
   let queda = disponible0;
   return enOrden.map((p) => {
-    const pide = entero(p.qty_requested);
+    const pide = milesimas(p.qty_requested);
     const da = Math.min(pide, queda);
     queda -= da;
     return {
       order_id: p.order_id,
       order_code: p.order_code,
-      qty_requested: pide,
-      qty_allocated: da,
+      qty_requested: deMilesimas(pide),
+      qty_allocated: deMilesimas(da),
       regla: 'prioridad_entrega' as const,
     };
   });

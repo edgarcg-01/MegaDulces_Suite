@@ -7,8 +7,9 @@
 >
 > Origen: conversación con Francisco, 2026-10-06 (menú *Almacenes › Control de Pedidos* de Kepler).
 
-Estado: **🔨 DISEÑADO (planeación) 2026-10-06. Sin código.** Decode del pedido `U-D-40` verificado
-contra prod en solo lectura.
+Estado: **🔨 EN CURSO.** GP.1 (tablero) en `main` (#271). **GP.2 🧪 en código 2026-10-07** (§7): el
+pedido de Kepler entra al motor de surtido. Decode del pedido `U-D-40` verificado contra prod en
+solo lectura.
 
 ---
 
@@ -446,3 +447,65 @@ ubicaciones (WMS.2–WMS.4). **GP no la duplica: es su implementación para los 
 | **La captura en Kepler se degrada igual que hoy** (relevo operador → capturista, §2.6 punto 5) | Resumen corto para capturar + GP.6 diario con nombre del responsable; si se cae, es el argumento para la opción B |
 | Se publica un % de surtido con unidades mezcladas | Prohibido hasta resolver la unidad (§2.3) |
 | Querer escribir en Kepler "para ahorrar un paso" | Fuera de alcance por ADR-086; es la opción B y tiene su propio momento |
+
+## 7. GP.2 — El pedido de Kepler entra al motor de surtido (🧪 en código, 2026-10-07)
+
+**Qué hace.** El motor de surtido de la Fase SU (`libs/commercial/src/lib/commercial-picking/`, ADR-067)
+sólo sabía leer `commercial.orders`. Ahora también lee el pedido Kepler `U-D-40`, **sin copiarlo**:
+la ola guarda la llave `(sucursal, serie, folio)` y el pedido y sus renglones se leen del ODS cada vez.
+
+| Pieza | Dónde |
+|---|---|
+| Migración: `wave_orders.source` (`suite`/`kepler`) + `kepler_sucursal/serie/folio` + 3 CHECK | `database/migrations-newdb/20261007260100_wave_orders_origen_kepler.js` |
+| Identidad del pedido, plan de tandas, consultas al ODS | `commercial-picking/kepler-origen.ts` (+ `.spec.ts`) |
+| `GET /reparto/surtido/pool-kepler?warehouse_id&origen&days` | pool: `AUTORIZADO`, fuera de cualquier ola, con `tamano` y `sin_catalogo` |
+| `POST /reparto/surtido/waves/auto-kepler` | arma la **tanda** (1–5 renglones) y **una ola por pedido** mayor |
+| `POST /reparto/surtido/waves` acepta `kepler_orders: [{ sucursal, serie, folio }]` | junto o en lugar de `order_ids` |
+| Contrato | `libs/contracts/src/http/warehouse-picking-kepler.contract.ts` |
+
+**Decisiones de diseño:**
+
+1. **`order_id` determinista.** Un pedido Kepler no tiene UUID; se deriva de la llave:
+   `md5('kepler/UD40/' || sucursal || '/' || serie || '/' || folio)::uuid`. Así no se toca el índice
+   "un pedido en una sola ola viva" ni `wave_allocations`. Un CHECK obliga a que el id salga de la
+   llave, y una prueba compara el cálculo en TypeScript contra el que hace Postgres.
+2. **Sale del pool si está en CUALQUIER ola**, no sólo en una viva: en Kepler sigue `AUTORIZADO`
+   hasta que se captura el resultado (ADR-086), y sin esto un pedido ya surtido volvería al pool.
+3. **Ventana de 7 días** (0–60): medido, quedan pedidos `AUTORIZADO` de julio. No se esconden: se
+   cuentan en `atorados` (PH: 7, desde el 15-jul).
+4. **Dos cantidades por renglón.** Se suma y reparte la **unidad base** (`c9`/`c11`, p. ej. 75 KG);
+   la **presentación** de la hoja (`c56`/`c55`, 3 BTO) viaja aparte para mostrarse (GP.3).
+5. **El reparto ya no trunca decimales.** `allocation.ts` trataba la fracción como dato sucio
+   (`7.9 → 7`); con KG eso pierde mercancía. Ahora cuenta en milésimas (la precisión de la base).
+   Cambia también el reparto de pedidos de la Suite: un pedido de 7.9 recibe 7.9, no 7.
+6. **Un renglón con clave fuera del catálogo frena el pedido**, con su clave. No se arma la ola sin
+   él: sería mandarlo incompleto sin que nadie lo decidiera (medido: 1 de 2,884 claves de PH).
+7. **Mismo producto en dos renglones del pedido**: se suman antes de repartir (`wave_allocations`
+   tiene UNIQUE por pedido y producto).
+8. **El mismo producto en dos unidades frena la ola** (lo encontró la revisión independiente):
+   medido, **248 pares sucursal×clave** traen más de una unidad en `kdm2.c11` (p. ej. `02135` en PAQ
+   y PZA). Sumarlas daría un número que no se puede surtir. Se revisa al crear la ola (en la misma
+   transacción, así no queda a medias) y al arrancarla. Si una tanda no se puede armar por eso,
+   `auto-kepler` reintenta cada pedido solo para que uno no frene a los demás.
+9. **Si el pedido cambia en Kepler después de arrancar, el cierre se frena** (también de la
+   revisión): Kepler deja editar el pedido `AUTORIZADO` mientras se surte, y el reparto lee el
+   pedido en vivo. Al cerrar se compara contra lo congelado en `wave_lines`; si difiere, se nombran
+   las claves y se pide cancelar y volver a armar. Pendiente para GP.3: congelar el desglose por
+   pedido al arrancar, para no tener que frenar.
+
+**Declarado, sin cambiar:** en una ola que mezcle pedidos de la Suite y de Kepler (sólo posible
+armándola a mano con `POST waves`; `auto-kepler` nunca mezcla), los de Kepler pierden el desempate del
+reparto porque no tienen fecha de entrega comprometida. `atorados` cuenta también pedidos que ya
+están en una ola esperando que se capturen en Kepler.
+
+**Medido contra prod (solo lectura, 2026-10-07):** pool de PH en 168 ms con 4 pedidos (3 de
+telemarketing de 1, 6 y 11 renglones; 1 de sucursal **sin renglones**, que cae en `vacios`); 7
+atorados; 7 renglones con producto resuelto y el UUID derivado igual al de Postgres.
+
+**No incluye (siguiente):**
+- **Pantalla.** El motor de surtido no tiene ninguna todavía; la del surtidor es GP.3.
+- **Repartir un pedido grande entre varios surtidores por rango de pasillos** (§5.1): necesita la
+  ubicación de cada producto (`FASE_WMS` §12.5), que hoy no existe. Además el índice "un pedido en
+  una sola ola viva" lo impide tal como está; GP.3 tendrá que partir el pedido en tramos.
+- **`faltantes` y `avisos`** siguen leyendo sólo pedidos de la Suite.
+- **Alcance por sucursal** (`ScopeService`) en el pool: el pool de la Suite tampoco lo tiene.
