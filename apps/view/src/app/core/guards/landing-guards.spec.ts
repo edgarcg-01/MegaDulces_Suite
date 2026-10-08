@@ -82,6 +82,11 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // se la da sólo a roles que también reciben OBLIGACIONES_VER (gerente_compras, compras, direccion).
   { perm: Permission.COMPRAS_PLAZOS_AUTORIZAR, url: '/compras/obligaciones', motivo: 'facultad de firma: la ruta exige OBLIGACIONES_VER' },
   { perm: Permission.COMPRAS_REQUISICIONES_GESTIONAR, url: '/compras/requisiciones', motivo: 'manage sin view' },
+  // [RQ.12] Autorizar una requisición es una facultad de firma, no una puerta: se otorga por PERSONA
+  // (identity.user_permissions) a quien ya ve la pantalla. Medido en prod el 2026-10-08: una sola
+  // persona la tiene, y su rol trae REQUISICIONES_VER. Ensanchar la ruta no serviría: el GET del
+  // backend que lista las requisiciones también exige VER, así que con AUTORIZAR sola abriría vacía.
+  { perm: Permission.COMPRAS_REQUISICIONES_AUTORIZAR, url: '/compras/requisiciones', motivo: 'facultad de firma: la ruta y el GET del backend exigen REQUISICIONES_VER' },
   { perm: Permission.COMPRAS_ORDENES_GESTIONAR, url: '/compras/ordenes', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_ENTRADAS_VALIDAR, url: '/compras/entradas', motivo: 'la bandeja exige GESTIONAR; VALIDAR solo no abre nada' },
   { perm: Permission.COMPRAS_360_VER, url: '/compras/costo-por-compra', motivo: 'la ruta exige ENTRADAS_VER; medido 2026-08-29: todo rol con 360 tiene ENTRADAS_VER' },
