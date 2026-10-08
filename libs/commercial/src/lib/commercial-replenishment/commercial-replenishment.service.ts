@@ -2058,7 +2058,31 @@ export class CommercialReplenishmentService {
       product_id: string; code: string; reportes: string; importe: string; ultimo: string | null;
     }>;
 
-    return armarSenales({ rows, mRows, pRows, lRows, fRows, desde });
+    // `[RA-PEND.1]` Lo ya requisado por este mismo camino y SIN APROBAR. El motor descuenta las OC
+    // de Kepler y no sabe nada de sus propias requisiciones, así que el comprador veía el mismo
+    // sugerido de la semana pasada y lo volvía a armar: medido el 2026-10-08, 651 combinaciones
+    // (proveedor, almacén, producto) repetidas por $33.2M, con 6 días de separación media.
+    // ⛔ Sólo COMPRA (`source_type='supplier'`): las bajadas de traspaso no son un pedido al proveedor.
+    // ⛔ `ordered` y `received` quedan fuera a propósito — ésas ya son una OC en Kepler y el motor
+    //    las descuenta por `transit_eff_cajas`; contarlas acá sería publicar lo mismo dos veces.
+    const qRows = (await trx.raw(
+      `SELECT l.product_id, w.code,
+              sum(l.final_qty)                                     AS cajas,
+              count(DISTINCT r.id)::int                            AS documentos,
+              to_char(min(r.created_at), 'YYYY-MM-DD')             AS desde,
+              (CURRENT_DATE - min(r.created_at)::date)::int        AS dias
+         FROM commercial.purchase_requisition_lines l
+         JOIN commercial.purchase_requisitions r ON r.tenant_id = l.tenant_id AND r.id = l.requisition_id
+         JOIN commercial.warehouses w ON w.tenant_id = r.tenant_id AND w.id = r.warehouse_id
+        WHERE l.tenant_id = ? AND l.product_id = ANY(?)
+          AND r.estado IN ('pending_approval', 'approved')
+          AND l.source_type = 'supplier'
+          AND l.final_qty > 0
+        GROUP BY l.product_id, w.code`, [tenantId, rows.map((r) => r.product_id)])).rows as Array<{
+      product_id: string; code: string; cajas: string; documentos: number; desde: string | null; dias: number | null;
+    }>;
+
+    return armarSenales({ rows, mRows, pRows, lRows, fRows, qRows, desde });
   }
 
   /**

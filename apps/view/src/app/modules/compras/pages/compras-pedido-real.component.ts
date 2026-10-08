@@ -301,7 +301,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td><div class="pr-prod"><input type="checkbox" class="pr-chk" [checked]="isSel(r)" [disabled]="!isSel(r) && sumCajas(r) <= 0"
                            (click)="$event.stopPropagation()" (keyup.enter)="$event.stopPropagation()" (change)="toggleSel(r)"
                            [title]="sumCajas(r) > 0 ? 'Incluir en la requisición y el PDF globales' : 'Sin pedido al proveedor: no hay nada que requerir'"
-                           [attr.aria-label]="'Seleccionar ' + r.sku" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }</div></td>
+                           [attr.aria-label]="'Seleccionar ' + r.sku" /><i class="pi pr-wb-go" [ngClass]="isOpen(r) ? 'pi-angle-down' : 'pi-angle-right'"></i> {{ r.nombre }}</div><div class="pr-prod-meta">@if (esContable(r)) { <span class="pr-noncom" title="Pseudo-producto contable de Kepler (unidad SER): devoluciones, descuentos a factura, tiempo aire. No es mercancia y no se puede pedir; aparece porque el workbook todavia no los excluye en origen.">contable</span> }<span class="pr-sku">{{ r.sku }}</span> <span class="pr-supp">{{ r.supplier_name || '—' }}</span>@if (abcOf(r.product_id); as a) { <p-tag [value]="a" [severity]="abcSev(a)" styleClass="pr-abc"></p-tag> }@for (t of prodTypes(r.product_id); track t) { <p-tag [value]="typeLabel(t)" [severity]="typeSev(t)" styleClass="pr-abc"></p-tag> }@if (unitRefOf(r.product_id); as u) { <button type="button" class="pr-unit-btn" (click)="openUnit(u); $event.stopPropagation()" title="Ajustar la unidad de venta de este producto"><p-tag [value]="unitLabel(u.unit_source)" [severity]="u.unit_source === 'revisar' ? 'warn' : 'contrast'" styleClass="pr-abc"></p-tag></button> }@if (costoFlag(r); as cf) { <span class="pr-bflag" [ngClass]="cf.cls" [title]="margenTitle(r) + ' ' + margenCompraTitle(r)">{{ cf.txt }}</span> }@if (perdida(r); as pd) { <span class="pr-bflag pr-bflag-warn" [title]="perdidaTitle(r)">perdió {{ dineroCorto(pd.total) }}</span> }@if (pendiente(r); as pq) { <span class="pr-bflag pr-bflag-pend" [ngClass]="pq.documentos > 1 ? 'pr-bflag-bad' : ''" [title]="pendienteTitle(r)">ya requisado {{ pq.cajas | number:'1.0-1' }} cj@if (pq.documentos > 1) { · {{ pq.documentos }} veces }</span> }</div></td>
                   <td class="pr-r pr-muted pr-uxc">
                     <!-- [RA-PRO.70] La escalera real del artículo: 1, 2 o 3 unidades, con sus rótulos de Kepler. -->
                     <div [title]="unidadFilaTitle(r)">{{ unidadFilaTxt(r) }}</div>
@@ -1353,6 +1353,10 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-sig-warn { color: var(--warn-fg); border-color: var(--warn-border); }
     .pr-bflag-bad { color: var(--bad-fg); border-color: var(--bad-border); }
     .pr-bflag-warn { color: var(--warn-fg); border-color: var(--warn-border); }
+    /* RA-PEND.1 — "ya requisado" es un AVISO, no un problema: un documento pendiente es el curso
+       normal. Queda en el gris de la insignia base y sube a .pr-bflag-bad recien cuando son DOS o
+       mas, que ahi si es lo mismo pedido dos veces. */
+    .pr-bflag-pend { color: var(--text-main); border-color: var(--border-color); }
     /* [RA-PRO.65] V30d / Máx: la cifra ES el botón del globo. */
     .pr-vmx { border: 0; background: transparent; color: var(--text-main); cursor: pointer; font: inherit;
       font-variant-numeric: tabular-nums; padding: .1rem .3rem; border-radius: var(--r-sm, 8px);
@@ -1868,6 +1872,38 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       + 'Que no aparezca venta perdida después de esa fecha no quiere decir que no falte: la única fuente viva es el reporte de mostrador.');
     return partes.join(' ');
   }
+  /**
+   * `[RA-PEND.1]` Lo que YA se requisó de este SKU por esta misma pantalla, y nadie aprobó todavía.
+   * ⛔ No se descuenta del sugerido: una requisición pendiente puede no aprobarse nunca, y restarla
+   * dejaría de pedir lo que sí hace falta. Se MUESTRA, que es lo que el comprador necesita para
+   * decidir entre volver a pedir o ir a destrabar la que ya existe.
+   */
+  pendiente(r: WorkbookRow): { cajas: number; documentos: number; dias: number | null } | null {
+    const p = r.signals?.pendiente;
+    return p && p.cajas > 0 ? { cajas: p.cajas, documentos: p.documentos, dias: p.dias } : null;
+  }
+  pendienteTitle(r: WorkbookRow): string {
+    const p = r.signals?.pendiente;
+    if (!p) return '';
+    const suc = Object.entries(p.por_sucursal)
+      .sort((a, b) => b[1].cajas - a[1].cajas)
+      .map(([c, v]) => `${c}: ${v.cajas}`).join(' · ');
+    const partes = [
+      `${p.cajas} caja(s) de este producto ya están en ${p.documentos} requisición(es) SIN APROBAR.`,
+    ];
+    if (p.desde) {
+      partes.push(`La más vieja es del ${p.desde.split('-').reverse().join('/')}${p.dias != null ? ` — ${p.dias} días esperando` : ''}.`);
+    }
+    if (suc) partes.push(`Por sucursal — ${suc}.`);
+    if (p.documentos > 1) {
+      partes.push('⚠️ Más de un documento: ya se pidió lo mismo más de una vez. Conviene destrabar las que hay antes de armar otra.');
+    }
+    partes.push('⛔ El sugerido NO lo descuenta, a propósito: una requisición pendiente no es mercancía comprometida '
+      + '—puede no aprobarse nunca— y restarla dejaría de pedir lo que sí hace falta. Lo que el motor SÍ descuenta son '
+      + 'las órdenes de compra ya capturadas en Kepler (columna "En camino").');
+    return partes.join(' ');
+  }
+
   /** Banderas por sucursal que vienen de las señales: bajo costo y venta perdida. */
   branchSignalFlags(r: WorkbookRow, b: BranchBuy): { txt: string; cls: string; title: string }[] {
     const out: { txt: string; cls: string; title: string }[] = [];
@@ -1882,6 +1918,16 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const imp = (lw?.importe ?? 0) + (lm?.importe ?? 0);
     if (imp > 0 || (lm?.reportes ?? 0) > 0) {
       out.push({ txt: `perdió ${dineroCorto(imp)}`, cls: 'pr-bflag-warn', title: this.perdidaTitle(r) });
+    }
+    // `[RA-PEND.1]` La repetición se decide POR SUCURSAL: el mismo SKU puede estar pedido dos veces
+    // en Abastos y ninguna en Padre Hidalgo, y una insignia de red sola no dice en cuál capturar.
+    const pq = r.signals?.pendiente?.por_sucursal?.[b.code];
+    if (pq && pq.cajas > 0) {
+      out.push({
+        txt: `requisado ${pq.cajas} cj${pq.documentos > 1 ? ` ×${pq.documentos}` : ''}`,
+        cls: pq.documentos > 1 ? 'pr-bflag-bad' : 'pr-bflag-pend',
+        title: this.pendienteTitle(r),
+      });
     }
     return out;
   }
