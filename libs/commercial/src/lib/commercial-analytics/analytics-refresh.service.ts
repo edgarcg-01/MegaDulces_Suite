@@ -249,6 +249,22 @@ export class AnalyticsRefreshService {
       ['analytics.mv_sellout_budget_rollup', 'analytics_refresh_sellout_budget',
         'Refresh MV rollup de Presupuestos (nightly)',
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
+      /**
+       * `[PU.V3]` El sell-out por canal CANÓNICO × mes (~97 filas) — el CTE `so` de
+       * `v_sellout_vs_facturacion`, materializado tal cual. Existe por una cifra: leer
+       * `mv_sellout_monthly` (444 MB al grano producto) dejaba la conciliación en **592 ms**,
+       * sobre el gate de 500 ms. Con esta MV baja a milisegundos.
+       *
+       * ⭐ `deps` apunta a `mv_sellout_monthly` y NO es decorativo: ésta deriva de aquélla, que va
+       * antes en el array — pero **ordenar no es depender** (ADR-056). Sin declararlo, si el
+       * espejo mensual falla ésta se materializa igual sobre datos rancios, y la conciliación
+       * publicaría el mes pasado como si fuera éste: no se ve a medias, se ve completa.
+       *
+       * ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_sellout_channel`) o el sensor cae en el
+       * ternario que da 'ok' por default y una MV parada se ve VERDE (lección OBS.1).
+       */
+      ['analytics.mv_sellout_channel_monthly', 'analytics_refresh_sellout_channel',
+        'Refresh MV sell-out por canal x mes (nightly)', ['analytics.mv_sellout_monthly']],
       // ⚠️ EL POBLADO INICIAL DE ESTA MV CUESTA 6 h 15 min. El refresco diario NO.
       //
       // Medido el 2026-09-23/24, y la distinción importa porque yo mismo la confundí primero y

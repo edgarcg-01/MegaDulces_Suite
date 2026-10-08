@@ -1255,6 +1255,10 @@ const CRON_JOBS: CronCfg[] = [
   // no es una pantalla vacia: es el real de ayer publicado como el de hoy, y una propuesta de
   // presupuesto construida encima.
   { key: 'analytics_refresh_sellout_budget',  label: 'Refresh MV rollup de Presupuestos', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PU.V3] El sell-out por canal x mes que sirve la Conciliacion. Mismo motivo que el de arriba:
+  // sin esta fila el sensor cae en el ternario que da 'ok' por default y una MV parada se ve VERDE
+  // (leccion OBS.1) -- aca eso seria conciliar el mes en curso contra el sell-out del mes pasado.
+  { key: 'analytics_refresh_sellout_channel', label: 'Refresh MV sell-out por canal x mes', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [KX.5] El peldano COBRADO (max kdm2.c58 por sucursal x SKU). Sin esta entrada el sensor
   // caeria en `cfg ? classify : 'ok'` y una MV parada se veria VERDE (leccion OBS.1). Y no es
