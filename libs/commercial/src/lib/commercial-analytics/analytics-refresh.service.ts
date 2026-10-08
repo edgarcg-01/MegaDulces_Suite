@@ -195,7 +195,7 @@ export class AnalyticsRefreshService {
    * a probar hasta 30 min después — sino cada cron tick (15 min) ata una
    * conexión esperando timeout al FDW caído.
    */
-  private fdwUnhealthyUntil: number = 0;
+  private fdwUnhealthyUntil = 0;
 
   constructor(
     @Inject(KNEX_NEW_DB_ADMIN) private readonly adminKnex: Knex | null,
@@ -222,8 +222,10 @@ export class AnalyticsRefreshService {
    * (no existe, no se pudo leer) responde `false` y manda la cadencia, como antes.
    */
   private async estaVacia(mv: string): Promise<boolean> {
+    const admin = this.adminKnex;
+    if (!admin) return false;
     try {
-      const { rows } = await this.adminKnex!.raw(
+      const { rows } = await admin.raw(
         `SELECT relispopulated FROM pg_class WHERE oid = to_regclass(?) AND relkind = 'm'`,
         [mv],
       );
