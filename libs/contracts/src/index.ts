@@ -136,3 +136,4 @@ export * from './finance/coincidencia-pago.contract';
 // La regla que queda: un barrel compartido por backend y frontend no puede
 // llevar dato frío. Si agregás algo grande y sólo lo usa una pantalla, dale su
 // subruta.
+export * from './finance/caja-firma.contract';

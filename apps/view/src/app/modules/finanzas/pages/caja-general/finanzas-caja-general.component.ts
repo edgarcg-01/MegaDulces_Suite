@@ -16,7 +16,7 @@ import { AutoCompleteModule, AutoCompleteCompleteEvent, AutoCompleteSelectEvent 
 import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo } from '@megadulces/contracts';
 import { prepararFirma, type FirmaCanvas } from '@megadulces/ui-web';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
@@ -346,6 +346,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-firma-falta { font-size:var(--fs-xs); }
     /* ⛔ touch-action:none es lo que impide que el dedo SCROLLEE en vez de dibujar. Sin esto,
        en un telefono la firma es imposible: el gesto se lo come la pagina. */
+    /* [CG.68] El codigo se dicta en voz alta o se lee de lejos. */
+    .cg-firma-codigo { display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-1);
+                       padding:var(--sp-3); border:1px dashed var(--action);
+                       border-radius:var(--r-md); background:var(--action-ring); }
+    .cg-firma-cod { font-size:var(--fs-h1); font-weight:700; letter-spacing:.18em; line-height:1; }
+    .cg-firma-elegir { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap;
+                       font-size:var(--fs-xs); }
+    .cg-firma-remota { display:flex; flex-direction:column; gap:var(--sp-2); }
+    .cg-firma-img { width:100%; max-height:9rem; object-fit:contain; background:#FFFFFF;
+                    border:1px solid var(--border-color); border-radius:var(--r-md); }
+    .cg-firma-remota-pie { display:flex; align-items:center; gap:var(--sp-2); }
+    /* Con la firma del telefono puesta, el canvas no se esconde con @if: perderia el trazo y el
+       ViewChild, y "Rehacer" tendria que re-prepararlo. Se oculta nada mas. */
+    .cg-oculto { display:none; }
     .cg-firma-pad { width:100%; height:9rem; touch-action:none; cursor:crosshair;
                     background:#FFFFFF; border:1px dashed var(--border-color);
                     border-radius:var(--r-md); }
@@ -2187,9 +2201,50 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                             [text]="true" [disabled]="!firmaHecha()"
                             (onClick)="firmaLimpiar()"></p-button>
                 </div>
+                <!-- ⭐⭐ [CG.68] FIRMAR DESDE EL TELEFONO DEL MOSTRADOR. Edgar: "si esto lo estoy
+                     usando en pc, como hago que esto se envie a mi telefono para que se firme".
+                     La PC pide un codigo, el telefono lo teclea en /finanzas/caja-general/firma,
+                     y el PNG vuelve por una room que es de los DOS. -->
+                @if (firmaRemotaPng(); as png) {
+                  <div class="cg-firma-remota">
+                    <img [src]="png" alt="Firma recibida del teléfono" class="cg-firma-img" />
+                    <div class="cg-firma-remota-pie">
+                      <span class="cg-firma-ok"><i class="pi pi-mobile" aria-hidden="true"></i>
+                        firmada en el teléfono</span>
+                      <span class="cg-bandeja-sp"></span>
+                      <p-button label="Rehacer" icon="pi pi-replay" size="small" severity="secondary"
+                                [text]="true" (onClick)="firmaLimpiar()"></p-button>
+                    </div>
+                  </div>
+                } @else if (firmaCodigo(); as cod) {
+                  <!-- ⚠️ El codigo se dicta en voz alta o se lee de lejos: va grande y en mono. -->
+                  <div class="cg-firma-codigo">
+                    <span class="cg-lbl-micro">Escribí este código en el teléfono</span>
+                    <strong class="mono cg-firma-cod">{{ cod }}</strong>
+                    <small class="fin-dim">{{ firmaTelefonoListo() ? 'El teléfono ya está — esperando la firma…' : 'Abrí Caja General › Firmar en el teléfono' }}</small>
+                    <p-button label="Cancelar" size="small" severity="secondary" [text]="true"
+                              (onClick)="firmaCerrarRemota()"></p-button>
+                  </div>
+                } @else {
+                  <div class="cg-firma-elegir">
+                    <p-button label="Firmar en el teléfono" icon="pi pi-mobile" size="small"
+                              severity="secondary" [outlined]="true"
+                              [disabled]="firmaPidiendo() || !socketVivo()"
+                              (onClick)="firmaPedirEnTelefono()"></p-button>
+                    <span class="fin-dim">o firmá acá abajo</span>
+                    @if (!socketVivo()) {
+                      <!-- ⚠️ Se DICE por que no se puede, en vez de dejar un boton apagado sin
+                           motivo: sin conexion en vivo el emparejamiento no existe. -->
+                      <small class="fin-hint-warn d-block">Sin conexión en vivo: por ahora sólo se
+                        puede firmar en esta pantalla.</small>
+                    }
+                  </div>
+                }
+                @if (firmaAviso(); as a) { <p-message severity="warn" class="cg-full">{{ a }}</p-message> }
+
                 <!-- touch-action:none es lo que impide que el dedo scrollee la pantalla en vez
                      de dibujar. Sin eso, en un telefono no se puede firmar. -->
-                <canvas #firmaCanvas class="cg-firma-pad"
+                <canvas #firmaCanvas class="cg-firma-pad" [class.cg-oculto]="!!firmaRemotaPng()"
                         (pointerdown)="firmaAbajo($event)" (pointermove)="firmaMueve($event)"
                         (pointerup)="firmaArriba()" (pointerleave)="firmaArriba()"
                         aria-label="Firma de quien recibe el efectivo"></canvas>
@@ -3030,7 +3085,78 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
   firmaLimpiar(): void {
     this.pad()?.limpiar();
+    this.firmaRemotaPng.set(null);
+    this.firmaRemotaMonto.set(null);
     this.firmaHecha.set(false);
+  }
+
+  // ── `[CG.68]` FIRMAR DESDE EL TELEFONO DEL MOSTRADOR ────────────────────────────────────
+
+  /** El codigo que la PC muestra, mientras el emparejamiento esta vivo. */
+  firmaCodigo = signal<string | null>(null);
+  firmaPidiendo = signal(false);
+  firmaTelefonoListo = signal(false);
+  firmaAviso = signal<string | null>(null);
+  /** La firma que llego del telefono. Es una IMAGEN, no un trazo en el canvas de esta pantalla. */
+  firmaRemotaPng = signal<string | null>(null);
+  /**
+   * ⭐ El monto que se le MOSTRO a quien firmo. Si el importe cambia despues, la firma deja de
+   * corresponder -- y sin esto la pantalla seguiria diciendo "firmado" sobre otra cifra.
+   */
+  firmaRemotaMonto = signal<number | null>(null);
+
+  socketVivo = computed(() => this.caja.connected());
+
+  /**
+   * ⛔ La firma remota se INVALIDA sola si el monto cambio. Es un computed y no una bandera
+   * porque el monto sale del conteo: cambia con cada pieza que se agrega, y nadie se va a
+   * acordar de revalidar a mano.
+   */
+  firmaRemotaVale = computed(() => {
+    const png = this.firmaRemotaPng();
+    const m = this.firmaRemotaMonto();
+    if (!png || m === null) return false;
+    return firmaSigueValiendo(m, Number(this.f().monto) || 0);
+  });
+
+  async firmaPedirEnTelefono(): Promise<void> {
+    this.firmaAviso.set(null);
+    this.firmaPidiendo.set(true);
+    try {
+      const c = this.cobroElegido();
+      const r = await this.caja.abrirFirma({
+        tipo: this.f().tipo,
+        monto: Number(this.f().monto) || 0,
+        beneficiario: this.f().beneficiario || null,
+        documento: c ? `${c.doc_tipo} ${c.folio}` : null,
+      });
+      if (!r.ok || !r.codigo) {
+        // ⚠️ El motivo se DICE. Un boton que no hace nada manda a la persona a adivinar.
+        this.firmaAviso.set(this.textoFalloFirma(String((r as { error?: string }).error ?? '')));
+        return;
+      }
+      this.firmaCodigo.set(r.codigo);
+      this.firmaTelefonoListo.set(false);
+    } finally {
+      this.firmaPidiendo.set(false);
+    }
+  }
+
+  firmaCerrarRemota(): void {
+    this.firmaCodigo.set(null);
+    this.firmaTelefonoListo.set(false);
+    this.firmaAviso.set(null);
+  }
+
+  /** Traduce el fallo del canal a algo que se pueda leer y actuar. */
+  textoFalloFirma(e: string): string {
+    switch (e) {
+      case 'sin_conexion': return 'Sin conexión en vivo con el servidor: firmá en esta pantalla.';
+      case 'sin_respuesta': return 'El servidor no contestó. Probá de nuevo o firmá acá.';
+      case 'sin_permiso': return 'Tu usuario no puede pedir firma remota (hace falta gestionar la caja).';
+      case 'sin_codigo_libre': return 'No se pudo generar un código. Probá de nuevo.';
+      default: return 'No se pudo pedir la firma al teléfono. Firmá en esta pantalla.';
+    }
   }
   aperturaAbierta = signal(false);
   cierreAbierto = signal(false);
@@ -3431,6 +3557,26 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // micro-parpadeo de la bandeja en cada NOTIFY). El saldo no tiene indicador, va normal.
       this.cargarPendientes(true);
       this.cargarSaldo();
+    });
+
+    // `[CG.68]` Los tres avisos del emparejamiento.
+    this.caja.firmaTomada$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.firmaTelefonoListo.set(true);
+    });
+    this.caja.firmaRecibida$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((f) => {
+      if (f.codigo !== this.firmaCodigo()) return;   // no es la nuestra
+      this.firmaRemotaPng.set(f.png);
+      this.firmaRemotaMonto.set(Number(f.monto_firmado) || 0);
+      if (f.nombre && !this.firmaNombre().trim()) this.firmaNombre.set(f.nombre);
+      this.firmaHecha.set(true);
+      this.firmaCodigo.set(null);
+      this.firmaTelefonoListo.set(false);
+    });
+    this.caja.firmaCortada$.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((e) => {
+      if (e.codigo !== this.firmaCodigo()) return;
+      this.firmaCerrarRemota();
+      // ⚠️ Se avisa: si no, el cajero se queda mirando un codigo que ya no sirve.
+      this.firmaAviso.set('Se cortó la conexión con el teléfono. Pedí un código nuevo o firmá acá.');
     });
   }
 
@@ -3934,6 +4080,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.firmaPad?.limpiar();
     this.firmaHecha.set(false);
     this.firmaNombre.set('');
+    // `[CG.68]` El emparejamiento tampoco sobrevive: un codigo de la captura anterior traeria la
+    // firma de otro movimiento.
+    this.firmaRemotaPng.set(null);
+    this.firmaRemotaMonto.set(null);
+    this.firmaCerrarRemota();
     this.abrirConFoco(this.capturaAbierta);
     // ⛔ `[CG.46]` Esto lo hacía `p-dialog` solo y un `<aside>` NO. Sin esto, quien elige una fila
     // con el teclado se queda con el foco en la tabla y el panel se abre a su lado sin que nada
@@ -4873,7 +5024,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       // ⭐ `[CG.67]` La firma viaja como imagen y nombre. ⛔ NO se manda `firma_estado`: lo
       // calcula el servidor (`revisarFirma`, ADR-076). Si la pantalla lo mandara, podría
       // declarar "firmado" sin imagen.
-      firma_png: this.firmaPad?.aPng() ?? undefined,
+      // `[CG.68]` Si vino del telefono, esa manda. ⛔ Y solo si SIGUE valiendo: si el monto
+      // cambio despues de firmar, la firma corresponde a otra cifra y no se manda.
+      firma_png: (this.firmaRemotaVale() ? this.firmaRemotaPng() : null) ?? this.firmaPad?.aPng() ?? undefined,
       firma_nombre: this.firmaNombre().trim() || undefined,
       // CS.3.13 — la parte a crédito (no efectivo). El servidor la persiste y el arqueo la cuenta como
       // parte del total (efectivo + crédito = monto).

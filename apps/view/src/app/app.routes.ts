@@ -613,6 +613,17 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR, Permission.FINANCE_CAJA_AUTORIZAR)]
       },
       {
+        // `[CG.68]` La pantalla del TELÉFONO del mostrador: acá se firma el movimiento que la
+        // caja está capturando en la PC. Se teclea el código de seis que la caja muestra.
+        //
+        // ⚠️ Con `FINANCE_CAJA_VER` alcanza, y es a propósito: el teléfono se le pasa a otras
+        // personas para que firmen. Aportar evidencia no es escribir el libro — quien guarda es
+        // la PC, y para eso sí hace falta `GESTIONAR`.
+        path: 'caja-general/firma',
+        loadComponent: () => import('./modules/finanzas/pages/caja-general/finanzas-caja-firma.component').then(m => m.FinanzasCajaFirmaComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_CAJA_VER, Permission.FINANCE_CAJA_GESTIONAR)]
+      },
+      {
         // CS.2 — Caja Fuerte (CAOS): reporte de movimientos de efectivo del dispositivo AST700.
         path: 'caos',
         loadComponent: () => import('./modules/finanzas/pages/caos/finanzas-caos.component').then(m => m.FinanzasCaosComponent),
