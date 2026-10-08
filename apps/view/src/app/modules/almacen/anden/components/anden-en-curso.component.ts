@@ -27,7 +27,7 @@ import { diasDesde, hoyMexico } from '../dia-mx';
       <section class="ec" aria-label="Vales incompletos">
         <div class="ec-cab">
           <span>Incompletos</span>
-          <span>{{ vales().length | number }} sin terminar · tocá uno para seguir</span>
+          <span>{{ vales().length | number }} sin terminar · toca uno para seguir</span>
         </div>
         <ul class="ec-lista">
           @for (v of vales(); track v.id) {

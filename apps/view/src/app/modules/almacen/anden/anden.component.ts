@@ -111,7 +111,7 @@ import { hoyMexico } from './dia-mx';
           <div class="an-cambio" role="alertdialog" aria-label="Cambiar de camión">
             <p>
               <b>{{ s.vale()!.folio }}</b> queda <b>en curso</b>: lo ya fechado está guardado y lo
-              retomás desde el menú. Lo que estás escribiendo en este renglón y no guardaste se pierde.
+              retomas desde el menú. Lo que estás escribiendo en este renglón y no guardaste se pierde.
             </p>
             <div class="an-cambio-bt">
               <button pButton type="button" size="small" (click)="cambiarDeCamion()">Ir a otro camión</button>
@@ -250,8 +250,8 @@ import { hoyMexico } from './dia-mx';
             </div>
           } @else {
             <p class="an-nota">
-              Capturá lote y caducidad de cada renglón. La cantidad viene con lo que manda
-              Kepler: <b>corregila si llegó de menos</b>, porque de ahí sale el reclamo.
+              Captura lote y caducidad de cada renglón. La cantidad viene con lo que manda
+              Kepler: <b>corrígela si llegó de menos</b>, porque de ahí sale el reclamo.
             </p>
 
             <!-- El caso normal de una entrega es una sola fecha para toda la tarima.
@@ -264,7 +264,7 @@ import { hoyMexico } from './dia-mx';
               [valor]="consulta()" [visibles]="visFechar().length" [total]="s.pendientesFechar().length"
               [refocoTick]="refoco()"
               etiqueta="Escanear o buscar"
-              placeholder="Escaneá la caja o buscá por nombre"
+              placeholder="Escanea la caja o busca por nombre"
               (valorChange)="consulta.set($event)" (enter)="enter()"
               (sinCamara)="avisarCamara($event)" />
 
@@ -556,7 +556,7 @@ export class AndenComponent implements OnInit {
         b.sessionId,
         () => {
           this.s.guardado.set(true);
-          this.toast.add({ severity: 'info', summary: 'Vale recuperado', detail: `${this.s.vale()?.folio} — seguí donde lo dejaste.` });
+          this.toast.add({ severity: 'info', summary: 'Vale recuperado', detail: `${this.s.vale()?.folio} — sigue donde lo dejaste.` });
         },
         () => this.drafts.borrar(b.sessionId),
       );
@@ -652,7 +652,7 @@ export class AndenComponent implements OnInit {
         if (esSinRed(e)) {
           this.toast.add({
             severity: 'warn', summary: 'Sin conexión',
-            detail: 'Lo que no viene en el vale se busca en el catálogo: hacelo cuando vuelva la red.',
+            detail: 'Lo que no viene en el vale se busca en el catálogo: hazlo cuando vuelva la red.',
           });
           return;
         }
@@ -747,7 +747,7 @@ export class AndenComponent implements OnInit {
         this.toast.add({
           severity: 'error', summary: esSinRed(e) ? 'Sin conexión' : 'Error',
           detail: esSinRed(e)
-            ? 'Buscar por folio necesita red. Sin conexión, abrí el vale desde el menú de la sucursal.'
+            ? 'Buscar por folio necesita red. Sin conexión, abre el vale desde el menú de la sucursal.'
             : e?.error?.message || 'No se pudo buscar el vale',
         });
       },
@@ -992,8 +992,8 @@ export class AndenComponent implements OnInit {
         this.toast.add({
           severity: 'warn', summary: 'OCR',
           detail: esSinRed(e)
-            ? 'Sin conexión no hay lectura de la etiqueta: capturá el lote y la caducidad a mano. La foto se guarda igual.'
-            : 'No se distinguió lote/caducidad. Capturalo a mano.',
+            ? 'Sin conexión no hay lectura de la etiqueta: captura el lote y la caducidad a mano. La foto se guarda igual.'
+            : 'No se distinguió lote/caducidad. Captúralo a mano.',
         });
       },
     });
@@ -1493,7 +1493,7 @@ export class AndenComponent implements OnInit {
       this.toast.add({
         severity: 'info',
         summary: 'Vale en curso',
-        detail: `${v.folio} quedó en «Incompletos». Tocalo en el menú para seguir donde lo dejaste.`,
+        detail: `${v.folio} quedó en «Incompletos». Tócalo en el menú para seguir donde lo dejaste.`,
       });
     }
   }
@@ -1585,7 +1585,7 @@ export class AndenComponent implements OnInit {
     this.s.reset();
     this.s.cargando.set(true);
     this.cargarDetalle(v.id, () => {
-      this.toast.add({ severity: 'info', summary: 'Vale retomado', detail: `${v.folio} — seguí donde lo dejaste.` });
+      this.toast.add({ severity: 'info', summary: 'Vale retomado', detail: `${v.folio} — sigue donde lo dejaste.` });
     });
   }
 }
