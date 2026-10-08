@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
+import { Subscription } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
@@ -112,8 +113,8 @@ const dmy = (v: string | null | undefined): string => {
         @if (d.scope === 'ninguno') {
           <div class="mc-note mc-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay pedidos que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
         }
-        @if (d.overdue > 0) {
-          <div class="mc-note mc-note-warn" role="note"><i class="pi pi-clock" aria-hidden="true"></i><span><b class="num">{{ d.overdue }}</b> {{ d.overdue === 1 ? 'pedido ya pasó' : 'pedidos ya pasaron' }} su fecha de entrega sin entregarse. Si ya se cobraron en Kepler, liga su documento; si no, reagenda o cancela.</span></div>
+        @if (vencidos() > 0) {
+          <div class="mc-note mc-note-warn" role="note"><i class="pi pi-clock" aria-hidden="true"></i><span><b class="num">{{ vencidos() }}</b> {{ vencidos() === 1 ? 'pedido ya pasó' : 'pedidos ya pasaron' }} su fecha de entrega sin entregarse. Si ya se cobraron en Kepler, liga su documento.</span></div>
         }
 
         <section class="mc-block dt-scope" aria-labelledby="mc-h-lista">
@@ -142,7 +143,7 @@ const dmy = (v: string | null | undefined): string => {
                 <th>Pedido</th>@if (multiSucursal()) { <th>Suc</th> }<th>Cliente</th><th>Etapa</th>
                 <th title="Fecha de entrega que se le prometió al cliente">Entrega</th>
                 <th title="Documento de Kepler con que se cobró">Documento Kepler</th>
-                <th class="ta-r">Pedido</th><th class="ta-r" title="Total del documento de Kepler ligado">Cobrado</th>
+                <th class="ta-r">Total pedido</th><th class="ta-r" title="Total del documento de Kepler ligado">Cobrado</th>
               </tr>
             </ng-template>
             <ng-template #body let-r>
@@ -150,7 +151,7 @@ const dmy = (v: string | null | undefined): string => {
                 <td role="cell" data-label="Pedido"><span class="mono">{{ r.code }}</span><span class="muted mc-sub">{{ r.seller_name || '—' }}</span></td>
                 @if (multiSucursal()) { <td class="mono muted" role="cell" data-label="Suc">{{ r.branch || '—' }}</td> }
                 <td role="cell" data-label="Cliente"><span class="mc-trunc">{{ r.customer_name || '—' }}</span><span class="muted mc-sub">{{ r.sales_route || 'sin ruta' }}@if (r.customer_erp_code) { · <span class="mono">{{ r.customer_erp_code }}</span> }</span></td>
-                <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" styleClass="mc-tag" /></td>
+                <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" class="mc-tag" /></td>
                 <td role="cell" data-label="Entrega"><span class="mono">{{ dm(r.requested_delivery_date) }}</span><span class="mc-sub" [class.mc-bad]="r.due === 'vencido'" [class.mc-warn]="r.due === 'hoy'" [class.muted]="r.due !== 'vencido' && r.due !== 'hoy'">{{ dueTexto(r) }}</span></td>
                 <td role="cell" data-label="Documento Kepler">
                   @if (r.link) { <span class="mono">{{ r.link.folio_digital }}</span><span class="muted mc-sub">{{ r.link.link_source === 'celular' ? 'lo ligó quien entregó' : 'ligado en la mesa' }}</span> }
@@ -159,7 +160,7 @@ const dmy = (v: string | null | undefined): string => {
                   @else if (r.possible_documents === 0) { <span class="muted">Sin documento en Kepler</span> }
                   @else { <span class="muted">—</span> }
                 </td>
-                <td class="ta-r num" role="cell" data-label="Pedido">{{ money(r.total) }}</td>
+                <td class="ta-r num" role="cell" data-label="Total pedido">{{ money(r.total) }}</td>
                 <td class="ta-r num" role="cell" data-label="Cobrado">
                   @if (r.link && r.link.total !== null) { {{ money(r.link.total) }}@if (dif(r); as x) { <span class="mc-sub mc-bad">{{ x }}</span> } }
                   @else { <span class="muted">—</span> }
@@ -173,19 +174,19 @@ const dmy = (v: string | null | undefined): string => {
           <div class="mc-foot" aria-label="Totales de lo filtrado">
             <span><b class="num">{{ filas().length }}</b> pedidos</span>
             <span><b class="num">{{ money(totalPedido()) }}</b> pedido</span>
-            <span><b class="num">{{ money(totalCobrado()) }}</b> cobrado en Kepler</span>
+            <span><b class="num">{{ money(totalCobrado()) }}</b> cobrado en Kepler@if (sinTotal()) { <span class="mc-warn"> · {{ sinTotal() }} sin total en Kepler</span> }</span>
           </div>
         </section>
 
         <p-drawer [visible]="!!sel()" (visibleChange)="!$event && pick(null)" position="right" styleClass="mc-drawer"
                   [style]="{ width: 'min(600px, 100vw)' }" [header]="sel()?.code || 'Pedido'">
-          <section class="mc-detail" aria-labelledby="mc-h-det" aria-live="polite">
+          <section class="mc-detail" aria-labelledby="mc-h-det">
+            <h2 id="mc-h-det" class="sr-only">Detalle del pedido {{ sel()?.code }}</h2>
             @if (detLoading()) {
               <div class="mc-skeleton mc-pad" aria-busy="true">@for (i of skelDet; track i) { <div class="mc-skel-row"></div> }</div>
             } @else if (det(); as x) {
               <div class="mc-det-head">
-                <h2 id="mc-h-det" class="sr-only">Detalle del pedido {{ x.order.code }}</h2>
-                <p-tag [value]="etapaLabel(x.order.stage)" [severity]="etapaSev(x.order.stage)" styleClass="mc-tag" />
+                <p-tag [value]="etapaLabel(x.order.stage)" [severity]="etapaSev(x.order.stage)" class="mc-tag" />
                 <span [class.mc-bad]="x.order.due === 'vencido'" [class.muted]="x.order.due !== 'vencido'">Entrega {{ dmy(x.order.requested_delivery_date) }} · {{ dueTexto(x.order) }}</span>
               </div>
               <div class="mc-step">
@@ -204,7 +205,7 @@ const dmy = (v: string | null | undefined): string => {
                   </div>
                   @if (puedeLigar() && (x.order.status === 'confirmed' || x.order.status === 'cancelled')) {
                     @if (!desligando()) {
-                      <button type="button" class="mc-link mc-mt" (click)="desligando.set(true)">Este no es el documento: corregir</button>
+                      <button type="button" class="mc-link mc-mt" (click)="abrirCorregir()">Este no es el documento: corregir</button>
                     } @else {
                       <div class="mc-form">
                         <label for="mc-motivo">¿Por qué no es este documento?</label>
@@ -339,7 +340,7 @@ const dmy = (v: string | null | undefined): string => {
     .ta-r { text-align:right !important; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
-    :host ::ng-deep .mc-tag { font-size:var(--fs-nano); }
+    :host ::ng-deep .mc-tag, :host ::ng-deep .mc-tag .p-tag { font-size:var(--fs-nano); }
     .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .mc-errbox { display:flex; align-items:center; gap:.6rem; padding:.7rem .85rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-left:3px solid var(--bad-fg); border-radius:var(--r-md); background:var(--card-bg); }
     .mc-errbox .pi { color:var(--bad-fg); } .mc-errbox-txt { flex:1; font-size:var(--fs-sm); }
@@ -416,6 +417,8 @@ export class AlmacenPreventaComponent implements OnInit {
   });
   readonly totalPedido = computed(() => this.filas().reduce((t, r) => t + r.total, 0));
   readonly totalCobrado = computed(() => this.filas().reduce((t, r) => t + (r.link?.total ?? 0), 0));
+  /** Pedidos con documento ligado cuyo total no aparece en Kepler: se DECLARAN, no se suman como 0. */
+  readonly sinTotal = computed(() => this.filas().filter((r) => r.link && r.link.total === null).length);
 
   readonly sucursalOpts = computed(() => {
     const out: { label: string; value: string | null }[] = [{ label: 'Todas las sucursales', value: null }];
@@ -426,8 +429,14 @@ export class AlmacenPreventaComponent implements OnInit {
   });
   readonly multiSucursal = computed(() => !this.sucursal() && this.sucursalOpts().length > 2);
 
+  /** Peticiones del panel: se cancelan al elegir otro pedido, así una respuesta vieja no pisa a la nueva. */
+  private detSub: Subscription | null = null;
+  private candSub: Subscription | null = null;
+  private listSub: Subscription | null = null;
+
   ngOnInit(): void {
     this.reload();
+    this.destroyRef.onDestroy(() => { this.cancelarPanel(); this.listSub?.unsubscribe(); });
   }
 
   pickCerrados(d: number): void { this.cerrados.set(d); this.reload(); }
@@ -436,18 +445,35 @@ export class AlmacenPreventaComponent implements OnInit {
   hayFiltros(): boolean { return !!(this.etapa() || this.soloVencidos() || this.sucursal() || this.q()); }
   limpiar(): void { this.etapa.set(null); this.soloVencidos.set(false); this.sucursal.set(null); this.q.set(''); }
 
+  /** La última petición manda: una anterior que llegue tarde se cancela, no pinta encima. */
   reload(): void {
     this.loading.set(true);
     this.err.set(null);
-    this.api.list(this.cerrados()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.listSub?.unsubscribe();
+    this.listSub = this.api.list(this.cerrados()).subscribe({
       next: (d) => {
         this.data.set(d);
         this.cargado.set(new Date().toISOString());
+        // Un filtro cuyo valor ya no está en los datos quedaría aplicado sin un control visible
+        // que lo diga (el selector o el chip se esconden): se quita.
+        const suc = this.sucursal();
+        if (suc && !d.data.some((r) => r.branch === suc)) this.sucursal.set(null);
+        const et = this.etapa();
+        if (et && !d.data.some((r) => r.stage === et)) this.etapa.set(null);
+
         const s = this.sel();
         if (s) {
           const nuevo = d.data.find((x) => x.id === s.id) ?? null;
-          this.sel.set(nuevo);
-          if (!nuevo) { this.det.set(null); this.cand.set(null); }
+          if (!nuevo) {
+            this.pick(null);
+          } else {
+            this.sel.set(nuevo);
+            // Si el pedido cambió por fuera (p. ej. lo ligaron desde el celular), el panel se
+            // vuelve a leer; si no, ofrecería candidatos de un pedido que ya tiene documento.
+            const cambio = nuevo.stage !== s.stage || nuevo.status !== s.status ||
+              (nuevo.link?.folio_digital ?? null) !== (s.link?.folio_digital ?? null);
+            if (cambio) this.cargarDetalle(nuevo.id);
+          }
         }
         this.loading.set(false);
       },
@@ -455,11 +481,21 @@ export class AlmacenPreventaComponent implements OnInit {
     });
   }
 
+  private cancelarPanel(): void {
+    this.detSub?.unsubscribe();
+    this.candSub?.unsubscribe();
+    this.detSub = this.candSub = null;
+  }
+
   pick(r: PresaleOrderRow | null): void {
+    this.cancelarPanel();
     this.sel.set(r);
     this.det.set(null);
     this.detErr.set(null);
+    this.detLoading.set(false);
     this.cand.set(null);
+    this.candLoading.set(false);
+    this.guardando.set(false);
     this.msg.set(null);
     this.desligando.set(false);
     this.motivo.set('');
@@ -468,55 +504,94 @@ export class AlmacenPreventaComponent implements OnInit {
   }
 
   private cargarDetalle(id: string): void {
+    this.detSub?.unsubscribe();
+    this.candSub?.unsubscribe();
     this.detLoading.set(true);
-    this.api.detail(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.detErr.set(null);
+    this.detSub = this.api.detail(id).subscribe({
       next: (x) => {
         if (this.sel()?.id !== id) return;
         this.det.set(x);
         this.detLoading.set(false);
+        this.cand.set(null);
         // Los candidatos sólo hacen falta si el pedido no tiene documento y se puede buscar.
         if (!x.order.link && !x.order.link_block && x.order.status === 'confirmed') this.cargarCandidatos(id);
       },
-      error: () => { this.detLoading.set(false); this.detErr.set('No se pudo cargar el detalle del pedido.'); },
+      error: () => {
+        if (this.sel()?.id !== id) return;
+        this.detLoading.set(false);
+        this.detErr.set('No se pudo cargar el detalle del pedido.');
+      },
     });
   }
 
   private cargarCandidatos(id: string): void {
+    this.candSub?.unsubscribe();
     this.candLoading.set(true);
-    this.api.candidates(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (c) => { if (this.sel()?.id === id) this.cand.set(c); this.candLoading.set(false); },
-      error: () => { this.candLoading.set(false); this.msg.set({ texto: 'No se pudieron leer los documentos de Kepler del cliente.', mal: true }); },
+    this.candSub = this.api.candidates(id).subscribe({
+      next: (c) => {
+        if (this.sel()?.id !== id) return;
+        this.cand.set(c);
+        this.candLoading.set(false);
+      },
+      error: () => {
+        if (this.sel()?.id !== id) return;
+        this.candLoading.set(false);
+        this.msg.set({ texto: 'No se pudieron leer los documentos de Kepler del cliente.', mal: true });
+      },
     });
   }
 
   ligar(id: string, k: PresaleCandidate): void {
     this.guardando.set(k.folio_digital);
     this.msg.set(null);
+    // La acción NO se cancela al cambiar de pedido: cortarla dejaría sin saber si se guardó.
     this.api.link(id, k.folio_digital).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
+        this.reload();
+        if (this.sel()?.id !== id) return;
         this.guardando.set(false);
         this.msg.set({ texto: 'Documento ' + k.folio_digital + ' ligado al pedido.', mal: false });
-        this.cand.set(null);
         this.cargarDetalle(id);
-        this.reload();
       },
-      error: (e: HttpErrorResponse) => { this.guardando.set(false); this.msg.set({ texto: this.errorTexto(e, 'No se pudo ligar el documento.'), mal: true }); },
+      error: (e: HttpErrorResponse) => {
+        if (this.sel()?.id !== id) return;
+        this.guardando.set(false);
+        this.msg.set({ texto: this.errorTexto(e, 'No se pudo ligar el documento.'), mal: true });
+      },
     });
   }
 
+  abrirCorregir(): void {
+    this.desligando.set(true);
+    // El foco va al motivo, que es lo único que hay que escribir.
+    setTimeout(() => document.getElementById('mc-motivo')?.focus());
+  }
+
   desligar(id: string): void {
+    const cancelado = this.det()?.order.status === 'cancelled';
     this.guardando.set(true);
     this.msg.set(null);
     this.api.unlink(id, this.motivo().trim()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: () => {
+        this.reload();
+        if (this.sel()?.id !== id) return;
         this.guardando.set(false);
         this.desligando.set(false);
         this.motivo.set('');
-        this.msg.set({ texto: 'Se quitó el documento. Elige el correcto.', mal: false });
+        this.msg.set({
+          texto: cancelado
+            ? 'Se quitó el documento del pedido cancelado: queda libre para ligarse a otro pedido.'
+            : 'Se quitó el documento. Elige el correcto.',
+          mal: false,
+        });
         this.cargarDetalle(id);
-        this.reload();
       },
-      error: (e: HttpErrorResponse) => { this.guardando.set(false); this.msg.set({ texto: this.errorTexto(e, 'No se pudo quitar el documento.'), mal: true }); },
+      error: (e: HttpErrorResponse) => {
+        if (this.sel()?.id !== id) return;
+        this.guardando.set(false);
+        this.msg.set({ texto: this.errorTexto(e, 'No se pudo quitar el documento.'), mal: true });
+      },
     });
   }
 
