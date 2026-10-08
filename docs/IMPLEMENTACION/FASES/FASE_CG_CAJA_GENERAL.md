@@ -2198,3 +2198,82 @@ ausencia como *"salió de la deuda"*. ⭐ **Una ausencia en una lista recortada 
 **Validación visual.** Cuarta vez que se difiere en esta pantalla, y es la única que ve esta
 familia de defectos: **ninguna compuerta del repo mide píxeles**, y tres veces seguidas el defecto
 llegó a la pantalla con todos los gates en verde (`[CG.49]`, `[CG.52]`, `[CG.57]`).
+
+---
+
+## §28 · `[CG.62]` — Guardar baja al pie del arqueo, pregunta antes, y el atajo se ANUNCIA
+
+> Edgar, sobre la pantalla en vivo: *"no me puedo mover por toda la interfaz con el selector de
+> flechas, número"* + *"el botón de guardar se debe mostrar abajo de arqueo. para solo pasar del
+> arqueo a guardar y una ventana de «seguro que quieres guardar»"*. Commit `d2d3fd27d`.
+
+### 1 · Guardar baja al pie del arqueo
+
+Era el pie del apartado 1, pegado a la ficha. Baja al **apartado 2** y queda **pegado abajo**
+(sticky): lo último que se hace antes de guardar es **contar**, y contar pasa en el apartado 2 —
+con el botón del otro lado, terminar el conteo exigía cruzar la pantalla de vuelta, con el mouse
+y peor con el teclado.
+
+Sticky y no al final del contenido porque con el cambio devuelto abierto la columna pasa el alto
+de la pantalla, y un Guardar que hay que ir a buscar scrolleando es el defecto que `[CG.46]` ya
+había arreglado una vez.
+
+⚠️ **Esto supera lo que `[CG.60]` escribió dos commits antes** (*"el pie va pegado a la ficha"*):
+era cierto contra el defecto de entonces — un Guardar flotando sobre la cola — pero resolvía el
+lugar equivocado. **Cancelar** se queda con la ficha, en texto: es la salida, no la acción.
+
+### 2 · La ventana de confirmación, que dice qué va a pasar
+
+⚠️ Un *"¿estás seguro?"* que **no dice qué va a pasar** no es una guarda: es un clic de peaje que
+se aprende a tirar sin leer, y entonces **estorba sin proteger**. Ésta repite las tres cosas que
+el arqueo acaba de establecer — qué movimiento es, cuánto se contó, y si cuadra — porque son
+justo las que no se pueden deshacer después. Cuando **no** cuadra nombra la consecuencia (la
+diferencia queda como hallazgo a nombre de quien confirma), que es la única razón por la que
+alguien querría volver al conteo. Si no se contó nada, lo dice.
+
+⚠️ Usa clase propia (`.cg-conf`) y **no** `.fin-form`: el candado de O.1 (*"la captura no vive en
+un modal"*) busca `.fin-form` dentro de cualquier `p-dialog`, y con `fin-form` acá, el día que
+alguien abra esta ventana en una prueba el candado se pondría rojo **por el motivo equivocado**.
+Un candado que grita en falso se termina aflojando.
+
+### 3 · La cadena de la flecha termina en Guardar — y el atajo se ANUNCIA
+
+La flecha abajo desde la morralla (último campo contado) deja el foco en **Guardar**, y la flecha
+arriba desde Guardar vuelve a la morralla — o quien baja de más queda atrapado en el botón y
+tiene que volver con el mouse. El botón deshabilitado **se salta**: un foco que aterriza en un
+control apagado es un callejón.
+
+⭐⭐ **Y acá está la mitad del reporte que no era un bug de código:** la navegación por flechas de
+la reja **ya funcionaba desde hacía varios commits, y nada la anunciaba**. Medido: **cero**
+`aria-keyshortcuts` en esta pantalla y **uno solo en todo el repo** (`compras-pedido-real`),
+cuando D.5 lo exige con todas las letras — *"un atajo que nadie sabe que existe no existe"*.
+Edgar reportó que no se podía mover con las flechas **sobre la única parte de la pantalla donde
+sí se podía.** Ahora los campos lo declaran y la cabecera del arqueo lo escribe con `<kbd>`.
+
+### ⛔ Lo que NO se hizo, con su motivo
+
+| | Por qué |
+|---|---|
+| **Flechas en la clasificación** | Tipo, Fecha y Sucursal son `p-select`/`p-datepicker`: ahí `↑↓` **son suyas** (abren y recorren su lista). Quitárselas rompería el control para ganar consistencia. Entre esos campos se mueve con **Tab**, que es el contrato estándar |
+| **`Enter` en la cola = abrir** | Verificado en `primeng-table.mjs`: `pSelectableRow` mapea `Enter → onEnterKey → onClick`, o sea **marcar** para el lote. Serían dos acciones en una tecla. Hoy el camino es `↓` hasta la fila, `Tab`, `Enter`. **Si se quiere `Enter` = abrir, hay que quitarle `Enter` a marcar — y ésa es una decisión de Edgar** |
+
+### Verificación
+
+**166/166** en caja-general (4 pruebas nuevas); suite completa de view **2,189 pasadas, ninguna
+roja**. `typecheck`, `check:templates`, `check:teclado`, `check:primeng` y `check:tokens` verdes.
+
+**Mutado cuatro veces, las cuatro rojas:** Guardar cableado directo a `guardar()` · la cadena de
+la flecha sin el botón · la ventana sin el veredicto · los campos sin el anuncio.
+
+### ⛔⛔ Una prueba mía nació inútil, y la mutación lo destapó
+
+La negativa llamaba a `pedirConfirmacion()` **en vez de apretar el botón**, así que mutar el
+template a `(onClick)="guardar()"` la dejaba **pasando en verde**: medía una función que nadie
+garantizaba que estuviera cableada. Se reescribió para **entrar por donde entra la persona**
+(`boton.click()`), y recién ahí la mutación se puso roja.
+⭐ **Un candado que no entra por la puerta del usuario no es un candado.**
+
+⚠️ **Décima vez** en esta línea de trabajo que un acento grave en un comentario del template
+literal rompe el build; lo agarró `check:templates` con archivo y línea. Y un gate que no conocía
+—espaciado fuera de la escala `--sp-*`— rechazó un `padding:0 .25rem` en el `<kbd>`; `--sp-1` es
+exactamente `0.25rem`, así que el visual es idéntico.
