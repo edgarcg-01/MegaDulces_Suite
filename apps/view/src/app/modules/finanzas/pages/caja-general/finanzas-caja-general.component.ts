@@ -532,11 +532,21 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-app { height:100vh; overflow:hidden; display:flex; flex-direction:column;
               padding-top:0; padding-bottom:0; }
     .cg-app > .cg-split { flex:1 1 auto; min-height:0; }
-    .cg-bar { display:flex; align-items:center; gap:var(--sp-3); flex:none;
+    /* ⛔ [CG.73] El saldo que [CG.71] metio en esta barra APRETABA a sus vecinos: medido en la
+       pagina viva, el titulo caia a DOS lineas (60px) y el desplegable de la jornada a 57px.
+       La barra no declaraba quien cede: ".cg-saldo" ya se encogia, pero el h1 y el boton tambien,
+       y un titulo partido en "Caja / General" se lee como un defecto de la pantalla.
+       Ahora cede SOLO el saldo. Medido con la regla puesta en vivo: titulo 60 -> 30px (una linea),
+       boton 57 -> 37px, y el saldo hasta gana ancho (317 -> 350px).
+       El flex-wrap es el piso: si en una pantalla angosta ni encogiendo el saldo entra todo,
+       la barra baja a dos renglones en vez de desbordar. */
+    .cg-bar { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); flex:none;
               padding:var(--sp-2) 0; border-bottom:1px solid var(--border-color); }
-    .cg-bar-id > h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em; }
+    .cg-bar-id { flex:none; }
+    .cg-bar-id > h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em;
+                      white-space:nowrap; }
     /* El desplegable: un <button> con su aria-expanded, no un div con (click). */
-    .cg-jornada-btn { display:inline-flex; align-items:center; gap:var(--sp-2); cursor:pointer;
+    .cg-jornada-btn { display:inline-flex; flex:none; align-items:center; gap:var(--sp-2); cursor:pointer;
                       font-family:inherit; color:var(--fg-1); text-align:left;
                       background:var(--card-bg); border:1px solid var(--border-color);
                       border-radius:var(--r-md); padding:var(--sp-2) var(--sp-3); }
