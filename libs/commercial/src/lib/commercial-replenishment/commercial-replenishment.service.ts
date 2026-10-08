@@ -2871,7 +2871,9 @@ export class CommercialReplenishmentService {
       // RA-PRO.13 — base 'cadence' (default de la pantalla): llena SOLO para el ciclo del
       // proveedor (demanda × (cadencia + lead) + safety), no hasta el máximo — que en artículos
       // lumpy (globos, CV alto) es ~1 año de cobertura e infla el pedido 5-10x. Misma fórmula
-      // que criticalStock (helper cadenceTarget()); la LATERAL ve rc.*/sup.* del outer, así total y drill cuadran.
+      // que criticalStock (helper cadenceTarget()). ⚠️ `cadenceTarget()` nombra los alias `rc` y
+      // `sup`, así que el agregado los conserva aunque ya no sea una LATERAL (ver [RA-CICLO.2]
+      // abajo): mientras los dos lean la misma álgebra, el total y el drill cuadran.
       const target = basis === 'cadence' ? this.cadenceTarget() : this.targetCol(basis);
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
       const cost = `COALESCE(pr.cost_with_tax, pr.cost_base, 0)`;
@@ -2901,35 +2903,60 @@ export class CommercialReplenishmentService {
       const where = filters.join(' AND ');
 
       const rows = (await trx.raw(`
+        -- `[RA-CICLO.2]` El agregado se calcula UNA vez por (almacén, proveedor), no una vez por
+        -- renglón. Acá vivía un LEFT JOIN LATERAL: por CADA canal recorría la política de reorden
+        -- del almacén ENTERO y recién después filtraba por proveedor a través del join de
+        -- productos, así que el mismo almacén se barría tantas veces como proveedores tuviera.
+        -- Medido contra prod el 2026-10-08, los 737 canales de compra: **3,330 ms → 277 ms**.
+        -- ⭐ La reescritura se CRUZÓ con la vieja antes de reemplazarla, no después: sobre los
+        -- 1,836 canales de las dos vías, **0 difieren** en n_skus, 0 en n_below y 0 en costo, con
+        -- el mismo total ($6,475,548). Una consulta que da otro número no es más rápida: es otra.
+        -- ⚠️ `cadenceTarget()` se sigue usando TAL CUAL —necesita los alias `rc` y `sup`— para que
+        -- el "Sugerido" del Ciclo y el del Pedido salgan de la misma álgebra y no de dos copias.
+        WITH canales AS (
+          SELECT rc.*
+            FROM commercial.replenishment_channel rc
+            LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+           WHERE ${where}
+        ),
+        agg AS (
+          SELECT warehouse_id, supplier_id,
+                 count(*)::int n_skus,
+                 count(*) FILTER (WHERE below)::int n_below,
+                 COALESCE(SUM(sug),0)::numeric AS suggested_qty,
+                 COALESCE(ROUND(SUM(sug*unit_cost)::numeric,2),0) AS suggested_cost
+            FROM (
+              SELECT rc.warehouse_id, rc.supplier_id,
+                     (${oh} <= rp.reorder_point) AS below, ${sug} AS sug, ${cost} AS unit_cost
+                FROM canales rc
+                LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
+                JOIN catalog.products pr ON pr.tenant_id=rc.tenant_id
+                     AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
+                JOIN commercial.reorder_policy rp ON rp.tenant_id=rc.tenant_id
+                     AND rp.warehouse_id=rc.warehouse_id AND rp.product_id=pr.id
+                LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
+                LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
+                LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
+            ) x
+           GROUP BY 1, 2
+        )
         SELECT rc.warehouse_id, w.code AS warehouse_code, w.name AS warehouse_name,
                rc.supplier_id, sup.name AS supplier_name,
                rc.via, rc.source_warehouse_id, srcw.code AS source_warehouse_code,
                rc.cadence_days, rc.health_band, rc.last_delivery_date, rc.next_due_date,
                (rc.next_due_date - CURRENT_DATE)::int AS days_to_due,
                COALESCE(rc.lead_time_days, sup.lead_time_days) AS lead_time_days,
-               agg.n_skus, agg.n_below, agg.suggested_qty, agg.suggested_cost
-          FROM commercial.replenishment_channel rc
+               -- ⚠️ El LATERAL siempre devolvía UN renglón (un count() sobre vacío es 0); un LEFT
+               -- JOIN sobre un GROUP BY devuelve NULL. Sin estos COALESCE un canal sin productos
+               -- pasaría de "0 SKUs" a "—", que es otra afirmación.
+               COALESCE(agg.n_skus, 0) AS n_skus, COALESCE(agg.n_below, 0) AS n_below,
+               COALESCE(agg.suggested_qty, 0) AS suggested_qty, COALESCE(agg.suggested_cost, 0) AS suggested_cost
+          FROM canales rc
           JOIN commercial.warehouses w ON w.tenant_id=rc.tenant_id AND w.id=rc.warehouse_id
           LEFT JOIN catalog.suppliers sup ON sup.tenant_id=rc.tenant_id AND sup.id=rc.supplier_id
           LEFT JOIN commercial.warehouses srcw ON srcw.tenant_id=rc.tenant_id AND srcw.id=rc.source_warehouse_id
-          LEFT JOIN LATERAL (
-            SELECT count(*)::int n_skus,
-                   count(*) FILTER (WHERE below)::int n_below,
-                   COALESCE(SUM(sug),0)::numeric AS suggested_qty,
-                   COALESCE(ROUND(SUM(sug*unit_cost)::numeric,2),0) AS suggested_cost
-              FROM (
-                SELECT (${oh} <= rp.reorder_point) AS below, ${sug} AS sug, ${cost} AS unit_cost
-                  FROM commercial.reorder_policy rp
-                  JOIN catalog.products pr ON pr.tenant_id=rp.tenant_id AND pr.id=rp.product_id
-                       AND pr.supplier_id=rc.supplier_id AND pr.activo=true ${catFrag}
-                  LEFT JOIN commercial.stock s ON s.tenant_id=rp.tenant_id AND s.warehouse_id=rp.warehouse_id AND s.product_id=rp.product_id
-                  LEFT JOIN analytics.inventory_health ih ON ih.tenant_id=rp.tenant_id AND ih.warehouse_id=rp.warehouse_id AND ih.product_id=rp.product_id
-                  LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id=rp.tenant_id AND rpl.warehouse_id=rp.warehouse_id AND rpl.product_id=rp.product_id
-                 WHERE rp.tenant_id=rc.tenant_id AND rp.warehouse_id=rc.warehouse_id
-              ) x
-          ) agg ON true
-         WHERE ${where}
-         ORDER BY rc.next_due_date ASC NULLS LAST, agg.suggested_cost DESC
+          LEFT JOIN agg ON agg.warehouse_id=rc.warehouse_id AND agg.supplier_id=rc.supplier_id
+         ORDER BY rc.next_due_date ASC NULLS LAST, COALESCE(agg.suggested_cost, 0) DESC
          LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}`, binds)).rows;
 
       const kpi = (await trx.raw(`
