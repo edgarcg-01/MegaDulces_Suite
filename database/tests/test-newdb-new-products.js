@@ -263,7 +263,8 @@ const nulo = (v) => (v === 0 ? null : v);
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);
   } finally {
-    await trx.rollback().catch(() => {});
+    // Si la transacción ya se cerró por el error, el rollback falla: no hay nada que deshacer.
+    await trx.rollback().catch(() => undefined);
   }
 
   const despues = await contar();
