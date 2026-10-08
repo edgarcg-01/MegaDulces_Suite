@@ -9531,12 +9531,12 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[GP.7]** ⬜ Indicadores (tiempo por etapa, productividad, surtido completo con unidad resuelta).
 - [ ] **[GP.8]** ⬜ Piloto: un origen, una sucursal.
 
-**Ubicaciones (addendum [`FASE_WMS` §12](FASES/FASE_WMS.md), ADR-085)**
-- [ ] **[WMS.2]** ⬜ Tipos de zona, ampliados con `tienda_piso`, `tienda_cabecera`, `contenedor` y zonas especiales.
-- [ ] **[WMS.3]** ⬜ Censo y etiquetas de PH: `B01`–`B99` bodega y `T01`–`T99` tienda, pasillos de 15. Falta U4/U5 (cuántos pasillos y cuáles son superiores).
-- [ ] **[WMS.3b]** ⬜ Asignación producto × ubicación × papel + mínimo/máximo (slotting). Nuevo.
-- [ ] **[WMS.4]** ⬜ Secuencia de recorrido = orden numérico de la sección (`B01` → `B99`), corregible por columna.
-- [ ] **[WMS.7]** ⬜ Reposición: bodega → frente de surtido y bodega → anaquel (anaquelistas). Pendiente U3.
+**Ubicaciones (addendum [`FASE_WMS` §12](FASES/FASE_WMS.md), ADR-087) — ⚠️ absorbidos por la Fase UB (2026-10-08, ADR-090)**
+- [ ] **[WMS.2]** ↪️ absorbido por [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md) · Tipos de zona, ampliados con `tienda_piso`, `tienda_cabecera`, `contenedor` y zonas especiales.
+- [ ] **[WMS.3]** ↪️ absorbido por [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md) · Censo y etiquetas de PH: `B01`–`B99` bodega y `T01`–`T99` tienda, pasillos de 15. Falta U4/U5 (cuántos pasillos y cuáles son superiores).
+- [ ] **[WMS.3b]** ↪️ absorbido por [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md) · Asignación producto × ubicación × papel + mínimo/máximo (slotting). Nuevo.
+- [ ] **[WMS.4]** ↪️ absorbido por [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md) · Secuencia de recorrido = orden numérico de la sección (`B01` → `B99`), corregible por columna.
+- [ ] **[WMS.7]** ↪️ absorbido por [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md) · Reposición: bodega → frente de surtido y bodega → anaquel (anaquelistas). Pendiente U3.
 - [ ] **[WMS.10]** ⬜ Maestro logístico (FASE_WMS §13): peso y medidas por producto × unidad, con origen (medido / ficha del proveedor / estimado). **Pestaña "Medidas y peso" en `/compras/catalogo`**; captura en recepción (hay báscula y cinta); Pareto PH (~200 SKUs = 50% de renglones).
 - [ ] **[WMS.11]** ⬜ Catálogo de tipos de unidad (tortón 18 t · rabón 10 t · 5 t · 3.5 t · Nissan 1 t · ligeras 600 kg) y asignación de cada vehículo a su tipo; la capacidad se hereda. Hoy 1 de 97 tiene kg y 33 son de prueba.
 
@@ -9548,6 +9548,33 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[GP.P2]** ⬜ Número de estibas por tipo de unidad (para el esquema del camión en GP.5).
 - [ ] **[GP.P3]** ⬜ Cómo decide hoy el anaquelista qué subir (diseño de WMS.7).
 - [ ] **[GP.P4]** ⬜ Rangos de secciones por pasillo y planta en PH (se capturan en la pantalla de ubicaciones).
+
+---
+
+## 📦 FASE UB — Ubicación de mercancía (almacén y tienda) · ADR-090 · plan en [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md)
+
+> 🔨 PLANEADA 2026-10-08. Código `[T|B][pasillo][rack 01–99][nivel 1–6]` (ej. `BA053`). Piloto PH. Absorbe WMS.2/3/3b/4/7.
+
+- [ ] **[UB.0]** ⬜ ADR-090 + claves `ALMACEN_UBICACIONES_VER/_ACOMODAR/_GESTIONAR` (enum + `authz-tree`) + **migración de reparto** (FASE_UB §4.2) con los roles verificados contra prod.
+- [ ] **[UB.1]** ⬜ Catálogo: `warehouse_bins` + zona/pasillo/rack/nivel/familia/tipo_zona/estado/`pick_sequence`; validación del código; `tipo-ubicacion.ts` por columna (la `T` deja de ser tarima); pantalla Mapa `/almacen/ubicaciones`.
+- [ ] **[UB.2]** ⬜ Captura masiva: generar por rango con vista previa + Excel/CSV producto→ubicación→papel + etiquetas por lote + deshacer por `batch_id`.
+- [ ] **[UB.3]** ⬜ `bin_assignments` (surtido_fijo / exhibicion_tienda / reserva_preferida + mín/máx) + pantalla de asignación + medición de la propuesta Wincaja PH (§2.1) + censo en celular.
+- [ ] **[UB.4]** ⬜ Mantenimiento (bloquear, baja sólo vacía, reactivar, recodificar, mover contenido, fusionar, reimprimir) + `bin_history`.
+- [ ] **[UB.5]** ⬜ Cantidad sólo en reservas + `entered_at` + acomodo en celular + pantalla Excedente.
+- [ ] **[UB.6]** ⬜ `location_tasks` + ocupación estimada del surtido (§3.2) + tareas de rotación PEPS + aviso de caducidad.
+- [ ] **[UB.7]** ⬜ GP: hoja de surtido por recorrido + reparto de pedido grande por rango de pasillos.
+- [ ] **[UB.8]** ⬜ Piloto PH: censo, etiquetado y dos semanas de uso; medir cobertura y tareas cumplidas.
+
+**Pendientes de negocio**
+- [ ] **[UB.P1]** ⬜ El anaquelista tiene rol `repartidor`: asignarle el rol correcto.
+- [ ] **[UB.P2]** ⬜ Puestos de almacén del CEDIS sin definir (0 personas).
+- [ ] **[UB.P3]** ⬜ Sucursales 04 y 08 sin encargado de tienda.
+- [ ] **[UB.P4]** ⬜ Croquis/lista de pasillos y racks de PH para el censo (era [GP.P4]).
+- [ ] **[UB.P5]** ⬜ Confirmar D6: PEPS siempre y la caducidad sólo avisa (U13).
+
+**Deuda con nombre**
+- [ ] **[UB.D1]** ⬜ `stock_lots.received_at` se sobrescribe en cada upsert (3 servicios): no es fecha de entrada.
+- [ ] **[UB.D2]** ⬜ La ocupación de la posición de surtido es estimada hasta escanear también al surtir.
 
 ---
 
