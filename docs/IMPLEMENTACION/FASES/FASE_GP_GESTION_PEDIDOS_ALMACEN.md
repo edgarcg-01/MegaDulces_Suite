@@ -800,3 +800,71 @@ de la lógica (mutación: "sólo avanzar" sin mirar Kepler la rompen 2) y 13 de 
 - **GP.3c.3, partir un pedido grande** por rango de pasillos: necesita ubicaciones (`FASE_WMS` §12.5,
   Fase UB).
 - **El orden de la hoja por ubicación** espera el censo de ubicaciones de PH (WMS.3). Hoy: por nombre.
+
+## 9. GP.4 — El checado: rastrillar, armar las cajas y etiquetar (📋 diseñado, 2026-10-08)
+
+Junta lo que el plan tenía en GP.4 (checado) y GP.4b (bultos), porque así lo trabaja el piso.
+
+### 9.1 Decisiones de Francisco (2026-10-08)
+
+| Pregunta | Decisión |
+|---|---|
+| ¿Cómo recibe trabajo? | **"Tomar siguiente"**, igual que el surtidor: un pedido ya surtido, **nunca uno en el que él surtió algún renglón** (P4) |
+| ¿Cómo revisa? | **Rastrilla: escanea todo.** Las cajas de unidad mayor validan el surtido; la paquetería se escanea **dentro de la caja P abierta**. El valor es la trazabilidad: *saber exactamente en qué caja se empacó todo lo que no va en unidad mayor* |
+| ¿Ve lo que contó el surtidor? | No: ve lo que pidió el cliente y lo que lleva escaneado (conteo ciego en la práctica) |
+| Si no cuadra | **Manda el checador.** Si falta, sale incompleto (P7); la diferencia queda registrada contra el surtidor |
+| Etiquetas | **Etiquetera térmica.** La de cada caja **P sale al cerrarla**; las de unidad mayor (**1/7, 2/7…**) al terminar el pedido. Llevan pedido, cliente, producto/contenido |
+| Puesto | **Nuevo, "Checador de Pedidos"** (`checador_pedidos`). El puesto "Checador" ya lo usa la terminal del verificador de precios (`checador.05`, perfil `verificador_precios`): darle el perfil de almacén a ese puesto le habría dado permisos de almacén a una terminal pública |
+
+### 9.2 Lo aprendido con el surtidor, resuelto desde el principio
+
+| Lo que pasó en GP.3 | Cómo nace el checado |
+|---|---|
+| La pantalla pedía la lista de almacenes con un permiso de otro módulo que `almacenista` no tenía | **Todo** endpoint que usa la pantalla pide la clave del checado; nada prestado |
+| El rol `surtidor` se creó a mano y sin alcance (fail-closed: no veía ninguna sucursal) | El rol `checador` nace **por migración**, con claves **y** alcance a su sucursal |
+| El puesto proponía otro perfil | `checador_pedidos` (y `checador_cedis`) nacen proponiendo `checador` |
+| La migración de sólo datos frena la compuerta del despliegue | Rol y puesto van **en la misma migración que crea las tablas**: la compuerta la clasifica como esquema |
+| No había botón para llegar a la pantalla de foco | Entrada directa para quien sólo checa + botón **Checar** en el Tablero para quien ve los dos |
+| El perfil base anterior queda como complemento (`[ID.13]`, a propósito) | Va en los pasos de configuración: quitarlo en Personas › Acceso |
+
+### 9.3 Cómo funciona
+
+1. **Tomar siguiente** (`/almacen/checar`): el pedido más urgente cuyo surtido ya terminó (mismo orden
+   que la fila del surtidor: urgente → salida más próxima → lo más viejo), sin checador, y en el que
+   quien pide **no surtió ningún renglón**. Candado por persona + `FOR UPDATE SKIP LOCKED`.
+2. **Rastrillar.** Cada escaneo se resuelve contra `kepler_ods.kdii` **de la sucursal** a producto +
+   unidad + factor (las tres unidades de Kepler y el `C`+clave de las cajas, `ERP_KEPLER` §3.y.4):
+   - **Unidad mayor** del renglón → cuenta una caja (`CJ`). Caja sin etiqueta: escanear la pieza y
+     teclear cuántas cajas.
+   - **Unidad menor** → entra a la **caja P abierta** (si no hay, se abre P1 sola).
+   - Producto que no va en el pedido → alerta "no va en este pedido", no se suma.
+   - Más de lo pedido → alerta en el renglón.
+   - Producto por kilo → pide el peso de la báscula.
+   - Deshacer el último escaneo.
+3. **Cerrar la caja P** → se imprime su etiqueta (`P1 · pedido · cliente` + contenido) y se abre la
+   siguiente cuando se escanee más paquetería. El total "de N" queda en el manifiesto del pedido.
+4. **Terminar** → lista **sólo lo que no cuadra** (faltantes, sobrantes); lo checado es lo que sale.
+   Se imprimen las etiquetas de unidad mayor `1/7…7/7`. Espacio de espera: opcional hasta que
+   existan en Ubicaciones (hoy el catálogo tiene **0** carretas y **0** espacios de espera).
+
+### 9.4 Datos (tablas propias, ADR-086: no se escribe en Kepler)
+
+- `commercial.order_checks`: el checado de un pedido (almacén, ola, pedido, quién, estado, espera).
+- `commercial.order_check_lines`: por producto, lo pedido, lo que el surtidor repartió
+  (`wave_allocations.qty_allocated`), lo checado, quién surtió y la diferencia.
+- `commercial.check_packages`: las cajas P (número, estado, etiqueta impresa).
+- `commercial.check_scans`: cada escaneo (código, unidad, factor, cantidad base, peso, caja P).
+
+### 9.5 Pantallas y permisos
+
+- `/almacen/checar` (foco, celular/handheld), clave **`ALMACEN_CHECADO_GESTIONAR`**. Rol `checador`:
+  esa clave + `ALMACEN_UBICACIONES_VER` + `SERVICIO_REPORTAR`, alcance su sucursal. También a
+  `almacenista` (la misma persona puede surtir un día y checar otro: P4 lo cuida el sistema por
+  pedido, no el perfil).
+- Etiquetas por navegador (`printIsolated` + JsBarcode, igual que el cartel del andén), con
+  `@page` del tamaño de la etiqueta. **Pendiente: medida de la etiqueta** (se deja configurable).
+
+### 9.6 Fuera de esta entrega
+
+Contenedor de plástico compartido (§5c), mover cajas entre ubicaciones, la carga al camión (GP.5) y
+el cuadre con Kepler (GP.6).
