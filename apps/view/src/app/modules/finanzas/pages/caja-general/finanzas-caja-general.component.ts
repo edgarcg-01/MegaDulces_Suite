@@ -416,6 +416,30 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-total-bloque.es-warn .cg-total-v { color:var(--warn-soft-fg); }
     .cg-total-esp { font-size:var(--fs-xs); color:var(--text-muted); margin-top:var(--sp-1); }
     .cg-total-regla { margin:var(--sp-1) 0 0; font-size:var(--fs-xs); color:var(--text-muted); line-height:1.45; }
+    /* ⭐ [CG.59] LA PANTALLA ES LA TAREA. Alto fijo y sin scroll de pagina: arriba la barra
+       (el 10%), abajo los dos apartados (el 90%). Lo que scrollea es el contenido de cada
+       apartado, nunca la pagina -- con la pagina scrolleando, el arqueo se iba de la vista justo
+       mientras se cuenta. */
+    .cg-app { height:100vh; overflow:hidden; display:flex; flex-direction:column;
+              padding-top:0; padding-bottom:0; }
+    .cg-app > .cg-split { flex:1 1 auto; min-height:0; }
+    .cg-bar { display:flex; align-items:center; gap:var(--sp-3); flex:none;
+              padding:var(--sp-2) 0; border-bottom:1px solid var(--border-color); }
+    .cg-bar-id > h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em; }
+    /* El desplegable: un <button> con su aria-expanded, no un div con (click). */
+    .cg-jornada-btn { display:inline-flex; align-items:center; gap:var(--sp-2); cursor:pointer;
+                      font-family:inherit; color:var(--fg-1); text-align:left;
+                      background:var(--card-bg); border:1px solid var(--border-color);
+                      border-radius:var(--r-md); padding:var(--sp-2) var(--sp-3); }
+    .cg-jornada-btn > i { font-size:var(--fs-xs); color:var(--text-muted); }
+    .cg-jornada-btn > strong { font-size:var(--fs-sm); font-weight:600; }
+    .cg-jornada-sep { width:1px; height:1rem; background:var(--border-color); }
+    .cg-jornada-res { font-size:var(--fs-sm); color:var(--text-muted); white-space:nowrap; }
+    .cg-jornada-btn:focus-visible { outline:2px solid var(--focus-ring); outline-offset:2px; }
+    /* Abierta, la jornada tiene SU scroll y un techo: no puede empujar la tarea fuera de la
+       pantalla, que es exactamente lo que hacia antes de plegarse. */
+    .cg-jornada { flex:none; max-height:52vh; overflow:auto; padding:var(--sp-3) 0; }
+
     /* [CG.51] La cabecera del historial plegado. Es un <button> y no un <h2> con (click): lo que
        hace es abrir y cerrar, asi que el teclado lo alcanza solo y anuncia su aria-expanded. */
     .cg-historial { margin-top:var(--sp-5); }
@@ -603,29 +627,42 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     :host ::ng-deep .cg-full .p-autocomplete-input { width:100%; }
   `],
   template: `
-    <div class="surf-page in">
+    <div class="surf-page in cg-app">
       <!-- El shell de página es el GLOBAL (surf-*, styles.css), el mismo que usa /finanzas/caja.
            Antes eran clases fin-* que NO EXISTEN en el repo: la página se pintaba sin un solo
            estilo. Inventar un segundo shell de página es exactamente lo que ADR-056 prohíbe. -->
-      <header class="surf-page-head">
-        <div class="surf-page-head-text">
+      <!-- ⭐ [CG.59] LA BARRA. El encabezado de pagina mas el bloque "Cierre de la jornada"
+           se comian ~360px antes de que empezara el trabajo. Edgar: "el 90% de la pantalla
+           debe ser ESTOS DOS APARTADOS... en ese 10% mostrarle un desplegable de como va su
+           jornada".
+
+           ⚠️ Plegar NO es esconder: cerrada, la barra YA dice como va -- cuanto falta
+           confirmar y si se rindio cuentas. Abierta da los numeros, el cuadre del dia, lo que
+           repite sin cuenta declarada y el libro. Nada se borro: todo se MUDO aca adentro. -->
+      <header class="cg-bar">
+        <div class="cg-bar-id">
           <h1>Caja General</h1>
-          <!-- ⭐ [CG.29] El subtitulo dice el ESTADO DE HOY, no la cobertura del catalogo.
-               Antes decia "2,672 conceptos de 2,815 - 87 sin subcuenta": un dato de
-               configuracion, correcto y util, ocupando el renglon mas visible de la pantalla.
-               Lo que la persona necesita saber al abrir es cuanto le falta confirmar y si ya
-               rindio cuentas del dia. La cobertura baja un escalon, no se pierde. -->
-          <p class="surf-page-sub">{{ subtituloJornada() }}</p>
-          <p class="surf-page-sub cg-sub-dim">{{ coberturaTexto() }}</p>
         </div>
-        <div class="cg-head-actions">
-          <!-- Sólo se bloquea con cobertura MEDIDA en cero. Si la medición falló no sabemos si hay
-               conceptos, y trabar la captura por una caída transitoria es peor que dejar que el
-               servidor rechace: la persona se queda sin poder registrar efectivo que ya tiene. -->
-          <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
-                    (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
-        </div>
+
+        <span class="cg-bandeja-sp"></span>
+
+        <button type="button" class="cg-jornada-btn" (click)="jornadaAbierta.set(!jornadaAbierta())"
+                [attr.aria-expanded]="jornadaAbierta()">
+          <i class="pi" [class.pi-chevron-down]="!jornadaAbierta()"
+             [class.pi-chevron-up]="jornadaAbierta()" aria-hidden="true"></i>
+          <strong>Tu jornada</strong>
+          <span class="cg-jornada-sep" aria-hidden="true"></span>
+          <span class="cg-jornada-res">{{ subtituloJornada() }}</span>
+        </button>
+
+        <p-button label="Registrar movimiento" icon="pi pi-plus" size="small"
+                  (onClick)="abrirCaptura()" [disabled]="!hayConceptos() && !coberturaSinMedir()"></p-button>
       </header>
+
+      <!-- El 10%: lo que NO es la tarea. Arranca cerrado y scrollea solo. -->
+      @if (jornadaAbierta()) {
+        <div class="cg-jornada">
+          <p class="fin-dim cg-sub-dim">{{ coberturaTexto() }}</p>
 
       <!-- ⚠️ Antes esto decía "No hay conceptos" también cuando la medición había FALLADO, y el
            subtítulo de arriba decía "sin medir" al mismo tiempo. Dos frases contradictorias sobre
@@ -819,6 +856,263 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <small class="fin-hint-warn">No se pudo medir la jornada. No es que no haya movimiento: es que no se pudo leer.</small>
         }
       </div>
+      @if (pagables().length) {
+        <section class="cg-bandeja">
+          <header class="cg-bandeja-head">
+            <h2 class="fin-h2"><i class="pi pi-file" aria-hidden="true"></i> Gastos y órdenes de entrada</h2>
+            <span class="cg-bandeja-sp"></span>
+            <small class="fin-dim">{{ pagables().length }} documento(s) por pagar que coinciden con la búsqueda — aún no son movimientos de caja</small>
+          </header>
+          <div class="cg-caos-list">
+            @for (g of pagables(); track g.origen_ref) {
+              <div class="cg-caos-row">
+                <span class="cg-caos-tag">{{ g.pagable_label }}</span>
+                <span class="mono">{{ g.folio }}</span>
+                <span class="fin-dim">{{ g.fecha_valor }}</span>
+                <span class="cg-caos-ref">{{ g.beneficiario || 'sin beneficiario' }}
+                  @if (g.concepto) { <small class="fin-dim">· {{ g.concepto }}</small> }
+                </span>
+                <span class="mono cg-caos-monto">{{ money(g.monto) }}</span>
+                <p-button label="Pagar en efectivo" icon="pi pi-wallet" size="small" [text]="true"
+                          (onClick)="capturarDesdePagable(g)"></p-button>
+              </div>
+            }
+          </div>
+        </section>
+      }
+
+      <section class="cg-bandeja cg-rec">
+        <div class="cg-bandeja-head">
+          <strong>Repiten y nadie declaro su cuenta</strong>
+          <span class="cg-bandeja-sp"></span>
+          @if (recurrentes(); as rc) {
+            <small class="fin-dim">{{ textoRecurrentes(rc) }}</small>
+            <p-button size="small" severity="secondary" [text]="true"
+                      [label]="recAbierto() ? 'Ocultar' : 'Ver los ' + rc.medido.sin_regla"
+                      (onClick)="recAbierto.set(!recAbierto())"></p-button>
+          } @else {
+            <!-- Tercer estado: no es "no hay ninguno", es que no se midio. -->
+            <small class="fin-hint-warn">Sin medir: no se pudo leer la lista.</small>
+          }
+        </div>
+
+        @if (recAbierto()) {
+        @if (recurrentes(); as rc) {
+          <p class="cg-cap">Beneficiarios recurrentes sin regla de clasificacion declarada</p>
+              <!-- [CG.50] D.7: sus filas llevan acciones (comprobante, declarar, autorizar) y sin esto el teclado solo llega tabulando fila por fila. pSelectableRow = roving tabindex + flechas + Home/End, y la tabla entera es UN stop. -->
+          <p-table [value]="rc.rows" size="small" dataKey="beneficiario" selectionMode="single" [(selection)]="filaRecurrente">
+            <ng-template #header>
+              <tr>
+                <th scope="col">Beneficiario</th>
+                <th scope="col" class="ta-r">Pagos</th>
+                <th scope="col" class="ta-r">Monto</th>
+                <th scope="col">Importe</th>
+                <th scope="col">Cuenta</th>
+                <th scope="col" class="ta-r">Sin cobrar</th>
+                <th scope="col"><span class="sr-only">Declarar</span></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-r>
+                <tr [pSelectableRow]="r">
+                  <td>
+                    {{ r.beneficiario }}
+                    @if (r.pagos_con_regla > 0) {
+                      <!-- Cobertura PARCIAL: una regla con match_glosa puede clasificar una parte de
+                           sus movimientos y no el resto. Un si/no lo esconderia. -->
+                      <small class="fin-hint-warn d-block">{{ r.pagos_con_regla }} de sus pagos ya los clasifica una regla.</small>
+                    }
+                  </td>
+                  <td class="ta-r mono">{{ r.pagos }}</td>
+                  <td class="ta-r mono">{{ money(r.monto) }}</td>
+                  <td>
+                    <!-- ⭐ El CV decide QUE se le puede proponer. Es lo unico que discrimina: la
+                         cadencia da 2-5 dias para todos. -->
+                    <span class="cg-cv" [class.cg-cv-fijo]="esImporteProponible(r)">{{ textoImporte(r) }}</span>
+                  </td>
+                  <td>
+                    @if (r.propuesta_contable; as p) {
+                      <span class="fin-hint-ok">{{ p.kepler_cuenta }} / {{ p.kepler_concepto }}</span>
+                      <small class="fin-dim d-block">{{ p.soporte }} antecedentes, {{ pctDominancia(p) }}% coinciden</small>
+                    } @else {
+                      <small class="fin-dim">Sin de donde proponer: la contabilidad no tiene su par.</small>
+                    }
+                  </td>
+                  <td class="ta-r mono">
+                    @if (r.dias_sin_pago !== null) {
+                      <span [class.fin-neg]="r.dias_sin_pago > rc.caido_dias">{{ r.dias_sin_pago }} d</span>
+                    } @else { <span class="cg-na">&mdash;</span> }
+                  </td>
+                  <td class="ta-c">
+                    <!-- Se abre la captura con el beneficiario puesto: declarar la regla es el
+                         checkbox que ya existe, ahi mismo. No se inventa una segunda puerta. -->
+                    <p-button size="small" severity="secondary" [text]="true" icon="pi pi-pencil"
+                              [ariaLabel]="'Declarar la cuenta de ' + r.beneficiario"
+                              (onClick)="declararDesdeRecurrente(r)"></p-button>
+                  </td>
+                </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="7"><small class="fin-dim">Ninguno: todos los que repiten tienen su cuenta declarada.</small></td></tr>
+            </ng-template>
+          </p-table>
+
+          @if (rc.medido.caidos > 0) {
+            <!-- [CG.27-B.3] Que un recurrente deje de cobrar es una senial: se fue, o alguien dejo
+                 de pagarle. No va a la bandeja de hallazgos: aca el trabajo cierra solo. -->
+            <small class="fin-hint-warn d-block">
+              {{ rc.medido.caidos }} lleva(n) mas de {{ rc.caido_dias }} dias sin cobrar, marcados en rojo.
+            </small>
+          }
+        }
+        }
+      </section>
+
+      <section class="cg-historial">
+        <button type="button" class="cg-historial-h" (click)="historialAbierto.set(!historialAbierto())"
+                [attr.aria-expanded]="historialAbierto()">
+          <i class="pi" [class.pi-chevron-right]="!historialAbierto()"
+             [class.pi-chevron-down]="historialAbierto()" aria-hidden="true"></i>
+          <span class="cg-historial-t">Historial</span>
+          <small class="fin-dim">
+            del {{ dmy(from) }} al {{ dmy(to) }} ·
+            {{ rows().length }} movimiento(s) en el libro · {{ cortes().length }} corte(s)
+          </small>
+        </button>
+
+        @if (historialAbierto()) {
+      <!-- ⚠️ [CG.29] Esta tira es del LIBRO (el rango de acá abajo), no del día. Sin rótulo, su
+           "Gastos $130,000.00" quedaba pegado al "Gastos $0.00" del cierre de la jornada: dos
+           números con la misma etiqueta, distinto periodo y un centímetro de distancia.
+           [CG.37] Y ahora vive donde está lo que resume, no 340 líneas más arriba. -->
+      <h2 class="fin-h2 cg-kpi-h">El libro, del {{ dmy(from) }} al {{ dmy(to) }}</h2>
+      <app-metric-strip [items]="kpis()"></app-metric-strip>
+
+      <div class="fin-filters">
+        <p-datepicker [ngModel]="fechaD(from)" (onSelect)="setDesde($event)"
+                      dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                      placeholder="Desde" ariaLabel="Desde" />
+        <p-datepicker [ngModel]="fechaD(to)" (onSelect)="setHasta($event)"
+                      dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
+                      placeholder="Hasta" ariaLabel="Hasta" />
+        <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
+                  optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
+        <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
+               placeholder="Buscar en realizados: folio, concepto, beneficiario, usuario…" />
+        <!-- CS.3.10 — Reporte diario en la térmica: los movimientos del rango/filtros + totales. -->
+        <p-button label="Reporte del día" icon="pi pi-print" severity="secondary" size="small"
+                  [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
+      </div>
+
+      <!-- size="small" SÍ es un input de p-table en v22; styleClass="p-datatable-sm" NO lo es y
+           era redundante además de muerto. El estado lo lleva app-load-state, que distingue el
+           500 del periodo vacío — en una pantalla de dinero eso no puede verse igual. -->
+      <app-load-state [loading]="cargando()" [error]="errLibro()" [isEmpty]="!rows().length"
+                      errorTitle="No se pudo leer el libro de caja"
+                      emptyIcon="pi-book" emptyTitle="Sin movimientos en el periodo"
+                      emptyHint="Probá con otro rango de fechas o quitá el filtro de tipo."
+                      (retry)="cargar()">
+      <p-table [value]="rows()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaLibro"
+               [scrollable]="true" scrollHeight="flex">
+        <ng-template #header>
+          <tr>
+            <!-- scope="col" como en las otras tres tablas de la pantalla: sin el, un lector de
+                 pantalla no liga la celda con su encabezado y lee nueve valores sueltos. -->
+            <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col">Cuenta / Concepto</th>
+            <th scope="col">Qué pasó</th><th scope="col" class="ta-r">Monto</th><th scope="col">Capturó</th><th scope="col">Origen</th>
+            <th scope="col" class="ta-c">Comprobante</th>
+          </tr>
+        </ng-template>
+        <ng-template #body let-m>
+          <tr [pSelectableRow]="m">
+            <td class="mono">{{ m.folio }}</td>
+            <td>{{ dmy(m.fecha) }}</td>
+            <td><p-tag [value]="etiquetaTipo(m.tipo)" [severity]="sevTipo(m.tipo)"></p-tag></td>
+            <td>
+              <span class="mono">{{ m.kepler_cuenta }} / {{ m.kepler_concepto }}</span>
+              <small class="fin-dim d-block">{{ m.kepler_concepto_nombre }}</small>
+            </td>
+            <td>{{ m.glosa }}</td>
+            <td class="ta-r mono">{{ money(m.monto) }}</td>
+            <td>{{ m.created_by_username || '—' }}</td>
+            <td>
+              @if (m.autofill) {
+                <span title="Parte de este movimiento la propuso el sistema">
+                  <p-tag value="autorrellenado" severity="info"></p-tag>
+                </span>
+              } @else { <small class="fin-dim">manual</small> }
+            </td>
+            <td class="ta-c">
+              <!-- CS.3.8 — re-imprime el comprobante en la térmica (folio nuestro, desglose, concepto,
+                   recibido, total, firma). No para los cancelados: su comprobante ya no vale. -->
+              @if (m.estado !== 'cancelado') {
+                <p-button icon="pi pi-print" size="small" severity="secondary" [text]="true"
+                          [rounded]="true" title="Imprimir comprobante"
+                          ariaLabel="Imprimir comprobante"
+                          (onClick)="imprimirComprobante(m)"></p-button>
+              }
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template #emptymessage>
+          <tr><td colspan="9" class="fin-empty">Sin movimientos en el periodo.</td></tr>
+        </ng-template>
+      </p-table>
+      </app-load-state>
+
+      <h2 class="fin-h2">Cortes</h2>
+      <app-load-state [loading]="cargandoCortes()" [error]="errCortes()" [isEmpty]="!cortes().length"
+                      [skeletonRows]="3" errorTitle="No se pudieron leer los cortes"
+                      emptyIcon="pi-lock-open" emptyTitle="Sin cortes en el periodo"
+                      emptyHint="Los cortes se listan por el mismo rango de fechas de arriba."
+                      (retry)="cargarCortes()">
+      <p-table [value]="cortes()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaCorte">
+        <ng-template #header>
+          <tr>
+            <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Sucursal</th><th scope="col">Estado</th>
+            <th scope="col" class="ta-r">Esperado</th><th scope="col" class="ta-r">Contado</th><th scope="col" class="ta-r">Diferencia</th>
+            <th scope="col">Cerró / Autorizó</th><th scope="col"><span class="sr-only">Acciones</span></th>
+          </tr>
+        </ng-template>
+        <ng-template #body let-c>
+          <tr [pSelectableRow]="c">
+            <td class="mono">{{ c.folio }}</td>
+            <td>{{ dmy(c.fecha) }}</td>
+            <td>{{ c.sucursal }}</td>
+            <td><p-tag [value]="etiquetaEstadoCorte(c.estado)" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
+            <td class="ta-r mono">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
+            <td class="ta-r mono">{{ c.contado === null ? '—' : money(c.contado) }}</td>
+            <td class="ta-r mono" [class.fin-neg]="c.diferencia < 0">
+              {{ c.diferencia === null ? '—' : money(c.diferencia) }}
+            </td>
+            <td>
+              <small class="fin-dim">{{ c.closed_by_username || '—' }} / {{ c.authorized_by_username || '—' }}</small>
+            </td>
+            <td>
+              @if (c.estado === 'cerrado') {
+                @if (gateAutorizar(c).ok) {
+                  <p-button label="Autorizar" size="small" severity="secondary"
+                            [disabled]="autorizando()" (onClick)="autorizar(c)"></p-button>
+                } @else {
+                  <!-- El porqué NO puede vivir en un [title] de un botón deshabilitado: ahí no lo
+                       alcanza el teclado, ni el lector de pantalla, ni un dedo. Se dice. -->
+                  <small class="fin-hint-warn">{{ gateAutorizar(c).texto }}</small>
+                }
+              } @else {
+                <small class="fin-dim">{{ gateAutorizar(c).texto }}</small>
+              }
+            </td>
+          </tr>
+        </ng-template>
+        <ng-template #emptymessage>
+          <tr><td colspan="9" class="fin-empty">Sin cortes en el periodo.</td></tr>
+        </ng-template>
+      </p-table>
+      </app-load-state>
+        }
+      </section>
+        </div>
+      }
+
 
       <!-- ⛔ [CG.37] ACA ESTABAN EL TITULO "El libro" Y SU TIRA DE KPIs, y bajaron 340 lineas
            hasta su propia tabla. [CG.29] le habia puesto el rotulo correcto -- la tira es del
@@ -1140,278 +1434,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            gastos (XA1001) y órdenes de entrada (XA2001). Aparecen SÓLO al buscar — la bandeja de
            arriba es la cola de efectivo, y un documento por pagar todavía no es un movimiento de
            caja. Reusa las clases de fila de la lista del cajero (mismos primitivos visuales). -->
-      @if (pagables().length) {
-        <section class="cg-bandeja">
-          <header class="cg-bandeja-head">
-            <h2 class="fin-h2"><i class="pi pi-file" aria-hidden="true"></i> Gastos y órdenes de entrada</h2>
-            <span class="cg-bandeja-sp"></span>
-            <small class="fin-dim">{{ pagables().length }} documento(s) por pagar que coinciden con la búsqueda — aún no son movimientos de caja</small>
-          </header>
-          <div class="cg-caos-list">
-            @for (g of pagables(); track g.origen_ref) {
-              <div class="cg-caos-row">
-                <span class="cg-caos-tag">{{ g.pagable_label }}</span>
-                <span class="mono">{{ g.folio }}</span>
-                <span class="fin-dim">{{ g.fecha_valor }}</span>
-                <span class="cg-caos-ref">{{ g.beneficiario || 'sin beneficiario' }}
-                  @if (g.concepto) { <small class="fin-dim">· {{ g.concepto }}</small> }
-                </span>
-                <span class="mono cg-caos-monto">{{ money(g.monto) }}</span>
-                <p-button label="Pagar en efectivo" icon="pi pi-wallet" size="small" [text]="true"
-                          (onClick)="capturarDesdePagable(g)"></p-button>
-              </div>
-            }
-          </div>
-        </section>
-      }
-
-      <!-- ⭐ [CG.27-B.1/B.3] LOS QUE REPITEN Y NADIE DECLARO SU CUENTA.
-           Es el 69% de los clics de la caja, y hasta ahora no habia por donde verlo: la unica
-           puerta era el checkbox de la captura, movimiento por movimiento.
-
-           El contador va SIEMPRE visible, aunque la lista este plegada: una lista escondida no se
-           trabaja, y un "0 sin regla" por una consulta vacia no puede leerse como "ya esta todo
-           declarado". -->
-      <section class="cg-bandeja cg-rec">
-        <div class="cg-bandeja-head">
-          <strong>Repiten y nadie declaro su cuenta</strong>
-          <span class="cg-bandeja-sp"></span>
-          @if (recurrentes(); as rc) {
-            <small class="fin-dim">{{ textoRecurrentes(rc) }}</small>
-            <p-button size="small" severity="secondary" [text]="true"
-                      [label]="recAbierto() ? 'Ocultar' : 'Ver los ' + rc.medido.sin_regla"
-                      (onClick)="recAbierto.set(!recAbierto())"></p-button>
-          } @else {
-            <!-- Tercer estado: no es "no hay ninguno", es que no se midio. -->
-            <small class="fin-hint-warn">Sin medir: no se pudo leer la lista.</small>
-          }
-        </div>
-
-        @if (recAbierto()) {
-        @if (recurrentes(); as rc) {
-          <p class="cg-cap">Beneficiarios recurrentes sin regla de clasificacion declarada</p>
-              <!-- [CG.50] D.7: sus filas llevan acciones (comprobante, declarar, autorizar) y sin esto el teclado solo llega tabulando fila por fila. pSelectableRow = roving tabindex + flechas + Home/End, y la tabla entera es UN stop. -->
-          <p-table [value]="rc.rows" size="small" dataKey="beneficiario" selectionMode="single" [(selection)]="filaRecurrente">
-            <ng-template #header>
-              <tr>
-                <th scope="col">Beneficiario</th>
-                <th scope="col" class="ta-r">Pagos</th>
-                <th scope="col" class="ta-r">Monto</th>
-                <th scope="col">Importe</th>
-                <th scope="col">Cuenta</th>
-                <th scope="col" class="ta-r">Sin cobrar</th>
-                <th scope="col"><span class="sr-only">Declarar</span></th>
-              </tr>
-            </ng-template>
-            <ng-template #body let-r>
-                <tr [pSelectableRow]="r">
-                  <td>
-                    {{ r.beneficiario }}
-                    @if (r.pagos_con_regla > 0) {
-                      <!-- Cobertura PARCIAL: una regla con match_glosa puede clasificar una parte de
-                           sus movimientos y no el resto. Un si/no lo esconderia. -->
-                      <small class="fin-hint-warn d-block">{{ r.pagos_con_regla }} de sus pagos ya los clasifica una regla.</small>
-                    }
-                  </td>
-                  <td class="ta-r mono">{{ r.pagos }}</td>
-                  <td class="ta-r mono">{{ money(r.monto) }}</td>
-                  <td>
-                    <!-- ⭐ El CV decide QUE se le puede proponer. Es lo unico que discrimina: la
-                         cadencia da 2-5 dias para todos. -->
-                    <span class="cg-cv" [class.cg-cv-fijo]="esImporteProponible(r)">{{ textoImporte(r) }}</span>
-                  </td>
-                  <td>
-                    @if (r.propuesta_contable; as p) {
-                      <span class="fin-hint-ok">{{ p.kepler_cuenta }} / {{ p.kepler_concepto }}</span>
-                      <small class="fin-dim d-block">{{ p.soporte }} antecedentes, {{ pctDominancia(p) }}% coinciden</small>
-                    } @else {
-                      <small class="fin-dim">Sin de donde proponer: la contabilidad no tiene su par.</small>
-                    }
-                  </td>
-                  <td class="ta-r mono">
-                    @if (r.dias_sin_pago !== null) {
-                      <span [class.fin-neg]="r.dias_sin_pago > rc.caido_dias">{{ r.dias_sin_pago }} d</span>
-                    } @else { <span class="cg-na">&mdash;</span> }
-                  </td>
-                  <td class="ta-c">
-                    <!-- Se abre la captura con el beneficiario puesto: declarar la regla es el
-                         checkbox que ya existe, ahi mismo. No se inventa una segunda puerta. -->
-                    <p-button size="small" severity="secondary" [text]="true" icon="pi pi-pencil"
-                              [ariaLabel]="'Declarar la cuenta de ' + r.beneficiario"
-                              (onClick)="declararDesdeRecurrente(r)"></p-button>
-                  </td>
-                </tr>
-            </ng-template>
-            <ng-template #emptymessage>
-              <tr><td colspan="7"><small class="fin-dim">Ninguno: todos los que repiten tienen su cuenta declarada.</small></td></tr>
-            </ng-template>
-          </p-table>
-
-          @if (rc.medido.caidos > 0) {
-            <!-- [CG.27-B.3] Que un recurrente deje de cobrar es una senial: se fue, o alguien dejo
-                 de pagarle. No va a la bandeja de hallazgos: aca el trabajo cierra solo. -->
-            <small class="fin-hint-warn d-block">
-              {{ rc.medido.caidos }} lleva(n) mas de {{ rc.caido_dias }} dias sin cobrar, marcados en rojo.
-            </small>
-          }
-        }
-        }
-      </section>
-
-      <!-- [CG.51] EL HISTORIAL SE PLIEGA, y arranca CERRADO.
-
-           Edgar: "demasiado scroll en general". Debajo del area de trabajo vivian el libro
-           (titulo + tira de KPIs + 4 filtros + tabla) y los cortes (titulo + tabla): dos
-           secciones de referencia que suman ~800px y que nadie necesita para confirmar
-           efectivo. La tarea del dia es la bandeja y el arqueo; esto es el archivo.
-
-           ⚠️ Plegado NO es escondido: la cabecera DICE que hay adentro -- el rango, cuantos
-           movimientos y cuantos cortes-- asi que cerrado se lee igual que abierto para saber
-           si vale la pena abrirlo. Y los datos se siguen cargando al entrar, que es lo que
-           permite que ese resumen exista. -->
-      <section class="cg-historial">
-        <button type="button" class="cg-historial-h" (click)="historialAbierto.set(!historialAbierto())"
-                [attr.aria-expanded]="historialAbierto()">
-          <i class="pi" [class.pi-chevron-right]="!historialAbierto()"
-             [class.pi-chevron-down]="historialAbierto()" aria-hidden="true"></i>
-          <span class="cg-historial-t">Historial</span>
-          <small class="fin-dim">
-            del {{ dmy(from) }} al {{ dmy(to) }} ·
-            {{ rows().length }} movimiento(s) en el libro · {{ cortes().length }} corte(s)
-          </small>
-        </button>
-
-        @if (historialAbierto()) {
-      <!-- ⚠️ [CG.29] Esta tira es del LIBRO (el rango de acá abajo), no del día. Sin rótulo, su
-           "Gastos $130,000.00" quedaba pegado al "Gastos $0.00" del cierre de la jornada: dos
-           números con la misma etiqueta, distinto periodo y un centímetro de distancia.
-           [CG.37] Y ahora vive donde está lo que resume, no 340 líneas más arriba. -->
-      <h2 class="fin-h2 cg-kpi-h">El libro, del {{ dmy(from) }} al {{ dmy(to) }}</h2>
-      <app-metric-strip [items]="kpis()"></app-metric-strip>
-
-      <div class="fin-filters">
-        <p-datepicker [ngModel]="fechaD(from)" (onSelect)="setDesde($event)"
-                      dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
-                      placeholder="Desde" ariaLabel="Desde" />
-        <p-datepicker [ngModel]="fechaD(to)" (onSelect)="setHasta($event)"
-                      dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body"
-                      placeholder="Hasta" ariaLabel="Hasta" />
-        <p-select [options]="tiposFiltro" [(ngModel)]="tipo" (ngModelChange)="cargar()"
-                  optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
-        <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
-               placeholder="Buscar en realizados: folio, concepto, beneficiario, usuario…" />
-        <!-- CS.3.10 — Reporte diario en la térmica: los movimientos del rango/filtros + totales. -->
-        <p-button label="Reporte del día" icon="pi pi-print" severity="secondary" size="small"
-                  [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
-      </div>
-
-      <!-- size="small" SÍ es un input de p-table en v22; styleClass="p-datatable-sm" NO lo es y
-           era redundante además de muerto. El estado lo lleva app-load-state, que distingue el
-           500 del periodo vacío — en una pantalla de dinero eso no puede verse igual. -->
-      <app-load-state [loading]="cargando()" [error]="errLibro()" [isEmpty]="!rows().length"
-                      errorTitle="No se pudo leer el libro de caja"
-                      emptyIcon="pi-book" emptyTitle="Sin movimientos en el periodo"
-                      emptyHint="Probá con otro rango de fechas o quitá el filtro de tipo."
-                      (retry)="cargar()">
-      <p-table [value]="rows()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaLibro"
-               [scrollable]="true" scrollHeight="flex">
-        <ng-template #header>
-          <tr>
-            <!-- scope="col" como en las otras tres tablas de la pantalla: sin el, un lector de
-                 pantalla no liga la celda con su encabezado y lee nueve valores sueltos. -->
-            <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Tipo</th><th scope="col">Cuenta / Concepto</th>
-            <th scope="col">Qué pasó</th><th scope="col" class="ta-r">Monto</th><th scope="col">Capturó</th><th scope="col">Origen</th>
-            <th scope="col" class="ta-c">Comprobante</th>
-          </tr>
-        </ng-template>
-        <ng-template #body let-m>
-          <tr [pSelectableRow]="m">
-            <td class="mono">{{ m.folio }}</td>
-            <td>{{ dmy(m.fecha) }}</td>
-            <td><p-tag [value]="etiquetaTipo(m.tipo)" [severity]="sevTipo(m.tipo)"></p-tag></td>
-            <td>
-              <span class="mono">{{ m.kepler_cuenta }} / {{ m.kepler_concepto }}</span>
-              <small class="fin-dim d-block">{{ m.kepler_concepto_nombre }}</small>
-            </td>
-            <td>{{ m.glosa }}</td>
-            <td class="ta-r mono">{{ money(m.monto) }}</td>
-            <td>{{ m.created_by_username || '—' }}</td>
-            <td>
-              @if (m.autofill) {
-                <span title="Parte de este movimiento la propuso el sistema">
-                  <p-tag value="autorrellenado" severity="info"></p-tag>
-                </span>
-              } @else { <small class="fin-dim">manual</small> }
-            </td>
-            <td class="ta-c">
-              <!-- CS.3.8 — re-imprime el comprobante en la térmica (folio nuestro, desglose, concepto,
-                   recibido, total, firma). No para los cancelados: su comprobante ya no vale. -->
-              @if (m.estado !== 'cancelado') {
-                <p-button icon="pi pi-print" size="small" severity="secondary" [text]="true"
-                          [rounded]="true" title="Imprimir comprobante"
-                          ariaLabel="Imprimir comprobante"
-                          (onClick)="imprimirComprobante(m)"></p-button>
-              }
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template #emptymessage>
-          <tr><td colspan="9" class="fin-empty">Sin movimientos en el periodo.</td></tr>
-        </ng-template>
-      </p-table>
-      </app-load-state>
-
-      <h2 class="fin-h2">Cortes</h2>
-      <app-load-state [loading]="cargandoCortes()" [error]="errCortes()" [isEmpty]="!cortes().length"
-                      [skeletonRows]="3" errorTitle="No se pudieron leer los cortes"
-                      emptyIcon="pi-lock-open" emptyTitle="Sin cortes en el periodo"
-                      emptyHint="Los cortes se listan por el mismo rango de fechas de arriba."
-                      (retry)="cargarCortes()">
-      <p-table [value]="cortes()" size="small" dataKey="id" selectionMode="single" [(selection)]="filaCorte">
-        <ng-template #header>
-          <tr>
-            <th scope="col">Folio</th><th scope="col">Fecha</th><th scope="col">Sucursal</th><th scope="col">Estado</th>
-            <th scope="col" class="ta-r">Esperado</th><th scope="col" class="ta-r">Contado</th><th scope="col" class="ta-r">Diferencia</th>
-            <th scope="col">Cerró / Autorizó</th><th scope="col"><span class="sr-only">Acciones</span></th>
-          </tr>
-        </ng-template>
-        <ng-template #body let-c>
-          <tr [pSelectableRow]="c">
-            <td class="mono">{{ c.folio }}</td>
-            <td>{{ dmy(c.fecha) }}</td>
-            <td>{{ c.sucursal }}</td>
-            <td><p-tag [value]="etiquetaEstadoCorte(c.estado)" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
-            <td class="ta-r mono">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
-            <td class="ta-r mono">{{ c.contado === null ? '—' : money(c.contado) }}</td>
-            <td class="ta-r mono" [class.fin-neg]="c.diferencia < 0">
-              {{ c.diferencia === null ? '—' : money(c.diferencia) }}
-            </td>
-            <td>
-              <small class="fin-dim">{{ c.closed_by_username || '—' }} / {{ c.authorized_by_username || '—' }}</small>
-            </td>
-            <td>
-              @if (c.estado === 'cerrado') {
-                @if (gateAutorizar(c).ok) {
-                  <p-button label="Autorizar" size="small" severity="secondary"
-                            [disabled]="autorizando()" (onClick)="autorizar(c)"></p-button>
-                } @else {
-                  <!-- El porqué NO puede vivir en un [title] de un botón deshabilitado: ahí no lo
-                       alcanza el teclado, ni el lector de pantalla, ni un dedo. Se dice. -->
-                  <small class="fin-hint-warn">{{ gateAutorizar(c).texto }}</small>
-                }
-              } @else {
-                <small class="fin-dim">{{ gateAutorizar(c).texto }}</small>
-              }
-            </td>
-          </tr>
-        </ng-template>
-        <ng-template #emptymessage>
-          <tr><td colspan="9" class="fin-empty">Sin cortes en el periodo.</td></tr>
-        </ng-template>
-      </p-table>
-      </app-load-state>
-        }
-      </section>
         </div><!-- /cg-main -->
 
         <!-- El detalle. PERMANENTE: cuando no hay nada elegido NO desaparece -- dice que
@@ -2470,6 +2492,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * Su cabecera publica el rango y los conteos, así que plegado no es escondido.
    */
   historialAbierto = signal(false);
+
+  /**
+   * `[CG.59]` La jornada arranca CERRADA, y es el 10% de la pantalla.
+   *
+   * Edgar: *"el 90% de la pantalla debe ser ESTOS DOS APARTADOS, ES NUESTRA PRIORIDAD, EN ESE 10%
+   * MOSTRARLE UN DESPLEGABLE DE CÓMO VA SU JORNADA"*.
+   *
+   * ⚠️ Cerrada **ya dice cómo va**: la barra publica `subtituloJornada()` —cuánto falta confirmar y
+   * si se rindió cuentas—, así que plegar no es esconder. Abierta trae lo que se mudó acá adentro:
+   * el cuadre del día, lo que repite sin cuenta declarada, los documentos por pagar y el libro.
+   * **Nada se borró.**
+   */
+  jornadaAbierta = signal(false);
 
   ventanaDias = signal<number>(CAJA_JORNADA_DIAS);
   readonly opcionesVentana = [
