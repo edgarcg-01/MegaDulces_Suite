@@ -1776,6 +1776,90 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       }
     }
 
+    // ── 33. [MS.7.12] Tickets de prueba: marcar, y que NO cuenten en reportes, tablero, carga, Mi trabajo, SLA ni avisos ───
+    {
+      console.log('\n33 — tickets de prueba (is_test)');
+      const BAND = 'servicio-sin-asignar';
+      const [{ id: qT }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_ts712', name: 'SMOKE Pruebas', sort_order: 910 }).returning('id');
+      const [{ id: catT }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qT, code: 'smoke_ts712_cat', name: 'SMOKE TS cat', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeT = await crearUsuario('ts_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qT, role: 'coordinador' }]);
+      const tecT = await crearUsuario('ts_tec', ['SERVICIO_ATENDER'], [{ queue_id: qT, role: 'tecnico' }]);
+      usuarios.push(jefeT, tecT);
+      await knex('identity.user_responsibilities').insert({ tenant_id: T, user_id: jefeT.id, responsibility_key: 'servicio.atender', accion: 'suma', nota: 'smoke http-service-desk-test' });
+      const mk = async (t) => (await req('POST', `${SD}/requests`, sol.token, { category_id: catT, title: 'SMOKE 7.12 ' + t })).body;
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const reporte = async () => (await req('GET', `${SD}/reports?from=${hoy}&to=${hoy}&queue_id=${qT}`, jefeT.token)).body;
+      const stats = async () => (await req('GET', `${SD}/requests/stats`, jefeT.token)).body;
+      const carga = async () => ((await req('GET', `${SD}/agents?queue_id=${qT}`, jefeT.token)).body ?? []).find((a) => a.user_id === tecT.id)?.open_count;
+      const sinAsignarMW = async () => ((await req('GET', '/users/me/work', jefeT.token)).body?.pendientes ?? []).find((x) => x.id === BAND)?.total;
+      const tareasTec = async () => ((await req('GET', '/users/me/work', tecT.token)).body?.tareas ?? []).find((x) => x.fuente === 'servicedesk.requests')?.total ?? 0;
+      const marca = (id, tok, body) => req('POST', `${SD}/requests/${id}/test`, tok, body);
+
+      const A = await mk('A sin asignar');
+      const B = await mk('B sin asignar');
+      const C = await mk('C asignado');
+      await req('POST', `${SD}/requests/${C.id}/assign`, jefeT.token, { user_id: tecT.id });
+      check('la columna nace en false: ningún ticket (nuevo ni existente) es de prueba', [A, B, C].every((t) => t.is_test === false) && Number((await knex('servicedesk.requests').where({ is_test: true, tenant_id: T }).whereRaw(`title not like 'SMOKE%'`).count({ n: '*' }).first()).n) === 0);
+
+      // Línea base: los tres cuentan en todo.
+      check('base: el reporte cuenta los 3', (await reporte())?.totales?.creados === 3, JSON.stringify((await reporte())?.totales));
+      const s0 = await stats();
+      check('base: el tablero cuenta 3 abiertas y 2 sin asignar', s0?.open_total === 3 && s0?.unassigned === 2, JSON.stringify([s0?.open_total, s0?.unassigned]));
+      check('base: la carga de la persona es 1', (await carga()) === 1);
+      check('base: «Mi trabajo» cuenta 2 por asignar a quien reparte y 1 a nombre del técnico', (await sinAsignarMW()) === 2 && (await tareasTec()) === 1, JSON.stringify([await sinAsignarMW(), await tareasTec()]));
+
+      // Quién marca.
+      check('⛔ quien reportó no marca → 403', (await marca(A.id, sol.token, { is_test: true })).status === 403);
+      check('⛔ un técnico (sin COORDINAR) no marca → 403', (await marca(A.id, tecT.token, { is_test: true })).status === 403);
+      check('⛔ quien coordina OTRA cola (TI) ni lo ve → 404', (await marca(A.id, coord.token, { is_test: true })).status === 404);
+      check('⛔ is_test que no es verdadero/falso → 400', (await marca(A.id, jefeT.token, { is_test: 'si' })).status === 400);
+      check('⛔ un id mal formado → 404', (await marca('no-es-uuid', jefeT.token, { is_test: true })).status === 404);
+      check('⛔ y nada cambió con los rechazos', (await knex('servicedesk.requests').where({ id: A.id }).first('is_test')).is_test === false);
+      check('⛔ quitar la marca a quien no la tiene → 409', (await marca(A.id, jefeT.token, { is_test: false })).status === 409);
+
+      // Marcar A (sin asignar) y C (asignado).
+      const mA = await marca(A.id, jefeT.token, { is_test: true, reason: 'prueba del flujo' });
+      check('⭐ la coordinación DEL ÁREA marca A como de prueba', mA.status < 300 && mA.body?.is_test === true, dump(mA));
+      check('⛔ marcar dos veces → 409 (no es un cambio silencioso)', (await marca(A.id, jefeT.token, { is_test: true })).status === 409);
+      await marca(C.id, jefeT.token, { is_test: true });
+      const hiloA = (await req('GET', `${SD}/requests/${A.id}`, jefeT.token)).body?.messages ?? [];
+      const nota = hiloA.find((m) => m.kind === 'system' && m.meta?.is_test === true);
+      check('⭐ queda en el hilo: quién, qué y el motivo — como nota INTERNA', !!nota && nota.visibility === 'internal' && /prueba del flujo/.test(nota.body) && !!nota.author_label, JSON.stringify(nota));
+      check('⛔ quien reportó NO ve esa nota (no la necesita)', !((await req('GET', `${SD}/requests/${A.id}`, sol.token)).body?.messages ?? []).some((m) => m.meta?.is_test === true));
+      const filas = (await req('GET', `${SD}/requests/inbox?scope=all&queue_id=${qT}&limit=50`, jefeT.token)).body?.rows ?? [];
+      check('⭐ SIGUE en la bandeja y dice que es de prueba (la coordinación tiene que poder encontrarlo para quitarle la marca)', filas.find((r) => r.id === A.id)?.is_test === true && filas.find((r) => r.id === B.id)?.is_test === false, JSON.stringify(filas.map((r) => [r.folio, r.is_test])));
+
+      // Exclusiones.
+      check('⭐ REPORTE: sólo cuenta el que no es de prueba (3 → 1)', (await reporte())?.totales?.creados === 1, JSON.stringify((await reporte())?.totales));
+      const s1 = await stats();
+      check('⭐ TABLERO: 1 abierta y 1 sin asignar (3→1, 2→1)', s1?.open_total === 1 && s1?.unassigned === 1, JSON.stringify([s1?.open_total, s1?.unassigned]));
+      check('⭐ CARGA: la persona ya no cuenta el ticket de prueba (1 → 0)', (await carga()) === 0, String(await carga()));
+      check('⭐ MI TRABAJO: lo por asignar baja a 1 y el técnico ya no tiene tareas por ese ticket', (await sinAsignarMW()) === 1 && (await tareasTec()) === 0, JSON.stringify([await sinAsignarMW(), await tareasTec()]));
+
+      // Avisos: el de prueba no avisa; un control no de prueba SÍ.
+      const D = await mk('D asignado, no es de prueba');
+      await req('POST', `${SD}/requests/${D.id}/assign`, jefeT.token, { user_id: tecT.id });
+      const avisos = async (id) => Number((await knex('servicedesk.notification_log').where({ request_id: id, recipient_id: tecT.id, channel: 'app' }).count({ n: '*' }).first()).n);
+      const aC0 = await avisos(C.id);
+      const aD0 = await avisos(D.id);
+      await req('POST', `${SD}/requests/${C.id}/messages`, sol.token, { body: 'Comentario sobre el de prueba' });
+      await req('POST', `${SD}/requests/${D.id}/messages`, sol.token, { body: 'Comentario sobre el real' });
+      check('⭐ AVISOS: un comentario sobre un ticket de PRUEBA no avisa a quien lo tiene', (await avisos(C.id)) === aC0, `${aC0} → ${await avisos(C.id)}`);
+      check('CONTROL: el mismo comentario sobre uno que NO es de prueba SÍ avisa (la prueba no es vacua)', (await avisos(D.id)) === aD0 + 1, `${aD0} → ${await avisos(D.id)}`);
+
+      // Barrido del SLA: marca lo vencido, salvo lo de prueba.
+      await knex('servicedesk.requests').whereIn('id', [A.id, B.id]).update({ due_at: new Date(Date.now() - 3600e3), first_response_due_at: new Date(Date.now() - 7200e3) });
+      await req('POST', `${SD}/sla/scan-now`, coord.token);
+      const mm = await knex('servicedesk.requests').whereIn('id', [A.id, B.id]).select('id', 'sla_resolution_breached_at', 'sla_first_breached_at');
+      check('⭐ SLA: el barrido NO marca vencido el ticket de prueba', !mm.find((r) => r.id === A.id).sla_resolution_breached_at && !mm.find((r) => r.id === A.id).sla_first_breached_at);
+      check('CONTROL: y SÍ marca el que no es de prueba, con el mismo plazo vencido', !!mm.find((r) => r.id === B.id).sla_resolution_breached_at, JSON.stringify(mm));
+
+      // Se puede revertir.
+      const qA = await marca(A.id, jefeT.token, { is_test: false });
+      check('⭐ se le quita la marca: vuelve a contar', qA.status < 300 && qA.body?.is_test === false && (await reporte())?.totales?.creados === 3, dump(qA)); // A, B y D (C sigue siendo de prueba)
+      check('y deja la nota de que se quitó', ((await req('GET', `${SD}/requests/${A.id}`, jefeT.token)).body?.messages ?? []).some((m) => m.meta?.is_test === false));
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');

@@ -55,6 +55,7 @@ export class ServiceDeskReportsService {
            FROM servicedesk.requests r
            JOIN servicedesk.categories c ON c.tenant_id = r.tenant_id AND c.id = r.category_id
           WHERE r.deleted_at IS NULL
+            AND NOT r.is_test
             AND r.created_at >= (?::date)::timestamp AT TIME ZONE ?
             AND r.created_at <  ((?::date + 1))::timestamp AT TIME ZONE ?
             ${colas ? "AND r.queue_id = ANY(string_to_array(?, ',')::uuid[])" : ''}

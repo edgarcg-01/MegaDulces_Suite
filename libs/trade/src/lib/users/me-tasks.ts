@@ -169,6 +169,7 @@ export const FUENTES_VISIBLES: readonly FuenteTareaDef[] = [
           .where({ tenant_id: tenantId })
           .where(a.col_asignado_a, userId)
           .whereNull('deleted_at')
+          .where({ is_test: false }) // `[MS.7.12]` un ticket de prueba no es una tarea
           .whereIn(a.col_estado as string, dialectosAbiertos(a)),
         a.col_asignado_at,
         a.col_vence,

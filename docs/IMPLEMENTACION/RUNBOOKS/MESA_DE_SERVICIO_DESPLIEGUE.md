@@ -322,6 +322,7 @@ A partir de la fase multi-área ([`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md
 | 5 | `20261007310000_servicedesk_zonas` | **ANTES** del código | Zonas y `asks_zone`. |
 | 6 | `20261007320000_servicedesk_campos_por_cola` | **ANTES** del código | `queue_fields` y `requests.extra`; **no siembra campos**. |
 | 7 | `20261007350000_servicedesk_pausa_ruteo_traslado` | **ANTES** del código | `pause_reason`, `routing_rules.warehouse_code`, `kind='transfer'`. |
+| 8 | `20261007340000_servicedesk_is_test` | **ANTES** del código | `requests.is_test` (default `false`: nada cambia hasta que la coordinación marque uno). Después de desplegar, marcar desde la pantalla el «Prueba de tickets» (SRV-2026-00003). |
 
 Regla para decidir el momento: una migración **aditiva que el código nuevo lee** (columnas y tablas nuevas) va **antes** — el código viejo las ignora y el nuevo no se cae; una que **cambia el significado de datos que el código viejo lee** (la unicidad del SLA) o **declara un valor que sólo el código nuevo sabe aplicar** (el modelo de riesgo) va con el código o después. Cada una trae `down`; revertir el **código primero**.
 
@@ -334,4 +335,4 @@ Regla para decidir el momento: una migración **aditiva que el código nuevo lee
 
 **Verificación en producción después de desplegar (punta a punta, con tickets de prueba que se cancelan al terminar):** con **dos personas** —una de TI y una de Mantenimiento— comprobar: (a) levantar → asignar → poner en espera con motivo → quien reportó comenta y **no** reanuda → reanudar → resolver → confirmar/cerrar; (b) **acceso cruzado**: la de TI no ve ni toca el ticket de Mantenimiento, y al revés; (c) levantar en TI y **transferir** a Mantenimiento: mismo folio, el hilo viaja entero, TI ya no lo ve y Mantenimiento sí; trasladarlo de vuelta; (d) lo cerrado ya no se traslada. La misma historia está automatizada en el E2E (bloque 32, 691 aserciones) contra una base local — **no sustituye** esta verificación, porque prod tiene sus propios datos.
 
-**Lo que sigue pendiente a propósito:** `is_test` y reportes que lo excluyen (MS.7.12), avisos por cola con plantillas propias (MS.7.13), «Marcar como prueba» en la ficha (7.16), y el resto de lo declarado en cada sección de [`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md) §9.
+**Lo que sigue pendiente a propósito:** avisos por cola con plantillas propias (MS.7.13) y el resto de lo declarado en cada sección de [`FASE_MS7`](../FASES/FASE_MS7_MANTENIMIENTO.md) §9.

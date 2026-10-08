@@ -94,7 +94,7 @@ Orden de la Mesa: primero la base, luego la lógica con sus pruebas, al final la
 | **MS.7.9** ✅ | Ver §9.9. Motivo de pausa en `en_espera` (pausa el SLA); auto-cierre a 3 días ya existente, probado también por cola. | Pausar con motivo, reanudar, el reloj no corre en pausa. |
 | **MS.7.10** ✅ | Ver §9.10. Ruteo por ubicación + responsable por omisión; el destino debe ser **miembro** de la cola del ticket. | Gana la regla más específica y primera por orden; sin regla → default o «sin asignar»; no se asigna a no-miembros. |
 | **MS.7.11** ✅ | Ver §9.11. `transferir` (M6). | Mismo folio/hilo/adjuntos; la categoría debe ser de la cola destino; recalcula SLA; mensaje de sistema; sólo coordina el origen; no se pierde el ticket en una cola que nadie atiende (la destino debe tener al menos un miembro activo). |
-| **MS.7.12** | `is_test` + reportes por cola. | Un `is_test` no aparece en ningún reporte ni contador; el filtro por cola respeta el acceso. |
+| **MS.7.12** ✅ | Ver §9.15. `is_test` + reportes por cola. | Un `is_test` no aparece en ningún reporte ni contador; el filtro por cola respeta el acceso. |
 | **MS.7.13** | Avisos por cola (destinatarios = miembros), plantillas con la cola. | Nadie fuera de la cola recibe el aviso. |
 
 ### Siembra
@@ -108,7 +108,7 @@ Orden de la Mesa: primero la base, luego la lógica con sus pruebas, al final la
 | Sprint | Qué |
 |---|---|
 | **MS.7.15** ✅ | Ver §9.12. «Nueva solicitud»: elegir **área** → categorías de esa área → ubicación (ya visible) → zona → campos dinámicos → foto (opcional). |
-| **MS.7.16** ✅ (sin «Marcar como prueba», que es de MS.7.12) | Ver §9.13. Bandeja y ficha por cola: selector de cola (sólo las permitidas), etiqueta de cola en filas y ficha, motivo de pausa, **Transferir a otra área**, **Marcar como prueba**. |
+| **MS.7.16** ✅ (el «Marcar como prueba» llegó con MS.7.12) | Ver §9.13. Bandeja y ficha por cola: selector de cola (sólo las permitidas), etiqueta de cola en filas y ficha, motivo de pausa, **Transferir a otra área**, **Marcar como prueba**. |
 | **MS.7.17** | Configuración de colas: miembros (coordinador/técnicos), responsable por omisión, modelo de prioridad, SLA por cola, campos, zonas. Demuestra la regla 1: **crear otra área sin tocar código**. |
 | **MS.7.18** | Reportes con filtro de cola; «Mi trabajo»: lo «por asignar» de **cada cola que reparte** esa persona. |
 | **MS.7.19** ✅ | Ver §9.14 y runbook §13. Prueba punta a punta en copia: levantar → asignar → pausar → resolver → cerrar → transferir; acceso cruzado TI↔MTO. Despliegue: migraciones **una por una** (`apply-one-migration-prod.js`), nada de `migrate:latest`. |
@@ -341,3 +341,19 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 - **Despliegue:** el runbook ([`MESA_DE_SERVICIO_DESPLIEGUE`](../RUNBOOKS/MESA_DE_SERVICIO_DESPLIEGUE.md) §13) trae ahora **las 7 migraciones de MS.7 en orden, una por una, con el momento de cada una respecto del código** y una verificación punta a punta para prod con dos personas. **Corrige un error mío en el propio runbook:** había escrito que el código de zonas y campos se desplegaba *primero*; pero el código nuevo **lee** esas tablas y columnas, así que esas migraciones aditivas van **antes**. La regla general quedó escrita: una migración aditiva que el código nuevo lee va antes; una que cambia lo que el código viejo lee, o declara un valor que sólo el código nuevo aplica, va con el código o después.
 - **Declarado:** el E2E corre contra una base local, nunca contra prod; la verificación en prod (§13) es manual y con dos personas; los tickets de prueba de prod se **cancelan** (no se marcan como prueba: eso es MS.7.12).
 - **Pruebas:** E2E bloque 32, total **691** aserciones, 0 fallas.
+
+### 9.15 MS.7.12 construido (2026-10-07): tickets de prueba (`is_test`)
+
+- **Qué es:** `requests.is_test` (migración `20261007340000`, aditiva, `NOT NULL DEFAULT false`: todo ticket existente queda como «no es de prueba» y **nada cambia hasta que alguien marque uno**; índice parcial sobre los marcados). Lo marca **la coordinación del área donde está el ticket** (`POST /requests/:id/test { is_test, reason? }`); quien reportó, un técnico y la coordinación de otra cola reciben 403/404. **Sirve en cualquier estado** —el caso típico es un ticket de prueba *ya cerrado o cancelado*, como el «Prueba de tickets» (SRV-2026-00003)—, y se puede revertir. Repetir el mismo valor es un **409**, no un cambio silencioso.
+- **Se EXCLUYE de** (cada punto probado con un control positivo — el mismo hecho sobre un ticket normal SÍ cuenta):
+  - **reportes** (`reports.service`),
+  - **tablero** (`stats`: abiertas, sin asignar y vencidas),
+  - **carga por persona** (`agents.open_count`),
+  - **«Mi trabajo»** (las tareas a nombre de la persona y lo «por asignar» de quien reparte),
+  - **barrido del SLA** (no se marca vencido ni se mide),
+  - **avisos**: en el **punto único de entrega** (`notifications.entregarEvento`), para que lo cubra todo lo que avisa —el alta, los comentarios, el SLA— y ninguna rama futura tenga que acordarse de excluirlo.
+- **NO se excluye de la bandeja:** la coordinación tiene que poder encontrarlo para quitarle la marca; ahí y en la ficha lleva una etiqueta **«Prueba»**. Tampoco de `queue-members.remove` (no se puede sacar de la cola a quien tiene un ticket de prueba asignado: es una restricción de asignación, no de medición).
+- **Queda en el hilo** como nota **interna** (quién, qué y el motivo opcional): quien reportó no necesita verla.
+- **Pantalla:** «Marcar como prueba» / «Quitar marca de prueba» para la coordinación, con un diálogo que **explica qué deja de contar** (para que nadie lo marque a ciegas) y motivo opcional. **También en tickets finales** (cerrados/cancelados), que no tienen barra de acciones: ⭐ *al escribir el spec vi que mi primera versión sólo lo ofrecía en tickets abiertos —justo lo contrario del caso típico—; se agregó un bloque propio para finales con su prueba.*
+- **Pruebas:** E2E bloque 33 (total **718**): base (todo cuenta), 6 rechazos de permisos/forma, marcado con su nota interna invisible para quien reportó, el ticket sigue en la bandeja, cada exclusión (reporte 3→1, tablero, carga, Mi trabajo, avisos, SLA) y su control, y la reversa · view 229 (botón en el DOM por rol y estado incluidos tickets finales, el contrario de lo que es hoy, motivo opcional, diálogo explicativo, etiqueta en ficha y bandeja, rechazo del servidor). **Mutaciones atrapadas:** quitar las 7 exclusiones a la vez pone en rojo **cada** comprobación por separado (reporte, tablero, carga, Mi trabajo, avisos, SLA); quitar el bloque de tickets finales pone en rojo su spec. Visto en navegador sobre un ticket cancelado.
+- **Declarado:** el filtro de la bandeja por «sólo de prueba» no existe (se ven con su etiqueta); un ticket de prueba **sigue contando** para quien lo tiene en `queue-members.remove`; los tickets de prueba **que ya existen en prod** (el SRV-2026-00003) hay que marcarlos desde la pantalla después de desplegar — no se edita prod a mano.

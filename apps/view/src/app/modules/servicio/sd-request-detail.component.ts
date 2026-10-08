@@ -73,6 +73,7 @@ function leerComoDataUri(f: File): Promise<string> {
 
         <div class="sd-badges">
           <span class="sd-st" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span>
+          @if (t.is_test) { <span class="sd-test" title="Solicitud de prueba: no cuenta en reportes, tablero, Mi trabajo ni avisos.">Prueba</span> }
           <span class="sd-pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span>
           @if (sla().texto !== '—') { <span class="sd-sla" [attr.data-t]="sla().tono">{{ sla().texto }}</span> }
         </div>
@@ -142,6 +143,9 @@ function leerComoDataUri(f: File): Promise<string> {
                 @if (asignarA()) { <p-button label="Asignar" size="small" [loading]="busy()" (onClick)="asignar()" /> }
               }
               <!-- [MS.7.11] Trasladar a otra área: es una acción de quien coordina, junto a las demás acciones de quien atiende. -->
+              @if (coord()) {
+                <p-button [icon]="t.is_test ? 'pi pi-flag-fill' : 'pi pi-flag'" [label]="t.is_test ? 'Quitar marca de prueba' : 'Marcar como prueba'" size="small" severity="secondary" [text]="true" (onClick)="modo.set('prueba')" />
+              }
               @if (puedeTransferir()) {
                 <p-button icon="pi pi-arrow-right-arrow-left" label="Transferir a otra área" size="small" severity="secondary" [text]="true" (onClick)="pedirTraslado()" />
               }
@@ -167,6 +171,14 @@ function leerComoDataUri(f: File): Promise<string> {
                   <span>¿Qué se espera? *</span>
                   <p-select [options]="motivosPausa" optionLabel="label" optionValue="value" [ngModel]="motivoPausa()" (ngModelChange)="motivoPausa.set($event)" placeholder="Elige el motivo" appendTo="body" ariaLabel="Motivo de la espera" />
                 </label>
+              }
+              <!-- [MS.7.12] Qué hace marcar un ticket como de prueba (para que nadie lo haga a ciegas). -->
+              @if (m === 'prueba') {
+                <p class="sd-hint" role="note">
+                  {{ r()?.is_test
+                    ? 'Al quitar la marca, la solicitud vuelve a contar en reportes, tablero, Mi trabajo y avisos.'
+                    : 'Una solicitud de prueba NO cuenta en reportes, tablero, carga de trabajo, Mi trabajo ni avisos. Sigue visible en la bandeja para poder quitarle la marca. Queda registrado en el historial.' }}
+                </p>
               }
               <!-- [MS.7.11] A qué área se traslada y con qué categoría (la del área destino). El servidor vuelve a exigirlo todo. -->
               @if (m === 'transferir') {
@@ -210,6 +222,31 @@ function leerComoDataUri(f: File): Promise<string> {
                 </ul>
               }
             </details>
+          }
+        }
+
+        <!-- [MS.7.12] Un ticket FINAL (cerrado/cancelado) no tiene barra de acciones, pero es justo el caso típico de «era de prueba»:
+             la coordinación puede marcarlo para sacarlo de los reportes. Mismo diálogo, mismas reglas del servidor. -->
+        @if (esFinal() && coord()) {
+          <div class="sd-actions" role="group" aria-label="Acciones de la coordinación">
+            <p-button [icon]="t.is_test ? 'pi pi-flag-fill' : 'pi pi-flag'" [label]="t.is_test ? 'Quitar marca de prueba' : 'Marcar como prueba'" size="small" severity="secondary" [text]="true" (onClick)="modo.set('prueba')" />
+          </div>
+          @if (modo() === 'prueba') {
+            <div class="sd-modo" role="group" aria-label="Marcar como prueba">
+              <p class="sd-hint" role="note">
+                {{ t.is_test
+                  ? 'Al quitar la marca, la solicitud vuelve a contar en reportes, tablero, Mi trabajo y avisos.'
+                  : 'Una solicitud de prueba NO cuenta en reportes, tablero, carga de trabajo, Mi trabajo ni avisos. Sigue visible en la bandeja para poder quitarle la marca. Queda registrado en el historial.' }}
+              </p>
+              <label class="sd-field">
+                <span>{{ tituloModo() }}</span>
+                <textarea pTextarea rows="2" [ngModel]="notaModo()" (ngModelChange)="notaModo.set($event)" [placeholder]="placeholderModo()"></textarea>
+              </label>
+              <div class="sd-modo-foot">
+                <p-button label="Confirmar" size="small" [loading]="busy()" (onClick)="ejecutarModo()" />
+                <p-button label="Volver" size="small" [text]="true" severity="secondary" (onClick)="cerrarModo()" />
+              </div>
+            </div>
           }
         }
 
@@ -272,6 +309,7 @@ function leerComoDataUri(f: File): Promise<string> {
     .sd-badges { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
     .sd-st, .sd-pri, .sd-sla { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; }
     .sd-st { background: var(--surface-2); color: var(--text-muted); }
+    .sd-test { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); background: var(--warn-soft-bg); color: var(--warn-soft-fg); border: 1px dashed currentColor; }
     .sd-st[data-s='asignado'], .sd-st[data-s='en_proceso'] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
     .sd-st[data-s='en_espera'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .sd-st[data-s='resuelto'], .sd-st[data-s='cerrado'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
@@ -374,7 +412,7 @@ export class SdRequestDetailComponent {
   readonly interna = signal(false);
   readonly archivos = signal<File[]>([]);
 
-  readonly modo = signal<'reabrir' | 'cancelar' | 'resolver' | 'espera' | 'transferir' | null>(null);
+  readonly modo = signal<'reabrir' | 'cancelar' | 'resolver' | 'espera' | 'transferir' | 'prueba' | null>(null);
   readonly notaModo = signal('');
   /** `[MS.7.9]` Lo que se espera al poner en espera (obligatorio: el servidor lo exige). */
   readonly motivoPausa = signal<SdPauseReason | null>(null);
@@ -476,8 +514,8 @@ export class SdRequestDetailComponent {
     return ({ en_proceso: this.r()?.status === 'resuelto' ? 'Reabrir' : 'Iniciar', en_espera: 'Poner en espera', resuelto: 'Marcar resuelta' } as Partial<Record<SdStatus, string>>)[s] ?? STATUS_LABEL[s];
   }
 
-  readonly tituloModo = computed(() => ({ reabrir: '¿Qué sigue sin funcionar?', cancelar: 'Motivo de la cancelación', resolver: 'Cómo se resolvió', espera: 'Qué se espera y de quién', transferir: 'Por qué se traslada a otra área' } as const)[this.modo() ?? 'cancelar']);
-  readonly placeholderModo = computed(() => ({ reabrir: 'Cuéntanos qué pasa todavía', cancelar: 'Opcional', resolver: 'Describe la solución para que quede registrada', espera: 'Opcional, pero ayuda a quien reportó', transferir: 'Lo leerán las dos áreas en el historial' } as const)[this.modo() ?? 'cancelar']);
+  readonly tituloModo = computed(() => ({ reabrir: '¿Qué sigue sin funcionar?', cancelar: 'Motivo de la cancelación', resolver: 'Cómo se resolvió', espera: 'Qué se espera y de quién', transferir: 'Por qué se traslada a otra área', prueba: 'Motivo (opcional)' } as const)[this.modo() ?? 'cancelar']);
+  readonly placeholderModo = computed(() => ({ reabrir: 'Cuéntanos qué pasa todavía', cancelar: 'Opcional', resolver: 'Describe la solución para que quede registrada', espera: 'Opcional, pero ayuda a quien reportó', transferir: 'Lo leerán las dos áreas en el historial', prueba: 'Ej. prueba del flujo de Mantenimiento' } as const)[this.modo() ?? 'cancelar']);
   /** Reabrir y resolver exigen nota: el servidor también lo exige, esto evita el viaje. */
   readonly nota_obligatoria = computed(() => this.modo() === 'reabrir' || this.modo() === 'resolver' || this.modo() === 'transferir');
 
@@ -515,6 +553,10 @@ export class SdRequestDetailComponent {
     if (!m) return;
     const id = this.id();
     const fin = () => this.cerrarModo();
+    if (m === 'prueba') {
+      const esPrueba = !this.r()?.is_test; // lo contrario de lo que es hoy
+      return this.ejecutar(this.api.markTest(id, { is_test: esPrueba, reason: nota || undefined }), esPrueba ? 'Marcada como solicitud de prueba.' : 'Se quitó la marca de prueba.', fin);
+    }
     if (m === 'transferir') {
       const q = this.destinoArea();
       const c = this.destinoCategoria();
