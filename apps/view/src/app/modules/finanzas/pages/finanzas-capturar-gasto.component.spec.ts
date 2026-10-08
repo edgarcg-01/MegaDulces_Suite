@@ -344,7 +344,7 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
 
     expect(comp.formError()).toContain('Almacenamiento no configurado');
     // Y NO manda a reintentar algo que no se arregla reintentando.
-    expect(comp.formError()).not.toContain('Reintentá');
+    expect(comp.formError()).not.toContain('Vuelve a intentar');
     // Dice CUÁL archivo, que con varios adjuntos es la mitad del dato.
     expect(comp.formError()).toContain('vale.pdf');
   });
@@ -363,7 +363,7 @@ describe('[GX.17] FinanzasCapturarGastoComponent · qué dice el botón', () => 
 
     comp.submit();
     http.expectOne((r) => r.url.endsWith('/upload')).flush(null, { status: 500, statusText: 'Server Error' });
-    expect(comp.formError()).toContain('Reintentá');
+    expect(comp.formError()).toContain('Vuelve a intentar');
   });
 
   /** Y sin la foto NO se puede: el respaldo no es opcional, sólo cambió cuál es. */
