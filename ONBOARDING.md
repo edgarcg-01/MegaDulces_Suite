@@ -191,7 +191,13 @@ El desarrollo de este proyecto se apoya fuerte en **Claude Code**. Puntos clave 
 
 ## 8. Flujo de Git (equipo de 4)
 
-> El repo históricamente trabajó con push directo a `main` (1 dev). **Eso ya no aplica.**
+> ⭐ **SE TRABAJA SOBRE `main`.** Decisión de Edgar, 2026-10-08: commiteás y empujás a `main`, sin
+> rama por feature. **Esta sección decía lo contrario** («el push directo a `main` ya no aplica») y
+> quedó al revés. Las razones y lo que las motivó están en [`CLAUDE.md`](CLAUDE.md) arriba de todo.
+>
+> ⛔ **Una rama sólo se justifica si el trabajo no puede entrar a `main` a medias.** Si la abrís: va
+> contra `main`, **nunca apilada sobre otra rama** (§8.0b explica por qué: un PR contra otra rama
+> **no corre CI**), y se borra al mergear.
 
 ### 8.0 Lo primero, una sola vez por máquina
 
@@ -204,25 +210,53 @@ Apunta git a `.githooks/`, que trae **tres** compuertas — y sin este comando *
 | Hook | Qué hace |
 | --- | --- |
 | `pre-commit` | **(1)** Marcador de conflicto sin resolver → **bloquea** (94 ms sobre lo staged). Ya entró al repo una vez y rompió el build: `fix([RA-PRO.60-62]): resolver marcador de conflicto en compras.service`. **(2)** Escaneo de secretos con **gitleaks**. Existe desde el 2026-07-24, se escribió *después de una fuga de credenciales de prod al repo* — y nació «opt-in», mencionado sólo en el CHANGELOG. Medido el 2026-09-30: `core.hooksPath` estaba **sin configurar**, o sea que llevaba **dos meses sin correr para nadie**. |
-| `pre-push` | Bloquea el push directo a `main` y corre 6 gates estáticos sobre **tus** archivos (~2.5 s, en paralelo). No te frena con la deuda preexistente del repo. |
+| `pre-push` | Corre 13 gates estáticos sobre **tus** archivos (en paralelo). No te frena con la deuda preexistente del repo: te la informa aparte. ⛔ **Acá decía que «bloquea el push directo a `main`» y era FALSO** — medido el 2026-10-08: la palabra `main` no aparece ni una vez en `.githooks/pre-push`, y los pushes directos pasan. Hoy además sería al revés de la regla. |
 | `post-checkout` | Avisa cuando **cambiaste la rama de un árbol compartido** y cuando tu línea lleva >20 commits sin sincronizar. No bloquea: corre después del hecho. Ver §8.1. |
 
-Hoy `main` no tiene protección del lado de GitHub (ver el ⚠️ de abajo), así que esto es lo único
-que separa un commit roto de la rama de la que se deploya.
+⛔ **Acá decía que «hoy `main` no tiene protección del lado de GitHub» y es FALSO desde el
+2026-10-02.** Medido el 2026-10-08, `main` exige `Build & typecheck (affected)` + `Secret scan
+(gitleaks)`, y bloquea force-push, borrado e historia no lineal. ⚠️ Pero **`enforce_admins` está en
+`false`**, así que el admin las saltea y nadie más: de los últimos 40 commits, **30 son pushes
+directos de Edgar y cero de los otros cuatro**, que entran 100% por PR. O sea que "se trabaja sobre
+`main`" hoy es cierto para **una** persona; para que valga para el equipo hay que decidir qué pasa
+con esos checks.
+
+⭐ **Lo que de verdad separa un commit roto de producción NO es ninguna de esas dos cosas: es
+`ci-green`.** El job `sellar` sólo mueve esa rama marcadora si `build` + `secret-scan` pasan, y
+`ops/prod/auto-deploy.sh` se niega a desplegar un commit que el sello no bendijo. `main` puede
+ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que la arregles.
 
 > `npm run hooks:check` te dice si quedó activo · `npm run hooks:uninstall` lo desactiva.
 > El escape de emergencia es `git push --no-verify`, y deja rastro: el CI lo va a marcar igual.
 
 ---
 
-1. **Rama por feature**: `git switch -c feat/<descripción-corta>` desde `main` actualizado.
+1. **Trabajás sobre `main`.** `git switch main && git pull --rebase` antes de empezar.
+   ⭐ Eso **no** significa todos sobre el mismo checkout: **una sesión, un worktree**
+   (`git worktree add -B <tema> /c/tmp/<tema> origin/main`). Trabajar todos sobre la misma rama y
+   trabajar todos sobre el mismo *árbol* son cosas distintas, y la segunda es la que rompe:
+   medido el 2026-10-08, el checkout compartido quedó divergido y **nadie podía ni traer ni
+   empujar**, y un rebase falló dos veces porque otra sesión escribía mientras tanto.
 2. **Commits** con la convención del tracker: `feat([RA.11]): descripción` — el código entre brackets viene del tracker.
-3. **Abrí un PR** contra `main` — **siempre contra `main`, sin apilar** — después de pasar el **protocolo previo de §8.0b**. El CI (build + lint/test affected + secret-scan) debe pasar en verde.
-4. **Al menos 1 review** de otro dev antes de mergear.
-5. **Nadie pushea directo a `main`.** La compuerta de §8.0 lo bloquea en tu máquina.
-6. Al mergear: se hace **squash** y la rama se borra sola. Cerrá el item en el tracker.
-   ⚠️ **Mergear a `main` despliega a producción en ≤5 min** — `ops/prod/auto-deploy.sh` mira
-   `origin/main` solo. No es un merge inocuo.
+3. **Empujás a `main`.** El `pre-push` corre tus 13 gates antes de dejarte. Si algo sale rojo, es
+   **tuyo** (la deuda ajena se informa aparte y no frena).
+4. **Antes de empujar, aplicá el protocolo de §8.0b.** Sigue valiendo entero: fundir `origin/main`
+   y volver a probar, las reglas de migraciones, y declarar los cambios de comportamiento. Con
+   push directo importa **más**, no menos: ya no hay un PR donde el CI corra antes de que entre.
+5. **Una rama sólo si el trabajo no puede entrar a `main` a medias.** Va contra `main`, **nunca
+   apilada sobre otra** (§8.0b dice por qué: un PR contra otra rama **no corre CI**), y se borra al
+   mergear — `delete_branch_on_merge` está prendido. ⚠️ Hay un barredor semanal
+   ([`.github/workflows/ramas-abandonadas.yml`](.github/workflows/ramas-abandonadas.yml)) que borra
+   lo que lleva 30 días sin PR abierto; si aparcás algo a propósito, anotalo en
+   [`.github/ramas-protegidas.txt`](.github/ramas-protegidas.txt) o lo perdés.
+6. ⛔ **Acá decía «al menos 1 review de otro dev» y describe algo que no ocurre.**
+   `required_approving_review_count` es **ninguna** y 1 de los últimos 25 PRs mergeados tuvo
+   reseña. Se deja escrito porque una línea que describe un proceso inexistente se cita para dar
+   por revisado lo que nadie miró. Si se quiere revisión de verdad, se prende en la protección.
+7. ⛔ **Y decía «mergear a `main` despliega a producción en ≤5 min»: FALSO desde `[CD.22]`.** El
+   vigía ya no mira `main` sino **`prod-release`**, que mueve una persona con
+   `sh ops/prod/soltar.sh`. Empujar a `main` **no** despliega: deja el commit sellado y listo para
+   soltar. Detalle en [`ops/prod/RUNBOOK-despliegue.md`](ops/prod/RUNBOOK-despliegue.md) §0.1.
 
 ---
 
