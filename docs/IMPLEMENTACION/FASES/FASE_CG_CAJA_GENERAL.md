@@ -2277,3 +2277,76 @@ garantizaba que estuviera cableada. Se reescribió para **entrar por donde entra
 literal rompe el build; lo agarró `check:templates` con archivo y línea. Y un gate que no conocía
 —espaciado fuera de la escala `--sp-*`— rechazó un `padding:0 .25rem` en el `<kbd>`; `--sp-1` es
 exactamente `0.25rem`, así que el visual es idéntico.
+
+---
+
+## §29 · `[CG.63]` — la FILA es el botón, y la captura entra con una animación
+
+> Edgar: *"el botón de capturar se ve muy poco y al abrir no hace una animación fluida"* → y al
+> ofrecerle delinear el botón: *"no le estás dando visibilidad, además lo especificás como si
+> fuera algo secundario, **es el botón principal de la interacción**. me gustaría que al darle
+> clic a todo el movimiento se despliegue el menú"*. Commit `a93f40b1f`.
+
+### 1 · La fila es el botón
+
+⭐ **El arreglo no era pintarlo más fuerte.** `[CG.61]` había pasado la salida a un icono de 2 rem
+en el borde derecho de un renglón de 40 rem: delinearlo lo hacía más visible y lo dejaba **igual
+de secundario**. Un control de 2 rem al borde no puede ser la acción principal de una fila.
+
+La fila entera abre el movimiento, y el botón por fila **se retira**. Queda el **galón** (`›`),
+que no es un botón: es la señal de que esto abre. Y la fila lo **dice antes del clic** con las
+tres cosas que lo dicen — cursor, fondo al pasar por encima, y el galón que se tiñe.
+
+⚠️ **ABIERTA y MARCADA son dos hechos distintos y no se pintan igual:** una es *"en esto estoy
+trabajando"* (borde + galón en `--action`), la otra *"esto entra al lote"* (fondo + barra
+izquierda).
+
+### ⛔⛔ Lo que cuesta, dicho
+
+**Marcar fila por fila ya no existe, ni con el mouse ni con el teclado.** El clic marcaba; ahora
+abre. Y `Space` sobre la fila hace **lo mismo** que el clic, así que tampoco queda ese camino —
+*escribí lo contrario en un comentario y era falso; está corregido en el código*. El lote se arma
+con **«Marcar las N»** de la barra: todas las confirmables del filtro, de un golpe.
+
+Si hace falta elegir a dedo con el mouse, hay que devolverle a la fila **una casilla propia**. Es
+justo lo que `[CG.56]` retiró — pero **por un motivo que ya no aplica**: entonces la casilla era
+una *segunda* forma de hacer lo que hacía el clic; hoy sería la **única**. **Queda a decisión de
+Edgar.**
+
+### ⭐ El invariante que casi se va en la mudanza
+
+*«Nunca marcar una fila que el servidor va a rechazar»* vivía en `onSeleccionTabla`, el callback
+de la tabla — o sea **atado a un dispositivo de entrada**. Al pasar el clic de marcar a abrir, ese
+callback desapareció, y el freno se habría ido con él **sin que nada se pusiera rojo**:
+`marcarTodas` filtra por su cuenta, así que la suite seguía verde con el agujero abierto en el
+camino de a una. El freno se mudó a `marcar()`, que es donde pertenece: **lo verifica el método
+que marca, venga de donde venga.**
+
+### 2 · La entrada
+
+Los dos apartados cambiaban **de golpe**. Ahora entran como **un gesto** — la ficha primero y el
+arqueo 60 ms después. El escalonado no es adorno: es el orden de lectura que la pantalla ya
+declara (1 qué vas a arquear, 2 el arqueo) hecho visible una vez.
+
+⛔ Sólo `transform` + `opacity` (DESIGN 8 / §Motion), **250 ms** (`--dur-standard`), debajo del
+techo de 350. Y quien pide menos movimiento recibe **ninguno**, no una versión más lenta.
+
+⚠️ Primero puse la animación en `.cg-detail` y `.cg-ap-cuerpo`, que son contenedores
+**permanentes**: eso animaba **al cargar la página**, no al abrir. Va en un envoltorio **dentro
+del `@if`**, que es lo que nace al abrir. **Declarado:** cambiar de un movimiento a otro con la
+captura ya abierta **no reanima**, porque el `@if` no reinserta nada.
+
+### Verificación
+
+**167/167** en caja-general (2 pruebas nuevas, 3 repunteadas); suite completa de view **2,190
+pasadas, ninguna roja**. `typecheck`, `check:templates`, `check:teclado`, `check:primeng` y
+`check:tokens` verdes. `check:motion` sigue en su deuda histórica (49) y **ninguna línea es de
+esta pantalla**.
+
+**Mutado tres veces, las tres rojas:** volver a `selectionMode="multiple"` (el clic marcaría otra
+vez) · quitar el freno de `marcar()` · quitar el galón.
+
+⚠️ **Undécima vez** que un acento grave en un comentario del template literal rompe el build, y
+**tercera vez en esta sesión** que un reemplazo multilínea no aplica porque el archivo es **CRLF**.
+Esta vez el script **normaliza a LF para trabajar y devuelve CRLF al escribir**, en vez de escapar
+los `\r` a mano — que es lo que venía fallando.
