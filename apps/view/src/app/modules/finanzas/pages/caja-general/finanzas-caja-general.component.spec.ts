@@ -518,6 +518,138 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(boton.getAttribute('aria-label') ?? '').toContain(FILA_A.folio);
   });
 
+  // ── [CG.62] Guardar baja al pie del arqueo, y pregunta antes ──────────────────────────────
+  //
+  // Edgar: *"el botón de guardar se debe mostrar abajo de arqueo, para solo pasar del arqueo a
+  // guardar"* + *"una ventana de «seguro que querés guardar»"*.
+
+  it('Guardar vive al pie del ARQUEO y DESPUÉS de la reja: la flecha llega a él', async () => {
+    const fx = montar();
+    comp.abrirCaptura();
+    // ⚠️ Con bloqueos el botón está DESHABILITADO, y `moverFoco` lo salta a propósito: no se
+    // puede caer con una flecha en un control que no se puede apretar. Así que la prueba llega
+    // al estado guardable de verdad — si no, mediría el caso en el que el salto no debe ocurrir.
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });
+    expect(comp.bloqueos()).toEqual([]);
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const boton: HTMLElement = fx.nativeElement.querySelector('button.cg-guardar');
+    expect(boton, 'no hay botón de guardar').not.toBeNull();
+    expect(boton.closest('.cg-ap-arqueo'), 'Guardar no está en el apartado del arqueo').not.toBeNull();
+
+    // ⭐ Y el ORDEN importa, no es cosmético: `moverFoco` recorre el DOM con `querySelectorAll`,
+    // así que si el botón quedara ANTES de la reja la flecha hacia abajo saltaría hacia atrás.
+    const ultima: HTMLElement = Array.from(
+      fx.nativeElement.querySelectorAll('input.cg-pieza'),
+    ).pop() as HTMLElement;
+    expect(ultima, 'no hay campos de pieza').toBeTruthy();
+    expect(ultima.compareDocumentPosition(boton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // La cadena de la flecha los incluye a los dos: del último campo contado, al botón.
+    const cadena = Array.from(
+      fx.nativeElement.querySelectorAll('input.cg-pieza, button.cg-guardar'),
+    );
+    expect(cadena[cadena.length - 1]).toBe(boton);
+
+    // ⭐ Y se EJERCE, no se infiere del DOM: la flecha desde el último campo contado tiene que
+    // dejar el foco en Guardar. `moverFoco` llamaba `.select()` sin preguntar, y un botón no lo
+    // tiene — el defecto habría reventado justo acá, en la última flecha del arqueo.
+    ultima.focus();
+    comp.moverEnReja({ target: ultima, preventDefault: () => undefined } as unknown as Event, 1);
+    expect(document.activeElement, 'la flecha no llegó a Guardar').toBe(boton);
+
+    // Y vuelve: quien baja de más no queda atrapado en el botón.
+    comp.moverEnReja({ target: boton, preventDefault: () => undefined } as unknown as Event, -1);
+    expect(document.activeElement).toBe(ultima);
+  });
+
+  it('⭐ el atajo se ANUNCIA: en el campo y escrito en la cabecera', async () => {
+    // D.5 lo exige y nada lo hacía cumplir: *"un atajo que nadie sabe que existe no existe"*.
+    // Medido antes de tocar nada: CERO `aria-keyshortcuts` en esta pantalla, y UNO en todo el
+    // repo. Las flechas del arqueo llevaban varios commits funcionando en silencio — y Edgar
+    // reportó «no me puedo mover con las flechas» sobre la única parte donde sí se podía.
+    const fx = montar();
+    comp.abrirCaptura();
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const campos = Array.from(
+      fx.nativeElement.querySelectorAll('input.cg-pieza'),
+    ) as HTMLElement[];
+    expect(campos.length, 'no hay campos de pieza').toBeGreaterThan(0);
+    for (const c of campos) {
+      expect(c.getAttribute('aria-keyshortcuts'), 'un campo de la reja no anuncia su atajo')
+        .toContain('ArrowDown');
+    }
+
+    // Y en pantalla, no sólo para el lector: la cabecera del arqueo lo dice.
+    const cab: HTMLElement = fx.nativeElement.querySelector('.cg-ap-arqueo .cg-ap-head');
+    expect(cab.textContent, 'la cabecera del arqueo no escribe el atajo').toContain('Guardar');
+    expect(cab.querySelectorAll('kbd').length).toBeGreaterThan(0);
+  });
+
+  it('⛔ [negativa] con el formulario incompleto la flecha NO cae en Guardar', async () => {
+    // Un foco que aterriza en un botón apagado es un callejón: el teclado llega y no puede hacer
+    // nada, y volver exige el mouse. `moverFoco` salta lo deshabilitado; esto lo congela.
+    const fx = montar();
+    comp.abrirCaptura();
+    contar({ 500: 3 });                 // hay algo contado, pero falta la clasificación
+    await Promise.resolve();
+    fx.detectChanges();
+    expect(comp.bloqueos().length, 'el formulario tendría que seguir bloqueado').toBeGreaterThan(0);
+
+    const ultima: HTMLElement = Array.from(
+      fx.nativeElement.querySelectorAll('input.cg-pieza'),
+    ).pop() as HTMLElement;
+    ultima.focus();
+    comp.moverEnReja({ target: ultima, preventDefault: () => undefined } as unknown as Event, 1);
+    expect(document.activeElement, 'la flecha cayó en un botón apagado').toBe(ultima);
+  });
+
+  it('⛔ [negativa] Guardar NO guarda: abre la pregunta, y la pregunta DICE el veredicto', () => {
+    const crear = vi.fn(() => of({ id: 'x', folio: 'F-1' }));
+    const fx = montar({ crear });
+    comp.abrirCaptura();
+    // ⚠️ Se llega al estado GUARDABLE de verdad, no se finge: con bloqueos el botón está apagado
+    // y `pedirConfirmacion` sale sin hacer nada — una prueba que no los limpiara pasaría por la
+    // rama equivocada y diría «no guardó» sobre un botón que ni se podía apretar.
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });
+    expect(comp.bloqueos()).toEqual([]);
+    fx.detectChanges();
+
+    // ⭐ Se APRIETA EL BOTÓN, no se llama al método. La primera versión de esta prueba invocaba
+    // `pedirConfirmacion()` directo, y mutar el template a `(onClick)="guardar()"` la dejaba
+    // VERDE: medía una función que nadie garantizaba que estuviera cableada. El candado tiene
+    // que entrar por donde entra la persona.
+    const boton: HTMLElement = fx.nativeElement.querySelector('button.cg-guardar');
+    expect(boton, 'no hay botón de guardar').not.toBeNull();
+    boton.click();
+    fx.detectChanges();
+
+    // ⛔ Lo que define que sea una guarda y no un trámite: todavía NO se guardó nada.
+    expect(crear, 'Guardar escribió sin preguntar').not.toHaveBeenCalled();
+    expect(comp.confirmarGuardar()).toBe(true);
+
+    // ⚠️ Y que la ventana DIGA qué va a pasar. Un "¿estás seguro?" mudo es un clic de peaje que
+    // se aprende a tirar sin leer: estorba sin proteger. Tiene que repetir el veredicto del
+    // arqueo, que es lo único que no se puede deshacer después.
+    const conf: HTMLElement = fx.nativeElement.querySelector('.cg-conf');
+    expect(conf, 'la ventana no se pintó').not.toBeNull();
+    expect(conf.textContent).toContain(comp.textoVeredicto(comp.arqueoVeredicto()));
+
+    // Y recién al confirmar se escribe.
+    comp.guardar();
+    expect(crear).toHaveBeenCalledTimes(1);
+    expect(comp.confirmarGuardar(), 'la ventana quedó abierta tapando el aviso').toBe(false);
+  });
+
   it('⭐ pero marcar SIGUE siendo posible y se VE: sin esto, limpiar dejaría la bandeja muerta', async () => {
     const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     await Promise.resolve();
@@ -2580,9 +2712,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       const panel = fx.nativeElement.querySelector('.cg-detail');
       // El formulario esta DENTRO del detalle...
       expect(panel.querySelector('.fin-form'), 'el formulario va en el panel').toBeTruthy();
-      // ...y Guardar tambien, pegado al pie del panel.
+      // ...y su salida tambien. ⭐ [CG.62] Guardar YA NO esta aca: bajo al pie del arqueo, que es
+      // donde termina el trabajo. Lo que queda en la ficha es Cancelar, que es la salida.
       expect(panel.querySelector('.cg-detail-pie'), 'el pie va en el panel').toBeTruthy();
-      expect(panel.querySelector('.cg-detail-pie').textContent).toContain('Guardar');
+      expect(panel.querySelector('.cg-detail-pie').textContent).toContain('Cancelar');
 
       // ⛔ Y NINGUN dialogo abierto lo contiene. Es la asercion que define O.1: si manana alguien
       // lo devuelve a un p-dialog, esto cae.
