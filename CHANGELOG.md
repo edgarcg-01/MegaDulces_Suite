@@ -9,6 +9,18 @@
 ---
 
 ## [Unreleased]
+### Added — Surtido: "tomar el siguiente" (GP.3a, 2026-10-08)
+- `POST /reparto/surtido/waves/next`: el surtidor recibe la ola que ya trae o la libre más vieja de su almacén (dos a la vez nunca se llevan la misma); si no hay, se arman desde los pedidos autorizados de Kepler. `GET /reparto/surtido/waves/mine`.
+- Al arrancar una ola se congela lo que pidió cada pedido (`commercial.wave_order_lines`, mig `20261008003045`) y la presentación de la hoja (3 BTO). El reparto usa lo congelado: un cambio en Kepler a medio surtido ya no frena el cierre, se informa.
+
+### Added — Pantalla del surtidor en el celular (GP.3b, 2026-10-08)
+- `/almacen/surtir`: "Tomar siguiente", cada renglón con Completo / Faltante en la presentación de la hoja, y "Terminé de surtir" (apagado mientras haya renglones sin tocar). Entra por el área Pedidos del almacén.
+- La ola guarda su origen y quién la armó (`picking_waves.origen/armada_por`): el filtro de origen se respeta al tomar, y sólo las olas armadas por el sistema se cancelan solas si no arrancan.
+- Un surtidor nunca recibe dos olas aunque la petición llegue dos veces (candado por persona), y ya no se puede cerrar una ola que no se arrancó.
+
+### Fixed — El reparto del surtido ordenaba la prioridad de entrega por día de la semana (GP.3a, 2026-10-08)
+- La fecha de entrega llegaba como `"Thu Oct 08"` (`String()` sobre el `date` de pg) y se comparaba como texto. Ahora sale de `to_char` en el SQL.
+
 ### Added — Arqueo de caja: buscador en «Arqueos recientes» y reimpresión de cada arqueo (SM.43, 2026-10-07)
 - `/tienda/arqueo`: buscador sobre el historial por **monto, hora, caja o cajera** (también fecha, tipo, sucursal o folio). Varias palabras acotan («caja 2 retiro»); «caja 7» es la caja 7, no cualquier fila con un 7. Dice cuántas filas coinciden y en qué universo busca (lo ya cargado). Columna nueva **Hora**.
 - Botón **Reimprimir** en cada arqueo: el ticket sale con lo guardado (denominaciones y medios declarados) y marcado **REIMPRESION** con su fecha; para la cajera sigue sin esperado ni diferencia.
