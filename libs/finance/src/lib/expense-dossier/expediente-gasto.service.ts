@@ -1,6 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ObjectStorageService, Permission } from '@megadulces/platform-core';
+import type { TransferenciaGasto } from '@megadulces/contracts';
 import { ExpenseProofsService } from '../expense-proofs/expense-proofs.service';
+import { leerTransferenciasDelGasto, transferenciasDelVale } from '../expense-proofs/transferencias-del-gasto';
 
 /**
  * `[GX.15]` — **El expediente del gasto: los cuatro eslabones en un solo lugar.**
@@ -65,6 +67,13 @@ export interface ExpedienteGasto {
   solicitud: Record<string, unknown> | null;
   expediente: Record<string, unknown> | null;
   gastos: Record<string, unknown>[];
+  /**
+   * `[GX.75]` Las transferencias `XD2601` que pagaron esos gastos (Kepler `kdm5`).
+   * ⛔ `null` = no se pudo medir (no hay ODS de Kepler); `[]` = Kepler no tiene ninguna aplicada.
+   * Es información del expediente, NO un requisito del trámite: un gasto se paga también en
+   * efectivo o por caja, así que `derivarEtapa` no la lee.
+   */
+  transferencias: TransferenciaGasto[] | null;
   comprobaciones: Record<string, unknown>[];
   tramite: { etapa: EtapaExpediente; label: string; falta: string[] };
   /** Cuándo se armó. Un expediente es una foto, y la foto lleva su hora. */
@@ -239,9 +248,14 @@ export class ExpedienteGastoService {
         cuadra_con_solicitud: this.cuadra(Number(g.importe), solImporte),
       }));
       const sumaGastos = gastos.reduce((a, g) => a + Number(g.importe), 0);
+      const folios = gastos.map((g: any) => g.doc_folio).filter(Boolean);
+
+      // ── 3b · `[GX.75]` La transferencia XD2601 que pagó cada gasto (Kepler kdm5) ──
+      // La misma lectura que la pantalla del Expediente: una sola regla, no dos.
+      const mapaTransf = await leerTransferenciasDelGasto(trx, folios.map((f: string) => ({ sucursal: suc, gasto_folio: f })));
+      const transferencias = mapaTransf ? transferenciasDelVale(suc, folios.map(String), mapaTransf) : null;
 
       // ── 4 · Las comprobaciones propias, por folio de GASTO ────────────────────────
-      const folios = gastos.map((g: any) => g.doc_folio).filter(Boolean);
       const compsRaw: any[] = folios.length
         ? await trx('finance.expense_comprobaciones')
           .where('tenant_id', tenantId)
@@ -273,6 +287,7 @@ export class ExpedienteGastoService {
         solicitud: { ...s, importe: solImporte, iva: s.iva == null ? null : Number(s.iva) },
         expediente,
         gastos,
+        transferencias,
         comprobaciones,
         tramite,
         generado_at: new Date().toISOString(),
@@ -335,7 +350,9 @@ export class ExpedienteGastoService {
         .whereRaw('fecha <= current_date')
         .whereNot('estado', 'C') // cancelada en Kepler no se comprueba: se canceló
         .modify((b: any) => {
-          if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]);
+          // `[GX.75]` `'\\s+'`, no `'\s+'`: en un string de JS el `\s` se come la barra y a
+          // Postgres le llegaba `'s+'` — reemplazaba letras «s», no espacios.
+          if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]);
         })
         .select('sucursal', 'folio', 'estado', 'solicitante', trx.raw('importe::numeric AS importe'));
 

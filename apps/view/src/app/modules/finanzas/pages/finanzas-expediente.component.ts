@@ -11,8 +11,9 @@ import { SelectModule } from 'primeng/select';
 import { MessageService } from 'primeng/api';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
 import {
-  DEPARTAMENTO_SIN, ETAPA_PROTOCOLO_LABEL, ORDEN_ETAPA_PROTOCOLO,
-  type EtapaProtocolo, type PersonaExpediente, type RespuestaExpediente, type ValeExpediente,
+  DEPARTAMENTO_SIN, ETAPA_PROTOCOLO_LABEL, ORDEN_ETAPA_PROTOCOLO, resumenTransferencias,
+  type EtapaProtocolo, type PersonaExpediente, type RespuestaExpediente, type ResumenTransferencias,
+  type TransferenciaGasto, type ValeExpediente,
 } from '@megadulces/contracts';
 import { ComprobacionesService } from '../comprobaciones.service';
 import { mensajeDeErrorBlob } from '../../../core/http/blob-error';
@@ -194,7 +195,7 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                 <article class="exp-vale" [attr.data-etapa]="v.protocolo.etapa">
                   <!--
                     [GX.62] Los numeros del soporte documental, en el orden del tramite:
-                    solicitud XA1501 -> gasto XA1001 -> (pago XD2601, todavia no).
+                    solicitud XA1501 -> gasto XA1001 -> transferencia XD2601 ([GX.75], por kdm5).
                     Se escriben con su prefijo porque es lo que alguien teclea en Kepler, y
                     porque el folio pelado NO identifica nada: vive por sucursal y colisiona
                     entre doctypes.
@@ -205,6 +206,18 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                       <span class="exp-folio gasto">XA1001-{{ g }}</span>
                     } @empty {
                       <span class="exp-sin-gasto">sin gasto aplicado</span>
+                    }
+                    @if (v.gasto_folios.length) {
+                      @if (v.transferencias === null) {
+                        <span class="exp-sin-gasto">transferencia sin medir</span>
+                      } @else {
+                        @for (t of v.transferencias ?? []; track t.gasto_folio + '|' + t.folio) {
+                          <span class="exp-folio pago" [class.cancelada]="t.cancelada"
+                                [attr.title]="tituloTransferencia(t)">XD2601-{{ t.folio }}</span>
+                        } @empty {
+                          <span class="exp-sin-gasto">sin transferencia</span>
+                        }
+                      }
                     }
                     <span class="exp-suc">{{ branchLabel(v.sucursal) || '—' }}</span>
                     <span class="exp-prov">{{ v.proveedor || 'sin proveedor' }}</span>
@@ -220,6 +233,14 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                       <span class="exp-meta ok">comprobación {{ v.comprobacion_folio }}</span>
                     }
                     @if (v.motivo_rechazo) { <span class="exp-meta bad">{{ v.motivo_rechazo }}</span> }
+                    @if (resumenTransf(v); as r) {
+                      @if (r.vigentes) {
+                        <span class="exp-meta ok">{{ textoTransferido(r) }}</span>
+                      }
+                      @if (r.canceladas) {
+                        <span class="exp-meta bad">{{ r.canceladas === 1 ? '1 transferencia cancelada' : r.canceladas + ' transferencias canceladas' }} en Kepler</span>
+                      }
+                    }
                   </div>
 
                   @if (v.protocolo.faltan.length) {
@@ -357,6 +378,8 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
       font-size: var(--fs-body); }
     .exp-folio { font-family: var(--font-mono); font-weight: var(--fw-bold); font-size: var(--fs-h3); }
     .exp-folio.gasto { color: var(--ok-fg); }
+    .exp-folio.pago { color: var(--fg-1); }
+    .exp-folio.pago.cancelada { color: var(--bad-soft-fg); text-decoration: line-through; }
     .exp-sin-gasto { font-size: var(--fs-xs); color: var(--fg-3); font-style: italic; }
     .exp-suc, .exp-prov { color: var(--fg-2); }
     .exp-prov { flex: 1 1 auto; }
@@ -473,6 +496,37 @@ export class FinanzasExpedienteComponent {
             detail: `Solicitud ${v.folio_solicitud}: ${motivo}`, life: 8000 }));
         },
       });
+  }
+
+  /**
+   * `[GX.75]` Lo transferido al vale, SIN las canceladas (Kepler conserva su aplicación).
+   * `null` = no se midió o el vale no tiene gasto: no se pinta nada, no se dibuja un cero.
+   */
+  resumenTransf(v: ValeExpediente): ResumenTransferencias | null {
+    if (!v.gasto_folios.length || v.transferencias == null) return null;
+    return resumenTransferencias(v.transferencias);
+  }
+
+  /** «transferido $1,053.50 el 25/09/2026» — la fecha es la de la transferencia vigente más reciente. */
+  textoTransferido(r: ResumenTransferencias): string {
+    return `transferido ${this.money(r.aplicado)}${r.ultima_fecha ? ` el ${this.fechaCorta(r.ultima_fecha)}` : ''}`;
+  }
+
+  /** AAAA-MM-DD → DD/MM/AAAA. */
+  fechaCorta(s: string): string {
+    const [y, m, d] = String(s).split('-');
+    return d && m && y ? `${d}/${m}/${y}` : s;
+  }
+
+  /** El detalle que no cabe en el chip: día, cuánto aplicó a qué gasto, y si se canceló. */
+  tituloTransferencia(t: TransferenciaGasto): string {
+    const partes = [
+      t.fecha ? `Transferencia del ${this.fechaCorta(t.fecha)}` : 'Transferencia sin encabezado en Kepler',
+      `aplicó ${this.money(t.aplicado)} al gasto XA1001-${t.gasto_folio}`,
+    ];
+    if (t.importe != null && Math.abs(t.importe - t.aplicado) > 0.01) partes.push(`documento por ${this.money(t.importe)}`);
+    if (t.cancelada) partes.push('CANCELADA en Kepler: no cuenta como pagado');
+    return partes.join(' · ');
   }
 
   /** Quedo debiendo la factura por haber subido una cotizacion. */

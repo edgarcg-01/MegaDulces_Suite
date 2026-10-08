@@ -9,7 +9,7 @@ import type { FormaPagoId } from '@megadulces/contracts';
 // exactamente cómo se desincroniza sin que nadie vea (pasó con `reapertura`, GX.30).
 import type { AutorizacionKepler, EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
 // [GX.59] El Expediente por persona: la forma la define el contrato, no esta clase.
-import type { FiltroExpediente, RespuestaExpediente } from '@megadulces/contracts';
+import type { FiltroExpediente, RespuestaExpediente, TransferenciaGasto } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -260,6 +260,8 @@ export interface ExpedienteGasto {
   expediente: Record<string, any> | null;
   /** Pueden ser VARIOS: 177 solicitudes en prod tienen más de un gasto aplicado. */
   gastos: Record<string, any>[];
+  /** `[GX.75]` Las transferencias XD2601 que pagaron esos gastos. `null` = no se midió. */
+  transferencias?: TransferenciaGasto[] | null;
   comprobaciones: Record<string, any>[];
   tramite: { etapa: string; label: string; falta: string[] };
   generado_at: string;

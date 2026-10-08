@@ -3,7 +3,9 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideRouter } from '@angular/router';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { MessageService } from 'primeng/api';
-import { DEPARTAMENTO_SIN, type RespuestaExpediente, type ValeExpediente, type VeredictoProtocolo } from '@megadulces/contracts';
+import {
+  DEPARTAMENTO_SIN, type RespuestaExpediente, type TransferenciaGasto, type ValeExpediente, type VeredictoProtocolo,
+} from '@megadulces/contracts';
 import { FinanzasExpedienteComponent } from './finanzas-expediente.component';
 
 /**
@@ -38,6 +40,7 @@ const VALE = (over: Partial<ValeExpediente> = {}): ValeExpediente => ({
   motivo_rechazo: null, comprobacion_kepler: true, comprobacion_folio: 'XA1001-0001',
   roles: ['comprobante_1'], protocolo: veredicto('completo'),
   gasto_folios: ['0097092'],
+  transferencias: [],
   ...over,
 });
 
@@ -251,6 +254,63 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
         }],
       }));
       expect(txt()).toContain('sin gasto aplicado');
+      // Sin gasto no hay transferencia que buscar: no se agrega un segundo «sin».
+      expect(txt()).not.toContain('sin transferencia');
+    });
+
+    /**
+     * `[GX.75]` **El tercer número: la transferencia `XD2601`** que pagó el gasto (Kepler `kdm5`).
+     * Lo que puede mentir: sumar una cancelada como pagado, o pintar «sin transferencia» cuando
+     * no se pudo medir.
+     */
+    describe('[GX.75] la transferencia XD2601', () => {
+      const conVale = (v: Partial<ValeExpediente>) => REPORTE({
+        personas: [{
+          clave: 'x', username: 'x', nombre: 'X', areas: [],
+          total: 1, monto: 1, completos: 1, incompletos: 0, en_captura: 0, sin_medir: 0,
+          vales: [VALE(v)],
+        }],
+      });
+      const T = (o: Partial<TransferenciaGasto> = {}): TransferenciaGasto => ({
+        gasto_folio: '0097092', folio: '0022034', fecha: '2026-09-25', importe: 1583.86, aplicado: 1583.86, cancelada: false, ...o,
+      });
+
+      it('⭐ sale en la cadena después del gasto, con lo transferido y su fecha', () => {
+        montar(conVale({ transferencias: [T()] }));
+        const h = fix.nativeElement.querySelector('.exp-vale-h') as HTMLElement;
+        expect(h.textContent).toMatch(/XA1501-0009946[\s\S]*XA1001-0097092[\s\S]*XD2601-0022034/);
+        expect(txt()).toContain('transferido $1,583.86 el 25/09/2026');
+      });
+
+      it('un gasto pagado en varias transferencias las muestra todas y suma lo aplicado', () => {
+        montar(conVale({ transferencias: [T({ folio: '0022034', aplicado: 1000 }), T({ folio: '0022035', aplicado: 583.86, fecha: '2026-09-26' })] }));
+        expect(txt()).toContain('XD2601-0022034');
+        expect(txt()).toContain('XD2601-0022035');
+        expect(txt()).toContain('transferido $1,583.86 el 26/09/2026');
+      });
+
+      it('⛔ la cancelada se tacha, se avisa y NO suma', () => {
+        montar(conVale({ transferencias: [T({ aplicado: 500 }), T({ folio: '0022099', aplicado: 1083.86, cancelada: true })] }));
+        const chip = [...fix.nativeElement.querySelectorAll('.exp-folio.pago')]
+          .find((e: Element) => e.textContent?.includes('0022099')) as HTMLElement;
+        expect(chip.classList).toContain('cancelada');
+        expect(chip.getAttribute('title')).toContain('CANCELADA');
+        expect(txt()).toContain('transferido $500.00');
+        expect(txt()).toContain('1 transferencia cancelada en Kepler');
+      });
+
+      it('con gasto y sin transferencia lo dice', () => {
+        montar(conVale({ transferencias: [] }));
+        expect(txt()).toContain('sin transferencia');
+        expect(txt()).not.toContain('transferido');
+      });
+
+      it('⛔ null = no se midió: lo declara, no dice «sin transferencia»', () => {
+        montar(conVale({ transferencias: null }));
+        expect(txt()).toContain('transferencia sin medir');
+        expect(txt()).not.toContain('sin transferencia');
+        expect(fix.nativeElement.querySelector('.exp-folio.pago')).toBeNull();
+      });
     });
 
     /**

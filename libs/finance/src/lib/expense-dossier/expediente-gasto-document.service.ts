@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 // `[GX.74]` El detalle del pago puede traer varios renglones: se muestran como `1234 · 5678`.
 import { detallesParaMostrar } from '@megadulces/contracts';
+import { resumenTransferencias, type TransferenciaGasto } from '@megadulces/contracts';
 import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { ExpedienteGastoService, type ExpedienteGasto } from './expediente-gasto.service';
 
@@ -35,11 +36,42 @@ function fechaHora(iso: string): string {
 }
 
 /**
+ * `[GX.75]` La sección «La transferencia» del PDF: el documento `XD2601` de «Alta
+ * transferencias» que pagó cada gasto, leído de Kepler (`kdm5`). Pura y exportada para
+ * probarla sin levantar Chromium.
+ *
+ * ⛔ Cada ausencia se dice distinto: sin gasto no hay qué pagar; `null` es «no se pudo
+ * consultar» (no «nadie pagó»); `[]` es «Kepler no tiene transferencia aplicada». Y la
+ * cancelada se lista tachada pero NO entra a la suma: Kepler conserva su aplicación.
+ */
+export function bloqueTransferenciasHtml(ts: readonly TransferenciaGasto[] | null, hayGastos: boolean): string {
+  const vacio = (t: string) => `<p class="vacio">${esc(t)}</p>`;
+  if (!hayGastos) return vacio('Todavía no hay gasto que pagar.');
+  if (ts == null) return vacio('No se pudo consultar Kepler para saber con qué transferencia se pagó.');
+  if (!ts.length) return vacio('Kepler no tiene una transferencia (XD2601) aplicada a este gasto.');
+  const filas = ts.map((t) => `<tr${t.cancelada ? ' class="cancelada"' : ''}>
+      <td class="mono">${esc(t.folio)}</td>
+      <td>${fecha(t.fecha)}</td>
+      <td class="mono">${esc(t.gasto_folio)}</td>
+      <td>${t.cancelada ? 'Cancelada — no cuenta' : 'Vigente'}</td>
+      <td class="num">${t.importe == null ? '—' : money(t.importe)}</td>
+      <td class="num">${money(t.aplicado)}</td>
+    </tr>`).join('');
+  // Con más de una, la cifra que importa es la SUMA de las vigentes: contra ella se compara el gasto.
+  const total = ts.length > 1
+    ? `<tr class="tot"><td colspan="5">Aplicado por transferencias vigentes</td><td class="num">${money(resumenTransferencias(ts).aplicado)}</td></tr>`
+    : '';
+  return `<table class="tabla">
+      <thead><tr><th>Folio</th><th>Fecha</th><th>Al gasto</th><th>Estado</th><th class="num">Importe del documento</th><th class="num">Aplicado</th></tr></thead>
+      <tbody>${filas}${total}</tbody></table>`;
+}
+
+/**
  * `[GX.15]` — **El expediente del gasto, imprimible.**
  *
- * Un solo documento con los cuatro eslabones: la solicitud de Kepler, lo que aportó quien
- * gastó (forma de pago + fotos), el gasto aplicado y la comprobación. Es lo que hoy
- * obliga a abrir tres pantallas y copiar a mano.
+ * Un solo documento con los eslabones del trámite: la solicitud de Kepler, lo que aportó quien
+ * gastó (forma de pago + fotos), el gasto aplicado, la transferencia que lo pagó (`[GX.75]`)
+ * y la comprobación. Es lo que hoy obliga a abrir tres pantallas y copiar a mano.
  *
  * ## Lo que este documento NO es
  * **No es un comprobante fiscal ni una póliza.** No lo emite Kepler, no se sube a
@@ -167,7 +199,7 @@ export class ExpedienteGastoDocumentService {
     const s = x.solicitud as any;
     const faltan = x.tramite.falta.length
       ? `<div class="falta"><strong>Qué falta</strong><ul>${x.tramite.falta.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>`
-      : '<div class="ok"><strong>No falta nada.</strong> Los cuatro eslabones están completos.</div>';
+      : '<div class="ok"><strong>No falta nada.</strong> El trámite está completo.</div>';
 
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Expediente ${esc(x.folio_solicitud)}</title>
 <style>
@@ -196,6 +228,8 @@ export class ExpedienteGastoDocumentService {
   table.tabla td { padding: 5px 6px; border-bottom: 1px solid #F4F4F5; }
   table.tabla .num, td.num, th.num { text-align: right; font-family: "Geist Mono", monospace; }
   table.tabla tr.tot td { font-weight: 700; border-top: 1px solid #09090B; border-bottom: none; }
+  table.tabla tr.cancelada td { color: #991B1B; }
+  table.tabla tr.cancelada td.mono, table.tabla tr.cancelada td.num { text-decoration: line-through; }
   ul.files { margin: 0; padding-left: 14px; }
   ul.files li { margin-bottom: 2px; }
   .rol { font-family: "Geist Mono", monospace; font-size: 9pt; }
@@ -230,7 +264,10 @@ export class ExpedienteGastoDocumentService {
   <h2><span class="n">3</span>El gasto aplicado<span class="fuente">Kepler · XA1001</span></h2>
   ${this.bloqueGastos(x)}
 
-  <h2><span class="n">4</span>La comprobación<span class="fuente">Suite · comprobación</span></h2>
+  <h2><span class="n">4</span>La transferencia<span class="fuente">Kepler · XD2601</span></h2>
+  ${bloqueTransferenciasHtml(x.transferencias, x.gastos.length > 0)}
+
+  <h2><span class="n">5</span>La comprobación<span class="fuente">Suite · comprobación</span></h2>
   ${this.bloqueComprobaciones(x)}
 
   ${faltan}

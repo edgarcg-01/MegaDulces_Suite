@@ -4330,6 +4330,32 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   cancela al cambiar el filtro. Specs: view 1956/1956 · finance 590/590 · contracts 393/393.
 - [ ] **[GX.72.u]** Validación visual de la barra de filtros (no se levanta el front en local por regla).
 
+### 🔨 [GX.75] · Expediente: la transferencia XD2601 que pagó el gasto — 2026-10-07
+
+- [x] **[GX.75]** 🧪 Pedido: *«solo tenías que agregar el documento que se genera en la alta de transferencia
+  de acuerdo a tu folio»*. El tercer número de la cadena que `[GX.62]` dejó escrito como «todavía no»:
+  solicitud `XA1501` → gasto `XA1001` → **transferencia `XD2601`**. Sale de **`kepler_ods.kdm5`** (Kepler
+  guarda ahí qué documento se aplicó a qué documento; vista viva del ODS, sin importer). Para egresos la única
+  combinación es `XD26 tipo 1 → XA10 tipo 1`; **testigo independiente**: el acreedor de la transferencia
+  coincide con el del gasto en el **100%** de los vínculos contra **4.7%** de un placebo. Una sola lectura
+  (`transferencias-del-gasto.ts`) para la pantalla y para el PDF (sección nueva «4 · La transferencia»).
+  ⛔ **Kepler NO borra la aplicación de una transferencia cancelada**: 113 aplicaciones / $399,161 en la 00
+  siguen en `kdm5` con su `XD2601` en `c43='C'` → viajan marcadas, se tachan y **no suman**. Verificado en
+  prod: un vale de $85,866.22 pagado en 4 transferencias, una cancelada → sin ella suma **exacto** el vale.
+  ⚠️ Pegar por el PAR `(sucursal, folio)`: cruzar las listas por separado daba 583 encabezados para 188
+  folios. **Medido en prod (dev_ro, 342 vales):** 293 con gasto · **58 con transferencia** · 122
+  aplicaciones · 19 vales en varias transferencias · **3 vales RECHAZADOS en la Suite que Kepler sí pagó**.
+  Rendimiento: el `IN (unnest)` solo hacía 1.4 M comparaciones (~370 ms); con `= ANY` previo por sucursal y
+  folio → **~25 ms**. `null` = no medido (sin ODS en el entorno), no «nadie pagó». De paso: `'\s+'` en
+  `listasParaComprobar` llegaba a Postgres como `'s+'` (reemplazaba letras «s», no espacios) → `'\\s+'`.
+  Specs: contracts 22 · finance 45 · view 72 (expediente + mis gastos), todas verdes.
+- [ ] **[GX.75.u]** Validación visual en la Suite (hay vista previa local con datos de prod; no se levanta el
+  front por regla) + redeploy api+view. **Sin migraciones ni permisos nuevos → sin re-login.**
+- [ ] **[GX.75.p]** ⚠️ La consulta que YA tenía el Expediente tarda **~2.7 s en prod** (la subconsulta por vale
+  a `analytics.expense_documents`): rebasa la meta de 1 s. No la causa GX.75 (+25 ms) — queda declarada.
+- [ ] **[GX.75.m]** «Mis gastos» sigue diciendo que «Pagados» queda vacío porque `XD2601` no tiene liga
+  (`mis-gastos-columnas.ts`): **es falso**, la liga es `kdm5`. Se puede llenar con esta misma lectura.
+
 ### 🔨 [GX.70] · el «Expediente en PDF» respondía «No se pudo armar el expediente» — 2026-10-07
 
 - [x] **[GX.70]** 🧪 Reporte: en `/finanzas/expediente` el botón «Expediente en PDF» sólo decía *«No se pudo

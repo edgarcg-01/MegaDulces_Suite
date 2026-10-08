@@ -36,6 +36,7 @@ import { constanciaDeAutorizacion, documentoKepler, quedaDebiendoComprobante } f
 import { protocoloDelVale } from '@megadulces/contracts';
 import type { FiltroExpediente, OpcionDepartamentoExpediente, PersonaExpediente, RespuestaExpediente, ValeExpediente } from '@megadulces/contracts';
 import { pideSinDepartamento } from './expediente-filtro';
+import { leerTransferenciasDelGasto, transferenciasDelVale } from './transferencias-del-gasto';
 import type { AutorizacionKepler } from '@megadulces/contracts';
 
 /**
@@ -2580,6 +2581,7 @@ export class ExpenseProofsService {
       /**
        * `[GX.62]` **El gasto `XA1001` entra al expediente.** Es el segundo de los tres
        * numeros que el usuario pidio que el expediente contenga (solicitud -> gasto -> pago).
+       * El tercero, la transferencia `XD2601`, llega con `[GX.75]` (abajo, por `kdm5`).
        *
        * ⚠️ Es una LISTA, no un folio. Medido en `[GX.15]`: 8,705 solicitudes tienen 1 gasto,
        * **165 tienen 2, 10 tienen 3 y 2 tienen 4**. Modelarlo 1:1 mostraria un gasto
@@ -2597,6 +2599,14 @@ export class ExpenseProofsService {
                      AND d.doc_tipo = 'XA1001') AS gasto_folios`));
 
       const filas: Cruda[] = await q;
+
+      /**
+       * `[GX.75]` El tercer número: la transferencia `XD2601` que pagó cada gasto. UN viaje
+       * para todos los vales (medido en prod: ~25 ms con 293 gastos). `null` = no hay ODS de
+       * Kepler en este entorno, y así viaja: «no medido», no «nadie pagó».
+       */
+      const transferencias = await leerTransferenciasDelGasto(trx, filas.flatMap((f) =>
+        (Array.isArray(f.gasto_folios) ? f.gasto_folios : []).map((g) => ({ sucursal: f.sucursal, gasto_folio: g }))));
 
       // El nombre completo, de una sola consulta. Un lookup por fila serían 155 viajes.
       const usuarios: { username: string; nombre: string | null }[] = await trx('identity.users')
@@ -2625,6 +2635,7 @@ export class ExpenseProofsService {
           comprobacion_kepler: comprobacionKepler,
         });
 
+        const gastoFolios = Array.isArray(f.gasto_folios) ? f.gasto_folios.filter(Boolean) : [];
         const vale: ValeExpediente = {
           id: f.id,
           folio_solicitud: f.folio_solicitud,
@@ -2641,7 +2652,9 @@ export class ExpenseProofsService {
           comprobacion_kepler: comprobacionKepler,
           comprobacion_folio: f.comprobacion_folio || null,
           // `[GX.62]` Los folios del gasto aplicado. Vacio = Kepler todavia no lo ejercio.
-          gasto_folios: Array.isArray(f.gasto_folios) ? f.gasto_folios.filter(Boolean) : [],
+          gasto_folios: gastoFolios,
+          // `[GX.75]` Las transferencias de esos gastos. `null` = no se midió.
+          transferencias: transferencias ? transferenciasDelVale(f.sucursal, gastoFolios, transferencias) : null,
           // Los roles alcanzan para decidir qué botón ofrecer. Las URL firmadas caducan y
           // mandarlas para 155 vales de una sería regalar 155 enlaces que nadie va a abrir.
           roles: archivos.map((a) => String(a?.role || '')).filter(Boolean),
