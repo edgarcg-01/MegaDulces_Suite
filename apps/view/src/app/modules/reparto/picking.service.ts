@@ -1,7 +1,12 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
-import type { RouteKind, RouteKindMotivo } from '@megadulces/contracts';
+import type {
+  PickerTakeNextResponse,
+  PickerWave,
+  RouteKind,
+  RouteKindMotivo,
+} from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /** Un pedido esperando surtido (lo que hoy se resuelve por WhatsApp). */
@@ -305,7 +310,20 @@ export class PickingService {
     return this.http.post<WaveLine>(`${this.base}/waves/${waveId}/lines/${lineId}/pick`, dto);
   }
 
-  finish(id: string): Observable<Wave> {
-    return this.http.post<Wave>(`${this.base}/waves/${id}/finish`, {});
+  finish(id: string): Observable<Wave & { cambios_en_kepler?: string[] }> {
+    return this.http.post<Wave & { cambios_en_kepler?: string[] }>(`${this.base}/waves/${id}/finish`, {});
+  }
+
+  /**
+   * `[GP.3]` "Tomar el siguiente": la ola que el surtidor ya trae, o la libre más vieja de su
+   * almacén (armada desde Kepler si no hay). Llega arrancada, con sus renglones.
+   */
+  tomarSiguiente(dto: { warehouse_id: string; origen?: string }): Observable<PickerTakeNextResponse> {
+    return this.http.post<PickerTakeNextResponse>(`${this.base}/waves/next`, dto);
+  }
+
+  /** `[GP.3]` Las olas abiertas o en surtido de quien consulta. */
+  misOlas(): Observable<PickerWave[]> {
+    return this.http.get<PickerWave[]>(`${this.base}/waves/mine`);
   }
 }

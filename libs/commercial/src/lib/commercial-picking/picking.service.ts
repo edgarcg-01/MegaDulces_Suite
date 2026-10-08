@@ -10,6 +10,9 @@ import type {
   KeplerPickPoolResponse,
   KeplerPickPoolRow,
   KeplerWavesAutoResponse,
+  PickerTakeNextResponse,
+  PickerWave,
+  PickerWaveLine,
   PickingWaveCreated,
 } from '@megadulces/contracts';
 import { TenantKnexService } from '@megadulces/platform-core';
@@ -28,6 +31,7 @@ import {
   unidadesMezcladas,
   type PedidoKeplerLlave,
 } from './kepler-origen';
+import { congelarPorPedido, presentacionDeProducto, type PedidoCongelado } from './congelar';
 import {
   ROUTE_KINDS,
   type RouteKind,
@@ -128,6 +132,10 @@ export interface CreateWaveDto {
   kepler_orders?: Array<{ sucursal: string; serie: number; folio: string }>;
   assigned_to?: string;
   notes?: string;
+  /** `[GP.3]` TELEMARK / SUCURSAL si todos sus pedidos son de ese origen. Filtra "tomar siguiente". */
+  origen?: string | null;
+  /** `[GP.3]` 'auto' = la armó el sistema; sólo ésas se cancelan solas si no arrancan. */
+  armada_por?: 'consola' | 'auto';
 }
 
 /** `[GP.2]` Filtros del pool de pedidos de Kepler. */
@@ -235,7 +243,8 @@ interface SuiteLineaRow {
   quantity: string;
   order_code: string;
   order_id: string;
-  delivery_date: string | Date | null;
+  /** `YYYY-MM-DD` (sale de `to_char`, nunca del Date de pg). */
+  delivery_date: string | null;
   confirmed_at: string | Date | null;
 }
 
@@ -485,9 +494,21 @@ export class PickingService {
 
     const creadas: PickingWaveCreated[] = [];
     const fallidas: Array<{ pedidos: string[]; motivo: string }> = [];
+    // [GP.3] El origen de la ola: el de sus pedidos si todos coinciden; si mezcla, null. Con
+    // filtro de origen todos coinciden por construcción del pool.
+    const origenDe = (ids: string[]): string | null => {
+      const os = new Set(ids.map((id) => porId.get(id)?.origen ?? null));
+      return os.size === 1 ? [...os][0] : null;
+    };
     const armar = async (ids: string[], notes: string): Promise<boolean> => {
       try {
-        const w = await this.createWave({ warehouse_id: dto.warehouse_id, kepler_orders: llaves(ids), notes });
+        const w = await this.createWave({
+          warehouse_id: dto.warehouse_id,
+          kepler_orders: llaves(ids),
+          notes,
+          origen: origenDe(ids),
+          armada_por: 'auto',
+        });
         creadas.push({
           id: w.id,
           code: w.code,
@@ -532,6 +553,195 @@ export class PickingService {
       vacios: plan.vacios.map((id) => porId.get(id)!.code),
       atorados: pool.atorados,
     };
+  }
+
+  /**
+   * `[GP.3]` "Tomar el siguiente" (decisión de Francisco, 2026-10-07, `FASE_GP` §8): el surtidor
+   * pide trabajo y el sistema le da la ola libre más vieja de su almacén. No elige cuál: así nadie
+   * se queda con los pedidos fáciles. La consola queda para lo que pide criterio (partir un pedido
+   * grande, urgentes, reasignar).
+   *
+   *  1. **Si ya trae una ola** (abierta o en surtido) se le devuelve ésa: una a la vez, y cerrar
+   *     la app no le hace perder su trabajo.
+   *  2. **Si no**, se le asigna la ola libre más vieja del almacén, con `FOR UPDATE SKIP LOCKED`:
+   *     si dos surtidores aprietan a la vez, cada uno se lleva una distinta y ninguno espera.
+   *  3. **Si no hay olas libres**, se arman desde el pool de Kepler con la regla de tandas
+   *     (`crearOlasKepler`) y se vuelve a intentar. Así no hace falta que alguien reparta.
+   *  4. Al asignarla se ARRANCA (se congela lo pedido). Si ya no se puede arrancar (el pedido o el
+   *     catálogo cambiaron desde que se armó):
+   *       · una ola que armó el SISTEMA (`armada_por='auto'`) se cancela con su motivo —los pedidos
+   *         vuelven al pool, donde la validación los separa—;
+   *       · una que armó la CONSOLA no se tira sin que alguien lo decida: se LIBERA (vuelve sin
+   *         dueño, con el motivo en sus notas) y se le avisa al surtidor en `atoradas`.
+   *     En los dos casos se intenta la siguiente.
+   *
+   * ⚠️ "¿Ya trae una?" y "asígnale una libre" van en UNA transacción con un candado por persona
+   * (`pg_advisory_xact_lock`): sin él, dos peticiones del mismo surtidor (dos pestañas, un
+   * reintento de la red) veían "no trae ninguna" a la vez y se llevaban DOS olas (lo encontró la
+   * revisión de GP.3). Con el candado la segunda espera y ve la que ya tiene.
+   */
+  async tomarSiguiente(dto: { warehouse_id: string; origen?: string }): Promise<PickerTakeNextResponse> {
+    if (!UUID_RE.test(dto?.warehouse_id || '')) throw new BadRequestException('warehouse_id inválido');
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) throw new BadRequestException('sin usuario en contexto: tomar trabajo necesita a quién asignarlo');
+    const origen = dto.origen ? String(dto.origen).trim().toUpperCase() : null;
+    if (origen && !(ORIGENES_KEPLER as readonly string[]).includes(origen)) {
+      throw new BadRequestException(`origen inválido: ${origen}. Válidos: ${ORIGENES_KEPLER.join(', ')}`);
+    }
+
+    const excluir: string[] = [];
+    const atoradas: Array<{ code: string; motivo: string }> = [];
+    let armado: KeplerWavesAutoResponse | null = null;
+    for (let intento = 0; intento < 6; intento++) {
+      const t = await this.asignarOla(dto.warehouse_id, userId, origen, excluir);
+      if (!t) {
+        if (armado) break; // ya se armó una vez y no quedó nada libre
+        armado = await this.crearOlasKepler({ warehouse_id: dto.warehouse_id, origen: origen ?? undefined });
+        continue;
+      }
+      try {
+        await this.startPicking(t.id);
+        return { estado: 'asignada', ya_era_tuya: t.ya_era_tuya, ola: await this.olaParaSurtidor(t.id), atoradas };
+      } catch (e) {
+        if (!(e instanceof ConflictException)) throw e;
+        const motivo = (e as Error).message;
+        excluir.push(t.id);
+        if (t.armada_por === 'auto') {
+          await this.cancelWave(t.id, `[GP.3] no se pudo arrancar al tomarla: ${motivo}`);
+        } else {
+          await this.liberarOla(t.id, `[GP.3] no se pudo arrancar al tomarla: ${motivo}`);
+          atoradas.push({ code: t.code, motivo });
+        }
+        this.logger.warn(`[GP.3] ola ${t.code} (${t.armada_por}) no arrancó al tomarla: ${motivo}`);
+      }
+    }
+    return {
+      estado: 'sin_trabajo',
+      motivo: atoradas.length
+        ? 'Hay olas de la consola que no se pudieron arrancar; no queda otra libre en este almacén.'
+        : 'No hay pedidos autorizados por surtir en este almacén.',
+      armado,
+      atoradas,
+    };
+  }
+
+  /**
+   * `[GP.3]` En UNA transacción con candado por persona: la ola que el usuario ya trae, o si no,
+   * la libre más vieja del almacén (y del origen pedido), reclamada con `SKIP LOCKED` para que
+   * dos surtidores nunca se lleven la misma. `excluir` = olas que en esta misma petición no
+   * arrancaron. Devuelve null si no hay ninguna.
+   */
+  private async asignarOla(
+    warehouseId: string,
+    userId: string,
+    origen: string | null,
+    excluir: readonly string[],
+  ): Promise<{ id: string; code: string; armada_por: string; ya_era_tuya: boolean } | null> {
+    return this.tk.run(async (trx) => {
+      await trx.raw(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`gp3-surtidor:${userId}`]);
+      const mia: { id: string; code: string; armada_por: string } | undefined = await trx('commercial.picking_waves')
+        .where({ assigned_to: userId })
+        .whereIn('status', ['abierta', 'en_surtido'])
+        .whereNotIn('id', excluir)
+        .orderBy('created_at')
+        .first('id', 'code', 'armada_por');
+      if (mia) return { ...mia, ya_era_tuya: true };
+
+      const { rows } = await trx.raw(
+        `UPDATE commercial.picking_waves
+            SET assigned_to = ?, updated_at = now(), updated_by = ?
+          WHERE id = (SELECT id FROM commercial.picking_waves
+                       WHERE warehouse_id = ? AND status = 'abierta' AND assigned_to IS NULL
+                         AND (?::text IS NULL OR origen = ?::text)
+                         AND NOT (id = ANY(?::uuid[]))
+                       ORDER BY created_at, id
+                       LIMIT 1
+                       FOR UPDATE SKIP LOCKED)
+        RETURNING id, code, armada_por`,
+        [userId, userId, warehouseId, origen, origen, [...excluir]],
+      );
+      const r = (rows as Array<{ id: string; code: string; armada_por: string }>)[0];
+      return r ? { ...r, ya_era_tuya: false } : null;
+    });
+  }
+
+  /** `[GP.3]` Deja una ola sin dueño y anota por qué, para que la consola la vea y la resuelva. */
+  private async liberarOla(waveId: string, motivo: string): Promise<void> {
+    const userId = this.tenantCtx.get()?.userId || null;
+    await this.tk.run((trx) =>
+      trx('commercial.picking_waves')
+        .where({ id: waveId })
+        .whereIn('status', ['abierta'])
+        .update({
+          assigned_to: null,
+          notes: trx.raw(`concat_ws(' · ', notes, ?::text)`, [motivo]),
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        }),
+    );
+  }
+
+  /** `[GP.3]` Las olas que trae el surtidor (abiertas o en surtido), con sus renglones. */
+  async misOlas(): Promise<PickerWave[]> {
+    const userId = this.tenantCtx.get()?.userId;
+    if (!userId) return [];
+    const ids: Array<{ id: string }> = await this.tk.run((trx) =>
+      trx('commercial.picking_waves')
+        .where({ assigned_to: userId })
+        .whereIn('status', ['abierta', 'en_surtido'])
+        .orderBy('created_at')
+        .select('id'),
+    );
+    const out: PickerWave[] = [];
+    for (const { id } of ids) out.push(await this.olaParaSurtidor(id));
+    return out;
+  }
+
+  /** `[GP.3]` Una ola con la forma que usa la pantalla del surtidor. */
+  private async olaParaSurtidor(waveId: string): Promise<PickerWave> {
+    return this.tk.run(async (trx) => {
+      const w: {
+        id: string;
+        code: string;
+        warehouse_id: string;
+        status: string;
+        notes: string | null;
+        started_at: Date | null;
+      } = await trx('commercial.picking_waves')
+        .where({ id: waveId })
+        .first('id', 'code', 'warehouse_id', 'status', 'notes', 'started_at');
+      if (!w) throw new NotFoundException(`Ola ${waveId} no encontrada`);
+      const cab = await this.cabecerasDe(trx, waveId);
+      const lineas: Array<Record<string, unknown>> = await this.lineasDe(trx, waveId);
+      const n = (v: unknown): number | null => (v == null ? null : Number(v));
+      return {
+        id: w.id,
+        code: w.code,
+        warehouse_id: w.warehouse_id,
+        status: w.status,
+        notes: w.notes,
+        started_at: w.started_at ? new Date(w.started_at).toISOString() : null,
+        pedidos: [...cab.values()].map((c) => c.code).sort(),
+        lines: lineas.map(
+          (l): PickerWaveLine => ({
+            id: String(l['id']),
+            product_id: String(l['product_id']),
+            product_name: (l['product_name'] as string | null) ?? null,
+            sku: (l['sku'] as string | null) ?? null,
+            barcode: (l['barcode'] as string | null) ?? null,
+            qty_requested: Number(l['qty_requested']),
+            qty_unit: (l['qty_unit'] as string | null) ?? null,
+            unidad_mixta: Boolean(l['unidad_mixta']),
+            qty_presentacion: n(l['qty_presentacion']),
+            unidad_presentacion: (l['unidad_presentacion'] as string | null) ?? null,
+            qty_picked: n(l['qty_picked']),
+            status: l['status'] as PickerWaveLine['status'],
+            bin_code: (l['bin_code'] as string | null) ?? null,
+            note: (l['note'] as string | null) ?? null,
+          }),
+        ),
+      };
+    });
   }
 
   /**
@@ -910,7 +1120,10 @@ export class PickingService {
         'ol.quantity',
         'o.code as order_code',
         'wo.order_id',
-        'o.requested_delivery_date as delivery_date',
+        // [GP.3] `to_char`: pg devuelve el `date` como objeto Date y el `String(...).slice(0,10)`
+        // de abajo daba "Thu Oct 08" — el reparto ordenaba la prioridad de entrega por día de la
+        // semana (Fri < Mon < Thu). Defecto que venía de SU.6; mismo caso que LC.16.
+        trx.raw(`to_char(o.requested_delivery_date, 'YYYY-MM-DD') AS delivery_date`),
         'o.confirmed_at',
       );
 
@@ -928,7 +1141,7 @@ export class PickingService {
         qty_unit: r.qty_unit || null,
         qty_presentacion: null,
         unidad_presentacion: null,
-        delivery_date: r.delivery_date ? String(r.delivery_date).slice(0, 10) : null,
+        delivery_date: r.delivery_date ? String(r.delivery_date) : null,
         confirmed_at: r.confirmed_at ? new Date(r.confirmed_at).toISOString() : null,
       })),
       ...(kep as LineaKeplerSqlRow[]).map((r) => ({
@@ -1017,11 +1230,13 @@ export class PickingService {
    * ⚠️ `qty_unit` sale del sello que puso la captura (VU.2/VU.4). Cuando la línea no lo trae, la
    * cantidad está en unidad base y se declara `sin_unidad_declarada` — nunca se asume "pieza".
    */
-  private async consolidado(trx: Knex.Transaction, waveId: string) {
+  private async consolidado(trx: Knex.Transaction, waveId: string, yaLeidas?: LineaDePedido[]) {
     // [GP.2] Suite y Kepler con la misma forma. Los renglones Kepler sin producto en el catálogo
     // NO se consolidan (no hay `product_id` que agrupar ni que guardar): `createWave` y
     // `startPicking` los rechazan con su clave antes de llegar acá.
-    const rows = (await this.lineasDePedidos(trx, waveId)).filter((r) => r.product_id);
+    // [GP.3] `startPicking` le pasa las líneas que ya leyó, para que lo consolidado y lo congelado
+    // por pedido salgan de la MISMA lectura (dos lecturas a Kepler podrían diferir entre sí).
+    const rows = (yaLeidas ?? (await this.lineasDePedidos(trx, waveId))).filter((r) => r.product_id);
 
     const porSku = new Map<string, any>();
     for (const r of rows as any[]) {
@@ -1169,6 +1384,8 @@ export class PickingService {
           delivery_date: dto.delivery_date || null,
           assigned_to: dto.assigned_to || null,
           notes: dto.notes || null,
+          origen: dto.origen && (ORIGENES_KEPLER as readonly string[]).includes(dto.origen) ? dto.origen : null,
+          armada_por: dto.armada_por === 'auto' ? 'auto' : 'consola',
           created_by: userId,
           updated_by: userId,
         })
@@ -1442,19 +1659,48 @@ export class PickingService {
         // [GP.2] El catálogo y el pedido de Kepler pudieron cambiar entre armar la ola y
         // arrancarla. Un renglón sin producto, o un producto en dos unidades, no se puede congelar
         // sin inventar; saltarlo mandaría el pedido corto sin que nadie lo decidiera. Se frena.
-        const bloqueos = this.bloqueosKepler(await this.lineasDePedidos(trx, waveId));
+        const lineas = await this.lineasDePedidos(trx, waveId);
+        const bloqueos = this.bloqueosKepler(lineas);
         if (bloqueos.length) throw new ConflictException(`No se puede arrancar: ${bloqueos.join('; ')}`);
-        const cons = await this.consolidado(trx, waveId);
+        const cons = await this.consolidado(trx, waveId, lineas);
         if (!cons.length) throw new ConflictException('La ola no tiene renglones que surtir');
+
+        // [GP.3] Lo que pidió cada pedido, congelado: contra esto se reparte al cerrar. Un pedido
+        // de Kepler sigue editable mientras se surte; el surtidor caminó contra ESTO.
+        const congelados = congelarPorPedido(lineas);
+        if (congelados.length) {
+          await trx('commercial.wave_order_lines').insert(
+            congelados.map((p) => ({ wave_id: waveId, ...p, created_by: userId })),
+          );
+        }
+        const porProducto = new Map<string, PedidoCongelado[]>();
+        for (const p of congelados) {
+          porProducto.set(p.product_id, [...(porProducto.get(p.product_id) ?? []), p]);
+        }
+
+        // [GP.3] El total del renglón es la SUMA de lo congelado por pedido, no el consolidado:
+        // redondeados por separado podían diferir en ±0.001 con KG de más de 3 decimales, y el
+        // reparto habría dejado un "faltante" falso. Un producto sin nada congelado (cantidades en
+        // cero) no se surte.
+        const totalCongelado = (productId: string): number =>
+          (porProducto.get(productId) ?? []).reduce((s, p) => s + Math.round(p.qty_requested * 1000), 0) / 1000;
+        const renglones = cons.filter((c) => totalCongelado(c.product_id) > 0);
+        if (!renglones.length) throw new ConflictException('La ola no tiene renglones que surtir');
         await trx('commercial.wave_lines').insert(
-          cons.map((c: any) => ({
-            wave_id: waveId,
-            product_id: c.product_id,
-            qty_requested: c.total_base,
-            // La unidad viaja con la cantidad, o se declara ausente. Nunca 'PZA' de relleno.
-            qty_unit: c.unidad_mixta ? null : c.qty_unit,
-            unidad_mixta: !!c.unidad_mixta,
-          })),
+          renglones.map((c) => {
+            // [GP.3] Lo que cuenta el surtidor (3 BTO), si todos los pedidos lo piden igual.
+            const pres = presentacionDeProducto(porProducto.get(c.product_id) ?? []);
+            return {
+              wave_id: waveId,
+              product_id: c.product_id,
+              qty_requested: totalCongelado(c.product_id),
+              // La unidad viaja con la cantidad, o se declara ausente. Nunca 'PZA' de relleno.
+              qty_unit: c.unidad_mixta ? null : c.qty_unit,
+              unidad_mixta: !!c.unidad_mixta,
+              qty_presentacion: pres?.cantidad ?? null,
+              unidad_presentacion: pres?.unidad ?? null,
+            };
+          }),
         );
       }
 
@@ -1547,6 +1793,13 @@ export class PickingService {
       if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
       if (wave.status === 'cancelada') throw new ConflictException('La ola está cancelada');
       if (wave.status === 'surtida') return wave; // idempotente
+      // [GP.3] Sólo se cierra lo que se arrancó. Una ola `abierta` (asignada pero sin arrancar) no
+      // tiene renglones, así que "0 pendientes" la dejaba cerrar como surtida sin que nadie
+      // surtiera nada (lo encontró la revisión de GP.3).
+      if (wave.status !== 'en_surtido')
+        throw new ConflictException(`La ola no está en surtido (está '${wave.status}'): arráncala primero.`);
+      const hayRenglones = await trx('commercial.wave_lines').where({ wave_id: waveId }).first('id');
+      if (!hayRenglones) throw new ConflictException('La ola no tiene renglones: no hay nada que cerrar.');
 
       const pend = await trx('commercial.wave_lines')
         .where({ wave_id: waveId, status: 'pendiente' })
@@ -1559,11 +1812,13 @@ export class PickingService {
             'un renglón sin tocar no es lo mismo que uno agotado.',
         );
 
-      // [GP.2] El reparto lee lo que pidió cada pedido EN VIVO. Un pedido de la Suite `confirmed`
-      // no cambia; uno de Kepler sigue editable en Kepler mientras se surte. Si cambió después de
-      // arrancar, repartir contra lo nuevo dejaría mercancía sin dueño sin que nadie lo viera.
+      // [GP.3] Si el pedido cambió en Kepler después de arrancar, ya NO se frena el cierre (GP.2
+      // lo frenaba): el reparto usa lo congelado al arrancar, que es contra lo que el surtidor
+      // caminó. El cambio se DECLARA en la respuesta para que el checador y el cuadre (GP.6) lo
+      // vean — no se esconde. Sólo una ola sin congelado (anterior a GP.3) sigue frenando.
       const cambios = await this.cambiosDesdeArranque(trx, waveId);
-      if (cambios.length)
+      const tieneCongelado = await trx('commercial.wave_order_lines').where({ wave_id: waveId }).first('id');
+      if (cambios.length && !tieneCongelado)
         throw new ConflictException(
           `El pedido cambió en Kepler después de arrancar el surtido: ${cambios.join('; ')}. ` +
             'Cancelá la ola y volvé a armarla con el pedido actual.',
@@ -1588,7 +1843,7 @@ export class PickingService {
         stage: 'desconsolidado',
         updated_at: trx.fn.now(),
       });
-      return { ...upd, reparto };
+      return { ...upd, reparto, cambios_en_kepler: cambios };
     });
   }
 
@@ -1602,8 +1857,29 @@ export class PickingService {
     if (!lineas.length) return [];
 
     // Lo que pidió cada pedido de cada producto, con lo que hace falta para ordenarlos.
-    // [GP.2] Misma lectura que el consolidado (Suite + Kepler): se reparte lo mismo que se surtió.
-    const pedidos = (await this.lineasDePedidos(trx, waveId)).filter((r) => r.product_id);
+    // [GP.3] Se reparte contra lo CONGELADO al arrancar (`wave_order_lines`): es contra lo que el
+    // surtidor caminó. Sólo una ola arrancada antes de [GP.3] no lo tiene; ésa cae a la lectura
+    // en vivo de [GP.2] (medido: en prod no existe ninguna, pero el camino queda para no romper).
+    // ⚠️ `to_char` y no `String(fecha).slice(0,10)`: pg devuelve un `date` como objeto Date y
+    // `String()` da "Thu Oct 08" — el reparto ordenaría por día de la semana (mismo defecto de LC.16).
+    const congelados: PedidoCongelado[] = await trx('commercial.wave_order_lines')
+      .where({ wave_id: waveId })
+      .select(
+        'order_id', 'order_code', 'product_id', 'qty_requested', 'qty_unit', 'qty_presentacion',
+        'unidad_presentacion',
+        trx.raw(`to_char(delivery_date, 'YYYY-MM-DD') AS delivery_date`),
+        'confirmed_at',
+      );
+    const pedidos = congelados.length
+      ? congelados.map((c) => ({
+          product_id: c.product_id,
+          order_id: c.order_id,
+          order_code: c.order_code,
+          quantity: Number(c.qty_requested),
+          delivery_date: c.delivery_date ?? null,
+          confirmed_at: c.confirmed_at ? new Date(c.confirmed_at).toISOString() : null,
+        }))
+      : (await this.lineasDePedidos(trx, waveId)).filter((r) => r.product_id);
 
     const porProducto = new Map<string, any[]>();
     for (const r of pedidos) {
@@ -1769,7 +2045,7 @@ export class PickingService {
         this.on('p.id', '=', 'wl.product_id').andOn('p.tenant_id', '=', 'wl.tenant_id');
       })
       .where('wl.wave_id', waveId)
-      .select('wl.*', 'p.nombre as product_name', 'p.sku')
+      .select('wl.*', 'p.nombre as product_name', 'p.sku', 'p.barcode')
       .orderByRaw(
         // Lo pendiente primero (es lo que falta caminar); dentro, por ubicación y nombre.
         `CASE WHEN wl.status = 'pendiente' THEN 0 ELSE 1 END, wl.bin_code NULLS LAST, p.nombre`,

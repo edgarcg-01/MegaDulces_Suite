@@ -162,9 +162,14 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
      * entran aquí como tabs con su pantalla; no se declaran antes porque sin ruta el tab tiraría
      * 404. Permiso propio `ALMACEN_PEDIDOS_VER` (ver el comentario en `authz-tree.ts`).
      */
-    match: ['/almacen/pedidos'],
+    match: ['/almacen/pedidos', '/almacen/surtir'],
     tabs: [
       { label: 'Tablero', icon: 'pi pi-list-check', route: '/almacen/pedidos', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
+    ],
+    focusEntries: [
+      // [GP.3b] Surtir desde el celular: foco, sin barra. Se entra directo (no hace falta elegir
+      // nada antes: el sistema le da al surtidor su siguiente ola).
+      { label: 'Surtir', icon: 'pi pi-shopping-bag', route: '/almacen/surtir', permission: Permission.COMMERCIAL_PICKING_GESTIONAR, exact: true },
     ],
   },
   {

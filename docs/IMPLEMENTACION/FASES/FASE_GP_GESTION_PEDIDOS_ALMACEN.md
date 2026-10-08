@@ -509,3 +509,117 @@ atorados; 7 renglones con producto resuelto y el UUID derivado igual al de Postg
   una sola ola viva" lo impide tal como está; GP.3 tendrá que partir el pedido en tramos.
 - **`faltantes` y `avisos`** siguen leyendo sólo pedidos de la Suite.
 - **Alcance por sucursal** (`ScopeService`) en el pool: el pool de la Suite tampoco lo tiene.
+
+## 8. GP.3 — La pantalla del surtidor: "tomar el siguiente" (🔨 en curso, 2026-10-08)
+
+**Decisión de Francisco (2026-10-07):** el sistema anterior tenía una consola central que asignaba
+pedidos a surtidores y checadores y les entregaba la hoja. En la Suite **el surtidor jala el trabajo
+desde el celular**: aprieta "Tomar siguiente" y el sistema le da lo que más urge. No elige cuál (nadie
+se queda con los fáciles). **La consola queda para lo que pide criterio**: partir un pedido grande por
+pasillos, urgentes y reasignar. El checador tendrá su propia cola (GP.4) y el sistema nunca le dará lo
+que él surtió (P4).
+
+Se entrega en dos partes: **GP.3a** el motor (backend) y **GP.3b** la pantalla.
+
+### 8.1 GP.3a — el motor (🧪 en código)
+
+| Pieza | Qué hace |
+|---|---|
+| `POST /reparto/surtido/waves/next` `{ warehouse_id, origen? }` | Devuelve la ola que el surtidor ya trae (abierta o en surtido) o le asigna la **libre más vieja** de su almacén con `FOR UPDATE SKIP LOCKED`. Si no hay libres, **las arma desde el pool de Kepler** (regla de tandas) y vuelve a intentar. La **arranca** al asignarla. |
+| `GET /reparto/surtido/waves/mine` | Las olas que trae quien consulta, con sus renglones. Va declarada antes de `waves/:id`. |
+| Mig `20261008003045` | `commercial.wave_order_lines` (lo que pidió cada pedido, **congelado al arrancar**, RLS forzado) + `wave_lines.qty_presentacion/unidad_presentacion` + `picking_waves.origen/armada_por` + índice parcial `ix_pw_libres`. |
+| `congelar.ts` (+ spec) | Funciones puras: agrupa por (pedido, producto) y suma la presentación sólo si es la misma unidad. |
+
+**Decisiones:**
+1. **Una ola a la vez por surtidor**; cerrar la app no le hace perder su trabajo (`waves/next` le
+   devuelve la misma).
+2. **El reparto usa lo congelado al arrancar**, no el pedido en vivo. Con eso, **un cambio en Kepler a
+   medio surtido ya no frena el cierre** (GP.2 lo frenaba): se devuelve en `cambios_en_kepler` para que
+   el checador y el cuadre (GP.6) lo vean. Sólo una ola sin congelado (anterior a GP.3) sigue frenando.
+3. **El surtidor ve la presentación de la hoja** (3 BTO) cuando todos los pedidos la piden igual; si no,
+   la unidad base. El reparto sigue en unidad base.
+4. **Si una ola ya no se puede arrancar al tomarla** (el pedido o el catálogo cambiaron desde que se
+   armó), se cancela con su motivo y se toma la siguiente. Sin eso, el surtidor quedaría atorado.
+
+**Defecto encontrado y corregido (venía de SU.6):** `String(fecha).slice(0,10)` sobre un `date` de pg
+da `"Thu Oct 08"`, no `2026-10-08` (pg devuelve un objeto Date; el proyecto no configura el parser).
+El reparto ordenaba la prioridad de entrega **por día de la semana** (`Fri < Mon < Thu`). Ahora la fecha
+sale de `to_char` en el SQL, igual que en LC.16.
+
+**Verificado:** 65 pruebas (11 nuevas de `congelar`, con 2 mutaciones en rojo); `tsgo` y
+`lint:boundary` en verde; migración real contra Postgres local (up, up repetido, RLS forzado, down que
+aborta con datos, todo en transacción deshecha); **dos conexiones tomando a la vez se llevan olas
+distintas sin esperar**.
+
+**No verificado:** los endpoints por HTTP (no se levanta la API en sesión; lo compila el CI).
+
+**Despliegue:** la migración `20261008003045` va **antes** del código.
+
+### 8.2 GP.3b — la pantalla (🧪 en código)
+
+`/almacen/surtir` (`almacen-surtir.component.ts`), pantalla de **foco** (sin barra de pestañas, molde
+`almacen-rutas-contar`), permiso `COMMERCIAL_PICKING_GESTIONAR` (lo tienen los 6 almacenistas desde
+[VEC.0]). Entra en el menú por el área **Pedidos** como entrada de foco: el almacenista no tiene
+`ALMACEN_PEDIDOS_VER`, y sin esa entrada el área no se le pintaría.
+
+- Elige almacén (se recuerda en el dispositivo; por omisión el de su ficha) y origen (Todos /
+  Telemarketing / Sucursal), y aprieta **Tomar siguiente**.
+- Renglones en dos grupos, **Por surtir** y **Ya surtidos**, con la cantidad en la presentación de la
+  hoja (3 BTO) y la base debajo. Botones grandes **Completo** / **Faltante**; el faltante se captura en
+  la unidad que ve y se convierte a la base. **No había (0)** y **corregir**.
+- Cada toque se guarda en el servidor al momento; no hay borrador local. Buscador por nombre o código.
+- **Terminé de surtir** apagado mientras haya renglones sin tocar. Al cerrar, resumen y, si el pedido
+  cambió en Kepler, el aviso para el checador.
+
+### 8.2.1 Correcciones de la revisión independiente (antes del commit)
+
+| Hallazgo | Corrección |
+|---|---|
+| **Una ola asignada pero sin arrancar se podía cerrar como "surtida" sin surtir nada** (sin renglones = 0 pendientes) | `finishPicking` exige `en_surtido` y al menos un renglón; la pantalla retoma la ola con `waves/next`, que la arranca |
+| **El mismo surtidor podía quedarse con DOS olas** (dos pestañas o un reintento: "¿ya trae una?" y "reclama una libre" iban en transacciones separadas) | Las dos en UNA transacción con `pg_advisory_xact_lock` por persona. Probado con dos conexiones: la segunda espera y recibe la misma ola |
+| **El filtro de origen se ignoraba al tomar** (sólo se usaba al armar) | `picking_waves.origen` (el de sus pedidos si todos coinciden) y el reclamo filtra por él |
+| **"Tomar siguiente" cancelaba olas armadas a mano** por la consola si no arrancaban | `picking_waves.armada_por` (`auto`/`consola`): sólo las `auto` se cancelan; las de la consola se **liberan** con el motivo en sus notas y se avisan en `atoradas` |
+| El total del renglón podía diferir en ±0.001 de la suma congelada por pedido (KG de más de 3 decimales) | `wave_lines.qty_requested` = suma de lo congelado |
+| Pantalla: doble Enter mandaba dos veces; un 409 (ola cancelada) la dejaba sin salida; un error viejo quedaba a la vista; presentación en 0 | Corregidos |
+
+### 8.2.2 Prueba de la pantalla y revisión de usabilidad (2026-10-08)
+
+**Prueba nueva** `almacen-surtir.component.spec.ts` (36 casos): monta la pantalla real con el servidor
+simulado y recorre lo que hace el surtidor (retomar, tomar, Completo, Faltante, No había, Corregir,
+buscar/escanear, cerrar, sin trabajo, errores). **Encontró dos defectos que `tsc` y `ngc` no ven:**
+
+1. **El buscador no encontraba nada al escanear un código**: los argumentos de `coincideBusqueda` iban al
+   revés (la consulta va primero).
+2. **Si al retomar un surtido fallaba la red, la pantalla se quedaba en "Cargando…" para siempre.**
+
+Las dos con prueba de mutación (se quita el arreglo y la prueba se pone en rojo).
+
+**Revisión de usabilidad contra `DESIGN.md`** (independiente), corregido:
+
+| Antes | Ahora |
+|---|---|
+| Al marcar, el renglón se iba a otra sección y el siguiente subía **bajo el pulgar** (un segundo toque marcaba el equivocado) | La lista no se mueve: el renglón marcado **se encoge en su lugar** a una línea con "Corregir" (deshacer). 85 renglones caben en una lista corta. "Ocultar los ya surtidos" |
+| La cantidad casi del mismo tamaño que el nombre | Cantidad en `--fs-display` (número) y la unidad un escalón abajo |
+| El escáner: sin código de barras, Enter no hacía nada | Busca por **código de barras**, código y nombre; Enter con un solo resultado lleva el foco a su "Completo" (no lo marca solo) |
+| Escanear algo ajeno decía "Ya pasaste por todos los renglones" | "Ningún renglón de este surtido coincide con «…»" |
+| "No había (0)" chico y pegado a Guardar | "No había nada" separado, a lo ancho y con borde de peligro |
+| Botones de texto y "Terminé de surtir" por debajo de 44 px | Todos con `--tap-min`; "Terminé de surtir" del tamaño de "Tomar siguiente" |
+| Guardar se apagaba sin decir por qué | "Entre 0 y 3 BTO" / "No puede ser más de 3 BTO"; teclado entero para cajas, decimal sólo por peso |
+| Sin aviso de conexión; errores sólo en un aviso de 4 s | Banda "Sin conexión"; los errores quedan en pantalla con "Reintentar" |
+| El foco se perdía al marcar; la barra de avance sin nombre | El foco pasa al siguiente "Completo"; región `aria-live` con lo que pasó; progressbar con `aria-valuetext` |
+| Radios, duraciones y anillos de foco con valores sueltos | Tokens `--r-*`, `--dur-*`, `--focus-ring`; `:active` y `prefers-reduced-motion` |
+| "pedido(s)", "consola", "Levantaste 2 BTO" | Plurales correctos, "tu supervisor", "Faltaron 1 de 3 BTO" |
+| "Salir" iba al tablero, que el almacenista no puede abrir | Va a `/almacen` |
+
+**Declarado, no hecho:** el foco NO se pone solo en el buscador al entrar (en un celular abriría el
+teclado encima de la lista); el skeleton de carga (la pantalla hermana usa el mismo spinner).
+
+**Declarado, sin cambiar:** el factor de conversión de un faltante capturado en bultos es el **promedio**
+del renglón (75 KG / 3 BTO); con bultos de peso variable entre pedidos no es el peso de cada bulto.
+
+### 8.3 Pendiente de GP.3
+
+- **GP.3c, consola de excepciones**: partir un pedido grande por rango de pasillos (necesita ubicaciones,
+  `FASE_WMS` §12.5), urgentes, reasignar y ver quién trae qué y desde hace cuánto.
+- **El orden de la hoja por ubicación** espera el censo de ubicaciones de PH (WMS.3). Hoy: por nombre.
+- **Prioridad dentro de la cola**: hoy es la ola más vieja (`created_at`). Urgentes = GP.3c.
