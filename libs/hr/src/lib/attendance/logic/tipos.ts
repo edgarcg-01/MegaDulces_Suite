@@ -43,7 +43,17 @@ export function esPromotora(
 ): boolean {
   if (!ficha) return false;
   if (ficha.es_promotora === true) return true;
-  return /promotor/i.test(String(ficha.departamento || ''));
+  return esDeptoDePromotoria(ficha.departamento);
+}
+
+/**
+ * `[RH.1.5c]` ¿Es un departamento de PROMOTORÍA DE MARCA? (la promotora la paga la marca y no se mide en la
+ * asistencia de piso). «PROMOTORIA MEGA DULCES» NO lo es: a esas las paga Mega Dulces y se miden como personal.
+ * Regla de RH en Mega Talento (3938723, 08/10/2026); es la única regla, la que usan `esPromotora` y el directorio.
+ */
+export function esDeptoDePromotoria(departamento: string | null | undefined): boolean {
+  const d = String(departamento || '');
+  return /promotor/i.test(d) && !/mega\s*dulces/i.test(d);
 }
 
 /** Reglas soportadas por el detector. */
