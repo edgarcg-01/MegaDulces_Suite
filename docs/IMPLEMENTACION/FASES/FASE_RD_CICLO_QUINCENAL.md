@@ -1,7 +1,8 @@
 # Fase RD — El ciclo quincenal de Ruta Directa (RD.27 … RD.36)
 
 > **Estado**: 🔨 PLANEADA 2026-10-07 — ADR-088 propuesto. Sin código salvo lo que RD.17–RD.20
-> dejó escrito y **sin correr** (ver §7).
+> dejó escrito y **sin correr** (ver §7) y lo que **RD.22** cambió ese mismo día: se retiraron
+> los dos crons y la corrida pasó a ser un valor congelado que se escribe una vez (ver §6bis).
 >
 > **Qué es**: retirar `INDICADORES RD 2026.xlsx` como *herramienta de trabajo*, no como fórmula.
 > Las fases anteriores copiaron el **cálculo**; ésta se ocupa del **proceso**: qué hace una
@@ -319,6 +320,116 @@ callarse salvo que te sorprendan.*
   forma. Exportar el **resultado** (CSV, PDF del recibo) sí; recrear el instrumento no.
 - ⛔ **Tocar la aritmética del tabulador.** Está verificada al centavo contra 163 celdas y no es
   lo que falla.
+
+---
+
+## 6bis. RD.22 — Se retiró el cron, y la corrida pasó a ser un valor congelado
+
+> **Estado**: 🧪 EN CÓDIGO 2026-10-07. Decisión de Edgar, contra el diseño que RD.20/RD.21 ya
+> tenía desplegado. Sin migraciones ni permisos nuevos.
+
+### Por qué se tiró lo que estaba hecho
+
+RD.20 puso un `@Cron` diario a las 08:30 para la quincena cerrada; RD.21 le sumó otro cada 30
+min para la que todavía corría. Los dos se retiraron el mismo día que corrieron por primera vez.
+
+**El argumento que los tumbó, de Edgar:** *una quincena pasada es un valor estático que no puede
+cambiar*. Y de ahí sale todo lo demás:
+
+- Un reloj que despierta **48 veces al día** para un hecho que ocurre **24 veces al año** está
+  mal planteado de origen.
+- El de 30 min **reescribía la corrida de la quincena abierta cada media hora**. Una cifra de
+  nómina que se mueve sola es exactamente lo contrario de lo que esa cifra tiene que ser.
+- ⚠️ Y la justificación que yo le había puesto al diario —*"el carril puede venir atrasado, por
+  eso se reintenta"*— **nunca se midió**. Era una premisa escrita como ley física: la clase de
+  afirmación que después nadie vuelve a revisar porque está en un comentario.
+
+⛔ También quedó descartada la alternativa que yo había propuesto —la corrida como **vista**, que
+se congela sólo al aprobar—: una vista recalcularía el pasado cada vez que alguien la mira, que
+es justo lo que no debe pasar.
+
+### El modelo que queda
+
+| | Antes (RD.20/21) | Ahora (RD.22) |
+|---|---|---|
+| Quincena cerrada | la escribía el cron, y la reemplazaba | se escribe **una vez**, a propósito |
+| Quincena en curso | corrida `en_curso` reescrita cada 30 min | **no se guarda**; se mira con la vista previa |
+| Lo pagado | protegido por la red de abajo | **freno propio**, y no manda a reintentar |
+| Quien escribe | dos crons + `/run-now` | **un solo camino**: `POST /commissions/recalculate-from` |
+| El hueco | lo insinuaba el latido `rd_commission_runner` | lo declara el periodo: `estado_calculo` |
+
+El trámite de escritura es **el mismo las dos veces que hace falta**: producir el número de una
+quincena recién cerrada, y reconvertir desde el periodo en que aplica una escala nueva. Calcula
+ésa y todas las cerradas que le siguen; **salta** las pagadas y las aprobadas con su motivo, y el
+lote sigue (cada quincena se calcula sobre su propio rango, no acumula contra la anterior).
+
+### Lo pagado no se edita
+
+Decisión explícita de Edgar. Si la escala cambia con efecto sobre una quincena **ya pagada**, la
+diferencia entra como **ajuste en la siguiente**; la fila pagada queda como está, porque es el
+registro de un depósito que ocurrió. Reescribirla haría que el historial dejara de coincidir con
+lo que de verdad se le depositó a la gente. Lo `aprobado` tampoco se pisa en silencio: lleva una
+firma, se anula a mano primero, y ese acto queda registrado.
+
+### El hueco cambió de lugar, no desapareció
+
+Sin cron no hay latido que vigilar, así que `rd_commission_runner` salió de `CRON_JOBS` — dejarlo
+pondría `db-health` en rojo para siempre por un carril que ya no existe. En su lugar, `board()`
+publica **cuatro** estados por periodo: `calculada` · `sin_calcular` · `en_curso` · `futura`.
+
+⭐ `sin_calcular` y `en_curso` llegan los dos sin cifra y **no son lo mismo**: al primero le falta
+que alguien lo calcule, al segundo que termine el periodo. El rail los pintaba iguales ("sin
+corrida", gris) y eso hacía que **una quincena olvidada se viera normal**. Ahora `sin_calcular`
+sale en ámbar y es lo único del tablero que pide acción. *La ausencia se declara en la fila a la
+que le falta, no en un sensor aparte que mira si un reloj despertó.*
+
+### Dos bugs que sólo se vieron al correr de verdad
+
+El motor llevaba un mes en prod con **cero corridas**, así que nada de esto era deuda latente:
+era código que nunca se había ejecutado.
+
+1. ⛔ **`pendientes()` leía del pool crudo sobre tablas con RLS FORZADO.** `app_runtime` no tiene
+   `app.tenant_id` como default de rol (sí lo tienen `edgar`, `david`, `francisco`, `sistemas`),
+   así que `current_tenant_id()` era NULL y la consulta devolvía **cero filas sin error**. Tres
+   corridas seguidas reportaron `ok` sin hacer nada. ⚠️ Lo peor no fue el bug: fue que el
+   `ceroEsOk` del latido declaraba *"no había quincena pendiente"* **sin comprobarlo**, y eso
+   convirtió una falla total en verde. *Un cero declarado legítimo sin verificarlo es peor que
+   un rojo.*
+   ⚠️ Y el latido decía `host: 'api'` corriendo en el **worker** (el default de `latirCron` sin
+   sobreescribir): mandó a leer los logs del pod equivocado y costó una vuelta entera.
+2. ⛔ **`String(period.date_to).slice(0, 10)` devolvía `"Wed Oct 07"`.** pg entrega un `date`
+   como objeto `Date` de JS, y `String(Date)` lo imprime en formato largo. Reventaba en la
+   consulta de la escala con `invalid input syntax for type date`. Es el mismo defecto de
+   `[LC.16]`, y por eso `board()` ya traía sus fechas con `to_char`.
+
+Aprovechando el segundo, el **"hoy" pasó a salir de `current_date` de la DB** y no de
+`new Date()` del proceso: `toISOString()` es UTC, así que entre las 18:00 y la medianoche de
+México adelanta el día y una quincena que cierra HOY se habría dado por cerrada seis horas antes.
+Es `[RD.1]` otra vez.
+
+### El candado
+
+`libs/commercial/.../commission-inmutable.spec.ts` — **10 aserciones, las 5 mutaciones en rojo**:
+sin el freno de pagado · sin el de aprobado · sin el del periodo abierto · con `en_curso` otra vez
+reemplazable · con el freno aplicándose también a la vista previa (que debe poder mirar el
+periodo abierto).
+
+⚠️ **La mutación encontró un defecto en mi propio candado.** Las dos primeras versiones pasaban
+**por la razón equivocada**: al apagar el freno de `pagado`, la red de abajo
+(`!['borrador','bloqueada'].includes(...)`) también rechazaba, y su mensaje contiene la palabra
+*"pagado"* — con la que mi `toThrow(/pagad/i)` casaba igual. Se cambió a la frase que **sólo**
+produce el freno explícito. *Un test verde no dice contra qué pasó.*
+
+⚠️ El spec usa dobles de knex y **no ejecuta SQL** — comprueba flujo de control, que es donde
+vive la regla. La parte que toca la base la cubre `test-newdb-rd-commission-base.js`
+(**15 OK / 0 fallas / 0 no medidos** contra prod, 2026-10-07).
+
+### Lo que falta
+
+`git push` + redeploy de api y view. Sin migraciones ni permisos nuevos → **sin re-login**.
+Abierto: **dónde vive el trámite de recalcular** (el endpoint existe; la pantalla de comisiones
+sigue siendo sólo de lectura por pedido explícito, así que su UI es una decisión aparte — y va
+junto con la de dónde vive aprobar).
 
 ---
 
