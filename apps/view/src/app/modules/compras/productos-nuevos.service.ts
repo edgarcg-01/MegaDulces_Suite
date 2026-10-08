@@ -188,9 +188,4 @@ export class ProductosNuevosService {
   detalle(productId: string): Observable<DetalleNuevo> {
     return this.http.get<DetalleNuevo>(`${this.base}/${productId}`);
   }
-
-  /** `clasificacion: null` quita la clasificación: el producto vuelve a "por confirmar". */
-  clasificar(productId: string, clasificacion: ClasificacionNueva | null, nota: string | null): Observable<unknown> {
-    return this.http.put(`${this.base}/${productId}/classification`, { kind: clasificacion, note: nota });
-  }
 }

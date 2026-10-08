@@ -46,6 +46,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.8]` | **En vivo**: función `analytics.fn_new_products_movimientos(tenant, skus, desde, hasta)` (venta y entradas desde el ODS; desde `NP.11` vive en la mig `20261007200000` porque la matvista la usa para su historia) + índice `ix_kdm1_compra_fecha` (mig `20261007200200`). La matvista guarda SERIES hasta el corte. | 🧪 aplicada en local |
 | `[NP.9]` | **Recomendación de recompra** global y por sucursal (`recomendar` + `CRITERIO_RECOMPRA`) + `GET new-products/:id` (comportamiento por sucursal). | 🧪 |
 | `[NP.10]` | **Rediseño**: respuesta arriba, filtros por recomendación, venta por semana en cada fila, panel lateral por sucursal, refresco solo cada minuto. | 🧪 |
+| `[NP.12]` | **Sin clasificación manual en pantalla** (pedido del usuario): se quitó el formulario "¿Qué es este código?" del panel, el filtro "Por confirmar" y la frase "N esperan que Compras confirme". Las exclusiones automáticas (promoción, código DESC, descontinuado) siguen. El endpoint `PUT …/classification` y `catalog.new_product_reviews` quedan **sin consumidor en la pantalla**. | 🧪 |
 | `[NP.11]` | **Unidades de Kepler**: lo vendido y lo recibido en la unidad que declara el renglón (cajas, paquetes, piezas, gramaje), global y por sucursal; la existencia en la unidad base de la ficha de cada sucursal con su equivalente en la unidad mayor. | 🧪 |
 
 ## Medido (base local, 2026-10-07)
@@ -188,3 +189,26 @@ Candado de base **126/126** (+ prueba negativa: sin la condición de identidad, 
 función contra `erp_goods_receipt_lines` folio por folio; primera entrada de la lista contra
 `primera_recepcion` (otra consulta). Lógica 38/38 · componente 20/20 · Compras 316/316 · comercial
 530/530. HTTP: listado **0.56 s**, detalle **0.28 s**.
+
+---
+
+## Cuarta entrega (2026-10-07): sin clasificación manual (`NP.12`)
+
+Pedido: quitar del panel el bloque "¿Qué es este código?" (selector + nota + Guardar).
+
+Se quitó el formulario y, con él, lo que sólo tenía sentido si alguien podía confirmar: el filtro
+"Por confirmar" y la frase "N esperan que Compras confirme qué son" (se quedarían pidiendo algo que
+ya nadie puede hacer).
+
+**Qué cambia en el resultado:**
+- Las exclusiones **automáticas** siguen igual (promoción, código `DESC`, descontinuado).
+- Una **recodificación** o algo que **no es mercancía** ya no se puede sacar a mano: cuenta como
+  lanzamiento en las cohortes y en la inversión/retorno. La etiqueta "Posible recodificación" sigue
+  apareciendo como aviso, pero no hay dónde resolverla.
+- Las clasificaciones que ya existan en `catalog.new_product_reviews` se siguen respetando (el
+  servidor las une al leer).
+
+**Lo que quedó sin consumidor** (no se borró, a propósito): el endpoint
+`PUT /commercial/products/new-products/:id/classification`, `NewProductsService.classify` y la tabla
+`catalog.new_product_reviews` (mig `20261007200100`). Si la clasificación no va a volver, se quitan
+en otra entrega; si va a volver por otro lado (p. ej. desde Solicitudes de alta), se reusan.

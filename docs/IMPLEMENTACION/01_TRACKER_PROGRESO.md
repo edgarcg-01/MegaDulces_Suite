@@ -9568,3 +9568,4 @@ Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUE
 - [x] 🧪 `[NP.9]` Recomendación de recompra global y por sucursal (`CRITERIO_RECOMPRA`, propuesta a calibrar) + `GET new-products/:id`.
 - [x] 🧪 `[NP.10]` Rediseño: respuesta arriba, filtros por recomendación, venta semanal por fila, panel lateral por sucursal, refresco cada minuto.
 - [x] 🧪 `[NP.11]` Unidades de Kepler: vendido y recibido en la unidad que declara el renglón (`c55/c56` si `c9 = c56 × c58` cierra; si no, la base `c11/c9`), global y por sucursal; existencia en la unidad de la ficha de cada sucursal (`v_kepler_unit_ladder`). Lo que no trae unidad (ruta, Wincaja) se declara en pesos.
+- [x] 🧪 `[NP.12]` Sin clasificación manual en pantalla: fuera el formulario "¿Qué es este código?", el filtro "Por confirmar" y la frase "esperan que Compras confirme". Endpoint y `catalog.new_product_reviews` quedan sin consumidor en la pantalla (no se borraron).

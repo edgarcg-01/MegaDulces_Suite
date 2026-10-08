@@ -4,7 +4,6 @@ import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
 import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
-import { PermissionsService } from '../../../core/services/permissions.service';
 import {
   DetalleNuevo,
   ProductoNuevo,
@@ -173,16 +172,15 @@ describe('[NP.5] funciones puras de Productos nuevos', () => {
 
 describe('[NP.5] ComprasCatalogoNuevosComponent', () => {
   let fix: ComponentFixture<ComprasCatalogoNuevosComponent>;
-  let api: { listar: ReturnType<typeof vi.fn>; detalle: ReturnType<typeof vi.fn>; clasificar: ReturnType<typeof vi.fn> };
+  let api: { listar: ReturnType<typeof vi.fn>; detalle: ReturnType<typeof vi.fn> };
 
-  async function montar(respuesta: unknown, puedeGestionar = true) {
-    api = { listar: vi.fn(() => respuesta), detalle: vi.fn(() => of(DETALLE)), clasificar: vi.fn(() => of({})) };
+  async function montar(respuesta: unknown) {
+    api = { listar: vi.fn(() => respuesta), detalle: vi.fn(() => of(DETALLE)) };
     await TestBed.configureTestingModule({
       imports: [ComprasCatalogoNuevosComponent],
       providers: [
         provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
         { provide: ProductosNuevosService, useValue: api },
-        { provide: PermissionsService, useValue: { has: () => puedeGestionar, hasAny: () => puedeGestionar, isAdmin: () => false } },
       ],
     }).compileComponents();
     fix = TestBed.createComponent(ComprasCatalogoNuevosComponent);
@@ -271,21 +269,15 @@ describe('[NP.5] ComprasCatalogoNuevosComponent', () => {
     expect(api.listar).toHaveBeenCalledTimes(2);
   });
 
-  it('guardar la clasificación la manda al servidor y recarga', async () => {
-    await montar(of(RESPUESTA));
-    const cmp = fix.componentInstance;
-    cmp.editar(FILAS[0], 'clasificacion', 'nuevo');
-    cmp.editar(FILAS[0], 'nota', '  Lanzamiento con proveedor A  ');
-    cmp.guardar(FILAS[0]);
-    expect(api.clasificar).toHaveBeenCalledWith('p-1', 'nuevo', 'Lanzamiento con proveedor A');
+  it('la pantalla no pide clasificar: sin formulario en el panel ni filtro "Por confirmar"', async () => {
+    const el = await montar(of(RESPUESTA));
+    expect(el.textContent).not.toContain('Por confirmar');
+    expect(el.textContent).not.toContain('esperan que Compras confirme');
+    (el.querySelector('tr.pn-fila') as HTMLElement).click();
     await tick(fix);
-    expect(api.listar).toHaveBeenCalledTimes(2);
-  });
-
-  it('[negativa] sin permiso de gestionar, guardar no llama al servidor', async () => {
-    await montar(of(RESPUESTA), false);
-    fix.componentInstance.guardar(FILAS[0]);
-    expect(api.clasificar).not.toHaveBeenCalled();
+    expect(document.querySelector('.pk-plaza')).not.toBeNull();
+    expect(document.body.textContent).not.toContain('¿Qué es este código?');
+    expect(document.querySelector('p-select, textarea')).toBeNull();
   });
 
   it('[negativa] si el servidor falla de entrada no hay titular y sí un aviso', async () => {

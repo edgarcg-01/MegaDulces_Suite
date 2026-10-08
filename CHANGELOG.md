@@ -52,6 +52,7 @@
 - Lo vendido y lo recibido se muestran como Kepler los registró: "23 cajas · 86 piezas", "6 de 500 g". Cada rótulo por su lado, sin convertir. Sale del renglón (`c55/c56` cuando su identidad cierra; si no, la unidad base).
 - La existencia de cada sucursal va en la unidad de su ficha de Kepler, con su equivalente en la unidad mayor sólo si la ficha la declara: "Hay 24 piezas (2 cajas)".
 - La venta de ruta y de plazas en Wincaja no trae unidad de Kepler: se dice cuánto es, en pesos.
+- Se quitó del panel la clasificación manual ("¿Qué es este código?") y el filtro "Por confirmar" (NP.12). Las exclusiones automáticas siguen.
 
 ### Added — Productos nuevos: ¿conviene volver a comprarlo?, en vivo y por sucursal (NP.8–NP.10, 2026-10-07)
 - Cada producto nuevo trae una **recomendación** (Recomprar · Esperar · Revisar · No recomprar · Aún es pronto) con sus motivos, global y por sucursal. Criterio visible en pantalla y en `CRITERIO_RECOMPRA`; es una propuesta a calibrar con Compras. Mide rotación y recuperación de lo invertido, no margen.

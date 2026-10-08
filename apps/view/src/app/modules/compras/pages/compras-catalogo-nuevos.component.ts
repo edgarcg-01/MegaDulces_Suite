@@ -4,18 +4,14 @@ import { FormsModule } from '@angular/forms';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { of } from 'rxjs';
 import { TableModule } from 'primeng/table';
-import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { SparklineComponent } from '../../../shared/components/charts/sparkline.component';
 import { unidadLegible } from '@megadulces/contracts';
-import { PermissionsService } from '../../../core/services/permissions.service';
-import { Permission } from '../../../core/constants/permissions';
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import {
-  ClasificacionNueva,
   HitoNuevo,
   PlazaNueva,
   ProductoNuevo,
@@ -28,7 +24,7 @@ import {
 /** Qué se está mirando: todo lo que se sigue, un veredicto, o lo que queda fuera del seguimiento. */
 export type FiltroNuevos =
   | 'seguimiento' | VeredictoNuevo
-  | 'sin_venta_30' | 'por_confirmar' | 'sin_movimiento' | 'no_medible' | 'excluido';
+  | 'sin_venta_30' | 'sin_movimiento' | 'no_medible' | 'excluido';
 
 /** Cada veredicto, como se ve. El orden es el de "qué pide acción primero". */
 export const VEREDICTOS: Record<VeredictoNuevo, { label: string; tono: 'ok' | 'warn' | 'bad' | 'info' | 'muted'; icon: string }> = {
@@ -42,23 +38,10 @@ const ORDEN_VEREDICTOS: VeredictoNuevo[] = ['recomprar', 'revisar', 'no_recompra
 
 const OTROS: { id: FiltroNuevos; label: string }[] = [
   { id: 'sin_venta_30', label: 'Sin venta en su primer mes' },
-  { id: 'por_confirmar', label: 'Por confirmar' },
   { id: 'sin_movimiento', label: 'Dados de alta, sin movimiento' },
   { id: 'no_medible', label: 'No medibles' },
   { id: 'excluido', label: 'Excluidos' },
 ];
-
-export const OPCIONES_CLASIFICACION: { label: string; value: ClasificacionNueva | null }[] = [
-  { label: 'Por confirmar', value: null },
-  { label: 'Nuevo: lanzamiento real', value: 'nuevo' },
-  { label: 'Recodificación de un producto existente', value: 'recodificacion' },
-  { label: 'Promoción o paquete temporal', value: 'promocion' },
-  { label: 'No es mercancía', value: 'no_mercancia' },
-];
-
-const ETIQUETA_CLASIFICACION: Record<ClasificacionNueva, string> = {
-  nuevo: 'Nuevo', recodificacion: 'Recodificación', promocion: 'Promoción', no_mercancia: 'No es mercancía',
-};
 
 /** Cada cuánto se vuelve a pedir lo de hoy mientras la pantalla está a la vista. */
 const REFRESCO_MS = 60_000;
@@ -68,7 +51,6 @@ export function pasaFiltro(f: ProductoNuevo, filtro: FiltroNuevos): boolean {
   switch (filtro) {
     case 'seguimiento': return f.estado === 'seguimiento';
     case 'sin_venta_30': return f.estado === 'seguimiento' && f.sin_venta_30;
-    case 'por_confirmar': return f.estado === 'seguimiento' && f.clasificacion === null;
     case 'sin_movimiento': case 'no_medible': case 'excluido': return f.estado === filtro;
     default: return f.estado === 'seguimiento' && f.recomendacion?.veredicto === filtro;
   }
@@ -175,7 +157,7 @@ export function tendenciaTexto(t: number | null): string {
 @Component({
   selector: 'app-compras-catalogo-nuevos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, ButtonModule, TooltipModule,
+  imports: [CommonModule, FormsModule, TableModule, ButtonModule, TooltipModule,
     PageTabsComponent, SidePeekComponent, SparklineComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -239,7 +221,6 @@ export function tendenciaTexto(t: number | null): string {
                   Han vendido {{ dinero(r.venta) }}.
                 }
                 @if (r.venta_hoy > 0) { Hoy van {{ dinero(r.venta_hoy) }}. }
-                {{ n(r.por_confirmar) }} esperan que Compras confirme qué son.
               </p>
             </section>
           }
@@ -537,30 +518,6 @@ export function tendenciaTexto(t: number | null): string {
                 }
               </section>
 
-              <form class="pk-bloque pk-clasificar" (submit)="$event.preventDefault(); guardar(f)">
-                <h3 class="pk-h">¿Qué es este código?</h3>
-                <p class="pn-meta">Sólo los lanzamientos reales cuentan para la inversión y el retorno.</p>
-                <p-select [options]="opciones" optionLabel="label" optionValue="value"
-                          [ngModel]="borrador(f).clasificacion" (ngModelChange)="editar(f, 'clasificacion', $event)"
-                          [ngModelOptions]="{ standalone: true }" [disabled]="!puedeGestionar()"
-                          appendTo="body" ariaLabel="Clasificación" class="pn-sel" />
-                <textarea class="pn-nota" rows="2" maxlength="500" [ngModel]="borrador(f).nota"
-                          (ngModelChange)="editar(f, 'nota', $event)" [ngModelOptions]="{ standalone: true }"
-                          [disabled]="!puedeGestionar()" placeholder="Nota: por qué se catalogó, qué se espera, proveedor…"
-                          aria-label="Nota de la clasificación"></textarea>
-                <div class="pn-acciones">
-                  @if (puedeGestionar()) {
-                    <button pButton type="submit" class="p-button-sm" [loading]="guardando() === f.product_id">
-                      <span class="p-button-label">Guardar</span>
-                    </button>
-                  } @else {
-                    <span class="pn-meta">Necesitas permiso para gestionar productos.</span>
-                  }
-                  @if (f.clasificado_por) { <span class="pn-meta">Última clasificación: {{ f.clasificado_por }}</span> }
-                  @if (errorGuardar() === f.product_id) { <span class="pn-error" role="alert">No se pudo guardar. Intenta de nuevo.</span> }
-                </div>
-              </form>
-
               <p class="pn-meta">Hoy en vivo al {{ hora(dt.frescura.en_vivo_al) }} · historia al cierre de anoche.
                 No incluye ruta ni plazas en Wincaja hasta el cierre. Las unidades son las que registró Kepler en cada
                 venta y entrada (caja, paquete, pieza), sin convertir; la existencia, en la unidad de la ficha de cada sucursal.</p>
@@ -690,12 +647,6 @@ export function tendenciaTexto(t: number | null): string {
     .pk-plaza { border: 1px solid var(--c-divider); border-radius: 10px; padding: .7rem .85rem; display: flex; flex-direction: column; gap: .5rem; }
     .pk-plaza header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
     .pk-plaza-cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) 8rem; gap: .75rem; align-items: center; }
-    .pk-clasificar { border-top: 1px solid var(--c-divider); padding-top: 1rem; }
-    .pn-sel { width: 100%; }
-    .pn-nota { width: 100%; border: 1px solid var(--c-divider); border-radius: 8px; padding: .45rem .6rem; font: inherit;
-      font-size: var(--fs-sm); background: var(--c-surface-1); color: var(--c-text-1); resize: vertical; }
-    .pn-nota:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
-    .pn-acciones { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
     @media (max-width: 48rem) {
       .pn-buscar, .pn-buscar input { width: 100%; }
       .pk-plaza-cuerpo { grid-template-columns: 1fr; }
@@ -706,7 +657,6 @@ export class ComprasCatalogoNuevosComponent {
   readonly tabs = CATALOGO_TABS;
   readonly otros = OTROS;
   readonly ordenVeredictos = ORDEN_VEREDICTOS;
-  readonly opciones = OPCIONES_CLASIFICACION;
   readonly hitos: HitoNuevo[] = [30, 60, 90];
   readonly hitoVisible = hitoVisible;
   readonly existenciaTexto = existenciaTexto;
@@ -714,15 +664,9 @@ export class ComprasCatalogoNuevosComponent {
   readonly tendenciaTexto = tendenciaTexto;
 
   private readonly api = inject(ProductosNuevosService);
-  private readonly perms = inject(PermissionsService);
 
-  readonly puedeGestionar = computed(() => this.perms.has(Permission.COMMERCIAL_PRODUCTS_GESTIONAR));
   readonly filtro = signal<FiltroNuevos>('seguimiento');
   readonly busqueda = signal('');
-  readonly guardando = signal<string | null>(null);
-  readonly errorGuardar = signal<string | null>(null);
-  /** Lo que el usuario está editando, por producto. Se borra al guardar. */
-  private readonly borradores = signal<Record<string, { clasificacion: ClasificacionNueva | null; nota: string }>>({});
 
   private readonly recarga = signal(0);
   private readonly res = rxResource({
@@ -805,36 +749,6 @@ export class ComprasCatalogoNuevosComponent {
     this.abierto.set(null);
   }
 
-  borrador(f: ProductoNuevo): { clasificacion: ClasificacionNueva | null; nota: string } {
-    return this.borradores()[f.product_id] ?? { clasificacion: f.clasificacion, nota: f.nota ?? '' };
-  }
-
-  editar(f: ProductoNuevo, campo: 'clasificacion' | 'nota', valor: ClasificacionNueva | null | string): void {
-    const actual = this.borrador(f);
-    this.borradores.update((b) => ({ ...b, [f.product_id]: { ...actual, [campo]: valor } }));
-  }
-
-  guardar(f: ProductoNuevo): void {
-    if (!this.puedeGestionar()) return;
-    const b = this.borrador(f);
-    this.guardando.set(f.product_id);
-    this.errorGuardar.set(null);
-    this.api.clasificar(f.product_id, b.clasificacion, b.nota.trim() || null).subscribe({
-      next: () => {
-        this.guardando.set(null);
-        this.borradores.update((x) => {
-          const { [f.product_id]: _, ...resto } = x;
-          return resto;
-        });
-        this.recargar();
-      },
-      error: () => {
-        this.guardando.set(null);
-        this.errorGuardar.set(f.product_id);
-      },
-    });
-  }
-
   verd(v: VeredictoNuevo) {
     return VEREDICTOS[v];
   }
@@ -881,10 +795,6 @@ export class ComprasCatalogoNuevosComponent {
     if (f.dia_recompra !== null) return `Se volvió a comprar el día ${f.dia_recompra}`;
     if (f.entradas === 0) return 'Sin entradas en Kepler: la recompra no se puede medir';
     return 'Todavía no se vuelve a comprar';
-  }
-
-  etiquetaClasificacion(c: ClasificacionNueva): string {
-    return ETIQUETA_CLASIFICACION[c];
   }
 
   /** La barra de "vendido por $1": llena en $1.50 para que pasar el $1 se note. */
