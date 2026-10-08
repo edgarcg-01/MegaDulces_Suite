@@ -331,6 +331,42 @@ const ym = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
       'el servicio EXCLUYE el ingreso en vez de enumerar los egresos — con lista blanca, un tipo nuevo quedaría fuera y el disponible saldría más alto de lo que es');
     chk(/ingreso_meta/.test(srcCmp),
       'la meta de ventas viaja aparte (`ingreso_meta`): separarla no puede significar perderla');
+
+    // ── [9] ⭐ La familia contable decide el TIPO de partida ───────────────────────────────────
+    //
+    // El materializador ponía `line_type: 'gasto'` a TODA línea del plan, sin mirar su familia. Eso
+    // bastaba sólo porque se presupuesta una sola (la 6). El día que alguien agregue la 5 desde la
+    // pantalla, sin el mapa la compra de mercancía entra como gasto operativo: medido en prod,
+    // **$463.0 M de compras cayendo encima de $56.9 M de gasto**, y el renglón deja de poder leerse.
+    console.log('\n[9] La familia decide el tipo de partida (hoy el plan trae una sola, pero el mapa ya existe)');
+    const srcMat = require('fs').readFileSync(
+      path.resolve(__dirname, '..', '..', 'libs/finance/src/lib/budget/budget-materialize.service.ts'), 'utf8');
+    chk(/TIPO_POR_FAMILIA/.test(srcMat) && /'5':\s*'compra_inventario'/.test(srcMat),
+      'existe el mapa familia → tipo, y la familia 5 va a `compra_inventario` (comprar no es vender)');
+    chk(!/line_type:\s*'gasto',\s*\n\s*account_code/.test(srcMat),
+      'el tipo ya no está clavado en `gasto` para toda línea del plan');
+    // ⚠️ La premisa del mapa, vigilada: si la familia 5 dejara de ser sólo compras, `compra_inventario`
+    // deja de ser el tipo correcto y hay que revisarlo — un comentario no avisa, un test sí.
+    const { rows: fam5 } = await c.query(
+      `SELECT DISTINCT cuenta_mayor FROM analytics.expense_entries
+        WHERE tenant_id = $1 AND familia = '5' AND extract(year from fecha) >= $2`, [T, (anioBase || 2026) - 1]);
+    const cuentas5 = fam5.map((r) => String(r.cuenta_mayor)).sort();
+    console.log(`    familia 5, cuentas vivas: ${cuentas5.join(', ') || '(ninguna)'}`);
+    if (!cuentas5.length) nm('la familia 5 no tiene movimiento en la ventana — no hay premisa que vigilar');
+    else {
+      chk(cuentas5.length === 1 && cuentas5[0] === '511',
+        `la familia 5 sigue siendo SÓLO compras (511): si aparece otra cuenta, \`compra_inventario\` deja de ser el tipo correcto`);
+    }
+    // Y lo que NO se tocó: los `source_ref` que ya existen conservan su prefijo, o la
+    // materialización borraría y recrearía partidas con su historial de movimientos.
+    const { rows: pref } = await c.query(
+      `SELECT DISTINCT split_part(source_ref, ':', 1) AS p FROM budget.budget_lines
+        WHERE tenant_id = $1 AND source_ref IS NOT NULL AND line_type = 'gasto'`, [T]);
+    if (!pref.length) nm('no hay partidas de gasto materializadas con `source_ref`');
+    else {
+      chk(pref.every((r) => r.p === 'gasto'),
+        `las partidas de gasto que ya existen conservan el prefijo \`gasto:\` (${pref.map((r) => r.p).join(',')}) — cambiarlo las recrearía`);
+    }
   } finally {
     await c.end().catch(() => undefined);
   }
