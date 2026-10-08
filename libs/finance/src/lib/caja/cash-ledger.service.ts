@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { FINANCE_FINDINGS_SINK_PORT, CAJA_VENTANA_DIAS, type FinanceFindingsSinkPort } from '@megadulces/contracts';
 import { CajaGateway } from './caja.gateway';
@@ -9,6 +9,7 @@ import {
   type MapaRuta, type ReglaGasto, type Confirmable, type ClaseDescuadre,
   type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
+import { revisarFirma } from './caja-firma.engine';
 import {
   rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
 } from './caja-caos-match.engine';
@@ -97,6 +98,15 @@ export interface CreateMovementInput {
    */
   monto_contado?: number;
   /**
+   * `[CG.67]` La firma de conformidad: el PNG como data URI y quién firmó.
+   *
+   * ⛔ **No hay `firma_estado` acá a propósito.** El estado lo calcula el servidor
+   * (`revisarFirma`, ADR-076): si el cliente lo pudiera mandar, podría declarar `firmado` sin
+   * imagen — o sea firmar por otro, y que un reporte de cumplimiento lo cuente como cumplido.
+   */
+  firma_png?: string;
+  firma_nombre?: string;
+  /**
    * CS.3.13 — La parte del movimiento que quedó A CRÉDITO (no llegó en efectivo): queda como saldo
    * del cliente. `efectivo esperado = documento − venta_credito`. El `monto` sigue siendo el efectivo.
    */
@@ -135,6 +145,11 @@ const CLASE_DESCUADRE: Record<string, ClaseDescuadre> = { ingreso: 'caja_entrega
 
 @Injectable()
 export class CashLedgerService {
+  // `[CG.67]` El servicio no tenía logger. Hace falta porque una firma que LLEGÓ y se descartó
+  // —no era un PNG, o venía de más— no se puede tirar en silencio: «no firmó» y «firmó y lo
+  // tiramos» se arreglan en lugares distintos, y sin registro los dos se ven igual.
+  private readonly logger = new Logger(CashLedgerService.name);
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
@@ -769,6 +784,16 @@ export class CashLedgerService {
       const glosa = input.glosa?.trim()
         || (doc ? `${doc.doc_tipo} ${doc.folio} · ${doc.beneficiario || doc.entidad_code || 'sin beneficiario'}`.slice(0, 200) : '');
 
+      // `[CG.67]` Antes del insert, para que el estado y la imagen salgan de UNA sola decisión.
+      const firma = revisarFirma(input.tipo, input.firma_png);
+      if (firma.descartada) {
+        // ⚠️ Una firma que LLEGÓ y no se guardó no se tira en silencio: queda en el log con su
+        // motivo. "No firmó" y "firmó y lo tiramos" se arreglan en lugares distintos.
+        this.logger.warn(
+          `[CG.67] firma descartada (${firma.descartada}) en captura de caja · tenant=${tenantId} tipo=${input.tipo}`,
+        );
+      }
+
       const [mov] = await trx('finance.cash_ledger').insert({
         tenant_id: tenantId,
         folio,
@@ -794,6 +819,14 @@ export class CashLedgerService {
         origen_uuid: input.origen_uuid ?? null,
         autofill: input.autofill ? JSON.stringify(input.autofill) : null,
         legacy_cuenta_access: input.legacy_cuenta_access ?? null,
+        // ⭐ `[CG.67]` La firma, revisada DEL LADO DEL SERVIDOR. `revisarFirma` decide el estado
+        // y además valida que lo que llegó sea de verdad un PNG: `firma_png = 'ok'` pasaría
+        // cualquier chequeo de "no nulo" y también el CHECK de la tabla.
+        firma_png: firma.png,
+        firma_nombre: firma.png ? (input.firma_nombre?.trim() || null) : null,
+        // La hora la pone el SERVIDOR. El reloj del navegador no es prueba de cuándo se firmó.
+        firma_at: firma.png ? trx.fn.now() : null,
+        firma_estado: firma.estado,
         created_by: user.id,
         created_by_username: user.username ?? null,
       }).returning('*');

@@ -571,6 +571,77 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     }
   });
 
+  // ── [CG.67] La firma de conformidad ──────────────────────────────────────────────────────
+  //
+  // Edgar: *"necesito que anejemos una firma digital… para que pueda firmar e imprimir su ticket
+  // digital"*. El ticket de esta pantalla ya imprimía `"Recibi conforme (nombre y firma)"`: la
+  // firma existía, en papel. Esto la vuelve dato. Sólo el gasto la pide.
+
+  it('la firma se pide en el GASTO y no en el ingreso ni en el depósito', async () => {
+    const fx = montar();
+    comp.abrirCaptura();
+    fx.detectChanges();
+
+    comp.setF('tipo', 'ingreso');
+    fx.detectChanges();
+    expect(comp.firmaPide()).toBe(false);
+    expect(fx.nativeElement.querySelector('.cg-firma'), 'el ingreso no debería pedir firma').toBeNull();
+
+    // ⚠️ El depósito también es efectivo que SALE y tampoco la pide: quien lo recibe es el banco,
+    // y su respaldo es la ficha de depósito que Fase CC ya guarda con su OCR y su cuadre.
+    comp.setF('tipo', 'deposito');
+    fx.detectChanges();
+    expect(comp.firmaPide()).toBe(false);
+
+    comp.setF('tipo', 'gasto');
+    fx.detectChanges();
+    expect(comp.firmaPide()).toBe(true);
+    expect(fx.nativeElement.querySelector('.cg-firma'), 'el gasto tiene que pedirla').not.toBeNull();
+  });
+
+  it('⛔ [negativa] sin firma el gasto SE GUARDA igual, y no manda un estado inventado', async () => {
+    // El efectivo ya se movió. Una caja que no puede cerrar un movimiento por una firma es una
+    // caja parada: se declara, no se frena (ADR-056).
+    const crear = vi.fn(() => of({ id: 'x', folio: 'F-1' }));
+    const fx = montar({ crear });
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });
+    fx.detectChanges();
+    expect(comp.bloqueos(), 'la firma NO puede ser un bloqueo').toEqual([]);
+
+    comp.guardar();
+
+    expect(crear).toHaveBeenCalledTimes(1);
+    const cuerpo = crear.mock.calls[0][0] as Record<string, unknown>;
+    expect(cuerpo['firma_png'], 'sin firmar no se manda imagen').toBeUndefined();
+    // ⭐⭐ Y lo que define que el servidor sea la autoridad: la pantalla NO manda el estado.
+    // Si lo mandara, podría declarar «firmado» sin imagen — o sea firmar por otro.
+    expect(cuerpo['firma_estado'], 'la pantalla mandó el veredicto: eso lo decide el servidor')
+      .toBeUndefined();
+  });
+
+  it('⛔ [negativa] la firma NO sobrevive al movimiento anterior', async () => {
+    // Sin el reseteo, la firma de un gasto se guardaría en el SIGUIENTE: evidencia atribuida a
+    // quien no firmó, y en silencio, porque el trazo ya dibujado se ve igual que uno nuevo.
+    const fx = montar();
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    fx.detectChanges();
+
+    comp.firmaHecha.set(true);
+    comp.firmaNombre.set('Juan Pérez');
+
+    comp.abrirCaptura();
+    fx.detectChanges();
+
+    expect(comp.firmaHecha(), 'la firma anterior siguió marcada').toBe(false);
+    expect(comp.firmaNombre(), 'el nombre anterior siguió puesto').toBe('');
+  });
+
   it('⛔ [regresión] cerrar y volver a tocar el MISMO movimiento lo vuelve a abrir', async () => {
     // El defecto exacto que reportó Edgar, aislado. `cobroElegido` no se limpia al cerrar —a
     // propósito, `guardar()` lo lee— y `filaEnCaptura` lo ignoraba, así que la fila seguía
