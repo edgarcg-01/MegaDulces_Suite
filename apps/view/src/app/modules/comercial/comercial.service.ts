@@ -4256,6 +4256,18 @@ export interface CommissionLine {
   margen_sobre_venta_pct: number | null;
   /** Las capturas que compusieron el periodo (wincaja/push/kepler_vecinal), unidas por +. */
   fuentes: string | null; costo_veredicto: string | null; dias_multifuente: number;
+  /**
+   * ⭐ RD.23 — días con venta de ESTA ruta, contra la mediana de sus hermanas de plaza en el
+   * mismo periodo. Medido contra el libro (Q10–Q20, 125 ruta-periodo): de las **17** que
+   * difieren más de 5%, **14 es que le faltan días a la fuente**. Y el error no es
+   * proporcional — el tramo más bajo arranca en $189,999.99 de venta, así que perder días no
+   * baja el pago, lo tira al piso.
+   *
+   * ⚠️ Se declara y no se corrige: el motor no distingue *"el camión no salió"* de *"se perdió
+   * el día"*, porque la fuente es el único testigo de las dos.
+   */
+  dias_con_venta: number | null;
+  dias_esperados: number | null;
   pct_aplicado: number | null; comision: number; bonos: number;
   bonos_detalle: { nombre: string; monto: number; metrica: string; umbral: number }[];
   bono_veredicto: string | null;

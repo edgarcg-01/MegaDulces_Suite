@@ -136,6 +136,24 @@ export interface CommissionLine {
   fuentes: string | null;
   costo_veredicto: string | null;
   dias_multifuente: number;
+  /**
+   * `[RD.23]` **Dias con venta de ESTA ruta, contra los que trabajaron sus hermanas de plaza.**
+   *
+   * Medido contra el libro (Q10-Q20, 125 ruta-periodo): el motor reproduce lo pagado en 108, con
+   * desviacion mediana de **0.11%**. De las **17** que difieren mas de 5%, **14 es que le faltan
+   * dias a la fuente** -- no que la cuenta este mal. Y el error **no es proporcional**: el tramo
+   * mas bajo arranca en $189,999.99 de venta, asi que perder dias no baja el pago, lo tira al
+   * piso. La ruta 504 en Q20 tiene **5 de 12 dias** y por eso cae en `bajo_umbral`: se le pagaria
+   * **$0 en vez de $1,092.46**.
+   *
+   * ⚠️ Por eso se DECLARA y no se corrige: el motor no puede distinguir *"el camion no salio"*
+   * de *"se perdio el dia"* -- la fuente es el unico testigo de las dos cosas. Medido: marcar
+   * "menos dias que la mediana de su plaza" atrapa 14 de 17, con **8 falsas alarmas** que cuadran
+   * al 0.0% contra el libro porque el camion de verdad no trabajo.
+   */
+  dias_con_venta: number | null;
+  /** La mediana de dias de las rutas que comisionan en su MISMA plaza, en ESTE periodo. */
+  dias_esperados: number | null;
   pct_aplicado: number | null;
   comision: number;
   bonos: number;
@@ -394,6 +412,27 @@ export class CommercialCommissionsService {
       let conDato = 0;
       let sinDato = 0;
 
+      // ⭐ `[RD.23]` La mediana de dias por plaza: cuantos dias trabajaron las rutas HERMANAS en
+      // este mismo periodo. Es el unico patron con el que comparar a una ruta sin inventar un
+      // calendario -- los domingos, los puentes y los dias que la plaza entera no salio quedan
+      // afuera solos, porque le pasan a todas. Se calcula por PLAZA y no global: Padre Hidalgo
+      // y Canindo no comparten ni el calendario ni el sistema que los alimenta.
+      const diasPorPlaza = new Map<string, number[]>();
+      for (const cfg of universo) {
+        if (!cfg.comisiona) continue;
+        const v = ventaMap.get(cfg.route_code);
+        if (!v) continue;
+        const pl = cfg.plaza_o_zona ?? '—';
+        if (!diasPorPlaza.has(pl)) diasPorPlaza.set(pl, []);
+        (diasPorPlaza.get(pl) as number[]).push(v.dias);
+      }
+      const medianaDias = new Map<string, number>();
+      for (const [pl, ds] of diasPorPlaza) {
+        const s = [...ds].sort((a, b) => a - b);
+        medianaDias.set(pl, s[Math.floor(s.length / 2)]);
+      }
+      const esperados = (cfg: RutaUniverso) => medianaDias.get(cfg.plaza_o_zona ?? '—') ?? null;
+
       for (const cfg of universo) {
         const v = ventaMap.get(cfg.route_code) ?? null;
 
@@ -401,7 +440,7 @@ export class CommercialCommissionsService {
         if (!cfg.comisiona) {
           if (v) fuera.push({ route_code: cfg.route_code, veredicto: cfg.veredicto,
             route_kind: cfg.route_kind, subtotal: r2(v.subtotal), venta: r2(v.venta) });
-          lines.push(this.emptyLine(cfg, 'chofer', cfg.veredicto, v ?? undefined));
+          lines.push(this.emptyLine(cfg, 'chofer', cfg.veredicto, esperados(cfg), v ?? undefined));
           continue;
         }
 
@@ -409,8 +448,8 @@ export class CommercialCommissionsService {
         // "vendio nada" en vez de "no sabemos" (FASE_RD §2.4).
         if (!v) {
           sinDato++;
-          lines.push(this.emptyLine(cfg, 'chofer', 'sin_dato_en_la_fuente'));
-          lines.push(this.emptyLine(cfg, 'supervisor', 'sin_dato_en_la_fuente'));
+          lines.push(this.emptyLine(cfg, 'chofer', 'sin_dato_en_la_fuente', esperados(cfg)));
+          lines.push(this.emptyLine(cfg, 'supervisor', 'sin_dato_en_la_fuente', esperados(cfg)));
           continue;
         }
         conDato++;
@@ -421,8 +460,8 @@ export class CommercialCommissionsService {
         const { markup, margen } = this.razones(v);
 
         if (!tier) {
-          lines.push(this.emptyLine(cfg, 'chofer', 'bajo_umbral', v, markup, margen));
-          lines.push(this.emptyLine(cfg, 'supervisor', 'bajo_umbral', v, markup, margen));
+          lines.push(this.emptyLine(cfg, 'chofer', 'bajo_umbral', esperados(cfg), v, markup, margen));
+          lines.push(this.emptyLine(cfg, 'supervisor', 'bajo_umbral', esperados(cfg), v, markup, margen));
           continue;
         }
 
@@ -446,6 +485,7 @@ export class CommercialCommissionsService {
           margen_sobre_venta_pct: margen === null ? null : r2(margen),
           fuentes: v.fuentes, costo_veredicto: v.costo_veredicto,
           dias_multifuente: v.dias_multifuente,
+          dias_con_venta: v.dias, dias_esperados: esperados(cfg),
           zona: cfg.plaza_o_zona,
           pct_aplicado: pct, motivo_no_pago: null,
         };
@@ -887,6 +927,30 @@ export class CommercialCommissionsService {
         detalle: `${flojos.length} bono(s) sobre costo ${[...new Set(flojos.map((l) => l.bono_veredicto))].join('/')}` }
       : { gate: 'bono_arbitrado', estado: 'pasa', detalle: 'ningun bono descansa en costo flojo' });
 
+    // 7. ⭐ `[RD.23]` **Cobertura de DIAS por ruta** — la causa de 14 de los 17 descuadres medidos
+    //    contra el libro, y la unica que el motor puede ver desde adentro.
+    //
+    //    ⚠️ **AVISA, no bloquea, y esta decidido con medicion, no por prudencia.** Marcar "menos
+    //    dias que la mediana de su plaza" sobre Q10-Q20 da: 14 atrapadas · 8 falsas alarmas · 3
+    //    que se escapan · 100 limpias. Las 8 falsas cuadran al **0.0%** contra el libro -- el
+    //    camion de verdad no salio (Q11/505 con 4 dias, Q19/505 con 1). Bloquear la nomina con
+    //    36% de falsos positivos la frena por nada una de cada tres veces, y una compuerta que
+    //    grita en falso ensena a ignorar el tablero.
+    //
+    //    ⛔ Y no se puede afilar desde aca: el motor no distingue *"no salio"* de *"se perdio el
+    //    dia"* porque la fuente es el UNICO testigo de las dos. Lo que falta para que bloquee sin
+    //    falsos positivos es depurar el padron -- 505 lleva 28 dias sin dato, 322 lleva 99 y 321
+    //    lleva 128, y las tres siguen declaradas `comisiona = true`.
+    const cortas = lines.filter((l) => l.beneficiario === 'chofer'
+      && l.dias_con_venta !== null && l.dias_esperados !== null
+      && l.dias_con_venta < l.dias_esperados);
+    g.push(cortas.length
+      ? { gate: 'cobertura_dias', estado: 'advierte',
+        detalle: `${cortas.length} ruta(s) con menos dias que sus hermanas de plaza: `
+          + cortas.map((l) => `${l.route_code} ${l.dias_con_venta} de ${l.dias_esperados}`).join(' · ')
+          + '. Puede ser que el camion no salio, o que la fuente perdio el dia: el motor no los distingue' }
+      : { gate: 'cobertura_dias', estado: 'pasa', detalle: 'cada ruta tiene los dias de su plaza' });
+
     // 6. Deduccion sin cargar: el neto saldria igual al bruto sin que nadie lo haya decidido.
     const sinDed = lines.filter((l) => l.deduccion_status === 'sin_configurar').length;
     g.push(sinDed
@@ -897,8 +961,15 @@ export class CommercialCommissionsService {
     return g;
   }
 
+  /**
+   * ⚠️ `esperados` es obligatorio aunque sea null: es justo en la linea SIN pago donde la
+   * cobertura de dias hace falta. `bajo_umbral` dice *"vendio poco"* y la ruta 504 de Q20 vendio
+   * normal -- lo que le falta son 7 dias de los 12 que trabajaron sus hermanas. Sin este dato al
+   * lado, el motivo es cierto sobre el mecanismo y enganoso sobre la causa.
+   */
   private emptyLine(
     cfg: RutaUniverso, beneficiario: 'chofer' | 'supervisor', motivo: string,
+    esperados: number | null,
     v?: VentaRuta, markup?: number | null, margen?: number | null,
   ): CommissionLine {
     return {
@@ -916,6 +987,8 @@ export class CommercialCommissionsService {
       fuentes: v ? v.fuentes : null,
       costo_veredicto: v ? v.costo_veredicto : null,
       dias_multifuente: v ? v.dias_multifuente : 0,
+      dias_con_venta: v ? v.dias : null,
+      dias_esperados: esperados,
       pct_aplicado: null, comision: 0, bonos: 0, bonos_detalle: [], bono_veredicto: null,
       nomina_banco: 0, deduccion_status: null, a_pagar: 0, motivo_no_pago: motivo,
     };
@@ -995,6 +1068,10 @@ export class CommercialCommissionsService {
         beneficiario_nombre: l.beneficiario === 'chofer' ? l.chofer_nombre : l.supervisor_nombre,
         zona: l.zona ?? null,
         dias_multifuente: l.dias_multifuente,
+        // `[RD.23]` La cobertura se CONGELA aca por la misma razon que el nombre y la plaza:
+        // derivarla despues la contaria contra la fuente de hoy, que para entonces ya se reparo.
+        dias_con_venta: l.dias_con_venta,
+        dias_esperados: l.dias_esperados,
         subtotal: l.subtotal, venta: l.venta, costo: l.costo,
         cogs_ruta: l.cogs_ruta, cogs_erp: l.cogs_erp,
         markup_sobre_costo_pct: l.markup_sobre_costo_pct,

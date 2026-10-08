@@ -6,8 +6,10 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
-  CommissionGate,
+  CommissionGate, CommissionRecalcResult,
 } from '../comercial.service';
+import { Permission } from '../../../core/constants/permissions';
+import { PermissionsService } from '../../../core/services/permissions.service';
 
 /**
  * RD.6 / RD.17-RD.21 — Comisiones de Ruta Directa. **Pantalla de verificacion, sin acciones.**
@@ -179,6 +181,41 @@ import {
                     cambia el tabulador. No hay nada que esperar: no corre solo a propósito.
                   </span>
                 </p>
+
+                @if (puedeGestionar()) {
+                  <div class="cm-tramite">
+                    <p class="cm-tramite-txt">
+                      Calcular desde <strong>Q{{ sinCalcular()[0].period_no }}</strong> produce ésa y
+                      las {{ sinCalcular().length - 1 }} que le siguen.
+                      <span class="cm-muted">
+                        Nace en borrador: no aprueba ni paga. Lo ya pagado se salta.
+                      </span>
+                    </p>
+                    <button type="button" class="cm-btn" [disabled]="recalculando()"
+                            (click)="recalcularDesde(sinCalcular()[0].period_id)">
+                      {{ recalculando() ? 'Calculando…' : 'Calcular desde Q' + sinCalcular()[0].period_no }}
+                    </button>
+                  </div>
+                  @if (recalculando()) {
+                    <p class="cm-muted cm-micro">
+                      Cada quincena cuesta unos segundos — se leen tres fuentes de venta día por día.
+                    </p>
+                  }
+                  @if (recalc(); as rr) {
+                    <div class="cm-recalc">
+                      <p><strong>{{ rr.calculadas.length }}</strong> calculada(s)
+                        @if (rr.saltadas.length) { · <strong>{{ rr.saltadas.length }}</strong> saltada(s) }
+                        @if (rr.fallas.length) { · <strong class="cm-neg">{{ rr.fallas.length }}</strong> con falla }
+                      </p>
+                      @for (s of rr.saltadas; track s.period_no) {
+                        <p class="cm-micro cm-muted">Q{{ s.period_no }} no se tocó — {{ s.motivo }}</p>
+                      }
+                      @for (f of rr.fallas; track f) {
+                        <p class="cm-micro cm-neg">{{ f }}</p>
+                      }
+                    </div>
+                  }
+                }
               }
             </div>
           } @else if (run(); as r) {
@@ -257,7 +294,7 @@ import {
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
                   <thead><tr>
-                    <th>Ruta</th><th>Chofer</th>
+                    <th>Ruta</th><th>Chofer</th><th class="comm-num">Días</th>
                     <th class="comm-num">Subtotal</th><th class="comm-num">Venta</th><th class="comm-num">%</th>
                     <th class="comm-num">Markup</th><th class="comm-num">Comisión</th><th class="comm-num">Bonos</th>
                     <th class="comm-num">Nómina</th><th class="comm-num">A pagar</th><th>Procedencia</th>
@@ -267,6 +304,9 @@ import {
                       <tr [class.muted]="!!l.motivo_no_pago">
                         <td class="comm-num">{{ l.route_code }}</td>
                         <td class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
+                        <td class="comm-num" [class.cm-corta]="diasCortos(l)" [title]="tipDias(l)">
+                          {{ l.dias_con_venta != null ? (l.dias_con_venta + ' / ' + (l.dias_esperados ?? '?')) : '—' }}
+                        </td>
                         <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
                         <td class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
                         <td class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
@@ -295,7 +335,7 @@ import {
                     }
                   </tbody>
                   <tfoot><tr>
-                    <td colspan="2">{{ pagan() }} de {{ choferes().length }} pagan</td>
+                    <td colspan="3">{{ pagan() }} de {{ choferes().length }} pagan</td>
                     <td class="comm-num">{{ money(sumCh('subtotal')) }}</td>
                     <td class="comm-num">{{ money(sumCh('venta')) }}</td>
                     <td></td><td></td>
@@ -386,6 +426,18 @@ import {
     .cm-table-wrap { overflow-x:auto; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); margin-top:.6rem; }
     .cm-table-wrap tbody tr.muted td { color:var(--c-text-3); }
     .cm-neg { color:var(--bad-fg); }
+    /* Ambar y no rojo a proposito: 8 de cada 22 marcadas son legitimas (el camion no salio). */
+    .cm-corta { color:var(--warn-fg); font-weight:var(--fw-medium); }
+    .cm-tramite { display:flex; gap:.9rem; align-items:center; justify-content:space-between;
+      flex-wrap:wrap; margin-top:.8rem; padding:.7rem .9rem;
+      border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); }
+    .cm-tramite-txt { margin:0; font-size:var(--fs-sm); }
+    .cm-btn { border:1px solid var(--action); background:var(--action); color:#fff;
+      border-radius:var(--r-sm,6px); padding:.4rem .9rem;
+      font-size:var(--fs-sm); font-weight:var(--fw-medium); cursor:pointer; white-space:nowrap; }
+    .cm-btn:disabled { opacity:.55; cursor:default; }
+    .cm-recalc { margin-top:.6rem; font-size:var(--fs-sm); }
+    .cm-recalc p { margin:.15rem 0; }
     .cm-name { max-width:14rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cm-nota { display:flex; gap:.25rem; align-items:center; flex-wrap:wrap; }
     .cm-mono { font-family:var(--font-mono,'Geist Mono',monospace); }
@@ -413,6 +465,19 @@ import {
 })
 export class ComercialComisionesComponent {
   private readonly api = inject(ComercialService);
+  private readonly perms = inject(PermissionsService);
+
+  /**
+   * ⭐ El ÚNICO control de esta pantalla, y aparece sólo cuando hay un hueco que llenar.
+   *
+   * No contradice el "sin botones": lo que no debe depender de que alguien apriete algo es
+   * **leer**, y leer sigue costando 2.7 ms sin tocar nada. Esto es el trámite manual que se
+   * pidió explícitamente — producir el número de una quincena cerrada, y reconvertir desde el
+   * periodo en que aplica una escala nueva. Es el mismo acto las dos veces.
+   */
+  readonly puedeGestionar = computed(() => this.perms.has(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR));
+  readonly recalculando = signal(false);
+  readonly recalc = signal<CommissionRecalcResult | null>(null);
 
   readonly anios = [2026, 2027];
   readonly anio = signal(new Date().getFullYear() >= 2027 ? 2027 : 2026);
@@ -630,6 +695,48 @@ export class ComercialComisionesComponent {
    * cerró hace diez días y no lo tiene es trabajo pendiente. El mismo chip gris para las dos
    * hacía que una quincena olvidada se viera normal.
    */
+  /**
+   * ⭐ La ruta tiene menos días con venta que sus hermanas de plaza. Medido contra el libro
+   * (Q10–Q20): de 22 marcadas, **14 descuadran de verdad y 8 no** — ésas cuadran al 0.0% porque
+   * el camión en serio no salió. Por eso se señala y no se tacha nada.
+   */
+  /**
+   * ⚠️ `fallas` y `saltadas` NO se tragan ni se resumen en "listo": una quincena que el motor se
+   * negó a tocar es trabajo que sigue pendiente, y esconderla haría leer como terminado lo que
+   * no lo está. Se recarga el tablero igual, porque lo que SÍ se calculó ya está escrito.
+   */
+  recalcularDesde(periodId: string): void {
+    if (this.recalculando()) return;
+    this.recalculando.set(true);
+    this.recalc.set(null);
+    this.err.set(null);
+    this.api.commissionRecalculateFrom(periodId).subscribe({
+      next: (r) => {
+        this.recalc.set(r);
+        this.recalculando.set(false);
+        this.cargar();
+      },
+      error: (e) => {
+        this.recalculando.set(false);
+        this.err.set(e?.error?.message ?? 'No se pudo calcular.');
+      },
+    });
+  }
+
+  diasCortos(l: CommissionLine): boolean {
+    return l.dias_con_venta != null && l.dias_esperados != null && l.dias_con_venta < l.dias_esperados;
+  }
+
+  tipDias(l: CommissionLine): string {
+    if (l.dias_con_venta == null) return 'Esta ruta no tuvo fuente en el periodo.';
+    const esp = l.dias_esperados;
+    if (esp == null) return `${l.dias_con_venta} día(s) con venta.`;
+    if (l.dias_con_venta >= esp) return `${l.dias_con_venta} días, los mismos que sus hermanas de plaza.`;
+    return `${l.dias_con_venta} días contra los ${esp} que trabajaron sus hermanas de plaza. `
+      + 'Puede ser que el camión no salió, o que la fuente perdió el día: el motor no los distingue, '
+      + 'porque la fuente es el único testigo de las dos cosas.';
+  }
+
   etiquetaEstado(p: CommissionBoardRow): string {
     if (p.estado_calculo === 'futura') return 'no empieza';
     if (p.estado_calculo === 'en_curso') return 'en curso';
