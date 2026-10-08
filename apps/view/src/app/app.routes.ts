@@ -1340,6 +1340,12 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)]
       },
       {
+        // [MCP.2] Mesa de Control de Preventa: pedidos PD- del vendedor + su documento de Kepler.
+        path: 'pedidos/preventa',
+        loadComponent: () => import('./modules/almacen/pages/almacen-preventa.component').then(m => m.AlmacenPreventaComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
+      },
+      {
         // [GP.1] Tablero de pedidos Kepler U-D-40 (telemarketing y sucursal), sólo lectura.
         path: 'pedidos',
         loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),

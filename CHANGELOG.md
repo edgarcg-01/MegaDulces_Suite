@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Control de Preventa: la pantalla (MCP.2, 2026-10-08)
+- Almacén › Pedidos › **Preventa** (`/almacen/pedidos/preventa`): los pedidos de preventa del vendedor por etapa y contra la fecha de entrega, con su documento de Kepler; desde el panel se elige el documento correcto ("Es este") o se corrige una liga con motivo, y se ve lo pedido contra lo cobrado renglón por renglón.
+
 ### Added — Mesa de Control de Preventa: datos y liga con el documento de Kepler (MCP.1 + MCP.4, 2026-10-08)
 - `GET /warehouse/presale`: los pedidos de preventa que levanta el vendedor, por sucursal, con su etapa (esperando alta / por surtir / en surtido / en caja / cobrado / entregado / cancelado), el semáforo contra la fecha de entrega prometida y cuántos documentos de Kepler podrían ser su cobro.
 - `GET /warehouse/presale/:id/candidates` + `POST :id/link` / `:id/unlink`: los documentos de Kepler del cliente (leídos en vivo del ODS, sin copiarlos), ordenados por productos en común con el pedido; ligar uno y corregir una liga con motivo. Mig `20261008012420` (`commercial.order_kepler_documents`).

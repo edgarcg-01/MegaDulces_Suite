@@ -1,6 +1,6 @@
 # Fase MCP — Mesa de Control de Preventa (pedidos de vendedor.megadulcessuite.com)
 
-> **ADR-089 propuesto** · planeada 2026-10-08 · estado **🔨 EN CURSO — MCP.1 y MCP.4 en código (backend), §6**
+> **ADR-089 propuesto** · planeada 2026-10-08 · estado **🔨 EN CURSO — MCP.1 y MCP.4 en prod (backend, PR #318) · MCP.2 en código (pantalla), §6**
 >
 > **Tesis:** el pedido de preventa cruza **dos sistemas** y nadie ve el recorrido completo. Se
 > **levanta y se surte en la Suite**, se **cobra en Kepler** (ticket de caja), y la **entrega de
@@ -329,6 +329,22 @@ prod y prod es de solo lectura para esta sesión.
 
 **Para desplegar:** aplicar la migración `20261008012420` en prod **antes** del código (sin la tabla,
 la lista responde 500) · redeploy api.
+
+### 6.3 MCP.2 — pantalla del encargado (🧪 en código, 2026-10-08)
+
+Pestaña **Preventa** junto al Tablero de Kepler en Almacén › Pedidos (`/almacen/pedidos/preventa`).
+Mismo permiso del tablero (`ALMACEN_PEDIDOS_VER`); ligar y corregir exigen `COMMERCIAL_PICKING_GESTIONAR`.
+Superuser y Guillermo no son `isAdmin` en el frente (rol principal `direccion`), pero su mapa de
+permisos incluye el de `superadmin`: ven y operan la pantalla.
+
+Revisión independiente: 12 hallazgos, todos corregidos — las respuestas de un pedido anterior ya no
+pisan el panel del nuevo (peticiones canceladas al cambiar de pedido; las acciones de ligar no se
+cancelan, sólo dejan de pintar), la lista recargada descarta respuestas viejas y vuelve a leer el
+panel si el pedido cambió por fuera, se limpian filtros que dejaron de existir, el total cobrado
+declara los documentos sin total en vez de sumarlos como 0, y ajustes de accesibilidad.
+
+**Verificado:** `nx build view` · eslint · compuertas de plantillas, tokens, tablas, teclado,
+búsqueda, estilos y animación · 54 pruebas de pestañas y guards. **No verificado:** el navegador.
 
 ## 7. Fuera de alcance
 
