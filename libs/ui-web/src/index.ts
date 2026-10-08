@@ -1,6 +1,20 @@
 export { installNumberWheelGuard } from './number-wheel-guard';
 
 /**
+ * `[CG.66]` La firma sobre un canvas. Vivía DENTRO del componente de entregas del repartidor
+ * (en producción, Fase LM) y traía **cuatro defectos medidos ahí**: un toque contaba como firma,
+ * redimensionar la borraba en silencio, en un teléfono salía borrosa (ignoraba
+ * `devicePixelRatio`) y el PNG salía con fondo transparente.
+ *
+ * ⚠️ Se comparte la LÓGICA y no un componente porque el repo **no tiene ninguna librería que
+ * hospede componentes de Angular** (medido: cero `@Component` en `libs/`) y `ui-web` está
+ * tagueada `type:util`, que sólo puede depender de `type:util`. La cáscara se repite por app, y
+ * eso queda **declarado como deuda**, no disimulado.
+ */
+export { prepararFirma, MIN_TRAZO } from './firma/firma-canvas';
+export type { FirmaCanvas, PuntoFirma } from './firma/firma-canvas';
+
+/**
  * `[SEG.2]` Borrar el rastro de la sesion que se va. Vive aca y no en una app porque las tres
  * comparten el problema: el service worker cachea por URL y no mira quien pregunta.
  */
