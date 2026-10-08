@@ -7,6 +7,7 @@ import { BudgetExpensePlanService } from './budget-expense-plan.service';
 import { BudgetMaterializeService } from './budget-materialize.service';
 import { BudgetGenerationService } from './budget-generation.service';
 import { SelloutRollupService } from './sellout-rollup.service';
+import { esEjercicioOperable } from './budget-autopilot.policy';
 
 /**
  * `[VE.3]` — **El presupuesto se mantiene solo.** Pedido de Edgar, 2026-10-06: *«todo presupuestos
@@ -61,6 +62,12 @@ const AUTOR = 'autopilot';
  * Es el MISMO umbral que `CRON_JOBS` registra para `analytics_refresh_sellout_budget`.
  */
 const ROLLUP_MAX_H = 26;
+
+// [PU.VG.1] El criterio de a que ejercicios entrar vive en un modulo PURO (sin un solo import)
+// para poder probarlo sin levantar el contenedor de Nest: el spec que lo rompe a proposito no
+// tiene que arrastrar @nestjs/common ni Knex. Mismo criterio que caja-autofill.engine.ts.
+// Se re-exporta para no romper a quien lo importe desde aca.
+export { esEjercicioOperable } from './budget-autopilot.policy';
 
 export interface AutopilotBudgetResult {
   budget_id: string;
@@ -174,9 +181,9 @@ export class BudgetAutopilotService {
         const { abiertos, totales } = await this.conTenant(tid, async () => {
           const rows = await this.generation.listBudgets();
           return {
-            // Si un día alguien agrega un estado nuevo, este filtro se queda corto y el ejercicio
-            // no entra — que es el lado seguro de equivocarse.
-            abiertos: rows.filter((r) => ['borrador', 'en_revision'].includes(String(r.status))),
+            // [PU.VG.1] El criterio vive arriba, en esEjercicioOperable, y esta probado ahi. El
+            // autopiloto no deja de correr -- deja de mirar lo que no es presupuesto.
+            abiertos: rows.filter(esEjercicioOperable),
             totales: rows.length,
           };
         });
