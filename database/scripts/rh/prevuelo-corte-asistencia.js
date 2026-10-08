@@ -52,21 +52,27 @@ const CADENA = [
   '20261007100000_hr_relojes_y_checadas.js',
   '20261007110000_hr_horarios_y_alertas.js',
   '20261007304401_hr_incidencias_y_cierres.js',
-  '20261007310000_hr_agente_corridas.js',
-  '20261007320000_hr_ordenes_quien.js',
-  '20261007330000_hr_reparto_asistencia.js',
+  '20261008094812_hr_agente_corridas.js',
+  '20261008094813_hr_ordenes_quien.js',
+  '20261008094815_hr_reparto_asistencia.js',
 ];
 
-/** Nombres que estas migraciones tuvieron antes de renombrarlas (2026-10-07, chocaban con `main` — dos veces). */
+/**
+ * Nombres que estas migraciones tuvieron antes de renombrarlas: chocaron con `main` TRES veces (7 y 8 de
+ * octubre) porque los números se elegían a mano. Desde el 8-oct salen de `scripts/nueva-migracion.js`.
+ */
 const NOMBRES_VIEJOS = [
   '20261007120000_hr_incidencias_y_cierres.js',
   '20261007300000_hr_incidencias_y_cierres.js',
   '20261007130000_hr_agente_corridas.js',
   '20261007140000_hr_ordenes_quien.js',
   '20261007150000_hr_reparto_asistencia.js',
+  '20261007310000_hr_agente_corridas.js',
+  '20261007320000_hr_ordenes_quien.js',
+  '20261007330000_hr_reparto_asistencia.js',
 ];
 
-/** Las claves que reparte `20261007330000`, y a quién. */
+/** Las claves que reparte `20261008094815`, y a quién. */
 const REPARTO = {
   recursos_humanos: ['HR_ATTENDANCE_VER', 'HR_ATTENDANCE_GESTIONAR', 'HR_INCIDENTS_CAPTURAR', 'HR_INCIDENTS_CALIFICAR', 'HR_PERIOD_CLOSE', 'HR_DEVICES_GESTIONAR'],
   contabilidad: ['HR_INCIDENTS_AUDITAR'],

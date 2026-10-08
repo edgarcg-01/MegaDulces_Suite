@@ -90,9 +90,9 @@ kubectl exec -n prod $API -c api -- sh -c \
    20261007100000_hr_relojes_y_checadas.js
    20261007110000_hr_horarios_y_alertas.js
    20261007304401_hr_incidencias_y_cierres.js
-   20261007310000_hr_agente_corridas.js
-   20261007320000_hr_ordenes_quien.js
-   20261007330000_hr_reparto_asistencia.js  ← reparte las claves de RH (ver §2.5)
+   20261008094812_hr_agente_corridas.js
+   20261008094813_hr_ordenes_quien.js
+   20261008094815_hr_reparto_asistencia.js  ← reparte las claves de RH (ver §2.5)
    ```
 
    Para cada una (camino vigente, cabecera de `apply-one-migration-prod.js`):

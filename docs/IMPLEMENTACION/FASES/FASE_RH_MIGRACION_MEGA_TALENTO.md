@@ -325,7 +325,7 @@ comprobante sellado (NOM-151). Se construye sobre RH.1 cuando se decida.
 textual (`logic/horario-deducido.ts`, `logic/reglas.ts`, `logic/tipos.ts`, `detalleDia`) para que se audite
 con un diff; lo que mezclaba consulta y cálculo (`asistenciaPersonas`, `detectar`) se partió en una función
 pura y una lectura (`attendance-reader.ts`), sin tocar el recorrido. Encima: el agente (`@Cron` cada 30 min
-con candado por sitio y bitácora en `hr.attendance_agent_runs`, mig `20261007310000`), la cola de alertas,
+con candado por sitio y bitácora en `hr.attendance_agent_runs`, mig `20261008094812`), la cola de alertas,
 los horarios (por sitio y por persona), las incidencias con su bitácora y el cierre de semana.
 API en `/api/hr/attendance/*` (asistencia, checadas, horarios, agente, alertas, incidencias, cierres).
 
@@ -474,7 +474,7 @@ etiquetas iguales — se perdería el enlace al inicio del proyecto.
 - Lo que no hay se dice: «—» en vez de 0 minutos, «nunca» en un reloj que nunca habló, los cuatro colores
   del semáforo se cuentan aunque sean cero.
 
-**El reparto** (mig `20261007330000`), derivado del flujo que **Mega Talento documenta en su código**
+**El reparto** (mig `20261008094815`), derivado del flujo que **Mega Talento documenta en su código**
 («el encargado entrega, servicios al personal califica, contabilidad audita» — allá todos eran el mismo
 administrador porque no había roles):
 
@@ -507,8 +507,10 @@ esta sesión no se levanta el front (regla del repo); se valida en el despliegue
 
 **Migraciones renombradas.** Cuatro timestamps de esta fase ya los usaban migraciones de `main` del 7-oct
 (knex desempata por alfabeto). Ninguna se había aplicado en ningún lado, así que se renombraron:
-`120000→300000→304401` (incidencias, en #281: el mismo día `main` tomó también `300000`), `130000→310000` (agente), `140000→320000` (órdenes),
-y el reparto nació en `330000`.
+`120000→300000→304401` (incidencias, en #281: el mismo día `main` tomó también `300000`), `130000→310000→20261008094812` (agente), `140000→320000→20261008094813` (órdenes),
+y el reparto `330000→20261008094815`. **Tercera colisión el 8-oct** (Mesa de Servicio y Caja General tomaron
+`310000`/`320000`/`330000`): desde ahí los números salen de `scripts/nueva-migracion.js` (`[PROC.2]`), que
+mira el disco **y** `origin/main`; elegirlos a mano era la causa (el 17 % del repo comparte número).
 
 ### 5.4 `[RH.1.8]` — pre-vuelo, carga a prod y runbook del corte (2026-10-07)
 

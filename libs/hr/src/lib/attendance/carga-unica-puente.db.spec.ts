@@ -133,7 +133,7 @@ suite('carga única contra la base: el reloj desconocido cede ante un reloj real
       await knex.destroy();
     }
     expect(r['otroCluster']).toMatch(/^DESTINO EQUIVOCADO/);
-    expect(r['faltan']).toMatch(/faltan migraciones en prod.*20261007100000_hr_relojes_y_checadas.*20261007320000_hr_ordenes_quien/);
+    expect(r['faltan']).toMatch(/faltan migraciones en prod.*20261007100000_hr_relojes_y_checadas.*20261008094813_hr_ordenes_quien/);
     expect(r['completo']).toBe('pasó');
   }, 60000);
 });

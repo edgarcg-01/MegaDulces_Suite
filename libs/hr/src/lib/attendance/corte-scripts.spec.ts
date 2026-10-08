@@ -24,7 +24,7 @@ describe('[RH.1.8] guiones del corte — copias que no pueden divergir', () => {
   });
 
   it('la cadena del pre-vuelo = base de CH + las de la carga + el reparto, y cada archivo existe', () => {
-    const esperada = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, '20261007330000_hr_reparto_asistencia'].map((n: string) => `${n}.js`);
+    const esperada = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, '20261008094815_hr_reparto_asistencia'].map((n: string) => `${n}.js`);
     expect(prevuelo.CADENA).toEqual(esperada);
     for (const f of prevuelo.CADENA) expect(fs.existsSync(path.join(MIGS, f))).toBe(true);
     // Ordenada: knex aplica por nombre, y el pre-vuelo dice «en este orden».
@@ -44,7 +44,7 @@ describe('[RH.1.8] guiones del corte — copias que no pueden divergir', () => {
   });
 
   it('el reparto que revisa el pre-vuelo es el que aplica la migración', () => {
-    const mig = require(path.join(MIGS, '20261007330000_hr_reparto_asistencia.js'));
+    const mig = require(path.join(MIGS, '20261008094815_hr_reparto_asistencia.js'));
     expect(prevuelo.REPARTO).toEqual(mig.REPARTO);
   });
 });
