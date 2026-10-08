@@ -116,6 +116,11 @@ export class CajaSocketService {
   }
 
   /** El teléfono teclea el código. Con VER alcanza: aportar evidencia no es escribir el libro. */
+  /** La PC cancela: suelta el codigo en vez de dejarlo reclamable los 3 minutos. */
+  cerrarFirma() {
+    return this.pedir<{ ok: boolean }>('firma:cerrar', {});
+  }
+
   tomarFirma(codigo: string) {
     return this.pedir<{ ok: boolean; ctx?: ContextoFirma; error?: string }>('firma:tomar', { codigo });
   }

@@ -3143,6 +3143,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   firmaCerrarRemota(): void {
+    // Se le avisa al servidor: si no, el codigo queda reclamable los 3 minutos completos y un
+    // telefono podria ver el contexto de un pedido que el cajero ya cancelo.
+    if (this.firmaCodigo()) void this.caja.cerrarFirma();
     this.firmaCodigo.set(null);
     this.firmaTelefonoListo.set(false);
     this.firmaAviso.set(null);
