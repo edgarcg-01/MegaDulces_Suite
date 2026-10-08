@@ -296,6 +296,41 @@ const ym = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
     // Y la premisa, vigilada en el fuente: no puede volver a interpolarse la constante en el GROUP BY.
     chk(!/GROUP BY cuenta_mayor, \$\{sucSel\}/.test(src),
       'el fuente ya no interpola la columna del SELECT dentro del GROUP BY — ahí es donde la constante es ilegal');
+
+    // ── [8] ⭐ El saldo del ledger es del EGRESO: el ingreso NO se suma con él ─────────────────
+    //
+    // Medido contra prod el 2026-10-07, con el primer ejercicio que el motor llegó a armar: la
+    // pestaña Ejercicio publicaba `vigente = $547,249,778`, que es la meta de ventas más el plan de
+    // gastos en un solo número. Un ingreso no se reserva, no se compromete y no se ejerce, así que
+    // además diluía la ocupación del gasto. La spec lo dice en `FASE_PU` §145-147.
+    console.log('\n[8] El saldo del ledger suma EGRESO, no la meta de ventas');
+    const { rows: tipos } = await c.query(
+      `SELECT line_type, sum(vigente_amount)::numeric AS vigente, sum(reserved_amount)::numeric AS reserved,
+              sum(committed_amount)::numeric AS committed, sum(exercised_amount)::numeric AS exercised
+         FROM budget.budget_lines WHERE tenant_id = $1 GROUP BY 1`, [T]);
+    const suma = (filtro, campo) => tipos.filter(filtro).reduce((s, r) => s + Number(r[campo] ?? 0), 0);
+    const hayIngreso = tipos.some((r) => r.line_type === 'ingreso' && Number(r.vigente) > 0);
+    const hayEgreso = tipos.some((r) => r.line_type !== 'ingreso' && Number(r.vigente) > 0);
+    // MUTAR=suma_todo revive el criterio viejo para comprobar que el candado lo acusa.
+    const esEgreso = (r) => (MUTAR === 'suma_todo' ? true : r.line_type !== 'ingreso');
+    const vigEgreso = suma(esEgreso, 'vigente');
+    const vigTodo = suma(() => true, 'vigente');
+    const vigIngreso = suma((r) => r.line_type === 'ingreso', 'vigente');
+    console.log(`    egreso ${n(vigEgreso)} · ingreso ${n(vigIngreso)} · sumando todo ${n(vigTodo)}`);
+    if (!hayIngreso || !hayEgreso) {
+      nm(`el ejercicio no tiene los dos lados (ingreso>0: ${hayIngreso} · egreso>0: ${hayEgreso}) — no hay nada que separar`);
+    } else {
+      chk(vigEgreso < vigTodo,
+        `⭐ PRUEBA NEGATIVA — separar cambia el número (${n(vigTodo)} → ${n(vigEgreso)}): si fueran iguales, el arreglo sería un no-op`);
+      chk(Math.abs((vigEgreso + vigIngreso) - vigTodo) < 0.01,
+        'y lo separado CUADRA con el total: egreso + ingreso = lo que se sumaba antes (nada se perdió en el camino)');
+    }
+    const srcCmp = require('fs').readFileSync(
+      path.resolve(__dirname, '..', '..', 'libs/finance/src/lib/budget/budget-comparison.service.ts'), 'utf8');
+    chk(/line_type\) !== 'ingreso'/.test(srcCmp),
+      'el servicio EXCLUYE el ingreso en vez de enumerar los egresos — con lista blanca, un tipo nuevo quedaría fuera y el disponible saldría más alto de lo que es');
+    chk(/ingreso_meta/.test(srcCmp),
+      'la meta de ventas viaja aparte (`ingreso_meta`): separarla no puede significar perderla');
   } finally {
     await c.end().catch(() => undefined);
   }

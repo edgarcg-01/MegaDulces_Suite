@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -37,7 +37,8 @@ interface BudgetLine {
 interface RealBlock { available: boolean; deferred?: boolean; ventas: number | null; costo: number | null; margen: number | null; data_as_of: string | null; reason?: string }
 interface Summary {
   budget: BudgetHeader;
-  ejecucion: { vigente: number; reserved: number; committed: number; exercised: number; paid: number; disponible: number; ocupacion_pct: number | null };
+  /** `[PU.VA]` `alcance` dice qué suma: los cinco estados son del EGRESO. La meta de ventas viaja en `ingreso_meta`. */
+  ejecucion: { vigente: number; reserved: number; committed: number; exercised: number; paid: number; disponible: number; ocupacion_pct: number | null; alcance?: 'egreso'; ingreso_meta?: number };
   presupuesto: { ingresos: number; costo_ventas: number; gasto: number; margen: number };
   real: RealBlock;
   kpis: { cumplimiento_ventas_pct: number | null; desviacion_ventas: number | null; margen_real: number | null; ocupacion_presupuestaria_pct: number | null };
@@ -1139,6 +1140,23 @@ export class FinanzasPresupuestoComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  /**
+   * `[PU.VA]` ⛔ **Los supuestos de ventas llegaban y no se pintaban.** El componente es `OnPush` y
+   * `channelsList` / `asVentasGrowth` / `asVentasDefault` son campos **planos, no signals**:
+   * mutarlos dentro de un `subscribe` no marca el componente para revisión, así que la vista se
+   * quedaba con los valores sembrados (`8 %`, y los canales en minúscula del respaldo local).
+   *
+   * ⭐ **Es un defecto latente que recién hoy se pudo ver**, y la razón es la mitad interesante:
+   * mientras `budget.sales_plan_settings` estuvo vacía —o sea *siempre*, hasta que la pasada de
+   * hoy escribió su primera fila (`VERDAD_ABSOLUTA` §22.2)—, `vacio` daba true y corría
+   * `suggestAssumptions()`, que sí toca signals (`suggestingAssump.set`) y de rebote repintaba.
+   * El camino "ya hay supuestos guardados" **nunca se había ejercido**, y es el que no pinta.
+   *
+   * Probado en el navegador: con la pantalla mostrando `8 % · respaldo`, un click —que dispara
+   * detección— la cambió sola a `Mostrador 21.1 % · Mayoreo 26.7 % · Ruta 8.3 % · Vecinal 51.2 %`.
+   * El dato estaba; faltaba el repintado.
+   */
+  private readonly cdr = inject(ChangeDetectorRef);
   private readonly base = `${environment.apiUrl}/finance/budget`;
 
   // ── Sub-navegación ──
@@ -1873,6 +1891,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
         // valor derivado es −8.4 %, y nada en pantalla decía que ese 2.6 % era genérico.
         for (const ch of this.channelsList) this.asVentasGrowth[ch] = g[ch] != null ? Math.round(Number(g[ch]) * 1000) / 10 : null;
         this.assumpLoaded.set(true); this.loadingAssump.set(false);
+        // `[PU.VA]` Campos planos + OnPush: sin esto el dato llega y la vista no se entera.
+        this.cdr.markForCheck();
         // `[VE.4]` Si el ejercicio todavía no tiene supuestos, la pantalla mostraba 0 % en todos
         // los canales y había que apretar «Sugerir» para ver la propuesta del histórico. Un cero
         // de ausencia se lee como una decisión (ADR-056), y acá además era la que alimenta todo
@@ -1898,6 +1918,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
         this.asGastosFamilies = (s.proposal_families || ['6']).join(',');
         this.asGastosBySucursal = !!s.by_sucursal;
         this.asGastosControl = s.control_level || 'advertencia';
+        this.cdr.markForCheck();
       },
       error: () => { /* declara defaults */ },
     });
@@ -1920,6 +1941,9 @@ export class FinanzasPresupuestoComponent implements OnInit {
         for (const ch of this.channelsList) { const c = p.by_channel?.[ch]; this.asVentasGrowth[ch] = c && c.basis === 'yoy_paired' ? Math.round((c.growth_pct || 0) * 1000) / 10 : null; }
         const yoy = Object.values(p.by_channel || {}).filter((c) => c.basis === 'yoy_paired').length;
         this.toast.add({ severity: 'success', summary: 'Crecimiento calculado', detail: `${yoy} canal(es) con base histórica año-contra-año; el resto usa el respaldo y así se muestra.` });
+        // `[PU.VA]` Acá el repintado venía de rebote, por los signals del toast y de
+        // `suggestingAssump`. Que funcione por un efecto lateral no es que funcione: se pide.
+        this.cdr.markForCheck();
         done();
       },
       error: (e) => { this.toast.add({ severity: 'warn', summary: 'Ventas', detail: e?.error?.message || 'Sin historia suficiente para estimar el crecimiento de ventas.' }); done(); },
@@ -1935,6 +1959,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
           ? `Año contra año sobre ${g.paired_months} mes(es) apareado(s) y cerrados.`
           : `Sin par de años suficiente (${g?.paired_months ?? 0} mes(es) apareado(s); hacen falta ${p.min_paired_months ?? 4}). Se usa el respaldo guardado.`;
         done();
+        this.cdr.markForCheck();
       },
       // Que falle la estimación NO puede dejar en pantalla el número anterior como si fuera nuevo.
       error: () => { this.asGastosBasis = null; this.asGastosDefault = null; this.asGastosMotivo = 'No se pudo consultar la historia de egresos.'; done(); },
@@ -2177,8 +2202,15 @@ export class FinanzasPresupuestoComponent implements OnInit {
   /** Resumen ejecutivo → KPI strip. «Sin datos» del real se DECLARA (texto), no se dibuja 0. */
   kpiItems(s: Summary): MetricStripItem[] {
     const items: MetricStripItem[] = [
-      { label: 'Vigente', value: s.ejecucion.vigente, format: 'currency-short' },
+      // `[PU.VA]` El rótulo dice de QUÉ es el saldo. Decía sólo «Vigente» mientras sumaba la meta
+      // de ventas con el plan de gastos: $547 M que no eran ni lo uno ni lo otro.
+      { label: 'Egreso vigente', value: s.ejecucion.vigente, format: 'currency-short' },
       { label: 'Disponible', value: s.ejecucion.disponible, format: 'currency-short', tone: s.ejecucion.disponible < 0 ? 'bad' : 'ok' },
+      // La meta de ventas es el OTRO lado del presupuesto y ahora se ve como tal, en vez de estar
+      // disuelta dentro del saldo de gasto.
+      ...(s.ejecucion.ingreso_meta != null
+        ? [{ label: 'Meta de ventas', value: s.ejecucion.ingreso_meta, format: 'currency-short' } as MetricStripItem]
+        : []),
       // `[PU.VA]` ⛔ Decía `?? 0` con `format:'text'`, o sea que imprimía el literal **0** debajo de
       // la leyenda «sin base» — un cero dibujado con su propia desmentida al lado, y en el mismo
       // archivo que dos funciones más abajo declara «Sin datos» ≠ cero (ADR-056). Sin partidas no

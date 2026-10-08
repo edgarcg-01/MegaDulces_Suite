@@ -93,15 +93,34 @@ export class BudgetComparisonService {
         .groupBy('line_type').select('line_type')
         .sum({ vigente: 'vigente_amount', reserved: 'reserved_amount', committed: 'committed_amount', exercised: 'exercised_amount', paid: 'paid_amount' });
       const t = (type: string, field: string) => round2(Number(byType.find((r: any) => r.line_type === type)?.[field] ?? 0));
+
+      // `[PU.VA]` ⛔ **Los cinco estados del ledger son del EGRESO, y esto sumaba el INGRESO con
+      // ellos.** Medido contra prod el 2026-10-07, con el primer ejercicio que el motor llegó a
+      // armar: `vigente` publicaba **$547,249,778**, que es la meta de ventas ($472,397,590) más el
+      // plan de gastos ($74,852,188) en un solo número. Eso no es una cifra: es lo que va a entrar
+      // sumado a lo que va a salir.
+      //
+      // `disponible` heredaba el defecto —arrastraba el ingreso a un saldo que sólo tiene sentido
+      // sobre lo que se autoriza gastar— y `ocupacion` también: un ingreso **no se reserva, no se
+      // compromete y no se ejerce**, así que al meterlo en el denominador la ocupación del gasto
+      // sale diluida. La spec lo dice sin ambigüedad (`FASE_PU` §145-147):
+      // `disponible = vigente − reservas activas − compromisos pendientes − ejercido`.
+      //
+      // ⚠️ Se EXCLUYE el ingreso en vez de enumerar los tipos de egreso, a propósito. Con una lista
+      // blanca, un `line_type` nuevo que nadie agregue queda fuera del egreso y el disponible sale
+      // **más alto de lo que es** — se autorizaría gasto contra un saldo que no existe. Excluyendo,
+      // el tipo nuevo entra al egreso y el error cae del lado prudente.
+      const esEgreso = (r: any) => String(r.line_type) !== 'ingreso';
+      const egreso = byType.filter(esEgreso);
+      const suma = (f: string) => round2(egreso.reduce((s: number, r: any) => s + Number(r[f] ?? 0), 0));
       const totals = {
-        vigente: round2(byType.reduce((s: number, r: any) => s + Number(r.vigente), 0)),
-        reserved: round2(byType.reduce((s: number, r: any) => s + Number(r.reserved), 0)),
-        committed: round2(byType.reduce((s: number, r: any) => s + Number(r.committed), 0)),
-        exercised: round2(byType.reduce((s: number, r: any) => s + Number(r.exercised), 0)),
-        paid: round2(byType.reduce((s: number, r: any) => s + Number(r.paid), 0)),
+        vigente: suma('vigente'), reserved: suma('reserved'), committed: suma('committed'),
+        exercised: suma('exercised'), paid: suma('paid'),
       };
       const disponible = round2(totals.vigente - totals.reserved - totals.committed - totals.exercised);
       const ocupacion = pct(totals.reserved + totals.committed + totals.exercised, totals.vigente);
+      /** `[PU.VA]` La meta de ventas viaja APARTE: es el otro lado del presupuesto, no parte de éste. */
+      const ingreso_meta = t('ingreso', 'vigente');
 
       const presupuesto = {
         ingresos: t('ingreso', 'vigente'),
@@ -178,7 +197,13 @@ export class BudgetComparisonService {
       return {
         budget: { id: budget.id, name: budget.name, fiscal_year: budget.fiscal_year, status: budget.status, currency: budget.currency },
         period: { from, to },
-        ejecucion: { ...totals, disponible, ocupacion_pct: ocupacion, by_type: byType.map((r: any) => this.withOccupancy(r)) },
+        // `[PU.VA]` `alcance:'egreso'` no es decoración: dice QUÉ se está sumando. El bloque cambió
+        // de significado (antes incluía el ingreso), así que un consumidor que lo lea sin saberlo
+        // compararía peras con lo de antes. `ingreso_meta` viaja al lado para que nada se pierda.
+        ejecucion: {
+          ...totals, disponible, ocupacion_pct: ocupacion, alcance: 'egreso' as const, ingreso_meta,
+          by_type: byType.map((r: any) => this.withOccupancy(r)),
+        },
         presupuesto,
         real,
         freshness: realFreshness,
