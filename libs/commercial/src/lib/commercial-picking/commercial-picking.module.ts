@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ScopeModule } from '@megadulces/platform-core';
 import { PickingController } from './picking.controller';
 import { PickingService } from './picking.service';
+import { PickingConsolaController } from './picking-consola.controller';
+import { PickingConsolaService } from './picking-consola.service';
 
 /**
  * Fase SU.2 — pool de pedidos por surtir y olas de surtido (ADR-067).
@@ -14,8 +16,10 @@ import { PickingService } from './picking.service';
  */
 @Module({
   imports: [ScopeModule],
-  controllers: [PickingController],
-  providers: [PickingService],
+  // [GP.3c.2] La consola del coordinador va en su propio controlador y servicio: otro permiso
+  // (ALMACEN_SURTIDO_COORDINAR) y otra persona que la del surtidor.
+  controllers: [PickingController, PickingConsolaController],
+  providers: [PickingService, PickingConsolaService],
   exports: [PickingService],
 })
 export class CommercialPickingModule {}

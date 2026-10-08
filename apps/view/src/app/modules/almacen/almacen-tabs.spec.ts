@@ -198,3 +198,27 @@ describe('almacen-tabs · Surtir (GP.3b)', () => {
     expect(salida.tabs.some((t) => t.route === '/almacen/surtir')).toBe(false);
   });
 });
+
+describe('almacen-tabs · Consola de surtido (GP.3c)', () => {
+  const salida = ALMACEN_AREAS.find((a) => a.key === 'salida');
+  if (!salida) throw new Error('falta el área salida');
+  const primeraPara = (tiene: Set<string>) =>
+    almacenLandingCandidates(salida).find((t) => !t.permission || tiene.has(t.permission))?.route;
+
+  it('⭐ el coordinador sin el tablero entra por la consola', () => {
+    expect(primeraPara(new Set([Permission.ALMACEN_SURTIDO_COORDINAR]))).toBe('/almacen/surtido-consola');
+  });
+
+  it('la consola es un tab con su propio permiso, no el del surtidor', () => {
+    const tab = salida.tabs.find((t) => t.route === '/almacen/surtido-consola');
+    expect(tab?.permission).toBe(Permission.ALMACEN_SURTIDO_COORDINAR);
+  });
+
+  it('prueba negativa: quien sólo surte no entra a la consola', () => {
+    expect(primeraPara(new Set([Permission.COMMERCIAL_PICKING_GESTIONAR]))).toBe('/almacen/surtir');
+  });
+
+  it('el área se reconoce desde la consola', () => {
+    expect(salida.match).toContain('/almacen/surtido-consola');
+  });
+});

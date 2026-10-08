@@ -7,12 +7,14 @@ import {
   Permission,
 } from '@megadulces/platform-core';
 import type {
+  ConsolaSurtidoAlmacen,
   KeplerPickPoolResponse,
   KeplerWavesAutoResponse,
   PickerTakeNextResponse,
   PickerWave,
 } from '@megadulces/contracts';
 import { CreateWaveDto, PickingService } from './picking.service';
+import { PickingConsolaService } from './picking-consola.service';
 
 /**
  * SU.2 — Pool de pedidos por surtir y olas de surtido (Fase SU, ADR-067).
@@ -26,7 +28,25 @@ import { CreateWaveDto, PickingService } from './picking.service';
 @UseGuards(RequireAuthGuard, RolesGuard)
 @Controller('reparto/surtido')
 export class PickingController {
-  constructor(private readonly service: PickingService) {}
+  constructor(
+    private readonly service: PickingService,
+    private readonly consola: PickingConsolaService,
+  ) {}
+
+  /**
+   * `[GP.3]` Los almacenes donde puede surtir quien consulta (los de su alcance).
+   *
+   * La pantalla del surtidor leía `/commercial/warehouses`, que pide `COMMERCIAL_WAREHOUSES_VER`:
+   * medido en prod (2026-10-08), `almacenista` es el ÚNICO perfil que surte y NO tiene esa clave,
+   * así que a todo surtidor real le salía "No se pudo leer la lista de almacenes". Se sirve aquí con
+   * el permiso de surtir.
+   */
+  @Get('almacenes')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: 'Sucursales (código de 2 dígitos) donde puede surtir quien consulta, según su alcance.' })
+  almacenes(): Promise<ConsolaSurtidoAlmacen[]> {
+    return this.consola.almacenes();
+  }
 
   @Get('pool')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)

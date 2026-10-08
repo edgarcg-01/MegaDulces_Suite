@@ -220,12 +220,13 @@ SELECT count(*)::int AS n, min(fecha) AS desde
  * `[{"sucursal":"01","serie":1,"folio":"0002781"}, ...]`.
  */
 export const CABECERAS_POR_LLAVE_SQL = `
-SELECT k.sucursal, k.serie, k.folio, hh.fecha, hh.estatus, hh.origen, hh.destino_nombre, hh.importe
+SELECT k.sucursal, k.serie, k.folio, hh.fecha, hh.estatus, hh.origen, hh.cliente_code, hh.destino_nombre, hh.importe
   FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, serie int, folio text)
   LEFT JOIN LATERAL (
     SELECT to_char(h.c9::date, 'YYYY-MM-DD') AS fecha,
            upper(NULLIF(btrim(h.c11::text), '')) AS estatus,
            upper(NULLIF(btrim(h.c27::text), '')) AS origen,
+           NULLIF(btrim(h.c10::text), '') AS cliente_code,
            NULLIF(btrim(h.c32::text), '') AS destino_nombre,
            round(NULLIF(btrim(h.c16::text), '')::numeric, 2) AS importe
       FROM kepler_ods.kdm1 h

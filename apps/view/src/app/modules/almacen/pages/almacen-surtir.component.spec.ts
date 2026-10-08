@@ -4,7 +4,6 @@ import { of, throwError } from 'rxjs';
 import type { PickerTakeNextResponse, PickerWave, PickerWaveLine } from '@megadulces/contracts';
 import { AlmacenSurtirComponent } from './almacen-surtir.component';
 import { PickingService } from '../../reparto/picking.service';
-import { ComercialService } from '../../comercial/comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 
 /**
@@ -17,11 +16,10 @@ import { AuthService } from '../../../core/services/auth.service';
  * de defecto que `tsc` no ve.
  */
 
+/** Lo que devuelve GET /reparto/surtido/almacenes: sólo sucursales de 2 dígitos del alcance. */
 const ALMACENES = [
-  { id: 'w-ph', code: '01', name: 'Padre Hidalgo', kind: 'central' },
-  { id: 'w-lp', code: '02', name: 'La Piedad Abastos', kind: 'central' },
-  { id: 'w-r21', code: 'RUTA-21', name: 'Ruta 21', kind: 'truck' },
-  { id: 'w-x', code: '01-002', name: 'Ruta 22 (PH)', kind: 'central' },
+  { id: 'w-ph', code: '01', nombre: 'Padre Hidalgo' },
+  { id: 'w-lp', code: '02', nombre: 'La Piedad Abastos' },
 ];
 
 const L = (p: Partial<PickerWaveLine> = {}): PickerWaveLine => ({
@@ -39,6 +37,8 @@ const L = (p: Partial<PickerWaveLine> = {}): PickerWaveLine => ({
   status: 'pendiente',
   bin_code: null,
   note: null,
+  existencia: 300,
+  existencia_unidad: 'KG',
   ...p,
 });
 
@@ -50,6 +50,7 @@ const OLA = (lines: PickerWaveLine[] = [L()]): PickerWave => ({
   notes: null,
   started_at: '2026-10-08T15:00:00.000Z',
   pedidos: ['UD4001-0002840'],
+  existencia_al: new Date(Date.now() - 42 * 60000).toISOString(),
   lines,
 });
 
@@ -64,8 +65,8 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     tomarSiguiente: ReturnType<typeof vi.fn>;
     pick: ReturnType<typeof vi.fn>;
     finish: ReturnType<typeof vi.fn>;
+    almacenesSurtido: ReturnType<typeof vi.fn>;
   };
-  let comercial: { listWarehouses: ReturnType<typeof vi.fn> };
   let user: { warehouse_code?: string } | null;
 
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
@@ -90,7 +91,6 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       providers: [
         provideRouter([]),
         { provide: PickingService, useValue: api },
-        { provide: ComercialService, useValue: comercial },
         { provide: AuthService, useValue: { user: () => user } },
       ],
     }).compileComponents();
@@ -114,8 +114,8 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
         return of({ id: lineId, qty_picked: dto.qty_picked, status: st });
       }),
       finish: vi.fn(() => of({ id: 'ola-1', status: 'surtida', cambios_en_kepler: [] })),
+      almacenesSurtido: vi.fn(() => of(ALMACENES)),
     };
-    comercial = { listWarehouses: vi.fn(() => of(ALMACENES)) };
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -164,8 +164,15 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(boton('Reintentar')).toBeTruthy();
   });
 
+  it('⭐ pide los almacenes al módulo de surtido (con el permiso de surtir) y elige el de la persona', async () => {
+    await montar();
+    expect(api.almacenesSurtido).toHaveBeenCalled();
+    expect(c.almacenId()).toBe('w-ph');
+    expect(texto()).toContain('01 · Padre Hidalgo');
+  });
+
   it('si no puede leer los almacenes, lo dice y ofrece reintentar', async () => {
-    comercial.listWarehouses = vi.fn(() => throwError(() => new Error('red')));
+    api.almacenesSurtido = vi.fn(() => throwError(() => new Error('red')));
     await montar();
     expect(texto()).toContain('No se pudo leer la lista de almacenes');
     expect(boton('Reintentar')).toBeTruthy();
@@ -400,6 +407,63 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     clic('Completo');
     expect(c.fase()).toBe('listo');
     expect(c.ola()).toBeNull();
+  });
+
+  // ── [GP.3c] Existencia y ubicación ─────────────────────────────────────────────────────
+
+  const datoExist = (): string => (el().querySelector('.sr-ren .sr-dato')?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  it('⭐ alcanza: "Hay 300 KG en el sistema", sin alarma', async () => {
+    await surtiendo();
+    expect(datoExist()).toBe('Hay 300 KG en el sistema');
+    expect(c.existenciaEstado(c.ola()!.lines[0])).toBe('ok');
+  });
+
+  it('⭐ alcanza para menos de lo pedido: lo marca ANTES de caminar', async () => {
+    await surtiendo([L({ existencia: 40 })]);
+    expect(datoExist()).toBe('Hay sólo 40 KG en el sistema');
+    expect(el().querySelector('.sr-exist-poca')).toBeTruthy();
+  });
+
+  it('existencia en cero: "Sin existencia en el sistema", en rojo', async () => {
+    await surtiendo([L({ existencia: 0 })]);
+    expect(datoExist()).toBe('Sin existencia en el sistema');
+    expect(el().querySelector('.sr-exist-cero')).toBeTruthy();
+  });
+
+  it('sin dato (null) NO se dibuja como cero (prueba negativa)', async () => {
+    await surtiendo([L({ existencia: null, existencia_unidad: null })]);
+    expect(datoExist()).toBe('Existencia: sin dato en el sistema');
+    expect(el().querySelector('.sr-exist-cero')).toBeNull();
+  });
+
+  it('unidad de existencia distinta a la del pedido: la muestra pero NO compara (0.35% medido)', async () => {
+    await surtiendo([L({ qty_unit: 'PAQ', existencia: 5, existencia_unidad: 'KG' })]);
+    expect(datoExist()).toBe('Hay 5 KG en el sistema (otra unidad, no se compara)');
+    expect(el().querySelector('.sr-exist-poca')).toBeNull();
+  });
+
+  it('existencia negativa (ajuste pendiente en Kepler) no se lee igual que un cero', async () => {
+    await surtiendo([L({ existencia: -4 })]);
+    expect(datoExist()).toBe('Kepler marca existencia negativa');
+  });
+
+  it('dice de cuándo es la existencia, y la ubicación cuando no está dada de alta', async () => {
+    await surtiendo();
+    expect(texto()).toContain('Existencia de Kepler de hace 42 min');
+    expect(texto()).toContain('Sin ubicación dada de alta');
+  });
+
+  it('con ubicación la muestra', async () => {
+    await surtiendo([L({ bin_code: 'BC110' })]);
+    expect(texto()).toContain('Ubicación BC110');
+  });
+
+  it('el botón principal apagado se ve GRIS, no naranja tenue', async () => {
+    await surtiendo();
+    const fin = boton('Terminé de surtir');
+    expect(fin?.disabled).toBe(true);
+    expect(fin?.classList.contains('sr-btn-go')).toBe(true);
   });
 
   // ── Cerrar ──────────────────────────────────────────────────────────────────────────────
