@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/co
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
-import { CommissionRunnerService } from './commission-runner.service';
+import { CommissionRecalcService } from './commission-recalc.service';
 
 /**
  * RD.6 — Comisiones de Ruta Directa.
@@ -20,7 +20,7 @@ import { CommissionRunnerService } from './commission-runner.service';
 export class CommercialCommissionsController {
   constructor(
     private readonly service: CommercialCommissionsService,
-    private readonly runner: CommissionRunnerService,
+    private readonly recalc: CommissionRecalcService,
   ) {}
 
   @Get('board')
@@ -28,10 +28,11 @@ export class CommercialCommissionsController {
   @ApiOperation({
     summary: 'El tablero del año — lo unico que la pantalla pide al abrir',
     description:
-      'RD.21. Query: `anio` (default el actual). UNA consulta sobre tablas: 27 quincenas con su '
-      + 'corrida viva, totales, compuertas y frescura. Medido contra prod: **2.2 ms**, contra los '
-      + '6,491 ms que cuesta CALCULAR una quincena. Por eso la pantalla no tiene botones: calcular '
-      + 'es trabajo del cron (`/run-now`, `@Cron` 08:30 y cada 30 min), leer es trabajo de la pantalla.',
+      'RD.22. Query: `anio` (default el actual). UNA consulta sobre tablas y **cero calculo**: 27 '
+      + 'quincenas con su corrida congelada, totales, compuertas y frescura. Medido contra prod: '
+      + '**2.2 ms**, contra los 6,491 ms que cuesta calcular una quincena. Cada periodo trae '
+      + '`estado_calculo` = calculada | sin_calcular | en_curso | futura, y la respuesta trae '
+      + '`sin_calcular[]`: las quincenas que ya cerraron y todavia no tienen numero.',
   })
   board(@Query('anio') anio?: string) {
     return this.service.board(anio ? Number(anio) : new Date().getFullYear());
@@ -52,17 +53,19 @@ export class CommercialCommissionsController {
     return this.service.listUniverse();
   }
 
-  @Post('run-now')
+  @Post('recalculate-from')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
   @ApiOperation({
-    summary: 'Dispara la corrida automatica sin esperar a las 08:30',
+    summary: 'Calcula una quincena y todas las cerradas que le siguen — el unico camino que escribe',
     description:
-      'RD.20. Calcula las quincenas cerradas sin corrida viva (y reintenta las que el propio cron '
-      + 'dejo bloqueadas). NO aprueba ni paga: una corrida que no pasa una compuerta dura nace '
-      + '`bloqueada`, estado desde el que no se puede aprobar.',
+      'RD.22. Body: `{ period_id }`. Es el mismo acto las dos veces que hace falta: producir el '
+      + 'numero de una quincena recien cerrada, y reconvertir desde el periodo en que aplica una '
+      + 'escala nueva. **No toca lo pagado** (lo salta con su motivo y sigue: es un deposito que '
+      + 'ocurrio, y la diferencia va como ajuste en la siguiente) ni lo aprobado (hay que anularlo '
+      + 'a mano primero, para que el acto quede registrado). No aprueba ni paga: ADR-016.',
   })
-  runNow() {
-    return this.runner.run('manual');
+  recalculateFrom(@Body() body: { period_id: string }) {
+    return this.recalc.recalcularDesde(body?.period_id);
   }
 
   @Get('periods')
@@ -98,8 +101,12 @@ export class CommercialCommissionsController {
   @Post('compute')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
   @ApiOperation({
-    summary: 'Crea la corrida del periodo en estado borrador',
-    description: 'Body: `{ period_id, replace? }`. Un periodo tiene UNA corrida viva; `replace` sólo funciona si está en borrador.',
+    summary: 'Crea la corrida de UN periodo cerrado, en estado borrador',
+    description:
+      'Body: `{ period_id, replace? }`. Un periodo tiene UNA corrida viva; `replace` sólo funciona '
+      + 'si está en `borrador` o `bloqueada`. **Rechaza un periodo que todavía corre** (una corrida '
+      + 'es un valor congelado: para mirar cómo va está `/preview`) y **rechaza lo pagado y lo '
+      + 'aprobado**. Para el caso normal usa `/recalculate-from`, que hace éste y los siguientes.',
   })
   compute(@Body() body: { period_id: string; replace?: boolean }) {
     return this.service.computeRun(body?.period_id, { replace: body?.replace === true });
