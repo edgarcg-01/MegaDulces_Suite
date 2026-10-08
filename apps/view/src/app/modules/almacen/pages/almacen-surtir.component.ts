@@ -11,7 +11,6 @@ import { MessageService } from 'primeng/api';
 import type { KeplerWavesAutoResponse, PickerWave, PickerWaveLine } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { PickingService } from '../../reparto/picking.service';
-import { ComercialService, Warehouse } from '../../comercial/comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 
 /**
@@ -467,7 +466,6 @@ function plural(n: number, uno: string, varios: string): string {
 })
 export class AlmacenSurtirComponent implements OnInit {
   private readonly api = inject(PickingService);
-  private readonly comercial = inject(ComercialService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly toast = inject(MessageService);
@@ -483,7 +481,7 @@ export class AlmacenSurtirComponent implements OnInit {
   readonly fase = signal<'cargando' | 'listo' | 'surtiendo' | 'cerrada'>('cargando');
   readonly error = signal<string | null>(null);
   readonly enLinea = signal(typeof navigator === 'undefined' ? true : navigator.onLine !== false);
-  readonly almacenes = signal<Warehouse[]>([]);
+  readonly almacenes = signal<Array<{ id: string; code: string; name: string }>>([]);
   readonly almacenId = signal<string>('');
   readonly origen = signal<Origen>('');
   readonly ola = signal<PickerWave | null>(null);
@@ -548,10 +546,11 @@ export class AlmacenSurtirComponent implements OnInit {
     this.error.set(null);
     this.fase.set('cargando');
     this.origen.set(this.leer(PREF_ORIGEN) as Origen);
-    this.comercial.listWarehouses().subscribe({
+    // Sólo sucursales Kepler (código de 2 dígitos, ya filtradas por el servidor según el alcance):
+    // los pedidos U-D-40 salen de ahí. Con el permiso de SURTIR, no el de almacenes.
+    this.api.almacenesSurtido().subscribe({
       next: (ws) => {
-        // Sólo sucursales Kepler (código de 2 dígitos): los pedidos U-D-40 salen de ahí.
-        const suc = (ws || []).filter((w) => w.kind !== 'truck' && /^\d{2}$/.test(String(w.code ?? '')));
+        const suc = (ws || []).map((w) => ({ id: w.id, code: w.code, name: w.nombre }));
         this.almacenes.set(suc);
         const guardado = this.leer(PREF_ALMACEN);
         const delUsuario = this.auth.user()?.warehouse_code;

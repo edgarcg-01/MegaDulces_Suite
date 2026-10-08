@@ -713,6 +713,10 @@ lectura); 14 pruebas de la pantalla montada y 4 de la pestaña.
   pinta ningún botón. A quien también ve el Tablero lo llevaba al Tablero, sin salida a Surtir. Ahora
   el Tablero trae el botón **Surtir** para quien tiene `COMMERCIAL_PICKING_GESTIONAR` (3 pruebas, con
   mutación).
+- **El surtidor real no podía ni empezar:** la pantalla leía los almacenes de `/commercial/warehouses`,
+  que pide `COMMERCIAL_WAREHOUSES_VER`. Medido en prod: `almacenista` es el ÚNICO perfil que surte y
+  no tiene esa clave, así que veía "No se pudo leer la lista de almacenes". Ahora la lista sale de
+  `GET /reparto/surtido/almacenes` con el permiso de surtir y el alcance de la persona.
 
 **Deuda declarada (no se toca en esta fase).** `POST /reparto/surtido/waves/:id/assign` y
 `/cancel` (pantalla vieja de Reparto) piden sólo `COMMERCIAL_PICKING_GESTIONAR`, que tiene el

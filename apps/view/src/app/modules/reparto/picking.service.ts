@@ -325,6 +325,11 @@ export class PickingService {
     return this.http.post<PickerTakeNextResponse>(`${this.base}/waves/next`, dto);
   }
 
+  /** `[GP.3]` Sucursales donde puede surtir quien consulta (con el permiso de surtir, no el de almacenes). */
+  almacenesSurtido(): Observable<ConsolaSurtidoAlmacen[]> {
+    return this.http.get<ConsolaSurtidoAlmacen[]>(`${this.base}/almacenes`);
+  }
+
   /** `[GP.3]` Las olas abiertas o en surtido de quien consulta. */
   misOlas(): Observable<PickerWave[]> {
     return this.http.get<PickerWave[]>(`${this.base}/waves/mine`);

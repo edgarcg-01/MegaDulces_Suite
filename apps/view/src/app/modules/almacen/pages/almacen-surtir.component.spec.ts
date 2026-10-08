@@ -4,7 +4,6 @@ import { of, throwError } from 'rxjs';
 import type { PickerTakeNextResponse, PickerWave, PickerWaveLine } from '@megadulces/contracts';
 import { AlmacenSurtirComponent } from './almacen-surtir.component';
 import { PickingService } from '../../reparto/picking.service';
-import { ComercialService } from '../../comercial/comercial.service';
 import { AuthService } from '../../../core/services/auth.service';
 
 /**
@@ -17,11 +16,10 @@ import { AuthService } from '../../../core/services/auth.service';
  * de defecto que `tsc` no ve.
  */
 
+/** Lo que devuelve GET /reparto/surtido/almacenes: sólo sucursales de 2 dígitos del alcance. */
 const ALMACENES = [
-  { id: 'w-ph', code: '01', name: 'Padre Hidalgo', kind: 'central' },
-  { id: 'w-lp', code: '02', name: 'La Piedad Abastos', kind: 'central' },
-  { id: 'w-r21', code: 'RUTA-21', name: 'Ruta 21', kind: 'truck' },
-  { id: 'w-x', code: '01-002', name: 'Ruta 22 (PH)', kind: 'central' },
+  { id: 'w-ph', code: '01', nombre: 'Padre Hidalgo' },
+  { id: 'w-lp', code: '02', nombre: 'La Piedad Abastos' },
 ];
 
 const L = (p: Partial<PickerWaveLine> = {}): PickerWaveLine => ({
@@ -67,8 +65,8 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     tomarSiguiente: ReturnType<typeof vi.fn>;
     pick: ReturnType<typeof vi.fn>;
     finish: ReturnType<typeof vi.fn>;
+    almacenesSurtido: ReturnType<typeof vi.fn>;
   };
-  let comercial: { listWarehouses: ReturnType<typeof vi.fn> };
   let user: { warehouse_code?: string } | null;
 
   const el = (): HTMLElement => fix.nativeElement as HTMLElement;
@@ -93,7 +91,6 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
       providers: [
         provideRouter([]),
         { provide: PickingService, useValue: api },
-        { provide: ComercialService, useValue: comercial },
         { provide: AuthService, useValue: { user: () => user } },
       ],
     }).compileComponents();
@@ -117,8 +114,8 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
         return of({ id: lineId, qty_picked: dto.qty_picked, status: st });
       }),
       finish: vi.fn(() => of({ id: 'ola-1', status: 'surtida', cambios_en_kepler: [] })),
+      almacenesSurtido: vi.fn(() => of(ALMACENES)),
     };
-    comercial = { listWarehouses: vi.fn(() => of(ALMACENES)) };
   });
 
   afterEach(() => TestBed.resetTestingModule());
@@ -167,8 +164,15 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
     expect(boton('Reintentar')).toBeTruthy();
   });
 
+  it('⭐ pide los almacenes al módulo de surtido (con el permiso de surtir) y elige el de la persona', async () => {
+    await montar();
+    expect(api.almacenesSurtido).toHaveBeenCalled();
+    expect(c.almacenId()).toBe('w-ph');
+    expect(texto()).toContain('01 · Padre Hidalgo');
+  });
+
   it('si no puede leer los almacenes, lo dice y ofrece reintentar', async () => {
-    comercial.listWarehouses = vi.fn(() => throwError(() => new Error('red')));
+    api.almacenesSurtido = vi.fn(() => throwError(() => new Error('red')));
     await montar();
     expect(texto()).toContain('No se pudo leer la lista de almacenes');
     expect(boton('Reintentar')).toBeTruthy();
