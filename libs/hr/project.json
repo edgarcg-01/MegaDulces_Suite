@@ -1,0 +1,7 @@
+{
+  "name": "hr",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "sourceRoot": "libs/hr/src",
+  "projectType": "library",
+  "tags": ["scope:hr", "type:feature"]
+}

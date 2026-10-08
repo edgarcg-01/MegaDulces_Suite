@@ -53,6 +53,7 @@ const BARRILES = {
   '@megadulces/logistics': 'libs/logistics/src/index.ts',
   '@megadulces/reconciliation': 'libs/reconciliation/src/index.ts',
   '@megadulces/service-desk': 'libs/service-desk/src/index.ts',
+  '@megadulces/hr': 'libs/hr/src/index.ts',
 };
 
 /** Extensiones que TypeScript prueba cuando un import no las trae. */
