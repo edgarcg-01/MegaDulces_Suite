@@ -128,6 +128,29 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
       t('el rollup de canal cuadra al peso con el espejo mensual', Number(par.d) < 1, `Δ ${mx(par.d)}`);
     }
 
+    // [PU.V5] El catálogo de entidades. Era el 97 % del costo de /sales-comparison (659 de 679 ms):
+    // un `DISTINCT` sobre los 444 MB de `mv_sellout_monthly` para devolver 63 filas.
+    const ent = (await db.raw(`SELECT to_regclass('analytics.mv_sales_entity_src') AS t`)).rows[0].t;
+    if (!ent) {
+      noMedido('mv_sales_entity_src', 'falta aplicar la migración 20261008112011');
+    } else {
+      t('`app_runtime` puede leer el catálogo crudo',
+        (await db.raw(`SELECT has_table_privilege('app_runtime','analytics.mv_sales_entity_src','SELECT') AS p`)).rows[0].p === true);
+      // ⚠️ `CREATE OR REPLACE VIEW` NO conserva `security_invoker` ni los GRANT, y perderlos no
+      //    falla: la vista sigue sirviendo para el dueño y deja de aplicar RLS. Lección ADR-057.
+      const opts = (await db.raw(`SELECT array_to_string(reloptions, ',') AS o FROM pg_class WHERE oid = 'analytics.v_sales_entity'::regclass`)).rows[0].o || '';
+      t('v_sales_entity conserva `security_invoker=true` tras el REPLACE', /security_invoker=true/.test(opts), `reloptions = ${opts || '(vacío)'}`);
+      t('`app_runtime` puede leer v_sales_entity',
+        (await db.raw(`SELECT has_table_privilege('app_runtime','analytics.v_sales_entity','SELECT') AS p`)).rows[0].p === true);
+      // ⭐ El catálogo tiene que seguir siendo EL MISMO: la MV es el DISTINCT materializado, no
+      //    una segunda definición. Si difiere, alguien cambió una de las dos.
+      const par = (await db.raw(`
+        SELECT (SELECT count(*) FROM analytics.v_sales_entity) AS vista,
+               (SELECT count(DISTINCT (tenant_id::text||'|'||channel||'|'||warehouse_code))
+                  FROM analytics.mv_sales_entity_src) AS crudo_aprox`)).rows[0];
+      t('el catálogo no quedó vacío ni desbordado', Number(par.vista) > 0, `${par.vista} entidades`);
+    }
+
     // ── [2] El NÚMERO: prueba negativa + control de placebo ───────────────────────────────
     console.log('\n[2] El número — el join por el mapa de canal');
     const cmp = (await db.raw(`
@@ -233,6 +256,14 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
         `SELECT max(max_business_date) FROM ${MV} WHERE tenant_id = ?`, [tenant.tenant_id]);
       t(`el sondeo de frescura baja de 14,587 ms al gate de ${GATE_MS} ms`,
         msFresh < GATE_MS, `${msFresh} ms`);
+
+      // [PU.V5] El eje de columnas. Arreglar el real no alcanzaba: con el sell-out ya en 3 ms, el
+      // catálogo era 659 de los 679 ms de la ruta. *El cuello se mueve, y hay que volver a medirlo.*
+      const msEnt = await medir(
+        `SELECT * FROM analytics.v_sales_entity WHERE tenant_id = ? ORDER BY channel, warehouse_code`,
+        [tenant.tenant_id]);
+      t(`v_sales_entity (eje de columnas) baja de 659 ms al gate de ${GATE_MS} ms`,
+        msEnt < GATE_MS, `${msEnt} ms`);
 
       // La conciliación es OTRO objeto y otro grano (canal × mes calendario, no periodo fiscal),
       // pero el gate es el MISMO. [PU.V2] la dejó en 592 ms y eso seguía siendo «más de medio

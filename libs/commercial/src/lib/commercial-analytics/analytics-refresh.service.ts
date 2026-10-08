@@ -289,6 +289,19 @@ export class AnalyticsRefreshService {
       ['analytics.mv_sellout_monthly', 'analytics_refresh_sellout_monthly', 'Refresh MV sell-out mensual (nightly)',
         ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
       /**
+       * `[PU.V5]` Las tuplas crudas del catálogo de entidades (63 filas). Es el CTE `crudo` de
+       * `v_sales_entity`, que hacía `DISTINCT` sobre los 444 MB de `mv_sellout_monthly` para
+       * devolver 63 filas y dejaba `/sales-comparison` en **679 ms, 659 de ellos aquí**.
+       *
+       * ⛔ **VA ANTES de `mv_sellout_budget_rollup` y eso NO es cosmético**: el rollup LEE
+       * `v_sales_entity`, así que si ésta se refrescara después, el rollup de hoy se armaría con
+       * el catálogo de ayer. Y `deps` sobre `mv_sellout_monthly` porque *ordenar no es depender*.
+       *
+       * ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_sales_entity`).
+       */
+      ['analytics.mv_sales_entity_src', 'analytics_refresh_sales_entity',
+        'Refresh MV catálogo de entidades de venta (nightly)', ['analytics.mv_sellout_monthly']],
+      /**
        * ⭐ `[PU.V1]` El real del sell-out al grano de Presupuestos (entidad × año fiscal × periodo
        * 13×4). **Sustituye el Parquet+DuckDB de ADR-075**, que calculaba exactamente esto pero
        * vivía en el `/tmp` efímero de cada pod: `BUDGET_ROLLUP_DIR` no está definida en ningún

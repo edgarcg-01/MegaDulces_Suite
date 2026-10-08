@@ -1263,6 +1263,9 @@ const CRON_JOBS: CronCfg[] = [
   // sin esta fila el sensor cae en el ternario que da 'ok' por default y una MV parada se ve VERDE
   // (leccion OBS.1) -- aca eso seria conciliar el mes en curso contra el sell-out del mes pasado.
   { key: 'analytics_refresh_sellout_channel', label: 'Refresh MV sell-out por canal x mes', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PU.V5] El catalogo de entidades de venta. Si se para, la pantalla de Presupuestos no publica
+  // un cero: publica el catalogo de plazas de hace semanas, que es peor de ver.
+  { key: 'analytics_refresh_sales_entity',    label: 'Refresh MV catalogo de entidades',  cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [KX.5] El peldano COBRADO (max kdm2.c58 por sucursal x SKU). Sin esta entrada el sensor
   // caeria en `cfg ? classify : 'ok'` y una MV parada se veria VERDE (leccion OBS.1). Y no es
