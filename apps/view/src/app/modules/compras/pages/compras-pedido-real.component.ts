@@ -824,13 +824,25 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   }
                 </tbody>
               </table>
+              <!-- [RA-PEND.2] Los bloqueantes van ARRIBA del botón y lo apagan: son la razón de
+                   que esté apagado, y esconderlos deja un botón muerto sin explicación. -->
+              @if (planBloqueos(); as bl) {
+                @if (bl.length) {
+                  <div class="pr-plan-stop" role="alert">
+                    <p><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+                      <strong>Esto no se puede generar todavía.</strong>
+                      El lote entra completo o no entra: un solo documento mal tira los {{ p.total }}.</p>
+                    <ul>@for (b of bl; track b) { <li>{{ b }}</li> }</ul>
+                  </div>
+                }
+              }
               <p class="pr-plan-hint">
                 Se crean bajo <strong>un folio de lote</strong> y en una sola operación: o entran todos o no entra ninguno.
                 Quedan <strong>esperando aprobación</strong> en Compras › Requisiciones.
               </p>
               <div class="pr-uov-actions">
                 <p-button type="button" label="Cancelar" styleClass="p-button-sm p-button-text" (click)="cancelarPlan()" [disabled]="saving()"></p-button>
-                <p-button type="button" [label]="saving() ? 'Generando…' : 'Generar los ' + p.total" icon="pi pi-check" styleClass="p-button-sm" (click)="confirmarPlan()" [disabled]="saving()"></p-button>
+                <p-button type="button" [label]="saving() ? 'Generando…' : 'Generar los ' + p.total" icon="pi pi-check" styleClass="p-button-sm" (click)="confirmarPlan()" [disabled]="saving() || planBloqueos().length > 0"></p-button>
               </div>
             </div>
           }
@@ -1357,6 +1369,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        normal. Queda en el gris de la insignia base y sube a .pr-bflag-bad recien cuando son DOS o
        mas, que ahi si es lo mismo pedido dos veces. */
     .pr-bflag-pend { color: var(--text-main); border-color: var(--border-color); }
+    /* RA-PEND.2 — lo que impide generar, arriba del boton apagado. */
+    .pr-plan-stop { margin: .6rem 0 0; padding: .55rem .7rem; border: 1px solid var(--bad-border);
+      border-radius: var(--r-sm, 8px); background: var(--bad-bg, transparent); color: var(--bad-fg); font-size: var(--fs-sm); }
+    .pr-plan-stop p { margin: 0 0 .3rem; }
+    .pr-plan-stop i { margin-right: .35rem; }
+    .pr-plan-stop ul { margin: 0; padding-left: 1.1rem; }
+    .pr-plan-stop li { margin: .15rem 0; }
     /* [RA-PRO.65] V30d / Máx: la cifra ES el botón del globo. */
     .pr-vmx { border: 0; background: transparent; color: var(--text-main); cursor: pointer; font: inherit;
       font-variant-numeric: tabular-nums; padding: .1rem .3rem; border-radius: var(--r-sm, 8px);
@@ -3822,6 +3841,44 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       destinos: [...new Set(traspasos.map((x) => codigo(x.warehouse_id)))].sort(),
       ligadas: traspasos.filter((x) => typeof x.link_to === 'number').length,
     };
+  });
+
+  /** `[RA-PEND.2]` Tope del servidor (`createRequisitionBatch`). Acá se vuelve visible ANTES del clic. */
+  static readonly MAX_DOCS = 300;
+
+  /**
+   * `[RA-PEND.2]` LAS MISMAS REGLAS QUE EL SERVIDOR, antes de gastar el clic.
+   *
+   * Medido en prod el 2026-10-07: **9 de los 15 «Armar» del día fallaron**, todos en ~12 ms —o
+   * sea una validación rechazando, no un timeout ni la red—. El lote es todo-o-nada, así que lo
+   * único que recibía el comprador era "No se creó NINGUNA requisición" después de haber armado
+   * la selección entera.
+   *
+   * No se adivina cuál regla fue: se replican las cuatro que el servidor aplica
+   * (`insertRequisition` + el tope del lote) y se dicen acá, con el documento señalado. Si el
+   * servidor igual rechaza por otra cosa, ahora su mensaje dice cuál documento fue.
+   */
+  readonly planBloqueos = computed<string[]>(() => {
+    const d = this.plan();
+    const out: string[] = [];
+    if (d.length > ComprasPedidoRealComponent.MAX_DOCS) {
+      out.push(`Son ${d.length} documentos y el máximo por lote es ${ComprasPedidoRealComponent.MAX_DOCS}. `
+        + 'Marcá menos productos (o filtrá por proveedor) y armá en dos tandas.');
+    }
+    const codigo = (id?: string | null) => (id && this.whCode().get(id)) || id || '—';
+    d.forEach((x, i) => {
+      const quien = `documento ${i + 1} (${x.source_type === 'branch' ? 'traspaso' : 'compra'} en ${codigo(x.warehouse_id)})`;
+      const lineas = (x.lines || []).filter((l) => Number(l.final_qty) > 0);
+      if (!x.warehouse_id) out.push(`El ${quien} no tiene almacén resuelto. Recargá la página.`);
+      if (!lineas.length) out.push(`El ${quien} se queda sin renglones con cantidad > 0.`);
+      // El servidor exige UN proveedor por requisición de compra y UN origen por traspaso: si el
+      // agrupado del front se rompiera, acá se ve antes de que tire el lote entero.
+      if (x.source_type !== 'branch' && new Set(lineas.map((l) => l.supplier_id || 'none')).size > 1) {
+        out.push(`El ${quien} mezcla más de un proveedor.`);
+      }
+      if (x.source_type === 'branch' && !x.source_warehouse_id) out.push(`El ${quien} no dice desde dónde sale.`);
+    });
+    return out.slice(0, 6);
   });
 
   /** code → id está en `whId`; acá el camino inverso, para rotular el plan. */
