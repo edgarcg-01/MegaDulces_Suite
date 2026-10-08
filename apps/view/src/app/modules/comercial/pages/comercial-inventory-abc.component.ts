@@ -471,9 +471,10 @@ export class ComercialInventoryAbcComponent {
   // ── [IC.24] La selección del conteo ──────────────────────────────────────────────────
   sel = signal<CountSelectionResult | null>(null);
   /**
-   * El filtro de producto se aplica acá y NO con : esa funcion compara contra
-   * , y esta fila trae el nombre en . Reusarla con un cast habria
-   * compilado y filtrado SIEMPRE a vacio cuando el filtro fuera por nombre.
+   * El filtro de producto se aplica acá y NO con `matchProd`: esa función compara contra
+   * `product_name`, y esta fila trae el nombre en `nombre`. Reusarla con un cast habría
+   * compilado y filtrado SIEMPRE a vacío cuando el filtro fuera por nombre — el tipo hubiera
+   * dicho que sí y la pantalla se habría vaciado sin error.
    */
   selItems = computed(() => {
     const todo = this.sel()?.items ?? [];

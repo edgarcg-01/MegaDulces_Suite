@@ -402,4 +402,206 @@ export class InventoryAbcService {
       };
     });
   }
+
+  /**
+   * `[IC.24]` — **La selección del conteo, con el porqué de cada producto.**
+   *
+   * Hasta acá la pantalla podía decir *qué* contar. No podía decir *por qué ése y no otro*, ni
+   * *qué tan confiable es el número que lo puso ahí*. Las piezas ya existían repartidas en cinco
+   * objetos; esto las junta en una fila.
+   *
+   * ── El motor de la selección, por ritmo ────────────────────────────────────────────────
+   *
+   * ⭐ **`diario` se siembra con el HECHO DE VENTA** (`analytics.sales_daily.cost`, COGS real de
+   * 30 días), no con `v_count_priority_score`. Medido el 2026-10-07: el score cubre el **5.5%**
+   * del COGS con **4× el esfuerzo** (94,739 piezas contra 23,758) y su mediana de cobertura es
+   * **93 días** — contar mañana esa pila es contar la misma pila. La causa: el score suma
+   * `s_venta` y `s_parado`, que se oponen (sus top-25 comparten **0 a 5 de 25**).
+   *
+   * El hecho de venta además es **pesos**, o sea inmune a la unidad: el mismo SKU `57009`
+   * (COBERTURA 20K LUSSEL) que el catálogo publica en $42,536/día cuesta $4,594 reales, 9.3×,
+   * porque la existencia va en cubetas y la venta en kilos.
+   *
+   * ── El filtro de velocidad, y por qué ──────────────────────────────────────────────────
+   *
+   * `dias_cobertura` acota a lo que **cambia** dentro del horizonte del ritmo. Un SKU con 93 días
+   * de cobertura no se mueve de un día para otro. ⚠️ Es una cobertura **declarada, no verificada**:
+   * `on_hand` y `avg_daily_units` pueden venir en peldaños distintos (ADR-057), y donde eso pasa
+   * el número miente. Se publica `cobertura_confiable` para que la pantalla lo diga.
+   *
+   * ── Rendimiento: el LIMIT va DENTRO del CTE ────────────────────────────────────────────
+   *
+   * ⚠️ Medido: con los `LEFT JOIN` a las vistas por fuera del recorte, **6,865 ms**; metiendo el
+   * `LIMIT` en `elegidos`, **135 ms**. Los joins caros corren sobre N filas y no sobre las 4,511
+   * del almacén.
+   *
+   * ⛔ Y lo que **NO** entra acá, con su medición: `v_sku_count_variance_history` (589 ms) y
+   * `v_abc_capital` (346 ms) calculan su partición completa aunque se filtre por producto
+   * (589 → 539 ms al acotar a 25 SKUs: casi nada). Van en el DETALLE, que es una fila.
+   */
+  async countSelection(query: {
+    warehouse_id: string;
+    ritmo?: 'diario' | 'mensual';
+    dias_cobertura?: number | null;
+    limit?: number;
+  }) {
+    const limit = Math.min(200, Math.max(1, Number(query.limit) || 25));
+    const ritmo = query.ritmo === 'mensual' ? 'mensual' : 'diario';
+    // El mensual mira el COMPLEMENTO (lo que el diario no toca) y no tiene tope de velocidad:
+    // su trabajo es justo el inventario que NO rota. `null` = sin filtro.
+    const diasCobertura = query.dias_cobertura === null
+      ? null
+      : (Number(query.dias_cobertura) || (ritmo === 'diario' ? 30 : null));
+
+    return this.tk.run(async (trx) => {
+      const rows = (await trx.raw(
+        `
+        WITH wh AS (SELECT id, code FROM commercial.warehouses WHERE id = ?::uuid),
+        flujo AS (
+          SELECT d.product_id,
+                 SUM(d.cost) / 30.0  AS cogs_dia,
+                 SUM(d.units) / 30.0 AS udia
+            FROM analytics.sales_daily d
+            JOIN wh ON wh.id = d.warehouse_id
+           WHERE d.sale_date >= CURRENT_DATE - 30
+           GROUP BY 1
+          HAVING SUM(d.cost) > 0
+        ),
+        -- ⭐ EL RECORTE VA ACA. Fuera de este CTE, el plan calcula las vistas para el almacen
+        --    entero y recorta despues: 6,865 ms contra 135 ms.
+        elegidos AS (
+          SELECT a.warehouse_id, a.product_id, f.cogs_dia, f.udia,
+                 ih.on_hand, ih.days_cover,
+                 a.abc_class, a.clase_motivo, a.rango_almacen, a.skus_en_almacen,
+                 a.aporte_individual, a.annual_value, a.distancia_al_corte, a.tiene_testigo
+            FROM commercial.abc_classification a
+            JOIN wh ON wh.id = a.warehouse_id
+            JOIN flujo f ON f.product_id = a.product_id
+            LEFT JOIN analytics.inventory_health ih
+                   ON ih.warehouse_id = a.warehouse_id AND ih.product_id = a.product_id
+           WHERE (?::int IS NULL OR COALESCE(ih.days_cover, 1e9) <= ?::int)
+           ORDER BY f.cogs_dia DESC
+           LIMIT ?
+        )
+        SELECT e.product_id, p.sku, p.nombre, p.location,
+               e.abc_class, e.clase_motivo,
+               e.rango_almacen::int, e.skus_en_almacen::int,
+               e.aporte_individual::float8, e.annual_value::float8,
+               e.distancia_al_corte::float8, e.tiene_testigo,
+               e.cogs_dia::float8, e.udia::float8,
+               e.on_hand::float8, e.days_cover::float8,
+               clk.estado AS reloj_estado, clk.fuente AS reloj_fuente,
+               clk.last_counted_at, clk.next_due
+          FROM elegidos e
+          JOIN catalog.products p ON p.id = e.product_id
+          LEFT JOIN analytics.v_count_clock clk
+                 ON clk.warehouse_id = e.warehouse_id AND clk.product_id = e.product_id
+                AND clk.ritmo = 'trimestral'
+         ORDER BY e.cogs_dia DESC`,
+        [query.warehouse_id, diasCobertura, diasCobertura, limit],
+      )).rows as Record<string, unknown>[];
+
+      const num = (v: unknown) => (v == null ? 0 : Number(v));
+      const items: Record<string, unknown>[] = rows.map((r) => ({
+        ...r,
+        /** ⚠️ La cobertura cruza dos columnas que pueden venir en peldanos distintos (ADR-057). */
+        cobertura_confiable: r.days_cover != null && r.on_hand != null,
+      }));
+
+      const piezas = items.reduce((s, r) => s + num(r.on_hand), 0);
+      const cogs = items.reduce((s, r) => s + num(r.cogs_dia), 0);
+      const [tot] = await trx.raw(
+        `SELECT COALESCE(SUM(d.cost), 0)::float8 / 30.0 AS cogs_dia_almacen
+           FROM analytics.sales_daily d
+          WHERE d.warehouse_id = ?::uuid AND d.sale_date >= CURRENT_DATE - 30`,
+        [query.warehouse_id],
+      ).then((r: { rows: { cogs_dia_almacen: number }[] }) => r.rows);
+
+      return {
+        items,
+        ritmo,
+        limit,
+        /** El ESFUERZO, que es lo que de verdad acota un conteo: piezas, no renglones. */
+        esfuerzo: {
+          skus: items.length,
+          piezas: Math.round(piezas),
+          /**
+           * ⛔ NO se publica un tiempo estimado: **piezas por hora por persona no existe** —
+           * nunca se cerró un folio. Inventar una tasa sería dibujar una medición (ADR-056).
+           */
+          minutos_estimados: null,
+          minutos_motivo: 'piezas_por_hora_sin_medir',
+        },
+        /** La COBERTURA: cuánto del dinero que se mueve al día queda dentro de la selección. */
+        cobertura: {
+          cogs_dia_seleccion: Math.round(cogs),
+          cogs_dia_almacen: Math.round(Number(tot?.cogs_dia_almacen) || 0),
+          pct: tot?.cogs_dia_almacen ? +((100 * cogs) / Number(tot.cogs_dia_almacen)).toFixed(1) : null,
+        },
+        /** El CRITERIO, con la data: lo que la pantalla necesita para explicar la selección. */
+        criterio: {
+          motor: 'analytics.sales_daily.cost — COGS real de 30 días, por almacén',
+          por_que_no_el_score:
+            'v_count_priority_score suma s_venta y s_parado, que se oponen: cubre 5.5% del COGS '
+            + 'con 4× el esfuerzo y su mediana de cobertura es 93 días',
+          orden: 'pesos de COGS por día, descendente',
+          filtro_velocidad: diasCobertura == null ? null : `días de cobertura ≤ ${diasCobertura}`,
+          cupo: 'se corta por PIEZAS, no por número de SKUs — el renglón no es la unidad de trabajo',
+        },
+      };
+    });
+  }
+
+  /**
+   * `[IC.24]` El **porqué profundo** de un SKU: su historia de conteos y su capital.
+   *
+   * Vive aparte de la lista por una razón medida, no por estética: `v_sku_count_variance_history`
+   * cuesta **589 ms** y `v_abc_capital` **346 ms**, y ninguna baja al filtrar por producto porque
+   * calculan su partición entera. En la lista serían 1,083 ms; acá, sobre una fila, son ~450 ms.
+   *
+   * ⭐ La historia sale de `analytics.mv_erp_count_line_signals` (**12 ms**, materializada) y no
+   * de la vista: trae las mismas señales **más** `explicacion`, que es la que dice en castellano
+   * por qué ese descuadre pudo no ser una merma — por ejemplo `costo_de_caja`, el hallazgo de
+   * `[IC.12]` donde un «sobrante» de $788,730 era el peldaño del costo, no producto faltante.
+   */
+  async countSelectionDetail(query: { warehouse_id: string; product_id: string }) {
+    return this.tk.run(async (trx) => {
+      const [eventos, capital] = await Promise.all([
+        trx.raw(
+          `SELECT s.fecha::date AS fecha, s.veces_contado::int, s.veces_descuadro::int,
+                  s.pesos_abs_hist::float8  AS pesos_abs,
+                  s.pesos_neto_hist::float8 AS pesos_neto,
+                  s.retencion::float8, s.patron,
+                  s.importe_neto::float8 AS importe_evento,
+                  s.cantidad_neta::float8 AS cantidad_evento,
+                  s.unidad_erp, s.rf_veredicto, s.flujo_dominante, s.explicacion
+             FROM analytics.mv_erp_count_line_signals s
+            WHERE s.warehouse_id = ?::uuid AND s.product_id = ?::uuid
+            ORDER BY s.fecha DESC
+            LIMIT 10`,
+          [query.warehouse_id, query.product_id],
+        ).then((r: { rows: unknown[] }) => r.rows),
+        trx.raw(
+          `SELECT capital::float8, capital_class, costo_unitario::float8,
+                  rango_almacen::int, skus_en_almacen::int,
+                  aporte_individual::float8, costo_source, tiene_testigo, costo_veredicto
+             FROM analytics.v_abc_capital
+            WHERE warehouse_id = ?::uuid AND product_id = ?::uuid`,
+          [query.warehouse_id, query.product_id],
+        ).then((r: { rows: unknown[] }) => r.rows[0] ?? null),
+      ]);
+
+      return {
+        eventos,
+        capital,
+        /** ADR-056: las dos ausencias no son la misma, y la pantalla las muestra distinto. */
+        sin_historia: eventos.length === 0,
+        sin_capital_motivo: capital ? null : 'sin_existencia_o_sin_costo',
+        fuentes: {
+          historia: 'analytics.mv_erp_count_line_signals (físico de Kepler, materializado)',
+          capital: 'analytics.v_abc_capital (existencia × costo del ERP, mismo peldaño)',
+        },
+      };
+    });
+  }
 }
