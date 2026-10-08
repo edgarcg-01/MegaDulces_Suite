@@ -1273,7 +1273,7 @@ export class CommercialVendorRoutesService {
             );
           }
           throw new ConflictException(
-            'No se pudo crear el cliente (dato duplicado). Reintentá.',
+            'No se pudo crear el cliente (dato duplicado). Vuelve a intentar.',
           );
         }
         throw e;

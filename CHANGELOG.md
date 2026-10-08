@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Arqueo de caja: buscador en «Arqueos recientes» y reimpresión de cada arqueo (SM.43, 2026-10-07)
+- `/tienda/arqueo`: buscador sobre el historial por **monto, hora, caja o cajera** (también fecha, tipo, sucursal o folio). Varias palabras acotan («caja 2 retiro»); «caja 7» es la caja 7, no cualquier fila con un 7. Dice cuántas filas coinciden y en qué universo busca (lo ya cargado). Columna nueva **Hora**.
+- Botón **Reimprimir** en cada arqueo: el ticket sale con lo guardado (denominaciones y medios declarados) y marcado **REIMPRESION** con su fecha; para la cajera sigue sin esperado ni diferencia.
+- Internal: el listado de arqueos (`GET /store/arqueo`) ahora devuelve `medios` (lo que la persona declaró), para que la copia diga lo mismo que el original.
+
 ### Added — Obligaciones a proveedor: la «Referencia» de la orden de entrada de Kepler (RE.32.2, 2026-10-07)
 - Columna **Referencia** antes de *Folio Kepler* en **Por entregar**, en el detalle de **Entregas** y en el **PDF de firmas**. Es el dato que Kepler muestra junto a «Referencia» en el documento *Aplica Orden Entrada* (p. ej. `30-0822`); lo pidieron los usuarios de Compras que ya lo usan en prod.
 - **De dónde sale:** `kdm1.c11` de la cabecera XA2001, verificado contra la pantalla de Kepler con un caso real (Morelia Abastos `XA2001-0000165` → `30-0822`; casan también el «Docto previo» y el importe). Es texto capturado a mano: se muestra tal cual, y «—» cuando no se capturó (3 % desde el 1-sep).

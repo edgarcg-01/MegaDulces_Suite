@@ -789,7 +789,7 @@ export class DailyCapturesService {
             `Folio collision con OTRO user: dto.folio=${dto.folio} requesting_user=${userId} existing_user=${dailyCapture.user_id}. Rechazando para evitar mezcla de data.`,
           );
           throw new BadRequestException(
-            'El folio generado choca con otro pedido. Reintentá la captura.',
+            'El folio generado choca con otro pedido. Vuelve a intentar la captura.',
           );
         }
         this.logger.warn(

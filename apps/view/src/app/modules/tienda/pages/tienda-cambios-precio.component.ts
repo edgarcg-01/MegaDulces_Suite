@@ -190,7 +190,7 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
         } @else if (plazas.error()) {
           <div class="cpr-nota is-warn" role="alert"><i class="pi pi-exclamation-triangle"></i><div>
             <b>No se pudo leer la lista de plazas</b>
-            <span>No es que no haya: es que no se pudo preguntar. Reintentá en un momento.</span>
+            <span>No es que no haya: es que no se pudo preguntar. Vuelve a intentar en un momento.</span>
           </div></div>
         } @else if ((plazas.value() ?? []).length === 0) {
           <div class="cpr-nota is-warn" role="alert"><i class="pi pi-exclamation-triangle"></i><div>

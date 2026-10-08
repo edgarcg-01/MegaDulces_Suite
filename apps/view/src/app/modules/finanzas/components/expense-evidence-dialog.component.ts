@@ -323,7 +323,7 @@ export class ExpenseEvidenceDialogComponent {
       if (fallaron.length) {
         this.saving.set(false);
         const ok = res.length - fallaron.length;
-        this.error.set(`No se pudieron subir ${fallaron.length} archivo(s).${ok ? ` (${ok} sí quedaron guardados.)` : ''} Reintentá.`);
+        this.error.set(`No se pudieron subir ${fallaron.length} archivo(s).${ok ? ` (${ok} sí quedaron guardados.)` : ''} Vuelve a intentar.`);
         return;
       }
       this.crear(presentes);

@@ -1346,6 +1346,10 @@ export class BlindCountService {
           // Se necesita el JSONB crudo para partir NUESTRO conteo en billetes y
           // monedas y poder compararlo contra el desglose de Kepler.
           'bc.denominations',
+          // [SM.43] Lo que la persona DECLARÓ en los otros medios. Sin esto, el ticket
+          // reimpreso desde el historial salía sin la tarjeta/transferencia que el
+          // original sí traía: la copia no decía lo mismo que el papel firmado.
+          'bc.medios',
           'bc.cash_cut_folio', 'bc.caja_kepler', 'bc.turno_abierto_at',
           'bc.validado_por', 'bc.validado_at', 'bc.validado_nota',
           trx.raw('pc.nombre AS cajero_nombre'), trx.raw('bc.total_contado::numeric AS total_contado'),
@@ -1473,6 +1477,8 @@ export class BlindCountService {
           cash_cut_folio: r.cash_cut_folio || null, caja_kepler: r.caja_kepler || null, turno_abierto_at: r.turno_abierto_at || null,
           validado_por: r.validado_por || null, validado_at: r.validado_at || null, validado_nota: r.validado_nota || null,
           captured_by: r.captured_by, captured_at: r.captured_at, nota: r.nota, incidencia_tipo: r.incidencia_tipo || null,
+          // [SM.43] Declarado por la persona (no es el esperado): viaja también a la cajera.
+          medios: (typeof r.medios === 'string' ? JSON.parse(r.medios) : r.medios) || null,
           esperado, kepler_contado: keplerContado, kepler_diff: keplerDiff, diff_real: diffReal,
           kepler_billetes: keplerBilletes, kepler_monedas: keplerMonedas, kepler_retirado: keplerRetirado,
           /**

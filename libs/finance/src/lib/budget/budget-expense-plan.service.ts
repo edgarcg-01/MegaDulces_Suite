@@ -157,7 +157,19 @@ export class BudgetExpensePlanService {
     trx: import('knex').Knex, tenantId: string, years: number[], families: string[], bySucursal: boolean,
   ): Promise<Array<{ account_code: string; account_name: string | null; familia: string; sucursal: string; year: number; month: number; monto: number }>> {
     if (!years.length || !families.length) return [];
+    // `[PU.VA]` ⛔ El literal `''` sirve en el SELECT y **es ilegal en el GROUP BY**: Postgres
+    // responde `non-integer constant in GROUP BY` y la consulta entera revienta. Como
+    // `by_sucursal` es **false por defecto**, esto no era un caso de borde — era el camino normal,
+    // y significa que `proposeExpensePlan` y `proposeExpenseGrowth` **nunca pudieron correr** con
+    // la configuración que todo el mundo usa.
+    //
+    // ⭐ Lo encontró la verificación POR HTTP (`http-budget-assumption-test.js`), no el candado
+    // DB-direct: el candado **replica** la consulta con `GROUP BY 1, 2` y por eso pasa en verde.
+    // *Reproducir una consulta no es ejecutarla.* Es la misma lección que `[CV.7]` dejó escrita —
+    // sólo una llamada real expone un error de SQL.
     const sucSel = bySucursal ? 'coalesce(sucursal, \'\')' : `''`;
+    /** Lo que de verdad se agrupa: la constante NO va, y sin sucursal el GROUP BY simplemente la omite. */
+    const sucGroup = bySucursal ? 'coalesce(sucursal, \'\')' : '';
     const rows = await trx.raw(
       `SELECT cuenta_mayor AS account_code,
               max(cuenta_mayor_nombre) AS account_name,
@@ -171,7 +183,7 @@ export class BudgetExpensePlanService {
           AND familia = ANY(?)
           AND cuenta_mayor IS NOT NULL AND cuenta_mayor <> ''
           AND extract(year from fecha) = ANY(?)
-        GROUP BY cuenta_mayor, ${sucSel}, extract(year from fecha), extract(month from fecha)`,
+        GROUP BY cuenta_mayor${sucGroup ? `, ${sucGroup}` : ''}, extract(year from fecha), extract(month from fecha)`,
       [tenantId, families, years],
     );
     return (rows.rows || rows).map((r: Record<string, unknown>) => ({
