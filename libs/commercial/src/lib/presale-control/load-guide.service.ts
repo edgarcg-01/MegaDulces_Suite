@@ -340,7 +340,7 @@ export class LoadGuideService {
       if (!r || (!quien.god && r.rider_user_id !== userId)) throw new NotFoundException('Ese pedido no va en una guía tuya.');
       const { order, candidates } = await this.presale.candidatosParaCampo(trx, orderId);
       const { rows: lines } = await trx.raw(
-        `SELECT p.sku, p.name AS description, ol.quantity::float8 AS quantity, ol.qty_unit AS unit
+        `SELECT p.sku, p.nombre AS description, ol.quantity::float8 AS quantity, ol.qty_unit AS unit
            FROM commercial.order_lines ol
            LEFT JOIN catalog.products p ON p.id = ol.product_id
           WHERE ol.order_id = ?
