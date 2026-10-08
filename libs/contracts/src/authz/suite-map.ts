@@ -438,9 +438,19 @@ export const SUITE_SPACES: readonly SuiteSpace[] = [
     order: 8,
     label: 'Recursos Humanos',
     icon: 'pi pi-users',
-    description: 'Organización, talento y desarrollo. El organigrama ya está cargado (43 puestos); no hay pantalla de RH todavía.',
-    status: 'planned',
-    entries: [],
+    description: 'Asistencia del personal, incidencias con su cierre semanal y relojes checadores. Reclutamiento y el bot de candidatos siguen en Mega Talento hasta su migración (Fase RH).',
+    // `[RH.1.7]` Fase RH (ADR-084): deja de ser `planned` con la asistencia que se trae de Mega Talento.
+    // Lo que el espacio todavía no tiene (reclutamiento, organización y desarrollo) se DECLARA en la
+    // descripción, no se pinta como tarjeta vacía (§22).
+    status: 'active',
+    entries: [
+      {
+        id: 'rh',
+        kind: 'project',
+        project: 'rh',
+        source: { status: 'propuesta', cite: 'Fase RH (ADR-084): migración de la asistencia de Mega Talento a la suite' },
+      },
+    ],
   },
   {
     id: 'sistemas-servicios-mantenimiento',

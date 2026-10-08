@@ -393,10 +393,18 @@ export const SERVICIO_LANDING: LandingCandidate[] = withTreeCandidates('servicio
 ]);
 export const servicioHomeGuard: CanActivateFn = landingRedirectGuard(SERVICIO_LANDING, '/servicio/solicitudes');
 
+/**
+ * `[RH.1.7]` Fase RH — `/rh`. El árbol cubre todo: quien ve asistencia aterriza en asistencia, quien sólo
+ * captura o califica, en incidencias, y quien sólo administra relojes, en relojes.
+ */
+export const RH_LANDING: LandingCandidate[] = withTreeCandidates('rh', []);
+export const rhHomeGuard: CanActivateFn = landingRedirectGuard(RH_LANDING, '/rh/asistencia');
+
 /** Todos los landings dinámicos, por id de proyecto del árbol — para el spec de cobertura. */
 export const LANDINGS_BY_PROJECT: Readonly<Record<string, LandingCandidate[]>> = {
   desarrolladores: DESARROLLADORES_LANDING,
   servicio: SERVICIO_LANDING,
+  rh: RH_LANDING,
   comercial: COMERCIAL_LANDING,
   mkt: MKT_LANDING,
   almacen: ALMACEN_LANDING,

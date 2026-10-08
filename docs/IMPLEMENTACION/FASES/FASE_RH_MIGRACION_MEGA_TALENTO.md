@@ -223,8 +223,8 @@ con un permiso que oculte un menú.
 
 ### 4.3 Pantallas
 
-Espacio **Recursos Humanos** del mapa de la suite (hoy `planned`, vacío) pasa a `active` con el
-proyecto `rh` en `/rh/*`:
+Espacio **Recursos Humanos** del mapa de la suite (`planned` hasta `[RH.1.7]`) pasa a `active` con el
+proyecto `rh` («Personal») en `/rh/*` — hecho el 2026-10-07 para las tres primeras filas, ver §5.3:
 
 | Ruta | Viene de |
 |---|---|
@@ -274,10 +274,14 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
 - [ ] **[RH.1.3]** Agente al monorepo: código del agente de Mega Talento + `verify_mode`; contenedor en el
   namespace `ingesta` de `md`; latido en `cron_runs` + umbral en `CRON_JOBS`; prueba negativa (apagar un reloj y ver el rojo).
 - [ ] **[RH.1.4]** Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4.
-- [ ] **[RH.1.5]** Horarios deducidos y agente de alertas como `@Cron` del worker (una sola implementación;
-  hoy está duplicada en la API y en el bot). Decidir revisión vs incidencia.
-- [ ] **[RH.1.6]** Incidencias (4 estados) y cierre semanal jueves→miércoles. Permisos `HR_INCIDENTS_*`, `HR_PERIOD_CLOSE`.
-- [ ] **[RH.1.7]** Pantallas `/rh/asistencia`, `/rh/incidencias`, `/rh/relojes`; espacio RH `active`.
+  ⛔ **Es prerrequisito del corte del 7-nov, no «después»** (medido 2026-10-07, ver §5.4): la paridad se midió con
+  las personas ligadas; sin ellas no hay faltas de quien no checó, ni planta/promotoras, ni bajas.
+- [ ] **[RH.1.5]** 🧪 Horarios deducidos y agente de alertas como `@Cron` del worker (una sola implementación;
+  hoy está duplicada en la API y en el bot). Decidir revisión vs incidencia. → En código 2026-10-07, ver §5.1.
+- [ ] **[RH.1.6]** 🧪 Incidencias y cierre semanal jueves→miércoles. Permisos `HR_INCIDENTS_*`, `HR_PERIOD_CLOSE`.
+  Son **6** estados, no 4 (rechazada y anulada son salidas del flujo). → En código 2026-10-07, ver §5.1.
+- [ ] **[RH.1.7]** 🧪 Pantallas `/rh/asistencia`, `/rh/incidencias`, `/rh/relojes`; espacio RH `active`; reparto
+  de permisos por rol. → En código 2026-10-07, ver §5.3.
 - [ ] **[RH.1.8]** Corte de asistencia (§6): carga única verificada de checadas, incidencias y cierres; el
   agente apunta a la Suite; las pantallas de asistencia de Mega Talento quedan de sólo lectura 2 semanas.
 - [ ] **[RH.1.9]** (opcional) Modo push ADMS para las plazas sin ruta (PH, Morelia Abastos): endpoint `/iclock`
@@ -313,6 +317,236 @@ nómina): confirmación con reloj, código del celular o firma con motivo; venta
 comprobante sellado (NOM-151). Se construye sobre RH.1 cuando se decida.
 
 ---
+
+### 5.1 `[RH.1.5]`/`[RH.1.6]` — lo que se trasladó y lo que se decidió (2026-10-07)
+
+**Qué se trasladó.** La lógica de asistencia de Mega Talento (`api/src/agente-horarios/*`, `incidencias.ts`,
+`cierres.ts`, commits de sep–oct 2026) vive en `libs/hr/src/lib/attendance/`. Lo que es **regla** se copió
+textual (`logic/horario-deducido.ts`, `logic/reglas.ts`, `logic/tipos.ts`, `detalleDia`) para que se audite
+con un diff; lo que mezclaba consulta y cálculo (`asistenciaPersonas`, `detectar`) se partió en una función
+pura y una lectura (`attendance-reader.ts`), sin tocar el recorrido. Encima: el agente (`@Cron` cada 30 min
+con candado por sitio y bitácora en `hr.attendance_agent_runs`, mig `20261008094812`), la cola de alertas,
+los horarios (por sitio y por persona), las incidencias con su bitácora y el cierre de semana.
+API en `/api/hr/attendance/*` (asistencia, checadas, horarios, agente, alertas, incidencias, cierres).
+
+**Lo que se encontró al medir:**
+- **La prueba del horario de Mega Talento está en ROJO desde el 18/08** (`tools/probar-horario.ts`: 6 fallas).
+  Las seis se explican por dos cambios de regla de RH que nadie llevó a la prueba: la semana de nómina pasó
+  de miércoles a **jueves** (18/08) y una ausencia puede ser **el descanso** de la semana (26/09). Aquí la
+  prueba trae los números corregidos y cada uno dice por qué cambió.
+- **La copia del bot se quedó con la regla vieja** (`BOT-RH/src/horario-deducido.js` corta en miércoles y no
+  tiene descansos por semana): su panel da 146 min de retardo a una persona de Morelia donde el portal da 131. En la Suite
+  queda **una sola** implementación, la vigente. El panel del bot se retira en `[RH.3.4]`.
+- **El agente de producción nunca manda si una checada es entrada o salida** (la librería ZK no lo trae), y
+  las reglas se calibraron así. El lector de la Fase CH sí decodificaba el estado del reloj: usarlo
+  encendería las ramas "con tipo" de cuatro reglas sólo para la parte vieja de la historia. La lógica
+  trabaja con `tipo` vacío; el dato queda guardado.
+
+**Decisiones:**
+- **Revisión vs incidencia → la incidencia es el único mecanismo.** La revisión de Mega Talento excusaba por
+  coincidencia de palabras y se escribía **sin pasar por el candado de semana cerrada** (justificar con ella
+  cambiaba el número de una semana ya pagada). En la Suite no se escribe; sus filas históricas se LEEN
+  para que las semanas viejas den el mismo número.
+- **El cierre toma la foto dentro de la misma transacción** que cambia los estados (allá iba afuera): la
+  foto es exactamente lo que quedó cerrado.
+- **Separación de funciones por clave**: `HR_INCIDENTS_CAPTURAR` / `_CALIFICAR` / `_AUDITAR`, y quien
+  audita nunca es quien capturó o calificó (lógica + CHECK de la tabla). Allá eran el mismo rol admin.
+- **El agente arranca apagado** (`ENABLE_HR_ATTENDANCE_AGENT`): hasta el corte la fuente viva es Mega
+  Talento. Apagado tampoco late (un latido sin su fila en `CRON_JOBS` se pinta verde sin umbral). El
+  encendido y las filas `hr_attendance_agent` / `hr_attendance_ingest` de `CRON_JOBS` van en el corte.
+- **Aprobar alertas sigue siendo de una en una** aunque el aviso al jefe por WhatsApp todavía no exista.
+- **Los horarios de sitio se desactivan, no se borran** (pueden estar referidos por el de una persona).
+
+**Medido:** 86 pruebas puras + 2 contra Postgres (35 aserciones de punta a punta: lote → vista →
+asistencia → agente → incidencias → cierre → reapertura, con la separación de funciones probada también
+contra el CHECK y la bitácora probada como sólo-agregar con el rol `app_runtime`). Tiempos con un sitio
+sintético del tamaño real (70 personas, ~29 mil checadas): asistencia de una semana **116 ms**, de tres
+meses **259 ms**, agente de 45 días **96 ms** — debajo del criterio de 1 s. ⚠️ Es una base local con un
+solo sitio; contra prod se vuelve a medir en el corte.
+
+**Declarado, no construido aquí:** el aviso al jefe por WhatsApp y su respuesta con código (`[RH.3]`, con el
+bot); presencia en vivo, "ubicación de mi equipo" y cruces entre plazas (son pantallas: `[RH.1.7]`); el
+alcance de datos del rol Promotoría (ADR-050, con las pantallas); editar el padrón y su turno de sitio
+(`[RH.1.4]`); repartir las claves `HR_*` (con las pantallas; mientras, `SIN_REPARTIR`). Las áreas de
+`horarios_sucursal` no se trasladan: el horario por persona ya cubre ese caso.
+
+### 5.1b `[RH.1.2]` (resto) — administrar los relojes, y cómo se corta el agente (2026-10-07)
+
+`/api/hr/attendance/devices`: alta/edición/pausa por serie, semáforo, lotes guardados sin aplicar y su
+reproceso, y las órdenes al reloj (renombrar, restaurar con el respaldo de un borrado, cancelar). El
+borrado no se expone: Mega Talento lo retiró el 29/09 (RH da de baja, no borra). Clave
+`HR_DEVICES_GESTIONAR`.
+
+**Dos defectos de Mega Talento que aquí no pasan:** su orden llevaba el código del SITIO y el agente
+busca a la persona en el reloj por ese código; en el reloj de comida de corporativo (que numera distinto)
+un «renombrar» habría tocado a otra persona o a nadie. Aquí cada orden lleva el código **crudo de su
+reloj**, y sólo va a los relojes donde la persona está enrolada.
+
+⚠️ **Corrección:** en `[RH.1.2]` se dijo que, para el corte, al agente de la laptop sólo había que
+cambiarle dirección y llave. **No era cierto**: tiene fijas sus rutas (`/checador/ingesta`, `/latido`,
+`/relojes`, `/comandos`) y su encabezado (`X-Agente-Token`). Se agregó una **entrada compatible**
+(`/api/hr/attendance/ingest/mt/checador/ingesta`, mismo servicio, acepta `X-Agente-Token`): ahora sí,
+el corte del agente es sólo su `config.json` (`apiUrl` = `…/api/hr/attendance/ingest/mt`, `token` =
+`HR_INGEST_KEY`), y no depende de mudarlo al servidor (`[RH.1.3]`).
+
+### 5.2 Paridad contra Mega Talento con datos reales (2026-10-07)
+
+Lo que prueba que el traslado da **el mismo número que RH ve hoy**, no sólo que pasa casos armados:
+
+1. `database/scripts/rh/mt-exportar-asistencia.ts` corre **el código real de Mega Talento** sobre su base
+   (sesión forzada a sólo lectura: la escritura se rechaza con `25006`) y guarda cada cálculo.
+2. `database/scripts/rh/carga-unica-mega-talento.js` carga a `hr.*` la misma foto (corte por hora de
+   recepción). Por omisión es ENSAYO: carga en una transacción, imprime el cuadre y la deshace.
+3. `libs/hr/.../paridad-mega-talento.db.spec.ts` simula `[RH.1.4]` (una persona por ficha, con su
+   estado y si es promotora), calcula con la Suite y compara campo por campo y día por día.
+
+**Resultado:** 72 cálculos (12 sitios × 3 semanas de nómina × planta/promotoras), **1,464 personas,
+5,464 días, 0 diferencias** y nadie de más ni de menos. La carga cuadra al registro: 214,792 checadas +
+3 con fecha de reloj sin hora; 1,540 enrolamientos; 99 incidencias y su bitácora; 10,429 alertas. Tarda
+25 s. El agente de alertas, sobre la ventana de la última corrida de Mega Talento: 4,296 alertas, 3
+diferencias, las 3 explicadas (abajo).
+
+**Lo que destapó** (la primera corrida salió ROJA: 37 personas en un solo lado):
+- El padrón de la Suite tiene que ser lo **ligado a una persona**, no todo código enrolado: listaba 12
+  códigos viejos sin ficha (uno sin checar desde 2025) que Mega Talento no muestra. Corregido.
+- Una lápida de `padron_depurado` **no cuenta si la ficha está activa** (#172 de Morelia Abastos: alguien
+  la reactivó sin quitar la lápida, y Mega Talento la mide). Corregido en la carga.
+- **Defecto de Mega Talento, corregido aquí:** su huella de corrida no llevaba el día, así que un día que
+  CIERRA sin datos nuevos no se vuelve a revisar. CEDIS #10 tuvo una sola marca el 06/10, se analizó
+  antes de cerrar el día, el reloj se cayó y la «entrada sin salida» no apareció nunca.
+- La cuenta «Admin» de PH (dada de baja y depurada) genera alertas en Mega Talento; aquí sus checadas
+  se ignoran. Es ruido menos; se declara.
+- El `tipo` de checada SÍ llegó: 10,220 checadas del 13/01 al 17/08/2026, ninguna después. Sin usarlo,
+  la paridad da 0: la decisión de §5.1 se sostiene con el dato corregido.
+- **La cola de alertas no la usa nadie**: 10,429 sugeridas y **cero decididas** en toda su historia.
+  Antes de construir su pantalla (`[RH.1.7]`) hay que preguntarle a RH si la quiere.
+
+✅ **Duplicados con el histórico — resuelto (2026-10-07).** Esta sección afirmaba que «prod ya tiene ~129 mil
+checadas de la Fase CH». **Era falso**, y lo había escrito yo sin medirlo: CH cargó sus 129,461 en su base
+**dedicada** `hr` de `.245` (`database/knexfile-hr.js`); `[CH.0.5]` se validó en local y `[CH.0.9]` («aplicar
+la migración a Railway») nunca se hizo. ⚠️ Prod no se pudo leer desde la máquina de trabajo para cerrarlo del
+todo, así que la solución no depende de eso.
+
+Lo medido en Mega Talento (sólo lectura): de 215,137 checadas, **119,260 no traen reloj**. Hay un **corte limpio
+el 5-ago-2026**: antes todo entró sin reloj (por la base de CH), después todo con serie (el agente). Los segundos
+son reales (sólo ~1.6% caen en `:00`), y hay **cero gemelas** al segundo entre lo que trae reloj y lo que no. La
+razón: su ingesta tiene un puente (`NOT EXISTS` contra lo sin reloj del sitio) que **la ingesta portada a la Suite
+no traía**. La paridad no lo podía ver: compara datos cargados, no el comportamiento de la ingesta.
+
+El riesgo real estaba ahí: los relojes guardan **años** en su buffer, y un lector sin marca de agua —el de `md` en
+`[RH.1.3]`, o el agente si pierde su `cola.db`— reenvía todo con su serie. El corte por configuración NO lo
+dispara: el agente conserva su marca y sólo reenvía desde ella menos 36 h.
+
+**Qué se hizo** (dos lados del mismo puente, cada uno con prueba negativa ejercida: sin el puente, rojo):
+- **Ingesta** (`insertPunches`): una checada que ya está en el reloj desconocido del sitio (misma persona en código
+  de sitio, misma hora de pared) no entra. Entra por la llave primaria, no recorre el histórico.
+- **Carga única**: la copia del reloj desconocido **cede** ante la misma checada en un reloj real del destino (de
+  esta carga, de CH si prod la tuviera, o de la ingesta viva si la carga corre tarde). Sale en el cuadre como
+  `ya_en_un_reloj_del_sitio`. Primer intento: un `EXISTS` por sitio tardaba ~15 s por lote (el ensayo pasó de ~20 s
+  a más de 10 min); con la lista de relojes del sitio entra por índice → **ensayo completo en 41 s**.
+
+**Verificado con datos reales** (transacción revertida): carga completa y luego reenvío por la ingesta, con la
+serie del reloj real, de todo el histórico sin reloj de tres sitios — **8 Esquinas 50,688 → 0 nuevas (7 s), CEDIS
+23,384 → 0 (3 s), Zamora Canindo 9,440 → 0 (1 s)**. Cuadre de la carga: 215,134 de 215,137 (3 con fecha basura).
+
+⚠️ **Límite declarado:** el puente compara con el código de SITIO. En el reloj de comida de corporativo (traduce
+códigos) depende de que el enrolamiento tenga su `person_code`; la carga lo pone para los 41 del mapa. Un código
+crudo sin mapa podría duplicarse ahí — el cálculo lo colapsa igual (marcas a <5 min), sólo sería ruido.
+
+### 5.3 `[RH.1.7]` — las pantallas, el espacio y el reparto (2026-10-07)
+
+**Lo que hay.** Tres pantallas Operations (tabla densa + ficha) en el proyecto `rh`, que se llama
+**«Personal»** y no «Recursos Humanos» a propósito: así se llama el ESPACIO, y la migaja deduplica
+etiquetas iguales — se perdería el enlace al inicio del proyecto.
+
+| Ruta | Qué hace | Entra con |
+|---|---|---|
+| `/rh/asistencia` | Semana de nómina (jueves→miércoles, recortada a hoy) por sitio; planta o promotoras; ficha con días, comida, horas, bolsa restante y por qué revisar. Asignar o quitar el horario de una persona. «Capturar incidencia» lleva a Incidencias con persona, sitio y semana puestos. | `HR_ATTENDANCE_VER` o `_GESTIONAR` |
+| `/rh/incidencias` | Por calificar / cuentan / rechazadas / anuladas / todas; capturar, calificar, rechazar, quitar, auditar, con su bitácora. Cierre de la semana para prenómina y reabrir con motivo. | cualquiera de VER, CAPTURAR, CALIFICAR, AUDITAR, PERIOD_CLOSE |
+| `/rh/relojes` | Semáforo por **señal del lector** (no por última checada), lotes que llegaron sin aplicar y su reproceso, alta/edición/pausa, renombrar o volver a dar de alta a alguien en los relojes del sitio. | VER (consulta) o `HR_DEVICES_GESTIONAR` |
+
+**Decisiones.**
+- **Gestionar implica ver.** Siete lecturas de asistencia (`report`, `punches`, `schedules`, `agent/status`,
+  `alerts`…) pasaron de exigir `HR_ATTENDANCE_VER` a aceptar `VER` **o** `GESTIONAR`. Sin eso, quien sólo
+  tuviera GESTIONAR aterrizaba en una pantalla que le daba 403. Cada ruta pide lo mismo que su lectura.
+- La pantalla sólo **ofrece** los botones que pueden servir; el servidor vuelve a decidir y su motivo se
+  muestra tal cual (409 de semana cerrada incluido). Auditar no se ofrece sobre lo que no está cerrado.
+- Lo que no hay se dice: «—» en vez de 0 minutos, «nunca» en un reloj que nunca habló, los cuatro colores
+  del semáforo se cuentan aunque sean cero.
+
+**El reparto** (mig `20261008094815`), derivado del flujo que **Mega Talento documenta en su código**
+(«el encargado entrega, servicios al personal califica, contabilidad audita» — allá todos eran el mismo
+administrador porque no había roles):
+
+| Rol | Claves |
+|---|---|
+| `recursos_humanos` (`[IDG.8]`) | VER, GESTIONAR, CAPTURAR, CALIFICAR, PERIOD_CLOSE, DEVICES_GESTIONAR |
+| `contabilidad` (4 personas en prod, medido el 06/10) | AUDITAR |
+
+- ⚠️ **`recursos_humanos` no tiene a nadie** en la base local, y en prod `[IDG.8]` lo creó vacío (desde esta
+  sesión no se alcanza `md` para medirlo). Mientras nadie de RH esté en ese rol, las pantallas sólo las abre
+  un superadmin. La compuerta de reparto lo declara en `SIN_PERSONAS` y se pone roja cuando alguien entre,
+  para sacarlo de la lista. **Lo hace un humano desde `/admin/personas`** (el puesto «Auxiliar de RR-HH» cae
+  por defecto en `administracion`, que no es sólo RH: por eso no se repartió por ahí).
+- ⛔ **El encargado de tienda no captura todavía.** La captura no está acotada por sitio: quien tiene
+  CAPTURAR mete incidencias en cualquier plaza. Primero el alcance por sitio, después el reparto.
+- La separación de funciones no depende del reparto: la hacen cumplir el servidor y un CHECK.
+- Probada contra la base local dentro de una transacción revertida: otorga, es idempotente, **no pisa un
+  `false` explícito** (lo declara) y `down` deja todo como estaba.
+
+**`[RH.1.7b]` Los relojes con el formato de Mega Talento (2026-10-08, pedido de David).** La tabla y los cuatro
+mosaicos de `/rh/relojes` se cambiaron por la **franja** que RH ya conocía (`asistencia-resumen`, «SEMÁFORO DE
+RELOJES»): borde del color del peor estado, una línea de resumen («3 al día · 1 sin señal»), y por reloj desde
+cuándo («hace 40 s», «sin señal desde el 17 jul», «nunca ha reportado»), *hora corrida ±N min*, *faltan N* y el
+motivo accionable. Y vuelve a **Asistencia**, donde vivía allá: chip «En vivo / Con retraso / Sin señal» y el aviso
+«este sitio no ha reportado» visible aunque la franja esté plegada — quien lee la asistencia tiene que saber si el
+dato es de hoy. Se trasladó el formato, no el CSS (tokens de la Suite). No se trasladó `origenAtrasado`: allá había
+dos lectores en cadena, aquí uno. Lógica pura en `relojes-formato.ts`, componente `RhRelojesFranjaComponent`.
+
+**Lo que NO se construyó (declarado).**
+- La pantalla de la **cola de alertas**: 10,429 sugeridas y cero decididas en Mega Talento (§5.2). Se
+  pregunta a RH antes de construirla.
+- Presencia en vivo, «ubicación de mi equipo», cruces entre plazas, la papelera y el padrón de los relojes,
+  la pestaña de checadas crudas. Antes de portar, `[RH.0.5]`: qué se usa de verdad.
+
+**Pruebas.** 44 del front (cliente + 3 pantallas), con **prueba de mutación**: se rompieron a propósito tres
+guardas de permiso y las tres pruebas negativas se pusieron rojas. Contratos 388 (mapa de la suite: el
+espacio pasa a `active`, 16 puertas para el admin); «Mi trabajo» 97. ⚠️ **Validación visual pendiente**: en
+esta sesión no se levanta el front (regla del repo); se valida en el despliegue.
+
+**Migraciones renombradas.** Cuatro timestamps de esta fase ya los usaban migraciones de `main` del 7-oct
+(knex desempata por alfabeto). Ninguna se había aplicado en ningún lado, así que se renombraron:
+`120000→300000→304401` (incidencias, en #281: el mismo día `main` tomó también `300000`), `130000→310000→20261008094812` (agente), `140000→320000→20261008094813` (órdenes),
+y el reparto `330000→20261008094815`. **Tercera colisión el 8-oct** (Mesa de Servicio y Caja General tomaron
+`310000`/`320000`/`330000`): desde ahí los números salen de `scripts/nueva-migracion.js` (`[PROC.2]`), que
+mira el disco **y** `origin/main`; elegirlos a mano era la causa (el 17 % del repo comparte número).
+
+### 5.4 `[RH.1.8]` — pre-vuelo, carga a prod y runbook del corte (2026-10-07)
+
+Paso a paso en [`RUNBOOKS/RH_CORTE_ASISTENCIA.md`](../RUNBOOKS/RH_CORTE_ASISTENCIA.md).
+
+- **Pre-vuelo** `database/scripts/rh/prevuelo-corte-asistencia.js`, sólo lectura, se corre dentro del pod `api`
+  como el aplicador de migraciones. Revisa identidad del clúster, migraciones pendientes **y su orden** (nombres
+  viejos, colisiones con `main`), datos previos en `hr.*` (de dónde salieron), padrón ligado, roles del reparto,
+  variables de entorno, latidos, transacciones largas, horario y que Mega Talento sea alcanzable. OK / AVISO /
+  BLOQUEA / NO MEDIDO; sale con 1 si algo bloquea.
+- **Carga a prod** `--destino-prod`: corre en el pod (`CARGA_URL="$DATABASE_URL_NEW"`), exige la identidad del clúster
+  de prod y la cadena aplicada, y sigue siendo ensayo salvo `--aplicar`. Sin el candado de `libs/` (la imagen no lo
+  trae): por eso la verificación propia.
+- **Candado de que los guiones no se desfasan** (`corte-scripts.spec.ts`, corre en CI): las tres copias de la
+  identidad de prod coinciden, la cadena existe archivo por archivo y sin nombres viejos, no hay timestamps repetidos,
+  y el reparto que revisa el pre-vuelo es el de la migración.
+
+**Lo que destapó:**
+- ⛔ **`[RH.1.4]` es prerrequisito del corte.** La paridad de 0 diferencias se midió con personas ligadas (la prueba
+  las creó desde `empleados`). Tras la carga real: **991 enrolamientos activos, 0 ligados** → el pre-vuelo BLOQUEA.
+  Y depende de que RH valide los mapeos: hoy está en la ruta crítica del 7-nov.
+- La migración base de CH (`20260817220000_hr_attendance`) probablemente **no está en prod** (`[CH.0.9]` nunca se
+  aplicó): va primera en la cadena. El pre-vuelo lo confirma.
+- Prod corre en **k3s** desde el 2026-10-02; el §3 de `ops/prod/RUNBOOK-despliegue.md` todavía dice `docker cp`.
+- Mergear la pila **frena todos los despliegues** hasta aplicar sus migraciones (compuerta 2 de `soltar.sh`): se
+  aplican el mismo día del merge. Desplegar el código antes del corte es seguro (agente apagado, ingesta sin llave
+  = 401, pantallas vacías).
 
 ## 6. Cómo se hace cada corte
 

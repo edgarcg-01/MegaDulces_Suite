@@ -497,6 +497,23 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         ],
       },
       {
+        // Fase RH (ADR-084) — `[RH.1.7]` Personal: la asistencia que hoy vive en Mega Talento (horarios
+        // deducidos, bolsa semanal de tolerancia, incidencias con cierre semanal) y los relojes checadores.
+        // ⚠️ La etiqueta NO es «Recursos Humanos» a propósito: así se llama el ESPACIO, y la migaja deduplica
+        // etiquetas iguales — se perdería el enlace al inicio del proyecto (`/rh`).
+        // `hr-attendance-kiosk` (la cuenta del kiosco) se queda en `pdv`: es otra puerta, sin pantalla de RH.
+        // `rh-relojes` no tiene VER: el semáforo y la administración de los relojes son la misma pantalla.
+        id: 'rh',
+        label: 'Personal',
+        icon: 'pi pi-id-card',
+        route: '/rh',
+        modules: [
+          { id: 'rh-asistencia', label: 'Asistencia', route: '/rh/asistencia', view: [Permission.HR_ATTENDANCE_VER], manage: [Permission.HR_ATTENDANCE_GESTIONAR] },
+          { id: 'rh-incidencias', label: 'Incidencias y cierre semanal', route: '/rh/incidencias', view: [Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_AUDITAR], manage: [Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_PERIOD_CLOSE] },
+          { id: 'rh-relojes', label: 'Relojes checadores', route: '/rh/relojes', view: [], manage: [Permission.HR_DEVICES_GESTIONAR] },
+        ],
+      },
+      {
         // Fase MS (2026-10-02, ADR-081) — Mesa de Servicio: cualquier persona reporta un problema o
         // necesidad y el ticket es la tarea de quien lo atiende. Cola de TI primero, modelo multi-cola.
         // ⚠️ `servicio-reportar` NO tiene ruta A PROPÓSITO (mismo precedente que WhatsApp): la clave se

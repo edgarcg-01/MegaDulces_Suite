@@ -65,6 +65,9 @@ const SIN_REPARTIR = {
     '"quien cuenta/reconcilia NO es quien investiga". A quien le toca investigar es decision de ' +
     'negocio y NO se deriva del estado vivo -- repartirlo a ojo destruiria el control que el ' +
     'modulo existe para implementar. Pendiente: Edgar.',
+  // `[RH.1.7]` Las claves de asistencia salieron de esta lista: con las pantallas `/rh/*` las reparte
+  // la mig `20261008094815` segun el flujo que Mega Talento documenta (servicios al personal califica
+  // y cierra = `recursos_humanos`; contabilidad audita). Ver SIN_PERSONAS.
 };
 
 /**
@@ -80,6 +83,15 @@ const SIN_PERSONAS = {
     'Mismo caso que su hermana _GESTIONAR: su unica via es `direccion`, que hoy tiene 0 ' +
     'personas activas. El modulo de perdida no lo alcanza NADIE. Se resuelve con la misma ' +
     'decision de segregacion de funciones. Pendiente: Edgar.',
+  // `[RH.1.7]` Repartidas a `recursos_humanos` (mig `20261008094815`), el rol que `[IDG.8]` creo para
+  // el personal de RH sin nadie adentro. Mientras nadie de RH este asignado, las pantallas `/rh/*` no
+  // le llegan a nadie de negocio (solo superadmin). La auditoria (`HR_INCIDENTS_AUDITAR`) NO esta
+  // aca: va a `contabilidad`, que si tiene gente.
+  ...Object.fromEntries(['HR_ATTENDANCE_VER', 'HR_ATTENDANCE_GESTIONAR', 'HR_INCIDENTS_CAPTURAR',
+    'HR_INCIDENTS_CALIFICAR', 'HR_PERIOD_CLOSE', 'HR_DEVICES_GESTIONAR'].map((k) => [k,
+    'Fase RH [RH.1.7]: su unica via es `recursos_humanos`, con 0 personas. Falta asignar al personal ' +
+    'de RH desde /admin/personas (el puesto Auxiliar de RR-HH cae por defecto en `administracion`, ' +
+    'que no es solo RH). Pendiente: David con RH.'])),
   HR_ATTENDANCE_CHECAR:
     'Fase CH.1: su unica via es `checador_kiosco`, que quedo con 0 cuentas a proposito -- la ' +
     'cuenta `checador.03` se borro porque se creo la credencial ANTES que su pantalla, y ' +

@@ -39,7 +39,7 @@ import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
 /** Clave interna de proyecto de este layout: indexa los `*NavGroups` escritos a mano (deuda SN). */
-type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio';
+type LayoutProject = 'trademk' | 'comercial' | 'admin' | 'logistica' | 'tienda' | 'reparto' | 'finanzas' | 'contabilidad' | 'almacen' | 'compras' | 'telemarketing' | 'desarrolladores' | 'servicio' | 'rh';
 
 /** `AuthzProject.id` → clave interna. Lo que no está acá (whatsapp) cae al default. */
 const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
@@ -59,6 +59,7 @@ const PROJECT_KEY: Readonly<Record<string, LayoutProject>> = {
   televenta: 'telemarketing',
   desarrolladores: 'desarrolladores',
   servicio: 'servicio',
+  rh: 'rh',
 };
 
 interface NavItem {
@@ -739,6 +740,18 @@ export class LayoutComponent implements OnInit, OnDestroy {
     },
   ];
 
+  // `[RH.1.7]` Fase RH — Personal. Cada item por la misma lista que su ruta (gestionar implica ver).
+  private rhNavGroups: { title: string; items: NavItem[] }[] = [
+    {
+      title: 'Asistencia',
+      items: [
+        { label: 'Asistencia', icon: 'pi pi-calendar', route: '/rh/asistencia', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR] },
+        { label: 'Incidencias', icon: 'pi pi-file-edit', route: '/rh/incidencias', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE] },
+        { label: 'Relojes', icon: 'pi pi-clock', route: '/rh/relojes', anyOf: [Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR] },
+      ],
+    },
+  ];
+
   private contabilidadNavGroups: { title: string; items: NavItem[] }[] = [
     {
       title: 'Fiscal / SAT',
@@ -997,6 +1010,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     if (this.currentProject() === 'servicio') {
       return this.dedupeByRoute(this.flatOf(this.servicioNavGroups).filter((i) => this.hasPermFor(i)));
     }
+    if (this.currentProject() === 'rh') {
+      return this.dedupeByRoute(this.flatOf(this.rhNavGroups).filter((i) => this.hasPermFor(i)));
+    }
     if (this.currentProject() === 'contabilidad') {
       return this.dedupeByRoute(this.flatOf(this.contabilidadNavGroups).filter((i) => this.hasPermFor(i)));
     }
@@ -1078,6 +1094,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     }
     if (this.currentProject() === 'servicio') {
       return this.mapGroups(this.servicioNavGroups, true);
+    }
+    if (this.currentProject() === 'rh') {
+      return this.mapGroups(this.rhNavGroups, true);
     }
     if (this.currentProject() === 'contabilidad') {
       return this.mapGroups(this.contabilidadNavGroups, true);
