@@ -55,7 +55,7 @@ const dm = (v: string | null | undefined): string => {
           <h1>Llevar pedidos</h1>
           <p class="sub">Elige los pedidos que te llevas. Quedan en tu guía de hoy y la caja la imprime para que la firmes.</p>
         </div>
-        <button type="button" class="pl-refresh" [class.spinning]="loading()" [disabled]="loading()" (click)="reload()" aria-label="Actualizar"><i class="pi pi-refresh" aria-hidden="true"></i></button>
+        <button type="button" class="pl-refresh" [class.spinning]="loading()" [disabled]="loading()" (click)="actualizar()" aria-label="Actualizar"><i class="pi pi-refresh" aria-hidden="true"></i></button>
       </div>
 
       @if (err(); as e) { <div class="pl-msg bad" role="alert">{{ e }}</div> }
@@ -73,13 +73,13 @@ const dm = (v: string | null | undefined): string => {
                 <div><b class="mono">{{ g.folio }}</b><span class="muted"> · {{ g.sales_route }} · {{ g.branch }}</span></div>
                 <span class="pl-tag" [class.ok]="g.status === 'impresa'">{{ g.status === 'impresa' ? 'Impresa' : 'Por imprimir' }}</span>
               </div>
-              @for (o of g.orders; track o.order_id) {
+              @for (o of ordenados(g.orders); track o.order_id) {
                 <div class="pl-guia-o" [class.hecho]="o.status !== 'cargado'">
                   <div class="pl-o-main">
-                    <span class="mono">{{ o.code }}</span> <span class="pl-o-cli">{{ o.customer_name || '—' }}</span>
+                    <div class="pl-o-id"><span class="pl-o-cli">{{ o.customer_name || '—' }}</span><span class="mono muted">{{ o.code }}</span></div>
                     @if (o.status === 'entregado') {
                       <div class="pl-o-cobro">
-                        <span class="pl-chip ok">{{ o.delivery_outcome === 'con_diferencia' ? 'Entregado con diferencia' : 'Entregado' }}</span>
+                        <span class="pl-chip ok" [class.dif]="o.delivery_outcome === 'con_diferencia'">{{ o.delivery_outcome === 'con_diferencia' ? 'Entregado con diferencia' : 'Entregado' }}</span>
                         <span class="num">{{ cobroTexto(o.cash_amount, o.transfer_amount) }}</span>
                       </div>
                     } @else if (o.status !== 'cargado') {
@@ -98,7 +98,7 @@ const dm = (v: string | null | undefined): string => {
                 </div>
               }
               <div class="pl-guia-f">
-                <span>{{ g.orders.length }} {{ g.orders.length === 1 ? 'pedido' : 'pedidos' }} · <b class="num">{{ money(g.total) }}</b></span>
+                <span>{{ enCarga(g.orders) }} {{ enCarga(g.orders) === 1 ? 'pedido' : 'pedidos' }} · <b class="num">{{ money(g.total) }}</b></span>
                 <span class="muted">{{ g.status === 'impresa' ? pendientesTexto(g.orders) : 'Pide en caja que la impriman para firmarla.' }}</span>
               </div>
             </section>
@@ -247,7 +247,10 @@ const dm = (v: string | null | undefined): string => {
     .pl-tag { font-size:var(--fs-micro); font-weight:700; padding:.15rem .5rem; border-radius:999px; background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .pl-tag.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
     .pl-guia-o { display:flex; align-items:center; gap:.5rem; padding:.4rem 0; border-bottom:1px dashed var(--border-color); font-size:var(--fs-sm); }
-    .pl-o-main { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pl-o-main { flex:1; min-width:0; }
+    .pl-o-id { display:flex; flex-direction:column; min-width:0; }
+    .pl-o-id .pl-o-cli { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .pl-o-id .mono { font-size:var(--fs-xs); }
     .pl-o-cli { font-weight:600; }
     .pl-quitar { border:1px solid var(--border-color); background:transparent; color:var(--text-main); border-radius:8px; padding:.35rem .6rem; font-size:var(--fs-xs); min-height:2.25rem; }
     .pl-guia-f { display:flex; justify-content:space-between; gap:.5rem; flex-wrap:wrap; font-size:var(--fs-xs); padding-top:.45rem; }
@@ -262,6 +265,7 @@ const dm = (v: string | null | undefined): string => {
     .pl-card-s { display:flex; flex-wrap:wrap; gap:.25rem .6rem; font-size:var(--fs-xs); color:var(--text-muted); align-items:center; }
     .pl-chip { padding:.05rem .45rem; border-radius:999px; background:var(--hover-bg); color:var(--text-main); }
     .pl-chip.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
+    .pl-chip.ok.dif { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .pl-empty { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:1.5rem; color:var(--text-muted); text-align:center; font-size:var(--fs-body); }
     .pl-skel { display:flex; flex-direction:column; gap:.5rem; margin-top:1rem; }
     .pl-skel div { height:4.5rem; border-radius:12px; background:var(--hover-bg); }
@@ -273,7 +277,7 @@ const dm = (v: string | null | undefined): string => {
     .tachado { text-decoration:line-through; color:var(--text-muted); }
     .pl-total { width:100%; min-height:2.75rem; margin-bottom:.5rem; border:1px dashed var(--action); border-radius:10px; background:transparent; color:var(--text-main); font-size:var(--fs-body); font-weight:600; }
     .pl-total:focus-visible, .pl-sheet-h h2:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
-    .pl-o-cobro { display:flex; gap:.4rem; align-items:center; margin-top:.15rem; font-size:var(--fs-xs); }
+    .pl-o-cobro { display:flex; flex-wrap:wrap; gap:.2rem .4rem; align-items:center; margin-top:.15rem; font-size:var(--fs-xs); }
     .pl-entregar { border:0; background:var(--action); color:var(--action-ink); border-radius:8px; padding:.35rem .75rem; font-size:var(--fs-sm); font-weight:700; min-height:2.5rem; flex:none; }
     .pl-sheet { position:fixed; inset:0; z-index:40; overflow-y:auto; background:var(--layout-bg); padding:.9rem 1rem calc(6rem + env(safe-area-inset-bottom)); }
     .pl-sheet > * { max-width:720px; margin-left:auto; margin-right:auto; }
@@ -292,6 +296,7 @@ const dm = (v: string | null | undefined): string => {
     .pl-pago label { display:flex; flex-direction:column; gap:.2rem; font-size:var(--fs-xs); color:var(--text-muted); }
     .pl-pago .pl-q { margin-bottom:0; }
     .pl-sheet .pl-go { margin-top:1rem; }
+    .pl-sheet .pl-src { margin:.6rem 0; }
     .pl-go.bad-bg { background:var(--bad-fg); }
     .pl-link { display:block; margin:.75rem auto 0; border:0; background:transparent; color:var(--text-muted); text-decoration:underline; font-size:var(--fs-sm); min-height:2.5rem; }
     .pl-entregar:focus-visible, .pl-seg button:focus-visible, .pl-link:focus-visible, .pl-q:focus-visible, .pl-lines summary:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
@@ -549,10 +554,27 @@ export class PresaleLoadComponent implements OnInit {
     return partes.length ? partes.join(' + ') : 'sin cobro';
   }
 
+  /** Lo que falta entregar primero; lo entregado y lo que volvió, al final. */
+  ordenados(orders: LoadGuideOrderRow[]): LoadGuideOrderRow[] {
+    const peso = (o: LoadGuideOrderRow) => (o.status === 'cargado' ? 0 : o.status === 'entregado' ? 1 : 2);
+    return [...orders].sort((a, b) => peso(a) - peso(b));
+  }
+
+  /** Pedidos que siguen en la carga (en camino o entregados); lo que volvió no cuenta. */
+  enCarga(orders: LoadGuideOrderRow[]): number {
+    return orders.filter((o) => o.status === 'cargado' || o.status === 'entregado').length;
+  }
+
+  /** El botón de actualizar también borra el aviso anterior. */
+  actualizar(): void {
+    this.msg.set(null);
+    this.reload();
+  }
+
   pendientesTexto(orders: LoadGuideOrderRow[]): string {
     const faltan = orders.filter((o) => o.status === 'cargado').length;
     const volvieron = orders.filter((o) => o.status === 'no_entregado' || o.status === 'regreso').length;
-    if (faltan) return 'Te faltan ' + faltan + ' por entregar.';
+    if (faltan) return (faltan === 1 ? 'Te falta 1' : 'Te faltan ' + faltan) + ' por entregar.';
     return volvieron ? 'Terminaste: ' + volvieron + (volvieron === 1 ? ' no se entregó.' : ' no se entregaron.') : 'Todo entregado.';
   }
 

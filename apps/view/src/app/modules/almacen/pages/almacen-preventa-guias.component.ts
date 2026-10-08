@@ -82,7 +82,7 @@ const dmy = (v: string | null | undefined): string => {
                   </div>
                 </div>
                 @if (g.status === 'impresa') {
-                  <p class="gc-hint">Impresa {{ fechaHora(g.printed_at) }}@if (g.printed_by_name) { por {{ g.printed_by_name }} }@if (g.print_count > 1) { · {{ g.print_count - 1 }} {{ g.print_count === 2 ? 'reimpresión' : 'reimpresiones' }} }. Lo que el repartidor pesque después va en una guía nueva.</p>
+                  <p class="gc-hint">Impresa {{ fechaHora(g.printed_at) }}@if (g.printed_by_name) { por {{ g.printed_by_name }}}@if (g.print_count > 1) { · {{ g.print_count - 1 }} {{ g.print_count === 2 ? 'reimpresión' : 'reimpresiones' }} }. Lo que el repartidor pesque después va en una guía nueva.</p>
                 }
                 <table class="gc-tbl">
                   <thead><tr><th>Pedido</th><th>Cliente</th><th>Entrega</th><th>Documento Kepler</th><th class="ta-r">Importe</th>@if (g.status === 'impresa') { <th><span class="sr-only">Acciones</span></th> }</tr></thead>
@@ -92,7 +92,7 @@ const dmy = (v: string | null | undefined): string => {
                         <td class="mono">{{ o.code }}</td>
                         <td>{{ o.customer_name || '—' }}@if (o.customer_erp_code) { <span class="muted mono"> · {{ o.customer_erp_code }}</span> }</td>
                         <td class="mono">{{ dmy(o.requested_delivery_date) }}</td>
-                        <td class="mono" [class.muted]="!o.folio_digital">{{ o.folio_digital || 'se elige al entregar' }}</td>
+                        <td class="mono" [class.muted]="!o.folio_digital">{{ o.folio_digital || (o.status === 'cargado' ? 'se elige al entregar' : '—') }}</td>
                         <td class="ta-r num" [class.gc-tachado]="o.status === 'no_entregado' || o.status === 'regreso'">{{ money(o.document_total ?? o.total) }}</td>
                         @if (g.status === 'impresa') {
                           <td class="ta-r">
