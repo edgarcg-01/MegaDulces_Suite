@@ -20,10 +20,37 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 
+/**
+ * `[PU.VA]` La familia contable de Kepler decide el **tipo de partida**. Hasta acá TODA línea del
+ * plan de gastos se materializaba como `'gasto'`, sin mirar de qué familia venía — y eso bastaba
+ * sólo porque el plan presupuestaba **una** familia (la 6).
+ *
+ * ⛔ El día que alguien agregue otra familia a la política, sin este mapa la compra de mercancía
+ * entraría al presupuesto **como gasto operativo**: en 2026 eso son $463.0 M cayendo encima de los
+ * $56.9 M de gasto real, y el renglón quedaría sin poder leerse. Los tipos ya existen en el CHECK
+ * de `budget_lines` (mig `20260917140000`) y hasta hoy **nada los producía**.
+ *
+ * Medido el 2026-10-07 sobre `analytics.expense_entries`: en 2025 y 2026 la familia 5 tiene **una
+ * sola cuenta**, `511 COMPRAS DE MERCANCIA A PROVEEDORES`. ⚠️ Eso **corrige** lo que dice el
+ * comentario de `budget-result.service.ts` —que la familia 5 es *«la construcción contable completa
+ * del costo de ventas: inventario inicial + compras − descuentos − inventario final»*—: en estos
+ * dos años no hay tal construcción, sólo compra. Por eso el tipo es `compra_inventario` y **no**
+ * `costo_ventas`: comprar no es vender, y el costo de lo vendido sigue sin fuente (§22.12).
+ *
+ * ⚠️ Esto habilita el mecanismo, **no cambia el alcance**: `proposal_families` sigue en `['6']`.
+ * Qué familias se presupuestan es una decisión de Finanzas, y se toma desde la pantalla.
+ */
+const TIPO_POR_FAMILIA: Record<string, Desired['line_type']> = {
+  '5': 'compra_inventario',
+  '6': 'gasto',
+  '7': 'gasto',        // financieros: salen del mismo bolsillo operativo, sin tipo propio en el CHECK
+  '1': 'inversion',
+};
+
 interface Desired {
   source_ref: string;
   concept: string;
-  line_type: 'ingreso' | 'gasto';
+  line_type: 'ingreso' | 'gasto' | 'costo_ventas' | 'compra_inventario' | 'inversion' | 'flujo';
   account_code: string | null;
   cost_center: string | null;
   original: number;
@@ -54,21 +81,27 @@ export class BudgetMaterializeService {
       // ── GASTOS: agrupar expense_plan_lines por cuenta × sucursal ──
       const expControl = (await trx('budget.expense_plan_settings').where({ tenant_id: tenantId, budget_id: budgetId }).first())?.control_level || 'advertencia';
       const expRows = await trx('budget.expense_plan_lines').where({ tenant_id: tenantId, budget_id: budgetId })
-        .select('account_code', 'account_name', 'sucursal', 'monto');
-      const gmap = new Map<string, { name: string | null; sucursal: string; monto: number; months: number }>();
+        .select('account_code', 'account_name', 'sucursal', 'monto', 'familia');
+      const gmap = new Map<string, { name: string | null; sucursal: string; monto: number; months: number; familia: string }>();
       for (const r of expRows) {
         const key = `${r.account_code}|${r.sucursal || ''}`;
-        if (!gmap.has(key)) gmap.set(key, { name: r.account_name, sucursal: r.sucursal || '', monto: 0, months: 0 });
+        if (!gmap.has(key)) gmap.set(key, { name: r.account_name, sucursal: r.sucursal || '', monto: 0, months: 0, familia: String(r.familia ?? '') });
         const g = gmap.get(key)!;
         g.monto = round2(g.monto + Number(r.monto || 0));
         if (Number(r.monto) > 0) g.months++;
       }
       for (const [key, g] of gmap) {
         const accountCode = key.slice(0, key.indexOf('|'));
-        desired.set(`gasto:${accountCode}:${g.sucursal}`, {
-          source_ref: `gasto:${accountCode}:${g.sucursal}`,
+        const tipo = TIPO_POR_FAMILIA[g.familia] ?? 'gasto';
+        // `[PU.VA]` ⚠️ El prefijo del `source_ref` se conserva en `gasto:` para la familia 6. Es la
+        // clave natural con la que se reconcilia: cambiarla para las líneas que YA existen las
+        // borraría y recrearía, perdiendo su historial de movimientos. Sólo las familias nuevas
+        // estrenan prefijo.
+        const sref = tipo === 'gasto' ? `gasto:${accountCode}:${g.sucursal}` : `${tipo}:${accountCode}:${g.sucursal}`;
+        desired.set(sref, {
+          source_ref: sref,
           concept: g.name || accountCode,
-          line_type: 'gasto',
+          line_type: tipo,
           account_code: accountCode,
           cost_center: g.sucursal || null,
           original: g.monto,

@@ -1220,6 +1220,20 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_INVENTORY_RECIBIR)]
       },
       {
+        /**
+         * `[RD.45]` **Contar un camión** — pantalla de FOCO: el producto en grande, «Igual» o
+         * «Difiere», y seguir. Va acá arriba, fuera del shell de áreas, por la misma razón que
+         * el conteo de almacén: una barra de tabs invita a irse a otra pantalla a mitad del
+         * camión, y el avance de un conteo a medias no se recupera solo.
+         *
+         * Permiso `COMMERCIAL_ROUTE_COUNT_REGISTRAR` y no un `*_VER`: esta pantalla **escribe**,
+         * y lo que escribe RESETEA el saldo publicado de la ruta.
+         */
+        path: 'rutas/contar/:ruta',
+        loadComponent: () => import('./modules/almacen/pages/almacen-rutas-contar.component').then(m => m.AlmacenRutasContarComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR)]
+      },
+      {
         // WMS-BI.1 — detalle de UN documento, abierto en pestaña nueva desde Análisis BI.
         // Foco: sin barra de tabs. Ruta propia (no /almacen/movimientos) — ver el comentario
         // en AlmacenAnalisisBiComponent.openDocument().
@@ -1309,6 +1323,45 @@ export const routes: Routes = [
         path: 'pedidos',
         loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),
         canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
+      },
+      /**
+       * `[RD.45]` ── **Ruta Directa dentro de Almacén** ────────────────────────────────────
+       *
+       * Las tres pantallas que ya existían en `/comercial` se sirven acá con **el MISMO
+       * componente**, no con una copia. Es el precedente vivo de *Existencia*, que vive en
+       * `modules/almacen` y se sirve desde dos lugares: duplicar el archivo sería garantizar
+       * que dentro de un mes las dos versiones digan cosas distintas sobre el mismo camión.
+       *
+       * Las URLs viejas de `/comercial/*` siguen funcionando sin cambios: nadie pierde un
+       * marcador ni un enlace de un reporte ya enviado.
+       *
+       * ⚠️ Los permisos son los de origen, **no los de almacén**: ver cuánto vendió una ruta
+       * (`ROUTE_SALES_VER`) y ver cuánto cobra su chofer (`COMMISSIONS_VER`) siguen siendo
+       * cosas distintas, y lo segundo es nómina. Meterlas en Almacén cambia por dónde se
+       * llega, no quién puede.
+       */
+      {
+        path: 'rutas/ventas',
+        loadComponent: () => import('./modules/comercial/pages/comercial-ventas-por-ruta.component').then(m => m.ComercialVentasPorRutaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
+      },
+      {
+        path: 'rutas/inventario',
+        loadComponent: () => import('./modules/comercial/pages/comercial-inventario-ruta.component').then(m => m.ComercialInventarioRutaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_SALES_VER)]
+      },
+      {
+        // El índice del conteo: elegir el camión. Gateado por el permiso de ESCRITURA porque
+        // su única acción es abrir un conteo; con un `*_VER` entraría gente que al tocar
+        // "Contar" se comería un 403.
+        path: 'rutas/conteos',
+        loadComponent: () => import('./modules/almacen/pages/almacen-rutas-conteos.component').then(m => m.AlmacenRutasConteosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR)]
+      },
+      {
+        path: 'rutas/comisiones',
+        loadComponent: () => import('./modules/comercial/pages/comercial-comisiones.component').then(m => m.ComercialComisionesComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_COMMISSIONS_VER)]
       },
       {
         // EXISTENCIA — el censo físico, derivado del ERP (el ODS). MISMO componente que

@@ -91,6 +91,17 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // materializado (hasta 30 min viejo). En un tramo de días CERRADOS eso da igual —ambos lados
   // llevan horas quietos—, y los tramos abiertos ya salen `medible = false` por su propia regla.
   { name: 'analytics.mv_rd_route_day', everyMin: 30 },
+  // `[RD.45]` (mig 20261007182824) La FOTO de cada camión: es la hoja que la pantalla de conteo
+  // le pone enfrente a una persona, renglón por renglón. Medido: la hoja de una ruta cuesta
+  // **2,642 ms** contra la vista (gate 500) porque recalcula el empalme de toda la flota aunque
+  // se filtre una sola.
+  //
+  // ⚠️ El rezago es REAL y es el costo de esta copia: entre el push de la camioneta y la hoja
+  // puede haber hasta media hora. Se tolera porque la foto es diaria —un push por camión por
+  // día—, pero no se da por supuesto: `foto_fecha` viaja en cada renglón y la pantalla la
+  // publica arriba. Un conteo contra la foto de ayer es válido; contra la de ayer creyéndola
+  // de hoy, no.
+  { name: 'analytics.mv_rd_route_photo', everyMin: 30 },
   // `[CDRP.4-perf]` (mig 20260922000000) La otra pierna de la misma portada: venta por
   // almacén × canal × día. `sales_daily` está al grano de PRODUCTO y el bloque sumaba 249,389
   // filas por carga; **1,124,926 filas de 200 d colapsan a 4,447** (253×).

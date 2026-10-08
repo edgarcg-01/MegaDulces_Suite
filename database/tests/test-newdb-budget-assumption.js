@@ -296,6 +296,77 @@ const ym = (y, m) => `${y}-${String(m).padStart(2, '0')}`;
     // Y la premisa, vigilada en el fuente: no puede volver a interpolarse la constante en el GROUP BY.
     chk(!/GROUP BY cuenta_mayor, \$\{sucSel\}/.test(src),
       'el fuente ya no interpola la columna del SELECT dentro del GROUP BY — ahí es donde la constante es ilegal');
+
+    // ── [8] ⭐ El saldo del ledger es del EGRESO: el ingreso NO se suma con él ─────────────────
+    //
+    // Medido contra prod el 2026-10-07, con el primer ejercicio que el motor llegó a armar: la
+    // pestaña Ejercicio publicaba `vigente = $547,249,778`, que es la meta de ventas más el plan de
+    // gastos en un solo número. Un ingreso no se reserva, no se compromete y no se ejerce, así que
+    // además diluía la ocupación del gasto. La spec lo dice en `FASE_PU` §145-147.
+    console.log('\n[8] El saldo del ledger suma EGRESO, no la meta de ventas');
+    const { rows: tipos } = await c.query(
+      `SELECT line_type, sum(vigente_amount)::numeric AS vigente, sum(reserved_amount)::numeric AS reserved,
+              sum(committed_amount)::numeric AS committed, sum(exercised_amount)::numeric AS exercised
+         FROM budget.budget_lines WHERE tenant_id = $1 GROUP BY 1`, [T]);
+    const suma = (filtro, campo) => tipos.filter(filtro).reduce((s, r) => s + Number(r[campo] ?? 0), 0);
+    const hayIngreso = tipos.some((r) => r.line_type === 'ingreso' && Number(r.vigente) > 0);
+    const hayEgreso = tipos.some((r) => r.line_type !== 'ingreso' && Number(r.vigente) > 0);
+    // MUTAR=suma_todo revive el criterio viejo para comprobar que el candado lo acusa.
+    const esEgreso = (r) => (MUTAR === 'suma_todo' ? true : r.line_type !== 'ingreso');
+    const vigEgreso = suma(esEgreso, 'vigente');
+    const vigTodo = suma(() => true, 'vigente');
+    const vigIngreso = suma((r) => r.line_type === 'ingreso', 'vigente');
+    console.log(`    egreso ${n(vigEgreso)} · ingreso ${n(vigIngreso)} · sumando todo ${n(vigTodo)}`);
+    if (!hayIngreso || !hayEgreso) {
+      nm(`el ejercicio no tiene los dos lados (ingreso>0: ${hayIngreso} · egreso>0: ${hayEgreso}) — no hay nada que separar`);
+    } else {
+      chk(vigEgreso < vigTodo,
+        `⭐ PRUEBA NEGATIVA — separar cambia el número (${n(vigTodo)} → ${n(vigEgreso)}): si fueran iguales, el arreglo sería un no-op`);
+      chk(Math.abs((vigEgreso + vigIngreso) - vigTodo) < 0.01,
+        'y lo separado CUADRA con el total: egreso + ingreso = lo que se sumaba antes (nada se perdió en el camino)');
+    }
+    const srcCmp = require('fs').readFileSync(
+      path.resolve(__dirname, '..', '..', 'libs/finance/src/lib/budget/budget-comparison.service.ts'), 'utf8');
+    chk(/line_type\) !== 'ingreso'/.test(srcCmp),
+      'el servicio EXCLUYE el ingreso en vez de enumerar los egresos — con lista blanca, un tipo nuevo quedaría fuera y el disponible saldría más alto de lo que es');
+    chk(/ingreso_meta/.test(srcCmp),
+      'la meta de ventas viaja aparte (`ingreso_meta`): separarla no puede significar perderla');
+
+    // ── [9] ⭐ La familia contable decide el TIPO de partida ───────────────────────────────────
+    //
+    // El materializador ponía `line_type: 'gasto'` a TODA línea del plan, sin mirar su familia. Eso
+    // bastaba sólo porque se presupuesta una sola (la 6). El día que alguien agregue la 5 desde la
+    // pantalla, sin el mapa la compra de mercancía entra como gasto operativo: medido en prod,
+    // **$463.0 M de compras cayendo encima de $56.9 M de gasto**, y el renglón deja de poder leerse.
+    console.log('\n[9] La familia decide el tipo de partida (hoy el plan trae una sola, pero el mapa ya existe)');
+    const srcMat = require('fs').readFileSync(
+      path.resolve(__dirname, '..', '..', 'libs/finance/src/lib/budget/budget-materialize.service.ts'), 'utf8');
+    chk(/TIPO_POR_FAMILIA/.test(srcMat) && /'5':\s*'compra_inventario'/.test(srcMat),
+      'existe el mapa familia → tipo, y la familia 5 va a `compra_inventario` (comprar no es vender)');
+    chk(!/line_type:\s*'gasto',\s*\n\s*account_code/.test(srcMat),
+      'el tipo ya no está clavado en `gasto` para toda línea del plan');
+    // ⚠️ La premisa del mapa, vigilada: si la familia 5 dejara de ser sólo compras, `compra_inventario`
+    // deja de ser el tipo correcto y hay que revisarlo — un comentario no avisa, un test sí.
+    const { rows: fam5 } = await c.query(
+      `SELECT DISTINCT cuenta_mayor FROM analytics.expense_entries
+        WHERE tenant_id = $1 AND familia = '5' AND extract(year from fecha) >= $2`, [T, (anioBase || 2026) - 1]);
+    const cuentas5 = fam5.map((r) => String(r.cuenta_mayor)).sort();
+    console.log(`    familia 5, cuentas vivas: ${cuentas5.join(', ') || '(ninguna)'}`);
+    if (!cuentas5.length) nm('la familia 5 no tiene movimiento en la ventana — no hay premisa que vigilar');
+    else {
+      chk(cuentas5.length === 1 && cuentas5[0] === '511',
+        `la familia 5 sigue siendo SÓLO compras (511): si aparece otra cuenta, \`compra_inventario\` deja de ser el tipo correcto`);
+    }
+    // Y lo que NO se tocó: los `source_ref` que ya existen conservan su prefijo, o la
+    // materialización borraría y recrearía partidas con su historial de movimientos.
+    const { rows: pref } = await c.query(
+      `SELECT DISTINCT split_part(source_ref, ':', 1) AS p FROM budget.budget_lines
+        WHERE tenant_id = $1 AND source_ref IS NOT NULL AND line_type = 'gasto'`, [T]);
+    if (!pref.length) nm('no hay partidas de gasto materializadas con `source_ref`');
+    else {
+      chk(pref.every((r) => r.p === 'gasto'),
+        `las partidas de gasto que ya existen conservan el prefijo \`gasto:\` (${pref.map((r) => r.p).join(',')}) — cambiarlo las recrearía`);
+    }
   } finally {
     await c.end().catch(() => undefined);
   }
