@@ -48,6 +48,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.10]` | **Rediseño**: respuesta arriba, filtros por recomendación, venta por semana en cada fila, panel lateral por sucursal, refresco solo cada minuto. | 🧪 |
 | `[NP.12]` | **Sin clasificación manual en pantalla** (pedido del usuario): se quitó el formulario "¿Qué es este código?" del panel, el filtro "Por confirmar" y la frase "N esperan que Compras confirme". Las exclusiones automáticas (promoción, código DESC, descontinuado) siguen. El endpoint `PUT …/classification` y `catalog.new_product_reviews` quedan **sin consumidor en la pantalla**. | 🧪 |
 | `[NP.13]` | **Sólo Kepler y en vivo las 24 h** (pedido del usuario): mig `20261008091317` rehace la matvista sobre Kepler (sin Wincaja ni ruta por push), con la primera venta de `mv_kepler_sales_daily`, el corte en lo que esa matvista ya tiene cerrado, lanzamientos detectados en vivo y la historia medida POR SUCURSAL; se refresca cada 30 min y sin JIT. | 🧪 |
+| `[NP.14]` | **El primer cálculo en producción no terminaba**: mig `20261008111426` arma las series buscando cada día en un mapa (sin unir tablas) y pasa `fn_new_products_movimientos` a `plpgsql` planeada con sus valores reales (misma consulta, leída de `pg_proc`); el refresco lleva tope de 3 min y una matvista vacía no espera su cadencia. | 🧪 |
 | `[NP.11]` | **Unidades de Kepler**: lo vendido y lo recibido en la unidad que declara el renglón (cajas, paquetes, piezas, gramaje), global y por sucursal; la existencia en la unidad base de la ficha de cada sucursal con su equivalente en la unidad mayor. | 🧪 |
 
 ## Medido (base local, 2026-10-07)
@@ -272,3 +273,66 @@ prueba nueva del refresco sin JIT, que falla 2 de 3 al quitar la matvista de la 
   cadencia de 30 min está estimada sumando las piezas medidas (~13 s); si el log
   `Refreshed analytics.mv_new_products (Nms)` pasa de ~20 s, subirla a 60.
 - La migración se aplica como siempre, una por una. Nace vacía y el ciclo la llena en ≤ 30 min.
+
+---
+
+## Sexta entrega (2026-10-08): el primer cálculo en producción no terminaba (`NP.14`)
+
+La migración de `NP.13` entró a prod a las 10:22. El ciclo de 15 min arrancó el primer poblado a
+las 11:00 y a las 11:09 seguía corriendo, con la matvista tomada en exclusiva. La pantalla seguía
+en *"se están calculando"*. Como el ciclo no arranca una pasada mientras la anterior sigue viva,
+ninguna otra matvista de 15 min se refrescó en ese tiempo. A las 11:10:14 Postgres de producción
+se reinició (el segundo reinicio del día; el primero fue a las 09:07) y eso cortó el cálculo. Desde
+el acceso de sólo lectura no se pudo ver qué lo reinició.
+
+### Lo medido (prod, sólo `EXPLAIN`, sin ejecutar)
+
+- **La serie por sucursal se armaba con un ciclo anidado.** Se cruzaba "un renglón por día ×
+  sucursal" contra "la venta por sucursal y día". Postgres estimaba **1 fila** de cada lado y eligió
+  un Nested Loop que recorre todo el lado de adentro por cada renglón de afuera. En realidad son
+  decenas de miles de cada lado: el costo crece con el producto de los dos.
+- **La estimación de 1 fila venía de la función.** `fn_new_products_movimientos` era SQL, así que
+  Postgres la mete en el plan, y sus fechas y su lista de SKUs llegan como valores desconocidos. Con
+  una lista no constante, además, `= ANY(p_skus)` se recorre **elemento por elemento en cada renglón**
+  en vez de buscarse por hash.
+- En local nada de esto se ve: con pocos datos cualquier plan tarda milisegundos. La estimación de
+  ~13 s de `NP.13` sumaba piezas medidas por separado, con la lista de SKUs como constante. **No
+  medía el plan que de verdad iba a correr.**
+
+### Qué cambió
+
+1. **La serie se arma sin unir tablas.** La venta de cada producto y de cada sucursal se junta en un
+   mapa `fecha → pesos`. La serie recorre los días del lanzamiento a la víspera del corte y busca
+   cada uno en el mapa. Cuesta lo mismo que los días a llenar, y ningún plan lo vuelve cuadrático.
+2. **La función se planea con sus valores reales.** Pasa a `plpgsql` con
+   `plan_cache_mode = force_custom_plan`: cada llamada se planea con las fechas y la lista ya puestas
+   como constantes, así que la lista se busca por hash. La consulta de adentro es **la misma**: la
+   migración la lee de la función instalada (`pg_proc.prosrc`) y la envuelve tal cual. `ROWS 10000`
+   le da a quien la llama una estimación con la que no elige ciclos anidados.
+3. **Tope de 3 min al refresco de esta matvista** (`statement_timeout`, sólo para su REFRESH). Si
+   vuelve a tardar de más, se cancela sola, el error queda en el log y el ciclo sigue con las demás.
+   Un redeploy no alcanzaba: Postgres sigue con la consulta aunque el proceso que la pidió ya no exista.
+4. **Una matvista vacía no espera su cadencia.** Con `everyMin: 30` la pantalla podía quedar vacía
+   media hora después de aplicar la migración. Ahora se puebla en el primer tick.
+
+### Medido
+
+- **Mismo resultado:** la consulta de `NP.13` y la de `NP.14`, sobre el mismo escenario, dan **147
+  filas y 0 diferencias** campo por campo. Prueba negativa: con la serie un día más corta, el
+  comparador marca 6 filas distintas.
+- **Plan en prod** (`EXPLAIN` de la consulta nueva, aun con la función vieja): todas las uniones de
+  la parte de series son por hash. Los únicos ciclos anidados que quedan son contra la fila única
+  de parámetros.
+- Candado `test-newdb-new-products.js` **134/134** con la función ya en `plpgsql`. La migración
+  va y vuelve (`down` → `up` → `up`) y deja la función como estaba.
+- Prueba del servicio **5/5**. Prueba negativa: sin el poblado inmediato, falla la prueba de la
+  matvista vacía.
+
+### Para llevarlo a producción
+
+1. **Primero la migración `20261008111426`**, sola, como siempre. Si la matvista está tomada por un
+   REFRESH viejo, el `DROP` espera 5 s y la migración falla entera: hay que cancelar ese REFRESH antes.
+2. El código del servicio toca `mv_new_products`, así que la compuerta lo frena hasta que la
+   migración esté aplicada.
+3. ⚠️ **Sigue sin medirse el refresco completo en prod.** Leer el log `Refreshed
+   analytics.mv_new_products (Nms)` de la primera corrida; si pasa de ~20 s, subir la cadencia a 60.
