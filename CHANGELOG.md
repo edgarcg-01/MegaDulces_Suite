@@ -15,6 +15,7 @@
 - `GET /warehouse/presale/:id`: recorrido del pedido, historial de ligas y pedido contra lo cobrado, renglón por renglón.
 ### Added — Surtido: consola del coordinador (GP.3c.2, 2026-10-08)
 - `/almacen/surtido-consola` (tab **Consola de surtido**, permiso nuevo `ALMACEN_SURTIDO_COORDINAR` para coordinador de embarques, encargado de tienda y supervisor): la fila en el mismo orden en que la da "Tomar siguiente" (urgente → salida más próxima → lo más viejo), con quién trae cada surtido y su avance. Marcar urgente o cancelar (con motivo), liberar un surtido, capturar la hora de salida de cada destino del día, ajustar el umbral de la tanda del almacén y armar los surtidos pendientes.
+- `/almacen/pedidos`: botón **Surtir** para quien surte. Antes no había cómo llegar a `/almacen/surtir` desde el Tablero (es pantalla de foco, sin pestaña).
 - Mig `20261008021159`: prioridad de la ola, destino del pedido en la ola, `commercial.picking_departures` y `commercial.picking_settings`. Va antes del código; los 9 usuarios de esos roles deben volver a entrar.
 
 ### Added — Surtido: existencia y ubicación en la tarjeta del surtidor (GP.3c.1, 2026-10-08)

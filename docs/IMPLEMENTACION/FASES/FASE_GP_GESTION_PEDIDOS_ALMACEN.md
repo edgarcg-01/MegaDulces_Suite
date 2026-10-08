@@ -708,6 +708,11 @@ lectura); 14 pruebas de la pantalla montada y 4 de la pestaña.
   - botones de 44 px;
   - en teléfono la fila se apila (`dt-stack`).
 - Tarjeta del surtidor: "(otra unidad, no se compara)" y "Kepler marca existencia negativa".
+- **No había cómo llegar a Surtir desde el Tablero** (lo encontró Francisco en prod). `/almacen/surtir`
+  es pantalla de foco: su entrada en `almacen-tabs` sólo decide a dónde cae quien abre el área y no
+  pinta ningún botón. A quien también ve el Tablero lo llevaba al Tablero, sin salida a Surtir. Ahora
+  el Tablero trae el botón **Surtir** para quien tiene `COMMERCIAL_PICKING_GESTIONAR` (3 pruebas, con
+  mutación).
 
 **Deuda declarada (no se toca en esta fase).** `POST /reparto/surtido/waves/:id/assign` y
 `/cancel` (pantalla vieja de Reparto) piden sólo `COMMERCIAL_PICKING_GESTIONAR`, que tiene el
