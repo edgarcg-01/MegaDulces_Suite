@@ -9,6 +9,11 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Control de Preventa: datos y liga con el documento de Kepler (MCP.1 + MCP.4, 2026-10-08)
+- `GET /warehouse/presale`: los pedidos de preventa que levanta el vendedor, por sucursal, con su etapa (esperando alta / por surtir / en surtido / en caja / cobrado / entregado / cancelado), el semáforo contra la fecha de entrega prometida y cuántos documentos de Kepler podrían ser su cobro.
+- `GET /warehouse/presale/:id/candidates` + `POST :id/link` / `:id/unlink`: los documentos de Kepler del cliente (leídos en vivo del ODS, sin copiarlos), ordenados por productos en común con el pedido; ligar uno y corregir una liga con motivo. Mig `20261008012420` (`commercial.order_kepler_documents`).
+- `GET /warehouse/presale/:id`: recorrido del pedido, historial de ligas y pedido contra lo cobrado, renglón por renglón.
+
 ### Added — Surtido: "tomar el siguiente" (GP.3a, 2026-10-08)
 - `POST /reparto/surtido/waves/next`: el surtidor recibe la ola que ya trae o la libre más vieja de su almacén (dos a la vez nunca se llevan la misma); si no hay, se arman desde los pedidos autorizados de Kepler. `GET /reparto/surtido/waves/mine`.
 - Al arrancar una ola se congela lo que pidió cada pedido (`commercial.wave_order_lines`, mig `20261008003045`) y la presentación de la hoja (3 BTO). El reparto usa lo congelado: un cambio en Kepler a medio surtido ya no frena el cierre, se informa.

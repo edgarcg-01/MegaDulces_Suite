@@ -2666,6 +2666,26 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 
 ---
 
+## ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga la hace quien entrega
+
+**Fecha:** 2026-10-08 · **Estado:** ⏳ propuesto · **Fase:** MCP (Mesa de Control de Preventa)
+
+**Contexto.** El vendedor levanta el pedido de preventa (`PD-`) en `apps/vendor` y vive en `commercial.orders`. Medido en prod (solo lectura): 27 pedidos de preventa "confirmados", **los 27 con la fecha de entrega vencida y ninguno pasó nunca por una ola de surtido**. Pero al menos 7 de Yurécuaro **ya estaban cobrados** en Kepler (Caja 3, con la clave del cliente): el flujo real ocurre por fuera y la Suite no se entera. Además el `fulfill` de hoy emite CFDI y descuenta `commercial.stock`, lo que con el cobro en Kepler duplicaría la venta.
+
+**Decisión (Francisco, 2026-10-08).**
+1. **Levantado y surtido en la Suite** (surtido en cuanto el pedido llega, con el motor de GP).
+2. **Cobro en Kepler**: la cajera emite el documento a nombre del cliente al recibir lo surtido. La Suite **lo lee** del ODS (`analytics.erp_sale_tickets`), nunca lo crea.
+3. **La liga pedido↔documento la hace quien entrega** (repartidor o vendedor), eligiendo en su celular entre los documentos del cliente. Sólo la liga es dato propio (`commercial.order_kepler_documents`, una liga viva por pedido y por documento; desligar cierra la fila, no la borra).
+4. **Guía de carga por ruta**, impresa y firmada por el repartidor; **liquidación contra la guía** (efectivo con arqueo + transferencia con referencia). Sustituye la tira de ingresos reimpresa.
+5. **La entrega de conformidad no factura ni mueve inventario** (transición propia, no el `fulfill` de hoy).
+6. **No entregado** → sale otro día con el mismo documento; **máximo 2 reintentos**, después devolución + NC en Kepler (la Suite lo señala, no lo hace).
+7. **Cliente sin clave de Kepler no se surte**: va al embudo de altas (módulo aparte).
+
+**Rechazado:** que la Suite elija el documento sola por cliente+fecha (hay clientes con 2 y 4 tickets posibles en el mismo periodo); que la cajera anote el folio `PD-` en Kepler (innecesario si liga quien entrega); copiar el ticket a una tabla (regla principal: cero importers).
+
+**Lo que se DECLARA (ADR-056).** Las claves de cliente de Kepler son **por sucursal**: con la clave de otra sucursal no se busca (`cliente_de_otra_sucursal`). Una sucursal sin tickets de Kepler en el ODS (Morelia Madero, Wincaja) se declara `sucursal_sin_documentos`, no "sin cobro". El total del renglón del pedido trae impuesto y el del ticket no: se comparan cantidad y precio unitario, nunca importes.
+
+**Hereda:** ADR-040 (read-only sobre el ERP) · ADR-086 (trabajo de piso en la Suite) · ADR-067 (surtido por olas) · ADR-027 (cortes del repartidor) · ADR-056. Plan en [`FASE_MCP`](FASES/FASE_MCP_MESA_CONTROL_PREVENTA.md).
 ## ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y rotación por fecha de entrada
 
 **Fecha:** 2026-10-08 · **Estado:** ⏳ propuesto · **Fase:** UB · **Enmienda:** ADR-087 §3
