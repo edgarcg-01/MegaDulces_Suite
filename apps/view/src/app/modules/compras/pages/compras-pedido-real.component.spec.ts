@@ -59,7 +59,7 @@ function canal(p: Partial<Record<string, unknown>> = {}) {
   };
 }
 
-function montar(workbook: Record<string, unknown>, worklist?: unknown) {
+function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1') {
   const api = {
     filters: () => of(FILTROS),
     workbook: () => of(workbook),
@@ -78,7 +78,7 @@ function montar(workbook: Record<string, unknown>, worklist?: unknown) {
       provideZonelessChangeDetection(),
       provideRouter([]),
       { provide: ComprasService, useValue: api },
-      { provide: AuthService, useValue: { user: () => ({ sub: 'u1' }), token: () => null, has: () => true } },
+      { provide: AuthService, useValue: { user: () => ({ sub }), token: () => null, has: () => true } },
       { provide: UsoService, useValue: { reportarIncidente: () => undefined } },
     ],
   });
@@ -186,6 +186,96 @@ describe('[RA-CICLO.1] el CUÁNDO: a quién le toca pedir, y qué pasa cuando no
     expect(c.fSupplier).toBe('s-1');
     expect(c.wbWarehouses).toEqual(['w-01']);
     expect(c.mode()).toBe('pedido');
+  });
+});
+
+describe('[RA-BORR] el pedido a medio capturar no se pierde', () => {
+  const KEY = 'pedido-borrador:u1';
+  beforeEach(() => { try { localStorage.clear(); } catch { /* jsdom */ } });
+
+  /** Una fila del workbook con una sucursal en su desglose, lo mínimo para capturar. */
+  const fila = () => ({
+    product_id: 'p-1', sku: '95434', nombre: 'NIKOLO', supplier_id: 's-1', supplier_name: 'DEMO',
+    uxc: 16, caja_cost: 646.29, cells: {}, signals: null,
+  });
+  /** Una sucursal del desglose. `seed` 0 y `rung` null: lo que se lea sale del capturado, no del motor. */
+  const suc = (code: string) => ({ code, name: code, cc: 1, exis: 0, seed: 0, seedUnit: 'caja', rung: null, vta: 0, nat: 0, natu: '', natuRaw: '', hub: false, mx: null, rop: null, added: false });
+
+  it('⛔ cambiar un filtro YA NO borra lo capturado — era el accidente real', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setDispOf(fila(), suc('01') as never, 12);
+    expect(c.qtyOf(fila(), suc('01'))).toBe(12);
+    c.loadWorkbook();                       // es lo que dispara cada chip, filtro y buscador
+    expect(c.qtyOf(fila(), suc('01'))).toBe(12);
+  });
+
+  it('⛔ y el aviso de «cambios sin guardar» sigue ENCENDIDO después de recargar la vista', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setDispOf(fila(), suc('01') as never, 5);
+    expect(c.hasUnsavedChanges()).toBe(true);
+    c.loadWorkbook();
+    // Apagarlo acá era la mitad silenciosa del defecto: dejaba mudos al guard de ruta y al
+    // beforeunload justo cuando hay trabajo que perder.
+    expect(c.hasUnsavedChanges()).toBe(true);
+  });
+
+  it('lo capturado se escribe en el navegador y vuelve en la siguiente sesión', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setDispOf(fila(), suc('08') as never, 7);
+    c.onBeforeUnload({ preventDefault: () => undefined } as BeforeUnloadEvent);   // fuerza el guardado
+    expect(localStorage.getItem(KEY)).toBeTruthy();
+
+    const c2 = montar(VACIO).componentInstance;
+    expect(c2.qtyOf(fila(), suc('08'))).toBe(7);
+    expect(c2.borradorRecuperado()?.n).toBe(1);
+    expect(c2.hasUnsavedChanges()).toBe(true);
+  });
+
+  it('⭐ NEGATIVA: un borrador de hace más de 3 días NO se recupera — es de otro ciclo de compra', () => {
+    const viejo = Date.now() - 4 * 24 * 60 * 60 * 1000;
+    localStorage.setItem(KEY, JSON.stringify({ v: 1, at: viejo, q: { 'p-1|01': 9 }, u: {}, d: {} }));
+    const c = montar(VACIO).componentInstance;
+    expect(c.borradorRecuperado()).toBeNull();
+    expect(localStorage.getItem(KEY)).toBeNull();   // y se limpia solo, no queda basura
+  });
+
+  it('⭐ NEGATIVA: el borrador de OTRA persona no se hereda — la llave lleva su usuario', () => {
+    // La escribe `u1` (misma computadora, turno anterior) y la abre `u2`. ⚠️ Escrita por el
+    // componente, no a mano: si se sembrara la llave con un nombre inventado, quitarle el usuario
+    // a `bkey()` seguiría dando verde y la prueba negativa no probaría nada.
+    const a = montar(VACIO).componentInstance;
+    a.setDispOf(fila(), suc('01') as never, 99);
+    a.onBeforeUnload({ preventDefault: () => undefined } as BeforeUnloadEvent);
+    expect(localStorage.getItem(KEY)).toBeTruthy();
+
+    const b = montar(VACIO, undefined, 'u2').componentInstance;
+    // En una sucursal la misma computadora la usan varias personas.
+    expect(b.borradorRecuperado()).toBeNull();
+    expect(b.qtyOf(fila(), suc('01'))).toBe(0);
+  });
+
+  it('⭐ NEGATIVA: un borrador con la forma vieja o corrupta se descarta, no se arrastra', () => {
+    localStorage.setItem(KEY, JSON.stringify({ v: 99, at: Date.now(), q: { 'p-1|01': 9 } }));
+    expect(montar(VACIO).componentInstance.borradorRecuperado()).toBeNull();
+    localStorage.setItem(KEY, 'no-es-json');
+    expect(montar(VACIO).componentInstance.borradorRecuperado()).toBeNull();
+  });
+
+  it('descartar lo borra de verdad: de la pantalla y del navegador', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setDispOf(fila(), suc('01') as never, 4);
+    c.onBeforeUnload({ preventDefault: () => undefined } as BeforeUnloadEvent);
+    c.descartarBorrador();
+    expect(c.qtyOf(fila(), suc('01'))).toBe(0);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(c.hasUnsavedChanges()).toBe(false);
+  });
+
+  it('sin cantidades no deja cascarón: la próxima sesión no anuncia un pedido vacío', () => {
+    const c = montar(VACIO).componentInstance;
+    c.onBeforeUnload({ preventDefault: () => undefined } as BeforeUnloadEvent);
+    expect(localStorage.getItem(KEY)).toBeNull();
+    expect(montar(VACIO).componentInstance.borradorRecuperado()).toBeNull();
   });
 });
 
