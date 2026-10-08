@@ -203,6 +203,8 @@ interface CabeceraKeplerSqlRow {
   fecha: string | null;
   estatus: string | null;
   origen: string | null;
+  /** [GP.3c] Destino del pedido (Kepler kdm1.c10): con él se casa la hora de salida. */
+  cliente_code: string | null;
   destino_nombre: string | null;
   importe: string | null;
 }
@@ -484,7 +486,9 @@ export class PickingService {
       .filter((p) => p.sin_catalogo > 0)
       .map((p) => ({ code: p.code, motivo: `${p.sin_catalogo} renglón(es) con clave fuera del catálogo` }));
     const elegibles = pool.data.filter((p) => p.sin_catalogo === 0);
-    const plan = planearOlas(elegibles.map((p) => ({ id: p.id, renglones: p.lines })));
+    // [GP.3c] El umbral de la tanda es del almacén (lo ajusta el coordinador); sin ajuste, 5.
+    const umbral = await this.umbralTanda(dto.warehouse_id);
+    const plan = planearOlas(elegibles.map((p) => ({ id: p.id, renglones: p.lines })), umbral);
     const porId = new Map(elegibles.map((p) => [p.id, p]));
     const llaves = (ids: string[]) =>
       ids.map((id) => {
@@ -527,7 +531,7 @@ export class PickingService {
     if (plan.tanda.length) {
       const ok = await armar(
         plan.tanda,
-        `Tanda Kepler — ${plan.tanda.length} pedido(s) de 1 a ${UMBRAL_TANDA} renglones`,
+        `Tanda Kepler — ${plan.tanda.length} pedido(s) de 1 a ${umbral} renglones`,
       );
       // Un solo pedido problemático (p. ej. una clave pedida en dos unidades entre dos pedidos) no
       // debe frenar a todos los demás: si la tanda no se pudo armar, se intenta cada uno solo. El
@@ -650,11 +654,25 @@ export class PickingService {
       const { rows } = await trx.raw(
         `UPDATE commercial.picking_waves
             SET assigned_to = ?, updated_at = now(), updated_by = ?
-          WHERE id = (SELECT id FROM commercial.picking_waves
-                       WHERE warehouse_id = ? AND status = 'abierta' AND assigned_to IS NULL
-                         AND (?::text IS NULL OR origen = ?::text)
-                         AND NOT (id = ANY(?::uuid[]))
-                       ORDER BY created_at, id
+          WHERE id = (SELECT pw.id FROM commercial.picking_waves pw
+                       WHERE pw.warehouse_id = ? AND pw.assigned_to IS NULL
+                         -- [GP.3c] 'en_surtido' sin dueño = la consola la LIBERÓ a medio surtir
+                         -- (el surtidor se fue): la retoma otro, con lo ya marcado.
+                         AND pw.status IN ('abierta', 'en_surtido')
+                         AND (?::text IS NULL OR pw.origen = ?::text)
+                         AND NOT (pw.id = ANY(?::uuid[]))
+                       -- [GP.3c] La fila: urgente → la salida más próxima de sus destinos (la
+                       -- captura el coordinador) → lo más viejo. Sin hora de salida va al final
+                       -- de los que sí la tienen, no se pierde.
+                       ORDER BY pw.prioridad DESC,
+                                (SELECT min(d.hora_salida)
+                                   FROM commercial.wave_orders wo
+                                   JOIN commercial.picking_departures d
+                                     ON d.warehouse_id = pw.warehouse_id
+                                    AND d.fecha = (now() AT TIME ZONE 'America/Mexico_City')::date
+                                    AND d.destino_code = wo.destino_code
+                                  WHERE wo.wave_id = pw.id) ASC NULLS LAST,
+                                pw.created_at, pw.id
                        LIMIT 1
                        FOR UPDATE SKIP LOCKED)
         RETURNING id, code, armada_por`,
@@ -789,6 +807,14 @@ export class PickingService {
     );
     const al = (f as Array<{ dato_al: Date | null }>)[0]?.dato_al;
     return { al: al ? new Date(al).toISOString() : null, porProducto };
+  }
+
+  /** `[GP.3c]` El umbral de la tanda del almacén (`commercial.picking_settings`); sin ajuste, 5. */
+  async umbralTanda(warehouseId: string): Promise<number> {
+    const r: { umbral_tanda: number } | undefined = await this.tk.run((trx) =>
+      trx('commercial.picking_settings').where({ warehouse_id: warehouseId }).first('umbral_tanda'),
+    );
+    return r?.umbral_tanda ? Number(r.umbral_tanda) : UMBRAL_TANDA;
   }
 
   /**
@@ -1421,7 +1447,10 @@ export class PickingService {
           throw new ConflictException(`Ya están en otra ola: ${yaEnOla.map((r) => r.code).join(', ')}`);
       }
 
-      if (kepler.length) await this.validarKepler(trx, dto.warehouse_id, kepler);
+      // [GP.3c] validarKepler devuelve la cabecera de cada pedido: de ahí sale su destino.
+      const cabsKepler = kepler.length ? await this.validarKepler(trx, dto.warehouse_id, kepler) : [];
+      const destinoDe = (k: PedidoKeplerLlave) =>
+        cabsKepler.find((c) => c.sucursal === k.sucursal && Number(c.serie) === k.serie && c.folio === k.folio);
 
       const code = await this.nextCode(trx);
       const [wave] = await trx('commercial.picking_waves')
@@ -1450,6 +1479,8 @@ export class PickingService {
             kepler_sucursal: k.sucursal,
             kepler_serie: k.serie,
             kepler_folio: k.folio,
+            destino_code: destinoDe(k)?.cliente_code ?? null,
+            destino_nombre: destinoDe(k)?.destino_nombre?.slice(0, 120) ?? null,
             added_by: userId,
           })),
         ]);
@@ -1491,7 +1522,7 @@ export class PickingService {
     trx: Knex.Transaction,
     warehouseId: string,
     kepler: readonly PedidoKeplerLlave[],
-  ): Promise<void> {
+  ): Promise<CabeceraKeplerSqlRow[]> {
     const sucursal = await this.sucursalDeAlmacen(trx, warehouseId);
     const otra = kepler.filter((k) => k.sucursal !== sucursal);
     if (otra.length)
@@ -1539,6 +1570,7 @@ export class PickingService {
         problemas.push(`${documentoKepler(k)}: ${p.sin_catalogo} renglón(es) con clave fuera del catálogo`);
     }
     if (problemas.length) throw new ConflictException(`No se pueden surtir: ${problemas.join('; ')}`);
+    return cabs;
   }
 
   /**

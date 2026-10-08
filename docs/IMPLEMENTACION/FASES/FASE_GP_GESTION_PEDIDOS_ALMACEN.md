@@ -646,9 +646,43 @@ es la existencia** ("de hace 42 min").
 - **Sin dato no es cero**: `existencia: null` dice "sin dato en el sistema", nunca "sin existencia".
 - El botón principal apagado se ve **gris** (el naranja al 55% se leía como "listo para tocar").
 
-### 8.3 Pendiente de GP.3
+#### 8.3.2 GP.3c.2 — la consola del coordinador (🧪 en código)
 
-- **GP.3c, consola de excepciones**: partir un pedido grande por rango de pasillos (necesita ubicaciones,
-  `FASE_WMS` §12.5), urgentes, reasignar y ver quién trae qué y desde hace cuánto.
+Pantalla `/almacen/surtido-consola` (tab **Consola de surtido** del área Pedidos), permiso propio
+`ALMACEN_SURTIDO_COORDINAR`. API `/reparto/surtido/consola`.
+
+- **La fila en el mismo orden en que "Tomar siguiente" la da**: urgente → la salida más próxima de sus
+  destinos (hoy, hora de México) → lo más viejo. La regla está escrita arriba de la tabla; no hay otra
+  escondida. Cada surtido dice quién lo trae ("Libre" si nadie), avance (renglones tocados / total) y
+  desde hace cuánto.
+- **Urgente** (exige motivo, se guarda quién y cuándo), **Liberar** (sólo si alguien lo trae; vuelve a
+  la fila con lo ya marcado) y **Cancelar** (exige motivo; sus pedidos vuelven a quedar por armar). Se
+  confirman en la misma fila, no en un diálogo, para ver qué surtido se está tocando.
+- **Salidas de hoy**: un renglón por destino con pedidos (Kepler `kdm1.c10`/`c32`), con cuántos
+  faltan por armar y cuántos van en surtido; el coordinador escribe la hora y guarda. El destino se
+  guarda en `wave_orders.destino_code` al armar la ola, para que "tomar" no relea Kepler.
+- **Por armar**: cuántos pedidos autorizados no tienen surtido (en tanda / solos), los bloqueados por
+  claves fuera del catálogo y los atorados; botón **Armar surtidos ahora** (por origen).
+- **Tanda**: el umbral (antes fijo en 5) se ajusta por almacén, de 1 a 50 renglones; aplica a lo que
+  se arme desde entonces.
+- **Alcance**: el encargado sólo ve y maneja su sucursal (`ScopeService`, fail-closed); un almacén
+  fuera de su alcance responde igual que uno que no existe. Con varios almacenes, un selector.
+- La fila se relee sola cada 30 s, salvo a media acción o con una hora sin guardar.
+
+**Migración `20261008021159_gp3c_consola_surtido`** (va ANTES del código; crea esquema):
+`picking_waves.prioridad/_motivo/_por/_at`, `wave_orders.destino_code/_nombre`,
+`commercial.picking_departures` (hora por almacén, día y destino; RLS) y
+`commercial.picking_settings` (umbral por almacén; RLS). Reparte `ALMACEN_SURTIDO_COORDINAR` a
+`coordinador_embarques` (1 persona), `encargado_tienda` (7) y `supervisor` (1). "Gerente de zona":
+las 3 personas del puesto ya son `superadmin`; su rol por omisión, `supervisor_ventas`, es de ventas
+y no se le da. **Los 9 deben volver a entrar** (el permiso viaja en el JWT).
+
+Probado: la migración con `up`/`down` reales en Postgres local (el orden de la fila, los dos CHECK,
+el `down` que aborta si ya hay horas capturadas); la consulta de almacenes contra prod (sólo
+lectura); 14 pruebas de la pantalla montada y 4 de la pestaña.
+
+### 8.4 Pendiente de GP.3
+
+- **GP.3c.3, partir un pedido grande** por rango de pasillos: necesita ubicaciones (`FASE_WMS` §12.5,
+  Fase UB).
 - **El orden de la hoja por ubicación** espera el censo de ubicaciones de PH (WMS.3). Hoy: por nombre.
-- **Prioridad dentro de la cola**: hoy es la ola más vieja (`created_at`). Urgentes = GP.3c.

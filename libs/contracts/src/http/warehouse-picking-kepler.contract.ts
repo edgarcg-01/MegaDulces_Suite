@@ -135,3 +135,67 @@ export type PickerTakeNextResponse =
       armado: KeplerWavesAutoResponse | null;
       atoradas: Array<{ code: string; motivo: string }>;
     };
+
+// ─── [GP.3c] La consola de surtido: quién prioriza la fila ────────────────────────────────────
+
+/** Un surtido en la fila, en el ORDEN en que "Tomar siguiente" los va a dar. */
+export interface ConsolaSurtidoOla {
+  id: string;
+  code: string;
+  /** abierta = nadie la ha empezado; en_surtido = alguien la está surtiendo. */
+  status: string;
+  origen: string | null;
+  armada_por: 'consola' | 'auto';
+  /** 1 = urgente: va antes que todo. */
+  prioridad: 0 | 1;
+  prioridad_motivo: string | null;
+  assigned_to: string | null;
+  /** Nombre de quien la trae; null = libre. */
+  assigned_nombre: string | null;
+  created_at: string;
+  started_at: string | null;
+  renglones: number;
+  tocados: number;
+  pedidos: string[];
+  destinos: string[];
+  /** La salida más próxima de sus destinos hoy (`HH:MM`), o null si nadie la capturó. */
+  hora_salida: string | null;
+}
+
+/** Un destino con pedidos hoy: aquí el coordinador captura su hora de salida. */
+export interface ConsolaSurtidoDestino {
+  destino_code: string;
+  destino_nombre: string | null;
+  /** Pedidos autorizados en Kepler que todavía no entran a ningún surtido. */
+  por_armar: number;
+  /** Pedidos ya en un surtido abierto o en curso. */
+  en_surtido: number;
+  hora_salida: string | null;
+}
+
+export interface ConsolaSurtidoResponse {
+  warehouse_id: string;
+  sucursal: string;
+  /** `YYYY-MM-DD` (MX): el día de las horas de salida. */
+  fecha: string;
+  umbral_tanda: number;
+  olas: ConsolaSurtidoOla[];
+  /** Surtidos terminados hoy (sólo el conteo: la consola es para lo que falta). */
+  surtidas_hoy: number;
+  /** Pedidos autorizados en Kepler que todavía no se arman en surtidos. */
+  por_armar: {
+    pedidos: number;
+    tanda: number;
+    individual: number;
+    bloqueados: number;
+    atorados: { count: number; desde: string | null };
+  };
+  destinos: ConsolaSurtidoDestino[];
+}
+
+/** Un almacén que el coordinador puede manejar (los de su alcance, sucursales de 2 dígitos). */
+export interface ConsolaSurtidoAlmacen {
+  id: string;
+  code: string;
+  nombre: string;
+}

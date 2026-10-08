@@ -13,6 +13,10 @@
 - `GET /warehouse/presale`: los pedidos de preventa que levanta el vendedor, por sucursal, con su etapa (esperando alta / por surtir / en surtido / en caja / cobrado / entregado / cancelado), el semáforo contra la fecha de entrega prometida y cuántos documentos de Kepler podrían ser su cobro.
 - `GET /warehouse/presale/:id/candidates` + `POST :id/link` / `:id/unlink`: los documentos de Kepler del cliente (leídos en vivo del ODS, sin copiarlos), ordenados por productos en común con el pedido; ligar uno y corregir una liga con motivo. Mig `20261008012420` (`commercial.order_kepler_documents`).
 - `GET /warehouse/presale/:id`: recorrido del pedido, historial de ligas y pedido contra lo cobrado, renglón por renglón.
+### Added — Surtido: consola del coordinador (GP.3c.2, 2026-10-08)
+- `/almacen/surtido-consola` (tab **Consola de surtido**, permiso nuevo `ALMACEN_SURTIDO_COORDINAR` para coordinador de embarques, encargado de tienda y supervisor): la fila en el mismo orden en que la da "Tomar siguiente" (urgente → salida más próxima → lo más viejo), con quién trae cada surtido y su avance. Marcar urgente o cancelar (con motivo), liberar un surtido, capturar la hora de salida de cada destino del día, ajustar el umbral de la tanda del almacén y armar los surtidos pendientes.
+- Mig `20261008021159`: prioridad de la ola, destino del pedido en la ola, `commercial.picking_departures` y `commercial.picking_settings`. Va antes del código; los 9 usuarios de esos roles deben volver a entrar.
+
 ### Added — Surtido: existencia y ubicación en la tarjeta del surtidor (GP.3c.1, 2026-10-08)
 - `/almacen/surtir` muestra cuánto dice el sistema que hay ("Hay 618 PAQ en el sistema", en ámbar si alcanza para menos y en rojo si no hay) y la ubicación, con de cuándo es la existencia. Sin dato no se dibuja como cero; si la unidad de la existencia no es la del pedido (0.35% medido) se muestra sin comparar.
 
