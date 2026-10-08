@@ -36,6 +36,8 @@ export * from './lib/commercial-rider-liquidation/commercial-rider-liquidation.m
 export * from './lib/commercial-picking/commercial-picking.module';
 export * from './lib/commercial-picking/picking.service';
 export * from './lib/warehouse-orders/warehouse-orders.module';
+// [MCP.1] Mesa de Control de Preventa (pedido PD- + documento de Kepler).
+export * from './lib/presale-control/presale-control.module';
 export * from './lib/commercial-carga/commercial-carga.module';
 export * from './lib/commercial-analytics/commercial-analytics.module';
 export * from './lib/commercial-replenishment/commercial-replenishment.module';

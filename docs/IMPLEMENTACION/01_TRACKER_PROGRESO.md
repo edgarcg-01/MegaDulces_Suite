@@ -9551,6 +9551,18 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 
 ---
 
+## 📦 FASE MCP — Mesa de Control de Preventa (pedidos del vendedor: surtido Suite → cobro Kepler → entrega) · ADR-089 · plan en [`FASE_MCP`](FASES/FASE_MCP_MESA_CONTROL_PREVENTA.md)
+
+- [x] **[MCP.0]** ✅ Plan, maquetas y decisiones D1–D12 con Francisco (2026-10-08). Medido en prod: 27 preventas confirmadas, las 27 vencidas, 0 en ola; ≥7 de Yurécuaro ya cobradas en Kepler (Caja 3) sin que la Suite lo supiera.
+- [ ] **[MCP.1]** 🧪 Datos de la mesa (2026-10-08): `GET /warehouse/presale` con etapa derivada (esperando_alta / por_surtir / en_surtido / en_caja / cobrado / entregado / cancelado), semáforo contra la fecha de entrega (hora MX), alcance por sucursal (`ScopeService`) y conteo de documentos posibles. Una sola definición de preventa: `requested_delivery_date` + `delivery_type='route'`. Contrato `warehouse-presale.contract.ts`. Consulta validada contra prod en solo lectura: 27 pedidos en 147 ms; 16 de 27 son de clientes sin clave de Kepler.
+- [ ] **[MCP.4]** 🧪 Documentos de Kepler (2026-10-08): `GET :id/candidates` (vista `erp_sale_tickets`, sin importer; ordenados por productos en común) + `POST :id/link` / `:id/unlink` + comparación por renglón en `GET :id`. Mig `20261008012420` (`commercial.order_kepler_documents`, RLS forzado, un documento vivo por pedido y por documento, prueba negativa dentro). Motor puro con 22 pruebas (mutación verificada). **Pendiente:** aplicar la migración a prod ANTES del código + redeploy; prueba HTTP.
+- [ ] **[MCP.2]** ⬜ Tablero del encargado (origen "Preventa" en `/almacen/pedidos`).
+- [ ] **[MCP.3]** ⬜ Surtido al llegar en el motor de GP (coordinar con GP.3b).
+- [ ] **[MCP.5]** ⬜ Pescar pedidos + guía de carga por ruta (PDF para firma).
+- [ ] **[MCP.6]** ⬜ Entregar en el celular eligiendo el documento; conformidad sin CFDI ni stock.
+- [ ] **[MCP.7]** ⬜ Liquidación contra la guía (efectivo + transferencia); máximo 2 reintentos → devolución + NC en Kepler.
+- [ ] **[MCP.8]** ⬜ Avance para el vendedor + avisos · **[MCP.9]** ⬜ Indicadores.
+
 ## 📋 BACKLOG — Fases G, H, I
 
 _(Items detallados se agregan al iniciar cada fase. Plan macro está en cada `FASES/FASE_X_*.md`)_

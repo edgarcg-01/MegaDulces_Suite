@@ -80,7 +80,7 @@ import { CommercialPaymentsModule } from '@megadulces/commercial';
 import { CommercialHomeDeliveryModule } from '@megadulces/commercial';
 // Fase LM.5 — corte de caja del repartidor (arqueo)
 import { CommercialRiderLiquidationModule } from '@megadulces/commercial';
-import { CommercialPickingModule, WarehouseOrdersModule } from '@megadulces/commercial';
+import { CommercialPickingModule, WarehouseOrdersModule, PresaleControlModule } from '@megadulces/commercial';
 import { CommercialCargaModule } from '@megadulces/commercial';
 import { CommercialAnalyticsModule } from '@megadulces/commercial';
 import { CommercialAlertsModule } from '@megadulces/commercial';
@@ -212,6 +212,8 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialRiderLiquidationModule,
       CommercialPickingModule,
       WarehouseOrdersModule,
+      // [MCP.1] Mesa de Control de Preventa.
+      PresaleControlModule,
       CommercialCargaModule,
       CommercialAnalyticsModule,
       CommercialReplenishmentModule,

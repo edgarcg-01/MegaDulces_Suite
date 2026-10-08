@@ -79,6 +79,8 @@ export * from './http/creditor-statements.contract';
 export * from './http/warehouse-orders.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
+// [MCP.1] Mesa de Control de Preventa: pedido PD- de la Suite ligado a su documento de Kepler.
+export * from './http/warehouse-presale.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a
 // la versión anterior le faltaba (y que es el 88 % del egreso).
 export * from './http/budget-result.contract';
