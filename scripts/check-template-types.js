@@ -207,8 +207,65 @@ function archivosEnAlcance() {
 
 // ── Corrida normal ─────────────────────────────────────────────────────────────────────────
 const TODO = process.argv.includes('--all');
-const EN_ALCANCE = TODO ? null : archivosEnAlcance();
-const AMBITO = TODO ? 'todo el workspace' : 'lo que se va a pushear';
+const ALCANCE_INICIAL = TODO ? null : archivosEnAlcance();
+
+/**
+ * ⛔ **El hueco que esta compuerta tuvo en su primera hora de vida: VERDE POR VACUIDAD.**
+ *
+ * Medido el 2026-10-08, el mismo día que nació. `[PROC.4]` fijó que se trabaja sobre `main`, así
+ * que otra sesión pusheó y `git rev-list --count base..HEAD` dio **0**: cero commits sin pushear
+ * → alcance **vacío** → la compuerta imprimió *«✅ Las plantillas que se van a pushear
+ * typechequean»* **sobre cero archivos**, mientras `origin/main` tenía una plantilla rota
+ * (`whParam` privado usado desde el template, TS2341, del commit `98d6fcdd7`).
+ *
+ * Una afirmación vacuamente cierta se lee igual que una medición — es el mismo defecto que esta
+ * fase persiguió todo el día en los datos, ahora en una compuerta. ⭐ Con el alcance vacío **no
+ * hay nada que acotar, así que se revisa todo**: es más lento pero es lo único honesto, y además
+ * es el caso en que no hay trabajo propio que el ruido ajeno pueda ensuciar.
+ */
+const VACIO = !TODO && ALCANCE_INICIAL.size === 0;
+
+/**
+ * Archivos con cambios **sin commitear** en este árbol. En un worktree compartido son el borrador
+ * en vuelo de cualquiera, y por definición **no están en `main`**.
+ */
+function archivosSucios() {
+  const git = (args) => spawnSync('git', args, { cwd: RAIZ, encoding: 'utf8' }).stdout;
+  const s = new Set();
+  for (const cmd of [['diff', '--name-only'], ['diff', '--name-only', '--cached'],
+    ['ls-files', '--others', '--exclude-standard']]) {
+    (git(cmd) || '').split(/\r?\n/).map((x) => x.trim()).filter(Boolean)
+      .forEach((f) => s.add(f.replace(/\\/g, '/')));
+  }
+  return s;
+}
+
+/**
+ * ⭐ Con el alcance vacío, lo que frena son los archivos **LIMPIOS**, no todos.
+ *
+ * Primera versión de este bloque: con 0 commits sin pushear se revisaba *todo*, y volvió a nacer
+ * roja — esta vez por errores de **sintaxis** de otra sesión editando en ese mismo momento. Dos
+ * intentos, dos veces el mismo error de mi parte: confundir «está en el árbol» con «es un
+ * problema de alguien».
+ *
+ * La distinción que de verdad importa es otra: **¿está roto en `main`?** Eso es lo que frena el
+ * `Build & typecheck`, lo que impide sellar `ci-green` y lo que deja a prod sin desplegar.
+ *
+ *   · archivo **sucio** con error  → alguien está a medio escribir  → se informa
+ *   · archivo **limpio** con error → está así en el árbol commiteado → **frena**
+ *
+ * Y no es teórico: así se encontró que `origin/main` tenía `whParam` privado usado desde una
+ * plantilla (TS2341, commit `98d6fcdd7`) mientras esta compuerta decía ✅ sobre cero archivos.
+ */
+const SUCIOS = VACIO ? archivosSucios() : null;
+if (VACIO) {
+  console.log('ⓘ No hay commits sin pushear. En vez de dar un ✅ sobre cero archivos —que se lee'
+    + ' igual que una revisión y no lo es— se revisa el árbol COMMITEADO:');
+  console.log(`  frenan los archivos limpios (están así en main); los ${SUCIOS.size} con cambios`
+    + ' sin commitear son borrador de alguna sesión y sólo se informan.');
+}
+const EN_ALCANCE = TODO || VACIO ? null : ALCANCE_INICIAL;
+const AMBITO = TODO ? 'todo el workspace' : (VACIO ? 'lo commiteado en el árbol' : 'lo que se va a pushear');
 const soloApp = (process.argv.find((a) => a.startsWith('--app=')) || '').split('=')[1];
 const apps = appsDeAngular().filter((a) => !soloApp || a === soloApp);
 
@@ -220,13 +277,19 @@ if (!apps.length) {
 let tuyos = 0;
 let ajenos = 0;
 let avisos = 0;
-const esTuyo = (e, app) => {
-  if (TODO) return true;
+/** Comparación por ruta COMPLETA (o sufijo con separador): un `endsWith` suelto atribuía a quien
+ *  corría la compuerta archivos de otra sesión que sólo coincidían en el nombre. */
+const enConjunto = (conj, e, app) => {
   const rel = `apps/${app}/${e.archivo}`.replace(/\\/g, '/');
-  // Comparación por ruta COMPLETA (o por sufijo con separador), no por `endsWith` suelto: con
-  // el suelto, `…/finanzas-caja-general.component.ts` de otra sesión se atribuía a quien corría.
   const relArchivo = e.archivo.replace(/\\/g, '/');
-  return EN_ALCANCE.has(rel) || [...EN_ALCANCE].some((m) => m === rel || m.endsWith(`/${relArchivo}`));
+  return conj.has(rel) || [...conj].some((m) => m === rel || m.endsWith(`/${relArchivo}`));
+};
+
+const frena = (e, app) => {
+  if (TODO) return true;
+  // Alcance vacío: frena lo que está LIMPIO (o sea, así está en main). Ver el bloque de arriba.
+  if (VACIO) return !enConjunto(SUCIOS, e, app);
+  return enConjunto(EN_ALCANCE, e, app);
 };
 
 for (const app of apps) {
@@ -235,8 +298,8 @@ for (const app of apps) {
   const seg = ((Date.now() - t0) / 1000).toFixed(1);
   avisos += r.avisos.length;
 
-  const mios = r.errores.filter((e) => esTuyo(e, app));
-  const otros = r.errores.filter((e) => !esTuyo(e, app));
+  const mios = r.errores.filter((e) => frena(e, app));
+  const otros = r.errores.filter((e) => !frena(e, app));
   tuyos += mios.length;
   ajenos += otros.length;
 
@@ -273,7 +336,7 @@ if (ajenos && !tuyos) {
 }
 
 if (tuyos) {
-  console.error(`\n❌ ${tuyos} error(es) de tipo en plantillas que se van a pushear. El CI los iba a`
+  console.error(`\n❌ ${tuyos} error(es) de tipo en plantillas de ${AMBITO}. El CI los iba a`
     + ' encontrar igual, pero después del push — y ahí ya frenó la tubería de todos.');
   process.exit(1);
 }
