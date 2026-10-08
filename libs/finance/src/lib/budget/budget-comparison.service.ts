@@ -97,10 +97,15 @@ export class BudgetComparisonService {
       const [from, to] = this.period(budget, opts);
 
       // ── 1. Ejecución presupuestaria (interna, exacta) ────────────────────────
-      const byType = await trx('budget.budget_lines').where({ budget_id: budgetId })
+      // ⚠️ El `as unknown as` es necesario y va ACÁ, en el origen, no repetido en cada uso: knex
+      // infiere para un `.select() + .sum()` sólo los ALIAS de la suma
+      // (`{ vigente?, reserved?, committed?, exercised?, paid? }`) y **pierde `line_type`**, que es
+      // justo la columna por la que se agrupa. Anotar los parámetros aguas abajo no arregla eso —
+      // los pone a pelear contra la inferencia, y el build se cae con cinco TS2769.
+      const byType = (await trx('budget.budget_lines').where({ budget_id: budgetId })
         .groupBy('line_type').select('line_type')
-        .sum({ vigente: 'vigente_amount', reserved: 'reserved_amount', committed: 'committed_amount', exercised: 'exercised_amount', paid: 'paid_amount' });
-      const t = (type: string, field: string) => round2(Number(byType.find((r: FilaPorTipo) => r.line_type === type)?.[field] ?? 0));
+        .sum({ vigente: 'vigente_amount', reserved: 'reserved_amount', committed: 'committed_amount', exercised: 'exercised_amount', paid: 'paid_amount' })) as unknown as FilaPorTipo[];
+      const t = (type: string, field: string) => round2(Number(byType.find((r) => r.line_type === type)?.[field] ?? 0));
 
       // `[PU.VA]` ⛔ **Los cinco estados del ledger son del EGRESO, y esto sumaba el INGRESO con
       // ellos.** Medido contra prod el 2026-10-07, con el primer ejercicio que el motor llegó a
@@ -120,7 +125,7 @@ export class BudgetComparisonService {
       // el tipo nuevo entra al egreso y el error cae del lado prudente.
       const esEgreso = (r: FilaPorTipo) => String(r.line_type) !== 'ingreso';
       const egreso = byType.filter(esEgreso);
-      const suma = (f: string) => round2(egreso.reduce((s: number, r: FilaPorTipo) => s + Number(r[f] ?? 0), 0));
+      const suma = (f: string) => round2(egreso.reduce((s: number, r) => s + Number(r[f] ?? 0), 0));
       const totals = {
         vigente: suma('vigente'), reserved: suma('reserved'), committed: suma('committed'),
         exercised: suma('exercised'), paid: suma('paid'),
@@ -210,7 +215,7 @@ export class BudgetComparisonService {
         // compararía peras con lo de antes. `ingreso_meta` viaja al lado para que nada se pierda.
         ejecucion: {
           ...totals, disponible, ocupacion_pct: ocupacion, alcance: 'egreso' as const, ingreso_meta,
-          by_type: byType.map((r: FilaPorTipo) => this.withOccupancy(r)),
+          by_type: byType.map((r) => this.withOccupancy(r)),
         },
         presupuesto,
         real,
