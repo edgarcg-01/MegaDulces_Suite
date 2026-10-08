@@ -269,6 +269,27 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 type SettingsLike = Record<string, unknown> | undefined;
 
+/**
+ * ADR-052 — firmas explícitas de las tres respuestas que `autoabasto.controller.ts` (AB.13) deriva
+ * con `Awaited<ReturnType<…>>`. Declaran sólo lo que el código fija; las columnas de cada fila las
+ * decide el SQL y viajan como `Record<string, unknown>` (lo mismo que ya recibía el exportador).
+ */
+export interface CriticalStockPage {
+  total: number;
+  page: number;
+  pageSize: number;
+  target_basis: TargetBasis;
+  rows: Record<string, unknown>[];
+}
+/** Una sola fila de agregados; `undefined` si la consulta no devolvió fila. */
+export type CriticalStockSummary = Record<string, unknown> | undefined;
+export interface ReplenishmentFilters {
+  warehouses: { id: string; code: string; name: string; kind: string | null; purchase_zone: string | null; is_purchase_hub: boolean | null; display_order: number | null }[];
+  suppliers: Record<string, unknown>[];
+  brands: Record<string, unknown>[];
+  categories: Record<string, unknown>[];
+}
+
 @Injectable()
 export class CommercialReplenishmentService {
   private readonly logger = new Logger(CommercialReplenishmentService.name);
@@ -752,7 +773,7 @@ export class CommercialReplenishmentService {
 
   // ── Reporte Existencia Crítica ────────────────────────────────────────
   // `area`: el proyecto cuyo alcance manda ([ZN.8]). Default Compras; Autoabasto pasa 'almacen'.
-  async criticalStock(q: CriticalStockQuery, area: string = AREA) {
+  async criticalStock(q: CriticalStockQuery, area: string = AREA): Promise<CriticalStockPage> {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const oh = this.onHand();
@@ -1014,7 +1035,7 @@ export class CommercialReplenishmentService {
   }
 
   /** KPIs por bucket (para las tarjetas de la página). */
-  async summary(q: CriticalStockQuery, area: string = AREA) {
+  async summary(q: CriticalStockQuery, area: string = AREA): Promise<CriticalStockSummary> {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const target = this.targetCol(basis);
@@ -3029,7 +3050,7 @@ export class CommercialReplenishmentService {
    * devolvían vacío. Una pantalla que ofrece una sucursal y después la muestra en cero se lee
    * como «ahí no falta nada», que es peor que no ofrecerla.
    */
-  async filters(area: string = AREA) {
+  async filters(area: string = AREA): Promise<ReplenishmentFilters> {
     const tenantId = this.tenantCtx.requireTenantId();
     const permitidos = await this.whIds({}, area);
     return this.tk.run(async (trx) => {
