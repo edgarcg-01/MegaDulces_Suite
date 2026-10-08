@@ -218,11 +218,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'pedidos', label: 'Pedidos', route: '/almacen/pedidos', view: [Permission.ALMACEN_PEDIDOS_VER], manage: [] },
           // `[UB.0]` Ubicaciones de mercancía (Fase UB, ADR-090). Permisos PROPIOS (ver el
           // comentario en permissions.ts) y repartidos por migración en la misma entrega.
-          // SIN `route` todavía — mismo criterio que Nivelación, abajo: la pantalla
-          // /almacen/ubicaciones llega en `[UB.1]`, y con la ruta puesta antes de tiempo se
-          // volvería candidata de aterrizaje hacia una ruta que no existe. Cuando llegue la
-          // pantalla, llega la ruta.
-          { id: 'ubicaciones', label: 'Ubicaciones', view: [Permission.ALMACEN_UBICACIONES_VER], manage: [Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR] },
+          // La ruta llegó con la pantalla en `[UB.1]` (el Mapa, /almacen/ubicaciones).
+          { id: 'ubicaciones', label: 'Ubicaciones', route: '/almacen/ubicaciones', view: [Permission.ALMACEN_UBICACIONES_VER], manage: [Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
           // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.

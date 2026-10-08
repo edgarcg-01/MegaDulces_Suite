@@ -24,8 +24,9 @@ function gateDe(metodo: 'Get' | 'Post', ruta = ''): string {
 }
 
 describe('[UB.1] ubicaciones · permisos', () => {
-  it('leer el catálogo pide VER', () => {
-    expect(gateDe('Get')).toContain('Permission.ALMACEN_UBICACIONES_VER');
+  it('leer el catálogo lo puede quien tenga cualquiera de las tres (gestionar o acomodar incluye ver)', () => {
+    const g = gateDe('Get');
+    for (const k of ['VER', 'ACOMODAR', 'GESTIONAR']) expect(g).toContain(`Permission.ALMACEN_UBICACIONES_${k}`);
   });
 
   it('dar de alta pide GESTIONAR, y sólo GESTIONAR', () => {

@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import { RequireAuthGuard, RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RequireAuthGuard, RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import type { CreateWarehouseLocationBody, WarehouseLocationRow, WarehouseLocationsResponse } from '@megadulces/contracts';
 import { WarehouseLocationsService } from './warehouse-locations.service';
 
@@ -19,8 +19,9 @@ import { WarehouseLocationsService } from './warehouse-locations.service';
 export class WarehouseLocationsController {
   constructor(private readonly svc: WarehouseLocationsService) {}
 
+  // Leer el catálogo es parte de acomodar y de gestionar: quien tiene cualquiera de las tres lo lee.
   @Get()
-  @RequirePermissions(Permission.ALMACEN_UBICACIONES_VER)
+  @RequireAnyPermission(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)
   @ApiOperation({ summary: 'Ubicaciones de un almacén (?warehouse_id=, default el primero visible) + resumen y alcance.' })
   list(@Query('warehouse_id') warehouseId?: string): Promise<WarehouseLocationsResponse> {
     return this.svc.list(warehouseId);
