@@ -300,7 +300,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-detail { display:flex; flex-direction:column; gap:var(--sp-3); }
     /* El envoltorio que el @if inserta: hereda el reparto vertical de .cg-detail, o al meterlo
        en el medio el gap entre ficha, formulario y pie se perderia. */
-    .cg-cap { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
+    .cg-captura { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
 
     /* ⭐ [CG.63] LA ENTRADA DE LA CAPTURA. Reportado por Edgar: "al abrir no hace una animacion
        fluida". Hasta aca los dos apartados cambiaban de golpe -- el vacio desaparecia y el
@@ -1281,7 +1281,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                  esta esperando y ofrece la captura desde cero. -->
             <div class="cg-detail" [class.cg-detail-vacio]="!capturaAbierta()">
           @if (capturaAbierta()) {
-            <div class="cg-cap cg-entra">
+            <div class="cg-captura cg-entra">
             <!-- ⭐ [CG.60] LA FICHA. El tablero la pone primero y grande, y tiene razon: el
                  arqueo CONTESTA una pregunta -- "cuanto dice el documento" -- y hasta ahora esa
                  pregunta vivia en un renglon gris de 11px al lado del titulo del panel. Contar
@@ -1840,7 +1840,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
           <div class="cg-ap-cuerpo">
           @if (capturaAbierta()) {
-            <div class="cg-cap cg-entra cg-entra-tras">
+            <div class="cg-captura cg-entra cg-entra-tras">
 
               <!-- ⛔ CG.23 - EL ARQUEO, QUE ANTES ERA OPCIONAL Y PLEGADO.
                    Esto era un "details" rotulado "Desglose por denominacion (opcional)" y, arriba, un

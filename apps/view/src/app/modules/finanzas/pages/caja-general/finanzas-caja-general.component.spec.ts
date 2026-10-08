@@ -599,6 +599,63 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // digital"*. El ticket de esta pantalla ya imprimía `"Recibi conforme (nombre y firma)"`: la
   // firma existía, en papel. Esto la vuelve dato. Sólo el gasto la pide.
 
+  // ── ⛔⛔ [CG.69] La clase que YA EXISTÍA y era un `sr-only` ────────────────────────────────
+  //
+  // Reportado por Edgar con captura: los dos apartados con su encabezado visible y **el cuerpo
+  // vacío**. No era la lógica — se midió y el clic abre, y `capturaAbierta()` queda en `true` con
+  // la reja renderizada.
+  //
+  // Era esto: en `[CG.63]` envolví el contenido de los dos apartados en `<div class="cg-cap …">`
+  // sin comprobar que `.cg-cap` **ya existía en este mismo archivo** como la mordaza de
+  // accesibilidad (`position:absolute; width:1px; height:1px; overflow:hidden`) de tres leyendas
+  // de tabla. Las dos reglas no compiten: **se suman**. Los apartados quedaron `display:flex` Y
+  // `1×1 px con overflow:hidden`.
+  //
+  // ⚠️ Y NADA lo veía: `check:tokens` pasa (los tokens existen), `check:templates` pasa (el CSS
+  // parsea), y las 175 pruebas pasan porque **jsdom no aplica CSS**. En un archivo de 4,500
+  // líneas, elegir un nombre de clase sin buscarlo primero es apostar.
+
+  it('⛔ [negativa] ninguna clase sr-only se reusa como envoltorio de layout', () => {
+    const fuente = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
+    const css = (fuente.ɵcmp?.styles ?? []).join('\n');
+
+    // Las clases amordazadas: las que se esconden con el truco de 1px. Son para lectores de
+    // pantalla y NO pueden envolver nada que tenga que verse.
+    const mordazas = new Set<string>();
+    for (const regla of css.match(/\.[A-Za-z0-9_-]+\[_ngcontent[^{]*\{[^}]*\}/g) ?? []) {
+      if (/width\s*:\s*1px/.test(regla) && /height\s*:\s*1px/.test(regla)) {
+        const n = regla.match(/\.([A-Za-z0-9_-]+)\[/);
+        if (n) mordazas.add(n[1]);
+      }
+    }
+    expect(mordazas.size, 'no se encontró ninguna clase sr-only: el detector quedó ciego')
+      .toBeGreaterThan(0);
+
+    // Y ninguna de ellas puede estar declarada OTRA VEZ con layout: eso las suma, no las pisa.
+    const reincidentes = [...mordazas].filter((c) => {
+      const reglas = css.match(new RegExp('\\.' + c + '\\[_ngcontent[^{]*\\{[^}]*\\}', 'g')) ?? [];
+      return reglas.some((r) => /display\s*:\s*(flex|grid|block)/.test(r));
+    });
+    expect(reincidentes, 'una clase sr-only también declara layout: ' + reincidentes.join(', '))
+      .toEqual([]);
+  });
+
+  it('⛔ [negativa] el envoltorio de la captura NO está amordazado', () => {
+    // El candado de arriba mira el CSS; éste mira el DOM, que es por donde entró el defecto.
+    const fx = montar();
+    comp.abrirCaptura();
+    fx.detectChanges();
+
+    for (const sel of ['.cg-ap-que .cg-captura', '.cg-ap-arqueo .cg-captura']) {
+      const el: HTMLElement | null = fx.nativeElement.querySelector(sel);
+      expect(el, 'no existe ' + sel).not.toBeNull();
+      // ⚠️ jsdom no calcula layout, así que no se puede medir el alto. Lo que SÍ se puede exigir
+      // es que el envoltorio no lleve ninguna de las clases que esconden.
+      expect(el!.className, sel + ' usa una clase sr-only como envoltorio')
+        .not.toMatch(/\bcg-cap\b/);
+    }
+  });
+
   it('la firma se pide en el GASTO y no en el ingreso ni en el depósito', async () => {
     const fx = montar();
     comp.abrirCaptura();
