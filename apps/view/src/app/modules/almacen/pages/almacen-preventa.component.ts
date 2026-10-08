@@ -35,6 +35,7 @@ const ETAPAS: { key: PresaleStage; label: string; sev: Sev }[] = [
   { key: 'en_surtido', label: 'En surtido', sev: 'info' },
   { key: 'en_caja', label: 'En caja', sev: 'info' },
   { key: 'cobrado', label: 'Cobrado', sev: 'info' },
+  { key: 'en_ruta', label: 'En ruta', sev: 'info' },
   { key: 'entregado', label: 'Entregado', sev: 'success' },
   { key: 'cancelado', label: 'Cancelado', sev: 'secondary' },
 ];
@@ -151,7 +152,7 @@ const dmy = (v: string | null | undefined): string => {
                 <td role="cell" data-label="Pedido"><span class="mono">{{ r.code }}</span><span class="muted mc-sub">{{ r.seller_name || '—' }}</span></td>
                 @if (multiSucursal()) { <td class="mono muted" role="cell" data-label="Suc">{{ r.branch || '—' }}</td> }
                 <td role="cell" data-label="Cliente"><span class="mc-trunc">{{ r.customer_name || '—' }}</span><span class="muted mc-sub">{{ r.sales_route || 'sin ruta' }}@if (r.customer_erp_code) { · <span class="mono">{{ r.customer_erp_code }}</span> }</span></td>
-                <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" class="mc-tag" /></td>
+                <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" class="mc-tag" />@if (r.load_guide; as g) { <span class="muted mc-sub">{{ g.status === 'impresa' ? 'Lleva' : 'Pescado por' }} {{ g.rider_name || '—' }} · <span class="mono">{{ g.folio }}</span></span> }</td>
                 <td role="cell" data-label="Entrega"><span class="mono">{{ dm(r.requested_delivery_date) }}</span><span class="mc-sub" [class.mc-bad]="r.due === 'vencido'" [class.mc-warn]="r.due === 'hoy'" [class.muted]="r.due !== 'vencido' && r.due !== 'hoy'">{{ dueTexto(r) }}</span></td>
                 <td role="cell" data-label="Documento Kepler">
                   @if (r.link) { <span class="mono">{{ r.link.folio_digital }}</span><span class="muted mc-sub">{{ r.link.link_source === 'celular' ? 'lo ligó quien entregó' : 'ligado en la mesa' }}</span> }
@@ -194,6 +195,7 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="mc-row"><span>Vendedor · ruta</span><span>{{ x.order.seller_name || '—' }} · {{ x.order.sales_route || 'sin ruta' }}</span></div>
                 <div class="mc-row"><span>Sucursal</span><span>{{ x.order.branch || '' }} {{ x.order.warehouse_name || '—' }}</span></div>
                 <div class="mc-row"><span>Pedido</span><span class="num">{{ x.order.lines }} renglones · {{ money(x.order.total) }}</span></div>
+                @if (x.order.load_guide; as g) { <div class="mc-row"><span>Guía de carga</span><span><span class="mono">{{ g.folio }}</span> · {{ g.rider_name || '—' }} · {{ g.status === 'impresa' ? 'impresa' : 'sin imprimir' }}</span></div> }
               </div>
 
               <div class="mc-step">

@@ -371,6 +371,11 @@ export enum Permission {
   // COMMERCIAL_PICKING_VER: el tablero lo ven telemarketing y facturación, y con la de surtido
   // también se les abría Reparto › Surtido. Sin _GESTIONAR: el tablero sólo lee (ADR-086).
   ALMACEN_PEDIDOS_VER = 'ALMACEN_PEDIDOS_VER',
+  // `[MCP.5]` Guías de carga de preventa (Fase MCP, ADR-089) — /almacen/pedidos/guias. Clave PROPIA:
+  // la imprime la CAJERA (que no tiene ninguna clave de pedidos: medido, `cajero` sólo tiene el
+  // arqueo) y en MCP.7 recibe contra ella la liquidación del repartidor. Se reparte por migración
+  // a quien ya cuenta la caja (roles con STORE_ARQUEO_CAPTURAR), en la misma entrega ([LC.6.2]).
+  PREVENTA_GUIAS_GESTIONAR = 'PREVENTA_GUIAS_GESTIONAR',
   // `[UB.0]` Ubicaciones de mercancía (Fase UB, ADR-090) — /almacen/ubicaciones. Claves PROPIAS y
   // no COMMERCIAL_INVENTORY_*: hoy las ubicaciones cuelgan de INVENTORY_VER/RECIBIR/ASIGNAR, y
   // ASIGNAR es la clave que arma los EQUIPOS DE CONTEO — reusarla dejaría que quien arma equipos

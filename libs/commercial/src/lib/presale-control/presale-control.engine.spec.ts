@@ -37,6 +37,14 @@ describe('etapaDe', () => {
   it('la liga manda sobre la ola: cobrado aunque la ola siga abierta', () => {
     expect(etapaDe({ ...base, wave_stage: 'en_ola', ligado: true })).toBe('cobrado');
   });
+  it('en una guía impresa = en ruta, aunque ya tenga documento ligado', () => {
+    expect(etapaDe({ ...base, ligado: true, en_guia_impresa: true })).toBe('en_ruta');
+    expect(etapaDe({ ...base, en_guia_impresa: false, ligado: true })).toBe('cobrado');
+  });
+  it('negativa: un pedido entregado o cancelado NO vuelve a en ruta por seguir en la guía', () => {
+    expect(etapaDe({ ...base, status: 'fulfilled', en_guia_impresa: true })).toBe('entregado');
+    expect(etapaDe({ ...base, status: 'cancelled', en_guia_impresa: true })).toBe('cancelado');
+  });
   it('lo cerrado manda sobre todo (negativa: un cancelado ligado NO sale como cobrado)', () => {
     expect(etapaDe({ ...base, status: 'cancelled', ligado: true })).toBe('cancelado');
     expect(etapaDe({ ...base, status: 'fulfilled', customer_erp_code: null })).toBe('entregado');
@@ -137,7 +145,7 @@ describe('contarPorEtapa y reglas', () => {
     expect(c.por_surtir).toBe(2);
     expect(c.cobrado).toBe(1);
     expect(c.esperando_alta).toBe(0);
-    expect(Object.keys(c)).toHaveLength(7);
+    expect(Object.keys(c)).toHaveLength(8);
   });
   it('la regla de reintentos es la que pidió Francisco: 2', () => {
     expect(MAX_REINTENTOS_ENTREGA).toBe(2);

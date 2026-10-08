@@ -216,6 +216,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // abría también Reparto › Surtido. Se reparte por migración (20261006200000), no queda
           // sólo declarado ([LC.6.2]).
           { id: 'pedidos', label: 'Pedidos', route: '/almacen/pedidos', view: [Permission.ALMACEN_PEDIDOS_VER], manage: [] },
+          // [MCP.5] Guías de carga de preventa: la cajera imprime la guía por ruta que firma el
+          // repartidor. Permiso propio (la cajera no tiene claves de pedidos), repartido por migración.
+          { id: 'preventa-guias', label: 'Guías de carga (preventa)', route: '/almacen/pedidos/guias', view: [Permission.PREVENTA_GUIAS_GESTIONAR], manage: [Permission.PREVENTA_GUIAS_GESTIONAR] },
           // `[UB.0]` Ubicaciones de mercancía (Fase UB, ADR-090). Permisos PROPIOS (ver el
           // comentario en permissions.ts) y repartidos por migración en la misma entrega.
           // La ruta llegó con la pantalla en `[UB.1]` (el Mapa, /almacen/ubicaciones).

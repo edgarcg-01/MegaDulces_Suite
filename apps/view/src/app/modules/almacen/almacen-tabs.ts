@@ -189,6 +189,8 @@ export const ALMACEN_AREAS: AlmacenArea[] = [
       { label: 'Preventa', icon: 'pi pi-mobile', route: '/almacen/pedidos/preventa', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
       // [GP.3d] Lo que Facturación tiene que cerrar en Kepler después del surtido.
       { label: 'Por capturar en Kepler', icon: 'pi pi-file-edit', route: '/almacen/pedidos-por-capturar', permission: Permission.ALMACEN_PEDIDOS_VER, exact: true },
+      // [MCP.5] La caja imprime aquí la guía de carga que firma el repartidor. Permiso propio.
+      { label: 'Guías de carga', icon: 'pi pi-print', route: '/almacen/pedidos/guias', permission: Permission.PREVENTA_GUIAS_GESTIONAR, exact: true },
       // [GP.3c.2] El coordinador ordena la fila que el surtidor toma con "Tomar siguiente".
       { label: 'Consola de surtido', icon: 'pi pi-sliders-h', route: '/almacen/surtido-consola', permission: Permission.ALMACEN_SURTIDO_COORDINAR, exact: true },
     ],

@@ -102,6 +102,12 @@ export const appRoutes: Routes = [
           ),
       },
       {
+        // [MCP.5] Llevar pedidos de preventa: pescarlos para la guía de carga que imprime la caja.
+        path: 'llevar',
+        loadComponent: () =>
+          import('./modules/presale/presale-load.component').then((m) => m.PresaleLoadComponent),
+      },
+      {
         path: 'carga',
         loadComponent: () =>
           import('./modules/vendor/pages/vendor-carga.component').then(
@@ -140,6 +146,12 @@ export const appRoutes: Routes = [
       import('./modules/rider/rider-shell.component').then((m) => m.RiderShellComponent),
     children: [
       { path: '', redirectTo: 'deliveries', pathMatch: 'full' },
+      {
+        // [MCP.5] Llevar pedidos de preventa: pescarlos para la guía de carga que imprime la caja.
+        path: 'llevar',
+        loadComponent: () =>
+          import('./modules/presale/presale-load.component').then((m) => m.PresaleLoadComponent),
+      },
       {
         path: 'deliveries',
         loadComponent: () =>
