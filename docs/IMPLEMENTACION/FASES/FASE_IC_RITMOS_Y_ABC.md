@@ -635,12 +635,48 @@ su veredicto al lado**, no se esconden ni se corrigen: el costo se arregla en Ke
 `aporte_individual` — las tres piezas que `[IC.20]` pide y que `v_abc_class` calcula y tira. Acá
 nacen publicadas, así que IC.20 se reduce a hacer lo mismo del lado de consumo.
 
-⛔ **Rendimiento, declarado: la vista tarda 1.9 s** y el gate de interfaz es <500 ms. El costo es de
-las fuentes (`v_erp_unit_cost` sola son **1,515 ms**), y **la hermana `v_abc_class` tampoco pasa el
-gate (1,424 ms)** — nadie lo nota porque la app lee la foto `commercial.abc_classification` en
-**13 ms**. Conclusión medida: **1.9 s alcanza de sobra para el cron mensual de `[IC.19]`**, que es
-quien consume este eje; **la pantalla necesita una foto**, y ésa es pieza aparte — no se declara
-hecha acá.
+#### `[IC.21.1]` — 🚀 EN PROD (batch 793) · y el incidente que lo hizo falta
+
+**Aplicada a prod el 2026-10-07.** Pero el camino dejó dos lecciones que valen más que la vista.
+
+**(1) ⛔ Una guarda de migración no puede costar lo que cuesta la pantalla.** La migración original
+barría la vista entera (9 almacenes) **dentro de su transacción, con el candado global de
+migraciones tomado**. Afuera eso son 2 s; adentro, con un backfill del ODS escribiendo en paralelo,
+fueron **8 minutos** — la transacción larga ve un snapshot viejo y recorre las versiones nuevas.
+Peor: el `kubectl exec` se desconectó, la salida se perdió y el harness reportó **exit 0** mientras
+el proceso seguía vivo sosteniendo el candado. El segundo intento murió con `lock timeout` y knex
+invitó a `migrate:unlock` — ⛔ **hacerlo habría abortado una migración ajena**; `pg_locks` mostró
+que el pid era **el mío**. *Al candado de migraciones se le pregunta por `pg_locks`, no por su
+propia columna* (`is_locked` leía **0** todo el tiempo).
+
+**(2) ⭐⭐ Corregir una migración editándola sólo sirve si todavía no se aplicó.** A las 15:36 se
+aplicó a prod la versión que leía `v_erp_unit_cost` (la **vista**); a las 15:43 el PR #302 corrigió
+ese mismo archivo para leer `mv_erp_unit_cost` (la **matvista**) — pero **editó una migración ya
+aplicada**, y knex no vuelve a correr un archivo cuyo nombre ya está en `knex_migrations`. El repo
+quedó correcto y **prod se quedaba con la definición lenta, para siempre**, sin que ninguna prueba
+lo notara: cada lado se ve sano por separado. Por eso existe la migración nueva
+`20261007190932_v_abc_capital_matvista.js`, con guarda **acotada a un almacén** (el delator «un
+Pareto siempre produce B» vale igual por almacén) y las aserciones de población completa en el
+candado, que corre **fuera** de todo candado.
+
+**Medido después de aplicar:** la vista entera **2,900 → 572 ms**; un almacén **1,946 → 677 ms**;
+la migración corrió en **1.0 s** contra los 8 minutos. Candado contra prod: **18 ✓ / 0 ✗ / 0 no
+medidos** — `security_invoker` y el `GRANT` verificados en vivo, y la coincidencia con el eje de
+consumo en **53.1%**, o sea que contradice y no es un espejo.
+
+⚠️ **Rendimiento, declarado:** ~572 ms sigue **por encima del gate de 500 ms** de una interfaz.
+Alcanza de sobra para el cron mensual de `[IC.19]`, que es quien consume este eje; **una pantalla
+necesita foto**, y ésa es pieza aparte — no se declara hecha acá. Para referencia, la hermana
+`v_abc_class` tampoco pasa el gate (1,424 ms) y nadie lo nota porque la app lee
+`commercial.abc_classification` en **13 ms**.
+
+**(3) ⭐ Y un defecto del propio candado, que pasaba en verde por la razón equivocada.** La prueba
+negativa sustituía las fuentes **nombrándolas a mano**; cuando el costo cambió a la matvista, el
+reemplazo dejó de encontrarlas, el SELECT quedó unido contra la fuente **real** y las cuatro filas
+sintéticas volvieron `sin_costo`. Eso puso en verde **tres de las cuatro** aserciones negativas
+afirmando «capital NULL» y «clase NULL» sobre filas que llegaban NULL **por el motivo contrario al
+que se probaba**. Sólo la de `CARO` se puso roja y lo delató. Ahora las fuentes se **derivan del
+propio SQL**, con un control de arnés que falla ruidosamente si queda una referencia a `analytics.`.
 
 ---
 

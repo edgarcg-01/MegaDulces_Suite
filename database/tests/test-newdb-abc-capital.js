@@ -136,9 +136,32 @@ function selectDeLaMigracion() {
     // ── Bloque 5: ⭐ PRUEBA NEGATIVA — el camino sin_costo, que hoy nunca se ejerce ────────
     // Se sustituyen las DOS fuentes por CTEs sintéticas y se corre el SELECT de la migración
     // tal cual. Si alguien reintroduce un COALESCE(costo, 0), esta aserción se pone roja.
+    // ⛔ Acá hubo un defecto que vale documentar, porque es de la peor clase: **la sustitución
+    //    nombraba las fuentes a mano** (`v_erp_stock_on_hand` / `v_erp_unit_cost`). Cuando el
+    //    `fix` de `[IC.21]` cambió el costo a la MATVISTA (`mv_erp_unit_cost`), el reemplazo dejó
+    //    de encontrar nada, el SELECT quedó unido contra la fuente REAL —que no tiene las filas
+    //    sintéticas— y **las cuatro filas volvieron `sin_costo`**. Eso puso en verde TRES de las
+    //    cuatro aserciones negativas por la razón equivocada: afirmaban «capital NULL» y
+    //    «clase NULL» sobre filas que llegaban NULL por el motivo contrario al que se probaba.
+    //    Sólo la de CARO ('A') se puso roja, y fue lo único que lo delató.
+    //
+    // ⭐ Ahora las fuentes se **derivan del propio SQL** en vez de nombrarse: si mañana cambian
+    //    otra vez, el candado sigue probando lo que dice probar, o falla ruidosamente acá.
+    const fuente = (regex, etiqueta) => {
+      const m = SELECT.match(regex);
+      if (!m) throw new Error(`no se pudo derivar la fuente de ${etiqueta}: la migracion cambio de forma`);
+      return m[1];
+    };
+    const RELACION_STOCK = fuente(/FROM\s+(analytics\.\w+)\s+s\b/, 'existencia');
+    const RELACION_COSTO = fuente(/LEFT JOIN\s+(analytics\.\w+)\s+uc\b/, 'costo');
     const SELECT_SINTETICO = SELECT
-      .replace(/analytics\.v_erp_stock_on_hand/g, '_stock')
-      .replace(/analytics\.v_erp_unit_cost/g, '_costo');
+      .split(RELACION_STOCK).join('_stock')
+      .split(RELACION_COSTO).join('_costo');
+    // Control del arnés: si quedara UNA referencia a `analytics.`, la prueba negativa estaría
+    // leyendo la fuente real y no probaría nada. Se cae acá, no en verde.
+    if (/analytics\./.test(SELECT_SINTETICO)) {
+      throw new Error(`la sustitucion dejo fuentes reales: ${SELECT_SINTETICO.match(/analytics\.\w+/g)}`);
+    }
 
     const TEN = '00000000-0000-0000-0000-00000000d01c';
     const WH = '11111111-1111-1111-1111-111111111111';
