@@ -148,6 +148,29 @@ const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFract
     info('o sea: las dos capturas conviven pero NO comparten folio -- corte de sistema, no duplicado');
   }
 
+  // ── 2c. EL MODO DE FALLA QUE SE COMIO TRES CORRIDAS ───────────────────────────────────────
+  // `commission_periods` tiene RLS FORZADO. Una consulta sin contexto de tenant devuelve CERO
+  // filas **y no lanza**: el runner leia del pool crudo dentro de un `tenantCtx.run()` (que solo
+  // abre el CLS, no emite `SET LOCAL app.tenant_id`), encontraba 0 pendientes, y el latido lo
+  // reportaba `ok` porque su `ceroEsOk` declaraba un motivo que nadie habia verificado.
+  // Esto deja la trampa ESCRITA y ejecutable, no contada en un comentario.
+  console.log('\n2c) RLS forzado: sin contexto de tenant la tabla se ve VACIA, sin error');
+  const { rows: [conCtx] } = await db.query(
+    `SELECT count(*)::int n FROM commercial.commission_periods WHERE tenant_id = $1`, [TENANT]);
+  await db.query(`SET app.tenant_id = ''`);          // = current_tenant_id() NULL
+  let sinCtx = -1; let lanzo = false;
+  try {
+    const { rows: [x] } = await db.query(
+      `SELECT count(*)::int n FROM commercial.commission_periods WHERE tenant_id = $1`, [TENANT]);
+    sinCtx = x.n;
+  } catch { lanzo = true; }
+  await db.query(`SET app.tenant_id = '${TENANT}'`);  // se restaura para lo que sigue
+  info(`con contexto de tenant: ${conCtx.n} filas · sin contexto: ${lanzo ? 'LANZO' : sinCtx + ' filas'}`);
+  check('con contexto de tenant la tabla tiene quincenas', conCtx.n > 0, `${conCtx.n}`);
+  check('sin contexto devuelve CERO y NO lanza (la falla es muda)', !lanzo && sinCtx === 0,
+    lanzo ? 'lanzo: entonces la falla ya no seria silenciosa' : `devolvio ${sinCtx}`);
+  info('por eso toda consulta del runner va por TenantKnexService, nunca por el pool crudo');
+
   // ── 3. EL COSTO y el markup ───────────────────────────────────────────────────────────────
   console.log('\n3) El costo -- el insumo del bono del supervisor');
   const { rows: per } = await db.query(

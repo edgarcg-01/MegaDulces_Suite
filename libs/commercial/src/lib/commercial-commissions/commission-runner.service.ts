@@ -1,7 +1,7 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { KNEX_NEW_DB, TenantContextService, latirCron } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, TenantContextService, TenantKnexService, latirCron } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 
 /**
@@ -50,6 +50,7 @@ export class CommissionRunnerService {
   constructor(
     @Inject(KNEX_NEW_DB) private readonly knex: Knex,
     private readonly tenantCtx: TenantContextService,
+    private readonly tk: TenantKnexService,
     private readonly commissions: CommercialCommissionsService,
   ) {}
 
@@ -141,14 +142,21 @@ export class CommissionRunnerService {
       tenantId: tenants[0]?.id ?? '00000000-0000-0000-0000-00000000d01c',
       rowsAffected: calculadas.length,
       durationMs: Date.now() - t0,
+      // ⚠️ El default de `latirCron` es 'api' y esto corre en el WORKER. El latido decia que
+      // habia corrido donde no, y eso manda a leer los logs del pod equivocado — me costo una
+      // vuelta entera de diagnostico. En k8s `HOSTNAME` es el nombre del pod.
+      host: process.env.HOSTNAME || 'worker',
       fallas,
       note: calculadas.length
         ? `${calculadas.length} corrida(s): ${calculadas.length - bloqueadas} borrador, ${bloqueadas} bloqueada(s)`
         : null,
-      // ⭐ Cero legitimo CON motivo: 13 de cada 14 dias no cierra ninguna quincena. Sin esto el
-      // latido pintaria rojo a diario y el tablero se vuelve ruido.
+      // ⭐ Cero legitimo CON motivo — y el motivo ahora esta VERIFICADO, que es lo que fallaba.
+      // La primera version declaraba "no habia quincena pendiente" sin comprobarlo, y con eso
+      // convirtio una falla total (RLS devolviendo cero filas) en un latido verde durante tres
+      // corridas seguidas. `pendientes()` ahora revienta si el tenant no ve la tabla, asi que
+      // un cero que llega hasta aca si significa que no habia nada que hacer.
       ceroEsOk: revisados === 0
-        ? 'no habia quincena cerrada sin corrida: el cron corrio y no tenia que escribir nada'
+        ? 'verificado: el tenant ve su calendario y ninguna quincena esta pendiente de calcular'
         : undefined,
     });
 
@@ -171,33 +179,45 @@ export class CommissionRunnerService {
     // ⚠️ Las dos ramas comparten el mismo freno: no se toca una corrida que un humano abrio
     // (`borrador` creada a mano) ni una ya `aprobado`/`pagado`. El cron solo reemplaza lo que
     // el propio cron dejo, y solo mientras no se pueda aprobar.
-    const { rows } = soloEnCurso
-      ? await this.knex.raw(
-        `SELECT p.id, p.anio, p.period_no, r.status AS run_status
-           FROM commercial.commission_periods p
-           LEFT JOIN commercial.commission_runs r
-             ON r.period_id = p.id AND r.deleted_at IS NULL AND r.status <> 'anulado'
-          WHERE p.tenant_id = ?
-            AND p.deleted_at IS NULL
-            AND current_date BETWEEN p.date_from AND p.date_to
-            AND (r.id IS NULL OR (r.status = 'en_curso' AND r.origen = 'cron'))
-          ORDER BY p.anio, p.period_no`,
-        [tenantId],
-      )
-      : await this.knex.raw(
-        `SELECT p.id, p.anio, p.period_no, r.status AS run_status
-           FROM commercial.commission_periods p
-           LEFT JOIN commercial.commission_runs r
-             ON r.period_id = p.id AND r.deleted_at IS NULL AND r.status <> 'anulado'
+    const VENTANA = `
           WHERE p.tenant_id = ?
             AND p.deleted_at IS NULL
             AND p.date_to < current_date
             AND p.date_to >= current_date - ?::int
             AND (r.id IS NULL
-                 OR (r.status IN ('bloqueada','en_curso') AND r.origen = 'cron'))
+                 OR (r.status IN ('bloqueada','en_curso') AND r.origen = 'cron'))`;
+    const HOY = `
+          WHERE p.tenant_id = ?
+            AND p.deleted_at IS NULL
+            AND current_date BETWEEN p.date_from AND p.date_to
+            AND (r.id IS NULL OR (r.status = 'en_curso' AND r.origen = 'cron'))`;
+
+    const rows = await this.tk.run(async (trx) => {
+      // ⛔ EL FRENO QUE FALTABA. `commission_periods` tiene RLS FORZADO, asi que una consulta
+      // sin contexto de tenant devuelve CERO filas **sin error** — que es exactamente lo que
+      // hacia este metodo cuando leia del pool crudo, y lo que el latido reportaba como `ok`.
+      // Un tenant con cero quincenas no es un periodo tranquilo: es que no se ve la tabla.
+      const { rows: [u] } = await trx.raw(
+        `SELECT count(*)::int n FROM commercial.commission_periods
+          WHERE tenant_id = ? AND deleted_at IS NULL`, [tenantId]);
+      if (!u.n) {
+        throw new Error(
+          `el tenant ${tenantId} no ve NINGUNA quincena en commission_periods. `
+          + 'No es que no haya pendientes: la consulta no esta viendo la tabla '
+          + '(RLS sin contexto de tenant, o el calendario sin sembrar).',
+        );
+      }
+      const { rows: r } = await trx.raw(
+        `SELECT p.id, p.anio, p.period_no, r.status AS run_status
+           FROM commercial.commission_periods p
+           LEFT JOIN commercial.commission_runs r
+             ON r.period_id = p.id AND r.deleted_at IS NULL AND r.status <> 'anulado'
+          ${soloEnCurso ? HOY : VENTANA}
           ORDER BY p.anio, p.period_no`,
-        [tenantId, CommissionRunnerService.VENTANA_DIAS],
-      );
+        soloEnCurso ? [tenantId] : [tenantId, CommissionRunnerService.VENTANA_DIAS]);
+      return r;
+    });
+
     return rows.map((r: { id: string; anio: number; period_no: number; run_status: string | null }) => ({
       id: r.id,
       anio: r.anio,
