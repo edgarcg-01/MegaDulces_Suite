@@ -410,12 +410,32 @@ export function puedeCerrarUI(c: CorteVista | null, veredicto: VeredictoCorte): 
  * dibujar $0.00 sería inventar un dato (ADR-056).
  */
 export function textoSaldo(
-  r: { saldo: number | null; sin_corte_abierto?: boolean; corte_abierto?: { folio: string } | null } | null | undefined,
+  r: {
+    saldo: number | null; saldo_oculto?: boolean; sin_corte_abierto?: boolean;
+    corte_abierto?: { folio: string } | null;
+  } | null | undefined,
 ): string {
   if (!r) return 'Saldo: sin medir.';
-  if (r.sin_corte_abierto || r.saldo === null || r.saldo === undefined) {
-    return 'Saldo: sin corte abierto — la caja no tiene punto de partida.';
+  if (r.sin_corte_abierto) return 'Saldo: sin corte abierto — la caja no tiene punto de partida.';
+  /**
+   * ⛔ `[CG.71]` **EL CUARTO ESTADO, QUE ACÁ SE LEÍA COMO EL SEGUNDO.**
+   *
+   * La respuesta distingue cuatro cosas y esta función sólo tres: con `saldo_oculto` el servidor
+   * manda `saldo: null` **a propósito** —`[CG.19]`, quien captura cuenta a ciegas y el esperado se
+   * revela al sellar—, y la condición de arriba lo barría junto con `sin_corte_abierto`. O sea
+   * que a un cajero con su corte ABIERTO la pantalla le iba a decir *"sin corte abierto"*: no es
+   * un texto impreciso, es un hecho falso, y el siguiente paso que sugiere —abrir uno— es
+   * exactamente el peor sobre un corte vivo.
+   *
+   * Es la falla que ADR-056 nombra: dos ausencias distintas con el mismo mensaje. `null` por
+   * candado y `null` por falta de punto de partida se arreglan de maneras opuestas — ésta la
+   * resuelve quien autoriza; aquélla, quien abre la caja. El backend ya las separaba
+   * (`saldo_oculto` vs `sin_corte_abierto`); se perdían acá, en la última traducción.
+   */
+  if (r.saldo_oculto) {
+    return `Saldo: oculto hasta sellar el conteo (corte ${r.corte_abierto?.folio ?? '—'}).`;
   }
+  if (r.saldo === null || r.saldo === undefined) return 'Saldo: sin medir.';
   const m = r.saldo.toLocaleString('es-MX', { style: 'currency', currency: 'MXN' });
   return `Saldo en caja: ${m} (corte ${r.corte_abierto?.folio ?? '—'}).`;
 }

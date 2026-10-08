@@ -150,6 +150,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* La barra del corte: saldo + estado + acción, en una línea que se lee de un vistazo. */
     .fin-corte-bar { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-3); margin:var(--sp-3) 0 var(--sp-4); }
     .fin-saldo { font-weight:600; font-variant-numeric:tabular-nums; }
+    /* [CG.71] El saldo en la barra: cede antes que el titulo y que los dos controles, y se corta
+       con puntos suspensivos en vez de empujarlos fuera (el texto entero queda en el title). */
+    .cg-saldo { flex:0 1 auto; min-width:0; overflow:hidden; text-overflow:ellipsis;
+      white-space:nowrap; font-size:var(--fs-sm); color:var(--text-muted); }
 
     .fin-filters { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); margin:var(--sp-4) 0 var(--sp-3); }
     .fin-filters input, .fin-filters p-select { min-width:11rem; }
@@ -751,6 +755,22 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         </div>
 
         <span class="cg-bandeja-sp"></span>
+
+        <!-- ⭐ [CG.71] EL SALDO DE LA CAJA, QUE SE PEDIA Y NO SE PINTABA.
+             Pedido de Edgar: "hay que agregar un apartado para ver el saldo actual de la caja
+             chica". Medido antes de construir: NO faltaba el dato ni el calculo. cargarSaldo()
+             le pregunta al servidor en SIETE momentos distintos (al entrar, al guardar, al abrir
+             corte, al cerrarlo, al confirmar un lote, al llegar un aviso...), y textoSaldoUI
+             lo traducia a texto desde la linea 3241 -- y la plantilla no lo usaba NI UNA VEZ.
+             La clase ".fin-saldo" tampoco: estaba definida con el comentario "la barra del corte:
+             saldo + estado + accion, en una linea", o sea que la barra se diseño con el saldo
+             adentro y el saldo se cayo en el camino.
+             Va aca y no en un apartado nuevo: los apartados son DOS por decision de [CG.59]/[CG.60]
+             (90% la tarea), y un tercero rompe el tablero aprobado. Aca se ve sin un clic, que es
+             lo que "saldo actual" pide.
+             ⚠️ Lo que se pinta respeta el arqueo CIEGO: a quien captura el servidor le oculta el
+             esperado y el texto lo DECLARA ("oculto hasta sellar"), nunca lo dibuja en 0. -->
+        <span class="fin-saldo cg-saldo" [title]="textoSaldoUI()">{{ textoSaldoUI() }}</span>
 
         <button type="button" class="cg-jornada-btn" (click)="jornadaAbierta.set(!jornadaAbierta())"
                 [attr.aria-expanded]="jornadaAbierta()">
