@@ -183,6 +183,37 @@ const correr = (d0, k) => { const a = []; const b = new Date(d0); for (let i = 0
     }
   }
 
+  // ── 5. EL PISO DE FECHA: la proyección no puede emitir lo que el hecho rechaza.
+  // `analytics.sales_daily` lleva `CHECK (sale_date >= '2024-01-01') NOT VALID` desde [AUD-DAT.2].
+  // El primer `--apply` de [WH.6] murió con 23514 sobre una fila `2000-01-01` del `.mdb` y revirtió
+  // entero. Que el CHECK exista NO alcanza: con él solo, el feed falla en vez de publicar.
+  console.log('\n— 5. el piso de fecha: la proyección no emite lo que el hecho rechaza —');
+  const { rows: [cc] } = await db.query(`
+    SELECT pg_get_constraintdef(oid) AS def FROM pg_constraint
+     WHERE conrelid='analytics.sales_daily'::regclass AND conname='sales_daily_sale_date_piso_check'`);
+  if (!cc) { noMedido('piso de fecha', 'el CHECK sales_daily_sale_date_piso_check no existe en este destino'); } else {
+    const piso = (cc.def.match(/'(\d{4}-\d{2}-\d{2})'/) || [])[1];
+    check(`el hecho declara su piso (${piso})`, !!piso, `no se pudo leer la fecha de: ${cc.def}`);
+    // Se sondea el día ANTERIOR al piso en cada rama publicada: el silver tiene basura ahí
+    // (centinela 2000-01-01 y fechas sueltas) y la proyección tiene que dejarla afuera.
+    for (const r of publicaron) {
+      const { rows: [sv] } = await db.query(`
+        SELECT count(*)::int AS filas, round(sum(importe))::numeric AS importe
+          FROM wincaja.v_sales_daily
+         WHERE tenant_id=$1 AND source_branch=$2 AND business_date < $3::date`, [TENANT, r.source_branch, piso]);
+      if (!sv.filas) continue;
+      const { rows: bajo } = await db.query(`
+        SELECT DISTINCT business_date FROM wincaja.v_sales_daily
+         WHERE tenant_id=$1 AND source_branch=$2 AND business_date < $3::date LIMIT 12`,
+      [TENANT, r.source_branch, piso]);
+      const src = buildSalesDailySrc({ tenantId: TENANT, branches: [r.source_branch], days: bajo.map((x) => dia(x.business_date)) });
+      const { rows: [p] } = await db.query(`SELECT count(*)::int AS filas FROM (${src}) x`);
+      check(`branch ${r.source_branch} deja fuera lo anterior al piso (${n(sv.filas)} filas basura, $${n(sv.importe)})`,
+        p.filas === 0,
+        `emite ${n(p.filas)} filas bajo el piso: el INSERT va a morir con 23514 y revertir el feed entero`);
+    }
+  }
+
   await db.end();
   console.log(`\n=== ${ok} OK · ${fail} fallas · ${nm} NO MEDIDOS ===\n`);
   process.exit(fail ? 1 : 0);
