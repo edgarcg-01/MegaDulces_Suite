@@ -51,6 +51,14 @@ const DIAS_POSIBLES = 60;
 type Partes = { sucursal: string; doc_prefix: string; folio: string };
 
 /**
+ * `[MCP.4.1]` Sucursal de KEPLER del almacén del pedido: `warehouses.kepler_code` (el crosswalk
+ * canónico, mig 20260815130000) cuando es de 2 dígitos; si no, la llave canónica (`branchKeySql`).
+ * Es la que se usa para buscar tickets: Morelia Madero corre Wincaja como `32` pero cobra en
+ * Kepler como `07` (confirmado por Francisco, 2026-10-08).
+ */
+const SUCURSAL_KEPLER_SQL = `CASE WHEN w.kepler_code ~ '^[0-9]{2}$' THEN w.kepler_code ELSE ${branchKeySql('w')} END`;
+
+/**
  * `[MCP.1]` / `[MCP.4]` Mesa de Control de Preventa (Fase MCP, ADR-089).
  *
  * ── Qué es "preventa" (UNA definición) ───────────────────────────────────────────────────
@@ -70,7 +78,10 @@ type Partes = { sucursal: string; doc_prefix: string; folio: string };
  * que es una concatenación y no usa índice (medido: 82/436 ms contra 10/9 ms).
  *
  * ── Alcance ──────────────────────────────────────────────────────────────────────────────
- * Por sucursal con `ScopeService.warehouseIds()` (mismo criterio que la bandeja de avisos):
+ * Por SUCURSAL, no por almacén: `ScopeService.readParam(query, 'warehouse')` da las llaves de 2
+ * dígitos del alcance, y se comparan contra la sucursal Kepler del almacén del pedido Y contra su
+ * llave canónica. `[MCP.4.1]` Filtrar por id de almacén vivo escondía los pedidos hechos contra un
+ * almacén ya dado de baja (Morelia: `MD-32` se dio de baja el 2026-09-11 y lo reemplazó `07`).
  * `null` = sin recorte, `[]` = alcance vacío. Detalle, candidatos y liga validan el mismo alcance:
  * un pedido fuera de él responde 404, no 403, para no confirmar que existe.
  *
@@ -94,7 +105,7 @@ export class PresaleControlService {
   async list(query: Record<string, unknown> | undefined): Promise<PresaleListResponse> {
     const hoy = relojMx(new Date()).fecha;
     const tenantId = this.tenantCtx.requireTenantId();
-    const almacenes = await this.scope.warehouseIds(query, 'warehouse/presale');
+    const almacenes = await this.scope.readParam(query, 'warehouse', 'warehouse/presale');
     if (almacenes !== null && almacenes.length === 0) {
       return {
         data: [], count: 0, truncated: false, by_stage: contarPorEtapa([]), overdue: 0, scope: 'ninguno', today: hoy,
@@ -313,8 +324,9 @@ export class PresaleControlService {
       params.push(String(f.diasCerrados ?? DIAS_CERRADOS_DEFAULT));
     }
     if (f.almacenes !== null) {
-      donde += ' AND o.warehouse_id = ANY(?::uuid[])';
-      params.push(f.almacenes);
+      // `f.almacenes` son llaves de sucursal (2 dígitos) del alcance, no ids de almacén.
+      donde += ` AND ((${SUCURSAL_KEPLER_SQL}) = ANY(?::text[]) OR (${branchKeySql('w')}) = ANY(?::text[]))`;
+      params.push(f.almacenes, f.almacenes);
     }
     params.push(MAX_FILAS);
 
@@ -324,7 +336,7 @@ export class PresaleControlService {
               to_char((o.created_at AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD') AS created_date,
               to_char(o.requested_delivery_date, 'YYYY-MM-DD') AS requested_delivery_date,
               c.name AS customer_name, c.erp_customer_code, c.erp_source_branch, c.sales_route,
-              w.name AS warehouse_name, ${branchKeySql('w')} AS branch,
+              w.name AS warehouse_name, ${SUCURSAL_KEPLER_SQL} AS branch,
               u.nombre AS seller_name,
               (SELECT count(*) FROM commercial.order_lines ol WHERE ol.order_id = o.id)::int AS lines,
               (SELECT wo.stage FROM commercial.wave_orders wo
@@ -362,7 +374,7 @@ export class PresaleControlService {
     paraEscribir = false,
   ): Promise<Record<string, unknown>> {
     if (!UUID_RE.test(orderId)) throw new BadRequestException('id de pedido inválido');
-    const almacenes = await this.scope.warehouseIds(query, 'warehouse/presale');
+    const almacenes = await this.scope.readParam(query, 'warehouse', 'warehouse/presale');
     if (almacenes !== null && almacenes.length === 0) throw new NotFoundException('Pedido no encontrado.');
     let [fila] = await this.leerPedidos(trx, { almacenes, orderId });
     if (!fila) throw new NotFoundException('Pedido de preventa no encontrado.');
