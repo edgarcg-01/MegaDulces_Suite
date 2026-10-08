@@ -10,6 +10,15 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
 import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 
 /**
+ * `[IC.15]` Los estados en los que un folio está VIVO, o sea que ocupa su lugar en la llave
+ * `(almacén, ritmo)` y sus SKUs no pueden estar en otro folio. Es la MISMA lista que el índice
+ * parcial `commercial_inv_counts_one_open_per_wh_ritmo`: si las dos se separan, el servicio
+ * dejaría pasar lo que la base rechaza (o al revés), y el error saldría como una violación de
+ * índice sin explicación en vez de como un mensaje que se entiende.
+ */
+const VIVOS = ['open', 'counting', 'review', 'ready_to_reconcile'] as const;
+
+/**
  * Fase I — Inventario físico (conteo cíclico/total por almacén).
  *
  * Modela el proceso "hacer inventario" como sesión digital con conteo CIEGO,
@@ -30,9 +39,18 @@ import { InventoryMonitorGateway } from './inventory-monitor.gateway';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/**
+ * `[IC.15]` Cada cuándo y para qué se cuenta. Eje **ortogonal** a `type`, que dice
+ * todo-vs-subconjunto: el diario es `cycle`+`diario`, el físico de Kepler es `full`+`trimestral`.
+ * `adhoc` es el default y es honesto: un folio que alguien abrió a mano no pertenece a un ritmo.
+ */
+export type RitmoConteo = 'diario' | 'mensual' | 'trimestral' | 'adhoc';
+
 export interface OpenCountDto {
   warehouse_id: string;
   type?: 'full' | 'cycle';
+  /** `[IC.15]` La llave del folio vivo es (almacén, ritmo): dos ritmos pueden coexistir. */
+  ritmo?: RitmoConteo;
   freeze_movements?: boolean;
   blind_double_count?: boolean;
   /** Umbral % de varianza que fuerza recuento (count-back). 0 = off. */
@@ -44,6 +62,8 @@ export interface OpenCountDto {
 
 export interface OpenCycleCountDto {
   warehouse_id: string;
+  /** `[IC.15]` El ritmo al que pertenece este folio cíclico. Default `adhoc`. */
+  ritmo?: RitmoConteo;
   /** Clase ABC a contar (A|B|C). Toma los productos de esa clase del almacén. */
   abc_class?: string;
   /** Lista explícita de productos (alternativa a abc_class). */
@@ -182,15 +202,43 @@ export class InventoryCountService {
         .first();
       if (!wh) throw new NotFoundException('Almacén no encontrado');
 
-      // El índice parcial único bloquea dos folios abiertos por almacén, pero
-      // damos un error claro antes de tocar el insert.
+      // ── [IC.15] La llave del folio vivo pasa de (almacén) a (almacén, RITMO) ─────────
+      //
+      // Antes el índice parcial permitía UN folio vivo por almacén, punto — así que el
+      // diario y el mensual no podían coexistir y los tres ritmos de esta fase eran
+      // imposibles. Ahora conviven, uno por ritmo.
+      const ritmo = dto.ritmo || 'adhoc';
       const openExisting = await trx('commercial.inventory_counts')
-        .where({ warehouse_id: dto.warehouse_id })
-        .whereIn('status', ['open', 'counting', 'review', 'ready_to_reconcile'])
+        .where({ warehouse_id: dto.warehouse_id, ritmo })
+        .whereIn('status', VIVOS)
         .first();
       if (openExisting)
         throw new ConflictException(
-          `Ya existe un folio de inventario abierto para este almacén (${openExisting.folio}). Ciérralo o cancélalo primero.`,
+          `Ya existe un folio ${ritmo} abierto para este almacén (${openExisting.folio}). Ciérralo o cancélalo primero.`,
+        );
+
+      // ── [IC.15] ⛔ Y el freno que aflojar el índice OBLIGA a poner ────────────────────
+      //
+      // Permitir N folios vivos abre una puerta que antes estaba cerrada **por accidente**:
+      // que el MISMO SKU esté en dos folios vivos a la vez. Dos personas lo cuentan por
+      // separado, los dos folios se resuelven, y el segundo ajuste pisa al primero — un
+      // descuadre fabricado por el sistema, imposible de distinguir de una merma real.
+      //
+      // No puede ser un índice: tendría que mirar la tabla de ítems Y el estado del folio
+      // padre, y un índice parcial no cruza tablas. Va acá, antes de crear nada.
+      const choque = await trx('commercial.inventory_count_items as i')
+        .join('commercial.inventory_counts as c', 'c.id', 'i.count_id')
+        .where('c.warehouse_id', dto.warehouse_id)
+        .whereIn('c.status', VIVOS)
+        .modify((qb) => { if (subset) qb.whereIn('i.product_id', dto.product_ids as string[]); })
+        .select('c.folio')
+        .count<{ folio: string; n: string }[]>('* as n')
+        .groupBy('c.folio')
+        .first();
+      if (choque)
+        throw new ConflictException(
+          `${choque.n} de los productos a contar ya están en el folio vivo ${choque.folio}. `
+            + 'Un SKU no puede estar en dos conteos a la vez: el segundo ajuste pisaría al primero.',
         );
 
       // ── [IC.1] De dónde sale el TEÓRICO contra el que se va a contar ──────────────────
@@ -234,6 +282,7 @@ export class InventoryCountService {
           warehouse_id: dto.warehouse_id,
           folio,
           type,
+          ritmo,
           status: 'counting',
           freeze_movements: freeze,
           blind_double_count: blind,
@@ -356,6 +405,7 @@ export class InventoryCountService {
     return this.openCount({
       warehouse_id: dto.warehouse_id,
       type: 'cycle',
+      ritmo: dto.ritmo,
       freeze_movements: dto.freeze_movements ?? false, // cíclico NO congela el almacén por default
       blind_double_count: dto.blind_double_count,
       recount_threshold_pct: dto.recount_threshold_pct,

@@ -381,7 +381,56 @@ SKUs/hora anotada. **Sin esto, lo de abajo se construye a ciegas.**
 
 ---
 
-### `[IC.15]` — Tres ritmos en el mismo almacén · ⛔ ruta crítica
+### `[IC.15]` — Tres ritmos en el mismo almacén · 🚀 EN PROD (batch 803, 2026-10-07)
+
+**Aplicado.** Era el prerequisito real de `[IC.22]`: la pantalla de los tres ritmos dice «filtrar
+por `ritmo`» y **esa columna no existía**. El índice medido en prod era el bloqueo:
+
+```text
+commercial_inv_counts_one_open_per_wh
+  UNIQUE (tenant_id, warehouse_id) WHERE status IN (open, counting, review, ready_to_reconcile)
+```
+
+**Un folio vivo por almacén, punto.** La llave pasa a **`(tenant_id, warehouse_id, ritmo)`**.
+
+⭐ **`ritmo` es un eje ORTOGONAL a `type`, no un reemplazo.** `type` contesta *¿todo o un
+subconjunto?*; `ritmo` contesta *¿cada cuándo y para qué?*:
+
+| | `type` | `ritmo` |
+|---|---|---|
+| conteo diario de alta rotación | `cycle` | `diario` |
+| barrido mensual del complemento | `cycle` | `mensual` |
+| físico completo de Kepler | `full` | `trimestral` |
+
+Meterlos en una columna es el `CASE` que le miente a una de las dos — el mismo error que
+`v_count_priority_score`, donde `s_venta` y `s_parado` se suman y el resultado no es ninguno.
+
+⛔ **Los 6 folios previos NO se re-etiquetaron.** Son `type='full'` y daba tentación marcarlos
+`trimestral`, pero **nunca corrieron como el trimestral**: fueron intentos cancelados en junio.
+Van a `adhoc`, que es lo que de verdad son. *Inventarle un ritmo retroactivo a un folio es dibujar
+historia que no ocurrió* (ADR-056). El candado lo vigila.
+
+⚠️ **Aflojar el índice abrió una puerta que estaba cerrada por accidente:** que el **mismo SKU esté
+en dos folios vivos a la vez**. Dos personas lo cuentan por separado, los dos folios se resuelven y
+el segundo ajuste pisa al primero — **un descuadre fabricado por el sistema**, indistinguible de una
+merma real. El freno va en `openCount` y no en un índice, porque un índice parcial **no cruza
+tablas** (tendría que mirar los ítems *y* el estado del folio padre).
+
+**Candado** `test-newdb-inventory-ritmo.js`: **10 ✓ / 0 ✗ / 1 no medido**. El no medido se declara
+en vez de fingirse: la prueba negativa empírica —insertar dos folios vivos del mismo ritmo y ver el
+rechazo— **exige escribir**, y prod no es destino de escritura. Contra prod se verifica la
+**definición** del índice (UNIQUE sobre la terna admite dos ritmos **por definición**); contra un
+destino seguro el candado ejerce el índice de verdad y revierte.
+
+⚠️ Al aplicarla, **el candado de migraciones estaba tomado por otra sesión** (`CREATE MATERIALIZED
+VIEW analytics.mv_route_sales_monthly`, 34 s, desde otro pod). Se esperó. Forzar `migrate:unlock`
+habría abortado una migración ajena.
+
+**Falta:** redeploy para que el servicio acepte `ritmo` por API.
+
+---
+
+### `[IC.15]` — Alcance original (referencia)
 
 **El problema:** la llave de hoy es *un folio vivo por almacén*. Los ritmos diario y mensual chocan.
 
