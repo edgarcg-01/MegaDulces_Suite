@@ -2046,9 +2046,11 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   en el contrato (`comisionesDeLaGuia` / `erroresDeTarifa`) y la leen la hoja (botón) y la API (400);
   la API además rechaza una comisión tecleada distinta. Emparejamiento por `kepler_code` o nombre
   EXACTO (`SANTAGIO TANGAMNADAPIO` ≠ `TANGAMANDAPIO`: no se adivina).
-- [ ] **[EMB.14]** ⬜ **Tarifas de viáticos sin configurar** (`logistics.config_finance` no tiene la
-  categoría `viatico` en la base local): la hoja pide el total a mano. Configurarlas activa el
-  checklist persona × comida que ya existe en la pantalla.
+- [ ] **[EMB.14]** ⚠️ **Tarifas de viáticos sin configurar** (`logistics.config_finance` no tiene la
+  categoría `viatico` en la base local; prod sin medir). Desde EMB.19 ya no hay total a mano: si el
+  horario da una comida y su tarifa falta, la guía **no se crea** y dice cuál falta. Se capturan en
+  Logística › Configuración › Viáticos (los valores de la beta, sembrados por `logistics_baseline.js`:
+  café 50 · desayuno 100 · comida 100 · cena 100).
 - [ ] **[EMB.15]** ⬜ **El traspaso SÍ tiene confirmación de llegada en Kepler**: la recepción
   `U-A-50` en la sucursal destino guarda `c10` = sucursal origen (`TI###`) y `c37/c38/c39` = el
   `U-D-41-2` exacto que la envió. Medido Padre Hidalgo → Canindo: 18 de 19 con recepción, mismo
@@ -2066,9 +2068,30 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   tarifa de «SAN FRANCISCO / PURISIMA DEL RINCON» existe con ese nombre combinado y Kepler las trae
   separadas. Se capturan en Logística › Configuración › Comisiones. Kepler NO tiene tarifas (sólo lo
   pagado como gasto, conceptos 075/128, desde 24-sep y sólo en Canindo, sin chofer ni guía en el texto).
-- [ ] **[EMB.18]** ⬜ **Lo demás de la beta de Logística que no se implementó**: viáticos por horario
-  (café $50 si sale antes de 6:00 · desayuno $100 antes de 7:00 · comida $100 si llega después de
-  15:00 · cena $100 si duerme o llega después de 20:00), carga de salida ($30 por cargador), descarga
+- [x] **[EMB.19]** 🧪 **«Nueva guía» ya no se teclea: comisión y viáticos calculados y bloqueados**
+  (2026-10-07, decidido con el usuario). Tres lugares crean guía y los tres siguen la misma regla:
+  la hoja de «Nuevo embarque» (Kepler), el diálogo «Nueva guía» del detalle y la sección «Asignar
+  guía» del embarque manual. **Embarque de Kepler:** no hay «Nueva guía» — su guía sale de la hoja,
+  con sus paradas (la API responde 409). **Manual:** se eligen chofer, ayudantes y horario; la
+  comisión sale de la tarifa de la **ruta del embarque** (sin ruta o sin tarifa no se crea) y los
+  viáticos del **horario** con la regla de la beta (`aplicarSugerenciasHorario`): café si sale antes
+  de 6:00 · desayuno antes de 7:00 · comida si llega después de 15:00 · cena si duerme fuera o llega
+  después de 20:00, a cada persona que va. En la beta el horario sólo SUGERÍA las casillas; aquí van
+  bloqueadas. Sin hora, o con la tarifa de una comida que toca en 0, no se crea (un 0 es no pagar).
+  La regla vive en el contrato (`viaticos-guia.contract.ts`: `viaticosDeLaGuia`,
+  `erroresDeGuiaManual`) y la leen pantalla y API; la API rechaza un monto tecleado distinto (400) y
+  un PATCH que cambie tripulación, horario, comisión o viáticos (409: se cancela y se crea otra). Se
+  guardan `departure_time`, `arrival_time` y el cálculo completo en `per_diem_breakdown` (horario,
+  tarifas, comidas por persona). Sin migraciones: las columnas ya existían.
+- [ ] **[EMB.20]** ⚠️ **Liquidaciones no paga los viáticos que la guía calcula.**
+  `logistics-payroll.service.ts` suma `per_diem_total` **sólo si `overnight`** y **sólo al chofer**
+  (decisión «beta, intencional» de su docblock). Con la regla de horario (EMB.19), una salida a las
+  5:30 sin dormir fuera calcula café + desayuno para chofer y ayudantes, y la liquidación paga $0; y
+  el viático de los ayudantes nunca se paga. El desglose por persona ya se guarda en
+  `per_diem_breakdown` (`driver/helper1/helper2.subtotal`). **Decisión de Logística/Finanzas
+  pendiente**: no se cambió porque mueve lo que se paga.
+- [ ] **[EMB.18]** ⬜ **Lo demás de la beta de Logística que no se implementó** (los viáticos por
+  horario ya entraron con EMB.19): carga de salida ($30 por cargador), descarga
   de regreso ($1 por caja, reparto igual) y maniobra LAB (monto en reparto igual). Y la comisión de
   **repartidor** del catálogo original, que la tabla de rutas no guarda.
 - [ ] **[EMB.8]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el

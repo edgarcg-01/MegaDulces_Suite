@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import type {
-  KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado,
+  KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody,
 } from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -183,6 +183,9 @@ export interface DeliveryGuide {
   helper1_commission: number;
   helper2_id?: string | null;
   helper2_commission: number;
+  /** EMB.19 — el horario del que salieron los viáticos (`HH:MM:SS` como lo devuelve Postgres). */
+  departure_time?: string | null;
+  arrival_time?: string | null;
   overnight: boolean;
   per_diem_total: number;
   per_diem_breakdown?: any;
@@ -1222,12 +1225,8 @@ export class LogisticaService {
   getGuide(id: string) {
     return this.http.get<DeliveryGuide>(`${this.base}/guides/${id}`);
   }
-  createGuide(body: Partial<DeliveryGuide> & {
-    shipment_id: string;
-    auto_commissions?: boolean;
-    auto_per_diem?: boolean;
-    per_diem_breakdown?: any;
-  }) {
+  /** EMB.19 — sólo tripulación y horario: comisión y viáticos los calcula la API. */
+  createGuide(body: NuevaGuiaBody) {
     return this.http.post<DeliveryGuide>(`${this.base}/guides`, body);
   }
   updateGuide(id: string, body: Partial<DeliveryGuide>) {

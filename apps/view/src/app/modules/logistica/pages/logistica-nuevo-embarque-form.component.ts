@@ -9,20 +9,23 @@ import { catchError } from 'rxjs/operators';
 import {
   ConfigItem, Driver, LogisticaService, NuevoEmbarqueHoja, TomaKeplerBody,
 } from '../logistica.service';
-import { comisionesDeLaGuia, erroresDeTarifa } from '@megadulces/contracts';
+import type { TarifasViatico } from '@megadulces/contracts';
+import {
+  comisionesDeLaGuia, erroresDeTarifa, erroresDeViaticos, tarifasDeViatico, viaticosDeLaGuia,
+} from '@megadulces/contracts';
 import { datosDeKepler } from '../components/kepler-hoja.component';
 import { KeplerParadasComponent } from '../components/kepler-paradas.component';
-
-type Persona = 'driver' | 'helper1' | 'helper2';
-type Comida = 'cafe' | 'desayuno' | 'comida' | 'cena';
-export const COMIDAS: Comida[] = ['cafe', 'desayuno', 'comida', 'cena'];
+import { GuiaCalculadaComponent, PersonaDeLaGuia } from '../components/guia-calculada.component';
 
 export interface CapturaEmbarque {
   delivery_type: 'route' | 'long_trip' | null;
   driver_id: string | null;
   helper1_id: string | null;
   helper2_id: string | null;
-  per_diem_total: number | null;
+  /** EMB.19 — el horario (`HH:MM`): de él salen los viáticos, que no se teclean. */
+  departure_time: string;
+  arrival_time: string;
+  /** Se queda a dormir fuera: da cena. */
   overnight: boolean;
   freight_revenue: number | null;
   actual_km: number | null;
@@ -38,6 +41,7 @@ export interface CapturaEmbarque {
 export function erroresDeCaptura(
   c: CapturaEmbarque,
   h: Pick<NuevoEmbarqueHoja, 'chofer' | 'tomado' | 'comision' | 'resumen'>,
+  tarifas: TarifasViatico | null,
 ): string[] {
   const e: string[] = [];
   if (h.tomado) e.push(`Este viaje ya se tomó en el embarque ${h.tomado.folio}.`);
@@ -48,7 +52,6 @@ export function erroresDeCaptura(
   if (c.helper1_id && c.helper1_id === c.helper2_id) e.push('Ayudante 1 y ayudante 2 son la misma persona.');
   if (c.helper2_id && !c.helper1_id) e.push('Captura primero al ayudante 1.');
   const montos: Array<[number | null, string]> = [
-    [c.per_diem_total, 'Los viáticos'],
     [c.freight_revenue, 'El flete cobrado'],
     [c.total_weight_kg, 'El peso'],
   ];
@@ -60,33 +63,28 @@ export function erroresDeCaptura(
   }
   // La comisión se calcula de la tarifa de las rutas: si falta una, no se crea (misma regla que la API).
   e.push(...erroresDeTarifa(h.comision, h.resumen.paradas_sin_ruta, { helper1: !!c.helper1_id, helper2: !!c.helper2_id }));
+  // Los viáticos se calculan del horario (EMB.19): sin horario, o sin la tarifa de una comida que
+  // toca, no se crea — misma regla que la API. Si no se pudieron leer las tarifas, se dice.
+  if (!tarifas) e.push('No se pudieron leer las tarifas de viáticos. Recarga la página.');
+  else e.push(...erroresDeViaticos(horarioDe(c), tarifas));
   return e;
 }
 
-/** Total de viáticos desde el checklist persona × comida y las tarifas de `config_finance`. */
-export function totalViaticos(
-  marcas: Record<Persona, Record<Comida, boolean>>,
-  tarifas: Record<Comida, number>,
-  personas: Persona[],
-): number {
-  let t = 0;
-  for (const p of personas) for (const m of COMIDAS) if (marcas[p]?.[m]) t += Math.round((tarifas[m] || 0) * 100);
-  return t / 100;
+/** El horario capturado, en la forma de la regla de viáticos. */
+export function horarioDe(c: Pick<CapturaEmbarque, 'departure_time' | 'arrival_time' | 'overnight'>) {
+  return { salida: c.departure_time || null, llegada: c.arrival_time || null, duerme_fuera: !!c.overnight };
 }
 
 /** El cuerpo que se manda: sólo lo que se capturó; null en lo que no se tocó. */
-export function cuerpoDeToma(
-  c: CapturaEmbarque,
-  extra: { per_diem_breakdown?: unknown } = {},
-): TomaKeplerBody {
+export function cuerpoDeToma(c: CapturaEmbarque): TomaKeplerBody {
   const num = (v: number | null) => (v == null || (v as unknown) === '' ? null : Number(v));
   return {
     delivery_type: c.delivery_type ?? 'route',
     driver_id: c.driver_id || null,
     helper1_id: c.helper1_id || null,
     helper2_id: c.helper2_id || null,
-    per_diem_total: num(c.per_diem_total),
-    ...(extra.per_diem_breakdown ? { per_diem_breakdown: extra.per_diem_breakdown } : {}),
+    departure_time: c.departure_time || null,
+    arrival_time: c.arrival_time || null,
     overnight: !!c.overnight,
     freight_revenue: num(c.freight_revenue),
     actual_km: num(c.actual_km),
@@ -106,7 +104,7 @@ export function cuerpoDeToma(
 @Component({
   selector: 'app-logistica-nuevo-embarque-form',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, SkeletonModule, KeplerParadasComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, SkeletonModule, KeplerParadasComponent, GuiaCalculadaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page hj">
@@ -226,44 +224,22 @@ export function cuerpoDeToma(
           </section>
 
           <section class="hj-sec" aria-labelledby="hj-s-com">
-            <h2 id="hj-s-com">Comisiones y viáticos</h2>
+            <h2 id="hj-s-com">Horario, comisión y viáticos</h2>
             <div class="hj-grid">
-              @let k = comisiones();
-              <dl class="hj-f"><dt>Comisión chofer</dt><dd class="hj-lock hj-num">{{ k ? (k.driver_commission | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</dd></dl>
-              <dl class="hj-f"><dt>Comisión ayudante 1</dt><dd class="hj-lock hj-num">{{ k && c.helper1_id ? (k.helper1_commission | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</dd></dl>
-              <dl class="hj-f"><dt>Comisión ayudante 2</dt><dd class="hj-lock hj-num">{{ k && c.helper2_id ? (k.helper2_commission | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</dd></dl>
-            </div>
-            @if (hayTarifas()) {
-              <div class="hj-table-wrap">
-                <table class="hj-pd">
-                  <caption class="sr-only">Viáticos por persona y comida</caption>
-                  <thead>
-                    <tr><th scope="col">Persona</th>
-                      @for (m of comidas; track m) { <th scope="col">{{ etiquetaComida(m) }}<span class="hj-rate">{{ tarifas()[m] | currency:'MXN':'symbol-narrow':'1.2-2' }}</span></th> }
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (p of personasViaje(); track p.key) {
-                      <tr>
-                        <th scope="row">{{ p.label }}</th>
-                        @for (m of comidas; track m) {
-                          <td><input type="checkbox" [attr.aria-label]="etiquetaComida(m) + ' ' + p.label" [ngModel]="marcas[p.key][m]" (ngModelChange)="marcar(p.key, m, $event)" /></td>
-                        }
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            }
-            <div class="hj-grid">
-              <label class="hj-f" for="hj-pd">
-                <span>Viáticos</span>
-                <input id="hj-pd" class="hj-txt" type="number" min="0" step="0.01" name="pd" [(ngModel)]="c.per_diem_total" (ngModelChange)="tocar()" [readonly]="hayTarifas()" placeholder="0.00" />
+              <label class="hj-f" for="hj-sal">
+                <span>Hora de salida</span>
+                <input id="hj-sal" class="hj-txt" type="time" name="sal" [(ngModel)]="c.departure_time" (ngModelChange)="tocar()" />
+              </label>
+              <label class="hj-f" for="hj-lleg">
+                <span>Hora de llegada (estimada)</span>
+                <input id="hj-lleg" class="hj-txt" type="time" name="lleg" [(ngModel)]="c.arrival_time" (ngModelChange)="tocar()" />
               </label>
               <label class="hj-check" for="hj-pern">
-                <input id="hj-pern" type="checkbox" name="pern" [(ngModel)]="c.overnight" (ngModelChange)="tocar()" /> Pernocta
+                <input id="hj-pern" type="checkbox" name="pern" [(ngModel)]="c.overnight" (ngModelChange)="tocar()" /> Se queda a dormir fuera
               </label>
             </div>
+            <app-guia-calculada [personas]="personasGuia()" [comisiones]="comisiones()"
+              [viaticos]="viaticos()" [tarifas]="tarifas()"></app-guia-calculada>
           </section>
 
           <section class="hj-sec" aria-labelledby="hj-s-alm">
@@ -332,22 +308,15 @@ export function cuerpoDeToma(
     .hj-txt, .hj-f select, .hj-f textarea { width: 100%; background: var(--c-surface-1); border: 1px solid var(--c-divider); }
     .hj-txt:disabled, .hj-f select:disabled { opacity: .55; }
     .hj-txt:focus-visible, .hj-f select:focus-visible, .hj-f textarea:focus-visible,
-    .hj-radio input:focus-visible, .hj-check input:focus-visible, .hj-pd input:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .hj-radio input:focus-visible, .hj-check input:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
     .hj-mono { font-family: var(--font-mono); }
     .hj-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 
     .hj-radios { display: flex; flex-wrap: wrap; gap: .5rem; }
     .hj-radio { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.25rem; padding: 0 .75rem; border: 1px solid var(--c-divider); border-radius: var(--r-sm); font-size: var(--fs-sm); cursor: pointer; }
     .hj-radio.act { border-color: var(--action); background: var(--ember-soft); }
-    .hj-radio input, .hj-check input, .hj-pd input { accent-color: var(--action); }
+    .hj-radio input, .hj-check input { accent-color: var(--action); }
     .hj-check { display: inline-flex; align-items: center; gap: .5rem; align-self: end; min-height: 2.25rem; font-size: var(--fs-sm); color: var(--c-text-1); }
-
-    .hj-table-wrap { overflow-x: auto; }
-    .hj-pd { border-collapse: collapse; font-size: var(--fs-sm); }
-    .hj-pd th, .hj-pd td { padding: .35rem .6rem; text-align: center; }
-    .hj-pd th[scope="row"] { text-align: left; font-weight: var(--fw-medium); }
-    .hj-pd thead th { font-size: var(--fs-micro); text-transform: uppercase; letter-spacing: .04em; color: var(--c-text-2); font-weight: var(--fw-medium); }
-    .hj-rate { display: block; font-family: var(--font-mono); text-transform: none; letter-spacing: 0; }
 
     .hj-foot { padding: 1rem; display: flex; flex-wrap: wrap; gap: .75rem 1rem; align-items: center; justify-content: flex-end; }
     .hj-faltan { margin-right: auto; font-size: var(--fs-xs); color: var(--bad-soft-fg); }
@@ -364,26 +333,21 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
 
-  readonly comidas = COMIDAS;
   readonly cargando = signal(true);
   readonly guardando = signal(false);
   readonly errorCarga = signal<string | null>(null);
   readonly errorServidor = signal<string | null>(null);
   readonly hoja = signal<NuevoEmbarqueHoja | null>(null);
   readonly personas = signal<Driver[]>([]);
-  readonly tarifas = signal<Record<Comida, number>>({ cafe: 0, desayuno: 0, comida: 0, cena: 0 });
+  /** Tarifas de viático por comida. null = no se pudieron leer (no es «sin tarifa»). */
+  readonly tarifas = signal<TarifasViatico | null>(null);
   /** Señal de «algo cambió en la captura»: los computed de abajo dependen de ella. */
   private readonly version = signal(0);
 
   c: CapturaEmbarque = {
     delivery_type: null, driver_id: null, helper1_id: null, helper2_id: null,
-    per_diem_total: null, overnight: false, freight_revenue: null, actual_km: null,
+    departure_time: '', arrival_time: '', overnight: false, freight_revenue: null, actual_km: null,
     total_weight_kg: null, notes: '',
-  };
-  marcas: Record<Persona, Record<Comida, boolean>> = {
-    driver: { cafe: false, desayuno: false, comida: false, cena: false },
-    helper1: { cafe: false, desayuno: false, comida: false, cena: false },
-    helper2: { cafe: false, desayuno: false, comida: false, cena: false },
   };
 
   /** La comisión de la guía, CALCULADA de la tarifa del viaje. null = falta una tarifa (no se adivina). */
@@ -396,6 +360,23 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
       ? null
       : comisionesDeLaGuia(h.comision, ayudantes);
   });
+  /** Los viáticos, CALCULADOS del horario (regla de la beta). null = falta algo para calcularlos. */
+  readonly viaticos = computed(() => {
+    this.version();
+    const t = this.tarifas();
+    const h = horarioDe(this.c);
+    if (!t || erroresDeViaticos(h, t).length) return null;
+    const chofer = this.c.driver_id || this.hoja()?.chofer.driver_id;
+    return viaticosDeLaGuia(h, t, { driver: !!chofer, helper1: !!this.c.helper1_id, helper2: !!this.c.helper2_id });
+  });
+  readonly personasGuia = computed((): PersonaDeLaGuia[] => {
+    this.version();
+    const nombre = (id: string | null) => (id ? this.personas().find((p) => p.id === id)?.full_name ?? null : null);
+    const xs: PersonaDeLaGuia[] = [{ key: 'driver', rol: 'Chofer', nombre: this.datos()?.chofer ?? nombre(this.c.driver_id) }];
+    if (this.c.helper1_id) xs.push({ key: 'helper1', rol: 'Ayudante 1', nombre: nombre(this.c.helper1_id) });
+    if (this.c.helper2_id) xs.push({ key: 'helper2', rol: 'Ayudante 2', nombre: nombre(this.c.helper2_id) });
+    return xs;
+  });
   readonly datos = computed(() => {
     const h = this.hoja();
     return h ? datosDeKepler(h) : null;
@@ -407,38 +388,25 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
     return this.personas().filter((d) => d.active && d.id !== chofer
       && (d.roles?.includes('ayudante') || d.roles?.includes('cargador')));
   });
-  readonly hayTarifas = computed(() => COMIDAS.some((m) => (this.tarifas()[m] || 0) > 0));
   readonly errores = computed(() => {
     this.version();
     const h = this.hoja();
-    return h ? erroresDeCaptura(this.c, h) : [];
+    return h ? erroresDeCaptura(this.c, h, this.tarifas()) : [];
   });
   readonly puedeCrear = computed(() => !!this.hoja() && !this.guardando() && this.errores().length === 0);
-  readonly personasViaje = computed(() => {
-    this.version();
-    const xs: Array<{ key: Persona; label: string }> = [{ key: 'driver', label: 'Chofer' }];
-    if (this.c.helper1_id) xs.push({ key: 'helper1', label: 'Ayudante 1' });
-    if (this.c.helper2_id) xs.push({ key: 'helper2', label: 'Ayudante 2' });
-    return xs;
-  });
-
   ngOnInit() {
     const sucursal = this.route.snapshot.paramMap.get('sucursal') || '';
     const guia = this.route.snapshot.paramMap.get('guia') || '';
     forkJoin({
       hoja: this.api.getNuevoEmbarque(sucursal, guia),
       personas: this.api.listDrivers({ active: true }).pipe(catchError(() => of([] as Driver[]))),
-      viatico: this.api.listConfig('viatico').pipe(catchError(() => of([] as ConfigItem[]))),
+      // Si no se pueden leer, null: la hoja lo dice en vez de tomarlo por «sin tarifa».
+      viatico: this.api.listConfig('viatico', true).pipe(catchError(() => of(null as ConfigItem[] | null))),
     }).subscribe({
       next: ({ hoja, personas, viatico }) => {
         this.hoja.set(hoja);
         this.personas.set(personas || []);
-        const t: Record<Comida, number> = { cafe: 0, desayuno: 0, comida: 0, cena: 0 };
-        for (const v of viatico || []) {
-          const m = v.key.replace(/^viatico_/, '') as Comida;
-          if (COMIDAS.includes(m)) t[m] = Number(v.value) || 0;
-        }
-        this.tarifas.set(t);
+        this.tarifas.set(viatico ? tarifasDeViatico(viatico) : null);
         this.cargando.set(false);
         this.tocar();
       },
@@ -454,25 +422,9 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
   tocar() { this.version.update((v) => v + 1); }
 
   alElegirAyudante(quien: 'helper1' | 'helper2') {
-    // Sin ayudante 1 no hay ayudante 2. Las comisiones no se tocan aquí: se calculan (`comisiones`).
+    // Sin ayudante 1 no hay ayudante 2. Comisión y viáticos no se tocan aquí: se calculan.
     if (quien === 'helper1' && !this.c.helper1_id) this.c.helper2_id = null;
-    this.recalcularViaticos();
     this.tocar();
-  }
-
-  marcar(p: Persona, m: Comida, v: boolean) {
-    this.marcas = { ...this.marcas, [p]: { ...this.marcas[p], [m]: v } };
-    this.recalcularViaticos();
-    this.tocar();
-  }
-
-  private recalcularViaticos() {
-    if (!this.hayTarifas()) return;
-    this.c.per_diem_total = totalViaticos(this.marcas, this.tarifas(), this.personasViaje().map((x) => x.key));
-  }
-
-  etiquetaComida(m: Comida): string {
-    return { cafe: 'Café', desayuno: 'Desayuno', comida: 'Comida', cena: 'Cena' }[m];
   }
 
   crear() {
@@ -480,7 +432,7 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
     const h = this.hoja();
     if (!h || this.errores().length) return;
     this.guardando.set(true);
-    const body = cuerpoDeToma(this.c, this.hayTarifas() ? { per_diem_breakdown: this.marcas } : {});
+    const body = cuerpoDeToma(this.c);
     this.api.createShipmentFromKepler(h.viaje.sucursal, h.viaje.guia, body).subscribe({
       next: (r) => {
         this.guardando.set(false);

@@ -192,9 +192,9 @@ export interface NuevoEmbarqueHoja {
 }
 
 /**
- * Lo que el coordinador captura al tomar el viaje: sólo lo que Kepler no tiene. Las comisiones
- * NO van: se calculan de la tarifa de las rutas del viaje (`comisionesDeLaGuia`), y la API
- * rechaza una capturada que no coincida.
+ * Lo que el coordinador captura al tomar el viaje: sólo lo que Kepler no tiene. Comisión y
+ * viáticos NO van: la comisión sale de la tarifa de las rutas del viaje (`comisionesDeLaGuia`) y
+ * los viáticos del horario (`viaticosDeLaGuia`, EMB.19); la API rechaza un monto que no coincida.
  */
 export interface TomaKeplerBody {
   delivery_type: 'route' | 'long_trip';
@@ -202,8 +202,10 @@ export interface TomaKeplerBody {
   driver_id?: string | null;
   helper1_id?: string | null;
   helper2_id?: string | null;
-  per_diem_total?: number | null;
-  per_diem_breakdown?: unknown;
+  /** Hora de salida y de llegada (estimada), `HH:MM`: de ellas salen los viáticos. */
+  departure_time: string | null;
+  arrival_time: string | null;
+  /** Se queda a dormir fuera: da cena. */
   overnight?: boolean;
   freight_revenue?: number | null;
   actual_km?: number | null;
