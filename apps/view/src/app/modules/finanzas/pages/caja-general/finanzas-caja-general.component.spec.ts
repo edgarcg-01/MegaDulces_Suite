@@ -2337,6 +2337,40 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(body['venta_credito']).toBe(1000);
   });
 
+  // ── [CG.72] EL KPI NO CUENTA LOS CANCELADOS, Y LO DECLARA ─────────────────────────────────
+  //
+  // Encontrado en producción corriendo la pantalla: se guardó un movimiento de $20, se canceló, y
+  // el encabezado del libro siguió publicando ese gasto ($131,080 vs $131,060 reales). El importe
+  // lo arregla el servidor; lo que se prueba acá es que la pantalla EXPLIQUE la diferencia —
+  // porque la lista sí muestra los cancelados y, sin el aviso, el encabezado se lee como un error.
+
+  it('⭐ [CG.72] la tira declara la parte cancelada, que NO está en los importes', () => {
+    montar();
+    comp.kpiRaw.set({ movimientos: 3, ingresos: 0, gastos: 131060, depositos: 0, cancelados: 1, monto_cancelado: 20 });
+    const tira = comp.kpis();
+    const movs = tira.find((i) => /movimientos/i.test(i.label))!;
+    expect(movs.value).toBe('3');                       // cuenta TODO: describe la lista
+    expect(movs.sub, 'no dice nada de los cancelados').toBeTruthy();
+    expect(movs.sub).toContain('1 cancelado');
+    expect(movs.sub).toContain('20');
+    expect(movs.sub).toMatch(/fuera de los importes/i); // y dice POR QUÉ no cuadra con la suma
+    // El importe es el del servidor, sin recalcular: la pantalla no arbitra el dinero.
+    expect(tira.find((i) => /gastos/i.test(i.label))!.value).toContain('131,060');
+  });
+
+  it('[CG.72] [negativa] sin cancelados NO se dibuja un "0 cancelados"', () => {
+    // Un aviso permanente que casi siempre dice cero entrena a no leer los avisos.
+    montar();
+    comp.kpiRaw.set({ movimientos: 2, ingresos: 500, gastos: 0, depositos: 0, cancelados: 0, monto_cancelado: 0 });
+    expect(comp.kpis().find((i) => /movimientos/i.test(i.label))!.sub).toBeUndefined();
+  });
+
+  it('[CG.72] el plural se dice bien con más de uno', () => {
+    montar();
+    comp.kpiRaw.set({ movimientos: 9, ingresos: 0, gastos: 100, depositos: 0, cancelados: 3, monto_cancelado: 75.5 });
+    expect(comp.kpis().find((i) => /movimientos/i.test(i.label))!.sub).toContain('3 cancelados');
+  });
+
   // ── [CG.71] EL SALDO DE LA CAJA SE VE ─────────────────────────────────────────────────────
   //
   // Pedido: "hay que agregar un apartado para ver el saldo actual de la caja chica". No faltaba

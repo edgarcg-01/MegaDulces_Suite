@@ -187,7 +187,7 @@ export interface ReporteDia {
   tipo?: string | null;          // filtro de tipo activo, si hay
   busqueda?: string | null;      // término de búsqueda activo, si hay
   movimientos: ReporteDiaMovimiento[];
-  totales: { movimientos: number; ingresos: number; gastos: number; depositos: number };
+  totales: { movimientos: number; ingresos: number; gastos: number; depositos: number; cancelados?: number; monto_cancelado?: number };
   generado_por?: string | null;
   truncado?: boolean;            // si la lista vino topada (hay más de los que caben)
 }
@@ -228,6 +228,13 @@ export function cuerpoReporteDia(r: ReporteDia): string {
   L.push(linea());
   const neto = r.totales.ingresos - r.totales.gastos - r.totales.depositos;
   L.push(fila('NETO', money(neto)));
+  // `[CG.72]` Los tres importes son de lo VIVO. Los cancelados se listan arriba (son auditoria) y
+  // por eso la suma de los renglones NO da el total: se dice aca, en el papel, o el que cuadre a
+  // mano va a pensar que el ticket esta mal. Solo si hay alguno.
+  if ((r.totales.cancelados ?? 0) > 0) {
+    L.push(fila('Cancelados', String(r.totales.cancelados)));
+    L.push(fila('  fuera del total', money(r.totales.monto_cancelado ?? 0)));
+  }
 
   L.push('');
   L.push(linea());

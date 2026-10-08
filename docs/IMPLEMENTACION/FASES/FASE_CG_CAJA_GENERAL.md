@@ -2634,3 +2634,62 @@ exactamente lo que había*.
 
 ⚠️⚠️ **Octava vez que un acento grave en un comentario rompe el build**, dos en esta sesión. Lo
 agarró `check:templates`, que además señaló la línea exacta.
+
+---
+
+## §33 · `[CG.72]` — el KPI del libro sumaba los cancelados (2026-10-08)
+
+**Lo encontró el E2E, no una compuerta.** Corriendo la pantalla de verdad en producción se guardó
+un movimiento de prueba (`CG-2026-00003`, gasto $20, autorizado por Edgar), se canceló con motivo,
+y el encabezado del libro **siguió publicando ese gasto**.
+
+Medido contra prod, lectura pura, antes de tocar nada:
+
+| | |
+|---|---|
+| `estado` de `finance.cash_ledger` | **NOT NULL**, default `registrado` |
+| estados presentes | `registrado` 2 · `cancelado` 1 |
+| `gastos` que publicaba | **$131,080.00** |
+| suma de los **no** cancelados | **$131,060.00** |
+| diferencia | **$20.00** — exactamente el movimiento cancelado |
+
+Un cancelado es, por definición, dinero que **no se movió**: sumarlo en «Gastos» publica una salida
+de caja que no existió. Hoy el libro tiene 3 filas y el daño son $20; con volumen, cada cancelación
+infla el gasto del período.
+
+### ⭐ El arreglo no es sólo restar
+
+El principio del método es correcto y había que conservarlo — *«KPIs del mismo filtro: el
+encabezado no puede contar otra cosa»* — porque **la lista sí muestra los cancelados: son
+auditoría, no basura**. Si el encabezado resta en silencio, «3 movimientos · Gastos $131,060»
+contra una lista de 3 filas que suman $131,080 se lee como un error de la pantalla.
+
+Así que el encabezado sigue describiendo lo que se ve, pero **declara** la parte cancelada en vez
+de mezclarla con el dinero (ADR-056):
+
+- `movimientos` cuenta **todo** (describe la lista).
+- `cancelados` y `monto_cancelado` dicen **cuánto de eso no es dinero**.
+- Los tres importes son de lo **vivo**.
+- La tira lo dice: *«incluye 1 cancelado por $20.00, fuera de los importes»* — y **no** se dibuja
+  un «0 cancelados» permanente, que entrena a no leer los avisos.
+- El **ticket impreso** también lo declara: lista esos renglones, así que sin el aviso el que
+  cuadre a mano concluye que el papel está mal.
+
+⚠️ `estado IS DISTINCT FROM 'cancelado'` y no `<>`: hoy la columna es NOT NULL (verificado), pero
+con `<>` un `NULL` futuro saldría de los tres importes **en silencio** — el gasto publicado
+empezaría a faltar sin que nada se rompa.
+
+### Candados
+
+- **Frontend (242 pruebas, corre ya):** la tira declara la parte cancelada · no dibuja el cero ·
+  el plural. **Mutación** —volver a no declarar— **roja, 2 pruebas**.
+- **Backend (`test-newdb-cash-ledger.js`, §7bis):** inserta un vivo de $100 y un cancelado de $20
+  en una transacción que se revierte, corre **el SQL exacto del servicio** y exige `gastos = 100`,
+  `cancelados = 1`, `monto_cancelado = 20`, `movimientos = 2`, más la nullability de la columna.
+  Con **placebo**: la forma vieja sobre las mismas filas debe dar **120**, o el candado estaría
+  midiendo que no hay datos en vez de que la regla funciona.
+
+⚠️ **El bloque de backend NO se pudo correr acá** (no hay DB de desarrollo en esta máquina y la
+regla prohíbe levantar el backend). Lo que sí se hizo: validar el SQL **leyendo prod** —de ahí
+salen los $131,080 → $131,060— y dejar el bloque en la suite para que corra donde sí hay DB.
+No se reporta como ✔ lo que no se ejecutó.
