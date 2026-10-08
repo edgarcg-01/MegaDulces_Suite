@@ -370,6 +370,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
           { id: 'cartera', label: 'Crédito de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
+          // [ECA.2] Estado de cuenta de acreedores. Sólo lectura (los pagos se aplican en Kepler):
+          // reusa FINANCE_PAYMENTS_VER, sin permiso nuevo → sin migración ni re-login. Va ANTES de
+          // `calendario-pagos` a propósito: la "casa" de una clave es el ÚLTIMO módulo que la usa
+          // (`indiceDeClaves`), y la de FINANCE_PAYMENTS_VER debe seguir siendo el Calendario.
+          { id: 'estado-cuenta-acreedores', label: 'Estado de cuenta de acreedores', route: '/finanzas/estado-cuenta-acreedores', view: [Permission.FINANCE_PAYMENTS_VER], manage: [] },
           // Fase TP (ADR-064) — el calendario prospectivo (asigna obligaciones ya
           // autorizadas a un día, dentro de la capacidad de Presupuestos). Reusa
           // FINANCE_PAYMENTS_* (misma familia que Programa de Pagos/Pagos a proveedor).

@@ -175,6 +175,16 @@ Y se actualiza el símbolo al avanzar:
 - [x] **[VEC.5]** 🔨 **EN CÓDIGO 2026-10-06** — `POST /reparto/surtido/waves/auto`: el **pedido global** en un clic. ⭐ **Deliberadamente NO es un cron ni se dispara en `place()`**, aunque el pedido lo pedía literal: el primer pedido del día crearía una ola de **un renglón** (consolidar por SKU sobre un pedido no consolida nada), y peor, un pedido de las 11:40 se sumaría a una ola que alguien **ya está caminando** con la lista impresa. El aviso es inmediato, el armado es a demanda — decide quien va a caminar el almacén. Nunca toca una ola existente, **no crea olas vacías**, y el universo sale del **mismo `pool()`** que ve la pantalla. Carrera entre `pool()` y `createWave()` **declarada**: `createWave` ya tira 409 nombrando los pedidos, y un error ruidoso es mejor que una ola que se lleva algo que otro ya estaba caminando.
 - [ ] **[VEC.6]** ⚠️ **BLOQUEADO (Meta):** WhatsApp al encargado. El puerto nace **no-op y declarado** (patrón `FINANCE_NOTIFIER_PORT`) — mismo bloqueo de plantilla que `[OBS.5]`. Pintarlo como funcionando esconde que no llega.
 
+### Fase ECA — Estado de cuenta de acreedores · 2026-10-07 · plan en [`FASE_ECA`](FASES/FASE_ECA_ESTADO_CUENTA_ACREEDORES.md)
+
+- [x] **[ECA.0]** Decode medido en prod: `kdxe` documentos de CxP (`c3` A sube / D baja la deuda), `kdxf` casamiento cargo→abono (30,073 de 30,073 son D→A; cuadra al centavo con el reporte de Kepler de Mondelez), `kdxd.c13` = Grupo (11 códigos = los 11 del combo, nombres deducidos). Regla de tipo: `TI` interno · grupo 140/`A`/`B.B.`/`TC` financiero · `C` mercancía · `G` servicios (bancos `GB` incluidos: son comisiones). ✅ 2026-10-07
+- [x] **[ECA.1]** `GET /finance/creditor-statements` (+ `/:codigo`) + contrato, `FINANCE_PAYMENTS_VER` (sin migración). Motor puro, 11 pruebas con 2 negativas (mutación verificada). 676 acreedores en 489 ms; estado de cuenta de Mondelez en 38 ms. 🧪 2026-10-07
+- [x] **[ECA.2]** Pantalla `/finanzas/estado-cuenta-acreedores` (Finanzas › Pagos, junto a «Cuadre y deuda»): selector Mercancía · Servicios · Financieros, lista con saldo/vencido y estado de cuenta casado como el de Kepler. **Declara** los $59.9M de facturas de sucursal anteriores al 1-oct (Kepler $138.8M vs ContPAQi 2120 $79.4M). Validación visual pendiente. 🧪 2026-10-07
+- [ ] **[ECA.3]** Imprimir / exportar el estado de cuenta.
+- [ ] **[ECA.4]** Lente ContPAQi (2120/2140) por acreedor.
+- [ ] **[ECA.5]** Replicar al ODS el catálogo de nombres de grupo de proveedor.
+- [ ] **[ECA.6]** Revisar con Finanzas las facturas de sucursal anteriores al 1-oct sin pago aplicado. Créditos bancarios (Banorte, BBVA, Bajío, ~$26M) a dar de alta en Kepler con clave `A*` o grupo 140.
+
 ### Fase CSU — Cortes/Sucursales: corte de caja → cobro → ingreso · 2026-10-05 · plan en [`FASE_CSU`](FASES/FASE_CSU_CORTES_SUCURSALES.md)
 
 - [x] **[CSU.0]** Decode medido en prod: corte `U-D-23` = cargo a `CONTADO` en `kdue` (`c16`=`Caja <caja>-<folio>`), cobros por `kdm5`, arqueo del turno en `analytics.cash_cuts`. El monto del corte es lo **contado**, no lo vendido; el cuadre va por **turno**, no por día. ✅ 2026-10-05

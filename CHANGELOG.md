@@ -39,6 +39,12 @@
 - Nuevo script de sólo lectura `database/scripts/medir-frescura-kdm1.js` para medir cuántos vales ve la Suite atrasados contra Kepler.
 ### Added — Gastos: varios renglones en el detalle del método de pago (GX.74, 2026-10-07)
 - Al elegir tarjeta, transferencia, cheque u otro se pueden agregar varios renglones (dos tarjetas, dos referencias…), hasta 10; cada uno pasa la misma regla (4 dígitos en tarjeta).
+### Added — Estado de cuenta de acreedores, por tipo (ECA.0–ECA.2, 2026-10-07)
+- Nueva pantalla **Finanzas › Pagos › Estado de cuenta acreedores** (`/finanzas/estado-cuenta-acreedores`): el reporte «Estado de cuenta del proveedor» de Kepler para todos los acreedores, separado en **Mercancía · Servicios · Financieros**. Cada factura sale con las transferencias y notas de crédito que Kepler le aplicó y su saldo; aparte, los pagos sin aplicar.
+- El casamiento es el de Kepler (`kepler_ods.kdxf`), no una estimación: cuadra al centavo con el reporte de Kepler de Mondelez. Sólo lectura, sin importer ni tabla nueva.
+- El tipo sale de la clave del proveedor (`C` mercancía, `G` servicios, `A`/`TC`/`B.B.` y grupo 140 financieros); los bancos con comisiones van a Servicios.
+- **Declara** que $59.9M de lo pendiente de mercancía son facturas en el Kepler de una sucursal anteriores al 1-oct-2026 (cuando el 00 concentraba los pagos): Kepler suma $138.8M contra $79.4M de ContPAQi.
+- Usa `FINANCE_PAYMENTS_VER`: **sin migración ni re-login**.
 ### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
 - En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
 - **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.

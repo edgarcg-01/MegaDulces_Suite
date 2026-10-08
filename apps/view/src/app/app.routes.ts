@@ -592,6 +592,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // [ECA.2] Estado de cuenta de acreedores: cada documento de Kepler con sus pagos casados
+        // (kdxe + kdxf), separado en mercancía / servicios / financieros. Sólo lectura.
+        path: 'estado-cuenta-acreedores',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-estado-cuenta-acreedores.component').then(m => m.FinanzasEstadoCuentaAcreedoresComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         // PP.3 — Programa de Pagos (Tesorería): espejo del Excel de pagos.
         path: 'programa-pagos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-programa-pagos.component').then(m => m.FinanzasProgramaPagosComponent),
