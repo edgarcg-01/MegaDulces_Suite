@@ -93,11 +93,16 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
        WHERE i.indrelid = ?::regclass AND i.indisunique`, [MV])).rows[0];
     t('tiene índice UNIQUE', Number(idx.n) >= 1, `${idx.n} índices unique`);
 
+    // ⛔ NO se pregunta por `information_schema.role_table_grants`: **no lista matvistas**. Son
+    //    `relkind='m'`, que queda fuera del estándar SQL, así que esa vista devuelve CERO filas
+    //    para una MV con el GRANT perfectamente puesto. Escrito así primero, y contra prod dio
+    //    ✘ con `app_runtime=r/postgres` en el `relacl` — un gate que le pregunta al catálogo
+    //    equivocado inventa un problema, que es el reflejo exacto de uno que inventa un verde.
+    //    Se usa `has_table_privilege`, que contesta por el privilegio EFECTIVO (incluye lo
+    //    heredado por pertenencia a rol, que un recuento de filas tampoco vería).
     const grant = (await db.raw(`
-      SELECT count(*) AS n FROM information_schema.role_table_grants
-       WHERE table_schema='analytics' AND table_name='mv_sellout_budget_rollup'
-         AND grantee='app_runtime' AND privilege_type='SELECT'`)).rows[0];
-    t('`app_runtime` puede leerla (el API corre con ese rol)', Number(grant.n) >= 1);
+      SELECT has_table_privilege('app_runtime', ?::regclass, 'SELECT') AS puede`, [MV])).rows[0];
+    t('`app_runtime` puede leerla (el API corre con ese rol)', grant.puede === true);
 
     // ── [2] El NÚMERO: prueba negativa + control de placebo ───────────────────────────────
     console.log('\n[2] El número — el join por el mapa de canal');
