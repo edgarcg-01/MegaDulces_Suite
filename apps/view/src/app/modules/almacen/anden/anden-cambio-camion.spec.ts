@@ -65,7 +65,7 @@ const enCurso: AndenValeEnCurso = {
   id: SES_ID, folio: 'VE-2026-00013', source_kind: 'erp_transfer', documento: 'Embarque 00-2-0001048',
   warehouse_id: WH, warehouse_code: '01', warehouse_name: 'Padre Hidalgo',
   origin: { kind: 'transfer', isCedis: true, label: 'CEDIS', name: 'CEDIS BPIRAPUATO' },
-  renglones: 2, por_fechar: 2, abierto_por: 'Juan', created_at: '2026-10-06T18:00:00Z',
+  renglones: 2, por_fechar: 2, abierto_por: 'PRUEBA UNO', created_at: '2026-10-06T18:00:00Z',
 };
 
 describe('[WMS-REC.17] Andén · traspaso y cambio de camión', () => {

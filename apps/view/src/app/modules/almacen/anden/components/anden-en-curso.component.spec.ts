@@ -21,7 +21,7 @@ function vale(extra: Partial<AndenValeEnCurso> = {}): AndenValeEnCurso {
     origin: { kind: 'transfer', isCedis: false, label: 'Traspaso', name: 'Canindo' },
     renglones: 3,
     por_fechar: 2,
-    abierto_por: 'Juan Pérez',
+    abierto_por: 'PRUEBA UNO',
     created_at: '2026-10-06T18:41:43.352Z',
     ...extra,
   };
@@ -53,7 +53,7 @@ describe('AndenEnCursoComponent', () => {
     expect(t).toContain('Canindo');
     expect(t).toContain('01');
     expect(t).toContain('faltan 2');
-    expect(t).toContain('Juan Pérez');
+    expect(t).toContain('PRUEBA UNO');
   });
 
   it('un vale ya fechado entero lo dice, en vez de "faltan 0"', () => {
