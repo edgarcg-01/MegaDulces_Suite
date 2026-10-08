@@ -26,7 +26,7 @@
 
 - [ ] **Este PR apunta a `main`** (no a otra rama de feature; no hay PR apilados). Si dependía de otro, esperé a que se fusionara.
 - [ ] **Fusioné/rebasé `origin/main` hoy** y **volví a correr** build + tests de lo afectado después (0 commits de atraso).
-- [ ] Si agrega o toca migraciones: `npm run check:mig-colisiones` en verde contra el `main` actual; la marca es la **hora real de creación**; **no renombré ni borré ninguna ya aplicada**.
+- [ ] Si agrega o toca migraciones: `npm run check:mig-colisiones` en verde contra el `main` actual (con `PROD_DB_URL`; sin ella, `-- --solo-git` y lo declaro como parcial); la marca es la **hora real de creación**; **no renombré ni borré ninguna ya aplicada**.
 - [ ] Si una migración aditiva la lee el código nuevo, el PR dice que se aplica **ANTES** del código (y su orden respecto a las demás).
 - [ ] Declaré arriba los **cambios de comportamiento** y lo que **no** incluye.
 

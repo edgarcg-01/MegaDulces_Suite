@@ -242,7 +242,7 @@ que separa un commit roto de la rama de la que se deploya.
 **3. Migraciones: sin colisión de marca, y jamás renombrar una aplicada.**
 - **Por qué:** tres de mis migraciones usaron marcas contiguas a las de `main`; otro PR tomó `…330000` mientras el mío estaba abierto y Edgar tuvo que renombrar la mía. **Renombrar una migración ya aplicada** deja `knex_migrations` apuntando a un archivo que no existe → *«migration directory is corrupt»*, que ya frenó el aplicador dos veces. `main` lleva cinco colisiones de marca de un solo día, **todas aplicadas y por tanto irreparables**.
 - **Cómo:**
-  - Corre `npm run check:mig-colisiones` **al abrir el PR y otra vez justo antes del merge** (vive en `Lint & test`, que **no es obligatoria**: nadie lo hace por ti).
+  - Corre `npm run check:mig-colisiones` **al abrir el PR y otra vez justo antes del merge** (vive en `Lint & test`, que **no es obligatoria**: nadie lo hace por ti). Necesita `PROD_DB_URL` en tu `.env` (sólo hace `SELECT` del ledger): **sin ella no se pone verde a propósito** —no puede distinguir una migración recién escrita de una ya aplicada, y recomendaría justo el renombre que rompe prod—. Sin la URL usa `npm run check:mig-colisiones -- --solo-git`: es un análisis **parcial**, y así hay que reportarlo en el PR («sin ledger de prod»), no como verde.
   - La marca es la **hora real de creación** (`AAAAMMDDHHMMSS`), no «la siguiente del hueco».
   - Si hay colisión y la otra **ya se aplicó**, la tuya cambia **antes** de aplicarse; si la tuya también se aplicó, **no la renombres**: avisa al lead.
   - Una migración **aditiva que el código nuevo lee** va **antes** del código; una que cambia lo que el código viejo lee, con él o después. Dilo en el PR.
