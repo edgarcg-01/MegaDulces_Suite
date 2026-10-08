@@ -58,17 +58,24 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 
       <!-- KPI BENTO: variedad por tipo de dato (DESIGN §9) -->
       <div class="surf-grid abc-bento">
+        <!--
+          [IC.25] Cuando la lectura falla, estos dos NO dibujan un cero: dicen "sin medir".
+          Un 0 es una medicion; una llamada caida es una ausencia, y mezclarlas hace que la
+          pantalla afirme que no hay nada clasificado cuando hay 30,222 SKUs.
+        -->
         <app-metric-card class="panel-col-4"
-          label="Por contar ahora" [value]="due()?.count ?? 0" format="number"
+          label="Por contar ahora" [value]="due()?.count ?? 0"
+          [format]="fallo() ? 'text' : 'number'" valueText="sin medir"
           accent="var(--action)"
-          [variant]="dueSum() > 0 ? 'bars' : 'plain'"
+          [variant]="!fallo() && dueSum() > 0 ? 'bars' : 'plain'"
           [series]="dueByClass()" [seriesLabels]="abcLabels" [highlightLast]="false"
-          [sub]="'A ' + (due()?.by_class?.A ?? 0) + ' · B ' + (due()?.by_class?.B ?? 0) + ' · C ' + (due()?.by_class?.C ?? 0)"></app-metric-card>
+          [sub]="fallo() ? 'no se pudo leer' : ('A ' + (due()?.by_class?.A ?? 0) + ' · B ' + (due()?.by_class?.B ?? 0) + ' · C ' + (due()?.by_class?.C ?? 0))"></app-metric-card>
 
         <app-metric-card class="panel-col-4"
-          label="Valor clasificado (costo/año)" [value]="summary()?.total_value ?? 0" format="currency"
+          label="Valor clasificado (costo/año)" [value]="summary()?.total_value ?? 0"
+          [format]="fallo() ? 'text' : 'currency'" valueText="sin medir"
           accent="var(--chart-2)"
-          [sub]="(summary()?.total_count ?? 0) + ' SKUs · ' + computedLabel()"></app-metric-card>
+          [sub]="fallo() ? 'no se pudo leer la clasificación' : ((summary()?.total_count ?? 0) + ' SKUs · ' + computedLabel())"></app-metric-card>
 
         <!-- Distribución ABC: breakdown segmentado (color semántico por clase) -->
         <article class="panel-col-4 abc-dist-card">
@@ -81,9 +88,14 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             }
           </div>
           <div class="abc-dist-foot">
-            <span class="abc-dot abc-a"></span>A {{ classCount('A') }}
-            <span class="abc-dot abc-b"></span>B {{ classCount('B') }}
-            <span class="abc-dot abc-c"></span>C {{ classCount('C') }}
+            @if (fallo()) {
+              <!-- "A 0 · B 0 · C 0" con la lectura caida se lee como "no hay nada clasificado". -->
+              <span class="abc-sinmedir">sin medir — no se pudo leer la clasificación</span>
+            } @else {
+              <span class="abc-dot abc-a"></span>A {{ classCount('A') }}
+              <span class="abc-dot abc-b"></span>B {{ classCount('B') }}
+              <span class="abc-dot abc-c"></span>C {{ classCount('C') }}
+            }
           </div>
         </article>
       </div>
@@ -156,8 +168,8 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                 <th scope="col">SKU</th><th scope="col">Producto</th>
                 <th scope="col" class="abc-num">$ / dia</th>
                 <th scope="col" class="abc-num">Piezas</th>
-                <th scope="col" class="abc-num">Dias cob.</th>
-                <th scope="col">Clase</th><th scope="col">Lugar</th><th scope="col">Ultimo conteo</th>
+                <th scope="col" class="abc-num">Días cob.</th>
+                <th scope="col">Clase</th><th scope="col">Lugar</th><th scope="col">Último conteo</th>
               </tr>
             </ng-template>
             <ng-template #body let-it>
@@ -169,7 +181,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                 </td>
                 <td data-label="$ / dia" class="abc-num"><b>{{ it.cogs_dia | number:'1.0-0' }}</b></td>
                 <td data-label="Piezas" class="abc-num">{{ it.on_hand | number:'1.0-0' }}</td>
-                <td data-label="Dias cob." class="abc-num">
+                <td data-label="Días cob." class="abc-num">
                   @if (it.cobertura_confiable) { {{ it.days_cover | number:'1.0-0' }} }
                   @else { <span class="sel-nm" pTooltip="Existencia y demanda pueden venir en peldanos distintos: la cobertura no se puede afirmar">sin medir</span> }
                 </td>
@@ -185,7 +197,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                     <small>{{ it.rango_almacen | number }} de {{ it.skus_en_almacen | number }}</small>
                   } @else { — }
                 </td>
-                <td data-label="Ultimo conteo">
+                <td data-label="Último conteo">
                   @if (it.last_counted_at) {
                     {{ it.last_counted_at | date:'dd/MM/yy' }}
                     <small class="sel-fuente">{{ it.reloj_fuente === 'kepler' ? 'Kepler' : 'folio propio' }}</small>
@@ -197,10 +209,23 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             </ng-template>
             <ng-template #emptymessage>
               <tr><td colspan="8">
+                <!--
+                  [IC.25] El vacio decia SIEMPRE "Elegi un almacen", aun con el selector en
+                  "Todos los almacenes" y aun cuando lo que habia fallado era la lectura. Mandar
+                  a tocar un filtro que no va a arreglar nada es peor que no decir nada.
+                -->
                 <div class="comm-empty">
-                  <span class="comm-empty-icon"><i class="pi pi-inbox"></i></span>
-                  <h3>Sin seleccion</h3>
-                  <p>Elegi un almacen. Si no hay filas, ese almacen no tiene venta con costo en los ultimos 30 dias.</p>
+                  <span class="comm-empty-icon"><i [class]="fallo() ? 'pi pi-exclamation-triangle' : 'pi pi-inbox'"></i></span>
+                  @if (fallo()) {
+                    <h3>No se pudo leer</h3>
+                    <p>La consulta falló. Esto <strong>no</strong> quiere decir que no haya productos clasificados.</p>
+                  } @else if (!whParam()) {
+                    <h3>Sin resultados</h3>
+                    <p>Ningún almacén tiene venta con costo en los últimos 30 días, o el filtro de clase dejó la lista vacía.</p>
+                  } @else {
+                    <h3>Sin resultados</h3>
+                    <p>Ese almacén no tiene venta con costo en los últimos 30 días.</p>
+                  }
                 </div>
               </td></tr>
             </ng-template>
@@ -271,7 +296,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
             } @else {
               <div class="comm-empty">
                 <span class="comm-empty-icon"><i class="pi pi-hand-point-left"></i></span>
-                <h3>Elegi un producto</h3>
+                <h3>Elegí un producto</h3>
                 <p>La ficha muestra su capital, su historia de conteos y por que un descuadre pudo no ser merma.</p>
               </div>
             }
@@ -436,6 +461,8 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
     .abc-dist-card::before { content:''; position:absolute; left:0; top:0; bottom:0; width:3px; background: var(--ok-fg); border-top-left-radius:12px; border-bottom-left-radius:12px; }
     .abc-dist-label { font-size: var(--fs-micro,.6875rem); font-weight: var(--fw-bold,700); text-transform:uppercase; letter-spacing:.08em; color: var(--c-text-2,var(--text-muted)); }
     .abc-dist-foot { font-size: var(--fs-xs); color: var(--c-text-2,var(--text-muted)); display: flex; align-items: center; gap: .35rem; font-variant-numeric: tabular-nums; }
+    /* [IC.25] La ausencia se ve DISTINTA del cero: en tono de aviso, no en el gris del dato. */
+    .abc-sinmedir { color: var(--warn-fg); font-style: italic; }
     .abc-dot { width: 9px; height: 9px; border-radius: 999px; display: inline-block; }
     .abc-dot.abc-a, .abc-dist-seg.abc-a { background: var(--ok-fg); }
     .abc-dot.abc-b, .abc-dist-seg.abc-b { background: var(--warn-fg); }
@@ -544,6 +571,18 @@ export class ComercialInventoryAbcComponent {
   dueItems = computed(() => this.matchProd(this.due()?.items ?? []));
   classRows = computed(() => this.matchProd(this.rows()));
   readonly criterio = computed(() => this.lista()?.criterio ?? null);
+  /**
+   * `[IC.25]` ⛔ **Las dos ausencias no son la misma** (ADR-056).
+   *
+   * `summary === null` pasa en dos casos que se veían idénticos: *todavía no llegó* y *la
+   * llamada falló*. Sin distinguirlos, los KPI caían a `?? 0` y la pantalla afirmaba
+   * «Valor clasificado $0 · 0 SKUs · A 0 · B 0 · C 0» con un error de red detrás. El toast de
+   * error dura unos segundos; la cifra se queda ahí.
+   *
+   * Medido el 2026-10-08: con el backend caído la pantalla publicaba $0 mientras
+   * `commercial.abc_classification` tenía **30,222 filas clasificadas** en prod.
+   */
+  fallo = signal(false);
   summary = signal<AbcSummary | null>(null);
   lista = signal<AbcListResult | null>(null);
   rows = computed<AbcRow[]>(() => this.lista()?.items ?? []);
@@ -577,6 +616,7 @@ export class ComercialInventoryAbcComponent {
 
   load() {
     this.loading.set(true);
+    this.fallo.set(false);
     const wh = this.whParam();
     forkJoin({
       summary: this.svc.abcSummary(wh),
@@ -597,7 +637,13 @@ export class ComercialInventoryAbcComponent {
           this.detalleDe.set(null); this.detalle.set(null); this.selFila = null;
           this.loading.set(false);
         },
-        error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al cargar ABC' }); },
+        // El toast avisa a quien está mirando; `fallo` se lo dice a quien llegue después.
+        // Un aviso que se desvanece no puede ser lo único que separa un cero de un error.
+        error: () => {
+          this.loading.set(false);
+          this.fallo.set(true);
+          this.toast.add({ severity: 'error', summary: 'Error al cargar ABC' });
+        },
       });
   }
 
