@@ -1992,7 +1992,7 @@ o egreso va a arquear, luego el arqueo. estos dos son importantísimos que se ve
 completa, el 90% de la pantalla debe ser ESTOS DOS APARTADOS, ES NUESTRA PRIORIDAD, EN ESE 10%
 MOSTRARLE UN DESPLEGABLE DE CÓMO VA SU JORNADA"* → *"diseñémoslo idéntico"*.
 
-Tablero: **https://claude.ai/artifact/K4p1CMkAKkUGuCCsggXt6v**
+Tablero: **[tableros/caja-general-v2](tableros/caja-general-v2/) (⚠️ el artefacto original dejó de existir el 2026-10-07; está versionado acá)**
 
 ### El esqueleto
 
@@ -2054,7 +2054,7 @@ Esta entrega es **el esqueleto**. Falta el contenido de los dos apartados:
 ## §26 · `[CG.60]` — los dos apartados de verdad: la ficha y el arqueo, media pantalla cada uno
 
 > Edgar, al aprobar el tablero: *"diseñémoslo idéntico"*. `[CG.59]` dejó el esqueleto; acá entra
-> lo que va adentro del 90 %. Tablero: https://claude.ai/artifact/K4p1CMkAKkUGuCCsggXt6v
+> lo que va adentro del 90 %. Tablero: [tableros/caja-general-v2](tableros/caja-general-v2/) (⚠️ el artefacto original dejó de existir el 2026-10-07; está versionado acá)
 > Commit `7a89eb111`.
 
 ### Lo que cambia de fondo
