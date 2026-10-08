@@ -1982,3 +1982,69 @@ sin cobros que lo expliquen) · *sin depositar* (cobros que todavía no entraron
    que parar.
 3. **La pantalla** con los tres cubos.
 4. El enganche automático al cerrar la jornada (hoy el `POST` es manual).
+
+---
+
+## 25. `[CG.59]` La pantalla es la tarea: 90 % los dos apartados, 10 % la jornada (2026-10-07)
+
+**Edgar, tras aprobar el tablero rediseñado:** *"lo primero que debe ver el usuario es qué ingreso
+o egreso va a arquear, luego el arqueo. estos dos son importantísimos que se vean en pantalla
+completa, el 90% de la pantalla debe ser ESTOS DOS APARTADOS, ES NUESTRA PRIORIDAD, EN ESE 10%
+MOSTRARLE UN DESPLEGABLE DE CÓMO VA SU JORNADA"* → *"diseñémoslo idéntico"*.
+
+Tablero: **https://claude.ai/artifact/K4p1CMkAKkUGuCCsggXt6v**
+
+### El esqueleto
+
+La página pasa a **`100vh` sin scroll**: arriba la **barra** (el 10 %), abajo **los dos apartados**
+(el 90 %). Lo que scrollea es el contenido de cada apartado, **nunca la página** — con la página
+scrolleando, el arqueo se iba de la vista justo mientras se cuenta, que es el defecto que Edgar
+reportó tres veces seguidas.
+
+### Lo que se MUDÓ — y la prueba que lo garantiza
+
+El encabezado de página (título + dos subtítulos) más el bloque «Cierre de la jornada» se comían
+**~360 px** antes de que empezara el trabajo. Hoy la barra es **una línea** con el desplegable, y
+adentro entraron **cinco bloques, 447 líneas de plantilla**:
+
+| Bloque | Líneas |
+|---|---|
+| El aviso de cobertura de conceptos | 19 |
+| **El cierre de la jornada** (el cuadre del día, el cajero, los límites) | **174** |
+| Los documentos por pagar (gastos y órdenes de entrada) | 25 |
+| Los que repiten y nadie declaró su cuenta | 86 |
+| El historial (el libro + los cortes) | 143 |
+
+⭐ **Nada se borró, y hay una prueba que lo exige**: `[negativa] abrir la jornada NO pierde nada`
+busca los cinco bloques dentro del desplegable. Si uno se cayó en la mudanza, se pone roja — que es
+la diferencia entre **mover** y borrar.
+
+⚠️ **Plegar no es esconder**: cerrada, la barra ya publica `subtituloJornada()` — cuánto falta
+confirmar y si se rindió cuentas. Es un `<button>` con `aria-expanded`, no un div con `(click)`. Y
+abierta tiene **su propio scroll con techo de 52 vh**: no puede empujar la tarea fuera de la
+pantalla, que es exactamente lo que hacía antes.
+
+### Las 16 pruebas que se movieron con el contenido
+
+Afirmaban que el cuadre del día, el cajero, los recurrentes y el historial estaban en pantalla.
+Siguen afirmando **lo mismo** — cambió *dónde está*, así que abren el desplegable con un helper
+(`montarJornada`) en vez de aflojar la aserción. ⛔ **No se tocó ni una expectativa.**
+
+### Verificación
+
+- `nx test view` caja-general: **216/216** (2 pruebas nuevas, 16 reapuntadas). `typecheck`,
+  `check:templates`, `check:tokens` y `check:teclado` verdes.
+- **Mutación**: abrir la jornada por default → **4 rojas** (y dos de ellas son pruebas viejas de
+  `[CG.47]`, que ya exigían que el subtítulo y la cabecera no dijeran el mismo hecho).
+
+### Lo que falta para que sea idéntico al tablero
+
+Esta entrega es **el esqueleto**. Falta el contenido de los dos apartados:
+
+1. **Apartado 1** — la ficha del movimiento elegido (signo, beneficiario, importe del ERP a 30 px)
+   y la cola compacta debajo. Hoy el apartado 1 sigue siendo la bandeja tal cual.
+2. **Apartado 2** — el arqueo ya está ahí, pero la clasificación (tipo, fecha, sucursal, documento,
+   beneficiario, cuenta, glosa) todavía vive en su columna del panel y tiene que bajar al
+   apartado 1, que es donde el tablero la pone.
+3. **Validación visual**, que en esta pantalla ya demostró ser la única que ve los defectos de
+   layout: ninguna compuerta del repo mide píxeles.

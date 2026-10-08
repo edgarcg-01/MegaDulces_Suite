@@ -256,6 +256,19 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     if (!d) throw new Error('La prueba pide la denominacion "' + k + '", que no existe en el catalogo.');
     return d;
   };
+  /**
+   * `[CG.59]` Monta y ABRE la jornada. Desde el rediseno, el cierre del dia, el cajero, los
+   * recurrentes, los pagables y el historial viven dentro del desplegable del 10%: la barra
+   * cerrada ya dice como va, y lo demas se abre. Lo que estas pruebas afirman no cambio --
+   * cambio DONDE esta, y por eso abren el desplegable en vez de aflojar la asercion.
+   */
+  const montarJornada = (svcPatch?: Record<string, unknown>) => {
+    const fx = montar(svcPatch as never);
+    comp.jornadaAbierta.set(true);
+    fx.detectChanges();
+    return fx;
+  };
+
   const contar = (piezas: Record<string, number>): void => {
     for (const [k, n] of Object.entries(piezas)) comp.setPiezas(den(k), n);
   };
@@ -888,6 +901,41 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.cerrarConFoco(comp.capturaAbierta);
     fx.detectChanges();
     expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+  });
+
+  // ── [CG.59] La pantalla es la tarea ──────────────────────────────────────────────────────
+  //
+  // Edgar: *"lo primero que debe ver el usuario es qué ingreso o egreso va a arquear, luego el
+  // arqueo … el 90% de la pantalla debe ser ESTOS DOS APARTADOS … en ese 10% mostrarle un
+  // desplegable de cómo va su jornada"*.
+
+  it('la jornada arranca CERRADA, y aun así dice cómo va', () => {
+    const fx = montar();
+    expect(comp.jornadaAbierta()).toBe(false);
+
+    const btn: HTMLElement | null = fx.nativeElement.querySelector('.cg-jornada-btn');
+    expect(btn).not.toBeNull();
+    expect(btn!.tagName).toBe('BUTTON');
+    expect(btn!.getAttribute('aria-expanded')).toBe('false');
+    // ⭐ Plegar NO es esconder: cerrada ya publica el estado del día.
+    expect(btn!.textContent).toContain('Tu jornada');
+    expect(btn!.textContent).toContain(comp.subtituloJornada());
+
+    // Y el cuadre del día NO está en el DOM mientras esté cerrada: ocupaba ~360px de la tarea.
+    expect(fx.nativeElement.querySelector('.cg-conc')).toBeNull();
+  });
+
+  it('⛔ [negativa] abrir la jornada NO pierde nada: todo lo que se mudó sigue ahí', () => {
+    const fx = montarJornada();
+    expect(fx.nativeElement.querySelector('.cg-jornada-btn')!.getAttribute('aria-expanded')).toBe('true');
+
+    // Los cinco bloques que se mudaron al desplegable. Si alguno se cayó en la mudanza, esto
+    // se pone rojo — que es la diferencia entre MOVER y borrar.
+    const panel: Element = fx.nativeElement.querySelector('.cg-jornada');
+    expect(panel.querySelector('.cg-conc')).not.toBeNull();        // el cierre del día
+    expect(panel.querySelector('.cg-rec')).not.toBeNull();         // los que repiten sin cuenta
+    expect(panel.querySelector('.cg-historial')).not.toBeNull();   // el libro y los cortes
+    expect(panel.textContent).toContain('Cerrar jornada');         // la acción de rendir cuentas
   });
 
   it('⛔ [negativa] la reja pregunta por SU columna, no por el panel entero', () => {
@@ -1686,7 +1734,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
   it('⭐ [negativa] el cierre del día se pinta AUNQUE no haya corte abierto', () => {
     // Éste es exactamente el estado de producción: sin cortes. Antes dejaba el panel invisible.
-    const fx = montar({
+    const fx = montarJornada({
       cortes: vi.fn(() => of({ rows: [] })),
       saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })),
     });
@@ -1699,7 +1747,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('el cajero muestra sus SEIS tipos, no sólo depósito y dispensación', () => {
-    const fx = montar();
+    const fx = montarJornada();
     const panel = panelCierre(fx);
     // Los dos que la conciliación vieja ignoraba y que mueven la bóveda de verdad.
     expect(panel).toContain('Dotar');
@@ -1711,14 +1759,14 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   it('el neto del cajero se rotula «movimiento del día», NUNCA «saldo»', () => {
     // No es cosmética: el flujo acumulado da negativo porque el efectivo anterior al feed no se
     // conoce. Publicarlo como saldo sería publicar un número que no existe.
-    const fx = montar();
+    const fx = montarJornada();
     const panel = panelCierre(fx);
     expect(panel).toContain('Movimiento del dia');
     expect(panel.toLowerCase()).not.toContain('saldo del cajero');
   });
 
   it('⛔ [negativa] sin cajero en la sucursal NO pinta ceros: pinta el motivo', () => {
-    const fx = montar({
+    const fx = montarJornada({
       arqueoDia: vi.fn(() => of({
         ...ARQUEO, sucursal: '03', cajero: null,
         no_medido: ['El cajero (CAOS) es un único dispositivo en oficinas: la sucursal 03 no tiene cajero que cuadrar.'],
@@ -1740,14 +1788,14 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('⛔ [negativa] lo NO MEDIDO se pinta, no se esconde', () => {
-    const fx = montar();
+    const fx = montarJornada();
     const panel = panelCierre(fx);
     expect(panel).toContain('no publica cu');   // "...no publica cuánto efectivo tiene adentro"
     expect(fx.nativeElement.querySelector('.cg-conc-nm')).toBeTruthy();
   });
 
   it('un tipo de cajero DESCONOCIDO se pinta aparte y con aviso', () => {
-    const fx = montar({
+    const fx = montarJornada({
       arqueoDia: vi.fn(() => of({
         ...ARQUEO,
         cajero: {
@@ -1773,7 +1821,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('⛔ [negativa] si la medición falla, el día NO se pinta en cero: se declara sin medir', () => {
-    const fx = montar({ arqueoDia: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+    const fx = montarJornada({ arqueoDia: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
     expect(comp.arqueo()).toBeNull();
     expect(comp.arqueoSinMedir()).toBe(true);
 
@@ -1804,7 +1852,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // ausencias distintas —"no propone" y "no hay de dónde proponer"— no se pinten igual.
 
   it('el contador va SIEMPRE visible, aunque la lista esté plegada', () => {
-    const fx = montar();
+    const fx = montarJornada();
     expect(comp.recAbierto()).toBe(false);          // nace plegada: son 57 filas
 
     const html: string = fx.nativeElement.innerHTML;
@@ -1824,7 +1872,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('⛔ [negativa] si la medición falla NO dice "no hay ninguno": dice que no se midió', () => {
-    const fx = montar({ recurrentesSinRegla: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+    const fx = montarJornada({ recurrentesSinRegla: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
     expect(comp.recurrentes()).toBeNull();
     const html: string = fx.nativeElement.innerHTML;
     expect(html).toContain('Sin medir');
@@ -1863,7 +1911,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('abrir la lista pinta las filas, con el par propuesto y su respaldo', async () => {
-    const fx = montar();
+    const fx = montarJornada();
     comp.recAbierto.set(true);
     fx.detectChanges();
     await Promise.resolve();
@@ -1923,14 +1971,14 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // ── [CG.51] El scroll: el historial se pliega, pero NO se esconde ─────────────────────────
 
   it('el historial arranca CERRADO: debajo del area de trabajo no hay 800px de archivo', () => {
-    const fx = montar();
+    const fx = montarJornada();
     expect(comp.historialAbierto()).toBe(false);
     // La tabla del libro y la de los cortes no estan en el DOM mientras este cerrado.
     expect(fx.nativeElement.querySelector('app-metric-strip')).toBeNull();
   });
 
   it('cerrado NO es escondido: la cabecera dice el rango y cuanto hay adentro', () => {
-    const fx = montar();
+    const fx = montarJornada();
     const h: HTMLElement | null = fx.nativeElement.querySelector('.cg-historial-h');
     expect(h).not.toBeNull();
     // Plegar algo sin decir que tiene adentro lo vuelve indistinguible de que no exista.
@@ -1943,7 +1991,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   it('al abrirlo aparece el libro, y el aria-expanded lo acompana', () => {
-    const fx = montar();
+    const fx = montarJornada();
     comp.historialAbierto.set(true);
     fx.detectChanges();
     expect(fx.nativeElement.querySelector('app-metric-strip')).not.toBeNull();
@@ -1980,7 +2028,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // "corte" cuando quiere rendir cuentas del dia.
 
   it('⭐ el cierre de la jornada TIENE la accion, y se llama como la gente la busca', () => {
-    const fx = montar({
+    const fx = montarJornada({
       saldo: vi.fn(() => of({ ...SALDO, corte_abierto: null, sin_corte_abierto: true })),
     });
     const panel: string = fx.nativeElement.querySelector('.cg-conc').innerHTML;
@@ -2058,7 +2106,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
   it('⛔ [negativa] sin saber si hay corte NO se ofrece rendir cuentas', () => {
     // Abrir un segundo corte sobre uno vivo es el peor final. Si no se pudo medir, se reintenta.
-    const fx = montar({ saldo: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
+    const fx = montarJornada({ saldo: vi.fn(() => throwError(() => ({ status: 500, error: {} }))) });
     expect(comp.saldoSinMedir()).toBe(true);
     const panel: string = fx.nativeElement.querySelector('.cg-conc').innerHTML;
     expect(panel).toContain('Reintentar');
@@ -2289,7 +2337,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   it('los limites estructurales arrancan plegados y los accionables no', () => {
     // Antes eran tres avisos naranjas iguales y dos salian todos los dias. Un aviso inmutable que
     // grita se deja de leer, y se lleva puesto al que si importaba.
-    const fx = montar({
+    const fx = montarJornada({
       arqueoDia: vi.fn(() => of({
         ...ARQUEO,
         no_medido: ['Todavia no rendiste cuentas de esta jornada: esto es el movimiento REGISTRADO.'],
