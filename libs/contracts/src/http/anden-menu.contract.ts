@@ -34,12 +34,35 @@ export type AndenScopeMode = 'none' | 'own' | 'listed' | 'all';
  * Una sucursal del menu del Anden: a donde entra la mercancia y cuantos vales de
  * HOY quedan sin abrir ahi.
  */
+/**
+ * `[WMS-REC.18]` Cuantos dias atras se siguen mostrando las ordenes de entrada que nadie recibio.
+ *
+ * Cambia la regla de "solo hoy" (Edgar, 2026-09-24) a pedido de quien recibe (2026-10-07): si
+ * ayer llegaron 8 y se recibieron 6, las 2 tienen que seguir a la vista al dia siguiente. Hoy
+ * sigue arriba, igual que antes; lo atrasado va en su propio grupo. Lo fechado a FUTURO en Kepler
+ * sigue fuera (el motivo de la regla original: Kepler adelanta documentos).
+ */
+export const DIAS_PENDIENTES_ANDEN = 7;
+
 export interface ErpPendingBranch {
   sucursal: string;
   warehouse_id: string | null;
   warehouse_code: string | null;
   warehouse_name: string | null;
+  /** Total por abrir: `compras + traspasos`. Es el numero que pinta la insignia. */
   pendientes: number;
+  /** Ordenes de entrada sin recibir: las de hoy y las de los ultimos `DIAS_PENDIENTES_ANDEN` dias. */
+  compras: number;
+  /**
+   * `[WMS-REC.18]` De `compras`, cuantas son de DIAS ANTERIORES (no de hoy). La pantalla las
+   * separa: hoy sigue arriba, como decidio Edgar; lo atrasado va aparte para que no se pierda.
+   */
+  anteriores: number;
+  /**
+   * `[WMS-REC.17]` Embarques de otra sucursal o del CEDIS que vienen a esta y nadie abrio.
+   * Su regla de dia es distinta (salio hoy, o sigue en camino): ver `transferVisible()`.
+   */
+  traspasos: number;
   ultimo: string | null;
   /** Sin mapa sucursal->almacen no se puede abrir el vale: la pantalla lo avisa antes. */
   sin_almacen: boolean;
@@ -86,4 +109,81 @@ export interface ErpOrderMatch {
   /** De donde viene la mercancia. Una sola definicion: `receiving-origin.ts`. */
   origin?: { kind: 'supplier' | 'transfer'; isCedis: boolean; label: string; name: string | null };
   tipo: 'compra' | 'traspaso';
+  /**
+   * `[WMS-REC.17]` QUE documento de Kepler respalda el vale:
+   *  · `orden_entrada` — `XA2001` de la sucursal que recibe (compras, y traspasos viejos `TI###`).
+   *  · `embarque`      — `U-D-41` de la sucursal que EMBARCA. Ahi `sucursal` es el ORIGEN y
+   *                      el almacen (`warehouse_*`) es el DESTINO.
+   * Ausente = `orden_entrada` (lo que devolvian los endpoints antes de existir el campo).
+   */
+  fuente?: 'orden_entrada' | 'embarque';
+  /** Serie del embarque (el folio de Kepler se repite entre series). Solo en `embarque`. */
+  serie?: number | null;
+  /** Fecha en que Kepler registro la recepcion `U-A-50`; `null` = todavia no la registra. */
+  recibido_kepler?: string | null;
+  /** Dias desde que salio el embarque (hora de Mexico). Solo en `embarque`. */
+  dias_en_camino?: number | null;
+  /** A donde lo mando Kepler, tal cual: codigo `TI###` y nombre del documento. */
+  destino_code?: string | null;
+  destino_nombre?: string | null;
+}
+
+/**
+ * `[WMS-REC.17]` Un vale que alguien ya abrio y no ha cerrado.
+ *
+ * Existe para poder **cambiar de camion** a media captura: el vale abierto sale del menu de
+ * pendientes (ya tiene sesion), y sin esta lista no habia forma de volver a el mas que el
+ * borrador local del equipo, que solo recuerda el ultimo.
+ */
+export interface AndenValeEnCurso {
+  id: string;
+  /** Folio del vale de la Suite (`VE-2026-00123`). */
+  folio: string;
+  source_kind: 'manual' | 'erp_receipt' | 'erp_transfer';
+  /** El documento de Kepler, para reconocerlo: `01/0000412` o `Embarque 00-2-0001048`. */
+  documento: string | null;
+  warehouse_id: string;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  origin: { kind: 'supplier' | 'transfer'; isCedis: boolean; label: string; name: string | null };
+  renglones: number;
+  /** Renglones que todavia esperan lote y caducidad. */
+  por_fechar: number;
+  abierto_por: string | null;
+  created_at: string;
+}
+
+/**
+ * `[WMS-REC.20]` Un renglón que un vale ESPERA, antes de que el vale exista en el servidor.
+ *
+ * Lo arma la MISMA función que usa abrir el vale (`lineasEsperadas`), así que cuando el equipo abre
+ * sin red y después sincroniza, cada captura cae en el renglón que el servidor creó para ese
+ * producto: mismo producto por SKU, mismas cantidades, los servicios (`SER`) fuera.
+ */
+export interface AndenLineaOffline {
+  expected_sku: string | null;
+  expected_name: string | null;
+  expected_qty: number;
+  /** Unidad tal cual la manda Kepler (`PAQ`, `PZA`…); `ambigua` si el SKU trae dos dentro del vale. */
+  expected_unit: string | null;
+  /** Producto del catálogo; `null` si el SKU no existe ahí (esa mercancía no se puede fechar). */
+  product_id: string | null;
+  sku: string | null;
+  product_name: string | null;
+}
+
+/** `[WMS-REC.20]` Un vale pendiente de la sucursal, con sus renglones, para abrirlo sin red. */
+export interface AndenValeOffline extends ErpOrderMatch {
+  lineas: AndenLineaOffline[];
+}
+
+/**
+ * `[WMS-REC.20]` Lo que el equipo baja mientras tiene red para poder seguir sin ella: los mismos
+ * vales que el menú de esa sucursal (hoy y los atrasados, sin abrir) con lo que cada uno espera.
+ */
+export interface AndenPaqueteOffline {
+  sucursal: string;
+  /** Cuándo se armó, en ISO. La pantalla lo dice: "vales al 12:40". */
+  generado_en: string;
+  vales: AndenValeOffline[];
 }

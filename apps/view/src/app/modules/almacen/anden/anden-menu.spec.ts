@@ -7,13 +7,14 @@ import { join } from 'path';
  * El paso 0 deja de ser "tecleá el folio" y pasa a ser "¿a qué sucursal entra la
  * mercancía?". Lo que se protege acá es lo que ya costó, o lo que costaría caro:
  *
- *  1. **Sólo el día de hoy, en hora de MÉXICO.** La regla la decidió Edgar; el
+ *  1. **El día es el de MÉXICO.** La regla de "sólo hoy" la decidió Edgar; el
  *     AT TIME ZONE lo obliga la base, que corre en Etc/UTC: a las 7 de la noche,
  *     CURRENT_DATE pelado ya devuelve mañana. Medido ese día: con hora de México,
- *     0 vales; con CURRENT_DATE a las 7 PM, 4 — y eran los del día siguiente. El
- *     andén le habría cambiado el día al bodeguero a media tarde.
- *  2. **El día vacío NO se amplía solo.** Ampliar en silencio sería decidir por
- *     el dueño de la regla y taparía que el dato del día no llegó.
+ *     0 vales; con CURRENT_DATE a las 7 PM, 4 — y eran los del día siguiente.
+ *  2. **`[WMS-REC.18]` Hoy primero, lo atrasado APARTE y con límite.** El 2026-10-07 la
+ *     regla se amplió a pedido de quien recibe: lo que ayer quedó sin hacer sigue a la
+ *     vista. Pero sólo hacia atrás, hasta `DIAS_PENDIENTES_ANDEN`, y nunca a futuro
+ *     (el motivo de fondo de la regla de Edgar: Kepler adelanta documentos).
  *  3. **El alcance sale del alcance**, no de contar filas: un usuario asignado a
  *     tres plazas vería el aviso de "no tenés sucursal asignada" y sería falso.
  *  4. **Sin acentos graves dentro de los template literals.** Ya rompió el build
@@ -22,6 +23,11 @@ import { join } from 'path';
 const DIR = join(__dirname, 'components');
 const SUCURSALES = readFileSync(join(DIR, 'anden-sucursales.component.ts'), 'utf8');
 const VALES = readFileSync(join(DIR, 'anden-vales.component.ts'), 'utf8');
+const EN_CURSO = readFileSync(join(DIR, 'anden-en-curso.component.ts'), 'utf8');
+const SERVICIO = readFileSync(
+  join(__dirname, '../../../../../../../libs/commercial/src/lib/commercial-receiving/receiving-session.service.ts'),
+  'utf8',
+);
 const ORQUESTADOR = readFileSync(join(__dirname, 'anden.component.ts'), 'utf8');
 
 /** El acento grave, escrito así para no meterlo literal en este archivo. */
@@ -66,16 +72,28 @@ describe('Andén · el menú de sucursales', () => {
     expect(bloque).not.toMatch(/=\s*CURRENT_DATE/);
   });
 
-  it('el menú no tiene ninguna puerta para ampliar el día', () => {
-    // Ni un parámetro de ventana, ni un "ver días anteriores": la regla es
-    // sólo-hoy y se aplica literal.
-    expect(SUCURSALES).not.toMatch(/dias|ventana|ultimos\s*\d|últimos\s*\d/i);
+  /**
+   * `[WMS-REC.18]` Reemplaza al candado de "ninguna puerta para ampliar el día": la regla
+   * cambió a propósito. Lo que se cuida ahora es que la ventana viva en UN lugar, que tenga
+   * límite y que no mire al futuro.
+   */
+  it('la ventana es hoy y los últimos N días, definida en un solo lugar y sin futuro', () => {
+    const i = SERVICIO.indexOf('const VENTANA_MX');
+    expect(i).toBeGreaterThan(-1);
+    const bloque = SERVICIO.slice(i, i + 260);
+    expect(bloque).toContain('DIAS_PENDIENTES_ANDEN');
+    expect(bloque).toContain("AT TIME ZONE 'America/Mexico_City'");
+    // El tope es HOY: nada fechado a futuro entra a la lista.
+    expect(bloque).toMatch(/AND \(now\(\) AT TIME ZONE 'America\/Mexico_City'\)::date`/);
+    // Las dos consultas (menú y vales de una sucursal) usan la misma ventana, no cada una la suya.
+    expect(SERVICIO.split('.whereRaw(VENTANA_MX)').length - 1).toBe(2);
+    // Y la pantalla no pide una ventana propia: la decide el servidor.
     expect(ORQUESTADOR).not.toMatch(/pendingErpBranches\([^)]+\)/);
     expect(ORQUESTADOR).not.toMatch(/pendingErpOrders\([^,)]+,/);
   });
 
   it('el día vacío se explica y ofrece el folio, en vez de quedar mudo', () => {
-    expect(SUCURSALES).toContain('Hoy no hay vales');
+    expect(SUCURSALES).toContain('No hay vales por recibir');
     expect(SUCURSALES).toMatch(/verFolio\.emit\(\)/);
   });
 
@@ -102,10 +120,39 @@ describe('Andén · el menú de sucursales', () => {
     expect(ORQUESTADOR).toMatch(/'inicio' \| 'alta' \| 'vales' \| 'folio'/);
   });
 
+  /**
+   * `[WMS-REC.17]` Un vale CANCELADO no puede seguir tapando a su documento: `open()` deja
+   * reabrirlo sin `force`, y el menú lo escondía para siempre. Son dos consultas (el menú y
+   * los vales de una sucursal) y las dos tienen que saberlo.
+   */
+  it('un vale cancelado no esconde su documento del menú', () => {
+    const veces = SERVICIO.split(".andWhereNot('s.status', 'cancelled')").length - 1;
+    expect(veces).toBeGreaterThanOrEqual(2);
+  });
+
+  /**
+   * `[WMS-REC.17]` La regla de sólo-hoy es de las COMPRAS. Un traspaso tiene la suya
+   * (salió hoy o sigue en camino) y vive en UNA función, que es la que el menú aplica.
+   */
+  it('los traspasos usan su propia regla de día, una sola vez definida', () => {
+    expect(SERVICIO).toContain('transferVisible(');
+    expect(SERVICIO).not.toMatch(/function transferVisible/);
+  });
+
+  it('desde el menú se puede volver a un vale que quedó a medias', () => {
+    expect(ORQUESTADOR).toContain('app-anden-en-curso');
+    expect(ORQUESTADOR).toContain('Cambiar de camión');
+    // Cambiar de camión NO cancela el vale: sale al menú y lo deja en curso.
+    const i = ORQUESTADOR.indexOf('cambiarDeCamion(): void');
+    expect(i).toBeGreaterThan(-1);
+    const cuerpo = ORQUESTADOR.slice(i, ORQUESTADOR.indexOf('\n  }\n', i));
+    expect(cuerpo).not.toMatch(/\.cancel\(/);
+  });
+
   it('el extractor de literales encuentra de verdad el bloque, no una cadena vacía', () => {
     // Sin esto, un helper roto haría pasar el candado de abajo sobre la nada —
     // que es exactamente como falló su primera versión.
-    for (const fuente of [SUCURSALES, VALES]) {
+    for (const fuente of [SUCURSALES, VALES, EN_CURSO]) {
       const bloques = literales(fuente);
       expect(bloques.length).toBe(2);
       for (const b of bloques) expect(b.length).toBeGreaterThan(400);
@@ -118,6 +165,7 @@ describe('Andén · el menú de sucursales', () => {
     for (const [nombre, fuente] of [
       ['sucursales', SUCURSALES],
       ['vales', VALES],
+      ['en-curso', EN_CURSO],
     ] as const) {
       for (const bloque of literales(fuente)) {
         expect([nombre, bloque.includes(BT)]).toEqual([nombre, false]);

@@ -56,9 +56,8 @@ export class AndenDraftService {
         return null;
       }
       // Defensivo: un borrador corrupto no puede tumbar la pantalla de un andén.
-      // Incluye los borradores del modelo viejo (traían `contado`/`ubicado`), que
-      // se leen igual porque lo único que se usa de ellos es el id del vale.
-      b.seccion = b.seccion === 'ubicacion' ? 'ubicacion' : 'fechas';
+      // Los del modelo viejo (traían `contado`/`ubicado`, o `seccion` antes de
+      // WMS-REC.21) se leen igual: lo único que se usa de ellos es el id del vale.
       return b;
     } catch {
       return null;

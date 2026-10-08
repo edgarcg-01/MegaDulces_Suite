@@ -8,10 +8,29 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ScopeService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
-import type { ErpPendingMenu, ErpPendingBranch, ErpOrderMatch } from '@megadulces/contracts';
+import type {
+  ErpPendingMenu,
+  ErpPendingBranch,
+  ErpOrderMatch,
+  AndenValeEnCurso,
+  AndenLineaOffline,
+  AndenPaqueteOffline,
+} from '@megadulces/contracts';
+import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { classifyReceivingOrigin } from './receiving-origin';
 import { ReceivingClaimsService } from './receiving-claims.service';
+import { UX_SESIONES_CLIENT_UUID, conLlave, esChoqueDe } from './receiving-idempotency';
+import {
+  TRANSFER_REF_PREFIX,
+  TRANSFER_WINDOW_DAYS,
+  TransferKey,
+  classifyShipmentOrigin,
+  diasEntre,
+  parseTransferRef,
+  transferRef,
+  transferVisible,
+} from './receiving-transfer';
 
 /**
  * Fase WMS-REC (Pieza 1 — Modo recepción por escaneo / Vale vivo, ADR-044).
@@ -43,11 +62,83 @@ export interface OpenSessionDto {
   /** Rehacer un folio ya recibido (el vale anterior quedó mal). Salta el guard. */
   force?: boolean;
   supplier_code?: string;
-  source_kind?: 'manual' | 'erp_receipt';
-  /** Para source_kind='erp_receipt': (sucursal, folio) de analytics.erp_goods_receipts. */
+  source_kind?: 'manual' | 'erp_receipt' | 'erp_transfer';
+  /**
+   * Para source_kind='erp_receipt': (sucursal, folio) de analytics.erp_goods_receipts.
+   * Para source_kind='erp_transfer' (`[WMS-REC.17]`): (sucursal QUE EMBARCA, serie, folio)
+   * del embarque `U-D-41`.
+   */
   erp_sucursal?: string;
+  erp_serie?: number;
   erp_folio?: string;
   notes?: string;
+  /**
+   * `[WMS-REC.19]` Id que el equipo le pone a ESTA apertura antes de mandarla. Si la respuesta se
+   * pierde y reintenta, recibe el vale que ya abrió en vez de chocar con `folio_ya_recibido` (su
+   * propio vale) o, con `force`, abrir un segundo vale del mismo camión. Opcional.
+   */
+  client_uuid?: string;
+}
+
+/**
+ * `[WMS-REC.17]` Un embarque `U-D-41` hacia una sucursal, con su destino ya resuelto.
+ * La fila cruda de `transferCandidates()`.
+ */
+/** Una fila de `inProgress()`: el vale abierto con lo que el menú necesita para reconocerlo. */
+interface FilaValeEnCurso {
+  id: string;
+  folio: string;
+  source_kind: AndenValeEnCurso['source_kind'];
+  source_ref: string | null;
+  supplier_code: string | null;
+  warehouse_id: string;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  created_at: Date | string;
+  abierto_por: string | null;
+  renglones: number | string;
+  por_fechar: number | string;
+}
+
+interface FilaEmbarque {
+  origen: string;
+  serie: number;
+  folio: string;
+  fecha: string;
+  destino_code: string;
+  destino_nombre: string | null;
+  monto: string | number | null;
+  comentarios: string | null;
+  warehouse_id: string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  origen_warehouse_id: string | null;
+  origen_nombre: string | null;
+  recibido_kepler: string | null;
+  abierto: boolean;
+  hoy: string;
+}
+
+/**
+ * `[WMS-REC.20]` El documento de Kepler del que sale un vale: una orden de entrada (`XA2001`, por
+ * sucursal y folio) o un embarque de traspaso (`U-D-41`, por origen, serie y folio).
+ */
+export type DocErp =
+  | { tipo: 'compra'; sucursal: string; folio: string }
+  | { tipo: 'traspaso'; sucursal: string; serie: number; folio: string };
+
+/** La llave de un documento: la MISMA forma que `source_ref` del vale que se abre desde él. */
+export function claveDoc(d: DocErp): string {
+  return d.tipo === 'compra'
+    ? `${d.sucursal}/${d.folio}`
+    : transferRef({ origen: d.sucursal, serie: d.serie, folio: d.folio });
+}
+
+/** De un vale del menú a su documento. En un embarque, `sucursal` es la que EMBARCA. */
+export function docDeVale(v: Pick<ErpOrderMatch, 'fuente' | 'sucursal' | 'serie' | 'folio'>): DocErp {
+  return v.fuente === 'embarque'
+    ? { tipo: 'traspaso', sucursal: v.sucursal, serie: Number(v.serie), folio: v.folio }
+    : { tipo: 'compra', sucursal: v.sucursal, folio: v.folio };
 }
 
 export interface ScanDto {
@@ -78,6 +169,21 @@ export interface ScanDto {
 const HOY_MX = "r.receipt_date = (now() AT TIME ZONE 'America/Mexico_City')::date";
 
 /**
+ * `[WMS-REC.18]` **Hoy y los ultimos `DIAS_PENDIENTES_ANDEN` dias, nunca el futuro.**
+ *
+ * La regla de solo-hoy de arriba se amplio el 2026-10-07 a pedido de quien recibe: "si ayer
+ * llegaron 8 y solo hizo 6, al dia siguiente siguen esos 2". Lo de hoy sigue apartado y primero
+ * (eso lo hace la pantalla); lo atrasado no desaparece. Lo fechado a futuro sigue fuera, que es el
+ * motivo de fondo de la regla de Edgar. ⚠️ Cambia una decision suya: avisarle (ver el PR).
+ *
+ * Costo: la fecha es `kdm1.c9::date` sin indice de fecha para `X-A-20`, asi que la igualdad ya
+ * recorria todas las ordenes de entrada; el rango no cambia el plan. No medido en prod.
+ */
+const VENTANA_MX =
+  `r.receipt_date BETWEEN (now() AT TIME ZONE 'America/Mexico_City')::date - ${DIAS_PENDIENTES_ANDEN} ` +
+  `AND (now() AT TIME ZONE 'America/Mexico_City')::date`;
+
+/**
  * La fila CRUDA que devuelve el select del menu, con los alias tal como los renombra la
  * consulta (`w.id as warehouse_id`, `COUNT(*)::int as pendientes`...).
  *
@@ -97,6 +203,8 @@ interface FilaMenuAnden {
   warehouse_code: string | null;
   warehouse_name: string | null;
   pendientes: number | string;
+  /** `[WMS-REC.18]` De `pendientes`, las de dias anteriores. */
+  anteriores: number | string;
   ultimo: string | null;
 }
 
@@ -164,18 +272,50 @@ export class ReceivingSessionService {
 
   async open(dto: OpenSessionDto) {
     const sourceKind = dto.source_kind || 'manual';
+    if (!['manual', 'erp_receipt', 'erp_transfer'].includes(sourceKind))
+      throw new BadRequestException('source_kind inválido');
     if (sourceKind === 'erp_receipt' && (!dto.erp_sucursal || !dto.erp_folio))
       throw new BadRequestException('erp_receipt requiere sucursal + folio de la orden');
-    // Desde una orden del ERP el almacén se DERIVA (crosswalk → espejo): el
+    if (sourceKind === 'erp_transfer' && (!dto.erp_sucursal || !dto.erp_folio || !Number.isInteger(Number(dto.erp_serie))))
+      throw new BadRequestException('erp_transfer requiere sucursal, serie y folio del embarque');
+    // Desde un documento del ERP el almacén se DERIVA (crosswalk → espejo): el
     // operador no elige nada, solo teclea el folio. En modo manual sigue siendo
     // obligatorio porque no hay de dónde sacarlo.
-    if (sourceKind !== 'erp_receipt' && !UUID.test(dto.warehouse_id || ''))
+    if (sourceKind === 'manual' && !UUID.test(dto.warehouse_id || ''))
       throw new BadRequestException('warehouse_id inválido');
     if (dto.warehouse_id && !UUID.test(dto.warehouse_id))
       throw new BadRequestException('warehouse_id inválido');
+    const clientUuid: string | null = conLlave(dto.client_uuid) ? dto.client_uuid : null;
 
+    try {
+      return await this.abrir(dto, sourceKind, clientUuid);
+    } catch (e) {
+      // `[WMS-REC.19]` Dos envíos de la MISMA apertura a la vez: el segundo choca con el índice
+      // único y se le contesta con el vale del primero. Cualquier otro error sigue su camino.
+      if (clientUuid && esChoqueDe(e, UX_SESIONES_CLIENT_UUID)) {
+        const ya = await this.tk.run((trx) => this.sesionPorLlave(trx, clientUuid));
+        if (ya) return ya;
+      }
+      throw e;
+    }
+  }
+
+  /** `[WMS-REC.19]` El vale que ya abrió esta llave, con su detalle. `null` si no existe. */
+  private async sesionPorLlave(trx: Knex.Transaction, clientUuid: string) {
+    const ya = await trx('commercial.receiving_sessions').where({ client_uuid: clientUuid }).first('id');
+    return ya ? this.detailTx(trx, ya.id) : null;
+  }
+
+  private abrir(dto: OpenSessionDto, sourceKind: NonNullable<OpenSessionDto['source_kind']>, clientUuid: string | null) {
     return this.tk.run(async (trx) => {
       const userId = this.tenantCtx.get()?.userId || null;
+
+      // `[WMS-REC.19]` Reintento de una apertura que ya entró: se devuelve ESE vale. Va antes del
+      // guardia de "folio ya recibido", que si no le contestaría al equipo con su propio vale.
+      if (clientUuid) {
+        const ya = await this.sesionPorLlave(trx, clientUuid);
+        if (ya) return ya;
+      }
 
       // Para órdenes del ERP: resuelve la cabecera (folio completo + proveedor) desde el espejo.
       let erpHeader: any = null;
@@ -183,6 +323,32 @@ export class ReceivingSessionService {
         erpHeader = await this.findErpHeader(trx, dto.erp_sucursal!, dto.erp_folio!);
         if (!erpHeader) throw new NotFoundException('No encontré una orden de entrada con ese folio en esa sucursal');
       }
+
+      // `[WMS-REC.17]` Traspaso: el vale se abre desde el EMBARQUE de quien manda.
+      let embarque: FilaEmbarque | null = null;
+      if (sourceKind === 'erp_transfer') {
+        const [e] = await this.embarques(trx, {
+          key: { origen: String(dto.erp_sucursal).trim(), serie: Number(dto.erp_serie), folio: String(dto.erp_folio).trim() },
+        });
+        if (!e) throw new NotFoundException('No encontré ese embarque en Kepler (o no va dirigido a una sucursal)');
+        if (!e.warehouse_id && !dto.warehouse_id)
+          // Se dice A QUIÉN va según Kepler: es lo que hace falta para configurarlo.
+          throw new BadRequestException(
+            `El embarque va a ${e.destino_nombre || e.destino_code} (${e.destino_code}) y ese código no tiene ` +
+              'almacén configurado. Hay que ligarlo como destino de traspaso en Almacén › Movimientos.',
+          );
+        embarque = e;
+      }
+
+      // Lo que identifica al documento del ERP. Un documento se recibe UNA vez (guard de abajo).
+      const sourceRef: string | null = erpHeader
+        ? `${erpHeader.sucursal}/${erpHeader.folio}`
+        : embarque
+          ? transferRef(embarque)
+          : null;
+      const docLabel = embarque
+        ? `El embarque ${embarque.origen}-${embarque.serie}-${embarque.folio}`
+        : `El folio ${sourceRef}`;
 
       // Almacén: lo que mande el cliente, y si no, el que dice la orden del ERP.
       // GUARD: un folio del ERP se recibe UNA vez.
@@ -195,9 +361,9 @@ export class ReceivingSessionService {
       //
       // Es un aviso, no un candado de schema: se puede forzar con `force: true` para
       // el caso legítimo (el vale anterior se canceló y hay que rehacerlo).
-      if (erpHeader && !dto.force) {
+      if (sourceRef && !dto.force) {
         const previo = await trx('commercial.receiving_sessions')
-          .where({ source_ref: `${erpHeader.sucursal}/${erpHeader.folio}` })
+          .where({ source_ref: sourceRef })
           .whereNot('status', 'cancelled')
           .orderBy('created_at', 'desc')
           .first('id', 'folio', 'status', 'created_at');
@@ -209,7 +375,7 @@ export class ReceivingSessionService {
             statusCode: 409,
             error: 'folio_ya_recibido',
             message:
-              `El folio ${erpHeader.sucursal}/${erpHeader.folio} ya se recibió en el vale ${previo.folio} (${previo.status}). ` +
+              `${docLabel} ya se recibió en el vale ${previo.folio} (${previo.status}). ` +
               (previo.status === 'closed'
                 ? 'Revisalo antes de volver a recibirlo; si de verdad llegó otra vez, recibilo de nuevo a propósito.'
                 : 'Revisalo antes de volver a recibirlo; si de verdad hay que rehacerlo, cancelá el anterior.'),
@@ -224,7 +390,9 @@ export class ReceivingSessionService {
           });
       }
 
-      const warehouseId = dto.warehouse_id || (erpHeader ? await this.resolveWarehouse(trx, erpHeader) : null);
+      const warehouseId =
+        dto.warehouse_id ||
+        (erpHeader ? await this.resolveWarehouse(trx, erpHeader) : embarque ? embarque.warehouse_id : null);
       if (!warehouseId)
         throw new BadRequestException(
           'No pude determinar el almacén de destino: configurá el mapa sucursal→almacén ("Almacenes×sucursal")',
@@ -241,10 +409,15 @@ export class ReceivingSessionService {
       );
       const folio = `VE-${year}-${String(seqRes.rows[0].last_seq).padStart(5, '0')}`;
 
-      // El proveedor se AUTOLLENA desde la orden del ERP (código o razón social).
+      // El proveedor se AUTOLLENA desde la orden del ERP (código o razón social). En un
+      // traspaso es el código `TI###` con que Kepler nombra a la sucursal que EMBARCA, sólo
+      // si el mapa lo resuelve sin ambigüedad; si no, queda vacío. El origen del vale no
+      // depende de este código: se lee de la referencia del embarque, que es un hecho.
       const supplierCode = erpHeader
         ? (erpHeader.proveedor_code || erpHeader.proveedor_nombre || null)
-        : (dto.supplier_code || null);
+        : embarque
+          ? await this.codigoTraspasoDe(trx, embarque.origen_warehouse_id)
+          : (dto.supplier_code || null);
 
       const [session] = await trx('commercial.receiving_sessions')
         .insert({
@@ -253,37 +426,156 @@ export class ReceivingSessionService {
           warehouse_id: warehouseId,
           supplier_code: supplierCode,
           source_kind: sourceKind,
-          source_ref: erpHeader ? `${erpHeader.sucursal}/${erpHeader.folio}` : null,
+          source_ref: sourceRef,
           status: 'open',
           notes: dto.notes || null,
           created_by: userId,
+          // Sólo con llave: así el código no depende de que la migración ya esté aplicada
+          // para los equipos que todavía no la mandan.
+          ...(clientUuid ? { client_uuid: clientUuid } : {}),
         })
         .returning('*');
 
-      // Precarga de líneas esperadas desde el espejo ERP (mapea SKU Kepler → catálogo).
-      if (erpHeader) {
-        const tenantId = this.tenantCtx.get()?.tenantId || null;
-        // Los renglones `SER` son servicios (flete, maniobra): no son mercancía, no
-        // se reciben ni se ubican. Se excluyen del vale y se muestran aparte en la ficha.
-        const erpLines = await trx('analytics.erp_goods_receipt_lines')
-          .where({ tenant_id: tenantId, sucursal: erpHeader.sucursal, folio: erpHeader.folio })
-          .whereRaw(`COALESCE(TRIM(unidad),'') <> 'SER'`)
-          .select('sku', 'nombre', 'cantidad');
-        for (const el of erpLines) {
-          const prod = el.sku ? await trx('public.products').where({ sku: String(el.sku) }).first('id') : null;
-          await trx('commercial.receiving_lines').insert({
-            tenant_id: trx.raw('public.current_tenant_id()'),
-            session_id: session.id,
-            product_id: prod?.id || null,
-            expected_sku: el.sku || null,
-            expected_name: el.nombre || null,
-            expected_qty: Number(el.cantidad) || 0,
-            received_qty: 0,
-            discrepancy_kind: 'pending',
-          });
-        }
+      // Precarga de lo que el vale espera: de la orden de entrada o, en un traspaso
+      // (`[WMS-REC.17]`), de lo que la sucursal de origen subió al camión.
+      // `[WMS-REC.20]` La arma `lineasEsperadas`, la MISMA función que el paquete sin red: así una
+      // captura hecha sin red cae, al sincronizar, en el renglón de su producto.
+      const doc: DocErp | null = erpHeader
+        ? { tipo: 'compra', sucursal: erpHeader.sucursal, folio: erpHeader.folio }
+        : embarque
+          ? { tipo: 'traspaso', sucursal: embarque.origen, serie: embarque.serie, folio: embarque.folio }
+          : null;
+      if (doc) {
+        const lineas = (await this.lineasEsperadas(trx, [doc])).get(claveDoc(doc)) ?? [];
+        if (lineas.length)
+          await trx('commercial.receiving_lines').insert(
+            lineas.map((el) => ({
+              tenant_id: trx.raw('public.current_tenant_id()'),
+              session_id: session.id,
+              product_id: el.product_id,
+              expected_sku: el.expected_sku,
+              expected_name: el.expected_name,
+              expected_qty: el.expected_qty,
+              received_qty: 0,
+              discrepancy_kind: 'pending',
+            })),
+          );
       }
       return this.detailTx(trx, session.id);
+    });
+  }
+
+  /**
+   * `[WMS-REC.20]` **Lo que esperan uno o varios vales, en una pasada.**
+   *
+   * La usan `open()` (un documento) y `offlinePack()` (todos los de una sucursal). Que sea UNA
+   * función es la garantía de que el renglón que el equipo trabajó sin red y el que el servidor
+   * crea al abrir son el mismo: mismo producto por SKU, misma cantidad, los `SER` (flete,
+   * maniobra) fuera — no son mercancía, no se reciben ni se ubican.
+   *
+   * El orden es el de Kepler (`linea` en la orden de entrada, `nro_linea` en el embarque). La
+   * unidad se deriva por SKU dentro del documento, como en el detalle: si trae dos, `ambigua`.
+   */
+  private async lineasEsperadas(trx: Knex.Transaction, docs: DocErp[]): Promise<Map<string, AndenLineaOffline[]>> {
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+    const compras = docs.filter((d): d is Extract<DocErp, { tipo: 'compra' }> => d.tipo === 'compra');
+    const traspasos = docs.filter((d): d is Extract<DocErp, { tipo: 'traspaso' }> => d.tipo === 'traspaso');
+    const filas: Array<{ clave: string; sku: string | null; nombre: string | null; cantidad: unknown; unidad: string | null }> = [];
+
+    if (compras.length) {
+      const rs = await trx('analytics.erp_goods_receipt_lines')
+        .where({ tenant_id: tenantId })
+        .whereIn(['sucursal', 'folio'], compras.map((d) => [d.sucursal, d.folio]))
+        .whereRaw(`COALESCE(TRIM(unidad),'') <> 'SER'`)
+        .orderBy('sucursal')
+        .orderBy('folio')
+        .orderByRaw('length(linea), linea')
+        .select('sucursal', 'folio', 'sku', 'nombre', 'cantidad', 'unidad');
+      for (const r of rs)
+        filas.push({ clave: claveDoc({ tipo: 'compra', sucursal: r.sucursal, folio: r.folio }), sku: r.sku, nombre: r.nombre, cantidad: r.cantidad, unidad: r.unidad });
+    }
+    if (traspasos.length) {
+      const rs = await trx('analytics.erp_shipment_lines')
+        .where({ tenant_id: tenantId })
+        .whereIn(['sucursal', 'serie', 'folio'], traspasos.map((d) => [d.sucursal, d.serie, d.folio]))
+        .whereRaw(`COALESCE(TRIM(unidad),'') <> 'SER'`)
+        .orderBy('sucursal')
+        .orderBy('serie')
+        .orderBy('folio')
+        .orderBy('nro_linea')
+        .select('sucursal', 'serie', 'folio', 'sku', 'descripcion', 'cantidad', 'unidad');
+      for (const r of rs)
+        filas.push({
+          clave: claveDoc({ tipo: 'traspaso', sucursal: r.sucursal, serie: Number(r.serie), folio: r.folio }),
+          sku: r.sku, nombre: r.descripcion, cantidad: r.cantidad, unidad: r.unidad,
+        });
+    }
+
+    const productos = await this.productosPorSku(trx, filas.map((f) => String(f.sku || '')));
+    const unidades = new Map<string, Set<string>>();
+    for (const f of filas) {
+      const u = String(f.unidad || '').trim();
+      if (!u) continue;
+      const k = `${f.clave}|${f.sku}`;
+      const set = unidades.get(k) ?? new Set<string>();
+      set.add(u);
+      unidades.set(k, set);
+    }
+
+    const out = new Map<string, AndenLineaOffline[]>(docs.map((d) => [claveDoc(d), []]));
+    for (const f of filas) {
+      const p = f.sku ? productos.get(String(f.sku)) : undefined;
+      const us = unidades.get(`${f.clave}|${f.sku}`);
+      out.get(f.clave)?.push({
+        expected_sku: f.sku || null,
+        expected_name: f.nombre || null,
+        expected_qty: Number(f.cantidad) || 0,
+        expected_unit: !us ? null : us.size > 1 ? 'ambigua' : [...us][0],
+        product_id: p?.id ?? null,
+        sku: p?.sku ?? null,
+        product_name: p?.nombre ?? null,
+      });
+    }
+    return out;
+  }
+
+  /**
+   * `[WMS-REC.20]` El producto del catálogo de cada SKU de Kepler, en UNA consulta.
+   *
+   * Antes `open()` hacía un `.first()` por renglón y sin orden: con un SKU repetido en el catálogo
+   * se quedaba con cualquiera. Ahora prefiere el vivo y desempata por id — y elige igual para abrir
+   * y para el paquete sin red. Si eligieran distinto, la captura hecha sin red chocaría al
+   * sincronizar con "El renglón corresponde a otro producto".
+   */
+  private async productosPorSku(trx: Knex.Transaction, skus: string[]): Promise<Map<string, { id: string; sku: string; nombre: string | null }>> {
+    const unicos = [...new Set(skus.filter(Boolean))];
+    if (!unicos.length) return new Map();
+    const rows: Array<{ id: string; sku: string; nombre: string | null }> = await trx('public.products')
+      .whereIn('sku', unicos)
+      .distinctOn('sku')
+      .orderBy('sku')
+      .orderByRaw('(deleted_at IS NOT NULL), id')
+      .select('id', 'sku', 'nombre');
+    return new Map(rows.map((r) => [String(r.sku), r]));
+  }
+
+  /**
+   * `[WMS-REC.20]` **El paquete para trabajar sin red**: los vales del menú de una sucursal (los
+   * mismos que `pendingErpOrders`, con su alcance) y lo que espera cada uno. El equipo lo baja
+   * mientras tiene red; sin ella abre el vale desde aquí y lo sincroniza al volver.
+   *
+   * Cuesta una consulta de renglones por TIPO de documento, no una por vale. No medido en prod.
+   */
+  async offlinePack(sucursal: string): Promise<AndenPaqueteOffline> {
+    const vales = await this.pendingErpOrders(sucursal, 200);
+    return this.tk.run(async (trx) => {
+      const docs = vales.map(docDeVale);
+      const lineas = await this.lineasEsperadas(trx, docs);
+      return {
+        sucursal: String(sucursal).trim(),
+        generado_en: new Date().toISOString(),
+        vales: vales.map((v, i) => ({ ...v, lineas: lineas.get(claveDoc(docs[i])) ?? [] })),
+      };
     });
   }
 
@@ -394,7 +686,164 @@ export class ReceivingSessionService {
       origin,
       // `tipo` se conserva por compatibilidad con lo que ya lo consume.
       tipo: origin.kind === 'transfer' ? 'traspaso' : 'compra',
+      fuente: 'orden_entrada',
     };
+  }
+
+  /**
+   * `[WMS-REC.17]` **Los embarques de traspaso (`U-D-41`) hacia una sucursal.**
+   *
+   * Una sola consulta para los cuatro usos (menú, vales de una sucursal, búsqueda por folio y
+   * abrir el vale), para que el destino, el origen y el "ya llegó a Kepler" se resuelvan igual
+   * en todos — si dos caminos lo resolvieran distinto, el menú ofrecería vales que después
+   * rebotan al abrirlos (la misma lección que la cascada de almacén de `open()`).
+   *
+   *  · **Destino:** `c10` (`TI###`) → `analytics.transfer_dest_map`, el mapa curado que ya usa
+   *    Almacén › Movimientos, y sólo hacia un almacén VIVO (`[DM.15]`: un almacén retirado no
+   *    puede ser destino). Sin mapa, `warehouse_id` queda NULL y se DECLARA, no se adivina.
+   *  · **Origen:** la sucursal donde vive el documento — es un hecho, no se deduce de un código.
+   *  · **¿Ya llegó a Kepler?** la recepción `U-A-50` de la sucursal destino que apunta a este
+   *    embarque (`c37`=41, `c38`=serie, `c39`=folio). Es informativo: que Kepler lo haya
+   *    recibido NO quiere decir que alguien le capturó la caducidad, que es lo que hace el Andén.
+   *
+   * Lee `kepler_ods` en vivo (derive-no-copy, sin importer). Los filtros usan las mismas
+   * expresiones que los índices que ya existen: `ix_kdm1_venta_fecha` para la ventana,
+   * `ix_kdm1_venta_doc` para un embarque exacto y `ix_kdm1_abono_doc` para la recepción.
+   */
+  private async embarques(
+    trx: Knex.Transaction,
+    f: { key?: TransferKey; folio?: string; ventana?: boolean; conRenglones?: boolean },
+  ): Promise<Array<FilaEmbarque & { line_count?: number }>> {
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+    const filtros: string[] = [];
+    const binds: Knex.RawBinding[] = [];
+    if (f.key) {
+      filtros.push('AND btrim(h.sucursal) = ? AND (h.c5)::int = ?::int AND btrim(h.c6::text) = ?');
+      binds.push(f.key.origen, f.key.serie, f.key.folio);
+    }
+    if (f.folio) {
+      // Mismo criterio que la busqueda de ordenes de entrada: folio completo o sus ultimos digitos.
+      filtros.push(`AND (btrim(h.c6::text) = ? OR RIGHT(btrim(h.c6::text), ?::int) = ?)
+         AND (h.c9::date) >= (SELECT d FROM hoy) - 45`);
+      binds.push(f.folio, f.folio.length, f.folio);
+    }
+    if (f.ventana) {
+      filtros.push('AND (h.c9::date) BETWEEN (SELECT d FROM hoy) - ?::int AND (SELECT d FROM hoy) + ?::int');
+      binds.push(TRANSFER_WINDOW_DAYS, TRANSFER_WINDOW_DAYS);
+    }
+    binds.push(tenantId); // abierto
+    const renglones = f.conRenglones
+      ? `(SELECT COUNT(*) FROM analytics.erp_shipment_lines l
+           WHERE l.tenant_id = ?::uuid AND l.sucursal = e.origen AND l.serie = e.serie
+             AND l.folio = e.folio AND COALESCE(TRIM(l.unidad), '') <> 'SER')::int AS line_count,`
+      : '';
+    if (f.conRenglones) binds.push(tenantId);
+    binds.push(tenantId, tenantId, tenantId, tenantId, tenantId); // dm, wd, mo, wom, woc
+
+    const { rows } = await trx.raw(
+      `WITH hoy AS (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d),
+       emb AS (
+         SELECT btrim(h.sucursal) AS origen, (h.c5)::int AS serie, btrim(h.c6::text) AS folio,
+                (h.c9::date) AS fecha, btrim(h.c10) AS destino_code,
+                NULLIF(btrim(h.c32), '') AS destino_nombre,
+                round(COALESCE(NULLIF(regexp_replace(h.c16::text, '[^0-9.-]', '', 'g'), '')::numeric, 0), 2) AS monto,
+                NULLIF(btrim(h.c24), '') AS comentarios
+           FROM kepler_ods.kdm1 h
+          WHERE h.c2 = 'U' AND h.c3 = 'D' AND (h.c4)::int = 41
+            AND btrim(h.c1) = btrim(h.sucursal)
+            AND btrim(COALESCE(h.c43, '')) <> 'C'
+            AND btrim(h.c10) ~ '^TI[0-9]'
+            ${filtros.join('\n            ')}
+       )
+       SELECT e.origen, e.serie, e.folio, to_char(e.fecha, 'YYYY-MM-DD') AS fecha,
+              e.destino_code, e.destino_nombre, e.monto, e.comentarios,
+              wd.id AS warehouse_id, wd.code AS warehouse_code, wd.name AS warehouse_name,
+              COALESCE(wom.id, woc.id) AS origen_warehouse_id,
+              COALESCE(wom.name, woc.name) AS origen_nombre,
+              to_char(rk.fecha, 'YYYY-MM-DD') AS recibido_kepler,
+              EXISTS (
+                SELECT 1 FROM commercial.receiving_sessions s
+                 WHERE s.tenant_id = ?::uuid AND s.status <> 'cancelled'
+                   AND s.source_ref = '${TRANSFER_REF_PREFIX}/' || e.origen || '/' || e.serie || '/' || e.folio
+              ) AS abierto,
+              ${renglones}
+              to_char((SELECT d FROM hoy), 'YYYY-MM-DD') AS hoy
+         FROM emb e
+         LEFT JOIN analytics.transfer_dest_map dm
+           ON dm.tenant_id = ?::uuid AND dm.dest_code = e.destino_code
+         LEFT JOIN commercial.warehouses wd
+           ON wd.tenant_id = ?::uuid AND wd.id = dm.warehouse_id AND wd.deleted_at IS NULL
+         LEFT JOIN commercial.erp_sucursal_warehouse mo
+           ON mo.tenant_id = ?::uuid AND mo.sucursal = e.origen
+         LEFT JOIN commercial.warehouses wom
+           ON wom.tenant_id = ?::uuid AND wom.id = mo.warehouse_id AND wom.deleted_at IS NULL
+         LEFT JOIN commercial.warehouses woc
+           ON woc.tenant_id = ?::uuid AND woc.code = e.origen AND woc.deleted_at IS NULL
+         LEFT JOIN LATERAL (
+           SELECT (x.c9::date) AS fecha
+             FROM kepler_ods.kdm1 x
+            WHERE x.c2 = 'U' AND x.c3 = 'A'
+              AND btrim(x.sucursal) = COALESCE(NULLIF(btrim(wd.kepler_code), ''), wd.code)
+              AND btrim(x.c1) = COALESCE(NULLIF(btrim(wd.kepler_code), ''), wd.code)
+              AND (x.c4)::int = 50
+              AND x.c37 = 41 AND x.c38 = e.serie AND btrim(x.c39::text) = e.folio
+              AND btrim(COALESCE(x.c43, '')) <> 'C'
+              AND (x.c9::date) >= e.fecha - 1
+            ORDER BY x.c9
+            LIMIT 1
+         ) rk ON wd.id IS NOT NULL
+        ORDER BY e.fecha DESC, e.origen, e.folio DESC
+        LIMIT 1000`,
+      binds,
+    );
+    return rows;
+  }
+
+  /**
+   * El codigo `TI###` con que Kepler nombra a un almacen como DESTINO de traspasos. Se usa al
+   * reves (para el que embarca) y solo si el mapa lo resuelve a UN codigo: con dos, no se elige.
+   */
+  private async codigoTraspasoDe(trx: Knex.Transaction, warehouseId: string | null): Promise<string | null> {
+    if (!warehouseId) return null;
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+    const filas = await trx('analytics.transfer_dest_map')
+      .where({ tenant_id: tenantId, warehouse_id: warehouseId })
+      .select('dest_code');
+    return filas.length === 1 ? String(filas[0].dest_code) : null;
+  }
+
+  /** Un embarque, en la misma forma que una orden de entrada: el Andén usa un solo camino. */
+  private embarqueAErpOrderMatch(e: FilaEmbarque & { line_count?: number }): ErpOrderMatch {
+    return {
+      sucursal: e.origen,
+      folio: e.folio,
+      serie: e.serie,
+      receipt_date: e.fecha,
+      proveedor_code: null,
+      proveedor_nombre: e.origen_nombre,
+      concepto: e.comentarios,
+      monto: Number(e.monto) || 0,
+      warehouse_id: e.warehouse_id,
+      warehouse_code: e.warehouse_code,
+      warehouse_name: e.warehouse_name,
+      line_count: Number(e.line_count) || 0,
+      service_count: 0,
+      origin: classifyShipmentOrigin(e.origen, e.origen_nombre),
+      tipo: 'traspaso',
+      fuente: 'embarque',
+      recibido_kepler: e.recibido_kepler,
+      dias_en_camino: diasEntre(e.fecha, e.hoy),
+      destino_code: e.destino_code,
+      destino_nombre: e.destino_nombre,
+    };
+  }
+
+  /** Los embarques que el menu ofrece: no abiertos, dentro de la regla de dia del traspaso. */
+  private async embarquesPendientes(trx: Knex.Transaction): Promise<FilaEmbarque[]> {
+    const todos = await this.embarques(trx, { ventana: true });
+    return todos.filter(
+      (e) => !e.abierto && transferVisible({ fecha: e.fecha, hoy: e.hoy, recibidoKepler: e.recibido_kepler }),
+    );
   }
 
   async pendingErpBranches(): Promise<ErpPendingMenu> {
@@ -411,12 +860,15 @@ export class ReceivingSessionService {
       const q = trx('analytics.erp_goods_receipts as r')
         .where({ 'r.tenant_id': tenantId })
         .whereNull('r.dup_of_folio')
-        .whereRaw(HOY_MX)
+        .whereRaw(VENTANA_MX)
         .whereNotExists(function (this: Knex.QueryBuilder) {
+          // `[WMS-REC.17]` Un vale CANCELADO ya no tapa al documento: `open()` deja reabrirlo
+          // sin `force`, y el menu lo escondia para siempre — el bodeguero no tenia como volver.
           this.select(trx.raw('1'))
             .from('commercial.receiving_sessions as s')
             .whereRaw("s.source_ref = r.sucursal || '/' || r.folio")
-            .andWhere('s.tenant_id', tenantId);
+            .andWhere('s.tenant_id', tenantId)
+            .andWhereNot('s.status', 'cancelled');
         })
         .leftJoin('commercial.erp_sucursal_warehouse as m', function () {
           this.on('m.tenant_id', '=', 'r.tenant_id').andOn('m.sucursal', '=', 'r.sucursal');
@@ -432,22 +884,87 @@ export class ReceivingSessionService {
           'w.code as warehouse_code',
           'w.name as warehouse_name',
           trx.raw('COUNT(*)::int as pendientes'),
-          trx.raw('MAX(r.receipt_date)::date as ultimo'),
+          // `[WMS-REC.18]` Las atrasadas se cuentan aparte: la insignia dice cuantas son de antes.
+          trx.raw(`COUNT(*) FILTER (WHERE NOT (${HOY_MX}))::int as anteriores`),
+          // `[WMS-REC.17]` Como TEXTO `YYYY-MM-DD`: pg entrega un `date` como `Date` a medianoche
+          // UTC, que en hora de Mexico es el dia ANTERIOR (LC.16). Y se compara contra la fecha
+          // de los traspasos, que ya viene como texto.
+          trx.raw(`to_char(MAX(r.receipt_date)::date, 'YYYY-MM-DD') as ultimo`),
         );
 
       // `all` no enumera; `listed`/`own` traen CODIGOS de almacen.
       if (dim.mode !== 'all' && dim.values.length) q.whereIn('w.code', dim.values);
       if (dim.mode !== 'all' && !dim.values.length) return { alcance: dim.mode, sucursales: [] };
       const filas = await q;
-      return {
-        alcance: dim.mode,
-        sucursales: filas.map((f: FilaMenuAnden): ErpPendingBranch => ({
-          ...f,
-          pendientes: Number(f.pendientes) || 0,
-          // Sin mapa no se puede abrir el vale: la pantalla lo dice antes del toque.
-          sin_almacen: !f.warehouse_id,
-        })),
-      };
+      const sucursales: ErpPendingBranch[] = filas.map((f: FilaMenuAnden): ErpPendingBranch => ({
+        ...f,
+        pendientes: Number(f.pendientes) || 0,
+        compras: Number(f.pendientes) || 0,
+        anteriores: Number(f.anteriores) || 0,
+        traspasos: 0,
+        // Sin mapa no se puede abrir el vale: la pantalla lo dice antes del toque.
+        sin_almacen: !f.warehouse_id,
+      }));
+
+      // `[WMS-REC.17]` Los traspasos que vienen a cada almacen. Se suman a TODA fila de ese
+      // almacen, porque `pendingErpOrders()` los lista desde cualquiera de ellas: la insignia
+      // tiene que contar lo mismo que se ve al tocarla.
+      const enAlcance = (code: string | null) => dim.mode === 'all' || (!!code && dim.values.includes(code));
+      const porAlmacen = new Map<string, FilaEmbarque[]>();
+      const sinDestino = new Map<string, FilaEmbarque[]>();
+      for (const e of await this.embarquesPendientes(trx)) {
+        if (e.warehouse_id) {
+          if (!enAlcance(e.warehouse_code)) continue;
+          porAlmacen.set(e.warehouse_id, [...(porAlmacen.get(e.warehouse_id) || []), e]);
+        } else if (dim.mode === 'all') {
+          // Un destino que el mapa no resuelve se DECLARA (solo a quien ve todo): esconderlo
+          // es justo la falla que se esta arreglando, una mercancia que llega y nadie ve.
+          sinDestino.set(e.destino_code, [...(sinDestino.get(e.destino_code) || []), e]);
+        }
+      }
+      const ultimo = (es: FilaEmbarque[]) => es.map((e) => e.fecha).sort().slice(-1)[0] ?? null;
+      for (const [whId, es] of porAlmacen) {
+        const propias = sucursales.filter((b) => b.warehouse_id === whId);
+        for (const b of propias) {
+          b.traspasos = es.length;
+          b.pendientes += es.length;
+          const u = ultimo(es);
+          if (u && (!b.ultimo || String(b.ultimo) < u)) b.ultimo = u;
+        }
+        if (!propias.length) {
+          const e0 = es[0];
+          sucursales.push({
+            // El codigo del almacen es una sucursal que `pendingErpOrders()` resuelve de vuelta
+            // a ESTE almacen (mapa sucursal->almacen, si no por codigo).
+            sucursal: String(e0.warehouse_code),
+            warehouse_id: whId,
+            warehouse_code: e0.warehouse_code,
+            warehouse_name: e0.warehouse_name,
+            pendientes: es.length,
+            compras: 0,
+            anteriores: 0,
+            traspasos: es.length,
+            ultimo: ultimo(es),
+            sin_almacen: false,
+          });
+        }
+      }
+      for (const [code, es] of sinDestino) {
+        sucursales.push({
+          sucursal: code,
+          warehouse_id: null,
+          warehouse_code: null,
+          warehouse_name: es[0].destino_nombre || code,
+          pendientes: es.length,
+          compras: 0,
+          anteriores: 0,
+          traspasos: es.length,
+          ultimo: ultimo(es),
+          sin_almacen: true,
+        });
+      }
+      sucursales.sort((a, b) => String(a.warehouse_code ?? 'zz').localeCompare(String(b.warehouse_code ?? 'zz')));
+      return { alcance: dim.mode, sucursales };
     });
   }
 
@@ -469,7 +986,7 @@ export class ReceivingSessionService {
           this.on('w.tenant_id', '=', 'm.tenant_id').andOn('w.id', '=', 'm.warehouse_id');
         })
         .where({ 'm.tenant_id': tenantId, 'm.sucursal': suc })
-        .first('w.code as code');
+        .first('w.code as code', 'w.id as id');
       const alcance = await this.scope.current();
       if (destino?.code && !this.scope.canRead(alcance, 'warehouse', destino.code))
         throw new ForbiddenException('Esa sucursal no está en tu alcance');
@@ -477,12 +994,13 @@ export class ReceivingSessionService {
       const filas = await trx('analytics.erp_goods_receipts as r')
         .where({ 'r.tenant_id': tenantId, 'r.sucursal': suc })
         .whereNull('r.dup_of_folio')
-        .whereRaw(HOY_MX)
+        .whereRaw(VENTANA_MX)
         .whereNotExists(function (this: Knex.QueryBuilder) {
           this.select(trx.raw('1'))
             .from('commercial.receiving_sessions as s')
             .whereRaw("s.source_ref = r.sucursal || '/' || r.folio")
-            .andWhere('s.tenant_id', tenantId);
+            .andWhere('s.tenant_id', tenantId)
+            .andWhereNot('s.status', 'cancelled');
         })
         .leftJoin('commercial.erp_sucursal_warehouse as m', function () {
           this.on('m.tenant_id', '=', 'r.tenant_id').andOn('m.sucursal', '=', 'r.sucursal');
@@ -494,7 +1012,10 @@ export class ReceivingSessionService {
         .orderBy('r.folio', 'desc')
         .limit(Math.min(200, Math.max(1, Number(limit) || 100)))
         .select(
-          'r.sucursal', 'r.folio', 'r.receipt_date',
+          'r.sucursal', 'r.folio',
+          // `[WMS-REC.18]` Como TEXTO: la pantalla separa hoy de lo atrasado comparando contra la
+          // fecha de Mexico, y un `date` de pg llega como medianoche UTC = el dia anterior (LC.16).
+          trx.raw(`to_char(r.receipt_date, 'YYYY-MM-DD') AS receipt_date`),
           'r.proveedor_code', 'r.proveedor_nombre', 'r.proveedor_rfc',
           'r.oc_folio', 'r.vale_folio', 'r.concepto', 'r.monto',
           'w.id as warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
@@ -506,8 +1027,24 @@ export class ReceivingSessionService {
                        AND l.folio = r.folio AND TRIM(l.unidad) = 'SER')::int AS service_count`),
         );
 
+      // `[WMS-REC.17]` Los traspasos que vienen al almacen de esta sucursal. El almacen se
+      // resuelve con la misma cascada que el menu (mapa, si no por codigo).
+      const destinoWh =
+        destino?.id ||
+        (await trx('commercial.warehouses').where({ tenant_id: tenantId, code: suc }).whereNull('deleted_at').first('id'))?.id ||
+        null;
+      const traspasos = destinoWh
+        ? (await this.embarques(trx, { ventana: true, conRenglones: true })).filter(
+            (e) =>
+              e.warehouse_id === destinoWh &&
+              this.scope.canRead(alcance, 'warehouse', String(e.warehouse_code)) &&
+              !e.abierto &&
+              transferVisible({ fecha: e.fecha, hoy: e.hoy, recibidoKepler: e.recibido_kepler }),
+          )
+        : [];
+
       // Misma forma que `erp-search`: la pantalla usa el mismo componente para las dos.
-      return filas.map((r) => this.aErpOrderMatch(r));
+      return [...traspasos.map((e) => this.embarqueAErpOrderMatch(e)), ...filas.map((r) => this.aErpOrderMatch(r))];
     });
   }
 
@@ -544,7 +1081,10 @@ export class ReceivingSessionService {
                        AND l.folio = r.folio AND TRIM(l.unidad) = 'SER')::int AS service_count`),
         );
 
-      return rows.map((r) => this.aErpOrderMatch(r));
+      // `[WMS-REC.17]` El papel que trae el chofer de un traspaso es el EMBARQUE de quien
+      // manda: buscar su folio tiene que encontrarlo.
+      const embarques = await this.embarques(trx, { folio: f, conRenglones: true });
+      return [...embarques.map((e) => this.embarqueAErpOrderMatch(e)), ...rows.map((r) => this.aErpOrderMatch(r))];
     });
   }
 
@@ -924,13 +1464,27 @@ export class ReceivingSessionService {
           'p.barcode',
           // La cantidad se cuenta en la unidad del vale (CAJA/PAQ/PZA), así que el
           // campo tiene que decir en qué se está contando en vez de dar por hecho piezas.
-          trx.raw(`(SELECT CASE WHEN COUNT(DISTINCT TRIM(el.unidad)) > 1 THEN 'ambigua'
-                                ELSE MIN(TRIM(el.unidad)) END
-                      FROM analytics.erp_goods_receipt_lines el
-                     WHERE el.tenant_id = l.tenant_id
-                       AND el.sucursal  = split_part(s.source_ref, '/', 1)
-                       AND el.folio     = split_part(s.source_ref, '/', 2)
-                       AND el.sku       = l.expected_sku) AS expected_unit`),
+          // `[WMS-REC.17]` El vale de traspaso lee la unidad de su EMBARQUE; su referencia
+          // empieza con `UD41`, que no es una sucursal, asi que la rama de la orden de entrada
+          // nunca lo confundiria con otra (daria vacio, no un dato ajeno).
+          trx.raw(`CASE WHEN s.source_kind = 'erp_transfer' THEN
+                     (SELECT CASE WHEN COUNT(DISTINCT TRIM(el.unidad)) > 1 THEN 'ambigua'
+                                  ELSE MIN(TRIM(el.unidad)) END
+                        FROM analytics.erp_shipment_lines el
+                       WHERE el.tenant_id = l.tenant_id
+                         AND el.sucursal = split_part(s.source_ref, '/', 2)
+                         AND el.serie    = NULLIF(split_part(s.source_ref, '/', 3), '')::int
+                         AND el.folio    = split_part(s.source_ref, '/', 4)
+                         AND el.sku      = l.expected_sku)
+                   ELSE
+                     (SELECT CASE WHEN COUNT(DISTINCT TRIM(el.unidad)) > 1 THEN 'ambigua'
+                                  ELSE MIN(TRIM(el.unidad)) END
+                        FROM analytics.erp_goods_receipt_lines el
+                       WHERE el.tenant_id = l.tenant_id
+                         AND el.sucursal  = split_part(s.source_ref, '/', 1)
+                         AND el.folio     = split_part(s.source_ref, '/', 2)
+                         AND el.sku       = l.expected_sku)
+                   END AS expected_unit`),
           's.id as session_id',
           's.folio as vale_folio',
           's.source_ref',
@@ -1063,6 +1617,75 @@ export class ReceivingSessionService {
   }
 
   /**
+   * `[WMS-REC.17]` **Los vales que alguien abrió y no ha cerrado** — para cambiar de camión.
+   *
+   * Un vale abierto sale del menú de pendientes (ya tiene sesión), así que sin esta lista
+   * dejar uno a medias era perderlo: sólo lo recuperaba el borrador del MISMO equipo, y
+   * sólo el último. Acotado al alcance de almacén, como el menú.
+   *
+   * No lee las vistas del ERP a propósito: con el folio de Kepler y el origen alcanza para
+   * reconocer el camión, y la vista de órdenes de entrada cuesta medio segundo por consulta.
+   */
+  async inProgress(limit = 30): Promise<AndenValeEnCurso[]> {
+    const alcance = await this.scope.current();
+    const dim = alcance.dims.warehouse;
+    if (dim.mode === 'none') return [];
+    if (dim.mode !== 'all' && !dim.values.length) return [];
+
+    return this.tk.run(async (trx) => {
+      const q = trx('commercial.receiving_sessions as s')
+        .leftJoin('commercial.warehouses as w', function () {
+          this.on('w.tenant_id', '=', 's.tenant_id').andOn('w.id', '=', 's.warehouse_id');
+        })
+        .leftJoin('identity.users as u', 'u.id', 's.created_by')
+        .whereIn('s.status', ['open', 'validating'])
+        .orderBy('s.created_at', 'desc')
+        .limit(Math.min(100, Math.max(1, Number(limit) || 30)))
+        .select(
+          's.id', 's.folio', 's.source_kind', 's.source_ref', 's.supplier_code', 's.warehouse_id',
+          'w.code as warehouse_code', 'w.name as warehouse_name', 's.created_at',
+          trx.raw(`COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS abierto_por`),
+          trx.raw(`(SELECT COUNT(*) FROM commercial.receiving_lines l WHERE l.session_id = s.id)::int AS renglones`),
+          trx.raw(`(SELECT COUNT(*) FROM commercial.receiving_lines l
+                     WHERE l.session_id = s.id AND l.discrepancy_kind = 'pending'
+                       AND l.expected_qty > 0)::int AS por_fechar`),
+        );
+      if (dim.mode !== 'all') q.whereIn('w.code', dim.values);
+      const filas = (await q) as FilaValeEnCurso[];
+
+      // Nombre de la sucursal que embarcó, para los vales de traspaso.
+      const origenes = Array.from(
+        new Set(filas.map((f) => parseTransferRef(f.source_ref)?.origen).filter(Boolean)),
+      ) as string[];
+      const nombres = new Map<string, string>();
+      if (origenes.length) {
+        const ws = await trx('commercial.warehouses').whereIn('code', origenes).whereNull('deleted_at').select('code', 'name');
+        for (const w of ws as Array<{ code: string; name: string }>) nombres.set(String(w.code), String(w.name));
+      }
+
+      return filas.map((f): AndenValeEnCurso => {
+        const t = parseTransferRef(f.source_ref);
+        return {
+          id: f.id,
+          folio: f.folio,
+          source_kind: f.source_kind,
+          documento: t ? `Embarque ${t.origen}-${t.serie}-${t.folio}` : f.source_ref || null,
+          warehouse_id: f.warehouse_id,
+          warehouse_code: f.warehouse_code ?? null,
+          warehouse_name: f.warehouse_name ?? null,
+          origin: t
+            ? classifyShipmentOrigin(t.origen, nombres.get(t.origen) ?? null)
+            : classifyReceivingOrigin(f.supplier_code, null),
+          renglones: Number(f.renglones) || 0,
+          por_fechar: Number(f.por_fechar) || 0,
+          abierto_por: f.abierto_por ?? null,
+          created_at: f.created_at instanceof Date ? f.created_at.toISOString() : String(f.created_at),
+        };
+      });
+    });
+  }
+
+  /**
    * Arma el detalle DENTRO de la transacción dada. Se usa desde open/scan/close/…
    * para no abrir una transacción anidada (otra conexión del pool NO vería los
    * cambios aún sin commitear → NotFoundException + rollback). Ver bug 2026-08-19.
@@ -1077,6 +1700,20 @@ export class ReceivingSessionService {
         .select('s.*', 'w.code as warehouse_code', 'w.name as warehouse_name')
         .first();
       if (!session) throw new NotFoundException('Sesión no encontrada');
+
+      // `[WMS-REC.17]` Un vale de traspaso lee su documento del EMBARQUE de quien mandó.
+      const traspaso = parseTransferRef(session.source_ref);
+      const unidadDelEmbarque = traspaso
+        ? trx.raw(
+            `(SELECT CASE WHEN COUNT(DISTINCT TRIM(el.unidad)) > 1 THEN 'ambigua'
+                          ELSE MIN(TRIM(el.unidad)) END
+                FROM analytics.erp_shipment_lines el
+               WHERE el.tenant_id = l.tenant_id
+                 AND el.sucursal = ? AND el.serie = ?::int AND el.folio = ?
+                 AND el.sku = l.expected_sku) AS expected_unit`,
+            [traspaso.origen, traspaso.serie, traspaso.folio],
+          )
+        : null;
 
       // Cuadre de caducidad por renglón (ADR-044): `declared_qty` = Σ de las capturas
       // de lote ligadas al renglón, y `held_qty` = las que están retenidas por un rojo
@@ -1109,7 +1746,7 @@ export class ReceivingSessionService {
           // interrogación: knex trata ese signo como binding aunque esté entre
           // comillas SQL — y también dentro de un comentario `--` del propio raw
           // (GOTCHAS §5). Ambas variantes tiraban "Expected 2 bindings, saw 3".
-          trx.raw(
+          unidadDelEmbarque ?? trx.raw(
             `(SELECT CASE
                        -- Si ese SKU trae MÁS DE UNA unidad dentro del mismo vale, el join
                        -- deja de ser determinista. Hoy no pasa (0 casos de 89,167 pares
@@ -1180,14 +1817,40 @@ export class ReceivingSessionService {
         }
       }
 
+      // `[WMS-REC.17]` Ficha del EMBARQUE, derivada igual que la de la orden de entrada.
+      if (traspaso) {
+        const [e] = await this.embarques(trx, { key: traspaso });
+        if (e) {
+          erp = {
+            sucursal: e.origen,
+            folio: e.folio,
+            serie: e.serie,
+            doc_prefix: 'UD41',
+            receipt_date: e.fecha,
+            proveedor_code: session.supplier_code || null,
+            proveedor_nombre: e.origen_nombre,
+            concepto: e.comentarios,
+            monto: Number(e.monto) || 0,
+            tipo: 'traspaso',
+            fuente: 'embarque',
+            destino_code: e.destino_code,
+            destino_nombre: e.destino_nombre,
+            recibido_kepler: e.recibido_kepler,
+            services: [],
+          };
+        }
+      }
+
       // De dónde viene la mercancía. En el andén son dos cosas distintas aunque
       // lleguen por la misma puerta: un faltante de PROVEEDOR se le reclama a él
       // y le pega en su scorecard; uno de TRASPASO se le reclama a la sucursal
-      // que embarcó, y es de la casa.
-      const origin = classifyReceivingOrigin(
-        session.supplier_code,
-        (erp as any)?.proveedor_nombre ?? null,
-      );
+      // que embarcó, y es de la casa. En un vale de traspaso el origen es la
+      // sucursal del embarque (un hecho), no un código `TI###`.
+      const nombreErp = erp?.['proveedor_nombre'];
+      const proveedorNombre = typeof nombreErp === 'string' ? nombreErp : null;
+      const origin = traspaso
+        ? classifyShipmentOrigin(traspaso.origen, proveedorNombre)
+        : classifyReceivingOrigin(session.supplier_code, proveedorNombre);
 
       return { ...session, lines, progress, erp, origin };
     }
