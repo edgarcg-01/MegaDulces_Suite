@@ -559,7 +559,10 @@ export class ComercialInventoryAbcComponent {
   warehouses = signal<{ label: string; value: string }[]>([]);
   warehouseOptions = computed(() => [{ label: 'Todos los almacenes', value: this.ALL }, ...this.warehouses()]);
   isSpecific(): boolean { return this.warehouseFilter !== this.ALL; }
-  private whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
+  // `protected` y no `private`: `[IC.25]` la empezó a usar en la plantilla del empty-state y un
+  // miembro privado no es accesible desde ahí (TS2341). `protected` alcanza para la plantilla y
+  // sigue fuera de la API pública del componente, que es lo que `private` buscaba.
+  protected whParam(): string | undefined { return this.isSpecific() ? this.warehouseFilter : undefined; }
 
   /** Filtro de producto (client-side por SKU). */
   prodFilter = signal<ProductHit | null>(null);
