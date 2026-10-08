@@ -90,6 +90,15 @@ export interface SdQueueDto {
   priority_model: SdPriorityModel;
   /** `[MS.7.3]` Si el formulario de esta cola PREGUNTA la zona (el lugar dentro de la ubicación). Se elige por este valor, nunca por el nombre. */
   asks_zone: boolean;
+  /**
+   * `[MSH.2]` Cola CONFIDENCIAL (RH): sus solicitudes nacen confidenciales y sólo las ven quien las reportó y los miembros de la cola.
+   * El formulario avisa «esta solicitud será confidencial». Se elige por este valor, nunca por el nombre de la cola.
+   */
+  confidential: boolean;
+  /** `[MSH.2]` `false` = la cola NO usa prioridad (RH v1): el formulario no pregunta impacto ni riesgo y la API no publica prioridad. */
+  uses_priority: boolean;
+  /** `[MSH.2]` `false` = la cola no mide SLA: no hay plazos; se declara «—», nunca 0. */
+  sla_enabled: boolean;
 }
 
 /** `[MS.7.4]` Un campo propio de la cola, como lo ve quien reporta (sólo los ACTIVOS). */
@@ -230,6 +239,15 @@ export interface SdSlaView {
 }
 
 export interface SdRequestRow {
+  /**
+   * `[MSH.2]` VISTA LIMITADA: `true` = quien pide esto ve un ticket CONFIDENCIAL sin tener acceso (el god-mode; R2). Sólo viajan folio, cola,
+   * estado y fechas; **todo lo demás viene vacío** (la API no lo envía: no basta esconderlo en pantalla). Ninguna acción aplica.
+   */
+  basic?: boolean;
+  /** `[MSH.2]` Ticket confidencial (la marca la fija la base desde su cola). */
+  confidential?: boolean;
+  /** `[MSH.2]` Sólo en la vista limitada: la fecha de resolución es parte de lo básico (R2). */
+  resolved_at?: string | null;
   id: string;
   folio: string;
   queue_id: string;
@@ -237,7 +255,8 @@ export interface SdRequestRow {
   category_id: string;
   category_name: string | null;
   title: string;
-  priority: SdPriority;
+  /** `[MSH.2]` `null` = la cola no usa prioridad (RH): la base guarda un valor neutro interno que NUNCA se publica. */
+  priority: SdPriority | null;
   priority_suggested: SdPriority | null;
   impact: SdImpact;
   blocks_work: boolean;
@@ -628,6 +647,8 @@ export interface SdSlaPolicyDto {
 }
 
 export interface SdQueueAdminDto extends SdQueueDto {
+  /** `[MSH.2]` Mínimo de casos para mostrar un agregado de esta cola en reportes; por debajo, «—». */
+  report_min_cases: number;
   /** `[MS.7.10]` Responsable por omisión del área: a quien cae un ticket sin regla (`null` = «Sin asignar»). Siempre un miembro de la cola. */
   default_assignee_id: string | null;
   default_assignee_name: string | null;

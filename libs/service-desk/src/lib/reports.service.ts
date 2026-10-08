@@ -80,7 +80,7 @@ export class ServiceDeskReportsService {
         })
         .orderBy('sort_order')
         .orderBy('name')
-        .select('id', 'code', 'name', 'priority_model', 'asks_zone')) as { id: string; code: string; name: string; priority_model: 'impacto' | 'riesgo_operacion'; asks_zone: boolean }[];
+        .select('id', 'code', 'name', 'priority_model', 'asks_zone', 'confidential', 'uses_priority', 'sla_enabled')) as { id: string; code: string; name: string; priority_model: 'impacto' | 'riesgo_operacion'; asks_zone: boolean; confidential: boolean; uses_priority: boolean; sla_enabled: boolean }[];
       return { ...reporte, colas: colasPosibles, cola_id: q.queue_id ?? null };
     });
   }

@@ -16,8 +16,8 @@ import { ServicioSolicitudesComponent } from './servicio-solicitudes.component';
  */
 const CATALOGO: SdCatalogResponse = {
   queues: [
-    { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false },
-    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'riesgo_operacion', asks_zone: true },
+    { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'riesgo_operacion', asks_zone: true, confidential: false, uses_priority: true, sla_enabled: true },
   ],
   zones: [{ code: 'bodega', name: 'Bodega' }, { code: 'anden', name: 'Andén' }],
   fields: [],
@@ -108,7 +108,7 @@ describe('[MS.7.3] configuración — la tarjeta Zonas', () => {
       auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60,
     },
     policies: [],
-    queues: [{ id: 'q1', code: 'ti', name: 'TI', department_code: null, active: true, sort_order: 10, priority_model: 'impacto', asks_zone: false, default_assignee_id: null, default_assignee_name: null }],
+    queues: [{ id: 'q1', code: 'ti', name: 'TI', department_code: null, active: true, sort_order: 10, priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true, default_assignee_id: null, default_assignee_name: null, report_min_cases: 5 }],
     zones: [
       { id: 'z1', code: 'bodega', name: 'Bodega', sort_order: 10, active: true },
       { id: 'z2', code: 'anden', name: 'Andén', sort_order: 20, active: false },
@@ -168,7 +168,7 @@ describe('[MS.7.3] configuración — la tarjeta Zonas', () => {
     c.alternarZona('z2', false);
     expect(api['updateZone']).toHaveBeenCalledWith('z2', { active: true });
     c.cambiarPreguntaZona('q1', false, true);
-    expect(api['updateQueue']).toHaveBeenCalledWith('q1', { asks_zone: true });
+    expect(api['updateQueue']).toHaveBeenCalledWith('q1', { asks_zone: true, confidential: false, uses_priority: true, sla_enabled: true });
     c.cambiarPreguntaZona('q1', true, true); // sin cambio → no llama
     expect(api['updateQueue']).toHaveBeenCalledTimes(1);
   });

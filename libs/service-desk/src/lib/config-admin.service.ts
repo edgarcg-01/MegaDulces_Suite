@@ -72,7 +72,7 @@ export class ServiceDeskConfigAdminService {
       const s = await trx('servicedesk.settings').first();
       if (!s) throw new NotFoundException('La Mesa de Servicio no está configurada para este tenant');
       const policies = await trx('servicedesk.sla_policies').select('queue_id', 'priority', 'first_response_minutes', 'resolution_minutes', 'clock');
-      const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order', 'priority_model', 'asks_zone', 'default_assignee_id');
+      const queues = await trx('servicedesk.queues').whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'department_code', 'active', 'sort_order', 'priority_model', 'asks_zone', 'confidential', 'uses_priority', 'sla_enabled', 'report_min_cases', 'default_assignee_id');
       // `[MS.7.10]` El nombre del responsable por omisión de cada cola (para mostrarlo sin otra consulta).
       const respIds = [...new Set(queues.map((q: { default_assignee_id: string | null }) => q.default_assignee_id).filter((x: string | null): x is string => !!x))];
       const respNombres = new Map<string, string>();
