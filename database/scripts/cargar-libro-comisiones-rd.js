@@ -45,6 +45,7 @@ const ExcelJS = require('exceljs');
 
 const ARCHIVO = process.argv.find((a) => /\.xlsx$/i.test(a));
 const APPLY = process.argv.includes('--apply');
+const REEMPLAZAR = process.argv.includes('--reemplazar');
 const TENANT = process.env.WINCAJA_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const URL = process.env.DATABASE_URL_NEW || process.env.DST_URL;
 
@@ -69,6 +70,19 @@ const F = (cell) => {
   return v.formula || null;
 };
 const num = (x) => (typeof x === 'number' ? x : null);
+/**
+ * ⭐ A CENTAVOS, en el borde — al LEER el libro, no al escribir.
+ *
+ * El libro guarda full precision y sólo MUESTRA dos decimales: su "comisión" de la Q1 ruta 21
+ * es `9135.2008`, no `9135.20`. Las columnas son `numeric(14,2)`, así que Postgres redondea
+ * cada renglón al insertarlo. La primera carga sumó los flotantes crudos por periodo y
+ * redondeó al final: lo guardado quedó **3 centavos** por encima del libro y, peor, el total
+ * de la corrida no coincidía con la suma de sus propias líneas. Dos campos del mismo hecho
+ * tienen que salir del mismo cálculo.
+ */
+const cent = (x) => (typeof x === 'number' ? Math.round(x * 100) / 100 : null);
+/** Suma de una columna de dinero en centavos ENTEROS, devuelta como cadena de dos decimales. */
+const sumC = (filas, k) => (filas.reduce((s, x) => s + Math.round((x[k] ?? 0) * 100), 0) / 100).toFixed(2);
 /** `YYYY-MM-DD` venga como texto o como `Date` (exceljs entrega medianoche UTC). */
 const fechaISO = (x) => {
   if (x instanceof Date) return x.toISOString().slice(0, 10);
@@ -121,13 +135,16 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
       // muestra de uno. Es la alineación periodo-del-libro ↔ periodo-de-la-base: si el bloque
       // estuviera corrido una fila, sin esto no se notaría.
       fecha_fin: fechaISO(V(row.getCell(2))),
-      costo, subtotal, venta,
-      markup: num(g(3)) === null ? null : num(g(3)) * 100,
+      costo: cent(costo), subtotal: cent(subtotal), venta: cent(venta),
+      markup: num(g(3)) === null ? null : Math.round(num(g(3)) * 100 * 10000) / 10000,
       pct_aplicado: pct,
-      supervisor: num(g(6)),
-      comision: num(g(7)),
-      nomina_banco: num(g(8)),
-      a_pagar: num(g(9)),
+      // Los crudos se conservan para poder DECLARAR cuánto mueve el redondeo, en vez de
+      // comparar contra el libro con un número y guardar otro.
+      comision_crudo: num(g(7)), a_pagar_crudo: num(g(9)), supervisor_crudo: num(g(6)),
+      supervisor: cent(num(g(6))),
+      comision: cent(num(g(7))),
+      nomina_banco: cent(num(g(8))),
+      a_pagar: cent(num(g(9))),
       /** El libro dice `NO APLICA` cuando la venta no alcanzó el tramo: NO es cero. */
       motivo_no_pago: typeof g(9) === 'string' ? 'bajo_umbral' : null,
     });
@@ -151,9 +168,13 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
 
   // ── Cuadre, antes de mirar la base ────────────────────────────────────────────────────────
   const suma = (k, f = () => true) => filas.filter(f).reduce((s, x) => s + (x[k] ?? 0), 0);
-  const totComision = suma('comision');
-  const totPagar = suma('a_pagar');
-  const totSuper = suma('supervisor');
+  const totComision = suma('comision_crudo');
+  const totPagar = suma('a_pagar_crudo');
+  const totSuper = suma('supervisor_crudo');
+  // Lo que de verdad se va a guardar: la suma de los renglones YA redondeados a centavos.
+  const centavos = (k) => filas.reduce((s, x) => s + Math.round((x[k] ?? 0) * 100), 0) / 100;
+  const guardComision = centavos('comision');
+  const guardPagar = centavos('a_pagar');
   const d = (a, b) => Math.abs(a - b);
 
   console.log(`\n--- cuadre contra lo medido el 2026-10-08 ---`);
@@ -176,6 +197,17 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
     console.log('\n⛔ NO CUADRA. No se carga nada: el cuadre es precondicion, no reporte posterior.\n');
     process.exit(1);
   }
+
+  // ⭐ Y lo que se GUARDA es otro número: el libro lleva full precision (su comisión de Q1
+  // ruta 21 es 9135.2008) y las columnas son numeric(14,2). El efecto del redondeo se DECLARA
+  // con su monto, no se esconde detrás de un "cuadra al centavo" que compara contra otra cosa.
+  console.log(`\n--- lo que se GUARDA (${filas.length} renglones redondeados a centavos) ---`);
+  console.log(`  comision   ${money(guardComision).padStart(14)}  · el libro a full precision ${money(totComision)}  → redondeo ${money(guardComision - totComision)}`);
+  console.log(`  a pagar    ${money(guardPagar).padStart(14)}  · el libro a full precision ${money(totPagar)}  → redondeo ${money(guardPagar - totPagar)}`);
+  const techo = filas.length * 0.005;
+  const redondeoOk = d(guardComision, totComision) <= techo && d(guardPagar, totPagar) <= techo;
+  console.log(`  ${redondeoOk ? '✔' : '✖'} el desvio por redondeo cabe en el techo teorico (${filas.length} × 0.005 = ${techo.toFixed(2)})`);
+  if (!redondeoOk) { console.log('\n⛔ el redondeo mueve mas de lo que puede: no se carga.\n'); process.exit(1); }
 
   // ── Agregado por periodo ──────────────────────────────────────────────────────────────────
   const porPeriodo = new Map();
@@ -243,7 +275,15 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
 
   const { rows: [{ n: yaHay }] } = await db.query(
     `SELECT count(*)::int n FROM commercial.commission_runs WHERE tenant_id = $1 AND deleted_at IS NULL`, [TENANT]);
-  chk('commission_runs esta vacia (el espejo no pisa nada)', Number(yaHay) === 0, `hay ${yaHay} corrida(s)`);
+  const { rows: [{ n: yaLibro }] } = await db.query(
+    `SELECT count(*)::int n FROM commercial.commission_runs
+      WHERE tenant_id = $1 AND deleted_at IS NULL AND origen = 'libro'`, [TENANT]);
+  // ⚠️ `--reemplazar` sólo borra lo que ESTE script escribió (`origen = 'libro'`). Una corrida
+  // del motor no se toca ni con la bandera puesta: no es de acá.
+  chk('commission_runs no tiene corridas ajenas',
+    Number(yaHay) === Number(yaLibro), `${yaHay} corrida(s), ${yaLibro} del libro`);
+  chk(REEMPLAZAR ? `hay ${yaLibro} espejo(s) previo(s) y se van a reemplazar` : 'no hay un espejo previo',
+    REEMPLAZAR || Number(yaLibro) === 0, `hay ${yaLibro}; corré con --reemplazar si querés rehacerlo`);
 
   if (!listo) { console.log('\n⛔ precondiciones no cumplidas: no se carga nada.\n'); await db.end(); process.exit(1); }
 
@@ -263,6 +303,15 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
   let runs = 0; let lineas = 0;
   await db.query('BEGIN');
   try {
+    if (REEMPLAZAR) {
+      const { rowCount: borradas } = await db.query(
+        `DELETE FROM commercial.commission_run_lines l
+           USING commercial.commission_runs r
+          WHERE l.run_id = r.id AND r.tenant_id = $1 AND r.origen = 'libro'`, [TENANT]);
+      const { rowCount: borradasR } = await db.query(
+        `DELETE FROM commercial.commission_runs WHERE tenant_id = $1 AND origen = 'libro'`, [TENANT]);
+      console.log(`  reemplazo: ${borradasR} corrida(s) y ${borradas} linea(s) previas borradas`);
+    }
     for (const q of [...porPeriodo.keys()].sort((a, b) => a - b)) {
       const g = porPeriodo.get(q);
       const p = porNo.get(q);
@@ -275,14 +324,22 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
             rutas_con_dato, rutas_sin_dato, rutas_fuera, gates, data_as_of, notes, paid_at)
          VALUES ($1,$2,$3,'pagado','libro',$4,$5,$6,$7,
                  NULL, NULL, NULL,
-                 $8, NULL, NULL, $9::jsonb, NULL, $10, $11::date)
+                 $8, $9, NULL, $10::jsonb, NULL, $11, $12::date)
          RETURNING id`,
         [TENANT, p.id, escala.id,
-          g.reduce((s, x) => s + (x.subtotal ?? 0), 0).toFixed(2),
-          g.reduce((s, x) => s + (x.venta ?? 0), 0).toFixed(2),
-          pagables.reduce((s, x) => s + (x.comision ?? 0), 0).toFixed(2),
-          pagables.reduce((s, x) => s + (x.a_pagar ?? 0), 0).toFixed(2),
+          // En centavos enteros: sumar flotantes y redondear al final fue lo que dejó el total
+          // de la corrida 3 centavos arriba de la suma de sus propias líneas.
+          sumC(g, 'subtotal'), sumC(g, 'venta'),
+          sumC(pagables, 'comision'), sumC(pagables, 'a_pagar'),
           g.length,
+          // ⚠️ `rutas_sin_dato` es NOT NULL con default 0, y mandarle NULL aborta la carga
+          // entera (lo descubrió el primer `--apply`: es justo el hueco que el candado de
+          // [RD.50] DECLARA que no cubre — mide existencia de columna, no NOT NULL).
+          // ⭐ Pero no hace falta dibujar un cero: esto SÍ es medible en el libro — cuántas de
+          // las rutas configuradas no tienen renglón en esta quincena. Es un conteo de lo que
+          // el libro contiene, no una afirmación sobre POR QUÉ falta (eso el libro no lo dice,
+          // igual que el motor no distingue "no salió" de "se perdió el día").
+          mapa.length - g.length,
           JSON.stringify([{ gate: 'origen', estado: 'no_medido', detalle: 'espejo del libro: no paso por las compuertas del motor' }]),
           NOTA, p.pay_date ?? p.date_to]);
       runs++;
@@ -304,6 +361,28 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
         lineas++;
       }
     }
+    // ⭐ CANDADO: el total de cada corrida tiene que ser la suma de SUS PROPIAS lineas. Dos
+    // campos del mismo hecho salen del mismo calculo -- la primera carga los dejo discrepando
+    // 3 centavos porque sumaba flotantes por periodo y redondeaba al final.
+    const { rows: malas } = await db.query(
+      `SELECT p.period_no, r.total_comision, r.total_a_pagar,
+              coalesce(sum(l.comision) FILTER (WHERE l.motivo_no_pago IS NULL), 0) sc,
+              coalesce(sum(l.a_pagar)  FILTER (WHERE l.motivo_no_pago IS NULL), 0) sp
+         FROM commercial.commission_runs r
+         JOIN commercial.commission_periods p ON p.id = r.period_id
+         LEFT JOIN commercial.commission_run_lines l ON l.run_id = r.id
+        WHERE r.tenant_id = $1 AND r.origen = 'libro'
+        GROUP BY p.period_no, r.total_comision, r.total_a_pagar
+       HAVING r.total_comision <> coalesce(sum(l.comision) FILTER (WHERE l.motivo_no_pago IS NULL), 0)
+           OR r.total_a_pagar  <> coalesce(sum(l.a_pagar)  FILTER (WHERE l.motivo_no_pago IS NULL), 0)`,
+      [TENANT]);
+    if (malas.length) {
+      for (const m of malas) {
+        console.error(`  ✖ Q${m.period_no}: corrida ${m.total_comision}/${m.total_a_pagar} vs lineas ${m.sc}/${m.sp}`);
+      }
+      throw new Error(`${malas.length} corrida(s) no cuadran con sus lineas`);
+    }
+    console.log('  ✔ las 20 corridas cuadran EXACTO con la suma de sus lineas');
     await db.query('COMMIT');
     console.log(`\n✔ cargado: ${runs} corrida(s) · ${lineas} linea(s) de chofer\n`);
   } catch (e) {
