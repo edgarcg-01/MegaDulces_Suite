@@ -474,7 +474,13 @@ export class AlmacenRutasContarComponent implements OnInit {
   readonly idx = signal(0);
   readonly fase = signal<'cargando' | 'contando' | 'revision' | 'listo'>('cargando');
   readonly difiriendo = signal(false);
-  readonly borrador = signal<string>('');
+  /**
+   * Lo tecleado en «Difiere», **sin tipar a `string`**: el campo es `type="number"`, así que
+   * `ngModelChange` emite un **número** en cuanto el valor es numérico y una cadena vacía
+   * cuando se borra. Declararlo `string` compila igual (el evento es `any`) y revienta en
+   * runtime a la primera cifra, en `.trim()`. El valor se normaliza al leerlo, no al escribirlo.
+   */
+  readonly borrador = signal<string | number>('');
   readonly busqueda = signal('');
   readonly countDate = signal('');
   readonly nota = signal('');
@@ -500,8 +506,9 @@ export class AlmacenRutasContarComponent implements OnInit {
     .reduce((a, r) => a + (r.contado ?? 0) * (r.costo_unitario as number), 0));
   readonly sinCosto = computed(() => this.renglones().filter((r) => r.costo_unitario == null).length);
   readonly borradorValido = computed(() => {
-    const n = Number(this.borrador());
-    return this.borrador().trim() !== '' && Number.isFinite(n) && n >= 0;
+    const txt = String(this.borrador() ?? '').trim();
+    const n = Number(txt);
+    return txt !== '' && Number.isFinite(n) && n >= 0;
   });
   readonly tooltipFoto = computed(() => {
     const h = this.hoja();
@@ -572,7 +579,7 @@ export class AlmacenRutasContarComponent implements OnInit {
 
   confirmarDifiere(): void {
     if (!this.borradorValido()) return;
-    this.aplicar(this.idx(), 'difiere', Number(this.borrador()));
+    this.aplicar(this.idx(), 'difiere', Number(String(this.borrador()).trim()));
     this.cancelarDifiere();
     this.avanzar();
   }
