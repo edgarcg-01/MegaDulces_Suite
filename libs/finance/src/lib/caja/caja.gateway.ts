@@ -3,7 +3,10 @@ import { WebSocketGateway, WebSocketServer, OnGatewayConnection, OnGatewayDiscon
 import { Server, Socket } from 'socket.io';
 import { JwtService } from '@nestjs/jwt';
 import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
-import { VinculosFirma, VIDA_MS, type ContextoFirma, type FalloVinculo } from './caja-firma-remota.engine';
+import {
+  decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma, VIDA_MS,
+  type ContextoFirma, type FalloVinculo, type MarcaPc, type SocketEnRoom,
+} from './caja-firma-remota.engine';
 import { revisarFirma } from './caja-firma.engine';
 
 /**
@@ -44,12 +47,14 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer() server: Server;
   private tenantSockets = new Map<string, Set<string>>();
 
-  /**
-   * `[CG.68]` Los emparejamientos PC <-> telefono vivos. En memoria, y el motor explica hasta
-   * donde alcanza: produccion corre UN solo prod-api. Con dos replicas esto se rompe en
-   * silencio y el arreglo es mover el mapa a Redis, que ya esta en el stack.
-   */
-  private readonly vinculos = new VinculosFirma();
+  // ⛔⛔ `[CG.68b]` ACA VIVIA UN `Map` DE EMPAREJAMIENTOS, y lo justifique con "produccion corre
+  // UN solo prod-api" citando el runbook. Medido contra prod el 2026-10-08: prod corre en k3s
+  // con `api 2/2` desde hacia siete dias, asi que la PC y el telefono caian en pods distintos y
+  // el codigo "no existia" la mitad de las veces.
+  //
+  // ⭐ El arreglo no fue mover el Map a Redis: fue NO TENER MAPA. El emparejamiento vive en las
+  // ROOMS de Socket.IO, que el adaptador de Redis (verificado ACTIVO en el log del pod) comparte
+  // entre pods junto con el `data` de cada socket. `fetchSockets()` ve a la PC este donde este.
 
   constructor(private readonly jwtService: JwtService) {}
 
@@ -90,10 +95,14 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   handleDisconnect(client: Socket): void {
     const t = client.data?.tenantId;
     if (t) this.tenantSockets.get(t)?.delete(client.id);
-    // `[CG.68]` Un vinculo con una sola punta no sirve: se cierra, y se le DICE al que queda.
-    // Sin el aviso, la PC se queda esperando una firma que nadie va a mandar.
-    for (const v of this.vinculos.soltarSocket(client.id)) {
-      this.server?.to(this.vinculos.room(v)).emit('firma:cortada', { codigo: v.codigo });
+    // `[CG.68]` Un vinculo con una sola punta no sirve: se le DICE al que queda. Sin el aviso,
+    // la PC se queda esperando una firma que nadie va a mandar.
+    //
+    // ⚠️ No hay nada que "cerrar": socket.io saca al socket de sus rooms solo, y con el se va el
+    // emparejamiento. Lo unico que falta es el aviso.
+    const cod: string | null = client.data?.firma?.codigo ?? client.data?.firmaTel ?? null;
+    if (cod && t) {
+      this.server?.to(roomDeFirma(t, cod)).emit('firma:cortada', { codigo: cod });
     }
   }
 
@@ -103,7 +112,13 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   // se firme?"*. Tres mensajes, y el PNG viaja por una room de DOS -- nunca por la del tenant,
   // que es la que tiene a todas las cajas de la empresa adentro.
 
-  /** La PC pide un codigo. Exige GESTIONAR: pedir la firma es parte de capturar. */
+  /**
+   * La PC pide un codigo. Exige GESTIONAR: pedir la firma es parte de capturar.
+   *
+   * ⭐ El emparejamiento se GUARDA EN EL PROPIO SOCKET de la PC (`client.data.firma`). Con el
+   * adaptador de Redis, `fetchSockets()` de otro pod trae ese `data`: eso es lo que hace que
+   * funcione con N replicas sin que el servidor tenga un almacen.
+   */
   @SubscribeMessage('firma:abrir')
   abrirFirma(
     @ConnectedSocket() client: Socket,
@@ -122,45 +137,71 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       documento: ctx?.documento ? String(ctx.documento).slice(0, 60) : null,
     };
 
-    let v;
-    try { v = this.vinculos.abrir(tenantId, client.id, limpio, client.data?.username ?? null); }
-    catch { return { ok: false, error: 'sin_codigo_libre' }; }
+    // ⚠️ Si esta PC ya tenia un codigo abierto, SALE de esa room antes de abrir otro: si no,
+    // quedaria esperando en dos y la firma de un pedido viejo entraria al nuevo.
+    const previo: string | null = client.data?.firma?.codigo ?? null;
+    if (previo) client.leave(roomDeFirma(tenantId, previo));
 
-    client.join(this.vinculos.room(v));
-    return { ok: true, codigo: v.codigo, vida_ms: VIDA_MS };
+    const codigo = nuevoCodigo();
+    const marca: MarcaPc = { codigo, ctx: limpio, creado: Date.now() };
+    client.data = { ...client.data, firma: marca };
+    client.join(roomDeFirma(tenantId, codigo));
+    return { ok: true, codigo, vida_ms: VIDA_MS };
+  }
+
+  /**
+   * La PC cancela el pedido.
+   *
+   * ⚠️ Sin esto el codigo seguia reclamable los 3 minutos completos aunque el cajero ya lo
+   * hubiera cancelado: la pantalla lo ignoraba (compara el codigo) pero el telefono podia
+   * tomarlo y ver el contexto del efectivo de un pedido que ya no existe.
+   */
+  @SubscribeMessage('firma:cerrar')
+  cerrarFirma(@ConnectedSocket() client: Socket): { ok: boolean } {
+    const tenantId = client.data?.tenantId as string | undefined;
+    const cod: string | null = client.data?.firma?.codigo ?? null;
+    if (tenantId && cod) {
+      this.server?.to(roomDeFirma(tenantId, cod)).emit('firma:cortada', { codigo: cod });
+      client.leave(roomDeFirma(tenantId, cod));
+    }
+    client.data = { ...client.data, firma: null };
+    return { ok: true };
   }
 
   /** El telefono teclea el codigo. Solo VER: aportar evidencia no es escribir el libro. */
   @SubscribeMessage('firma:tomar')
-  tomarFirma(
+  async tomarFirma(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { codigo?: string },
-  ): { ok: boolean; ctx?: ContextoFirma; error?: FalloVinculo | 'sin_tenant' } {
+  ): Promise<{ ok: boolean; ctx?: ContextoFirma; error?: FalloVinculo | 'sin_tenant' }> {
     const tenantId = client.data?.tenantId as string | undefined;
     if (!tenantId) return { ok: false, error: 'sin_tenant' };
 
-    const r = this.vinculos.reclamar(String(body?.codigo ?? ''), tenantId, client.id);
+    const cod = normalizarCodigo(body?.codigo);
+    const room = roomDeFirma(tenantId, cod);
+    const r = decidirTomar(await this.fotoDeRoom(room), cod, tenantId, Date.now());
     if (!r.ok || !r.v) return { ok: false, error: r.fallo };
 
-    client.join(this.vinculos.room(r.v));
+    client.data = { ...client.data, firmaTel: cod };
+    client.join(room);
     // Se le avisa a la PC que el telefono ya esta del otro lado: sin esto, el cajero no sabe si
     // el codigo se tecleo bien y lo vuelve a dictar.
-    this.server?.to(this.vinculos.room(r.v)).emit('firma:tomada', {
-      codigo: r.v.codigo, por: client.data?.username ?? null,
-    });
+    this.server?.to(room).emit('firma:tomada', { codigo: cod, por: client.data?.username ?? null });
     return { ok: true, ctx: r.v.ctx };
   }
 
   /** El telefono entrega la firma. El PNG se VALIDA aca tambien. */
   @SubscribeMessage('firma:enviar')
-  enviarFirma(
+  async enviarFirma(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { codigo?: string; png?: string; nombre?: string },
-  ): { ok: boolean; error?: FalloVinculo | 'sin_tenant' | 'no_es_firma' } {
+  ): Promise<{ ok: boolean; error?: FalloVinculo | 'sin_tenant' | 'no_es_firma' }> {
     const tenantId = client.data?.tenantId as string | undefined;
     if (!tenantId) return { ok: false, error: 'sin_tenant' };
 
-    const r = this.vinculos.entregar(String(body?.codigo ?? ''), tenantId, client.id);
+    const cod = normalizarCodigo(body?.codigo);
+    const room = roomDeFirma(tenantId, cod);
+    const r = decidirEntregar(await this.fotoDeRoom(room), cod, tenantId, client.id, Date.now());
     if (!r.ok || !r.v) return { ok: false, error: r.fallo };
 
     // ⛔ Se revisa ACA tambien, y no solo al guardar: el telefono es un cliente como cualquier
@@ -174,8 +215,8 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       return { ok: false, error: 'no_es_firma' };
     }
 
-    this.server?.to(this.vinculos.room(r.v)).emit('firma:recibida', {
-      codigo: r.v.codigo,
+    this.server?.to(room).emit('firma:recibida', {
+      codigo: cod,
       png: firma.png,
       nombre: body?.nombre ? String(body.nombre).slice(0, 120) : null,
       // ⭐ El monto que se le MOSTRO a quien firmo. La pantalla lo compara con el de ahora: si
@@ -183,10 +224,47 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
       monto_firmado: r.v.ctx.monto,
       por: client.data?.username ?? null,
     });
+    // Un solo envio por emparejamiento: el telefono suelta la room, asi que un segundo intento
+    // cae en 'no_es_suyo' en vez de pisar la firma que ya llego.
+    client.leave(room);
+    client.data = { ...client.data, firmaTel: null };
     return { ok: true };
   }
 
-  /** Empuja el cambio a la room del tenant. Best-effort: nunca bloquea ni tira al llamador. */
+  /**
+   * La foto de los sockets de una room, como DATO.
+   *
+   * ⭐ `fetchSockets()` con el adaptador de Redis consulta a TODOS los pods y trae el `data` de
+   * cada socket. Es la pieza que hace que el emparejamiento funcione con `api 2/2` sin que el
+   * servidor guarde nada. Sin adaptador devuelve solo los locales — y entonces el telefono ve
+   * `no_existe`, que es un mensaje honesto, no un silencio.
+   */
+  private async fotoDeRoom(room: string): Promise<SocketEnRoom[]> {
+    if (!this.server) return [];
+    try {
+      const socks = await this.server.in(room).fetchSockets();
+      return socks.map((x) => ({
+        id: x.id,
+        tenantId: (x.data?.tenantId as string | undefined) ?? null,
+        pc: (x.data?.firma as MarcaPc | undefined) ?? null,
+        telefono: (x.data?.firmaTel as string | undefined) ?? null,
+      }));
+    } catch (e) {
+      // ⚠️ Se declara: si el adaptador falla, la decision va a decir 'no_existe' y la persona
+      // va a revisar el codigo en vano. Queda en el log para que se pueda distinguir.
+      this.logger.warn('[CG.68] no se pudo leer la room ' + room + ': ' + (e as Error).message);
+      return [];
+    }
+  }
+
+  /**
+   * Empuja el cambio a la room del tenant. Best-effort: nunca bloquea ni tira al llamador.
+   *
+   * ⚠️ `[CG.68b]` Este metodo desaparecio sin que nadie lo notara cuando reescribi los
+   * handlers de la firma: el reemplazo cortaba desde el primer handler hasta `oyentes`, y
+   * `emitChange` vivia EN MEDIO. Lo agarro el typecheck de `libs/finance` -- dos llamadores se
+   * quedaron sin metodo. Una reescritura por posicion se lleva lo que no estaba mirando.
+   */
   emitChange(tenantId: string, ev: Omit<CajaEvent, 'emitted_at'>): void {
     if (!this.server) return;
     const full: CajaEvent = { ...ev, emitted_at: new Date().toISOString() };

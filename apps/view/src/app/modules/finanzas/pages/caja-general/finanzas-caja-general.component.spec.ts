@@ -34,6 +34,7 @@ import {
 } from '../../cash-ledger.service';
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaSocketService, type CajaEvent } from '../../caja-socket.service';
+import type { ContextoFirma, FirmaRecibida } from '@megadulces/contracts';
 import { todayMx } from '../../../../core/utils/mx-date';
 
 /** jsdom no implementa ResizeObserver y algún componente de PrimeNG lo usa al montar. */
@@ -186,10 +187,31 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   let comp: FinanzasCajaGeneralComponent;
 
   /** El canal en vivo, de mentira: las pruebas empujan eventos con `cajaSock.change$.next(...)`. */
-  let cajaSock: { connect: () => void; disconnect: () => void; change$: Subject<CajaEvent>; connected: () => boolean };
+  // `[CG.68]` El doble lleva TAMBIEN los tres avisos del emparejamiento y los cuatro mensajes.
+  // ⚠️ Sin ellos `suscribirCambios` revienta en `.pipe` de undefined -- la pantalla lo atrapa y
+  // degrada ("sin avisos en vivo"), asi que el defecto no se ve como error sino como una prueba
+  // suelta que falla por otra cosa. Un doble incompleto miente sobre el contrato.
+  let cajaSock: {
+    connect: () => void; disconnect: () => void; change$: Subject<CajaEvent>;
+    connected: () => boolean;
+    firmaTomada$: Subject<{ codigo: string; por: string | null }>;
+    firmaRecibida$: Subject<FirmaRecibida>;
+    firmaCortada$: Subject<{ codigo: string }>;
+    abrirFirma: (c: ContextoFirma) => Promise<{ ok: boolean; codigo?: string }>;
+    tomarFirma: (c: string) => Promise<{ ok: boolean }>;
+    enviarFirma: (c: string, p: string, n: string | null) => Promise<{ ok: boolean }>;
+    cerrarFirma: () => Promise<{ ok: boolean }>;
+  };
 
   function montar(over: Partial<Record<string, ReturnType<typeof vi.fn>>> = {}) {
-    cajaSock = { connect: vi.fn(), disconnect: vi.fn(), change$: new Subject<CajaEvent>(), connected: () => false };
+    cajaSock = {
+      connect: vi.fn(), disconnect: vi.fn(), change$: new Subject<CajaEvent>(), connected: () => false,
+      firmaTomada$: new Subject(), firmaRecibida$: new Subject(), firmaCortada$: new Subject(),
+      abrirFirma: vi.fn(async () => ({ ok: true, codigo: 'ABC234' })),
+      tomarFirma: vi.fn(async () => ({ ok: true })),
+      enviarFirma: vi.fn(async () => ({ ok: true })),
+      cerrarFirma: vi.fn(async () => ({ ok: true })),
+    };
     svc = {
       cobertura: vi.fn(() => of(COBERTURA)),
       libro: vi.fn(() => of(LIBRO)),
