@@ -22,11 +22,21 @@ const ESTADO_NUESTRO: Record<string, string> = {
   rechazada: 'Rechazada', revision: 'En revisión',
 };
 
-function fecha(v: unknown): string {
+/**
+ * `[GX.75]` La fecha del documento, «5 oct 2026».
+ *
+ * ⚠️ `pg` entrega las columnas `date`/`timestamp` como **objeto `Date`** (el repo no fija
+ * `setTypeParser`), y `String(date).slice(0, 10)` daba **«Mon Oct 05»** — en inglés y sin año —
+ * en la solicitud y el gasto de todo PDF desde `[GX.15]`. Con `Date` se leen los getters LOCALES:
+ * `pg` lo armó en hora local, así que son los que devuelven el día que guardó Kepler.
+ */
+export function fecha(v: unknown): string {
   if (!v) return '—';
-  const iso = String(v).slice(0, 10);
+  const iso = v instanceof Date
+    ? (Number.isNaN(v.getTime()) ? '' : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`)
+    : String(v).slice(0, 10);
   const [y, m, d] = iso.split('-').map(Number);
-  if (!y || !m || !d) return esc(iso);
+  if (!y || !m || !d) return iso ? esc(iso) : '—';
   const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   return `${d} ${MESES[m - 1]} ${y}`;
 }

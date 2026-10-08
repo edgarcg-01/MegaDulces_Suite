@@ -2,7 +2,7 @@
 vi.mock('puppeteer', () => ({}));
 
 import type { TransferenciaGasto } from '@megadulces/contracts';
-import { bloqueTransferenciasHtml } from './expediente-gasto-document.service';
+import { bloqueTransferenciasHtml, fecha } from './expediente-gasto-document.service';
 
 /**
  * `[GX.75]` La sección «La transferencia» del expediente en PDF. Cada ausencia se dice distinto,
@@ -35,6 +35,18 @@ describe('[GX.75] bloqueTransferenciasHtml', () => {
     expect(bloqueTransferenciasHtml([], false)).toContain('Todavía no hay gasto que pagar');
     expect(bloqueTransferenciasHtml(null, true)).toContain('No se pudo consultar Kepler');
     expect(bloqueTransferenciasHtml([], true)).toContain('no tiene una transferencia (XD2601) aplicada');
+  });
+
+  /**
+   * ⛔ `pg` entrega `date`/`timestamp` como objeto `Date`. Visto en el PDF real armado contra prod:
+   * la solicitud y el gasto decían «Mon Oct 05» (inglés, sin año) en vez de «5 oct 2026».
+   */
+  it('⛔ la fecha sale en español con año, venga como texto o como Date de pg', () => {
+    expect(fecha('2026-10-05')).toBe('5 oct 2026');
+    expect(fecha(new Date(2026, 9, 5))).toBe('5 oct 2026');
+    expect(fecha(new Date(2026, 9, 5, 23, 59))).toBe('5 oct 2026');
+    expect(fecha(null)).toBe('—');
+    expect(fecha(new Date('no-es-fecha'))).toBe('—');
   });
 
   it('escapa lo que viene de Kepler y no inventa importe sin encabezado', () => {

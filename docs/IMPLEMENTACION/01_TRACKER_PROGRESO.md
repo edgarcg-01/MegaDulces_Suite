@@ -4349,6 +4349,10 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   folio → **~25 ms**. `null` = no medido (sin ODS en el entorno), no «nadie pagó». De paso: `'\s+'` en
   `listasParaComprobar` llegaba a Postgres como `'s+'` (reemplazaba letras «s», no espacios) → `'\\s+'`.
   Specs: contracts 22 · finance 45 · view 72 (expediente + mis gastos), todas verdes.
+  **Probado de punta a punta con el código real** (los dos servicios instanciados a mano, knex contra prod
+  en sólo lectura, Chromium local): ~100 ms por expediente, la lista viaja bien por knex (`?::text[]`).
+  Eso destapó un bug de `[GX.15]`: `fecha()` del PDF hacía `String(date).slice(0,10)` sobre el `Date` que
+  entrega `pg` → la solicitud y el gasto decían **«Mon Oct 05»** en todo PDF. Ahora «5 oct 2026».
 - [ ] **[GX.75.u]** Validación visual en la Suite (hay vista previa local con datos de prod; no se levanta el
   front por regla) + redeploy api+view. **Sin migraciones ni permisos nuevos → sin re-login.**
 - [ ] **[GX.75.p]** ⚠️ La consulta que YA tenía el Expediente tarda **~2.7 s en prod** (la subconsulta por vale
