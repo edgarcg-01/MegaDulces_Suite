@@ -433,6 +433,118 @@ junto con la de dónde vive aprobar).
 
 ---
 
+## 6ter. RD.23 — El motor contra el libro: la regla es exacta, la fuente tiene huecos
+
+> **Estado**: 🧪 EN CÓDIGO 2026-10-08 · migración **aplicada a prod** (batch 821, 0.1 s).
+> Disparado por *"sigue sin calcularse nada a pesar de ya estar calculado"* + el workbook al día.
+
+### El control primero: ¿la regla del motor reproduce lo que se pagó?
+
+**Sí, al centavo.** El tramo lo elige `venta` (`gate_field`), la base es `subtotal`
+(`base_field`), y el chofer cobra el 80% (el supervisor el 20%, `share_supervisor_pct`):
+
+```
+ruta 504, Q20:  179,189.91 × 4.25% × 80% = 6,092.46      el libro dice 6,092.46
+```
+
+Sobre las **125 ruta-periodo** de Q10–Q20 que el libro trae calculadas: **108 cuadran, con
+desviación mediana de 0.11%**.
+
+### Lo que no cuadra: 17 de 125 (13.6%), y casi siempre hacia abajo
+
+**14 de esas 17 son días que le faltan a la fuente**, no cuentas mal:
+
+| | días del motor | mediana de su plaza | desvío |
+|---|---:|---:|---:|
+| Q13 ruta 21 | 9 | 12 | −27.25% |
+| Q14 ruta 26 | 9 | 12 | −23.82% |
+| Q20 ruta 504 | **5** | 12 | **−49.85%** |
+
+Las otras 3 tienen los 12 días y aun así difieren (Q15/28 +16.6%, Q16/504 −10.5%, Q17/501
+−6.0%): **otra causa, sin medir todavía**, y la compuerta de abajo no las ve.
+
+### ⭐ El error no es proporcional: es un acantilado
+
+El tramo más bajo arranca en **$189,999.99 de venta**. Por debajo **no hay tramo y la comisión
+es cero**, no "menos". La 504 en Q20:
+
+```
+libro   subtotal 179,189.91 · venta 197,512.50 → tramo 4.25% → a pagar  1,092.46
+motor   subtotal  89,866.68 · venta  98,342.57 → SIN TRAMO   → a pagar      0.00
+```
+
+Publicar Q20 hoy le pagaría **$0 en vez de $1,092.46** al chofer de la 504.
+
+### El rastreo de la 504, hasta el final
+
+1. `analytics.route_push_lines` (plataforma) — último día **2026-10-01**.
+2. `kepler_consolidado.mart.ventas`, `sucursal='ruta_504'` — también **2026-10-01**. 7,967 filas,
+   ventana 12-ago → 1-oct. Cero filas el 2, 3, 5, 6 y 7 de octubre (la 503, al lado, tiene todos).
+3. ⛔ **`ingest.route_push_heartbeat` de la 504 está VERDE**: `last_ok` de hoy 15:49,
+   **5,348 filas**, desde `192.168.50.21`.
+
+⭐⭐ **La camioneta sube todos los días y lo que sube no tiene fechas nuevas.** `merge_route_sales`
+borra por fecha e inserta lo que llegó, así que re-escribe la misma ventana vieja una y otra vez
+y reporta 5,348 filas de éxito. El problema está **en el Kepler de la camioneta**, no en el
+carril — y nuestro latido no podía verlo porque **mide filas entregadas, no la fecha más nueva
+entregada**. Con `max(fecha)` en el latido, esto se habría visto el 2 de octubre y no el 8.
+
+⚠️ La 504 ya venía perdiendo días antes: 26 y 28 de septiembre también están en cero.
+
+### Lo que se construyó
+
+**Columnas congeladas en la línea** (mig `20261008120000`, batch 821): `dias_con_venta` y
+`dias_esperados` —la mediana de las rutas hermanas de su **plaza** en **ese** periodo, no un
+calendario inventado: los domingos y los puentes se caen solos porque le pasan a todas—. Se
+congelan por el mismo motivo que `beneficiario_nombre` y `zona`: derivarlas después las contaría
+contra la fuente de hoy, ya reparada, y un recibo viejo diría que todo estaba completo.
+
+**Compuerta `cobertura_dias`**, y ⚠️ **avisa, no bloquea, por medición y no por prudencia**:
+
+| sobre Q10–Q20 (125 ruta-periodo) | |
+|---|---:|
+| marca y descuadra | **14** |
+| marca y NO descuadra | **8** |
+| no marca y descuadra | 3 |
+| limpias | 100 |
+
+Las 8 falsas cuadran al **0.0%** contra el libro: el camión de verdad no salió (Q11/505 con 4
+días, Q19/505 con 1). Bloquear la nómina con 36% de falsos positivos la frena por nada una de
+cada tres veces, y una compuerta que grita en falso enseña a ignorar el tablero.
+
+⛔ **No se puede afilar desde el motor**: no distingue *"no salió"* de *"se perdió el día"*,
+porque la fuente es el único testigo de las dos. Lo que falta es **depurar el padrón** — 505
+lleva 28 días sin dato, 322 lleva 99 y 321 lleva 128, y las tres siguen `comisiona = true`
+(punto 3 de §7). Con el padrón limpio, "ruta que comisiona con la fuente muerta" bloquea sin un
+solo falso positivo.
+
+### Una compuerta que probé y tiré
+
+La primera versión marcaba por **último día rezagado**. La tumbó su propio control: atrapaba 5 de
+18 mientras 13 ruta-periodo sin marcar descuadraban hasta −23.8%. *Una bandera sin su grupo de
+control se parece demasiado al azar como para notarlo.*
+
+### Hallazgos sueltos
+
+- **Una fila de Wincaja fechada 2026-12-06** (ruta 22, $230.49): una venta en el futuro. No
+  afecta Q20, pero entraría sola en una quincena de diciembre.
+- El trámite manual de recalcular **ya tiene casa**: aparece en el tablero sólo cuando hay una
+  quincena cerrada sin número, y sólo para quien tiene `COMMERCIAL_COMMISSIONS_GESTIONAR`. No
+  contradice el "sin botones": lo que no debe depender de que alguien apriete algo es **leer**.
+
+### Candado
+
+`commission-inmutable.spec.ts` — **15 aserciones**, y las **8 mutaciones en rojo** (5 de RD.22 +
+3 de la compuerta nueva, incluida *"si alguien la sube a `bloquea`, esto cae"*).
+
+### Lo que falta
+
+`git push` + redeploy api/view. **No publicar Q20 hasta reparar la 504.** Y dos cosas que no son
+de esta fase pero salen de ella: ponerle `max(fecha)` al latido de `route_push_heartbeat`, y
+mirar el Kepler de la camioneta 504.
+
+---
+
 ## 7. Lo que está abierto, y de quién es
 
 | # | Qué | Dueño |

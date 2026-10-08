@@ -134,6 +134,61 @@ describe('[RD.22] la corrida es un valor congelado', () => {
 });
 
 /**
+ * `[RD.23]` **La cobertura de dias se DECLARA.**
+ *
+ * Medido el 2026-10-08 contra `INDICADORES RD 2026.xlsx`, que trae Q1-Q20 calculadas a mano:
+ * sobre 125 ruta-periodo el motor reproduce lo pagado en 108 (desviacion mediana 0.11%), y de
+ * las 17 que difieren mas de 5%, **14 es que le faltan dias a la fuente**.
+ */
+describe('[RD.23] la compuerta de cobertura de dias', () => {
+  const linea = (route_code: string, dias: number | null, esp: number | null) => ({
+    route_code, beneficiario: 'chofer', dias_con_venta: dias, dias_esperados: esp,
+    bonos: 0, bono_veredicto: null, deduccion_status: 'no_aplica',
+  });
+  const totales = { dias_multifuente: 0, rutas_con_dato: 3, rutas_sin_dato: 0 };
+  const correr = (lineas: unknown[]) => (servicio() as unknown as {
+    compuertas: (
+      hoy: string, to: string, t: unknown, asOf: string | null, l: unknown[],
+    ) => { gate: string; estado: string; detalle: string }[];
+  }).compuertas('2026-10-08', '2026-10-07', totales, '2026-10-07', lineas);
+
+  const dias = (ls: unknown[]) => correr(ls).find((g) => g.gate === 'cobertura_dias');
+
+  it('pasa cuando cada ruta tiene los dias de su plaza', () => {
+    const g = dias([linea('21', 12, 12), linea('26', 12, 12), linea('503', 13, 12)]);
+    expect(g?.estado).toBe('pasa');
+  });
+
+  /** El caso real: la 504 de Q20, con 5 de 12 dias porque su carril dejo de subir el 1-oct. */
+  it('avisa y NOMBRA la ruta corta con sus dos cifras', () => {
+    const g = dias([linea('21', 12, 12), linea('504', 5, 12)]);
+    expect(g?.estado).toBe('advierte');
+    expect(g?.detalle).toContain('504 5 de 12');
+    expect(g?.detalle).not.toContain('21 12');
+  });
+
+  /**
+   * ⭐ La prueba que fija la DECISION, no el calculo. Con 8 falsas alarmas de cada 22 marcadas
+   * (rutas que cuadran al 0.0% contra el libro porque el camion no salio), bloquear la nomina
+   * seria frenarla por nada una de cada tres veces. Si alguien la sube a `bloquea`, esto cae.
+   */
+  it('NUNCA bloquea: la precision medida no alcanza para frenar una nomina', () => {
+    const g = dias([linea('504', 1, 12), linea('505', 0, 12), linea('321', 2, 12)]);
+    expect(g?.estado).not.toBe('bloquea');
+  });
+
+  it('una ruta sin fuente NO cuenta como corta: esa ausencia la declara `cobertura`', () => {
+    const g = dias([linea('21', 12, 12), linea('321', null, 12)]);
+    expect(g?.estado).toBe('pasa');
+  });
+
+  it('sin mediana de plaza no inventa un veredicto', () => {
+    const g = dias([linea('XX', 3, null)]);
+    expect(g?.estado).toBe('pasa');
+  });
+});
+
+/**
  * El periodo abierto. Se ejerce `computeRun` de verdad: con un `trx` que devuelve una quincena
  * que todavia corre, tiene que rechazar **sin hacer una sola consulta mas** -- el freno va antes
  * del calculo, que cuesta 8.5 s.
