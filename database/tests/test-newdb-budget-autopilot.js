@@ -203,6 +203,59 @@ const TIENE_GUARDA = (src) =>
       'obligations_autopilot está en CRON_JOBS');
   }
 
+  // ── [3b] [PU.V4] El piloto corre DESPUÉS del refresco, y además DEPENDE de él ─────────────
+  //
+  // Dos cosas distintas, y hacen falta las dos. La hora sola no alcanza: **ordenar no es
+  // depender** (ADR-056). Si el refresco falla, a las 07:30 la matvista sigue ahí —vieja— y
+  // proponer sobre ella escribe metas que se ven perfectas.
+  //
+  // Lo que lo hizo necesario está en `analytics.cron_runs` del 2026-10-08 03:30: `0/2 ejercicios`
+  // y *«El histórico de ventas se está generando (primera vez)»* — el 503 del Parquet que cada
+  // despliegue borraba. El plan de gastos sí se escribía; el de ventas no, y el mayoreo quedó
+  // congelado sobre una base vieja.
+  console.log('\n[3b] El piloto corre después del refresco, y depende de él');
+  const ap = leer('libs/finance/src/lib/budget/budget-autopilot.service.ts');
+  const ar = leer('libs/commercial/src/lib/commercial-analytics/analytics-refresh.service.ts');
+  if (ap === null || ar === null) nm('no se encontraron el piloto y/o el refresco de analytics');
+  else {
+    // La hora de cada uno, leída del `@Cron` — no de un comentario, que es justo lo que mintió.
+    const horaDe = (src, marca) => {
+      const re = new RegExp(`@Cron\\('0 (\\d+) (\\d+) \\* \\* \\*'[^)]*\\)[\\s\\S]{0,400}?${marca}`);
+      const m = src.match(re);
+      return m ? Number(m[2]) * 60 + Number(m[1]) : null;
+    };
+    const tPiloto = horaDe(ap, 'async scheduled');
+    const tRefresco = horaDe(ar, 'async refreshWincajaDaily');
+    if (tPiloto === null || tRefresco === null) nm('no pude leer la hora de alguno de los dos @Cron');
+    else {
+      // El lote nocturno cierra ~30 min después de arrancar (medido 06:20 → 06:49 el 2026-10-07).
+      chk(tPiloto > tRefresco + 30,
+        `el piloto (${String(Math.floor(tPiloto / 60)).padStart(2, '0')}:${String(tPiloto % 60).padStart(2, '0')}) corre después del refresco `
+        + `(${String(Math.floor(tRefresco / 60)).padStart(2, '0')}:${String(tRefresco % 60).padStart(2, '0')}) + 30 min de lote`);
+    }
+
+    // La dependencia: el piloto pregunta por la FRESCURA y no escribe si no la tiene.
+    chk(/baseServible\s*\(/.test(ap), 'el piloto consulta `baseServible()` antes de proponer');
+    chk(/ROLLUP_MAX_H/.test(ap) && /dataAsOf/.test(ap),
+      'la guarda mide la antigüedad del rollup (`dataAsOf` contra `ROLLUP_MAX_H`), no sólo si hay filas');
+    const guardados = (ap.match(/if \(base\.ok\) try \{/g) || []).length;
+    chk(guardados >= 2,
+      `los dos bloques que leen el rollup (supuestos y plan de ventas) están bajo la guarda — hay ${guardados}`);
+
+    // ⭐ PRUEBA NEGATIVA: con la guarda quitada, el detector TIENE que ponerse rojo. Sin esto,
+    //    estas tres aserciones de arriba son una intención, no una compuerta.
+    const mutado = ap.replace(/if \(base\.ok\) try \{/g, 'try {');
+    const detectaMutacion = (mutado.match(/if \(base\.ok\) try \{/g) || []).length === 0;
+    chk(detectaMutacion, 'PRUEBA NEGATIVA: quitando la guarda, el detector la deja de ver (no es un regex que siempre pasa)');
+
+    // Y que la cadencia declarada en CRON_JOBS no se quede mintiendo respecto del @Cron.
+    if (dh !== null && tPiloto !== null) {
+      const dec = dh.match(/key:\s*'budget_autopilot'[^}]*cadence:\s*'[^']*?(\d{2}):(\d{2})/);
+      chk(!!dec && Number(dec[1]) * 60 + Number(dec[2]) === tPiloto,
+        `la cadencia declarada en CRON_JOBS coincide con el @Cron (declara ${dec ? dec[1] + ':' + dec[2] : '—'})`);
+    }
+  }
+
   // ── 4 y 5. Contra la base ─────────────────────────────────────────────────────────────────
   if (!URL) return cerrar(noMedido('falta DATABASE_URL_NEW'));
   const c = new Client({
