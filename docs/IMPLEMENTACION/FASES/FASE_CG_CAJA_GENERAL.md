@@ -2048,3 +2048,90 @@ Esta entrega es **el esqueleto**. Falta el contenido de los dos apartados:
    apartado 1, que es donde el tablero la pone.
 3. **Validación visual**, que en esta pantalla ya demostró ser la única que ve los defectos de
    layout: ninguna compuerta del repo mide píxeles.
+
+---
+
+## §26 · `[CG.60]` — los dos apartados de verdad: la ficha y el arqueo, media pantalla cada uno
+
+> Edgar, al aprobar el tablero: *"diseñémoslo idéntico"*. `[CG.59]` dejó el esqueleto; acá entra
+> lo que va adentro del 90 %. Tablero: https://claude.ai/artifact/K4p1CMkAKkUGuCCsggXt6v
+> Commit `7a89eb111`.
+
+### Lo que cambia de fondo
+
+El arqueo deja de ser **una columna de un formulario dentro de un panel lateral** y pasa a ser un
+**apartado**, con la mitad de la pantalla reservada **siempre**. Antes su ancho dependía de una
+condición, y esa condición ya falló **dos veces — las dos llegando a la pantalla con todos los
+gates en verde**:
+
+| | El defecto | Lo que se veía |
+|---|---|---|
+| `[CG.49]` | El umbral de dos columnas era **inalcanzable por construcción** (panel de 32 rem contra un umbral de 46 rem) | El formulario se apilaba **siempre** y el arqueo quedaba detrás de todo el contexto |
+| `[CG.57]` | La consulta de contenedor medía el **panel** (646 px) en vez de la **columna** (311 px) | La reja nunca se apilaba: scroll horizontal y la columna «Importe» cortada |
+
+⭐ **Media pantalla fija no se puede romper así.** Con eso se retiran `.cg-grid`, `.cg-col` y
+`.cg-split-capturando` enteras: **tres commits de ancho condicional, resueltos quitando la
+condición**. El `container-type` que `[CG.57]` tuvo que poner en `.cg-col` se muda a
+`.cg-ap-cuerpo`, que es la caja que la reja mide de verdad.
+
+### La ficha, que es lo nuevo
+
+El arqueo **contesta** una pregunta — *cuánto dice el documento* — y esa pregunta se leía en un
+renglón gris de 11 px al lado del título del panel. Contar contra una cifra que no se lee es
+contar a ciegas del lado equivocado. Ahora el apartado 1 abre con el signo en píldora, el
+documento, el beneficiario y el **importe del ERP grande**, pegado arriba mientras la cola
+scrollea debajo.
+
+⚠️ Sin documento anclado la ficha **no se calla ni dibuja un cero**: dice que el movimiento es
+libre y atenúa el número, porque *"no hay contra qué cuadrar"* es un hecho distinto de *"el
+documento dice cero"* (ADR-056).
+
+### Las siete pruebas que se dieron vuelta
+
+Ninguna se aflojó; **seis afirman más que antes**, y la séptima se retiró con su motivo escrito:
+
+| Antes | Ahora |
+|---|---|
+| «el panel se ensancha SÓLO mientras se captura» | «el reparto **no depende** de la captura»: el `className` de `.cg-split` tiene que ser **idéntico** antes, durante y después |
+| «el arqueo va ANTES que la clasificación **en el DOM**» | «viven en **apartados distintos**»: una regla de orden que un `@container` podía desarmar pasa a ser una de **parentesco** |
+| «la reja pregunta por SU columna» | por **su apartado**, y se **parte en dos**: una mira el CSS (declara `container-type`) y otra el DOM (la reja está adentro) — *declarar no alcanza si el elemento termina en otra rama* |
+| «los dos umbrales son COMPLEMENTARIOS» | se **retira con los umbrales**, y en su lugar queda el **daño** que vigilaba: ninguna regla puede reordenar los apartados (`order` / `grid-column`) |
+| «la primera columna es la del CUÁNTO» | «el apartado 1 es el QUÉ y el 2 el ARQUEO» |
+| «el importe se dice DOS veces **en el panel**» | **una por apartado**, que es más estricto |
+
+**Mutado, dos veces, las dos rojas**: `order:2` sobre el apartado 1, y quitar el `container-type`.
+
+⭐ Y la guardia nueva **encontró su propio falso positivo antes de entrar**: `border:1px` contiene
+literalmente `order:1`, así que el regex del reordenamiento se ponía rojo sobre la tarjeta del
+propio apartado. Se **ancló la propiedad al principio de la declaración** en vez de aflojar el
+patrón, que habría dejado la guardia sin filo.
+
+### Angosto: se suelta el alto, no sólo las columnas
+
+El `@media (max-width:64rem)` sólo apilaba las columnas, y eso ahora **no alcanza**: con `.cg-app`
+clavado en `100vh`/`overflow:hidden` (`[CG.59]`), apilar los dos apartados deja el arqueo **fuera
+de la pantalla y sin forma de llegar a él**, porque la página no scrollea. En angosto se devuelve
+el alto a la página.
+
+### Verificación
+
+- `nx test view` caja-general **160/160**; suite completa de view **2,081 pasadas** (la única roja
+  es `almacen-tabs`, de otra sesión, que este commit no toca). `typecheck`, `check:templates`,
+  `check:teclado`, `check:primeng` y `check:dense-tables` verdes.
+- ⚠️ **Dos tokens inexistentes atajados antes de commitear**: `--ok-soft-border` y
+  `--warn-soft-border` **no existen** (la familia *soft* es `-bg`/`-fg`; el borde es
+  `--ok-border`/`--warn-border`). Es el mismo pie que `--action-soft-bg` en `[CG.56]`: una
+  declaración con un token que no existe **no falla, se cae en silencio**, y la píldora del signo
+  habría salido sin borde.
+- ⚠️ **`check:tokens` y `check:dense-tables` acotan su alcance al diff contra `@{upstream}`**, así
+  que **con el cambio sin commitear reportan «0 de 733 archivos»: no vieron el archivo.** Se
+  volvieron a correr **ya commiteado** → `check:tokens` ✅ 2 componentes.
+
+### Lo que falta
+
+1. ⛔ **Validación visual.** En esta pantalla ya demostró **tres veces** ser la única que ve los
+   defectos de layout: ninguna compuerta del repo mide píxeles.
+2. **`[CG.61]` — la cola compacta.** La cola sigue siendo la tabla de 8 columnas dentro de media
+   pantalla, y `check:dense-tables` lo confirma: `finanzas-caja-general` queda en **deuda por
+   ancho de columnas (9)**, tracker `[UIM.2]`. El tablero la quiere compacta — fecha, nombre,
+   «sin cuenta», importe — y el documento y la cuenta pasan a la ficha al elegirla.
