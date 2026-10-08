@@ -96,7 +96,7 @@ const BORRADOR_V = 'rd.conteo.v1';
 
         <div class="rk-barra" role="progressbar" [attr.aria-valuenow]="resueltos()"
              [attr.aria-valuemin]="0" [attr.aria-valuemax]="renglones().length">
-          <span [style.width.%]="avance()"></span>
+          <span [style.--fill]="avance() / 100"></span>
         </div>
 
         @if (actual(); as r) {
@@ -353,7 +353,10 @@ const BORRADOR_V = 'rd.conteo.v1';
     .rk-top-prog { font-variant-numeric: tabular-nums; font-weight: 800; font-size: var(--fs-lg); }
 
     .rk-barra { height: 6px; border-radius: 3px; background: var(--surface-border); overflow: hidden; margin-bottom: 1rem; }
-    .rk-barra > span { display: block; height: 100%; background: var(--action); transition: width .18s ease; }
+    /* scaleX en vez de width (patron de MetricCard): transform no dispara layout. El radio lo pone
+       el track, que ya recorta con overflow:hidden, asi que el casquete no se deforma al escalar. */
+    .rk-barra > span { display: block; width: 100%; height: 100%; background: var(--action);
+      transform: scaleX(var(--fill, 0)); transform-origin: left center; transition: transform .18s ease; }
 
     /* La tarjeta del producto: una sola cosa en pantalla, legible a un brazo de distancia. */
     .rk-card { background: var(--surface-card); border: 1px solid var(--surface-border);
