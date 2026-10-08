@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -20,7 +21,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-hallazgos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, TagModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -63,7 +64,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <td><p-tag [value]="sevLabel(f.severity)" [severity]="sevTag(f.severity)"></p-tag></td>
             <td class="hz-mono">{{ f.sku }}</td>
             <td>{{ f.nombre }}</td>
-            <td class="hz-muted">{{ f.warehouse_code }}</td>
+            <td class="hz-muted">{{ f.warehouse_code | sucursal }}</td>
             <td class="hz-muted">{{ f.abc_class || '—' }}</td>
             <td class="hz-r" [class.hz-bad]="f.on_hand <= 0">{{ f.on_hand | number:'1.0-0' }}</td>
             <td class="hz-r hz-muted">{{ f.reorder_point | number:'1.0-0' }}</td>

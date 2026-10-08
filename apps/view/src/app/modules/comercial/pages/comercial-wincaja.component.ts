@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 import { TableModule } from 'primeng/table';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { TagModule } from 'primeng/tag';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
@@ -16,7 +17,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
 @Component({
   selector: 'app-comercial-wincaja',
   standalone: true,
-  imports: [TableModule, TagModule, ButtonModule, TooltipModule],
+  imports: [TableModule, TagModule, ButtonModule, TooltipModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in">
@@ -58,7 +59,7 @@ import { ComercialService, WincajaBranchKpi } from '../comercial.service';
           <ng-template #body let-r>
             <tr [class.wcj-blind]="r.wincaja_only">
               <td class="dt-id" role="cell">
-                <span class="wcj-code">{{ r.warehouse_code }}</span>
+                <span class="wcj-code">{{ r.warehouse_code | sucursal }}</span>
                 <span class="wcj-name">{{ r.branch_name }}</span>
               </td>
               <td role="cell" data-label="Estado"><p-tag [value]="statusLabel(r)" [severity]="statusSeverity(r)" /></td>

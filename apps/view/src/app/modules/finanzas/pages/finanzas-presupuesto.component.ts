@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { forkJoin } from 'rxjs';
@@ -157,7 +158,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule,
-    CheckboxModule, TagModule, ToastModule, SegmentedComponent, MetricStripComponent, FreshnessPillComponent,
+    CheckboxModule, TagModule, ToastModule, SegmentedComponent, MetricStripComponent, FreshnessPillComponent, SucursalPipe,
   ],
   providers: [MessageService],
   template: `
@@ -444,7 +445,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <tr>
                   <td>{{ r.account_code }} · <span class="pres-muted">{{ r.account_name }}</span></td>
                   <td class="pres-muted">{{ r.familia || '—' }}</td>
-                  <td class="pres-muted">{{ r.sucursal || 'Consolidado' }}</td>
+                  <td class="pres-muted">{{ (r.sucursal | sucursal) || 'Consolidado' }}</td>
                   <td>{{ r.method }}</td>
                   <td class="ta-r pres-mono">{{ r.months }}</td>
                   <td class="ta-r pres-mono">{{ money(r.anual) }}</td>

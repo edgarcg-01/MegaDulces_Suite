@@ -4,6 +4,7 @@ import {
 } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -48,7 +49,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
 @Component({
   selector: 'app-almacen-movimientos',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule, DatePickerModule, DialogModule, TagModule, InputTextModule, TabsModule, MetricStripComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule, DatePickerModule, DialogModule, TagModule, InputTextModule, TabsModule, MetricStripComponent, ContextHelpComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in dm-page">
@@ -380,7 +381,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                         <thead><tr><th>Sucursal</th><th class="dm-r">Entrada</th><th class="dm-r">Salida</th><th class="dm-r">Δ descuadre</th></tr></thead>
                         <tbody>
                           @for (s of lg.by_sucursal; track s.sucursal) {
-                            <tr><td class="dm-strong">{{ s.sucursal }}</td>
+                            <tr><td class="dm-strong">{{ s.sucursal | sucursal }}</td>
                               <td class="dm-r up">{{ money(s.entrada) }}</td>
                               <td class="dm-r down">{{ money(s.salida) }}</td>
                               <td class="dm-r dm-delta" [class.ok]="ledgerOk(s.delta, s.entrada)" [class.bad]="!ledgerOk(s.delta, s.entrada)">{{ ledgerOk(s.delta, s.entrada) ? 'cuadra' : signed(s.delta) }}</td></tr>
@@ -438,7 +439,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
                           <td class="dm-mono">{{ r.anio_mes }}</td>
                           <td [class.up]="r.kind==='entrada'" [class.down]="r.kind==='salida'" class="dm-strong">{{ r.kind === 'entrada' ? 'Ent 515-001' : 'Sal 515-002' }}</td>
                           <td>{{ r.destino || '—' }}</td>
-                          <td class="dm-muted">{{ r.sucursal }}</td>
+                          <td class="dm-muted">{{ r.sucursal | sucursal }}</td>
                           <td class="dm-r dm-strong">{{ money(r.importe) }}</td>
                           <td class="dm-ref"><span [class.dm-mark]="r.bucket !== 'exacto'">{{ r.referencia || '—' }}</span></td>
                           <td class="dm-r"><span class="dm-link">comparar ›</span></td>
@@ -681,7 +682,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
             <h4 class="dm-col-h">{{ r.kind === 'entrada' ? 'Entrada · 515-001' : 'Salida · 515-002' }}</h4>
             <dl class="dm-cmp-dl">
               <dt>Destino</dt><dd>{{ r.destino || '—' }}</dd>
-              <dt>Sucursal (libro)</dt><dd>{{ r.sucursal }}</dd>
+              <dt>Sucursal (libro)</dt><dd>{{ r.sucursal | sucursal }}</dd>
               <dt>Importe</dt><dd class="dm-strong">{{ money(r.importe) }}</dd>
               <dt>Referencia</dt><dd class="dm-ref">{{ r.referencia || '—' }}</dd>
               <dt>Folio</dt><dd class="dm-mono">{{ r.folio ? (r.tipo_pol + r.folio) : '—' }}</dd>
@@ -700,7 +701,7 @@ type HallazgoId = 'sin_acuse' | 'sin_acuse_ruta' | 'sin_acuse_cliente' | 'sin_or
               <h4 class="dm-col-h">{{ r.kind === 'entrada' ? 'Salida · 515-002' : 'Entrada · 515-001' }}</h4>
               <dl class="dm-cmp-dl">
                 <dt>Destino</dt><dd>{{ r.cp_destino || '—' }}</dd>
-                <dt>Sucursal (libro)</dt><dd>{{ r.cp_sucursal }}</dd>
+                <dt>Sucursal (libro)</dt><dd>{{ r.cp_sucursal | sucursal }}</dd>
                 <dt>Importe</dt><dd class="dm-strong">{{ money(r.cp_importe || 0) }}</dd>
                 <dt>Referencia</dt><dd class="dm-ref">{{ r.cp_ref || '—' }}</dd>
               </dl>

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { rxResource, takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { forkJoin, Subject } from 'rxjs';
@@ -54,7 +55,7 @@ interface DraftLine {
 @Component({
   selector: 'app-compras-existencia-critica',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, DialogModule, TagModule, InputTextModule, CheckboxModule, IconFieldModule, InputIconModule, MetricStripComponent, FreshnessPillComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, DialogModule, TagModule, InputTextModule, CheckboxModule, IconFieldModule, InputIconModule, MetricStripComponent, FreshnessPillComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -177,7 +178,7 @@ interface DraftLine {
             <td pFrozenColumn><p-checkbox [binary]="true" [ngModel]="isSelected(r)" (onChange)="toggle(r)" [ariaLabel]="'Seleccionar ' + r.sku" /></td>
             <td pFrozenColumn class="ec-mono">{{ r.sku }}</td>
             <td>{{ r.nombre }}</td>
-            <td class="ec-muted">{{ r.warehouse_code }}</td>
+            <td class="ec-muted">{{ r.warehouse_code | sucursal }}</td>
             <td class="ec-class">
               @if (r.abc_class) { <span class="ec-cls ec-abc-{{ r.abc_class }}">{{ r.abc_class }}</span> }
               @if (r.xyz_class) { <span class="ec-cls ec-xyz-{{ r.xyz_class }}" [title]="xyzTitle(r)">{{ r.xyz_class }}</span> }
@@ -253,7 +254,7 @@ interface DraftLine {
             <tr>
               <td class="ec-mono">{{ r.sku }}</td>
               <td>{{ r.nombre }}</td>
-              <td class="ec-muted">{{ r.warehouse_code }}</td>
+              <td class="ec-muted">{{ r.warehouse_code | sucursal }}</td>
               <td class="ec-r">{{ r.on_hand | number:'1.0-0' }}</td>
               <td>
                 @if (r.on_hand > 0) { <span class="ec-dead-cap">Con existencia</span> }
@@ -302,7 +303,7 @@ interface DraftLine {
         <div class="ec-dlg-lines">
           @for (l of draft(); track l.product_id + '|' + l.warehouse_id) {
             <div class="ec-dlg-line">
-              <span class="ec-dlg-name"><span class="ec-mono">{{ l.sku }}</span> {{ l.nombre }} <span class="ec-muted">· {{ l.warehouse_code }}</span></span>
+              <span class="ec-dlg-name"><span class="ec-mono">{{ l.sku }}</span> {{ l.nombre }} <span class="ec-muted">· {{ l.warehouse_code | sucursal }}</span></span>
               <p-select [options]="originOpts" [(ngModel)]="l.source_type" optionLabel="label" optionValue="value" styleClass="ec-dlg-origin" appendTo="body"></p-select>
               @if (l.source_type === 'branch') {
                 <p-select [options]="warehouseOpts()" [(ngModel)]="l.source_warehouse_id" optionLabel="label" optionValue="value"

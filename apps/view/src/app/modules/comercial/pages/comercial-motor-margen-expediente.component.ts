@@ -2,6 +2,7 @@ import {
   ChangeDetectionStrategy, Component, DestroyRef, computed, effect, inject, input, output, signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { etiquetaAccion, glosaAccion, textoCerteza } from '../precios-vocabulario';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
@@ -49,7 +50,7 @@ import {
   selector: 'app-motor-margen-expediente',
   standalone: true,
   imports: [CommonModule, FormsModule, DialogModule, ButtonModule, ChartModule,
-    InputNumberModule, SkeletonModule],
+    InputNumberModule, SkeletonModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <p-dialog [visible]="abierto()" (visibleChange)="cerrarSi($event)" [modal]="true"
@@ -69,7 +70,7 @@ import {
     <!-- ══ CABECERA · dónde está parado ═══════════════════════════════════════════════ -->
     <header class="mx-head">
       <div class="mx-head-ids">
-        <span class="mx-mono">{{ d.accion.sucursal }} · SKU {{ d.accion.sku }}</span>
+        <span class="mx-mono">{{ d.accion.sucursal | sucursal }} · SKU {{ d.accion.sku }}</span>
         @if (d.accion.g2_clase_abc) { <span class="mx-tag">clase {{ d.accion.g2_clase_abc }}</span> }
         @if (d.accion.e3_estado_inventario) {
           <span class="mx-tag">{{ d.accion.e3_estado_inventario }}</span>
@@ -239,7 +240,7 @@ import {
         <tbody>
           @for (p of d.plazas; track p.sucursal) {
             <tr [class.is-esta]="p.es_esta">
-              <td class="mx-mono">{{ p.sucursal }}</td>
+              <td class="mx-mono">{{ p.sucursal | sucursal }}</td>
               <td class="comm-num">{{ num(p.precio_actual) }}</td>
               <td class="comm-num">{{ num(p.a1_costo_hoy) }}</td>
               <td class="comm-num">{{ pct(p.margen_realizado_pct) }}</td>
@@ -280,7 +281,7 @@ import {
             @for (x of d.perdida; track x.mes + x.sucursal) {
               <tr>
                 <td class="mx-mono">{{ x.mes }}</td>
-                <td class="mx-mono">{{ x.sucursal }}</td>
+                <td class="mx-mono">{{ x.sucursal | sucursal }}</td>
                 <td class="comm-num">{{ x.unidades_perdidas | number:'1.0-0' }}</td>
                 <td class="comm-num">{{ x.importe_perdido | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
                 <td class="comm-num">{{ x.clientes }}</td>

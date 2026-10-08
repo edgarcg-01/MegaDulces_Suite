@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -65,7 +66,7 @@ import { CarteraService, PorDiaResp, DiaCartera, DiaDocumento, DiaClienteRef, Cl
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule,
-    MetricStripComponent, FreshnessPillComponent, CarteraSegmentsComponent],
+    MetricStripComponent, FreshnessPillComponent, CarteraSegmentsComponent, SucursalPipe],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -244,7 +245,7 @@ import { CarteraService, PorDiaResp, DiaCartera, DiaDocumento, DiaClienteRef, Cl
                                  dinero que nadie puede ubicar. -->
                             <td>
                               @if (c.ref.sucursal_nombre) { {{ c.ref.sucursal_nombre }} }
-                              @else { <span class="cd-sinnombre" [title]="'La sucursal ' + c.ref.sucursal + ' no está en el catálogo de almacenes'">{{ c.ref.sucursal }}</span> }
+                              @else { <span class="cd-sinnombre" [title]="'La sucursal ' + c.ref.sucursal + ' no está en el catálogo de almacenes'">{{ c.ref.sucursal | sucursal }}</span> }
                             </td>
                             <td>
                               @if (c.ref.zona_nombre) { {{ c.ref.zona_nombre }} }

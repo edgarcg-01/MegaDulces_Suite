@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -19,7 +20,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 @Component({
   selector: 'app-comercial-dead-stock',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, ProductSearchComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, ProductSearchComponent, MetricStripComponent, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -64,7 +65,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         <div class="ds-by-wh">
           @for (w of report()?.by_warehouse; track w.warehouse_code) {
             <div class="ds-wh-chip">
-              <b>{{ w.warehouse_code }}</b>
+              <b>{{ w.warehouse_code | sucursal }}</b>
               <span>{{ w.skus }} SKUs · {{ (+w.capital_parado) | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
             </div>
           }
@@ -82,7 +83,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         </ng-template>
         <ng-template #body let-it>
           <tr>
-            <td class="ds-mono">{{ it.warehouse_code }}</td>
+            <td class="ds-mono">{{ it.warehouse_code | sucursal }}</td>
             <td class="ds-mono">{{ it.sku }}</td>
             <td class="ds-name">{{ it.product_name }}</td>
             <td>{{ it.brand_name || '—' }}</td>

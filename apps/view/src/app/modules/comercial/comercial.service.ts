@@ -811,6 +811,95 @@ export interface CycleDueItem {
   days_overdue: number | null;
 }
 
+/** `[IC.24]` Una fila de la selección, con todo su porqué. */
+export interface CountSelectionItem {
+  product_id: string;
+  sku: string;
+  nombre: string;
+  location: string | null;
+  /** Por qué fue elegido: el dinero que se mueve al día (COGS real de 30 d). */
+  cogs_dia: number | null;
+  udia: number | null;
+  /** El esfuerzo que cuesta contarlo. */
+  on_hand: number | null;
+  days_cover: number | null;
+  /** ⚠️ false = `on_hand` y la demanda pueden venir en peldaños distintos (ADR-057). */
+  cobertura_confiable: boolean;
+  /** Por qué tiene esa letra. */
+  abc_class: 'A' | 'B' | 'C' | null;
+  clase_motivo: string | null;
+  rango_almacen: number | null;
+  skus_en_almacen: number | null;
+  aporte_individual: number | null;
+  annual_value: number | null;
+  distancia_al_corte: number | null;
+  /** ⚠️ false = el costo no tiene testigo de compra: la letra se apoya en un número flojo. */
+  tiene_testigo: boolean | null;
+  /** Cuándo se contó por última vez, y quién lo contó. */
+  reloj_estado: 'nunca_contado' | 'al_dia' | 'vencido' | 'sin_cadencia' | null;
+  reloj_fuente: 'folio_propio' | 'kepler' | null;
+  last_counted_at: string | null;
+  next_due: string | null;
+}
+
+export interface CountSelectionResult {
+  items: CountSelectionItem[];
+  ritmo: 'diario' | 'mensual';
+  limit: number;
+  esfuerzo: {
+    skus: number;
+    piezas: number;
+    /** ⛔ Siempre null: piezas por hora por persona NO existe — nunca se cerró un folio. */
+    minutos_estimados: number | null;
+    minutos_motivo: string;
+  };
+  cobertura: {
+    cogs_dia_seleccion: number;
+    cogs_dia_almacen: number;
+    pct: number | null;
+  };
+  criterio: {
+    motor: string;
+    por_que_no_el_score: string;
+    orden: string;
+    filtro_velocidad: string | null;
+    cupo: string;
+  };
+}
+
+export interface CountSelectionDetail {
+  eventos: {
+    fecha: string;
+    veces_contado: number | null;
+    veces_descuadro: number | null;
+    pesos_abs: number | null;
+    pesos_neto: number | null;
+    retencion: number | null;
+    patron: string | null;
+    importe_evento: number | null;
+    cantidad_evento: number | null;
+    unidad_erp: string | null;
+    rf_veredicto: string | null;
+    flujo_dominante: string | null;
+    /** ⭐ La frase que dice por qué ese descuadre pudo NO ser merma (ej. `costo_de_caja`). */
+    explicacion: string | null;
+  }[];
+  capital: {
+    capital: number | null;
+    capital_class: 'A' | 'B' | 'C' | null;
+    costo_unitario: number | null;
+    rango_almacen: number | null;
+    skus_en_almacen: number | null;
+    aporte_individual: number | null;
+    costo_source: string | null;
+    tiene_testigo: boolean | null;
+    costo_veredicto: string | null;
+  } | null;
+  sin_historia: boolean;
+  sin_capital_motivo: string | null;
+  fuentes: { historia: string; capital: string };
+}
+
 export interface CycleDueResult {
   cadence_days: Record<'A' | 'B' | 'C', number>;
   only_due: boolean;
@@ -1326,6 +1415,31 @@ export class ComercialService {
     if (opts.limit != null) params = params.set('limit', String(opts.limit));
     return this.http.get<CycleDueResult>(`${this.base}/inventory/abc/cycle-due`, { params });
   }
+  /**
+   * `[IC.24]` La SELECCIÓN del conteo con el porqué de cada producto.
+   * `dias_cobertura: null` apaga el filtro de velocidad (el mensual mira lo que NO rota).
+   */
+  countSelection(opts: {
+    warehouse_id: string;
+    ritmo?: 'diario' | 'mensual';
+    dias_cobertura?: number | null;
+    limit?: number;
+  }) {
+    let params = new HttpParams().set('warehouse_id', opts.warehouse_id);
+    if (opts.ritmo) params = params.set('ritmo', opts.ritmo);
+    if (opts.dias_cobertura === null) params = params.set('dias_cobertura', 'off');
+    else if (opts.dias_cobertura != null) params = params.set('dias_cobertura', String(opts.dias_cobertura));
+    if (opts.limit != null) params = params.set('limit', String(opts.limit));
+    return this.http.get<CountSelectionResult>(`${this.base}/inventory/abc/seleccion`, { params });
+  }
+
+  /** `[IC.24]` El porqué PROFUNDO de un SKU: historia de conteos y capital. */
+  countSelectionDetail(productId: string, warehouseId: string) {
+    const params = new HttpParams().set('warehouse_id', warehouseId);
+    return this.http.get<CountSelectionDetail>(
+      `${this.base}/inventory/abc/seleccion/${productId}`, { params });
+  }
+
   generateCycleFolios(body: { warehouse_id?: string; max_items?: number }) {
     return this.http.post<{ warehouses_due: number; folios_created: number; skipped: number; errors: number }>(
       `${this.base}/inventory/abc/generate-cycle-folios`, body);

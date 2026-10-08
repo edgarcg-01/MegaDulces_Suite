@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { MultitareaService } from '../../../core/services/multitarea.service';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { RouterLink, RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -30,7 +31,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
   selector: 'app-finanzas-cartera',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent, FreshnessPillComponent],
+  imports: [RouterLink, CarteraSegmentsComponent, CommonModule, FormsModule, RouterModule, ButtonModule, SelectModule, InputTextModule, DialogModule, DatePickerModule, ToggleSwitchModule, MetricStripComponent, FreshnessPillComponent, SucursalPipe],
   template: `
     <div class="surf-page in">
       <!-- La barra de Finanzas FALTABA acá: esta pantalla era la única del proyecto sin
@@ -179,7 +180,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                   <tbody>@for (v of rs.por_vendedor.slice(0, 10); track v.sucursal + '|' + v.vendedor) {
                     <tr>
                       <td>{{ v.vendedor_nombre || v.vendedor }} @if (v.vendedor_nombre) { <span class="muted ct-mono">{{ v.vendedor }}</span> }</td>
-                      <td>{{ v.sucursal }}</td>
+                      <td>{{ v.sucursal | sucursal }}</td>
                       <td class="ta-r">{{ v.n_clientes }}</td>
                       <td class="ta-r" [class.ct-venc-num]="v.vencido > 0">{{ v.vencido | number:'1.0-0' }}</td>
                       <td class="ta-r"><b>{{ v.saldo | number:'1.0-0' }}</b></td>
@@ -252,7 +253,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                             [title]="kindTitle(c)">{{ kindLabel(c.cuenta_kind) }}</span>
                     }
                   </td>
-                  <td>{{ c.sucursal }}</td>
+                  <td>{{ c.sucursal | sucursal }}</td>
                   <td>{{ c.zona || '—' }}</td>
                   <td [title]="c.vendedor || ''">{{ c.vendedor_nombre || c.vendedor || '—' }}</td>
                   <td class="ta-r">{{ c.n_partidas }}</td>
@@ -294,7 +295,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
       @if (detalle(); as det) {
         <div class="ct-det-head">
           <div>
-            <span class="muted">Código</span> {{ det.cliente.cliente_code }} · <span class="muted">Suc</span> {{ det.cliente.sucursal }} @if (det.cliente.rfc) { · <span class="muted">RFC</span> {{ det.cliente.rfc }} }
+            <span class="muted">Código</span> {{ det.cliente.cliente_code }} · <span class="muted">Suc</span> {{ det.cliente.sucursal | sucursal }} @if (det.cliente.rfc) { · <span class="muted">RFC</span> {{ det.cliente.rfc }} }
             @if (det.cliente.vendedor) { · <span class="muted">Vendedor</span> {{ det.cliente.vendedor_nombre || det.cliente.vendedor }} }
             @if (det.cliente.limite_credito) { · <span class="muted">Límite</span> {{ money(det.cliente.limite_credito) }} @if (det.saldo > det.cliente.limite_credito) { <span class="ct-sobre">(sobre línea)</span> } }
             @if (det.cliente.dias_credito) { · <span class="muted">{{ det.cliente.dias_credito }}d crédito</span> }
@@ -461,7 +462,7 @@ import { CarteraSegmentsComponent } from '../cartera-segments.component';
                   <tr [class.ct-bp-r-abono]="r.naturaleza === 'abono'">
                     <td class="mono">{{ r.folio_digital }}</td>
                     <td>{{ r.fecha || '—' }}</td>
-                    <td>{{ r.sucursal }}</td>
+                    <td>{{ r.sucursal | sucursal }}</td>
                     <td>
                       @if (r.naturaleza === 'abono') { <span class="ct-bp-tag">Nota / devolución</span> }
                       @else { <span class="muted">Factura</span> }

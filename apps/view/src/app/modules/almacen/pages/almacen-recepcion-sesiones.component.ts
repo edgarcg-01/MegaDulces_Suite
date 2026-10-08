@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -24,7 +25,7 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-almacen-recepcion-sesiones',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule, ToastModule, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -56,7 +57,7 @@ import { Permission } from '../../../core/constants/permissions';
         <ng-template #body let-s>
           <tr class="rs-row" (click)="openSession(s)">
             <td class="rs-mono">{{ s.folio }}</td>
-            <td class="rs-mono">{{ s.warehouse_code }}</td>
+            <td class="rs-mono">{{ s.warehouse_code | sucursal }}</td>
             <td class="rs-mono">{{ s.supplier_code || '—' }}</td>
             <td>{{ s.source_kind === 'erp_receipt' ? ('ERP · ' + (s.source_ref || '')) : 'Manual' }}</td>
             <td><p-tag [value]="statusLabel(s.status)" [severity]="statusSeverity(s.status)"></p-tag></td>
@@ -101,7 +102,7 @@ import { Permission } from '../../../core/constants/permissions';
                     <div class="rs-match-sub">
                       {{ o.proveedor_nombre || o.proveedor_code || '—' }}
                       @if (o.receipt_date) { · {{ fmtDate(o.receipt_date) }} }
-                      @if (o.warehouse_code) { · → {{ o.warehouse_code }} }
+                      @if (o.warehouse_code) { · → {{ o.warehouse_code | sucursal }} }
                     </div>
                     <div class="rs-match-sub">
                       @if (o.line_count) { {{ o.line_count }} renglón(es) }

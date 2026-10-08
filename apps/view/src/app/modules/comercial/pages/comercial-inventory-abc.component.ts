@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { forkJoin } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
@@ -13,7 +14,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { TooltipModule } from 'primeng/tooltip';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
-  ComercialService, AbcRow, AbcListResult, AbcSummary, CycleDueResult, Warehouse,
+  ComercialService, AbcRow, AbcListResult, AbcSummary, CycleDueResult, CountSelectionResult, CountSelectionItem, CountSelectionDetail, Warehouse,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
@@ -30,7 +31,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 @Component({
   selector: 'app-comercial-inventory-abc',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, SelectButtonModule, ToastModule, ConfirmDialogModule, TooltipModule, MetricCardComponent, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, SelectButtonModule, ToastModule, ConfirmDialogModule, TooltipModule, MetricCardComponent, ProductSearchComponent, SucursalPipe],
   providers: [MessageService, ConfirmationService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -115,7 +116,168 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         </p>
       }
 
-      @if (view() === 'due') {
+      @if (view() === 'seleccion') {
+        <!-- [IC.24] LA SELECCION DEL CONTEO, con el porque de cada producto. -->
+        @if (sel(); as s) {
+          <!-- El ESFUERZO y la COBERTURA primero: son las dos cifras que deciden si la lista
+               de abajo es razonable, y verlas despues de 25 renglones es verlas tarde. -->
+          <div class="sel-cab">
+            <div class="sel-kpi">
+              <span class="sel-kpi-n">{{ s.esfuerzo.skus }}</span>
+              <span class="sel-kpi-l">productos</span>
+            </div>
+            <div class="sel-kpi">
+              <span class="sel-kpi-n">{{ s.esfuerzo.piezas | number }}</span>
+              <span class="sel-kpi-l">piezas a contar</span>
+            </div>
+            <div class="sel-kpi">
+              <span class="sel-kpi-n">{{ s.cobertura.pct ?? '—' }}<small>%</small></span>
+              <span class="sel-kpi-l">del dinero que se mueve al dia</span>
+            </div>
+            <div class="sel-kpi sel-kpi-nm">
+              <span class="sel-kpi-n">no medido</span>
+              <span class="sel-kpi-l">tiempo: piezas por hora por persona no existe todavia</span>
+            </div>
+          </div>
+          <p class="abc-criterio">
+            <b>Como se eligen:</b> {{ s.criterio.orden }}, sobre {{ s.criterio.motor }}.
+            @if (s.criterio.filtro_velocidad) { Filtro: {{ s.criterio.filtro_velocidad }}. }
+            {{ s.criterio.cupo }}.
+            <br><b>Por que no el score de prioridad:</b> {{ s.criterio.por_que_no_el_score }}.
+          </p>
+        }
+        <div class="sel-split">
+          <div class="dt-scope sel-lista">
+          <p-table [value]="selItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table dt-stack"
+                   selectionMode="single" [(selection)]="selFila" (onRowSelect)="abrirDetalle($event.data)"
+                   [scrollable]="true" scrollHeight="flex">
+            <ng-template #header>
+              <tr>
+                <th scope="col">SKU</th><th scope="col">Producto</th>
+                <th scope="col" class="abc-num">$ / dia</th>
+                <th scope="col" class="abc-num">Piezas</th>
+                <th scope="col" class="abc-num">Dias cob.</th>
+                <th scope="col">Clase</th><th scope="col">Lugar</th><th scope="col">Ultimo conteo</th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-it>
+              <tr [pSelectableRow]="it" [class.sel-activa]="detalleDe()?.product_id === it.product_id">
+                <td data-label="SKU"><code>{{ it.sku }}</code></td>
+                <td data-label="Producto">
+                  {{ it.nombre }}
+                  @if (it.location) { <small class="sel-ubi">{{ it.location }}</small> }
+                </td>
+                <td data-label="$ / dia" class="abc-num"><b>{{ it.cogs_dia | number:'1.0-0' }}</b></td>
+                <td data-label="Piezas" class="abc-num">{{ it.on_hand | number:'1.0-0' }}</td>
+                <td data-label="Dias cob." class="abc-num">
+                  @if (it.cobertura_confiable) { {{ it.days_cover | number:'1.0-0' }} }
+                  @else { <span class="sel-nm" pTooltip="Existencia y demanda pueden venir en peldanos distintos: la cobertura no se puede afirmar">sin medir</span> }
+                </td>
+                <td data-label="Clase">
+                  <p-tag [value]="it.abc_class ?? '—'" [severity]="sevClase(it.abc_class)"></p-tag>
+                  @if (it.tiene_testigo === false) {
+                    <i class="pi pi-exclamation-triangle sel-flojo"
+                       pTooltip="El costo que sostiene esta letra no tiene testigo de compra"></i>
+                  }
+                </td>
+                <td data-label="Lugar">
+                  @if (it.rango_almacen) {
+                    <small>{{ it.rango_almacen | number }} de {{ it.skus_en_almacen | number }}</small>
+                  } @else { — }
+                </td>
+                <td data-label="Ultimo conteo">
+                  @if (it.last_counted_at) {
+                    {{ it.last_counted_at | date:'dd/MM/yy' }}
+                    <small class="sel-fuente">{{ it.reloj_fuente === 'kepler' ? 'Kepler' : 'folio propio' }}</small>
+                  } @else {
+                    <span class="sel-nunca">nunca contado</span>
+                  }
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="8">
+                <div class="comm-empty">
+                  <span class="comm-empty-icon"><i class="pi pi-inbox"></i></span>
+                  <h3>Sin seleccion</h3>
+                  <p>Elegi un almacen. Si no hay filas, ese almacen no tiene venta con costo en los ultimos 30 dias.</p>
+                </div>
+              </td></tr>
+            </ng-template>
+          </p-table>
+          </div>
+
+          <!-- EL DETALLE: el porque profundo. Vive aparte porque sus dos fuentes cuestan
+               589 ms y 346 ms y no bajan al filtrar por producto. -->
+          <aside class="sel-detalle">
+            @if (detalleDe(); as d) {
+              <h3>{{ d.sku }} <small>{{ d.nombre }}</small></h3>
+              <dl class="sel-dl">
+                <dt>Mueve</dt><dd><b>{{ d.cogs_dia | number:'1.0-0' }}</b> pesos de costo por dia</dd>
+                <dt>Aporta</dt>
+                <dd>
+                  @if (d.aporte_individual != null) {
+                    {{ d.aporte_individual * 100 | number:'1.0-3' }}% del valor del almacen
+                  } @else { <span class="sel-nm">sin medir</span> }
+                </dd>
+                <dt>Sobre el piso de su clase</dt>
+                <dd>
+                  @if (d.distancia_al_corte != null) { {{ d.distancia_al_corte | number:'1.0-0' }} pesos }
+                  @else { <span class="sel-nm">sin medir</span> }
+                </dd>
+              </dl>
+              @if (detalle(); as det) {
+                @if (det.capital; as cap) {
+                  <h4>Capital parado</h4>
+                  <dl class="sel-dl">
+                    <dt>En piso</dt><dd><b>{{ cap.capital | number:'1.0-0' }}</b> pesos (clase {{ cap.capital_class }})</dd>
+                    <dt>Costo</dt>
+                    <dd>
+                      {{ cap.costo_unitario | number:'1.2-2' }} / pieza
+                      <small>{{ cap.costo_source }}</small>
+                      @if (cap.costo_veredicto && cap.costo_veredicto !== 'confirmado') {
+                        <p-tag [value]="cap.costo_veredicto" severity="warn"></p-tag>
+                      }
+                    </dd>
+                  </dl>
+                } @else {
+                  <p class="sel-nm">Capital sin medir: {{ det.sin_capital_motivo }}</p>
+                }
+                <h4>Historia de conteos</h4>
+                @if (det.sin_historia) {
+                  <p class="sel-nm">Nunca se conto. No es lo mismo que cuadrar: es que no hay dato.</p>
+                } @else {
+                  @for (ev of det.eventos; track ev.fecha) {
+                    <div class="sel-ev">
+                      <div class="sel-ev-top">
+                        <span>{{ ev.fecha | date:'dd/MM/yy' }}</span>
+                        <p-tag [value]="ev.patron ?? 'sin patron'" [severity]="sevPatron(ev.patron)"></p-tag>
+                      </div>
+                      <div class="sel-ev-n">
+                        {{ ev.importe_evento | number:'1.0-0' }} pesos
+                        @if (ev.cantidad_evento != null) {
+                          <small>{{ ev.cantidad_evento | number:'1.0-2' }} {{ ev.unidad_erp }}</small>
+                        }
+                      </div>
+                      @if (ev.explicacion) {
+                        <p class="sel-ev-exp"><i class="pi pi-info-circle"></i> {{ ev.explicacion }}</p>
+                      }
+                    </div>
+                  }
+                }
+              } @else {
+                <p class="sel-nm">Cargando el porque…</p>
+              }
+            } @else {
+              <div class="comm-empty">
+                <span class="comm-empty-icon"><i class="pi pi-hand-point-left"></i></span>
+                <h3>Elegi un producto</h3>
+                <p>La ficha muestra su capital, su historia de conteos y por que un descuadre pudo no ser merma.</p>
+              </div>
+            }
+          </aside>
+        </div>
+      } @else if (view() === 'due') {
         <!-- AGENDA: qué toca contar -->
         <!-- [UIM.6] Las diez columnas son CAMPOS de un renglón (clase, SKU, producto, almacén,
              valor, fecha, cadencia, estado), así que apilar es lo correcto: el .dt-scope va en el
@@ -138,7 +300,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                          [pTooltip]="motivoTooltip(it)"></p-tag></td>
               <td class="abc-mono" role="cell" data-label="SKU">{{ it.sku || '—' }}</td>
               <td class="abc-name dt-id" role="cell">{{ it.product_name || '—' }}</td>
-              <td class="abc-mono" role="cell" data-label="Almacén">{{ it.warehouse_code }}</td>
+              <td class="abc-mono" role="cell" data-label="Almacén">{{ it.warehouse_code | sucursal }}</td>
               <!-- Guion, no $0: un valor cero por falta de demanda NO es un valor de cero. -->
               <td class="abc-num dt-num" role="cell" data-label="Valor anual">
                 @if (+it.annual_value > 0) { {{ it.annual_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
@@ -183,7 +345,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                          [pTooltip]="motivoTooltip(it)"></p-tag></td>
               <td class="abc-mono" role="cell" data-label="SKU">{{ it.sku || '—' }}</td>
               <td class="abc-name dt-id" role="cell">{{ it.product_name || '—' }}</td>
-              <td class="abc-mono" role="cell" data-label="Almacén">{{ it.warehouse_code }}</td>
+              <td class="abc-mono" role="cell" data-label="Almacén">{{ it.warehouse_code | sucursal }}</td>
               <td class="abc-num dt-num" role="cell" data-label="Valor anual">
                 @if (+it.annual_value > 0) { {{ it.annual_value | currency:'MXN':'symbol-narrow':'1.0-0' }} }
                 @else { <span class="abc-nd" pTooltip="Sin demanda medida: no es valor cero, es no medido">&mdash;</span> }
@@ -207,6 +369,46 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
     </div>
   `,
   styles: [`
+    /* [IC.24] La seleccion del conteo: maestro-detalle. */
+    .sel-cab { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+               gap: .75rem; margin-bottom: .75rem; }
+    .sel-kpi { background: var(--surface-2); border: 1px solid var(--border);
+               border-radius: var(--radius-md); padding: .6rem .75rem; }
+    .sel-kpi-n { display: block; font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
+    .sel-kpi-n small { font-size: .9rem; opacity: .7; }
+    .sel-kpi-l { display: block; font-size: .72rem; opacity: .7; margin-top: .15rem; }
+    /* Lo NO MEDIDO se ve distinto de un numero: si se pintara igual, se leeria como una cifra. */
+    .sel-kpi-nm { border-style: dashed; }
+    .sel-kpi-nm .sel-kpi-n { font-size: 1rem; font-weight: 600; opacity: .65; font-style: italic; }
+    .sel-split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem;
+                 align-items: start; }
+    @media (max-width: 1100px) { .sel-split { grid-template-columns: 1fr; } }
+    .sel-lista { min-width: 0; }
+    .sel-detalle { background: var(--surface-2); border: 1px solid var(--border);
+                   border-radius: var(--radius-md); padding: .9rem; position: sticky; top: .5rem;
+                   max-height: calc(100vh - 7rem); overflow: auto; }
+    .sel-detalle h3 { margin: 0 0 .6rem; font-size: 1rem; }
+    .sel-detalle h3 small { display: block; font-weight: 400; opacity: .75; font-size: .8rem; }
+    .sel-detalle h4 { margin: 1rem 0 .4rem; font-size: .8rem; text-transform: uppercase;
+                      letter-spacing: .04em; opacity: .7; }
+    .sel-dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem .6rem; margin: 0;
+              font-size: .82rem; }
+    .sel-dl dt { opacity: .7; }
+    .sel-dl dd { margin: 0; }
+    .sel-dl dd small { display: block; opacity: .6; font-size: .72rem; }
+    .sel-ev { border-left: 3px solid var(--border); padding: .4rem .6rem; margin-bottom: .5rem; }
+    .sel-ev-top { display: flex; justify-content: space-between; align-items: center;
+                  font-size: .76rem; opacity: .8; }
+    .sel-ev-n { font-weight: 600; font-size: .9rem; }
+    .sel-ev-n small { font-weight: 400; opacity: .65; margin-left: .35rem; }
+    .sel-ev-exp { margin: .3rem 0 0; font-size: .75rem; opacity: .8; }
+    /* Las dos ausencias se ven distinto de un dato, y distinto entre si (ADR-056). */
+    .sel-nm { font-style: italic; opacity: .6; font-size: .78rem; }
+    .sel-nunca { color: var(--warn-soft-fg); font-size: .78rem; }
+    .sel-fuente { display: block; font-size: .68rem; opacity: .6; }
+    .sel-ubi { display: block; font-size: .68rem; opacity: .6; }
+    .sel-flojo { color: var(--warn-soft-fg); margin-left: .3rem; font-size: .8rem; }
+    .sel-activa { background: var(--hover-bg); }
     .abc-head-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     :host ::ng-deep .abc-wh { min-width: 220px; }
     :host ::ng-deep .abc-cls { min-width: 130px; }
@@ -250,6 +452,9 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 })
 export class ComercialInventoryAbcComponent {
   readonly views = [
+    // [IC.24] Primera a propósito: es la pregunta operativa («¿qué cuento hoy y por qué?»).
+    // Las otras dos contestan «¿qué está vencido?» y «¿cómo quedó clasificado el catálogo?».
+    { label: 'Selección del conteo', value: 'seleccion' },
     { label: 'Agenda de conteo', value: 'due' },
     { label: 'Clasificación ABC', value: 'class' },
   ];
@@ -261,7 +466,55 @@ export class ComercialInventoryAbcComponent {
 
   loading = signal(false);
   working = signal(false);
-  view = signal<'due' | 'class'>('due');
+  view = signal<'due' | 'class' | 'seleccion'>('seleccion');
+
+  // ── [IC.24] La selección del conteo ──────────────────────────────────────────────────
+  sel = signal<CountSelectionResult | null>(null);
+  /**
+   * El filtro de producto se aplica acá y NO con : esa funcion compara contra
+   * , y esta fila trae el nombre en . Reusarla con un cast habria
+   * compilado y filtrado SIEMPRE a vacio cuando el filtro fuera por nombre.
+   */
+  selItems = computed(() => {
+    const todo = this.sel()?.items ?? [];
+    const f = this.prodFilter();
+    if (!f) return todo;
+    return todo.filter((r) => (f.sku ? r.sku === f.sku : r.nombre === f.label));
+  });
+  selFila: CountSelectionItem | null = null;
+  detalleDe = signal<CountSelectionItem | null>(null);
+  detalle = signal<CountSelectionDetail | null>(null);
+
+  sevClase(c: string | null): 'success' | 'info' | 'secondary' {
+    return c === 'A' ? 'success' : c === 'B' ? 'info' : 'secondary';
+  }
+
+  /**
+   * ⚠️ `sobra` NO es «bueno». Medido en Padre Hidalgo, el sobrante carga **3.4× el dinero de la
+   * merma** ($4,246,558 contra $1,248,543): es producto que está y el sistema no sabe. Por eso
+   * los dos patrones se pintan con el mismo peso visual y ninguno en verde.
+   */
+  sevPatron(p: string | null): 'warn' | 'danger' | 'secondary' {
+    if (p === 'merma') return 'danger';
+    if (p === 'sobra') return 'warn';
+    return 'secondary';
+  }
+
+  abrirDetalle(it: CountSelectionItem) {
+    this.detalleDe.set(it);
+    this.detalle.set(null);
+    const wh = this.whParam();
+    if (!wh) return;
+    this.svc.countSelectionDetail(it.product_id, wh).subscribe({
+      next: (d) => this.detalle.set(d),
+      // Fail-closed: si no se pudo leer el porqué, NO se deja la ficha anterior en pantalla
+      // atribuida a otro SKU — eso sería peor que no mostrar nada.
+      error: () => {
+        this.detalle.set(null);
+        this.toast.add({ severity: 'warn', summary: 'No se pudo leer el porqué de ese producto' });
+      },
+    });
+  }
   readonly ALL = '__all__';
   warehouseFilter = this.ALL;
   warehouses = signal<{ label: string; value: string }[]>([]);
@@ -318,10 +571,20 @@ export class ComercialInventoryAbcComponent {
       rows: this.svc.listAbc({ warehouse_id: wh, abc_class: this.claseFiltro() ?? undefined }),
       due: this.svc.cycleDue({
         warehouse_id: wh, only_due: true, abc_class: this.claseFiltro() ?? undefined }),
+      // [IC.24] La selección del día. Va en el mismo forkJoin y no en una carga aparte porque
+      // cuesta 135 ms — medido — y pedirla al cambiar de pestaña dejaría la vista en blanco
+      // justo al entrar, que es cuando se la mira.
+      sel: this.svc.countSelection({ warehouse_id: wh ?? '', ritmo: 'diario', limit: 25 }),
     })
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (r) => { this.summary.set(r.summary); this.lista.set(r.rows); this.due.set(r.due); this.loading.set(false); },
+        next: (r) => {
+          this.summary.set(r.summary); this.lista.set(r.rows); this.due.set(r.due);
+          this.sel.set(r.sel);
+          // Cambió el almacén: la ficha abierta ya no le corresponde a esta lista.
+          this.detalleDe.set(null); this.detalle.set(null); this.selFila = null;
+          this.loading.set(false);
+        },
         error: () => { this.loading.set(false); this.toast.add({ severity: 'error', summary: 'Error al cargar ABC' }); },
       });
   }

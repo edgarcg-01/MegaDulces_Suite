@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, input, output, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { of } from 'rxjs';
@@ -36,7 +37,7 @@ const TIPO: Record<string, string> = {
 @Component({
   selector: 'app-compras-costos-historial',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, CheckboxModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <section class="ch-filtros" aria-label="Filtros del historial">
@@ -158,7 +159,7 @@ const TIPO: Record<string, string> = {
           <ng-template #body let-e>
             <tr [class.is-tenue]="e.tipo === 'entrada_igual'">
               <td role="cell" data-label="Fecha" class="ch-nowrap">{{ e.fecha }}</td>
-              <td role="cell" data-label="Sucursal">{{ e.sucursal || 'sin plaza' }}</td>
+              <td role="cell" data-label="Sucursal">{{ (e.sucursal | sucursal) || 'sin plaza' }}</td>
               <td role="cell" data-label="Qué cambió"><span class="ch-tipo" [class]="'ch-tipo ch-tipo-' + e.tipo">{{ tipoTxt(e.tipo) }}</span></td>
               <td role="cell" data-label="Antes" class="ch-num ch-mono">{{ e.antes === null ? '—' : dinero(e.antes) }}</td>
               <td role="cell" data-label="Después" class="ch-num ch-mono ch-fuerte">{{ e.despues === null ? '—' : dinero(e.despues) }}</td>

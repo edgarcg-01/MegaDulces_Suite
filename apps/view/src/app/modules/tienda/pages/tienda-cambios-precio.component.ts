@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -63,7 +64,7 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
 @Component({
   selector: 'app-tienda-cambios-precio',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, MetricStripComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .cpr-screen{ padding:1rem 1.25rem 2rem; display:flex; flex-direction:column; gap:.9rem; }
@@ -203,7 +204,7 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
             @for (p of plazas.value() ?? []; track p.sucursal) {
               <button type="button" class="cpr-plaza" (click)="elegirPlaza(p.sucursal)">
                 <b>{{ p.nombre || ('Plaza ' + p.sucursal) }}</b>
-                <span>{{ p.sucursal }} · hasta {{ p.ultimo_dia }}</span>
+                <span>{{ p.sucursal | sucursal }} · hasta {{ p.ultimo_dia }}</span>
               </button>
             }
           </div>

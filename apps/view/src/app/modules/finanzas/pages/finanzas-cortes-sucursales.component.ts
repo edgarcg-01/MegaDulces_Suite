@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -52,7 +53,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
   selector: 'app-finanzas-cortes-sucursales',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent, SucursalPipe],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -126,7 +127,7 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                 <tr [pSelectableRow]="c">
                   <td class="cs-mono" role="cell" data-label="Corte">{{ c.documento }}</td>
                   <td class="cs-mono" role="cell" data-label="Fecha">{{ dmy(c.fecha) }}</td>
-                  @if (!selSuc()) { <td class="cs-mono muted" role="cell" data-label="Suc">{{ c.sucursal }}</td> }
+                  @if (!selSuc()) { <td class="cs-mono muted" role="cell" data-label="Suc">{{ c.sucursal | sucursal }}</td> }
                   <td class="cs-mono" role="cell" data-label="Caja">{{ c.caja && c.turno ? c.caja + '-' + c.turno : c.referencia }}</td>
                   <td class="ta-r num" role="cell" data-label="Monto">{{ money(c.monto) }}</td>
                   <td class="ta-r num" role="cell" data-label="Cobrado" [class.muted]="!c.cobrado">{{ c.cobrado ? money(c.cobrado) : '—' }}</td>

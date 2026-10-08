@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -19,7 +20,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
 @Component({
   selector: 'app-comercial-inventory-ira',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, TableModule, TagModule, SelectModule, InputNumberModule, MetricCardComponent],
+  imports: [CommonModule, FormsModule, RouterModule, ButtonModule, TableModule, TagModule, SelectModule, InputNumberModule, MetricCardComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page ira">
@@ -135,7 +136,7 @@ import { MetricCardComponent } from '../../../shared/components/metric-card/metr
               <ng-template #body let-r>
                 <tr>
                   <td><a [routerLink]="['/almacen/inventory/sessions', r.count_id]" class="ira-folio">{{ r.folio }}</a></td>
-                  <td>{{ r.warehouse_code || '—' }}</td>
+                  <td>{{ (r.warehouse_code | sucursal) || '—' }}</td>
                   <td>{{ r.reconciled_at | date:'dd/MM/yy HH:mm' }}</td>
                   <td class="num"><p-tag [value]="r.ira_pct !== null ? (r.ira_pct + '%') : '—'" [severity]="iraSeverity(r.ira_pct)"></p-tag></td>
                   <td class="num" [class.ira-bad]="r.net_variance_value < 0">{{ r.net_variance_value | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>

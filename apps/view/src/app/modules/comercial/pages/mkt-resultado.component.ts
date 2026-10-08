@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -48,7 +49,7 @@ import {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule,
-    PageTabsComponent, MetricStripComponent,
+    PageTabsComponent, MetricStripComponent, SucursalPipe,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -126,7 +127,7 @@ import {
                 <td class="dt-id" role="cell">{{ r.proveedor }}</td>
                 <td role="cell" data-label="Plaza">
                   {{ r.warehouse_name || r.warehouse_code }}
-                  <span class="res-plaza-code mono">{{ r.warehouse_code }}</span>
+                  <span class="res-plaza-code mono">{{ r.warehouse_code | sucursal }}</span>
                 </td>
                 <td class="ta-r mono dt-num" role="cell" data-label="Vigencia">
                   {{ r.dias_ventana }} d

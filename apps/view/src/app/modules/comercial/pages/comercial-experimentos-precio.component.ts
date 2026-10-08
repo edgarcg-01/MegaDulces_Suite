@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signa
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { PRECIOS_TABS } from '../precios-tabs';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
@@ -42,7 +43,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 @Component({
   selector: 'app-comercial-experimentos-precio',
   standalone: true,
-  imports: [CommonModule, FormsModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule, ToastModule, DialogModule, MetricStripComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, PageTabsComponent, TableModule, ButtonModule, SkeletonModule, ToastModule, DialogModule, MetricStripComponent, ContextHelpComponent, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -226,7 +227,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
             <tbody>
               @for (c of pendientes().slice(0, 40); track c.id) {
                 <tr>
-                  <td class="comm-code">{{ c.sucursal }}</td>
+                  <td class="comm-code">{{ c.sucursal | sucursal }}</td>
                   <td class="comm-code">{{ c.sku }}</td>
                   <td class="comm-num xp-old">{{ c.precio_antes | number: '1.2-2' }}</td>
                   <td class="comm-num xp-new">{{ c.precio_propuesto | number: '1.2-2' }}</td>

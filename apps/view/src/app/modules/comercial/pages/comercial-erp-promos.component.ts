@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject } from '@angular/core';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -14,7 +15,7 @@ import { PROMOS_TABS } from '../promos-tabs';
 @Component({
   selector: 'app-comercial-erp-promos',
   standalone: true,
-  imports: [CommonModule, ButtonModule, TableModule, TagModule, ToastModule, PageTabsComponent],
+  imports: [CommonModule, ButtonModule, TableModule, TagModule, ToastModule, PageTabsComponent, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -47,7 +48,7 @@ import { PROMOS_TABS } from '../promos-tabs';
             <td class="ep-num">{{ p.threshold | number:'1.0-0' }}{{ p.promo_type.endsWith('monto') ? ' $' : ' u' }}</td>
             <td>{{ benefitLabel(p) }}</td>
             <td>{{ (p.valid_from | date:'dd/MM/yy') }} → {{ (p.valid_to | date:'dd/MM/yy') }}</td>
-            <td class="ep-mono">{{ p.warehouse_code || '—' }}</td>
+            <td class="ep-mono">{{ (p.warehouse_code | sucursal) || '—' }}</td>
           </tr>
         </ng-template>
         <ng-template #emptymessage>

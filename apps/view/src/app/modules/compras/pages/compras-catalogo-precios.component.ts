@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnDestroy, OnInit, computed, effect, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -40,7 +41,7 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
   selector: 'app-compras-catalogo-precios',
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, TooltipModule,
-    PageTabsComponent],
+    PageTabsComponent, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -258,7 +259,7 @@ type Vista = '' | 'pieza' | 'mayoreo' | 'unidad';
                 <tbody>
                   @for (s of r.por_sucursal; track s.sucursal) {
                     <tr>
-                      <td>{{ s.sucursal }}</td>
+                      <td>{{ s.sucursal | sucursal }}</td>
                       <td class="pg-r pg-num"
                           [class.pg-bad]="s.pieza === r.pieza_max && r.pieza_pct > 0"
                           [class.pg-ok]="s.pieza === r.pieza_min && r.pieza_pct > 0">

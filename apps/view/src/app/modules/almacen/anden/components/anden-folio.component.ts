@@ -1,6 +1,7 @@
 import { AfterViewInit, ChangeDetectionStrategy, Component, ElementRef, input, output, viewChild } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
+import { SucursalPipe } from '../../../../shared/pipes/sucursal.pipe';
 import { InputTextModule } from 'primeng/inputtext';
 import { ErpOrderMatch } from '../../receiving-session.service';
 
@@ -15,7 +16,7 @@ import { ErpOrderMatch } from '../../receiving-session.service';
 @Component({
   selector: 'app-anden-folio',
   standalone: true,
-  imports: [FormsModule, ButtonModule, InputTextModule],
+  imports: [FormsModule, ButtonModule, InputTextModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="af">
@@ -51,7 +52,7 @@ import { ErpOrderMatch } from '../../receiving-session.service';
             <button type="button" class="af-cand" (click)="elegir.emit(c)">
               <span class="af-cand-folio">{{ c.folio }}</span>
               <span class="af-cand-prov">{{ c.proveedor_nombre || c.proveedor_code || '—' }}</span>
-              <span class="af-cand-meta">suc. {{ c.sucursal }} · {{ c.line_count }} líneas</span>
+              <span class="af-cand-meta">{{ c.sucursal | sucursal }} · {{ c.line_count }} líneas</span>
             </button>
           }
         </div>

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, NgZone, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { SucursalPipe } from '../../../../shared/pipes/sucursal.pipe';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
 import { InputNumberModule } from 'primeng/inputnumber';
@@ -125,7 +126,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     ChipModule, DatePickerModule, SelectModule, TagModule, DialogModule, AutoCompleteModule,
     MessageModule, ToastModule,
     MetricStripComponent, LoadStateComponent,
-    FreshnessPillComponent, SegmentedComponent, ContextHelpComponent,
+    FreshnessPillComponent, SegmentedComponent, ContextHelpComponent, SucursalPipe,
   ],
   // Sin esto NINGUNA escritura de la pantalla avisaba: guardar, abrir corte, cerrar, autorizar y
   // confirmar el lote fallaban en silencio y se veían igual que un botón muerto.
@@ -1153,7 +1154,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
           <tr [pSelectableRow]="c">
             <td class="mono">{{ c.folio }}</td>
             <td>{{ dmy(c.fecha) }}</td>
-            <td>{{ c.sucursal }}</td>
+            <td>{{ c.sucursal | sucursal }}</td>
             <td><p-tag [value]="etiquetaEstadoCorte(c.estado)" [severity]="sevEstadoCorte(c.estado)"></p-tag></td>
             <td class="ta-r mono">{{ c.esperado === null ? '—' : money(c.esperado) }}</td>
             <td class="ta-r mono">{{ c.contado === null ? '—' : money(c.contado) }}</td>
@@ -1370,7 +1371,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    el dato -- y por eso el bloque lo dice. -->
               @if (f().tipo === 'gasto' && frecuentes().length) {
                 <div class="fin-row fin-row-col">
-                  <label>Lo que más repetís en la sucursal {{ f().sucursal }}</label>
+                  <label>Lo que más repetís en {{ f().sucursal | sucursal }}</label>
                   <div class="cg-chips">
                     @for (fr of frecuentes(); track fr.rango) {
                       <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase

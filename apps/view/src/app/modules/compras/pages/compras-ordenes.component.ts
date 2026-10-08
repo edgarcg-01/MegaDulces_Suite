@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal 
 import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -20,7 +21,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-ordenes',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page in oc-page">
@@ -53,7 +54,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
             <td><p-tag [value]="estadoLabel(r.estado)" [severity]="estadoSev(r.estado)"></p-tag></td>
             <td class="oc-muted">{{ r.source_type === 'branch' ? 'Traspaso' : 'Compra' }}</td>
             <td>{{ r.source_type === 'branch' ? (r.source_code || '—') : (r.supplier_name || '—') }}</td>
-            <td class="oc-muted">{{ r.warehouse_code }}</td>
+            <td class="oc-muted">{{ r.warehouse_code | sucursal }}</td>
             <td class="oc-r oc-muted">{{ r.total_lines }}</td>
             <td class="oc-r">{{ r.total_units | number:'1.0-0' }}</td>
             <td class="oc-r">{{ r.received_units | number:'1.0-0' }}</td>

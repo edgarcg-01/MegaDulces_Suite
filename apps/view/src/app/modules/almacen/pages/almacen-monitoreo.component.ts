@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -25,7 +26,7 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
 @Component({
   selector: 'app-almacen-monitoreo',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule, ToastModule, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, InputTextModule, DialogModule, ToastModule, ProductSearchComponent, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -55,7 +56,7 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
             <ng-template #body let-m>
               <tr class="mo-row-click" (click)="select(m)" [class.mo-sel]="selected()?.id === m.id">
                 <td class="mo-name">{{ m.product_name || m.product_id }}</td>
-                <td class="mo-mono">{{ m.warehouse_code }}</td>
+                <td class="mo-mono">{{ m.warehouse_code | sucursal }}</td>
                 <td class="num">
                   <p-tag [value]="m.counts_today + '/' + m.counts_per_day" [severity]="+m.counts_today >= m.counts_per_day ? 'success' : 'warn'"></p-tag>
                 </td>
@@ -76,7 +77,7 @@ import { MonitoreoService, Monitoring, MonitoringDetail } from '../monitoreo.ser
               <div class="mo-detail-head">
                 <div>
                   <h2 class="mo-h2">{{ d.sku || '' }} · {{ d.product_name || d.product_id }}</h2>
-                  <p class="mo-sub">{{ d.warehouse_code }} · {{ d.counts_per_day }} conteos/día · {{ d.reason || 'monitoreo' }}</p>
+                  <p class="mo-sub">{{ d.warehouse_code | sucursal }} · {{ d.counts_per_day }} conteos/día · {{ d.reason || 'monitoreo' }}</p>
                 </div>
                 <p-tag [value]="d.status === 'active' ? 'Activo' : 'Cerrado'" [severity]="d.status === 'active' ? 'secondary' : 'contrast'"></p-tag>
               </div>

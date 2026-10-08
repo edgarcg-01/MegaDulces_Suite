@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -31,7 +32,7 @@ const CAT_LABEL: Record<string, string> = { pago: 'Pago a proveedor', entrada: '
   selector: 'app-finanzas-cancelados',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule, TableModule, SelectModule, TagModule, MetricStripComponent, SucursalPipe],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -62,7 +63,7 @@ const CAT_LABEL: Record<string, string> = { pago: 'Pago a proveedor', entrada: '
               <td class="cg-mono">{{ dmy(r.fecha) }}</td>
               <td><p-tag [value]="catLabel(r.categoria)" [severity]="catSev(r.categoria)" styleClass="cg-tag" /></td>
               <td class="cg-mono">{{ r.doc_prefix || r.doc_tipo }} <span class="muted">{{ r.folio }}</span></td>
-              <td class="cg-mono muted">{{ r.sucursal }}</td>
+              <td class="cg-mono muted">{{ r.sucursal | sucursal }}</td>
               <td class="cg-emp" [title]="r.contraparte_nombre">{{ r.contraparte_nombre || '—' }}@if (r.contraparte_code) { <span class="muted"> #{{ r.contraparte_code }}</span> }</td>
               <td class="cg-emp" [title]="r.concepto">{{ r.concepto || '—' }}</td>
               <td class="muted">{{ r.metodo || '—' }}</td>
