@@ -42,6 +42,8 @@ export function construirAcceso(e: { god: boolean; esAgente: boolean; esCoordina
 }
 
 export const puedeAtenderCola = (a: AccesoColas, queueId: string): boolean => a.todas || a.atiende.has(queueId);
+/** `[MSH.2]` Miembro DE VERAS de la cola (sin god-mode): el que puede levantar una solicitud confidencial a nombre de otra persona. */
+export const esMiembroDeCola = (a: AccesoColas, queueId: string): boolean => a.atiende.has(queueId);
 export const puedeCoordinarCola = (a: AccesoColas, queueId: string): boolean => a.todas || a.coordina.has(queueId);
 
 /**

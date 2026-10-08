@@ -1,4 +1,4 @@
-import { SIN_COLAS, TODAS_LAS_COLAS, accesoATicket, colasDeLectura, construirAcceso, puedeAdministrarCola, puedeAtenderCola, puedeCoordinarCola } from './queue-access';
+import { SIN_COLAS, TODAS_LAS_COLAS, accesoATicket, colasDeLectura, construirAcceso, esMiembroDeCola, puedeAdministrarCola, puedeAtenderCola, puedeCoordinarCola } from './queue-access';
 
 const TI = 'q-ti';
 const MTO = 'q-mto';
@@ -89,5 +89,25 @@ describe('MSH.2 · puedeAdministrarCola', () => {
   });
   it('⛔ ni un técnico de la cola ni la coordinación de OTRA cola, normal o confidencial', () => {
     for (const c of [tecnico, otra]) for (const conf of [false, true]) expect(puedeAdministrarCola(c, COLA, conf)).toBe(false);
+  });
+});
+
+/** `[MSH.2]` H7 — levantar a nombre de OTRA persona hacia una cola confidencial: sólo un MIEMBRO de esa cola. */
+describe('MSH.2 · esMiembroDeCola', () => {
+  const COLA = 'q-rh';
+  const god = { todas: true, atiende: new Set<string>(), coordina: new Set<string>() };
+  const coord = { todas: false, atiende: new Set([COLA]), coordina: new Set([COLA]) };
+  const tecnico = { todas: false, atiende: new Set([COLA]), coordina: new Set<string>() };
+  const otra = { todas: false, atiende: new Set(['q-ti']), coordina: new Set(['q-ti']) };
+  it('⭐ el técnico y la coordinación de la cola son miembros', () => {
+    expect(esMiembroDeCola(tecnico, COLA)).toBe(true);
+    expect(esMiembroDeCola(coord, COLA)).toBe(true);
+  });
+  it('⛔ NEGATIVA — el god-mode NO es miembro de nada (a diferencia de puedeAtenderCola)', () => {
+    expect(esMiembroDeCola(god, COLA)).toBe(false);
+    expect(puedeAtenderCola(god, COLA)).toBe(true);
+  });
+  it('⛔ NEGATIVA — quien coordina OTRA cola tampoco', () => {
+    expect(esMiembroDeCola(otra, COLA)).toBe(false);
   });
 });

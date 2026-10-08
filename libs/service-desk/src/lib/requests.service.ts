@@ -63,7 +63,7 @@ import { estadoTrasTraslado, terminaEspera, validarTraslado } from './domain/tra
 import { normalizarUbicacion } from './ubicacion.util';
 import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
-import { accesoATicket, type AccesoTicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
+import { accesoATicket, type AccesoTicket, colasDeLectura, esMiembroDeCola, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
 import { fechaValida } from './domain/report-period';
 import { puedeCambiarPrioridad, sugerirPrioridadPorModelo } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
@@ -261,8 +261,8 @@ export class ServiceDeskRequestsService {
          * `[MSH.2]` H7 — levantar a nombre de OTRA persona hacia una cola confidencial: sólo quien es de ESA cola. Si no, un agente de TI
          * podría mandar un ticket a RH a nombre de alguien y quedar él como quien lo abrió. Lo ven sólo el solicitante y los miembros.
          */
-        if (cat.confidential === true && (pidioOtro || pidioArea) && !puedeAtenderCola(ctx.colas, cat.queue_id)) {
-          throw new ForbiddenException('Sólo quien atiende esa área puede levantar una solicitud confidencial a nombre de otra persona');
+        if (cat.confidential === true && (pidioOtro || pidioArea) && !esMiembroDeCola(ctx.colas, cat.queue_id)) {
+          throw new ForbiddenException('Sólo quien es de esa área puede levantar una solicitud confidencial a nombre de otra persona');
         }
         const modelo: string = usaPrioridad ? (cat.priority_model ?? 'impacto') : 'impacto';
         if (modelo === 'riesgo_operacion' && typeof dto.safety_risk !== 'boolean') {
