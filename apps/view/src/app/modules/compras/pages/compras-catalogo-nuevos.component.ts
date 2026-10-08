@@ -279,9 +279,9 @@ export function tendenciaTexto(t: number | null): string {
             </label>
           </div>
 
-          <div class="pn-tabla">
+          <div class="pn-tabla dt-scope">
             <p-table [value]="filas()" dataKey="product_id" [paginator]="filas().length > 50" [rows]="50"
-                     size="small" class="surf-table surf-table--sticky">
+                     size="small" class="surf-table surf-table--sticky" styleClass="dt-stack">
               <ng-template #header>
                 <tr>
                   <th scope="col">Producto</th>
@@ -299,7 +299,7 @@ export function tendenciaTexto(t: number | null): string {
               <ng-template #body let-f>
                 <tr class="pn-fila" tabindex="0" role="button" [attr.aria-label]="'Ver ' + (f.nombre || f.sku) + ' por sucursal'"
                     (click)="abrir(f)" (keydown.enter)="abrir(f)" (keydown.space)="$event.preventDefault(); abrir(f)">
-                  <td class="pn-c-prod">
+                  <td class="pn-c-prod dt-id" role="cell">
                     <div class="pn-prod">{{ f.nombre || 'Sin nombre en catálogo' }}</div>
                     <div class="pn-meta"><span class="pn-mono">{{ f.sku }}</span>@if (f.marca) { · {{ f.marca }} }</div>
                     <div class="pn-tags">
@@ -309,7 +309,7 @@ export function tendenciaTexto(t: number | null): string {
                       }
                     </div>
                   </td>
-                  <td class="pn-c-rec">
+                  <td class="pn-c-rec" role="cell" data-label="¿Volver a comprar?">
                     @if (f.recomendacion; as rec) {
                       <span [class]="'pn-pill pn-tono-' + verd(rec.veredicto).tono">
                         <i [class]="verd(rec.veredicto).icon" aria-hidden="true"></i>{{ verd(rec.veredicto).label }}
@@ -319,7 +319,7 @@ export function tendenciaTexto(t: number | null): string {
                       <span class="pn-pill pn-tono-muted">{{ f.motivo }}</span>
                     }
                   </td>
-                  <td class="pn-c-spk">
+                  <td class="pn-c-spk" role="cell" data-label="Venta por semana">
                     @if (cerradas(f.semanas, f.dia); as sem) {
                       @if (sem.length > 1) {
                         <app-sparkline [data]="sem" [labels]="etiquetasSemanas(sem.length)" format="currency"
@@ -335,7 +335,7 @@ export function tendenciaTexto(t: number | null): string {
                       @if (textoUnidades(f.unidades_hoy); as u) { <div class="pn-meta pn-hoy-u">{{ u }}</div> }
                     }
                   </td>
-                  <td class="pn-num">
+                  <td class="pn-num dt-num" role="cell" data-label="Vendido">
                     @if (f.venta_total !== null) {
                       <div class="pn-mono pn-fuerte">{{ dinero(f.venta_total) }}</div>
                       @if (textoUnidades(f.unidades_vendidas); as u) {
@@ -358,7 +358,7 @@ export function tendenciaTexto(t: number | null): string {
                     }
                   </td>
                   @if (d.costo_visible) {
-                    <td class="pn-num pn-c-margen">
+                    <td class="pn-num pn-c-margen dt-num" role="cell" data-label="Margen">
                       @if (f.margenes; as mg) {
                         <div class="pn-mono pn-fuerte" [pTooltip]="mg.real.nota || ''">{{ margenTexto(mg.real.pct) }}</div>
                         <div class="pn-meta">lista {{ margenTexto(mg.lista.pct) }} · pagado {{ margenTexto(mg.pagado.pct) }}</div>
@@ -367,7 +367,7 @@ export function tendenciaTexto(t: number | null): string {
                       }
                     </td>
                   }
-                  <td>
+                  <td role="cell" data-label="30 · 60 · 90 días">
                     <div class="pn-hitos">
                       @for (h of hitos; track h) {
                         <span class="pn-hito" [class.is-curso]="!f.hitos[h].cerrado && hitoVisible(f.dia, h)"
@@ -382,7 +382,7 @@ export function tendenciaTexto(t: number | null): string {
                       }
                     </div>
                   </td>
-                  <td class="pn-c-plazas">
+                  <td class="pn-c-plazas" role="cell" data-label="Sucursales">
                     @if (f.plazas_venta > 0 || f.plazas_con_existencia > 0) {
                       <div>Vende en {{ f.plazas_venta }}</div>
                       @if (f.agotado_en > 0) {
@@ -397,7 +397,7 @@ export function tendenciaTexto(t: number | null): string {
                       <span class="pn-muted">—</span>
                     }
                   </td>
-                  <td class="pn-c-abrir"><i class="pi pi-chevron-right" aria-hidden="true"></i></td>
+                  <td class="pn-c-abrir dt-actions" role="cell"><i class="pi pi-chevron-right" aria-hidden="true"></i></td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
