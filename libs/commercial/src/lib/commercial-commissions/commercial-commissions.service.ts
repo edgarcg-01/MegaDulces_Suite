@@ -6,7 +6,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
-import { totalesDeCorrida } from './commission-totales.logic';
+import { totalesDeCorrida, type TotalesDeCorrida } from './commission-totales.logic';
 
 /**
  * RD.6 / **RD.17-RD.19** — Motor de comisiones de Ruta Directa.
@@ -986,7 +986,11 @@ export class CommercialCommissionsService {
 
   private async persist(
     trx: any, tenantId: string, period: any, scale: any,
-    totals: Record<string, number>, lines: CommissionLine[],
+    // `[RD.50]` Tipado EXACTO, no `Record<string, number>`. El tipo laxo es parte de por qué
+    // `dias_multifuente` pudo entrar al `INSERT` sin que nada chistara: cualquier objeto de
+    // numeros pasaba. Ahora el compilador vigila la forma, y el candado de DB vigila que esa
+    // forma tenga columnas (`test-newdb-rd-commission-persist.js`) -- hacen falta los dos.
+    totals: TotalesDeCorrida, lines: CommissionLine[],
     ctx: { replace?: boolean; origen?: string; status: string; gates: Gate[]; dataAsOf: string | null },
   ): Promise<string> {
     const userId = this.tenantCtx.get()?.userId ?? null;

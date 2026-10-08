@@ -75,14 +75,26 @@ import { PermissionsService } from '../../../core/services/permissions.service';
       @if (destacada(); as d) {
         <section class="cm-answer" [class.abierta]="d.status === 'en_curso'">
           <div class="cm-answer-que">
-            <p class="cm-eyebrow">{{ d.status === 'en_curso' ? 'Quincena en curso' : 'Lo que toca pagar' }}</p>
+            <!-- ⛔ Miraba status, que viene NULL cuando el periodo no tiene corrida, asi que
+                 la quincena ABIERTA se anunciaba como "Lo que toca pagar". El estado del
+                 periodo lo dice estado_calculo, que para eso distingue los cuatro casos.
+                 (sin acentos graves: esto vive dentro de un template literal de JS) -->
+            <p class="cm-eyebrow">{{ d.estado_calculo === 'en_curso' ? 'Quincena en curso' : 'Lo que toca pagar' }}</p>
             <p class="cm-answer-q">
               Quincena {{ d.period_no }} <span class="cm-muted">· {{ rango(d) }}</span>
             </p>
             <p class="cm-answer-pie">
               @if (d.pay_date) { Se paga el <span class="cm-mono">{{ dia(d.pay_date) }}</span> · }
-              calculada {{ cuando(d.updated_at) }}
-              @if (d.origen === 'cron') { <span class="cm-muted">(sola)</span> }
+              <!-- Sin corrida no hay nada "calculado": decia "calculada sin fecha", que afirma
+                   un calculo que no ocurrio. Los cuatro estados ya distinguen el caso. -->
+              @if (d.run_id) {
+                calculada {{ cuando(d.updated_at) }}
+                @if (d.origen) { <span class="cm-muted">· {{ etiquetaOrigen(d.origen) }}</span> }
+              } @else if (d.estado_calculo === 'en_curso') {
+                todavía corre: no se calcula hasta que cierre
+              } @else {
+                <span class="cm-neg">sin calcular</span>
+              }
             </p>
           </div>
           <div>
@@ -116,7 +128,14 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   </span>
                   <span class="cm-per-bot">
                     <p-tag [severity]="sev(p)" [value]="etiquetaEstado(p)" />
-                    <span class="cm-per-monto">{{ p.run_id ? money(p.total_neto) : '—' }}</span>
+                    <!-- ⛔ Decia money(total_neto) a secas y el rail entero mostraba un guion:
+                         las 20 quincenas del espejo traen el neto en NULL (falta la deduccion
+                         del supervisor) y el monto quedaba invisible. Cae al BRUTO, que si se
+                         conoce, y lo dice en el titulo en vez de hacerlos pasar por lo mismo.
+                         (sin acentos graves: esto vive dentro de un template literal de JS) -->
+                    <span class="cm-per-monto" [class.cm-bruto]="esBruto(p)" [title]="tipMonto(p)">
+                      {{ p.run_id ? money(p.total_neto ?? p.total_a_pagar) : '—' }}
+                    </span>
                   </span>
                 </button>
               }
@@ -237,7 +256,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             <p class="cm-proc">
               dato hasta <b>{{ r.data_as_of ? dia(r.data_as_of) : 'sin medir' }}</b>
               · corrida {{ cuando(r.updated_at) }}
-              @if (r.origen) { · origen {{ r.origen === 'cron' ? 'automático' : 'manual' }} }
+              @if (r.origen) { · origen {{ etiquetaOrigen(r.origen) }} }
             </p>
 
             <app-segmented [options]="pestanas()" [value]="tab()" (valueChange)="tab.set($event)"
@@ -397,6 +416,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-per-no { font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); font-family:var(--font-mono,'Geist Mono',monospace); }
     .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-3); }
     .cm-per-monto { font-size:var(--fs-micro); color:var(--c-text-2); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
+    /* Marca la cifra que es BRUTO y no neto: el subrayado punteado la distingue sin color. */
+    .cm-per-monto.cm-bruto { text-decoration:underline dotted; text-underline-offset:3px; }
 
     .cm-per.hoy { border-color:color-mix(in srgb, var(--action) 45%, var(--border-color)); }
     .cm-hoy { margin-left:auto; font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase;
@@ -635,6 +656,27 @@ export class ComercialComisionesComponent {
     ];
   }
 
+  /**
+   * ⛔ `libro` existia en la DB y no acá: el mapa decía `cron ? 'automático' : 'manual'`, así que
+   * las 20 quincenas espejadas del workbook se publicaban como **«origen manual»** — o sea,
+   * afirmando que alguien las calculó con el motor. Es lo contrario de lo que pasó.
+   */
+  /** La cifra del rail es el BRUTO (el neto no se pudo calcular), y se marca como tal. */
+  esBruto(p: CommissionBoardRow): boolean { return !!p.run_id && p.total_neto == null && p.total_a_pagar != null; }
+
+  tipMonto(p: CommissionBoardRow): string {
+    if (!p.run_id) return '';
+    if (p.total_neto != null) return 'Neto a pagar';
+    if (p.total_a_pagar != null) return 'BRUTO — el neto no se puede calcular sin la deduccion del supervisor';
+    return '';
+  }
+
+  etiquetaOrigen(o: string): string {
+    if (o === 'cron') return 'automático';
+    if (o === 'libro') return 'el libro (espejo)';
+    return 'manual';
+  }
+
   kpis(r: CommissionRunDetail): MetricStripItem[] {
     const conDato = r.rutas_con_dato ?? 0;
     const sinDato = r.rutas_sin_dato ?? 0;
@@ -642,10 +684,18 @@ export class ComercialComisionesComponent {
       { label: 'Subtotal', value: Number(r.total_subtotal), format: 'currency' },
       { label: 'Comisión', value: Number(r.total_comision), format: 'currency' },
       { label: 'Bruto', value: Number(r.total_a_pagar), format: 'currency' },
-      {
-        label: 'Neto', value: Number(r.total_neto), format: 'currency', tone: 'brand',
-        sub: `menos ${this.money(r.total_deduccion)} de deducciones`,
-      },
+      // ⛔ `Number(null)` es **0**, y asi esta tira publicaba "NETO $0" en rojo sobre una
+      // quincena en la que de verdad se pagaron $42,761. Un neto que no se puede calcular se
+      // DECLARA; dibujarlo en cero es peor que no mostrarlo, porque parece una cifra.
+      r.total_neto == null
+        ? {
+          label: 'Neto', value: '—', tone: 'warn' as const,
+          sub: 'sin medir: falta la deduccion por persona del supervisor',
+        }
+        : {
+          label: 'Neto', value: Number(r.total_neto), format: 'currency' as const, tone: 'brand' as const,
+          sub: `menos ${this.money(r.total_deduccion)} de deducciones`,
+        },
       {
         label: 'Cobertura', value: conDato, format: 'number',
         tone: sinDato ? 'warn' : 'ok',
