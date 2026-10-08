@@ -102,6 +102,25 @@ idénticas. El latido las distingue.
 
 ## 3. ⛔ «El despliegue está FRENADO por migraciones»
 
+> ⛔⛔ **ESTE PROCEDIMIENTO ESTÁ RANCIO: prod ya NO corre en Docker Compose.** Se mudó a
+> **k3s** el 2026-10-02, y los contenedores `prod-api` / `pg-prod` / `prod-caddy` que se citan
+> abajo están `Exited` desde entonces — son **residuo**. Un `docker exec prod-api` hoy falla.
+>
+> ⚠️ **Y engaña en la dirección peligrosa:** el reflejo de mirar `docker ps` hace creer que
+> **producción está caída** cuando está sirviendo. El 2026-10-08 estuve a un paso de reportarlo
+> al revés; lo que lo desmiente es `curl` al dominio, no el listado de contenedores.
+>
+> ⛔ **Y en la otra dirección también:** esta página decía que hay **un solo** `prod-api`. Hoy el
+> deployment es **`api 2/2`**. Leí esa línea como si fuera una medición y diseñé un
+> emparejamiento de sockets para un único proceso — roto la mitad de las veces en prod
+> (`[CG.68]` → `[CG.68b]`). **Leer dónde dice un documento que corre algo no es medir dónde
+> corre.**
+>
+> ⭐ **El camino VIGENTE está en la cabecera de**
+> [`apply-one-migration-prod.js`](../../database/scripts/apply-one-migration-prod.js): `kubectl cp`
+> + `kubectl exec` sobre un pod de `api`, con el pre-vuelo por `pg_stat_activity` **desde el pod
+> de Postgres** (⛔ no por `knex_migrations_lock`, que ya mintió). Usado el 2026-10-08 — batch 822.
+
 No es una falla del carril: **es el carril funcionando.** `origin/main` trae migraciones que prod
 no tiene aplicadas, y subir ese código reventaría en la cara de quien abra la pantalla.
 

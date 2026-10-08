@@ -2350,3 +2350,121 @@ vez) · quitar el freno de `marcar()` · quitar el galón.
 **tercera vez en esta sesión** que un reemplazo multilínea no aplica porque el archivo es **CRLF**.
 Esta vez el script **normaliza a LF para trabajar y devuelve CRLF al escribir**, en vez de escapar
 los `\r` a mano — que es lo que venía fallando.
+
+---
+
+## §30 · `[CG.66]`–`[CG.68b]` — la firma digital, y el teléfono del mostrador
+
+> Edgar: *"necesito que anejemos una firma digital, de preferencia conectarla con un teléfono para
+> que pueda firmar e imprimir su ticket digital"* + *"si esto lo estoy usando en pc, ¿cómo hago
+> que esto se envíe a mi teléfono para que se firme?"*.
+> Commits `c8056e080` · `20844e974` · `2a5e61f57`. **Migración aplicada a prod: batch 822.**
+
+### Lo medido antes de escribir una línea
+
+| | Estado |
+|---|---|
+| **Captura de firma** | ✅ **ya existía, en producción** — un `<canvas>` + `toDataURL` en el componente de entregas del repartidor (Fase LM), guardado en `delivery_stops.signature_url`. **Inline, no en `libs/`** |
+| **El ticket ya pedía firma** | ✅ `ticket-comprobante.ts` imprime `"Recibi conforme (nombre y firma)"` — se firmaba **con lapicera** |
+| **Cómo imprime** | ⭐ **no es ESC/POS**: HTML en un iframe con `<pre>`, así que un `<img>` con la firma **sí** se puede imprimir |
+| **Canal en vivo** | ✅ `CajaGateway` ya existía (JWT en el handshake, room por tenant) |
+| **Almacenamiento** | ✅ `ObjectStorageService.putBuffer` (⚠️ `putPdf` **rechaza** imágenes). Pero `S3_*` **no está en prod** — verificado en el secreto y en el deployment |
+| **QR** | ❌ no hay librería, y no se agregó ninguna |
+
+### `[CG.66]` · El primitivo, y los cuatro defectos que traía
+
+Se comparte la **lógica** en `libs/ui-web` y no un componente, porque el repo tiene **cero
+`@Component` en `libs/`** y `ui-web` es `type:util` — meter Angular ahí es config de Nx, que no se
+toca sin autorización. ⚠️ La cáscara se repite por app y **queda declarada como deuda**.
+
+No se movió tal cual. Cada defecto con su candado:
+
+1. ⛔ **Un toque contaba como firma** (`signed = true` en `pointerdown`). Ahora exige **trazo**.
+2. ⛔ **Redimensionar la borraba en silencio**: el ajuste de resolución corría en cada evento, y
+   escribir `canvas.width` **limpia el canvas**. Con el teclado del teléfono abriéndose a mitad de
+   la firma, el trazo desaparecía.
+3. ⛔ **En un teléfono salía borrosa**: ignoraba `devicePixelRatio`.
+4. ⛔ **El PNG salía con fondo transparente** — invisible en un visor oscuro.
+
+⚠️ **`apps/vendor` no tiene ni un archivo de prueba**, así que esa firma lleva meses en producción
+sin cobertura, y el refactor le cambia una conducta visible: un toque ya no firma.
+
+### `[CG.67]` · Cuatro estados, porque las ausencias no son la misma
+
+`firmado` · `sin_firma` (lo pedía y no está — **el único que alguien tiene que resolver**) ·
+`no_aplica` (un ingreso lo respalda el documento del ERP; un depósito, la ficha del banco de Fase
+CC) · `previo` (anterior al mecanismo).
+
+⛔ **`previo` es el que casi no puse.** Sin él, las 2 filas que la tabla ya tenía habrían entrado
+como «falta la firma»: **un incumplimiento inventado por una migración**. Un candado exige que el
+motor **nunca** devuelva `previo` — es un hecho del pasado, no una decisión del presente.
+
+**El veredicto lo decide el servidor** (ADR-076): `CreateMovementInput` no tiene `firma_estado`.
+Medido hasta dónde llega cada guarda:
+
+- ✅ **El tipo bloquea el camino natural**: `input.firma_estado` **no compila**.
+- ✅ **El CHECK** impide que `firmado` llegue al disco sin imagen.
+- ⚠️ Un **cast explícito** sí lo permite (tsc lo acepta, verificado) — pero la fila necesita imagen
+  igual, así que no se puede mentir sobre la **evidencia**.
+- ⚠️ **Lo que nada cubre**: un PNG en blanco. Que el trazo sea una firma no lo decide un programa.
+
+⚠️ **El candado del motor no ve el cableado** — lo probé: mutar el servicio para que confíe en lo
+que llega deja los 10 candados **en verde**. Lo que sostiene el cableado es el tipo y el CHECK.
+
+### `[CG.68]` → `[CG.68b]` · ⛔⛔ Cité el runbook como si fuera una medición
+
+`[CG.68]` guardó los emparejamientos en un `Map` del proceso, justificado con «producción corre
+UN solo `prod-api`» — **leído del runbook**. Medido el 2026-10-08: **falso**. Prod corre en
+**k3s** con **`api 2/2`** desde hacía siete días, así que la PC y el teléfono caían en pods
+distintos y el código *«no existía»* **la mitad de las veces, al azar**.
+
+⭐ **El arreglo no fue mover el `Map` a Redis: fue no tener estado.** El emparejamiento vive en las
+**rooms de Socket.IO**, que el adaptador de Redis —verificado activo en el log del pod— comparte
+entre pods junto con el `data` de cada socket. Del servidor queda una **decisión pura**.
+
+⛔ **Y una prueba mía era débil, lo destapó su propia mutación**: «otro teléfono no puede entregar»
+usaba un socket que **ni estaba en la room**, así que dejar entregar a *cualquiera de la room*
+—incluida la PC— mantenía la suite verde. *El caso peligroso no es el desconocido: es el que ya
+está adentro.*
+
+⚠️ `emitChange` **desapareció** porque la reescritura cortaba **por posición** y ese método vivía
+en medio. Lo agarró el typecheck. *Una reescritura por posición se lleva lo que no mirabas.*
+
+### ⭐⭐ La propiedad que nadie pide y sin la cual esto es peor que el papel
+
+El teléfono firma $1,500, el cajero agrega un billete, y la pantalla seguiría diciendo «firmado»
+sobre $1,700: **una firma válida pegada a un número que nadie aceptó**. Con lapicera no pasa,
+porque el papel ya estaba impreso. Así que la firma viaja con el **monto que se mostró** y si dejó
+de corresponder **no se manda**.
+
+### La migración en prod — batch 822
+
+Aplicada con `apply-one-migration-prod.js` **dentro del pod de `api`** (el camino k3s que ese
+script ya documentaba; **el runbook está rancio** y decía `docker exec prod-api`). Pre-vuelo por
+`pg_stat_activity` desde el pod de Postgres —no por `knex_migrations_lock`—, rollout terminado,
+identidad del clúster verificada (`7688376744939610156`). **0.1 s.**
+
+Verificado contra prod, y **con prueba negativa dentro de una transacción revertida**:
+
+| | Resultado |
+|---|---|
+| Las 4 columnas, `firma_estado` NOT NULL con default `no_aplica` | ✅ |
+| El CHECK: vocabulario cerrado **y** `firmado` ⇒ png + at | ✅ |
+| El índice parcial de `sin_firma` | ✅ |
+| El relleno: las 2 filas viejas en **`previo`** | ✅ |
+| ⛔ `firmado` **sin** imagen | **rechazado** |
+| ⛔ `firmadito` (fuera del vocabulario) | **rechazado** |
+| ⭐ **placebo**: `firmado` **con** imagen y hora | **aceptado** — no es «siempre rechaza» |
+| Prod intacta después de la prueba | ✅ `previo │ 2` |
+
+### ⛔ Lo que esta entrega dejó debiendo
+
+1. **La séptima fila huérfana.** La migración se aplicó **sin pushear**, así que `knex_migrations`
+   tiene una fila cuyo archivo no está en `origin/main`. Prod ya tenía 6, y ésa es la causa de que
+   `migrate.list()` aborte con *«migration directory is corrupt»* desde el pod. **Se resuelve
+   pusheando**; hasta entonces, la próxima sesión que migre se topa con el directorio corrupto.
+2. **No es una firma electrónica con valor legal.** Es evidencia de conformidad — el equivalente
+   digital del renglón «Recibí conforme». La e.firma del SAT es otro mecanismo y otro proyecto.
+   Mismo criterio que Fase AX con su pagaré.
+3. **Falta probarlo con un teléfono de verdad**, que es lo único que ve si el dedo dibuja.
+4. **Redeploy de api+view**: el código está commiteado y sin pushear.
