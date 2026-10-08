@@ -92,6 +92,12 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Changed — Productos nuevos: sólo Kepler y en vivo las 24 horas (NP.13, 2026-10-08)
+- Las cifras salen sólo de Kepler (venta de las tiendas y entradas); Wincaja queda fuera, también en la existencia.
+- Se recalcula cada 30 minutos: la pantalla ya no espera al lote nocturno, y un producto que se estrena hoy aparece el mismo día aunque se haya dado de alta hace meses.
+- Un producto que sólo se movió en sucursales con menos de 90 días en Kepler se declara "no medible" en vez de contarse como nuevo.
+- El cálculo dejó de recorrer toda la venta diaria (en producción pasaba de 150 s) y se refresca sin el JIT de Postgres.
+
 ### Added — Productos nuevos en las unidades de Kepler (NP.11, 2026-10-07)
 - Lo vendido y lo recibido se muestran como Kepler los registró: "23 cajas · 86 piezas", "6 de 500 g". Cada rótulo por su lado, sin convertir. Sale del renglón (`c55/c56` cuando su identidad cierra; si no, la unidad base).
 - La existencia de cada sucursal va en la unidad de su ficha de Kepler, con su equivalente en la unidad mayor sólo si la ficha la declara: "Hay 24 piezas (2 cajas)".
