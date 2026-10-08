@@ -74,6 +74,8 @@ export * from './http/sales-channel.contract';
 export * from './http/income.contract';
 // [CSU.1] Cortes/Sucursales: corte de caja POS → cobro aplicado → arqueo del turno.
 export * from './http/cortes-sucursales.contract';
+// [ECA.1] Estado de cuenta de acreedores: documento de Kepler con sus pagos casados (kdxe + kdxf).
+export * from './http/creditor-statements.contract';
 export * from './http/warehouse-orders.contract';
 // [GP.2] Pool de surtido con pedidos de Kepler (U-D-40) y armado de olas por tamaño.
 export * from './http/warehouse-picking-kepler.contract';
