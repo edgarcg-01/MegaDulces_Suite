@@ -10,6 +10,7 @@ import {
   TenantContextService,
   applySmartSearch,
 } from '@megadulces/platform-core';
+import type { Knex } from 'knex';
 import { classifyReceivingOrigin, type ReceivingOrigin } from './receiving-origin';
 import { classifyShipmentOrigin, parseTransferRef } from './receiving-transfer';
 import {
@@ -126,7 +127,7 @@ export class ReceivingClaimsService {
           trx.raw(`CASE WHEN COUNT(DISTINCT TRIM(unidad)) > 1 THEN 'ambigua'
                         ELSE MIN(TRIM(unidad)) END AS unidad`),
         );
-      for (const r of rows as any[])
+      for (const r of rows as Array<{ sku: string; unit_cost: string | number | null; unidad: string | null }>)
         costBySku.set(String(r.sku), {
           unit_cost: r.unit_cost == null ? null : Number(r.unit_cost),
           unidad: r.unidad || null,
@@ -165,7 +166,7 @@ export class ReceivingClaimsService {
     let almacenQueEmbarco: string | null = null;
     if (traspaso) {
       const porMapa = await trx('commercial.erp_sucursal_warehouse as m')
-        .join('commercial.warehouses as w', function (this: any) {
+        .join('commercial.warehouses as w', function (this: Knex.JoinClause) {
           this.on('w.tenant_id', '=', 'm.tenant_id').andOn('w.id', '=', 'm.warehouse_id');
         })
         .where('m.sucursal', traspaso.origen)

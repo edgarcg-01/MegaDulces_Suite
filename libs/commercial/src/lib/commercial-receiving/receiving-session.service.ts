@@ -84,6 +84,22 @@ export interface OpenSessionDto {
  * `[WMS-REC.17]` Un embarque `U-D-41` hacia una sucursal, con su destino ya resuelto.
  * La fila cruda de `transferCandidates()`.
  */
+/** Una fila de `inProgress()`: el vale abierto con lo que el menú necesita para reconocerlo. */
+interface FilaValeEnCurso {
+  id: string;
+  folio: string;
+  source_kind: AndenValeEnCurso['source_kind'];
+  source_ref: string | null;
+  supplier_code: string | null;
+  warehouse_id: string;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  created_at: Date | string;
+  abierto_por: string | null;
+  renglones: number | string;
+  por_fechar: number | string;
+}
+
 interface FilaEmbarque {
   origen: string;
   serie: number;
@@ -695,12 +711,12 @@ export class ReceivingSessionService {
    * `ix_kdm1_venta_doc` para un embarque exacto y `ix_kdm1_abono_doc` para la recepción.
    */
   private async embarques(
-    trx: any,
+    trx: Knex.Transaction,
     f: { key?: TransferKey; folio?: string; ventana?: boolean; conRenglones?: boolean },
   ): Promise<Array<FilaEmbarque & { line_count?: number }>> {
     const tenantId = this.tenantCtx.get()?.tenantId || null;
     const filtros: string[] = [];
-    const binds: unknown[] = [];
+    const binds: Knex.RawBinding[] = [];
     if (f.key) {
       filtros.push('AND btrim(h.sucursal) = ? AND (h.c5)::int = ?::int AND btrim(h.c6::text) = ?');
       binds.push(f.key.origen, f.key.serie, f.key.folio);
@@ -787,7 +803,7 @@ export class ReceivingSessionService {
    * El codigo `TI###` con que Kepler nombra a un almacen como DESTINO de traspasos. Se usa al
    * reves (para el que embarca) y solo si el mapa lo resuelve a UN codigo: con dos, no se elige.
    */
-  private async codigoTraspasoDe(trx: any, warehouseId: string | null): Promise<string | null> {
+  private async codigoTraspasoDe(trx: Knex.Transaction, warehouseId: string | null): Promise<string | null> {
     if (!warehouseId) return null;
     const tenantId = this.tenantCtx.get()?.tenantId || null;
     const filas = await trx('analytics.transfer_dest_map')
@@ -823,7 +839,7 @@ export class ReceivingSessionService {
   }
 
   /** Los embarques que el menu ofrece: no abiertos, dentro de la regla de dia del traspaso. */
-  private async embarquesPendientes(trx: any): Promise<FilaEmbarque[]> {
+  private async embarquesPendientes(trx: Knex.Transaction): Promise<FilaEmbarque[]> {
     const todos = await this.embarques(trx, { ventana: true });
     return todos.filter(
       (e) => !e.abierto && transferVisible({ fecha: e.fecha, hoy: e.hoy, recibidoKepler: e.recibido_kepler }),
@@ -1635,19 +1651,19 @@ export class ReceivingSessionService {
                        AND l.expected_qty > 0)::int AS por_fechar`),
         );
       if (dim.mode !== 'all') q.whereIn('w.code', dim.values);
-      const filas = await q;
+      const filas = (await q) as FilaValeEnCurso[];
 
       // Nombre de la sucursal que embarcó, para los vales de traspaso.
       const origenes = Array.from(
-        new Set(filas.map((f: any) => parseTransferRef(f.source_ref)?.origen).filter(Boolean)),
+        new Set(filas.map((f) => parseTransferRef(f.source_ref)?.origen).filter(Boolean)),
       ) as string[];
       const nombres = new Map<string, string>();
       if (origenes.length) {
         const ws = await trx('commercial.warehouses').whereIn('code', origenes).whereNull('deleted_at').select('code', 'name');
-        for (const w of ws as any[]) nombres.set(String(w.code), String(w.name));
+        for (const w of ws as Array<{ code: string; name: string }>) nombres.set(String(w.code), String(w.name));
       }
 
-      return filas.map((f: any): AndenValeEnCurso => {
+      return filas.map((f): AndenValeEnCurso => {
         const t = parseTransferRef(f.source_ref);
         return {
           id: f.id,
@@ -1830,9 +1846,11 @@ export class ReceivingSessionService {
       // y le pega en su scorecard; uno de TRASPASO se le reclama a la sucursal
       // que embarcó, y es de la casa. En un vale de traspaso el origen es la
       // sucursal del embarque (un hecho), no un código `TI###`.
+      const nombreErp = erp?.['proveedor_nombre'];
+      const proveedorNombre = typeof nombreErp === 'string' ? nombreErp : null;
       const origin = traspaso
-        ? classifyShipmentOrigin(traspaso.origen, (erp as any)?.proveedor_nombre ?? null)
-        : classifyReceivingOrigin(session.supplier_code, (erp as any)?.proveedor_nombre ?? null);
+        ? classifyShipmentOrigin(traspaso.origen, proveedorNombre)
+        : classifyReceivingOrigin(session.supplier_code, proveedorNombre);
 
       return { ...session, lines, progress, erp, origin };
     }

@@ -222,7 +222,7 @@ export class ReceivingAuditorService {
     if (capture.verdict !== 'red') {
       try {
         await this.writeStockForCapture(capture);
-      } catch (e: any) {
+      } catch (e: unknown) {
         // COMPENSACIÓN (WMS-REC.7.2). La captura ya hizo commit arriba, así que si
         // el alta de stock falla acá queda una fila `accepted` sin movimiento:
         // `declared_qty` la cuenta (filtra por status='accepted'), el renglón se
@@ -250,7 +250,7 @@ export class ReceivingAuditorService {
               ...(clientUuid ? { client_uuid: null } : {}),
             });
         });
-        this.logger.error(`Captura ${captureId} revertida (falló el alta de stock): ${e?.message || e}`);
+        this.logger.error(`Captura ${captureId} revertida (falló el alta de stock): ${e instanceof Error ? e.message : String(e)}`);
         throw e;
       }
     }

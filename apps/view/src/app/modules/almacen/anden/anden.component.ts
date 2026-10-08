@@ -24,7 +24,7 @@ import { AndenEnCursoComponent } from './components/anden-en-curso.component';
 import { AndenCaducidadComponent, FechadoConfirmado, FechadoEntrada } from './components/anden-caducidad.component';
 import { AndenFechaMasivaComponent, AvanceMasivo, FechadoMasivo } from './components/anden-fecha-masiva.component';
 import { AndenCongeladoComponent } from './components/anden-congelado.component';
-import { motivoHttp } from '../shared/http-motivo';
+import { motivoHttp, type ErrorHttpLike } from '../shared/http-motivo';
 import { ScanFieldComponent } from './components/scan-field.component';
 import { formatExpiryEcho } from '../shared/expiry-short';
 import { unidadDelVale } from '../shared/unidad-vale';
@@ -849,7 +849,7 @@ export class AndenComponent implements OnInit {
         // No tragarse la falla: un vale vacío y un 500 se ven igual en pantalla.
         this.toast.add({
           severity: 'error', summary: 'No se pudo cargar el vale',
-          detail: esSinRed(e) ? 'Sin conexión, y este equipo no tiene guardado ese vale.' : motivoHttp(e, 'cargar el vale'),
+          detail: esSinRed(e) ? 'Sin conexión, y este equipo no tiene guardado ese vale.' : motivoHttp(e as ErrorHttpLike, 'cargar el vale'),
         });
       };
       const sesion = await this.red.sesionDe(id);
@@ -1201,7 +1201,7 @@ export class AndenComponent implements OnInit {
       else await this.refrescarDesdeEquipo();
     } catch (e) {
       this.s.guardando.set(false);
-      this.toast.add({ severity: 'error', summary: 'Error', detail: motivoHttp(e, 'cerrar el renglón') });
+      this.toast.add({ severity: 'error', summary: 'Error', detail: motivoHttp(e as ErrorHttpLike, 'cerrar el renglón') });
       return;
     }
     this.s.guardando.set(false);
