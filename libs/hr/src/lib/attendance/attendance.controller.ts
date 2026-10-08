@@ -86,6 +86,13 @@ export class HrAttendanceController {
     return this.report.asistencia({ ...q, only_promoters: q.only_promoters === '1' || q.only_promoters === 'true' });
   }
 
+  @Get('people')
+  @RequireAnyPermission(...VER_ASISTENCIA)
+  @ApiOperation({ summary: 'RH — el directorio de todas las plazas (para buscar a alguien sin saber dónde checa).' })
+  directorio() {
+    return this.report.directorio();
+  }
+
   @Get('punches')
   @RequireAnyPermission(...VER_ASISTENCIA)
   @ApiOperation({ summary: 'RH — checadas crudas de un sitio y un rango.' })
