@@ -217,12 +217,42 @@ que separa un commit roto de la rama de la que se deploya.
 
 1. **Rama por feature**: `git switch -c feat/<descripción-corta>` desde `main` actualizado.
 2. **Commits** con la convención del tracker: `feat([RA.11]): descripción` — el código entre brackets viene del tracker.
-3. **Abrí un PR** contra `main`. El CI (build + lint/test affected + secret-scan) debe pasar en verde.
+3. **Abrí un PR** contra `main` — **siempre contra `main`, sin apilar** — después de pasar el **protocolo previo de §8.0b**. El CI (build + lint/test affected + secret-scan) debe pasar en verde.
 4. **Al menos 1 review** de otro dev antes de mergear.
 5. **Nadie pushea directo a `main`.** La compuerta de §8.0 lo bloquea en tu máquina.
 6. Al mergear: se hace **squash** y la rama se borra sola. Cerrá el item en el tracker.
    ⚠️ **Mergear a `main` despliega a producción en ≤5 min** — `ops/prod/auto-deploy.sh` mira
    `origin/main` solo. No es un merge inocuo.
+
+---
+
+### 8.0b Antes de pedir revisión — el protocolo previo al PR
+
+> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08). Cada punto es algo que **ya costó**: lo midió él al mergear una cadena de PR, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
+
+**1. El PR apunta a `main`. Siempre. No se apilan PR sobre ramas de feature.**
+- **Por qué:** el CI sólo corre con `pull_request: branches: [main]`. Un PR apuntado a otra rama **nunca se compila**: #305 llegó con 411 líneas que ningún compilador había visto. Y **re-apuntar la base no dispara el CI** (GitHub corre con `opened`/`synchronize`; cambiar la base no es ninguno): lo dispara un *push*.
+- **Y el squash rompe la cadena:** el PR #1 entra aplastado, con un SHA que no coincide con ninguno de sus parches, así que `git rebase origin/main` del PR #2 **re-aplica y choca** con los commits del #1. Hubo que trasplantar por cherry-pick.
+- **Cómo:** si el sprint B depende del A, **espera a que A se fusione** y abre B contra `main`. Si ya hay una cadena: rama nueva desde `origin/main` + `git cherry-pick` de **tus** commits (`git log --oneline pAnterior..pTuyo`), y **empuja** para que corra el CI.
+
+**2. La rama va al día con `main` — y se vuelve a probar después.**
+- **Por qué:** #304 llevaba 14 commits de atraso: su CI verde describía **un `main` que ya no existía**. GitHub aprueba la rama contra el `main` de hace un rato y mergea contra el de ahora, **sin recompilar el resultado**; `main` se rompió dos veces el 2026-10-08 exactamente así.
+- **Cómo:** al final, `git fetch origin && git merge origin/main` (o rebase), y **vuelve a correr** build + tests de lo afectado. Si hubo conflicto en `database/run-all-tests.js`, compara **conjuntos**, no conteos.
+
+**3. Migraciones: sin colisión de marca, y jamás renombrar una aplicada.**
+- **Por qué:** tres de mis migraciones usaron marcas contiguas a las de `main`; otro PR tomó `…330000` mientras el mío estaba abierto y Edgar tuvo que renombrar la mía. **Renombrar una migración ya aplicada** deja `knex_migrations` apuntando a un archivo que no existe → *«migration directory is corrupt»*, que ya frenó el aplicador dos veces. `main` lleva cinco colisiones de marca de un solo día, **todas aplicadas y por tanto irreparables**.
+- **Cómo:**
+  - Corre `npm run check:mig-colisiones` **al abrir el PR y otra vez justo antes del merge** (vive en `Lint & test`, que **no es obligatoria**: nadie lo hace por ti).
+  - La marca es la **hora real de creación** (`AAAAMMDDHHMMSS`), no «la siguiente del hueco».
+  - Si hay colisión y la otra **ya se aplicó**, la tuya cambia **antes** de aplicarse; si la tuya también se aplicó, **no la renombres**: avisa al lead.
+  - Una migración **aditiva que el código nuevo lee** va **antes** del código; una que cambia lo que el código viejo lee, con él o después. Dilo en el PR.
+
+**4. Declara lo que cambia para quien ya usa la función.**
+- Qué comportamiento cambia, **para quién** y qué se rompe (p. ej. «poner en espera ahora exige motivo: una integración por API sin `pause_reason` recibe 400»), y **lo que el PR NO incluye**. Es lo que Edgar valoró de #304: *«casi nunca se dice»*.
+
+**5. Pruebas con evidencia.** Pega lo que corriste y el resultado (conteos, no «pasa»); si es una compuerta o una defensa, la **prueba negativa** (rómpela a propósito y muestra el rojo).
+
+> 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
 ---
 
