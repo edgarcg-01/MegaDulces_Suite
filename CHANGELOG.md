@@ -26,6 +26,11 @@
 - Mig `20261007213847`: `client_uuid` con índice único parcial en `commercial.receiving_sessions` y `commercial.receiving_lot_captures`. Reintentar abrir o fechar devuelve lo existente en vez de duplicar existencia. El código sólo escribe la columna cuando viene la llave.
 - `GET /commercial/receiving/sessions/offline-pack?sucursal=`: los vales del menú con sus renglones, armados por la misma función que usa abrir el vale.
 - ⚠️ **Pendiente:** aplicar a prod, una por una, `20261006143917` (REC.17) y `20261007213847` (REC.19) + redeploy api+view + validación en un equipo sin señal. Sin permisos nuevos → sin re-login.
+### Added — Preventa: entrega de conformidad en el celular (MCP.6, 2026-10-08)
+- En **Llevar**, cada pedido de una guía ya impresa tiene **Entregar**: el repartidor elige el documento de Kepler que entrega (el ligado en caja o el que comparte más productos con el pedido, ya marcado), dice si fue completo o con diferencia (con nota) y cuánto cobró en efectivo y en transferencia (con referencia). Avisa si lo cobrado no cuadra con el documento.
+- **No se pudo entregar** (con motivo): el pedido sale de la guía y queda libre para otro día, igual que el regreso en caja.
+- La caja ve en **Guías de carga** qué se entregó y cuánto se cobró, y la mesa de preventa muestra el pedido como **Entregado** con su cobro. No factura ni mueve inventario: el cobro ya se hizo en Kepler. Mig `20261008141401`.
+
 ### Added — Preventa: llevar pedidos y guía de carga (MCP.5, 2026-10-08)
 - Celular del repartidor (**Llevar**) y del vendedor (desde **Mi día**): elige los pedidos de preventa que se lleva; quedan en su guía de carga del día, una por ruta.
 - Almacén › Pedidos › **Guías de carga** (`/almacen/pedidos/guias`): la caja imprime la guía en PDF para que la firme quien se lleva la carga; la reimpresión sale igual, marcada REIMPRESIÓN. Si un pedido regresa sin entregarse, la caja lo registra con motivo (**Regresó sin entregar**) y puede salir otro día. Permiso nuevo `PREVENTA_GUIAS_GESTIONAR` (lo recibe quien hace el arqueo de caja).

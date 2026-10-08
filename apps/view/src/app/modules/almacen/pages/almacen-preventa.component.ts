@@ -196,6 +196,10 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="mc-row"><span>Sucursal</span><span>{{ x.order.branch || '' }} {{ x.order.warehouse_name || '—' }}</span></div>
                 <div class="mc-row"><span>Pedido</span><span class="num">{{ x.order.lines }} renglones · {{ money(x.order.total) }}</span></div>
                 @if (x.order.load_guide; as g) { <div class="mc-row"><span>Guía de carga</span><span><span class="mono">{{ g.folio }}</span> · {{ g.rider_name || '—' }} · {{ g.status === 'impresa' ? 'impresa' : 'sin imprimir' }}</span></div> }
+                @if (x.order.delivery; as e) {
+                  <div class="mc-row"><span>Entrega</span><span>{{ e.outcome === 'con_diferencia' ? 'Con diferencia' : 'Completa' }} · {{ fechaHora(e.delivered_at) }}@if (e.delivered_by_name) { · {{ e.delivered_by_name }} } · <span class="mono">{{ e.guide_folio }}</span>@if (e.note) { <span class="muted mc-sub">{{ e.note }}</span> }</span></div>
+                  <div class="mc-row"><span>Cobró</span><span class="num"><span class="mono">{{ e.folio_digital }}</span> · {{ money(e.cash_amount) }} efectivo · {{ money(e.transfer_amount) }} transferencia@if (e.transfer_ref) { <span class="muted mono"> · ref. {{ e.transfer_ref }}</span> }</span></div>
+                }
               </div>
 
               <div class="mc-step">

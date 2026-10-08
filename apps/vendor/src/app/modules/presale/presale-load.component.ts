@@ -1,11 +1,18 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, HostListener, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subscription } from 'rxjs';
 import { coincideBusqueda } from '@megadulces/ui-web';
-import type { PresaleFieldResponse, PresaleOrderRow, PresaleStage } from '@megadulces/contracts';
+import type {
+  LoadGuideOrderRow,
+  PresaleCandidate,
+  PresaleFieldOrderDetail,
+  PresaleFieldResponse,
+  PresaleOrderRow,
+  PresaleStage,
+} from '@megadulces/contracts';
 import { PresaleLoadService } from './presale-load.service';
 
 const ETAPA: Partial<Record<PresaleStage, string>> = {
@@ -29,7 +36,12 @@ const dm = (v: string | null | undefined): string => {
  * pedidos de preventa que se lleva. Quedan en su guía de carga de hoy (una por ruta), y la cajera la
  * imprime para que la firme (D8).
  *
- * Pescar NO entrega ni cobra: sólo dice quién se lleva qué. La entrega se registra en MCP.6.
+ * Pescar NO entrega ni cobra: sólo dice quién se lleva qué.
+ *
+ * `[MCP.6]` En una guía ya impresa, cada pedido se entrega aquí: el repartidor elige el documento
+ * de Kepler que entrega (el más parecido al pedido arriba), dice si fue completo o con diferencia y
+ * cuánto cobró en efectivo y en transferencia. Si no se pudo, registra el motivo y el pedido queda
+ * libre para otro día. Nada de esto factura ni mueve inventario: el cobro ya ocurrió en Kepler.
  */
 @Component({
   selector: 'app-presale-load',
@@ -49,6 +61,7 @@ const dm = (v: string | null | undefined): string => {
       @if (err(); as e) { <div class="pl-msg bad" role="alert">{{ e }}</div> }
       @if (msg(); as m) { <div class="pl-msg" [class.bad]="m.mal" role="status">{{ m.texto }}</div> }
 
+      <div [attr.inert]="entregaId() ? '' : null">
       @if (loading() && !data()) {
         <div class="pl-skel" aria-busy="true"><div></div><div></div><div></div></div>
       } @else if (data(); as d) {
@@ -61,17 +74,32 @@ const dm = (v: string | null | undefined): string => {
                 <span class="pl-tag" [class.ok]="g.status === 'impresa'">{{ g.status === 'impresa' ? 'Impresa' : 'Por imprimir' }}</span>
               </div>
               @for (o of g.orders; track o.order_id) {
-                <div class="pl-guia-o">
-                  <div class="pl-o-main"><span class="mono">{{ o.code }}</span> <span class="pl-o-cli">{{ o.customer_name || '—' }}</span></div>
-                  <span class="num">{{ money(o.document_total ?? o.total) }}</span>
+                <div class="pl-guia-o" [class.hecho]="o.status !== 'cargado'">
+                  <div class="pl-o-main">
+                    <span class="mono">{{ o.code }}</span> <span class="pl-o-cli">{{ o.customer_name || '—' }}</span>
+                    @if (o.status === 'entregado') {
+                      <div class="pl-o-cobro">
+                        <span class="pl-chip ok">{{ o.delivery_outcome === 'con_diferencia' ? 'Entregado con diferencia' : 'Entregado' }}</span>
+                        <span class="num">{{ cobroTexto(o.cash_amount, o.transfer_amount) }}</span>
+                      </div>
+                    } @else if (o.status !== 'cargado') {
+                      <div class="pl-o-cobro">
+                        <span class="pl-chip">{{ o.status === 'regreso' ? 'Regresó a caja' : 'No se entregó' }}</span>
+                        @if (o.removed_reason) { <span class="muted">{{ o.removed_reason }}</span> }
+                      </div>
+                    }
+                  </div>
+                  <span class="num" [class.tachado]="o.status === 'no_entregado' || o.status === 'regreso'">{{ money(o.document_total ?? o.total) }}</span>
                   @if (g.status === 'abierta') {
                     <button type="button" class="pl-quitar" [disabled]="!!ocupado()" (click)="quitar(o.order_id)" [attr.aria-label]="'Quitar ' + o.code">Quitar</button>
+                  } @else if (o.status === 'cargado') {
+                    <button type="button" class="pl-entregar" [disabled]="!!ocupado()" (click)="abrirEntrega(o.order_id)" [attr.aria-label]="'Entregar ' + o.code">Entregar</button>
                   }
                 </div>
               }
               <div class="pl-guia-f">
                 <span>{{ g.orders.length }} {{ g.orders.length === 1 ? 'pedido' : 'pedidos' }} · <b class="num">{{ money(g.total) }}</b></span>
-                <span class="muted">{{ g.status === 'impresa' ? 'Ya la firmaste en caja.' : 'Pide en caja que la impriman para firmarla.' }}</span>
+                <span class="muted">{{ g.status === 'impresa' ? pendientesTexto(g.orders) : 'Pide en caja que la impriman para firmarla.' }}</span>
               </div>
             </section>
           }
@@ -104,7 +132,92 @@ const dm = (v: string | null | undefined): string => {
         }
       }
 
-      @if (sel().size) {
+      </div>
+
+      @if (entregaId()) {
+        <div class="pl-sheet" role="dialog" aria-modal="true" aria-labelledby="pl-sheet-t">
+          <div class="pl-sheet-h">
+            <h2 id="pl-sheet-t" tabindex="-1" #sheetTitle>{{ modo() === 'no' ? 'No se pudo entregar' : 'Entregar pedido' }}</h2>
+            <button type="button" class="pl-refresh" (click)="cerrarEntrega()" aria-label="Cerrar"><i class="pi pi-times" aria-hidden="true"></i></button>
+          </div>
+          @if (errEntrega(); as e) { <div class="pl-msg bad" role="alert">{{ e }}</div> }
+          @if (!detalle()) {
+            @if (!errEntrega()) { <div class="pl-skel" aria-busy="true"><div></div><div></div></div> }
+          } @else if (detalle(); as d) {
+            <div class="pl-det">
+              <div class="pl-card-t"><span class="pl-o-cli">{{ d.order.customer_name || '—' }}</span><span class="mono">{{ d.order.code }}</span></div>
+              <div class="pl-card-s"><span>Guía <span class="mono">{{ d.guide.folio }}</span></span><span>{{ d.order.sales_route || 'Sin ruta' }}</span></div>
+              <details class="pl-lines">
+                <summary>{{ d.lines.length }} {{ d.lines.length === 1 ? 'producto' : 'productos' }} del pedido</summary>
+                @for (l of d.lines; track $index) {
+                  <div class="pl-line"><span class="pl-o-main">{{ l.description || l.sku || '—' }}</span><span class="num">{{ l.quantity }} {{ l.unit || '' }}</span></div>
+                }
+              </details>
+            </div>
+
+            @if (modo() === 'entregar') {
+              <h3 class="pl-h3">Documento de Kepler que entregas</h3>
+              @if (!opciones().length) {
+                <div class="pl-msg bad">{{ sinDocumentoTexto(d) }}</div>
+              } @else if (d.order.link) {
+                <p class="pl-src">La caja ya ligó este documento. Si no es el que entregas, pide en caja que lo corrijan antes de confirmar.</p>
+              } @else if (!folio()) {
+                <p class="pl-src">Elige el documento que le entregas al cliente.</p>
+              }
+              @for (c of opciones(); track c.folio_digital) {
+                <label class="pl-card" [class.on]="folio() === c.folio_digital" [class.off]="!!c.linked_to_order_code">
+                  <input type="radio" name="pl-doc" [checked]="folio() === c.folio_digital" [disabled]="!!c.linked_to_order_code" (change)="elegirDocumento(c.folio_digital)" [attr.aria-label]="'Documento ' + c.folio_digital" />
+                  <div class="pl-card-b">
+                    <div class="pl-card-t"><span class="mono">{{ c.folio_digital }}</span><b class="num">{{ c.total === null ? '—' : money(c.total) }}</b></div>
+                    <div class="pl-card-s">
+                      <span>{{ dm(c.fecha) }}{{ c.caja !== null ? ' · caja ' + c.caja : '' }}</span>
+                      @if (c.order_products) { <span>{{ c.shared_products }} de {{ c.order_products }} productos del pedido</span> }
+                      @if (c.linked_to_order_code) { <span class="bad">Ya es del pedido {{ c.linked_to_order_code }}</span> }
+                      @else if (d.order.link?.folio_digital === c.folio_digital) { <span class="pl-chip ok">Ligado en caja</span> }
+                    </div>
+                  </div>
+                </label>
+              }
+
+              <h3 class="pl-h3">¿Cómo se entregó?</h3>
+              <div class="pl-seg" role="group" aria-label="Resultado de la entrega">
+                <button type="button" [attr.aria-pressed]="outcome() === 'completo'" [class.on]="outcome() === 'completo'" (click)="outcome.set('completo')">Completo</button>
+                <button type="button" [attr.aria-pressed]="outcome() === 'con_diferencia'" [class.on]="outcome() === 'con_diferencia'" (click)="outcome.set('con_diferencia')">Con diferencia</button>
+              </div>
+              @if (outcome() === 'con_diferencia') {
+                <textarea class="pl-q pl-ta" rows="2" maxlength="500" [ngModel]="nota()" (ngModelChange)="nota.set($event)" placeholder="Qué fue diferente (faltó, sobró, se rechazó…)" aria-label="Qué fue diferente"></textarea>
+              }
+
+              <h3 class="pl-h3">Lo que cobraste</h3>
+              @if (totalDoc(); as t) {
+                <button type="button" class="pl-total" (click)="cobrarTotal(t)">Cobré el total en efectivo · {{ money(t) }}</button>
+              }
+              <div class="pl-pago">
+                <label>Efectivo<input class="pl-q num" type="number" inputmode="decimal" min="0" max="9999999.99" step="0.01" placeholder="0.00" [ngModel]="efectivo()" (ngModelChange)="efectivo.set($event)" /></label>
+                <label>Transferencia<input class="pl-q num" type="number" inputmode="decimal" min="0" max="9999999.99" step="0.01" placeholder="0.00" [ngModel]="transf()" (ngModelChange)="transf.set($event)" /></label>
+              </div>
+              @if (num(transf()) > 0) {
+                <input class="pl-q" type="text" maxlength="60" [ngModel]="ref()" (ngModelChange)="ref.set($event)" placeholder="Referencia de la transferencia" aria-label="Referencia de la transferencia" />
+              }
+              @if (cuadreTexto(); as t) { <p class="pl-src" [class.bad]="t.mal">{{ t.texto }}</p> }
+
+              <button type="button" class="pl-go" [disabled]="!!faltaEntrega() || !!ocupado()" (click)="confirmarEntrega()">
+                {{ ocupado() === 'entregar' ? 'Guardando…' : faltaEntrega() || 'Confirmar entrega' }}
+              </button>
+              <button type="button" class="pl-link" (click)="modo.set('no')">No se pudo entregar</button>
+            } @else {
+              <p class="pl-src">El pedido sale de tu guía y queda libre para salir otro día.</p>
+              <textarea class="pl-q pl-ta" rows="3" maxlength="500" [ngModel]="motivo()" (ngModelChange)="motivo.set($event)" placeholder="Por qué no se entregó (cerrado, no estaba, no lo quiso…)" aria-label="Por qué no se entregó"></textarea>
+              <button type="button" class="pl-go bad-bg" [disabled]="motivo().trim().length < 5 || !!ocupado()" (click)="confirmarNoEntregado()">
+                {{ ocupado() === 'no' ? 'Guardando…' : motivo().trim().length < 5 ? 'Escribe el motivo' : 'Registrar que no se entregó' }}
+              </button>
+              <button type="button" class="pl-link" (click)="modo.set('entregar')">Volver a entregar</button>
+            }
+          }
+        </div>
+      }
+
+      @if (sel().size && !entregaId()) {
         <div class="pl-bar">
           <button type="button" class="pl-go" [disabled]="!!ocupado()" (click)="llevar()">
             {{ ocupado() === 'cargar' ? 'Cargando…' : 'Llevar ' + sel().size + (sel().size === 1 ? ' pedido' : ' pedidos') + ' · ' + money(totalSel()) }}
@@ -156,6 +269,32 @@ const dm = (v: string | null | undefined): string => {
     .pl-go { width:100%; max-width:720px; display:block; margin:0 auto; min-height:3rem; border:0; border-radius:12px; background:var(--action); color:var(--action-ink); font-weight:700; font-size:var(--fs-h3); }
     .pl-go:disabled { opacity:.6; }
     .pl-card:focus-within, .pl-go:focus-visible, .pl-quitar:focus-visible, .pl-refresh:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
+    .pl-guia-o.hecho { opacity:.8; }
+    .tachado { text-decoration:line-through; color:var(--text-muted); }
+    .pl-total { width:100%; min-height:2.75rem; margin-bottom:.5rem; border:1px dashed var(--action); border-radius:10px; background:transparent; color:var(--text-main); font-size:var(--fs-body); font-weight:600; }
+    .pl-total:focus-visible, .pl-sheet-h h2:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
+    .pl-o-cobro { display:flex; gap:.4rem; align-items:center; margin-top:.15rem; font-size:var(--fs-xs); }
+    .pl-entregar { border:0; background:var(--action); color:var(--action-ink); border-radius:8px; padding:.35rem .75rem; font-size:var(--fs-sm); font-weight:700; min-height:2.5rem; flex:none; }
+    .pl-sheet { position:fixed; inset:0; z-index:40; overflow-y:auto; background:var(--layout-bg); padding:.9rem 1rem calc(6rem + env(safe-area-inset-bottom)); }
+    .pl-sheet > * { max-width:720px; margin-left:auto; margin-right:auto; }
+    .pl-sheet-h { display:flex; justify-content:space-between; align-items:center; gap:.75rem; }
+    .pl-sheet-h h2 { margin:0; font-size:var(--fs-h2); font-weight:700; }
+    .pl-det { border:1px solid var(--border-color); border-radius:12px; background:var(--card-bg); padding:.7rem .75rem; margin-top:.75rem; display:flex; flex-direction:column; gap:.3rem; }
+    .pl-lines summary { font-size:var(--fs-sm); cursor:pointer; padding:.3rem 0; min-height:2.25rem; display:flex; align-items:center; }
+    .pl-line { display:flex; gap:.5rem; font-size:var(--fs-xs); padding:.25rem 0; border-top:1px dashed var(--border-color); }
+    .pl-h3 { font-size:var(--fs-body); font-weight:700; margin:1rem 0 .45rem; }
+    .pl-card.off { opacity:.55; cursor:not-allowed; }
+    .pl-seg { display:flex; gap:.4rem; }
+    .pl-seg button { flex:1; min-height:2.75rem; border:1px solid var(--border-color); border-radius:10px; background:var(--card-bg); color:var(--text-main); font-size:var(--fs-body); font-weight:600; }
+    .pl-seg button.on { border-color:var(--action); box-shadow:0 0 0 1px var(--action); }
+    .pl-ta { height:auto; padding:.6rem .75rem; margin-top:.5rem; font-family:inherit; resize:vertical; }
+    .pl-pago { display:grid; grid-template-columns:1fr 1fr; gap:.5rem; }
+    .pl-pago label { display:flex; flex-direction:column; gap:.2rem; font-size:var(--fs-xs); color:var(--text-muted); }
+    .pl-pago .pl-q { margin-bottom:0; }
+    .pl-sheet .pl-go { margin-top:1rem; }
+    .pl-go.bad-bg { background:var(--bad-fg); }
+    .pl-link { display:block; margin:.75rem auto 0; border:0; background:transparent; color:var(--text-muted); text-decoration:underline; font-size:var(--fs-sm); min-height:2.5rem; }
+    .pl-entregar:focus-visible, .pl-seg button:focus-visible, .pl-link:focus-visible, .pl-q:focus-visible, .pl-lines summary:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
   `],
@@ -174,7 +313,60 @@ export class PresaleLoadComponent implements OnInit {
   readonly data = signal<PresaleFieldResponse | null>(null);
   readonly sel = signal<Set<string>>(new Set());
   readonly q = signal('');
-  readonly ocupado = signal<'cargar' | 'quitar' | null>(null);
+  readonly ocupado = signal<'cargar' | 'quitar' | 'detalle' | 'entregar' | 'no' | null>(null);
+
+  // [MCP.6] Hoja de entrega.
+  readonly entregaId = signal<string | null>(null);
+  readonly detalle = signal<PresaleFieldOrderDetail | null>(null);
+  readonly errEntrega = signal<string | null>(null);
+  readonly modo = signal<'entregar' | 'no'>('entregar');
+  readonly folio = signal<string | null>(null);
+  readonly outcome = signal<'completo' | 'con_diferencia'>('completo');
+  readonly nota = signal('');
+  /** Importes: empiezan VACÍOS a propósito. Lo cobrado lo escribe quien entrega (un 0 se escribe). */
+  readonly efectivo = signal<number | string | null>(null);
+  readonly transf = signal<number | string | null>(null);
+  readonly ref = signal('');
+  readonly motivo = signal('');
+  private subDet: Subscription | null = null;
+  private regresarFoco: HTMLElement | null = null;
+  private readonly sheetTitle = viewChild<ElementRef<HTMLElement>>('sheetTitle');
+
+  /**
+   * Documentos para elegir. Si la caja ya ligó uno, SÓLO ése: cualquier otro lo rechazaría el
+   * servidor (la liga se corrige en la mesa, no en la calle). Si no hay liga, los candidatos.
+   */
+  readonly opciones = computed<PresaleCandidate[]>(() => {
+    const d = this.detalle();
+    if (!d) return [];
+    const link = d.order.link;
+    if (!link) return d.candidates;
+    const mismo = d.candidates.find((c) => c.folio_digital === link.folio_digital);
+    return [mismo ?? { ...link, cashier_name: null, shared_products: 0, order_products: 0, linked_to_order_code: null }];
+  });
+  readonly totalDoc = computed(() => this.opciones().find((c) => c.folio_digital === this.folio())?.total ?? null);
+  private readonly escribio = computed(() => this.vacio(this.efectivo()) === false || this.vacio(this.transf()) === false);
+  /** Lo que falta para poder confirmar; `null` = listo. Es el texto del botón. */
+  readonly faltaEntrega = computed<string | null>(() => {
+    if (!this.folio()) return 'Elige el documento';
+    if (this.outcome() === 'con_diferencia' && this.nota().trim().length < 5) return 'Escribe qué fue diferente';
+    if (!this.escribio()) return 'Escribe lo que cobraste (0 si nada)';
+    const e = this.num(this.efectivo());
+    const t = this.num(this.transf());
+    if (!Number.isFinite(e) || !Number.isFinite(t) || e < 0 || t < 0 || e > 9999999.99 || t > 9999999.99) return 'Revisa los importes';
+    if (t > 0 && !this.ref().trim()) return 'Falta la referencia';
+    return null;
+  });
+  /** Cuadre contra el documento: avisa, no bloquea (puede haber diferencia real o pago a cuenta). */
+  readonly cuadreTexto = computed<{ texto: string; mal: boolean } | null>(() => {
+    const doc = this.totalDoc();
+    const e = this.num(this.efectivo());
+    const t = this.num(this.transf());
+    if (doc === null || !this.escribio() || !Number.isFinite(e) || !Number.isFinite(t)) return null;
+    const dif = Math.round((e + t - doc) * 100) / 100;
+    if (Math.abs(dif) < 0.01) return { texto: 'Cobrado completo: ' + money(e + t) + '.', mal: false };
+    return { texto: 'Cobras ' + money(e + t) + ' de un documento de ' + money(doc) + (dif < 0 ? ' (faltan ' + money(-dif) + ').' : ' (sobran ' + money(dif) + ').'), mal: true };
+  });
 
   readonly visibles = computed<PresaleOrderRow[]>(() =>
     (this.data()?.available ?? []).filter((p) =>
@@ -194,7 +386,7 @@ export class PresaleLoadComponent implements OnInit {
 
   ngOnInit(): void {
     this.reload();
-    this.destroyRef.onDestroy(() => this.sub?.unsubscribe());
+    this.destroyRef.onDestroy(() => { this.sub?.unsubscribe(); this.subDet?.unsubscribe(); });
   }
 
   reload(): void {
@@ -241,6 +433,137 @@ export class PresaleLoadComponent implements OnInit {
   }
 
   etapa(s: PresaleStage): string | null { return ETAPA[s] ?? null; }
+
+  // ─────────────────────────────────────────────── entrega (MCP.6) ──
+
+  abrirEntrega(orderId: string): void {
+    this.regresarFoco = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.entregaId.set(orderId);
+    this.detalle.set(null);
+    this.errEntrega.set(null);
+    this.modo.set('entregar');
+    this.folio.set(null);
+    this.outcome.set('completo');
+    this.nota.set('');
+    this.efectivo.set(null);
+    this.transf.set(null);
+    this.ref.set('');
+    this.motivo.set('');
+    // El foco entra a la hoja: quien usa lector de pantalla o teclado sabe dónde quedó.
+    setTimeout(() => this.sheetTitle()?.nativeElement.focus());
+    this.subDet?.unsubscribe();
+    this.subDet = this.api.detalle(orderId).subscribe({
+      next: (d) => {
+        if (this.entregaId() !== orderId) return;
+        this.detalle.set(d);
+        // Preselección PRUDENTE: el ligado en caja, el único candidato, o el primero si comparte
+        // productos con el pedido. Uno que no comparte nada lo tiene que elegir el repartidor.
+        const ops = this.opciones();
+        const libres = ops.filter((c) => !c.linked_to_order_code);
+        const elegido = d.order.link
+          ? ops[0]
+          : libres.length === 1 ? libres[0] : libres[0]?.shared_products > 0 ? libres[0] : undefined;
+        if (elegido) this.elegirDocumento(elegido.folio_digital);
+      },
+      error: (e: HttpErrorResponse) => this.errEntrega.set(this.errorTexto(e, 'No se pudo abrir el pedido. Actualiza en un momento.')),
+    });
+  }
+
+  @HostListener('document:keydown.escape')
+  cerrarEntrega(): void {
+    if (!this.entregaId() || this.ocupado() === 'entregar' || this.ocupado() === 'no') return;
+    this.subDet?.unsubscribe();
+    this.entregaId.set(null);
+    this.detalle.set(null);
+    const foco = this.regresarFoco;
+    this.regresarFoco = null;
+    if (foco?.isConnected) setTimeout(() => foco.focus());
+  }
+
+  /** Elegir el documento NO llena importes: lo cobrado lo declara quien entrega. */
+  elegirDocumento(folio: string): void {
+    this.folio.set(folio);
+  }
+
+  /** Atajo para el caso común: todo en efectivo, por el total del documento. */
+  cobrarTotal(total: number): void {
+    this.efectivo.set(total);
+    this.transf.set(0);
+    this.ref.set('');
+  }
+
+  confirmarEntrega(): void {
+    const orderId = this.entregaId();
+    const folio = this.folio();
+    if (!orderId || !folio || this.faltaEntrega()) return;
+    const t = this.num(this.transf());
+    this.ocupado.set('entregar');
+    this.errEntrega.set(null);
+    this.api.entregar({
+      order_id: orderId,
+      folio_digital: folio,
+      outcome: this.outcome(),
+      note: this.nota().trim() || undefined,
+      cash_amount: this.num(this.efectivo()),
+      transfer_amount: t,
+      transfer_ref: t > 0 ? this.ref().trim() : undefined,
+    }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.ocupado.set(null);
+        this.aplicar(d);
+        this.cerrarEntrega();
+        this.msg.set({ texto: 'Entrega registrada con el documento ' + folio + '.', mal: false });
+      },
+      error: (e: HttpErrorResponse) => { this.ocupado.set(null); this.errEntrega.set(this.errorTexto(e, 'No se pudo registrar la entrega.')); },
+    });
+  }
+
+  confirmarNoEntregado(): void {
+    const orderId = this.entregaId();
+    const reason = this.motivo().trim();
+    if (!orderId || reason.length < 5) return;
+    this.ocupado.set('no');
+    this.errEntrega.set(null);
+    this.api.noEntregado({ order_id: orderId, reason }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.ocupado.set(null);
+        this.aplicar(d);
+        this.cerrarEntrega();
+        this.msg.set({ texto: 'Quedó registrado que no se entregó. El pedido queda libre para otro día.', mal: false });
+      },
+      error: (e: HttpErrorResponse) => { this.ocupado.set(null); this.errEntrega.set(this.errorTexto(e, 'No se pudo registrar.')); },
+    });
+  }
+
+  sinDocumentoTexto(d: PresaleFieldOrderDetail): string {
+    const ojo = ' Si sí lo entregaste, NO marques «No se pudo entregar»: avisa en caja.';
+    if (d.order.link_block === 'cliente_sin_clave') return 'El cliente no tiene clave de Kepler: no hay documento con qué registrar la entrega.' + ojo;
+    if (d.order.link_block) return 'No se pueden buscar documentos de Kepler para este cliente.' + ojo;
+    return 'Todavía no aparece ningún documento de Kepler de este cliente (puede tardar unos minutos en llegar). Actualiza en un momento.' + ojo;
+  }
+
+  cobroTexto(efectivo: number | null, transferencia: number | null): string {
+    const partes: string[] = [];
+    if (efectivo) partes.push(money(efectivo) + ' efectivo');
+    if (transferencia) partes.push(money(transferencia) + ' transf.');
+    return partes.length ? partes.join(' + ') : 'sin cobro';
+  }
+
+  pendientesTexto(orders: LoadGuideOrderRow[]): string {
+    const faltan = orders.filter((o) => o.status === 'cargado').length;
+    const volvieron = orders.filter((o) => o.status === 'no_entregado' || o.status === 'regreso').length;
+    if (faltan) return 'Te faltan ' + faltan + ' por entregar.';
+    return volvieron ? 'Terminaste: ' + volvieron + (volvieron === 1 ? ' no se entregó.' : ' no se entregaron.') : 'Todo entregado.';
+  }
+
+  num(v: number | string | null | undefined): number {
+    if (this.vacio(v)) return 0;
+    return Number(v);
+  }
+
+  private vacio(v: number | string | null | undefined): boolean {
+    return v === null || v === undefined || String(v).trim() === '';
+  }
 
   private aplicar(d: PresaleFieldResponse): void {
     this.data.set(d);
