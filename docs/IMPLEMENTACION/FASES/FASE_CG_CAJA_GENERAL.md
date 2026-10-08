@@ -2693,3 +2693,74 @@ empezaría a faltar sin que nada se rompa.
 regla prohíbe levantar el backend). Lo que sí se hizo: validar el SQL **leyendo prod** —de ahí
 salen los $131,080 → $131,060— y dejar el bloque en la suite para que corra donde sí hay DB.
 No se reporta como ✔ lo que no se ejecutó.
+
+---
+
+## §34 · `[CG.74]` — el QR para firmar, y el menú que no existía (2026-10-08)
+
+Edgar, con el panel del código en pantalla: *«¿cómo hago esto?»*. La pregunta **era el defecto**.
+
+### ⛔ La pantalla mandaba a un lugar inexistente
+
+Decía *«Abrí Caja General › Firmar en el teléfono»*. **Medido:** la ruta
+`/finanzas/caja-general/firma` está registrada en `app.routes.ts` y **nada en la navegación apunta
+ahí** — la única mención en todo el repo era un comentario en el propio componente. Así que el
+procedimiento real era: teclear una URL de memoria, en un teléfono, iniciar sesión, y escribir 6
+caracteres contra un reloj de **tres minutos**.
+
+Es la misma familia que `[CG.71]`: un mecanismo completo y correcto, sin la puerta por donde se
+entra.
+
+### Lo que se hizo
+
+| | |
+|---|---|
+| **QR al lado del código** | lleva la URL absoluta **con el código puesto** (`?c=…`) |
+| **El teléfono acepta `?c=`** | antes sólo se tecleaba; ahora pasa por el **mismo** `tomar()`, con la misma normalización y los mismos fallos |
+| **El texto** | «Escaneá el QR» + «o entrá a `<host>/finanzas/caja-general/firma` y escribí el código» |
+| **El código sigue a la vista** | se dicta en voz alta cuando el teléfono no puede escanear |
+
+⭐ **Cero dependencias nuevas.** `@zxing/browser` ya estaba declarada —se usa para **escanear**
+códigos de producto— y trae `BrowserQRCodeSvgWriter`, que **genera**. Se verificó qué exporta
+antes de escribir una línea: agregar un paquete toca `package.json`, que acá no se mueve sin
+autorización.
+
+El primitivo vive en **`libs/ui-web`** (`qrSvg` / `pintarQr`), no en la pantalla: «convertir un
+texto en un QR» no es de caja — el verificador de precios, las etiquetas de tienda y las guías de
+logística tienen el mismo problema (ADR-056).
+
+### Decisiones que no son obvias
+
+- **SVG y no `<img>` con data URI**: escala sin pixelarse (lo escanean de lejos y en diagonal) y
+  **no obliga a pasar por `bypassSecurityTrustHtml`**, que es la puerta por la que se cuela el XSS
+  el día que alguien meta texto de un usuario ahí. El escritor devuelve un **elemento**.
+- **Fondo blanco fijo, también en tema oscuro**: un QR invertido no lo lee ninguna cámara, y esta
+  pantalla se usa en oscuro.
+- **Falla devolviendo `null`, no tirando**: el QR es una comodidad y el código de 6 caracteres
+  sigue escrito al lado. Si reventara, se llevaría puesta la captura entera del movimiento.
+- **`pintarQr` reemplaza, no acumula**: sin eso, al cambiar el código quedaría el nuevo **debajo**
+  del viejo, y el de arriba —el que la gente escanea— sería el vencido.
+- **Al cancelar se borra el QR**: uno vencido en pantalla es peor que ninguno — alguien lo escanea,
+  el teléfono dice que el código no existe, y queda buscando el error donde no está.
+- **Un solo reintento** al pintar (el hueco vive dentro de un `@if` y `@ViewChild` se resuelve
+  después): un reintento sin techo sobre un panel que el usuario acaba de cerrar gira para siempre.
+- **`location.origin`, no un dominio clavado**: la misma pantalla corre en `localhost:4200` y en
+  producción; un QR con el dominio fijo mandaría el teléfono a prod mientras alguien prueba en
+  local — o al revés, que es peor.
+
+### Candados
+
+- **`libs/ui-web` (9, corren ya):** lado mínimo que se **sube** (un QR de 20 px no lo engancha
+  ninguna cámara) · nombre accesible · sin texto **no inventa** un QR · 4 KB de texto **no tiran** ·
+  reemplaza y no acumula · sin contenedor no revienta.
+- **Pantalla (245):** el QR se **pinta** · el texto dice `/finanzas/caja-general/firma` y **ya no**
+  `Caja General ›` · al cancelar el QR se va · la ruta que se dicta no lleva `https://`.
+- **Mutaciones:** no pintar el QR → **roja (2)**; devolver el texto viejo → **roja (1)**.
+
+⚠️ **Lo que NO tiene candado, declarado:** el componente del teléfono **no tiene spec** en todo el
+repo, así que el camino `?c=` no está cubierto por pruebas. Se verifica en el navegador real contra
+producción cuando se despliegue — que para esto es más fuerte que un test, porque lo único que
+prueba de verdad un QR es una cámara.
+
+⚠️⚠️ **Novena vez que un acento grave en un comentario rompe el build**, y **tres en esta sesión**.
+Lo agarró `check:templates` con la línea exacta.
