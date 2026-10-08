@@ -152,7 +152,22 @@ export class BudgetMaterializeService {
           }).returning('*');
           await trx('budget.line_movements').insert({
             tenant_id: tenantId, budget_line_id: line.id, movement_type: 'apertura', amount: d.original,
-            source_kind: 'materializacion', source_ref: sref, note: 'Materialización del plan', created_by: username,
+            // `[PU.VA]` ⛔ Acá iba `sref` pelado, y el índice de idempotencia es
+            // `(tenant_id, source_kind, source_ref, movement_type)` — **sin el ejercicio**. Como
+            // `sref` es `gasto:<cuenta>:<sucursal>`, el SEGUNDO ejercicio del tenant choca contra
+            // el primero en la misma cuenta: `duplicate key value violates unique constraint
+            // "ux_budget_mov_idem"`. O sea que sólo se podía materializar **un ejercicio por
+            // tenant, para siempre**.
+            //
+            // ⭐ Nunca se vio porque nunca hubo dos: hasta el 2026-10-07 la tabla tenía un solo
+            // ejercicio. Apareció en el primer minuto en que existieron dos.
+            //
+            // El `budget_id` va en el `source_ref` del MOVIMIENTO y no en el de `budget_lines`:
+            // allá la unicidad ya es por `(budget_id, source_ref)` y tocarlo recrearía las
+            // partidas que ya existen. Acá la idempotencia correcta es «este movimiento, de esta
+            // línea, de ESTE ejercicio».
+            source_kind: 'materializacion', source_ref: `${budgetId}|${sref}`,
+            note: 'Materialización del plan', created_by: username,
           });
           summary.created++; summary[d.line_type]++;
           continue;

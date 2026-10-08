@@ -90,8 +90,22 @@ export class BudgetLinesService {
     if (!(Number(dto.fiscal_year) >= 2000)) throw new BadRequestException('fiscal_year inválido');
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
+      // `[PU.VA]` ⛔ El ejercicio creado a mano nacía **SIN FOLIO**, y así se ve en la pantalla:
+      // el chip imprime «sin folio» donde los demás llevan `PRE-2027-002`. Sólo lo generaba
+      // `ensureBudgetForYear` —el camino del piloto—, y el manual se saltaba el mostrador.
+      //
+      // Es exactamente lo que `[VE.5-A]` vino a resolver: *«un folio no se teclea»*. El nombre es
+      // texto libre que alguien escribe una vez y queda para siempre (de ahí salió un ejercicio
+      // llamado `presupesto`); el folio es lo estable con lo que todos lo nombran. Que el camino
+      // manual no lo diera dejaba justo a los ejercicios excepcionales sin identificador.
+      //
+      // Misma secuencia atómica que el piloto (`INSERT … ON CONFLICT DO UPDATE … RETURNING`), así
+      // que los dos caminos comparten numeración y no se pisan.
+      const n = await this.generation.nextFolio(trx as never, tenantId, 'ejercicio', String(dto.fiscal_year));
+      const folio = `PRE-${dto.fiscal_year}-${String(n).padStart(3, '0')}`;
       const [row] = await trx('budget.budgets').insert({
         tenant_id: tenantId,
+        folio,
         name: dto.name.trim(),
         fiscal_year: dto.fiscal_year,
         entity: dto.entity ?? null,
