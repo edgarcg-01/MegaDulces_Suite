@@ -138,7 +138,18 @@ const TOPE = {
   //    escala -- convertirlos MUEVE el texto de la pantalla con la que la cajera cuenta
   //    dinero. Eso se decide abriendola, no desde un gate. Deuda CON NOMBRE: ese archivo
   //    necesita su propio barrido, y es el tercer push seguido que lo nombra.
-  fontSize:   2701,
+  //
+  // ⚠️ 2,702 y no 2,701: `[RD.45]` (f848667d1) agrega TRES en
+  //    `apps/view/.../almacen-rutas-contar.component.ts` (2,699 → 2,702, medido antes y despues
+  //    del commit): `.rk-prod` clamp(1.5rem, 5vw, 2.25rem), `.rk-esperado-n` clamp(3rem, 14vw,
+  //    5rem) y `.rk-dif-input` clamp(2.25rem, 10vw, 3rem). No se tokenizan, y no es pereza: es la
+  //    pantalla con la que se CUENTA el camion en el celular, y esos son el nombre del producto,
+  //    la cantidad esperada y la casilla donde se escribe lo contado -- grandes A PROPOSITO y
+  //    responsivos. La escala no tiene nada arriba de `--fs-display` (2.5rem), y un `clamp()` no
+  //    es UN tamano: cambiarlo por un token achica justo lo que el almacenista tiene que leer de
+  //    pie. Ese archivo ya usa tokens en todo lo demas. Queda DECLARADO, no disfrazado; si hacen
+  //    falta tamanos de conteo en la escala, es una decision de `DESIGN.md`, no de este gate.
+  fontSize:   2702,
   hex:        1449,  // hex crudo en declaración de color
   // CERRADA 2026-10-03: las 206 pasaron a rem (root 16px → conversión exacta).
   breakpoint:    0,
