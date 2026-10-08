@@ -516,4 +516,73 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
       req.flush(REPORTE());
     });
   });
+
+  /**
+   * `[GX.73]` **El expediente se refresca solo**, con el filtro vigente. Se cuida que lleve el
+   * filtro, que no parpadee, que no refresque mientras se arma un PDF, y que una respuesta de
+   * OTRO filtro (cambió mientras volaba) se descarte: publicarla mostraría KPIs de un periodo
+   * con el rótulo de otro.
+   */
+  describe('[GX.73] el refresco en segundo plano', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+      // ⚠️ El componente del `beforeEach` de afuera nació con el reloj REAL: su encuesta no
+      // responde a `advanceTimersByTime`. Se descarta —respondiendo su pedido inicial, que si no
+      // quedaría colgado y `montar` encontraría dos— y se crea otro ya con el reloj simulado.
+      http.match((q) => q.url.endsWith('/expediente')).forEach((r) => r.flush(REPORTE()));
+      fix.destroy();
+      fix = TestBed.createComponent(FinanzasExpedienteComponent);
+      c = fix.componentInstance;
+    });
+    afterEach(() => vi.useRealTimers());
+    const pedido = () => http.expectOne((q) => q.url.endsWith('/expediente'));
+
+    it('⭐ al minuto vuelve a pedir CON el filtro vigente, sin aviso de carga', () => {
+      montar();
+      c.cambiarDepartamento('LOGISTICA');
+      pedido().flush(REPORTE());
+      vi.advanceTimersByTime(60_000);
+      const req = pedido();
+      expect(c.cargando()).toBe(false);
+      expect(req.request.params.get('departamento')).toBe('LOGISTICA');
+      req.flush(REPORTE({ total: { ...REPORTE().total, vales: 9 } }));
+      expect(c.datos()?.total.vales).toBe(9);
+    });
+
+    it('conserva la persona elegida si sigue en el resultado', () => {
+      montar();
+      c.seleccion.set('Leonardo Cazares');
+      vi.advanceTimersByTime(60_000);
+      pedido().flush(REPORTE());
+      expect(c.seleccion()).toBe('Leonardo Cazares');
+    });
+
+    it('⛔ mientras se arma un PDF NO refresca', () => {
+      montar();
+      c.pdfCargando.set('v1');
+      vi.advanceTimersByTime(60_000);
+      http.expectNone((q) => q.url.endsWith('/expediente'));
+    });
+
+    it('⛔ si el filtro cambió mientras volaba, la respuesta vieja se descarta', () => {
+      montar();
+      vi.advanceTimersByTime(60_000);
+      const viejo = pedido();
+      c.cambiarDepartamento('SISTEMAS');
+      const nuevo = pedido();
+      const delNuevo = REPORTE({ filtro: { desde: null, hasta: null, departamento: 'SISTEMAS' } });
+      nuevo.flush(delNuevo);
+      viejo.flush(REPORTE({ total: { ...REPORTE().total, vales: 99 } }));
+      expect(c.datos()?.total.vales).not.toBe(99);
+      expect(c.datos()?.filtro.departamento).toBe('SISTEMAS');
+    });
+
+    it('⛔ un refresco que falla NO pisa el expediente ni muestra error', () => {
+      montar();
+      vi.advanceTimersByTime(60_000);
+      pedido().flush({ message: 'boom' }, { status: 500, statusText: 'Server Error' });
+      expect(c.error()).toBeNull();
+      expect(c.datos()?.total.vales).toBe(3);
+    });
+  });
 });

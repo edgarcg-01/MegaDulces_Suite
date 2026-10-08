@@ -8,8 +8,10 @@ import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import {
   CLASIFICACION_LABEL, ComprobacionesService,
-  type ExpenseClasificacion, type ExpenseProof, type ValeGasto,
+  type ExpenseClasificacion, type ExpenseProof, type ExpenseProofsReport, type ValeGasto,
 } from '../comprobaciones.service';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
+import { REFRESCO_VALES_MS } from '../vales-refresco';
 import { ValeGastoPeekComponent } from '../components/vale-gasto-peek.component';
 import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { parseLocalDate } from '../../../core/utils/mx-date';
@@ -468,25 +470,51 @@ export class FinanzasMisGastosComponent {
     .filter((f) => { const u = ubicacionDe(f); return !!u && u.columna !== 'expedientes'; })
     .reduce((s, f) => s + (Number(f.importe) || 0), 0));
 
-  constructor() { this.cargar(); }
+  constructor() {
+    this.cargar();
+    // `[GX.73]` Se refresca sola mientras la pestaña se ve: el estado del vale cambia afuera de
+    // esta pantalla (lo aprueban en la Suite, lo autoriza Kepler) y antes sólo se veía al recargar.
+    encuestarVisible(REFRESCO_VALES_MS, () => this.refrescar());
+  }
 
   cargar(): void {
     this.cargando.set(true);
     this.error.set('');
     this.svc.mine(200, this.q || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (r) => {
-        this.filas.set(r.rows ?? []);
-        this.asignados.set(r.asignados ?? []);
-        this.reporte.set({
-          recibidas: r.kpis?.recibidas ?? 0,
-          validadas: r.kpis?.validadas ?? 0,
-          rechazadas: r.kpis?.rechazadas ?? 0,
-        });
-        this.cargando.set(false);
-      },
+      next: (r) => { this.aplicar(r); this.cargando.set(false); },
       // Un error NO se pinta como «no levantaste nada»: es otra afirmación, y la equivocada
       // manda a alguien a capturar de nuevo un gasto que ya mandó.
       error: () => { this.error.set('No se pudieron cargar tus gastos. Vuelve a intentar.'); this.cargando.set(false); },
+    });
+  }
+
+  /** Hay un refresco en vuelo: el siguiente no se encima. */
+  private refrescando = false;
+
+  /**
+   * `[GX.73]` **El refresco en segundo plano.** No es `cargar()`: no muestra el aviso de carga
+   * (la lista no parpadea cada minuto) y un fallo NO pisa la lista buena con un error — la que
+   * está en pantalla sigue siendo la última cierta.
+   *
+   * ⛔ No corre con un vale abierto: cambiarle la fila debajo a quien la está leyendo la movería
+   * de columna sin aviso. Se pone al día en la vuelta siguiente, ya cerrado.
+   */
+  refrescar(): void {
+    if (this.abierto() || this.cargando() || this.refrescando) return;
+    this.refrescando = true;
+    this.svc.mine(200, this.q || undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.aplicar(r); this.refrescando = false; },
+      error: () => { this.refrescando = false; },
+    });
+  }
+
+  private aplicar(r: ExpenseProofsReport & { asignados?: ValeAsignado[] }): void {
+    this.filas.set(r.rows ?? []);
+    this.asignados.set(r.asignados ?? []);
+    this.reporte.set({
+      recibidas: r.kpis?.recibidas ?? 0,
+      validadas: r.kpis?.validadas ?? 0,
+      rechazadas: r.kpis?.rechazadas ?? 0,
     });
   }
 

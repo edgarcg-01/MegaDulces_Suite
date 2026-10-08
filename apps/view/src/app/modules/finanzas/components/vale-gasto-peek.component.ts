@@ -8,6 +8,7 @@ import { parseLocalDate } from '../../../core/utils/mx-date';
 import {
   CLASIFICACION_LABEL, type ExpenseClasificacion, type ProofFile, type ValeGasto,
 } from '../comprobaciones.service';
+import { detallesParaMostrar } from '@megadulces/contracts';
 
 /** Qué se puede hacer con el vale desde acá. Lo decide la PÁGINA, no este visor. */
 export type AccionVale = 'aprobar' | 'comprobar' | 'rechazar' | 'pedir_reapertura';
@@ -122,7 +123,7 @@ interface DocDelExpediente {
                 <div><dt>Tipo</dt><dd>{{ p.clasificacion ? tipoGasto(p.clasificacion) : 'sin clasificar' }}</dd></div>
               }
           @if (p.forma_pago !== undefined) {
-                <div><dt>Pago</dt><dd>{{ p.forma_pago ? formaPago(p.forma_pago) : 'sin forma de pago' }}@if (p.forma_pago_detalle) { · {{ p.forma_pago_detalle }} }</dd></div>
+                <div><dt>Pago</dt><dd>{{ p.forma_pago ? formaPago(p.forma_pago) : 'sin forma de pago' }}@if (p.forma_pago_detalle) { · {{ detallePago(p.forma_pago_detalle) }} }</dd></div>
               }
           @if (p.validated_by) { <div><dt>Cerrado por</dt><dd>{{ p.validated_by }}</dd></div> }
         </dl>
@@ -442,6 +443,8 @@ export class ValeGastoPeekComponent {
   }
 
   formaPago(id: string): string { return FORMA_PAGO_LABEL[id] ?? id; }
+  /** `[GX.74]` Varios renglones de detalle (dos tarjetas, dos referencias) en una línea. */
+  readonly detallePago = detallesParaMostrar;
   estado(s: string): string { return ESTADO_LABEL[s] ?? s; }
   /** El tipo de gasto en palabras. Sin la clave cruda: `no_fiscal_comprobable` es cómo se
    *  guarda, no cómo se dice. */

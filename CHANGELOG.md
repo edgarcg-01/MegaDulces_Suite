@@ -33,6 +33,12 @@
 - `docs/VERDAD_ABSOLUTA.md` **§22**: la dimensión que faltaba. El crecimiento derivable de Kepler y el que sostienen los libros (ContPAQi) **no coinciden**, y la causa está medida: el egreso de familia 6 arranca en agosto de 2025. **§22.10** establece que la venta de ruta no pasa por la contabilidad —las 10 cuentas que nombran una ruta mueven **$281,816 contra $66,055,835** de venta, el 0.43 %, con control positivo que cuadra al 0.03 %— y **retracta §22.9**, que había leído un total sano como prueba de que algo cuadraba.
 - Candado `database/tests/test-newdb-budget-assumption.js` — 11 ✓ / 0 ✗ / 0 NO MEDIDO contra prod, con tres mutaciones ejercibles (`PU_MUTAR`).
 
+### Fixed — Gastos: el vale ya no se queda en una fase anterior a la de Kepler (GX.73, 2026-10-07)
+- La autorización de una solicitud en Kepler (y su cierre o cancelación) no llegaba al ODS si la solicitud tenía más de 3 días: el carril de `kdm1` ahora re-envía cada 5 min las solicitudes abiertas y las de los últimos 120 días.
+- Mis gastos, Aprobación, Historial y Expediente se refrescan solos cada minuto mientras se ven, sin parpadear y sin tocar un vale abierto.
+- Nuevo script de sólo lectura `database/scripts/medir-frescura-kdm1.js` para medir cuántos vales ve la Suite atrasados contra Kepler.
+### Added — Gastos: varios renglones en el detalle del método de pago (GX.74, 2026-10-07)
+- Al elegir tarjeta, transferencia, cheque u otro se pueden agregar varios renglones (dos tarjetas, dos referencias…), hasta 10; cada uno pasa la misma regla (4 dígitos en tarjeta).
 ### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
 - En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
 - **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.
