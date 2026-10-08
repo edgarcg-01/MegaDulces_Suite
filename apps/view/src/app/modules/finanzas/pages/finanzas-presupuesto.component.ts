@@ -30,6 +30,8 @@ interface ExpenseObligation {
 interface BudgetHeader { id: string; folio: string | null; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number }
 interface BudgetLine {
   id: string; concept: string; line_type: string; area: string | null;
+  /** `[PU.VA]` Ya viajaban (el servicio devuelve la fila entera); faltaba declararlos para poder usarlos. */
+  cost_center?: string | null; source?: string | null;
   vigente_amount: number; reserved_amount: number; committed_amount: number; exercised_amount: number;
   paid_amount: number; available_amount: number; control_level: string; status: string;
   expense_class: string | null; recurrence: string | null; responsible: string | null;
@@ -335,7 +337,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <tr>
                   <td>{{ l.concept }}</td>
                   <td class="pres-muted">{{ tipoLabel(l.line_type) }}</td>
-                  <td class="pres-muted">{{ l.area || '—' }}</td>
+                  <td class="pres-muted" [title]="dimensionTitulo(l)">{{ dimension(l) }}</td>
                   <td class="ta-r pres-mono">{{ money(l.vigente_amount) }}</td>
                   <td class="ta-r pres-mono">{{ dash(l.reserved_amount) }}</td>
                   <td class="ta-r pres-mono">{{ dash(l.committed_amount) }}</td>
@@ -395,7 +397,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <ng-template #body let-l>
                 <tr>
                   <td>{{ l.concept }}</td>
-                  <td class="pres-muted">{{ l.area || '—' }}</td>
+                  <td class="pres-muted" [title]="dimensionTitulo(l)">{{ dimension(l) }}</td>
                   <td class="pres-muted">{{ l.responsible || '—' }}</td>
                   <td>{{ classLabel(l.expense_class) }}</td>
                   <td class="pres-muted">{{ recurrenceLabel(l.recurrence) }}</td>
@@ -2228,6 +2230,35 @@ export class FinanzasPresupuestoComponent implements OnInit {
       items.push({ label: 'Ventas real', value: 'sin datos', format: 'text', tone: 'warn' });
     }
     return items;
+  }
+
+  /**
+   * `[PU.VA]` La columna «Área» mostraba `l.area || '—'`, y **las 47 partidas de prod tienen `area`
+   * en NULL**: un guion en las 47 filas se lee como «falta capturar esto», cuando no falta nada.
+   *
+   * Medido: `area` **sí tiene productor** —la captura manual de una partida la guarda— pero el
+   * materializador no la escribe, porque una partida derivada del plan no tiene área: tiene la
+   * dimensión con la que se planeó. Y ésa sí está, en `cost_center`:
+   *
+   *   · ingreso → la entidad (`mayoreo:01`), que el concepto ya repite («Ventas mayoreo · 01»)
+   *   · gasto   → **NULL, y por una razón**: el plan se armó CONSOLIDADO (`by_sucursal` apagado)
+   *
+   * Así que el guion tapaba tres cosas distintas. Ahora cada una se dice: lo capturado a mano, la
+   * dimensión del plan, o **«consolidado»** — que no es un dato faltante, es cómo se presupuestó.
+   * «Sin datos» ≠ cero, y tampoco ≠ «no aplica» (ADR-056).
+   */
+  dimension(l: BudgetLine): string {
+    if (l.area) return l.area;
+    if (l.cost_center) return l.cost_center;
+    // Sólo una partida DERIVADA DEL PLAN puede declararse consolidada; una capturada a mano sin
+    // área es un hueco de verdad, y ahí el guion dice la verdad.
+    return l.source === 'plan' && l.line_type !== 'ingreso' ? 'consolidado' : '—';
+  }
+  dimensionTitulo(l: BudgetLine): string {
+    if (l.area) return 'Área capturada en la partida';
+    if (l.cost_center) return `Dimensión del plan: ${l.cost_center}`;
+    if (l.source === 'plan') return 'El plan de gastos se armó consolidado (sin abrir por sucursal). No es un dato faltante.';
+    return 'Sin área capturada';
   }
 
   ocupacion(l: BudgetLine): string {
