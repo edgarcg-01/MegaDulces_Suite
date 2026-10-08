@@ -79,7 +79,9 @@
     "doc:generate": "compodoc -p apps/view/tsconfig.json -d documentation --hideGenerator --disableGraph --disablePrivate --disableInternal --disableSourceCode",
     "doc:serve": "npx http-server documentation -p 8080 -o",
     "doc:build": "npm run doc:generate",
-    "postinstall": "patch-package"
+    "postinstall": "patch-package",
+    "check:templates-types": "node scripts/check-template-types.js",
+    "check:templates-types:self": "node scripts/check-template-types.js --self-test"
   },
   "dependencies": {
     "@angular/cdk": "22.0.6",

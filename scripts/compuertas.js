@@ -56,6 +56,20 @@ const COMPUERTAS = [
   // que para la tuberia. Una compuerta que pasa sobre un archivo que no inspecciona se lee igual
   // que una que lo aprobo.
   { nombre: 'sql-backticks', script: 'check-sql-backticks.js', que: 'ningun comentario SQL lleva acentos graves (rompen el template literal)', push: true, ms: 900 },
+  // [IC.24] La OTRA hermana de `templates`, para lo que esa tampoco puede ver: los TIPOS dentro
+  // de la plantilla. `check-template-literals` mira que el literal este entero y que el CSS
+  // parsee; `tsc -p tsconfig.app.json` NO compila plantillas (para TypeScript son strings); y el
+  // unico con `strictTemplates` es `nx build`, prohibido en local. El 2026-10-08 entro a main una
+  // pantalla cuyo (onRowSelect)="f($event.data)" pasaba `T | T[] | undefined` a un parametro `T`
+  // -- PrimeNG lo declara asi porque [(selection)] admite single y multiple -- y LAS TRES
+  // compuertas locales dieron verde. Lo encontro el CI, o sea despues del push.
+  // ⚠️ Montar el componente en un spec TAMPOCO lo cubre, y se midio: el TestBed compila en JIT y
+  //    no aplica `strictTemplates` (con el error puesto, la prueba de "monta" siguio verde).
+  // ⛔ SIN `push: true`: son ~57 s solo `view`, muy por encima del criterio de admision (~3 s).
+  //    Por default solo frena por lo COMMITEADO que falta pushear -- en un arbol que comparten
+  //    10 sesiones, "sin commitear" no es "mio" sino de todos, y frenar a alguien por el borrador
+  //    ajeno es el defecto que esta compuerta estaria introduciendo en vez de resolviendo.
+  { nombre: 'templates-types', cmd: 'node scripts/check-template-types.js', que: 'los tipos DENTRO de las plantillas de Angular (strictTemplates), que ni check:templates ni tsc ni un spec ven' },
   // [CD.12] Un marcador de conflicto sin resolver. Ya entro al repo una vez y rompio el build
   // (2026-09-26, `fix([RA-PRO.60-62]): resolver marcador de conflicto en compras.service`), y
   // hasta hoy NADA lo miraba: `pre-commit` solo corria gitleaks. Con 11 sesiones sobre el mismo
