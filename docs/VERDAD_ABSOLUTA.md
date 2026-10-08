@@ -3207,3 +3207,85 @@ tolerara, el arreglo dejaría de tener premisa y nadie se enteraría.
 ⛔ **Y sigue sin verificarse en vivo.** El arreglo de la consulta no está compilado en la API que
 corre; el del RLS está en prod pero su pasada todavía no volvió a correr. Lo que cierra esto es un
 latido en verde con `generation_runs > 0`, no dos commits.
+
+### 22.12 ⭐⭐ El COSTO DE VENTAS no tiene fuente — y la familia 5 no es la que el repo creía (2026-10-07)
+
+Con el primer presupuesto armado, el renglón que falta quedó a la vista. La pestaña Ejercicio
+publicaba:
+
+```
+ingreso           472,397,590
+costo de ventas             0   ← no existe ninguna partida
+gasto operativo    74,852,188
+                  ───────────
+RESULTADO         397,545,402   = 84.2 % de margen
+```
+
+El negocio reporta **~11.5 %**.
+
+#### ⛔ Lo que NO se puede hacer, y el repo ya lo tenía escrito
+
+`budget-result.service.ts:140`: *«El plan del costo de ventas **NO se inventa a partir del margen
+real**: eso sería presupuestar con el resultado, y además lo volvería imposible de incumplir.»*
+
+Es correcto y vale más que la tentación: si el costo sale del margen supuesto, el margen planeado
+coincide con el supuesto **por construcción** y el presupuesto nunca puede mostrar desviación. Que
+tres fuentes independientes coincidan en ~11.5 % —negocio, meta de Kepler (§16.8) y margen
+realizado del fact (11.79 %)— hace la cifra creíble; **no la vuelve un presupuesto**.
+
+#### ⚠️ Y una corrección medida al propio repo
+
+El comentario de `realGasto` describe la familia 5 como *«la construcción contable completa del
+costo de ventas: inventario inicial + compras − descuentos − inventario final + el ajuste de
+traspasos internos»*. **Medido sobre `analytics.expense_entries`, no es así:**
+
+| año | cuentas en familia 5 | total |
+|---|---|---:|
+| 2025 | **1** — `511 COMPRAS DE MERCANCIA A PROVEEDORES` | 300,975,049 |
+| 2026 | **1** — `511` | 463,015,795 |
+
+No hay tal construcción: en estos dos años la familia 5 es **compra, y nada más**. Eso no es un
+detalle de redacción — es la diferencia entre tener y no tener fuente para el costo de ventas.
+
+#### Los tres números del mismo periodo, que no cuadran
+
+| | ene–sep 2026 |
+|---|---:|
+| Compras `511` — lo que sale a proveedores | **453,680,343** |
+| Costo del fact — lo que se vendió (sobre venta de 319,233,076) | **281,593,111** |
+| Ingreso fiscal (ContPAQi `401%`) | 395,845,484 |
+
+⚠️ **No se restan entre sí.** El fact cubre $319.2 M de venta contra $395.8 M fiscales, o sea que
+**subdeclara ~19 %** y su costo arrastra la misma cobertura. Escalado, el costo rondaría $349 M
+contra $453.7 M de compras — y **$104 M no se explican por variación de inventario** en nueve
+meses, cuando el inventario entero vale ~$59 M (Fase MR). Falta algo, y nombrarlo no es trabajo de
+esta sección.
+
+#### Lo que sí se construyó
+
+El materializador ponía `line_type: 'gasto'` a **toda** línea del plan, sin mirar su familia. Eso
+alcanzaba sólo porque se presupuesta **una** (`proposal_families = ['6']`). El día que alguien
+agregue la 5 desde la pantalla —que es editable— la compra entraría al presupuesto **como gasto
+operativo**: $463.0 M encima de $56.9 M, y el renglón dejaría de poder leerse.
+
+Ahora la familia decide el tipo (`TIPO_POR_FAMILIA`), con los tipos que el CHECK de `budget_lines`
+define desde la mig `20260917140000` y que **hasta hoy nada producía**: la familia 5 va a
+`compra_inventario` —⭐ **no** a `costo_ventas`, porque comprar no es vender— y la 1 a `inversion`.
+
+⚠️ **Esto habilita el mecanismo, no cambia el alcance.** `proposal_families` sigue en `['6']`: qué
+familias se presupuestan es una decisión de Finanzas y se toma desde la pantalla, no en un default.
+
+#### Lo que falta, y de quién es
+
+⛔ **Definir qué es «costo de ventas presupuestado» en esta empresa.** Las opciones no son
+equivalentes y ninguna sale de los datos: (a) la compra del año proyectada —que es flujo de caja y
+ya se puede presupuestar con el mecanismo de arriba—; (b) el costo de lo vendido por la ecuación
+contable, que exige presupuestar también el **inventario inicial y final**, y hoy no se presupuesta
+ninguno; (c) una meta de margen normativa, que el propio servicio descarta, con el argumento de arriba.
+
+⛔ **Y explicar los $104 M.** Hasta que compras y costo del fact se puedan conciliar en el mismo
+universo, cualquiera de las tres opciones se construiría sobre una brecha sin nombre.
+
+**Mientras tanto el resultado planeado se sigue DECLARANDO ausente**, que es lo correcto:
+`budget-result.service.ts` ya publica `costo_plan: available:false` con su razón, y no inventa un
+margen. La pestaña Ejercicio dejó de sumar la meta de ventas con el gasto en el mismo trabajo: el saldo pasó de 547,249,778 a 74,852,188 y la meta de ventas se publica aparte.
