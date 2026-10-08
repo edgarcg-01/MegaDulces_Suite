@@ -219,8 +219,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               @if (sel().size > 0) {
                 <div class="rq-lote" role="group" aria-label="Acciones en lote">
                   <span class="rq-lote-n">{{ sel().size }} marcada(s)</span>
-                  <button pButton type="button" class="p-button-sm" [disabled]="!canManage || busy()" (click)="lote('approve')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
-                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canManage || busy()" (click)="lote('reject')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+                  <button pButton type="button" class="p-button-sm" [disabled]="!canAutorizar || busy()" (click)="lote('approve')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canAutorizar || busy()" (click)="lote('reject')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarMarcas()"><span class="p-button-label">Quitar marcas</span></button>
                 </div>
               }
@@ -285,8 +285,8 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
               @if (sel().size > 0) {
                 <div class="rq-lote" role="group" aria-label="Acciones en lote">
                   <span class="rq-lote-n">{{ sel().size }} marcada(s)</span>
-                  <button pButton type="button" class="p-button-sm" [disabled]="!canManage || busy()" (click)="lote('approve')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
-                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canManage || busy()" (click)="lote('reject')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
+                  <button pButton type="button" class="p-button-sm" [disabled]="!canAutorizar || busy()" (click)="lote('approve')"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Aprobar</span></button>
+                  <button pButton type="button" class="p-button-sm p-button-outlined p-button-danger" [disabled]="!canAutorizar || busy()" (click)="lote('reject')"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span><span class="p-button-label">Rechazar</span></button>
                   <button pButton type="button" class="p-button-sm p-button-text" (click)="limpiarMarcas()"><span class="p-button-label">Quitar marcas</span></button>
                 </div>
               }
@@ -453,6 +453,13 @@ export class ComprasRequisicionesComponent implements OnInit {
    */
   private readonly perms = inject(PermissionsService);
   canManage = this.perms.isAdmin() || this.perms.has(Permission.COMPRAS_REQUISICIONES_GESTIONAR);
+  /**
+   * `[RQ.12]` Autorizar (aprobar / rechazar) es una facultad APARTE de gestionar, y no vive en
+   * ningún rol: se reparte por persona. Sin esto los botones seguirían encendidos para las 29
+   * personas con `GESTIONAR` y el servidor les devolvería 403 — **un botón que se pinta y no
+   * sirve es peor que uno ausente**, que es el defecto que `[CG.22]` ya pagó en esta suite.
+   */
+  canAutorizar = this.perms.isAdmin() || this.perms.has(Permission.COMPRAS_REQUISICIONES_AUTORIZAR);
 
   estadoOpts = [
     { label: 'Pendiente de aprobar', value: 'pending_approval' },
