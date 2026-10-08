@@ -501,7 +501,18 @@ export class ComercialInventoryAbcComponent {
     return 'secondary';
   }
 
-  abrirDetalle(it: CountSelectionItem) {
+  /**
+   * ⚠️ El parámetro es la UNIÓN que PrimeNG declara, no `CountSelectionItem` a secas:
+   * `TableRowSelectEvent.data` es `T | T[] | undefined` porque `[(selection)]` admite single y
+   * múltiple, y el compilador de plantillas lo exige aunque acá `selectionMode` sea `single`.
+   *
+   * Se **estrecha con una guarda**, no con un cast: un `as` habría compilado y, el día que
+   * alguien cambie el modo a múltiple, la ficha mostraría el porqué de un arreglo — o sea
+   * `undefined` en cada campo, que en pantalla se lee como «este producto no tiene historia».
+   */
+  abrirDetalle(data: CountSelectionItem | CountSelectionItem[] | undefined) {
+    const it = Array.isArray(data) ? data[0] : data;
+    if (!it) { this.detalleDe.set(null); this.detalle.set(null); return; }
     this.detalleDe.set(it);
     this.detalle.set(null);
     const wh = this.whParam();
