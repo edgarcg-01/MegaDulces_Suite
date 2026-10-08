@@ -433,6 +433,47 @@ export interface RouteCountSheetLine {
   barcode: string | null;
 }
 
+/**
+ * `[RD.48]` Un renglón del desglose de UN día: qué producto entró o salió del camión.
+ *
+ * ⚠️ `costo` y `precio` salen del **mismo resolvedor que la serie** (`mv_rd_route_unit_value`),
+ * no de `costo_doc`/`venta_doc` del ledger. Es la condición para que las dos tablas sumen
+ * exactamente lo que dice la fila del día: un desglose que no cuadra con su total no explica
+ * nada, confunde.
+ */
+export interface RouteDayLine {
+  clase: 'carga' | 'venta';
+  sku: string;
+  unidad: string;
+  producto: string;
+  qty: number;
+  /** Valuado con el resolvedor. `null` cuando no hay con qué valuarlo — **nunca 0**. */
+  costo: number | null;
+  precio: number | null;
+  /** Lo que el DOCUMENTO declaró. Viaja aparte para poder contrastar, no para sumarse. */
+  costo_doc: number | null;
+  venta_doc: number | null;
+}
+
+/** `[RD.48]` El día abierto: lo que se le cargó y lo que vendió, en dos listas. */
+export interface RouteDayBreakdown {
+  route_no: string;
+  fecha: string;
+  cargado: RouteDayLine[];
+  vendido: RouteDayLine[];
+  /**
+   * Los totales del día **en las dos valuaciones**, calculados por el servidor con el mismo
+   * resolvedor que la serie. La pantalla los contrasta contra la fila que el usuario tocó: si
+   * no coinciden, el drill-down lo DICE en vez de dibujar dos tablas que no suman.
+   */
+  carga_costo: number; carga_precio: number;
+  venta_costo: number; venta_precio: number;
+  /** Renglones que se muestran con el SKU pelado porque el catálogo no les da nombre. */
+  sin_nombre: number;
+  /** Renglones sin valuación posible, que por eso no entran en los totales de arriba. */
+  sin_valuar: number;
+}
+
 /** `[RD.45]` La hoja completa de una ruta, lista para recorrer renglón por renglón. */
 export interface RouteCountSheet extends RouteCountSheetRow {
   lines: RouteCountSheetLine[];
@@ -9271,6 +9312,82 @@ export class CommercialAnalyticsService {
     )).rows as RouteCountSheetLine[]);
 
     return { ...cab, lines, hoy: this.todayMx() };
+  }
+
+  /**
+   * `[RD.48]` **Abrir un día de la comparativa: qué se le cargó y qué vendió, producto por producto.**
+   *
+   * La pestaña «Movimiento» dice por día cuánto entró y cuánto salió. Lo que no decía es **qué**,
+   * y esa es la pregunta que sigue siempre: un día con $24,000 de carga y $26,000 de venta no
+   * se explica solo.
+   *
+   * ⭐ **Las dos listas se valúan con el MISMO resolvedor que la serie** (`mv_rd_route_unit_value`),
+   * no con `costo_doc`/`venta_doc` del ledger. Es lo que hace que el desglose **sume exactamente**
+   * lo que dice la fila que el usuario tocó. Si cada uno usara su fuente, el drill-down abriría
+   * un total de $24,058 y mostraría renglones que suman otra cosa — y el defecto se leería como
+   * un error del dato, no de la pantalla. Esta fase ya pagó una vez por tener dos fuentes acá
+   * (la serie derivaba el costo mientras el resumen leía el resolvedor).
+   *
+   * ⚠️ Lo que el DOCUMENTO declaró viaja aparte (`costo_doc`, `venta_doc`) para poder contrastar.
+   * No se suma con lo otro: son dos mediciones del mismo hecho, no dos pedazos de una.
+   *
+   * Medido contra prod el 2026-10-07: el día más grande de la flota (ruta 502, 31-ago, 312
+   * renglones entre las dos clases) se sirve en **72 ms en frío y 16 ms en caliente**.
+   */
+  async routeDayBreakdown(routeNo: string, fecha: string): Promise<RouteDayBreakdown> {
+    const ruta = this.routeNoValido(routeNo);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha ?? '')) {
+      throw new BadRequestException('fecha debe ser YYYY-MM-DD');
+    }
+    const tenantId = this.tenantCtx.requireTenantId();
+
+    const filas = await this.tk.run(async (trx) => (await trx.raw(
+      // Sin btrim(p.sku): medido el 2026-10-07, 0 de los 11,301 SKUs del catalogo traen
+      // espacios, y envolverlo anula products_tenant_sku_unique (3.1 s por consulta).
+      `WITH u AS (
+         SELECT sku, unidad, costo_u, precio_u
+           FROM analytics.mv_rd_route_unit_value
+          WHERE tenant_id = ? AND route_no = ?
+       )
+       SELECT l.clase,
+              l.sku,
+              l.unidad,
+              coalesce(nullif(btrim(p.description),''), l.sku) AS producto,
+              round(sum(l.qty),3)::float                       AS qty,
+              round(sum(l.qty * u.costo_u),2)::float           AS costo,
+              round(sum(l.qty * u.precio_u),2)::float          AS precio,
+              round(sum(l.costo_doc),2)::float                 AS costo_doc,
+              round(sum(l.venta_doc),2)::float                 AS venta_doc
+         FROM analytics.mv_rd_route_ledger l
+         LEFT JOIN u ON u.sku = l.sku AND u.unidad = l.unidad
+         LEFT JOIN catalog.products p
+           ON p.tenant_id = l.tenant_id AND p.sku = l.sku AND p.deleted_at IS NULL
+        WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date = ?
+          AND l.clase IN ('carga','venta')
+        GROUP BY 1,2,3,4
+        ORDER BY l.clase, abs(coalesce(sum(l.qty * u.costo_u),0)) DESC`,
+      [tenantId, ruta, tenantId, ruta, fecha],
+    )).rows as RouteDayLine[]);
+
+    const cargado = filas.filter((f) => f.clase === 'carga');
+    const vendido = filas.filter((f) => f.clase === 'venta');
+    const suma = (xs: RouteDayLine[], k: 'costo' | 'precio') =>
+      Math.round(xs.reduce((a, x) => a + (x[k] ?? 0), 0) * 100) / 100;
+
+    return {
+      route_no: ruta,
+      fecha,
+      cargado,
+      vendido,
+      carga_costo: suma(cargado, 'costo'),
+      carga_precio: suma(cargado, 'precio'),
+      venta_costo: suma(vendido, 'costo'),
+      venta_precio: suma(vendido, 'precio'),
+      // Se CUENTAN, no se esconden: la pantalla avisa cuántos renglones no tienen nombre y
+      // cuántos no entraron en el total porque no se pudieron valuar (ADR-056).
+      sin_nombre: filas.filter((f) => f.producto === f.sku).length,
+      sin_valuar: filas.filter((f) => f.costo === null).length,
+    };
   }
 
   /** `route_no` sale de un código canónico (`RUTA-23` -> `23`): acotado y validado en un solo lugar. */

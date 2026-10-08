@@ -1971,6 +1971,13 @@ export class ComercialService {
     });
   }
 
+  /** `[RD.48]` Un día de la comparativa, abierto: qué se le cargó y qué vendió. */
+  routeDayBreakdown(routeNo: string, fecha: string) {
+    return this.http.get<RouteDayBreakdown>(`${this.base}/analytics/route-inventory/day`, {
+      params: new HttpParams().set('route_no', routeNo).set('fecha', fecha),
+    });
+  }
+
   /**
    * `[RD.31]` Cierra el conteo. ⚠️ **RESETEA**: lo que no viaja en `lines` queda en CERO, así que
    * sólo se manda una hoja completa — la pantalla lo exige antes de habilitar el botón.
@@ -2715,6 +2722,37 @@ export interface RouteCountSheetLine {
   importe: number | null;
   /** Para SALTAR al renglon escaneandolo. No resuelve productos: ubica dentro de la hoja. */
   barcode: string | null;
+}
+
+/**
+ * `[RD.48]` Un renglon del desglose de un dia.
+ *
+ * ⚠️ `costo`/`precio` salen del MISMO resolvedor que la serie; `costo_doc`/`venta_doc` son lo
+ * que declaro el documento y viajan aparte para CONTRASTAR, nunca para sumarse con los otros.
+ */
+export interface RouteDayLine {
+  clase: 'carga' | 'venta';
+  sku: string;
+  unidad: string;
+  producto: string;
+  qty: number;
+  costo: number | null;
+  precio: number | null;
+  costo_doc: number | null;
+  venta_doc: number | null;
+}
+
+export interface RouteDayBreakdown {
+  route_no: string;
+  fecha: string;
+  cargado: RouteDayLine[];
+  vendido: RouteDayLine[];
+  carga_costo: number; carga_precio: number;
+  venta_costo: number; venta_precio: number;
+  /** Renglones que se muestran con el SKU pelado porque el catalogo no les da nombre. */
+  sin_nombre: number;
+  /** Renglones sin valuacion, que por eso NO entran en los totales. */
+  sin_valuar: number;
 }
 
 export interface RouteCountSheet extends RouteCountSheetRow {
