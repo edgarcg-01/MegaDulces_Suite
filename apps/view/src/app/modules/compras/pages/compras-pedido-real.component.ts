@@ -32,7 +32,7 @@ import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
   DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
-  InTransitOc, InTransitResponse, MonthlySalesResponse,
+  InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow,
 } from '../compras.service';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
@@ -41,7 +41,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ComprasFlujoComponent } from './compras-flujo.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
-type Mode = 'pedido' | 'muerto' | 'flujo';
+type Mode = 'pedido' | 'ciclo' | 'muerto' | 'flujo';
 type UType = 'comprar' | 'traspaso' | 'sobre';
 
 /** Renglón unificado de la vista consolidada por sucursal. */
@@ -863,6 +863,95 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
             </div>
           }
         </p-dialog>
+      } @else if (mode()==='ciclo') {
+        <!--
+          [RA-CICLO.1] EL CUÁNDO. La pantalla sabía decir *cuánto* pedir de cada producto y no
+          sabía decir *a quién le toca hoy* — que es la primera pregunta del comprador, y la que
+          ordena su día. El dato existía: commercial.replenishment_channel se recalcula cada
+          noche con la cadencia real y la próxima fecha por almacén×proveedor, y el endpoint
+          worklist lo publica desde RA-PRO.8.
+          ⛔ Lo que faltaba era una pantalla: su único consumidor (compras-que-toca.component.ts)
+          quedó huérfano cuando /compras/que-toca pasó a redirigir acá, y el endpoint acumuló
+          CERO llamadas en 90 días. Medido en prod el 2026-10-08: 472 de 737 canales de compra
+          activos estaban VENCIDOS, con 23 días de atraso medio y 70 el peor; de ellos cuelgan
+          3,598 pares SKU×almacén —787 ya agotados— y $11.77M de venta de 30 días.
+          No se recalcula nada acá: se LEE el mismo motor que alimenta el pedido.
+        -->
+        <app-metric-strip [items]="cicloKpi()" ariaLabel="Resumen del ciclo de reabasto" />
+        <div class="dt-scope">
+        <div class="pr-filters">
+          <app-segmented [options]="viaOpts" [value]="wlVia()" ariaLabel="Canal"
+                         (valueChange)="setWlVia($any($event))"></app-segmented>
+          <p-iconfield styleClass="pr-search">
+            <p-inputicon styleClass="pi pi-search" />
+            <input pInputText type="text" [(ngModel)]="wlSearch" (keyup.enter)="loadWorklist()" placeholder="Proveedor…" aria-label="Buscar proveedor" />
+          </p-iconfield>
+          <div class="pr-toolbar" role="toolbar" aria-label="Filtros del ciclo">
+            <button type="button" class="pr-chip" [attr.aria-pressed]="wlSoloVencidos()" [class.pr-chip-on]="wlSoloVencidos()"
+                    (click)="wlSoloVencidos.set(!wlSoloVencidos()); loadWorklist()"
+                    title="Sólo los canales cuya fecha de pedido ya pasó">Sólo vencidos</button>
+          </div>
+        </div>
+        @if (wlError()) {
+          <div class="pr-state pr-error">
+            <i class="pi pi-exclamation-triangle"></i>
+            <div><p>No se pudo cargar el ciclo de reabasto.</p>
+              <p-button type="button" label="Reintentar" icon="pi pi-refresh" styleClass="p-button-sm p-button-text" (click)="loadWorklist()"></p-button></div>
+          </div>
+        } @else {
+          <p-table [value]="wlRows()" [loading]="wlLoading()"
+                   [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                   styleClass="p-datatable-sm pr-table dt-stack" [tableStyle]="cicloTableStyle">
+            <ng-template #header>
+              <tr>
+                <th style="min-width:14rem">Proveedor</th>
+                <th style="width:9rem">Sucursal</th>
+                <th class="pr-r" title="Cada cuántos días entrega este proveedor en esta sucursal, derivado de sus entregas reales en Kepler.">Cadencia</th>
+                <th title="La última entrega registrada de este canal.">Última</th>
+                <th title="Cuándo toca el próximo pedido: última entrega + cadencia.">Próximo</th>
+                <th class="pr-r" title="Días que lleva pasada la fecha. Negativo = todavía no toca.">Atraso</th>
+                <th class="pr-r" title="SKUs de este proveedor en esta sucursal que ya están en o por debajo de su punto de reorden.">Bajo reorden</th>
+                <th class="pr-r pr-val" title="Lo que costaría llenar el ciclo completo de este canal, con la misma fórmula del Pedido.">Sugerido</th>
+                <th style="width:6rem"></th>
+              </tr>
+            </ng-template>
+            <ng-template #body let-r>
+              <tr [class.pr-wl-vencido]="(r.days_to_due ?? 0) < 0">
+                <td class="dt-id" role="cell">
+                  <div class="pr-prod">{{ r.supplier_name || '—' }}</div>
+                  @if (r.via === 'transfer' && r.source_warehouse_code) {
+                    <div class="pr-sku">baja desde {{ r.source_warehouse_code | sucursal }}</div>
+                  } @else if (r.lead_time_days != null) {
+                    <div class="pr-sku">tarda {{ r.lead_time_days }} d en surtir</div>
+                  }
+                </td>
+                <td role="cell" data-label="Sucursal">{{ r.warehouse_code | sucursal }}</td>
+                <td class="pr-r pr-muted dt-num" role="cell" data-label="Cadencia">{{ r.cadence_days != null ? (r.cadence_days | number:'1.0-0') + ' d' : '—' }}</td>
+                <td class="pr-muted" role="cell" data-label="Última entrega">{{ r.last_delivery_date ? (r.last_delivery_date | date:'dd/MM/yy') : '—' }}</td>
+                <td role="cell" data-label="Próximo pedido">{{ r.next_due_date ? (r.next_due_date | date:'dd/MM/yy') : '—' }}</td>
+                <td class="pr-r dt-num" role="cell" data-label="Atraso">
+                  <p-tag [value]="atrasoTxt(r)" [severity]="atrasoSev(r)" styleClass="pr-cov-tag" [title]="atrasoTitle(r)"></p-tag>
+                </td>
+                <td class="pr-r pr-muted dt-num" role="cell" data-label="Bajo reorden">{{ r.n_below | number:'1.0-0' }} <span class="pr-wl-de">de {{ r.n_skus | number:'1.0-0' }}</span></td>
+                <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Sugerido">{{ r.suggested_cost > 0 ? money(r.suggested_cost) : '—' }}</td>
+                <td role="cell">
+                  <p-button type="button" label="Armar" icon="pi pi-arrow-right" iconPos="right" styleClass="p-button-sm p-button-text"
+                            (click)="irAPedido(r)"
+                            [title]="'Abrir el Pedido con ' + (r.supplier_name || 'este proveedor') + ' y ' + r.warehouse_code + ' ya filtrados'"></p-button>
+                </td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="9" class="pr-empty">
+                <i class="pi pi-inbox"></i>
+                <p>{{ wlSoloVencidos() ? 'Ningún canal vencido.' : 'Sin ciclos de reabasto.' }}</p>
+                <span>{{ wlSoloVencidos() ? 'Todos los proveedores están al día con su cadencia.' : 'Un canal aparece cuando tiene cadencia derivada de sus entregas reales y recibió dentro de las últimas dos cadencias.' }}</span>
+              </td></tr>
+            </ng-template>
+          </p-table>
+          <p class="pr-foot">Un renglón por <strong>sucursal × proveedor</strong>, ordenado por la fecha que toca. La <strong>cadencia</strong> no se captura: sale de las entregas reales en Kepler. <strong>Sugerido</strong> es lo que costaría llenar ese ciclo completo — la misma fórmula del Pedido, así que el número de acá y el de allá coinciden. <em>«Armar» abre el Pedido con ese proveedor y esa sucursal ya puestos.</em></p>
+        }
+        </div>
       } @else if (mode()==='muerto') {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <!-- [UIM.2] Apilado por campos: las 7 columnas son campos de UN renglón muerto.
@@ -1095,6 +1184,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
        del input, no del spinner — y en esta pantalla onQtyKey las reasigna a moverse entre
        campos, con Alt+flecha para incrementar. */
     :host ::ng-deep .pr-cov-tag { font-variant-numeric: tabular-nums; }
+    /* RA-CICLO.1 — el renglon vencido se marca con un filo a la izquierda, no con fondo rojo:
+       con 472 de 737 vencidos un fondo pinta media tabla y deja de distinguir. El color NO es
+       la unica senal: la columna Atraso lleva su etiqueta con texto. */
+    .pr-wl-vencido td:first-child { box-shadow: inset 3px 0 0 var(--danger-fg, var(--action)); }
+    .pr-wl-de { color: var(--text-faint); font-size: var(--fs-xs); }
     .pr-empty { text-align: center; color: var(--text-muted); padding: 2rem 1rem; }
     .pr-empty i { font-size: 1.6rem /* glifo, no texto: la escala --fs-* es de TIPO y su tope util acá es 1.25rem */; display: block; margin-bottom: .5rem; color: var(--text-faint); }
     .pr-empty p { margin: 0 0 .25rem; font-weight: 600; color: var(--text-main); }
@@ -2845,6 +2939,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   // Ref ESTABLE (no objeto literal en el template → evita ExpressionChanged/loop de CD).
   readonly tableStyle = { 'min-width': '78rem' };
   readonly deadTableStyle = { 'min-width': '60rem' };
+  readonly cicloTableStyle = { 'min-width': '62rem' };
   isExpanded(code: string): boolean { return !!this.expandedGroups()[code]; }
   toggle(code: string): void { this.expandedGroups.update((m) => ({ ...m, [code]: !m[code] })); }
   expandAll(): void { const e: Record<string, boolean> = {}; this.subs().forEach((_g, code) => (e[code] = true)); this.expandedGroups.set(e); }
@@ -2894,6 +2989,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (qWh) this.wbWarehouses = qWh.split(',').map((c) => c.trim()).filter(Boolean);
     if (this.mode() === 'muerto') this.loadDead();
     else if (this.mode() === 'pedido') this.loadWorkbook();
+    else if (this.mode() === 'ciclo') this.loadWorklist();
     // (2026-09-14) Acá vivía un setInterval de 60s que refrescaba la etiqueta "hace N min" a mano.
     // `app-freshness-pill` trae el suyo (15s, limpiado en su propio DestroyRef), así que éste
     // quedó sin consumidor y se retira: un timer por minuto que no pinta nada es trabajo puro.
@@ -2938,6 +3034,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     this.mode.set(m);
     if (m === 'muerto') this.loadDead();
     else if (m === 'pedido') this.loadWorkbook();
+    else if (m === 'ciclo') this.loadWorklist();
     // 'flujo' se carga solo (su componente).
   }
 
@@ -3099,7 +3196,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   ];
   /** Vista. Era un role="tablist" sin tabpanel; ahora radiogroup con teclado. */
   readonly modeOpts: SegOption[] = [
-    { label: 'Pedido', value: 'pedido' }, { label: 'Stock muerto', value: 'muerto' }, { label: 'Flujo', value: 'flujo' },
+    { label: 'Ciclo', value: 'ciclo' }, { label: 'Pedido', value: 'pedido' }, { label: 'Stock muerto', value: 'muerto' }, { label: 'Flujo', value: 'flujo' },
   ];
 
   /** Valor por default de la cobertura — el mismo que arranca `coverage`. */
@@ -3360,6 +3457,105 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         if (gen !== this.reqGen) return;
         this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); this.loadedAt.set(Date.now());
       });
+  }
+
+  // ── `[RA-CICLO.1]` EL CUÁNDO: a quién le toca pedir hoy ──────────────────────────────────
+  /**
+   * El ciclo NO se recalcula acá. `commercial.replenishment_channel` lo deriva el nocturno de las
+   * entregas reales de Kepler, y `worklist` lo publica desde RA-PRO.8 con el MISMO `cadenceTarget()`
+   * que alimenta el Pedido — por eso el "Sugerido" de esta tabla y el de la otra coinciden en vez
+   * de ser dos fórmulas que se parecen.
+   */
+  readonly wlRows = signal<WorklistRow[]>([]);
+  readonly wlLoading = signal(false);
+  /** ⚠️ Separado de `wlRows().length === 0`: "no pude leer" y "no hay canales" son dos cosas, y
+   *  pintarlas iguales deja al comprador creyendo que está al día cuando lo que pasó fue un 500. */
+  readonly wlError = signal(false);
+  readonly wlVia = signal<'purchase' | 'transfer'>('purchase');
+  readonly wlSoloVencidos = signal(false);
+  wlSearch = '';
+  private readonly wlKpiRaw = signal<{ total: number; vencidos: number; hoy: number; prox7: number } | null>(null);
+
+  readonly viaOpts: SegOption[] = [
+    { label: 'Compra', value: 'purchase' }, { label: 'Traspaso', value: 'transfer' },
+  ];
+  setWlVia(v: 'purchase' | 'transfer'): void { if (this.wlVia() === v) return; this.wlVia.set(v); this.loadWorklist(); }
+
+  /**
+   * Los tres números con los que arranca el día. Mientras no se haya podido leer se DECLARAN sin
+   * medir (ADR-056): un `0 vencidos` dibujado sobre una consulta que falló dice exactamente lo
+   * contrario de lo que pasa.
+   */
+  readonly cicloKpi = computed<MetricStripItem[]>(() => {
+    const k = this.wlKpiRaw();
+    if (!k) {
+      const sm = { label: '', value: '—', format: 'text' as const, sub: 'sin medir' };
+      return [{ ...sm, label: 'Vencidos' }, { ...sm, label: 'Toca hoy' }, { ...sm, label: 'Próximos 7 días' }, { ...sm, label: 'Canales activos' }];
+    }
+    return [
+      { label: 'Vencidos', value: k.vencidos, tone: k.vencidos > 0 ? 'bad' : 'ok', sub: 'la fecha ya pasó' },
+      { label: 'Toca hoy', value: k.hoy, tone: k.hoy > 0 ? 'warn' : 'default', sub: 'pedir hoy' },
+      { label: 'Próximos 7 días', value: k.prox7, sub: 'se vienen' },
+      { label: 'Canales activos', value: k.total, tone: 'muted', sub: this.wlVia() === 'purchase' ? 'sucursal × proveedor' : 'bajadas desde CEDIS' },
+    ];
+  });
+
+  loadWorklist(): void {
+    const gen = ++this.reqGen;
+    this.wlLoading.set(true); this.wlError.set(false); this.saveFilters();
+    this.api.worklist({
+      via: this.wlVia(),
+      status: this.wlSoloVencidos() ? 'due' : undefined,
+      search: this.wlSearch.trim() || undefined,
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined,
+      pageSize: 500,
+    }).pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        if (gen !== this.reqGen) return;
+        this.wlLoading.set(false);
+        if (!r) { this.wlError.set(true); this.wlRows.set([]); this.wlKpiRaw.set(null); return; }
+        this.wlRows.set(r.rows ?? []);
+        this.wlKpiRaw.set({ total: Number(r.total) || 0, vencidos: Number(r.vencidos) || 0, hoy: Number(r.hoy) || 0, prox7: Number(r.prox7) || 0 });
+        this.loadedAt.set(Date.now());
+      });
+  }
+
+  /** `days_to_due` viene del servidor: <0 vencido · 0 hoy · >0 falta. */
+  atrasoTxt(r: WorklistRow): string {
+    const d = r.days_to_due;
+    if (d == null) return 'sin fecha';
+    if (d < 0) return `${-d} d tarde`;
+    if (d === 0) return 'hoy';
+    return `en ${d} d`;
+  }
+  atrasoSev(r: WorklistRow): Sev {
+    const d = r.days_to_due;
+    if (d == null) return 'secondary';
+    if (d < 0) return 'danger';
+    if (d === 0) return 'warn';
+    return d <= 7 ? 'info' : 'secondary';
+  }
+  atrasoTitle(r: WorklistRow): string {
+    if (r.days_to_due == null) return 'Este canal no tiene fecha de próximo pedido: le falta cadencia derivada de sus entregas.';
+    const base = r.cadence_days != null && r.last_delivery_date
+      ? `Última entrega ${r.last_delivery_date.split('-').reverse().join('/')} + cadencia ${r.cadence_days} d.`
+      : 'Fecha derivada de la cadencia del canal.';
+    const lead = r.lead_time_days != null
+      ? ` El proveedor tarda ${r.lead_time_days} d en surtir, así que pedir hoy llega en ~${r.lead_time_days} d.`
+      : '';
+    return base + lead;
+  }
+
+  /**
+   * El puente entre el CUÁNDO y el CUÁNTO: deja el Pedido abierto con ese proveedor y esa sucursal
+   * ya filtrados. Sin esto el comprador leería la fecha acá y tendría que volver a buscar al
+   * proveedor a mano en la otra pestaña, que es justo la fricción que hizo que nadie usara la
+   * pantalla anterior.
+   */
+  irAPedido(r: WorklistRow): void {
+    this.fSupplier = r.supplier_id || null;
+    if (r.warehouse_id) this.wbWarehouses = [r.warehouse_id];
+    this.setMode('pedido');
   }
 
   /** RA-PRO.33 — XLSX del stock muerto (capital inmovilizado). */

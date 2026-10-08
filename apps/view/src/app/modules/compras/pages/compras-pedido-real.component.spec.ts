@@ -1,7 +1,7 @@
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import type { Freshness } from '@megadulces/contracts';
 
 import { ComprasPedidoRealComponent } from './compras-pedido-real.component';
@@ -45,7 +45,21 @@ const FRESCO: Freshness = {
   }],
 };
 
-function montar(workbook: Record<string, unknown>) {
+/** `[RA-CICLO.1]` Un canal de reabasto, con lo mínimo que la pantalla lee de él. */
+function canal(p: Partial<Record<string, unknown>> = {}) {
+  return {
+    warehouse_id: 'w-01', warehouse_code: '01', warehouse_name: 'Padre Hidalgo',
+    supplier_id: 's-1', supplier_name: 'DULCES DEMO', via: 'purchase',
+    source_warehouse_id: null, source_warehouse_code: null,
+    cadence_days: 15, health_band: null,
+    last_delivery_date: '2026-09-01', next_due_date: '2026-09-16',
+    days_to_due: -22, lead_time_days: 4,
+    n_skus: 40, n_below: 12, suggested_qty: 300, suggested_cost: 125000,
+    ...p,
+  };
+}
+
+function montar(workbook: Record<string, unknown>, worklist?: unknown) {
   const api = {
     filters: () => of(FILTROS),
     workbook: () => of(workbook),
@@ -53,6 +67,9 @@ function montar(workbook: Record<string, unknown>) {
     transferSuggestion: () => of({ rows: [] }),
     overstock: () => of({ rows: [] }),
     deadStock: () => of({ rows: [], total_value: 0 }),
+    worklist: () => (worklist === 'error'
+      ? throwError(() => new Error('500'))
+      : of(worklist ?? { total: 0, vencidos: 0, hoy: 0, prox7: 0, page: 1, pageSize: 500, rows: [] })),
   };
   TestBed.resetTestingModule();
   TestBed.configureTestingModule({
@@ -112,6 +129,63 @@ describe('[RA-PERF.6] el guard de recursión existe y no se dispara en uso norma
     expect(c.money(null)).toContain('0');
     expect(c.money(undefined)).toContain('0');
     expect(c.money('no-es-un-numero')).toContain('0');
+  });
+});
+
+describe('[RA-CICLO.1] el CUÁNDO: a quién le toca pedir, y qué pasa cuando no se puede medir', () => {
+  it('⛔ antes de leer nada, el tablero NO dice «0 vencidos»: dice sin medir', () => {
+    const c = montar(VACIO).componentInstance;
+    // Arranca en modo 'pedido', así que el ciclo todavía no se consultó. Dibujar un 0 acá sería
+    // exactamente el `cfg ? classify : 'ok'` que la Fase VP midió dando verde incondicional:
+    // el comprador leería «nadie está vencido» cuando lo que pasa es que nadie preguntó.
+    expect(c.cicloKpi().every((k) => k.value === '—')).toBe(true);
+    expect(c.cicloKpi()[0].label).toBe('Vencidos');
+  });
+
+  it('⛔ si la consulta FALLA, sigue sin medir y lo declara — no cae a cero', () => {
+    const c = montar(VACIO, 'error').componentInstance;
+    c.setMode('ciclo');
+    expect(c.wlError()).toBe(true);
+    expect(c.wlRows().length).toBe(0);
+    expect(c.cicloKpi()[0].value).toBe('—');
+  });
+
+  it('con datos reales cuenta los vencidos y los marca mal, no los deja en neutro', () => {
+    const c = montar(VACIO, { total: 737, vencidos: 472, hoy: 31, prox7: 90, page: 1, pageSize: 500, rows: [canal()] }).componentInstance;
+    c.setMode('ciclo');
+    expect(c.wlError()).toBe(false);
+    expect(c.wlRows().length).toBe(1);
+    const k = c.cicloKpi();
+    expect(k[0].value).toBe(472);
+    expect(k[0].tone).toBe('bad');
+    expect(k[3].value).toBe(737);
+  });
+
+  it('cero vencidos SÍ es un cero legítimo y se pinta bien — la ausencia medida no es la no medida', () => {
+    const c = montar(VACIO, { total: 10, vencidos: 0, hoy: 0, prox7: 4, page: 1, pageSize: 500, rows: [] }).componentInstance;
+    c.setMode('ciclo');
+    expect(c.cicloKpi()[0].value).toBe(0);
+    expect(c.cicloKpi()[0].tone).toBe('ok');
+  });
+
+  it('el atraso distingue las cuatro situaciones, y «sin fecha» no se disfraza de al día', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.atrasoTxt(canal({ days_to_due: -22 }))).toBe('22 d tarde');
+    expect(c.atrasoSev(canal({ days_to_due: -22 }))).toBe('danger');
+    expect(c.atrasoTxt(canal({ days_to_due: 0 }))).toBe('hoy');
+    expect(c.atrasoSev(canal({ days_to_due: 0 }))).toBe('warn');
+    expect(c.atrasoTxt(canal({ days_to_due: 5 }))).toBe('en 5 d');
+    expect(c.atrasoTxt(canal({ days_to_due: null }))).toBe('sin fecha');
+    expect(c.atrasoSev(canal({ days_to_due: null }))).toBe('secondary');
+  });
+
+  it('«Armar» deja el proveedor y la sucursal puestos en el Pedido — ése es el puente', () => {
+    const c = montar(VACIO, { total: 1, vencidos: 1, hoy: 0, prox7: 0, page: 1, pageSize: 500, rows: [canal()] }).componentInstance;
+    c.setMode('ciclo');
+    c.irAPedido(canal());
+    expect(c.fSupplier).toBe('s-1');
+    expect(c.wbWarehouses).toEqual(['w-01']);
+    expect(c.mode()).toBe('pedido');
   });
 });
 
