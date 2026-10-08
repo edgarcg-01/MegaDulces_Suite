@@ -505,17 +505,53 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toContain(FILA_A.folio);
   });
 
-  it('⛔ [negativa] el botón de capturar pierde el rótulo VISIBLE, no el accesible', async () => {
-    // Pasó a icono para devolverle ~5rem de ancho a la contraparte. Un icono sin nombre
-    // accesible es un botón que un lector de pantalla anuncia como "botón" y nada más.
+  // ── [CG.63] La FILA es el botón ──────────────────────────────────────────────────────────
+  //
+  // Edgar: *"no le estás dando visibilidad, además lo especificás como si fuera algo secundario,
+  // es el botón principal de la interacción. me gustaría que al darle clic a todo el movimiento
+  // se despliegue el menú"*. `[CG.61]` había pasado la salida a un icono de 2rem en el borde
+  // derecho — y pintarlo más fuerte no lo iba a convertir en el control principal de un renglón.
+
+  it('⛔ [negativa] NO queda un botón por fila: la fila entera abre el movimiento', async () => {
     const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     await Promise.resolve();
     fx.detectChanges();
 
-    const boton: HTMLElement = fx.nativeElement
-      .querySelector('.cg-bandeja-tbl tbody tr .cg-td-abrir button');
-    expect(boton, 'se fue la salida a la captura a mano').not.toBeNull();
-    expect(boton.getAttribute('aria-label') ?? '').toContain(FILA_A.folio);
+    expect(
+      fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody tr button').length,
+      'volvió un botón por fila: la acción principal no puede ser un control de 2rem al borde',
+    ).toBe(0);
+
+    // La tabla selecciona DE A UNA, y seleccionar significa abrir. Con selección múltiple el
+    // clic volvería a marcar para el lote, que es justo lo que se cambió.
+    const tabla: HTMLElement = fx.nativeElement.querySelector('.cg-bandeja-tbl');
+    expect(tabla.getAttribute('selectionmode') ?? tabla.getAttribute('selectionMode'))
+      .not.toBe('multiple');
+
+    // Y la fila DICE que abre, antes del clic: el galón que apunta a dónde va.
+    const fila: HTMLElement = fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    expect(fila.querySelector('.cg-td-abrir .pi-chevron-right'), 'la fila no anuncia que abre')
+      .not.toBeNull();
+  });
+
+  it('abrir desde la cola marca la fila como ABIERTA, que no es lo mismo que marcada', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    comp.abrirDeLaCola(FILA_A);
+    fx.detectChanges();
+
+    const filas = Array.from(
+      fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody tr'),
+    ) as HTMLElement[];
+    const abierta = filas.filter((f) => f.classList.contains('cg-fila-abierta'));
+    expect(abierta.length, 'una y sólo una fila abierta').toBe(1);
+
+    // ⚠️ ABIERTA y MARCADA son dos hechos distintos y no se pueden pintar igual: una es «en esto
+    // estoy trabajando», la otra «esto entra al lote». Abrir no marca.
+    expect(abierta[0].classList.contains('cg-fila-marcada')).toBe(false);
+    expect(comp.marcadas()).toEqual([]);
   });
 
   // ── [CG.62] Guardar baja al pie del arqueo, y pregunta antes ──────────────────────────────
@@ -1037,25 +1073,50 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // dice CUÁNTAS son, que es lo que la casilla nunca pudo decir. Lo cubre la prueba de «Marcar
   // las N»; acá queda la nota para que nadie reponga un encabezado de una columna que ya no es.
 
-  it('marcar con el teclado NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
-    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
-    // Lo que emite p-table al marcar con Space sobre una fila trabada.
-    comp.onSeleccionTabla([GASTO_TRABADO]);
+  it('⛔ [negativa] marcar NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
+    // ⭐ [CG.63] Este freno vivía en `onSeleccionTabla`, el callback de la tabla — o sea atado a
+    // UN dispositivo de entrada. Al pasar el clic de marcar a abrir, ese callback desapareció y
+    // el freno se habría ido con él SIN QUE NADA SE PUSIERA ROJO: `marcarTodas` filtra por su
+    // cuenta, así que la suite seguía verde con el agujero abierto en el camino de a una.
+    // Ahora se le pregunta al método que marca, que es donde el invariante pertenece.
+    // ⚠️ La cola trae las DOS: la trabada y una confirmable. Con sólo la trabada, el freno y un
+    // «marcar nunca marca nada» se verían idénticos — y un control de placebo se vuelve a pasar.
+    montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...CON_DOS, rows: [GASTO_TRABADO, FILA_A], confirmables: 1,
+      })),
+    });
+    comp.marcar(GASTO_TRABADO.origen_ref, true);
     expect(comp.marcadas()).toEqual([]);
+
+    // Y la positiva, para que el freno no sea «nunca marca nada»: la confirmable sí entra.
+    comp.marcar(FILA_A.origen_ref, true);
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
   });
 
   it('la selección de la tabla y la señal son UNA sola verdad, en los dos sentidos', () => {
+    // ⭐ [CG.63] Lo que la tabla selecciona cambió de significado — era «marcado para el lote» y
+    // ahora es «el movimiento en el que estoy trabajando» — pero la regla NO cambió: PrimeNG
+    // entra como dispositivo de entrada, nunca como segundo dueño del dato.
     montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
 
-    // De la tabla a la señal.
-    comp.onSeleccionTabla([FILA_A]);
-    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
-    // Y de la señal a la tabla: `filasMarcadas` es una proyección, no un segundo estado.
-    expect(comp.filasMarcadas().map((f) => f.origen_ref)).toEqual([FILA_A.origen_ref]);
+    // De la tabla a la señal: seleccionar una fila ABRE ese movimiento.
+    comp.abrirDeLaCola(FILA_A);
+    expect(comp.capturaAbierta()).toBe(true);
+    expect(comp.cobroElegido()?.origen_ref).toBe(FILA_A.origen_ref);
 
-    comp.marcar(FILA_B.origen_ref, true);
-    expect(comp.filasMarcadas().map((f) => f.origen_ref).sort())
-      .toEqual([FILA_A.origen_ref, FILA_B.origen_ref].sort());
+    // Y de la señal a la tabla: `filaEnCaptura` es una proyección de `cobroElegido`, no un
+    // segundo estado que haya que mantener sincronizado a mano.
+    expect(comp.filaEnCaptura()?.origen_ref).toBe(FILA_A.origen_ref);
+
+    comp.abrirDeLaCola(FILA_B);
+    expect(comp.filaEnCaptura()?.origen_ref).toBe(FILA_B.origen_ref);
+
+    // ⛔ Y volver a tocar la fila abierta emite null: eso NO cierra la captura. Cerrar es una
+    // acción propia (Cancelar), no el efecto de tocar dos veces lo mismo.
+    comp.abrirDeLaCola(null);
+    expect(comp.capturaAbierta()).toBe(true);
+    expect(comp.filaEnCaptura()?.origen_ref).toBe(FILA_B.origen_ref);
   });
 
   // ── [CG.52] El movimiento entra ENTERO: el ancho sigue a la tarea ─────────────────────────

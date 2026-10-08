@@ -296,6 +296,32 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-ap-cuerpo > .cg-bandeja { border:0; border-radius:0; padding:0; margin:var(--sp-3) 0 0;
                                   border-top:1px solid var(--border-color); padding-top:var(--sp-3); }
     .cg-detail { display:flex; flex-direction:column; gap:var(--sp-3); }
+    /* El envoltorio que el @if inserta: hereda el reparto vertical de .cg-detail, o al meterlo
+       en el medio el gap entre ficha, formulario y pie se perderia. */
+    .cg-cap { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
+
+    /* ⭐ [CG.63] LA ENTRADA DE LA CAPTURA. Reportado por Edgar: "al abrir no hace una animacion
+       fluida". Hasta aca los dos apartados cambiaban de golpe -- el vacio desaparecia y el
+       formulario aparecia en el mismo fotograma, sin nada que ligara el clic con el resultado.
+
+       Las dos mitades entran como UN gesto: la ficha primero y el arqueo 60ms despues. El
+       escalonado no es adorno, es el orden de lectura que esta pantalla ya declara (1 que vas a
+       arquear, 2 el arqueo) hecho visible una vez.
+
+       ⛔ Solo transform + opacity (DESIGN 8 / §Motion): nada de width/height/margin, que disparan
+       layout y que check:motion rechaza. 250ms = --dur-standard, bien debajo del techo de 350. */
+    @keyframes cgEntra {
+      from { opacity:0; transform:translateY(6px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .cg-entra      { animation:cgEntra var(--dur-standard) var(--ease-decelerate) both; }
+    .cg-entra-tras { animation-delay:60ms; }
+    /* ⚠️ Quien pide menos movimiento NO recibe una version mas lenta: recibe NINGUNA. El contenido
+       tiene que quedar visible igual, asi que se anula la animacion entera y no solo su duracion
+       -- con animation-duration en 0s y fill both el elemento se queda en el fotograma inicial. */
+    @media (prefers-reduced-motion: reduce) {
+      .cg-entra { animation:none; }
+    }
     .cg-detail-pie { display:flex; align-items:center; justify-content:flex-end; gap:var(--sp-2);
                      padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
     /* ⭐ [CG.62] El pie del ARQUEO queda pegado abajo. No es adorno: con el cambio devuelto
@@ -395,7 +421,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⭐ [CG.61] LA COLA, COMPACTA. Con la cola dentro del apartado 1 la tabla tiene MEDIA
        pantalla: la contraparte es la que cede, porque es la unica de ancho libre. El nombre se
        corta con puntos suspensivos y el documento baja a una segunda linea chica. */
-    .cg-th-abrir, .cg-td-abrir { width:2.5rem; text-align:center; padding:0; }
+    /* ⛔ [CG.63] Y ACA [CG.61] SE PASO DE ROSCA. Reportado por Edgar: "el boton de capturar se ve
+       muy poco". Al pasarlo a icono le puse ademas [text]=true, que en PrimeNG es SIN fondo y SIN
+       borde: en una tabla densa eso no se lee como un boton, se lee como un glifo suelto. El
+       ancho que habia que recuperar eran los ~5rem del rotulo, no la affordance.
+       Queda delineado (ver la plantilla) y la celda le da aire para que el borde no se recorte. */
+    .cg-th-abrir, .cg-td-abrir { width:2.75rem; text-align:center; padding:0 var(--sp-1); }
     .cg-fila-nom { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .cg-fila-doc { color:var(--text-faint); font-size:var(--fs-nano); }
     /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
@@ -408,6 +439,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        Se usa --action-ring, que ES el translúcido de esta familia, y la barra sólida al borde. */
     .cg-fila-marcada > td, .cg-fila-marcada > th { background:var(--action-ring); }
     .cg-fila-marcada > td:first-child { box-shadow:inset 3px 0 0 0 var(--action); }
+    /* ⭐⭐ [CG.63] LA FILA ES EL BOTON. Edgar: "es el boton principal de la interaccion... al
+       darle clic a todo el movimiento se despliegue el menu". Un renglon que abre algo tiene que
+       DECIRLO antes del clic, y eso son tres cosas: el cursor, el fondo al pasar por encima, y el
+       galon que apunta a donde va. Sin las tres, un renglon clicable se descubre por accidente. */
+    .cg-bandeja-tbl tbody tr { cursor:pointer; }
+    .cg-bandeja-tbl tbody tr:hover > td { background:var(--surface-2); }
+    .cg-td-abrir > i { color:var(--text-faint); font-size:var(--fs-xs); }
+    .cg-bandeja-tbl tbody tr:hover .cg-td-abrir > i { color:var(--action); }
+    /* ⚠️ ABIERTA y MARCADA son DOS cosas distintas y no se pueden pintar igual: una es "en esto
+       estoy trabajando" y la otra "esto entra al lote". El galon en --action y el borde dicen
+       cual esta abierta; el fondo y la barra izquierda, cual esta marcada. */
+    .cg-fila-abierta > td { box-shadow:inset 0 -1px 0 0 var(--action), inset 0 1px 0 0 var(--action); }
+    .cg-fila-abierta .cg-td-abrir > i { color:var(--action); transform:translateX(2px); }
 
     /* [CG.53] La reja en dos columnas y el numero grande. Una caja con borde y SIN sombra -- in-page
        es una de las dos, nunca las dos. */
@@ -1208,6 +1252,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                  esta esperando y ofrece la captura desde cero. -->
             <div class="cg-detail" [class.cg-detail-vacio]="!capturaAbierta()">
           @if (capturaAbierta()) {
+            <div class="cg-cap cg-entra">
             <!-- ⭐ [CG.60] LA FICHA. El tablero la pone primero y grande, y tiene razon: el
                  arqueo CONTESTA una pregunta -- "cuanto dice el documento" -- y hasta ahora esa
                  pregunta vivia en un renglon gris de 11px al lado del titulo del panel. Contar
@@ -1412,6 +1457,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <p-button label="Cancelar" severity="secondary" size="small" [text]="true"
                       (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
             </div>
+            </div>
           } @else {
             <!-- Vacio operacional: icono, titulo neutral, que hacer, y una accion real. -->
             <div class="cg-detail-nada">
@@ -1582,8 +1628,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                DISPOSITIVO DE ENTRADA, no como segundo dueno del estado. Por eso [selection] va de
                una via y (selectionChange) escribe en la senal. -->
           <p-table [value]="pendientes()" size="small" class="cg-bandeja-tbl" dataKey="origen_ref"
-                   selectionMode="multiple" [metaKeySelection]="false"
-                   [selection]="filasMarcadas()" (selectionChange)="onSeleccionTabla($event)">
+                   selectionMode="single" [metaKeySelection]="false"
+                   [selection]="filaEnCaptura()" (selectionChange)="abrirDeLaCola($event)">
             <ng-template #header>
               <tr>
                 <!-- ⛔ [CG.56] ACA VIVIA LA COLUMNA DE CASILLAS, y se retiro entera por decision de
@@ -1616,7 +1662,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </ng-template>
             <ng-template #body let-p>
                 <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p"
-                    [class.cg-fila-marcada]="estaMarcada(p.origen_ref)">
+                    [class.cg-fila-marcada]="estaMarcada(p.origen_ref)"
+                    [class.cg-fila-abierta]="p.origen_ref === cobroElegido()?.origen_ref">
                   <!-- [CG.56] La celda de la marca: una barra, no una casilla. Lo que se ve es el
                        ESTADO (marcada o no); el acto de marcar es la fila entera. -->
                   <td class="cg-td-marca">
@@ -1677,21 +1724,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     <small class="cg-fila-doc mono d-block">{{ p.doc_tipo }} {{ p.folio }}</small>
                   </td>
                   <td class="ta-r mono">{{ money(p.monto) }}</td>
-                  <td class="cg-td-abrir">
-                    <!-- La salida de una fila trabada, y desde [CG.48] tambien la de una fila
-                         que se conto DISTINTO: el lote espeja al ERP y no admite un importe
-                         propio, asi que contar distinto es abrir el documento y desglosarlo.
-                         Abre la ficha ANCLADA a este documento de Kepler.
-                         ⚠️ [CG.61] Pasa a icono y pierde el rotulo VISIBLE, no el accesible: el
-                         ariaLabel dice el documento entero. Un boton de texto por fila se comia
-                         ~5rem de una tabla que ahora tiene media pantalla, y el rotulo cambiaba
-                         entre "Abrir" y "Capturar" sin que esa diferencia significara nada
-                         distinto -- las dos abren la misma ficha sobre el mismo documento. -->
-                    <p-button icon="pi pi-pencil" size="small" severity="secondary" [text]="true" [rounded]="true"
-                              [ariaLabel]="'Capturar a mano ' + p.doc_tipo + ' ' + p.folio"
-                              [title]="'Capturar a mano ' + p.doc_tipo + ' ' + p.folio"
-                              (onClick)="capturarDesde(p)"></p-button>
-                  </td>
+                  <!-- ⭐ [CG.63] ACA VIVIA UN BOTON POR FILA, y se retira: la FILA es el boton.
+                       Edgar: "no le estas dando visibilidad, ademas lo especificas como si fuera
+                       algo secundario, es el boton principal de la interaccion. me gustaria que
+                       al darle clic a todo el movimiento se despliegue el menu".
+                       Tiene razon, y el arreglo NO era pintarlo mas fuerte: un boton de 2rem en
+                       el borde derecho no podia ser el control principal de un renglon entero.
+                       Queda el galon, que no es un boton -- es la senal de que esto abre. -->
+                  <td class="cg-td-abrir" aria-hidden="true"><i class="pi pi-chevron-right"></i></td>
                 </tr>
             </ng-template>
           </p-table>
@@ -1755,6 +1795,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
           <div class="cg-ap-cuerpo">
           @if (capturaAbierta()) {
+            <div class="cg-cap cg-entra cg-entra-tras">
 
               <!-- ⛔ CG.23 - EL ARQUEO, QUE ANTES ERA OPCIONAL Y PLEGADO.
                    Esto era un "details" rotulado "Desglose por denominacion (opcional)" y, arriba, un
@@ -2102,6 +2143,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                         (onClick)="pedirConfirmacion()"></p-button>
             </div>
 
+            </div>
           } @else {
             <!-- ⚠️ El vacio del arqueo NO repite el del apartado 1 ni ofrece su misma
                  accion: dice QUE FALTA para que esta mitad sirva. Dos vacios identicos uno al
@@ -2761,9 +2803,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * persiste el borrador, la que poda `podarSeleccion` y la que arma el lote. Dos dueños del mismo
    * estado es exactamente cómo una selección se desincroniza de lo que se confirma.
    */
-  filasMarcadas = computed(() => {
-    const s = this.seleccion();
-    return this.pendientes().filter((p) => s.has(p.origen_ref));
+  /**
+   * `[CG.63]` Qué fila está ABIERTA en la ficha. Reemplaza a `filasMarcadas`, que proyectaba el
+   * lote sobre la selección de la tabla: desde que el clic abre en vez de marcar, lo que la tabla
+   * selecciona es el movimiento en el que se está trabajando, no el lote.
+   *
+   * ⚠️ Sigue siendo una PROYECCIÓN, no un segundo estado: la verdad es `cobroElegido`. PrimeNG
+   * entra como dispositivo de entrada, nunca como segundo dueño del dato.
+   */
+  filaEnCaptura = computed(() => {
+    const ref = this.cobroElegido()?.origen_ref;
+    return ref ? (this.pendientes().find((x) => x.origen_ref === ref) ?? null) : null;
   });
 
   /**
@@ -2773,9 +2823,24 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * declarada iría al lote para que el servidor la rechace, y su casilla ya está deshabilitada.
    * Con el teclado no hay casilla que apagar, así que el freno tiene que estar acá.
    */
-  onSeleccionTabla(filas: readonly MovimientoPendiente[]): void {
-    this.seleccion.set(new Set((filas ?? []).filter((f) => f?.confirmable).map((f) => f.origen_ref)));
-    this.persistir();
+  /**
+   * `[CG.63]` El clic en la fila ABRE el movimiento. Antes marcaba para el lote.
+   *
+   * ⚠️ Y hay que decir lo que cuesta: marcar fila por fila CON EL MOUSE ya no existe. El lote se
+   * arma con "Marcar las N" de la barra: todas las confirmables del filtro, de un golpe.
+   *
+   * ⛔ Y se corrige una afirmación que escribí mal acá hace diez minutos: NO queda Space para
+   * marcar de a una. Con `selectionMode="single"`, Space sobre la fila hace lo MISMO que el clic
+   * — abre. Marcar de a una no existe por ningún camino. Si hiciera falta
+   * elegir a dedo con el mouse, hay que devolverle a la fila una casilla propia — que es
+   * justamente lo que `[CG.56]` retiró cuando el clic significaba marcar.
+   *
+   * ⚠️ Con `metaKeySelection=false`, volver a hacer clic en la fila abierta emite `null`. NO se
+   * cierra la captura por eso: cerrar es una acción propia (Cancelar), no el efecto de tocar dos
+   * veces lo mismo.
+   */
+  abrirDeLaCola(fila: MovimientoPendiente | null): void {
+    if (fila) this.capturarDesde(fila);
   }
 
   /**
@@ -4169,7 +4234,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   estaMarcada(ref: string): boolean { return this.seleccion().has(ref); }
 
+  /**
+   * ⭐ `[CG.63]` EL FRENO SE MUDÓ ACÁ, y es lo que hace que la mudanza no pierda un invariante.
+   *
+   * «Nunca marcar una fila que el servidor va a rechazar» vivía en `onSeleccionTabla`, el callback
+   * de la tabla — o sea atado a *un* dispositivo de entrada. Al pasar el clic de marcar a abrir,
+   * ese callback desapareció y el freno se habría ido con él **sin que nada se pusiera rojo**:
+   * `marcarTodas` filtra por su cuenta, así que la suite habría seguido verde con el agujero
+   * abierto en el camino de a una. Ahora lo verifica el método que marca, venga de donde venga.
+   *
+   * ⚠️ Se marca contra lo que la cola tiene A LA VISTA: una referencia que no está en `pendientes`
+   * no se puede confirmar, así que tampoco se marca. Fail-closed.
+   */
   marcar(ref: string, on: boolean): void {
+    if (on && !this.pendientes().some((p) => p.origen_ref === ref && p.confirmable)) return;
     const s = new Set(this.seleccion());
     if (on) s.add(ref); else s.delete(ref);
     this.seleccion.set(s);
