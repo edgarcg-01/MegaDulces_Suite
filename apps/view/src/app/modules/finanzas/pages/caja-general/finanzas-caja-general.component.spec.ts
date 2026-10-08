@@ -315,7 +315,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.pendientes().length).toBe(0);
 
     const html: string = fixture.nativeElement.innerHTML;
-    expect(html).toContain('Movimientos por confirmar');
+    expect(html).toContain('movimientos por confirmar');
 
     // ⛔ `[CG.51]` Esto decía "los tres p-select viven en el encabezado de la sección" y contaba
     // `p-select` de TODA la página — el tercero vivía en los filtros del libro, 300 líneas abajo.
@@ -799,7 +799,13 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // `@container (max-width:46rem)` las colapsa **siempre** — la condición de dos columnas no se
   // puede cumplir ahí. Apilado manda el orden del DOM, y en el DOM el arqueo venía último.
 
-  it('el ARQUEO va ANTES que la clasificación: contar es la tarea, clasificar viene después', async () => {
+  // ⭐ [CG.60] La afirmación SUBE de grado. Antes decía «el arqueo va antes que la clasificación
+  // EN EL DOM», que era lo único que se podía exigir mientras los dos vivían apilados dentro del
+  // mismo panel: una regla de orden, que un `@container` mal apuntado podía desarmar — y lo hizo
+  // dos veces. Ahora no comparten caja: el arqueo es un APARTADO, con media pantalla reservada.
+  // Un apartado no puede quedar «detrás» del otro, así que esto ya no se prueba con posiciones.
+
+  it('el arqueo y la clasificación viven en APARTADOS distintos: ninguno puede tapar al otro', async () => {
     const fx = montar();
     comp.abrirCaptura();
     await Promise.resolve();
@@ -810,9 +816,11 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(reja).not.toBeNull();
     expect(glosa).not.toBeNull();
 
-    // La pregunta es de ORDEN, así que se le pregunta al DOM y no a una clase de CSS: con el panel
-    // apilado —que es lo que pasa siempre dentro del aside— el DOM ES lo que se ve.
-    expect(reja!.compareDocumentPosition(glosa!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(reja!.closest('.cg-ap-arqueo'), 'la reja vive en el apartado 2').not.toBeNull();
+    expect(glosa!.closest('.cg-ap-que'), 'la glosa vive en el apartado 1').not.toBeNull();
+    // Y son DOS cajas, no una con dos nombres: si alguien vuelve a meterlos en el mismo apartado,
+    // vuelve la pelea por el alto que [CG.49] tuvo que arbitrar con el orden del DOM.
+    expect(reja!.closest('.cg-ap')).not.toBe(glosa!.closest('.cg-ap'));
   });
 
   // ── [CG.50] D.7: las tablas se RECORREN con las flechas ──────────────────────────────────
@@ -888,19 +896,35 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // o sea un contenedor de ~486px contra un umbral de 736px — la condición para mostrar las dos
   // columnas era **inalcanzable por construcción**, y por eso el formulario se apilaba.
 
-  it('el panel se ensancha SÓLO mientras se captura: la lista manda hasta que hay algo que contar', () => {
+  // ⭐⭐ [CG.60] ESTA PRUEBA SE DA VUELTA, y es el punto de la entrega.
+  //
+  // Antes exigía que el panel se ENSANCHARA al capturar (`.cg-split-capturando`, 24rem → 42rem).
+  // Ese arreglo era correcto para el diseño viejo y aun así el ancho del arqueo quedaba colgado de
+  // una condición — y esa condición ya falló dos veces: `[CG.49]` descubrió que el umbral de dos
+  // columnas era inalcanzable por construcción, y `[CG.57]` que la consulta medía el panel en vez
+  // de la columna. Las dos veces el defecto llegó a la pantalla con todos los gates en verde.
+  //
+  // Lo que se exige ahora es más fuerte: el arqueo tiene media pantalla SIEMPRE, y NADA de lo que
+  // pase en la captura cambia el reparto. Una condición que no existe no se puede romper.
+
+  it('el reparto de la pantalla NO depende de la captura: dos mitades, pase lo que pase', () => {
     const fx = montar();
     const split: HTMLElement | null = fx.nativeElement.querySelector('.cg-split');
     expect(split).not.toBeNull();
-    expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+    const antes = split!.className;
+    expect(split!.querySelectorAll(':scope > .cg-ap').length, 'dos apartados').toBe(2);
 
     comp.abrirCaptura();
     fx.detectChanges();
-    expect(split!.classList.contains('cg-split-capturando')).toBe(true);
+    expect(split!.className, 'capturar NO cambia el reparto').toBe(antes);
+    expect(split!.querySelectorAll(':scope > .cg-ap').length).toBe(2);
 
     comp.cerrarConFoco(comp.capturaAbierta);
     fx.detectChanges();
-    expect(split!.classList.contains('cg-split-capturando')).toBe(false);
+    expect(split!.className).toBe(antes);
+    // Y el apartado del arqueo sigue en pantalla con la captura cerrada: es media pantalla
+    // reservada, no un panel que aparece y se va moviendo la lista debajo del cursor.
+    expect(fx.nativeElement.querySelector('.cg-ap-arqueo')).not.toBeNull();
   });
 
   // ── [CG.59] La pantalla es la tarea ──────────────────────────────────────────────────────
@@ -938,16 +962,17 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(panel.textContent).toContain('Cerrar jornada');         // la acción de rendir cuentas
   });
 
-  it('⛔ [negativa] la reja pregunta por SU columna, no por el panel entero', () => {
+  it('⛔ [negativa] la reja pregunta por SU apartado, no por una caja de más arriba', () => {
     // El defecto que esto congela, reportado por Edgar con captura: la reja del arqueo se apila con
     // `@container (max-width:26rem)`, pero el único `container-type` estaba en `.cg-detail-cuerpo`.
-    // O sea que la consulta medía los ~646px del PANEL en vez de los ~311px de la COLUMNA donde la
-    // reja vive. Nunca disparaba: dos columnas de reja dentro de una columna de 311px, cada
-    // sub-tabla a ~150px, con scroll horizontal y la columna «Importe» cortada.
+    // O sea que la consulta medía los ~646px del PANEL en vez de los ~311px de la caja donde la
+    // reja vive. Nunca disparaba: dos columnas de reja dentro de una de 311px, cada sub-tabla a
+    // ~150px, con scroll horizontal y la columna «Importe» cortada.
     //
     // ⚠️ Una consulta de contenedor NO falla cuando apunta a la caja equivocada: contesta, y
     // contesta sobre otra cosa. jsdom no hace layout, así que esto no se puede probar renderizando;
-    // lo que sí se puede exigir es que la columna DECLARE que es un contenedor.
+    // lo que sí se puede exigir es que la caja donde la reja vive DECLARE que es un contenedor.
+    // `[CG.60]` esa caja es `.cg-ap-cuerpo` — antes era `.cg-col`, que ya no existe.
     const meta = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
     const css = (meta.ɵcmp?.styles ?? []).join('\n');
 
@@ -955,47 +980,66 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
     // ⚠️ El CSS compilado lleva los atributos `_ngcontent-…` inyectados en cada selector, así que
     // un regex pegado al selector literal es frágil. Se busca por VENTANA: alguna regla que
-    // mencione `.cg-col` y declare `container-type` cerca.
+    // mencione `.cg-ap-cuerpo` y declare `container-type` cerca.
     const declaraContenedor = css
-      .split('.cg-col')
+      .split('.cg-ap-cuerpo')
       .slice(1)
       .some((trozo) => /^[^}]{0,400}container-type\s*:\s*inline-size/.test(trozo));
-    expect(declaraContenedor).toBe(true);
-    // Y siguen siendo DOS contenedores distintos: el panel (para repartir QUÉ/CUÁNTO) y cada
-    // columna (para que lo de adentro mida lo suyo). Si quedara uno solo, vuelve el defecto.
-    expect((css.match(/container-type\s*:\s*inline-size/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(declaraContenedor, 'el apartado no declara que es contenedor de consulta').toBe(true);
   });
 
-  it('⛔ [negativa] los dos umbrales del panel son COMPLEMENTARIOS, o las columnas se invierten', () => {
-    // Si el colapso cae en 39rem y la posición se fija recién en 46, entre medio hay dos columnas
-    // SIN `grid-column` asignado: gana el orden del DOM y el CUÁNTO se va a la izquierda. Dos
-    // columnas invertidas, en silencio, en una franja de anchos. Esto lo congela.
+  it('⛔ [negativa] la reja vive DENTRO de la caja que declara el contenedor', () => {
+    // El complemento del anterior, y lo que de verdad falló: declarar `container-type` no alcanza
+    // si la reja termina en otra rama del DOM. Acá se pregunta por el PARENTESCO real, que es lo
+    // único que jsdom sí puede contestar sin layout.
+    const fx = montar();
+    comp.abrirCaptura();
+    fx.detectChanges();
+
+    const reja: Element | null = fx.nativeElement.querySelector('.cg-reja2');
+    expect(reja, 'la reja se pinta al capturar').not.toBeNull();
+    expect(reja!.closest('.cg-ap-cuerpo'), 'la reja quedó fuera de su contenedor de consulta')
+      .not.toBeNull();
+  });
+
+  // ⭐ [CG.60] Acá vivía «los dos umbrales del panel son COMPLEMENTARIOS»: `.cg-grid` colapsaba en
+  // 39rem y la posición de las columnas se fijaba en 39.01, y si esos dos números se separaban
+  // quedaba una franja de anchos con las columnas invertidas **en silencio**.
+  //
+  // Esos dos umbrales se fueron con `.cg-grid`, y la prueba se va con ellos — pero el DAÑO que
+  // vigilaba no: «el CUÁNTO se va a la izquierda sin que nadie lo note». Eso ahora sólo puede
+  // pasar de una forma, y es la que se congela abajo: que una regla reordene los apartados.
+
+  it('⛔ [negativa] NADA reordena los dos apartados: el orden no se decide en el CSS', () => {
     const meta = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
     const css = (meta.ɵcmp?.styles ?? []).join('\n');
     expect(css.length).toBeGreaterThan(0);
 
-    const colapso = css.match(/@container\s*\(max-width:\s*([\d.]+)rem\)/);
-    const posicion = css.match(/@container\s*\(min-width:\s*([\d.]+)rem\)/);
-    expect(colapso).not.toBeNull();
-    expect(posicion).not.toBeNull();
-
-    const hastaUna = Number(colapso![1]);
-    const desdeDos = Number(posicion![1]);
-    expect(desdeDos).toBeGreaterThan(hastaUna);
-    // Pegados: sin franja muerta entre los dos.
-    expect(desdeDos - hastaUna).toBeLessThanOrEqual(0.5);
+    // `order:` y `grid-column:` sobre un apartado son las dos formas de invertirlos sin tocar el
+    // DOM — justo el pie del que ya resbalamos. El orden lo manda el DOM, y sólo el DOM.
+    //
+    // ⚠️ La propiedad va anclada al principio de una declaración. Sin eso, `border:1px` contiene
+    // literalmente `order:1` y la prueba se pone roja sobre su propia tarjeta: un falso positivo
+    // que, de haberlo "arreglado" aflojando el regex, habría dejado la guardia sin filo.
+    const reordena = css
+      .split('.cg-ap')
+      .slice(1)
+      .filter((trozo) => /^[^}]{0,300}?[;{]\s*(order\s*:\s*-?\d|grid-column\s*:)/.test(';' + trozo));
+    expect(reordena, 'una regla reordena los apartados: ' + reordena.join(' | ')).toEqual([]);
   });
 
-  it('la primera columna del panel es la del CUÁNTO, y la segunda la del QUÉ', async () => {
+  it('el apartado 1 es el QUÉ y el 2 es el ARQUEO, en ese orden', async () => {
     const fx = montar();
     comp.abrirCaptura();
     await Promise.resolve();
     fx.detectChanges();
 
-    const cols = Array.from(fx.nativeElement.querySelectorAll('.cg-grid > .cg-col')) as HTMLElement[];
-    expect(cols.length).toBe(2);
-    expect(cols[0].classList.contains('cg-col-cuanto')).toBe(true);
-    expect(cols[1].classList.contains('cg-col-que')).toBe(true);
+    const aps = Array.from(fx.nativeElement.querySelectorAll('.cg-split > .cg-ap')) as HTMLElement[];
+    expect(aps.length).toBe(2);
+    // Lado a lado y sin reordenar, el DOM ES el orden de lectura: primero qué se va a arquear,
+    // después el arqueo. Es textualmente lo que pidió Edgar al aprobar el tablero.
+    expect(aps[0].classList.contains('cg-ap-que')).toBe(true);
+    expect(aps[1].classList.contains('cg-ap-arqueo')).toBe(true);
   });
 
   it('cerrar un diálogo DEVUELVE el foco a donde estaba (PrimeNG no lo hace)', async () => {
@@ -1306,17 +1350,25 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     await Promise.resolve();
     fx.detectChanges();
 
-    const panel: Element = fx.nativeElement.querySelector('.cg-detail');
-    const texto = panel.textContent ?? '';
-    const veces = texto.split('1,060.00').length - 1;
+    const cuenta = (sel: string) => {
+      const caja: Element | null = fx.nativeElement.querySelector(sel);
+      expect(caja, 'no existe ' + sel).not.toBeNull();
+      return [(caja!.textContent ?? '').split('1,060.00').length - 1, caja!.textContent ?? ''] as const;
+    };
 
-    // Dos, no cinco: el encabezado dice CUÁL documento es, el bloque del número dice contra
-    // CUÁNTO cuadra. Cualquier tercera es un eco que hay que ir a verificar que diga lo mismo.
-    expect(veces).toBe(2);
+    // ⭐ [CG.60] Dos, no cinco — y ahora **una por apartado**, que es más estricto que «dos en el
+    // panel»: el apartado 1 lo dice como la FICHA (lo que el documento declara) y el apartado 2
+    // como la META (contra cuánto tiene que cuadrar lo contado). Cualquier tercera, en cualquiera
+    // de los dos, es un eco que alguien va a tener que ir a verificar que diga lo mismo.
+    const [enFicha, textoFicha] = cuenta('.cg-detail');
+    const [enArqueo] = cuenta('.cg-ap-arqueo');
+    expect(enFicha, 'el apartado 1 lo dice una sola vez').toBe(1);
+    expect(enArqueo, 'el apartado 2 lo dice una sola vez').toBe(1);
 
-    // Y lo que se fue, se fue: la pista larga ya no está.
-    expect(texto).not.toContain('El monto sale del arqueo, no del documento');
-    expect(texto).not.toContain('El documento dice');
+    // Y lo que se fue, se fue: la pista larga ya no está, ni el subtítulo que [CG.49] había puesto
+    // en el encabezado del panel y que la ficha dejó sin oficio.
+    expect(textoFicha).not.toContain('El monto sale del arqueo, no del documento');
+    expect(textoFicha).not.toContain('El documento dice');
   });
 
   it('⛔ [negativa] en un GASTO no se ofrece «Venta a crédito»: ahí no significa nada', async () => {
@@ -2514,22 +2566,25 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
         'la apertura sigue siendo un dialogo').toBeTruthy();
     });
 
-    it('el formulario del panel se arma en UNA columna por el ancho del PANEL, no de la ventana', () => {
+    it('la reja se arma por el ancho de SU APARTADO, no por el de la ventana', () => {
       // §R: un bloque que se embebe decide su layout con @container. Con @media, en un monitor
-      // ancho las dos columnas se desbordarian del panel de 32rem.
+      // ancho la consulta no dispara nunca y las dos columnas de la reja se desbordan.
+      // ⭐ [CG.60] Esto vigilaba `.cg-grid`, que se retiró con los dos apartados. El bloque que
+      // queda embebido —y que de verdad se rompió en vivo— es la REJA: su `@container` es el que
+      // [CG.57] tuvo que reapuntar. Es él quien hereda la guardia.
       const fuente = FinanzasCajaGeneralComponent as unknown as { ɵcmp?: { styles?: string[] } };
       const css = (fuente.ɵcmp?.styles ?? []).join('\n');
 
-      // El formulario se arma por CONTENEDOR...
-      expect(css).toMatch(/@container[^{]*\{[^}]*\.cg-grid/);
+      // La reja se arma por CONTENEDOR...
+      expect(css).toMatch(/@container[^{]*\{[^}]*\.cg-reja2/);
 
-      // ...y NINGUN @media decide sobre el. ⚠️ La version anterior de esta prueba buscaba el
+      // ...y NINGUN @media decide sobre ella. ⚠️ La version anterior de esta prueba buscaba el
       // string "47.5rem" a secas y daba DOS falsos positivos: ese ancho sigue siendo legitimo
       // para .cg-conc-cols (chrome de pagina, le toca @media por §R), y ademas el comentario que
-      // explica el cambio CITA la regla vieja. Se mide lo que importa: quien gobierna .cg-grid.
+      // explica el cambio CITA la regla vieja. Se mide lo que importa: quien gobierna la reja.
       const medias = css.match(/@media[^{]*\{(?:[^{}]|\{[^{}]*\})*\}/g) ?? [];
-      const culpables = medias.filter((m) => m.includes('.cg-grid'));
-      expect(culpables, 'un @media decide el layout del formulario: ' + culpables.join(' | '))
+      const culpables = medias.filter((m) => m.includes('.cg-reja2'));
+      expect(culpables, 'un @media decide el layout de la reja: ' + culpables.join(' | '))
         .toEqual([]);
     });
   });

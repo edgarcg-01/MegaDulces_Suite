@@ -164,52 +164,30 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* Formulario de captura. fin-row-col apila cuando el campo necesita su propia explicación
        debajo (el selector de cobro de Kepler), en vez de meterla en la misma línea. */
     .fin-form { display:flex; flex-direction:column; gap:var(--sp-3); }
-    /* CS.3.7 — Dos columnas para que la captura entre en una pantalla sin scroll. Apila en angosto. */
-    .cg-grid { display:grid; grid-template-columns:1fr 1fr; gap:var(--sp-3) var(--sp-6); align-items:start; }
-    /* ⛔ [CG.57] CADA COLUMNA ES SU PROPIO CONTENEDOR DE CONSULTA, y sin esto el diseño se rompe.
-       La reja del arqueo pregunta "@container (max-width:26rem)" para apilarse, pero el único
-       container-type estaba en .cg-detail-cuerpo: la consulta medía los 646px del PANEL en vez de
-       los ~311px de la COLUMNA donde la reja vive de verdad. Nunca disparaba, así que la reja
-       quedaba en dos columnas dentro de una de 311px -- cada sub-tabla a ~150px, con scroll
-       horizontal y la columna "Importe" cortada. Reportado por Edgar con captura.
-       Con esto se corrige sola en los dos sentidos: panel lado a lado -> la columna mide 19rem y
-       la reja se apila (y no hace falta que no se apile, porque el panel YA son dos columnas);
-       panel apilado -> la columna mide 40rem y la reja se abre en dos, que es donde la altura
-       importaba. */
-    .cg-grid > .cg-col { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0;
-                         container-type:inline-size; }
-    /* ⛔ [CG.46] Acá había un "@media (max-width:47.5rem)". Con el formulario dentro del panel de
-       detalle eso es el antipatrón que DESIGN.md §R nombra: el ancho que decide el layout de este
-       bloque es el del PANEL (32rem), no el de la ventana. En un monitor ancho el media query
-       jamás se dispara y las dos columnas se desbordarían del panel. @container mira al
-       contenedor, que es lo correcto — y sigue siendo mejora progresiva: sin soporte queda en una
-       columna, que es el caso que de todos modos aplica a 32rem. */
-    /* [CG.52] El umbral baja de 46rem a 39rem, MEDIDO y no a ojo: con el panel ensanchado a 42rem
-       el contenedor de consulta (.cg-detail-cuerpo) mide 672 - 2 de borde - 24 de padding = 646px
-       = 40.4rem. Con 46 no entraba por 90px y el formulario se apilaba igual. Cada columna queda
-       en ~311px, que es lo que necesitan una etiqueta de 6.5rem y su control. */
-    @container (max-width:39rem) { .cg-grid { grid-template-columns:1fr; } }
-    @supports not (container-type: inline-size) { .cg-grid { grid-template-columns:1fr; } }
-    /* [CG.49] Apilado manda el orden del DOM, y ahi el arqueo va primero porque es la tarea. Estas
-       dos reglas fijan la posicion para el caso ancho, para que el diseno de CS.3.7 -- QUE a la
-       izquierda, CUANTO a la derecha -- no dependa de en que orden esten escritas las columnas.
-       ⚠️ Esto decia "lo que pasa SIEMPRE dentro del aside de 32rem", y desde [CG.52] ya no es
-       siempre: capturando el panel mide 42rem y las dos columnas SI entran. */
-    /* ⚠️ [CG.52] Este umbral es el COMPLEMENTO EXACTO del de arriba, y tiene que seguir siéndolo:
-       si el colapso cae en 39rem y la posición se fija recién en 46, entre medio hay dos columnas
-       SIN posición asignada — gana el orden del DOM y el CUÁNTO se va a la izquierda. Dos columnas
-       invertidas y en silencio. Por eso van pegados, no sueltos. */
-    @container (min-width:39.01rem) {
-      .cg-grid > .cg-col-que    { grid-column:1; grid-row:1; }
-      .cg-grid > .cg-col-cuanto { grid-column:2; grid-row:1; }
-    }
+    /* ⛔⛔ [CG.60] ACA VIVIAN ".cg-grid" Y ".cg-col", las dos columnas del formulario de captura
+       (CS.3.7: el QUE a la izquierda, el CUANTO a la derecha). Se retiran enteras porque esas dos
+       columnas SON AHORA LOS DOS APARTADOS: el QUE es el apartado 1 y el CUANTO el apartado 2.
 
-    /* Angosto: se apila. El detalle VACÍO se esconde acá —y sólo acá—: con la pantalla apilada,
-       una caja que dice "nada elegido" empuja la bandeja fuera de la vista. Con algo elegido sí
-       se pinta, debajo de la lista, y su botón de cerrar hace de "volver". */
+       Lo que se lleva puesto, y hay que decirlo: con ellas se van los dos umbrales de @container
+       (colapso en 39rem, posicion en 39.01rem) que [CG.52] tuvo que medir dos veces y la regla de
+       [CG.57] que le daba a cada columna su propio container-type. Nada de eso se perdio -- el
+       container-type se mudo a .cg-ap-cuerpo (ver arriba), que es la caja que la reja mide de
+       verdad, y los umbrales ya no hacen falta porque las dos mitades no colapsan una sobre otra:
+       las fija .cg-split. Tres commits de ancho condicional, resueltos quitando la condicion. */
+    /* ⭐ [CG.60] ANGOSTO: SE SUELTA EL ALTO, NO SOLO LAS COLUMNAS.
+       Acá sólo se apilaban las dos columnas, y eso ahora NO ALCANZA: con .cg-app clavado en
+       100vh/overflow:hidden ([CG.59]), apilar los dos apartados deja el segundo -- el arqueo --
+       fuera de la pantalla y SIN forma de llegar a él, porque la página no scrollea. Dos mitades
+       lado a lado es un lujo de pantalla ancha; cuando no la hay, el alto se devuelve a la página
+       y se baja a leer, que es peor que verlo todo pero infinitamente mejor que no poder verlo.
+       El vacío del apartado 1 se esconde acá -- y sólo acá -- porque apilado empuja la cola fuera
+       de la vista; con algo elegido sí se pinta, y su botón de cerrar hace de "volver". */
     @media (max-width:64rem) {
+      .cg-app { height:auto; overflow:visible; }
       .cg-split { grid-template-columns:1fr; }
-      .cg-detail { position:static; max-height:none; }
+      .cg-ap { max-height:none; }
+      .cg-ap-cuerpo { overflow:visible; }
+      .cg-ficha { position:static; }
       .cg-detail-vacio { display:none; }
     }
     .fin-row { display:flex; align-items:center; flex-wrap:wrap; gap:var(--sp-2); }
@@ -279,47 +257,74 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⭐ [CG.46] O.1 — MASTER-DETAIL PERMANENTE. El ancho del detalle (32rem) cae dentro de la
        banda que datos densos 8 fija para el panel de detalle (480-560px) y le deja al maestro lo
        suficiente para sus nueve columnas. */
-    /* [CG.52] EL ANCHO SIGUE A LA TAREA.
-       Mientras se recorre la bandeja, el panel es angosto y la lista manda. Al capturar se invierte:
-       el panel se ensancha hasta que sus DOS columnas caben, y el movimiento entra entero sin
-       scroll. Antes era 32rem fijo -- o sea un contenedor de ~486px contra un umbral de 736px: la
-       condicion para mostrar dos columnas era INALCANZABLE, y por eso el formulario se apilaba y
-       pedia scroll. Reordenarlo ([CG.49]) puso el arqueo arriba pero no devolvio el ancho. */
-    .cg-split { display:grid; grid-template-columns:minmax(0,1fr) 24rem; gap:var(--sp-6);
-                align-items:start; }
-    /* El ensanche pide pantalla: por debajo de esto, robarle 42rem a la bandeja la deja en ~300px
-       y se rompe lo que se venia a arreglar. Va en @media y no en @container porque es cromo de
-       pagina, no del componente (DESIGN R). */
-    @media (min-width:74rem) {
-      .cg-split-capturando { grid-template-columns:minmax(0,1fr) 42rem; }
-    }
-    .cg-main { min-width:0; }
-    /* Pegado: la bandeja es larga y el detalle tiene que seguir ahi mientras se recorre. La caja
-       lleva borde 1px y NINGUNA sombra -- in-page es una de las dos, nunca las dos. */
-    .cg-detail { position:sticky; top:var(--sp-4); max-height:calc(100vh - var(--sp-12));
-                 display:flex; flex-direction:column; overflow:hidden;
-                 border:1px solid var(--border-color); border-radius:var(--r-md); }
-    .cg-detail-head { display:flex; align-items:center; gap:var(--sp-2); padding:var(--sp-3);
-                      border-bottom:1px solid var(--border-color); }
-    .cg-detail-h { font-size:var(--fs-h3); font-weight:700; }
-    /* [CG.49] El titulo y el documento anclado, en dos renglones de una sola fila. */
-    .cg-detail-titulo { display:flex; flex-direction:column; gap:2px; min-width:0; }
-    .cg-detail-sub { font-size:var(--fs-xs); color:var(--text-muted);
-                     overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-    /* El contenedor de consulta vive ACA y no en el aside, para no mezclar la contencion con el
-       position:sticky de arriba. */
-    .cg-detail-cuerpo { flex:1 1 auto; overflow:auto; padding:var(--sp-3);
-                        container-type:inline-size; }
-    .cg-detail-pie { display:flex; justify-content:flex-end; gap:var(--sp-2); padding:var(--sp-3);
-                     border-top:1px solid var(--border-color); }
-    .cg-detail-nada { display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-2);
-                      padding:var(--sp-6) var(--sp-4); color:var(--text-muted);
+    /* ⭐⭐ [CG.60] LOS DOS APARTADOS, A MITADES FIJAS.
+       Aca vivia ".cg-split-capturando", que ensanchaba el panel de 24rem a 42rem MIENTRAS se
+       capturaba. Se retira entero, y no por gusto: el ancho del arqueo venia dependiendo de una
+       condicion, y esa condicion ya fallo dos veces -- [CG.49] descubrio que el umbral de dos
+       columnas era INALCANZABLE por construccion, y [CG.57] que la consulta medía el panel en vez
+       de la columna. Media pantalla reservada SIEMPRE no se puede romper asi.
+       Las dos mitades son iguales a proposito: ninguna de las dos es "el detalle" de la otra. */
+    .cg-split { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+                gap:var(--sp-4); align-items:stretch; }
+    /* La tarjeta de cada apartado: borde 1px y NINGUNA sombra -- in-page es una de las dos. */
+    .cg-ap { min-width:0; min-height:0; display:flex; flex-direction:column; overflow:hidden;
+             border:1px solid var(--border-color); border-radius:var(--r-md); }
+    .cg-ap-head { flex:none; display:flex; align-items:baseline; flex-wrap:wrap; gap:var(--sp-2);
+                  padding:var(--sp-3) var(--sp-3) var(--sp-2); }
+    /* El numero de orden: no es decoracion, es el ORDEN en que se hace el trabajo. */
+    .cg-ap-n { flex:none; display:inline-flex; align-items:center; justify-content:center;
+               width:1.25rem; height:1.25rem; border-radius:999px; align-self:center;
+               background:var(--action); color:var(--action-ink);
+               font-size:var(--fs-xs); font-weight:700; font-variant-numeric:tabular-nums; }
+    .cg-ap-t { margin:0; font-size:var(--fs-body); font-weight:700; letter-spacing:-.01em; }
+    .cg-ap-hint { font-size:var(--fs-xs); color:var(--text-muted); }
+    /* ⛔ [CG.57] EL CONTENEDOR DE CONSULTA VIVE ACA. La reja del arqueo pregunta
+       "@container (max-width:26rem)" para apilarse; si esto no declara container-type, la consulta
+       sube hasta el ancestro que lo declare y contesta sobre OTRA caja -- que es justo el defecto
+       que [CG.57] midio: la reja quedaba en dos columnas dentro de una de 311px, con scroll
+       horizontal y la columna "Importe" cortada. */
+    .cg-ap-cuerpo { flex:1 1 auto; min-height:0; overflow:auto; padding:0 var(--sp-3) var(--sp-3);
+                    container-type:inline-size; }
+    /* Dentro de un apartado, la bandeja ya NO es una tarjeta: seria un borde adentro de otro. */
+    .cg-ap-cuerpo > .cg-bandeja { border:0; border-radius:0; padding:0; margin:var(--sp-3) 0 0;
+                                  border-top:1px solid var(--border-color); padding-top:var(--sp-3); }
+    .cg-detail { display:flex; flex-direction:column; gap:var(--sp-3); }
+    .cg-detail-pie { display:flex; justify-content:flex-end; gap:var(--sp-2);
+                     padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
+    .cg-detail-nada, .cg-ap-nada {
+                      display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-2);
+                      padding:var(--sp-6) var(--sp-2); color:var(--text-muted);
                       font-size:var(--fs-sm); }
     /* Vacio operacional: NO centrado -- DESIGN lista "centered everything en empties" como
        antipatron de Operations. */
-    .cg-detail-nada i { font-size:var(--fs-h2); color:var(--text-faint); }
-    .cg-detail-nada strong { color:var(--fg-1); font-size:var(--fs-body); }
-    .cg-detail-nada p { margin:0; }
+    .cg-detail-nada i, .cg-ap-nada i { font-size:var(--fs-h2); color:var(--text-faint); }
+    .cg-detail-nada strong, .cg-ap-nada strong { color:var(--fg-1); font-size:var(--fs-body); }
+    .cg-detail-nada p, .cg-ap-nada p { margin:0; }
+
+    /* ⭐ [CG.60] LA FICHA: que se va a arquear. El arqueo CONTESTA esta pregunta, y hasta ahora
+       la pregunta se leia en un renglon gris de 11px al lado del titulo del panel. */
+    .cg-ficha { display:flex; flex-direction:column; gap:var(--sp-2);
+                position:sticky; top:0; z-index:2; background:var(--card-bg);
+                padding-bottom:var(--sp-2); border-bottom:1px solid var(--border-color); }
+    .cg-ficha-top { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap; }
+    .cg-ficha-doc { font-size:var(--fs-xs); color:var(--text-muted); }
+    .cg-ficha-fecha { font-size:var(--fs-xs); color:var(--text-faint); }
+    .cg-ficha-nombre { margin:0; font-size:var(--fs-h3); font-weight:700; letter-spacing:-.02em;
+                       line-height:1.25; overflow-wrap:anywhere; }
+    .cg-ficha-cifra { display:flex; align-items:baseline; gap:var(--sp-2); flex-wrap:wrap; }
+    .cg-ficha-monto { font-size:var(--fs-h1); font-weight:700; letter-spacing:-.02em; line-height:1; }
+    /* Sin documento no hay contra que cuadrar: el numero se atenua para que no se lea como
+       "el ERP dice esto". Declarar la ausencia, no dibujar un cero con el mismo peso. */
+    .cg-ficha-libre { color:var(--text-muted); }
+    .cg-ficha-pie { font-size:var(--fs-xs); color:var(--text-muted); }
+    /* El signo, en pildora: lo primero que se mira y lo unico que no se puede equivocar. */
+    .cg-signo { flex:none; display:inline-flex; align-items:center; gap:var(--sp-1);
+                padding:2px var(--sp-2); border-radius:999px; font-size:var(--fs-xs); font-weight:700;
+                background:var(--warn-soft-bg); color:var(--warn-soft-fg);
+                border:1px solid var(--warn-border); }
+    .cg-signo-in { background:var(--ok-soft-bg); color:var(--ok-soft-fg);
+                   border-color:var(--ok-border); }
+    .cg-signo > i { font-size:var(--fs-xs); }
 
     /* CG.20 - la bandeja de entregas. Densa, tipo Operations: la persona la recorre marcando. */
     .cg-bandeja { border:1px solid var(--border-color); border-radius:var(--r-md,8px);
@@ -389,8 +394,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-reja-mor { grid-column:1 / -1; border-top:1px solid var(--border-color);
                    display:flex; align-items:center; gap:var(--sp-2);
                    padding:var(--sp-2) var(--sp-3); font-size:var(--fs-sm); }
-    /* ⛔ Con el panel angosto las dos columnas se desbordarian: se apilan, igual que el formulario.
-       Mismo umbral complementario que .cg-grid, por la misma razon. */
+    /* ⛔ Con el apartado angosto las dos columnas de la reja se desbordarian: se apilan.
+       [CG.60] La caja que esta consulta mide es .cg-ap-cuerpo, el apartado 2 -- antes era la
+       columna .cg-col y, antes de [CG.57], el panel entero, que es de donde salio el defecto.
+       Es @container y no @media por DESIGN §R: lo que decide el layout de la reja es el ancho de
+       SU apartado, no el de la ventana; en un monitor ancho un @media no dispararia nunca. */
     @container (max-width:26rem) {
       .cg-reja2 { grid-template-columns:1fr; }
       .cg-reja-sep { display:none; }
@@ -1146,11 +1154,261 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            Este formulario tiene documento, contraparte, cuenta, concepto, glosa, monto, la
            reja de 16 denominaciones y el panel del cajero: de corto no tiene nada.
            Ahora la lista queda a la izquierda y lo elegido al lado, sin perder la cola. -->
-      <div class="cg-split" [class.cg-split-capturando]="capturaAbierta()">
-        <div class="cg-main">
+      <!-- ⭐⭐ [CG.60] LOS DOS APARTADOS, con su contenido.
+
+           Edgar, sobre el tablero: "lo primero que debe ver el usuario es que ingreso o egreso
+           va a arquear, luego el arqueo". [CG.59] dejo el esqueleto -- 100vh, la jornada
+           plegada arriba -- y aca entra lo que va adentro.
+
+           Lo que CAMBIA de fondo: el arqueo deja de ser una columna de un formulario dentro de
+           un panel lateral y pasa a ser un APARTADO, con la mitad de la pantalla reservada
+           SIEMPRE. Antes su ancho dependia de .cg-split-capturando y, antes de eso, de que el
+           panel midiera mas de 39rem -- una condicion que [CG.49] descubrio que era inalcanzable
+           por construccion. Media pantalla fija no se puede romper asi.
+
+           ⚠️ .cg-grid y .cg-col se RETIRAN: sus dos columnas SON estos dos apartados. El
+           container-type que [CG.57] tuvo que poner en .cg-col vive ahora en .cg-ap-cuerpo, que
+           es la caja que la reja mide de verdad. -->
+      <div class="cg-split">
+
+        <!-- 1 - QUE VAS A ARQUEAR -->
+        <section class="cg-ap cg-ap-que" aria-labelledby="cg-ap1-t">
+          <div class="cg-ap-head">
+            <span class="cg-ap-n" aria-hidden="true">1</span>
+            <h2 class="cg-ap-t" id="cg-ap1-t">Qué vas a arquear</h2>
+            <span class="cg-ap-hint">el movimiento del ERP que estás por cuadrar</span>
+          </div>
+
+          <div class="cg-ap-cuerpo">
+            <!-- El detalle. PERMANENTE: cuando no hay nada elegido NO desaparece -- dice que
+                 esta esperando y ofrece la captura desde cero. -->
+            <div class="cg-detail" [class.cg-detail-vacio]="!capturaAbierta()">
+          @if (capturaAbierta()) {
+            <!-- ⭐ [CG.60] LA FICHA. El tablero la pone primero y grande, y tiene razon: el
+                 arqueo CONTESTA una pregunta -- "cuanto dice el documento" -- y hasta ahora esa
+                 pregunta vivia en un renglon gris de 11px al lado del titulo del panel. Contar
+                 contra una cifra que no se lee es contar a ciegas del lado equivocado.
+                 ⚠️ Sin documento anclado la ficha NO se calla ni dibuja un cero: dice que
+                 el movimiento es libre, que es un hecho distinto de "el documento dice 0". -->
+            <div class="cg-ficha">
+              <div class="cg-ficha-top">
+                <span class="cg-signo" [class.cg-signo-in]="f().tipo === 'ingreso'">
+                  <i class="pi" [class.pi-arrow-down]="f().tipo === 'ingreso'"
+                     [class.pi-arrow-up]="f().tipo !== 'ingreso'" aria-hidden="true"></i>
+                  {{ f().tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja' }}
+                </span>
+                @if (cobroElegido(); as c) {
+                  <span class="mono cg-ficha-doc">{{ c.doc_tipo }} {{ c.folio }}</span>
+                } @else {
+                  <span class="cg-ficha-doc fin-dim">sin documento del ERP</span>
+                }
+                <span class="cg-bandeja-sp"></span>
+                <span class="mono cg-ficha-fecha">{{ dmy(f().fecha) }}</span>
+                <p-button icon="pi pi-times" size="small" severity="secondary" [text]="true" [rounded]="true"
+                          ariaLabel="Cerrar la captura y volver a la cola"
+                          (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
+              </div>
+
+              <h3 class="cg-ficha-nombre">{{ f().beneficiario || cobroElegido()?.entidad_code || 'Movimiento sin contraparte' }}</h3>
+
+              <!-- El numero grande de ESTA mitad. El del arqueo es el OTRO lado de la misma
+                   pregunta y vive en el apartado 2: nunca se ven los dos como titulo de lo mismo. -->
+              <div class="cg-ficha-cifra">
+                @if (cobroElegido(); as c) {
+                  <strong class="mono cg-ficha-monto">{{ money(c.monto) }}</strong>
+                  <span class="cg-ficha-pie">según el documento del ERP</span>
+                } @else {
+                  <strong class="mono cg-ficha-monto cg-ficha-libre">{{ money(f().monto) }}</strong>
+                  <span class="cg-ficha-pie">lo que llevás contado — no hay documento contra qué cuadrar</span>
+                }
+              </div>
+            </div>
+
+            <div class="fin-form">
+              <div class="fin-row">
+                <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
+                     pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
+                <label for="cg-tipo">Tipo</label>
+                <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
+                          (ngModelChange)="onTipo($event)"></p-select>
+                <label for="cg-fecha">Fecha</label>
+                <p-datepicker inputId="cg-fecha" [ngModel]="fechaD(f().fecha)"
+                              (onSelect)="setF('fecha', claveDe($event))"
+                              dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" />
+                <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
+                     de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
+                <label for="cg-suc">Sucursal</label>
+                <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
+                          (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
+              </div>
+
+              <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
+                   ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
+                   detrás", y CG.21 REFUTÓ eso con medición: el egreso de la caja cuadra al 100% contra
+                   Kepler en 5 meses cerrados ($44,108,221.92 vs $44,123,427.09). El servicio ya pedía
+                   los dos signos ("tipo: ... === 'gasto' ? 'gasto' : 'ingreso'") y la plantilla lo
+                   escondía, así que para un GASTO no había forma de anclar al documento: había que
+                   retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
+                   banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
+              @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
+                <div class="fin-row fin-row-col">
+                  <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
+                  <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
+                                  (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
+                                  (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
+                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
+                                  placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
+                  @if (cobroElegido(); as c) {
+                    <!-- ⛔ [CG.54] Acá vivia el eco del documento: "Kepler: X-D-26 0022707 ·
+                         BENEFICIARIO · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
+                         documento." Dos renglones para repetir lo que ya estaba en otros cuatro
+                         lugares del MISMO panel. Medido: el importe del documento aparecia CINCO
+                         veces (encabezado, esta pista, el pie del credito, la cabecera del arqueo y
+                         el bloque del numero). Quedan DOS, y cada una tiene su oficio: el encabezado
+                         dice CUAL documento es, y el bloque del numero dice contra CUANTO cuadra.
+                         ⛔ Y la pista de la diferencia tambien se fue de aca: la cifra, el veredicto
+                         y la consecuencia viajan juntos en el bloque del numero, que es donde esta
+                         lo contado. Decir "contaste 1100 vs documento 1060" al lado del selector de
+                         documento era mandar a la persona a buscar el dato al otro extremo. -->
+                  } @else {
+                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
+                  }
+                </div>
+
+                <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
+                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
+                <div class="fin-row fin-row-col">
+                  <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
+                  <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
+                                  (completeMethod)="buscarCaos($event)" (onSelect)="elegirCaos($event)"
+                                  (onClear)="soltarCaos()" optionLabel="label" [delay]="250"
+                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
+                                  placeholder="Depósito o dispensación de la máquina — el arqueo se precarga solo"></p-autocomplete>
+                  @if (caosElegido(); as m) {
+                    <small class="fin-hint-ok">
+                      De la caja fuerte: {{ m.type_label }} #{{ m.external_id }} ·
+                      {{ m.user_external }} · {{ money(m.monto) }}@if (m.ref) { · «{{ m.ref }}»}.
+                      El arqueo se precargó con el conteo de la máquina; la morralla y lo que falte, a mano.
+                    </small>
+                  }
+                </div>
+              }
+
+              <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
+                   gastos cae en un par (cuenta, concepto) ya usado 3+ veces, y Krmn tecleo 61 en una
+                   hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
+                   El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
+                   el dato -- y por eso el bloque lo dice. -->
+              @if (f().tipo === 'gasto' && frecuentes().length) {
+                <div class="fin-row fin-row-col">
+                  <label>Lo que más repetís en la sucursal {{ f().sucursal }}</label>
+                  <div class="cg-chips">
+                    @for (fr of frecuentes(); track fr.rango) {
+                      <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
+                           propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
+                           en oscuro, que es justo lo que esta pantalla venia declarando a mano. -->
+                      <p-button [label]="fr.glosa || fr.kepler_concepto" [badge]="fr.usos + ''"
+                                badgeSeverity="secondary" size="small" severity="secondary"
+                                [outlined]="true" (onClick)="usarFrecuente(fr)"
+                                [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
+                    }
+                  </div>
+                  <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.</small>
+                </div>
+              }
+
+              <div class="fin-row">
+                <label for="cg-benef">Beneficiario</label>
+                <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
+                       (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
+              </div>
+
+              <div class="fin-row fin-row-col">
+                <label for="cg-concepto">Cuenta y concepto de Kepler</label>
+                <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
+                                (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
+                                optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
+                                [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
+                                placeholder="Buscá por nombre, cuenta o código" appendTo="body"
+                                class="cg-full"></p-autocomplete>
+                <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
+                  {{ etiquetaConcepto().texto }}
+                </small>
+                @if (cuentaFuenteDoc()) {
+                  <p-button label="Corregir la cuenta" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
+                }
+              </div>
+
+              <div class="fin-row">
+                <label for="cg-glosa">Qué pasó</label>
+                <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
+                       (keydown.enter)="guardar()"
+                       placeholder="Contá qué pasó — esto NO es el concepto contable" />
+              </div>
+
+
+              <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
+                   2026-09-22, "caja_classify_rules" tenía 0 filas en prod y NO EXISTÍA NINGUNA PANTALLA
+                   para cargarlas. La bandeja decía "0 de 8 se confirman · el resto necesita que su
+                   cuenta esté declarada" y no había por dónde declararla. Se declara acá, que es donde
+                   la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
+              @if (puedeDeclararRegla()) {
+                <label class="fin-row cg-declara">
+                  <p-checkbox [binary]="true" [ngModel]="declararRegla()"
+                              (ngModelChange)="declararRegla.set($event)"></p-checkbox>
+                  <span>
+                    De ahora en adelante, <strong>{{ f().beneficiario }}</strong> va a
+                    <span class="mono">{{ f().kepler_cuenta }} / {{ f().kepler_concepto }}</span>.
+                    <small class="fin-dim d-block">
+                      Los próximos movimientos de este beneficiario se van a poder confirmar de un clic
+                      desde la bandeja, sin volver a elegir la cuenta.
+                    </small>
+                  </span>
+                </label>
+              }
+
+              @if (bloqueos().length) {
+                <ul class="fin-blocks">
+                  @for (b of bloqueos(); track b) { <li>{{ textoBloqueo(b) }}</li> }
+                </ul>
+              }
+            </div>
+            <!-- [CG.60] El pie va PEGADO A LA FICHA, no al fondo del apartado: lo que scrollea
+                 debajo es la cola, y un Guardar que flota sobre una lista de 100 movimientos no
+                 se lee como el cierre de ESTA captura. -->
+            <div class="cg-detail-pie">
+            <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
+            <p-button label="Guardar" icon="pi pi-check" size="small"
+                      [disabled]="bloqueos().length > 0 || guardando()" (onClick)="guardar()"></p-button>
+            </div>
+          } @else {
+            <!-- Vacio operacional: icono, titulo neutral, que hacer, y una accion real. -->
+            <div class="cg-detail-nada">
+              <i class="pi pi-wallet" aria-hidden="true"></i>
+              <strong>Nada elegido todavia</strong>
+              <p>Elegi un movimiento de la cola, aca abajo, para confirmarlo o capturarlo.
+                 Se abre en este mismo lugar, y el arqueo te espera al lado.</p>
+              <!-- ⛔ [CG.47] Esto estaba en --action y es LA MISMA ACCION que "Registrar
+                   movimiento" de la cabecera: dos botones naranjas, con dos rotulos distintos,
+                   llamando al mismo metodo. DESIGN reserva el color de marca para la accion
+                   obvia; cuando hay cuatro naranjas en pantalla ninguna lo es. Este queda
+                   secundario: el CTA de registrar vive arriba, aca es una salida del vacio. -->
+              <p-button label="Registrar uno nuevo" icon="pi pi-plus" size="small"
+                        severity="secondary" [outlined]="true"
+                        [disabled]="!hayConceptos() && !coberturaSinMedir()"
+                        (onClick)="abrirCaptura()"></p-button>
+            </div>
+          }
+            </div>
+
+            <!-- LA COLA. Es el MEDIO para elegir el siguiente, no el protagonista: por eso vive
+                 dentro del apartado 1 y debajo de la ficha, no al lado como seccion propia. El
+                 tablero la pone igual. -->
       <section class="cg-bandeja">
         <header class="cg-bandeja-head">
-          <h2 class="fin-h2">Movimientos por confirmar</h2>
+          <!-- [CG.60] h3: el h2 de esta seccion es el del apartado que la contiene. -->
+          <h3 class="fin-h2">La cola &mdash; movimientos por confirmar</h3>
           <!-- ⛔ [CG.45] Acá iba UNA frase gris con CINCO hechos pegados con puntos medios:
                "N de las M que se ven se confirman sin elegir nada · el resto necesita que su
                cuenta esté declarada · últimos 45 días · hace 3 min". Cinco cosas de distinto
@@ -1434,53 +1692,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
            gastos (XA1001) y órdenes de entrada (XA2001). Aparecen SÓLO al buscar — la bandeja de
            arriba es la cola de efectivo, y un documento por pagar todavía no es un movimiento de
            caja. Reusa las clases de fila de la lista del cajero (mismos primitivos visuales). -->
-        </div><!-- /cg-main -->
+          </div>
+        </section>
 
-        <!-- El detalle. PERMANENTE: cuando no hay nada elegido NO desaparece -- dice que
-             esta esperando y ofrece la captura desde cero. Un panel que aparece y se va
-             mueve la lista debajo del cursor justo cuando se esta marcando. -->
-        <aside class="cg-detail" [class.cg-detail-vacio]="!capturaAbierta()"
-               aria-label="Detalle del movimiento">
+        <!-- 2 - EL ARQUEO -->
+        <section class="cg-ap cg-ap-arqueo" aria-labelledby="cg-ap2-t">
+          <div class="cg-ap-head">
+            <span class="cg-ap-n" aria-hidden="true">2</span>
+            <h2 class="cg-ap-t" id="cg-ap2-t">El arqueo</h2>
+            <span class="cg-ap-hint">contá el efectivo, pieza por pieza</span>
+          </div>
+
+          <div class="cg-ap-cuerpo">
           @if (capturaAbierta()) {
-            <!-- [CG.49] El documento anclado sube AL ENCABEZADO. Con el arqueo arriba, lo primero
-                 que se ve son las denominaciones, y contar sin saber contra que documento es contar
-                 a ciegas del lado equivocado: el detalle del movimiento quedo debajo de la reja. Es
-                 una linea, no una ficha -- la ficha completa sigue abajo, en su columna. -->
-            <div class="cg-detail-head">
-              <div class="cg-detail-titulo">
-                <strong class="cg-detail-h">Registrar movimiento de caja</strong>
-                @if (cobroElegido(); as c) {
-                  <small class="cg-detail-sub mono">{{ c.doc_tipo }} {{ c.folio }} · {{ money(c.monto) }}</small>
-                }
-              </div>
-              <span class="cg-bandeja-sp"></span>
-              <p-button icon="pi pi-times" size="small" severity="secondary" [text]="true" [rounded]="true"
-                        ariaLabel="Cerrar la captura y volver a la lista"
-                        (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
-            </div>
-            <div class="cg-detail-cuerpo">
-            <div class="fin-form">
-
-              <!-- CS.3.7 — Dos columnas para que TODO entre en una pantalla sin scroll. Izquierda: el
-                   QUÉ/QUIÉN (documento, beneficiario, cuenta, glosa). Derecha: el CUÁNTO (cajero + arqueo). -->
-              <div class="cg-grid">
-              <!-- [CG.49] EL ARQUEO VA PRIMERO, y es un cambio de ORDEN, no de contenido.
-
-                   Reportado por Edgar sobre la pantalla en vivo: "tengo que hacer scroll para ver
-                   todo el contenido, al menos el importante que es el arqueo".
-
-                   La causa NO era falta de diseno: estas dos columnas existen justamente "para que
-                   TODO entre en una pantalla sin scroll". Lo que paso es que [CG.46] mudo la captura
-                   de un p-dialog ancho a este aside. Lo arreglo [CG.52] ensanchando el panel a 42rem al capturar; antes media 32rem fijo y .cg-grid
-                   colapsa a una columna por debajo de 46rem. O sea que la condicion para mostrar dos
-                   columnas NO SE PUEDE CUMPLIR aca, y al apilarse el arqueo quedaba detras de todo el
-                   contexto: la tarea, al final. Fue una regresion de [CG.46] que ningun gate ve.
-
-                   Apilado manda el orden del DOM, asi que el CUANTO va primero. Las reglas de
-                   @container (min-width:39.01rem) fijan la posicion de cada columna, para que si algun
-                   dia esto vive en un contenedor ancho el QUE siga a la izquierda y el CUANTO a la
-                   derecha: el diseno de CS.3.7 intacto, sin depender del orden del DOM. -->
-              <div class="cg-col cg-col-cuanto"><!-- el CUANTO: cajero aparte + arqueo. Va PRIMERO porque es la tarea -->
 
               <!-- ⛔ CG.23 - EL ARQUEO, QUE ANTES ERA OPCIONAL Y PLEGADO.
                    Esto era un "details" rotulado "Desglose por denominacion (opcional)" y, arriba, un
@@ -1805,186 +2029,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 </div>
               </div>
 
-              </div><!-- /cg-col del CUANTO -->
-              <div class="cg-col cg-col-que"><!-- el QUE/QUIEN: tipo, fecha, sucursal, documento, beneficiario, cuenta, glosa -->
-              <div class="fin-row">
-                <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
-                     pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
-                <label for="cg-tipo">Tipo</label>
-                <p-select inputId="cg-tipo" [options]="tiposCaptura" [ngModel]="f().tipo" optionLabel="label" optionValue="value"
-                          (ngModelChange)="onTipo($event)"></p-select>
-                <label for="cg-fecha">Fecha</label>
-                <p-datepicker inputId="cg-fecha" [ngModel]="fechaD(f().fecha)"
-                              (onSelect)="setF('fecha', claveDe($event))"
-                              dateFormat="dd/mm/yy" [showIcon]="true" appendTo="body" />
-                <!-- La sucursal era TEXTO LIBRE en una captura contable: teclear "0" devolvía un catálogo
-                     de conceptos vacío sin decir por qué. Sale del mismo censo que ya mide la cobertura. -->
-                <label for="cg-suc">Sucursal</label>
-                <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
-                          (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
-              </div>
-
-              <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
-                   ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
-                   detrás", y CG.21 REFUTÓ eso con medición: el egreso de la caja cuadra al 100% contra
-                   Kepler en 5 meses cerrados ($44,108,221.92 vs $44,123,427.09). El servicio ya pedía
-                   los dos signos ("tipo: ... === 'gasto' ? 'gasto' : 'ingreso'") y la plantilla lo
-                   escondía, así que para un GASTO no había forma de anclar al documento: había que
-                   retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
-                   banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
-              @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
-                <div class="fin-row fin-row-col">
-                  <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
-                  <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
-                                  (completeMethod)="buscarCobros($event)" (onSelect)="elegirCobro($event)"
-                                  (onClear)="soltarCobro()" optionLabel="label" [delay]="250"
-                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
-                                  placeholder="Buscá por cliente, folio o ruta — o dejalo vacío y capturá a mano"></p-autocomplete>
-                  @if (cobroElegido(); as c) {
-                    <!-- ⛔ [CG.54] Acá vivia el eco del documento: "Kepler: X-D-26 0022707 ·
-                         BENEFICIARIO · $144.00 · CAJA GENERAL. El monto sale del arqueo, no del
-                         documento." Dos renglones para repetir lo que ya estaba en otros cuatro
-                         lugares del MISMO panel. Medido: el importe del documento aparecia CINCO
-                         veces (encabezado, esta pista, el pie del credito, la cabecera del arqueo y
-                         el bloque del numero). Quedan DOS, y cada una tiene su oficio: el encabezado
-                         dice CUAL documento es, y el bloque del numero dice contra CUANTO cuadra.
-                         ⛔ Y la pista de la diferencia tambien se fue de aca: la cifra, el veredicto
-                         y la consecuencia viajan juntos en el bloque del numero, que es donde esta
-                         lo contado. Decir "contaste 1100 vs documento 1060" al lado del selector de
-                         documento era mandar a la persona a buscar el dato al otro extremo. -->
-                  } @else {
-                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
-                  }
-                </div>
-
-                <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
-                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
-                <div class="fin-row fin-row-col">
-                  <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
-                  <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
-                                  (completeMethod)="buscarCaos($event)" (onSelect)="elegirCaos($event)"
-                                  (onClear)="soltarCaos()" optionLabel="label" [delay]="250"
-                                  [minQueryLength]="0" [showClear]="true" appendTo="body" class="cg-full"
-                                  placeholder="Depósito o dispensación de la máquina — el arqueo se precarga solo"></p-autocomplete>
-                  @if (caosElegido(); as m) {
-                    <small class="fin-hint-ok">
-                      De la caja fuerte: {{ m.type_label }} #{{ m.external_id }} ·
-                      {{ m.user_external }} · {{ money(m.monto) }}@if (m.ref) { · «{{ m.ref }}»}.
-                      El arqueo se precargó con el conteo de la máquina; la morralla y lo que falte, a mano.
-                    </small>
-                  }
-                </div>
-              }
-
-              <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
-                   gastos cae en un par (cuenta, concepto) ya usado 3+ veces, y Krmn tecleo 61 en una
-                   hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
-                   El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
-                   el dato -- y por eso el bloque lo dice. -->
-              @if (f().tipo === 'gasto' && frecuentes().length) {
-                <div class="fin-row fin-row-col">
-                  <label>Lo que más repetís en la sucursal {{ f().sucursal }}</label>
-                  <div class="cg-chips">
-                    @for (fr of frecuentes(); track fr.rango) {
-                      <!-- El conteo va en el "badge" del propio p-button, no en un <span> con clase
-                           propia: asi el par fondo/texto del contador lo calibra el tema y flipea solo
-                           en oscuro, que es justo lo que esta pantalla venia declarando a mano. -->
-                      <p-button [label]="fr.glosa || fr.kepler_concepto" [badge]="fr.usos + ''"
-                                badgeSeverity="secondary" size="small" severity="secondary"
-                                [outlined]="true" (onClick)="usarFrecuente(fr)"
-                                [title]="fr.kepler_cuenta + ' / ' + fr.kepler_concepto + ' — usado ' + fr.usos + ' veces'"></p-button>
-                    }
-                  </div>
-                  <small class="fin-dim">Llenan cuenta, concepto y beneficiario. El importe siempre se escribe.</small>
-                </div>
-              }
-
-              <div class="fin-row">
-                <label for="cg-benef">Beneficiario</label>
-                <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
-                       (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
-              </div>
-
-              <div class="fin-row fin-row-col">
-                <label for="cg-concepto">Cuenta y concepto de Kepler</label>
-                <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
-                                (completeMethod)="buscarConceptos($event)" (onSelect)="elegirConcepto($event)"
-                                optionLabel="label" [delay]="250" [minQueryLength]="cuentaFuenteDoc() ? 0 : 2"
-                                [dropdown]="!!cuentaFuenteDoc()" [showClear]="true"
-                                placeholder="Buscá por nombre, cuenta o código" appendTo="body"
-                                class="cg-full"></p-autocomplete>
-                <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
-                  {{ etiquetaConcepto().texto }}
-                </small>
-                @if (cuentaFuenteDoc()) {
-                  <p-button label="Corregir la cuenta" icon="pi pi-pencil" size="small"
-                            severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
-                }
-              </div>
-
-              <div class="fin-row">
-                <label for="cg-glosa">Qué pasó</label>
-                <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
-                       (keydown.enter)="guardar()"
-                       placeholder="Contá qué pasó — esto NO es el concepto contable" />
-              </div>
-
-              </div><!-- /cg-col del QUE -->
-              </div><!-- /cg-grid -->
-
-              <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
-                   2026-09-22, "caja_classify_rules" tenía 0 filas en prod y NO EXISTÍA NINGUNA PANTALLA
-                   para cargarlas. La bandeja decía "0 de 8 se confirman · el resto necesita que su
-                   cuenta esté declarada" y no había por dónde declararla. Se declara acá, que es donde
-                   la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
-              @if (puedeDeclararRegla()) {
-                <label class="fin-row cg-declara">
-                  <p-checkbox [binary]="true" [ngModel]="declararRegla()"
-                              (ngModelChange)="declararRegla.set($event)"></p-checkbox>
-                  <span>
-                    De ahora en adelante, <strong>{{ f().beneficiario }}</strong> va a
-                    <span class="mono">{{ f().kepler_cuenta }} / {{ f().kepler_concepto }}</span>.
-                    <small class="fin-dim d-block">
-                      Los próximos movimientos de este beneficiario se van a poder confirmar de un clic
-                      desde la bandeja, sin volver a elegir la cuenta.
-                    </small>
-                  </span>
-                </label>
-              }
-
-              @if (bloqueos().length) {
-                <ul class="fin-blocks">
-                  @for (b of bloqueos(); track b) { <li>{{ textoBloqueo(b) }}</li> }
-                </ul>
-              }
-            </div>
-            </div>
-            <!-- El pie queda pegado abajo del panel: con la reja de denominaciones abierta,
-                 Guardar caia fuera de la vista y habia que ir a buscarlo. -->
-            <div class="cg-detail-pie">
-            <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
-            <p-button label="Guardar" icon="pi pi-check" size="small"
-                      [disabled]="bloqueos().length > 0 || guardando()" (onClick)="guardar()"></p-button>
-            </div>
           } @else {
-            <!-- Vacio operacional: icono, titulo neutral, que hacer, y una accion real. -->
-            <div class="cg-detail-nada">
-              <i class="pi pi-wallet" aria-hidden="true"></i>
-              <strong>Nada elegido todavia</strong>
-              <p>Elegi un movimiento de la lista para confirmarlo o capturarlo. Se abre aca,
-                 al lado, sin taparte la cola de trabajo.</p>
-              <!-- ⛔ [CG.47] Esto estaba en --action y es LA MISMA ACCION que "Registrar
-                   movimiento" de la cabecera: dos botones naranjas, con dos rotulos distintos,
-                   llamando al mismo metodo. DESIGN reserva el color de marca para la accion
-                   obvia; cuando hay cuatro naranjas en pantalla ninguna lo es. Este queda
-                   secundario: el CTA de registrar vive arriba, aca es una salida del vacio. -->
-              <p-button label="Registrar uno nuevo" icon="pi pi-plus" size="small"
-                        severity="secondary" [outlined]="true"
-                        [disabled]="!hayConceptos() && !coberturaSinMedir()"
-                        (onClick)="abrirCaptura()"></p-button>
+            <!-- ⚠️ El vacio del arqueo NO repite el del apartado 1 ni ofrece su misma
+                 accion: dice QUE FALTA para que esta mitad sirva. Dos vacios identicos uno al
+                 lado del otro se leen como una pantalla rota. -->
+            <div class="cg-ap-nada">
+              <i class="pi pi-calculator" aria-hidden="true"></i>
+              <strong>Nada que contar todavía</strong>
+              <p>El arqueo se abre con el movimiento. Elegí uno de la cola y acá vas a contar el
+                 efectivo, pieza por pieza, contra lo que dice su documento.</p>
             </div>
           }
-        </aside>
+          </div>
+        </section>
       </div><!-- /cg-split -->
     </div>
 
