@@ -276,7 +276,7 @@ No entran a MS.7 y **no deben empezar antes de calibrar la Fase 1** (30 días de
 
 ### 9.8 MS.7.5 construido (2026-10-07): la base de la pausa con motivo, el ruteo por ubicación y el traslado
 
-- **Migración `20261007330000`** (aditiva, idempotente, reversible). Sólo AMPLÍA: cada CHECK nuevo acepta todo lo que ya existe.
+- **Migración `20261007350000`** (aditiva, idempotente, reversible). Sólo AMPLÍA: cada CHECK nuevo acepta todo lo que ya existe.
   - `requests.pause_reason` — `proveedor | refaccion | aprobacion | solicitante | otro`. **La base exige que el motivo sólo exista mientras el ticket está en espera** (`requests_pause_reason_state_ck`), igual que ya exige `en_espera ⇔ reloj pausado`: un motivo huérfano de una pausa que terminó sería un dato que miente. Consecuencia para el código (MS.7.9): al reanudar hay que limpiar el motivo en la misma operación, o la base lo rechaza.
   - `routing_rules.warehouse_code` — la regla también puede dispararse por **ubicación**; el disparador pasa de «categoría o palabras» a «categoría, palabras **o** ubicación» (una regla sin ninguno sigue siendo un typo).
   - `request_messages.kind` admite `transfer` — el historial de traslados es un **mensaje de sistema** del hilo (de→a, quién, por qué), no una tabla nueva.
