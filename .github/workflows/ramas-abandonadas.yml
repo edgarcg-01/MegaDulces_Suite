@@ -1,0 +1,184 @@
+name: Ramas abandonadas
+
+# Borra las ramas que nadie va a retomar, y deja escrito qué borró.
+#
+# ─── POR QUÉ ESTE WORKFLOW Y NO UNA REGLA DE GITHUB ──────────────────────────────────────────
+#
+# El pedido original fue "una rama por dev, para no tener montón de ramas". ⛔ Eso NO se puede
+# exigir del lado del servidor en este repo, y está MEDIDO, no supuesto: un POST real a
+# `repos/.../rulesets` con el tipo de regla `branch_name_pattern` —la única que limita nombres de
+# rama— responde **422 "Invalid rule"**. Ese tipo de regla existe sólo para repos de una
+# organización con Enterprise, y éste es un repo de cuenta personal. No hay forma de rechazar la
+# segunda rama de alguien en el momento del push.
+#
+# Lo que SÍ existe y ya estaba prendido: `delete_branch_on_merge`. Por eso el remoto nunca junta
+# ramas mergeadas — se borran solas. Medido el 2026-10-08, el remoto entero eran **7 ramas**:
+# 3 de sistema, 3 de PRs abiertos y 1 aparcada a propósito. O sea que el "montón" NO estaba en el
+# remoto: estaba en los checkouts locales (50 ramas y 24 worktrees en un solo árbol compartido),
+# y eso ninguna regla de GitHub lo ve.
+#
+# Entonces lo que queda para el servidor es el residuo real: la rama que alguien empujó, nunca
+# convirtió en PR, y dejó ahí. Eso es lo que este workflow barre.
+#
+# ─── QUÉ NO TOCA, Y POR QUÉ ──────────────────────────────────────────────────────────────────
+#
+# 1. `main`, `ci-green`, `prod-release` — infraestructura del despliegue. ⚠️ `ci-green` y
+#    `prod-release` son ramas MARCADORAS: no tienen PR, no tienen commits propios y no se mueven
+#    por trabajo humano. Para este workflow se ven exactamente como una rama abandonada. Van en
+#    duro acá, no en el archivo, porque borrar `ci-green` deja a `auto-deploy.sh` sin su sello y
+#    a producción sin despliegues.
+# 2. Toda rama con un PR ABIERTO (en cualquier estado: borrador, en revisión, con conflictos).
+#    Borrarla cierra el PR y tira el trabajo.
+# 3. Toda rama con un commit en los últimos `DIAS` días. Trabajo en curso.
+# 4. Lo que esté en `.github/ramas-protegidas.txt` — el trabajo aparcado a propósito, que desde
+#    afuera se ve idéntico al abandonado.
+#
+# ─── CÓMO MIRARLO ANTES DE QUE BORRE ─────────────────────────────────────────────────────────
+#
+# Pestaña Actions → "Ramas abandonadas" → "Run workflow", con `simulacro = true`. No borra nada y
+# publica el mismo informe. ⭐ Conviene correrlo así la primera vez: un barredor que nadie vio
+# correr en seco es una intención, no una compuerta.
+#
+# El informe queda SIEMPRE en el issue "🌿 Ramas sin PR abierto" (uno solo, se reescribe), con el
+# SHA de cada rama borrada. Mientras GitHub no haya recolectado el objeto, se recupera con:
+#     git branch <nombre> <sha> && git push origin <nombre>
+
+on:
+  schedule:
+    # Lunes 15:00 UTC = 09:00 en México. Después del fin de semana y antes de que nadie
+    # empiece a ramificar: lo que barre ya estaba abandonado el viernes.
+    - cron: '0 15 * * 1'
+  workflow_dispatch:
+    inputs:
+      simulacro:
+        description: 'No borrar nada, sólo informar (recomendado la primera vez)'
+        type: boolean
+        default: true
+      dias:
+        description: 'Días sin commits para considerar una rama abandonada'
+        type: string
+        default: '30'
+
+permissions:
+  contents: write      # borrar ramas
+  issues: write        # publicar el informe
+  pull-requests: read  # saber qué ramas tienen PR abierto
+
+concurrency:
+  group: ramas-abandonadas
+  cancel-in-progress: false
+
+jobs:
+  barrer:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Barrer ramas sin PR abierto
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SIMULACRO: ${{ inputs.simulacro || 'false' }}
+          DIAS: ${{ inputs.dias || '30' }}
+        run: |
+          set -euo pipefail
+
+          # ⚠️ `LC_ALL=C` en todo lo que ordena o compara: la colación del locale rompe `comm`
+          # EN SILENCIO y devuelve vacío, que acá se leería como "no hay nada que borrar".
+          export LC_ALL=C
+
+          SISTEMA="main ci-green prod-release"
+          CORTE=$(date -u -d "-${DIAS} days" +%s)
+          echo "corte: nada con commits después de $(date -u -d "@$CORTE" '+%F') · simulacro=$SIMULACRO"
+
+          # ── Las protegidas a mano ───────────────────────────────────────────────────────────
+          PROT=""
+          if [ -f .github/ramas-protegidas.txt ]; then
+            PROT=$(sed 's/#.*//' .github/ramas-protegidas.txt | tr -d '\r' | awk 'NF')
+          fi
+          echo "protegidas a mano: $(printf '%s' "$PROT" | awk 'NF' | wc -l)"
+
+          # ── Las que tienen PR abierto ───────────────────────────────────────────────────────
+          # ⛔ Sin `--limit` alto, `gh pr list` devuelve 30 y las ramas del PR 31 en adelante se
+          #    verían como "sin PR" — borrar por una paginación es exactamente el tipo de falla
+          #    que no avisa.
+          CON_PR=$(gh pr list --repo "$REPO" --state open --limit 500 --json headRefName --jq '.[].headRefName')
+          echo "con PR abierto: $(printf '%s' "$CON_PR" | awk 'NF' | wc -l)"
+
+          protegida() { # protegida <rama>
+            for s in $SISTEMA; do [ "$1" = "$s" ] && return 0; done
+            printf '%s\n' "$PROT"   | grep -qxF "$1" && return 0
+            printf '%s\n' "$CON_PR" | grep -qxF "$1" && return 0
+            return 1
+          }
+
+          BORRADAS=""; CONSERVADAS=""; FALLOS=""
+          for b in $(git for-each-ref --format='%(refname:lstrip=3)' refs/remotes/origin | grep -v '^HEAD$'); do
+            if protegida "$b"; then continue; fi
+            TS=$(git log -1 --format=%ct "origin/$b")
+            SHA=$(git rev-parse --short "origin/$b")
+            FECHA=$(git log -1 --format=%cs "origin/$b")
+            AUTOR=$(git log -1 --format=%an "origin/$b")
+            if [ "$TS" -gt "$CORTE" ]; then
+              CONSERVADAS="$CONSERVADAS- \`$b\` · $AUTOR · $FECHA · sin PR abierto, pero con movimiento reciente"$'\n'
+              continue
+            fi
+            if [ "$SIMULACRO" = "true" ]; then
+              BORRADAS="$BORRADAS- \`$b\` · $AUTOR · último commit $FECHA · \`$SHA\` — **se borraría**"$'\n'
+            elif git push origin --delete "$b" >/dev/null 2>&1; then
+              BORRADAS="$BORRADAS- \`$b\` · $AUTOR · último commit $FECHA · \`$SHA\` — borrada"$'\n'
+            else
+              FALLOS="$FALLOS- \`$b\` — no se pudo borrar (¿protegida por una regla?)"$'\n'
+            fi
+          done
+
+          # ── Quién tiene más de una rama ─────────────────────────────────────────────────────
+          # No se borra por esto: una persona puede tener dos PRs abiertos legítimos. Se publica
+          # para que se vea, que es lo único que GitHub deja hacer acá.
+          VARIAS=$(for b in $(git for-each-ref --format='%(refname:lstrip=3)' refs/remotes/origin | grep -v '^HEAD$'); do
+                     case " $SISTEMA " in *" $b "*) continue;; esac
+                     printf '%s\t%s\n' "$(git log -1 --format=%an "origin/$b")" "$b"
+                   done | sort | awk -F'\t' '{n[$1]++; r[$1]=r[$1]" `"$2"`"} END {for (a in n) if (n[a]>1) printf "- **%s**: %d ramas —%s\n", a, n[a], r[a]}')
+
+          {
+            echo "_Última corrida: $(date -u '+%F %H:%M UTC') · umbral ${DIAS} días · simulacro: ${SIMULACRO}_"
+            echo
+            echo "## Borradas"
+            if [ -n "$BORRADAS" ]; then printf '%s' "$BORRADAS"; else echo "Ninguna."; fi
+            echo
+            echo "## Sin PR abierto, pero con movimiento reciente"
+            if [ -n "$CONSERVADAS" ]; then printf '%s' "$CONSERVADAS"; else echo "Ninguna."; fi
+            echo
+            echo "## Más de una rama por persona"
+            if [ -n "$VARIAS" ]; then
+              printf '%s\n' "$VARIAS"
+              echo
+              echo "> ⛔ Esto es un informe, no una compuerta. GitHub **no puede** rechazar la segunda"
+              echo "> rama de alguien en este repo: la regla que lo haría (\`branch_name_pattern\`) sólo"
+              echo "> existe con Enterprise, y acá responde \`422\`."
+            else
+              echo "Nadie."
+            fi
+            if [ -n "$FALLOS" ]; then echo; echo "## No se pudieron borrar"; printf '%s' "$FALLOS"; fi
+            echo
+            echo "---"
+            echo "Para recuperar una borrada, mientras GitHub no haya recolectado el objeto:"
+            echo '```sh'
+            echo 'git branch <nombre> <sha> && git push origin <nombre>'
+            echo '```'
+            echo "Para que una rama no se barra nunca: agregala a [\`.github/ramas-protegidas.txt\`](../blob/main/.github/ramas-protegidas.txt)."
+          } > informe.md
+
+          cat informe.md
+
+          TITULO='🌿 Ramas sin PR abierto'
+          NUM=$(gh issue list --repo "$REPO" --state open --limit 50 --search "$TITULO in:title" --json number,title \
+                  --jq "[.[] | select(.title == \"$TITULO\")] | first | .number // empty")
+          if [ -n "$NUM" ]; then
+            gh issue edit  "$NUM" --repo "$REPO" --body-file informe.md
+            echo "informe actualizado en el issue #$NUM"
+          else
+            gh issue create --repo "$REPO" --title "$TITULO" --body-file informe.md
+          fi

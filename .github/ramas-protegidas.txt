@@ -1,0 +1,16 @@
+# Ramas que `ramas-abandonadas.yml` NO toca, aunque no tengan PR abierto y lleven
+# meses quietas. Una por línea, nombre exacto. Las líneas que empiezan con `#` y
+# las vacías se ignoran.
+#
+# ⭐ Para qué existe este archivo: la política borra lo abandonado, y "aparcado a
+# propósito" se ve EXACTAMENTE igual que "abandonado" desde afuera —misma falta de
+# PR, mismo silencio en el log. Sin esta lista, parar un trabajo tres semanas para
+# destrabar `main` sería ponerle fecha de caducidad sin saberlo.
+#
+# Al agregar una rama acá, escribí al lado de quién es y por qué, para que dentro de
+# seis meses se pueda decidir si todavía aplica en vez de adivinar.
+
+# Edgar · 2026-10-07 · 46 archivos de [SV.3]/[VEC.11]/[RD.34] aparcados para destrabar
+# `main`. Es lo único del remoto que no vive ni en `main` ni en un PR: si se borra,
+# se pierde. Sacar de esta lista cuando entre por PR o cuando Edgar la dé por muerta.
+wip/sv3-vec11-rd34
