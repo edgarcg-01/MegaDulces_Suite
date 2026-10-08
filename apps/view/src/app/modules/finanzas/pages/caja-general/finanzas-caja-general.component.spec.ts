@@ -624,6 +624,76 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       .toBeUndefined();
   });
 
+  // ── [CG.68] La firma desde el teléfono del mostrador ─────────────────────────────────────
+  //
+  // Edgar: *"si esto lo estoy usando en pc, ¿cómo hago que esto se envíe a mi teléfono para que
+  // se firme?"*. La PC pide un código, el teléfono lo teclea, y el PNG vuelve por una room que
+  // es de los dos — nunca por la del tenant, que tiene todas las cajas de la empresa adentro.
+
+  it('⭐⭐ si el monto CAMBIA después de firmar, la firma deja de valer', async () => {
+    // El agujero que esto tapa: el teléfono firma $1,900, el cajero agrega un billete, y la
+    // pantalla seguiría diciendo «firmado» sobre $2,400. Una firma válida pegada a un número que
+    // nadie aceptó. `firmaRemotaVale` es un computed y no una bandera porque el monto sale del
+    // conteo: cambia con cada pieza, y nadie se va a acordar de revalidar a mano.
+    const fx = montar();
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });                                  // $1,500
+    fx.detectChanges();
+
+    // Llega la firma del teléfono, hecha sobre lo que había en ese momento.
+    comp.firmaRemotaPng.set('data:image/png;base64,AAA');
+    comp.firmaRemotaMonto.set(1500);
+    comp.firmaHecha.set(true);
+    expect(comp.firmaRemotaVale()).toBe(true);
+
+    // El cajero sigue contando.
+    contar({ 500: 3, 200: 1 });                          // $1,700
+    expect(comp.f().monto).toBe(1700);
+    expect(comp.firmaRemotaVale(), 'la firma siguió valiendo sobre otra cifra').toBe(false);
+  });
+
+  it('⛔ [negativa] una firma que ya no vale NO se manda al servidor', async () => {
+    // Lo anterior sin esto sería cosmético: el aviso en pantalla y el cuerpo del POST tienen que
+    // decir lo mismo, o se guarda evidencia que la propia pantalla declaró inválida.
+    const crear = vi.fn(() => of({ id: 'x', folio: 'F-1' }));
+    const fx = montar({ crear });
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });
+    comp.firmaRemotaPng.set('data:image/png;base64,AAA');
+    comp.firmaRemotaMonto.set(999);                      // firmada sobre OTRO monto
+    fx.detectChanges();
+
+    comp.guardar();
+
+    const cuerpo = crear.mock.calls[0][0] as Record<string, unknown>;
+    expect(cuerpo['firma_png'], 'se mandó una firma que ya no correspondía').toBeUndefined();
+  });
+
+  it('el código del emparejamiento NO sobrevive a la captura anterior', async () => {
+    // Un código viejo traería la firma de otro movimiento a esta captura.
+    const fx = montar();
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    fx.detectChanges();
+    comp.firmaCodigo.set('ABC234');
+    comp.firmaRemotaPng.set('data:image/png;base64,AAA');
+    comp.firmaRemotaMonto.set(1500);
+
+    comp.abrirCaptura();
+
+    expect(comp.firmaCodigo()).toBeNull();
+    expect(comp.firmaRemotaPng()).toBeNull();
+    expect(comp.firmaRemotaMonto()).toBeNull();
+  });
+
   it('⛔ [negativa] la firma NO sobrevive al movimiento anterior', async () => {
     // Sin el reseteo, la firma de un gasto se guardaría en el SIGUIENTE: evidencia atribuida a
     // quien no firmó, y en silencio, porque el trazo ya dibujado se ve igual que uno nuevo.
