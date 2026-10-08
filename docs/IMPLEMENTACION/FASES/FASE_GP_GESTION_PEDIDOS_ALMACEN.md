@@ -681,6 +681,39 @@ Probado: la migración con `up`/`down` reales en Postgres local (el orden de la 
 el `down` que aborta si ya hay horas capturadas); la consulta de almacenes contra prod (sólo
 lectura); 14 pruebas de la pantalla montada y 4 de la pestaña.
 
+#### 8.3.3 Correcciones de las revisiones independientes (código y usabilidad, antes del PR)
+
+- **"Tomar siguiente" le habría dado a otro una ola que alguien está caminando.** Para retomar lo
+  liberado, la toma aceptaba `en_surtido` sin dueño, pero la pantalla de Reparto arranca olas así.
+  Ahora liberar deja una marca (`liberada_at/_de/_por`) y sólo se retoma lo marcado. Probado en
+  Postgres: la ola de Reparto no se le da a nadie (prueba negativa).
+- **A quien le quitan la ola ya no la puede marcar ni cerrar** (409 "te lo quitaron desde la
+  consola"). Sólo frena a esa persona; la pantalla de Reparto sigue igual.
+- **Liberar y urgente sólo escriben si la ola sigue como la vio la consola** (dueño y estado). Si
+  entre medio se cerró o la tomó otro, responde 409 en vez de borrar quién la surtió.
+- **Las acciones piden alcance de ESCRITURA** de la sucursal (`assertCanWrite`), no sólo de lectura.
+- Destino: se guarda recortado, y la validación de la hora ya no rechaza códigos válidos (medido en
+  prod: hasta 13 caracteres, ninguno raro). FK de `warehouse_id` en las dos tablas nuevas. El
+  `down` cuenta sin RLS para no borrar horas capturadas.
+- Pantalla:
+  - el turno es el real de "Tomar siguiente" (lo tomado no tiene turno);
+  - "Lo trae hace 5 min" en lugar de la hora en que se armó;
+  - quitar urgente también se confirma;
+  - botones con verbo ("Marcar urgente", "Cancelar surtido", "Volver");
+  - cancelar avisa si ya se levantó mercancía;
+  - el refresco no pisa el umbral tecleado, no corre con la pestaña oculta, no reordena bajo el dedo
+    y descarta respuestas de otro almacén;
+  - "Reintentar" sólo aparece cuando falló leer la fila;
+  - plurales corregidos;
+  - botones de 44 px;
+  - en teléfono la fila se apila (`dt-stack`).
+- Tarjeta del surtidor: "(otra unidad, no se compara)" y "Kepler marca existencia negativa".
+
+**Deuda declarada (no se toca en esta fase).** `POST /reparto/surtido/waves/:id/assign` y
+`/cancel` (pantalla vieja de Reparto) piden sólo `COMMERCIAL_PICKING_GESTIONAR`, que tiene el
+surtidor, y no aplican alcance por sucursal: quien conozca el id de una ola puede asignarla o
+cancelarla. Para cerrarlo hay que mover esas acciones a la consola o ponerles alcance (`[GP.3c.4]`).
+
 ### 8.4 Pendiente de GP.3
 
 - **GP.3c.3, partir un pedido grande** por rango de pasillos: necesita ubicaciones (`FASE_WMS` §12.5,

@@ -653,12 +653,14 @@ export class PickingService {
 
       const { rows } = await trx.raw(
         `UPDATE commercial.picking_waves
-            SET assigned_to = ?, updated_at = now(), updated_by = ?
+            SET assigned_to = ?, liberada_at = NULL, updated_at = now(), updated_by = ?
           WHERE id = (SELECT pw.id FROM commercial.picking_waves pw
                        WHERE pw.warehouse_id = ? AND pw.assigned_to IS NULL
-                         -- [GP.3c] 'en_surtido' sin dueño = la consola la LIBERÓ a medio surtir
-                         -- (el surtidor se fue): la retoma otro, con lo ya marcado.
-                         AND pw.status IN ('abierta', 'en_surtido')
+                         -- [GP.3c] 'en_surtido' sin dueño sólo se toma si la consola la LIBERÓ
+                         -- (liberada_at): la retoma otro, con lo ya marcado. Una 'en_surtido' sin
+                         -- dueño y SIN esa marca la arrancó la pantalla de Reparto y alguien la
+                         -- está caminando: no se le da a nadie más.
+                         AND (pw.status = 'abierta' OR (pw.status = 'en_surtido' AND pw.liberada_at IS NOT NULL))
                          AND (?::text IS NULL OR pw.origen = ?::text)
                          AND NOT (pw.id = ANY(?::uuid[]))
                        -- [GP.3c] La fila: urgente → la salida más próxima de sus destinos (la
@@ -681,6 +683,17 @@ export class PickingService {
       const r = (rows as Array<{ id: string; code: string; armada_por: string }>)[0];
       return r ? { ...r, ya_era_tuya: false } : null;
     });
+  }
+
+  /**
+   * `[GP.3c]` A quien la consola le quitó la ola ya no puede marcarla ni cerrarla (aunque la siga
+   * viendo en su celular): si no, dos personas marcarían los mismos renglones y "el último gana".
+   * Sólo frena a ESA persona; la pantalla de Reparto, que no asigna, sigue igual.
+   */
+  private noEsDeQuienLaPerdio(wave: { assigned_to: string | null; liberada_de?: string | null }, userId: string | null): void {
+    if (userId && wave.liberada_de === userId && wave.assigned_to !== userId) {
+      throw new ConflictException('Este surtido te lo quitaron desde la consola. Toca "Tomar siguiente".');
+    }
   }
 
   /** `[GP.3]` Deja una ola sin dueño y anota por qué, para que la consola la vea y la resuelva. */
@@ -793,7 +806,8 @@ export class PickingService {
          LEFT JOIN analytics.v_erp_stock_on_hand s ON s.warehouse_id = w.id AND s.product_id = p.id
          LEFT JOIN LATERAL (
            SELECT k.c11 FROM kepler_ods.kdii k
-            WHERE k.sucursal = w.code AND btrim(k.c1) = p.sku
+            WHERE btrim(k.sucursal) = btrim(w.code) AND btrim(k.c1) = p.sku
+            ORDER BY k.c11
             LIMIT 1
          ) i ON true
         WHERE p.id = ANY(?::uuid[])`,
@@ -1479,7 +1493,7 @@ export class PickingService {
             kepler_sucursal: k.sucursal,
             kepler_serie: k.serie,
             kepler_folio: k.folio,
-            destino_code: destinoDe(k)?.cliente_code ?? null,
+            destino_code: String(destinoDe(k)?.cliente_code ?? '').trim().slice(0, 20) || null,
             destino_nombre: destinoDe(k)?.destino_nombre?.slice(0, 120) ?? null,
             added_by: userId,
           })),
@@ -1814,10 +1828,11 @@ export class PickingService {
     const userId = this.tenantCtx.get()?.userId || null;
 
     return this.tk.run(async (trx) => {
-      const wave = await trx('commercial.picking_waves').where({ id: waveId }).first();
+      const wave = await trx('commercial.picking_waves').where({ id: waveId }).forUpdate().first();
       if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
       if (wave.status === 'cancelada') throw new ConflictException('La ola está cancelada');
       if (wave.status === 'surtida') throw new ConflictException('La ola ya se cerró');
+      this.noEsDeQuienLaPerdio(wave, userId);
 
       const line = await trx('commercial.wave_lines').where({ id: lineId, wave_id: waveId }).first();
       if (!line) throw new NotFoundException(`Renglón ${lineId} no encontrado en esta ola`);
@@ -1872,6 +1887,7 @@ export class PickingService {
       if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
       if (wave.status === 'cancelada') throw new ConflictException('La ola está cancelada');
       if (wave.status === 'surtida') return wave; // idempotente
+      this.noEsDeQuienLaPerdio(wave, userId);
       // [GP.3] Sólo se cierra lo que se arrancó. Una ola `abierta` (asignada pero sin arrancar) no
       // tiene renglones, así que "0 pendientes" la dejaba cerrar como surtida sin que nadie
       // surtiera nada (lo encontró la revisión de GP.3).

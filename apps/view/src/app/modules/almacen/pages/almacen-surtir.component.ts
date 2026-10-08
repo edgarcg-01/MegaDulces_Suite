@@ -767,14 +767,17 @@ export class AlmacenSurtirComponent implements OnInit {
   existenciaTexto(l: PickerWaveLine): string {
     const e = this.existenciaEstado(l);
     if (e === 'sin_dato') return 'Existencia: sin dato en el sistema';
+    // Negativa = un ajuste pendiente en Kepler: no se lee igual que "no hay".
+    if (Number(l.existencia) < 0) return 'Kepler marca existencia negativa';
     if (e === 'cero') return 'Sin existencia en el sistema';
     const n = `${this.fmt(Number(l.existencia))} ${l.existencia_unidad ?? ''}`.trim();
+    if (e === 'neutral') return `Hay ${n} en el sistema (otra unidad, no se compara)`;
     return e === 'poca' ? `Hay sólo ${n} en el sistema` : `Hay ${n} en el sistema`;
   }
 
   /** "Existencia de Kepler de hace 42 min": el dato llega con atraso y hay que decirlo. */
   existenciaAlTexto(al: string | null): string {
-    if (!al) return 'Existencia de Kepler: sin medir cuándo es';
+    if (!al) return 'Existencia de Kepler: no se sabe de qué hora es';
     const min = Math.max(0, Math.round((Date.now() - new Date(al).getTime()) / 60000));
     if (min < 1) return 'Existencia de Kepler al momento';
     if (min < 60) return `Existencia de Kepler de hace ${min} min`;

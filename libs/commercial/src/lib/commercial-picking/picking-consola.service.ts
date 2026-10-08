@@ -12,7 +12,8 @@ import { PickingService } from './picking.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
-const DESTINO_RE = /^[A-Za-z0-9 ._-]{1,20}$/;
+/** El código de destino es el de Kepler (`kdm1.c10`, medido: hasta 13 caracteres, sin raros); sólo se frena lo imposible. */
+const DESTINO_RE = /^\P{Cc}{1,20}$/u;
 
 interface OlaSqlRow {
   id: string;
@@ -26,6 +27,7 @@ interface OlaSqlRow {
   assigned_nombre: string | null;
   created_at: Date;
   started_at: Date | null;
+  liberada_at: Date | null;
   renglones: number;
   tocados: number;
   pedidos: string[] | null;
@@ -84,7 +86,7 @@ export class PickingConsolaService {
       const { rows } = await trx.raw(
         `SELECT pw.id, pw.code, pw.status, pw.origen, pw.armada_por, pw.prioridad, pw.prioridad_motivo,
                 pw.assigned_to, COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS assigned_nombre,
-                pw.created_at, pw.started_at,
+                pw.created_at, pw.started_at, pw.liberada_at,
                 (SELECT count(*) FROM commercial.wave_lines wl WHERE wl.wave_id = pw.id)::int AS renglones,
                 (SELECT count(*) FROM commercial.wave_lines wl
                   WHERE wl.wave_id = pw.id AND wl.status <> 'pendiente')::int AS tocados,
@@ -120,6 +122,8 @@ export class PickingConsolaService {
         assigned_nombre: r.assigned_nombre,
         created_at: new Date(r.created_at).toISOString(),
         started_at: r.started_at ? new Date(r.started_at).toISOString() : null,
+        // La misma condición con la que "Tomar siguiente" la acepta (PickingService.asignarOla).
+        tomable: !r.assigned_to && (r.status === 'abierta' || (r.status === 'en_surtido' && !!r.liberada_at)),
         renglones: Number(r.renglones) || 0,
         tocados: Number(r.tocados) || 0,
         pedidos: r.pedidos ?? [],
@@ -194,13 +198,14 @@ export class PickingConsolaService {
 
   /** Urgente va antes que todo en "Tomar siguiente". Marcarlo exige motivo: queda quién y por qué. */
   async prioridad(waveId: string, dto: { urgente: boolean; motivo?: string }): Promise<{ id: string; prioridad: 0 | 1 }> {
-    const urgente = dto?.urgente === true;
+    if (typeof dto?.urgente !== 'boolean') throw new BadRequestException('urgente debe ser true o false.');
+    const urgente = dto.urgente;
     const motivo = String(dto?.motivo ?? '').trim();
     if (urgente && motivo.length < 3) throw new BadRequestException('Marcar urgente necesita un motivo (al menos 3 letras).');
     await this.olaViva(waveId);
     const userId = this.tenantCtx.get()?.userId || null;
-    await this.tk.run((trx) =>
-      trx('commercial.picking_waves').where({ id: waveId }).update({
+    const n = await this.tk.run((trx) =>
+      trx('commercial.picking_waves').where({ id: waveId }).whereIn('status', ['abierta', 'en_surtido']).update({
         prioridad: urgente ? 1 : 0,
         prioridad_motivo: urgente ? motivo.slice(0, 300) : null,
         prioridad_por: userId,
@@ -209,6 +214,7 @@ export class PickingConsolaService {
         updated_by: userId,
       }),
     );
+    if (!n) throw new ConflictException('Ese surtido se acaba de terminar o cancelar.');
     this.logger.log(`[GP.3c] ola ${waveId} ${urgente ? 'URGENTE: ' + motivo : 'normal'}`);
     return { id: waveId, prioridad: urgente ? 1 : 0 };
   }
@@ -221,14 +227,23 @@ export class PickingConsolaService {
     const w = await this.olaViva(waveId);
     if (!w.assigned_to) throw new ConflictException('Ese surtido no lo trae nadie.');
     const userId = this.tenantCtx.get()?.userId || null;
-    await this.tk.run((trx) =>
-      trx('commercial.picking_waves').where({ id: waveId }).update({
-        assigned_to: null,
-        notes: trx.raw(`concat_ws(' · ', notes, ?::text)`, ['[GP.3c] liberada desde la consola']),
-        updated_at: trx.fn.now(),
-        updated_by: userId,
-      }),
+    // Sólo si sigue en manos de quien la consola vio: si entre medio la cerró o la tomó otro, no
+    // se le quita a nadie más ni se borra quién la surtió.
+    const n = await this.tk.run((trx) =>
+      trx('commercial.picking_waves')
+        .where({ id: waveId, assigned_to: w.assigned_to })
+        .whereIn('status', ['abierta', 'en_surtido'])
+        .update({
+          assigned_to: null,
+          liberada_at: trx.fn.now(),
+          liberada_de: w.assigned_to,
+          liberada_por: userId,
+          notes: trx.raw(`concat_ws(' · ', notes, ?::text)`, ['[GP.3c] liberada desde la consola']),
+          updated_at: trx.fn.now(),
+          updated_by: userId,
+        }),
     );
+    if (!n) throw new ConflictException('Ese surtido acaba de cambiar (se terminó o lo tomó otro). Actualiza la consola.');
     return { id: waveId, liberada: true };
   }
 
@@ -248,7 +263,7 @@ export class PickingConsolaService {
     destino_nombre?: string | null;
     hora_salida: string | null;
   }): Promise<{ destino_code: string; hora_salida: string | null }> {
-    const alm = await this.almacenEnAlcance(dto?.warehouse_id);
+    const alm = await this.almacenParaEscribir(dto?.warehouse_id);
     const destino = String(dto?.destino_code ?? '').trim();
     if (!DESTINO_RE.test(destino)) throw new BadRequestException('destino_code inválido');
     const hora = dto.hora_salida == null || dto.hora_salida === '' ? null : String(dto.hora_salida).trim();
@@ -278,7 +293,7 @@ export class PickingConsolaService {
 
   /** Hasta cuántos renglones un pedido va en tanda con otros, en este almacén. */
   async umbral(dto: { warehouse_id: string; umbral_tanda: number }): Promise<{ umbral_tanda: number }> {
-    const alm = await this.almacenEnAlcance(dto?.warehouse_id);
+    const alm = await this.almacenParaEscribir(dto?.warehouse_id);
     const u = Number(dto?.umbral_tanda);
     if (!Number.isInteger(u) || u < 1 || u > 50) throw new BadRequestException('umbral_tanda debe ser un entero entre 1 y 50');
     const userId = this.tenantCtx.get()?.userId || null;
@@ -293,7 +308,7 @@ export class PickingConsolaService {
 
   /** Arma ya los surtidos pendientes (sin esperar a que un surtidor apriete "Tomar siguiente"). */
   async armar(dto: { warehouse_id: string; origen?: string }): Promise<KeplerWavesAutoResponse> {
-    const alm = await this.almacenEnAlcance(dto?.warehouse_id);
+    const alm = await this.almacenParaEscribir(dto?.warehouse_id);
     return this.picking.crearOlasKepler({ warehouse_id: alm.id, origen: dto.origen });
   }
 
@@ -308,6 +323,13 @@ export class PickingConsolaService {
    * El almacén, si es una sucursal Kepler y está dentro del alcance de quien consulta. Fuera de
    * alcance responde igual que "no existe": no se confirma qué hay en otra sucursal.
    */
+  /** Para cambiar algo no basta con verlo: el alcance de escritura (`mode_write`) tiene que incluir la sucursal. */
+  private async almacenParaEscribir(warehouseId: string): Promise<{ id: string; code: string }> {
+    const alm = await this.almacenEnAlcance(warehouseId);
+    await this.scope.assertCanWrite('warehouse', alm.code, 'almacen');
+    return alm;
+  }
+
   private async almacenEnAlcance(warehouseId: string): Promise<{ id: string; code: string }> {
     if (!UUID_RE.test(warehouseId || '')) throw new BadRequestException('warehouse_id inválido');
     const w: { id: string; code: string | null } | undefined = await this.tk.run((trx) =>
@@ -328,7 +350,7 @@ export class PickingConsolaService {
         trx('commercial.picking_waves').where({ id: waveId }).first('id', 'warehouse_id', 'status', 'assigned_to'),
       );
     if (!w) throw new NotFoundException('Surtido no encontrado.');
-    await this.almacenEnAlcance(w.warehouse_id);
+    await this.almacenParaEscribir(w.warehouse_id);
     if (!['abierta', 'en_surtido'].includes(w.status)) {
       throw new ConflictException(`Ese surtido ya está '${w.status}'.`);
     }

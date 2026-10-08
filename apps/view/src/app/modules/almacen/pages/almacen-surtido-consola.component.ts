@@ -1,8 +1,8 @@
-import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, NgZone, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { type Observable, timer } from 'rxjs';
+import type { Observable } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
@@ -14,8 +14,11 @@ import type {
   KeplerWavesAutoResponse,
 } from '@megadulces/contracts';
 import { PickingService } from '../../reparto/picking.service';
+import { encuestarVisible } from '../../../core/utils/poll-visible';
 
-type Accion = { ola: string; tipo: 'urgente' | 'cancelar' | 'liberar' };
+type Accion = { ola: string; tipo: 'urgente' | 'quitar' | 'cancelar' | 'liberar' };
+
+const plural = (n: number, uno: string, varios: string): string => `${n} ${n === 1 ? uno : varios}`;
 
 const PREF_CONSOLA = 'gp.consola.almacen';
 /** Cada cuánto se relee la fila sola: el coordinador la tiene abierta mientras surten. */
@@ -61,17 +64,21 @@ const dmy = (v: string): string => {
           @if (almacenes().length > 1) {
             <p-select [options]="almacenes()" optionLabel="etiqueta" optionValue="id" [ngModel]="almacen()" (onChange)="pickAlmacen($event.value)" ariaLabel="Almacén" appendTo="body" class="gp-sel" />
           }
-          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" [disabled]="!almacen()" (click)="reload()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
+          <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" [disabled]="!almacen() || loading()" (click)="reload()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
 
       <p class="gp-rule"><i class="pi pi-sort-amount-down" aria-hidden="true"></i><span>"Tomar siguiente" da los surtidos en este orden: <b>urgentes</b>, luego la <b>salida más próxima</b> de sus destinos, luego <b>lo más viejo</b>.</span></p>
 
-      @if (err(); as e) { <div class="gp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="gp-errbox-txt">{{ e }}</span><button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button></div> }
-      @if (aviso(); as a) { <div class="gp-note" role="status"><i class="pi pi-check-circle" aria-hidden="true"></i><span>{{ a }}</span></div> }
+      @if (err(); as e) {
+        <div class="gp-errbox" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span class="gp-errbox-txt">{{ e }}</span>
+          @if (errDeCarga()) { <button pButton type="button" class="p-button-sm p-button-outlined" (click)="reload()"><span class="p-button-label">Reintentar</span></button> }
+        </div>
+      }
+      @if (aviso(); as a) { <div class="gp-note" [class.gp-note-info]="!avisoOk()" role="status"><i class="pi" [class.pi-check-circle]="avisoOk()" [class.pi-info-circle]="!avisoOk()" aria-hidden="true"></i><span>{{ a }}</span></div> }
 
       @if (sinAlmacen()) {
-        <div class="gp-note gp-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No tienes un almacén a tu cargo, así que no hay fila que mostrarte. Pide que te asignen tu sucursal en <b>Administración › Personas</b>.</span></div>
+        <div class="gp-note gp-note-bad" role="alert"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>No tienes un almacén a tu cargo, así que no hay fila que mostrarte. Pídele a Sistemas que te asigne tu sucursal.</span></div>
       }
 
       @if (loading() && !data() && !sinAlmacen()) { <div class="gp-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="gp-skel-row"></div> }</div> }
@@ -82,69 +89,71 @@ const dmy = (v: string): string => {
           <div class="gp-kpi"><span class="gp-kpi-v">{{ enSurtido() }}</span><span class="gp-kpi-l">En surtido</span></div>
           <div class="gp-kpi" [class.gp-kpi-warn]="urgentes() > 0"><span class="gp-kpi-v">{{ urgentes() }}</span><span class="gp-kpi-l">Urgentes</span></div>
           <div class="gp-kpi"><span class="gp-kpi-v">{{ d.por_armar.pedidos }}</span><span class="gp-kpi-l">Pedidos por armar</span></div>
-          <div class="gp-kpi"><span class="gp-kpi-v">{{ d.surtidas_hoy }}</span><span class="gp-kpi-l">Terminados hoy</span></div>
+          <div class="gp-kpi"><span class="gp-kpi-v">{{ d.surtidas_hoy }}</span><span class="gp-kpi-l">Surtidos terminados hoy</span></div>
         </section>
 
-        <section class="gp-block" aria-labelledby="gp-fila-h">
+        <section class="gp-block dt-scope" aria-labelledby="gp-fila-h">
           <div class="gp-bh"><h2 id="gp-fila-h">Fila de surtido</h2><span class="gp-meta">{{ d.olas.length }} {{ d.olas.length === 1 ? 'surtido' : 'surtidos' }} sin terminar</span></div>
           @if (!d.olas.length) {
             <div class="gp-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>No hay surtidos en la fila. Si Kepler tiene pedidos autorizados, ármalos abajo.</span></div>
           } @else {
-            <div class="gp-scroll">
-              <table class="gp-table">
+            <div class="gp-scroll" (pointerdown)="tocado()" (focusin)="tocado()">
+              <table class="gp-table dt-stack">
                 <caption class="sr-only">Surtidos en el orden en que se van a tomar</caption>
                 <thead>
                   <tr>
-                    <th scope="col" class="ta-r">#</th>
+                    <th scope="col" class="ta-r"><span aria-hidden="true">Turno</span><span class="sr-only">Turno en la fila</span></th>
                     <th scope="col">Surtido</th>
                     <th scope="col">Destinos</th>
                     <th scope="col">Salida</th>
                     <th scope="col">Quién</th>
-                    <th scope="col" class="ta-r">Avance</th>
-                    <th scope="col">Desde</th>
+                    <th scope="col" class="ta-r">Renglones</th>
+                    <th scope="col">Tiempo</th>
                     <th scope="col"><span class="sr-only">Acciones</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  @for (o of d.olas; track o.id; let i = $index) {
+                  @for (o of d.olas; track o.id) {
                     <tr [class.gp-urg]="o.prioridad === 1">
-                      <td class="num muted ta-r">{{ i + 1 }}</td>
-                      <td>
+                      <td class="num muted ta-r" role="cell" data-label="Turno">{{ turnos().get(o.id) ?? '—' }}</td>
+                      <td class="dt-id" role="cell" data-label="Surtido">
                         <span class="mono gp-code">{{ o.code }}</span>
                         @if (o.prioridad === 1) { <span class="gp-badge gp-badge-warn">Urgente</span> }
                         <span class="gp-sub muted">{{ pedidosTexto(o) }}</span>
                         @if (o.prioridad === 1 && o.prioridad_motivo) { <span class="gp-sub gp-motivo">Motivo: {{ o.prioridad_motivo }}</span> }
                       </td>
-                      <td><span class="gp-trunc">{{ o.destinos.length ? o.destinos.join(', ') : '—' }}</span></td>
-                      <td class="mono">{{ o.hora_salida ?? '—' }}</td>
-                      <td>
+                      <td role="cell" data-label="Destinos"><span class="gp-trunc">{{ o.destinos.length ? o.destinos.join(', ') : '—' }}</span></td>
+                      <td class="mono" role="cell" data-label="Salida">{{ o.hora_salida ?? '—' }}</td>
+                      <td role="cell" data-label="Quién">
                         @if (o.assigned_nombre) { <span>{{ o.assigned_nombre }}</span> }
-                        @else { <span class="muted">Libre</span> }
+                        @else if (o.tomable) { <span class="muted">Libre</span> }
+                        @else { <span class="gp-warn">Arrancado en Reparto</span><span class="gp-sub muted">Nadie lo tiene en "Tomar siguiente"</span> }
                       </td>
-                      <td class="num ta-r">{{ o.tocados }} / {{ o.renglones }}</td>
-                      <td class="muted">{{ hace(o.created_at) }}</td>
-                      <td class="gp-acts">
+                      <td class="num ta-r" role="cell" data-label="Renglones" [attr.aria-label]="o.tocados + ' de ' + o.renglones + ' renglones'">{{ o.tocados }} de {{ o.renglones }}</td>
+                      <td class="muted gp-tiempo" role="cell" data-label="Tiempo">{{ tiempoTexto(o) }}</td>
+                      <td class="gp-acts dt-actions" role="cell" data-label="Acciones">
                         @if (o.prioridad === 1) {
-                          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="quitarUrgente(o)"><span class="p-button-label">Quitar urgente</span></button>
+                          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="abrir(o, 'quitar', $event)"><span class="p-button-label">Quitar urgente</span></button>
                         } @else {
-                          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="abrir(o, 'urgente')"><span class="p-button-label">Urgente</span></button>
+                          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="abrir(o, 'urgente', $event)"><span class="p-button-label">Marcar urgente</span></button>
                         }
                         @if (o.assigned_to) {
-                          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="abrir(o, 'liberar')"><span class="p-button-label">Liberar</span></button>
+                          <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="abrir(o, 'liberar', $event)"><span class="p-button-label">Liberar</span></button>
                         }
-                        <button pButton type="button" class="p-button-sm p-button-text p-button-danger" [disabled]="guardando()" (click)="abrir(o, 'cancelar')"><span class="p-button-label">Cancelar</span></button>
+                        <button pButton type="button" class="p-button-sm p-button-text p-button-danger" [disabled]="guardando()" (click)="abrir(o, 'cancelar', $event)"><span class="p-button-label">Cancelar surtido</span></button>
                       </td>
                     </tr>
                     @if (accion()?.ola === o.id) {
                       <tr class="gp-confirm-row">
-                        <td colspan="8">
-                          <div class="gp-confirm" role="group" [attr.aria-label]="tituloAccion(o)">
+                        <td colspan="8" role="cell" data-label="Confirmar">
+                          <div class="gp-confirm" role="group" [attr.aria-label]="tituloAccion(o)" (keydown.escape)="cerrar()">
                             <span class="gp-confirm-t">{{ tituloAccion(o) }}</span>
-                            @if (accion()?.tipo !== 'liberar') {
-                              <input pInputText id="gp-motivo" class="gp-motivo-in" [ngModel]="motivo()" (ngModelChange)="motivo.set($event)" (keydown.enter)="confirmar(o)" (keydown.escape)="cerrar()" placeholder="Motivo (obligatorio)" aria-label="Motivo" maxlength="200" />
+                            @if (pideMotivo()) {
+                              <label for="gp-motivo" class="gp-lbl">Motivo</label>
+                              <input pInputText id="gp-motivo" class="gp-motivo-in" [ngModel]="motivo()" (ngModelChange)="motivo.set($event)" (keydown.enter)="confirmar(o)" placeholder="Ej. sale el camión de Zamora a las 10" maxlength="200" />
                             }
-                            <button pButton type="button" class="p-button-sm" [class.p-button-danger]="accion()?.tipo === 'cancelar'" [loading]="guardando()" [disabled]="!puedeConfirmar()" (click)="confirmar(o)"><span class="p-button-label">{{ etiquetaConfirmar() }}</span></button>
-                            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="cerrar()"><span class="p-button-label">No</span></button>
+                            <button pButton id="gp-confirm-ok" type="button" class="p-button-sm" [class.p-button-danger]="accion()?.tipo === 'cancelar'" [loading]="guardando()" [disabled]="!puedeConfirmar()" (click)="confirmar(o)"><span class="p-button-label">{{ etiquetaConfirmar() }}</span></button>
+                            <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="cerrar()"><span class="p-button-label">Volver</span></button>
                           </div>
                         </td>
                       </tr>
@@ -201,18 +210,19 @@ const dmy = (v: string): string => {
             <div class="gp-bh"><h2 id="gp-arm-h">Por armar</h2></div>
             <div class="gp-step">
               @if (d.por_armar.pedidos) {
-                <p class="gp-p"><b>{{ d.por_armar.pedidos }}</b> {{ d.por_armar.pedidos === 1 ? 'pedido autorizado' : 'pedidos autorizados' }} en Kepler sin surtido: <b>{{ d.por_armar.tanda }}</b> van en tanda y <b>{{ d.por_armar.individual }}</b> solos.</p>
+                <p class="gp-p"><b>{{ d.por_armar.pedidos }}</b> {{ d.por_armar.pedidos === 1 ? 'pedido autorizado' : 'pedidos autorizados' }} en Kepler sin surtido: <b>{{ d.por_armar.tanda }}</b> se juntan en tandas y <b>{{ d.por_armar.individual }}</b> se surten uno por uno.</p>
               } @else {
                 <p class="gp-p muted">Kepler no tiene pedidos autorizados pendientes de armar.</p>
               }
               @if (d.por_armar.bloqueados) {
-                <p class="gp-p gp-warn">{{ d.por_armar.bloqueados }} no pueden armarse: traen claves que no están en el catálogo.</p>
+                <p class="gp-p gp-warn">{{ d.por_armar.bloqueados === 1 ? '1 pedido no puede armarse: trae' : d.por_armar.bloqueados + ' pedidos no pueden armarse: traen' }} productos que no están dados de alta en la Suite.</p>
               }
               @if (d.por_armar.atorados.count) {
-                <p class="gp-p gp-warn">{{ d.por_armar.atorados.count }} siguen autorizados en Kepler desde {{ d.por_armar.atorados.desde ? dmy(d.por_armar.atorados.desde) : 'antes' }} y quedan fuera de la fila: revísalos en Kepler.</p>
+                <p class="gp-p gp-warn">{{ d.por_armar.atorados.count === 1 ? '1 pedido sigue autorizado' : d.por_armar.atorados.count + ' pedidos siguen autorizados' }} en Kepler desde {{ d.por_armar.atorados.desde ? dmy(d.por_armar.atorados.desde) : 'antes' }} y {{ d.por_armar.atorados.count === 1 ? 'queda' : 'quedan' }} fuera de la fila: revísalos en Kepler.</p>
               }
               <div class="gp-inline">
-                <p-select [options]="origenOpts" optionLabel="label" optionValue="value" [ngModel]="origenArmar()" (onChange)="origenArmar.set($event.value)" ariaLabel="Origen de los pedidos a armar" appendTo="body" class="gp-sel" />
+                <label for="gp-origen" class="gp-lbl">Armar pedidos de</label>
+                <p-select inputId="gp-origen" [options]="origenOpts" optionLabel="label" optionValue="value" [ngModel]="origenArmar()" (onChange)="origenArmar.set($event.value)" appendTo="body" class="gp-sel" />
                 <button pButton type="button" class="p-button-sm" [loading]="armando()" [disabled]="guardando() || !d.por_armar.pedidos" (click)="armar()"><span class="p-button-label">Armar surtidos ahora</span></button>
               </div>
               <p class="gp-hint">"Tomar siguiente" también los arma solo cuando la fila se vacía.</p>
@@ -247,6 +257,7 @@ const dmy = (v: string): string => {
     .gp-rule b { color:var(--text-main); font-weight:600; }
     .gp-note { display:flex; gap:.5rem; align-items:flex-start; padding:.6rem .8rem; margin:.2rem 0 .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); font-size:var(--fs-sm); }
     .gp-note .pi { color:var(--ok-fg); margin-top:.15rem; }
+    .gp-note-info .pi { color:var(--text-muted); }
     .gp-note-bad { border-left:3px solid var(--bad-fg); }
     .gp-note-bad .pi { color:var(--bad-fg); }
     .gp-kpis { display:grid; grid-template-columns:repeat(auto-fit, minmax(8.5rem, 1fr)); gap:.5rem; margin:0 0 .75rem; }
@@ -271,10 +282,19 @@ const dmy = (v: string): string => {
     .gp-badge-warn { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
     .gp-motivo { color:var(--warn-soft-fg); }
     .gp-acts { white-space:nowrap; text-align:right; }
+    /* Con rejilla, las acciones quedan clavadas a la derecha aunque la tabla se desplace; apilada no hace falta. */
+    @media (min-width: 34rem) { .gp-acts { position:sticky; right:0; background:var(--card-bg); } }
+    .gp-tiempo { white-space:nowrap; }
+    .gp-acts button, .gp-confirm button, .gp-hora button, .gp-inline button { min-height:var(--tap-min); }
+    @media (max-width: 64rem) {
+      .gp-acts { white-space:normal; }
+      .gp-acts button { display:flex; width:100%; justify-content:flex-end; }
+      .gp-table .gp-trunc { max-width:10rem; }
+    }
     .gp-confirm-row td { background:var(--hover-bg); }
     .gp-confirm { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; }
     .gp-confirm-t { font-weight:600; font-size:var(--fs-sm); }
-    .gp-motivo-in { flex:1; min-width:14rem; height:2.25rem; }
+    .gp-motivo-in { flex:1; min-width:14rem; min-height:var(--tap-min); }
     .gp-hora { display:flex; align-items:center; gap:.4rem; }
     .gp-time { height:2.25rem; min-height:var(--tap-min); padding:0 .5rem; border:1px solid var(--border-color); border-radius:var(--r-sm); background:var(--card-bg); color:var(--text-main); font:inherit; font-family:var(--font-mono); }
     .gp-time:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
@@ -284,7 +304,7 @@ const dmy = (v: string): string => {
     .gp-p { margin:0 0 .45rem; font-size:var(--fs-sm); }
     .gp-inline { display:flex; flex-wrap:wrap; align-items:center; gap:.5rem; margin-top:.35rem; }
     .gp-lbl { font-size:var(--fs-sm); }
-    .gp-num-in { width:4.5rem; height:2.25rem; font-family:var(--font-mono); text-align:right; }
+    .gp-num-in { width:4.5rem; min-height:var(--tap-min); font-family:var(--font-mono); text-align:right; }
     :host ::ng-deep .gp-sel { min-width:11rem; }
     .gp-trunc { display:block; max-width:18rem; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .gp-sub { display:block; font-size:var(--fs-xs); }
@@ -307,6 +327,7 @@ const dmy = (v: string): string => {
 export class AlmacenSurtidoConsolaComponent implements OnInit {
   private readonly api = inject(PickingService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly zone = inject(NgZone);
 
   readonly skel = Array.from({ length: 6 });
   readonly dmy = dmy;
@@ -322,8 +343,19 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   readonly data = signal<ConsolaSurtidoResponse | null>(null);
   readonly leidoEn = signal<Date | null>(null);
   readonly loading = signal(false);
+  /** El refresco de fondo no prende el spinner: un botón que gira solo parece que algo pasa. */
+  private refrescando = false;
   readonly err = signal<string | null>(null);
+  /** true = falló LEER la fila (Reintentar sirve); false = falló una acción (Reintentar no la repite). */
+  readonly errDeCarga = signal(false);
   readonly aviso = signal<string | null>(null);
+  readonly avisoOk = signal(true);
+  /** Último toque en la fila: el refresco no la reordena bajo el dedo. */
+  private ultimoToque = 0;
+  /** El aviso de lo hecho sobrevive al refresco que sigue a la acción y se va con el siguiente. */
+  private avisoVisto = false;
+  /** El botón que abrió la confirmación, para devolverle el foco al cerrarla. */
+  private abridor: HTMLElement | null = null;
   readonly guardando = signal(false);
   readonly armando = signal(false);
 
@@ -334,7 +366,14 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   readonly umbral = signal<number>(5);
   readonly origenArmar = signal<string | null>(null);
 
-  readonly porTomar = computed(() => (this.data()?.olas ?? []).filter((o) => !o.assigned_to).length);
+  readonly porTomar = computed(() => (this.data()?.olas ?? []).filter((o) => o.tomable).length);
+  /** El turno en que "Tomar siguiente" dará cada surtido libre (las tomadas no tienen turno). */
+  readonly turnos = computed(() => {
+    const m = new Map<string, number>();
+    let n = 0;
+    for (const o of this.data()?.olas ?? []) if (o.tomable) m.set(o.id, ++n);
+    return m;
+  });
   readonly enSurtido = computed(() => (this.data()?.olas ?? []).filter((o) => !!o.assigned_to).length);
   readonly urgentes = computed(() => (this.data()?.olas ?? []).filter((o) => o.prioridad === 1).length);
   readonly nombreAlmacen = computed(() => {
@@ -343,19 +382,22 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   });
   readonly horaLeida = computed(() => {
     const d = this.leidoEn();
-    return d ? d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' }) : '—';
+    return d ? d.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }) : '—';
   });
+  readonly umbralSinGuardar = computed(() => !!this.data() && this.umbral() !== this.data()?.umbral_tanda);
+  readonly pideMotivo = computed(() => this.accion()?.tipo === 'urgente' || this.accion()?.tipo === 'cancelar');
   readonly umbralValido = computed(() => Number.isInteger(this.umbral()) && this.umbral() >= 1 && this.umbral() <= 50);
   readonly puedeConfirmar = computed(() => {
     const a = this.accion();
     if (!a || this.guardando()) return false;
-    return a.tipo === 'liberar' || this.motivo().trim().length >= 3;
+    return !this.pideMotivo() || this.motivo().trim().length >= 3;
   });
   readonly etiquetaConfirmar = computed(() => {
     switch (this.accion()?.tipo) {
-      case 'urgente': return 'Marcar urgente';
+      case 'urgente': return 'Sí, marcar urgente';
+      case 'quitar': return 'Sí, quitar urgente';
       case 'liberar': return 'Sí, liberar';
-      default: return 'Cancelar surtido';
+      default: return 'Sí, cancelar surtido';
     }
   });
 
@@ -370,14 +412,20 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
         const guardado = this.leer(PREF_CONSOLA);
         this.almacen.set(lista.some((a) => a.id === guardado) ? guardado : lista[0].id);
         this.reload();
-        // La fila cambia sola mientras surten: se relee, salvo a media acción del coordinador.
-        timer(REFRESCO_MS, REFRESCO_MS).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
-          if (!this.accion() && !this.guardando() && !this.armando() && !this.loading() && !this.hayBorradores()) {
+        // La fila cambia sola mientras surten: se relee (sólo con la pestaña a la vista), salvo a
+        // media acción del coordinador o justo después de un toque en la fila.
+        encuestarVisible(REFRESCO_MS, () => {
+          const reciente = Date.now() - this.ultimoToque < 5_000;
+          if (!this.accion() && !this.guardando() && !this.armando() && !this.loading() && !this.refrescando
+            && !this.hayBorradores() && !this.umbralSinGuardar() && !reciente) {
             this.reload(true);
           }
-        });
+        }, { destroyRef: this.destroyRef, zone: this.zone });
       },
-      error: () => this.err.set('No se pudo leer qué almacenes manejas.'),
+      error: () => {
+        this.errDeCarga.set(false);
+        this.err.set('No se pudo leer qué almacenes manejas. Recarga la página.');
+      },
     });
   }
 
@@ -394,42 +442,78 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   reload(silencioso = false): void {
     const id = this.almacen();
     if (!id) return;
-    this.loading.set(true);
-    if (!silencioso) this.err.set(null);
+    if (silencioso) this.refrescando = true;
+    else {
+      this.loading.set(true);
+      this.err.set(null);
+    }
     this.api.consola(id).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => {
+        // Si cambiaron de almacén mientras esta consulta viajaba, su respuesta ya no aplica.
+        if (d.warehouse_id !== this.almacen()) return;
+        // Un número tecleado y sin guardar no se pisa con el del servidor.
+        const conservarUmbral = silencioso && this.umbralSinGuardar();
         this.data.set(d);
         this.leidoEn.set(new Date());
-        this.umbral.set(d.umbral_tanda);
+        if (!conservarUmbral) this.umbral.set(d.umbral_tanda);
+        if (silencioso && this.avisoVisto) this.aviso.set(null);
+        this.avisoVisto = !!this.aviso();
         this.loading.set(false);
-        this.err.set(null);
+        this.refrescando = false;
+        if (this.errDeCarga()) this.err.set(null);
+        // La ola de una confirmación abierta ya no está (la terminaron o cancelaron): se cierra.
+        const a = this.accion();
+        if (a && !d.olas.some((o) => o.id === a.ola)) this.cerrar();
+        // Las horas tecleadas que ya coinciden con el servidor dejan de ser borrador.
+        this.borradores.update((b) => Object.fromEntries(Object.entries(b).filter(([k, v]) => {
+          const srv = d.destinos.find((x) => x.destino_code === k);
+          return !!srv && v !== '' && v !== (srv.hora_salida ?? '');
+        })));
       },
       error: (e: unknown) => {
+        if (id !== this.almacen()) return;
         this.loading.set(false);
+        this.refrescando = false;
+        if (silencioso && this.data()) return; // un refresco fallido no tapa la fila que ya se ve
+        this.errDeCarga.set(true);
         this.err.set(this.mensaje(e, 'No se pudo cargar la consola.'));
       },
     });
   }
 
+  tocado(): void {
+    this.ultimoToque = Date.now();
+  }
+
   // ── Acciones sobre un surtido ────────────────────────────────────────────────────────────
 
-  abrir(o: ConsolaSurtidoOla, tipo: Accion['tipo']): void {
+  abrir(o: ConsolaSurtidoOla, tipo: Accion['tipo'], ev?: Event): void {
+    this.abridor = (ev?.currentTarget as HTMLElement | null) ?? null;
     this.accion.set({ ola: o.id, tipo });
     this.motivo.set('');
     this.aviso.set(null);
-    if (tipo !== 'liberar') setTimeout(() => document.getElementById('gp-motivo')?.focus());
+    const destino = tipo === 'urgente' || tipo === 'cancelar' ? 'gp-motivo' : 'gp-confirm-ok';
+    setTimeout(() => document.getElementById(destino)?.focus());
   }
 
   cerrar(): void {
     this.accion.set(null);
     this.motivo.set('');
+    const a = this.abridor;
+    this.abridor = null;
+    // Si la fila ya no existe (se canceló), el foco va al título de la fila y no al vacío.
+    setTimeout(() => (a?.isConnected ? a : document.getElementById('gp-fila-h'))?.focus());
   }
 
   tituloAccion(o: ConsolaSurtidoOla): string {
     switch (this.accion()?.tipo) {
       case 'urgente': return `¿Por qué ${o.code} es urgente?`;
+      case 'quitar': return `¿Quitarle lo urgente a ${o.code}? Vuelve a su lugar normal en la fila.`;
       case 'liberar': return `¿Quitarle ${o.code} a ${o.assigned_nombre ?? 'quien lo trae'}? Vuelve a la fila con lo ya marcado.`;
-      default: return `¿Por qué se cancela ${o.code}? Sus pedidos vuelven a quedar por armar.`;
+      default: {
+        const levantado = o.tocados > 0 ? ` Ya se levantaron ${plural(o.tocados, 'renglón', 'renglones')}: hay que regresar esa mercancía.` : '';
+        return `¿Por qué se cancela ${o.code}? Sus pedidos regresan a «Por armar» y se volverán a armar.${levantado}`;
+      }
     }
   }
 
@@ -439,27 +523,36 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
     const motivo = this.motivo().trim();
     const req: Observable<unknown> =
       a.tipo === 'urgente' ? this.api.consolaPrioridad(o.id, true, motivo)
+      : a.tipo === 'quitar' ? this.api.consolaPrioridad(o.id, false)
       : a.tipo === 'liberar' ? this.api.consolaLiberar(o.id)
       : this.api.consolaCancelar(o.id, motivo);
     const hecho =
-      a.tipo === 'urgente' ? `${o.code} quedó urgente: es el siguiente que se va a tomar.`
+      a.tipo === 'urgente' ? `${o.code} quedó urgente: pasa antes que todo lo no urgente.`
+      : a.tipo === 'quitar' ? `${o.code} ya no es urgente.`
       : a.tipo === 'liberar' ? `${o.code} volvió a la fila.`
       : `${o.code} se canceló.`;
-    this.ejecutar(req, hecho, () => this.cerrar());
-  }
-
-  quitarUrgente(o: ConsolaSurtidoOla): void {
-    this.ejecutar(this.api.consolaPrioridad(o.id, false), `${o.code} ya no es urgente.`);
+    const fallo =
+      a.tipo === 'cancelar' ? `No se canceló ${o.code}.`
+      : a.tipo === 'liberar' ? `No se liberó ${o.code}.`
+      : `No se cambió la urgencia de ${o.code}.`;
+    this.ejecutar(req, hecho, fallo, () => this.cerrar());
   }
 
   // ── Salidas de hoy ───────────────────────────────────────────────────────────────────────
 
   borrador(s: ConsolaSurtidoDestino): string {
-    return this.borradores()[s.destino_code] ?? s.hora_salida ?? '';
+    const b = this.borradores()[s.destino_code];
+    // Un campo vaciado no es "borrar la hora" (para eso está el botón): se sigue viendo la guardada.
+    return b ? b : (s.hora_salida ?? '');
   }
 
   setBorrador(s: ConsolaSurtidoDestino, v: string): void {
-    this.borradores.update((b) => ({ ...b, [s.destino_code]: v ?? '' }));
+    const valor = v ?? '';
+    if (valor === (s.hora_salida ?? '')) {
+      this.soltarBorrador(s);
+      return;
+    }
+    this.borradores.update((b) => ({ ...b, [s.destino_code]: valor }));
   }
 
   cambio(s: ConsolaSurtidoDestino): boolean {
@@ -478,6 +571,7 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
     this.ejecutar(
       this.api.consolaSalida({ warehouse_id: id, destino_code: s.destino_code, destino_nombre: s.destino_nombre, hora_salida: hora }),
       `${s.destino_nombre || s.destino_code} sale a las ${hora}.`,
+      `No se guardó la hora de ${s.destino_nombre || s.destino_code}.`,
       () => this.soltarBorrador(s),
     );
   }
@@ -488,6 +582,7 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
     this.ejecutar(
       this.api.consolaSalida({ warehouse_id: id, destino_code: s.destino_code, destino_nombre: s.destino_nombre, hora_salida: null }),
       `Se borró la hora de ${s.destino_nombre || s.destino_code}.`,
+      `No se borró la hora de ${s.destino_nombre || s.destino_code}.`,
       () => this.soltarBorrador(s),
     );
   }
@@ -499,7 +594,7 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
     const d = this.data();
     if (!id || !d || !this.umbralValido() || this.umbral() === d.umbral_tanda || this.guardando()) return;
     const n = this.umbral();
-    this.ejecutar(this.api.consolaUmbral(id, n), `Desde ahora, los pedidos de hasta ${n} renglones van en tanda.`);
+    this.ejecutar(this.api.consolaUmbral(id, n), `Desde ahora, los pedidos de hasta ${plural(n, 'renglón', 'renglones')} van en tanda.`, 'No se guardó el tamaño de la tanda.');
   }
 
   armar(): void {
@@ -511,23 +606,28 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
     this.api.consolaArmar(id, this.origenArmar() ?? undefined).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.armando.set(false);
+        this.avisoOk.set(r.creadas.length > 0);
         this.aviso.set(this.resumenArmado(r));
         this.reload(true);
       },
       error: (e: unknown) => {
         this.armando.set(false);
-        this.err.set(this.mensaje(e, 'No se pudieron armar los surtidos.'));
+        this.errDeCarga.set(false);
+        this.err.set(this.mensaje(e, 'No se pudieron armar los surtidos. Vuelve a intentar.'));
       },
     });
   }
 
   resumenArmado(r: KeplerWavesAutoResponse): string {
-    const partes = [
-      r.creadas.length === 1 ? 'Se armó 1 surtido' : `Se armaron ${r.creadas.length} surtidos`,
-    ];
-    if (r.fallidas.length) partes.push(`${r.fallidas.length} no se pudieron armar (otro los tomó antes)`);
-    if (r.bloqueados.length) partes.push(`${r.bloqueados.length} pedidos traen claves fuera del catálogo`);
-    if (r.vacios.length) partes.push(`${r.vacios.length} pedidos sin renglones`);
+    const n = r.creadas.length;
+    const partes = [n === 0 ? 'No se armó ningún surtido' : n === 1 ? 'Se armó 1 surtido' : `Se armaron ${n} surtidos`];
+    if (r.fallidas.length) {
+      partes.push(r.fallidas.length === 1 ? '1 no se pudo armar (otro lo tomó antes)' : `${r.fallidas.length} no se pudieron armar (otro los tomó antes)`);
+    }
+    if (r.bloqueados.length) {
+      partes.push(`${plural(r.bloqueados.length, 'pedido trae', 'pedidos traen')} productos que no están dados de alta en la Suite`);
+    }
+    if (r.vacios.length) partes.push(`${plural(r.vacios.length, 'pedido', 'pedidos')} sin renglones`);
     return partes.join(' · ') + '.';
   }
 
@@ -541,12 +641,17 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
     return `${n} ${tipo}: ${muestra}${n > 2 ? ` y ${n - 2} más` : ''}`;
   }
 
+  /** Libre: cuánto lleva esperando. Tomado: cuánto lleva quien lo trae (no desde que se armó). */
+  tiempoTexto(o: ConsolaSurtidoOla): string {
+    return o.assigned_to ? `Lo trae ${this.hace(o.started_at ?? o.created_at)}` : `Esperando ${this.hace(o.created_at)}`;
+  }
+
   /** "hace 12 min", "hace 3 h", "hace 2 días". */
   hace(v: string): string {
     const ms = Date.now() - new Date(v).getTime();
     if (!Number.isFinite(ms)) return '—';
     const min = Math.max(0, Math.floor(ms / 60_000));
-    if (min < 1) return 'ahora';
+    if (min < 1) return 'hace un momento';
     if (min < 60) return `hace ${min} min`;
     const h = Math.floor(min / 60);
     if (h < 24) return `hace ${h} h`;
@@ -556,7 +661,7 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
 
   // ── Internos ─────────────────────────────────────────────────────────────────────────────
 
-  private ejecutar<T>(req: Observable<T>, hecho: string, despues?: () => void): void {
+  private ejecutar<T>(req: Observable<T>, hecho: string, fallo: string, despues?: () => void): void {
     this.guardando.set(true);
     this.aviso.set(null);
     this.err.set(null);
@@ -564,12 +669,16 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
       next: () => {
         this.guardando.set(false);
         despues?.();
+        this.avisoOk.set(true);
         this.aviso.set(hecho);
+        this.avisoVisto = false;
         this.reload(true);
       },
       error: (e: unknown) => {
         this.guardando.set(false);
-        this.err.set(this.mensaje(e, 'No se guardó. Vuelve a intentar.'));
+        this.errDeCarga.set(false);
+        const m = this.mensaje(e, '');
+        this.err.set(m ? `${fallo} ${m}` : `${fallo} Vuelve a intentar.`);
       },
     });
   }

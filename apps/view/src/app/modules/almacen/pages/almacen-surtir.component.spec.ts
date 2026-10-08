@@ -435,8 +435,13 @@ describe('AlmacenSurtirComponent · la pantalla del surtidor (GP.3b)', () => {
 
   it('unidad de existencia distinta a la del pedido: la muestra pero NO compara (0.35% medido)', async () => {
     await surtiendo([L({ qty_unit: 'PAQ', existencia: 5, existencia_unidad: 'KG' })]);
-    expect(datoExist()).toBe('Hay 5 KG en el sistema');
+    expect(datoExist()).toBe('Hay 5 KG en el sistema (otra unidad, no se compara)');
     expect(el().querySelector('.sr-exist-poca')).toBeNull();
+  });
+
+  it('existencia negativa (ajuste pendiente en Kepler) no se lee igual que un cero', async () => {
+    await surtiendo([L({ existencia: -4 })]);
+    expect(datoExist()).toBe('Kepler marca existencia negativa');
   });
 
   it('dice de cuándo es la existencia, y la ubicación cuando no está dada de alta', async () => {

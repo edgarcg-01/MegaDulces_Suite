@@ -154,6 +154,11 @@ export interface ConsolaSurtidoOla {
   assigned_nombre: string | null;
   created_at: string;
   started_at: string | null;
+  /**
+   * true = "Tomar siguiente" la puede dar: libre y abierta, o liberada desde la consola. Una en
+   * surtido sin dueño que arrancó la pantalla de Reparto NO es tomable: alguien la está caminando.
+   */
+  tomable: boolean;
   renglones: number;
   tocados: number;
   pedidos: string[];

@@ -10,7 +10,10 @@
  *   · El umbral de la tanda se ajusta por almacén.
  *
  * Qué crea:
- *   1. `picking_waves.prioridad` (0 normal / 1 urgente) + motivo, quién y cuándo.
+ *   1. `picking_waves.prioridad` (0 normal / 1 urgente) + motivo, quién y cuándo; y
+ *      `liberada_at/_de/_por`: la marca de "la consola se la quitó a alguien". Sin ella, "tomar
+ *      siguiente" no distingue una ola liberada de una que arrancó la pantalla vieja de Reparto
+ *      (`en_surtido` sin dueño) y se la daría a otro mientras alguien la camina.
  *   2. `wave_orders.destino_code/destino_nombre`: el destino del pedido (Kepler `kdm1.c10`/`c32`),
  *      guardado al armar la ola para que la fila se ordene sin releer Kepler en cada "tomar".
  *   3. `commercial.picking_departures`: la hora de salida que captura el coordinador, por almacén,
@@ -72,6 +75,15 @@ exports.up = async function up(knex) {
   if (!(await col('picking_waves', 'prioridad_at'))) {
     await knex.raw(`ALTER TABLE commercial.picking_waves ADD COLUMN prioridad_at timestamptz`);
   }
+  if (!(await col('picking_waves', 'liberada_at'))) {
+    await knex.raw(`ALTER TABLE commercial.picking_waves ADD COLUMN liberada_at timestamptz`);
+  }
+  if (!(await col('picking_waves', 'liberada_de'))) {
+    await knex.raw(`ALTER TABLE commercial.picking_waves ADD COLUMN liberada_de uuid`);
+  }
+  if (!(await col('picking_waves', 'liberada_por'))) {
+    await knex.raw(`ALTER TABLE commercial.picking_waves ADD COLUMN liberada_por uuid`);
+  }
 
   // ── 2. El destino de cada pedido de la ola ──────────────────────────────────────────────────
   if (!(await col('wave_orders', 'destino_code'))) {
@@ -87,7 +99,7 @@ exports.up = async function up(knex) {
       CREATE TABLE commercial.picking_departures (
         id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         tenant_id       uuid NOT NULL DEFAULT public.current_tenant_id(),
-        warehouse_id    uuid NOT NULL,
+        warehouse_id    uuid NOT NULL REFERENCES commercial.warehouses(id),
         fecha           date NOT NULL,
         destino_code    varchar(20) NOT NULL,
         destino_nombre  varchar(120),
@@ -108,7 +120,7 @@ exports.up = async function up(knex) {
     await knex.raw(`
       CREATE TABLE commercial.picking_settings (
         tenant_id      uuid NOT NULL DEFAULT public.current_tenant_id(),
-        warehouse_id   uuid NOT NULL,
+        warehouse_id   uuid NOT NULL REFERENCES commercial.warehouses(id),
         umbral_tanda   smallint NOT NULL DEFAULT 5 CHECK (umbral_tanda BETWEEN 1 AND 50),
         created_at     timestamptz NOT NULL DEFAULT now(),
         created_by     uuid,
@@ -149,6 +161,9 @@ exports.down = async function down(knex) {
     );
   }
   // Las horas capturadas y los ajustes son trabajo del coordinador: sólo se deshace vacío.
+  // Sin tenant puesto, FORCE RLS haría que el conteo diera 0 y se borraran: se cuenta sin RLS (si
+  // el rol no puede saltarse RLS, Postgres da error en vez de contar de menos).
+  await knex.raw(`SET LOCAL row_security = off`);
   for (const t of ['picking_departures', 'picking_settings']) {
     if (await knex.schema.withSchema('commercial').hasTable(t)) {
       const { rows } = await knex.raw(`SELECT count(*)::int AS n FROM commercial.${t}`);
@@ -160,6 +175,9 @@ exports.down = async function down(knex) {
     DROP COLUMN IF EXISTS destino_nombre,
     DROP COLUMN IF EXISTS destino_code`);
   await knex.raw(`ALTER TABLE commercial.picking_waves
+    DROP COLUMN IF EXISTS liberada_por,
+    DROP COLUMN IF EXISTS liberada_de,
+    DROP COLUMN IF EXISTS liberada_at,
     DROP COLUMN IF EXISTS prioridad_at,
     DROP COLUMN IF EXISTS prioridad_por,
     DROP COLUMN IF EXISTS prioridad_motivo,
