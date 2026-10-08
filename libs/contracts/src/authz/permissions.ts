@@ -523,6 +523,32 @@ export enum Permission {
   // Requisiciones (HITL): crear/aprobar/rechazar/ordenar/recibir.
   COMPRAS_REQUISICIONES_VER = 'COMPRAS_REQUISICIONES_VER',
   COMPRAS_REQUISICIONES_GESTIONAR = 'COMPRAS_REQUISICIONES_GESTIONAR',
+  /**
+   * `[RQ.12]` **AUTORIZAR una requisición: aprobar, rechazar y el lote de las dos.**
+   *
+   * Pedido de Edgar (2026-10-08): *"necesito que toda requisición sea aprobada por
+   * arizbeth_gonzalez… es la única que puede autorizar y que el proceso siga"*.
+   *
+   * ⛔ **No se pudo resolver recortando `COMPRAS_REQUISICIONES_GESTIONAR`**, que era el camino
+   * obvio: esa llave gatea OCHO endpoints —crear, armar en lote, recalcular costos, aprobar,
+   * rechazar, lote, ordenar y recibir— y la tienen **29 personas en 9 roles**. Recortarla habría
+   * dejado a 28 de ellas sin poder armar un pedido, que es justo lo contrario de *"que el proceso
+   * siga"*. Por eso la DECISIÓN se separa de la OPERACIÓN: autorizar es esta llave; crear,
+   * recalcular, ordenar y recibir se quedan en `GESTIONAR`, donde los opera quien hoy los opera
+   * (medido: `aide_piceno` marcó 5 recepciones y 2 órdenes).
+   *
+   * ⭐ **Va FUERA de todo `MODULE_GROUP` y de todo rol — se reparte POR PERSONA**
+   * (`identity.user_permissions`), mismo criterio que `FINANCE_EXPENSES_HISTORIAL_TODOS` y que el
+   * `FINANCE_CAJA_AUTORIZAR` que ya vive repartido así en prod. El motivo no es estilo: hay **dos**
+   * `gerente_compras` —`arizbeth_gonzalez` y `fernanda_hernandez`— así que darla al rol se la daría
+   * también a quien nadie nombró. Medido: de 47 requisiciones decididas, Arizbeth decidió **38
+   * (81 %)**; Fernanda, ninguna.
+   *
+   * ⚠️ **El god-mode de plataforma sigue pasando** (ADR-054: se resuelve por ROL, no por el mapa),
+   * así que los 7 superadmins activos + `superoot` pueden autorizar aunque no tengan esta llave.
+   * Es la salida de emergencia cuando ella no está, y se DECLARA en vez de taparse.
+   */
+  COMPRAS_REQUISICIONES_AUTORIZAR = 'COMPRAS_REQUISICIONES_AUTORIZAR',
   // Órdenes de compra (OC) + recepciones (OE).
   COMPRAS_ORDENES_VER = 'COMPRAS_ORDENES_VER',
   COMPRAS_ORDENES_GESTIONAR = 'COMPRAS_ORDENES_GESTIONAR',

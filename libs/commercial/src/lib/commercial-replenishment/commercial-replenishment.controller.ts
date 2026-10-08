@@ -418,8 +418,13 @@ export class CommercialReplenishmentController {
     return this.svc.createRequisitionBatch(dto);
   }
 
+  // `[RQ.12]` AUTORIZAR, no gestionar. Los tres endpoints que DECIDEN (aprobar, rechazar y el lote
+  // que hace las dos) exigen `COMPRAS_REQUISICIONES_AUTORIZAR`, que no vive en ningún rol y se
+  // reparte por persona. Los otros cinco —crear, armar en lote, recalcular, ordenar y recibir—
+  // siguen en `GESTIONAR` a propósito: ahí está la OPERACIÓN, y recortarla habría frenado a las
+  // 28 personas que arman pedidos. Ver el porqué medido en el enum.
   @Post('requisitions/:id/approve')
-  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_AUTORIZAR)
   @ApiOperation({ summary: '[RQ.3] Aprueba una requisición (pending_approval → approved). FRENA si algún renglón ya no tiene el costo de hoy — la salida es POST /requisitions/:id/recalculate. No frena lo que no se pudo medir.' })
   approve(@Param('id') id: string) { return this.svc.approve(id); }
 
@@ -429,14 +434,16 @@ export class CommercialReplenishmentController {
   recalculate(@Param('id') id: string) { return this.svc.recalcularCostos(id); }
 
   @Post('requisitions/bulk')
-  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_AUTORIZAR)
   @ApiOperation({ summary: '[RQ.4] Aprueba o rechaza varias requisiciones de una (máx. 200). Cada una va en su propia transacción: lo que no pasa se informa con su motivo, sin tirar abajo el resto.' })
   bulk(@Body() dto: { ids?: string[]; accion?: 'approve' | 'reject' }) {
     return this.svc.bulkEstado(dto?.ids || [], dto?.accion === 'reject' ? 'reject' : 'approve');
   }
 
+  // Rechazar es la OTRA CARA de la misma decisión: si alguien más pudiera rechazar, podría matar
+  // lo que ella tenía que autorizar. Va con `approve`, no con la operación.
   @Post('requisitions/:id/reject')
-  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
+  @RequirePermissions(Permission.COMPRAS_REQUISICIONES_AUTORIZAR)
   @ApiOperation({ summary: 'Rechaza una requisición (pending_approval → cancelled).' })
   reject(@Param('id') id: string) { return this.svc.reject(id); }
 
