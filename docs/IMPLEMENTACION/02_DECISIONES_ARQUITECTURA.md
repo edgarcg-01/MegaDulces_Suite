@@ -2679,6 +2679,7 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 4. **Rotación por fecha de entrada (PEPS)**: `entered_at` por acomodo en reserva, que no se sobrescribe. Si una reserva más nueva caduca antes, el sistema avisa sin reordenar.
 5. **Se extienden** `warehouse_bins` y `stock_lot_locations`; se crean sólo `bin_assignments`, `bin_history` y `location_tasks`. No hay tabla paralela de ubicaciones.
 6. **Mantenimiento sin borrado**: bloquear, dar de baja (sólo vacía), recodificar y fusionar, todo con bitácora.
+7. **La ubicación guarda producto + presentación** (peldaño 1/2/3 de la escalera `kdii` de ESA sucursal). Cada presentación tiene su lugar fijo, su mín/máx y su reserva; la reposición puede ser "abrir caja". Sin factor, el estimado se declara no medido.
 
 **Rechazado:** reusar `COMMERCIAL_INVENTORY_ASIGNAR`, porque mezcla armar equipos de conteo con recodificar el almacén; PEPS sobre `stock_lots.received_at`, porque sería falso sin dar error; cantidad en la posición de surtido desde ahora, por la misma razón de ADR-087; convertir sola la ubicación de Wincaja, porque `BC110` cae en nivel 0.
 

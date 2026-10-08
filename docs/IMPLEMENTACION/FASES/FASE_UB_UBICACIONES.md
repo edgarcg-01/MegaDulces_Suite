@@ -33,6 +33,7 @@ Kepler no gestiona ubicaciones: los 11,816 productos tienen `Z000`. La Suite se 
 | D7 | Reparto de roles del §4 aprobado | 2026-10-08 |
 | D8 | Carretas `C`, espacios de espera `E` y estibas: misma tabla, otra familia de código | 2026-10-06 |
 | D9 | Piloto en PH | 2026-10-06 |
+| D10 | **La ubicación guarda producto + PRESENTACIÓN** (caja, paquete, pieza). El mismo Mazapán De la Rosa puede estar en caja en `BA053`, en paquete en `BA052`, en paquete en tienda `TA021` y en caja en el rack superior de tienda `TA024`. Cada presentación tiene su propio lugar fijo, su mínimo/máximo y su reserva | 2026-10-08 |
 
 > ⚠️ **Interpretación de D6, por confirmar.** La regla es PEPS por fecha de entrada **para todos los productos**. Si una reserva más nueva caduca **antes** que la más vieja, el sistema **avisa**, pero no reordena. Si Francisco quiere que la caducidad mande en ese caso (FEFO), es un cambio de una línea en UB.6.
 
@@ -74,12 +75,24 @@ Las tablas que ya existen se **extienden**. No se crea una tabla paralela de ubi
 |---|---|---|---|
 | 1. Ubicación física | `commercial.warehouse_bins` (WMS-REC) | 1 fila | + `familia` (`ubicacion`/`carreta`/`espera`/`contenedor`/`estiba`), `zona` (`T`/`B`), `pasillo`, `rack`, `nivel`, `tipo_zona` (`surtido`/`reserva`/`tienda_piso`/`tienda_cabecera`/`recepcion`/`cuarentena`/`merma`), `pick_sequence`, `estado` (`activa`/`bloqueada`/`baja`), `motivo_estado`, audit. Único por (tenant, almacén, código) |
 | 1. Pasillo | `commercial.warehouse_aisles` (Fase PA) | 4 filas (PH) | Se liga por letra de pasillo. El conteo por pasillo sigue usándolo |
-| 2. Asignación | **`commercial.bin_assignments`** (nueva) | — | producto × almacén × ubicación × **papel** (`surtido_fijo` · `exhibicion_tienda` · `reserva_preferida`) + mínimo/máximo **en la unidad declarada**. Un solo `surtido_fijo` por producto × almacén. **Sin cantidad** |
-| 3. Cantidad | `commercial.stock_lot_locations` (WMS-REC) | 1 fila | **Sólo en ubicaciones de reserva** (D5). + **`entered_at`** (fecha en que entró a esa reserva, no se sobrescribe) |
+| 2. Asignación | **`commercial.bin_assignments`** (nueva) | — | producto × **presentación** × almacén × ubicación × **papel** (`surtido_fijo` · `exhibicion_tienda` · `reserva_preferida`) + mínimo/máximo **en esa presentación**. Un solo `surtido_fijo` por producto × presentación × almacén × zona. **Sin cantidad** |
+| 3. Cantidad | `commercial.stock_lot_locations` (WMS-REC) | 1 fila | **Sólo en ubicaciones de reserva** (D5). + **`presentacion`** + cantidad en esa presentación + **`entered_at`** (fecha en que entró a esa reserva, no se sobrescribe) |
 | Bitácora | **`commercial.bin_history`** (nueva) | — | quién, cuándo, acción, valor anterior → nuevo, motivo, `batch_id` (captura masiva) |
 | Tareas | **`commercial.location_tasks`** (nueva) | — | reposición / reacomodo: producto, de → a, orden PEPS, estado, quién la hizo. Es el primer uso de la cola WMS.8 |
 
 Todas las tablas nuevas llevan `tenant_id` + audit + RLS forzado. Las migraciones se **generan** con `node scripts/nueva-migracion.js` y son idempotentes.
+
+### 3.0 La presentación (D10)
+
+**De dónde sale.** De la **escalera de unidades de Kepler de ESA sucursal** (`kepler_ods.kdii`). Peldaño 1 = base (`c11`, normalmente pieza), peldaño 2 = intermedio (`c80`, factor `c81`), peldaño 3 = mayor (`c83`, factor `c84`). Los factores están en unidades base. **No se teclea un factor a mano** y no se usa la moda entre sucursales: el factor de una plaza puede ser distinto al de otra, y el bueno es el de la fila de esa sucursal (lección VA.7 del verificador). Se guarda `presentacion` = peldaño (1/2/3) más una foto del rótulo (`CAJA`, `PAQ`, `PZA`) para que la etiqueta se lea aunque Kepler cambie el nombre.
+
+**Cómo se usa.**
+- **Asignación.** Cada presentación tiene su propio lugar fijo, con mínimo y máximo **en esa presentación**: "BA053 · Mazapán De la Rosa · **CAJA** · mín 4 · máx 12 cajas".
+- **Etiqueta y pantalla.** Siempre dicen la presentación con letra grande. Dos renglones del mismo producto en una ubicación son dos cosas distintas.
+- **Acomodo y censo.** El código de barras ya distingue la caja del paquete (Kepler guarda un código por peldaño, [GP.4.1]). Al escanear, el sistema sabe qué presentación es y la manda a **su** lugar. Si el código no la distingue, la pregunta en pantalla.
+- **Surtido (GP).** Un renglón pedido en cajas se surte del lugar de cajas; uno pedido en paquetes, del lugar de paquetes.
+- **Reposición con desempaque.** Si el lugar de paquetes está bajo y sólo hay reserva en cajas, la tarea dice "**abre 1 caja (= 12 paquetes)** y acomódalos en TA021". Abrir una caja no cambia la existencia de Kepler (en base es lo mismo), pero sí cambia la cantidad en la reserva: −1 caja.
+- **Estimado §3.2.** Las cantidades de las reservas se convierten a base con el factor de la sucursal antes de restarlas a Kepler. **Si la presentación no tiene factor** (peldaño vacío o factor ≤ 1), el estimado se publica como **"no medido"** con su motivo, nunca como 0 (ADR-056 / ADR-057).
 
 ### 3.1 Por qué `entered_at` va en la reserva y no en el lote
 
@@ -152,7 +165,7 @@ Va en la **misma entrega** que crea las claves. Lección [LC.6.2]: un módulo no
 Tres caminos. Los tres pasan por **vista previa → confirmar**, escriben en la bitácora con un `batch_id` y se pueden deshacer por lote.
 
 1. **Generar por rango.** Se elige zona, pasillos, racks y niveles; por ejemplo, `B`, `A–D`, `01–15`, `1–3` crea 180 ubicaciones. La vista previa muestra cuántas son nuevas, cuántas ya existían (se dejan como están) y cuántas están dadas de baja (se ofrecen para reactivar).
-2. **Archivo Excel/CSV de producto → ubicación → papel.** Cada renglón se valida (código bien formado, ubicación activa, producto existente, un solo `surtido_fijo`). Se ve bueno, duplicado y con error, y **lo guardado sale de la lista** (patrón de captura por lote PC.8 / RE.35.7). Es dato que captura nuestra gente (HITL), no un importador de otro sistema.
+2. **Archivo Excel/CSV de producto → presentación → ubicación → papel.** Cada renglón se valida (código bien formado, ubicación activa, producto existente, presentación que exista en la escalera de Kepler de esa sucursal, un solo `surtido_fijo` por presentación). Se ve bueno, duplicado y con error, y **lo guardado sale de la lista** (patrón de captura por lote PC.8 / RE.35.7). Es dato que captura nuestra gente (HITL), no un importador de otro sistema.
 3. **Censo en celular por recorrido.** Se escanea la ubicación y después cada producto. La propuesta de Wincaja viene precargada para confirmar o corregir (§2.1).
 
 **Etiquetas**: la impresión por lote sale de la misma pantalla (código grande + código de barras/QR). La etiqueta de tienda se distingue de la de bodega por la letra **y** por el color (U10).

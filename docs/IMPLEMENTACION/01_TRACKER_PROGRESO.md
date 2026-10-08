@@ -9558,10 +9558,10 @@ migraciones pendientes"; la medición reencuadró las dos mitades del pedido.
 - [ ] **[UB.0]** ⬜ ADR-090 + claves `ALMACEN_UBICACIONES_VER/_ACOMODAR/_GESTIONAR` (enum + `authz-tree`) + **migración de reparto** (FASE_UB §4.2) con los roles verificados contra prod.
 - [ ] **[UB.1]** ⬜ Catálogo: `warehouse_bins` + zona/pasillo/rack/nivel/familia/tipo_zona/estado/`pick_sequence`; validación del código; `tipo-ubicacion.ts` por columna (la `T` deja de ser tarima); pantalla Mapa `/almacen/ubicaciones`.
 - [ ] **[UB.2]** ⬜ Captura masiva: generar por rango con vista previa + Excel/CSV producto→ubicación→papel + etiquetas por lote + deshacer por `batch_id`.
-- [ ] **[UB.3]** ⬜ `bin_assignments` (surtido_fijo / exhibicion_tienda / reserva_preferida + mín/máx) + pantalla de asignación + medición de la propuesta Wincaja PH (§2.1) + censo en celular.
+- [ ] **[UB.3]** ⬜ `bin_assignments` **por presentación** (peldaño de `kdii` de la sucursal; caja, paquete y pieza con lugar propio) (surtido_fijo / exhibicion_tienda / reserva_preferida + mín/máx) + pantalla de asignación + medición de la propuesta Wincaja PH (§2.1) + censo en celular.
 - [ ] **[UB.4]** ⬜ Mantenimiento (bloquear, baja sólo vacía, reactivar, recodificar, mover contenido, fusionar, reimprimir) + `bin_history`.
 - [ ] **[UB.5]** ⬜ Cantidad sólo en reservas + `entered_at` + acomodo en celular + pantalla Excedente.
-- [ ] **[UB.6]** ⬜ `location_tasks` + ocupación estimada del surtido (§3.2) + tareas de rotación PEPS + aviso de caducidad.
+- [ ] **[UB.6]** ⬜ `location_tasks` + ocupación estimada del surtido (§3.2) + tareas de rotación PEPS + **desempaque** (abrir caja para reponer paquetes) + aviso de caducidad.
 - [ ] **[UB.7]** ⬜ GP: hoja de surtido por recorrido + reparto de pedido grande por rango de pasillos.
 - [ ] **[UB.8]** ⬜ Piloto PH: censo, etiquetado y dos semanas de uso; medir cobertura y tareas cumplidas.
 
