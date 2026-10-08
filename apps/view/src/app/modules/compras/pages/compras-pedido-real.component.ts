@@ -924,7 +924,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         } @else {
           <p-table [value]="wlRows()" [loading]="wlLoading()"
                    [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
-                   styleClass="p-datatable-sm pr-table dt-stack" [tableStyle]="cicloTableStyle">
+                   size="small" class="pr-table dt-stack" [tableStyle]="cicloTableStyle">
             <ng-template #header>
               <tr>
                 <th style="min-width:14rem">Proveedor</th>

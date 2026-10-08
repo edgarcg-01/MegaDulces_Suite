@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { coincideBusqueda } from '@megadulces/ui-web';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { DatePickerModule } from 'primeng/datepicker';
@@ -846,11 +847,15 @@ export class ComercialInventarioRutaComponent {
   readonly bloquesDia = computed(() => {
     const d = this.diaSel();
     if (!d) return [];
-    const t = this.buscaDia().trim().toLowerCase();
+    const t = this.buscaDia().trim();
     const u = this.unidadDia();
+    // El buscador va tokenizado a propósito: con includes() crudo, "pina" no encuentra PIÑA
+    // (el catálogo tiene acentos), "bombon 12" no encuentra "BOMBON RELLENO 12P" porque el
+    // orden no coincide, y cada campo se mira por separado. coincideBusqueda normaliza y parte
+    // en palabras, que es lo que hace el resto de la Suite.
     const filtra = (xs: RouteDayLine[]) => xs.filter((l) =>
       (!u || l.unidad === u)
-      && (!t || l.producto.toLowerCase().includes(t) || l.sku.toLowerCase().includes(t)));
+      && (!t || coincideBusqueda(t, l.producto, l.sku)));
     const arma = (clase: 'carga' | 'venta', xs: RouteDayLine[], titulo: string, icono: string, vacio: string) => {
       const filas = filtra(xs);
       return {

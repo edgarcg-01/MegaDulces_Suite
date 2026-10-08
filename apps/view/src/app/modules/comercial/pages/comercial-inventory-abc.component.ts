@@ -148,7 +148,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         }
         <div class="sel-split">
           <div class="dt-scope sel-lista">
-          <p-table [value]="selItems()" [loading]="loading()" styleClass="p-datatable-sm surf-table dt-stack"
+          <p-table [value]="selItems()" [loading]="loading()" size="small" class="surf-table dt-stack"
                    selectionMode="single" [(selection)]="selFila" (onRowSelect)="abrirDetalle($event.data)"
                    [scrollable]="true" scrollHeight="flex">
             <ng-template #header>
@@ -374,40 +374,40 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
                gap: .75rem; margin-bottom: .75rem; }
     .sel-kpi { background: var(--surface-2); border: 1px solid var(--border);
                border-radius: var(--radius-md); padding: .6rem .75rem; }
-    .sel-kpi-n { display: block; font-size: 1.5rem; font-weight: 700; line-height: 1.1; }
-    .sel-kpi-n small { font-size: .9rem; opacity: .7; }
-    .sel-kpi-l { display: block; font-size: .72rem; opacity: .7; margin-top: .15rem; }
+    .sel-kpi-n { display: block; font-size: var(--fs-h2); font-weight: 700; line-height: 1.1; }
+    .sel-kpi-n small { font-size: var(--fs-body); opacity: .7; }
+    .sel-kpi-l { display: block; font-size: var(--fs-xs); opacity: .7; margin-top: .15rem; }
     /* Lo NO MEDIDO se ve distinto de un numero: si se pintara igual, se leeria como una cifra. */
     .sel-kpi-nm { border-style: dashed; }
-    .sel-kpi-nm .sel-kpi-n { font-size: 1rem; font-weight: 600; opacity: .65; font-style: italic; }
+    .sel-kpi-nm .sel-kpi-n { font-size: var(--fs-h3); font-weight: 600; opacity: .65; font-style: italic; }
     .sel-split { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 1rem;
                  align-items: start; }
-    @media (max-width: 1100px) { .sel-split { grid-template-columns: 1fr; } }
+    @media (max-width: 68.75rem) { .sel-split { grid-template-columns: 1fr; } }
     .sel-lista { min-width: 0; }
     .sel-detalle { background: var(--surface-2); border: 1px solid var(--border);
                    border-radius: var(--radius-md); padding: .9rem; position: sticky; top: .5rem;
                    max-height: calc(100vh - 7rem); overflow: auto; }
-    .sel-detalle h3 { margin: 0 0 .6rem; font-size: 1rem; }
-    .sel-detalle h3 small { display: block; font-weight: 400; opacity: .75; font-size: .8rem; }
-    .sel-detalle h4 { margin: 1rem 0 .4rem; font-size: .8rem; text-transform: uppercase;
+    .sel-detalle h3 { margin: 0 0 .6rem; font-size: var(--fs-h3); }
+    .sel-detalle h3 small { display: block; font-weight: 400; opacity: .75; font-size: var(--fs-sm); }
+    .sel-detalle h4 { margin: 1rem 0 .4rem; font-size: var(--fs-sm); text-transform: uppercase;
                       letter-spacing: .04em; opacity: .7; }
     .sel-dl { display: grid; grid-template-columns: auto 1fr; gap: .25rem .6rem; margin: 0;
-              font-size: .82rem; }
+              font-size: var(--fs-sm); }
     .sel-dl dt { opacity: .7; }
     .sel-dl dd { margin: 0; }
-    .sel-dl dd small { display: block; opacity: .6; font-size: .72rem; }
+    .sel-dl dd small { display: block; opacity: .6; font-size: var(--fs-xs); }
     .sel-ev { border-left: 3px solid var(--border); padding: .4rem .6rem; margin-bottom: .5rem; }
     .sel-ev-top { display: flex; justify-content: space-between; align-items: center;
-                  font-size: .76rem; opacity: .8; }
-    .sel-ev-n { font-weight: 600; font-size: .9rem; }
+                  font-size: var(--fs-xs); opacity: .8; }
+    .sel-ev-n { font-weight: 600; font-size: var(--fs-body); }
     .sel-ev-n small { font-weight: 400; opacity: .65; margin-left: .35rem; }
-    .sel-ev-exp { margin: .3rem 0 0; font-size: .75rem; opacity: .8; }
+    .sel-ev-exp { margin: .3rem 0 0; font-size: var(--fs-xs); opacity: .8; }
     /* Las dos ausencias se ven distinto de un dato, y distinto entre si (ADR-056). */
-    .sel-nm { font-style: italic; opacity: .6; font-size: .78rem; }
-    .sel-nunca { color: var(--warn-soft-fg); font-size: .78rem; }
-    .sel-fuente { display: block; font-size: .68rem; opacity: .6; }
-    .sel-ubi { display: block; font-size: .68rem; opacity: .6; }
-    .sel-flojo { color: var(--warn-soft-fg); margin-left: .3rem; font-size: .8rem; }
+    .sel-nm { font-style: italic; opacity: .6; font-size: var(--fs-xs); }
+    .sel-nunca { color: var(--warn-soft-fg); font-size: var(--fs-xs); }
+    .sel-fuente { display: block; font-size: var(--fs-micro); opacity: .6; }
+    .sel-ubi { display: block; font-size: var(--fs-micro); opacity: .6; }
+    .sel-flojo { color: var(--warn-soft-fg); margin-left: .3rem; font-size: var(--fs-sm); }
     .sel-activa { background: var(--hover-bg); }
     .abc-head-actions { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     :host ::ng-deep .abc-wh { min-width: 220px; }
