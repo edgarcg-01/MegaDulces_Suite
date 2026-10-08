@@ -3079,6 +3079,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       // 'consolidado'/'excel' (versiones previas de 3 pestañas) migran a la única 'pedido'.
       if (s.mode === 'muerto') this.mode.set('muerto');
       else if (s.mode === 'flujo') this.mode.set('flujo');
+      else if (s.mode === 'ciclo') this.mode.set('ciclo');
       else if (s.mode === 'pedido' || s.mode === 'consolidado' || s.mode === 'excel') this.mode.set('pedido');
       if ('fSupplier' in s) this.fSupplier = s.fSupplier;
       if ('fBrand' in s) this.fBrand = s.fBrand;
