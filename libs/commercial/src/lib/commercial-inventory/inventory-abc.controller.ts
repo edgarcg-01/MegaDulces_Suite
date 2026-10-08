@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { InventoryAbcService } from './inventory-abc.service';
 import { CycleCountSchedulerService } from './cycle-count-scheduler.service';
@@ -62,6 +62,50 @@ export class InventoryAbcController {
       abc_class: abcClass,
       only_due: onlyDue === 'false' ? false : true,
       limit: limit != null ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('seleccion')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({
+    summary:
+      '[IC.24] La SELECCIÓN del conteo con el porqué de cada producto '
+      + '(?warehouse_id=&ritmo=diario|mensual&dias_cobertura=&limit=). El motor es el HECHO DE '
+      + 'VENTA (sales_daily.cost, COGS real 30d), no v_count_priority_score: medido, el score '
+      + 'cubre 5.5% del COGS con 4× el esfuerzo. Devuelve además el ESFUERZO en piezas (no en '
+      + 'renglones) y la COBERTURA del dinero diario. El tiempo estimado se declara NO MEDIDO: '
+      + 'piezas por hora por persona no existe porque nunca se cerró un folio.',
+  })
+  seleccion(
+    @Query('warehouse_id') warehouseId: string,
+    @Query('ritmo') ritmo?: string,
+    @Query('dias_cobertura') diasCobertura?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.service.countSelection({
+      warehouse_id: warehouseId,
+      ritmo: ritmo === 'mensual' ? 'mensual' : 'diario',
+      // 'off' apaga el filtro de velocidad a propósito; vacío deja el default del ritmo.
+      dias_cobertura: diasCobertura === 'off' ? null : (diasCobertura != null ? Number(diasCobertura) : undefined),
+      limit: limit != null ? Number(limit) : undefined,
+    });
+  }
+
+  @Get('seleccion/:product_id')
+  @RequirePermissions(Permission.COMMERCIAL_INVENTORY_SUPERVISAR)
+  @ApiOperation({
+    summary:
+      '[IC.24] El porqué PROFUNDO de un SKU: historia de conteos (de la matvista de señales, con '
+      + '`explicacion`) y su capital. Va aparte de la lista por costo medido: en la lista serían '
+      + '1,083 ms porque esas vistas calculan su partición entera aunque se filtre por producto.',
+  })
+  seleccionDetalle(
+    @Param('product_id') productId: string,
+    @Query('warehouse_id') warehouseId: string,
+  ) {
+    return this.service.countSelectionDetail({
+      warehouse_id: warehouseId,
+      product_id: productId,
     });
   }
 

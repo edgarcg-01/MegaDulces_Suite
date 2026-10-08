@@ -827,6 +827,58 @@ propio SQL**, con un control de arnés que falla ruidosamente si queda una refer
 
 ---
 
+### `[IC.24]` — La selección del conteo, con el porqué de cada producto · 🧪 EN CÓDIGO (2026-10-07)
+
+Pedido de Edgar: *«necesito ver en una interfaz la selección de productos, el porqué de cada uno y
+valores importantes»*. Las piezas ya existían repartidas en cinco objetos; esto las junta en una
+fila. Vive como **tercera vista de la Programa** (`/almacen/inventory/abc`), no como pantalla
+nueva — es la misma pregunta que esa pantalla ya contesta, mejor contestada.
+
+**Lo que la fila dice, y de dónde sale cada cosa:**
+
+| Qué muestra | Contesta | Fuente |
+|---|---|---|
+| **$ / día** | *por qué está en la lista* | `sales_daily.cost` (COGS real 30 d) |
+| **piezas · días cob.** | *cuánto cuesta contarlo* | `inventory_health` |
+| **clase + #12 de 4,511** | *por qué esa letra* | `abc_classification` (`[IC.20]`) |
+| **último conteo + fuente** | *cuándo se vio por última vez* | `v_count_clock` (`[IC.16]`) |
+| **capital + veredicto del costo** | *cuánto dinero duerme ahí* | `v_abc_capital` (`[IC.21]`) |
+| **historia + `explicacion`** | *por qué un descuadre pudo NO ser merma* | `mv_erp_count_line_signals` |
+
+⭐ **El dato que más explica, y que no existía en ninguna pantalla:** `explicacion`. En Padre
+Hidalgo hay un «sobrante» de **$788,730** cuya explicación es `costo_de_caja` — el hallazgo de
+`[IC.12]`: no faltaba producto, estaba mal el peldaño del costo.
+
+**Cabecera: esfuerzo y cobertura antes que la tabla.** Son las dos cifras que deciden si la lista
+es razonable, y verlas después de 25 renglones es verlas tarde. ⛔ **El tiempo estimado se publica
+como «no medido»**, con estilo distinto de un número: *piezas por hora por persona no existe
+porque nunca se cerró un folio*, e inventar una tasa sería dibujar una medición.
+
+#### Rendimiento: tres lecciones de esta misma fase, aplicadas
+
+| | ms |
+|---|---:|
+| Primer intento (joins fuera del recorte) | **6,865** |
+| Con el `LIMIT` dentro del CTE | 1,787 |
+| **Sacando a detalle lo que calcula su partición entera** | **135** |
+| Detalle de un SKU (matvista de señales + capital) | ~452 |
+
+⛔ `v_sku_count_variance_history` (589 ms) y `v_abc_capital` (346 ms) **no bajan al filtrar por
+producto** (589 → 539 ms acotando a 25 SKUs): calculan su partición completa. Por eso el detalle
+es maestro-detalle y no columnas de la lista — y la historia sale de la **matvista**
+`mv_erp_count_line_signals` (**12 ms**), no de la vista.
+
+⚠️ **Un bug de tipos que habría vaciado la pantalla sin error:** reusar `matchProd` para filtrar
+compilaba con un cast, pero compara contra `product_name` y esta fila trae `nombre` — habría
+filtrado **siempre a vacío** cuando el filtro fuera por nombre. El filtro se escribe aparte.
+
+⚠️ **`sobra` no se pinta en verde.** Medido en PH, el sobrante carga **3.4× el dinero de la merma**
+($4,246,558 contra $1,248,543): es producto que está y el sistema no sabe.
+
+**Falta:** redeploy + validación visual. Sin migraciones ni permisos nuevos → **sin re-login**.
+
+---
+
 ### `[IC.22]` — Que los tres ritmos se vean en un solo lugar
 
 Una sola pantalla con los tres: qué toca hoy, qué toca este mes, cuándo fue el último trimestral de
