@@ -311,6 +311,18 @@ describe('[GX.59] FinanzasExpedienteComponent', () => {
         expect(txt()).not.toContain('sin transferencia');
         expect(fix.nativeElement.querySelector('.exp-folio.pago')).toBeNull();
       });
+
+      /**
+       * ⛔ Un servidor anterior a GX.75 NO manda el campo. Visto al servir el front contra una API
+       * local de otra rama: con '=== null' cada vale decía «sin transferencia», que es afirmar.
+       */
+      it('⛔ sin el campo en la respuesta (servidor viejo) también es «sin medir»', () => {
+        const r = conVale({});
+        delete (r.personas[0].vales[0] as Partial<ValeExpediente>).transferencias;
+        montar(r);
+        expect(txt()).toContain('transferencia sin medir');
+        expect(txt()).not.toContain('sin transferencia');
+      });
     });
 
     /**

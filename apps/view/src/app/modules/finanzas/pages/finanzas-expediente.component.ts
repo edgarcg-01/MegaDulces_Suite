@@ -208,7 +208,9 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
                       <span class="exp-sin-gasto">sin gasto aplicado</span>
                     }
                     @if (v.gasto_folios.length) {
-                      @if (v.transferencias === null) {
+                      <!-- [GX.75] '== null' y no '=== null': un servidor anterior a GX.75 no manda el
+                           campo (undefined) y eso es «sin medir», no «sin transferencia». -->
+                      @if (v.transferencias == null) {
                         <span class="exp-sin-gasto">transferencia sin medir</span>
                       } @else {
                         @for (t of v.transferencias ?? []; track t.gasto_folio + '|' + t.folio) {
