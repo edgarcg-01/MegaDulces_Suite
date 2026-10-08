@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { defaultPickSequence, parseLocationCode } from '@megadulces/contracts';
 
 /**
  * Fase WMS-REC (Pieza 3 — Ubicación bin-level lote×posición, ADR-044).
@@ -168,7 +169,12 @@ export class BinLocationService {
   async createBin(dto: CreateBinDto) {
     if (!UUID.test(dto.warehouse_id)) throw new BadRequestException('warehouse_id inválido');
     if (dto.aisle_id && !UUID.test(dto.aisle_id)) throw new BadRequestException('aisle_id inválido');
-    const code = normalizeBinCode(dto.code);
+    // `[UB.1]` Si lo tecleado es una ubicación del formato nuevo escrita con separadores (`BA-053`),
+    // se guarda en su forma canónica (`BA053`): si no, quedaba como código libre y el Mapa dejaba dar
+    // de alta otra `BA053` que en el cartel se ve igual (revisión del PR).
+    const libre = normalizeBinCode(dto.code);
+    const canonico = parseLocationCode(libre);
+    const code = canonico.ok ? canonico.code : libre;
     const label = String(dto.label ?? '').trim();
     if (label.length > LABEL_MAX)
       throw new BadRequestException(
@@ -191,6 +197,22 @@ export class BinLocationService {
         .whereRaw('UPPER(code) = ?', [code])
         .first('id', 'code');
       if (dup) throw new ConflictException(`Ya existe la ubicación '${dup.code}' en ese almacén`);
+      // `[UB.1]` Si el código que tecleó el Andén ya es del formato nuevo (`BA053`), se guarda como
+      // ubicación con sus partes — si no, quedaría como "legado" y el CHECK de la base la dejaría
+      // pasar sin pasillo/rack/nivel, invisible para el mapa y la hoja de surtido. Un código libre
+      // (`R-12`) sigue siendo legado, como siempre.
+      const partes =
+        canonico.ok
+          ? {
+              familia: 'ubicacion',
+              zona: canonico.parts.zona,
+              pasillo: canonico.parts.pasillo,
+              rack: canonico.parts.rack,
+              nivel: canonico.parts.nivel,
+              pick_sequence: defaultPickSequence(canonico.parts),
+              created_by: userId,
+            }
+          : {};
       const [row] = await trx('commercial.warehouse_bins')
         .insert({
           tenant_id: trx.raw('public.current_tenant_id()'),
@@ -199,6 +221,7 @@ export class BinLocationService {
           code,
           label: label || null,
           updated_by: userId,
+          ...partes,
         })
         .returning('*');
       return row;

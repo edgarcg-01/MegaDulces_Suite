@@ -216,6 +216,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // abría también Reparto › Surtido. Se reparte por migración (20261006200000), no queda
           // sólo declarado ([LC.6.2]).
           { id: 'pedidos', label: 'Pedidos', route: '/almacen/pedidos', view: [Permission.ALMACEN_PEDIDOS_VER], manage: [] },
+          // `[UB.0]` Ubicaciones de mercancía (Fase UB, ADR-090). Permisos PROPIOS (ver el
+          // comentario en permissions.ts) y repartidos por migración en la misma entrega.
+          // La ruta llegó con la pantalla en `[UB.1]` (el Mapa, /almacen/ubicaciones).
+          { id: 'ubicaciones', label: 'Ubicaciones', route: '/almacen/ubicaciones', view: [Permission.ALMACEN_UBICACIONES_VER], manage: [Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
           // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.

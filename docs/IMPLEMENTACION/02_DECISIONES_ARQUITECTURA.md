@@ -2663,3 +2663,24 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 **Rechazado:** dos almacenes por sucursal (bodega / tienda), porque rompe el cuadre con Kepler; cantidad por ubicación desde el día uno, porque repite el relevo "operador anota, nadie registra".
 
 **Hereda:** ADR-044 (Kepler = SoR de la cantidad; la app dueña de la ubicación) · ADR-086 · ADR-056 (lo que no tiene cantidad por ubicación no la dibuja). Detalle en [`FASE_WMS` §12](FASES/FASE_WMS.md).
+
+---
+
+## ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y rotación por fecha de entrada
+
+**Fecha:** 2026-10-08 · **Estado:** ⏳ propuesto · **Fase:** UB · **Enmienda:** ADR-087 §3
+
+**Contexto.** ADR-087 dejó el modelo de tres capas sin código ni dueño de permisos. Hoy las ubicaciones cuelgan de `COMMERCIAL_INVENTORY_VER/RECIBIR/ASIGNAR`, y `ASIGNAR` es la clave que arma los equipos de conteo. Francisco pidió un módulo con captura masiva, excedente, rotación y mantenimiento. El excedente necesita saber **qué hay en cada reserva**, cosa que ADR-087 §3 había diferido. Y `stock_lots.received_at` se sobrescribe en cada upsert, así que no puede ser la fecha de entrada.
+
+**Decisión (Francisco, 2026-10-08; propuesta de Claude).**
+1. **Código `[T|B][pasillo A–Z][rack 01–99][nivel 1–6]`**, guardado en partes (zona, pasillo, rack, nivel) y validado. Reemplaza §12.2 (`B01`/`T01`) y la lectura de §12.5 (`BC110` con posición). Carretas `C`, espera `E`, contenedores `K` y estibas son otra familia en la misma tabla.
+2. **Módulo "Ubicaciones"** propio dentro del proyecto Almacén, con tres claves: `ALMACEN_UBICACIONES_VER`, `_ACOMODAR` y `_GESTIONAR`. Se reparten **en la misma entrega** que las crea.
+3. **La cantidad por ubicación se prende sólo en reservas** (excedente). La posición de surtido sigue sin cantidad. Su ocupación se **estima** (existencia Kepler − Σ reservas) y se publica como estimado.
+4. **Rotación por fecha de entrada (PEPS)**: `entered_at` por acomodo en reserva, que no se sobrescribe. Si una reserva más nueva caduca antes, el sistema avisa sin reordenar.
+5. **Se extienden** `warehouse_bins` y `stock_lot_locations`; se crean sólo `bin_assignments`, `bin_history` y `location_tasks`. No hay tabla paralela de ubicaciones.
+6. **Mantenimiento sin borrado**: bloquear, dar de baja (sólo vacía), recodificar y fusionar, todo con bitácora.
+7. **La ubicación guarda producto + presentación** (peldaño 1/2/3 de la escalera `kdii` de ESA sucursal). Cada presentación tiene su lugar fijo, su mín/máx y su reserva; la reposición puede ser "abrir caja". Sin factor, el estimado se declara no medido.
+
+**Rechazado:** reusar `COMMERCIAL_INVENTORY_ASIGNAR`, porque mezcla armar equipos de conteo con recodificar el almacén; PEPS sobre `stock_lots.received_at`, porque sería falso sin dar error; cantidad en la posición de surtido desde ahora, por la misma razón de ADR-087; convertir sola la ubicación de Wincaja, porque `BC110` cae en nivel 0.
+
+**Hereda:** ADR-087 · ADR-044 · ADR-086 · ADR-056. Plan en [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md).
