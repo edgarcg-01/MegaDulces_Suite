@@ -680,7 +680,7 @@ export class VendorCustomersComponent implements OnInit {
       this.notice.set('Cliente guardado sin conexión. Se registrará solo al volver la red.');
     } catch {
       this.saving.set(false);
-      this.formError.set('No se pudo guardar el cliente sin conexión. Reintentá.');
+      this.formError.set('No se pudo guardar el cliente sin conexión. Vuelve a intentar.');
     }
   }
 

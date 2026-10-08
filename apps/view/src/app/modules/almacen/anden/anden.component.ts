@@ -937,7 +937,7 @@ export class AndenComponent implements OnInit {
       // que el almacén está vacío (que invitaría a crear una ubicación duplicada).
       error: () => this.toast.add({
         severity: 'warn', summary: 'Ubicaciones',
-        detail: 'No se pudo leer la lista de racks. Reintentá antes de crear uno nuevo.',
+        detail: 'No se pudo leer la lista de racks. Vuelve a intentar antes de crear uno nuevo.',
       }),
     });
   }

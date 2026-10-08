@@ -287,7 +287,7 @@ export class AreasGastoComponent {
         },
         error: (e) => {
           this.guardando.set(false);
-          this.toast.add({ severity: 'error', summary: 'No se pudo guardar', detail: e?.error?.message || 'Reintentá' });
+          this.toast.add({ severity: 'error', summary: 'No se pudo guardar', detail: e?.error?.message || 'Vuelve a intentar' });
         },
       });
   }

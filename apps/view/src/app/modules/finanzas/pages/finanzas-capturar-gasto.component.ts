@@ -1231,7 +1231,7 @@ export class FinanzasCapturarGastoComponent {
         const cual = this.names()[fallo.role] ? ` («${this.names()[fallo.role]}»)` : '';
         this.formError.set(fallo.motivo
           ? `No se pudo subir el archivo${cual}: ${fallo.motivo}`
-          : `No se pudo subir el archivo${cual}. Reintentá.`);
+          : `No se pudo subir el archivo${cual}. Vuelve a intentar.`);
         return;
       }
       done();

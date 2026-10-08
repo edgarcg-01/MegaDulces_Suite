@@ -101,7 +101,7 @@ const foldText = (s: string | null | undefined): string =>
       <div class="load-err">
         <i class="pi pi-cloud"></i>
         <p>No se pudo cargar el pedido de este cliente.</p>
-        <span class="le-sub">Puede ser un permiso o la conexión. Reintentá.</span>
+        <span class="le-sub">Puede ser un permiso o la conexión. Vuelve a intentar.</span>
         <button class="le-retry" (click)="reload()"><i class="pi pi-refresh"></i> Reintentar</button>
         <button class="le-back" (click)="back()">Volver</button>
       </div>

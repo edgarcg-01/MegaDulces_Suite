@@ -536,7 +536,7 @@ export class FinanzasAprobacionGastosComponent {
         next: (d) => { this.datos.set(d); this.grupo.set(null); this.cargando.set(false); },
         // Un error NO se pinta como «ese día no se levantó nada»: es otra afirmación, y la
         // equivocada deja dinero esperando sin que nadie lo sepa.
-        error: () => { this.error.set('No se pudo cargar el día. Reintentá.'); this.cargando.set(false); },
+        error: () => { this.error.set('No se pudo cargar el día. Vuelve a intentar.'); this.cargando.set(false); },
       });
 
     // `[GX.29]` Las reaperturas van en su propio viaje: son de cualquier fecha, mientras
@@ -750,7 +750,7 @@ export class FinanzasAprobacionGastosComponent {
 
   private falla(summary: string, e: unknown): void {
     this.actuando.set(null);
-    const detail = (e as { error?: { message?: string } })?.error?.message || 'Reintentá';
+    const detail = (e as { error?: { message?: string } })?.error?.message || 'Vuelve a intentar';
     this.toast.add({ severity: 'error', summary, detail });
   }
 }

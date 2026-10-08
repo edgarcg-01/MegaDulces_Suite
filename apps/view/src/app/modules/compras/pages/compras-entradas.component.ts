@@ -2941,7 +2941,7 @@ export class ComprasEntradasComponent {
             error: (e) => { this.saving.set(false); this.attachError.set(e?.error?.message || 'No se pudo adjuntar.'); },
           });
       },
-      error: () => { this.saving.set(false); this.attachError.set('No se pudieron subir algunas fotos. Reintentá.'); },
+      error: () => { this.saving.set(false); this.attachError.set('No se pudieron subir algunas fotos. Vuelve a intentar.'); },
     });
   }
 

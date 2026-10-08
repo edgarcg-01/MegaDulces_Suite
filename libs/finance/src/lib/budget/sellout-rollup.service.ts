@@ -120,7 +120,7 @@ export class SelloutRollupService {
     const f = this.file(tenantId);
     if (!fs.existsSync(f)) {
       this.refreshInBackground(tenantId);
-      throw new ServiceUnavailableException('El histórico de ventas se está generando (primera vez). Reintentá en un momento.');
+      throw new ServiceUnavailableException('El histórico de ventas se está generando (primera vez). Vuelve a intentar en un momento.');
     }
     const inst = await this.duckdb();
     const conn = await inst.connect();

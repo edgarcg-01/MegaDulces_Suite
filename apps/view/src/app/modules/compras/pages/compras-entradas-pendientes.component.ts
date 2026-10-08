@@ -1987,7 +1987,7 @@ export class ComprasEntradasPendientesComponent {
       }
       if (!subidas.length) {
         this.guardando.set(false);
-        this.capError.set('No se pudo subir ningún archivo. Reintentá.');
+        this.capError.set('No se pudo subir ningún archivo. Vuelve a intentar.');
         return;
       }
 
@@ -2031,7 +2031,7 @@ export class ComprasEntradasPendientesComponent {
         this.reload();
       } catch (e: any) {
         this.guardando.set(false);
-        this.capError.set(e?.error?.message || 'No se pudo enviar. Reintentá.');
+        this.capError.set(e?.error?.message || 'No se pudo enviar. Vuelve a intentar.');
       }
     })();
   }

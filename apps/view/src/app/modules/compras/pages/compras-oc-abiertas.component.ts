@@ -728,7 +728,7 @@ export class ComprasOcAbiertasComponent implements OnInit {
       .subscribe({
         next: (d) => { this.peekData.set(d); this.peekLoading.set(false); },
         error: () => {
-          this.peekError.set('No se pudo traer el detalle de la orden. Reintentá.');
+          this.peekError.set('No se pudo traer el detalle de la orden. Vuelve a intentar.');
           this.peekLoading.set(false);
         },
       });
