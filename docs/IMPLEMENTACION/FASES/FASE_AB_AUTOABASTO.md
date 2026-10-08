@@ -837,3 +837,84 @@ se asume.**
 | **AB.3b** | Los porqués en la mesa | 14.3: origen y fecha a la pantalla, la resta a la vista, el renglón de "cubierto", y la procedencia del dato |
 | **AB.10** | Supervisión de zona | Etapa 10: comparativo, recurrentes, detenidas, atrasadas — con responsable y fecha compromiso |
 | **AB.11** | Despliegue y medición | Etapa 12: incorporación progresiva + indicadores de disponibilidad vs inventario |
+
+---
+
+## 15. Pedido de la semana y regla de redondeo — decidido 2026-10-07
+
+> Decisiones de Francisco (2026-10-07). Esto es el alcance de **AB.7 + AB.8** del lado del almacenista:
+> cómo **arma** su pedido. La bandeja del comprador y la confirmación del origen siguen como estaban.
+
+### 15.1 La interfaz: el sistema prepara, el almacenista revisa
+
+- **Dos revisiones fijas por semana por sucursal** (p. ej. lunes y jueves, configurables). Ese día el
+  sistema deja un **borrador** armado desde la mesa y lo publica como tarea en «Mi trabajo»
+  (contrato de tarea, ADR-061/081). El almacenista no arma el pedido desde cero.
+- **Agrupado por a quién se le pide**: un grupo por sucursal de origen (→ `transfer_requests`, AB.8) y uno
+  por proveedor (→ `purchase_requisitions`, AB.7). Cada grupo se envía como un pedido aparte.
+- Por renglón: existencia · falta · **ya pedido** · **sugerido (redondeado)** · **a pedir** (editable,
+  prellenado) · banda (§6.1, recalculada al teclear). Cambiar el sugerido pide **motivo** de lista cerrada.
+- Por grupo: subtotal en cajas y en pesos + **mínimo de pedido** del proveedor (`min_order_boxes`) con aviso
+  si no se alcanza. Encabezado: consumo del **tope en pesos**.
+- Se puede **agregar** un producto que el sistema no sugirió (con motivo).
+
+⛔ **«Ya pedido» es lo que hace posible revisar dos veces por semana.** Hoy el motor resta sólo las OC de
+Kepler (`X-A-35` sin `X-A-40`). Lo solicitado en la Suite que todavía no es OC **no se resta**: el jueves
+volvería a sugerir lo que se pidió el lunes. El sugerido tiene que quedar neto de las solicitudes abiertas.
+
+⛔ **Prerrequisito: repartir el sobrante de la red.** La mesa le ofrece el sobrante completo a **cada**
+sucursal que lo necesita. Medido en prod el 2026-10-07: **1,819 de 4,157** productos con traspaso están
+prometidos de más — **600,689 unidades prometidas contra 443,869 que existen** (+35%). En lectura era un KPI
+inflado; con solicitudes reales serían dos sucursales pidiéndole al mismo origen las mismas cajas. El
+reparto respeta la decisión #7 (el origen cede **hasta su punto de reorden**).
+
+### 15.2 La regla de redondeo
+
+Sobre la cantidad que falta, expresada en la **unidad mayor** (la caja):
+
+| Falta (en unidad mayor) | Se pide |
+|---|---|
+| **menos de 0.5** | en la **unidad inmediata menor** (0.3 caja de 12 → 3.6 → **4 pz**) |
+| **0.5 o más** | **sólo unidades mayores completas**, redondeando: fracción ≥ .5 sube, < .5 baja |
+
+Ejemplos (caja de 12): 0.3 → **4 pz** · 0.5 → **1 caja** · 0.8 → **1 caja** · 3.3 → **3 cajas** ·
+3.5 → **4 cajas** · 5.7 → **6 cajas**. **Nunca se mezclan** cajas y piezas en un mismo renglón.
+
+- El redondeo se calcula **en el servidor, en un solo lugar**: el borrador, la requisición y lo que ve el
+  comprador traen la misma cantidad. La pantalla muestra el faltante sin redondear al lado, para que la resta
+  se pueda auditar.
+- En la unidad menor se redondea al entero más cercano (.5 sube); si da 0, el renglón no se pide.
+  ✅ Confirmado 2026-10-07.
+- **Granel: kilos completos** (✅ 2026-10-07). Misma regla: 7.4 kg → 7 · 7.5 kg → 8.
+
+### 15.3 La unidad inmediata menor — de dónde sale, medido 2026-10-07
+
+La escalera está en `analytics.v_product_unit_ladder` (Kepler `kdii`: base `c11` · peldaño 2 `c80`/`c81` ·
+peldaño 3 `c83`/`c84`, factores contra la base). Sobre los **6,344 SKUs activos con política**:
+
+| Escalera | SKUs | Unidad inmediata menor | Regla |
+|---|---:|---|---|
+| dos peldaños (base + caja) | 5,061 | la base | aplica |
+| tres peldaños | 373 | el peldaño del medio | aplica |
+| sólo base | 585 | — (ya es la menor) | **no aplica**: se pide en la base |
+| sin escalera | 325 | — | **se declara**, no se redondea |
+
+La unidad menor resultante: **PAQ 4,426 · PZA 1,239 · KG 277** · gramajes capturados como número (`500`
+38, `250` 9, `400` 2) · CJA 16 · CUB 5 · BTO 4 · SER/IND 3 · vacío 17. O sea **la «pieza» de la mayoría
+del catálogo es el paquete**.
+
+**Abierto:**
+1. ✅ **Granel: kilos completos** (2026-10-07). Sigue abierto el caso de la decisión #15: la tercera unidad del granel **vivía como otro código** (bulto → kg → 500 g) — si la
+   unidad menor es otro SKU, el renglón cambia de producto, no sólo de unidad.
+2. **Los 16 con `CJA` como unidad menor** (la mayor es más grande: bulto, pallet) y los 17 vacíos: revisar
+   a mano antes de prender la regla.
+3. **Wincaja**: la escalera es de Kepler. Los almacenes que siguen en Wincaja guardan en su unidad de venta
+   (ADR-055); tras el corte del 30-sep la mayoría ya es Kepler, pero se verifica por almacén.
+
+### 15.4 ✅ [AB.12] El reparto del sobrante — EN CÓDIGO 2026-10-07
+
+Prerrequisito de §15.1 resuelto. `transfer_in` deja de ser el sobrante de red entero y pasa a ser la parte **proporcional** de cada sucursal (`networkSurplus()` + `transferIn()`, el mismo reparto que `transferPlan()`). Medido con el método real contra prod: Σ traspaso de la red = **445,017** = lo que existe (antes 600,838). Candado `database/tests/test-newdb-autoabasto-reparto.js` (6 ✔, con negativo sintético y negativo real). De paso se arregló `summary()`, roto desde [VA.4]. Siguen abiertos de la revisión: el buscador del resumen filtra por **proveedor**, «Hay que comprar» suma renglones que la mesa no lista (1,062), y `excedente_cedible` todavía es sobre el **máximo**, no sobre el punto de reorden (decisión #7) — cambio de alcance, va en commit aparte.
+
+### 15.5 🧪 [AB.13] El reporte PDF y el alcance por almacén — EN CÓDIGO 2026-10-07
+
+`GET /commercial/autoabasto/reporte` + botón «Descargar PDF». Sello de fecha y hora del **servidor** (hora de México) y usuario; un solo almacén por reporte; sólo lo que falta, agrupado por origen; «sin venta medida» aparte. El alcance de la mesa se resuelve en el área **Almacén** (ZN.8), y la mig `20261007200100` da `AUTOABASTO_VER` al almacenista + la regla `warehouse · almacen · own`. Simulado como almacenista con el código real (ver log 2026-10-07). **Abierto:** 5 de 6 almacenistas sin almacén en su ficha; el reporte de Padre Hidalgo son 96 páginas — la regla de redondeo (§15.2) y limpiar códigos `* DESC…`/servicios de las políticas lo achican.

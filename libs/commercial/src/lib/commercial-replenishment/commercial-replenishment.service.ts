@@ -269,6 +269,27 @@ const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  */
 type SettingsLike = Record<string, unknown> | undefined;
 
+/**
+ * ADR-052 — firmas explícitas de las tres respuestas que `autoabasto.controller.ts` (AB.13) deriva
+ * con `Awaited<ReturnType<…>>`. Declaran sólo lo que el código fija; las columnas de cada fila las
+ * decide el SQL y viajan como `Record<string, unknown>` (lo mismo que ya recibía el exportador).
+ */
+export interface CriticalStockPage {
+  total: number;
+  page: number;
+  pageSize: number;
+  target_basis: TargetBasis;
+  rows: Record<string, unknown>[];
+}
+/** Una sola fila de agregados; `undefined` si la consulta no devolvió fila. */
+export type CriticalStockSummary = Record<string, unknown> | undefined;
+export interface ReplenishmentFilters {
+  warehouses: { id: string; code: string; name: string; kind: string | null; purchase_zone: string | null; is_purchase_hub: boolean | null; display_order: number | null }[];
+  suppliers: Record<string, unknown>[];
+  brands: Record<string, unknown>[];
+  categories: Record<string, unknown>[];
+}
+
 @Injectable()
 export class CommercialReplenishmentService {
   private readonly logger = new Logger(CommercialReplenishmentService.name);
@@ -510,11 +531,13 @@ export class CommercialReplenishmentService {
    * Por eso las llamadas quedaron `if (whIds)`, no `if (whIds.length)`: en SQL crudo, donde un
    * `IN ()` vacío no compila, el equivalente es un `false` explícito.
    */
-  private async whIds(q: object): Promise<string[] | null> {
+  private async whIds(q: object, area: string = AREA): Promise<string[] | null> {
     // `object` y no `Record<string, unknown>`: las Query de este archivo son interfaces con
     // campos declarados, y TS no las considera asignables a un indice de string. El cast es de
     // FORMA, no de contenido — `warehouseIds` sólo lee los alias de `PARAM_ALIASES`.
-    return this.scope.warehouseIds(q as Record<string, unknown>, 'compras/pedido', AREA);
+    // `[AB.13]` El área la decide quien llama: Autoabasto vive en el proyecto Almacén y su
+    // alcance es el del almacenista ahí, no el que tenga en Compras.
+    return this.scope.warehouseIds(q as Record<string, unknown>, area === AREA ? 'compras/pedido' : 'almacen/autoabasto', area);
   }
 
   /** Expresiones SQL compartidas (existencia disponible, en tránsito, bucket). */
@@ -650,6 +673,62 @@ export class CommercialReplenishmentService {
   }
 
   /**
+   * [AB.12] El sobrante de la red y lo que la red le PIDE, por producto, sobre TODO el tenant.
+   *
+   *   surplus_total = Σ max(0, existencia − máximo)                       (lo que sobra)
+   *   need_total    = Σ faltante de las sucursales que NO tienen sobrante  (lo que se pide)
+   *
+   * ⛔ Antes sólo existía `surplus_total`, y cada sucursal se quedaba con él ENTERO: si sobraban
+   * 10 cajas y a tres sucursales les faltaban 10, las tres salían «Traspaso» por 10. Medido en
+   * prod el 2026-10-07: 1,819 de 4,157 productos prometidos de más — 600,838 unidades prometidas
+   * contra 445,017 que existen. En lectura era un KPI inflado; con solicitudes reales (Fase AB)
+   * serían dos sucursales pidiéndole al mismo origen las mismas cajas.
+   *
+   * Corre sobre la red completa A PROPÓSITO, no sobre el filtro ni el alcance de quien consulta:
+   * si se acotara, una sucursal sola volvería a ver todo el sobrante como suyo.
+   *
+   * `target` tiene que ser el MISMO objetivo que usa el renglón, o la suma de faltantes no es la
+   * de la pantalla. Usa los alias del método que la llama (rp, s, rpl y, con cadencia, pr/rc/sup/ih):
+   * dentro de la tabla derivada no chocan con los de afuera.
+   */
+  private networkSurplus(trx: Knex.Transaction, tenantId: string, target: string, cadence: boolean) {
+    const oh = this.onHand();
+    const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
+    const sug = `GREATEST(0, ${target} - ${oh} - ${this.inTransit()})`;
+    // El objetivo por cadencia lee el canal, el proveedor y la demanda: sólo se pagan esos joins
+    // cuando la base lo pide.
+    const cadenceJoins = cadence ? `
+      JOIN catalog.products pr ON pr.tenant_id = rp.tenant_id AND pr.id = rp.product_id
+      LEFT JOIN catalog.suppliers sup ON sup.tenant_id = rp.tenant_id AND sup.id = pr.supplier_id
+      LEFT JOIN analytics.inventory_health ih ON ih.tenant_id = rp.tenant_id AND ih.warehouse_id = rp.warehouse_id AND ih.product_id = rp.product_id
+      LEFT JOIN commercial.replenishment_channel rc ON rc.tenant_id = rp.tenant_id AND rc.warehouse_id = rp.warehouse_id AND rc.supplier_id = pr.supplier_id` : '';
+    return trx.raw(`(SELECT rp.product_id,
+               SUM(${surH}) AS surplus_total,
+               SUM(CASE WHEN ${surH} > 0 THEN 0 ELSE ${sug} END) AS need_total
+          FROM commercial.reorder_policy rp
+          LEFT JOIN commercial.stock s ON s.tenant_id = rp.tenant_id AND s.warehouse_id = rp.warehouse_id AND s.product_id = rp.product_id
+          LEFT JOIN analytics.replenishment_plan rpl ON rpl.tenant_id = rp.tenant_id AND rpl.warehouse_id = rp.warehouse_id AND rpl.product_id = rp.product_id${cadenceJoins}
+         WHERE rp.tenant_id = ?
+         GROUP BY rp.product_id) as sbp`, [tenantId]);
+  }
+
+  /**
+   * [AB.12] Cuánto del faltante de ESTA sucursal cubre el sobrante de la red: su parte
+   * PROPORCIONAL, `faltante × min(1, sobrante ÷ Σ faltantes)`.
+   *
+   * No se inventa el criterio: es el mismo reparto que `transferPlan()` ya aplica al stock del
+   * CEDIS (RA-PRO.29.1). Proporcional y no por prioridad porque no obliga a decidir quién va
+   * primero; si el negocio decide una prioridad, cambia sólo esta función.
+   *
+   * Una sucursal con sobrante propio no importa (sale como «sobrante», no como traspaso de entrada).
+   * Requiere `sbp` joineado con networkSurplus().
+   */
+  private transferIn(sug: string, surH: string): string {
+    return `(CASE WHEN ${surH} > 0 OR COALESCE(sbp.need_total, 0) <= 0 THEN 0
+                  ELSE ${sug} * LEAST(1.0, COALESCE(sbp.surplus_total, 0) / sbp.need_total) END)`;
+  }
+
+  /**
    * [RA-PERF.2] Los filtros de Existencia Crítica, en UN solo lugar.
    *
    * Existe para que el CONTEO y el LISTADO no puedan divergir. El listado se arma sobre 13
@@ -693,7 +772,8 @@ export class CommercialReplenishmentService {
   }
 
   // ── Reporte Existencia Crítica ────────────────────────────────────────
-  async criticalStock(q: CriticalStockQuery) {
+  // `area`: el proyecto cuyo alcance manda ([ZN.8]). Default Compras; Autoabasto pasa 'almacen'.
+  async criticalStock(q: CriticalStockQuery, area: string = AREA): Promise<CriticalStockPage> {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const oh = this.onHand();
@@ -706,7 +786,7 @@ export class CommercialReplenishmentService {
     const cap = q.export ? 100000 : 500;
     const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
     // `[ZN.3.3]` Una sola vez por request: `criticalFilters` corre dos veces (pagina + conteo).
-    const whIds = await this.whIds(q);
+    const whIds = await this.whIds(q, area);
 
     return this.tk.run(async (trx) => {
       // Ranking POR DINERO (venta/mes est.) RELATIVO al filtro activo: cuando se selecciona
@@ -761,15 +841,8 @@ export class CommercialReplenishmentService {
         // ADR-055 — factor de caja POR ALMACÉN para display (resolvedor canónico único).
         .leftJoin('analytics.v_warehouse_box_factor as vbf', (j) =>
           j.on('vbf.tenant_id', 'rp.tenant_id').andOn('vbf.warehouse_id', 'rp.warehouse_id').andOn('vbf.product_id', 'rp.product_id'))
-        // RA-PRO.16 — SUPERÁVIT DE RED por producto: Σ (existencia − máximo) en TODAS las sucursales del tenant.
-        // Sirve para cubrir el déficit de una sucursal con el sobrante de otra (traspaso) ANTES de comprar.
-        .leftJoin(
-          trx.raw(`(SELECT rp2.product_id,
-                      SUM(GREATEST(0, (COALESCE(s2.quantity,0) - COALESCE(s2.reserved_quantity,0)) - rp2.max_stock)) AS surplus_total
-                    FROM commercial.reorder_policy rp2
-                    LEFT JOIN commercial.stock s2 ON s2.tenant_id = rp2.tenant_id AND s2.warehouse_id = rp2.warehouse_id AND s2.product_id = rp2.product_id
-                    WHERE rp2.tenant_id = ?
-                    GROUP BY rp2.product_id) as sbp`, [tenantId]),
+        // RA-PRO.16 — SUPERÁVIT DE RED por producto, y [AB.12] lo que la red le PIDE. Ver networkSurplus().
+        .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence'),
           (j: any) => j.on('sbp.product_id', 'rp.product_id'))
         // Ranking POR VENTAS relativo al filtro (rankSub arriba): #1 = el que más vende
         // en la sucursal dentro del universo seleccionado. Solo los que venden reciben
@@ -819,8 +892,7 @@ export class CommercialReplenishmentService {
       // el costo trabajan sobre ellas sin dividir): agregarlas al SELECT no mueve ninguna cifra.
       const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
       const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
-      const surN = `GREATEST(0, COALESCE(sbp.surplus_total,0) - ${surH})`;
-      const tin = `LEAST(${sug}, ${surN})`;
+      const tin = this.transferIn(sug, surH);
 
       const rows = await base.clone()
         .select(
@@ -893,15 +965,16 @@ export class CommercialReplenishmentService {
           // RA-PRO.16 — Redistribución: cubrir el sugerido con sobrante de OTRA sucursal antes de comprar.
           trx.raw(`ROUND(GREATEST(0, ${oh} - rp.max_stock) / (${cf}), 1) AS surplus_here`),                                  // sobrante en ESTE almacén (traspasar a otra)
           trx.raw(`ROUND(GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)) / (${cf}), 1) AS surplus_network`), // sobrante del producto en OTRAS sucursales
-          trx.raw(`ROUND(LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) / (${cf}), 1) AS transfer_in`), // cubrible por traspaso
-          trx.raw(`ROUND(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) / (${cf}), 1) AS buy_qty`), // compra REAL (residual)
-          trx.raw(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${this.costUnit()}, 2) END AS buy_cost`),
+          // [AB.12] `transfer_in` es la PARTE que le toca a esta sucursal del sobrante de la red, no
+          // el sobrante entero — ver transferIn(). `surplus_network` sigue siendo el total disponible.
+          trx.raw(`ROUND((${tin}) / (${cf}), 1) AS transfer_in`), // cubrible por traspaso
+          trx.raw(`ROUND(GREATEST(0, ${sug} - ${tin}) / (${cf}), 1) AS buy_qty`), // compra REAL (residual)
+          trx.raw(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, ${sug} - ${tin}) * ${this.costUnit()}, 2) END AS buy_cost`),
           trx.raw(`CASE
-              WHEN GREATEST(0, ${oh} - rp.max_stock) > 0 THEN 'sobrante'
-              WHEN LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) > 0
-                   AND GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) <= 0 THEN 'traspaso'
-              WHEN LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) > 0 THEN 'traspaso_parcial'
-              WHEN GREATEST(0, ${target} - ${oh} - ${it}) > 0 THEN 'comprar'
+              WHEN ${surH} > 0 THEN 'sobrante'
+              WHEN ${tin} > 0 AND ${sug} - ${tin} <= 0 THEN 'traspaso'
+              WHEN ${tin} > 0 THEN 'traspaso_parcial'
+              WHEN ${sug} > 0 THEN 'comprar'
               ELSE 'ok' END AS accion`),
         )
         // Dinero primero: el sugerido valorizado ($) manda. Sin esto, los 3k+
@@ -962,7 +1035,7 @@ export class CommercialReplenishmentService {
   }
 
   /** KPIs por bucket (para las tarjetas de la página). */
-  async summary(q: CriticalStockQuery) {
+  async summary(q: CriticalStockQuery, area: string = AREA): Promise<CriticalStockSummary> {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const target = this.targetCol(basis);
@@ -979,16 +1052,19 @@ export class CommercialReplenishmentService {
           j.on('vbf.tenant_id', 'rp.tenant_id').andOn('vbf.warehouse_id', 'rp.warehouse_id').andOn('vbf.product_id', 'rp.product_id'))
         .leftJoin('analytics.replenishment_plan as rpl', (j) =>
           j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
-        // RA-PRO.16 — superávit de red por producto (para el $ traspasable vs compra real del filtro)
-        .leftJoin(
-          trx.raw(`(SELECT rp2.product_id, SUM(GREATEST(0, (COALESCE(s2.quantity,0) - COALESCE(s2.reserved_quantity,0)) - rp2.max_stock)) AS surplus_total
-                    FROM commercial.reorder_policy rp2
-                    LEFT JOIN commercial.stock s2 ON s2.tenant_id = rp2.tenant_id AND s2.warehouse_id = rp2.warehouse_id AND s2.product_id = rp2.product_id
-                    WHERE rp2.tenant_id = ? GROUP BY rp2.product_id) as sbp`, [tenantId]),
+        // ⛔ [AB.12] El costo del ÁRBITRO (`costUnit()` lee `euc.*`). [VA.4] lo cableó en
+        // criticalStock() y olvidó este método: desde el 2026-09-11 cada llamada a summary()
+        // moría con `missing FROM-clause entry for table "euc"`, y las dos pantallas que lo
+        // consumen (/compras/existencia y /almacen/autoabasto) se tragaban el 500 y dejaban los
+        // KPIs en blanco. Mismo join, misma llave 1:1 que el listado.
+        .leftJoin('analytics.v_erp_unit_cost as euc', (j) =>
+          j.on('euc.tenant_id', 'rp.tenant_id').andOn('euc.warehouse_id', 'rp.warehouse_id').andOn('euc.product_id', 'rp.product_id'))
+        // RA-PRO.16 / [AB.12] — superávit de red y lo que la red le pide. Ver networkSurplus().
+        .leftJoin(this.networkSurplus(trx, tenantId, target, false),
           (j: any) => j.on('sbp.product_id', 'rp.product_id'))
         .where('rp.tenant_id', tenantId)
         .andWhere('pr.activo', true); // no contar productos descontinuados en los KPIs
-      const whIds = await this.whIds(q);
+      const whIds = await this.whIds(q, area);
       if (whIds) base.whereIn('rp.warehouse_id', whIds);
       if (q.supplier_id && UUID_RX.test(q.supplier_id)) base.andWhere('pr.supplier_id', q.supplier_id);
       if (q.category_id && UUID_RX.test(q.category_id)) base.andWhere('pr.category_id', q.category_id);
@@ -1000,6 +1076,8 @@ export class CommercialReplenishmentService {
       const cost = this.costUnit();
       const cf = this.cajaFactor(); // divisor por-almacén para SUMar cajas reales (display)
       const medible = this.rungMedible(); // U.2 — el peldaño no está contradicho por el costo
+      const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
+      const tin = this.transferIn(sug, `GREATEST(0, ${oh} - rp.max_stock)`);
 
       const r: any = await base
         .select(
@@ -1013,8 +1091,10 @@ export class CommercialReplenishmentService {
           // celda del workbook, así que lo no medible sale del total y se DECLARA aparte abajo.
           trx.raw(`ROUND(SUM(GREATEST(0, ${target} - ${oh} - ${it}) * ${cost}) FILTER (WHERE ${medible} AND ${oh} <= rp.reorder_point), 2) AS sugerido_costo`),
           // RA-PRO.16 — del sugerido, cuánto se cubre con TRASPASO (sobrante de otra sucursal) vs COMPRA real.
-          trx.raw(`ROUND(SUM(LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock))) * ${cost}) FILTER (WHERE ${medible}), 2) AS traspasable_valor`),
-          trx.raw(`ROUND(SUM(GREATEST(0, GREATEST(0, ${target} - ${oh} - ${it}) - LEAST(GREATEST(0, ${target} - ${oh} - ${it}), GREATEST(0, COALESCE(sbp.surplus_total,0) - GREATEST(0, ${oh} - rp.max_stock)))) * ${cost}) FILTER (WHERE ${medible}), 2) AS compra_real_valor`),
+          // [AB.12] Con el reparto, Σ traspasable ≤ sobrante real de la red: antes cada sucursal se
+          // quedaba con el sobrante ENTERO y este KPI sumaba la misma caja varias veces.
+          trx.raw(`ROUND(SUM((${tin}) * ${cost}) FILTER (WHERE ${medible}), 2) AS traspasable_valor`),
+          trx.raw(`ROUND(SUM(GREATEST(0, ${sug} - ${tin}) * ${cost}) FILTER (WHERE ${medible}), 2) AS compra_real_valor`),
           // RA-PRO.15 — VALOR del punto de abasto (Σ umbral × costo/caja) + existencia actual, según el filtro.
           trx.raw(`ROUND(SUM(rp.min_stock * ${cost}) FILTER (WHERE ${medible}), 2) AS min_valor`),
           trx.raw(`ROUND(SUM(rp.reorder_point * ${cost}) FILTER (WHERE ${medible}), 2) AS reorden_valor`),
@@ -2970,9 +3050,9 @@ export class CommercialReplenishmentService {
    * devolvían vacío. Una pantalla que ofrece una sucursal y después la muestra en cero se lee
    * como «ahí no falta nada», que es peor que no ofrecerla.
    */
-  async filters() {
+  async filters(area: string = AREA): Promise<ReplenishmentFilters> {
     const tenantId = this.tenantCtx.requireTenantId();
-    const permitidos = await this.whIds({});
+    const permitidos = await this.whIds({}, area);
     return this.tk.run(async (trx) => {
       // RA-PRO.48 — el alcance era "almacenes CON reorder_policy", y eso dejaba la lista corta: el
       // pedido se arma sobre `analytics.replenishment_plan`, que tiene 9 almacenes, mientras la
