@@ -481,6 +481,43 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(fx.nativeElement.querySelectorAll('.cg-bandeja-tbl p-checkbox').length).toBe(0);
   });
 
+  // ── [CG.61] La cola, compacta: media pantalla no da para ocho columnas ────────────────────
+  //
+  // Con la cola dentro del apartado 1 (`[CG.60]`) la tabla tiene **media pantalla**, y
+  // `check:dense-tables` la marcó en deuda por ancho de columnas (9, tracker `[UIM.2]`).
+  // Se retiran dos columnas — pero lo que se retira es la COLUMNA, no el dato: el documento
+  // baja a su fila, que es donde el tablero lo pone.
+
+  it('la cola cabe en media pantalla: seis columnas, y el documento NO se perdió', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const ths = fx.nativeElement.querySelectorAll('.cg-bandeja-tbl thead th');
+    expect(ths.length, 'la cola volvió a crecer: ocho columnas no se leen en media pantalla')
+      .toBeLessThanOrEqual(6);
+
+    // ⭐ Y la prueba que impide "arreglarlo" borrando: el documento tiene que SEGUIR en la fila.
+    // Sin esto, cortar columnas puntúa igual que perder el dato con el que se identifica el
+    // movimiento, y el buscador promete justamente "folio Kepler".
+    const fila: HTMLElement = fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    expect(fila.querySelector('.cg-fila-doc')?.textContent)
+      .toContain(FILA_A.folio);
+  });
+
+  it('⛔ [negativa] el botón de capturar pierde el rótulo VISIBLE, no el accesible', async () => {
+    // Pasó a icono para devolverle ~5rem de ancho a la contraparte. Un icono sin nombre
+    // accesible es un botón que un lector de pantalla anuncia como "botón" y nada más.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const boton: HTMLElement = fx.nativeElement
+      .querySelector('.cg-bandeja-tbl tbody tr .cg-td-abrir button');
+    expect(boton, 'se fue la salida a la captura a mano').not.toBeNull();
+    expect(boton.getAttribute('aria-label') ?? '').toContain(FILA_A.folio);
+  });
+
   it('⭐ pero marcar SIGUE siendo posible y se VE: sin esto, limpiar dejaría la bandeja muerta', async () => {
     const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     await Promise.resolve();

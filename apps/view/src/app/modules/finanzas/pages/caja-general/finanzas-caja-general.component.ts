@@ -374,6 +374,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        publica el estado. Angosta a proposito -- es una senial, no un boton. */
     .cg-th-marca, .cg-td-marca { width:2.25rem; text-align:center; padding-left:var(--sp-2); }
     .cg-td-marca > i { font-size:var(--fs-xs); color:var(--action); }
+    /* ⭐ [CG.61] LA COLA, COMPACTA. Con la cola dentro del apartado 1 la tabla tiene MEDIA
+       pantalla: la contraparte es la que cede, porque es la unica de ancho libre. El nombre se
+       corta con puntos suspensivos y el documento baja a una segunda linea chica. */
+    .cg-th-abrir, .cg-td-abrir { width:2.5rem; text-align:center; padding:0; }
+    .cg-fila-nom { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cg-fila-doc { color:var(--text-faint); font-size:var(--fs-nano); }
     /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
        Fondo propio MAS una barra en --action, para que no dependa de que el tema pinte su
        p-highlight ni del contraste de un fondo solo. */
@@ -1570,12 +1576,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <th scope="col" class="cg-th-marca"><span class="sr-only">Marcada</span></th>
                 <th scope="col">Fecha</th>
                 <th scope="col"><span class="sr-only">Entra o sale</span></th>
-                <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
-                <!-- [CG.48] Acá había una columna "Contado" por renglón, y se retiró: era una
-                     TERCERA forma de contar el mismo dinero, y la única sin desglose. El conteo
-                     va al arqueo -- de un movimiento en «Capturar», de todo el día en el corte. -->
+                <!-- ⭐ [CG.61] ACA HABIA DOS COLUMNAS MAS: "Documento" y "Cuenta". Con la cola
+                     dentro del apartado 1 ([CG.60]) la tabla tiene MEDIA pantalla, y ocho columnas
+                     ahi no se leen: check:dense-tables la marco en deuda por ancho ([UIM.2]).
+                     El DOCUMENTO no se pierde -- baja a su fila, bajo la contraparte, que es donde
+                     el tablero lo pone. La CUENTA si sale de la cola: cuando falta, la marca "sin
+                     regla" ya lo dice, y cuando esta, es dato de clasificacion y vive en la ficha.
+                     [CG.48] Y antes de eso vivia aca una columna "Contado" por renglon: era una
+                     TERCERA forma de contar el mismo dinero, y la unica sin desglose. El conteo
+                     va al arqueo -- de un movimiento en la ficha, de todo el dia en el corte. -->
+                <th scope="col">Contraparte</th>
                 <th scope="col" class="ta-r">Importe (ERP)</th>
-                <th scope="col"><span class="sr-only">Capturar a mano</span></th>
+                <th scope="col" class="cg-th-abrir"><span class="sr-only">Capturar a mano</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-p>
@@ -1609,7 +1621,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                        [attr.title]="p.tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja'"></i>
                   </td>
                   <td>
-                    {{ p.beneficiario || p.entidad_code || '—' }}
+                    <span class="cg-fila-nom">{{ p.beneficiario || p.entidad_code || '—' }}</span>
                     <!-- [CG.33] La fila lleva una MARCA, no el parrafo. El texto entero se repetia
                          identico en cada renglon y convertia la tabla en un muro naranja donde el
                          aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
@@ -1635,17 +1647,24 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                         ⇄ del cajero {{ cm.ref || 's/ref' }} {{ money(cm.monto) }}@if (p.monto - cm.monto > 0.5) { · retiene {{ money(p.monto - cm.monto) }} } · {{ cm.confianza }}
                       </small>
                     }
+                    <!-- ⭐ [CG.61] El documento BAJA a su fila: era una columna propia y en media
+                         pantalla no entraba. Acá abajo sigue siendo buscable con los ojos y no le
+                         roba ancho a la contraparte, que es lo que se lee primero. -->
+                    <small class="cg-fila-doc mono d-block">{{ p.doc_tipo }} {{ p.folio }}</small>
                   </td>
-                  <td class="mono">{{ p.doc_tipo }} {{ p.folio }}</td>
-                  <td class="mono">{{ p.kepler_cuenta || '—' }}</td>
                   <td class="ta-r mono">{{ money(p.monto) }}</td>
-                  <td>
+                  <td class="cg-td-abrir">
                     <!-- La salida de una fila trabada, y desde [CG.48] tambien la de una fila
                          que se conto DISTINTO: el lote espeja al ERP y no admite un importe
                          propio, asi que contar distinto es abrir el documento y desglosarlo.
-                         Abre el dialogo ANCLADO a este documento de Kepler. -->
-                    <p-button [label]="p.confirmable ? 'Abrir' : 'Capturar'" size="small"
-                              severity="secondary" [text]="true"
+                         Abre la ficha ANCLADA a este documento de Kepler.
+                         ⚠️ [CG.61] Pasa a icono y pierde el rotulo VISIBLE, no el accesible: el
+                         ariaLabel dice el documento entero. Un boton de texto por fila se comia
+                         ~5rem de una tabla que ahora tiene media pantalla, y el rotulo cambiaba
+                         entre "Abrir" y "Capturar" sin que esa diferencia significara nada
+                         distinto -- las dos abren la misma ficha sobre el mismo documento. -->
+                    <p-button icon="pi pi-pencil" size="small" severity="secondary" [text]="true" [rounded]="true"
+                              [ariaLabel]="'Capturar a mano ' + p.doc_tipo + ' ' + p.folio"
                               [title]="'Capturar a mano ' + p.doc_tipo + ' ' + p.folio"
                               (onClick)="capturarDesde(p)"></p-button>
                   </td>
