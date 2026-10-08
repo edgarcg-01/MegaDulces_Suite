@@ -50,6 +50,28 @@ const CANINDO_CUTOVER = "DATE '2026-08-15'";
 const MADERO_CUTOVER = "DATE '2026-09-08'";
 const ABASTOS_CUTOVER = "DATE '2026-09-19'";
 
+// [WH.6.1] EL PISO DE FECHA, que no es una decisión de esta fase sino de `[AUD-DAT.2]`
+// (`20260928190000_sales_daily_piso_de_fecha.js`): `analytics.sales_daily` lleva
+// `CHECK (sale_date >= '2024-01-01') NOT VALID`, y esa migración eligió el año a propósito —
+// *"el piso se pone un año ANTES para no bloquear un backfill histórico plausible desde la réplica
+// de Wincaja, y aun así atajar la clase catastrófica (el año 2000, 2014)"*.
+//
+// ⭐ El freno hizo exactamente su trabajo: el primer `--apply` de [WH.6] murió con `23514` sobre
+// una fila `2000-01-01`, y la transacción revirtió entera. La basura nace en el `.mdb` de Wincaja
+// y es un CENTINELA, no un dato: Morelia trae **159 filas fechadas 2000-01-01, una por SKU** (más
+// 1 de 2020), $12,275 contra $406M de venta real — 0.003%.
+//
+// Esto va acá y no en una cláusula por sucursal a propósito: el piso es una propiedad del HECHO,
+// no de una plaza. Acotarlo a 30/32 dejaría a la próxima que migre chocando contra el mismo muro,
+// que es justo el patrón que [WH.6] existe para cerrar.
+//
+// ⚠️ Lo que este piso NO hace, y es deliberado: NO borra las 226 filas bajo el piso que ya viven
+// en el fact (01/02/05/06/RUTA-22, $263,273). `[AUD-DAT.2]` las dejó con `NOT VALID` justamente
+// para no borrar en prod sin autorización, y barrerlas desde acá sería una puerta de una sola
+// dirección —el CHECK ya no deja re-insertarlas—. Por eso `import-wincaja-analytics.js` acota su
+// `DELETE` a este mismo piso: la deuda queda declarada donde estaba, no se amplía ni se tapa.
+const PISO_FECHA = "DATE '2024-01-01'";
+
 /**
  * @param {object} o
  * @param {string} o.tenantId  UUID (validado, inline).
@@ -129,6 +151,7 @@ function buildSalesDailySrc({ tenantId, branches = null, days = null } = {}) {
                      ELSE s.warehouse_code END
   LEFT JOIN am ON am.tenant_id = s.tenant_id AND am.articulo = s.sku
   WHERE s.tenant_id = '${tenantId}'
+    AND s.business_date >= ${PISO_FECHA}
     AND ( s.wincaja_only = true
           OR (s.source_branch = '10' AND s.business_date < ${PH_CUTOVER})
           OR (s.source_branch = '42' AND s.business_date < ${LP_CUTOVER})
@@ -141,4 +164,7 @@ function buildSalesDailySrc({ tenantId, branches = null, days = null } = {}) {
   GROUP BY p.id, w.id, s.business_date, channel`;
 }
 
-module.exports = { buildSalesDailySrc, UUID_RE };
+// `PISO_FECHA` se exporta para que el `DELETE` del gold feed use EL MISMO piso que el SELECT.
+// Si cada lado llevara el suyo, el día que uno cambie el otro borraría lo que el primero ya no
+// produce — que es la forma exacta en que un merge "sin churn" se convierte en un barrido.
+module.exports = { buildSalesDailySrc, UUID_RE, PISO_FECHA };
