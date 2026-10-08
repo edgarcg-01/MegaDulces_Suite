@@ -410,6 +410,10 @@ export enum Permission {
   // mismo. Decisión de Francisco (2026-10-08): coordinador de embarques, encargado de tienda y
   // supervisor (la Gerencia de Zona ya es superadmin).
   ALMACEN_SURTIDO_COORDINAR = 'ALMACEN_SURTIDO_COORDINAR',
+  // `[GP.4]` Checar pedidos surtidos: rastrillar, armar las cajas P y etiquetar. Clave PROPIA: el
+  // checador nunca checa lo que él surtió (P4), y eso lo cuida el sistema por pedido, no el perfil.
+  // Rol `checador` + `almacenista` (mig 20261008143820).
+  ALMACEN_CHECADO_GESTIONAR = 'ALMACEN_CHECADO_GESTIONAR',
   // ── Autoabasto y Nivelación (Fase AB) — /almacen/autoabasto y /almacen/nivelacion.
   //
   // Claves PROPIAS, no COMPRAS_* reusadas, por una razón de negocio y una medida:

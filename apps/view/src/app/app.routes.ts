@@ -1297,6 +1297,16 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_GESTIONAR)]
       },
       {
+        /**
+         * `[GP.4]` **Checar** desde el celular o handheld — pantalla de FOCO, igual que Surtir: sin
+         * barra de tabs para no invitar a irse a mitad del pedido. Clave propia
+         * `ALMACEN_CHECADO_GESTIONAR` (rol `checador` + `almacenista`).
+         */
+        path: 'checar',
+        loadComponent: () => import('./modules/almacen/pages/almacen-checar.component').then(m => m.AlmacenChecarComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_CHECADO_GESTIONAR)]
+      },
+      {
         // WMS-BI.1 — detalle de UN documento, abierto en pestaña nueva desde Análisis BI.
         // Foco: sin barra de tabs. Ruta propia (no /almacen/movimientos) — ver el comentario
         // en AlmacenAnalisisBiComponent.openDocument().

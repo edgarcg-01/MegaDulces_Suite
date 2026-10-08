@@ -278,3 +278,108 @@ export interface CapturaKeplerResponse {
   /** Surtidos terminados antes de GP.3 (sin lo pedido congelado): no se pueden comparar. */
   sin_congelado: number;
 }
+
+// ─── [GP.4] El checado: rastrillar, cajas P y etiquetas ───────────────────────────────────────
+
+/** Un producto del pedido en el checado. Cantidades en la unidad BASE (`unidad`). */
+export interface ChecadoRenglon {
+  id: string;
+  sku: string | null;
+  producto: string | null;
+  unidad: string | null;
+  /** Lo surtido, que es lo que ya está en Kepler: lo que debe salir. */
+  esperado: number;
+  /** Lo que lleva escaneado el checador. */
+  checado: number;
+  /** La caja del producto (CJA) y cuántas piezas trae. null = sólo se vende suelto. */
+  unidad_mayor: string | null;
+  factor_mayor: number | null;
+  /** Cajas cerradas que se esperan (sólo si lo esperado da cajas enteras). */
+  esperado_mayor: number | null;
+  /** Cajas escaneadas. */
+  checado_mayor: number;
+  /** Se vende por kilo: el escaneo pide el peso de la báscula. */
+  se_pesa: boolean;
+  estado: 'pendiente' | 'completo' | 'falta' | 'sobra';
+}
+
+export interface ChecadoContenido {
+  sku: string | null;
+  producto: string | null;
+  unidad: string | null;
+  cantidad: number;
+}
+
+/** Una caja de paquetería (P1, P2…) y lo que lleva. */
+export interface ChecadoCajaP {
+  id: string;
+  numero: number;
+  status: 'abierta' | 'cerrada';
+  contenido: ChecadoContenido[];
+}
+
+export interface ChecadoPedido {
+  id: string;
+  order_code: string;
+  destino: string | null;
+  sucursal: string;
+  warehouse_id: string;
+  started_at: string;
+  renglones: ChecadoRenglon[];
+  cajas_p: ChecadoCajaP[];
+  /** El último escaneo vigente (para "Deshacer"). */
+  ultimo_escaneo: { id: string; producto: string | null; unidad: string | null; cantidad: number; kind: 'mayor' | 'menor' | 'ajeno' } | null;
+}
+
+export type ChecadoTomarResponse =
+  | { estado: 'asignado'; ya_era_tuyo: boolean; pedido: ChecadoPedido }
+  | {
+      estado: 'sin_trabajo';
+      motivo: string;
+      /** Pedidos surtidos que esperan a que Facturación los pase a SURTIDO en Kepler. */
+      esperando_facturacion: number;
+    };
+
+export type ChecadoEscaneoResultado = 'ok' | 'sobra' | 'ajeno' | 'desconocido' | 'ambiguo' | 'pide_peso';
+
+export interface ChecadoEscaneoResponse {
+  resultado: ChecadoEscaneoResultado;
+  mensaje: string;
+  producto: string | null;
+  pedido: ChecadoPedido;
+}
+
+/** Lo que va en la etiqueta de una caja P (sale por triplicado al cerrarla). */
+export interface ChecadoEtiquetaP {
+  id: string;
+  numero: number;
+  order_code: string;
+  destino: string | null;
+  articulos: number;
+  productos: number;
+}
+
+/** Una etiqueta de unidad mayor: "3/7". */
+export interface ChecadoEtiquetaCJ {
+  n: number;
+  total: number;
+  sku: string | null;
+  producto: string | null;
+  unidad: string | null;
+}
+
+export interface ChecadoCerrarCajaResponse {
+  etiqueta: ChecadoEtiquetaP;
+  pedido: ChecadoPedido;
+}
+
+export interface ChecadoTerminarResponse {
+  order_code: string;
+  destino: string | null;
+  /** Sólo lo que no cuadra: lo que sale es lo checado. */
+  diferencias: Array<{ sku: string | null; producto: string | null; unidad: string | null; esperado: number; checado: number }>;
+  etiquetas_cj: ChecadoEtiquetaCJ[];
+  /** La caja P que seguía abierta y se cerró al terminar (su etiqueta sale aquí). */
+  etiqueta_p: ChecadoEtiquetaP | null;
+  cajas_p: number;
+}

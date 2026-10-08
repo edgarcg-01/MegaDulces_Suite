@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Checado (GP.4, 2026-10-08)
+- `/almacen/checar`: el checador toma el siguiente pedido ya surtido y ya en SURTIDO en Kepler (nunca uno que él surtió), escanea todo, arma las cajas P de paquetería y las etiqueta (TSC TE200, 3 por fila, 32 × 48 mm; la caja P por triplicado al cerrarla, las cajas 1/N al terminar).
+- Mig `20261008143820`: tablas del checado, rol `checador` con alcance a su sucursal, `ALMACEN_CHECADO_GESTIONAR` (también a `almacenista`) y puesto **Checador de Pedidos**.
+
 ### Fixed — Almacén: vuelve el botón «Surtir» del tablero de pedidos (GP.3, 2026-10-08)
 - `/almacen/pedidos` había perdido el botón que lleva a `/almacen/surtir` (la pantalla del surtidor es de foco y no tiene otra entrada desde el tablero). Lo agregó GP.3c (#319) y el barrido de nombres de sucursal SUC.1 (`fcf85959c`) lo borró sin querer al reescribir el archivo; su prueba quedó roja en `main`. Se restaura tal cual, conservando el nombre de sucursal de SUC.1.
 

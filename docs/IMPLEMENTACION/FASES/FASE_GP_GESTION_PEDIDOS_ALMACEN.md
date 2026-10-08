@@ -801,7 +801,7 @@ de la lógica (mutación: "sólo avanzar" sin mirar Kepler la rompen 2) y 13 de 
   Fase UB).
 - **El orden de la hoja por ubicación** espera el censo de ubicaciones de PH (WMS.3). Hoy: por nombre.
 
-## 9. GP.4 — El checado: rastrillar, armar las cajas y etiquetar (📋 diseñado, 2026-10-08)
+## 9. GP.4 — El checado: rastrillar, armar las cajas y etiquetar (🧪 en código, 2026-10-08)
 
 Junta lo que el plan tenía en GP.4 (checado) y GP.4b (bultos), porque así lo trabaja el piso.
 
@@ -813,7 +813,8 @@ Junta lo que el plan tenía en GP.4 (checado) y GP.4b (bultos), porque así lo t
 | ¿Cómo revisa? | **Rastrilla: escanea todo.** Las cajas de unidad mayor validan el surtido; la paquetería se escanea **dentro de la caja P abierta**. El valor es la trazabilidad: *saber exactamente en qué caja se empacó todo lo que no va en unidad mayor* |
 | ¿Ve lo que contó el surtidor? | No: ve lo que pidió el cliente y lo que lleva escaneado (conteo ciego en la práctica) |
 | Si no cuadra | **Manda el checador.** Si falta, sale incompleto (P7); la diferencia queda registrada contra el surtidor |
-| Etiquetas | **Etiquetera térmica.** La de cada caja **P sale al cerrarla**; las de unidad mayor (**1/7, 2/7…**) al terminar el pedido. Llevan pedido, cliente, producto/contenido |
+| Etiquetas | **Etiquetera térmica TSC TE200**, rollo de **3 por fila**: 100 mm de ancho, cada etiqueta **32 × 48 mm**, 2 mm entre etiquetas y entre filas. La de cada caja **P sale al cerrarla y por triplicado** (la fila entera: dos lados de la caja + la hoja del pedido); las de unidad mayor (**1/7, 2/7…**) al terminar, en filas de 3 |
+| ¿Cuándo se puede checar? | Sólo cuando **Facturación ya lo pasó a SURTIDO en Kepler** y cuadra con lo surtido (GP.3d): se checa contra el pedido ya corregido |
 | Puesto | **Nuevo, "Checador de Pedidos"** (`checador_pedidos`). El puesto "Checador" ya lo usa la terminal del verificador de precios (`checador.05`, perfil `verificador_precios`): darle el perfil de almacén a ese puesto le habría dado permisos de almacén a una terminal pública |
 
 ### 9.2 Lo aprendido con el surtidor, resuelto desde el principio
@@ -864,7 +865,41 @@ Junta lo que el plan tenía en GP.4 (checado) y GP.4b (bultos), porque así lo t
 - Etiquetas por navegador (`printIsolated` + JsBarcode, igual que el cartel del andén), con
   `@page` del tamaño de la etiqueta. **Pendiente: medida de la etiqueta** (se deja configurable).
 
-### 9.6 Fuera de esta entrega
+### 9.6 Lo que quedó construido
+
+- **Migración `20261008143820_gp4_checado`** (crea esquema: la compuerta no frena): las 4 tablas con RLS
+  forzado; candado de **un checado vivo por pedido** (índice único parcial) y de **una sola caja P
+  abierta** por checado; un escaneo de paquetería **no puede quedar sin caja P** (CHECK). Rol
+  `checador` (3 claves + alcance a su sucursal y zona), `ALMACEN_CHECADO_GESTIONAR` también a
+  `almacenista`, puesto **Checador de Pedidos** que propone `checador`, y `checador_cedis` pasa a
+  proponerlo (0 personas).
+- **Servidor** `/reparto/checado` (`checado.service.ts`), todo con `ALMACEN_CHECADO_GESTIONAR`:
+  - `siguiente`: candado por persona; candidatos en el orden de la fila del surtidor; **excluye
+    los pedidos que quien pide surtió** (el picker de la ola o de cualquier renglón del pedido, P4);
+    pide a `PickingCapturaService.estadosDe` que Kepler esté en **SURTIDO y cuadre**; el
+    `INSERT … ON CONFLICT` contra el índice parcial resuelve a dos checadores a la vez. Sin trabajo,
+    dice **cuántos pedidos esperan a Facturación**.
+  - `escanear`: resuelve el código contra `kdii` **de la sucursal** (`checado-codigo.ts`, sólo
+    coincidencia exacta: en `06001` la pieza es `006001` y el paquete `06001`). Caja (factor de
+    la unidad mayor) = una caja; lo demás entra a la caja P abierta (se abre sola). Ajeno, ambiguo
+    o desconocido se avisan y no suman; por kilo suelto pide el peso; sobrante se avisa.
+  - `deshacer` (no si su caja P ya se cerró y etiquetó), `cerrar-caja` (devuelve la etiqueta),
+    `terminar` (cierra la caja P abierta si lleva algo, lista sólo lo que no cuadra, etiquetas 1/N).
+- **Pantalla** `/almacen/checar` (foco, celular y handheld): el campo de código conserva el foco
+  para el escáner; cantidad para cajas sin etiqueta; aviso por color; último escaneo con
+  "Deshacer"; caja P abierta con "Cerrar caja P… e imprimir etiqueta"; lista con lo pendiente
+  primero; confirmación al terminar que dice si sale incompleto; espacio de espera opcional.
+  Entrada directa para quien sólo checa y botón **Checar** en el Tablero.
+- **Etiquetas** (`checado-etiquetas.ts`): `printIsolated` con papel `100mm × 48mm` (una fila de 3
+  por hoja); código de barras CODE128 corto (`0002781P3`, `0002781C5`) para que quepa en 29 mm.
+
+**Probado:** lector de códigos con las filas reales de `kdii` (10 pruebas); reglas del checado
+(9); pantalla montada (9, incluida la etiqueta P por triplicado); entrada directa (3); las dos
+lecturas de `kdii` del servicio contra prod, sólo lectura (~40 ms por código, 2 ms por clave).
+**Pendiente de probar:** la migración y las consultas del servicio en Postgres local (Docker apagado
+al momento de escribir esto), y la impresión en la TSC real.
+
+### 9.7 Fuera de esta entrega
 
 Contenedor de plástico compartido (§5c), mover cajas entre ubicaciones, la carga al camión (GP.5) y
 el cuadre con Kepler (GP.6).
