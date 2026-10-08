@@ -7,7 +7,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Knex } from 'knex';
-import { TenantKnexService, TenantContextService, ScopeService, branchName } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, ScopeService, branchName, branchKeySql } from '@megadulces/platform-core';
 import type {
   LoadGuide,
   LoadGuideOrderRow,
@@ -26,6 +26,18 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_POR_CARGA = 80;
 const SIN_RUTA = 'SIN RUTA';
 
+/** Quién pide, según `RolesGuard` (permisos y roles FRESCOS, no los del token). */
+export interface QuienPide {
+  /** Trae `REPARTO_ENTREGAR` (o es god): ve por sucursal. Si no, es vendedor y ve sólo lo suyo. */
+  repartidor: boolean;
+  /**
+   * Modo god (también por rol complementario). Se resuelve AQUÍ y no con `ScopeService`, que sólo
+   * mira el rol principal: `superuser` y `guillermo_lopez` son god por complemento y su rol
+   * principal (`direccion`) les recortaría la escritura.
+   */
+  god: boolean;
+}
+
 type GuideRow = {
   id: string;
   folio: string;
@@ -38,7 +50,6 @@ type GuideRow = {
   printed_at: string | null;
   printed_by_name: string | null;
   print_count: number;
-  snapshot: LoadGuideSnapshot | null;
 };
 
 /**
@@ -52,11 +63,11 @@ type GuideRow = {
  * Los pedidos se leen con `PresaleControlService.pedidosParaGuias` (la misma consulta de la mesa),
  * para que etapa, documento y guía digan lo mismo en las dos pantallas.
  *
- * ── Quién ve qué en el celular ──────────────────────────────────────────────────────────────
- *  · Repartidor (`REPARTO_ENTREGAR`) o modo god: los pedidos de las sucursales de su alcance
- *    (el rol `repartidor` tiene alcance "todas").
- *  · Vendedor: SÓLO los que él levantó. No se usa su alcance por sucursal porque, medido el
- *    2026-10-08, 13 de 19 `vendedor_ruta` no tienen sucursal en su ficha y no verían nada.
+ * ── Candados ──────────────────────────────────────────────────────────────────────────────────
+ * Primero se valida el ALCANCE con una lectura sin candado, y sólo después se toma el candado (así
+ * nadie bloquea filas de otra sucursal). Orden fijo: pedidos → guía. Quitar e imprimir toman el
+ * MISMO candado de la guía: si no, un pedido quitado mientras la caja imprime quedaba en el papel
+ * firmado y libre a la vez (revisión independiente, 2026-10-08).
  *
  * ⚠️ Pescar NO entrega, NO factura y NO mueve inventario: sólo registra quién se lleva qué.
  */
@@ -74,24 +85,24 @@ export class LoadGuideService {
 
   // ───────────────────────────────────────────────────────────── celular ──
 
-  async campo(query: Record<string, unknown> | undefined, esRepartidor: boolean): Promise<PresaleFieldResponse> {
+  async campo(query: Record<string, unknown> | undefined, quien: QuienPide): Promise<PresaleFieldResponse> {
     const userId = this.usuario();
     const hoy = relojMx(new Date()).fecha;
-    const filtro = await this.filtroCampo(query, esRepartidor, userId);
+    const filtro = await this.filtroCampo(query, quien, userId);
     return this.tk.run(async (trx) => {
-      const pedidos =
+      const available =
         filtro.almacenes !== null && filtro.almacenes.length === 0
           ? []
-          : await this.presale.pedidosParaGuias(trx, { ...filtro, soloAbiertos: true });
-      // Se pueden pescar los confirmados sin guía. Un cliente sin alta en Kepler no se surte (D7).
-      const available = pedidos.filter((p) => !p.load_guide && p.stage !== 'esperando_alta');
-      const mine = await this.guias(trx, { riderId: userId, fecha: hoy, almacenes: null });
-      return { available, mine, source: esRepartidor ? 'sucursal' : 'propios', today: hoy };
+          : await this.presale.pedidosParaGuias(trx, { ...filtro, soloAbiertos: true, paraPescar: true });
+      // Sus guías abiertas de CUALQUIER día (si la caja no imprimió ayer, siguen siendo suyas) y
+      // las impresas de hoy.
+      const mine = await this.guias(trx, { riderId: userId, fecha: hoy, conAbiertas: true, branches: null });
+      return { available, mine, source: quien.repartidor ? 'sucursal' : 'propios', today: hoy };
     });
   }
 
   /** Pesca pedidos: los agrega a su guía abierta de hoy de esa sucursal y ruta (la crea si no hay). */
-  async cargar(orderIds: string[] | undefined, query: Record<string, unknown> | undefined, esRepartidor: boolean): Promise<PresaleFieldResponse> {
+  async cargar(orderIds: string[] | undefined, query: Record<string, unknown> | undefined, quien: QuienPide): Promise<PresaleFieldResponse> {
     const ids = [...new Set((orderIds ?? []).map((x) => String(x).trim()))];
     if (!ids.length) throw new BadRequestException('Elige al menos un pedido.');
     if (ids.length > MAX_POR_CARGA) throw new BadRequestException(`Máximo ${MAX_POR_CARGA} pedidos por vez.`);
@@ -99,20 +110,25 @@ export class LoadGuideService {
     const userId = this.usuario();
     const tenantId = this.tenantCtx.requireTenantId();
     const hoy = relojMx(new Date()).fecha;
-    const filtro = await this.filtroCampo(query, esRepartidor, userId);
+    const filtro = await this.filtroCampo(query, quien, userId);
 
     await this.tk.run(async (trx) => {
-      // Candado sobre los pedidos, para que dos celulares no pesquen el mismo a la vez.
-      await trx.raw('SELECT 1 FROM commercial.orders WHERE id = ANY(?::uuid[]) FOR UPDATE', [ids]);
-      const pedidos =
+      const leer = () =>
         filtro.almacenes !== null && filtro.almacenes.length === 0
-          ? []
-          : await this.presale.pedidosParaGuias(trx, { ...filtro, orderIds: ids, soloAbiertos: true });
-      const porId = new Map(pedidos.map((p) => [p.id, p]));
-      const faltan = ids.filter((x) => !porId.has(x));
+          ? Promise.resolve([] as PresaleOrderRow[])
+          : this.presale.pedidosParaGuias(trx, { ...filtro, orderIds: ids, soloAbiertos: true });
+
+      // 1) Alcance, sin candado: sólo se bloquea lo que de verdad le toca.
+      const visibles = await leer();
+      const faltan = ids.filter((x) => !visibles.some((p) => p.id === x));
       if (faltan.length) {
         throw new NotFoundException(`${faltan.length} pedido(s) no están disponibles para ti (no existen, no son tuyos o ya se cerraron).`);
       }
+      // 2) Candado sobre los pedidos (dos celulares no pescan el mismo) y relectura con el candado puesto.
+      await trx.raw('SELECT 1 FROM commercial.orders WHERE id = ANY(?::uuid[]) FOR UPDATE', [ids]);
+      const pedidos = await leer();
+      if (pedidos.length !== ids.length) throw new ConflictException('Uno de esos pedidos cambió mientras lo pescabas: actualiza la lista.');
+
       const yaCargados = pedidos.filter((p) => p.load_guide);
       if (yaCargados.length) {
         throw new ConflictException(`Ya van en una guía: ${yaCargados.map((p) => `${p.code} (${p.load_guide?.folio})`).join(', ')}.`);
@@ -149,69 +165,91 @@ export class LoadGuideService {
       }
       this.logger.log(`[MCP.5] ${userId} pescó ${pedidos.length} pedido(s) en ${grupos.size} guía(s)`);
     });
-    return this.campo(query, esRepartidor);
+    return this.campo(query, quien);
   }
 
   /** Quita un pedido de su guía, sólo mientras la guía siga abierta (no impresa). */
-  async descargar(orderId: string | undefined, query: Record<string, unknown> | undefined, esRepartidor: boolean): Promise<PresaleFieldResponse> {
+  async descargar(orderId: string | undefined, query: Record<string, unknown> | undefined, quien: QuienPide): Promise<PresaleFieldResponse> {
     if (!orderId || !UUID_RE.test(orderId)) throw new BadRequestException('id de pedido inválido');
     const userId = this.usuario();
     await this.tk.run(async (trx) => {
-      const fila = await trx('commercial.load_guide_orders as lgo')
-        .join('commercial.load_guides as g', function () {
-          this.on('g.id', '=', 'lgo.guide_id').andOn('g.tenant_id', '=', 'lgo.tenant_id');
-        })
-        .where('lgo.order_id', orderId)
-        .andWhere('lgo.status', 'cargado')
-        .first('lgo.id', 'g.status', 'g.rider_user_id', 'g.folio');
+      const fila = await this.renglonCargado(trx, orderId);
       if (!fila || fila.rider_user_id !== userId) throw new NotFoundException('Ese pedido no va en una guía tuya.');
-      if (fila.status !== 'abierta') {
-        throw new ConflictException(`La guía ${fila.folio} ya se imprimió y firmó: lo que no entregues se registra al entregar.`);
+      // Mismo candado que `imprimir`: o se quita antes de imprimir, o la impresión lo ve y no se quita.
+      await trx.raw('SELECT 1 FROM commercial.load_guides WHERE id = ? FOR UPDATE', [fila.guide_id]);
+      const ahora = await this.renglonCargado(trx, orderId);
+      if (!ahora || ahora.guide_id !== fila.guide_id) throw new NotFoundException('Ese pedido ya no va en tu guía.');
+      if (ahora.guide_status !== 'abierta') {
+        throw new ConflictException(`La guía ${ahora.folio} ya se imprimió y firmaste. Si no lo entregas, avisa en caja al regresar para que lo registren.`);
       }
       await trx('commercial.load_guide_orders')
-        .where({ id: fila.id, status: 'cargado' })
+        .where({ id: ahora.id, status: 'cargado' })
         .update({ status: 'quitado', removed_at: trx.fn.now(), removed_by: userId });
     });
-    return this.campo(query, esRepartidor);
+    return this.campo(query, quien);
   }
 
   // ──────────────────────────────────────────────────────────────── caja ──
 
-  async listar(query: Record<string, unknown> | undefined): Promise<LoadGuidesResponse> {
+  async listar(query: Record<string, unknown> | undefined, quien: QuienPide): Promise<LoadGuidesResponse> {
     const raw = String(query?.['date'] ?? '').trim();
     const fecha = DATE_RE.test(raw) ? raw : relojMx(new Date()).fecha;
-    const almacenes = await this.scope.readParam(query, 'warehouse', 'warehouse/presale/guides');
-    if (almacenes !== null && almacenes.length === 0) return { data: [], date: fecha };
-    const data = await this.tk.run((trx) => this.guias(trx, { fecha, almacenes }));
-    return { data, date: fecha };
+    const branches = await this.sucursalesCaja(query, quien);
+    if (branches !== null && branches.length === 0) return { data: [], date: fecha, scope: 'ninguno' };
+    const data = await this.tk.run((trx) => this.guias(trx, { fecha, conAbiertas: true, branches }));
+    return { data, date: fecha, scope: branches === null ? 'todos' : 'recortado' };
   }
 
   /**
    * Imprime la guía. La primera vez la congela (`snapshot`, `impresa`); después reimprime desde esa
    * foto con la marca REIMPRESIÓN, para que la copia diga lo mismo que el papel que se firmó.
+   *
+   * El PDF se genera DENTRO de la transacción: si Chromium falla, la guía no queda como impresa y
+   * el primer papel que de verdad se firma no sale marcado como reimpresión.
    */
-  async imprimir(id: string, query: Record<string, unknown> | undefined): Promise<{ pdf: Buffer; guia: LoadGuide }> {
+  async imprimir(id: string, query: Record<string, unknown> | undefined, quien: QuienPide): Promise<{ pdf: Buffer; guia: LoadGuide }> {
     if (!UUID_RE.test(id)) throw new BadRequestException('id de guía inválido');
     const userId = this.usuario();
-    const almacenes = await this.scope.readParam(query, 'warehouse', 'warehouse/presale/guides');
-    if (almacenes !== null && almacenes.length === 0) throw new NotFoundException('Guía no encontrada.');
+    const branches = await this.sucursalesCaja(query, quien);
+    if (branches !== null && branches.length === 0) throw new NotFoundException('Guía no encontrada.');
 
-    const { snapshot, reimpresion, guia } = await this.tk.run(async (trx) => {
+    return this.tk.run(async (trx) => {
+      // Alcance primero, sin candado; luego el candado y la relectura.
+      const [visible] = await this.guias(trx, { id, branches });
+      if (!visible) throw new NotFoundException('Guía no encontrada.');
       await trx.raw('SELECT 1 FROM commercial.load_guides WHERE id = ? FOR UPDATE', [id]);
-      const [g] = await this.guias(trx, { id, almacenes });
-      if (!g) throw new NotFoundException('Guía no encontrada.');
-      if (g.status === 'cancelada') throw new ConflictException('La guía está cancelada.');
+      const sello = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
 
-      if (g.status === 'impresa') {
-        const row = await trx('commercial.load_guides').where({ id }).first('snapshot');
+      const estado = (await trx('commercial.load_guides').where({ id }).first('status', 'snapshot')) as
+        | { status: string; snapshot: LoadGuideSnapshot | null }
+        | undefined;
+      if (!estado || estado.status === 'cancelada') throw new ConflictException('La guía está cancelada.');
+
+      if (estado.status === 'impresa') {
+        const snap = estado.snapshot as LoadGuideSnapshot;
+        const pdf = await this.renderizar(snap, true, sello);
         await trx('commercial.load_guides').where({ id }).update({ print_count: trx.raw('print_count + 1'), updated_at: trx.fn.now() });
-        // Se relee: la guía leída arriba trae el contador de ANTES de esta reimpresión.
-        const [reimpresa] = await this.guias(trx, { id, almacenes });
-        return { snapshot: row.snapshot as LoadGuideSnapshot, reimpresion: true, guia: reimpresa };
+        const [reimpresa] = await this.guias(trx, { id, branches: null });
+        return { pdf, guia: reimpresa };
       }
 
+      // Un pedido que se canceló después de pescarlo sale de la guía: no se imprime ni se cobra.
+      const cancelados = await trx('commercial.load_guide_orders as lgo')
+        .join('commercial.orders as o', function () {
+          this.on('o.id', '=', 'lgo.order_id').andOn('o.tenant_id', '=', 'lgo.tenant_id');
+        })
+        .where({ 'lgo.guide_id': id, 'lgo.status': 'cargado', 'o.status': 'cancelled' })
+        .select('lgo.id', 'o.code');
+      if (cancelados.length) {
+        await trx('commercial.load_guide_orders')
+          .whereIn('id', cancelados.map((c: { id: string }) => c.id))
+          .update({ status: 'quitado', removed_at: trx.fn.now(), removed_by: userId, removed_reason: 'Pedido cancelado antes de imprimir la guía' });
+        this.logger.log(`[MCP.5] guía ${id}: ${cancelados.length} pedido(s) cancelado(s) salieron antes de imprimir`);
+      }
+
+      const [g] = await this.guias(trx, { id, branches: null });
       if (!g.orders.length) throw new ConflictException('La guía no tiene pedidos: no hay nada que imprimir.');
-      const quien = await trx('identity.users').where({ id: userId }).first('nombre');
+      const quienImprime = await trx('identity.users').where({ id: userId }).first('nombre');
       const snap: LoadGuideSnapshot = {
         version: 1,
         empresa: 'Mega Dulces',
@@ -222,7 +260,7 @@ export class LoadGuideService {
         repartidor: g.rider_name,
         fecha: g.business_date,
         impresa_en: new Date().toISOString(),
-        impresa_por: quien?.nombre ?? null,
+        impresa_por: quienImprime?.nombre ?? null,
         pedidos: g.orders.map((o) => ({
           code: o.code,
           cliente: o.customer_name,
@@ -234,6 +272,7 @@ export class LoadGuideService {
         })),
         total: g.total,
       };
+      const pdf = await this.renderizar(snap, false, sello);
       await trx('commercial.load_guides').where({ id, status: 'abierta' }).update({
         status: 'impresa',
         snapshot: JSON.stringify(snap),
@@ -243,17 +282,38 @@ export class LoadGuideService {
         updated_at: trx.fn.now(),
         updated_by: userId,
       });
-      const [impresa] = await this.guias(trx, { id, almacenes });
+      const [impresa] = await this.guias(trx, { id, branches: null });
       this.logger.log(`[MCP.5] guía ${g.folio} impresa por ${userId} (${g.orders.length} pedidos)`);
-      return { snapshot: snap, reimpresion: false, guia: impresa };
+      return { pdf, guia: impresa };
     });
+  }
 
-    const sello = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
-    const pdf = await this.pdf.renderPdf(
-      htmlGuiaCarga(snapshot, { reimpresion, reimpresa_en: reimpresion ? sello : undefined }),
-      pieGuiaCarga(snapshot.folio, (reimpresion ? 'reimpresa ' : 'impresa ') + sello),
-    );
-    return { pdf, guia };
+  /**
+   * La caja registra que un pedido de una guía YA IMPRESA regresó sin entregarse (D10): el renglón
+   * pasa a `regreso` con motivo y el pedido queda libre para salir otro día en otra guía. El papel
+   * firmado no cambia (es lo que se llevó); la liquidación (MCP.7) lo descuenta.
+   */
+  async regreso(id: string, orderId: string | undefined, reason: string | undefined, query: Record<string, unknown> | undefined, quien: QuienPide): Promise<LoadGuidesResponse> {
+    if (!UUID_RE.test(id) || !orderId || !UUID_RE.test(orderId)) throw new BadRequestException('id inválido');
+    const motivo = String(reason ?? '').trim();
+    if (motivo.length < 5) throw new BadRequestException('Escribe por qué no se entregó (mínimo 5 letras).');
+    const userId = this.usuario();
+    const branches = await this.sucursalesCaja(query, quien);
+    if (branches !== null && branches.length === 0) throw new NotFoundException('Guía no encontrada.');
+
+    await this.tk.run(async (trx) => {
+      const [visible] = await this.guias(trx, { id, branches });
+      if (!visible) throw new NotFoundException('Guía no encontrada.');
+      await trx.raw('SELECT 1 FROM commercial.load_guides WHERE id = ? FOR UPDATE', [id]);
+      const g = await trx('commercial.load_guides').where({ id }).first('status', 'folio');
+      if (g?.status !== 'impresa') throw new ConflictException('Sólo se registra el regreso en una guía impresa; si no se ha impreso, el repartidor lo quita desde su celular.');
+      const n = await trx('commercial.load_guide_orders')
+        .where({ guide_id: id, order_id: orderId, status: 'cargado' })
+        .update({ status: 'regreso', removed_at: trx.fn.now(), removed_by: userId, removed_reason: motivo });
+      if (!n) throw new NotFoundException('Ese pedido no va cargado en esta guía.');
+      this.logger.log(`[MCP.5] guía ${g.folio as string}: pedido ${orderId} regresó sin entregar (${motivo})`);
+    });
+    return this.listar(query, quien);
   }
 
   // ─────────────────────────────────────────────────────────── internos ──
@@ -264,13 +324,57 @@ export class LoadGuideService {
     return userId;
   }
 
+  private async renderizar(snap: LoadGuideSnapshot, reimpresion: boolean, sello: string): Promise<Buffer> {
+    return this.pdf.renderPdf(
+      htmlGuiaCarga(snap, { reimpresion, reimpresa_en: reimpresion ? sello : undefined }),
+      pieGuiaCarga(snap.folio, (reimpresion ? 'reimpresa ' : 'impresa ') + sello),
+    );
+  }
+
+  private async renglonCargado(trx: Knex.Transaction, orderId: string) {
+    return (await trx('commercial.load_guide_orders as lgo')
+      .join('commercial.load_guides as g', function () {
+        this.on('g.id', '=', 'lgo.guide_id').andOn('g.tenant_id', '=', 'lgo.tenant_id');
+      })
+      .where('lgo.order_id', orderId)
+      .andWhere('lgo.status', 'cargado')
+      .whereNot('g.status', 'cancelada')
+      .first('lgo.id', 'lgo.guide_id', 'g.status as guide_status', 'g.rider_user_id', 'g.folio')) as
+      | { id: string; guide_id: string; guide_status: string; rider_user_id: string; folio: string }
+      | undefined;
+  }
+
   private async filtroCampo(
     query: Record<string, unknown> | undefined,
-    esRepartidor: boolean,
+    quien: QuienPide,
     userId: string,
   ): Promise<{ almacenes: string[] | null; autorId?: string }> {
-    if (esRepartidor) return { almacenes: await this.scope.readParam(query, 'warehouse', 'field/presale') };
+    if (quien.god) return { almacenes: null };
+    if (quien.repartidor) return { almacenes: await this.scope.readParam(query, 'warehouse', 'field/presale') };
     return { almacenes: null, autorId: userId };
+  }
+
+  /**
+   * Sucursales KEPLER que ve la caja. El alcance da llaves canónicas (las de Morelia pueden venir
+   * como `32`, la llave Wincaja), y las guías se guardan con la sucursal Kepler (`07`): se traduce
+   * con `commercial.warehouses`, incluidos los almacenes dados de baja (MD-32). Así la caja ve lo
+   * mismo que la mesa, que compara contra las dos llaves.
+   */
+  private async sucursalesCaja(query: Record<string, unknown> | undefined, quien: QuienPide): Promise<string[] | null> {
+    if (quien.god) return null;
+    const codigos = await this.scope.readParam(query, 'warehouse', 'warehouse/presale-guides');
+    if (codigos === null || codigos.length === 0) return codigos;
+    const tenantId = this.tenantCtx.requireTenantId();
+    const { rows } = await this.tk.run((trx) =>
+      trx.raw(
+        `SELECT DISTINCT CASE WHEN w.kepler_code ~ '^[0-9]{2}$' THEN w.kepler_code ELSE ${branchKeySql('w')} END AS k
+           FROM commercial.warehouses w
+          WHERE w.tenant_id = ?
+            AND ((${branchKeySql('w')}) = ANY(?::text[]) OR w.kepler_code = ANY(?::text[]))`,
+        [tenantId, codigos, codigos],
+      ),
+    );
+    return [...new Set([...codigos, ...rows.map((r: { k: string | null }) => r.k).filter((k: string | null): k is string => !!k)])];
   }
 
   /** La guía abierta de hoy de (quien la lleva, sucursal, ruta); la crea con folio nuevo si no hay. */
@@ -320,10 +424,14 @@ export class LoadGuideService {
     }
   }
 
-  /** Guías con sus pedidos cargados. Los pedidos se leen con la consulta de la mesa. */
+  /**
+   * Guías con sus pedidos cargados. Los pedidos se leen con la consulta de la mesa.
+   * `conAbiertas` suma las guías ABIERTAS de días anteriores a las del día pedido: siguen esperando
+   * impresión y, si no aparecieran, sus pedidos quedarían atrapados sin que nadie los viera.
+   */
   private async guias(
     trx: Knex.Transaction,
-    f: { id?: string; riderId?: string; fecha?: string; almacenes: string[] | null },
+    f: { id?: string; riderId?: string; fecha?: string; conAbiertas?: boolean; branches: string[] | null },
   ): Promise<LoadGuide[]> {
     let qb = trx('commercial.load_guides as g')
       .leftJoin('identity.users as ru', function () {
@@ -335,8 +443,13 @@ export class LoadGuideService {
       .whereNot('g.status', 'cancelada');
     if (f.id) qb = qb.where('g.id', f.id);
     if (f.riderId) qb = qb.where('g.rider_user_id', f.riderId);
-    if (f.fecha) qb = qb.where('g.business_date', f.fecha);
-    if (f.almacenes !== null) qb = qb.whereIn('g.branch', f.almacenes);
+    if (f.fecha) {
+      const fecha = f.fecha;
+      qb = f.conAbiertas
+        ? qb.where((w) => w.where('g.business_date', fecha).orWhere('g.status', 'abierta'))
+        : qb.where('g.business_date', fecha);
+    }
+    if (f.branches !== null) qb = qb.whereIn('g.branch', f.branches);
 
     const rows = (await qb
       .select(
@@ -344,7 +457,7 @@ export class LoadGuideService {
         'g.sales_route', trx.raw(`to_char(g.business_date, 'YYYY-MM-DD') AS business_date`),
         'g.printed_at', 'pu.nombre as printed_by_name', 'g.print_count',
       )
-      .orderBy([{ column: 'g.branch' }, { column: 'g.sales_route' }, { column: 'g.created_at' }])
+      .orderBy([{ column: 'g.business_date' }, { column: 'g.branch' }, { column: 'g.sales_route' }, { column: 'g.created_at' }])
       .limit(300)) as GuideRow[];
     if (!rows.length) return [];
 
@@ -363,6 +476,8 @@ export class LoadGuideService {
         .filter((x) => x.guide_id === r.id)
         .map((x) => porId.get(x.order_id))
         .filter((p): p is PresaleOrderRow => !!p)
+        // Un cancelado no se cobra: no suma ni aparece (al imprimir sale de la guía).
+        .filter((p) => p.status !== 'cancelled')
         .map((p) => ({
           order_id: p.id,
           code: p.code,

@@ -54,7 +54,9 @@ const dmy = (v: string | null | undefined): string => {
 
       @if (loading() && !data()) { <div class="gc-skeleton" aria-busy="true">@for (i of skel; track i) { <div class="gc-skel-row"></div> }</div> }
       @else if (data(); as d) {
-        @if (!d.data.length) {
+        @if (d.scope === 'ninguno') {
+          <div class="gc-empty"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i><span>Tu ficha no tiene una sucursal asignada, así que no hay guías que mostrarte. Pide que te la asignen en <b>Administración › Personas</b>.</span></div>
+        } @else if (!d.data.length) {
           <div class="gc-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Nadie ha pescado pedidos de preventa el {{ dmy(d.date) }}. Las guías aparecen aquí cuando el repartidor carga pedidos en su celular.</span></div>
         } @else {
           <div class="gc-foot" aria-label="Resumen del día">
@@ -69,7 +71,7 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="gc-card-h">
                   <div class="gc-card-t">
                     <h2 [id]="'gc-h-' + g.id"><span class="mono">{{ g.folio }}</span> · {{ g.sales_route }}</h2>
-                    <span class="muted">{{ g.rider_name || '—' }} · {{ g.branch }} {{ g.branch_name || '' }}</span>
+                    <span class="muted">{{ g.rider_name || '—' }} · {{ g.branch }} {{ g.branch_name || '' }}@if (g.business_date !== d.date) { · <span class="gc-warn">de {{ dmy(g.business_date) }}, sin imprimir</span> }</span>
                   </div>
                   <div class="gc-card-r">
                     <p-tag [value]="g.status === 'impresa' ? 'Impresa' : 'Por imprimir'" [severity]="g.status === 'impresa' ? 'success' : 'warn'" class="gc-tag" />
@@ -83,7 +85,7 @@ const dmy = (v: string | null | undefined): string => {
                   <p class="gc-hint">Impresa {{ fechaHora(g.printed_at) }}@if (g.printed_by_name) { por {{ g.printed_by_name }} }@if (g.print_count > 1) { · {{ g.print_count - 1 }} {{ g.print_count === 2 ? 'reimpresión' : 'reimpresiones' }} }. Lo que el repartidor pesque después va en una guía nueva.</p>
                 }
                 <table class="gc-tbl">
-                  <thead><tr><th>Pedido</th><th>Cliente</th><th>Entrega</th><th>Documento Kepler</th><th class="ta-r">Importe</th></tr></thead>
+                  <thead><tr><th>Pedido</th><th>Cliente</th><th>Entrega</th><th>Documento Kepler</th><th class="ta-r">Importe</th>@if (g.status === 'impresa') { <th><span class="sr-only">Acciones</span></th> }</tr></thead>
                   <tbody>
                     @for (o of g.orders; track o.order_id) {
                       <tr>
@@ -92,7 +94,25 @@ const dmy = (v: string | null | undefined): string => {
                         <td class="mono">{{ dmy(o.requested_delivery_date) }}</td>
                         <td class="mono" [class.muted]="!o.folio_digital">{{ o.folio_digital || 'se elige al entregar' }}</td>
                         <td class="ta-r num">{{ money(o.document_total ?? o.total) }}</td>
+                        @if (g.status === 'impresa') {
+                          <td class="ta-r">
+                            @if (regresando() !== o.order_id) {
+                              <button type="button" class="gc-link" (click)="abrirRegreso(o.order_id)">Regresó sin entregar</button>
+                            }
+                          </td>
+                        }
                       </tr>
+                      @if (regresando() === o.order_id) {
+                        <tr class="gc-reg"><td [attr.colspan]="6">
+                          <div class="gc-reg-form">
+                            <label [for]="'gc-mot-' + o.order_id">¿Por qué no se entregó {{ o.code }}?</label>
+                            <input pInputText [id]="'gc-mot-' + o.order_id" [ngModel]="motivo()" (ngModelChange)="motivo.set($event)" placeholder="Ej. local cerrado" />
+                            <button pButton type="button" class="p-button-sm" [disabled]="motivo().trim().length < 5 || guardando()" [loading]="guardando()" (click)="registrarRegreso(g, o.order_id)"><span class="p-button-label">Registrar regreso</span></button>
+                            <button pButton type="button" class="p-button-sm p-button-text" (click)="regresando.set(null)"><span class="p-button-label">Cancelar</span></button>
+                          </div>
+                          <p class="gc-hint">El pedido queda libre para salir otro día en otra guía. El papel firmado no cambia.</p>
+                        </td></tr>
+                      }
                     }
                   </tbody>
                 </table>
@@ -128,6 +148,13 @@ const dmy = (v: string | null | undefined): string => {
     .gc-hint { font-size:var(--fs-xs); color:var(--text-muted); margin:.4rem 0 0; }
     .gc-msg { font-size:var(--fs-sm); margin:.2rem 0 .6rem; }
     .gc-bad { color:var(--bad-fg); font-weight:600; }
+    .gc-warn { color:var(--warn-soft-fg); font-weight:600; }
+    .gc-link { background:none; border:0; padding:0; color:var(--action); cursor:pointer; font:inherit; font-size:var(--fs-xs); text-decoration:underline; }
+    .gc-link:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
+    .gc-reg td { background:var(--hover-bg); }
+    .gc-reg-form { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; font-size:var(--fs-sm); }
+    .gc-reg-form input { min-width:14rem; height:2.25rem; }
+    .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); border:0; }
     .ta-r { text-align:right !important; }
     .num, .mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .muted { color:var(--text-muted); }
@@ -157,6 +184,10 @@ export class AlmacenPreventaGuiasComponent implements OnInit {
   readonly data = signal<LoadGuidesResponse | null>(null);
   readonly imprimiendo = signal<string | null>(null);
   readonly msg = signal<{ texto: string; mal: boolean } | null>(null);
+  /** Pedido cuyo regreso se está capturando (formulario en línea). */
+  readonly regresando = signal<string | null>(null);
+  readonly motivo = signal('');
+  readonly guardando = signal(false);
 
   readonly porImprimir = computed(() => (this.data()?.data ?? []).filter((g) => g.status === 'abierta').length);
   readonly totalPedidos = computed(() => (this.data()?.data ?? []).reduce((t, g) => t + g.orders.length, 0));
@@ -217,6 +248,30 @@ export class AlmacenPreventaGuiasComponent implements OnInit {
     if (e.status === 409) return 'La guía cambió o ya no se puede imprimir. Actualiza la lista.';
     if (e.status === 404) return 'Esa guía ya no está disponible para tu sucursal.';
     return 'No se pudo generar la guía.';
+  }
+
+  abrirRegreso(orderId: string): void {
+    this.regresando.set(orderId);
+    this.motivo.set('');
+    setTimeout(() => document.getElementById('gc-mot-' + orderId)?.focus());
+  }
+
+  registrarRegreso(g: LoadGuide, orderId: string): void {
+    this.guardando.set(true);
+    this.msg.set(null);
+    this.api.returnOrder(g.id, orderId, this.motivo().trim(), this.fecha()).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (d) => {
+        this.guardando.set(false);
+        this.regresando.set(null);
+        this.data.set(d);
+        this.msg.set({ texto: 'Regreso registrado: el pedido puede salir otro día en otra guía.', mal: false });
+      },
+      error: (e: HttpErrorResponse) => {
+        this.guardando.set(false);
+        const m = (e?.error as { message?: string } | null)?.message;
+        this.msg.set({ texto: m || 'No se pudo registrar el regreso.', mal: true });
+      },
+    });
   }
 
   fechaHora(isoTs: string | null): string {

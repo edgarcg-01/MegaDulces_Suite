@@ -316,7 +316,7 @@ export class PresaleControlService {
    */
   async pedidosParaGuias(
     trx: Knex.Transaction,
-    f: { almacenes: string[] | null; autorId?: string; orderIds?: string[]; soloAbiertos?: boolean },
+    f: { almacenes: string[] | null; autorId?: string; orderIds?: string[]; soloAbiertos?: boolean; paraPescar?: boolean },
   ): Promise<PresaleOrderRow[]> {
     const tenantId = this.tenantCtx.requireTenantId();
     const hoy = relojMx(new Date()).fecha;
@@ -334,6 +334,12 @@ export class PresaleControlService {
       autorId?: string;
       orderIds?: string[];
       soloAbiertos?: boolean;
+      /**
+       * `[MCP.5]` Sólo lo que se puede pescar: sin guía viva y con cliente dado de alta en Kepler.
+       * Se filtra EN el SQL, antes del tope de filas: filtrarlo después dejaba que los pedidos ya
+       * cargados o viejos ocuparan las 500 filas y escondieran los nuevos sin avisar.
+       */
+      paraPescar?: boolean;
     },
   ): Promise<Record<string, unknown>[]> {
     const params: Knex.RawBinding[] = [];
@@ -367,7 +373,16 @@ export class PresaleControlService {
       donde += ' AND o.id = ANY(?::uuid[])';
       params.push(f.orderIds);
     }
-    params.push(MAX_FILAS);
+    if (f.paraPescar) {
+      donde += ` AND NULLIF(ltrim(btrim(c.erp_customer_code), '0'), '') IS NOT NULL
+                 AND NOT EXISTS (SELECT 1 FROM commercial.load_guide_orders x
+                                   JOIN commercial.load_guides xg ON xg.id = x.guide_id AND xg.tenant_id = x.tenant_id
+                                  WHERE x.order_id = o.id AND x.tenant_id = o.tenant_id
+                                    AND x.status = 'cargado' AND xg.status <> 'cancelada')`;
+    }
+    // Por ids no hay tope: son los de una guía (acotados por quien los pesca), y cortar ahí haría
+    // que un pedido desapareciera de la guía y de su snapshot.
+    params.push(f.orderIds ? 100000 : MAX_FILAS);
 
     const { rows } = await trx.raw(
       `SELECT o.id, o.code, o.status, o.customer_id, o.warehouse_id, o.total,

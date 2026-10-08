@@ -7,8 +7,9 @@
  *
  * ── Lo medido en prod antes de escribir esto (solo lectura, 2026-10-08) ─────────────────────────
  *  · `cajero` (19 personas activas) NO tiene ninguna clave de pedidos: sólo STORE_ARQUEO_CAPTURAR.
- *  · STORE_ARQUEO_CAPTURAR = true en cajero, auxiliar_tienda y encargado_tienda.
- *  · `superadmin` no se reparte: entra por nombre de rol (ADR-054).
+ *  · STORE_ARQUEO_CAPTURAR = true en cajero, auxiliar_tienda, encargado_tienda, piso_tienda (1
+ *    persona; también cuenta caja, así que también imprime la guía) y superadmin.
+ *  · `superadmin`/`admin` NO se escriben: entran por nombre de rol (ADR-054).
  *
  * ── Qué hace ────────────────────────────────────────────────────────────────────────────────────
  * DERIVA el reparto del estado vivo: todo rol con STORE_ARQUEO_CAPTURAR = true recibe la clave
@@ -39,6 +40,7 @@ exports.up = async function up(knex) {
     `UPDATE identity.role_permissions
         SET permissions = permissions || jsonb_build_object(?::text, true), updated_at = now()
       WHERE tenant_id = ? AND deleted_at IS NULL
+        AND lower(role_name) NOT IN ('superadmin', 'admin')
         AND (permissions -> ?)::text = 'true'
         AND permissions -> ? IS NULL
       RETURNING role_name`,

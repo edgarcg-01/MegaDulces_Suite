@@ -16,6 +16,8 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { ConfirmationService } from 'primeng/api';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { VendorService } from '../vendor.service';
+import { PermissionsService } from '../../../core/services/permissions.service';
+import { Permission } from '../../../core/constants/permissions';
 import { Order } from '../../portal/portal.service';
 import { OfflineOrderService, PendingOrderSummary } from '../../../core/services/offline-order.service';
 
@@ -51,7 +53,9 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
       </section>
     }
     <!-- [MCP.5] Llevar pedidos de preventa: pescarlos para la guía de carga que imprime la caja. -->
+    @if (puedeLlevar) {
     <a routerLink="/vendor/llevar" class="llevar-link"><i class="pi pi-truck" aria-hidden="true"></i><span><b>Llevar pedidos</b><small>Elige lo que te llevas para tu guía de carga</small></span><i class="pi pi-angle-right" aria-hidden="true"></i></a>
+    }
 
     <div class="body-pad">
       @if (loading()) {
@@ -214,6 +218,9 @@ export class VendorTodayComponent implements OnInit {
   private readonly router = inject(Router);
   private readonly offlineApi = inject(OfflineOrderService);
   private readonly confirmSvc = inject(ConfirmationService);
+  private readonly perms = inject(PermissionsService);
+  /** [MCP.5] Llevar pedidos: lo usa quien reparte o entrega (mismas claves que exige el servidor). */
+  readonly puedeLlevar = this.perms.hasAny(Permission.REPARTO_ENTREGAR, Permission.COMMERCIAL_ORDERS_FULFILL);
 
   readonly loading = signal(true);
   /** Falló la carga (red) — distinto de "sin pedidos hoy" (estándar PWA §5). */

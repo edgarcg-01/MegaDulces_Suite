@@ -47,11 +47,11 @@ export interface LoadGuide {
 export interface PresaleFieldResponse {
   /** Pedidos que puede pescar (confirmados, sin guía). */
   available: PresaleOrderRow[];
-  /** Sus guías de hoy (abiertas e impresas). */
+  /** Sus guías ABIERTAS (de cualquier día: siguen esperando impresión) y las impresas de hoy. */
   mine: LoadGuide[];
   /**
    * De dónde salen los pedidos:
-   *  · `sucursal` — repartidor: los de las sucursales de su alcance.
+   *  · `sucursal` — repartidor: los de las sucursales de su alcance (el rol `repartidor` tiene todas).
    *  · `propios`  — vendedor: los que él levantó (13 de 19 vendedores no tienen sucursal en su ficha).
    */
   source: 'sucursal' | 'propios';
@@ -60,9 +60,18 @@ export interface PresaleFieldResponse {
 }
 
 export interface LoadGuidesResponse {
+  /** Las guías del día consultado, más las ABIERTAS de días anteriores (siguen esperando impresión). */
   data: LoadGuide[];
   /** `YYYY-MM-DD` consultado. */
   date: string;
+  /** `todos` = sin recorte; `recortado` = sólo sus sucursales; `ninguno` = su ficha no tiene sucursal. */
+  scope: 'todos' | 'recortado' | 'ninguno';
+}
+
+/** `[MCP.5]` La caja registra que un pedido de una guía ya impresa regresó sin entregarse. */
+export interface PresaleReturnRequest {
+  order_id: string;
+  reason: string;
 }
 
 export interface PresaleLoadRequest {

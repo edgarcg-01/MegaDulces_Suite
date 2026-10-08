@@ -95,6 +95,8 @@ exports.up = async function up(knex) {
       t.uuid('added_by').notNullable();
       t.timestamp('removed_at', { useTz: true });
       t.uuid('removed_by');
+      // Por qué salió: el motivo del regreso que captura la caja, o "pedido cancelado".
+      t.text('removed_reason');
       t.primary(['tenant_id', 'id']);
     });
     await knex.raw(`ALTER TABLE commercial.load_guide_orders
@@ -103,11 +105,13 @@ exports.up = async function up(knex) {
     await knex.raw(`ALTER TABLE commercial.load_guide_orders
       ADD CONSTRAINT load_guide_orders_order_fk FOREIGN KEY (tenant_id, order_id)
       REFERENCES commercial.orders(tenant_id, id) ON DELETE CASCADE`);
-    // 'cargado' y 'quitado' nacen aquí; MCP.6 agregará los estados de la entrega.
+    // 'cargado' · 'quitado' (lo quitó el repartidor antes de imprimir, o se canceló el pedido) ·
+    // 'regreso' (la guía ya impresa y el pedido volvió sin entregarse: sale otro día, D10).
+    // MCP.6 agregará los estados de la entrega.
     await knex.raw(`ALTER TABLE commercial.load_guide_orders
-      ADD CONSTRAINT load_guide_orders_status_ck CHECK (status IN ('cargado', 'quitado'))`);
+      ADD CONSTRAINT load_guide_orders_status_ck CHECK (status IN ('cargado', 'quitado', 'regreso'))`);
     await knex.raw(`ALTER TABLE commercial.load_guide_orders
-      ADD CONSTRAINT load_guide_orders_quitado_ck CHECK ((status = 'quitado') = (removed_at IS NOT NULL AND removed_by IS NOT NULL))`);
+      ADD CONSTRAINT load_guide_orders_quitado_ck CHECK ((status IN ('quitado', 'regreso')) = (removed_at IS NOT NULL AND removed_by IS NOT NULL))`);
     // Un pedido sólo puede ir CARGADO en una guía a la vez.
     await knex.raw(`CREATE UNIQUE INDEX IF NOT EXISTS ux_lgo_pedido_cargado
       ON commercial.load_guide_orders (tenant_id, order_id) WHERE status = 'cargado'`);

@@ -346,6 +346,63 @@ declara los documentos sin total en vez de sumarlos como 0, y ajustes de accesib
 **Verificado:** `nx build view` · eslint · compuertas de plantillas, tokens, tablas, teclado,
 búsqueda, estilos y animación · 54 pruebas de pestañas y guards. **No verificado:** el navegador.
 
+### 6.4 MCP.5 — pescar pedidos y guía de carga (🧪 en código, 2026-10-08)
+
+| Pieza | Dónde |
+|---|---|
+| Celular | `apps/vendor` — `/rider/llevar` (botón **Llevar** en la barra del repartidor) y `/vendor/llevar` (acceso en **Mi día**) |
+| Caja | `apps/view` — Almacén › Pedidos › **Guías de carga** (`/almacen/pedidos/guias`) |
+| API | `GET /field/presale`, `POST /field/presale/load`, `POST /field/presale/unload` · `GET /warehouse/presale-guides`, `POST /warehouse/presale-guides/:id/print` |
+| Tablas | `commercial.load_guides`, `load_guide_orders`, `load_guide_sequences` (mig `20261008041458`) |
+| Permiso | `PREVENTA_GUIAS_GESTIONAR` (mig `20261008041459`), derivado de quien tiene el arqueo de caja |
+
+**Decisiones de diseño, con lo medido:**
+- **No se reusaron** `logistics.delivery_guides` (cuelga de embarques y choferes de flota) ni
+  `commercial.home_deliveries` (su entrega factura y mueve inventario; la preventa se cobra en Kepler).
+- **Quién ve qué en el celular.** El repartidor ve por el alcance de su rol (`repartidor` = todas).
+  El vendedor sólo lo que él levantó: medido, **13 de 19** `vendedor_ruta` no tienen sucursal en su
+  ficha y con el alcance no verían nada.
+- **Una guía ABIERTA por (repartidor, sucursal, ruta, día)** (llave `ux_load_guides_abierta`). Al
+  imprimirse se congela (`snapshot`) y lo que se pesque después va en una guía nueva.
+- **La cajera no tenía ninguna clave de pedidos** (sólo el arqueo): permiso propio repartido a los
+  roles que ya cuentan la caja.
+- El PDF usa `AnexoVentaService.renderPdf` (el Chromium compartido), con las dos firmas: quien recibe
+  la carga y quien la entrega en caja. El importe por pedido es el del documento de Kepler si ya
+  está ligado; si no, el del pedido.
+- **Pescar no entrega, no factura y no mueve inventario.**
+
+**Probado:** las 4 migraciones de la fase con `up()` real en el Postgres de Docker, dos veces
+(idempotencia), dentro de una transacción deshecha; y una prueba de integración de punta a punta
+contra Postgres (pescar, rechazo de doble pesca, quitar, imprimir, reimprimir, nueva guía después
+de imprimir, la mesa en **En ruta**), también deshecha. Esa prueba encontró dos defectos que ya se
+corrigieron: Knex acumulaba instrucciones al reusar el constructor de esquema, y la reimpresión
+devolvía el contador anterior. La de MD-32 chocaba con la llave única si MD-32 seguía vivo.
+
+**Revisión independiente (13 hallazgos, todos atendidos):**
+- **Crítico — quitar mientras se imprime:** `descargar` ahora toma el MISMO candado de la guía que
+  `imprimir`; antes un pedido podía quedar en el papel firmado y libre a la vez.
+- **Pedido cancelado después de pescarlo:** al imprimir sale de la guía (renglón `quitado` con
+  motivo) y no se suma.
+- **Lo no entregado ya no queda atorado:** nueva acción de caja **"Regresó sin entregar"** (con
+  motivo) en guías impresas → renglón `regreso` y el pedido vuelve a "Para llevar" (D10). El conteo
+  de reintentos para la regla de 2 (MCP.7) sale de esos renglones.
+- **Guías abiertas de días anteriores** siguen en el celular y en la caja hasta imprimirse.
+- **El PDF se genera dentro de la transacción:** si falla, la guía no queda impresa.
+- **Modo god por rol complementario** (superuser, guillermo_lopez): se resuelve en el controlador
+  con los roles frescos y no pasa por `ScopeService`, que sólo mira el rol principal.
+- **La caja traduce su alcance a la sucursal Kepler** (`32` → `07`), igual que la mesa.
+- **El filtro de "para llevar" va en el SQL** (sin guía viva y con cliente dado de alta), antes del
+  tope de filas; por ids no hay tope.
+- **Candado después del alcance** al pescar e imprimir; textos que decían algo falso corregidos;
+  la clave nueva no se escribe en roles de administrador (entran por modo god); `piso_tienda`
+  también la recibe porque también hace arqueo.
+- **Declarado sin cambiar:** `COMMERCIAL_ORDERS_FULFILL` lo tienen roles que no reparten
+  (marketing, telemarketing, etc.); con él sólo ven los pedidos que ellos mismos levantaron.
+
+**No probado:** HTTP de los endpoints, el PDF real con Chromium, la concurrencia real entre dos
+sesiones (el candado se razonó y se revisó, la prueba integrada corre en una sola transacción) y
+las pantallas en el navegador.
+
 ## 7. Fuera de alcance
 
 - **Embudo de altas de clientes** (D7): módulo propio, fase aparte. Esta fase sólo **bloquea** el

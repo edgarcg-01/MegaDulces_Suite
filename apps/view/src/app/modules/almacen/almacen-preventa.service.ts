@@ -60,4 +60,11 @@ export class AlmacenPreventaService {
   printGuide(id: string): Observable<HttpResponse<Blob>> {
     return this.http.post(`${this.guias}/${id}/print`, {}, { responseType: 'blob', observe: 'response' });
   }
+
+  /** Un pedido de una guía impresa regresó sin entregarse: queda libre para salir otro día. */
+  returnOrder(guideId: string, orderId: string, reason: string, date?: string): Observable<LoadGuidesResponse> {
+    let p = new HttpParams();
+    if (date) p = p.set('date', date);
+    return this.http.post<LoadGuidesResponse>(`${this.guias}/${guideId}/return`, { order_id: orderId, reason }, { params: p });
+  }
 }

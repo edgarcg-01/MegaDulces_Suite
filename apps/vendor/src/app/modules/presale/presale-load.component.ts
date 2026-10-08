@@ -78,7 +78,7 @@ const dm = (v: string | null | undefined): string => {
         }
 
         <h2 class="pl-h2">Para llevar</h2>
-        <p class="pl-src muted">{{ d.source === 'propios' ? 'Pedidos que tú levantaste.' : 'Pedidos de tu sucursal.' }}</p>
+        <p class="pl-src muted">{{ d.source === 'propios' ? 'Pedidos que tú levantaste.' : 'Pedidos de las sucursales que te tocan.' }}</p>
         @if (d.available.length > 6) {
           <input class="pl-q" type="search" [ngModel]="q()" (ngModelChange)="q.set($event)" placeholder="Buscar cliente, folio o ruta" aria-label="Buscar cliente, folio o ruta" />
         }
@@ -203,7 +203,10 @@ export class PresaleLoadComponent implements OnInit {
     this.sub?.unsubscribe();
     this.sub = this.api.campo().subscribe({
       next: (d) => this.aplicar(d),
-      error: () => { this.loading.set(false); this.err.set('No se pudieron cargar los pedidos. Revisa tu conexión y actualiza.'); },
+      error: (e: HttpErrorResponse) => {
+        this.loading.set(false);
+        this.err.set(e?.status === 0 ? 'Sin conexión: revisa tu señal y actualiza.' : e?.status === 403 ? 'Tu usuario no tiene permiso para llevar pedidos.' : 'No se pudieron cargar los pedidos. Actualiza en un momento.');
+      },
     });
   }
 
@@ -233,7 +236,7 @@ export class PresaleLoadComponent implements OnInit {
     this.msg.set(null);
     this.api.quitar(orderId).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (d) => { this.ocupado.set(null); this.aplicar(d); },
-      error: (e: HttpErrorResponse) => { this.ocupado.set(null); this.msg.set({ texto: this.errorTexto(e, 'No se pudo quitar el pedido.'), mal: true }); },
+      error: (e: HttpErrorResponse) => { this.ocupado.set(null); this.msg.set({ texto: this.errorTexto(e, 'No se pudo quitar el pedido.'), mal: true }); this.reload(); },
     });
   }
 
