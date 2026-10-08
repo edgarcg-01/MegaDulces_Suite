@@ -130,6 +130,11 @@ export interface ExpenseProof {
   /** `[GX.65.3]` Gastos `XA1001` que nacieron de la solicitud (pueden ser varios). Dato, no decisión. */
   gasto_folios?: string[];
   /**
+   * `[GX.75]` Sólo en «Mis gastos»: las transferencias `XD2601` que pagaron esos gastos (Kepler
+   * `kdm5`). `null` = no se pudo medir; ausente = el servidor todavía no lo manda.
+   */
+  transferencias?: TransferenciaGasto[] | null;
+  /**
    * `[GX.54]` Aprobado **debiendo** el comprobante: entró con una cotización o prefactura.
    * Decide qué tarea se le muestra a quien lo levantó — la factura del pago, no «evidencia».
    */

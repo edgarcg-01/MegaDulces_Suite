@@ -1,4 +1,4 @@
-import { resumenTransferencias, type TransferenciaGasto } from './transferencia-gasto.contract';
+import { estadoPagoDelVale, resumenTransferencias, type TransferenciaGasto } from './transferencia-gasto.contract';
 
 /**
  * `[GX.75]` El resumen de transferencias del vale. Las formas de que mienta, cada una con su caso:
@@ -41,5 +41,31 @@ describe('resumenTransferencias', () => {
     const r = resumenTransferencias([t({ fecha: null, aplicado: 250 })]);
     expect(r.aplicado).toBe(250);
     expect(r.ultima_fecha).toBeNull();
+  });
+});
+
+/**
+ * `[GX.75]` ¿Pagado? Lo lee «Mis gastos» para mover el vale a «Pagados». Las formas de que mienta:
+ * dar por pagado un pago parcial, contar una cancelada, o decir «sin pago» cuando no se midió.
+ */
+describe('estadoPagoDelVale', () => {
+  it('lo transferido cubre el vale → pagado (con tolerancia de $1 o 1%)', () => {
+    expect(estadoPagoDelVale([t({ aplicado: 1000 })], 1000)).toBe('pagado');
+    expect(estadoPagoDelVale([t({ aplicado: 999.5 })], 1000)).toBe('pagado');
+    expect(estadoPagoDelVale([t({ aplicado: 600 }), t({ folio: '2', aplicado: 400 })], 1000)).toBe('pagado');
+  });
+
+  it('⛔ cubre menos que el vale → parcial, no pagado', () => {
+    expect(estadoPagoDelVale([t({ aplicado: 500 })], 1000)).toBe('parcial');
+  });
+
+  it('⛔ la cancelada no cuenta: sólo cancelada → sin pago; vigente + cancelada → lo que diga la vigente', () => {
+    expect(estadoPagoDelVale([t({ aplicado: 1000, cancelada: true })], 1000)).toBe('sin_pago');
+    expect(estadoPagoDelVale([t({ aplicado: 500 }), t({ folio: '2', aplicado: 500, cancelada: true })], 1000)).toBe('parcial');
+  });
+
+  it('⛔ null = sin medir, no «sin pago»; [] = sin pago', () => {
+    expect(estadoPagoDelVale(null, 1000)).toBe('sin_medir');
+    expect(estadoPagoDelVale([], 1000)).toBe('sin_pago');
   });
 });

@@ -4357,8 +4357,18 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   front por regla) + redeploy api+view. **Sin migraciones ni permisos nuevos → sin re-login.**
 - [ ] **[GX.75.p]** ⚠️ La consulta que YA tenía el Expediente tarda **~2.7 s en prod** (la subconsulta por vale
   a `analytics.expense_documents`): rebasa la meta de 1 s. No la causa GX.75 (+25 ms) — queda declarada.
-- [ ] **[GX.75.m]** «Mis gastos» sigue diciendo que «Pagados» queda vacío porque `XD2601` no tiene liga
-  (`mis-gastos-columnas.ts`): **es falso**, la liga es `kdm5`. Se puede llenar con esta misma lectura.
+- [x] **[GX.75.m]** 🧪 Pedido: *«cuando mandaron la solicitud de gastos debe tenerla también ahí mostrada»*.
+  «Mis gastos» (la pantalla de quien levanta el vale) decía que «Pagados» siempre quedaba vacío porque
+  `XD2601` no tenía liga — **era falso**, la liga es `kdm5`. `GET /mine` ahora trae `transferencias` con la
+  MISMA lectura (sólo en «lo mío»); cada tarjeta muestra `Kepler: XD2601-…` junto al `XA1001` y la nota
+  «Pagado por transferencia: $… el …»; la cancelada se tacha. **Regla** (`estadoPagoDelVale`, en el
+  contrato): `pagado` si lo transferido sin canceladas cubre el importe del vale (tolerancia $1/1%) · `parcial`
+  se avisa y **no** se da por pagado · `sin_medir` no afirma nada. Sólo el **validado y pagado** baja a
+  «Pagados»; un pago de Kepler **no** mueve de columna a lo que no está revisado (la columna sigue saliendo de
+  nuestro estado, decisión del 2026-10-03). **Medido antes de fijar la regla:** en los **58 de 58** vales con
+  transferencia lo aplicado = importe del vale. Probado con el servicio real contra prod (sólo lectura): para
+  una persona, 95 vales → **25 a «Pagados»**, 69 «Sin pago». De paso: dos `'\s+'` más (resumen del
+  solicitante) con el mismo bug. Specs: contracts 409 · finance 625 · view finanzas 584.
 
 ### 🔨 [GX.70] · el «Expediente en PDF» respondía «No se pudo armar el expediente» — 2026-10-07
 

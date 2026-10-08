@@ -47,6 +47,30 @@ export interface ResumenTransferencias {
 }
 
 /**
+ * `[GX.75]` ¿El vale ya está pagado? La lee «Mis gastos» para separar «Sin pago» de «Pagados».
+ *  · `pagado`     — lo transferido (sin canceladas) cubre el importe del vale.
+ *  · `parcial`    — hay transferencia vigente, pero cubre menos que el vale.
+ *  · `sin_pago`   — Kepler no tiene ninguna transferencia vigente aplicada.
+ *  · `sin_medir`  — no se pudo consultar (`null`): NO se afirma que falte el pago.
+ *
+ * Tolerancia: $1 o 1% (la misma de `cuadraImporte` en el expediente). Medido en prod el
+ * 2026-10-07: en los **58 de 58** vales con transferencia lo aplicado coincide con el importe del
+ * vale; `parcial` no ocurre hoy, pero si ocurre no se pinta como pagado.
+ */
+export type EstadoPagoVale = 'pagado' | 'parcial' | 'sin_pago' | 'sin_medir';
+
+export function estadoPagoDelVale(
+  ts: readonly TransferenciaGasto[] | null | undefined,
+  importeVale: number,
+): EstadoPagoVale {
+  const r = resumenTransferencias(ts);
+  if (!r.medido) return 'sin_medir';
+  if (!r.vigentes) return 'sin_pago';
+  const imp = Number(importeVale) || 0;
+  return r.aplicado >= imp - Math.max(1, Math.abs(imp) * 0.01) ? 'pagado' : 'parcial';
+}
+
+/**
  * Resume las transferencias de un vale. Pura: la usan la pantalla y el PDF, y se prueba sin base.
  * `null` significa «no medido» y se propaga como `medido: false`, no como «sin transferencias».
  */

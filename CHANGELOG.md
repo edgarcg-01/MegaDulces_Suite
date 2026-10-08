@@ -190,7 +190,8 @@
 ### Added — Finanzas › Expediente: la transferencia que pagó el gasto (GX.75, 2026-10-07)
 - Cada vale muestra la cadena completa **`XA1501` → `XA1001` → `XD2601`**: la transferencia de «Alta transferencias» que Kepler aplicó a su gasto, con «transferido $… el …». Si se pagó en varias, salen todas; la **cancelada** se tacha y no suma. El **Expediente en PDF** gana la sección «La transferencia».
 - Fuente: `kepler_ods.kdm5` (sin importer). En prod: 58 de 342 vales tienen transferencia; la consulta cuesta ~25 ms.
-- Fixed de paso: el filtro por área de «listas para comprobar» mandaba `'s+'` a Postgres en vez de `'\s+'`.
+- **Mis gastos** (quien levantó la solicitud) también la ve: cada tarjeta muestra `XD2601` y «Pagado por transferencia: $… el …», y la zona **«Pagados»** de Expedientes —que siempre salía vacía— por fin se llena con los revisados que Kepler ya pagó (lo transferido cubre el importe del vale; parcial se avisa y no cuenta).
+- Fixed de paso: el filtro por área de «listas para comprobar» y el resumen del solicitante mandaban `'s+'` a Postgres en vez de `'\s+'`.
 - Fixed de paso: en el **Expediente en PDF** las fechas de la solicitud y del gasto salían «Mon Oct 05» (inglés, sin año); ahora «5 oct 2026».
 - ⚠️ Pendiente: redeploy api + view. Sin migraciones ni permisos → sin re-login.
 ### Added — Finanzas › Expediente: filtro por fechas y por departamento (GX.72, 2026-10-07)

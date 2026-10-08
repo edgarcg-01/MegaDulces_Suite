@@ -14,13 +14,17 @@
  * ⚠️ **Lo que NO decide la columna:** el gasto `XA1001` de Kepler (decidido: sólo se muestra) ni
  * la etapa de ejercicio. La columna sale del ESTADO del expediente, que es nuestro.
  *
- * ⛔ **«Pagados» hoy siempre está vacío, y se dice.** El pago `XD2601` no trae a qué gasto paga
- * (`c37 = '0'` y `c39` vacío en el 100%): hasta poder ligarlo, ningún expediente se puede afirmar
- * pagado. Dibujarlo sin esa liga sería inventar el dato.
+ * `[GX.75]` **«Pagados» ya se llena.** Lo que este archivo decía —que el pago `XD2601` no trae a
+ * qué gasto paga (`c37 = '0'`, `c39` vacío)— era cierto de ESAS columnas, pero la liga existe en
+ * otro lado: `kdm5`, la tabla de aplicaciones de Kepler. Un vale revisado pasa a «Pagados» cuando
+ * lo transferido (sin canceladas) cubre su importe (`estadoPagoDelVale`). Parcial o sin medir se
+ * queda en «Sin pago»: no se afirma pagado lo que no se pudo comprobar.
  *
  * ⛔ Un estado que esta regla no conoce devuelve `null`: la pantalla lo cuenta y lo dice, en vez
  * de meterlo callado en una columna que no le corresponde.
  */
+
+import { estadoPagoDelVale, resumenTransferencias, type EstadoPagoVale, type TransferenciaGasto } from '@megadulces/contracts';
 
 export type ColumnaId = 'solicitudes' | 'comprobacion' | 'expedientes';
 export type ZonaId = 'pendiente' | 'espera';
@@ -33,6 +37,8 @@ export interface FilaUbicable {
   etapa?: string | null;
   /** Estado de nuestro expediente; `null` en el asignado. */
   status?: string | null;
+  /** `[GX.75]` Si Kepler ya lo pagó por transferencia. Sólo mueve al validado, y sólo `pagado`. */
+  pago?: EstadoPagoVale | null;
 }
 
 export function ubicacionDe(f: FilaUbicable): Ubicacion | null {
@@ -42,9 +48,38 @@ export function ubicacionDe(f: FilaUbicable): Ubicacion | null {
     case 'recibida': return { columna: 'solicitudes', zona: 'espera' };
     case 'aprobada': return { columna: 'comprobacion', zona: 'pendiente' };
     case 'revision': return { columna: 'comprobacion', zona: 'espera' };
-    case 'validada': return { columna: 'expedientes', zona: 'pendiente' };
+    case 'validada': return { columna: 'expedientes', zona: f.pago === 'pagado' ? 'espera' : 'pendiente' };
     default: return null;
   }
+}
+
+/**
+ * `[GX.75]` La nota de pago de la tarjeta: lo que la persona lee sobre SU dinero.
+ *  · pagado  → «Pagado por transferencia: $X el DD/MM/AAAA».
+ *  · parcial → «Pago parcial: transferido $X de $Y» (aviso: no se da por pagado).
+ *  · sólo canceladas → se dice, para que nadie crea que se pagó viendo el folio.
+ *  · sin pago / sin medir / sin gasto → nada: el chip y la columna ya lo dicen.
+ */
+export interface NotaDePago { clase: 'ok' | 'warn' | 'bad'; texto: string }
+
+export function notaDePago(
+  transferencias: readonly TransferenciaGasto[] | null | undefined,
+  importe: number,
+): NotaDePago | null {
+  const pago = estadoPagoDelVale(transferencias, importe);
+  const r = resumenTransferencias(transferencias);
+  const pesos = (n: number) => (Number(n) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
+  const dia = (s: string) => { const [y, m, d] = s.split('-'); return d && m && y ? `${d}/${m}/${y}` : s; };
+  if (pago === 'pagado') {
+    return { clase: 'ok', texto: `Pagado por transferencia: ${pesos(r.aplicado)}${r.ultima_fecha ? ` el ${dia(r.ultima_fecha)}` : ''}` };
+  }
+  if (pago === 'parcial') {
+    return { clase: 'warn', texto: `Pago parcial: transferido ${pesos(r.aplicado)} de ${pesos(importe)}` };
+  }
+  if (pago === 'sin_pago' && r.canceladas > 0) {
+    return { clase: 'bad', texto: 'La transferencia se canceló en Kepler: sigue sin pago' };
+  }
+  return null;
 }
 
 /** Días enteros desde una fecha `YYYY-MM-DD` (o ISO) hasta `hoy`. `null` si no se puede leer. */

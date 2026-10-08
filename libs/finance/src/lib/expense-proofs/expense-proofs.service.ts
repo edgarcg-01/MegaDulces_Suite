@@ -1473,11 +1473,25 @@ export class ExpenseProofsService {
       // `[GX.65.3]` Proveedor por clave + gastos XA1001: DATO para las 3 columnas, no decisión.
       // Sólo en «lo mío»: las otras pantallas que usan list() no lo piden y no pagan la consulta.
       const gastos = q.mine ? await this.gastosPorSolicitud(trx, crudas) : new Map<string, string[]>();
-      const rows = this.conEtapa(crudas, kep).map((r) => ({
-        ...r,
-        ...datosKeplerDeLaFila(kep.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal)),
-          gastos, r.folio_solicitud, r.sucursal),
-      }));
+      /**
+       * `[GX.75]` La transferencia `XD2601` de esos gastos, en UN viaje — la MISMA lectura que el
+       * Expediente. Con ella «Mis gastos» por fin llena «Pagados». Sólo en «lo mío», como los gastos.
+       * `null` = no se pudo medir (sin ODS): la pantalla no afirma ni «pagado» ni «sin pago».
+       */
+      const transf = q.mine
+        ? await leerTransferenciasDelGasto(trx, crudas.flatMap((r) =>
+          datosKeplerDeLaFila(undefined, gastos, r.folio_solicitud, r.sucursal).gasto_folios
+            .map((g) => ({ sucursal: r.sucursal, gasto_folio: g }))))
+        : null;
+      const rows = this.conEtapa(crudas, kep).map((r) => {
+        const dk = datosKeplerDeLaFila(kep.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal)),
+          gastos, r.folio_solicitud, r.sucursal);
+        return {
+          ...r,
+          ...dk,
+          ...(q.mine ? { transferencias: transf ? transferenciasDelVale(r.sucursal, dk.gasto_folios, transf) : null } : {}),
+        };
+      });
 
       const agg = await filtros(trx('finance.expense_proofs'))
         .groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
@@ -2071,7 +2085,8 @@ export class ExpenseProofsService {
         if (periodo === 'mes') b.whereRaw("r.fecha >= date_trunc('month', current_date)");
         else b.whereRaw(`r.fecha >= current_date - interval '${meses} months'`);
         b.whereRaw('r.fecha <= current_date');
-        if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]);
+        // `[GX.75]` `'\\s+'`: con una sola barra JS se la come y a Postgres llegaba `'s+'`.
+        if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]);
         return b;
       };
 
@@ -2090,7 +2105,7 @@ export class ExpenseProofsService {
         .where('r.tenant_id', tenantId)
         .whereRaw("r.fecha >= date_trunc('month', current_date) - interval '6 months'")
         .whereRaw('r.fecha <= current_date')
-        .modify((b: any) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]); })
+        .modify((b: any) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]); })
         .groupByRaw("to_char(r.fecha,'YYYY-MM')")
         .orderByRaw("to_char(r.fecha,'YYYY-MM')")
         .select(trx.raw("to_char(r.fecha,'YYYY-MM') AS mes"), trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(r.importe),0)::numeric AS monto'));

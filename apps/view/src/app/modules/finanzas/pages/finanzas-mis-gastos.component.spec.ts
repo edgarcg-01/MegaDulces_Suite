@@ -219,13 +219,66 @@ describe('FinanzasMisGastosComponent', () => {
     });
 
     /**
-     * ⛔ «Pagados» hoy siempre vacío, y lo DICE: el pago XD2601 no trae a qué gasto paga.
-     * Dibujar un pagado sin esa liga sería inventar el dato.
+     * ⛔ `[GX.75]` «Pagados» vacío dice POR QUÉ, y las dos razones no son la misma: si el
+     * servidor no pudo medir el pago (o todavía no lo manda) no se afirma «nada pagado».
      */
-    it('⛔ «Pagados» vacío explica por qué, no dibuja pagos', () => {
+    it('⛔ «Pagados» vacío sin medición lo dice, no dibuja pagos', () => {
       montar(CON_ETAPAS());
       const col = fix.nativeElement.querySelector('[data-col="expedientes"]') as HTMLElement;
-      expect(col.textContent).toContain('XD2601 aún no se puede ligar');
+      expect(col.textContent).toContain('No se pudo consultar Kepler para saber cuáles ya se pagaron');
+      expect(folios('expedientes').sort()).toEqual(['0002', '0003', '0004', '0005']);
+    });
+
+    it('«Pagados» vacío con medición dice que Kepler no tiene transferencia', () => {
+      montar({ ...REPORTE(), asignados: [], rows: [
+        FILA({ id: 'v', status: 'validada', folio_solicitud: '0097012', gasto_folios: ['0097093'], transferencias: [] }),
+      ] } as unknown as ExpenseProofsReport);
+      const col = fix.nativeElement.querySelector('[data-col="expedientes"]') as HTMLElement;
+      expect(col.textContent).toContain('Kepler no tiene transferencia para tus expedientes revisados');
+    });
+
+    /** `[GX.75]` La transferencia que pagó el gasto, en la tarjeta de quien levantó la solicitud. */
+    describe('[GX.75] la transferencia XD2601', () => {
+      const TR = (o: Record<string, unknown> = {}) => ({
+        gasto_folio: '0097093', folio: '0022709', fecha: '2026-09-23', importe: 387.25, aplicado: 387.25, cancelada: false, ...o,
+      });
+      const zona = (col: string, n: number) => [...fix.nativeElement.querySelectorAll(`[data-col="${col}"] .mg-zona`)][n] as HTMLElement;
+
+      it('⭐ el revisado y pagado baja a «Pagados», con su XD2601 y el monto y día del pago', () => {
+        montar({ ...REPORTE(), asignados: [], rows: [
+          FILA({ id: 'v', status: 'validada', folio_solicitud: '0097012', gasto_folios: ['0097093'], transferencias: [TR()] }),
+        ] } as unknown as ExpenseProofsReport);
+        expect(zona('expedientes', 0).textContent).not.toContain('0097012');
+        const abajo = zona('expedientes', 1).textContent || '';
+        expect(abajo).toContain('0097012');
+        expect(abajo).toContain('Kepler: XD2601-0022709');
+        expect(abajo).toContain('Pagado por transferencia: $387.25 el 23/09/2026');
+      });
+
+      it('⛔ un pago parcial se avisa y se queda en «Sin pago»', () => {
+        montar({ ...REPORTE(), asignados: [], rows: [
+          FILA({ id: 'v', status: 'validada', folio_solicitud: '0097012', gasto_folios: ['0097093'], transferencias: [TR({ aplicado: 100 })] }),
+        ] } as unknown as ExpenseProofsReport);
+        expect(zona('expedientes', 0).textContent).toContain('0097012');
+        expect(zona('expedientes', 0).textContent).toContain('Pago parcial');
+      });
+
+      it('⛔ la cancelada se tacha, no paga, y se dice', () => {
+        montar({ ...REPORTE(), asignados: [], rows: [
+          FILA({ id: 'v', status: 'validada', folio_solicitud: '0097012', gasto_folios: ['0097093'], transferencias: [TR({ cancelada: true })] }),
+        ] } as unknown as ExpenseProofsReport);
+        const chip = fix.nativeElement.querySelector('.mg-chip-cancelada') as HTMLElement;
+        expect(chip.textContent).toContain('XD2601-0022709');
+        expect(zona('expedientes', 0).textContent).toContain('La transferencia se canceló en Kepler');
+      });
+
+      it('⛔ un pago de Kepler no saca de su columna a un vale que no está revisado', () => {
+        montar({ ...REPORTE(), asignados: [], rows: [
+          FILA({ id: 'a', status: 'aprobada', folio_solicitud: '0097020', gasto_folios: ['0097093'], transferencias: [TR()] }),
+        ] } as unknown as ExpenseProofsReport);
+        expect(folios('comprobacion')).toEqual(['0097020']);
+        expect(fix.nativeElement.textContent).toContain('Kepler: XD2601-0022709');
+      });
     });
 
     /** Abajo se agrupa por la CLAVE de proveedor de Kepler (decisión del usuario). */

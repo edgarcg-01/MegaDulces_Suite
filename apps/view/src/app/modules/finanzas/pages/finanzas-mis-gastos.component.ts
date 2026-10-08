@@ -17,9 +17,10 @@ import { FINANZAS_SHARED_STYLES } from './finanzas-shared.styles';
 import { parseLocalDate } from '../../../core/utils/mx-date';
 // `[GX.39]` La etapa la decide el SERVIDOR con `etapaDeEjercicio()`; acá sólo se lee el tipo.
 import type { EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
+import { estadoPagoDelVale, type EstadoPagoVale, type TransferenciaGasto } from '@megadulces/contracts';
 import {
-  DIAS_ATORADO, agruparPorProveedor, diasDesde, textoAntiguedad, ubicacionDe,
-  type ColumnaId, type GrupoProveedor, type ZonaId,
+  DIAS_ATORADO, agruparPorProveedor, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
+  type ColumnaId, type GrupoProveedor, type NotaDePago, type ZonaId,
 } from '../mis-gastos-columnas';
 
 /**
@@ -52,6 +53,12 @@ interface FilaLista {
   proveedor_clave: string | null;
   proveedor_nombre: string | null;
   gasto_folios: string[];
+  /** `[GX.75]` Las transferencias XD2601 de esos gastos. `null` = no se midió. */
+  transferencias: TransferenciaGasto[] | null;
+  /** `[GX.75]` Si ya está pagado: decide «Sin pago» / «Pagados» del validado. */
+  pago: EstadoPagoVale | null;
+  /** `[GX.75]` Lo que la tarjeta dice del pago; `null` = nada que decir. */
+  notaPago: NotaDePago | null;
   /** `null` = viene de Kepler y no tiene expediente: no se puede abrir. */
   proof: ExpenseProof | null;
 }
@@ -202,7 +209,11 @@ interface Columna {
                   @if (!col.espera.length) {
                     <div class="mg-zona-vacia">
                       @if (col.id === 'expedientes') {
-                        Todavía ninguno. El pago XD2601 aún no se puede ligar a su gasto en Kepler: hasta entonces nada se marca como pagado.
+                        @if (pagosSinMedir()) {
+                          No se pudo consultar Kepler para saber cuáles ya se pagaron.
+                        } @else {
+                          Todavía ninguno: Kepler no tiene transferencia para tus expedientes revisados.
+                        }
                       } @else { Nada por aquí. }
                     </div>
                   }
@@ -253,7 +264,13 @@ interface Columna {
             }
             <!-- [GX.65.3] El gasto de Kepler es DATO: se muestra, no mueve el vale de columna. -->
             @for (g of p.gasto_folios; track g) { <span class="mg-chip">Kepler: XA1001-{{ g }}</span> }
+            <!-- [GX.75] La transferencia que pagó ese gasto. La cancelada se tacha: Kepler la conserva. -->
+            @for (t of p.transferencias ?? []; track t.gasto_folio + '|' + t.folio) {
+              <span class="mg-chip" [class.ok]="!t.cancelada" [class.mg-chip-cancelada]="t.cancelada"
+                    [attr.title]="t.cancelada ? 'Cancelada en Kepler: no cuenta como pagado' : null">Kepler: XD2601-{{ t.folio }}</span>
+            }
           </div>
+          @if (p.notaPago; as n) { <div class="mg-it-nota" [class.ok]="n.clase === 'ok'" [class.warn]="n.clase === 'warn'" [class.bad]="n.clase === 'bad'">{{ n.texto }}</div> }
           @if (p.puedeSubir) {
             <a class="mg-asig-b" [routerLink]="['/finanzas/gastos']"
                [queryParams]="{ folio: p.folio, sucursal: p.sucursal }" (click)="$event.stopPropagation()">
@@ -355,6 +372,8 @@ interface Columna {
     .mg-it-nota { font-size: var(--fs-xs); margin-top: 2px; }
     .mg-it-nota.bad { color: var(--bad-fg); }
     .mg-it-nota.ok { color: var(--ok-fg); }
+    .mg-it-nota.warn { color: var(--warn-fg); }
+    .mg-chip.mg-chip-cancelada { color: var(--bad-fg); border-color: var(--bad-border); text-decoration: line-through; }
     .mg-asig-b { align-self: flex-start; display: inline-flex; align-items: center;
       border: 1px solid var(--bad-fg); background: var(--bad-fg); color: var(--action-fg, #fff); border-radius: var(--r-sm);
       padding: 0.3rem 0.7rem; font-size: var(--fs-xs); text-decoration: none; margin-top: var(--sp-1); }
@@ -402,6 +421,8 @@ export class FinanzasMisGastosComponent {
       status: null, motivo_rechazo: null, aplicada: v.aplicada, proof: null,
       debeFactura: false, puedeSubir: true,
       proveedor_clave: null, proveedor_nombre: null, gasto_folios: [],
+      // Sin expediente nuestro todavía: no hay vale revisado que pagar ni qué decir del pago.
+      transferencias: null, pago: null, notaPago: null,
     })),
     ...this.filas().map((p): FilaLista => ({
       key: `p:${p.id}`,
@@ -416,8 +437,19 @@ export class FinanzasMisGastosComponent {
       status: p.status, motivo_rechazo: p.motivo_rechazo, aplicada: null, proof: p,
       proveedor_clave: p.proveedor_clave ?? null, proveedor_nombre: p.proveedor_nombre ?? null,
       gasto_folios: p.gasto_folios ?? [],
+      // `[GX.75]` Ausente (servidor viejo) = no medido: ni «pagado» ni «sin pago».
+      transferencias: p.transferencias ?? null,
+      pago: estadoPagoDelVale(p.transferencias ?? null, p.importe),
+      notaPago: notaDePago(p.transferencias ?? null, p.importe),
     })),
   ]);
+
+  /**
+   * `[GX.75]` ¿Hay revisados cuyo pago no se pudo consultar? Entonces «Pagados» vacío NO significa
+   * «nada pagado», y el vacío lo tiene que decir.
+   */
+  readonly pagosSinMedir = computed(() => this.unificadas()
+    .some((f) => f.status === 'validada' && f.pago === 'sin_medir'));
 
   /** `[GX.65.5]` Las tres columnas, armadas con la regla de `mis-gastos-columnas.ts`. */
   readonly columnas = computed<Columna[]>(() => {
