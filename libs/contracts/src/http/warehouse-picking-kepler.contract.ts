@@ -71,3 +71,58 @@ export interface KeplerWavesAutoResponse {
   vacios: string[];
   atorados: { count: number; desde: string | null };
 }
+
+// ─── [GP.3] La pantalla del surtidor: "tomar el siguiente" ────────────────────────────────────
+
+/** Un renglón de la ola tal como lo ve el surtidor. */
+export interface PickerWaveLine {
+  id: string;
+  product_id: string;
+  product_name: string | null;
+  sku: string | null;
+  /** [GP.3] Código de barras del producto: lo que lee el escáner de la etiqueta. */
+  barcode: string | null;
+  /** Lo que se pide, en unidad BASE. */
+  qty_requested: number;
+  /** null = los pedidos la capturaron en unidades distintas (`unidad_mixta`). */
+  qty_unit: string | null;
+  unidad_mixta: boolean;
+  /** Lo que dice la hoja (3 BTO). null = mezclada o sin presentación: contar en la unidad base. */
+  qty_presentacion: number | null;
+  unidad_presentacion: string | null;
+  /** null = todavía nadie pasó por este renglón. */
+  qty_picked: number | null;
+  status: 'pendiente' | 'surtido' | 'faltante' | 'agotado' | 'danado';
+  bin_code: string | null;
+  note: string | null;
+}
+
+/** La ola que trae el surtidor, con sus renglones (lo pendiente primero). */
+export interface PickerWave {
+  id: string;
+  code: string;
+  warehouse_id: string;
+  status: string;
+  notes: string | null;
+  started_at: string | null;
+  /** Folios de los pedidos que van en la ola (`UD4001-0002840`, `PD-2026-00012`). */
+  pedidos: string[];
+  lines: PickerWaveLine[];
+}
+
+export type PickerTakeNextResponse =
+  | {
+      estado: 'asignada';
+      /** true = ya la traía (cerró la app y volvió); false = se la acaba de dar el sistema. */
+      ya_era_tuya: boolean;
+      ola: PickerWave;
+      /** Olas de la consola que no arrancaron al intentar tomarlas: se liberaron; avisar a la consola. */
+      atoradas: Array<{ code: string; motivo: string }>;
+    }
+  | {
+      estado: 'sin_trabajo';
+      motivo: string;
+      /** Lo que se intentó armar desde el pool de Kepler, con lo que quedó fuera y por qué. */
+      armado: KeplerWavesAutoResponse | null;
+      atoradas: Array<{ code: string; motivo: string }>;
+    };

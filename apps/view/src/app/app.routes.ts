@@ -1234,6 +1234,19 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR)]
       },
       {
+        /**
+         * `[GP.3b]` **Surtir desde el celular** — pantalla de FOCO: "Tomar siguiente", marcar renglón
+         * por renglón y cerrar. Fuera del shell por la misma razón que contar un camión: una barra
+         * de tabs invita a irse a mitad del surtido.
+         *
+         * `COMMERCIAL_PICKING_GESTIONAR` y no `*_VER`: tomar trabajo ARRANCA la ola y cada toque
+         * escribe lo levantado. Lo tienen los 6 almacenistas desde `[VEC.0]`.
+         */
+        path: 'surtir',
+        loadComponent: () => import('./modules/almacen/pages/almacen-surtir.component').then(m => m.AlmacenSurtirComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_GESTIONAR)]
+      },
+      {
         // WMS-BI.1 — detalle de UN documento, abierto en pestaña nueva desde Análisis BI.
         // Foco: sin barra de tabs. Ruta propia (no /almacen/movimientos) — ver el comentario
         // en AlmacenAnalisisBiComponent.openDocument().

@@ -6,7 +6,12 @@ import {
   RequirePermissions,
   Permission,
 } from '@megadulces/platform-core';
-import type { KeplerPickPoolResponse, KeplerWavesAutoResponse } from '@megadulces/contracts';
+import type {
+  KeplerPickPoolResponse,
+  KeplerWavesAutoResponse,
+  PickerTakeNextResponse,
+  PickerWave,
+} from '@megadulces/contracts';
 import { CreateWaveDto, PickingService } from './picking.service';
 
 /**
@@ -135,6 +140,32 @@ export class PickingController {
   @ApiOperation({ summary: 'Lista de olas (bandeja del jefe de almacén).' })
   list(@Query('status') status?: string) {
     return this.service.list(status);
+  }
+
+  /**
+   * `[GP.3]` Las olas que trae quien consulta. ⚠️ Va ANTES de `waves/:id`: Nest resuelve en
+   * orden de declaración y `mine` se leería como un id.
+   */
+  @Get('waves/mine')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({ summary: 'Las olas abiertas o en surtido asignadas a quien consulta, con sus renglones.' })
+  misOlas(): Promise<PickerWave[]> {
+    return this.service.misOlas();
+  }
+
+  /**
+   * `[GP.3]` "Tomar el siguiente": devuelve la ola que el surtidor ya traía o le asigna la libre
+   * más vieja del almacén (armándolas desde Kepler si no hay), y la arranca.
+   * `{ warehouse_id, origen? }`. Exige GESTIONAR: arranca el surtido.
+   */
+  @Post('waves/next')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Tomar el siguiente: la ola que ya traes, o la libre más vieja del almacén (sin que dos tomen la misma). La arranca.',
+  })
+  tomarSiguiente(@Body() body: { warehouse_id: string; origen?: string }): Promise<PickerTakeNextResponse> {
+    return this.service.tomarSiguiente(body);
   }
 
   @Get('waves/:id')
