@@ -2337,6 +2337,54 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(body['venta_credito']).toBe(1000);
   });
 
+  // ── [CG.71] EL SALDO DE LA CAJA SE VE ─────────────────────────────────────────────────────
+  //
+  // Pedido: "hay que agregar un apartado para ver el saldo actual de la caja chica". No faltaba
+  // el dato: `cargarSaldo()` lo pedía en SIETE momentos y `textoSaldoUI` lo traducía — y la
+  // plantilla no lo usaba ni una vez. Estas pruebas van contra el DOM a propósito: un test que
+  // llame al computado pasa verde con la pantalla muda, que es exactamente lo que había.
+
+  const CORTE_VIVO = { id: 'c1', folio: 'CC-2026-00007', fondo_inicial: 500, ya_reconto: false };
+
+  it('⭐ [CG.71] el saldo se PINTA en la barra, sin un clic', async () => {
+    const fx = montar({
+      saldo: vi.fn(() => of({
+        ...SALDO, saldo: 1300, saldo_oculto: false, sin_corte_abierto: false,
+        corte_abierto: CORTE_VIVO,
+      })),
+    });
+    fx.detectChanges();
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const el = fx.nativeElement.querySelector('.cg-bar .cg-saldo') as HTMLElement | null;
+    expect(el, 'el saldo no está en la barra: se calculaba y no se pintaba').not.toBeNull();
+    expect(el!.textContent).toContain('1,300');
+    expect(el!.textContent).toContain('CC-2026-00007');
+    // ⚠️ Con la jornada CERRADA: "saldo actual" que exige desplegar un panel no es actual.
+    expect(comp.jornadaAbierta(), 'el saldo se ve sólo si se abre la jornada').toBe(false);
+  });
+
+  it('⛔ [CG.71] [negativa] a quien captura NO se le dibuja un número: se DECLARA que está oculto', async () => {
+    // `[CG.19]`: el arqueo es ciego. Lo que el servidor retiene, la pantalla lo dice —nunca lo
+    // rellena con 0— y tampoco miente diciendo que no hay corte.
+    const fx = montar({
+      saldo: vi.fn(() => of({
+        ...SALDO, saldo: null, saldo_oculto: true, sin_corte_abierto: false,
+        corte_abierto: CORTE_VIVO,
+      })),
+    });
+    fx.detectChanges();
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const txt = (fx.nativeElement.querySelector('.cg-bar .cg-saldo') as HTMLElement)?.textContent ?? '';
+    expect(txt).toContain('oculto');
+    expect(txt).toContain('CC-2026-00007');
+    expect(txt).not.toContain('sin corte abierto');
+    expect(txt).not.toMatch(/\$\s?0([.,]00)?\b/);
+  });
+
   // ── 18 · [CG.26] EL CIERRE DE LA JORNADA ──────────────────────────────────────────────────
   //
   // El bloque «Arqueo final del día» YA existía y colgaba de `@if (corteAbierto())`. En prod hay

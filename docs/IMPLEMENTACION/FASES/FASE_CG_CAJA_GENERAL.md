@@ -2568,3 +2568,69 @@ validación visual no es el último paso opcional: es la única compuerta que ve
 Lo agarró `check:templates`.
 
 ✅ `[CG.70]` **validado visualmente** con captura de Edgar: un solo panel, el botón a la derecha.
+
+---
+
+## §32 · `[CG.71]` — el saldo de la caja se pedía, se calculaba y no se pintaba (2026-10-08)
+
+Pedido de Edgar: *«hay que agregar un apartado para ver el saldo actual de la caja chica»*.
+
+⭐ **Medido antes de construir: no faltaba el dato, ni el endpoint, ni el cálculo.**
+
+| Pieza | Estado |
+|---|---|
+| `GET /finance/cash-ledger/saldo/:sucursal` | existe, documentado, **derivado** (no guardado) |
+| `cargarSaldo()` en la pantalla | se llama en **7 momentos** distintos |
+| `textoSaldoUI` (línea 3241) | computado — **cero usos en la plantilla** |
+| `.fin-saldo` | regla CSS con el comentario *«la barra del corte: saldo + estado + acción, en una línea»* — **cero usos** |
+
+O sea: la barra se diseñó con el saldo adentro, el saldo se cayó en el camino, y el dato llegaba
+del servidor siete veces por sesión para ser descartado. Es el mismo patrón que `[IC.3b]` (una
+vista en prod sin un solo consumidor).
+
+### ⛔ Y en la última traducción se perdían dos estados en uno
+
+La respuesta del servidor distingue **cuatro** cosas, y ya las separaba bien:
+
+```ts
+saldo: revela ? (abierto ? t.esperado : null) : null,
+saldo_oculto: !revela,          // [CG.19]: quien captura cuenta a CIEGAS
+sin_corte_abierto: !abierto,    // la caja no tiene punto de partida
+totales: proyectarCiego(t, revela),
+```
+
+`textoSaldo` sólo distinguía **tres**, y su primera condición era
+`if (r.sin_corte_abierto || r.saldo === null)`. Como al ocultar el saldo llega `null`,
+**a un cajero con su corte ABIERTO la pantalla le iba a decir «sin corte abierto»**. No es un
+texto impreciso: es un hecho falso, y la acción que sugiere —abrir uno— es la peor posible sobre
+un corte vivo. Las dos ausencias se arreglan de maneras opuestas: una la resuelve quien autoriza,
+la otra quien abre la caja (ADR-056).
+
+Cuarto estado: *«Saldo: oculto hasta sellar el conteo (corte CC-…)»* — se nombra **cuál** corte,
+porque el punto es justamente que hay uno.
+
+### Dónde se puso, y por qué no es un apartado nuevo
+
+En la **barra de la jornada**, que se ve sin un clic — «saldo actual» que exige desplegar un panel
+no es actual. Un tercer apartado rompía el tablero aprobado en `[CG.59]`/`[CG.60]` (dos apartados,
+90 % de la pantalla para la tarea). Cede antes que el título y que los dos controles: se corta con
+puntos suspensivos y el texto entero queda en el `title`.
+
+⛔ **No se publica el desglose** (`fondo + ingresos − egresos − depósitos`), aunque el dato esté a
+mano: con las piernas a la vista, quien captura calcula el esperado solo y el arqueo ciego de
+`[CG.19]` deja de existir. El backend ya lo tenía resuelto con `proyectarCiego`; la pantalla no lo
+puede desarmar.
+
+### Candados
+
+**239 pruebas** en la pantalla (4 nuevas: 2 sobre el texto, 2 sobre el DOM). Las de DOM van contra
+la plantilla a propósito — *un test que llame al computado pasa verde con la pantalla muda, que es
+exactamente lo que había*.
+
+| Mutación | Resultado |
+|---|---|
+| Devolver el colapso `sin_corte_abierto \|\| saldo == null` | **rojo** — 2 pruebas |
+| Sacar el `<span>` de la barra (calcular y no pintar) | **rojo** — 2 pruebas |
+
+⚠️⚠️ **Octava vez que un acento grave en un comentario rompe el build**, dos en esta sesión. Lo
+agarró `check:templates`, que además señaló la línea exacta.

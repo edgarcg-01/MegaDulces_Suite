@@ -327,4 +327,30 @@ describe('textoSaldo — null NO es cero', () => {
   it('[negativa] sin respuesta dice "sin medir", que no es lo mismo que cero', () => {
     expect(textoSaldo(null)).toContain('sin medir');
   });
+
+  /**
+   * ⛔ `[CG.71]` La respuesta distingue CUATRO estados y esta función barría dos en uno.
+   * El backend ya los separaba (`saldo_oculto` vs `sin_corte_abierto`); se perdían en la
+   * última traducción, que es donde el usuario los lee.
+   */
+  it('⛔ [CG.71] [negativa] OCULTO no es "sin corte abierto": hay corte y el número se retiene', () => {
+    // `[CG.19]`: quien captura cuenta a ciegas. Decirle "no hay corte abierto" es un hecho FALSO,
+    // y la acción que sugiere —abrir uno— es la peor posible sobre un corte vivo.
+    const t = textoSaldo({
+      saldo: null, saldo_oculto: true, sin_corte_abierto: false,
+      corte_abierto: { folio: 'CC-2026-00007' },
+    });
+    expect(t).toContain('oculto');
+    expect(t).toContain('CC-2026-00007');     // se dice CUÁL corte: hay uno, y se nombra
+    expect(t).not.toContain('sin corte abierto');
+    expect(t).not.toContain('0.00');          // ocultar nunca se dibuja como cero
+  });
+
+  it('[CG.71] sin corte abierto MANDA, aunque además venga oculto', () => {
+    // Un cajero sin corte: las dos banderas vienen juntas. La accionable es la primera —abrir la
+    // caja—, no "esperá a que alguien selle" sobre algo que no existe.
+    const t = textoSaldo({ saldo: null, saldo_oculto: true, sin_corte_abierto: true });
+    expect(t).toContain('sin corte abierto');
+    expect(t).not.toContain('oculto');
+  });
 });
