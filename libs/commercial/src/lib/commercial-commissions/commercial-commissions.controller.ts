@@ -40,6 +40,23 @@ export class CommercialCommissionsController {
     return this.contraste.leer(anio ? Number(anio) : new Date().getFullYear());
   }
 
+  @Get('headroom')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({
+    summary: 'Lo que faltó — cuánto le faltó a cada ruta para el siguiente escalón o bono',
+    description:
+      'RD.56. Query: `anio`. **La pregunta que el Excel no puede contestar.** El tabulador es '
+      + 'ESCALONADO: quedarse corto por poco no paga "un poco menos", paga el escalón de abajo o '
+      + 'CERO. Medido sobre las 238 ruta-periodo del espejo: Q13 ruta 28 vendió $189,643.22, le '
+      + 'faltaron **$356.77** y cobró **$0** en vez de $4,827.96; 6 no cobraron nada estando a '
+      + 'menos de $10,000 del piso ($30,264) y 29 quedaron a menos de $5,000 del siguiente escalón '
+      + '($18,620). ⭐ Y 141 de 238 ya están en el TOPE: decir dónde NO hay nada que perseguir '
+      + 'evita mandar a un supervisor a una ruta sin margen. Lee vista: 16 ms.',
+  })
+  headroom(@Query('anio') anio?: string) {
+    return this.contraste.loQueFalto(anio ? Number(anio) : new Date().getFullYear());
+  }
+
   @Post('contrast/run')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
   @ApiOperation({
