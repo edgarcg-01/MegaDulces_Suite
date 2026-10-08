@@ -35,12 +35,28 @@
 # ═══════════════════════════════════════════════════════════════════════════════════════════
 set -u
 
-REMOTO="git@github.com:edgarcg-01/MegaDulces_Suite.git"
-REPO_DIR="${AUTO_DEPLOY_REPO:-$HOME/auto-deploy/repo}"
+# ⛔ ESTE GUION CORRE EN TU MÁQUINA, NO EN `md`. La llave de despliegue de `md`
+# (`~/.ssh/deploy_md`) es de **sólo lectura** —medido el 2026-10-07: «The key you are
+# authenticating with has been marked as read only»— y eso NO se cambia: una llave con escritura
+# en el servidor de producción convierte un compromiso de `md` en poder reescribir el repo.
+# El vigía sólo lee y `auto-deploy` sólo hace fetch, justamente por eso.
+#
+# Así que el reparto es: **mide en `md`, empuja desde acá.** La única parte que necesita `md` es
+# leer `knex_migrations` de prod, y para eso alcanza con SSH.
+MD="${SOLTAR_MD:-superoot@192.168.0.222}"
+# ⚠️ El remoto NO se escribe a mano. En `md` el clon habla por SSH con la llave de despliegue;
+# en tu máquina `origin` suele ser HTTPS con tus credenciales — clavar la URL SSH acá hacía que
+# el push fallara justo donde SÍ hay permiso de escritura (medido el 2026-10-07). Se usa el
+# `origin` que tenga el repo, y sólo si no hay se cae a la URL conocida.
+REMOTO_FIJO="git@github.com:edgarcg-01/MegaDulces_Suite.git"
+# Si estás parado en un clon del repo se usa ése; si no, el clon de `auto-deploy` (modo `md`).
+REPO_DIR="${AUTO_DEPLOY_REPO:-$(git rev-parse --show-toplevel 2>/dev/null || echo "$HOME/auto-deploy/repo")}"
 SELLO="${SOLTAR_SELLO:-ci-green}"
 DESTINO="${SOLTAR_DESTINO:-prod-release}"
+# La llave de `md` sólo se fuerza SI estamos en `md`. En tu máquina se usan tus credenciales de
+# siempre — que son las que tienen escritura, y las que hacen que esto funcione.
 LLAVE="$HOME/.ssh/deploy_md"
-export GIT_SSH_COMMAND="ssh -i $LLAVE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
+[ -f "$LLAVE" ] && export GIT_SSH_COMMAND="ssh -i $LLAVE -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new -o ConnectTimeout=10"
 
 MODO=soltar
 VOLVER_A=''
@@ -48,11 +64,28 @@ case "${1:-}" in
   --ver)    MODO=ver ;;
   --volver) MODO=volver; VOLVER_A="${2:?falta el sha al que volver}" ;;
   '')       : ;;
-  *)        echo "uso: soltar.sh [--ver | --volver <sha>]"; exit 64 ;;
+  *)        echo "uso: sh ops/prod/soltar.sh [--ver | --volver SHA]"; exit 64 ;;
 esac
 
-[ -d "$REPO_DIR/.git" ] || { echo "⛔ no existe el clon $REPO_DIR — ¿corrió auto-deploy alguna vez?"; exit 1; }
+# ⛔ Correrlo EN `md` y soltar no puede funcionar: su llave es de sólo lectura (ver cabecera).
+# Se avisa ACÁ y no al llegar al push, porque para entonces ya imprimió el informe completo y
+# parece que algo se rompió a mitad de camino. `--ver` sí tiene sentido desde `md`.
+if [ "$MODO" != ver ] && [ -x "$HOME/ops/prod/pgprod.sh" ]; then
+  echo "⛔ Estás en 'md', y su llave de despliegue es de SÓLO LECTURA: el push no va a entrar."
+  echo "   Soltá desde tu máquina, parado en el repo:"
+  echo "       sh ops/prod/soltar.sh"
+  echo "   Desde acá sólo se puede mirar:"
+  echo "       sh ops/prod/soltar.sh --ver"
+  exit 77
+fi
+
+# ⚠️ Se le pregunta a git, no al sistema de archivos: en un `git worktree` el `.git` es un
+# ARCHIVO, no un directorio, y un `[ -d .git ]` rechaza un clon perfectamente válido.
+git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1 \
+  || { echo "⛔ $REPO_DIR no es un repo git — ¿corrió auto-deploy alguna vez?"; exit 1; }
 cd "$REPO_DIR" || exit 1
+REMOTO=$(git remote get-url origin 2>/dev/null) || REMOTO=''
+[ -n "$REMOTO" ] || REMOTO="$REMOTO_FIJO"
 
 # ⚠️ El clon es `--depth 50`. Un `git log A..B` sobre historia truncada puede mentir por abajo,
 # así que se profundiza antes de comparar. Sin esto, un lote grande saldría con la lista corta.
@@ -92,16 +125,37 @@ fi
 # Se compara el DIRECTORIO del commit que sale contra el ledger de prod. Si no se puede leer
 # alguno de los dos, se DECLARA: «no medido» no es «no hay».
 echo "═══ migraciones ═════════════════════════════════════════════════════"
-APLICADAS=$(sh "$HOME/ops/prod/pgprod.sh" -At -c 'SELECT name FROM public.knex_migrations' 2>/dev/null)
+# El ledger de prod sólo se alcanza desde `md`. Si estamos ahí, directo; si no, por SSH.
+if [ -x "$HOME/ops/prod/pgprod.sh" ]; then
+  APLICADAS=$(sh "$HOME/ops/prod/pgprod.sh" -At -c 'SELECT name FROM public.knex_migrations' 2>/dev/null)
+else
+  APLICADAS=$(ssh -o BatchMode=yes -o ConnectTimeout=10 "$MD" \
+    "sh ops/prod/pgprod.sh -At -c 'SELECT name FROM public.knex_migrations'" 2>/dev/null)
+fi
 if [ -z "$APLICADAS" ]; then
   echo "   ⚠️ NO MEDIDO: no pude leer knex_migrations de prod. Puede haber pendientes."
 else
-  TMP_APL=$(mktemp) || { echo "   ⚠️ NO MEDIDO: sin temporal"; TMP_APL=''; }
-  printf '%s\n' "$APLICADAS" | sort > "$TMP_APL"
-  PEND=$(git ls-tree -r --name-only "$NUEVO" database/migrations-newdb/ 2>/dev/null \
-           | sed 's|.*/||' | sort | comm -23 - "$TMP_APL")
-  rm -f "$TMP_APL"
-  if [ -z "$PEND" ]; then
+  # ⛔ `LC_ALL=C` en los DOS lados. Con la configuración regional del sistema, `sort` ordena con
+  # reglas de idioma y `comm` exige el orden byte a byte: medido el 2026-10-07, se quejaba
+  # («archivo 1 no está en orden ordenado») y **devolvía vacío**, con lo que esto imprimía
+  # «ninguna pendiente» sin haber comparado nada. Un falso verde, que es peor que no medir.
+  TMP_APL=$(mktemp) && TMP_ERR=$(mktemp) || { echo "   ⚠️ NO MEDIDO: no se pudo crear el temporal"; TMP_APL=''; }
+  if [ -n "$TMP_APL" ]; then
+    printf '%s\n' "$APLICADAS" | LC_ALL=C sort > "$TMP_APL"
+    PEND=$(git ls-tree -r --name-only "$NUEVO" database/migrations-newdb/ 2>/dev/null \
+             | sed 's|.*/||' | LC_ALL=C sort | LC_ALL=C comm -23 - "$TMP_APL" 2>"$TMP_ERR")
+    # Si `comm` dijo algo por error, su salida no vale: se DECLARA, no se publica como cero.
+    if [ -s "$TMP_ERR" ]; then
+      echo "   ⚠️ NO MEDIDO: la comparación falló — $(head -1 "$TMP_ERR")"
+      PEND='__NO_MEDIDO__'
+    fi
+    rm -f "$TMP_APL" "$TMP_ERR"
+  else
+    PEND='__NO_MEDIDO__'
+  fi
+  if [ "$PEND" = '__NO_MEDIDO__' ]; then
+    : # ya se declaró arriba; «no medido» NO se imprime como «ninguna»
+  elif [ -z "$PEND" ]; then
     echo "   prod al día — ninguna pendiente"
   else
     echo "   ⚠️ $(printf '%s\n' "$PEND" | grep -c .) pendiente(s). Si el código las necesita, el"
