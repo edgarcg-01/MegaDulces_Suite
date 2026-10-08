@@ -2927,15 +2927,15 @@ export class CommercialReplenishmentService {
       const where = filters.join(' AND ');
 
       const rows = (await trx.raw(`
-        -- `[RA-CICLO.2]` El agregado se calcula UNA vez por (almacén, proveedor), no una vez por
+        -- [RA-CICLO.2] El agregado se calcula UNA vez por (almacén, proveedor), no una vez por
         -- renglón. Acá vivía un LEFT JOIN LATERAL: por CADA canal recorría la política de reorden
         -- del almacén ENTERO y recién después filtraba por proveedor a través del join de
         -- productos, así que el mismo almacén se barría tantas veces como proveedores tuviera.
-        -- Medido contra prod el 2026-10-08, los 737 canales de compra: **3,330 ms → 277 ms**.
-        -- ⭐ La reescritura se CRUZÓ con la vieja antes de reemplazarla, no después: sobre los
-        -- 1,836 canales de las dos vías, **0 difieren** en n_skus, 0 en n_below y 0 en costo, con
+        -- Medido contra prod el 2026-10-08, los 737 canales de compra: 3,330 ms --> 251 ms.
+        -- La reescritura se CRUZO con la vieja antes de reemplazarla, no después: sobre los
+        -- 1,836 canales de las dos vías, 0 difieren en n_skus, 0 en n_below y 0 en costo, con
         -- el mismo total ($6,475,548). Una consulta que da otro número no es más rápida: es otra.
-        -- ⚠️ `cadenceTarget()` se sigue usando TAL CUAL —necesita los alias `rc` y `sup`— para que
+        -- cadenceTarget() se sigue usando TAL CUAL --necesita los alias rc y sup-- para que
         -- el "Sugerido" del Ciclo y el del Pedido salgan de la misma álgebra y no de dos copias.
         WITH canales AS (
           SELECT rc.*
