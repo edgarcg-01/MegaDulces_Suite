@@ -521,6 +521,64 @@ if ! grep -q 'AS runner-api' Dockerfile 2>/dev/null; then
   exit 1
 fi
 
+# ══════════════════════════════════════════════════════════════════════════════════════════
+# ⛔ [RD.55] COMPUERTA DE DISCO — ANTES de construir, no después.
+#
+# ── Lo que pasó el 2026-10-08, medido ─────────────────────────────────────────────────────
+#
+#   13:00  la poda corre (al FINAL del despliegue) y declara:
+#          "⛔ el disco quedó en 33GB libres, por debajo del piso de 60GB" + exit 1
+#   13:00  este guion lo ignora a propósito: "aviso: la poda falló (el despliegue NO se toca)"
+#   13:22  otro despliegue: se construyen SEIS imágenes más sobre ese disco
+#   15:2x  disco al 95% · 27 GB · DiskPressure=True · el kubelet desaloja TODO
+#          pg-prod en Error, api/portal/vendor/caddy en Pending — PRODUCCIÓN CAÍDA
+#          y el host terminó reiniciándose
+#
+# ⭐ El defecto no era que faltara medición: la había, con el número exacto y en el log. Era
+# que **medía después de gastar y no frenaba**. La poda corre al final porque limpia lo que
+# el despliegue acaba de ensuciar — correcto— pero entonces NADIE mira el disco antes de
+# escribirle ~6 GB de imágenes nuevas.
+#
+# ⚠️ Y la razón por la que el `|| di "aviso"` de abajo está escrito así también era buena: que
+# una poda que falla no frene los despliegues. Las dos cosas pueden convivir — lo que no
+# puede es que *nadie* frene. Acá se separa: **la poda que falla no frena; el disco sin
+# espacio sí**, y son dos preguntas distintas.
+#
+# ── La política ───────────────────────────────────────────────────────────────────────────
+#   libre >= PISO            se construye sin más
+#   libre <  PISO            se poda PRIMERO y se vuelve a medir
+#   libre <  CORTE después   se ABORTA el despliegue y se declara
+#
+# ⛔ Abortar es lo correcto aunque duela: un despliegue demorado se reintenta solo en 120 s;
+# un nodo desalojado se lleva puesta la base, deja la pantalla caída y terminó en un
+# reinicio. No son riesgos del mismo tamaño.
+_libre_gb() { df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9'; }
+PISO_CONSTRUIR_GB="${AD_PISO_CONSTRUIR_GB:-60}"
+CORTE_CONSTRUIR_GB="${AD_CORTE_CONSTRUIR_GB:-35}"
+
+_l=$(_libre_gb)
+if [ "${_l:-999}" -lt "$PISO_CONSTRUIR_GB" ]; then
+  di "disco en ${_l}GB libres, bajo el piso de ${PISO_CONSTRUIR_GB}GB — se poda ANTES de construir"
+  if [ -f "$HOME/ops/prod/podar-disco.sh" ]; then
+    sh "$HOME/ops/prod/podar-disco.sh" 2>&1 | sed 's/^/      /' || true
+  else
+    di "aviso: falta podar-disco.sh — no se pudo liberar nada"
+  fi
+  _l=$(_libre_gb)
+  di "disco tras la poda: ${_l}GB libres"
+fi
+
+if [ "${_l:-999}" -lt "$CORTE_CONSTRUIR_GB" ]; then
+  di "⛔ ABORTO: ${_l}GB libres, por debajo del corte de ${CORTE_CONSTRUIR_GB}GB."
+  di "   Construir seis imágenes acá es lo que el 2026-10-08 dejó el nodo en DiskPressure y"
+  di "   tiró producción. El vigía reintenta en 120 s; el disco lo tiene que mirar una persona."
+  di "   Lo que libera de verdad: docker buildx prune -af (la caché NO pierde datos, sólo"
+  di "   hace lento el próximo build). Las imágenes por commit son los puntos de regreso."
+  latir error "despliegue abortado: ${_l}GB libres, bajo el corte de ${CORTE_CONSTRUIR_GB}GB"
+  exit 1
+fi
+# ══════════════════════════════════════════════════════════════════════════════════════════
+
 # ⛔ [K3S.42] LO QUE K3s FIJA SE CONSTRUYE SIEMPRE, CAMBIE O NO.
 #
 # `$SERVICIOS` responde "qué cambió". Los manifiestos responden otra cosa: fijan TODAS sus
