@@ -19,6 +19,7 @@
  *  · `en_surtido`      en una ola viva.
  *  · `en_caja`         surtido (`listo_embarque`), todavía sin documento ligado.
  *  · `cobrado`         con documento de Kepler ligado, sin entrega registrada.
+ *  · `en_ruta`         `[MCP.5]` va cargado en una guía de carga ya IMPRESA (el repartidor la firmó).
  *  · `entregado`       `fulfilled` (flujo anterior a la mesa; la entrega de conformidad llega en MCP.6).
  *  · `cancelado`
  */
@@ -28,6 +29,7 @@ export const PRESALE_STAGES = [
   'en_surtido',
   'en_caja',
   'cobrado',
+  'en_ruta',
   'entregado',
   'cancelado',
 ] as const;
@@ -98,6 +100,8 @@ export interface PresaleOrderRow {
    * ⚠️ Es un indicio, no un cobro: el cliente también compra en mostrador.
    */
   possible_documents: number | null;
+  /** `[MCP.5]` La guía de carga en la que va cargado, o `null` si nadie lo ha pescado. */
+  load_guide: { id: string; folio: string; status: 'abierta' | 'impresa'; rider_name: string | null } | null;
 }
 
 export interface PresaleListResponse {
