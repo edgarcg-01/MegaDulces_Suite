@@ -25,6 +25,8 @@
 - ⚠️ **Pendiente:** aplicar a prod, una por una, `20261006143917` (REC.17) y `20261007213847` (REC.19) + redeploy api+view + validación en un equipo sin señal. Sin permisos nuevos → sin re-login.
 ### Added — Mesa de Control de Preventa: la pantalla (MCP.2, 2026-10-08)
 - Almacén › Pedidos › **Preventa** (`/almacen/pedidos/preventa`): los pedidos de preventa del vendedor por etapa y contra la fecha de entrega, con su documento de Kepler; desde el panel se elige el documento correcto ("Es este") o se corrige una liga con motivo, y se ve lo pedido contra lo cobrado renglón por renglón.
+### Added — Surtido: la entrega a Facturación (GP.3d, 2026-10-08)
+- `/almacen/pedidos-por-capturar` (pestaña **Por capturar en Kepler**): por cada pedido surtido en la Suite, qué corregir en Kepler (renglón por renglón, en la unidad de Kepler) y pasarlo a SURTIDO. Detecta sola cuando Kepler ya lo refleja y avisa si las cantidades no cuadran. Sólo lectura, con la clave del Tablero.
 
 ### Added — Mesa de Control de Preventa: datos y liga con el documento de Kepler (MCP.1 + MCP.4, 2026-10-08)
 - `GET /warehouse/presale`: los pedidos de preventa que levanta el vendedor, por sucursal, con su etapa (esperando alta / por surtir / en surtido / en caja / cobrado / entregado / cancelado), el semáforo contra la fecha de entrega prometida y cuántos documentos de Kepler podrían ser su cobro.
@@ -105,6 +107,12 @@
 - Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+
+### Changed — Productos nuevos: sólo Kepler y en vivo las 24 horas (NP.13, 2026-10-08)
+- Las cifras salen sólo de Kepler (venta de las tiendas y entradas); Wincaja queda fuera, también en la existencia.
+- Se recalcula cada 30 minutos: la pantalla ya no espera al lote nocturno, y un producto que se estrena hoy aparece el mismo día aunque se haya dado de alta hace meses.
+- Un producto que sólo se movió en sucursales con menos de 90 días en Kepler se declara "no medible" en vez de contarse como nuevo.
+- El cálculo dejó de recorrer toda la venta diaria (en producción pasaba de 150 s) y se refresca sin el JIT de Postgres.
 
 ### Added — Productos nuevos en las unidades de Kepler (NP.11, 2026-10-07)
 - Lo vendido y lo recibido se muestran como Kepler los registró: "23 cajas · 86 piezas", "6 de 500 g". Cada rótulo por su lado, sin convertir. Sale del renglón (`c55/c56` cuando su identidad cierra; si no, la unidad base).

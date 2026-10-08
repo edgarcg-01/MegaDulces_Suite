@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal } from '@angular/core';
-import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toSignal } from '@angular/core/rxjs-interop';
+import { ActivatedRoute, Router } from '@angular/router';
+import { map } from 'rxjs';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpErrorResponse } from '@angular/common/http';
@@ -22,6 +24,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { AlmacenUbicacionesCatalogoService } from '../almacen-ubicaciones-catalogo.service';
 import { MetricStripComponent, type MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, type SegOption } from '../../../shared/components/segmented/segmented.component';
+import { UbicacionesCapturaComponent } from './ubicaciones-captura.component';
 
 /** Estado de un rack en el mapa: el más urgente de sus niveles. */
 type EstadoRack = 'bloqueada' | 'contenido' | 'activa' | 'baja' | 'vacio';
@@ -59,7 +62,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
   selector: 'app-almacen-ubicaciones-mapa',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, MetricStripComponent, SegmentedComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, SelectModule, InputTextModule, MetricStripComponent, SegmentedComponent, UbicacionesCapturaComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head ub-head">
@@ -70,6 +73,13 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
         <div class="ub-actions">
           @if (almacenOpts().length > 1) {
             <p-select [options]="almacenOpts()" optionLabel="label" optionValue="value" [ngModel]="warehouseId()" (onChange)="pickAlmacen($event.value)" ariaLabel="Almacén" appendTo="body" class="ub-sel" />
+          }
+          @if (puedeGestionar() && data()?.warehouse) {
+            @if (enCaptura()) {
+              <button pButton type="button" class="p-button-sm p-button-outlined" (click)="verCaptura(false)"><span class="p-button-icon pi pi-map" aria-hidden="true"></span><span class="p-button-label">Volver al mapa</span></button>
+            } @else {
+              <button pButton type="button" class="p-button-sm" (click)="verCaptura(true)"><span class="p-button-icon pi pi-table" aria-hidden="true"></span><span class="p-button-label">Captura masiva</span></button>
+            }
           }
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" (click)="reload()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
         </div>
@@ -84,6 +94,9 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
         } @else {
           <app-metric-strip [items]="kpis()" ariaLabel="Resumen de ubicaciones" />
 
+          @if (enCaptura()) {
+            <app-ubicaciones-captura [warehouse]="d.warehouse" (cambio)="reload()" />
+          } @else {
           <div class="ub-split">
             <section class="ub-block" aria-labelledby="ub-h-mapa">
               <div class="ub-bh">
@@ -174,6 +187,7 @@ const ESTADO_LABEL: Record<EstadoRack, string> = {
               }
             </aside>
           </div>
+          }
         }
       }
     </div>
@@ -252,6 +266,12 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
   private readonly perms = inject(PermissionsService);
   private readonly destroyRef = inject(DestroyRef);
   private readonly host = inject<ElementRef<HTMLElement>>(ElementRef);
+  private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
+
+  /** `?vista=captura` — en la URL, para que el enlace se pueda compartir y el botón Atrás funcione. */
+  private readonly vista = toSignal(this.route.queryParamMap.pipe(map((q) => q.get('vista'))), { initialValue: null });
+  readonly enCaptura = computed(() => this.vista() === 'captura' && this.puedeGestionar());
 
   readonly skel = Array.from({ length: 6 });
   readonly tipos = [...LOCATION_KINDS];
@@ -349,6 +369,10 @@ export class AlmacenUbicacionesMapaComponent implements OnInit {
         this.err.set(typeof m === 'string' ? `No se pudieron cargar las ubicaciones: ${m}` : 'No se pudieron cargar las ubicaciones.');
       },
     });
+  }
+
+  verCaptura(si: boolean): void {
+    void this.router.navigate([], { relativeTo: this.route, queryParams: { vista: si ? 'captura' : null }, queryParamsHandling: 'merge' });
   }
 
   pickAlmacen(id: string): void {

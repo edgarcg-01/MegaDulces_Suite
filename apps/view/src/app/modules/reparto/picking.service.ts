@@ -2,6 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  CapturaKeplerResponse,
   ConsolaSurtidoAlmacen,
   ConsolaSurtidoResponse,
   KeplerWavesAutoResponse,
@@ -328,6 +329,11 @@ export class PickingService {
   /** `[GP.3]` Sucursales donde puede surtir quien consulta (con el permiso de surtir, no el de almacenes). */
   almacenesSurtido(): Observable<ConsolaSurtidoAlmacen[]> {
     return this.http.get<ConsolaSurtidoAlmacen[]>(`${this.base}/almacenes`);
+  }
+
+  /** `[GP.3d]` Surtidos por capturar en Kepler (Facturación). Sólo lectura, clave del Tablero. */
+  porCapturar(): Observable<CapturaKeplerResponse> {
+    return this.http.get<CapturaKeplerResponse>(`${this.base}/por-capturar`);
   }
 
   /** `[GP.3]` Las olas abiertas o en surtido de quien consulta. */

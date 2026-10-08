@@ -147,11 +147,35 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Y parada no vacia la pantalla:
   // la deja publicando el costo de hace dias como si fuera el de hoy.
   { name: 'analytics.mv_logistics_guide_cost', everyMin: 30 },
+  // `[NP.13]` Productos nuevos, SOLO KEPLER y en vivo (`/compras/catalogo/nuevos`). Va cada 30 min y
+  // no sólo de noche por pedido explícito: *"quiero los datos activos 24/7"*. Lo de HOY ya llega en
+  // vivo por `fn_new_products_movimientos` en cada consulta; este refresco es lo que hace que un
+  // producto que se estrena HOY entre al universo en minutos y no mañana, y que la pantalla se
+  // llene sola minutos después de desplegar (nace `WITH NO DATA`; el loop la puebla sin
+  // CONCURRENTLY la primera vez).
+  // ⚠️ `everyMin: 30` ESTIMADO, no medido completo: los pedazos medidos en prod (2026-10-08, sólo
+  // lectura) suman ~13 s — primera venta de `mv_kepler_sales_daily` ~1 s, entradas ~1 s, unidades
+  // de 180 días de ~736 productos 11 s. Confirmarlo con el log `Refreshed analytics.mv_new_products
+  // (Nms)` de la primera corrida; si pasa de ~20 s, subir a 60.
+  // ⚠️ Va SIN JIT (`SIN_JIT`): con JIT el REFRESH tarda 4.8 s en local y sin él 70 ms.
+  { name: 'analytics.mv_new_products', everyMin: 30 },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
   // se refresca NIGHTLY en refreshWincajaDaily() (06:20 MX, tras la carga). Refrescarlo cada 15 min
   // era puro desperdicio y devolvía la contención del pool admin (0-2) → 2.6 min por request de sell-out.
 ];
+
+/**
+ * `[NP.13]` Matvistas que se refrescan con el JIT de Postgres APAGADO.
+ *
+ * Postgres decide compilar una consulta (JIT) cuando su costo ESTIMADO pasa de `jit_above_cost`.
+ * En consultas con funciones SQL en LATERAL y `generate_series` por fila la estimación se infla
+ * (1,000 filas por llamada por omisión) y Postgres compila un plan que se ejecuta en milisegundos:
+ * compilar cuesta más que ejecutar. Medido en local sobre `mv_new_products`: **4.8 s con JIT contra
+ * 70 ms sin él**, el mismo resultado. El JIT se apaga con `SET LOCAL` dentro de una transacción:
+ * sólo para esa sentencia, sin tocar la configuración de la base ni la de las demás matvistas.
+ */
+const SIN_JIT = new Set<string>(['analytics.mv_new_products']);
 
 @Injectable()
 export class AnalyticsRefreshService {
@@ -167,6 +191,19 @@ export class AnalyticsRefreshService {
   constructor(
     @Inject(KNEX_NEW_DB_ADMIN) private readonly adminKnex: Knex | null,
   ) {}
+
+  /** Un REFRESH, sin JIT para las matvistas de `SIN_JIT` (ver arriba). */
+  private async refrescarMv(admin: Knex, mv: string, concurrently: string): Promise<void> {
+    const sql = `REFRESH MATERIALIZED VIEW ${concurrently}${mv}`;
+    if (!SIN_JIT.has(mv)) {
+      await admin.raw(sql);
+      return;
+    }
+    await admin.transaction(async (trx) => {
+      await trx.raw('SET LOCAL jit = off');
+      await trx.raw(sql);
+    });
+  }
 
   /**
    * Cron task: refresh cada 15 min en :00, :15, :30, :45.
@@ -401,14 +438,13 @@ export class AnalyticsRefreshService {
       // un gate de 1 s. ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_cost_origin`): sin el, una MV
       // parada se ve VERDE (OBS.1), y acá eso seria la pantalla explicando con un movimiento viejo.
       ['analytics.mv_kepler_cost_origin', 'analytics_refresh_cost_origin', 'Refresh MV origen del costo (nightly)', []],
-      // [NP.1] Productos nuevos: la primera actividad de cada producto exige recorrer TODA la
-      // historia de venta y de entradas, y eso no cabe en el gate de 1 s de la pantalla. Deriva de
-      // `v_sellout_daily` → depende de las dos piernas de venta: si una no refrescó, se sirve la de
-      // ayer en vez de una etiqueta calculada con media venta. Nace `WITH NO DATA`: su primer
-      // poblado es este lote, de noche. ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_new_products`):
-      // sin él una MV parada se ve VERDE (OBS.1) y la pestaña seguiría contando días sobre cifras viejas.
+      // [NP.13] Productos nuevos, SOLO KEPLER. Además del ciclo de 30 min (array `MVS`), va aquí,
+      // justo DESPUÉS de `mv_kepler_sales_daily`: su corte es lo que esa matvista ya tiene cerrado,
+      // así que refrescarla enseguida mueve la historia al día de hoy. Depende sólo de la pierna
+      // Kepler (Wincaja quedó fuera por pedido). ⚠️ Umbral en `CRON_JOBS`
+      // (`analytics_refresh_new_products`): sin él una MV parada se ve VERDE (OBS.1).
       ['analytics.mv_new_products', 'analytics_refresh_new_products', 'Refresh MV productos nuevos (nightly)',
-        ['analytics.mv_wincaja_sales_daily', 'analytics.mv_kepler_sales_daily']],
+        ['analytics.mv_kepler_sales_daily']],
       /**
        * ⭐⭐ `[PR.R1]` EL ÁRBITRO DEL COSTO. La MV que decide si el margen de toda la Suite
        * es una medición o un espejo del markup.
@@ -508,7 +544,7 @@ export class AnalyticsRefreshService {
           throw new Error(`no es materialized view (relkind=${found.length ? found[0].relkind : 'missing'})`);
         }
         const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
-        await admin.raw(`REFRESH MATERIALIZED VIEW ${concurrently}${mv}`);
+        await this.refrescarMv(admin, mv, concurrently);
         await admin.raw(`ANALYZE ${mv}`);
         ok = true;
         this.logger.log(
@@ -638,9 +674,7 @@ export class AnalyticsRefreshService {
             continue;
           }
           const concurrently = found[0].relispopulated ? 'CONCURRENTLY ' : '';
-          await this.adminKnex.raw(
-            `REFRESH MATERIALIZED VIEW ${concurrently}${mv}`,
-          );
+          await this.refrescarMv(this.adminKnex, mv, concurrently);
           // ANALYZE post-refresh: REFRESH reemplaza los datos pero no actualiza las stats del
           // planner. En MVs de grano fino (p.ej. mv_wincaja_sales_daily ~99k filas/mes) sin stats
           // frescas el planner elige un plan catastrófico al leerlas (verificado: timeout vs 739ms
