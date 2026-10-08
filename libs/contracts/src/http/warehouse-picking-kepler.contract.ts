@@ -204,3 +204,77 @@ export interface ConsolaSurtidoAlmacen {
   code: string;
   nombre: string;
 }
+
+// ─── [GP.3d] La entrega del surtido a Facturación (captura en Kepler) ─────────────────────────
+
+/**
+ * Dónde va cada pedido surtido en la Suite respecto a Kepler:
+ *  · `por_capturar`: Kepler sigue en AUTORIZADO y faltó algo → Facturación corrige y pasa a SURTIDO.
+ *  · `por_avanzar`: Kepler sigue en AUTORIZADO y salió completo → sólo pasar a SURTIDO.
+ *  · `capturado`: Kepler ya está en SURTIDO (o más adelante) y sus cantidades cuadran con lo surtido.
+ *  · `con_diferencias`: Kepler ya avanzó pero alguna cantidad no es la que se surtió.
+ *  · `kepler_otro`: Kepler lo trae en otro estatus (cancelado, creado…) o no se encontró.
+ */
+export type CapturaKeplerEstado = 'por_capturar' | 'por_avanzar' | 'capturado' | 'con_diferencias' | 'kepler_otro';
+
+/**
+ * Un renglón que Facturación tiene que tocar: Kepler no trae lo que se surtió (faltó, el cliente lo
+ * cambió durante el surtido, o Kepler trae un renglón que la Suite no surtió). Todas las cantidades
+ * van en `unidad`: la presentación de Kepler (3 BTO) cuando se puede, si no la base.
+ */
+export interface CapturaKeplerRenglon {
+  sku: string | null;
+  producto: string | null;
+  unidad: string | null;
+  /** Lo que pidió el cliente (congelado al arrancar el surtido). */
+  pedido: number;
+  /** Lo que se surtió para este pedido: lo que debe quedar en Kepler. */
+  surtido: number;
+  /** pedido − surtido. */
+  falta: number;
+  /** Lo que Kepler trae HOY. 0 = ya no trae la clave. null = no se pudo leer Kepler. */
+  kepler: number | null;
+  /** true/false = Kepler trae lo surtido o no. null = no se pudo comparar. */
+  cuadra: boolean | null;
+  /** En cuántos renglones de Kepler viene la clave (más de 1: el TOTAL debe quedar en `surtido`). */
+  renglones_kepler: number;
+  /** Kepler trae este renglón y la Suite no lo surtió: hay que quitarlo. */
+  extra: boolean;
+}
+
+export interface CapturaKeplerPedido {
+  order_id: string;
+  sucursal: string;
+  /** Como se ve en Kepler: `UD4001-0002781`. */
+  code: string;
+  serie: number;
+  folio: string;
+  origen: string | null;
+  destino: string | null;
+  wave_code: string;
+  /** Cuándo terminó el surtido en la Suite (ISO). */
+  surtido_at: string;
+  surtidores: string[];
+  estado: CapturaKeplerEstado;
+  /** Estatus que Kepler trae hoy (AUTORIZADO, SURTIDO…), o null si no se encontró. */
+  estatus_kepler: string | null;
+  renglones: number;
+  /** Sólo los renglones que hay que tocar (faltantes) o que no cuadran. */
+  pendientes: CapturaKeplerRenglon[];
+}
+
+export interface CapturaKeplerResponse {
+  generado_en: string;
+  /** De cuándo es lo último que llegó de Kepler (kdm1). null = no se pudo medir. */
+  kepler_al: string | null;
+  /** Días hacia atrás que se revisan: lo surtido antes no aparece aquí. */
+  dias: number;
+  /** Sucursales que ve quien consulta. Vacío = sin sucursal asignada (alcance fail-closed). */
+  sucursales: string[];
+  sin_alcance: boolean;
+  pedidos: CapturaKeplerPedido[];
+  /** Pedidos ya capturados que no se listan (de días anteriores): sólo el conteo. */
+  capturados_antes: number;
+  /** Surtidos terminados antes de GP.3 (sin lo pedido congelado): no se pueden comparar. */
+  sin_congelado: number;
+}

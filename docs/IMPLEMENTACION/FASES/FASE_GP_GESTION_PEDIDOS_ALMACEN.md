@@ -732,6 +732,69 @@ Personas › Acceso › Complementos.
 surtidor, y no aplican alcance por sucursal: quien conozca el id de una ola puede asignarla o
 cancelarla. Para cerrarlo hay que mover esas acciones a la consola o ponerles alcance (`[GP.3c.4]`).
 
+### 8.5 GP.3d — La entrega del surtido a Facturación (🧪 en código, 2026-10-08)
+
+Lo que se surtió en la Suite se cierra en Kepler. **Decisiones de Francisco (2026-10-08):**
+
+| Pregunta | Decisión |
+|---|---|
+| ¿Quién lo cierra en Kepler? | **Facturación**: corrige en el pedido lo que no se encontró |
+| ¿En qué estatus lo deja? | **SURTIDO**: así aparece en la mesa de checado |
+| ¿Y si salió completo? | Igual lo avanza a SURTIDO (sólo el cambio de estatus) |
+| ¿Cómo sabe la Suite que ya lo hizo? | **Lo detecta sola** leyendo Kepler; no hay botón "ya lo capturé" |
+| ¿El checado espera? | **Sí**: el checador sólo recibe pedidos que Kepler ya trae en SURTIDO (GP.4) |
+
+**Medido antes (prod, 30 días, 40,792 renglones embarcados):** Kepler marca "surtido menor a lo
+pedido" en sólo **68 renglones (0.17%)** y "surtido en cero" **nunca**. O sea: lo que no se encuentra
+se resuelve **corrigiendo el pedido** (se baja la cantidad o se quita el renglón), no capturando un
+surtido menor. Por eso la bandeja dice qué dejar en cada renglón, no qué capturar como surtido.
+
+**Pantalla** `/almacen/pedidos-por-capturar` (pestaña **Por capturar en Kepler** del área Pedidos):
+- Cuatro tarjetas que filtran: **Corregir y pasar a SURTIDO** · **Sólo pasar a SURTIDO** · **En
+  SURTIDO pero no cuadran** · **Capturados hoy**. La lista va de lo que hay que hacer a lo que ya quedó.
+- Por pedido: folio de Kepler, destino, cuándo y quién lo surtió, estatus que Kepler trae hoy y
+  qué hacer. **"Ver qué tocar"** abre los renglones con lo pedido, lo surtido y **lo que hay que dejar
+  en Kepler, en la unidad en que se teclea** (3 BTO); con surtido 0 dice "quitar el renglón". Si lo
+  surtido no da una presentación entera, se muestra también en la base para no redondear a ciegas.
+- **Detección:** con Kepler en SURTIDO, CHECADO o EMBARCADO compara renglón por renglón en la
+  unidad base (`kdm2.c9` sumado por clave contra `wave_allocations.qty_allocated`). Si cuadra,
+  sale sola de la lista; si no, queda en "no cuadran" con lo que Kepler trae. Un renglón que Kepler
+  trae y la Suite no surtió también cuenta como diferencia.
+- Se relee cada 60 s con la pestaña a la vista y dice de cuándo es Kepler (`kdm1`, minutos).
+
+**Permisos, aprendido del surtidor:** es de **sólo lectura**, así que va con `ALMACEN_PEDIDOS_VER`, la
+clave del Tablero que Facturación **ya tiene**. No hay permiso nuevo ni migración que frene el
+despliegue. El endpoint (`GET /reparto/surtido/por-capturar`) no depende de ninguna otra clave.
+
+**Configuración pendiente (prod, medido 2026-10-08):** de las 3 personas en puestos de Facturación,
+`monse_frausto` y `maria_garcia` (puesto *Facturación*, perfil `telemarketing`) **no tienen sucursal**
+en su ficha. Su perfil ve "su sucursal" (fail-closed), así que la bandeja les sale vacía con el
+aviso "Tu ficha no tiene una sucursal asignada". Hay que asignársela en Personas › Datos.
+
+**Probado:** pruebas de la lógica y de la pantalla (ver §8.5.1); la consulta de la Suite en Postgres local (con prueba
+negativa de sucursal); las consultas a Kepler contra prod, sólo lectura: las consultas exactas del código,
+**42 ms** (cabeceras) y **404 ms** (renglones) con los 2,510 pedidos de 30 días.
+
+#### 8.5.1 Correcciones de la revisión independiente (antes del PR)
+
+| Defecto | Corrección |
+|---|---|
+| ⚠️ En AUTORIZADO no se leía Kepler: si el cliente agregaba o subía algo en Kepler durante el surtido, la bandeja decía "sólo pásalo a SURTIDO" (falso) | Kepler se lee **siempre**. En AUTORIZADO se lista todo renglón donde Kepler ≠ lo surtido, incluidos los que la Suite no surtió ("quitar el renglón"); "sólo pasar a SURTIDO" únicamente si Kepler ya trae exactamente lo surtido |
+| ⚠️ Productos por peso (KG/BTO) podían quedar para siempre en "no cuadran": Kepler recalcula la base con su factor | Se compara en la **presentación** de Kepler cuando lo surtido da una cantidad entera y Kepler trae esa sola presentación; si no, en la base con **0.5% de holgura** |
+| Los renglones que se agregan EN el checado o el embarque (`kdm2.c28`) hacían reaparecer un pedido ya capturado como "no cuadra" | Se excluyen de la comparación: son trabajo de esas etapas |
+| "Capturados hoy" prometía la hora de la captura, que Kepler no guarda | "Surtidos hoy, ya en Kepler" |
+| Lo de más de la ventana desaparecía sin rastro | Ventana de **30 días**, declarada en el pie de la lista |
+| Una columna mezclaba unidades (BTO contra KG) y la cifra en negritas podía ser "2.4 BTO" | Todo el renglón va en una sola unidad: la presentación si da entera, si no la base |
+| Una clave en varios renglones de Kepler se veía como una (medido: **656** claves en 30 días) | "Viene en N renglones: el total debe quedar así" |
+| La lectura de Kepler no usaba el índice | Escrita contra `ix_kdm1_venta_doc` / `ix_kdm2_venta_doc`: los 2,510 pedidos de 30 días (peor caso) en **42 ms** y **404 ms** |
+| Un refresco fallido no se notaba | "No se pudo actualizar desde las HH:MM" |
+| La frescura de Kepler se leía como de la sucursal | "Kepler (todas las sucursales) leído hace N min": es global, se dice así |
+
+Pantalla: tarjeta "En otro estatus en Kepler" cuando hay; texto vacío por filtro; "Ver detalle" en lo
+ya capturado; no se relee con un detalle abierto (no reordena bajo el dedo); el foco vuelve al título
+si el pedido abierto sale de la lista; botón de actualizar de 44 px; nombre de sucursal. Pruebas: 21
+de la lógica (mutación: "sólo avanzar" sin mirar Kepler la rompen 2) y 13 de la pantalla.
+
 ### 8.4 Pendiente de GP.3
 
 - **GP.3c.3, partir un pedido grande** por rango de pasillos: necesita ubicaciones (`FASE_WMS` §12.5,

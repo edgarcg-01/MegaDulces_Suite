@@ -7,6 +7,7 @@ import {
   Permission,
 } from '@megadulces/platform-core';
 import type {
+  CapturaKeplerResponse,
   ConsolaSurtidoAlmacen,
   KeplerPickPoolResponse,
   KeplerWavesAutoResponse,
@@ -15,6 +16,7 @@ import type {
 } from '@megadulces/contracts';
 import { CreateWaveDto, PickingService } from './picking.service';
 import { PickingConsolaService } from './picking-consola.service';
+import { PickingCapturaService } from './picking-captura.service';
 
 /**
  * SU.2 — Pool de pedidos por surtir y olas de surtido (Fase SU, ADR-067).
@@ -31,7 +33,20 @@ export class PickingController {
   constructor(
     private readonly service: PickingService,
     private readonly consola: PickingConsolaService,
+    private readonly captura: PickingCapturaService,
   ) {}
+
+  /**
+   * `[GP.3d]` La entrega del surtido a Facturación: qué corregir en Kepler y cuáles ya se
+   * capturaron (lo detecta solo leyendo Kepler). Sólo lectura, así que va con la clave del Tablero
+   * de pedidos, que Facturación ya tiene: no hace falta repartir un permiso nuevo.
+   */
+  @Get('por-capturar')
+  @RequirePermissions(Permission.ALMACEN_PEDIDOS_VER)
+  @ApiOperation({ summary: 'Pedidos surtidos en la Suite: qué corregir en Kepler y si Kepler ya los pasó a SURTIDO.' })
+  porCapturar(): Promise<CapturaKeplerResponse> {
+    return this.captura.porCapturar();
+  }
 
   /**
    * `[GP.3]` Los almacenes donde puede surtir quien consulta (los de su alcance).
