@@ -1129,7 +1129,7 @@ export const BANDEJAS: readonly BandejaDef[] = [
       }
       return medirCola(
         knex,
-        knex('servicedesk.requests').where({ tenant_id: tenantId }).whereNull('deleted_at').whereIn('queue_id', colas),
+        knex('servicedesk.requests').where({ tenant_id: tenantId, is_test: false }).whereNull('deleted_at').whereIn('queue_id', colas),
         {
           estadoCol: 'status',
           estadoAbierto: 'nuevo',

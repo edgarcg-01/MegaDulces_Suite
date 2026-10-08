@@ -29,6 +29,7 @@ import {
   type SdQueueCandidateDto,
   type SdQueueMembersResponse,
   type SdUpsertQueueDto,
+  type SdMarkTestDto,
   type SdTransferDto,
   type SdTransferResult,
   type SdUpsertFieldDto,
@@ -216,6 +217,13 @@ export class ServiceDeskController {
   @ApiOperation({ summary: 'La coordinación asigna o reasigna a quien atiende.' })
   assign(@Param('id') id: string, @Body() dto: SdAssignDto, @Req() req: AuthedRequest): Promise<SdRequestDetail> {
     return this.actors.resolve(req).then((ctx) => this.requests.assign(ctx, id, dto));
+  }
+
+  @Post('requests/:id/test')
+  @RequirePermissions(Permission.SERVICIO_COORDINAR)
+  @ApiOperation({ summary: 'Marca (o quita la marca de) solicitud de prueba: no cuenta en reportes, tablero, carga, Mi trabajo ni avisos. Sólo la coordinación del área.' })
+  markTest(@Param('id') id: string, @Body() dto: SdMarkTestDto, @Req() req: AuthedRequest): Promise<SdRequestDetail> {
+    return this.actors.resolve(req).then((ctx) => this.requests.markTest(ctx, id, dto));
   }
 
   @Post('requests/:id/transfer')

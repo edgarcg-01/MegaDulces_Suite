@@ -123,6 +123,10 @@ export class ServiceDeskNotificationsService {
   private async entregarEvento(trx: Knex.Transaction, tenantId: string, ev: SdEvento): Promise<void> {
     const ids = [...new Set(ev.recipients)].filter((id) => id && id !== ev.actor_id);
     if (!ids.length) return;
+    // `[MS.7.12]` Un ticket de prueba no avisa a nadie. Aquí, en el punto único de entrega, para que lo cubra TODO lo que avisa
+    // (el alta, los comentarios, el barrido del SLA): ninguna rama nueva tiene que acordarse de excluirlo.
+    const ticket = await trx('servicedesk.requests').where({ id: ev.request_id }).first('is_test');
+    if (ticket?.is_test) return;
     const aviso = armarAviso({ event: ev.event, folio: ev.folio, title: ev.title, priority: ev.priority, actor: ev.actor_name, extracto: ev.extracto, dias: ev.dias, automatico: ev.automatico });
 
     const contactos: Contacto[] = await trx('identity.users as u')

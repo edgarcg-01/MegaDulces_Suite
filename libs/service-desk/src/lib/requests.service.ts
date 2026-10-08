@@ -31,6 +31,7 @@ import {
   type SdExtraValueDto,
   type SdImpact,
   type SdListResponse,
+  type SdMarkTestDto,
   type SdLogTimeDto,
   type SdMessageDto,
   type SdMessageKind,
@@ -89,6 +90,7 @@ interface RequestRow {
   zone_code?: string | null;
   zone_name?: string | null;
   pause_reason?: string | null;
+  is_test?: boolean;
   extra?: Record<string, unknown> | null;
   status: SdStatus;
   requester_id: string;
@@ -613,9 +615,11 @@ export class ServiceDeskRequestsService {
     const colas = colasDeLectura(ctx.colas);
     const deMisColas = (qb: Knex.QueryBuilder): Knex.QueryBuilder => (colas ? qb.whereIn('queue_id', colas) : qb);
     return this.tk.run(async (trx) => {
+      // `[MS.7.12]` Los tickets de prueba no cuentan en el tablero.
       const rows: { status: SdStatus; priority: SdPriority; n: string | number }[] = await trx('servicedesk.requests')
         .modify(deMisColas)
         .whereNull('deleted_at')
+        .where({ is_test: false })
         .whereNotIn('status', FINALES)
         .select('status', 'priority')
         .count({ n: '*' })
@@ -629,11 +633,12 @@ export class ServiceDeskRequestsService {
         by_status[r.status as SdStatus] = (by_status[r.status as SdStatus] ?? 0) + n;
         by_priority[r.priority as SdPriority] = (by_priority[r.priority as SdPriority] ?? 0) + n;
       }
-      const un = await trx('servicedesk.requests').modify(deMisColas).whereNull('deleted_at').where('status', 'nuevo').whereNull('assigned_to').count({ n: '*' }).first();
+      const un = await trx('servicedesk.requests').modify(deMisColas).whereNull('deleted_at').where({ is_test: false }).where('status', 'nuevo').whereNull('assigned_to').count({ n: '*' }).first();
       // Los contadores salen de las marcas que deja el barrido del SLA (idempotentes), no de recalcular acá.
       const br = await trx('servicedesk.requests')
         .modify(deMisColas)
         .whereNull('deleted_at')
+        .where({ is_test: false })
         .whereNotIn('status', FINALES)
         .select(
           trx.raw('count(*) FILTER (WHERE sla_first_breached_at IS NOT NULL)::int AS primera'),
@@ -907,6 +912,34 @@ export class ServiceDeskRequestsService {
     });
     await this.despachar(efectos);
     return resultado;
+  }
+
+  /**
+   * `[MS.7.12]` Marca un ticket como de PRUEBA (o le quita la marca). Sólo la coordinación del área donde está. Sirve en cualquier
+   * estado —un ticket de prueba ya cerrado también se saca de los reportes—. Queda en el hilo (nota INTERNA: quien reportó no necesita
+   * verla) para que se sepa quién y cuándo. Repetir el mismo valor es un 409, no un cambio silencioso.
+   */
+  async markTest(ctx: ActorCtx, id: string, dto: SdMarkTestDto): Promise<SdRequestDetail> {
+    if (!esUuid(id)) throw new NotFoundException('Solicitud no encontrada');
+    if (typeof dto?.is_test !== 'boolean') throw new BadRequestException('is_test debe ser verdadero o falso');
+    const motivo = String(dto?.reason ?? '').trim();
+    if (motivo.length > MAX_TEXTO) throw new BadRequestException(`El motivo admite hasta ${MAX_TEXTO} caracteres`);
+    await this.tk.run(async (trx) => {
+      const r = await this.bloquear(trx, id);
+      if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
+      if (!ctx.esCoordinador || !puedeCoordinarCola(ctx.colas, r.queue_id)) throw new ForbiddenException('Sólo la coordinación del área donde está la solicitud puede marcarla como de prueba');
+      if (!!r.is_test === dto.is_test) throw new ConflictException(dto.is_test ? 'La solicitud ya está marcada como de prueba' : 'La solicitud no está marcada como de prueba');
+      await trx('servicedesk.requests').where({ id }).update({ is_test: dto.is_test, updated_at: new Date(), updated_by: ctx.userId });
+      await this.addMessage(trx, r.tenant_id, id, {
+        kind: 'system',
+        visibility: 'internal',
+        authorId: ctx.userId,
+        authorLabel: ctx.nombre,
+        body: `${dto.is_test ? 'Marcada como solicitud de prueba: ya no cuenta en reportes, tablero ni avisos.' : 'Se quitó la marca de prueba: vuelve a contar en reportes, tablero y avisos.'}${motivo ? ` ${motivo}` : ''}`,
+        meta: { is_test: dto.is_test },
+      });
+    });
+    return this.detail(ctx, id);
   }
 
   async changePriority(ctx: ActorCtx, id: string, dto: SdChangePriorityDto): Promise<SdRequestDetail> {
@@ -1266,6 +1299,7 @@ export class ServiceDeskRequestsService {
       zone_code: r.zone_code ?? null,
       zone_name: r.zone_name ?? null,
       pause_reason: (r.pause_reason ?? null) as SdPauseReason | null,
+      is_test: !!r.is_test,
       assigned_to: r.assigned_to ?? null,
       assigned_to_name: r.assigned_to ? r.assigned_nombre || r.assigned_username || null : null,
       assigned_at: iso(r.assigned_at),

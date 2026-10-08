@@ -121,6 +121,7 @@ export class ServiceDeskSlaService {
 
         const abiertos: TicketAbierto[] = await trx('servicedesk.requests')
           .whereNull('deleted_at')
+          .where({ is_test: false }) // `[MS.7.12]` un ticket de prueba no se mide ni avisa
           .whereIn('status', ['nuevo', 'asignado', 'en_proceso', 'en_espera'])
           .select('id', 'tenant_id', 'queue_id', 'folio', 'title', 'priority', 'status', 'assigned_to', 'due_at', 'first_response_due_at', 'first_responded_at', 'paused_at', 'sla_first_breached_at', 'sla_resolution_breached_at', 'escalated_at');
 

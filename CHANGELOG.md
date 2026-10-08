@@ -468,6 +468,8 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 
 **Verificación punta a punta de la Mesa multi-área (MS.7.19):** prueba automática del ciclo completo con TI y Mantenimiento reales (levantar, asignar, poner en espera, resolver, cerrar, trasladar y volver) y del acceso cruzado entre áreas, más la guía de despliegue con el orden exacto de las migraciones. **Nada aplicado a prod.**
 
+**Solicitudes de prueba (MS.7.12):** la coordinación puede marcar una solicitud como «de prueba» (también si ya está cerrada o cancelada): deja de contar en reportes, tablero, carga de trabajo, «Mi trabajo» y avisos, y queda registrado en el historial. Sigue apareciendo en la bandeja con la etiqueta «Prueba» para poder quitarle la marca. **Nada aplicado a prod** (migración `20261007340000`).
+
 **Campos propios por cola (MS.7.4):** cada cola puede pedir preguntas extra al reportar —sí/no, una opción de una lista, un texto o una foto— que su coordinación declara desde Configuración, sin tocar código; las obligatorias no dejan enviar sin contestar y la ficha muestra las respuestas (también si el campo se apaga después). Hoy ninguna cola trae campos: TI y Mantenimiento no cambian. **Nada aplicado a prod** (migración `20261007320000`).
 
 **Zonas en la Mesa de Servicio (MS.7.3):** además de la ubicación, las colas que lo piden (hoy Mantenimiento) preguntan **en qué parte** — bodega, andén, oficina, baños, exterior — de forma opcional; la ficha la muestra y la coordinación administra el catálogo desde Configuración (apagar una zona no borra: los tickets viejos la conservan). Para TI no cambia nada. **Nada aplicado a prod** (migración `20261007310000`).
