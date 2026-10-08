@@ -203,6 +203,8 @@ interface CabeceraKeplerSqlRow {
   fecha: string | null;
   estatus: string | null;
   origen: string | null;
+  /** [GP.3c] Destino del pedido (Kepler kdm1.c10): con él se casa la hora de salida. */
+  cliente_code: string | null;
   destino_nombre: string | null;
   importe: string | null;
 }
@@ -484,7 +486,9 @@ export class PickingService {
       .filter((p) => p.sin_catalogo > 0)
       .map((p) => ({ code: p.code, motivo: `${p.sin_catalogo} renglón(es) con clave fuera del catálogo` }));
     const elegibles = pool.data.filter((p) => p.sin_catalogo === 0);
-    const plan = planearOlas(elegibles.map((p) => ({ id: p.id, renglones: p.lines })));
+    // [GP.3c] El umbral de la tanda es del almacén (lo ajusta el coordinador); sin ajuste, 5.
+    const umbral = await this.umbralTanda(dto.warehouse_id);
+    const plan = planearOlas(elegibles.map((p) => ({ id: p.id, renglones: p.lines })), umbral);
     const porId = new Map(elegibles.map((p) => [p.id, p]));
     const llaves = (ids: string[]) =>
       ids.map((id) => {
@@ -527,7 +531,7 @@ export class PickingService {
     if (plan.tanda.length) {
       const ok = await armar(
         plan.tanda,
-        `Tanda Kepler — ${plan.tanda.length} pedido(s) de 1 a ${UMBRAL_TANDA} renglones`,
+        `Tanda Kepler — ${plan.tanda.length} pedido(s) de 1 a ${umbral} renglones`,
       );
       // Un solo pedido problemático (p. ej. una clave pedida en dos unidades entre dos pedidos) no
       // debe frenar a todos los demás: si la tanda no se pudo armar, se intenta cada uno solo. El
@@ -649,12 +653,28 @@ export class PickingService {
 
       const { rows } = await trx.raw(
         `UPDATE commercial.picking_waves
-            SET assigned_to = ?, updated_at = now(), updated_by = ?
-          WHERE id = (SELECT id FROM commercial.picking_waves
-                       WHERE warehouse_id = ? AND status = 'abierta' AND assigned_to IS NULL
-                         AND (?::text IS NULL OR origen = ?::text)
-                         AND NOT (id = ANY(?::uuid[]))
-                       ORDER BY created_at, id
+            SET assigned_to = ?, liberada_at = NULL, updated_at = now(), updated_by = ?
+          WHERE id = (SELECT pw.id FROM commercial.picking_waves pw
+                       WHERE pw.warehouse_id = ? AND pw.assigned_to IS NULL
+                         -- [GP.3c] 'en_surtido' sin dueño sólo se toma si la consola la LIBERÓ
+                         -- (liberada_at): la retoma otro, con lo ya marcado. Una 'en_surtido' sin
+                         -- dueño y SIN esa marca la arrancó la pantalla de Reparto y alguien la
+                         -- está caminando: no se le da a nadie más.
+                         AND (pw.status = 'abierta' OR (pw.status = 'en_surtido' AND pw.liberada_at IS NOT NULL))
+                         AND (?::text IS NULL OR pw.origen = ?::text)
+                         AND NOT (pw.id = ANY(?::uuid[]))
+                       -- [GP.3c] La fila: urgente → la salida más próxima de sus destinos (la
+                       -- captura el coordinador) → lo más viejo. Sin hora de salida va al final
+                       -- de los que sí la tienen, no se pierde.
+                       ORDER BY pw.prioridad DESC,
+                                (SELECT min(d.hora_salida)
+                                   FROM commercial.wave_orders wo
+                                   JOIN commercial.picking_departures d
+                                     ON d.warehouse_id = pw.warehouse_id
+                                    AND d.fecha = (now() AT TIME ZONE 'America/Mexico_City')::date
+                                    AND d.destino_code = wo.destino_code
+                                  WHERE wo.wave_id = pw.id) ASC NULLS LAST,
+                                pw.created_at, pw.id
                        LIMIT 1
                        FOR UPDATE SKIP LOCKED)
         RETURNING id, code, armada_por`,
@@ -663,6 +683,17 @@ export class PickingService {
       const r = (rows as Array<{ id: string; code: string; armada_por: string }>)[0];
       return r ? { ...r, ya_era_tuya: false } : null;
     });
+  }
+
+  /**
+   * `[GP.3c]` A quien la consola le quitó la ola ya no puede marcarla ni cerrarla (aunque la siga
+   * viendo en su celular): si no, dos personas marcarían los mismos renglones y "el último gana".
+   * Sólo frena a ESA persona; la pantalla de Reparto, que no asigna, sigue igual.
+   */
+  private noEsDeQuienLaPerdio(wave: { assigned_to: string | null; liberada_de?: string | null }, userId: string | null): void {
+    if (userId && wave.liberada_de === userId && wave.assigned_to !== userId) {
+      throw new ConflictException('Este surtido te lo quitaron desde la consola. Toca "Tomar siguiente".');
+    }
   }
 
   /** `[GP.3]` Deja una ola sin dueño y anota por qué, para que la consola la vea y la resuelva. */
@@ -714,6 +745,7 @@ export class PickingService {
       const cab = await this.cabecerasDe(trx, waveId);
       const lineas: Array<Record<string, unknown>> = await this.lineasDe(trx, waveId);
       const n = (v: unknown): number | null => (v == null ? null : Number(v));
+      const exist = await this.existenciaDe(trx, w.warehouse_id, lineas.map((l) => String(l['product_id'])));
       return {
         id: w.id,
         code: w.code,
@@ -722,8 +754,11 @@ export class PickingService {
         notes: w.notes,
         started_at: w.started_at ? new Date(w.started_at).toISOString() : null,
         pedidos: [...cab.values()].map((c) => c.code).sort(),
+        existencia_al: exist.al,
         lines: lineas.map(
           (l): PickerWaveLine => ({
+            existencia: exist.porProducto.get(String(l['product_id']))?.qty ?? null,
+            existencia_unidad: exist.porProducto.get(String(l['product_id']))?.unidad ?? null,
             id: String(l['id']),
             product_id: String(l['product_id']),
             product_name: (l['product_name'] as string | null) ?? null,
@@ -742,6 +777,58 @@ export class PickingService {
         ),
       };
     });
+  }
+
+  /**
+   * `[GP.3c]` Existencia en el sistema de cada producto en el almacén de la ola, con su unidad base
+   * y de cuándo es el dato. Fuente canónica `analytics.v_erp_stock_on_hand` (la misma de
+   * `/almacen/inventory/existencia`, en la unidad BASE de Kepler) filtrada por almacén y productos
+   * —sin filtro la vista tarda más de un minuto—; la unidad base sale de `kdii.c11` de la sucursal.
+   *
+   * ⚠️ Medido en prod (2026-10-08, 42,957 renglones `U-D-40` de 30 días): la unidad del pedido es
+   * la base del producto en el 99.65%. En el 0.35% restante (PAQ pedido / KG en existencia) la
+   * pantalla NO compara: muestra la existencia con su propia unidad.
+   * ⚠️ El dato llega con atraso (`kdil` iba 42 min atrás al medir): se devuelve `al` para decirlo.
+   */
+  private async existenciaDe(
+    trx: Knex.Transaction,
+    warehouseId: string,
+    productIds: readonly string[],
+  ): Promise<{ al: string | null; porProducto: Map<string, { qty: number | null; unidad: string | null }> }> {
+    const porProducto = new Map<string, { qty: number | null; unidad: string | null }>();
+    if (!productIds.length) return { al: null, porProducto };
+    const { rows } = await trx.raw(
+      `SELECT p.id AS product_id,
+              s.qty_stock_units AS qty,
+              upper(NULLIF(btrim(i.c11::text), '')) AS unidad
+         FROM catalog.products p
+         JOIN commercial.warehouses w ON w.id = ?
+         LEFT JOIN analytics.v_erp_stock_on_hand s ON s.warehouse_id = w.id AND s.product_id = p.id
+         LEFT JOIN LATERAL (
+           SELECT k.c11 FROM kepler_ods.kdii k
+            WHERE btrim(k.sucursal) = btrim(w.code) AND btrim(k.c1) = p.sku
+            ORDER BY k.c11
+            LIMIT 1
+         ) i ON true
+        WHERE p.id = ANY(?::uuid[])`,
+      [warehouseId, [...productIds]],
+    );
+    for (const r of rows as Array<{ product_id: string; qty: string | null; unidad: string | null }>) {
+      porProducto.set(r.product_id, { qty: r.qty == null ? null : Number(r.qty), unidad: r.unidad });
+    }
+    const { rows: f } = await trx.raw(
+      `SELECT dato_al FROM analytics.v_feed_freshness WHERE feed = 'kdil' LIMIT 1`,
+    );
+    const al = (f as Array<{ dato_al: Date | null }>)[0]?.dato_al;
+    return { al: al ? new Date(al).toISOString() : null, porProducto };
+  }
+
+  /** `[GP.3c]` El umbral de la tanda del almacén (`commercial.picking_settings`); sin ajuste, 5. */
+  async umbralTanda(warehouseId: string): Promise<number> {
+    const r: { umbral_tanda: number } | undefined = await this.tk.run((trx) =>
+      trx('commercial.picking_settings').where({ warehouse_id: warehouseId }).first('umbral_tanda'),
+    );
+    return r?.umbral_tanda ? Number(r.umbral_tanda) : UMBRAL_TANDA;
   }
 
   /**
@@ -1374,7 +1461,10 @@ export class PickingService {
           throw new ConflictException(`Ya están en otra ola: ${yaEnOla.map((r) => r.code).join(', ')}`);
       }
 
-      if (kepler.length) await this.validarKepler(trx, dto.warehouse_id, kepler);
+      // [GP.3c] validarKepler devuelve la cabecera de cada pedido: de ahí sale su destino.
+      const cabsKepler = kepler.length ? await this.validarKepler(trx, dto.warehouse_id, kepler) : [];
+      const destinoDe = (k: PedidoKeplerLlave) =>
+        cabsKepler.find((c) => c.sucursal === k.sucursal && Number(c.serie) === k.serie && c.folio === k.folio);
 
       const code = await this.nextCode(trx);
       const [wave] = await trx('commercial.picking_waves')
@@ -1403,6 +1493,8 @@ export class PickingService {
             kepler_sucursal: k.sucursal,
             kepler_serie: k.serie,
             kepler_folio: k.folio,
+            destino_code: String(destinoDe(k)?.cliente_code ?? '').trim().slice(0, 20) || null,
+            destino_nombre: destinoDe(k)?.destino_nombre?.slice(0, 120) ?? null,
             added_by: userId,
           })),
         ]);
@@ -1444,7 +1536,7 @@ export class PickingService {
     trx: Knex.Transaction,
     warehouseId: string,
     kepler: readonly PedidoKeplerLlave[],
-  ): Promise<void> {
+  ): Promise<CabeceraKeplerSqlRow[]> {
     const sucursal = await this.sucursalDeAlmacen(trx, warehouseId);
     const otra = kepler.filter((k) => k.sucursal !== sucursal);
     if (otra.length)
@@ -1492,6 +1584,7 @@ export class PickingService {
         problemas.push(`${documentoKepler(k)}: ${p.sin_catalogo} renglón(es) con clave fuera del catálogo`);
     }
     if (problemas.length) throw new ConflictException(`No se pueden surtir: ${problemas.join('; ')}`);
+    return cabs;
   }
 
   /**
@@ -1735,10 +1828,11 @@ export class PickingService {
     const userId = this.tenantCtx.get()?.userId || null;
 
     return this.tk.run(async (trx) => {
-      const wave = await trx('commercial.picking_waves').where({ id: waveId }).first();
+      const wave = await trx('commercial.picking_waves').where({ id: waveId }).forUpdate().first();
       if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
       if (wave.status === 'cancelada') throw new ConflictException('La ola está cancelada');
       if (wave.status === 'surtida') throw new ConflictException('La ola ya se cerró');
+      this.noEsDeQuienLaPerdio(wave, userId);
 
       const line = await trx('commercial.wave_lines').where({ id: lineId, wave_id: waveId }).first();
       if (!line) throw new NotFoundException(`Renglón ${lineId} no encontrado en esta ola`);
@@ -1793,6 +1887,7 @@ export class PickingService {
       if (!wave) throw new NotFoundException(`Ola ${waveId} no encontrada`);
       if (wave.status === 'cancelada') throw new ConflictException('La ola está cancelada');
       if (wave.status === 'surtida') return wave; // idempotente
+      this.noEsDeQuienLaPerdio(wave, userId);
       // [GP.3] Sólo se cierra lo que se arrancó. Una ola `abierta` (asignada pero sin arrancar) no
       // tiene renglones, así que "0 pendientes" la dejaba cerrar como surtida sin que nadie
       // surtiera nada (lo encontró la revisión de GP.3).

@@ -220,6 +220,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // comentario en permissions.ts) y repartidos por migración en la misma entrega.
           // La ruta llegó con la pantalla en `[UB.1]` (el Mapa, /almacen/ubicaciones).
           { id: 'ubicaciones', label: 'Ubicaciones', route: '/almacen/ubicaciones', view: [Permission.ALMACEN_UBICACIONES_VER], manage: [Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR] },
+          // [GP.3c] Consola de surtido: una sola clave, que ve Y maneja (la pantalla existe para decidir).
+          { id: 'surtido-consola', label: 'Consola de surtido', route: '/almacen/surtido-consola', view: [Permission.ALMACEN_SURTIDO_COORDINAR], manage: [Permission.ALMACEN_SURTIDO_COORDINAR] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
           // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.

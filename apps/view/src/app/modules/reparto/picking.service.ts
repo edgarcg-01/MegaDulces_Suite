@@ -2,6 +2,9 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
+  ConsolaSurtidoAlmacen,
+  ConsolaSurtidoResponse,
+  KeplerWavesAutoResponse,
   PickerTakeNextResponse,
   PickerWave,
   RouteKind,
@@ -322,8 +325,54 @@ export class PickingService {
     return this.http.post<PickerTakeNextResponse>(`${this.base}/waves/next`, dto);
   }
 
+  /** `[GP.3]` Sucursales donde puede surtir quien consulta (con el permiso de surtir, no el de almacenes). */
+  almacenesSurtido(): Observable<ConsolaSurtidoAlmacen[]> {
+    return this.http.get<ConsolaSurtidoAlmacen[]>(`${this.base}/almacenes`);
+  }
+
   /** `[GP.3]` Las olas abiertas o en surtido de quien consulta. */
   misOlas(): Observable<PickerWave[]> {
     return this.http.get<PickerWave[]>(`${this.base}/waves/mine`);
+  }
+
+  // ── [GP.3c] La consola del coordinador (permiso ALMACEN_SURTIDO_COORDINAR) ───────────────
+
+  consolaAlmacenes(): Observable<ConsolaSurtidoAlmacen[]> {
+    return this.http.get<ConsolaSurtidoAlmacen[]>(`${this.base}/consola/almacenes`);
+  }
+
+  consola(warehouseId: string): Observable<ConsolaSurtidoResponse> {
+    return this.http.get<ConsolaSurtidoResponse>(`${this.base}/consola`, {
+      params: new HttpParams().set('warehouse_id', warehouseId),
+    });
+  }
+
+  consolaPrioridad(waveId: string, urgente: boolean, motivo?: string): Observable<{ id: string; prioridad: 0 | 1 }> {
+    return this.http.post<{ id: string; prioridad: 0 | 1 }>(`${this.base}/consola/waves/${waveId}/prioridad`, { urgente, motivo });
+  }
+
+  consolaLiberar(waveId: string): Observable<{ id: string; liberada: true }> {
+    return this.http.post<{ id: string; liberada: true }>(`${this.base}/consola/waves/${waveId}/liberar`, {});
+  }
+
+  consolaCancelar(waveId: string, motivo: string): Observable<{ id: string; cancelada: true }> {
+    return this.http.post<{ id: string; cancelada: true }>(`${this.base}/consola/waves/${waveId}/cancelar`, { motivo });
+  }
+
+  consolaSalida(dto: {
+    warehouse_id: string;
+    destino_code: string;
+    destino_nombre?: string | null;
+    hora_salida: string | null;
+  }): Observable<{ destino_code: string; hora_salida: string | null }> {
+    return this.http.put<{ destino_code: string; hora_salida: string | null }>(`${this.base}/consola/salidas`, dto);
+  }
+
+  consolaUmbral(warehouseId: string, umbral: number): Observable<{ umbral_tanda: number }> {
+    return this.http.put<{ umbral_tanda: number }>(`${this.base}/consola/ajustes`, { warehouse_id: warehouseId, umbral_tanda: umbral });
+  }
+
+  consolaArmar(warehouseId: string, origen?: string): Observable<KeplerWavesAutoResponse> {
+    return this.http.post<KeplerWavesAutoResponse>(`${this.base}/consola/armar`, { warehouse_id: warehouseId, origen });
   }
 }

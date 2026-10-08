@@ -617,9 +617,123 @@ teclado encima de la lista); el skeleton de carga (la pantalla hermana usa el mi
 **Declarado, sin cambiar:** el factor de conversión de un faltante capturado en bultos es el **promedio**
 del renglón (75 KG / 3 BTO); con bultos de peso variable entre pedidos no es el peso de cada bulto.
 
-### 8.3 Pendiente de GP.3
+### 8.3 GP.3c — quién decide la fila (Francisco, 2026-10-08)
 
-- **GP.3c, consola de excepciones**: partir un pedido grande por rango de pasillos (necesita ubicaciones,
-  `FASE_WMS` §12.5), urgentes, reasignar y ver quién trae qué y desde hace cuánto.
+Pregunta de Francisco al ver la pantalla en prod: *¿quién prioriza la fila, quién decide las tandas o
+partir un pedido? Es delicado por los cuellos de botella. Y la tarjeta debería traer existencia y
+ubicación: da certeza y orden.*
+
+**Decisiones (Francisco, 2026-10-08):**
+- **Manejan la consola de surtido:** coordinador de embarques, encargado de tienda, supervisor y
+  gerente de zona. Permiso propio (no `COMMERCIAL_PICKING_GESTIONAR`, que tiene el surtidor: el que
+  surte no se prioriza a sí mismo).
+- **La hora de salida la captura el coordinador** cada día, por destino; la fila se ordena por ella
+  (urgentes primero, luego la salida más próxima, luego lo más viejo).
+- **El sistema propone, el coordinador decide**: el umbral de la tanda se ajusta por almacén y partir
+  un pedido grande por pasillos es decisión del coordinador (cuando haya ubicaciones, Fase UB).
+
+#### 8.3.1 GP.3c.1 — existencia y ubicación en la tarjeta (🧪 en código)
+
+La tarjeta del surtidor dice **"Hay 618 PAQ en el sistema"** (ámbar si alcanza para menos de lo pedido,
+rojo si no hay) y la **ubicación** ("Sin ubicación dada de alta" hasta la Fase UB), y arriba **de cuándo
+es la existencia** ("de hace 42 min").
+
+- Fuente: `analytics.v_erp_stock_on_hand` (la de `/almacen/inventory/existencia`) filtrada por almacén
+  y productos — 314 ms medidos con 25 productos de Morelia Abastos; sin filtro tarda más de un minuto.
+- **Unidad verificada, no supuesta**: en 42,957 renglones `U-D-40` de 30 días la unidad del pedido
+  (`kdm2.c11`) es la base del producto (`kdii.c11`) en el **99.65%**. En el 0.35% que difiere
+  (PAQ pedido / KG en existencia) la pantalla la muestra **sin comparar**.
+- **Sin dato no es cero**: `existencia: null` dice "sin dato en el sistema", nunca "sin existencia".
+- El botón principal apagado se ve **gris** (el naranja al 55% se leía como "listo para tocar").
+
+#### 8.3.2 GP.3c.2 — la consola del coordinador (🧪 en código)
+
+Pantalla `/almacen/surtido-consola` (tab **Consola de surtido** del área Pedidos), permiso propio
+`ALMACEN_SURTIDO_COORDINAR`. API `/reparto/surtido/consola`.
+
+- **La fila en el mismo orden en que "Tomar siguiente" la da**: urgente → la salida más próxima de sus
+  destinos (hoy, hora de México) → lo más viejo. La regla está escrita arriba de la tabla; no hay otra
+  escondida. Cada surtido dice quién lo trae ("Libre" si nadie), avance (renglones tocados / total) y
+  desde hace cuánto.
+- **Urgente** (exige motivo, se guarda quién y cuándo), **Liberar** (sólo si alguien lo trae; vuelve a
+  la fila con lo ya marcado) y **Cancelar** (exige motivo; sus pedidos vuelven a quedar por armar). Se
+  confirman en la misma fila, no en un diálogo, para ver qué surtido se está tocando.
+- **Salidas de hoy**: un renglón por destino con pedidos (Kepler `kdm1.c10`/`c32`), con cuántos
+  faltan por armar y cuántos van en surtido; el coordinador escribe la hora y guarda. El destino se
+  guarda en `wave_orders.destino_code` al armar la ola, para que "tomar" no relea Kepler.
+- **Por armar**: cuántos pedidos autorizados no tienen surtido (en tanda / solos), los bloqueados por
+  claves fuera del catálogo y los atorados; botón **Armar surtidos ahora** (por origen).
+- **Tanda**: el umbral (antes fijo en 5) se ajusta por almacén, de 1 a 50 renglones; aplica a lo que
+  se arme desde entonces.
+- **Alcance**: el encargado sólo ve y maneja su sucursal (`ScopeService`, fail-closed); un almacén
+  fuera de su alcance responde igual que uno que no existe. Con varios almacenes, un selector.
+- La fila se relee sola cada 30 s, salvo a media acción o con una hora sin guardar.
+
+**Migración `20261008021159_gp3c_consola_surtido`** (va ANTES del código; crea esquema):
+`picking_waves.prioridad/_motivo/_por/_at`, `wave_orders.destino_code/_nombre`,
+`commercial.picking_departures` (hora por almacén, día y destino; RLS) y
+`commercial.picking_settings` (umbral por almacén; RLS). Reparte `ALMACEN_SURTIDO_COORDINAR` a
+`coordinador_embarques` (1 persona), `encargado_tienda` (7) y `supervisor` (1). "Gerente de zona":
+las 3 personas del puesto ya son `superadmin`; su rol por omisión, `supervisor_ventas`, es de ventas
+y no se le da. **Los 9 deben volver a entrar** (el permiso viaja en el JWT).
+
+Probado: la migración con `up`/`down` reales en Postgres local (el orden de la fila, los dos CHECK,
+el `down` que aborta si ya hay horas capturadas); la consulta de almacenes contra prod (sólo
+lectura); 14 pruebas de la pantalla montada y 4 de la pestaña.
+
+#### 8.3.3 Correcciones de las revisiones independientes (código y usabilidad, antes del PR)
+
+- **"Tomar siguiente" le habría dado a otro una ola que alguien está caminando.** Para retomar lo
+  liberado, la toma aceptaba `en_surtido` sin dueño, pero la pantalla de Reparto arranca olas así.
+  Ahora liberar deja una marca (`liberada_at/_de/_por`) y sólo se retoma lo marcado. Probado en
+  Postgres: la ola de Reparto no se le da a nadie (prueba negativa).
+- **A quien le quitan la ola ya no la puede marcar ni cerrar** (409 "te lo quitaron desde la
+  consola"). Sólo frena a esa persona; la pantalla de Reparto sigue igual.
+- **Liberar y urgente sólo escriben si la ola sigue como la vio la consola** (dueño y estado). Si
+  entre medio se cerró o la tomó otro, responde 409 en vez de borrar quién la surtió.
+- **Las acciones piden alcance de ESCRITURA** de la sucursal (`assertCanWrite`), no sólo de lectura.
+- Destino: se guarda recortado, y la validación de la hora ya no rechaza códigos válidos (medido en
+  prod: hasta 13 caracteres, ninguno raro). FK de `warehouse_id` en las dos tablas nuevas. El
+  `down` cuenta sin RLS para no borrar horas capturadas.
+- Pantalla:
+  - el turno es el real de "Tomar siguiente" (lo tomado no tiene turno);
+  - "Lo trae hace 5 min" en lugar de la hora en que se armó;
+  - quitar urgente también se confirma;
+  - botones con verbo ("Marcar urgente", "Cancelar surtido", "Volver");
+  - cancelar avisa si ya se levantó mercancía;
+  - el refresco no pisa el umbral tecleado, no corre con la pestaña oculta, no reordena bajo el dedo
+    y descarta respuestas de otro almacén;
+  - "Reintentar" sólo aparece cuando falló leer la fila;
+  - plurales corregidos;
+  - botones de 44 px;
+  - en teléfono la fila se apila (`dt-stack`).
+- Tarjeta del surtidor: "(otra unidad, no se compara)" y "Kepler marca existencia negativa".
+- **No había cómo llegar a Surtir desde el Tablero** (lo encontró Francisco en prod). `/almacen/surtir`
+  es pantalla de foco: su entrada en `almacen-tabs` sólo decide a dónde cae quien abre el área y no
+  pinta ningún botón. A quien también ve el Tablero lo llevaba al Tablero, sin salida a Surtir. Ahora
+  el Tablero trae el botón **Surtir** para quien tiene `COMMERCIAL_PICKING_GESTIONAR` (3 pruebas, con
+  mutación).
+- **El surtidor real no podía ni empezar:** la pantalla leía los almacenes de `/commercial/warehouses`,
+  que pide `COMMERCIAL_WAREHOUSES_VER`. Medido en prod: `almacenista` es el ÚNICO perfil que surte y
+  no tiene esa clave, así que veía "No se pudo leer la lista de almacenes". Ahora la lista sale de
+  `GET /reparto/surtido/almacenes` con el permiso de surtir y el alcance de la persona.
+
+**Perfil `surtidor` (`[GP.3c.5]`, mig `20261008035511`).** Para que el surtidor entre directo a "Tomar
+siguiente" (como el contador a "Contar camión"), su perfil debe surtir y NO ver el Tablero: el área
+aterriza en el primer tab que alcanza. Francisco creó el rol en prod desde `/admin/roles` con sus 4
+claves, pero esa pantalla no da alcance y el alcance es fail-closed: con 0 reglas el rol no veía
+ninguna sucursal. La migración lo deja reproducible: 4 claves (se suman, no se pisan) + su sucursal y
+su zona. Sólo toca datos: se aplica a mano ANTES de mergear. Al cambiar de perfil base, el anterior
+queda como complemento ([ID.13], a propósito): a quien venía de `almacenista` hay que quitárselo en
+Personas › Acceso › Complementos.
+
+**Deuda declarada (no se toca en esta fase).** `POST /reparto/surtido/waves/:id/assign` y
+`/cancel` (pantalla vieja de Reparto) piden sólo `COMMERCIAL_PICKING_GESTIONAR`, que tiene el
+surtidor, y no aplican alcance por sucursal: quien conozca el id de una ola puede asignarla o
+cancelarla. Para cerrarlo hay que mover esas acciones a la consola o ponerles alcance (`[GP.3c.4]`).
+
+### 8.4 Pendiente de GP.3
+
+- **GP.3c.3, partir un pedido grande** por rango de pasillos: necesita ubicaciones (`FASE_WMS` §12.5,
+  Fase UB).
 - **El orden de la hoja por ubicación** espera el censo de ubicaciones de PH (WMS.3). Hoy: por nombre.
-- **Prioridad dentro de la cola**: hoy es la ola más vieja (`created_at`). Urgentes = GP.3c.

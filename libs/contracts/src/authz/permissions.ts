@@ -383,6 +383,12 @@ export enum Permission {
   ALMACEN_UBICACIONES_VER = 'ALMACEN_UBICACIONES_VER',
   ALMACEN_UBICACIONES_ACOMODAR = 'ALMACEN_UBICACIONES_ACOMODAR',
   ALMACEN_UBICACIONES_GESTIONAR = 'ALMACEN_UBICACIONES_GESTIONAR',
+  // `[GP.3c]` Consola de surtido: quién prioriza la fila (urgentes, hora de salida por destino),
+  // libera o cancela un surtido y ajusta el umbral de la tanda. Clave PROPIA y no
+  // COMMERCIAL_PICKING_GESTIONAR: ésa la tiene el surtidor, y el que surte no se prioriza a sí
+  // mismo. Decisión de Francisco (2026-10-08): coordinador de embarques, encargado de tienda y
+  // supervisor (la Gerencia de Zona ya es superadmin).
+  ALMACEN_SURTIDO_COORDINAR = 'ALMACEN_SURTIDO_COORDINAR',
   // ── Autoabasto y Nivelación (Fase AB) — /almacen/autoabasto y /almacen/nivelacion.
   //
   // Claves PROPIAS, no COMPRAS_* reusadas, por una razón de negocio y una medida:

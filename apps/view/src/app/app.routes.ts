@@ -1345,6 +1345,13 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),
         canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
       },
+      {
+        // [GP.3c.2] Consola de surtido: el coordinador ordena la fila de "Tomar siguiente"
+        // (urgentes, hora de salida por destino, tanda). Permiso propio: el surtidor no se prioriza.
+        path: 'surtido-consola',
+        loadComponent: () => import('./modules/almacen/pages/almacen-surtido-consola.component').then(m => m.AlmacenSurtidoConsolaComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_SURTIDO_COORDINAR)]
+      },
       /**
        * `[RD.45]` ── **Ruta Directa dentro de Almacén** ────────────────────────────────────
        *
