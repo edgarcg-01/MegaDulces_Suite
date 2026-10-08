@@ -3,6 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
+import { CommissionContrastService } from './commission-contrast.service';
 
 /**
  * RD.6 — Comisiones de Ruta Directa.
@@ -21,7 +22,38 @@ export class CommercialCommissionsController {
   constructor(
     private readonly service: CommercialCommissionsService,
     private readonly recalc: CommissionRecalcService,
+    private readonly contraste: CommissionContrastService,
   ) {}
+
+  @Get('contrast')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  @ApiOperation({
+    summary: 'Libro vs motor, por ruta-periodo — lee TABLA, no calcula',
+    description:
+      'RD.52. Query: `anio`. Cruza el espejo del libro (`commission_run_lines` de la corrida '
+      + 'viva) contra la corrida del motor guardada (`commission_engine_lines`), con veredicto y '
+      + 'causa. Medido el 2026-10-08 sobre 238 ruta-periodo: **111 cuadran al peso**, 46 difieren '
+      + 'menos de 5%, 22 más, y **14 el motor las tira a CERO** ($35,294) — 9 por el acantilado '
+      + 'del tramo y 5 sin fuente. El veredicto vive en la vista, en un solo lugar.',
+  })
+  contrast(@Query('anio') anio?: string) {
+    return this.contraste.leer(anio ? Number(anio) : new Date().getFullYear());
+  }
+
+  @Post('contrast/run')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  @ApiOperation({
+    summary: 'Corre el MOTOR sobre las quincenas con espejo y guarda su resultado',
+    description:
+      'RD.52. Body: `{ anio }` o `{ period_id }`. Llama a `computeRun` en modo **vista previa**: '
+      + 'no deja corrida, no toca el espejo y no entra al libro mayor de la nómina. ⚠️ Cuesta '
+      + '~12 s por quincena (lee tres fuentes de venta día por día), así que se dispara a mano y '
+      + 'la pantalla lee la tabla que deja.',
+  })
+  contrastRun(@Body() body: { anio?: number; period_id?: string }) {
+    if (body?.period_id) return this.contraste.contrastarPeriodo(body.period_id);
+    return this.contraste.contrastarAnio(body?.anio ?? new Date().getFullYear());
+  }
 
   @Get('board')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
