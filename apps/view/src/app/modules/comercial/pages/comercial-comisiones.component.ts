@@ -6,7 +6,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
-  CommissionGate, CommissionRecalcResult,
+  CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -109,6 +109,38 @@ import { PermissionsService } from '../../../core/services/permissions.service';
       }
 
       @if (err()) { <p class="cm-err"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ err() }}</p> }
+
+      @if (resumenContraste().length) {
+        <section class="cm-contraste">
+          <div class="cm-contraste-tit">
+            <p class="cm-eyebrow">El libro contra el motor · {{ anio() }}</p>
+            <p class="cm-muted cm-micro">
+              Lo que se pagó, contra lo que el motor pagaría hoy. Es una simulación: no es nómina.
+            </p>
+          </div>
+          <div class="cm-contraste-chips">
+            @for (r of resumenContraste(); track r.veredicto) {
+              <span class="cm-chip" [attr.data-sev]="sevContraste(r.veredicto)"
+                    [title]="'libro ' + money(r.libro) + ' · motor ' + money(r.motor)">
+                <strong>{{ r.n }}</strong> {{ etiquetaVeredictoContraste(r.veredicto) }}
+                @if (r.delta) { <span class="cm-mono">{{ money(r.delta) }}</span> }
+              </span>
+            }
+          </div>
+          @if (puedeGestionar()) {
+            <button type="button" class="cm-btn cm-btn-sec" [disabled]="contrastando()"
+                    (click)="correrContraste()">
+              {{ contrastando() ? 'Corriendo el motor…' : 'Volver a contrastar' }}
+            </button>
+          }
+        </section>
+        @if (contrastando()) {
+          <p class="cm-muted cm-micro">
+            El motor corre quincena por quincena y cada una cuesta unos segundos — lee tres fuentes
+            de venta día por día. No deja corrida.
+          </p>
+        }
+      }
 
       <div class="cm-split">
         <aside class="cm-rail">
@@ -262,7 +294,52 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             <app-segmented [options]="pestanas()" [value]="tab()" (valueChange)="tab.set($event)"
                            ariaLabel="Qué se está viendo" />
 
-            @if (tab() === 'supervisor') {
+            @if (tab() === 'contraste') {
+              <div class="cm-table-wrap">
+                <table class="surf-table surf-table--plain surf-table--sticky">
+                  <thead><tr>
+                    <th>Ruta</th><th>Chofer</th>
+                    <th class="comm-num">Venta libro</th><th class="comm-num">Venta motor</th>
+                    <th class="comm-num">Días</th>
+                    <th class="comm-num">Pagó el libro</th><th class="comm-num">Pagaría el motor</th>
+                    <th class="comm-num">Δ</th><th>Veredicto</th>
+                  </tr></thead>
+                  <tbody>
+                    @for (c of contrasteDelPeriodo(); track c.route_code) {
+                      <tr>
+                        <td class="comm-num">{{ c.route_code }}</td>
+                        <td class="cm-name">{{ c.beneficiario_nombre || '—' }}</td>
+                        <td class="comm-num cm-muted">{{ money(c.libro_venta) }}</td>
+                        <td class="comm-num cm-muted">{{ money(c.motor_venta) }}</td>
+                        <td class="comm-num" [class.cm-corta]="c.dias_esperados !== null && c.dias_con_venta !== null && c.dias_con_venta < c.dias_esperados">
+                          {{ c.dias_con_venta !== null ? (c.dias_con_venta + ' / ' + (c.dias_esperados ?? '?')) : '—' }}
+                        </td>
+                        <td class="comm-num">{{ money(c.libro_a_pagar) }}</td>
+                        <td class="comm-num">{{ money(c.motor_a_pagar) }}</td>
+                        <td class="comm-num is-strong" [class.cm-neg]="(c.delta_a_pagar ?? 0) < 0">
+                          {{ c.delta_a_pagar !== null ? money(c.delta_a_pagar) : '—' }}
+                        </td>
+                        <td class="cm-nota">
+                          <p-tag [severity]="sevContraste(c.veredicto)" [value]="etiquetaVeredictoContraste(c.veredicto)" />
+                          @if (c.causa && c.causa !== 'sin_explicar') {
+                            <span class="cm-muted cm-micro"> · {{ etiquetaCausa(c.causa) }}</span>
+                          }
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+              <p class="cm-warn">
+                <i class="pi pi-info-circle" aria-hidden="true"></i>
+                <span>
+                  <strong>Esto no es nómina: es una simulación.</strong> El motor corre en modo vista
+                  previa sobre la misma quincena y no deja corrida. Lo que se pagó es la pestaña
+                  <em>Choferes</em>; esto dice qué habría pasado si hubiera pagado el motor.
+                  <strong>El veredicto lo emite el servidor</strong>, no esta pantalla.
+                </span>
+              </p>
+            } @else if (tab() === 'supervisor') {
               <div class="cm-table-wrap">
                 <table class="surf-table surf-table--plain surf-table--sticky">
                   <thead><tr>
@@ -395,6 +472,22 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-answer-pie { margin:.1rem 0 0; font-size:var(--fs-micro); color:var(--c-text-3); }
     .cm-answer-monto { margin:.1rem 0 0; font-family:var(--font-mono,'Geist Mono',monospace);
       font-size:1.5rem; font-weight:var(--fw-bold); font-variant-numeric:tabular-nums; color:var(--c-text-1); }
+
+    /* RD.52 - la tira del contraste. Sin color como unica senal: cada chip lleva su numero. */
+    .cm-contraste { display:flex; flex-wrap:wrap; align-items:center; gap:.6rem 1rem; margin-bottom:1rem;
+      padding:.7rem .9rem; border:1px solid var(--border-color); border-radius:var(--r-md,8px); background:var(--card-bg); }
+    .cm-contraste-tit { flex:1 1 15rem; min-width:0; }
+    .cm-contraste-chips { display:flex; flex-wrap:wrap; gap:.35rem; }
+    .cm-chip { display:inline-flex; align-items:baseline; gap:.3rem; padding:.2rem .5rem;
+      border:1px solid var(--border-color); border-radius:999px; font-size:var(--fs-micro); color:var(--c-text-2); }
+    .cm-chip strong { color:var(--c-text-1); font-family:var(--font-mono,'Geist Mono',monospace); }
+    /* Los tokens REALES son --c-bad / --c-warn / --c-ok. Escribi --c-negative/warning/positive,
+       que no existen, y el respaldo en hex los habria tapado en silencio: la compuerta de
+       tokens no los vio porque se acota al diff YA commiteado. Sin respaldo a proposito. */
+    .cm-chip[data-sev="danger"] { border-color:color-mix(in srgb, var(--c-bad) 45%, transparent); }
+    .cm-chip[data-sev="warn"] { border-color:color-mix(in srgb, var(--c-warn) 45%, transparent); }
+    .cm-chip[data-sev="success"] { border-color:color-mix(in srgb, var(--c-ok) 40%, transparent); }
+    .cm-btn-sec { background:transparent; color:var(--c-text-1); border:1px solid var(--border-color); }
 
     .cm-split { display:grid; grid-template-columns:minmax(240px,300px) 1fr; gap:1rem; align-items:start; }
     @media (max-width:56.25rem) { .cm-split { grid-template-columns:1fr; } }
@@ -604,6 +697,10 @@ export class ComercialComisionesComponent {
   cargar() {
     this.cargando.set(true);
     this.err.set(null);
+    // `[RD.52]` El contraste va en su propia llamada y NO bloquea el tablero: lee tabla (11 ms
+    // medidos) y si falla, la pestaña no aparece y la pantalla sigue sirviendo igual.
+    this.contraste.set(null);
+    this.cargarContraste();
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
         this.board.set(b.periodos);
@@ -649,18 +746,83 @@ export class ComercialComisionesComponent {
   }
 
   pestanas(): SegOption[] {
+    const c = this.contrasteDelPeriodo();
     return [
       { label: `Choferes · ${this.pagan()}`, value: 'chofer' },
       { label: `Supervisores · ${this.supervisores().length}`, value: 'supervisor' },
       ...(this.fuera().length ? [{ label: `No comisionan · ${this.fuera().length}`, value: 'fuera' }] : []),
+      ...(c.length ? [{ label: `Libro vs motor · ${c.length}`, value: 'contraste' }] : []),
     ];
   }
 
+  // ── `[RD.52]` El contraste ────────────────────────────────────────────────────────────────
+
+  readonly contraste = signal<CommissionContrast | null>(null);
+  readonly contrastando = signal(false);
+
+  /** Las filas del contraste de la quincena que esté seleccionada. */
+  readonly contrasteDelPeriodo = computed<CommissionContrastRow[]>(() => {
+    const c = this.contraste(); const p = this.sel();
+    if (!c || !p) return [];
+    return c.filas.filter((f) => f.period_no === p.period_no);
+  });
+
   /**
-   * ⛔ `libro` existia en la DB y no acá: el mapa decía `cron ? 'automático' : 'manual'`, así que
-   * las 20 quincenas espejadas del workbook se publicaban como **«origen manual»** — o sea,
-   * afirmando que alguien las calculó con el motor. Es lo contrario de lo que pasó.
+   * ⭐ El resumen NO se recalcula en el navegador: viene del servidor, que es donde vive el
+   * veredicto. Acá sólo se ordena para que lo que no se puede juzgar quede arriba, no al final
+   * donde nadie llega — mismo criterio que `ORDEN_KPI_ESTADO` de `[CDRP.2]`.
    */
+  private readonly ORDEN_VEREDICTO: Record<string, number> = {
+    sin_corrida_del_motor: 0, el_motor_no_paga: 1, solo_el_motor_paga: 2,
+    difiere: 3, difiere_poco: 4, ninguno_paga: 5, cuadra: 6,
+  };
+  readonly resumenContraste = computed(() => {
+    const c = this.contraste();
+    if (!c) return [];
+    return [...c.resumen].sort((a, b) =>
+      (this.ORDEN_VEREDICTO[a.veredicto] ?? 9) - (this.ORDEN_VEREDICTO[b.veredicto] ?? 9));
+  });
+
+  etiquetaVeredictoContraste(v: string): string {
+    const M: Record<string, string> = {
+      cuadra: 'Cuadra', difiere_poco: 'Difiere poco', difiere: 'Difiere',
+      el_motor_no_paga: 'El motor NO paga', solo_el_motor_paga: 'Sólo el motor paga',
+      ninguno_paga: 'Ninguno paga', sin_corrida_del_motor: 'Sin medir',
+      solo_el_motor: 'Sólo en el motor',
+    };
+    return M[v] ?? v;
+  }
+
+  sevContraste(v: string): 'success' | 'warn' | 'danger' | 'secondary' {
+    if (v === 'cuadra') return 'success';
+    if (v === 'difiere_poco' || v === 'ninguno_paga') return 'secondary';
+    if (v === 'sin_corrida_del_motor') return 'warn';
+    return 'danger';
+  }
+
+  etiquetaCausa(c: string | null): string {
+    if (c === 'faltan_dias_en_la_fuente') return 'le faltan días a la fuente';
+    if (c === 'cobertura_no_medida') return 'cobertura sin medir';
+    if (c === 'sin_explicar') return 'sin explicar';
+    return '';
+  }
+
+  cargarContraste(): void {
+    this.api.commissionContrast(this.anio()).subscribe({
+      next: (c) => this.contraste.set(c),
+      // Sin contraste la pantalla sigue sirviendo: la pestaña simplemente no aparece.
+      error: () => this.contraste.set(null),
+    });
+  }
+
+  correrContraste(): void {
+    this.contrastando.set(true);
+    this.api.commissionContrastRun(this.anio()).subscribe({
+      next: () => { this.contrastando.set(false); this.cargarContraste(); },
+      error: () => { this.contrastando.set(false); this.err.set('No se pudo correr el contraste.'); },
+    });
+  }
+
   /** La cifra del rail es el BRUTO (el neto no se pudo calcular), y se marca como tal. */
   esBruto(p: CommissionBoardRow): boolean { return !!p.run_id && p.total_neto == null && p.total_a_pagar != null; }
 
@@ -671,6 +833,11 @@ export class ComercialComisionesComponent {
     return '';
   }
 
+  /**
+   * ⛔ `libro` existía en la DB y no acá: el mapa decía `cron ? 'automático' : 'manual'`, así que
+   * las 20 quincenas espejadas del workbook se publicaban como **«origen manual»** — o sea,
+   * afirmando que alguien las calculó con el motor. Es lo contrario de lo que pasó.
+   */
   etiquetaOrigen(o: string): string {
     if (o === 'cron') return 'automático';
     if (o === 'libro') return 'el libro (espejo)';

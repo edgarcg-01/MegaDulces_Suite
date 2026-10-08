@@ -2194,6 +2194,23 @@ export class ComercialService {
       `${this.base}/commissions/recalculate-from`, { period_id: periodId });
   }
 
+  /**
+   * RD.52 — el libro contra el motor, por ruta-periodo. **Lee tabla, no calcula**: el cruce lo
+   * hace `analytics.v_rd_commission_contrast` y responde en milisegundos.
+   */
+  commissionContrast(anio: number) {
+    return this.http.get<CommissionContrast>(
+      `${this.base}/commissions/contrast`, { params: new HttpParams().set('anio', String(anio)) });
+  }
+
+  /**
+   * RD.52 — corre el MOTOR sobre las quincenas con espejo y guarda su resultado.
+   * ⚠️ ~12 s por quincena: veinte son cuatro minutos. No está en el camino de lectura.
+   */
+  commissionContrastRun(anio: number) {
+    return this.http.post<CommissionContrastRunResult>(`${this.base}/commissions/contrast/run`, { anio });
+  }
+
   /** BI.4 — Serie mensual (tendencia). */
   sellOutSeries(opts: { to_month?: string; months?: number; brand_id?: string; channel?: string }) {
     let params = new HttpParams();
@@ -4338,6 +4355,40 @@ export interface CommissionRecalcResult {
  * texto en el cliente lo imprime en UTC, o sea con el **día cambiado** en hora de México — el
  * defecto que `[LC.16]` ya pagó una vez.
  */
+/**
+ * `RD.52` El contraste libro↔motor. ⭐ El **veredicto lo emite el servidor**, en la vista
+ * `analytics.v_rd_commission_contrast` y en un solo lugar: la pantalla lo pinta, no lo decide.
+ *
+ * Cinco estados y no dos, porque se arreglan distinto: `el_motor_no_paga` es el acantilado del
+ * tramo (la venta no llega a $189,999.99 y la comisión cae a CERO, no "a menos"), y
+ * `sin_corrida_del_motor` es que nadie lo midió todavía — que **no** es que cuadre.
+ */
+export interface CommissionContrastRow {
+  period_no: number; route_code: string;
+  beneficiario_nombre: string | null; zona: string | null;
+  libro_a_pagar: number | null; motor_a_pagar: number | null;
+  libro_venta: number | null; motor_venta: number | null;
+  libro_pct: number | null; motor_pct: number | null;
+  delta_a_pagar: number | null;
+  dias_con_venta: number | null; dias_esperados: number | null;
+  veredicto: 'cuadra' | 'difiere_poco' | 'difiere' | 'el_motor_no_paga'
+    | 'solo_el_motor_paga' | 'ninguno_paga' | 'sin_corrida_del_motor' | 'solo_el_motor';
+  /** `faltan_dias_en_la_fuente` explica 14 de 17; el resto es `sin_explicar`, no se adivina. */
+  causa: 'faltan_dias_en_la_fuente' | 'cobertura_no_medida' | 'sin_explicar' | null;
+  libro_motivo: string | null; motor_motivo: string | null;
+  computed_at: string | null;
+}
+export interface CommissionContrastSummary {
+  veredicto: string; n: number; libro: number; motor: number; delta: number;
+}
+export interface CommissionContrast {
+  resumen: CommissionContrastSummary[];
+  filas: CommissionContrastRow[];
+}
+export interface CommissionContrastRunResult {
+  anio: number; periodos: number; hechas: number[]; fallas: string[]; duracion_ms: number;
+}
+
 export interface CommissionBoardRow {
   period_id: string; period_no: number;
   date_from: string; date_to: string; pay_date: string | null;
