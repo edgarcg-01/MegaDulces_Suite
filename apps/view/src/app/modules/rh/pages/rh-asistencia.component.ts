@@ -6,10 +6,12 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { HrAsistenciaResponse, HrDiaAsistencia, HrPersonaAsistencia, HrSiteDto } from '@megadulces/contracts';
+import type { HrAsistenciaResponse, HrDiaAsistencia, HrPersonaAsistencia, HrSiteDto, HrRelojEstadoDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { RhRelojesFranjaComponent } from '../components/rh-relojes-franja.component';
+import { chipEnVivo, peorSemaforo } from '../relojes-formato';
 import {
   ESTADO_DIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, minutosTexto, rhError, sumarDias,
 } from '../rh.service';
@@ -25,7 +27,7 @@ import {
 @Component({
   selector: 'app-rh-asistencia',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent],
+  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, RhRelojesFranjaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ra-page" [class.con-ficha]="!!sel()">
@@ -35,7 +37,12 @@ import {
           <p>El horario de cada persona sale de sus propias checadas. La tolerancia es de {{ datos()?.bolsaSemanalMin ?? 15 }} min por semana
             (jueves a miércoles) y sólo cuenta lo que la excede.</p>
         </div>
-        <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
+        <div class="ra-head-btns">
+          @if (relojesMedidos()) {
+            <span class="ra-vivo" [attr.data-t]="vivo().tono" [title]="vivo().titulo"><span class="ra-vivo-dot" aria-hidden="true"></span>{{ vivo().texto }}</span>
+          }
+          <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
+        </div>
       </header>
 
       <section class="ra-ctl" aria-label="Qué ver">
@@ -55,6 +62,10 @@ import {
           <input pInputText type="search" placeholder="Buscar persona o número" [ngModel]="buscar()" (ngModelChange)="buscar.set($event)" aria-label="Buscar persona" />
         </span>
       </section>
+
+      @if (relojesMedidos()) {
+        <app-rh-relojes-franja [relojes]="relojesSitio()" [sitios]="sitios()" [sitio]="sitio()" />
+      }
 
       @if (datos(); as d) {
         <section class="ra-kpis" aria-label="Resumen de la semana">
@@ -192,6 +203,13 @@ import {
     .ra-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
     .ra-head h1 { margin: 0; font: 700 var(--fs-h2)/1.2 var(--font-body); color: var(--text-main); letter-spacing: -0.01em; }
     .ra-head p { margin: var(--sp-1) 0 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 70ch; }
+    .ra-head-btns { display: flex; align-items: center; gap: var(--sp-2); }
+    .ra-vivo { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 600; padding: 2px var(--sp-2);
+      border-radius: var(--r-pill); border: 1px solid var(--ok-border); background: var(--ok-soft-bg); color: var(--ok-soft-fg); white-space: nowrap; }
+    .ra-vivo[data-t='warn'] { border-color: var(--warn-border); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .ra-vivo[data-t='bad'] { border-color: var(--bad-border); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
+    .ra-vivo[data-t='mute'] { border-color: var(--border-color); background: var(--surface-2); color: var(--text-muted); }
+    .ra-vivo-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
     .ra-ctl { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
     .ra-sitio { min-width: 200px; }
     .ra-semana { display: inline-flex; align-items: center; gap: var(--sp-1); border: 1px solid var(--border-color); border-radius: var(--r-md); padding: 0 var(--sp-1); background: var(--card-bg); }
@@ -258,7 +276,7 @@ import {
       .ra-body.has-detail .ra-list { display: none; }
       .ra-detail { position: static; max-height: none; }
       .ra-back { display: inline-flex; align-self: flex-start; }
-      .ra-page.con-ficha .ra-kpis, .ra-page.con-ficha .ra-ctl, .ra-page.con-ficha .ra-head { display: none; }
+      .ra-page.con-ficha .ra-kpis, .ra-page.con-ficha .ra-ctl, .ra-page.con-ficha .ra-head, .ra-page.con-ficha app-rh-relojes-franja { display: none; }
     }
     @media (max-width: 40rem) {
       .ra-page { padding: var(--sp-3); }
@@ -294,6 +312,15 @@ export class RhAsistenciaComponent implements OnInit {
   readonly formHorario = signal<{ entrada: string; salida: string; comida: number; sabado: boolean; sabadoEntrada: string; sabadoSalida: string } | null>(null);
   readonly guardando = signal(false);
   readonly aviso = signal<{ texto: string; mal: boolean } | null>(null);
+  /**
+   * `[RH.1.7b]` Los relojes, como en Mega Talento: quien lee la asistencia tiene que ver si el dato es de hoy.
+   * `relojesMedidos` separa «no hay relojes» de «no se pudo leer» (p. ej. un 403): lo segundo no se pinta, para no
+   * decir «Sin reloj» de un sitio que sí lo tiene.
+   */
+  readonly relojes = signal<HrRelojEstadoDto[]>([]);
+  readonly relojesMedidos = signal(false);
+  readonly relojesSitio = computed(() => this.relojes().filter((r) => r.sucursalId === this.sitio()));
+  readonly vivo = computed(() => chipEnVivo(peorSemaforo(this.relojesSitio())));
 
   readonly etiqueta = computed(() => etiquetaSemana(this.jueves()));
   readonly esSemanaActual = computed(() => this.jueves() >= juevesDeLaSemana(hoyEnMexico()));
@@ -328,6 +355,10 @@ export class RhAsistenciaComponent implements OnInit {
     const { desde, hasta } = this.rango();
     this.loading.set(true);
     this.error.set(null);
+    this.api.estadoRelojes().subscribe({
+      next: (r) => { this.relojes.set(r); this.relojesMedidos.set(true); },
+      error: () => this.relojesMedidos.set(false),
+    });
     this.api.asistencia({ site_code: site, date_from: desde, date_to: hasta, only_promoters: this.soloPromotoras() }).subscribe({
       next: (d) => {
         if (mi !== this.seq) return;

@@ -1,8 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
-import type { HrAsistenciaResponse } from '@megadulces/contracts';
+import type { HrAsistenciaResponse, HrRelojEstadoDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { RhService } from '../rh.service';
@@ -15,7 +15,8 @@ import { RhAsistenciaComponent } from './rh-asistencia.component';
  */
 describe('[RH.1.7] RhAsistenciaComponent', () => {
   let fix: ComponentFixture<RhAsistenciaComponent>;
-  let api: { sitios: ReturnType<typeof vi.fn>; asistencia: ReturnType<typeof vi.fn>; asignarHorario: ReturnType<typeof vi.fn>; quitarHorario: ReturnType<typeof vi.fn> };
+  let api: { sitios: ReturnType<typeof vi.fn>; asistencia: ReturnType<typeof vi.fn>; asignarHorario: ReturnType<typeof vi.fn>; quitarHorario: ReturnType<typeof vi.fn>; estadoRelojes: ReturnType<typeof vi.fn> };
+  let relojes: HrRelojEstadoDto[] | 'error' = [];
   const navigate = vi.fn();
   const el = () => fix.nativeElement as HTMLElement;
   const texto = () => el().textContent ?? '';
@@ -28,6 +29,7 @@ describe('[RH.1.7] RhAsistenciaComponent', () => {
       asistencia: vi.fn(() => of(d)),
       asignarHorario: vi.fn(() => of({ ok: true, guardados: 1 })),
       quitarHorario: vi.fn(() => of({ ok: true, quitados: 1 })),
+      estadoRelojes: vi.fn(() => (relojes === 'error' ? throwError(() => new Error('403')) : of(relojes))),
     };
     await TestBed.configureTestingModule({
       imports: [RhAsistenciaComponent],
@@ -48,6 +50,7 @@ describe('[RH.1.7] RhAsistenciaComponent', () => {
     // Miércoles 7-oct-2026, mediodía en México: la semana de nómina abrió el jueves 1.
     vi.setSystemTime(new Date('2026-10-07T18:00:00Z'));
     navigate.mockReset();
+    relojes = [];
   });
   afterEach(() => { vi.useRealTimers(); TestBed.resetTestingModule(); });
 
@@ -125,5 +128,34 @@ describe('[RH.1.7] RhAsistenciaComponent', () => {
       site_code: 'PH', person_codes: ['101'], starts_at: '09:00', ends_at: '18:30', lunch_minutes: 45,
       works_saturday: false, saturday_starts_at: undefined, saturday_ends_at: undefined,
     });
+  });
+
+  const reloj = (o: Partial<HrRelojEstadoDto>): HrRelojEstadoDto => ({
+    serie: 'S1', sucursalId: 'PH', alias: 'Entrada PH', modo: 'agente', ip: '', nota: '', ultimaSenal: null, ultimaChecada: null, ultimoBackfill: null,
+    segundosSinSenal: 30, logsEnReloj: null, logsEnBase: null, desfaseRelojSeg: null, ultimoError: '', agenteVersion: '', agenteHost: '', semaforo: 'ok', ...o,
+  });
+
+  it('⭐ [RH.1.7b] como en Mega Talento: si el reloj del sitio no reporta, el chip dice «Sin señal» y el aviso se ve', async () => {
+    relojes = [reloj({ semaforo: 'mudo', segundosSinSenal: null }), reloj({ serie: 'S9', sucursalId: 'CEDIS', semaforo: 'ok' })];
+    await render(asistencia([persona()]), Permission.HR_ATTENDANCE_VER);
+    expect(el().querySelector('.ra-vivo')?.textContent?.trim()).toBe('Sin señal');
+    expect(el().querySelector('.rf-alerta')?.textContent).toContain('no ha reportado');
+    // Sólo los relojes del sitio que se ve: el de CEDIS no entra al resumen.
+    expect(el().querySelector('.rf-resumen')?.textContent?.trim()).toBe('1 sin señal');
+  });
+
+  it('con el reloj del sitio al día, el chip dice «En vivo» y no hay aviso', async () => {
+    relojes = [reloj({})];
+    await render(asistencia([persona()]), Permission.HR_ATTENDANCE_VER);
+    expect(el().querySelector('.ra-vivo')?.textContent?.trim()).toBe('En vivo');
+    expect(el().querySelector('.rf-alerta')).toBeNull();
+  });
+
+  it('⛔ NEGATIVA — si no se pudo leer el estado de los relojes, no se pinta ni chip ni franja (no se dice «Sin reloj» de quien sí tiene)', async () => {
+    relojes = 'error';
+    await render(asistencia([persona()]), Permission.HR_ATTENDANCE_VER);
+    expect(el().querySelector('.ra-vivo')).toBeNull();
+    expect(el().querySelector('app-rh-relojes-franja')).toBeNull();
+    expect(filas().length).toBe(1);   // la asistencia sí se ve
   });
 });

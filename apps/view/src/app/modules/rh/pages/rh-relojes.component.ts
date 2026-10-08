@@ -9,7 +9,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
-import { RhService, SEMAFORO_LABEL, haceCuanto, rhError } from '../rh.service';
+import { RhService, rhError } from '../rh.service';
+import { RhRelojesFranjaComponent } from '../components/rh-relojes-franja.component';
 
 /**
  * Fase RH · `[RH.1.7]` — Relojes checadores (`/rh/relojes`). Antes: el semáforo, el padrón de relojes, los lotes
@@ -18,13 +19,17 @@ import { RhService, SEMAFORO_LABEL, haceCuanto, rhError } from '../rh.service';
  * Regla de producto heredada: la pantalla nunca parece al día cuando no lo está. El semáforo mide la última SEÑAL
  * del lector (no la última checada): un reloj vivo sin nadie checando es verde; uno sin señal es rojo. Falta de
  * dato NO es falta del empleado, pero el atraso tiene que verse.
+ *
+ * `[RH.1.7b]` El estado se muestra con el FORMATO de Mega Talento (la franja de relojes que RH ya conoce), no con
+ * una tabla y mosaicos: una línea de resumen con el peor estado y un renglón por reloj con desde cuándo, la hora
+ * corrida, lo que falta y el motivo. Ver `RhRelojesFranjaComponent`.
  */
 interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: string; ip_address: string; port: number; ingest_mode: 'agente' | 'push' | 'manual'; comm_key: number; is_active: boolean; is_paused: boolean; notes: string }
 
 @Component({
   selector: 'app-rh-relojes',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent],
+  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, SidePeekComponent, RhRelojesFranjaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rr-page">
@@ -39,34 +44,10 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
         </div>
       </header>
 
-      <section class="rr-kpis" aria-label="Resumen">
-        @for (k of resumen(); track k.s) {
-          <div class="rr-kpi" [attr.data-s]="k.s"><b>{{ k.n }}</b><span>{{ semaforoLabel[k.s] }}</span></div>
-        }
-      </section>
-
       <app-load-state [loading]="loading() && !estado().length" [error]="error()" [isEmpty]="!loading() && !error() && !estado().length"
                       emptyIcon="pi-clock" emptyTitle="No hay relojes dados de alta" [emptyHint]="gestiona() ? 'Agrega el primero con su número de serie.' : null" (retry)="cargar()">
-        <section class="rr-list" aria-label="Relojes">
-          <div class="rr-wrap dt-scope">
-            <table class="rr-table dt-stack">
-              <thead><tr><th>Reloj</th><th>Sitio</th><th>Estado</th><th>Última señal</th><th class="opc">Última checada</th><th class="num opc">Checadas reloj / base</th><th>Problema</th></tr></thead>
-              <tbody>
-                @for (r of estado(); track r.serie) {
-                  <tr (click)="gestiona() && editar(r.serie)" [attr.tabindex]="gestiona() ? 0 : null" (keydown.enter)="gestiona() && editar(r.serie)">
-                    <td class="dt-id" role="cell" data-label="Reloj"><b>{{ r.alias || r.serie }}</b><small class="mono">{{ r.serie }}@if (r.ip) { · {{ r.ip }} }</small></td>
-                    <td role="cell" data-label="Sitio">{{ nombreSitio(r.sucursalId) }}</td>
-                    <td role="cell" data-label="Estado"><span class="pill" [attr.data-s]="r.semaforo">{{ semaforoLabel[r.semaforo] }}</span></td>
-                    <td class="mono" role="cell" data-label="Última señal">{{ hace(r.segundosSinSenal) }}</td>
-                    <td class="mono opc" role="cell" data-label="Última checada">{{ r.ultimaChecada ? (r.ultimaChecada | date: 'd MMM HH:mm') : '—' }}</td>
-                    <td class="num opc" role="cell" data-label="Checadas reloj / base">{{ r.logsEnReloj ?? '—' }} / {{ r.logsEnBase ?? '—' }}</td>
-                    <td class="rr-err" role="cell" data-label="Problema">{{ r.ultimoError || '—' }}</td>
-                  </tr>
-                }
-              </tbody>
-            </table>
-          </div>
-        </section>
+        <app-rh-relojes-franja [relojes]="estado()" [sitios]="sitios()" [abiertaAlInicio]="true" [detalle]="true"
+                               [editable]="gestiona()" (editar)="editar($event)" />
       </app-load-state>
 
       @if (lotes().length) {
@@ -154,30 +135,15 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
     .rr-head h1 { margin: 0; font: 700 var(--fs-h2)/1.2 var(--font-body); color: var(--text-main); letter-spacing: -0.01em; }
     .rr-head p { margin: var(--sp-1) 0 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 70ch; }
     .rr-head-btns { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-    .rr-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-3); }
-    .rr-kpi { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
-    .rr-kpi b { font: 700 var(--fs-h2)/1 var(--font-mono); color: var(--text-main); }
-    .rr-kpi span { font-size: var(--fs-xs); color: var(--text-muted); }
-    .rr-kpi[data-s='mudo'] b { color: var(--bad-fg); }
-    .rr-kpi[data-s='atrasado'] b { color: var(--warn-fg); }
-    .rr-list, .rr-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
+    .rr-card { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
     .rr-card { padding: var(--sp-3) var(--sp-4); display: flex; flex-direction: column; gap: var(--sp-2); }
     .rr-card h2 { margin: 0; font-size: var(--fs-h3); color: var(--text-main); }
     .rr-nota { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
-    .rr-wrap { overflow: auto; }
-    .rr-table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-    .rr-table th { position: sticky; top: 0; background: var(--surface-2); text-align: left; font-weight: 600; color: var(--text-muted); font-size: var(--fs-micro); padding: var(--sp-2) var(--sp-3); white-space: nowrap; }
-    .rr-table td { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color); color: var(--text-main); vertical-align: top; }
-    .rr-table tbody tr:hover { background: var(--surface-hover-bg); }
-    .rr-table tbody tr[tabindex] { cursor: pointer; }
-    .rr-table tbody tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-    td small { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
     .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .rr-err { color: var(--bad-soft-fg); font-size: var(--fs-xs); overflow-wrap: anywhere; max-width: 22rem; }
     .pill { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; background: var(--surface-2); color: var(--text-muted); }
-    .pill[data-s='ok'], .pill[data-o='hecho'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
-    .pill[data-s='atrasado'], .pill[data-o='pendiente'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
-    .pill[data-s='mudo'], .pill[data-o='error'] { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight: 600; }
+    .pill[data-o='hecho'] { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    .pill[data-o='pendiente'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .pill[data-o='error'] { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight: 600; }
     .rr-lotes, .rr-ordenes { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
     .rr-ordenes small { color: var(--text-muted); font-size: var(--fs-xs); margin-left: var(--sp-2); }
     .rr-ordenes-ctl { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
@@ -189,7 +155,6 @@ interface FormReloj { serie: string; nuevo: boolean; site_code: string; label: s
     .rr-form-btns { display: flex; gap: var(--sp-2); }
     @media (max-width: 40rem) {
       .rr-page { padding: var(--sp-3); }
-      .rr-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     }
   `],
 })
@@ -197,7 +162,6 @@ export class RhRelojesComponent implements OnInit {
   private readonly api = inject(RhService);
   private readonly perms = inject(PermissionsService);
 
-  readonly semaforoLabel = SEMAFORO_LABEL;
   readonly modos = [
     { value: 'agente', label: 'Lo lee el lector (agente)' },
     { value: 'push', label: 'El reloj envía solo (push)' },
@@ -222,9 +186,6 @@ export class RhRelojesComponent implements OnInit {
   readonly avisoOrdenes = signal<{ texto: string; mal: boolean } | null>(null);
 
   readonly gestiona = computed(() => this.perms.has(Permission.HR_DEVICES_GESTIONAR));
-  /** Cuántos relojes en cada color; los cuatro siempre, aunque sea cero (un cero también informa). */
-  readonly resumen = computed(() => (['ok', 'atrasado', 'mudo', 'pendiente'] as const).map((s) => ({ s, n: this.estado().filter((r) => r.semaforo === s).length })));
-  private readonly nombresSitio = computed(() => new Map(this.sitios().map((s) => [s.code, s.name])));
 
   ngOnInit(): void {
     this.api.sitios().subscribe({
@@ -244,9 +205,6 @@ export class RhRelojesComponent implements OnInit {
     this.api.relojes().subscribe({ next: (r) => this.relojes.set(r), error: () => this.relojes.set([]) });
     this.api.lotesPendientes().subscribe({ next: (l) => this.lotes.set(l), error: () => this.lotes.set([]) });
   }
-
-  nombreSitio(code: string | null): string { return (code && this.nombresSitio().get(code)) || code || '—'; }
-  hace(s: number | null): string { return haceCuanto(s); }
 
   editar(serie: string | null): void {
     const r = serie ? this.relojes().find((x) => x.serial_number === serie) : null;

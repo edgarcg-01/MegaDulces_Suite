@@ -29,7 +29,7 @@ describe('[RH.1.7] RhRelojesComponent', () => {
   let api: Record<string, ReturnType<typeof vi.fn>>;
   const el = () => fix.nativeElement as HTMLElement;
   const texto = () => el().textContent ?? '';
-  const filas = () => Array.from(el().querySelectorAll('.rr-table tbody tr')) as HTMLElement[];
+  const filas = () => Array.from(el().querySelectorAll('.rf-rel')) as HTMLElement[];
   const boton = (label: string) => Array.from(el().querySelectorAll('button')).find((b) => b.textContent?.trim() === label);
 
   async function render(o: { estado: HrRelojEstadoDto[]; lotes?: HrLotePendienteDto[]; claves: string[] }) {
@@ -59,24 +59,26 @@ describe('[RH.1.7] RhRelojesComponent', () => {
   }
   afterEach(() => TestBed.resetTestingModule());
 
-  it('⭐ el semáforo: «Sin señal» se ve, con el nombre del sitio y el problema', async () => {
-    await render({ estado: [estado({ serie: 'S1', semaforo: 'mudo', segundosSinSenal: 3 * 86400, ultimoError: 'No responde el puerto' })], claves: [Permission.HR_ATTENDANCE_VER] });
+  it('⭐ con el formato de Mega Talento: la franja abierta, el reloj sin señal con desde cuándo y el problema', async () => {
+    await render({ estado: [estado({ serie: 'S1', alias: '', semaforo: 'mudo', segundosSinSenal: 3 * 86400, ultimoError: 'No responde el puerto' })], claves: [Permission.HR_ATTENDANCE_VER] });
+    expect(el().querySelector('.rf')?.getAttribute('data-estado')).toBe('mudo');
+    expect(texto()).toContain('1 sin señal');
     const f = filas()[0].textContent ?? '';
-    expect(f).toContain('Sin señal');
-    expect(f).toContain('hace 3 d');
-    expect(f).toContain('Padre Hidalgo');
+    expect(f).toContain('hace 3 días');
+    expect(f).toContain('Padre Hidalgo');           // sin alias, el nombre del sitio
     expect(f).toContain('No responde el puerto');
+    expect(f).toContain('S1');                      // en esta pantalla, con su serie
   });
 
-  it('⛔ NEGATIVA — un reloj que nunca habló dice «nunca», no «hace un momento»', async () => {
+  it('⛔ NEGATIVA — un reloj que nunca habló dice «nunca ha reportado», no «hace 0 s»', async () => {
     await render({ estado: [estado({ segundosSinSenal: null, semaforo: 'mudo' })], claves: [Permission.HR_ATTENDANCE_VER] });
-    expect(filas()[0].textContent).toContain('nunca');
+    expect(filas()[0].textContent).toContain('nunca ha reportado');
   });
 
-  it('⛔ NEGATIVA — los cuatro colores se cuentan aunque sean cero', async () => {
+  it('ya no hay tabla ni mosaicos: el resumen dice sólo lo que hay', async () => {
     await render({ estado: [estado({ semaforo: 'ok' }), estado({ serie: 'S2', semaforo: 'ok' })], claves: [Permission.HR_ATTENDANCE_VER] });
-    expect(fix.componentInstance.resumen()).toEqual([{ s: 'ok', n: 2 }, { s: 'atrasado', n: 0 }, { s: 'mudo', n: 0 }, { s: 'pendiente', n: 0 }]);
-    expect(el().querySelectorAll('.rr-kpi').length).toBe(4);
+    expect(el().querySelector('table')).toBeNull();
+    expect(el().querySelector('.rf-resumen')?.textContent?.trim()).toBe('2 al día');
   });
 
   it('⭐ lo que llegó sin aplicar se ve aunque nadie pueda aplicarlo', async () => {
@@ -92,13 +94,20 @@ describe('[RH.1.7] RhRelojesComponent', () => {
   it('⛔ NEGATIVA — con sólo VER no se ofrece agregar, editar ni cambiar a nadie en un reloj', async () => {
     await render({ estado: [estado({})], claves: [Permission.HR_ATTENDANCE_VER] });
     expect(boton('Agregar reloj')).toBeUndefined();
-    filas()[0].click();
-    fix.detectChanges();
+    expect(el().querySelector('.rf-editar')).toBeNull();
     expect(fix.componentInstance.peek()).toBe(false);
     fix.componentInstance.persona.set('101');
     fix.detectChanges();
     expect(boton('Renombrar')).toBeUndefined();
     expect(boton('Volver a darlo de alta')).toBeUndefined();
+  });
+
+  it('con GESTIONAR, «Editar» en el renglón del reloj abre su formulario', async () => {
+    await render({ estado: [estado({ serie: 'S1' })], claves: [Permission.HR_DEVICES_GESTIONAR] });
+    (el().querySelector('.rf-editar') as HTMLButtonElement).click();
+    fix.detectChanges();
+    expect(fix.componentInstance.peek()).toBe(true);
+    expect(fix.componentInstance.form()).toMatchObject({ serie: 'S1', nuevo: false });
   });
 
   it('con GESTIONAR, «Dar de alta» abre el formulario con la serie que llegó', async () => {

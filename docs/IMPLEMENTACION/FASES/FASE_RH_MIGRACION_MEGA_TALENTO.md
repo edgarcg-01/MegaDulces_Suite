@@ -494,6 +494,15 @@ administrador porque no había roles):
 - Probada contra la base local dentro de una transacción revertida: otorga, es idempotente, **no pisa un
   `false` explícito** (lo declara) y `down` deja todo como estaba.
 
+**`[RH.1.7b]` Los relojes con el formato de Mega Talento (2026-10-08, pedido de David).** La tabla y los cuatro
+mosaicos de `/rh/relojes` se cambiaron por la **franja** que RH ya conocía (`asistencia-resumen`, «SEMÁFORO DE
+RELOJES»): borde del color del peor estado, una línea de resumen («3 al día · 1 sin señal»), y por reloj desde
+cuándo («hace 40 s», «sin señal desde el 17 jul», «nunca ha reportado»), *hora corrida ±N min*, *faltan N* y el
+motivo accionable. Y vuelve a **Asistencia**, donde vivía allá: chip «En vivo / Con retraso / Sin señal» y el aviso
+«este sitio no ha reportado» visible aunque la franja esté plegada — quien lee la asistencia tiene que saber si el
+dato es de hoy. Se trasladó el formato, no el CSS (tokens de la Suite). No se trasladó `origenAtrasado`: allá había
+dos lectores en cadena, aquí uno. Lógica pura en `relojes-formato.ts`, componente `RhRelojesFranjaComponent`.
+
 **Lo que NO se construyó (declarado).**
 - La pantalla de la **cola de alertas**: 10,429 sugeridas y cero decididas en Mega Talento (§5.2). Se
   pregunta a RH antes de construirla.
