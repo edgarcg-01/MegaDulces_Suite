@@ -448,6 +448,52 @@ else
   esac
 fi
 
+# ── ⛔ COMPUERTA DE DISCO: no se construye sin espacio ───────────────────────────────────────
+#
+# **El 2026-10-08 producción se cayó por disco, y el despliegue fue quien la empujó.** El nodo
+# venía bajando todo el día (45 → 40 → 34 → 31 GB, ~4 GB por despliegue, cinco despliegues);
+# nadie frenó, se construyó igual, el kubelet marcó `DiskPressure=True`, puso
+# `node.kubernetes.io/disk-pressure:NoSchedule` y **desalojó a `pg-prod`**. Sin base, nada
+# arrancaba. La recuperación costó ~13 min y sólo empezó cuando se liberaron 46 GB a mano.
+#
+# ⭐ Este freno es el que faltaba. Construir seis imágenes es la operación que MÁS disco consume
+# en toda la máquina, y era la única sin comprobar que hubiera dónde ponerlas. El resto de las
+# compuertas (arranque, migraciones, sello, humo) miran si el código está bien; ninguna miraba si
+# el servidor podía recibirlo.
+#
+# ⚠️ No se limita a frenar: **primero intenta resolverlo**. Llama a la poda y vuelve a medir. Si
+# el espacio aparece, sigue; si no, se niega — porque desplegar acá no es "arriesgado", es la
+# causa comprobada de una caída, y un despliegue que no entra es infinitamente más barato que una
+# base de datos desalojada.
+#
+# El piso es 55 GB y no 49: el kubelet marca `DiskPressure` por debajo del **10% de `nodefs`**
+# (49 GB en los 492 de `md`), y un despliegue se come ~4 GB. Frenar en 49 sería frenar cuando ya
+# es tarde.
+PISO_DEPLOY_GB="${AUTO_DEPLOY_PISO_GB:-55}"
+libre_gb_ad() { df -BG --output=avail / 2>/dev/null | tail -1 | tr -dc '0-9'; }
+
+_LIBRE=$(libre_gb_ad)
+if [ "${_LIBRE:-0}" -lt "$PISO_DEPLOY_GB" ]; then
+  di "disco: ${_LIBRE}GB libres, bajo el piso de ${PISO_DEPLOY_GB}GB — podando ANTES de construir"
+  if [ -f "$HOME/ops/prod/podar-disco.sh" ]; then
+    sh "$HOME/ops/prod/podar-disco.sh" 2>&1 | sed 's/^/      /' || true
+  else
+    di "   aviso: falta ~/ops/prod/podar-disco.sh — no se pudo podar"
+  fi
+  _LIBRE=$(libre_gb_ad)
+  if [ "${_LIBRE:-0}" -lt "$PISO_DEPLOY_GB" ]; then
+    di "FRENADO: ${_LIBRE}GB libres tras podar, sigue bajo el piso de ${PISO_DEPLOY_GB}GB."
+    di "  Construir seis imágenes acá tira el nodo a DiskPressure y el kubelet desaloja pg-prod."
+    di "  Qué mirar:  df -h /  ·  docker system df  ·  du -sh ~/pgbackrest ~/backups"
+    di "  Escape, si sabés lo que hacés:  AUTO_DEPLOY_PISO_GB=0 sh \$HOME/ops/prod/auto-deploy.sh"
+    latir error "despliegue de $DESEADO FRENADO: ${_LIBRE}GB libres < piso ${PISO_DEPLOY_GB}GB (la poda no alcanzó)"
+    exit 1
+  fi
+  di "disco: ${_LIBRE}GB libres tras podar — se sigue"
+else
+  di "disco: ${_LIBRE}GB libres (piso ${PISO_DEPLOY_GB}GB)"
+fi
+
 # ── Construir y recrear ─────────────────────────────────────────────────────
 # ⚠️ Las funciones se DEFINEN antes de usarlas: en `sh` no hay izado. Estaba declarada 50
 # lineas mas abajo y el 2026-09-24 la corrida real imprimio `guardar_anteriores: not found` y
