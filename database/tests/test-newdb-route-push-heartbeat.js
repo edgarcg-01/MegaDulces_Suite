@@ -31,8 +31,17 @@ const { Client } = require('pg');
 // donde aterriza el push de las camionetas. Su URL no la exporta el runner: se lee del `.env`.
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
 
-const URL = process.env.DATABASE_URL_KEPLER_CONSOLIDADO
-  || (() => { throw new Error('falta DATABASE_URL_KEPLER_CONSOLIDADO en el .env'); })();
+// ⚠️ Si falta la URL, esto DECLARA y sale en verde con un NO MEDIDO -- no revienta. Una prueba
+// que se cae por el entorno (y no por el codigo que vigila) enseña a ignorar la suite entera,
+// que es peor que no tenerla. La ausencia se dice; no se disfraza de falla ni de exito.
+const URL = process.env.DATABASE_URL_KEPLER_CONSOLIDADO || null;
+if (!URL) {
+  console.log('\n=== [RD.53] el latido del push de ruta ===');
+  console.log('  ⓘ NO MEDIDO · falta DATABASE_URL_KEPLER_CONSOLIDADO — esta prueba va contra');
+  console.log('    `kepler_consolidado` (donde aterriza el push de las camionetas), no contra');
+  console.log('    `postgres_platform`. Sin esa URL no hay nada que vigilar.\n');
+  process.exit(0);
+}
 
 let ok = 0; let fail = 0; let nm = 0;
 const check = (label, cond, detail = '') => {
