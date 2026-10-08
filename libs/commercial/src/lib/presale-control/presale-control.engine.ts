@@ -33,17 +33,21 @@ export interface HechosEtapa {
   ligado: boolean;
   /** Clave del cliente en Kepler (`customers.erp_customer_code`). */
   customer_erp_code: string | null;
+  /** `[MCP.5]` Va cargado en una guía de carga ya IMPRESA (el repartidor la firmó y salió). */
+  en_guia_impresa?: boolean;
 }
 
 /**
  * La etapa se DERIVA de los hechos; no existe una columna "etapa" que pueda envejecer.
  *
- * ⚠️ El orden de las preguntas importa: lo cerrado manda sobre todo lo demás, y la liga manda
- * sobre la ola (un pedido cobrado en Kepler ya salió del almacén aunque la ola no se haya cerrado).
+ * ⚠️ El orden de las preguntas importa: lo cerrado manda sobre todo lo demás; ir en una guía
+ * impresa manda sobre la liga (ya salió con el repartidor), y la liga manda sobre la ola (un pedido
+ * cobrado en Kepler ya salió del almacén aunque la ola no se haya cerrado).
  */
 export function etapaDe(h: HechosEtapa): PresaleStage {
   if (h.status === 'cancelled') return 'cancelado';
   if (h.status === 'fulfilled') return 'entregado';
+  if (h.en_guia_impresa) return 'en_ruta';
   if (h.ligado) return 'cobrado';
   if (!h.customer_erp_code) return 'esperando_alta';
   if (h.wave_stage === 'listo_embarque') return 'en_caja';

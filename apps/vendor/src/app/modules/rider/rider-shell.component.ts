@@ -48,6 +48,10 @@ import { RoutePingService } from '../../core/services/route-ping.service';
           <i class="pi pi-home"></i>
           <span>Entregas</span>
         </a>
+        <a routerLink="llevar" routerLinkActive="active">
+          <i class="pi pi-truck"></i>
+          <span>Llevar</span>
+        </a>
         <a routerLink="route" routerLinkActive="active">
           <i class="pi pi-map"></i>
           <span>Ruta</span>

@@ -50,7 +50,9 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
         </div>
       </section>
     }
-    
+    <!-- [MCP.5] Llevar pedidos de preventa: pescarlos para la guía de carga que imprime la caja. -->
+    <a routerLink="/vendor/llevar" class="llevar-link"><i class="pi pi-truck" aria-hidden="true"></i><span><b>Llevar pedidos</b><small>Elige lo que te llevas para tu guía de carga</small></span><i class="pi pi-angle-right" aria-hidden="true"></i></a>
+
     <div class="body-pad">
       @if (loading()) {
         <p-skeleton height="400px"></p-skeleton>
@@ -123,6 +125,11 @@ import { OfflineOrderService, PendingOrderSummary } from '../../../core/services
   styles: [
     `
       :host { display: block; }
+      .llevar-link { display: flex; align-items: center; gap: .75rem; margin: .75rem 1rem 0; padding: .8rem .9rem; border: 1px solid var(--border-color); border-radius: 12px; background: var(--card-bg); color: var(--text-main); text-decoration: none; min-height: 3rem; }
+      .llevar-link > .pi:first-child { color: var(--action); font-size: var(--fs-lg); }
+      .llevar-link span { flex: 1; display: flex; flex-direction: column; }
+      .llevar-link small { color: var(--text-muted); font-size: var(--fs-xs); }
+      .llevar-link:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; }
       .hero {
         margin: -1rem -1rem 0; padding: 1.3rem 1rem 1.4rem;
         background: var(--neutral-50, #FAFAFA);

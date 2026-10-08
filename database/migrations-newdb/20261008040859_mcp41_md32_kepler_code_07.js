@@ -46,6 +46,20 @@ exports.up = async function up(knex) {
   if (w.kepler_code) {
     throw new Error(`[MCP.4.1] MD-32 ya tiene kepler_code '${w.kepler_code}', distinto de 07: no se pisa.`);
   }
+  // La llave única `warehouses_kepler_code_uq` es sobre filas VIVAS. En prod MD-32 está dado de baja
+  // y no choca con el almacén 07; si en esta base MD-32 sigue vivo y otro almacén vivo ya es 07,
+  // escribirlo rompería la llave (medido en el Postgres de desarrollo): se declara y no se toca.
+  if (!w.deleted_at) {
+    const { rows: otro } = await knex.raw(
+      `SELECT code FROM commercial.warehouses
+        WHERE kepler_code = '07' AND deleted_at IS NULL AND id <> ?`,
+      [w.id],
+    );
+    if (otro.length) {
+      console.log(`  [MCP.4.1] ◻ NO APLICA: MD-32 sigue vivo en esta base y el almacén ${otro[0].code} ya es 07.`);
+      return;
+    }
+  }
 
   const n = await knex('commercial.warehouses')
     .where({ id: w.id })

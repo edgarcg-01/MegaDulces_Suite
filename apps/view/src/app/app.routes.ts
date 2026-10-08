@@ -1347,6 +1347,12 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)]
       },
       {
+        // [MCP.5] Guías de carga de preventa (la caja imprime la guía que firma el repartidor).
+        path: 'pedidos/guias',
+        loadComponent: () => import('./modules/almacen/pages/almacen-preventa-guias.component').then(m => m.AlmacenPreventaGuiasComponent),
+        canActivate: [permissionGuard(Permission.PREVENTA_GUIAS_GESTIONAR)]
+      },
+      {
         // [MCP.2] Mesa de Control de Preventa: pedidos PD- del vendedor + su documento de Kepler.
         path: 'pedidos/preventa',
         loadComponent: () => import('./modules/almacen/pages/almacen-preventa.component').then(m => m.AlmacenPreventaComponent),
