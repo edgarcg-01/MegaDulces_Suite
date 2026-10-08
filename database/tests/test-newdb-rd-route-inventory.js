@@ -1060,6 +1060,69 @@ async function cuerposDeLaMigracion() {
         msViva > msInv,
         'leer la copia no es más barato que recalcular: entonces la copia sólo aporta deuda');
     }
+
+    // ── `[RD.48]` El día abierto: las dos tablas tienen que SUMAR lo que dice la fila ────────
+    //
+    // ⭐ Es la única aserción que hace útil al drill-down. Si el desglose no cuadra con el total
+    // que el usuario tocó, abrir un día no explica nada: confunde. El riesgo es concreto y esta
+    // fase ya lo pagó una vez — la serie valúa con `mv_rd_route_unit_value` y el ledger trae
+    // además `costo_doc`/`venta_doc`; tomar el del ledger «porque está ahí» daba otro número.
+    console.log('\n── [RD.48] el día abierto cuadra con su fila ──');
+    const { rows: dias } = await db.raw(`
+      SELECT route_no, business_date::text AS fecha, count(*)::int AS n
+        FROM analytics.mv_rd_route_ledger
+       WHERE clase IN ('carga','venta')
+       GROUP BY 1,2 ORDER BY 3 DESC LIMIT 3`);
+    if (!dias.length) {
+      noMedido('[RD.48] el día abierto', 'el ledger no tiene días con carga ni venta');
+    } else {
+      // El MISMO SQL de las dos puntas: la serie por día y el desglose de ese día. Si divergen,
+      // es que alguien le cambió la fuente a una de las dos.
+      const DESGLOSE = `
+        WITH u AS (SELECT sku, unidad, costo_u, precio_u FROM analytics.mv_rd_route_unit_value
+                    WHERE tenant_id = ? AND route_no = ?)
+        SELECT round(coalesce(sum(l.qty * u.costo_u),0),2)::float AS costo,
+               count(*) FILTER (WHERE u.costo_u IS NULL)::int     AS sin_valuar
+          FROM analytics.mv_rd_route_ledger l
+          LEFT JOIN u ON u.sku = l.sku AND u.unidad = l.unidad
+         WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date = ?
+           AND l.clase IN ('carga','venta')`;
+      const SERIE = `
+        WITH u AS (SELECT sku, unidad, costo_u FROM analytics.mv_rd_route_unit_value
+                    WHERE tenant_id = ? AND route_no = ?)
+        SELECT round(coalesce(sum(l.qty * u.costo_u),0),2)::float AS costo
+          FROM analytics.mv_rd_route_ledger l
+          LEFT JOIN u ON u.sku = l.sku AND u.unidad = l.unidad
+         WHERE l.tenant_id = ? AND l.route_no = ? AND l.business_date = ?
+           AND l.clase IN ('carga','venta')`;
+      let maxMs = 0; let cuadran = 0;
+      for (const d of dias) {
+        const t0 = Date.now();
+        const { rows: [des] } = await db.raw(DESGLOSE, [tenant, d.route_no, tenant, d.route_no, d.fecha]);
+        maxMs = Math.max(maxMs, Date.now() - t0);
+        const { rows: [ser] } = await db.raw(SERIE, [tenant, d.route_no, tenant, d.route_no, d.fecha]);
+        if (Math.abs(n(des.costo) - n(ser.costo)) < 0.01) cuadran++;
+      }
+      t(`[RD.48] el desglose suma lo mismo que la serie en los ${dias.length} días más grandes`,
+        cuadran === dias.length,
+        `${dias.length - cuadran} día(s) no cuadran — el drill-down abriría un total que sus renglones no explican`);
+      t(`[RD.48] el día más grande se sirve en ${maxMs} ms`, maxMs < 500,
+        'por encima de 500 ms la pantalla "no funciona" según la regla del proyecto');
+
+      // La cobertura de la valuación se DECLARA: los renglones sin valuar no entran al total,
+      // y la pantalla los cuenta aparte en vez de sumarlos como cero.
+      const { rows: [cob] } = await db.raw(`
+        WITH u AS (SELECT route_no, sku, unidad, costo_u FROM analytics.mv_rd_route_unit_value)
+        SELECT count(*)::int AS pares,
+               count(*) FILTER (WHERE u.costo_u IS NULL)::int AS sin_valuar
+          FROM (SELECT DISTINCT route_no, sku, unidad FROM analytics.mv_rd_route_ledger
+                 WHERE clase IN ('carga','venta')) l
+          LEFT JOIN u ON u.route_no = l.route_no AND u.sku = l.sku AND u.unidad = l.unidad`);
+      const pctVal = n(cob.pares) ? (100 * (n(cob.pares) - n(cob.sin_valuar)) / n(cob.pares)) : 0;
+      t(`[RD.48] el 90%+ de los pares tiene con qué valuarse (hoy ${pctVal.toFixed(1)}%, ${cob.sin_valuar} de ${cob.pares} se declaran sin valuar)`,
+        pctVal >= 90,
+        'demasiados renglones quedarían fuera del total y el desglose dejaría de explicar la fila');
+    }
   } catch (e) {
     bad++;
     console.error('  ✘ excepción:', e.message);

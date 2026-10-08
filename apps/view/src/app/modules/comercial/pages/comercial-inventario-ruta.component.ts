@@ -16,6 +16,8 @@ import {
   RouteInventoryDetailRow,
   RouteInventoryReport,
   RouteInventoryRow,
+  RouteDayBreakdown,
+  RouteDayLine,
   RouteNegativeRow,
   RouteSeriesPoint,
   RouteShipment,
@@ -328,15 +330,132 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                         [isEmpty]="serie()?.length === 0" [skeletonRows]="8"
                         emptyIcon="pi-chart-line" emptyTitle="Este camión no tuvo ni carga ni venta en estas fechas"
                         (retry)="pedirSerie()">
+
+        <!-- ─────────── Un día abierto: qué entró y qué salió (RD.48) ─────────── -->
+        @if (diaSel(); as d) {
+          <div class="ir-sub-head">
+            <button type="button" class="ir-volver" (click)="cerrarDia()">
+              <i class="pi pi-arrow-left" aria-hidden="true"></i> Volver a los días
+            </button>
+            <span class="ir-tenue">
+              <strong class="ir-mono">{{ d.fecha }}</strong>
+              · se le cargó {{ dCarga(d) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+              · vendió {{ dVenta(d) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+            </span>
+          </div>
+
+          <!--
+            El cuadre del drill-down. Si las dos tablas no suman lo que decia la fila que el
+            usuario toco, la pantalla lo DICE: un desglose que no cuadra con su total no
+            explica nada. No deberia pasar -- las dos cifras salen del mismo resolvedor -- y
+            por eso mismo, si pasa, hay que enterarse.
+          -->
+          @if (descuadreDia(); as x) {
+            <p class="ir-aviso ir-aviso-mal">
+              <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              El desglose suma {{ x.desglose | currency:'MXN':'symbol-narrow':'1.2-2' }} y la fila
+              del día decía {{ x.fila | currency:'MXN':'symbol-narrow':'1.2-2' }}. No tomes
+              ninguna de las dos como buena hasta saber por qué.
+            </p>
+          }
+          @if (d.sin_valuar > 0 || d.sin_nombre > 0) {
+            <p class="ir-aviso">
+              <i class="pi pi-info-circle" aria-hidden="true"></i>
+              @if (d.sin_valuar > 0) {
+                <strong>{{ d.sin_valuar }}</strong> renglón(es) sin con qué valuarse: aparecen con
+                su cantidad pero <strong>no entran en los totales</strong>.
+              }
+              @if (d.sin_nombre > 0) {
+                {{ d.sin_valuar > 0 ? ' · ' : '' }}<strong>{{ d.sin_nombre }}</strong> sin nombre en
+                el catálogo: se muestran con su código.
+              }
+            </p>
+          }
+
+          <!-- Filtros del desglose. Client-side sobre lo ya traído: instantáneos. -->
+          <div class="ir-filtros" role="group" aria-label="Filtros del desglose del día">
+            <span class="ir-buscar">
+              <i class="pi pi-search" aria-hidden="true"></i>
+              <input type="search" [ngModel]="buscaDia()" (ngModelChange)="buscaDia.set($event)"
+                     placeholder="Buscar producto o código" aria-label="Buscar producto o código" />
+            </span>
+            <!-- La UNIDAD es filtro de primera clase, no un adorno: el mismo SKU entra en PZA y
+                 en PAQ, y mirarlos juntos es el error que ADR-055/057 documentan en todo el
+                 proyecto. Acá se puede aislar un peldaño. -->
+            <span class="ir-chips" role="radiogroup" aria-label="Unidad">
+              @for (u of unidadesDia(); track u) {
+                <button type="button" role="radio" [attr.aria-checked]="unidadDia() === u"
+                        [class.on]="unidadDia() === u" (click)="unidadDia.set(u)">{{ u === '' ? 'Todas' : u }}</button>
+              }
+            </span>
+          </div>
+
+          <div class="ir-dos-tablas">
+            @for (bloque of bloquesDia(); track bloque.clase) {
+              <section class="ir-bloque">
+                <h4 class="ir-bloque-h">
+                  <i [class]="bloque.icono" aria-hidden="true"></i> {{ bloque.titulo }}
+                  <span class="ir-tenue">{{ bloque.filas.length }} de {{ bloque.total }} ·
+                    {{ bloque.suma | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
+                </h4>
+                @if (bloque.filas.length === 0) {
+                  <p class="ir-vacio">{{ bloque.vacio }}</p>
+                } @else {
+                  <div class="dt-scope">
+                    <p-table [value]="bloque.filas" [scrollable]="true" scrollHeight="34vh"
+                             class="dt-stack surf-table surf-table--sticky" size="small" [rowHover]="true"
+                             [tableStyle]="{ 'min-width': '34rem' }">
+                      <ng-template #header>
+                        <tr><th>Producto</th><th>Unidad</th><th class="num">Cantidad</th>
+                          <th class="num">{{ metrica() === 'costo' ? 'Le costó' : 'A precio' }}</th></tr>
+                      </ng-template>
+                      <ng-template #body let-l>
+                        <tr>
+                          <td role="cell" data-label="Producto">
+                            {{ l.producto }}
+                            @if (l.producto === l.sku) { <span class="ir-tenue" title="El catálogo no le da nombre">sin nombre</span> }
+                            @else { <small class="ir-mono ir-tenue">{{ l.sku }}</small> }
+                          </td>
+                          <td class="ir-mono ir-tenue" role="cell" data-label="Unidad">{{ l.unidad }}</td>
+                          <td class="num ir-mono" role="cell" data-label="Cantidad">{{ l.qty | number:'1.0-3' }}</td>
+                          <td class="num ir-mono" role="cell" [attr.data-label]="metrica() === 'costo' ? 'Le costó' : 'A precio'">
+                            @if (valorLinea(l) === null) {
+                              <span class="ir-tenue" title="No hay con qué valuarlo: no entra en el total">—</span>
+                            } @else { {{ valorLinea(l) | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                          </td>
+                        </tr>
+                      </ng-template>
+                    </p-table>
+                  </div>
+                }
+              </section>
+            }
+          </div>
+        } @else {
+
           <p class="ir-nota">
             Cada día, lo que se le cargó contra lo que vendió, y <strong>lo que queda</strong> al
             cierre. El día en que eso cruza a negativo es el día en que la ruta empezó a vender lo
             que ya traía. Las tres cifras en pesos van en la
             <strong>{{ metrica() === 'costo' ? 'misma valuación: el costo del embarque' : 'misma valuación: el precio al cliente' }}</strong>,
             para que restarlas signifique algo; las unidades van en su propia columna.
+            <strong>Tocá un día</strong> para ver qué productos entraron y cuáles salieron.
           </p>
+
+          <!-- Filtros de la serie. Client-side: narran lo ya traído, sin volver al servidor. -->
+          <div class="ir-filtros" role="group" aria-label="Qué días mostrar">
+            <span class="ir-chips" role="radiogroup" aria-label="Qué días mostrar">
+              @for (f of FILTROS_DIA; track f.value) {
+                <button type="button" role="radio" [attr.aria-checked]="filtroDia() === f.value"
+                        [class.on]="filtroDia() === f.value" (click)="filtroDia.set(f.value)"
+                        [title]="f.ayuda">{{ f.label }}</button>
+              }
+            </span>
+            <span class="ir-tenue">{{ serieFiltrada().length }} de {{ serie()?.length ?? 0 }} días</span>
+          </div>
+
           <div class="dt-scope">
-            <p-table [value]="serie() ?? []" [scrollable]="true" scrollHeight="52vh"
+            <p-table [value]="serieFiltrada()" [scrollable]="true" scrollHeight="52vh"
                      class="dt-stack surf-table surf-table--sticky" size="small" [rowHover]="true"
                      [tableStyle]="{ 'min-width': '42rem' }">
               <ng-template #header>
@@ -351,7 +470,8 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                   <th class="num" title="Lo que vendió ese día, valuado en la misma moneda que la carga">Vendió</th>
                   <th title="Carga contra venta del día, a la misma escala">Carga vs venta</th>
                   <th class="num" title="Lo que le queda arriba al cierre de ese día">Trae al cierre</th>
-                  <th class="num" title="El mismo saldo, en piezas">Piezas</th></tr>
+                  <th class="num" title="El mismo saldo, en piezas">Piezas</th>
+                  <th></th></tr>
               </ng-template>
               <ng-template #body let-p>
                 <tr>
@@ -370,10 +490,18 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
                   <!-- Las unidades van APARTE y rotuladas, no mezcladas en la fila de pesos. -->
                   <td class="num ir-mono ir-tenue" role="cell" data-label="Piezas"
                       [class.ir-bad]="p.saldo_qty_acum < 0">{{ p.saldo_qty_acum | number:'1.0-0' }}</td>
+                  <!-- Mismo patrón que los embarques: un botón real, alcanzable con teclado.
+                       Una fila con (click) suelto no la alcanza nadie que no use mouse. -->
+                  <td class="num" role="cell" data-label="">
+                    <p-button icon="pi pi-angle-right" severity="secondary" [text]="true" size="small"
+                              [ariaLabel]="'Ver qué se cargó y qué se vendió el ' + p.fecha"
+                              (onClick)="abrirDia(p)" />
+                  </td>
                 </tr>
               </ng-template>
             </p-table>
           </div>
+        }
         </app-load-state>
       }
 
@@ -585,6 +713,37 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
 
     .ir-sr { position: absolute; width: 1px; height: 1px; overflow: hidden;
       clip-path: inset(50%); white-space: nowrap; }
+
+    /* RD.48 - la barra de filtros de la comparativa y del dia abierto. */
+    .ir-filtros { display: flex; align-items: center; gap: .6rem; flex-wrap: wrap;
+      margin: 0 0 .6rem; }
+    .ir-filtros .ir-chips { margin: 0; }
+    /* Los chips de filtro son BOTONES, no las pildoras de solo lectura que ya vivian en
+       .ir-chip. Comparten la forma a proposito: la misma cosa se ve igual. */
+    .ir-chips button { font-size: var(--fs-xs); padding: .2rem .6rem; border-radius: 999px;
+      background: var(--c-surface-2); color: var(--c-text-2); border: 1px solid var(--border);
+      cursor: pointer; }
+    .ir-chips button.on { background: var(--action); color: #fff; border-color: transparent; }
+    .ir-chips button:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .ir-buscar { display: flex; align-items: center; gap: .35rem; padding: .18rem .5rem;
+      border: 1px solid var(--border); border-radius: 8px; background: var(--c-surface-2); }
+    .ir-buscar i { color: var(--c-text-3); font-size: var(--fs-xs); }
+    .ir-buscar input { border: 0; background: transparent; color: var(--c-text-1);
+      font-size: var(--fs-sm); min-width: 13rem; padding: .15rem 0; }
+    .ir-buscar input:focus { outline: none; }
+    .ir-buscar input:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+
+    /* Las dos tablas del dia. En pantalla ancha van lado a lado -- comparar lo que entro
+       contra lo que salio es el punto -- y en angosto se apilan. */
+    .ir-dos-tablas { display: grid; grid-template-columns: 1fr 1fr; gap: .9rem; }
+    @media (max-width: 60rem) { .ir-dos-tablas { grid-template-columns: 1fr; } }
+    .ir-bloque { min-width: 0; }
+    .ir-bloque-h { display: flex; align-items: baseline; gap: .4rem; flex-wrap: wrap;
+      margin: 0 0 .4rem; font-size: var(--fs-h3); }
+    .ir-bloque-h .ir-tenue { font-weight: 400; font-size: var(--fs-xs); }
+    .ir-vacio { font-size: var(--fs-xs); color: var(--c-text-3); font-style: italic;
+      padding: .6rem 0; }
+    .ir-aviso-mal { color: var(--bad-fg); font-weight: 600; }
   `],
 })
 export class ComercialInventarioRutaComponent {
@@ -631,6 +790,122 @@ export class ComercialInventarioRutaComponent {
   readonly embarqueSel = signal<RouteShipment | null>(null);
   readonly lineas = signal<RouteShipmentLine[] | null>(null);
   readonly rojos = signal<RouteNegativeRow[] | null>(null);
+
+  // ── `[RD.48]` Un día de la comparativa, abierto ────────────────────────────────────────
+  /** El día que el usuario tocó, ya resuelto. `null` = se está viendo la lista de días. */
+  readonly diaSel = signal<RouteDayBreakdown | null>(null);
+  /** La fila de la serie que originó el clic: es contra ella que se cuadra el desglose. */
+  readonly diaOrigen = signal<RouteSeriesPoint | null>(null);
+  readonly buscaDia = signal('');
+  readonly unidadDia = signal('');
+  readonly filtroDia = signal<'todos' | 'carga' | 'venta' | 'rojo'>('todos');
+
+  /**
+   * Los filtros de la serie. Son de VISTA —actúan sobre lo ya traído, sin volver al servidor—
+   * así que responden al instante y no gastan una consulta por clic. Mismo criterio que los
+   * filtros de `comercial-ventas-por-ruta`.
+   */
+  readonly FILTROS_DIA = [
+    { value: 'todos' as const, label: 'Todos', ayuda: 'Todos los días de la ventana' },
+    { value: 'carga' as const, label: 'Con carga', ayuda: 'Sólo los días en que se le subió mercancía' },
+    { value: 'venta' as const, label: 'Con venta', ayuda: 'Sólo los días en que vendió' },
+    { value: 'rojo' as const, label: 'En rojo', ayuda: 'Días en que el camión cerró con saldo negativo: vendía lo que ya traía' },
+  ];
+
+  readonly serieFiltrada = computed<RouteSeriesPoint[]>(() => {
+    const s = this.serie() ?? [];
+    switch (this.filtroDia()) {
+      case 'carga': return s.filter((p) => this.sCarga(p) > 0);
+      case 'venta': return s.filter((p) => this.sVendido(p) > 0);
+      case 'rojo': return s.filter((p) => this.sSaldo(p) < 0);
+      default: return s;
+    }
+  });
+
+  /** Las unidades presentes en el día abierto, con «Todas» al frente. */
+  readonly unidadesDia = computed<string[]>(() => {
+    const d = this.diaSel();
+    if (!d) return [''];
+    const us = new Set<string>();
+    for (const l of [...d.cargado, ...d.vendido]) us.add(l.unidad);
+    return ['', ...[...us].sort()];
+  });
+
+  /** El valor de un renglón en la valuación que el conmutador eligió. `null` = sin valuar. */
+  valorLinea = (l: RouteDayLine): number | null =>
+    this.metrica() === 'costo' ? l.costo : l.precio;
+
+  dCarga = (d: RouteDayBreakdown) => this.metrica() === 'costo' ? d.carga_costo : d.carga_precio;
+  dVenta = (d: RouteDayBreakdown) => this.metrica() === 'costo' ? d.venta_costo : d.venta_precio;
+
+  /**
+   * Las dos tablas del día, ya filtradas. Se arma una sola vez por cambio de filtro y no dos
+   * veces en la plantilla: con `@for` sobre esto, agregar una tercera clase algún día es
+   * agregar un elemento, no copiar un bloque de markup.
+   */
+  readonly bloquesDia = computed(() => {
+    const d = this.diaSel();
+    if (!d) return [];
+    const t = this.buscaDia().trim().toLowerCase();
+    const u = this.unidadDia();
+    const filtra = (xs: RouteDayLine[]) => xs.filter((l) =>
+      (!u || l.unidad === u)
+      && (!t || l.producto.toLowerCase().includes(t) || l.sku.toLowerCase().includes(t)));
+    const arma = (clase: 'carga' | 'venta', xs: RouteDayLine[], titulo: string, icono: string, vacio: string) => {
+      const filas = filtra(xs);
+      return {
+        clase, titulo, icono, filas, total: xs.length, vacio,
+        // La suma es la de lo FILTRADO, no la del día: si dice otra cosa que lo que hay en
+        // pantalla, el usuario no tiene forma de saber cuál de las dos mirar.
+        suma: filas.reduce((a, l) => a + (this.valorLinea(l) ?? 0), 0),
+      };
+    };
+    return [
+      arma('carga', d.cargado, 'Se le cargó', 'pi pi-arrow-down-left',
+        d.cargado.length ? 'Ningún producto cargado coincide con el filtro' : 'Ese día no se le cargó nada'),
+      arma('venta', d.vendido, 'Vendió', 'pi pi-arrow-up-right',
+        d.vendido.length ? 'Ningún producto vendido coincide con el filtro' : 'Ese día no vendió nada'),
+    ];
+  });
+
+  /**
+   * ⭐ El cuadre del drill-down: ¿el desglose suma lo que decía la fila que se tocó?
+   *
+   * No debería fallar nunca —las dos cifras salen del mismo resolvedor, que es justo por qué
+   * este endpoint no usa `costo_doc`— y por eso vale comprobarlo: el día que falle, significa
+   * que alguien cambió una de las dos fuentes y la pantalla estaría abriendo un total que sus
+   * propios renglones no explican. Devuelve `null` cuando cuadra.
+   */
+  readonly descuadreDia = computed<{ desglose: number; fila: number } | null>(() => {
+    const d = this.diaSel(); const p = this.diaOrigen();
+    if (!d || !p) return null;
+    // Sólo se compara lo que SE PUEDE valuar: los renglones sin valuación se declaran aparte
+    // y restarlos acá convertiría una ausencia conocida en un descuadre falso.
+    if (d.sin_valuar > 0) return null;
+    const desglose = this.dCarga(d) + this.dVenta(d);
+    const fila = this.sCarga(p) + this.sVendido(p);
+    return Math.abs(desglose - fila) < 0.01 ? null : { desglose, fila };
+  });
+
+  abrirDia(p: RouteSeriesPoint): void {
+    const r = this.rutaSel();
+    if (!r) return;
+    this.diaOrigen.set(p);
+    this.diaSel.set(null);
+    this.buscaDia.set('');
+    this.unidadDia.set('');
+    this.api.routeDayBreakdown(r.route_no, p.fecha)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => this.diaSel.set(d),
+        error: (e) => {
+          this.diaOrigen.set(null);
+          this.errorTab.set(e?.error?.message ?? 'No se pudo abrir ese día.');
+        },
+      });
+  }
+
+  cerrarDia(): void { this.diaSel.set(null); this.diaOrigen.set(null); }
 
   constructor() {
     // Estado de filtros en la URL (DESIGN §10): se comparte por link y sobrevive un refresh.
@@ -696,10 +971,12 @@ export class ComercialInventarioRutaComponent {
     this.rutaSel.set(r);
     this.detalleAbierto.set(true);
     this.embarqueSel.set(null);
+    // [RD.48] Sin esto, abrir otra ruta deja en pantalla el desglose de un dia de la anterior.
+    this.cerrarDia();
     this.pedirPestana();
   }
 
-  setPestana(p: Pestana): void { this.pestana.set(p); this.embarqueSel.set(null); this.pedirPestana(); }
+  setPestana(p: Pestana): void { this.pestana.set(p); this.embarqueSel.set(null); this.cerrarDia(); this.pedirPestana(); }
 
   private pedirPestana(): void {
     this.errorTab.set(null);
