@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -19,7 +20,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
 @Component({
   selector: 'app-almacen-cuadre',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, MetricStripComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -76,7 +77,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
               <p-table [value]="o.por_sucursal" styleClass="p-datatable-sm" [rowHover]="true">
                 <ng-template #header><tr><th>Sucursal</th><th class="ta-r">Cortes</th><th class="ta-r">Faltante caja</th><th class="ta-r">Merma</th></tr></ng-template>
                 <ng-template #body let-s>
-                  <tr><td>{{ s.sucursal }}</td><td class="ta-r">{{ s.cortes | number }}</td>
+                  <tr><td>{{ s.sucursal | sucursal }}</td><td class="ta-r">{{ s.cortes | number }}</td>
                   <td class="ta-r" [class.bad]="s.faltante_caja > 0">{{ money(s.faltante_caja) }}</td>
                   <td class="ta-r" [class.bad]="s.merma > 0">{{ money(s.merma) }}</td></tr>
                 </ng-template>
@@ -108,7 +109,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
                 <td class="muted">{{ i + 1 }}</td>
                 <td>
                   @if (focoScope() === 'cajero') { <span class="cd-prod">{{ f.cajero_nombre || f.cajero }}</span><span class="cd-sku muted">suc {{ f.sucursal }} · {{ f.cajero }}</span> }
-                  @else { suc {{ f.sucursal }} · caja {{ f.caja }} }
+                  @else { {{ f.sucursal | sucursal }} · caja {{ f.caja }} }
                 </td>
                 <td class="ta-r strong bad">{{ money(f.faltante) }}</td>
                 <td class="ta-r">{{ f.descuadres }}<span class="muted">/{{ f.cortes }}</span></td>
@@ -230,7 +231,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
             <ng-template #body let-m>
               <tr [class.cd-row-bad]="m.clase_mov === 'merma'">
                 <td>{{ m.fecha | date:'dd/MM/yy' }}</td>
-                <td>{{ m.warehouse_code }}</td>
+                <td>{{ m.warehouse_code | sucursal }}</td>
                 <td><span class="cd-prod">{{ m.producto || m.sku }}</span><span class="cd-sku muted">{{ m.sku }}</span></td>
                 <td><span class="cd-tag" [ngClass]="'mv-' + m.clase_mov">{{ claseMovLabel(m.clase_mov) }}</span></td>
                 <td class="muted">{{ m.folio }}</td>
@@ -330,7 +331,7 @@ type Tab = 'resumen' | 'focos' | 'cortes' | 'movimientos' | 'arqueo' | 'acciones
               <tr>
                 <td>{{ a.fecha_intervencion | date:'dd/MM/yy' }}</td>
                 <td><span class="cd-tag">{{ palancaLabel(a.palanca) }}</span></td>
-                <td class="muted">{{ a.sucursal }}{{ a.caja ? '/'+a.caja : '' }}{{ a.cajero ? ' · '+a.cajero : '' }}</td>
+                <td class="muted">{{ a.sucursal | sucursal }}{{ a.caja ? ' caja '+a.caja : '' }}{{ a.cajero ? ' · '+a.cajero : '' }}</td>
                 <td>{{ a.titulo }}</td>
                 <td class="ta-r">{{ money(a.efectividad.faltante_antes) }}</td>
                 <td class="ta-r">{{ money(a.efectividad.faltante_despues) }}</td>

@@ -1,6 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
-import { firstValueFrom } from 'rxjs';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -44,9 +44,10 @@ import {
  *    `_AUTORIZAR` / `_EXCEDER_TOPE`) entran en el PR siguiente de la fase. Las llaves ya están
  *    repartidas (migración `20260919160000`), pero **no hay acción que gatear** — y un gate sin
  *    acción es un permiso muerto (ADR-054).
- *  · `[AB.13]` **El alcance lo aplica el servidor**, en el área Almacén: la lista de almacenes
- *    del filtro ya viene recortada a los de la persona, y la mesa intersecta lo pedido con eso.
- *    Con un solo almacén la pantalla lo fija; sin ninguno, lo dice (la mesa sale vacía).
+ *  · **No filtra por sucursal del usuario.** `warehouse_id` es del llamador, no del token: el
+ *    scope por sucursal todavía no está aplicado en el backend. Un almacenista con la clave ve
+ *    la red completa si no filtra. Queda declarado en pantalla, no disimulado con un filtro de
+ *    front que daría sensación de alcance sin serlo.
  *  · **El $ retenido no se dibuja en cero.** Cuando el costo de compra contradice el peldaño de
  *    unidades (U.2), el motor manda `suggested_cost: null`. La mesa lo cuenta aparte y lo dice.
  *
@@ -87,7 +88,7 @@ const BUCKET_LABEL: Record<string, string> = {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule,
-    InputTextModule, TooltipModule, LoadStateComponent, MetricStripComponent,
+    InputTextModule, TooltipModule, LoadStateComponent, MetricStripComponent, SucursalPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -100,52 +101,21 @@ const BUCKET_LABEL: Record<string, string> = {
             y lo que se puede cubrir con sobrante de otra sucursal se separa de lo que hay que comprar.
           </p>
         </div>
-        <div class="ab-actions">
-          <!-- [AB.13] El reporte es por almacén: el papel dice «del almacén X». -->
-          <button pButton type="button" class="p-button-sm"
-                  (click)="descargarPdf()" [disabled]="!almacenDelReporte() || generandoPdf()"
-                  [pTooltip]="almacenDelReporte() ? '' : 'Elige un solo almacén para generar el reporte'"
-                  tooltipPosition="bottom">
-            <span class="p-button-icon p-button-icon-left pi"
-                  [class.pi-file-pdf]="!generandoPdf()" [class.pi-spin]="generandoPdf()"
-                  [class.pi-spinner]="generandoPdf()" aria-hidden="true"></span>
-            <span class="p-button-label">{{ generandoPdf() ? 'Generando…' : 'Descargar PDF' }}</span>
-          </button>
-          <button pButton type="button" class="p-button-sm p-button-outlined"
-                  (click)="reload()" [disabled]="loading()">
-            <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
-            <span class="p-button-label">Actualizar</span>
-          </button>
-        </div>
+        <button pButton type="button" class="p-button-sm p-button-outlined"
+                (click)="reload()" [disabled]="loading()">
+          <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
+          <span class="p-button-label">Actualizar</span>
+        </button>
       </header>
 
-      @if (pdfError(); as e) {
-        <p class="ab-retenido" role="alert">
-          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i> {{ e }}
+      <!-- El alcance se declara, no se simula: hoy el backend no recorta por la sucursal del
+           token, así que sin filtro la mesa es de la red completa. -->
+      @if (!warehouseIds().length) {
+        <p class="ab-scope" role="note">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          Estás viendo la <strong>red completa</strong>. El recorte por tu sucursal todavía no lo
+          aplica el servidor — elegí almacén en el filtro para trabajar sobre el tuyo.
         </p>
-      }
-
-      <!-- [AB.13] El alcance lo aplica el servidor (área Almacén): la lista de almacenes ya viene
-           recortada a los de la persona. Acá sólo se dice cuál es. -->
-      @if (filtrosListos()) {
-        @if (!warehouses().length) {
-          <p class="ab-retenido" role="note">
-            <i class="pi pi-lock" aria-hidden="true"></i>
-            No tienes almacén asignado, así que la mesa sale vacía. Pide que te asignen tu almacén
-            en tu ficha de Personas.
-          </p>
-        } @else if (warehouses().length === 1) {
-          <p class="ab-scope" role="note">
-            <i class="pi pi-building" aria-hidden="true"></i>
-            Tu almacén: <strong>{{ warehouses()[0].code }} · {{ warehouses()[0].name }}</strong>
-          </p>
-        } @else if (!warehouseIds().length) {
-          <p class="ab-scope" role="note">
-            <i class="pi pi-info-circle" aria-hidden="true"></i>
-            Estás viendo los <strong>{{ warehouses().length }} almacenes</strong> a tu alcance.
-            Elige uno en el filtro para trabajar sobre él y generar su reporte.
-          </p>
-        }
       }
 
       <app-metric-strip [items]="kpis()" ariaLabel="Indicadores de la mesa de autoabasto"></app-metric-strip>
@@ -164,8 +134,7 @@ const BUCKET_LABEL: Record<string, string> = {
       <div class="ab-filters">
         <p-multiselect [options]="warehouses()" optionLabel="name" optionValue="id"
                        [ngModel]="warehouseIds()" (ngModelChange)="setWarehouses($event)"
-                       placeholder="Todos los almacenes" [filter]="true"
-                       [showClear]="warehouses().length > 1" [disabled]="warehouses().length <= 1"
+                       placeholder="Todos los almacenes" [filter]="true" [showClear]="true"
                        styleClass="ab-f" [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes">
         </p-multiselect>
 
@@ -227,7 +196,7 @@ const BUCKET_LABEL: Record<string, string> = {
                 <span class="ab-name">{{ r.nombre }}</span>
               </td>
               <td class="ab-c-wh">
-                <span class="ab-wh">{{ r.warehouse_code }}</span>
+                <span class="ab-wh">{{ r.warehouse_code | sucursal }}</span>
                 <span class="ab-bucket ab-b-{{ r.bucket }}">{{ bucketLabel(r.bucket) }}</span>
               </td>
               <td class="ab-c-num">{{ qty(r.on_hand) }}</td>
@@ -260,8 +229,8 @@ const BUCKET_LABEL: Record<string, string> = {
       </app-load-state>
 
       <p class="ab-foot">
-        Cantidades en cajas. El PDF imprime todo lo del almacén con estos filtros, con la fecha y
-        la hora del servidor. Solicitar y autorizar llegan en la siguiente entrega de la fase.
+        Cantidades en cajas. Solicitar y autorizar llegan en la siguiente entrega de la fase — esta
+        pantalla todavía sólo lee.
       </p>
     </section>
   `,
@@ -270,7 +239,6 @@ const BUCKET_LABEL: Record<string, string> = {
     .ab-page { display: flex; flex-direction: column; gap: 1rem; padding: 1rem 1.15rem 1.5rem; }
 
     .ab-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; }
-    .ab-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
     .ab-title { margin: 0; font-size: 1.35rem; font-weight: 650; letter-spacing: -.01em; color: var(--text-main); }
     .ab-sub { margin: .3rem 0 0; max-width: 62ch; font-size: .85rem; line-height: 1.5; color: var(--text-muted); }
 
@@ -380,74 +348,16 @@ export class AlmacenAutoabastoComponent {
   };
   private readonly lazy = makeLazyLoad(this.page, this.pageSize, () => this.load());
 
-  /**
-   * `[AB.13]` `true` sólo cuando los filtros llegaron BIEN. Si fallan, la lista vacía no significa
-   * «no tienes almacén» — significa «no se pudo saber», y la pantalla no debe afirmar lo primero.
-   */
-  readonly filtrosListos = signal(false);
-  readonly generandoPdf = signal(false);
-  readonly pdfError = signal<string | null>(null);
-
-  /** `[AB.13]` El almacén del reporte: el único elegido, o el único que la persona alcanza. */
-  readonly almacenDelReporte = computed<AutoabastoWarehouseOpt | null>(() => {
-    const ids = this.warehouseIds();
-    const ws = this.warehouses();
-    if (ids.length === 1) return ws.find((w) => w.id === ids[0]) ?? null;
-    return ws.length === 1 ? ws[0] : null;
-  });
-
   constructor() {
     this.svc.filtros().subscribe({
       next: (f) => {
-        const ws = f.warehouses ?? [];
-        this.warehouses.set(ws);
+        this.warehouses.set(f.warehouses ?? []);
         this.suppliers.set(f.suppliers ?? []);
-        this.filtrosListos.set(true);
-        // [AB.13] Con un solo almacén a su alcance, la mesa es la de ese almacén: se fija y se
-        // recarga. El servidor ya recortaba, pero así la pantalla lo dice en vez de suponerlo.
-        if (ws.length === 1 && !this.warehouseIds().length) this.setWarehouses([ws[0].id]);
       },
-      // Los filtros son un accesorio: si fallan, la mesa igual se puede leer (el servidor recorta).
-      error: () => { this.warehouses.set([]); this.suppliers.set([]); this.filtrosListos.set(false); },
+      // Los filtros son un accesorio: si fallan, la mesa igual se puede leer sin recortar.
+      error: () => { this.warehouses.set([]); this.suppliers.set([]); },
     });
     this.load();
-  }
-
-  /**
-   * `[AB.13]` Pide al servidor TODAS las filas del almacén (no sólo la página visible), con el
-   * sello de fecha y hora del servidor, y arma el PDF. El filtro de acción se aplica igual que en
-   * la mesa: el servidor todavía no lo acepta como parámetro.
-   */
-  async descargarPdf(): Promise<void> {
-    const almacen = this.almacenDelReporte();
-    if (!almacen || this.generandoPdf()) return;
-    this.generandoPdf.set(true);
-    this.pdfError.set(null);
-    try {
-      const rep = await firstValueFrom(this.svc.reporte({
-        warehouse_id: almacen.id,
-        supplier_id: this.supplierId() ?? undefined,
-        bucket: this.bucket() ?? undefined,
-        search: this.search() || undefined,
-        sort_by: this.sortBy() ?? undefined,
-        sort_dir: this.sortBy() ? this.sortDir() : undefined,
-      }));
-      const a = this.accion();
-      const rows = a ? (rep.mesa.rows ?? []).filter((r) => r.accion === a) : (rep.mesa.rows ?? []);
-      const filtros: string[] = [];
-      const sup = this.suppliers().find((s) => s.id === this.supplierId());
-      if (sup) filtros.push(`Proveedor: ${sup.name}`);
-      if (this.bucket()) filtros.push(`Posición: ${this.bucketLabel(this.bucket()!)}`);
-      if (a) filtros.push(`Acción: ${ACCION_META[a].label}`);
-      if (this.search()) filtros.push(`Búsqueda: «${this.search()}»`);
-      const { descargarPdfAutoabasto } = await import('../autoabasto-pdf');
-      await descargarPdfAutoabasto(rep, { rows, filtros });
-    } catch (e: unknown) {
-      const msg = (e as { error?: { message?: string } })?.error?.message;
-      this.pdfError.set(msg || 'No se pudo generar el reporte. Inténtalo de nuevo.');
-    } finally {
-      this.generandoPdf.set(false);
-    }
   }
 
   /**

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -38,7 +39,7 @@ interface RecvLine {
 @Component({
   selector: 'app-compras-orden-detalle',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, InputTextModule, ToastModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, TagModule, DialogModule, InputTextModule, ToastModule, MetricStripComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -51,7 +52,7 @@ interface RecvLine {
             <h1>{{ p.folio }} <p-tag [value]="estadoLabel(p.estado)" [severity]="estadoSev(p.estado)"></p-tag></h1>
             <p class="surf-page-sub">
               {{ p.source_type === 'branch' ? 'Traspaso desde ' + (p.source_code || '—') : (p.supplier_name || 'Proveedor') }}
-              · destino {{ p.warehouse_code }}
+              · destino {{ p.warehouse_code | sucursal }}
               @if (p.requisition_folio) { · req <a class="od-link" [routerLink]="['/compras/requisiciones', p.requisition_id]">{{ p.requisition_folio }}</a> }
               @if (p.expected_date) { · esperada {{ p.expected_date | date:'dd/MM/yy' }} }
             </p>

@@ -5,6 +5,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { PRECIOS_TABS } from '../precios-tabs';
 import { agruparCola, type FilaCola } from '../agrupar-cola';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { TableModule } from 'primeng/table';
 import { ButtonModule } from 'primeng/button';
@@ -51,7 +52,7 @@ import {
   selector: 'app-comercial-motor-margen',
   standalone: true,
   imports: [CommonModule, PageTabsComponent, ContextHelpComponent, TableModule, ButtonModule, SkeletonModule,
-    ComercialMotorMargenExpedienteComponent],
+    ComercialMotorMargenExpedienteComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
 <div class="surf-page mm">
@@ -219,7 +220,7 @@ import {
                   @if (f.plazas > 1) {
                     <span class="mm-grp-n">La misma decisión en {{ f.plazas }} plazas de esta lista</span>
                   } @else {
-                    <span>{{ f.row.sucursal }}</span>
+                    <span>{{ f.row.sucursal | sucursal }}</span>
                   }
                   @if (!f.row.accionable) { <span class="mm-bloq">{{ bloqueosTxt(f.row.bloqueos) }}</span> }
                 </div>
@@ -255,7 +256,7 @@ import {
               @for (h of f.hijos; track h.sucursal) {
                 <tr class="mm-sub" tabindex="0" role="button"
                     (click)="abrirFila(h)" (keydown.enter)="abrirFila(h)">
-                  <td><span class="mm-sub-p">{{ h.sucursal }}</span></td>
+                  <td><span class="mm-sub-p">{{ h.sucursal | sucursal }}</span></td>
                   <td class="mm-dim">
                     @if (!h.accionable) { <span class="mm-bloq">{{ bloqueosTxt(h.bloqueos) }}</span> }
                   </td>

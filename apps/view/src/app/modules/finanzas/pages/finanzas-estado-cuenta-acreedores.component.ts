@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { ButtonModule } from 'primeng/button';
@@ -50,7 +51,7 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
   selector: 'app-finanzas-estado-cuenta-acreedores',
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, DatePickerModule, ToggleSwitchModule, TagModule, MetricStripComponent, SucursalPipe],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -145,7 +146,7 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
                     @for (doc of e.documentos; track doc.sucursal + doc.tipo_doc + doc.folio) {
                       <tbody class="ec-doc">
                         <tr class="ec-doc-row">
-                          <td class="ec-mono muted">{{ doc.sucursal }}</td>
+                          <td class="ec-mono muted">{{ doc.sucursal | sucursal }}</td>
                           <td>{{ doc.documento }}</td>
                           <td class="ec-mono">{{ doc.folio }}</td>
                           <td class="ec-mono">{{ dmy(doc.fecha) }}</td>

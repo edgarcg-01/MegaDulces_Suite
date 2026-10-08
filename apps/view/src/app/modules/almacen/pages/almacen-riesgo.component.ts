@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -21,7 +22,7 @@ import { RiesgoService, RiskRow } from '../riesgo.service';
 @Component({
   selector: 'app-almacen-riesgo',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -62,7 +63,7 @@ import { RiesgoService, RiskRow } from '../riesgo.service';
             <td><p-tag [value]="levelLabel(r.risk_level)" [severity]="levelSeverity(r.risk_level)"></p-tag></td>
             <td class="num rk-strong">{{ r.risk_score }}</td>
             <td class="rk-name">{{ r.product_name || r.product_id }}</td>
-            <td class="rk-mono">{{ r.warehouse_code }}</td>
+            <td class="rk-mono">{{ r.warehouse_code | sucursal }}</td>
             <td class="num">{{ r.investigations_count }}</td>
             <td class="num" [class.rk-neg]="+r.pni_count > 0">{{ r.pni_count }}</td>
             <td class="num">{{ r.monitoring_losses }}</td>

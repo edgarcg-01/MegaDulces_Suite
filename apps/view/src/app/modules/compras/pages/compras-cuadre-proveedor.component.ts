@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -30,7 +31,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
-    TableModule, SelectModule, DatePickerModule, SkeletonModule, DialogModule, TagModule, MetricStripComponent,
+    TableModule, SelectModule, DatePickerModule, SkeletonModule, DialogModule, TagModule, MetricStripComponent, SucursalPipe,
   ],
   template: `
     <div class="surf-page in">
@@ -196,7 +197,7 @@ import { ComprasService, SupplierLedgerResponse, SupplierLedgerRow, SupplierLedg
                 @if (row.c; as m) {
                   <td class="cq-mono">{{ m.fecha ? (m.fecha | date:'yyyy-MM-dd') : m.anio_mes }}</td>
                   <td class="cq-mono muted">{{ m.folio }}</td>
-                  <td class="cq-mono muted">{{ m.sucursal }}</td>
+                  <td class="cq-mono muted">{{ m.sucursal | sucursal }}</td>
                   <td class="ta-r cq-num cq-debe">{{ money(m.importe) }}</td>
                 } @else {
                   <td class="cq-blank" colspan="4"></td>

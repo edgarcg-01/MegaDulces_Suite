@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -47,7 +48,7 @@ import { AnalisisStateService } from './analisis-state.service';
 @Component({
   selector: 'app-tienda-analisis-clientes',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, SelectButtonModule, TableModule, TagModule, TooltipModule],
+  imports: [CommonModule, FormsModule, ButtonModule, InputTextModule, SelectButtonModule, TableModule, TagModule, TooltipModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (st.customersError()) {
@@ -182,7 +183,7 @@ import { AnalisisStateService } from './analisis-state.service';
                 <span class="cl-nom">{{ c.nombre }}</span>
                 <span class="cl-code">{{ c.cliente_code }}</span>
               </td>
-              <td class="cl-muted">{{ c.sucursal }}</td>
+              <td class="cl-muted">{{ c.sucursal | sucursal }}</td>
               <td class="cl-tax" [title]="c.grupo || ''">{{ c.grupo || '—' }}</td>
               <td class="cl-tax" [title]="c.zona || ''">{{ c.zona || '—' }}</td>
               <td class="cl-tax" [title]="c.vendedor || ''">{{ c.vendedor || '—' }}</td>

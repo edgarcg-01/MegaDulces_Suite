@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, of } from 'rxjs';
@@ -54,6 +55,7 @@ const DEFAULT_EXPLORE_FIELDS = [
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, MultiSelectModule,
     DatePickerModule, TabsModule, ToastModule, AutoCompleteModule, ChartModule, CheckboxModule,
+    SucursalPipe,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -233,7 +235,7 @@ const DEFAULT_EXPLORE_FIELDS = [
                   </ng-template>
                   <ng-template #body let-r>
                     <tr (click)="openMovementsFor(r)" style="cursor:pointer">
-                      <td class="abi-mono">{{ r.warehouse_code }}</td>
+                      <td class="abi-mono">{{ r.warehouse_code | sucursal }}</td>
                       <td>{{ r.product_name }} <code class="abi-mono">{{ r.sku }}</code></td>
                       <td class="num">{{ r.costo_catalogo != null ? money(r.costo_catalogo) : 'No disponible' }}</td>
                       <td class="num">{{ r.costo_erp != null ? money(r.costo_erp) : 'No disponible' }}</td>
@@ -299,7 +301,7 @@ const DEFAULT_EXPLORE_FIELDS = [
                 <!-- El CEDIS (00) tiene zone_id NULL en commercial.warehouses: no es un dato
                      que falte, es un almacén que no pertenece a ninguna zona comercial. -->
                 @if (colOn('zone_name')) { <td [class.abi-na-cell]="!r.zone_name">{{ r.zone_name || 'Sin zona' }}</td> }
-                @if (colOn('warehouse_code')) { <td class="abi-mono">{{ r.warehouse_code }}</td> }
+                @if (colOn('warehouse_code')) { <td class="abi-mono">{{ r.warehouse_code | sucursal }}</td> }
                 @if (colOn('almacen')) { <td [title]="'Ajustes genéricos hoy — sin motivo capturado en Kepler'">{{ r.almacen }}</td> }
                 @if (colOn('canal')) { <td [class.abi-na-cell]="!r.aplica_venta" [title]="tituloVenta(r)">{{ r.canal || faltaVenta(r) }}</td> }
                 @if (colOn('movement_kind')) { <td [class.abi-ok]="r.movement_kind === 'entrada'" [class.abi-bad]="r.movement_kind === 'salida'">{{ r.movement_kind === 'entrada' ? 'Entrada' : r.movement_kind === 'salida' ? 'Salida' : 'Informativo' }}</td> }

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { FormsModule } from '@angular/forms';
+import { SucursalPipe } from '../../../../shared/pipes/sucursal.pipe';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
@@ -18,7 +19,7 @@ import { BANCOS_STYLES } from './bancos.styles';
 @Component({
   selector: 'bancos-capturas',
   standalone: true,
-  imports: [FormsModule, ButtonModule, TableModule, SelectModule],
+  imports: [FormsModule, ButtonModule, TableModule, SelectModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="bc-kpis">
@@ -72,7 +73,7 @@ import { BANCOS_STYLES } from './bancos.styles';
                 @if (r.customer_code || r.rfc) { <div class="bc-cust muted">{{ r.customer_code }}@if (r.rfc) { · {{ r.rfc }} }</div> }
                 @if (r.error_detail) { <div class="bc-err-msg"><i class="pi pi-exclamation-triangle"></i> {{ r.error_detail }}</div> }
               </td>
-              <td class="mono">{{ r.sucursal || '—' }}</td>
+              <td class="mono">{{ (r.sucursal | sucursal) || '—' }}</td>
               <td>
                 <div class="bc-bank">{{ r.ocr_banco || '—' }}</div>
                 <div class="bc-acct muted">{{ r.cuenta || (r.ocr_cuenta_dest ? '···' + r.ocr_cuenta_dest : 'por asignar') }}</div>

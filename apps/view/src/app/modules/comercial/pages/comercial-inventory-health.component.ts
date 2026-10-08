@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -18,7 +19,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 @Component({
   selector: 'app-comercial-inventory-health',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, ProductSearchComponent, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -59,7 +60,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         </ng-template>
         <ng-template #body let-it>
           <tr>
-            <td class="ih-mono">{{ it.warehouse_code }}</td>
+            <td class="ih-mono">{{ it.warehouse_code | sucursal }}</td>
             <td class="ih-mono">{{ it.sku }}</td>
             <td class="ih-name">{{ it.product_name }}</td>
             <td class="ih-name">{{ it.brand_name || '—' }}</td>

@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -25,7 +26,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
 @Component({
   selector: 'app-compras-proveedores',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, InputTextModule, InputNumberModule, IconFieldModule, InputIconModule, DialogModule, TagModule],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, ToastModule, InputTextModule, InputNumberModule, IconFieldModule, InputIconModule, DialogModule, TagModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -139,7 +140,7 @@ import { ComprasService, SupplierParam, SupplierOrder, SupplierOrderParamsDto, R
             <tbody>
               @for (l of o.lines; track l.product_id + l.warehouse_id) {
                 <tr>
-                  <td class="cp-muted">{{ l.warehouse_code }}</td>
+                  <td class="cp-muted">{{ l.warehouse_code | sucursal }}</td>
                   <td class="cp-mono">{{ l.sku }}</td>
                   <td>{{ l.nombre }}</td>
                   <td class="cp-r cp-muted">{{ l.on_hand | number:'1.0-0' }}</td>

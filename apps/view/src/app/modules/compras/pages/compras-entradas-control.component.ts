@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { RouterLink, Router, ActivatedRoute } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ButtonModule } from 'primeng/button';
@@ -50,7 +51,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
   imports: [
     CommonModule, RouterLink, ButtonModule, TooltipModule,
     PageTabsComponent, MetricStripComponent, LoadStateComponent, FreshnessPillComponent,
-    SegmentedComponent, ContextHelpComponent, TableDensityComponent,
+    SegmentedComponent, ContextHelpComponent, TableDensityComponent, SucursalPipe,
   ],
   template: `
     <div class="surf-page in ec">
@@ -218,7 +219,7 @@ type Periodo = 'hoy' | 'semana' | 'mes' | 'arranque';
                   <tr [class.is-cero]="c.pct_evidencia === 0">
                     <td class="ec-suc">
                       <b>{{ suc(c.sucursal) }}</b>
-                      <em class="mono">{{ c.sucursal }}</em>
+                      <em class="mono">{{ c.sucursal | sucursal }}</em>
                     </td>
                     <!-- Von Restorff: el único renglón que se marca en rojo acá es el que no tiene
                          a nadie — porque no se arregla persiguiendo, se arregla dando permiso. -->

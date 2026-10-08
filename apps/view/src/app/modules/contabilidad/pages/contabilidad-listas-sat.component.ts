@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -26,7 +27,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
 @Component({
   selector: 'app-contabilidad-listas-sat',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, SelectButtonModule, TagModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectModule, SelectButtonModule, TagModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -130,7 +131,7 @@ import { ListasSatService, SatListMatch, RfcIssue, ListasStats, ListStatus, Expe
                   <ng-template #body let-d>
                     <tr>
                       <td class="mono">{{ d.fecha | date:'dd/MM/yy' }}</td>
-                      <td>{{ d.sucursal }}</td>
+                      <td>{{ d.sucursal | sucursal }}</td>
                       <td class="mono">{{ d.doc_tipo }} {{ d.doc_folio }}</td>
                       <td class="ls-doc-concepto">{{ d.concepto || '—' }}</td>
                       <td class="ta-r mono">{{ money(d.importe) }}</td>

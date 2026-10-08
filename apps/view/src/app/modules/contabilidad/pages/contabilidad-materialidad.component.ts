@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { ToastModule } from 'primeng/toast';
@@ -27,7 +28,7 @@ import { Permission } from '../../../core/constants/permissions';
 @Component({
   selector: 'app-contabilidad-materialidad',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, DialogModule, TableModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, ToastModule, InputTextModule, IconFieldModule, InputIconModule, SelectButtonModule, DialogModule, TableModule, MetricStripComponent, FreshnessPillComponent, ContextHelpComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -193,7 +194,7 @@ import { Permission } from '../../../core/constants/permissions';
               <tr>
                 <td><p-button type="button" [pRowToggler]="c" styleClass="p-button-text p-button-sm mt-tog" [icon]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" [attr.aria-label]="expanded ? 'Ocultar documentos' : 'Ver documentos'"></p-button></td>
                 <td><div class="strong mono">{{ c.factura_folio }}</div><div class="muted mono cf-sub">{{ c.factura_fecha ? (c.factura_fecha | date:'dd/MM/yy') : '—' }}</div></td>
-                <td class="mono">{{ c.sucursal }}</td>
+                <td class="mono">{{ c.sucursal | sucursal }}</td>
                 <td class="ta-r strong mono">{{ money(c.total) }}</td>
                 <td>
                   <span class="mt-dots" [attr.aria-label]="'Orden ' + (c.orden_folio ? 'sí' : 'no') + ', Recepción ' + (c.recepcion_folio ? 'sí' : 'no') + ', Pago ' + (c.pago_folio ? 'sí' : 'no')">
@@ -288,7 +289,7 @@ import { Permission } from '../../../core/constants/permissions';
                     @case ('confirmed') {
                       <div class="mt-asg">
                         <span class="mt-est e-vigente" title="Asignada por {{ c.assignment?.by || '—' }}"><i class="pi pi-check"></i> {{ c.assignment?.doc_folio }}</span>
-                        <span class="muted cf-sub">{{ c.assignment?.sucursal }} · Δ {{ money($safeNavigationMigration(c.assignment?.diff_importe)) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
+                        <span class="muted cf-sub">{{ c.assignment?.sucursal | sucursal }} · Δ {{ money($safeNavigationMigration(c.assignment?.diff_importe)) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
                         @if (canManage) { <button pButton type="button" class="p-button-text p-button-sm mt-asg-x" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"><span class="p-button-label">Quitar</span></button> }
                       </div>
                     }
@@ -299,7 +300,7 @@ import { Permission } from '../../../core/constants/permissions';
                         } @else {
                           <span class="mt-conf c-inferred" title="Sugerida por RFC + importe + fecha"><i class="pi pi-sparkles"></i> {{ c.suggestion?.doc_folio }}</span>
                         }
-                        <span class="muted cf-sub">{{ c.suggestion?.sucursal }} · Δ {{ money($safeNavigationMigration(c.suggestion?.diff_importe)) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }@if (c.suggestion?.strength === 'weak') { · <b class="warn">sin RFC</b> }</span>
+                        <span class="muted cf-sub">{{ c.suggestion?.sucursal | sucursal }} · Δ {{ money($safeNavigationMigration(c.suggestion?.diff_importe)) }}@if (c.suggestion?.diff_days != null) { · {{ c.suggestion?.diff_days }}d }@if (c.suggestion?.strength === 'weak') { · <b class="warn">sin RFC</b> }</span>
                         @if (c.suggestion?.strength === 'weak' && c.suggestion?.beneficiario) {
                           <span class="mt-asg-benef" title="Nombre en la operación — verifica que coincida con el proveedor"><i class="pi pi-user"></i> {{ c.suggestion?.beneficiario }}</span>
                         }

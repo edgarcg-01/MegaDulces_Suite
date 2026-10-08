@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, ElementRef, OnInit, computed, inject, signal, viewChild } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { InputTextModule } from 'primeng/inputtext';
@@ -115,7 +116,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
   imports: [
     CommonModule, FormsModule, ButtonModule, InputTextModule, IconFieldModule, InputIconModule,
     TableModule, SelectModule, CheckboxModule, SkeletonModule, TagModule, MetricStripComponent,
-    SegmentedComponent, ContextHelpComponent,
+    SegmentedComponent, ContextHelpComponent, SucursalPipe,
   ],
   template: `
     <div class="surf-page in">
@@ -272,7 +273,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
               <tr [pSelectableRow]="f" class="ce-fila" [class.is-mal]="f.vende_bajo_costo">
                 <td class="ce-mono" role="cell" data-label="SKU">{{ f.sku }}</td>
                 <td class="ce-nom dt-id" role="cell" [title]="f.nombre">{{ f.nombre ?? '—' }}</td>
-                <td class="ce-mono" role="cell" data-label="Plaza">{{ f.sucursal }}</td>
+                <td class="ce-mono" role="cell" data-label="Plaza">{{ f.sucursal | sucursal }}</td>
                 <td class="ce-u" role="cell" data-label="Unidad">{{ f.unidad_base ?? '—' }}</td>
                 <!-- aria-label además del data-label: el rótulo apilado se pinta con ::before y su
                      anuncio no es uniforme entre navegadores; una cifra suelta no se entiende sin él. -->
@@ -342,7 +343,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
               <header class="ce-det-head">
                 <div>
                   <h2>{{ d.nombre ?? d.sku }}</h2>
-                  <p class="ce-det-sub"><span class="ce-mono">{{ d.sku }}</span> · plaza <span class="ce-mono">{{ d.sucursal }}</span></p>
+                  <p class="ce-det-sub"><span class="ce-mono">{{ d.sku }}</span> · plaza <span class="ce-mono">{{ d.sucursal | sucursal }}</span></p>
                 </div>
                 <button pButton type="button" class="p-button-text p-button-sm" (click)="cerrarDetalle()" aria-label="Cerrar detalle">
                   <span class="p-button-icon pi pi-times" aria-hidden="true"></span>
@@ -485,7 +486,7 @@ const SEVERIDAD: Record<Veredicto, 'success' | 'warn' | 'danger' | 'info' | 'sec
                   <tbody>
                     @for (p of plazas(); track p.sucursal) {
                       <tr [class.is-actual]="p.sucursal === d.sucursal">
-                        <td class="ce-mono dt-id" role="cell">Plaza {{ p.sucursal }}</td>
+                        <td class="ce-mono dt-id" role="cell">{{ p.sucursal | sucursal }}</td>
                         <td class="num dt-num" role="cell" data-label="Estándar">{{ money(p.costo_estandar) }}</td>
                         <td class="num dt-num" role="cell" data-label="Reposición">{{ money(p.costo_reposicion_base ?? p.costo_reposicion) }}</td>
                         <td class="num dt-num" role="cell" data-label="Desviación">{{ p.desviacion_pct !== null ? pct(p.desviacion_pct) : '—' }}</td>

@@ -6,6 +6,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, type Freshness, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, roundSeed, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -124,6 +125,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
   imports: [
     CommonModule, FormsModule, RouterLink, ButtonModule, TableModule, PaginatorModule, ToastModule, SelectModule, MultiSelectModule,
     InputNumberModule, InputTextModule, IconFieldModule, InputIconModule, TagModule, DialogModule, PopoverModule, MetricStripComponent, ContextHelpComponent, SegmentedComponent, FreshnessPillComponent, ComprasFlujoComponent,
+    SucursalPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -771,7 +773,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                 @for (o of tranRows(); track o.folio + ':' + o.sucursal) {
                   <tr>
                     <td class="pr-mono">{{ o.folio }}</td>
-                    <td class="pr-mono pr-muted">{{ o.sucursal }}</td>
+                    <td class="pr-mono pr-muted">{{ o.sucursal | sucursal }}</td>
                     <td class="pr-supp">{{ o.proveedor || '—' }}</td>
                     <td class="pr-muted">{{ o.fecha_oc | date:'dd/MM/yy' }}</td>
                     <td>
@@ -886,7 +888,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <ng-template #body let-r>
             <tr>
               <td class="dt-id" role="cell"><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
-              <td class="pr-mono pr-muted" role="cell" data-label="Almacén">{{ r.warehouse_code }}</td>
+              <td class="pr-mono pr-muted" role="cell" data-label="Almacén">{{ r.warehouse_code | sucursal }}</td>
               <td class="pr-r pr-muted dt-num" role="cell" data-label="Existencia (cajas)" [title]="deadUnitsTitle(r)">{{ r.on_hand_cajas | number:'1.0-1' }}</td>
               <td class="pr-r pr-muted dt-num" role="cell" data-label="Costo" [title]="'Costo de una caja (' + (r.unit_cost | number:'1.2-2') + ' por ' + r.base_label + ' × ' + r.box_factor + ')'">{{ money(r.caja_cost) }}</td>
               <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Inmovilizado">{{ money(r.dead_value) }}</td>

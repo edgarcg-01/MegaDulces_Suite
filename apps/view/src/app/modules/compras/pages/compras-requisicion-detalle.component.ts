@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -19,7 +20,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisicion-detalle',
   standalone: true,
-  imports: [RouterLink, CommonModule, ButtonModule, TableModule, TagModule, ToastModule, MetricStripComponent],
+  imports: [RouterLink, CommonModule, ButtonModule, TableModule, TagModule, ToastModule, MetricStripComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -84,7 +85,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         @if (r.bajadas?.length) {
           <div class="rd-ruta" role="status">
             <i class="pi pi-sitemap" aria-hidden="true"></i>
-            <span>Esta compra <strong>se consolida</strong>: entrega en <strong>{{ r.warehouse_code }}</strong> y baja por traspaso a
+            <span>Esta compra <strong>se consolida</strong>: entrega en <strong>{{ r.warehouse_code | sucursal }}</strong> y baja por traspaso a
               @for (b of r.bajadas; track b.id) {<a class="rd-ruta-l" [routerLink]="['/compras/requisiciones', b.id]">{{ b.code }}</a>@if (!$last) {<span>, </span>}}
               — {{ r.bajadas.length }} traspaso(s) generado(s) con ella.</span>
           </div>

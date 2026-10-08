@@ -1,5 +1,6 @@
 import { Component, computed, inject, signal, OnInit, ChangeDetectionStrategy, ChangeDetectorRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
@@ -31,7 +32,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
   imports: [
     CommonModule, FormsModule, SelectModule, InputTextModule, InputNumberModule,
     DatePickerModule, ToggleSwitchModule, TableModule, TagModule, ButtonModule,
-    MapComponent,
+    MapComponent, SucursalPipe,
   ],
   template: `
     <div class="surf-page in rd">
@@ -241,7 +242,7 @@ import { MapComponent } from '../../../shared/components/map/map.component';
                           <div class="rd-opt">
                             <span class="rd-opt-main">{{ d.full_name || d.username }}</span>
                             @if (d.warehouse_code) {
-                              <span class="rd-opt-sub">Suc. {{ d.warehouse_code }}</span>
+                              <span class="rd-opt-sub">{{ d.warehouse_code | sucursal }}</span>
                             }
                           </div>
                         </ng-template>

@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -47,7 +48,7 @@ import {
   standalone: true,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule,
-    DialogModule, InputTextModule, PageTabsComponent, SegmentedComponent, MetricStripComponent,
+    DialogModule, InputTextModule, PageTabsComponent, SegmentedComponent, MetricStripComponent, SucursalPipe,
   ],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
@@ -179,7 +180,7 @@ import {
                 @for (c of d.canales; track c.id) {
                   <li [class.ok]="c.completo">
                     <div class="ac-canal-id">
-                      <span class="ac-mono">{{ c.warehouse_code }}</span>
+                      <span class="ac-mono">{{ c.warehouse_code | sucursal }}</span>
                       <span class="ac-canal-nom">{{ c.warehouse_name }}</span>
                     </div>
                     <div class="ac-canal-cajas">{{ c.cajas_texto || '—' }}</div>
@@ -265,7 +266,7 @@ import {
                 header="Subir evidencia de ejecución">
         <div class="ac-form">
           <p class="ac-form-ctx">
-            Plaza <strong>{{ canalActivo()?.warehouse_code }}</strong> ·
+            Plaza <strong>{{ canalActivo()?.warehouse_code | sucursal }}</strong> ·
             lleva {{ canalActivo()?.evidence_count }} de {{ canalActivo()?.evidence_required }}
           </p>
           <label for="ev-nombre">Nombre del archivo</label>

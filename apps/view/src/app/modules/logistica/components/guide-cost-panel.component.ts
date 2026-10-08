@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, inject, signal, computed, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { TagModule } from 'primeng/tag';
@@ -39,7 +40,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
     CommonModule, FormsModule, TableModule, TagModule, DrawerModule,
     DatePickerModule, SelectModule, InputTextModule, SkeletonModule, ButtonModule,
     SegmentedComponent,
-    MetricStripComponent,
+    MetricStripComponent, SucursalPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -172,7 +173,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
           <ng-template #body let-g>
             <tr [pSelectableRow]="g" [class.gc-sel]="sel()?.guia === g.guia && sel()?.dia === g.dia">
               <td role="cell" data-label="Fecha">{{ g.dia }}</td>
-              <td class="gc-mono dt-id" role="cell">{{ g.sucursal }} · {{ g.guia }}</td>
+              <td class="gc-mono dt-id" role="cell">{{ g.sucursal | sucursal }} · {{ g.guia }}</td>
               <td role="cell" data-label="Canal"><p-tag [value]="etiquetaCanal(g.canal)" [severity]="sevCanal(g.canal)" /></td>
               <td class="comm-num dt-num" role="cell" data-label="Paradas">{{ g.paradas }}</td>
               <td class="comm-num dt-num" role="cell" data-label="Mercancía">{{ g.mercancia | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
@@ -218,7 +219,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
       <aside class="gc-detail">
         <ng-container *ngIf="sel() as g; else pickOne">
           <header class="gc-dhead">
-            <h3>{{ g.sucursal }} · {{ g.guia }}</h3>
+            <h3>{{ g.sucursal | sucursal }} · {{ g.guia }}</h3>
             <p>{{ g.dia }} · {{ g.paradas }} paradas · {{ etiquetaCanal(g.canal) }}</p>
           </header>
 

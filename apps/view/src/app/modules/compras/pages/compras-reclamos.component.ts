@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -48,7 +49,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, TagModule, ToastModule,
     SelectModule, InputTextModule, TextareaModule,
-    MetricStripComponent, SidePeekComponent, LoadStateComponent,
+    MetricStripComponent, SidePeekComponent, LoadStateComponent, SucursalPipe,
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
@@ -177,7 +178,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                   <span class="rc-resp-name">{{ c.supplier_name || c.responsible_label || c.responsible_code || '—' }}</span>
                 </span>
               </td>
-              <td class="rc-muted" role="cell" data-label="Recibió">{{ c.warehouse_code || '—' }}</td>
+              <td class="rc-muted" role="cell" data-label="Recibió">{{ (c.warehouse_code | sucursal) || '—' }}</td>
             </tr>
           </ng-template>
         </p-table>

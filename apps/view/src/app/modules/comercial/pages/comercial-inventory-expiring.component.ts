@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -20,7 +21,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
 @Component({
   selector: 'app-comercial-inventory-expiring',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, MetricCardComponent, ProductSearchComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule, ToastModule, MetricCardComponent, ProductSearchComponent, SucursalPipe],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -70,7 +71,7 @@ import { ProductSearchComponent, ProductHit } from '../components/product-search
         </ng-template>
         <ng-template #body let-it>
           <tr [class.ex-row-expired]="+it.days_to_expiry < 0">
-            <td class="ex-mono">{{ it.warehouse_code }}</td>
+            <td class="ex-mono">{{ it.warehouse_code | sucursal }}</td>
             <td class="ex-mono">{{ it.sku || '—' }}</td>
             <td class="ex-name">{{ it.product_name || '—' }}</td>
             <td class="ex-mono">{{ it.lot_code }}</td>

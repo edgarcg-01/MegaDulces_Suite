@@ -1,5 +1,6 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -43,7 +44,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
   standalone: true,
   imports: [CommonModule, FormsModule, ButtonModule, TableModule, TagModule, SelectModule,
     ToggleSwitchModule, SelectButtonModule, TooltipModule, MetricCardComponent,
-    ContextHelpComponent, TableDensityComponent, FreshnessPillComponent, SidePeekComponent],
+    ContextHelpComponent, TableDensityComponent, FreshnessPillComponent, SidePeekComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page inv-var">
@@ -367,7 +368,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
               <ng-template #body let-i>
                 <tr>
                   <td class="tabular">{{ i.sku }}</td>
-                  <td class="tabular">{{ i.warehouse_code }}</td>
+                  <td class="tabular">{{ i.warehouse_code | sucursal }}</td>
                   <td class="num tabular">{{ i.veces_contado }}</td>
                   <td class="num tabular">{{ i.veces_descuadro }}</td>
                   <td><p-tag [severity]="patronSev(i.patron)"
@@ -504,7 +505,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 
       @if (vista === 'diferencias' && selected) {
         <section class="inv-var-detail">
-          <h2>{{ selected.warehouse_code }} · {{ selected.fecha }}</h2>
+          <h2>{{ selected.warehouse_code | sucursal }} · {{ selected.fecha }}</h2>
 
           @if (coverage(); as c) {
             <div class="inv-var-coverage">

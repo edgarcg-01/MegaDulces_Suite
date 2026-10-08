@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin, of } from 'rxjs';
 import { switchMap, map, catchError } from 'rxjs/operators';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
@@ -44,7 +45,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
 @Component({
   selector: 'app-compras-que-toca',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, TagModule, TooltipModule, InputTextModule, InputNumberModule, DialogModule, MetricStripComponent, FreshnessPillComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, TableModule, ToastModule, SelectModule, MultiSelectModule, TagModule, TooltipModule, InputTextModule, InputNumberModule, DialogModule, MetricStripComponent, FreshnessPillComponent, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -195,7 +196,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                   @if (r.via==='transfer' && hubShortCount(r._key) > 0) {
                     <div class="qt-block" role="alert">
                       <i class="pi pi-exclamation-triangle"></i>
-                      <span>El hub <strong>{{ r.source_warehouse_code }}</strong> no tiene stock para surtir {{ hubShortCount(r._key) }} línea(s).</span>
+                      <span>El hub <strong>{{ r.source_warehouse_code | sucursal }}</strong> no tiene stock para surtir {{ hubShortCount(r._key) }} línea(s).</span>
                       <button pButton class="p-button-sm qt-block-btn" [loading]="st.creating" (click)="splitTransfer(r)"><span class="p-button-icon p-button-icon-left pi pi-arrows-h" aria-hidden="true"></span><span class="p-button-label">Traspasar disponible + comprar faltante</span></button>
                     </div>
                   }
@@ -294,7 +295,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                 <tbody>
                   @for (l of consLinesFiltered(); track l.product_id + '_' + l.warehouse_id) {
                     <tr>
-                      <td class="qt-muted">{{ l.warehouse_code }}</td>
+                      <td class="qt-muted">{{ l.warehouse_code | sucursal }}</td>
                       <td class="qt-mono">{{ l.sku }}</td>
                       <td>{{ l.nombre }}</td>
                       <td class="qt-r">{{ l.cajas | number:'1.0-0' }}</td>
@@ -338,7 +339,7 @@ type CatLine = CriticalStockRow & { uxc: number; cajas: number; piezas: number; 
                 @for (l of catRows(); track l.product_id + '_' + l.warehouse_id) {
                   <tr>
                     <td class="qt-muted">{{ l.supplier_name || '—' }}</td>
-                    <td class="qt-muted">{{ l.warehouse_code }}</td>
+                    <td class="qt-muted">{{ l.warehouse_code | sucursal }}</td>
                     <td class="qt-mono">{{ l.sku }}</td>
                     <td>{{ l.nombre }}</td>
                     <td class="qt-r qt-muted">{{ l.suggested_qty | number:'1.0-0' }}</td>

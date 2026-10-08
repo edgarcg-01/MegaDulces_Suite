@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, injec
 import { MultitareaService } from '../../../core/services/multitarea.service';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
@@ -30,7 +31,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
 @Component({
   selector: 'app-compras-requisiciones',
   standalone: true,
-  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule],
+  imports: [RouterLink, CommonModule, FormsModule, ButtonModule, TableModule, SelectModule, TagModule, TabsModule, ToastModule, MetricStripComponent, SegmentedComponent, InputTextModule, IconFieldModule, InputIconModule, SucursalPipe],
   changeDetection: ChangeDetectionStrategy.OnPush,
   providers: [MessageService],
   template: `
@@ -159,10 +160,10 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 @if (r.source_type === 'branch') {
                   <span class="rq-wh-cell"><i class="pi pi-building rq-origin-icon" aria-hidden="true"></i> {{ r.source_warehouse_code || 'CEDIS' }}</span>
                   <i class="pi pi-arrow-right rq-muted rq-flecha" aria-hidden="true"></i>
-                  <span class="rq-wh-cell"><i class="pi pi-map-marker rq-dest-icon" aria-hidden="true"></i> {{ r.warehouse_code || '—' }}</span>
+                  <span class="rq-wh-cell"><i class="pi pi-map-marker rq-dest-icon" aria-hidden="true"></i> {{ (r.warehouse_code | sucursal) || '—' }}</span>
                 } @else {
                   <span>{{ r.supplier_name || 'Varios' }}</span>
-                  <div class="rq-sub rq-muted">entrega en <strong>{{ r.warehouse_code || '—' }}</strong></div>
+                  <div class="rq-sub rq-muted">entrega en <strong>{{ (r.warehouse_code | sucursal) || '—' }}</strong></div>
                 }
               </td>
               <td class="rq-r">{{ r.total_lines | number }}</td>
@@ -239,7 +240,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                 <tr class="rq-row" (click)="open(r)">
                   <td class="rq-chk" (click)="$event.stopPropagation()"><input type="checkbox" [checked]="sel().has(r.id)" (change)="marcar(r.id, $any($event.target).checked)" [attr.aria-label]="'Marcar ' + r.folio" /></td>
                   <td class="rq-mono"><a class="surf-cell-link" [routerLink]="multitarea.enlaceDetalle(['/compras/requisiciones', r.id])" [target]="multitarea.target()" (click)="$event.stopPropagation()">{{ r.folio }}</a></td>
-                  <td>{{ r.warehouse_code || '—' }}</td>
+                  <td>{{ (r.warehouse_code | sucursal) || '—' }}</td>
                   <td class="rq-muted">{{ r.supplier_name || 'Varios' }}</td>
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
@@ -309,7 +310,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
                     <span class="rq-wh-cell"><i class="pi pi-building rq-origin-icon" aria-hidden="true"></i> {{ r.source_warehouse_code || 'CEDIS' }}</span>
                   </td>
                   <td>
-                    <span class="rq-wh-cell"><i class="pi pi-map-marker rq-dest-icon" aria-hidden="true"></i> {{ r.warehouse_code || '—' }}</span>
+                    <span class="rq-wh-cell"><i class="pi pi-map-marker rq-dest-icon" aria-hidden="true"></i> {{ (r.warehouse_code | sucursal) || '—' }}</span>
                   </td>
                   <td class="rq-r">{{ r.total_lines | number }}</td>
                   <td class="rq-r">{{ r.total_units | number:'1.0-0' }}</td>
