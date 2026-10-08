@@ -470,6 +470,8 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 
 **Solicitudes de prueba (MS.7.12):** la coordinación puede marcar una solicitud como «de prueba» (también si ya está cerrada o cancelada): deja de contar en reportes, tablero, carga de trabajo, «Mi trabajo» y avisos, y queda registrado en el historial. Sigue apareciendo en la bandeja con la etiqueta «Prueba» para poder quitarle la marca. **Nada aplicado a prod** (migración `20261007340000`).
 
+**Avisos por área (MS.7.13):** los avisos de una solicitud sólo llegan a quien la reportó, a quien la tiene asignada y a la gente del área donde está (tras un traslado, la del área nueva). Cuando hay más de un área encendida, el aviso dice a cuál pertenece la solicitud, por ejemplo «SRV-2026-00042 (Mantenimiento) · …»; con una sola área se ve igual que siempre. **Nada aplicado a prod** (no requiere migración).
+
 **Campos propios por cola (MS.7.4):** cada cola puede pedir preguntas extra al reportar —sí/no, una opción de una lista, un texto o una foto— que su coordinación declara desde Configuración, sin tocar código; las obligatorias no dejan enviar sin contestar y la ficha muestra las respuestas (también si el campo se apaga después). Hoy ninguna cola trae campos: TI y Mantenimiento no cambian. **Nada aplicado a prod** (migración `20261007320000`).
 
 **Zonas en la Mesa de Servicio (MS.7.3):** además de la ubicación, las colas que lo piden (hoy Mantenimiento) preguntan **en qué parte** — bodega, andén, oficina, baños, exterior — de forma opcional; la ficha la muestra y la coordinación administra el catálogo desde Configuración (apagar una zona no borra: los tickets viejos la conservan). Para TI no cambia nada. **Nada aplicado a prod** (migración `20261007310000`).

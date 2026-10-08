@@ -37,6 +37,11 @@ export interface EntradaAviso {
   /** Sólo `autocerrado`: a los cuántos días. */
   dias?: number | null;
   automatico?: boolean;
+  /**
+   * `[MS.7.13]` El ÁREA (cola) del ticket. Sólo se manda cuando hay más de un área encendida: con una sola, el aviso queda idéntico al de
+   * siempre. `transferido` ya nombra el área destino, así que no la repite.
+   */
+  cola?: string | null;
 }
 
 export interface Aviso {
@@ -53,7 +58,8 @@ function recortar(s: string | null | undefined, max: number): string {
 }
 
 export function armarAviso(e: EntradaAviso): Aviso {
-  const ref = `${e.folio} · ${recortar(e.title, 80)}`;
+  const area = e.cola && e.event !== 'transferido' ? ` (${recortar(e.cola, 40)})` : '';
+  const ref = `${e.folio}${area} · ${recortar(e.title, 80)}`;
   const quien = e.actor ? recortar(e.actor, 40) : null;
   switch (e.event) {
     case 'nuevo_prioritario':

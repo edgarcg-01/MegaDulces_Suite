@@ -1860,6 +1860,66 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('y deja la nota de que se quitó', ((await req('GET', `${SD}/requests/${A.id}`, jefeT.token)).body?.messages ?? []).some((m) => m.meta?.is_test === false));
     }
 
+    // ── 34. [MS.7.13] Avisos por cola: nadie fuera de la cola los recibe, y el texto nombra el área ───
+    {
+      console.log('\n34 — avisos por cola');
+      const [{ id: qN }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_av713', name: 'SMOKE Avisos', sort_order: 911 }).returning('id');
+      const [{ id: catUrg }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qN, code: 'smoke_av713_alta', name: 'SMOKE AV alta', default_priority: 'alta', requires_branch: false }).returning('id');
+      const [{ id: catMed }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qN, code: 'smoke_av713_med', name: 'SMOKE AV media', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeN = await crearUsuario('av_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qN, role: 'coordinador' }]);
+      const tecN = await crearUsuario('av_tec', ['SERVICIO_ATENDER'], [{ queue_id: qN, role: 'tecnico' }]);
+      usuarios.push(jefeN, tecN);
+      const destinatarios = async (id, evento) => (await knex('servicedesk.notification_log').where({ request_id: id, channel: 'app' }).modify((q) => { if (evento) q.where({ event: evento }); }).pluck('recipient_id')).sort();
+      const mk = async (cat, t) => (await req('POST', `${SD}/requests`, sol.token, { category_id: cat, title: 'SMOKE 7.13 ' + t })).body;
+      const equipo = [jefeN.id, tecN.id].sort();
+      const deTi = [agente.id, coord.id];
+
+      // A) Un ticket ALTA sin atender avisa al equipo del ÁREA, y sólo a él.
+      const t1 = await mk(catUrg, 'alta sin atender');
+      const rec1 = await destinatarios(t1.id, 'nuevo_prioritario');
+      check('⭐ «alta sin atender» avisa EXACTAMENTE al equipo del área (coordinación y técnico)', JSON.stringify(rec1) === JSON.stringify(equipo), JSON.stringify(rec1));
+      check('⛔ y NO al agente ni a la coordinación de TI (no son de esta cola)', !rec1.some((id) => deTi.includes(id)));
+      check('⛔ ni a quien reportó (el aviso de «sin atender» es interno)', !rec1.includes(sol.id));
+      const av1 = (await knex('servicedesk.notification_log').where({ request_id: t1.id, event: 'nuevo_prioritario', channel: 'app' }).first('payload')).payload;
+      check('⭐ el texto nombra el ÁREA (hay varias encendidas) y trae el folio al frente', typeof av1?.message === 'string' && av1.message.startsWith(t1.folio) && av1.message.includes('(SMOKE Avisos)'), JSON.stringify(av1));
+
+      // B) El barrido del SLA (con la escalación encendida) avisa sólo a la cola del ticket.
+      const antes = (await knex('servicedesk.settings').where({ tenant_id: T }).first('escalation_enabled')).escalation_enabled;
+      await knex('servicedesk.settings').where({ tenant_id: T }).update({ escalation_enabled: true });
+      const t2 = await mk(catMed, 'vencida sin atender');
+      await knex('servicedesk.requests').where({ id: t2.id }).update({ due_at: new Date(Date.now() - 3600e3), first_response_due_at: new Date(Date.now() - 7200e3) });
+      await req('POST', `${SD}/sla/scan-now`, coord.token);
+      const rec2 = [...new Set(await destinatarios(t2.id))].sort();
+      await knex('servicedesk.settings').where({ tenant_id: T }).update({ escalation_enabled: antes });
+      check('⭐ el barrido avisa lo vencido a la gente DE LA COLA (la prueba no es vacua: hubo avisos)', rec2.length > 0 && rec2.every((id) => equipo.includes(id)), JSON.stringify(rec2));
+      check('⛔ y a NADIE de TI aunque su coordinación dispare el barrido', !rec2.some((id) => deTi.includes(id)), JSON.stringify(rec2));
+
+      // C) Asignado: el comentario de quien reportó avisa a quien lo tiene, no a todo el equipo; la resolución, a quien reportó.
+      const t3 = await mk(catMed, 'asignado');
+      await req('POST', `${SD}/requests/${t3.id}/assign`, jefeN.token, { user_id: tecN.id });
+      await req('POST', `${SD}/requests/${t3.id}/messages`, sol.token, { body: 'Comentario de quien reportó' });
+      const rec3 = await destinatarios(t3.id, 'comentario');
+      check('⭐ el comentario de quien reportó avisa a QUIEN LO TIENE (no a todo el equipo ni a TI)', JSON.stringify(rec3) === JSON.stringify([tecN.id]), JSON.stringify(rec3));
+      await req('POST', `${SD}/requests/${t3.id}/status`, tecN.token, { status: 'en_proceso' });
+      await req('POST', `${SD}/requests/${t3.id}/status`, tecN.token, { status: 'resuelto', note: 'Listo' });
+      const rec3r = await destinatarios(t3.id, 'resuelto');
+      check('⭐ la resolución le avisa a QUIEN REPORTÓ, aunque no sea de la cola', JSON.stringify(rec3r) === JSON.stringify([sol.id]), JSON.stringify(rec3r));
+
+      // D) Tras un traslado, los avisos siguen a la cola NUEVA: el origen deja de enterarse.
+      const t4 = await mk(catMed, 'se traslada');
+      const tr = await req('POST', `${SD}/requests/${t4.id}/transfer`, jefeN.token, { queue_id: (await knex('servicedesk.queues').where({ tenant_id: T, code: 'ti' }).first('id')).id, category_id: catSimple.id, reason: 'Es de TI' });
+      check('(preparación) el traslado a TI se hizo', tr.status < 300, dump(tr));
+      const recT = await destinatarios(t4.id, 'transferido');
+      check('⭐ «transferido» avisa a la gente del área DESTINO (TI) y no a la del origen', recT.length > 0 && recT.every((id) => !equipo.includes(id)) && recT.includes(agente.id), JSON.stringify(recT));
+      await req('POST', `${SD}/requests/${t4.id}/messages`, sol.token, { body: 'Un comentario tras el traslado' });
+      const trasT = await destinatarios(t4.id);
+      check('⛔ y tras el traslado NADA le llega ya a la gente del área de origen', !trasT.some((id) => equipo.includes(id)), JSON.stringify(trasT));
+
+      // E) Ningún aviso de estos tickets salió hacia alguien fuera de (equipo ∪ quien reportó ∪ asignado ∪ destino).
+      const todos = await knex('servicedesk.notification_log').whereIn('request_id', [t1.id, t2.id, t3.id]).pluck('recipient_id');
+      check('⭐ en conjunto: ningún aviso de los tickets de esta área llegó a alguien ajeno a ella', todos.length > 0 && todos.every((id) => equipo.includes(id) || id === sol.id), JSON.stringify([...new Set(todos)]));
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
