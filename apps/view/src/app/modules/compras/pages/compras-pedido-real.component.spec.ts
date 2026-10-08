@@ -189,6 +189,57 @@ describe('[RA-CICLO.1] el CUÁNDO: a quién le toca pedir, y qué pasa cuando no
   });
 });
 
+describe('[RA-PEND.2] el lote se frena ANTES del clic, no después de perder el trabajo', () => {
+  /** Un documento válido del plan: compra de un proveedor, un almacén, un renglón con cantidad. */
+  const doc = (o: Record<string, unknown> = {}) => ({
+    warehouse_id: 'w-01', supplier_id: 's-1', source_type: 'supplier',
+    lines: [{ product_id: 'p-1', supplier_id: 's-1', source_type: 'supplier', final_qty: 3, unit_cost: 100 }],
+    ...o,
+  });
+
+  it('un plan sano no tiene bloqueantes — el freno no puede estorbar el camino feliz', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set([doc(), doc({ warehouse_id: 'w-08' })]);
+    expect(c.planBloqueos()).toEqual([]);
+  });
+
+  it('⛔ pasarse del tope del lote se dice acá, no en un 400 después de armar todo', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set(Array.from({ length: 301 }, () => doc()));
+    const bl = c.planBloqueos();
+    expect(bl.length).toBeGreaterThan(0);
+    expect(bl[0]).toContain('301');
+    expect(bl[0]).toContain('300');
+  });
+
+  it('un documento sin renglones con cantidad lo señala POR NÚMERO — el lote es todo o nada', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set([doc(), doc({ lines: [{ product_id: 'p-2', final_qty: 0, unit_cost: 10 }] })]);
+    expect(c.planBloqueos().some((b: string) => b.includes('documento 2'))).toBe(true);
+  });
+
+  it('una compra que mezcla dos proveedores se frena: el servidor la rechaza y tira el lote entero', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set([doc({ lines: [
+      { product_id: 'p-1', supplier_id: 's-1', source_type: 'supplier', final_qty: 2, unit_cost: 10 },
+      { product_id: 'p-2', supplier_id: 's-2', source_type: 'supplier', final_qty: 2, unit_cost: 10 },
+    ] })]);
+    expect(c.planBloqueos().some((b: string) => b.includes('más de un proveedor'))).toBe(true);
+  });
+
+  it('un traspaso sin origen se frena — es una de las reglas duras de insertRequisition', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set([doc({ source_type: 'branch', supplier_id: null, source_warehouse_id: null })]);
+    expect(c.planBloqueos().some((b: string) => b.includes('desde dónde sale'))).toBe(true);
+  });
+
+  it('⭐ el tope es EXACTO: 300 pasa y 301 no — un off-by-one acá bloquea un lote legítimo', () => {
+    const c = montar(VACIO).componentInstance;
+    c.plan.set(Array.from({ length: 300 }, () => doc()));
+    expect(c.planBloqueos()).toEqual([]);
+  });
+});
+
 describe('[RA-PERF.7] los índices memoizados no cambian lo que la pantalla responde', () => {
   it('un producto sin filas devuelve SIEMPRE la misma referencia vacía', () => {
     const c = montar(VACIO).componentInstance;

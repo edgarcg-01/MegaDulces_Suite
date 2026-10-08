@@ -3372,7 +3372,20 @@ export class CommercialReplenishmentService {
       const porIndice = new Map<number, string>();   // índice en el arreglo → id creado
       const creadas: Array<{ id: string; folio: string; source_type: string }> = [];
       for (const { r, i } of orden) {
-        const hecha = await this.insertRequisition(trx, tenantId, r);
+        // `[RA-PEND.2]` DECIR CUÁL FALLÓ. El lote es todo-o-nada, así que una sola línea mala tira
+        // los 117 documentos y el comprador leía "No se creó NINGUNA requisición" sin saber dónde
+        // mirar. ⛔ Y tampoco lo sabíamos nosotros: medido el 2026-10-07, **9 de 15 «Armar»
+        // fallaron** (gerente_compras 6 de 7, auxiliar_compras 3 de 7) en ~12 ms —o sea una
+        // validación, no un timeout— y lo único que quedó fue un contador en `analytics.ui_usage`,
+        // que cuenta errores y no guarda el motivo. Los logs del pod ya habían rotado.
+        // Acá el motivo se queda pegado al documento que lo causó, en el mensaje Y en el log.
+        const hecha = await this.insertRequisition(trx, tenantId, r).catch((e: Error) => {
+          const quien = `documento ${i + 1} de ${entrada.length}`
+            + ` (${r.source_type === 'branch' ? 'traspaso' : 'compra'}`
+            + `${r.supplier_id ? `, proveedor ${r.supplier_id}` : ''}, almacén ${r.warehouse_id}, ${(r.lines || []).length} renglón/es)`;
+          this.logger.warn(`Lote rechazado en el ${quien}: ${e.message}`);
+          throw new BadRequestException(`${e.message} — falló el ${quien}. El lote entero se revirtió.`);
+        });
         porIndice.set(i, hecha.id);
         creadas.push({ id: hecha.id, folio: hecha.folio, source_type: r.source_type === 'branch' ? 'branch' : 'supplier' });
         if (vigCols) {
