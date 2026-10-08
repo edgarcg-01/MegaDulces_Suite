@@ -481,6 +481,211 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(fx.nativeElement.querySelectorAll('.cg-bandeja-tbl p-checkbox').length).toBe(0);
   });
 
+  // ── [CG.61] La cola, compacta: media pantalla no da para ocho columnas ────────────────────
+  //
+  // Con la cola dentro del apartado 1 (`[CG.60]`) la tabla tiene **media pantalla**, y
+  // `check:dense-tables` la marcó en deuda por ancho de columnas (9, tracker `[UIM.2]`).
+  // Se retiran dos columnas — pero lo que se retira es la COLUMNA, no el dato: el documento
+  // baja a su fila, que es donde el tablero lo pone.
+
+  it('la cola cabe en media pantalla: seis columnas, y el documento NO se perdió', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const ths = fx.nativeElement.querySelectorAll('.cg-bandeja-tbl thead th');
+    expect(ths.length, 'la cola volvió a crecer: ocho columnas no se leen en media pantalla')
+      .toBeLessThanOrEqual(6);
+
+    // ⭐ Y la prueba que impide "arreglarlo" borrando: el documento tiene que SEGUIR en la fila.
+    // Sin esto, cortar columnas puntúa igual que perder el dato con el que se identifica el
+    // movimiento, y el buscador promete justamente "folio Kepler".
+    const fila: HTMLElement = fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    expect(fila.querySelector('.cg-fila-doc')?.textContent)
+      .toContain(FILA_A.folio);
+  });
+
+  // ── [CG.63] La FILA es el botón ──────────────────────────────────────────────────────────
+  //
+  // Edgar: *"no le estás dando visibilidad, además lo especificás como si fuera algo secundario,
+  // es el botón principal de la interacción. me gustaría que al darle clic a todo el movimiento
+  // se despliegue el menú"*. `[CG.61]` había pasado la salida a un icono de 2rem en el borde
+  // derecho — y pintarlo más fuerte no lo iba a convertir en el control principal de un renglón.
+
+  it('⛔ [negativa] NO queda un botón por fila: la fila entera abre el movimiento', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    expect(
+      fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody tr button').length,
+      'volvió un botón por fila: la acción principal no puede ser un control de 2rem al borde',
+    ).toBe(0);
+
+    // La tabla selecciona DE A UNA, y seleccionar significa abrir. Con selección múltiple el
+    // clic volvería a marcar para el lote, que es justo lo que se cambió.
+    const tabla: HTMLElement = fx.nativeElement.querySelector('.cg-bandeja-tbl');
+    expect(tabla.getAttribute('selectionmode') ?? tabla.getAttribute('selectionMode'))
+      .not.toBe('multiple');
+
+    // Y la fila DICE que abre, antes del clic: el galón que apunta a dónde va.
+    const fila: HTMLElement = fx.nativeElement.querySelector('.cg-bandeja-tbl tbody tr');
+    expect(fila.querySelector('.cg-td-abrir .pi-chevron-right'), 'la fila no anuncia que abre')
+      .not.toBeNull();
+  });
+
+  it('abrir desde la cola marca la fila como ABIERTA, que no es lo mismo que marcada', async () => {
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
+    await Promise.resolve();
+    fx.detectChanges();
+
+    comp.abrirDeLaCola(FILA_A);
+    fx.detectChanges();
+
+    const filas = Array.from(
+      fx.nativeElement.querySelectorAll('.cg-bandeja-tbl tbody tr'),
+    ) as HTMLElement[];
+    const abierta = filas.filter((f) => f.classList.contains('cg-fila-abierta'));
+    expect(abierta.length, 'una y sólo una fila abierta').toBe(1);
+
+    // ⚠️ ABIERTA y MARCADA son dos hechos distintos y no se pueden pintar igual: una es «en esto
+    // estoy trabajando», la otra «esto entra al lote». Abrir no marca.
+    expect(abierta[0].classList.contains('cg-fila-marcada')).toBe(false);
+    expect(comp.marcadas()).toEqual([]);
+  });
+
+  // ── [CG.62] Guardar baja al pie del arqueo, y pregunta antes ──────────────────────────────
+  //
+  // Edgar: *"el botón de guardar se debe mostrar abajo de arqueo, para solo pasar del arqueo a
+  // guardar"* + *"una ventana de «seguro que querés guardar»"*.
+
+  it('Guardar vive al pie del ARQUEO y DESPUÉS de la reja: la flecha llega a él', async () => {
+    const fx = montar();
+    comp.abrirCaptura();
+    // ⚠️ Con bloqueos el botón está DESHABILITADO, y `moverFoco` lo salta a propósito: no se
+    // puede caer con una flecha en un control que no se puede apretar. Así que la prueba llega
+    // al estado guardable de verdad — si no, mediría el caso en el que el salto no debe ocurrir.
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });
+    expect(comp.bloqueos()).toEqual([]);
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const boton: HTMLElement = fx.nativeElement.querySelector('button.cg-guardar');
+    expect(boton, 'no hay botón de guardar').not.toBeNull();
+    expect(boton.closest('.cg-ap-arqueo'), 'Guardar no está en el apartado del arqueo').not.toBeNull();
+
+    // ⭐ Y el ORDEN importa, no es cosmético: `moverFoco` recorre el DOM con `querySelectorAll`,
+    // así que si el botón quedara ANTES de la reja la flecha hacia abajo saltaría hacia atrás.
+    const ultima: HTMLElement = Array.from(
+      fx.nativeElement.querySelectorAll('input.cg-pieza'),
+    ).pop() as HTMLElement;
+    expect(ultima, 'no hay campos de pieza').toBeTruthy();
+    expect(ultima.compareDocumentPosition(boton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // La cadena de la flecha los incluye a los dos: del último campo contado, al botón.
+    const cadena = Array.from(
+      fx.nativeElement.querySelectorAll('input.cg-pieza, button.cg-guardar'),
+    );
+    expect(cadena[cadena.length - 1]).toBe(boton);
+
+    // ⭐ Y se EJERCE, no se infiere del DOM: la flecha desde el último campo contado tiene que
+    // dejar el foco en Guardar. `moverFoco` llamaba `.select()` sin preguntar, y un botón no lo
+    // tiene — el defecto habría reventado justo acá, en la última flecha del arqueo.
+    ultima.focus();
+    comp.moverEnReja({ target: ultima, preventDefault: () => undefined } as unknown as Event, 1);
+    expect(document.activeElement, 'la flecha no llegó a Guardar').toBe(boton);
+
+    // Y vuelve: quien baja de más no queda atrapado en el botón.
+    comp.moverEnReja({ target: boton, preventDefault: () => undefined } as unknown as Event, -1);
+    expect(document.activeElement).toBe(ultima);
+  });
+
+  it('⭐ el atajo se ANUNCIA: en el campo y escrito en la cabecera', async () => {
+    // D.5 lo exige y nada lo hacía cumplir: *"un atajo que nadie sabe que existe no existe"*.
+    // Medido antes de tocar nada: CERO `aria-keyshortcuts` en esta pantalla, y UNO en todo el
+    // repo. Las flechas del arqueo llevaban varios commits funcionando en silencio — y Edgar
+    // reportó «no me puedo mover con las flechas» sobre la única parte donde sí se podía.
+    const fx = montar();
+    comp.abrirCaptura();
+    await Promise.resolve();
+    fx.detectChanges();
+
+    const campos = Array.from(
+      fx.nativeElement.querySelectorAll('input.cg-pieza'),
+    ) as HTMLElement[];
+    expect(campos.length, 'no hay campos de pieza').toBeGreaterThan(0);
+    for (const c of campos) {
+      expect(c.getAttribute('aria-keyshortcuts'), 'un campo de la reja no anuncia su atajo')
+        .toContain('ArrowDown');
+    }
+
+    // Y en pantalla, no sólo para el lector: la cabecera del arqueo lo dice.
+    const cab: HTMLElement = fx.nativeElement.querySelector('.cg-ap-arqueo .cg-ap-head');
+    expect(cab.textContent, 'la cabecera del arqueo no escribe el atajo').toContain('Guardar');
+    expect(cab.querySelectorAll('kbd').length).toBeGreaterThan(0);
+  });
+
+  it('⛔ [negativa] con el formulario incompleto la flecha NO cae en Guardar', async () => {
+    // Un foco que aterriza en un botón apagado es un callejón: el teclado llega y no puede hacer
+    // nada, y volver exige el mouse. `moverFoco` salta lo deshabilitado; esto lo congela.
+    const fx = montar();
+    comp.abrirCaptura();
+    contar({ 500: 3 });                 // hay algo contado, pero falta la clasificación
+    await Promise.resolve();
+    fx.detectChanges();
+    expect(comp.bloqueos().length, 'el formulario tendría que seguir bloqueado').toBeGreaterThan(0);
+
+    const ultima: HTMLElement = Array.from(
+      fx.nativeElement.querySelectorAll('input.cg-pieza'),
+    ).pop() as HTMLElement;
+    ultima.focus();
+    comp.moverEnReja({ target: ultima, preventDefault: () => undefined } as unknown as Event, 1);
+    expect(document.activeElement, 'la flecha cayó en un botón apagado').toBe(ultima);
+  });
+
+  it('⛔ [negativa] Guardar NO guarda: abre la pregunta, y la pregunta DICE el veredicto', () => {
+    const crear = vi.fn(() => of({ id: 'x', folio: 'F-1' }));
+    const fx = montar({ crear });
+    comp.abrirCaptura();
+    // ⚠️ Se llega al estado GUARDABLE de verdad, no se finge: con bloqueos el botón está apagado
+    // y `pedirConfirmacion` sale sin hacer nada — una prueba que no los limpiara pasaría por la
+    // rama equivocada y diría «no guardó» sobre un botón que ni se podía apretar.
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });
+    expect(comp.bloqueos()).toEqual([]);
+    fx.detectChanges();
+
+    // ⭐ Se APRIETA EL BOTÓN, no se llama al método. La primera versión de esta prueba invocaba
+    // `pedirConfirmacion()` directo, y mutar el template a `(onClick)="guardar()"` la dejaba
+    // VERDE: medía una función que nadie garantizaba que estuviera cableada. El candado tiene
+    // que entrar por donde entra la persona.
+    const boton: HTMLElement = fx.nativeElement.querySelector('button.cg-guardar');
+    expect(boton, 'no hay botón de guardar').not.toBeNull();
+    boton.click();
+    fx.detectChanges();
+
+    // ⛔ Lo que define que sea una guarda y no un trámite: todavía NO se guardó nada.
+    expect(crear, 'Guardar escribió sin preguntar').not.toHaveBeenCalled();
+    expect(comp.confirmarGuardar()).toBe(true);
+
+    // ⚠️ Y que la ventana DIGA qué va a pasar. Un "¿estás seguro?" mudo es un clic de peaje que
+    // se aprende a tirar sin leer: estorba sin proteger. Tiene que repetir el veredicto del
+    // arqueo, que es lo único que no se puede deshacer después.
+    const conf: HTMLElement = fx.nativeElement.querySelector('.cg-conf');
+    expect(conf, 'la ventana no se pintó').not.toBeNull();
+    expect(conf.textContent).toContain(comp.textoVeredicto(comp.arqueoVeredicto()));
+
+    // Y recién al confirmar se escribe.
+    comp.guardar();
+    expect(crear).toHaveBeenCalledTimes(1);
+    expect(comp.confirmarGuardar(), 'la ventana quedó abierta tapando el aviso').toBe(false);
+  });
+
   it('⭐ pero marcar SIGUE siendo posible y se VE: sin esto, limpiar dejaría la bandeja muerta', async () => {
     const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
     await Promise.resolve();
@@ -868,25 +1073,50 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   // dice CUÁNTAS son, que es lo que la casilla nunca pudo decir. Lo cubre la prueba de «Marcar
   // las N»; acá queda la nota para que nadie reponga un encabezado de una columna que ya no es.
 
-  it('marcar con el teclado NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
-    montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
-    // Lo que emite p-table al marcar con Space sobre una fila trabada.
-    comp.onSeleccionTabla([GASTO_TRABADO]);
+  it('⛔ [negativa] marcar NO mete una fila sin cuenta declarada (el servidor la rechazaría)', () => {
+    // ⭐ [CG.63] Este freno vivía en `onSeleccionTabla`, el callback de la tabla — o sea atado a
+    // UN dispositivo de entrada. Al pasar el clic de marcar a abrir, ese callback desapareció y
+    // el freno se habría ido con él SIN QUE NADA SE PUSIERA ROJO: `marcarTodas` filtra por su
+    // cuenta, así que la suite seguía verde con el agujero abierto en el camino de a una.
+    // Ahora se le pregunta al método que marca, que es donde el invariante pertenece.
+    // ⚠️ La cola trae las DOS: la trabada y una confirmable. Con sólo la trabada, el freno y un
+    // «marcar nunca marca nada» se verían idénticos — y un control de placebo se vuelve a pasar.
+    montar({
+      movimientosPendientes: vi.fn(() => of({
+        ...CON_DOS, rows: [GASTO_TRABADO, FILA_A], confirmables: 1,
+      })),
+    });
+    comp.marcar(GASTO_TRABADO.origen_ref, true);
     expect(comp.marcadas()).toEqual([]);
+
+    // Y la positiva, para que el freno no sea «nunca marca nada»: la confirmable sí entra.
+    comp.marcar(FILA_A.origen_ref, true);
+    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
   });
 
   it('la selección de la tabla y la señal son UNA sola verdad, en los dos sentidos', () => {
+    // ⭐ [CG.63] Lo que la tabla selecciona cambió de significado — era «marcado para el lote» y
+    // ahora es «el movimiento en el que estoy trabajando» — pero la regla NO cambió: PrimeNG
+    // entra como dispositivo de entrada, nunca como segundo dueño del dato.
     montar({ movimientosPendientes: vi.fn(() => of(CON_DOS)) });
 
-    // De la tabla a la señal.
-    comp.onSeleccionTabla([FILA_A]);
-    expect(comp.marcadas()).toEqual([FILA_A.origen_ref]);
-    // Y de la señal a la tabla: `filasMarcadas` es una proyección, no un segundo estado.
-    expect(comp.filasMarcadas().map((f) => f.origen_ref)).toEqual([FILA_A.origen_ref]);
+    // De la tabla a la señal: seleccionar una fila ABRE ese movimiento.
+    comp.abrirDeLaCola(FILA_A);
+    expect(comp.capturaAbierta()).toBe(true);
+    expect(comp.cobroElegido()?.origen_ref).toBe(FILA_A.origen_ref);
 
-    comp.marcar(FILA_B.origen_ref, true);
-    expect(comp.filasMarcadas().map((f) => f.origen_ref).sort())
-      .toEqual([FILA_A.origen_ref, FILA_B.origen_ref].sort());
+    // Y de la señal a la tabla: `filaEnCaptura` es una proyección de `cobroElegido`, no un
+    // segundo estado que haya que mantener sincronizado a mano.
+    expect(comp.filaEnCaptura()?.origen_ref).toBe(FILA_A.origen_ref);
+
+    comp.abrirDeLaCola(FILA_B);
+    expect(comp.filaEnCaptura()?.origen_ref).toBe(FILA_B.origen_ref);
+
+    // ⛔ Y volver a tocar la fila abierta emite null: eso NO cierra la captura. Cerrar es una
+    // acción propia (Cancelar), no el efecto de tocar dos veces lo mismo.
+    comp.abrirDeLaCola(null);
+    expect(comp.capturaAbierta()).toBe(true);
+    expect(comp.filaEnCaptura()?.origen_ref).toBe(FILA_B.origen_ref);
   });
 
   // ── [CG.52] El movimiento entra ENTERO: el ancho sigue a la tarea ─────────────────────────
@@ -2543,9 +2773,10 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       const panel = fx.nativeElement.querySelector('.cg-detail');
       // El formulario esta DENTRO del detalle...
       expect(panel.querySelector('.fin-form'), 'el formulario va en el panel').toBeTruthy();
-      // ...y Guardar tambien, pegado al pie del panel.
+      // ...y su salida tambien. ⭐ [CG.62] Guardar YA NO esta aca: bajo al pie del arqueo, que es
+      // donde termina el trabajo. Lo que queda en la ficha es Cancelar, que es la salida.
       expect(panel.querySelector('.cg-detail-pie'), 'el pie va en el panel').toBeTruthy();
-      expect(panel.querySelector('.cg-detail-pie').textContent).toContain('Guardar');
+      expect(panel.querySelector('.cg-detail-pie').textContent).toContain('Cancelar');
 
       // ⛔ Y NINGUN dialogo abierto lo contiene. Es la asercion que define O.1: si manana alguien
       // lo devuelve a un p-dialog, esto cae.

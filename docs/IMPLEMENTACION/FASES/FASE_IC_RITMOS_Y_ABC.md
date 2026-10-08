@@ -381,7 +381,56 @@ SKUs/hora anotada. **Sin esto, lo de abajo se construye a ciegas.**
 
 ---
 
-### `[IC.15]` — Tres ritmos en el mismo almacén · ⛔ ruta crítica
+### `[IC.15]` — Tres ritmos en el mismo almacén · 🚀 EN PROD (batch 803, 2026-10-07)
+
+**Aplicado.** Era el prerequisito real de `[IC.22]`: la pantalla de los tres ritmos dice «filtrar
+por `ritmo`» y **esa columna no existía**. El índice medido en prod era el bloqueo:
+
+```text
+commercial_inv_counts_one_open_per_wh
+  UNIQUE (tenant_id, warehouse_id) WHERE status IN (open, counting, review, ready_to_reconcile)
+```
+
+**Un folio vivo por almacén, punto.** La llave pasa a **`(tenant_id, warehouse_id, ritmo)`**.
+
+⭐ **`ritmo` es un eje ORTOGONAL a `type`, no un reemplazo.** `type` contesta *¿todo o un
+subconjunto?*; `ritmo` contesta *¿cada cuándo y para qué?*:
+
+| | `type` | `ritmo` |
+|---|---|---|
+| conteo diario de alta rotación | `cycle` | `diario` |
+| barrido mensual del complemento | `cycle` | `mensual` |
+| físico completo de Kepler | `full` | `trimestral` |
+
+Meterlos en una columna es el `CASE` que le miente a una de las dos — el mismo error que
+`v_count_priority_score`, donde `s_venta` y `s_parado` se suman y el resultado no es ninguno.
+
+⛔ **Los 6 folios previos NO se re-etiquetaron.** Son `type='full'` y daba tentación marcarlos
+`trimestral`, pero **nunca corrieron como el trimestral**: fueron intentos cancelados en junio.
+Van a `adhoc`, que es lo que de verdad son. *Inventarle un ritmo retroactivo a un folio es dibujar
+historia que no ocurrió* (ADR-056). El candado lo vigila.
+
+⚠️ **Aflojar el índice abrió una puerta que estaba cerrada por accidente:** que el **mismo SKU esté
+en dos folios vivos a la vez**. Dos personas lo cuentan por separado, los dos folios se resuelven y
+el segundo ajuste pisa al primero — **un descuadre fabricado por el sistema**, indistinguible de una
+merma real. El freno va en `openCount` y no en un índice, porque un índice parcial **no cruza
+tablas** (tendría que mirar los ítems *y* el estado del folio padre).
+
+**Candado** `test-newdb-inventory-ritmo.js`: **10 ✓ / 0 ✗ / 1 no medido**. El no medido se declara
+en vez de fingirse: la prueba negativa empírica —insertar dos folios vivos del mismo ritmo y ver el
+rechazo— **exige escribir**, y prod no es destino de escritura. Contra prod se verifica la
+**definición** del índice (UNIQUE sobre la terna admite dos ritmos **por definición**); contra un
+destino seguro el candado ejerce el índice de verdad y revierte.
+
+⚠️ Al aplicarla, **el candado de migraciones estaba tomado por otra sesión** (`CREATE MATERIALIZED
+VIEW analytics.mv_route_sales_monthly`, 34 s, desde otro pod). Se esperó. Forzar `migrate:unlock`
+habría abortado una migración ajena.
+
+**Falta:** redeploy para que el servicio acepte `ritmo` por API.
+
+---
+
+### `[IC.15]` — Alcance original (referencia)
 
 **El problema:** la llave de hoy es *un folio vivo por almacén*. Los ritmos diario y mensual chocan.
 
@@ -403,7 +452,42 @@ base**, no sólo en el servicio.
 
 ---
 
-### `[IC.16]` — El reloj, por ritmo y con arranque declarado · ⛔ ruta crítica
+### `[IC.16]` — El reloj, por ritmo y con arranque declarado · 🚀 EN PROD (batch 806, 2026-10-07)
+
+**Aplicado:** `analytics.v_count_clock`, grano **(almacén, producto, ritmo)**.
+
+⭐ **Lo que lo destrabó no fue contar más, sino mirar lo que ya estaba.** El reloj leía sólo
+*nuestros* folios reconciliados — de los que hay **cero** — mientras el físico de Kepler tiene
+fechas reales de septiembre. Medido: cubre el **48–87% de los SKUs del ABC** según el almacén
+(0% en el CEDIS, que es Wincaja). *El dato existía; el reloj no lo miraba.*
+
+| Ritmo | Antes | Después |
+|---|---|---|
+| Trimestral | 30,059 «vencido» | **14,556 al día · 4,826 vencido · 10,677 nunca contado** |
+| Mensual | «vencido» | `nunca_contado` — nunca corrió, y se **declara** |
+| Diario | «vencido» | `sin_cadencia` — tiene **cupo**, no cadencia por SKU |
+
+⛔ **El bug de fondo era fundir dos ausencias.** «Nunca se contó» y «se contó y venció» se
+escribían igual (`NULL`) y se mostraban igual, cuando piden acciones distintas: **arrancar** contra
+**volver**. Por eso `estado` tiene **cuatro** valores y no dos.
+
+⚠️ **La vista emite la rejilla COMPLETA** (cada SKU × cada ritmo = 90,177 filas) a propósito: si
+sólo emitiera las filas *con* historia, un SKU sin contar llegaría **ausente** a un `LEFT JOIN`,
+saldría `NULL` y **se leería como sano**. Es el modo de falla que ADR-057 documenta.
+
+⚠️ **`fuente` declara de dónde salió la fecha** (`folio_propio` | `kepler`), porque no son lo
+mismo: el folio propio cuenta lo que nosotros sembramos; Kepler cuenta lo que Kepler decidió, y su
+«completo» deja fuera SKUs con existencia.
+
+**Costo: 115 ms** — lee la foto `abc_classification` y la matvista de Kepler, las dos indexadas.
+**Candado** `test-newdb-count-clock.js`: **12 ✓ / 0 ✗ / 1 no medido** (la cadencia del mensual, que
+nunca corrió).
+
+**Falta:** cablear `cycleDue()` a la vista — hoy sigue con su propio `MAX(reconciled_at)`.
+
+---
+
+### `[IC.16]` — Alcance original (referencia)
 
 **El problema:** `last_counted_at = MAX(reconciled_at)` y no hay reconciliados → todo vencido.
 
@@ -571,7 +655,70 @@ fuera 4,022 SKUs con existencia** (cobertura 69–93%). Ese hueco **se declara e
 
 ---
 
-### `[IC.20]` — El desglose del ABC
+### `[IC.20]` — El desglose del ABC · 🚀 EN PROD (batch 801, 2026-10-07)
+
+**Aplicado.** La vista gana 4 columnas y la foto 5 (las 4 + `tiene_testigo`). Ninguna es un dato
+nuevo: **`v_abc_class` ya las calculaba dentro de sus ventanas y las tiraba.**
+
+| Columna | Qué contesta |
+|---|---|
+| `rango_almacen` | el lugar dentro del almacén (`#12 de 4,510`) |
+| `skus_en_almacen` | el denominador, para que ese lugar signifique algo |
+| `aporte_individual` | qué fracción aporta **esta** fila — `value_share` es el **acumulado**, otra pregunta |
+| `distancia_al_corte` | pesos sobre el **piso de su propia clase**: ¿está al borde o holgada? |
+
+⚠️ `distancia_al_corte` mide contra el piso de la **propia** clase, no «lo que le falta para
+subir»: eso serían **dos preguntas distintas según la clase** (una A sólo puede caer, una C sólo
+subir) y meterlas en una columna es el `CASE` que le miente a una. Es una **aproximación
+declarada**: el Pareto es acumulativo, así que dice *qué tan cerca del borde está hoy*, no *qué
+pasaría si cambiara*.
+
+⭐ **La prueba de aceptación se hizo ANTES de aplicar**, comparando definición vieja contra nueva
+**las dos en vivo**: **30,059 filas, 0 diferencias** en clase, motivo, `annual_value` y
+`value_share`. Esa clase fija el nivel de servicio de todo el reabasto (A=0.98 · B=0.95 · C=0.90),
+así que mover un SKU de A a B cambia **cuánto se compra**.
+
+⛔ **No se cambió la fuente del costo.** `v_abc_class` sigue leyendo `v_erp_unit_cost` (la vista,
+1,419 ms) aunque `mv_erp_unit_cost` existe y en `[IC.21]` valió 5×. Acá sería otra cosa: la
+matvista tiene su propia frescura y **una clase calculada sobre un costo de ayer cambia la
+compra**. Decisión de negocio con su propia medición. **Declarado, no hecho.**
+
+⚠️ **`tiene_testigo` reemplaza una lista de nombres a mano** (`costo_source IN ('kepler_kdik',
+'wincaja_costo_promedio')`). Medido antes de afirmar nada: **coinciden en las 30,059 filas, 0
+discrepancias** — o sea que **no había un bug vivo**, había una fragilidad: un `costo_source` nuevo
+con testigo quedaría fuera de la lista y la cobertura se subdeclararía en silencio.
+
+#### Las tres lecciones que esto cobró, todas el mismo día
+
+**(1) ⛔ La primera corrida de la migración FALLÓ, y la guarda tenía razón a medias.** Elegía el
+almacén con menos filas para ser barata, y el más chico es el **CEDIS (`00`)**: sus 366 filas son
+todas `sin_demanda` → todas C → «clase B = 0». ⭐ *«Un Pareto siempre produce B» vale sólo donde
+hay valor que repartir.* En un almacén sin demanda, todo-C es la respuesta **correcta** y la propia
+vista lo dice en `clase_motivo`. El selector pasa a leer la **foto** (tabla indexada, **12 ms**) y
+a elegir entre los almacenes que **ya producen B**. Revirtió limpio: vista en 10 columnas, foto
+intacta, sin fila en `knex_migrations`.
+
+**(2) ⚠️ El filtro sólo baja a la ventana si es por su `PARTITION BY`.** Medido: `WHERE
+warehouse_id = ?` son **~1.8 s**; unir a `warehouses` y filtrar por `code` son **~57 s**, porque el
+plan calcula la vista entera y recorta después. Eso hizo que la migración tardara **75.5 s**, y a
+la primera versión del candado **prod le cortó la conexión a mitad**.
+
+**(3) ⚠️ Dos defectos del candado, que lo volvían inútil de maneras distintas.** Comparaba la
+**foto** contra la **vista** exigiendo igualdad exacta y se puso roja con **12 filas de 30,059
+(0.040%)** — no era reclasificación: *la foto es un snapshot y la vista se recalcula al leerse*, así
+que siempre derivan; **una prueba que se pone roja por el paso del tiempo entrena a ignorar el
+tablero**, y ahora vigila la **magnitud** (<1%). Y `SET statement_timeout` se perdía entre
+consultas porque **knex tiene pool**: va en la conexión, no en un `SET` suelto.
+
+**Candado** `test-newdb-abc-desglose.js`: **11 ✓ / 0 ✗ / 2 no medidos**, y los dos declarados son
+correctos — el aporte en el CEDIS (fracción de cero **no es cero**, ADR-056) y el desglose en la
+foto, que llega cuando el servicio corra con el `INSERT` nuevo.
+
+**Falta:** redeploy para que `recompute()` pueble las 5 columnas de la foto.
+
+---
+
+### `[IC.20]` — Alcance original (referencia)
 
 `analytics.v_abc_class` y `commercial.abc_classification` ganan: `rango_almacen`,
 `skus_en_almacen`, `aporte_individual`, `distancia_al_corte` y `tiene_testigo` (que hoy se calcula

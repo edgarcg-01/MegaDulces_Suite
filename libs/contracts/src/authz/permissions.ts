@@ -371,6 +371,24 @@ export enum Permission {
   // COMMERCIAL_PICKING_VER: el tablero lo ven telemarketing y facturación, y con la de surtido
   // también se les abría Reparto › Surtido. Sin _GESTIONAR: el tablero sólo lee (ADR-086).
   ALMACEN_PEDIDOS_VER = 'ALMACEN_PEDIDOS_VER',
+  // `[UB.0]` Ubicaciones de mercancía (Fase UB, ADR-090) — /almacen/ubicaciones. Claves PROPIAS y
+  // no COMMERCIAL_INVENTORY_*: hoy las ubicaciones cuelgan de INVENTORY_VER/RECIBIR/ASIGNAR, y
+  // ASIGNAR es la clave que arma los EQUIPOS DE CONTEO — reusarla dejaría que quien arma equipos
+  // también recodifique el almacén. Tres niveles porque son tres trabajos distintos:
+  //  · VER        — consultar dónde está cada producto (compras, telemarketing, facturación…).
+  //  · ACOMODAR   — el piso: escanear al acomodar, mover, excedente a reserva, cumplir tareas.
+  //  · GESTIONAR  — el catálogo: captura masiva, lugar fijo por presentación, mantenimiento, bajas.
+  // Se reparten por migración en la misma entrega (20261008*_ub0_ubicaciones_permisos), no quedan
+  // sólo declaradas ([LC.6.2]).
+  ALMACEN_UBICACIONES_VER = 'ALMACEN_UBICACIONES_VER',
+  ALMACEN_UBICACIONES_ACOMODAR = 'ALMACEN_UBICACIONES_ACOMODAR',
+  ALMACEN_UBICACIONES_GESTIONAR = 'ALMACEN_UBICACIONES_GESTIONAR',
+  // `[GP.3c]` Consola de surtido: quién prioriza la fila (urgentes, hora de salida por destino),
+  // libera o cancela un surtido y ajusta el umbral de la tanda. Clave PROPIA y no
+  // COMMERCIAL_PICKING_GESTIONAR: ésa la tiene el surtidor, y el que surte no se prioriza a sí
+  // mismo. Decisión de Francisco (2026-10-08): coordinador de embarques, encargado de tienda y
+  // supervisor (la Gerencia de Zona ya es superadmin).
+  ALMACEN_SURTIDO_COORDINAR = 'ALMACEN_SURTIDO_COORDINAR',
   // ── Autoabasto y Nivelación (Fase AB) — /almacen/autoabasto y /almacen/nivelacion.
   //
   // Claves PROPIAS, no COMPRAS_* reusadas, por una razón de negocio y una medida:

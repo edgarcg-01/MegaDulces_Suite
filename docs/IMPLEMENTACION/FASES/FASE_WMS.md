@@ -297,6 +297,7 @@ Restrictivos, **sin seed** (se asignan en `/admin/roles` + re-login), siguiendo 
 ---
 
 ## 12. Addendum 2026-10-06 — Ubicaciones de bodega Y piso de venta (ADR-087) y relación con la Fase GP
+> ⚠️ **2026-10-08 — sustituido en parte por [`FASE_UB`](FASE_UB_UBICACIONES.md) (ADR-090).** El código de ubicación queda en `[T|B][pasillo][rack 01–99][nivel 1–6]` (reemplaza §12.2 punto 4 y la lectura `BC110` de §12.5), la cantidad se prende sólo en reservas y WMS.2/3/3b/4/7 se construyen como UB.0–UB.8.
 
 **Origen:** conversación con Francisco al diseñar la Fase GP ([`FASE_GP`](FASE_GP_GESTION_PEDIDOS_ALMACEN.md)).
 Kepler **no resuelve ubicaciones**; se gestionan desde la Suite. Hay ubicaciones en **bodega** y en

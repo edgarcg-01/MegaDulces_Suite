@@ -278,6 +278,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                font-size:var(--fs-xs); font-weight:700; font-variant-numeric:tabular-nums; }
     .cg-ap-t { margin:0; font-size:var(--fs-body); font-weight:700; letter-spacing:-.01em; }
     .cg-ap-hint { font-size:var(--fs-xs); color:var(--text-muted); }
+    /* ⭐ [CG.62] El atajo, ESCRITO. D.5: "un atajo que nadie sabe que existe no existe" -- y la
+       navegacion por flechas de la reja llevaba varios commits funcionando sin que nada la
+       anunciara. Las teclas van en <kbd>, que es lo que son. */
+    .cg-ap-atajo { font-size:var(--fs-nano); color:var(--text-muted); white-space:nowrap; }
+    .cg-ap-atajo kbd { font-family:var(--font-mono); font-size:var(--fs-nano);
+                       border:1px solid var(--border-color); border-radius:var(--r-sm);
+                       padding:0 var(--sp-1); margin:0 1px; background:var(--surface-2); }
     /* ⛔ [CG.57] EL CONTENEDOR DE CONSULTA VIVE ACA. La reja del arqueo pregunta
        "@container (max-width:26rem)" para apilarse; si esto no declara container-type, la consulta
        sube hasta el ancestro que lo declare y contesta sobre OTRA caja -- que es justo el defecto
@@ -289,8 +296,45 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-ap-cuerpo > .cg-bandeja { border:0; border-radius:0; padding:0; margin:var(--sp-3) 0 0;
                                   border-top:1px solid var(--border-color); padding-top:var(--sp-3); }
     .cg-detail { display:flex; flex-direction:column; gap:var(--sp-3); }
-    .cg-detail-pie { display:flex; justify-content:flex-end; gap:var(--sp-2);
+    /* El envoltorio que el @if inserta: hereda el reparto vertical de .cg-detail, o al meterlo
+       en el medio el gap entre ficha, formulario y pie se perderia. */
+    .cg-cap { display:flex; flex-direction:column; gap:var(--sp-3); min-width:0; }
+
+    /* ⭐ [CG.63] LA ENTRADA DE LA CAPTURA. Reportado por Edgar: "al abrir no hace una animacion
+       fluida". Hasta aca los dos apartados cambiaban de golpe -- el vacio desaparecia y el
+       formulario aparecia en el mismo fotograma, sin nada que ligara el clic con el resultado.
+
+       Las dos mitades entran como UN gesto: la ficha primero y el arqueo 60ms despues. El
+       escalonado no es adorno, es el orden de lectura que esta pantalla ya declara (1 que vas a
+       arquear, 2 el arqueo) hecho visible una vez.
+
+       ⛔ Solo transform + opacity (DESIGN 8 / §Motion): nada de width/height/margin, que disparan
+       layout y que check:motion rechaza. 250ms = --dur-standard, bien debajo del techo de 350. */
+    @keyframes cgEntra {
+      from { opacity:0; transform:translateY(6px); }
+      to   { opacity:1; transform:translateY(0); }
+    }
+    .cg-entra      { animation:cgEntra var(--dur-standard) var(--ease-decelerate) both; }
+    .cg-entra-tras { animation-delay:60ms; }
+    /* ⚠️ Quien pide menos movimiento NO recibe una version mas lenta: recibe NINGUNA. El contenido
+       tiene que quedar visible igual, asi que se anula la animacion entera y no solo su duracion
+       -- con animation-duration en 0s y fill both el elemento se queda en el fotograma inicial. */
+    @media (prefers-reduced-motion: reduce) {
+      .cg-entra { animation:none; }
+    }
+    .cg-detail-pie { display:flex; align-items:center; justify-content:flex-end; gap:var(--sp-2);
                      padding-top:var(--sp-3); border-top:1px solid var(--border-color); }
+    /* ⭐ [CG.62] El pie del ARQUEO queda pegado abajo. No es adorno: con el cambio devuelto
+       abierto la columna pasa el alto de la pantalla, y un Guardar al final del contenido hay que
+       ir a buscarlo scrolleando -- el mismo defecto que [CG.46] ya habia arreglado una vez. */
+    .cg-pie-arqueo { position:sticky; bottom:0; z-index:2; background:var(--card-bg);
+                     margin-top:var(--sp-3); padding-bottom:var(--sp-2); }
+    .cg-pie-falta { font-size:var(--fs-xs); }
+    /* Cancelar se queda con la ficha y en texto: es la salida, no la accion. Con los dos botones
+       juntos abajo, el que cierra sin guardar quedaba del mismo tamano que el que guarda. */
+    .cg-pie-cancelar { justify-content:flex-start; }
+    .cg-conf { display:flex; flex-direction:column; gap:var(--sp-3); }
+    .cg-conf-que { margin:0; font-size:var(--fs-sm); line-height:1.5; }
     .cg-detail-nada, .cg-ap-nada {
                       display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-2);
                       padding:var(--sp-6) var(--sp-2); color:var(--text-muted);
@@ -374,6 +418,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        publica el estado. Angosta a proposito -- es una senial, no un boton. */
     .cg-th-marca, .cg-td-marca { width:2.25rem; text-align:center; padding-left:var(--sp-2); }
     .cg-td-marca > i { font-size:var(--fs-xs); color:var(--action); }
+    /* ⭐ [CG.61] LA COLA, COMPACTA. Con la cola dentro del apartado 1 la tabla tiene MEDIA
+       pantalla: la contraparte es la que cede, porque es la unica de ancho libre. El nombre se
+       corta con puntos suspensivos y el documento baja a una segunda linea chica. */
+    /* ⛔ [CG.63] Y ACA [CG.61] SE PASO DE ROSCA. Reportado por Edgar: "el boton de capturar se ve
+       muy poco". Al pasarlo a icono le puse ademas [text]=true, que en PrimeNG es SIN fondo y SIN
+       borde: en una tabla densa eso no se lee como un boton, se lee como un glifo suelto. El
+       ancho que habia que recuperar eran los ~5rem del rotulo, no la affordance.
+       Queda delineado (ver la plantilla) y la celda le da aire para que el borde no se recorte. */
+    .cg-th-abrir, .cg-td-abrir { width:2.75rem; text-align:center; padding:0 var(--sp-1); }
+    .cg-fila-nom { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .cg-fila-doc { color:var(--text-faint); font-size:var(--fs-nano); }
     /* ⚠️ Lo que una casilla daba y una fila seleccionada no: que el estado se lea de un vistazo.
        Fondo propio MAS una barra en --action, para que no dependa de que el tema pinte su
        p-highlight ni del contraste de un fondo solo. */
@@ -384,6 +439,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        Se usa --action-ring, que ES el translúcido de esta familia, y la barra sólida al borde. */
     .cg-fila-marcada > td, .cg-fila-marcada > th { background:var(--action-ring); }
     .cg-fila-marcada > td:first-child { box-shadow:inset 3px 0 0 0 var(--action); }
+    /* ⭐⭐ [CG.63] LA FILA ES EL BOTON. Edgar: "es el boton principal de la interaccion... al
+       darle clic a todo el movimiento se despliegue el menu". Un renglon que abre algo tiene que
+       DECIRLO antes del clic, y eso son tres cosas: el cursor, el fondo al pasar por encima, y el
+       galon que apunta a donde va. Sin las tres, un renglon clicable se descubre por accidente. */
+    .cg-bandeja-tbl tbody tr { cursor:pointer; }
+    .cg-bandeja-tbl tbody tr:hover > td { background:var(--surface-2); }
+    .cg-td-abrir > i { color:var(--text-faint); font-size:var(--fs-xs); }
+    .cg-bandeja-tbl tbody tr:hover .cg-td-abrir > i { color:var(--action); }
+    /* ⚠️ ABIERTA y MARCADA son DOS cosas distintas y no se pueden pintar igual: una es "en esto
+       estoy trabajando" y la otra "esto entra al lote". El galon en --action y el borde dicen
+       cual esta abierta; el fondo y la barra izquierda, cual esta marcada. */
+    .cg-fila-abierta > td { box-shadow:inset 0 -1px 0 0 var(--action), inset 0 1px 0 0 var(--action); }
+    .cg-fila-abierta .cg-td-abrir > i { color:var(--action); transform:translateX(2px); }
 
     /* [CG.53] La reja en dos columnas y el numero grande. Una caja con borde y SIN sombra -- in-page
        es una de las dos, nunca las dos. */
@@ -1184,6 +1252,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                  esta esperando y ofrece la captura desde cero. -->
             <div class="cg-detail" [class.cg-detail-vacio]="!capturaAbierta()">
           @if (capturaAbierta()) {
+            <div class="cg-cap cg-entra">
             <!-- ⭐ [CG.60] LA FICHA. El tablero la pone primero y grande, y tiene razon: el
                  arqueo CONTESTA una pregunta -- "cuanto dice el documento" -- y hasta ahora esa
                  pregunta vivia en un renglon gris de 11px al lado del titulo del panel. Contar
@@ -1374,13 +1443,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 </ul>
               }
             </div>
-            <!-- [CG.60] El pie va PEGADO A LA FICHA, no al fondo del apartado: lo que scrollea
-                 debajo es la cola, y un Guardar que flota sobre una lista de 100 movimientos no
-                 se lee como el cierre de ESTA captura. -->
-            <div class="cg-detail-pie">
-            <p-button label="Cancelar" severity="secondary" size="small" (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
-            <p-button label="Guardar" icon="pi pi-check" size="small"
-                      [disabled]="bloqueos().length > 0 || guardando()" (onClick)="guardar()"></p-button>
+            <!-- ⛔⛔ [CG.62] ACA ESTABAN "Cancelar" Y "Guardar", Y SE MUDARON AL PIE DEL ARQUEO.
+                 Edgar: "el boton de guardar se debe mostrar abajo de arqueo. para solo pasar del
+                 arqueo a guardar".
+                 Tiene razon y el motivo es de ORDEN DE TRABAJO: lo ultimo que se hace antes de
+                 guardar es contar, y contar pasa en el apartado 2. Con Guardar aca, terminar el
+                 conteo exigia cruzar la pantalla de vuelta -- con el mouse y, peor, con el
+                 teclado. Ahora la ultima pieza contada y el boton son vecinos.
+                 ⚠️ Lo que [CG.60] decia aca ("el pie va pegado a la ficha") queda SUPERADO: era
+                 cierto contra el defecto de entonces (un Guardar flotando sobre la cola), pero
+                 resolvia el lugar equivocado. -->
+            <div class="cg-detail-pie cg-pie-cancelar">
+            <p-button label="Cancelar" severity="secondary" size="small" [text]="true"
+                      (onClick)="cerrarConFoco(capturaAbierta)"></p-button>
+            </div>
             </div>
           } @else {
             <!-- Vacio operacional: icono, titulo neutral, que hacer, y una accion real. -->
@@ -1552,8 +1628,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                DISPOSITIVO DE ENTRADA, no como segundo dueno del estado. Por eso [selection] va de
                una via y (selectionChange) escribe en la senal. -->
           <p-table [value]="pendientes()" size="small" class="cg-bandeja-tbl" dataKey="origen_ref"
-                   selectionMode="multiple" [metaKeySelection]="false"
-                   [selection]="filasMarcadas()" (selectionChange)="onSeleccionTabla($event)">
+                   selectionMode="single" [metaKeySelection]="false"
+                   [selection]="filaEnCaptura()" (selectionChange)="abrirDeLaCola($event)">
             <ng-template #header>
               <tr>
                 <!-- ⛔ [CG.56] ACA VIVIA LA COLUMNA DE CASILLAS, y se retiro entera por decision de
@@ -1570,17 +1646,24 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <th scope="col" class="cg-th-marca"><span class="sr-only">Marcada</span></th>
                 <th scope="col">Fecha</th>
                 <th scope="col"><span class="sr-only">Entra o sale</span></th>
-                <th scope="col">Contraparte</th><th scope="col">Documento</th><th scope="col">Cuenta</th>
-                <!-- [CG.48] Acá había una columna "Contado" por renglón, y se retiró: era una
-                     TERCERA forma de contar el mismo dinero, y la única sin desglose. El conteo
-                     va al arqueo -- de un movimiento en «Capturar», de todo el día en el corte. -->
+                <!-- ⭐ [CG.61] ACA HABIA DOS COLUMNAS MAS: "Documento" y "Cuenta". Con la cola
+                     dentro del apartado 1 ([CG.60]) la tabla tiene MEDIA pantalla, y ocho columnas
+                     ahi no se leen: check:dense-tables la marco en deuda por ancho ([UIM.2]).
+                     El DOCUMENTO no se pierde -- baja a su fila, bajo la contraparte, que es donde
+                     el tablero lo pone. La CUENTA si sale de la cola: cuando falta, la marca "sin
+                     regla" ya lo dice, y cuando esta, es dato de clasificacion y vive en la ficha.
+                     [CG.48] Y antes de eso vivia aca una columna "Contado" por renglon: era una
+                     TERCERA forma de contar el mismo dinero, y la unica sin desglose. El conteo
+                     va al arqueo -- de un movimiento en la ficha, de todo el dia en el corte. -->
+                <th scope="col">Contraparte</th>
                 <th scope="col" class="ta-r">Importe (ERP)</th>
-                <th scope="col"><span class="sr-only">Capturar a mano</span></th>
+                <th scope="col" class="cg-th-abrir"><span class="sr-only">Capturar a mano</span></th>
               </tr>
             </ng-template>
             <ng-template #body let-p>
                 <tr [class.cg-trabada]="!p.confirmable" [pSelectableRow]="p"
-                    [class.cg-fila-marcada]="estaMarcada(p.origen_ref)">
+                    [class.cg-fila-marcada]="estaMarcada(p.origen_ref)"
+                    [class.cg-fila-abierta]="p.origen_ref === cobroElegido()?.origen_ref">
                   <!-- [CG.56] La celda de la marca: una barra, no una casilla. Lo que se ve es el
                        ESTADO (marcada o no); el acto de marcar es la fila entera. -->
                   <td class="cg-td-marca">
@@ -1609,7 +1692,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                        [attr.title]="p.tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja'"></i>
                   </td>
                   <td>
-                    {{ p.beneficiario || p.entidad_code || '—' }}
+                    <span class="cg-fila-nom">{{ p.beneficiario || p.entidad_code || '—' }}</span>
                     <!-- [CG.33] La fila lleva una MARCA, no el parrafo. El texto entero se repetia
                          identico en cada renglon y convertia la tabla en un muro naranja donde el
                          aviso pesaba mas que el monto. El porque completo esta arriba (agrupado,
@@ -1635,20 +1718,20 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                         ⇄ del cajero {{ cm.ref || 's/ref' }} {{ money(cm.monto) }}@if (p.monto - cm.monto > 0.5) { · retiene {{ money(p.monto - cm.monto) }} } · {{ cm.confianza }}
                       </small>
                     }
+                    <!-- ⭐ [CG.61] El documento BAJA a su fila: era una columna propia y en media
+                         pantalla no entraba. Acá abajo sigue siendo buscable con los ojos y no le
+                         roba ancho a la contraparte, que es lo que se lee primero. -->
+                    <small class="cg-fila-doc mono d-block">{{ p.doc_tipo }} {{ p.folio }}</small>
                   </td>
-                  <td class="mono">{{ p.doc_tipo }} {{ p.folio }}</td>
-                  <td class="mono">{{ p.kepler_cuenta || '—' }}</td>
                   <td class="ta-r mono">{{ money(p.monto) }}</td>
-                  <td>
-                    <!-- La salida de una fila trabada, y desde [CG.48] tambien la de una fila
-                         que se conto DISTINTO: el lote espeja al ERP y no admite un importe
-                         propio, asi que contar distinto es abrir el documento y desglosarlo.
-                         Abre el dialogo ANCLADO a este documento de Kepler. -->
-                    <p-button [label]="p.confirmable ? 'Abrir' : 'Capturar'" size="small"
-                              severity="secondary" [text]="true"
-                              [title]="'Capturar a mano ' + p.doc_tipo + ' ' + p.folio"
-                              (onClick)="capturarDesde(p)"></p-button>
-                  </td>
+                  <!-- ⭐ [CG.63] ACA VIVIA UN BOTON POR FILA, y se retira: la FILA es el boton.
+                       Edgar: "no le estas dando visibilidad, ademas lo especificas como si fuera
+                       algo secundario, es el boton principal de la interaccion. me gustaria que
+                       al darle clic a todo el movimiento se despliegue el menu".
+                       Tiene razon, y el arreglo NO era pintarlo mas fuerte: un boton de 2rem en
+                       el borde derecho no podia ser el control principal de un renglon entero.
+                       Queda el galon, que no es un boton -- es la senal de que esto abre. -->
+                  <td class="cg-td-abrir" aria-hidden="true"><i class="pi pi-chevron-right"></i></td>
                 </tr>
             </ng-template>
           </p-table>
@@ -1701,10 +1784,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <span class="cg-ap-n" aria-hidden="true">2</span>
             <h2 class="cg-ap-t" id="cg-ap2-t">El arqueo</h2>
             <span class="cg-ap-hint">contá el efectivo, pieza por pieza</span>
+            <!-- ⭐ [CG.62] EL ATAJO SE ESCRIBE. D.5 lo exige -- "un atajo que nadie sabe que
+                 existe no existe" -- y la navegacion por flechas de la reja llevaba varios commits
+                 funcionando SIN que nada la anunciara: medido, CERO aria-keyshortcuts en esta
+                 pantalla y uno solo en todo el repo. Edgar reporto "no me puedo mover por toda la
+                 interfaz con el selector de flechas", y en el arqueo si se podia. -->
+            <span class="cg-bandeja-sp"></span>
+            <span class="cg-ap-atajo"><kbd>&uarr;</kbd><kbd>&darr;</kbd> entre renglones &middot; <kbd>&darr;</kbd> al final, a Guardar</span>
           </div>
 
           <div class="cg-ap-cuerpo">
           @if (capturaAbierta()) {
+            <div class="cg-cap cg-entra cg-entra-tras">
 
               <!-- ⛔ CG.23 - EL ARQUEO, QUE ANTES ERA OPCIONAL Y PLEGADO.
                    Esto era un "details" rotulado "Desglose por denominacion (opcional)" y, arriba, un
@@ -1862,6 +1953,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                    (keydown.enter)="moverEnReja($event, 1)"
                                    (keydown.arrowdown)="moverEnReja($event, 1)"
                                    (keydown.arrowup)="moverEnReja($event, -1)"
+                                   aria-keyshortcuts="ArrowUp ArrowDown Enter"
                                    [attr.aria-label]="'Piezas del billete de ' + b.label" />
                           </td>
                           <td class="mono cg-sub">{{ money(subtotalDe(b)) }}</td>
@@ -1892,6 +1984,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                                    (keydown.enter)="moverEnReja($event, 1)"
                                    (keydown.arrowdown)="moverEnReja($event, 1)"
                                    (keydown.arrowup)="moverEnReja($event, -1)"
+                                   aria-keyshortcuts="ArrowUp ArrowDown Enter"
                                    [attr.aria-label]="'Piezas de la moneda de ' + b.label" />
                           </td>
                           <td class="mono cg-sub">{{ money(subtotalDe(b)) }}</td>
@@ -1914,6 +2007,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                            (keydown.enter)="moverEnReja($event, 1)"
                            (keydown.arrowdown)="moverEnReja($event, 1)"
                            (keydown.arrowup)="moverEnReja($event, -1)"
+                                   aria-keyshortcuts="ArrowUp ArrowDown Enter"
                            aria-label="Importe de morralla: el metal de menos de 50 centavos, que no tiene renglón" />
                   </div>
                 </div>
@@ -2029,6 +2123,27 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 </div>
               </div>
 
+            <!-- ⭐⭐ [CG.62] EL PIE DEL ARQUEO. Pedido de Edgar: "el boton de guardar se debe
+                 mostrar abajo de arqueo, para solo pasar del arqueo a guardar".
+                 Va PEGADO ABAJO (sticky) y no al final del contenido: con el cambio devuelto
+                 abierto la columna pasa el alto de la pantalla, y un Guardar que hay que ir a
+                 buscar scrolleando es el mismo defecto que [CG.46] ya habia arreglado una vez.
+                 ⚠️ Y el ultimo campo de la reja llega hasta aca con la flecha: ver moverEnReja. -->
+            <div class="cg-detail-pie cg-pie-arqueo">
+              @if (bloqueos().length) {
+                <span class="fin-hint-warn cg-pie-falta">{{ bloqueos().length }} cosa(s) por resolver</span>
+              }
+              <span class="cg-bandeja-sp"></span>
+              <!-- ⚠️ La flecha hacia arriba vuelve a la ultima pieza contada: la cadena del
+                   arqueo se recorre en los DOS sentidos, o quien baja de mas queda atrapado en el
+                   boton y tiene que volver con el mouse. -->
+              <p-button label="Guardar" icon="pi pi-check" size="small" styleClass="cg-guardar"
+                        [disabled]="bloqueos().length > 0 || guardando()"
+                        (keydown.arrowup)="moverEnReja($event, -1)" aria-keyshortcuts="ArrowUp"
+                        (onClick)="pedirConfirmacion()"></p-button>
+            </div>
+
+            </div>
           } @else {
             <!-- ⚠️ El vacio del arqueo NO repite el del apartado 1 ni ofrece su misma
                  accion: dice QUE FALTA para que esta mitad sirva. Dos vacios identicos uno al
@@ -2047,6 +2162,63 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
 
     <p-toast position="bottom-right"></p-toast>
 
+
+    <!-- ⭐⭐ [CG.62] "SEGURO QUE QUERES GUARDAR". Pedido de Edgar junto con bajar el boton.
+         ⚠️ Un "¿estás seguro?" que no DICE QUE va a pasar no es una guarda: es un clic de peaje
+         que la gente aprende a tirar sin leer, y entonces estorba sin proteger. Este repite las
+         tres cosas que el arqueo acaba de establecer -- que movimiento es, cuanto se conto, y si
+         cuadra -- porque son justo las que no se pueden deshacer despues.
+         ⛔ Y cuando NO cuadra no se limita a avisar: nombra la consecuencia (la diferencia queda
+         como hallazgo a nombre de quien confirma), que es la unica razon por la que alguien
+         querria volver al conteo en vez de seguir. -->
+    <p-dialog [visible]="confirmarGuardar()" (visibleChange)="$event ? null : cerrarConFoco(confirmarGuardar)"
+              [modal]="true" [style]="{ width: '26rem', maxWidth: '96vw' }"
+              header="¿Guardás este movimiento?" [draggable]="false">
+      <!-- ⚠️ Clase propia y NO fin-form: el candado de O.1 ("la captura no vive en un modal")
+           busca .fin-form dentro de cualquier p-dialog. Con fin-form aca, el dia que alguien
+           abra esta ventana en una prueba el candado se pondria rojo por el motivo equivocado --
+           y un candado que grita en falso se termina aflojando. -->
+      <div class="cg-conf">
+        <p class="cg-conf-que">
+          <strong>{{ f().tipo === 'ingreso' ? 'Entra a la caja' : 'Sale de la caja' }}</strong>
+          @if (f().beneficiario) { · {{ f().beneficiario }} }
+          @if (cobroElegido(); as c) { <br /><span class="mono fin-dim">{{ c.doc_tipo }} {{ c.folio }}</span> }
+        </p>
+
+        @if (arqueoVeredicto(); as v) {
+          <div class="cg-total-bloque"
+               [class.es-ok]="v.estado === 'cuadra'"
+               [class.es-warn]="v.estado === 'sobra' || v.estado === 'falta'">
+            <div class="cg-total-izq">
+              <div class="cg-lbl-micro">Se guarda</div>
+              <div class="cg-total-n mono">{{ money(f().monto) }}</div>
+            </div>
+            <span class="cg-bandeja-sp"></span>
+            <div class="cg-total-der">
+              <div class="cg-total-v">{{ textoVeredicto(v) }}</div>
+              @if (v.esperado !== null) {
+                <div class="mono cg-total-esp">documento {{ money(v.esperado) }}</div>
+              }
+            </div>
+          </div>
+          @if (v.estado === 'sobra' || v.estado === 'falta') {
+            <p class="cg-total-regla">
+              El efectivo <strong>no se rechaza</strong>: se guarda lo contado y la diferencia
+              queda como hallazgo <strong>a tu nombre</strong>.
+            </p>
+          }
+          @if (v.estado === 'sin_contar') {
+            <p class="cg-total-regla">Todavía no contaste nada. Se va a guardar en cero.</p>
+          }
+        }
+      </div>
+      <ng-template #footer>
+        <p-button label="Volver al conteo" severity="secondary" size="small"
+                  (onClick)="cerrarConFoco(confirmarGuardar)"></p-button>
+        <p-button label="Sí, guardar" icon="pi pi-check" size="small"
+                  [disabled]="guardando()" (onClick)="guardar()"></p-button>
+      </ng-template>
+    </p-dialog>
 
     <p-dialog [visible]="aperturaAbierta()" (visibleChange)="$event ? null : cerrarConFoco(aperturaAbierta)"
               [modal]="true" [style]="{ width: '24rem', maxWidth: '96vw' }"
@@ -2253,24 +2425,51 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   private moverFoco(ev: Event, dir: 1 | -1, selector: string): void {
     const e = ev as KeyboardEvent;
-    const inputs = Array.from(
-      this.host.nativeElement.querySelectorAll(selector),
-    ) as HTMLInputElement[];
-    const vivos = inputs.filter((x) => !x.disabled);
-    const i = vivos.indexOf(e.target as HTMLInputElement);
+    // ⚠️ `[CG.62]` Esto era `HTMLInputElement[]` y llamaba `.select()` sin preguntar. Desde que la
+    // cadena termina en un BOTON (Guardar), hay un nodo que no tiene `select` -- y con el tipo
+    // viejo el compilador no avisaba: el cast lo tapaba y reventaba en runtime, en la ultima
+    // flecha del arqueo, que es justo la que nadie prueba a mano.
+    const nodos = Array.from(this.host.nativeElement.querySelectorAll(selector)) as HTMLElement[];
+    const vivos = nodos.filter((x) => !(x as HTMLInputElement | HTMLButtonElement).disabled);
+    const i = vivos.indexOf(e.target as HTMLElement);
     if (i < 0) return;
     e.preventDefault();
     const sig = vivos[i + dir];
     if (!sig) return;
     sig.focus();
-    sig.select();
+    const sel = (sig as HTMLInputElement).select;
+    if (typeof sel === 'function') (sig as HTMLInputElement).select();
   }
 
   /**
    * La reja de denominaciones de la captura. Selector propio, distinto del corte: los dos
    * diálogos tienen una reja y el foco de uno no puede saltar a los inputs del otro.
    */
-  moverEnReja(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza'); }
+  /**
+   * ⭐ `[CG.62]` La cadena de la reja TERMINA EN GUARDAR, y es textualmente lo que pidió Edgar:
+   * *"para solo pasar del arqueo a guardar"*. La última pieza contada y el botón quedan a una
+   * flecha de distancia, sin cruzar la pantalla ni tabular por el resto del formulario.
+   *
+   * ⚠️ El orden lo da el DOM (`querySelectorAll`), y por eso el botón tiene que vivir DESPUÉS de
+   * la reja: con el pie en el apartado 1 — donde estaba hasta `[CG.60]` — la flecha hacia abajo
+   * desde la morralla habría saltado hacia ATRÁS en la pantalla.
+   *
+   * ⛔ `cg-guardar` va en el `styleClass` del `p-button`, no en una clase del host: verificado en
+   * `primeng-button.mjs` que PrimeNG lo compone en el `[class]` del `<button>` real
+   * (`cn(cx('root'), styleClass(), …)`). Sobre el host no sería enfocable.
+   */
+  moverEnReja(ev: Event, dir: 1 | -1): void {
+    this.moverFoco(ev, dir, 'input.cg-pieza, button.cg-guardar');
+  }
+
+  /**
+   * ⭐ `[CG.62]` *"una ventana de «seguro que querés guardar»"*. No guarda: PIDE.
+   * El guardado de verdad sigue en `guardar()`, que el diálogo llama.
+   */
+  pedirConfirmacion(): void {
+    if (this.bloqueos().length || this.guardando()) return;
+    this.abrirConFoco(this.confirmarGuardar);
+  }
 
   /** La reja de denominaciones del corte. */
   moverEnRejaCorte(ev: Event, dir: 1 | -1): void { this.moverFoco(ev, dir, 'input.cg-pieza-corte'); }
@@ -2604,9 +2803,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * persiste el borrador, la que poda `podarSeleccion` y la que arma el lote. Dos dueños del mismo
    * estado es exactamente cómo una selección se desincroniza de lo que se confirma.
    */
-  filasMarcadas = computed(() => {
-    const s = this.seleccion();
-    return this.pendientes().filter((p) => s.has(p.origen_ref));
+  /**
+   * `[CG.63]` Qué fila está ABIERTA en la ficha. Reemplaza a `filasMarcadas`, que proyectaba el
+   * lote sobre la selección de la tabla: desde que el clic abre en vez de marcar, lo que la tabla
+   * selecciona es el movimiento en el que se está trabajando, no el lote.
+   *
+   * ⚠️ Sigue siendo una PROYECCIÓN, no un segundo estado: la verdad es `cobroElegido`. PrimeNG
+   * entra como dispositivo de entrada, nunca como segundo dueño del dato.
+   */
+  filaEnCaptura = computed(() => {
+    const ref = this.cobroElegido()?.origen_ref;
+    return ref ? (this.pendientes().find((x) => x.origen_ref === ref) ?? null) : null;
   });
 
   /**
@@ -2616,9 +2823,24 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * declarada iría al lote para que el servidor la rechace, y su casilla ya está deshabilitada.
    * Con el teclado no hay casilla que apagar, así que el freno tiene que estar acá.
    */
-  onSeleccionTabla(filas: readonly MovimientoPendiente[]): void {
-    this.seleccion.set(new Set((filas ?? []).filter((f) => f?.confirmable).map((f) => f.origen_ref)));
-    this.persistir();
+  /**
+   * `[CG.63]` El clic en la fila ABRE el movimiento. Antes marcaba para el lote.
+   *
+   * ⚠️ Y hay que decir lo que cuesta: marcar fila por fila CON EL MOUSE ya no existe. El lote se
+   * arma con "Marcar las N" de la barra: todas las confirmables del filtro, de un golpe.
+   *
+   * ⛔ Y se corrige una afirmación que escribí mal acá hace diez minutos: NO queda Space para
+   * marcar de a una. Con `selectionMode="single"`, Space sobre la fila hace lo MISMO que el clic
+   * — abre. Marcar de a una no existe por ningún camino. Si hiciera falta
+   * elegir a dedo con el mouse, hay que devolverle a la fila una casilla propia — que es
+   * justamente lo que `[CG.56]` retiró cuando el clic significaba marcar.
+   *
+   * ⚠️ Con `metaKeySelection=false`, volver a hacer clic en la fila abierta emite `null`. NO se
+   * cierra la captura por eso: cerrar es una acción propia (Cancelar), no el efecto de tocar dos
+   * veces lo mismo.
+   */
+  abrirDeLaCola(fila: MovimientoPendiente | null): void {
+    if (fila) this.capturarDesde(fila);
   }
 
   /**
@@ -2645,6 +2867,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * alguna señal hermana cambiara en el mismo turno. `abrirCorte()` no tenía ninguna.
    */
   capturaAbierta = signal(false);
+  /** `[CG.62]` La ventana de "seguro que queres guardar". Es una PREGUNTA, no el guardado. */
+  confirmarGuardar = signal(false);
   aperturaAbierta = signal(false);
   cierreAbierto = signal(false);
   /**
@@ -4010,7 +4234,20 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   estaMarcada(ref: string): boolean { return this.seleccion().has(ref); }
 
+  /**
+   * ⭐ `[CG.63]` EL FRENO SE MUDÓ ACÁ, y es lo que hace que la mudanza no pierda un invariante.
+   *
+   * «Nunca marcar una fila que el servidor va a rechazar» vivía en `onSeleccionTabla`, el callback
+   * de la tabla — o sea atado a *un* dispositivo de entrada. Al pasar el clic de marcar a abrir,
+   * ese callback desapareció y el freno se habría ido con él **sin que nada se pusiera rojo**:
+   * `marcarTodas` filtra por su cuenta, así que la suite habría seguido verde con el agujero
+   * abierto en el camino de a una. Ahora lo verifica el método que marca, venga de donde venga.
+   *
+   * ⚠️ Se marca contra lo que la cola tiene A LA VISTA: una referencia que no está en `pendientes`
+   * no se puede confirmar, así que tampoco se marca. Fail-closed.
+   */
   marcar(ref: string, on: boolean): void {
+    if (on && !this.pendientes().some((p) => p.origen_ref === ref && p.confirmable)) return;
     const s = new Set(this.seleccion());
     if (on) s.add(ref); else s.delete(ref);
     this.seleccion.set(s);
@@ -4424,6 +4661,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   guardar(): void {
     if (this.bloqueos().length || this.guardando()) return;
     this.guardando.set(true);
+    // `[CG.62]` La ventana se cierra ACA, al empezar: si fallara, el aviso de error tiene que
+    // quedar a la vista y la captura abierta para reintentar, no detras de un modal.
+    this.cerrarConFoco(this.confirmarGuardar);
     const cobro = this.cobroElegido();
     const caos = this.caosElegido();
     const f = this.f();

@@ -6,7 +6,15 @@ import {
   RequirePermissions,
   Permission,
 } from '@megadulces/platform-core';
+import type {
+  ConsolaSurtidoAlmacen,
+  KeplerPickPoolResponse,
+  KeplerWavesAutoResponse,
+  PickerTakeNextResponse,
+  PickerWave,
+} from '@megadulces/contracts';
 import { CreateWaveDto, PickingService } from './picking.service';
+import { PickingConsolaService } from './picking-consola.service';
 
 /**
  * SU.2 — Pool de pedidos por surtir y olas de surtido (Fase SU, ADR-067).
@@ -20,7 +28,25 @@ import { CreateWaveDto, PickingService } from './picking.service';
 @UseGuards(RequireAuthGuard, RolesGuard)
 @Controller('reparto/surtido')
 export class PickingController {
-  constructor(private readonly service: PickingService) {}
+  constructor(
+    private readonly service: PickingService,
+    private readonly consola: PickingConsolaService,
+  ) {}
+
+  /**
+   * `[GP.3]` Los almacenes donde puede surtir quien consulta (los de su alcance).
+   *
+   * La pantalla del surtidor leía `/commercial/warehouses`, que pide `COMMERCIAL_WAREHOUSES_VER`:
+   * medido en prod (2026-10-08), `almacenista` es el ÚNICO perfil que surte y NO tiene esa clave,
+   * así que a todo surtidor real le salía "No se pudo leer la lista de almacenes". Se sirve aquí con
+   * el permiso de surtir.
+   */
+  @Get('almacenes')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({ summary: 'Sucursales (código de 2 dígitos) donde puede surtir quien consulta, según su alcance.' })
+  almacenes(): Promise<ConsolaSurtidoAlmacen[]> {
+    return this.consola.almacenes();
+  }
 
   @Get('pool')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
@@ -47,6 +73,29 @@ export class PickingController {
         ? routeKind.split(',').map((k) => k.trim()).filter(Boolean)
         : undefined,
       sales_route: salesRoute || undefined,
+    });
+  }
+
+  /**
+   * `[GP.2]` Pedidos de Kepler (`U-D-40`) en `AUTORIZADO` de la sucursal del almacén, fuera de
+   * cualquier ola. `?origen=TELEMARK|SUCURSAL`, `?days=7` (ventana hacia atrás, 0–60). Los más
+   * viejos que la ventana se cuentan en `atorados`, no se esconden.
+   */
+  @Get('pool-kepler')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({
+    summary:
+      'Pedidos de Kepler autorizados y fuera de ola, con su tamaño (tanda ≤5 renglones / individual). Lectura del ODS.',
+  })
+  poolKepler(
+    @Query('warehouse_id') warehouseId: string,
+    @Query('origen') origen?: string,
+    @Query('days') days?: string,
+  ): Promise<KeplerPickPoolResponse> {
+    return this.service.poolKepler({
+      warehouse_id: warehouseId,
+      origen: origen || undefined,
+      days: days == null || days === '' ? undefined : Number(days),
     });
   }
 
@@ -113,6 +162,32 @@ export class PickingController {
     return this.service.list(status);
   }
 
+  /**
+   * `[GP.3]` Las olas que trae quien consulta. ⚠️ Va ANTES de `waves/:id`: Nest resuelve en
+   * orden de declaración y `mine` se leería como un id.
+   */
+  @Get('waves/mine')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
+  @ApiOperation({ summary: 'Las olas abiertas o en surtido asignadas a quien consulta, con sus renglones.' })
+  misOlas(): Promise<PickerWave[]> {
+    return this.service.misOlas();
+  }
+
+  /**
+   * `[GP.3]` "Tomar el siguiente": devuelve la ola que el surtidor ya traía o le asigna la libre
+   * más vieja del almacén (armándolas desde Kepler si no hay), y la arranca.
+   * `{ warehouse_id, origen? }`. Exige GESTIONAR: arranca el surtido.
+   */
+  @Post('waves/next')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Tomar el siguiente: la ola que ya traes, o la libre más vieja del almacén (sin que dos tomen la misma). La arranca.',
+  })
+  tomarSiguiente(@Body() body: { warehouse_id: string; origen?: string }): Promise<PickerTakeNextResponse> {
+    return this.service.tomarSiguiente(body);
+  }
+
   @Get('waves/:id')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_VER)
   @ApiOperation({
@@ -125,9 +200,29 @@ export class PickingController {
 
   @Post('waves')
   @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
-  @ApiOperation({ summary: 'Arma una ola con los pedidos dados (folio W-YYYY-NNNNN).' })
+  @ApiOperation({
+    summary:
+      'Arma una ola con los pedidos dados (folio W-YYYY-NNNNN): order_ids de la Suite y/o kepler_orders [{ sucursal, serie, folio }].',
+  })
   create(@Body() dto: CreateWaveDto) {
     return this.service.createWave(dto);
+  }
+
+  /**
+   * `[GP.2]` Arma las olas de los pedidos de Kepler pendientes: los de 1–5 renglones en UNA
+   * tanda y una ola por cada pedido más grande (`FASE_GP` §5.1). `{ warehouse_id, origen?, days? }`.
+   * No crea olas vacías ni toca olas existentes; lo que no pudo armar lo devuelve con su motivo.
+   */
+  @Post('waves/auto-kepler')
+  @RequirePermissions(Permission.COMMERCIAL_PICKING_GESTIONAR)
+  @ApiOperation({
+    summary:
+      'Arma las olas de los pedidos de Kepler autorizados: tanda para los de 1–5 renglones, una ola por cada pedido mayor.',
+  })
+  crearOlasKepler(
+    @Body() body: { warehouse_id: string; origen?: string; days?: number },
+  ): Promise<KeplerWavesAutoResponse> {
+    return this.service.crearOlasKepler(body);
   }
 
   /**

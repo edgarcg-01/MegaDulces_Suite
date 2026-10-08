@@ -61,7 +61,7 @@ const ZAMORA_CUTOVER = "DATE '2026-03-16'";
 // SELECT_SRC canónico ahora vive en el módulo compartido (una sola fuente de verdad),
 // reutilizado por el handler wincaja-sales-bronze (feeds-ingest) para re-derivar scoped.
 // El tenant va INLINE en el builder → sin bind `?`. Los CUTOVER de arriba quedan documentales.
-const { buildSalesDailySrc } = require('../../../services/feeds-ingest/sales-daily-projection');
+const { buildSalesDailySrc, PISO_FECHA } = require('../../../services/feeds-ingest/sales-daily-projection');
 const SELECT_SRC = buildSalesDailySrc({ tenantId: TENANT });
 
 (async () => {
@@ -94,9 +94,20 @@ const SELECT_SRC = buildSalesDailySrc({ tenantId: TENANT });
        WHERE (sd.units, sd.revenue, sd.cost, sd.tickets, sd.unit_kind, sd.rung_factor, sd.rung_mixed, sd.units_unresolved)
              IS DISTINCT FROM (EXCLUDED.units, EXCLUDED.revenue, EXCLUDED.cost, EXCLUDED.tickets, EXCLUDED.unit_kind, EXCLUDED.rung_factor, EXCLUDED.rung_mixed, EXCLUDED.units_unresolved)`,
       [TENANT]);
+    // [WH.6.1] EL `DELETE` SE ACOTA AL MISMO PISO QUE EL SELECT, y no es cosmético.
+    // Desde que la proyección filtra `business_date >= PISO_FECHA` (porque el CHECK del hecho
+    // rechaza la basura de año 2000 del `.mdb`), las 226 filas bajo el piso que YA viven en el
+    // fact (01/02/05/06/RUTA-22, $263,273) dejaron de venir en el staging — y sin esta cláusula
+    // este `DELETE` las barrería en la próxima corrida, en silencio y de una sola dirección: el
+    // `CHECK` de `[AUD-DAT.2]` ya no deja re-insertarlas. Esa migración las dejó a propósito con
+    // `NOT VALID` para no borrar en prod sin autorización; acá se respeta esa decisión en vez de
+    // deshacerla como efecto colateral de otra fase.
+    // ⚠️ El piso se IMPORTA, no se copia: dos literales que tienen que coincidir siempre son dos
+    // literales que algún día no van a coincidir.
     const del = await trx.raw(
       `DELETE FROM analytics.sales_daily sd
         WHERE sd.tenant_id = ? AND sd.channel LIKE 'wincaja%'
+          AND sd.sale_date >= ${PISO_FECHA}
           AND NOT EXISTS (SELECT 1 FROM stg_wsd s WHERE s.product_id=sd.product_id AND s.warehouse_id=sd.warehouse_id
                            AND s.channel=sd.channel AND s.sale_date=sd.sale_date)`, [TENANT]);
     console.log(`analytics.sales_daily (wincaja*): ${up.rowCount} escritas (nuevas/cambiadas), ${del.rowCount} borradas`);

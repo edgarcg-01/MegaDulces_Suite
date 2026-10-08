@@ -592,6 +592,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
       },
       {
+        // [ECA.2] Estado de cuenta de acreedores: cada documento de Kepler con sus pagos casados
+        // (kdxe + kdxf), separado en mercancía / servicios / financieros. Sólo lectura.
+        path: 'estado-cuenta-acreedores',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-estado-cuenta-acreedores.component').then(m => m.FinanzasEstadoCuentaAcreedoresComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         // PP.3 — Programa de Pagos (Tesorería): espejo del Excel de pagos.
         path: 'programa-pagos',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-programa-pagos.component').then(m => m.FinanzasProgramaPagosComponent),
@@ -1234,6 +1241,19 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_COUNT_REGISTRAR)]
       },
       {
+        /**
+         * `[GP.3b]` **Surtir desde el celular** — pantalla de FOCO: "Tomar siguiente", marcar renglón
+         * por renglón y cerrar. Fuera del shell por la misma razón que contar un camión: una barra
+         * de tabs invita a irse a mitad del surtido.
+         *
+         * `COMMERCIAL_PICKING_GESTIONAR` y no `*_VER`: tomar trabajo ARRANCA la ola y cada toque
+         * escribe lo levantado. Lo tienen los 6 almacenistas desde `[VEC.0]`.
+         */
+        path: 'surtir',
+        loadComponent: () => import('./modules/almacen/pages/almacen-surtir.component').then(m => m.AlmacenSurtirComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_PICKING_GESTIONAR)]
+      },
+      {
         // WMS-BI.1 — detalle de UN documento, abierto en pestaña nueva desde Análisis BI.
         // Foco: sin barra de tabs. Ruta propia (no /almacen/movimientos) — ver el comentario
         // en AlmacenAnalisisBiComponent.openDocument().
@@ -1319,10 +1339,31 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ALMACEN_BI_VER)]
       },
       {
+        // [UB.1] Mapa de ubicaciones (Fase UB, ADR-090): catálogo con código BA053 por zona.
+        path: 'ubicaciones',
+        loadComponent: () => import('./modules/almacen/pages/almacen-ubicaciones-mapa.component').then(m => m.AlmacenUbicacionesMapaComponent),
+        // Cualquiera de las tres: quien acomoda o gestiona también tiene que poder ver el mapa
+        // (si no, la landing lo manda aquí y la ruta lo rebota — candado SN.4).
+        canActivate: [anyPermissionGuard(Permission.ALMACEN_UBICACIONES_VER, Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR)]
+      },
+      {
+        // [MCP.2] Mesa de Control de Preventa: pedidos PD- del vendedor + su documento de Kepler.
+        path: 'pedidos/preventa',
+        loadComponent: () => import('./modules/almacen/pages/almacen-preventa.component').then(m => m.AlmacenPreventaComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
+      },
+      {
         // [GP.1] Tablero de pedidos Kepler U-D-40 (telemarketing y sucursal), sólo lectura.
         path: 'pedidos',
         loadComponent: () => import('./modules/almacen/pages/almacen-pedidos.component').then(m => m.AlmacenPedidosComponent),
         canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
+      },
+      {
+        // [GP.3c.2] Consola de surtido: el coordinador ordena la fila de "Tomar siguiente"
+        // (urgentes, hora de salida por destino, tanda). Permiso propio: el surtidor no se prioriza.
+        path: 'surtido-consola',
+        loadComponent: () => import('./modules/almacen/pages/almacen-surtido-consola.component').then(m => m.AlmacenSurtidoConsolaComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_SURTIDO_COORDINAR)]
       },
       /**
        * `[RD.45]` ── **Ruta Directa dentro de Almacén** ────────────────────────────────────

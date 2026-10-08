@@ -941,13 +941,13 @@ const CRON_JOBS: CronCfg[] = [
   // `sales_daily`. Sin esta fila, `db-health` lo clasifica con el `cfg ? classify : 'ok'` que
   // la Fase VP midió dando verde incondicional a las 3 matvistas del sell-out.
   { key: 'budget_autopilot',    label: 'Presupuesto que se mantiene solo',  cadence: 'diario 03:30 MX', warnH: 30, critH: 54 },
-  // `[RD.20]` La quincena de comisiones que se calcula sola (`CommissionRunnerService`, 08:30 MX).
-  // Existe porque el motor llevaba un mes en prod con **cero corridas**: calcular dependia de que
-  // alguien abriera la pantalla, y la costumbre del Excel ganaba. Esto paga a 13 choferes y 3
-  // supervisores, asi que el carril que lo prepara tiene que ser visible.
-  // ⚠️ Late TODOS los dias aunque no haya quincena que cerrar (declara su cero con motivo), por
-  // eso el umbral es el de un job diario: warn al saltarse una corrida, critico a las dos.
-  { key: 'rd_commission_runner', label: 'Comisiones RD — corrida de la quincena', cadence: 'diario 08:30 MX', warnH: 30, critH: 54 },
+  // ⛔ `[RD.22]` Aca estaba `rd_commission_runner`, el cron que calculaba la quincena de
+  // comisiones a las 08:30. Se RETIRO el 2026-10-07 junto con el cron: una quincena cerrada es
+  // un valor estatico que se calcula una vez, no un derivado que haya que refrescar, y dejar su
+  // fila aca pondria `db-health` en rojo para siempre por un carril que ya no existe.
+  // ⚠️ El hueco no quedo sin vigilancia, cambio de lugar: `board()` marca `sin_calcular` la
+  // quincena que ya cerro y no tiene corrida. *Se declara en la fila a la que le falta, no en un
+  // sensor que mira si un reloj despierta.*
   // `[VE.4]` El quinto motor, que vive en `FinancePaymentCalendarModule` porque éste ya importa
   // al de Presupuestos y al revés sería un ciclo. Corre 20 min después, porque lee el plan de
   // gastos que el de arriba acaba de escribir. Mismo criterio de umbral: job diario.
@@ -1249,6 +1249,12 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_payment_terms',   label: 'Refresh MV condición de pago (SD-PAY, nightly)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PU.V1] El rollup que alimenta TODA la pestaña de Ventas de Presupuestos (y el motor que
+  // propone el crecimiento del proximo ejercicio). Sin esta fila el sensor cae en
+  // `cfg ? classify : 'ok'` y una MV parada se ve VERDE (leccion OBS.1) -- y el modo de falla
+  // no es una pantalla vacia: es el real de ayer publicado como el de hoy, y una propuesta de
+  // presupuesto construida encima.
+  { key: 'analytics_refresh_sellout_budget',  label: 'Refresh MV rollup de Presupuestos', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_blended',         label: 'Refresh MV blend consolidado',      cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [KX.5] El peldano COBRADO (max kdm2.c58 por sucursal x SKU). Sin esta entrada el sensor
   // caeria en `cfg ? classify : 'ok'` y una MV parada se veria VERDE (leccion OBS.1). Y no es

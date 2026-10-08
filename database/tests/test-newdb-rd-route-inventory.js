@@ -590,12 +590,55 @@ async function cuerposDeLaMigracion() {
     if (aplicada) {
       const src = fs.readFileSync(SERVICIO, 'utf8');
       const i = src.indexOf('async routeInventory(');
-      const a = src.indexOf('`', i); const b = src.indexOf('`', a + 1);
-      const sqlInv = src.slice(a + 1, b);
+      // ⛔ **El primer literal del método ya NO es la consulta con la lógica.** Desde `[RD.47]`
+      // el método se bifurca: con el rango por default lee la copia (`mv_rd_route_inventory`,
+      // un literal de UN binding) y sólo con rango explícito arma la consulta grande. Tomar «el
+      // primer backtick» apuntaba este candado a la copia y lo volvía ciego a la lógica que
+      // vino a vigilar — reventó con `Expected 9 bindings, saw 0`, que fue suerte: si la copia
+      // hubiera aceptado los bindings, habría pasado en verde midiendo otra cosa.
+      //
+      // Se busca el literal POR SU FORMA: el que lleva los 9 parámetros. Eso sobrevive a que
+      // alguien reordene las ramas.
+      let sqlInv = null;
+      for (let p = src.indexOf('`', i); p > 0 && p < i + 40000; p = src.indexOf('`', p + 1)) {
+        const q2 = src.indexOf('`', p + 1);
+        if (q2 < 0) break;
+        const cand = src.slice(p + 1, q2);
+        if ((cand.match(/\?/g) || []).length === 9 && cand.includes('WITH win AS')) { sqlInv = cand; break; }
+        p = q2;
+      }
+      t('el candado encuentra la consulta VIVA del servicio (la de 9 parámetros)', sqlInv !== null,
+        'sin esto, todo lo de abajo mide la copia o no mide nada');
       const ayer = new Date(Date.now() - 6 * 3600 * 1000 - 24 * 3600 * 1000)
         .toISOString().slice(0, 10);
       const inv = (await db.raw(sqlInv, [tenant, '2000-01-01', '2999-12-31', tenant, ayer, ayer, tenant, tenant, tenant])).rows;
       t('el DEFAULT de la pantalla corre contra prod', inv.length > 0, `${inv.length} rutas`);
+
+      // ⭐ **La paridad que la migración `[RD.47]` prometió.** La copia trae un duplicado del SQL
+      // de arriba con el rango resuelto; dos copias de la misma lógica son una segunda verdad
+      // esperando, salvo que algo las compare. Esto es ese algo.
+      const { rows: [hayCopia] } = await db.raw(
+        `SELECT to_regclass('analytics.mv_rd_route_inventory') IS NOT NULL AS m`);
+      if (!hayCopia.m) {
+        noMedido('[RD.47] paridad copia vs viva', 'analytics.mv_rd_route_inventory todavía no existe');
+      } else {
+        const copia = (await db.raw(
+          `SELECT * FROM analytics.mv_rd_route_inventory WHERE tenant_id = ? ORDER BY plaza, route_no`,
+          [tenant])).rows;
+        // Se comparan las columnas de dinero, que son las que alguien lee. El `hasta` del test
+        // es 2999 y el de la copia es hoy: en una ruta sin movimientos futuros da igual, y si
+        // algún día no diera igual, esta aserción es justo la que tiene que avisar.
+        const clave = (r) => `${r.route_no}`;
+        const porRuta = new Map(copia.map((r) => [clave(r), r]));
+        const difieren = inv.filter((r) => {
+          const c = porRuta.get(clave(r));
+          if (!c) return true;
+          return Math.abs(Number(r.inventario_costo ?? 0) - Number(c.inventario_costo ?? 0)) > 0.01;
+        });
+        t(`[RD.47] la copia dice lo MISMO que la consulta viva en las ${inv.length} rutas`,
+          difieren.length === 0,
+          `${difieren.length} ruta(s) divergen (${difieren.slice(0, 3).map((r) => r.route_no).join(', ')}) — alguien cambió una de las dos copias del SQL y no la otra`);
+      }
 
       // ⚠️ La comparación va ESTRICTA contra 0, no por `Number(...)`: `Number(null)` es 0, así
       // que la versión obvia marca en rojo justo las filas que están bien. Es el mismo descuido
@@ -871,69 +914,71 @@ async function cuerposDeLaMigracion() {
       t('[RD.45] la copia por costo coincide con la foto viva', n(par.n) === 0,
         `${par.n} renglón(es) divergen — la hoja impresa diría otra cosa que la pantalla`);
 
-      // 2 · La hoja llega COMPLETA. Es la aserción que evita un desastre, no un detalle de UX:
-      //     `registerRouteCount` RESETEA, así que un renglón que no viaja queda en CERO. Si
-      //     alguna vez alguien le pone un LIMIT a la consulta de la hoja, esto se pone rojo.
+      // 2 · El tamaño de una sentada. La hoja se sirve COMPLETA y sin tope a propósito
+      //     (`registerRouteCount` RESETEA: un renglón que no viaja queda en CERO), así que lo
+      //     que hay que vigilar no es el corte sino que no crezca a un número que vuelva
+      //     irreal contarla de una vez.
       const { rows: [comp] } = await db.raw(`
-        WITH foto AS (
-          SELECT route_no, count(*)::int AS n FROM analytics.mv_rd_route_photo GROUP BY 1
-        ), hoja AS (
-          SELECT f.route_no, count(*)::int AS n
-            FROM analytics.mv_rd_route_photo f
-            LEFT JOIN catalog.products p
-              ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
-           GROUP BY 1
-        )
-        SELECT count(*)::int AS rutas,
-               count(*) FILTER (WHERE foto.n <> hoja.n)::int AS difieren,
-               min(foto.n)::int AS menor, max(foto.n)::int AS mayor
-          FROM foto JOIN hoja USING (route_no)`);
-      t('[RD.45] la hoja trae TODOS los renglones de la foto, en las ' + comp.rutas + ' rutas',
-        n(comp.difieren) === 0 && n(comp.rutas) > 0,
-        `${comp.difieren} ruta(s) con distinto número de renglones — el join al catálogo está duplicando o perdiendo`);
-      t(`[RD.45] ninguna hoja pasa de 1,000 renglones (hoy ${comp.menor}–${comp.mayor})`,
+        SELECT count(DISTINCT route_no)::int AS rutas,
+               min(n)::int AS menor, max(n)::int AS mayor
+          FROM (SELECT route_no, count(*) AS n FROM analytics.mv_rd_route_photo GROUP BY 1) s`);
+      t(`[RD.45] ninguna hoja pasa de 1,000 renglones (hoy ${comp.menor}–${comp.mayor} en ${comp.rutas} rutas)`,
         n(comp.mayor) > 0 && n(comp.mayor) <= 1000,
         `la mayor tiene ${comp.mayor}: a ese tamaño el conteo de una sentada deja de ser realista y hay que partirlo`);
 
       // 3 · El NOMBRE del producto. Una hoja que dice «00412» es ilegible para quien cuenta.
-      //     ⚠️ Esto ya cobró: con el join sin `btrim` del lado del catálogo, 14 de los 267
-      //     renglones de la ruta 21 caían al SKU pelado y el defecto no se veía en ninguna cifra.
+      //
+      //     ⛔ Acá hubo DOS conclusiones mías equivocadas, y por eso el umbral va con margen y
+      //     la cifra real se imprime. Primero dije que los renglones sin nombre eran culpa de
+      //     un join sin `btrim`; medido, el `btrim` no rescata **ni una** fila (0 de 11,301
+      //     SKUs del catálogo tienen espacios) y costaba 3.1 s por hoja. La causa real son
+      //     **217 productos que SÍ están en el catálogo con la descripción VACÍA**; el nombre
+      //     que usa el propio camión rescata 166 y quedan 54 de 3,035 (1.8%).
+      //
+      //     El umbral es 95% y no 98.2%: un freno calibrado al valor exacto de hoy se pone rojo
+      //     con la primera alta de producto, y un freno que grita en falso enseña a ignorarlo.
       const { rows: [nom] } = await db.raw(`
         SELECT count(*)::int AS total,
-               count(*) FILTER (WHERE coalesce(nullif(btrim(p.description),''), v.producto) IS NULL)::int AS sin_nombre
-          FROM analytics.mv_rd_route_photo f
-          LEFT JOIN catalog.products p
-            ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
-          LEFT JOIN LATERAL (
-            SELECT max(l.producto) AS producto FROM analytics.route_push_lines l
-             WHERE l.tenant_id = f.tenant_id AND l.route_no = f.route_no AND btrim(l.sku) = f.sku
-          ) v ON true`);
+               count(*) FILTER (WHERE producto = sku)::int AS sin_nombre
+          FROM analytics.mv_rd_route_photo`);
       const pctNom = n(nom.total) ? (100 * (n(nom.total) - n(nom.sin_nombre)) / n(nom.total)) : 0;
-      t(`[RD.45] el 99%+ de los renglones tiene nombre (hoy ${pctNom.toFixed(2)}%, ${nom.sin_nombre} sin nombre de ${nom.total})`,
-        pctNom >= 99,
+      t(`[RD.45] el 95%+ de los renglones tiene nombre (hoy ${pctNom.toFixed(2)}%, ${nom.sin_nombre} de ${nom.total} salen con el código pelado)`,
+        pctNom >= 95,
         'demasiados renglones se le mostrarían al contador como un código pelado');
 
-      // 4 · ⭐ PRUEBA NEGATIVA — y es la que justifica la decisión de diseño.
+      // 4 · ⭐ Lo que la hoja NO le muestra a quien cuenta — y que el conteo manda a CERO.
       //
-      //     La hoja sale de la FOTO y no del ledger. Si las dos dijeran lo mismo, la elección
-      //     daría igual y este comentario sería decorativo. Se exige que DIVERJAN: es lo que
-      //     prueba que el conteo arbitra algo. El día que coincidan al 100% hay que mirar por
-      //     qué — o el ledger dejó de ser una reconstrucción, o la foto dejó de ser su testigo.
-      const { rows: [dif] } = await db.raw(`
+      //     ⛔ Acá hubo una prueba negativa mal planteada: exigía que la foto y el ledger
+      //     DIFIRIERAN en cantidad, «para probar que el conteo arbitra algo». Falló contra prod
+      //     con 0 de 3,035, y tenía que fallar: `[RD.33]` ancla el ledger EN la foto todos los
+      //     días (la clase `conteo` del ledger no es lo contado, es el ajuste contra la foto),
+      //     así que coinciden **por construcción**. Pedirle a dos cosas que son la misma que se
+      //     contradigan no es una prueba negativa: es una aserción imposible.
+      //
+      //     La comparación que SÍ tiene contenido es por CONJUNTO, no por cantidad: el ledger
+      //     conoce pares `(sku, unidad)` que la foto no lista. Esos renglones no aparecen en la
+      //     hoja, así que nadie los mira — y como un conteo RESETEA, al cerrarlo quedan en CERO.
+      //     Eso es lo que `[RD.31]` quiere (matar fantasmas), pero es una consecuencia que tiene
+      //     que estar medida y a la vista, no ser una sorpresa.
+      const { rows: [fuera] } = await db.raw(`
         WITH led AS (
           SELECT tenant_id, route_no, sku, unidad,
                  sum(qty * CASE WHEN clase='venta' THEN -1 ELSE 1 END) AS saldo
             FROM analytics.mv_rd_route_ledger GROUP BY 1,2,3,4
         )
-        SELECT count(*)::int AS comunes,
-               count(*) FILTER (WHERE round(f.qty,3) <> round(coalesce(l.saldo,0),3))::int AS difieren
-          FROM analytics.mv_rd_route_photo f
-          LEFT JOIN led l ON l.tenant_id=f.tenant_id AND l.route_no=f.route_no
-                         AND l.sku=f.sku AND l.unidad=f.unidad`);
-      const pctDif = n(dif.comunes) ? (100 * n(dif.difieren) / n(dif.comunes)) : 0;
-      t(`[RD.45] PRUEBA NEGATIVA: la foto y el ledger NO dicen lo mismo (${dif.difieren} de ${dif.comunes} renglones, ${pctDif.toFixed(1)}%)`,
-        n(dif.difieren) > 0,
-        'coinciden en todo: o el ledger dejó de ser una reconstrucción, o la foto dejó de ser un testigo independiente — en cualquier caso el conteo ya no arbitra nada');
+        SELECT count(*)::int AS en_ledger,
+               count(*) FILTER (WHERE f.sku IS NULL)::int AS fuera_de_la_hoja,
+               count(*) FILTER (WHERE f.sku IS NULL AND round(l.saldo,3) <> 0)::int AS con_saldo
+          FROM led l
+          LEFT JOIN analytics.mv_rd_route_photo f
+            ON f.tenant_id=l.tenant_id AND f.route_no=l.route_no
+           AND f.sku=l.sku AND f.unidad=l.unidad`);
+      t(`[RD.45] la hoja NO es el ledger: ${fuera.fuera_de_la_hoja} de ${fuera.en_ledger} pares quedan fuera, ${fuera.con_saldo} de ellos con saldo`,
+        n(fuera.fuera_de_la_hoja) > 0,
+        'la foto cubre exactamente el ledger: la hoja dejó de poder descubrir un faltante que la reconstrucción no vea');
+      t(`[RD.45] los pares fuera de la hoja con saldo son menos de 1,000 (hoy ${fuera.con_saldo})`,
+        n(fuera.con_saldo) < 1000,
+        'un conteo mandaría a cero demasiados renglones que la persona nunca vio en pantalla');
 
       // 5 · La ruta sin foto se DECLARA, no se esconde (ADR-056). El índice de la pantalla sale
       //     de `mv_rd_route_identity`, no de la foto, justo para que la apagada siga a la vista.
@@ -947,16 +992,16 @@ async function cuerposDeLaMigracion() {
         n(huerf.rutas) > n(huerf.sin_foto) && n(huerf.rutas) > 0,
         'o no hay rutas, o ninguna reporta: en los dos casos la pantalla no tiene nada que mostrar');
 
-      // 6 · El presupuesto de la pantalla. Es la razón de existir de la copia.
+      // 6 · El presupuesto de la pantalla. Es la razón de existir de la copia, y el freno que
+      //     ya rechazó una primera versión de la migración que NO resolvía el problema.
+      //     ⚠️ Es la consulta REAL del servicio —una tabla, cero joins—, no una parecida.
       const t0 = Date.now();
       const { rows: unaHoja } = await db.raw(`
-        SELECT f.sku, f.unidad, coalesce(nullif(btrim(p.description),''), f.sku) AS producto,
-               f.qty, f.costo_unitario, nullif(btrim(p.barcode),'') AS barcode
-          FROM analytics.mv_rd_route_photo f
-          LEFT JOIN catalog.products p
-            ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
-         WHERE f.route_no = (SELECT route_no FROM analytics.mv_rd_route_photo
-                              GROUP BY 1 ORDER BY count(*) DESC LIMIT 1)`);
+        SELECT sku, unidad, producto, qty, costo_unitario, importe, barcode
+          FROM analytics.mv_rd_route_photo
+         WHERE route_no = (SELECT route_no FROM analytics.mv_rd_route_photo
+                            GROUP BY 1 ORDER BY count(*) DESC LIMIT 1)
+         ORDER BY producto, unidad`);
       const msHoja = Date.now() - t0;
       t(`[RD.45] la hoja más grande (${unaHoja.length} renglones) se sirve en ${msHoja} ms`,
         msHoja < 500,
@@ -970,6 +1015,50 @@ async function cuerposDeLaMigracion() {
       t(`[RD.45] el 95%+ de esa hoja se puede escanear (hoy ${pctCod.toFixed(1)}%)`,
         pctCod >= 95,
         'sin código de barras el contador vuelve a buscar a mano en una lista de cientos');
+    }
+
+    // ── `[RD.47]` La copia del tablero: la deuda que esa migración declaró ───────────────────
+    //
+    // ⛔ `analytics.mv_rd_route_inventory` trae una COPIA del SQL del servicio (la del servicio
+    // es parametrizada; la de la matvista tiene el rango por default resuelto). Dos copias de la
+    // misma lógica es una segunda verdad **esperando** — salvo que algo las compare. Esto es ese
+    // algo: si alguien toca una y no la otra, acá se pone rojo.
+    console.log('\n── [RD.47] la copia del tablero de inventario ──');
+    const { rows: [hayInv] } = await db.raw(
+      `SELECT to_regclass('analytics.mv_rd_route_inventory') IS NOT NULL AS m`);
+    if (!hayInv.m) {
+      noMedido('[RD.47] la copia del tablero', 'analytics.mv_rd_route_inventory todavía no existe');
+    } else {
+      const { rows: [cmp] } = await db.raw(`
+        SELECT count(*)::int AS rutas,
+               count(*) FILTER (WHERE m.route_no IS NULL)::int AS solo_en_vivo,
+               count(*) FILTER (WHERE i.route_no IS NULL)::int AS solo_en_copia
+          FROM analytics.mv_rd_route_identity i
+          FULL JOIN analytics.mv_rd_route_inventory m ON m.route_no = i.route_no`);
+      t(`[RD.47] la copia cubre las mismas ${cmp.rutas} rutas que la identidad`,
+        n(cmp.solo_en_vivo) === 0 && n(cmp.solo_en_copia) === 0,
+        `${cmp.solo_en_vivo} ruta(s) sólo en vivo, ${cmp.solo_en_copia} sólo en la copia — el LATERAL perdió o inventó`);
+
+      // El presupuesto. Es la razón por la que la copia existe.
+      const tInv = Date.now();
+      const { rows: tablero } = await db.raw(
+        `SELECT * FROM analytics.mv_rd_route_inventory ORDER BY plaza, route_no`);
+      const msInv = Date.now() - tInv;
+      t(`[RD.47] el tablero (${tablero.length} rutas) se sirve en ${msInv} ms`, msInv < 500,
+        'por encima de 500 ms la pantalla "no funciona" según la regla del proyecto');
+
+      // ⭐ PRUEBA NEGATIVA de la copia: tiene que ser más rápida que recalcular. Si no lo fuera,
+      // la deuda de mantener dos SQL iguales no se estaría pagando con nada.
+      const tViva = Date.now();
+      await db.raw(`SELECT count(*) FROM (
+        SELECT l.route_no, l.sku, l.unidad,
+               sum(l.qty) FILTER (WHERE l.clase='carga') AS cq,
+               sum(l.qty) FILTER (WHERE l.clase='venta') AS vq
+          FROM analytics.mv_rd_route_ledger l GROUP BY 1,2,3) w`);
+      const msViva = Date.now() - tViva;
+      t(`[RD.47] PRUEBA NEGATIVA: recalcular cuesta más que leer la copia (${msViva} ms vs ${msInv} ms)`,
+        msViva > msInv,
+        'leer la copia no es más barato que recalcular: entonces la copia sólo aporta deuda');
     }
   } catch (e) {
     bad++;

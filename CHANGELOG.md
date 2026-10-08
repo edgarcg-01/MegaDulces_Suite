@@ -9,6 +9,35 @@
 ---
 
 ## [Unreleased]
+### Added — Mesa de Control de Preventa: la pantalla (MCP.2, 2026-10-08)
+- Almacén › Pedidos › **Preventa** (`/almacen/pedidos/preventa`): los pedidos de preventa del vendedor por etapa y contra la fecha de entrega, con su documento de Kepler; desde el panel se elige el documento correcto ("Es este") o se corrige una liga con motivo, y se ve lo pedido contra lo cobrado renglón por renglón.
+
+### Added — Mesa de Control de Preventa: datos y liga con el documento de Kepler (MCP.1 + MCP.4, 2026-10-08)
+- `GET /warehouse/presale`: los pedidos de preventa que levanta el vendedor, por sucursal, con su etapa (esperando alta / por surtir / en surtido / en caja / cobrado / entregado / cancelado), el semáforo contra la fecha de entrega prometida y cuántos documentos de Kepler podrían ser su cobro.
+- `GET /warehouse/presale/:id/candidates` + `POST :id/link` / `:id/unlink`: los documentos de Kepler del cliente (leídos en vivo del ODS, sin copiarlos), ordenados por productos en común con el pedido; ligar uno y corregir una liga con motivo. Mig `20261008012420` (`commercial.order_kepler_documents`).
+- `GET /warehouse/presale/:id`: recorrido del pedido, historial de ligas y pedido contra lo cobrado, renglón por renglón.
+### Added — Surtido: consola del coordinador (GP.3c.2, 2026-10-08)
+- `/almacen/surtido-consola` (tab **Consola de surtido**, permiso nuevo `ALMACEN_SURTIDO_COORDINAR` para coordinador de embarques, encargado de tienda y supervisor): la fila en el mismo orden en que la da "Tomar siguiente" (urgente → salida más próxima → lo más viejo), con quién trae cada surtido y su avance. Marcar urgente o cancelar (con motivo), liberar un surtido, capturar la hora de salida de cada destino del día, ajustar el umbral de la tanda del almacén y armar los surtidos pendientes.
+- Perfil `surtidor` (mig `20261008035511`): surte y no ve el Tablero, así entra directo a "Tomar siguiente"; con alcance a su sucursal.
+- `/almacen/surtir` ya no depende del permiso de almacenes (que `almacenista` no tiene): la lista sale de `GET /reparto/surtido/almacenes` con el permiso de surtir.
+- `/almacen/pedidos`: botón **Surtir** para quien surte. Antes no había cómo llegar a `/almacen/surtir` desde el Tablero (es pantalla de foco, sin pestaña).
+- Mig `20261008021159`: prioridad de la ola, destino del pedido en la ola, `commercial.picking_departures` y `commercial.picking_settings`. Va antes del código; los 9 usuarios de esos roles deben volver a entrar.
+
+### Added — Surtido: existencia y ubicación en la tarjeta del surtidor (GP.3c.1, 2026-10-08)
+- `/almacen/surtir` muestra cuánto dice el sistema que hay ("Hay 618 PAQ en el sistema", en ámbar si alcanza para menos y en rojo si no hay) y la ubicación, con de cuándo es la existencia. Sin dato no se dibuja como cero; si la unidad de la existencia no es la del pedido (0.35% medido) se muestra sin comparar.
+
+### Added — Surtido: "tomar el siguiente" (GP.3a, 2026-10-08)
+- `POST /reparto/surtido/waves/next`: el surtidor recibe la ola que ya trae o la libre más vieja de su almacén (dos a la vez nunca se llevan la misma); si no hay, se arman desde los pedidos autorizados de Kepler. `GET /reparto/surtido/waves/mine`.
+- Al arrancar una ola se congela lo que pidió cada pedido (`commercial.wave_order_lines`, mig `20261008003045`) y la presentación de la hoja (3 BTO). El reparto usa lo congelado: un cambio en Kepler a medio surtido ya no frena el cierre, se informa.
+
+### Added — Pantalla del surtidor en el celular (GP.3b, 2026-10-08)
+- `/almacen/surtir`: "Tomar siguiente", cada renglón con Completo / Faltante en la presentación de la hoja, y "Terminé de surtir" (apagado mientras haya renglones sin tocar). Entra por el área Pedidos del almacén.
+- La ola guarda su origen y quién la armó (`picking_waves.origen/armada_por`): el filtro de origen se respeta al tomar, y sólo las olas armadas por el sistema se cancelan solas si no arrancan.
+- Un surtidor nunca recibe dos olas aunque la petición llegue dos veces (candado por persona), y ya no se puede cerrar una ola que no se arrancó.
+
+### Fixed — El reparto del surtido ordenaba la prioridad de entrega por día de la semana (GP.3a, 2026-10-08)
+- La fecha de entrega llegaba como `"Thu Oct 08"` (`String()` sobre el `date` de pg) y se comparaba como texto. Ahora sale de `to_char` en el SQL.
+
 ### Added — Arqueo de caja: buscador en «Arqueos recientes» y reimpresión de cada arqueo (SM.43, 2026-10-07)
 - `/tienda/arqueo`: buscador sobre el historial por **monto, hora, caja o cajera** (también fecha, tipo, sucursal o folio). Varias palabras acotan («caja 2 retiro»); «caja 7» es la caja 7, no cualquier fila con un 7. Dice cuántas filas coinciden y en qué universo busca (lo ya cargado). Columna nueva **Hora**.
 - Botón **Reimprimir** en cada arqueo: el ticket sale con lo guardado (denominaciones y medios declarados) y marcado **REIMPRESION** con su fecha; para la cajera sigue sin esperado ni diferencia.
@@ -39,6 +68,20 @@
 - Nuevo script de sólo lectura `database/scripts/medir-frescura-kdm1.js` para medir cuántos vales ve la Suite atrasados contra Kepler.
 ### Added — Gastos: varios renglones en el detalle del método de pago (GX.74, 2026-10-07)
 - Al elegir tarjeta, transferencia, cheque u otro se pueden agregar varios renglones (dos tarjetas, dos referencias…), hasta 10; cada uno pasa la misma regla (4 dígitos en tarjeta).
+### Added — Estado de cuenta de acreedores, por tipo (ECA.0–ECA.2, 2026-10-07)
+- Nueva pantalla **Finanzas › Pagos › Estado de cuenta acreedores** (`/finanzas/estado-cuenta-acreedores`): el reporte «Estado de cuenta del proveedor» de Kepler para todos los acreedores, separado en **Mercancía · Servicios · Financieros**. Cada factura sale con las transferencias y notas de crédito que Kepler le aplicó y su saldo; aparte, los pagos sin aplicar.
+- El casamiento es el de Kepler (`kepler_ods.kdxf`), no una estimación: cuadra al centavo con el reporte de Kepler de Mondelez. Sólo lectura, sin importer ni tabla nueva.
+- El tipo sale de la clave del proveedor (`C` mercancía, `G` servicios, `A`/`TC`/`B.B.` y grupo 140 financieros); los bancos con comisiones van a Servicios.
+- **Declara** que $59.9M de lo pendiente de mercancía son facturas en el Kepler de una sucursal anteriores al 1-oct-2026 (cuando el 00 concentraba los pagos): Kepler suma $138.8M contra $79.4M de ContPAQi.
+- Usa `FINANCE_PAYMENTS_VER`: **sin migración ni re-login**.
+### Added — El pedido de Kepler entra al motor de surtido (GP.2, 2026-10-07)
+- `GET /reparto/surtido/pool-kepler`: pedidos `U-D-40` en `AUTORIZADO` de la sucursal, fuera de cualquier ola, con su tamaño (tanda de 1–5 renglones / individual) y los atorados de más de 7 días contados aparte.
+- `POST /reparto/surtido/waves/auto-kepler`: arma una tanda con los pedidos chicos y una ola por cada pedido grande (regla de Francisco, FASE_GP §5.1).
+- `POST /reparto/surtido/waves` acepta `kepler_orders`. El pedido no se copia: la ola guarda su llave y un `order_id` derivado de ella (mig `20261007260100`).
+
+### Fixed — El reparto del surtido truncaba los kilos (GP.2, 2026-10-07)
+- `allocation.ts` redondeaba hacia abajo a enteros (`7.9 → 7`, `61.74 KG → 61`). Ahora reparte en milésimas, la precisión de la base. Afecta también a los pedidos de la Suite.
+
 ### Fixed — Obligaciones a proveedor: el nombre de quien recibe salía cortado a una letra (RE.32.1, 2026-10-07)
 - En **Generar entrega a Finanzas** (`/compras/obligaciones`, pestaña *Por entregar*), el selector **Recibe (Finanzas)** mostraba sólo la primera letra del nombre («M») con la flecha en el renglón de abajo. Lo reportó un auxiliar de compras usándolo en prod.
 - **Causa:** el estilo de la página ponía el `p-select` en `display:block`. En PrimeNG 22 el texto del selector trae `width:1%` y sólo crece por `flex:1 1 auto`; sin un contenedor flex se queda en 1 % y la flecha (bloque) baja de renglón.
@@ -82,6 +125,12 @@
 ### Fixed — Finanzas › Expediente: el «Expediente en PDF» ya abre, y si falla dice por qué (GX.70, 2026-10-07)
 - Quien autoriza gastos (`FINANCE_EXPENSES_COMPROBAR`) ya puede abrir el PDF de cualquier vale que la pantalla le muestra; antes la lista enseñaba los vales de todos y el PDF le respondía «fuera de tu alcance» (medido: 8 de 8 vales para un autorizador sin áreas).
 - El aviso de error ahora trae el motivo del servidor (antes sólo «No se pudo armar el expediente»), en Expediente y en Capturar gasto. El lector del error de un blob sube a `core/http/blob-error.ts`.
+### Added — Autoabasto: el almacenista descarga su reporte de necesidades en PDF, sólo de su almacén (AB.13, 2026-10-07)
+- Botón **Descargar PDF** en /almacen/autoabasto: almacén, **fecha y hora del servidor (hora de México)** y quién lo generó; lo que falta agrupado por a quién se le pide, con subtotal; «sin venta medida» en un bloque aparte para revisar antes de pedir; firmas de Almacén y Encargado.
+- El almacenista **ve sólo su almacén**: la mesa resuelve el alcance en el área Almacén y el reporte rechaza (403) un almacén fuera de su alcance. La migración `20261007200100` le da acceso a Autoabasto (se había quedado fuera) y la regla de alcance. Requiere volver a entrar y tener el almacén asignado en su ficha.
+### Fixed — Autoabasto y Existencia crítica: el sobrante de la red se reparte, y los indicadores vuelven (AB.12, 2026-10-07)
+- **El mismo sobrante se le prometía a varias sucursales.** Si en la red sobraban 10 cajas y a tres sucursales les faltaban 10, las tres salían «Traspaso» por 10. En prod: 1,819 productos prometidos de más, 600,838 unidades contra 445,017 que existen. Ahora cada sucursal recibe su parte proporcional (el mismo reparto que ya usaba el plan de traspasos del CEDIS). «Se cubre con la red» baja de $13.67M a **$10.47M** y «Hay que comprar» sube de $15.14M a **$18.34M**; el sugerido total no cambia.
+- **Los indicadores de arriba de /compras/existencia y /almacen/autoabasto estaban vacíos desde el 11-sep:** el resumen fallaba en cada llamada (le faltaba un join tras [VA.4]) y la pantalla se tragaba el error.
 ### Added — Costo por compra: archivar varias facturas recibidas a la vez, con sello y firma (RE.35.7, 2026-10-06)
 - Botón **Varias** (y soltar 2 o más PDF en la barra; varias fotos soltadas ahí siguen siendo UNA factura): PDF o fotos, **una recepción por archivo**. Como la captura por lote de pagos a proveedores: la IA lee cada papel de 3 en 3, busca su **CFDI en ContPAQi** y la **entrada de Kepler** que cuadra, y la fila viene lista / por confirmar / elegir / sin entrada. Nada se guarda sin «Guardar». Al guardar, lo archivado **sale de la lista** (como en pagos, PC.8) y queda un resumen: cuántas pasan solas, cuántas por revisar y el atajo «Ver por revisar».
 - El OCR ahora lee el **UUID**, el **sello de recibido** y la **firma** de quien recibió (lo que da valor al papel archivado). El expediente suma los checks **Sello de recibido** y **Firma** (regla **R-v2**): si el papel no los trae no pasa solo; las lecturas anteriores quedan «sin medir» y no bloquean.

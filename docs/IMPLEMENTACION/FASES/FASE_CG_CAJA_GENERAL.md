@@ -2135,3 +2135,218 @@ el alto a la página.
    pantalla, y `check:dense-tables` lo confirma: `finanzas-caja-general` queda en **deuda por
    ancho de columnas (9)**, tracker `[UIM.2]`. El tablero la quiere compacta — fecha, nombre,
    «sin cuenta», importe — y el documento y la cuenta pasan a la ficha al elegirla.
+
+---
+
+## §27 · `[CG.61]` — la cola compacta: ocho columnas no se leen en media pantalla
+
+> Commit `6997a15b2`.
+
+`[CG.60]` metió la cola dentro del apartado 1, y eso le dejó **media pantalla** a una tabla de
+ocho columnas. No es una opinión: `check:dense-tables` la marcó en deuda por su **2ª aguja** —
+*"ocho columnas o más y sin `min-width` declarado, o sea nada dice qué hacen en un teléfono"*.
+El tablero la quiere de **una línea**: fecha, nombre, «sin cuenta», importe.
+
+### Lo que se retira es la COLUMNA, no el dato
+
+| Columna | Qué pasó |
+|---|---|
+| **Documento** | **Baja a su fila**, bajo la contraparte, en chico y mono. Sigue ahí porque es con lo que se identifica el movimiento, y el buscador promete *"folio Kepler"* |
+| **Cuenta** | **Sí sale de la cola.** Cuando falta, la marca «sin regla» ya lo dice; cuando está, es dato de clasificación y vive en la ficha |
+
+Y el botón de capturar pasa a **icono**: se comía ~5 rem por fila, y su rótulo cambiaba entre
+«Abrir» y «Capturar» **sin que esa diferencia significara nada** — las dos abren la misma ficha
+sobre el mismo documento. ⚠️ Pierde el rótulo **visible**, no el **accesible**: el `ariaLabel`
+dice el documento entero, porque un icono sin nombre accesible es un botón que un lector de
+pantalla anuncia como *"botón"* y nada más.
+
+**8 columnas → 6.** La contraparte es la única de ancho libre, así que es la que cede: el nombre
+se corta con puntos suspensivos y no empuja al importe fuera de la vista.
+
+### Las dos pruebas nuevas, y por qué son dos
+
+⭐ La primera cuenta las columnas (≤ 6) **y exige que el documento siga en la fila**. Esa segunda
+mitad **es el punto**: sin ella, *"cortar columnas"* puntúa igual que perder el dato con el que se
+identifica el movimiento — la prueba premiaría justo el atajo que hay que evitar.
+
+La segunda congela el **nombre accesible** del botón de icono.
+
+**Mutadas, las tres rojas**: agregar dos columnas · quitar el `ariaLabel` · borrar la línea del
+documento (que rompe la primera por su segunda mitad, que es exactamente lo que se quería).
+
+### ⛔ Una afirmación que escribí y era falsa
+
+Escribí que *"`finanzas-caja-general` ya no figura en la deuda por columnas"*. **Es falso.** La
+cola bajó de 8 a 6, pero **la compuerta mide el ARCHIVO**, y el archivo tiene **nueve tablas**: el
+**libro** y los **cortes** siguen en **9 columnas cada uno**. Esos dos viven dentro del
+desplegable de la jornada (`[CG.59]`), que ocupa el ancho entero de la página — ahí nueve columnas
+sí entran, y lo que la 2ª aguja les reclama es `min-width` para teléfono, que es el tracker
+`[UIM.2]` y no esta entrega. **La pantalla sigue en deuda por columnas, con otro motivo.**
+
+⚠️ **Y el pie del que casi me caigo:** el barrido acotado al diff tenía **un** archivo, así que
+`caja-general` salió como *"la peor"* de una lista de uno; el barrido completo tiene **78**
+pantallas en deuda e **imprime sólo las peores**, así que `caja-general` no aparecía. Leí esa
+ausencia como *"salió de la deuda"*. ⭐ **Una ausencia en una lista recortada no es una ausencia.**
+
+### Verificación
+
+`nx test view` caja-general **162/162**; suite completa de view **2,185 pasadas, ninguna roja**.
+`typecheck`, `check:templates`, `check:teclado`, `check:primeng` y `check:tokens` verdes.
+
+### ⛔ Lo que falta, y ya es lo único
+
+**Validación visual.** Cuarta vez que se difiere en esta pantalla, y es la única que ve esta
+familia de defectos: **ninguna compuerta del repo mide píxeles**, y tres veces seguidas el defecto
+llegó a la pantalla con todos los gates en verde (`[CG.49]`, `[CG.52]`, `[CG.57]`).
+
+---
+
+## §28 · `[CG.62]` — Guardar baja al pie del arqueo, pregunta antes, y el atajo se ANUNCIA
+
+> Edgar, sobre la pantalla en vivo: *"no me puedo mover por toda la interfaz con el selector de
+> flechas, número"* + *"el botón de guardar se debe mostrar abajo de arqueo. para solo pasar del
+> arqueo a guardar y una ventana de «seguro que quieres guardar»"*. Commit `d2d3fd27d`.
+
+### 1 · Guardar baja al pie del arqueo
+
+Era el pie del apartado 1, pegado a la ficha. Baja al **apartado 2** y queda **pegado abajo**
+(sticky): lo último que se hace antes de guardar es **contar**, y contar pasa en el apartado 2 —
+con el botón del otro lado, terminar el conteo exigía cruzar la pantalla de vuelta, con el mouse
+y peor con el teclado.
+
+Sticky y no al final del contenido porque con el cambio devuelto abierto la columna pasa el alto
+de la pantalla, y un Guardar que hay que ir a buscar scrolleando es el defecto que `[CG.46]` ya
+había arreglado una vez.
+
+⚠️ **Esto supera lo que `[CG.60]` escribió dos commits antes** (*"el pie va pegado a la ficha"*):
+era cierto contra el defecto de entonces — un Guardar flotando sobre la cola — pero resolvía el
+lugar equivocado. **Cancelar** se queda con la ficha, en texto: es la salida, no la acción.
+
+### 2 · La ventana de confirmación, que dice qué va a pasar
+
+⚠️ Un *"¿estás seguro?"* que **no dice qué va a pasar** no es una guarda: es un clic de peaje que
+se aprende a tirar sin leer, y entonces **estorba sin proteger**. Ésta repite las tres cosas que
+el arqueo acaba de establecer — qué movimiento es, cuánto se contó, y si cuadra — porque son
+justo las que no se pueden deshacer después. Cuando **no** cuadra nombra la consecuencia (la
+diferencia queda como hallazgo a nombre de quien confirma), que es la única razón por la que
+alguien querría volver al conteo. Si no se contó nada, lo dice.
+
+⚠️ Usa clase propia (`.cg-conf`) y **no** `.fin-form`: el candado de O.1 (*"la captura no vive en
+un modal"*) busca `.fin-form` dentro de cualquier `p-dialog`, y con `fin-form` acá, el día que
+alguien abra esta ventana en una prueba el candado se pondría rojo **por el motivo equivocado**.
+Un candado que grita en falso se termina aflojando.
+
+### 3 · La cadena de la flecha termina en Guardar — y el atajo se ANUNCIA
+
+La flecha abajo desde la morralla (último campo contado) deja el foco en **Guardar**, y la flecha
+arriba desde Guardar vuelve a la morralla — o quien baja de más queda atrapado en el botón y
+tiene que volver con el mouse. El botón deshabilitado **se salta**: un foco que aterriza en un
+control apagado es un callejón.
+
+⭐⭐ **Y acá está la mitad del reporte que no era un bug de código:** la navegación por flechas de
+la reja **ya funcionaba desde hacía varios commits, y nada la anunciaba**. Medido: **cero**
+`aria-keyshortcuts` en esta pantalla y **uno solo en todo el repo** (`compras-pedido-real`),
+cuando D.5 lo exige con todas las letras — *"un atajo que nadie sabe que existe no existe"*.
+Edgar reportó que no se podía mover con las flechas **sobre la única parte de la pantalla donde
+sí se podía.** Ahora los campos lo declaran y la cabecera del arqueo lo escribe con `<kbd>`.
+
+### ⛔ Lo que NO se hizo, con su motivo
+
+| | Por qué |
+|---|---|
+| **Flechas en la clasificación** | Tipo, Fecha y Sucursal son `p-select`/`p-datepicker`: ahí `↑↓` **son suyas** (abren y recorren su lista). Quitárselas rompería el control para ganar consistencia. Entre esos campos se mueve con **Tab**, que es el contrato estándar |
+| **`Enter` en la cola = abrir** | Verificado en `primeng-table.mjs`: `pSelectableRow` mapea `Enter → onEnterKey → onClick`, o sea **marcar** para el lote. Serían dos acciones en una tecla. Hoy el camino es `↓` hasta la fila, `Tab`, `Enter`. **Si se quiere `Enter` = abrir, hay que quitarle `Enter` a marcar — y ésa es una decisión de Edgar** |
+
+### Verificación
+
+**166/166** en caja-general (4 pruebas nuevas); suite completa de view **2,189 pasadas, ninguna
+roja**. `typecheck`, `check:templates`, `check:teclado`, `check:primeng` y `check:tokens` verdes.
+
+**Mutado cuatro veces, las cuatro rojas:** Guardar cableado directo a `guardar()` · la cadena de
+la flecha sin el botón · la ventana sin el veredicto · los campos sin el anuncio.
+
+### ⛔⛔ Una prueba mía nació inútil, y la mutación lo destapó
+
+La negativa llamaba a `pedirConfirmacion()` **en vez de apretar el botón**, así que mutar el
+template a `(onClick)="guardar()"` la dejaba **pasando en verde**: medía una función que nadie
+garantizaba que estuviera cableada. Se reescribió para **entrar por donde entra la persona**
+(`boton.click()`), y recién ahí la mutación se puso roja.
+⭐ **Un candado que no entra por la puerta del usuario no es un candado.**
+
+⚠️ **Décima vez** en esta línea de trabajo que un acento grave en un comentario del template
+literal rompe el build; lo agarró `check:templates` con archivo y línea. Y un gate que no conocía
+—espaciado fuera de la escala `--sp-*`— rechazó un `padding:0 .25rem` en el `<kbd>`; `--sp-1` es
+exactamente `0.25rem`, así que el visual es idéntico.
+
+---
+
+## §29 · `[CG.63]` — la FILA es el botón, y la captura entra con una animación
+
+> Edgar: *"el botón de capturar se ve muy poco y al abrir no hace una animación fluida"* → y al
+> ofrecerle delinear el botón: *"no le estás dando visibilidad, además lo especificás como si
+> fuera algo secundario, **es el botón principal de la interacción**. me gustaría que al darle
+> clic a todo el movimiento se despliegue el menú"*. Commit `a93f40b1f`.
+
+### 1 · La fila es el botón
+
+⭐ **El arreglo no era pintarlo más fuerte.** `[CG.61]` había pasado la salida a un icono de 2 rem
+en el borde derecho de un renglón de 40 rem: delinearlo lo hacía más visible y lo dejaba **igual
+de secundario**. Un control de 2 rem al borde no puede ser la acción principal de una fila.
+
+La fila entera abre el movimiento, y el botón por fila **se retira**. Queda el **galón** (`›`),
+que no es un botón: es la señal de que esto abre. Y la fila lo **dice antes del clic** con las
+tres cosas que lo dicen — cursor, fondo al pasar por encima, y el galón que se tiñe.
+
+⚠️ **ABIERTA y MARCADA son dos hechos distintos y no se pintan igual:** una es *"en esto estoy
+trabajando"* (borde + galón en `--action`), la otra *"esto entra al lote"* (fondo + barra
+izquierda).
+
+### ⛔⛔ Lo que cuesta, dicho
+
+**Marcar fila por fila ya no existe, ni con el mouse ni con el teclado.** El clic marcaba; ahora
+abre. Y `Space` sobre la fila hace **lo mismo** que el clic, así que tampoco queda ese camino —
+*escribí lo contrario en un comentario y era falso; está corregido en el código*. El lote se arma
+con **«Marcar las N»** de la barra: todas las confirmables del filtro, de un golpe.
+
+Si hace falta elegir a dedo con el mouse, hay que devolverle a la fila **una casilla propia**. Es
+justo lo que `[CG.56]` retiró — pero **por un motivo que ya no aplica**: entonces la casilla era
+una *segunda* forma de hacer lo que hacía el clic; hoy sería la **única**. **Queda a decisión de
+Edgar.**
+
+### ⭐ El invariante que casi se va en la mudanza
+
+*«Nunca marcar una fila que el servidor va a rechazar»* vivía en `onSeleccionTabla`, el callback
+de la tabla — o sea **atado a un dispositivo de entrada**. Al pasar el clic de marcar a abrir, ese
+callback desapareció, y el freno se habría ido con él **sin que nada se pusiera rojo**:
+`marcarTodas` filtra por su cuenta, así que la suite seguía verde con el agujero abierto en el
+camino de a una. El freno se mudó a `marcar()`, que es donde pertenece: **lo verifica el método
+que marca, venga de donde venga.**
+
+### 2 · La entrada
+
+Los dos apartados cambiaban **de golpe**. Ahora entran como **un gesto** — la ficha primero y el
+arqueo 60 ms después. El escalonado no es adorno: es el orden de lectura que la pantalla ya
+declara (1 qué vas a arquear, 2 el arqueo) hecho visible una vez.
+
+⛔ Sólo `transform` + `opacity` (DESIGN 8 / §Motion), **250 ms** (`--dur-standard`), debajo del
+techo de 350. Y quien pide menos movimiento recibe **ninguno**, no una versión más lenta.
+
+⚠️ Primero puse la animación en `.cg-detail` y `.cg-ap-cuerpo`, que son contenedores
+**permanentes**: eso animaba **al cargar la página**, no al abrir. Va en un envoltorio **dentro
+del `@if`**, que es lo que nace al abrir. **Declarado:** cambiar de un movimiento a otro con la
+captura ya abierta **no reanima**, porque el `@if` no reinserta nada.
+
+### Verificación
+
+**167/167** en caja-general (2 pruebas nuevas, 3 repunteadas); suite completa de view **2,190
+pasadas, ninguna roja**. `typecheck`, `check:templates`, `check:teclado`, `check:primeng` y
+`check:tokens` verdes. `check:motion` sigue en su deuda histórica (49) y **ninguna línea es de
+esta pantalla**.
+
+**Mutado tres veces, las tres rojas:** volver a `selectionMode="multiple"` (el clic marcaría otra
+vez) · quitar el freno de `marcar()` · quitar el galón.
+
+⚠️ **Undécima vez** que un acento grave en un comentario del template literal rompe el build, y
+**tercera vez en esta sesión** que un reemplazo multilínea no aplica porque el archivo es **CRLF**.
+Esta vez el script **normaliza a LF para trabajar y devuelve CRLF al escribir**, en vez de escapar
+los `\r` a mano — que es lo que venía fallando.

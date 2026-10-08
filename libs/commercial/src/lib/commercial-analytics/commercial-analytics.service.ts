@@ -7519,9 +7519,15 @@ export class CommercialAnalyticsService {
               AND s.route_code LIKE 'WIN-%'
               AND COALESCE(s.route_no, '') !~ '${VECINAL_RX}'
            UNION ALL
+           -- [RR.31] La COPIA de la vecinal, no la vista. Medido el 2026-10-07 aislando las dos
+           -- piernas de este UNION: la tabla de arriba cuesta 5 ms y esta vista costaba
+           -- **1,087 ms para 61 filas** -- el 99% de lo que tardaba la pantalla en abrir. Con la
+           -- copia, la consulta entera pasa de 1,101 ms a 5 ms.
+           -- ⚠️ El precio es hasta 30 min de rezago en las rutas vecinales (se refresca con las
+           -- demas). La vista viva sigue existiendo para quien necesite el dato al segundo.
            SELECT v.warehouse_code, w.name, v.route_code, v.route_no,
                   to_char(v.month,'MM'), v.units, v.revenue, v.tickets
-             FROM analytics.v_kepler_vecinal_monthly v
+             FROM analytics.mv_kepler_vecinal_monthly v
              JOIN commercial.warehouses w ON w.tenant_id = v.tenant_id
               AND w.code = v.warehouse_code AND w.deleted_at IS NULL
             WHERE v.tenant_id = ? AND v.month >= ? AND v.month < ?
@@ -8416,8 +8422,26 @@ export class CommercialAnalyticsService {
     const { desde, hasta } = this.routeInventoryRange(from, to);
     const tenantId = this.tenantCtx.requireTenantId();
     const ayer = this.ayerMx();
+    /**
+     * `[RD.47]` ¿Es el rango por DEFAULT, el que la pantalla pide al abrir? Entonces la respuesta
+     * ya está precomputada en `analytics.mv_rd_route_inventory`.
+     *
+     * Medido el 2026-10-07: esta consulta cuesta **414 ms de servidor** (729 ms de cliente en
+     * frío) para devolver **11 filas**, agregando 9,103 del ledger. Por la copia, **0.057 ms**.
+     * El gate del proyecto es 500 ms, así que en vivo la cruzaba en frío y la rozaba siempre.
+     *
+     * ⚠️ Con un rango explícito NO se usa la copia: está materializada para la ventana completa
+     * y servirla para otro rango sería publicar la cifra equivocada rapidísimo. Ese caso paga
+     * los 414 ms, y es el caso raro.
+     */
+    const esRangoPorDefecto = desde === '2000-01-01' && hasta === this.todayMx();
     return this.tk.run(async (trx) => {
-      const rows = (await trx.raw(
+      const rows = esRangoPorDefecto
+        ? (await trx.raw(
+          `SELECT * FROM analytics.mv_rd_route_inventory
+            WHERE tenant_id = ? ORDER BY plaza, route_no`, [tenantId],
+        )).rows
+        : (await trx.raw(
         `WITH win AS (
            SELECT l.route_no, l.sku, l.unidad,
                   sum(l.qty)       FILTER (WHERE l.clase='carga') AS cq,
@@ -8581,8 +8605,8 @@ export class CommercialAnalyticsService {
           WHERE i.tenant_id = ?
           GROUP BY i.route_no, i.plaza, i.carga_desde
           ORDER BY i.plaza, i.route_no`,
-        [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId, tenantId],
-      )).rows;
+          [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId, tenantId],
+        )).rows;
 
       const asOf = (await trx.raw(
         `SELECT to_char(max(business_date),'YYYY-MM-DD') AS data_as_of
@@ -9214,6 +9238,10 @@ export class CommercialAnalyticsService {
    * El orden es alfabético por nombre de producto **a propósito**: es el mismo del papel que
    * sustituye, así que quien ya cuenta no tiene que reaprender el recorrido. No es el orden
    * físico del camión — ese no está en ninguna fuente.
+   *
+   * ⚠️ **54 de 3,035 renglones (1.8%) salen con el código pelado** porque el catálogo los tiene
+   * con la descripción vacía y el propio camión tampoco los nombra al venderlos. No se disfraza:
+   * se muestra el SKU, que es lo único que hay. Medido el 2026-10-07.
    */
   async routeCountSheet(routeNo: string): Promise<RouteCountSheet> {
     const ruta = this.routeNoValido(routeNo);
@@ -9222,29 +9250,23 @@ export class CommercialAnalyticsService {
     if (!cab) throw new BadRequestException(`la ruta ${ruta} no existe`);
 
     const lines = await this.tk.run(async (trx) => (await trx.raw(
-      // ⚠️ `btrim(p.sku)` en los DOS lados. Medido el 2026-10-07: sin el btrim del catálogo, 14
-      // de los 267 renglones de la ruta 21 caían a `coalesce(..., sku)` y el contador habría
-      // leído «00412» en vez del nombre del producto. Con btrim, 2,989 de 2,992 de la flota
-      // tienen nombre. El seq scan sobre ~10k productos cuesta milisegundos; el bug costaba 5%
-      // de la hoja ilegible.
-      `SELECT f.sku, f.unidad,
-              coalesce(nullif(btrim(p.description),''), v.producto, f.sku) AS producto,
-              round(f.qty,3)::float             AS esperado,
-              round(f.costo_unitario,4)::float  AS costo_unitario,
-              round(f.importe,2)::float         AS importe,
-              nullif(btrim(p.barcode),'')       AS barcode
-         FROM analytics.mv_rd_route_photo f
-         LEFT JOIN catalog.products p
-           ON p.tenant_id = f.tenant_id AND btrim(p.sku) = f.sku AND p.deleted_at IS NULL
-         -- Segundo recurso: cómo llama el propio camión a ese producto cuando lo vende. Cubre
-         -- los que el catálogo central no tiene (2 de 2,992).
-         LEFT JOIN LATERAL (
-           SELECT max(l.producto) AS producto
-             FROM analytics.route_push_lines l
-            WHERE l.tenant_id = f.tenant_id AND l.route_no = f.route_no AND btrim(l.sku) = f.sku
-         ) v ON true
-        WHERE f.tenant_id = ? AND f.route_no = ?
-        ORDER BY producto, f.unidad`,
+      // ⭐ UNA tabla, CERO joins: el nombre y el código de barras ya vienen resueltos dentro de
+      // la copia (`[RD.45]`). Esta consulta la abre una persona 300 veces seguidas, así que no
+      // paga una búsqueda de catálogo por renglón cada vez — se paga una vez cada 30 minutos
+      // para toda la flota, al refrescar.
+      //
+      // ⛔ Acá hubo un `LEFT JOIN catalog.products ON btrim(p.sku) = f.sku` y era el 70% del
+      // costo de la pantalla: anulaba `products_tenant_sku_unique` y forzaba un seq scan de
+      // 14,887 filas POR RENGLÓN (3.1 s en la ruta 28). Medido el 2026-10-07, no rescataba ni
+      // una fila: **0 de los 11,301 SKUs del catálogo tienen espacios**.
+      `SELECT sku, unidad, producto,
+              round(qty,3)::float             AS esperado,
+              round(costo_unitario,4)::float  AS costo_unitario,
+              round(importe,2)::float         AS importe,
+              barcode
+         FROM analytics.mv_rd_route_photo
+        WHERE tenant_id = ? AND route_no = ?
+        ORDER BY producto, unidad`,
       [tenantId, ruta],
     )).rows as RouteCountSheetLine[]);
 

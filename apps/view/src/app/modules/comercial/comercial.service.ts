@@ -2032,9 +2032,9 @@ export class ComercialService {
   // ── RD.6 · comisiones de Ruta Directa ────────────────────────────────────────
   /** Quincenas del año, cada una con su corrida viva si la tiene. */
   /**
-   * RD.21 — el tablero del año en UNA consulta sobre tablas. Es lo único que la pantalla pide
-   * al abrir. Medido contra prod: **2.7 ms**, contra los 5,762 ms que cuesta calcular una
-   * quincena. Por eso la pantalla no dispara cálculos: eso lo hace el cron.
+   * RD.22 — el tablero del año en UNA consulta sobre tablas, **sin calcular nada**. Es lo único
+   * que la pantalla pide al abrir. Medido contra prod: **2.7 ms**, contra los 5,762 ms que
+   * cuesta calcular una quincena. Lee valores ya congelados; no los deriva al mirarlos.
    */
   commissionBoard(anio: number) {
     return this.http.get<CommissionBoard>(`${this.base}/commissions/board`,
@@ -2064,10 +2064,13 @@ export class ComercialService {
   commissionUniverse() {
     return this.http.get<CommissionUniverseRow[]>(`${this.base}/commissions/universe`);
   }
-  /** RD.20 — dispara la corrida automática sin esperar a las 08:30. No aprueba ni paga. */
-  commissionRunNow() {
-    return this.http.post<{ revisados: number; calculadas: unknown[]; fallas: string[] }>(
-      `${this.base}/commissions/run-now`, {});
+  /**
+   * RD.22 — calcula esa quincena y todas las cerradas que le siguen. Es el único camino que
+   * escribe. **No toca lo pagado** (lo salta con su motivo y sigue) ni lo aprobado. No aprueba.
+   */
+  commissionRecalculateFrom(periodId: string) {
+    return this.http.post<CommissionRecalcResult>(
+      `${this.base}/commissions/recalculate-from`, { period_id: periodId });
   }
 
   /** BI.4 — Serie mensual (tendencia). */
@@ -4136,23 +4139,31 @@ export interface CommissionRunDetail {
   lines: (CommissionLine & { id: string })[];
 }
 /**
- * RD.21 — el estado del carril que llena el tablero, medido y no supuesto.
+ * RD.22 — el tablero del año.
  *
- * ⭐ Son **tres** causas distintas de "no hay corridas", y se arreglan en tres lugares
- * distintos. La pantalla las trataba como una sola y nombraba la tercera: mandaba a mirar un
- * latido que (medido el 2026-10-07) **nunca reportó**, y no encontrar nada se lee igual que
- * estar bien.
+ * ⛔ Acá venía `motor`: el latido del cron que calculaba la quincena, para que la pantalla
+ * vacía pudiera explicarse. **Ya no hay cron.** Una quincena cerrada es un valor estático que
+ * se calcula una vez, así que el hueco se declara donde de verdad está — en el periodo que
+ * cerró y no tiene número — y no en un sensor que mira si un reloj despertó.
  */
-export interface CommissionMotor {
-  veredicto: 'nunca_reporto' | 'con_error' | 'corre';
-  detalle: string;
-  last_finish: string | null;
-  status: string | null;
-  error: string | null;
-}
 export interface CommissionBoard {
   periodos: CommissionBoardRow[];
-  motor: CommissionMotor;
+  /** Las quincenas que ya cerraron y todavía no tienen número. Vacío = no falta nada. */
+  sin_calcular: { period_id: string; period_no: number; date_to: string }[];
+}
+/**
+ * RD.22 — lo que devuelve recalcular desde una quincena.
+ *
+ * ⚠️ `saltadas` no es ruido: son las quincenas que el motor **se negó** a tocar porque ya
+ * están pagadas o aprobadas. Esconderlas haría leer "listo" donde quedó trabajo sin hacer.
+ */
+export interface CommissionRecalcResult {
+  desde: { anio: number; period_no: number };
+  revisados: number;
+  calculadas: { anio: number; period_no: number; run_id: string; status: string; gates: string[] }[];
+  saltadas: { anio: number; period_no: number; run_status: string; motivo: string }[];
+  fallas: string[];
+  duracion_ms: number;
 }
 /**
  * RD.21 — una quincena del tablero, con su corrida si la tiene. Es la forma que devuelve
@@ -4168,6 +4179,12 @@ export interface CommissionBoardRow {
   date_from: string; date_to: string; pay_date: string | null;
   run_id: string | null;
   status: 'en_curso' | 'borrador' | 'bloqueada' | 'aprobado' | 'pagado' | null;
+  /**
+   * ⭐ CUATRO estados, no dos. `sin_calcular` y `en_curso` llegan los dos sin cifra y **no son
+   * lo mismo**: al primero le falta que alguien lo calcule, al segundo que termine el periodo.
+   * Pintarlos igual es lo que hacía que una quincena olvidada se viera normal.
+   */
+  estado_calculo: 'calculada' | 'sin_calcular' | 'en_curso' | 'futura';
   origen: string | null;
   total_subtotal: number | null; total_comision: number | null;
   total_a_pagar: number | null; total_deduccion: number | null; total_neto: number | null;

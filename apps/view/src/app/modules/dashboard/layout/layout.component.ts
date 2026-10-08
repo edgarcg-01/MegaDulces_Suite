@@ -649,6 +649,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Calendario de pagos', icon: 'pi pi-calendar', route: '/finanzas/calendario-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
+        // [ECA.2] Junto a "Cuadre y deuda" (decisión de Francisco, 2026-10-07): el mismo tema
+        // —cuánto se debe— visto documento por documento y para todos los tipos de acreedor.
+        { label: 'Estado de cuenta acreedores', icon: 'pi pi-book', route: '/finanzas/estado-cuenta-acreedores', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Cuentas por pagar', icon: 'pi pi-chart-bar', route: '/finanzas/pagos-control', permission: Permission.FINANCE_AI_CHAT },
       ],
     },

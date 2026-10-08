@@ -133,16 +133,38 @@ describe('repartirProducto · el reparto de lo que hubo', () => {
   });
 
   describe('entradas sucias no producen cantidades imposibles', () => {
-    it('cantidades negativas, cero, NaN o fraccionarias se saneán a entero >= 0', () => {
+    it('cantidades negativas, cero o NaN se saneán a 0; ninguna sale negativa', () => {
       const r = repartirProducto(
         [p('A', -5), p('B', 0), p('C', 7.9), p('D', Number.NaN as unknown as number)],
         100,
       );
-      for (const x of r) {
-        expect(Number.isInteger(x.qty_allocated)).toBe(true);
-        expect(x.qty_allocated).toBeGreaterThanOrEqual(0);
-      }
-      expect(r.find((x) => x.order_code === 'C')!.qty_allocated).toBe(7);
+      for (const x of r) expect(x.qty_allocated).toBeGreaterThanOrEqual(0);
+      expect(r.find((x) => x.order_code === 'A')!.qty_allocated).toBe(0);
+      expect(r.find((x) => x.order_code === 'D')!.qty_allocated).toBe(0);
+    });
+
+    // [GP.2] Antes la fracción se truncaba (7.9 → 7) como "dato sucio". En granel no lo es: los
+    // pedidos de Kepler traen KG con decimales (61.74 KG, medido en prod) y truncar perdía mercancía.
+    it('[GP.2] ⭐ conserva la fracción en vez de truncarla', () => {
+      const r = repartirProducto([p('C', 7.9)], 100);
+      expect(r[0].qty_requested).toBe(7.9);
+      expect(r[0].qty_allocated).toBe(7.9);
+    });
+
+    it('[GP.2] cuando no alcanza, la resta con decimales es EXACTA (sin error de coma flotante)', () => {
+      const r = repartirProducto([p('A', 6.25), p('B', 6.25)], 10.5);
+      expect(r.map((x) => x.qty_allocated)).toEqual([6.25, 4.25]);
+      expect(r.reduce((s, x) => s + x.qty_allocated, 0)).toBe(10.5);
+    });
+
+    it('[GP.2] nunca reparte más de lo levantado con decimales que no suman redondo', () => {
+      const r = repartirProducto([p('A', 0.1), p('B', 0.2), p('C', 0.3)], 0.35);
+      expect(r.map((x) => x.qty_allocated)).toEqual([0.1, 0.2, 0.05]);
+      expect(r.reduce((s, x) => s + Math.round(x.qty_allocated * 1000), 0)).toBe(350);
+    });
+
+    it('[GP.2] redondea a milésimas, la precisión de la base (numeric(14,3))', () => {
+      expect(repartirProducto([p('A', 61.7449)], 100)[0].qty_allocated).toBe(61.745);
     });
 
     it('un levantado negativo o NaN se trata como cero, no como "infinito"', () => {

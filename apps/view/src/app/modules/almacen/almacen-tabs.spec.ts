@@ -42,7 +42,7 @@ describe('almacen-tabs · el tab de Análisis BI cruza las áreas', () => {
 
   // Prueba negativa 1 — sin esto, el operario ve una barra a media tarima.
   it('las pantallas de FOCO siguen sin barra', () => {
-    for (const url of ['/almacen/anden', '/almacen/inventory/count']) {
+    for (const url of ['/almacen/anden', '/almacen/inventory/count', '/almacen/surtir']) {
       expect(almacenTabsForUrl(url)).toEqual([]);
     }
   });
@@ -164,5 +164,61 @@ describe('almacen-tabs · [IC.22] el área Conteo en orden de proceso', () => {
   it('ningún área además de Conteo usa el desvío de aterrizaje', () => {
     const conDesvio = ALMACEN_AREAS.filter((a) => a.landing).map((a) => a.key);
     expect(conDesvio).toEqual(['conteo']);
+  });
+});
+
+/**
+ * `[GP.3b]` Surtir desde el celular vive en el área Pedidos como pantalla de FOCO. Lo importante
+ * es por dónde entra el almacenista: medido, tiene `COMMERCIAL_PICKING_GESTIONAR` ([VEC.0]) pero NO
+ * `ALMACEN_PEDIDOS_VER`, así que sin la entrada de foco el área no se le pintaría.
+ */
+describe('almacen-tabs · Surtir (GP.3b)', () => {
+  const encontrada = ALMACEN_AREAS.find((a) => a.key === 'salida');
+  if (!encontrada) throw new Error('falta el área salida');
+  const salida = encontrada;
+  const primeraPara = (tiene: Set<string>) =>
+
+    almacenLandingCandidates(salida).find((t) => !t.permission || tiene.has(t.permission))?.route;
+
+  it('⭐ quien sólo puede surtir entra por Surtir', () => {
+    expect(primeraPara(new Set([Permission.COMMERCIAL_PICKING_GESTIONAR]))).toBe('/almacen/surtir');
+  });
+
+  it('quien ve el tablero sigue entrando por el tablero (prueba negativa: el foco va al final)', () => {
+    expect(
+      primeraPara(new Set([Permission.ALMACEN_PEDIDOS_VER, Permission.COMMERCIAL_PICKING_GESTIONAR])),
+    ).toBe('/almacen/pedidos');
+  });
+
+  it('quien sólo VE el surtido no entra (tomar trabajo escribe)', () => {
+    expect(primeraPara(new Set([Permission.COMMERCIAL_PICKING_VER]))).toBeUndefined();
+  });
+
+  it('Surtir no es un tab de la barra', () => {
+    expect(salida.tabs.some((t) => t.route === '/almacen/surtir')).toBe(false);
+  });
+});
+
+describe('almacen-tabs · Consola de surtido (GP.3c)', () => {
+  const salida = ALMACEN_AREAS.find((a) => a.key === 'salida');
+  if (!salida) throw new Error('falta el área salida');
+  const primeraPara = (tiene: Set<string>) =>
+    almacenLandingCandidates(salida).find((t) => !t.permission || tiene.has(t.permission))?.route;
+
+  it('⭐ el coordinador sin el tablero entra por la consola', () => {
+    expect(primeraPara(new Set([Permission.ALMACEN_SURTIDO_COORDINAR]))).toBe('/almacen/surtido-consola');
+  });
+
+  it('la consola es un tab con su propio permiso, no el del surtidor', () => {
+    const tab = salida.tabs.find((t) => t.route === '/almacen/surtido-consola');
+    expect(tab?.permission).toBe(Permission.ALMACEN_SURTIDO_COORDINAR);
+  });
+
+  it('prueba negativa: quien sólo surte no entra a la consola', () => {
+    expect(primeraPara(new Set([Permission.COMMERCIAL_PICKING_GESTIONAR]))).toBe('/almacen/surtir');
+  });
+
+  it('el área se reconoce desde la consola', () => {
+    expect(salida.match).toContain('/almacen/surtido-consola');
   });
 });

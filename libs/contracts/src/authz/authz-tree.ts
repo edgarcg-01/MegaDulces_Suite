@@ -216,6 +216,12 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // abría también Reparto › Surtido. Se reparte por migración (20261006200000), no queda
           // sólo declarado ([LC.6.2]).
           { id: 'pedidos', label: 'Pedidos', route: '/almacen/pedidos', view: [Permission.ALMACEN_PEDIDOS_VER], manage: [] },
+          // `[UB.0]` Ubicaciones de mercancía (Fase UB, ADR-090). Permisos PROPIOS (ver el
+          // comentario en permissions.ts) y repartidos por migración en la misma entrega.
+          // La ruta llegó con la pantalla en `[UB.1]` (el Mapa, /almacen/ubicaciones).
+          { id: 'ubicaciones', label: 'Ubicaciones', route: '/almacen/ubicaciones', view: [Permission.ALMACEN_UBICACIONES_VER], manage: [Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR] },
+          // [GP.3c] Consola de surtido: una sola clave, que ve Y maneja (la pantalla existe para decidir).
+          { id: 'surtido-consola', label: 'Consola de surtido', route: '/almacen/surtido-consola', view: [Permission.ALMACEN_SURTIDO_COORDINAR], manage: [Permission.ALMACEN_SURTIDO_COORDINAR] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing
           // → un rol que sólo tenga esta clave aterriza acá en vez de rebotar a /sin-acceso.
@@ -370,6 +376,11 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
           { id: 'cartera', label: 'Crédito de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
+          // [ECA.2] Estado de cuenta de acreedores. Sólo lectura (los pagos se aplican en Kepler):
+          // reusa FINANCE_PAYMENTS_VER, sin permiso nuevo → sin migración ni re-login. Va ANTES de
+          // `calendario-pagos` a propósito: la "casa" de una clave es el ÚLTIMO módulo que la usa
+          // (`indiceDeClaves`), y la de FINANCE_PAYMENTS_VER debe seguir siendo el Calendario.
+          { id: 'estado-cuenta-acreedores', label: 'Estado de cuenta de acreedores', route: '/finanzas/estado-cuenta-acreedores', view: [Permission.FINANCE_PAYMENTS_VER], manage: [] },
           // Fase TP (ADR-064) — el calendario prospectivo (asigna obligaciones ya
           // autorizadas a un día, dentro de la capacidad de Presupuestos). Reusa
           // FINANCE_PAYMENTS_* (misma familia que Programa de Pagos/Pagos a proveedor).

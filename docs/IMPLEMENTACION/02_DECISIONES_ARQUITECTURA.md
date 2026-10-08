@@ -2663,3 +2663,44 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 **Rechazado:** dos almacenes por sucursal (bodega / tienda), porque rompe el cuadre con Kepler; cantidad por ubicación desde el día uno, porque repite el relevo "operador anota, nadie registra".
 
 **Hereda:** ADR-044 (Kepler = SoR de la cantidad; la app dueña de la ubicación) · ADR-086 · ADR-056 (lo que no tiene cantidad por ubicación no la dibuja). Detalle en [`FASE_WMS` §12](FASES/FASE_WMS.md).
+
+---
+
+## ADR-089 — El pedido de preventa cruza dos sistemas: la Suite lo surte y lo entrega, Kepler lo cobra, y la liga la hace quien entrega
+
+**Fecha:** 2026-10-08 · **Estado:** ⏳ propuesto · **Fase:** MCP (Mesa de Control de Preventa)
+
+**Contexto.** El vendedor levanta el pedido de preventa (`PD-`) en `apps/vendor` y vive en `commercial.orders`. Medido en prod (solo lectura): 27 pedidos de preventa "confirmados", **los 27 con la fecha de entrega vencida y ninguno pasó nunca por una ola de surtido**. Pero al menos 7 de Yurécuaro **ya estaban cobrados** en Kepler (Caja 3, con la clave del cliente): el flujo real ocurre por fuera y la Suite no se entera. Además el `fulfill` de hoy emite CFDI y descuenta `commercial.stock`, lo que con el cobro en Kepler duplicaría la venta.
+
+**Decisión (Francisco, 2026-10-08).**
+1. **Levantado y surtido en la Suite** (surtido en cuanto el pedido llega, con el motor de GP).
+2. **Cobro en Kepler**: la cajera emite el documento a nombre del cliente al recibir lo surtido. La Suite **lo lee** del ODS (`analytics.erp_sale_tickets`), nunca lo crea.
+3. **La liga pedido↔documento la hace quien entrega** (repartidor o vendedor), eligiendo en su celular entre los documentos del cliente. Sólo la liga es dato propio (`commercial.order_kepler_documents`, una liga viva por pedido y por documento; desligar cierra la fila, no la borra).
+4. **Guía de carga por ruta**, impresa y firmada por el repartidor; **liquidación contra la guía** (efectivo con arqueo + transferencia con referencia). Sustituye la tira de ingresos reimpresa.
+5. **La entrega de conformidad no factura ni mueve inventario** (transición propia, no el `fulfill` de hoy).
+6. **No entregado** → sale otro día con el mismo documento; **máximo 2 reintentos**, después devolución + NC en Kepler (la Suite lo señala, no lo hace).
+7. **Cliente sin clave de Kepler no se surte**: va al embudo de altas (módulo aparte).
+
+**Rechazado:** que la Suite elija el documento sola por cliente+fecha (hay clientes con 2 y 4 tickets posibles en el mismo periodo); que la cajera anote el folio `PD-` en Kepler (innecesario si liga quien entrega); copiar el ticket a una tabla (regla principal: cero importers).
+
+**Lo que se DECLARA (ADR-056).** Las claves de cliente de Kepler son **por sucursal**: con la clave de otra sucursal no se busca (`cliente_de_otra_sucursal`). Una sucursal sin tickets de Kepler en el ODS (Morelia Madero, Wincaja) se declara `sucursal_sin_documentos`, no "sin cobro". El total del renglón del pedido trae impuesto y el del ticket no: se comparan cantidad y precio unitario, nunca importes.
+
+**Hereda:** ADR-040 (read-only sobre el ERP) · ADR-086 (trabajo de piso en la Suite) · ADR-067 (surtido por olas) · ADR-027 (cortes del repartidor) · ADR-056. Plan en [`FASE_MCP`](FASES/FASE_MCP_MESA_CONTROL_PREVENTA.md).
+## ADR-090 — Ubicaciones: código de 5 caracteres, módulo propio con permisos propios, cantidad sólo en reservas y rotación por fecha de entrada
+
+**Fecha:** 2026-10-08 · **Estado:** ⏳ propuesto · **Fase:** UB · **Enmienda:** ADR-087 §3
+
+**Contexto.** ADR-087 dejó el modelo de tres capas sin código ni dueño de permisos. Hoy las ubicaciones cuelgan de `COMMERCIAL_INVENTORY_VER/RECIBIR/ASIGNAR`, y `ASIGNAR` es la clave que arma los equipos de conteo. Francisco pidió un módulo con captura masiva, excedente, rotación y mantenimiento. El excedente necesita saber **qué hay en cada reserva**, cosa que ADR-087 §3 había diferido. Y `stock_lots.received_at` se sobrescribe en cada upsert, así que no puede ser la fecha de entrada.
+
+**Decisión (Francisco, 2026-10-08; propuesta de Claude).**
+1. **Código `[T|B][pasillo A–Z][rack 01–99][nivel 1–6]`**, guardado en partes (zona, pasillo, rack, nivel) y validado. Reemplaza §12.2 (`B01`/`T01`) y la lectura de §12.5 (`BC110` con posición). Carretas `C`, espera `E`, contenedores `K` y estibas son otra familia en la misma tabla.
+2. **Módulo "Ubicaciones"** propio dentro del proyecto Almacén, con tres claves: `ALMACEN_UBICACIONES_VER`, `_ACOMODAR` y `_GESTIONAR`. Se reparten **en la misma entrega** que las crea.
+3. **La cantidad por ubicación se prende sólo en reservas** (excedente). La posición de surtido sigue sin cantidad. Su ocupación se **estima** (existencia Kepler − Σ reservas) y se publica como estimado.
+4. **Rotación por fecha de entrada (PEPS)**: `entered_at` por acomodo en reserva, que no se sobrescribe. Si una reserva más nueva caduca antes, el sistema avisa sin reordenar.
+5. **Se extienden** `warehouse_bins` y `stock_lot_locations`; se crean sólo `bin_assignments`, `bin_history` y `location_tasks`. No hay tabla paralela de ubicaciones.
+6. **Mantenimiento sin borrado**: bloquear, dar de baja (sólo vacía), recodificar y fusionar, todo con bitácora.
+7. **La ubicación guarda producto + presentación** (peldaño 1/2/3 de la escalera `kdii` de ESA sucursal). Cada presentación tiene su lugar fijo, su mín/máx y su reserva; la reposición puede ser "abrir caja". Sin factor, el estimado se declara no medido.
+
+**Rechazado:** reusar `COMMERCIAL_INVENTORY_ASIGNAR`, porque mezcla armar equipos de conteo con recodificar el almacén; PEPS sobre `stock_lots.received_at`, porque sería falso sin dar error; cantidad en la posición de surtido desde ahora, por la misma razón de ADR-087; convertir sola la ubicación de Wincaja, porque `BC110` cae en nivel 0.
+
+**Hereda:** ADR-087 · ADR-044 · ADR-086 · ADR-056. Plan en [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md).

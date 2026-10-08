@@ -50,6 +50,14 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  * **se niega**: una corrida que no pasa una compuerta dura nace `bloqueada`, no `borrador`.
  * Nacer borrador la deja a un clic de aprobarse.
  *
+ * **7. `[RD.22]` Una corrida es un valor CONGELADO, no un derivado.** Se escribe una vez, con
+ * el periodo ya cerrado, y no se vuelve a tocar: lo `pagado` no se recalcula nunca y lo
+ * `aprobado` hay que anularlo a mano primero. El periodo que todavia corre **no se guarda**
+ * -- se mira con la vista previa, que no deja fila. Por eso no hay cron: un reloj que despierta
+ * 48 veces al dia para un hecho que ocurre 24 veces al año estaba mal planteado, y el que
+ * reescribia la quincena abierta cada media hora hacia que una cifra de nomina se moviera sola.
+ * Escribe un solo camino: `CommissionRecalcService.recalcularDesde()`.
+ *
  * TODO lo que decide sale de la DB (`commission_scales` + `_tiers` + `_bonuses` +
  * `_route_config` + `_beneficiary_config`), nunca de un `if` aca.
  */
@@ -59,7 +67,7 @@ export interface ComputeRunOptions {
   dryRun?: boolean;
   /** Reemplaza la corrida viva del periodo (solo si esta en `borrador` o `bloqueada`). */
   replace?: boolean;
-  /** Quien la pidio. El cron no puede disfrazarse de persona. */
+  /** Quien la pidio. Queda congelado en la fila: un recalculo de hace seis meses se distingue. */
   origen?: 'manual' | 'cron';
 }
 
@@ -209,30 +217,29 @@ export class CommercialCommissionsService {
   // ── Catalogo ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * `[RD.21]` El tablero del año en **una sola consulta sobre tablas**. Es lo que la pantalla
+   * `[RD.22]` El tablero del año en **una sola consulta sobre tablas**. Es lo que la pantalla
    * pide al abrir, y el unico camino que recorre.
    *
-   * ⭐ No toca ninguna vista. Medido contra prod: **2.2 ms** (p50 de 5 corridas, 27 filas),
-   * contra los **6,491 ms** que costaba calcular UNA quincena. Esa diferencia es la razon de que
-   * la pantalla no tenga botones: calcular es trabajo del cron, y leer es trabajo de la pantalla.
+   * ⭐ No toca ninguna vista y no calcula NADA. Medido contra prod: **2.2 ms** (p50 de 5
+   * corridas, 27 filas), contra los **6,491 ms** que cuesta calcular UNA quincena. Esa
+   * diferencia es la razon de que la pantalla solo lea: una corrida es un valor congelado que
+   * ya esta escrito, no algo que se deriva cuando alguien mira.
+   *
+   * ⛔ Aca viajaba el latido del cron (`rd_commission_runner`) para que la pantalla vacia
+   * pudiera explicarse. **Ya no hay cron que vigilar**, asi que el hueco se declara donde de
+   * verdad esta: en el periodo. Una quincena que cerro y no tiene corrida sale como
+   * `sin_calcular` con su fecha de cierre -- que es lo que el latido intentaba insinuar desde
+   * lejos. *La ausencia se muestra en la fila a la que le falta, no en un sensor aparte.*
    */
   async board(anio: number) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
-      // ⭐ El latido del carril viaja CON el tablero. Sin esto la pantalla vacia tenia que
-      // ADIVINAR por que no hay corridas, y adivinaba mal: mandaba a mirar un latido que
-      // (medido) nunca reporto, y "no encuentro nada" se lee igual que "esta bien". Cuesta
-      // 0.97 ms, asi que no hay razon para no saberlo.
-      const { rows: hb } = await trx.raw(
-        `SELECT job_key, status, last_finish, rows_affected, error, host
-           FROM analytics.cron_runs WHERE tenant_id = ? AND job_key = 'rd_commission_runner'`,
-        [tenantId],
-      );
       const { rows } = await trx.raw(
         `SELECT p.id AS period_id, p.period_no,
                 to_char(p.date_from, 'YYYY-MM-DD') AS date_from,
                 to_char(p.date_to,   'YYYY-MM-DD') AS date_to,
                 to_char(p.pay_date,  'YYYY-MM-DD') AS pay_date,
+                to_char(current_date, 'YYYY-MM-DD') AS hoy,
                 r.id AS run_id, r.status, r.origen,
                 r.total_subtotal, r.total_comision, r.total_a_pagar,
                 r.total_deduccion, r.total_neto,
@@ -248,41 +255,37 @@ export class CommercialCommissionsService {
       // ⚠️ `to_char` en la lista de seleccion es gratis y evita el defecto de LC.16: pg devuelve
       // `date` como objeto Date y `String()` lo imprime en UTC, o sea con el DIA cambiado en
       // hora de Mexico. La pantalla recibe texto ya correcto, no un ISO que tenga que recortar.
+      // Por lo mismo el "hoy" sale de `current_date` de la DB y no de `new Date()` del proceso.
       const periodos = rows.map((r: Record<string, unknown>) => ({
         ...r,
         total_subtotal: n0(r.total_subtotal), total_comision: n0(r.total_comision),
         total_a_pagar: n0(r.total_a_pagar), total_deduccion: n0(r.total_deduccion),
         total_neto: n0(r.total_neto),
+        estado_calculo: this.estadoCalculo(r),
       }));
 
-      /**
-       * ⭐ TRES causas distintas, que se arreglan en tres lugares distintos. Tratarlas como una
-       * sola es lo que hacia que la pantalla mandara a todo el mundo al mismo lugar equivocado.
-       * La redaccion de `nunca_reporto` es la de `veredictoSinLatido()` de `db-health`, que ya
-       * tenia resuelto como se dice esto: no se puede saber cual de las tres sin mirarlo.
-       */
-      const h = hb[0] ?? null;
-      const motor = !h
-        ? {
-          veredicto: 'nunca_reporto' as const,
-          detalle: 'El carril está declarado y no ha escrito ni un latido: o no está desplegado, '
-                 + 'o no corre, o corre y no late. No se puede saber cuál sin mirarlo.',
-          last_finish: null, status: null, error: null,
-        }
-        : h.status === 'error'
-          ? {
-            veredicto: 'con_error' as const,
-            detalle: String(h.error ?? 'sin detalle'),
-            last_finish: h.last_finish, status: h.status, error: h.error,
-          }
-          : {
-            veredicto: 'corre' as const,
-            detalle: `Corrió y escribió ${h.rows_affected ?? 0} corrida(s).`,
-            last_finish: h.last_finish, status: h.status, error: null,
-          };
+      // ⭐ El resumen del hueco, contado aca y no en la pantalla: cuantas quincenas ya cerraron
+      // y todavia no tienen su numero. Es lo unico que hay que mirar al abrir -- si es 0, no
+      // falta nada; si no, dice exactamente cuales y desde cual hay que recalcular.
+      const sinCalcular = periodos
+        .filter((p: Record<string, unknown>) => p.estado_calculo === 'sin_calcular')
+        .map((p: Record<string, unknown>) => ({ period_id: p.period_id, period_no: p.period_no, date_to: p.date_to }));
 
-      return { periodos, motor };
+      return { periodos, sin_calcular: sinCalcular };
     });
+  }
+
+  /**
+   * CUATRO estados, no dos. `sin_calcular` y `en_curso` llegan los dos sin cifra y **no son lo
+   * mismo**: al primero le falta que alguien lo calcule, al segundo le falta que termine el
+   * periodo -- y pintarlos igual es lo que hacia que una quincena olvidada se viera normal.
+   */
+  private estadoCalculo(r: Record<string, unknown>): 'calculada' | 'sin_calcular' | 'en_curso' | 'futura' {
+    if (r.run_id) return 'calculada';
+    const hoy = String(r.hoy);
+    if (String(r.date_from) > hoy) return 'futura';
+    if (String(r.date_to) >= hoy) return 'en_curso';
+    return 'sin_calcular';
   }
 
   async listPeriods(anio?: number) {
@@ -323,12 +326,46 @@ export class CommercialCommissionsService {
     const tenantId = this.tenantCtx.requireTenantId();
 
     return this.tk.run(async (trx) => {
-      const period = await trx('commercial.commission_periods')
-        .where({ id: periodId }).whereNull('deleted_at').first();
+      // ⛔ `to_char` en la DB, NO `String(fila.date_to).slice(0, 10)` en JS. pg entrega un `date`
+      // como objeto `Date`, y `String(Date)` da "Wed Oct 07 2026 ...": el recorte devolvia
+      // **"Wed Oct 07"** y la consulta de la escala moria con `invalid input syntax for type
+      // date`. No era deuda latente -- el motor nunca habia calculado nada en prod, asi que la
+      // primera vez que corrio de verdad (2026-10-07 20:05) fue la primera vez que se vio.
+      // Es el mismo defecto de LC.16, y por eso `board()` ya traia sus fechas con `to_char`.
+      const { rows: [period] } = await trx.raw(
+        `SELECT id, anio, period_no,
+                to_char(date_from, 'YYYY-MM-DD') AS date_from,
+                to_char(date_to,   'YYYY-MM-DD') AS date_to,
+                to_char(pay_date,  'YYYY-MM-DD') AS pay_date,
+                -- El "hoy" sale de la DB, no de new Date(): toISOString() es UTC, asi que entre
+                -- las 18:00 y la medianoche de Mexico adelanta el dia y una quincena que cierra
+                -- HOY se habria dado por cerrada seis horas antes. Es [RD.1] otra vez.
+                -- (sin acentos graves: esto vive dentro de un template literal de JS)
+                to_char(current_date, 'YYYY-MM-DD') AS hoy
+           FROM commercial.commission_periods
+          WHERE id = ? AND deleted_at IS NULL`,
+        [periodId],
+      );
       if (!period) throw new NotFoundException(`Periodo ${periodId} no existe`);
 
-      const from = String(period.date_from).slice(0, 10);
-      const to = String(period.date_to).slice(0, 10);
+      const from: string = period.date_from;
+      const to: string = period.date_to;
+      const hoy: string = period.hoy;
+
+      // ⛔ **Una quincena que todavia corre NO se guarda**, y el freno va ACA -- antes de
+      // calcular, no despues. Una corrida es un valor congelado: se escribe una vez, con el
+      // periodo ya cerrado. La version anterior la guardaba como `en_curso` y la reescribia
+      // cada 30 min, o sea que la fila cambiaba sola: lo contrario de lo que una cifra de
+      // nomina tiene que ser.
+      // ⚠️ `dryRun` SI pasa: la vista previa es justamente para mirar como va el periodo
+      // abierto, y no deja fila. Poner el freno despues del calculo costaba los 8.5 s enteros
+      // para terminar rechazando.
+      if (!opts.dryRun && to > hoy) {
+        throw new ConflictException(
+          `La quincena ${period.anio}-${period.period_no} cierra el ${to} y todavia corre: `
+          + 'una corrida se escribe una sola vez, con el periodo cerrado. Usa la vista previa.',
+        );
+      }
 
       const scale = await this.loadScale(trx, to);
       const [tiers, bonuses, universo, ventas, deducciones, dataAsOf] = await Promise.all([
@@ -440,7 +477,7 @@ export class CommercialCommissionsService {
 
       const beneficiarios = this.netoPorPersona(lines, universo, deducciones);
       const totals = this.totales(lines, universo, beneficiarios, fuera, conDato, sinDato);
-      const gates = this.compuertas(period, to, totals, dataAsOf, lines);
+      const gates = this.compuertas(hoy, to, totals, dataAsOf, lines);
       const bloquea = gates.some((g) => g.estado === 'bloquea');
 
       // El estado por persona vuelve a las lineas para que la pantalla no tenga que cruzarlo.
@@ -466,11 +503,9 @@ export class CommercialCommissionsService {
       };
       if (opts.dryRun) return { ...payload, run_id: null, status: 'dry-run' as const };
 
-      // ⭐ `en_curso` y `bloqueada` NO son lo mismo y no se arreglan igual: a la primera le falta
-      // terminar, a la segunda le falla algo. Llamarlas igual mandaria a buscar un problema que
-      // no existe cada vez que el cron refresca la quincena que todavia corre (RD.21).
-      const abierto = to > new Date().toISOString().slice(0, 10);
-      const status = abierto ? 'en_curso' : (bloquea ? 'bloqueada' : 'borrador');
+      // Llegar aca ya implica periodo cerrado: el freno de arriba lo garantiza. `en_curso`
+      // desaparece del universo de estados que este metodo produce.
+      const status = bloquea ? 'bloqueada' : 'borrador';
       const runId = await this.persist(trx, tenantId, period, scale, totals, lines,
         { ...opts, status, gates, dataAsOf });
       this.logger.log(
@@ -799,11 +834,10 @@ export class CommercialCommissionsService {
    * Un gate sin prueba negativa es una intencion: las rompe `test-newdb-rd-commission-base.js`.
    */
   private compuertas(
-    period: any, to: string, totals: ReturnType<CommercialCommissionsService['totales']>,
+    hoy: string, to: string, totals: ReturnType<CommercialCommissionsService['totales']>,
     dataAsOf: string | null, lines: CommissionLine[],
   ): Gate[] {
     const g: Gate[] = [];
-    const hoy = new Date().toISOString().slice(0, 10);
 
     // 1. No se paga una quincena que no cerro.
     g.push(to > hoy
@@ -906,13 +940,32 @@ export class CommercialCommissionsService {
     const viva = await trx('commercial.commission_runs')
       .where({ period_id: period.id }).whereNull('deleted_at').whereNot('status', 'anulado').first();
     if (viva) {
+      // ⛔⛔ **Lo pagado no se edita. Nunca, ni con `replace`.** Una corrida `pagado` no es un
+      // calculo: es el registro de un deposito que ya ocurrio. Si la escala cambia con efecto
+      // sobre una quincena ya pagada, la diferencia entra como ajuste en la siguiente -- no se
+      // reescribe la historia para que cuadre con la regla nueva, porque entonces el historial
+      // dejaria de coincidir con lo que de verdad se le deposito a la gente.
+      if (viva.status === 'pagado') {
+        throw new ConflictException(
+          `La corrida del periodo ${period.anio}-${period.period_no} ya esta PAGADA y no se `
+          + 'recalcula. Si la escala cambio, la diferencia va como ajuste en la quincena siguiente.',
+        );
+      }
+      // Una `aprobado` tampoco se pisa en silencio: alguien la firmo. Se anula a mano primero,
+      // que deja el acto registrado, y recien ahi se vuelve a calcular.
+      if (viva.status === 'aprobado') {
+        throw new ConflictException(
+          `La corrida del periodo ${period.anio}-${period.period_no} esta APROBADA. `
+          + 'Anulala primero: recalcular sobre una firma seria borrarla sin dejar rastro.',
+        );
+      }
       if (!ctx.replace) {
         throw new ConflictException(
           `El periodo ${period.anio}-${period.period_no} ya tiene una corrida ${viva.status}. ` +
           `Usa replace=true (solo si esta en borrador o bloqueada).`,
         );
       }
-      if (!['borrador', 'bloqueada', 'en_curso'].includes(viva.status)) {
+      if (!['borrador', 'bloqueada'].includes(viva.status)) {
         throw new ConflictException(`No se reemplaza una corrida "${viva.status}": anulala primero.`);
       }
       await trx('commercial.commission_run_lines').where({ run_id: viva.id }).del();

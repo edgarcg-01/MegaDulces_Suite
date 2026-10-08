@@ -5,7 +5,7 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
-  ComercialService, CommissionBoardRow, CommissionMotor, CommissionRunDetail, CommissionLine,
+  ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate,
 } from '../comercial.service';
 
@@ -22,11 +22,18 @@ import {
  * ⭐ **El unico camino lento del modulo eran las acciones.** `Vista previa` y `Crear corrida`
  * tocan `v_rd_route_daily`, que se materializa entera en cada consulta; leer una corrida ya
  * persistida es leer una tabla de 26 filas. Quitarlas no es una concesion: es lo que vuelve
- * rapida la pantalla — y de paso honesta, porque lo que se ve es lo que el motor realmente
- * calculo, no un numero que aparecio porque alguien apreto algo.
+ * rapida la pantalla — y de paso honesta, porque lo que se ve es lo que de verdad quedo
+ * calculado, no un numero que aparecio porque alguien apreto algo.
  *
- * Quien calcula es `CommissionRunnerService`: 08:30 MX las quincenas cerradas, y cada 30 min la
- * que todavia corre. La pantalla **no tiene camino lento**.
+ * ⛔ **Y no hay cron detras.** Una quincena cerrada es un valor ESTATICO: se calcula una vez,
+ * con el periodo ya cerrado, y no cambia. Lo escribe un acto deliberado -- recalcular desde una
+ * quincena hacia adelante -- que es el mismo tramite cuando cierra un periodo y cuando cambia
+ * la escala. La quincena que todavia corre **no se guarda**: guardarla obligaba a reescribirla
+ * cada media hora, o sea una cifra de nomina moviendose sola.
+ *
+ * Esta pantalla **solo lee**. Lo que no esta calculado lo DECLARA (`sin_calcular`), que no es
+ * lo mismo que `en_curso`: al primero le falta que alguien lo calcule, al segundo que termine
+ * el periodo, y pintarlos igual hacia que una quincena olvidada se viera normal.
  *
  * ── Lo que esta pantalla no esconde ──────────────────────────────────────────────────────
  *  · El **neto**, no el bruto. La deduccion del supervisor es por persona y agregada sobre sus
@@ -83,7 +90,7 @@ import {
               bruto {{ money(d.total_a_pagar) }} − deducciones {{ money(d.total_deduccion) }}
             </p>
           </div>
-          <p-tag [severity]="sev(d.status)" [value]="etiquetaEstado(d.status)" />
+          <p-tag [severity]="sev(d)" [value]="etiquetaEstado(d)" />
         </section>
       }
 
@@ -106,7 +113,7 @@ import {
                     @if (esHoy(p)) { <span class="cm-hoy">hoy</span> }
                   </span>
                   <span class="cm-per-bot">
-                    <p-tag [severity]="sev(p.status)" [value]="etiquetaEstado(p.status)" />
+                    <p-tag [severity]="sev(p)" [value]="etiquetaEstado(p)" />
                     <span class="cm-per-monto">{{ p.run_id ? money(p.total_neto) : '—' }}</span>
                   </span>
                 </button>
@@ -128,15 +135,22 @@ import {
             <div class="cm-card">
               <h2>Quincena {{ sel()!.period_no }} · {{ rango(sel()!) }}</h2>
               <p class="cm-muted cm-card-pie">
-                @if (esHoy(sel()!)) { Está corriendo: cierra el {{ dia(sel()!.date_to) }}. }
-                @else { Cerró el {{ dia(sel()!.date_to) }}. }
-                Todavía no tiene corrida — y esta pantalla sólo las muestra.
+                @switch (sel()!.estado_calculo) {
+                  @case ('futura') { Empieza el {{ dia(sel()!.date_from) }}: todavía no existe. }
+                  @case ('en_curso') {
+                    Está corriendo: cierra el {{ dia(sel()!.date_to) }}.
+                    No se calcula hasta que cierre — una quincena a medias no se paga.
+                  }
+                  @default {
+                    Cerró el {{ dia(sel()!.date_to) }} y <strong>todavía no se ha calculado</strong>.
+                  }
+                }
               </p>
 
               <ol class="cm-ciclo">
-                <li class="act">
+                <li [class.act]="sel()!.estado_calculo === 'sin_calcular'">
                   <span class="cm-paso">1</span> Calcular
-                  <span>El motor lee la venta del ERP y aplica el tabulador. Nace en borrador.</span>
+                  <span>Se hace una vez, con el periodo ya cerrado. Nace en borrador.</span>
                 </li>
                 <li>
                   <span class="cm-paso">2</span> Revisar
@@ -148,26 +162,21 @@ import {
                 </li>
                 <li>
                   <span class="cm-paso">4</span> Pagar
-                  <span>Se marca pagada y el recibo queda reproducible.</span>
+                  <span>Se marca pagada y queda congelada: lo pagado no se recalcula.</span>
                 </li>
               </ol>
 
-              @if (nadaCalculado() && motor(); as m) {
-                <p class="cm-warn" [class.bad]="m.veredicto !== 'corre'">
+              @if (sinCalcular().length) {
+                <p class="cm-warn bad">
                   <i class="pi pi-exclamation-circle" aria-hidden="true"></i>
                   <span>
-                    <strong>Ninguna quincena de {{ anio() }} tiene corrida.</strong>
-                    El carril <span class="cm-mono">rd_commission_runner</span>
-                    @switch (m.veredicto) {
-                      @case ('nunca_reporto') { <strong>nunca ha reportado</strong>. }
-                      @case ('con_error') { reportó <strong>error</strong> {{ cuando(m.last_finish) }}. }
-                      @case ('corre') { corrió {{ cuando(m.last_finish) }} sin error. }
-                    }
-                    {{ m.detalle }}
-                    @if (m.veredicto === 'corre') {
-                      Entonces el hueco no está en el carril: o no hay venta en la fuente, o las
-                      quincenas no cumplen la condición para calcularse.
-                    }
+                    <strong>
+                      {{ sinCalcular().length === 1 ? 'Una quincena ya cerró' : sinCalcular().length + ' quincenas ya cerraron' }}
+                      y no {{ sinCalcular().length === 1 ? 'tiene' : 'tienen' }} número:
+                    </strong>
+                    {{ listaSinCalcular() }}.
+                    Se producen recalculando desde la primera — el mismo trámite que cuando
+                    cambia el tabulador. No hay nada que esperar: no corre solo a propósito.
                   </span>
                 </p>
               }
@@ -408,8 +417,12 @@ export class ComercialComisionesComponent {
   readonly anios = [2026, 2027];
   readonly anio = signal(new Date().getFullYear() >= 2027 ? 2027 : 2026);
   readonly board = signal<CommissionBoardRow[]>([]);
-  /** Lo que el carril DICE de sí mismo. Medido, no supuesto: viaja con el tablero. */
-  readonly motor = signal<CommissionMotor | null>(null);
+  /**
+   * ⭐ Las quincenas que YA CERRARON y no tienen número, resueltas en el servidor con su
+   * `current_date` — no con el reloj del navegador, que es de quien mira y no del negocio.
+   * Es el único hueco que hay que ver al abrir: vacío significa que no falta nada.
+   */
+  readonly sinCalcular = signal<{ period_id: string; period_no: number; date_to: string }[]>([]);
   readonly sel = signal<CommissionBoardRow | null>(null);
   readonly run = signal<CommissionRunDetail | null>(null);
   readonly tab = signal<string>('chofer');
@@ -439,10 +452,14 @@ export class ComercialComisionesComponent {
     return pagable ?? b.find((r) => r.status === 'en_curso') ?? this.enCurso() ?? null;
   });
 
-  readonly sinCorrida = computed(() => this.board().filter((r) => !r.run_id && r.date_from <= this.hoy));
+  readonly sinCorrida = computed(() => this.board().filter((r) => r.estado_calculo === 'sin_calcular'));
 
-  /** Ninguna quincena del año tiene corrida: el motor no ha corrido nunca. */
-  readonly nadaCalculado = computed(() => this.board().length > 0 && !this.board().some((r) => r.run_id));
+  /** "Q18, Q19 y Q20" — la lista que la pantalla nombra, sin obligar a contarlas en el rail. */
+  readonly listaSinCalcular = computed(() => {
+    const q = this.sinCalcular().map((p) => `Q${p.period_no}`);
+    if (q.length <= 1) return q[0] ?? '';
+    return `${q.slice(0, -1).join(', ')} y ${q[q.length - 1]}`;
+  });
 
   /**
    * El rail, agrupado por mes. ⛔ La primera version filtraba `if (!p.run_id) continue` y con
@@ -504,7 +521,7 @@ export class ComercialComisionesComponent {
     this.api.commissionBoard(this.anio()).subscribe({
       next: (b) => {
         this.board.set(b.periodos);
-        this.motor.set(b.motor);
+        this.sinCalcular.set(b.sin_calcular ?? []);
         this.cargando.set(false);
         const d = this.destacada();
         if (d) this.elegir(d);
@@ -607,18 +624,29 @@ export class ComercialComisionesComponent {
     return `hace ${Math.round(min / 1440)} d`;
   }
 
-  etiquetaEstado(s: string | null): string {
+  /**
+   * ⛔ Antes todo lo que no tenía corrida decía **"sin corrida"**, y eso tapaba la distinción
+   * que más importa: la quincena que está corriendo todavía no puede tener número, y la que
+   * cerró hace diez días y no lo tiene es trabajo pendiente. El mismo chip gris para las dos
+   * hacía que una quincena olvidada se viera normal.
+   */
+  etiquetaEstado(p: CommissionBoardRow): string {
+    if (p.estado_calculo === 'futura') return 'no empieza';
+    if (p.estado_calculo === 'en_curso') return 'en curso';
+    if (p.estado_calculo === 'sin_calcular') return 'sin calcular';
     const M: Record<string, string> = {
       en_curso: 'en curso', borrador: 'borrador', bloqueada: 'bloqueada',
       aprobado: 'aprobada', pagado: 'pagada',
     };
-    return s ? (M[s] ?? s) : 'sin corrida';
+    return p.status ? (M[p.status] ?? p.status) : 'sin corrida';
   }
 
-  sev(s: string | null): 'success' | 'warn' | 'danger' | 'secondary' | 'info' {
-    if (s === 'pagado') return 'success';
-    if (s === 'aprobado') return 'info';
-    if (s === 'bloqueada') return 'danger';
+  sev(p: CommissionBoardRow): 'success' | 'warn' | 'danger' | 'secondary' | 'info' {
+    // Ámbar, no gris: cerró y nadie la calculó. Es lo único de este tablero que pide acción.
+    if (p.estado_calculo === 'sin_calcular') return 'warn';
+    if (p.status === 'pagado') return 'success';
+    if (p.status === 'aprobado') return 'info';
+    if (p.status === 'bloqueada') return 'danger';
     return 'secondary';
   }
 

@@ -80,7 +80,7 @@ import { CommercialPaymentsModule } from '@megadulces/commercial';
 import { CommercialHomeDeliveryModule } from '@megadulces/commercial';
 // Fase LM.5 — corte de caja del repartidor (arqueo)
 import { CommercialRiderLiquidationModule } from '@megadulces/commercial';
-import { CommercialPickingModule, WarehouseOrdersModule } from '@megadulces/commercial';
+import { CommercialPickingModule, WarehouseOrdersModule, WarehouseLocationsModule, PresaleControlModule } from '@megadulces/commercial';
 import { CommercialCargaModule } from '@megadulces/commercial';
 import { CommercialAnalyticsModule } from '@megadulces/commercial';
 import { CommercialAlertsModule } from '@megadulces/commercial';
@@ -134,7 +134,7 @@ import { LogisticsTrackingModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
-import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule } from '@megadulces/finance';
+import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceCreditorStatementsModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule } from '@megadulces/finance';
 import { FiscalListasModule } from '@megadulces/fiscal';
 import { FiscalVaultModule } from '@megadulces/fiscal';
 import { FiscalJobsModule } from '@megadulces/fiscal';
@@ -212,6 +212,10 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       CommercialRiderLiquidationModule,
       CommercialPickingModule,
       WarehouseOrdersModule,
+      // [UB.1] Ubicaciones de mercancía (Fase UB, ADR-090).
+      WarehouseLocationsModule,
+      // [MCP.1] Mesa de Control de Preventa.
+      PresaleControlModule,
       CommercialCargaModule,
       CommercialAnalyticsModule,
       CommercialReplenishmentModule,
@@ -291,6 +295,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       FinanceCaosModule,
       FinanceCancelledDocsModule,
       FinanceCortesSucursalesModule,
+      FinanceCreditorStatementsModule,
       FinanceFeedNotifyModule,
       FinanceFindingsSinkBindingModule,
       InvoiceIssuerBindingModule,
