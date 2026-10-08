@@ -157,7 +157,9 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
   // lectura) suman ~13 s — primera venta de `mv_kepler_sales_daily` ~1 s, entradas ~1 s, unidades
   // de 180 días de ~736 productos 11 s. Confirmarlo con el log `Refreshed analytics.mv_new_products
   // (Nms)` de la primera corrida; si pasa de ~20 s, subir a 60.
-  // ⚠️ Va SIN JIT (`SIN_JIT`): con JIT el REFRESH tarda 4.8 s en local y sin él 70 ms.
+  // ⚠️ `[NP.14]` La primera corrida en prod NO terminaba (plan cuadrático, ver la mig
+  // `20261008111426`): esa estimación sigue sin confirmarse con la versión corregida.
+  // ⚠️ Va sin JIT y con tope de 3 min (`AJUSTES_REFRESCO`, abajo).
   { name: 'analytics.mv_new_products', everyMin: 30 },
   // NOTA: analytics.mv_wincaja_sales_daily NO va en este array de 15 min. Se alimenta de una carga
   // Access→Postgres que aterriza ~05:00 MX una vez al día (el resto del histórico está congelado) →
@@ -166,16 +168,23 @@ const MVS: Array<{ name: string; requires_fdw?: boolean; everyMin?: number }> = 
 ];
 
 /**
- * `[NP.13]` Matvistas que se refrescan con el JIT de Postgres APAGADO.
+ * Matvistas que se refrescan con ajustes propios, sólo para su REFRESH: `SET LOCAL` dentro de una
+ * transacción, sin tocar la configuración de la base ni la de las demás matvistas.
  *
- * Postgres decide compilar una consulta (JIT) cuando su costo ESTIMADO pasa de `jit_above_cost`.
- * En consultas con funciones SQL en LATERAL y `generate_series` por fila la estimación se infla
- * (1,000 filas por llamada por omisión) y Postgres compila un plan que se ejecuta en milisegundos:
- * compilar cuesta más que ejecutar. Medido en local sobre `mv_new_products`: **4.8 s con JIT contra
- * 70 ms sin él**, el mismo resultado. El JIT se apaga con `SET LOCAL` dentro de una transacción:
- * sólo para esa sentencia, sin tocar la configuración de la base ni la de las demás matvistas.
+ *  · `jit = off` — `[NP.13]` Postgres compila una consulta (JIT) cuando su costo ESTIMADO pasa de
+ *    `jit_above_cost`. Con funciones en LATERAL y `generate_series` por fila la estimación se infla
+ *    y compila un plan que se ejecuta en milisegundos: compilar cuesta más que ejecutar. Medido en
+ *    local sobre `mv_new_products`: **4.8 s con JIT contra 70 ms sin él**, el mismo resultado.
+ *  · `statement_timeout` — `[NP.14]` **Un tope, para que una matvista no detenga a todas.** El ciclo
+ *    no arranca una pasada mientras la anterior sigue viva. El 2026-10-08 el primer poblado de
+ *    `mv_new_products` corrió más de 9 min con un plan cuadrático, y mientras tanto ninguna otra
+ *    matvista de 15 min se refrescó. Un redeploy tampoco lo cortaba: Postgres sigue con la consulta
+ *    aunque el proceso que la pidió ya no exista. Con el tope, la consulta se cancela sola, el error
+ *    queda en el log y el ciclo sigue con las demás. El refresco esperado dura segundos: 3 min es margen.
  */
-const SIN_JIT = new Set<string>(['analytics.mv_new_products']);
+const AJUSTES_REFRESCO: Readonly<Record<string, readonly string[]>> = {
+  'analytics.mv_new_products': ['SET LOCAL jit = off', "SET LOCAL statement_timeout = '180s'"],
+};
 
 @Injectable()
 export class AnalyticsRefreshService {
@@ -186,23 +195,44 @@ export class AnalyticsRefreshService {
    * a probar hasta 30 min después — sino cada cron tick (15 min) ata una
    * conexión esperando timeout al FDW caído.
    */
-  private fdwUnhealthyUntil: number = 0;
+  private fdwUnhealthyUntil = 0;
 
   constructor(
     @Inject(KNEX_NEW_DB_ADMIN) private readonly adminKnex: Knex | null,
   ) {}
 
-  /** Un REFRESH, sin JIT para las matvistas de `SIN_JIT` (ver arriba). */
+  /** Un REFRESH, con los ajustes de `AJUSTES_REFRESCO` si la matvista los tiene (ver arriba). */
   private async refrescarMv(admin: Knex, mv: string, concurrently: string): Promise<void> {
     const sql = `REFRESH MATERIALIZED VIEW ${concurrently}${mv}`;
-    if (!SIN_JIT.has(mv)) {
+    const ajustes = AJUSTES_REFRESCO[mv];
+    if (!ajustes) {
       await admin.raw(sql);
       return;
     }
     await admin.transaction(async (trx) => {
-      await trx.raw('SET LOCAL jit = off');
+      for (const ajuste of ajustes) await trx.raw(ajuste);
       await trx.raw(sql);
     });
+  }
+
+  /**
+   * `[NP.14]` ¿La matvista existe y está VACÍA (`WITH NO DATA`, nunca poblada)? Una vacía no espera
+   * su cadencia: la pantalla que la lee no tiene nada que mostrar hasta el primer poblado, y con
+   * `everyMin: 30` esa espera llegaba a media hora después de desplegar. Ante cualquier duda
+   * (no existe, no se pudo leer) responde `false` y manda la cadencia, como antes.
+   */
+  private async estaVacia(mv: string): Promise<boolean> {
+    const admin = this.adminKnex;
+    if (!admin) return false;
+    try {
+      const { rows } = await admin.raw(
+        `SELECT relispopulated FROM pg_class WHERE oid = to_regclass(?) AND relkind = 'm'`,
+        [mv],
+      );
+      return rows.length > 0 && rows[0].relispopulated === false;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -629,10 +659,11 @@ export class AnalyticsRefreshService {
         // toca en :00 de las horas pares, siempre las mismas.
         // ⚠️ El refresh MANUAL ignora esto a propósito: el botón está para forzar, y quien lo
         // aprieta espera ver su dato actualizado, no una explicación de cadencias.
+        // [NP.14] Una matvista VACÍA no espera su cadencia: se puebla en el primer tick.
         if (source !== 'manual' && entry.everyMin && entry.everyMin > 15) {
           const d = new Date();
           const minutoDelDia = d.getHours() * 60 + d.getMinutes();
-          if (minutoDelDia % entry.everyMin >= 15) {
+          if (minutoDelDia % entry.everyMin >= 15 && !(await this.estaVacia(mv))) {
             this.logger.debug(`Skip ${mv}: cadencia propia de ${entry.everyMin} min`);
             results.push({ mv, ok: true, skipped: true });
             continue;
