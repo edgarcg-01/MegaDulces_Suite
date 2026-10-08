@@ -103,13 +103,19 @@ export class InventoryAbcService {
       // FOTO (la consumen la cadencia de conteo ciclico y los importers de reorden que necesitan
       // un snapshot); la vista es la definicion. Duplicar el CASE del Pareto en los dos lados es
       // exactamente el primitivo con dos implementaciones que ADR-056 prohibe.
+      // [IC.20] La foto recibe el DESGLOSE que la vista ya calculaba y se tiraba: el lugar
+      // dentro del almacen, su denominador, el aporte individual (distinto de `value_share`,
+      // que es el ACUMULADO) y la distancia al piso de su propia clase. Mas `tiene_testigo`,
+      // que es el flag canonico de cobertura del costo.
       const inserted = await trx.raw(
         `
         INSERT INTO commercial.abc_classification
           (tenant_id, warehouse_id, product_id, abc_class, annual_value, units_window, value_share,
-           window_days, computed_at, costo_source, clase_motivo)
+           window_days, computed_at, costo_source, clase_motivo,
+           rango_almacen, skus_en_almacen, aporte_individual, distancia_al_corte, tiene_testigo)
         SELECT tenant_id, warehouse_id, product_id, abc_class, annual_value,
-               (avg_daily_units * ?)::numeric, value_share, ?::int, now(), costo_source, clase_motivo
+               (avg_daily_units * ?)::numeric, value_share, ?::int, now(), costo_source, clase_motivo,
+               rango_almacen, skus_en_almacen, aporte_individual, distancia_al_corte, tiene_testigo
           FROM analytics.v_abc_class`,
         [windowDays, windowDays],
       );
@@ -137,7 +143,12 @@ export class InventoryAbcService {
       // costos ausentes manda a C por ausencia, no por bajo valor (ADR-056).
       const [cov] = await trx('commercial.abc_classification').select(
         trx.raw(`COUNT(*)::int AS total`),
-        trx.raw(`COUNT(*) FILTER (WHERE costo_source IN ('kepler_kdik','wincaja_costo_promedio'))::int AS con_testigo`),
+        // [IC.20] Antes esto era una lista de NOMBRES a mano. Medido el 2026-10-07 sobre las
+        // 30,059 filas, esa lista y la columna `tiene_testigo` coinciden exacto: 0 discrepancias,
+        // o sea que NO habia un error vivo. Se cambia por la fragilidad, no por el bug: un
+        // `costo_source` nuevo CON testigo quedaria fuera de la lista y la cobertura se
+        // subdeclararia en silencio. El flag lo decide el resolvedor del costo, no este archivo.
+        trx.raw(`COUNT(*) FILTER (WHERE tiene_testigo)::int AS con_testigo`),
         trx.raw(`COUNT(*) FILTER (WHERE costo_source = 'sin_costo')::int AS sin_costo`),
         trx.raw(`COUNT(*) FILTER (WHERE clase_motivo = 'sin_demanda')::int AS sin_demanda`),
       );
