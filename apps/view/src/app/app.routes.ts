@@ -1359,6 +1359,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
       },
       {
+        // [GP.3d] Entrega del surtido a Facturación: qué corregir en Kepler y si ya se pasó a
+        // SURTIDO (lo detecta solo). Sólo lectura: misma clave que el Tablero.
+        path: 'pedidos-por-capturar',
+        loadComponent: () => import('./modules/almacen/pages/almacen-por-capturar.component').then(m => m.AlmacenPorCapturarComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_PEDIDOS_VER)]
+      },
+      {
         // [GP.3c.2] Consola de surtido: el coordinador ordena la fila de "Tomar siguiente"
         // (urgentes, hora de salida por destino, tanda). Permiso propio: el surtidor no se prioriza.
         path: 'surtido-consola',

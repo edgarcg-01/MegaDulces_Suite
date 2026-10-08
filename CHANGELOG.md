@@ -11,6 +11,8 @@
 ## [Unreleased]
 ### Added — Mesa de Control de Preventa: la pantalla (MCP.2, 2026-10-08)
 - Almacén › Pedidos › **Preventa** (`/almacen/pedidos/preventa`): los pedidos de preventa del vendedor por etapa y contra la fecha de entrega, con su documento de Kepler; desde el panel se elige el documento correcto ("Es este") o se corrige una liga con motivo, y se ve lo pedido contra lo cobrado renglón por renglón.
+### Added — Surtido: la entrega a Facturación (GP.3d, 2026-10-08)
+- `/almacen/pedidos-por-capturar` (pestaña **Por capturar en Kepler**): por cada pedido surtido en la Suite, qué corregir en Kepler (renglón por renglón, en la unidad de Kepler) y pasarlo a SURTIDO. Detecta sola cuando Kepler ya lo refleja y avisa si las cantidades no cuadran. Sólo lectura, con la clave del Tablero.
 
 ### Added — Mesa de Control de Preventa: datos y liga con el documento de Kepler (MCP.1 + MCP.4, 2026-10-08)
 - `GET /warehouse/presale`: los pedidos de preventa que levanta el vendedor, por sucursal, con su etapa (esperando alta / por surtir / en surtido / en caja / cobrado / entregado / cancelado), el semáforo contra la fecha de entrega prometida y cuántos documentos de Kepler podrían ser su cobro.
