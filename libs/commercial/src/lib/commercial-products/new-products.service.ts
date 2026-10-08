@@ -1,43 +1,87 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import {
+  CRITERIO_RECOMPRA,
   Cohorte,
+  Existencia,
+  Movimiento,
   NewProductKind,
   NewProductRow,
   NewProductSource,
+  PlazaRow,
   Resumen,
-  aFila,
+  armarProducto,
   construirCohortes,
   construirResumen,
   esKindValido,
   ocultarCosto,
+  ocultarCostoPlazas,
 } from './new-products';
+
+/** Cuándo es cada pedazo del dato: la historia cierra de noche, lo de hoy es en vivo. */
+export interface Frescura {
+  /** Cuándo se calculó la historia (el último refresco nocturno). */
+  historia_al: string | null;
+  /** Primer día que viene en vivo (lo anterior es historia). */
+  corte: string | null;
+  /** Cuándo se leyó lo de hoy: el momento de esta consulta. */
+  en_vivo_al: string;
+  hoy: string;
+}
 
 export interface NewProductsResponse {
   /** `false` = la matvista existe pero el lote nocturno todavía no la ha poblado. */
   calculado: boolean;
-  /** Cuándo se calcularon las cifras (el último refresco nocturno). */
-  calculado_at: string | null;
-  /** Desde cuándo hay historia de venta y entradas: lo que permite afirmar que algo es nuevo. */
-  historia_desde: string | null;
+  frescura: Frescura | null;
   /** `false` = el usuario no tiene permiso de costo: la inversión viene en NULL a propósito. */
   costo_visible: boolean;
+  criterio: typeof CRITERIO_RECOMPRA;
   resumen: Resumen | null;
   cohortes: Cohorte[];
   filas: NewProductRow[];
 }
 
+export interface NewProductDetail {
+  frescura: Frescura;
+  costo_visible: boolean;
+  producto: NewProductRow;
+  plazas: PlazaRow[];
+}
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HOY = "(now() AT TIME ZONE 'America/Mexico_City')::date";
 
+/** Las columnas de la matvista que la lógica necesita, con la clasificación de Compras unida. */
+const COLUMNAS = `
+  m.product_id, m.sku, m.nombre, m.marca, m.proveedor,
+  to_char(m.alta_suite, 'YYYY-MM-DD')        AS alta_suite,
+  m.alta_en_lote,
+  to_char(m.primera_recepcion, 'YYYY-MM-DD') AS primera_recepcion,
+  to_char(m.primera_venta, 'YYYY-MM-DD')     AS primera_venta,
+  to_char(m.lanzamiento, 'YYYY-MM-DD')       AS lanzamiento,
+  to_char(m.historia_desde, 'YYYY-MM-DD')    AS historia_desde,
+  m.fuentes, m.sin_movimiento, m.no_medible, m.exclusion_auto, m.posible_recodificacion,
+  to_char(m.corte, 'YYYY-MM-DD')             AS corte,
+  m.venta_dia, m.venta_por_plaza, m.entradas,
+  r.kind                                     AS clasificacion,
+  r.note                                     AS nota,
+  r.updated_by_username                      AS clasificado_por,
+  m.calculado_at`;
+
 /**
- * `[NP.2]` **Productos nuevos** — la etiqueta "Nuevo" y su seguimiento a 30, 60 y 90 días.
+ * `[NP.2]` **Productos nuevos** — la etiqueta "Nuevo", su seguimiento a 30/60/90 días y la
+ * recomendación de recompra, global y por sucursal.
  *
- * Lee `analytics.mv_new_products` (la refresca el lote nocturno) y le une la clasificación de
- * Compras al momento. La matvista no tiene RLS (Postgres no la soporta en matvistas), así que el
- * tenant se filtra EXPLÍCITO con `public.current_tenant_id()`, que `tk.run` deja puesto.
+ * Tres lecturas, siempre para TODOS los productos a la vez (nunca una por producto):
+ *   1. `analytics.mv_new_products` — la historia cerrada (refresco nocturno).
+ *   2. `analytics.fn_new_products_movimientos(corte, hoy)` — la venta y las entradas de hoy, del
+ *      ODS en vivo, con las mismas reglas que la historia.
+ *   3. `analytics.v_erp_stock_on_hand` — la existencia de este momento.
+ * La matvista no tiene RLS (Postgres no la soporta en matvistas): el tenant se filtra EXPLÍCITO con
+ * `public.current_tenant_id()`, que `tk.run` deja puesto.
  *
- * Las decisiones (etapa, estado, hitos, cohortes) viven en `new-products.ts`, puras y probadas.
+ * Las decisiones viven en `new-products.ts`, puras y probadas. Aquí sólo se lee y se arma.
  */
 @Injectable()
 export class NewProductsService {
@@ -46,61 +90,107 @@ export class NewProductsService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
-  async list(opts: { puedeVerCosto: boolean }): Promise<NewProductsResponse> {
-    return this.tk.run(async (trx) => {
-      // Una matvista sin poblar REVIENTA al leerla ("has not been populated"). Se pregunta antes
-      // y se declara, en vez de devolver un error que se lea como "la pantalla está rota".
-      const estado = await trx.raw(`
-        SELECT c.relispopulated AS poblada
-          FROM pg_class c
-         WHERE c.oid = to_regclass('analytics.mv_new_products')`);
-      if (estado.rows[0]?.poblada !== true) {
-        return {
-          calculado: false, calculado_at: null, historia_desde: null,
-          costo_visible: opts.puedeVerCosto, resumen: null, cohortes: [], filas: [],
-        };
-      }
+  /** Una matvista sin poblar REVIENTA al leerla: se pregunta antes y se declara. */
+  private async poblada(trx: Knex.Transaction): Promise<boolean> {
+    const r = await trx.raw(`SELECT c.relispopulated AS p FROM pg_class c
+                              WHERE c.oid = to_regclass('analytics.mv_new_products')`);
+    return r.rows[0]?.p === true;
+  }
 
-      const { rows } = await trx.raw(`
-        SELECT m.product_id, m.sku, m.nombre, m.marca, m.proveedor,
-               to_char(m.alta_suite, 'YYYY-MM-DD')        AS alta_suite,
-               m.alta_en_lote,
-               to_char(m.primera_recepcion, 'YYYY-MM-DD') AS primera_recepcion,
-               to_char(m.primera_venta, 'YYYY-MM-DD')     AS primera_venta,
-               to_char(m.lanzamiento, 'YYYY-MM-DD')       AS lanzamiento,
-               (${HOY} - m.lanzamiento)::int              AS dia,
-               m.fuentes, m.sin_movimiento, m.no_medible, m.exclusion_auto, m.posible_recodificacion,
-               m.inversion_30, m.inversion_60, m.inversion_90, m.inversion_total,
-               m.entradas, m.plazas_recibido,
-               to_char(m.primera_recompra, 'YYYY-MM-DD')  AS primera_recompra,
-               m.venta_30, m.venta_60, m.venta_90, m.venta_total,
-               m.dias_con_venta_30, m.plazas_venta,
-               to_char(m.ultima_venta, 'YYYY-MM-DD')      AS ultima_venta,
-               m.plazas_con_existencia,
-               r.kind                                     AS clasificacion,
-               r.note                                     AS nota,
-               r.updated_by_username                      AS clasificado_por,
-               to_char(m.historia_desde, 'YYYY-MM-DD')    AS historia_desde,
-               m.calculado_at
+  private async hoy(trx: Knex.Transaction): Promise<string> {
+    return (await trx.raw(`SELECT to_char(${HOY}, 'YYYY-MM-DD') AS hoy`)).rows[0].hoy as string;
+  }
+
+  /** Lo de hoy (ODS en vivo) y la existencia actual de estos productos. */
+  private async enVivo(trx: Knex.Transaction, ids: string[], corte: string, hoy: string) {
+    if (!ids.length) return { vivo: [] as Movimiento[], existencia: [] as Existencia[] };
+    const vivo = (await trx.raw(`
+      SELECT product_id, tipo, plaza, to_char(fecha, 'YYYY-MM-DD') AS fecha, folio, importe
+        FROM analytics.fn_new_products_movimientos(?::date, ?::date)
+       WHERE tenant_id = public.current_tenant_id() AND product_id = ANY(?::uuid[])`,
+    [corte, hoy, ids])).rows as Movimiento[];
+    const existencia = (await trx.raw(`
+      SELECT s.product_id, s.warehouse_code AS plaza, s.qty_stock_units AS cantidad,
+             s.display_box_factor AS factor
+        FROM analytics.v_erp_stock_on_hand s
+       WHERE s.tenant_id = public.current_tenant_id() AND s.product_id = ANY(?::uuid[])`,
+    [ids])).rows as Existencia[];
+    return { vivo, existencia };
+  }
+
+  async list(opts: { puedeVerCosto: boolean }): Promise<NewProductsResponse> {
+    const vacio = (frescura: Frescura | null): NewProductsResponse => ({
+      calculado: false, frescura, costo_visible: opts.puedeVerCosto, criterio: CRITERIO_RECOMPRA,
+      resumen: null, cohortes: [], filas: [],
+    });
+    return this.tk.run(async (trx) => {
+      if (!(await this.poblada(trx))) return vacio(null);
+      const hoy = await this.hoy(trx);
+      const rows = (await trx.raw(`
+        SELECT ${COLUMNAS}
           FROM analytics.mv_new_products m
           LEFT JOIN catalog.new_product_reviews r
             ON r.tenant_id = m.tenant_id AND r.product_id = m.product_id AND r.deleted_at IS NULL
-         WHERE m.tenant_id = public.current_tenant_id()
-         ORDER BY m.lanzamiento DESC NULLS LAST, m.nombre`);
+         WHERE m.tenant_id = public.current_tenant_id()`)).rows as Array<NewProductSource & { calculado_at: Date | string }>;
+      if (!rows.length) {
+        return { ...vacio({ historia_al: null, corte: null, en_vivo_al: new Date().toISOString(), hoy }), calculado: true };
+      }
+      const corte = rows[0].corte;
+      const { vivo, existencia } = await this.enVivo(trx, rows.map((r) => r.product_id), corte, hoy);
+      const vivoPor = agrupar(vivo);
+      const exPor = agrupar(existencia);
 
-      let filas = (rows as NewProductSource[]).map(aFila);
+      let filas = rows.map((r) => armarProducto(r, hoy, vivoPor.get(r.product_id) ?? [],
+        exPor.get(r.product_id) ?? [], { conCosto: opts.puedeVerCosto }).fila);
       // Se oculta ANTES de agregar: así la cohorte tampoco deja ver la inversión sumada.
       if (!opts.puedeVerCosto) filas = ocultarCosto(filas);
+      filas.sort(ordenFilas);
 
-      const primera = rows[0] as { calculado_at?: Date | string; historia_desde?: string } | undefined;
       return {
         calculado: true,
-        calculado_at: primera?.calculado_at ? new Date(primera.calculado_at).toISOString() : null,
-        historia_desde: primera?.historia_desde ?? null,
+        frescura: {
+          historia_al: rows[0].calculado_at ? new Date(rows[0].calculado_at).toISOString() : null,
+          corte, en_vivo_al: new Date().toISOString(), hoy,
+        },
         costo_visible: opts.puedeVerCosto,
+        criterio: CRITERIO_RECOMPRA,
         resumen: construirResumen(filas),
         cohortes: construirCohortes(filas),
         filas,
+      };
+    });
+  }
+
+  /** El comportamiento de UN producto en cada sucursal. */
+  async detail(productId: string, opts: { puedeVerCosto: boolean }): Promise<NewProductDetail> {
+    if (!UUID_RE.test(productId || '')) throw new BadRequestException('Producto inválido');
+    return this.tk.run(async (trx) => {
+      if (!(await this.poblada(trx))) throw new NotFoundException('Las cifras todavía no se calculan');
+      const hoy = await this.hoy(trx);
+      const row = (await trx.raw(`
+        SELECT ${COLUMNAS}
+          FROM analytics.mv_new_products m
+          LEFT JOIN catalog.new_product_reviews r
+            ON r.tenant_id = m.tenant_id AND r.product_id = m.product_id AND r.deleted_at IS NULL
+         WHERE m.tenant_id = public.current_tenant_id() AND m.product_id = ?`,
+      [productId])).rows[0] as (NewProductSource & { calculado_at: Date | string }) | undefined;
+      if (!row) throw new NotFoundException('El producto no está en seguimiento de productos nuevos');
+
+      const { vivo, existencia } = await this.enVivo(trx, [productId], row.corte, hoy);
+      const nombres = new Map<string, string>((await trx.raw(`
+        SELECT code, name FROM commercial.warehouses
+         WHERE tenant_id = public.current_tenant_id() AND deleted_at IS NULL`)).rows
+        .map((w: { code: string; name: string }) => [w.code, w.name]));
+
+      const armado = armarProducto(row, hoy, vivo, existencia, { conCosto: opts.puedeVerCosto, nombres });
+      return {
+        frescura: {
+          historia_al: row.calculado_at ? new Date(row.calculado_at).toISOString() : null,
+          corte: row.corte, en_vivo_al: new Date().toISOString(), hoy,
+        },
+        costo_visible: opts.puedeVerCosto,
+        producto: opts.puedeVerCosto ? armado.fila : ocultarCosto([armado.fila])[0],
+        plazas: (opts.puedeVerCosto ? armado.plazas : ocultarCostoPlazas(armado.plazas)).sort(ordenPlazas),
       };
     });
   }
@@ -131,7 +221,7 @@ export class NewProductsService {
           UPDATE catalog.new_product_reviews
              SET deleted_at = now(), deleted_by = ?, updated_at = now(), updated_by = ?, updated_by_username = ?
            WHERE tenant_id = public.current_tenant_id() AND product_id = ? AND deleted_at IS NULL`,
-          [userId, userId, username, productId]);
+        [userId, userId, username, productId]);
         return { product_id: productId, clasificacion: null, nota: null };
       }
 
@@ -142,8 +232,33 @@ export class NewProductsService {
         ON CONFLICT (tenant_id, product_id) WHERE deleted_at IS NULL DO UPDATE
            SET kind = EXCLUDED.kind, note = EXCLUDED.note, updated_at = now(),
                updated_by = EXCLUDED.updated_by, updated_by_username = EXCLUDED.updated_by_username`,
-        [productId, kind, note, userId, username, userId, username]);
+      [productId, kind, note, userId, username, userId, username]);
       return { product_id: productId, clasificacion: kind as NewProductKind, nota: note };
     });
   }
+}
+
+function agrupar<T extends { product_id: string }>(lista: T[]): Map<string, T[]> {
+  const m = new Map<string, T[]>();
+  for (const x of lista) {
+    const l = m.get(x.product_id);
+    if (l) l.push(x);
+    else m.set(x.product_id, [x]);
+  }
+  return m;
+}
+
+/** Lo que pide acción primero: recomprar, revisar, no recomprar, esperar, pronto; dentro, lo más reciente. */
+const ORDEN_VEREDICTO = { recomprar: 0, revisar: 1, no_recomprar: 2, esperar: 3, pronto: 4 } as const;
+function ordenFilas(a: NewProductRow, b: NewProductRow): number {
+  const va = a.recomendacion ? ORDEN_VEREDICTO[a.recomendacion.veredicto] : 9;
+  const vb = b.recomendacion ? ORDEN_VEREDICTO[b.recomendacion.veredicto] : 9;
+  if (va !== vb) return va - vb;
+  return (b.lanzamiento ?? '').localeCompare(a.lanzamiento ?? '');
+}
+function ordenPlazas(a: PlazaRow, b: PlazaRow): number {
+  const va = ORDEN_VEREDICTO[a.recomendacion.veredicto];
+  const vb = ORDEN_VEREDICTO[b.recomendacion.veredicto];
+  if (va !== vb) return va - vb;
+  return b.venta_total - a.venta_total;
 }

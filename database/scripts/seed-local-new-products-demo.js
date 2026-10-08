@@ -38,7 +38,12 @@ const UNDO = process.argv.includes('--undo');
 
     await knex.transaction(async (trx) => {
       await esc.limpiar(trx);
+      // Sin esto, al volver a correr el demo la venta materializada todavía trae la historia de
+      // fondo de la corrida anterior y la consulta de abajo no encuentra a quién dársela.
+      await trx.raw('REFRESH MATERIALIZED VIEW analytics.mv_kepler_sales_daily');
       const { hoy, productos } = await esc.sembrar(trx);
+      // Lo de HOY: no entra a la historia, lo trae la parte en vivo de la pantalla.
+      await esc.sembrarVivo(trx, hoy);
 
       // Historia de fondo para los productos reales de la base local (ver cabecera).
       const sinHistoria = (await trx.raw(`

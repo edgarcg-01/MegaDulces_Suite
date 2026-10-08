@@ -180,6 +180,22 @@ export class CommercialProductsController {
     return this.newProducts.list({ puedeVerCosto });
   }
 
+  @Get('new-products/:id')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[NP.9]` Un producto nuevo, sucursal por sucursal: venta, existencia de hoy, entradas, '
+      + 'recompra y la recomendación de cada plaza. Historia + hoy en vivo.',
+  })
+  newProductsDetail(
+    @Param('id') id: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ) {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.newProducts.detail(id, { puedeVerCosto });
+  }
+
   @Put('new-products/:id/classification')
   @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_GESTIONAR)
   @ApiOperation({

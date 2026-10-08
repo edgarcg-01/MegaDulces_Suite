@@ -2,7 +2,8 @@
 
 > Estado: 🧪 **EN CÓDIGO Y PROBADO EN LOCAL** · 2026-10-07 · sin push, sin PR, nada aplicado a prod.
 > Pantalla: `/compras/catalogo/nuevos` (pestaña **Productos nuevos** del Catálogo de Compras) +
-> etiqueta "Nuevo · día N" en `/compras/catalogo`.
+> etiqueta "Nuevo · día N" en `/compras/catalogo`. Segunda entrega el mismo día: **recomendación de
+> recompra**, **en vivo** y **detalle por sucursal** (ver al final).
 
 ## Por qué
 
@@ -42,6 +43,9 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.5]` | Pestaña `compras-catalogo-nuevos.component.ts` + `productos-nuevos.service.ts` + etiqueta en la lista de Productos. | 🧪 |
 | `[NP.6]` | Umbrales y veredicto (en `analytics.kpi_thresholds`, nacen vacíos → "sin meta") + hitos 30/60/90 **congelados** en tabla propia. | ⬜ |
 | `[NP.7]` | Alta solicitada en la app (pestaña Solicitudes) con inversión y meta planeadas → plan contra real. | ⬜ decisión de proceso |
+| `[NP.8]` | **En vivo**: mig `20261007200200` — índice `ix_kdm1_compra_fecha` + función `analytics.fn_new_products_movimientos(desde, hasta)` (venta y entradas de hoy desde el ODS). La matvista pasa a guardar SERIES hasta el corte. | 🧪 aplicada en local |
+| `[NP.9]` | **Recomendación de recompra** global y por sucursal (`recomendar` + `CRITERIO_RECOMPRA`) + `GET new-products/:id` (comportamiento por sucursal). | 🧪 |
+| `[NP.10]` | **Rediseño**: respuesta arriba, filtros por recomendación, venta por semana en cada fila, panel lateral por sucursal, refresco solo cada minuto. | 🧪 |
 
 ## Medido (base local, 2026-10-07)
 
@@ -58,7 +62,71 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 
 ## Para llevarlo a prod
 
-1. Aplicar las 2 migraciones **una por una** (`apply-one-migration-prod.js`), fuera de horario.
+1. Aplicar las 3 migraciones **una por una** (`apply-one-migration-prod.js`), fuera de horario. La
+   `20261007200200` crea `ix_kdm1_compra_fecha` CONCURRENTLY sobre `kdm1` (493 MB): no bloquea, pero tarda.
 2. Redeploy api + view. La pestaña dirá "todavía no se calculan" hasta el primer lote nocturno (06:20).
 3. Re-login no hace falta: no hay permisos nuevos.
 4. Antes de publicar cifras: `[NP.0]`.
+
+---
+
+## Segunda entrega (2026-10-07): recomendación, en vivo y por sucursal
+
+Pedido: *"que nos diga, en base a las ventas, si es beneficio comprarlo de nuevo; todo con datos en
+vivo; el diseño más amigable; en la vista previa su comportamiento global y al darle clic, en cada
+sucursal"*.
+
+### Qué significa "en vivo" aquí, medido
+
+| Dato | De dónde | Qué tan fresco |
+|---|---|---|
+| Venta de hoy en tienda | ODS (`kdm1/kdm2`, carril de ~15 s) por `fn_new_products_movimientos` | en vivo |
+| Entradas de hoy | ODS, misma función (índice nuevo `ix_kdm1_compra_fecha`) | en vivo |
+| Existencia | `v_erp_stock_on_hand` | en vivo |
+| Historia (días anteriores) | `mv_new_products` (series hasta `corte - 1`) | cierre de anoche |
+| Venta de ruta y de plazas en Wincaja | sólo en la historia | se suma al cierre (declarado en pantalla) |
+
+⛔ **Por qué la historia NO es en vivo:** `mv_kepler_sales_daily` no tiene índice por producto (sólo
+por fecha y por marca), así que recorrer la historia de cada producto en cada consulta no cabe en el
+gate de 1 s. La matvista guarda la historia hasta el corte y la función trae desde el corte: **nada se
+cuenta dos veces** (`fecha < corte` contra `fecha >= corte`).
+
+⭐ **La función usa las MISMAS reglas, sin copiarlas a mano**: la venta replica
+`mv_kepler_sales_daily` y lee el corte Kepler/Wincaja de cada plaza del resolvedor único
+`analytics.v_branch_erp_cutover` (el que costó $1.63M de Abastos invisibles cuando era lista copiada).
+El candado la compara contra `v_sellout_daily` en días cerrados: **coincide renglón por renglón**
+(154 días-plaza) y contra las entradas de `erp_goods_receipt_lines` (10). Rota a propósito (sin el
+ticket `U-D-10`), fallan exactamente esas dos comparaciones.
+
+### La recomendación
+
+Determinista y con motivos (ADR-016: el motor decide, nada de LLM). Criterio en
+`CRITERIO_RECOMPRA`, visible en la pantalla ("Cómo se decide"), **propuesta para calibrar con Compras**:
+
+| Veredicto | Cuándo |
+|---|---|
+| Aún es pronto | antes del día 21 |
+| No recomprar | nunca se vendió, o lleva 21+ días sin venderse |
+| Revisar | la venta de 4 semanas cayó a < 60% de las 4 anteriores, o se vendió < 8 de 28 días |
+| Recomprar | venta sostenida **y** (agotado en una sucursal que lo vende, o sin existencia, o vendió ≥ $0.80 por $1 invertido) |
+| Esperar | venta sostenida, pero todavía hay existencia y no ha recuperado |
+
+Se aplica igual por sucursal, contando los días desde la primera actividad EN esa sucursal.
+Mide rotación y recuperación de lo invertido (a precio de venta), **no margen** (ADR-051).
+
+### Hallazgos de esta entrega
+
+- **La gráfica mentía con la semana en curso**: traía sólo los días transcurridos y la línea "se
+  desplomaba" al final. Ahora sólo se grafican semanas completas; lo de hoy va en texto.
+- **Leer el valor de un recurso de Angular en error LANZA**: con el API caído la pantalla habría
+  reventado en vez de decir "sin conexión". Lo detectó la prueba del componente.
+- **La base local no tiene `v_branch_erp_cutover`** (va atrasada; su migración se niega a correr
+  porque las sucursales locales no traen datos de corte). Para probar se creó un equivalente **sólo
+  local** con las mismas 8 fechas de prod; no va al repo.
+
+### Medido (local)
+
+Listado completo **0.56 s** · detalle por sucursal **0.09 s** · función en vivo **29 ms** · refresco
+de la matvista 1.4 s. Candado de base **94/94** (+ 2 pruebas negativas), lógica 27/27, componente
+17/17, Compras 313/313, comercial 519/519. ⚠️ En prod hay que volver a medir: la función recorre los
+documentos de hoy de todas las sucursales.

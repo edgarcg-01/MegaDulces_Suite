@@ -1,9 +1,9 @@
 /**
- * `[NP.2]` Productos nuevos — la lógica pura de la pantalla: etapa, estado, hitos 30/60/90,
- * cohortes por mes de lanzamiento y el ocultamiento del costo.
+ * `[NP.2]` Productos nuevos — la lógica pura: junta la historia (matvista) con lo de hoy (ODS en
+ * vivo) y la existencia, y de ahí saca etapa, hitos 30/60/90, tendencia, plazas agotadas y la
+ * RECOMENDACIÓN de recompra, global y por sucursal.
  *
- * Vive aparte del servicio para poder probarse sin base. La consulta sólo trae filas de
- * `analytics.mv_new_products`; todo lo que se DECIDE sobre ellas está aquí.
+ * Vive aparte del servicio para poder probarse sin base. Toda regla tiene UNA implementación, aquí.
  *
  * Reglas que no se negocian (ADR-056):
  *   · Lo que no se pudo medir va NULL, nunca 0. Una inversión NULL es "no medida" (el producto
@@ -11,6 +11,9 @@
  *   · Un hito que todavía no llega no es un hito cerrado: se publica marcado como EN CURSO.
  *   · "Venta por cada peso invertido" sólo se calcula sobre productos con inversión medida, y en
  *     la cohorte sobre el MISMO universo en el numerador y en el denominador.
+ *   · La recomendación es del SISTEMA y se dice con sus motivos; la decide Compras. Mide
+ *     ROTACIÓN y RECUPERACIÓN de lo invertido, no margen: el costo de lo vendido todavía no se
+ *     puede medir bien para un producto nuevo (ADR-051).
  */
 
 export const NEW_PRODUCT_KINDS = ['nuevo', 'recodificacion', 'promocion', 'no_mercancia'] as const;
@@ -22,20 +25,46 @@ const KINDS_FUERA: ReadonlySet<NewProductKind> = new Set(['recodificacion', 'pro
 export const HITOS = [30, 60, 90] as const;
 export type Hito = (typeof HITOS)[number];
 
+/**
+ * El criterio de la recomendación. Es una PROPUESTA para calibrar con Compras, no una verdad: por
+ * eso vive en un solo lugar, con nombre, y la pantalla lo muestra en "Cómo se decide".
+ */
+export const CRITERIO_RECOMPRA = {
+  /** Antes de este día no se recomienda nada: hay muy poca venta para juzgar. */
+  diasMinimos: 21,
+  /** La ventana de "venta reciente". */
+  ventana: 28,
+  /** Días con venta, dentro de la ventana, para decir que se vende de forma sostenida (2 por semana). */
+  diasConVentaSano: 8,
+  /** Si la venta de la ventana cae por debajo de esta fracción de la ventana anterior, se revisa. */
+  caidaMaxima: 0.6,
+  /** Pesos vendidos por cada peso invertido (a precio de venta) para decir que ya se recuperó. */
+  recuperadoAlto: 0.8,
+  /** Días seguidos sin venta para decir que dejó de venderse. */
+  sinVentaDias: 21,
+} as const;
+
 /** En qué tramo de su seguimiento va. `sin_movimiento` = dado de alta, sin entrada ni venta. */
 export type Etapa = 'sin_movimiento' | 'mes_1' | 'mes_2' | 'mes_3' | 'graduado';
 
 /**
  * Si cuenta para los KPIs, y si no, por qué. Es lo que separa "nuevo" de "código nuevo".
- *   seguimiento    — lanzamiento real (o por confirmar): entra a los KPIs.
- *   sin_movimiento — dado de alta y todavía sin entrada ni venta: se lista, no tiene cifras.
- *   no_medible     — no hay 90 días de historia antes de su primera actividad: no se puede
- *                    afirmar que sea nuevo.
+ *   seguimiento    — lanzamiento real (o por confirmar): entra a los KPIs y tiene recomendación.
+ *   sin_movimiento — dado de alta y todavía sin entrada ni venta.
+ *   no_medible     — no hay 90 días de historia antes de su primera actividad.
  *   excluido       — promoción, descuento, descontinuado, o Compras dijo que no es lanzamiento.
  */
 export type Estado = 'seguimiento' | 'sin_movimiento' | 'no_medible' | 'excluido';
 
-/** Una fila tal como sale de la matvista + el día y la clasificación de Compras. */
+export type Veredicto = 'recomprar' | 'esperar' | 'revisar' | 'no_recomprar' | 'pronto';
+
+export interface Recomendacion {
+  veredicto: Veredicto;
+  /** Por qué, en palabras. El primero es el principal. */
+  motivos: string[];
+}
+
+/** Una fila tal como sale de la matvista, con la clasificación de Compras unida. */
 export interface NewProductSource {
   product_id: string;
   sku: string;
@@ -47,31 +76,40 @@ export interface NewProductSource {
   primera_recepcion: string | null;
   primera_venta: string | null;
   lanzamiento: string | null;
-  dia: number | null;
-  /** En qué fuentes se vio: kepler (tienda), ruta, wincaja, entradas. */
+  historia_desde: string | null;
   fuentes: string[];
   sin_movimiento: boolean;
   no_medible: boolean;
   exclusion_auto: string | null;
   posible_recodificacion: boolean;
-  inversion_30: number | null;
-  inversion_60: number | null;
-  inversion_90: number | null;
-  inversion_total: number | null;
-  entradas: number;
-  plazas_recibido: number;
-  primera_recompra: string | null;
-  venta_30: number | null;
-  venta_60: number | null;
-  venta_90: number | null;
-  venta_total: number | null;
-  dias_con_venta_30: number;
-  plazas_venta: number;
-  ultima_venta: string | null;
-  plazas_con_existencia: number;
+  /** Primer día que NO está en la historia (lo de este día en adelante viene en vivo). */
+  corte: string;
+  /** Venta en pesos de cada día, del lanzamiento a `corte - 1`. */
+  venta_dia: Array<number | string>;
+  venta_por_plaza: Record<string, Array<number | string>>;
+  entradas: Array<{ f: string; p: string; folio?: string; i: number | string }>;
   clasificacion: NewProductKind | null;
   nota: string | null;
   clasificado_por: string | null;
+}
+
+/** Lo que pasó desde el corte (ODS en vivo). */
+export interface Movimiento {
+  product_id: string;
+  tipo: 'venta' | 'entrada';
+  plaza: string;
+  fecha: string;
+  folio?: string | null;
+  importe: number | string;
+}
+
+/** Existencia de hoy, por plaza, en la unidad de inventario de esa plaza. */
+export interface Existencia {
+  product_id: string;
+  plaza: string;
+  cantidad: number | string;
+  /** Divisor de presentación de esa plaza (ADR-055): con > 1 se puede decir "cajas". */
+  factor: number | string | null;
 }
 
 export interface HitoValores {
@@ -79,6 +117,22 @@ export interface HitoValores {
   cerrado: boolean;
   inversion: number | null;
   venta: number | null;
+}
+
+/** Las señales que alimentan la recomendación (global o de una plaza). */
+export interface Senales {
+  dia: number | null;
+  venta_total: number;
+  inversion_total: number | null;
+  dias_con_venta_28: number;
+  venta_28: number;
+  /** Venta de las 4 semanas anteriores; NULL si el producto todavía no las vivió. */
+  venta_28_previa: number | null;
+  /** Días desde la última venta; NULL si nunca se vendió. */
+  dias_sin_venta: number | null;
+  /** Plazas que lo vendieron en la ventana y hoy no tienen existencia. */
+  agotado_en: number;
+  plazas_con_existencia: number;
 }
 
 export interface NewProductRow {
@@ -114,10 +168,44 @@ export interface NewProductRow {
   dia_recompra: number | null;
   plazas_venta: number;
   plazas_con_existencia: number;
+  /** Plazas que lo vendieron en las últimas 4 semanas y hoy no tienen existencia. */
+  agotado_en: number;
   dias_con_venta_30: number;
+  dias_con_venta_28: number;
+  venta_28: number;
+  /** Venta 4 semanas contra las 4 anteriores (1 = igual). NULL si no hay 8 semanas. */
+  tendencia: number | null;
   ultima_venta: string | null;
   /** Ya cumplió 30 días y no vendió nada en ellos. */
   sin_venta_30: boolean;
+  /** Venta por semana desde el lanzamiento; la última puede ir incompleta. */
+  semanas: number[];
+  /** Venta de HOY (en vivo). */
+  venta_hoy: number;
+  recomendacion: Recomendacion | null;
+}
+
+export interface PlazaRow {
+  plaza: string;
+  nombre: string | null;
+  /** Día desde la primera actividad EN ESTA plaza. */
+  dia: number | null;
+  primera_actividad: string | null;
+  venta_total: number;
+  venta_28: number;
+  dias_con_venta_28: number;
+  inversion_total: number | null;
+  entradas: number;
+  primera_recompra: string | null;
+  /** Existencia de hoy en la unidad de inventario de la plaza; NULL = no hay renglón de existencia. */
+  existencia: number | null;
+  /** Existencia en cajas, sólo si la plaza declara un divisor de presentación > 1. */
+  existencia_cajas: number | null;
+  ultima_venta: string | null;
+  /** Venta por semana de las últimas 8 semanas (la última puede ir incompleta). */
+  semanas: number[];
+  venta_hoy: number;
+  recomendacion: Recomendacion;
 }
 
 export interface Cohorte {
@@ -143,8 +231,10 @@ export interface Resumen {
   no_medible: number;
   excluido: number;
   por_etapa: Record<Exclude<Etapa, 'sin_movimiento'>, number>;
+  por_veredicto: Record<Veredicto, number>;
   inversion: number | null;
   venta: number;
+  venta_hoy: number;
   venta_por_peso: number | null;
   recomprados: number;
   con_30_dias: number;
@@ -158,6 +248,28 @@ const ETIQUETA_EXCLUSION: Record<string, string> = {
   recodificacion: 'Recodificación (Compras)',
   no_mercancia: 'No es mercancía (Compras)',
 };
+
+// ─────────────────────────────── utilidades ───────────────────────────────
+
+const num = (v: unknown): number | null => {
+  if (v === null || v === undefined || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+const r2 = (v: number | null): number | null => (v === null ? null : Math.round(v * 100) / 100);
+const pesos = (v: number) => `$${Math.round(v).toLocaleString('es-MX')}`;
+
+const DIA_MS = 86_400_000;
+const aMs = (f: string) => Date.parse(`${f.slice(0, 10)}T00:00:00Z`);
+export function diasEntre(desde: string | null, hasta: string | null): number | null {
+  if (!desde || !hasta) return null;
+  const a = aMs(desde);
+  const b = aMs(hasta);
+  return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / DIA_MS) : null;
+}
+export function sumarDias(f: string, n: number): string {
+  return new Date(aMs(f) + n * DIA_MS).toISOString().slice(0, 10);
+}
 
 export function etapaDe(dia: number | null): Etapa {
   if (dia === null || dia === undefined) return 'sin_movimiento';
@@ -186,34 +298,235 @@ export function estadoDe(f: Pick<NewProductSource,
   return { estado: 'seguimiento', motivo: null };
 }
 
-const num = (v: unknown): number | null => {
-  if (v === null || v === undefined || v === '') return null;
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-};
-const r2 = (v: number | null): number | null => (v === null ? null : Math.round(v * 100) / 100);
-
-function diasEntre(desde: string | null, hasta: string | null): number | null {
-  if (!desde || !hasta) return null;
-  const a = Date.parse(`${desde.slice(0, 10)}T00:00:00Z`);
-  const b = Date.parse(`${hasta.slice(0, 10)}T00:00:00Z`);
-  return Number.isFinite(a) && Number.isFinite(b) ? Math.round((b - a) / 86_400_000) : null;
+/**
+ * La serie DIARIA del lanzamiento a hoy: la historia de la matvista y, desde el corte, lo de hoy.
+ * `historia` arranca en `lanzamiento`; los días de `vivo` se colocan por fecha.
+ */
+export function serieDiaria(
+  lanzamiento: string, hoy: string, corte: string,
+  historia: Array<number | string>, vivo: Array<{ fecha: string; importe: number | string }>,
+): number[] {
+  const largo = (diasEntre(lanzamiento, hoy) ?? -1) + 1;
+  if (largo <= 0) return [];
+  const s = new Array<number>(largo).fill(0);
+  const hastaHistoria = Math.min(largo, Math.max(0, diasEntre(lanzamiento, corte) ?? 0));
+  for (let i = 0; i < hastaHistoria && i < historia.length; i += 1) s[i] = num(historia[i]) ?? 0;
+  for (const m of vivo) {
+    const i = diasEntre(lanzamiento, m.fecha);
+    if (i !== null && i >= 0 && i < largo) s[i] += num(m.importe) ?? 0;
+  }
+  return s.map((x) => Math.round(x * 100) / 100);
 }
 
-export function aFila(f: NewProductSource): NewProductRow {
-  const dia = f.dia === null || f.dia === undefined ? null : Number(f.dia);
-  const { estado, motivo } = estadoDe(f);
-  const inversion = (n: Hito) => num(f[`inversion_${n}` as const]);
-  const venta = (n: Hito) => num(f[`venta_${n}` as const]);
-  const hitos = Object.fromEntries(HITOS.map((n) => [n, {
-    cerrado: dia !== null && dia >= n,
-    inversion: r2(inversion(n)),
-    venta: r2(venta(n)),
-  }])) as Record<Hito, HitoValores>;
-  const invTotal = r2(num(f.inversion_total));
-  const ventaTotal = r2(num(f.venta_total));
-  const venta30 = num(f.venta_30);
+/** Venta por semana (bloques de 7 días desde el inicio de la serie). */
+export function porSemana(serie: number[]): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < serie.length; i += 7) {
+    out.push(Math.round(serie.slice(i, i + 7).reduce((a, b) => a + b, 0) * 100) / 100);
+  }
+  return out;
+}
+
+interface Ventana { venta: number; dias: number; previa: number | null; ultima: number | null }
+/** Venta y días con venta de las últimas `n` posiciones, la ventana previa y el último día con venta. */
+function ventana(serie: number[], n: number): Ventana {
+  const ult = serie.slice(-n);
+  const prev = serie.length >= 2 * n ? serie.slice(-2 * n, -n) : null;
+  let ultima: number | null = null;
+  for (let i = serie.length - 1; i >= 0; i -= 1) if (serie[i] > 0) { ultima = serie.length - 1 - i; break; }
   return {
+    venta: ult.reduce((a, b) => a + b, 0),
+    dias: ult.filter((x) => x > 0).length,
+    previa: prev ? prev.reduce((a, b) => a + b, 0) : null,
+    ultima,
+  };
+}
+
+/** Recompra = segunda FECHA de entrada en una plaza que ya lo había recibido. */
+function primeraRecompra(entradas: Array<{ f: string; p: string }>): string | null {
+  const porPlaza = new Map<string, Set<string>>();
+  for (const e of entradas) {
+    const s = porPlaza.get(e.p) ?? new Set<string>();
+    s.add(e.f.slice(0, 10));
+    porPlaza.set(e.p, s);
+  }
+  let min: string | null = null;
+  for (const fechas of porPlaza.values()) {
+    const segunda = [...fechas].sort()[1];
+    if (segunda && (min === null || segunda < min)) min = segunda;
+  }
+  return min;
+}
+
+// ─────────────────────────────── la recomendación ───────────────────────────────
+
+/**
+ * ¿Conviene volver a comprarlo? Determinista y explicable: cada veredicto sale con sus motivos.
+ * `conCosto = false` no cambia la decisión, sólo calla las cifras de inversión en los motivos.
+ */
+export function recomendar(s: Senales, opts: { conCosto: boolean } = { conCosto: true }): Recomendacion {
+  const C = CRITERIO_RECOMPRA;
+  const dia = s.dia ?? 0;
+  const recuperado = s.inversion_total !== null && s.inversion_total > 0 ? s.venta_total / s.inversion_total : null;
+  const sostenida = `Se vendió ${s.dias_con_venta_28} de los últimos ${C.ventana} días`;
+
+  if (s.dia === null) return { veredicto: 'pronto', motivos: ['Todavía no entra ni se vende'] };
+  if (dia < C.diasMinimos) {
+    return {
+      veredicto: 'pronto',
+      motivos: [`Lleva ${dia} día${dia === 1 ? '' : 's'}; se decide a partir del día ${C.diasMinimos}`,
+        s.venta_total > 0 ? `Ya vendió ${pesos(s.venta_total)}` : 'Todavía no se vende'],
+    };
+  }
+  if (s.venta_total <= 0) {
+    return { veredicto: 'no_recomprar', motivos: [`No se ha vendido en ${dia} días desde que llegó`] };
+  }
+  if (s.dias_sin_venta !== null && s.dias_sin_venta >= C.sinVentaDias) {
+    return { veredicto: 'no_recomprar', motivos: [`Lleva ${s.dias_sin_venta} días sin venderse`] };
+  }
+  if (s.venta_28_previa !== null && s.venta_28_previa > 0 && s.venta_28 / s.venta_28_previa < C.caidaMaxima) {
+    const caida = Math.round((1 - s.venta_28 / s.venta_28_previa) * 100);
+    return {
+      veredicto: 'revisar',
+      motivos: [`La venta de las últimas 4 semanas cayó ${caida}% contra las 4 anteriores`, sostenida],
+    };
+  }
+  if (s.dias_con_venta_28 < C.diasConVentaSano) {
+    return { veredicto: 'revisar', motivos: [`Se vende poco: ${s.dias_con_venta_28} de los últimos ${C.ventana} días`] };
+  }
+
+  const motivos = [sostenida];
+  const agotado = s.agotado_en > 0;
+  const sinExistencia = s.plazas_con_existencia === 0;
+  const recuperadoAlto = recuperado !== null && recuperado >= C.recuperadoAlto;
+  if (agotado) motivos.push(`Se agotó en ${s.agotado_en} plaza${s.agotado_en === 1 ? '' : 's'} que lo vende${s.agotado_en === 1 ? '' : 'n'}`);
+  else if (sinExistencia) motivos.push('Ya no hay existencia en ninguna plaza');
+  if (recuperado !== null) {
+    motivos.push(opts.conCosto
+      ? `Vendió $${recuperado.toFixed(2)} por cada $1 invertido`
+      : (recuperadoAlto ? 'Ya vendió la mayor parte de lo que se compró' : 'Todavía no vende lo que se compró'));
+  }
+  if (agotado || sinExistencia || recuperadoAlto) return { veredicto: 'recomprar', motivos };
+  return {
+    veredicto: 'esperar',
+    motivos: ['Se vende bien, pero todavía hay existencia', ...motivos],
+  };
+}
+
+// ─────────────────────────────── armado por producto ───────────────────────────────
+
+export interface Armado {
+  fila: NewProductRow;
+  plazas: PlazaRow[];
+}
+
+/**
+ * Junta la historia, lo de hoy y la existencia de UN producto.
+ * `nombres` = código de plaza → nombre (sólo para el detalle).
+ */
+export function armarProducto(
+  f: NewProductSource, hoy: string, vivo: Movimiento[], existencia: Existencia[],
+  opts: { conCosto: boolean; nombres?: Map<string, string> } = { conCosto: true },
+): Armado {
+  const nombres = opts.nombres ?? new Map<string, string>();
+  const ventasVivo = vivo.filter((m) => m.tipo === 'venta');
+  const entradasVivo = vivo.filter((m) => m.tipo === 'entrada');
+  const todasEntradas = [
+    ...(Array.isArray(f.entradas) ? f.entradas : []).map((e) => ({ f: e.f, p: e.p, i: num(e.i) ?? 0 })),
+    ...entradasVivo.map((m) => ({ f: m.fecha, p: m.plaza, i: num(m.importe) ?? 0 })),
+  ];
+
+  // Un producto sin historia que HOY entra o se vende arranca hoy: "Nuevo · día 0".
+  const primeraViva = vivo.map((m) => m.fecha).sort()[0] ?? null;
+  const lanzamiento = f.lanzamiento ?? primeraViva;
+  const sinMovimiento = lanzamiento === null;
+  const { estado, motivo } = estadoDe({
+    ...f, sin_movimiento: sinMovimiento, no_medible: f.lanzamiento ? f.no_medible : false,
+  });
+  const dia = lanzamiento ? diasEntre(lanzamiento, hoy) : null;
+
+  const serie = lanzamiento
+    ? serieDiaria(lanzamiento, hoy, f.corte, f.venta_dia ?? [], ventasVivo.map((m) => ({ fecha: m.fecha, importe: m.importe })))
+    : [];
+  const v = ventana(serie, CRITERIO_RECOMPRA.ventana);
+
+  const exPorPlaza = new Map<string, { cantidad: number; factor: number | null }>();
+  for (const e of existencia) {
+    exPorPlaza.set(e.plaza, { cantidad: num(e.cantidad) ?? 0, factor: num(e.factor) });
+  }
+
+  // ── Por plaza ──
+  const codigos = new Set<string>([
+    ...Object.keys(f.venta_por_plaza ?? {}),
+    ...ventasVivo.map((m) => m.plaza),
+    ...todasEntradas.map((e) => e.p),
+    ...[...exPorPlaza.entries()].filter(([, x]) => x.cantidad > 0).map(([p]) => p),
+  ]);
+  const plazas: PlazaRow[] = [];
+  let agotadoEn = 0;
+  for (const p of [...codigos].sort()) {
+    const serieP = lanzamiento
+      ? serieDiaria(lanzamiento, hoy, f.corte, f.venta_por_plaza?.[p] ?? [],
+        ventasVivo.filter((m) => m.plaza === p).map((m) => ({ fecha: m.fecha, importe: m.importe })))
+      : [];
+    const entradasP = todasEntradas.filter((e) => e.p === p);
+    const primeraVentaIdx = serieP.findIndex((x) => x > 0);
+    const primeraEntrada = entradasP.map((e) => e.f.slice(0, 10)).sort()[0] ?? null;
+    const primeraVentaP = primeraVentaIdx >= 0 && lanzamiento ? sumarDias(lanzamiento, primeraVentaIdx) : null;
+    const primeraAct = [primeraEntrada, primeraVentaP].filter((x): x is string => !!x).sort()[0] ?? null;
+    // La serie de la plaza arranca en SU primera actividad, no en la del producto.
+    const desde = primeraAct && lanzamiento ? Math.max(0, diasEntre(lanzamiento, primeraAct) ?? 0) : serieP.length;
+    const serieDesde = serieP.slice(desde);
+    const vp = ventana(serieDesde, CRITERIO_RECOMPRA.ventana);
+    const ex = exPorPlaza.get(p);
+    const totalP = serieP.reduce((a, b) => a + b, 0);
+    const invP = entradasP.length ? entradasP.reduce((a, e) => a + e.i, 0) : null;
+    const hayExistencia = !!ex && ex.cantidad > 0;
+    const agotadaAqui = vp.dias > 0 && !hayExistencia;
+    if (agotadaAqui) agotadoEn += 1;
+    const diaP = primeraAct ? diasEntre(primeraAct, hoy) : null;
+    plazas.push({
+      plaza: p,
+      nombre: nombres.get(p) ?? null,
+      dia: diaP,
+      primera_actividad: primeraAct,
+      venta_total: Math.round(totalP * 100) / 100,
+      venta_28: Math.round(vp.venta * 100) / 100,
+      dias_con_venta_28: vp.dias,
+      inversion_total: r2(invP),
+      entradas: new Set(entradasP.map((e) => `${e.f}|${e.p}`)).size,
+      primera_recompra: primeraRecompra(entradasP),
+      existencia: ex ? ex.cantidad : null,
+      existencia_cajas: ex && ex.factor !== null && ex.factor > 1 ? Math.round((ex.cantidad / ex.factor) * 10) / 10 : null,
+      ultima_venta: vp.ultima === null ? null : sumarDias(hoy, -vp.ultima),
+      semanas: porSemana(serieDesde).slice(-8),
+      venta_hoy: Math.round(ventasVivo.filter((m) => m.plaza === p && m.fecha === hoy)
+        .reduce((a, m) => a + (num(m.importe) ?? 0), 0) * 100) / 100,
+      recomendacion: recomendar({
+        dia: diaP, venta_total: totalP, inversion_total: invP, dias_con_venta_28: vp.dias, venta_28: vp.venta,
+        venta_28_previa: vp.previa, dias_sin_venta: vp.ultima,
+        agotado_en: agotadaAqui ? 1 : 0, plazas_con_existencia: hayExistencia ? 1 : 0,
+      }, { conCosto: opts.conCosto }),
+    });
+  }
+
+  // ── Global ──
+  const ventaTotal = serie.reduce((a, b) => a + b, 0);
+  const invTotal = todasEntradas.length ? todasEntradas.reduce((a, e) => a + e.i, 0) : null;
+  const hitos = Object.fromEntries((HITOS as readonly Hito[]).map((n) => {
+    const ven = serie.slice(0, n);
+    const inv = lanzamiento ? todasEntradas.filter((e) => (diasEntre(lanzamiento, e.f) ?? 0) < n) : [];
+    return [n, {
+      cerrado: dia !== null && dia >= n,
+      inversion: inv.length ? r2(inv.reduce((a, e) => a + e.i, 0)) : null,
+      venta: ven.some((x) => x > 0) ? r2(ven.reduce((a, b) => a + b, 0)) : null,
+    }];
+  })) as Record<Hito, HitoValores>;
+  const recompra = primeraRecompra(todasEntradas);
+  const plazasConExistencia = [...exPorPlaza.values()].filter((x) => x.cantidad > 0).length;
+  const venta30 = hitos[30].venta;
+
+  const fila: NewProductRow = {
     product_id: f.product_id,
     sku: f.sku,
     nombre: f.nombre,
@@ -221,9 +534,9 @@ export function aFila(f: NewProductSource): NewProductRow {
     proveedor: f.proveedor,
     alta_suite: f.alta_suite,
     alta_en_lote: f.alta_en_lote === true,
-    primera_recepcion: f.primera_recepcion,
-    primera_venta: f.primera_venta,
-    lanzamiento: f.lanzamiento,
+    primera_recepcion: f.primera_recepcion ?? (entradasVivo.map((m) => m.fecha).sort()[0] ?? null),
+    primera_venta: f.primera_venta ?? (ventasVivo.map((m) => m.fecha).sort()[0] ?? null),
+    lanzamiento,
     dia,
     fuentes: Array.isArray(f.fuentes) ? f.fuentes : [],
     etapa: etapaDe(dia),
@@ -234,19 +547,34 @@ export function aFila(f: NewProductSource): NewProductRow {
     nota: f.nota,
     clasificado_por: f.clasificado_por,
     hitos,
-    inversion_total: invTotal,
-    venta_total: ventaTotal,
-    venta_por_peso: invTotal !== null && invTotal > 0 ? r2((ventaTotal ?? 0) / invTotal) : null,
-    entradas: Number(f.entradas) || 0,
-    plazas_recibido: Number(f.plazas_recibido) || 0,
-    primera_recompra: f.primera_recompra,
-    dia_recompra: diasEntre(f.lanzamiento, f.primera_recompra),
-    plazas_venta: Number(f.plazas_venta) || 0,
-    plazas_con_existencia: Number(f.plazas_con_existencia) || 0,
-    dias_con_venta_30: Number(f.dias_con_venta_30) || 0,
-    ultima_venta: f.ultima_venta,
+    inversion_total: r2(invTotal),
+    venta_total: lanzamiento ? Math.round(ventaTotal * 100) / 100 : null,
+    venta_por_peso: invTotal !== null && invTotal > 0 ? r2(ventaTotal / invTotal) : null,
+    entradas: new Set(todasEntradas.map((e) => `${e.f}|${e.p}`)).size,
+    plazas_recibido: new Set(todasEntradas.map((e) => e.p)).size,
+    primera_recompra: recompra,
+    dia_recompra: lanzamiento ? diasEntre(lanzamiento, recompra) : null,
+    plazas_venta: plazas.filter((p) => p.venta_total > 0).length,
+    plazas_con_existencia: plazasConExistencia,
+    agotado_en: agotadoEn,
+    dias_con_venta_30: serie.slice(0, 30).filter((x) => x > 0).length,
+    dias_con_venta_28: v.dias,
+    venta_28: Math.round(v.venta * 100) / 100,
+    tendencia: v.previa !== null && v.previa > 0 ? Math.round((v.venta / v.previa) * 100) / 100 : null,
+    ultima_venta: v.ultima === null ? null : sumarDias(hoy, -v.ultima),
     sin_venta_30: dia !== null && dia >= 30 && !(venta30 !== null && venta30 > 0),
+    semanas: porSemana(serie),
+    venta_hoy: Math.round(ventasVivo.filter((m) => m.fecha === hoy)
+      .reduce((a, m) => a + (num(m.importe) ?? 0), 0) * 100) / 100,
+    recomendacion: estado === 'seguimiento'
+      ? recomendar({
+        dia, venta_total: ventaTotal, inversion_total: invTotal, dias_con_venta_28: v.dias, venta_28: v.venta,
+        venta_28_previa: v.previa, dias_sin_venta: v.ultima, agotado_en: agotadoEn,
+        plazas_con_existencia: plazasConExistencia,
+      }, { conCosto: opts.conCosto })
+      : null,
   };
+  return { fila, plazas };
 }
 
 /** Sólo los lanzamientos reales cuentan para cohortes y KPIs. */
@@ -289,6 +617,7 @@ export function construirResumen(filas: NewProductRow[]): Resumen {
   const kpi = filas.filter(cuentaParaKpis);
   const a = acumular(kpi);
   const cuenta = (e: Estado) => filas.filter((f) => f.estado === e).length;
+  const ver = (v: Veredicto) => kpi.filter((f) => f.recomendacion?.veredicto === v).length;
   return {
     total: filas.length,
     seguimiento: kpi.length,
@@ -302,8 +631,13 @@ export function construirResumen(filas: NewProductRow[]): Resumen {
       mes_3: kpi.filter((f) => f.etapa === 'mes_3').length,
       graduado: kpi.filter((f) => f.etapa === 'graduado').length,
     },
+    por_veredicto: {
+      recomprar: ver('recomprar'), esperar: ver('esperar'), revisar: ver('revisar'),
+      no_recomprar: ver('no_recomprar'), pronto: ver('pronto'),
+    },
     inversion: a.inversion,
     venta: a.venta,
+    venta_hoy: Math.round(kpi.reduce((s, f) => s + f.venta_hoy, 0) * 100) / 100,
     venta_por_peso: a.venta_por_peso,
     recomprados: a.recomprados,
     con_30_dias: a.con_30_dias,
@@ -320,8 +654,12 @@ export function ocultarCosto(filas: NewProductRow[]): NewProductRow[] {
     ...f,
     inversion_total: null,
     venta_por_peso: null,
-    hitos: Object.fromEntries(HITOS.map((n) => [n, { ...f.hitos[n], inversion: null }])) as Record<Hito, HitoValores>,
+    hitos: Object.fromEntries((HITOS as readonly Hito[]).map((n) => [n, { ...f.hitos[n], inversion: null }])) as Record<Hito, HitoValores>,
   }));
+}
+
+export function ocultarCostoPlazas(plazas: PlazaRow[]): PlazaRow[] {
+  return plazas.map((p) => ({ ...p, inversion_total: null }));
 }
 
 export function esKindValido(v: unknown): v is NewProductKind {

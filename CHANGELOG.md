@@ -49,6 +49,10 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Added — Productos nuevos: ¿conviene volver a comprarlo?, en vivo y por sucursal (NP.8–NP.10, 2026-10-07)
+- Cada producto nuevo trae una **recomendación** (Recomprar · Esperar · Revisar · No recomprar · Aún es pronto) con sus motivos, global y por sucursal. Criterio visible en pantalla y en `CRITERIO_RECOMPRA`; es una propuesta a calibrar con Compras. Mide rotación y recuperación de lo invertido, no margen.
+- **En vivo**: la venta, las entradas y la existencia de hoy salen del ODS (`fn_new_products_movimientos`, índice nuevo `ix_kdm1_compra_fecha`); la historia cierra de noche y nada se cuenta dos veces. La pantalla se actualiza sola cada minuto. La venta de ruta y de plazas en Wincaja se suma al cierre (declarado).
+- **Rediseño**: la lista muestra el comportamiento global (venta por semana, vendido contra invertido, hitos, sucursales) y al hacer clic un panel lateral con cada sucursal.
 ### Added — Compras › Catálogo › Productos nuevos: seguimiento a 30, 60 y 90 días (NP.1–NP.5, 2026-10-07)
 - **Pestaña nueva** `/compras/catalogo/nuevos` y etiqueta **"Nuevo · día N"** en la lista de Productos. Cada código que entra al catálogo se sigue 90 días desde su **primera entrada o venta** (no desde el alta): inversión (importe de las entradas de Kepler), venta, venta por cada $1 invertido, recompra al proveedor y plazas, por producto y por **mes de lanzamiento**.
 - **Se deriva del ODS** (`analytics.mv_new_products`, refresco nocturno con latido y umbral): nadie tiene que etiquetar nada. Compras sólo **confirma** qué es cada código (nuevo / recodificación / promoción / no mercancía) en `catalog.new_product_reviews`, y lo que no es lanzamiento sale de los KPIs.

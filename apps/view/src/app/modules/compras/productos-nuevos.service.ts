@@ -4,16 +4,22 @@ import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 
 /**
- * `[NP.5]` Productos nuevos — cliente de `GET /commercial/products/new-products`.
+ * `[NP.5]` Productos nuevos — cliente de `/commercial/products/new-products`.
  *
  * Las formas reflejan `libs/commercial/.../new-products.ts`. Las decisiones (etapa, estado,
- * hitos, cohortes) las toma el servidor; aquí sólo se pintan.
+ * hitos, recomendación) las toma el servidor; aquí sólo se pintan.
  */
 
 export type ClasificacionNueva = 'nuevo' | 'recodificacion' | 'promocion' | 'no_mercancia';
 export type EtapaNueva = 'sin_movimiento' | 'mes_1' | 'mes_2' | 'mes_3' | 'graduado';
 export type EstadoNuevo = 'seguimiento' | 'sin_movimiento' | 'no_medible' | 'excluido';
+export type VeredictoNuevo = 'recomprar' | 'esperar' | 'revisar' | 'no_recomprar' | 'pronto';
 export type HitoNuevo = 30 | 60 | 90;
+
+export interface Recomendacion {
+  veredicto: VeredictoNuevo;
+  motivos: string[];
+}
 
 export interface HitoValores {
   cerrado: boolean;
@@ -51,9 +57,35 @@ export interface ProductoNuevo {
   dia_recompra: number | null;
   plazas_venta: number;
   plazas_con_existencia: number;
+  agotado_en: number;
   dias_con_venta_30: number;
+  dias_con_venta_28: number;
+  venta_28: number;
+  tendencia: number | null;
   ultima_venta: string | null;
   sin_venta_30: boolean;
+  semanas: number[];
+  venta_hoy: number;
+  recomendacion: Recomendacion | null;
+}
+
+export interface PlazaNueva {
+  plaza: string;
+  nombre: string | null;
+  dia: number | null;
+  primera_actividad: string | null;
+  venta_total: number;
+  venta_28: number;
+  dias_con_venta_28: number;
+  inversion_total: number | null;
+  entradas: number;
+  primera_recompra: string | null;
+  existencia: number | null;
+  existencia_cajas: number | null;
+  ultima_venta: string | null;
+  semanas: number[];
+  venta_hoy: number;
+  recomendacion: Recomendacion;
 }
 
 export interface CohorteNuevos {
@@ -76,22 +108,47 @@ export interface ResumenNuevos {
   no_medible: number;
   excluido: number;
   por_etapa: Record<'mes_1' | 'mes_2' | 'mes_3' | 'graduado', number>;
+  por_veredicto: Record<VeredictoNuevo, number>;
   inversion: number | null;
   venta: number;
+  venta_hoy: number;
   venta_por_peso: number | null;
   recomprados: number;
   con_30_dias: number;
   sin_venta_30: number;
 }
 
+export interface FrescuraNuevos {
+  historia_al: string | null;
+  corte: string | null;
+  en_vivo_al: string;
+  hoy: string;
+}
+
+export interface CriterioRecompra {
+  diasMinimos: number;
+  ventana: number;
+  diasConVentaSano: number;
+  caidaMaxima: number;
+  recuperadoAlto: number;
+  sinVentaDias: number;
+}
+
 export interface RespuestaNuevos {
   calculado: boolean;
-  calculado_at: string | null;
-  historia_desde: string | null;
+  frescura: FrescuraNuevos | null;
   costo_visible: boolean;
+  criterio: CriterioRecompra;
   resumen: ResumenNuevos | null;
   cohortes: CohorteNuevos[];
   filas: ProductoNuevo[];
+}
+
+export interface DetalleNuevo {
+  frescura: FrescuraNuevos;
+  costo_visible: boolean;
+  producto: ProductoNuevo;
+  plazas: PlazaNueva[];
 }
 
 @Injectable({ providedIn: 'root' })
@@ -101,6 +158,11 @@ export class ProductosNuevosService {
 
   listar(): Observable<RespuestaNuevos> {
     return this.http.get<RespuestaNuevos>(this.base);
+  }
+
+  /** Un producto, sucursal por sucursal. */
+  detalle(productId: string): Observable<DetalleNuevo> {
+    return this.http.get<DetalleNuevo>(`${this.base}/${productId}`);
   }
 
   /** `clasificacion: null` quita la clasificación: el producto vuelve a "por confirmar". */

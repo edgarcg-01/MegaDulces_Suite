@@ -1,211 +1,257 @@
 import {
+  CRITERIO_RECOMPRA,
+  Movimiento,
   NewProductSource,
-  aFila,
+  Senales,
+  armarProducto,
   construirCohortes,
   construirResumen,
   esKindValido,
   estadoDe,
   etapaDe,
   ocultarCosto,
+  porSemana,
+  recomendar,
+  serieDiaria,
+  sumarDias,
 } from './new-products';
 
 /**
- * `[NP.2]` La lógica de Productos nuevos: etapa, estado, hitos y cohortes.
+ * `[NP.2]` La lógica de Productos nuevos: la serie (historia + hoy), los hitos, la recomendación de
+ * recompra global y por sucursal, y las cohortes.
  *
- * Se prueba aquí, sin base, porque es donde se DECIDE. El smoke de DB
- * (`database/tests/test-newdb-new-products.js`) prueba que la matvista mide lo que dice.
+ * Se prueba aquí, sin base, porque es donde se DECIDE. El candado de base
+ * (`database/tests/test-newdb-new-products.js`) prueba que la matvista y la función en vivo miden
+ * lo que dicen.
  */
 
-function fuente(over: Partial<NewProductSource> = {}): NewProductSource {
+const HOY = '2026-10-07';
+
+/** Un producto lanzado hace `dias` días, con historia hasta ayer (corte = hoy). */
+function fuente(over: Partial<NewProductSource> & { dias?: number } = {}): NewProductSource {
+  const dias = over.dias ?? 45;
+  const lanzamiento = sumarDias(HOY, -dias);
   return {
-    product_id: '00000000-0000-0000-0000-000000000001',
-    sku: 'X1',
-    nombre: 'Producto',
-    marca: null,
-    proveedor: null,
-    alta_suite: '2026-06-01',
-    alta_en_lote: false,
-    primera_recepcion: '2026-06-01',
-    primera_venta: '2026-06-02',
-    lanzamiento: '2026-06-01',
-    dia: 45,
-    fuentes: ['entradas', 'kepler'],
-    sin_movimiento: false,
-    no_medible: false,
-    exclusion_auto: null,
-    posible_recodificacion: false,
-    inversion_30: 1000,
-    inversion_60: 1500,
-    inversion_90: 1500,
-    inversion_total: 1500,
-    entradas: 2,
-    plazas_recibido: 1,
-    primera_recompra: '2026-06-21',
-    venta_30: 800,
-    venta_60: 1400,
-    venta_90: 1400,
-    venta_total: 1800,
-    dias_con_venta_30: 12,
-    plazas_venta: 3,
-    ultima_venta: '2026-07-10',
-    plazas_con_existencia: 2,
-    clasificacion: null,
-    nota: null,
-    clasificado_por: null,
+    product_id: 'p1', sku: 'X1', nombre: 'Producto', marca: null, proveedor: null,
+    alta_suite: lanzamiento, alta_en_lote: false, primera_recepcion: lanzamiento, primera_venta: lanzamiento,
+    lanzamiento, historia_desde: '2025-01-01', fuentes: ['entradas', 'kepler'],
+    sin_movimiento: false, no_medible: false, exclusion_auto: null, posible_recodificacion: false,
+    corte: HOY,
+    venta_dia: new Array(dias).fill(100),
+    venta_por_plaza: { '03': new Array(dias).fill(100) },
+    entradas: [{ f: lanzamiento, p: '03', i: 2000 }],
+    clasificacion: null, nota: null, clasificado_por: null,
     ...over,
   };
 }
 
-describe('etapaDe — en qué tramo de su seguimiento va', () => {
-  it('sin lanzamiento = sin movimiento', () => {
-    expect(etapaDe(null)).toBe('sin_movimiento');
+const senales = (over: Partial<Senales> = {}): Senales => ({
+  dia: 45, venta_total: 4000, inversion_total: 3000, dias_con_venta_28: 20, venta_28: 2000,
+  venta_28_previa: 2000, dias_sin_venta: 0, agotado_en: 0, plazas_con_existencia: 1, ...over,
+});
+
+describe('etapa y estado', () => {
+  it('los cortes son los días 30, 60 y 90', () => {
+    expect([null, 0, 29, 30, 59, 60, 89, 90].map(etapaDe))
+      .toEqual(['sin_movimiento', 'mes_1', 'mes_1', 'mes_2', 'mes_2', 'mes_3', 'mes_3', 'graduado']);
   });
 
-  it('los cortes son los días 30, 60 y 90, y el día del corte ya es el tramo siguiente', () => {
-    expect(etapaDe(0)).toBe('mes_1');
-    expect(etapaDe(29)).toBe('mes_1');
-    expect(etapaDe(30)).toBe('mes_2');
-    expect(etapaDe(59)).toBe('mes_2');
-    expect(etapaDe(60)).toBe('mes_3');
-    expect(etapaDe(89)).toBe('mes_3');
-    expect(etapaDe(90)).toBe('graduado');
+  it('⭐ Compras manda sobre el sistema en las dos direcciones', () => {
+    const base = { exclusion_auto: null, sin_movimiento: false, no_medible: false };
+    expect(estadoDe({ ...base, exclusion_auto: 'promocion', clasificacion: 'nuevo' }).estado).toBe('seguimiento');
+    expect(estadoDe({ ...base, clasificacion: 'recodificacion' }).estado).toBe('excluido');
+    expect(estadoDe({ ...base, clasificacion: null, exclusion_auto: 'descuento' }).motivo).toBe('Código de descuento');
   });
 });
 
-describe('estadoDe — si cuenta para los KPIs', () => {
-  it('lo normal: en seguimiento', () => {
-    expect(estadoDe(fuente()).estado).toBe('seguimiento');
+describe('serieDiaria — historia + hoy, sin contar dos veces', () => {
+  it('la historia llega hasta el corte y lo de hoy se suma después', () => {
+    const s = serieDiaria('2026-10-01', '2026-10-07', '2026-10-07', [1, 2, 3, 4, 5, 6], [
+      { fecha: '2026-10-07', importe: 10 },
+    ]);
+    expect(s).toEqual([1, 2, 3, 4, 5, 6, 10]);
   });
 
-  it('la exclusión automática lo saca (promoción, descuento, descontinuado)', () => {
-    const r = estadoDe(fuente({ exclusion_auto: 'descuento' }));
-    expect(r.estado).toBe('excluido');
-    expect(r.motivo).toBe('Código de descuento');
+  it('⛔ si la historia trajera días después del corte, se ignoran (esos vienen en vivo)', () => {
+    // La matvista corta en fecha < corte; si por error trajera de más, no debe doblar el día.
+    const s = serieDiaria('2026-10-05', '2026-10-07', '2026-10-06', [1, 999, 999], [
+      { fecha: '2026-10-06', importe: 5 }, { fecha: '2026-10-07', importe: 7 },
+    ]);
+    expect(s).toEqual([1, 5, 7]);
   });
 
-  it('⭐ Compras manda sobre el sistema: si dijo "nuevo", entra aunque el sistema lo excluyera', () => {
-    expect(estadoDe(fuente({ exclusion_auto: 'promocion', clasificacion: 'nuevo' })).estado).toBe('seguimiento');
-  });
-
-  it('⭐ y si dijo recodificación, sale aunque el sistema no lo viera', () => {
-    const r = estadoDe(fuente({ clasificacion: 'recodificacion' }));
-    expect(r.estado).toBe('excluido');
-    expect(r.motivo).toContain('Recodificación');
-  });
-
-  it('no medible se declara: no se cuenta como nuevo', () => {
-    expect(estadoDe(fuente({ no_medible: true })).estado).toBe('no_medible');
-  });
-
-  it('sin movimiento va aparte', () => {
-    expect(estadoDe(fuente({ sin_movimiento: true, lanzamiento: null, dia: null })).estado).toBe('sin_movimiento');
+  it('agrupa por semanas desde el inicio', () => {
+    expect(porSemana([1, 1, 1, 1, 1, 1, 1, 2, 2])).toEqual([7, 4]);
   });
 });
 
-describe('aFila — hitos y cifras por producto', () => {
-  it('un hito que todavía no llega NO está cerrado: va en curso', () => {
-    const f = aFila(fuente({ dia: 45 }));
-    expect(f.hitos[30].cerrado).toBe(true);
-    expect(f.hitos[60].cerrado).toBe(false);
-    expect(f.hitos[90].cerrado).toBe(false);
-    expect(f.hitos[30].venta).toBe(800);
+describe('recomendar — ¿conviene volver a comprarlo?', () => {
+  it('antes del día 21 no se decide', () => {
+    const r = recomendar(senales({ dia: 12 }));
+    expect(r.veredicto).toBe('pronto');
+    expect(r.motivos[0]).toContain(`día ${CRITERIO_RECOMPRA.diasMinimos}`);
   });
 
-  it('venta por peso invertido = venta total / inversión total', () => {
-    expect(aFila(fuente()).venta_por_peso).toBe(1.2);
+  it('nunca vendido → no recomprar', () => {
+    expect(recomendar(senales({ venta_total: 0, dias_con_venta_28: 0, dias_sin_venta: null })).veredicto).toBe('no_recomprar');
   });
 
-  it('⛔ inversión NO medida es NULL y el cociente también: nunca 0', () => {
-    // Un producto que entró por el CEDIS cuando era Wincaja no tiene entrada en Kepler. Eso no es
-    // "no costó nada": es que no se midió. Un 0 aquí daría un retorno infinito o un cero falso.
-    const f = aFila(fuente({ inversion_30: null, inversion_60: null, inversion_90: null, inversion_total: null }));
-    expect(f.inversion_total).toBeNull();
-    expect(f.venta_por_peso).toBeNull();
-    expect(f.hitos[30].inversion).toBeNull();
+  it('dejó de venderse hace 3 semanas → no recomprar', () => {
+    const r = recomendar(senales({ dias_sin_venta: 25 }));
+    expect(r.veredicto).toBe('no_recomprar');
+    expect(r.motivos[0]).toContain('25 días sin venderse');
   });
 
-  it('a qué día de su lanzamiento se volvió a comprar', () => {
-    expect(aFila(fuente({ lanzamiento: '2026-06-01', primera_recompra: '2026-06-21' })).dia_recompra).toBe(20);
-    expect(aFila(fuente({ primera_recompra: null })).dia_recompra).toBeNull();
+  it('la venta cayó más de 40% contra las 4 semanas anteriores → revisar', () => {
+    const r = recomendar(senales({ venta_28: 500, venta_28_previa: 2000 }));
+    expect(r.veredicto).toBe('revisar');
+    expect(r.motivos[0]).toContain('cayó 75%');
   });
 
-  it('sin venta a 30 días sólo aplica a quien ya cumplió 30 días', () => {
-    expect(aFila(fuente({ dia: 40, venta_30: null })).sin_venta_30).toBe(true);
-    expect(aFila(fuente({ dia: 40, venta_30: 0 })).sin_venta_30).toBe(true);
-    expect(aFila(fuente({ dia: 12, venta_30: null })).sin_venta_30).toBe(false);
-    expect(aFila(fuente({ dia: 40, venta_30: 5 })).sin_venta_30).toBe(false);
+  it('se vende pocos días → revisar', () => {
+    expect(recomendar(senales({ dias_con_venta_28: 5 })).veredicto).toBe('revisar');
   });
 
-  it('los numéricos de Postgres llegan como texto y se convierten', () => {
-    const f = aFila(fuente({ inversion_total: '250.505' as unknown as number, venta_total: '100' as unknown as number }));
-    expect(f.inversion_total).toBe(250.51);
-    expect(f.venta_total).toBe(100);
+  it('venta sostenida + agotado en una plaza que lo vende → recomprar', () => {
+    const r = recomendar(senales({ agotado_en: 1, inversion_total: 10000 }));
+    expect(r.veredicto).toBe('recomprar');
+    expect(r.motivos.join(' ')).toContain('Se agotó en 1 plaza');
+  });
+
+  it('venta sostenida + ya recuperó lo invertido → recomprar', () => {
+    expect(recomendar(senales({ venta_total: 2500, inversion_total: 3000 })).veredicto).toBe('recomprar');
+  });
+
+  it('venta sostenida pero todavía hay existencia y no ha recuperado → esperar', () => {
+    const r = recomendar(senales({ venta_total: 1000, inversion_total: 3000 }));
+    expect(r.veredicto).toBe('esperar');
+    expect(r.motivos[0]).toContain('todavía hay existencia');
+  });
+
+  it('⛔ sin permiso de costo la decisión no cambia, pero el motivo no dice cifras de inversión', () => {
+    const con = recomendar(senales({ venta_total: 2500, inversion_total: 3000 }), { conCosto: true });
+    const sin = recomendar(senales({ venta_total: 2500, inversion_total: 3000 }), { conCosto: false });
+    expect(sin.veredicto).toBe(con.veredicto);
+    expect(con.motivos.join(' ')).toContain('por cada $1 invertido');
+    expect(sin.motivos.join(' ')).not.toMatch(/\$\d.*invertido/);
   });
 });
 
-describe('cohortes y resumen', () => {
+describe('armarProducto — global', () => {
+  it('hitos: un hito que todavía no llega no está cerrado', () => {
+    const { fila } = armarProducto(fuente({ dias: 45 }), HOY, [], []);
+    expect(fila.dia).toBe(45);
+    expect(fila.hitos[30]).toEqual({ cerrado: true, inversion: 2000, venta: 3000 });
+    expect(fila.hitos[60].cerrado).toBe(false);
+  });
+
+  it('⭐ la venta de hoy (en vivo) entra a la serie, al total y a "venta de hoy"', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'venta', plaza: '03', fecha: HOY, importe: 250 }];
+    const { fila } = armarProducto(fuente({ dias: 10 }), HOY, vivo, []);
+    expect(fila.venta_total).toBe(10 * 100 + 250);
+    expect(fila.venta_hoy).toBe(250);
+    expect(fila.semanas[fila.semanas.length - 1]).toBe(3 * 100 + 250);
+  });
+
+  it('⭐ una entrada de HOY en una plaza que ya lo tenía es recompra', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'entrada', plaza: '03', fecha: HOY, importe: 2000 }];
+    const { fila } = armarProducto(fuente({ dias: 45 }), HOY, vivo, []);
+    expect(fila.primera_recompra).toBe(HOY);
+    expect(fila.dia_recompra).toBe(45);
+    expect(fila.inversion_total).toBe(4000);
+  });
+
+  it('⭐ un producto sin historia que hoy entra arranca hoy: día 0', () => {
+    const f = fuente({ lanzamiento: null, sin_movimiento: true, venta_dia: [], venta_por_plaza: {}, entradas: [] });
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'entrada', plaza: '01', fecha: HOY, importe: 900 }];
+    const { fila } = armarProducto(f, HOY, vivo, []);
+    expect(fila.estado).toBe('seguimiento');
+    expect(fila.dia).toBe(0);
+    expect(fila.recomendacion?.veredicto).toBe('pronto');
+  });
+
+  it('⛔ sin entradas la inversión es NULL, nunca 0', () => {
+    const { fila } = armarProducto(fuente({ entradas: [] }), HOY, [], []);
+    expect(fila.inversion_total).toBeNull();
+    expect(fila.venta_por_peso).toBeNull();
+    expect(fila.hitos[30].inversion).toBeNull();
+  });
+
+  it('excluido o sin movimiento no lleva recomendación', () => {
+    expect(armarProducto(fuente({ exclusion_auto: 'promocion' }), HOY, [], []).fila.recomendacion).toBeNull();
+  });
+});
+
+describe('armarProducto — por sucursal', () => {
+  const f = fuente({
+    dias: 45,
+    venta_dia: new Array(45).fill(150),
+    venta_por_plaza: { '03': new Array(45).fill(100), '05': new Array(45).fill(50) },
+    entradas: [{ f: sumarDias(HOY, -45), p: '03', i: 2000 }, { f: sumarDias(HOY, -44), p: '05', i: 1000 }],
+  });
+
+  it('una plaza que vende y hoy no tiene existencia cuenta como agotada', () => {
+    const { fila, plazas } = armarProducto(f, HOY, [], [
+      { product_id: 'p1', plaza: '03', cantidad: 0, factor: 12 },
+      { product_id: 'p1', plaza: '05', cantidad: 36, factor: 12 },
+    ]);
+    expect(fila.agotado_en).toBe(1);
+    const p03 = plazas.find((p) => p.plaza === '03')!;
+    const p05 = plazas.find((p) => p.plaza === '05')!;
+    expect(p03.recomendacion.veredicto).toBe('recomprar');
+    expect(p03.recomendacion.motivos.join(' ')).toContain('Se agotó');
+    expect(p05.existencia_cajas).toBe(3);
+  });
+
+  it('cada plaza cuenta sus días desde SU primera actividad', () => {
+    const conTardia = fuente({
+      dias: 45,
+      venta_por_plaza: { '03': new Array(45).fill(100), '06': [...new Array(40).fill(0), 1, 1, 1, 1, 1] },
+    });
+    const { plazas } = armarProducto(conTardia, HOY, [], []);
+    const p06 = plazas.find((p) => p.plaza === '06')!;
+    expect(p06.dia).toBe(5);
+    expect(p06.recomendacion.veredicto).toBe('pronto');
+  });
+
+  it('los nombres de plaza llegan si se pasan', () => {
+    const { plazas } = armarProducto(f, HOY, [], [], { conCosto: true, nombres: new Map([['03', '8ESQ']]) });
+    expect(plazas.find((p) => p.plaza === '03')?.nombre).toBe('8ESQ');
+  });
+});
+
+describe('cohortes, resumen y costo oculto', () => {
   const filas = [
-    aFila(fuente({ product_id: 'a', lanzamiento: '2026-06-01', dia: 120 })),
-    aFila(fuente({ product_id: 'b', lanzamiento: '2026-06-20', dia: 101, primera_recompra: null,
-      venta_30: null, venta_total: 0 })),
-    // Sin inversión medida: su venta NO entra al cociente.
-    aFila(fuente({ product_id: 'c', lanzamiento: '2026-07-05', dia: 86, inversion_total: null, venta_total: 5000 })),
-    aFila(fuente({ product_id: 'd', lanzamiento: '2026-07-10', dia: 81, exclusion_auto: 'promocion' })),
-    aFila(fuente({ product_id: 'e', lanzamiento: null, dia: null, sin_movimiento: true })),
+    armarProducto(fuente({ product_id: 'a', dias: 120 }), HOY, [], []).fila,
+    armarProducto(fuente({ product_id: 'b', dias: 101, venta_dia: new Array(101).fill(0), venta_por_plaza: {} }), HOY, [], []).fila,
+    armarProducto(fuente({ product_id: 'c', dias: 86, entradas: [], venta_dia: new Array(86).fill(50) }), HOY, [], []).fila,
+    armarProducto(fuente({ product_id: 'd', dias: 80, exclusion_auto: 'promocion' }), HOY, [], []).fila,
   ];
 
-  it('agrupa sólo lanzamientos reales, por mes, el más reciente primero', () => {
+  it('agrupa sólo lanzamientos reales, y el cociente usa el MISMO universo', () => {
     const c = construirCohortes(filas);
-    expect(c.map((x) => x.mes)).toEqual(['2026-07', '2026-06']);
-    expect(c[1].productos).toBe(2);
-    expect(c[0].productos).toBe(1); // la promoción de julio no cuenta
-  });
-
-  it('⭐ el cociente usa el MISMO universo arriba y abajo', () => {
-    const julio = construirCohortes(filas)[0];
+    const julio = c.find((x) => x.mes === sumarDias(HOY, -86).slice(0, 7))!;
     expect(julio.con_inversion).toBe(0);
-    expect(julio.inversion).toBeNull();
-    expect(julio.venta_por_peso).toBeNull(); // los $5,000 sin inversión no inventan un retorno
-    expect(julio.venta).toBe(5000);
+    expect(julio.venta_por_peso).toBeNull();
+    expect(c.reduce((a, x) => a + x.productos, 0)).toBe(3);
   });
 
-  it('recompra y "sin venta a 30 días" por cohorte', () => {
-    const junio = construirCohortes(filas)[1];
-    expect(junio.recomprados).toBe(1);
-    expect(junio.con_30_dias).toBe(2);
-    expect(junio.sin_venta_30).toBe(1);
-  });
-
-  it('el resumen cuenta cada estado y deja fuera de los KPIs lo que no es lanzamiento', () => {
+  it('el resumen cuenta veredictos', () => {
     const r = construirResumen(filas);
-    expect(r.total).toBe(5);
     expect(r.seguimiento).toBe(3);
     expect(r.excluido).toBe(1);
-    expect(r.sin_movimiento).toBe(1);
-    expect(r.por_confirmar).toBe(3);
-    expect(r.por_etapa.graduado).toBe(2);
+    expect(r.por_veredicto.no_recomprar).toBe(1);
+    expect(Object.values(r.por_veredicto).reduce((a, b) => a + b, 0)).toBe(3);
   });
-});
 
-describe('ocultarCosto — sin permiso no viaja la inversión', () => {
-  it('⛔ ni por producto ni sumada en la cohorte', () => {
-    const filas = ocultarCosto([aFila(fuente())]);
-    expect(filas[0].inversion_total).toBeNull();
-    expect(filas[0].venta_por_peso).toBeNull();
-    expect(filas[0].hitos[30].inversion).toBeNull();
-    // La venta sí: no es dato de costo.
-    expect(filas[0].venta_total).toBe(1800);
-    const cohorte = construirCohortes(filas)[0];
-    expect(cohorte.inversion).toBeNull();
-    expect(cohorte.venta_por_peso).toBeNull();
+  it('⛔ sin permiso no viaja la inversión, ni por producto ni sumada', () => {
+    const oc = ocultarCosto(filas);
+    expect(oc.every((f) => f.inversion_total === null && f.hitos[30].inversion === null)).toBe(true);
+    expect(construirResumen(oc).inversion).toBeNull();
   });
-});
 
-describe('esKindValido', () => {
-  it('acepta las cuatro clasificaciones y nada más', () => {
-    expect(esKindValido('nuevo')).toBe(true);
-    expect(esKindValido('no_mercancia')).toBe(true);
+  it('esKindValido acepta las cuatro clasificaciones y nada más', () => {
+    expect(['nuevo', 'recodificacion', 'promocion', 'no_mercancia'].every(esKindValido)).toBe(true);
     expect(esKindValido('otro')).toBe(false);
-    expect(esKindValido(null)).toBe(false);
   });
 });

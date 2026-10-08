@@ -1,39 +1,49 @@
-import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { rxResource } from '@angular/core/rxjs-interop';
+import { of } from 'rxjs';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { ButtonModule } from 'primeng/button';
 import { TooltipModule } from 'primeng/tooltip';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { SparklineComponent } from '../../../shared/components/charts/sparkline.component';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import {
   ClasificacionNueva,
-  EtapaNueva,
   HitoNuevo,
+  PlazaNueva,
   ProductoNuevo,
   ProductosNuevosService,
+  RespuestaNuevos,
+  VeredictoNuevo,
 } from '../productos-nuevos.service';
 
-/** Los filtros, en el orden en que se revisan. El primero es lo que de verdad se sigue. */
-export type VistaNuevos =
-  | 'seguimiento' | 'mes_1' | 'mes_2' | 'mes_3' | 'graduado'
+/** Qué se está mirando: todo lo que se sigue, un veredicto, o lo que queda fuera del seguimiento. */
+export type FiltroNuevos =
+  | 'seguimiento' | VeredictoNuevo
   | 'sin_venta_30' | 'por_confirmar' | 'sin_movimiento' | 'no_medible' | 'excluido';
 
-const CHIPS: { id: VistaNuevos; label: string; tono: 'base' | 'warn' | 'bad' | 'info' }[] = [
-  { id: 'seguimiento', label: 'En seguimiento', tono: 'base' },
-  { id: 'mes_1', label: 'Mes 1 (0 a 29 días)', tono: 'base' },
-  { id: 'mes_2', label: 'Mes 2', tono: 'base' },
-  { id: 'mes_3', label: 'Mes 3', tono: 'base' },
-  { id: 'graduado', label: 'Cumplieron 90 días', tono: 'base' },
-  { id: 'sin_venta_30', label: 'Sin venta en 30 días', tono: 'bad' },
-  { id: 'por_confirmar', label: 'Por confirmar', tono: 'warn' },
-  { id: 'sin_movimiento', label: 'Dados de alta, sin movimiento', tono: 'info' },
-  { id: 'no_medible', label: 'No medibles', tono: 'info' },
-  { id: 'excluido', label: 'Excluidos', tono: 'info' },
+/** Cada veredicto, como se ve. El orden es el de "qué pide acción primero". */
+export const VEREDICTOS: Record<VeredictoNuevo, { label: string; tono: 'ok' | 'warn' | 'bad' | 'info' | 'muted'; icon: string }> = {
+  recomprar: { label: 'Recomprar', tono: 'ok', icon: 'pi pi-check-circle' },
+  revisar: { label: 'Revisar', tono: 'warn', icon: 'pi pi-exclamation-circle' },
+  no_recomprar: { label: 'No recomprar', tono: 'bad', icon: 'pi pi-times-circle' },
+  esperar: { label: 'Esperar', tono: 'info', icon: 'pi pi-clock' },
+  pronto: { label: 'Aún es pronto', tono: 'muted', icon: 'pi pi-hourglass' },
+};
+const ORDEN_VEREDICTOS: VeredictoNuevo[] = ['recomprar', 'revisar', 'no_recomprar', 'esperar', 'pronto'];
+
+const OTROS: { id: FiltroNuevos; label: string }[] = [
+  { id: 'sin_venta_30', label: 'Sin venta en su primer mes' },
+  { id: 'por_confirmar', label: 'Por confirmar' },
+  { id: 'sin_movimiento', label: 'Dados de alta, sin movimiento' },
+  { id: 'no_medible', label: 'No medibles' },
+  { id: 'excluido', label: 'Excluidos' },
 ];
 
 export const OPCIONES_CLASIFICACION: { label: string; value: ClasificacionNueva | null }[] = [
@@ -45,28 +55,20 @@ export const OPCIONES_CLASIFICACION: { label: string; value: ClasificacionNueva 
 ];
 
 const ETIQUETA_CLASIFICACION: Record<ClasificacionNueva, string> = {
-  nuevo: 'Nuevo',
-  recodificacion: 'Recodificación',
-  promocion: 'Promoción',
-  no_mercancia: 'No es mercancía',
+  nuevo: 'Nuevo', recodificacion: 'Recodificación', promocion: 'Promoción', no_mercancia: 'No es mercancía',
 };
 
-const ETIQUETA_FUENTE: Record<string, string> = {
-  kepler: 'tienda',
-  ruta: 'ruta',
-  wincaja: 'Wincaja',
-  entradas: 'entradas',
-};
+/** Cada cuánto se vuelve a pedir lo de hoy mientras la pantalla está a la vista. */
+const REFRESCO_MS = 60_000;
 
-/** ¿La fila entra en esta vista? Pura: la prueba la ejerce sin montar el componente. */
-export function pasaVista(f: ProductoNuevo, v: VistaNuevos): boolean {
-  switch (v) {
+/** ¿La fila entra en este filtro? Pura: la prueba la ejerce sin montar el componente. */
+export function pasaFiltro(f: ProductoNuevo, filtro: FiltroNuevos): boolean {
+  switch (filtro) {
     case 'seguimiento': return f.estado === 'seguimiento';
-    case 'mes_1': case 'mes_2': case 'mes_3': case 'graduado':
-      return f.estado === 'seguimiento' && f.etapa === v;
     case 'sin_venta_30': return f.estado === 'seguimiento' && f.sin_venta_30;
     case 'por_confirmar': return f.estado === 'seguimiento' && f.clasificacion === null;
-    default: return f.estado === v;
+    case 'sin_movimiento': case 'no_medible': case 'excluido': return f.estado === filtro;
+    default: return f.estado === 'seguimiento' && f.recomendacion?.veredicto === filtro;
   }
 }
 
@@ -89,21 +91,52 @@ export function fechaCorta(iso: string | null): string {
   if (!iso) return '—';
   const t = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
   if (!Number.isFinite(t)) return '—';
-  return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(t);
+  return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', timeZone: 'UTC' }).format(t);
+}
+
+/** La existencia de una plaza, en palabras. Nunca inventa "cajas" si la plaza no declara divisor. */
+export function existenciaTexto(p: Pick<PlazaNueva, 'existencia' | 'existencia_cajas'>): string {
+  if (p.existencia === null) return 'Sin existencia registrada';
+  if (p.existencia <= 0) return 'Agotado';
+  if (p.existencia_cajas !== null) return `Hay ${p.existencia_cajas.toLocaleString('es-MX')} cajas`;
+  return `Hay ${p.existencia.toLocaleString('es-MX')} unidades`;
 }
 
 /**
- * `[NP.5]` — **Productos nuevos.** Cada código que entra al catálogo se sigue 30, 60 y 90 días
- * desde su primera entrada o venta: cuánto se invirtió, cuánto vendió y si se volvió a comprar.
+ * Sólo las semanas COMPLETAS van a la gráfica. La semana en curso trae únicamente los días que
+ * ya pasaron, y pintarla hacía que la línea "se desplomara" al final — se leía como una caída que
+ * no existe. Lo de esta semana se dice en texto ("Hoy $…").
+ */
+export function semanasCerradas(semanas: number[], dia: number | null): number[] {
+  if (dia === null || !semanas.length) return [];
+  return (dia + 1) % 7 === 0 ? semanas : semanas.slice(0, -1);
+}
+
+/** La tendencia de 4 semanas contra las 4 anteriores, en palabras. */
+export function tendenciaTexto(t: number | null): string {
+  if (t === null) return 'Sin 8 semanas para comparar';
+  const pct = Math.round((t - 1) * 100);
+  if (pct === 0) return 'Igual que las 4 semanas anteriores';
+  return `${pct > 0 ? '+' : ''}${pct}% contra las 4 semanas anteriores`;
+}
+
+/**
+ * `[NP.5]` — **Productos nuevos.** Cada código que entra al catálogo se sigue 90 días desde su
+ * primera entrada o venta, y el sistema dice si conviene volver a comprarlo: global en la lista y,
+ * al abrirlo, sucursal por sucursal.
  *
- * La pantalla no decide nada: qué es nuevo, en qué etapa va y qué cuenta para la cohorte lo
- * resuelve el servidor (`libs/commercial/.../new-products.ts`). Aquí se pinta y se DECLARA lo que
- * no se mide (inversión sin entrada en Kepler, historia corta) en vez de dibujarlo como cero.
+ * La pantalla no decide nada: la recomendación, la etapa y lo que cuenta para la cohorte vienen
+ * del servidor (`libs/commercial/.../new-products.ts`). Aquí se pinta y se DECLARA lo que no se
+ * mide (inversión sin entrada en Kepler, historia corta) en vez de dibujarlo como cero.
+ *
+ * EN VIVO: lo de hoy (venta, entradas, existencia) se vuelve a pedir cada minuto mientras la
+ * pestaña está a la vista; la historia cierra cada noche. La pantalla dice las dos horas.
  */
 @Component({
   selector: 'app-compras-catalogo-nuevos',
   standalone: true,
-  imports: [CommonModule, FormsModule, TableModule, SelectModule, ButtonModule, TooltipModule, PageTabsComponent],
+  imports: [CommonModule, FormsModule, TableModule, SelectModule, ButtonModule, TooltipModule,
+    PageTabsComponent, SidePeekComponent, SparklineComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page pn">
@@ -111,8 +144,7 @@ export function fechaCorta(iso: string | null): string {
         <div class="surf-page-head-text">
           <h1>Productos nuevos</h1>
           <p class="surf-page-sub">
-            Cada código que entra al catálogo se sigue 90 días desde su primera entrada o venta:
-            cuánto se invirtió, cuánto vendió y si se volvió a comprar.
+            Cómo le va a cada código nuevo y si conviene volver a comprarlo. Se sigue 90 días desde su primera entrada o venta.
           </p>
         </div>
       </header>
@@ -123,388 +155,510 @@ export function fechaCorta(iso: string | null): string {
         @if (!d.calculado) {
           <section class="pn-aviso" role="status">
             <strong>Las cifras todavía no se calculan.</strong>
-            <span>Se calculan cada noche a las 6:20 con la venta y las entradas del día anterior. Vuelve mañana.</span>
+            <span>La historia se calcula cada noche a las 6:20. Vuelve mañana.</span>
           </section>
         } @else {
-          <p class="pn-frescura">
-            Cifras al {{ fechaHora(d.calculado_at) }} · se recalculan cada noche.
-          </p>
+          <div class="pn-vivo" role="status">
+            <span class="pn-punto" [class.is-off]="error()" aria-hidden="true"></span>
+            <span class="pn-vivo-t">{{ error() ? 'Sin conexión' : 'En vivo' }}</span>
+            <span class="pn-vivo-d">
+              Venta, entradas y existencia de hoy al {{ hora(d.frescura?.en_vivo_al) }} · historia al cierre de anoche.
+              Se actualiza solo cada minuto.
+            </span>
+            <button pButton type="button" class="p-button-sm p-button-text" [loading]="cargando()" (click)="recargar()"
+                    aria-label="Actualizar ahora">
+              <span class="p-button-icon pi pi-refresh" aria-hidden="true"></span>
+            </button>
+          </div>
 
           @if (d.resumen; as r) {
             <section class="pn-respuesta" aria-live="polite">
               <p class="pn-titular">
-                {{ n(r.seguimiento) }} productos nuevos en seguimiento:
-                @if (d.costo_visible && r.inversion !== null) {
-                  se invirtieron {{ dinero(r.inversion) }} y han vendido {{ dinero(r.venta) }}.
+                @if (r.seguimiento === 0) {
+                  Ningún producto nuevo en seguimiento.
+                } @else if (r.por_veredicto.recomprar > 0) {
+                  De {{ n(r.seguimiento) }} productos nuevos, conviene volver a comprar {{ n(r.por_veredicto.recomprar) }}.
                 } @else {
-                  han vendido {{ dinero(r.venta) }}.
+                  De {{ n(r.seguimiento) }} productos nuevos, ninguno pide recompra todavía.
                 }
               </p>
+              <div class="pn-veredictos" role="group" aria-label="Filtrar por recomendación">
+                @for (v of ordenVeredictos; track v) {
+                  <button type="button" [class]="'pn-ver pn-tono-' + verd(v).tono" [class.is-sel]="filtro() === v"
+                          [attr.aria-pressed]="filtro() === v" (click)="alternar(v)">
+                    <i [class]="verd(v).icon" aria-hidden="true"></i>
+                    <span>{{ verd(v).label }}</span>
+                    <strong>{{ n(r.por_veredicto[v]) }}</strong>
+                  </button>
+                }
+              </div>
               <p class="pn-sub">
-                {{ n(r.sin_venta_30) }} de {{ n(r.con_30_dias) }} que ya cumplieron 30 días no vendieron nada en ese mes ·
-                {{ n(r.recomprados) }} ya se volvieron a comprar ·
+                @if (d.costo_visible && r.inversion !== null) {
+                  Se invirtieron {{ dinero(r.inversion) }} y han vendido {{ dinero(r.venta) }}.
+                } @else {
+                  Han vendido {{ dinero(r.venta) }}.
+                }
+                @if (r.venta_hoy > 0) { Hoy van {{ dinero(r.venta_hoy) }}. }
                 {{ n(r.por_confirmar) }} esperan que Compras confirme qué son.
               </p>
-              @if (!d.costo_visible) {
-                <p class="pn-sub">No tienes permiso para ver costos: la inversión no se muestra.</p>
-              }
-            </section>
-
-            <section class="pn-kpis" aria-label="Indicadores">
-              @if (d.costo_visible) {
-                <div class="pn-kpi">
-                  <span class="pn-k">Inversión</span>
-                  <span class="pn-v">{{ r.inversion === null ? 'No medida' : dinero(r.inversion) }}</span>
-                  <span class="pn-d">importe de las entradas en Kepler</span>
-                </div>
-              }
-              <div class="pn-kpi">
-                <span class="pn-k">Venta acumulada</span>
-                <span class="pn-v">{{ dinero(r.venta) }}</span>
-                <span class="pn-d">desde su lanzamiento, todas las plazas</span>
-              </div>
-              @if (d.costo_visible) {
-                <div class="pn-kpi">
-                  <span class="pn-k">Venta por cada $1 invertido</span>
-                  <span class="pn-v">{{ r.venta_por_peso === null ? '—' : veces(r.venta_por_peso) }}</span>
-                  <span class="pn-d">sólo productos con inversión medida</span>
-                </div>
-              }
-              <div class="pn-kpi">
-                <span class="pn-k">Se volvieron a comprar</span>
-                <span class="pn-v">{{ n(r.recomprados) }} <small>de {{ n(r.seguimiento) }}</small></span>
-                <span class="pn-d">segunda entrada en una plaza que ya lo tenía</span>
-              </div>
-              <div class="pn-kpi">
-                <span class="pn-k">Sin venta en su primer mes</span>
-                <span class="pn-v" [class.pn-bad]="r.sin_venta_30 > 0">{{ n(r.sin_venta_30) }} <small>de {{ n(r.con_30_dias) }}</small></span>
-                <span class="pn-d">ya cumplieron 30 días</span>
-              </div>
             </section>
           }
 
-          @if (d.cohortes.length) {
-            <section class="pn-bloque" aria-labelledby="pn-cohortes">
-              <h2 id="pn-cohortes" class="pn-h2">Por mes de lanzamiento</h2>
-              <div class="pn-tabla">
-                <table class="pn-cohortes">
-                  <thead>
-                    <tr>
-                      <th scope="col">Mes</th>
-                      <th scope="col" class="pn-num">Productos</th>
-                      @if (d.costo_visible) { <th scope="col" class="pn-num">Inversión</th> }
-                      <th scope="col" class="pn-num">Venta</th>
-                      @if (d.costo_visible) { <th scope="col" class="pn-num">Venta por $1</th> }
-                      <th scope="col" class="pn-num">Recomprados</th>
-                      <th scope="col" class="pn-num">Sin venta en 30 días</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    @for (c of d.cohortes; track c.mes) {
-                      <tr>
-                        <td>{{ mes(c.mes) }}</td>
-                        <td class="pn-num pn-mono">{{ n(c.productos) }}</td>
-                        @if (d.costo_visible) {
-                          <td class="pn-num pn-mono" [pTooltip]="c.con_inversion < c.productos ? (c.productos - c.con_inversion) + ' sin inversión medida' : ''">
-                            {{ c.inversion === null ? 'No medida' : dinero(c.inversion) }}
-                          </td>
-                        }
-                        <td class="pn-num pn-mono">{{ dinero(c.venta) }}</td>
-                        @if (d.costo_visible) {
-                          <td class="pn-num pn-mono">{{ c.venta_por_peso === null ? '—' : veces(c.venta_por_peso) }}</td>
-                        }
-                        <td class="pn-num pn-mono">{{ n(c.recomprados) }}</td>
-                        <td class="pn-num pn-mono">{{ c.con_30_dias ? n(c.sin_venta_30) + ' de ' + n(c.con_30_dias) : '—' }}</td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          }
-
-          <div class="pn-chips" role="group" aria-label="Filtrar productos">
-            @for (ch of chips; track ch.id) {
-              <button type="button" [class]="'pn-chip pn-tono-' + ch.tono" [class.is-sel]="vista() === ch.id"
-                      [attr.aria-pressed]="vista() === ch.id" (click)="vista.set(ch.id)">
-                <span>{{ ch.label }}</span>
-                <span class="pn-chip-n">{{ n(conteo(ch.id)) }}</span>
+          <div class="pn-filtros">
+            <div class="pn-otros" role="group" aria-label="Otras vistas">
+              <button type="button" class="pn-chip" [class.is-sel]="filtro() === 'seguimiento'"
+                      [attr.aria-pressed]="filtro() === 'seguimiento'" (click)="filtro.set('seguimiento')">
+                Todos en seguimiento <span class="pn-chip-n">{{ n(conteo('seguimiento')) }}</span>
               </button>
-            }
+              @for (o of otros; track o.id) {
+                <button type="button" class="pn-chip" [class.is-sel]="filtro() === o.id"
+                        [attr.aria-pressed]="filtro() === o.id" (click)="filtro.set(o.id)">
+                  {{ o.label }} <span class="pn-chip-n">{{ n(conteo(o.id)) }}</span>
+                </button>
+              }
+            </div>
             <label class="pn-buscar">
               <span class="pn-sr">Buscar producto</span>
+              <i class="pi pi-search" aria-hidden="true"></i>
               <input type="search" [ngModel]="busqueda()" (ngModelChange)="busqueda.set($event)"
                      placeholder="Buscar SKU, nombre, marca o proveedor" autocomplete="off" spellcheck="false" />
             </label>
           </div>
 
           <div class="pn-tabla">
-            <p-table [value]="filas()" dataKey="product_id" [expandedRowKeys]="abiertos" [paginator]="filas().length > 50"
-                     [rows]="50" size="small" class="surf-table surf-table--sticky">
+            <p-table [value]="filas()" dataKey="product_id" [paginator]="filas().length > 50" [rows]="50"
+                     size="small" class="surf-table surf-table--sticky">
               <ng-template #header>
                 <tr>
-                  <th scope="col" class="pn-col-toggle"><span class="pn-sr">Detalle</span></th>
                   <th scope="col">Producto</th>
-                  <th scope="col">Lanzamiento</th>
-                  <th scope="col" class="pn-num">30 días</th>
-                  <th scope="col" class="pn-num">60 días</th>
-                  <th scope="col" class="pn-num">90 días</th>
-                  @if (d.costo_visible) { <th scope="col" class="pn-num" pTooltip="Venta acumulada entre lo invertido">Venta por $1</th> }
-                  <th scope="col">Recompra</th>
-                  <th scope="col">Plazas</th>
-                  <th scope="col">Clasificación</th>
+                  <th scope="col">¿Volver a comprar?</th>
+                  <th scope="col">Venta por semana</th>
+                  <th scope="col" class="pn-num">Vendido</th>
+                  <th scope="col">30 · 60 · 90 días</th>
+                  <th scope="col">Sucursales</th>
+                  <th scope="col"><span class="pn-sr">Abrir</span></th>
                 </tr>
               </ng-template>
-              <ng-template #body let-f let-expanded="expanded">
-                <tr>
-                  <td class="pn-col-toggle">
-                    <button type="button" class="pn-toggle" [pRowToggler]="f" [attr.aria-expanded]="expanded"
-                            [attr.aria-label]="(expanded ? 'Cerrar' : 'Abrir') + ' detalle de ' + (f.nombre || f.sku)">
-                      <i [class]="expanded ? 'pi pi-chevron-down' : 'pi pi-chevron-right'" aria-hidden="true"></i>
-                    </button>
-                  </td>
-                  <td>
+              <ng-template #body let-f>
+                <tr class="pn-fila" tabindex="0" role="button" [attr.aria-label]="'Ver ' + (f.nombre || f.sku) + ' por sucursal'"
+                    (click)="abrir(f)" (keydown.enter)="abrir(f)" (keydown.space)="$event.preventDefault(); abrir(f)">
+                  <td class="pn-c-prod">
                     <div class="pn-prod">{{ f.nombre || 'Sin nombre en catálogo' }}</div>
-                    <div class="pn-meta">
-                      <span class="pn-mono">{{ f.sku }}</span>
-                      @if (f.marca) { · {{ f.marca }} }
-                      @if (f.proveedor) { · {{ f.proveedor }} }
-                    </div>
+                    <div class="pn-meta"><span class="pn-mono">{{ f.sku }}</span>@if (f.marca) { · {{ f.marca }} }</div>
                     <div class="pn-tags">
-                      <span class="pn-tag pn-tag-nuevo">{{ etapa(f.etapa, f.dia) }}</span>
-                      @if (f.sin_venta_30 && f.estado === 'seguimiento') { <span class="pn-tag pn-tag-bad">Sin venta en 30 días</span> }
+                      <span class="pn-tag pn-tag-nuevo">{{ etapa(f) }}</span>
                       @if (f.posible_recodificacion && !f.clasificacion) {
                         <span class="pn-tag pn-tag-warn" pTooltip="Otro producto dado de alta antes tiene el mismo código de barras">Posible recodificación</span>
                       }
                     </div>
                   </td>
-                  <td>
-                    <div>{{ fecha(f.lanzamiento) }}</div>
-                    @if (f.lanzamiento) {
-                      <div class="pn-meta">{{ f.primera_recepcion === f.lanzamiento ? 'primera entrada' : 'primera venta' }}</div>
+                  <td class="pn-c-rec">
+                    @if (f.recomendacion; as rec) {
+                      <span [class]="'pn-pill pn-tono-' + verd(rec.veredicto).tono">
+                        <i [class]="verd(rec.veredicto).icon" aria-hidden="true"></i>{{ verd(rec.veredicto).label }}
+                      </span>
+                      <div class="pn-motivo">{{ rec.motivos[0] }}</div>
                     } @else {
-                      <div class="pn-meta">alta {{ fecha(f.alta_suite) }}</div>
+                      <span class="pn-pill pn-tono-muted">{{ f.motivo }}</span>
                     }
                   </td>
-                  @for (h of hitos; track h) {
-                    <td class="pn-num pn-hito">
-                      @if (f.estado !== 'seguimiento' && f.estado !== 'excluido' || !hitoVisible(f.dia, h)) {
-                        <span class="pn-muted">—</span>
+                  <td class="pn-c-spk">
+                    @if (cerradas(f.semanas, f.dia); as sem) {
+                      @if (sem.length > 1) {
+                        <app-sparkline [data]="sem" [labels]="etiquetasSemanas(sem.length)" format="currency"
+                                       [color]="colorVer(f)" class="pn-spk" />
+                      } @else if (f.dia !== null) {
+                        <span class="pn-meta">{{ sem.length ? 'Una semana completa' : 'Primera semana en curso' }}</span>
                       } @else {
-                        @if (f.hitos[h].venta !== null) {
-                          <span class="pn-mono pn-fuerte">{{ dinero(f.hitos[h].venta) }}</span>
-                        } @else {
-                          <span class="pn-muted">sin venta</span>
-                        }
-                        @if (d.costo_visible) {
-                          <span class="pn-sub-c">{{ f.hitos[h].inversion === null ? 'inversión no medida' : 'invertido ' + dinero(f.hitos[h].inversion) }}</span>
-                        }
-                        @if (!f.hitos[h].cerrado) { <span class="pn-curso">en curso</span> }
+                        <span class="pn-muted">—</span>
                       }
-                    </td>
-                  }
-                  @if (d.costo_visible) {
-                    <td class="pn-num pn-mono">{{ f.venta_por_peso === null ? '—' : veces(f.venta_por_peso) }}</td>
-                  }
-                  <td>
-                    @if (f.dia_recompra !== null) {
-                      <span>Día {{ f.dia_recompra }}</span>
-                    } @else if (f.entradas === 0) {
-                      <span class="pn-muted" pTooltip="Sin entradas en Kepler: no se puede saber">No medida</span>
-                    } @else {
-                      <span class="pn-muted">Todavía no</span>
                     }
+                    @if (f.venta_hoy > 0) { <div class="pn-hoy"><span class="pn-punto" aria-hidden="true"></span>Hoy {{ dinero(f.venta_hoy) }}</div> }
                   </td>
-                  <td class="pn-plazas">
-                    <span pTooltip="Plazas que lo recibieron">{{ f.plazas_recibido }} recibe</span> ·
-                    <span pTooltip="Plazas que lo vendieron">{{ f.plazas_venta }} vende</span> ·
-                    <span pTooltip="Plazas con existencia hoy">{{ f.plazas_con_existencia }} con existencia</span>
-                  </td>
-                  <td>
-                    @if (f.estado === 'excluido' || f.estado === 'no_medible' || f.estado === 'sin_movimiento') {
-                      <span class="pn-tag">{{ f.motivo }}</span>
-                    } @else if (f.clasificacion) {
-                      <span class="pn-tag pn-tag-ok">{{ etiquetaClasificacion(f.clasificacion) }}</span>
-                    } @else {
-                      <span class="pn-tag pn-tag-warn">Por confirmar</span>
-                    }
-                  </td>
-                </tr>
-              </ng-template>
-              <ng-template #expandedrow let-f>
-                <tr class="pn-detalle-fila">
-                  <td [attr.colspan]="d.costo_visible ? 10 : 9">
-                    <div class="pn-detalle">
-                      <dl class="pn-datos">
-                        <div><dt>Alta en la Suite</dt><dd>{{ fecha(f.alta_suite) }}{{ f.alta_en_lote ? ' (carga masiva)' : '' }}</dd></div>
-                        <div><dt>Primera entrada</dt><dd>{{ fecha(f.primera_recepcion) }}</dd></div>
-                        <div><dt>Primera venta</dt><dd>{{ fecha(f.primera_venta) }}</dd></div>
-                        <div><dt>Última venta</dt><dd>{{ fecha(f.ultima_venta) }}</dd></div>
-                        <div><dt>Días con venta en su primer mes</dt><dd>{{ f.lanzamiento ? f.dias_con_venta_30 + ' de 30' : '—' }}</dd></div>
-                        <div><dt>Entradas</dt><dd>{{ f.entradas }}</dd></div>
-                        <div><dt>Se vio en</dt><dd>{{ fuentes(f.fuentes) }}</dd></div>
-                        @if (d.costo_visible) {
-                          <div><dt>Inversión total</dt><dd>{{ f.inversion_total === null ? 'No medida' : dinero(f.inversion_total) }}</dd></div>
+                  <td class="pn-num">
+                    @if (f.venta_total !== null) {
+                      <div class="pn-mono pn-fuerte">{{ dinero(f.venta_total) }}</div>
+                      @if (d.costo_visible) {
+                        @if (f.venta_por_peso !== null) {
+                          <div class="pn-barra" [attr.aria-label]="'Vendió ' + veces(f.venta_por_peso) + ' por cada peso invertido'">
+                            <span [style.width.%]="barra(f.venta_por_peso)" [class.is-ok]="f.venta_por_peso >= 1"></span>
+                          </div>
+                          <div class="pn-meta">{{ veces(f.venta_por_peso) }} por $1 invertido</div>
+                        } @else {
+                          <div class="pn-meta">inversión no medida</div>
                         }
-                        <div><dt>Venta total</dt><dd>{{ f.venta_total === null ? 'Sin venta' : dinero(f.venta_total) }}</dd></div>
-                      </dl>
-
-                      <form class="pn-clasificar" (submit)="$event.preventDefault(); guardar(f)">
-                        <h3 class="pn-h3">¿Qué es este código?</h3>
-                        <p class="pn-meta">Sólo los lanzamientos reales cuentan para la inversión y el retorno.</p>
-                        <p-select [options]="opciones" optionLabel="label" optionValue="value"
-                                  [ngModel]="borrador(f).clasificacion" (ngModelChange)="editar(f, 'clasificacion', $event)"
-                                  [ngModelOptions]="{ standalone: true }" [disabled]="!puedeGestionar()"
-                                  appendTo="body" ariaLabel="Clasificación" class="pn-sel" />
-                        <textarea class="pn-nota" rows="2" maxlength="500" [ngModel]="borrador(f).nota"
-                                  (ngModelChange)="editar(f, 'nota', $event)" [ngModelOptions]="{ standalone: true }"
-                                  [disabled]="!puedeGestionar()" placeholder="Nota: por qué se catalogó, qué se espera, proveedor…"
-                                  aria-label="Nota de la clasificación"></textarea>
-                        <div class="pn-acciones">
-                          @if (puedeGestionar()) {
-                            <button pButton type="submit" class="p-button-sm" [loading]="guardando() === f.product_id">
-                              <span class="p-button-label">Guardar</span>
-                            </button>
+                      }
+                    } @else {
+                      <span class="pn-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    <div class="pn-hitos">
+                      @for (h of hitos; track h) {
+                        <span class="pn-hito" [class.is-curso]="!f.hitos[h].cerrado && hitoVisible(f.dia, h)"
+                              [pTooltip]="tipHito(f, h)">
+                          <small>{{ h }}d</small>
+                          @if (!hitoVisible(f.dia, h) || f.estado === 'sin_movimiento') {
+                            <b class="pn-muted">—</b>
                           } @else {
-                            <span class="pn-meta">Necesitas permiso para gestionar productos.</span>
+                            <b>{{ f.hitos[h].venta === null ? 'sin venta' : dineroCorto(f.hitos[h].venta) }}</b>
                           }
-                          @if (f.clasificado_por) { <span class="pn-meta">Última clasificación: {{ f.clasificado_por }}</span> }
-                          @if (errorGuardar() === f.product_id) { <span class="pn-error" role="alert">No se pudo guardar. Intenta de nuevo.</span> }
-                        </div>
-                      </form>
+                        </span>
+                      }
                     </div>
                   </td>
+                  <td class="pn-c-plazas">
+                    @if (f.plazas_venta > 0 || f.plazas_con_existencia > 0) {
+                      <div>Vende en {{ f.plazas_venta }}</div>
+                      @if (f.agotado_en > 0) {
+                        <div class="pn-agotado">Agotado en {{ f.agotado_en }}</div>
+                      } @else {
+                        <div class="pn-meta">Hay existencia en {{ f.plazas_con_existencia }}</div>
+                      }
+                    } @else {
+                      <span class="pn-muted">—</span>
+                    }
+                  </td>
+                  <td class="pn-c-abrir"><i class="pi pi-chevron-right" aria-hidden="true"></i></td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td [attr.colspan]="d.costo_visible ? 10 : 9" class="pn-vacio">Ningún producto en esta vista.</td></tr>
+                <tr><td colspan="7" class="pn-vacio">Ningún producto en esta vista.</td></tr>
               </ng-template>
             </p-table>
           </div>
 
-          <footer class="pn-notas">
-            <p>El seguimiento arranca en la primera entrada o la primera venta, no en el alta: un código que tarda en llegar no se castiga.
-              La fecha de alta es la de la Suite; la de Kepler todavía no se identifica.</p>
-            <p>Inversión = importe de las entradas de Kepler. El CEDIS operó en Wincaja hasta el 30 de septiembre, y las plazas 01, 02 y 06
-              antes de pasar a Kepler: lo que entró por ahí no se ve y el producto dice «inversión no medida», no cero.</p>
-            <p>Las cifras son en pesos y sin margen: el costo de lo vendido todavía no se puede medir bien para un producto nuevo.
-              Recompra = una segunda entrada en una plaza que ya lo había recibido; el surtido inicial en varias plazas no cuenta.</p>
-            <p>No medible = no hay 90 días de historia antes de su primera actividad en todas las fuentes donde aparece (tienda, ruta, Wincaja o entradas),
-              así que no se puede afirmar que antes no se vendía. Las cargas masivas al catálogo no cuentan como altas.</p>
-          </footer>
+          @if (d.cohortes.length) {
+            <details class="pn-plegable">
+              <summary>Inversión y venta por mes de lanzamiento</summary>
+              <table class="pn-cohortes">
+                <thead>
+                  <tr>
+                    <th scope="col">Mes</th>
+                    <th scope="col" class="pn-num">Productos</th>
+                    @if (d.costo_visible) { <th scope="col" class="pn-num">Inversión</th> }
+                    <th scope="col" class="pn-num">Venta</th>
+                    @if (d.costo_visible) { <th scope="col" class="pn-num">Venta por $1</th> }
+                    <th scope="col" class="pn-num">Se volvieron a comprar</th>
+                    <th scope="col" class="pn-num">Sin venta en su primer mes</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  @for (c of d.cohortes; track c.mes) {
+                    <tr>
+                      <td>{{ mes(c.mes) }}</td>
+                      <td class="pn-num pn-mono">{{ n(c.productos) }}</td>
+                      @if (d.costo_visible) {
+                        <td class="pn-num pn-mono">{{ c.inversion === null ? 'No medida' : dinero(c.inversion) }}</td>
+                      }
+                      <td class="pn-num pn-mono">{{ dinero(c.venta) }}</td>
+                      @if (d.costo_visible) {
+                        <td class="pn-num pn-mono">{{ c.venta_por_peso === null ? '—' : veces(c.venta_por_peso) }}</td>
+                      }
+                      <td class="pn-num pn-mono">{{ n(c.recomprados) }}</td>
+                      <td class="pn-num pn-mono">{{ c.con_30_dias ? n(c.sin_venta_30) + ' de ' + n(c.con_30_dias) : '—' }}</td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </details>
+          }
+
+          <details class="pn-plegable">
+            <summary>Cómo se decide la recomendación</summary>
+            <ul class="pn-criterio">
+              <li><b>Aún es pronto</b> — antes del día {{ d.criterio.diasMinimos }}: hay muy poca venta para juzgar.</li>
+              <li><b>No recomprar</b> — nunca se vendió, o lleva {{ d.criterio.sinVentaDias }} días o más sin venderse.</li>
+              <li><b>Revisar</b> — la venta de las últimas 4 semanas cayó a menos del {{ pct(d.criterio.caidaMaxima) }} de las 4 anteriores,
+                o se vendió menos de {{ d.criterio.diasConVentaSano }} de los últimos {{ d.criterio.ventana }} días.</li>
+              <li><b>Recomprar</b> — se vende de forma sostenida y además se agotó en alguna sucursal que lo vende,
+                ya no hay existencia, o ya vendió {{ veces(d.criterio.recuperadoAlto) }} por cada $1 invertido.</li>
+              <li><b>Esperar</b> — se vende bien, pero todavía hay existencia y no ha recuperado lo invertido.</li>
+            </ul>
+            <p class="pn-meta">Es una propuesta del sistema; la decisión es de Compras. Mide rotación y recuperación de lo invertido
+              (a precio de venta), no margen: el costo de lo vendido todavía no se puede medir bien para un producto nuevo.
+              Lo de hoy no incluye la venta de ruta ni la de las plazas en Wincaja: esas se suman al cierre.</p>
+          </details>
         }
       } @else if (cargando()) {
         <p class="pn-meta">Cargando…</p>
       } @else if (error()) {
         <p class="pn-error" role="alert">No se pudieron cargar los productos nuevos. Intenta de nuevo en un momento.</p>
       }
+
+      <app-side-peek [open]="abierto() !== null" (openChange)="$event ? null : cerrar()" [width]="640"
+                     [title]="abierto()?.nombre || abierto()?.sku || ''"
+                     [subtitle]="subtitulo()">
+        @if (abierto(); as f) {
+          @if (det(); as dt) {
+            <div class="pk">
+              @if (dt.producto.recomendacion; as rec) {
+                <section [class]="'pk-ver pn-tono-' + verd(rec.veredicto).tono">
+                  <div class="pk-ver-t"><i [class]="verd(rec.veredicto).icon" aria-hidden="true"></i>{{ verd(rec.veredicto).label }}</div>
+                  <ul>@for (m of rec.motivos; track m) { <li>{{ m }}</li> }</ul>
+                </section>
+              } @else {
+                <section class="pk-ver pn-tono-muted"><div class="pk-ver-t">{{ dt.producto.motivo }}</div></section>
+              }
+
+              <section class="pk-bloque" aria-labelledby="pk-global">
+                <h3 id="pk-global" class="pk-h">Comportamiento global</h3>
+                <div class="pk-kpis">
+                  <div><span>Vendido</span><b>{{ dt.producto.venta_total === null ? '—' : dinero(dt.producto.venta_total) }}</b></div>
+                  @if (dt.costo_visible) {
+                    <div><span>Invertido</span><b>{{ dt.producto.inversion_total === null ? 'No medido' : dinero(dt.producto.inversion_total) }}</b></div>
+                    <div><span>Por $1 invertido</span><b>{{ dt.producto.venta_por_peso === null ? '—' : veces(dt.producto.venta_por_peso) }}</b></div>
+                  }
+                  <div><span>Días con venta (28)</span><b>{{ dt.producto.dias_con_venta_28 }} de 28</b></div>
+                  <div><span>Última venta</span><b>{{ fecha(dt.producto.ultima_venta) }}</b></div>
+                  <div><span>Hoy</span><b>{{ dinero(dt.producto.venta_hoy) }}</b></div>
+                </div>
+                <p class="pn-meta">{{ tendenciaTexto(dt.producto.tendencia) }} · {{ recompraTexto(dt.producto) }}</p>
+                @if (cerradas(dt.producto.semanas, dt.producto.dia); as sem) {
+                  @if (sem.length > 1) {
+                    <app-sparkline [data]="sem" [labels]="etiquetasSemanas(sem.length)"
+                                   format="currency" [color]="colorVer(dt.producto)" class="pk-spk" />
+                    <p class="pn-meta">Venta por semana completa desde el lanzamiento ({{ fecha(dt.producto.lanzamiento) }}).
+                      La semana en curso no se grafica: todavía no termina.</p>
+                  }
+                }
+                <table class="pk-hitos">
+                  <thead><tr><th scope="col">Corte</th><th scope="col" class="pn-num">Vendido</th>
+                    @if (dt.costo_visible) { <th scope="col" class="pn-num">Invertido</th> }<th scope="col">Estado</th></tr></thead>
+                  <tbody>
+                    @for (h of hitos; track h) {
+                      <tr>
+                        <td>A {{ h }} días</td>
+                        <td class="pn-num pn-mono">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (dt.producto.hitos[h].venta === null ? 'sin venta' : dinero(dt.producto.hitos[h].venta)) }}</td>
+                        @if (dt.costo_visible) {
+                          <td class="pn-num pn-mono">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (dt.producto.hitos[h].inversion === null ? 'no medida' : dinero(dt.producto.hitos[h].inversion)) }}</td>
+                        }
+                        <td>{{ dt.producto.hitos[h].cerrado ? 'Cerrado' : (hitoVisible(dt.producto.dia, h) ? 'En curso' : 'Todavía no llega') }}</td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </section>
+
+              <section class="pk-bloque" aria-labelledby="pk-plazas">
+                <h3 id="pk-plazas" class="pk-h">Por sucursal</h3>
+                @if (!dt.plazas.length) {
+                  <p class="pn-meta">Todavía no llega a ninguna sucursal.</p>
+                }
+                @for (p of dt.plazas; track p.plaza) {
+                  <article class="pk-plaza">
+                    <header>
+                      <div>
+                        <b>{{ p.nombre || ('Sucursal ' + p.plaza) }}</b>
+                        <span class="pn-meta"> · {{ p.plaza }}{{ p.dia !== null ? ' · día ' + p.dia : '' }}</span>
+                      </div>
+                      <span [class]="'pn-pill pn-tono-' + verd(p.recomendacion.veredicto).tono">
+                        <i [class]="verd(p.recomendacion.veredicto).icon" aria-hidden="true"></i>{{ verd(p.recomendacion.veredicto).label }}
+                      </span>
+                    </header>
+                    <div class="pk-plaza-cuerpo">
+                      <div class="pk-plaza-datos">
+                        <div><span>Vendido</span><b>{{ dinero(p.venta_total) }}</b></div>
+                        <div><span>Últimas 4 semanas</span><b>{{ dinero(p.venta_28) }}</b></div>
+                        <div><span>Existencia hoy</span><b [class.pn-agotado]="p.existencia !== null && p.existencia <= 0">{{ existenciaTexto(p) }}</b></div>
+                        <div><span>Última venta</span><b>{{ fecha(p.ultima_venta) }}</b></div>
+                        @if (dt.costo_visible) {
+                          <div><span>Invertido</span><b>{{ p.inversion_total === null ? 'No medido' : dinero(p.inversion_total) }}</b></div>
+                        }
+                        <div><span>Recompra</span><b>{{ p.primera_recompra ? fecha(p.primera_recompra) : 'Todavía no' }}</b></div>
+                      </div>
+                      @if (cerradas(p.semanas, p.dia); as sem) {
+                        @if (sem.length > 1) {
+                          <app-sparkline [data]="sem" [labels]="etiquetasSemanas(sem.length)" format="currency"
+                                         [color]="colorTono(verd(p.recomendacion.veredicto).tono)" class="pk-spk-mini" />
+                        }
+                      }
+                    </div>
+                    <p class="pn-meta">{{ p.recomendacion.motivos.join(' · ') }}@if (p.venta_hoy > 0) { · Hoy {{ dinero(p.venta_hoy) }} }</p>
+                  </article>
+                }
+              </section>
+
+              <form class="pk-bloque pk-clasificar" (submit)="$event.preventDefault(); guardar(f)">
+                <h3 class="pk-h">¿Qué es este código?</h3>
+                <p class="pn-meta">Sólo los lanzamientos reales cuentan para la inversión y el retorno.</p>
+                <p-select [options]="opciones" optionLabel="label" optionValue="value"
+                          [ngModel]="borrador(f).clasificacion" (ngModelChange)="editar(f, 'clasificacion', $event)"
+                          [ngModelOptions]="{ standalone: true }" [disabled]="!puedeGestionar()"
+                          appendTo="body" ariaLabel="Clasificación" class="pn-sel" />
+                <textarea class="pn-nota" rows="2" maxlength="500" [ngModel]="borrador(f).nota"
+                          (ngModelChange)="editar(f, 'nota', $event)" [ngModelOptions]="{ standalone: true }"
+                          [disabled]="!puedeGestionar()" placeholder="Nota: por qué se catalogó, qué se espera, proveedor…"
+                          aria-label="Nota de la clasificación"></textarea>
+                <div class="pn-acciones">
+                  @if (puedeGestionar()) {
+                    <button pButton type="submit" class="p-button-sm" [loading]="guardando() === f.product_id">
+                      <span class="p-button-label">Guardar</span>
+                    </button>
+                  } @else {
+                    <span class="pn-meta">Necesitas permiso para gestionar productos.</span>
+                  }
+                  @if (f.clasificado_por) { <span class="pn-meta">Última clasificación: {{ f.clasificado_por }}</span> }
+                  @if (errorGuardar() === f.product_id) { <span class="pn-error" role="alert">No se pudo guardar. Intenta de nuevo.</span> }
+                </div>
+              </form>
+
+              <p class="pn-meta">Hoy en vivo al {{ hora(dt.frescura.en_vivo_al) }} · historia al cierre de anoche.
+                No incluye ruta ni plazas en Wincaja hasta el cierre.</p>
+            </div>
+          } @else if (detError()) {
+            <p class="pn-error" role="alert">No se pudo cargar el detalle por sucursal.</p>
+          } @else {
+            <p class="pn-meta">Cargando sucursales…</p>
+          }
+        }
+      </app-side-peek>
     </div>
   `,
   styles: [`
     :host { display: block; }
     .pn { display: flex; flex-direction: column; gap: 1rem; }
-    .pn-frescura { margin: 0; font-size: var(--fs-xs); color: var(--c-text-2); }
     .pn-aviso { display: flex; flex-direction: column; gap: .25rem; background: var(--warn-soft-bg); border: 1px solid var(--c-divider);
       border-radius: 10px; padding: .875rem 1.125rem; font-size: var(--fs-sm); color: var(--c-text-1); }
-    .pn-respuesta { background: var(--c-surface-1); border: 1px solid var(--c-divider); border-radius: 10px; padding: 1rem 1.25rem; }
+    .pn-vivo { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem; font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pn-vivo-t { font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .pn-punto { display: inline-block; width: .5rem; height: .5rem; border-radius: 999px; background: var(--ok-fg); flex: none; }
+    .pn-punto.is-off { background: var(--c-text-3); }
+    .pn-respuesta { display: flex; flex-direction: column; gap: .75rem; background: var(--c-surface-1);
+      border: 1px solid var(--c-divider); border-radius: 12px; padding: 1.125rem 1.25rem; }
     .pn-titular { margin: 0; font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--c-text-1); line-height: 1.3; }
-    .pn-sub { margin: .35rem 0 0; font-size: var(--fs-sm); color: var(--c-text-2); }
-    .pn-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); gap: .75rem; }
-    .pn-kpi { display: flex; flex-direction: column; gap: .2rem; background: var(--c-surface-1); border: 1px solid var(--c-divider);
-      border-radius: 10px; padding: .75rem 1rem; }
-    .pn-k { font-size: var(--fs-xs); color: var(--c-text-2); }
-    .pn-v { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-lg); font-weight: var(--fw-bold); color: var(--c-text-1); }
-    .pn-v small { font-size: var(--fs-xs); font-weight: normal; color: var(--c-text-2); }
-    .pn-d { font-size: var(--fs-xs); color: var(--c-text-3); }
-    .pn-bad { color: var(--bad-fg); }
-    .pn-bloque { display: flex; flex-direction: column; gap: .5rem; }
-    .pn-h2 { margin: 0; font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--c-text-1); }
-    .pn-h3 { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1); }
-    .pn-tabla { background: var(--c-surface-1); border: 1px solid var(--c-divider); border-radius: 10px; overflow-x: auto; }
-    .pn-cohortes { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-    .pn-cohortes th, .pn-cohortes td { padding: .45rem .75rem; border-bottom: 1px solid var(--c-divider); text-align: left; }
-    .pn-cohortes th { font-size: var(--fs-xs); color: var(--c-text-2); font-weight: var(--fw-bold); }
-    .pn-cohortes tbody tr:last-child td { border-bottom: none; }
-    /* La regla de arriba alinea a la izquierda y gana por especificidad: los numeros van a la derecha. */
-    .pn-cohortes th.pn-num, .pn-cohortes td.pn-num { text-align: right; }
-    .pn-chips { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
-    .pn-chip { display: inline-flex; align-items: center; gap: .5rem; min-height: 2.25rem; padding: 0 .75rem;
+    .pn-sub { margin: 0; font-size: var(--fs-sm); color: var(--c-text-2); }
+    .pn-veredictos { display: flex; flex-wrap: wrap; gap: .5rem; }
+    .pn-ver { display: inline-flex; align-items: center; gap: .45rem; min-height: 2.5rem; padding: 0 .9rem;
+      border: 1px solid var(--c-divider); border-radius: 10px; background: var(--c-surface-1); color: var(--c-text-1);
+      font: inherit; font-size: var(--fs-sm); cursor: pointer; }
+    .pn-ver strong { font-family: var(--font-mono); font-size: var(--fs-sm); }
+    .pn-ver:hover { background: var(--c-surface-2); }
+    .pn-ver.is-sel { border-color: var(--action); background: var(--c-surface-2); }
+    .pn-ver:focus-visible, .pn-chip:focus-visible, .pn-fila:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .pn-tono-ok i, .pn-tono-ok strong { color: var(--ok-fg); }
+    .pn-tono-warn i, .pn-tono-warn strong { color: var(--warn-fg); }
+    .pn-tono-bad i, .pn-tono-bad strong { color: var(--bad-fg); }
+    .pn-tono-info i, .pn-tono-info strong { color: var(--c-text-2); }
+    .pn-tono-muted i, .pn-tono-muted strong { color: var(--c-text-3); }
+    .pn-filtros { display: flex; flex-wrap: wrap; gap: .75rem; align-items: center; justify-content: space-between; }
+    .pn-otros { display: flex; flex-wrap: wrap; gap: .4rem; }
+    .pn-chip { display: inline-flex; align-items: center; gap: .4rem; min-height: 2.25rem; padding: 0 .75rem;
       border: 1px solid var(--c-divider); border-radius: 999px; background: var(--c-surface-1);
       color: var(--c-text-1); font: inherit; font-size: var(--fs-sm); cursor: pointer; }
     .pn-chip:hover { background: var(--c-surface-2); }
     .pn-chip.is-sel { border-color: var(--action); background: var(--c-surface-2); font-weight: var(--fw-bold); }
-    .pn-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .pn-chip-n { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--c-text-2); }
-    .pn-tono-bad .pn-chip-n { color: var(--bad-fg); }
-    .pn-tono-warn .pn-chip-n { color: var(--warn-fg); }
-    .pn-buscar { margin-left: auto; }
-    .pn-buscar input { height: 2.25rem; width: 18rem; max-width: 100%; border: 1px solid var(--c-divider); border-radius: 8px;
-      padding: 0 .6rem; font: inherit; font-size: var(--fs-sm); background: var(--c-surface-1); color: var(--c-text-1); }
+    .pn-buscar { position: relative; display: inline-flex; align-items: center; }
+    .pn-buscar i { position: absolute; left: .65rem; font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pn-buscar input { height: 2.25rem; width: 19rem; max-width: 100%; border: 1px solid var(--c-divider); border-radius: 8px;
+      padding: 0 .6rem 0 1.9rem; font: inherit; font-size: var(--fs-sm); background: var(--c-surface-1); color: var(--c-text-1); }
     .pn-buscar input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .pn-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+    .pn-tabla { background: var(--c-surface-1); border: 1px solid var(--c-divider); border-radius: 12px; overflow-x: auto; }
+    .pn-fila { cursor: pointer; }
+    .pn-fila:hover > td { background: var(--c-surface-2); }
+    .pn-fila > td { vertical-align: middle; padding-top: .7rem; padding-bottom: .7rem; }
+    .pn-c-prod { min-width: 15rem; }
+    .pn-c-rec { min-width: 13rem; max-width: 18rem; }
+    .pn-c-spk { width: 9.5rem; }
+    .pn-c-plazas { font-size: var(--fs-sm); white-space: nowrap; }
+    .pn-c-abrir { width: 2rem; color: var(--c-text-3); }
     .pn-num { text-align: right; white-space: nowrap; }
     .pn-mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
     .pn-fuerte { font-weight: var(--fw-bold); color: var(--c-text-1); }
     .pn-muted { color: var(--c-text-3); }
-    .pn-col-toggle { width: 2.25rem; }
-    .pn-toggle { display: inline-flex; align-items: center; justify-content: center; width: 2rem; height: 2rem; border: none;
-      border-radius: 6px; background: none; color: var(--c-text-2); cursor: pointer; }
-    .pn-toggle:hover { background: var(--c-surface-2); }
-    .pn-toggle:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .pn-prod { font-weight: var(--fw-bold); color: var(--c-text-1); }
-    .pn-meta { font-size: var(--fs-xs); color: var(--c-text-3); }
-    .pn-tags { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .25rem; }
+    .pn-meta { margin: 0; font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pn-tags { display: flex; flex-wrap: wrap; gap: .25rem; margin-top: .3rem; }
     .pn-tag { display: inline-block; padding: .1rem .5rem; border-radius: 999px; font-size: var(--fs-xs);
       font-weight: var(--fw-bold); white-space: nowrap; background: var(--c-surface-2); color: var(--c-text-2); }
     .pn-tag-nuevo { background: var(--c-surface-2); color: var(--c-text-1); border: 1px solid var(--action); }
-    .pn-tag-bad { background: var(--bad-soft-bg); color: var(--bad-fg); }
     .pn-tag-warn { background: var(--warn-soft-bg); color: var(--c-text-1); }
-    .pn-tag-ok { background: var(--ok-soft-bg); color: var(--c-text-1); }
-    .pn-hito { vertical-align: top; }
-    .pn-hito > span { display: block; }
-    .pn-sub-c { font-size: var(--fs-xs); color: var(--c-text-2); font-family: var(--font-mono); }
-    .pn-curso { font-size: var(--fs-xs); color: var(--warn-fg); }
-    .pn-plazas { font-size: var(--fs-xs); color: var(--c-text-2); white-space: nowrap; }
-    .pn-detalle-fila > td { background: var(--c-surface-2); }
-    .pn-detalle { display: grid; grid-template-columns: minmax(0, 2fr) minmax(16rem, 1fr); gap: 1.25rem; padding: .5rem .25rem; }
-    .pn-datos { display: grid; grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)); gap: .5rem 1rem; margin: 0; }
-    .pn-datos dt { font-size: var(--fs-xs); color: var(--c-text-2); }
-    .pn-datos dd { margin: 0; font-size: var(--fs-sm); color: var(--c-text-1); }
-    .pn-clasificar { display: flex; flex-direction: column; gap: .5rem; }
+    .pn-pill { display: inline-flex; align-items: center; gap: .35rem; padding: .2rem .6rem; border-radius: 999px;
+      font-size: var(--fs-xs); font-weight: var(--fw-bold); white-space: nowrap; background: var(--c-surface-2); color: var(--c-text-1); }
+    .pn-pill.pn-tono-ok { background: var(--ok-soft-bg); }
+    .pn-pill.pn-tono-warn { background: var(--warn-soft-bg); }
+    .pn-pill.pn-tono-bad { background: var(--bad-soft-bg); color: var(--bad-fg); }
+    .pn-pill.pn-tono-muted { color: var(--c-text-2); }
+    .pn-motivo { margin-top: .3rem; font-size: var(--fs-xs); color: var(--c-text-2); line-height: 1.35; }
+    .pn-spk { --spk-h: 34px; }
+    .pn-hoy { display: inline-flex; align-items: center; gap: .3rem; margin-top: .2rem; font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pn-barra { height: .3rem; border-radius: 999px; background: var(--c-surface-2); margin: .3rem 0 .15rem auto; width: 6rem; overflow: hidden; }
+    .pn-barra span { display: block; height: 100%; background: var(--warn-fg); border-radius: 999px; }
+    .pn-barra span.is-ok { background: var(--ok-fg); }
+    .pn-hitos { display: flex; gap: .35rem; }
+    .pn-hito { display: flex; flex-direction: column; align-items: flex-start; min-width: 4.2rem; padding: .25rem .45rem;
+      border: 1px solid var(--c-divider); border-radius: 8px; }
+    .pn-hito small { font-size: var(--fs-micro); color: var(--c-text-3); }
+    .pn-hito b { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--c-text-1); white-space: nowrap; }
+    .pn-hito.is-curso { border-style: dashed; border-color: var(--warn-fg); }
+    .pn-agotado { color: var(--bad-fg); font-weight: var(--fw-bold); }
+    .pn-vacio { text-align: center; padding: 1.5rem; color: var(--c-text-2); }
+    .pn-plegable { background: var(--c-surface-1); border: 1px solid var(--c-divider); border-radius: 12px; padding: .75rem 1rem; }
+    .pn-plegable summary { cursor: pointer; font-weight: var(--fw-bold); font-size: var(--fs-sm); color: var(--c-text-1); }
+    .pn-plegable summary:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+    .pn-cohortes { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); margin-top: .75rem; }
+    .pn-cohortes th, .pn-cohortes td { padding: .45rem .75rem; border-bottom: 1px solid var(--c-divider); text-align: left; }
+    .pn-cohortes th { font-size: var(--fs-xs); color: var(--c-text-2); font-weight: var(--fw-bold); }
+    .pn-cohortes th.pn-num, .pn-cohortes td.pn-num { text-align: right; }
+    .pn-criterio { margin: .75rem 0 .5rem; padding-left: 1.1rem; font-size: var(--fs-sm); color: var(--c-text-1); line-height: 1.5; }
+    .pn-error { color: var(--bad-fg); font-size: var(--fs-sm); }
+    .pk { display: flex; flex-direction: column; gap: 1rem; }
+    .pk-ver { border: 1px solid var(--c-divider); border-left-width: 4px; border-radius: 10px; padding: .75rem 1rem; background: var(--c-surface-1); }
+    .pk-ver.pn-tono-ok { border-left-color: var(--ok-fg); }
+    .pk-ver.pn-tono-warn { border-left-color: var(--warn-fg); }
+    .pk-ver.pn-tono-bad { border-left-color: var(--bad-fg); }
+    .pk-ver.pn-tono-info, .pk-ver.pn-tono-muted { border-left-color: var(--c-text-3); }
+    .pk-ver-t { display: flex; align-items: center; gap: .45rem; font-weight: var(--fw-bold); font-size: var(--fs-lg); color: var(--c-text-1); }
+    .pk-ver ul { margin: .4rem 0 0; padding-left: 1.1rem; font-size: var(--fs-sm); color: var(--c-text-2); }
+    .pk-bloque { display: flex; flex-direction: column; gap: .6rem; }
+    .pk-h { margin: 0; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1); text-transform: uppercase; letter-spacing: .04em; }
+    .pk-kpis, .pk-plaza-datos { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .5rem .75rem; }
+    .pk-kpis div, .pk-plaza-datos div { display: flex; flex-direction: column; gap: .1rem; }
+    .pk-kpis span, .pk-plaza-datos span { font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pk-kpis b, .pk-plaza-datos b { font-size: var(--fs-sm); color: var(--c-text-1); font-family: var(--font-mono); }
+    .pk-spk { --spk-h: 64px; }
+    .pk-spk-mini { --spk-h: 40px; }
+    .pk-hitos { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+    .pk-hitos th, .pk-hitos td { padding: .35rem .5rem; border-bottom: 1px solid var(--c-divider); text-align: left; }
+    .pk-hitos th { font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pk-hitos th.pn-num, .pk-hitos td.pn-num { text-align: right; }
+    .pk-plaza { border: 1px solid var(--c-divider); border-radius: 10px; padding: .7rem .85rem; display: flex; flex-direction: column; gap: .5rem; }
+    .pk-plaza header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+    .pk-plaza-cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) 8rem; gap: .75rem; align-items: center; }
+    .pk-clasificar { border-top: 1px solid var(--c-divider); padding-top: 1rem; }
     .pn-sel { width: 100%; }
     .pn-nota { width: 100%; border: 1px solid var(--c-divider); border-radius: 8px; padding: .45rem .6rem; font: inherit;
       font-size: var(--fs-sm); background: var(--c-surface-1); color: var(--c-text-1); resize: vertical; }
     .pn-nota:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
     .pn-acciones { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
-    .pn-vacio { text-align: center; padding: 1.5rem; color: var(--c-text-2); }
-    .pn-notas { font-size: var(--fs-xs); color: var(--c-text-2); line-height: 1.5; }
-    .pn-notas p { margin: 0 0 .35rem; max-width: 62rem; }
-    .pn-error { color: var(--bad-fg); font-size: var(--fs-sm); }
     @media (max-width: 48rem) {
-      .pn-detalle { grid-template-columns: 1fr; }
-      .pn-buscar { margin-left: 0; width: 100%; }
-      .pn-buscar input { width: 100%; }
+      .pn-buscar, .pn-buscar input { width: 100%; }
+      .pk-plaza-cuerpo { grid-template-columns: 1fr; }
     }
   `],
 })
 export class ComprasCatalogoNuevosComponent {
   readonly tabs = CATALOGO_TABS;
-  readonly chips = CHIPS;
+  readonly otros = OTROS;
+  readonly ordenVeredictos = ORDEN_VEREDICTOS;
   readonly opciones = OPCIONES_CLASIFICACION;
   readonly hitos: HitoNuevo[] = [30, 60, 90];
   readonly hitoVisible = hitoVisible;
+  readonly existenciaTexto = existenciaTexto;
+  readonly tendenciaTexto = tendenciaTexto;
 
   private readonly api = inject(ProductosNuevosService);
   private readonly perms = inject(PermissionsService);
 
   readonly puedeGestionar = computed(() => this.perms.has(Permission.COMMERCIAL_PRODUCTS_GESTIONAR));
-  readonly vista = signal<VistaNuevos>('seguimiento');
+  readonly filtro = signal<FiltroNuevos>('seguimiento');
   readonly busqueda = signal('');
   readonly guardando = signal<string | null>(null);
   readonly errorGuardar = signal<string | null>(null);
   /** Lo que el usuario está editando, por producto. Se borra al guardar. */
   private readonly borradores = signal<Record<string, { clasificacion: ClasificacionNueva | null; nota: string }>>({});
-  abiertos: Record<string, boolean> = {};
 
   private readonly recarga = signal(0);
   private readonly res = rxResource({
@@ -512,21 +666,79 @@ export class ComprasCatalogoNuevosComponent {
     stream: () => this.api.listar(),
   });
 
-  /** `undefined` mientras carga o tras un error: nunca se pintan ceros que no se midieron. */
-  readonly datos = computed(() => (this.res.error() ? undefined : this.res.value()));
+  /** El producto abierto en el panel lateral. */
+  readonly abierto = signal<ProductoNuevo | null>(null);
+  private readonly detRes = rxResource({
+    params: () => {
+      const f = this.abierto();
+      return f ? { id: f.product_id, v: this.recarga() } : undefined;
+    },
+    stream: ({ params }) => (params ? this.api.detalle(params.id) : of(null)),
+  });
+  /** Sólo el detalle del producto que está abierto: al cambiar de producto no se ve el anterior. */
+  readonly det = computed(() => {
+    const d = this.detRes.error() ? null : this.detRes.value() ?? null;
+    return d && d.producto.product_id === this.abierto()?.product_id ? d : null;
+  });
+  readonly detError = computed(() => !!this.detRes.error());
+
+  /**
+   * El último dato bueno se conserva mientras se recarga o si una recarga falla: refrescar cada
+   * minuto no puede dejar la pantalla en blanco ni pintar ceros. El error se DICE en la franja.
+   */
+  private ultimo: RespuestaNuevos | undefined = undefined;
+  readonly datos = computed(() => {
+    // Primero el error: leer el valor de un recurso en error LANZA, y la pantalla reventaría en
+    // vez de decir "sin conexión".
+    if (this.res.error()) return this.ultimo;
+    const v = this.res.value();
+    if (v !== undefined) this.ultimo = v;
+    return v ?? this.ultimo;
+  });
   readonly cargando = computed(() => this.res.isLoading());
   readonly error = computed(() => !!this.res.error());
 
   readonly filas = computed(() => {
     const d = this.datos();
     if (!d) return [];
-    const v = this.vista();
+    const f = this.filtro();
     const q = this.busqueda();
-    return d.filas.filter((f) => pasaVista(f, v) && pasaBusqueda(f, q));
+    return d.filas.filter((x) => pasaFiltro(x, f) && pasaBusqueda(x, q));
   });
 
-  conteo(v: VistaNuevos): number {
-    return (this.datos()?.filas ?? []).filter((f) => pasaVista(f, v)).length;
+  readonly subtitulo = computed(() => {
+    const f = this.abierto();
+    if (!f) return null;
+    return [f.sku, f.marca, f.proveedor, f.lanzamiento ? 'lanzado el ' + fechaCorta(f.lanzamiento) : null]
+      .filter(Boolean).join(' · ');
+  });
+
+  constructor() {
+    // En vivo: se vuelve a pedir cada minuto, sólo con la pestaña a la vista.
+    const id = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') this.recargar();
+    }, REFRESCO_MS);
+    inject(DestroyRef).onDestroy(() => clearInterval(id));
+  }
+
+  recargar(): void {
+    this.recarga.update((n) => n + 1);
+  }
+
+  alternar(v: VeredictoNuevo): void {
+    this.filtro.set(this.filtro() === v ? 'seguimiento' : v);
+  }
+
+  conteo(f: FiltroNuevos): number {
+    return (this.datos()?.filas ?? []).filter((x) => pasaFiltro(x, f)).length;
+  }
+
+  abrir(f: ProductoNuevo): void {
+    this.abierto.set(f);
+  }
+
+  cerrar(): void {
+    this.abierto.set(null);
   }
 
   borrador(f: ProductoNuevo): { clasificacion: ClasificacionNueva | null; nota: string } {
@@ -550,7 +762,7 @@ export class ComprasCatalogoNuevosComponent {
           const { [f.product_id]: _, ...resto } = x;
           return resto;
         });
-        this.recarga.update((n) => n + 1);
+        this.recargar();
       },
       error: () => {
         this.guardando.set(null);
@@ -559,27 +771,62 @@ export class ComprasCatalogoNuevosComponent {
     });
   }
 
-  etapa(e: EtapaNueva, dia: number | null): string {
-    if (e === 'sin_movimiento' || dia === null) return 'Nuevo · sin movimiento';
-    if (e === 'graduado') return `Cumplió 90 días · día ${dia}`;
-    return `Nuevo · día ${dia}`;
+  verd(v: VeredictoNuevo) {
+    return VEREDICTOS[v];
+  }
+
+  colorTono(t: string): string {
+    return t === 'ok' ? 'var(--ok-fg)' : t === 'bad' ? 'var(--bad-fg)' : t === 'warn' ? 'var(--warn-fg)' : 'var(--c-text-3)';
+  }
+
+  colorVer(f: ProductoNuevo): string {
+    return f.recomendacion ? this.colorTono(VEREDICTOS[f.recomendacion.veredicto].tono) : 'var(--c-text-3)';
+  }
+
+  etiquetasSemanas(n: number): string[] {
+    return Array.from({ length: n }, (_, i) => `Semana ${i + 1}`);
+  }
+
+  cerradas(semanas: number[], dia: number | null): number[] {
+    return semanasCerradas(semanas, dia);
+  }
+
+  etapa(f: ProductoNuevo): string {
+    if (f.dia === null) return 'Nuevo · sin movimiento';
+    if (f.etapa === 'graduado') return `Cumplió 90 días · día ${f.dia}`;
+    return `Nuevo · día ${f.dia}`;
+  }
+
+  tipHito(f: ProductoNuevo, h: HitoNuevo): string {
+    if (!hitoVisible(f.dia, h)) return 'Todavía no llega';
+    const x = f.hitos[h];
+    const partes = [x.cerrado ? 'Cerrado' : 'En curso'];
+    if (this.datos()?.costo_visible) partes.push(x.inversion === null ? 'inversión no medida' : 'invertido ' + this.dinero(x.inversion));
+    return partes.join(' · ');
+  }
+
+  recompraTexto(f: ProductoNuevo): string {
+    if (f.dia_recompra !== null) return `Se volvió a comprar el día ${f.dia_recompra}`;
+    if (f.entradas === 0) return 'Sin entradas en Kepler: la recompra no se puede medir';
+    return 'Todavía no se vuelve a comprar';
   }
 
   etiquetaClasificacion(c: ClasificacionNueva): string {
     return ETIQUETA_CLASIFICACION[c];
   }
 
-  fuentes(lista: string[]): string {
-    return lista.length ? lista.map((x) => ETIQUETA_FUENTE[x] ?? x).join(', ') : 'ninguna';
+  /** La barra de "vendido por $1": llena en $1.50 para que pasar el $1 se note. */
+  barra(v: number): number {
+    return Math.max(4, Math.min(100, (v / 1.5) * 100));
   }
 
   fecha(iso: string | null): string {
     return fechaCorta(iso);
   }
 
-  fechaHora(iso: string | null): string {
-    if (!iso) return 'sin fecha';
-    return new Intl.DateTimeFormat('es-MX', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(iso));
+  hora(iso: string | null | undefined): string {
+    if (!iso) return '—';
+    return new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' }).format(new Date(iso));
   }
 
   mes(m: string): string {
@@ -594,8 +841,17 @@ export class ComprasCatalogoNuevosComponent {
     return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN', maximumFractionDigits: 0 }).format(v);
   }
 
+  dineroCorto(v: number): string {
+    if (Math.abs(v) >= 10_000) return `$${(v / 1000).toLocaleString('es-MX', { maximumFractionDigits: 1 })} mil`;
+    return this.dinero(v);
+  }
+
   veces(v: number): string {
     return `$${new Intl.NumberFormat('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v)}`;
+  }
+
+  pct(v: number): string {
+    return `${Math.round(v * 100)}%`;
   }
 
   n(v: number): string {

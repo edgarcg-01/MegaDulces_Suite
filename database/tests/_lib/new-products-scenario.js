@@ -216,6 +216,50 @@ async function sembrar(db) {
   return { hoy, productos: out };
 }
 
+/**
+ * Lo que pasa HOY: no entra a la historia (la matvista corta antes de hoy) y lo tiene que traer la
+ * parte en vivo. Una venta, una RECOMPRA hoy y la PRIMERA entrada de un producto que estaba sin
+ * movimiento (que tiene que pasar a "día 0").
+ */
+const VIVO = [
+  { clave: '03', tipo: 'venta', plaza: '04', qty: 2, precio: 265 },
+  { clave: '02', tipo: 'entrada', plaza: '02', qty: 40, costo: 150 },
+  { clave: '08', tipo: 'entrada', plaza: '01', qty: 24, costo: 35 },
+];
+
+async function sembrarVivo(db, hoy) {
+  let folio = 900000;
+  const out = [];
+  for (const v of VIVO) {
+    folio += 1;
+    const sk = `${PREFIJO_SKU}${v.clave}`;
+    const nombre = PRODUCTOS.find((p) => p.clave === v.clave).nombre;
+    if (v.tipo === 'venta') {
+      const f = `NPDV${folio}`;
+      const importe = r2(v.qty * v.precio);
+      await db.raw(
+        `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c12, c13, c16, c43)
+         VALUES (?, ?, 'U', 'D', 10, ?, ?, ?::timestamp, '991', 0, ?, 'N')`, [v.plaza, v.plaza, SERIE, f, hoy, importe]);
+      await db.raw(
+        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c11, c12, c13)
+         VALUES (?, ?, 'U', 'D', 10, ?, ?, 1, ?, ?, 'PZA', ?, ?)`, [v.plaza, v.plaza, SERIE, f, sk, v.qty, v.precio, importe]);
+      out.push({ clave: v.clave, tipo: 'venta', plaza: v.plaza, importe });
+    } else {
+      const f = `NPDR${folio}`;
+      const importe = r2(v.qty * v.costo);
+      await db.raw(
+        `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c43)
+         VALUES (?, ?, 'X', 'A', 20, ?, ?, ?::timestamp, 'N')`, [v.plaza, v.plaza, SERIE, f, hoy]);
+      await db.raw(
+        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13)
+         VALUES (?, ?, 'X', 'A', 20, ?, ?, 1, ?, ?, ?, 'PZA', ?, ?)`,
+        [v.plaza, v.plaza, SERIE, f, sk, v.qty, nombre, v.costo, importe]);
+      out.push({ clave: v.clave, tipo: 'entrada', plaza: v.plaza, importe, folio: f });
+    }
+  }
+  return out;
+}
+
 /** Borra todo lo sembrado (incluida la historia de fondo del script de demo). */
 async function limpiar(db) {
   await db.raw(`DELETE FROM kepler_ods.kdm2 WHERE c5 = ? AND c6 LIKE 'NPD%'`, [SERIE]);
@@ -231,4 +275,4 @@ async function refrescar(db) {
   await db.raw('REFRESH MATERIALIZED VIEW analytics.mv_new_products');
 }
 
-module.exports = { TENANT, SERIE, PREFIJO_SKU, PRODUCTOS, sembrar, limpiar, refrescar, fecha, hoyMx };
+module.exports = { TENANT, SERIE, PREFIJO_SKU, PRODUCTOS, VIVO, sembrar, sembrarVivo, limpiar, refrescar, fecha, hoyMx };

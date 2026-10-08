@@ -9564,3 +9564,6 @@ Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUE
 - [x] 🧪 `[NP.5]` Pestaña Productos nuevos + etiqueta "Nuevo · día N" en Productos. Unitarias 12 + 7; suite de Compras 308/308.
 - [ ] ⬜ `[NP.6]` Umbrales/veredicto en `analytics.kpi_thresholds` + hitos 30/60/90 congelados.
 - [ ] ⬜ `[NP.7]` Alta solicitada en la app con inversión y meta planeadas (plan contra real).
+- [x] 🧪 `[NP.8]` En vivo: `fn_new_products_movimientos` (venta y entradas de hoy desde el ODS, mismas reglas; corte por `v_branch_erp_cutover`) + índice `ix_kdm1_compra_fecha`. Coincide con `v_sellout_daily` renglón por renglón en días cerrados.
+- [x] 🧪 `[NP.9]` Recomendación de recompra global y por sucursal (`CRITERIO_RECOMPRA`, propuesta a calibrar) + `GET new-products/:id`.
+- [x] 🧪 `[NP.10]` Rediseño: respuesta arriba, filtros por recomendación, venta semanal por fila, panel lateral por sucursal, refresco cada minuto.

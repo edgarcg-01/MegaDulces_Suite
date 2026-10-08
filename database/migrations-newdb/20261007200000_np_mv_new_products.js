@@ -1,10 +1,20 @@
 'use strict';
 /**
- * `[NP.1]` **Productos nuevos** — la etiqueta "Nuevo" y su seguimiento a 30, 60 y 90 días.
+ * `[NP.1]` **Productos nuevos** — la etiqueta "Nuevo" y la HISTORIA de su seguimiento.
  *
  * Compras pidió que cada código que se cataloga quede marcado como nuevo y se revise a los 30, 60
- * y 90 días: cuánto se invirtió, cuánto vendió y si se volvió a comprar. Esta matvista es la
- * etiqueta: no se captura, se DERIVA del ODS (regla principal, cero importers).
+ * y 90 días: cuánto se invirtió, cuánto vendió y si conviene volver a comprarlo. Esta matvista es
+ * la etiqueta y la historia: no se captura, se DERIVA del ODS (regla principal, cero importers).
+ *
+ * ── Historia aquí, hoy en vivo ──────────────────────────────────────────────────────────────
+ * Esta matvista guarda lo CERRADO: todo lo anterior a `corte` (el día en que se refrescó). Lo que
+ * pasa desde `corte` hasta este momento lo trae en vivo `analytics.fn_new_products_movimientos`
+ * (mig `20261007200200`), que lee el ODS con las mismas reglas. Nada se cuenta dos veces: aquí
+ * `fecha < corte`, allá `fecha >= corte`.
+ *
+ * No se calculan aquí los cortes de 30/60/90, la tendencia ni la recomendación: se guardan las
+ * SERIES (venta diaria global y por plaza, y la lista de entradas) y el servidor decide sobre la
+ * serie + lo de hoy. Una sola implementación de cada regla, en `new-products.ts`, probada.
  *
  * ── Cuándo arranca el reloj ─────────────────────────────────────────────────────────────────
  * En la PRIMERA ACTIVIDAD del producto (su primera entrada o su primera venta, lo que pase
@@ -22,7 +32,8 @@
  *   · su primera actividad cae en los últimos 180 días (90 de seguimiento + 90 más para poder
  *     comparar contra el siguiente mes), o
  *   · no tiene ningún movimiento, la Suite lo vio en los últimos 90 días, entró desde Kepler y
- *     NO en una carga masiva (dado de alta, sin recibir).
+ *     NO en una carga masiva (dado de alta, sin recibir). Si hoy entra o se vende, el servidor
+ *     lo pasa a "día 0" con lo que trae la parte en vivo.
  * `no_medible`: la historia disponible no alcanza 90 días ANTES de su primera actividad, así que
  * no se puede afirmar que antes no se movía. Se declara, no se cuenta como nuevo.
  *
@@ -39,28 +50,25 @@
  * "dados de alta sin recibir" y tapaban a las altas de verdad. El umbral (50 por día) cae en el
  * hueco medido; en prod se vuelve a medir en `[NP.0]`.
  *
- * ── Las cifras ──────────────────────────────────────────────────────────────────────────────
- *   · Inversión = importe de los renglones de las entradas `XA2001`, vía
- *     `analytics.erp_goods_receipt_lines`. Sólo Kepler: el CEDIS operó en Wincaja hasta el
- *     30-sep, y las plazas 01, 02 y 06 antes de pasar a Kepler (1-jul-2026, 1-oct-2025 y
- *     15-ago-2026), así que lo que entró por ahí no está. Por eso es NULL (no medida), nunca 0.
- *   · Venta = `analytics.v_sellout_daily` (todas las plazas y canales). Esa vista ya toma cada
- *     plaza de Kepler o de Wincaja según su fecha de migración: no se repite esa regla aquí.
- *   · Se publican en PESOS, no en piezas: la entrada y la venta pueden venir en peldaños
- *     distintos (caja, paquete, pieza) y la cantidad no se compara sin resolver la unidad.
- *   · Sin margen: el costo del hecho de venta es álgebra sobre el markup (ADR-051), y publicarlo
- *     como retorno sería un número inventado.
- *   · Recompra = una entrada en una plaza que YA lo había recibido antes. La primera entrada en
- *     varias plazas es el surtido inicial, no una recompra.
- *   · Existencia = en cuántas plazas hay hoy. No se suman cantidades: cada ERP guarda en su
- *     unidad y el factor por defecto de `v_erp_stock_on_hand` es 1.
+ * ── Las series ──────────────────────────────────────────────────────────────────────────────
+ *   · `venta_dia` — venta en pesos de cada día, del lanzamiento a `corte - 1` (0 si no vendió).
+ *     De `analytics.v_sellout_daily`: todas las plazas y canales, y esa vista ya decide si cada
+ *     plaza manda Kepler o Wincaja según su fecha de migración.
+ *   · `venta_por_plaza` — la misma serie, por plaza: `{ "01": [..], "03": [..] }`.
+ *   · `entradas` — cada entrada `XA2001`: fecha, plaza, folio e importe del renglón, vía
+ *     `analytics.erp_goods_receipt_lines`. Sólo Kepler: el CEDIS operó en Wincaja hasta el 30-sep
+ *     y las plazas 01, 02 y 06 antes de pasar a Kepler, así que lo que entró por ahí no está. Por
+ *     eso la inversión de un producto sin entradas es "no medida", nunca 0.
+ * Todo en PESOS, no en piezas: la entrada y la venta pueden venir en peldaños distintos (caja,
+ * paquete, pieza). Sin margen: el costo del hecho de venta es álgebra sobre el markup (ADR-051).
  *
  * ── Por qué MATERIALIZADA ───────────────────────────────────────────────────────────────────
- * La primera actividad exige recorrer TODA la historia de venta y de entradas por producto. Eso
- * no cabe en el gate de 1 s de la pantalla. Se materializa por COSTO y la refresca el lote
- * nocturno de `AnalyticsRefreshService` (06:20 MX), con latido y umbral en `CRON_JOBS`.
- * Nace `WITH NO DATA` a propósito: el primer poblado recorre la historia completa y va de noche,
- * no en horario hábil al desplegar. Mientras no se pueble, la pantalla lo declara.
+ * La primera actividad exige recorrer TODA la historia de venta y de entradas por producto, y
+ * `mv_kepler_sales_daily` no tiene índice por producto. Eso no cabe en el gate de 1 s. Se
+ * materializa por COSTO y la refresca el lote nocturno de `AnalyticsRefreshService` (06:20 MX),
+ * con latido y umbral en `CRON_JOBS`. Nace `WITH NO DATA`: el primer poblado recorre la historia
+ * completa y va de noche, no en horario hábil al desplegar. Mientras no se pueble, la pantalla lo
+ * declara.
  *
  * La clasificación de Compras (recodificación, promoción, no mercancía) NO vive aquí: es dato
  * propio en `catalog.new_product_reviews` y se une al consultar, para que se vea al momento.
@@ -74,18 +82,23 @@ const HOY = "(now() AT TIME ZONE 'America/Mexico_City')::date";
 const ALTAS_POR_DIA_CARGA_MASIVA = 50;
 
 exports.up = async function up(knex) {
-  await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS ${MV}`);
+  // CASCADE por si algo llegara a depender de ella. La función en vivo (mig 200200) es SQL y no
+  // queda atada en pg_depend: sobrevive al DROP y vuelve a leer la matvista nueva.
+  await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS ${MV} CASCADE`);
 
   await knex.raw(`
     CREATE MATERIALIZED VIEW ${MV} AS
-    WITH venta AS (
+    WITH params AS (
+      -- El corte: lo de ANTES de hoy es historia (aqui); lo de hoy en adelante va en vivo.
+      SELECT ${HOY} AS corte
+    ), venta AS (
       -- Sell-out canonico por producto, dia, plaza y FUENTE: todas las piernas. La ruta va como
       -- fuente propia porque su historia arranca en otra fecha que la venta de tienda.
       SELECT s.tenant_id, s.product_id, s.business_date AS fecha, s.warehouse_code,
              CASE WHEN s.channel = 'ruta' THEN 'ruta' ELSE s.source END AS fuente,
              sum(s.monto) AS monto
-        FROM analytics.v_sellout_daily s
-       WHERE s.product_id IS NOT NULL
+        FROM analytics.v_sellout_daily s, params pa
+       WHERE s.product_id IS NOT NULL AND s.business_date < pa.corte
        GROUP BY 1, 2, 3, 4, 5
     ), cab AS (
       -- La fecha de cada entrada XA2001. El renglon no la trae; se toma del encabezado con el
@@ -105,6 +118,7 @@ exports.up = async function up(knex) {
         JOIN cab c ON c.sucursal = l.sucursal AND c.folio = l.folio
         JOIN catalog.products p
           ON p.tenant_id = l.tenant_id AND btrim(p.sku) = l.sku AND p.deleted_at IS NULL
+        JOIN params pa ON c.fecha < pa.corte
        GROUP BY 1, 2, 3, 4, 5
     ), actividad AS (
       -- Primera fecha de cada producto en cada fuente.
@@ -144,12 +158,13 @@ exports.up = async function up(knex) {
              least(pr.primera_recepcion, pr.primera_venta) AS lanzamiento,
              pr.historia_desde, pr.fuentes
         FROM catalog.products p
+        CROSS JOIN params pa
         LEFT JOIN primera pr ON pr.tenant_id = p.tenant_id AND pr.product_id = p.id
         LEFT JOIN lotes lo ON lo.tenant_id = p.tenant_id AND lo.dia = p.created_at::date
        WHERE p.deleted_at IS NULL
-         AND (least(pr.primera_recepcion, pr.primera_venta) >= ${HOY} - 180
+         AND (least(pr.primera_recepcion, pr.primera_venta) >= pa.corte - 180
               OR (pr.product_id IS NULL
-                  AND p.created_at::date >= ${HOY} - 90
+                  AND p.created_at::date >= pa.corte - 90
                   AND p.source = 'kepler'
                   AND lo.dia IS NULL))
     ), codigos AS (
@@ -160,45 +175,52 @@ exports.up = async function up(knex) {
         FROM catalog.products
        WHERE deleted_at IS NULL AND length(btrim(coalesce(barcode, ''))) >= 8
        GROUP BY 1, 2
-    ), venta_u AS (
-      SELECT u.tenant_id, u.product_id,
-             sum(v.monto) FILTER (WHERE v.fecha < u.lanzamiento + 30) AS venta_30,
-             sum(v.monto) FILTER (WHERE v.fecha < u.lanzamiento + 60) AS venta_60,
-             sum(v.monto) FILTER (WHERE v.fecha < u.lanzamiento + 90) AS venta_90,
-             sum(v.monto) AS venta_total,
-             -- Dias distintos con venta en su primer mes: una venta sostenida, no un pico.
-             count(DISTINCT v.fecha) FILTER (WHERE v.fecha < u.lanzamiento + 30) AS dias_con_venta_30,
-             count(DISTINCT v.warehouse_code) AS plazas_venta,
-             max(v.fecha) AS ultima_venta
+    ), dias AS (
+      -- Un renglon por dia, del lanzamiento a la vispera del corte: la rejilla de la serie.
+      SELECT u.tenant_id, u.product_id, d::date AS fecha
         FROM universo u
-        JOIN venta v ON v.tenant_id = u.tenant_id AND v.product_id = u.product_id
+        CROSS JOIN params pa
+        CROSS JOIN LATERAL generate_series(u.lanzamiento, pa.corte - 1, interval '1 day') d
+       WHERE u.lanzamiento IS NOT NULL AND u.lanzamiento < pa.corte
+    ), venta_prod_dia AS (
+      SELECT v.tenant_id, v.product_id, v.fecha, sum(v.monto) AS monto
+        FROM venta v
+        JOIN universo u ON u.tenant_id = v.tenant_id AND u.product_id = v.product_id
+       GROUP BY 1, 2, 3
+    ), serie AS (
+      SELECT d.tenant_id, d.product_id,
+             array_agg(round(coalesce(v.monto, 0), 2) ORDER BY d.fecha) AS venta_dia
+        FROM dias d
+        LEFT JOIN venta_prod_dia v
+          ON v.tenant_id = d.tenant_id AND v.product_id = d.product_id AND v.fecha = d.fecha
        GROUP BY 1, 2
-    ), rec_u AS (
-      SELECT u.tenant_id, u.product_id,
-             sum(r.importe) FILTER (WHERE r.fecha < u.lanzamiento + 30) AS inversion_30,
-             sum(r.importe) FILTER (WHERE r.fecha < u.lanzamiento + 60) AS inversion_60,
-             sum(r.importe) FILTER (WHERE r.fecha < u.lanzamiento + 90) AS inversion_90,
-             sum(r.importe) AS inversion_total,
-             count(DISTINCT r.sucursal || '|' || r.folio) AS entradas,
-             count(DISTINCT r.sucursal) AS plazas_recibido
-        FROM universo u
-        JOIN rec r ON r.tenant_id = u.tenant_id AND r.product_id = u.product_id
+    ), venta_plaza_dia AS (
+      SELECT v.tenant_id, v.product_id, v.warehouse_code AS plaza, v.fecha, sum(v.monto) AS monto
+        FROM venta v
+        JOIN universo u ON u.tenant_id = v.tenant_id AND u.product_id = v.product_id
+       WHERE v.warehouse_code IS NOT NULL
+       GROUP BY 1, 2, 3, 4
+    ), serie_plaza AS (
+      SELECT d.tenant_id, d.product_id, pl.plaza,
+             array_agg(round(coalesce(v.monto, 0), 2) ORDER BY d.fecha) AS serie
+        FROM dias d
+        JOIN (SELECT DISTINCT tenant_id, product_id, plaza FROM venta_plaza_dia) pl
+          ON pl.tenant_id = d.tenant_id AND pl.product_id = d.product_id
+        LEFT JOIN venta_plaza_dia v
+          ON v.tenant_id = d.tenant_id AND v.product_id = d.product_id
+         AND v.plaza = pl.plaza AND v.fecha = d.fecha
+       GROUP BY 1, 2, 3
+    ), por_plaza AS (
+      SELECT tenant_id, product_id, jsonb_object_agg(plaza, serie) AS venta_por_plaza
+        FROM serie_plaza
        GROUP BY 1, 2
-    ), rec_plaza AS (
-      -- Recompra = segunda fecha de entrada en una plaza que YA lo habia recibido.
-      SELECT r.tenant_id, r.product_id, r.fecha,
-             dense_rank() OVER (PARTITION BY r.tenant_id, r.product_id, r.sucursal ORDER BY r.fecha) AS n
+    ), entradas AS (
+      SELECT r.tenant_id, r.product_id,
+             jsonb_agg(jsonb_build_object(
+               'f', to_char(r.fecha, 'YYYY-MM-DD'), 'p', r.sucursal, 'folio', r.folio,
+               'i', round(r.importe, 2)) ORDER BY r.fecha, r.sucursal, r.folio) AS entradas
         FROM rec r
         JOIN universo u ON u.tenant_id = r.tenant_id AND u.product_id = r.product_id
-    ), recompra AS (
-      SELECT tenant_id, product_id, min(fecha) AS primera_recompra
-        FROM rec_plaza WHERE n = 2
-       GROUP BY 1, 2
-    ), stock_u AS (
-      SELECT s.tenant_id, s.product_id,
-             count(DISTINCT s.warehouse_id) FILTER (WHERE s.qty_stock_units > 0) AS plazas_con_existencia
-        FROM analytics.v_erp_stock_on_hand s
-        JOIN universo u ON u.tenant_id = s.tenant_id AND u.product_id = s.product_id
        GROUP BY 1, 2
     )
     SELECT
@@ -206,7 +228,7 @@ exports.up = async function up(knex) {
       u.supplier_id, sp.name AS proveedor,
       u.alta_suite, u.alta_en_lote, u.primera_recepcion, u.primera_venta, u.lanzamiento,
       u.historia_desde, coalesce(u.fuentes, ARRAY[]::text[])            AS fuentes,
-      (u.lanzamiento IS NULL) AS sin_movimiento,
+      (u.lanzamiento IS NULL)                                             AS sin_movimiento,
       (u.lanzamiento IS NOT NULL AND (u.historia_desde IS NULL OR u.historia_desde > u.lanzamiento - 90))
                                                                           AS no_medible,
       -- Lo que no es un lanzamiento de mercancia. El patron de DESC es el que CV.12 ya probo
@@ -218,29 +240,26 @@ exports.up = async function up(knex) {
       END                                                                 AS exclusion_auto,
       -- Senal, no veredicto: otro producto dado de alta ANTES con el mismo codigo de barras.
       coalesce(cb.primera_alta < u.alta_suite, false)                     AS posible_recodificacion,
-      r.inversion_30, r.inversion_60, r.inversion_90, r.inversion_total,
-      coalesce(r.entradas, 0)::int                                        AS entradas,
-      coalesce(r.plazas_recibido, 0)::int                                 AS plazas_recibido,
-      rc.primera_recompra,
-      v.venta_30, v.venta_60, v.venta_90, v.venta_total,
-      coalesce(v.dias_con_venta_30, 0)::int                               AS dias_con_venta_30,
-      coalesce(v.plazas_venta, 0)::int                                    AS plazas_venta,
-      v.ultima_venta,
-      coalesce(s.plazas_con_existencia, 0)::int                           AS plazas_con_existencia,
+      pa.corte,
+      coalesce(s.venta_dia, ARRAY[]::numeric[])                           AS venta_dia,
+      coalesce(pp.venta_por_plaza, '{}'::jsonb)                           AS venta_por_plaza,
+      coalesce(e.entradas, '[]'::jsonb)                                   AS entradas,
       now()                                                               AS calculado_at
       FROM universo u
+      CROSS JOIN params pa
       LEFT JOIN catalog.brands b     ON b.id = u.brand_id
       LEFT JOIN catalog.suppliers sp ON sp.id = u.supplier_id AND sp.tenant_id = u.tenant_id
-      LEFT JOIN venta_u v  ON v.tenant_id = u.tenant_id AND v.product_id = u.product_id
-      LEFT JOIN rec_u r    ON r.tenant_id = u.tenant_id AND r.product_id = u.product_id
-      LEFT JOIN recompra rc ON rc.tenant_id = u.tenant_id AND rc.product_id = u.product_id
-      LEFT JOIN stock_u s  ON s.tenant_id = u.tenant_id AND s.product_id = u.product_id
-      LEFT JOIN codigos cb ON cb.tenant_id = u.tenant_id AND cb.barcode = btrim(u.barcode)
+      LEFT JOIN serie s     ON s.tenant_id = u.tenant_id AND s.product_id = u.product_id
+      LEFT JOIN por_plaza pp ON pp.tenant_id = u.tenant_id AND pp.product_id = u.product_id
+      LEFT JOIN entradas e  ON e.tenant_id = u.tenant_id AND e.product_id = u.product_id
+      LEFT JOIN codigos cb  ON cb.tenant_id = u.tenant_id AND cb.barcode = btrim(u.barcode)
     WITH NO DATA
   `);
 
   // UNIQUE sin WHERE: lo exige REFRESH ... CONCURRENTLY, que es como la refresca el lote nocturno.
   await knex.raw(`CREATE UNIQUE INDEX ux_mv_new_products ON ${MV} (tenant_id, product_id)`);
+  // La parte en vivo busca el producto por SKU.
+  await knex.raw(`CREATE INDEX ix_mv_new_products_sku ON ${MV} (sku)`);
   await knex.raw(`GRANT SELECT ON ${MV} TO app_runtime`);
   // `GRANT ... ON ALL TABLES` no cubre matvistas: las cuentas de lectura de los devs van aparte.
   await knex.raw(`
@@ -253,11 +272,11 @@ exports.up = async function up(knex) {
   await knex.raw(`
     COMMENT ON MATERIALIZED VIEW ${MV} IS
       '[NP.1] Productos nuevos: primera actividad (entrada XA2001 o venta) en los ultimos 180 dias, '
-      'o sin movimiento y vistos por la Suite en 90. Inversion = importe de entradas Kepler (NULL si no '
-      'hay: el CEDIS fue Wincaja hasta el 30-sep). Venta = v_sellout_daily. En pesos, sin margen '
-      '(ADR-051). Materializada por COSTO; la refresca el lote nocturno de AnalyticsRefreshService.'`);
+      'o sin movimiento y vistos por la Suite en 90. Guarda la HISTORIA hasta corte-1 como series '
+      '(venta_dia, venta_por_plaza, entradas); lo de hoy lo trae en vivo fn_new_products_movimientos. '
+      'En pesos, sin margen (ADR-051). Materializada por COSTO; la refresca el lote nocturno.'`);
 };
 
 exports.down = async function down(knex) {
-  await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS ${MV}`);
+  await knex.raw(`DROP MATERIALIZED VIEW IF EXISTS ${MV} CASCADE`);
 };
