@@ -90,6 +90,17 @@ export interface BandejaFirmas {
  *
  * ── ⚠️ `desde` ES UN PROXY Y LO DICE ─────────────────────────────────────
  *
+ * ⛔ **Y no se puede reemplazar por `authorized_at` en las obligaciones, aunque el nombre invite.**
+ * Hallazgo de 06, re-medido acá contra prod: `expense_obligations.authorized_at` es
+ * **`NOT NULL DEFAULT now()`** — está llena en **312 de 312**, **igual a `created_at` en las 312**,
+ * con **`authorized_by` vacío en las 312**, y las 312 todavía en `propuesta`. Es una marca de
+ * CREACIÓN con el nombre de una autorización: quien derive "cuántas están autorizadas" de
+ * `authorized_at IS NOT NULL` obtiene **el 100 %** cuando la verdad es **0 %**, y el número se ve
+ * perfectamente normal. La única señal buena es `status`. ⭐ La hermana de `budgets` SÍ sirve
+ * (nullable, sin default, 0 de 3 llenas) — o sea que **la misma columna, con el mismo nombre, en
+ * dos tablas del mismo schema, significa cosas distintas**. Verificado 2026-10-09; hoy la trampa
+ * está latente (nadie la deriva), y este párrafo existe para que siga así.
+ *
  * Ninguna de las dos tablas guarda *cuándo entró a la cola*: `budgets` tiene `authorized_at`
  * (que se llena al SALIR, no al entrar) y las obligaciones sólo `created_at`. Se usa
  * `updated_at` para el ejercicio y `created_at` para la obligación, y cada fila viaja con
