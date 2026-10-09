@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
+import type { BudgetLineMovement } from '@megadulces/contracts';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BudgetGenerationService } from './budget-generation.service';
 
@@ -233,7 +234,7 @@ export class BudgetLinesService {
     return this.decorate(row);
   }
 
-  async movements(lineId: string) {
+  async movements(lineId: string): Promise<BudgetLineMovement[]> {
     this.tenantCtx.requireTenantId();
     return this.tk.run((trx) => trx('budget.line_movements').where({ budget_line_id: lineId }).orderBy('created_at'));
   }

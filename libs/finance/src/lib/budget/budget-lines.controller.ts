@@ -1,5 +1,6 @@
 import { Body, Controller, Get, Param, Post, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { BudgetLineMovement } from '@megadulces/contracts';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
   BudgetLinesService, CreateBudgetDto, CreateBudgetLineDto, MovementOpts,
@@ -110,7 +111,7 @@ export class BudgetLinesController {
 
   @Get('lines/:id/movements')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
-  movements(@Param('id') id: string) { return this.svc.movements(id); }
+  movements(@Param('id') id: string): Promise<BudgetLineMovement[]> { return this.svc.movements(id); }
 
   // ── Ejecución (primitivas del ledger) ──
   @Post('lines/:id/reservar')

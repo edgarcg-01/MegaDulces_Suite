@@ -108,6 +108,37 @@ export interface ExpenseRhythmSummary {
   umbral_registrado: false;
 }
 
+/**
+ * `[PU.VG.4]` **Un renglón de la bitácora del ledger.**
+ *
+ * `line_movements` es el libro que debería permitir RECOMPUTAR los acumuladores de una partida.
+ * Hasta la mig `20261008181201` no se podía, por dos transiciones que no se registraban: una
+ * `cancelacion` no decía **qué bucket bajó** (viajaba sólo en `note`, texto libre reemplazable) y
+ * un `compromiso` no decía si **movió una reserva** o salió del disponible — los dos caminos
+ * escribían un movimiento idéntico. Por eso `cancel_target` y `from_reserva` son parte del
+ * contrato y no un detalle: sin ellos la bitácora se puede leer pero no se puede cuadrar.
+ *
+ * ⚠️ `cancel_target` en `null` significa **«no aplica»** (el movimiento no es una cancelación),
+ * nunca «no sé»: el CHECK de la tabla lo exige en las dos direcciones.
+ */
+export interface BudgetLineMovement {
+  id: string;
+  budget_line_id: string;
+  movement_type: string;
+  amount: number | string;
+  /** `'reserva' | 'compromiso'` en una cancelación; `null` cuando no aplica. */
+  cancel_target: string | null;
+  /** `true` sólo si un compromiso MOVIÓ una reserva previa en vez de consumir disponible. */
+  from_reserva: boolean;
+  counterpart_line_id: string | null;
+  source_kind: string | null;
+  source_ref: string | null;
+  reverses_movement_id: string | null;
+  note: string | null;
+  created_by: string | null;
+  created_at: string;
+}
+
 export interface ExpenseRhythm {
   /** `YYYY-MM`. El perfil corta en el mes ANTERIOR a éste. */
   mes_en_curso: string;
