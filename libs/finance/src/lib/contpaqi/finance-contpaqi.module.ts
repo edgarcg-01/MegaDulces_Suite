@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CONTPAQI_POLIZA_SINK_PORT } from '@megadulces/contracts';
 import { ContpaqiTxtSinkAdapter } from './txt-sink.adapter';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
+import { ContpaqiArmadoService } from './contpaqi-armado.service';
 
 /**
  * Fase CP `[CP.8]` — **El puente a ContPAQi.** Hereda ADR-040: la plataforma **nunca** escribe a
@@ -25,12 +26,13 @@ import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
  */
 @Module({
   providers: [
+    ContpaqiArmadoService,
     ContpaqiCuadreService,
     ContpaqiTxtSinkAdapter,
     // El puerto apunta al sink de archivo. Cuando exista `SdkSinkAdapter`, esta línea es el
     // único lugar donde se elige — quien arma el asiento no se entera.
     { provide: CONTPAQI_POLIZA_SINK_PORT, useExisting: ContpaqiTxtSinkAdapter },
   ],
-  exports: [ContpaqiCuadreService, CONTPAQI_POLIZA_SINK_PORT],
+  exports: [ContpaqiArmadoService, ContpaqiCuadreService, CONTPAQI_POLIZA_SINK_PORT],
 })
 export class FinanceContpaqiModule {}

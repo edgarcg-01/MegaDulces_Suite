@@ -164,7 +164,56 @@ const declarar = (label) => { nomedido++; console.log(`  ⚠ NO MEDIDO: ${label}
   check(reglas.every((r) => (r.concepto_medido || '').length > 40),
     'cada una lleva su evidencia escrita, para que el contador no reciba una hoja en blanco');
 
-  console.log('\n[7] Lo que este candado NO cubre');
+  console.log('\n[8] ⭐ El ARMADOR ejercitado contra prod (simulación: no escribe nada)');
+  require('ts-node').register({
+    transpileOnly: true, skipProject: true,
+    compilerOptions: {
+      module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node',
+      ignoreDeprecations: '6.0', experimentalDecorators: true, emitDecoratorMetadata: true,
+      baseUrl: path.resolve(__dirname, '..', '..'),
+      paths: { '@megadulces/contracts': ['libs/contracts/src/index.ts'] },
+    },
+  });
+  require('tsconfig-paths').register({
+    baseUrl: path.resolve(__dirname, '..', '..'),
+    paths: { '@megadulces/contracts': ['libs/contracts/src/index.ts'] },
+  });
+  require('reflect-metadata');
+  const { ContpaqiArmadoService } = require(path.resolve(__dirname, '..', '..',
+    'libs/finance/src/lib/contpaqi/contpaqi-armado.service.ts'));
+
+  // Sin sink: simulación pura. El servicio lee prod de verdad y no escribe una sola fila.
+  const armador = new ContpaqiArmadoService(knex, undefined);
+  const res = await armador.armarPeriodo('2026-01', true);
+  check(res.length > 1000, `procesa los egresos reales de 2026-01 (${res.length})`);
+  check(res.every((r) => r.motivo && r.motivo.length > 5), 'cada uno sale con motivo escrito');
+
+  // ⭐ HOY el comportamiento correcto es rechazar TODO: las 21 reglas están en `sin_regla`.
+  // No es una falla a medias — es la única conducta honesta mientras el mapa no esté firmado. Y
+  // el día que se firme una regla este candado se pone rojo, que es exactamente cuando hay que
+  // volver a mirarlo.
+  const entregadas = res.filter((r) => r.estado === 'entregada');
+  check(entregadas.length === 0,
+    `⛔ CERO armables mientras ninguna regla esté firmada (hay ${entregadas.length})`);
+
+  // Los motivos tienen que ser los que la medición encontró, nunca uno genérico.
+  // ⚠️ Se evalúa el motivo COMPLETO. La primera versión cortaba a 40 caracteres y eso partía
+  // `contpaqi_cuenta` por la mitad (`…no tiene contpaq`), así que la aserción fallaba por el
+  // recorte y no por el dato — un falso rojo que parecía un hallazgo.
+  const desconocidos = res.filter((r) => !/sin_regla|contpaqi_cuenta|no tiene fila/.test(r.motivo));
+  check(desconocidos.length === 0,
+    `sólo motivos conocidos${desconocidos.length ? ` — apareció: "${desconocidos[0].motivo.slice(0, 70)}"` : ''}`);
+
+  const sinCuentaBanco = res.filter((r) => /contpaqi_cuenta/.test(r.motivo));
+  check(sinCuentaBanco.length > 0,
+    `⚠️ ${sinCuentaBanco.length} cuelgan de CAJA CG / FACTORAJE — no son bancos y no tienen enlace`);
+
+  // [CP.8.1d] Este arrancó en 2 (cobranza, ingreso_devolucion) y la migración lo cerró.
+  const sinFila = res.filter((r) => /no tiene fila/.test(r.motivo));
+  check(sinFila.length === 0,
+    '⭐ ninguna categoría quedó sin fila de regla (eran 2: cobranza e ingreso_devolucion)');
+
+  console.log('\n[9] Lo que este candado NO cubre');
   declarar('el camino de ESCRITURA (`guardar()` y el latido): `edgar` sólo tiene SELECT en contpaqi.*');
   declarar('el ciclo completo armar→entregar→cuadrar: necesita que el código esté desplegado');
 
