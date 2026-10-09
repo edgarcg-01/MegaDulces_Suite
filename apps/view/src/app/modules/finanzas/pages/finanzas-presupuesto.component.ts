@@ -143,6 +143,26 @@ interface ExpenseCoverage { historico_ajustado: number; estacional: number; no_s
  */
 interface ExpenseGrowthProposal { global: { growth_pct: number; basis: string; paired_months: number; meses_abiertos_excluidos?: number }; years_available: number[]; fiscal_year: number; families: string[]; as_of: string | null; min_paired_months?: number; by_account: Record<string, { growth_pct: number; basis: string; paired_months: number; account_name: string | null }> }
 
+/**
+ * `[TES.17]` La bandeja de firmas. Interfaz local a propósito y no en `libs/contracts`: la forma
+ * todavía se está acordando con los otros dos carriles en el mapa de superficie, y subir al
+ * contrato algo que va a cambiar es peor que copiarlo una vez y declararlo. Sube cuando el mapa
+ * esté firmado -- queda anotado acá para que no se olvide, que es como nacen las copias a mano.
+ */
+interface FirmaPendiente {
+  tipo: 'ejercicio' | 'obligacion'; id: string; titulo: string; detalle: string;
+  monto: number | null; desde: string | null; dias_esperando: number | null;
+  desde_es_proxy: boolean; que_se_traba: string; ruta: string; permiso: string;
+}
+interface EstadoCola { cola: 'ejercicios' | 'obligaciones'; total: number; monto: number | null; vacia_porque: string | null }
+interface BandejaFirmas {
+  total: number; monto_total: number | null; items: FirmaPendiente[];
+  por_cola: EstadoCola[]; vacia_porque: string | null;
+  aguas_arriba: { ejercicios_borrador: number; ejercicios_en_revision: number; obligaciones_propuesta: number; monto_propuesta: number | null };
+  excluido_por_prueba: { ejercicios: number; obligaciones: number; monto: number | null };
+  as_of: string;
+}
+
 type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
 /**
@@ -191,6 +211,79 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
           <app-segmented [options]="viewOptsPagos" [value]="view()" (valueChange)="setView($event)" ariaLabel="¿Alcanza el dinero?" />
         </div>
       </header>
+
+      <!--
+        [TES.17] LA BANDEJA DE FIRMAS. Va arriba de todo porque el encabezado promete el verbo
+        ("Tú autorizas") y hasta hoy no había dónde ver qué lo esperaba. DESIGN §15 answer-first:
+        una línea con la respuesta, y el detalle sólo si se pide.
+        ⭐ El estado va POR COLA y no sólo en total: medido en prod son 0 ejercicios y 156
+        obligaciones por $74.8M, y con un contador único ese CERO queda tapado por las 156.
+        Una cola vacía se esconde detrás de una llena.
+        ⚠️ Si la consulta falla se DECLARA. Un bloque que desaparece en silencio se lee como
+        "nada espera tu firma", que es la respuesta contraria a la verdad.
+      -->
+      @if (firmasError()) {
+        <div class="pres-alert"><i class="pi pi-exclamation-triangle"></i> {{ firmasError() }}</div>
+      } @else if (firmas(); as f) {
+        <div class="pres-firmas">
+          <button type="button" class="pres-firmas-head" (click)="firmasAbierta.set(!firmasAbierta())"
+                  [attr.aria-expanded]="firmasAbierta()" aria-controls="firmas-detalle">
+            <i class="pi" [class.pi-flag]="f.total > 0" [class.pi-check]="f.total === 0"></i>
+            @if (f.total > 0) {
+              <span class="pres-firmas-answer">
+                <strong>{{ f.total }}</strong> esperan tu firma
+                @if (f.monto_total !== null) { · <strong>{{ money(f.monto_total) }}</strong> }
+              </span>
+            } @else {
+              <span class="pres-firmas-answer pres-firmas-answer--vacia">{{ f.vacia_porque }}</span>
+            }
+            <span class="pres-firmas-colas">
+              @for (c of f.por_cola; track c.cola) {
+                <span class="pres-firmas-chip" [class.pres-firmas-chip--cero]="c.total === 0">{{ c.cola }}: {{ c.total }}</span>
+              }
+            </span>
+            <i class="pi pres-firmas-chev" [class.pi-chevron-down]="!firmasAbierta()" [class.pi-chevron-up]="firmasAbierta()"></i>
+          </button>
+
+          @if (firmasAbierta()) {
+            <div class="pres-firmas-body" id="firmas-detalle">
+              @for (c of f.por_cola; track c.cola) {
+                @if (c.vacia_porque) {
+                  <p class="pres-firmas-nota"><i class="pi pi-info-circle"></i> {{ c.vacia_porque }}</p>
+                }
+              }
+              @for (it of firmasTop(); track it.id) {
+                <div class="pres-firmas-row">
+                  <div class="pres-firmas-row-main">
+                    <span class="pres-firmas-tit">{{ it.titulo }}</span>
+                    <span class="pres-firmas-det">{{ it.detalle }}</span>
+                  </div>
+                  <div class="pres-firmas-row-num">
+                    @if (it.monto !== null) { <span class="pres-firmas-monto">{{ money(it.monto) }}</span> }
+                    @else { <span class="pres-firmas-sin">sin monto</span> }
+                    @if (it.dias_esperando !== null) {
+                      <span class="pres-firmas-dias" [title]="it.desde_es_proxy ? 'Aproximado: ninguna tabla guarda cuándo entró a la cola. Se usa la fecha del último cambio.' : ''">
+                        {{ it.dias_esperando }} d{{ it.desde_es_proxy ? ' aprox.' : '' }}
+                      </span>
+                    }
+                  </div>
+                  <div class="pres-firmas-traba">{{ it.que_se_traba }}</div>
+                </div>
+              }
+              @if (firmasResto() > 0) {
+                <p class="pres-firmas-nota">y {{ firmasResto() }} más — la bandeja responde, no enumera.</p>
+              }
+              <p class="pres-firmas-pie">
+                @if (f.excluido_por_prueba.obligaciones > 0 || f.excluido_por_prueba.ejercicios > 0) {
+                  Fuera del conteo, por venir del ejercicio de prueba:
+                  {{ f.excluido_por_prueba.ejercicios }} ejercicio(s) y {{ f.excluido_por_prueba.obligaciones }} obligación(es).
+                }
+                Medido {{ f.as_of | date:'dd/MM/yyyy HH:mm' }}.
+              </p>
+            </div>
+          }
+        </div>
+      }
 
       <!-- ══════════ EJERCICIOS (sistema de presupuestos) ══════════ -->
       @if (view() === 'ejercicios') {
@@ -1369,7 +1462,32 @@ export class FinanzasPresupuestoComponent implements OnInit {
   newVisible = false;
   form: { concept?: string; beneficiary?: string; subtype?: string; area?: string; original_amount?: number; original_due_date?: string; is_critical?: boolean; critical_reason?: string } = {};
 
-  ngOnInit(): void { this.loadBudgets(); this.loadCapacity(); this.loadExpenses(); }
+  ngOnInit(): void { this.loadBudgets(); this.loadCapacity(); this.loadExpenses(); this.loadFirmas(); }
+
+  // ── [TES.17] Bandeja de firmas ──
+  firmas = signal<BandejaFirmas | null>(null);
+  firmasAbierta = signal(false);
+  firmasError = signal<string | null>(null);
+
+  /**
+   * Una sola consulta al entrar. No se recarga al cambiar de pestaña: la bandeja es de la
+   * PÁGINA, no de la vista, y refrescarla siete veces por navegar sería ruido contra la base.
+   * ⚠️ Si falla, se DECLARA -- un bloque que desaparece en silencio se lee como "no hay nada
+   * esperando tu firma", que es la respuesta contraria a la verdad.
+   */
+  loadFirmas(): void {
+    this.http.get<BandejaFirmas>(`${this.base}/firmas-pendientes`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.firmas.set(r); this.firmasError.set(null); this.cdr.markForCheck(); },
+      error: () => { this.firmas.set(null); this.firmasError.set('No se pudo consultar qué espera tu firma.'); this.cdr.markForCheck(); },
+    });
+  }
+
+  /** Los de arriba por monto. El resto se cuenta, no se lista: la bandeja responde, no enumera. */
+  firmasTop(): FirmaPendiente[] { return (this.firmas()?.items ?? []).slice(0, 6); }
+  firmasResto(): number { return Math.max(0, (this.firmas()?.total ?? 0) - this.firmasTop().length); }
+  colaDe(c: 'ejercicios' | 'obligaciones'): EstadoCola | undefined {
+    return this.firmas()?.por_cola?.find((x) => x.cola === c);
+  }
 
   // ── Ejercicios ──
   loadBudgets(): void {
