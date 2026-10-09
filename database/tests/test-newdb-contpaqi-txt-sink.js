@@ -39,6 +39,7 @@ require('tsconfig-paths').register({
 
 const LIB = path.resolve(__dirname, '..', '..', 'libs', 'finance', 'src', 'lib');
 const { ContpaqiTxtSinkAdapter } = require(path.join(LIB, 'contpaqi', 'txt-sink.adapter.ts'));
+const { guidDe } = require(path.join(LIB, 'contpaqi', 'token.ts'));
 const { construirTxt, parsearTxt, largoLinea, LAYOUT_P, LAYOUT_M, LAYOUT_SIN_VERIFICAR, LAYOUT_ARBITRO } =
   require(path.join(LIB, 'purchase-book', 'poliza-txt.ts'));
 
@@ -217,6 +218,44 @@ const ENTRADA = {
       `⭐ el emisor YA escribe el layout real (${largoLinea(LAYOUT_P)}/${largoLinea(LAYOUT_M)})`);
   }
 
+  // ── `[CP.8.24]` El `Guid` del encabezado ───────────────────────────────────────────────────
+  // ⛔ Este bloque existe porque al cablear `guidDe` al sink, este candado siguió en 44 ✓ sin
+  // notarlo: **un candado que no ve lo que guarda no lo guarda**.
+  //
+  // El `Guid` es el mejor candidato a llave de correlación del puente — estructural, y no gasta
+  // los 100 caracteres del concepto. Sigue SIN VERIFICARSE si ContPAQi lo respeta o lo pisa con
+  // el suyo; lo que estas pruebas defienden es que lo EMITAMOS, que es la única forma de llegar
+  // a saberlo.
+  {
+    const ent = (id) => ({
+      evento_tipo: 'bank_movement', evento_id: id, tipo_poliza: 2, fecha: '2026-03-04',
+      concepto: 'PRUEBA GUID', total: 100,
+      movimientos: [
+        { cuenta: '5200800000', abono: false, importe: 100, concepto: 'X' },
+        { cuenta: '1020020000', abono: true, importe: 100, concepto: 'X' },
+      ],
+    });
+    const r1 = await sink.entregar(ent('A-1'));
+    const r2 = await sink.entregar(ent('A-1'));
+    const r3 = await sink.entregar(ent('A-2'));
+    const cab = (r) => r.archivo.contenido.split('\r\n')[0];
+    // El layout real pone el `Guid` al final del encabezado: 36 chars + el separador.
+    const guidDe_ = (r) => cab(r).slice(-37).trim();
+
+    check(cab(r1).length === 185, 'el encabezado sigue midiendo 185 con el guid adentro');
+    check(/^[0-9A-F]{8}-[0-9A-F]{4}-4[0-9A-F]{3}-[89AB][0-9A-F]{3}-[0-9A-F]{12}$/.test(guidDe_(r1)),
+      `el encabezado trae un UUID v4 bien formado (${guidDe_(r1)})`);
+    // ⭐ Determinista: con uno aleatorio, re-emitir el mismo evento dejaría huérfana la entrega
+    // anterior — exactamente la razón por la que `tokenDe` también lo es.
+    check(guidDe_(r1) === guidDe_(r2), 'el mismo evento produce el MISMO guid');
+    check(guidDe_(r1) !== guidDe_(r3), 'dos eventos distintos producen guids distintos');
+    check(guidDe_(r1) === guidDe('bank_movement', 'A-1'),
+      'el guid del archivo es el que `guidDe` deriva del evento');
+    // Prueba negativa del propio lector: si recortara mal, esto pasaría igual.
+    check(guidDe_(r1) !== '' && guidDe_(r1).length === 36,
+      'el guid leído del archivo mide 36 (si el recorte estuviera mal, esto lo delata)');
+  }
+
   // ── NO MEDIDO ───────────────────────────────────────────────────────────────────────────────
   // ⭐ Esto NO es una aserción: es un tercer estado. Todo lo de arriba prueba que el sink es
   // coherente CONSIGO MISMO y con el layout que tenemos. Ninguna de esas 26 pruebas puede decir
@@ -227,6 +266,7 @@ const ENTRADA = {
     console.log(`  ⚠ ${d.campo}: acá ${d.aqui}, el REAL dice ${d.fuente ?? '(existe y acá no)'} — ${d.impacto}`);
   }
   console.log('  ⚠ renglones `AD ` + UUID: el formato SÍ transporta el UUID del CFDI, y no los emitimos');
+  console.log('  ⚠ el `Guid` YA se emite ([CP.8.24]); falta medir si ContPAQi lo RESPETA o lo pisa');
   console.log(`  → árbitro: ${LAYOUT_ARBITRO}`);
 
   console.log(`\n${fail === 0 ? '✅' : '❌'} CP.8.5 sink de archivo: ${ok} ✓ / ${fail} ✗ · ${LAYOUT_SIN_VERIFICAR.length + 1} NO MEDIDO\n`);

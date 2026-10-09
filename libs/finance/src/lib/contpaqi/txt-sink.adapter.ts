@@ -5,7 +5,7 @@ import type {
   SinkResultado,
 } from '@megadulces/contracts';
 import { construirTxt, type Movimiento } from '../purchase-book/poliza-txt';
-import { conceptoConToken } from './token';
+import { conceptoConToken, guidDe } from './token';
 
 /**
  * `[CP.8.5]` — **El sink de archivo**: la póliza armada sale como el TXT que ContPAQi importa.
@@ -98,7 +98,12 @@ export class ContpaqiTxtSinkAdapter implements ContpaqiPolizaSinkPort {
       // `folio 0` = que ContPAQi asigne el suyo. Nosotros NO controlamos su numeración, y por
       // eso existe el token: pelearse con el folio sería pedirle a su sistema que respete una
       // secuencia nuestra.
-      const contenido = construirTxt(fechaTxt, 0, concepto, movs, String(entrada.tipo_poliza));
+      // [CP.8.24] El `Guid` va derivado del evento: estructural, determinista, y no gasta los 100
+      // caracteres del concepto. Si ContPAQi lo RESPETA, el puente gana una llave que no depende
+      // de que nadie edite el texto; si lo pisa con el suyo, no se pierde nada -- el token sigue.
+      // Emitirlo es la unica forma de llegar a saberlo.
+      const guid = guidDe(entrada.evento_tipo, entrada.evento_id);
+      const contenido = construirTxt(fechaTxt, 0, concepto, movs, String(entrada.tipo_poliza), guid);
       return {
         sink: this.sink,
         estado: 'entregada',
