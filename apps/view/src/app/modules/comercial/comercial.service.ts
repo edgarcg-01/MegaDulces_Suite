@@ -4538,7 +4538,9 @@ export interface RouteProfitRuta {
    * y `parcial` es una que sí lo tiene pero tuvo días sin cobertura. Pintarlos igual
    * convertiría una ausencia de aparato en un bajo kilometraje.
    */
-  km_veredicto: 'medido' | 'parcial' | 'sin_gps';
+  /** Mismo nombre y mismos valores que en la serie: un concepto, una palabra. */
+  cobertura_km: 'completa' | 'parcial' | 'sin_gps';
+  dias_de_la_quincena: number;
   venta_por_km: string | null;
   utilidad_por_km: string | null;
 }
@@ -4676,7 +4678,12 @@ export interface ObjetivoCriterioFila {
 
 export interface ObjetivoFila {
   route_code: string; chofer: string | null; zona: string | null;
-  dias_con_venta: number;
+  /** ⛔ `null` cuando la ventana no cubre el mes: un 0 ahí afirma que la ruta no vendió. */
+  dias_con_venta: number | null;
+  dias_con_venta_motivo: string | null;
+  /** ⭐ Separa «no alcanzó» de «está de baja»: la bandera `comisiona` es manual y no caduca. */
+  ultima_actividad: string | null;
+  dias_sin_actividad: number | null;
   criterios: ObjetivoCriterioFila[];
   alcanzado_pct: number;
   sin_resolver_pct: number;

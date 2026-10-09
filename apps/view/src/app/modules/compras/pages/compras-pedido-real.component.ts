@@ -7,7 +7,8 @@ import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, type Freshness, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
-import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, roundSeed, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
+import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
+import { MotivoTope, roundSeedConTope, textoTope, TOPE_COBERTURA_DIAS } from '../pedido-tope';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -30,7 +31,7 @@ import { generarRequisicionGlobalPdf, generarRequisicionPdf, ReqGlobalPdfData, R
 import { agruparPorProveedor, LineaCompra, repartoProducto } from '../pedido-requisicion-global';
 import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
-  DeadStockRow, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
+  DeadStockRow, DeudaAcreedor, SobranteRow, SobranteTramo, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
   InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow,
 } from '../compras.service';
@@ -41,7 +42,7 @@ import { FreshnessPillComponent } from '../../../shared/components/freshness-pil
 import { ComprasFlujoComponent } from './compras-flujo.component';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
-type Mode = 'pedido' | 'ciclo' | 'muerto' | 'flujo';
+type Mode = 'pedido' | 'ciclo' | 'muerto' | 'sobrante' | 'flujo';
 type UType = 'comprar' | 'traspaso' | 'sobre';
 
 /** Renglón unificado de la vista consolidada por sucursal. */
@@ -84,8 +85,18 @@ interface BranchBuy {
   code: string; name: string;
   vta: number;           // venta 30 d, en cajas — es lo que ordena la lista
   exis: number;          // existencia, en cajas
-  seed: number;          // sugerido del motor YA REDONDEADO, en cajas (valor inicial del input) — ver roundSeed
+  seed: number;          // sugerido del motor YA REDONDEADO Y TOPADO, en cajas (valor inicial del input)
   seedUnit: 'caja' | 'pieza';   // unidad en que se PROPONE el sugerido: cajas cerradas, o piezas si no llega a media caja
+  /**
+   * `[RA.45D]` Por qué el tope de 45 días tocó (o no) este renglón. `null` = el sugerido cabía.
+   * `'sin_medir'` NO es "no se topó porque sí": es que no hay con qué medir la cobertura, y se
+   * declara en vez de recortar con un número inventado.
+   */
+  tope: MotivoTope;
+  /** Lo que el motor sugería ANTES del tope, en cajas. Sin esto el recorte no se puede explicar. */
+  sugeridoCrudo: number;
+  /** Días de cobertura que deja el sugerido topado. `null` = no medible. */
+  diasTope: number | null;
   cc: number;            // costo de caja DE ESA SUCURSAL
   /** U.2 — peldaño de unidad contradicho por el costo: acá no se puede ni convertir ni pedir. */
   rung: string | null;
@@ -187,6 +198,24 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               {{ b.n === 1 ? 'cantidad escrita' : 'cantidades escritas' }} de <strong>{{ borradorHora(b.at) }}</strong>.
               <span class="pr-borrador-sub">Las marcas de los productos no se guardan — marcá y armá como siempre.</span></p>
             <button type="button" class="pr-zlink" (click)="descartarBorrador()">Descartar y empezar de cero</button>
+          </div>
+        }
+        <!-- [RA.CAP] Lo que YA le debemos al proveedor que se está por pedir. No decide nada: pone
+             el hecho enfrente. Sólo aparece con un proveedor elegido, porque el dato es por
+             proveedor y un promedio de la red no le sirve a nadie para decidir una compra. -->
+        @if (deudaProv(); as d) {
+          <div class="pr-deuda" [class.pr-deuda-bad]="d.vencido > 0">
+            <i class="pi pi-wallet" aria-hidden="true"></i>
+            <span>Le debemos <strong>{{ money(d.pendiente) }}</strong></span>
+            @if (d.vencido > 0) {
+              <span class="pr-deuda-v">· <strong>{{ money(d.vencido) }}</strong> vencido</span>
+            }
+            <span class="pr-muted">al {{ deudaAl() }}</span>
+          </div>
+        } @else if (fSupplier && deudaSinCruce()) {
+          <div class="pr-deuda pr-deuda-mute">
+            <i class="pi pi-question-circle" aria-hidden="true"></i>
+            <span>Este proveedor no tiene acreedor en Kepler: su deuda <strong>no se midió</strong>.</span>
           </div>
         }
         <div class="pr-filters">
@@ -357,7 +386,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td class="pr-r">
                     @if (r.transito_cajas && r.transito_cajas > 0) {
                       <button type="button" class="pr-tran-btn" (click)="openTransit(r); $event.stopPropagation()"
-                              [title]="'Ver las órdenes de compra abiertas de ' + r.sku">
+                              [title]="'OC abiertas de ' + r.sku + ' — NO se descuentan del sugerido. Clic para ver los folios.'">
                         <i class="pi pi-truck" aria-hidden="true"></i> {{ r.transito_cajas | number:'1.0-1' }}
                       </button>
                     } @else { <span class="pr-muted">—</span> }
@@ -764,14 +793,21 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               La llegada es <strong>estimada</strong>: Kepler no guarda fecha prometida, así que se calcula
               como fecha de la orden + el tiempo de surtido del proveedor@if (tranLead()) { ({{ tranLead() }} d) }.
             </p>
-            <!-- RA-PRO.45 — la brecha entre lo que dice el papel y lo que el motor descuenta. Sin
-                 esto la pantalla se contradice sola: "vienen 180 cajas" y aun así sugiere pedir. -->
+            <!-- [RA.TR] La brecha entre lo que dice el papel y lo que el motor descuenta. Sin esto
+                 la pantalla se contradice sola: "vienen 180 cajas" y aun así sugiere pedir.
+                 El motivo lo manda el SERVIDOR (aviso_transito), que es quien sabe qué política
+                 está vigente: si lo escribiera la pantalla, al cambiar la regla el texto quedaría
+                 explicando algo que ya no ocurre. -->
             @if (tranGap() > 0.05) {
               <p class="pr-tran-gap">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
-                El pedido descuenta <strong>{{ tranDescuenta() | number:'1.0-1' }} cajas</strong>, no las
-                {{ tranTotalCajas() | number:'1.0-1' }}: en Kepler la orden se captura al recibir, así que
-                una que sigue abierta hace semanas casi nunca llega. Cada orden pesa según su antigüedad.
+                @if (tranDescuenta() > 0.05) {
+                  El pedido descuenta <strong>{{ tranDescuenta() | number:'1.0-1' }} cajas</strong>, no las
+                  {{ tranTotalCajas() | number:'1.0-1' }}.
+                } @else {
+                  El pedido <strong>no descuenta</strong> estas {{ tranTotalCajas() | number:'1.0-1' }} cajas.
+                }
+                {{ tranAviso() }}
               </p>
             }
             <table class="pr-peek-tbl">
@@ -975,6 +1011,91 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           <p class="pr-foot">Un renglón por <strong>sucursal × proveedor</strong>, ordenado por la fecha que toca. La <strong>cadencia</strong> no se captura: sale de las entregas reales en Kepler. <strong>Sugerido</strong> es lo que costaría llenar ese ciclo completo — la misma fórmula del Pedido, así que el número de acá y el de allá coinciden. <em>«Armar» abre el Pedido con ese proveedor y esa sucursal ya puestos.</em></p>
         }
         </div>
+      } @else if (mode()==='sobrante') {
+        <!-- [RA.SOB] SOBRANTE: dónde está parado el inventario (tira de tramos) y qué de eso lo
+             compramos y nunca salió (tabla). Las dos salen de la MISMA consulta. -->
+        <div class="dt-scope">
+        @if (sobError()) {
+          <p class="pr-sob-err"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            No se pudo leer el sobrante. La cifra NO es cero: no se midió.</p>
+        } @else {
+          <!-- La tira. Clic en un mosaico filtra la tabla a ese tramo; el mismo clic lo quita. -->
+          <div class="pr-sobstrip" role="group" aria-label="Inventario por cobertura">
+            @for (t of sobTramos(); track t.tramo) {
+              <button type="button" class="pr-sob" [class]="sobCls(t)"
+                      [class.pr-sob-on]="sobTramo() === t.tramo"
+                      [attr.aria-pressed]="sobTramo() === t.tramo"
+                      (click)="pickTramo(t.tramo)" [title]="sobTramoTitle(t)">
+                <span class="pr-sob-lab">{{ t.label }}</span>
+                <span class="pr-sob-val">{{ money(t.valor) }}</span>
+                <span class="pr-sob-sub">{{ sobPct(t) }}% · {{ t.skus | number }} SKUs</span>
+                @if (t.quedado > 0) {
+                  <span class="pr-sob-q">{{ t.quedado | number }} se quedaron</span>
+                }
+              </button>
+            }
+          </div>
+          <div class="pr-filters">
+            <p-iconfield styleClass="pr-search">
+              <p-inputicon styleClass="pi pi-search" />
+              <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadSobrante()" placeholder="SKU o producto…" aria-label="Buscar producto" />
+            </p-iconfield>
+            <button type="button" class="pr-uu-b" [class.pr-uu-on]="sobSoloQuedado()"
+                    [attr.aria-pressed]="sobSoloQuedado()" (click)="toggleSoloQuedado()"
+                    title="Sólo lo que compramos y no ha salido nada desde esa compra. Apagado muestra todo el inventario del tramo.">
+              Sólo lo que se quedó
+            </button>
+            <span class="pr-count">
+              {{ sobTotal() | number }} renglones · {{ money(sobQuedadoValor()) }} comprado y sin salida
+              <span class="pr-muted">(ventana {{ sobVentana() }} d)</span>
+            </span>
+          </div>
+          <!-- class y NO styleClass: PrimeNG 22 lo retiró de p-table y check:primeng-api lleva el
+               contador de la deuda vieja con tolerancia cero para una nueva. El precedente vivo
+               es comercial-motor-margen y reparto-surtido.
+               SIN ACENTOS GRAVES ACÁ: aunque vengan BALANCEADOS, cada par abre y cierra una
+               interpolación del template literal y el HTML de en medio se vuelve TypeScript.
+               check:templates los deja pasar (el literal sigue entero); lo caza template-types. -->
+          <p-table [value]="sobRows()" [loading]="loading()"
+                   [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                   class="p-datatable-sm pr-table dt-stack">
+            <ng-template #header>
+              <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
+                <th class="pr-r">Exist.<br/>cajas</th>
+                <th class="pr-r pr-val">Valor</th>
+                <th class="pr-r" title="Días de cobertura al ritmo de venta de los últimos 30 días. «sin medir» = no hay venta: no es cero.">Cobertura</th>
+                <th>Última compra</th><th>Última salida</th><th>Proveedor</th></tr>
+            </ng-template>
+            <ng-template #body let-r>
+              <tr>
+                <td class="dt-id" role="cell"><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
+                <td class="pr-mono pr-muted" role="cell" data-label="Almacén">{{ r.warehouse_code | sucursal }}</td>
+                <td class="pr-r pr-muted dt-num" role="cell" data-label="Existencia (cajas)">{{ r.cajas | number:'1.0-1' }}</td>
+                <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Valor">{{ money(r.valor) }}</td>
+                <td class="pr-r dt-num" role="cell" data-label="Cobertura">
+                  @if (r.cover_days == null) { <span class="pr-muted">sin medir</span> }
+                  @else { <span [class.pr-sob-bad-t]="r.cover_days > 90">{{ sobDias(r) }}</span> }
+                </td>
+                <td class="pr-muted" role="cell" data-label="Última compra">
+                  @if (r.ult_compra) { {{ r.ult_compra | date:'dd/MM/yy' }}
+                    <span class="pr-muted">· hace {{ r.dias_desde_compra }} d</span>
+                  } @else { sin compra en la ventana }
+                </td>
+                <td class="pr-muted" role="cell" data-label="Última salida">
+                  {{ r.ult_salida ? (r.ult_salida | date:'dd/MM/yy') : 'ninguna' }}
+                </td>
+                <td class="pr-supp" role="cell" data-label="Proveedor">{{ r.proveedor || '—' }}</td>
+              </tr>
+            </ng-template>
+            <ng-template #emptymessage>
+              <tr><td colspan="8" class="pr-empty"><i class="pi pi-inbox"></i>
+                <p>Nada que mostrar con estos filtros.</p>
+                <span>Con «Sólo lo que se quedó» prendido, acá aparece lo que compramos en los últimos {{ sobVentana() }} días y no ha salido.</span>
+              </td></tr>
+            </ng-template>
+          </p-table>
+        }
+        </div>
       } @else if (mode()==='muerto') {
         <!-- STOCK MUERTO: productos activos SIN rotación (capital inmovilizado) -->
         <!-- [UIM.2] Apilado por campos: las 7 columnas son campos de UN renglón muerto.
@@ -1107,6 +1228,50 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     :host ::ng-deep .pr-sel { min-width: 13rem; }
     :host ::ng-deep .pr-search input { min-width: 12rem; }
     .pr-count { margin-left: auto; font-size: var(--fs-sm); color: var(--text-muted); }
+    /* [RA.CAP] Lo que ya le debemos al proveedor elegido. Un renglon, no una tarjeta: es contexto
+       para la decision de compra, no la pantalla de Finanzas. SIN ACENTOS GRAVES ACA. */
+    .pr-deuda {
+      display: flex; align-items: center; flex-wrap: wrap; gap: .4rem;
+      font-size: var(--fs-sm); color: var(--text-main);
+      padding: .45rem .7rem; margin: 0 0 .5rem;
+      border: 1px solid var(--border-color); border-left: 2px solid var(--border-color);
+      border-radius: var(--r-sm, 8px);
+    }
+    .pr-deuda i { color: var(--text-muted); }
+    .pr-deuda-bad { border-left-color: var(--bad-fg); }
+    .pr-deuda-bad i { color: var(--bad-fg); }
+    .pr-deuda-v { color: var(--bad-fg); }
+    .pr-deuda-mute { opacity: .85; }
+    /* [RA.SOB] La tira de tramos de cobertura. Mosaicos, no una tabla: son seis cifras que se
+       comparan de un vistazo y cada una es un filtro. SIN ACENTOS GRAVES EN ESTE COMENTARIO. */
+    .pr-sobstrip { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 .75rem; }
+    .pr-sob {
+      flex: 1 1 10rem; min-width: 9rem; text-align: left; cursor: pointer;
+      display: flex; flex-direction: column; gap: .1rem;
+      padding: .5rem .65rem; border: 1px solid var(--border-color);
+      border-left: 3px solid var(--border-color); border-radius: var(--r-sm, 8px);
+      background: var(--surface-card); color: var(--text-main);
+      transition: border-color var(--dur-micro, 120ms) var(--ease-standard);
+    }
+    .pr-sob:hover { border-color: var(--text-muted); }
+    .pr-sob-on { border-color: var(--action); border-left-color: var(--action); }
+    .pr-sob-lab { font-size: var(--fs-xs); color: var(--text-muted); }
+    .pr-sob-val { font-size: var(--fs-md); font-weight: 600; font-variant-numeric: tabular-nums; }
+    .pr-sob-sub { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+    .pr-sob-q { font-size: var(--fs-xs); color: var(--warn-fg); font-variant-numeric: tabular-nums; }
+    .pr-sob-ok { border-left-color: var(--ok-fg); }
+    .pr-sob-warn { border-left-color: var(--warn-fg); }
+    .pr-sob-bad { border-left-color: var(--bad-fg); }
+    /* Neutro a proposito: "no vende" no es bueno ni malo, es que la vara no aplica ahi. */
+    .pr-sob-mute { border-left-color: var(--border-color); opacity: .78; }
+    .pr-sob-bad-t { color: var(--bad-fg); }
+    .pr-sob-err {
+      display: flex; align-items: flex-start; gap: .4rem; font-size: var(--fs-sm);
+      color: var(--text-main); padding: .6rem .75rem; margin: 0 0 .75rem;
+      border: 1px solid var(--border-color); border-left: 2px solid var(--bad-fg);
+      border-radius: var(--r-sm, 8px);
+    }
+    .pr-sob-err i { color: var(--bad-fg); margin-top: .12rem; }
     .pr-cov { display: inline-flex; align-items: center; gap: .4rem; font-size: var(--fs-sm); color: var(--text-muted); }
     :host ::ng-deep .pr-cov-in { width: 4.5rem; text-align: right; font-variant-numeric: tabular-nums; }
     .pr-chips { display: inline-flex; gap: .25rem; }
@@ -1746,13 +1911,22 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const out: BranchBuy[] = [];
       for (const [code, c] of Object.entries(r.cells ?? {})) {
         if (code === 'GENERAL') continue;   // defensivo: el agregado de red no es una sucursal
-        const sd = roundSeed(Number(c.ped) || 0, Number(r.uxc) || 1);
+        // `[RA.45D]` El sugerido sale YA TOPADO a 45 días de cobertura. El tope va acá y no en el
+        // backend a propósito: es el redondeo a caja cerrada lo que rompe la regla (el motor por
+        // construcción nunca pasa la cobertura que se le pidió), y el redondeo vive de este lado.
+        const sd = roundSeedConTope(
+          Number(c.ped) || 0, Number(r.uxc) || 1,
+          Number(c.exis) || 0, Number(c.vta) || 0, !!c.rung,
+        );
         out.push({
           code, name: names.get(code) || '',
           vta: Number(c.vta) || 0,
           exis: Number(c.exis) || 0,
           seed: sd.cajas,
           seedUnit: sd.unit,
+          tope: sd.motivo,
+          sugeridoCrudo: sd.sugerido,
+          diasTope: sd.dias,
           // Sin costo por celda (feed viejo) se cae al del producto, que es el `max` entre
           // almacenes: sobrevalúa, pero es lo que ya publicaba la pantalla. No se inventa 0.
           cc: Number(c.cc ?? r.caja_cost) || 0,
@@ -1773,6 +1947,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         out.push({
           code, name: names.get(code) || '',
           vta: 0, exis: 0, seed: 0, seedUnit: 'caja',
+          // `[RA.45D]` Una sucursal agregada a mano no trae venta, así que NO hay cobertura que
+          // medir: el tope se declara `sin_medir`, no `null`. `null` significaría "el sugerido
+          // cabía bajo el tope", que es una afirmación — y acá no se midió nada.
+          tope: 'sin_medir', sugeridoCrudo: 0, diasTope: null,
           // Sin celda no hay costo de ESE almacén: se usa el del producto (el max entre almacenes,
           // mismo respaldo que ya aplica arriba a una celda sin `cc`). No se inventa 0.
           cc: Number(r.caja_cost) || 0,
@@ -2077,7 +2255,27 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         title: this.pendienteTitle(r),
       });
     }
+    // `[RA.45D]` El tope de 45 días. Va como insignia y no como nota al pie porque es la única
+    // señal de la pantalla que EXPLICA UN NÚMERO MÁS CHICO: sin ella, el comprador ve un sugerido
+    // que no cuadra con la cobertura que conoce y lo sube a mano, que es justo lo que la regla
+    // viene a evitar. `sin_medir` NO se pinta: no se tocó nada, no hay nada que explicar.
+    if (b.tope === 'recortado') {
+      out.push({ txt: `tope ${TOPE_COBERTURA_DIAS} d`, cls: 'pr-bflag-pend', title: this.topeTitle(b) });
+    } else if (b.tope === 'ya_pasa_sin_pedir' || b.tope === 'no_cabe') {
+      out.push({ txt: 'no pedir', cls: 'pr-bflag-bad', title: this.topeTitle(b) });
+    }
     return out;
+  }
+
+  /**
+   * `[RA.45D]` La frase del tope. Sale del mismo helper puro que decidió el recorte, así que no
+   * puede describir otra cosa que lo que pasó.
+   */
+  topeTitle(b: BranchBuy): string {
+    return textoTope(
+      { cajas: b.seed, unit: b.seedUnit, sugerido: b.sugeridoCrudo, dias: b.diasTope, diasHoy: this.diasHoy(b), motivo: b.tope },
+      TOPE_COBERTURA_DIAS,
+    );
   }
 
   // ── [RA-PRO.65] V30d / MÁX y la PELÍCULA DE 12 MESES ─────────────────
@@ -2241,7 +2439,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (b.rung) return 'No se puede calcular: el peldaño de unidad de este almacén no está verificado.';
     if (!(b.vta > 0)) return 'Sin venta en los últimos 30 días en esta sucursal: no hay cobertura que calcular.';
     const q = this.qtyOf(r, b);
-    return `(${b.exis.toFixed(1)} de existencia + ${q.toFixed(1)} de pedido) ÷ (${b.vta.toFixed(1)} de venta 30 d ÷ 30.4 días)`;
+    const base = `(${b.exis.toFixed(1)} de existencia + ${q.toFixed(1)} de pedido) ÷ (${b.vta.toFixed(1)} de venta 30 d ÷ 30.4 días)`;
+    // `[RA.45D]` Si el comprador subió la cantidad a mano por encima del tope, se le dice acá — el
+    // tope gobierna lo que el motor SUGIERE, no prohíbe capturar. Pero un número que pasa la regla
+    // sin decirlo es peor que no tener regla.
+    const d = this.diasInv(r, b);
+    if (d != null && d > TOPE_COBERTURA_DIAS) {
+      return `${base}. ⚠️ Queda con ${Math.round(d)} días, por encima del tope de ${TOPE_COBERTURA_DIAS}.`;
+    }
+    return base;
   }
 
   // ── totales del renglón de producto (los de arriba) ──────────────────
@@ -3026,7 +3232,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly tranRows = signal<InTransitOc[]>([]);
   readonly tranProduct = signal<{ sku: string; nombre: string } | null>(null);
   readonly tranLead = signal<number | null>(null);
-  readonly tranDescuenta = signal(0);          // RA-PRO.45 — cajas que el motor sí resta
+  readonly tranDescuenta = signal(0);          // `[RA.TR]` — cajas que el motor sí resta (hoy: 0)
+  /**
+   * `[RA.TR]` El motivo que manda el servidor. Arranca vacío a propósito: si el endpoint no lo
+   * trae, la pantalla no inventa una explicación — prefiere no decir nada antes que decir algo
+   * que ya no sea cierto.
+   */
+  readonly tranAviso = signal('');
   tranTotalCajas = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.cajas) || 0), 0));
   tranTotalValor = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.valor) || 0), 0));
   tranGap = computed(() => Math.max(0, this.tranTotalCajas() - this.tranDescuenta()));
@@ -3042,19 +3254,25 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.tranRows.set(res.rows ?? []);
         this.tranLead.set(res.lead_days ?? null);
         this.tranDescuenta.set(Number(res.descuenta_cajas ?? 0));
+        this.tranAviso.set(res.aviso_transito ?? '');
         if (res.product) this.tranProduct.set(res.product);
       });
   }
-  /** Antigüedad de la OC: es lo que decide cuánto pesa. +30 d = prácticamente muerta. */
+  /**
+   * Antigüedad de la OC. `[RA.TR]` Ya no decide cuánto pesa —hoy no se descuenta nada— pero sigue
+   * siendo lo que le dice al comprador si vale la pena contar con ella: medido el 2026-10-08,
+   * una OC de más de 60 días llega el 9.8% de las veces, y una de menos de 3 el 86.2%.
+   */
   edadCls(o: InTransitOc): string {
     const d = Number(o.dias_abierta) || 0;
     return d > 30 ? 'pr-edad pr-edad-bad' : d > 14 ? 'pr-edad pr-edad-warn' : 'pr-edad';
   }
   edadTitle(o: InTransitOc): string {
     const d = Number(o.dias_abierta) || 0;
-    if (d > 30) return 'Lleva más de un mes abierta: históricamente sólo una de cada siete llega. Casi no descuenta pedido.';
-    if (d > 14) return 'Lleva más de dos semanas abierta: cerca de la mitad de estas ya no se surte.';
-    return 'Orden reciente: se descuenta casi completa.';
+    if (d > 60) return 'Más de 60 días abierta: de éstas llega el 9.8%. 151 de las 394 OC abiertas están así — conviene cerrarla o reclamarla.';
+    if (d > 30) return 'Más de un mes abierta: históricamente sólo una de cada cinco llega.';
+    if (d > 14) return 'Más de dos semanas abierta: cerca de la mitad de éstas ya no se surte.';
+    return 'Orden reciente: de éstas llega entre el 76% y el 86%. Es la que de verdad conviene mirar antes de volver a pedir.';
   }
   /** Semáforo de llegada: vencida (debió llegar) · esta semana · más adelante. */
   llegaSev(o: InTransitOc): Sev {
@@ -3162,6 +3380,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   ngOnInit(): void {
     // Lookups de los filtros. NUNCA tragar el error (DESIGN §Ing.UI 6): si esto falla en
     // silencio, los selects quedan vacíos y la pantalla se ve "sin menús" sin decir por qué.
+    // `[RA.CAP]` La deuda por acreedor se trae UNA vez al abrir la pantalla (402 filas, 231 ms
+    // medidos contra prod) y después se cruza en memoria al cambiar de proveedor: pedirla en cada
+    // cambio de filtro sería un viaje por clic para un dato que se mueve una vez al día.
+    this.cargarDeuda();
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (f) => this.filters.set(f),
       error: (e) => this.toast.add({
@@ -3185,6 +3407,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     const qWh = qp.get('warehouse_ids');
     if (qWh) this.wbWarehouses = qWh.split(',').map((c) => c.trim()).filter(Boolean);
     if (this.mode() === 'muerto') this.loadDead();
+    else if (this.mode() === 'sobrante') this.loadSobrante();
     else if (this.mode() === 'pedido') this.loadWorkbook();
     else if (this.mode() === 'ciclo') this.loadWorklist();
     // (2026-09-14) Acá vivía un setInterval de 60s que refrescaba la etiqueta "hace N min" a mano.
@@ -3212,6 +3435,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       if (s.mode === 'muerto') this.mode.set('muerto');
       else if (s.mode === 'flujo') this.mode.set('flujo');
       else if (s.mode === 'ciclo') this.mode.set('ciclo');
+      else if (s.mode === 'sobrante') this.mode.set('sobrante');
       else if (s.mode === 'pedido' || s.mode === 'consolidado' || s.mode === 'excel') this.mode.set('pedido');
       if ('fSupplier' in s) this.fSupplier = s.fSupplier;
       if ('fBrand' in s) this.fBrand = s.fBrand;
@@ -3231,6 +3455,7 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (this.mode() === m) return;
     this.mode.set(m);
     if (m === 'muerto') this.loadDead();
+    else if (m === 'sobrante') this.loadSobrante();
     else if (m === 'pedido') this.loadWorkbook();
     else if (m === 'ciclo') this.loadWorklist();
     // 'flujo' se carga solo (su componente).
@@ -3410,7 +3635,12 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   ];
   /** Vista. Era un role="tablist" sin tabpanel; ahora radiogroup con teclado. */
   readonly modeOpts: SegOption[] = [
-    { label: 'Ciclo', value: 'ciclo' }, { label: 'Pedido', value: 'pedido' }, { label: 'Stock muerto', value: 'muerto' }, { label: 'Flujo', value: 'flujo' },
+    { label: 'Ciclo', value: 'ciclo' }, { label: 'Pedido', value: 'pedido' },
+    // `[RA.SOB]` Va PEGADA a Pedido y antes de Stock muerto: es la otra cara de la misma decisión
+    // (qué comprar se decide mirando qué sobra), mientras que Stock muerto es un universo distinto
+    // —lo que no tiene política de reorden— y no se lee en el mismo momento.
+    { label: 'Sobrante', value: 'sobrante' },
+    { label: 'Stock muerto', value: 'muerto' }, { label: 'Flujo', value: 'flujo' },
   ];
 
   /** Valor por default de la cobertura — el mismo que arranca `coverage`. */
@@ -3677,6 +3907,154 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       });
   }
 
+  // ── `[RA.CAP]` Lo que YA le debemos al proveedor que se está por pedir ────────────────────
+  /**
+   * Punto 3 de los tres de Edgar: *"el pedido en algún momento se hará bajo análisis también el
+   * presupuesto de pago y capacidad de pago"*.
+   *
+   * ⛔ **La capacidad de pago no existe y es un bloqueo humano, no técnico.** Medido el
+   * 2026-10-09: `budget.daily_capacity` tiene 22 filas **de septiembre** (vencidas),
+   * `payment_calendar_lots`, `financial_commitments` y `supplier_payment_obligations` en **0**.
+   * Sin eso el pedido NO se puede condicionar a lo que se puede pagar, y dibujar un tope con una
+   * capacidad inventada sería peor que no tenerlo.
+   *
+   * ⭐ **La otra mitad sí tiene dato**: lo que ya le debemos. No decide por el comprador — le pone
+   * enfrente que le va a pedir medio millón a alguien a quien ya le debe dos vencidos.
+   */
+  private readonly deudaMap = signal<Map<string, DeudaAcreedor>>(new Map());
+  readonly deudaAl = signal('');
+  /** ⚠️ Separado del mapa vacío: "no pude leer" y "no le debemos a nadie" son cosas distintas. */
+  readonly deudaError = signal(false);
+
+  private cargarDeuda(): void {
+    this.api.deudaPorProveedor()
+      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        if (!r) { this.deudaError.set(true); return; }
+        this.deudaMap.set(new Map((r.acreedores ?? []).map((a) => [a.codigo.trim(), a])));
+        this.deudaAl.set(r.al ?? '');
+      });
+  }
+
+  /** El código de acreedor del proveedor elegido. `null` si no hay proveedor o no trae código. */
+  private supCode(): string | null {
+    if (!this.fSupplier) return null;
+    const s = (this.filters()?.suppliers ?? []).find((x) => x.id === this.fSupplier);
+    return s?.code?.trim() || null;
+  }
+
+  /** La deuda del proveedor elegido. `null` = sin proveedor, sin cruce, o no se pudo leer. */
+  deudaProv(): DeudaAcreedor | null {
+    if (this.deudaError()) return null;
+    const c = this.supCode();
+    return c ? this.deudaMap().get(c) ?? null : null;
+  }
+
+  /**
+   * ⭐ Hay un proveedor elegido pero NO casa con ningún acreedor, o no trae código.
+   *
+   * ⛔ Se DECLARA en vez de callarse: callarse se lee como "no le debemos nada", que es una
+   * afirmación — y acá no se midió. Son 7 de los 281 proveedores del pedido (2.5%).
+   * ⚠️ `deudaError` NO entra acá: si la llamada falló, el silencio es correcto hasta que haya dato.
+   */
+  deudaSinCruce(): boolean {
+    if (this.deudaError() || !this.fSupplier || !this.deudaMap().size) return false;
+    const c = this.supCode();
+    return !c || !this.deudaMap().has(c);
+  }
+
+  // ── `[RA.SOB]` SOBRANTE: dónde está parado el inventario, y qué pedimos que se quedó ──────
+  /**
+   * Punto 2 de los tres de Edgar: *"necesito analices que productos pedimos y se quedaron en
+   * stock"*. Dos preguntas que se leen juntas: la tira de arriba dice **dónde está parado el
+   * dinero** por tramo de cobertura, y la tabla **qué de eso lo compramos y nunca salió**.
+   *
+   * ⛔ La tira y la tabla salen de la MISMA consulta del backend (un solo CTE), así que no pueden
+   * decir cosas distintas del mismo SKU.
+   */
+  readonly sobTramos = signal<SobranteTramo[]>([]);
+  readonly sobRows = signal<SobranteRow[]>([]);
+  readonly sobTotal = signal(0);
+  readonly sobValor = signal(0);
+  readonly sobQuedadoValor = signal(0);
+  readonly sobVentana = signal(90);
+  /** ⚠️ Separado de `sobRows().length === 0`: "no pude leer" y "no hay nada" son dos cosas. */
+  readonly sobError = signal(false);
+  /** Tramo seleccionado en la tira. `null` = todos. */
+  readonly sobTramo = signal<string | null>(null);
+  /** Default `true`: la pregunta de Edgar es lo que se quedó, no todo el inventario. */
+  readonly sobSoloQuedado = signal(true);
+
+  loadSobrante(): void {
+    const gen = ++this.reqGen;
+    this.loading.set(true); this.sobError.set(false); this.saveFilters();
+    this.api.sobrante({
+      supplier_id: this.fSupplier || undefined,
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined,
+      search: this.search.trim() || undefined,
+      tramo: this.sobTramo() ?? undefined,
+      solo_quedado: this.sobSoloQuedado(),
+      pageSize: 200,
+    }).pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        if (gen !== this.reqGen) return;
+        this.loading.set(false);
+        if (!r) { this.sobError.set(true); this.sobRows.set([]); this.sobTramos.set([]); return; }
+        this.sobTramos.set(r.tramos ?? []);
+        this.sobRows.set(r.rows ?? []);
+        this.sobTotal.set(Number(r.total) || 0);
+        this.sobValor.set(Number(r.total_valor) || 0);
+        this.sobQuedadoValor.set(Number(r.total_quedado_valor) || 0);
+        this.sobVentana.set(Number(r.ventana_dias) || 90);
+        this.loadedAt.set(Date.now());
+      });
+  }
+
+  /** Clic en un mosaico de la tira: filtra la tabla a ese tramo, y el mismo clic lo quita. */
+  pickTramo(t: string): void {
+    this.sobTramo.set(this.sobTramo() === t ? null : t);
+    this.loadSobrante();
+  }
+
+  toggleSoloQuedado(): void {
+    this.sobSoloQuedado.set(!this.sobSoloQuedado());
+    this.loadSobrante();
+  }
+
+  /** Qué parte del total representa un tramo, para el ancho de su barra. */
+  sobPct(t: SobranteTramo): number {
+    const tot = this.sobValor();
+    return tot > 0 ? Math.round(t.valor * 1000 / tot) / 10 : 0;
+  }
+
+  /**
+   * El color del mosaico. ⭐ `no_vende` va en NEUTRO: no es un tramo bueno ni malo, es la
+   * declaración de que esa vara no aplica ahí. Pintarlo de rojo diría que el CEDIS tiene un
+   * problema de rotación cuando lo que pasa es que no vende, distribuye.
+   */
+  sobCls(t: SobranteTramo): string {
+    if (t.tramo === 'no_vende') return 'pr-sob-mute';
+    if (t.tramo === 'sin_venta' || t.tramo === 'mas_1_anio') return 'pr-sob-bad';
+    if (t.tramo === 'd180_365' || t.tramo === 'd90_180') return 'pr-sob-warn';
+    return 'pr-sob-ok';
+  }
+
+  sobTramoTitle(t: SobranteTramo): string {
+    if (t.tramo === 'no_vende') {
+      return `${t.pares} pares en almacenes que NO venden al público (el CEDIS distribuye, no vende). `
+        + 'Su cobertura no se puede medir con la venta: se DECLARA, no se cuenta como inventario parado.';
+    }
+    const q = t.quedado > 0
+      ? ` De eso, ${t.quedado} lo compramos en los últimos ${this.sobVentana()} días y no ha salido nada (${this.money(t.quedado_valor)}).`
+      : '';
+    return `${t.pares} pares (${t.skus} SKUs) por ${this.money(t.valor)}, el ${this.sobPct(t)}% del inventario.${q}`;
+  }
+
+  /** La etiqueta de días de un renglón. `null` no es 0: es que no hay venta con qué medir. */
+  sobDias(r: SobranteRow): string {
+    return r.cover_days == null ? 'sin medir' : `${r.cover_days} d`;
+  }
+
   // ── `[RA-CICLO.1]` EL CUÁNDO: a quién le toca pedir hoy ──────────────────────────────────
   /**
    * El ciclo NO se recalcula acá. `commercial.replenishment_channel` lo deriva el nocturno de las
@@ -3802,7 +4180,19 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   typeSev(t: UType): Sev { return t === 'comprar' ? 'success' : t === 'traspaso' ? 'info' : 'warn'; }
   abcSev(c: string | null): Sev { return c === 'A' ? 'success' : c === 'B' ? 'info' : 'secondary'; }
   unitLabel(src: string | undefined): string { return src === 'granel' ? 'granel' : src === 'revisar' ? 'revisar unidad' : src === 'manual' ? 'unidad fija' : ''; }
-  coverSev(d: number | null): Sev { if (d == null) return 'secondary'; if (d < 7) return 'danger'; if (d < 30) return 'warn'; if (d > 90) return 'info'; return 'success'; }
+  /**
+   * `[RA.45D]` El corte de arriba pasó de 90 a **45 días**, que es el tope que el motor ahora
+   * respeta. Dejarlo en 90 habría pintado en verde una cobertura de 60 días en la misma pantalla
+   * que se niega a pedirla — el semáforo contradiciendo a la regla que acaba de aplicar.
+   *
+   * ⚠️ Esto pinta MÁS renglones en azul, y no es un efecto colateral: es el hallazgo. Medido el
+   * 2026-10-08, **8,023 de 15,927 pares SKU×almacén (50.4%) ya pasan los 45 días sin pedir nada**
+   * — $36,290,904 de inventario. La pantalla deja de taparlo.
+   *
+   * `info` (azul) y no `danger`: sobra inventario, no falta. El rojo es de los agotados, y un
+   * color que significa dos cosas deja de significar cualquiera.
+   */
+  coverSev(d: number | null): Sev { if (d == null) return 'secondary'; if (d < 7) return 'danger'; if (d < 30) return 'warn'; if (d > TOPE_COBERTURA_DIAS) return 'info'; return 'success'; }
 
   // ── override de unidad de venta ──────────────────────────────────────
   unitVisible = false;

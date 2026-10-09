@@ -9931,6 +9931,7 @@ Auditoría de gastos read-only contra prod (2026-10-08). **El plan de egresos no
 - [x] 🔨 `[PU.VG.5]` **El esquema declara un freno que no existe.** ⛔ **Corrige lo que esta línea decía antes** («alguien lo bajó en el 100 %»): **falso, nadie bajó nada.** El DEFAULT de `budget_lines.control_level` dice `'bloqueo'` y **nunca se aplica** — `materialize` siempre pasa valor explícito, y para gasto sale de `expense_plan_settings.control_level` (default `'advertencia'`) sobre una tabla con **cero filas**, así que manda el literal `|| 'advertencia'` del código. Son **dos lugares decidiendo lo mismo y gana el que el esquema no anuncia**. Las 99 `informativo` son exactamente las 99 de ingreso, y ahí es **correcto**. Exposición medida: **$107,278,033.88 en 26 partidas** excluyendo `is_test` ($182,130,224.70 sin excluirlas — ⭐ primera cifra que la marca de `[PU.VG.1]` corrige en vivo). **No se decide cuál debe ser el nivel** (cambia la operación): se DECLARA en `ejecucion.frenos`. Commit `2c6338465`, sin migración (un `COMMENT` solo no crea objeto y la compuerta del despliegue lo clasificaría `NO_MEDIDO`).
 - [x] 🔨 `[PU.VG.6]` **`fiscal_year` no es un periodo.** `budget.budgets` lo guarda como entero y **no tiene ninguna columna de ventana** (verificado: cero); los meses cubiertos viven sólo en `expense_plan_lines.year_month`. FY2026 publica **$32,425,843.06 con `period_month = NULL` en sus 12 partidas** y cubre ago–dic = **5 de 12 meses (41.7 %)**: leerlo como año subestima ~58 %. Un ejercicio parcial es legítimo (el sistema arrancó en agosto); publicarlo como anual no. ⭐⭐ **La distinción que cuesta la mitad del trabajo:** la primera medición marcaba «ventanas distintas» en los TRES ejercicios, pero el gasto va en **12 meses naturales** y la venta en los **13 periodos del calendario 13×4** — los dos cubren el año. Marcarlo como hueco sería una alarma falsa en todos los ejercicios completos, y así se pierde la señal real de FY2026; el bloque 4 del candado afirma **explícitamente** que 12-vs-13 NO es un hueco. La ventana viaja en el endpoint `coverage`. Commit `062bd0ba3`, sin migración.
 - [x] 🧪 `[PU.VG.7]` **El ledger no tiene eje de tiempo, y por eso no hay control intra-anual.** `budget_lines.period_month` está en **NULL en las 139 filas** de prod, y **no es un descuido**: `materialize` agrupa el plan por `cuenta|sucursal` y **colapsa los 17 meses en una línea**, usando el mes sólo para derivar `recurrence`. Consecuencia: `available_amount` es un número **anual** — se puede quemar el ejercicio entero en enero y ninguna compuerta se entera hasta el cierre. ⛔ **La corrección obvia es DESTRUCTIVA**: `source_ref` es la clave con la que `materialize` reconcilia y el propio archivo advierte que cambiarla **borra y recrea** las partidas, perdiendo su historial de movimientos; además multiplicaría 14 renglones por 17 y `expense_obligations.budget_line_id` (Fase TP) cuelga de ellos. Por eso el perfil se lee **AL LADO**: ya vive en `expense_plan_lines.year_month` y **no se guarda nada** (regla 3 del contrato, aplicada al grano). Módulo puro `budget-phasing.ts` + `GET budgets/:id/expense-plan/ritmo`. ⭐ **El borde que cuesta dinero:** el mes en curso se **excluye**, con el criterio que YA existe (`analytics.v_expense_arbiter.mes_en_curso`) y no uno nuevo — medido en prod 2026-10-09, incluirlo mueve la brecha de FY2026 de **$13,653,449.54 a $19,903,668.37 = 46 % de inflación** sin que pase nada en el negocio. ⭐ **Las tres ausencias no se funden** (`sin_plan` lo arregla quien planea · `sin_perfil` el periodo no empezó · `desfase_plan_vs_linea` la partida se movió tras materializar): las tres devuelven `brecha: null`, **nunca 0**. ⛔ **No emite semáforo** — no hay umbral de materialidad en ningún lado (cero columnas `umbral|threshold` en `budget.*`, cero filas de gasto en `analytics.kpi_thresholds`), e inventar un 5 % sería fabricar una política que nadie firmó: devuelve `umbral_registrado: false`. **Medido: FY2026 tiene 12 partidas sin UN PESO registrado contra $13.65M que el perfil dice devengados.** Candados: `budget-phasing.spec.ts` **23 ✓, mutado a rojo → 6 ✗**, y `test-newdb-budget-ritmo.js` **16 ✓ / 0 ✗ / 0 no medido contra prod**, que ⭐ **cruza dos implementaciones** (agregación en SQL contra el módulo en TS) en vez de verificar una contra sí misma, y cuyo modo lectura es **exigible, no prometido** (`default_transaction_read_only` + prueba negativa que comprueba el rechazo `25006`). **Sin migración.** Pendiente: consumo en pantalla.
+- [x] ⚠️ `[PU.VG.X]` **Corrección de una afirmación mía que viaja en el historial de `main`.** Al fusionar `origin/main` apareció `SET LOCAL app.tenant_id = ?` en `cashflow-forecast-snapshot.service.ts` (`[TES.12]`, carril Tesorería). Postgres rechaza un parámetro ligado en un `SET` con **42601**, así que lo arreglé y en el mensaje del commit escribí que *«ese snapshot fallaba en TODAS sus corridas»*. ⛔ **Falso, y era inferencia del código, no medición.** Medido contra prod: `analytics.cron_runs` no tiene **ni una fila** para cashflow/forecast y `finance.cashflow_forecast` tiene **0** — el servicio se commiteó ese mismo día 09:34 y su `@Cron` dispara 04:10 MX, o sea que **nunca corrió**; se atrapó antes de la primera pasada. El bug era real, el arreglo es el mismo, el **hecho** no: «venía roto» y «se atrapó a tiempo» no son la misma frase. ⭐ Y la lección de método es peor que el error: **el arreglo YA ESTABA en `main`** (`eaaf6a133`, 10:14) y yo commiteé el mío a las 10:39 **sin preguntar si ya estaba arreglado**; al resolver el conflicto tomé la versión de `main`, así que mi commit quedó en el historial aplastado **con una afirmación inexacta y cero cambio de código**. Tres sesiones tocaron esas dos líneas en cinco horas. El mensaje de un commit aplastado ya no se puede enmendar: por eso la corrección vive acá, que es donde se lee. Ver [`VERDAD_ABSOLUTA.md` §25](../VERDAD_ABSOLUTA.md).
 
 **Compartidos con `[PVI]`, no duplicados acá:** la etiqueta `method` (`[PVI.5]`), el COGS ausente (`[PVI.7]`), los umbrales sin registrar (`[PVI.8]`) y el hueco del Q4 (`[PVI.4]` — el relleno plano del gasto cae en **el mismo trimestre** que la meta en $0.00: un defecto estructural, no dos).
 
@@ -9968,3 +9969,160 @@ contra `pg-prod` (namespace `prod`, k3s).
 - [ ] ⬜ `[TES.9]` **`budget.daily_capacity` leída como cero.** La columna es `NOT NULL DEFAULT 0` y **57 de 57 días de la ventana no tienen fila**: sin fila es capacidad **NO DEFINIDA**, no cero. El defecto está **en el lector**, no en el esquema; y lo que se bloquea es **la liberación del lote**, nunca la proyección (el flujo no usa capacidad).
 
 **Pendiente humano:** asignar ADR · ⛔ **aplicar la migración `20261008174741` a prod — el clasificador de auto-mode bloqueó el `kubectl exec` del aplicador** (los archivos ya están copiados en `api-75c847b79b-cvqpl`: la migración en `/app/database/migrations-newdb/` y el aplicador en `/app/database/scripts/`; falta sólo ejecutarlo) · **push** (⚠️ `main` local arrastra commits de las otras dos sesiones del carril `/presupuestos`, y `origin/main` dispara `auto-deploy` — no es una decisión de este carril) · redeploy api · registrar el candado en `run-all-tests.js` cuando el archivo quede libre · decidir el `ANALYZE` de schema completo (`[TES.5]`). **Sin permisos nuevos → sin re-login.**
+
+## Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040
+
+> Plan: [`FASE_CP8_PUENTE_CONTPAQI.md`](FASES/FASE_CP8_PUENTE_CONTPAQI.md) ·
+> Bitácora: `03_LOG_REVISIONES.md` 2026-10-08/09.
+> **Tesis:** un puente son TRES cosas — ida, vuelta y **cuadre**. La vuelta ya corría (carril
+> `contpaqi` @1 min). Dos tubos paralelos no son un puente.
+
+### E0 — Cimientos
+
+- [x] **[CP.8.1]** `contpaqi.account_rules` + `contpaqi.poliza_exports` (RLS forzado, `tenant_id`,
+  idempotencia por evento). Siembra las 5 reglas **derivadas de sus libros** con su confianza
+  medida; `imss_sua` entra como `sin_regla` (10.2 %) — declarada, no forzada.
+  🚀 **EN PROD 2026-10-09, batch 856** + `20261009101500_contpaqi_grants_dev_ro.js` (batch 857,
+  corrige que `dev_ro` había quedado sin USAGE). Verificado en prod: RLS forzado, políticas,
+  grants, 6 reglas, y el CHECK probado en NEGATIVO (`derivada` sin cuenta → rechazada;
+  `sin_regla` sin cuenta → aceptada).
+- [x] **[CP.8.2]** `poliza-egreso.ts` — el armador. Puro, sin DI. ⭐ El IVA **viene del CFDI**, no
+  se calcula (medido: difiere 1–2 ¢). 🧪 2026-10-08
+- [x] **[CP.8.3]** Candado `test-newdb-contpaqi-poliza-egreso.js` — **33 ✓ / 0 ✗**, reproduce 3
+  pólizas REALES, probado por mutación. 🧪 2026-10-08
+
+### E1 — La ida por archivo
+
+- [x] **[CP.8.4]** ⭐⭐ **El árbitro del layout.** `02-evaluar-esquema.ps1` encontró una exportación
+  real de ContPAQi en la máquina de trabajo. **El emisor escribía P=147/M=211 y el real es
+  P=185/M=272.** Verificado doble: aritmética exacta + cruce contra la base (14/14 `Polizas.Guid`,
+  82/82 `MovimientosPoliza.Guid`, 62 `AD` → 234 `AsocCFDIs`). 🧪 2026-10-08
+- [x] **[CP.8.5]** `CONTPAQI_POLIZA_SINK_PORT` + `ContpaqiTxtSinkAdapter`. Reusa el layout de LC
+  (no una segunda serialización). ⭐ Devuelve `entregada`, **nunca `aplicada`**.
+  **42 ✓ / 0 ✗ · 7 NO MEDIDO** 🧪 2026-10-08
+- [x] **[CP.8.12]** `layout.params.ts` — los parámetros declarados con **estado y respaldo**
+  (`decidido` / `heredado` / `en_disputa`). Decididos por nosotros: folio 0, token `MD:`+8hex,
+  tipo de póliza, segmento. 🧪 2026-10-08
+- [x] **[CP.8.13]** `poliza-txt.ts` **reescrito al formato real**. ⭐⭐ **Round-trip byte a byte:
+  14/14 pólizas reales idénticas.** Encontró `impTxt` escribiendo `11787.50` donde ContPAQi
+  escribe `11787.5` (el comentario del código siempre tuvo razón) e `impresa` clavado en `0`.
+  LC sigue en **38 ✓ / 0 ✗**. 🧪 2026-10-08
+- [x] **[CP.8.6]** `token.ts` — el token de correlación, ciclo completo (generar · extraer · armar
+  el concepto). **Determinista** por `(evento_tipo, evento_id)`: con uno aleatorio, re-emitir
+  dejaría huérfana la entrega anterior. ⛔ **El largo pasó de 8 a 12 hex y el respaldo viejo estaba
+  MAL razonado**: decía "~5k eventos/año" cuando el universo medido son **55,369**, y comparaba el
+  tamaño del espacio contra el volumen — el error clásico del cumpleaños. Con 8 hex se esperan
+  **0.357 colisiones** sobre los datos que YA tenemos. **29 ✓ / 0 ✗**, 3 mutaciones. 🧪 2026-10-09
+- [ ] **[CP.8.7]** Bandeja `/finanzas/contpaqi`: armar → revisar → entregar (HITL).
+
+### E2 — El cuadre *(lo que lo vuelve puente)*
+
+- [x] **[CP.8.8]** + **[CP.8.9]** `cuadre.engine.ts`. **Dos llaves y NO son intercambiables**:
+  `token` = certeza (asciende solo) · `importe` = sospecha (queda `probable`). Seis veredictos:
+  `esperando` devuelve `null`, `no_aparecio` devuelve `false` — las dos ausencias son distintas
+  (ADR-056). **35 ✓ / 0 ✗**, 3 mutaciones. 🧪 2026-10-08
+- [~] **[CP.8.10]** `contpaqi-cuadre.service.ts` — la I/O alrededor del motor: lee lo que espera
+  confirmación, busca candidatos en `analytics.gl_polizas` (que el carril refresca **cada minuto**),
+  llama al motor puro y escribe el veredicto. `@Cron` cada 10 min + latido `contpaqi_cuadre`
+  **con umbral registrado en `CRON_JOBS`** (sin él el sensor da verde incondicional — Fase VP).
+  ⛔ **`aplicada` sólo llega por el veredicto homónimo**; `probable`/`difiere`/`ambiguo`/`esperando`
+  NO mueven el estado. **NO está registrado en ningún módulo a propósito**: su `@Cron` no se agenda
+  y no va a fallar cada 10 min en prod contra una tabla que no existe.
+  ⚠️ **NO MEDIDO** — la migración [CP.8.1] no está aplicada, así que no se ejerció contra datos
+  reales. Lo que sí está probado es la REGLA que ejecuta (motor, 35 ✓). 🔨 2026-10-09
+- [ ] **[CP.8.11]** Bandeja de divergencias + el plazo.
+
+- [x] **[CP.8.1c]** 🚀 **EN PROD batch 858** — las reglas estaban claveadas a categorías que NO
+  EXISTEN en CB (combustible, mant_reparto, renta_muebles: las inventé bautizándolas con los
+  CONCEPTOS de ContPAQi). Cubrían **17 de 55,648** movimientos. Re-sembradas sobre las **19
+  categorías de salida reales**: cobertura **0.03% → 99.7%**, huérfanas **3 → 0**, y
+  ⭐ **utilizables 5 → 0** — que es la corrección, no un defecto: el puente conoce los egresos y se
+  NIEGA a asentarlos hasta que el contador firme. El mapa categoría→cuenta **no es derivable**,
+  medido con placebo (3,371 pares reales vs 463 de ruido) y con el universo declarado
+  (analytics.gl_polizas mezcla kepler y contpaqi: dos planes de cuentas). 2026-10-09
+
+- [x] **[CP.8.18]** ✅ El derivador del mapa, como herramienta del repo con **placebo obligatorio**
+  (`database/scripts/derivar-reglas-contpaqi.js`). ⭐ El mapa SÍ se deriva — `[CP.8.1c]` usó la
+  llave equivocada: con (cuenta de banco, fecha, importe) contra los abonos a `102*` da **737
+  pareos contra 2 del placebo = 369×**. ⛔ Y encontró un bug que casi se publica como hallazgo:
+  `MovimientosPoliza.TipoMovto` es `bit` y el driver lo entrega como **boolean**, así que `=== 0`
+  nunca empata y la tabla salió en CEROS para las doce categorías — *una comparación de tipo
+  equivocado no tira error, dibuja un cero*. Freno permanente, probado en rojo. 2026-10-09
+- [x] **[CP.8.19]** 🚀 **EN PROD batch 863** — `contpaqi.account_rules` no tiene UN tipo de regla,
+  tiene cuatro: `por_categoria | por_proveedor | por_sucursal | no_aplica`. ⭐ **CB clasifica por
+  INSTRUMENTO y ContPAQi por NATURALEZA** — por eso el mapa no cruzaba mirando un solo lado.
+  `lleva_iva` queda NULL en 19 de 21 **a propósito**: la medición de IVA es a nivel de póliza y
+  ContPAQi agrupa 7–278 movimientos por póliza. CHECK de coherencia probado **en rojo como
+  `postgres`** (como `edgar` habría fallado por permisos, que se lee igual de verde). 2026-10-09
+- [x] **[CP.8.20]** 🚀 **EN PROD batch 864** — el mapa proveedor→cuenta sale del **UUID del CFDI**,
+  no del nombre. ContPAQi no lo guarda: `Proveedores.IdCuenta` poblado en **1 de 3,426**.
+  **99.8 % del importe con cuenta utilizable.** ⭐ Cruzar las dos vías encontró **un error de
+  captura real**: un CFDI de ABARROTES LA VIOLETA por $44,272.35 posteado en la cuenta de CANAP
+  BOLSAS. Y fijó el umbral: *pureza 100 % sobre n=1 no es certeza* — 20 % de las cuentas se apoyan
+  en una sola asociación, justo donde vivía el falso positivo. 2026-10-09
+- [x] **[CP.8.21]** ✅ El armado **por LOTE** (cuenta de banco × día), no por movimiento — medido:
+  **4,067 de 4,457 pólizas de egreso (91.2 %) tienen UN solo renglón de banco**. Enero pasa de
+  **1,474 a 258** pólizas, contra las ~532 reales. Los motivos ahora tienen dueño: `no_aplica` 148
+  = *nadie, ya se decidió*. ⛔ El pago a proveedor sale **cuadrado pero incompleto y lo declara**:
+  falta el traspaso impuesto-por-acreditar → acreditable ($6.6M IVA + $17.0M IEPS medidos), que
+  exige saber qué facturas se pagan. Candado `test-newdb-contpaqi-lote.js` **38 ✓**, mutado a rojo
+  tres veces. 2026-10-09
+- [x] **[CP.8.22]** ✅ ⛔ **La evidencia de las cuentas candidatas estaba inflada por el
+  agrupamiento**: `comision_bancaria` 94.4 % **desaparece** al restringir a pólizas 1:1 (era 100 %
+  artefacto del lote) y `compra_tarjeta` **cambia de cuenta** (73.8 % GASOLINA → 36.4 % TARJETA).
+  **No se sembró nada**: la cuenta exacta para `por_categoria` **no es derivable**. ⭐ Y comprobar
+  que el *tipo* sí sobrevive destapó un error propio: **la cuenta de un proveedor vive en TRES
+  rubros** (`2120` + `5010` + `5020`), no en uno → concentración **65.1 % → 94.7 %** y estable bajo
+  las dos ventanas; mapa **1,015 → 3,050** filas en prod, utilizables **173 → 421**. 2026-10-09
+- [x] **[CP.8.23]** ✅ El pago a proveedor **no sale del banco, sale del pago de Kepler** — la
+  contadora no adivina el proveedor mirando el estado de cuenta. Vía banco: 57.8 % de enganche
+  (216× el placebo) pero **8.6 %** del importe con cuenta; vía `analytics.erp_supplier_payments`:
+  **72.7 % del importe** y **cero ambigüedad**. Lo que falta son **alias**, no datos: ⭐ **136
+  nombres distintos y los primeros 33 cubren el 80 %** del faltante → llevaría la cobertura a
+  ~94.5 %. `database/scripts/proveedores-sin-cuenta-contpaqi.js` emite la lista con la columna
+  de cuenta **vacía a propósito**. ⚠️ 5 nombres llegan con la **Ñ rota** (`COSTE?A`): es
+  codificación en la ingesta de Kepler y se arregla allá. 2026-10-09
+
+### E3 — El mapa firmado *(dependencia: el contador)*
+
+- [ ] **[CP.8.14]** UI de reglas con confianza + aprobación (`derivada` → `aprobada`).
+- [ ] **[CP.8.15]** Proveedor → su subcuenta por RFC (`analytics.contpaqi_suppliers`, 99.6 % con RFC).
+- [ ] **[CP.8.16]** Las categorías que no concentran (`imss_sua` 10.2 %): medir o declarar.
+
+### E4 — La ida automática *(opcional: el puente cierra sin SDK)*
+
+- [x] **[CP.8.17]** `01-probe-sdk.ps1` — sondeo read-only, ejercido en rama negativa (encontró 2
+  defectos propios: instanciaba COM ajenos y publicaba una ausencia como veredicto). 🧪 2026-10-08
+- [ ] **[CP.8.18]** Correrlo en una terminal ContPAQi · **[CP.8.19]** el agente · **[CP.8.20]**
+  `SdkSinkAdapter` + reversa a TXT.
+
+### ⛔ Bloqueos abiertos
+
+- [ ] ⭐ **Importar UN archivo** para confirmar que ContPAQi lo acepta. **Un minuto de la
+  contadora**, y contesta tres cosas: si el formato vale, si respeta el `guid`, y si los
+  renglones `AD` se pueden prender.
+- [ ] Aplicar `[CP.8.1]` a prod · [ ] Firmar el mapa de 5 reglas · [ ] Emitir renglones `AD`
+- [ ] Decodificar `AM`, `AP`, `I`, `V`, `W2` (los guids de `AM` **no cruzan con nada**)
+
+---
+
+## Fase CP.9 — Cobertura total de ContPAQi
+
+> Plan: [`FASE_CP9_COBERTURA_TOTAL.md`](FASES/FASE_CP9_COBERTURA_TOTAL.md) · 🔍 **medido, sin código**
+
+**El denominador (2026-10-09):** 119 tablas · **52 con datos** · **4,706,885 filas** · cubrimos
+**31.2 %**. El ADD tiene **4 repositorios y leemos 1**. Nóminas (`ctLFLG`, 2.3 GB) en **cero**.
+
+- [ ] **Ola 1** ⭐⭐ `MovimientosImpuestos` (331,955) + `DevolucionesIVA` (201,036) — base y tasa de
+  IVA/IEPS **por movimiento, con UUID**. Es lo que LC reconstruye a mano desde el ADD; sirve para
+  simplificarlo y, sobre todo, para **cruzarlo como segunda implementación**.
+- [ ] **Ola 2** `AsocCFDIs` (979,977) + `DocumentosAdministrativos` + `MovimientosAdministrativos`.
+- [ ] **Ola 3** Bancos/egresos propios — ⚠️ **en desuso desde 2019**, valor bajo.
+- [ ] **Ola 4** `Personas`, `Clientes`, `Domicilios`.
+- [ ] **Ola 5** Los 3 repositorios ADD — ⛔ **medir antes de planear**.
+- [ ] **Ola 6** Nóminas — dominio entero, conecta con Fase RH.
+- [ ] **Ola 7** Escritura completa (cerrar el puente).
+
+⛔ **Recomendación escrita: NO perseguir el 100 %.** Es métrica vanidosa (`Counters`, `Folios`,
+`ModulosListados` son mecánica interna). El valor está en las olas 1 y 6 — y **ninguna vale lo que
+cerrar el puente**, que está a un clic de probarse.

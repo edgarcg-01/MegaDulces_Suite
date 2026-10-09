@@ -758,6 +758,18 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
         loadComponent: () => import('./modules/finanzas/pages/finanzas-presupuesto.component').then(m => m.FinanzasPresupuestoComponent),
       },
+      // `[TES.15]` Tesorería · diagnóstico — página propia, NO una pestaña más.
+      // ⛔ `finanzas-presupuesto.component.ts` tiene 2,719 líneas, lo editan cinco sesiones y se
+      // está partiendo ahora mismo: sumarle dos pestañas garantiza la quinta mezcla del día.
+      // ⭐ Y operar no es diagnosticar: Flujo/Capacidad/Obligaciones se miran todos los días,
+      // esto una vez por semana. Mezclar las dos frecuencias en la misma tira de pestañas es lo
+      // que convierte un tablero en una pantalla.
+      // Mismo permiso que el resto del proyecto: sin permiso nuevo → sin re-login.
+      {
+        path: 'tesoreria',
+        canActivate: [permissionGuard(Permission.PRESUPUESTOS_VER)],
+        loadComponent: () => import('./modules/finanzas/pages/tesoreria-diagnostico.component').then(m => m.TesoreriaDiagnosticoComponent),
+      },
     ]
   },
   // ── Proyecto Desarrolladores (Fase DEV, 2026-10-01) ─────────────────

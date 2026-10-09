@@ -1192,6 +1192,22 @@ const CRON_JOBS: CronCfg[] = [
   // un matview que dejó de refrescarse **no da error**: sirve la foto vieja, y una bandeja de caja
   // congelada se lee como "no hay trabajo pendiente". Corre cada minuto; warn al saltarse ~6.
   { key: 'mv_caja_refresh',     label: 'Caja — refresca mv_caja_movimientos', cadence: 'cada minuto', warnH: 0.25, critH: 1 },
+  // ── [CG.76] El refresco OÍDO, que adelanta al cron cuando llega un movimiento ──────────────
+  //
+  // Sin este renglón el carril caería en `cfg ? classify : 'ok'` = **verde incondicional**, que es
+  // lo que la Fase VP midió sobre tres matvistas del sell-out y OBS.1 en cinco huérfanos. Un
+  // carril que nace mudo nace roto.
+  //
+  // `services/feeds-ingest` emite `NOTIFY caja_fuente` cuando su UPSERT —sin churn— cambió filas
+  // de `kdm1`/`kdb1`; este carril lo oye y refresca. ⚠️ Late con llave PROPIA a propósito: si
+  // escribiera en `mv_caja_refresh`, el piso de 30 min del cron —medido contra la última corrida
+  // con `note IS NULL` de ESA llave— quedaría satisfecho para siempre y la protección se volvería
+  // un adorno, en silencio.
+  //
+  // ⚠️ Umbral HOLGADO, y no es descuido: el carril late cada minuto aunque no refresque, y si se
+  // cae **el cron de cada minuto sigue cubriendo** — se pierde velocidad, no datos. Un rojo acá
+  // NO es una bandeja vieja, y por eso warn a 1 h y no a 15 min.
+  { key: 'mv_caja_push',        label: 'Caja — refresco oído por NOTIFY', cadence: 'por evento', warnH: 1, critH: 4 },
   // [CS.1] Feed de CAOS (caja fuerte) → analytics.caos_cash_movements. Corre cada 2 min on-prem.
   // Sin esta entrada el latido caería en `cfg ? classify : 'ok'` = verde incondicional. La caja
   // mueve ~8/día; el rezago se tolera holgado (warn a ~2 h) porque un hueco no es urgente como el
@@ -1255,6 +1271,12 @@ const CRON_JOBS: CronCfg[] = [
   // veces, porque nadie podía comprobar que el incremental estuviera vivo. Umbral de job de alta
   // frecuencia, mismo criterio que `kepler_stock`.
   { key: 'twins_pairing',                     label: 'Apareo de recepciones gemelas (cron API)', cadence: 'cada 5 min', warnH: 3, critH: 12 },
+  // [CP.8.10] El cuadre del puente a ContPAQi (`ContpaqiCuadreService`, cada 10 min). Se registra
+  // acá porque sin umbral el sensor cae en `cfg ? classify : 'ok'` y da **verde incondicional** —
+  // lo midió la Fase VP sobre 3 matvistas del sell-out. Y porque este job es justamente el que
+  // afirma que una póliza llegó a ContPAQi: si deja de correr, lo entregado vuelve a ser
+  // inverificable y nadie se entera. Umbral de job de alta frecuencia, criterio de `twins_pairing`.
+  { key: 'contpaqi_cuadre',                   label: 'Cuadre del puente ContPAQi',        cadence: 'cada 10 min', warnH: 3, critH: 12 },
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_payment_terms',   label: 'Refresh MV condición de pago (SD-PAY, nightly)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },

@@ -44,7 +44,12 @@ h2{font-size:1.02rem;margin:0 0 2px;font-weight:700}
 h3{font-size:.86rem;margin:0 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 p{margin:0 0 8px} ul{margin:4px 0 8px;padding-left:18px} li{margin:4px 0}
 :focus-visible{outline:2px solid var(--action);outline-offset:2px}
-code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
+/* ⚠️ El 0.86em COMPONE dentro de cualquier contenedor ya reducido: medido en el render, cinco
+   elementos de este documento caian a 9.6px -- el mas chico, un `code` con el nombre del tipo que
+   el documento viene a explicar. No fue una decision, fue cascada, y ninguna compuerta la ve
+   porque las dos reglas son validas por separado. El `max()` pone un piso en el token mas chico
+   del sistema en vez de dejar que se multipliquen. */
+code{font-family:var(--f-mono);font-size:max(.86em, var(--fs-nano));background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
 
 header{border-bottom:1px solid var(--line);padding-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
 .hd-l{display:flex;flex-direction:column;gap:4px;min-width:min(100%,520px)}
@@ -486,6 +491,50 @@ tbody tr:last-child td{border-bottom:none}
   <div class="note warn"><strong>Un hallazgo que no es de diseño y conviene que viaje con el documento.</strong> Tres sesiones trabajaron sobre los mismos archivos y el trabajo se mezcló <strong>tres veces</strong>, la última con los dos lados haciendo todo bien: avisar antes de editar, mirar el aviso de «cambió en disco», inspeccionar el diff y retirarse. <strong>Git no reportó nada en ninguna de las tres, porque no hubo conflictos.</strong> Un conflicto frena; esto deja pasar. ⇒ La disciplina de un lado no alcanza: hace falta que las dos partes acierten el <em>timing</em>, y no hay nada que las sincronice.</div>
 </section>
 
+
+<section>
+  <h2>9 · El compartimiento <span class="owner">los tres carriles</span></h2>
+  <p class="lead">Este documento <strong>no es de un carril</strong>: es el único lugar donde los tres se leen entre sí. Hasta hoy eso vivía en la costumbre y no estaba escrito, y lo que no está escrito no sobrevive a un relevo de sesión.</p>
+
+  <h3>9.1 · Qué hay adentro — y lo que el inventario delata</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Artefacto</th><th>Carril</th><th>Qué pregunta contesta</th><th>Estado</th></tr></thead>
+    <tbody>
+      <tr><td><code>presupuesto-estados.html</code></td><td>los tres</td><td>¿Con qué se calculó <em>este</em> número?</td><td>Secciones 5-6-7 llenas por sus dueños</td></tr>
+      <tr><td><code>tesoreria-ciclo-holgura.html</code></td><td>cc</td><td>¿Cabe el hueco en lo que ya cobramos?</td><td>A revisión</td></tr>
+      <tr><td><code>tesoreria-mapa-pantallas.html</code></td><td>cc</td><td>¿Dónde vive cada cosa?</td><td>A revisión</td></tr>
+      <tr><td class="faint">— sin artefacto visual —</td><td>06 · Ventas</td><td class="faint">—</td><td class="faint">No existe</td></tr>
+      <tr><td class="faint">— sin artefacto visual —</td><td>8c · Gastos</td><td class="faint">—</td><td class="faint">No existe</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn">⭐ <strong>Los tres artefactos visuales son del mismo carril.</strong> Quien abra la carpeta concluye que <code>/presupuestos</code> es Tesorería, y es falso: las secciones 6 y 7 de este documento son más densas que la 5. No es un reproche — es que <strong>el mapa de pantallas obliga a decidir dónde vive cada cosa</strong>, y esa decisión es de los tres. Hoy la propuse yo solo, y por eso la propuesta vale menos de lo que parece.</div>
+
+  <h3>9.2 · Lo que cada carril le debe a los otros dos</h3>
+  <p class="lead">No son tareas: son <strong>dependencias de dato</strong>. Cada renglón nombra qué se rompe si no llega, porque una dependencia sin consecuencia escrita no se cobra nunca.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Espera</th><th>Qué</th><th>De</th><th>Qué se rompe si no llega</th></tr></thead>
+    <tbody>
+      <tr><td>Tesorería</td><td><strong>Poblar</strong> <code>is_critical</code> — <s>el catálogo de familias</s></td><td>Gastos</td><td>⛔ <strong>Corregido por 8c y re-medido contra prod:</strong> la columna <strong>ya existe</strong> (también en <code>catalog.suppliers</code> y <code>finance.financial_commitments</code>) y está en <strong>0 de 312</strong>. No es hueco de esquema: es de dato, y eso cambia quién lo cierra. ⭐ Y no hay que esperar al catálogo: <code>subtype</code> discrimina hoy — <strong>sueldos = <em>$41,538,367.09</em> de $74,809,091.57 = 55.5 % del monto en <em>12 de 156</em> renglones</strong> (8c, sobre <code>is_test = false</code>). Diferir «todo» no es conservador: es el supuesto equivocado sobre la <strong>mayoría del dinero</strong> — y está <strong>concentrado en doce renglones</strong>, que es lo que lo hace barato de arreglar. ⚠️ <code>area</code> no sirve: NULL en las 312.</td></tr>
+      <tr><td>Tesorería</td><td>Que alguien <strong>autorice</strong> — <s>cargar FY2026</s></td><td>Gastos <span class="faint">(acto humano, no backfill)</span></td><td>⛔ <strong>«Sin filas» era falso.</strong> Hay <strong>312 filas, $149,618,183.14</strong>… que son <strong>156 reales + 156 del ejercicio de PRUEBA, duplicadas al centavo</strong>, y <strong>las 312 en <code>propuesta</code>: ninguna autorizada</strong>. ⇒ <code>pagos_autorizados</code> no viaja vacío por falta de carga: <strong>nadie autorizó nada</strong>. Y son FY2027, no FY2026.</td></tr>
+      <tr><td>Quien lea la tabla</td><td>El <code>join</code> hasta <code>budgets.is_test</code></td><td class="faint">Riesgo vivo ahora</td><td>⚠️ <code>expense_obligations</code> <strong>no tiene <code>budget_id</code></strong>: hay que ir <code>budget_line_id → budget_lines.budget_id → budgets.is_test</code>. Sin ese join <strong>se publica el doble y se ve perfectamente normal</strong>. ✅ Verificado que <code>budget-cashflow.service.ts</code> sí lo hace (<code>sinDuplicado()</code>) — <em>y es un riesgo distinto de sumar <code>pagos_autorizados</code> con la deuda del ERP, que es el de arriba.</em></td></tr>
+      <tr><td>Los tres</td><td><code>MetricState</code> viviendo en <code>libs/</code>, al lado de <code>Coverage</code></td><td>Nadie — <strong>es mudable ya</strong></td><td>⭐ <strong>Corregido por 06:</strong> el rediseño de <code>Coverage</code> <strong>no arrancó y no tiene fecha</strong>, y <code>MetricState</code> <strong>no depende de su forma</strong> — lo que va a cambiar es la forma de <code>Coverage</code>, no su dirección. Esperar no ahorra una segunda mudanza. <em>El renglón decía la verdad y se leía como inminente.</em></td></tr>
+      <tr><td>Los tres</td><td>El umbral del <strong>70 %</strong> en <code>analytics.kpi_thresholds</code></td><td class="faint">Sin dueño</td><td>Por ADR-076 el estado correcto es <code>sin_meta</code>, no <code>ok</code>. Hoy el 70 % es una propuesta mía dibujada en una barra.</td></tr>
+      <tr><td>Tesorería</td><td>Qué cuentas son <strong>circulantes</strong></td><td class="faint">Sin dueño — es contable</td><td>La razón corriente no se publica. Se declara, no se dibuja.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note ok">⭐ <strong>Esta tabla se publicó mal y los otros dos carriles la corrigieron en minutos.</strong> Los <strong>cuatro</strong> renglones de arriba son su versión, no la mía: escribí los dos primeros <em>desde mi lado del dato</em> («falta la tabla», «no hay filas») y los dos estaban mal — <strong>y en los dos el problema resultó ser peor</strong>, con el desbloqueo inmediato ya existiendo. El tercero no lo había visto nadie. <em>Es exactamente para esto que el compartimiento existe: una dependencia descrita por quien la espera está descrita por el lado que menos sabe.</em></div>
+  <div class="note warn">⚠️ <strong>Y conviene no suavizar el tercer renglón.</strong> Las 312 filas duplicadas <strong>no rompen nada visible</strong>: cuadran, suman, se ven normales y publican el doble. La marca <code>is_test</code> de <code>[PU.VG.1]</code> filtra <code>ensureBudgetForYear</code> y <code>listBudgets</code> — <strong>no la tabla de obligaciones</strong>, que no tiene <code>budget_id</code>. Quien escriba la próxima consulta contra <code>expense_obligations</code> hereda el defecto salvo que haga el salto de dos tablas.</div>
+
+  <h3>9.3 · Tres defectos que se encontraron <em>mirando</em>, y que los tres podemos repetir</h3>
+  <p class="lead">Ninguna de las seis compuertas los ve, y por la misma razón: <strong>cada regla es válida por separado</strong> y el defecto nace de la combinación.</p>
+  <ul>
+    <li><strong>El rojo que contradice la regla.</strong> El hueco estaba pintado con <code>neg</code>, tres secciones arriba de la regla que lo prohíbe — y la implementación lo tenía bien. ⇒ <code>neg</code> es para un número que de verdad está <strong>mal</strong>, no para uno <strong>negativo</strong>. Una clase que existe se usa: pedida por el signo en vez de por el juicio, el tablero grita todos los días.</li>
+    <li><strong>El <code>code</code> que compone.</strong> <code>0.86em</code> dentro de un contenedor ya reducido daba <strong>8.6 px</strong>. Ya está puesto el piso en el CSS de este archivo, así que las secciones 6 y 7 lo heredan gratis — ⚠️ pero <strong>en un archivo nuevo vuelve</strong>, porque la regla que lo causa es correcta.</li>
+    <li><strong>Y el método, que es lo que vale:</strong> los tres aparecieron al <strong>abrir el documento en un navegador</strong>. Leerlo no alcanzaba. Es el argumento concreto de por qué «validación visual pendiente» no es una formalidad.</li>
+  </ul>
+
+  <div class="note">Esta sección se agregó <strong>al final a propósito</strong>, sin renumerar las secciones 5-8. Renumerar mientras los otros dos carriles editan el mismo archivo es exactamente la ventana que describe el aviso de arriba: no habría conflicto, y por eso nadie se enteraría.</div>
+</section>
 </div>
 <script>
 (function(){

@@ -96,7 +96,16 @@ function revisar(archivo, src) {
     const re = new RegExp('<' + comp + '\\b[^>]*?\\bstyleClass=', 'gi');
     let m;
     while ((m = re.exec(src))) {
-      anotar(m.index, `styleClass en <${comp}> (v22 lo retiró)`, 'clase en el host + regla propia, o inputStyleClass');
+      // ⭐ El aviso del acento grave va ACA, en lo que la persona lee, y no sólo en el comentario
+      //    de `TECHO{}` donde ya estaba escrito. Medido el 2026-10-09: quien convirtió un
+      //    `styleClass` en `/compras` dejó su comentario explicativo DENTRO del `template:` con
+      //    acentos graves, partió el literal y **bloqueó el push de todas las sesiones** — la
+      //    séptima vez que ese defecto exacto para un build acá.
+      //    ⛔ Las dos compuertas son correctas por separado y juntas FABRICAN el caso que una
+      //    prohíbe: ésta empuja a convertir, convertir pide explicar, y el lugar natural de esa
+      //    explicación es justo donde los acentos graves matan. Se corta en el origen diciéndolo
+      //    en el mismo renglón que manda a convertir.
+      anotar(m.index, `styleClass en <${comp}> (v22 lo retiró)`, 'clase en el host + regla propia, o inputStyleClass. ⚠️ Si explicás el cambio en un comentario DENTRO del template: SIN acentos graves — parten el literal y el build muere en otra línea');
     }
   }
 

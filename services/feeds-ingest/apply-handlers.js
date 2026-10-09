@@ -420,6 +420,50 @@ async function applyRawUpsert(client, tenantId, rows, meta) {
 
     await client.query('COMMIT');
 
+    /**
+     * ⭐ `[CG.76]` **EL AVISO DE QUE LLEGÓ UN MOVIMIENTO DE CAJA.**
+     *
+     * ── Qué problema resuelve, medido pata por pata (prod, 2026-10-09) ───────────────────────
+     * La bandeja de `/finanzas/caja-general` tardaba 60–122 s en mostrar un documento de Kepler:
+     *
+     *   replicación lógica .......  1–15 s   ← piso duro
+     *   carril del ODS ........... 22–47 s
+     *   `REFRESH mv_caja_movimientos` (cron cada minuto) .. 0–60 s   ← lo que esto corta
+     *   la pantalla se entera .... instantáneo (NOTIFY → WebSocket, CG.23.2, ya existía)
+     *
+     * ⛔ Lo obvio —correr el cron más seguido— está **medido y descartado**: su sonda cuesta 853 ms
+     * por ciclo, así que a 10 s serían ~11,300 s/día de CPU, peor que los 7,487 s/día que esa misma
+     * optimización había eliminado.
+     *
+     * ⛔ Y sondear barato desde afuera **no se puede**: `n_tup_ins+n_tup_upd` de `kdm1` cuesta 14 ms
+     * pero se mueve 2–3 veces cada 2 s (el shipper reescribe la tabla siempre), así que dispara
+     * SIEMPRE — probado contra prod: refrescaba en bucle, 5–10 s cada vez, devolviendo las mismas
+     * 13,067 filas. Firmar el contenido de `kdm1` cuesta 179 ms → 7,700 s/día, también peor.
+     *
+     * ⭐ El único que SABE que llegó un documento es quien lo acaba de escribir, y es este handler:
+     * el UPSERT es **sin churn** (`WHERE … IS DISTINCT FROM`), así que `changed > 0` significa que
+     * algo cambió de verdad. Cero costo cuando no pasa nada, exacto cuando pasa.
+     *
+     * ⚠️ Las tablas son las que la vista de la bandeja realmente lee —medido con `pg_depend`:
+     * `kdm1` y `kdb1`—. Avisar por cualquier tabla sería despertar un REFRESH de 5–10 s por
+     * cambios de catálogos que no tocan la bandeja.
+     *
+     * ⚠️ Va DESPUÉS del COMMIT a propósito: así quien escuche lee un estado ya confirmado. Dentro
+     * de la transacción el aviso igual esperaría al commit, pero acá queda explícito.
+     *
+     * ⚠️ **FAIL-OPEN**, igual que `notify-store.js`: esto es un AVISO, no el dato. El dato ya está
+     * guardado y el cron de cada minuto lo publica igual. Que un aviso caído tumbe la ingesta sería
+     * cambiar un problema chico por uno grande.
+     */
+    if (schema === 'kepler_ods' && changed > 0 && (table === 'kdm1' || table === 'kdb1')) {
+      try {
+        await client.query(`SELECT pg_notify('caja_fuente', $1)`,
+          [JSON.stringify({ tabla: table, filas: changed })]);
+      } catch (e) {
+        console.error(`  [notify:caja_fuente] ⚠ ${String(e.message).slice(0, 140)} (el dato ya está; lo publica el cron)`);
+      }
+    }
+
     // Normalize-al-llegar (hop 2): si esta tabla tiene normalizador (kdii→catálogo/precio), corre
     // en tx PROPIA tras el COMMIT del mirror crudo → si falla NO bloquea el CDC (el barrido completo
     // sync-product-master es el respaldo). Scoped a las llaves que llegaron = barato.

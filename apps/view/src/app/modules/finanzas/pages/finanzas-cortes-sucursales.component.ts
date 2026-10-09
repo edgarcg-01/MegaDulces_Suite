@@ -11,7 +11,7 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TagModule } from 'primeng/tag';
 import type {
-  CorteArqueo, CorteCuadre, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
+  CorteArqueo, CorteCobro, CorteCuadre, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -149,12 +149,15 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                 <h3><span class="cs-n">1</span> Corte contra el arqueo del turno</h3>
                 @if (c.arqueo; as a) {
                   <table class="cs-mini">
-                    <thead><tr><th></th><th class="ta-r">Esperado</th><th class="ta-r">Contado</th></tr></thead>
+                    <!-- [CSU.9] Tres columnas, no dos. La de en medio decia "Contado" y NO lo es:
+                         es lo que el cajero DECLARA al cerrar, identico al esperado en el 81.2% de
+                         los cortes. El contado de verdad es el de la derecha, por denominacion. -->
+                    <thead><tr><th></th><th class="ta-r">Esperado</th><th class="ta-r">Declarado</th><th class="ta-r">Contado</th></tr></thead>
                     <tbody>
-                      <tr><td>Efectivo</td><td class="ta-r num">{{ money(a.efectivo_esperado) }}</td><td class="ta-r num" [class.cs-bad]="a.efectivo_contado < a.efectivo_esperado - 1">{{ money(a.efectivo_contado) }}</td></tr>
-                      <tr><td>Tarjeta</td><td class="ta-r num">{{ money(a.tarjeta_esperado) }}</td><td class="ta-r num">{{ money(a.tarjeta_contado) }}</td></tr>
-                      <tr><td>Transferencia</td><td class="ta-r num">{{ money(a.transfer_esperado) }}</td><td class="ta-r num">{{ money(a.transfer_contado) }}</td></tr>
-                      <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_total) }}</td><td class="ta-r num">{{ money(a.contado_total) }}</td></tr>
+                      <tr><td>Efectivo</td><td class="ta-r num">{{ money(a.efectivo_esperado) }}</td><td class="ta-r num" [class.cs-bad]="a.efectivo_contado < a.efectivo_esperado - 1">{{ money(a.efectivo_contado) }}</td><td class="ta-r num cs-strong">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
+                      <tr><td>Tarjeta</td><td class="ta-r num">{{ money(a.tarjeta_esperado) }}</td><td class="ta-r num">{{ money(a.tarjeta_contado) }}</td><td class="ta-r num muted">—</td></tr>
+                      <tr><td>Transferencia</td><td class="ta-r num">{{ money(a.transfer_esperado) }}</td><td class="ta-r num">{{ money(a.transfer_contado) }}</td><td class="ta-r num muted">—</td></tr>
+                      <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_total) }}</td><td class="ta-r num">{{ money(a.contado_total) }}</td><td class="ta-r num cs-strong">{{ a.conteo_fisico === null ? '—' : money(a.conteo_fisico) }}</td></tr>
                     </tbody>
                   </table>
                   @if (c.devoluciones.length) {
@@ -169,6 +172,19 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                   }
                   <div class="cs-row"><span>Monto del corte en Kepler</span><span class="num cs-strong">{{ money(c.monto) }}</span></div>
                   <div class="cs-row"><span>{{ cuadreLabel(c) }}</span><span class="num" [class.cs-bad]="c.cuadre !== 'cuadra'">{{ c.diferencia === null ? '—' : money(c.diferencia) }}</span></div>
+                  <!-- [CSU.9] El testigo independiente. Va DESPUES del veredicto a proposito: lo
+                       corrige, no lo reemplaza. -->
+                  @if (a.conteo_fisico !== null) {
+                    <div class="cs-row cs-fis">
+                      <span>Contado menos declarado <span class="muted">(billetes + monedas + retirado)</span></span>
+                      <span class="num" [class.cs-bad]="a.fisico_diferencia !== null && abs(a.fisico_diferencia) > 1">{{ money(a.fisico_diferencia || 0) }}</span>
+                    </div>
+                  } @else {
+                    <p class="cs-hint">Este corte <b>no trae el desglose por denominación</b>: el efectivo declarado no se puede verificar contra nada.</p>
+                  }
+                  @if (a.arqueo_declarado) {
+                    <p class="cs-hint cs-nota"><b>El arqueo declaró lo esperado, no lo contó</b>: la columna Declarado ({{ money(a.efectivo_contado) }}) es idéntica a la de Esperado, así que «{{ cuadreLabel(c) }}» compara una cifra contra sí misma. Pasa en el <b>81.2%</b> de los cortes. Lo único medido es la columna Contado.</p>
+                  }
                   @if (cuadraPorBruto(c, a)) {
                     <p class="cs-hint cs-nota">El corte salió por lo esperado <b>sin restar</b> la devolución: Kepler no la descontó en este corte. Cuadra contra el esperado bruto ({{ money(a.esperado_total) }}).</p>
                   }
@@ -180,7 +196,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
               <div class="cs-step">
                 <h3><span class="cs-n">2</span> Cobros aplicados en Kepler</h3>
                 @for (b of c.cobros; track b.doc_prefix + b.folio) {
-                  <div class="cs-row"><span>{{ b.doc_prefix }}-{{ b.folio }} · {{ b.forma_pago || 'sin forma' }}@if (b.fecha) { · {{ dmy(b.fecha) }} }@if (b.concepto) { <span class="muted"> · {{ b.concepto }}</span> }</span><span class="num">{{ money(b.monto) }}</span></div>
+                  <div class="cs-row"><span>{{ b.doc_prefix }}-{{ b.folio }} · {{ b.forma_pago || 'sin forma' }}@if (b.fecha) { · {{ dmy(b.fecha) }} }@if (b.concepto) { <span class="muted"> · {{ b.concepto }}</span> }
+                    <span class="cs-dep" [class.muted]="b.medio_cobro !== 'banco'"><i class="pi {{ depositoIcon(b) }}" aria-hidden="true"></i>{{ depositoLabel(b) }}</span></span><span class="num">{{ money(b.monto) }}</span></div>
                 } @empty {
                   <p class="cs-hint">Ningún cobro aplicado a este corte.</p>
                 }
@@ -229,6 +246,10 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-n { display:inline-grid; place-items:center; width:1.3rem; height:1.3rem; border-radius:50%; background:var(--hover-bg); font-size:var(--fs-micro); }
     .cs-row { display:flex; justify-content:space-between; gap:.8rem; font-size:var(--fs-sm); padding:.22rem 0; border-bottom:1px dashed var(--border-color); }
     .cs-row span:first-child { min-width:0; overflow:hidden; text-overflow:ellipsis; }
+    /* [CSU.8] La cuenta del deposito, en su propio renglon: es el dato que cierra el recorrido
+       del dinero y enterrado en la linea del folio no se encuentra. */
+    .cs-dep { display:flex; align-items:center; gap:.3rem; font-size:var(--fs-xs); margin-top:.1rem; }
+    .cs-dep i { font-size:var(--fs-nano); }
     .cs-tot { font-weight:600; border-bottom:0; }
     .cs-mini { width:100%; border-collapse:collapse; font-size:var(--fs-sm); margin-bottom:.4rem; }
     .cs-mini th { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; padding:.2rem 0; text-align:left; }
@@ -238,6 +259,8 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-dev span:first-child { white-space:normal; }
     .cs-motivo { font-size:var(--fs-xs); }
     .cs-nota { margin-top:.35rem; }
+    /* [CSU.9] El conteo por denominacion: el unico efectivo que alguien conto de verdad. */
+    .cs-fis { font-weight:600; }
     .ta-r { text-align:right !important; }
     .num, .cs-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cs-strong { font-weight:600; }
@@ -362,4 +385,28 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
     const base = CUADRE[c.cuadre].label;
     return c.cuadre === 'cuadra' || c.cuadre === 'sin_arqueo' || c.diferencia === null ? base : `${base} ${money(c.diferencia)}`;
   }
+
+  /**
+   * `[CSU.8]` A qué cuenta entró el cobro.
+   *
+   * ⛔ **No se dibuja un banco que no se sabe.** Las dos ausencias se declaran con palabras
+   * distintas porque las arregla gente distinta (ADR-056): `sin_declarar` lo arregla quien captura
+   * en Kepler, `no_resuelve` lo arregla el catálogo de cuentas.
+   *
+   * ⭐ `caja` **no es un hueco, es la respuesta**: 3,599 cobros por $75M entraron en efectivo a
+   * `CAJA GENERAL`. Se pinta apagado para que no se lea como banco, pero se pinta.
+   */
+  depositoLabel(b: CorteCobro): string {
+    if (b.cuenta_tesoreria) return b.cuenta_tesoreria;
+    if (b.medio_cobro === 'sin_declarar') return 'sin cuenta en Kepler';
+    if (b.medio_cobro === 'no_resuelve') return 'cuenta fuera del catálogo';
+    return 'cuenta no medida';
+  }
+  depositoIcon(b: CorteCobro): string {
+    if (b.medio_cobro === 'banco') return 'pi-building';
+    if (b.medio_cobro === 'caja') return 'pi-wallet';
+    return 'pi-info-circle';
+  }
+  /** `[CSU.9]` Para pintar en rojo una diferencia de denominación en cualquiera de los dos sentidos. */
+  abs(n: number): number { return Math.abs(n); }
 }

@@ -539,6 +539,25 @@ export enum Permission {
   // Presupuestos y Tesorería son responsables distintos del mismo proceso.
   PRESUPUESTOS_VER = 'PRESUPUESTOS_VER',
   PRESUPUESTOS_GESTIONAR = 'PRESUPUESTOS_GESTIONAR',
+  // `[PVI.10]` Tercera clave, FUERA del par y FUERA del `MODULE_GROUP` `presupuestos` (molde
+  // TP.6): **preparar ≠ autorizar**. Hasta acá `POST budgets/:id/approve` exigía
+  // `PRESUPUESTOS_GESTIONAR`, la misma llave que editar — tanto que la descripción de esa clave
+  // decía textual «crear **y aprobar** el ejercicio presupuestal». El único freno era no poder
+  // auto-aprobar la propia captura, que separa PERSONAS, no FACULTADES.
+  //
+  // ⚠️ **Medido en prod el 2026-10-09, y el número incomoda: repartirla NO separa a nadie HOY.**
+  // `PRESUPUESTOS_GESTIONAR` lo tienen `direccion` (2 personas) y `superadmin` (8) — exactamente
+  // los mismos roles que ya tienen `FINANCE_PAYMENT_CALENDAR_AUTORIZAR`, o sea que el precedente
+  // "restringido" cubre la misma población. Y 8 de esos 10 son `superadmin`, que **saltea toda
+  // comprobación de permiso por NOMBRE DE ROL** (`RolesGuard:102`), así que ningún diseño de
+  // permisos los acota.
+  //
+  // ⭐ Se crea igual, y la razón es de oportunidad, no de efecto inmediato: el hueco real es que
+  // **nadie PREPARA** — `finanzas` tiene sólo `VER` y no existe un rol con `GESTIONAR` que no sea
+  // Dirección. El día que Finanzas reciba `GESTIONAR` —que es lo que falta— la separación tiene
+  // que existir YA; crearla después, con la llave vieja repartida, es la deuda que `[LC.6.2]`
+  // documentó. Separarlos ahora es gratis; separarlos después no.
+  PRESUPUESTOS_APROBAR = 'PRESUPUESTOS_APROBAR',
 
   // ── Supervisor de Movimientos (cuadre / reconciliación) — ADR-029 ─────
   RECONCILIATION_VER = 'RECONCILIATION_VER',

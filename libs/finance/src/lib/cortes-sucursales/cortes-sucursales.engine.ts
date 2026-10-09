@@ -23,8 +23,8 @@
  *   se acepta como `cuadra` contra lo esperado bruto, no se inventa una diferencia.
  */
 import type {
-  CorteArqueo, CorteCobro, CorteCuadre, CorteDevolucion, CorteEstadoCobro, CorteRow, CorteSucursalResumen,
-  CortesAlcance, CortesSucursalesResponse,
+  CorteArqueo, CorteCobro, CorteCuadre, CorteDevolucion, CorteEstadoCobro, CorteMedioCobro, CorteRow,
+  CorteSucursalResumen, CortesAlcance, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 
 /** Tolerancia del cuadre corte↔arqueo: redondeos de centavos del POS. */
@@ -71,7 +71,9 @@ export interface CorteCrudo {
   turno: string | null;
   monto: string | number;
   cobrado: string | number | null;
-  cobros: Array<{ doc_prefix: string; folio: string; fecha: string | null; monto: string | number; forma_pago: string | null; concepto: string | null }> | null;
+  cobros: Array<{ doc_prefix: string; folio: string; fecha: string | null; monto: string | number; forma_pago: string | null; concepto: string | null;
+    /** `[CSU.8]` Lo que trae `analytics.erp_collections`. Opcionales: una fila sin cobro en la vista llega sin ellos. */
+    medio_cobro?: CorteMedioCobro | null; cuenta_tesoreria?: string | null }> | null;
   /** `[CSU.7]` Notas de crédito POS pagadas en la caja del turno. */
   devoluciones?: Array<{ doc_prefix: string; folio: string; fecha: string; monto: string | number; cliente: string | null; motivo: string | null; cajero: string | null }> | null;
   arqueo_fecha: string | null;
@@ -82,6 +84,10 @@ export interface CorteCrudo {
   transfer_esperado: string | number | null;
   transfer_contado: string | number | null;
   cajero_cierre: string | null;
+  /** `[CSU.9]` Denominaciones del arqueo (`c43`/`c44`) y lo retirado en el turno (`c48`). */
+  arqueo_billetes?: string | number | null;
+  arqueo_monedas?: string | number | null;
+  efectivo_retirado?: string | number | null;
 }
 
 const n = (v: string | number | null | undefined): number => Number(v) || 0;
@@ -94,6 +100,15 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     transfer_esperado: r2(n(c.transfer_esperado)), transfer_contado: r2(n(c.transfer_contado)),
   };
   const esperado_total = r2(a.efectivo_esperado + a.tarjeta_esperado + a.transfer_esperado);
+  // [CSU.9] El conteo físico: billetes + monedas + lo retirado durante el turno. Es el ÚNICO
+  // efectivo que alguien contó — `efectivo_contado` es un número declarado. ⚠️ `arqueo_otros`
+  // (c45) NO entra: medido, con él la identidad cae del 53.4% al 19.3%.
+  const bil = c.arqueo_billetes, mon = c.arqueo_monedas, ret = c.efectivo_retirado;
+  const hayDenominacion = bil != null || mon != null || ret != null;
+  const fisicoBruto = hayDenominacion ? r2(n(bil) + n(mon) + n(ret)) : null;
+  // Un corte sin denominaciones llega con las tres en 0, que NO es "contaron cero" sino "no hay
+  // dato". Se declara `null` (ADR-056); medido: 72 de 1,125 cortes (6.4%).
+  const conteo_fisico = fisicoBruto && fisicoBruto > 0 ? fisicoBruto : null;
   return {
     fecha: c.arqueo_fecha,
     ...a,
@@ -101,6 +116,10 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     esperado_neto: r2(esperado_total - devoluciones),
     contado_total: r2(a.efectivo_contado + a.tarjeta_contado + a.transfer_contado),
     cajero: c.cajero_cierre || null,
+    conteo_fisico,
+    fisico_diferencia: conteo_fisico === null ? null : r2(conteo_fisico - a.efectivo_contado),
+    // ⛔ El arqueo declaró lo esperado en vez de contarlo. Medido: 81.2% de los cortes.
+    arqueo_declarado: a.efectivo_contado === a.efectivo_esperado,
   };
 }
 
@@ -117,6 +136,9 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
   const cobros: CorteCobro[] = (c.cobros || []).map((x) => ({
     doc_prefix: x.doc_prefix, folio: x.folio, fecha: x.fecha ? String(x.fecha).slice(0, 10) : null,
     monto: r2(n(x.monto)), forma_pago: x.forma_pago ?? null, concepto: x.concepto ?? null,
+    // [CSU.8] Pasan tal cual: la clasificación la hace la vista, no esta capa. `null` cuando el
+    // cobro no está en `analytics.erp_collections` — que es distinto de 'sin_declarar'.
+    medio_cobro: x.medio_cobro ?? null, cuenta_tesoreria: x.cuenta_tesoreria ?? null,
   }));
   const documento = `UD2301-${c.folio}`;
   return {

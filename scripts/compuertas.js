@@ -170,7 +170,14 @@ const COMPUERTAS = [
   // versión anterior en caliente. El mismo defecto en `freshness.ts` era peor: caía en un `catch`
   // que reporta "no se pudo medir", o sea un bug disfrazado de dato ausente. El repo YA lo tenía
   // escrito en un comentario de `store.service.ts` — un comentario no frena nada.
-  { nombre: 'set-bind', cmd: 'node scripts/check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)' },
+  //
+  // ⭐ `push: true` agregado el 2026-10-09, y lo obliga una medición: el 09-oct `[TES.12]`
+  // escribió LA MISMA LÍNEA, 16 días después del incidente y con esta compuerta ya existiendo.
+  // Entre las 09:34 y las 11:31 TRES sesiones la arreglaron — dos de ellas sobre algo que ya
+  // estaba arreglado en `main`. La compuerta corría en `npm run check` y nadie corre
+  // `npm run check` antes de commitear; al push no llegaba. Cumple el criterio de admisión:
+  // escaneo estático, sin red, sin DB, 2,273 ms medidos (tope ~3 s).
+  { nombre: 'set-bind', script: 'check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)', push: true, ms: 2273 },
   // [MSH.2] H2: la confidencialidad de la cola de RH se rompe cuando alguien escribe una consulta NUEVA a `servicedesk.requests` sin saber
   // que existe lo confidencial. La lista de lectores es CERRADA: uno nuevo rompe el build y quien lo agrega escribe por qué es seguro.
   { nombre: 'sd-confid', script: 'check-service-desk-confidential-reads.js', que: 'sólo los lectores listados leen servicedesk.requests (lo confidencial no se filtra por una consulta nueva)', push: true, ms: 150 },

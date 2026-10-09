@@ -796,3 +796,330 @@ Mismo protocolo (hecho independiente + prueba de unidad). **El costo era el úni
   Los números redondos son firma de duplicación, no de pérdida.
 
 **Pendiente:** redeploy api + view (sin migraciones ni permisos nuevos → sin re-login).
+
+---
+
+## RA.TR — El tránsito deja de descontarse, y la regla pasa a vivir en UN solo lugar (2026-10-09) 🧪
+
+Pedido de Edgar el 2026-10-08: *"ignoremos en transito ya que hay muchas ordenes que no cumplen o
+se ignoran"*. Antes de tocar nada se midió, y el usuario pidió **ver las OC abiertas primero**.
+
+### Lo que se midió (prod, 2026-10-08)
+
+El motor **ya ignoraba la mayor parte** del tránsito, y no por decreto: la curva
+`analytics.oc_survival_curve` se deriva del ODS en cada corrida.
+
+| lo que hay en papel | lo que ya se ignoraba | lo que todavía se descontaba |
+|---|---:|---:|
+| $60,272,454 | $42,655,515 — 70.8% en pesos, **82.5% en cajas** | $17,616,939 |
+
+Las 394 OC abiertas ($36.8 M) por antigüedad, contra la probabilidad que la curva les asigna:
+
+| antigüedad | OCs | pesos | P(llega) |
+|---|---:|---:|---:|
+| 0-3 d | 20 | $4,861,749 | **86.2%** |
+| 4-7 | 18 | $1,746,428 | 76.3% |
+| 8-14 | 36 | $5,637,180 | 66.0% |
+| 15-21 | 32 | $2,358,211 | 53.4% |
+| 22-30 | 41 | $3,211,103 | 43.9% |
+| 31-45 | 55 | $4,787,312 | 20.3% |
+| 46-60 | 41 | $6,437,354 | 11.3% |
+| **+60** | **151** | **$7,778,469** | **9.8%** |
+
+⭐ **La premisa del pedido quedó confirmada en su parte fuerte: 151 de 394 OC (38%) llevan más de
+60 días abiertas**, y la curva —que nadie calibró a mano— ya las descartaba casi enteras. Los
+peores proveedores con OC de más de 60 días: DISTRIBUIDORA DE LA ROSA (9 OC, $1,502,861, la más
+vieja 78 d) · DISTRIBUIDORA GRUBERSA (2, $543,797) · DULCES LAS DELICIAS (8, $457,913, **113 d**) ·
+FERRERO DE MEXICO (3, $351,254) · CANELS (4, $297,776) · BOLSAS DE LOS ALTOS (8, $277,985, 104 d).
+
+⚠️ **Lo que la decisión cambia de verdad** son las **38 OC de menos de 7 días ($6.6 M)**, donde la
+curva da 76-86%. Ésas sí llegan, y al dejar de descontarlas el motor va a volver a sugerir lo que
+entra esta semana. Es una compra doble **conocida y aceptada**, a cambio de no quedarse corto por
+papeles que nadie cierra.
+
+### El hallazgo de ingeniería: eran SEIS expresiones, no cuatro
+
+El diagnóstico inicial contó cuatro lugares que restaban tránsito. Al cablear aparecieron **seis**:
+la matriz, el desglose por sucursal, el drill por producto, los dos resúmenes, el escáner de
+hallazgos y **el diálogo "En camino"**, que publica cuánto descuenta el motor. El sexto es el peor
+de todos: si se hubiera quedado con su propia expresión, el comprador vería *"descuenta 180 cajas"*
+mientras el motor descuenta 0, sin ningún error de por medio.
+
+Y un **séptimo** lo encontró el candado, no yo: un `COALESCE(rp.transit_eff_cajas,
+rp.transit_cajas)` en el CTE `base` que duplicaba la caída de la política.
+
+**La regla ahora vive en `libs/commercial/.../transito.ts`**, en una constante:
+`POLITICA_TRANSITO: 'ignorar' | 'curva' | 'crudo'`. Revertir es una línea, y las tres opciones leen
+la misma columna del fact — no hace falta recalcular nada ni volver a correr un importer.
+
+### Lo que NO cambia, y una corrección de paso
+
+El tránsito **se sigue mostrando**. Y pasa a mostrarse **crudo**: ⛔ la columna "En tránsito" venía
+mostrando la cifra **pesada** mientras su propio comentario afirmaba que mostraba la cruda, así que
+nunca cuadró con los folios que lista el diálogo. Se corrige acá.
+
+⭐ La compensación de fondo: el motor deja de decidir por el comprador y a cambio le pone enfrente
+el dato completo — el papel, su antigüedad, y un aviso que **manda el servidor** (`aviso_transito`),
+no la pantalla. Si el texto viviera en el template, al cambiar la política seguiría explicando el
+comportamiento viejo y nadie lo notaría: sigue siendo una frase con sentido.
+
+### Candado
+
+`transito.spec.ts` — 30 aserciones. Tres clases: la función (las tres políticas, el SQL que sale,
+que ninguna pueda devolver NULL), el reparto (ningún fuente de la carpeta resta a mano) y la
+decisión vigente con su aviso. **Probado por mutación**: devolviendo un sitio a la expresión vieja,
+el candado enrojece nombrando la línea exacta (1180). Del lado de la pantalla,
+`compras-pedido-real.component.spec.ts` sube de 28 a 34, con la negativa también mutada a rojo.
+
+⚠️ El escaneo de fuentes **no es un test**: no prueba que el SQL corra ni que la cifra sea correcta.
+Prueba una sola cosa, que es la que importa acá — que siga habiendo *una* definición y no seis.
+
+### Abierto
+
+- ⛔ **151 OC de más de 60 días no son un tema de reabasto, son papeles que nadie cerró.** Mientras
+  sigan abiertas ensucian cualquier cálculo que las mire. La bandeja "OC abiertas sin movimiento"
+  ataca la causa; esta fase sólo deja de creerles.
+- La cifra del $17.6 M es de la medición del 2026-10-08: el efecto real del cambio hay que medirlo
+  contra prod después del redeploy, no darlo por hecho.
+
+---
+
+## RA.45D — No se pide nada que quede con más de 45 días de cobertura (2026-10-09) 🧪
+
+Punto 1 de los tres que pidió Edgar el 2026-10-08: *"no podemos pedir un producto con mas de 45
+dias de cobertura"*.
+
+### ⭐ La fórmula del motor no era el problema; el redondeo sí
+
+El sugerido es `demanda × cobertura − existencia − tránsito`, así que **por construcción nunca deja
+más días que la cobertura que se le pidió**: con `cov = 30` salieron **0 casos** por encima.
+
+Lo que rompe la regla es el **redondeo a caja cerrada** de `[RA-PRO.51]`. Un sugerido de 0.6 cajas
+sube a 1 caja, y si esa caja trae 20 piezas sobre una venta de 4 al mes, la sucursal queda con medio
+año de inventario. Medido sobre los 7,881 renglones con sugerido:
+
+| | renglones | % | pesos |
+|---|---:|---:|---:|
+| quedan arriba de 45 d después de redondear | **3,301** | 41.9% | $2,900,000 |
+| …de ésos, donde UNA sola caja ya pasa | **2,643** | 33.5% | $2,270,000 |
+
+⭐ En esos 2,643 el tope **cae a piezas sueltas** antes de rendirse a 0. La pantalla ya sabe
+proponer piezas desde `[RA-PRO.51]`, así que rendirse directo habría dejado sin surtir a sucursales
+que sí podían pedir 3 piezas.
+
+### Dónde vive el tope, y por qué de ese lado
+
+`apps/view/src/app/modules/compras/pedido-tope.ts`, función pura, con `TOPE_COBERTURA_DIAS = 45` en
+una constante con nombre. Va en el **frontend** y no en el backend porque es el redondeo —que vive
+de este lado— lo que rompe la regla, y porque el seed topado alimenta de una sola vez la columna de
+captura, los totales del renglón, la requisición y el PDF: todos leen `qtyOf()`, que cae al seed.
+
+### ⛔ Lo que el tope NO hace
+
+**No topa lo que no puede medir.** Sin venta no hay cobertura contra qué comparar, y con el peldaño
+de unidad contradicho (`[U.2]`) la existencia en cajas no es verdad. En los dos casos devuelve el
+sugerido **intacto** con motivo `sin_medir` (ADR-056). ⭐ Topar con una medición falsa recortaría
+compras reales por un número inventado, y **nadie lo notaría nunca** — el renglón sale más chico y
+ya está.
+
+⚠️ **No prohíbe capturar por encima.** El tope gobierna lo que el motor *sugiere*; si el comprador
+sube la cantidad a mano, el tooltip de la columna Días lo dice con todas sus letras.
+
+### Dos cosas que cambian de color
+
+- `coverSev` pasó su corte de arriba de **90 a 45 días**. Dejarlo en 90 pintaba en verde una
+  cobertura de 60 días en la misma pantalla que se niega a pedirla. Esto pinta más renglones en
+  azul, y **no es un efecto colateral: es el hallazgo** — 8,023 de 15,927 pares (50.4%) ya pasan los
+  45 días sin pedir nada, $36,290,904. `info` y no `danger`: sobra inventario, no falta.
+- Insignia por sucursal: `tope 45 d` cuando se recortó, `no pedir` cuando la existencia sola ya
+  pasa. `sin_medir` **no se pinta**: no se tocó nada, no hay nada que explicar.
+
+### ⚠️ Lo que el tope no puede arreglar
+
+**133 de 737 canales de compra (18%) tienen cadencia + lead mayor a 45 días**, el peor 146.5 d. Ahí
+el tope y la cadencia se contradicen de frente: si al proveedor se le compra cada 90 días, 45 días
+de cobertura garantizan quedarse sin producto 45 días. El tope los topa igual —la regla es la
+regla— pero el arreglo de fondo es **la cadencia, no el pedido**.
+
+### Candado
+
+`pedido-tope.spec.ts`, 18 aserciones. ⭐ **La mitad son casos donde el tope NO debe tocar nada**: un
+tope que recorta de más borra compras reales y nadie lo nota. Incluye un barrido de 200
+combinaciones que verifica el invariante (*el resultado nunca pasa el tope*), y una prueba de que
+el parámetro se honra (45 recorta donde 90 deja pasar) — sin ella el argumento sería decorativo.
+
+⭐ **El test encontró un error mío**: afirmé que un sugerido de exactamente 45 días no se tocaba, y
+salió rojo con el código correcto — `45 × 10 / 30.4 = 14.80` cajas y `roundSeed` las sube a **15 =
+45.6 días**. La premisa estaba mal, no la función; quedaron los dos casos separados.
+
+**Mutado a rojo** cambiando `floor` por `ceil` en el recorte: caen 3 aserciones, el barrido entre
+ellas. Suite de `compras` completa: 22 archivos / 364 tests verde.
+
+⚠️ `check:template-types` dio **verde por vacuidad** en la primera corrida: sólo mira el diff
+**commiteado** contra `origin/main`, así que con el trabajo sin commitear midió cero archivos. Se
+volvió a correr con `--files=` apuntando a los tres fuentes. Es el hueco que la propia compuerta
+documenta en su cabecera.
+
+---
+
+## RA.SOB — Sobrante: dónde está parado el inventario, y qué pedimos que se quedó (2026-10-09) 🧪
+
+Punto 2 de los tres de Edgar: *"necesito analices que productos pedimos y se quedaron en stock"*.
+Pestaña **Sobrante** en `/compras/pedido` + `GET /commercial/replenishment/sobrante`.
+
+### El inventario por tramo de cobertura (prod, 2026-10-09, $62,981,663)
+
+| tramo | pares | SKUs | valor | % | de eso, se quedó |
+|---|---:|---:|---:|---:|---:|
+| Hasta 45 días | 7,895 | 3,174 | $11,837,770 | 18.8% | 539 · $900,077 |
+| 45 a 90 | 3,055 | 2,017 | $8,926,294 | 14.2% | 213 · $592,656 |
+| 90 a 180 | 2,285 | 1,646 | $8,554,913 | 13.6% | 161 · $582,459 |
+| 180 a 365 | 1,421 | 1,135 | $7,092,442 | 11.3% | 75 · $287,742 |
+| **Más de 1 año** | 1,284 | 892 | **$11,855,978** | 18.8% | 70 · $303,248 |
+| **Sin venta** | 5,593 | 3,418 | **$4,149,039** | 6.6% | 136 · $190,878 |
+| *Almacén que no vende* | *259* | *259* | *$10,565,227* | *16.8%* | *78 · $1,189,898* |
+
+**Lo que pedimos y se quedó: 1,272 pares, $4,046,958** — con una compra en los últimos 90 días y
+**cero salidas posteriores a esa compra**.
+
+### ⛔⛔ Dos correcciones a lo que yo mismo había reportado
+
+**1. `qty > 0` no selecciona entradas.** `analytics.stock_movements.qty` es la cantidad
+**ABSOLUTA**: las salidas también la traen positiva. Mi primera medición filtró por el signo y metió
+**40,073 "Traspaso a sucursal"** del lado de las compras, lo que dio *"$12.6 M comprado en los
+últimos 30 días"* cuando lo real son $6.94 M. El clasificador es `movement_kind`, no el signo.
+
+Con el clasificador correcto, **compra** son exactamente tres documentos: `Orden de entrada`,
+`Compra`, `Compra (pedido)`. **NO** el traspaso recibido (es mercancía que ya estaba en la red:
+contarla diría que "compramos" lo que sólo movimos) ni la entrada por inventario físico (ajuste de
+conteo).
+
+**2. El "sin venta" de $14.7 M eran $4.1 M.** De ese tramo, **$10,565,227 son los 259 pares del
+CEDIS**, y los 259 caen en "sin venta" por una razón que no es un problema: **el CEDIS no vende,
+distribuye**. Medirlo con la venta es usar una vara que no le aplica. Ahora es un tramo propio,
+`no_vende`, derivado del DATO (`warehouses.sells_to_public`) y no de una lista de códigos — un
+almacén nuevo que no venda entra solo.
+
+⭐ Se pinta **neutro**, no en rojo: no es bueno ni malo, es la declaración de que ahí no se puede
+medir así (ADR-056). Y sólo aplica cuando la cobertura es NULL: si algún día el DRP (RA-PRO.6)
+puebla la demanda dependiente del CEDIS, su cobertura es medible y cae en su tramo real.
+
+### La consulta
+
+⭐ **Una sola**, que devuelve el detalle, el total de la paginación (`count(*) OVER ()`) y el
+resumen de los 7 tramos (`jsonb_agg` en un CTE). No es elegancia: en tres consultas separadas el
+barrido de 90 días de movimientos se pagaba **tres veces** — ~400 ms cada una, 1.2 s medidos contra
+prod. Con `q AS MATERIALIZED` se calcula una vez: **368–395 ms** en caliente, bajo el piso de 500.
+
+⭐ Y de paso resuelve lo que importa más que la velocidad: la tira de arriba y la tabla salen del
+**mismo** cálculo, así que no pueden decir cosas distintas del mismo SKU.
+
+⛔ Con **cero** renglones la consulta no devuelve filas y el resumen vendría en ninguna → se pide
+aparte **sólo en ese caso**. Un `tramos: []` haría desaparecer la tira justo cuando el comprador
+filtró y quiere saber por qué no hay nada.
+
+### Candado
+
+`sobrante.spec.ts`, 23 aserciones. ⚠️ Un doble de Knex no ejecuta SQL, así que **no** afirma que las
+cifras sean correctas — eso se midió contra prod y quedó arriba con fecha. Protege las decisiones
+que, si alguien las deshace, **no fallan: mienten**. La principal: que `no_vende` se evalúe ANTES
+que `sin_venta`. **Mutado a rojo** invirtiendo ese orden.
+
+⛔ **La primera mutación no se aplicó** (el `perl` no casó por CRLF) y el 23/23 verde que dio no
+probaba nada. Se rehízo con `Edit`, que falla si el texto no casa. *Una prueba negativa que no se
+pone roja no prueba nada* — segunda vez en este repo con la misma causa.
+
+### ⚠️⚠️ Decimotercera vez con el acento grave, y es una VARIANTE NUEVA
+
+Los backticks estaban **BALANCEADOS** — cinco pares, 10 en total. Por eso `check:templates` los dejó
+pasar: el literal "sigue entero". Pero **cada par abre y cierra una interpolación**, y el HTML que
+queda en medio se parsea como TypeScript → 10 `TS1005` en cadena.
+
+⭐ **La regla "no dejar backticks sin cerrar" es insuficiente: dentro de un `template:` no va
+NINGUNO, ni en pares.** Lo cazó `check:template-types`, que es exactamente para lo que la hermana no
+puede ver. (La sesión `trade-marketing-06` lo detectó en paralelo y `8c` encontró la causa
+sistémica: `check:primeng-api` te empuja a convertir, convertir pide explicar, y el lugar natural de
+la explicación es dentro del `template:` — dos compuertas correctas que juntas fabrican el caso que
+una prohíbe. Corregido en el consejo del gate, commit `6a1546ea8`, ajeno a esta fase.)
+
+### Abierto
+
+- La tabla no tiene export a XLSX todavía (la hermana Stock muerto sí).
+- El tramo `no_vende` depende de que `sells_to_public` esté bien capturado. Hoy el único `false` es
+  el CEDIS; si mañana una ruta o una bodega se marca mal, su inventario se declara "sin medir"
+  cuando sí se podía medir. **Es un dato de captura, no derivado.**
+
+---
+
+## RA.CAP — La deuda del proveedor, al momento de pedirle (2026-10-09) 🧪
+
+Punto 3 de los tres de Edgar: *"el pedido en algún momento se hará bajo análisis también el
+presupuesto de pago y capacidad de pago"*.
+
+### ⛔ La capacidad de pago NO existe, y es un bloqueo humano
+
+Medido contra prod el 2026-10-09:
+
+| tabla | filas | |
+|---|---:|---|
+| `budget.daily_capacity` | 22 | **sólo septiembre 2026** — al 9 de octubre está vencida |
+| `budget.expense_obligations` | 312 | (subió de 0: alguien la empezó a poblar) |
+| `finance.payment_calendar_lots` | **0** | |
+| `finance.financial_commitments` | **0** | |
+| `commercial.supplier_payment_obligations` | **0** | la de Compras, la que haría falta acá |
+
+**Nadie captura cuánto se puede pagar por día**, así que el pedido no se puede condicionar a eso.
+⭐ Dibujar un tope con una capacidad inventada sería **peor** que no tenerlo: daría una cifra que
+parece medida. Queda declarado con dueño — es decisión de Finanzas/Dirección, no de código.
+
+### ⭐ Pero la otra mitad SÍ tiene dato
+
+Lo que YA le debemos a cada proveedor vive en Kepler y la **Fase ECA** lo lee desde el 2026-10-07.
+Medido ahora: **$164,922,961 pendiente · $133,163,172 vencido (80.7%)** en 402 acreedores, en
+**231–251 ms**.
+
+Y el cruce con el proveedor del pedido funciona: **274 de los 281 proveedores que aparecen en el
+pedido (97.5%) casan con su acreedor** por `catalog.suppliers.code` = `kdxd.c2`. (Sobre el catálogo
+entero son 733 de 997, 73.5% — los que importan están mucho mejor cubiertos que el promedio.)
+
+⇒ `GET /finance/creditor-statements/por-proveedor` y un renglón en `/compras/pedido`:
+**«Le debemos $480,000 · $310,000 vencido»**. No decide por el comprador: le pone enfrente que le
+va a pedir medio millón a alguien a quien ya le debe dos vencidos.
+
+### Tres decisiones que valen la pena
+
+1. ⭐⭐ **Reusa `resumen()`, no una consulta nueva.** Si la deuda se calculara dos veces, Compras y
+   Finanzas publicarían números distintos del mismo proveedor y nadie sabría cuál creer. Lo único
+   que cambia es el ANCHO: viaja el saldo, **nunca** el detalle de documentos, ni el RFC, ni las
+   sucursales. El estado de cuenta completo sigue siendo sólo de Finanzas.
+2. **El permiso se abre a `COMPRAS_PEDIDO_VER`** además del de Pagos. Un comprador no tiene permiso
+   de Finanzas, y sin esto el panel le llegaría vacío **sin decir por qué** — indistinguible de "no
+   le debemos nada". Es la trampa de `[EX.7]`, otra vez.
+3. ⛔ **Las tres ausencias son distintas y se tratan distinto**: *sin proveedor elegido* (no se
+   muestra nada), *proveedor sin acreedor* (se DECLARA: «su deuda no se midió», 7 de 281) y *la
+   llamada falló* (silencio, ni debe ni no debe — mostrar «sin acreedor» ahí sería mentir con cara
+   de dato).
+
+### Candado
+
+`deuda-por-proveedor.spec.ts` (12) + 7 aserciones nuevas en el spec de la pantalla, que sube a 41.
+**Mutado a rojo** dos veces: abriendo `:codigo` a Compras, y haciendo que `deudaSinCruce()` devuelva
+siempre `false`.
+
+⛔⛔ **El candado nació roto por TERCERA vez con el mismo defecto**: el bloque de una ruta llega
+hasta el decorador siguiente y se traga el **JSDoc de la que viene** — que, siendo el comentario que
+explica la regla, nombra justo las palabras que la negativa busca. Pasó en
+`requisicion.autorizar.spec.ts`, en `existencia.filtros.spec.ts` y acá. ⭐ Esta vez el arreglo no
+fue mover el corte sino **medir código y no redacción** (`sinComentarios()`).
+
+Y dos aserciones más eran mías y estaban mal planteadas: buscaban `kdxe` y `documentos` como
+cadenas, pero esas palabras viven en los textos de `@ApiOperation` —que son **código**, no
+comentario— puestos ahí a propósito para que la documentación diga de dónde sale el dato.
+**Nombrar una tabla no es consultarla**: ahora se verifica que el controlador no ejecute ningún
+`.raw(` ni `SELECT`, y que el objeto que ARMA no lleve el detalle.
+
+### Abierto
+
+- ⛔ **La capacidad de pago**: quién la carga y con qué criterio. Sin eso, el punto 3 queda a medias
+  a propósito.
+- Los 7 proveedores sin acreedor (2.5%) se declaran en pantalla, pero nadie los está conciliando.

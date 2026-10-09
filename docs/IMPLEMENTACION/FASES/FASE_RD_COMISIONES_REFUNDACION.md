@@ -376,23 +376,126 @@ chofer" se cayó con los criterios sembrados (se arregló **filtrando como el mo
 número), y su vigilancia de RLS usa `relname LIKE 'commission%'` — `objective_marks` **no empieza
 con commission**, así que habría quedado sin vigilar. Se amplió el patrón, no sólo el conteo.
 
-### Las pantallas del artefacto que NO se construyeron, con su motivo medido
+### [RD.60] ✅ Gasto renglón por renglón + la ficha de cada unidad (2026-10-08)
 
-- **Gasto de flota (hoja 3).** Su único grano derivable —plaza × concepto × quincena— ya vive
-  dentro de `[RD.57]`. Lo que la haría distinta (el `$/litro` de cada carga contra las últimas
-  diez de esa ruta) **no tiene dato**: ni litros ni ruta en el gasto.
-- **Ficha de la unidad (hoja 4).** El padrón está casi vacío: de 56 vehículos vivos, **año 1/56**
-  y **VIN, nº económico, aseguradora, póliza, odómetro y rendimiento en 0/56**. Y **no existe
-  ninguna columna de vencimiento de seguro en toda la base**, que era justo el valor que la
-  pantalla prometía. ⚠️ Hay un **segundo padrón** (`analytics.v_kepler_transporte`) con placas en
-  **tres formatos** (`NS-0886-D`, `NB-0703D`, `GN3865D`) que cubre **4 de las 8** camionetas de RD.
-  ⚠️ Y un **vínculo malo**: el tracker `CHEVROLET S10 NM8497D R-321` cuelga del vehículo de placa
-  `MW7947C` — otra camioneta; `NM8497D` no existe en el padrón.
-- **Objetivo mensual (hoja 5).** De sus tres criterios: **visitas SÍ** se pueden medir (`tickets`
-  por ruta; ⚠️ son visitas **con venta**, la que no vendió no deja ticket) · **volumen SÍ** (pero
-  su meta no está autorizada, ver arriba) · **desarrollo de marcas NO** — `v_sellout_daily` con el
-  `vendor_code` de las rutas de RD devuelve **0 filas**.
-- **El recibo (hoja 6).** Sigue bloqueado por el padrón de personas (Fase RH).
+⛔ **Las dos las había declarado NO construibles, y me equivoqué.** Al volver a medir, las dos
+salen — con menos de lo que el libro promete, y con algo que el libro no tiene. Lo que estaba mal
+no era la medición de los huecos (siguen siendo ciertos, se enumeran abajo) sino la conclusión que
+saqué de ella: *un dato faltante no vuelve inútil a la pantalla; la vuelve una pantalla que tiene
+que declarar el hueco.*
+
+**`/comercial/ruta-directa/gastos` — el gasto renglón por renglón.** Es la hoja `CONTROL DE GASTOS
+RD`, salvo que los renglones **ya existen**: salen de la contabilidad, nadie los captura. `[RD.57]`
+los muestra agregados; ésta muestra el movimiento. Medido en la quincena 20: **95 renglones, 17
+conceptos, 89 con comentario**, y el comentario dice cosas que nadie miraba (`ARRENDAMIENTO NP300
+RD PH` $18,525.86 · `ROTULACIÓN CAMIONETA PIN PON` $7,000 · `LONA PARA CAMIONETA DE RD` $350).
+⛔ El comentario **se muestra como texto y no se parsea**: a veces nombra la camioneta, pero
+derivar la ruta de una cadena escrita a mano sería adivinar.
+
+**`/comercial/ruta-directa/flota` — la ficha de cada unidad.** El padrón sigue casi vacío **y la
+pantalla lo dice en la cara** en vez de verse pobre: cada ficha enumera *«falta capturar: modelo,
+año, número de serie, aseguradora»*, que convierte «la pantalla está pobre» en «esto es trabajo
+pendiente» (ADR-056). ⭐ Y da lo que el libro no tenía: el **odómetro vivo** del GPS, los días sin
+reportar, y los **vínculos sospechosos** — la 321 sale marcada sola.
+
+**Dos defectos que encontró el propio armado:**
+
+- El `track` de la tabla pegaba dos campos nulables para fabricar una llave. **`expense_entries` ya
+  tiene `id`**, y en el dato hay **dos `CASETAS MORELIA` de $26.10 el mismo día**: un `track` que
+  colisiona hace que Angular reutilice la fila equivocada justo al reordenar, que es lo que esa
+  tabla hace. El arreglo no era callar al compilador con `!`.
+- **El total de arriba y el de abajo se dicen los dos.** El de arriba es el de la quincena entera
+  (`v_rd_expense_period`), el de abajo el de lo que se ve con el filtro puesto. Si el total saliera
+  de la página, una tabla filtrada publicaría una cifra más chica sin avisar. Hay **tope de 400
+  renglones y se declara** cuando trunca.
+
+Mismo permiso `COMMERCIAL_ROUTE_PROFIT_VER` — **sin migración y sin re-login**. Validado contra
+prod: el total cuadra al centavo ($288,988.44 = $288,988.44), **16 ms** el gasto y **17 ms** la
+flota. Con esto Ruta Directa suma **cinco pantallas**.
+
+---
+
+### La única pantalla del artefacto que sigue sin construirse
+
+- **El recibo (hoja 6).** Bloqueado por el **padrón de personas** (Fase RH): la hoja trae RFC,
+  CURP, NSS y fecha de inicio de relación laboral, y nada de eso vive en `identity.users`. El
+  detalle —y el defecto del origen, que las rutas **321 y 322 comparten identidad fiscal**— en
+  `[RD.55]`.
+
+**Lo que se midió como hueco y sigue siéndolo, dentro de pantallas que SÍ se construyeron:**
+
+- **`$/litro` por carga** (hoja 3): no hay dato — ni litros ni ruta en el gasto. La pantalla
+  muestra el renglón; el rendimiento no.
+- **Vencimiento de póliza** (hoja 4): **no existe la columna en toda la base**, y era justo el
+  aviso que la hoja prometía. La ficha lo enumera como pendiente de captura, no lo dibuja. ⚠️ Hay
+  un **segundo padrón** (`analytics.v_kepler_transporte`) con placas en **tres formatos**
+  (`NS-0886-D`, `NB-0703D`, `GN3865D`) que cubre **4 de las 8** camionetas de RD.
+- **Desarrollo de marcas** (hoja 5): `v_sellout_daily` con el `vendor_code` de las rutas de RD
+  devuelve **0 filas**. El criterio existe en `[RD.59]` y se **marca a mano con motivo**, porque no
+  se puede medir. Sus otros dos criterios sí se miden: **visitas** (`tickets` por ruta; ⚠️ son
+  visitas **con venta**, la que no vendió no deja ticket) y **volumen** (su meta sigue sin
+  autorizarse).
+
+---
+
+### Auditoría de lo construido esta semana — tres defectos míos, medidos contra prod (2026-10-09)
+
+Auditar el código propio de ayer encontró, otra vez, lo que su validación original había dejado
+pasar. Los tres son de la misma familia: **una ausencia publicada como si fuera un hecho.**
+
+**`[RD.58.3]` — el `$/km` estaba escrito DOS veces y sólo se arregló una.** `[RD.58]` endureció la
+regla y `[RD.58.2]` la corrigió; las dos veces **en `serie()` solamente**, porque `rentabilidad()`
+tenía su propia copia con los dos defectos que la otra ya no tenía. Medido sobre 2026: de **35
+ruta-quincena** con kilometraje, **13 (37%)** daban en la tarjeta una cifra que la serie se negaba
+a publicar — incluida la que motivó toda la corrección, la ruta 21 en la Q15 con **$450.94/km sobre
+3 de 14 días medidos**. Mediana de lo retirado **$340.72/km** contra **$206.10** de lo que queda:
+**1.65×**, el artefacto del denominador intacto. ⭐ El arreglo NO fue copiar la guarda buena a la
+segunda consulta —escribirla dos veces es lo que produjo esto— sino sacarla a `KM_SQL`, una
+constante que ambas interpolan; el veredicto pasa a llamarse `cobertura_km` con los mismos valores
+en las dos. *Mientras una regla esté escrita dos veces, arreglarla una vez va a seguir pareciendo
+que la arregló entera.*
+
+**`[RD.59.3]` — la pantalla del objetivo dibujaba ceros y guardaba marcas invisibles.**
+(1) `dias_con_venta: m?.dias ?? 0` **dibujaba un cero**: para un mes anterior a la fuente las 13
+rutas publicaban *«0 días con venta»* **al lado** de criterios que decían *«sin fuente para ese
+mes»* — el renglón se contradecía a sí mismo y el cero es el que se lee. (2) La guarda protegía el
+borde **pasado** y no el **futuro**: `resultado(2027,5)` afirmaba *«la ruta no registró venta en el
+mes»* sobre un mes que no ha ocurrido. (3) `marcar()` no validaba `route_code` —no hay FK, el
+universo es una vista—, así que una ruta mal escrita se guardaba, devolvía 200 y **no aparecía
+nunca**: el usuario veía «guardado» y la pantalla seguía diciendo «sin marcar». (4) `anio` no se
+validaba aunque `mes` sí. Y se declara que la fuente es una **ventana rodante de 200 días**: un mes
+que hoy se mide deja de medirse solo, así que un bono viejo se audita guardando el resultado, no
+recalculándolo.
+
+**`[RD.60.1]` — la placa se usaba como EXPRESIÓN REGULAR.** El vínculo sospechoso comparaba con
+`!~`, o sea que tomaba la placa como patrón. Verificado en prod: una placa con un **paréntesis
+suelto rompe la consulta entera** (`parentheses () not balanced`) y una con un **punto da falso
+negativo** —el punto matchea cualquier carácter, así que un vínculo malo se ve bien—. Hoy ninguna
+de las 56 placas trae metacaracteres, así que el riesgo es **latente, no vivo**; pero ya conviven
+**ocho formatos** (`XXXXXX`, `XXX-XXX`, `XX-XXXX-X`…): el dato no está disciplinado. Además la
+cobertura del padrón estaba **escrita a mano en el texto del hueco** («de 56 unidades, el año en
+1») — cierta el día que se midió y vigente para siempre. Es la lección de `[CDRP.2.1]`; ahora se
+cuenta cada vez, y aparece lo que el texto fijo omitía: **modelo 18/56**.
+
+#### Lo que la auditoría midió y NO es mío de arreglar
+
+⛔ **Las rutas 321 y 322 están retiradas desde el 2026-07-15 y el sistema las trata como activas.**
+Es el punto 1 de §4, ahora con números: `comisiona` sale de `commission_route_config`, que es
+configuración **manual y no caduca** — **13 rutas encendidas, ninguna apagada**. El libro dejó de
+pagarles en la **Q14 (2026-07-15)**, hace 12 semanas, y la fuente derivada dejó de verlas antes
+(**321 el 2026-06-02**, **322 el 2026-07-01**). La pantalla ahora las **marca «sin actividad»** con
+su última fecha en vez de publicarlas como «0% alcanzado», que se lee como desempeño. ⭐ **No se
+apaga nada por código**: la baja la decide la configuración de rutas. ⚠️ La **505** es distinta —
+intermitente, no retirada: 10 de 19 quincenas en el libro, última actividad hace 29 días; el umbral
+de 60 días la deja correctamente sin marcar.
+
+⛔ **Hueco sin explicar: $551,274.08.** El libro registra esa venta de la ruta **321** en tres
+quincenas enteras (**2026-06-04 → 2026-07-15**, comisión pagada $8,361.52) que la fuente derivada
+**no ve**. La 322 tiene lo mismo a menor escala: **$24,505.52**. **Descartada la renumeración**:
+ninguna ruta nace el 2026-06-02 y las que aparecen después (`1V002`, `2V001`, `2V003`, `2V005`) son
+códigos vecinales de otra serie. Quedan en pie dos hipótesis —la ruta operó y el carril la perdió,
+o el libro siguió registrando una ruta que ya no salía— y **el libro es la única fuente de las dos
+que afirma que hubo venta.**
 
 ---
 
