@@ -501,3 +501,98 @@ y **se bifurca cada vez que se escribe un encargo**.
 **Declarado, no construido:** la reconstrucción de «meta defendible» (mi primer intento dio
 $748,059,625 y quedó **refutado** — usaba un global contaminado por la misma cobertura). Proyectar
 2027 exige decidir antes PVI.1 y PVI.4; no se dibuja una cifra mientras tanto.
+
+---
+
+## PVI.17 — Presupuestos EMITE a la torre de control (2026-10-09) 🧪
+
+**El pedido.** Del usuario: qué herramientas darle a Dirección General *«considerando que ésta es su
+torre de control»*.
+
+**La respuesta medida: no hace falta un tablero nuevo.** Por ADR-076 la torre directiva es «Mi
+trabajo» (`/projects`, ADR-061) y un tablero aparte sería la 12ª landing. ⛔ Y antes de construir
+nada hay que decir lo que la medición dice: **un tablero sobre un instrumento que nadie operó
+publica ceros honestos.** Medido en prod el 2026-10-09:
+
+| | |
+|---|---|
+| ejercicios | 3, los 3 `borrador` (uno es el duplicado `is_test`) |
+| `status = 'pendiente'` | **0** — nadie mandó nada a firmar |
+| obligaciones | **156 `propuesta` · $74,809,091.57**, la más vieja del 07-oct |
+| `line_movements` | 139, **todos `apertura`** — reservado/comprometido/ejercido/pagado en **$0** |
+| `costo_ventas` | **0 partidas en los 3** ⇒ ninguno puede declarar un resultado |
+| `growth_provenance` | **NULL en los 3** (≠ «sin respaldo»: la columna nunca se escribió) |
+
+⭐ **Dirección ya puede aprobar y no tiene nada que aprobar.** `PRESUPUESTOS_APROBAR` se repartió el
+09-oct (**batch 867**, `public.knex_migrations`) a `direccion` y `superadmin`.
+
+**Lo que se construyó: la emisión, no un mirador.**
+
+- **Dos bandejas** en el registro de «Mi trabajo» (`libs/trade/.../me-work.ts`):
+  `presupuesto-ejercicios` y `presupuesto-obligaciones`. ⭐ **Dos y no una**: con un solo contador
+  las 156 obligaciones se comen al 0 de los ejercicios, y ese 0 es el que dice que nadie envió un
+  presupuesto a firmar. Es el mismo criterio por el que `[TES.17]` publica `por_cola[]`.
+- **No mide de nuevo nada.** `[TES.17]` ya había construido `PendingApprovalsService`; el defecto no
+  era que faltara la cola sino **dónde vivía** — sólo dentro de `/presupuesto`, o sea obligando a
+  entrar al módulo para enterarse de que hay algo que firmar.
+- **El desglose** de la cola de ejercicios dice **qué le falta a cada uno** para poder firmarse:
+  `falta Costo de ventas · 4 supuestos de crecimiento sin procedencia registrada`. Son las otras
+  dos señales del diagnóstico, entregadas en el momento en que cambian una decisión.
+- **Migración `20261009164933`**: responsabilidad `finanzas.presupuesto` repartida a los puestos
+  `direccion` (firma) y `jefe_finanzas` (prepara y vigila). ⛔ `[SN.30]` filtra las bandejas **por
+  responsabilidad, no por permiso**: sin esta fila las dos colas son invisibles para todos, en
+  silencio.
+
+### Dos primitivos suben a `libs/` (ADR-056)
+
+1. **`obligacionNoEsDePruebaSql` / `ejercicioNoEsDePruebaSql`** (`libs/platform-core`, junto a
+   `branchKeySql`). ⛔ **Y por una razón que cobró el mismo día:** esta sesión midió y publicó
+   «312 obligaciones por $149,618,183.14» como un hecho, a un commit de cablearlo a la portada de
+   Dirección. Es **el doble exacto** — el duplicado `is_test` es copia byte a byte, así que el error
+   no deja rastro. Lo atrapó otra sesión, que tenía el filtro adentro de su servicio. *Dos
+   definiciones de la misma cola es cómo nacen los dos números.*
+2. **`TIPOS_LEDGER` / `LADOS_NECESARIOS` / `resumenEjercicioPendiente`** (`libs/contracts`). Nacieron
+   en `apps/view` para una pantalla; hoy las lee también `libs/trade`, que no puede importar de
+   `apps/view`. Si el módulo dijera «falta el costo de ventas» y la portada dijera otra cosa, el que
+   hace clic no encuentra lo que le dijeron.
+
+### ⛔⛔ Hallazgo: `budget.expense_obligations.authorized_at` miente
+
+```
+authorized_at  NOT NULL DEFAULT now()   ← no puede valer NULL jamás
+312 de 312 filas llena · 312 de 312 todavía en status 'propuesta'
+authorized_by vacío en las 312 · authorized_at = created_at en 312 de 312
+```
+
+Es una marca de creación con el nombre de una autorización. Quien derive «cuántas están
+autorizadas» de `authorized_at IS NOT NULL` obtiene el **100 %**. La bandeja declara `cierre: null`
+⇒ `cerradas_30d: null` («esta fuente no puede contestarlo»), **nunca 0** («nadie cerró ninguna»). La
+hermana de `budgets` sí sirve: nullable y sin default, verificado contra el esquema. **El arreglo de
+fondo —que la transición escriba fecha y autor— queda declarado, no hecho.**
+
+### ⛔ Dos protecciones que hoy NO se pueden medir, y se declaran
+
+Corridas las mutaciones contra prod: **sin el predicado da 312** (rojo, la que importa). Pero
+`JOIN` en vez de `NOT EXISTS` da **156 igual** —hay 0 obligaciones sin partida— y `= false` en vez de
+`IS NOT TRUE` da **2 igual** —hay 0 nulos—. Esas dos se vigilan por la **forma** del SQL emitido, y el
+spec lo dice. *Un gate que no puede fallar con los datos de hoy se declara, no se presenta como verde.*
+
+### ⚠️ El texto dice «sin procedencia registrada», nunca «sin respaldo»
+
+`growth_provenance` en NULL significa que la fila es anterior a `[PVI.3]` **o** que el autopiloto no
+pasó todavía — no que alguien haya decidido a dedo. Convertir una columna vacía en una acusación es
+afirmar lo que no se midió. El spec lo vigila explícitamente.
+
+**Verificado:** contracts 520/520 (15 nuevas, **mutado a rojo 2/15** contando los ceros) · finance
+7/7 (**mutado a rojo dos veces**, 4/7 y 3/7) · view 44/44 sin cambio tras el traslado ·
+`check:templates-types` verde en las 4 apps · smoke `me-context` **298 OK**.
+
+**Falta:** aplicar `20261009164933` a prod **antes** del deploy · redeploy api+view · **re-login**
+(la responsabilidad viaja en el contexto) · validación visual.
+
+**⭐ Pendiente humano, y es lo que decide si esto sirve:** que **alguien que no sea Dirección prepare
+el presupuesto**. Hoy `PRESUPUESTOS_GESTIONAR` prepara y aprueba a la vez, y lo tienen las mismas 2
+personas que firman — mientras siga así, cualquier bandeja les muestra su propio trabajo. La
+migración ya le da visibilidad a `jefe_finanzas`; **darle `PRESUPUESTOS_GESTIONAR` es la decisión que
+falta**, y se toma desde `/admin/roles`. (Declarado en el log de la migración: `jesus_carrillo`
+recibe la responsabilidad pero su rol `finanzas_operativo` no tiene ni `PRESUPUESTOS_VER`.)
