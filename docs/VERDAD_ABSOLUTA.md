@@ -3704,3 +3704,114 @@ sobregiro.**
 del plan** y dio un desfase de **12×** que parecía hallazgo. Lo detectó el bloque siguiente de la
 misma corrida, no una relectura. Un denominador sin declarar fabrica una anomalía en la primera
 consulta — incluso cuando quien consulta acaba de escribir la advertencia (§24.9).
+
+---
+
+## 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08)
+
+> **La pregunta que esta sección arbitra:** *¿alcanza el dinero para pagar lo que se debe?* Y la
+> respuesta honesta medida hoy: **el módulo no podía opinar, y aun así publicaba una cifra con cara
+> de que sí.**
+
+### 26.1 Las tres lecturas de las MISMAS 8 semanas
+
+```
+1. El modelo tal como estaba ................ +$10,642,041   ← verde falso: no veía ni un pago
+2. Con la deuda derivada, el cobro sin derivar  −$20,740,638   ← ROJO IGUAL DE FALSO
+3. Los dos run-rates reales, medidos ........... ≈ +$5,000,000   ← lo defendible
+```
+
+⭐ **La #2 es la lección de método:** cablear *la mitad* del modelo produce un rojo tan falso como el
+verde que corrige. Compara un lado del pago casi completo contra un lado del cobro que ve el 11.8 %.
+**Un modelo asimétrico miente con más confianza que uno vacío**, porque ya trae un número.
+
+### 26.2 Qué ARBITRA cada número del flujo
+
+| Número | Fuente | Árbitro independiente | Estado |
+|---|---|---|---|
+| Saldo inicial | `finance.bank_movements.running_balance` | ContPAQi `102xxx` (CP.2, crosswalk 16/18) | ✅ fresco a hoy, 55,346 filas |
+| Cobranza | `analytics.customer_receivables` (vista) | `analytics.erp_collections`: **$44.2M–$57.4M/mes** | ✅ |
+| Deuda | `analytics.v_supplier_payables` (vista, `[TES.1]`) | ECA por otro camino: 1.4 % de deriva | ✅ |
+| Pago real | `finance.payment_program` | — | ⚠️ ene–jul completos; ago parcial, sep/oct **ausentes** |
+| Capacidad | `budget.daily_capacity` | **ninguno — es una política, no un hecho** | ⛔ 57 de 57 días sin definir |
+| Razón corriente | — | — | ⛔ **no existe**: falta el mapa de cuentas circulantes |
+
+**El contraste que ordena todo:** cobro real ~$53.3M/mes contra pago real ~$50.6M/mes. **El negocio
+cobra algo más de lo que paga.** El estrés de caja lo fabricaba el modelo, no la operación.
+
+### 26.3 Las DOS masas vencidas que ninguna curva dibuja — y está bien que no las dibuje
+
+| | en ventana (8 sem) | ya vencido, sin fecha | % que la curva ve |
+|---|---:|---:|---:|
+| Cobranza | $7,591,521.77 | **$56,071,967.36** | 11.8 % |
+| Deuda | $30,905,393.63 | **$114,440,471.87** | 21.3 % |
+
+⛔ **No se meten en la semana 1.** Eso afirmaría que se cobran —o se pagan— el lunes, que es inventar
+una fecha. Viajan **aparte, con su monto**, y por eso la cobertura se publica. ⭐ Y el hecho de fondo:
+**esta empresa paga con cobranza vencida**, así que cualquier modelo que sólo mire vencimientos
+futuros va a proponer una fracción de lo que la operación mueve de verdad.
+
+### 26.4 «Capacidad de pago» es una AUTORIZACIÓN, no dinero
+
+`budget.daily_capacity.authorized_amount` es un tope que fija un humano. Cruzarlo contra obligaciones
+responde *¿alcanza el permiso?*, nunca *¿alcanza el saldo?*. Medido: la propuesta daría **$185,159.07
+por día hábil** contra un pago real de **$2,332,149.22** — **12.6× por debajo**.
+
+⚠️ **No es un bug del servicio**, que está bien construido: declara su cobertura y excluye el saldo
+bancario a propósito. Es que deriva del 11.8 % de la cartera con vencimiento futuro.
+⛔ Y la columna es `NOT NULL DEFAULT 0`: **un día sin fila es capacidad NO DEFINIDA, no cero**. Leerlo
+como cero fabrica una insolvencia que no existe. El defecto está **en el lector**, no en el esquema.
+
+### 26.5 Tres defectos medidos, con su monto
+
+1. **`[TES.1/2]` El lado del pago no existía.** Las tres tablas de obligación: 312 filas, **las 312
+   `status='propuesta'` venciendo en 2027** (el motor las excluye bien), y **0 y 0** las otras dos.
+   ⛔ Corolario contraintuitivo: **un `UPDATE` masivo de `is_critical` sobre esas 312 no cambia NADA**
+   — ni a rojo ni a nada. Quedan fuera por año y por estado.
+2. **`[TES.3]` Una fila fechada en 2027 secuestraba el saldo *y cegaba la frescura*.** 17 filas en
+   `2027-08-06` y 6 en el año `0206`. Saldo **$3,105,321.19 → $2,588,183.56** ($517,137.63, +19.98 %).
+   ⭐ **El daño mayor era el `as_of`**: salía del mismo `max(movement_date)`, y **una fecha futura
+   nunca tiene más de 30 días**, así que el detector de rancidez decía «fresco» incondicionalmente.
+   ⚠️ `movement_date <= current_date` **no alcanza**: el año `0206` pasa ese filtro. Va acotado por
+   los dos lados.
+3. **Las estadísticas del ODS mienten 808×.** `kdxe` reporta 63 filas y tiene **50,885**; `kdxf` 76 y
+   tiene **30,556**; **237 de 240 tablas de `kepler_ods` nunca se analizaron**. La misma pregunta
+   costó **224 ms una vez y más de 150 s la siguiente**. ⛔ **Ningún consumidor del ODS puede declarar
+   un gate de tiempo hasta que exista un `ANALYZE`.**
+
+### 26.6 Tres trampas que ya cobraron en este carril
+
+- ⛔ **No sincronizar lo que se puede derivar.** La cartera vive porque es **vista**; su antecesora era
+  tabla con importer y **quedó vacía en prod porque el importer nunca corrió**. La deuda se derivó de
+  `kdxe` por la misma razón.
+- ⛔ **No re-implementar un clasificador que ya tiene dueño.** Mi regla ad-hoc en SQL ponía
+  **$551,742.26 como `servicios` que son `financiero`** (grupo 140 con clave `G*`, STM Financial). El
+  canónico es `clasificarAcreedor()`.
+- ⚠️ **Un `===` contra una unión de literales SIEMPRE tipa.** Escribí `tipo === 'traspaso_interno'` y
+  el literal es **`'interno'`**: la rama nunca dispara y **$38.6M de traspasos internos entran como
+  deuda con terceros**. Ni `tsc` ni el lint lo marcan. **Lo encuentra leer el clasificador, no
+  compilar.**
+
+### 26.7 Lo que queda SIN arbitrar — declarado, no dibujado
+
+- **La razón corriente y la prueba del ácido NO EXISTEN.** Falta firmar qué familias de cuenta son
+  circulantes: es una **decisión contable sin dueño**. Hasta entonces el renglón de solvencia sale
+  `sin_medir`, ni verde ni rojo. ⚠️ Y el riesgo mayor es confundir el `falta_liquidez` del flujo
+  —prospectivo— con una razón de balance.
+- **La curva de recuperación de lo vencido no se puede derivar todavía.**
+  `customer_receivable_snapshots` tiene **14 fechas (2026-09-24 → 2026-10-08)**. Defendible alrededor
+  del **20 de noviembre**, con ~8 semanas de serie. ⛔ Y **no sale de `payment_program`**, que es
+  dinero que SALE.
+- **El 89.7 % de la deuda de mercancía ($122,755,716.27) tiene fecha anterior al 1-oct.** ⚠️ **No
+  contradice** los $59.9M que ECA declaró: ellos midieron las facturas *de sucursal* previas al corte,
+  esto son *todas*. Otro universo, otra afirmación. Abierto: o es deuda vieja impaga, o los
+  casamientos de `kdxf` no capturan pagos pre-corte y el saldo abierto está inflado.
+- **El traslape entre la deuda del ERP y las obligaciones autorizadas.** Hoy no muerde (las
+  autorizadas son 0), por eso se publican **separadas y sin sumar**. El día que alguien capture
+  obligaciones, es un hueco con nombre.
+- **La frescura de `kdxe`**: el ODS no publica marca, así que `as_of` viaja en `null` → `unknown`.
+  Fabricarle un `now()` diría «recién medido» sin haberlo medido.
+
+**Medición reproducible:** 15 consultas read-only contra `pg-prod` (namespace `prod`,
+`kubectl exec -i … -- psql -f -`). Candado: `database/tests/test-newdb-supplier-payables.js`, con
+**dos pruebas negativas** y tercer estado `NO MEDIDO`. Commits `9f9f9c146`, `2c59385f4`, `5ee9195e8`.
