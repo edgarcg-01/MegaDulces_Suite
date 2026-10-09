@@ -28,6 +28,7 @@ import { environment } from '../../../../environments/environment';
 import { PresupuestoVentasComponent } from './presupuesto/presupuesto-ventas.component';
 import { leyendaRespaldo, resumenFirma, type Completeness, type ProcedenciaCanal } from './presupuesto/presupuesto-firma';
 import { ejercicioInicial } from './presupuesto/presupuesto-seleccion';
+import { motivoSinResultado, resultadoEjercicio, tipoLabel, type FilaPorTipo } from './presupuesto/presupuesto-resultado';
 import { PRESUPUESTO_STYLES } from './presupuesto/presupuesto.styles';
 import type {
   GrowthEditRow, GrowthProposal, ProposeCoverage, SalesComparison, SalesIndicators,
@@ -395,6 +396,12 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 }
               </div>
               <app-metric-strip [items]="kpiItems(s)" mode="strip" ariaLabel="Resumen ejecutivo del presupuesto" />
+              <!-- [PVI.16] Por que el ejercicio no puede declarar un resultado. Va DEBAJO de la
+                   tira y no dentro: es una ausencia con motivo, no una cifra. Sale del roll-up por
+                   tipo de partida, que hasta hoy no tenia un solo consumidor en pantalla. -->
+              @if (motivoSinResultado(resultado()); as motivo) {
+                <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <span>{{ motivo }}</span></p>
+              }
             }
 
             <p-table [value]="lines()" [loading]="loadingDetail()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
@@ -1420,6 +1427,11 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.completeness.set(null);
     this.http.get<Completeness>(`${this.base}/budgets/${b.id}/completeness`).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (c) => this.completeness.set(c), error: () => this.completeness.set(null) });
+    // `[PVI.16]` Mismo criterio: aparte, y si falla el signal queda en `null` — que el resumen lee
+    // como «no sé qué lados tiene», nunca como «no tiene ninguno».
+    this.variance.set(null);
+    this.http.get<FilaPorTipo[]>(`${this.base}/budgets/${b.id}/variance`).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (v) => this.variance.set(v ?? []), error: () => this.variance.set(null) });
     if (this.view() === 'flujo') this.loadResultado();
     if (this.view() === 'gasto-op') this.loadExpensePlan();
     if (this.view() === 'gastos') this.loadExpenses();
@@ -2002,6 +2014,14 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // persona descubría los bloqueos apretando y fallando, y los `avisos` —lo que conviene mirar y
   // NO frena— no los veía nunca. Y «listo» mide CANTIDAD, no RESPALDO: declara listo un ejercicio
   // cuyo mayor supuesto no lo firma nadie. Reglas y candado en `presupuesto/presupuesto-firma.ts`.
+  // `[PVI.16]` El roll-up por tipo de partida (`GET budgets/:id/variance`), que hasta hoy NO tenía
+  // un solo consumidor en pantalla. Es lo único que contesta con el ledger sin mover: qué lados
+  // del ejercicio existen y cuáles no. De ahí sale si se puede declarar un resultado.
+  variance = signal<FilaPorTipo[] | null>(null);
+  resultado = computed(() => resultadoEjercicio(this.variance()));
+  protected readonly motivoSinResultado = motivoSinResultado;
+  protected readonly tipoLabel = tipoLabel;
+
   completeness = signal<Completeness | null>(null);
   growthProvenance = signal<Record<string, ProcedenciaCanal> | null>(null);
   growthByChannel = signal<Record<string, number>>({});
@@ -2500,6 +2520,14 @@ export class FinanzasPresupuestoComponent implements OnInit {
       // de ventas con el plan de gastos: $547 M que no eran ni lo uno ni lo otro.
       { label: 'Egreso vigente', value: s.ejecucion.vigente, format: 'currency-short' },
       { label: 'Disponible', value: s.ejecucion.disponible, format: 'currency-short', tone: s.ejecucion.disponible < 0 ? 'bad' : 'ok' },
+      // `[PVI.16]` El RESULTADO del ejercicio, o la declaración de por qué no lo hay. Medido en
+      // prod: el ingreso del ledger ($604,775,116 en 33 partidas) cuadra **al peso** con la meta
+      // del plan de ventas, y el gasto son 14 partidas OPERATIVAS — ninguna es costo de ventas.
+      // ⛔ Restar igual publicaría 87.6 % de margen. El `CHECK` de la tabla admite `costo_ventas`
+      // y en toda la base no existe ni una partida de ese tipo: el casillero está, vacío.
+      ...(this.resultado().resultado != null
+        ? [{ label: 'Resultado del ejercicio', value: this.resultado().resultado as number, format: 'currency-short' } as MetricStripItem]
+        : [{ label: 'Resultado del ejercicio', value: '—', format: 'text', sub: `falta ${this.resultado().faltan.map(tipoLabel).join(' y ')}`, tone: 'warn' } as MetricStripItem]),
       // La meta de ventas es el OTRO lado del presupuesto y ahora se ve como tal, en vez de estar
       // disuelta dentro del saldo de gasto.
       ...(s.ejecucion.ingreso_meta != null
