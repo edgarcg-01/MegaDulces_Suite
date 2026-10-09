@@ -300,8 +300,94 @@ tbody tr:last-child td{border-bottom:none}
 </section>
 
 <section>
-  <h2>7 · Gastos <span class="owner">carril 8c · pendiente</span></h2>
-  <div class="pend"><b>Esta sección la llena su carril</b>El contrato de <code>expense-plan/coverage</code> (<code>observado · promedio_plano · ausente · sin_base_declarada</code>), los frenos por nivel, y la decisión pendiente del freno duro.</div>
+  <h2>7 · Gastos <span class="owner">carril 8c · lleno</span></h2>
+  <p class="lead">Plan de egresos, partidas y el ledger de cinco estados. Cifras contra <code>pg-prod</code> en <strong>una sola transacción <code>REPEATABLE READ</code></strong> — <code>as_of 2026-10-08 21:01:34 CST</code>. ⭐ <strong>Régimen <span class="rg">snapshot</span> en todo el bloque, y aquí eso no es un detalle:</strong> volví a medir las quince cifras que había publicado durante la tarde y <strong>ninguna se movió</strong>. No es disciplina mía — es que a <code>budget.*</code> no le escribe nadie salvo la pasada nocturna. El carril de Ventas tomó la misma precaución y su margen sí se movió, porque <code>sales_daily</code> es <span class="rg">vivo</span>. <strong>La precaución vale igual: lo que cambia es si cuesta algo, y eso no se sabe hasta tomarla.</strong></p>
+
+  <h3>La tira, como debería verse</h3>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">Egreso vigente FY2027 <span class="st st-medido">medido</span></span><span class="mi-val">$74,852,190.82</span><span class="mi-sub">12 de 12 meses · excluye el ejercicio de prueba, que lo duplicaba</span></div>
+    <div class="mi"><span class="mi-lab">De eso, rellenado <span class="st st-derivado">derivado · promedio_plano</span></span><span class="mi-val">$18,871,884.76</span><span class="mi-sub">25.21 % del dinero · 43 de 168 celdas, que es 25.60 % — no es el mismo número</span></div>
+    <div class="mi"><span class="mi-lab">Crecimiento aplicado <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">0.0000 en los 374 renglones, pero nadie lo firmó: no es una decisión de congelar</span></div>
+    <div class="mi"><span class="mi-lab">Ocupación del ledger <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">139 movimientos y los 139 son apertura: no empezó la ejecución</span></div>
+    <div class="mi"><span class="mi-lab">Sin freno duro <span class="st st-parcial">parcial</span></span><span class="mi-val">$107,278,033.88</span><span class="mi-sub">26 partidas · 0 en bloqueo · el total de egreso autorizado de los dos ejercicios</span></div>
+  </div>
+  <div class="note bad"><strong>Las dos tarjetas con guion son las que más cuesta dibujar, y las dos hoy salen con un número.</strong> «Crecimiento 0.00 %» y «Ocupación 0 %» son los valores que el sistema devuelve ahora mismo, y los dos son <strong>ceros verdaderos que significan otra cosa</strong>: el primero no es «decidimos no crecer», es «nadie decidió»; el segundo no es «no hemos gastado», es «no hemos registrado». <strong>La regla 2 no alcanza con prohibir el <code>$0.00</code> de una ausencia: hay que prohibir el cero que la aritmética calcula bien.</strong></div>
+
+  <h3>El contrato: <code>GET /budgets/:id/expense-plan/coverage</code></h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:30%">Campo</th><th>Qué contesta</th></tr></thead>
+    <tbody>
+      <tr><td><code>por_estado</code></td><td><code>observado | promedio_plano | ausente | sin_base_declarada</code>, cada uno con <code>celdas</code> <strong>y</strong> <code>importe</code> por separado — nunca uno solo (ver el antipatrón 3 de Ventas).</td></tr>
+      <tr><td><code>ventana</code></td><td><code>desde · hasta · meses · meses_esperados · cobertura_pct · completa · nota</code>. ⚠️ Se mide contra <strong>12 meses naturales</strong>, nunca contra los 13 periodos de Ventas: son dos calendarios y los dos cubren el año.</td></tr>
+      <tr><td><code>relleno_pct</code></td><td>Qué parte del dinero publicado no lo observó nadie. <code>null</code> si no hay total, nunca 0.</td></tr>
+      <tr><td><code>medido: false</code> + <code>motivo</code></td><td>La vista no está aplicada todavía: el endpoint responde <strong>declarando por qué no pudo</strong>, no con ceros.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>La ventana: el mismo importe significa dos cosas distintas</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Ejercicio</th><th class="num">Egreso</th><th class="num">Meses</th><th>Cómo se publica hoy</th></tr></thead>
+    <tbody>
+      <tr><td>FY2027 <span class="st st-medido">medido</span></td><td class="num">$74,852,190.82</td><td class="num">12 / 12</td><td>Anual, y es anual. Correcto.</td></tr>
+      <tr><td>FY2026 <span class="st st-parcial">parcial</span></td><td class="num">$32,425,843.06</td><td class="num">5 / 12</td><td><strong>También como anual</strong> — <code>period_month = NULL</code> en sus 12 partidas, que en este esquema significa «anual». Cubre ago–dic.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn"><strong>Que sean 5 meses no está mal: el sistema arrancó en agosto.</strong> Lo que está mal es publicarlo como año — quien lo lea así subestima <strong>~58 %</strong>. Y <code>budget.budgets</code> no puede corregirlo solo: guarda <code>fiscal_year</code> como un <strong>entero</strong> y <strong>no tiene ninguna columna de ventana</strong> (verificado: cero). Los meses cubiertos viven únicamente en <code>expense_plan_lines.year_month</code>.</div>
+
+  <h3>Dos antipatrones, y ninguno es un <code>?? 0</code></h3>
+  <p class="lead">Los tres carriles encontramos la regla 2 rota en nuestra propia tira. Los otros dos entran por el render y por el modelo; los míos entran <strong>antes</strong>, y por eso <code>Coverage</code> no los vería ni extendido con <code>method</code>: no están en la respuesta.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:32%">Lo que hace hoy</th><th>Por qué engaña</th></tr></thead>
+    <tbody>
+      <tr><td><code>settingsRow()</code> devuelve un <strong>default sintético</strong> cuando no hay fila: <code>{ default_growth_pct: 0, exists: false }</code></td><td>El motor corre con un <strong>0 % inventado</strong>, y un 0 % inventado es <strong>indistinguible de un 0 % firmado</strong> — congelar el gasto es una decisión legítima. El campo <code>exists</code> ya estaba ahí y <strong>nadie lo usaba como compuerta</strong>: la ausencia tenía nombre y no tenía consecuencia. Es lo que dejó <strong>374 de 374</strong> renglones con <code>monto = base_amount</code> al centavo, publicados como plan.</td></tr>
+      <tr><td><code>ocupacion_pct</code> devuelve <strong><code>0</code>, no <code>null</code></strong>, con el ledger virgen</td><td>No es un <code>?? 0</code> ni una ausencia renderizada como valor: es una <strong>división honesta cuyo resultado es un cero verdadero</strong>. <code>pct()</code> sólo devuelve <code>null</code> si el denominador es 0, y acá el denominador son $74.8 M y el numerador es 0 <em>legítimamente</em>. <strong>La aritmética está bien y el significado está mal:</strong> la tarjeta publica <code>0 %</code> y se lee «no hemos gastado» cuando la verdad es «no hemos registrado».</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>La tercera puerta.</strong> Tesorería renderiza la ausencia como valor; Ventas la convierte en 0 en el modelo; acá <strong>el 0 es correcto y el problema es que la pregunta cambió</strong>. Ninguna regla que prohíba «escribir cero» atrapa este caso — hace falta que el <strong>estado</strong> viaje al lado del número, que es justo lo que el vocabulario hace y <code>Coverage</code> no.</div>
+
+  <h3>El ledger: lo que no explica</h3>
+  <p class="lead">El cuadre que todos escribimos —<code>vigente − (reservado + comprometido + ejercido) = disponible</code>— <strong>no puede fallar</strong>: <code>available_amount</code> no es columna, se calcula con esa misma resta. Auditarlo es auditar una expresión contra sí misma, y da verde sobre cualquier cosa.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Hecho</th><th class="num">Medido</th><th>Qué significa</th></tr></thead>
+    <tbody>
+      <tr><td>Movimientos del ledger</td><td class="num">139 / 139 <code>apertura</code></td><td>Cero reservas, compromisos, ejercidos, pagos, adecuaciones y transferencias. El circuito nunca se operó.</td></tr>
+      <tr><td>Vigente que el ledger <strong>no explica</strong></td><td class="num">$132,760,528.47</td><td><code>materialize</code> reescribe <code>original</code> y <code>vigente</code> <strong>en sitio, sin movimiento</strong>, cuando la partida no tiene consumo. Por diseño — pero entonces el libro no es «el ledger inmutable de cada transición» que dice su migración.</td></tr>
+      <tr><td>Aperturas que ya no coinciden con su <code>original_amount</code></td><td class="num">14 · peor $50,309,673.92</td><td>El movimiento rotulado <em>«Autorización original»</em> conserva el importe del día que nació; la partida dice otro. <strong>Y manda la partida.</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn"><strong>Dos transiciones hacen que el ledger no se pueda reconstruir, y la ventana para arreglarlo se cierra con el primer uso real.</strong> Una <code>cancelacion</code> no dice qué bucket bajó (viajaba sólo en <code>note</code>, texto libre reemplazable) y un <code>compromiso</code> no dice si movió una reserva o consumió disponible — los dos caminos escribían un movimiento idéntico. Con <strong>cero cancelaciones</strong> el CHECK que lo exige no puede fallar y no hay nada que rellenar; en cuanto exista la primera, ya no se puede saber retroactivamente. ⛔ Y la columna que habría servido, <code>reverses_movement_id</code>, existe desde el 17-sep y <strong>no se escribe en ninguna parte del repo</strong>.</div>
+
+  <h3>La decisión pendiente, con dueño</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">Decisión</th><th class="num">Monto en juego</th><th style="width:22%">Dueño</th><th>Por qué no la toma la pantalla</th></tr></thead>
+    <tbody>
+      <tr><td><strong>¿El gasto debe tener freno duro?</strong></td><td class="num">$107,278,033.88<br><span class="mono">26 partidas</span></td><td><strong>Dirección</strong> (Finanzas propone)</td><td>Poner <code>bloqueo</code> <strong>rechaza sobregiros</strong> y cambia la operación de quien captura. Hoy las 26 están en <code>advertencia</code>: dejan pasar con aviso.</td></tr>
+      <tr><td><strong>¿Quién firma el supuesto de crecimiento?</strong></td><td class="num">todo el plan<br><span class="mono">374 renglones</span></td><td><strong>Dirección</strong></td><td>Un 0 % firmado es una decisión; <code>expense_plan_settings</code> en <strong>0 filas</strong> no lo es. Sin firma el plan no se materializa — y ése es el efecto buscado.</td></tr>
+      <tr><td><strong>¿Cómo se cierra el ejercicio parcial?</strong></td><td class="num">$32,425,843.06<br><span class="mono">FY2026, 5 meses</span></td><td><strong>Dirección</strong></td><td>O se parten las partidas por mes, o el ejercicio declara su ventana. Las dos son correctas; elegir no es de diseño.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note ok"><strong>La regla 4 pedía dueño y acá están los tres.</strong> Ninguna de las tres es un bug: son políticas sin tomar, y la pantalla las muestra como tales — con su monto, para que la decisión tenga tamaño.</div>
+
+  <h3>⭐⭐ Mi medición estaba invertida — y la discrepancia encontró lo que faltaba</h3>
+  <p class="lead">Al verificar la adopción de <code>Coverage</code> publiqué <strong>42 archivos</strong> contra los <strong>11</strong> del otro carril. Ninguno de los dos números era el bueno, y el mío estaba mal <strong>en el sentido contrario al que parece</strong>.</p>
+  <div class="note bad"><strong>Mi <code>grep -rl 'Coverage'</code> no tenía límite de palabra, así que contaba <code>ExpenseCoverage</code>, <code>ProposeCoverage</code>, <code>VisionCoverage</code>… — que son exactamente los tipos locales que el <code>Coverage</code> compartido venía a reemplazar.</strong> O sea: <strong>medía reinvención y la publicaba como adopción</strong>. Es el mismo defecto que este documento persigue, cometido mientras lo escribía — un agregado correcto sobre un universo que no declaré.</div>
+  <div class="tw"><table>
+    <thead><tr><th>Qué se mide</th><th class="num">Archivos</th><th>Comando</th></tr></thead>
+    <tbody>
+      <tr><td>El tipo <code>Coverage</code> compartido</td><td class="num">12</td><td><code class="mono">grep -rl '\bCoverage\b' --include='*.ts' libs/ apps/</code></td></tr>
+      <tr><td>El tipo <code>Freshness</code> compartido</td><td class="num">34</td><td><code class="mono">grep -rl '\bFreshness\b' …</code></td></tr>
+      <tr><td><code>FreshnessPillComponent</code> — la adopción del <strong>render</strong></td><td class="num">38</td><td><code class="mono">grep -rl 'FreshnessPillComponent' …</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Y lo que ninguno de los dos tenía, que salió de la discrepancia: hay <u>10 tipos de cobertura declarados a mano</u>.</strong> <code>ExpenseCoverage</code> · <code>ProposeCoverage</code> · <code>PeriodCoverage</code> · <code>ThreeWayCoverage</code> · <code>VisionCoverage</code> · <code>SalesExecCoverage</code> · <code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code> · <code>ModuleCoverage</code> — <strong>y uno llamado <code>Coverage</code> a secas</strong>, una sombra del tipo compartido con su mismo nombre. ⛔ <strong>Dos de los diez son de los carriles que escriben este documento, y uno es de esta sección:</strong> <code>interface ExpenseCoverage</code> vive en <code class="mono">finanzas-presupuesto.component.ts:179</code> — la pestaña de Gastos.</div>
+  <div class="note ok"><strong>Eso cierra la tesis del artefacto: estaba equivocada en la forma y acertada en el fondo.</strong> El segundo primitivo no falta — existe. Pero el patrón que íbamos a prevenir <strong>ya está ocurriendo, diez veces, en el eje de la cobertura</strong>, y no por no-adopción pasiva sino por <strong>reinvención activa</strong>. <strong>Lo que lo descubrió no fue releer el contrato: fue que dos mediciones no coincidieran y ninguno de los dos aceptara la del otro.</strong></div>
+
+  <h3>Tres cosas que este carril debe declarar</h3>
+  <ul>
+    <li><strong>La latencia del endpoint: NO MEDIDA.</strong> La vista <code>v_expense_plan_coverage</code> no está aplicada en prod, así que no puedo decir si cumple el piso de 500 ms. Un <code>as_of</code> sin latencia medida es media verdad, y prefiero el hueco declarado.</li>
+    <li><strong>⚠️ <code>check:primeng-api</code> es una compuerta escrita que nadie corre.</strong> El archivo existe (<code>scripts/check-primeng-api.js</code>) y <strong>no está cableado en <code>package.json</code></strong> — sólo hay <code>check:templates</code> y <code>check:templates-types</code>. <code>CLAUDE.md</code> la cita como «tolerancia CERO». <strong>Una compuerta que nadie ejecuta se lee exactamente igual que una que pasó</strong>, que es el defecto de este documento aplicado a nuestras propias herramientas.</li>
+    <li><strong>El estado «no medido» no tiene token.</strong> <code>tokens.css</code> trae <code>ok · warn · bad · info</code> y neutral, y ninguno sirve: no es error, no es advertencia, y el neutral ya es «medido». Se propone <code>--unknown-soft-bg/fg/border</code> <strong>en el archivo compartido</strong>, para que no lo invente cada pantalla por su cuenta.</li>
+  </ul>
 </section>
 
 <section>
