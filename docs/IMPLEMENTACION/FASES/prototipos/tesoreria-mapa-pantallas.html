@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa de pantallas · Tesorería</title>
+<!-- [TES.15] El inventario completo de la superficie del carril de Tesoreria: las tres pantallas
+     que existen y cambie, las tres que faltan, y la pregunta de navegacion que ninguna de las
+     seis resuelve sola. Esto se aprueba ANTES de implementar. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../../../../libs/design-tokens/tokens.css">
+<style>
+:root{
+  --bg:var(--surface-ground); --surface:var(--card-bg); --sunken:var(--hover-bg);
+  --line:var(--border-color); --fg:var(--text-main); --muted:var(--text-muted);
+  --faint:var(--text-faint); --f-ui:var(--font-body); --f-mono:var(--font-mono);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 20px 72px;display:flex;flex-direction:column;gap:22px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+h1{font-size:var(--fs-h1);margin:0;font-weight:700;letter-spacing:-.01em}
+h2{font-size:var(--fs-lg);margin:0 0 2px;font-weight:700}
+h3{font-size:var(--fs-micro);margin:0 0 8px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+p{margin:0 0 8px} ul{margin:4px 0 8px;padding-left:18px} li{margin:4px 0}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
+header{border-bottom:1px solid var(--line);padding-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;justify-content:space-between;align-items:flex-start}
+.tgl{font:inherit;font-size:var(--fs-xs);cursor:pointer;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:var(--r-md);padding:6px 11px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.lead{font-size:var(--fs-sm);color:var(--muted);max-width:80ch}
+.note{font-size:var(--fs-xs);background:var(--sunken);border:1px solid var(--line);border-left:3px solid var(--line);border-radius:var(--r-md);padding:9px 12px;color:var(--muted)}
+.note.bad{border-left-color:var(--bad-fg)} .note.warn{border-left-color:var(--warn-fg)} .note.ok{border-left-color:var(--ok-fg)}
+
+/* ── Las fichas de pantalla ── */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(310px,1fr));gap:12px}
+.card{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;display:flex;flex-direction:column;background:var(--surface)}
+.card-hd{padding:9px 12px;border-bottom:1px solid var(--line);display:flex;gap:8px;align-items:center;justify-content:space-between;background:var(--sunken)}
+.card-t{font-weight:700;font-size:var(--fs-sm)}
+.card-bd{padding:11px 12px;display:flex;flex-direction:column;gap:7px;flex:1}
+.q{font-size:var(--fs-xs);color:var(--fg);font-style:italic}
+.meta{font-size:var(--fs-nano);color:var(--faint);font-family:var(--f-mono)}
+.kpi{font-family:var(--f-mono);font-size:var(--fs-h3);font-weight:600;font-variant-numeric:tabular-nums}
+.kpi.neg{color:var(--bad-fg)} .kpi.unk{color:var(--faint);font-weight:500;font-size:var(--fs-body)}
+
+/* Estado de la pantalla: forma + texto, igual que el vocabulario de estados del dato. */
+.ep{font-size:var(--fs-nano);font-weight:700;text-transform:uppercase;letter-spacing:.04em;
+    border-radius:var(--r-sm);padding:1px 7px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.ep.viva{background:var(--ok-soft-bg);color:var(--ok-fg);border-color:transparent}
+.ep.falta{border-style:dashed;color:var(--faint)}
+
+/* El boceto: una pantalla en 6 lineas, no un mockup. */
+.wire{border:1px solid var(--line);border-radius:var(--r-sm);background:var(--bg);padding:7px;display:flex;flex-direction:column;gap:4px}
+.w{height:.42rem;border-radius:2px;background:var(--line)}
+.w.hero{height:1.1rem;background:var(--ok-soft-bg)}
+.w.half{width:52%} .w.q3{width:74%} .w.q4{width:38%}
+.w.row{display:flex;gap:4px;background:none;height:auto}
+.w.row span{flex:1;height:.42rem;border-radius:2px;background:var(--line)}
+
+table{width:100%;border-collapse:collapse;font-size:var(--fs-xs)}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:var(--fs-nano);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;background:var(--sunken)}
+tbody tr:last-child td{border-bottom:none}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md)}
+.nav{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:760px){ .nav{grid-template-columns:1fr} }
+.tabs{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}
+.tab{font-size:var(--fs-nano);border:1px solid var(--line);border-radius:var(--r-pill);padding:2px 9px;color:var(--muted)}
+.tab.mia{border-color:var(--action);color:var(--action-ink);background:var(--action-ring)}
+.tab.nueva{border-style:dashed}
+</style></head>
+<body><div class="wrap">
+
+<header>
+  <div style="min-width:min(100%,560px)">
+    <h1>Mapa de pantallas · Tesorería</h1>
+    <p class="lead" style="margin:4px 0 0">Las <strong>seis</strong> superficies del carril: tres que existen y cambié, tres que no existen todavía. Y la pregunta que ninguna resuelve sola — <strong>dónde viven</strong>.</p>
+  </div>
+  <button class="tgl" id="tgl" type="button">Cambiar a oscuro</button>
+</header>
+
+<section>
+  <h2>1 · Las seis pantallas</h2>
+  <div class="grid">
+
+    <article class="card">
+      <div class="card-hd"><span class="card-t">Flujo / Resultado</span><span class="ep viva">en código</span></div>
+      <div class="card-bd">
+        <div class="q">«¿Qué entra y qué sale las próximas 8 semanas?»</div>
+        <div class="wire"><div class="w q3"></div><div class="w row"><span></span><span></span><span></span><span></span><span></span></div><div class="w"></div><div class="w"></div><div class="w half"></div></div>
+        <div class="meta">/finanzas/presupuesto · flujo</div>
+        <div>Tira de 5 KPIs con estado · curva semanal · <b>dos avisos de cobertura</b> · concentración · anomalías bancarias.</div>
+        <div class="meta">[TES.2] [TES.3] [TES.11] · ~2.4 s</div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-hd"><span class="card-t">Capacidad de pago</span><span class="ep viva">en código</span></div>
+      <div class="card-bd">
+        <div class="q">«¿Cuánto se AUTORIZA pagar por día?»</div>
+        <div class="wire"><div class="w q3"></div><div class="w row"><span></span><span></span><span></span><span></span></div><div class="w half"></div><div class="w"></div><div class="w"></div></div>
+        <div class="meta">/finanzas/presupuesto · capacidad</div>
+        <div>KPIs nuevos · el rótulo <b>«es un permiso, no un saldo»</b> · la cobertura que el backend mandaba y la pantalla tiraba.</div>
+        <div class="meta">[VP.MS] · propone 12.6× por debajo del pago real</div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-hd"><span class="card-t">Obligaciones</span><span class="ep viva">en código</span></div>
+      <div class="card-bd">
+        <div class="q">«¿Qué entra al Calendario y qué no?»</div>
+        <div class="wire"><div class="w q3"></div><div class="w row"><span></span><span></span><span></span><span></span></div><div class="w"></div><div class="w"></div><div class="w"></div><div class="w half"></div></div>
+        <div class="meta">/finanzas/presupuesto · gastos</div>
+        <div>Totaliza los dos universos por separado · ineludibles · <b>declara que no distingue el ejercicio de prueba</b>.</div>
+        <div class="meta">[TES.10] · 156 de 312 son del duplicado</div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-hd"><span class="card-t">Holgura de liquidez</span><span class="ep falta">falta</span></div>
+      <div class="card-bd">
+        <div class="q">«¿Alcanza el dinero para pagar lo que se debe?»</div>
+        <div class="wire"><div class="w hero"></div><div class="w half"></div><div class="w row"><span></span><span></span><span></span><span></span></div><div class="w q4"></div></div>
+        <div class="kpi">22.9&thinsp;% <span style="font-size:var(--fs-xs);color:var(--muted);font-family:var(--f-ui)">holgura 4.4×</span></div>
+        <div>⭐ <b>La pregunta que el carril existe para contestar</b>, y la única pantalla que abre con la respuesta en una línea.</div>
+        <div class="meta">[TES.14] · <code>GET /cash-runway</code> listo</div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-hd"><span class="card-t">Ciclo de efectivo</span><span class="ep falta">falta</span></div>
+      <div class="card-bd">
+        <div class="q">«¿Cuánto tardamos en cobrar, pagar y rotar?»</div>
+        <div class="wire"><div class="w q3"></div><div class="w row"><span></span><span></span><span></span><span></span></div><div class="w"></div><div class="w half"></div></div>
+        <div class="kpi">DSO 34.7 · DPO 77.3<span class="mono" style="font-size:var(--fs-nano);color:var(--muted)"> / 50.0</span></div>
+        <div>DIO y Ciclo en <b>guion con motivo</b>: su denominador está en disputa por la Fase MR.</div>
+        <div class="meta">[TES.13] · <code>GET /cash-cycle</code> listo</div>
+      </div>
+    </article>
+
+    <article class="card">
+      <div class="card-hd"><span class="card-t">Puntería del pronóstico</span><span class="ep falta">falta</span></div>
+      <div class="card-bd">
+        <div class="q">«¿Le atinamos la vez pasada?»</div>
+        <div class="wire"><div class="w q3"></div><div class="w"></div><div class="w"></div><div class="w"></div><div class="w q4"></div></div>
+        <div class="kpi unk">— <span style="font-size:var(--fs-xs);font-family:var(--f-ui)">sin serie todavía</span></div>
+        <div>⚠️ La tabla existe y <b>se llena desde la primera foto nocturna</b>. Publica <b>razón</b>, no error, y <code>comparable</code> por fila.</div>
+        <div class="meta">[TES.12] · ~8 semanas para ser defendible</div>
+      </div>
+    </article>
+
+  </div>
+  <div class="note bad"><strong>La sexta es la única que no se puede dibujar todavía, y está bien así.</strong> Su tabla se llena con una foto por noche: hasta que haya semanas cerradas comparables, la pantalla tendría que inventar una serie. <em>Se declara pendiente con fecha, no se maqueta con datos de ejemplo</em> — un mockup con serie falsa es lo que hace que alguien apruebe un gráfico que nunca va a verse así.</div>
+</section>
+
+<section>
+  <h2>2 · ⛔ El problema que ninguna pantalla resuelve sola: dónde viven</h2>
+  <p class="lead">Hoy <code>/finanzas/presupuesto</code> tiene <strong>7 pestañas en dos grupos</strong>, y mis tres están <strong>repartidas entre los dos</strong>. Sumar las tres nuevas da <strong>10</strong>.</p>
+  <div class="nav">
+    <div>
+      <h3>Hoy</h3>
+      <div><b>Armar el presupuesto</b>
+        <div class="tabs"><span class="tab">Ejercicio</span><span class="tab">Ventas</span><span class="tab">Gastos</span><span class="tab mia">Flujo / Resultado</span><span class="tab">Campañas</span></div>
+      </div>
+      <div style="margin-top:9px"><b>Programación de pagos</b>
+        <div class="tabs"><span class="tab mia">Capacidad de pago</span><span class="tab mia">Obligaciones</span></div>
+      </div>
+      <p class="note warn" style="margin-top:9px">El <b>Flujo</b> es tesorería y vive en «Armar el presupuesto», junto a Ventas y Campañas. <strong>La agrupación de hoy mezcla planear con operar.</strong></p>
+    </div>
+    <div>
+      <h3>Propuesta</h3>
+      <div><b>Armar el presupuesto</b>
+        <div class="tabs"><span class="tab">Ejercicio</span><span class="tab">Ventas</span><span class="tab">Gastos</span><span class="tab">Campañas</span></div>
+      </div>
+      <div style="margin-top:9px"><b>Tesorería · operar</b>
+        <div class="tabs"><span class="tab mia">Flujo</span><span class="tab mia">Capacidad</span><span class="tab mia">Obligaciones</span></div>
+      </div>
+      <div style="margin-top:9px"><b>Tesorería · diagnosticar</b>
+        <div class="tabs"><span class="tab mia nueva">Holgura</span><span class="tab mia nueva">Ciclo</span><span class="tab mia nueva">Puntería</span></div>
+      </div>
+      <p class="note ok" style="margin-top:9px">Tres grupos de 3-4, no dos de 5 y 2. <b>Operar</b> es lo que hacés todos los días; <b>diagnosticar</b> es lo que mirás una vez por semana. Separarlos es la diferencia entre una pantalla y un tablero.</p>
+    </div>
+  </div>
+  <div class="note"><strong>⚠️ Y una advertencia sobre el orden de ejecución.</strong> Reagrupar pestañas toca el <code>@if (view() === …)</code> de un componente de <strong>2,400+ líneas</strong> que hoy comparten tres sesiones, y que está esperando su partición. <em>Primero el split, después la reagrupación</em> — hacerlo al revés garantiza que la cuarta mezcla del día tenga una quinta.</div>
+</section>
+
+<section>
+  <h2>3 · Qué falta para que cada una se pueda implementar</h2>
+  <div class="tw"><table>
+    <thead><tr><th>Pantalla</th><th>Backend</th><th>Lo que le falta</th></tr></thead>
+    <tbody>
+      <tr><td><b>Holgura</b></td><td>✅ <code>/cash-runway</code></td><td>Dueño para el <b>umbral del 70 %</b>: hoy es propuesta mía, sin registrar. Por ADR-076 va a <code>kpi_thresholds</code> o el estado es <code>sin_meta</code>.</td></tr>
+      <tr><td><b>Ciclo</b></td><td>✅ <code>/cash-cycle</code></td><td>Nada bloqueante. El DIO sale en guion hasta que la Fase MR cierre la valuación.</td></tr>
+      <tr><td><b>Puntería</b></td><td>✅ vista + tabla</td><td><b>Tiempo</b>: ~8 semanas de fotos nocturnas. Y que la migración <code>20261009093031</code> esté aplicada.</td></tr>
+      <tr style="background:var(--sunken)"><td colspan="3">⛔ <strong>Y las tres existentes no se ven todavía</strong>: las imágenes de prod corren el tag del <b>24 de septiembre</b>, y el cron del despliegue está comentado en <code>md</code>. <em>Seis pantallas diseñadas y cero desplegadas.</em></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+</div>
+<script>
+(function(){
+  var b=document.getElementById('tgl'),r=document.documentElement;
+  function oscuro(){ return r.classList.contains('theme-monochrome'); }
+  function paint(){ b.textContent = oscuro() ? 'Cambiar a claro' : 'Cambiar a oscuro'; }
+  b.addEventListener('click',function(){ r.classList.toggle('theme-monochrome'); paint(); });
+  paint();
+})();
+</script>
+</body></html>
