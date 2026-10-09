@@ -225,11 +225,23 @@ function correrGate(gate) {
   });
 }
 
-/** Extrae las rutas de repo que el gate nombra en su salida. */
+/** Extrae las rutas de repo que el gate nombra en su salida.
+ *
+ * ⛔ El `replace` va ANTES del `match`, no después. Medido el 2026-10-09 en Windows, que es
+ * donde corre el equipo: las compuertas imprimen con `path.relative()`, o sea `scripts\x.js`
+ * con barra invertida, y `RUTA` exige barra normal. Normalizar el resultado del `match` no
+ * sirve: no hay resultado que normalizar. Se extraían **0 rutas**, `culpaTuya` quedaba vacío
+ * y un gate EN ROJO caía en la rama de abajo como «deuda preexistente, NO la trajiste vos
+ * (no frena)» → el push pasaba con exit 0.
+ *
+ * ⭐ Una compuerta en rojo que el runner le atribuye a otro se lee igual que una verde.
+ * Probado contra dos gates reales (`check-set-bind-param`, `check-sql-backticks`) sembrando
+ * un archivo roto: antes 0 rutas extraídas, después 1 y el push bloquea.
+ */
 const RUTA = /(?:apps|libs|database|scripts|ops|tools)\/[A-Za-z0-9._/-]+\.[A-Za-z0-9]+/g;
 
 function rutasQueNombra(salida) {
-  return new Set((salida.match(RUTA) || []).map((r) => r.replace(/\\/g, '/')));
+  return new Set(String(salida).replace(/\\/g, '/').match(RUTA) || []);
 }
 
 async function main() {
