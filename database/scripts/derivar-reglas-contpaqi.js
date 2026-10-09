@@ -66,6 +66,25 @@ const CSV = arg('csv', null);
  */
 const PLACEBO_DIAS = Number(arg('placebo-dias', 43));
 
+/**
+ * ⛔⛔ **El filtro que vuelve honesto el porcentaje de la cuenta candidata.**
+ *
+ * La candidata se infiere tomando **el cargo mayor** de la póliza pareada. Eso sólo es válido si
+ * la póliza corresponde a ESE movimiento. Pero ContPAQi **agrupa** (`[CP.8.21]`): la póliza
+ * promedia 7.3 renglones en mercancía, 14.6 en tarjeta y **278 en comisiones**.
+ *
+ * Sobre una póliza de 278 renglones, "el cargo mayor" no es el gasto de este movimiento: es el
+ * gasto más grande de todo el lote. El porcentaje sale alto y **no significa lo que parece** —
+ * mide uniformidad del lote, no concentración de la regla.
+ *
+ * Por eso el voto sólo cuenta en pólizas de **≤ 3 renglones** (cargo + IVA + banco), que es la
+ * forma 1:1. ⭐ *Un porcentaje calculado sobre el universo equivocado es peor que no tenerlo,
+ * porque se ve igual de convincente.*
+ *
+ * `--max-renglones 0` lo apaga, para poder comparar y ver cuánto se infla.
+ */
+const MAX_RENGLONES = Number(arg('max-renglones', 3));
+
 const TENANT = process.env.CONTPAQI_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 const DST = process.env.DATABASE_URL_NEW || (() => {
   throw new Error('falta DATABASE_URL_NEW');
@@ -98,6 +117,21 @@ const pct = (a, b) => (b === 0 ? 0 : +((100 * a) / b).toFixed(1));
  * columna cambia a `tinyint`.
  */
 const esCargo = (x) => Number(x.TipoMovto) === 0;
+
+/**
+ * ⛔⛔ **La cuenta de proveedor NO es sólo `2120`.** La familia tiene TRES rubros y los tres
+ * identifican al mismo tercero: `2120` (cuenta por pagar), `5010` y `5020` (compras por
+ * proveedor). Medido en `[CP.8.20]`: **973 de 1,025 sufijos compartidos entre esos rubros tienen
+ * el MISMO nombre (94.9 %)** — o sea `2120000108` y `5010000108` son el mismo proveedor.
+ *
+ * ⭐ Esto corrige un error de este mismo clasificador: miraba sólo `2120`, y por eso
+ * `compra_mercancia` cambiaba a `no_aplica` al restringir a pólizas 1:1 — ésas cargan a
+ * `5010`/`5020` (MARAVIMUNDO, MIGUEL ANGEL BRIBIESCA: **nombres de proveedor**, no de gasto).
+ *
+ * ⚠️ Lo destapó comparar DOS universos. Mirando uno solo, el clasificador se veía consistente.
+ */
+const esProveedor = (cta) => cta.startsWith('2120') || cta.startsWith('5010') || cta.startsWith('5020');
+
 
 // ── Lectura ───────────────────────────────────────────────────────────────────────────────────
 
@@ -196,12 +230,14 @@ const corre = (dias) => (cb, idx, porPoliza) => {
     f0.n += 1;
     f0.renglones += lineas.length;
     if (lineas.some((x) => x.cuenta.startsWith('106') || x.cuenta.startsWith('1470'))) f0.con_iva += 1;
-    if (cargos.some((x) => x.cuenta.startsWith('2120'))) f0.con_2120 += 1;
+    if (cargos.some((x) => esProveedor(x.cuenta))) f0.con_2120 += 1;
     if (cargos.some((x) => x.cuenta.startsWith('215011'))) f0.con_215011 += 1;
     if (cargos.some((x) => x.cuenta.startsWith('52'))) f0.con_52 += 1;
     forma.set(m.categoria, f0);
 
-    // La cuenta candidata: el cargo mayor que no sea impuesto acreditable.
+    // ⛔ La candidata sólo se vota donde "el cargo mayor" ES el gasto de este movimiento: en
+    // una póliza agrupada ese cargo pertenece a otra cosa del lote.
+    if (MAX_RENGLONES > 0 && lineas.length > MAX_RENGLONES) continue;
     const cand = cargos.filter((x) => !x.cuenta.startsWith('106') && !x.cuenta.startsWith('1470'));
     if (!cand.length) continue;
     const mayor = cand.reduce((a, b) => (Math.abs(b.importe) > Math.abs(a.importe) ? b : a));
@@ -218,7 +254,7 @@ const corre = (dias) => (cb, idx, porPoliza) => {
 function tipoRegla(f) {
   if (!f || f.n === 0) return { tipo: 'sin_medir', por_que: 'cero pareos' };
   const p = (x) => pct(x, f.n);
-  if (p(f.con_2120) >= 50) return { tipo: 'por_proveedor', por_que: `${p(f.con_2120)}% toca 2120*` };
+  if (p(f.con_2120) >= 50) return { tipo: 'por_proveedor', por_que: `${p(f.con_2120)}% toca cuenta de proveedor` };
   if (p(f.con_215011) >= 50) return { tipo: 'por_sucursal', por_que: `${p(f.con_215011)}% toca 215011*` };
   if (p(f.con_52) >= 50) return { tipo: 'por_categoria', por_que: `${p(f.con_52)}% toca 52*` };
   return { tipo: 'no_aplica', por_que: `no toca cuenta de gasto (${p(f.con_52)}% en 52*)` };
@@ -294,6 +330,55 @@ function tipoRegla(f) {
     });
   console.log('\n=== FORMA DEL ASIENTO REAL -> tipo_regla propuesto ===');
   console.table(formaFilas);
+
+  /**
+   * ⭐⭐ **El `tipo_regla` se vuelve a calcular SÓLO sobre pólizas 1:1, y se compara.**
+   *
+   * Hizo falta porque el filtro de `MAX_RENGLONES` destruyó la cuenta candidata de
+   * `comision_bancaria` (94.4 % → desaparece: era 100 % artefacto del lote) y cambió la de
+   * `compra_tarjeta` (73.8 % GASOLINA → 36.4 % TARJETA DE CRÉDITO). Si el agrupamiento contaminó
+   * ESO, hay que comprobar que no contaminó también el tipo — y no darlo por bueno porque
+   * «mide otra cosa».
+   *
+   * Un tipo que cambia al restringir el universo **no es un tipo derivado: es un promedio del
+   * lote**, y habría que retractarlo igual que la cuenta.
+   */
+  const corre1a1 = corre(0);
+  const forma11 = new Map();
+  for (const m of cb) {
+    const hit = idx.get(`${m.cuenta_banco}|${m.fecha}|${m.importe.toFixed(2)}`);
+    if (!hit || hit.length > 1) continue;
+    const lineas = porPoliza.get(hit[0].idpol) || [];
+    if (MAX_RENGLONES > 0 && lineas.length > MAX_RENGLONES) continue;
+    const cargos = lineas.filter(esCargo);
+    const f = forma11.get(m.categoria)
+      || { n: 0, renglones: 0, con_iva: 0, con_2120: 0, con_215011: 0, con_52: 0 };
+    f.n += 1;
+    f.renglones += lineas.length;
+    if (cargos.some((x) => esProveedor(x.cuenta))) f.con_2120 += 1;
+    if (cargos.some((x) => x.cuenta.startsWith('215011'))) f.con_215011 += 1;
+    if (cargos.some((x) => x.cuenta.startsWith('52'))) f.con_52 += 1;
+    forma11.set(m.categoria, f);
+  }
+  void corre1a1;
+  const comparacion = formaFilas.map((f) => {
+    const g = forma11.get(f.categoria);
+    const t2 = tipoRegla(g);
+    return {
+      categoria: f.categoria,
+      tipo_todas: f.tipo_regla,
+      pareados_1a1: g ? g.n : 0,
+      tipo_solo_1a1: g ? t2.tipo : 'sin muestra',
+      estable: !g || g.n < MIN_VOTOS ? '(muestra chica)' : (f.tipo_regla === t2.tipo ? 'SI' : '⛔ CAMBIA'),
+    };
+  });
+  console.log('\n=== ¿El tipo_regla sobrevive al filtro 1:1? (si cambia, hay que retractarlo) ===');
+  console.table(comparacion);
+  const cambian = comparacion.filter((c) => c.estable === '⛔ CAMBIA');
+  if (cambian.length) {
+    console.log(`⛔ ${cambian.length} categoria(s) cambian de tipo al restringir: `
+      + `${cambian.map((c) => c.categoria).join(', ')}`);
+  }
 
   /**
    * ⛔ **Freno de clasificador muerto.** Si TODAS las categorías caen en el mismo tipo, o si
