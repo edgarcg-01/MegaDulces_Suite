@@ -1,6 +1,57 @@
+import type { TransferenciaGasto } from '@megadulces/contracts';
 import {
-  DIAS_ATORADO, agruparPorProveedor, diasDesde, textoAntiguedad, ubicacionDe,
+  DIAS_ATORADO, agruparPorProveedor, cicloCerrado, diasDesde, notaDePago, textoAntiguedad, ubicacionDe,
 } from './mis-gastos-columnas';
+
+/**
+ * `[GX.77]` El ciclo cerrado sale del tablero: revisado Y con su gasto aplicado en Kepler.
+ * Decisión del usuario sobre «pagado en Kepler», porque 157 de 227 revisados con gasto no tienen
+ * ningún documento de pago (efectivo, tarjeta) y nunca se habrían ido.
+ */
+describe('[GX.77] cicloCerrado', () => {
+  it('revisado y con gasto aplicado: cerrado', () => {
+    expect(cicloCerrado({ status: 'validada', gasto_folios: ['0008879'] })).toBe(true);
+    expect(cicloCerrado({ status: 'validada', gasto_folios: ['1', '2'] })).toBe(true);
+  });
+
+  it('revisado SIN gasto aplicado: sigue abierto (falta Kepler)', () => {
+    expect(cicloCerrado({ status: 'validada', gasto_folios: [] })).toBe(false);
+    expect(cicloCerrado({ status: 'validada', gasto_folios: null })).toBe(false);
+    expect(cicloCerrado({ status: 'validada' })).toBe(false);
+  });
+
+  it('⛔ con gasto aplicado pero SIN revisar no se cierra: todavía le debe algo a alguien', () => {
+    for (const status of ['recibida', 'aprobada', 'revision', 'rechazada']) {
+      expect(cicloCerrado({ status, gasto_folios: ['0008879'] })).toBe(false);
+    }
+    expect(cicloCerrado({ etapa: 'asignado', status: null, gasto_folios: ['0008879'] })).toBe(false);
+  });
+});
+
+/** `[GX.75]` La nota de pago de la tarjeta. */
+describe('[GX.75] notaDePago', () => {
+  const T = (o: Partial<TransferenciaGasto> = {}): TransferenciaGasto => ({
+    gasto_folio: '0009069', folio: '0022709', fecha: '2026-09-16', importe: 800, aplicado: 800, cancelada: false, ...o,
+  });
+
+  it('pagado: monto y día de la última transferencia', () => {
+    expect(notaDePago([T({ aplicado: 539 }), T({ folio: '0022710', aplicado: 261, fecha: '2026-09-23' })], 800))
+      .toEqual({ clase: 'ok', texto: 'Pagado por transferencia: $800.00 el 23/09/2026' });
+  });
+
+  it('⛔ parcial se avisa, no se da por pagado', () => {
+    expect(notaDePago([T({ aplicado: 300 })], 800)).toEqual({ clase: 'warn', texto: 'Pago parcial: transferido $300.00 de $800.00' });
+  });
+
+  it('⛔ si sólo hay canceladas lo dice: el folio a la vista no significa que se pagó', () => {
+    expect(notaDePago([T({ cancelada: true })], 800)?.clase).toBe('bad');
+  });
+
+  it('sin transferencia o sin medir: no agrega nota', () => {
+    expect(notaDePago([], 800)).toBeNull();
+    expect(notaDePago(null, 800)).toBeNull();
+  });
+});
 
 /**
  * `[GX.65.5]` — La regla de **en qué columna va cada vale** de «Mis gastos», decidida por el

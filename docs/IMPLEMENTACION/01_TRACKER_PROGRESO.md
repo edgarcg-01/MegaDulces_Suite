@@ -4341,6 +4341,24 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   (una tarjeta completa en el segundo no se cuela) y dice cuál. El servidor normaliza; visor, bandeja y PDF
   muestran `1234 · 5678`. Pruebas: contratos 414/414 · captura 41/41 (con plantilla) · mutación en rojo.
 
+### 🔨 [GX.78] · Historial de levantamientos: filtros por estado, sucursal y persona — 2026-10-09
+
+- [x] **[GX.78]** 🧪 Pedido: *«aquí también quiero filtros para poder seleccionar o ver a aquellos que sí queremos
+  verlos»* (sobre `/finanzas/gastos-historial`). Medido en prod oct-2026: **392 levantamientos, 5 estados, 9
+  sucursales, 41 personas** (una sola con 107), y días de hasta 92 vales — sin forma de ver sólo los que importan.
+  Barra de filtros: **estado** (chips, varios a la vez, con su cifra), **sucursal** y **quién levantó** (sólo en
+  «Todos»; en «Míos» la única persona es quien mira). El **servidor** acota el calendario (`GET …/calendario`
+  con `estado`/`sucursal`/`persona`) y la **pantalla** acota la lista del día abierto, las dos con la MISMA regla
+  (`pasaFiltroHistorial`, en `historial-filtro.contract.ts`) — si divergieran, la casilla diría 3 y la lista 5.
+  Cada opción se cuenta con los OTROS filtros puestos (`facetasDelMes`, en memoria sobre ~120 grupos del mes).
+  Filtrado se dice **«58 de 392»** (`total_sin_filtro`); un día con vales que no pasan dice eso y no «no hubo
+  gasto»; si el servidor devuelve otro filtro que el pedido, se avisa. Un filtro ilegible es **400**, no «sin
+  filtro»; el filtro sólo ACHICA (con filtro, «Todos» sin permiso sigue en 403). Cambiar el filtro no esconde el
+  calendario (se atenúa) y cancela el pedido anterior. Las dos consultas del mes: **20–45 ms** en prod. Sin
+  migración ni permisos. Pruebas: contratos 481/481 · finance expense-proofs 196/196 · Finanzas (view) 635/635 ·
+  tres mutaciones en rojo (lista sin filtrar, pedido sin cancelar, servidor sin filtrar el estado).
+- [ ] **[GX.78.p]** Redeploy api+view (sin migración ni re-login) + validación visual.
+
 ### 🔨 [GX.71] · Mayra Gutiérrez ve el historial de gastos de ella y de todos — 2026-10-07
 
 - [x] **[GX.71]** 🧪 Pedido: *«al usuario de mayra_gutierrez dale el permiso de que pueda ver el historial de ella
@@ -4371,6 +4389,88 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   (`__sin__`). La respuesta devuelve el filtro aplicado y el rótulo se arma con él. Petición anterior se
   cancela al cambiar el filtro. Specs: view 1956/1956 · finance 590/590 · contracts 393/393.
 - [ ] **[GX.72.u]** Validación visual de la barra de filtros (no se levanta el front en local por regla).
+
+### 🔨 [GX.75] · Expediente: la transferencia XD2601 que pagó el gasto — 2026-10-07
+
+- [x] **[GX.75]** 🧪 Pedido: *«solo tenías que agregar el documento que se genera en la alta de transferencia
+  de acuerdo a tu folio»*. El tercer número de la cadena que `[GX.62]` dejó escrito como «todavía no»:
+  solicitud `XA1501` → gasto `XA1001` → **transferencia `XD2601`**. Sale de **`kepler_ods.kdm5`** (Kepler
+  guarda ahí qué documento se aplicó a qué documento; vista viva del ODS, sin importer). Para egresos la única
+  combinación es `XD26 tipo 1 → XA10 tipo 1`; **testigo independiente**: el acreedor de la transferencia
+  coincide con el del gasto en el **100%** de los vínculos contra **4.7%** de un placebo. Una sola lectura
+  (`transferencias-del-gasto.ts`) para la pantalla y para el PDF (sección nueva «4 · La transferencia»).
+  ⛔ **Kepler NO borra la aplicación de una transferencia cancelada**: 113 aplicaciones / $399,161 en la 00
+  siguen en `kdm5` con su `XD2601` en `c43='C'` → viajan marcadas, se tachan y **no suman**. Verificado en
+  prod: un vale de $85,866.22 pagado en 4 transferencias, una cancelada → sin ella suma **exacto** el vale.
+  ⚠️ Pegar por el PAR `(sucursal, folio)`: cruzar las listas por separado daba 583 encabezados para 188
+  folios. **Medido en prod (dev_ro, 342 vales):** 293 con gasto · **58 con transferencia** · 122
+  aplicaciones · 19 vales en varias transferencias · **3 vales RECHAZADOS en la Suite que Kepler sí pagó**.
+  Rendimiento: el `IN (unnest)` solo hacía 1.4 M comparaciones (~370 ms); con `= ANY` previo por sucursal y
+  folio → **~25 ms**. `null` = no medido (sin ODS en el entorno), no «nadie pagó». De paso: `'\s+'` en
+  `listasParaComprobar` llegaba a Postgres como `'s+'` (reemplazaba letras «s», no espacios) → `'\\s+'`.
+  Specs: contracts 22 · finance 45 · view 72 (expediente + mis gastos), todas verdes.
+  **Probado de punta a punta con el código real** (los dos servicios instanciados a mano, knex contra prod
+  en sólo lectura, Chromium local): ~100 ms por expediente, la lista viaja bien por knex (`?::text[]`).
+  Eso destapó un bug de `[GX.15]`: `fecha()` del PDF hacía `String(date).slice(0,10)` sobre el `Date` que
+  entrega `pg` → la solicitud y el gasto decían **«Mon Oct 05»** en todo PDF. Ahora «5 oct 2026».
+- [ ] **[GX.75.u]** Validación visual en la Suite (hay vista previa local con datos de prod; no se levanta el
+  front por regla) + redeploy api+view. **Sin migraciones ni permisos nuevos → sin re-login.**
+- [ ] **[GX.75.p]** ⚠️ La consulta que YA tenía el Expediente tarda **~2.7 s en prod** (la subconsulta por vale
+  a `analytics.expense_documents`): rebasa la meta de 1 s. No la causa GX.75 (+25 ms) — queda declarada.
+- [x] **[GX.75.m]** 🧪 Pedido: *«cuando mandaron la solicitud de gastos debe tenerla también ahí mostrada»*.
+  «Mis gastos» (la pantalla de quien levanta el vale) decía que «Pagados» siempre quedaba vacío porque
+  `XD2601` no tenía liga — **era falso**, la liga es `kdm5`. `GET /mine` ahora trae `transferencias` con la
+  MISMA lectura (sólo en «lo mío»); cada tarjeta muestra `Kepler: XD2601-…` junto al `XA1001` y la nota
+  «Pagado por transferencia: $… el …»; la cancelada se tacha. **Regla** (`estadoPagoDelVale`, en el
+  contrato): `pagado` si lo transferido sin canceladas cubre el importe del vale (tolerancia $1/1%) · `parcial`
+  se avisa y **no** se da por pagado · `sin_medir` no afirma nada. Sólo el **validado y pagado** baja a
+  «Pagados»; un pago de Kepler **no** mueve de columna a lo que no está revisado (la columna sigue saliendo de
+  nuestro estado, decisión del 2026-10-03). **Medido antes de fijar la regla:** en los **58 de 58** vales con
+  transferencia lo aplicado = importe del vale. Probado con el servicio real contra prod (sólo lectura): para
+  una persona, 95 vales → **25 a «Pagados»**, 69 «Sin pago». De paso: dos `'\s+'` más (resumen del
+  solicitante) con el mismo bug. Specs: contracts 409 · finance 625 · view finanzas 584.
+
+### 🔨 [GX.77] · Mis gastos: el ciclo cerrado sale del tablero — 2026-10-08
+
+- [x] **[GX.77]** 🧪 Pedido: *«quiero que cuando se cierre el ciclo desaparezcan»*. **Qué cierra el ciclo lo
+  decidió el usuario con el dato a la vista**: revisado (`validada`) **y** con su gasto `XA1001` aplicado en
+  Kepler — sobre «pagado en Kepler», porque medido en prod (sólo lectura), de **227 revisados con gasto, 157
+  no tienen NINGÚN documento de pago** (efectivo 71, tarjeta 45…: se pagaron en el momento; en Kepler
+  un gasto se paga con `XD2601` transferencia, `XD2501` cheque o `XD6001` anticipo) y con esa regla nunca se
+  habrían ido. `cicloCerrado()` en `mis-gastos-columnas.ts` (pura, una sola regla para cualquier diseño). La
+  columna Expedientes queda con los revisados a los que **les falta el gasto en Kepler** (sin rojo: espera a
+  Kepler, no a ti) y **pierde la zona «Pagados» de `[GX.75]`** (un revisado con gasto ya se fue; uno sin
+  gasto no puede tener transferencia). ⛔ **Los cerrados NO se mandan al Historial:** esa ruta no admite a
+  quien sólo captura (`FINANCE_EXPENSES_CAPTURAR`) y «Mis gastos» sí — se le perdería lo suyo. Quedan al pie,
+  plegados: «Ver los N vales cerrados». Specs: finanzas 618/618; mutación (regla en `false`) → 2 rojas.
+- [ ] **[GX.77.d]** Rediseño propuesto (maqueta `mis-gastos-propuesta-v2.html`, local): pasos + tabla densa +
+  detalle lado a lado. **Sin decidir** — cambia el diseño de 3 columnas de `[GX.65.5]`.
+
+### 🔨 [GX.76] · Expediente en PDF: las evidencias adentro, y ya no dice «no falta nada» sin gasto — 2026-10-07
+
+- [x] **[GX.76]** 🧪 Reporte con el PDF de PRODUCCIÓN de la `06-0000045`: *«por qué no me muestra los datos del
+  punto 3 y 4, además de que también debe de tener ahí la evidencia»*. **Puntos 3 y 4: el dato es correcto**
+  — medido en `kdm1`: la solicitud sigue en estado `A` (autorizada) y **ningún `XA1001` de la 06 la
+  referencia** (los últimos gastos de la 06 apuntan a 47/37/44/43/42; la réplica está al día). Lo que estaba
+  MAL era el cierre: decía **«No falta nada. Los cuatro eslabones están completos»** con las secciones 3 y 4
+  vacías — `derivarEtapa` no anotaba lo que falta de KEPLER. Ahora `autorizada_sin_gasto` → «que Kepler
+  aplique el gasto (XA1001)» y `por_autorizar` → «que Kepler autorice la solicitud».
+  **Evidencias dentro del PDF** — ⚠️ **revierte una decisión de `[GX.15]`** (no embeber por tamaño y por
+  volver permanente una evidencia de URL que caduca); lo decidió el usuario. **Medido antes:** de 480
+  archivos, **342 son PDF (71 %)**, 136 fotos, 1 Excel y 1 con tipo de ejecutable de Windows → no alcanza
+  con `<img>`. `evidencias-pdf.ts`: las fotos se reducen con `sharp` (1400 px, JPEG 78) y van en la sección
+  nueva «6 · Las evidencias» (página nueva, nunca partidas); los PDF se **anexan al final con `pdf-lib`**,
+  cada página marcada «Anexo · Expediente 06-… · archivo · pág. i de n»; lo que no es foto ni PDF, no se
+  pudo bajar o está dañado **se declara** en la sección. Si unir los PDF fallara, el documento se vuelve a
+  armar declarándolos (nunca dice «anexados» sin anexarlos). **Dependencia nueva: `pdf-lib@1.17.1`** (MIT,
+  JS puro); el lockfile se generó con npm 11 para no perder los campos `libc` (npm 10 los borraba).
+  Probado de punta a punta con el código real contra prod (sólo lectura); ⚠️ **el bucket del `.env` local
+  NO es el de producción** (las llaves de los vales responden «no existe»), así que la vista se armó con
+  evidencias de MUESTRA. Specs: finance 634 (34 del expediente, con negativas de dañado/tipo raro/no
+  descargado).
+- [ ] **[GX.76.u]** Verificar en prod con un vale real que la descarga del bucket de prod funciona (el
+  servicio ya la usa para OCR: `getDataUri`) + redeploy. ⚠️ **Fuentes:** el PDF de prod sale en tipografía
+  monoespaciada (Chromium del contenedor sin Hanken/Segoe) — fuera de alcance, queda declarado.
 
 ### 🔨 [GX.70] · el «Expediente en PDF» respondía «No se pudo armar el expediente» — 2026-10-07
 

@@ -1036,6 +1036,11 @@ const CRON_JOBS: CronCfg[] = [
   // Medido el 2026-09-21: la tabla de fotos tenia 0 filas y CERO renglones en `cron_runs`, o sea
   // que llevaba quien sabe cuanto sin tomarse y nadie podia enterarse.
   { key: 'cxc_snapshot',        label: 'Foto diaria de cartera (CxC)',      cadence: 'diario 08:30 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // [TES.12] Sin este renglón el sensor del back-test cae en `cfg ? classify : 'ok'` y da verde
+  // incondicional — que es justo el defecto que la foto del pronóstico viene a cerrar un nivel
+  // más arriba. Un día sin foto deja un hueco en la serie que ya no se puede reconstruir: lo que
+  // se proyectaba ese día se perdió, porque el pronóstico es efímero por naturaleza.
+  { key: 'cashflow_forecast_snapshot', label: 'Foto diaria del pronóstico de flujo', cadence: 'diario 04:10 MX', warnH: 26, critH: 50, maxRunH: 1 },
   // [CC.10] Sin este renglón el latido de `cobranza_gap` no sirve de nada: el sensor caería en
   // `cfg ? classify : 'ok'` y un cron parado se vería verde. Van juntos, siempre.
   { key: 'cobranza_gap',        label: 'Brecha banco↔cobro (abonos sin ligar)', cadence: 'diario 07:45 MX', warnH: 26, critH: 50, maxRunH: 1 },

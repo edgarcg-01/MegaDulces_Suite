@@ -13,6 +13,11 @@
  * comería el último día de septiembre.
  */
 
+import {
+  ESTADOS_LEVANTAMIENTO, pasaFiltroHistorial,
+  type FacetaHistorial, type FacetasHistorial, type FiltroHistorial,
+} from '@megadulces/contracts';
+
 /** Un mes de calendario, `YYYY-MM`. */
 export type MesIso = string;
 
@@ -76,6 +81,15 @@ export interface CalendarioDelMes {
   total: { n: number; monto: number };
   /** `mios` = lo de esta persona · `todos` = el de toda la empresa (god-mode). */
   alcance: 'mios' | 'todos';
+  /**
+   * `[GX.78]` El filtro que se APLICÓ, tal como lo entendió el servidor. La pantalla lo compara
+   * con el que pidió: si no coinciden, la cifra es de otra pregunta.
+   */
+  filtro: FiltroHistorial;
+  /** `[GX.78]` El mes sin filtrar, para decir «58 de 392» y no sólo «58». */
+  total_sin_filtro: { n: number; monto: number };
+  /** `[GX.78]` Las opciones de cada filtro, contadas. */
+  facetas: FacetasHistorial;
 }
 
 /**
@@ -91,4 +105,60 @@ export function totalDelMes(dias: readonly DiaDelCalendario[]): { n: number; mon
     n: lista.reduce((a, d) => a + (Number(d?.n) || 0), 0),
     monto: Math.round(lista.reduce((a, d) => a + (Number(d?.monto) || 0), 0) * 100) / 100,
   };
+}
+
+/**
+ * `[GX.78]` Un grupo del mes: cuántos levantamientos hay de cada (estado, sucursal, persona).
+ * Con estos ~120 grupos se cuentan las tres listas del filtro en memoria, en vez de tres
+ * consultas más a la base.
+ */
+export interface GrupoDelMes {
+  status: string | null;
+  sucursal: string | null;
+  created_by: string | null;
+  n: number;
+  monto: number;
+}
+
+function contar(grupos: readonly GrupoDelMes[], clave: (g: GrupoDelMes) => string | null): FacetaHistorial[] {
+  const m = new Map<string, FacetaHistorial>();
+  for (const g of grupos) {
+    const valor = String(clave(g) ?? '').trim();
+    // Sin valor no hay a qué filtrar: elegirlo no podría devolver nada.
+    if (!valor) continue;
+    const f = m.get(valor) ?? { valor, n: 0, monto: 0 };
+    f.n += Number(g.n) || 0;
+    f.monto += Number(g.monto) || 0;
+    m.set(valor, f);
+  }
+  return [...m.values()].map((f) => ({ ...f, monto: Math.round(f.monto * 100) / 100 }));
+}
+
+/**
+ * `[GX.78]` Las opciones de cada filtro, contadas con los OTROS filtros puestos (no con el suyo).
+ *
+ * ⭐ Así, con «Sucursal 08» elegida, la lista de sucursales sigue mostrando todas con su cifra
+ * — se puede pasar de una a otra sin quitar el filtro — y los estados dicen cuántos hay en la 08.
+ *
+ * Orden: los estados en el del trámite; sucursales por clave; personas por cuántos levantaron.
+ */
+export function facetasDelMes(
+  grupos: readonly GrupoDelMes[],
+  filtro: FiltroHistorial,
+  conPersonas: boolean,
+): FacetasHistorial {
+  const sin = (quitar: Partial<FiltroHistorial>): FiltroHistorial => ({ ...filtro, ...quitar });
+  const de = (f: FiltroHistorial) => grupos.filter((g) => pasaFiltroHistorial(g, f));
+
+  // Un estado que la regla no conoce va al final, no se esconde: también es un levantamiento.
+  const pos = (v: string) => { const i = (ESTADOS_LEVANTAMIENTO as readonly string[]).indexOf(v); return i < 0 ? 99 : i; };
+  const estados = contar(de(sin({ estados: [] })), (g) => g.status)
+    .sort((a, b) => pos(a.valor) - pos(b.valor));
+  const sucursales = contar(de(sin({ sucursal: null })), (g) => g.sucursal)
+    .sort((a, b) => a.valor.localeCompare(b.valor));
+  const personas = conPersonas
+    ? contar(de(sin({ persona: null })), (g) => g.created_by)
+      .sort((a, b) => b.n - a.n || a.valor.localeCompare(b.valor, 'es'))
+    : null;
+  return { estados, sucursales, personas };
 }

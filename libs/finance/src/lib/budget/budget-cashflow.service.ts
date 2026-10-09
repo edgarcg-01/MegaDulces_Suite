@@ -201,6 +201,10 @@ export class BudgetCashflowService {
           base: deuda.base,
           por_tipo: deuda.porTipo,
           cobertura: deuda.cobertura,
+          // [TES.11] De cuántos proveedores depende lo que la curva dibuja. Medido: los 5
+          // mayores son el 44.7% de la deuda y los 20 el 68.3%, sobre 397 — más concentrado
+          // que la cartera. Dos curvas con el mismo total no son el mismo riesgo.
+          concentracion: deuda.concentracion,
           as_of: deuda.as_of,
           as_of_reason: deuda.as_of_reason,
           fuente: 'analytics.v_supplier_payables (derivada de kepler_ods.kdxe/kdxf/kdxd)',
@@ -250,6 +254,11 @@ export class BudgetCashflowService {
         // [CXC.22] Lo vencido viaja APARTE, con su monto. Meterlo en la primera semana
         // afirmaría que se cobra completo el lunes, que es inventar una fecha.
         cobranza_cobertura: prevista.cobertura,
+        // [TES.11] ⭐ Y la corrección que la medición impuso: el riesgo de concentración NO está
+        // en el pronóstico. En la ventana los 5 mayores son el **15.7%** sobre 217 clientes; en
+        // la masa VENCIDA son el **48.2%** sobre 1,095. El riesgo vive en lo que la curva
+        // declara que no puede fechar, no en lo que dibuja — así que viajan las dos cifras.
+        cobranza_concentracion: prevista.concentracion,
         sources: {
           cobros: { source: 'analytics.customer_receivables', base: prevista.base,
             as_of: cobrosMeta?.as_of ?? null },
