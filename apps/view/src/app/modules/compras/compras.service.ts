@@ -387,6 +387,19 @@ export interface DeadStockRow {
   created_at: string;        // alta en catálogo (fallback del "desde cuándo")
   supplier_name: string | null;
 }
+/** `[RA.CAP]` El saldo de un acreedor, en corto. Sin detalle de documentos. */
+export interface DeudaAcreedor {
+  codigo: string; nombre: string;
+  pendiente: number; vencido: number; saldo: number;
+}
+export interface DeudaProveedorResponse {
+  /** Fecha con la que se decidió qué está vencido (hora de México). */
+  al: string;
+  /** ⚠️ SÓLO los que deben algo. Que un proveedor no esté acá significa «no le debemos», pero si
+   *  la llamada falló entera NO significa eso — por eso el error se declara aparte. */
+  acreedores: DeudaAcreedor[];
+}
+
 /** `[RA.SOB]` Un tramo de cobertura, con cuánto de él lo compramos y nunca salió. */
 export interface SobranteTramo {
   tramo: string; label: string;
@@ -464,7 +477,10 @@ export interface ReplenishmentFilters {
    * es el pedido TÍPICO del almacén principal del proveedor, no un mínimo que el proveedor exija
    * (no hay columna que separe lo capturado a mano de lo derivado).
    */
-  suppliers: { id: string; name: string; min_order_boxes: number | null;
+  suppliers: { id: string; name: string;
+    /** `[RA.CAP]` Código del proveedor = clave del acreedor en Kepler, para cruzar la deuda. */
+    code?: string | null;
+    min_order_boxes: number | null;
     /** `[RA-DYN.U3]` Piso en pesos por orden. `null` = no capturado, NUNCA "no tiene minimo". */
     min_order_amount: number | null }[];
   brands?: { id: string; name: string }[];
@@ -1220,6 +1236,18 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<DeadStockResponse>(`${this.base}/dead-stock${qs ? '?' + qs : ''}`);
+  }
+
+  /**
+   * `[RA.CAP]` Lo que YA le debemos a cada acreedor, en corto, para cruzarlo con el proveedor del
+   * pedido. Sale del MISMO `resumen()` que publica el estado de cuenta de Finanzas (Fase ECA), no
+   * de una consulta nueva: dos cálculos de la misma deuda darían dos cifras y nadie sabría cuál.
+   *
+   * ⛔ Vive en `/finance/...` y no en `/commercial/...` a propósito: la deuda es de Finanzas, y
+   * Compras la LEE. Lo único que se amplió es el permiso de esa ruta.
+   */
+  deudaPorProveedor(): Observable<DeudaProveedorResponse> {
+    return this.http.get<DeudaProveedorResponse>(`${environment.apiUrl}/finance/creditor-statements/por-proveedor`);
   }
 
   /**

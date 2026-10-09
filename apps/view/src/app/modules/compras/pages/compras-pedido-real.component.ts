@@ -31,7 +31,7 @@ import { generarRequisicionGlobalPdf, generarRequisicionPdf, ReqGlobalPdfData, R
 import { agruparPorProveedor, LineaCompra, repartoProducto } from '../pedido-requisicion-global';
 import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
-  DeadStockRow, SobranteRow, SobranteTramo, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
+  DeadStockRow, DeudaAcreedor, SobranteRow, SobranteTramo, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
   InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow,
 } from '../compras.service';
@@ -198,6 +198,24 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               {{ b.n === 1 ? 'cantidad escrita' : 'cantidades escritas' }} de <strong>{{ borradorHora(b.at) }}</strong>.
               <span class="pr-borrador-sub">Las marcas de los productos no se guardan — marcá y armá como siempre.</span></p>
             <button type="button" class="pr-zlink" (click)="descartarBorrador()">Descartar y empezar de cero</button>
+          </div>
+        }
+        <!-- [RA.CAP] Lo que YA le debemos al proveedor que se está por pedir. No decide nada: pone
+             el hecho enfrente. Sólo aparece con un proveedor elegido, porque el dato es por
+             proveedor y un promedio de la red no le sirve a nadie para decidir una compra. -->
+        @if (deudaProv(); as d) {
+          <div class="pr-deuda" [class.pr-deuda-bad]="d.vencido > 0">
+            <i class="pi pi-wallet" aria-hidden="true"></i>
+            <span>Le debemos <strong>{{ money(d.pendiente) }}</strong></span>
+            @if (d.vencido > 0) {
+              <span class="pr-deuda-v">· <strong>{{ money(d.vencido) }}</strong> vencido</span>
+            }
+            <span class="pr-muted">al {{ deudaAl() }}</span>
+          </div>
+        } @else if (fSupplier && deudaSinCruce()) {
+          <div class="pr-deuda pr-deuda-mute">
+            <i class="pi pi-question-circle" aria-hidden="true"></i>
+            <span>Este proveedor no tiene acreedor en Kepler: su deuda <strong>no se midió</strong>.</span>
           </div>
         }
         <div class="pr-filters">
@@ -1210,6 +1228,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     :host ::ng-deep .pr-sel { min-width: 13rem; }
     :host ::ng-deep .pr-search input { min-width: 12rem; }
     .pr-count { margin-left: auto; font-size: var(--fs-sm); color: var(--text-muted); }
+    /* [RA.CAP] Lo que ya le debemos al proveedor elegido. Un renglon, no una tarjeta: es contexto
+       para la decision de compra, no la pantalla de Finanzas. SIN ACENTOS GRAVES ACA. */
+    .pr-deuda {
+      display: flex; align-items: center; flex-wrap: wrap; gap: .4rem;
+      font-size: var(--fs-sm); color: var(--text-main);
+      padding: .45rem .7rem; margin: 0 0 .5rem;
+      border: 1px solid var(--border-color); border-left: 2px solid var(--border-color);
+      border-radius: var(--r-sm, 8px);
+    }
+    .pr-deuda i { color: var(--text-muted); }
+    .pr-deuda-bad { border-left-color: var(--bad-fg); }
+    .pr-deuda-bad i { color: var(--bad-fg); }
+    .pr-deuda-v { color: var(--bad-fg); }
+    .pr-deuda-mute { opacity: .85; }
     /* [RA.SOB] La tira de tramos de cobertura. Mosaicos, no una tabla: son seis cifras que se
        comparan de un vistazo y cada una es un filtro. SIN ACENTOS GRAVES EN ESTE COMENTARIO. */
     .pr-sobstrip { display: flex; flex-wrap: wrap; gap: .5rem; margin: 0 0 .75rem; }
@@ -3348,6 +3380,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   ngOnInit(): void {
     // Lookups de los filtros. NUNCA tragar el error (DESIGN §Ing.UI 6): si esto falla en
     // silencio, los selects quedan vacíos y la pantalla se ve "sin menús" sin decir por qué.
+    // `[RA.CAP]` La deuda por acreedor se trae UNA vez al abrir la pantalla (402 filas, 231 ms
+    // medidos contra prod) y después se cruza en memoria al cambiar de proveedor: pedirla en cada
+    // cambio de filtro sería un viaje por clic para un dato que se mueve una vez al día.
+    this.cargarDeuda();
     this.api.filters().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (f) => this.filters.set(f),
       error: (e) => this.toast.add({
@@ -3869,6 +3905,62 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         if (gen !== this.reqGen) return;
         this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); this.loadedAt.set(Date.now());
       });
+  }
+
+  // ── `[RA.CAP]` Lo que YA le debemos al proveedor que se está por pedir ────────────────────
+  /**
+   * Punto 3 de los tres de Edgar: *"el pedido en algún momento se hará bajo análisis también el
+   * presupuesto de pago y capacidad de pago"*.
+   *
+   * ⛔ **La capacidad de pago no existe y es un bloqueo humano, no técnico.** Medido el
+   * 2026-10-09: `budget.daily_capacity` tiene 22 filas **de septiembre** (vencidas),
+   * `payment_calendar_lots`, `financial_commitments` y `supplier_payment_obligations` en **0**.
+   * Sin eso el pedido NO se puede condicionar a lo que se puede pagar, y dibujar un tope con una
+   * capacidad inventada sería peor que no tenerlo.
+   *
+   * ⭐ **La otra mitad sí tiene dato**: lo que ya le debemos. No decide por el comprador — le pone
+   * enfrente que le va a pedir medio millón a alguien a quien ya le debe dos vencidos.
+   */
+  private readonly deudaMap = signal<Map<string, DeudaAcreedor>>(new Map());
+  readonly deudaAl = signal('');
+  /** ⚠️ Separado del mapa vacío: "no pude leer" y "no le debemos a nadie" son cosas distintas. */
+  readonly deudaError = signal(false);
+
+  private cargarDeuda(): void {
+    this.api.deudaPorProveedor()
+      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        if (!r) { this.deudaError.set(true); return; }
+        this.deudaMap.set(new Map((r.acreedores ?? []).map((a) => [a.codigo.trim(), a])));
+        this.deudaAl.set(r.al ?? '');
+      });
+  }
+
+  /** El código de acreedor del proveedor elegido. `null` si no hay proveedor o no trae código. */
+  private supCode(): string | null {
+    if (!this.fSupplier) return null;
+    const s = (this.filters()?.suppliers ?? []).find((x) => x.id === this.fSupplier);
+    return s?.code?.trim() || null;
+  }
+
+  /** La deuda del proveedor elegido. `null` = sin proveedor, sin cruce, o no se pudo leer. */
+  deudaProv(): DeudaAcreedor | null {
+    if (this.deudaError()) return null;
+    const c = this.supCode();
+    return c ? this.deudaMap().get(c) ?? null : null;
+  }
+
+  /**
+   * ⭐ Hay un proveedor elegido pero NO casa con ningún acreedor, o no trae código.
+   *
+   * ⛔ Se DECLARA en vez de callarse: callarse se lee como "no le debemos nada", que es una
+   * afirmación — y acá no se midió. Son 7 de los 281 proveedores del pedido (2.5%).
+   * ⚠️ `deudaError` NO entra acá: si la llamada falló, el silencio es correcto hasta que haya dato.
+   */
+  deudaSinCruce(): boolean {
+    if (this.deudaError() || !this.fSupplier || !this.deudaMap().size) return false;
+    const c = this.supCode();
+    return !c || !this.deudaMap().has(c);
   }
 
   // ── `[RA.SOB]` SOBRANTE: dónde está parado el inventario, y qué pedimos que se quedó ──────
