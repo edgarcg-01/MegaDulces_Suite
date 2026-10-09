@@ -1781,3 +1781,59 @@ cuando resulta que también se puede **escribir**.
 **Mutado a rojo tres veces**: `sist_orig` a 2 (37/5) · sin `sinSep` (36/6) · `referencia` a 10
 (32/10). Y los otros 6 candados **siguen verdes** — incluido el round-trip de LC (38 ✓), que es
 la prueba de que los bytes no cambiaron.
+
+---
+
+## 26. ⭐⭐ `[CP.8.29]` El emisor ya escribe los renglones `AD` — `EMITE_AD_UUID` cerrado
+
+`EMITE_AD_UUID` venía pendiente desde el arranque de la fase. Se prende ahora y no antes porque
+**hasta `[CP.8.28]` el formato era una suposición de foro**; ahora está en el esquema del
+fabricante y el candado lo compara posición por posición.
+
+| | |
+|---|---|
+| layout | `asocdocto.1`: etiqueta `AD` (2) + sep + `UUID` (36) + sep = **40** |
+| ubicación | ⭐ **al FINAL de la póliza**, después de todos los `M1` |
+| contrato | `PolizaSinkEntrada.uuids?: string[]` |
+
+⛔ **Las fuentes externas decían que el `AD` va *"después del `P`"*** (§9.1). El archivo real lo
+desmiente: su primera póliza es `P M1 M1 M1 AD`. **Ponerlo donde decía el foro habría sido el
+primer motivo de rechazo**, y nadie habría sabido por qué.
+
+### 26.1 Lo que el emisor se niega a hacer
+
+Un UUID que no mide 36 **se rechaza**, no se rellena ni se recorta. Rellenarlo produciría un
+renglón de 40 que el importador acepta y que asocia **el comprobante equivocado** — o ninguno.
+Mismo criterio que `[LC.9]`: *un archivo rechazado es infinitamente preferible a uno aceptado y
+mal*.
+
+⭐ **Sin `uuids` el archivo sale idéntico al byte.** Es lo que permite prender esto sin tocar el
+libro de compras, que mueve $30–56M al mes — y el candado de LC lo confirma: **sigue en 38 ✓**.
+
+### 26.2 ⚠️ Un hueco que sólo apareció mutando
+
+El candado del sink pasó de **50 a 64 ✓** y se mutó tres veces: `AD` antes de los `M1` (60/4),
+UUID rellenado en vez de rechazado (60/4), y `AD` sin separador final (62/2).
+
+⛔ **La tercera puso rojo el sink y dejó VERDE el candado del esquema** — porque ése comparaba
+el `AD` de la especificación **contra sí mismo**, sin mirar nuestro `LAYOUT_AD`. Cubría `P` y
+`M1` y se había saltado el tercero.
+
+⭐ *Un candado tiene que cubrir todos los registros que el emisor escribe, no los dos grandes:
+el que falta es justo donde se cuela el defecto.* Cerrado — **46 ✓**, y la misma mutación ahora
+pone rojo a los dos.
+
+### 26.3 El archivo B de la prueba ya sale del camino real
+
+Se armaba **pegando texto** al final del A. Ahora sale del **mismo sink**, pasándole `uuids` —
+misma lección que costó la fecha rota de §21.2: *un archivo de prueba que no sale del camino real
+no prueba el camino real.* Y cada archivo lleva **su propio `guid`**, así se distinguen al
+revisarlos.
+
+| candado | |
+|---|--:|
+| esquema · **sink** · token · armador · cuadre · lote · LC | 46 · **64** · 29 · 33 · 35 · 38 · 38 |
+
+⛔ **Lo que sigue SIN MEDIR y se declara**: si ContPAQi **honra** los `AD` al importar. El formato
+es correcto contra su propia especificación; que su importador actúe sobre él es otra afirmación,
+y la contesta el archivo B.

@@ -256,6 +256,61 @@ const ENTRADA = {
       'el guid leído del archivo mide 36 (si el recorte estuviera mal, esto lo delata)');
   }
 
+  // ── `[CP.8.29]` Los renglones `AD` (asociación de CFDI) ───────────────────────────────────
+  // El formato está verificado contra el esquema del fabricante (`[CP.8.28]`: `asocdocto.1` =
+  // etiqueta 2 + sep + UUID 36 + sep = 40) y contra el archivo real (62 renglones, los 62 de 40).
+  //
+  // ⛔ Lo que estas pruebas NO dicen: si ContPAQi los HONRA al importar. Eso lo contesta el
+  // archivo B de `[CP.8.24]`, y hasta entonces el `[NO MEDIDO]` de abajo se queda.
+  {
+    const U1 = '3D4468D0-BEE5-49FA-9048-CFF7022FA4B7';
+    const U2 = '09a42d9c-42da-46fe-a276-4b0f25e45e0a';
+    const base = (extra) => ({
+      evento_tipo: 'bank_movement', evento_id: 'AD-1', tipo_poliza: 2, fecha: '2026-03-04',
+      concepto: 'PRUEBA AD', total: 100,
+      movimientos: [
+        { cuenta: '5200800000', abono: false, importe: 100, concepto: 'X' },
+        { cuenta: '1020020000', abono: true, importe: 100, concepto: 'X' },
+      ],
+      ...extra,
+    });
+
+    const sinAd = await sink.entregar(base());
+    const conAd = await sink.entregar(base({ uuids: [U1] }));
+    const dosAd = await sink.entregar(base({ uuids: [U1, U2] }));
+    const lineas = (r) => r.archivo.contenido.split('\r\n').filter(Boolean);
+
+    // ⭐ Sin `uuids` el archivo sale EXACTAMENTE como antes. Es lo que permite prender esto sin
+    // tocar el libro de compras, que mueve $30-56M al mes.
+    check(lineas(sinAd).length === 3, 'sin uuids: 3 líneas (encabezado + 2 movimientos)');
+    check(!lineas(sinAd).some((l) => l.startsWith('AD')), 'sin uuids: ningún renglón AD');
+
+    check(lineas(conAd).length === 4, 'con 1 uuid: 4 líneas');
+    const ad = lineas(conAd)[3];
+    check(ad.startsWith('AD '), 'el renglón AD arranca con la etiqueta');
+    check(ad.length === 40, `el renglón AD mide ${ad.length} (esquema: 40)`);
+    check(ad.slice(3, 39) === U1, 'el UUID va en 4-39 y sale sin tocar');
+    check(ad.endsWith(' '), 'cierra con separador, como toda línea del formato');
+
+    // ⭐⭐ Van al FINAL, después de los movimientos. Las fuentes externas decían "después del P"
+    // (§9.1) y el archivo real lo desmiente: su primera póliza es `P M1 M1 M1 AD`.
+    const tags = lineas(dosAd).map((l) => l.slice(0, 2));
+    check(tags.join(',') === 'P ,M1,M1,AD,AD'.replace(/AD,AD/, 'AD,AD'),
+      `el orden es P M1 M1 AD AD (salió ${tags.join(' ')})`);
+    check(lineas(dosAd).length === 5, 'dos uuids producen dos renglones AD');
+
+    // ⛔ Un UUID que no mide 36 NO se rellena ni se recorta: se rechaza. Rellenarlo daría un
+    // renglón de 40 que el importador acepta y que asocia el comprobante equivocado.
+    for (const malo of ['', '3D4468D0-BEE5-49FA-9048', `${U1}X`, '   ']) {
+      const r = await sink.entregar(base({ uuids: [malo] }));
+      check(r.estado === 'rechazada',
+        `un UUID de ${malo.trim().length} caracteres es RECHAZADO, no rellenado`);
+    }
+    // Positiva: el bueno, al lado de los malos, sí pasa.
+    check((await sink.entregar(base({ uuids: [U1, U2] }))).estado === 'entregada',
+      'dos UUID válidos pasan');
+  }
+
   // ── NO MEDIDO ───────────────────────────────────────────────────────────────────────────────
   // ⭐ Esto NO es una aserción: es un tercer estado. Todo lo de arriba prueba que el sink es
   // coherente CONSIGO MISMO y con el layout que tenemos. Ninguna de esas 26 pruebas puede decir
@@ -265,7 +320,7 @@ const ENTRADA = {
   for (const d of LAYOUT_SIN_VERIFICAR) {
     console.log(`  ⚠ ${d.campo}: acá ${d.aqui}, el REAL dice ${d.fuente ?? '(existe y acá no)'} — ${d.impacto}`);
   }
-  console.log('  ⚠ renglones `AD ` + UUID: el formato SÍ transporta el UUID del CFDI, y no los emitimos');
+  console.log('  ⚠ renglones `AD `: YA se emiten ([CP.8.29]) con el layout del esquema; falta medir si ContPAQi los HONRA al importar');
   console.log('  ⚠ el `Guid` YA se emite ([CP.8.24]); falta medir si ContPAQi lo RESPETA o lo pisa');
   console.log(`  → árbitro: ${LAYOUT_ARBITRO}`);
 

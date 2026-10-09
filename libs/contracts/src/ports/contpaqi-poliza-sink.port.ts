@@ -59,6 +59,19 @@ export interface PolizaSinkEntrada {
    * disimula.
    */
   token?: string;
+  /**
+   * ⭐⭐ `[CP.8.29]` — **Los UUID de CFDI que este asiento asocia** (renglones `AD`).
+   *
+   * Hasta ahora la asociación comprobante-póliza se hacía **a mano**, con el botón `Asociar` del
+   * ADD. Medido: **90.0 % de los CFDIs recibidos terminan asociados** (169,030 históricos), pero
+   * a costa de ~1,400 asociaciones manuales al mes, y el 10 % que nunca se hace son **2,606
+   * CFDIs de 2026 por $105,399,045.52**.
+   *
+   * El formato del renglón está verificado contra el esquema del fabricante (`[CP.8.28]`), no
+   * supuesto. ⚠️ **Lo que sigue sin verificarse es si ContPAQi lo HONRA al importar** — eso lo
+   * contesta el archivo B de `[CP.8.24]`.
+   */
+  uuids?: string[];
 }
 
 export interface SinkResultado {

@@ -131,7 +131,35 @@ const lineaAD = (uuid) => {
     throw new Error(`el sink rechazó el asiento de prueba: ${r.motivo || '(sin motivo)'}`);
   }
   const A = r.archivo.contenido;
-  const B = A.replace(/\r\n$/, '') + '\r\n' + lineaAD(cfdi[0].uuid) + '\r\n';
+
+  /**
+   * ⭐ `[CP.8.29]` — El archivo B **ya no se arma pegando texto**: sale del MISMO sink, pasándole
+   * `uuids`. Es la misma lección que costó la fecha rota de §21.2: *un archivo de prueba que no
+   * sale del camino real no prueba el camino real.*
+   */
+  const rB = await sink.entregar({
+    evento_tipo: 'prueba_formato',
+    evento_id: `${FECHA}-B`,
+    tipo_poliza: Number(TIPO_POLIZA_EGRESO),
+    fecha: FECHA,
+    concepto,
+    token,
+    total: 1,
+    movimientos: [
+      { cuenta: gasto[0].codigo, abono: false, importe: 1, concepto, referencia: 'PRUEBA' },
+      { cuenta: banco[0].codigo, abono: true, importe: 1, concepto, referencia: 'PRUEBA' },
+    ],
+    uuids: [cfdi[0].uuid],
+  });
+  if (rB.estado !== 'entregada' || !rB.archivo) {
+    throw new Error(`el sink rechazó el archivo B: ${rB.motivo || '(sin motivo)'}`);
+  }
+  const B = rB.archivo.contenido;
+  // El helper local queda como segunda opinión sobre el largo: si el sink y él difieren, algo
+  // cambió en el layout y hay que mirarlo antes de entregarle nada a nadie.
+  if (B.split('\r\n').filter(Boolean).pop() !== lineaAD(cfdi[0].uuid)) {
+    throw new Error('el renglón AD del sink no coincide con el esperado por el layout');
+  }
 
   // ⛔ Compuerta antes de entregar: lo que se emite tiene que poder leerse de vuelta con el
   // MISMO parser que lee los archivos reales. Si no, no se entrega.
