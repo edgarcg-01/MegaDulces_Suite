@@ -101,6 +101,33 @@ export interface CorteArqueo {
   esperado_neto: number;
   contado_total: number;
   cajero: string | null;
+  /**
+   * `[CSU.9]` ⭐⭐ **El único efectivo que alguien contó de verdad**: billetes + monedas + lo
+   * retirado durante el turno (`kdpv_folio_caja` `c43 + c44 + c48`).
+   *
+   * ⛔ **Por qué existe este campo.** `efectivo_contado` NO es un conteo verificado: es un número
+   * que el cajero DECLARA al cerrar, y medido sobre **996 cortes desde sep-2026 es idéntico al
+   * esperado en el 81.2 %**. O sea que el veredicto «cuadra» salía de comparar una cifra contra
+   * sí misma — una tautología, no una medición.
+   *
+   * ⭐ El conteo por denominación es el testigo independiente, y **no coincide**: de 870 cortes
+   * con denominación, **409 (47.0 %) difieren** del declarado, por **$1,106,561.32** en total
+   * absoluto, peor caso **$56,329.65**, neto **−$133,292.90** (la declaración SOBREDECLARA).
+   *
+   * ⚠️ `arqueo_otros` (`c45`) **no** entra: con él la identidad cae del 53.4 % al 19.3 %.
+   *
+   * `null` cuando el corte no trae denominaciones (medido: 72 de 1,125 = 6.4 %). **No se dibuja
+   * como 0**, porque «no contaron» y «contaron cero» no son lo mismo (ADR-056).
+   */
+  conteo_fisico: number | null;
+  /** `[CSU.9]` `conteo_fisico` − `efectivo_contado`. `null` si no hay conteo físico. */
+  fisico_diferencia: number | null;
+  /**
+   * `[CSU.9]` ⛔ **El arqueo declaró lo esperado en vez de contarlo** (`efectivo_contado` ===
+   * `efectivo_esperado`). Cuando es `true`, «cuadra» NO significa que cuadró: significa que nadie
+   * midió. La pantalla tiene que decirlo — medido, pasa en el **81.2 %** de los cortes.
+   */
+  arqueo_declarado: boolean;
 }
 
 export interface CorteRow {
