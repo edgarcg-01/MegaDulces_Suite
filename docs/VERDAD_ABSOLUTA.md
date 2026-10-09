@@ -3845,3 +3845,68 @@ como cero fabrica una insolvencia que no existe. El defecto está **en el lector
 **Medición reproducible:** 15 consultas read-only contra `pg-prod` (namespace `prod`,
 `kubectl exec -i … -- psql -f -`). Candado: `database/tests/test-newdb-supplier-payables.js`, con
 **dos pruebas negativas** y tercer estado `NO MEDIDO`. Commits `9f9f9c146`, `2c59385f4`, `5ee9195e8`.
+
+### 26.8 ⭐ El lazo, el ciclo y la holgura — y las dos veces que la medición mató mi propia prioridad
+
+> **Lo que faltaba no era arquitectura: era dividir números que ya estaban.** Y de las tres
+> prioridades que declaré, **la medición descartó dos y corrigió la tercera.**
+
+**Lo descartado, y por qué está bien descartarlo:**
+
+| Lo que afirmé | Lo que midió |
+|---|---|
+| «3 latidos, una corrida cada uno: la automatización es ficción» | ⛔ **Falso.** `analytics.cron_runs` es **UPSERT** —una fila por job, actualizada en sitio— y los tres estaban **verdes y frescos** (0.7 h · 0.8 h · 5.4 h). Conté filas y las leí como corridas |
+| «524 pagos con fecha valor distinta: el modelo no lo usa» | **79.5 % cae el mismo día** (76.6 % del monto). Un rezago de 1-3 días se absorbe dentro de un balde semanal. Los extremos de ±7,300 días son **basura de datos**, no fecha valor |
+
+⚠️ **La primera es la más instructiva: una tabla de latidos que se actualiza en sitio no se mide
+contando filas.** El `count(*)` era correcto y la conclusión falsa — el patrón que esta sección
+documenta tres veces en otros números, cometido al diagnosticar la automatización misma.
+
+**Lo que sobrevivió, con el riesgo movido de lugar — `[TES.11]`:**
+
+```
+concentración en la VENTANA (lo que la curva dibuja)     top5 = 15.7 %  ·   217 clientes
+concentración en lo VENCIDO (lo que declara sin fecha)   top5 = 48.2 %  · 1,095 clientes
+del lado del PAGO                                       top5 = 44.7 %  ·   397 proveedores
+```
+
+⭐ Publiqué que «el top 5 concentra el 42.4 % de la cartera» como el riesgo del pronóstico. **El
+pronóstico está bien repartido.** La concentración vive en la **masa vencida** — la que la curva se
+niega a fechar a propósito. **El riesgo está en lo declarado, no en lo dibujado**, y por eso van
+las dos cifras.
+
+**`[TES.12]` El lazo del pronóstico — y la trampa que ocupó la mitad del diseño.**
+El «ocurrido» ya existía al día en las dos piernas (`erp_collections` $9.16–11.55M/sem ·
+`erp_supplier_payments` $7.02–11.61M/sem); faltaba el otro lado de la resta. ⛔ Pero un back-test
+ingenuo habría publicado **−80 % de «error»**: el cobro real ronda $10M/semana y el proyectado
+$1.5M, porque **el pronóstico ve ~1/6 por construcción**. Esa diferencia mide **alcance, no
+puntería**. Por eso cada fila guarda **la cobertura con la que se hizo** y la vista publica
+**razón** con un veredicto `comparable` **por fila**.
+
+**`[TES.13]` DSO y DPO — con el DPO publicado DOS veces.**
+Venta 90 d $161,245,354.02 · COGS $142,967,835.62 → **margen implícito 11.3 %**, que coincide con
+el ~11.5 % que el negocio reporta (primera validación cruzada entre los dos facts). **DSO 34.7**.
+**DPO 77.3 — y 50.0 sin los $52.4M en disputa del pre-corte.** No se sabe cuál es el bueno:
+**elegir uno esconde que hubo elección.** ⛔ **El DIO no se calcula**: su denominador está en
+disputa declarada por la Fase MR, y publicarlo sería fabricar precisión.
+
+**`[TES.14]` El estrés que el encargo pedía, al revés — y el veredicto es el opuesto.**
+Pedía «la venta cae 20 %». No aplica: una caída de hoy no cambia lo que vence el martes, y **el
+caso base ya es negativo** ($1.48M + $7.16M − $27.80M = **−$19.17M**). La pregunta accionable es
+la inversa:
+
+```
+recuperación semanal requerida de lo vencido   $2,395,779.40
+cobro semanal histórico real                  $10,456,970.65
+⇒ requerido = 22.9 % de lo que el negocio YA cobra      holgura ~4.4×
+```
+
+⭐ **Un solo número, con umbral natural y comparado contra el desempeño real, no contra una meta.**
+Y contesta la pregunta del encargo —*¿el flujo soporta la estructura de obligaciones?*— con el
+veredicto que el encargo no esperaba: **sí, y con holgura**. Lo que no soporta es la lectura
+ingenua de su propia curva.
+
+**Medición reproducible:** 12 consultas read-only más contra `pg-prod`. Candado
+`test-newdb-cashflow-backtest.js` con **dos pruebas negativas** (la semana en curso no aparece ·
+con cobertura parcial `comparable` es `false`). Commits `737394a37`, `5ee247a45`, `40eb6db2d`,
+`6304692a6`.
