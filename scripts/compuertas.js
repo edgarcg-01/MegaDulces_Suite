@@ -165,6 +165,16 @@ const COMPUERTAS = [
   // archivos SÍ existen; Docker compila el commit pelado. Un build local verde no dice nada sobre
   // un commit. Por eso este candado lee el ÁRBOL DE GIT, nunca el disco. Validado: contra
   // `af6a88d0` encuentra las 4 referencias rotas y ninguna de más.
+  // ⭐ `[PVI.18]` **Volvió a pasar el 2026-10-09** y este candado lo detecta EXACTO: `main` quedó
+  // irreproducible porque `finanzas-presupuesto.component.ts` importaba un archivo sin trackear
+  // (`[PVI.15]`). Nadie lo corrió antes de empujar — **costaba 141 s**, y una compuerta que nadie
+  // corre no es una compuerta. El costo no era leer 27 MB: era **arrancar git 1,879 veces**
+  // (~86 ms por `git show`, contra 113 ms del `ls-tree` entero). Con `git cat-file --batch`:
+  // **141 s → ~8.7 s, 16×**, misma salida verificada contra los dos refs.
+  // ⛔ SIGUE SIN `push: true`: ~8.7 s es ~3× el criterio de admisión (~3 s) y la decisión de
+  // relajarlo para ESTE caso es de Edgar — el argumento a favor es que su modo de falla es TOTAL
+  // (un checkout limpio no compila) y que **ninguna otra compuerta local puede verlo**, porque
+  // todas compilan el árbol de trabajo, donde el archivo sí existe.
   { nombre: 'commit-wiring', cmd: 'node scripts/check-commit-wiring.js', que: 'lo que el commit referencia viaja EN el commit (no sólo en tu árbol de trabajo)' },
   // [ODS.1] Una lista de sucursales escrita a mano falla HACIA ABAJO y en silencio: el proceso
   // recorre menos ramas de las que hay, no da error, y no puede reportar faltantes porque una rama
