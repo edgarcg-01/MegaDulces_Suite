@@ -491,6 +491,47 @@ tbody tr:last-child td{border-bottom:none}
   <div class="note warn"><strong>Un hallazgo que no es de diseño y conviene que viaje con el documento.</strong> Tres sesiones trabajaron sobre los mismos archivos y el trabajo se mezcló <strong>tres veces</strong>, la última con los dos lados haciendo todo bien: avisar antes de editar, mirar el aviso de «cambió en disco», inspeccionar el diff y retirarse. <strong>Git no reportó nada en ninguna de las tres, porque no hubo conflictos.</strong> Un conflicto frena; esto deja pasar. ⇒ La disciplina de un lado no alcanza: hace falta que las dos partes acierten el <em>timing</em>, y no hay nada que las sincronice.</div>
 </section>
 
+
+<section>
+  <h2>9 · El compartimiento <span class="owner">los tres carriles</span></h2>
+  <p class="lead">Este documento <strong>no es de un carril</strong>: es el único lugar donde los tres se leen entre sí. Hasta hoy eso vivía en la costumbre y no estaba escrito, y lo que no está escrito no sobrevive a un relevo de sesión.</p>
+
+  <h3>9.1 · Qué hay adentro — y lo que el inventario delata</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Artefacto</th><th>Carril</th><th>Qué pregunta contesta</th><th>Estado</th></tr></thead>
+    <tbody>
+      <tr><td><code>presupuesto-estados.html</code></td><td>los tres</td><td>¿Con qué se calculó <em>este</em> número?</td><td>Secciones 5-6-7 llenas por sus dueños</td></tr>
+      <tr><td><code>tesoreria-ciclo-holgura.html</code></td><td>cc</td><td>¿Cabe el hueco en lo que ya cobramos?</td><td>A revisión</td></tr>
+      <tr><td><code>tesoreria-mapa-pantallas.html</code></td><td>cc</td><td>¿Dónde vive cada cosa?</td><td>A revisión</td></tr>
+      <tr><td class="faint">— sin artefacto visual —</td><td>06 · Ventas</td><td class="faint">—</td><td class="faint">No existe</td></tr>
+      <tr><td class="faint">— sin artefacto visual —</td><td>8c · Gastos</td><td class="faint">—</td><td class="faint">No existe</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn">⭐ <strong>Los tres artefactos visuales son del mismo carril.</strong> Quien abra la carpeta concluye que <code>/presupuestos</code> es Tesorería, y es falso: las secciones 6 y 7 de este documento son más densas que la 5. No es un reproche — es que <strong>el mapa de pantallas obliga a decidir dónde vive cada cosa</strong>, y esa decisión es de los tres. Hoy la propuse yo solo, y por eso la propuesta vale menos de lo que parece.</div>
+
+  <h3>9.2 · Lo que cada carril le debe a los otros dos</h3>
+  <p class="lead">No son tareas: son <strong>dependencias de dato</strong>. Cada renglón nombra qué se rompe si no llega, porque una dependencia sin consecuencia escrita no se cobra nunca.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Espera</th><th>Qué</th><th>De</th><th>Qué se rompe si no llega</th></tr></thead>
+    <tbody>
+      <tr><td>Tesorería</td><td>El catálogo de familias de gasto con <code>is_critical</code></td><td>Gastos</td><td>El flujo trata <strong>toda</strong> obligación como diferible. Nómina y renta no lo son, y la capacidad por día se reparte sobre un supuesto falso.</td></tr>
+      <tr><td>Tesorería</td><td><code>budget.expense_obligations</code> de FY2026</td><td>Gastos</td><td><code>pagos_autorizados</code> viaja vacío. ⚠️ Y ese campo <strong>nunca se suma</strong> a la deuda del ERP — son el mismo peso contado por dos puertas.</td></tr>
+      <tr><td>Los tres</td><td><code>MetricState</code> viviendo en <code>libs/</code>, al lado de <code>Coverage</code></td><td>Ventas (tiene el rediseño)</td><td>Cada carril escribe su versión. Son los <strong>10 tipos a mano</strong> de la sección 8, otra vez, con el documento que lo denuncia abierto.</td></tr>
+      <tr><td>Los tres</td><td>El umbral del <strong>70 %</strong> en <code>analytics.kpi_thresholds</code></td><td class="faint">Sin dueño</td><td>Por ADR-076 el estado correcto es <code>sin_meta</code>, no <code>ok</code>. Hoy el 70 % es una propuesta mía dibujada en una barra.</td></tr>
+      <tr><td>Tesorería</td><td>Qué cuentas son <strong>circulantes</strong></td><td class="faint">Sin dueño — es contable</td><td>La razón corriente no se publica. Se declara, no se dibuja.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>9.3 · Tres defectos que se encontraron <em>mirando</em>, y que los tres podemos repetir</h3>
+  <p class="lead">Ninguna de las seis compuertas los ve, y por la misma razón: <strong>cada regla es válida por separado</strong> y el defecto nace de la combinación.</p>
+  <ul>
+    <li><strong>El rojo que contradice la regla.</strong> El hueco estaba pintado con <code>neg</code>, tres secciones arriba de la regla que lo prohíbe — y la implementación lo tenía bien. ⇒ <code>neg</code> es para un número que de verdad está <strong>mal</strong>, no para uno <strong>negativo</strong>. Una clase que existe se usa: pedida por el signo en vez de por el juicio, el tablero grita todos los días.</li>
+    <li><strong>El <code>code</code> que compone.</strong> <code>0.86em</code> dentro de un contenedor ya reducido daba <strong>8.6 px</strong>. Ya está puesto el piso en el CSS de este archivo, así que las secciones 6 y 7 lo heredan gratis — ⚠️ pero <strong>en un archivo nuevo vuelve</strong>, porque la regla que lo causa es correcta.</li>
+    <li><strong>Y el método, que es lo que vale:</strong> los tres aparecieron al <strong>abrir el documento en un navegador</strong>. Leerlo no alcanzaba. Es el argumento concreto de por qué «validación visual pendiente» no es una formalidad.</li>
+  </ul>
+
+  <div class="note">Esta sección se agregó <strong>al final a propósito</strong>, sin renumerar las secciones 5-8. Renumerar mientras los otros dos carriles editan el mismo archivo es exactamente la ventana que describe el aviso de arriba: no habría conflicto, y por eso nadie se enteraría.</div>
+</section>
 </div>
 <script>
 (function(){
