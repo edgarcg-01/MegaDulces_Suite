@@ -57,6 +57,8 @@ function montar(shipment: Record<string, unknown>, guias: unknown[] = []) {
   const mapa: Array<[RegExp, unknown]> = [
     [/\/shipments\/e1$/, shipment],
     [/\/gps-review$/, REVISION],
+    // El detalle de Kepler lee los destinatarios de su guía (las entregas de la hoja final).
+    [/\/guides\/g1$/, { id: 'g1', recipients: [] }],
     [/\/guides(\?|$)/, guias],
     [/\/fleet\/drivers/, PERSONAS],
     [/\/config\/routes\/list/, [RUTA]],
