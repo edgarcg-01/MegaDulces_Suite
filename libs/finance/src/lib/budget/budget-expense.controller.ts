@@ -31,6 +31,13 @@ export class BudgetExpenseController {
   @ApiOperation({ summary: 'De dónde salió cada celda: observado | promedio_plano | ausente, con el % del total que nadie observó.' })
   getCoverage(@Param('id') id: string) { return this.plan.getCoverage(id); }
 
+  // [PU.VG.7] El ledger es anual (period_month NULL en las 139 filas de prod): sin esto nadie se
+  // entera de un sobre-ejercicio hasta el cierre. El perfil se deriva del plan, no se guarda.
+  @Get('budgets/:id/expense-plan/ritmo')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Cuanto deberia llevarse consumido a la fecha segun el perfil mensual del plan (excluye el mes en curso).' })
+  getRitmo(@Param('id') id: string) { return this.plan.getRitmo(id); }
+
   @Get('budgets/:id/expense-plan/settings')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Supuestos del presupuesto de gastos (familias, crecimiento por cuenta, por sucursal).' })

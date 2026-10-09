@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
+// [PU.VG.7] El ritmo vive en un módulo PURO: se prueba sin Postgres y sin Nest.
+import {
+  perfilAcumulado, evaluarRitmo, resumirRitmo, llaveDePartida,
+  type PlanRow, type LedgerRow,
+} from './budget-phasing';
 
 /**
  * Fase PVG — Presupuesto de GASTOS auto-propuesto desde los egresos de Kepler (ADR-073).
@@ -203,6 +208,49 @@ export class BudgetExpensePlanService {
           celdas_ausentes: null as number | null,
         };
       }
+    });
+  }
+
+  /**
+   * `[PU.VG.7]` EL RITMO — cuánto del presupuesto anual debería llevarse consumido a la fecha.
+   *
+   * El ledger no tiene mes (`budget_lines.period_month` NULL en las 139 filas de prod), así que
+   * `available_amount` es un número ANUAL y nadie se entera de un sobre-ejercicio hasta el cierre.
+   * Meter el mes en el grano sería destructivo —`source_ref` es la clave con la que `materialize`
+   * reconcilia—, así que el perfil se lee AL LADO: ya vive en `expense_plan_lines.year_month`.
+   *
+   * ⚠️ El mes en curso se EXCLUYE con el MISMO criterio que ya usa este archivo. Medido contra
+   * prod el 2026-10-09: incluirlo movía la brecha de FY2026 un 46 %.
+   *
+   * ⛔ No emite semáforo: no hay umbral de materialidad registrado (ver `resumirRitmo`).
+   */
+  async getRitmo(budgetId: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const budget = await trx('budget.budgets').where({ tenant_id: tenantId, id: budgetId }).first();
+      if (!budget) throw new NotFoundException('Presupuesto no encontrado');
+
+      const mesEnCurso = todayMx().slice(0, 7);
+      const planRows = await trx('budget.expense_plan_lines')
+        .where({ tenant_id: tenantId, budget_id: budgetId })
+        .select('account_code', 'sucursal', 'year_month', 'monto');
+      const lineas = await trx('budget.budget_lines')
+        .where({ tenant_id: tenantId, budget_id: budgetId, line_type: 'gasto' })
+        .select('account_code', 'cost_center', 'concept', 'original_amount',
+          'reserved_amount', 'committed_amount', 'exercised_amount')
+        .orderBy('original_amount', 'desc');
+
+      const perfiles = perfilAcumulado(planRows as PlanRow[], mesEnCurso);
+      const filas = (lineas as LedgerRow[]).map((l) => evaluarRitmo(l, perfiles.get(llaveDePartida(l))));
+
+      return {
+        mes_en_curso: mesEnCurso,
+        // La ausencia tiene nombre: sin plan NO es lo mismo que con plan sin meses cerrados.
+        fuente: 'budget.expense_plan_lines.year_month (perfil) × budget.budget_lines (consumo)',
+        nota_grano: 'El ledger no guarda mes; el perfil se deriva del plan y se compara al lado.',
+        resumen: resumirRitmo(filas),
+        partidas: filas,
+      };
     });
   }
 
