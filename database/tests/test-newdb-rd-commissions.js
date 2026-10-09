@@ -137,10 +137,15 @@ const TIER_SQL = `
 
   // ── 5. Los bonos ─────────────────────────────────────────────────────────────────────
   console.log('\n5) Los bonos');
+  // ⚠️ `[RD.59]` Este bloque describe los bonos que PAGA la corrida quincenal, así que filtra
+  // igual que `computeRun`: `periodo='quincena' AND activo`. Sin el filtro contaría también los
+  // tres criterios MENSUALES del objetivo y el conteo de abajo se caería — que es exactamente
+  // lo que pasó al sembrarlos, y está bien que se caiga: el candado avisó.
   const { rows: bon } = await db.query(
     `SELECT beneficiario, comparador, count(*)::int n
        FROM commercial.commission_bonuses
-      WHERE scale_id = $1 AND deleted_at IS NULL GROUP BY 1,2 ORDER BY 1,2`, [scale.id]);
+      WHERE scale_id = $1 AND deleted_at IS NULL AND periodo = 'quincena' AND activo
+      GROUP BY 1,2 ORDER BY 1,2`, [scale.id]);
   const chofer = bon.find((b) => b.beneficiario === 'chofer');
   const sup = bon.find((b) => b.beneficiario === 'supervisor');
   check('hay 3 bonos de chofer (Lavadas, Lonche, Chalán)', chofer?.n === 3, `${chofer?.n ?? 0}`);
@@ -150,6 +155,46 @@ const TIER_SQL = `
     `SELECT count(*)::int n FROM commercial.commission_bonuses
       WHERE scale_id = $1 AND beneficiario = 'supervisor' AND gate_venta_min IS NULL AND deleted_at IS NULL`, [scale.id]);
   check('todo bono de supervisor lleva su compuerta de venta mínima', sinGate.n === 0, `${sinGate.n} sin compuerta`);
+
+  // ── 5b. `[RD.59]` El bono MENSUAL no puede colarse a la corrida quincenal ────────────
+  // Sin el filtro de `periodo` un bono del mes entraría a las DOS quincenas y se pagaría dos
+  // veces, en silencio. Lo que se vigila no es que el filtro esté escrito: es que SIRVA, o sea
+  // que exista un bono mensual que atrapar. Un filtro sin nada que filtrar es un no-op, y un
+  // no-op se lee igual que «no hay problema» (lección LC.15).
+  console.log('\n5b) La guarda del periodo: lo mensual no entra a la quincena');
+  const { rows: [univ] } = await db.query(
+    `SELECT count(*)::int total,
+            count(*) FILTER (WHERE periodo = 'mes')::int mensuales,
+            count(*) FILTER (WHERE periodo = 'quincena' AND activo)::int los_que_pagan,
+            count(*) FILTER (WHERE NOT activo)::int apagados
+       FROM commercial.commission_bonuses WHERE scale_id = $1 AND deleted_at IS NULL`, [scale.id]);
+  if (univ.mensuales > 0) {
+    check(`⭐ existe un bono mensual que atrapar (${univ.mensuales})`, true);
+    check('el motor quincenal ve MENOS bonos de los que hay (el filtro hace algo)',
+      univ.los_que_pagan < univ.total, `${univ.los_que_pagan} de ${univ.total}`);
+  } else {
+    noMedido('la guarda del periodo', 'no hay ningún bono mensual cargado: el filtro no se ejerce');
+  }
+  const { rows: [grupo] } = await db.query(
+    `SELECT count(*)::int n, coalesce(sum(peso_pct), 0)::numeric suma,
+            count(*) FILTER (WHERE activo)::int activos,
+            coalesce(sum(monto), 0)::numeric monto
+       FROM commercial.commission_bonuses
+      WHERE grupo = 'objetivo_mensual' AND deleted_at IS NULL`);
+  if (grupo.n > 0) {
+    check(`los criterios del objetivo suman 100% de peso (${grupo.suma})`,
+      Number(grupo.suma) === 100, `suma=${grupo.suma} sobre ${grupo.n} criterios`);
+    // ⛔ Mientras nadie fije el monto, el bono NO puede estar encendido: pagaría $0 y haría
+    // creer que el objetivo ya corre. Que se encienda es una decisión humana, desde la pantalla.
+    if (Number(grupo.monto) === 0) {
+      check('con monto en 0 el objetivo sigue APAGADO', grupo.activos === 0,
+        `${grupo.activos} encendido(s) sin importe fijado`);
+    } else {
+      check(`el objetivo tiene importe fijado (${grupo.monto})`, true);
+    }
+  } else {
+    noMedido('la configuración del objetivo', 'no hay criterios sembrados todavía');
+  }
 
   // ── 6. Los periodos ──────────────────────────────────────────────────────────────────
   console.log('\n6) Las quincenas');
@@ -176,11 +221,17 @@ const TIER_SQL = `
     SELECT c.relname, c.relrowsecurity AS en, c.relforcerowsecurity AS forced,
            (SELECT count(*) FROM pg_policies p WHERE p.schemaname='commercial' AND p.tablename=c.relname)::int pol
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
-     WHERE n.nspname='commercial' AND c.relkind='r' AND c.relname LIKE 'commission%'`);
-  // ⚠️ Eran 7 y son 8 desde RD.19 (`commission_beneficiary_config`, la deduccion por persona).
+     WHERE n.nspname='commercial' AND c.relkind='r'
+       AND (c.relname LIKE 'commission%' OR c.relname = 'objective_marks')`);
+  // ⚠️ Eran 7 · 8 desde RD.19 (`commission_beneficiary_config`, la deduccion por persona) ·
+  // 9 desde RD.52 (`commission_engine_lines`, el lado del motor en el contraste) · 10 desde
+  // RD.59 (`objective_marks`, la marca humana del criterio que nadie puede derivar).
+  // ⛔ `objective_marks` NO empieza con `commission`, asi que el patron se amplio a mano: si
+  // sube el numero y alguien SOLO corrige el numero, la tabla nueva se queda sin vigilar su
+  // RLS -- que es justo lo que esta asercion existe para impedir.
   // El numero se actualiza a mano a proposito: si alguien agrega una tabla al dominio, esta
   // asercion se pone roja y lo obliga a mirar que quede con RLS forzado, que es la de abajo.
-  check(`las 8 tablas del dominio existen (${rls.length})`, rls.length === 8,
+  check(`las 10 tablas del dominio existen (${rls.length})`, rls.length === 10,
     `si subio o bajo, revisar que la tabla nueva/retirada tenga su RLS: ${rls.map((r) => r.relname).sort().join(', ')}`);
   check('todas con RLS FORZADO y su política', rls.every((r) => r.en && r.forced && r.pol >= 1),
     rls.filter((r) => !(r.en && r.forced && r.pol >= 1)).map((r) => r.relname).join(', '));

@@ -391,8 +391,16 @@ export class CommercialCommissionsService {
         trx('commercial.commission_scale_tiers')
           .where({ scale_id: scale.id }).whereNull('deleted_at')
           .orderBy('min_amount').select<Tier[]>('min_amount', 'max_amount', 'pct'),
+        // ⛔⛔ `[RD.59]` Los DOS filtros son obligatorios y ninguno es cosmético.
+        //  · `periodo = 'quincena'`: esta corrida es quincenal, y desde RD.59 la tabla también
+        //    guarda bonos MENSUALES (el objetivo). Sin el filtro, un bono del mes entraría a
+        //    las dos quincenas y se pagaría DOS VECES, en silencio — medido contra prod: el
+        //    motor vería 17 bonos donde hoy ve 14.
+        //  · `activo`: un bono apagado existe para conservar su configuración, no para pagar.
+        //    Los tres criterios del objetivo nacen apagados justamente así.
         trx('commercial.commission_bonuses')
-          .where({ scale_id: scale.id }).whereNull('deleted_at')
+          .where({ scale_id: scale.id, periodo: 'quincena', activo: true })
+          .whereNull('deleted_at')
           .select<Bonus[]>('beneficiario', 'nombre', 'metrica', 'comparador', 'umbral', 'monto',
             'route_code', 'gate_venta_min'),
         this.universo(trx, tenantId),
