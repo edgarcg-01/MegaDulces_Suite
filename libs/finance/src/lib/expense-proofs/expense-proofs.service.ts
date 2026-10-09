@@ -711,7 +711,7 @@ export class ExpenseProofsService {
 
   /**
    * Sube UN archivo a Cloudinary (comprobante/solicitud/evidencia). Se llama una
-   * vez por archivo para no rebasar el límite de body (hasta 6 × 10MB por form).
+   * vez por archivo para no rebasar el límite de body (hasta 6 × 20MB por form, `[GX.79]`).
    */
   async uploadFile(dataUri: string, role: string, sello?: { live?: boolean; captured_at?: string }): Promise<ProofFile> {
     const tenantId = this.tenantCtx.requireTenantId();

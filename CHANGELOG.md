@@ -17,6 +17,8 @@
 - API: `POST /logistics/guides/:id/complete`; la toma de Kepler rechaza tripulación u horario. Sin migraciones.
 - ⚠️ Hallazgo abierto como EMB.23: ningún flujo pasa una guía a «entregada», y Liquidaciones sólo cuenta las entregadas.
 
+### Changed — Finanzas › Gastos: la evidencia acepta archivos de hasta 20 MB (GX.79, 2026-10-09)
+- Levantar vale y el diálogo de evidencia aceptan archivos de hasta 20 MB (antes 10). La API de evidencia sube su límite a 32 MB para el archivo en base64.
 ### Added — Finanzas › Historial de levantamientos: filtros (GX.78, 2026-10-09)
 - Filtrar por **estado** (varios a la vez), **sucursal** y **quién levantó** (esta última sólo en «Todos»). Cada opción dice cuántos vales tiene.
 - El calendario, el total del mes y la lista del día abierto cuentan lo filtrado, y lo dicen contra el total: «58 de 392 levantamientos del mes».
@@ -167,6 +169,13 @@
 - Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+
+### Added — Productos nuevos: cuándo llegó y cómo se repartió (NP.16, 2026-10-09)
+- «Llegó a la empresa»: la fecha de la primera compra física en Kepler y en qué sucursales entró; avisa si el producto ya había entrado antes por un ajuste o un traspaso.
+- Unidades vendidas (cajas, paquetes, piezas, como las registró Kepler) en cada corte de 30, 60 y 90 días, y en el ranking de sucursales junto con la existencia de hoy.
+- Arriba de «Por sucursal»: lo que llegó en compras y cómo se repartió: lo que compró cada sucursal, lo que le llegó de otra, lo que mandó a otras y a rutas, y su existencia.
+- Todas las cantidades en cajas completas y lo demás en paquetes o piezas, según la ficha de cada sucursal; columna «Le llegó» en el ranking.
+- «Existencia en duda»: donde Kepler sumó paquetes como si fueran piezas, la sucursal ya no sale como agotada; se muestra lo que debería haber según el kardex y se recomienda contarla.
 
 ### Added — Productos nuevos: márgenes y dónde se mueve mejor (NP.15, 2026-10-08)
 - Tres márgenes por producto y por sucursal, sin IVA ni IEPS: de lista (la meta de la ficha de Kepler por la unidad que se vendió), real (con el costo que Kepler registró en cada venta) y sobre lo pagado (lo que costó en sus compras). Cada uno dice qué parte de la venta cubre.

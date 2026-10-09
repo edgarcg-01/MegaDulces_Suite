@@ -976,6 +976,52 @@ tabla espejo. El único que hay que sumar a la replicación es `kdvcontactos`.
 cliente* que la pantalla muestra en gris — el enganche prospecto→cliente al convertirlo. No hay
 ningún prospecto convertido con qué probarlo; **no construir la conversión sobre esto sin medirlo.**
 
+### 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09
+
+**`kdij` es la historia de movimientos de inventario por almacén** (2.1 M renglones, 635 MB). Decodificado
+contra un producto real y contra sus documentos:
+
+| columna | qué es |
+|---|---|
+| `sucursal` / `c1` | la rama / el almacén (`c1 = sucursal` = almacén principal; las rutas son `01-002`…) |
+| `c2` | siempre `1` (numérico) |
+| `c3` | el SKU |
+| `c4`-`c5`-`c6`-`c7` | el documento: género, naturaleza, tipo, serie (`X-A-40-1`, `U-D-10-2`…) |
+| `c8` / `c9` | folio / renglón |
+| `c10` | la fecha del movimiento |
+| `c11` / `c12` | cantidad y su unidad (la BASE que registró el renglón; puede cambiar de `PAQ` a `PZA` para el mismo SKU) |
+| `c30` | `E` entrada / `S` salida |
+| `c37`-`c41` | el documento de origen (`A-37` para la orden de entrada, `D-41` para la recepción de un traspaso) |
+
+⭐ **Se consulta por su llave** `(sucursal, c1, c2, c3)`: el barrido de la primera entrada de ~1,200 SKUs
+en las 9 sucursales tarda **0.8 s**. ⚠️ No hay índice por `c3` solo: sin fijar `sucursal`/`c1` es un
+recorrido completo.
+
+**La compra física es `X-A-40` (orden de entrada), no `X-A-20`.** La aplicación contable (`X-A-20`, la
+que leen `erp_goods_receipt_lines` y Productos nuevos para fechar la compra) llega días después: en 33
+de 1,207 productos nuevos el kardex trae una entrada anterior (en uno, 3 meses). Primeras entradas
+medidas: `X-A-40` 837 · `N-A-30` (ajuste) 97 · `U-A-50` (traspaso) 71 · otros 20 · sin kardex 182.
+
+**El reparto entre sucursales son dos documentos que cuadran:**
+
+| documento | dónde | qué es |
+|---|---|---|
+| `U-D-41` con destino (`kdm1.c10`) `TI###` | la que reparte | traspaso a otra sucursal |
+| `U-A-50` (origen `D-41`) | la que recibe | la recepción de ese traspaso |
+| `U-D-41` con destino `RUTA nn` / `RD nnn` | la que carga | carga a camión de ruta |
+| `U-D-41` con destino de cliente y `kdm1.c27 = 'TELEMARK'` | la que surte | **remisión de telemarketing**: se factura después como `U-D-8` a los mismos clientes → YA es venta |
+
+Medido en 30 días: 1,207 remisiones de telemarketing, 804 traspasos `TI`, 265 cargas a ruta, y nada más.
+En un producto, 26 cajas mandadas con `U-D-41 TI` = 26 cajas recibidas con `U-A-50`.
+⚠️ **No sumar las remisiones de telemarketing como reparto ni como venta aparte:** se cuentan dos veces.
+
+⛔ **La existencia (`kdil`) es la SUMA CRUDA del kardex, sin convertir rótulos.** Medido 2026-10-09 sobre los
+productos nuevos: en 4,781 de 4,959 plaza×producto (96.4%) `sum(kdil.c4 + c8 - c9)` = la suma de `kdij.c11` con
+signo por `c30`, sin mirar `c12`. Si la ficha cambia de unidad base (paquete → pieza), los renglones viejos quedan
+en el rótulo viejo y se suman como si fueran de la base nueva: 180 paquetes cuentan como 180 piezas. 173
+plaza×producto de 50 productos nuevos estaban así. Un ajuste de inventario (`N-A-30` / `N-D-30`) posterior lo
+corrige (fija la existencia por conteo). Productos nuevos lo declara como «existencia en duda» (`[NP.16]`).
+
 ---
 
 ## 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods`

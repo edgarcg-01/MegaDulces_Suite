@@ -4307,6 +4307,21 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.79] · la evidencia de un gasto acepta archivos de hasta 20 MB — 2026-10-09
+
+- [x] **[GX.79]** 🧪 Pedido: *«lo máximo que aceptamos cuando suben las pruebas es de 10 MB, hay que aumentarlo a
+  20 MB»*. El tope vivía en TRES lugares y bastaba uno atrás para que el archivo rebotara: la **pantalla** (Levantar
+  vale y el diálogo de evidencia, `10 * 1024 * 1024` a mano), la **API** (`json({ limit: '16mb' })` en
+  `/api/finance/expenses/proofs`: el archivo viaja en base64, ~4/3 de su peso, así que 16mb ya no dejaba pasar ~12 MB)
+  y el **proxy** (`nginx.conf`, `client_max_body_size 32m`, que ya alcanzaba; Caddy no pone tope). Ahora el número
+  vive una vez (`MAX_ARCHIVO_GASTO_BYTES`, `archivo-gasto.contract.ts`), las dos pantallas lo usan y la API sube a
+  `32mb`. Candado `limite-archivo-gasto.spec.ts`: LEE `main.ts` y `nginx.conf` y falla si no dejan pasar 20 MB en
+  base64 (con 16mb, en rojo). No toca la página de captura por enlace (sólo sube fotos de la cámara, reducidas a
+  1600 px) ni la ruta de comprobaciones (ninguna pantalla sube archivos ahí). Una foto de más de ~5 MB no la lee la
+  visión (límite del modelo): el vale entra igual con el aviso «no se pudo leer», como ya pasaba entre 5 y 10 MB.
+  Pruebas: Finanzas (view) 660/660 · finance expense-proofs 213/213 · contratos 496/496 · mutación (tope en 10) en rojo.
+- [ ] **[GX.79.p]** Redeploy api+view (sin migración ni re-login).
+
 ### 🔨 [GX.73] · el vale se veía en una fase anterior a la de Kepler — 2026-10-07
 
 - [x] **[GX.73]** 🧪 Reporte: *«a los usuarios les tarda mucho cuando el estatus de su vale cambia, aún lo ven en
@@ -9879,6 +9894,7 @@ Plan y decisiones en [`FASE_NP_PRODUCTOS_NUEVOS.md`](FASES/FASE_NP_PRODUCTOS_NUE
 - [x] 🧪 `[NP.13]` Sólo Kepler y en vivo las 24 h: mig `20261008091317` (primera venta de `mv_kepler_sales_daily`, corte en lo que esa matvista tiene cerrado, lanzamientos detectados en vivo, historia por sucursal según `v_branch_erp_cutover`); refresco cada 30 min sin JIT (4.8 s → 70 ms en local). Pendiente: medir el refresco en prod fuera de horario.
 - [x] ✅ `[NP.14]` (en prod 2026-10-08: aplicada y primer llenado en ~77 s) El primer cálculo de la matvista en prod no terminaba (plan cuadrático: la serie por sucursal se unía con un ciclo anidado sobre estimaciones de 1 fila). Mig `20261008111426`: series buscando cada día en un mapa, sin unir tablas; `fn_new_products_movimientos` a `plpgsql` con `force_custom_plan` (misma consulta, leída de `pg_proc`). Servicio: tope de 3 min al REFRESH y una matvista vacía no espera su cadencia. Mismo resultado (147 filas, 0 diferencias), candado 134/134. Pendiente: aplicar la mig en prod y medir el refresco.
 - [x] 🧪 `[NP.15]` Los tres márgenes (de lista por peldaño vendido, real con `kdm2.c62`, sobre lo pagado por unidad base) con su cobertura, y dónde se mueve mejor (venta neta por día desde que llegó a cada sucursal; mínimo 7 días). Mig `20261008131320`. Candado 145/145 con segunda implementación y prueba negativa. Hallazgos: compra neta y venta bruta; `'?'` literal convertido por knex a `'$1'` en la matvista de prod; "venta por cada peso invertido" inflado por el impuesto (sin resolver); $230 sin explicar contra `mv_erp_margin_daily` en la 05.
+- [x] 🧪 `[NP.16]` Cuándo llegó a la empresa (barrido del kardex `kdij`: primera orden de entrada `X-A-40` y dónde, y aviso si entró antes por ajuste o traspaso), unidades vendidas en 30·60·90, vendido y existencia en el ranking, y el reparto entre sucursales (traspasos `U-A-50`, salidas `U-D-41` a `TI`/ruta; sin las remisiones de telemarketing, que ya son venta). Mig `20261009085241`. Candado 154/154 con segunda implementación y negativa. Abierto: fechar el lanzamiento con `X-A-40` (33 productos) y los 97 que entran primero por ajuste. Después: todo en cajas completas y lo demás en paquetes o piezas (escalera de `/compras/pedido` movida a `libs/contracts`), columna «Le llegó», y **existencia en duda**: Kepler suma el kardex sin convertir rótulos (96.4%), 173 plaza×producto de 50 productos nuevos sumaron paquetes como piezas; la sucursal en duda no se da por agotada y se manda a contar.
 - [x] 🧪 `[NP.14]` El primer cálculo de la matvista en prod no terminaba (plan cuadrático: la serie por sucursal se unía con un ciclo anidado sobre estimaciones de 1 fila). Mig `20261008111426`: series buscando cada día en un mapa, sin unir tablas; `fn_new_products_movimientos` a `plpgsql` con `force_custom_plan` (misma consulta, leída de `pg_proc`). Servicio: tope de 3 min al REFRESH y una matvista vacía no espera su cadencia. Mismo resultado (147 filas, 0 diferencias), candado 134/134. Pendiente: aplicar la mig en prod y medir el refresco.
 
 ---

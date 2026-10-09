@@ -7,6 +7,7 @@ import {
   NewProductSource,
   Senales,
   armarProducto,
+  llegadaDe,
   margenesDe,
   ocultarCostoPlazas,
   construirCohortes,
@@ -14,12 +15,15 @@ import {
   esKindValido,
   estadoDe,
   etapaDe,
-  existenciaMayor,
+  escaleraComun,
+  escaleraDeFicha,
+  existenciaEnDuda,
   ocultarCosto,
   porSemana,
   recomendar,
   serieDiaria,
   sumarDias,
+  tipoEntradaTexto,
 } from './new-products';
 
 /**
@@ -147,7 +151,7 @@ describe('armarProducto — global', () => {
   it('hitos: un hito que todavía no llega no está cerrado', () => {
     const { fila } = armarProducto(fuente({ dias: 45 }), HOY, [], []);
     expect(fila.dia).toBe(45);
-    expect(fila.hitos[30]).toEqual({ cerrado: true, inversion: 2000, venta: 3000 });
+    expect(fila.hitos[30]).toEqual({ cerrado: true, inversion: 2000, venta: 3000, unidades: {} });
     expect(fila.hitos[60].cerrado).toBe(false);
   });
 
@@ -207,7 +211,7 @@ describe('armarProducto — por sucursal', () => {
     expect(p03.recomendacion.veredicto).toBe('recomprar');
     expect(p03.recomendacion.motivos.join(' ')).toContain('Se agotó');
     expect(p05.existencia_unidad).toBe('PZA');
-    expect(p05.existencia_mayor).toEqual({ unidad: 'CJA', cantidad: 3 });
+    expect(p05.existencia_duda).toBeNull();
   });
 
   it('cada plaza cuenta sus días desde SU primera actividad', () => {
@@ -276,31 +280,83 @@ describe('unidades de Kepler (NP.11)', () => {
   });
 });
 
-describe('existencia en la unidad mayor de cada plaza', () => {
-  const ex = { product_id: 'p1', plaza: '03', cantidad: 36, factor: 1 };
+describe('[NP.16] la escalera de cada plaza y la existencia en duda', () => {
+  // 96087 Kinder Delice, ficha real: paquete de 10 y caja de 60 (el factor del costo trae decimales).
+  const KINDER = { u1: 'PZA', u2: 'PAQ', u3: 'CJA', f2: '9.9961', f3: '59.9786', uxc: '60.00' };
+  const esc = escaleraDeFicha(KINDER)!;
 
-  it('Kepler: el peldaño mayor de la ficha de ESA plaza', () => {
-    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'PAQ', factor_mayor: 12 }))
-      .toEqual({ unidad: 'PAQ', cantidad: 3 });
+  it('la ficha de la plaza da su escalera, con la misma regla que /compras/pedido', () => {
+    expect(esc.map((e) => `${e.rotulo}×${e.factor}`)).toEqual(['PZA×1', 'PAQ×10', 'CJA×60']);
+    expect(escaleraDeFicha({})).toBeNull();
+    expect(escaleraDeFicha({ u1: 'KG', u2: 'KG', u3: 'KG', uxc: 1 })!.map((e) => e.rotulo)).toEqual(['KG']);
   });
 
-  it('⛔ sin ficha, o con una sola unidad, NO se inventa la caja', () => {
-    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: null, unidad_mayor: null, factor_mayor: null })).toBeNull();
-    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'PZA', factor_mayor: 1 })).toBeNull();
-    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'CJA', factor_mayor: null })).toBeNull();
+  it('la escalera del producto: la común a sus plazas, o ninguna si difieren', () => {
+    const otra = escaleraDeFicha({ ...KINDER, uxc: '120.00', f3: '119.9' })!;
+    expect(escaleraComun([esc, null, escaleraDeFicha(KINDER)])).toEqual(esc);
+    expect(escaleraComun([esc, otra])).toBeNull();
+    expect(escaleraComun([null])).toBeNull();
   });
 
-  it('Wincaja: el divisor de presentación (ADR-055), y la base queda sin rótulo de Kepler', () => {
-    expect(existenciaMayor({ ...ex, cantidad: 50, factor: 10, fuente: 'wincaja', unidad: 'PZA' }))
-      .toEqual({ unidad: 'CJA', cantidad: 5 });
-    const { plazas } = armarProducto(fuente(), HOY, [], [{ ...ex, cantidad: 50, factor: 10, fuente: 'wincaja', unidad: 'PZA' }]);
-    expect(plazas[0].existencia_unidad).toBeNull();
-    expect(plazas[0].existencia_fuente).toBe('wincaja');
+  it('⭐ Canindo: Kepler dice -3 (agotado), pero sumó 167 paquetes como piezas: deberían ser 1,500', () => {
+    const k = { u: { PAQ: { q: 167, ult: '2026-09-19' }, PZA: { q: -170, ult: '2026-10-08' } }, crudo: -3, kdil: -3 };
+    expect(existenciaEnDuda(k, esc)).toEqual({ kepler: -3, estimada: 1500, base: 'PZA', otros: ['PAQ'] });
+    // Morelia: 334 en Kepler, 1,918 convirtiendo los 176 paquetes netos.
+    const m = { u: { PAQ: { q: 176, ult: '2026-09-19' }, PZA: { q: 158, ult: '2026-10-08' } }, crudo: 334, kdil: '334.000' };
+    expect(existenciaEnDuda(m, esc)?.estimada).toBe(1918);
   });
 
-  it('una fracción de caja se dice con un decimal', () => {
-    expect(existenciaMayor({ ...ex, cantidad: 24, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'CJA', factor_mayor: 30 }))
-      .toEqual({ unidad: 'CJA', cantidad: 0.8 });
+  it('⛔ un conteo físico DESPUÉS de los renglones viejos fija la existencia: se le cree (8 Esquinas)', () => {
+    const k = { u: { PAQ: { q: 30, ult: '2026-09-19' }, PZA: { q: 156, ult: '2026-10-09' } }, crudo: 186, kdil: 186, aj: '2026-09-22' };
+    expect(existenciaEnDuda(k, esc)).toBeNull();
+    // Un ajuste ANTERIOR no corrige nada.
+    expect(existenciaEnDuda({ ...k, aj: '2026-09-01' }, esc)?.estimada).toBe(456);
+  });
+
+  it('⛔ sin renglones en otro rótulo, o si Kepler no sumó crudo, no se acusa', () => {
+    expect(existenciaEnDuda({ u: { PZA: { q: 40 } }, crudo: 40, kdil: 40 }, esc)).toBeNull();
+    expect(existenciaEnDuda({ u: { PAQ: { q: 4, ult: '2026-09-19' }, PZA: { q: 36 } }, crudo: 40, kdil: 76 }, esc)).toBeNull();
+    expect(existenciaEnDuda({ u: { PAQ: { q: 4 }, PZA: { q: 36 } }, crudo: 40 }, esc)).toBeNull();
+    expect(existenciaEnDuda({ u: { PAQ: { q: 4 } }, crudo: 4, kdil: 4 }, null)).toBeNull();
+    // CAJA y CJA valen lo mismo en una ficha de cajas: no hay nada que corregir.
+    const cajas = escaleraDeFicha({ u1: 'CJA', uxc: 1 });
+    expect(existenciaEnDuda({ u: { CAJA: { q: 4 }, CJA: { q: 2 } }, crudo: 6, kdil: 6 }, cajas)).toBeNull();
+  });
+
+  it('un rótulo que no se puede convertir: en duda, pero sin estimada (no se inventa)', () => {
+    const k = { u: { '500': { q: 3, ult: '2026-09-19' }, PZA: { q: 10 } }, crudo: 13, kdil: 13 };
+    expect(existenciaEnDuda(k, esc)).toEqual({ kepler: 13, estimada: null, base: 'PZA', otros: ['500'] });
+  });
+
+  it('⭐ armarProducto: la plaza en duda NO se da por agotada, decide la estimada y se manda a contar', () => {
+    const f = fuente({
+      dias: 45,
+      venta_por_plaza: { '03': new Array(45).fill(100), '06': new Array(45).fill(80) },
+      escalera_plaza: { '03': KINDER, '06': KINDER },
+      kardex_plaza: { '06': { u: { PAQ: { q: 167, ult: '2026-09-19' }, PZA: { q: -170, ult: '2026-10-06' } }, crudo: -3, kdil: -3 } },
+    });
+    const { fila, plazas } = armarProducto(f, HOY, [], [
+      { product_id: 'p1', plaza: '03', cantidad: 60, factor: 1, fuente: 'kepler', unidad: 'PZA' },
+      { product_id: 'p1', plaza: '06', cantidad: 0, factor: 1, fuente: 'kepler', unidad: 'PZA' },
+    ]);
+    const p06 = plazas.find((p) => p.plaza === '06')!;
+    expect(p06.existencia).toBe(0);
+    expect(p06.existencia_duda?.estimada).toBe(1500);
+    expect(p06.escalera?.map((e) => e.rotulo)).toEqual(['PZA', 'PAQ', 'CJA']);
+    expect(p06.recomendacion.motivos.join(' ')).not.toContain('Se agotó');
+    expect(fila.agotado_en).toBe(0);
+    expect(fila.plazas_con_existencia).toBe(2);
+    expect(fila.existencia_en_duda).toBe(1);
+    expect(fila.escalera?.map((e) => e.factor)).toEqual([1, 10, 60]);
+    // La plaza sin duda conserva la existencia de Kepler.
+    expect(plazas.find((p) => p.plaza === '03')!.existencia_duda).toBeNull();
+  });
+
+  it('[negativa] sin el kardex, la misma plaza SÍ sale agotada (lo que la pantalla decía antes)', () => {
+    const f = fuente({ dias: 45, venta_por_plaza: { '06': new Array(45).fill(80) }, escalera_plaza: { '06': KINDER } });
+    const { fila } = armarProducto(f, HOY, [], [{ product_id: 'p1', plaza: '06', cantidad: 0, factor: 1, fuente: 'kepler', unidad: 'PZA' }]);
+    expect(fila.agotado_en).toBe(1);
+    expect(fila.existencia_en_duda).toBe(0);
   });
 });
 
@@ -464,5 +520,75 @@ describe('[NP.15] dónde se mueve mejor', () => {
     const ps = ocultarCostoPlazas(plazas);
     expect(ps.every((x) => x.margenes === null)).toBe(true);
     expect(ps.find((x) => x.plaza === '05')!.movimiento.lugar).toBe(1);
+  });
+});
+
+/** `[NP.16]` Cuándo llegó, las unidades de cada corte y el reparto entre sucursales. */
+describe('[NP.16] llegada a la empresa', () => {
+  const nombres = new Map([['01', 'Padre Hidalgo'], ['06', 'Canindo'], ['08', 'Morelia Abastos']]);
+
+  it('sale del kardex: la primera compra física y dónde entró ese día', () => {
+    const ll = llegadaDe({ llegada: { compra: '2026-09-18', compra_plazas: ['06', '01'], entrada: '2026-09-18', entrada_doc: 'X-A-40' },
+      primera_recepcion: '2026-09-20', entradas: [] }, [], nombres)!;
+    expect(ll.fecha).toBe('2026-09-18');
+    expect(ll.fuente).toBe('kardex');
+    expect(ll.sucursales).toEqual([{ plaza: '01', nombre: 'Padre Hidalgo' }, { plaza: '06', nombre: 'Canindo' }]);
+    expect(ll.antes).toBeNull();
+  });
+
+  it('⛔ si entró ANTES por otro camino, se dice cuándo y por qué documento', () => {
+    const ll = llegadaDe({ llegada: { compra: '2026-07-09', compra_plazas: ['01'], entrada: '2026-01-29', entrada_doc: 'N-A-30' },
+      primera_recepcion: null, entradas: [] }, [], nombres)!;
+    expect(ll.antes).toEqual({ fecha: '2026-01-29', tipo: 'ajuste de inventario' });
+  });
+
+  it('sin compra en Kepler: la fecha va vacía y se dice por dónde entró', () => {
+    const ll = llegadaDe({ llegada: { compra: null, compra_plazas: [], entrada: '2026-09-22', entrada_doc: 'U-A-50' },
+      primera_recepcion: null, entradas: [] }, [], nombres)!;
+    expect(ll.fecha).toBeNull();
+    expect(ll.antes).toEqual({ fecha: '2026-09-22', tipo: 'traspaso de otra sucursal' });
+    expect(tipoEntradaTexto('U-A-25')).toBe('otro movimiento (U-A-25)');
+  });
+
+  it('sin kardex: la compra aplicada, y si tampoco hay, nada (no se inventa)', () => {
+    const ll = llegadaDe({ llegada: {}, primera_recepcion: '2026-09-03', entradas: [{ f: '2026-09-03', p: '08', i: 100 }] }, [], nombres)!;
+    expect(ll).toMatchObject({ fecha: '2026-09-03', fuente: 'compra_aplicada', sucursales: [{ plaza: '08', nombre: 'Morelia Abastos' }] });
+    expect(llegadaDe({ llegada: {}, primera_recepcion: null, entradas: [] }, [], nombres)).toBeNull();
+  });
+});
+
+describe('[NP.16] unidades por corte y reparto', () => {
+  it('las unidades de cada corte: la historia + lo de hoy sólo si hoy cae dentro del tramo', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'venta', plaza: '03', fecha: HOY, importe: 50, unidad: 'PZA', cantidad: 4 }];
+    const { fila } = armarProducto(fuente({
+      dias: 45,
+      venta_unidades_hito: { '30': { CJA: 2 }, '60': { CJA: 3, PZA: 10 }, '90': { CJA: 3, PZA: 10 } },
+    }), HOY, vivo, []);
+    expect(fila.hitos[30].unidades).toEqual({ CJA: 2 });            // hoy (día 45) ya no es del tramo de 30
+    expect(fila.hitos[60].unidades).toEqual({ CJA: 3, PZA: 14 });   // sí del de 60
+  });
+
+  it('⭐ por sucursal: lo que le llegó de otra y lo que mandó a otras y a rutas; una que sólo recibió también aparece', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'traspaso', plaza: '05', fecha: HOY, importe: 0, unidad: 'CJA', cantidad: 1 }];
+    const { plazas } = armarProducto(fuente({
+      reparto: {
+        '03': { salida_sucursal: { CJA: 5 }, salida_ruta: { PAQ: 4 } },
+        '04': { traspaso: { CJA: 2 }, desde: sumarDias(HOY, -10) },
+      },
+    }), HOY, vivo, []);
+    const p = (c: string) => plazas.find((x) => x.plaza === c)!;
+    expect(p('03')).toMatchObject({ enviado_sucursales: { CJA: 5 }, enviado_rutas: { PAQ: 4 }, recibido_traspaso: {} });
+    // La 04 no vendió ni compró: está por el traspaso, y sus días cuentan desde que le llegó.
+    expect(p('04')).toMatchObject({ recibido_traspaso: { CJA: 2 }, primera_actividad: sumarDias(HOY, -10), dia: 10 });
+    // Lo de hoy también se suma.
+    expect(p('05').recibido_traspaso).toEqual({ CJA: 1 });
+  });
+
+  it('⛔ un traspaso no es un lanzamiento: el producto sin historia sigue "sin movimiento"', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'traspaso', plaza: '05', fecha: HOY, importe: 0, unidad: 'CJA', cantidad: 1 }];
+    const { fila } = armarProducto(fuente({ lanzamiento: null, sin_movimiento: true, venta_dia: [], venta_por_plaza: {}, entradas: [] }),
+      HOY, vivo, []);
+    expect(fila.lanzamiento).toBeNull();
+    expect(fila.estado).toBe('sin_movimiento');
   });
 });
