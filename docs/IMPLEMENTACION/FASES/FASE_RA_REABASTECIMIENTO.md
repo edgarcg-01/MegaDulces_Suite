@@ -1048,3 +1048,78 @@ una prohíbe. Corregido en el consejo del gate, commit `6a1546ea8`, ajeno a esta
 - El tramo `no_vende` depende de que `sells_to_public` esté bien capturado. Hoy el único `false` es
   el CEDIS; si mañana una ruta o una bodega se marca mal, su inventario se declara "sin medir"
   cuando sí se podía medir. **Es un dato de captura, no derivado.**
+
+---
+
+## RA.CAP — La deuda del proveedor, al momento de pedirle (2026-10-09) 🧪
+
+Punto 3 de los tres de Edgar: *"el pedido en algún momento se hará bajo análisis también el
+presupuesto de pago y capacidad de pago"*.
+
+### ⛔ La capacidad de pago NO existe, y es un bloqueo humano
+
+Medido contra prod el 2026-10-09:
+
+| tabla | filas | |
+|---|---:|---|
+| `budget.daily_capacity` | 22 | **sólo septiembre 2026** — al 9 de octubre está vencida |
+| `budget.expense_obligations` | 312 | (subió de 0: alguien la empezó a poblar) |
+| `finance.payment_calendar_lots` | **0** | |
+| `finance.financial_commitments` | **0** | |
+| `commercial.supplier_payment_obligations` | **0** | la de Compras, la que haría falta acá |
+
+**Nadie captura cuánto se puede pagar por día**, así que el pedido no se puede condicionar a eso.
+⭐ Dibujar un tope con una capacidad inventada sería **peor** que no tenerlo: daría una cifra que
+parece medida. Queda declarado con dueño — es decisión de Finanzas/Dirección, no de código.
+
+### ⭐ Pero la otra mitad SÍ tiene dato
+
+Lo que YA le debemos a cada proveedor vive en Kepler y la **Fase ECA** lo lee desde el 2026-10-07.
+Medido ahora: **$164,922,961 pendiente · $133,163,172 vencido (80.7%)** en 402 acreedores, en
+**231–251 ms**.
+
+Y el cruce con el proveedor del pedido funciona: **274 de los 281 proveedores que aparecen en el
+pedido (97.5%) casan con su acreedor** por `catalog.suppliers.code` = `kdxd.c2`. (Sobre el catálogo
+entero son 733 de 997, 73.5% — los que importan están mucho mejor cubiertos que el promedio.)
+
+⇒ `GET /finance/creditor-statements/por-proveedor` y un renglón en `/compras/pedido`:
+**«Le debemos $480,000 · $310,000 vencido»**. No decide por el comprador: le pone enfrente que le
+va a pedir medio millón a alguien a quien ya le debe dos vencidos.
+
+### Tres decisiones que valen la pena
+
+1. ⭐⭐ **Reusa `resumen()`, no una consulta nueva.** Si la deuda se calculara dos veces, Compras y
+   Finanzas publicarían números distintos del mismo proveedor y nadie sabría cuál creer. Lo único
+   que cambia es el ANCHO: viaja el saldo, **nunca** el detalle de documentos, ni el RFC, ni las
+   sucursales. El estado de cuenta completo sigue siendo sólo de Finanzas.
+2. **El permiso se abre a `COMPRAS_PEDIDO_VER`** además del de Pagos. Un comprador no tiene permiso
+   de Finanzas, y sin esto el panel le llegaría vacío **sin decir por qué** — indistinguible de "no
+   le debemos nada". Es la trampa de `[EX.7]`, otra vez.
+3. ⛔ **Las tres ausencias son distintas y se tratan distinto**: *sin proveedor elegido* (no se
+   muestra nada), *proveedor sin acreedor* (se DECLARA: «su deuda no se midió», 7 de 281) y *la
+   llamada falló* (silencio, ni debe ni no debe — mostrar «sin acreedor» ahí sería mentir con cara
+   de dato).
+
+### Candado
+
+`deuda-por-proveedor.spec.ts` (12) + 7 aserciones nuevas en el spec de la pantalla, que sube a 41.
+**Mutado a rojo** dos veces: abriendo `:codigo` a Compras, y haciendo que `deudaSinCruce()` devuelva
+siempre `false`.
+
+⛔⛔ **El candado nació roto por TERCERA vez con el mismo defecto**: el bloque de una ruta llega
+hasta el decorador siguiente y se traga el **JSDoc de la que viene** — que, siendo el comentario que
+explica la regla, nombra justo las palabras que la negativa busca. Pasó en
+`requisicion.autorizar.spec.ts`, en `existencia.filtros.spec.ts` y acá. ⭐ Esta vez el arreglo no
+fue mover el corte sino **medir código y no redacción** (`sinComentarios()`).
+
+Y dos aserciones más eran mías y estaban mal planteadas: buscaban `kdxe` y `documentos` como
+cadenas, pero esas palabras viven en los textos de `@ApiOperation` —que son **código**, no
+comentario— puestos ahí a propósito para que la documentación diga de dónde sale el dato.
+**Nombrar una tabla no es consultarla**: ahora se verifica que el controlador no ejecute ningún
+`.raw(` ni `SELECT`, y que el objeto que ARMA no lleve el detalle.
+
+### Abierto
+
+- ⛔ **La capacidad de pago**: quién la carga y con qué criterio. Sin eso, el punto 3 queda a medias
+  a propósito.
+- Los 7 proveedores sin acreedor (2.5%) se declaran en pantalla, pero nadie los está conciliando.

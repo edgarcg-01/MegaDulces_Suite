@@ -3220,7 +3220,10 @@ export class CommercialReplenishmentService {
         .where('rp.tenant_id', tenantId)
         // `[RA-DYN.U3]` El monto minimo viaja al lado del de cajas, que ya estaba aca (RA-PRO.66).
         // Es dato del PROVEEDOR: ponerlo en cada fila del workbook lo repetiria ~33 mil veces.
-        .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes',
+        // `[RA.CAP]` `code` viaja para poder cruzar al acreedor de Kepler y mostrar lo que YA se le
+        // debe. Es la MISMA clave que usa el estado de cuenta (`kdxd.c2`): 274 de los 281
+        // proveedores que aparecen en el pedido casan (97.5%, medido 2026-10-09).
+        .distinct('sup.id as id', 'sup.name as name', 'sup.code as code', 'sup.min_order_boxes as min_order_boxes',
           'sup.min_order_amount as min_order_amount').orderBy('sup.name');
       // Marcas con productos en política (mismo patrón que proveedores) — para el filtro de /compras/pedido.
       // OJO: la columna de catalog.brands es `nombre`, NO `name` (b.name tiraba 42703 → /filters 500,
