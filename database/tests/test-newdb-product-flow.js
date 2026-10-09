@@ -174,6 +174,68 @@ function periodosJs(hoy) {
       const todos = (await trx.raw(SQL.LOTES_CADUCIDAD_SQL, [null, null])).rows;
       check('sin ids trae todos los productos con lote (para "Para cuidar hoy")', todos.some((l) => l.lote === 'PF3-A'));
     }
+
+    console.log('\n── 7. [PF.5] Margen de la tabla (matvista) = el de la función de Productos nuevos ──');
+    // Dos implementaciones del mismo margen: la lista suma mv_erp_margin_daily; el detalle, la función.
+    // Medido en prod el 2026-10-09: por sucursal coinciden al centavo hasta ayer.
+    await trx.raw('SAVEPOINT pf5');
+    let refresco = null;
+    try { await trx.raw('REFRESH MATERIALIZED VIEW analytics.mv_erp_margin_daily'); await trx.raw('RELEASE SAVEPOINT pf5'); }
+    catch (e) { refresco = e.message; await trx.raw('ROLLBACK TO SAVEPOINT pf5'); }
+    if (refresco) console.log(`  · la matvista no se pudo refrescar aquí (${refresco.slice(0, 80)}): se mide con lo que tenga`);
+    const desdeM = dia(hoy, -30);
+    const lista = (await trx.raw(SQL.MARGEN_LISTA_SQL, [desdeM, hoy, ids])).rows;
+    if (!lista.length) {
+      console.log('  · NO MEDIDO: la matvista de margen no trae venta de los productos sembrados en esta base');
+    } else {
+      const malas = [];
+      for (const r of lista) {
+        const sku = productos.find((x) => x.product_id === r.product_id).sku;
+        const fn = (await trx.raw(SQL.MARGEN_DETALLE_SQL, [esc.TENANT, sku, desdeM, dia(hoy, -1)])).rows.filter((x) => x.tipo === 'venta');
+        const suma = (k) => n(fn.reduce((a, x) => a + Number(x[k] ?? 0), 0));
+        if (Math.abs(n(r.n) - suma('n')) > 0.05 || Math.abs(n(r.nc) - suma('nc')) > 0.05 || Math.abs(n(r.c) - suma('c')) > 0.05) {
+          malas.push({ sku, lista: r, fn: { n: suma('n'), nc: suma('nc'), c: suma('c') } });
+        }
+      }
+      check(`venta neta, con costo y costo coinciden (${lista.length} productos)`, malas.length === 0, malas.slice(0, 3));
+    }
+
+    console.log('\n── 8. [PF.4] Los que no se venden: las reglas de la consulta ──');
+    // Un producto del catálogo SIN venta en el año, con existencia sembrada en la 04 (se revierte al final).
+    const quieto = (await trx.raw(`
+      SELECT p.id::text AS id, p.sku FROM catalog.products p
+       WHERE p.tenant_id = ? AND p.deleted_at IS NULL AND p.sku ~ '^[0-9]{5}$'
+         AND NOT EXISTS (SELECT 1 FROM analytics.mv_kepler_sales_daily s WHERE s.product_id = p.id)
+         AND NOT EXISTS (SELECT 1 FROM kepler_ods.kdil k WHERE btrim(k.c3) = p.sku)
+       LIMIT 1`, [esc.TENANT])).rows[0];
+    if (quieto) {
+      await trx.raw('SAVEPOINT pf4');
+      try {
+        await trx.raw(`INSERT INTO kepler_ods.kdil (sucursal, c1, c2, c3, c4, c8, c9) VALUES ('04', '04', 1, ?, 50, 0, 0)`, [quieto.sku]);
+        await trx.raw('RELEASE SAVEPOINT pf4');
+      } catch (e) {
+        await trx.raw('ROLLBACK TO SAVEPOINT pf4');
+        console.log(`  · no se pudo sembrar existencia (${e.message.slice(0, 80)})`);
+      }
+    }
+    const nv = (await trx.raw(SQL.NO_SE_VENDEN_SQL, [dia(hoy, -365), 30, 90, 500])).rows;
+    if (quieto) {
+      check('⭐ el producto con existencia y sin venta aparece, sin fecha de última venta', nv.some((x) => x.product_id === quieto.id && x.dias === null && n(x.existencia) === 50),
+        nv.filter((x) => x.product_id === quieto.id));
+    }
+    if (!nv.length) {
+      console.log('  · NO MEDIDO: ningún producto con existencia y sin venta en esta base');
+    } else {
+      check(`todos llevan 30 días o más sin venderse, o no vendieron en el año (${nv.length})`,
+        nv.every((x) => x.dias === null || Number(x.dias) >= 30), nv.filter((x) => x.dias !== null && Number(x.dias) < 30).slice(0, 3));
+      check('todos tienen existencia', nv.every((x) => n(x.existencia) > 0));
+      check('primero lo de más dinero detenido', nv.every((x, i) => i === 0 || n(nv[i - 1].valor) >= n(x.valor)));
+      const vendidos = new Set(productos.map((x) => x.product_id));
+      const conVenta = (await trx.raw(`SELECT DISTINCT product_id::text AS id FROM analytics.mv_kepler_sales_daily
+        WHERE business_date >= current_date - 29 AND units > 0 AND product_id = ANY(?::uuid[])`, [ids])).rows.map((r) => r.id);
+      check('[negativa] un producto que vendió en los últimos 30 días no aparece',
+        conVenta.length > 0 && conVenta.every((id) => !nv.some((x) => x.product_id === id)), { conVenta: conVenta.length, sembrados: vendidos.size });
+    }
   } catch (e) {
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);

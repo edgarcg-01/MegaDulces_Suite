@@ -210,6 +210,11 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Added — Productos: lo que no se vende y márgenes (PF.4/PF.5, 2026-10-09)
+- «Para cuidar hoy» queda en dos lados: **Líderes** (todos, en orden de venta, con su venta del mes, lo que piden y su margen) y **No se venden** (con existencia y sin venta en la red en 30 días o más, primero lo de más dinero detenido; filtro por tramo y «Caducan antes de venderse»).
+- Columna «Margen 30 d» en la tabla de Productos y, al abrir un producto, los tres márgenes de Productos nuevos (de lista, real y sobre lo pagado) en total y por sucursal. Sólo con permiso de costo.
+- Fixed: productos con el costo vacío en la ficha de Kepler hacían fallar la consulta de costo.
+
 ### Added — Productos: líderes y caducidad (PF.2/PF.3, 2026-10-09)
 - Arriba de la tabla, «Para cuidar hoy»: los líderes (los productos que juntos hacen la mitad de la venta de la red en 90 días) que piden atención, primero lo que más se deja de vender por día, con filtro por motivo (agotado, comprar, mover, se frenó); y los productos con lotes que caducan antes de venderse.
 - Cada líder lleva su marca en la tabla y en el producto; a un líder se le recomienda comprar con 21 días de inventario en vez de 15.

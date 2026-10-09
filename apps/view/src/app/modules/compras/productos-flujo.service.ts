@@ -33,6 +33,54 @@ export interface CriterioFlujo {
   lideresCorte: number;
   coberturaComprarLider: number;
   caducidadAviso: number;
+  diasSinVenta: number;
+  ventanaSinVenta: number;
+  ventanaNuevos: number;
+  limiteNoSeVenden: number;
+  ventanaMargen: number;
+}
+
+/** `[PF.5]` Un margen con lo que alcanza a cubrir (la forma de `[NP.15]`). */
+export interface Margen {
+  pct: number | null;
+  utilidad: number | null;
+  cobertura: number | null;
+  nota: string | null;
+}
+
+export interface Margenes {
+  venta_neta: number;
+  lista: Margen;
+  real: Margen;
+  pagado: Margen;
+  costo_pagado: { unidad: string; por_unidad: number } | null;
+}
+
+export interface MargenesProducto {
+  product_id: string;
+  desde: string;
+  hasta: string;
+  dias: number;
+  total: Margenes | null;
+  plazas: Array<{ plaza: string; nombre: string | null; margenes: Margenes }>;
+}
+
+export type TramoSinVenta = 'mes' | 'trimestre' | 'anio';
+
+/** `[PF.4]` Un producto con existencia que no se vende. */
+export interface NoSeVende {
+  product_id: string;
+  sku: string;
+  nombre: string | null;
+  existencia: number;
+  valor: number | null;
+  valor_incompleto: boolean;
+  plazas: Array<{ plaza: string; nombre: string | null }>;
+  ultima_venta: string | null;
+  dias_sin_venta: number | null;
+  tramo: TramoSinVenta;
+  escalera: UnidadEscalera[] | null;
+  caducidad: CaducidadResumen | null;
 }
 
 /** `[PF.2]` Lugar en la venta de la red en 90 días. */
@@ -109,6 +157,8 @@ export interface FlujoResumen {
   compra: AnalisisCompra;
   lider: Lider | null;
   caducidad: CaducidadResumen | null;
+  /** `[PF.5]` Margen real de los últimos días cerrados. Sólo con permiso de costo. */
+  margen_real?: Margen | null;
 }
 
 export interface FlujoLista {
@@ -189,7 +239,8 @@ export interface CuidarRespuesta {
   en_vivo_al: string;
   costo_visible: boolean;
   criterio: CriterioFlujo;
-  lideres: { total: number; calculado: string | null; piden_atencion: ProductoACuidar[]; por_motivo: Record<MotivoLider, number> };
+  lideres: { total: number; calculado: string | null; lista: ProductoACuidar[]; por_motivo: Record<MotivoLider, number> };
+  no_se_venden: { nuevos_excluidos: boolean; total: number; valor_total: number | null; por_tramo: Record<TramoSinVenta, number>; productos: NoSeVende[] };
   caducidad: {
     productos: ProductoACuidar[];
     cobertura: { lotes: number; productos: number; sucursales: Array<{ plaza: string; nombre: string | null }> };
@@ -207,6 +258,10 @@ export class ProductosFlujoService {
 
   cuidar(): Observable<CuidarRespuesta> {
     return this.http.get<CuidarRespuesta>(`${this.base}/flow/cuidar`);
+  }
+
+  margenes(id: string): Observable<MargenesProducto> {
+    return this.http.get<MargenesProducto>(`${this.base}/${id}/flow/margins`);
   }
 
   detalle(id: string): Observable<FlujoDetalle> {

@@ -4,7 +4,8 @@ import { rxResource } from '@angular/core/rxjs-interop';
 import { TooltipModule } from 'primeng/tooltip';
 import type { UnidadEscalera } from '@megadulces/contracts';
 import {
-  EstadoLote, EstadoPlaza, FlujoDetalle, LoteCaducidad, PlazaFlujo, ProductosFlujoService, VeredictoCompra,
+  EstadoLote, EstadoPlaza, FlujoDetalle, LoteCaducidad, Margen, Margenes, MargenesProducto, PlazaFlujo,
+  ProductosFlujoService, VeredictoCompra,
 } from '../productos-flujo.service';
 import { existenciaPartes, listaUnidades, textoUnidades } from './compras-catalogo-nuevos.component';
 
@@ -22,6 +23,16 @@ export const diasTexto = (d: number) => d === 0 ? 'hoy' : d === 1 ? 'mañana' : 
 /** "Líder · #3 en venta de la red (1.2%)". */
 export const liderTexto = (l: { rank: number; participacion: number }) =>
   `Líder · #${l.rank} en venta de la red (${(l.participacion * 100).toFixed(1)}%)`;
+
+/** `[PF.5]` "13.6%" / guion si no se pudo medir. */
+export const margenTexto = (m: Margen | null | undefined) => (m?.pct === null || m?.pct === undefined ? '—' : `${m.pct.toFixed(1)}%`);
+
+/** `[PF.5]` Los tres márgenes en el orden y con las preguntas de Productos nuevos. */
+export const margenKpis = (t: Margenes) => [
+  { titulo: 'De lista', ayuda: '¿Con qué margen lo pusimos a la venta? (la ficha de Kepler)', m: t.lista },
+  { titulo: 'Real', ayuda: 'Lo que dejó, con el costo que Kepler registró en cada venta', m: t.real },
+  { titulo: 'Sobre lo pagado', ayuda: 'Contra lo que costó en sus compras', m: t.pagado },
+];
 
 export const VEREDICTO_CLASE: Record<VeredictoCompra, string> = {
   comprar: 'is-comprar', traspasar: 'is-traspasar', esperar: 'is-esperar', sobra: 'is-sobra',
@@ -170,6 +181,56 @@ export function trazos(serie: FlujoDetalle['serie']): { actual: string; anterior
           </figure>
         </section>
 
+        <!-- [PF.5] Los tres margenes, como en Productos nuevos. Carga aparte (tarda ~1 s) y solo con permiso de costo. -->
+        @if (d.costo_visible) {
+          <section class="pf-bloque" aria-labelledby="pf-margen">
+            <h3 id="pf-margen" class="pf-h">Márgenes (últimos {{ d.criterio.ventanaMargen }} días cerrados)</h3>
+            @if (margenes(); as m) {
+              @if (m.total; as t) {
+                <div class="pf-kpis">
+                  @for (k of kpisMargen(t); track k.titulo) {
+                    <div><span>{{ k.titulo }}</span>
+                      <b [class.pf-down]="(k.m.pct ?? 0) < 0">{{ margen(k.m) }}</b>
+                      <small>{{ k.ayuda }}</small>
+                      @if (k.m.nota) { <small class="pf-nota">{{ k.m.nota }}</small> }</div>
+                  }
+                </div>
+                <div class="dt-scope">
+                  <table class="pf-tabla dt-stack">
+                    <thead><tr>
+                      <th scope="col">Sucursal</th><th scope="col" class="pf-num">Venta sin impuestos</th>
+                      <th scope="col" class="pf-num">De lista</th><th scope="col" class="pf-num">Real</th>
+                      <th scope="col" class="pf-num">Sobre lo pagado</th>
+                    </tr></thead>
+                    <tbody>
+                      @for (pl of m.plazas; track pl.plaza) {
+                        <tr>
+                          <td class="dt-id" role="cell">{{ pl.nombre || ('Sucursal ' + pl.plaza) }}</td>
+                          <td class="pf-num dt-num" role="cell" data-label="Venta sin impuestos">{{ dinero(pl.margenes.venta_neta) }}</td>
+                          <td class="pf-num dt-num" role="cell" data-label="De lista" [pTooltip]="pl.margenes.lista.nota || ''">{{ margen(pl.margenes.lista) }}</td>
+                          <td class="pf-num dt-num" role="cell" data-label="Real" [pTooltip]="pl.margenes.real.nota || ''"
+                              [class.pf-down]="(pl.margenes.real.pct ?? 0) < 0">{{ margen(pl.margenes.real) }}</td>
+                          <td class="pf-num dt-num" role="cell" data-label="Sobre lo pagado" [pTooltip]="pl.margenes.pagado.nota || ''"
+                              [class.pf-down]="(pl.margenes.pagado.pct ?? 0) < 0">{{ margen(pl.margenes.pagado) }}</td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                <p class="pf-meta">Del {{ fecha(m.desde) }} al {{ fecha(m.hasta) }}, venta de tienda sin IVA ni IEPS. Cada margen se mide sólo sobre la
+                  venta que puede juzgar: lo que no trae costo o meta queda fuera y se dice, no se cuenta como cero.
+                  @if (t.costo_pagado; as cp) { Lo pagado: {{ dinero2(cp.por_unidad) }} por {{ cp.unidad }}. }</p>
+              } @else {
+                <p class="pf-meta">Sin venta en los últimos {{ d.criterio.ventanaMargen }} días cerrados: no hay margen que medir.</p>
+              }
+            } @else if (margenesError()) {
+              <p class="pf-meta" role="alert">No se pudieron calcular los márgenes.</p>
+            } @else {
+              <p class="pf-meta">Calculando márgenes…</p>
+            }
+          </section>
+        }
+
         <section class="pf-bloque" aria-labelledby="pf-plazas">
           <h3 id="pf-plazas" class="pf-h">¿Dónde se mueve y dónde se estancó?</h3>
           <div class="dt-scope">
@@ -303,6 +364,7 @@ export function trazos(serie: FlujoDetalle['serie']): { actual: string; anterior
     .pf-cant b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1); }
     .pf-vacio { font-size: var(--fs-xs); color: var(--c-text-3); }
     .pf-tag-agotado, .pf-tag-duda { display: inline-block; align-self: flex-start; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs); font-weight: var(--fw-bold); }
+    .pf-nota { color: var(--warn-soft-fg); }
     .pf-lider { display: inline-block; margin-bottom: .3rem; padding: .05rem .5rem; border-radius: 999px; font-size: var(--fs-xs);
       font-weight: var(--fw-bold); color: var(--action); border: 1px solid currentColor; }
     .pf-lote, .pf-fecha { display: block; font-size: var(--fs-xs); color: var(--c-text-3); }
@@ -336,6 +398,22 @@ export class ProductoFlujoPanelComponent {
   });
   readonly error = computed(() => !!this.res.error() && !this.det());
 
+  // [PF.5] Los margenes de los dias cerrados: no cambian en el minuto, se piden una vez por producto.
+  private readonly margenesRes = rxResource({
+    params: () => (this.det()?.costo_visible ? this.productId() : undefined),
+    stream: ({ params }) => this.api.margenes(params),
+  });
+  readonly margenes = linkedSignal<MargenesProducto | undefined, MargenesProducto | null>({
+    source: () => (this.margenesRes.error() ? undefined : this.margenesRes.value()),
+    computation: (nuevo, previo) => {
+      const id = this.productId();
+      if (nuevo && nuevo.product_id === id) return nuevo;
+      const ant = previo?.value;
+      return ant && ant.product_id === id ? ant : null;
+    },
+  });
+  readonly margenesError = computed(() => !!this.margenesRes.error() && !this.margenes());
+
   readonly dinero = dinero;
   readonly variacion = variacionTexto;
   readonly fecha = fechaCorta;
@@ -345,6 +423,9 @@ export class ProductoFlujoPanelComponent {
   readonly cajas = cantidadEnCajas;
   readonly listaUnidades = listaUnidades;
   readonly liderTexto = liderTexto;
+  readonly margen = margenTexto;
+  readonly kpisMargen = margenKpis;
+  dinero2(v: number): string { return new Intl.NumberFormat('es-MX', { style: 'currency', currency: 'MXN' }).format(v); }
   readonly dias = diasTexto;
 
   constructor() {
