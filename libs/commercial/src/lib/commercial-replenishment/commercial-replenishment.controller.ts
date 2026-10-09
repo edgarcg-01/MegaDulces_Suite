@@ -3,7 +3,7 @@ import { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission } from '@megadulces/platform-core';
 import { MonthlySalesResponse, OcDetalleDto, OcSeguimientoGuardadoDto, OcSeguimientoInputDto } from '@megadulces/contracts';
-import { CommercialReplenishmentService, CreateRequisitionDto, ReceiveRequisitionDto } from './commercial-replenishment.service';
+import { CommercialReplenishmentService, CreateRequisitionDto, parseSoloQuedado, ReceiveRequisitionDto } from './commercial-replenishment.service';
 import { ReplenishmentExportService, PedidoExport } from './replenishment-export.service';
 
 const REQ_ESTADO_LABEL: Record<string, string> = {
@@ -322,6 +322,38 @@ export class CommercialReplenishmentController {
     @Query('pageSize') pageSize?: string,
   ) {
     return this.svc.deadStock({ warehouse_id, warehouse_ids, supplier_id, search, page: page ? Number(page) : undefined, pageSize: pageSize ? Number(pageSize) : undefined });
+  }
+
+  /**
+   * `[RA.SOB]` Sobrante: dónde está parado el inventario (por tramo de cobertura) y qué de eso lo
+   * compramos y nunca salió.
+   *
+   * Mismo permiso que el Pedido (`COMPRAS_PEDIDO_VER`) y no uno nuevo: es la otra cara de la misma
+   * decisión —qué comprar se decide mirando qué sobra— y quien no puede ver el pedido tampoco
+   * tiene nada que hacer acá. Un permiso nuevo habría que repartirlo a los mismos 9 roles.
+   */
+  @Get('sobrante')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: 'Inventario por tramo de cobertura + lo comprado que nunca salió. Filtros: warehouse_ids(CSV), supplier_id, search, tramo, solo_quedado, ventana_dias.' })
+  sobrante(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('supplier_id') supplier_id?: string,
+    @Query('search') search?: string,
+    @Query('tramo') tramo?: string,
+    @Query('solo_quedado') solo_quedado?: string,
+    @Query('ventana_dias') ventana_dias?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.sobrante({
+      warehouse_id, warehouse_ids, supplier_id, search, tramo,
+      // ⚠️ `Boolean('false')` da true. La lectura vive en `parseSoloQuedado`, probada aparte.
+      solo_quedado: parseSoloQuedado(solo_quedado),
+      ventana_dias: ventana_dias ? Number(ventana_dias) : undefined,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
   }
 
   @Get('filters')

@@ -387,6 +387,33 @@ export interface DeadStockRow {
   created_at: string;        // alta en catálogo (fallback del "desde cuándo")
   supplier_name: string | null;
 }
+/** `[RA.SOB]` Un tramo de cobertura, con cuánto de él lo compramos y nunca salió. */
+export interface SobranteTramo {
+  tramo: string; label: string;
+  pares: number; skus: number; valor: number;
+  quedado: number; quedado_valor: number;
+}
+export interface SobranteRow {
+  product_id: string; sku: string; nombre: string;
+  proveedor: string | null;
+  warehouse_code: string; warehouse_name: string;
+  cajas: number; valor: number;
+  /** `null` = sin venta. NO es cero: no hay cobertura que calcular. */
+  cover_days: number | null;
+  tramo: string;
+  ult_compra: string | null; ult_salida: string | null;
+  dias_desde_compra: number | null;
+  quedado: boolean;
+}
+export interface SobranteResponse {
+  tramos: SobranteTramo[];
+  total_valor: number; total_quedado: number; total_quedado_valor: number;
+  /** Ventana con la que se buscó la compra. Viaja para que el número no quede sin universo. */
+  ventana_dias: number;
+  rows: SobranteRow[];
+  total: number; page: number; pageSize: number;
+}
+
 export interface DeadStockResponse {
   total: number;
   page: number;
@@ -1193,6 +1220,30 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<DeadStockResponse>(`${this.base}/dead-stock${qs ? '?' + qs : ''}`);
+  }
+
+  /**
+   * `[RA.SOB]` Sobrante: dónde está parado el inventario por tramo de cobertura, y qué de eso lo
+   * compramos y nunca salió. Punto 2 de los tres que pidió Edgar el 2026-10-08.
+   */
+  sobrante(q: {
+    warehouse_ids?: string[]; supplier_id?: string; search?: string;
+    tramo?: string; solo_quedado?: boolean; ventana_dias?: number;
+    page?: number; pageSize?: number;
+  }): Observable<SobranteResponse> {
+    const p = new URLSearchParams();
+    if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.search) p.set('search', q.search);
+    if (q.tramo) p.set('tramo', q.tramo);
+    // ⚠️ Se manda SIEMPRE que sea `false`: omitirlo deja ganar el default del backend (true) y el
+    // comprador vería el filtro apagado en pantalla y prendido en los datos.
+    if (q.solo_quedado === false) p.set('solo_quedado', '0');
+    if (q.ventana_dias) p.set('ventana_dias', String(q.ventana_dias));
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<SobranteResponse>(`${this.base}/sobrante${qs ? '?' + qs : ''}`);
   }
 
   summary(q: { warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; search?: string; category_id?: string; target_basis?: string }): Observable<ReplenishmentSummary> {
