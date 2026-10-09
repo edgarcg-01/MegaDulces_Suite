@@ -154,10 +154,38 @@ export class BudgetExpensePlanService {
           if (imp != null) total = round2(total + imp);
         }
         const relleno = porEstado['promedio_plano']?.importe ?? 0;
+
+        // `[PU.VG.6]` LA VENTANA. `fiscal_year` es un entero, no un periodo: el ejercicio NO guarda
+        // qué meses cubre, y eso vive sólo en `expense_plan_lines.year_month`. Medido en prod el
+        // 2026-10-08: **FY2026 publica $32,425,843.06 con `period_month = NULL` en sus 12 partidas
+        // —o sea "anual"— y su plan cubre ago–dic, 5 meses**. Quien lo lea como año subestima ~58 %.
+        //
+        // ⚠️ Esto mide el gasto contra los 12 meses naturales, y NO contra los 13 periodos del plan
+        // de ventas. Los dos cubren el año entero con calendarios distintos (13×4 contra mes
+        // natural): marcar esa diferencia como hueco sería una alarma falsa, y una alarma que grita
+        // en falso enseña a ignorar el tablero.
+        const vent = await trx('budget.expense_plan_lines')
+          .where({ tenant_id: tenantId, budget_id: budgetId })
+          .min({ desde: 'year_month' }).max({ hasta: 'year_month' })
+          .countDistinct({ meses: 'year_month' })
+          .first() as unknown as Record<string, unknown> | undefined;
+        const meses = Number(vent?.meses ?? 0);
+        const ventana = {
+          desde: (vent?.desde as string) ?? null,
+          hasta: (vent?.hasta as string) ?? null,
+          meses,
+          meses_esperados: 12,
+          cobertura_pct: meses > 0 ? round2((meses / 12) * 100) : null,
+          completa: meses === 12,
+          nota: meses === 12 ? null
+            : `El plan cubre ${meses} de 12 meses: el importe NO es anual aunque las partidas digan period_month = NULL.`,
+        };
+
         return {
           medido: true,
           motivo: null as string | null,
           por_estado: porEstado,
+          ventana,
           total_publicado: total,
           // El numero que la pantalla tiene que poner al lado del total: que tanto de lo que se
           // publica NO lo observo nadie. Sin total no hay porcentaje: null, no 0.
@@ -169,6 +197,7 @@ export class BudgetExpensePlanService {
           medido: false,
           motivo: `no se pudo leer budget.v_expense_plan_coverage: ${(e as Error)?.message ?? e}`,
           por_estado: {} as Record<string, { celdas: number; importe: number | null }>,
+          ventana: null,
           total_publicado: null as number | null,
           relleno_pct: null as number | null,
           celdas_ausentes: null as number | null,
