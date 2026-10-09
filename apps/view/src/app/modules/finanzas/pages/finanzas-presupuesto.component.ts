@@ -25,6 +25,7 @@ import { environment } from '../../../../environments/environment';
 // archivos compartidos porque **el shell los sigue necesitando**: el estado y el HTTP no se
 // movieron (ver la cabecera del hijo). Mismo patrón que `bancos/`.
 import { PresupuestoVentasComponent } from './presupuesto/presupuesto-ventas.component';
+import { leyendaRespaldo, resumenFirma, type Completeness, type ProcedenciaCanal } from './presupuesto/presupuesto-firma';
 import { PRESUPUESTO_STYLES } from './presupuesto/presupuesto.styles';
 import type {
   GrowthEditRow, GrowthProposal, ProposeCoverage, SalesComparison, SalesIndicators,
@@ -246,6 +247,37 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <button pButton type="button" class="p-button-sm p-button-text" (click)="openNewBudget()" title="Para un año o escenario distinto del que arma el sistema. El del año siguiente lo crea solo, cada noche."><span class="pi pi-plus"></span>&nbsp;Nuevo ejercicio</button>
               </div>
             </div>
+
+            <!-- [PVI.13] Qué estás por mandar a autorización. El backend ya calculaba esto
+                 (GET :id/completeness, [VE.5-F]) y NADIE lo consumía: los bloqueos se descubrían
+                 apretando y fallando, y los avisos -lo que conviene mirar y NO frena- no se veían
+                 nunca. Va ARRIBA de las acciones y no en un diálogo: lo que se firma se lee antes
+                 de firmar, no después de que el servidor diga que no. -->
+            @if (b.status === 'borrador' || b.status === 'en_revision') {
+              @if (firma(); as f) {
+                @if (f.bloqueos.length) {
+                  <p class="pres-warn">
+                    <span class="pi pi-exclamation-triangle"></span>
+                    <span><strong>No puede ir a autorización todavía:</strong> @for (x of f.bloqueos; track x) { {{ x }} }</span>
+                  </p>
+                }
+                @for (a of f.avisos; track a) {
+                  <p class="pres-hint"><span class="pi pi-info-circle"></span> {{ a }}</p>
+                }
+                <!-- ⛔ «Listo» mide CANTIDAD, no RESPALDO: la compuerta cuenta renglones y
+                     periodos, y declara listo un ejercicio cuyo mayor supuesto de crecimiento no
+                     lo firma nadie. Esta línea es la única que lo dice. -->
+                @if (leyendaRespaldo(f); as leyenda) {
+                  <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <span>{{ leyenda }}</span></p>
+                }
+                @if (f.conteos; as c) {
+                  <p class="pres-hint"><span class="pi pi-list"></span>
+                    Lo que contiene: <strong>{{ c.plan_ventas }}</strong> renglones de ventas ({{ c.periodos_con_meta }} de {{ c.periodos_totales }} periodos) ·
+                    <strong>{{ c.plan_gastos }}</strong> de gastos · <strong>{{ c.partidas }}</strong> partidas materializadas.
+                  </p>
+                }
+              }
+            }
 
             <!-- [VE.7] Los supuestos DEJARON DE CAPTURARSE. Antes eran seis inputs y un boton
                  «Guardar»: el numero que gobierna todo el plan dependia de que alguien se
@@ -1333,6 +1365,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
       error: () => { this.loadingDetail.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el ejercicio.' }); },
     });
     this.loadAssumptions();
+    // `[PVI.13]` La compuerta de completitud, APARTE del `forkJoin` y con el mismo criterio que el
+    // latido del piloto: si no se puede leer, la pantalla igual pinta el ejercicio y el signal
+    // queda en `null` — que el resumen lee como «no sé si está listo», nunca como «lo está».
+    this.completeness.set(null);
+    this.http.get<Completeness>(`${this.base}/budgets/${b.id}/completeness`).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (c) => this.completeness.set(c), error: () => this.completeness.set(null) });
     if (this.view() === 'flujo') this.loadResultado();
     if (this.view() === 'gasto-op') this.loadExpensePlan();
     if (this.view() === 'gastos') this.loadExpenses();
@@ -1909,6 +1947,17 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   // ── Supuestos del año (consolida las perillas de ventas + gastos) ──
   loadingAssump = signal(false); savingAssump = signal(false); assumpLoaded = signal(false);
+
+  // ── `[PVI.13]` Qué estás por mandar a autorización ──────────────────────────────────────────
+  // La compuerta de completitud (`[VE.5-F]`) existía en el backend con CERO consumidores: la
+  // persona descubría los bloqueos apretando y fallando, y los `avisos` —lo que conviene mirar y
+  // NO frena— no los veía nunca. Y «listo» mide CANTIDAD, no RESPALDO: declara listo un ejercicio
+  // cuyo mayor supuesto no lo firma nadie. Reglas y candado en `presupuesto/presupuesto-firma.ts`.
+  completeness = signal<Completeness | null>(null);
+  growthProvenance = signal<Record<string, ProcedenciaCanal> | null>(null);
+  growthByChannel = signal<Record<string, number>>({});
+  firma = computed(() => resumenFirma(this.completeness(), this.growthProvenance(), this.growthByChannel()));
+  protected readonly leyendaRespaldo = leyendaRespaldo;
   /** [VSO.8] Lo declara el backend (`sales-plan/settings.channels`, derivado de `v_sales_entity`).
    *  Esta lista es sólo el respaldo del primer pintado: cuando era la fuente, las perillas de
    *  crecimiento no alcanzaban a `mayoreo` ni a `contado_nf`, y al GUARDAR (`gbc`) tampoco los
@@ -1935,8 +1984,16 @@ export class FinanzasPresupuestoComponent implements OnInit {
   loadAssumptions(): void {
     const b = this.selected(); if (!b) return;
     this.loadingAssump.set(true);
-    this.http.get<{ default_growth_pct: number; growth_by_channel: Record<string, number>; channels?: { value: string; label: string }[] }>(`${this.base}/budgets/${b.id}/sales-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.http.get<{ default_growth_pct: number; growth_by_channel: Record<string, number>; growth_provenance?: Record<string, ProcedenciaCanal> | null; channels?: { value: string; label: string }[] }>(`${this.base}/budgets/${b.id}/sales-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (s) => {
+        // `[PVI.13]` ⛔ Acá se tiraba la procedencia, igual que la tiraba el autopilot antes de
+        // `[PVI.4]`: la API la devuelve desde `[PVI.3]` y el tipo de esta línea no la nombraba, así
+        // que `mayoreo` en +26.67 % (el `default` al decimal, sobre $169,970,622 de meta) se veía
+        // igual que un canal medido. Se guardan en SIGNALS y no en campos planos a propósito: el
+        // resumen de firma es un `computed()` y `check:reactividad` prohíbe —con razón— que un
+        // computed dependa de un campo mutable, que se queda congelado sin avisar.
+        this.growthProvenance.set(s.growth_provenance ?? null);
+        this.growthByChannel.set(s.growth_by_channel || {});
         // [VSO.8] El vocabulario llega del backend; el respaldo local queda sólo si no vino.
         if (s.channels?.length) {
           this.channelsList = s.channels.map((c) => c.value);
