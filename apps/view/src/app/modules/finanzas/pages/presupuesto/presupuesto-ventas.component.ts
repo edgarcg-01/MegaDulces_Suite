@@ -1,5 +1,5 @@
 /**
- * `[PVI.5]` — La vista **Ventas** de `/finanzas/presupuesto`, fuera del shell.
+ * `[PVI.9]` — La vista **Ventas** de `/finanzas/presupuesto`, fuera del shell.
  *
  * ── Por qué existe este archivo ──────────────────────────────────────────────────────────────
  *
@@ -119,7 +119,14 @@ import {
               <label class="pres-muted">Periodo (13×4):</label>
               <p-select [options]="periodOpts" [ngModel]="period()" (ngModelChange)="periodChange.emit($any($event))" optionLabel="label" optionValue="value" placeholder="Todos" styleClass="pres-inline-select" />
             </div>
-            <p-table [value]="rows()" [loading]="loadingSales()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
+            <!-- [PVI.9] Nueve columnas no entran en 430 px, y hasta hoy nada decía qué hacía esta
+                 tabla en un teléfono: la compuerta check:tables no la veía porque el archivo no
+                 entraba en ningún diff -- mudarla la hizo visible. Las columnas son CAMPOS de un
+                 registro (una entidad y sus cifras), no un pivote, así que la salida es dt-stack:
+                 en estrecho cada celda se apila con su rótulo. El .dt-scope va en el DIV y no en
+                 la tabla, porque un elemento no puede ser su propio ancestro. DESIGN_TABLES.md. -->
+            <div class="dt-scope">
+            <p-table [value]="rows()" [loading]="loadingSales()" styleClass="p-datatable-sm surf-table pres-table dt-stack" [scrollable]="true">
               <ng-template #header>
                 <tr>
                   <th>Entidad</th><th>Canal</th><th>Origen</th>
@@ -130,19 +137,20 @@ import {
               </ng-template>
               <ng-template #body let-r>
                 <tr [class.pres-rollup]="r.is_rollup">
-                  <td>{{ r.label }}</td>
-                  <td class="pres-muted">{{ r.channel_label }}</td>
-                  <td>@if (!r.is_rollup && r.method) { <span class="ec-src ec-src-{{ r.method }}">{{ methodLabel(r.method) }}</span> }</td>
-                  <td class="ta-r pres-mono">{{ r.meta == null ? '—' : money(r.meta) }}</td>
-                  <td class="ta-r pres-mono">{{ r.real == null ? '—' : money(r.real) }}</td>
-                  <td class="ta-r pres-mono">{{ r.cumplimiento_pct == null ? '—' : r.cumplimiento_pct + '%' }}</td>
-                  <td class="ta-r pres-mono" [class.pres-neg]="r.crec_pct != null && r.crec_pct < 0">{{ r.crec_pct == null ? '—' : r.crec_pct + '%' }}</td>
-                  <td class="ta-r pres-mono">{{ r.part_pct == null ? '—' : r.part_pct + '%' }}</td>
-                  <td></td>
+                  <td role="cell" data-label="Entidad">{{ r.label }}</td>
+                  <td class="pres-muted" role="cell" data-label="Canal">{{ r.channel_label }}</td>
+                  <td role="cell" data-label="Origen">@if (!r.is_rollup && r.method) { <span class="ec-src ec-src-{{ r.method }}">{{ methodLabel(r.method) }}</span> }</td>
+                  <td class="ta-r pres-mono" role="cell" data-label="Meta">{{ r.meta == null ? '—' : money(r.meta) }}</td>
+                  <td class="ta-r pres-mono" role="cell" data-label="Real">{{ r.real == null ? '—' : money(r.real) }}</td>
+                  <td class="ta-r pres-mono" role="cell" data-label="Cumpl.">{{ r.cumplimiento_pct == null ? '—' : r.cumplimiento_pct + '%' }}</td>
+                  <td class="ta-r pres-mono" role="cell" data-label="CREC" [class.pres-neg]="r.crec_pct != null && r.crec_pct < 0">{{ r.crec_pct == null ? '—' : r.crec_pct + '%' }}</td>
+                  <td class="ta-r pres-mono" role="cell" data-label="PART">{{ r.part_pct == null ? '—' : r.part_pct + '%' }}</td>
+                  <td role="cell" data-label="Acciones"></td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="9" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer plan del año» para que el sistema lo arme desde la historia. }</td></tr></ng-template>
             </p-table>
+            </div>
             <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan. <strong>Origen</strong>: Histórico (real año anterior × crecimiento) · Estacional (participación + estacionalidad) · Proxy canal (entidad nueva, estimada desde su canal) · Sin base (ni entidad ni canal con señal → declarada en 0, no ausente) · Manual. <strong>Real</strong> = sell-out del ODS por el calendario 13×4. «Sin datos» ≠ cero (—).</p>
           } @else if (loadingSales()) {
             <p class="pres-muted">Cargando presupuesto de ventas…</p>
