@@ -41,6 +41,39 @@ const { Client } = require('pg');
 const APPLY = process.argv.slice(2).some((a) => a.trim() === '--apply');
 // `[CPU.3]` Escape para operación: refresca sí o sí, sin preguntarle a la sonda.
 const FORZAR = process.argv.slice(2).some((a) => a.trim() === '--forzar');
+
+/**
+ * ⭐ `[CG.76]` **MODO OYENTE: refrescar cuando llega el dato, no cuando suena el reloj.**
+ *
+ * `services/feeds-ingest` emite `NOTIFY caja_fuente` cuando su UPSERT —que es SIN CHURN— cambió
+ * de verdad filas de `kdm1`/`kdb1`, que son las dos tablas de las que la bandeja depende (medido
+ * con `pg_depend`). Acá se escucha y se refresca. En reposo cuesta **cero**: no hay poll.
+ *
+ * ⛔ Lo que se descartó, medido, para que nadie lo reintente a ciegas:
+ *   · correr el cron más seguido → la sonda cuesta 853 ms/ciclo ⇒ a 10 s son ~11,300 s/día,
+ *     peor que los 7,487 s/día que `[CPU.3]` eliminó;
+ *   · sondear `n_tup_ins+n_tup_upd` de `kdm1` (14 ms) → el shipper reescribe la tabla siempre,
+ *     así que dispara SIEMPRE: probado contra prod, refrescaba en bucle devolviendo las mismas
+ *     13,067 filas;
+ *   · firmar el contenido de `kdm1` (179 ms) ⇒ 7,700 s/día, también peor.
+ *
+ * ⚠️ NO reemplaza al cron de cada minuto, que se queda **tal cual**: es la red que cubre lo que
+ * esto no ve (este proceso muerto, un cambio en las dos fuentes que no son del ODS, una corrección
+ * tardía) y conserva su piso de 30 min.
+ *
+ * ⚠️ Late con llave PROPIA (`mv_caja_push`). Escribir en `mv_caja_refresh` sería catastrófico y
+ * silencioso: el piso del cron se mide contra la última corrida con `note IS NULL` de ESA llave,
+ * así que un refresco oído dejaría el piso satisfecho para siempre y la protección pasaría a ser
+ * un adorno — el modo de falla que este archivo entero existe para evitar.
+ */
+const ESCUCHAR = (process.argv.find((a) => a.startsWith('--escuchar=')) || '').split('=')[1] || null;
+const KEY_PUSH = 'mv_caja_push';
+const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
+/**
+ * Antirrebote. Una pasada del shipper son 9 ramas → hasta 9 avisos seguidos, y el REFRESH tarda
+ * 5–10 s: sin esto se encolarían refrescos para publicar exactamente lo mismo.
+ */
+const REBOTE_MS = 1500;
 const KEY = 'mv_caja_refresh';
 const MV = 'analytics.mv_caja_movimientos';
 const FUENTE = 'analytics.kepler_bank_movements';
@@ -194,7 +227,11 @@ async function firma(c, rel, where) {
   return { sig: `${r.n}|${r.f || ''}|${r.s || ''}`, n: r.n };
 }
 
-async function ciclo() {
+/**
+ * `[CG.76]` El ciclo acepta que lo fuercen desde afuera. El default es `FORZAR`, así que la
+ * corrida del cron —sin argumentos nuevos— se comporta **idéntica** a antes.
+ */
+async function ciclo(forzar = FORZAR) {
   const c = conexion();
   await c.connect();
   try {
@@ -217,7 +254,7 @@ async function ciclo() {
     // `null` = nunca refrescó (o no hay historial) ⇒ se refresca. Un piso que no se puede medir
     // se resuelve refrescando, nunca saltando: lo barato es el refresh, lo caro es la bandeja vieja.
     const minDesdeRefresh = piso.rows[0] && piso.rows[0].min != null ? Number(piso.rows[0].min) : null;
-    const tocaPorPiso = FORZAR || minDesdeRefresh === null || minDesdeRefresh >= PISO_MIN;
+    const tocaPorPiso = forzar || minDesdeRefresh === null || minDesdeRefresh >= PISO_MIN;
 
     // ── ¿Y si no toca por piso, hace falta por dato? ─────────────────────────────────────────
     // La COPIA se filtra por `fecha_captura` y la FUENTE por lo mismo MÁS `tipo_cuenta='caja'`,
@@ -283,7 +320,7 @@ async function ciclo() {
     const avisados = await avisar(c, al);
     // `[CPU.3]` El MOTIVO va al log y no al `note` del latido: `note` es la señal binaria de la
     // que depende el piso (nulo = refrescó de verdad), así que cargarle texto acá lo rompería.
-    const motivo = FORZAR ? '--forzar'
+    const motivo = forzar ? (ESCUCHAR ? 'oido por NOTIFY' : '--forzar')
       : minDesdeRefresh === null ? 'sin historial de refresh'
         : tocaPorPiso ? `piso de ${PISO_MIN} min (último hace ${minDesdeRefresh.toFixed(1)})`
           : `la sonda vio cambios en ${msSonda} ms`;
@@ -293,11 +330,82 @@ async function ciclo() {
   }
 }
 
+/**
+ * `[CG.76]` El oyente. Escucha el canal y refresca, con antirrebote.
+ *
+ * ⚠️ La conexión del `LISTEN` es SÓLO para escuchar: el refresco abre la suya (lo hace `ciclo()`).
+ * Si compartieran, un REFRESH de 5–10 s dejaría de recibir avisos justo mientras trabaja.
+ */
+async function oyente() {
+  const hb = require(path.join(__dirname, '..', 'lib', 'cron-heartbeat'));
+  let refrescos = 0;
+  let pendiente = null;      // temporizador del antirrebote
+  let trabajando = false;    // un solo REFRESH a la vez
+  let sucio = false;         // llegó un aviso mientras refrescábamos
+
+  const refrescar = async () => {
+    if (trabajando) { sucio = true; return; }
+    trabajando = true;
+    try {
+      await hb.begin(KEY_PUSH, 'Caja — refresco oído por NOTIFY').catch(() => {});
+      const r = await ciclo(true);   // forzado: el aviso ya respondió "¿cambió?"
+      refrescos++;
+      console.log(`refrescado (oído): ${r.filas} filas en ${r.ms} ms · ${r.avisados} aviso(s) al WS`);
+      await hb.end(KEY_PUSH, { status: 'ok', rows: r.filas }).catch(() => {});
+    } catch (e) {
+      console.error('refresco oído falló:', e.message);
+      await hb.end(KEY_PUSH, { status: 'error', error: e.message }).catch(() => {});
+    } finally {
+      trabajando = false;
+      // Un aviso que llegó mientras refrescábamos NO se tira: lo que trajo es posterior a lo que
+      // acabamos de publicar. Sin esto, el último movimiento de una ráfaga se perdería hasta que
+      // el cron lo levantara un minuto después.
+      if (sucio) { sucio = false; setTimeout(() => void refrescar(), REBOTE_MS); }
+    }
+  };
+
+  const c = conexion();
+  await c.connect();
+  c.on('notification', () => {
+    if (pendiente) clearTimeout(pendiente);
+    pendiente = setTimeout(() => { pendiente = null; void refrescar(); }, REBOTE_MS);
+  });
+  // ⛔ Si la conexión del LISTEN se cae, el proceso queda VIVO y MUDO: sin avisos y sin error, que
+  // es el peor estado posible. Se sale con código 1 y el pod reinicia — k8s lo rehace en segundos.
+  c.on('error', (e) => { console.error('la conexión del LISTEN se cayó:', e.message); process.exit(1); });
+  // ⚠️ `LISTEN` no acepta parámetros: el nombre del canal va interpolado, así que se valida.
+  // Viene de nuestro propio `argv` y no de un usuario, pero un identificador que se concatena a
+  // SQL se valida igual — es la regla, no el caso.
+  if (!/^[a-z_][a-z0-9_]{0,62}$/i.test(ESCUCHAR)) {
+    throw new Error(`--escuchar: nombre de canal inválido '${ESCUCHAR}'`);
+  }
+  await c.query(`LISTEN ${ESCUCHAR}`);
+  console.log(`oyendo ${ESCUCHAR} · antirrebote ${REBOTE_MS} ms · el cron de cada minuto NO se toca`);
+
+  // Latido periódico: sin esto el carril sería MUDO entre refrescos y una fila vieja de
+  // `cron_runs` se lee igual que "este proceso murió" (ADR-053).
+  setInterval(() => {
+    void (async () => {
+      await hb.begin(KEY_PUSH, 'Caja — refresco oído por NOTIFY').catch(() => {});
+      await hb.end(KEY_PUSH, {
+        status: 'ok', rows: null,
+        note: `vivo, oyendo ${ESCUCHAR} · ${refrescos} refresco(s) desde el arranque`,
+      }).catch(() => {});
+    })();
+  }, 60_000).unref?.();
+
+  // El proceso vive por el LISTEN; esta promesa nunca resuelve.
+  await new Promise(() => {});
+}
+
 (async () => {
   if (!APPLY) {
     console.log('dry-run: no se refresca nada. Agregá --apply.');
     return;
   }
+  // `[CG.76]` El oyente es un proceso largo con su propia llave; lo de abajo es el ciclo único
+  // del cron, intacto.
+  if (ESCUCHAR) { await oyente(); return; }
   const hb = require(path.join(__dirname, '..', 'lib', 'cron-heartbeat'));
   await hb.begin(KEY, 'Caja — refresca mv_caja_movimientos').catch(() => {});
   try {

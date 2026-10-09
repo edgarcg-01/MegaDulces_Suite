@@ -1,0 +1,112 @@
+# ═══ REFRESCO OÍDO DE LA BANDEJA DE CAJA ═══  [CG.76]
+#
+# ── Qué problema resuelve, medido pata por pata (prod, 2026-10-09) ──────────────────────────
+#
+# Pedido de Edgar: *"el proceso debe estar al 1seg. si es necesario un websocket hay que
+# generarlo"*. ⛔ **El WebSocket ya existía** (`CajaRealtimeService`, CG.23.2: NOTIFY → socket).
+# La cadena real de un movimiento de caja:
+#
+#   replicación lógica sucursal → réplica ......  1–15 s   ← PISO DURO
+#   carril `ods-live-hot` → `kepler_ods` ........ 22–47 s
+#   `REFRESH mv_caja_movimientos` (cron 1 min) ..  0–60 s  ← lo que corta este carril
+#   la pantalla se entera ....................... instantáneo (el WS que ya estaba)
+#   ──────────────────────────────────────────────────────
+#   total ....................................... 60–122 s  ⇒  con esto, **~30–69 s**
+#
+# ⛔ **"Al segundo" NO es alcanzable, y queda escrito acá**: el piso lo ponen la replicación lógica
+# (1–15 s) y el costo del propio `REFRESH` (5–10 s medidos). Esto corta la pata del medio-bajo; la
+# que queda dominando es el carril del ODS, y bajarla exige que un carril nuevo sea dueño único de
+# `kdm1` —cirugía en el camino crítico de la ingesta— que va aparte y medida.
+#
+# ── Por qué OÍDO y no sondeado: tres descartes, todos medidos ───────────────────────────────
+#
+#   · correr el cron más seguido → su sonda cuesta 853 ms/ciclo ⇒ a 10 s son ~11,300 s/día,
+#     **peor que los 7,487 s/día que `[CPU.3]` eliminó**;
+#   · sondear `n_tup_ins+n_tup_upd` de `kdm1` (14 ms) → el shipper reescribe la tabla siempre, así
+#     que dispara SIEMPRE: **probado contra prod**, refrescaba en bucle (5–10 s cada vez)
+#     devolviendo las mismas 13,067 filas;
+#   · firmar el contenido de `kdm1` (179 ms) ⇒ 7,700 s/día, también peor.
+#
+# ⭐ El único que SABE que llegó un documento es quien lo escribe: `services/feeds-ingest`. Su
+# UPSERT es **sin churn**, así que emite `NOTIFY caja_fuente` sólo cuando cambiaron filas de
+# `kdm1`/`kdb1` — las dos tablas de las que la bandeja depende, medido con `pg_depend`. En reposo
+# este carril cuesta **cero**: no hay poll.
+#
+# ── Lo que NO reemplaza ─────────────────────────────────────────────────────────────────────
+#
+# ⚠️ El cron de cada minuto **se queda tal cual**: cubre lo que esto no ve (este pod muerto, las
+# dos fuentes que no vienen del ODS, una corrección tardía) y conserva su piso de 30 min. Por eso
+# este carril late con llave PROPIA (`mv_caja_push`): escribir en `mv_caja_refresh` dejaría el piso
+# del cron satisfecho para siempre, en silencio.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caja-mv-push
+  namespace: ingesta
+  labels:
+    carril: caja-mv-push
+    singleton: "true"
+    # ⚠️ `migrado` y no `preparado`, aunque éste NUNCA pasó por Compose: el candado lee
+    # `preparado` como "el YAML existe pero el carril sigue corriendo allá" y exige encontrarlo en
+    # `SERVICIOS_DEF`; un carril nacido en k3s marcado así se reporta como huérfano. Para el
+    # candado `migrado` significa "lo corre k3s", que es el caso.
+    migracion: migrado
+spec:
+  replicas: 1
+  # ⛔ Recreate y no RollingUpdate: dos oyentes refrescarían el mismo matview en paralelo y se
+  # encolarían sobre el mismo lock sin ganar nada.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      carril: caja-mv-push
+  template:
+    metadata:
+      labels:
+        carril: caja-mv-push
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: oyente
+          image: localhost:5000/trade-ingest:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          command: ["node"]
+          # ⚠️ Los argumentos van en un arreglo YAML y no en una cadena de shell: `--apply` se
+          # compara EXACTO, y un retorno de carro pegado lo dejaría corriendo en seco imprimiendo
+          # `ok` — lo que pasó en `[VL.4]` cuando el crontab viajó con CRLF.
+          args:
+            - database/importers/kepler/refresh-caja-matview.js
+            - --apply
+            - --escuchar=caja_fuente
+          envFrom:
+            - secretRef:
+                name: ingest-env
+          env:
+            - name: TZ
+              value: America/Mexico_City
+            # ⛔⛔ SIN ESTO LA SONDA DE ABAJO ES UN ADORNO. `ops/ingest/health.js` arranca con
+            #   if (!URL_ || !KEYS.length) { … process.exit(0) }
+            # o sea que sin `ODS_HB_KEY` responde SANO SIEMPRE, y un pod colgado se vería igual que
+            # uno trabajando — el mismo verde por vacuidad que `[IC.24]` encontró en la compuerta
+            # de plantillas.
+            - name: ODS_HB_KEY
+              value: mv_caja_push
+            # El carril late cada minuto aunque no refresque ("vivo, oyendo…"), así que 5 min de
+            # antigüedad ya es un proceso que dejó de dar vueltas.
+            - name: ODS_HB_MAX_MIN
+              value: "5"
+          # ⛔ El modo oyente es un proceso largo, y el cuelgue del 04-09-2026 fue exactamente eso:
+          # proceso vivo, CPU 0 %, latido envejeciendo. La sonda mide ENTREGA contra
+          # `analytics.cron_runs`, no "el proceso existe".
+          livenessProbe:
+            exec:
+              command: ["node", "/app/ops/ingest/health.js"]
+            initialDelaySeconds: 120
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { memory: "128Mi", cpu: "50m" }
+            limits:   { memory: "512Mi" }
