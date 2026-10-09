@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Changed — Logística: la guía se llena sólo en la pestaña Guías (EMB.22, 2026-10-09)
+- **Hoja de «Nuevo embarque»:** ya no pide tripulación ni horario. Lo que trae Kepler se ve bloqueado; lo que no, dice «Se captura en Guías» (ayudantes, salida, llegada y el chofer si Kepler no lo trae) o «Se calculan en Guías» (comisión y viáticos). Peso, kilómetros y flete se siguen capturando ahí.
+- **Al tomar el viaje** la guía nace incompleta con lo de Kepler. En **Guías** aparece «Incompleta» con el botón **Completar**: el chofer de Kepler va bloqueado, se capturan ayudantes y horario una sola vez y se calculan comisión y viáticos; después ya no se edita.
+- El **formulario de embarque manual** deja de capturar la guía: se crea en Guías › Nueva guía.
+- **No se cierra un embarque con una guía incompleta**, y el costo estimado del viaje deja de sumar $0 de una guía sin completar.
+- API: `POST /logistics/guides/:id/complete`; la toma de Kepler rechaza tripulación u horario. Sin migraciones.
+- ⚠️ Hallazgo abierto como EMB.23: ningún flujo pasa una guía a «entregada», y Liquidaciones sólo cuenta las entregadas.
+
 ### Changed — RH: Asistencia con la forma de Horarios de Mega Talento (RH.1.7c, 2026-10-08)
 - Una sola sección con pestañas **Checadas · Tolerancia · Faltas · Incidencias · Relojes**, con lo que espera en cada una. La plaza, la semana y los filtros se conservan al cambiar de pestaña.
 - Checadas es el **reporte semanal calcado**: una fila por persona, una columna por día, por departamento, con D/C de desayuno y comida; en rojo lo tarde y lo faltado. La ficha se abre de lado. Exportar a PDF para firmar y a Excel sale con lo que se ve, y si es parcial lo dice.

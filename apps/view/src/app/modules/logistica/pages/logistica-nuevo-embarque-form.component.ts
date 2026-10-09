@@ -4,29 +4,20 @@ import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { SkeletonModule } from 'primeng/skeleton';
-import { forkJoin, of } from 'rxjs';
-import { catchError } from 'rxjs/operators';
-import {
-  ConfigItem, Driver, LogisticaService, NuevoEmbarqueHoja, TomaKeplerBody,
-} from '../logistica.service';
-import type { TarifasViatico } from '@megadulces/contracts';
-import {
-  comisionesDeLaGuia, erroresDeTarifa, erroresDeViaticos, tarifasDeViatico, viaticosDeLaGuia,
-} from '@megadulces/contracts';
+import { LogisticaService, NuevoEmbarqueHoja, TomaKeplerBody } from '../logistica.service';
 import { datosDeKepler } from '../components/kepler-hoja.component';
 import { KeplerParadasComponent } from '../components/kepler-paradas.component';
-import { GuiaCalculadaComponent, PersonaDeLaGuia } from '../components/guia-calculada.component';
+
+/**
+ * EMB.22 — Lo que no está en Kepler y es de la GUÍA (chofer si Kepler no lo trae, ayudantes,
+ * horario, comisión y viáticos) se captura SÓLO en la pestaña Guías del embarque. Aquí se ve
+ * bloqueado con esta leyenda, para que se sepa dónde se llena.
+ */
+export const SE_CAPTURA_EN_GUIAS = 'Se captura en Guías';
+export const SE_CALCULA_EN_GUIAS = 'Se calculan en Guías';
 
 export interface CapturaEmbarque {
   delivery_type: 'route' | 'long_trip' | null;
-  driver_id: string | null;
-  helper1_id: string | null;
-  helper2_id: string | null;
-  /** EMB.19 — el horario (`HH:MM`): de él salen los viáticos, que no se teclean. */
-  departure_time: string;
-  arrival_time: string;
-  /** Se queda a dormir fuera: da cena. */
-  overnight: boolean;
   freight_revenue: number | null;
   actual_km: number | null;
   total_weight_kg: number | null;
@@ -38,19 +29,10 @@ export interface CapturaEmbarque {
  * servidor (`validarToma` en libs/logistics): se repite aquí para que el botón diga por qué no
  * avanza, no para reemplazar al servidor — él decide.
  */
-export function erroresDeCaptura(
-  c: CapturaEmbarque,
-  h: Pick<NuevoEmbarqueHoja, 'chofer' | 'tomado' | 'comision' | 'resumen'>,
-  tarifas: TarifasViatico | null,
-): string[] {
+export function erroresDeCaptura(c: CapturaEmbarque, h: Pick<NuevoEmbarqueHoja, 'tomado'>): string[] {
   const e: string[] = [];
   if (h.tomado) e.push(`Este viaje ya se tomó en el embarque ${h.tomado.folio}.`);
   if (!c.delivery_type) e.push('Elige el tipo de entrega.');
-  const chofer = c.driver_id || h.chofer.driver_id;
-  if (!chofer) e.push('Elige al chofer.');
-  if (chofer && (c.helper1_id === chofer || c.helper2_id === chofer)) e.push('El chofer no puede ir también como ayudante.');
-  if (c.helper1_id && c.helper1_id === c.helper2_id) e.push('Ayudante 1 y ayudante 2 son la misma persona.');
-  if (c.helper2_id && !c.helper1_id) e.push('Captura primero al ayudante 1.');
   const montos: Array<[number | null, string]> = [
     [c.freight_revenue, 'El flete cobrado'],
     [c.total_weight_kg, 'El peso'],
@@ -61,31 +43,14 @@ export function erroresDeCaptura(
   if (c.actual_km != null && (!Number.isInteger(Number(c.actual_km)) || Number(c.actual_km) < 0)) {
     e.push('Los kilómetros deben ser un número entero.');
   }
-  // La comisión se calcula de la tarifa de las rutas: si falta una, no se crea (misma regla que la API).
-  e.push(...erroresDeTarifa(h.comision, h.resumen.paradas_sin_ruta, { helper1: !!c.helper1_id, helper2: !!c.helper2_id }));
-  // Los viáticos se calculan del horario (EMB.19): sin horario, o sin la tarifa de una comida que
-  // toca, no se crea — misma regla que la API. Si no se pudieron leer las tarifas, se dice.
-  if (!tarifas) e.push('No se pudieron leer las tarifas de viáticos. Recarga la página.');
-  else e.push(...erroresDeViaticos(horarioDe(c), tarifas));
   return e;
 }
 
-/** El horario capturado, en la forma de la regla de viáticos. */
-export function horarioDe(c: Pick<CapturaEmbarque, 'departure_time' | 'arrival_time' | 'overnight'>) {
-  return { salida: c.departure_time || null, llegada: c.arrival_time || null, duerme_fuera: !!c.overnight };
-}
-
-/** El cuerpo que se manda: sólo lo que se capturó; null en lo que no se tocó. */
+/** El cuerpo que se manda: sólo lo del embarque; null en lo que no se tocó. La guía se completa en Guías. */
 export function cuerpoDeToma(c: CapturaEmbarque): TomaKeplerBody {
   const num = (v: number | null) => (v == null || (v as unknown) === '' ? null : Number(v));
   return {
     delivery_type: c.delivery_type ?? 'route',
-    driver_id: c.driver_id || null,
-    helper1_id: c.helper1_id || null,
-    helper2_id: c.helper2_id || null,
-    departure_time: c.departure_time || null,
-    arrival_time: c.arrival_time || null,
-    overnight: !!c.overnight,
     freight_revenue: num(c.freight_revenue),
     actual_km: num(c.actual_km),
     total_weight_kg: num(c.total_weight_kg),
@@ -98,13 +63,14 @@ export function cuerpoDeToma(c: CapturaEmbarque): TomaKeplerBody {
  *
  * Una sola hoja con las secciones del embarque manual. Lo que Kepler ya escribió (fecha, origen,
  * unidad, chofer, rutas, carga, almacén, paradas) viene lleno y bloqueado: no se edita aquí, se
- * corrige en Kepler. Los campos en blanco son lo que el coordinador teclea. El chofer sólo es
- * campo de captura cuando Kepler no lo trae; si lo trae, va bloqueado como lo demás.
+ * corrige en Kepler. Los campos en blanco son lo que el coordinador teclea del EMBARQUE.
+ * EMB.22 — lo de la GUÍA que Kepler no tiene (ayudantes, horario, el chofer si falta) va bloqueado
+ * con «Se captura en Guías»: se llena una sola vez, en la pestaña Guías del embarque ya creado.
  */
 @Component({
   selector: 'app-logistica-nuevo-embarque-form',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, SkeletonModule, KeplerParadasComponent, GuiaCalculadaComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonModule, SkeletonModule, KeplerParadasComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="surf-page hj">
@@ -170,31 +136,8 @@ export function cuerpoDeToma(c: CapturaEmbarque): TomaKeplerBody {
             <div class="hj-grid">
               <dl class="hj-f is-2"><dt>Unidad</dt><dd class="hj-lock">{{ d.unidad ?? '—' }}</dd></dl>
               <dl class="hj-f"><dt>Placas</dt><dd class="hj-lock hj-mono">{{ d.placas ?? '—' }}</dd></dl>
-              @if (d.chofer) {
-                <dl class="hj-f"><dt>Chofer</dt><dd class="hj-lock">{{ d.chofer }}</dd></dl>
-              } @else {
-                <label class="hj-f" for="hj-chofer">
-                  <span>Chofer</span>
-                  <select id="hj-chofer" name="chofer" [(ngModel)]="c.driver_id" (ngModelChange)="tocar()">
-                    <option [ngValue]="null">Seleccionar</option>
-                    @for (p of choferes(); track p.id) { <option [ngValue]="p.id">{{ p.full_name }}</option> }
-                  </select>
-                </label>
-              }
-              <label class="hj-f" for="hj-ay1">
-                <span>Ayudante 1</span>
-                <select id="hj-ay1" name="ay1" [(ngModel)]="c.helper1_id" (ngModelChange)="alElegirAyudante('helper1')">
-                  <option [ngValue]="null">Sin ayudante</option>
-                  @for (p of ayudantes(); track p.id) { <option [ngValue]="p.id">{{ p.full_name }}</option> }
-                </select>
-              </label>
-              <label class="hj-f" for="hj-ay2">
-                <span>Ayudante 2</span>
-                <select id="hj-ay2" name="ay2" [(ngModel)]="c.helper2_id" (ngModelChange)="alElegirAyudante('helper2')" [disabled]="!c.helper1_id">
-                  <option [ngValue]="null">Sin ayudante</option>
-                  @for (p of ayudantes(); track p.id) { <option [ngValue]="p.id">{{ p.full_name }}</option> }
-                </select>
-              </label>
+              <dl class="hj-f"><dt>Chofer</dt><dd class="hj-lock" [class.hj-guias]="!d.chofer">{{ d.chofer ?? enGuias }}</dd></dl>
+              <dl class="hj-f"><dt>Ayudantes</dt><dd class="hj-lock hj-guias">{{ enGuias }}</dd></dl>
             </div>
           </section>
 
@@ -226,20 +169,10 @@ export function cuerpoDeToma(c: CapturaEmbarque): TomaKeplerBody {
           <section class="hj-sec" aria-labelledby="hj-s-com">
             <h2 id="hj-s-com">Horario, comisión y viáticos</h2>
             <div class="hj-grid">
-              <label class="hj-f" for="hj-sal">
-                <span>Hora de salida</span>
-                <input id="hj-sal" class="hj-txt" type="time" name="sal" [(ngModel)]="c.departure_time" (ngModelChange)="tocar()" />
-              </label>
-              <label class="hj-f" for="hj-lleg">
-                <span>Hora de llegada (estimada)</span>
-                <input id="hj-lleg" class="hj-txt" type="time" name="lleg" [(ngModel)]="c.arrival_time" (ngModelChange)="tocar()" />
-              </label>
-              <label class="hj-check" for="hj-pern">
-                <input id="hj-pern" type="checkbox" name="pern" [(ngModel)]="c.overnight" (ngModelChange)="tocar()" /> Se queda a dormir fuera
-              </label>
+              <dl class="hj-f"><dt>Hora de salida</dt><dd class="hj-lock hj-guias">{{ enGuias }}</dd></dl>
+              <dl class="hj-f"><dt>Hora de llegada</dt><dd class="hj-lock hj-guias">{{ enGuias }}</dd></dl>
+              <dl class="hj-f"><dt>Comisión y viáticos</dt><dd class="hj-lock hj-guias">{{ calculaEnGuias }}</dd></dl>
             </div>
-            <app-guia-calculada [personas]="personasGuia()" [comisiones]="comisiones()"
-              [viaticos]="viaticos()" [tarifas]="tarifas()"></app-guia-calculada>
           </section>
 
           <section class="hj-sec" aria-labelledby="hj-s-alm">
@@ -305,6 +238,7 @@ export function cuerpoDeToma(c: CapturaEmbarque): TomaKeplerBody {
     .hj-f dd { margin: 0; }
     .hj-lock, .hj-txt, .hj-f select, .hj-f textarea { min-height: 2.25rem; box-sizing: border-box; padding: .4rem .6rem; border-radius: var(--r-sm); font: inherit; font-size: var(--fs-sm); color: var(--c-text-1); }
     .hj-lock { background: var(--c-surface-2); border: 1px solid transparent; overflow-wrap: anywhere; }
+    .hj-lock.hj-guias { color: var(--c-text-2); }
     .hj-txt, .hj-f select, .hj-f textarea { width: 100%; background: var(--c-surface-1); border: 1px solid var(--c-divider); }
     .hj-txt:disabled, .hj-f select:disabled { opacity: .55; }
     .hj-txt:focus-visible, .hj-f select:focus-visible, .hj-f textarea:focus-visible,
@@ -338,75 +272,31 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
   readonly errorCarga = signal<string | null>(null);
   readonly errorServidor = signal<string | null>(null);
   readonly hoja = signal<NuevoEmbarqueHoja | null>(null);
-  readonly personas = signal<Driver[]>([]);
-  /** Tarifas de viático por comida. null = no se pudieron leer (no es «sin tarifa»). */
-  readonly tarifas = signal<TarifasViatico | null>(null);
+  readonly enGuias = SE_CAPTURA_EN_GUIAS;
+  readonly calculaEnGuias = SE_CALCULA_EN_GUIAS;
   /** Señal de «algo cambió en la captura»: los computed de abajo dependen de ella. */
   private readonly version = signal(0);
 
   c: CapturaEmbarque = {
-    delivery_type: null, driver_id: null, helper1_id: null, helper2_id: null,
-    departure_time: '', arrival_time: '', overnight: false, freight_revenue: null, actual_km: null,
-    total_weight_kg: null, notes: '',
+    delivery_type: null, freight_revenue: null, actual_km: null, total_weight_kg: null, notes: '',
   };
 
-  /** La comisión de la guía, CALCULADA de la tarifa del viaje. null = falta una tarifa (no se adivina). */
-  readonly comisiones = computed(() => {
-    this.version();
-    const h = this.hoja();
-    if (!h) return null;
-    const ayudantes = { helper1: !!this.c.helper1_id, helper2: !!this.c.helper2_id };
-    return erroresDeTarifa(h.comision, h.resumen.paradas_sin_ruta, ayudantes).length
-      ? null
-      : comisionesDeLaGuia(h.comision, ayudantes);
-  });
-  /** Los viáticos, CALCULADOS del horario (regla de la beta). null = falta algo para calcularlos. */
-  readonly viaticos = computed(() => {
-    this.version();
-    const t = this.tarifas();
-    const h = horarioDe(this.c);
-    if (!t || erroresDeViaticos(h, t).length) return null;
-    const chofer = this.c.driver_id || this.hoja()?.chofer.driver_id;
-    return viaticosDeLaGuia(h, t, { driver: !!chofer, helper1: !!this.c.helper1_id, helper2: !!this.c.helper2_id });
-  });
-  readonly personasGuia = computed((): PersonaDeLaGuia[] => {
-    this.version();
-    const nombre = (id: string | null) => (id ? this.personas().find((p) => p.id === id)?.full_name ?? null : null);
-    const xs: PersonaDeLaGuia[] = [{ key: 'driver', rol: 'Chofer', nombre: this.datos()?.chofer ?? nombre(this.c.driver_id) }];
-    if (this.c.helper1_id) xs.push({ key: 'helper1', rol: 'Ayudante 1', nombre: nombre(this.c.helper1_id) });
-    if (this.c.helper2_id) xs.push({ key: 'helper2', rol: 'Ayudante 2', nombre: nombre(this.c.helper2_id) });
-    return xs;
-  });
   readonly datos = computed(() => {
     const h = this.hoja();
     return h ? datosDeKepler(h) : null;
   });
-  readonly choferes = computed(() => this.personas().filter((d) => d.active && d.roles?.includes('chofer')));
-  readonly ayudantes = computed(() => {
-    this.version();
-    const chofer = this.c.driver_id || this.hoja()?.chofer.driver_id;
-    return this.personas().filter((d) => d.active && d.id !== chofer
-      && (d.roles?.includes('ayudante') || d.roles?.includes('cargador')));
-  });
   readonly errores = computed(() => {
     this.version();
     const h = this.hoja();
-    return h ? erroresDeCaptura(this.c, h, this.tarifas()) : [];
+    return h ? erroresDeCaptura(this.c, h) : [];
   });
   readonly puedeCrear = computed(() => !!this.hoja() && !this.guardando() && this.errores().length === 0);
   ngOnInit() {
     const sucursal = this.route.snapshot.paramMap.get('sucursal') || '';
     const guia = this.route.snapshot.paramMap.get('guia') || '';
-    forkJoin({
-      hoja: this.api.getNuevoEmbarque(sucursal, guia),
-      personas: this.api.listDrivers({ active: true }).pipe(catchError(() => of([] as Driver[]))),
-      // Si no se pueden leer, null: la hoja lo dice en vez de tomarlo por «sin tarifa».
-      viatico: this.api.listConfig('viatico', true).pipe(catchError(() => of(null as ConfigItem[] | null))),
-    }).subscribe({
-      next: ({ hoja, personas, viatico }) => {
+    this.api.getNuevoEmbarque(sucursal, guia).subscribe({
+      next: (hoja) => {
         this.hoja.set(hoja);
-        this.personas.set(personas || []);
-        this.tarifas.set(viatico ? tarifasDeViatico(viatico) : null);
         this.cargando.set(false);
         this.tocar();
       },
@@ -420,12 +310,6 @@ export class LogisticaNuevoEmbarqueFormComponent implements OnInit {
   }
 
   tocar() { this.version.update((v) => v + 1); }
-
-  alElegirAyudante(quien: 'helper1' | 'helper2') {
-    // Sin ayudante 1 no hay ayudante 2. Comisión y viáticos no se tocan aquí: se calculan.
-    if (quien === 'helper1' && !this.c.helper1_id) this.c.helper2_id = null;
-    this.tocar();
-  }
 
   crear() {
     this.errorServidor.set(null);

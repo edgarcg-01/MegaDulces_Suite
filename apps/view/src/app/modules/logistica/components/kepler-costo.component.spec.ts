@@ -11,6 +11,7 @@ const guia = (over: Partial<DeliveryGuide> = {}): DeliveryGuide => ({
   id: 'g1', number: 'GUIA-2026-00001', shipment_id: 's1', type: 'entrega', status: 'pendiente',
   driver_id: 'd1', driver_commission: 103.2, helper1_id: 'd2', helper1_commission: 63.84,
   helper2_id: null, helper2_commission: 0, overnight: false, per_diem_total: 0,
+  departure_time: '08:00:00', arrival_time: '17:00:00',
   ...over,
 } as DeliveryGuide);
 
@@ -31,6 +32,14 @@ describe('costoEstimado', () => {
     expect(c.total).toBe(167.04);
   });
 
+  it('EMB.22 — una guía incompleta no suma $0: comisiones y viáticos sin calcular, y el total lo dice', () => {
+    const c = costoEstimado(guia({ departure_time: null, arrival_time: null, driver_commission: 0, helper1_commission: 0 }), 2661.22, 159596.2);
+    expect(c.comisiones).toBeNull();
+    expect(c.viaticos).toBeNull();
+    expect(c.incompleto).toBe(true);
+    expect(c.total).toBe(2661.22);
+  });
+
   it('sin valor o sin costo, los cocientes son null en vez de dividir entre cero', () => {
     expect(costoEstimado(guia(), 0, 0).pct_sobre_valor).toBeNull();
     expect(costoEstimado(null, 0, 1000).movido_por_peso).toBeNull();
@@ -43,17 +52,31 @@ describe('KeplerCostoComponent', () => {
     const f = TestBed.createComponent(KeplerCostoComponent);
     f.componentRef.setInput('guia', guia());
     f.componentRef.setInput('personas', [
-      { id: 'd1', full_name: 'César C.' }, { id: 'd2', full_name: 'Manuel M.' },
+      { id: 'd1', full_name: 'PRUEBA UNO' }, { id: 'd2', full_name: 'PRUEBA DOS' },
     ] as Driver[]);
     f.componentRef.setInput('valor', 159596.2);
     f.componentRef.setInput('gastosKepler', null);
     f.componentRef.setInput('motivoGastos', 'Sin permiso para ver gastos: el total no incluye el gasto de Kepler.');
     f.detectChanges();
     const t = (f.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
-    expect(t).toContain('Chofer · César C.');
-    expect(t).toContain('Ayudante 1 · Manuel M.');
+    expect(t).toContain('Chofer · PRUEBA UNO');
+    expect(t).toContain('Ayudante 1 · PRUEBA DOS');
     expect(t).toContain('Sin medir');
     expect(t).toContain('Sin permiso para ver gastos');
     expect(t).toContain('$167.04');
+  });
+});
+
+describe('KeplerCostoComponent — guía incompleta (EMB.22)', () => {
+  it('dice que la guía está incompleta y que se completa en Guías, sin pintar $0', () => {
+    TestBed.configureTestingModule({ imports: [KeplerCostoComponent] });
+    const f = TestBed.createComponent(KeplerCostoComponent);
+    f.componentRef.setInput('guia', guia({ helper1_id: null, departure_time: null, arrival_time: null, driver_commission: 0, helper1_commission: 0 }));
+    f.componentRef.setInput('gastosKepler', 100);
+    f.detectChanges();
+    const t = (f.nativeElement as HTMLElement).textContent!.replace(/\s+/g, ' ');
+    expect(t).toContain('está incompleta: falta el horario');
+    expect(t).toContain('Se calculan en Guías');
+    expect(t).not.toContain('Chofer ·');
   });
 });

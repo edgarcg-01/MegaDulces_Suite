@@ -63,6 +63,41 @@ export interface NuevaGuiaBody {
   notes?: string | null;
 }
 
+/**
+ * EMB.22 — Completar la guía que nació al tomar un viaje de Kepler: se captura SÓLO lo que Kepler
+ * no tiene (y sólo en la pestaña Guías). El chofer va únicamente si Kepler no lo trajo.
+ */
+export interface CompletarGuiaBody {
+  driver_id?: string | null;
+  helper1_id: string | null;
+  helper2_id: string | null;
+  departure_time: string | null;
+  arrival_time: string | null;
+  overnight: boolean;
+}
+
+/** Lo que devuelve completar la guía: sus montos, ya calculados por la API. */
+export interface GuiaCompletada {
+  id: string;
+  number: string;
+  driver_commission: number;
+  helper1_commission: number;
+  helper2_commission: number;
+  per_diem_total: number;
+}
+
+/**
+ * Lo que le falta a una guía para estar completa, en palabras. Vacío = completa: la comisión y los
+ * viáticos ya se calcularon y nada se edita. Lo usan la API (sólo deja completar una vez) y la
+ * pantalla (la marca «Incompleta» y no pinta montos que todavía no existen).
+ */
+export function pendientesDeLaGuia(g: { driver_id?: string | null; departure_time?: string | null; arrival_time?: string | null }): string[] {
+  const f: string[] = [];
+  if (!g.driver_id) f.push('el chofer');
+  if (!g.departure_time || !g.arrival_time) f.push('el horario');
+  return f;
+}
+
 /** Lo que se guarda en `delivery_guides.per_diem_breakdown`: el cálculo completo, auditable. */
 export interface ViaticosDeLaGuia {
   regla: 'horario_beta';

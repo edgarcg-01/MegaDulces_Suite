@@ -39,8 +39,8 @@ const VIATICOS = [
   { key: 'viatico_cafe', value: '50.00' }, { key: 'viatico_desayuno', value: '100.00' },
   { key: 'viatico_comida', value: '100.00' }, { key: 'viatico_cena', value: '100.00' },
 ];
-/** Un día que no da comidas (sale 8:00, llega 14:00): viáticos = 0 real. */
-const TOMA = { delivery_type: 'route', departure_time: '08:00', arrival_time: '14:00' };
+/** EMB.22 — tomar el viaje sólo lleva lo del embarque. */
+const TOMA = { delivery_type: 'route' };
 
 function dobleDeKnex(opts: { falloUnico?: boolean } = {}) {
   const llamadas: Llamada[] = [];
@@ -107,11 +107,9 @@ describe('LogisticsShipmentsService.create — embarque manual', () => {
 });
 
 describe('LogisticsShipmentsService.createFromKepler', () => {
-  it('guarda la llave de la guía y lo que Kepler no tiene, sin recapturar lo que sí', async () => {
+  it('guarda la llave de la guía y lo que Kepler no tiene del EMBARQUE, sin recapturar lo que sí', async () => {
     const { svc, k } = servicio(hoja());
-    const r = await svc.createFromKepler('06', '0001419', {
-      ...TOMA, helper1_id: 'dddddddd-0000-4000-8000-000000000001', freight_revenue: 0,
-    });
+    const r = await svc.createFromKepler('06', '0001419', { ...TOMA, freight_revenue: 0, actual_km: 180 });
 
     const [s] = k.inserts['logistics.shipments'];
     expect(s).toMatchObject({
@@ -120,7 +118,7 @@ describe('LogisticsShipmentsService.createFromKepler', () => {
       vehicle_id: 'aaaaaaaa-0000-4000-8000-000000000017',
       route_id: 'cccccccc-0000-4000-8000-000000000041',
       type: 'entrega', delivery_type: 'route', status: 'programado',
-      boxes_count: 77, cargo_value: 66523.29, total_weight_kg: 0,
+      boxes_count: 77, cargo_value: 66523.29, total_weight_kg: 0, actual_km: 180,
       origin: 'Sucursal Canindo',
     });
     expect(s.folio).toMatch(/^EMB-\d{4}-\d{5}$/);
@@ -130,71 +128,45 @@ describe('LogisticsShipmentsService.createFromKepler', () => {
   it('NO frena la unidad por la agenda de embarques propios: Kepler ya la asignó', async () => {
     const { svc, k } = servicio(hoja());
     await svc.createFromKepler('06', '0001419', TOMA);
-    // La única lectura de logistics.shipments sería el freno de agenda; aquí no debe existir.
     expect(k.llamadas.filter((l) => l.tabla === 'logistics.shipments' && l.op === 'first')).toHaveLength(0);
     expect(k.llamadas.filter((l) => l.tabla === 'logistics.vehicles')).toHaveLength(0);
   });
 
-  it('la guía lleva al chofer de Kepler y la comisión CALCULADA de la tarifa del viaje', async () => {
+  // ── EMB.22: la guía nace con lo que Kepler tiene; lo demás se completa en Guías ─────────
+
+  it('la guía nace INCOMPLETA: el chofer de Kepler y nada más (sin ayudantes, horario ni montos)', async () => {
     const { svc, k } = servicio(hoja());
     await svc.createFromKepler('06', '0001419', TOMA);
     const [g] = k.inserts['logistics.delivery_guides'];
     expect(g).toMatchObject({
-      driver_id: 'bbbbbbbb-0000-4000-8000-000000000017', driver_commission: 98.04,
-      helper1_id: null, helper1_commission: 0, status: 'pendiente', type: 'entrega',
+      driver_id: 'bbbbbbbb-0000-4000-8000-000000000017',
+      helper1_id: null, helper2_id: null, departure_time: null, arrival_time: null,
+      driver_commission: 0, helper1_commission: 0, helper2_commission: 0, per_diem_total: 0, per_diem_breakdown: null,
+      status: 'pendiente', type: 'entrega',
     });
     expect(g.number).toMatch(/^GUIA-\d{4}-\d{5}$/);
   });
 
-  it('cada ayudante que va cobra la tarifa de ayudante; el que no va, 0', async () => {
-    const { svc, k } = servicio(hoja());
-    await svc.createFromKepler('06', '0001419', { ...TOMA, helper1_id: 'dddddddd-0000-4000-8000-000000000001' });
-    expect(k.inserts['logistics.delivery_guides'][0]).toMatchObject({ helper1_commission: 57.76, helper2_commission: 0 });
+  it('si Kepler no trae chofer, se toma igual: el chofer se completa en Guías', async () => {
+    const { svc, k } = servicio(hoja({ chofer: { driver_id: null } }));
+    await svc.createFromKepler('01', '0001626', TOMA);
+    expect(k.inserts['logistics.delivery_guides'][0]).toMatchObject({ driver_id: null });
   });
 
-  it('si una ruta del viaje no tiene tarifa, no crea nada y dice cuál falta', async () => {
-    const h = hoja({ comision: { driver: 98.04, helper: 57.76, ruta_usada: null, sin_tarifa: [{ clave: 'R0041', nombre: 'SANTAGIO TANGAMNADAPIO' }] } });
+  it('una ruta sin tarifa ya no frena la toma: la tarifa se exige al completar la guía', async () => {
+    const h = hoja({ comision: { driver: null, helper: null, ruta_usada: null, sin_tarifa: [{ clave: 'R0041', nombre: 'SANTAGIO TANGAMNADAPIO' }] } });
     const { svc, k } = servicio(h);
-    await expect(svc.createFromKepler('06', '0001419', TOMA))
-      .rejects.toThrow(/Falta la tarifa de SANTAGIO TANGAMNADAPIO/);
+    await svc.createFromKepler('06', '0001419', TOMA);
+    expect(k.inserts['logistics.shipments']).toHaveLength(1);
+  });
+
+  it('mandar tripulación u horario al tomar se rechaza: se capturan en Guías', async () => {
+    const { svc, k } = servicio(hoja());
+    await expect(svc.createFromKepler('06', '0001419', { ...TOMA, helper1_id: 'dddddddd-0000-4000-8000-000000000001' }))
+      .rejects.toThrow(/se capturan en la pestaña Guías/);
+    await expect(svc.createFromKepler('06', '0001419', { ...TOMA, departure_time: '06:00' }))
+      .rejects.toThrow(BadRequestException);
     expect(k.inserts['logistics.shipments']).toBeUndefined();
-    expect(k.inserts['logistics.delivery_guides']).toBeUndefined();
-  });
-
-  it('una comisión tecleada que no es la calculada se rechaza (no se paga de más ni de menos)', async () => {
-    const { svc, k } = servicio(hoja());
-    await expect(svc.createFromKepler('06', '0001419', { ...TOMA, driver_commission: 150 }))
-      .rejects.toThrow(/La comisión se calcula de la tarifa de la ruta/);
-    expect(k.inserts['logistics.delivery_guides']).toBeUndefined();
-  });
-
-  // ── Viáticos: se CALCULAN del horario (EMB.19, regla de la beta) ─────────────────────────
-
-  it('guarda el horario y los viáticos calculados, con su desglose', async () => {
-    const { svc, k } = servicio(hoja());
-    // Sale 5:30, llega 16:00: café + desayuno + comida = 250 por persona; chofer + 1 ayudante = 500.
-    await svc.createFromKepler('06', '0001419', {
-      ...TOMA, departure_time: '05:30', arrival_time: '16:00', helper1_id: 'dddddddd-0000-4000-8000-000000000001',
-    });
-    const [g] = k.inserts['logistics.delivery_guides'];
-    expect(g).toMatchObject({ departure_time: '05:30', arrival_time: '16:00', overnight: false, per_diem_total: 500 });
-    const d = JSON.parse(g.per_diem_breakdown);
-    expect(d.driver).toMatchObject({ cafe: true, desayuno: true, comida: true, cena: false, subtotal: 250 });
-    expect(d.helper2).toMatchObject({ va: false, subtotal: 0 });
-  });
-
-  it('sin horario no crea nada: los viáticos salen de él', async () => {
-    const { svc, k } = servicio(hoja());
-    await expect(svc.createFromKepler('06', '0001419', { delivery_type: 'route' }))
-      .rejects.toThrow(/Indica la hora de salida/);
-    expect(k.inserts['logistics.shipments']).toBeUndefined();
-  });
-
-  it('un viático tecleado que no es el calculado se rechaza', async () => {
-    const { svc, k } = servicio(hoja());
-    await expect(svc.createFromKepler('06', '0001419', { ...TOMA, per_diem_total: 320 }))
-      .rejects.toThrow(/Los viáticos se calculan del horario/);
-    expect(k.inserts['logistics.delivery_guides']).toBeUndefined();
   });
 
   it('un destinatario por parada, en orden de ruta y con la llave del documento de Kepler', async () => {
@@ -205,27 +177,15 @@ describe('LogisticsShipmentsService.createFromKepler', () => {
     expect(dest[0]).toMatchObject({ kepler_serie: '1', kepler_warehouse_code: '06', boxes_count: 67, value: 54468.36, status: 'pendiente' });
   });
 
-  it('si Kepler no trae chofer y no se eligió uno, no crea nada y dice por qué', async () => {
-    const { svc, k } = servicio(hoja({ chofer: { driver_id: null } }));
-    await expect(svc.createFromKepler('01', '0001626', TOMA))
-      .rejects.toThrow(BadRequestException);
-    await expect(svc.createFromKepler('01', '0001626', TOMA))
-      .rejects.toThrow(/Falta el chofer/);
-    expect(k.inserts['logistics.shipments']).toBeUndefined();
-  });
-
   it('una guía ya tomada es conflicto (409), con el folio que la tiene', async () => {
     const { svc } = servicio(hoja({ tomado: { id: 'x', folio: 'EMB-2026-00012', status: 'programado' } }));
-    await expect(svc.createFromKepler('06', '0001419', TOMA))
-      .rejects.toThrow(ConflictException);
-    await expect(svc.createFromKepler('06', '0001419', TOMA))
-      .rejects.toThrow(/EMB-2026-00012/);
+    await expect(svc.createFromKepler('06', '0001419', TOMA)).rejects.toThrow(ConflictException);
+    await expect(svc.createFromKepler('06', '0001419', TOMA)).rejects.toThrow(/EMB-2026-00012/);
   });
 
   it('dos personas tomando la misma guía a la vez: la segunda recibe un 409 legible', async () => {
     const { svc } = servicio(hoja(), dobleDeKnex({ falloUnico: true }));
-    await expect(svc.createFromKepler('06', '0001419', TOMA))
-      .rejects.toThrow(/Otra persona acaba de tomar este viaje/);
+    await expect(svc.createFromKepler('06', '0001419', TOMA)).rejects.toThrow(/Otra persona acaba de tomar este viaje/);
   });
 
   it('rechaza sucursal o guía con forma inválida antes de tocar la base', async () => {
@@ -233,5 +193,36 @@ describe('LogisticsShipmentsService.createFromKepler', () => {
     await expect(svc.createFromKepler('06; drop', '0001419', TOMA)).rejects.toThrow(BadRequestException);
     await expect(svc.createFromKepler('06', 'G-1', TOMA)).rejects.toThrow(BadRequestException);
     expect(k.llamadas).toHaveLength(0);
+  });
+});
+
+describe('LogisticsShipmentsService.close — EMB.22', () => {
+  function cierre(guias: Array<Record<string, unknown>>) {
+    const updates: any[] = [];
+    const trx: any = (tabla: string) => {
+      const b: any = {
+        where: () => b, whereNull: () => b, whereNot: () => b, whereNotIn: () => b, forUpdate: () => b,
+        first: async () => tabla === 'logistics.shipments' ? { id: 'e1', status: 'entregado', vehicle_id: null, order_id: null } : undefined,
+        select: async () => tabla === 'logistics.delivery_guides' ? guias : [],
+        update: (row: any) => { updates.push(row); return { returning: async () => [{ ...row }] }; },
+      };
+      return b;
+    };
+    trx.fn = { now: () => 'now()' };
+    const tk: any = { run: async (fn: any) => fn(trx) };
+    return { svc: new LogisticsShipmentsService(tk, {} as any, {} as any, {} as any), updates };
+  }
+
+  it('no se cierra con una guía incompleta: se liquidaría en $0 sin que nadie lo note', async () => {
+    const { svc, updates } = cierre([{ number: 'GUIA-2026-00045', driver_id: 'd1', departure_time: null, arrival_time: null }]);
+    await expect(svc.close('e1aaaaaa-0000-4000-8000-000000000001'))
+      .rejects.toThrow('La guía GUIA-2026-00045 está incompleta (falta el horario): complétala en la pestaña Guías antes de cerrar el embarque.');
+    expect(updates).toHaveLength(0);
+  });
+
+  it('con la guía completa, cierra', async () => {
+    const { svc, updates } = cierre([{ number: 'GUIA-2026-00045', driver_id: 'd1', departure_time: '08:00:00', arrival_time: '17:00:00' }]);
+    await svc.close('e1aaaaaa-0000-4000-8000-000000000001');
+    expect(updates[0]).toMatchObject({ status: 'cerrado' });
   });
 });

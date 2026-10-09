@@ -8,8 +8,10 @@
  * Por qué se frena en vez de guardar 0: Liquidaciones paga lo que dice la guía
  * (`driver_commission`, `per_diem_total`), y un 0 por omisión es no pagar.
  */
-import type { HorarioGuia, TarifaDeRuta, TarifasViatico, ViaticosDeLaGuia } from '@megadulces/contracts';
-import { comisionesDeLaGuia, erroresDeGuiaManual, horaAMinutos, viaticosDeLaGuia } from '@megadulces/contracts';
+import type { CompletarGuiaBody, HorarioGuia, TarifaDeRuta, TarifasViatico, ViaticosDeLaGuia } from '@megadulces/contracts';
+import {
+  comisionesDeLaGuia, erroresDeGuiaManual, erroresDeTripulacion, erroresDeViaticos, horaAMinutos, viaticosDeLaGuia,
+} from '@megadulces/contracts';
 
 export interface GuiaCapturada {
   driver_id?: string | null;
@@ -75,6 +77,51 @@ export function validarGuiaManual(c: GuiaCapturada, ctx: GuiaContexto): string[]
   // Sólo se compara lo tecleado contra un cálculo que se pudo hacer.
   if (!e.length) e.push(...capturasQueNoCoinciden(c, calcularGuia(c, ctx)));
   return e;
+}
+
+// ── Completar la guía que nació al tomar un viaje de Kepler (EMB.22) ───────────────────────────
+//
+// La guía nace con lo que Kepler tiene (el chofer, si lo trae). Lo que Kepler no tiene —ayudantes,
+// horario y, si falta, el chofer— se captura UNA vez en la pestaña Guías; entonces se valida la
+// tarifa y se calculan comisión y viáticos, y desde ahí todo queda bloqueado.
+
+export interface CompletarContexto {
+  /** El chofer que ya trae la guía (de Kepler). Si lo trae, no se cambia aquí. */
+  chofer_guia: string | null;
+  /** La tarifa por persona: la del viaje de Kepler (la mayor de sus rutas) o la de la ruta del embarque. */
+  comision: { driver: number | null; helper: number | null };
+  /** Lo que falta de tarifa según quién va (la regla depende de si va ayudante). */
+  erroresDeTarifa: (ayudantes: { helper1: boolean; helper2: boolean }) => string[];
+  tarifas: TarifasViatico;
+}
+
+export const CHOFER_DE_KEPLER = 'El chofer viene de Kepler y no se cambia aquí: corrígelo en Kepler.';
+
+/** La captura con el chofer que manda: el de Kepler si lo trae; si no, el elegido. */
+export function capturaCompleta(body: CompletarGuiaBody, ctx: Pick<CompletarContexto, 'chofer_guia'>): GuiaCapturada {
+  return { ...body, driver_id: ctx.chofer_guia || body.driver_id || null };
+}
+
+/** Errores en lenguaje del usuario. Lista vacía = se puede completar. */
+export function validarCompletar(body: CompletarGuiaBody, ctx: CompletarContexto): string[] {
+  const c = capturaCompleta(body, ctx);
+  const ayudantes = { helper1: !!c.helper1_id, helper2: !!c.helper2_id };
+  return [
+    ...(ctx.chofer_guia && body.driver_id && body.driver_id !== ctx.chofer_guia ? [CHOFER_DE_KEPLER] : []),
+    ...erroresDeTripulacion({ driver_id: c.driver_id || null, helper1_id: c.helper1_id || null, helper2_id: c.helper2_id || null }),
+    ...ctx.erroresDeTarifa(ayudantes),
+    ...erroresDeViaticos(horarioDe(c), ctx.tarifas),
+  ];
+}
+
+/** El cálculo al completar. Sólo tiene sentido cuando `validarCompletar` viene vacío. */
+export function calcularCompletar(body: CompletarGuiaBody, ctx: CompletarContexto): GuiaCalculada {
+  const c = capturaCompleta(body, ctx);
+  const va = { driver: !!c.driver_id, helper1: !!c.helper1_id, helper2: !!c.helper2_id };
+  return {
+    comisiones: comisionesDeLaGuia(ctx.comision, va),
+    viaticos: viaticosDeLaGuia(horarioDe(c), ctx.tarifas, va),
+  };
 }
 
 // ── Editar una guía ya creada ───────────────────────────────────────────────────────────────

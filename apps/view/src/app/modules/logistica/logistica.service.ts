@@ -4,7 +4,7 @@ import { Observable } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import type {
-  KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps,
+  KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
 } from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -1228,6 +1228,10 @@ export class LogisticaService {
   /** EMB.19 — sólo tripulación y horario: comisión y viáticos los calcula la API. */
   createGuide(body: NuevaGuiaBody) {
     return this.http.post<DeliveryGuide>(`${this.base}/guides`, body);
+  }
+  /** EMB.22 — completar UNA vez la guía de un viaje de Kepler (tripulación y horario). */
+  completeGuide(id: string, body: CompletarGuiaBody) {
+    return this.http.post<GuiaCompletada>(`${this.base}/guides/${id}/complete`, body);
   }
   updateGuide(id: string, body: Partial<DeliveryGuide>) {
     return this.http.patch<DeliveryGuide>(`${this.base}/guides/${id}`, body);

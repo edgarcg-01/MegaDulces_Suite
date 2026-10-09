@@ -7,12 +7,11 @@ import {
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
-import { comisionesDeLaGuia, ORDER_FULFILLMENT_PORT, OrderFulfillmentPort, tarifasDeViatico, viaticosDeLaGuia } from '@megadulces/contracts';
+import { ORDER_FULFILLMENT_PORT, OrderFulfillmentPort, pendientesDeLaGuia } from '@megadulces/contracts';
 import type { TomaKeplerResultado } from '@megadulces/contracts';
 import { haversineKm } from '../logistics-routing/route-solver';
 import { ErpShipmentsService } from '../logistics-erp-shipments/erp-shipments.service';
 import { armarDestinatarios, TomaInput, validarToma } from '../logistics-erp-shipments/nuevo-embarque.logic';
-import { horarioDe } from '../logistics-guides/guia-calculada.logic';
 
 export type ShipmentStatus =
   | 'programado'
@@ -121,32 +120,15 @@ export class LogisticsShipmentsService {
 
     const hoja = await this.erp.nuevoEmbarque(sucursal, guia);
     if (!hoja.viaje.fecha) throw new BadRequestException('El viaje de Kepler no tiene fecha válida');
-    const tarifasViatico = tarifasDeViatico(await this.tk.run((trx) =>
-      trx('logistics.config_finance').where({ category: 'viatico', active: true }).select('key', 'value')));
-    const errores = validarToma(dto, {
-      chofer_kepler_driver_id: hoja.chofer.driver_id,
-      ya_tomado_folio: hoja.tomado?.folio ?? null,
-      comision: hoja.comision,
-      paradas_sin_ruta: hoja.resumen.paradas_sin_ruta,
-      tarifas_viatico: tarifasViatico,
-    });
+    const errores = validarToma(dto, { ya_tomado_folio: hoja.tomado?.folio ?? null });
     if (hoja.tomado) throw new ConflictException(errores[0]);
     if (errores.length) throw new BadRequestException(errores.join(' '));
 
-    const driverId = dto.driver_id || hoja.chofer.driver_id;
+    // EMB.22 — la guía nace con lo que Kepler tiene: el chofer, si lo trae. Lo demás se completa en Guías.
+    const driverId = hoja.chofer.driver_id;
     const destinatarios = armarDestinatarios(hoja.paradas, sucursal);
-    // Comisión y viáticos se CALCULAN (validarToma ya frenó si falta una tarifa o el horario).
-    const ayudantes = { helper1: !!dto.helper1_id, helper2: !!dto.helper2_id };
-    const comisiones = comisionesDeLaGuia(hoja.comision, ayudantes);
-    const viaticos = viaticosDeLaGuia(horarioDe(dto), tarifasViatico, { driver: !!driverId, ...ayudantes });
 
     return this.tk.run(async (trx) => {
-      for (const [id, rol] of [[driverId, 'chofer'], [dto.helper1_id, 'ayudante 1'], [dto.helper2_id, 'ayudante 2']] as const) {
-        if (!id) continue;
-        const d = await trx('logistics.drivers').where({ id }).whereNull('deleted_at').first('id', 'active', 'full_name');
-        if (!d) throw new NotFoundException(`No existe el ${rol} elegido`);
-        if (!d.active) throw new ConflictException(`${d.full_name} está inactivo y no puede ir como ${rol}`);
-      }
 
       const folio = await this.nextFolio(trx, 'EMB');
       const r = hoja.resumen;
@@ -192,17 +174,18 @@ export class LogisticsShipmentsService {
           shipment_id: shipment.id,
           type: hoja.viaje.tipo.tipo,
           status: 'pendiente',
+          // Incompleta: tripulación, horario, comisión y viáticos se completan en Guías.
           driver_id: driverId,
-          driver_commission: comisiones.driver_commission,
-          helper1_id: dto.helper1_id || null,
-          helper1_commission: comisiones.helper1_commission,
-          helper2_id: dto.helper2_id || null,
-          helper2_commission: comisiones.helper2_commission,
-          departure_time: viaticos.horario.salida,
-          arrival_time: viaticos.horario.llegada,
-          overnight: viaticos.horario.duerme_fuera,
-          per_diem_total: viaticos.total,
-          per_diem_breakdown: JSON.stringify(viaticos),
+          driver_commission: 0,
+          helper1_id: null,
+          helper1_commission: 0,
+          helper2_id: null,
+          helper2_commission: 0,
+          departure_time: null,
+          arrival_time: null,
+          overnight: false,
+          per_diem_total: 0,
+          per_diem_breakdown: null,
           notes: null,
         })
         .returning('*');
@@ -822,6 +805,17 @@ export class LogisticsShipmentsService {
    */
   async close(id: string) {
     return this.transition(id, 'cerrado', async (trx, shipment) => {
+      // EMB.22 — una guía incompleta tiene comisión y viáticos en 0 hasta que se completa: cerrar
+      // así sería liquidar en $0 sin que nadie lo note.
+      const guias = await trx('logistics.delivery_guides')
+        .where({ shipment_id: shipment.id }).whereNull('deleted_at').whereNot('status', 'cancelada')
+        .select('number', 'driver_id', 'departure_time', 'arrival_time');
+      const incompleta = guias.find((g: { driver_id: string | null; departure_time: string | null; arrival_time: string | null }) => pendientesDeLaGuia(g).length);
+      if (incompleta) {
+        throw new ConflictException(
+          `La guía ${incompleta.number} está incompleta (falta ${pendientesDeLaGuia(incompleta).join(' y ')}): complétala en la pestaña Guías antes de cerrar el embarque.`,
+        );
+      }
       if (shipment.vehicle_id) {
         await this.releaseVehicleIfIdle(trx, shipment.vehicle_id, shipment.id);
       }

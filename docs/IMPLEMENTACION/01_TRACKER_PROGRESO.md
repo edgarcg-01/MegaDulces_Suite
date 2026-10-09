@@ -2111,6 +2111,30 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   no regresa en 48 h, en curso…), nunca «coincide». Regla en `revision-gps.contract.ts` + `gps-viaje.logic.ts`.
   Sin migraciones. **Pendiente:** una lista para revisar las guías que difieren (hoy se ve embarque por
   embarque) y coordenadas del CEDIS.
+- [x] **[EMB.22]** 🧪 **La guía se llena SÓLO en la pestaña Guías: lo que no está en Kepler sale de la
+  guía de la Suite** (2026-10-09, decidido con el usuario). La hoja de «Nuevo embarque» deja de pedir
+  tripulación y horario: muestra **bloqueado** lo que trae Kepler (unidad, chofer…) y lo que no, con la
+  leyenda «Se captura en Guías» (ayudantes, salida, llegada, el chofer si Kepler no lo trae) o «Se
+  calculan en Guías» (comisión y viáticos). Peso, km y flete se siguen capturando ahí (son del embarque,
+  decisión del usuario). Al tomar el viaje la guía **nace incompleta** con lo de Kepler (chofer si lo
+  trae; sin ayudantes, horario ni montos); la API **rechaza** recibir tripulación u horario en la toma, y
+  la tarifa de las rutas ya no frena la toma: se exige al completar. En **Guías** la guía sale
+  «Incompleta», sin montos (nunca $0), con **Completar**: el chofer de Kepler va bloqueado, se capturan
+  ayudantes y horario UNA vez, `POST /logistics/guides/:id/complete` valida tarifa (la del viaje de
+  Kepler, la mayor de sus rutas; o la de la ruta del embarque manual) y horario, calcula comisión y
+  viáticos, y la deja bloqueada (completarla dos veces → 409; dos personas a la vez → 409). El formulario
+  de embarque manual deja de capturar la guía (se crea en Guías › Nueva guía). **Freno nuevo:** no se
+  cierra un embarque con una guía incompleta (se liquidaría en $0 sin que nadie lo note). El costo
+  estimado del viaje deja de sumar $0 de una guía incompleta y lo dice. Regla en el contrato
+  (`pendientesDeLaGuia`, `CompletarGuiaBody`) y `validarCompletar`/`calcularCompletar` en libs/logistics.
+  Sin migraciones.
+- [ ] **[EMB.23]** ⚠️ **Ninguna guía llega a «entregada», y Liquidaciones sólo cuenta las entregadas.**
+  Medido en el código el 2026-10-09: ningún flujo de la app (entregar, cerrar el embarque, entregar
+  destinatarios) cambia `delivery_guides.status`; sólo el `PATCH` de estado, que ninguna pantalla usa. Y
+  `logistics-payroll.service.ts` suma comisiones con `WHERE g.status = 'entregada'` → hoy no pagaría
+  ninguna comisión de guía. En prod no pega todavía (1 guía en total, de junio; 0 embarques en 90 días).
+  **Decisión pendiente** junto con EMB.20: ¿la guía pasa a entregada al entregar el embarque, al cerrar,
+  o cuando se entregan sus destinatarios?
 - [ ] **[EMB.20]** ⚠️ **Liquidaciones no paga los viáticos que la guía calcula.**
   `logistics-payroll.service.ts` suma `per_diem_total` **sólo si `overnight`** y **sólo al chofer**
   (decisión «beta, intencional» de su docblock). Con la regla de horario (EMB.19), una salida a las
