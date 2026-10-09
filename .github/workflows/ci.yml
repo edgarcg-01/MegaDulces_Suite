@@ -81,7 +81,20 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # ⛔ **En `main` NO se cancela, y está medido por qué.** De las últimas 40 corridas de `main`,
+  # **13 quedaron `cancelled`**: cada push nuevo mataba la corrida del anterior. Eso tiene dos
+  # costos que no se ven hasta que muerden:
+  #
+  #  1. **Commits sin veredicto.** De los últimos 25 commits de `main`, sólo **6** llegaron a tener
+  #     corrida propia. Los otros 19 entraron sin que nadie supiera si compilaban — y cuando algo
+  #     se rompe, no se puede señalar cuál lo rompió porque la mayoría no tiene medición.
+  #  2. ⭐ **El sello se pierde.** El job `sellar` sólo corre en `push` a `main`; si lo cancelan,
+  #     `ci-green` no avanza, y `auto-deploy.sh` se niega a desplegar lo que el sello no bendijo.
+  #     O sea que **cancelar el CI de `main` frena producción**, aunque el código esté sano.
+  #
+  # En una rama de trabajo cancelar sigue siendo correcto: lo que importa es el último push, y
+  # ahorrar 4 minutos de runner por cada corrección intermedia es dinero real.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 # `[NX.5]` Caché REMOTO de Nx Cloud, para todos los jobs.
 #
@@ -226,6 +239,33 @@ jobs:
     name: Lint & test (affected)
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # ⭐⭐ **NO tiñe la corrida, pero AVISA en el PR. Decisión de Edgar, 2026-10-09.**
+    #
+    # ⛔ Lo que lo motivó, medido ese día sobre `main`: de **40 corridas, 26 fallidas, 13
+    # canceladas y UNA exitosa**. Pero separando las compuertas:
+    #
+    #     Build & typecheck (obligatoria):  4 verdes / 1 roja
+    #     Secret scan       (obligatoria):  6 verdes / 0 rojas
+    #     Lint & test       (informativa):  0 verdes / 5 rojas   ← 100% rojo
+    #
+    # ⭐ **El CI no estaba roto: estaba gritando siempre.** Como el veredicto de la corrida es la
+    # suma de sus jobs, este 100% rojo pintaba de rojo el 97% de las corridas, y nadie podía
+    # distinguir una rotura real de la permanente. **No es teórico:** las dos roturas de `main` del
+    # 2026-10-08 —un `TS2341` en una plantilla y el presupuesto del bundle reventado por 449 kB—
+    # pasaron porque «rojo» ya no significaba nada.
+    #
+    # ⚠️ Apagar el ruido NO es apagar la medición. `continue-on-error` deja que el job siga
+    # corriendo entero y siga marcándose en rojo **él mismo**; lo único que cambia es que ya no
+    # arrastra a la corrida. Y para que el rojo no se vuelva invisible, el paso de abajo lo
+    # **escribe en el PR**: antes había que acordarse de abrirlo.
+    #
+    # ⛔ Lo que NO se hizo, a propósito: borrar el job, ni bajarle el alcance, ni marcar la deuda
+    # como aceptada. Los 294 hallazgos siguen ahí y siguen contándose. Esto cambia **quién se
+    # entera**, no **qué se mide**.
+    continue-on-error: true
+    permissions:
+      contents: read
+      pull-requests: write   # para dejar el aviso en el PR
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -620,6 +660,71 @@ jobs:
           fi
           echo "---" >> "$S"
           echo "ℹ️ Las compuertas de diseño cortan **sólo por los archivos que este cambio tocó** (\`[CD.2]\`). La deuda del resto se sigue midiendo e imprimiendo, pero no frena a quien no la escribió." >> "$S"
+
+      # ── ⭐ EL AVISO EN EL PR — la contraparte de no teñir la corrida ────────────────
+      #
+      # Este job dejó de arrastrar la corrida a rojo (`continue-on-error` arriba). Eso resuelve el
+      # ruido, pero abre un riesgo peor: **que el rojo se vuelva invisible.** Un hallazgo que nadie
+      # ve es un hallazgo que no existe — es exactamente lo que pasó con `[Salud BD] 13 crítica(s)`,
+      # detectado correctamente durante meses y nunca entregado porque el correo fallaba.
+      #
+      # Por eso el veredicto va DONDE se decide: el PR. Antes había que acordarse de abrir la
+      # pestaña de checks; ahora el aviso llega solo, con qué compuerta cortó y qué comando la
+      # reproduce.
+      #
+      # ⚠️ Comenta UNA sola vez y actualiza: un bot que agrega un comentario por push llena el hilo
+      # y la gente lo silencia, que es volver al punto de partida por otro camino.
+      - name: Avisar en el PR qué compuerta no pasó
+        if: ${{ failure() && github.event_name == 'pull_request' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          R_LINT: ${{ steps.g-lint.outcome }}
+          R_TEMPLATES: ${{ steps.g-templates.outcome }}
+          R_TABLAS: ${{ steps.g-tablas.outcome }}
+          R_TOKENS: ${{ steps.g-tokens.outcome }}
+          R_MOTION: ${{ steps.g-motion.outcome }}
+          R_ESTILOS: ${{ steps.g-estilos.outcome }}
+          R_TYPECHECK: ${{ steps.g-typecheck.outcome }}
+          R_TEST: ${{ steps.g-test.outcome }}
+        run: |
+          set -eu
+          MARCA='<!-- lint-test-aviso -->'
+          B=$(mktemp)
+          {
+            printf '%s\n' "$MARCA"
+            echo "### ⚠️ \`Lint & test\` no pasó"
+            echo ""
+            echo "**No bloquea el merge** — esta compuerta es informativa. Pero no pasó, y conviene que lo sepas antes de que alguien lo descubra en \`main\`."
+            echo ""
+            echo "| Compuerta | Qué significa | Reproducilo |"
+            echo "|---|---|---|"
+          } > "$B"
+          fila() { [ "${1:-}" = "failure" ] && printf '| **%s** | %s | `%s` |\n' "$2" "$3" "$4" >> "$B" || true; }
+          fila "$R_LINT"      "Lint de líneas nuevas" "Una línea que ESTE cambio escribió no pasa eslint. La deuda vieja no cuenta." "node scripts/lint-changed.js"
+          fila "$R_TEMPLATES" "Comentario que cierra su bloque" "Un backtick dentro de template/styles. Ya rompió el build seis veces en este repo." "npm run check:templates"
+          fila "$R_TABLAS"    "Tabla ancha sin salida en estrecho" "Una tabla que tocaste no declara qué hace en pantalla angosta." "npm run check:tables"
+          fila "$R_TOKENS"    "Token de CSS inexistente" "Un var(--x) sin respaldo tira la declaración entera, en silencio, en el navegador." "npm run check:tokens"
+          fila "$R_MOTION"    "Techo de motion" "Una animación dura más que --dur-max." "npm run check:motion"
+          fila "$R_ESTILOS"   "Reglas de CSS" "Creció alguna deuda de CSS: escala, hex crudo, breakpoint en px o foco." "npm run check:estilos"
+          fila "$R_TYPECHECK" "Typecheck" "apps/api compila con SWC y BORRA los tipos sin comprobarlos: este es el único paso que los mira." "npx nx affected -t typecheck"
+          fila "$R_TEST"      "Pruebas" "Una prueba de un proyecto afectado falló." "npx nx affected -t test"
+          {
+            echo ""
+            echo "[Ver la corrida completa]($RUN_URL)"
+            echo ""
+            echo "<sub>Las compuertas de diseño cortan **sólo por los archivos que este cambio tocó**: la deuda del resto se mide pero no te frena. Si alguna te parece ajena, decilo en el PR en vez de evadirla.</sub>"
+          } >> "$B"
+          ID=$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR/comments" --paginate \
+                 --jq "[.[] | select(.body | startswith(\"$MARCA\"))] | last | .id // empty" 2>/dev/null || true)
+          if [ -n "${ID:-}" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$ID" -F body=@"$B" >/dev/null
+            echo "aviso actualizado en el PR #$PR"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -F body=@"$B" >/dev/null
+            echo "aviso publicado en el PR #$PR"
+          fi
 
   # ──────────────────────────────────────────────────────────────────────────────────────────
   # `[CI.SELLO]` EL SELLO — mueve la rama marcadora `ci-green` al commit que acaba de pasar.
