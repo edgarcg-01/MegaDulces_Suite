@@ -81,6 +81,26 @@ manda sobre el mes. Costo medido: un mes completo (106 cortes), **630–750 ms e
   tienda → su sucursal; `yadira_campero` → ninguna (sin `warehouse_code`; asignarla en
   Personas). Excepciones personales sobre INCOME/CORTES: 0. La API relee permisos cada 30 s; el
   menú necesita re-login. 🧪 2026-10-05
+- [x] **[CSU.7]** **Devoluciones pagadas en caja** (pedido de Francisco al revisar Zamora `Caja 2-171`,
+  "Corte distinto −$179.92"). El arqueo de Kepler (`kdpv_folio_caja`) espera la venta **bruta** del
+  turno; el corte `U-D-23` ya **resta** las notas de crédito POS pagadas en esa caja. Son dos
+  documentos: `U-A-21-1` "Nota Créd/Dev POS" (fiscal) y `U-A-25-1` "Nota Créd/Dev NoFis POS",
+  ligados al turno por `kdm1.c81` (caja) + `kdm1.c80` (folio de turno), ±1 día porque el folio de
+  turno se repite entre fechas. Ej.: esperado $12,908.53 − `UA2101-0000071` $179.92 = corte
+  $12,728.61. **Medido en prod con el motor real, 1–8 oct-2026 (los 196 cortes con arqueo que lista la pantalla):** cuadraban 141; con el esperado
+  neto cuadran **184** («con diferencia» baja de 55 a 12) — incluidos los "Faltante en arqueo" de Madero 4-28 (−$2,641.97) y Abastos
+  3-12 (−$3,450.52), que eran devoluciones. `U-A-35-1` también trae caja pero no explica ningún
+  corte: fuera. Un caso (Madero 2-23) tiene devolución y el corte salió por el bruto: se acepta
+  como `cuadra` contra el bruto y la pantalla lo dice ("Kepler no la descontó en este corte");
+  ⚠️ ese respaldo va antes del chequeo contra lo contado, así que en ese caso un faltante del
+  arqueo no se ve (igual que antes del cambio). **Declarado, no resuelto:** hay devoluciones POS
+  sin caja o sin turno en Kepler (38 desde el 24-sep; p. ej. una de Yurécuaro por $937.06) que no
+  casan con ningún corte, y las devoluciones sólo se pintan cuando el corte tiene arqueo. Quedan 9 `corte_distinto`, casi todos con el corte **arriba** de
+  lo esperado (Abastos, hasta +$18,141.81): otra causa, sin investigar. El detalle muestra cada
+  devolución (cliente y motivo) y el "esperado neto". Motor 17 pruebas, mutación verificada (4
+  rojas con el bruto). Sin migración ni permisos. ⚠️ La consulta del mes tarda **~6 s** contra prod
+  **desde antes de este cambio** (la parte de devoluciones cuesta ~36 ms); el "630–750 ms" de
+  CSU.1 quedó viejo — revisar aparte. 🧪 2026-10-08
 - [ ] **[CSU.3]** Entrega 2 — banco: cruzar los cobros con `finance.bank_movements` (tarjeta y
   transferencia), tolerando que un abono cubra varios cobros y que el cobro no trae la fecha real.
   Requiere el estado de cuenta de oct-2026 cargado en Bancos.

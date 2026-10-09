@@ -16,7 +16,11 @@ export type CorteEstadoCobro = 'sin_cobro' | 'parcial' | 'cobrado' | 'sobrecobra
 /**
  * Veredicto del corte contra el arqueo de SU turno (no contra los tickets del día: un turno puede
  * cruzar la medianoche y el día daba diferencias falsas de ±$90 mil).
- *  · `cuadra`          — corte = lo que el POS esperaba (tolerancia $1).
+ *
+ * `[CSU.7]` "Lo esperado" es NETO de las devoluciones pagadas en la caja del turno: el arqueo de
+ * Kepler (`kdpv_folio_caja`) espera la venta bruta y el corte `U-D-23` ya descuenta las notas
+ * de crédito POS. Sin restarlas, una devolución salía como "faltante" o "corte distinto".
+ *  · `cuadra`          — corte = lo que el POS esperaba, neto de devoluciones (tolerancia $1).
  *  · `faltante_arqueo` — corte = lo contado, y lo contado quedó ABAJO de lo esperado.
  *  · `sobrante_arqueo` — corte = lo contado, y lo contado quedó ARRIBA de lo esperado.
  *  · `corte_distinto`  — el corte no coincide ni con lo esperado ni con lo contado.
@@ -35,6 +39,25 @@ export interface CorteCobro {
   concepto: string | null;
 }
 
+/**
+ * `[CSU.7]` Devolución pagada en la caja del turno: nota de crédito POS de Kepler, ligada al turno
+ * por `kdm1.c81` (caja) y `kdm1.c80` (folio de turno). Dos documentos:
+ *  · `UA2101` — "Nota Créd/Dev POS" (fiscal).
+ *  · `UA2501` — "Nota Créd/Dev NoFis POS" (no fiscal).
+ */
+export interface CorteDevolucion {
+  doc_prefix: string;
+  folio: string;
+  /** `YYYY-MM-DD` del documento. */
+  fecha: string;
+  monto: number;
+  /** Nombre del cliente al que se le devolvió (`kdm1.c32`). */
+  cliente: string | null;
+  /** Motivo que capturó la caja (`kdm1.c24`); Kepler lo guarda cortado. */
+  motivo: string | null;
+  cajero: string | null;
+}
+
 export interface CorteArqueo {
   fecha: string;
   efectivo_esperado: number;
@@ -43,7 +66,10 @@ export interface CorteArqueo {
   tarjeta_contado: number;
   transfer_esperado: number;
   transfer_contado: number;
+  /** Lo que esperaba el POS, BRUTO (sin restar devoluciones), como lo guarda Kepler. */
   esperado_total: number;
+  /** `[CSU.7]` `esperado_total` − devoluciones del turno: contra esto se juzga el corte. */
+  esperado_neto: number;
   contado_total: number;
   cajero: string | null;
 }
@@ -69,9 +95,12 @@ export interface CorteRow {
   saldo: number;
   estado_cobro: CorteEstadoCobro;
   cobros: CorteCobro[];
+  /** `[CSU.7]` Devoluciones pagadas en la caja de este turno (vacío si no hubo). */
+  devoluciones: CorteDevolucion[];
+  devoluciones_total: number;
   arqueo: CorteArqueo | null;
   cuadre: CorteCuadre;
-  /** Corte − esperado del arqueo. `null` cuando no hay arqueo. */
+  /** Corte − esperado neto del arqueo. `null` cuando no hay arqueo. */
   diferencia: number | null;
 }
 

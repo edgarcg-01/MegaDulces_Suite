@@ -11,7 +11,7 @@ import { DatePickerModule } from 'primeng/datepicker';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { TagModule } from 'primeng/tag';
 import type {
-  CorteCuadre, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
+  CorteArqueo, CorteCuadre, CorteEstadoCobro, CorteRow, CorteSucursalResumen, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 import { environment } from '../../../../environments/environment';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
@@ -157,8 +157,21 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
                       <tr class="cs-tot"><td>Total</td><td class="ta-r num">{{ money(a.esperado_total) }}</td><td class="ta-r num">{{ money(a.contado_total) }}</td></tr>
                     </tbody>
                   </table>
+                  @if (c.devoluciones.length) {
+                    <p class="cs-sub">Devoluciones pagadas en esta caja</p>
+                    @for (v of c.devoluciones; track v.doc_prefix + v.folio) {
+                      <div class="cs-row cs-dev">
+                        <span>{{ v.doc_prefix }}-{{ v.folio }}@if (v.cliente) { · {{ v.cliente }} }@if (v.motivo) { <span class="muted cs-motivo"> · {{ v.motivo }}</span> }</span>
+                        <span class="num">-{{ money(v.monto) }}</span>
+                      </div>
+                    }
+                    <div class="cs-row cs-tot"><span>Esperado neto de devoluciones</span><span class="num">{{ money(a.esperado_neto) }}</span></div>
+                  }
                   <div class="cs-row"><span>Monto del corte en Kepler</span><span class="num cs-strong">{{ money(c.monto) }}</span></div>
                   <div class="cs-row"><span>{{ cuadreLabel(c) }}</span><span class="num" [class.cs-bad]="c.cuadre !== 'cuadra'">{{ c.diferencia === null ? '—' : money(c.diferencia) }}</span></div>
+                  @if (cuadraPorBruto(c, a)) {
+                    <p class="cs-hint cs-nota">El corte salió por lo esperado <b>sin restar</b> la devolución: Kepler no la descontó en este corte. Cuadra contra el esperado bruto ({{ money(a.esperado_total) }}).</p>
+                  }
                 } @else {
                   <p class="cs-hint">No se encontró el arqueo del turno {{ c.referencia }}. El cuadre queda <b>sin medir</b>; no es lo mismo que cuadrar.</p>
                 }
@@ -221,6 +234,10 @@ const MESES = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', '
     .cs-mini th { font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; padding:.2rem 0; text-align:left; }
     .cs-mini td { padding:.2rem 0; border-bottom:1px dashed var(--border-color); }
     .cs-mini tr.cs-tot td { border-bottom:0; }
+    .cs-sub { margin:.5rem 0 .15rem; font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase; color:var(--text-muted); font-weight:600; }
+    .cs-dev span:first-child { white-space:normal; }
+    .cs-motivo { font-size:var(--fs-xs); }
+    .cs-nota { margin-top:.35rem; }
     .ta-r { text-align:right !important; }
     .num, .cs-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cs-strong { font-weight:600; }
@@ -337,6 +354,10 @@ export class FinanzasCortesSucursalesComponent implements OnInit {
   cobroLabel(e: CorteEstadoCobro): string { return COBRO[e].label; }
   cobroSev(e: CorteEstadoCobro): Sev { return COBRO[e].sev; }
   cuadreSev(q: CorteCuadre): Sev { return CUADRE[q].sev; }
+  /** `[CSU.7]` Hubo devolución pero el corte coincide con el esperado BRUTO, no con el neto. */
+  cuadraPorBruto(c: CorteRow, a: CorteArqueo): boolean {
+    return c.cuadre === 'cuadra' && c.devoluciones_total > 0 && Math.abs(c.monto - a.esperado_neto) >= 1;
+  }
   cuadreLabel(c: CorteRow): string {
     const base = CUADRE[c.cuadre].label;
     return c.cuadre === 'cuadra' || c.cuadre === 'sin_arqueo' || c.diferencia === null ? base : `${base} ${money(c.diferencia)}`;
