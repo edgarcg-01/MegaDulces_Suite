@@ -116,11 +116,15 @@ function reconstruir(movs) {
   // marcaron y el bloque imprimió ✅ sobre una diferencia real de $49M. Una columna ausente se lee
   // EXACTAMENTE igual que "no hay diferencia". Comparar contra un campo que no se seleccionó no
   // puede volver a pasar en silencio.
+  // ⭐ Y la guarda pregunta `== null` ANTES de convertir, no `Number.isFinite` después. El refinamiento
+  // vino del carril de ventas, medido: **`Number(null)` es `0`, no `NaN`**. O sea que una columna
+  // que llega NULL —no ausente— pasa `isFinite` sin chistar y se compara como cero. Un NaN al menos
+  // es inverosímil; un 0 es PLAUSIBLE, y acá lo es de verdad (hay partidas legítimas en cero).
   const camposNum = ['original_amount', 'vigente_amount', 'reserved_amount', 'committed_amount', 'exercised_amount', 'paid_amount'];
   for (const l of lines.slice(0, 1)) {
     for (const k of camposNum) {
-      if (!Number.isFinite(Number(l[k]))) {
-        console.error(`❌ ABORTA: el SELECT no trae "${k}" (llegó ${JSON.stringify(l[k])}). Comparar contra eso daría verde por NaN.`);
+      if (l[k] === undefined || l[k] === null || !Number.isFinite(Number(l[k]))) {
+        console.error(`❌ ABORTA: el SELECT no trae un "${k}" utilizable (llegó ${JSON.stringify(l[k])}). Comparar contra eso daría verde: ausente da NaN y NULL da 0.`);
         process.exit(1);
       }
     }
