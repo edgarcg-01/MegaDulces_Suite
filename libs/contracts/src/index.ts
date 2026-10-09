@@ -99,6 +99,7 @@ export * from './http/hr-attendance.contract';
 // [EMB.12] «Nuevo embarque» desde Kepler: la hoja del viaje, la lista y la toma. Sólo tipos.
 export * from './http/nuevo-embarque.contract';
 export * from './http/viaticos-guia.contract';
+export * from './http/revision-gps.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
 export * from './http/receipt-expediente.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.

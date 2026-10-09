@@ -17,6 +17,7 @@ import {
   CreateRecipientDto,
   MarkDeliveredDto,
 } from './logistics-guides.service';
+import type { CompletarGuiaBody, GuiaCompletada } from '@megadulces/contracts';
 
 /**
  * `[AUTHZ.5]` — Controller sin autorización hasta acá (ver `logistics-fleet.controller`). La guía
@@ -49,6 +50,13 @@ export class LogisticsGuidesController {
   @ApiOperation({ summary: 'Obtener guía por id (incluye recipients)' })
   findOne(@Param('id') id: string) {
     return this.service.findById(id);
+  }
+
+  @Post(':id/complete')
+  @RequirePermissions(Permission.LOGISTICS_GUIDES_GESTIONAR)
+  @ApiOperation({ summary: 'EMB.22: completar UNA vez la guía de un viaje de Kepler (tripulación y horario); calcula comisión y viáticos' })
+  complete(@Param('id') id: string, @Body() body: CompletarGuiaBody): Promise<GuiaCompletada> {
+    return this.service.complete(id, body);
   }
 
   @Patch(':id')

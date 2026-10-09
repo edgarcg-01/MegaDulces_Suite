@@ -9,6 +9,14 @@
 ---
 
 ## [Unreleased]
+### Changed — Logística: la guía se llena sólo en la pestaña Guías (EMB.22, 2026-10-09)
+- **Hoja de «Nuevo embarque»:** ya no pide tripulación ni horario. Lo que trae Kepler se ve bloqueado; lo que no, dice «Se captura en Guías» (ayudantes, salida, llegada y el chofer si Kepler no lo trae) o «Se calculan en Guías» (comisión y viáticos). Peso, kilómetros y flete se siguen capturando ahí.
+- **Al tomar el viaje** la guía nace incompleta con lo de Kepler. En **Guías** aparece «Incompleta» con el botón **Completar**: el chofer de Kepler va bloqueado, se capturan ayudantes y horario una sola vez y se calculan comisión y viáticos; después ya no se edita.
+- El **formulario de embarque manual** deja de capturar la guía: se crea en Guías › Nueva guía.
+- **No se cierra un embarque con una guía incompleta**, y el costo estimado del viaje deja de sumar $0 de una guía sin completar.
+- API: `POST /logistics/guides/:id/complete`; la toma de Kepler rechaza tripulación u horario. Sin migraciones.
+- ⚠️ Hallazgo abierto como EMB.23: ningún flujo pasa una guía a «entregada», y Liquidaciones sólo cuenta las entregadas.
+
 ### Added — Finanzas › Historial de levantamientos: filtros (GX.78, 2026-10-09)
 - Filtrar por **estado** (varios a la vez), **sucursal** y **quién levantó** (esta última sólo en «Todos»). Cada opción dice cuántos vales tiene.
 - El calendario, el total del mes y la lista del día abierto cuentan lo filtrado, y lo dicen contra el total: «58 de 392 levantamientos del mes».
@@ -26,6 +34,13 @@
 ### Fixed — Cortes/Sucursales: una devolución pagada en caja ya no sale como diferencia del corte (CSU.7, 2026-10-08)
 - El corte de caja de Kepler ya descuenta las notas de crédito POS pagadas en esa caja (fiscal `UA2101` y no fiscal `UA2501`) y el arqueo del turno no. El cuadre ahora se juzga contra lo esperado **neto de devoluciones**: del 1 al 8 de octubre cuadran 184 de los 196 cortes con arqueo (antes 141), y los «Faltante en arqueo» de Madero 4-28 (−$2,641.97) y Abastos 3-12 (−$3,450.52) eran devoluciones.
 - El detalle del corte lista cada devolución del turno (folio, cliente, motivo y monto) y el «Esperado neto de devoluciones».
+### Added — Logística: la guía se revisa contra el GPS cuando el viaje termina (EMB.21, 2026-10-08)
+- Pestaña **Guías** del embarque: recuadro **Revisión con GPS** con lo capturado contra lo que marca el GPS de la unidad (salida, llegada, si durmió fuera, kilómetros y viáticos), y cada diferencia en una frase.
+- Se marca **difiere** si una hora se separa más de 60 min, si los kilómetros se separan más del 20% o si con el horario del GPS **cambian los viáticos**. Lo que no se puede revisar dice por qué (sin rastreador, sucursal sin coordenadas, no regresó en 48 h, viaje en curso).
+- Medido antes de construir: Kepler no guarda ayudantes, flete, peso, kilómetros ni hora de salida/llegada, así que se siguen capturando; el GPS reconstruye el viaje en 2 de cada 3 casos con rastreador, por eso revisa y no reemplaza.
+- Hoja de «Nuevo embarque»: el flete ya no muestra un «0.00» de ejemplo que parecía un valor.
+- API: `GET /logistics/shipments/:id/gps-review`. Sin migraciones.
+
 ### Fixed — Almacén: vuelve el botón «Surtir» del tablero de pedidos (GP.3, 2026-10-08)
 - `/almacen/pedidos` había perdido el botón que lleva a `/almacen/surtir` (la pantalla del surtidor es de foco y no tiene otra entrada desde el tablero). Lo agregó GP.3c (#319) y el barrido de nombres de sucursal SUC.1 (`fcf85959c`) lo borró sin querer al reescribir el archivo; su prueba quedó roja en `main`. Se restaura tal cual, conservando el nombre de sucursal de SUC.1.
 

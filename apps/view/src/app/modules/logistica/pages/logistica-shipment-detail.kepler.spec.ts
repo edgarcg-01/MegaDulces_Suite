@@ -52,7 +52,7 @@ function montar(shipment: Record<string, unknown>, costos: Respuesta = { total: 
     ] }],
     [/\/guides(\?|$)/, [{ id: 'g1', number: 'GUIA-2026-00001', shipment_id: 'e1', type: 'entrega', status: 'pendiente',
       driver_id: 'd1', driver_commission: 103.2, helper1_id: 'd2', helper1_commission: 63.84,
-      helper2_id: null, helper2_commission: 0, overnight: false, per_diem_total: 0 }]],
+      helper2_id: null, helper2_commission: 0, overnight: false, per_diem_total: 0, departure_time: '08:00:00', arrival_time: '17:00:00' }]],
     [/nuevo-embarque$/, () => { pedidas.push('hoja'); return hojaGuia0001419(); }],
     [/erp-shipments\/costs\/06\/0001419/, costos],
     [/\/fleet\/drivers/, [{ id: 'd1', full_name: 'César C.', roles: ['chofer'], active: true }, { id: 'd2', full_name: 'Manuel M.', roles: ['ayudante'], active: true }]],

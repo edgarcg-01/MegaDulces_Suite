@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { LogisticsShipmentsService } from './logistics-shipments.service';
 import { LogisticsShipmentsController } from './logistics-shipments.controller';
+import { ShipmentGpsReviewService } from './shipment-gps-review.service';
 import { LogisticsErpShipmentsModule } from '../logistics-erp-shipments/logistics-erp-shipments.module';
 
 // Hook close → orders.fulfilled (consume stock + history + alerts, J.6.1 fix).
@@ -12,7 +13,7 @@ import { LogisticsErpShipmentsModule } from '../logistics-erp-shipments/logistic
 @Module({
   imports: [LogisticsErpShipmentsModule],
   controllers: [LogisticsShipmentsController],
-  providers: [LogisticsShipmentsService],
+  providers: [LogisticsShipmentsService, ShipmentGpsReviewService],
   exports: [LogisticsShipmentsService],
 })
 export class LogisticsShipmentsModule {}

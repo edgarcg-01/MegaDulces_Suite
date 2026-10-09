@@ -20,7 +20,8 @@ import {
   UpdateShipmentDto,
   ShipmentStatus,
 } from './logistics-shipments.service';
-import type { TomaKeplerResultado } from '@megadulces/contracts';
+import type { RevisionGps, TomaKeplerResultado } from '@megadulces/contracts';
+import { ShipmentGpsReviewService } from './shipment-gps-review.service';
 import type { TomaInput } from '../logistics-erp-shipments/nuevo-embarque.logic';
 
 /**
@@ -38,7 +39,10 @@ import type { TomaInput } from '../logistics-erp-shipments/nuevo-embarque.logic'
 @ApiTags('logistics-shipments')
 @Controller('logistics/shipments')
 export class LogisticsShipmentsController {
-  constructor(private readonly service: LogisticsShipmentsService) {}
+  constructor(
+    private readonly service: LogisticsShipmentsService,
+    private readonly gpsReview: ShipmentGpsReviewService,
+  ) {}
 
   @Post()
   @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
@@ -130,6 +134,13 @@ export class LogisticsShipmentsController {
   @ApiOperation({ summary: 'J12.4: ETA por parada (posición actual + sequence_order + velocidad)' })
   eta(@Param('id') id: string) {
     return this.service.etaForShipment(id);
+  }
+
+  @Get(':id/gps-review')
+  @RequirePermissions(Permission.LOGISTICS_SHIPMENTS_VER)
+  @ApiOperation({ summary: 'EMB.21: lo capturado en la guía (horario, km, viáticos) revisado contra el GPS de la unidad' })
+  gpsReviewOf(@Param('id') id: string): Promise<RevisionGps> {
+    return this.gpsReview.review(id);
   }
 
   @Get(':id/readiness')

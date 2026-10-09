@@ -94,7 +94,7 @@ function servicio(o: Opciones = {}) {
   trx.fn = { now: () => 'now()' };
   const tk: any = { run: async (fn: any) => fn(trx) };
   const ctx: any = { requireTenantId: () => '00000000-0000-0000-0000-00000000d01c' };
-  return { svc: new LogisticsGuidesService(tk, ctx), inserts, updates };
+  return { svc: new LogisticsGuidesService(tk, ctx, {} as any), inserts, updates };
 }
 
 describe('LogisticsGuidesService.create — guía manual', () => {
@@ -156,5 +156,84 @@ describe('LogisticsGuidesService.update — lo calculado no se edita', () => {
     const [patch] = updates['logistics.delivery_guides'];
     expect(patch).toMatchObject({ status: 'en_ruta', notes: 'sale tarde' });
     expect(patch).not.toHaveProperty('driver_commission');
+  });
+});
+
+// ── EMB.22: completar la guía que nació al tomar un viaje de Kepler ──────────────────────────
+
+describe('LogisticsGuidesService.complete', () => {
+  const GID = 'a1aaaaaa-0000-4000-8000-000000000009';
+  // La tarifa del viaje de Kepler (la mayor de sus rutas) como la da la hoja.
+  const HOJA = { comision: { driver: 98.04, helper: 57.76, sin_tarifa: [], ruta_usada: { clave: 'R1', nombre: 'RUTA PRUEBA', route_id: 'r1' } }, resumen: { paradas_sin_ruta: 0 } };
+
+  function completar(o: { guia?: Record<string, unknown>; embarque?: Record<string, unknown>; hoja?: unknown; actualiza?: boolean } = {}) {
+    const updates: any[] = [];
+    const filas: Record<string, unknown> = {
+      'logistics.delivery_guides': { id: GID, number: 'GUIA-2026-00045', status: 'pendiente', shipment_id: 'e1', driver_id: CHOFER, departure_time: null, arrival_time: null, ...o.guia },
+      'logistics.shipments': { id: 'e1', status: 'programado', route_id: null, kepler_sucursal: '06', kepler_guia: '0009999', ...o.embarque },
+      'logistics.routes': { id: RUTA_ID, name: 'RUTA PRUEBA', driver_commission: '120.00', helper_commission: '80.00' },
+      'logistics.drivers': { id: 'x', full_name: 'PRUEBA UNO', active: true, status: 'activo' },
+    };
+    const trx: any = (tabla: string) => {
+      const b: any = {
+        where: () => b, whereNull: () => b,
+        first: async () => filas[tabla],
+        select: async () => tabla === 'logistics.config_finance'
+          ? [{ key: 'viatico_cafe', value: '50' }, { key: 'viatico_desayuno', value: '100' }, { key: 'viatico_comida', value: '100' }, { key: 'viatico_cena', value: '100' }]
+          : [],
+        update: (row: any) => ({ returning: async () => { updates.push(row); return o.actualiza === false ? [] : [{ ...row }]; } }),
+      };
+      return b;
+    };
+    trx.fn = { now: () => 'now()' };
+    const tk: any = { run: async (fn: any) => fn(trx) };
+    const ctx: any = { requireTenantId: () => '00000000-0000-0000-0000-00000000d01c' };
+    const erp: any = { nuevoEmbarque: async () => o.hoja ?? HOJA };
+    return { svc: new LogisticsGuidesService(tk, ctx, erp), updates };
+  }
+  const BODY = { helper1_id: AYUDANTE, helper2_id: null, departure_time: '05:30', arrival_time: '16:00', overnight: false };
+
+  it('con lo que Kepler no tiene, calcula comisión (tarifa del viaje) y viáticos (horario) y guarda', async () => {
+    const { svc, updates } = completar();
+    await svc.complete(GID, BODY);
+    expect(updates[0]).toMatchObject({
+      driver_id: CHOFER, driver_commission: 98.04, helper1_id: AYUDANTE, helper1_commission: 57.76, helper2_commission: 0,
+      departure_time: '05:30', arrival_time: '16:00', overnight: false, per_diem_total: 500,
+    });
+  });
+
+  it('el chofer de Kepler no se cambia aquí', async () => {
+    const { svc, updates } = completar();
+    await expect(svc.complete(GID, { ...BODY, driver_id: 'cccccccc-0000-4000-8000-000000000099' }))
+      .rejects.toThrow('El chofer viene de Kepler y no se cambia aquí: corrígelo en Kepler.');
+    expect(updates).toHaveLength(0);
+  });
+
+  it('si Kepler no trajo chofer, se elige aquí; sin él no se completa', async () => {
+    const sin = completar({ guia: { driver_id: null } });
+    await expect(sin.svc.complete(GID, BODY)).rejects.toThrow('Elige al chofer.');
+    await sin.svc.complete(GID, { ...BODY, driver_id: CHOFER });
+    expect(sin.updates[0]).toMatchObject({ driver_id: CHOFER });
+  });
+
+  it('una ruta del viaje sin tarifa frena aquí (ya no al tomar), y dice cuál', async () => {
+    const { svc } = completar({ hoja: { ...HOJA, comision: { ...HOJA.comision, sin_tarifa: [{ clave: 'R2', nombre: 'OTRA RUTA' }] } } });
+    await expect(svc.complete(GID, BODY)).rejects.toThrow('Falta la tarifa de OTRA RUTA en Logística › Configuración › Comisiones.');
+  });
+
+  it('una guía completa ya no se edita', async () => {
+    const { svc } = completar({ guia: { departure_time: '08:00:00', arrival_time: '17:00:00' } });
+    await expect(svc.complete(GID, BODY)).rejects.toThrow(ConflictException);
+  });
+
+  it('en un embarque manual, la tarifa es la de su ruta', async () => {
+    const { svc, updates } = completar({ embarque: { kepler_sucursal: null, kepler_guia: null, route_id: RUTA_ID } });
+    await svc.complete(GID, BODY);
+    expect(updates[0]).toMatchObject({ driver_commission: 120, helper1_commission: 80 });
+  });
+
+  it('dos personas completando la misma guía: la segunda recibe un 409 legible', async () => {
+    const { svc } = completar({ actualiza: false });
+    await expect(svc.complete(GID, BODY)).rejects.toThrow(/Otra persona acaba de completar esta guía/);
   });
 });

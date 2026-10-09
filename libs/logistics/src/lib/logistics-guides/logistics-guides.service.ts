@@ -7,11 +7,13 @@ import {
 import { TenantKnexService } from '@megadulces/platform-core';
 import { TenantContextService } from '@megadulces/platform-core';
 import type { Knex } from 'knex';
-import type { TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
-import { tarifasDeViatico } from '@megadulces/contracts';
+import type { CompletarGuiaBody, GuiaCompletada, TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
+import { erroresDeTarifa, erroresDeTarifaDeRuta, pendientesDeLaGuia, tarifasDeViatico } from '@megadulces/contracts';
 import {
-  calcularGuia, cambiosACamposCalculados, GUIA_NO_SE_EDITA, validarGuiaManual,
+  calcularCompletar, calcularGuia, cambiosACamposCalculados, capturaCompleta, CompletarContexto, GUIA_NO_SE_EDITA,
+  validarCompletar, validarGuiaManual,
 } from './guia-calculada.logic';
+import { ErpShipmentsService } from '../logistics-erp-shipments/erp-shipments.service';
 
 export type GuideStatus = 'pendiente' | 'en_ruta' | 'entregada' | 'cancelada';
 export type RecipientStatus = 'pendiente' | 'entregado' | 'no_entregado' | 'rechazado';
@@ -78,7 +80,87 @@ export class LogisticsGuidesService {
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    private readonly erp: ErpShipmentsService,
   ) {}
+
+  /**
+   * EMB.22 — Completar la guía que nació al tomar un viaje de Kepler: se captura UNA vez lo que
+   * Kepler no tiene (ayudantes, horario y, si Kepler no lo trajo, el chofer). Se valida la tarifa
+   * del viaje y el horario, se calculan comisión y viáticos, y la guía queda bloqueada.
+   */
+  async complete(id: string, dto: CompletarGuiaBody): Promise<GuiaCompletada> {
+    if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
+
+    const datos = await this.tk.run(async (trx: Knex.Transaction) => {
+      const guia = await trx('logistics.delivery_guides').where({ id }).whereNull('deleted_at')
+        .first('id', 'number', 'status', 'shipment_id', 'driver_id', 'departure_time', 'arrival_time');
+      if (!guia) throw new NotFoundException(`Guía ${id} no encontrada`);
+      const embarque = await trx('logistics.shipments').where({ id: guia.shipment_id }).whereNull('deleted_at')
+        .first('id', 'status', 'route_id', 'kepler_sucursal', 'kepler_guia');
+      if (!embarque) throw new NotFoundException('El embarque de la guía no existe');
+      const ruta = embarque.kepler_guia ? null : await this.tarifaDeRuta(trx, embarque.route_id);
+      return { guia, embarque, ruta, tarifas: await this.tarifasViatico(trx) };
+    });
+    const { guia, embarque, ruta, tarifas } = datos;
+    if (guia.status === 'cancelada') throw new ConflictException(`La guía ${guia.number} está cancelada.`);
+    if (['cerrado', 'cancelado'].includes(embarque.status)) {
+      throw new ConflictException(`El embarque está ${embarque.status}: su guía ya no se completa.`);
+    }
+    if (!pendientesDeLaGuia(guia).length) throw new ConflictException(GUIA_NO_SE_EDITA);
+
+    // La tarifa: la del viaje de Kepler (la mayor de sus rutas, EMB.13) o la ruta del embarque.
+    const hoja = embarque.kepler_sucursal && embarque.kepler_guia
+      ? await this.erp.nuevoEmbarque(embarque.kepler_sucursal, embarque.kepler_guia)
+      : null;
+    const ctx: CompletarContexto = hoja
+      ? {
+          chofer_guia: guia.driver_id ?? null,
+          comision: { driver: hoja.comision.driver, helper: hoja.comision.helper },
+          erroresDeTarifa: (ay) => erroresDeTarifa(hoja.comision, hoja.resumen.paradas_sin_ruta, ay),
+          tarifas,
+        }
+      : {
+          chofer_guia: guia.driver_id ?? null,
+          comision: { driver: ruta?.driver ?? null, helper: ruta?.helper ?? null },
+          erroresDeTarifa: (ay) => erroresDeTarifaDeRuta(ruta, ay),
+          tarifas,
+        };
+    const errores = validarCompletar(dto, ctx);
+    if (errores.length) throw new BadRequestException(errores.join(' '));
+    const captura = capturaCompleta(dto, ctx);
+    const { comisiones, viaticos } = calcularCompletar(dto, ctx);
+
+    return this.tk.run(async (trx: Knex.Transaction) => {
+      for (const [k, v] of Object.entries({ driver_id: captura.driver_id, helper1_id: captura.helper1_id, helper2_id: captura.helper2_id })) {
+        if (v) await this.assertDriverActive(trx, v, k);
+      }
+      // Sólo si sigue incompleta: dos personas completando la misma guía, gana la primera.
+      const [row] = await trx('logistics.delivery_guides')
+        .where({ id }).whereNull('deleted_at')
+        .where((q) => q.whereNull('driver_id').orWhereNull('departure_time').orWhereNull('arrival_time'))
+        .update({
+          driver_id: captura.driver_id || null,
+          driver_commission: comisiones.driver_commission,
+          helper1_id: captura.helper1_id || null,
+          helper1_commission: comisiones.helper1_commission,
+          helper2_id: captura.helper2_id || null,
+          helper2_commission: comisiones.helper2_commission,
+          departure_time: viaticos.horario.salida,
+          arrival_time: viaticos.horario.llegada,
+          overnight: viaticos.horario.duerme_fuera,
+          per_diem_total: viaticos.total,
+          per_diem_breakdown: JSON.stringify(viaticos),
+          updated_at: trx.fn.now(),
+        })
+        .returning('*');
+      if (!row) throw new ConflictException('Otra persona acaba de completar esta guía. Recarga el embarque.');
+      return {
+        id: row.id, number: row.number,
+        driver_commission: Number(row.driver_commission), helper1_commission: Number(row.helper1_commission),
+        helper2_commission: Number(row.helper2_commission), per_diem_total: Number(row.per_diem_total),
+      };
+    });
+  }
 
   // ── Guides CRUD ──────────────────────────────────────────────────────────
 

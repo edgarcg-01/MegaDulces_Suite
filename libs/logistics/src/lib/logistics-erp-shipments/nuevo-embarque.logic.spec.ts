@@ -11,6 +11,7 @@ import {
   resumirViaje,
   tipoDeViaje,
   validarToma,
+  TRIPULACION_EN_GUIAS,
 } from './nuevo-embarque.logic';
 
 /**
@@ -228,91 +229,40 @@ describe('comisionSugerida', () => {
 });
 
 describe('validarToma', () => {
-  // Un día de reparto que no da comidas (sale 8:00, llega 14:00): los viáticos son un cero real.
-  const base = { delivery_type: 'route', departure_time: '08:00', arrival_time: '14:00' };
-  // La tarifa del viaje 06-G0001419 si todas sus rutas tuvieran tarifa: la mayor es JIQUILPAN.
-  const tarifa = { driver: 98.04, helper: 57.76, ruta_usada: { clave: 'R0057', nombre: 'JIQUILPAN', route_id: 'r57' }, sin_tarifa: [] };
-  // Las tarifas de viático de la beta (logistics_baseline.js).
-  const tarifas_viatico = { cafe: 50, desayuno: 100, comida: 100, cena: 100 };
-  const ctxConChofer = { chofer_kepler_driver_id: 'd-kepler', ya_tomado_folio: null, comision: tarifa, paradas_sin_ruta: 0, tarifas_viatico };
-  const ctxSinChofer = { ...ctxConChofer, chofer_kepler_driver_id: null };
+  // EMB.22 — tomar el viaje sólo registra lo del embarque; la guía se completa en Guías.
+  const base = { delivery_type: 'route' };
+  const ctx = { ya_tomado_folio: null };
 
-  it('con chofer de Kepler y tipo de entrega, se puede tomar', () => {
-    expect(validarToma(base, ctxConChofer)).toEqual([]);
-  });
-
-  it('si Kepler no trae chofer (unidad 00008 en Padre Hidalgo), hay que elegirlo', () => {
-    expect(validarToma(base, ctxSinChofer)).toContain('Falta el chofer: Kepler no lo trae para esta unidad. Elígelo.');
-    expect(validarToma({ ...base, driver_id: 'd-x' }, ctxSinChofer)).toEqual([]);
-  });
-
-  it('si Kepler trae al chofer, la API no acepta otro: se corrige en Kepler', () => {
-    expect(validarToma({ ...base, driver_id: 'd-otro' }, ctxConChofer))
-      .toContain('El chofer viene de Kepler y no se cambia aquí: corrígelo en Kepler.');
-    // Mandar el mismo que trae Kepler no es un cambio.
-    expect(validarToma({ ...base, driver_id: 'd-kepler' }, ctxConChofer)).toEqual([]);
+  it('con el tipo de entrega se puede tomar: no pide chofer, ayudantes ni horario', () => {
+    expect(validarToma(base, ctx)).toEqual([]);
+    expect(validarToma({ ...base, freight_revenue: 1500, actual_km: 180, total_weight_kg: 900, notes: 'x' }, ctx)).toEqual([]);
   });
 
   it('una guía ya tomada no se toma otra vez, y dice en qué embarque está', () => {
-    expect(validarToma(base, { ...ctxConChofer, ya_tomado_folio: 'EMB-2026-00012' }))
+    expect(validarToma(base, { ya_tomado_folio: 'EMB-2026-00012' }))
       .toContain('Este viaje ya se tomó en el embarque EMB-2026-00012.');
   });
 
   it('exige el tipo de entrega', () => {
-    expect(validarToma({ ...base, delivery_type: undefined }, ctxConChofer)).toContain('Indica si la entrega es por ruta o viaje largo.');
-    expect(validarToma({ ...base, delivery_type: 'avion' }, ctxConChofer)).toHaveLength(1);
+    expect(validarToma({}, ctx)).toEqual(['Indica si la entrega es por ruta o viaje largo.']);
+    expect(validarToma({ delivery_type: 'avion' }, ctx)).toHaveLength(1);
   });
 
-  it('el chofer no puede ser ayudante, y los ayudantes no se repiten', () => {
-    expect(validarToma({ ...base, helper1_id: 'd-kepler' }, ctxConChofer)).toContain('El chofer no puede ir también como ayudante.');
-    expect(validarToma({ ...base, helper1_id: 'a', helper2_id: 'a' }, ctxConChofer)).toContain('Ayudante 1 y ayudante 2 son la misma persona.');
-    expect(validarToma({ ...base, helper2_id: 'a' }, ctxConChofer)).toContain('Captura primero al ayudante 1.');
+  it('la tripulación, el horario y los montos de la guía NO entran al tomar: se capturan en Guías', () => {
+    for (const extra of [
+      { driver_id: 'd1' }, { helper1_id: 'a' }, { departure_time: '06:00' }, { arrival_time: '18:00' },
+      { overnight: true }, { driver_commission: 98.04 }, { per_diem_total: 100 },
+    ]) {
+      expect(validarToma({ ...base, ...extra }, ctx)).toEqual([TRIPULACION_EN_GUIAS]);
+    }
+    // Mandarlos vacíos no es capturarlos.
+    expect(validarToma({ ...base, driver_id: null, helper1_id: '', overnight: false }, ctx)).toEqual([]);
   });
 
   it('montos negativos o no numéricos se rechazan; los km son enteros', () => {
-    const e = validarToma({ ...base, freight_revenue: -1, actual_km: 12.5 }, ctxConChofer);
+    const e = validarToma({ ...base, freight_revenue: -1, actual_km: 12.5 }, ctx);
     expect(e).toContain('El flete cobrado debe ser un número mayor o igual a cero.');
     expect(e).toContain('Los kilómetros deben ser un número entero mayor o igual a cero.');
-  });
-
-  // ── La comisión se CALCULA (fórmula de la beta de Logística, decisión 2026-10-07) ──────────
-
-  it('una ruta del viaje sin tarifa FRENA la toma (la guía 0001419 real: SANTAGIO no tiene)', () => {
-    const ctx = { ...ctxConChofer, comision: { ...tarifa, sin_tarifa: [{ clave: 'R0041', nombre: 'SANTAGIO TANGAMNADAPIO' }] } };
-    expect(validarToma(base, ctx)).toEqual(['Falta la tarifa de SANTAGIO TANGAMNADAPIO en Logística › Configuración › Comisiones.']);
-  });
-
-  it('una parada sin ruta en Kepler también frena', () => {
-    expect(validarToma(base, { ...ctxConChofer, paradas_sin_ruta: 2 })[0]).toMatch(/^2 paradas no tienen ruta en Kepler/);
-  });
-
-  it('una comisión tecleada distinta de la calculada se rechaza; la misma pasa', () => {
-    expect(validarToma({ ...base, driver_commission: 150 }, ctxConChofer))
-      .toContain('La comisión se calcula de la tarifa de la ruta; no se captura.');
-    expect(validarToma({ ...base, helper1_commission: 57.76 }, ctxConChofer))
-      .toContain('La comisión se calcula de la tarifa de la ruta; no se captura.'); // no va ayudante: le toca 0
-    expect(validarToma({ ...base, driver_commission: 98.04, helper1_id: 'a', helper1_commission: 57.76 }, ctxConChofer)).toEqual([]);
-  });
-
-  // ── Los viáticos se CALCULAN del horario (EMB.19, regla de la beta) ─────────────────────────
-
-  it('sin horario no se toma: los viáticos salen de él', () => {
-    expect(validarToma({ delivery_type: 'route' }, ctxConChofer))
-      .toEqual(['Indica la hora de salida.', 'Indica la hora de llegada.']);
-  });
-
-  it('si el horario da una comida sin tarifa, frena y dice dónde se captura', () => {
-    const ctx = { ...ctxConChofer, tarifas_viatico: { ...tarifas_viatico, comida: 0 } };
-    expect(validarToma({ ...base, arrival_time: '16:00' }, ctx))
-      .toEqual(['Falta la tarifa de comida en Logística › Configuración › Viáticos.']);
-  });
-
-  it('un viático tecleado distinto del calculado se rechaza; el mismo pasa', () => {
-    // Sale 5:30 y duerme fuera: café + desayuno + cena = 250 por persona; chofer + 1 ayudante = 500.
-    const viaje = { ...base, departure_time: '05:30', overnight: true, helper1_id: 'a' };
-    expect(validarToma({ ...viaje, per_diem_total: 100 }, ctxConChofer))
-      .toContain('Los viáticos se calculan del horario; no se capturan.');
-    expect(validarToma({ ...viaje, per_diem_total: 500 }, ctxConChofer)).toEqual([]);
   });
 });
 
