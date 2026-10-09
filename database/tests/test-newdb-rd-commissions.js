@@ -184,6 +184,34 @@ const TIER_SQL = `
   if (grupo.n > 0) {
     check(`los criterios del objetivo suman 100% de peso (${grupo.suma})`,
       Number(grupo.suma) === 100, `suma=${grupo.suma} sobre ${grupo.n} criterios`);
+
+    // ── `[RD.59.2]` El peso que importa es el de los ENCENDIDOS, no el nominal ──────────
+    // Son DOS números y confundirlos deja la pantalla afirmando algo falso: con un criterio
+    // apagado el nominal sigue siendo 100, pero una ruta perfecta alcanza 75 — y la pantalla
+    // decía que alcanzado + sin_resolver + fallado suman 100 SIEMPRE. ⛔ No se renormaliza:
+    // renormalizar convertiría ese 75 en 100 y nadie se enteraría de que falta un criterio.
+    //
+    // ⚠️ Esta suite corre en SÓLO LECTURA a propósito (`default_transaction_read_only = on`
+    // arriba), así que la mutación «enciendo dos de tres» no se puede hacer acá. No hace falta:
+    // el estado de HOY ya es el caso divergente —los tres apagados— y eso ejerce la distinción.
+    const { rows: [pesos] } = await db.query(`
+      SELECT coalesce(sum(peso_pct), 0)::numeric nominal,
+             coalesce(sum(peso_pct) FILTER (WHERE activo), 0)::numeric activo,
+             count(*) FILTER (WHERE activo)::int encendidos,
+             count(*)::int total
+        FROM commercial.commission_bonuses
+       WHERE grupo = 'objetivo_mensual' AND deleted_at IS NULL`);
+    console.log(`     nominal ${pesos.nominal}% · alcanzable ${pesos.activo}% · ${pesos.encendidos} de ${pesos.total} encendidos`);
+    check('el peso alcanzable sale de los ENCENDIDOS, no del nominal',
+      Number(pesos.activo) !== Number(pesos.nominal) || pesos.encendidos === pesos.total,
+      `nominal=${pesos.nominal} alcanzable=${pesos.activo} con ${pesos.encendidos}/${pesos.total} encendidos`);
+    if (pesos.encendidos < pesos.total) {
+      check('⭐ con criterios apagados el techo BAJA y el nominal NO se mueve',
+        Number(pesos.activo) < Number(pesos.nominal) && Number(pesos.nominal) === 100,
+        `alcanzable ${pesos.activo} contra nominal ${pesos.nominal}`);
+    } else {
+      noMedido('la divergencia del techo', 'los criterios están todos encendidos: nominal y alcanzable coinciden');
+    }
     // ⛔ Mientras nadie fije el monto, el bono NO puede estar encendido: pagaría $0 y haría
     // creer que el objetivo ya corre. Que se encienda es una decisión humana, desde la pantalla.
     if (Number(grupo.monto) === 0) {

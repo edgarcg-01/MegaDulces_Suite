@@ -75,8 +75,13 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               <p class="ob-estado-v mono">{{ d.config.monto_total ? dinero(d.config.monto_total) : 'sin fijar' }}</p>
             </div>
             <div>
-              <p class="ob-estado-l">Pesos</p>
-              <p class="ob-estado-v mono">{{ d.config.peso_total }}%</p>
+              <p class="ob-estado-l">Máximo alcanzable</p>
+              <p class="ob-estado-v mono" [class.ob-techo]="d.config.peso_activo !== 100">
+                {{ d.config.peso_activo }}%
+              </p>
+              @if (d.config.peso_activo !== d.config.peso_total) {
+                <p class="ob-mini">de {{ d.config.peso_total }}% configurado</p>
+              }
             </div>
             <div class="ob-estado-nota">
               @if (!d.config.entra_a_nomina) {
@@ -222,9 +227,14 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             </table>
           </div>
           <p class="ob-mini">
-            <b>Alcanzado + sin resolver + fallado = 100%</b> siempre. Lo que nadie resolvió no
-            cuenta como fallo: en la hoja de Excel una celda vacía valía <i>NO CUMPLIDO</i>, y es
-            justo lo que esta columna existe para no repetir.
+            Los tres porcentajes de cada ruta suman <b>{{ d.config.peso_activo }}%</b>, que es el
+            peso de los criterios encendidos
+            @if (d.config.peso_activo !== 100) {
+              <b> — el techo bajó porque hay criterios apagados, y por eso ninguna ruta puede
+              llegar a 100%</b>
+            }.
+            Lo que nadie resolvió no cuenta como fallo: en la hoja de Excel una celda vacía valía
+            <i>NO CUMPLIDO</i>, y es justo lo que esa columna existe para no repetir.
           </p>
 
           @if (marcando(); as m) {
@@ -302,6 +312,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .ob-ok { color: var(--c-ok); font-weight: var(--fw-medium); }
     .ob-no { color: var(--bad-fg); }
     .ob-pendiente { color: var(--warn-fg); }
+    .ob-techo { color: var(--warn-fg); }
 
     .ob-huecos { margin: 0; padding-left: 18px; }
     .ob-huecos li { font-size: var(--fs-sm); color: var(--c-text-2); line-height: 1.6; }

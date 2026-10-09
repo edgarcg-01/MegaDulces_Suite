@@ -65,6 +65,8 @@ interface Cashflow {
       en_ventana: number; vencido_fuera: number; posterior: number; sin_vencimiento: number;
       total: number; pct_en_ventana: number | null; interno_excluido: number;
     };
+    /** `[TES.11]` De cuántos proveedores depende lo que la curva de pago dibuja. */
+    concentracion?: { n: number; top1_pct: number | null; top5_pct: number | null };
   };
   /** ⛔ `pagos_autorizados` NO se suma a `pagos`: el traslape con la deuda del ERP no está resuelto. */
   totals: { cobros: number; pagos: number; pagos_autorizados?: number; neto: number };
@@ -77,6 +79,8 @@ interface Cashflow {
     en_ventana: number; vencido_fuera: number; posterior: number;
     sin_vencimiento: number; total: number; pct_en_ventana: number | null;
   };
+  /** `[TES.11]` De cuántos depende cada masa. Ver el aviso de concentración en la curva. */
+  cobranza_concentracion?: { n: number; top1_pct: number | null; top5_pct: number | null; n_vencido: number; vencido_top5_pct: number | null };
   freshness: Freshness; coverage: Coverage;
 }
 
@@ -865,6 +869,38 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   Quedan fuera <strong>{{ money(cc.vencido_fuera) }}</strong> que <b>ya vencieron</b>:
                   son exigibles hoy y no tienen fecha comprometida, así que no se pueden agendar
                   en una semana sin inventarles una.
+                </p>
+              }
+            }
+
+            <!-- [TES.11] De cuantos depende cada masa. Dos curvas con el mismo total no son el
+                 mismo riesgo, y hasta hoy ningun numero lo decia. Las dos cifras van juntas a
+                 proposito: la medicion mostro que el riesgo NO esta donde se suponia. -->
+            @if (cf.cobranza_concentracion; as cn) {
+              @if (cn.top5_pct != null || cn.vencido_top5_pct != null) {
+                <p class="pres-nodata">
+                  <span class="pi pi-sitemap"></span>
+                  <strong>De cuántos depende.</strong>
+                  @if (cn.top5_pct != null) {
+                    Lo que esta curva proyecta se reparte entre <strong>{{ cn.n }}</strong> clientes
+                    y sus 5 mayores son el <strong>{{ cn.top5_pct }}%</strong>.
+                  }
+                  @if (cn.vencido_top5_pct != null) {
+                    En cambio <b>lo vencido</b> —que la curva no dibuja— depende de
+                    <strong>{{ cn.n_vencido }}</strong> clientes con los 5 mayores en el
+                    <strong>{{ cn.vencido_top5_pct }}%</strong>:
+                    ahí está la concentración, no en el pronóstico.
+                  }
+                </p>
+              }
+            }
+            @if (cf.deuda_erp?.concentracion; as dc) {
+              @if (dc.top5_pct != null) {
+                <p class="pres-nodata">
+                  <span class="pi pi-sitemap"></span>
+                  Del lado del <b>pago</b>, lo que vence en la ventana depende de
+                  <strong>{{ dc.n }}</strong> proveedores y sus 5 mayores son el
+                  <strong>{{ dc.top5_pct }}%</strong>.
                 </p>
               }
             }
