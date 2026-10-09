@@ -262,6 +262,55 @@ const noMedido = (label, motivo) => { nm++; console.log(`  ⓘ NO MEDIDO · ${la
   }
 
   // ───────────────────────────────────────────────────────────────────────────────────────
+  // `[RD.57.2]` La utilidad bruta de una ruta se resta contra el gasto de SU plaza, y la plaza
+  // sale del resolvedor por `route_code`. La primera versión cruzaba el TEXTO de la zona
+  // («Zamora, Michoacán») contra el nombre de la plaza («Canindo») y nunca casaba: la tarjeta
+  // de Canindo publicaba su gasto con CERO rutas y resultado «sin medir», con $158,383.69 de
+  // utilidad bruta —el 42% del total— fuera de la vista por plaza.
+  console.log('\n— 7c. ⭐ la plaza se une por RUTA, no por el texto de la zona —');
+  const universo = await q(`
+    SELECT route_code, plaza, plaza_o_zona
+      FROM analytics.v_rd_commission_universe WHERE comisiona ORDER BY route_code`);
+  const conPlaza = universo.filter((u) => u.plaza);
+  check('el resolvedor da plaza por ruta para la mayoría',
+    conPlaza.length >= universo.length - 2,
+    `${conPlaza.length} de ${universo.length} con plaza`);
+
+  // ⭐⭐ CONTROL. Se simula el cruce VIEJO sobre los datos de hoy y se exige que FALLE para al
+  // menos una plaza. Si dejara de fallar, este bloque se pondría verde sin probar nada — y
+  // alguien podría «simplificar» el código de vuelta al cruce por texto sin que nada avise.
+  const plazasGasto = await q(
+    `SELECT DISTINCT plaza FROM analytics.v_rd_expense_period WHERE plaza IS NOT NULL`);
+  const zonas = await q(
+    `SELECT DISTINCT zona FROM commercial.commission_run_lines
+      WHERE deleted_at IS NULL AND zona IS NOT NULL`);
+  const casaPorTexto = (plaza) => zonas.some(
+    (z) => z.zona.toUpperCase().includes(plaza.toUpperCase()));
+  const noCasan = plazasGasto.filter((p) => !casaPorTexto(p.plaza)).map((p) => p.plaza);
+  if (plazasGasto.length) {
+    check('⭐⭐ CONTROL: el cruce por texto SÍ pierde alguna plaza (el candado no es decorativo)',
+      noCasan.length > 0,
+      noCasan.length ? `no casan por texto: ${noCasan.join(', ')}` : 'todas casarían: el control dejó de probar');
+    check('y alguna SÍ casa por texto, que es lo que lo hacía difícil de ver',
+      plazasGasto.length > noCasan.length,
+      `${plazasGasto.length - noCasan.length} de ${plazasGasto.length} casan`);
+  } else {
+    noMedido('el control del cruce por texto', 'no hay plazas con gasto para contrastar');
+  }
+
+  // Y la precondición del arreglo: la plaza que el resolvedor da por ruta tiene que EXISTIR
+  // como plaza del gasto, o el renglón se cae igual, sólo que por otra razón.
+  const nombresGasto = new Set(plazasGasto.map((p) => p.plaza));
+  const huerfanas = conPlaza.filter((u) => !nombresGasto.has(u.plaza)).map((u) => u.route_code);
+  check('toda plaza del resolvedor existe también del lado del gasto',
+    huerfanas.length === 0,
+    huerfanas.length ? `rutas que no encontrarían su plaza: ${huerfanas.join(', ')}` : '');
+  const rutasSinPlaza = universo.filter((u) => !u.plaza).map((u) => u.route_code);
+  if (rutasSinPlaza.length) {
+    console.log(`     ⓘ ${rutasSinPlaza.length} ruta(s) sin plaza en el resolvedor: ${rutasSinPlaza.join(', ')} — se declaran, no se adivinan`);
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────
   console.log('\n— 8. el costo de leer: la pantalla no puede esperar —');
   const t0 = Date.now();
   await q(`select count(*) from analytics.v_rd_expense_period where anio = 2026`);

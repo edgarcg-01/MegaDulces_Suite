@@ -4505,7 +4505,10 @@ export interface RouteProfitPeriodo {
 export interface RouteProfitRuta {
   route_code: string;
   chofer: string | null;
+  /** Texto comercial («Zamora, Michoacán»). ⛔ NO sirve para unir con la plaza. */
   zona: string | null;
+  /** La plaza EXACTA, del resolvedor por `route_code`. NULL = el resolvedor no la ubica. */
+  plaza: string | null;
   subtotal: string; venta: string; costo: string;
   utilidad_bruta: string;
   margen_pct: string | null;
