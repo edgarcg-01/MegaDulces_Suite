@@ -113,6 +113,28 @@ describe('[RA.TR] la función: qué SQL sale de cada política', () => {
   });
 });
 
+describe('[RA.TR] ordenar por una columna ordena por LO QUE SE VE', () => {
+  const svc = readFileSync(join(DIR, 'commercial-replenishment.service.ts'), 'utf8');
+
+  it('⛔⛔ la columna "En camino" se ORDENA por la expresión que se MUESTRA, no por la que se resta', () => {
+    // Si `in_transit` se ordenara por `it`, con la política vigente ordenaría por una constante 0:
+    // la tabla se vería ordenada y no lo estaría, sin un solo error de por medio.
+    // Lo encontró `trade-marketing-06` en typecheck:fast cuando la variable ni siquiera existía
+    // en ese método; el arreglo "obvio" (usar `it`) compilaba y rompía el orden en silencio.
+    const m = /in_transit:\s*`\(\$\{(\w+)\}\)/.exec(svc);
+    expect(m?.[1]).toBe('itShow');
+  });
+
+  it('⭐ y el sugerido se ordena por la que SÍ se resta — son dos columnas distintas', () => {
+    const m = /suggested_qty:\s*`GREATEST\(0, \$\{target\} - \$\{oh\} - \$\{(\w+)\}\)/.exec(svc);
+    expect(m?.[1]).toBe('it');
+  });
+
+  it('⛔ y `sortableExpr` RECIBE las dos: una sola las confundiría de nuevo', () => {
+    expect(svc).toMatch(/private sortableExpr\([^)]*\bit: string\b[^)]*\bitShow: string\b/);
+  });
+});
+
 describe('[RA.TR] lo que se MUESTRA no depende de la política', () => {
   it('siempre el crudo: es el papel que el comprador busca por folio', () => {
     expect(transitoMostrado('rpl.transit_cajas')).toBe('COALESCE(rpl.transit_cajas, 0)');

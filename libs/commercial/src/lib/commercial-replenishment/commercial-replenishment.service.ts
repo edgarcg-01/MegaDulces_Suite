@@ -1058,7 +1058,7 @@ export class CommercialReplenishmentService {
           // Sort explícito por columna (whitelist). Si no hay, cae al orden por
           // prioridad de valor (default de negocio). El sugerido default es un
           // desempate útil aún cuando el usuario ordena por otra cosa.
-          const sortExpr = this.sortableExpr(q.sort_by, target, oh, it, cf);
+          const sortExpr = this.sortableExpr(q.sort_by, target, oh, it, itShow, cf);
           if (sortExpr) {
             const dir = (q.sort_dir || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
             qb.orderByRaw(`${sortExpr} ${dir} NULLS LAST`)
@@ -1084,7 +1084,20 @@ export class CommercialReplenishmentService {
    * la columna no es válida (→ orden por defecto). NUNCA interpola el input del
    * usuario en el SQL: sólo la llave del mapa decide la expresión.
    */
-  private sortableExpr(key: string | undefined, target: string, oh: string, it: string, cf = '1'): string | null {
+  /**
+   * `[RA.TR]` ⛔ **`itShow` viaja APARTE de `it`, y no es ceremonia.**
+   *
+   * `it` es lo que se RESTA del sugerido (hoy 0, ver `transito.ts`) e `itShow` lo que se MUESTRA
+   * en la columna "En camino" (el papel). Ordenar por una columna tiene que ordenar por **lo que
+   * se ve**: si `in_transit` se ordenara por `it`, con la política vigente ordenaría por una
+   * constante 0 — la tabla se vería ordenada y no lo estaría, sin un solo error de por medio.
+   *
+   * ⚠️ Lo encontró `trade-marketing-06` en `typecheck:fast`: la versión anterior usaba `itShow`
+   * acá **sin recibirlo**, porque al cablear `[RA.TR]` di por hecho que esta línea vivía dentro de
+   * `criticalStock`. Vive en otro método. El arreglo "obvio" —usar `it`— compilaba y rompía el
+   * orden en silencio, que es peor que no compilar.
+   */
+  private sortableExpr(key: string | undefined, target: string, oh: string, it: string, itShow: string, cf = '1'): string | null {
     if (!key) return null;
     // Cantidades se ordenan en CAJAS (÷ factor por-almacén) para casar con lo que se muestra;
     // así ordenar por Existencia compara cajas reales entre almacenes, no unidades crudas mixtas.
