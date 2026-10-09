@@ -44,23 +44,57 @@ export class BudgetCashflowService {
 
     return this.tk.run(async (trx) => {
       // ── Saldo inicial (bancos) — DECLARADO, no asumido ────────────────────────
-      const [bank] = await trx('finance.bank_movements')
-        .where({ tenant_id: tenantId }).whereNull('deleted_at')
+      // [TES.3] El saldo se ancla a la ÚLTIMA fila por cuenta, así que una sola fila con fecha
+      // imposible lo secuestra. Medido en prod el 2026-10-08: 17 filas fechadas 2027-08-06 y 6
+      // en el año 0206 (un 2026 mal tecleado). De las 20 cuentas, UNA quedaba anclada al futuro
+      // y el saldo publicado era $3,105,321.19 contra $2,588,183.56 reales: **$517,137.63 de
+      // aire, +19.98%**.
+      //
+      // ⛔ Y el daño mayor no era el saldo: `as_of` salía del mismo `max(movement_date)`, o sea
+      // **2027-08-06**. Una fecha futura nunca tiene más de 30 días, así que `evalInput` la
+      // califica fresca SIEMPRE. El detector de rancidez de bancos estaba ciego: si el feed se
+      // cortara hoy, la píldora seguiría diciendo "fresco" hasta agosto de 2027.
+      //
+      // ⚠️ `movement_date <= current_date` NO alcanza: las filas del año 0206 pasan ese filtro.
+      // Va acotado por los dos lados. Las anómalas NO se borran — se declaran para que
+      // contabilidad las reclasifique.
+      const PISO_BANCOS = '2015-01-01';
+      const sano = (qb: any) => qb.where({ tenant_id: tenantId }).whereNull('deleted_at')
+        .whereRaw('movement_date BETWEEN ?::date AND current_date', [PISO_BANCOS]);
+
+      const [bank] = await sano(trx('finance.bank_movements'))
         .select(trx.raw('count(*)::int AS n'), trx.raw('max(movement_date) AS as_of'));
-      let opening: { available: boolean; amount: number | null; as_of: string | null; source: string; reason?: string };
+      const [anom] = await trx('finance.bank_movements')
+        .where({ tenant_id: tenantId }).whereNull('deleted_at')
+        .whereRaw('movement_date NOT BETWEEN ?::date AND current_date', [PISO_BANCOS])
+        .select(
+          trx.raw('count(*)::int AS n'),
+          trx.raw('count(*) FILTER (WHERE movement_date > current_date)::int AS futuras'),
+          trx.raw('count(*) FILTER (WHERE movement_date < ?::date)::int AS absurdas', [PISO_BANCOS]),
+          trx.raw('min(movement_date) AS min'), trx.raw('max(movement_date) AS max'),
+        );
+
+      let opening: {
+        available: boolean; amount: number | null; as_of: string | null; source: string;
+        reason?: string; anomalias?: Record<string, unknown>;
+      };
       if (Number(bank.n) > 0) {
-        // última running_balance por cuenta activa, sumada
+        // última running_balance por cuenta activa, sumada — sólo sobre filas con fecha posible
         const [agg] = await trx
-          .with('ult', (qb) => qb
-            .distinctOn('bank_account_id')
-            .from('finance.bank_movements')
-            .where({ tenant_id: tenantId }).whereNull('deleted_at')
+          .with('ult', (qb) => sano(qb.distinctOn('bank_account_id').from('finance.bank_movements'))
             .select('bank_account_id', 'running_balance')
             .orderBy([{ column: 'bank_account_id' }, { column: 'movement_date', order: 'desc' }, { column: 'created_at', order: 'desc' }]))
           .from('ult').select(trx.raw('coalesce(sum(running_balance),0) AS saldo'));
         opening = { available: true, amount: round2(Number(agg.saldo)), as_of: bank.as_of, source: 'finance.bank_movements' };
       } else {
         opening = { available: false, amount: null, as_of: null, source: 'finance.bank_movements', reason: 'Sin movimientos bancarios cargados (Fase CB) para este tenant' };
+      }
+      if (Number(anom.n) > 0) {
+        opening.anomalias = {
+          filas: Number(anom.n), futuras: Number(anom.futuras), absurdas: Number(anom.absurdas),
+          rango: { min: anom.min, max: anom.max },
+          efecto: 'Excluidas del saldo y de la frescura. No se borran: son del dominio de contabilidad.',
+        };
       }
 
       // ── Cobros previstos (cartera CXC) por semana ─────────────────────────────
