@@ -203,6 +203,10 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Added — Productos: flujo de venta, estancados y si hace falta comprar (PF.1, 2026-10-09)
+- En la tabla de Productos, la venta del mes contra los mismos días del mes anterior (en vivo) y la situación de compra de cada producto.
+- Al abrir un producto: qué hacer y por qué, en qué afecta, qué mover entre sucursales antes de comprar, la venta día a día de los dos meses, y cada sucursal con su estado (agotado, estancado, se frenó, le sobra), su existencia en cajas y para cuántos días alcanza.
+
 ### Fixed — Productos nuevos: sin pantallazo y más rápida (NP.17, 2026-10-09)
 - El detalle ya no se vacía ni se vuelve a pintar cada minuto: conserva lo último mientras llega lo nuevo.
 - La existencia se lee directo de Kepler sin calcular el factor de caja de todo el catálogo: la lista pasa de ~2 s a ~0.15 s en esa consulta y el detalle de ~1.2 s a menos de 10 ms.

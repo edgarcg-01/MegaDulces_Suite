@@ -5,6 +5,7 @@ import {
   computed,
   effect,
   inject,
+  linkedSignal,
   signal,
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
@@ -30,7 +31,26 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import { avisoDePrecio } from '../catalogo-precio-aviso';
 import { ProductosNuevosService } from '../productos-nuevos.service';
+import { FlujoLista, FlujoResumen, ProductosFlujoService, VeredictoCompra } from '../productos-flujo.service';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { ProductoFlujoPanelComponent, VEREDICTO_CLASE, dinero, variacionTexto } from './producto-flujo-panel.component';
 import { catchError, of } from 'rxjs';
+
+/** `[PF.1]` La situacion de compra en una palabra o dos, para la tabla. */
+export const VEREDICTO_CORTO: Record<VeredictoCompra, string> = {
+  comprar: 'Comprar', traspasar: 'Mover entre sucursales', esperar: 'Esperar', sobra: 'Sobra',
+  no_comprar: 'No comprar', sin_movimiento: 'Sin movimiento',
+};
+
+/** `[PF.1]` "Estancado en 2 · Agotado en 1" (o NULL si todo se mueve). */
+export function alertasTexto(f: Pick<FlujoResumen, 'estancadas' | 'agotadas' | 'frenadas'>): string | null {
+  const partes = [
+    f.estancadas.length ? `Estancado en ${f.estancadas.length}` : null,
+    f.agotadas.length ? `Agotado en ${f.agotadas.length}` : null,
+    f.frenadas.length ? `Se frenó en ${f.frenadas.length}` : null,
+  ].filter((x): x is string => !!x);
+  return partes.length ? partes.join(' · ') : null;
+}
 
 @Component({
   selector: 'app-compras-catalogo',
@@ -53,6 +73,8 @@ import { catchError, of } from 'rxjs';
     SkeletonModule,
     MetricCardComponent,
     PageTabsComponent,
+    SidePeekComponent,
+    ProductoFlujoPanelComponent,
   ],
   providers: [MessageService],
   template: `
@@ -212,6 +234,8 @@ import { catchError, of } from 'rxjs';
                 <tr>
                   <th scope="col">Producto</th>
                   <th scope="col">SKU</th>
+                  <th scope="col" class="comm-num" pTooltip="Venta con impuestos del 1 a hoy, contra los mismos días del mes anterior. En vivo.">Este mes</th>
+                  <th scope="col">Situación</th>
                   <th scope="col">Marca</th>
                   <th scope="col">Proveedor</th>
                   <th scope="col">Categoría</th>
@@ -224,8 +248,8 @@ import { catchError, of } from 'rxjs';
                 </tr>
               </ng-template>
               <ng-template #body let-p>
-                <tr (click)="openEdit(p)" (keydown.enter)="openEdit(p)" (keydown.space)="$event.preventDefault(); openEdit(p)"
-                  tabindex="0" role="button" [attr.aria-label]="'Editar ' + p.nombre" class="comm-row-clickable">
+                <tr (click)="abrirFlujo(p)" (keydown.enter)="abrirFlujo(p)" (keydown.space)="$event.preventDefault(); abrirFlujo(p)"
+                  tabindex="0" role="button" [attr.aria-label]="'Ver cómo se vende ' + p.nombre" class="comm-row-clickable">
                   <td>
                     <div class="comm-cell-strong" [pTooltip]="p.description || ''" tooltipPosition="right" [tooltipDisabled]="!p.description">
                       {{ p.nombre }}
@@ -242,6 +266,25 @@ import { catchError, of } from 'rxjs';
                       <code class="comm-code">{{ p.sku }}</code>
                     }
                     @if (!p.sku) {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <!-- [PF.1] El mes contra los mismos dias del anterior y la situacion de compra. -->
+                  @let fl = flujo().get(p.id);
+                  <td class="comm-num">
+                    @if (fl) {
+                      <span class="pp-mes">{{ dinero(fl.mes) }}</span>
+                      <span class="pp-var" [class.is-up]="(fl.variacion ?? 0) > 0" [class.is-down]="(fl.variacion ?? 0) < 0"
+                            [pTooltip]="'Mismos días del mes anterior: ' + dinero(fl.mes_anterior_mismo)">{{ variacion(fl.variacion) }}</span>
+                    } @else {
+                      <span class="comm-muted">—</span>
+                    }
+                  </td>
+                  <td>
+                    @if (fl) {
+                      <span class="pp-ver" [ngClass]="claseVeredicto(fl.compra.veredicto)" [pTooltip]="fl.compra.titulo">{{ veredictoCorto(fl.compra.veredicto) }}</span>
+                      @if (alertas(fl); as a) { <span class="pp-alerta">{{ a }}</span> }
+                    } @else {
                       <span class="comm-muted">—</span>
                     }
                   </td>
@@ -319,7 +362,7 @@ import { catchError, of } from 'rxjs';
               </ng-template>
               <ng-template #emptymessage>
                 <tr>
-                  <td colspan="11" class="comm-empty-cell">
+                  <td colspan="13" class="comm-empty-cell">
                     <div class="comm-empty">
                       <div class="comm-empty-icon"><i [class]="searchInput ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
                       <h3>{{ searchInput ? 'Sin resultados' : 'Sin productos' }}</h3>
@@ -341,6 +384,18 @@ import { catchError, of } from 'rxjs';
         </div>
       </div>
     
+      <!-- [PF.1] Como se vende el producto: flujo contra el mes anterior, sucursales y si hace falta comprar. -->
+      <app-side-peek [open]="abierto() !== null" (openChange)="$event ? null : cerrarFlujo()" [width]="880"
+                     [title]="abierto()?.nombre || ''" [subtitle]="abierto() ? ((abierto()!.sku || '') + (abierto()!.brand_name ? ' · ' + abierto()!.brand_name : '')) : null">
+        @if (abierto(); as a) {
+          <div class="pp-peek-acciones">
+            <button pButton size="small" severity="secondary" [outlined]="true" (click)="openEdit(a)">
+              <span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Editar producto</span></button>
+          </div>
+          <app-producto-flujo-panel [productId]="a.id" />
+        }
+      </app-side-peek>
+
       <!-- Edit Dialog -->
       <p-dialog
         [(visible)]="dialogVisible"
@@ -401,6 +456,17 @@ import { catchError, of } from 'rxjs';
       </p-dialog>
     `,
   styles: [`
+    .pp-mes { display: block; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
+    .pp-var { display: block; font-size: var(--fs-xs); color: var(--c-text-3); font-family: var(--font-mono); }
+    .pp-var.is-up { color: var(--ok-fg); }
+    .pp-var.is-down { color: var(--bad-fg); }
+    .pp-ver { display: inline-block; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs); font-weight: var(--fw-bold);
+      border: 1px solid var(--c-divider); color: var(--c-text-2); white-space: nowrap; }
+    .pp-ver.is-comprar { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
+    .pp-ver.is-traspasar { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
+    .pp-ver.is-sobra, .pp-ver.is-no { color: var(--ok-fg); background: var(--ok-soft-bg); }
+    .pp-alerta { display: block; margin-top: .15rem; font-size: var(--fs-xs); color: var(--c-text-3); white-space: nowrap; }
+    .pp-peek-acciones { display: flex; justify-content: flex-end; margin-bottom: .75rem; }
     .pp-nuevo { display: inline-block; margin-top: .2rem; padding: .05rem .45rem; border-radius: 999px;
       border: 1px solid var(--action); font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--c-text-1); }
     :host { display: block; }
@@ -644,6 +710,36 @@ export class ComprasCatalogoComponent {
     return this.etiquetasNuevo().get(id) ?? null;
   }
 
+  // [PF.1] Flujo de venta de los productos de la pagina: el mes contra los mismos dias del anterior,
+  // en vivo (cada minuto, sin vaciar la columna mientras llega lo nuevo) y la situacion de compra.
+  private readonly flujoApi = inject(ProductosFlujoService);
+  private readonly recargaFlujo = signal(0);
+  private readonly flujoRes = rxResource({
+    params: () => {
+      const ids = this.rows().map((r) => r.id);
+      return ids.length ? { ids, v: this.recargaFlujo() } : undefined;
+    },
+    stream: ({ params }) => (params ? this.flujoApi.listar(params.ids).pipe(catchError(() => of(null))) : of(null)),
+  });
+  /** Por producto, lo ultimo que llego: una recarga o un error no borran la columna. */
+  readonly flujo = linkedSignal<FlujoLista | null | undefined, Map<string, FlujoResumen>>({
+    source: () => this.flujoRes.value(),
+    computation: (nuevo, previo) => {
+      const m = new Map(previo?.value ?? []);
+      for (const x of nuevo?.productos ?? []) m.set(x.product_id, x);
+      return m;
+    },
+  });
+  readonly abierto = signal<Product | null>(null);
+  readonly dinero = dinero;
+  readonly variacion = variacionTexto;
+
+  abrirFlujo(p: Product): void { this.abierto.set(p); }
+  cerrarFlujo(): void { this.abierto.set(null); }
+  claseVeredicto(v: VeredictoCompra): string { return VEREDICTO_CLASE[v]; }
+  veredictoCorto(v: VeredictoCompra): string { return VEREDICTO_CORTO[v]; }
+  alertas(f: FlujoResumen): string | null { return alertasTexto(f); }
+
   // Edit dialog
   readonly editing = signal<Product | null>(null);
   readonly saving = signal(false);
@@ -657,6 +753,10 @@ export class ComprasCatalogoComponent {
   });
 
   constructor() {
+    const id = setInterval(() => {
+      if (typeof document === 'undefined' || document.visibilityState === 'visible') this.recargaFlujo.update((n) => n + 1);
+    }, 60_000);
+    this.destroyRef.onDestroy(() => clearInterval(id));
     // Toast en error de la lectura principal (equivale al catch del subscribe viejo).
     effect(() => {
       if (this.listRes.error()) {

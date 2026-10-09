@@ -20,6 +20,8 @@ import {
   NewProductsResponse,
   NewProductsService,
 } from './new-products.service';
+import { ProductFlowService } from './product-flow.service';
+import type { FlujoDetalle, FlujoListaRespuesta } from './product-flow';
 
 /**
  * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
@@ -34,6 +36,7 @@ export class CommercialProductsController {
   constructor(
     private readonly service: CommercialProductsService,
     private readonly newProducts: NewProductsService,
+    private readonly flow: ProductFlowService,
   ) {}
 
   @Get()
@@ -199,6 +202,40 @@ export class CommercialProductsController {
       req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
       isPlatformAdminRole(req?.user?.role_name);
     return this.newProducts.detail(id, { puedeVerCosto });
+  }
+
+  // `[PF.1]` Flujo de venta de cualquier producto. `flow` va ANTES de `@Get(':id')`; `:id/flow` tiene dos
+  // segmentos y no choca con `:id`.
+  @Get('flow')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.1]` Flujo de venta de los productos de una página (ids separados por coma, hasta 200): '
+      + 'el mes contra los mismos días del anterior en tiempo real, dónde se estancó y si hace falta comprar.',
+  })
+  flowList(
+    @Query('ids') ids?: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<FlujoListaRespuesta> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.flow.list(String(ids ?? '').split(',').map((x) => x.trim()).filter(Boolean), { puedeVerCosto });
+  }
+
+  @Get(':id/flow')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.1]` El flujo de venta de UN producto, sucursal por sucursal: comparación con el mes '
+      + 'anterior día a día, estancado/frenado/agotado, existencia en cajas, llegada, reparto y análisis de compra.',
+  })
+  flowDetail(
+    @Param('id') id: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<FlujoDetalle> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.flow.detail(id, { puedeVerCosto });
   }
 
   @Put('new-products/:id/classification')
