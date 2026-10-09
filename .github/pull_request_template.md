@@ -29,6 +29,8 @@
 - [ ] Si agrega o toca migraciones: `npm run check:mig-colisiones` en verde contra el `main` actual (con `PROD_DB_URL`; sin ella, `-- --solo-git` y lo declaro como parcial); la marca es la **hora real de creación**; **no renombré ni borré ninguna ya aplicada**.
 - [ ] Si una migración aditiva la lee el código nuevo, el PR dice que se aplica **ANTES** del código (y su orden respecto a las demás).
 - [ ] Declaré arriba los **cambios de comportamiento** y lo que **no** incluye.
+- [ ] Si cambié un tipo de `libs/contracts`: busqué **todos** sus consumidores en `apps/*` y `libs/*`, **plantillas incluidas**, y `Build & typecheck` está en verde **antes** de pedir revisión. No escribí «compila» sin evidencia (vitest no tipa las plantillas).
+- [ ] Si toqué una tabla: declaré su RLS y la verifiqué contra producción; las pruebas de seguridad **intentan violar** la defensa y esperan el error exacto.
 
 ## Checklist (obligatorio)
 
