@@ -235,6 +235,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_COMMISSIONS_VER)]
       },
       {
+        // [RD.59] El bono por objetivo mensual: configurable, y dos de sus tres criterios
+        // se miden en vez de marcarse. Pagina HERMANA, no pestana: configurar un bono y
+        // verificar una corrida de nomina son dos trabajos distintos. Mismo permiso, asi
+        // que no necesita re-login.
+        path: 'comisiones/objetivo',
+        loadComponent: () => import('./modules/comercial/pages/comercial-comisiones-objetivo.component').then(m => m.ComercialComisionesObjetivoComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_COMMISSIONS_VER)]
+      },
+      {
         // TK.2 — Tickets de venta: buscar CUALQUIER folio (mostrador U/D/10, telemarketing y
         // crédito U/D/8-12, y pedidos propios PD-) y reimprimirlo en ticket térmico o carta.
         // Permiso PROPIO: alcanza más canales que COMMERCIAL_SALES_DOCS_VER, que es sólo TM.
