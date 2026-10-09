@@ -206,6 +206,62 @@ const noMedido = (label, motivo) => { nm++; console.log(`  ⓘ NO MEDIDO · ${la
     fams[0].pct_otros === null || Number(fams[0].pct_otros) < 50, `otros=${fams[0].pct_otros}%`);
 
   // ───────────────────────────────────────────────────────────────────────────────────────
+  // `[RD.58]` La serie publica venta por kilómetro, y eso tiene un denominador que puede
+  // estar incompleto. Lo que se vigila no es la fórmula: es que la guarda SIRVA.
+  console.log('\n— 7b. ⭐ el denominador incompleto: la guarda del $/km —');
+  const cobertura = await q(`
+    WITH per AS (SELECT id, period_no, date_from, date_to FROM commercial.commission_periods WHERE anio = 2026),
+    km AS (
+      SELECT per.period_no, k.route_code, sum(k.km)::bigint km, count(*)::int dias_con_senal,
+             (per.date_to - per.date_from + 1)::int dias_de_la_quincena
+        FROM per JOIN analytics.v_rd_route_km_daily k
+          ON k.dia >= per.date_from AND k.dia <= per.date_to
+       GROUP BY 1,2,5)
+    SELECT count(*)::int filas,
+           count(*) FILTER (WHERE dias_con_senal < dias_de_la_quincena)::int parciales,
+           count(*) FILTER (WHERE dias_con_senal >= dias_de_la_quincena)::int completas
+      FROM km`);
+  const cob = cobertura[0];
+  console.log(`     ${cob.filas} ruta-quincena · ${cob.completas} completas · ${cob.parciales} parciales`);
+  if (cob.parciales > 0) {
+    check('⭐ el caso parcial EXISTE en el dato (la guarda no es un no-op)',
+      true, `parciales=${cob.parciales}`);
+  } else {
+    noMedido('la guarda del denominador', 'hoy no hay ninguna quincena con GPS parcial: no se ejerce');
+  }
+
+  // ⭐⭐ CONTROL: sin la guarda, el artefacto vuelve. Una guarda cuyo efecto no se puede medir
+  // es indistinguible de no tenerla. Se calcula el $/km de las dos formas sobre las MISMAS
+  // filas y se exige que la versión sin guarda publique cifras que la guarda descarta.
+  const placebo = await q(`
+    WITH per AS (SELECT id, period_no, date_from, date_to FROM commercial.commission_periods WHERE anio = 2026),
+    lin AS (
+      SELECT per.period_no, (per.date_to - per.date_from + 1)::int dias_q, l.route_code, l.subtotal
+        FROM per
+        JOIN commercial.commission_runs r ON r.period_id = per.id AND r.deleted_at IS NULL
+        JOIN commercial.commission_run_lines l
+          ON l.run_id = r.id AND l.deleted_at IS NULL AND l.beneficiario = 'chofer'),
+    km AS (
+      SELECT per.period_no, k.route_code, sum(k.km)::bigint km, count(*)::int dias_senal
+        FROM per JOIN analytics.v_rd_route_km_daily k
+          ON k.dia >= per.date_from AND k.dia <= per.date_to
+       GROUP BY 1,2)
+    SELECT
+      round(max(li.subtotal / nullif(k.km,0)) FILTER (WHERE k.dias_senal <  li.dias_q), 2) AS peor_parcial,
+      round(max(li.subtotal / nullif(k.km,0)) FILTER (WHERE k.dias_senal >= li.dias_q), 2) AS peor_completa,
+      count(*) FILTER (WHERE k.dias_senal < li.dias_q AND k.km > 0)::int AS descartadas
+      FROM lin li JOIN km k ON k.route_code = li.route_code AND k.period_no = li.period_no`);
+  const pb = placebo[0];
+  console.log(`     sin guarda el $/km llega a ${pb.peor_parcial} · con guarda el máximo es ${pb.peor_completa}`);
+  if (pb.descartadas > 0 && pb.peor_parcial !== null && pb.peor_completa !== null) {
+    check('⭐⭐ CONTROL: la guarda descarta cifras más altas que cualquiera que publica',
+      Number(pb.peor_parcial) > Number(pb.peor_completa),
+      `parcial ${pb.peor_parcial} vs completa ${pb.peor_completa} · ${pb.descartadas} descartadas`);
+  } else {
+    noMedido('el control de la guarda', 'no hay ruta-quincena parcial CON venta: el efecto no se puede medir');
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────
   console.log('\n— 8. el costo de leer: la pantalla no puede esperar —');
   const t0 = Date.now();
   await q(`select count(*) from analytics.v_rd_expense_period where anio = 2026`);

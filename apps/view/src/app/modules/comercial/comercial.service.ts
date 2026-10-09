@@ -2208,6 +2208,12 @@ export class ComercialService {
     return this.http.get<RouteProfitPeriodo[]>(`${this.base}/route-profit/periods`);
   }
 
+  /** `[RD.58]` La serie del año y la tendencia por ruta. */
+  routeProfitSerie(anio?: number) {
+    const params = anio ? new HttpParams().set('anio', String(anio)) : undefined;
+    return this.http.get<RouteProfitSerie>(`${this.base}/route-profit/series`, params ? { params } : {});
+  }
+
   /** `[RD.57]` El tablero de una quincena. Sin `periodId` abre la última con renglones. */
   routeProfit(periodId?: string) {
     const params = periodId ? new HttpParams().set('period_id', periodId) : undefined;
@@ -4531,5 +4537,56 @@ export interface RouteProfit {
     margen_pct: number | null; gasto_departamento: number;
   };
   procedencia: { gasto_calculado_at: string | null; km_desde: string | null; km_hasta: string | null };
+  huecos: RouteProfitHueco[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// `[RD.58]` La serie y la tendencia: quién viene empeorando. Una foto de una quincena no lo dice.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface RouteProfitTendencia {
+  reciente: number | null;
+  previo: number | null;
+  delta: number | null;
+  /** Cuántas quincenas entraron de cada lado de la comparación. */
+  quincenas: number;
+  /** Cuántos puntos con cifra tenía la serie entera. */
+  puntos: number;
+  /** ⛔ `sin_base` NO es «no cambió»: es que no hay con qué comparar. */
+  veredicto: 'empeora' | 'mejora' | 'estable' | 'sin_base';
+}
+
+export interface RouteProfitSeriePunto {
+  period_no: number;
+  subtotal: number; costo: number; utilidad_bruta: number;
+  margen_pct: number | null;
+  comision: number;
+  motivo_no_pago: string | null;
+  km: number | null;
+  dias_medidos: number | null;
+  dias_con_senal: number | null;
+  dias_de_la_quincena: number;
+  /**
+   * ⛔ `parcial` significa que el denominador está incompleto y por eso **no se publica
+   * `venta_por_km`**: dividir la venta de catorce días entre tres de kilómetros daba $373
+   * contra los ~$210 de una quincena entera, y hacía que las seis rutas con GPS salieran
+   * «empeorando» a la vez.
+   */
+  cobertura_km: 'completa' | 'parcial' | 'sin_gps';
+  venta_por_km: number | null;
+}
+
+export interface RouteProfitSerieRuta {
+  route_code: string;
+  chofer: string | null;
+  zona: string | null;
+  puntos: RouteProfitSeriePunto[];
+  margen: RouteProfitTendencia;
+  venta_por_km: RouteProfitTendencia;
+}
+
+export interface RouteProfitSerie {
+  anio: number;
+  rutas: RouteProfitSerieRuta[];
   huecos: RouteProfitHueco[];
 }
