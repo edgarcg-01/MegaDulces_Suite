@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Checado (GP.4, 2026-10-08)
+- `/almacen/checar`: el checador toma el siguiente pedido ya surtido y ya en SURTIDO en Kepler (nunca uno que él surtió), escanea todo, arma las cajas P de paquetería y las etiqueta (TSC TE200, 3 por fila, 32 × 48 mm; la caja P por triplicado al cerrarla, las cajas 1/N al terminar).
+- Mig `20261008143820`: tablas del checado, rol `checador` con alcance a su sucursal, `ALMACEN_CHECADO_GESTIONAR` (también a `almacenista`) y puesto **Checador de Pedidos**.
+
 ### Fixed — Cortes/Sucursales: una devolución pagada en caja ya no sale como diferencia del corte (CSU.7, 2026-10-08)
 - El corte de caja de Kepler ya descuenta las notas de crédito POS pagadas en esa caja (fiscal `UA2101` y no fiscal `UA2501`) y el arqueo del turno no. El cuadre ahora se juzga contra lo esperado **neto de devoluciones**: del 1 al 8 de octubre cuadran 184 de los 196 cortes con arqueo (antes 141), y los «Faltante en arqueo» de Madero 4-28 (−$2,641.97) y Abastos 3-12 (−$3,450.52) eran devoluciones.
 - El detalle del corte lista cada devolución del turno (folio, cliente, motivo y monto) y el «Esperado neto de devoluciones».

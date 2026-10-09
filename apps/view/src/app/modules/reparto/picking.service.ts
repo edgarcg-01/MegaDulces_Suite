@@ -3,6 +3,13 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import type {
   CapturaKeplerResponse,
+  ChecadoCerrarCajaResponse,
+  ChecadoEscanearDto,
+  ChecadoEscaneoResponse,
+  ChecadoEtiquetasResponse,
+  ChecadoPedido,
+  ChecadoTerminarResponse,
+  ChecadoTomarResponse,
   ConsolaSurtidoAlmacen,
   ConsolaSurtidoResponse,
   KeplerWavesAutoResponse,
@@ -329,6 +336,46 @@ export class PickingService {
   /** `[GP.3]` Sucursales donde puede surtir quien consulta (con el permiso de surtir, no el de almacenes). */
   almacenesSurtido(): Observable<ConsolaSurtidoAlmacen[]> {
     return this.http.get<ConsolaSurtidoAlmacen[]>(`${this.base}/almacenes`);
+  }
+
+  // ── [GP.4] El checado (clave ALMACEN_CHECADO_GESTIONAR en todo, incluidos los almacenes) ──
+
+  private readonly baseChecado = `${environment.apiUrl}/reparto/checado`;
+
+  checadoAlmacenes(): Observable<ConsolaSurtidoAlmacen[]> {
+    return this.http.get<ConsolaSurtidoAlmacen[]>(`${this.baseChecado}/almacenes`);
+  }
+
+  checadoMio(): Observable<ChecadoPedido | null> {
+    return this.http.get<ChecadoPedido | null>(`${this.baseChecado}/mio`);
+  }
+
+  checadoSiguiente(warehouseId: string, origen?: string): Observable<ChecadoTomarResponse> {
+    return this.http.post<ChecadoTomarResponse>(`${this.baseChecado}/siguiente`, { warehouse_id: warehouseId, origen });
+  }
+
+  checadoEscanear(id: string, dto: ChecadoEscanearDto): Observable<ChecadoEscaneoResponse> {
+    return this.http.post<ChecadoEscaneoResponse>(`${this.baseChecado}/${id}/escanear`, dto);
+  }
+
+  checadoDeshacer(id: string, scanId: string): Observable<ChecadoPedido> {
+    return this.http.post<ChecadoPedido>(`${this.baseChecado}/${id}/escaneos/${scanId}/deshacer`, {});
+  }
+
+  checadoCerrarCaja(id: string): Observable<ChecadoCerrarCajaResponse> {
+    return this.http.post<ChecadoCerrarCajaResponse>(`${this.baseChecado}/${id}/cerrar-caja`, {});
+  }
+
+  checadoTerminar(id: string, waitLocation?: string | null): Observable<ChecadoTerminarResponse> {
+    return this.http.post<ChecadoTerminarResponse>(`${this.baseChecado}/${id}/terminar`, { wait_location: waitLocation ?? null });
+  }
+
+  checadoSoltar(id: string): Observable<{ id: string; soltado: true }> {
+    return this.http.post<{ id: string; soltado: true }>(`${this.baseChecado}/${id}/soltar`, {});
+  }
+
+  checadoEtiquetas(id: string): Observable<ChecadoEtiquetasResponse> {
+    return this.http.get<ChecadoEtiquetasResponse>(`${this.baseChecado}/${id}/etiquetas`);
   }
 
   /** `[GP.3d]` Surtidos por capturar en Kepler (Facturación). Sólo lectura, clave del Tablero. */
