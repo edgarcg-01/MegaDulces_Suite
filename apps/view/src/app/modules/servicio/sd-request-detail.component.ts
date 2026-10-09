@@ -74,7 +74,7 @@ function leerComoDataUri(f: File): Promise<string> {
         <div class="sd-badges">
           <span class="sd-st" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span>
           @if (t.is_test) { <span class="sd-test" title="Solicitud de prueba: no cuenta en reportes, tablero, Mi trabajo ni avisos.">Prueba</span> }
-          <span class="sd-pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span>
+          @if (t.priority) { <span class="sd-pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span> }
           @if (sla().texto !== '—') { <span class="sd-sla" [attr.data-t]="sla().tono">{{ sla().texto }}</span> }
         </div>
 

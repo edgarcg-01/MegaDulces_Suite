@@ -76,7 +76,7 @@ function dataUri(f: File): Promise<string> {
                     <span class="ss-st" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span></span>
                   <span class="ss-title">{{ t.title }}</span>
                   <span class="ss-r3">
-                    <span class="ss-pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span>
+                    @if (t.priority) { <span class="ss-pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span> }
                     <span>{{ t.assigned_to_name || 'Sin asignar' }}</span>
                     <span class="ss-mono ss-date">{{ t.created_at | date:'dd/MM/yy' }}</span>
                   </span>
