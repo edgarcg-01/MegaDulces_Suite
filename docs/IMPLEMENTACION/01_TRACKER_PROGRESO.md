@@ -10040,6 +10040,48 @@ contra `pg-prod` (namespace `prod`, k3s).
   medido con placebo (3,371 pares reales vs 463 de ruido) y con el universo declarado
   (analytics.gl_polizas mezcla kepler y contpaqi: dos planes de cuentas). 2026-10-09
 
+- [x] **[CP.8.18]** ✅ El derivador del mapa, como herramienta del repo con **placebo obligatorio**
+  (`database/scripts/derivar-reglas-contpaqi.js`). ⭐ El mapa SÍ se deriva — `[CP.8.1c]` usó la
+  llave equivocada: con (cuenta de banco, fecha, importe) contra los abonos a `102*` da **737
+  pareos contra 2 del placebo = 369×**. ⛔ Y encontró un bug que casi se publica como hallazgo:
+  `MovimientosPoliza.TipoMovto` es `bit` y el driver lo entrega como **boolean**, así que `=== 0`
+  nunca empata y la tabla salió en CEROS para las doce categorías — *una comparación de tipo
+  equivocado no tira error, dibuja un cero*. Freno permanente, probado en rojo. 2026-10-09
+- [x] **[CP.8.19]** 🚀 **EN PROD batch 863** — `contpaqi.account_rules` no tiene UN tipo de regla,
+  tiene cuatro: `por_categoria | por_proveedor | por_sucursal | no_aplica`. ⭐ **CB clasifica por
+  INSTRUMENTO y ContPAQi por NATURALEZA** — por eso el mapa no cruzaba mirando un solo lado.
+  `lleva_iva` queda NULL en 19 de 21 **a propósito**: la medición de IVA es a nivel de póliza y
+  ContPAQi agrupa 7–278 movimientos por póliza. CHECK de coherencia probado **en rojo como
+  `postgres`** (como `edgar` habría fallado por permisos, que se lee igual de verde). 2026-10-09
+- [x] **[CP.8.20]** 🚀 **EN PROD batch 864** — el mapa proveedor→cuenta sale del **UUID del CFDI**,
+  no del nombre. ContPAQi no lo guarda: `Proveedores.IdCuenta` poblado en **1 de 3,426**.
+  **99.8 % del importe con cuenta utilizable.** ⭐ Cruzar las dos vías encontró **un error de
+  captura real**: un CFDI de ABARROTES LA VIOLETA por $44,272.35 posteado en la cuenta de CANAP
+  BOLSAS. Y fijó el umbral: *pureza 100 % sobre n=1 no es certeza* — 20 % de las cuentas se apoyan
+  en una sola asociación, justo donde vivía el falso positivo. 2026-10-09
+- [x] **[CP.8.21]** ✅ El armado **por LOTE** (cuenta de banco × día), no por movimiento — medido:
+  **4,067 de 4,457 pólizas de egreso (91.2 %) tienen UN solo renglón de banco**. Enero pasa de
+  **1,474 a 258** pólizas, contra las ~532 reales. Los motivos ahora tienen dueño: `no_aplica` 148
+  = *nadie, ya se decidió*. ⛔ El pago a proveedor sale **cuadrado pero incompleto y lo declara**:
+  falta el traspaso impuesto-por-acreditar → acreditable ($6.6M IVA + $17.0M IEPS medidos), que
+  exige saber qué facturas se pagan. Candado `test-newdb-contpaqi-lote.js` **38 ✓**, mutado a rojo
+  tres veces. 2026-10-09
+- [x] **[CP.8.22]** ✅ ⛔ **La evidencia de las cuentas candidatas estaba inflada por el
+  agrupamiento**: `comision_bancaria` 94.4 % **desaparece** al restringir a pólizas 1:1 (era 100 %
+  artefacto del lote) y `compra_tarjeta` **cambia de cuenta** (73.8 % GASOLINA → 36.4 % TARJETA).
+  **No se sembró nada**: la cuenta exacta para `por_categoria` **no es derivable**. ⭐ Y comprobar
+  que el *tipo* sí sobrevive destapó un error propio: **la cuenta de un proveedor vive en TRES
+  rubros** (`2120` + `5010` + `5020`), no en uno → concentración **65.1 % → 94.7 %** y estable bajo
+  las dos ventanas; mapa **1,015 → 3,050** filas en prod, utilizables **173 → 421**. 2026-10-09
+- [x] **[CP.8.23]** ✅ El pago a proveedor **no sale del banco, sale del pago de Kepler** — la
+  contadora no adivina el proveedor mirando el estado de cuenta. Vía banco: 57.8 % de enganche
+  (216× el placebo) pero **8.6 %** del importe con cuenta; vía `analytics.erp_supplier_payments`:
+  **72.7 % del importe** y **cero ambigüedad**. Lo que falta son **alias**, no datos: ⭐ **136
+  nombres distintos y los primeros 33 cubren el 80 %** del faltante → llevaría la cobertura a
+  ~94.5 %. `database/scripts/proveedores-sin-cuenta-contpaqi.js` emite la lista con la columna
+  de cuenta **vacía a propósito**. ⚠️ 5 nombres llegan con la **Ñ rota** (`COSTE?A`): es
+  codificación en la ingesta de Kepler y se arregla allá. 2026-10-09
+
 ### E3 — El mapa firmado *(dependencia: el contador)*
 
 - [ ] **[CP.8.14]** UI de reglas con confianza + aprobación (`derivada` → `aprobada`).
