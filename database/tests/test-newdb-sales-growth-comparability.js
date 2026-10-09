@@ -194,6 +194,54 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
     if (gComp.g == null) noMedido('el crecimiento global comparable', `sólo ${gComp.paired} periodos pareados`);
     else t('el crecimiento global comparable es medible', true);
 
+    // ── [7] `[PVI.3]` La PROCEDENCIA del supuesto ────────────────────────────────────────────
+    console.log('\n[7] [PVI.3] La procedencia del supuesto guardado');
+    const tieneCol = (await db.raw(`
+      SELECT 1 FROM information_schema.columns
+       WHERE table_schema='budget' AND table_name='sales_plan_settings'
+         AND column_name='growth_provenance'`)).rows.length > 0;
+    if (!tieneCol) {
+      noMedido('la procedencia del supuesto',
+        'falta aplicar la migración 20261008180749_budget_sales_growth_provenance');
+    } else {
+      t('`budget.sales_plan_settings.growth_provenance` existe', true);
+      const st = (await db.raw(`
+        SELECT s.budget_id, b.name, s.default_growth_pct::float8 AS def,
+               s.growth_by_channel AS g, s.growth_provenance AS p, s.updated_at
+          FROM budget.sales_plan_settings s JOIN budget.budgets b ON b.id = s.budget_id`)).rows;
+      if (!st.length) {
+        noMedido('la procedencia', 'no hay ningún ejercicio con supuestos guardados');
+      } else {
+        for (const s of st) {
+          const canales = Object.keys(s.g || {});
+          if (!s.p) {
+            // Es el estado ESPERADO hasta que corra el autopilot: la columna nace vacía y nadie
+            // puede reconstruir una procedencia que no se midió. Se declara, no se falla.
+            noMedido(`procedencia de «${s.name}»`,
+              `${canales.length} canales con número y NINGUNO con procedencia — la fila es anterior a PVI.3 ` +
+              'o el autopilot no ha vuelto a correr. NULL aquí significa DESCONOCIDA, no «sin procedencia».');
+            continue;
+          }
+          t(`«${s.name}»: todo canal con número tiene procedencia`,
+            canales.every((c) => s.p[c] != null),
+            `faltan: ${canales.filter((c) => s.p[c] == null).join(', ')}`);
+          // ⭐ La huella que delató a `mayoreo`: un canal cuyo número ES el default al decimal
+          // tiene que declararse `default`, no `yoy_paired`. Si dice que lo midió, miente.
+          for (const c of canales) {
+            const esDef = Math.abs(Number(s.g[c]) - Number(s.def)) < 1e-9;
+            const dice = s.p[c] && s.p[c].basis;
+            if (!esDef) continue;
+            t(`«${s.name}» · ${c}: su número ES el default (${pct(Number(s.def))}) y lo declara`,
+              dice === 'default' || dice === 'global' || dice === 'manual',
+              `declara basis='${dice}' — si de verdad lo midió, que coincida con el default es sospechoso`);
+          }
+          const sinMedir = canales.filter((c) => s.p[c] && s.p[c].basis === 'default');
+          console.log(`     «${s.name}»: ${canales.length} canales · sin medir=${sinMedir.length}` +
+            (sinMedir.length ? ` → ${sinMedir.join(', ')}` : ''));
+        }
+      }
+    }
+
     console.log(`\n=== ${ok} ✓ / ${bad} ✗ / ${nm} no medidos ===\n`);
   } catch (e) {
     console.error('ERROR:', e.message);

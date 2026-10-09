@@ -48,6 +48,10 @@ export interface UpsertSalesPlanSettingsDto {
   proposal_method?: 'hibrido' | 'historico';
   default_growth_pct?: number;
   growth_by_channel?: Record<string, number>;
+  /** `[PVI.3]` Procedencia por canal, misma llave que `growth_by_channel`. Opcional: quien no la
+   *  mande deja la columna como estaba — **NULL no se pisa con `{}`**, que se leería como
+   *  «se midió y no había nada». */
+  growth_provenance?: Record<string, ProcedenciaCrec>;
 }
 
 /**
@@ -88,6 +92,21 @@ type CoberturaYoY = {
   growth_pct_todo: number | null;
 };
 type CrecCanal = { growth_pct: number; basis: string; paired_periods: number; years_used: number[]; cobertura?: CoberturaYoY };
+
+/** `[PVI.3]` Lo que se guarda AL LADO de cada número de `growth_by_channel`, con la misma llave
+ *  de canal. Sin esto un supuesto **refutado** y uno **defendible** se ven idénticos en la tabla:
+ *  `mayoreo` quedó en 0.2667 — el `default` al decimal, o sea que su YoY NO se pudo calcular — y
+ *  eso sólo se descubría recomputando. `basis: 'manual'` es el caso que el motor no sabía
+ *  expresar: un supuesto que puso una persona y el autopilot respeta. ADR-056. */
+export type ProcedenciaCrec = {
+  basis: 'yoy_paired' | 'global' | 'default' | 'manual';
+  paired_periods?: number;
+  years_used?: number[];
+  cobertura?: CoberturaYoY;
+  /** cuándo se derivó. Un supuesto calculado ANTES de un arreglo de la fuente es sospechoso:
+   *  los del ejercicio vivo son de las 00:16 Z y el fix del canal entró a las 14:15 Z. */
+  at: string;
+};
 
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const round4 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 10000) / 10000;
@@ -579,8 +598,11 @@ export class BudgetSalesPlanService {
     const tenantId = this.tenantCtx.requireTenantId();
     const row = await trx('budget.sales_plan_settings').where({ tenant_id: tenantId, budget_id: budgetId }).first();
     const channels = await this.canalesDelUniverso(trx);
-    if (!row) return { budget_id: budgetId, proposal_method: 'hibrido' as const, default_growth_pct: 0, growth_by_channel: {} as Record<string, number>, channels, exists: false };
-    return { ...row, growth_by_channel: row.growth_by_channel || {}, channels, exists: true };
+    if (!row) return { budget_id: budgetId, proposal_method: 'hibrido' as const, default_growth_pct: 0, growth_by_channel: {} as Record<string, number>, growth_provenance: null as Record<string, ProcedenciaCrec> | null, channels, exists: false };
+    // `[PVI.3]` ⚠️ `growth_provenance` NO degrada a `{}`: una fila guardada antes de PVI.3 tiene
+    // procedencia DESCONOCIDA, que no es lo mismo que «sin procedencia». Degradarla a objeto vacío
+    // haría que la pantalla no pueda distinguir «nunca se midió» de «se midió y no había nada».
+    return { ...row, growth_by_channel: row.growth_by_channel || {}, growth_provenance: row.growth_provenance ?? null, channels, exists: true };
   }
 
   async getSettings(budgetId: string) {
@@ -597,18 +619,22 @@ export class BudgetSalesPlanService {
       if (dto.proposal_method != null) patch.proposal_method = dto.proposal_method;
       if (dto.default_growth_pct != null) patch.default_growth_pct = round4(Number(dto.default_growth_pct));
       if (dto.growth_by_channel != null) patch.growth_by_channel = JSON.stringify(dto.growth_by_channel);
+      // `[PVI.3]` Sólo se escribe si vino: quien no la manda deja la columna como estaba. Pisarla
+      // con `{}` convertiría «desconocida» en «medida y vacía», que es la mentira que esto evita.
+      if (dto.growth_provenance != null) patch.growth_provenance = JSON.stringify(dto.growth_provenance);
       const [row] = await trx('budget.sales_plan_settings')
         .insert({
           tenant_id: tenantId, budget_id: budgetId,
           proposal_method: dto.proposal_method ?? 'hibrido',
           default_growth_pct: dto.default_growth_pct != null ? round4(Number(dto.default_growth_pct)) : 0,
           growth_by_channel: JSON.stringify(dto.growth_by_channel ?? {}),
+          growth_provenance: dto.growth_provenance != null ? JSON.stringify(dto.growth_provenance) : null,
           created_by: username, updated_by: username,
         })
         .onConflict(['tenant_id', 'budget_id'])
         .merge(patch)
         .returning('*');
-      return { ...row, growth_by_channel: row.growth_by_channel || {} };
+      return { ...row, growth_by_channel: row.growth_by_channel || {}, growth_provenance: row.growth_provenance ?? null };
     });
   }
 
