@@ -205,8 +205,6 @@ export interface ExistenciaPartes {
   estado: 'hay' | 'agotado' | 'sin_registro' | 'en_duda';
   /** La existencia (o la estimada, si está en duda) en la escalera de la ficha. Vacía = cero o no medida. */
   partes: CantidadPartes[];
-  /** Con la existencia en duda: lo que dice Kepler ("Agotado", "334 piezas"). */
-  kepler: string | null;
   /** Con la existencia en duda: por qué ("Kepler sumó paquetes como si fueran piezas"). */
   motivo: string | null;
 }
@@ -228,14 +226,13 @@ export function existenciaPartes(p: ExistenciaDe): ExistenciaPartes {
     return {
       estado: 'en_duda',
       partes: d.estimada !== null && d.estimada > 0 ? enBase(d.estimada, p) : [],
-      kepler: d.kepler <= 0 ? 'Agotado' : enumerar(enBase(d.kepler, p).map((x) => `${x.cifra} ${x.rotulo}`)),
       motivo: `Kepler sumó ${enumerar(d.otros.map(plural))} como si fueran ${plural(d.base)}`
         + (d.estimada === null ? '; no se pudieron convertir con la ficha.' : '. Convertidos con la ficha, ésta es la existencia.'),
     };
   }
-  if (p.existencia === null) return { estado: 'sin_registro', partes: [], kepler: null, motivo: null };
-  if (p.existencia <= 0) return { estado: 'agotado', partes: [], kepler: null, motivo: null };
-  return { estado: 'hay', partes: enBase(p.existencia, p), kepler: null, motivo: null };
+  if (p.existencia === null) return { estado: 'sin_registro', partes: [], motivo: null };
+  if (p.existencia <= 0) return { estado: 'agotado', partes: [], motivo: null };
+  return { estado: 'hay', partes: enBase(p.existencia, p), motivo: null };
 }
 
 /**
@@ -248,7 +245,7 @@ export function existenciaTexto(p: ExistenciaDe): string {
   if (e.estado === 'sin_registro') return 'Sin existencia registrada';
   if (e.estado === 'agotado') return 'Agotado';
   if (e.estado === 'en_duda') {
-    return `En duda: Kepler dice ${e.kepler === 'Agotado' ? 'agotado' : e.kepler}; ${txt ? `según el kardex hay ${txt}` : 'el kardex no alcanza para estimarla'}`;
+    return `En duda: ${txt ? `según el kardex hay ${txt}` : 'el kardex no alcanza para estimarla'}`;
   }
   return `Hay ${txt}`;
 }
@@ -807,7 +804,7 @@ export function tendenciaTexto(t: number | null): string {
         </span>
       } @else { <span class="pk-vacio">{{ vacio }}</span> }
     </ng-template>
-    <!-- [NP.16] Existencia en la escalera de la ficha. En duda: la estimada del kardex y lo que dice Kepler. -->
+    <!-- [NP.16] Existencia en la escalera de la ficha. En duda: la estimada del kardex (el porqué, en el tooltip). -->
     <ng-template #existenciaTpl let-p>
       @let e = existenciaPartes(p);
       @switch (e.estado) {
@@ -817,7 +814,6 @@ export function tendenciaTexto(t: number | null): string {
           <span class="pk-cants">
             <span class="pk-tag-duda" [pTooltip]="e.motivo || ''">En duda</span>
             @for (c of e.partes; track $index) { <span class="pk-cant"><b>{{ c.cifra }}</b> {{ c.rotulo }}</span> }
-            <span class="pk-cant-sub">Kepler dice: {{ e.kepler }}</span>
           </span>
         }
         @default {
@@ -957,7 +953,6 @@ export function tendenciaTexto(t: number | null): string {
     .pk-cant { white-space: nowrap; font-size: var(--fs-xs); color: var(--c-text-2); }
     .pk-cant b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-sm);
       font-weight: var(--fw-bold); color: var(--c-text-1); }
-    .pk-cant-sub { max-width: 13rem; font-size: var(--fs-xs); color: var(--c-text-3); }
     .pk-vacio { font-size: var(--fs-xs); color: var(--c-text-3); }
     .pk-tag-duda { display: inline-block; align-self: flex-start; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs);
       font-weight: var(--fw-bold); color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); }

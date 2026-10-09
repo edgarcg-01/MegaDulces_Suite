@@ -175,14 +175,13 @@ describe('[NP.5] funciones puras de Productos nuevos', () => {
   it('⭐ existencia en duda: lo que dice Kepler y, aparte, lo que debería haber según el kardex', () => {
     const p = { existencia_fuente: 'kepler' as const, existencia: 0, existencia_unidad: 'PZA', escalera: CAJA_12,
       existencia_duda: { kepler: -3, estimada: 1500, base: 'PZA', otros: ['PAQ'] } };
-    expect(existenciaTexto(p)).toBe('En duda: Kepler dice agotado; según el kardex hay 125 cajas');
+    expect(existenciaTexto(p)).toBe('En duda: según el kardex hay 125 cajas');
     const e = existenciaPartes(p);
     expect(e.estado).toBe('en_duda');
-    expect(e.kepler).toBe('Agotado');
     expect(e.motivo).toContain('Kepler sumó paquetes como si fueran piezas');
     // Sin estimada (un rótulo que no se pudo convertir): se dice que no alcanza, no se inventa.
     expect(existenciaTexto({ ...p, existencia: 13, existencia_duda: { kepler: 13, estimada: null, base: 'PZA', otros: ['500'] } }))
-      .toBe('En duda: Kepler dice 1 caja y 1 pieza; el kardex no alcanza para estimarla');
+      .toBe('En duda: el kardex no alcanza para estimarla');
   });
 
   it('⭐ las unidades se dicen como Kepler las registró, de lo grande a lo chico, sin sumarse', () => {
@@ -471,7 +470,7 @@ describe('[NP.16] llegada, unidades por corte y reparto', () => {
     expect(td.querySelector('.pk-tag-duda')?.textContent).toBe('En duda');
     expect(td.querySelector('.pk-tag-agotado')).toBeNull();
     expect(td.querySelector('.pk-cant')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('5 cajas');
-    expect(td.querySelector('.pk-cant-sub')?.textContent).toBe('Kepler dice: Agotado');
+    expect(td.textContent).not.toContain('Kepler dice');
   });
 
   it('⭐ arriba de Por sucursal: lo que nos llegó en compras y cómo se repartió', async () => {
@@ -542,9 +541,9 @@ describe('[NP.16] funciones puras', () => {
   it('⛔ la existencia partida: agotado y sin registro no traen cifra', () => {
     const k = { existencia_fuente: 'kepler' as const, existencia_duda: null };
     expect(existenciaPartes({ ...k, existencia: 13, existencia_unidad: 'PZA', escalera: CAJA_12 }))
-      .toEqual({ estado: 'hay', partes: [{ cifra: '1', rotulo: 'caja' }, { cifra: '1', rotulo: 'pieza' }], kepler: null, motivo: null });
+      .toEqual({ estado: 'hay', partes: [{ cifra: '1', rotulo: 'caja' }, { cifra: '1', rotulo: 'pieza' }], motivo: null });
     expect(existenciaPartes({ ...k, existencia: 0, existencia_unidad: 'PZA', escalera: CAJA_12 }))
-      .toEqual({ estado: 'agotado', partes: [], kepler: null, motivo: null });
+      .toEqual({ estado: 'agotado', partes: [], motivo: null });
     expect(existenciaPartes({ ...k, existencia: null, existencia_unidad: null, escalera: null }).estado).toBe('sin_registro');
   });
 });
