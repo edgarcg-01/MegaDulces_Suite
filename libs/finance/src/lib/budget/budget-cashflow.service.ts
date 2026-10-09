@@ -106,7 +106,27 @@ export class BudgetCashflowService {
       const cobrosMeta = { as_of: prevista.as_of };
 
       // ── Pagos previstos (3 obligaciones) por semana ───────────────────────────
-      const pagoSql = (table: string) => trx(table)
+      // ⛔ [TES.10] El ejercicio de PRUEBA duplica las obligaciones. Medido en prod el
+      // 2026-10-08: de las 312 de `budget.expense_obligations`, **156 cuelgan del FY2027 real y
+      // 156 del duplicado marcado `is_test`**, por $74,809,091.57 cada mitad. Hoy no muerde
+      // porque las 312 están en `propuesta` y el filtro de abajo las excluye — pero el día que
+      // alguien autorice una, esta curva **contaría el doble** sin que nadie lo note.
+      //
+      // Se excluye por NOT EXISTS y no por JOIN a propósito: un JOIN descartaría también las
+      // obligaciones **sin partida** (`budget_line_id IS NULL`), que no son de prueba, sólo no
+      // están ligadas. La regla es «fuera sólo lo que PRUEBA que cuelga de un ejercicio de
+      // prueba», nunca «fuera lo que no prueba que es real».
+      // ⚠️ Sólo `budget.expense_obligations` cuelga de una partida: las otras dos **no tienen
+      // `budget_line_id`** (verificado contra el catálogo de prod). Aplicarles el filtro
+      // reventaría su consulta con «column does not exist» en runtime, no en compilación.
+      const CUELGA_DE_PARTIDA = 'budget.expense_obligations';
+      const sinDuplicado = (qb: any, table: string) => (table !== CUELGA_DE_PARTIDA ? qb
+        : qb.whereNotExists((s: any) => s
+          .select(s.client.raw('1')).from('budget.budget_lines AS bl')
+          .join('budget.budgets AS bb', 'bb.id', 'bl.budget_id')
+          .whereRaw('bl.id = budget_line_id').andWhere('bb.is_test', true)));
+
+      const pagoSql = (table: string) => sinDuplicado(trx(table), table)
         .where({ tenant_id: tenantId }).whereNotIn('status', ['cancelled', 'propuesta'])
         .whereRaw('original_amount > paid_amount')
         .whereRaw('coalesce(negotiated_date, original_due_date) BETWEEN ? AND ?', [from, to])

@@ -159,6 +159,33 @@ const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFract
       }
     }
 
+    // ── [TES.10] El ejercicio de PRUEBA no puede duplicar las obligaciones ───────────────
+    console.log('\n[TES.10] obligaciones — el duplicado de prueba queda fuera');
+    const o = (await knex.raw(`
+      SELECT count(*) AS total,
+             count(*) FILTER (WHERE EXISTS (
+               SELECT 1 FROM budget.budget_lines bl JOIN budget.budgets bb ON bb.id = bl.budget_id
+                WHERE bl.id = o.budget_line_id AND bb.is_test = true)) AS de_prueba,
+             count(*) FILTER (WHERE budget_line_id IS NULL) AS sin_partida
+        FROM budget.expense_obligations o WHERE tenant_id = ?`, [T])).rows[0];
+    if (Number(o.total) === 0) {
+      noMedido('sin obligaciones de gasto en este destino: el filtro del duplicado queda sin ejercitar.');
+    } else if (Number(o.de_prueba) > 0) {
+      ok(true, `el duplicado existe y es separable: ${o.de_prueba} de ${o.total} obligaciones cuelgan de un ejercicio is_test`);
+      // ⚠️ Lo que NO se puede afirmar hoy: que el filtro proteja dinero publicado. Las 312 estan
+      // en 'propuesta' y el motor ya las excluye por estado. Es una bomba ARMADA, no desactivada.
+      noMedido("el filtro de is_test aun no mueve dinero publicado: las obligaciones siguen en 'propuesta' y salen por estado. Muerde el dia que se autorice la primera.");
+    } else {
+      noMedido('no hay obligaciones colgando de un ejercicio is_test aqui: el filtro queda sin ejercitar (en prod son 156 de 312, $74,809,091.57).');
+    }
+    // NOT EXISTS y JOIN solo difieren cuando hay obligaciones sin partida. Si no las hay, la
+    // eleccion no se puede justificar con datos, y se dice asi en vez de darla por buena.
+    if (Number(o.sin_partida) === 0) {
+      noMedido('no hay obligaciones sin partida: NOT EXISTS y JOIN dan lo mismo aqui, la eleccion no esta ejercitada.');
+    } else {
+      ok(true, `${o.sin_partida} obligaciones sin partida: NOT EXISTS las conserva, un JOIN las perderia`);
+    }
+
     console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} ⊘\n`);
     await knex.destroy();
     process.exit(fail ? 1 : 0);
