@@ -33,6 +33,8 @@ interface BudgetLine {
   id: string; concept: string; line_type: string; area: string | null;
   /** `[PU.VA]` Ya viajaban (el servicio devuelve la fila entera); faltaba declararlos para poder usarlos. */
   cost_center?: string | null; source?: string | null;
+  /** `[PU.VG.7]` Idem: `listLines` hace `select *` y `decorate` sólo agrega. Es la llave del ritmo. */
+  account_code?: string | null;
   vigente_amount: number; reserved_amount: number; committed_amount: number; exercised_amount: number;
   paid_amount: number; available_amount: number; control_level: string; status: string;
   expense_class: string | null; recurrence: string | null; responsible: string | null;
