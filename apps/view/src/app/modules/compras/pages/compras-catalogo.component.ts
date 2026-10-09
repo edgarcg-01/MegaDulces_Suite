@@ -31,9 +31,11 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import { avisoDePrecio } from '../catalogo-precio-aviso';
 import { ProductosNuevosService } from '../productos-nuevos.service';
-import { FlujoLista, FlujoResumen, ProductosFlujoService, VeredictoCompra } from '../productos-flujo.service';
+import {
+  CuidarRespuesta, FlujoLista, FlujoResumen, MotivoLider, ProductoACuidar, ProductosFlujoService, VeredictoCompra,
+} from '../productos-flujo.service';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
-import { ProductoFlujoPanelComponent, VEREDICTO_CLASE, dinero, variacionTexto } from './producto-flujo-panel.component';
+import { ProductoFlujoPanelComponent, VEREDICTO_CLASE, diasTexto, dinero, fechaCorta, variacionTexto } from './producto-flujo-panel.component';
 import { catchError, of } from 'rxjs';
 
 /** `[PF.1]` La situacion de compra en una palabra o dos, para la tabla. */
@@ -42,14 +44,39 @@ export const VEREDICTO_CORTO: Record<VeredictoCompra, string> = {
   no_comprar: 'No comprar', sin_movimiento: 'Sin movimiento',
 };
 
-/** `[PF.1]` "Estancado en 2 · Agotado en 1" (o NULL si todo se mueve). */
-export function alertasTexto(f: Pick<FlujoResumen, 'estancadas' | 'agotadas' | 'frenadas'>): string | null {
+/** `[PF.1]` "Estancado en 2 · Agotado en 1 · Caducado en 1" (o NULL si todo se mueve). */
+export function alertasTexto(f: Pick<FlujoResumen, 'estancadas' | 'agotadas' | 'frenadas'> & Partial<Pick<FlujoResumen, 'caducidad'>>): string | null {
+  const c = f.caducidad;
   const partes = [
+    c && c.vencido > 0 ? `Caducado en ${c.plazas_vencido.length}` : null,
+    c && c.en_riesgo > 0 ? `Caduca sin venderse en ${c.plazas_en_riesgo.length}` : null,
     f.estancadas.length ? `Estancado en ${f.estancadas.length}` : null,
     f.agotadas.length ? `Agotado en ${f.agotadas.length}` : null,
     f.frenadas.length ? `Se frenó en ${f.frenadas.length}` : null,
   ].filter((x): x is string => !!x);
   return partes.length ? partes.join(' · ') : null;
+}
+
+/** `[PF.2]` Por qué pide atención un líder, en palabras. */
+export const MOTIVO_LIDER: Record<MotivoLider, string> = {
+  agotado: 'Agotado en alguna sucursal', comprar: 'Comprar', mover: 'Mover entre sucursales', se_freno: 'Se frenó la venta',
+};
+
+/** `[PF.3]` La situación de caducidad de un producto en una frase, para "Para cuidar hoy". */
+export function caducidadTexto(c: NonNullable<FlujoResumen['caducidad']>): { estado: 'caducado' | 'no_alcanza' | 'justo'; texto: string } {
+  if (c.vencido > 0) return { estado: 'caducado', texto: `Caducado según el registro en ${c.plazas_vencido.join(', ')}` };
+  if (c.en_riesgo > 0) return { estado: 'no_alcanza', texto: `No alcanza a venderse en ${c.plazas_en_riesgo.join(', ')}` };
+  return { estado: 'justo', texto: 'Caduca pronto: ponerlo al frente' };
+}
+
+/** Lo que se abre en el panel lateral: un renglón de la tabla o un producto de "Para cuidar hoy". */
+interface AbiertoFlujo {
+  id: string;
+  nombre: string | null;
+  sku: string | null;
+  brand_name?: string | null;
+  /** Sólo desde la tabla: con él se puede editar. */
+  producto?: Product;
 }
 
 @Component({
@@ -213,6 +240,90 @@ export function alertasTexto(f: Pick<FlujoResumen, 'estancadas' | 'agotadas' | '
           </div>
         }
     
+        <!-- [PF.2]/[PF.3] Para cuidar hoy: los lideres que piden atencion y lo que caduca antes de venderse. -->
+        @if (cuidar(); as c) {
+          <section class="pc" aria-label="Para cuidar hoy">
+            <article class="pc-card">
+              <header class="pc-head">
+                <h2 class="pc-t">Líderes que piden atención</h2>
+                <span class="pc-n">{{ c.lideres.piden_atencion.length }} de {{ c.lideres.total }} líderes</span>
+              </header>
+              <div class="pc-chips" role="group" aria-label="Filtrar por motivo">
+                <button type="button" class="pc-chip" [class.is-on]="motivo() === null" (click)="motivo.set(null)">Todos · {{ c.lideres.piden_atencion.length }}</button>
+                @for (m of motivos; track m) {
+                  @if (c.lideres.por_motivo[m]) {
+                    <button type="button" class="pc-chip" [class.is-on]="motivo() === m" (click)="motivo.set(m)">{{ motivoTexto(m) }} · {{ c.lideres.por_motivo[m] }}</button>
+                  }
+                }
+              </div>
+              @if (lideresVista(); as ls) {
+                <ul class="pc-lista">
+                  @for (x of ls; track x.resumen.product_id) {
+                    <li>
+                      <button type="button" class="pc-item" (click)="abrirCuidar(x)">
+                        <span class="pc-rank">#{{ x.resumen.lider?.rank }}</span>
+                        <span class="pc-cuerpo">
+                          <span class="pc-nom">{{ x.nombre || x.sku }}</span>
+                          <span class="pc-det">
+                            <span class="pp-ver" [ngClass]="claseVeredicto(x.resumen.compra.veredicto)">{{ x.resumen.compra.titulo }}</span>
+                            @if (x.resumen.agotadas.length) { <span>Agotado en {{ nombresDe(x.resumen.agotadas) }}</span> }
+                          </span>
+                        </span>
+                        @if ((x.en_juego_dia ?? 0) > 0) {
+                          <span class="pc-dinero" pTooltip="Lo que ya se deja de vender por día donde está agotado; si se acaba en menos de una semana, toda su venta por día.">{{ dinero(x.en_juego_dia) }}<small>por día</small></span>
+                        }
+                      </button>
+                    </li>
+                  } @empty {
+                    <li class="pc-vacio">Ningún líder pide atención por este motivo.</li>
+                  }
+                </ul>
+                @if (lideresFiltrados().length > ls.length) {
+                  <button type="button" class="pc-mas" (click)="verTodos.set(true)">Ver los {{ lideresFiltrados().length }}</button>
+                }
+              }
+              <p class="pc-meta">Líder = está entre los {{ c.lideres.total }} productos que juntos hacen la mitad de la venta de la red en 90 días
+                (nuestra venta, no participación de mercado). Primero lo que más se juega por día.
+                @if (c.lideres.calculado) { Ranking al {{ hora(c.lideres.calculado) }}. }</p>
+            </article>
+
+            <article class="pc-card">
+              <header class="pc-head">
+                <h2 class="pc-t">Caducan antes de venderse</h2>
+                <span class="pc-n">{{ c.caducidad.productos.length }} producto{{ c.caducidad.productos.length === 1 ? '' : 's' }}</span>
+              </header>
+              <ul class="pc-lista">
+                @for (x of c.caducidad.productos; track x.resumen.product_id) {
+                  @let cad = caducidad(x);
+                  <li>
+                    <button type="button" class="pc-item" (click)="abrirCuidar(x)">
+                      <span class="pc-cuerpo">
+                        <span class="pc-nom">{{ x.nombre || x.sku }}</span>
+                        <span class="pc-det">
+                          <span class="pc-cad" [ngClass]="'is-' + cad.estado">{{ cad.texto }}</span>
+                        </span>
+                      </span>
+                      @if (x.resumen.caducidad?.proxima; as f) {
+                        <span class="pc-fecha">{{ fecha(f) }}<small>{{ diasA(f) }}</small></span>
+                      }
+                    </button>
+                  </li>
+                } @empty {
+                  <li class="pc-vacio">Ningún lote registrado está por caducar sin venderse.</li>
+                }
+              </ul>
+              <p class="pc-meta">Sólo lo que tiene fecha registrada en el andén o en la revisión de caducidades:
+                {{ c.caducidad.cobertura.lotes }} lotes de {{ c.caducidad.cobertura.productos }} productos
+                @if (c.caducidad.cobertura.sucursales.length) { en {{ nombresDe(c.caducidad.cobertura.sucursales) }} }.
+                Lo que no tiene fecha registrada no aparece aquí, y eso no quiere decir que no caduque.</p>
+            </article>
+          </section>
+        } @else if (cuidarError()) {
+          <p class="pc-meta" role="alert">No se pudo cargar «Para cuidar hoy».</p>
+        } @else {
+          <p-skeleton height="180px"></p-skeleton>
+        }
+
         <!-- Table -->
         <div class="sheet cols-12">
           <article class="cell cell-span-12 is-flush">
@@ -250,10 +361,14 @@ export function alertasTexto(f: Pick<FlujoResumen, 'estancadas' | 'agotadas' | '
               <ng-template #body let-p>
                 <tr (click)="abrirFlujo(p)" (keydown.enter)="abrirFlujo(p)" (keydown.space)="$event.preventDefault(); abrirFlujo(p)"
                   tabindex="0" role="button" [attr.aria-label]="'Ver cómo se vende ' + p.nombre" class="comm-row-clickable">
+                  @let fl = flujo().get(p.id);
                   <td>
                     <div class="comm-cell-strong" [pTooltip]="p.description || ''" tooltipPosition="right" [tooltipDisabled]="!p.description">
                       {{ p.nombre }}
                     </div>
+                    @if (fl?.lider; as l) {
+                      <span class="pp-lider" pTooltip="Está entre los productos que juntos hacen la mitad de la venta de la red en 90 días">Líder #{{ l.rank }}</span>
+                    }
                     @if (nuevo(p.id); as nv) {
                       <span class="pp-nuevo" pTooltip="Producto nuevo en seguimiento: ver la pestaña Productos nuevos">{{ nv }}</span>
                     }
@@ -270,7 +385,6 @@ export function alertasTexto(f: Pick<FlujoResumen, 'estancadas' | 'agotadas' | '
                     }
                   </td>
                   <!-- [PF.1] El mes contra los mismos dias del anterior y la situacion de compra. -->
-                  @let fl = flujo().get(p.id);
                   <td class="comm-num">
                     @if (fl) {
                       <span class="pp-mes">{{ dinero(fl.mes) }}</span>
@@ -388,10 +502,12 @@ export function alertasTexto(f: Pick<FlujoResumen, 'estancadas' | 'agotadas' | '
       <app-side-peek [open]="abierto() !== null" (openChange)="$event ? null : cerrarFlujo()" [width]="880"
                      [title]="abierto()?.nombre || ''" [subtitle]="abierto() ? ((abierto()!.sku || '') + (abierto()!.brand_name ? ' · ' + abierto()!.brand_name : '')) : null">
         @if (abierto(); as a) {
-          <div class="pp-peek-acciones">
-            <button pButton size="small" severity="secondary" [outlined]="true" (click)="openEdit(a)">
-              <span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Editar producto</span></button>
-          </div>
+          @if (a.producto; as prod) {
+            <div class="pp-peek-acciones">
+              <button pButton size="small" severity="secondary" [outlined]="true" (click)="openEdit(prod)">
+                <span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Editar producto</span></button>
+            </div>
+          }
           <app-producto-flujo-panel [productId]="a.id" />
         }
       </app-side-peek>
@@ -475,6 +591,38 @@ export function alertasTexto(f: Pick<FlujoResumen, 'estancadas' | 'agotadas' | '
     .surf-page-sub b { font-weight: var(--fw-bold); color: var(--c-text-1); }
 
     .pp-bento { margin-bottom: 1rem; }
+    .pp-lider { display: inline-block; margin: .2rem .3rem 0 0; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs);
+      font-weight: var(--fw-bold); color: var(--action); border: 1px solid currentColor; }
+    .pc { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 26rem), 1fr)); gap: 1rem; margin-bottom: 1rem; }
+    .pc-card { display: flex; flex-direction: column; gap: .5rem; min-width: 0; border: 1px solid var(--c-divider); border-radius: 12px;
+      background: var(--c-surface-1); padding: .8rem .9rem; }
+    .pc-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
+    .pc-t { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .pc-n { font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pc-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
+    .pc-chip { border: 1px solid var(--c-divider); background: var(--c-surface-1); color: var(--c-text-2); border-radius: 999px;
+      padding: .15rem .6rem; font-size: var(--fs-xs); cursor: pointer; min-height: 1.75rem; }
+    .pc-chip.is-on { background: var(--c-text-1); border-color: var(--c-text-1); color: var(--c-surface-1); font-weight: var(--fw-bold); }
+    .pc-chip:focus-visible, .pc-item:focus-visible, .pc-mas:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
+    .pc-lista { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; max-height: 22rem; overflow-y: auto; }
+    .pc-lista > li + li { border-top: 1px solid var(--c-divider); }
+    .pc-item { width: 100%; display: flex; align-items: center; gap: .6rem; padding: .45rem .25rem; background: none; border: 0;
+      text-align: left; cursor: pointer; color: inherit; font: inherit; }
+    .pc-item:hover { background: var(--c-surface-2); }
+    .pc-rank { flex-shrink: 0; min-width: 2.4rem; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pc-cuerpo { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: .15rem; }
+    .pc-nom { font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pc-det { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pc-dinero, .pc-fecha { flex-shrink: 0; display: flex; flex-direction: column; align-items: flex-end; font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .pc-dinero small, .pc-fecha small { font-family: var(--font-sans, inherit); font-size: var(--fs-xs); font-weight: normal; color: var(--c-text-3); }
+    .pc-cad { display: inline-block; padding: .05rem .45rem; border-radius: 999px; font-weight: var(--fw-bold); border: 1px solid var(--c-divider); }
+    .pc-cad.is-caducado, .pc-cad.is-no_alcanza { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
+    .pc-cad.is-justo { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
+    .pc-vacio { padding: .6rem .25rem; font-size: var(--fs-sm); color: var(--c-text-3); }
+    .pc-mas { align-self: flex-start; background: none; border: 0; padding: .2rem 0; color: var(--action); font-size: var(--fs-sm);
+      font-weight: var(--fw-bold); cursor: pointer; }
+    .pc-meta { margin: 0; font-size: var(--fs-xs); color: var(--c-text-3); }
 
     .pp-filters-cell { display: flex; flex-direction: column; }
     .pp-toolbar {
@@ -730,15 +878,50 @@ export class ComprasCatalogoComponent {
       return m;
     },
   });
-  readonly abierto = signal<Product | null>(null);
+  readonly abierto = signal<AbiertoFlujo | null>(null);
   readonly dinero = dinero;
   readonly variacion = variacionTexto;
 
-  abrirFlujo(p: Product): void { this.abierto.set(p); }
+  abrirFlujo(p: Product): void { this.abierto.set({ id: p.id, nombre: p.nombre, sku: p.sku ?? null, brand_name: p.brand_name ?? null, producto: p }); }
+  abrirCuidar(x: ProductoACuidar): void { this.abierto.set({ id: x.resumen.product_id, nombre: x.nombre, sku: x.sku }); }
   cerrarFlujo(): void { this.abierto.set(null); }
   claseVeredicto(v: VeredictoCompra): string { return VEREDICTO_CLASE[v]; }
   veredictoCorto(v: VeredictoCompra): string { return VEREDICTO_CORTO[v]; }
   alertas(f: FlujoResumen): string | null { return alertasTexto(f); }
+
+  // [PF.2]/[PF.3] Para cuidar hoy: igual para todo el tenant; se refresca cada minuto con lo demas y no se
+  // vacia mientras llega lo nuevo.
+  private readonly cuidarRes = rxResource({
+    params: () => ({ v: this.recargaFlujo() }),
+    stream: () => this.flujoApi.cuidar(),
+  });
+  readonly cuidar = linkedSignal<CuidarRespuesta | undefined, CuidarRespuesta | null>({
+    source: () => (this.cuidarRes.error() ? undefined : this.cuidarRes.value()),
+    computation: (nuevo, previo) => nuevo ?? previo?.value ?? null,
+  });
+  readonly cuidarError = computed(() => !!this.cuidarRes.error() && !this.cuidar());
+  readonly motivos: MotivoLider[] = ['agotado', 'comprar', 'mover', 'se_freno'];
+  readonly motivo = signal<MotivoLider | null>(null);
+  readonly verTodos = signal(false);
+  readonly lideresFiltrados = computed(() => {
+    const m = this.motivo();
+    const xs = this.cuidar()?.lideres.piden_atencion ?? [];
+    return m ? xs.filter((x) => x.motivos?.includes(m)) : xs;
+  });
+  /** Los primeros 8; con "Ver todos", todos (la lista tiene su propio scroll). */
+  readonly lideresVista = computed(() => (this.verTodos() ? this.lideresFiltrados() : this.lideresFiltrados().slice(0, 8)));
+  readonly fecha = fechaCorta;
+  motivoTexto(m: MotivoLider): string { return MOTIVO_LIDER[m]; }
+  caducidad(x: ProductoACuidar) { return caducidadTexto(x.resumen.caducidad!); }
+  nombresDe(xs: Array<{ plaza: string; nombre: string | null }>): string { return xs.map((x) => x.nombre || 'Sucursal ' + x.plaza).join(', '); }
+  /** Días que faltan para una fecha, desde hoy en México. */
+  diasA(f: string): string {
+    const hoy = this.cuidar()?.periodos.hoy ?? new Date().toISOString().slice(0, 10);
+    return diasTexto(Math.round((Date.parse(f + 'T00:00:00Z') - Date.parse(hoy + 'T00:00:00Z')) / 86_400_000));
+  }
+  hora(iso: string): string {
+    return new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+  }
 
   // Edit dialog
   readonly editing = signal<Product | null>(null);
