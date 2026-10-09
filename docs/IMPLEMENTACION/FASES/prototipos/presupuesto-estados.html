@@ -170,7 +170,8 @@ tbody tr:last-child td{border-bottom:none}
   <h2>4 · Las cinco reglas</h2>
   <div>
     <div class="rule"><div class="rule-n">1</div><div class="rule-b"><div class="rule-t">Ningún número sin su estado.</div><div class="rule-d">Y <code>no medido</code> <strong>inhabilita el tono</strong>: no es que se pinte gris, es que <strong>no se puede pedir verde</strong>. Si el tipo lo permite, alguien lo va a pedir — los 22 clavados son la prueba.</div></div></div>
-    <div class="rule"><div class="rule-n">2</div><div class="rule-b"><div class="rule-t">Dos ausencias distintas, dos tratamientos.</div><div class="rule-d">«No hay dato» no es «hay dato y vale cero». Un guion, nunca un <code>$0.00</code>. Y el motivo decide quién la arregla: <code>sin medir</code> es de Sistemas, <code>sin meta</code> es de Dirección.</div></div></div>
+    <div class="rule"><div class="rule-n">2</div><div class="rule-b"><div class="rule-t">Un cero se publica sólo si significa lo que el lector va a entender.</div><div class="rule-d">«No hay dato» no es «hay dato y vale cero»: un guion, nunca un <code>$0.00</code>. Y el motivo decide quién la arregla — <code>sin medir</code> es de Sistemas, <code>sin meta</code> es de Dirección.<br>
+      ⚠️ <strong>Esta regla se escribió más corta y los tres carriles la violaron por puertas distintas</strong> — ver los tres antipatrones. Decía «dos ausencias, dos tratamientos», y eso atrapa las dos primeras: la ausencia renderizada como valor y la convertida en <code>0</code> en el modelo. <strong>No atrapa la tercera</strong>, donde no hay ninguna ausencia: hay <strong>un cero que la aritmética calcula bien</strong> y cuyo significado verdadero («no hemos registrado») no es el que se lee («no hemos gastado»). Por eso la regla ya no habla de ausencias: habla del <strong>cero</strong>.</div></div></div>
     <div class="rule"><div class="rule-n">3</div><div class="rule-b"><div class="rule-t">El número viejo se conserva al lado, no se reemplaza.</div><div class="rule-d">Cuando una cifra nueva contesta <strong>otra pregunta</strong>, las dos conviven con su etiqueta. Reemplazar borra la posibilidad de explicar por qué cambió.</div></div></div>
     <div class="rule"><div class="rule-n">4</div><div class="rule-b"><div class="rule-t">Lo que es decisión de negocio se muestra como decisión pendiente, no como error.</div><div class="rule-d">Mandar al contralor a Sistemas por algo que alguien ya decidió quema el canal. Una decisión pendiente lleva <strong>dueño</strong>.</div></div></div>
     <div class="rule"><div class="rule-n">5</div><div class="rule-b"><div class="rule-t">Un agregado no puede fundir poblaciones cuya procedencia difiere.</div><div class="rule-d">Se publica <strong>desglosado por la dimensión que las hace incomparables</strong>. En Ventas esa dimensión es el <code>method</code> —un relleno con historia propia no es el promedio de otras entidades—. En Tesorería es <em>por qué creemos que la deuda está abierta</em>, y <code>method</code> no la distingue: las dos poblaciones salen del mismo cálculo.</div></div></div>
@@ -283,7 +284,28 @@ tbody tr:last-child td{border-bottom:none}
       <tr><td colspan="2"><code>PeriodCoverage</code> · <code>ThreeWayCoverage</code> · <code>VisionCoverage</code> · <code>SalesExecCoverage</code> · <code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code> · <code>ModuleCoverage</code></td></tr>
     </tbody>
   </table></div>
-  <div class="note bad"><strong>Íbamos a construir por segunda vez un primitivo que ya existía — mientras escribíamos un documento sobre no hacer eso.</strong> Y la primera versión de esta sección decía que el hueco era de <em>adopción</em>: <strong>también estaba incompleta</strong>. No es no-adopción pasiva, es <strong>reinvención activa, diez veces</strong> — y <strong>dos de las diez están en el mismo archivo que este documento viene a arreglar</strong>, una por carril. ⇒ La tesis original estaba <strong>equivocada en la forma</strong> (el primitivo existe) y <strong>acertada en el fondo</strong> (se está reinventando), sólo que en otro eje del que creíamos.</div>
+  <div class="note bad"><strong>Íbamos a construir por segunda vez un primitivo que ya existía — mientras escribíamos un documento sobre no hacer eso.</strong> Y la primera versión de esta sección decía que el hueco era de <em>adopción</em>: <strong>también estaba incompleta</strong>. No es no-adopción pasiva, es <strong>reinvención activa</strong> — <strong>10 tipos en 8 archivos</strong>, y <strong>dos de ellos en el mismo archivo que este documento viene a arreglar</strong>, uno por carril.</div>
+
+  <h3>⛔⛔ Y por qué se reinventa: no es ignorancia — el compartido <em>no alcanza</em></h3>
+  <p class="lead">La tercera versión de esta sección decía «hueco de adopción». <strong>También estaba mal.</strong> Lo que lo tumbó fue preguntar quién escribe el suyo <em>conociendo</em> el contrato.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:36%">Archivo</th><th>Qué importa del contrato</th><th>Qué declara igual, a mano</th></tr></thead>
+    <tbody>
+      <tr><td><code>finanzas-presupuesto.component.ts</code></td><td><code>Coverage</code> ⛔ <strong>el mismo</strong></td><td><code>ProposeCoverage</code> · <code>ExpenseCoverage</code></td></tr>
+      <tr><td><code>comercial.service.ts</code></td><td><code>Freshness</code> · <code>PeriodCoverageWire</code></td><td><code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code></td></tr>
+      <tr><td><code>supervisor-ai.service.ts</code></td><td><code>Freshness</code></td><td><code>VisionCoverage</code> · <code>SalesExecCoverage</code></td></tr>
+    </tbody>
+  </table></div>
+  <p class="lead">Uno importa <code>Coverage</code> y lo sombrea <strong>en el mismo archivo</strong>. Los otros dos importan <strong>del mismo contrato</strong> para el eje frescura — lo conocen, lo adoptaron — <strong>y para la cobertura escriben el suyo igual</strong>. <strong>Nadie reinventa por ignorancia un tipo que importa tres líneas más arriba.</strong></p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:30%">Tipo</th><th>Forma</th></tr></thead>
+    <tbody>
+      <tr><td><code>Coverage</code> — el compartido</td><td><code>{ measured, pct, note }</code> — <strong>un solo número</strong></td></tr>
+      <tr><td><code>ExpenseCoverage</code> — a mano</td><td><code>{ historico_ajustado, estacional, no_signal, manual_kept, accounts }</code> — <strong>conteos por categoría</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>⛔⛔ <code>pct: number | null</code> no puede sostener un desglose por categoría.</strong> <code>ExpenseCoverage</code> existe porque <code>Coverage</code> <strong>obliga a fundir cinco poblaciones en un solo número</strong> — que es <strong>la regla 5 violada por el contrato compartido</strong>, el mismo que este documento iba a proponer como la solución. ⇒ El hueco <strong>no es de adopción: es de diseño</strong>. Subir los adoptantes de 12 a 34 sin cambiar la forma sólo lograría que más dominios funden más poblaciones.</div>
+  <div class="note ok"><strong>El deliverable, entonces, es otro.</strong> No «construir el segundo primitivo» (existe), ni «subir la adopción» (empeoraría), ni sólo «agregarle <code>method</code>». Es que <strong><code>Coverage</code> admita un desglose por categoría</strong> — y que el per-número viva en su propia capa, porque una respuesta trae un <code>Coverage</code> y una tira trae varios estados.</div>
 
   <h3>⛔ Pero <code>Coverage</code> no alcanza: está en otro GRANO</h3>
   <p class="lead">Una respuesta trae <strong>un</strong> <code>Coverage</code>. Una tira trae <strong>varios números con estados distintos</strong>. El primero no puede hablar por el segundo.</p>
@@ -416,12 +438,27 @@ tbody tr:last-child td{border-bottom:none}
   <div class="tw"><table>
     <thead><tr><th>Hueco</th><th>Tamaño</th><th>De qué tipo es</th></tr></thead>
     <tbody>
-      <tr><td><code>Freshness</code></td><td class="num">33 adoptantes</td><td>✅ Funcionó. Casi cero deriva: 2 archivos declaran el tipo a mano y uno es el contrato.</td></tr>
-      <tr><td><code>Coverage</code></td><td class="num">11 adoptantes</td><td><strong>Hueco de ADOPCIÓN, no de diseño.</strong> Subirlo de 11 a 33 es el premio mayor, y no requiere inventar nada.</td></tr>
-      <tr><td><code>method</code></td><td class="num">no existe</td><td>Lo único genuinamente ausente. <code>Coverage</code> no tiene con qué decir <strong>cómo</strong> se derivó.</td></tr>
-      <tr><td>El grano <strong>por número</strong></td><td class="num">capa aparte</td><td>Ver abajo. No lo cubre extender <code>Coverage</code>.</td></tr>
+      <tr><td><code>Freshness</code> (el tipo)</td><td class="num">34</td><td>✅ Funcionó. Casi cero deriva.</td></tr>
+      <tr><td><code>FreshnessPill</code> (el render)</td><td class="num">38</td><td>Otra capa que el tipo, y hay que contarla aparte: se puede pintar la píldora sin declarar el contrato, y al revés.</td></tr>
+      <tr><td><code>Coverage</code></td><td class="num">12</td><td>⛔ <strong>No es hueco de adopción: es hueco de DISEÑO.</strong> Ver abajo.</td></tr>
+      <tr><td><code>method</code></td><td class="num">no existe</td><td><code>Coverage</code> no tiene con qué decir <strong>cómo</strong> se derivó.</td></tr>
+      <tr><td>El grano <strong>por número</strong></td><td class="num">capa aparte</td><td>No lo cubre extender <code>Coverage</code>.</td></tr>
     </tbody>
   </table></div>
+
+  <h3>⛔ Por qué es de diseño y no de adopción</h3>
+  <p class="lead">La primera versión de esta sección decía «hueco de adopción, subirlo de 11 a 33». <strong>Estaba mal</strong>, y lo que la corrigió fue medir de dónde salía cada tipo escrito a mano.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Archivo</th><th>Importa el compartido</th><th>…y declara el suyo al lado</th></tr></thead>
+    <tbody>
+      <tr><td><code>comercial.service.ts</code></td><td>✅ <code>Coverage</code></td><td><code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code></td></tr>
+      <tr><td><code>supervisor-ai.service.ts</code></td><td>✅ <code>Coverage</code></td><td><code>VisionCoverage</code> · <code>SalesExecCoverage</code></td></tr>
+      <tr><td><code>finanzas-presupuesto.component.ts</code></td><td>✅ <code>Coverage</code></td><td><code>ProposeCoverage</code> · <code>ExpenseCoverage</code></td></tr>
+      <tr style="background:var(--sunken)"><td colspan="3"><strong>11 tipos <code>*Coverage</code> escritos a mano, en 8 archivos</strong> — 6 de ellos en <code>apps/view</code>. Y uno, en <code>findings.service.ts</code>, se llama <strong><code>Coverage</code> a secas</strong>: una sombra del compartido, con su mismo nombre y otra forma.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Nadie reinventa por ignorancia un tipo que acaba de importar tres líneas arriba.</strong> Si se importa y se sombrea en el mismo archivo, el problema no es difusión: es que <code>{ measured, pct, note }</code> <strong>no alcanza para lo que los dominios necesitan decir</strong>. Se ve en la forma de los que se escriben a mano — <code>ExpenseCoverage</code> es <code>{ historico_ajustado, estacional, no_signal, manual_kept, accounts }</code>: <strong>conteos por categoría</strong>, y <code>pct: number | null</code> no puede sostener eso.</div>
+  <div class="note warn">⭐ <strong>Y el bucle se cierra solo:</strong> <code>ExpenseCoverage</code> existe porque <code>Coverage</code> obligaba a fundir cinco poblaciones en un <code>pct</code> — <strong>la violación exacta de la regla 5, cometida por el tipo que escribimos para evitarla</strong>. ⇒ El deliverable no es subir la adopción ni sólo agregar <code>method</code>: es que <strong><code>Coverage</code> necesita desglose por categoría</strong>. <em>Dos de los diez tipos a mano viven en el archivo que este documento viene a arreglar.</em></div>
 
   <h3>Por qué extender <code>Coverage</code> no alcanza</h3>
   <p class="lead">Medido en los dos carriles, el mismo día:</p>
