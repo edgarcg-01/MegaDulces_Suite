@@ -171,6 +171,190 @@ export class RouteProfitService {
     });
   }
 
+  /**
+   * `[RD.60]` El gasto de la quincena, **renglón por renglón**. Ver el contrato `GastoDetalle`.
+   * ⚠️ Topado a 400 renglones y lo DECLARA: una tabla que se corta en silencio miente sobre
+   * el total, y el total de abajo tiene que ser el de la quincena, no el de lo que se ve.
+   */
+  async gastoDetalle(anio: number, periodNo: number): Promise<GastoDetalle> {
+    const TOPE = 400;
+    return this.tk.run(async (trx) => {
+      const { rows: [per] } = await trx.raw(
+        `SELECT to_char(date_from,'YYYY-MM-DD') date_from, to_char(date_to,'YYYY-MM-DD') date_to
+           FROM commercial.commission_periods WHERE anio = ? AND period_no = ?`,
+        [anio, periodNo]);
+      if (!per) throw new NotFoundException(`no existe la quincena ${periodNo} de ${anio}`);
+
+      const { rows: renglones } = await trx.raw(`
+        SELECT to_char(e.fecha, 'YYYY-MM-DD') AS fecha,
+               e.dpto,
+               btrim(regexp_replace(e.dpto_nombre, '[. ]+$', '')) AS dpto_norm,
+               pl.plaza,
+               e.concepto,
+               btrim(regexp_replace(coalesce(e.concepto_nombre, ''), '[. ]+$', '')) AS concepto_norm,
+               analytics.fn_expense_family(
+                 btrim(regexp_replace(coalesce(e.concepto_nombre, ''), '[. ]+$', '')), e.cuenta) AS familia,
+               e.cuenta, e.cuenta_nombre, e.beneficiario, e.comentario,
+               e.doc_tipo, e.doc_folio,
+               round(e.importe * CASE WHEN e.cargo_abono = 'A' THEN -1 ELSE 1 END, 2) AS importe
+          FROM analytics.expense_entries e
+          LEFT JOIN (
+            SELECT DISTINCT tenant_id, plaza, upper(plaza) AS plaza_upper
+              FROM analytics.mv_rd_route_identity
+          ) pl ON pl.tenant_id = e.tenant_id
+              AND pl.plaza_upper = btrim(regexp_replace(
+                    btrim(regexp_replace(e.dpto_nombre, '[. ]+$', '')), '(^RD[ ]|[ ]RD$)', ''))
+         WHERE e.dpto IS NOT NULL AND e.dpto_nombre IS NOT NULL
+           AND btrim(regexp_replace(e.dpto_nombre, '[. ]+$', '')) ~ '(^|[^A-Za-z])RD([^A-Za-z]|$)'
+           AND e.fecha >= ?::date AND e.fecha <= ?::date
+         ORDER BY e.fecha DESC, abs(e.importe) DESC
+         LIMIT ?`, [per.date_from, per.date_to, TOPE + 1]);
+
+      // ⛔ El total NO sale de los renglones que se muestran: sale de la quincena entera. Si
+      // saliera de la página, una tabla topada publicaría un total más chico sin avisar.
+      const { rows: fam } = await trx.raw(`
+        SELECT familia, sum(lineas)::int AS lineas, round(sum(importe), 2) AS importe
+          FROM analytics.v_rd_expense_period
+         WHERE anio = ? AND period_no = ?
+         GROUP BY 1 ORDER BY sum(importe) DESC`, [anio, periodNo]);
+
+      const truncado = renglones.length > TOPE;
+      const huecos: Hueco[] = [{
+        clave: 'gasto_no_baja_a_la_ruta',
+        detalle: 'El comentario a veces nombra la camioneta («ARRENDAMIENTO NP300 RD PH»), pero eso es texto, no una atribución. No se deriva la ruta de él: sería adivinar.',
+      }];
+      if (truncado) {
+        huecos.push({
+          clave: 'tabla_topada',
+          detalle: `La quincena tiene más de ${TOPE} renglones y la tabla muestra los ${TOPE} de mayor importe. Los totales de abajo son los de la quincena ENTERA, no los de lo que se ve.`,
+        });
+      }
+
+      return {
+        anio, period_no: periodNo,
+        date_from: per.date_from, date_to: per.date_to,
+        renglones: truncado ? renglones.slice(0, TOPE) : renglones,
+        por_familia: fam.map((f: { familia: string; lineas: number; importe: string }) => ({
+          familia: f.familia, lineas: f.lineas, importe: Number(f.importe),
+        })),
+        total: Number(fam.reduce((a: number, f: { importe: string }) => a + Number(f.importe), 0).toFixed(2)),
+        truncado,
+        huecos,
+      };
+    });
+  }
+
+  /**
+   * `[RD.60]` La flota de Ruta Directa: lo que de verdad se sabe de cada camioneta, y lo que no.
+   *
+   * ⛔ **El padrón está casi vacío y la pantalla lo dice en vez de disimularlo.** Medido sobre
+   * los 56 vehículos vivos: placa y marca 56/56, pero **año 1/56** y **VIN, número económico,
+   * aseguradora, póliza y odómetro en 0/56**. Y **no existe ninguna columna de vencimiento de
+   * seguro en toda la base**, así que el aviso por póliza que pedía el libro no tiene dónde vivir.
+   *
+   * ⭐ Lo que sí sale solo: el odómetro vivo del GPS, los días sin reportar, y los **vínculos
+   * sospechosos** — el tracker `CHEVROLET S10 NM8497D R-321` cuelga del vehículo de placa
+   * `MW7947C`, que es otra camioneta.
+   */
+  async flota(): Promise<FlotaResumen> {
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(`
+        WITH tr AS (
+          SELECT t.route_number, t.external_name, t.last_odometer, t.last_seen_at,
+                 t.vehicle_id,
+                 (t.external_name ~* 'DASHCAM|[(]CAM[)]') AS es_camara
+            FROM logistics.trackers t
+           WHERE t.route_number IS NOT NULL AND t.deleted_at IS NULL
+        )
+        SELECT tr.route_number::text AS route_code,
+               u.plaza, u.chofer_nombre AS chofer,
+               v.plate AS placa, v.brand AS marca, v.model AS modelo, v.year AS anio,
+               v.vin, v.insurance_carrier AS aseguradora,
+               tr.last_odometer AS odometro,
+               to_char(tr.last_seen_at, 'YYYY-MM-DD') AS ultimo_visto,
+               (current_date - tr.last_seen_at::date)::int AS dias_sin_reportar,
+               tr.external_name AS nombre_tracker,
+               -- ⚠️ El nombre del aparato trae la placa. Si no es la del vehículo al que cuelga,
+               -- el vínculo está mal: son dos camionetas distintas.
+               (v.plate IS NOT NULL AND tr.external_name !~ v.plate) AS vinculo_sospechoso,
+               count(*) OVER (PARTITION BY tr.route_number)::int AS aparatos,
+               row_number() OVER (PARTITION BY tr.route_number
+                                  ORDER BY tr.es_camara, tr.last_seen_at DESC) AS rn
+          FROM tr
+          LEFT JOIN logistics.vehicles v ON v.id = tr.vehicle_id AND v.deleted_at IS NULL
+          LEFT JOIN analytics.v_rd_commission_universe u
+            ON u.route_code = tr.route_number::text
+         ORDER BY tr.route_number, tr.es_camara`);
+
+      // Una fila por ruta: la del aparato principal (no cámara, más reciente).
+      const unidades: UnidadFlota[] = rows
+        .filter((r: { rn: number }) => r.rn === 1)
+        .map((r: Record<string, unknown>) => {
+          // ⛔ Los campos vacíos se ENUMERAN. Un NULL en una ficha no se explica solo, y la
+          // lista es la que convierte «la pantalla se ve pobre» en «falta capturar esto».
+          const sinCapturar: string[] = [];
+          if (!r['modelo']) sinCapturar.push('modelo');
+          if (!r['anio']) sinCapturar.push('año');
+          if (!r['vin']) sinCapturar.push('número de serie');
+          if (!r['aseguradora']) sinCapturar.push('aseguradora');
+          return {
+            route_code: String(r['route_code']),
+            plaza: (r['plaza'] as string) ?? null,
+            chofer: (r['chofer'] as string) ?? null,
+            placa: (r['placa'] as string) ?? null,
+            marca: (r['marca'] as string) ?? null,
+            modelo: (r['modelo'] as string) ?? null,
+            anio: (r['anio'] as number) ?? null,
+            vin: (r['vin'] as string) ?? null,
+            aseguradora: (r['aseguradora'] as string) ?? null,
+            odometro: r['odometro'] === null || r['odometro'] === undefined ? null : String(r['odometro']),
+            ultimo_visto: (r['ultimo_visto'] as string) ?? null,
+            dias_sin_reportar: (r['dias_sin_reportar'] as number) ?? null,
+            aparatos: Number(r['aparatos']),
+            vinculo_sospechoso: Boolean(r['vinculo_sospechoso']),
+            nombre_tracker: (r['nombre_tracker'] as string) ?? null,
+            sin_capturar: sinCapturar,
+          };
+        });
+
+      // Las rutas que comisionan y NO tienen rastreador: su kilometraje no existe.
+      const { rows: sinGps } = await trx.raw(`
+        SELECT u.route_code
+          FROM analytics.v_rd_commission_universe u
+         WHERE u.comisiona
+           AND NOT EXISTS (SELECT 1 FROM logistics.trackers t
+                            WHERE t.route_number::text = u.route_code AND t.deleted_at IS NULL)
+         ORDER BY u.route_code`);
+
+      const huecos: Hueco[] = [{
+        clave: 'padron_vacio',
+        detalle: 'El padrón de vehículos está casi vacío: de 56 unidades vivas, placa y marca están en las 56, pero el año en 1 y el VIN, el número económico, la aseguradora y la póliza en ninguna.',
+      }, {
+        clave: 'sin_vencimiento_de_seguro',
+        detalle: 'No existe ninguna columna de vencimiento de seguro en toda la base, así que el aviso por póliza que pedía el libro no tiene dónde vivir todavía. El dato está sólo en el Excel.',
+      }];
+      const sospechosos = unidades.filter((u) => u.vinculo_sospechoso).map((u) => u.route_code);
+      if (sospechosos.length) {
+        huecos.push({
+          clave: 'vinculo_sospechoso',
+          detalle: `${sospechosos.length} ruta(s) tienen el rastreador colgado de un vehículo con OTRA placa: ${sospechosos.join(', ')}. Se arregla en Logística; mientras tanto la ficha muestra una camioneta que puede no ser la que anda.`,
+        });
+      }
+      if (sinGps.length) {
+        huecos.push({
+          clave: 'rutas_sin_gps',
+          detalle: `${sinGps.length} ruta(s) que comisionan no tienen rastreador: ${sinGps.map((s: { route_code: string }) => s.route_code).join(', ')}. Su kilometraje no existe — no es cero.`,
+        });
+      }
+
+      return {
+        unidades,
+        rutas_sin_gps: sinGps.map((s: { route_code: string }) => s.route_code),
+        huecos,
+      };
+    });
+  }
+
   /** Quincenas que tienen una corrida con renglones: lo que se puede abrir. */
   async periodos(): Promise<PeriodoDisponible[]> {
     const { rows } = await this.tk.run(async (trx) => trx.raw(`
@@ -622,4 +806,68 @@ interface PuntoCrudo {
   km: string | null; dias_medidos: number | null; dias_con_senal: number | null;
   dias_de_la_quincena: number; cobertura_km: 'completa' | 'parcial' | 'sin_gps';
   venta_por_km: string | null;
+}
+
+/**
+ * `[RD.60]` — **El gasto de Ruta Directa, renglón por renglón.**
+ *
+ * La pestaña «Por plaza» de `[RD.57]` muestra el gasto **agregado** por familia y concepto; ésta
+ * muestra el renglón, que es lo que la hoja `CONTROL DE GASTOS RD` tenía y la pantalla no.
+ * Medido en la quincena 20: **95 renglones, 17 conceptos, 89 con comentario**.
+ *
+ * ⭐ **El comentario es el dato que nadie estaba mirando.** No es atribución estructurada —la
+ * contabilidad no baja al camión— pero a veces nombra la unidad: *«ARRENDAMIENTO NP300 RD PH»*
+ * $18,525.86, *«ROTULACIÓN CAMIONETA PIN PON»* $7,000, *«LONA PARA CAMIONETA DE RD»* $350.
+ * ⛔ Se publica **como texto**, sin intentar derivar la ruta de él: eso sería adivinar.
+ */
+export interface GastoRenglon {
+  fecha: string;
+  dpto: string; dpto_norm: string; plaza: string | null;
+  concepto: string; concepto_norm: string; familia: string;
+  cuenta: string | null; cuenta_nombre: string | null;
+  beneficiario: string | null;
+  /** ⭐ A veces nombra la camioneta. Se muestra, NO se parsea para inferir la ruta. */
+  comentario: string | null;
+  doc_tipo: string | null; doc_folio: string | null;
+  importe: string;
+}
+
+export interface GastoDetalle {
+  anio: number; period_no: number;
+  date_from: string | null; date_to: string | null;
+  renglones: GastoRenglon[];
+  por_familia: { familia: string; lineas: number; importe: number }[];
+  total: number;
+  truncado: boolean;
+  huecos: Hueco[];
+}
+
+/** `[RD.60]` Una camioneta de RD con lo que de verdad se sabe de ella, y lo que no. */
+export interface UnidadFlota {
+  route_code: string;
+  plaza: string | null;
+  chofer: string | null;
+  placa: string | null;
+  marca: string | null;
+  modelo: string | null;
+  anio: number | null;
+  vin: string | null;
+  aseguradora: string | null;
+  /** El odómetro del aparato que NO es cámara. */
+  odometro: string | null;
+  ultimo_visto: string | null;
+  /** Días sin reportar. NULL si nunca reportó. */
+  dias_sin_reportar: number | null;
+  aparatos: number;
+  /** ⚠️ `true` cuando el nombre del tracker nombra una placa distinta a la del vehículo. */
+  vinculo_sospechoso: boolean;
+  nombre_tracker: string | null;
+  /** Los campos de la ficha que están vacíos. Se enumeran: un NULL no se explica solo. */
+  sin_capturar: string[];
+}
+
+export interface FlotaResumen {
+  unidades: UnidadFlota[];
+  rutas_sin_gps: string[];
+  huecos: Hueco[];
 }
