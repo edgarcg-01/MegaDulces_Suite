@@ -4,6 +4,47 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-09 — `[ETQ-AVISOS.1–3]` Avisar a las sucursales que cambió un precio, y que Compras comparta la lista
+
+**Qué se pidió.** Mandar una notificación a los usuarios de sucursal cuando hay cambios de precio, y darle a
+Compras la opción de compartir la lista. Si no había estructura, un plan por fases. Se decidió: resumen a las
+07:30 y a las 14:00 (D1), avisar a sucursales y descargar la lista (D2), permiso propio (D3), mínimo 1 producto
+(D4), plaza sin usuario con tienda asignada se ve igual y se declara (D5).
+
+**Lo que se encontró al investigar.**
+- **Casi toda la estructura ya existía:** la fuente de «qué cambió» (`v_label_price_changes`), el molde de aviso
+  dirigido con memoria (`[VEC.4]`), la campana del header, el cron con latido. Faltaban la tabla de avisos, el
+  generador y «compartir».
+- **El worker no tiene WebSocket (ADR-080) y es donde corre el cron:** por eso la fila ES la entrega y la
+  campana la recoge por poll; el aviso por WebSocket de `label_prices_changed` (TDA.1) no sirve (es por tenant,
+  no por plaza, y arrastra el ruido de los movimientos de un centavo).
+- **`COMPRAS_VER` está en 0 de 37 roles** (documentado en `permissions.ts`): la alternativa «reusar el permiso de
+  Compras» habría dejado el botón sin nadie. Tampoco sirve «cualquier `COMPRAS_*`»: `COMPRAS_ENTRADAS_VALIDAR`
+  la tienen ~25 personas y casi todas son de sucursal.
+- **Simular al usuario encontró lo que el plan no veía** (ver `[ETQ-CAMBIOS.8]`): lo que parecían «tres
+  presentaciones» eran dos, y la unidad `500` aparecía dos veces porque su precio se movió dos veces el mismo
+  día. Por eso la regla de agrupado se sube a `libs/contracts`: si el aviso contara distinto que la pantalla,
+  nadie le creería a ninguno.
+
+**Qué quedó (rama `feat/etq-avisos-precio`, 2 migraciones aditivas):** ver el tracker y
+[`FASE_ETQ_AVISOS_CAMBIOS_PRECIO`](FASES/FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md) §8. 55 pruebas nuevas; probado en
+negativo; lint y compuertas del proyecto sin errores nuevos.
+
+**Lecciones.**
+1. **Un día sin cambios no genera aviso, y lo hace cumplir la tabla** (`CHECK productos >= 1`), no sólo un `if`.
+2. **Sin dato no es cero:** si la bitácora de la plaza no llega al día, se declara; y si NINGUNA plaza tiene dato,
+   el latido es `error` (la ingesta está caída y todo se vería «sin cambios»).
+3. **La prueba negativa debe fallar POR EL CHECK esperado**, no por cualquier error: un rechazo por RLS daría
+   verde sin probar nada.
+4. **Las pruebas atraparon cuatro errores míos** (la protección anti-fórmulas del CSV le ponía apóstrofo a los
+   negativos; un fixture con fecha distinta a la real; el cambio de firma de `addBulk` que rompió una prueba
+   existente de #349 —que no corrí porque su nombre no coincidía con mis filtros—; y el lint de mis stubs).
+5. **Las herramientas de edición convierten `\uFEFF` en el carácter real:** para un BOM se usa
+   `String.fromCharCode(0xfeff)`.
+
+**Falta (declarado, no escondido).** Fase 0 sin correr (no se alcanzó prod). Las migraciones **no se ejecutaron
+contra ninguna base**. Sin validación visual. Aplicar las dos migraciones una por una **antes** del código.
+
 ## 2026-10-09 — `[WMS-REC.22]` Llegadas al andén y el producto sin caducidad
 
 **Qué se pidió.** Un monitoreo de qué camiones llegaron, con qué mercancía y si se les dio caducidad, que

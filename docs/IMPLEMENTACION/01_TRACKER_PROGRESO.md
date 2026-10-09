@@ -92,6 +92,16 @@ Y se actualiza el símbolo al avanzar:
 
 ## 🎯 EN PROGRESO
 
+### Fase ETQ-AVISOS — Avisar a las sucursales que cambió un precio, y que Compras comparta la lista · 2026-10-09 · plan en [`FASE_ETQ_AVISOS_CAMBIOS_PRECIO`](FASES/FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md)
+
+- [ ] **[ETQ-AVISOS.0]** Mediciones contra prod (`dev_ro`): destinatarios por plaza (¿cuáles quedan «sin nadie con tienda asignada»? esperable 04 y 08), volumen real de cambios por plaza y día, **a qué hora llega la bitácora al ODS** (si es después de las 07:30 hay que mover el corte), y la lista de roles que recibiría el reparto. **No se corrió: la sesión no alcanzó prod.**
+- [x] **[ETQ-AVISOS.1]** Regla compartida en `libs/contracts` (un código, una fila; resumir por unidad; contar) + tabla `commercial.price_change_notices` (RLS forzado, 8 CHECK con prueba negativa dentro de la migración, nunca un aviso vacío) + generador con dos cortes (07:30 resume AYER, 14:00 resume HOY), latido a `cron_runs` y umbral `price_change_notices` en `CRON_JOBS`. «Sin dato» no es cero: se declara; si ninguna plaza tiene dato el latido es `error`. 20 pruebas del servicio + 9 del contrato; probado en negativo (9 en rojo). 🧪 2026-10-09
+- [x] **[ETQ-AVISOS.2]** Campana: poll cada 5 min a `GET /store/labels/notices` (recortado por alcance), sólo con `STORE_LABELS_VER`; enlace `?plaza=&fecha=` validado en Cambios de precio. 17 pruebas. 🧪 2026-10-09
+- [x] **[ETQ-AVISOS.3]** Compartir (permiso `STORE_LABELS_COMPARTIR`, repartido por migración que deriva de `STORE_LABELS_VER` y comprador): avisar a sucursales (cada plaza devuelve su estado con el motivo) y descargar CSV (BOM UTF-8, anti-fórmulas). 18 pruebas. ⛔ `COMPRAS_VER` está en 0 de 37 roles: reusarlo dejaba el botón sin nadie. 🧪 2026-10-09
+- [ ] **[ETQ-AVISOS.P1]** Aplicar a prod **una por una** (`apply-one-migration-prod.js`, nunca `migrate:latest`), ANTES del código: `20261009160146` (tabla) y `20261009160147` (reparto; sólo hace UPDATE → la compuerta del despliegue lo clasifica NO_MEDIDO: aplicarla antes de mergear). Revisar la lista de roles que imprime. **Las migraciones no se ejecutaron contra ninguna base** (Docker local apagado). Los afectados deben re-loguear.
+- [ ] **[ETQ-AVISOS.P2]** Smoke en prod: `POST /store/labels/notices/generate {corte:"manana"}` y leer `analytics.cron_runs` (`price_change_notices`). Validación visual del diálogo y de la campana.
+- [ ] **[ETQ-AVISOS.4]** Afinar con lo medido: silenciar, correo (sólo si SMTP existe), avisos intradía, tasa de lectura por plaza.
+
 ### Fase VEC-VERDAD — La VENTA de la ruta vecinal: publicaba 2.07× · 2026-10-06 · ADR-056 / ADR-059
 
 > ⚠️ **COLISIÓN DE CÓDIGO, declarada:** los commits de esta fase usan `[VEC.0]`…`[VEC.7.1]` y la
