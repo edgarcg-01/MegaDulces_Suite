@@ -116,10 +116,16 @@ export class RouteProfitService {
                -- catorce días entre tres kilómetros daba $373 contra los ~$210 de una quincena
                -- entera, y las SEIS rutas con GPS salían «empeorando» a la vez. No empeoraron:
                -- se completó la medición. Es el denominador incompleto de [IC.8].
-               CASE WHEN k.km > 0 AND k.dias_con_senal >= li.dias_de_la_quincena
+               -- ⛔⛔ La cobertura se mide con `dias_medidos` (días con KILOMETRAJE), no con
+               -- `dias_con_senal` (días con cualquier ping). Un día que reportó pero cuyo
+               -- odómetro no se pudo medir cuenta como cobertura y aporta CERO kilómetros, así
+               -- que el denominador queda corto y el $/km sale inflado — el mismo defecto que
+               -- esta guarda existe para cerrar, un peldaño más abajo. Medido: la ruta 22 en la
+               -- quincena 17 tiene 14 días con señal y 13 medidos, y se colaba.
+               CASE WHEN k.km > 0 AND k.dias_medidos >= li.dias_de_la_quincena
                     THEN round(li.subtotal / k.km, 2) END AS venta_por_km,
                CASE WHEN k.km IS NULL THEN 'sin_gps'
-                    WHEN k.dias_con_senal < li.dias_de_la_quincena THEN 'parcial'
+                    WHEN k.dias_medidos < li.dias_de_la_quincena THEN 'parcial'
                     ELSE 'completa' END AS cobertura_km
           FROM lin li
           LEFT JOIN km k ON k.route_code = li.route_code AND k.period_no = li.period_no
