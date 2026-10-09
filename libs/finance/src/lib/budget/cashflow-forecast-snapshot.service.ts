@@ -55,7 +55,11 @@ export class CashflowForecastSnapshotService {
       const hasta = new Date(Date.now() + HORIZONTE_DIAS * 86400000).toISOString().slice(0, 10);
 
       await this.knex.transaction(async (trx) => {
-        await trx.raw('SET LOCAL app.tenant_id = ?', [MEGA]);
+        // ⛔ Era `SET LOCAL app.tenant_id = ?`: Postgres NO admite un parámetro ligado en un `SET`
+        // y lo rechaza con 42601 — o sea que este snapshot fallaba en TODAS sus corridas. Esto
+        // tumbó el login de prod el 2026-09-23; `set_config` sí lo admite porque es una función,
+        // y su tercer argumento `true` es el equivalente a `LOCAL` (se revierte al cerrar la tx).
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [MEGA]);
 
         const cob = await cobranzaPrevista(trx, MEGA, hoy, hasta);
         const deu = await deudaPrevista(trx, MEGA, hoy, hasta);

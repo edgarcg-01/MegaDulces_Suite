@@ -52,7 +52,9 @@ function noMedido(m) { nm++; console.log('  ⊘ NO MEDIDO:', m); }
 
     // ── 3/4/5. Las pruebas negativas, sobre filas propias y con ROLLBACK ───────────────
     await knex.transaction(async (trx) => {
-      await trx.raw('SET LOCAL app.tenant_id = ?', [T]);
+      // Un parametro ligado en un SET lo rechaza Postgres con 42601; set_config es funcion y si
+      // lo admite (tercer argumento true = LOCAL, se revierte al cerrar la tx).
+      await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [T]);
       const semCerrada = (await trx.raw(`SELECT (date_trunc('week', current_date)::date - 7) d`)).rows[0].d;
       const semCurso = (await trx.raw(`SELECT date_trunc('week', current_date)::date d`)).rows[0].d;
 
