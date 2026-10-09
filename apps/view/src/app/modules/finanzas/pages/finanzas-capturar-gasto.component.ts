@@ -22,6 +22,7 @@ import { ComprobacionesService, SolicitudSug, ProofFile, ProofFileRole, ExpenseP
 // [GX.14] El catálogo de formas de pago y la compuerta se IMPORTAN del contrato
 // compartido: son los mismos que valida el backend. Copiarlos acá los separa.
 import { FORMAS_PAGO, faltaParaMandar, type FormaPagoId, type Faltante } from '@megadulces/contracts';
+import { MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB } from '@megadulces/contracts';
 import { MAX_DETALLES_PAGO, unirDetallesDePago } from '@megadulces/contracts';
 import { CapturaEnVivoComponent } from '../components/captura-en-vivo.component';
 
@@ -1208,7 +1209,7 @@ export class FinanzasCapturarGastoComponent {
   clearPhoto() { this.clearFile('comprobante_1'); }
 
   private handle(file: File, role: string) {
-    if (file.size > 10 * 1024 * 1024) { this.formError.set(`"${file.name}" supera 10 MB.`); return; }
+    if (file.size > MAX_ARCHIVO_GASTO_BYTES) { this.formError.set(`"${file.name}" supera ${MAX_ARCHIVO_GASTO_MB} MB.`); return; }
     this.formError.set('');
     const reader = new FileReader();
     reader.onload = () => {

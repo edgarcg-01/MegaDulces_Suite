@@ -7,6 +7,7 @@ import { forkJoin, of, catchError, map } from 'rxjs';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
 import { FileUploadModule } from 'primeng/fileupload';
+import { MAX_ARCHIVO_GASTO_BYTES, MAX_ARCHIVO_GASTO_MB } from '@megadulces/contracts';
 import { TextareaModule } from 'primeng/textarea';
 import { SelectButtonModule } from 'primeng/selectbutton';
 import { ComprobacionesService, ProofFile, ProofFileRole, ExpenseClasificacion, requiereEvidencia } from '../comprobaciones.service';
@@ -104,7 +105,7 @@ interface FileSlot { role: ProofFileRole; label: string; required: boolean; acce
         <div class="ev-f">
           <span class="ev-lbl">{{ slot.label }}@if (slot.required) { <b class="ev-req" aria-hidden="true">*</b><span class="sr-only"> (obligatorio)</span> }</span>
           <p-fileupload mode="basic" [auto]="true" [customUpload]="true" [accept]="slot.accept"
-                        [maxFileSize]="10485760" chooseIcon="pi pi-paperclip" chooseLabel="Elegir archivo"
+                        [maxFileSize]="maxArchivoBytes" chooseIcon="pi pi-paperclip" chooseLabel="Elegir archivo"
                         chooseStyleClass="p-button-sm p-button-outlined"
                         (onSelect)="onFilePicked($event, slot.role)" />
           @if (fileNames()[slot.role]) { <span class="ev-pick"><i class="pi pi-paperclip" aria-hidden="true"></i> {{ fileNames()[slot.role] }}</span> }
@@ -264,11 +265,14 @@ export class ExpenseEvidenceDialogComponent {
     this.clasificacion.set(null); this.clasificacionV = null;
   }
 
+  /** `[GX.79]` El tope del archivo, el mismo que revisan la API y el proxy. */
+  readonly maxArchivoBytes = MAX_ARCHIVO_GASTO_BYTES;
+
   /** `p-fileupload` (modo básico) entrega el archivo en el evento, ya tipado. */
   onFilePicked(ev: { currentFiles?: File[] } | null, role: string) {
     const file = ev?.currentFiles?.[0];
     if (!file) return;
-    if (file.size > 10 * 1024 * 1024) { this.error.set(`"${file.name}" supera 10 MB.`); return; }
+    if (file.size > MAX_ARCHIVO_GASTO_BYTES) { this.error.set(`"${file.name}" supera ${MAX_ARCHIVO_GASTO_MB} MB.`); return; }
     this.error.set('');
     const reader = new FileReader();
     reader.onload = () => {
