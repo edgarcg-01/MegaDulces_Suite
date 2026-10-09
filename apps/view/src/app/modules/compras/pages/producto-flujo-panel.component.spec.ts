@@ -5,7 +5,7 @@ import { NEVER, of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { escaleraUnidades } from '@megadulces/contracts';
 import { FlujoDetalle, PlazaFlujo, ProductosFlujoService } from '../productos-flujo.service';
-import type { LoteCaducidad } from '../productos-flujo.service';
+import type { LoteCaducidad, MargenesProducto } from '../productos-flujo.service';
 import {
   ProductoFlujoPanelComponent,
   diasTexto,
@@ -31,7 +31,8 @@ const DETALLE: FlujoDetalle = {
   corte: '2026-10-09', en_vivo_al: '2026-10-09T18:00:00.000Z', costo_visible: false,
   criterio: { ventanaRitmo: 30, ventanaHistoria: 120, diasEstancado: 14, caidaFrenado: 0.5, diasMinimosComparar: 7,
     coberturaComprar: 15, coberturaSobra: 60, coberturaQueSeQueda: 30, ventanaReparto: 90,
-    lideresCorte: 0.5, coberturaComprarLider: 21, caducidadAviso: 30 },
+    lideresCorte: 0.5, coberturaComprarLider: 21, caducidadAviso: 30,
+    diasSinVenta: 30, ventanaSinVenta: 365, ventanaNuevos: 90, limiteNoSeVenden: 300, ventanaMargen: 30 },
   resumen: {
     product_id: 'p-1', mes: 15000, mes_anterior_mismo: 12000, mes_anterior_total: 46000, variacion: 0.25, venta_dia: 1500,
     estancadas: [{ plaza: '06', nombre: 'Canindo', dias_sin_venta: 20 }], frenadas: [], agotadas: [{ plaza: '04', nombre: 'Yurécuaro', venta_dia: 150 }],
@@ -63,10 +64,10 @@ const pendiente = async (fix: ComponentFixture<unknown>) => {
   for (let i = 0; i < 3; i++) { fix.detectChanges(); await new Promise((r) => setTimeout(r, 0)); }
 };
 
-async function montar(detalle: ProductosFlujoService['detalle']) {
+async function montar(detalle: ProductosFlujoService['detalle'], margenes: ProductosFlujoService['margenes'] = vi.fn(() => NEVER)) {
   await TestBed.configureTestingModule({
     imports: [ProductoFlujoPanelComponent],
-    providers: [provideHttpClient(), provideHttpClientTesting(), { provide: ProductosFlujoService, useValue: { detalle, listar: vi.fn() } }],
+    providers: [provideHttpClient(), provideHttpClientTesting(), { provide: ProductosFlujoService, useValue: { detalle, margenes, listar: vi.fn() } }],
   }).compileComponents();
   const fix = TestBed.createComponent(ProductoFlujoPanelComponent);
   fix.componentRef.setInput('productId', 'p-1');
@@ -168,6 +169,37 @@ describe('[PF.1] panel de flujo de un producto', () => {
     await tick(fix);
     expect(fix.nativeElement.querySelector('#pf-cad')).toBeNull();
     expect(fix.nativeElement.textContent).toContain('Sin fecha registrada no quiere decir que no caduque');
+  });
+
+  const M = (pct: number | null, cobertura: number | null, nota: string | null = null) => ({ pct, utilidad: null, cobertura, nota });
+  const MARGENES: MargenesProducto = {
+    product_id: 'p-1', desde: '2026-09-09', hasta: '2026-10-08', dias: 30,
+    total: { venta_neta: 350000, lista: M(14.1, 1), real: M(13.6, 0.64, 'Kepler no registró el costo en el 36% de la venta'),
+      pagado: M(7.9, 1), costo_pagado: { unidad: 'PZA', por_unidad: 2.4567 } },
+    plazas: [{ plaza: '08', nombre: 'Morelia Abastos', margenes: { venta_neta: 106891, lista: M(13.2, 1), real: M(10.1, 0.52),
+      pagado: M(-2.5, 1), costo_pagado: null } }],
+  };
+
+  it('⭐ [PF.5] con permiso de costo, los tres márgenes como en Productos nuevos, y por sucursal', async () => {
+    const margenes = vi.fn(() => of(MARGENES));
+    const fix = await montar(vi.fn(() => of({ ...DETALLE, costo_visible: true })), margenes);
+    await tick(fix);
+    expect(margenes).toHaveBeenCalledWith('p-1');
+    const sec = (fix.nativeElement.querySelector('#pf-margen') as HTMLElement).parentElement!;
+    const k = Array.from(sec.querySelectorAll('.pf-kpis > div')).map((d) => (d.querySelector('span')?.textContent ?? '') + ' ' + d.querySelector('b')?.textContent);
+    expect(k).toEqual(['De lista 14.1%', 'Real 13.6%', 'Sobre lo pagado 7.9%']);
+    expect(sec.textContent).toContain('Kepler no registró el costo en el 36% de la venta');
+    const fila = sec.querySelector('tbody tr') as HTMLElement;
+    expect(fila.textContent).toContain('Morelia Abastos');
+    expect(fila.querySelector('.pf-down')?.textContent).toBe('-2.5%');
+  });
+
+  it('[negativa] [PF.5] sin permiso de costo no se piden ni se pintan márgenes', async () => {
+    const margenes = vi.fn(() => of(MARGENES));
+    const fix = await montar(vi.fn(() => of(DETALLE)), margenes);
+    await tick(fix);
+    expect(margenes).not.toHaveBeenCalled();
+    expect(fix.nativeElement.querySelector('#pf-margen')).toBeNull();
   });
 
   it('[negativa] si falla de entrada lo dice, no pinta ceros', async () => {

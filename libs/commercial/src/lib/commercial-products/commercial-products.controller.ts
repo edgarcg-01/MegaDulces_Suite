@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -21,7 +22,7 @@ import {
   NewProductsService,
 } from './new-products.service';
 import { ProductFlowService } from './product-flow.service';
-import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta } from './product-flow';
+import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta, MargenesProducto } from './product-flow';
 
 /**
  * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
@@ -251,6 +252,24 @@ export class CommercialProductsController {
       req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
       isPlatformAdminRole(req?.user?.role_name);
     return this.flow.detail(id, { puedeVerCosto });
+  }
+
+  @Get(':id/flow/margins')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.5]` Los tres márgenes de UN producto (de lista, real y sobre lo pagado), por sucursal, en '
+      + 'los últimos 30 días cerrados. Mismas fuentes que Productos nuevos. Sólo con permiso de costo.',
+  })
+  flowMargins(
+    @Param('id') id: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<MargenesProducto> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    // Un margen junto a la venta deja despejar el costo: mismo candado que el costo (como [NP.15]).
+    if (!puedeVerCosto) throw new ForbiddenException('Los márgenes requieren permiso de costo');
+    return this.flow.margins(id);
   }
 
   @Put('new-products/:id/classification')

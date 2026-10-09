@@ -1,13 +1,16 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
-import { escaleraComun } from './new-products';
+import { escaleraComun, margenesDe } from './new-products';
 import { EXISTENCIA_KEPLER_SQL } from './new-products.sql';
 import {
   CRITERIO_FLUJO,
   DatosPlaza,
   enJuegoPorDia,
+  fuentesDeMargen,
+  margenRealDe,
   motivosLider,
+  noSeVende,
   ExistenciaPlaza,
   FlujoDetalle,
   FlujoListaRespuesta,
@@ -34,6 +37,9 @@ import {
   sumarDias,
   type FichaPlaza,
   type KardexPlaza,
+  type MargenFila,
+  type MargenesProducto,
+  type NoSeVendeFila,
 } from './product-flow';
 import {
   CORTE_SQL,
@@ -43,12 +49,18 @@ import {
   KDIL_CRUDO_SQL,
   LIDERES_SQL,
   LOTES_CADUCIDAD_SQL,
+  MARGEN_DETALLE_SQL,
+  MARGEN_LISTA_SQL,
+  META_MARGEN_SQL,
+  NO_SE_VENDEN_SIN_NUEVOS_SQL,
+  NO_SE_VENDEN_SQL,
+  NUEVOS_POBLADA_SQL,
   RESUMEN_HISTORIA_SQL,
   SALIDAS_SQL,
   TRASPASOS_SQL,
   VENTA_VIVO_SQL,
 } from './product-flow.sql';
-import type { CuidarRespuesta } from './product-flow';
+import type { CaducidadResumen, CuidarRespuesta } from './product-flow';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Lo más que pide una página del catálogo (su paginador llega a 200). */
@@ -178,16 +190,16 @@ export class ProductFlowService {
          WHERE tenant_id = public.current_tenant_id() AND id = ANY(?::uuid[])`, [ids])).rows as Array<{ id: string; sku: string; nombre: string | null }>) {
         info.set(r.id, { sku: r.sku, nombre: r.nombre });
       }
+      // Los líderes, TODOS y por su lugar en la venta de la red (pedido 2026-10-09: de un lado los
+      // líderes, del otro lo que no se vende); cada uno dice lo que pide.
       const lideres = [...mapa.keys()]
         .map((id) => porId.get(id))
         .filter((r): r is NonNullable<typeof r> => !!r)
         .map((r) => ({ ...info.get(r.product_id)!, resumen: r, motivos: motivosLider(p, r), en_juego_dia: enJuegoPorDia(r) }))
-        .filter((x) => x.motivos.length > 0)
-        .sort((a, b) => b.en_juego_dia - a.en_juego_dia
-          || (a.resumen.compra.cobertura_dias ?? Infinity) - (b.resumen.compra.cobertura_dias ?? Infinity)
-          || (a.resumen.lider?.rank ?? 0) - (b.resumen.lider?.rank ?? 0));
+        .sort((a, b) => (a.resumen.lider?.rank ?? 0) - (b.resumen.lider?.rank ?? 0));
       const porMotivo = { agotado: 0, comprar: 0, mover: 0, se_freno: 0 };
       for (const x of lideres) for (const m of x.motivos) porMotivo[m]++;
+      const noSeVenden = await this.noSeVenden(trx, p, corte, opts, new Map(resumenes.map((r) => [r.product_id, r.caducidad])));
       const caducidad = resumenes
         .filter((r) => r.caducidad && (r.caducidad.vencido > 0 || r.caducidad.en_riesgo > 0 || r.caducidad.por_caducar > 0))
         .sort((a, b) => (a.caducidad!.proxima ?? '9999').localeCompare(b.caducidad!.proxima ?? '9999'))
@@ -195,7 +207,8 @@ export class ProductFlowService {
       const nombres = await this.nombres(trx);
       return {
         periodos: p, corte, en_vivo_al: new Date().toISOString(), costo_visible: opts.puedeVerCosto, criterio: CRITERIO_FLUJO,
-        lideres: { total: mapa.size, calculado, piden_atencion: lideres, por_motivo: porMotivo },
+        lideres: { total: mapa.size, calculado, lista: lideres, por_motivo: porMotivo },
+        no_se_venden: noSeVenden,
         caducidad: {
           productos: caducidad,
           cobertura: {
@@ -249,6 +262,12 @@ export class ProductFlowService {
         : [];
       const fichas = await this.fichas(trx, skusKardex);
 
+      // [PF.5] El margen real de los últimos días cerrados, sólo con permiso de costo (un margen deja ver el costo).
+      const margen = new Map<string, { n: string; nc: string; c: string }>();
+      if (opts.puedeVerCosto) {
+        for (const r of (await trx.raw(MARGEN_LISTA_SQL, [sumarDias(p.hoy, -CRITERIO_FLUJO.ventanaMargen), p.hoy, ids2])).rows as
+          Array<{ product_id: string; n: string; nc: string; c: string }>) margen.set(r.product_id, r);
+      }
       return prods.map((x) => {
         const lotes = lotesPor.get(x.id) ?? [];
         const plazas = this.armarPlazas(p, {
@@ -260,7 +279,9 @@ export class ProductFlowService {
         });
         const caducidad = resumirCaducidad(juzgarLotes(p, lotes, plazas, nombres));
         const r = resumirProducto(x.id, p, plazas.filter((pl) => pl.estado !== 'sin_movimiento'), { lider: lideres.get(x.id) ?? null, caducidad });
-        return opts.puedeVerCosto ? r : { ...r, compra: { ...r.compra, inmovilizado: null } };
+        const mg = margen.get(x.id);
+        const conMargen = { ...r, margen_real: mg ? margenRealDe(mg.n, mg.nc, mg.c) : null };
+        return opts.puedeVerCosto ? conMargen : { ...conMargen, compra: { ...r.compra, inmovilizado: null } };
       });
     }
   }
@@ -345,6 +366,70 @@ export class ProductFlowService {
         reparto: [...reparto.values()].sort((a, b) => a.plaza.localeCompare(b.plaza)),
         escalera: escaleraComun(plazas.map((x) => x.escalera)),
         lotes,
+      };
+    });
+  }
+
+  /**
+   * `[PF.4]` Lo que no se vende en la red. La consulta mira la historia cerrada; aquí se descartan los que
+   * vendieron hoy en vivo (una venta de hoy no es "30 días sin vender").
+   */
+  private async noSeVenden(trx: Knex.Transaction, p: Periodos, corte: string, opts: { puedeVerCosto: boolean },
+    caducidad: Map<string, CaducidadResumen | null>): Promise<CuidarRespuesta['no_se_venden']> {
+    const C = CRITERIO_FLUJO;
+    const nuevosExcluidos = !!(await trx.raw(NUEVOS_POBLADA_SQL)).rows[0]?.poblada;
+    const filas = (await trx.raw(nuevosExcluidos ? NO_SE_VENDEN_SQL : NO_SE_VENDEN_SIN_NUEVOS_SQL, [
+      sumarDias(p.hoy, -C.ventanaSinVenta), C.diasSinVenta, C.ventanaNuevos, C.limiteNoSeVenden * 4,
+    ])).rows as NoSeVendeFila[];
+    const vivo = filas.length ? (await trx.raw(VENTA_VIVO_SQL, [filas.map((f) => f.sku), corte, p.hoy])).rows as VentaVivo[] : [];
+    const vendioHoy = new Set(vivo.filter((v) => (num(v.unidades) ?? 0) > 0).map((v) => v.sku));
+    const quedan = filas.filter((f) => !vendioHoy.has(f.sku));
+    const muestra = quedan.slice(0, C.limiteNoSeVenden);
+    const fichas = await this.fichas(trx, muestra.map((f) => f.sku));
+    const nombres = await this.nombres(trx);
+    const porTramo = { mes: 0, trimestre: 0, anio: 0 };
+    const todos = quedan.map((f) => noSeVende(f, nombres, null, opts.puedeVerCosto));
+    for (const x of todos) porTramo[x.tramo]++;
+    return {
+      nuevos_excluidos: nuevosExcluidos,
+      total: quedan.length,
+      valor_total: opts.puedeVerCosto ? Math.round(quedan.reduce((a, f) => a + (num(f.valor) ?? 0), 0) * 100) / 100 : null,
+      por_tramo: porTramo,
+      productos: muestra.map((f) => noSeVende(f, nombres,
+        escaleraComun([...(fichas.get(f.sku) ?? new Map()).entries()]
+          .filter(([pl]) => (f.plazas ?? []).includes(pl)).map(([, fi]) => escaleraDeFicha(fi))),
+        opts.puedeVerCosto, caducidad.get(f.product_id) ?? null)),
+    };
+  }
+
+  /**
+   * `[PF.5]` Los tres márgenes de UN producto (de lista, real y sobre lo pagado), por sucursal y en total, en
+   * los últimos días cerrados. Mismas fuentes y misma función (`margenesDe`) que Productos nuevos. Sólo con
+   * permiso de costo: un margen junto a la venta deja despejar el costo.
+   */
+  async margins(productId: string): Promise<MargenesProducto> {
+    if (!UUID_RE.test(productId || '')) throw new BadRequestException('Producto inválido');
+    return this.tk.run(async (trx) => {
+      const prod = (await trx.raw(`
+        SELECT id::text AS id, sku FROM catalog.products
+         WHERE tenant_id = public.current_tenant_id() AND id = ? AND deleted_at IS NULL`, [productId])).rows[0] as
+        { id: string; sku: string | null } | undefined;
+      if (!prod) throw new NotFoundException('Producto no encontrado');
+      if (!prod.sku) throw new NotFoundException('El producto no tiene código de Kepler');
+      const { p } = await this.base(trx);
+      const hasta = sumarDias(p.hoy, -1);
+      const desde = sumarDias(p.hoy, -CRITERIO_FLUJO.ventanaMargen);
+      const filas = (await trx.raw(MARGEN_DETALLE_SQL, [this.tenantCtx.requireTenantId(), prod.sku, desde, hasta])).rows as MargenFila[];
+      const meta = (await trx.raw(META_MARGEN_SQL, [prod.sku])).rows as Array<{ plaza: string; factor: string; margen: string }>;
+      const { porPlaza, compra } = fuentesDeMargen(filas, meta);
+      const nombres = await this.nombres(trx);
+      const plazas = [...porPlaza.entries()]
+        .map(([plaza, fuente]) => ({ plaza, nombre: nombres.get(plaza) ?? null, margenes: margenesDe([fuente], compra) }))
+        .filter((x): x is { plaza: string; nombre: string | null; margenes: NonNullable<typeof x.margenes> } => !!x.margenes)
+        .sort((a, b) => b.margenes.venta_neta - a.margenes.venta_neta);
+      return {
+        product_id: prod.id, desde, hasta, dias: CRITERIO_FLUJO.ventanaMargen,
+        total: margenesDe([...porPlaza.values()], compra), plazas,
       };
     });
   }
