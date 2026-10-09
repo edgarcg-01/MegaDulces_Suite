@@ -58,6 +58,44 @@ export const PRESUPUESTO_STYLES = `
     /* [TES.16] El diagnostico vive en su propia ruta: es un enlace, no una pestana, y tiene que
        verse como lo que es. Se alinea con los segmentados sin fingir estado seleccionado. */
     .pres-nav-link { font-size:var(--fs-sm); text-decoration:none; }
+
+    /* [TES.17] Bandeja de firmas. Una linea con la respuesta; el detalle solo si se pide.
+       Sin color de alarma: lo que espera una firma es trabajo normal, no una falla -- un bloque
+       rojo todos los dias ensena a ignorar el tablero. */
+    .pres-firmas { border:1px solid var(--border-color); border-radius:var(--r-md); margin:.6rem 0 1rem;
+      background:color-mix(in srgb, var(--action-ring) 35%, transparent); overflow:hidden; }
+    .pres-firmas-head { display:flex; align-items:center; gap:.6rem; width:100%; text-align:left;
+      background:none; border:none; padding:.55rem .8rem; cursor:pointer; color:inherit;
+      font:inherit; font-size:var(--fs-sm); }
+    .pres-firmas-head:focus-visible { outline:2px solid var(--action); outline-offset:-2px; }
+    .pres-firmas-answer { flex:1 1 auto; min-width:0; }
+    .pres-firmas-answer--vacia { color:var(--text-muted); }
+    .pres-firmas-colas { display:flex; gap:.35rem; flex-wrap:wrap; }
+    .pres-firmas-chip { font-size:var(--fs-micro); color:var(--text-muted); border:1px solid var(--border-color);
+      border-radius:999px; padding:.05rem .45rem; white-space:nowrap; }
+    /* Una cola en CERO no se pinta de exito: que nadie haya mandado nada no es estar al dia. */
+    .pres-firmas-chip--cero { border-style:dashed; }
+    .pres-firmas-chev { font-size:var(--fs-micro); color:var(--text-muted); }
+    .pres-firmas-body { border-top:1px solid var(--border-color); padding:.5rem .8rem .7rem;
+      display:flex; flex-direction:column; gap:.4rem; }
+    .pres-firmas-row { display:grid; grid-template-columns:1fr auto; gap:.2rem .8rem; padding:.35rem 0;
+      border-bottom:1px solid var(--border-color); }
+    .pres-firmas-row:last-of-type { border-bottom:none; }
+    .pres-firmas-row-main { min-width:0; display:flex; flex-direction:column; }
+    .pres-firmas-row-num { display:flex; align-items:baseline; gap:.5rem; white-space:nowrap; }
+    .pres-firmas-tit { font-size:var(--fs-sm); font-weight:600; }
+    .pres-firmas-det { font-size:var(--fs-micro); color:var(--text-muted); }
+    .pres-firmas-monto { font-family:var(--font-mono); font-variant-numeric:tabular-nums; font-size:var(--fs-sm); }
+    /* Un monto ausente se DECLARA. Nunca $0.00, que se lee como "no cuesta nada". */
+    .pres-firmas-sin { font-size:var(--fs-micro); color:var(--text-faint); font-style:italic; }
+    .pres-firmas-dias { font-size:var(--fs-micro); color:var(--text-muted); }
+    .pres-firmas-traba { grid-column:1 / -1; font-size:var(--fs-micro); color:var(--text-muted); }
+    .pres-firmas-nota { font-size:var(--fs-micro); color:var(--text-muted); margin:.1rem 0; }
+    .pres-firmas-pie { font-size:var(--fs-micro); color:var(--text-faint); margin:.3rem 0 0; }
+    @media (max-width:40rem) {
+      .pres-firmas-row { grid-template-columns:1fr; }
+      .pres-firmas-row-num { justify-content:flex-start; }
+    }
     /* [PU.VA] Acción-herramienta: ícono sin rótulo, para que no compita con la acción de negocio. */
     .pres-act-ico { min-width:2rem; padding-inline:.5rem; }
     .pres-assump { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem .8rem; margin:.6rem 0 1rem; background:color-mix(in srgb, var(--action, #d97706) 4%, transparent); }
