@@ -65,9 +65,36 @@ spec:
               env:
                 - name: ODS_RECONCILE_HB_KEY
                   value: cdc_reconcile_full     # ⛔ propia: sin ella pisa el renglón de OTRO carril
+                # ⛔⛔ [OBS.14] SIN ESTO, SUBIR EL LÍMITE DE MEMORIA NO SIRVE DE NADA.
+                #
+                # Node fija su heap en ~LA MITAD del límite del cgroup. Con `limits: 1Gi` V8 se
+                # tope en ~520 MB y el proceso moría de SU PROPIO techo, no del contenedor — por
+                # eso el kernel no registraba ningún OOM (verificado: 0 eventos en 3 días) y el
+                # pod salía con 139. Reproducido en seco tres veces, siempre a los ~30 s:
+                #
+                #   FATAL ERROR: Reached heap limit Allocation failed - JS heap out of memory
+                #   ... 513.0 (526.4) MB
+                #
+                # Si sólo se sube `limits` a 4Gi, V8 queda en ~2 GB; y si sólo se sube esto por
+                # encima del límite, el V8 abort se convierte en un OOM del kernel. Van juntos.
+                - name: NODE_OPTIONS
+                  value: "--max-old-space-size=3072"
+              # ⭐ [OBS.14] 1Gi → 4Gi, y el número NO es al tanteo: con 5Gi/4096 la corrida
+              # TERMINÓ y el pico real medido fue **1,513 Mi**. 4Gi deja ~2.6× de margen sobre
+              # ese pico, que hace falta porque el universo crece: `--full` compara 7.36 M de
+              # llaves (kdm2 5,053,929 + kdij 2,155,440 + kdpord 149,996) × 9 ramas en un Set.
+              #
+              # ⚠️ No fue un cambio de código: este trabajo corrió **25 veces OK** y su última
+              # corrida buena fue el **2026-10-01 08:55**. Cruzó el techo por crecimiento. El día
+              # que vuelva a fallar con 139, el número a mirar es el pico, no el código.
+              #
+              # ⭐ El arreglo de fondo es otro y queda declarado: la comparación es entre dos
+              # Postgres y se hace trayendo 7.36 M de llaves a un `Set` de Node. Hacerla en SQL
+              # —o trocear por rama, que baja el universo a ~560 k— la volvería insensible al
+              # crecimiento. Subir la memoria compra tiempo, no resuelve la forma.
               resources:
                 requests: { memory: "128Mi", cpu: "100m" }
-                limits:   { memory: "1Gi" }
+                limits:   { memory: "4Gi" }
 ---
 # ═══ [K3S.45] EL SEGUNDO TRABAJO, QUE CASI SE PIERDE EN LA MUDANZA ═════════════════════════
 #
