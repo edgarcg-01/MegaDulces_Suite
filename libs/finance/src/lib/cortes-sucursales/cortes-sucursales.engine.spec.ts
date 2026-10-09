@@ -67,11 +67,11 @@ describe('[CSU.1] corte real Caja 5-151 (faltan $9,000)', () => {
 
 describe('[CSU.1] veredicto del cuadre', () => {
   it('sobrante cuando lo contado supera lo esperado y el corte sale por lo contado', () => {
-    const a = { fecha: 'x', efectivo_esperado: 100, efectivo_contado: 150, tarjeta_esperado: 0, tarjeta_contado: 0, transfer_esperado: 0, transfer_contado: 0, esperado_total: 100, contado_total: 150, cajero: null };
+    const a = { fecha: 'x', efectivo_esperado: 100, efectivo_contado: 150, tarjeta_esperado: 0, tarjeta_contado: 0, transfer_esperado: 0, transfer_contado: 0, esperado_total: 100, esperado_neto: 100, contado_total: 150, cajero: null };
     expect(veredictoCuadre(150, a).cuadre).toBe('sobrante_arqueo');
   });
   it('corte distinto cuando no coincide con ninguno de los dos', () => {
-    const a = { fecha: 'x', efectivo_esperado: 100, efectivo_contado: 100, tarjeta_esperado: 0, tarjeta_contado: 0, transfer_esperado: 0, transfer_contado: 0, esperado_total: 100, contado_total: 100, cajero: null };
+    const a = { fecha: 'x', efectivo_esperado: 100, efectivo_contado: 100, tarjeta_esperado: 0, tarjeta_contado: 0, transfer_esperado: 0, transfer_contado: 0, esperado_total: 100, esperado_neto: 100, contado_total: 100, cajero: null };
     expect(veredictoCuadre(60, a)).toEqual({ cuadre: 'corte_distinto', diferencia: -40 });
   });
   it('NEGATIVA: sin arqueo nunca es "cuadra"', () => {
@@ -79,6 +79,72 @@ describe('[CSU.1] veredicto del cuadre', () => {
     const c = construirCorte(base({ arqueo_fecha: null }), NOMBRES);
     expect(c.cuadre).not.toBe('cuadra');
     expect(c.arqueo).toBeNull();
+  });
+});
+
+/**
+ * `[CSU.7]` Devoluciones pagadas en caja — casos REALES de oct-2026 (medidos en prod el 2026-10-08).
+ * El arqueo de Kepler espera la venta bruta; el corte ya resta la nota de crédito POS del turno.
+ */
+describe('[CSU.7] devoluciones pagadas en la caja del turno', () => {
+  const dev = (folio: string, monto: string) => ({
+    doc_prefix: 'UA2101', folio, fecha: '2026-10-06', monto, cliente: 'CLIENTE DE PRUEBA', motivo: 'EL CLIENTE LA DEVOLVIO', cajero: 'CAJERO-1',
+  });
+  const soloEfectivo = { tarjeta_esperado: '0', tarjeta_contado: '0', transfer_esperado: '0', transfer_contado: '0' };
+
+  it('Zamora Caja 2-171: corte $12,728.61 = esperado $12,908.53 − UA2101-0000071 $179.92 → cuadra', () => {
+    const c = construirCorte(base({
+      folio: '0000016', referencia: 'Caja 2-171', caja: '2', turno: '171', fecha: '2026-10-06', arqueo_fecha: '2026-10-06',
+      monto: '12728.61', efectivo_esperado: '12908.53', efectivo_contado: '12908.53', ...soloEfectivo,
+      devoluciones: [dev('0000071', '179.92')],
+    }), NOMBRES);
+    expect(c.devoluciones_total).toBe(179.92);
+    expect(c.arqueo?.esperado_total).toBe(12908.53);
+    expect(c.arqueo?.esperado_neto).toBe(12728.61);
+    expect(c.cuadre).toBe('cuadra');
+    expect(c.diferencia).toBe(0);
+  });
+
+  it('Madero Caja 4-28: el "faltante" de $2,641.97 era la devolución — la cajera contó lo que quedó', () => {
+    const c = construirCorte(base({
+      monto: '38753.69', efectivo_esperado: '41395.66', efectivo_contado: '38753.69', ...soloEfectivo,
+      devoluciones: [dev('0000011', '2641.97')],
+    }), NOMBRES);
+    expect(c.cuadre).toBe('cuadra');
+  });
+
+  it('Madero Caja 2-23: hubo devolución pero el corte salió por el bruto → cuadra contra el bruto, sin diferencia inventada', () => {
+    const c = construirCorte(base({
+      monto: '19639.83', efectivo_esperado: '19639.83', efectivo_contado: '19797.16', ...soloEfectivo,
+      devoluciones: [dev('0000008', '157.33')],
+    }), NOMBRES);
+    expect(c.cuadre).toBe('cuadra');
+    expect(c.diferencia).toBe(0);
+  });
+
+  it('NEGATIVA — Madero Caja 3-17: una devolución que no explica la diferencia NO la tapa', () => {
+    const c = construirCorte(base({
+      monto: '30376.45', efectivo_esperado: '30061.13', efectivo_contado: '30061.13', ...soloEfectivo,
+      devoluciones: [dev('0000010', '50.98')],
+    }), NOMBRES);
+    expect(c.cuadre).toBe('corte_distinto');
+    expect(c.diferencia).toBe(366.3);
+  });
+
+  it('el faltante se mide contra el esperado NETO', () => {
+    const c = construirCorte(base({
+      monto: '900', efectivo_esperado: '1100', efectivo_contado: '900', ...soloEfectivo,
+      devoluciones: [dev('0000001', '100')],
+    }), NOMBRES);
+    expect(c.cuadre).toBe('faltante_arqueo');
+    expect(c.diferencia).toBe(-100);
+  });
+
+  it('sin devoluciones el neto es el bruto (nada cambia para los cortes de siempre)', () => {
+    const c = construirCorte(base({}), NOMBRES);
+    expect(c.devoluciones).toEqual([]);
+    expect(c.devoluciones_total).toBe(0);
+    expect(c.arqueo?.esperado_neto).toBe(c.arqueo?.esperado_total);
   });
 });
 
