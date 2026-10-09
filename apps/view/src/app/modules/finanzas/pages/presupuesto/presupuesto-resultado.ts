@@ -37,9 +37,18 @@
  * **qué lados del ejercicio existen y cuáles no**.
  */
 
-/** Los seis tipos que el `CHECK` de la tabla admite, en el orden en que se leen. */
-export const TIPOS_LEDGER = ['ingreso', 'costo_ventas', 'gasto', 'compra_inventario', 'inversion', 'flujo'] as const;
-export type TipoLedger = typeof TIPOS_LEDGER[number];
+import { TIPOS_LEDGER, ladosFaltantes, tipoLedgerLabel, type TipoLedger } from '@megadulces/contracts';
+
+/**
+ * `[PVI.17]` ⭐ **El vocabulario y la regla ya NO viven acá.** Nacieron en este archivo para una
+ * pantalla; hoy los lee también el desglose de la cola de ejercicios en «Mi trabajo»
+ * (`libs/trade`), que no puede importar de `apps/view`. Subieron a `libs/contracts` — si el módulo
+ * dijera «falta el costo de ventas» y la portada de Dirección dijera otra cosa, el que hace clic
+ * no encuentra lo que le dijeron (ADR-056: el primitivo vive en `libs/`).
+ *
+ * Se re-exportan para no mover los imports de sus consumidores, que son esta pantalla y su spec.
+ */
+export { TIPOS_LEDGER, type TipoLedger };
 
 /** Una fila del roll-up por tipo, tal como la devuelve `variance`. Los montos pueden venir como
  *  cadena: `sum()` de Postgres sobre `numeric` llega así por el driver. */
@@ -72,8 +81,6 @@ export interface ResultadoEjercicio {
   faltan: TipoLedger[];
 }
 
-/** Los tipos que la cuenta del resultado necesita sí o sí. */
-const NECESARIOS: readonly TipoLedger[] = ['ingreso', 'costo_ventas', 'gasto'];
 
 /** `0` salvo que venga un número de verdad. El driver manda `numeric` como cadena. */
 const num = (v: unknown): number => {
@@ -95,7 +102,7 @@ export function resultadoEjercicio(filas: readonly FilaPorTipo[] | null | undefi
     vigente: num(porTipo.get(tipo)),
   }));
 
-  const faltan = NECESARIOS.filter((t) => !porTipo.has(t));
+  const faltan = ladosFaltantes(porTipo.keys());
   const ingreso = num(porTipo.get('ingreso'));
   const egresoOperativo = num(porTipo.get('gasto'));
 
@@ -110,13 +117,8 @@ export function resultadoEjercicio(filas: readonly FilaPorTipo[] | null | undefi
   };
 }
 
-/** Rótulo legible de un tipo de partida. */
-export function tipoLabel(t: TipoLedger): string {
-  return ({
-    ingreso: 'Ingreso', costo_ventas: 'Costo de ventas', gasto: 'Gasto operativo',
-    compra_inventario: 'Compra de inventario', inversion: 'Inversión', flujo: 'Flujo',
-  } as Record<TipoLedger, string>)[t];
-}
+/** Rótulo legible de un tipo de partida. `[PVI.17]` El mapa vive en `libs/contracts`. */
+export const tipoLabel = tipoLedgerLabel;
 
 /**
  * Por qué no hay resultado, en una frase. `null` cuando sí lo hay.

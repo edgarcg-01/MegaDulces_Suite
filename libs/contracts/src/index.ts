@@ -125,6 +125,9 @@ export * from './finance/ver-expediente.contract';
 export * from './finance/coincidencia-pago.contract';
 // `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
 export * from './finance/archivo-gasto.contract';
+// `[PVI.17]` qué lados tiene un ejercicio de presupuesto y cuáles hacen falta para declarar un
+// resultado. Lo leen la pantalla del módulo y el desglose de la cola en «Mi trabajo».
+export * from './finance/budget-lados.contract';
 // `[GX.78]` los filtros del Historial de levantamientos: el servidor acota el calendario y la
 // pantalla la lista del día con la MISMA regla.
 export * from './finance/historial-filtro.contract';

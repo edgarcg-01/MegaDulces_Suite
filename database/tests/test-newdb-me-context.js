@@ -925,7 +925,14 @@ const tieneDecoradorPermisos = (tramo) =>
      * ⛔ Lo que sigue prohibido es lo de siempre: un desglose sobre una cola cuyas 8 filas no
      * concentren ni la cola ni la decisión — ahí la portada se vuelve la pantalla (`[SN.7]` r.1).
      */
-    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida', 'entradas-sin-comprobante'];
+    /*
+     * `[PVI.17]` +1: `presupuesto-ejercicios`. Cumple la condición de `[SN.33]` con holgura — el
+     * QUÉ importa más que el CUÁNTO y el total es chico **por naturaleza, no por suerte**: son 2 o
+     * 3 ejercicios al año (medido en prod: 3, y uno es el duplicado de prueba, que se excluye).
+     * Lo que el renglón dice es qué le falta a ESE ejercicio para poder firmarse, que es la única
+     * información que cambia la decisión en el momento de firmar.
+     */
+    const DESGLOSE_PERMITIDO = ['salud-datos', 'cartera-vencida', 'entradas-sin-comprobante', 'presupuesto-ejercicios'];
     const conDesglose = bloques.filter((b) => /\n\s*desglosar:/.test(b.cuerpo)).map((b) => b.id);
     const deMas = conDesglose.filter((id) => !DESGLOSE_PERMITIDO.includes(id));
     check('⛔ [SN.33] sólo se desglosan las colas declaradas (una cola grande mudaría su pantalla a la portada)',
