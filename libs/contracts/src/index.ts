@@ -119,6 +119,9 @@ export * from './finance/dueno-del-vale.contract';
 export * from './finance/ver-expediente.contract';
 // [PC.5]/[PC.6] las cuatro coincidencias comprobante↔pago (banco, fecha, monto, proveedor)
 export * from './finance/coincidencia-pago.contract';
+// `[GX.78]` los filtros del Historial de levantamientos: el servidor acota el calendario y la
+// pantalla la lista del día con la MISMA regla.
+export * from './finance/historial-filtro.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
 // El catálogo de permisos vive en `./authz` y se importa por SUBRUTA. ⚠️ Las rutas que decían

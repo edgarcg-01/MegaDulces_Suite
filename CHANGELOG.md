@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Finanzas › Historial de levantamientos: filtros (GX.78, 2026-10-09)
+- Filtrar por **estado** (varios a la vez), **sucursal** y **quién levantó** (esta última sólo en «Todos»). Cada opción dice cuántos vales tiene.
+- El calendario, el total del mes y la lista del día abierto cuentan lo filtrado, y lo dicen contra el total: «58 de 392 levantamientos del mes».
 ### Changed — RH: Asistencia con la forma de Horarios de Mega Talento (RH.1.7c, 2026-10-08)
 - Una sola sección con pestañas **Checadas · Tolerancia · Faltas · Incidencias · Relojes**, con lo que espera en cada una. La plaza, la semana y los filtros se conservan al cambiar de pestaña.
 - Checadas es el **reporte semanal calcado**: una fila por persona, una columna por día, por departamento, con D/C de desayuno y comida; en rojo lo tarde y lo faltado. La ficha se abre de lado. Exportar a PDF para firmar y a Excel sale con lo que se ve, y si es parcial lo dice.
