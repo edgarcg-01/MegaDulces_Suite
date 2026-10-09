@@ -73,7 +73,11 @@ SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.mon
        cc.efectivo_esperado, cc.efectivo_contado,
        cc.tarjeta_esperado, cc.tarjeta_contado,
        cc.transfer_esperado, cc.transfer_contado,
-       cc.cajero_cierre
+       cc.cajero_cierre,
+       -- [CSU.9] Las denominaciones: el UNICO efectivo que alguien conto. efectivo_contado es un
+       -- numero declarado y es identico al esperado en el 81.2% de los cortes, asi que el veredicto
+       -- "cuadra" sale de comparar una cifra contra si misma. OJO: arqueo_otros (c45) NO entra.
+       cc.arqueo_billetes, cc.arqueo_monedas, cc.efectivo_retirado
   FROM co
   LEFT JOIN LATERAL (
     SELECT sum(ap.monto) AS cobrado,
