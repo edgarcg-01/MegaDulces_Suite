@@ -1,12 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { ActivatedRoute, convertToParamMap } from '@angular/router';
+import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { vi } from 'vitest';
 import type { HrCierreDto, HrIncidenciaDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { RhService } from '../rh.service';
-import { SITIOS, incidencia, permisos } from '../../../../testing/rh.fixture';
+import { SITIOS, asistencia, authCon, incidencia, permisos } from '../../../../testing/rh.fixture';
 import { RhIncidenciasComponent } from './rh-incidencias.component';
 
 /**
@@ -38,12 +39,19 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
       paso: vi.fn(() => of(incidencia({ status: 'calificada' }))),
       cerrarSemana: vi.fn(() => of(CIERRE)),
       reabrirSemana: vi.fn(() => of(CIERRE)),
+      // `[RH.1.7c]` Lo que pide el marco de las pestañas (los contadores y la franja).
+      asistencia: vi.fn(() => of(asistencia([]))),
+      estadoRelojes: vi.fn(() => of([])),
+      estadoCierre: vi.fn(() => of([])),
+      directorio: vi.fn(() => of([])),
     };
     await TestBed.configureTestingModule({
       imports: [RhIncidenciasComponent],
       providers: [
+        provideRouter([]),
         { provide: RhService, useValue: api },
         { provide: PermissionsService, useValue: permisos(...o.claves) },
+        { provide: AuthService, useValue: authCon(...o.claves) },
         { provide: ActivatedRoute, useValue: { snapshot: { queryParamMap: convertToParamMap(o.query ?? {}) } } },
       ],
     }).compileComponents();

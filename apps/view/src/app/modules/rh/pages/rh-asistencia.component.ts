@@ -1,434 +1,447 @@
-import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { ChangeDetectionStrategy, Component, computed, effect, inject, signal, viewChild } from '@angular/core';
+import { NgTemplateOutlet } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
-import { SelectModule } from 'primeng/select';
-import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
+import { InputTextModule } from 'primeng/inputtext';
+import { Popover, PopoverModule } from 'primeng/popover';
 import { filtrarPorBusqueda } from '@megadulces/ui-web';
-import type { HrAsistenciaResponse, HrDiaAsistencia, HrPersonaAsistencia, HrSiteDto, HrRelojEstadoDto } from '@megadulces/contracts';
+import type { HrPersonaAsistencia } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
-import { RhRelojesFranjaComponent } from '../components/rh-relojes-franja.component';
-import { chipEnVivo, peorSemaforo } from '../relojes-formato';
+import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
+import { RhMarcoComponent } from '../components/rh-marco.component';
+import { RhReporteSemanalComponent } from '../components/rh-reporte-semanal.component';
+import { RhPersonaDiasComponent } from '../components/rh-persona-dias.component';
+import { RhAsistenciaEstado } from '../rh-asistencia.estado';
+import { RhService, fechaCorta, rhError, sumarDias } from '../rh.service';
 import {
-  ESTADO_DIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, minutosTexto, rhError, sumarDias,
-} from '../rh.service';
+  type Irregularidad, columnasDelRango, cuentaIrregular, departamentoDe, diaLargo, difHorario, etiquetaParcial, firmaHoras,
+  hora12, horarioDe, horasTexto, irregularidadesDe, porDepartamento,
+} from '../reporte-formato';
+import { type ContextoExport, exportarExcel, exportarPdfPersona, exportarPdfPlaza } from '../rh-exportar';
+
+interface FormHorario { entrada: string; salida: string; comida: number; sabado: boolean; sabadoEntrada: string; sabadoSalida: string; }
 
 /**
- * Fase RH · `[RH.1.7]` — Asistencia por persona (`/rh/asistencia`). Antes: `horarios` + `asistencia-resumen` de
- * Mega Talento. El número sale del servidor (la regla trasladada, con paridad 0 contra Mega Talento); aquí no
- * se recalcula nada.
- *
- * Operations (DESIGN.md): tabla densa a la izquierda, ficha a la derecha; abajo de 1100 px la ficha reemplaza
- * a la lista. Primero lo que hay que ATENDER: el servidor ya ordena por «no usable» → «con duda» → retardo.
+ * Fase RH · `[RH.1.7c]` — Checadas (`/rh/asistencia`): el reporte semanal «calcado» de Mega Talento. Una fila por
+ * persona y una columna por día, por departamento; la fila abre la ficha (encima, de lado) donde se justifica, se
+ * asigna horario y se imprime lo de esa persona. El número sale del servidor (la regla trasladada); aquí no se
+ * recalcula nada.
  */
 @Component({
   selector: 'app-rh-asistencia',
   standalone: true,
-  imports: [CommonModule, FormsModule, SelectModule, InputTextModule, ButtonModule, LoadStateComponent, RhRelojesFranjaComponent],
+  imports: [
+    NgTemplateOutlet, FormsModule, ButtonModule, InputTextModule, PopoverModule, LoadStateComponent, SidePeekComponent,
+    RhMarcoComponent, RhReporteSemanalComponent, RhPersonaDiasComponent,
+  ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="ra-page" [class.con-ficha]="!!sel()">
-      <header class="ra-head">
-        <div>
-          <h1>Asistencia</h1>
-          <p>El horario de cada persona sale de sus propias checadas. La tolerancia es de {{ datos()?.bolsaSemanalMin ?? 15 }} min por semana
-            (jueves a miércoles) y sólo cuenta lo que la excede.</p>
-        </div>
-        <div class="ra-head-btns">
-          @if (relojesMedidos()) {
-            <span class="ra-vivo" [attr.data-t]="vivo().tono" [title]="vivo().titulo"><span class="ra-vivo-dot" aria-hidden="true"></span>{{ vivo().texto }}</span>
-          }
-          <p-button icon="pi pi-refresh" label="Actualizar" severity="secondary" [outlined]="true" [loading]="loading()" (onClick)="cargar()" />
-        </div>
-      </header>
+    <div class="ra-page">
+      <app-rh-marco [barra]="true" [franja]="true" [personas]="true" />
 
-      <section class="ra-ctl" aria-label="Qué ver">
-        <p-select [options]="sitios()" optionLabel="name" optionValue="code" [ngModel]="sitio()" (ngModelChange)="setSitio($event)"
-                  placeholder="Sitio de checado" appendTo="body" ariaLabel="Sitio de checado" class="ra-sitio" />
-        <div class="ra-semana" role="group" aria-label="Semana de nómina">
-          <p-button icon="pi pi-chevron-left" [text]="true" severity="secondary" ariaLabel="Semana anterior" (onClick)="moverSemana(-7)" />
-          <span class="mono">{{ etiqueta() }}</span>
-          <p-button icon="pi pi-chevron-right" [text]="true" severity="secondary" ariaLabel="Semana siguiente" [disabled]="esSemanaActual()" (onClick)="moverSemana(7)" />
-        </div>
-        <div class="ra-seg" role="group" aria-label="A quién">
-          <button type="button" [class.on]="!soloPromotoras()" (click)="setPromotoras(false)">Personal de planta</button>
-          <button type="button" [class.on]="soloPromotoras()" (click)="setPromotoras(true)">Promotoras</button>
-        </div>
-        <span class="ra-search">
-          <i class="pi pi-search" aria-hidden="true"></i>
-          <input pInputText type="search" placeholder="Buscar persona o número" [ngModel]="buscar()" (ngModelChange)="buscar.set($event)" aria-label="Buscar persona" />
-        </span>
-      </section>
-
-      @if (relojesMedidos()) {
-        <app-rh-relojes-franja [relojes]="relojesSitio()" [sitios]="sitios()" [sitio]="sitio()" />
-      }
-
-      @if (datos(); as d) {
-        <section class="ra-kpis" aria-label="Resumen de la semana">
-          <div class="ra-kpi"><b>{{ d.resumen.personas }}</b><span>Personas</span></div>
-          <div class="ra-kpi" [class.warn]="d.resumen.conPendiente > 0"><b>{{ d.resumen.conPendiente }}</b><span>Con algo que revisar</span></div>
-          <div class="ra-kpi" [class.bad]="d.resumen.faltas > 0"><b>{{ d.resumen.faltas }}</b><span>Faltas</span></div>
-          <div class="ra-kpi"><b>{{ d.resumen.retardoRealUsableMin }}</b><span>Min de retardo real (de fiar)</span></div>
-          <div class="ra-kpi"><b>{{ d.resumen.horasTrabajadas }}</b><span>Horas trabajadas</span></div>
-        </section>
-      }
-
-      <app-load-state [loading]="loading() && !datos()" [error]="error()" [isEmpty]="!loading() && !error() && !!datos() && !visibles().length"
-                      emptyIcon="pi-users" [emptyTitle]="buscar() ? 'Nadie coincide con la búsqueda' : 'Nadie checó en esta semana'"
-                      [emptyHint]="buscar() ? null : 'Revisa que el reloj del sitio esté mandando checadas (Relojes).'" (retry)="cargar()">
-        <div class="ra-body" [class.has-detail]="!!sel()">
-          <section class="ra-list" aria-label="Personas">
-            <div class="ra-wrap dt-scope">
-              <table class="ra-table dt-stack">
-                <thead>
-                  <tr><th>Persona</th><th>Horario</th><th class="num">Retardo real</th><th class="num">Faltas</th><th class="num opc">Horas</th><th>Revisar</th></tr>
-                </thead>
-                <tbody>
-                  @for (p of visibles(); track p.codigo) {
-                    <tr [class.sel]="sel()?.codigo === p.codigo" (click)="abrir(p)" tabindex="0" (keydown.enter)="abrir(p)">
-                      <td class="dt-id" role="cell" data-label="Persona">
-                        <span class="ra-nombre">{{ p.nombreCompleto || p.nombre }}</span>
-                        <small class="mono">#{{ p.codigo }}@if (!p.registrado) { · sin ligar a una persona }</small>
-                      </td>
-                      <td role="cell" data-label="Horario"><span class="mono">{{ horario(p) }}</span><small>{{ tipoLabel[p.tipo] }}</small></td>
-                      <td class="num" role="cell" data-label="Retardo real">{{ p.retardoRealMin || '—' }}</td>
-                      <td class="num" role="cell" data-label="Faltas">{{ p.faltas || '—' }}</td>
-                      <td class="num opc" role="cell" data-label="Horas">{{ p.horasTrabajadas || '—' }}</td>
-                      <td role="cell" data-label="Revisar">
-                        @if (!p.usable) { <span class="pill bad">No usar</span> }
-                        @else if (tieneDuda(p)) { <span class="pill warn">Revisar</span> }
-                        @else { <span class="pill ok">Bien</span> }
-                      </td>
-                    </tr>
-                  }
-                </tbody>
-              </table>
+      <app-load-state [loading]="est.loading() && !est.datos()" [error]="est.error()" [isEmpty]="vacio()"
+                      emptyIcon="pi-users" [emptyTitle]="vacioTitulo()" emptyHint="Revisa en la franja de relojes que el reloj de la plaza esté mandando checadas."
+                      (retry)="est.asegurar(true)">
+        @if (unica(); as p) {
+          <section class="ra-rep" aria-label="Asistencia de una persona">
+            <div class="ra-rep-head">
+              <div>
+                <h2>{{ p.nombreCompleto || p.nombre }}</h2>
+                <p>#{{ p.codigo }} · {{ depto(p) }} · {{ est.nombreSitio() }} · {{ periodoTexto() }} <span class="ra-parcial">· solo esta persona</span></p>
+              </div>
+              <div class="ra-rep-acc">
+                <p-button label="Ver a todos" [text]="true" severity="secondary" (onClick)="est.unica.set(null)" />
+                <p-button label="PDF para firmar" icon="pi pi-file-pdf" severity="secondary" [outlined]="true" [loading]="exportando()" (onClick)="pdfPersona(p)" />
+              </div>
             </div>
-          </section>
-
-          @if (sel(); as p) {
-            <section class="ra-detail" aria-label="Ficha de la persona">
-              <p-button class="ra-back" icon="pi pi-arrow-left" label="Volver a la lista" [text]="true" severity="secondary" size="small" (onClick)="cerrar()" />
-              <header class="ra-dhead">
-                <div>
-                  <h2>{{ p.nombreCompleto || p.nombre }}</h2>
-                  <p class="mono">#{{ p.codigo }} · {{ tipoLabel[p.tipo] }}@if (p.horario) { · entra {{ p.horario }} }@if (p.salida) { · sale {{ p.salida }} }</p>
-                </div>
-                <p-button icon="pi pi-times" [text]="true" severity="secondary" ariaLabel="Cerrar ficha" (onClick)="cerrar()" />
-              </header>
-
-              <div class="ra-nums">
-                <div><b>{{ p.retardoRealMin }}</b><span>min de retardo real</span></div>
-                <div><b>{{ p.atrasoBrutoMin }}</b><span>min de atraso bruto</span></div>
-                <div><b>{{ p.faltas }}</b><span>faltas@if (p.faltasJustificadas) { (+{{ p.faltasJustificadas }} justificadas) }</span></div>
-                <div><b>{{ p.pctATiempo === null ? '—' : p.pctATiempo + '%' }}</b><span>a tiempo</span></div>
-              </div>
-
-              @if (p.marcas.length) {
-                <ul class="ra-marcas" aria-label="Por qué revisar">
-                  @for (m of p.marcas; track m.codigo) {
-                    <li [attr.data-g]="m.gravedad"><span class="pill" [ngClass]="claseGravedad(m.gravedad)">{{ gravedadLabel[m.gravedad] }}</span> {{ m.detalle }}</li>
-                  }
-                </ul>
-              }
-
-              @for (s of p.semanas; track s.inicio) {
-                <div class="ra-sem">
-                  <h3>Semana del {{ fechaCorta(s.inicio) }} <span>· tolerancia restante {{ s.bolsaRestante }} de {{ s.bolsaInicial }} min · {{ minutosTexto(s.minutosTrabajados) }} trabajados</span></h3>
-                  <table class="ra-dias">
-                    <thead><tr><th>Día</th><th>Estado</th><th>Entrada</th><th>Salida</th><th>Comida</th><th class="num">Horas</th><th class="num">Retardo</th></tr></thead>
-                    <tbody>
-                      @for (dd of s.dias; track dd.fecha) {
-                        <tr>
-                          <td class="mono">{{ fechaCorta(dd.fecha) }}</td>
-                          <td>
-                            <span class="pill" [ngClass]="claseEstado(dd)">{{ estadoLabel[dd.estado] }}</span>
-                            @for (i of dd.incidencias ?? []; track i.id) { <span class="inc" [title]="i.etiqueta">{{ i.codigo }}</span> }
-                          </td>
-                          <td class="mono">{{ dd.entrada || dd.hora || '—' }}</td>
-                          <td class="mono">{{ dd.salida || '—' }}</td>
-                          <td class="mono ra-comida">{{ dd.comida }}</td>
-                          <td class="num">{{ dd.horasNetas }}</td>
-                          <td class="num">{{ dd.retardoRealMin || '—' }}</td>
-                        </tr>
-                      }
-                    </tbody>
-                  </table>
-                </div>
-              }
-
-              <div class="ra-acciones">
-                @if (puedeCapturar()) {
-                  <p-button icon="pi pi-file-edit" label="Capturar incidencia" severity="secondary" [outlined]="true" size="small" (onClick)="capturar(p)" />
-                }
-                @if (puedeGestionar()) {
-                  <p-button icon="pi pi-clock" [label]="p.horarioAsignado ? 'Cambiar horario' : 'Asignar horario'" severity="secondary" [outlined]="true" size="small" (onClick)="abrirHorario(p)" />
-                  @if (p.horarioAsignado) {
-                    <p-button icon="pi pi-undo" label="Volver al horario deducido" [text]="true" size="small" [loading]="guardando()" (onClick)="quitarHorario(p)" />
-                  }
-                }
-              </div>
-
-              @if (formHorario(); as f) {
-                <form class="ra-form" (ngSubmit)="guardarHorario(p)" aria-label="Horario de la persona">
-                  <p class="ra-form-nota">Manda sobre la deducción: contra él se miden el retardo, las faltas, la salida y la comida.</p>
-                  <label>Entrada <input pInputText type="time" name="ent" [(ngModel)]="f.entrada" required /></label>
-                  <label>Salida <input pInputText type="time" name="sal" [(ngModel)]="f.salida" required /></label>
-                  <label>Comida (min) <input pInputText type="number" name="com" min="0" max="180" [(ngModel)]="f.comida" required /></label>
-                  <label class="ra-check"><input type="checkbox" name="sab" [(ngModel)]="f.sabado" /> Trabaja el sábado</label>
-                  @if (f.sabado) {
-                    <label>Sábado entra <input pInputText type="time" name="sabE" [(ngModel)]="f.sabadoEntrada" /></label>
-                    <label>Sábado sale <input pInputText type="time" name="sabS" [(ngModel)]="f.sabadoSalida" /></label>
-                  }
-                  <div class="ra-form-btns">
-                    <p-button type="submit" label="Guardar horario" [loading]="guardando()" />
-                    <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="formHorario.set(null)" />
-                  </div>
-                </form>
+            <div class="ra-una">
+              <ng-container *ngTemplateOutlet="tiraHorario; context: { $implicit: p }" />
+              @if (form() && destino()?.codigo === p.codigo) {
+                <ng-container *ngTemplateOutlet="formHorario; context: { $implicit: p }" />
               }
               @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
-            </section>
-          }
-        </div>
+              <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()" />
+            </div>
+          </section>
+        } @else {
+          <section class="ra-rep" aria-label="Reporte de asistencia">
+            <div class="ra-rep-head">
+              <div>
+                <h2>{{ est.nombreSitio() }}</h2>
+                <p>{{ periodoTexto() }} · {{ visibles().length }} persona{{ visibles().length === 1 ? '' : 's' }}@if (est.soloPromotoras()) { de promotoría }@if (parcial()) { <span class="ra-parcial"> · {{ parcial() }}</span> }</p>
+              </div>
+              <div class="ra-rep-acc">
+                @if (puedeGestionar()) {
+                  <p-button label="Horario" icon="pi pi-clock" severity="secondary" [outlined]="true" (onClick)="abrirHorario(null)" />
+                }
+                <p-button label="Exportar" icon="pi pi-download" severity="secondary" [outlined]="true" [loading]="exportando()" (onClick)="exp.toggle($event)" />
+                <p-popover #exp appendTo="body" ariaLabel="Exportar">
+                  <div class="ra-menu">
+                    <button type="button" (click)="exp.hide(); pdfPlaza()">PDF para firmar</button>
+                    <button type="button" (click)="exp.hide(); excel()">Excel</button>
+                    <p>Sale lo que se ve: {{ parcial() || 'toda la plaza' }}.</p>
+                  </div>
+                </p-popover>
+              </div>
+            </div>
+            @if (form() && !destino()) {
+              <ng-container *ngTemplateOutlet="formHorario; context: { $implicit: null }" />
+            }
+            @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
+            @if (nIrregulares()) {
+              <div class="ra-irr">
+                <span class="ra-irr-dot" aria-hidden="true"></span>
+                <span><b>{{ nIrregulares() }}</b> con irregularidades · toca su fila para ver qué día y por qué</span>
+                <button type="button" class="ra-chip" [attr.aria-pressed]="est.soloIrregulares()" (click)="est.soloIrregulares.set(!est.soloIrregulares())">
+                  {{ est.soloIrregulares() ? 'Ver a todos' : 'Solo irregulares' }}
+                </button>
+              </div>
+            }
+            <p class="ra-ley">Debajo de cada día: <b>D</b> minutos de desayuno · <b>C</b> minutos de comida, en ámbar si se pasó.
+              {{ mide() ? 'En rojo, la entrada tarde y la falta.' : 'En esta plaza no se mide retardo: cada quien entra en su turno.' }}</p>
+            @if (filas().length) {
+              <app-rh-reporte-semanal [grupos]="grupos()" [todas]="todas()" [columnas]="columnas()" [irregularidades]="irr()" [hoy]="est.hoy()"
+                                      [mideRetardo]="mide()" [parcial]="!!parcial()" [subtotales]="conSubtotales()"
+                                      (abrir)="abrir($event)" (menu)="menu($event)" />
+            } @else {
+              <p class="ra-vacio">{{ sinFilas() }}</p>
+            }
+          </section>
+        }
       </app-load-state>
+
+      <p-popover #acc appendTo="body" ariaLabel="Acciones de la persona">
+        @if (enMenu(); as p) {
+          <div class="ra-menu">
+            <button type="button" (click)="acc.hide(); abrir(p)">Ver su ficha</button>
+            <button type="button" (click)="acc.hide(); est.unica.set(p.codigo)">Ver solo a esta persona</button>
+            @if (puedeCapturar()) { <button type="button" (click)="acc.hide(); capturar(p)">Capturar incidencia</button> }
+            @if (puedeGestionar()) { <button type="button" (click)="acc.hide(); abrir(p); abrirHorario(p)">Horario</button> }
+          </div>
+        }
+      </p-popover>
+
+      <app-side-peek [open]="!!sel()" (openChange)="cambioFicha($event)" [width]="720" [title]="fichaTitulo()" [subtitle]="fichaSub()">
+        @if (sel(); as p) {
+          <div class="ra-ficha">
+            <div class="ra-nums">
+              <div [class.bad]="mide() && p.atrasoBrutoMin > 0"><b>{{ mide() ? p.atrasoBrutoMin : '—' }}</b><span>min tarde</span></div>
+              <div [class.bad]="p.retardoRealMin > 0"><b>{{ mide() ? p.retardoRealMin : '—' }}</b><span>excede la tolerancia</span></div>
+              <div [class.bad]="faltasDe(p) > 0"><b>{{ faltasDe(p) }}</b><span>falta{{ faltasDe(p) === 1 ? '' : 's' }}@if (p.faltasJustificadas) { (+{{ p.faltasJustificadas }} justificadas) }</span></div>
+              <div><b>{{ horas(p.minutosTrabajados) }}</b><span>trabajadas@if (p.horarioAsignado) { · {{ firma(dif(p)) }} vs. horario }</span></div>
+            </div>
+
+            @if (irrDe(p).length) {
+              <ul class="ra-irr-lista" aria-label="Irregularidades">
+                @for (i of irrDe(p); track $index) {
+                  <li><span class="pill" [attr.data-t]="i.nivel === 'alta' && i.tipo !== 'tolerancia' ? 'bad' : 'warn'">{{ diaLargo(i.fecha) }}</span> {{ i.texto }}</li>
+                }
+              </ul>
+            }
+            @if (p.marcas.length) {
+              <details class="ra-marcas">
+                <summary>Por qué su número puede no servir ({{ p.marcas.length }})</summary>
+                <ul>
+                  @for (m of p.marcas; track m.codigo) {
+                    <li><span class="pill" [attr.data-t]="m.gravedad === 'alta' ? 'bad' : m.gravedad === 'media' ? 'warn' : 'info'">{{ gravedadLabel[m.gravedad] }}</span> {{ m.detalle }}</li>
+                  }
+                </ul>
+              </details>
+            }
+
+            <ng-container *ngTemplateOutlet="tiraHorario; context: { $implicit: p }" />
+            @if (form() && destino()?.codigo === p.codigo) {
+              <ng-container *ngTemplateOutlet="formHorario; context: { $implicit: p }" />
+            }
+            @if (aviso(); as a) { <p class="ra-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
+
+            <app-rh-persona-dias [persona]="p" [columnas]="columnas()" [hoy]="est.hoy()" [mideRetardo]="mide()" />
+
+            <div class="ra-acciones">
+              @if (puedeCapturar()) {
+                <p-button icon="pi pi-file-edit" label="Capturar incidencia" severity="secondary" [outlined]="true" size="small" (onClick)="capturar(p)" />
+              }
+              <p-button label="Ver solo a esta persona" severity="secondary" [outlined]="true" size="small" (onClick)="soloEsta(p)" />
+              <p-button label="PDF para firmar" icon="pi pi-file-pdf" [text]="true" size="small" [loading]="exportando()" (onClick)="pdfPersona(p)" />
+            </div>
+          </div>
+        }
+      </app-side-peek>
     </div>
+
+    <ng-template #tiraHorario let-p>
+      <div class="ra-tira">
+        @if (p.horarioAsignado; as h) {
+          <p>Horario de <b>{{ primerNombre(p) }}</b> asignado por RH: {{ h12(h.entrada) }} a {{ h12(h.salida) }} · comida {{ h.comidaMin }} min{{ h.sabado ? ' · trabaja el sábado' : '' }}.</p>
+          @if (puedeGestionar()) {
+            <p-button label="Cambiar" severity="secondary" [outlined]="true" size="small" (onClick)="abrirHorario(p)" />
+            <p-button label="Volver al deducido" [text]="true" size="small" [loading]="guardando()" (onClick)="quitarHorario(p)" />
+          }
+        } @else {
+          <p><b>{{ primerNombre(p) }}</b> no tiene horario asignado. Se mide contra el que sale de sus checadas: {{ horarioTexto(p) }}.</p>
+          @if (puedeGestionar()) { <p-button label="Asignarle horario" severity="secondary" [outlined]="true" size="small" (onClick)="abrirHorario(p)" /> }
+        }
+      </div>
+    </ng-template>
+
+    <ng-template #formHorario let-p>
+      @if (form(); as f) {
+        <form class="ra-form" (ngSubmit)="guardarHorario()" aria-label="Asignar horario">
+          <p class="ra-form-nota">Para <b>{{ p ? (p.nombreCompleto || p.nombre) : 'las ' + visibles().length + ' personas que se ven' }}</b>. Manda sobre lo que se deduce de las
+            checadas: contra él se miden el retardo, las faltas, la salida y la comida.</p>
+          <label>Entrada <input pInputText type="time" name="ent" [(ngModel)]="f.entrada" required /></label>
+          <label>Salida <input pInputText type="time" name="sal" [(ngModel)]="f.salida" required /></label>
+          <label>Comida (min) <input pInputText type="number" name="com" min="0" max="180" [(ngModel)]="f.comida" required /></label>
+          <label class="ra-check"><input type="checkbox" name="sab" [(ngModel)]="f.sabado" /> Trabaja el sábado</label>
+          @if (f.sabado) {
+            <label>Sábado entra <input pInputText type="time" name="sabE" [(ngModel)]="f.sabadoEntrada" /></label>
+            <label>Sábado sale <input pInputText type="time" name="sabS" [(ngModel)]="f.sabadoSalida" /></label>
+          }
+          <div class="ra-form-btns">
+            <p-button type="submit" label="Guardar horario" [loading]="guardando()" />
+            <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="form.set(null)" />
+          </div>
+        </form>
+      }
+    </ng-template>
   `,
   styles: [`
     :host { display: block; }
-    .ra-page { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4); }
-    .ra-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-4); flex-wrap: wrap; }
-    .ra-head h1 { margin: 0; font: 700 var(--fs-h2)/1.2 var(--font-body); color: var(--text-main); letter-spacing: -0.01em; }
-    .ra-head p { margin: var(--sp-1) 0 0; color: var(--text-muted); font-size: var(--fs-sm); max-width: 70ch; }
-    .ra-head-btns { display: flex; align-items: center; gap: var(--sp-2); }
-    .ra-vivo { display: inline-flex; align-items: center; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 600; padding: 2px var(--sp-2);
-      border-radius: var(--r-pill); border: 1px solid var(--ok-border); background: var(--ok-soft-bg); color: var(--ok-soft-fg); white-space: nowrap; }
-    .ra-vivo[data-t='warn'] { border-color: var(--warn-border); background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
-    .ra-vivo[data-t='bad'] { border-color: var(--bad-border); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
-    .ra-vivo[data-t='mute'] { border-color: var(--border-color); background: var(--surface-2); color: var(--text-muted); }
-    .ra-vivo-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-    .ra-ctl { display: flex; gap: var(--sp-2); flex-wrap: wrap; align-items: center; }
-    .ra-sitio { min-width: 200px; }
-    .ra-semana { display: inline-flex; align-items: center; gap: var(--sp-1); border: 1px solid var(--border-color); border-radius: var(--r-md); padding: 0 var(--sp-1); background: var(--card-bg); }
-    .ra-semana span { font-size: var(--fs-sm); color: var(--text-main); min-width: 12rem; text-align: center; }
-    .ra-seg { display: inline-flex; border: 1px solid var(--border-color); border-radius: var(--r-md); overflow: hidden; }
-    .ra-seg button { border: 0; background: var(--card-bg); color: var(--text-muted); padding: var(--sp-2) var(--sp-3); font-size: var(--fs-sm); cursor: pointer; }
-    .ra-seg button.on { background: var(--surface-selected-bg); color: var(--text-main); font-weight: 600; }
-    .ra-seg button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-    .ra-search { position: relative; flex: 1 1 220px; max-width: 320px; margin-left: auto; }
-    .ra-search i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: var(--fs-xs); }
-    .ra-search input { width: 100%; padding-left: 30px; }
-    .ra-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--sp-3); }
-    .ra-kpi { display: flex; flex-direction: column; gap: 2px; padding: var(--sp-3); background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); }
-    .ra-kpi b { font: 700 var(--fs-h2)/1 var(--font-mono); color: var(--text-main); font-variant-numeric: tabular-nums; }
-    .ra-kpi span { font-size: var(--fs-xs); color: var(--text-muted); }
-    .ra-kpi.warn b { color: var(--warn-fg); }
-    .ra-kpi.bad b { color: var(--bad-fg); }
-    .ra-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); align-items: start; }
-    .ra-body.has-detail { grid-template-columns: minmax(0, 1fr) minmax(420px, 1.2fr); }
-    .ra-list, .ra-detail { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
-    .ra-wrap { overflow: auto; max-height: calc(100vh - 340px); }
-    .ra-table, .ra-dias { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
-    .ra-table th, .ra-dias th { position: sticky; top: 0; background: var(--surface-2); text-align: left; font-weight: 600; color: var(--text-muted);
-      font-size: var(--fs-micro); padding: var(--sp-2) var(--sp-3); white-space: nowrap; }
-    .ra-table td, .ra-dias td { padding: var(--sp-2) var(--sp-3); border-top: 1px solid var(--border-color); color: var(--text-main); vertical-align: top; }
-    .ra-table tbody tr { cursor: pointer; }
-    .ra-table tbody tr:hover { background: var(--surface-hover-bg); }
-    .ra-table tbody tr.sel { background: var(--surface-selected-bg); }
-    .ra-table tbody tr:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: -2px; }
-    .ra-nombre { font-weight: 600; overflow-wrap: anywhere; }
-    td small { display: block; color: var(--text-muted); font-size: var(--fs-xs); }
-    .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
-    .pill { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; background: var(--surface-2); color: var(--text-muted); }
-    .pill.ok { background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
-    .pill.warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
-    .pill.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight: 600; }
-    .pill.info { background: var(--info-soft-bg); color: var(--info-soft-fg); }
-    .inc { display: inline-block; margin-left: var(--sp-1); font: 600 var(--fs-xs)/1 var(--font-mono); color: var(--info-soft-fg); }
-    .ra-detail { padding: var(--sp-4); position: sticky; top: var(--sp-4); max-height: calc(100vh - 2 * var(--sp-4)); overflow: auto; display: flex; flex-direction: column; gap: var(--sp-3); }
-    .ra-dhead { display: flex; justify-content: space-between; gap: var(--sp-3); }
-    .ra-dhead h2 { margin: 0; font: 700 var(--fs-h3)/1.25 var(--font-body); color: var(--text-main); }
-    .ra-dhead p { margin: var(--sp-1) 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ra-page { display: flex; flex-direction: column; gap: var(--sp-3); padding: var(--sp-4); }
+    .ra-rep { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md); min-width: 0; }
+    .ra-rep-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-3); flex-wrap: wrap; padding: var(--sp-3) var(--sp-3) var(--sp-2); }
+    .ra-rep-head h2 { margin: 0; font: 700 var(--fs-h3)/1.25 var(--font-body); color: var(--text-main); }
+    .ra-rep-head p { margin: 2px 0 0; font-size: var(--fs-xs); color: var(--text-muted); }
+    .ra-parcial { color: var(--warn-soft-fg); font-weight: 600; }
+    .ra-rep-acc { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
+    .ra-menu { display: flex; flex-direction: column; min-width: 13rem; }
+    .ra-menu button { text-align: left; border: 0; background: none; padding: 6px var(--sp-2); border-radius: var(--r-sm); font: inherit; font-size: var(--fs-sm); color: var(--text-main); cursor: pointer; }
+    .ra-menu button:hover, .ra-menu button:focus-visible { background: var(--surface-hover-bg); outline: none; }
+    .ra-menu p { margin: var(--sp-1) var(--sp-2) 0; font-size: var(--fs-xs); color: var(--text-muted); max-width: 16rem; }
+    .ra-irr { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; padding: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
+    .ra-irr-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--bad-fg); }
+    .ra-chip { border: 1px solid var(--border-color); background: var(--card-bg); color: var(--text-main); border-radius: var(--r-pill); padding: 2px var(--sp-3);
+      font-size: var(--fs-xs); font-weight: 600; cursor: pointer; }
+    .ra-chip[aria-pressed='true'] { background: var(--surface-selected-bg); border-color: var(--text-muted); }
+    .ra-chip:focus-visible { outline: 2px solid var(--focus-ring); }
+    .ra-ley { margin: 0; padding: 0 var(--sp-3) var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
+    .ra-ley b { color: var(--text-main); }
+    .ra-vacio { margin: 0; padding: var(--sp-5) var(--sp-3); text-align: center; color: var(--text-muted); font-size: var(--fs-sm); border-top: 1px solid var(--border-color); }
+    .ra-una { display: flex; flex-direction: column; gap: var(--sp-3); padding: 0 var(--sp-3) var(--sp-3); }
+    .ra-ficha { display: flex; flex-direction: column; gap: var(--sp-3); }
     .ra-nums { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--sp-2); }
     .ra-nums div { display: flex; flex-direction: column; padding: var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-sm); }
     .ra-nums b { font: 700 var(--fs-h3)/1.1 var(--font-mono); color: var(--text-main); }
     .ra-nums span { font-size: var(--fs-xs); color: var(--text-muted); }
-    .ra-marcas { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
-    .ra-sem h3 { margin: 0 0 var(--sp-2); font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
-    .ra-sem h3 span { font-weight: 400; color: var(--text-muted); font-size: var(--fs-xs); }
-    .ra-comida { font-size: var(--fs-xs); color: var(--text-muted); }
+    .ra-nums .bad b { color: var(--bad-fg); }
+    .ra-irr-lista, .ra-marcas ul { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-sm); color: var(--text-main); }
+    .ra-marcas summary { cursor: pointer; font-size: var(--fs-sm); color: var(--text-muted); margin-bottom: var(--sp-1); }
+    .pill { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; background: var(--surface-2); color: var(--text-muted); }
+    .pill[data-t='bad'] { background: var(--bad-soft-bg); color: var(--bad-soft-fg); font-weight: 600; }
+    .pill[data-t='warn'] { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
+    .pill[data-t='info'] { background: var(--info-soft-bg); color: var(--info-soft-fg); }
+    .ra-tira { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); background: var(--surface-2);
+      font-size: var(--fs-sm); color: var(--text-main); }
+    .ra-tira p { margin: 0; flex: 1 1 28ch; }
     .ra-acciones { display: flex; gap: var(--sp-2); flex-wrap: wrap; }
-    .ra-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-2); }
+    .ra-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); margin: 0 var(--sp-3) var(--sp-2); border: 1px solid var(--border-color);
+      border-radius: var(--r-md); background: var(--surface-2); }
+    .ra-ficha .ra-form, .ra-una .ra-form { margin: 0; }
     .ra-form label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .ra-form input[type='number'] { width: 6rem; }
-    .ra-form .ra-check { flex-direction: row; align-items: center; gap: var(--sp-2); }
+    .ra-form .ra-check { flex-direction: row; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm); color: var(--text-main); }
     .ra-form-nota { flex: 1 1 100%; margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ra-form-btns { display: flex; gap: var(--sp-2); }
-    .ra-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    .ra-banner { margin: 0 var(--sp-3) var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
+    .ra-ficha .ra-banner, .ra-una .ra-banner { margin: 0; }
     .ra-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
-    .ra-back { display: none; }
-    .ra-body.has-detail .opc { display: none; }
-    @media (max-width: 68.75rem) {
-      .ra-body.has-detail { grid-template-columns: 1fr; }
-      .ra-body.has-detail .ra-list { display: none; }
-      .ra-detail { position: static; max-height: none; }
-      .ra-back { display: inline-flex; align-self: flex-start; }
-      .ra-page.con-ficha .ra-kpis, .ra-page.con-ficha .ra-ctl, .ra-page.con-ficha .ra-head, .ra-page.con-ficha app-rh-relojes-franja { display: none; }
-    }
     @media (max-width: 40rem) {
       .ra-page { padding: var(--sp-3); }
-      .ra-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
       .ra-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-      .ra-search { margin-left: 0; max-width: none; }
-      .ra-wrap { max-height: none; }
     }
   `],
 })
-export class RhAsistenciaComponent implements OnInit {
+export class RhAsistenciaComponent {
+  readonly est = inject(RhAsistenciaEstado);
   private readonly api = inject(RhService);
   private readonly perms = inject(PermissionsService);
   private readonly router = inject(Router);
+  private readonly acc = viewChild<Popover>('acc');
 
-  readonly estadoLabel = ESTADO_DIA_LABEL;
-  readonly tipoLabel: Record<HrPersonaAsistencia['tipo'], string> = {
-    fijo: 'Horario fijo', rotativo: 'Rota turnos', sin_patron: 'Sin horario reconocible', sin_datos: 'Sin datos suficientes',
-  };
   readonly gravedadLabel: Record<string, string> = { alta: 'Bloquea', media: 'Revisar', info: 'Nota', ok: 'Confirmado' };
-  readonly fechaCorta = fechaCorta;
-  readonly minutosTexto = minutosTexto;
+  readonly horas = horasTexto;
+  readonly firma = firmaHoras;
+  readonly dif = difHorario;
+  readonly diaLargo = diaLargo;
+  readonly h12 = hora12;
 
-  readonly sitios = signal<HrSiteDto[]>([]);
-  readonly sitio = signal<string | null>(null);
-  readonly jueves = signal(juevesDeLaSemana(hoyEnMexico()));
-  readonly soloPromotoras = signal(false);
-  readonly buscar = signal('');
-  readonly datos = signal<HrAsistenciaResponse | null>(null);
-  readonly loading = signal(false);
-  readonly error = signal<string | null>(null);
   readonly sel = signal<HrPersonaAsistencia | null>(null);
-  readonly formHorario = signal<{ entrada: string; salida: string; comida: number; sabado: boolean; sabadoEntrada: string; sabadoSalida: string } | null>(null);
+  readonly enMenu = signal<HrPersonaAsistencia | null>(null);
+  readonly form = signal<FormHorario | null>(null);
+  /** A quién va el horario: una persona, o null = las que se ven. */
+  readonly destino = signal<HrPersonaAsistencia | null>(null);
   readonly guardando = signal(false);
+  readonly exportando = signal(false);
   readonly aviso = signal<{ texto: string; mal: boolean } | null>(null);
-  /**
-   * `[RH.1.7b]` Los relojes, como en Mega Talento: quien lee la asistencia tiene que ver si el dato es de hoy.
-   * `relojesMedidos` separa «no hay relojes» de «no se pudo leer» (p. ej. un 403): lo segundo no se pinta, para no
-   * decir «Sin reloj» de un sitio que sí lo tiene.
-   */
-  readonly relojes = signal<HrRelojEstadoDto[]>([]);
-  readonly relojesMedidos = signal(false);
-  readonly relojesSitio = computed(() => this.relojes().filter((r) => r.sucursalId === this.sitio()));
-  readonly vivo = computed(() => chipEnVivo(peorSemaforo(this.relojesSitio())));
 
-  readonly etiqueta = computed(() => etiquetaSemana(this.jueves()));
-  readonly esSemanaActual = computed(() => this.jueves() >= juevesDeLaSemana(hoyEnMexico()));
-  readonly visibles = computed(() => filtrarPorBusqueda(this.datos()?.personas ?? [], this.buscar(), (p) => [p.nombre, p.nombreCompleto, p.codigo]));
   readonly puedeGestionar = computed(() => this.perms.has(Permission.HR_ATTENDANCE_GESTIONAR));
   readonly puedeCapturar = computed(() => this.perms.has(Permission.HR_INCIDENTS_CAPTURAR));
+  readonly mide = computed(() => this.est.datos()?.mideRetardo ?? true);
 
-  ngOnInit(): void {
-    this.api.sitios().subscribe({
-      next: (s) => {
-        const activos = s.filter((x) => x.is_active);
-        this.sitios.set(activos);
-        if (!this.sitio() && activos.length) { this.sitio.set(activos[0].code); this.cargar(); }
-      },
-      error: (e) => this.error.set(rhError(e, 'No se pudieron leer los sitios de checado.')),
+  readonly todas = computed(() => this.est.datos()?.personas ?? []);
+  /** Una columna por día: la semana entera (lo que no ha pasado sale en blanco), o sólo hoy. */
+  readonly columnas = computed(() => {
+    const e = this.est;
+    if (e.modoHoy()) return columnasDelRango(e.hoy(), e.hoy(), e.hoy());
+    return columnasDelRango(e.jueves(), sumarDias(e.jueves(), 6), e.hoy());
+  });
+  readonly irr = computed(() => {
+    const o = { hoy: this.est.hoy(), desayunoAlertaMin: this.est.datos()?.desayunoAlertaMin ?? 10 };
+    return new Map<string, Irregularidad[]>(this.todas().map((p) => [p.codigo, irregularidadesDe(p, o)]));
+  });
+  /** Lo que se ve antes de «Solo irregulares»: departamentos y búsqueda. */
+  readonly visibles = computed(() => {
+    const deps = this.est.departamentos();
+    const base = deps.length ? this.todas().filter((p) => deps.includes(departamentoDe(p))) : this.todas();
+    return filtrarPorBusqueda(base, this.est.buscar(), (p) => [p.nombre, p.nombreCompleto, p.codigo]);
+  });
+  private readonly esIrregular = (p: HrPersonaAsistencia) => cuentaIrregular(this.irr().get(p.codigo) ?? [], 'alta') > 0;
+  readonly nIrregulares = computed(() => this.visibles().filter(this.esIrregular).length);
+  readonly filas = computed(() => (this.est.soloIrregulares() ? this.visibles().filter(this.esIrregular) : this.visibles()));
+  readonly grupos = computed(() => porDepartamento(this.todas(), this.filas()));
+  readonly conSubtotales = computed(() => !this.est.buscar().trim() && !this.est.soloIrregulares());
+  readonly unica = computed(() => {
+    const c = this.est.unica();
+    return c ? this.todas().find((p) => p.codigo === c) ?? null : null;
+  });
+  readonly parcial = computed(() => etiquetaParcial({
+    unica: null, departamentos: this.est.departamentos(), buscar: this.est.buscar(), soloIrregulares: this.est.soloIrregulares(),
+  }));
+  readonly periodoTexto = computed(() => {
+    const e = this.est;
+    if (e.modoHoy()) return `Hoy, ${fechaCorta(e.hoy())}`;
+    return `Semana del ${fechaCorta(e.jueves())} al ${fechaCorta(sumarDias(e.jueves(), 6))}${e.esSemanaActual() ? ', en curso' : ''}`;
+  });
+  readonly vacio = computed(() => !this.est.loading() && !this.est.error() && !!this.est.datos() && !this.todas().length);
+  readonly vacioTitulo = computed(() => (this.est.soloPromotoras() ? 'Nadie de promotoría checó en este periodo' : 'Nadie checó en este periodo'));
+  readonly sinFilas = computed(() => {
+    const q = this.est.buscar().trim();
+    return q
+      ? `Nadie de esta plaza coincide con «${q}». Las sugerencias de la búsqueda miran en todas las plazas.`
+      : 'Nadie con irregularidades en lo que se ve.';
+  });
+  readonly fichaTitulo = computed(() => this.sel()?.nombreCompleto || this.sel()?.nombre || '');
+  readonly fichaSub = computed(() => {
+    const p = this.sel();
+    return p ? `#${p.codigo} · ${this.depto(p)} · ${this.est.nombreSitio()}` : null;
+  });
+
+  constructor() {
+    // Elegida en «Buscar en todas las plazas»: en cuanto llega su plaza, se abre su ficha.
+    effect(() => {
+      const c = this.est.fichaPendiente();
+      const d = this.est.datos();
+      if (!c || !d || this.est.loading()) return;
+      const p = d.personas.find((x) => x.codigo === c);
+      this.est.fichaPendiente.set(null);
+      if (p) this.abrir(p);
+    });
+    // Al recalcular (otra semana, horario guardado), la ficha abierta se refresca con los números nuevos.
+    effect(() => {
+      const d = this.est.datos();
+      const s = this.sel();
+      if (!d || !s) return;
+      const nueva = d.personas.find((x) => x.codigo === s.codigo) ?? null;
+      if (nueva !== s) this.sel.set(nueva);
     });
   }
 
-  /** El rango que se pide: la semana de nómina, recortada a hoy (lo que no ha pasado no se mide). */
-  rango(): { desde: string; hasta: string } {
-    const desde = this.jueves();
-    const fin = sumarDias(desde, 6);
-    const hoy = hoyEnMexico();
-    return { desde, hasta: fin > hoy ? hoy : fin };
+  depto(p: HrPersonaAsistencia): string { return departamentoDe(p); }
+  primerNombre(p: HrPersonaAsistencia): string { return (p.nombreCompleto || p.nombre).split(' ')[0]; }
+  horarioTexto(p: HrPersonaAsistencia): string { return horarioDe(p).texto.replace(/^Deducido · /, 'entra '); }
+  irrDe(p: HrPersonaAsistencia): Irregularidad[] { return this.irr().get(p.codigo) ?? []; }
+  /** Sus faltas del periodo sin contar hoy (el día no ha terminado). */
+  faltasDe(p: HrPersonaAsistencia): number {
+    const hoy = this.est.hoy();
+    return p.semanas.reduce((t, s) => t + s.dias.filter((d) => d.estado === 'falta' && d.fecha < hoy).length, 0);
   }
 
-  private seq = 0;
-  cargar(): void {
-    const site = this.sitio();
-    if (!site) return;
-    const mi = ++this.seq;
-    const { desde, hasta } = this.rango();
-    this.loading.set(true);
-    this.error.set(null);
-    this.api.estadoRelojes().subscribe({
-      next: (r) => { this.relojes.set(r); this.relojesMedidos.set(true); },
-      error: () => this.relojesMedidos.set(false),
-    });
-    this.api.asistencia({ site_code: site, date_from: desde, date_to: hasta, only_promoters: this.soloPromotoras() }).subscribe({
-      next: (d) => {
-        if (mi !== this.seq) return;
-        this.datos.set(d);
-        this.loading.set(false);
-        const s = this.sel();
-        this.sel.set(s ? d.personas.find((p) => p.codigo === s.codigo) ?? null : null);
-      },
-      error: (e) => { if (mi !== this.seq) return; this.error.set(rhError(e, 'No se pudo calcular la asistencia.')); this.loading.set(false); },
-    });
+  abrir(p: HrPersonaAsistencia): void { this.sel.set(p); this.form.set(null); this.aviso.set(null); }
+  cerrar(): void { this.sel.set(null); this.form.set(null); this.aviso.set(null); }
+  cambioFicha(abierta: boolean): void { if (!abierta) this.cerrar(); }
+  soloEsta(p: HrPersonaAsistencia): void { this.cerrar(); this.est.unica.set(p.codigo); }
+
+  menu(e: { persona: HrPersonaAsistencia; evento: Event }): void {
+    this.enMenu.set(e.persona);
+    this.acc()?.toggle(e.evento);
   }
 
-  setSitio(s: string): void { this.sitio.set(s); this.sel.set(null); this.cargar(); }
-  setPromotoras(v: boolean): void { this.soloPromotoras.set(v); this.sel.set(null); this.cargar(); }
-  moverSemana(dias: number): void { this.jueves.set(sumarDias(this.jueves(), dias)); this.cargar(); }
-
-  abrir(p: HrPersonaAsistencia): void { this.sel.set(p); this.formHorario.set(null); this.aviso.set(null); }
-  cerrar(): void { this.sel.set(null); this.formHorario.set(null); this.aviso.set(null); }
-
-  horario(p: HrPersonaAsistencia): string {
-    const t = p.turnos.filter(Boolean);
-    return t.length > 1 ? t.join(' / ') : (p.horario ?? '—');
-  }
-  tieneDuda(p: HrPersonaAsistencia): boolean { return p.marcas.some((m) => m.gravedad === 'media'); }
-  claseGravedad(g: string): string { return g === 'alta' ? 'bad' : g === 'media' ? 'warn' : g === 'ok' ? 'ok' : 'info'; }
-  claseEstado(d: HrDiaAsistencia): string {
-    switch (d.estado) {
-      case 'falta': return 'bad';
-      case 'retardo': case 'marca_faltante': return 'warn';
-      case 'justificado': return 'info';
-      case 'a_tiempo': case 'absorbido': return 'ok';
-      default: return '';
-    }
-  }
-
-  /** La captura vive en Incidencias: se llega con la persona y el sitio ya puestos. */
+  /** La captura vive en Incidencias: se llega con la persona, la plaza y la semana ya puestas. */
   capturar(p: HrPersonaAsistencia): void {
-    void this.router.navigate(['/rh/incidencias'], { queryParams: { nueva: 1, site: this.sitio(), persona: p.codigo, desde: this.rango().desde } });
+    void this.router.navigate(['/rh/incidencias'], { queryParams: { nueva: 1, site: this.est.sitio(), persona: p.codigo, desde: this.est.rango().desde } });
   }
 
-  abrirHorario(p: HrPersonaAsistencia): void {
-    const a = p.horarioAsignado;
+  abrirHorario(p: HrPersonaAsistencia | null): void {
+    const a = p?.horarioAsignado;
     this.aviso.set(null);
-    this.formHorario.set({
-      entrada: a?.entrada ?? p.horario ?? '08:00', salida: a?.salida ?? p.salida ?? '18:00', comida: a?.comidaMin ?? 60,
+    this.destino.set(p);
+    this.form.set({
+      entrada: a?.entrada ?? p?.horario ?? '08:00', salida: a?.salida ?? p?.salida ?? '17:00', comida: a?.comidaMin ?? 60,
       sabado: a?.sabado ?? false, sabadoEntrada: a?.sabadoEntrada ?? '', sabadoSalida: a?.sabadoSalida ?? '',
     });
   }
 
-  guardarHorario(p: HrPersonaAsistencia): void {
-    const f = this.formHorario();
-    const site = this.sitio();
+  guardarHorario(): void {
+    const f = this.form();
+    const site = this.est.sitio();
     if (!f || !site) return;
+    const p = this.destino();
+    const codigos = p ? [p.codigo] : this.visibles().map((x) => x.codigo);
+    if (!codigos.length) return;
     this.guardando.set(true);
     this.api.asignarHorario({
-      site_code: site, person_codes: [p.codigo], starts_at: f.entrada, ends_at: f.salida, lunch_minutes: Number(f.comida),
+      site_code: site, person_codes: codigos, starts_at: f.entrada, ends_at: f.salida, lunch_minutes: Number(f.comida),
       works_saturday: f.sabado, saturday_starts_at: f.sabado ? f.sabadoEntrada : undefined, saturday_ends_at: f.sabado ? f.sabadoSalida : undefined,
     }).subscribe({
-      next: () => { this.guardando.set(false); this.formHorario.set(null); this.aviso.set({ texto: 'Horario guardado. Los números ya se miden contra él.', mal: false }); this.cargar(); },
+      next: (r) => {
+        this.guardando.set(false);
+        this.form.set(null);
+        this.aviso.set({ texto: `Horario guardado${r.guardados > 1 ? ` para ${r.guardados} personas` : ''}. Los números ya se miden contra él.`, mal: false });
+        this.est.asegurar(true);
+      },
       error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo guardar el horario.'), mal: true }); },
     });
   }
 
   quitarHorario(p: HrPersonaAsistencia): void {
-    const site = this.sitio();
+    const site = this.est.sitio();
     if (!site) return;
     this.guardando.set(true);
     this.api.quitarHorario(site, [p.codigo]).subscribe({
-      next: () => { this.guardando.set(false); this.aviso.set({ texto: 'Vuelve a medirse con el horario deducido de sus checadas.', mal: false }); this.cargar(); },
+      next: () => { this.guardando.set(false); this.aviso.set({ texto: 'Vuelve a medirse con el horario deducido de sus checadas.', mal: false }); this.est.asegurar(true); },
       error: (e) => { this.guardando.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo quitar el horario.'), mal: true }); },
     });
+  }
+
+  // ── Exportar: lo que se ve es lo que sale ──
+  private contexto(): ContextoExport {
+    return {
+      plaza: this.est.nombreSitio(), periodo: this.periodoTexto(), parcial: this.parcial(), columnas: this.columnas(),
+      hoy: this.est.hoy(), mideRetardo: this.mide(),
+    };
+  }
+
+  pdfPlaza(): void { void this.exportar(() => exportarPdfPlaza(this.grupos(), this.todas(), this.contexto(), this.conSubtotales())); }
+  excel(): void { void this.exportar(() => exportarExcel(this.grupos(), this.todas(), this.contexto(), this.conSubtotales())); }
+  pdfPersona(p: HrPersonaAsistencia): void { void this.exportar(() => exportarPdfPersona(p, this.contexto())); }
+
+  private async exportar(fn: () => Promise<void>): Promise<void> {
+    this.exportando.set(true);
+    try { await fn(); }
+    catch { this.aviso.set({ texto: 'No se pudo generar el archivo. Vuelve a intentarlo.', mal: true }); }
+    finally { this.exportando.set(false); }
   }
 }

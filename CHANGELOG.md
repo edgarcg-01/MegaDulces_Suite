@@ -9,6 +9,13 @@
 ---
 
 ## [Unreleased]
+### Changed — RH: Asistencia con la forma de Horarios de Mega Talento (RH.1.7c, 2026-10-08)
+- Una sola sección con pestañas **Checadas · Tolerancia · Faltas · Incidencias · Relojes**, con lo que espera en cada una. La plaza, la semana y los filtros se conservan al cambiar de pestaña.
+- Checadas es el **reporte semanal calcado**: una fila por persona, una columna por día, por departamento, con D/C de desayuno y comida; en rojo lo tarde y lo faltado. La ficha se abre de lado. Exportar a PDF para firmar y a Excel sale con lo que se ve, y si es parcial lo dice.
+- **Buscar en todas las plazas** (endpoint nuevo `GET /hr/attendance/people`). El día en curso ya no aparece como falta antes de que termine.
+### Fixed — RH: desayuno y promotoría como los corrigió Mega Talento el 08/10 (RH.1.5b/c)
+- Con una sola pausa, esa pausa es la comida (antes salía como «desayuno»); la alerta junta las lecturas repetidas. Medido: alertas de desayuno 683 → 4 en un mes de datos reales; horas netas sin cambio.
+- «PROMOTORIA MEGA DULCES» se mide como personal de piso.
 ### Added — Checado (GP.4, 2026-10-08)
 - `/almacen/checar`: el checador toma el siguiente pedido ya surtido y ya en SURTIDO en Kepler (nunca uno que él surtió), escanea todo, arma las cajas P de paquetería y las etiqueta (TSC TE200, 3 por fila, 32 × 48 mm; la caja P por triplicado al cerrarla, las cajas 1/N al terminar).
 - Mig `20261008143820`: tablas del checado, rol `checador` con alcance a su sucursal, `ALMACEN_CHECADO_GESTIONAR` (también a `almacenista`) y puesto **Checador de Pedidos**.
