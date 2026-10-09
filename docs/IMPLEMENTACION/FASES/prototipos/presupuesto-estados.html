@@ -449,15 +449,18 @@ tbody tr:last-child td{border-bottom:none}
   <h3>⛔ Por qué es de diseño y no de adopción</h3>
   <p class="lead">La primera versión de esta sección decía «hueco de adopción, subirlo de 11 a 33». <strong>Estaba mal</strong>, y lo que la corrigió fue medir de dónde salía cada tipo escrito a mano.</p>
   <div class="tw"><table>
-    <thead><tr><th>Archivo</th><th>Importa el compartido</th><th>…y declara el suyo al lado</th></tr></thead>
+    <thead><tr><th>Archivo</th><th>Qué importa del contrato</th><th>…y qué escribe a mano igual</th></tr></thead>
     <tbody>
-      <tr><td><code>comercial.service.ts</code></td><td>✅ <code>Coverage</code></td><td><code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code></td></tr>
-      <tr><td><code>supervisor-ai.service.ts</code></td><td>✅ <code>Coverage</code></td><td><code>VisionCoverage</code> · <code>SalesExecCoverage</code></td></tr>
       <tr><td><code>finanzas-presupuesto.component.ts</code></td><td>✅ <code>Coverage</code></td><td><code>ProposeCoverage</code> · <code>ExpenseCoverage</code></td></tr>
-      <tr style="background:var(--sunken)"><td colspan="3"><strong>11 tipos <code>*Coverage</code> escritos a mano, en 8 archivos</strong> — 6 de ellos en <code>apps/view</code>. Y uno, en <code>findings.service.ts</code>, se llama <strong><code>Coverage</code> a secas</strong>: una sombra del compartido, con su mismo nombre y otra forma.</td></tr>
+      <tr><td><code>comercial.service.ts</code></td><td><code>Freshness</code> · <code>PeriodCoverageWire</code></td><td><code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code></td></tr>
+      <tr><td><code>supervisor-ai.service.ts</code></td><td><code>Freshness</code></td><td><code>VisionCoverage</code> · <code>SalesExecCoverage</code></td></tr>
+      <tr style="background:var(--sunken)"><td colspan="3"><strong>10 tipos <code>*Coverage</code> escritos a mano, en 8 archivos</strong> — 6 en <code>apps/view</code>. Y uno, en <code>findings.service.ts</code>, se llama <strong><code>Coverage</code> a secas</strong>: una sombra del compartido, con su mismo nombre y otra forma.</td></tr>
     </tbody>
   </table></div>
-  <div class="note bad"><strong>Nadie reinventa por ignorancia un tipo que acaba de importar tres líneas arriba.</strong> Si se importa y se sombrea en el mismo archivo, el problema no es difusión: es que <code>{ measured, pct, note }</code> <strong>no alcanza para lo que los dominios necesitan decir</strong>. Se ve en la forma de los que se escriben a mano — <code>ExpenseCoverage</code> es <code>{ historico_ajustado, estacional, no_signal, manual_kept, accounts }</code>: <strong>conteos por categoría</strong>, y <code>pct: number | null</code> no puede sostener eso.</div>
+  <div class="note"><strong>La primera versión de esta tabla decía que los tres importaban <code>Coverage</code>. Era falso</strong> — sólo el primero lo hace; los otros dos importan <code>Freshness</code> del mismo contrato. <em>El error vino de medir «importa del contrato» y publicarlo como «importa Coverage».</em> ⭐ Pero la evidencia corregida es <strong>más limpia</strong>: los tres <strong>conocen el contrato y lo adoptaron para el eje frescura</strong>; para el de cobertura escribieron el suyo igual. <strong>No hace falta que importen <code>Coverage</code> para probar que no lo ignoran.</strong></div>
+  <div class="note bad"><strong>Y hay una confesión escrita en el código, a cuatro mil líneas de donde nadie la busca</strong> — <code>comercial.service.ts:4013</code>:
+    <br><em>«Cobertura declarada — la FORMA es <code>Coverage</code> de <code>@megadulces/contracts</code>, <strong>más el detalle</strong>.»</em>
+    <br>«Más el detalle» <strong>es el hueco, dicho por quien lo rodeó</strong>. Se ve en la forma de los que se escriben a mano: <code>ExpenseCoverage</code> es <code>{ historico_ajustado, estacional, no_signal, manual_kept, accounts }</code> — <strong>conteos por categoría</strong>, y <code>pct: number | null</code> no puede sostener eso.</div>
   <div class="note warn">⭐ <strong>Y el bucle se cierra solo:</strong> <code>ExpenseCoverage</code> existe porque <code>Coverage</code> obligaba a fundir cinco poblaciones en un <code>pct</code> — <strong>la violación exacta de la regla 5, cometida por el tipo que escribimos para evitarla</strong>. ⇒ El deliverable no es subir la adopción ni sólo agregar <code>method</code>: es que <strong><code>Coverage</code> necesita desglose por categoría</strong>. <em>Dos de los diez tipos a mano viven en el archivo que este documento viene a arreglar.</em></div>
 
   <h3>Por qué extender <code>Coverage</code> no alcanza</h3>
