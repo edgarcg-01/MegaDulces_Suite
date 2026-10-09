@@ -117,22 +117,40 @@ export class CommissionObjectiveService {
     if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
       throw new BadRequestException('mes tiene que ir de 1 a 12');
     }
+    // ⛔ `mes` se validaba y `anio` no. Un año fuera de rango no es un mes inválido: es una
+    // pregunta sobre un periodo que no existe, y respondía con 13 renglones en cero.
+    if (!Number.isInteger(anio) || anio < 2020 || anio > 2100) {
+      throw new BadRequestException('anio fuera de rango');
+    }
     const config = await this.configuracion();
 
     return this.tk.run(async (trx) => {
       // ── La ventana del mes, y si ya terminó ──────────────────────────────────────────
+      // ⚠️ `fuente_hasta` NO es decorativo: la fuente es una ventana RODANTE de 200 días
+      // (`v_rd_route_daily` filtra `business_date >= CURRENT_DATE - 200`) y además contiene
+      // fechas POSTERIORES a hoy, porque `kdm1.c9` puede venir en el futuro. Los dos bordes
+      // tienen que declararse: el viejo porque el mes se cae solo, el nuevo porque un mes que
+      // todavía no ocurre no es un mes en el que nadie vendió.
       const { rows: [v] } = await trx.raw(`
         SELECT make_date(?, ?, 1) AS desde,
                (make_date(?, ?, 1) + interval '1 month')::date AS hasta,
                ((make_date(?, ?, 1) + interval '1 month')::date <= current_date) AS cerrado,
-               (SELECT min(business_date) FROM analytics.mv_rd_route_daily_200d) AS fuente_desde`,
-        [anio, mes, anio, mes, anio, mes]);
+               (make_date(?, ?, 1) > current_date) AS por_venir,
+               (SELECT min(business_date) FROM analytics.mv_rd_route_daily_200d) AS fuente_desde,
+               current_date AS hoy`,
+        [anio, mes, anio, mes, anio, mes, anio, mes]);
 
       // ── Las rutas que comisionan: del universo derivado, no de una lista ─────────────
+      // ⭐ `ultima_actividad` se trae porque `comisiona` es una bandera MANUAL de
+      // `commission_route_config` que nadie apaga cuando una ruta se retira. Sin esta columna
+      // una ruta de baja se publica igual que una ruta activa que no alcanzó nada.
       const { rows: rutas } = await trx.raw(`
-        SELECT route_code, chofer_nombre, plaza_o_zona
-          FROM analytics.v_rd_commission_universe
-         WHERE comisiona ORDER BY route_code`);
+        SELECT u.route_code, u.chofer_nombre, u.plaza_o_zona,
+               (SELECT max(m.business_date) FROM analytics.mv_rd_route_daily_200d m
+                 WHERE m.route_code = u.route_code AND m.business_date <= current_date
+               ) AS ultima_actividad
+          FROM analytics.v_rd_commission_universe u
+         WHERE u.comisiona ORDER BY u.route_code`);
 
       // ── Lo medible ──────────────────────────────────────────────────────────────────
       const { rows: medido } = await trx.raw(`
@@ -154,8 +172,14 @@ export class CommissionObjectiveService {
         marcas.map((m: ObjetivoMarca) => [`${m.bonus_id}|${m.route_code}`, m]),
       );
 
-      // ⛔ Un mes anterior a la fuente no tiene con qué medirse, y eso NO es «no cumplió».
-      const sinFuente = v.fuente_desde && new Date(v.desde) < new Date(v.fuente_desde);
+      // ⛔ Los dos bordes de la ventana, con motivos DISTINTOS porque son ausencias distintas:
+      // la de atrás la arregla el carril (re-materializar más historia), la de adelante no la
+      // arregla nadie — el mes no ha pasado. Dibujar «no registró venta» en cualquiera de los
+      // dos es afirmar un hecho sobre la ruta cuando el hecho es sobre la ventana (ADR-056).
+      const sinFuente: string | null =
+        v.por_venir ? 'ese mes todavía no ocurre'
+          : v.fuente_desde && new Date(v.desde) < new Date(v.fuente_desde) ? 'sin fuente para ese mes'
+            : null;
 
       const criteriosActivos = config.criterios.filter((c) => c.activo);
       const filas: ObjetivoFila[] = rutas.map((r: RutaUniverso) => {
@@ -176,11 +200,23 @@ export class CommissionObjectiveService {
         const suma = (p: (d: ObjetivoCriterioFila) => boolean): number =>
           Number(detalle.filter(p).reduce((a, d) => a + d.peso_pct, 0).toFixed(4));
 
+        // ⛔ Esto decía `m?.dias ?? 0`. Medido contra prod: para un mes anterior a la fuente las
+        // 13 rutas publicaban «0 días con venta» AL LADO de criterios que decían «sin fuente
+        // para ese mes» — el renglón se contradecía a sí mismo, y el cero es el que se lee.
+        // Sin ventana con qué medir, el número es NULL y el motivo lo dice.
+        const diasSin = r.ultima_actividad
+          ? Math.round((new Date(v.hoy).getTime() - new Date(r.ultima_actividad).getTime()) / 86400000)
+          : null;
         return {
           route_code: r.route_code,
           chofer: r.chofer_nombre,
           zona: r.plaza_o_zona,
-          dias_con_venta: m?.dias ?? 0,
+          dias_con_venta: sinFuente ? null : (m?.dias ?? 0),
+          dias_con_venta_motivo: sinFuente,
+          // ⭐ Lo que separa «la ruta no alcanzó» de «la ruta está de baja». `comisiona` no
+          // caduca: 321 y 322 siguen encendidas y su última actividad es de hace 3 meses.
+          ultima_actividad: iso(r.ultima_actividad),
+          dias_sin_actividad: diasSin,
           criterios: detalle,
           alcanzado_pct: suma((d) => d.cumplido === true),
           // ⭐ El silencio no castiga: lo que nadie resolvió se publica APARTE, no como fallo.
@@ -193,11 +229,27 @@ export class CommissionObjectiveService {
       if (!criteriosActivos.length) {
         huecos.push('Ningún criterio está encendido: el bono no se está evaluando. Se enciende en la configuración.');
       }
-      if (sinFuente) {
+      if (sinFuente === 'ese mes todavía no ocurre') {
+        huecos.push('Ese mes todavía no ocurre: no hay nada que medir. Lo que se ve en cero es la ventana, no las rutas.');
+      } else if (sinFuente) {
         huecos.push(`La fuente de venta arranca el ${iso(v.fuente_desde)}; este mes es anterior, así que no hay con qué medir — no es que no se haya cumplido.`);
-      }
-      if (!v.cerrado) {
+      } else if (!v.cerrado) {
         huecos.push('El mes todavía no termina: lo medido va a seguir subiendo.');
+      }
+      // ⚠️ La fuente es una ventana RODANTE de 200 días: el mes más viejo que hoy se puede medir
+      // deja de poderse medir solo, sin que nadie cambie nada. Un bono mensual que no se puede
+      // auditar a los siete meses es una limitación real y va dicha, no descubierta.
+      if (v.fuente_desde) {
+        huecos.push(`La fuente es una ventana móvil de 200 días (hoy arranca el ${iso(v.fuente_desde)}) y avanza cada día: un mes que hoy se mide va a dejar de medirse. Para auditar un bono viejo hay que guardar el resultado, no volver a calcularlo.`);
+      }
+      // ⭐ `comisiona` sale de `commission_route_config`, que es configuración a mano: no caduca.
+      // Medido en prod el 2026-10-09: 13 rutas encendidas, y 321/322 sin actividad desde junio y
+      // julio — el libro tampoco les paga desde la Q14. Sin este aviso salen como «0% alcanzado».
+      const retiradas = filas.filter((f) => f.dias_sin_actividad === null || f.dias_sin_actividad > 60);
+      if (retiradas.length && !sinFuente) {
+        huecos.push(
+          `${retiradas.length} ruta(s) siguen marcadas como que comisionan pero no registran actividad hace más de 60 días: ${retiradas.map((f) => `${f.route_code} (${f.ultima_actividad ?? 'nunca'})`).join(', ')}. Si se dieron de baja hay que apagarlas en la configuración de rutas; mientras tanto se evalúan y salen en cero.`,
+        );
       }
       const manuales = criteriosActivos.filter((c) => c.metrica === 'manual');
       if (manuales.length) {
@@ -217,13 +269,13 @@ export class CommissionObjectiveService {
   }
 
   /** Aplica el comparador configurado. El veredicto vive acá y en ningún otro lado. */
-  private evaluar(c: Criterio, m: Medido | undefined, marca: ObjetivoMarca | undefined, sinFuente: boolean):
+  private evaluar(c: Criterio, m: Medido | undefined, marca: ObjetivoMarca | undefined, sinFuente: string | null):
   { valor: number | null; cumplido: boolean | null; motivo: string | null } {
     if (c.metrica === 'manual') {
       if (!marca) return { valor: null, cumplido: null, motivo: 'sin marcar' };
       return { valor: null, cumplido: marca.cumplido, motivo: null };
     }
-    if (sinFuente) return { valor: null, cumplido: null, motivo: 'sin fuente para ese mes' };
+    if (sinFuente) return { valor: null, cumplido: null, motivo: sinFuente };
     if (!m) return { valor: null, cumplido: null, motivo: 'la ruta no registró venta en el mes' };
 
     const valor = c.metrica === 'visitas' ? Number(m.visitas)
@@ -295,12 +347,27 @@ export class CommissionObjectiveService {
     if (!Number.isInteger(dto.mes) || dto.mes < 1 || dto.mes > 12) {
       throw new BadRequestException('mes tiene que ir de 1 a 12');
     }
+    if (!Number.isInteger(dto.anio) || dto.anio < 2020 || dto.anio > 2100) {
+      throw new BadRequestException('anio fuera de rango');
+    }
     return this.tk.run(async (trx) => {
       const { rows: [bono] } = await trx.raw(
         `SELECT id, metrica, grupo FROM commercial.commission_bonuses
           WHERE id = ? AND deleted_at IS NULL`, [dto.bonus_id]);
       if (!bono) throw new NotFoundException('ese criterio no existe');
       if (bono.grupo !== GRUPO) throw new BadRequestException('ese bono no es del objetivo mensual');
+      // ⛔ `route_code` no tiene llave foránea (el universo es una vista) y nadie lo validaba:
+      // una ruta inexistente o mal escrita se guardaba, devolvía 200, y `resultado()` —que sólo
+      // busca marcas de las rutas del universo— no la mostraba NUNCA. El usuario veía «guardado»
+      // y la pantalla seguía diciendo «sin marcar». Un guardado que no se puede ver es peor que
+      // un error: no se puede corregir porque no se sabe que pasó.
+      const { rows: [ruta] } = await trx.raw(
+        `SELECT route_code FROM analytics.v_rd_commission_universe
+          WHERE route_code = ? AND comisiona`, [dto.route_code]);
+      if (!ruta) {
+        throw new BadRequestException(
+          `la ruta «${dto.route_code}» no está entre las que comisionan: la marca no se vería en ninguna pantalla`);
+      }
       // ⛔ No se deja marcar a mano lo que SÍ se puede medir: ahí la marca sería una forma de
       // pisar la medición sin que se note.
       if (bono.metrica !== 'manual') {
@@ -373,7 +440,13 @@ export interface ObjetivoCriterioFila {
 
 export interface ObjetivoFila {
   route_code: string; chofer: string | null; zona: string | null;
-  dias_con_venta: number;
+  /** ⛔ `null` cuando la ventana no cubre el mes. Un 0 ahí afirma que la ruta no vendió. */
+  dias_con_venta: number | null;
+  /** Por qué no hay número: «sin fuente para ese mes» o «ese mes todavía no ocurre». */
+  dias_con_venta_motivo: string | null;
+  /** ⭐ Separa «no alcanzó» de «está de baja»: `comisiona` es manual y no caduca. */
+  ultima_actividad: string | null;
+  dias_sin_actividad: number | null;
   criterios: ObjetivoCriterioFila[];
   alcanzado_pct: number;
   sin_resolver_pct: number;
@@ -405,4 +478,7 @@ export interface ObjetivoMarca {
   marked_at: Date; marked_by_nombre: string | null;
   anio?: number; periodo_no?: number;
 }
-interface RutaUniverso { route_code: string; chofer_nombre: string | null; plaza_o_zona: string | null }
+interface RutaUniverso {
+  route_code: string; chofer_nombre: string | null; plaza_o_zona: string | null;
+  ultima_actividad: Date | null;
+}
