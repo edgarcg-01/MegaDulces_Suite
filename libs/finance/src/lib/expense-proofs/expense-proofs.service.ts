@@ -2105,7 +2105,7 @@ export class ExpenseProofsService {
         .where('r.tenant_id', tenantId)
         .whereRaw("r.fecha >= date_trunc('month', current_date) - interval '6 months'")
         .whereRaw('r.fecha <= current_date')
-        .modify((b: any) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]); })
+        .modify((b: Knex.QueryBuilder) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]); })
         .groupByRaw("to_char(r.fecha,'YYYY-MM')")
         .orderByRaw("to_char(r.fecha,'YYYY-MM')")
         .select(trx.raw("to_char(r.fecha,'YYYY-MM') AS mes"), trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(r.importe),0)::numeric AS monto'));

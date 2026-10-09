@@ -256,7 +256,7 @@ export class ExpedienteGastoService {
         cuadra_con_solicitud: this.cuadra(Number(g.importe), solImporte),
       }));
       const sumaGastos = gastos.reduce((a, g) => a + Number(g.importe), 0);
-      const folios = gastos.map((g: any) => g.doc_folio).filter(Boolean);
+      const folios: string[] = gastos.map((g) => g.doc_folio).filter(Boolean);
 
       // ── 3b · `[GX.75]` La transferencia XD2601 que pagó cada gasto (Kepler kdm5) ──
       // La misma lectura que la pantalla del Expediente: una sola regla, no dos.

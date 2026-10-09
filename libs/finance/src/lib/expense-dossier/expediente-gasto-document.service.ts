@@ -13,7 +13,6 @@ import {
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 let sharp: any = null;
 try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
   sharp = require('sharp');
 } catch {
   sharp = null;
