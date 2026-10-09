@@ -40,8 +40,22 @@
  *
  * Idempotente (un `COMMENT ON` es un reemplazo, no un acumulado).
  *
+ * ⛔ **`COMMENT ON` NO acepta parámetros.** Primer intento contra prod (2026-10-09 09:4x):
+ *     COMMENT ON COLUMN budget.sales_plan_settings.growth_provenance IS $1
+ *     → syntax error at or near "$1"
+ * Es una sentencia de **utilidad**: Postgres no la planea, así que no hay dónde atar un bind.
+ * `knex.raw(sql, [valor])` traduce su `?` a `$1` y revienta. El texto va **inlineado**, con las
+ * comillas simples duplicadas. ⭐ Falló limpio: el ledger NO registró la migración y el comentario
+ * quedó como estaba — se verificó antes de reintentar, porque «falló» y «falló sin dejar rastro»
+ * no son lo mismo.
+ *
  * @param { import("knex").Knex } knex
  */
+
+/** Literal SQL seguro: duplica las comillas simples. No hay interpolación de datos externos acá
+ *  —los dos textos son constantes de este archivo— pero se escapa igual, porque la regla no es
+ *  «cuando viene de afuera», es «siempre que se arma SQL con una cadena». */
+const lit = (s) => `'${String(s).replace(/'/g, "''")}'`;
 
 const TABLA = 'budget.sales_plan_settings';
 const COL = 'growth_provenance';
@@ -57,7 +71,7 @@ exports.up = async function up(knex) {
   const existe = await knex.schema.withSchema('budget').hasColumn('sales_plan_settings', COL);
   if (!existe) return;
 
-  await knex.raw(`COMMENT ON COLUMN ${TABLA}.${COL} IS ?`, [COMENTARIO_NUEVO]);
+  await knex.raw(`COMMENT ON COLUMN ${TABLA}.${COL} IS ${lit(COMENTARIO_NUEVO)}`);
 };
 
 /** Deshace EXACTAMENTE lo que hizo el `up`: devuelve el texto de PVI.3, ni una fila más. */
@@ -65,5 +79,5 @@ exports.down = async function down(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
   const existe = await knex.schema.withSchema('budget').hasColumn('sales_plan_settings', COL);
   if (!existe) return;
-  await knex.raw(`COMMENT ON COLUMN ${TABLA}.${COL} IS ?`, [COMENTARIO_VIEJO]);
+  await knex.raw(`COMMENT ON COLUMN ${TABLA}.${COL} IS ${lit(COMENTARIO_VIEJO)}`);
 };
