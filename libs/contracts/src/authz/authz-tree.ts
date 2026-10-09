@@ -431,12 +431,20 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         // Fase PU (ADR-066) — Presupuestos como PROYECTO propio, fuera de Finanzas (decisión usuario
         // 2026-09-17): responsable distinto de Tesorería/Finanzas. Una sola pantalla con sub-vistas
         // internas (ejercicios/flujo/campañas/capacidad/gastos) por Segmented, no rutas separadas.
+        // ⚠️ `[TES.15]` Eso dejó de ser cierto: el diagnóstico de Tesorería es una RUTA aparte.
         id: 'presupuestos',
         label: 'Presupuestos',
         icon: 'pi pi-chart-pie',
         route: '/presupuesto',
         modules: [
           { id: 'presupuesto', label: 'Presupuesto', route: '/presupuesto', view: [Permission.PRESUPUESTOS_VER], manage: [Permission.PRESUPUESTOS_GESTIONAR] },
+          // `[TES.15]` ⛔ Sin este renglón la pantalla EXISTE y nadie puede llegar: la ruta estaba
+          // registrada y el enlace no. Es la mitad del defecto que `[LC.6.2]` documentó —allá el
+          // permiso estaba declarado y sin repartir; acá el permiso está bien y falta la puerta—.
+          // **Una pantalla sin entrada en el mapa no está entregada, está escrita.**
+          // Mismo permiso que su hermana: los dos endpoints ya exigen `PRESUPUESTOS_VER`, así que
+          // esto NO agrega nada al JWT y nadie tiene que re-loguearse.
+          { id: 'tesoreria-diagnostico', label: 'Tesorería · diagnóstico', route: '/presupuesto/tesoreria', view: [Permission.PRESUPUESTOS_VER] },
         ],
       },
       {
