@@ -8,7 +8,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { TiendaCambiosPrecioComponent } from './tienda-cambios-precio.component';
 
 if (typeof (globalThis as any).ResizeObserver === 'undefined') {
-  (globalThis as any).ResizeObserver = class { observe(): void {} unobserve(): void {} disconnect(): void {} };
+  (globalThis as any).ResizeObserver = class { observe(): void { /* jsdom */ } unobserve(): void { /* jsdom */ } disconnect(): void { /* jsdom */ } };
 }
 
 const fila = (sku: string, unidad: string, antes: number | null, ahora: number | null, h = '10:00'): PriceChange => ({
