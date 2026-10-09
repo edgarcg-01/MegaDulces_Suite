@@ -881,3 +881,81 @@ Prueba una sola cosa, que es la que importa acá — que siga habiendo *una* def
   ataca la causa; esta fase sólo deja de creerles.
 - La cifra del $17.6 M es de la medición del 2026-10-08: el efecto real del cambio hay que medirlo
   contra prod después del redeploy, no darlo por hecho.
+
+---
+
+## RA.45D — No se pide nada que quede con más de 45 días de cobertura (2026-10-09) 🧪
+
+Punto 1 de los tres que pidió Edgar el 2026-10-08: *"no podemos pedir un producto con mas de 45
+dias de cobertura"*.
+
+### ⭐ La fórmula del motor no era el problema; el redondeo sí
+
+El sugerido es `demanda × cobertura − existencia − tránsito`, así que **por construcción nunca deja
+más días que la cobertura que se le pidió**: con `cov = 30` salieron **0 casos** por encima.
+
+Lo que rompe la regla es el **redondeo a caja cerrada** de `[RA-PRO.51]`. Un sugerido de 0.6 cajas
+sube a 1 caja, y si esa caja trae 20 piezas sobre una venta de 4 al mes, la sucursal queda con medio
+año de inventario. Medido sobre los 7,881 renglones con sugerido:
+
+| | renglones | % | pesos |
+|---|---:|---:|---:|
+| quedan arriba de 45 d después de redondear | **3,301** | 41.9% | $2,900,000 |
+| …de ésos, donde UNA sola caja ya pasa | **2,643** | 33.5% | $2,270,000 |
+
+⭐ En esos 2,643 el tope **cae a piezas sueltas** antes de rendirse a 0. La pantalla ya sabe
+proponer piezas desde `[RA-PRO.51]`, así que rendirse directo habría dejado sin surtir a sucursales
+que sí podían pedir 3 piezas.
+
+### Dónde vive el tope, y por qué de ese lado
+
+`apps/view/src/app/modules/compras/pedido-tope.ts`, función pura, con `TOPE_COBERTURA_DIAS = 45` en
+una constante con nombre. Va en el **frontend** y no en el backend porque es el redondeo —que vive
+de este lado— lo que rompe la regla, y porque el seed topado alimenta de una sola vez la columna de
+captura, los totales del renglón, la requisición y el PDF: todos leen `qtyOf()`, que cae al seed.
+
+### ⛔ Lo que el tope NO hace
+
+**No topa lo que no puede medir.** Sin venta no hay cobertura contra qué comparar, y con el peldaño
+de unidad contradicho (`[U.2]`) la existencia en cajas no es verdad. En los dos casos devuelve el
+sugerido **intacto** con motivo `sin_medir` (ADR-056). ⭐ Topar con una medición falsa recortaría
+compras reales por un número inventado, y **nadie lo notaría nunca** — el renglón sale más chico y
+ya está.
+
+⚠️ **No prohíbe capturar por encima.** El tope gobierna lo que el motor *sugiere*; si el comprador
+sube la cantidad a mano, el tooltip de la columna Días lo dice con todas sus letras.
+
+### Dos cosas que cambian de color
+
+- `coverSev` pasó su corte de arriba de **90 a 45 días**. Dejarlo en 90 pintaba en verde una
+  cobertura de 60 días en la misma pantalla que se niega a pedirla. Esto pinta más renglones en
+  azul, y **no es un efecto colateral: es el hallazgo** — 8,023 de 15,927 pares (50.4%) ya pasan los
+  45 días sin pedir nada, $36,290,904. `info` y no `danger`: sobra inventario, no falta.
+- Insignia por sucursal: `tope 45 d` cuando se recortó, `no pedir` cuando la existencia sola ya
+  pasa. `sin_medir` **no se pinta**: no se tocó nada, no hay nada que explicar.
+
+### ⚠️ Lo que el tope no puede arreglar
+
+**133 de 737 canales de compra (18%) tienen cadencia + lead mayor a 45 días**, el peor 146.5 d. Ahí
+el tope y la cadencia se contradicen de frente: si al proveedor se le compra cada 90 días, 45 días
+de cobertura garantizan quedarse sin producto 45 días. El tope los topa igual —la regla es la
+regla— pero el arreglo de fondo es **la cadencia, no el pedido**.
+
+### Candado
+
+`pedido-tope.spec.ts`, 18 aserciones. ⭐ **La mitad son casos donde el tope NO debe tocar nada**: un
+tope que recorta de más borra compras reales y nadie lo nota. Incluye un barrido de 200
+combinaciones que verifica el invariante (*el resultado nunca pasa el tope*), y una prueba de que
+el parámetro se honra (45 recorta donde 90 deja pasar) — sin ella el argumento sería decorativo.
+
+⭐ **El test encontró un error mío**: afirmé que un sugerido de exactamente 45 días no se tocaba, y
+salió rojo con el código correcto — `45 × 10 / 30.4 = 14.80` cajas y `roundSeed` las sube a **15 =
+45.6 días**. La premisa estaba mal, no la función; quedaron los dos casos separados.
+
+**Mutado a rojo** cambiando `floor` por `ceil` en el recorte: caen 3 aserciones, el barrido entre
+ellas. Suite de `compras` completa: 22 archivos / 364 tests verde.
+
+⚠️ `check:template-types` dio **verde por vacuidad** en la primera corrida: sólo mira el diff
+**commiteado** contra `origin/main`, así que con el trabajo sin commitear midió cero archivos. Se
+volvió a correr con `--files=` apuntando a los tres fuentes. Es el hueco que la propia compuerta
+documenta en su cabecera.
