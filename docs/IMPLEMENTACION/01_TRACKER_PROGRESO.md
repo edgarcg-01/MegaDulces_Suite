@@ -4299,6 +4299,24 @@ falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Consi
   (una tarjeta completa en el segundo no se cuela) y dice cuál. El servidor normaliza; visor, bandeja y PDF
   muestran `1234 · 5678`. Pruebas: contratos 414/414 · captura 41/41 (con plantilla) · mutación en rojo.
 
+### 🔨 [GX.78] · Historial de levantamientos: filtros por estado, sucursal y persona — 2026-10-09
+
+- [x] **[GX.78]** 🧪 Pedido: *«aquí también quiero filtros para poder seleccionar o ver a aquellos que sí queremos
+  verlos»* (sobre `/finanzas/gastos-historial`). Medido en prod oct-2026: **392 levantamientos, 5 estados, 9
+  sucursales, 41 personas** (una sola con 107), y días de hasta 92 vales — sin forma de ver sólo los que importan.
+  Barra de filtros: **estado** (chips, varios a la vez, con su cifra), **sucursal** y **quién levantó** (sólo en
+  «Todos»; en «Míos» la única persona es quien mira). El **servidor** acota el calendario (`GET …/calendario`
+  con `estado`/`sucursal`/`persona`) y la **pantalla** acota la lista del día abierto, las dos con la MISMA regla
+  (`pasaFiltroHistorial`, en `historial-filtro.contract.ts`) — si divergieran, la casilla diría 3 y la lista 5.
+  Cada opción se cuenta con los OTROS filtros puestos (`facetasDelMes`, en memoria sobre ~120 grupos del mes).
+  Filtrado se dice **«58 de 392»** (`total_sin_filtro`); un día con vales que no pasan dice eso y no «no hubo
+  gasto»; si el servidor devuelve otro filtro que el pedido, se avisa. Un filtro ilegible es **400**, no «sin
+  filtro»; el filtro sólo ACHICA (con filtro, «Todos» sin permiso sigue en 403). Cambiar el filtro no esconde el
+  calendario (se atenúa) y cancela el pedido anterior. Las dos consultas del mes: **20–45 ms** en prod. Sin
+  migración ni permisos. Pruebas: contratos 481/481 · finance expense-proofs 196/196 · Finanzas (view) 635/635 ·
+  tres mutaciones en rojo (lista sin filtrar, pedido sin cancelar, servidor sin filtrar el estado).
+- [ ] **[GX.78.p]** Redeploy api+view (sin migración ni re-login) + validación visual.
+
 ### 🔨 [GX.71] · Mayra Gutiérrez ve el historial de gastos de ella y de todos — 2026-10-07
 
 - [x] **[GX.71]** 🧪 Pedido: *«al usuario de mayra_gutierrez dale el permiso de que pueda ver el historial de ella
