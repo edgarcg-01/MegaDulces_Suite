@@ -18,6 +18,7 @@ import {
   ocultarCosto,
   ocultarCostoPlazas,
 } from './new-products';
+import { EXISTENCIA_KEPLER_SQL } from './new-products.sql';
 
 /** Cuándo es cada pedazo del dato: la historia cierra de noche, lo de hoy es en vivo. */
 export interface Frescura {
@@ -122,7 +123,7 @@ export class NewProductsService {
   }
 
   /** Lo de hoy (ODS en vivo) y la existencia actual de estos productos. */
-  private async enVivo(trx: Knex.Transaction, prods: Array<{ product_id: string; sku: string }>, corte: string, hoy: string) {
+  private async enVivo(trx: Knex.Transaction, prods: Array<Pick<NewProductSource, 'product_id' | 'sku' | 'escalera_plaza'>>, corte: string, hoy: string) {
     if (!prods.length) return { vivo: [] as Movimiento[], existencia: [] as Existencia[] };
     const ids = prods.map((p) => p.product_id);
     // La función trabaja por SKU (entra por los índices del ODS); aquí se vuelve a producto.
@@ -134,23 +135,13 @@ export class NewProductsService {
     [[...porSku.keys()], corte, hoy])).rows as Array<Omit<Movimiento, 'product_id'> & { sku: string }>;
     const vivo: Movimiento[] = crudo.flatMap(({ sku, ...m }) =>
       (porSku.get(sku) ?? []).map((product_id) => ({ ...m, product_id })));
-    // ⚠️ El rótulo y el peldaño mayor salen de la ficha de ESA plaza: el factor de caja puede
-    // cambiar de una sucursal a otra, y Wincaja no tiene ficha de Kepler (se declara aparte).
-    const existencia = (await trx.raw(`
-      SELECT s.product_id, s.warehouse_code AS plaza, s.qty_stock_units AS cantidad,
-             s.display_box_factor AS factor,
-             -- unit_source dice en qué unidad viene la cantidad ('kepler' = la base de su ficha;
-             -- 'wincaja' / 'wincaja_multipack' = la de Wincaja). source NO sirve: vale 'kepler_ods'.
-             CASE WHEN s.unit_source LIKE 'wincaja%' THEN 'wincaja' ELSE s.unit_source END AS fuente,
-             l.u1_label AS unidad, l.unidad_caja AS unidad_mayor, l.factor_caja AS factor_mayor
-        FROM analytics.v_erp_stock_on_hand s
-        LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
-        LEFT JOIN analytics.v_kepler_unit_ladder l
-          ON s.unit_source = 'kepler' AND l.sucursal = w.kepler_code AND l.sku = btrim(s.sku)
-       WHERE s.tenant_id = public.current_tenant_id() AND s.product_id = ANY(?::uuid[])
-         -- [NP.13] Sólo Kepler: la existencia de las plazas que siguen en Wincaja no entra.
-         AND s.unit_source = 'kepler'`,
-    [ids])).rows as Existencia[];
+    // [NP.17] Directo de kdil, con las reglas de la rama Kepler de v_erp_stock_on_hand (ver
+    // new-products.sql.ts): la vista calcula el factor de caja de todo el catálogo y costaba 1-2 s.
+    // El rótulo base sale de la ficha de ESA plaza que ya trae la matvista (escalera_plaza.u1):
+    // Kepler guarda el inventario en esa unidad, y la ficha puede cambiar de una sucursal a otra.
+    const fichas = new Map(prods.map((p) => [p.product_id, p.escalera_plaza ?? {}]));
+    const existencia = ((await trx.raw(EXISTENCIA_KEPLER_SQL, [[...porSku.keys()], ids])).rows as Array<Existencia & { sucursal: string }>)
+      .map(({ sucursal, ...e }) => ({ ...e, unidad: fichas.get(e.product_id)?.[sucursal]?.u1 ?? null }));
     return { vivo, existencia };
   }
 

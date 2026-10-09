@@ -51,6 +51,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.14]` | **El primer cálculo en producción no terminaba**: mig `20261008111426` arma las series buscando cada día en un mapa (sin unir tablas) y pasa `fn_new_products_movimientos` a `plpgsql` planeada con sus valores reales (misma consulta, leída de `pg_proc`); el refresco lleva tope de 3 min y una matvista vacía no espera su cadencia. | 🧪 |
 | `[NP.15]` | **Los tres márgenes y dónde se mueve mejor** (pedido del jefe de Compras): mig `20261008131320` — la función trae venta neta de IVA/IEPS, costo del renglón, peldaño y unidad base; la matvista guarda por plaza `margen_plaza` y la compra por unidad base `compra_base`. Márgenes de lista (meta de la ficha por peldaño vendido), real (`c62`) y sobre lo pagado, cada uno con su cobertura; ranking de sucursales por venta neta por día. Revisa la decisión #7: el margen ya se mide con el costo del renglón, no con el álgebra del markup. | 🧪 |
 | `[NP.16]` | **Cuándo llegó, unidades por corte y reparto** (pedido de Compras): mig `20261009085241` — la función trae también traspasos recibidos (`U-A-50`) y salidas a sucursal o ruta (`U-D-41`, en la misma pasada que la venta); la matvista agrega `llegada` (barrido del kardex `kdij`), `venta_unidades_hito` y `reparto`. Pantalla: «Llegó a la empresa», unidades vendidas en 30·60·90, vendido y existencia en «¿Dónde se mueve mejor?», y el reparto arriba de «Por sucursal». | 🧪 |
+| `[NP.17]` | **Sin pantallazo y más rápida** (queja de los jefes): el detalle conserva lo último mientras recarga cada minuto; la existencia se lee directo de `kdil` con las reglas de la rama Kepler de `v_erp_stock_on_hand`, sin su factor de caja (lista 1.7–2.3 s → 134–163 ms; detalle 1.1–1.35 s → 6–8 ms). Sin migración. | 🧪 |
 | `[NP.11]` | **Unidades de Kepler**: lo vendido y lo recibido en la unidad que declara el renglón (cajas, paquetes, piezas, gramaje), global y por sucursal; la existencia en la unidad base de la ficha de cada sucursal con su equivalente en la unidad mayor. | 🧪 |
 
 ## Medido (base local, 2026-10-07)
@@ -499,3 +500,48 @@ va y vuelve. Lógica 61/61, pantalla 36/36, escalera compartida 9/9 (Pedido 120/
 1. Aplicar la migración `20261009085241` sola; si un `REFRESH` de la matvista corre, cancelarlo antes.
 2. Mergear. Medir el primer llenado en el log `Refreshed analytics.mv_new_products (N ms…)` contra el tope de
    180 s: hoy tarda ~43 s y esto suma el barrido del kardex (un recorrido en paralelo de `kdij`, segundos).
+
+---
+
+## Novena entrega (2026-10-09): sin pantallazo y más rápida (`NP.17`)
+
+Dos quejas de los jefes sobre la pantalla en producción: el **pantallazo** al cargar o actualizar, y que la
+**consulta es lenta**.
+
+### El pantallazo
+
+La lista ya conservaba el último dato mientras se volvía a pedir cada minuto, pero **el detalle no**: al cambiar
+el parámetro de recarga, `rxResource` deja el valor vacío, el panel mostraba «Cargando sucursales…» y se volvía a
+pintar desde arriba. Ahora el detalle conserva el último del **mismo** producto mientras llega el nuevo (al abrir
+otro producto sí se limpia, para no mostrar el del anterior). Candado en la pantalla, con prueba negativa: sin
+el arreglo, el panel se vacía y la prueba falla.
+
+### La lentitud, medida en prod (sólo lectura)
+
+| Consulta | Lista (1,222 productos) | Detalle (uno) |
+|---|---|---|
+| Matvista | 245–363 ms | — |
+| Lo de hoy (`fn_new_products_movimientos`) | 340–400 ms | 28–51 ms |
+| **Existencia (`v_erp_stock_on_hand`)** | **1,736–2,270 ms** | **1,080–1,350 ms** |
+
+La vista de existencia calcula el factor de caja de **todo el catálogo** (`v_product_box_factor`, ~8,800
+productos y 79 mil renglones, dos veces: rama Kepler y rama Wincaja) en cada consulta, aunque se le pida un solo
+producto; el planificador no puede quitar ese cruce porque vive dentro de una agregación. Esta pantalla no usa
+ese factor.
+
+**Arreglo:** la existencia se lee directo de `kepler_ods.kdil` con las mismas reglas de la rama Kepler de la vista
+(almacén principal, SKU de servicio fuera, el `00` sólo desde su corte, piso en cero), en
+`new-products.sql.ts`. La unidad base sale de la ficha que la matvista ya trae por sucursal (`escalera_plaza.u1`).
+⚠️ La primera versión cruzaba también `v_kepler_unit_ladder` y pasó de 60 s: ese cruce no va dentro.
+
+| | Antes | Ahora |
+|---|---|---|
+| Existencia, lista | 1.7–2.3 s | **134–163 ms** |
+| Existencia, detalle | 1.1–1.35 s | **6–8 ms** |
+
+Contra prod, las 4,322 sucursal×producto **idénticas** a la vista. Candado en `test-newdb-new-products.js`
+(sección 11): corre el SQL REAL del servidor (no una copia) contra la vista; negativa: alterando la cantidad,
+fallan las 10 combinaciones sembradas. Prueba 161/161, pantalla 38/38, lógica 61/61. Sin migración.
+
+⚠️ La regla de la existencia queda escrita en dos lugares (la vista y esta consulta); el candado avisa si se
+separan. El arreglo de fondo sería que la vista no calcule el factor de caja para quien no lo pide.

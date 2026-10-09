@@ -210,6 +210,10 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Fixed — Productos nuevos: sin pantallazo y más rápida (NP.17, 2026-10-09)
+- El detalle ya no se vacía ni se vuelve a pintar cada minuto: conserva lo último mientras llega lo nuevo.
+- La existencia se lee directo de Kepler sin calcular el factor de caja de todo el catálogo: la lista pasa de ~2 s a ~0.15 s en esa consulta y el detalle de ~1.2 s a menos de 10 ms.
+
 ### Added — Productos nuevos: cuándo llegó y cómo se repartió (NP.16, 2026-10-09)
 - «Llegó a la empresa»: la fecha de la primera compra física en Kepler y en qué sucursales entró; avisa si el producto ya había entrado antes por un ajuste o un traspaso.
 - Unidades vendidas (cajas, paquetes, piezas, como las registró Kepler) en cada corte de 30, 60 y 90 días, y en el ranking de sucursales junto con la existencia de hoy.
