@@ -49,6 +49,122 @@ export class RouteProfitService {
 
   constructor(private readonly tk: TenantKnexService) {}
 
+  /**
+   * `[RD.58]` — **Quién viene empeorando.** Una foto de una quincena no contesta eso.
+   *
+   * Devuelve la serie por ruta a lo largo del año y, sobre ella, la **tendencia**: las últimas
+   * tres quincenas contra las tres anteriores. Es la pregunta que el libro no puede contestar
+   * porque cada quincena vive en su propia hoja.
+   *
+   * ⛔ **Sin meta, y se declara.** `budget.sales_plan_lines` tiene las 13 rutas de RD con 13
+   * periodos cada una, pero medido el 2026-10-08 los **tres** presupuestos cargados están en
+   * `borrador`, ninguno autorizado, uno marcado `is_test` y el único de 2026 se llama
+   * literalmente `prueba 2`. Además hay **tres filas por (ruta, periodo)** con montos distintos
+   * (461,357 / 574,368 / 574,368 en el periodo 1 de la ruta 21), así que unir sin elegir
+   * presupuesto **triplica la meta**. Publicar cumplimiento contra eso sería publicar una cifra
+   * inventada: la pantalla dice que no hay meta, no dibuja una.
+   *
+   * ⚠️ **Las dos series no cubren lo mismo.** El margen existe desde la primera quincena pagada;
+   * los kilómetros arrancan el **2026-07-27**, cuando empieza la historia de posiciones. Por eso
+   * cada tendencia trae su propio conteo de quincenas comparables, y la que no alcanza para
+   * comparar sale `sin_base`, no en cero.
+   */
+  async serie(anio?: number): Promise<SeriePeriodo> {
+    const year = anio && Number.isFinite(anio) ? anio : new Date().getFullYear();
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(`
+        WITH per AS (
+          SELECT p.id, p.anio, p.period_no, p.date_from, p.date_to
+            FROM commercial.commission_periods p
+           WHERE p.anio = ?
+        ), ventana AS (
+          SELECT min(date_from) AS desde, max(date_to) AS hasta FROM per
+        ), lin AS (
+          SELECT per.period_no,
+                 (per.date_to - per.date_from + 1)::int AS dias_de_la_quincena,
+                 l.route_code, l.beneficiario_nombre AS chofer, l.zona,
+                 l.subtotal, l.costo, l.comision, l.bonos, l.motivo_no_pago
+            FROM per
+            JOIN commercial.commission_runs r
+              ON r.period_id = per.id AND r.deleted_at IS NULL
+            JOIN commercial.commission_run_lines l
+              ON l.run_id = r.id AND l.deleted_at IS NULL AND l.beneficiario = 'chofer'
+        ), km AS (
+          -- ⚠️ El filtro por la ventana completa va ANTES de cruzar con los periodos: sin eso
+          -- la vista de kilómetros se recorre una vez por quincena.
+          SELECT per.period_no, k.route_code,
+                 sum(k.km)::bigint AS km,
+                 count(k.km)::int AS dias_medidos,
+                 count(*)::int AS dias_con_senal
+            FROM ventana v
+            JOIN analytics.v_rd_route_km_daily k
+              ON k.dia >= v.desde AND k.dia <= v.hasta
+            JOIN per ON k.dia >= per.date_from AND k.dia <= per.date_to
+           GROUP BY 1,2
+        )
+        SELECT li.route_code, li.chofer, li.zona, li.period_no,
+               round(li.subtotal, 2) AS subtotal,
+               round(li.costo, 2) AS costo,
+               round(li.subtotal - li.costo, 2) AS utilidad_bruta,
+               CASE WHEN li.subtotal > 0
+                    THEN round((li.subtotal - li.costo) / li.subtotal * 100, 2) END AS margen_pct,
+               round(li.comision + li.bonos, 2) AS comision,
+               li.motivo_no_pago,
+               k.km, k.dias_medidos, k.dias_con_senal, li.dias_de_la_quincena,
+               -- ⛔⛔ El $/km SÓLO sale con la quincena completa de GPS. Medido el 2026-10-08:
+               -- la Q15 tenía 3 días de señal de 14 y la Q16 once, así que dividir la venta de
+               -- catorce días entre tres kilómetros daba $373 contra los ~$210 de una quincena
+               -- entera, y las SEIS rutas con GPS salían «empeorando» a la vez. No empeoraron:
+               -- se completó la medición. Es el denominador incompleto de [IC.8].
+               CASE WHEN k.km > 0 AND k.dias_con_senal >= li.dias_de_la_quincena
+                    THEN round(li.subtotal / k.km, 2) END AS venta_por_km,
+               CASE WHEN k.km IS NULL THEN 'sin_gps'
+                    WHEN k.dias_con_senal < li.dias_de_la_quincena THEN 'parcial'
+                    ELSE 'completa' END AS cobertura_km
+          FROM lin li
+          LEFT JOIN km k ON k.route_code = li.route_code AND k.period_no = li.period_no
+         ORDER BY li.route_code, li.period_no`, [year]);
+
+      const porRuta = new Map<string, SerieRuta>();
+      for (const r of rows as PuntoCrudo[]) {
+        if (!porRuta.has(r.route_code)) {
+          porRuta.set(r.route_code, {
+            route_code: r.route_code, chofer: r.chofer, zona: r.zona, puntos: [],
+            margen: sinTendencia(), venta_por_km: sinTendencia(),
+          });
+        }
+        porRuta.get(r.route_code)!.puntos.push({
+          period_no: r.period_no,
+          subtotal: Number(r.subtotal), costo: Number(r.costo),
+          utilidad_bruta: Number(r.utilidad_bruta),
+          margen_pct: r.margen_pct === null ? null : Number(r.margen_pct),
+          comision: Number(r.comision),
+          motivo_no_pago: r.motivo_no_pago,
+          km: r.km === null ? null : Number(r.km),
+          dias_medidos: r.dias_medidos, dias_con_senal: r.dias_con_senal,
+          dias_de_la_quincena: r.dias_de_la_quincena,
+          cobertura_km: r.cobertura_km,
+          venta_por_km: r.venta_por_km === null ? null : Number(r.venta_por_km),
+        });
+      }
+      for (const ruta of porRuta.values()) {
+        ruta.margen = tendencia(ruta.puntos.map((p) => p.margen_pct));
+        ruta.venta_por_km = tendencia(ruta.puntos.map((p) => p.venta_por_km));
+      }
+
+      const rutas = [...porRuta.values()].sort((a, b) => orden(a.margen) - orden(b.margen));
+      const huecos: Hueco[] = [{
+        clave: 'sin_meta_autorizada',
+        detalle: 'Las 13 rutas tienen renglones en el plan de ventas, pero los tres presupuestos cargados están en borrador, ninguno autorizado, y el único de 2026 se llama «prueba 2». No se publica cumplimiento contra una meta que nadie firmó.',
+      }, {
+        clave: 'km_arrancan_en_julio',
+        detalle: 'La historia de posiciones del GPS arranca el 2026-07-27, así que la tendencia de venta por kilómetro tiene menos quincenas comparables que la de margen.',
+      }];
+
+      return { anio: year, rutas, huecos };
+    });
+  }
+
   /** Quincenas que tienen una corrida con renglones: lo que se puede abrir. */
   async periodos(): Promise<PeriodoDisponible[]> {
     const { rows } = await this.tk.run(async (trx) => trx.raw(`
@@ -377,4 +493,101 @@ export interface RentabilidadPeriodo {
   totales: Totales & { margen_pct: number | null; gasto_departamento: number };
   procedencia: { gasto_calculado_at: Date | null; km_desde: string | null; km_hasta: string | null };
   huecos: Hueco[];
+}
+
+/**
+ * `[RD.58]` Tendencia: el promedio de las últimas N contra las N anteriores.
+ *
+ * ⛔ **Tres quincenas de cada lado, y si no alcanzan se DECLARA.** Con una sola quincena por
+ * lado cualquier semana rara se lee como tendencia; con menos de dos no hay nada que comparar
+ * y el veredicto es `sin_base`, que **no es lo mismo** que «no cambió» (ADR-056). Los puntos
+ * sin cifra (la ruta no vendió, o no tuvo GPS) se saltan: promediarlos como cero inventaría
+ * una caída.
+ */
+const VENTANA_TENDENCIA = 3;
+
+function tendencia(serie: (number | null)[]): Tendencia {
+  const v = serie.filter((x): x is number => x !== null && Number.isFinite(x));
+  if (v.length < 4) return { ...sinTendencia(), puntos: v.length };
+  const n = Math.min(VENTANA_TENDENCIA, Math.floor(v.length / 2));
+  const prom = (xs: number[]): number => xs.reduce((a, b) => a + b, 0) / xs.length;
+  const reciente = prom(v.slice(-n));
+  const previo = prom(v.slice(-2 * n, -n));
+  const delta = reciente - previo;
+  return {
+    reciente: Number(reciente.toFixed(2)),
+    previo: Number(previo.toFixed(2)),
+    delta: Number(delta.toFixed(2)),
+    quincenas: n,
+    puntos: v.length,
+    veredicto: delta <= -UMBRAL_SENSIBLE ? 'empeora' : delta >= UMBRAL_SENSIBLE ? 'mejora' : 'estable',
+  };
+}
+
+/**
+ * Cuánto tiene que moverse para llamarlo movimiento. ⚠️ Es el mismo número para margen (puntos
+ * porcentuales) y para venta por kilómetro (pesos), y **eso es a propósito en la primera
+ * entrega**: con 20 quincenas no hay base para calibrar dos umbrales distintos, y dos números
+ * inventados se defienden peor que uno declarado. Cuando haya historia se saca del dato.
+ */
+const UMBRAL_SENSIBLE = 1;
+
+const sinTendencia = (): Tendencia => ({
+  reciente: null, previo: null, delta: null, quincenas: 0, puntos: 0, veredicto: 'sin_base',
+});
+
+/** Ordena primero lo que empeora: un tablero que esconde la caída no sirve de tablero. */
+function orden(t: Tendencia): number {
+  if (t.veredicto === 'sin_base') return 1e9;
+  return t.delta ?? 0;
+}
+
+export interface Tendencia {
+  reciente: number | null;
+  previo: number | null;
+  delta: number | null;
+  /** Cuántas quincenas entraron de cada lado. */
+  quincenas: number;
+  /** Cuántos puntos con cifra tenía la serie entera. */
+  puntos: number;
+  veredicto: 'empeora' | 'mejora' | 'estable' | 'sin_base';
+}
+
+export interface SeriePunto {
+  period_no: number;
+  subtotal: number; costo: number; utilidad_bruta: number;
+  margen_pct: number | null;
+  comision: number;
+  motivo_no_pago: string | null;
+  km: number | null;
+  dias_medidos: number | null;
+  dias_con_senal: number | null;
+  dias_de_la_quincena: number;
+  /** completa = los 14 dias con senal; parcial = el denominador esta incompleto y NO se publica $/km. */
+  cobertura_km: 'completa' | 'parcial' | 'sin_gps';
+  venta_por_km: number | null;
+}
+
+export interface SerieRuta {
+  route_code: string;
+  chofer: string | null;
+  zona: string | null;
+  puntos: SeriePunto[];
+  margen: Tendencia;
+  venta_por_km: Tendencia;
+}
+
+export interface SeriePeriodo {
+  anio: number;
+  rutas: SerieRuta[];
+  huecos: Hueco[];
+}
+
+interface PuntoCrudo {
+  route_code: string; chofer: string | null; zona: string | null; period_no: number;
+  subtotal: string; costo: string; utilidad_bruta: string; margen_pct: string | null;
+  comision: string; motivo_no_pago: string | null;
+  km: string | null; dias_medidos: number | null; dias_con_senal: number | null;
+  dias_de_la_quincena: number; cobertura_km: 'completa' | 'parcial' | 'sin_gps';
+  venta_por_km: string | null;
 }

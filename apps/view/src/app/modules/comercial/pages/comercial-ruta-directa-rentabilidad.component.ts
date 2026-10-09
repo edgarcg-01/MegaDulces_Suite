@@ -5,6 +5,7 @@ import { MetricStripComponent, MetricStripItem } from '../../../shared/component
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
   ComercialService, RouteProfit, RouteProfitPeriodo, RouteProfitRuta, RouteProfitPlaza,
+  RouteProfitSerie, RouteProfitSerieRuta, RouteProfitTendencia,
 } from '../comercial.service';
 
 /**
@@ -228,6 +229,69 @@ import {
             </div>
           }
 
+          @if (tab() === 'serie') {
+            @if (serie(); as s) {
+              <p class="rp-note">
+                Las <b>últimas tres quincenas contra las tres anteriores</b>. Ordenado por lo que
+                más cae: un tablero que esconde la caída no sirve de tablero.
+              </p>
+              <div class="rp-wrap dt-scope">
+                <table class="rp-table dt-stack">
+                  <caption class="sr-only">Tendencia por ruta a lo largo del año</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Ruta</th>
+                      <th scope="col">Chofer</th>
+                      <th scope="col" class="num">Quincenas</th>
+                      <th scope="col" class="num">Margen antes</th>
+                      <th scope="col" class="num">Margen ahora</th>
+                      <th scope="col">Margen</th>
+                      <th scope="col" class="num">$/km antes</th>
+                      <th scope="col" class="num">$/km ahora</th>
+                      <th scope="col">Venta por km</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @for (r of s.rutas; track r.route_code) {
+                      <tr [class.rp-flag]="r.margen.veredicto === 'empeora' || r.venta_por_km.veredicto === 'empeora'">
+                        <td role="cell" data-label="Ruta" class="mono dt-id">{{ r.route_code }}</td>
+                        <td role="cell" data-label="Chofer">{{ r.chofer || '—' }}</td>
+                        <td role="cell" data-label="Quincenas" class="num dt-num mono dim">{{ r.puntos.length }}</td>
+                        <td role="cell" data-label="Margen antes" class="num dt-num mono dim">{{ pct(r.margen.previo) }}</td>
+                        <td role="cell" data-label="Margen ahora" class="num dt-num mono">{{ pct(r.margen.reciente) }}</td>
+                        <td role="cell" data-label="Margen">
+                          <span [class]="claseTend(r.margen)">{{ etiquetaTend(r.margen, 'pp') }}</span>
+                        </td>
+                        <td role="cell" data-label="$/km antes" class="num dt-num mono dim">{{ pesos(r.venta_por_km.previo) }}</td>
+                        <td role="cell" data-label="$/km ahora" class="num dt-num mono">{{ pesos(r.venta_por_km.reciente) }}</td>
+                        <td role="cell" data-label="Venta por km">
+                          <span [class]="claseTend(r.venta_por_km)">{{ etiquetaTend(r.venta_por_km, '') }}</span>
+                        </td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+
+              <section class="rp-gaps" aria-label="Por qué hay rutas sin tendencia">
+                <h2>Por qué hay rutas sin tendencia</h2>
+                <ul>
+                  @for (h of s.huecos; track h.clave) {
+                    <li><b>{{ etiquetaHueco(h.clave) }}</b> — {{ h.detalle }}</li>
+                  }
+                  <li>
+                    <b>«Sin base» no es «no cambió»</b> — hacen falta cuatro quincenas con cifra
+                    para comparar. Una quincena de GPS incompleto <strong>no entra</strong>: su
+                    venta es de catorce días y sus kilómetros de tres, y esa división inventaba
+                    una caída.
+                  </li>
+                </ul>
+              </section>
+            } @else {
+              <p class="rp-note">Cargando la serie…</p>
+            }
+          }
+
           @if (tab() === 'comision') {
             <section class="rp-contraste">
               <div class="rp-cmp">
@@ -370,8 +434,11 @@ export class ComercialRutaDirectaRentabilidadComponent {
   readonly periodId = signal<string | null>(null);
   readonly tab = signal('rutas');
 
+  readonly serie = signal<RouteProfitSerie | null>(null);
+
   readonly pestanas: SegOption[] = [
     { label: 'Por ruta', value: 'rutas' },
+    { label: 'Quién viene empeorando', value: 'serie' },
     { label: 'Por plaza', value: 'plazas' },
     { label: 'La comisión', value: 'comision' },
   ];
@@ -406,7 +473,39 @@ export class ComercialRutaDirectaRentabilidadComponent {
       next: (p) => this.periodos.set(p),
       error: () => this.periodos.set([]),
     });
+    // La serie es del AÑO: no depende de la quincena elegida, así que se pide una sola vez.
+    this.svc.routeProfitSerie().subscribe({
+      next: (s) => this.serie.set(s),
+      error: () => this.serie.set(null),
+    });
     this.cargar();
+  }
+
+  /** ⛔ El veredicto lo emite el SERVIDOR; acá sólo se pinta. */
+  claseTend(t: RouteProfitTendencia): string {
+    if (t.veredicto === 'empeora') return 'rp-neg';
+    if (t.veredicto === 'mejora') return 'rp-alto';
+    return 'rp-nd';
+  }
+
+  etiquetaTend(t: RouteProfitTendencia, unidad: string): string {
+    if (t.veredicto === 'sin_base') {
+      return t.puntos === 0 ? 'sin medir' : `sin base · ${t.puntos} quincena${t.puntos === 1 ? '' : 's'}`;
+    }
+    const signo = (t.delta ?? 0) > 0 ? '+' : '';
+    const n = unidad === 'pp'
+      ? `${signo}${t.delta} pp`
+      : `${signo}${this.dinero(t.delta ?? 0)}`;
+    const cual = t.veredicto === 'empeora' ? 'baja' : t.veredicto === 'mejora' ? 'sube' : 'estable';
+    return `${cual} ${n}`;
+  }
+
+  pct(v: number | null): string {
+    return v === null ? '—' : `${v}%`;
+  }
+
+  pesos(v: number | null): string {
+    return v === null ? '—' : this.dinero(v);
   }
 
   elegir(id: string): void {
@@ -491,6 +590,8 @@ export class ComercialRutaDirectaRentabilidadComponent {
     const t: Record<string, string> = {
       rutas_sin_gps: 'Kilómetros que no existen',
       km_antes_del_historial: 'Kilómetros incompletos',
+      sin_meta_autorizada: 'Sin meta que comparar',
+      km_arrancan_en_julio: 'La serie de kilómetros es más corta',
       gasto_no_baja_a_la_ruta: 'El gasto llega al departamento',
       sin_litros: 'Sin litros',
       comision_libro_vs_contabilidad: 'La comisión no cuadra',

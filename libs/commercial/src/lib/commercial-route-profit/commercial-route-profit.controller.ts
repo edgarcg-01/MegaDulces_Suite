@@ -2,7 +2,7 @@ import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
-  RouteProfitService, type PeriodoDisponible, type RentabilidadPeriodo,
+  RouteProfitService, type PeriodoDisponible, type RentabilidadPeriodo, type SeriePeriodo,
 } from './route-profit.service';
 
 /**
@@ -22,6 +22,16 @@ export class CommercialRouteProfitController {
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_PROFIT_VER)
   periodos(): Promise<PeriodoDisponible[]> {
     return this.svc.periodos();
+  }
+
+  /**
+   * `[RD.58]` La serie del año y la tendencia por ruta: quién viene empeorando.
+   * Sin `anio` toma el corriente.
+   */
+  @Get('series')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_PROFIT_VER)
+  serie(@Query('anio') anio?: string): Promise<SeriePeriodo> {
+    return this.svc.serie(anio ? Number(anio) : undefined);
   }
 
   /** El tablero de una quincena. Sin `period_id` abre la última con renglones. */
