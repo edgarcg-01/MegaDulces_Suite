@@ -186,7 +186,8 @@ export class RouteProfitService {
       if (!per) throw new NotFoundException(`no existe la quincena ${periodNo} de ${anio}`);
 
       const { rows: renglones } = await trx.raw(`
-        SELECT to_char(e.fecha, 'YYYY-MM-DD') AS fecha,
+        SELECT e.id,
+               to_char(e.fecha, 'YYYY-MM-DD') AS fecha,
                e.dpto,
                btrim(regexp_replace(e.dpto_nombre, '[. ]+$', '')) AS dpto_norm,
                pl.plaza,
@@ -821,6 +822,12 @@ interface PuntoCrudo {
  * ⛔ Se publica **como texto**, sin intentar derivar la ruta de él: eso sería adivinar.
  */
 export interface GastoRenglon {
+  /**
+   * La llave REAL del renglón, del servidor. ⛔ No se arma pegando campos: dos renglones del
+   * mismo documento pueden compartir concepto, fecha e importe, y un `track` que colisiona
+   * hace que Angular reutilice la fila equivocada al reordenar.
+   */
+  id: string;
   fecha: string;
   dpto: string; dpto_norm: string; plaza: string | null;
   concepto: string; concepto_norm: string; familia: string;
