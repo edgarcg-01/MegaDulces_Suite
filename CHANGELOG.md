@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Changed — Cambios de precio: un código, una fila; y se confirma qué precio lleva la etiqueta (ETQ-CAMBIOS.8, 2026-10-09)
+- La bitácora de Kepler escribe una fila por presentación y el mismo código salía tres veces (91059: caja, 500, 500), lo que confundía. Ahora hay **una fila por código** con una línea por presentación («Qué cambió»: unidad, antes → ahora, %). La selección y los totales de arriba cuentan **productos**, no renglones; suben + bajan + sin precio suman el total.
+- La barra de impresión trae **«Precio en la etiqueta»: Todos los precios / Pieza / Paquete / Caja**. La etiquetera lo aplica a cada producto al llegar. Con Pieza/Paquete/Caja se pone esa presentación en grande y se quita «Otras presentaciones»; al producto que no la tiene se le deja su precio de siempre y **se avisa** cuál es. «Pieza» es la presentación base del ERP.
+- Sin cambio en qué cambió ni en la fuente (misma bitácora, mismo endpoint). Sin migraciones ni permisos nuevos → sin re-login. Requiere redeploy de view. ⚠️ Sin validación visual en navegador.
 ### Changed — Logística: la guía se llena sólo en la pestaña Guías (EMB.22, 2026-10-09)
 - **Hoja de «Nuevo embarque»:** ya no pide tripulación ni horario. Lo que trae Kepler se ve bloqueado; lo que no, dice «Se captura en Guías» (ayudantes, salida, llegada y el chofer si Kepler no lo trae) o «Se calculan en Guías» (comisión y viáticos). Peso, kilómetros y flete se siguen capturando ahí.
 - **Al tomar el viaje** la guía nace incompleta con lo de Kepler. En **Guías** aparece «Incompleta» con el botón **Completar**: el chofer de Kepler va bloqueado, se capturan ayudantes y horario una sola vez y se calculan comisión y viáticos; después ya no se edita.
