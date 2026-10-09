@@ -2,7 +2,8 @@ import * as hd from './horario-deducido';
 
 /**
  * Fase RH · `[RH.1.5]` — la comida, las horas netas y el desayuno de UN día. Copia textual de
- * `detalleDia` en `mega-talento-90/api/src/agente-horarios/asistencia-personas.ts` @ 5ca5f2a.
+ * `detalleDia` en `mega-talento-90/api/src/agente-horarios/asistencia-personas.ts` @ 5ca5f2a, más la corrección
+ * del desayuno de 091ea65 (08/10/2026, `[RH.1.5b]`).
  *
  * La primera y la última marca son la jornada; las de en medio son salidas y regresos, y lo
  * que se descuenta es el tiempo FUERA, DE A PARES (no del primero al último: con seis marcas
@@ -57,12 +58,16 @@ export function detalleDia(marcasCrudas: string[], desayuno?: ConfigDesayuno): D
   let fuera = 0;
   let desayunoMin: number | null = null;
   let pausas = 0;
+  // `[RH.1.5b]` Con una sola pausa, ESA PAUSA ES LA COMIDA: el desayuno sólo existe si el día trae dos
+  // (Mega Talento 091ea65, 08/10/2026). Antes bastaba con que empezara antes del corte, y la comida de
+  // una tienda a las 11:22 salía como «desayuno de 59 min». Mismo criterio que `reglaDesayunoExcedido`.
+  const hayDosPausas = Math.floor(medio.length / 2) >= 2;
   for (let i = 0; i < medio.length; i += 2) {
     if (i + 1 < medio.length) {
       tramos.push(`${hd.aHora(medio[i])} – ${hd.aHora(medio[i + 1])}`);
       fuera += medio[i + 1] - medio[i];
       pausas++;
-      if (desayuno && desayunoMin == null && medio[i] < desayuno.hastaMin) {
+      if (desayuno && hayDosPausas && desayunoMin == null && medio[i] < desayuno.hastaMin) {
         const dur = medio[i + 1] - medio[i];
         if (dur <= desayuno.maxPlausibleMin) desayunoMin = dur;
       }

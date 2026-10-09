@@ -55,5 +55,11 @@ export function incidencia(over: Partial<HrIncidenciaDto> = {}): HrIncidenciaDto
 /** Un `PermissionsService` falso con exactamente estas claves. */
 export function permisos(...claves: string[]) {
   const set = new Set(claves);
-  return { has: (p: string) => set.has(p) };
+  return { has: (p: string) => set.has(p), hasAny: (...ps: string[]) => ps.some((p) => set.has(p)), isAdmin: () => false };
+}
+
+/** Un `AuthService` falso con las mismas claves (las pestañas leen los permisos del usuario). */
+export function authCon(...claves: string[]) {
+  const permissions = Object.fromEntries(claves.map((c) => [c, true]));
+  return { user: () => ({ permissions }), isAuthenticated: true };
 }

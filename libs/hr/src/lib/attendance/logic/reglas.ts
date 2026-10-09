@@ -1,8 +1,10 @@
 import { EntradaDia, Inconsistencia, ChecadaMin, Severidad } from './tipos';
+import { DUPLICADA_MIN } from './horario-deducido';
 
 /**
  * Fase RH · `[RH.1.5]` — copia TEXTUAL de `mega-talento-90/api/src/agente-horarios/reglas.ts`
- * @ 2030086 (2026-09-28). Ver la procedencia en `horario-deducido.ts`. Lo único que cambió es
+ * @ 2030086 (2026-09-28), más la corrección del desayuno de 14c2b60 y 091ea65 (08/10/2026, `[RH.1.5b]`,
+ * en `reglaDesayunoExcedido`). Ver la procedencia en `horario-deducido.ts`. Lo único que cambió es
  * el tipado de la evidencia (`unknown` en vez de `any`, regla de lint de la Suite).
  *
  * MOTOR DE DETECCIÓN — lógica PURA (sin DB, sin Express). Testeable directo:
@@ -255,9 +257,20 @@ function reglaDesayunoExcedido(e: EntradaDia): Inconsistencia | null {
   const corte = minDeHora(config.desayunoHastaHora);
   if (corte == null) return null;
 
-  const marcas = aMarcas(e.checadas);
+  // `[RH.1.5b]` (Mega Talento 14c2b60 y 091ea65, 08/10/2026). Dos cosas, las dos para decir lo mismo que la
+  // pantalla (`detalle-dia.ts`):
+  //  · Las lecturas repetidas del lector (a menos de DUPLICADA_MIN) son UNA sola, como en
+  //    `colapsarDuplicadas`. Sin esto, una entrada marcada dos veces (07:29 y 07:29) se volvía «pausa» y la
+  //    alerta decía «desayuno de 116 min (07:29–09:25)».
+  //  · Con UNA sola pausa, esa pausa es la comida: el desayuno sólo existe si el día trae dos. Allá esta regla
+  //    sola generaba 553 de las 584 alertas de desayuno excedido de un mes, todas comidas de tienda.
+  const marcas = aMarcas(e.checadas).reduce<Marca[]>((out, m) => {
+    if (!out.length || m.min - out[out.length - 1].min >= DUPLICADA_MIN) out.push(m);
+    return out;
+  }, []);
   if (marcas.length < 4) return null;            // sin jornada + una pausa entera
   const medio = marcas.slice(1, -1);
+  if (Math.floor(medio.length / 2) < 2) return null;
 
   let pausa: { ini: Marca; fin: Marca } | null = null;
   for (let i = 0; i + 1 < medio.length; i += 2) {

@@ -35,6 +35,12 @@ export interface PageTab {
    * no comparten prefijo, así que `exact: false` tampoco alcanzaba.
    */
   alsoActiveOn?: string[];
+  /**
+   * `[RH.1.7c]` Cuántas cosas esperan en esa pestaña («Faltas 3»). Nace en Asistencia de RH, que calca las
+   * pestañas de Mega Talento: el número dice dónde hay trabajo sin tener que entrar a cada una. Cero o null no se
+   * pinta (no se dibuja un cero que parezca «todo bien» cuando no se pudo medir).
+   */
+  badge?: number | null;
 }
 
 /**
@@ -76,6 +82,7 @@ export interface PageTab {
               >
                 @if (t.icon) { <i [class]="t.icon" aria-hidden="true"></i> }
                 <span>{{ t.label }}</span>
+                @if (t.badge) { <span class="ptab-num" aria-hidden="true">{{ t.badge }}</span><span class="sr-only">, {{ t.badge }} por atender</span> }
               </a>
             }
           </div>
@@ -96,6 +103,7 @@ export interface PageTab {
                 <i [class]="t.icon" aria-hidden="true"></i>
               }
               <span>{{ t.label }}</span>
+              @if (t.badge) { <span class="ptab-num" aria-hidden="true">{{ t.badge }}</span><span class="sr-only">, {{ t.badge }} por atender</span> }
             </a>
           }
         </nav>
@@ -138,6 +146,13 @@ export interface PageTab {
       }
       .ptab i {
         font-size: 0.9rem;
+      }
+      .ptab-num {
+        font: 700 var(--fs-micro) / 1 var(--font-mono);
+        padding: 3px 6px;
+        border-radius: var(--r-pill);
+        background: var(--bad-soft-bg);
+        color: var(--bad-soft-fg);
       }
       .pt-liquid-wrap {
         margin-bottom: 1rem;

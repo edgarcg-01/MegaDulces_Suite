@@ -131,6 +131,49 @@ export async function padron(trx: Knex.Transaction, siteCode: string): Promise<{
   return { fichas, personas };
 }
 
+/**
+ * `[RH.1.7c]` El directorio de TODAS las plazas: para buscar a alguien sin saber dónde checa (el «Buscar en todas
+ * las plazas» de Mega Talento). La misma regla que `padron`, sitio por sitio: un renglón por código del sitio, manda
+ * el que está ligado a una persona y, entre iguales, el visto más recientemente; sin los que RH marcó `ignorado` y
+ * sólo de sitios activos. A diferencia del padrón, INCLUYE los códigos sin ligar (con el nombre del reloj): son
+ * justo los que RH más busca, porque salen en el reporte «fuera del padrón».
+ */
+export interface FilaDirectorio {
+  site_code: string;
+  site_name: string;
+  codigo: string;
+  nombre: string;
+  departamento: string | null;
+  ligado: boolean;
+  promotora: boolean;
+}
+
+export async function directorio(trx: Knex.Transaction): Promise<FilaDirectorio[]> {
+  const { rows } = await trx.raw<{ rows: Array<{
+    site_code: string; site_name: string; code: string; device_name: string | null; user_id: string | null;
+    nombre: string | null; status: string | null; department_code: string | null; department_name: string | null;
+  }> }>(`
+    SELECT DISTINCT ON (d.site_code, COALESCE(e.person_code, e.device_user_id))
+           d.site_code, s.name AS site_name, COALESCE(e.person_code, e.device_user_id) AS code,
+           e.device_name, e.user_id, u.nombre, u.status, u.department_code, dep.name AS department_name
+      FROM hr.device_enrollments e
+      JOIN hr.attendance_devices d ON d.tenant_id = e.tenant_id AND d.id = e.device_id
+      JOIN hr.attendance_sites s ON s.tenant_id = d.tenant_id AND s.code = d.site_code AND s.is_active
+      LEFT JOIN identity.users u ON u.id = e.user_id
+      LEFT JOIN identity.departments dep ON dep.tenant_id = u.tenant_id AND dep.code = u.department_code AND dep.deleted_at IS NULL
+     WHERE e.match_status <> 'ignorado'
+     ORDER BY d.site_code, COALESCE(e.person_code, e.device_user_id), (e.user_id IS NULL), e.last_seen_at DESC`);
+  return rows.map((r) => {
+    const ligado = !!r.user_id && r.status !== null;   // el mismo criterio que `padron`: la persona existe
+    const departamento = ligado ? [r.department_name, r.department_code].filter(Boolean).join(' · ') || null : null;
+    return {
+      site_code: r.site_code, site_name: r.site_name, codigo: r.code,
+      nombre: (ligado && r.nombre) || r.device_name || r.code,
+      departamento, ligado, promotora: esPromotora({ departamento }),
+    };
+  });
+}
+
 // ── Horarios ────────────────────────────────────────────────────────────────────────────────
 
 export async function horariosDelSitio(trx: Knex.Transaction, siteCode: string): Promise<HorarioSitio[]> {

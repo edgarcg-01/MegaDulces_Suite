@@ -1,11 +1,13 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { vi } from 'vitest';
 import type { HrLotePendienteDto, HrRelojDto, HrRelojEstadoDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
+import { AuthService } from '../../../core/services/auth.service';
 import { Permission } from '../../../core/constants/permissions';
 import { RhService } from '../rh.service';
-import { SITIOS, permisos } from '../../../../testing/rh.fixture';
+import { SITIOS, asistencia, authCon, permisos } from '../../../../testing/rh.fixture';
 import { RhRelojesComponent } from './rh-relojes.component';
 
 /**
@@ -44,12 +46,19 @@ describe('[RH.1.7] RhRelojesComponent', () => {
       renombrar: vi.fn(() => of({ ok: true, nombre: 'NUEVO', relojes: 2 })),
       restaurar: vi.fn(() => of({ ok: true, relojes: 2 })),
       cancelarOrden: vi.fn(() => of({ ok: true })),
+      // `[RH.1.7c]` Lo que pide el marco de las pestañas (los contadores).
+      asistencia: vi.fn(() => of(asistencia([]))),
+      incidencias: vi.fn(() => of([])),
+      estadoCierre: vi.fn(() => of([])),
+      directorio: vi.fn(() => of([])),
     };
     await TestBed.configureTestingModule({
       imports: [RhRelojesComponent],
       providers: [
+        provideRouter([]),
         { provide: RhService, useValue: api },
         { provide: PermissionsService, useValue: permisos(...o.claves) },
+        { provide: AuthService, useValue: authCon(...o.claves) },
       ],
     }).compileComponents();
     fix = TestBed.createComponent(RhRelojesComponent);

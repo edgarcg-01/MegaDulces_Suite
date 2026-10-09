@@ -22,6 +22,22 @@ export interface HrSiteDto {
   is_active: boolean;
 }
 
+/**
+ * `GET /hr/attendance/people` — `[RH.1.7c]` el directorio de todas las plazas, para buscar a alguien sin saber dónde
+ * checa. Un renglón por código de cada sitio; los códigos sin ligar a una persona traen el nombre del reloj.
+ */
+export interface HrPersonaDirectorioDto {
+  site_code: string;
+  site_name: string;
+  codigo: string;
+  nombre: string;
+  departamento: string | null;
+  /** Ligado a una persona de la Suite. */
+  ligado: boolean;
+  /** De promotoría de marca: se ve en la vista de Promotoras, no en la de planta. */
+  promotora: boolean;
+}
+
 // ── Asistencia por persona ───────────────────────────────────────────────────────────────
 
 export const HR_ESTADOS_DIA = ['a_tiempo', 'absorbido', 'retardo', 'falta', 'descanso', 'marca_faltante', 'justificado'] as const;

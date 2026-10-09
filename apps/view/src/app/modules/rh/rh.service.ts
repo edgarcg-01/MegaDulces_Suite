@@ -3,7 +3,7 @@ import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http'
 import { Observable } from 'rxjs';
 import type {
   HrAccionIncidencia, HrAsistenciaResponse, HrCapturaIncidenciaBody, HrCierreDto, HrEstadoDia, HrEstadoIncidencia,
-  HrHorarioPersonaBody, HrIncidenciaDto, HrLotePendienteDto, HrOrdenesResponse, HrPasoIncidenciaDto, HrRelojBody,
+  HrHorarioPersonaBody, HrIncidenciaDto, HrLotePendienteDto, HrOrdenesResponse, HrPasoIncidenciaDto, HrPersonaDirectorioDto, HrRelojBody,
   HrRelojDto, HrRelojEstadoDto, HrSemaforoReloj, HrSiteDto, HrTipoIncidenciaDto,
 } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
@@ -23,6 +23,11 @@ export class RhService {
 
   asistencia(q: { site_code: string; date_from: string; date_to: string; only_promoters?: boolean }): Observable<HrAsistenciaResponse> {
     return this.http.get<HrAsistenciaResponse>(`${this.base}/report`, { params: this.params({ ...q, only_promoters: q.only_promoters ? '1' : undefined }) });
+  }
+
+  /** `[RH.1.7c]` Las personas de todas las plazas, para «Buscar en todas las plazas». */
+  directorio(): Observable<HrPersonaDirectorioDto[]> {
+    return this.http.get<HrPersonaDirectorioDto[]>(`${this.base}/people`);
   }
 
   asignarHorario(b: HrHorarioPersonaBody): Observable<{ ok: true; guardados: number }> {
@@ -57,6 +62,11 @@ export class RhService {
 
   cierres(site_code: string): Observable<HrCierreDto[]> {
     return this.http.get<HrCierreDto[]>(`${this.base}/closures`, { params: this.params({ site_code }) });
+  }
+
+  /** `[RH.1.7c]` Las semanas CERRADAS (vigentes) que toca un periodo. */
+  estadoCierre(site_code: string, date_from: string, date_to: string): Observable<HrCierreDto[]> {
+    return this.http.get<HrCierreDto[]>(`${this.base}/closures/status`, { params: this.params({ site_code, date_from, date_to }) });
   }
 
   cerrarSemana(site_code: string, period_start: string): Observable<HrCierreDto> {
