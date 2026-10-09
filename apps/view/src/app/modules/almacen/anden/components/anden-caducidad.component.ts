@@ -12,7 +12,8 @@ import { formatExpiryEcho, parseExpiryShort, maskExpiryMx } from '../../shared/e
 export interface FechadoEntrada {
   cantidad: number;
   lote: string;
-  caducidadIso: string;
+  /** `null` = el producto no cuenta con fecha de caducidad (`[WMS-REC.22]`): entra como lote NA. */
+  caducidadIso: string | null;
   fotoDataUri: string | null;
 }
 
@@ -51,6 +52,11 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
  *  - **La caducidad se teclea en 4 dígitos** (`0327` = marzo 2027, último día del
  *    mes; `150327` = 15/03/2027). Sin separadores: se hace con guantes.
  *  - **El OCR corre solo** al tomar la foto. El humano confirma; el OCR propone.
+ *
+ * `[WMS-REC.22]` **Un producto puede no tener caducidad** (bolsas, velas, desechables). Para eso hay
+ * un botón chico, no un campo más: con él el renglón se guarda sin fecha y entra como lote NA, que
+ * es como el servidor ya trataba una captura sin caducidad (verde, sin semáforo). Queda a la vista
+ * en Llegadas al andén como «sin caducidad», así que se puede auditar quién lo declaró.
  */
 @Component({
   selector: 'app-anden-caducidad',
@@ -106,6 +112,7 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
         </section>
       }
 
+      @if (!sinCaducidad()) {
       <label class="fx-foto">
         <span class="fx-foto-btn" [class.fx-busy]="ocrCorriendo()">
           <i class="pi" [class.pi-camera]="!ocrCorriendo()" [class.pi-spin]="ocrCorriendo()"
@@ -137,6 +144,17 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
           → {{ eco(iso()) }}@if (repetida()) { · ya agregaste esta fecha }
         } @else { DD/MM/AA · o sólo MM/AA si la etiqueta no trae día }
       </p>
+      <!-- Chico a propósito: es la excepción, no el camino. Sólo se ofrece mientras no haya
+           fechas en la lista: un mismo producto no llega con y sin caducidad a la vez. -->
+      @if (!entradas().length) {
+        <button type="button" class="fx-sincad" (click)="marcarSinCaducidad()">Este producto no cuenta con fecha de caducidad</button>
+      }
+      } @else {
+        <div class="fx-sinc">
+          <span>Sin fecha de caducidad · entra como lote NA</span>
+          <button type="button" class="fx-sincad" (click)="sinCaducidad.set(false)">Sí tiene caducidad</button>
+        </div>
+      }
 
       <div class="fx-sem" [class]="'fx-sem--' + semaforo()">
         <span class="fx-dot" aria-hidden="true"></span>{{ textoSemaforo() }}
@@ -247,6 +265,18 @@ type Semaforo = 'g' | 'y' | 'r' | 'n';
       letter-spacing: .12em; font-variant-numeric: tabular-nums; }
     .fx-eco { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); text-align: center; min-height: 1.2em; }
     .fx-mal { color: var(--bad-fg); }
+    .fx-sincad {
+      align-self: center; min-height: 36px; padding: 0 var(--sp-2); cursor: pointer;
+      background: none; border: 0; color: var(--text-muted); font: inherit; font-size: var(--fs-xs);
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .fx-sincad:hover { color: var(--action); }
+    .fx-sincad:focus-visible { outline: 2px solid var(--action-ring); outline-offset: 2px; border-radius: var(--r-sm); }
+    .fx-sinc {
+      display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap;
+      padding: var(--sp-1) var(--sp-3); border: 1px dashed var(--border-color); border-radius: var(--r-sm);
+      font-size: var(--fs-xs); color: var(--text-main);
+    }
     .fx-sem { display: flex; align-items: center; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3);
       border-radius: var(--r-sm); font-size: var(--fs-xs); font-weight: var(--fw-medium); }
     .fx-dot { width: 10px; height: 10px; border-radius: 50%; background: currentColor; flex: 0 0 auto; }
@@ -290,6 +320,8 @@ export class AndenCaducidadComponent {
   readonly fechaRaw = signal('');
   readonly cantidad = signal(0);
   readonly fotoDataUri = signal<string | null>(null);
+  /** `[WMS-REC.22]` El operario declaró que este producto no cuenta con fecha de caducidad. */
+  readonly sinCaducidad = signal(false);
   readonly ocrCorriendo = signal(false);
   readonly ocrConfianza = signal<number | null>(null);
 
@@ -339,22 +371,27 @@ export class AndenCaducidadComponent {
 
   /** Sólo tiene sentido agregar otra si ésta es válida y todavía queda resto. */
   readonly puedeAgregarOtra = computed(
-    () => !!this.iso() && this.cantidad() > 0 && this.cantidad() < this.libre(),
+    () => !this.sinCaducidad() && !!this.iso() && this.cantidad() > 0 && this.cantidad() < this.libre(),
   );
+
+  /** Lo que está en el formulario cuenta como una entrada: una fecha, o la declaración sin caducidad. */
+  private readonly enCurso = computed(() => (!!this.iso() || this.sinCaducidad()) && this.cantidad() > 0);
 
   /**
    * Se puede guardar con el formulario lleno, o con la lista cargada y el
    * formulario vacío (el operario ya agregó todo y sólo falta mandarlo).
    */
   readonly puedeGuardar = computed(() => {
-    const formOk = !!this.iso() && this.cantidad() > 0;
-    const formVacio = !this.fechaRaw() && this.cantidad() === 0;
-    return formOk || (this.entradas().length > 0 && formVacio);
+    const formVacio = !this.fechaRaw() && this.cantidad() === 0 && !this.sinCaducidad();
+    return this.enCurso() || (this.entradas().length > 0 && formVacio);
   });
 
   readonly textoGuardar = computed(() => {
-    const n = this.entradas().length + (this.iso() && this.cantidad() > 0 ? 1 : 0);
-    if (!n) return this.entradas().length ? 'Completá o borrá la fecha en curso' : 'Falta la caducidad';
+    if (this.sinCaducidad()) {
+      return this.cantidad() > 0 ? `Guardar ${this.total() | 0} ${this.unidad()} sin caducidad` : 'Falta la cantidad';
+    }
+    const n = this.entradas().length + (this.enCurso() ? 1 : 0);
+    if (!n) return this.entradas().length ? 'Completa o borra la fecha en curso' : 'Falta la caducidad';
     if (n === 1) {
       if (!this.iso() && !this.entradas().length) return 'Falta la caducidad';
       if (this.iso() && this.cantidad() <= 0) return 'Falta la cantidad';
@@ -365,7 +402,7 @@ export class AndenCaducidadComponent {
 
   /** Total que se va a declarar al guardar (lista + lo que esté en el formulario). */
   readonly total = computed(
-    () => this.declaradoAqui() + (this.iso() && this.cantidad() > 0 ? this.cantidad() : 0),
+    () => this.declaradoAqui() + (this.enCurso() ? this.cantidad() : 0),
   );
 
   /**
@@ -400,6 +437,7 @@ export class AndenCaducidadComponent {
   });
 
   readonly textoSemaforo = computed(() => {
+    if (this.sinCaducidad()) return 'Sin caducidad: entra directo, sin semáforo';
     const d = this.dias();
     if (d === null) return 'Capturá la caducidad para ver el veredicto';
     const min = this.minShelfLife();
@@ -525,6 +563,7 @@ export class AndenCaducidadComponent {
   }
 
   private limpiarFormulario(): void {
+    this.sinCaducidad.set(false);
     this.lote.set('');
     this.fechaRaw.set('');
     this.fotoDataUri.set(null);
@@ -534,6 +573,7 @@ export class AndenCaducidadComponent {
 
   /** Precarga lote y fecha de una captura anterior (el fechado en bloque). */
   precargar(lote: string, digitosFecha: string): void {
+    this.sinCaducidad.set(false);
     if (lote) this.lote.set(lote);
     if (digitosFecha) this.fechaRaw.set(digitosFecha);
   }
@@ -554,9 +594,22 @@ export class AndenCaducidadComponent {
     this.cantidad.set(this.libre());
   }
 
+  /**
+   * `[WMS-REC.22]` Sin caducidad no hay fecha, lote ni foto que capturar: se limpian para que lo que
+   * se guarde no arrastre una fecha a medio teclear.
+   */
+  marcarSinCaducidad(): void {
+    this.sinCaducidad.set(true);
+    this.lote.set('');
+    this.fechaRaw.set('');
+    this.fotoDataUri.set(null);
+    this.ocrConfianza.set(null);
+  }
+
   private actualComoEntrada(): FechadoEntrada | null {
     const i = this.iso();
     const c = this.cantidad();
+    if (this.sinCaducidad()) return c > 0 ? { cantidad: c, lote: 'NA', caducidadIso: null, fotoDataUri: null } : null;
     if (!i || c <= 0) return null;
     return { cantidad: c, lote: this.lote().trim() || 'NA', caducidadIso: i, fotoDataUri: this.fotoDataUri() };
   }

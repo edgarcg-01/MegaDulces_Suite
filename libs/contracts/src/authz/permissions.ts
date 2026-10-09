@@ -411,6 +411,11 @@ export enum Permission {
   ALMACEN_UBICACIONES_VER = 'ALMACEN_UBICACIONES_VER',
   ALMACEN_UBICACIONES_ACOMODAR = 'ALMACEN_UBICACIONES_ACOMODAR',
   ALMACEN_UBICACIONES_GESTIONAR = 'ALMACEN_UBICACIONES_GESTIONAR',
+  // `[WMS-REC.22]` Llegadas al andén (/almacen/inventory/llegadas): qué camiones llegaron, qué
+  // traían y si se les capturó la caducidad, en todas las sucursales. Nace SIN repartir a
+  // propósito: hoy sólo la ve el modo god (superadmin y admin pasan todas las claves). Que sea una
+  // clave y no un candado por rol deja dársela mañana a otro puesto desde Roles, sin tocar código.
+  ALMACEN_LLEGADAS_VER = 'ALMACEN_LLEGADAS_VER',
   // `[GP.3c]` Consola de surtido: quién prioriza la fila (urgentes, hora de salida por destino),
   // libera o cancela un surtido y ajusta el umbral de la tanda. Clave PROPIA y no
   // COMMERCIAL_PICKING_GESTIONAR: ésa la tiene el surtidor, y el que surte no se prioriza a sí

@@ -4,6 +4,46 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-09 — `[WMS-REC.22]` Llegadas al andén y el producto sin caducidad
+
+**Qué se pidió.** Un monitoreo de qué camiones llegaron, con qué mercancía y si se les dio caducidad, que
+sólo vea el modo god. Y en el Andén, un botón «Este producto no cuenta con fecha de caducidad», que no se
+vea enorme. Se mostró primero en maqueta.
+
+**Lo que se encontró al investigar.**
+- **El hueco era el camión «sin abrir».** Kepler le da entrada (la orden de entrada `XA2001`, o el traspaso
+  recibido) y si nadie abre el vale en el Andén, la mercancía queda en el inventario sin caducidad. Ninguna
+  pantalla lo mostraba: «Por fechar» sólo mira vales que alguien abrió y cerró incompletos.
+- **El servidor ya sabía guardar un producto sin caducidad.** El motor de reglas califica de verde una captura
+  sin fecha y el alta de inventario la guarda como lote `NA`. Faltaba sólo la forma de pedirlo en la pantalla.
+- **Kepler sólo guarda el día de llegada.** La hora se conoce únicamente si alguien abre el vale.
+
+**Qué quedó (rama `feat/anden-llegadas`, sin migraciones):**
+- `GET /commercial/receiving/sessions/arrivals`: las órdenes de entrada y los traspasos de la ventana del
+  Andén, con su vale, renglones y lotes, más los vales manuales. Seis consultas sin importar cuántos camiones;
+  lo que espera cada documento lo arma `lineasEsperadas`, la misma función de abrir el vale.
+- `receiving-arrivals.ts` (puro): el estado del camión (sin abrir · a medias · completa · en camino) y del
+  renglón, con `sin_caducidad` separado de `sin_vale`.
+- Permiso propio `ALMACEN_LLEGADAS_VER`, sin repartir: hoy sólo lo pasa el modo god.
+- Pantalla `/almacen/inventory/llegadas`: mosaicos que filtran, tabla con su vista de teléfono y teclado,
+  detalle lateral con la mercancía renglón por renglón.
+- Botón «Este producto no cuenta con fecha de caducidad» en el panel de fechar: enlace de texto chico, guarda
+  sin fecha y como lote NA, y se ve en Llegadas como «sin caducidad».
+
+**Verificado:** pruebas unitarias de commercial-receiving, contracts y view; `arrivals()` contra la base local
+en transacción revertida (una orden de hoy sin vale sale «sin abrir»; una con un lote sin fecha sale completa y
+su renglón «sin caducidad»). Prueba negativa en rojo: contar un lote sin caducidad como verde.
+⛔ **No verificado:** el build (lo hace el CI), la pantalla en el navegador y el costo del endpoint en prod.
+
+**Decisión:** el acceso va por una clave de permiso sin repartir, no por un candado al rol. Hoy da lo mismo
+(el modo god pasa todas las claves), y mañana se le puede dar a otro puesto desde Roles sin tocar código.
+
+**Lecciones:**
+1. **Antes de construir el botón, mirar qué hace el servidor con el dato vacío.** Ya lo trataba bien; si se
+   hubiera inventado un campo nuevo, habría dos formas de decir lo mismo.
+2. **Dos ausencias no son la misma.** «Sin caducidad» es un hecho capturado y se audita; «sin vale» es que
+   nadie capturó nada. Juntarlas en un "sin fecha" escondería justo el hueco que el monitor existe para mostrar.
+
 ## 2026-10-08 — `[WMS-REC.18–21]` El Andén no pierde vales, se queda con las caducidades y sigue sin internet
 
 **Qué se pidió (quien recibe).** (1) Si los vales no se terminan y "se va el internet", *se borran*:
