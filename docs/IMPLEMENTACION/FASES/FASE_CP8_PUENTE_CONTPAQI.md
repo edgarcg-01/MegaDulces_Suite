@@ -1215,3 +1215,79 @@ de egresos— deja de depender del contador.
 ⚠️ Y una corrección de ruta: `feeds-cron` aparece `Exited (137)` en `docker ps` de `md` hace 8
 días — **no es una caída**: los feeds se mudaron a k3s igual que prod, y el contenedor de Docker
 es el sustrato viejo. *Medir dónde corre hoy, no dónde vivía.*
+
+### ✅ Paso 4 cerrado — `[CP.8.21]` El armador por lote y con forma por tipo de regla (2026-10-09)
+
+#### ⭐⭐ La unidad de armado era la equivocada
+
+| Medido sobre las 4,457 pólizas de egreso de 2026 | |
+|---|--:|
+| con **exactamente UN** renglón de banco | **4,067 · 91.2 %** |
+| con 2 | 202 |
+| con 3–5 | 139 |
+
+**ContPAQi agrupa.** Una póliza lleva muchos cargos colgando de un solo abono al banco. Armar una
+póliza por movimiento daría **4,727 pólizas donde la contadora hace ~500**: un archivo que cuadra
+y que ella no reconoce como su trabajo.
+
+⭐ Y de paso explica el 27.8 % de pareo de `[CP.8.18]`: los que casan 1:1 son justo aquellos donde
+la póliza agrupó **un solo** movimiento. **El 72 % restante no era ruido — eran los lotes.**
+
+**Ejercitado contra prod, enero 2026:**
+
+| | |
+|---|--:|
+| pólizas por movimiento (diseño viejo) | 1,474 |
+| **pólizas por lote (banco × día)** | **258** |
+
+**5.7× menos**, y del orden de las ~532 que ContPAQi realmente tiene ese mes.
+
+#### ⭐ Los motivos ahora tienen DUEÑO
+
+Antes todo caía en `sin_regla`. Enero, con el ramificado por `tipo_regla`:
+
+| motivo | movs | quién lo arregla |
+|---|--:|---|
+| `sin_regla` | 954 | el contador |
+| `proveedor_sin_cuenta` | 216 | falta el enlace pago→factura (`kdxf`, Fase ECA) |
+| **`no_aplica`** | **148** | ⭐ **nadie: ya se decidió que no genera póliza** |
+| `sin_centro_costo` | 135 | negocio: CB no trae centro de costo |
+| `sin_medir` | 21 | re-correr el derivador con otra ventana |
+
+**148 movimientos que parecían trabajo pendiente ahora se sabe que no lo son.**
+
+#### ⛔⛔ El pago a proveedor no es un gasto — y el asiento sale incompleto, declarándolo
+
+Pagar una factura reduce la cuenta por pagar; el gasto se reconoció al registrarla. Medido en las
+pólizas de egreso de dos renglones: el par es **cargo al tercero / abono al banco**, sin IVA.
+
+Pero ContPAQi, al pagar, hace además el **traspaso del impuesto** (en México el IVA se acredita
+sobre lo efectivamente pagado). Medido en 2026 sobre pólizas que tocan `2120*`:
+
+| cuenta | | neto |
+|---|---|--:|
+| `1060000000` IVA ACREDITABLE | cargo | **+$6,640,268.98** |
+| `1470040000` IVA POR ACREDITAR | abono | **−$6,559,315.64** |
+| `1470100000` IEPS ACREDITABLE | cargo | **+$17,050,851.50** |
+| `1470110000` IEPS POR ACREDITAR | abono | **−$17,428,970.80** |
+
+Los pares **se cancelan entre sí: no tocan el banco**. Pero emitirlos exige saber **qué facturas**
+se pagan, y eso no lo tenemos (`client_uuid` no es UUID de CFDI — 0 de 55,648).
+
+⭐ Por eso el asiento sale **cuadrado pero incompleto, y lo dice**: `iva_traspaso: 'no_emitido'`
+con su motivo. *Un asiento que cuadra y le falta una pata es justo lo que el contador tiene que
+ver declarado, no descubrir revisando.*
+
+⚠️ El camino para cerrarlo existe y es de otra fase: **`kdxf` de Kepler casa pago→factura de forma
+estructural** (30,073 de 30,033, Fase ECA), y de la factura sale el UUID con su impuesto.
+
+#### Candado `test-newdb-contpaqi-lote.js` — **38 ✓ / 0 ✗**, mutado a rojo tres veces
+
+| Mutación | Resultado |
+|---|---|
+| el lote emite un abono por entrada (diseño viejo) | ✗ el cuadre interno lo detiene |
+| `no_aplica` cae en el rechazo genérico `sin_regla` | ✗ 37/1 |
+| el pago a proveedor no declara el traspaso | ✗ 35/3 |
+
+Los 6 candados de CP.8 + LC, verdes: token 29 · armador 33 · sink 44 · cuadre 35 · **lote 38** ·
+LC 38. Registrado en `run-all-tests.js`.
