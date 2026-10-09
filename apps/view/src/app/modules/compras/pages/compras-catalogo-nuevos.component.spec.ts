@@ -15,7 +15,10 @@ import {
 import {
   ComprasCatalogoNuevosComponent,
   cantidadTexto,
+  cantidadPartes,
+  existenciaPartes,
   existenciaTexto,
+  listaUnidades,
   fechaCorta,
   hitoVisible,
   margenTexto,
@@ -418,10 +421,14 @@ describe('[NP.16] llegada, unidades por corte y reparto', () => {
   it('⭐ ¿Dónde se mueve mejor? trae lo vendido en unidades de Kepler y la existencia de hoy', async () => {
     await abrirDetalle();
     const filas = Array.from(document.querySelectorAll('.pk-rank tbody tr'));
-    expect(filas[0].textContent).toContain('22 cajas');
-    expect(filas[0].textContent).toContain('Agotado');
-    expect(filas[1].textContent).toContain('40 piezas');
-    expect(filas[1].textContent).toContain('Hay 36 piezas');
+    const celda = (tr: Element, label: string) => tr.querySelector(`td[data-label="${label}"]`)!;
+    const limpio = (el: Element | null) => el?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(limpio(celda(filas[0], 'Vendido').querySelector('.pk-cant'))).toBe('22 cajas');
+    expect(celda(filas[0], 'Vendido').querySelector('.pk-cant b')?.textContent).toBe('22');
+    expect(celda(filas[0], 'Existencia hoy').querySelector('.pk-tag-agotado')?.textContent).toBe('Agotado');
+    expect(limpio(celda(filas[1], 'Vendido').querySelector('.pk-cant'))).toBe('40 piezas');
+    expect(limpio(celda(filas[1], 'Existencia hoy').querySelector('.pk-cant'))).toBe('36 piezas');
+    expect(celda(filas[1], 'Existencia hoy').querySelector('.pk-cant-sub')?.textContent).toBe('3 cajas');
   });
 
   it('⭐ arriba de Por sucursal: lo que nos llegó en compras y cómo se repartió', async () => {
@@ -457,5 +464,26 @@ describe('[NP.16] funciones puras', () => {
       p('03', { existencia: 12 }),
     ]);
     expect(orden.map((x) => x.plaza)).toEqual(['01', '05', '03']);
+  });
+
+  it('⭐ cada unidad en su renglón, de lo grande a lo chico, con la cifra aparte del rótulo', () => {
+    expect(listaUnidades({ PZA: 2, PAQ: 178 })).toEqual([
+      { cifra: '178', rotulo: 'paquetes' }, { cifra: '2', rotulo: 'piezas' },
+    ]);
+    expect(listaUnidades({ CJA: 1, KG: 0.0001 })).toEqual([{ cifra: '1', rotulo: 'caja' }]);
+    expect(listaUnidades(null)).toEqual([]);
+    // La versión partida y la de una línea dicen lo mismo: una sola regla.
+    expect(cantidadPartes(500, '250')).toEqual({ cifra: '500', rotulo: 'de 250 g' });
+    expect(cantidadPartes(3, '?')).toEqual({ cifra: '3', rotulo: 'sin unidad' });
+  });
+
+  it('⛔ la existencia partida: agotado y sin registro no traen cifra, y la caja sólo si la ficha la declara', () => {
+    const k = { existencia_fuente: 'kepler' as const };
+    expect(existenciaPartes({ ...k, existencia: 334, existencia_unidad: 'PZA', existencia_mayor: { unidad: 'CJA', cantidad: 5.6 } }))
+      .toEqual({ estado: 'hay', cantidad: { cifra: '334', rotulo: 'piezas' }, mayor: '≈ 5.6 cajas' });
+    expect(existenciaPartes({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_mayor: null }).mayor).toBeNull();
+    expect(existenciaPartes({ ...k, existencia: 0, existencia_unidad: 'PZA', existencia_mayor: null }))
+      .toEqual({ estado: 'agotado', cantidad: null, mayor: null });
+    expect(existenciaPartes({ ...k, existencia: null, existencia_unidad: null, existencia_mayor: null }).estado).toBe('sin_registro');
   });
 });

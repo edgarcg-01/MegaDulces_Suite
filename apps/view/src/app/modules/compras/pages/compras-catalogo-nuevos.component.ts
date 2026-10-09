@@ -143,40 +143,71 @@ const cifra = (q: number) => q.toLocaleString('es-MX', { maximumFractionDigits: 
  * El rótulo se traduce con `unidadLegible` (el censo medido del repo); uno que no se conoce se
  * imprime TAL CUAL (`SER`), y sin rótulo se dice "sin unidad" — nunca se le llama pieza.
  */
-export function cantidadTexto(q: number, unidad: string | null | undefined): string {
+/** `[NP.16]` Una cantidad partida en cifra y rótulo, para pintarlas con distinto peso en una tabla. */
+export interface CantidadPartes {
+  cifra: string;
+  rotulo: string;
+}
+
+/** La regla de `cantidadTexto`, partida: "3" + "cajas". Una sola implementación para las dos. */
+export function cantidadPartes(q: number, unidad: string | null | undefined): CantidadPartes {
   const u = (unidad ?? '').trim().toUpperCase();
-  if (!u || u === '?') return `${cifra(q)} sin unidad`;
+  if (!u || u === '?') return { cifra: cifra(q), rotulo: 'sin unidad' };
   // Gramaje de la bolsa (500, 250): no es un nombre de unidad.
-  if (/^[0-9]+$/.test(u)) return `${cifra(q)} de ${u} g`;
+  if (/^[0-9]+$/.test(u)) return { cifra: cifra(q), rotulo: `de ${u} g` };
   const leg = unidadLegible(u);
-  if (!leg.conocida) return `${cifra(q)} ${u}`;
-  return `${cifra(q)} ${Math.abs(q) === 1 ? leg.singular : leg.plural}`;
+  if (!leg.conocida) return { cifra: cifra(q), rotulo: u };
+  return { cifra: cifra(q), rotulo: Math.abs(q) === 1 ? leg.singular : leg.plural };
+}
+
+export function cantidadTexto(q: number, unidad: string | null | undefined): string {
+  const p = cantidadPartes(q, unidad);
+  return `${p.cifra} ${p.rotulo}`;
+}
+
+/** `[NP.16]` Las unidades de un producto, una por renglón y de lo grande a lo chico. */
+export function listaUnidades(u: UnidadesKepler | null | undefined): CantidadPartes[] {
+  return Object.entries(u ?? {})
+    .filter(([, q]) => Math.abs(q) >= 0.0005)
+    .sort(([a], [b]) => rangoUnidad(a) - rangoUnidad(b) || a.localeCompare(b))
+    .map(([k, q]) => cantidadPartes(q, k));
 }
 
 /** Todas las unidades de un producto, cada rótulo por su lado: "3 cajas · 40 piezas". */
 export function textoUnidades(u: UnidadesKepler | null | undefined): string {
-  return Object.entries(u ?? {})
-    .filter(([, q]) => Math.abs(q) >= 0.0005)
-    .sort(([a], [b]) => rangoUnidad(a) - rangoUnidad(b) || a.localeCompare(b))
-    .map(([k, q]) => cantidadTexto(q, k))
-    .join(' · ');
+  return listaUnidades(u).map((p) => `${p.cifra} ${p.rotulo}`).join(' · ');
+}
+
+/** `[NP.16]` La existencia partida para una tabla: estado, cantidad y su equivalencia en la unidad mayor. */
+export interface ExistenciaPartes {
+  estado: 'hay' | 'agotado' | 'sin_registro';
+  cantidad: CantidadPartes | null;
+  /** "≈ 5.6 cajas"; NULL si la ficha no declara la unidad mayor con su factor. */
+  mayor: string | null;
+}
+
+type ExistenciaDe = Pick<PlazaNueva, 'existencia' | 'existencia_unidad' | 'existencia_fuente' | 'existencia_mayor'>;
+
+export function existenciaPartes(p: ExistenciaDe): ExistenciaPartes {
+  if (p.existencia === null) return { estado: 'sin_registro', cantidad: null, mayor: null };
+  if (p.existencia <= 0) return { estado: 'agotado', cantidad: null, mayor: null };
+  const cantidad = p.existencia_unidad
+    ? cantidadPartes(p.existencia, p.existencia_unidad)
+    : { cifra: cifra(p.existencia), rotulo: p.existencia_fuente === 'wincaja' ? 'unidades de Wincaja' : '(unidad sin declarar en Kepler)' };
+  const m = p.existencia_mayor;
+  return { estado: 'hay', cantidad, mayor: m ? `${Number.isInteger(m.cantidad) ? '' : '≈ '}${cantidadTexto(m.cantidad, m.unidad)}` : null };
 }
 
 /**
  * La existencia de una plaza, en palabras y en la unidad de SU ficha de Kepler: "Hay 24 piezas
  * (2 cajas)". La caja sólo aparece si la ficha la declara con su factor; nunca se inventa.
  */
-export function existenciaTexto(
-  p: Pick<PlazaNueva, 'existencia' | 'existencia_unidad' | 'existencia_fuente' | 'existencia_mayor'>,
-): string {
-  if (p.existencia === null) return 'Sin existencia registrada';
-  if (p.existencia <= 0) return 'Agotado';
-  const base = p.existencia_unidad
-    ? cantidadTexto(p.existencia, p.existencia_unidad)
-    : `${cifra(p.existencia)} ${p.existencia_fuente === 'wincaja' ? 'unidades de Wincaja' : '(unidad sin declarar en Kepler)'}`;
-  const m = p.existencia_mayor;
-  if (!m) return `Hay ${base}`;
-  return `Hay ${base} (${Number.isInteger(m.cantidad) ? '' : '≈ '}${cantidadTexto(m.cantidad, m.unidad)})`;
+export function existenciaTexto(p: ExistenciaDe): string {
+  const e = existenciaPartes(p);
+  if (e.estado === 'sin_registro') return 'Sin existencia registrada';
+  if (e.estado === 'agotado' || !e.cantidad) return 'Agotado';
+  const base = `Hay ${e.cantidad.cifra} ${e.cantidad.rotulo}`;
+  return e.mayor ? `${base} (${e.mayor})` : base;
 }
 
 /**
@@ -604,8 +635,10 @@ export function tendenciaTexto(t: number | null): string {
                             <td class="dt-id" role="cell">{{ p.nombre || ('Sucursal ' + p.plaza) }}
                               @if (p.movimiento.dias !== null) { <span class="pn-meta pk-dias">{{ p.movimiento.dias }} días</span> }</td>
                             <td class="pn-num pn-mono dt-num" role="cell" data-label="Venta por día">{{ dinero(p.movimiento.venta_neta_dia) }}</td>
-                            <td class="pk-unid" role="cell" data-label="Vendido">{{ textoUnidades(p.unidades_vendidas) || (p.venta_sin_unidad > 0 ? 'sólo en pesos' : '—') }}</td>
-                            <td class="pk-unid" role="cell" data-label="Existencia hoy" [class.pn-agotado]="p.existencia !== null && p.existencia <= 0">{{ existenciaTexto(p) }}</td>
+                            <td class="pk-cel" role="cell" data-label="Vendido">
+                              <ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.unidades_vendidas, vacio: p.venta_sin_unidad > 0 ? 'sólo en pesos' : '—' }" /></td>
+                            <td class="pk-cel" role="cell" data-label="Existencia hoy">
+                              <ng-container *ngTemplateOutlet="existenciaTpl; context: { $implicit: p }" /></td>
                             <td class="pn-num pn-mono dt-num" role="cell" data-label="Vendido de lo que llegó">{{ p.movimiento.desplazado === null ? '—' : pct(p.movimiento.desplazado) }}</td>
                             @if (dt.costo_visible) {
                               <td class="pn-num pn-mono dt-num" role="cell" data-label="Margen real" [pTooltip]="p.margenes?.real?.nota || ''">{{ margenTexto(p.margenes?.real?.pct) }}</td>
@@ -641,11 +674,11 @@ export function tendenciaTexto(t: number | null): string {
                           @for (p of rp; track p.plaza) {
                             <tr>
                               <td class="dt-id" role="cell">{{ p.nombre || ('Sucursal ' + p.plaza) }}</td>
-                              <td class="pk-unid" role="cell" data-label="Compró">{{ textoUnidades(p.unidades_recibidas) || '—' }}</td>
-                              <td class="pk-unid" role="cell" data-label="Le llegó de otra">{{ textoUnidades(p.recibido_traspaso) || '—' }}</td>
-                              <td class="pk-unid" role="cell" data-label="Mandó a otras">{{ textoUnidades(p.enviado_sucursales) || '—' }}</td>
-                              <td class="pk-unid" role="cell" data-label="Mandó a rutas">{{ textoUnidades(p.enviado_rutas) || '—' }}</td>
-                              <td class="pk-unid" role="cell" data-label="Existencia hoy" [class.pn-agotado]="p.existencia !== null && p.existencia <= 0">{{ existenciaTexto(p) }}</td>
+                              <td class="pk-cel" role="cell" data-label="Compró"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.unidades_recibidas, vacio: '—' }" /></td>
+                              <td class="pk-cel" role="cell" data-label="Le llegó de otra"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.recibido_traspaso, vacio: '—' }" /></td>
+                              <td class="pk-cel" role="cell" data-label="Mandó a otras"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.enviado_sucursales, vacio: '—' }" /></td>
+                              <td class="pk-cel" role="cell" data-label="Mandó a rutas"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.enviado_rutas, vacio: '—' }" /></td>
+                              <td class="pk-cel" role="cell" data-label="Existencia hoy"><ng-container *ngTemplateOutlet="existenciaTpl; context: { $implicit: p }" /></td>
                             </tr>
                           }
                         </tbody>
@@ -716,6 +749,29 @@ export function tendenciaTexto(t: number | null): string {
         }
       </app-side-peek>
     </div>
+    <!-- [NP.16] Una cantidad por renglón: la cifra en mono y negrita, la unidad de Kepler al lado. -->
+    <ng-template #cantidadesTpl let-u let-vacio="vacio">
+      @let lista = listaUnidades(u);
+      @if (lista.length) {
+        <span class="pk-cants">
+          @for (c of lista; track $index) { <span class="pk-cant"><b>{{ c.cifra }}</b> {{ c.rotulo }}</span> }
+        </span>
+      } @else { <span class="pk-vacio">{{ vacio }}</span> }
+    </ng-template>
+    <!-- [NP.16] Existencia: la cantidad de la ficha arriba y su equivalencia en la unidad mayor abajo. -->
+    <ng-template #existenciaTpl let-p>
+      @let e = existenciaPartes(p);
+      @switch (e.estado) {
+        @case ('agotado') { <span class="pk-tag-agotado">Agotado</span> }
+        @case ('sin_registro') { <span class="pk-vacio">Sin registro</span> }
+        @default {
+          <span class="pk-cants">
+            <span class="pk-cant"><b>{{ e.cantidad?.cifra }}</b> {{ e.cantidad?.rotulo }}</span>
+            @if (e.mayor) { <span class="pk-cant-sub">{{ e.mayor }}</span> }
+          </span>
+        }
+      }
+    </ng-template>
   `,
   styles: [`
     :host { display: block; }
@@ -841,6 +897,15 @@ export function tendenciaTexto(t: number | null): string {
     .pk-margen small.pk-nota { color: var(--warn-fg); }
     .pk-rank tr.is-mejor > td { background: var(--ok-soft-bg); font-weight: var(--fw-bold); }
     .pk-unid { font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pk-cel { vertical-align: top; }
+    .pk-cants { display: inline-flex; flex-direction: column; gap: .1rem; }
+    .pk-cant { white-space: nowrap; font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pk-cant b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-sm);
+      font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .pk-cant-sub { white-space: nowrap; font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pk-vacio { font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pk-tag-agotado { display: inline-block; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs);
+      font-weight: var(--fw-bold); color: var(--bad-soft-fg); background: var(--bad-soft-bg); border: 1px solid var(--bad-border); }
     .pk-dias { display: block; }
     .pk-aviso { color: var(--warn-fg); }
     .pk-reparto { display: flex; flex-direction: column; gap: .5rem; border: 1px solid var(--c-divider); border-radius: 10px;
@@ -864,6 +929,8 @@ export class ComprasCatalogoNuevosComponent {
   readonly hitoVisible = hitoVisible;
   readonly existenciaTexto = existenciaTexto;
   readonly textoUnidades = textoUnidades;
+  readonly listaUnidades = listaUnidades;
+  readonly existenciaPartes = existenciaPartes;
   readonly tendenciaTexto = tendenciaTexto;
   readonly tiposMargen = TIPOS_MARGEN;
   readonly margenTexto = margenTexto;
