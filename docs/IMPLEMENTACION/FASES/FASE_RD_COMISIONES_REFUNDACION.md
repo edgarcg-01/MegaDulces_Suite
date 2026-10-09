@@ -329,6 +329,53 @@ marcado `is_test` y el único de 2026 se llama literalmente **`prueba 2`**. Adem
 por (ruta, periodo)** con montos distintos (461,357 / 574,368 / 574,368 en el periodo 1 de la
 ruta 21), así que unir sin elegir presupuesto **triplica la meta**.
 
+### [RD.59] ✅ El bono por objetivo mensual, configurable (2026-10-08)
+
+Edgar confirmó que **sigue vigente** y que tiene que ser configurable. Migración **848** en prod.
+`/comercial/comisiones/objetivo`, con `COMMISSIONS_VER` para leer y `GESTIONAR` para cambiar.
+
+⭐ **No se creó una máquina de bonos: ya existía.** `commercial.commission_bonuses` tiene 14 filas
+vivas, editadas el 7-oct, con `metrica` + `umbral` + `comparador` + `monto` + `route_code`
+versionadas por escala — ahí viven *Lavadas*, *Lonche*, *Chalán* y el *Alcance de margen* del
+supervisor, este **con umbral distinto por ruta**. Una tabla paralela habría sido la copia que
+`GOTCHAS §32` prohíbe. Lo que le faltaba: **periodo** (todo era quincenal), **grupo y peso** (cada
+bono era todo-o-nada), **activo** (por eso el objetivo *quedó parado* en vez de apagarse) y dos
+métricas nuevas.
+
+⛔⛔ **La guarda que iba primero.** `computeRun` leía **todos** los bonos de la escala sin filtrar.
+Una fila mensual habría entrado al cálculo **quincenal** y se habría pagado **dos veces por mes**,
+en silencio. Medido: sin el filtro el motor vería **17** bonos donde ve 14. `periodo` nace
+`NOT NULL DEFAULT 'quincena'` y el motor filtra `periodo='quincena' AND activo`.
+
+**Dos de los tres criterios dejan de marcarse y se miden:**
+
+| Criterio | Peso | Cómo se resuelve |
+|---|---|---|
+| Visitas | 50% | ✅ `tickets` por ruta — sep-2026: de 165 (la 505) a 1,118 (la 503). ⚠️ Son visitas **con venta** |
+| Desarrollo de marcas | 25% | ⛔ **no derivable** — `v_sellout_daily` con el `vendor_code` de RD devuelve **0 filas** → se marca, con motivo obligatorio |
+| Volumen | 25% | ✅ la venta del mes — sep-2026: de $94,608 a $529,895 |
+
+⛔⛔ **Sin marcar NO es «no cumplió», y ésa es la diferencia con la hoja.** En el Excel una celda
+vacía vale `0%`: el silencio **castiga**. Acá `cumplido` es **ternario** y el `null` suma a
+`sin_resolver_pct`, que se publica **al lado**. Verificado contra prod en septiembre: las rutas
+**321 y 322**, que no vendieron, salen **0% alcanzado y 100% sin resolver** — no reprobadas; la
+**505**, que sí se quedó corta, sale con **75% fallado**. `alcanzado + sin_resolver + fallado = 100`
+en las 13 rutas.
+
+**Tres guardas más, de pensar cómo se rompe:** umbral 0 **no regala** el criterio (sale `sin umbral
+configurado`, porque con 0 todo lo cumple) · **no se deja marcar a mano lo que sí se puede medir**
+(sería pisar la medición sin que se note) · los pesos tienen que **seguir sumando 100 después** de
+editar uno, y como un CHECK no ve otras filas, se exige en el servicio antes de escribir.
+
+⛔ **Nace apagado y NO paga.** `activo=false`, `monto=0`, y la configuración publica
+`entra_a_nomina: false`. El importe y los umbrales **no se inventaron**: los fija el negocio desde
+la pantalla. *Medir antes de pagar.*
+
+⭐ **El candado de `[RD.6]` hizo su trabajo dos veces** al correrlo: su conteo de "3 bonos de
+chofer" se cayó con los criterios sembrados (se arregló **filtrando como el motor**, no subiendo el
+número), y su vigilancia de RLS usa `relname LIKE 'commission%'` — `objective_marks` **no empieza
+con commission**, así que habría quedado sin vigilar. Se amplió el patrón, no sólo el conteo.
+
 ### Las pantallas del artefacto que NO se construyeron, con su motivo medido
 
 - **Gasto de flota (hoja 3).** Su único grano derivable —plaza × concepto × quincena— ya vive
