@@ -11,8 +11,11 @@ import {
 } from '@megadulces/platform-core';
 import type {
   LoadGuidesResponse,
+  PresaleDeliverRequest,
+  PresaleFieldOrderDetail,
   PresaleFieldResponse,
   PresaleLoadRequest,
+  PresaleNotDeliveredRequest,
   PresaleReturnRequest,
   PresaleUnloadRequest,
 } from '@megadulces/contracts';
@@ -64,6 +67,27 @@ export class PresaleFieldController {
   @ApiOperation({ summary: 'Quita un pedido de mi guía, mientras la guía no se haya impreso.' })
   descargar(@Body() body: PresaleUnloadRequest, @Query() query: Record<string, unknown>, @Req() req: ReqUsuario): Promise<PresaleFieldResponse> {
     return this.svc.descargar(body?.order_id, query, quienPide(req));
+  }
+
+  @Get('orders/:orderId')
+  @RequireAnyPermission(Permission.REPARTO_ENTREGAR, Permission.COMMERCIAL_ORDERS_FULFILL)
+  @ApiOperation({ summary: '[MCP.6] Un pedido de mi guía para entregarlo: renglones y documentos de Kepler del cliente (el más parecido primero).' })
+  detalle(@Param('orderId') orderId: string, @Req() req: ReqUsuario): Promise<PresaleFieldOrderDetail> {
+    return this.svc.detalleCampo(orderId, quienPide(req));
+  }
+
+  @Post('deliver')
+  @RequireAnyPermission(Permission.REPARTO_ENTREGAR, Permission.COMMERCIAL_ORDERS_FULFILL)
+  @ApiOperation({ summary: '[MCP.6] Entrega de conformidad: liga el documento de Kepler y registra resultado y cobro. No factura ni mueve inventario.' })
+  entregar(@Body() body: PresaleDeliverRequest, @Query() query: Record<string, unknown>, @Req() req: ReqUsuario): Promise<PresaleFieldResponse> {
+    return this.svc.entregar(body, query, quienPide(req));
+  }
+
+  @Post('not-delivered')
+  @RequireAnyPermission(Permission.REPARTO_ENTREGAR, Permission.COMMERCIAL_ORDERS_FULFILL)
+  @ApiOperation({ summary: '[MCP.6] No se pudo entregar (con motivo): el pedido queda libre para salir otro día.' })
+  noEntregado(@Body() body: PresaleNotDeliveredRequest, @Query() query: Record<string, unknown>, @Req() req: ReqUsuario): Promise<PresaleFieldResponse> {
+    return this.svc.noEntregado(body, query, quienPide(req));
   }
 }
 

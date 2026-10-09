@@ -1924,6 +1924,16 @@ export class CommercialOrdersService {
         throw new ConflictException(
           'No se puede cancelar un pedido ya entregado. Generar devolución.',
         );
+      // `[MCP.6]` Un pedido de preventa entregado en su guía sigue `confirmed` (no se pasa a
+      // fulfilled para no facturarlo otra vez), pero ya se entregó y se cobró: cancelarlo borraría
+      // ese cobro de la guía. Va por devolución + NC en Kepler (MCP.7).
+      const entregadoEnGuia = await trx('commercial.load_guide_orders')
+        .where({ order_id: orderId, status: 'entregado' })
+        .first('id');
+      if (entregadoEnGuia)
+        throw new ConflictException(
+          'Este pedido ya se entregó en su guía de carga: no se cancela, va por devolución y nota de crédito en Kepler.',
+        );
 
       if (order.status === 'confirmed' || order.status === 'pending_approval') {
         const lines = await trx('commercial.order_lines')
