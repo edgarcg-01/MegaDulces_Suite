@@ -112,6 +112,53 @@ const money = (n) => '$' + Number(n || 0).toLocaleString('en-US', { minimumFract
       }
     }
 
+    // ── [TES.3] El saldo inicial de bancos no se deja secuestrar por una fecha imposible ──
+    console.log('\n[TES.3] saldo inicial de bancos — ventana de fecha posible');
+    const b = (await knex.raw(`
+      WITH crudo AS (
+        SELECT max(movement_date) AS as_of,
+               (SELECT coalesce(sum(running_balance),0) FROM (
+                  SELECT DISTINCT ON (bank_account_id) running_balance FROM finance.bank_movements
+                   WHERE tenant_id = ? AND deleted_at IS NULL
+                   ORDER BY bank_account_id, movement_date DESC, created_at DESC) x) AS saldo
+          FROM finance.bank_movements WHERE tenant_id = ? AND deleted_at IS NULL
+      ), sano AS (
+        SELECT max(movement_date) AS as_of,
+               (SELECT coalesce(sum(running_balance),0) FROM (
+                  SELECT DISTINCT ON (bank_account_id) running_balance FROM finance.bank_movements
+                   WHERE tenant_id = ? AND deleted_at IS NULL
+                     AND movement_date BETWEEN '2015-01-01' AND current_date
+                   ORDER BY bank_account_id, movement_date DESC, created_at DESC) y) AS saldo
+          FROM finance.bank_movements
+         WHERE tenant_id = ? AND deleted_at IS NULL
+           AND movement_date BETWEEN '2015-01-01' AND current_date
+      ), anom AS (
+        SELECT count(*) AS n, count(*) FILTER (WHERE movement_date > current_date) AS futuras,
+               count(*) FILTER (WHERE movement_date < '2015-01-01') AS absurdas
+          FROM finance.bank_movements WHERE tenant_id = ? AND deleted_at IS NULL
+           AND movement_date NOT BETWEEN '2015-01-01' AND current_date
+      )
+      SELECT c.as_of AS as_of_crudo, round(c.saldo,2) AS saldo_crudo,
+             s.as_of AS as_of_sano,  round(s.saldo,2) AS saldo_sano,
+             a.n AS anomalas, a.futuras, a.absurdas
+        FROM crudo c, sano s, anom a`, [T, T, T, T, T])).rows[0];
+
+    if (b.as_of_sano == null) {
+      noMedido('sin movimientos bancarios con fecha posible: el saneo del saldo queda sin evaluar.');
+    } else {
+      ok(new Date(b.as_of_sano) <= new Date(), 'el as_of de bancos NO queda en el futuro');
+      // PRUEBA NEGATIVA: si la ventana no cambia nada, la guarda no esta haciendo nada y
+      // tampoco se puede afirmar que proteja. Se DECLARA, no se pone verde.
+      if (Number(b.anomalas) > 0) {
+        const aire = Math.round((Number(b.saldo_crudo) - Number(b.saldo_sano)) * 100) / 100;
+        ok(true, `la guarda es portante: ${b.anomalas} filas de fecha imposible (${b.futuras} futuras, ${b.absurdas} absurdas)`);
+        ok(new Date(b.as_of_crudo) > new Date(b.as_of_sano) || aire !== 0,
+          `y mueve algo publicado: as_of ${String(b.as_of_crudo).slice(0, 10)} -> ${String(b.as_of_sano).slice(0, 10)}, saldo ${money(aire)} de aire`);
+      } else {
+        noMedido('no hay filas de fecha imposible en este destino: la guarda del saldo queda sin ejercitar (en prod son 23 filas y $517,137.63 de aire).');
+      }
+    }
+
     console.log(`\n  ${pass} ✓ · ${fail} ✗ · ${nm} ⊘\n`);
     await knex.destroy();
     process.exit(fail ? 1 : 0);
