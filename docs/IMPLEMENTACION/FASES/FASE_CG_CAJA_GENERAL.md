@@ -2764,3 +2764,73 @@ prueba de verdad un QR es una cámara.
 
 ⚠️⚠️ **Novena vez que un acento grave en un comentario rompe el build**, y **tres en esta sesión**.
 Lo agarró `check:templates` con la línea exacta.
+
+---
+
+## §35 · `[CG.76]` — la bandeja se entera cuando llega el dato, no cuando suena el reloj (2026-10-09)
+
+Pedido de Edgar: *«el proceso debe estar al 1seg. si es necesario un websocket hay que generarlo»*.
+
+### ⛔ El WebSocket ya existía, y no era lo que faltaba
+
+`CajaRealtimeService` (CG.23.2) escucha un `NOTIFY` y lo empuja al socket. Su propio comentario ya
+avisaba: *«`LISTEN` no acorta el carril… prometer "al segundo" sólo con esto sería vender un tramo
+por la cadena entera»*. La cadena, medida pata por pata contra prod:
+
+| Pata | Medido | Después |
+|---|---|---|
+| Replicación lógica sucursal → réplica | **1–15 s** | igual — **piso duro** |
+| Carril `ods-live-hot` → `kepler_ods` | **22–47 s** | igual |
+| `REFRESH mv_caja_movimientos` (cron 1 min) | **0–60 s** | **~5–10 s, por evento** |
+| La pantalla se entera | instantáneo | igual |
+| **Total** | **60–122 s** | **~30–69 s** |
+
+⛔ **«Al segundo» no es alcanzable** y queda escrito: el piso lo ponen la replicación y el costo del
+propio `REFRESH` (5–10 s). Bajar el carril del ODS exigiría que un carril nuevo fuera **dueño único
+de `kdm1`** — cirugía en el camino crítico, va aparte.
+
+### ⭐ Tres descartes, todos medidos — y dos los encontró la prueba contra prod
+
+1. **Correr el cron más seguido.** Su sonda cuesta **853 ms/ciclo**: a 10 s son ~11,300 s/día,
+   **peor que los 7,487 s/día que `[CPU.3]` había eliminado**. Más frecuencia compra latencia
+   pagando con lo ya ahorrado.
+2. **Sondear la actividad de la tabla** (`n_tup_ins+n_tup_upd`, **14 ms**). Lo construí entero y lo
+   corrí contra prod: **refrescaba en bucle**, 5–10 s cada vez, devolviendo siempre las mismas
+   13,067 filas. El shipper reescribe `kdm1` 2–3 veces cada 2 s, así que el detector contestaba
+   *«¿tocaron la tabla?»* (siempre sí) en vez de *«¿cambió la bandeja?»*. **Por eso el autor del
+   archivo firma el CONTENIDO y no la actividad.**
+3. **Firmar el contenido de `kdm1`** (**179 ms**) ⇒ 7,700 s/día. También peor.
+
+⭐ El único que **sabe** que llegó un documento es quien lo escribe: `services/feeds-ingest`. Su
+UPSERT es **sin churn** (`WHERE … IS DISTINCT FROM`), así que `changed > 0` significa que algo
+cambió de verdad. Emite `NOTIFY caja_fuente` sólo para `kdm1`/`kdb1` —las dos tablas de las que la
+bandeja depende, **medido con `pg_depend`**— y un carril oyente refresca. **En reposo cuesta cero.**
+
+### Lo que no se toca, y por qué
+
+⚠️ **El cron de cada minuto se queda tal cual.** Cubre lo que el oyente no ve: este pod muerto, las
+dos fuentes que no vienen del ODS (`analytics.v_kepler_payment_complement`, `finance.bank_accounts`)
+y una corrección tardía; y conserva su **piso de 30 min**.
+
+⚠️ Por eso el oyente late con **llave propia** (`mv_caja_push`). Escribir en `mv_caja_refresh` sería
+catastrófico y silencioso: el piso del cron se mide contra la última corrida con `note IS NULL` de
+**esa** llave, así que un refresco oído lo dejaría satisfecho para siempre y la protección pasaría a
+ser un adorno.
+
+### Probado en producción, no sólo escrito
+
+```
+oyendo caja_fuente · antirrebote 1500 ms · el cron de cada minuto NO se toca
+refrescado (oído): 13067 filas en 15656 ms · 1 aviso(s) al WS
+```
+
+Un `pg_notify` real disparó el refresco y el aviso al WebSocket. ⛔ Y la misma prueba **mató el
+diseño anterior antes de que llegara a producción**: `node --check` y las compuertas lo daban por
+bueno.
+
+⚠️ **Dos cosas del procedimiento, para la próxima:** un `kubectl exec` con `nohup … &` deja procesos
+que después **no se dejan matar** (`Permission denied`) — la salida limpia es borrar el pod y dejar
+que el Deployment lo rehaga. Y di una **falsa alarma de «producción caída»** que era un despliegue
+normal (`de2f53c8`); el `57P03` era el `Recreate`, no mi prueba.
+
+⚠️⚠️ **Décima vez que un acento grave rompe algo**, esta vez dentro de una cadena de shell.
