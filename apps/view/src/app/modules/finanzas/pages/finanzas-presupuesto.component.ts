@@ -1246,7 +1246,9 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         @if (!movs.length) {
           <p class="pres-muted">Esta partida no tiene ni un movimiento registrado.</p>
         } @else {
-          <p-table [value]="movs" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="24rem">
+          <!-- La clase va en el HOST, no en styleClass: v22 lo retiró de p-table y es una falla
+               MUDA (build verde, sin aviso). El candado lo cuenta contra un techo: no se sube. -->
+          <p-table [value]="movs" class="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="24rem">
             <ng-template #header>
               <tr><th>Cuándo</th><th>Qué</th><th class="ta-r">Monto</th><th>Efecto</th><th>Quién</th><th>Nota</th></tr>
             </ng-template>
