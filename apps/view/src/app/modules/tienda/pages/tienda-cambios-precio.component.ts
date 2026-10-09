@@ -145,7 +145,7 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
     .cpr-linea-pct{ font-size:var(--fs-xs); text-align:right; }
     .cpr-pct-nd{ color:var(--fg-3); }
     .cpr-modo-lbl{ font-size:var(--fs-xs); color:var(--fg-2); white-space:nowrap; }
-    @media (max-width: 640px){ .cpr-lote{ flex-wrap:wrap; } }
+    @media (max-width: 40rem){ .cpr-lote{ flex-wrap:wrap; } }
 
     .cpr-badge{ font-size:var(--fs-micro); font-weight:var(--fw-bold); padding:.05rem .35rem;
       border-radius:var(--radius-sm); background:var(--bad-soft-bg); color:var(--bad-soft-fg);
