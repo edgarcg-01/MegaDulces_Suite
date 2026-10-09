@@ -130,13 +130,68 @@ function sinComentarios(src) {
   return out;
 }
 
-/** Lector del árbol de git: NUNCA del disco. Ahí está la gracia. */
+/**
+ * Lector del árbol de git: NUNCA del disco. Ahí está la gracia.
+ *
+ * ── `[PVI.18]` Por qué lee TODO de una, y no archivo por archivo ────────────────────────────
+ *
+ * La versión anterior hacía un `git show` por archivo. Medido el 2026-10-09 contra este repo:
+ * **1,879 fuentes × ~86 ms de spawn = ~162 s**, mientras `git ls-tree` cuesta 113 ms. O sea que
+ * el candado no tardaba por leer 27 MB: tardaba por **arrancar git mil ochocientas veces**.
+ *
+ * `git cat-file --batch` los entrega en UN proceso: **3.26 s para los 1,879, 50× más rápido**,
+ * con los mismos bytes (los 1,879 blobs, 26.9 MB).
+ *
+ * ⭐ Y no es una mejora cosmética: **141 s es la razón por la que este candado no tiene
+ * `push: true`** — el criterio de admisión de `compuertas.js` es ~3 s. Con el lote queda del
+ * orden del criterio, o sea que **puede discutirse**. Ahí está el valor: el 2026-10-09 `main`
+ * quedó irreproducible por este mismo defecto (`[PVI.15]`, un import a un archivo sin trackear)
+ * y este candado **lo detecta exacto** — pero nadie lo corre antes de empujar porque cuesta dos
+ * minutos y medio. Una compuerta que nadie corre no es una compuerta.
+ *
+ * ⚠️ Se conserva el `git show` como respaldo perezoso: el lote precarga las FUENTES, y
+ * `exportaDelBarril` puede pedir un archivo que no esté en esa lista. Un respaldo que nunca se
+ * usa no estorba; su ausencia, en cambio, sería un `null` silencioso leído como «no exporta».
+ */
 function lector(ref) {
   const cache = new Map();
   const archivos = new Set(
     execSync(`git ls-tree -r --name-only ${ref}`, { encoding: 'utf8', maxBuffer: 1 << 28 })
       .split('\n').map((l) => l.trim()).filter(Boolean),
   );
+
+  /*
+   * Precarga en lote. Formato de `git cat-file --batch`, por entrada:
+   *
+   *     <sha> <tipo> <bytes>\n<contenido>\n
+   *
+   * ⛔ Se parsea sobre un Buffer y se avanza por los BYTES que declara la cabecera, no buscando
+   * el siguiente salto de línea: un archivo con `\n` adentro —o sea todos— desalinearía el
+   * recorrido. Y un objeto ausente responde `<nombre> missing\n`, que no matchea la cabecera y
+   * se saltea: queda sin precargar y cae al respaldo.
+   */
+  const aLeer = [...archivos].filter((f) => /\.(tsx?|js)$/.test(f) && !f.startsWith('_imported/'));
+  if (aLeer.length) {
+    try {
+      const entrada = Buffer.from(aLeer.map((f) => `${ref}:${f}`).join('\n') + '\n', 'utf8');
+      const out = execSync('git cat-file --batch', { input: entrada, maxBuffer: 1 << 29 });
+      let i = 0;
+      let n = 0;
+      while (i < out.length && n < aLeer.length) {
+        const j = out.indexOf(10, i);
+        if (j < 0) break;
+        const m = out.slice(i, j).toString('utf8').match(/^[0-9a-f]{40} \w+ (\d+)$/);
+        if (!m) { i = j + 1; n++; continue; }   // `missing` / `ambiguous`: queda para el respaldo
+        const size = Number(m[1]);
+        cache.set(aLeer[n], out.slice(j + 1, j + 1 + size).toString('utf8'));
+        i = j + 1 + size + 1;
+        n++;
+      }
+    } catch {
+      /* Si el lote falla por lo que sea, el respaldo perezoso cubre todo: más lento, nunca mudo. */
+    }
+  }
+
   const leer = (p) => {
     if (cache.has(p)) return cache.get(p);
     let s = null;
