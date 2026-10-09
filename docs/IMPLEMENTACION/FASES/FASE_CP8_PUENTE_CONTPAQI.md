@@ -1369,3 +1369,66 @@ no traen RFC** y el resto viene sucio: `CCO-820507-BV` (con guiones y truncado c
 Es **calidad de dato de Kepler**, no del puente. Se declara y no se persigue: normalizar guiones
 recuperaría algunos y **emparejar RFC truncados es adivinar**. El camino bueno sigue siendo
 `kdxf` (casamiento estructural pago→factura, Fase ECA), que no depende del RFC capturado.
+
+---
+
+## 20. ⭐⭐ `[CP.8.23]` El armador leía la fuente equivocada para el pago a proveedor
+
+`[CP.8.21]` dejó 216 movimientos de enero en `proveedor_sin_cuenta`. El primer intento fue
+enganchar el **movimiento bancario** al pago de Kepler: 57.8 % de enganche (216× el placebo) y
+sólo **8.6 %** llegando a una cuenta, porque el RFC de Kepler viene vacío en el 74 % y sucio en el
+resto.
+
+⭐ **El replanteo:** *la contadora no adivina el proveedor mirando el estado de cuenta — lo lee
+del pago registrado en Kepler.* La fuente del asiento de pago a proveedor **no es el movimiento
+bancario**: es `analytics.erp_supplier_payments`, que trae el **nombre** aunque falte el RFC.
+
+Medido ene–feb 2026 (1,030 pagos · $97,729,712.85):
+
+| vía | pagos | % | importe |
+|---|--:|--:|--:|
+| RFC exacto | 197 | 19.1 | $45,742,440.01 |
+| nombre normalizado (un solo tercero) | 138 | 13.4 | $25,353,361.88 |
+| **nombre ambiguo** | **0** | 0 | — |
+| sin resolver | 695 | 67.5 | $26,633,910.96 |
+
+**32.5 % de los pagos pero 72.7 % del importe** — contra 8.6 % por la vía del banco.
+
+⭐ Y **cero ambigüedad**, al revés que en `[CP.8.20]`: ahí se emparejaban cuentas contra
+proveedores **dentro del mismo catálogo** y PASCUAL colapsaba con una persona física; acá son dos
+catálogos de la misma cosa y el nombre sí discrimina. *El mismo método vale o no vale según qué
+universos une.*
+
+### 20.1 Lo que falta no son datos: son ALIAS, y la lista es chica
+
+```
+EFFEM MEXICO INC. Y COMPAÑÍAS EN N.C DE CV  vs  EFFEM MEXICO INC Y COMPAÑIA S EN NC DE CV
+TRESMONTES LUCHETTI (NUTRESA)               vs  TRESMONTES LUCCHETTI MEXICO SA DE CV
+DIST CABADAS DE LA PIEDAD SA DE CV          vs  DISTRIBUCIONES CABADAS DE LA PIEDAD SA DE CV
+ABARROTES LA VIOLETA                        vs  ABARROTES LA VIOLETA SA DE CV
+```
+
+⛔ **No se arreglan normalizando más fuerte** — `[CP.8.20]` ya midió que pasado cierto punto la
+normalización empieza a emparejar terceros distintos. Se arreglan con un alias que alguien
+escribe **una vez**.
+
+⭐ **136 nombres distintos, y los primeros 33 cubren el 80 % del importe que falta.** Treinta y
+tres líneas llevan la cobertura de **72.7 % a ~94.5 % del dinero**.
+
+`database/scripts/proveedores-sin-cuenta-contpaqi.js` emite esa lista ordenada por importe, con
+la columna `cuenta_contpaqi` **vacía a propósito**: proponer un candidato invitaría a aceptarlo
+sin mirar, y ya está medido que el nombre engaña.
+
+⚠️ **Hallazgo colateral — 5 nombres llegan con la Ñ rota** (`CONSERVAS LA COSTE?A`). Es
+codificación en la ingesta de Kepler y se arregla **allá**: ningún alias debería escribirse contra
+un carácter corrupto.
+
+### 20.2 Qué queda, con dueño
+
+| | quién | qué desbloquea |
+|---|---|---|
+| importar UN archivo a ContPAQi | la contadora, 1 min | si el formato se acepta · el `guid` · los `AD` |
+| las **33 líneas de alias** | compras/contabilidad, ~1 h | `por_proveedor` de 72.7 % → ~94.5 % del importe |
+| firmar las reglas `por_categoria` | el contador | ⛔ **no es derivable** — probado en §19.1 |
+| centro de costo por movimiento en CB | negocio | `por_sucursal` (135 movs/mes) |
+| la Ñ rota en la ingesta de Kepler | Sistemas | 5 nombres, y evita alias contra basura |
