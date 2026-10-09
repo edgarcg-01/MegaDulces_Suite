@@ -242,6 +242,61 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
       }
     }
 
+    // ── [8] `[PVI.2]` El `proxy_canal`: cuánto dinero mete y si tiene derecho a meterlo ───────
+    console.log('\n[8] [PVI.2] El proxy de canal — meta sin ninguna señal de la entidad');
+    const px = (await db.raw(`
+      SELECT b.name, b.fiscal_year::int AS fy, l.entity_key,
+             sum(l.meta_amount)::float8 AS meta,
+             count(*)::int AS celdas,
+             count(*) FILTER (WHERE l.base_amount IS NOT NULL)::int AS con_base
+        FROM budget.sales_plan_lines l JOIN budget.budgets b ON b.id = l.budget_id
+       WHERE l.method = 'proxy_canal'
+       GROUP BY 1,2,3`)).rows;
+    if (!px.length) {
+      noMedido('el proxy de canal', 'ningún ejercicio tiene renglones proxy_canal — el mecanismo existe pero hoy no dispara');
+    } else {
+      // (a) por definición el proxy NO tiene base: si una fila la trae, el método está mal puesto.
+      t('ningún renglón `proxy_canal` trae `base_amount` (por definición no tiene)',
+        px.every((x) => x.con_base === 0),
+        px.filter((x) => x.con_base > 0).map((x) => `${x.entity_key}:${x.con_base}`).join(', '));
+
+      // (b) ⭐ CON DIENTES: el proxy es el ÚLTIMO recurso. Si una entidad tenía real en el año que
+      //     el motor miró (prior = fy-1) y aun así cayó al proxy, la cadena de respaldo está rota.
+      const porFy = [...new Set(px.map((x) => x.fy))];
+      for (const fy of porFy) {
+        const prior = fy - 1;
+        const eks = px.filter((x) => x.fy === fy).map((x) => x.entity_key);
+        const base = (await db.raw(`
+          SELECT entity_key, sum(monto)::float8 AS m FROM ${MV}
+           WHERE entity_key = ANY(?) AND fiscal_year = ? GROUP BY 1`, [eks, prior])).rows;
+        const conBase = base.filter((r) => Number(r.m) > 0);
+        t(`FY${fy}: ninguna entidad con proxy tenía real en ${prior} (el proxy es el ÚLTIMO recurso)`,
+          conBase.length === 0,
+          conBase.map((r) => `${r.entity_key}=${mx(r.m)}`).join(', '));
+
+        // (c) la huella del promedio: varias entidades del mismo canal con el MISMO importe.
+        const tot = (await db.raw(`
+          SELECT coalesce(sum(meta_amount),0)::float8 AS m FROM budget.sales_plan_lines l
+            JOIN budget.budgets b ON b.id = l.budget_id WHERE b.fiscal_year = ?`, [fy])).rows[0].m;
+        const mp = px.filter((x) => x.fy === fy).reduce((a, x) => a + x.meta, 0);
+        const distintos = new Set(px.filter((x) => x.fy === fy).map((x) => x.meta.toFixed(2))).size;
+        console.log(`     FY${fy}: ${eks.length} entidades · ${mx(mp)} = ${pct(tot > 0 ? mp / tot : null)} de la meta · ${distintos} importe(s) distinto(s)`);
+        if (eks.length > 1 && distintos < eks.length) {
+          console.log(`       ⛔ ${eks.length} entidades y sólo ${distintos} importe(s): es el PROMEDIO DEL CANAL repartido en partes iguales.`);
+        }
+        // (d) el contraste con lo que de verdad pasó — se DECLARA, no se falla: cuánto vale el
+        //     proxy es una decisión de negocio, pero publicarla sin este número no lo es.
+        const real = (await db.raw(`
+          SELECT coalesce(sum(monto),0)::float8 AS m FROM ${MV}
+           WHERE entity_key = ANY(?) AND fiscal_year = ?`, [eks, fy])).rows[0].m;
+        if (Number(real) > 0) {
+          noMedido(`el acierto del proxy en FY${fy}`,
+            `asignó ${mx(mp)} a entidades que hicieron ${mx(real)} = ${(mp / Number(real)).toFixed(1)}× — ` +
+            'es juicio de negocio, no falla de código, pero la cifra tiene que ir a la vista');
+        }
+      }
+    }
+
     console.log(`\n=== ${ok} ✓ / ${bad} ✗ / ${nm} no medidos ===\n`);
   } catch (e) {
     console.error('ERROR:', e.message);

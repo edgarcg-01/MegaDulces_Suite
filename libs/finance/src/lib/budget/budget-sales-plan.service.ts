@@ -529,6 +529,12 @@ export class BudgetSalesPlanService {
       const chSeasShare = (ch: string): number[] | null => { const arr = chPeriodSum.get(ch); if (!arr) return null; const tot = arr.reduce((a, c) => a + c, 0); return tot > 0 ? arr.map((v) => v / tot) : null; };
 
       const cov = { historico_ajustado: 0, estacional: 0, proxy_canal: 0, sin_base_declarado: 0, no_signal: 0, manual_kept: 0 };
+      // `[PVI.2]` ⛔ `cov` cuenta CELDAS, y el dinero no se reparte por celda. Medido en prod el
+      // 2026-10-08: en el FY2026 el `proxy_canal` son **104 de 429 celdas (24.2 %)** y también
+      // **$197,160,564 = 24.46 % de la meta** — que coincidan es casualidad de ese ejercicio, no
+      // una regla. Nadie calculaba el segundo número, así que «un cuarto de esta meta no tiene
+      // base» sólo se descubría auditando. Ahora sale en la misma respuesta que lo propone.
+      const covMonto = { historico_ajustado: 0, estacional: 0, proxy_canal: 0, sin_base_declarado: 0 };
       for (const e of entities) {
         const ek = e.entity_key as string;
         const ch = e.channel as string;
@@ -576,9 +582,32 @@ export class BudgetSalesPlanService {
             .onConflict(['tenant_id', 'budget_id', 'entity_key', 'period_no'])
             .merge({ meta_amount: meta, method: rowMethod, growth_pct: round4(growth), base_amount: baseAmount, updated_by: username, updated_at: trx.fn.now() });
           cov[rowMethod]++;
+          covMonto[rowMethod] += meta;
         }
       }
-      return { prior_year: priorYear, method, growth_by_channel: growthByChannel, default_growth_pct: def, coverage: cov, total_cells: entities.length * 13 };
+      // `[PVI.2]` Tres grados de respaldo, porque no son lo mismo y hoy se sumaban como si:
+      //   · `historico_ajustado` — base REAL de la entidad (`base_amount` poblado).
+      //   · `estacional`         — sin base en esa celda, pero derivado de la historia ANUAL de la
+      //                            MISMA entidad. Débil, no inventado.
+      //   · `proxy_canal`        — ⛔ la entidad no tiene NINGUNA señal: recibe el **promedio de su
+      //                            canal**, el mismo importe para todas. Medido: `mostrador` repartió
+      //                            un único importe entre 2 entidades y `preventa` entre 5, y el
+      //                            total fue **10.3× lo que esas entidades hicieron de verdad**
+      //                            ($197,160,564 contra $19,063,383). `VERDAD_ABSOLUTA` §24.7.
+      const metaTotal = Object.values(covMonto).reduce((a, v) => a + v, 0);
+      const red = (n: number) => round2(n);
+      return {
+        prior_year: priorYear, method, growth_by_channel: growthByChannel, default_growth_pct: def,
+        coverage: cov, total_cells: entities.length * 13,
+        coverage_monto: {
+          historico_ajustado: red(covMonto.historico_ajustado), estacional: red(covMonto.estacional),
+          proxy_canal: red(covMonto.proxy_canal), sin_base_declarado: red(covMonto.sin_base_declarado),
+        },
+        meta_total: red(metaTotal),
+        /** Fracción de la meta que NO tiene ninguna señal de su propia entidad. `null` si no hay
+         *  meta: una meta de 0 no tiene un «0 % sin base», tiene un porcentaje indefinido. */
+        proxy_canal_pct: metaTotal > 0 ? round4(covMonto.proxy_canal / metaTotal) : null,
+      };
     });
   }
 

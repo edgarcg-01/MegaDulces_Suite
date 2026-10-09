@@ -66,7 +66,10 @@ export interface AutopilotBudgetResult {
   budget_id: string;
   name: string;
   fiscal_year: number;
-  ventas: { escritas: number; manual_kept: number } | null;
+  /** `[PVI.2]` `proxy_canal_pct` = fracción de la meta repartida con el **promedio del canal**,
+   *  o sea sin ninguna señal de la propia entidad. Viaja en el resultado de la pasada y queda en
+   *  `generation_runs`: era el número que nadie calculaba. Medido en el FY2026: **24.46 %**. */
+  ventas: { escritas: number; manual_kept: number; proxy_canal_monto: number; proxy_canal_pct: number | null } | null;
   gastos: { escritas: number; manual_kept: number } | null;
   targets: { filas: number } | null;
   partidas: { creadas: number; ajustadas: number; sin_cambio: number } | null;
@@ -346,6 +349,8 @@ export class BudgetAutopilotService {
         out.ventas = {
           escritas: (c.historico_ajustado ?? 0) + (c.estacional ?? 0) + (c.proxy_canal ?? 0) + (c.sin_base_declarado ?? 0),
           manual_kept: c.manual_kept ?? 0,
+          proxy_canal_monto: Number((r as { coverage_monto?: { proxy_canal?: number } }).coverage_monto?.proxy_canal ?? 0),
+          proxy_canal_pct: (r as { proxy_canal_pct?: number | null }).proxy_canal_pct ?? null,
         };
       } catch (e) { out.errores.push(`plan de ventas: ${(e as Error)?.message ?? e}`); }
 
