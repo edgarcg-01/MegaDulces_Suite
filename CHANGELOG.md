@@ -210,6 +210,11 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Added — Productos: líderes y caducidad (PF.2/PF.3, 2026-10-09)
+- Arriba de la tabla, «Para cuidar hoy»: los líderes (los productos que juntos hacen la mitad de la venta de la red en 90 días) que piden atención, primero lo que más se deja de vender por día, con filtro por motivo (agotado, comprar, mover, se frenó); y los productos con lotes que caducan antes de venderse.
+- Cada líder lleva su marca en la tabla y en el producto; a un líder se le recomienda comprar con 21 días de inventario en vez de 15.
+- En el producto, la sección Caducidad: cada lote con su fecha, lo que hay hoy, lo que alcanza a venderse al ritmo actual, lo que caducaría y a qué sucursal moverlo. Lo caducado según el registro pide confirmarlo en el piso.
+
 ### Added — Productos: flujo de venta, estancados y si hace falta comprar (PF.1, 2026-10-09)
 - En la tabla de Productos, la venta del mes contra los mismos días del mes anterior (en vivo) y la situación de compra de cada producto.
 - Al abrir un producto: qué hacer y por qué, en qué afecta, qué mover entre sucursales antes de comprar, la venta día a día de los dos meses, y cada sucursal con su estado (agotado, estancado, se frenó, le sobra), su existencia en cajas y para cuántos días alcanza.

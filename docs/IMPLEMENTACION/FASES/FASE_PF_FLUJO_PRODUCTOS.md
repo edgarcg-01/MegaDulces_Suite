@@ -1,6 +1,6 @@
 # Fase PF — Flujo de venta de cualquier producto (Compras › Catálogo › Productos)
 
-> Estado: 🧪 PF.1 en código y probado en local (2026-10-09). Sin migración. Sin push.
+> Estado: 🧪 PF.1, PF.2 y PF.3 en código y probados en local (2026-10-09). Sin migración. Sin push.
 
 ## Pedido (Compras, 2026-10-09)
 
@@ -65,8 +65,51 @@ Lo de Productos nuevos, para **todos** los productos, en la sección de **Produc
   cálculo en JS, el kardex = lo sembrado, y las salidas por destino. Encontró que el `'?'` literal de tres consultas
   rompía knex (habría fallado en prod).
 
+## PF.2 — Líderes (pedido 2026-10-09: «los líderes del mercado, a los que hay que meterles cuidado»)
+
+- **Qué es un líder**: está entre los productos que juntos hacen la **primera mitad** de la venta de la red en 90 días
+  (`analytics.product_sales_stats`, que el carril `live` recalcula cada 30 min). ⚠️ Es el ranking de **nuestra** venta, no
+  participación de mercado: no hay datos del mercado.
+- **Medido en prod**: 245 líderes hacen el 50%. La clase A (el 80%) son 952: demasiados para «cuidado especial».
+- **El cuidado**: se le recomienda comprar con menos de **21** días de inventario (al resto, 15); el veredicto lo dice
+  primero («Es líder: el #N…») y, si está agotado en una sucursal, cuánto se deja de vender ahí por día.
+- **Para cuidar hoy** (arriba de la tabla): los líderes que piden atención. ⛔ El primer criterio (cualquier sucursal
+  estancada o frenada) marcaba **239 de 245**: una lista que marca todo no ayuda. Pide atención un líder que hay que
+  comprar, mover, que está agotado donde se vende o cuya venta de toda la red se frenó. Aun así son **217**: medido,
+  104 agotados en alguna sucursal, 108 a comprar, 107 mal repartidos. Por eso la lista va **ordenada por lo que se
+  juega por día** (lo que ya se deja de vender donde está agotado; si se acaba en menos de una semana, toda su venta),
+  muestra 8 y filtra por motivo.
+
+## PF.3 — Caducidad (pedido: «cuáles están en riesgo y tenemos que sacarlos antes»)
+
+- **Fuente**: `commercial.stock_lots` con fecha (la llenan el andén y la revisión de caducidades). Una sola tabla, sin copia.
+- **Medido en prod 2026-10-09: casi no hay registros** — 60 lotes vivos con fecha (48 de Padre Hidalgo, 10 del CEDIS,
+  1 de La Piedad y 1 de 8 Esquinas); 17 renglones de revisión, todos de Padre Hidalgo. ⛔ **Sin fecha registrada no quiere decir que no caduque**:
+  la pantalla lo dice y muestra la cobertura (cuántos lotes, de cuántos productos, en qué sucursales).
+- **⚠️ La cantidad es la REGISTRADA**: Kepler no descuenta por lote al vender. Se topa con la existencia de hoy de la
+  sucursal, repartida del lote más viejo al más nuevo (el lado prudente: si se vendió primero lo viejo, aquí sobra).
+- **El juicio por lote**: se vende primero lo que caduca primero; cada lote cuenta con la venta que le queda después de
+  los que caducan antes, al ritmo de los últimos 30 días. Estados: **caducado** (según el registro: confirmarlo en el
+  piso), **no alcanza a venderse** (con a dónde moverlo: la sucursal que lo vende a tiempo después de su propia
+  existencia; si ninguna, promover o devolver), **caduca pronto** (≤ 30 días, alcanza: ponerlo al frente), a tiempo.
+- **El CEDIS no vende en mostrador**: su lote se mide contra la venta de toda la red. Sin eso, los 10 lotes del CEDIS
+  salían todos «no alcanza».
+- Hay lotes registrados como caducados en 2023 y 2024 con la misma cantidad que la existencia de hoy: o siguen en el
+  piso o el registro quedó viejo. Se muestran como «caducado según el registro» para que se confirmen.
+- La unidad de `stock_lots` no está declarada en la tabla (se toma como unidad base). La revisión de caducidades puede
+  capturar en cajas y la alimentación al lote no convierte (1 renglón en prod con `unidad = caja`): declarado, no corregido aquí.
+
+## Tiempos (prod, sólo lectura, con el servicio real)
+
+- «Para cuidar hoy» junta ~300 productos: **2.0–2.5 s** (historia 0.54 s y kardex de los líderes). Es igual para todo el
+  tenant y la pantalla lo pide cada minuto: se guarda **un minuto** y, vencido, se entrega el anterior mientras se
+  recalcula. ⚠️ El primer pedido tras arrancar el servidor o tras más de un minuto sin nadie sí espera ~2 s; el bloque
+  carga aparte, la tabla no lo espera.
+- Lista de 50 líderes: 0.57–0.79 s (desde esta máquina; en el servidor no hay viaje por la red). Detalle: 0.33–0.48 s.
+
 ## Abierto
 
-- Calibrar los umbrales con Compras.
+- Calibrar los umbrales con Compras (incluidos los 21 días del líder, los 30 días de «caduca pronto» y el corte del 50%).
+- Que el andén y la revisión registren más fechas: hoy la caducidad cubre 60 productos.
 - El tránsito (órdenes de compra por recibir) todavía no resta del «hace falta comprar».
 - Plazo de entrega por proveedor: hoy el umbral de 15 días es fijo para todos.

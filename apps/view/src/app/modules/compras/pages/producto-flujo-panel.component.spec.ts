@@ -5,8 +5,11 @@ import { NEVER, of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import { escaleraUnidades } from '@megadulces/contracts';
 import { FlujoDetalle, PlazaFlujo, ProductosFlujoService } from '../productos-flujo.service';
+import type { LoteCaducidad } from '../productos-flujo.service';
 import {
   ProductoFlujoPanelComponent,
+  diasTexto,
+  liderTexto,
   cantidadEnCajas,
   trazos,
   variacionTexto,
@@ -27,10 +30,12 @@ const DETALLE: FlujoDetalle = {
   periodos: { hoy: '2026-10-09', mesIni: '2026-10-01', dias: 9, prevIni: '2026-09-01', prevFin: '2026-09-10', desde30: '2026-09-10', desdeHistoria: '2026-06-11' },
   corte: '2026-10-09', en_vivo_al: '2026-10-09T18:00:00.000Z', costo_visible: false,
   criterio: { ventanaRitmo: 30, ventanaHistoria: 120, diasEstancado: 14, caidaFrenado: 0.5, diasMinimosComparar: 7,
-    coberturaComprar: 15, coberturaSobra: 60, coberturaQueSeQueda: 30, ventanaReparto: 90 },
+    coberturaComprar: 15, coberturaSobra: 60, coberturaQueSeQueda: 30, ventanaReparto: 90,
+    lideresCorte: 0.5, coberturaComprarLider: 21, caducidadAviso: 30 },
   resumen: {
     product_id: 'p-1', mes: 15000, mes_anterior_mismo: 12000, mes_anterior_total: 46000, variacion: 0.25, venta_dia: 1500,
-    estancadas: [{ plaza: '06', nombre: 'Canindo', dias_sin_venta: 20 }], frenadas: [], agotadas: [{ plaza: '04', nombre: 'Yurécuaro' }],
+    estancadas: [{ plaza: '06', nombre: 'Canindo', dias_sin_venta: 20 }], frenadas: [], agotadas: [{ plaza: '04', nombre: 'Yurécuaro', venta_dia: 150 }],
+    lider: null, caducidad: null,
     compra: {
       veredicto: 'traspasar', titulo: 'No comprar: mover entre sucursales',
       motivos: ['Estancado en Canindo', 'Agotado en Yurécuaro, donde sí se vende'],
@@ -50,6 +55,7 @@ const DETALLE: FlujoDetalle = {
     ultima_compra: '2026-10-06', ultima_compra_plazas: [{ plaza: '08', nombre: 'Morelia Abastos' }] },
   reparto: [{ plaza: '01', nombre: 'Padre Hidalgo', comprado: { PZA: 3000 }, recibido: {}, mandado_sucursales: { PZA: 1500 }, mandado_rutas: { PAQ: 13 }, escalera: KINDER }],
   escalera: KINDER,
+  lotes: [],
 };
 
 const tick = async (fix: ComponentFixture<unknown>) => { fix.detectChanges(); await fix.whenStable(); fix.detectChanges(); };
@@ -128,6 +134,42 @@ describe('[PF.1] panel de flujo de un producto', () => {
     expect(fix.nativeElement.textContent).not.toContain('Cargando comportamiento');
   });
 
+  it('[PF.2] un líder lo dice arriba del veredicto, con su lugar en la venta de la red', async () => {
+    const d = { ...DETALLE, resumen: { ...DETALLE.resumen, lider: { rank: 3, participacion: 0.0123 } } };
+    const fix = await montar(vi.fn(() => of(d)));
+    await tick(fix);
+    expect(fix.nativeElement.querySelector('.pf-veredicto .pf-lider')?.textContent).toBe('Líder · #3 en venta de la red (1.2%)');
+  });
+
+  it('⭐ [PF.3] la caducidad va antes del flujo: qué caduca, cuánto no alcanza a venderse (en cajas) y a dónde moverlo', async () => {
+    const lote: LoteCaducidad = {
+      plaza: '06', nombre: 'Canindo', lote: 'L-77', caduca: '2026-10-29', dias: 20, registrado: 1500, en_existencia: 1500,
+      se_vende_antes: 1370, queda: 130, estado: 'no_alcanza', accion: 'Aquí no se alcanza a vender antes de que caduque: moverlo a donde sí se vende',
+      mover_a: [{ plaza: '08', nombre: 'Morelia Abastos', cantidad: 70 }, { plaza: '01', nombre: 'Padre Hidalgo', cantidad: 60 }],
+      sin_destino: 0, escalera: KINDER,
+    };
+    const fix = await montar(vi.fn(() => of({ ...DETALLE, lotes: [lote] })));
+    await tick(fix);
+    const sec = (fix.nativeElement.querySelector('#pf-cad') as HTMLElement).parentElement!;
+    const secciones = Array.from(fix.nativeElement.querySelectorAll('section h3')).map((h) => (h as HTMLElement).id);
+    expect(secciones.indexOf('pf-cad')).toBeLessThan(secciones.indexOf('pf-flujo'));
+    const t = sec.textContent!.replace(/\s+/g, ' ');
+    expect(t).toContain('No alcanza a venderse');
+    expect(t).toContain('Lote L-77');
+    expect(t).toContain('en 20 días');
+    expect(t).toContain('Mover 1 caja y 1 paquete a Morelia Abastos');
+    expect(t).toContain('Mover 1 caja a Padre Hidalgo');
+    expect(t).not.toContain('Promover o devolver');
+    expect(sec.querySelector('.pf-down')?.textContent).toBe('2 cajas y 1 paquete');
+  });
+
+  it('[negativa] sin fechas registradas no hay tabla de caducidad, y se dice que eso NO es "no caduca"', async () => {
+    const fix = await montar(vi.fn(() => of(DETALLE)));
+    await tick(fix);
+    expect(fix.nativeElement.querySelector('#pf-cad')).toBeNull();
+    expect(fix.nativeElement.textContent).toContain('Sin fecha registrada no quiere decir que no caduque');
+  });
+
   it('[negativa] si falla de entrada lo dice, no pinta ceros', async () => {
     const fix = await montar(vi.fn(() => throwError(() => new Error('x'))));
     await tick(fix);
@@ -142,6 +184,14 @@ describe('[PF.1] funciones de presentación', () => {
     expect(variacionTexto(-0.4)).toBe('−40%');
     expect(variacionTexto(0)).toBe('0%');
     expect(variacionTexto(null)).toBe('—');
+  });
+
+  it('[PF.3] los días a una fecha en palabras; [PF.2] el texto del líder', () => {
+    expect(diasTexto(0)).toBe('hoy');
+    expect(diasTexto(1)).toBe('mañana');
+    expect(diasTexto(25)).toBe('en 25 días');
+    expect(diasTexto(-8)).toBe('hace 8 días');
+    expect(liderTexto({ rank: 1, participacion: 0.025 })).toBe('Líder · #1 en venta de la red (2.5%)');
   });
 
   it('una cantidad en unidad base, en cajas completas y lo demás', () => {

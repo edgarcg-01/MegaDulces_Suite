@@ -1,16 +1,20 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
-import { TenantKnexService } from '@megadulces/platform-core';
+import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { escaleraComun } from './new-products';
 import { EXISTENCIA_KEPLER_SQL } from './new-products.sql';
 import {
   CRITERIO_FLUJO,
   DatosPlaza,
+  enJuegoPorDia,
+  motivosLider,
   ExistenciaPlaza,
   FlujoDetalle,
   FlujoListaRespuesta,
   HistoriaPlaza,
   KardexFila,
+  Lider,
+  LoteFila,
   Periodos,
   PlazaFlujo,
   RepartoPlaza,
@@ -18,11 +22,13 @@ import {
   escaleraDeFicha,
   existenciaEnDuda,
   juntarPlaza,
+  juzgarLotes,
   juzgarPlaza,
   kardexPorPlaza,
   llegadaDeKardex,
   ordenPlazasFlujo,
   periodos,
+  resumirCaducidad,
   resumirProducto,
   serieAcumulada,
   sumarDias,
@@ -35,15 +41,20 @@ import {
   HISTORIA_DIARIA_SQL,
   KARDEX_SQL,
   KDIL_CRUDO_SQL,
+  LIDERES_SQL,
+  LOTES_CADUCIDAD_SQL,
   RESUMEN_HISTORIA_SQL,
   SALIDAS_SQL,
   TRASPASOS_SQL,
   VENTA_VIVO_SQL,
 } from './product-flow.sql';
+import type { CuidarRespuesta } from './product-flow';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Lo más que pide una página del catálogo (su paginador llega a 200). */
 const MAX_IDS = 200;
+/** Cuánto se guarda "Para cuidar hoy" (la pantalla lo pide cada minuto). */
+const CUIDAR_VIGENCIA_MS = 60_000;
 
 const num = (v: unknown): number | null => {
   if (v === null || v === undefined || v === '') return null;
@@ -63,7 +74,17 @@ const agrupar = <T,>(xs: T[], k: (x: T) => string) => {
  */
 @Injectable()
 export class ProductFlowService {
-  constructor(private readonly tk: TenantKnexService) {}
+  constructor(
+    private readonly tk: TenantKnexService,
+    private readonly tenantCtx: TenantContextService,
+  ) {}
+
+  /**
+   * `[PF.2]`/`[PF.3]` "Para cuidar hoy" junta ~300 productos (medido en prod: ~2 s; la historia y el kardex de
+   * los líderes). Es igual para todos los del tenant y la pantalla lo refresca cada minuto: se guarda un minuto
+   * y, vencido, se entrega el anterior mientras se recalcula (nunca deja la pantalla esperando dos veces).
+   */
+  private readonly memoCuidar = new Map<string, { at: number; valor?: CuidarRespuesta; enCurso?: Promise<CuidarRespuesta> }>();
 
   private async base(trx: Knex.Transaction): Promise<{ hoy: string; corte: string; p: Periodos }> {
     const r = (await trx.raw(CORTE_SQL)).rows[0] as { hoy: string; corte: string };
@@ -98,6 +119,20 @@ export class ProductFlowService {
     return { kardex, kdil };
   }
 
+  /** `[PF.2]` Los líderes (de unos productos, o todos con `ids = null`) y la fecha de su cálculo. */
+  private async lideres(trx: Knex.Transaction, ids: string[] | null) {
+    const rows = (await trx.raw(LIDERES_SQL, [CRITERIO_FLUJO.lideresCorte, ids, ids])).rows as
+      Array<{ product_id: string; rank: number; participacion: number; computed_at: Date | string | null }>;
+    const mapa = new Map<string, Lider>(rows.map((r) => [r.product_id, { rank: Number(r.rank), participacion: Number(r.participacion) }]));
+    const calculado = rows.map((r) => (r.computed_at ? new Date(r.computed_at).toISOString() : '')).filter(Boolean).sort().at(-1) ?? null;
+    return { mapa, calculado };
+  }
+
+  /** `[PF.3]` Los lotes con fecha registrada (de unos productos, o todos con `ids = null`). */
+  private async lotes(trx: Knex.Transaction, ids: string[] | null) {
+    return (await trx.raw(LOTES_CADUCIDAD_SQL, [ids, ids])).rows as Array<LoteFila & { sku: string; nombre: string | null }>;
+  }
+
   /** La lista: un resumen por producto de la página. */
   async list(ids: string[], opts: { puedeVerCosto: boolean }): Promise<FlujoListaRespuesta> {
     const limpios = [...new Set((ids ?? []).filter((x) => UUID_RE.test(x)))];
@@ -109,12 +144,82 @@ export class ProductFlowService {
         criterio: CRITERIO_FLUJO, productos,
       });
       if (!limpios.length) return respuesta([]);
+      return respuesta(await this.resumenes(trx, p, corte, limpios, opts));
+    });
+  }
+
+  /** `[PF.2]`/`[PF.3]` Para cuidar hoy: los líderes que piden atención y los lotes que caducan antes de venderse. */
+  async cuidar(opts: { puedeVerCosto: boolean }): Promise<CuidarRespuesta> {
+    const key = `${this.tenantCtx.requireTenantId()}:${opts.puedeVerCosto ? 1 : 0}`;
+    const m = this.memoCuidar.get(key) ?? { at: 0 };
+    this.memoCuidar.set(key, m);
+    if (m.valor && Date.now() - m.at < CUIDAR_VIGENCIA_MS) return m.valor;
+    if (!m.enCurso) {
+      m.enCurso = this.calcularCuidar(opts)
+        .then((v) => { m.valor = v; m.at = Date.now(); return v; })
+        .finally(() => { m.enCurso = undefined; });
+      // Si falla el recálculo de fondo se queda el anterior; sin anterior, el error le llega a quien pidió.
+      m.enCurso.catch(() => undefined);
+    }
+    return m.valor ?? m.enCurso;
+  }
+
+  private async calcularCuidar(opts: { puedeVerCosto: boolean }): Promise<CuidarRespuesta> {
+    return this.tk.run(async (trx) => {
+      const { corte, p } = await this.base(trx);
+      const { mapa, calculado } = await this.lideres(trx, null);
+      const lotes = await this.lotes(trx, null);
+      const ids = [...new Set([...mapa.keys(), ...lotes.map((l) => l.product_id)])];
+      const resumenes = ids.length ? await this.resumenes(trx, p, corte, ids, opts, { lideres: mapa, lotes }) : [];
+      const porId = new Map(resumenes.map((r) => [r.product_id, r]));
+      const info = new Map<string, { sku: string; nombre: string | null }>();
+      for (const r of (await trx.raw(`
+        SELECT id::text AS id, sku, nombre FROM catalog.products
+         WHERE tenant_id = public.current_tenant_id() AND id = ANY(?::uuid[])`, [ids])).rows as Array<{ id: string; sku: string; nombre: string | null }>) {
+        info.set(r.id, { sku: r.sku, nombre: r.nombre });
+      }
+      const lideres = [...mapa.keys()]
+        .map((id) => porId.get(id))
+        .filter((r): r is NonNullable<typeof r> => !!r)
+        .map((r) => ({ ...info.get(r.product_id)!, resumen: r, motivos: motivosLider(p, r), en_juego_dia: enJuegoPorDia(r) }))
+        .filter((x) => x.motivos.length > 0)
+        .sort((a, b) => b.en_juego_dia - a.en_juego_dia
+          || (a.resumen.compra.cobertura_dias ?? Infinity) - (b.resumen.compra.cobertura_dias ?? Infinity)
+          || (a.resumen.lider?.rank ?? 0) - (b.resumen.lider?.rank ?? 0));
+      const porMotivo = { agotado: 0, comprar: 0, mover: 0, se_freno: 0 };
+      for (const x of lideres) for (const m of x.motivos) porMotivo[m]++;
+      const caducidad = resumenes
+        .filter((r) => r.caducidad && (r.caducidad.vencido > 0 || r.caducidad.en_riesgo > 0 || r.caducidad.por_caducar > 0))
+        .sort((a, b) => (a.caducidad!.proxima ?? '9999').localeCompare(b.caducidad!.proxima ?? '9999'))
+        .map((r) => ({ ...info.get(r.product_id)!, resumen: r }));
+      const nombres = await this.nombres(trx);
+      return {
+        periodos: p, corte, en_vivo_al: new Date().toISOString(), costo_visible: opts.puedeVerCosto, criterio: CRITERIO_FLUJO,
+        lideres: { total: mapa.size, calculado, piden_atencion: lideres, por_motivo: porMotivo },
+        caducidad: {
+          productos: caducidad,
+          cobertura: {
+            lotes: lotes.length,
+            productos: new Set(lotes.map((l) => l.product_id)).size,
+            sucursales: [...new Set(lotes.map((l) => l.plaza))].sort().map((pl) => ({ plaza: pl, nombre: nombres.get(pl) ?? null })),
+          },
+        },
+      };
+    });
+  }
+
+  /** Resumen de unos productos (ya validados). Con `extra` se reusan líderes y lotes ya leídos. */
+  private async resumenes(trx: Knex.Transaction, p: Periodos, corte: string, ids: string[], opts: { puedeVerCosto: boolean },
+    extra?: { lideres: Map<string, Lider>; lotes: LoteFila[] }): Promise<FlujoListaRespuesta['productos']> {
+    {
       const prods = (await trx.raw(`
         SELECT id::text AS id, sku FROM catalog.products
          WHERE tenant_id = public.current_tenant_id() AND id = ANY(?::uuid[]) AND deleted_at IS NULL AND sku IS NOT NULL`,
-      [limpios])).rows as Array<{ id: string; sku: string }>;
-      if (!prods.length) return respuesta([]);
+      [ids])).rows as Array<{ id: string; sku: string }>;
+      if (!prods.length) return [];
       const ids2 = prods.map((x) => x.id);
+      const lideres = extra?.lideres ?? (await this.lideres(trx, ids2)).mapa;
+      const lotesPor = agrupar(extra?.lotes ?? await this.lotes(trx, ids2), (l) => l.product_id);
       const skus = [...new Set(prods.map((x) => x.sku))];
 
       const hist = (await trx.raw(RESUMEN_HISTORIA_SQL, [
@@ -144,16 +249,20 @@ export class ProductFlowService {
         : [];
       const fichas = await this.fichas(trx, skusKardex);
 
-      const productos = prods.map((x) => {
+      return prods.map((x) => {
+        const lotes = lotesPor.get(x.id) ?? [];
         const plazas = this.armarPlazas(p, {
           hist: histPor.get(x.id) ?? [], vivo: vivoPor.get(x.sku) ?? [], exist: exPor.get(x.id) ?? [],
           kardex: kardex.filter((k) => k.sku === x.sku), kdil: kdil.filter((k) => k.sku === x.sku),
           costos: costos.filter((c) => c.sku === x.sku), fichas: fichas.get(x.sku) ?? new Map(), nombres,
+          // Con lotes se juzgan TODAS sus sucursales: un lote donde no se vende es justo el que caduca.
+          todas: lotes.length > 0,
         });
-        return resumirProducto(x.id, p, plazas);
+        const caducidad = resumirCaducidad(juzgarLotes(p, lotes, plazas, nombres));
+        const r = resumirProducto(x.id, p, plazas.filter((pl) => pl.estado !== 'sin_movimiento'), { lider: lideres.get(x.id) ?? null, caducidad });
+        return opts.puedeVerCosto ? r : { ...r, compra: { ...r.compra, inmovilizado: null } };
       });
-      return respuesta(productos);
-    });
+    }
   }
 
   /** El detalle de UN producto. */
@@ -180,6 +289,8 @@ export class ProductFlowService {
         Array<{ plaza: string; destino: string; unidad: string; q: string }>;
       const traspasos = (await trx.raw(TRASPASOS_SQL, [prod.sku, desdeReparto])).rows as
         Array<{ plaza: string; unidad: string; q: string }>;
+      const lider = (await this.lideres(trx, [prod.id])).mapa.get(prod.id) ?? null;
+      const lotesFilas = await this.lotes(trx, [prod.id]);
 
       // La historia diaria, partida en periodos como en la lista (misma regla en un solo lugar).
       const hist: HistoriaPlaza[] = [...agrupar(diario, (d) => d.plaza)].map(([plaza, ds]) => {
@@ -200,7 +311,8 @@ export class ProductFlowService {
         hist, vivo, exist, kardex, kdil, costos: opts.puedeVerCosto ? kdil : [], fichas, nombres,
         todas: true,
       }).sort(ordenPlazasFlujo);
-      const resumen = resumirProducto(prod.id, p, plazas);
+      const lotes = juzgarLotes(p, lotesFilas, plazas, nombres);
+      const resumen = resumirProducto(prod.id, p, plazas, { lider, caducidad: resumirCaducidad(lotes) });
 
       const porDia = new Map<string, number>();
       for (const d of diario) porDia.set(d.fecha, (porDia.get(d.fecha) ?? 0) + (num(d.monto) ?? 0));
@@ -232,6 +344,7 @@ export class ProductFlowService {
         llegada: llegadaDeKardex(kardex, nombres),
         reparto: [...reparto.values()].sort((a, b) => a.plaza.localeCompare(b.plaza)),
         escalera: escaleraComun(plazas.map((x) => x.escalera)),
+        lotes,
       };
     });
   }
