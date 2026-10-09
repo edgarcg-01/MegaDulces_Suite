@@ -3774,10 +3774,31 @@ como cero fabrica una insolvencia que no existe. El defecto está **en el lector
    nunca tiene más de 30 días**, así que el detector de rancidez decía «fresco» incondicionalmente.
    ⚠️ `movement_date <= current_date` **no alcanza**: el año `0206` pasa ese filtro. Va acotado por
    los dos lados.
-3. **Las estadísticas del ODS mienten 808×.** `kdxe` reporta 63 filas y tiene **50,885**; `kdxf` 76 y
-   tiene **30,556**; **237 de 240 tablas de `kepler_ods` nunca se analizaron**. La misma pregunta
-   costó **224 ms una vez y más de 150 s la siguiente**. ⛔ **Ningún consumidor del ODS puede declarar
-   un gate de tiempo hasta que exista un `ANALYZE`.**
+3. **El precipicio de plan sobre `kepler_ods`, y una hipótesis MÍA refutada por la medición.**
+   La misma pregunta costó **224 ms una vez y más de 150 s la siguiente**, y hubo que cancelarla
+   con `pg_cancel_backend` contra prod en horario hábil.
+
+   **Lo que afirmé:** que la causa eran las estadísticas. Eran malas de verdad — `kdxe` decía 63
+   filas y tiene **50,891**, `kdue` decía 738 y tiene **590,504**, y **237 de 240 tablas de
+   `kepler_ods` tenían `last_analyze` Y `last_autoanalyze` en NULL**.
+
+   ⛔ **Y aun así NO era la causa.** Se corrieron las cuatro `ANALYZE` (1.84 s en total, las
+   estadísticas quedaron correctas) y **la consulta siguió pasando de 60 s**. Lo que sí mejoró fue
+   otra: la de esta sección, de 355 a **237 ms**.
+
+   ⭐ **La causa real, leída del plan:** `btrim(c1) = sucursal` —el ancla anti-réplica de ECA— es
+   una comparación **columna contra columna a través de una función**. Postgres no tiene con qué
+   estimarla y cae a una selectividad por defecto; apilada con `c3 = 'A'` el plan estima **1 fila**
+   sobre `kdxe` cuando son miles, elige `Nested Loop` y **re-agrega `kdxf` entero por cada fila de
+   afuera**. No es cuántas filas tiene la tabla: es que el predicado **no se puede estimar**.
+
+   **El arreglo, medido: `AS MATERIALIZED` en los CTE → de más de 150 s a 405 ms.** Es el mismo
+   recurso que ya usaba `cobranza-prevista.ts` del lado del cobro, por la misma razón: fijar la
+   forma en vez de confiar en que el planner adivine bien.
+
+   ⚠️ **Lección de método:** una explicación que encaja con los síntomas y además corrige un defecto
+   real —las estadísticas lo eran— es la más fácil de dar por buena sin probarla. Lo que la refutó
+   fue **re-correr la consulta lenta después del arreglo**, no releer el razonamiento.
 
 ### 26.6 Tres trampas que ya cobraron en este carril
 
@@ -3802,10 +3823,19 @@ como cero fabrica una insolvencia que no existe. El defecto está **en el lector
   `customer_receivable_snapshots` tiene **14 fechas (2026-09-24 → 2026-10-08)**. Defendible alrededor
   del **20 de noviembre**, con ~8 semanas de serie. ⛔ Y **no sale de `payment_program`**, que es
   dinero que SALE.
-- **El 89.7 % de la deuda de mercancía ($122,755,716.27) tiene fecha anterior al 1-oct.** ⚠️ **No
-  contradice** los $59.9M que ECA declaró: ellos midieron las facturas *de sucursal* previas al corte,
-  esto son *todas*. Otro universo, otra afirmación. Abierto: o es deuda vieja impaga, o los
-  casamientos de `kdxf` no capturan pagos pre-corte y el saldo abierto está inflado.
+- **El 89.7 % de la deuda de mercancía tiene fecha anterior al 1-oct.** ⭐ **El cabo suelto con ECA
+  quedó cerrado** cuando la consulta que se colgaba por fin corrió (405 ms con `AS MATERIALIZED`):
+
+  | | 00 (concentrador) | sucursal |
+  |---|---:|---:|
+  | Anterior al corte | $62,994,567.61 (1,162 docs) | **$59,609,277.46** (1,970 docs) |
+  | Desde el 1-oct | $6,289,860.58 (76) | $7,766,043.42 (180) |
+
+  Los **$59,609,277.46** de la celda *(anterior al corte × sucursal)* son los **$59.9M que ECA
+  declaró** — 0.5 % de deriva sobre un libro vivo. Nunca hubo contradicción: su cifra era esa celda
+  y la mía era la fila entera. ⚠️ **Sigue abierto lo que importa**, que no es la aritmética: si son
+  deuda vieja genuinamente impaga, o los casamientos de `kdxf` no capturan pagos pre-corte y el
+  saldo abierto está inflado. **Del dominio de ECA.**
 - **El traslape entre la deuda del ERP y las obligaciones autorizadas.** Hoy no muerde (las
   autorizadas son 0), por eso se publican **separadas y sin sumar**. El día que alguien capture
   obligaciones, es un hueco con nombre.

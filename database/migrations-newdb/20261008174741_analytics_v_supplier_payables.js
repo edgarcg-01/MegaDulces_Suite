@@ -50,8 +50,25 @@
 const M = '00000000-0000-0000-0000-00000000d01c';
 const CORTE_CONCENTRADOR = '2026-10-01';
 
+/**
+ * ⭐⭐ Los tres CTE van `AS MATERIALIZED`, y NO es cosmético — medido el 2026-10-08.
+ *
+ * `btrim(c1) = sucursal` (el ancla anti-réplica de ECA) es una comparación COLUMNA CONTRA
+ * COLUMNA a través de una función: Postgres no tiene con qué estimarla y cae a una
+ * selectividad por defecto. Apilada con `c3 = 'A'` el plan estima **1 fila** sobre `kdxe`
+ * cuando son miles, elige `Nested Loop` y **re-agrega `kdxf` entero por cada fila de afuera**.
+ * Una consulta de esta forma estuvo **más de 150 s** sin terminar y hubo que cancelarla.
+ *
+ * ⛔ **No lo arregla `ANALYZE`.** Se corrieron las cuatro tablas (las estadísticas estaban mal
+ * por 800x, un defecto real y aparte) y la consulta **siguió pasando de 60 s**: el problema no
+ * es cuántas filas tiene la tabla, es que el predicado no se puede estimar. Con los CTE
+ * materializados la misma pregunta baja a **405 ms**.
+ *
+ * Es el mismo recurso que ya usa `cobranza-prevista.ts` del lado del cobro, por la misma razón:
+ * fijar la forma en vez de confiar en que el planner adivine bien.
+ */
 const DEF = `
-WITH doc AS (
+WITH doc AS MATERIALIZED (
   SELECT sucursal,
          btrim(c2)                                               AS proveedor,
          c4                                                      AS doc_tipo,
@@ -63,12 +80,12 @@ WITH doc AS (
     FROM kepler_ods.kdxe
    WHERE btrim(c1) = sucursal
      AND c3 = 'A'
-), apl AS (
+), apl AS MATERIALIZED (
   SELECT sucursal, c7 AS t, c8 AS s, btrim(c9) AS f, sum(c10) AS aplicado
     FROM kepler_ods.kdxf
    WHERE btrim(c1) = sucursal
    GROUP BY 1,2,3,4
-), prov AS (
+), prov AS MATERIALIZED (
   SELECT DISTINCT ON (btrim(c2)) btrim(c2) AS ck, c3 AS nombre, c13 AS grupo
     FROM kepler_ods.kdxd
    ORDER BY btrim(c2), (sucursal <> '00'), sucursal
