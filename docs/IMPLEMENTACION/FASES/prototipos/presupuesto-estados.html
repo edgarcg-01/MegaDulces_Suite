@@ -44,7 +44,12 @@ h2{font-size:1.02rem;margin:0 0 2px;font-weight:700}
 h3{font-size:.86rem;margin:0 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
 p{margin:0 0 8px} ul{margin:4px 0 8px;padding-left:18px} li{margin:4px 0}
 :focus-visible{outline:2px solid var(--action);outline-offset:2px}
-code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
+/* ⚠️ El 0.86em COMPONE dentro de cualquier contenedor ya reducido: medido en el render, cinco
+   elementos de este documento caian a 9.6px -- el mas chico, un `code` con el nombre del tipo que
+   el documento viene a explicar. No fue una decision, fue cascada, y ninguna compuerta la ve
+   porque las dos reglas son validas por separado. El `max()` pone un piso en el token mas chico
+   del sistema en vez de dejar que se multipliquen. */
+code{font-family:var(--f-mono);font-size:max(.86em, var(--fs-nano));background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
 
 header{border-bottom:1px solid var(--line);padding-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
 .hd-l{display:flex;flex-direction:column;gap:4px;min-width:min(100%,520px)}

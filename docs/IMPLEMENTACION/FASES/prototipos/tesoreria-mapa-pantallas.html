@@ -40,6 +40,10 @@ section{background:var(--surface);border:1px solid var(--line);border-radius:var
 .card-bd{padding:11px 12px;display:flex;flex-direction:column;gap:7px;flex:1}
 .q{font-size:var(--fs-xs);color:var(--fg);font-style:italic}
 .meta{font-size:var(--fs-nano);color:var(--faint);font-family:var(--f-mono)}
+/* ⚠️ `code` reduce un 0.86em, y dentro de `.meta` —que ya esta en nano— COMPONE: medido en el
+   render, los dos `GET /cash-*` salian a 8.6px. No fue una decision, fue cascada. Ninguna
+   compuerta lo ve: las dos reglas son validas por separado. Se encontro MIRANDO. */
+.meta code{font-size:inherit}
 .kpi{font-family:var(--f-mono);font-size:var(--fs-h3);font-weight:600;font-variant-numeric:tabular-nums}
 .kpi.neg{color:var(--bad-fg)} .kpi.unk{color:var(--faint);font-weight:500;font-size:var(--fs-body)}
 

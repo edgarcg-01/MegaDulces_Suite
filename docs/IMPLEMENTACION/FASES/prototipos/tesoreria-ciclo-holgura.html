@@ -56,6 +56,9 @@ section{background:var(--surface);border:1px solid var(--line);border-radius:var
 .mi{background:var(--surface);padding:11px 13px;display:flex;flex-direction:column;gap:3px;min-width:0}
 .mi-lab{font-size:var(--fs-nano);color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .mi-val{font-family:var(--f-mono);font-size:var(--fs-h2);font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+/* ⚠️ `neg` es para un numero que de verdad esta MAL, no para uno que es NEGATIVO. El hueco de la
+   ventana es negativo por construccion y NO la lleva -- ver el comentario en su tarjeta. Una clase
+   que existe se usa: pedida por el signo en vez de por el juicio, el tablero grita todos los dias. */
 .mi-val.neg{color:var(--bad-fg)} .mi-val.unk{color:var(--text-faint);font-weight:500;font-size:var(--fs-body)}
 .mi-sub{font-size:var(--fs-nano);color:var(--faint);line-height:1.35}
 
@@ -112,7 +115,11 @@ tbody tr:last-child td{border-bottom:none}
   <div class="strip">
     <div class="mi"><span class="mi-lab">Requerido por semana <span class="st medido">medido</span></span><span class="mi-val">$2,395,779</span><span class="mi-sub">de la masa vencida, para cerrar el hueco</span></div>
     <div class="mi"><span class="mi-lab">Cobro semanal real <span class="st medido">medido</span></span><span class="mi-val">$10,456,971</span><span class="mi-sub">promedio de las 8 semanas cerradas</span></div>
-    <div class="mi"><span class="mi-lab">Hueco de la ventana <span class="st parcial">parcial</span></span><span class="mi-val neg">−$19,166,235</span><span class="mi-sub">saldo + cobro en ventana − pago en ventana</span></div>
+    <!-- ⛔ SIN la clase `neg`, y es el punto de la seccion 4: el hueco es el caso base, no una
+         alarma. La primera version de este prototipo lo pintaba ROJO -- contradiciendo su propia
+         regla tres secciones mas abajo Y a la implementacion, que nunca le puso tono. Lo encontre
+         MIRANDO el prototipo renderizado; ninguna compuerta lo ve, porque el rojo es CSS valido. -->
+    <div class="mi"><span class="mi-lab">Hueco de la ventana <span class="st parcial">parcial</span></span><span class="mi-val">−$19,166,235</span><span class="mi-sub">saldo + cobro en ventana − pago en ventana · negativo por construcción</span></div>
     <div class="mi"><span class="mi-lab">Saldo inicial <span class="st medido">medido</span></span><span class="mi-val">$1,479,870</span><span class="mi-sub">23 movimientos de fecha imposible excluidos</span></div>
   </div>
   <div class="note bad"><strong>Lo que esta pantalla NO va a decir, y es el punto.</strong> El hueco de −$19.2M <b>no</b> se publica como «falta liquidez». El caso base de la curva es negativo <strong>por construcción</strong> —agenda por vencimiento y los $55M vencidos viajan sin fecha— así que un semáforo rojo ahí sería una alarma que grita todos los días. <em>Una alarma que grita en falso enseña a ignorar el tablero.</em> Lo que se publica es la pregunta que se puede contestar: <strong>¿cabe el hueco en lo que ya cobramos?</strong></div>
