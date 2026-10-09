@@ -84,7 +84,7 @@ const MIN_ENTITY_COVERAGE = 0.8;
  *  comparables. `growth_pct_todo` conserva el número VIEJO (todas las entidades) porque las dos cifras
  *  contestan preguntas distintas y ninguna es «la» verdad sin decir cuál se preguntó (`VERDAD_ABSOLUTA` §24.5).
  *  Nunca se publica una sin la otra: ésa fue exactamente la forma del defecto. */
-type CoberturaYoY = {
+export type CoberturaYoY = {
   entidades_comparables: number;
   entidades_excluidas: number;
   excluido_monto_y1: number;
@@ -97,9 +97,17 @@ type CrecCanal = { growth_pct: number; basis: string; paired_periods: number; ye
  *  de canal. Sin esto un supuesto **refutado** y uno **defendible** se ven idénticos en la tabla:
  *  `mayoreo` quedó en 0.2667 — el `default` al decimal, o sea que su YoY NO se pudo calcular — y
  *  eso sólo se descubría recomputando. `basis: 'manual'` es el caso que el motor no sabía
- *  expresar: un supuesto que puso una persona y el autopilot respeta. ADR-056. */
+ *  expresar: un supuesto que puso una persona y el autopilot respeta. ADR-056.
+ *
+ *  `[PVI.4]` ⛔ **`preexistente` NO es `manual`, y la diferencia costó.** El autopilot estampaba
+ *  `manual` sobre todo canal que ya tuviera número, razonando «lo puso una persona» — pero los 4
+ *  del ejercicio vivo los escribió **una pasada vieja del autopilot**, antes de que existiera esta
+ *  columna. Estampar `manual` ahí **certifica como decisión humana** el +26.67 % de `mayoreo` (que
+ *  mide −9.36 %) sobre $169,970,622 de meta. `preexistente` dice la verdad: *hay un número y nadie
+ *  puede decir de dónde salió*. Las dos ausencias no son la misma — `default` es «se midió y no
+ *  alcanzó», `preexistente` es «nunca se midió». Reglas en `budget-growth-provenance.engine.ts`. */
 export type ProcedenciaCrec = {
-  basis: 'yoy_paired' | 'global' | 'default' | 'manual';
+  basis: 'yoy_paired' | 'global' | 'default' | 'manual' | 'preexistente';
   paired_periods?: number;
   years_used?: number[];
   cobertura?: CoberturaYoY;
