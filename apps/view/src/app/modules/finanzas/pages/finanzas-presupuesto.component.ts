@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -26,6 +27,7 @@ import { environment } from '../../../../environments/environment';
 // movieron (ver la cabecera del hijo). Mismo patrón que `bancos/`.
 import { PresupuestoVentasComponent } from './presupuesto/presupuesto-ventas.component';
 import { leyendaRespaldo, resumenFirma, type Completeness, type ProcedenciaCanal } from './presupuesto/presupuesto-firma';
+import { ejercicioInicial } from './presupuesto/presupuesto-seleccion';
 import { PRESUPUESTO_STYLES } from './presupuesto/presupuesto.styles';
 import type {
   GrowthEditRow, GrowthProposal, ProposeCoverage, SalesComparison, SalesIndicators,
@@ -39,9 +41,10 @@ interface ExpenseObligation {
   original_amount: number; reserved_amount: number; paid_amount: number; available_amount: number;
   original_due_date: string | null; status: string; is_critical: boolean; critical_reason: string | null;
 }
-interface BudgetHeader { id: string; folio: string | null; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number;
-  /** `[PU.VG.9]` Ya viajaba (`listBudgets` devuelve la fila entera) y la pantalla no lo decía. */
-  is_test?: boolean }
+/** `[PVI.15]` `is_test` viaja desde siempre en el payload (`select *`) y la pantalla NO lo miraba:
+ *  por eso abría sobre la copia de prueba. Opcional y nullable a propósito — un ejercicio anterior
+ *  a la columna trae NULL y es tan real como uno en `false`. */
+interface BudgetHeader { id: string; folio: string | null; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number; is_test?: boolean | null }
 interface BudgetLine {
   id: string; concept: string; line_type: string; area: string | null;
   /** `[PU.VA]` Ya viajaban (el servicio devuelve la fila entera); faltaba declararlos para poder usarlos. */
@@ -154,7 +157,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule,
     CheckboxModule, TagModule, ToastModule, SegmentedComponent, MetricStripComponent, FreshnessPillComponent, SucursalPipe,
-    PresupuestoVentasComponent,
+    PresupuestoVentasComponent, RouterLink,
   ],
   providers: [MessageService],
   template: `
@@ -165,10 +168,26 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
           <h1>Presupuesto</h1>
           <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler — supuestos, plan y partidas. Tú <strong>autorizas</strong>. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
         </div>
+        <!--
+          [TES.16] Los dos grupos se rotulan por la PREGUNTA que contestan, no por el origen
+          del dato. Antes el segundo decía «Programación de pagos» y el primero no decía nada,
+          y eso partía en dos un carril: «Flujo / Resultado» quedaba del lado de «armar» mientras
+          «Capacidad» y «Obligaciones» estaban del otro, contestando las tres lo mismo.
+          ⭐ Y el diagnóstico de Tesorería —holgura y ciclo— existía desde [TES.15] en su propia
+          ruta y NO SE LLEGABA DESDE ACÁ: una pantalla sin entrada donde se la busca está
+          escrita, no entregada. Va primero porque es el answer-first del grupo.
+          ⚠️ Abre como página aparte, no como pestaña, a propósito: meterla adentro duplicaría
+          su carga de datos en un shell de 2,300 líneas que editan cinco carriles. Se vuelve
+          pestaña cuando el shell esté partido (mapa de superficie, regla 3).
+          ⚠️⚠️ SÉPTIMA vez que un acento grave en un comentario rompe el build: este bloque los
+          tenía y check:templates lo frenó. Adentro del template van SIN acento grave.
+        -->
         <div class="pres-nav">
+          <span class="pres-nav-sep pres-nav-sep--first">Armar el presupuesto</span>
           <app-segmented [options]="viewOptsArmar" [value]="view()" (valueChange)="setView($event)" ariaLabel="Armar el presupuesto" />
-          <span class="pres-nav-sep">Programación de pagos</span>
-          <app-segmented [options]="viewOptsPagos" [value]="view()" (valueChange)="setView($event)" ariaLabel="Programación de pagos" />
+          <span class="pres-nav-sep">¿Alcanza el dinero?</span>
+          <a class="p-button p-button-sm p-button-text pres-nav-link" routerLink="/presupuesto/tesoreria">Diagnóstico</a>
+          <app-segmented [options]="viewOptsPagos" [value]="view()" (valueChange)="setView($event)" ariaLabel="¿Alcanza el dinero?" />
         </div>
       </header>
 
@@ -1173,15 +1192,29 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   // ── Sub-navegación ──
   view = signal<PresView>('ejercicios');
-  // Grupo «armar el presupuesto» (automático) + grupo «programación de pagos» (alimenta Calendario).
+  // `[TES.16]` Dos grupos, rotulados por la PREGUNTA que contesta cada uno.
+  //
+  //   «Armar el presupuesto»  → ¿cuánto vamos a vender y a gastar?
+  //   «¿Alcanza el dinero?»   → el mismo dinero en tres horizontes: la semana (flujo),
+  //                             el día (capacidad) y el compromiso vivo (obligaciones).
+  //
+  // ⛔ Antes «Flujo / Resultado» estaba en el primer grupo. Era el único de los tres que
+  // contesta la pregunta de liquidez y vivía del lado de los que la plantean — o sea que el
+  // carril de Tesorería estaba partido entre los dos grupos y el agrupado no seguía ninguna
+  // pregunta: seguía el orden en que se fueron construyendo las pestañas.
   viewOptsArmar = [
     { label: 'Ejercicio', value: 'ejercicios' },
     { label: 'Ventas', value: 'ventas' },
     { label: 'Gastos', value: 'gasto-op' },
-    { label: 'Flujo / Resultado', value: 'flujo' },
     { label: 'Campañas', value: 'campanas' },
   ];
+  // ⚠️ «Obligaciones» sigue acá por ahora y es PROVISIONAL: su dato es
+  // `budget.expense_obligations`, del carril de Gastos, y las 312 filas vivas están en
+  // `propuesta` — o sea que el 100 % de lo que la pantalla muestra hoy pertenece al ciclo
+  // `propuesta → autorizada`, que no es el mío. Se mueve cuando 8c firme la sección 6 del
+  // mapa de superficie; moverla antes sería decidir sobre el carril de otro.
   viewOptsPagos = [
+    { label: 'Flujo / Resultado', value: 'flujo' },
     { label: 'Capacidad de pago', value: 'capacidad' },
     { label: 'Obligaciones', value: 'gastos' },
   ];
@@ -1339,7 +1372,11 @@ export class FinanzasPresupuestoComponent implements OnInit {
         this.budgets.set(rows ?? []);
         this.loadingBudgets.set(false);
         const cur = this.selected();
-        if (!cur && rows?.length) this.selectBudget(rows[0]);
+        // `[PVI.15]` ⛔ Era `rows[0]`, y con el orden de `listBudgets` eso era el ejercicio de
+        // PRUEBA: quedaba primero por ser el más nuevo. La pantalla abría sobre la copia. La regla
+        // vive aparte y con candado — apoyar la garantía en el ORDER BY es como nació el defecto.
+        const inicial = ejercicioInicial(rows ?? []);
+        if (!cur && inicial) this.selectBudget(inicial);
         // Re-sincronizar el header del ejercicio abierto (estado/versión) con la fila fresca:
         // sin esto, tras un cambio de ciclo de vida el chip mostraba el estado nuevo y la barra
         // de detalle el viejo (selectBudget solo refresca resumen/partidas, no el header).

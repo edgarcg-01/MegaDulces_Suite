@@ -51,6 +51,13 @@ export const PRESUPUESTO_STYLES = `
        el divisor separado del texto y el cursor de texto apagado. */
     .pres-nav-sep { font-size:.7rem; color:var(--text-muted); letter-spacing:0; margin-left:.5rem;
       padding-left:.75rem; border-left:1px solid var(--border-color); cursor:default; user-select:none; }
+    /* [TES.16] Ahora los DOS grupos llevan rotulo, y el divisor de .pres-nav-sep es lo que los
+       separa -- asi que el primero no puede traerlo: dibujaria una linea contra el borde
+       izquierdo de la barra, separando el primer grupo de nada. */
+    .pres-nav-sep--first { margin-left:0; padding-left:0; border-left:none; }
+    /* [TES.16] El diagnostico vive en su propia ruta: es un enlace, no una pestana, y tiene que
+       verse como lo que es. Se alinea con los segmentados sin fingir estado seleccionado. */
+    .pres-nav-link { font-size:var(--fs-sm); text-decoration:none; }
     /* [PU.VA] Acción-herramienta: ícono sin rótulo, para que no compita con la acción de negocio. */
     .pres-act-ico { min-width:2rem; padding-inline:.5rem; }
     .pres-assump { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem .8rem; margin:.6rem 0 1rem; background:color-mix(in srgb, var(--action, #d97706) 4%, transparent); }
