@@ -86,10 +86,27 @@ describe('desayuno excedido (política de RH del 27/08/2026)', () => {
       .not.toContain('desayuno_excedido');
   });
   it('una pausa de más de 2 h no es desayuno: es una marca perdida, y no se cobra', () => {
-    expect(reglas(entrada({ checadas: marcas('2026-07-07', '08:00', '09:00', '11:30', '18:00') }))).not.toContain('desayuno_excedido');
+    // Con DOS pausas: con una sola no habría desayuno de todos modos, y la prueba pasaría por otra razón.
+    expect(reglas(entrada({ checadas: marcas('2026-07-07', '08:00', '09:00', '11:30', '15:00', '15:30', '18:00') })))
+      .not.toContain('desayuno_excedido');
   });
   it('quien sólo comió (primera pausa después de las 13:00) no tiene desayuno que medir', () => {
     expect(reglas(entrada({ checadas: marcas('2026-07-07', '08:00', '14:00', '15:30', '18:00') }))).not.toContain('desayuno_excedido');
+  });
+});
+
+describe('[RH.1.5b] desayuno: con una sola pausa es la comida, y las lecturas repetidas son una (MT 08/10/2026)', () => {
+  it('⛔ la comida de una tienda a las 11:22 NO es un desayuno de 59 min (allá eran 553 de 584 alertas)', () => {
+    expect(reglas(entrada({ checadas: marcas('2026-07-07', '08:00', '11:22', '12:21', '17:00') }))).not.toContain('desayuno_excedido');
+  });
+  it('control: la misma pausa SÍ es desayuno cuando el día trae otra (la comida)', () => {
+    const r = analizarDia(entrada({ checadas: marcas('2026-07-07', '08:00', '11:22', '12:21', '15:00', '15:30', '18:00') }));
+    expect(r.find((x) => x.regla === 'desayuno_excedido')?.evidencia['duracionMin']).toBe(59);
+  });
+  it('⛔ la entrada leída dos veces (07:29 y 07:30) no se vuelve una «pausa» de dos horas', () => {
+    // Sin juntarlas: 07:29–09:25 = 116 min de «desayuno». Juntas: el desayuno es 09:25–09:45, 20 min, sin alerta.
+    expect(reglas(entrada({ checadas: marcas('2026-07-07', '07:29', '07:30', '09:25', '09:45', '14:00', '15:00', '17:00') })))
+      .not.toContain('desayuno_excedido');
   });
 });
 

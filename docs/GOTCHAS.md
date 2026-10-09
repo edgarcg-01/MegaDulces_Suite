@@ -4047,3 +4047,44 @@ git ls-files <dir> | wc -l           # ⭐ 0, o no pasó
 quedó como único testimonio — y el mensaje mentía. Lo delató un barrido posterior que volvió a
 listar los 54 como "versionados sin consumidor". **Después de actuar hay que volver a medir el
 estado, no releer lo que uno escribió que hizo.**
+
+---
+
+## 78. Un commit de RESTAURACIÓN se lleva la autoría de cada línea que toca: el `git blame` posterior apunta a quien restauró, no a quien escribió
+
+**Encontrado el 2026-10-08, investigando quién había escrito un comentario.**
+
+En `apps/view/src/app/modules/comercial/comercial.service.ts:4013` hay un comentario que nombra
+de pasada un hueco de diseño que tres sesiones tardaron una tarde en derivar:
+
+> `/** [GX.19] Cobertura declarada — la FORMA es `Coverage` de `@megadulces/contracts`, más el detalle. */`
+
+Al buscar quién lo había escrito, el `blame` devolvió **`f058bf500`**, que resulta ser el commit
+citado en este mismo repo como la evidencia del riesgo del índice compartido. La coincidencia
+parecía significativa —*«el comentario que nombra el hueco y el commit que nombra el riesgo son el
+mismo»*— y es **falsa**.
+
+⛔ **`f058bf500` es el commit que RESTAURÓ el árbol** después de que un `git commit` sin pathspec
+borrara 4,887 archivos. Medido: **4,882 archivos modificados, 1,130,875 inserciones**. Como
+reintrodujo cada línea, el `blame` de **todas** ellas apunta ahí, independientemente de quién las
+haya escrito originalmente.
+
+⇒ **Hoy hay ~1.13 millones de líneas de este repo cuya autoría aparente es el commit de una
+restauración.** El autor real de cualquiera de ellas es anterior y `git blame` a secas **no lo
+muestra**.
+
+**Cómo investigar autoría de verdad cuando el blame cae en un commit sospechoso:**
+
+```bash
+git log --diff-filter=M --format='%h %an %ad %s' --date=short -S'<el texto exacto>' -- <archivo>
+```
+
+`-S` busca **cuándo apareció o desapareció el texto**, así que atraviesa la restauración y encuentra
+la introducción real. Verificar siempre el commit que el blame devuelve: si su `--stat` dice miles
+de archivos y cero borrados, es una restauración o una importación masiva, no una autoría.
+
+⭐ **Por qué está acá y no en la fase que lo encontró:** es una trampa de **git**, no del dominio.
+Quien investigue autoría dentro de seis meses no va a tener el hilo donde salió. Y es, en su forma,
+el mismo defecto que el repo documenta en otros diez lugares: **un dato correcto —el blame SÍ dice
+`f058bf500`— sosteniendo una conclusión falsa.** Lo que lo destapa es mirar qué hizo ese commit,
+no confiar en que el blame contesta la pregunta que uno cree estar haciendo.

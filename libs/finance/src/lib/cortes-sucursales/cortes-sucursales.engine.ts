@@ -10,9 +10,20 @@
  *   vendidos: el cajero contó $1,067.30 donde el POS esperaba $10,067.30.
  * · Comparar contra los tickets del DÍA daba diferencias falsas de ±$90 mil cuando el turno
  *   cruza la medianoche. El testigo es el arqueo del TURNO.
+ *
+ * ── `[CSU.7]` DEVOLUCIONES PAGADAS EN CAJA (medido en prod, 2026-10-08) ─────────────────────
+ * · El arqueo de Kepler espera la venta BRUTA del turno; el corte `U-D-23` ya resta las notas de
+ *   crédito POS que se pagaron en esa caja (`UA2101` fiscal y `UA2501` no fiscal, ligadas por
+ *   `kdm1.c81` caja + `kdm1.c80` turno). Ej. Zamora `Caja 2-171`: esperado $12,908.53 −
+ *   UA2101-0000071 $179.92 = corte $12,728.61.
+ * · Oct-2026 (1 al 8, los 196 cortes con arqueo que lista la pantalla): con el esperado NETO cuadran
+ *   184 (contra 141 con el bruto). Los "faltantes" de Madero 4-28 (−$2,641.97) y Abastos 3-12 (−$3,450.52) eran
+ *   devoluciones: la cajera contó lo que de verdad quedó en el cajón.
+ * · Un caso (Madero `Caja 2-23`) tiene devolución en el turno pero el corte salió por el BRUTO:
+ *   se acepta como `cuadra` contra lo esperado bruto, no se inventa una diferencia.
  */
 import type {
-  CorteArqueo, CorteCobro, CorteCuadre, CorteEstadoCobro, CorteRow, CorteSucursalResumen,
+  CorteArqueo, CorteCobro, CorteCuadre, CorteDevolucion, CorteEstadoCobro, CorteRow, CorteSucursalResumen,
   CortesAlcance, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 
@@ -31,13 +42,21 @@ export function estadoCobro(monto: number, cobrado: number): CorteEstadoCobro {
   return 'cobrado';
 }
 
-/** Veredicto del corte contra el arqueo de su turno. Sin arqueo NO es "cuadra": es `sin_arqueo`. */
+/**
+ * Veredicto del corte contra el arqueo de su turno. Sin arqueo NO es "cuadra": es `sin_arqueo`.
+ * `[CSU.7]` Se juzga contra `esperado_neto` (esperado − devoluciones pagadas en la caja).
+ */
 export function veredictoCuadre(monto: number, arqueo: CorteArqueo | null): { cuadre: CorteCuadre; diferencia: number | null } {
   if (!arqueo) return { cuadre: 'sin_arqueo', diferencia: null };
-  const diferencia = r2(monto - arqueo.esperado_total);
+  const esperado = arqueo.esperado_neto;
+  const diferencia = r2(monto - esperado);
   if (Math.abs(diferencia) < TOLERANCIA_CUADRE) return { cuadre: 'cuadra', diferencia };
+  // Hubo devolución pero el corte salió por el bruto: coincide con lo que Kepler esperaba.
+  if (Math.abs(monto - arqueo.esperado_total) < TOLERANCIA_CUADRE) {
+    return { cuadre: 'cuadra', diferencia: r2(monto - arqueo.esperado_total) };
+  }
   if (Math.abs(monto - arqueo.contado_total) < TOLERANCIA_CUADRE) {
-    return { cuadre: arqueo.contado_total < arqueo.esperado_total ? 'faltante_arqueo' : 'sobrante_arqueo', diferencia };
+    return { cuadre: arqueo.contado_total < esperado ? 'faltante_arqueo' : 'sobrante_arqueo', diferencia };
   }
   return { cuadre: 'corte_distinto', diferencia };
 }
@@ -53,6 +72,8 @@ export interface CorteCrudo {
   monto: string | number;
   cobrado: string | number | null;
   cobros: Array<{ doc_prefix: string; folio: string; fecha: string | null; monto: string | number; forma_pago: string | null; concepto: string | null }> | null;
+  /** `[CSU.7]` Notas de crédito POS pagadas en la caja del turno. */
+  devoluciones?: Array<{ doc_prefix: string; folio: string; fecha: string; monto: string | number; cliente: string | null; motivo: string | null; cajero: string | null }> | null;
   arqueo_fecha: string | null;
   efectivo_esperado: string | number | null;
   efectivo_contado: string | number | null;
@@ -65,17 +86,19 @@ export interface CorteCrudo {
 
 const n = (v: string | number | null | undefined): number => Number(v) || 0;
 
-function arqueoDe(c: CorteCrudo): CorteArqueo | null {
+function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
   if (!c.arqueo_fecha) return null;
   const a = {
     efectivo_esperado: r2(n(c.efectivo_esperado)), efectivo_contado: r2(n(c.efectivo_contado)),
     tarjeta_esperado: r2(n(c.tarjeta_esperado)), tarjeta_contado: r2(n(c.tarjeta_contado)),
     transfer_esperado: r2(n(c.transfer_esperado)), transfer_contado: r2(n(c.transfer_contado)),
   };
+  const esperado_total = r2(a.efectivo_esperado + a.tarjeta_esperado + a.transfer_esperado);
   return {
     fecha: c.arqueo_fecha,
     ...a,
-    esperado_total: r2(a.efectivo_esperado + a.tarjeta_esperado + a.transfer_esperado),
+    esperado_total,
+    esperado_neto: r2(esperado_total - devoluciones),
     contado_total: r2(a.efectivo_contado + a.tarjeta_contado + a.transfer_contado),
     cajero: c.cajero_cierre || null,
   };
@@ -84,7 +107,12 @@ function arqueoDe(c: CorteCrudo): CorteArqueo | null {
 export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): CorteRow {
   const monto = r2(n(c.monto));
   const cobrado = r2(n(c.cobrado));
-  const arqueo = arqueoDe(c);
+  const devoluciones: CorteDevolucion[] = (c.devoluciones || []).map((x) => ({
+    doc_prefix: x.doc_prefix, folio: x.folio, fecha: String(x.fecha).slice(0, 10), monto: r2(n(x.monto)),
+    cliente: x.cliente || null, motivo: x.motivo || null, cajero: x.cajero || null,
+  }));
+  const devoluciones_total = r2(devoluciones.reduce((t, x) => t + x.monto, 0));
+  const arqueo = arqueoDe(c, devoluciones_total);
   const { cuadre, diferencia } = veredictoCuadre(monto, arqueo);
   const cobros: CorteCobro[] = (c.cobros || []).map((x) => ({
     doc_prefix: x.doc_prefix, folio: x.folio, fecha: x.fecha ? String(x.fecha).slice(0, 10) : null,
@@ -106,6 +134,8 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
     saldo: r2(monto - cobrado),
     estado_cobro: estadoCobro(monto, cobrado),
     cobros,
+    devoluciones,
+    devoluciones_total,
     arqueo,
     cuadre,
     diferencia,

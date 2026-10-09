@@ -1,9 +1,13 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
-import { CommissionContrastService } from './commission-contrast.service';
+import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
+import {
+  CommissionObjectiveService, type ObjetivoConfig, type ObjetivoResultado,
+  type Criterio, type EditarCriterio, type MarcarDto, type ObjetivoMarca,
+} from './commission-objective.service';
 
 /**
  * RD.6 — Comisiones de Ruta Directa.
@@ -23,7 +27,44 @@ export class CommercialCommissionsController {
     private readonly service: CommercialCommissionsService,
     private readonly recalc: CommissionRecalcService,
     private readonly contraste: CommissionContrastService,
+    private readonly objetivo: CommissionObjectiveService,
   ) {}
+
+  /**
+   * `[RD.59]` La configuración del bono por objetivo: los criterios, sus pesos y su estado.
+   * ⛔ Leer la configuracion es VER; cambiarla es GESTIONAR. No se mezclan: ver cuanto cobra una
+   * ruta y poder mover el umbral que decide ese cobro no son la misma facultad.
+   */
+  @Get('objective')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  objetivoConfig(): Promise<ObjetivoConfig> {
+    return this.objetivo.configuracion();
+  }
+
+  /** [RD.59] El resultado del mes por ruta: lo medido, lo marcado y lo que nadie resolvio. */
+  @Get('objective/result')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
+  objetivoResultado(@Query('anio') anio?: string, @Query('mes') mes?: string): Promise<ObjetivoResultado> {
+    const hoy = new Date();
+    return this.objetivo.resultado(
+      anio ? Number(anio) : hoy.getFullYear(),
+      mes ? Number(mes) : hoy.getMonth() + 1,
+    );
+  }
+
+  /** [RD.59] Cambiar umbral, importe, peso, comparador o encender/apagar un criterio. */
+  @Patch('objective/criteria/:id')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  objetivoEditar(@Param('id') id: string, @Body() cambios: EditarCriterio): Promise<Criterio> {
+    return this.objetivo.editarCriterio(id, cambios);
+  }
+
+  /** [RD.59] La marca humana del criterio que nadie puede derivar. Exige motivo. */
+  @Post('objective/marks')
+  @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_GESTIONAR)
+  objetivoMarcar(@Body() dto: MarcarDto): Promise<ObjetivoMarca> {
+    return this.objetivo.marcar(dto);
+  }
 
   @Get('contrast')
   @RequirePermissions(Permission.COMMERCIAL_COMMISSIONS_VER)
@@ -53,7 +94,7 @@ export class CommercialCommissionsController {
       + '($18,620). ⭐ Y 141 de 238 ya están en el TOPE: decir dónde NO hay nada que perseguir '
       + 'evita mandar a un supervisor a una ruta sin margen. Lee vista: 16 ms.',
   })
-  headroom(@Query('anio') anio?: string) {
+  headroom(@Query('anio') anio?: string): Promise<{ resumen: FaltoResumen[]; filas: FaltoFila[] }> {
     return this.contraste.loQueFalto(anio ? Number(anio) : new Date().getFullYear());
   }
 

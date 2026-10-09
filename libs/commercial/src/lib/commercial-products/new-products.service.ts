@@ -71,6 +71,7 @@ const COLUMNAS = `
   m.fuentes, m.sin_movimiento, m.no_medible, m.exclusion_auto, m.posible_recodificacion,
   to_char(m.corte, 'YYYY-MM-DD')             AS corte,
   m.venta_dia, m.venta_por_plaza, m.venta_unidades, m.entradas,
+  m.margen_plaza, m.compra_base,
   r.kind                                     AS clasificacion,
   r.note                                     AS nota,
   r.updated_by_username                      AS clasificado_por,
@@ -109,6 +110,14 @@ export class NewProductsService {
 
   private async hoy(trx: Knex.Transaction): Promise<string> {
     return (await trx.raw(`SELECT to_char(${HOY}, 'YYYY-MM-DD') AS hoy`)).rows[0].hoy as string;
+  }
+
+  /** Código de plaza → nombre de la sucursal (para decir cuál se mueve mejor). */
+  private async nombresPlaza(trx: Knex.Transaction): Promise<Map<string, string>> {
+    const r = await trx.raw(`
+      SELECT code, name FROM commercial.warehouses
+       WHERE tenant_id = public.current_tenant_id() AND deleted_at IS NULL`);
+    return new Map<string, string>(r.rows.map((w: { code: string; name: string }) => [w.code, w.name]));
   }
 
   /** Lo de hoy (ODS en vivo) y la existencia actual de estos productos. */
@@ -165,9 +174,10 @@ export class NewProductsService {
       const { vivo, existencia } = await this.enVivo(trx, rows, corte, hoy);
       const vivoPor = agrupar(vivo);
       const exPor = agrupar(existencia);
+      const nombres = await this.nombresPlaza(trx);
 
       let filas = rows.map((r) => armarProducto(r, hoy, vivoPor.get(r.product_id) ?? [],
-        exPor.get(r.product_id) ?? [], { conCosto: opts.puedeVerCosto }).fila);
+        exPor.get(r.product_id) ?? [], { conCosto: opts.puedeVerCosto, nombres }).fila);
       // Se oculta ANTES de agregar: así la cohorte tampoco deja ver la inversión sumada.
       if (!opts.puedeVerCosto) filas = ocultarCosto(filas);
       filas.sort(ordenFilas);
@@ -203,10 +213,7 @@ export class NewProductsService {
       if (!row) throw new NotFoundException('El producto no está en seguimiento de productos nuevos');
 
       const { vivo, existencia } = await this.enVivo(trx, [row], row.corte, hoy);
-      const nombres = new Map<string, string>((await trx.raw(`
-        SELECT code, name FROM commercial.warehouses
-         WHERE tenant_id = public.current_tenant_id() AND deleted_at IS NULL`)).rows
-        .map((w: { code: string; name: string }) => [w.code, w.name]));
+      const nombres = await this.nombresPlaza(trx);
 
       const armado = armarProducto(row, hoy, vivo, existencia, { conCosto: opts.puedeVerCosto, nombres });
       return {

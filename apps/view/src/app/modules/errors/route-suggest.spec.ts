@@ -67,6 +67,22 @@ describe('rankRoutes contra el árbol real', () => {
     expect(fallan.map((t) => t.route)).toEqual([]);
   });
 
+  /**
+   * `[RD.57]` Prueba negativa del desempate. Dos rutas que terminan en el mismo segmento
+   * puntúan **exactamente igual** (mismo proyecto, último segmento idéntico, todos los
+   * segmentos compartidos), así que sin la regla de coincidencia exacta desempataba el orden
+   * del arreglo y la ruta anidada no se encontraba a sí misma. Se prueba con el caso que lo
+   * destapó y **en los dos órdenes**: un empate que se rompe por casualidad no está roto.
+   */
+  it('una coincidencia exacta gana aunque empate el puntaje, en cualquier orden', () => {
+    const a = { route: '/comercial/rentabilidad' };
+    const b = { route: '/comercial/ruta-directa/rentabilidad' };
+    expect(rankRoutes(b.route, [a, b])[0]?.route).toBe(b.route);
+    expect(rankRoutes(b.route, [b, a])[0]?.route).toBe(b.route);
+    expect(rankRoutes(a.route, [a, b])[0]?.route).toBe(a.route);
+    expect(rankRoutes(a.route, [b, a])[0]?.route).toBe(a.route);
+  });
+
   it('sobre una ruta exacta casi no ofrece alternativas', () => {
     const promedio =
       targets.reduce((a, t) => a + rankRoutes(t.route, targets).length, 0) / targets.length;

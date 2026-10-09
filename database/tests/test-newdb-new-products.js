@@ -307,6 +307,84 @@ const nulo = (v) => (v === 0 ? null : v);
     check(`primera venta: mv_kepler_sales_daily y la función dicen la misma fecha (${conVenta.length} productos)`,
       conVenta.length > 0 && discrepan.length === 0,
       discrepan.map((r) => [r.sku, iso(r.primera_venta), primeraPorFn.get(r.sku)]).slice(0, 3));
+
+    console.log('\n── 9. [NP.15] Márgenes por sucursal: la matvista contra una segunda implementación ──');
+    // Se recalcula AQUÍ, de lo sembrado, lo que la matvista guarda por plaza: venta neta de IVA/IEPS,
+    // la parte con costo y su costo (c62 × c56, o × c9 sin peldaño), la meta de la ficha por el
+    // peldaño VENDIDO (markup → margen sobre venta), y lo vendido/comprado por unidad base.
+    const margenFicha = (p, plaza, factor) => {
+      if (!p.ficha || !p.existencia.includes(plaza)) return null; // sin renglón en kdii
+      const k = factor === 1 ? p.ficha.k1 : factor === p.ficha.c81 ? p.ficha.k2 : null;
+      return k ? (100 * k) / (100 + k) : null;
+    };
+    const esperadoMargen = (p) => {
+      const out = {};
+      for (const [i, v] of p.ventas.entries()) {
+        const uv = esc.unidadRenglon(p, v);
+        const cv = esc.costoRenglon(p, v, i);
+        const neto = r2(v.qty * v.precio) / (1 + (p.iva || 0) / 100 + (p.ieps || 0) / 100);
+        const costo = cv.c62 === null ? null : Number(cv.c62) * (uv.c56 !== null ? Number(uv.c56) : uv.c9);
+        const meta = margenFicha(p, v.plaza, v.u && !v.rota ? v.f : 1);
+        const a = (out[v.plaza] = out[v.plaza] || { n: 0, nc: 0, c: 0, nm: 0, m: 0, b: {} });
+        a.n += neto;
+        if (costo !== null) { a.nc += neto; a.c += costo; }
+        if (meta !== null) { a.nm += neto; a.m += (neto * meta) / 100; }
+        const b = (a.b[uv.c11] = a.b[uv.c11] || { q: 0, n: 0 });
+        b.q += uv.c9;
+        b.n += neto;
+      }
+      return out;
+    };
+    const cerca = (a, b, tol = 0.02) => Math.abs(Number(a) - Number(b)) <= tol;
+    for (const c of ['01', '02', '03', '09']) {
+      const p = esc.PRODUCTOS.find((x) => x.clave === c);
+      const esp = esperadoMargen(p);
+      const mp = (fila(c) && fila(c).margen_plaza) || {};
+      const plazas = [...new Set([...Object.keys(esp), ...Object.keys(mp)])].sort();
+      const malas = plazas.filter((pl) => {
+        const e = esp[pl];
+        const g = mp[pl];
+        if (!e || !g) return true;
+        const bOk = Object.keys(e.b).every((u) => g.b && g.b[u] && cerca(g.b[u].q, e.b[u].q, 0.001) && cerca(g.b[u].n, e.b[u].n));
+        return !(cerca(g.n, e.n) && cerca(g.nc, e.nc) && cerca(g.c, e.c) && cerca(g.nm, e.nm) && cerca(g.m, e.m) && bOk);
+      });
+      check(`NPDEMO-${c}: margen por plaza = segunda implementación (${plazas.length} plazas)`, plazas.length > 0 && malas.length === 0,
+        malas.map((pl) => ({ plaza: pl, matvista: mp[pl], esperado: esp[pl] })).slice(0, 2));
+    }
+    // Los casos que el escenario existe para ejercer — que la regla separe, no que coincida por vacío.
+    const m02 = (fila('02') && fila('02').margen_plaza['02']) || {};
+    check('venta sin costo (mayoreo): la parte con costo es la MITAD, no se promedian ceros',
+      Number(m02.nc) > 0 && cerca(Number(m02.nc) * 2, m02.n, 0.05), m02);
+    check('sin meta en la ficha: la venta con meta es cero (se declara, no se inventa)', Number(m02.nm) === 0, m02);
+    const m03 = (fila('03') && fila('03').margen_plaza) || {};
+    const pctLista = (x) => (x && Number(x.nm) > 0 ? (100 * Number(x.m)) / Number(x.nm) : null);
+    check('la meta va por el peldaño VENDIDO: la caja (01) a 9.09%, la pieza (04) a 23.08%',
+      cerca(pctLista(m03['01']), 9.09, 0.01) && cerca(pctLista(m03['04']), 23.08, 0.01),
+      { caja: pctLista(m03['01']), pieza: pctLista(m03['04']) });
+    const m09 = (fila('09') && fila('09').margen_plaza['03']) || {};
+    check('el renglón "roto" no lleva costo: la cobertura del real no lo cuenta',
+      Number(m09.nc) > 0 && Number(m09.nc) < Number(m09.n), m09);
+    // Lo comprado por unidad base (sin impuesto: la compra ya viene neta).
+    const compraEsperada = (p) => {
+      const out = {};
+      for (const e of p.entradas) {
+        const u = esc.unidadRenglon(p, e);
+        const a = (out[u.c11] = out[u.c11] || { q: 0, i: 0 });
+        a.q += u.c9;
+        a.i += r2(e.qty * e.costo);
+      }
+      return out;
+    };
+    for (const c of ['01', '03']) {
+      const p = esc.PRODUCTOS.find((x) => x.clave === c);
+      const e = compraEsperada(p);
+      const g = (fila(c) && fila(c).compra_base) || {};
+      const okCompra = Object.keys(e).length === Object.keys(g).length
+        && Object.keys(e).every((u) => g[u] && cerca(g[u].q, e[u].q, 0.001) && cerca(g[u].i, e[u].i));
+      check(`NPDEMO-${c}: lo comprado por unidad base = segunda implementación`, okCompra, { matvista: g, esperado: e });
+    }
+    check('sin compras en su historia: compra_base vacía (el margen sobre lo pagado se declara)',
+      fila('09') && Object.keys(fila('09').compra_base || {}).length === 0, fila('09') && fila('09').compra_base);
   } catch (e) {
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);

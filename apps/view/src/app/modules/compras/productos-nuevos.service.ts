@@ -84,6 +84,44 @@ export interface ProductoNuevo {
   unidades_recibidas: UnidadesKepler;
   unidades_hoy: UnidadesKepler;
   recomendacion: Recomendacion | null;
+  /** `[NP.15]` NULL = sin venta en la historia, o sin permiso de costo. */
+  margenes: MargenesNuevo | null;
+  /** `[NP.15]` La sucursal donde mejor se mueve. NULL = ninguna compite todavía. */
+  mejor_plaza: MejorPlazaNuevo | null;
+}
+
+/** `[NP.15]` Un margen con lo que alcanza a cubrir; `pct` NULL = no se pudo medir (`nota` dice por qué). */
+export interface MargenNuevo {
+  pct: number | null;
+  utilidad: number | null;
+  /** Qué parte de la venta sin impuesto cubre (0 a 1). */
+  cobertura: number | null;
+  nota: string | null;
+}
+
+/** `[NP.15]` Los tres márgenes, sobre la venta SIN IVA/IEPS de la historia. */
+export interface MargenesNuevo {
+  venta_neta: number;
+  lista: MargenNuevo;
+  real: MargenNuevo;
+  pagado: MargenNuevo;
+  costo_pagado: { unidad: string; por_unidad: number } | null;
+}
+
+export interface MovilidadNueva {
+  venta_neta_dia: number | null;
+  dias: number | null;
+  /** De lo que pasó por la sucursal (vendido + existencia), qué parte se vendió (0 a 1). */
+  desplazado: number | null;
+  /** 1 = la que mejor se mueve; NULL = todavía no compite. */
+  lugar: number | null;
+}
+
+export interface MejorPlazaNuevo {
+  plaza: string;
+  nombre: string | null;
+  venta_neta_dia: number;
+  dias: number;
 }
 
 export interface PlazaNueva {
@@ -110,6 +148,8 @@ export interface PlazaNueva {
   semanas: number[];
   venta_hoy: number;
   recomendacion: Recomendacion;
+  margenes: MargenesNuevo | null;
+  movimiento: MovilidadNueva;
 }
 
 export interface CohorteNuevos {

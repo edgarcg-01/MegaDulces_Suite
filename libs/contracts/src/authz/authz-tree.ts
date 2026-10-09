@@ -143,6 +143,7 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'salidas', label: 'Salidas por producto', route: '/comercial/salidas', view: [Permission.COMMERCIAL_SALIDAS_VER], manage: [] },
           { id: 'route-sales', label: 'Ventas por ruta', route: '/comercial/ventas-por-ruta', view: [Permission.COMMERCIAL_ROUTE_SALES_VER], manage: [] },
           { id: 'route-commissions', label: 'Comisiones de ruta', route: '/comercial/comisiones', view: [Permission.COMMERCIAL_COMMISSIONS_VER], manage: [Permission.COMMERCIAL_COMMISSIONS_GESTIONAR] },
+          { id: 'route-profit', label: 'Rentabilidad de Ruta Directa', route: '/comercial/ruta-directa/rentabilidad', view: [Permission.COMMERCIAL_ROUTE_PROFIT_VER], manage: [] },
           { id: 'sales-docs', label: 'Facturación de Telemarketing', route: '/comercial/documentos', view: [Permission.COMMERCIAL_SALES_DOCS_VER], manage: [] },
           { id: 'tickets', label: 'Tickets de venta', route: '/comercial/tickets', view: [Permission.COMMERCIAL_TICKETS_VER], manage: [] },
           { id: 'customers360', label: 'Clientes 360', route: '/comercial/customers-360', view: [Permission.COMMERCIAL_CUSTOMERS360_VER], manage: [] },
@@ -224,6 +225,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // La ruta llegó con la pantalla en `[UB.1]` (el Mapa, /almacen/ubicaciones).
           { id: 'ubicaciones', label: 'Ubicaciones', route: '/almacen/ubicaciones', view: [Permission.ALMACEN_UBICACIONES_VER], manage: [Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR] },
           // [GP.3c] Consola de surtido: una sola clave, que ve Y maneja (la pantalla existe para decidir).
+          // [GP.4] Checado: pantalla de foco del checador. Una clave, que hace (no hay sólo-ver).
+          { id: 'checar', label: 'Checar pedidos', route: '/almacen/checar', view: [Permission.ALMACEN_CHECADO_GESTIONAR], manage: [Permission.ALMACEN_CHECADO_GESTIONAR] },
           { id: 'surtido-consola', label: 'Consola de surtido', route: '/almacen/surtido-consola', view: [Permission.ALMACEN_SURTIDO_COORDINAR], manage: [Permission.ALMACEN_SURTIDO_COORDINAR] },
           // Análisis BI: superficie de LECTURA, sin manage (todavía no escribe nada). Con la
           // ruta puesta, withTreeCandidates('almacen') la suma sola como candidata de landing

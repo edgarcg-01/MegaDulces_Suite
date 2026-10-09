@@ -6,6 +6,8 @@ import { of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import {
   DetalleNuevo,
+  MargenesNuevo,
+  PlazaNueva,
   ProductoNuevo,
   ProductosNuevosService,
   RespuestaNuevos,
@@ -16,12 +18,24 @@ import {
   existenciaTexto,
   fechaCorta,
   hitoVisible,
+  margenTexto,
+  ordenMovimiento,
+  tresMargenes,
   pasaBusqueda,
   pasaFiltro,
   semanasCerradas,
   tendenciaTexto,
   textoUnidades,
 } from './compras-catalogo-nuevos.component';
+
+/** `[NP.15]` Lista y real medidos; el de lo pagado, sin compras con qué medirlo. */
+const MARGENES: MargenesNuevo = {
+  venta_neta: 30000,
+  lista: { pct: 17, utilidad: 5100, cobertura: 1, nota: null },
+  real: { pct: 10.1, utilidad: 2424, cobertura: 0.8, nota: 'Kepler no registró el costo en el 20% de la venta (suele ser venta de mayoreo)' },
+  pagado: { pct: null, utilidad: null, cobertura: 0, nota: 'Sin compras en Kepler dentro de su historia: llegó por traspaso o antes de los 180 días' },
+  costo_pagado: null,
+};
 
 function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
   return {
@@ -40,6 +54,8 @@ function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
     sin_venta_30: false, semanas: [1000, 2000, 3000, 2500, 2800, 3100, 900], venta_hoy: 530,
     unidades_vendidas: { PZA: 40, CJA: 22 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 135 }, unidades_hoy: { CJA: 1 },
     recomendacion: { veredicto: 'recomprar', motivos: ['Se vendió 27 de los últimos 28 días', 'Se agotó en 1 plaza que lo vende'] },
+    margenes: MARGENES,
+    mejor_plaza: { plaza: '01', nombre: 'Padre Hidalgo', venta_neta_dia: 400, dias: 45 },
     ...over,
   };
 }
@@ -86,13 +102,15 @@ const DETALLE: DetalleNuevo = {
       existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: null,
       unidades_vendidas: { CJA: 22 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 100 }, unidades_hoy: {},
       ultima_venta: '2026-10-06', semanas: [100, 200, 300], venta_hoy: 0,
-      recomendacion: { veredicto: 'recomprar', motivos: ['Se agotó en 1 plaza que lo vende'] } },
+      recomendacion: { veredicto: 'recomprar', motivos: ['Se agotó en 1 plaza que lo vende'] },
+      margenes: MARGENES, movimiento: { venta_neta_dia: 400, dias: 45, desplazado: 1, lugar: 1 } },
     { plaza: '04', nombre: 'Yurécuaro', dia: 44, primera_actividad: '2026-08-24', venta_total: 14185, venta_28: 8000,
       dias_con_venta_28: 22, inversion_total: 7000, entradas: 1, primera_recompra: null, existencia: 36,
       existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: { unidad: 'CJA', cantidad: 3 },
       unidades_vendidas: { PZA: 40 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 35 }, unidades_hoy: { PZA: 2 },
       ultima_venta: '2026-10-07', semanas: [100, 150, 120], venta_hoy: 530,
-      recomendacion: { veredicto: 'esperar', motivos: ['Se vende bien, pero todavía hay existencia'] } },
+      recomendacion: { veredicto: 'esperar', motivos: ['Se vende bien, pero todavía hay existencia'] },
+      margenes: null, movimiento: { venta_neta_dia: 290.5, dias: 44, desplazado: 0.9, lugar: 2 } },
   ],
 };
 
@@ -291,5 +309,63 @@ describe('[NP.5] ComprasCatalogoNuevosComponent', () => {
     const el = await montar(throwError(() => new Error('500')));
     expect(el.querySelector('.pn-titular')).toBeNull();
     expect(el.querySelector('.pn-error')?.textContent).toContain('No se pudieron cargar');
+  });
+
+  it('[NP.15] ⭐ la fila trae el margen real y, debajo, el de lista y el de lo pagado', async () => {
+    const el = await montar(of(RESPUESTA));
+    const paleta = Array.from(el.querySelectorAll('tbody tr')).find((tr) => tr.textContent?.includes('PALETA'));
+    const celda = paleta?.querySelector('.pn-c-margen');
+    expect(celda?.textContent).toContain('10.1%');
+    expect(celda?.textContent).toContain('lista 17.0%');
+    // Sin compras para medirlo: guion, nunca 0%.
+    expect(celda?.textContent).toContain('pagado —');
+    expect(paleta?.textContent).toContain('Mejor: Padre Hidalgo');
+  });
+
+  it('[NP.15] ⭐ el detalle muestra los tres márgenes y dónde se mueve mejor', async () => {
+    const el = await montar(of(RESPUESTA));
+    (el.querySelector('tr.pn-fila') as HTMLElement).click();
+    await tick(fix);
+    const tarjetas = Array.from(document.querySelectorAll('.pk-margen'));
+    expect(tarjetas.map((t) => t.querySelector('b')?.textContent?.trim())).toEqual(['17.0%', '10.1%', '—']);
+    expect(tarjetas[1].textContent).toContain('no registró el costo en el 20%');
+    expect(tarjetas[2].textContent).toContain('Sin compras en Kepler');
+    expect(document.querySelector('#pk-margenes')?.parentElement?.textContent).toContain('sin IVA ni IEPS');
+    const filas = Array.from(document.querySelectorAll('.pk-rank tbody tr'));
+    expect(filas[0].textContent).toContain('Padre Hidalgo');
+    expect(filas[0].classList.contains('is-mejor')).toBe(true);
+    expect(filas[1].textContent).toContain('90%');
+  });
+
+  it('[NP.15] ⛔ sin permiso de costo no hay márgenes en ningún lado, pero sí dónde se mueve mejor', async () => {
+    const sinCosto = { ...RESPUESTA, costo_visible: false, filas: FILAS.map((f) => ({ ...f, margenes: null })) };
+    api = { listar: vi.fn(), detalle: vi.fn() };
+    const el = await montar(of(sinCosto));
+    expect(el.querySelectorAll('.pn-c-margen').length).toBe(0);
+    api.detalle.mockReturnValue(of({ ...DETALLE, costo_visible: false,
+      producto: { ...DETALLE.producto, margenes: null }, plazas: DETALLE.plazas.map((p) => ({ ...p, margenes: null })) }));
+    (el.querySelector('tr.pn-fila') as HTMLElement).click();
+    await tick(fix);
+    expect(document.querySelectorAll('.pk-margen').length).toBe(0);
+    expect(document.querySelector('.pk-rank')?.textContent).not.toContain('Margen');
+    expect(document.querySelectorAll('.pk-rank tbody tr').length).toBe(2);
+  });
+});
+
+describe('[NP.15] márgenes y sucursales: funciones puras', () => {
+  it('⛔ un margen sin medir es guion, nunca 0%', () => {
+    expect(margenTexto(null)).toBe('—');
+    expect(margenTexto(undefined)).toBe('—');
+    expect(margenTexto(17)).toBe('17.0%');
+    expect(margenTexto(-3.25)).toMatch(/^-3\.[23]%$/);
+    expect(tresMargenes(MARGENES)).toBe('17.0% · 10.1% · —');
+    expect(tresMargenes(null)).toBe('—');
+  });
+
+  it('el orden: primero las que compiten por su lugar, luego las demás; sin venta no aparecen', () => {
+    const p = (plaza: string, venta: number | null, lugar: number | null) =>
+      ({ ...DETALLE.plazas[0], plaza, movimiento: { venta_neta_dia: venta, dias: 10, desplazado: null, lugar } }) as PlazaNueva;
+    const orden = ordenMovimiento([p('A', 50, 2), p('B', 900, null), p('C', 80, 1), p('D', null, null)]);
+    expect(orden.map((x) => x.plaza)).toEqual(['C', 'A', 'B']);
   });
 });
