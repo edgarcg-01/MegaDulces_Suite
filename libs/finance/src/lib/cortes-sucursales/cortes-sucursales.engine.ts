@@ -23,8 +23,8 @@
  *   se acepta como `cuadra` contra lo esperado bruto, no se inventa una diferencia.
  */
 import type {
-  CorteArqueo, CorteCobro, CorteCuadre, CorteDevolucion, CorteEstadoCobro, CorteRow, CorteSucursalResumen,
-  CortesAlcance, CortesSucursalesResponse,
+  CorteArqueo, CorteCobro, CorteCuadre, CorteDevolucion, CorteEstadoCobro, CorteMedioCobro, CorteRow,
+  CorteSucursalResumen, CortesAlcance, CortesSucursalesResponse,
 } from '@megadulces/contracts';
 
 /** Tolerancia del cuadre corte↔arqueo: redondeos de centavos del POS. */
@@ -71,7 +71,9 @@ export interface CorteCrudo {
   turno: string | null;
   monto: string | number;
   cobrado: string | number | null;
-  cobros: Array<{ doc_prefix: string; folio: string; fecha: string | null; monto: string | number; forma_pago: string | null; concepto: string | null }> | null;
+  cobros: Array<{ doc_prefix: string; folio: string; fecha: string | null; monto: string | number; forma_pago: string | null; concepto: string | null;
+    /** `[CSU.8]` Lo que trae `analytics.erp_collections`. Opcionales: una fila sin cobro en la vista llega sin ellos. */
+    medio_cobro?: CorteMedioCobro | null; cuenta_tesoreria?: string | null }> | null;
   /** `[CSU.7]` Notas de crédito POS pagadas en la caja del turno. */
   devoluciones?: Array<{ doc_prefix: string; folio: string; fecha: string; monto: string | number; cliente: string | null; motivo: string | null; cajero: string | null }> | null;
   arqueo_fecha: string | null;
@@ -117,6 +119,9 @@ export function construirCorte(c: CorteCrudo, nombres: Record<string, string>): 
   const cobros: CorteCobro[] = (c.cobros || []).map((x) => ({
     doc_prefix: x.doc_prefix, folio: x.folio, fecha: x.fecha ? String(x.fecha).slice(0, 10) : null,
     monto: r2(n(x.monto)), forma_pago: x.forma_pago ?? null, concepto: x.concepto ?? null,
+    // [CSU.8] Pasan tal cual: la clasificación la hace la vista, no esta capa. `null` cuando el
+    // cobro no está en `analytics.erp_collections` — que es distinto de 'sin_declarar'.
+    medio_cobro: x.medio_cobro ?? null, cuenta_tesoreria: x.cuenta_tesoreria ?? null,
   }));
   const documento = `UD2301-${c.folio}`;
   return {

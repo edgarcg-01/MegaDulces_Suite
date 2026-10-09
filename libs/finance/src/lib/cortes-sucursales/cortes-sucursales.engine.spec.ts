@@ -182,3 +182,53 @@ describe('[CSU.1] respuesta', () => {
     expect(r.ultimo_corte).toBe('2026-10-02');
   });
 });
+
+/**
+ * `[CSU.8]` La cuenta de tesorería del cobro — el banco del depósito.
+ *
+ * Los cuatro primeros casos son los REALES de Padre Hidalgo, corte `UD2301-0000008 · Caja 5-123`,
+ * medidos contra prod el 2026-10-09 corriendo la vista nueva dentro de `BEGIN/ROLLBACK`:
+ * `0000006`/`0000007` → `BBVA  4885`, `0000009` → `SANTANDER 2169`, `0000010` → `BAJIO 4166`.
+ *
+ * ⭐ El quinto es el que define la forma de la columna: **3,599 cobros por $75,075,947.72 entraron
+ * a `CAJA GENERAL`**, o sea en efectivo. No es un hueco, es la respuesta — y el motor tiene que
+ * dejarlo pasar con su clase, no blanquearlo.
+ */
+describe('[CSU.8] la cuenta donde entró el cobro', () => {
+  const c = construirCorte(base({
+    cobrado: '1000',
+    cobros: [
+      { doc_prefix: 'UA0501', folio: '0000006', fecha: '2026-10-02', monto: '100', forma_pago: 'tarjeta', concepto: null, medio_cobro: 'banco', cuenta_tesoreria: 'BBVA  4885' },
+      { doc_prefix: 'UA0501', folio: '0000009', fecha: '2026-10-05', monto: '100', forma_pago: 'otro', concepto: null, medio_cobro: 'banco', cuenta_tesoreria: 'SANTANDER 2169' },
+      { doc_prefix: 'UA0501', folio: '0000050', fecha: '2026-10-05', monto: '100', forma_pago: 'efectivo', concepto: null, medio_cobro: 'caja', cuenta_tesoreria: 'CAJA GENERAL' },
+      { doc_prefix: 'UA0501', folio: '0000051', fecha: '2026-10-05', monto: '100', forma_pago: 'otro', concepto: null, medio_cobro: 'sin_declarar', cuenta_tesoreria: null },
+      { doc_prefix: 'UA0501', folio: '0000052', fecha: '2026-10-05', monto: '100', forma_pago: 'otro', concepto: null },
+    ],
+  }), NOMBRES);
+
+  it('pasa el banco del depósito tal como lo clasificó la vista', () => {
+    expect(c.cobros[0].medio_cobro).toBe('banco');
+    expect(c.cobros[0].cuenta_tesoreria).toBe('BBVA  4885');
+    expect(c.cobros[1].cuenta_tesoreria).toBe('SANTANDER 2169');
+  });
+
+  it('⭐ el efectivo a CAJA GENERAL conserva su clase: NO se disfraza de banco ni se blanquea', () => {
+    expect(c.cobros[2].medio_cobro).toBe('caja');
+    expect(c.cobros[2].cuenta_tesoreria).toBe('CAJA GENERAL');
+    expect(c.cobros[2].medio_cobro).not.toBe('banco');
+  });
+
+  it('NEGATIVA: las DOS ausencias son distintas y ninguna inventa una cuenta', () => {
+    // El documento existe en la vista pero no trae cuenta de tesorería (6 de 24,763 en prod).
+    expect(c.cobros[3].medio_cobro).toBe('sin_declarar');
+    expect(c.cobros[3].cuenta_tesoreria).toBeNull();
+    // El cobro ni siquiera está en `erp_collections`: no se sabe nada, y eso NO es 'sin_declarar'.
+    expect(c.cobros[4].medio_cobro).toBeNull();
+    expect(c.cobros[4].cuenta_tesoreria).toBeNull();
+  });
+
+  it('NEGATIVA: agregar la cuenta no movió ni un peso del cuadre', () => {
+    expect(c.cobrado).toBe(1000);
+    expect(c.cuadre).toBe('cuadra');
+  });
+});

@@ -27,6 +27,12 @@
 - En el Andén, el botón **«Este producto no cuenta con fecha de caducidad»** al fechar un renglón: guarda sin fecha y como lote NA. Se ve en Llegadas como «sin caducidad».
 ### Internal — Llegadas al andén (WMS-REC.22, 2026-10-09)
 - `GET /commercial/receiving/sessions/arrivals`: órdenes de entrada y traspasos de la ventana del Andén con su vale, renglones y lotes; seis consultas. Lógica pura en `receiving-arrivals.ts`. Sin migraciones. Costo en prod sin medir.
+### Added — Finanzas › Cortes/Sucursales: el banco del depósito (CSU.8, 2026-10-09)
+- Cada cobro aplicado en Kepler dice ahora **a qué cuenta entró el dinero** (`BBVA  4885`, `SANTANDER 2169`, …). Sale de `kdm1.c45` ⋈ `kdb1`, la misma lógica que ya usan `kepler_bank_movements` y `erp_supplier_payments.medio_pago` — no se inventó un tercer juego de nombres.
+- ⭐ **`CAJA GENERAL` no es un hueco, es la respuesta**: 3,599 cobros por $75,075,947.72 entraron en efectivo, no a un banco. Por eso van dos columnas (clase + nombre) y el efectivo se pinta apagado en vez de disfrazarse de banco.
+- Cobertura medida contra prod: `c45` poblado en **24,757 de 24,763** cobros (99.98 %); los 6 restantes dicen «sin cuenta en Kepler» y **nunca** se cuelgan del lado banco. Cero `no_resuelve`.
+- Sin permisos nuevos → **sin re-login**. La migración `20261009174500` sólo reemplaza una vista.
+
 ### Changed — RH: Asistencia con la forma de Horarios de Mega Talento (RH.1.7c, 2026-10-08)
 - Una sola sección con pestañas **Checadas · Tolerancia · Faltas · Incidencias · Relojes**, con lo que espera en cada una. La plaza, la semana y los filtros se conservan al cambiar de pestaña.
 - Checadas es el **reporte semanal calcado**: una fila por persona, una columna por día, por departamento, con D/C de desayuno y comida; en rojo lo tarde y lo faltado. La ficha se abre de lado. Exportar a PDF para firmar y a Excel sale con lo que se ve, y si es parcial lo dice.

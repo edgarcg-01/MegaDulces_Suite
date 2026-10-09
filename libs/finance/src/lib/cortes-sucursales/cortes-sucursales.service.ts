@@ -79,7 +79,11 @@ SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.mon
     SELECT sum(ap.monto) AS cobrado,
            jsonb_agg(jsonb_build_object(
              'doc_prefix', ap.doc_prefix, 'folio', ap.folio, 'monto', ap.monto,
-             'fecha', to_char(ec.cobro_date, 'YYYY-MM-DD'), 'forma_pago', ec.forma_pago, 'concepto', ec.concepto)
+             'fecha', to_char(ec.cobro_date, 'YYYY-MM-DD'), 'forma_pago', ec.forma_pago, 'concepto', ec.concepto,
+             -- [CSU.8] A qué cuenta entró el dinero. Van las DOS: la clase (para no pintar
+             -- 'CAJA GENERAL' como si fuera un banco) y el nombre. Si el cobro no está en la
+             -- vista, las dos llegan null y la pantalla no inventa.
+             'medio_cobro', ec.medio_cobro, 'cuenta_tesoreria', ec.cuenta_tesoreria)
              ORDER BY ap.folio) AS cobros
       FROM ap
       LEFT JOIN analytics.erp_collections ec
