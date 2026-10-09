@@ -11210,3 +11210,125 @@ Bloque nuevo ahí mismo — ningún canal alias en la vista, ninguna meta apunta
   verificó con lectura directa contra prod (4 canales, 0 metas alias, total intacto).
 - ⬜ **Re-proponer el plan** con los supuestos corregidos: las metas quedaron bien agrupadas, pero
   el crecimiento con que se calcularon sigue siendo el del canal partido.
+
+## 2026-10-08/09 — `[CP.8]` El puente a ContPAQi, y el formato que escribíamos mal desde el principio
+
+Edgar: *«quiero que de aquí salga la póliza y se haga automáticamente en ContPAQi y viceversa»* →
+*«debemos generar una sincronía o puente entre las dos»*.
+
+### Lo que ya existía y nadie había dicho
+
+**La mitad de vuelta estaba construida y corriendo.** El carril `contpaqi` de `ops/vl/crontab.feeds`
+trae pólizas y movimientos bancarios **cada minuto**; CFDIs cada 5; balanza y proveedores cada 2 h.
+Lo que la contadora captura está en la Suite en menos de un minuto.
+
+⭐ **Lo que falta no es «la vuelta»: es el CUADRE.** Hoy nada compara lo que la Suite cree contra lo
+que ContPAQi tiene — se entrega un archivo y nadie verifica nada. Dos tubos paralelos no son un
+puente.
+
+### El mapa contable no había que inventarlo
+
+Medido sobre los 4,735 egresos de 2026: agrupando por concepto y mirando a qué cuenta de
+**resultado** cargan, pesado por importe, las reglas salen solas con **97–100 % de concentración**
+(`PAGO COMBUSTIBLE` → `5200600000` 97.2 %, `PAGO RENTA` → `5200510001` 97.9 %…). El contador deja
+de recibir una hoja en blanco y pasa a *«confirmá estas 5 y resolvé estas 2»*.
+
+⚠️ **La primera derivación estuvo MAL**: ordenaba por frecuencia sin filtrar familia y coronó a
+`1060000000 IVA ACREDITABLE` como la cuenta de casi todo — cada póliza de gasto lleva su renglón de
+IVA y gana por uniformidad. *Estaba midiendo el impuesto, no el gasto.*
+
+### ⭐ El IVA no se calcula: viene del CFDI
+
+Medido en pólizas reales: `134,082.29 × 0.16` da `21,453.17` y ContPAQi tiene asentado
+`21,453.18`; en otra, 2 centavos. Un armador que multiplique produce pólizas descuadradas por
+centavos. El armador **exige** el IVA como parámetro y se niega a derivarlo.
+
+### ⛔⛔ El hallazgo grande: emitíamos un formato que nunca fue verificado
+
+`02-evaluar-esquema.ps1` —escrito para llevar al servidor— se probó en la máquina de trabajo y
+**encontró ahí mismo una exportación real de pólizas de ContPAQi**. El árbitro llevaba meses en
+`Documents`.
+
+**El emisor escribía P=147 / M=211. El real es P=185 / M=272.**
+
+| Campo | Nuestro | Fuente externa | **REAL** | |
+|---|--:|--:|--:|---|
+| `clase` (P) | 1 | 4 | **1** | ⭐ teníamos razón nosotros |
+| `referencia` (M) | 10 | 30 | **30** | la fuente externa |
+| `seg_negocio` (M) | 10 | — | **4** | se equivocaban los dos |
+| `fecha_aplicacion` | no existe | en el `P` | **en el `M`** | existe, pero no donde decían |
+
+**Y tres que nadie había visto**, que son las que de verdad rompían el archivo: cada renglón lleva
+su **`Guid` de 36** al final · **toda línea termina en espacio** · la etiqueta del movimiento es
+**`M1`**, no `M `.
+
+⭐ **La lección está en `clase`:** "corregir" a lo que decía el foro habría roto el único campo que
+estaba bien. Por eso se declaró el conflicto en vez de votarlo.
+
+**Verificación doble, y las dos cierran:** la aritmética de anchos reproduce 185/272 exacto, y el
+contenido cruza contra la base — **14/14** `Polizas.Guid`, **82/82** `MovimientosPoliza.Guid`, y los
+**62 UUID de `AD` → 234 filas de `AsocCFDIs`**.
+
+### ⭐⭐ `FASE_LC` queda refutada en un punto, con evidencia
+
+LC dice *«el layout no tiene campo de UUID»* y que las patas sin CFDI *«no es descuido de la
+contadora, el formato no lo transporta»*. **Sí lo transporta**: renglones `AD ` + UUID. Los **0 de
+33,303 movimientos sin asociar en cinco años** son renglones que nadie emitió — y se cierran **sin
+SDK, sin licencia y sin máquina nueva**.
+
+### El control que se corrió ANTES de reescribir
+
+*¿Y si el 147/211 sí se importaba?* Medido en prod: **3 corridas, cero `entregado`, cero
+`aplicado`**. Ningún archivo con el formato viejo llegó jamás a ContPAQi. No se rompió nada.
+
+### La prueba: round-trip byte a byte — 14/14
+
+Desarmar cada póliza real y volver a armarla da **el mismo byte**. Encontró dos defectos que
+ninguna prueba de coherencia interna podía ver:
+
+1. **`impTxt` escribía `11787.50` donde ContPAQi escribe `11787.5`.** ⭐ El comentario del código
+   **siempre** dijo la regla correcta y el código no la implementaba.
+2. **`impresa` clavado en `'0'`** cuando la real trae `1`. Un byte, posición 144.
+
+### ⛔ Dos bugs propios, y los atrapó el candado de OTRA fase
+
+La autodetección de formato salió mal dos veces: **detectar por largo de línea** (un editor come
+los blancos y una línea real recortada se lee como legado, con los anchos equivocados, en
+silencio) y **detectar por la negativa** (un archivo con sólo encabezados no tiene qué discriminar).
+Las dos las encontró el smoke de LC.
+
+⭐ **Es el argumento más concreto contra bajarle el alcance a un smoke heredado para que pase.**
+
+### Entregado
+
+| | |
+|---|---|
+| `poliza-egreso.ts` | armador del asiento · **33 ✓ / 0 ✗** |
+| `contpaqi-poliza-sink.port.ts` | el puerto: `txt` y `sdk` detrás del mismo token |
+| `txt-sink.adapter.ts` | sink de archivo · **42 ✓ / 0 ✗ · 7 NO MEDIDO** |
+| `cuadre.engine.ts` | token = certeza, importe = sospecha · **35 ✓ / 0 ✗** |
+| `layout.params.ts` | los parámetros declarados con estado y respaldo |
+| `poliza-txt.ts` | **reescrito al formato real** · LC sigue en **38 ✓ / 0 ✗** |
+| `20261008155000` | `contpaqi.account_rules` + `poliza_exports` · ⛔ **sin aplicar** |
+| `01-probe-sdk.ps1` · `02-evaluar-esquema.ps1` | sondeos read-only, ejercidos en rama negativa |
+
+Cada candado **probado por mutación**. ⛔ **El archivo real NO se commitea** — trae cuentas,
+importes y UUID de la contabilidad y **este repo es público**; regla nueva en `.gitignore`
+(`database/tests/fixtures/*.txt`) y los smokes hacen skip limpio sin él.
+
+### ⚠️ Lo que sigue sin probarse
+
+**Que ContPAQi ACEPTE lo que emitimos.** El round-trip prueba que escribimos el mismo formato que
+ContPAQi *exporta*; que su *importador* lo lea igual es inferencia razonable, no un hecho. **Se
+confirma importando un archivo** — un minuto de la contadora, y contesta de una vez si el formato
+vale, si respeta el `guid` y si los `AD` se pueden prender.
+
+También abierto: `AM`, `AP`, `I`, `V`, `W2` sin decodificar (los guids de `AM` no cruzan con nada).
+
+### Planes
+
+[`FASE_CP8_PUENTE_CONTPAQI.md`](FASES/FASE_CP8_PUENTE_CONTPAQI.md) (el puente, etapas E0–E5) y
+[`FASE_CP9_COBERTURA_TOTAL.md`](FASES/FASE_CP9_COBERTURA_TOTAL.md) (cobertura: **119 tablas, 52 con
+datos, 4.7M filas, cubrimos 31.2 %**; el ADD tiene **4 repositorios y leemos 1**; Nóminas 2.3 GB en
+cero). ⛔ Recomendación escrita: **no perseguir el 100 %** — es métrica vanidosa; el valor está en
+dos olas (impuestos por movimiento y nóminas), y **ninguna vale lo que cerrar el puente**.

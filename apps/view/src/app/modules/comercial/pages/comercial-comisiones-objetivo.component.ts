@@ -205,8 +205,13 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               </thead>
               <tbody>
                 @for (f of d.filas; track f.route_code) {
-                  <tr>
-                    <td role="cell" data-label="Ruta" class="mono dt-id">{{ f.route_code }}</td>
+                  <tr [class.ob-fila-baja]="sinActividad(f)">
+                    <td role="cell" data-label="Ruta" class="mono dt-id">
+                      {{ f.route_code }}
+                      @if (sinActividad(f)) {
+                        <span class="ob-baja" [title]="tituloBaja(f)">sin actividad</span>
+                      }
+                    </td>
                     <td role="cell" data-label="Chofer">{{ f.chofer || '—' }}</td>
                     @for (c of f.criterios; track c.bonus_id) {
                       <td role="cell" [attr.data-label]="c.nombre">
@@ -313,6 +318,9 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .ob-no { color: var(--bad-fg); }
     .ob-pendiente { color: var(--warn-fg); }
     .ob-techo { color: var(--warn-fg); }
+    .ob-fila-baja { opacity: .72; }
+    .ob-baja { margin-left: 6px; padding: 1px 6px; border-radius: 10px; cursor: help;
+      font-size: var(--fs-micro); color: var(--warn-fg); border: 1px solid var(--warn-fg); }
 
     .ob-huecos { margin: 0; padding-left: 18px; }
     .ob-huecos li { font-size: var(--fs-sm); color: var(--c-text-2); line-height: 1.6; }
@@ -471,6 +479,23 @@ export class ComercialComisionesObjetivoComponent {
   claseCriterio(c: ObjetivoCriterioFila): string {
     if (c.cumplido === null) return 'ob-nd';
     return c.cumplido ? 'ob-ok' : 'ob-no';
+  }
+
+  /**
+   * Una ruta que comisiona pero no registra actividad hace más de dos meses está de baja de
+   * hecho, aunque la configuración siga encendida. Sin esta marca sale idéntica a una ruta
+   * activa que no alcanzó nada, y son dos cosas distintas: una se corrige en la configuración
+   * de rutas, la otra es desempeño.
+   */
+  sinActividad(f: ObjetivoFila): boolean {
+    return f.dias_sin_actividad === null || f.dias_sin_actividad > 60;
+  }
+
+  tituloBaja(f: ObjetivoFila): string {
+    if (!f.ultima_actividad) return 'Esta ruta no registra actividad en toda la ventana de la fuente.';
+    return `Última actividad el ${f.ultima_actividad} (hace ${f.dias_sin_actividad} días). `
+      + 'Si se dio de baja hay que apagarla en la configuración de rutas; mientras siga encendida '
+      + 'se evalúa y sale en cero.';
   }
 
   etiquetaEstado(e: string): string {

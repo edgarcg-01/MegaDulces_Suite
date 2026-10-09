@@ -18,9 +18,19 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual,
-  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState }
+  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
+// `[PVI.9]` La vista Ventas salió a su propio componente. Los tipos y los estilos quedan en
+// archivos compartidos porque **el shell los sigue necesitando**: el estado y el HTTP no se
+// movieron (ver la cabecera del hijo). Mismo patrón que `bancos/`.
+import { PresupuestoVentasComponent } from './presupuesto/presupuesto-ventas.component';
+import { leyendaRespaldo, resumenFirma, type Completeness, type ProcedenciaCanal } from './presupuesto/presupuesto-firma';
+import { PRESUPUESTO_STYLES } from './presupuesto/presupuesto.styles';
+import type {
+  GrowthEditRow, GrowthProposal, ProposeCoverage, SalesComparison, SalesIndicators,
+  SalesReconciliation, SalesRow,
+} from './presupuesto/presupuesto-shared';
 
 interface Capacity { capacity_date: string; authorized_amount: number; note: string | null; updated_by: string | null; updated_at: string }
 interface CapacityHistoryRow { previous_amount: number | null; new_amount: number; reason: string | null; changed_by: string; changed_at: string }
@@ -112,72 +122,6 @@ interface Projection { authorized_vigente: number; proyeccion_firme: number; pro
 interface CompareRow { concept: string; area: string | null; line_type: string; vigente_a: number | null; vigente_b: number | null; delta: number | null; estado: string }
 interface CompareResult { totals: { a: number; b: number; delta: number }; rows: CompareRow[] }
 
-// ── Presupuesto de ventas (PV) ──
-interface SalesCell {
-  entity_key: string; channel: string; channel_label: string; entity_type: string;
-  warehouse_code: string; branch_name: string | null; period_no: number;
-  meta: number | null; real: number | null; real_prior: number | null;
-  cumplimiento_pct: number | null; crec_pct: number | null; part_pct: number | null;
-  method: string | null;
-}
-interface SalesComparison {
-  budget: { id: string; name: string; fiscal_year: number; status: string };
-  prior_year: number;
-  cells: SalesCell[];
-  totals: { meta: number; real: number | null; real_prior: number; cumplimiento_pct: number | null; crec_pct: number | null };
-  /** [PU.V6] Cuánto AÑO cubre `totals.meta`. Va fuera de `totals` a propósito: adentro, alguien lo sumaría. */
-  periodos?: {
-    del_anio: number; con_meta: number; sin_meta: number[]; completo: boolean;
-    /** Lo que esos períodos valieron en el último ejercicio COMPLETO. `null` = no se pudo medir, nunca $0. */
-    referencia: { fiscal_year: number; monto: number } | null;
-    nota: string;
-  };
-  data_as_of: string | null;
-  real_available: boolean;
-  freshness: Freshness; coverage: Coverage;
-}
-interface SalesEntity { entity_key: string; channel: string; channel_label: string; entity_type: string; warehouse_code: string; branch_name: string | null; route_code: string | null; route_zona: string | null }
-interface SalesRow {
-  label: string; channel_label: string; entity_key: string | null; is_rollup: boolean;
-  meta: number | null; real: number | null; cumplimiento_pct: number | null; crec_pct: number | null; part_pct: number | null;
-  method: string | null;
-}
-// PVA — propuesta automática
-interface GrowthChannel { growth_pct: number; basis: string; paired_periods: number; years_used: number[] }
-interface GrowthProposal {
-  by_channel: Record<string, GrowthChannel>;
-  global: { growth_pct: number; basis: string; paired_periods: number };
-  years_available: number[]; fiscal_year: number; min_paired_periods?: number;
-}
-interface GrowthEditRow { channel: string; channel_label: string; growth_pct: number; basis: string; paired_periods: number }
-interface ProposeCoverage {
-  historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number; no_signal: number; manual_kept: number;
-  /**
-   * `[PVI.2]` El DINERO por método. `coverage` cuenta CELDAS, y el dinero no se reparte por celda:
-   * medido en prod, el proxy eran 104 de 429 celdas (24.2 %) **y** $197,160,564 (24.46 % de la
-   * meta) — que casi coincidieran fue casualidad de ese ejercicio, no una regla, y **nadie
-   * calculaba el segundo**. Opcional a propósito: contra una API que todavía no lo emite la
-   * pantalla **declara que no lo midió**, en vez de quedarse en blanco o dibujar un 0.
-   */
-  coverage_monto?: { historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number };
-  meta_total?: number;
-  /** Fracción de la meta repartida con el PROMEDIO DE OTRAS entidades del canal. `null` si la meta
-   *  es 0: una meta de 0 no tiene «0 % sin base», tiene un porcentaje indefinido. */
-  proxy_canal_pct?: number | null;
-}
-interface IndicatorSeries { year: number; real: number | null; crec_pct: number | null; part_pct: number | null }
-interface IndicatorCurrent { meta: number | null; real: number | null; cumplimiento_pct: number | null; crec_pct: number | null }
-interface IndicatorRow { channel?: string; channel_label: string; label?: string; entity_key?: string; series: IndicatorSeries[]; current: IndicatorCurrent }
-interface SalesIndicators {
-  budget: { id: string; name: string; fiscal_year: number; status: string };
-  prior_year: number; years_available: number[];
-  company: { series: IndicatorSeries[]; current: IndicatorCurrent };
-  by_channel: IndicatorRow[]; by_entity: IndicatorRow[];
-  data_as_of: string | null; real_available: boolean;
-  freshness: Freshness;
-}
-interface ReconAnnualRow { channel: string; channel_label: string; year: string; sell_out: number; facturacion: number; delta: number; ratio_pct: number | null; status: string }
-interface SalesReconciliation { annual: ReconAnnualRow[]; monthly: unknown[]; notes: string[]; data_as_of: string | null; freshness: Freshness }
 
 // ── PVG: presupuesto de gastos auto-propuesto desde egresos Kepler ──
 interface ExpensePlanLine { account_code: string; account_name: string | null; familia: string | null; sucursal: string; year_month: string; monto: number; method: string; growth_pct: number | null; base_amount: number | null }
@@ -208,6 +152,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule,
     CheckboxModule, TagModule, ToastModule, SegmentedComponent, MetricStripComponent, FreshnessPillComponent, SucursalPipe,
+    PresupuestoVentasComponent,
   ],
   providers: [MessageService],
   template: `
@@ -302,6 +247,37 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 <button pButton type="button" class="p-button-sm p-button-text" (click)="openNewBudget()" title="Para un año o escenario distinto del que arma el sistema. El del año siguiente lo crea solo, cada noche."><span class="pi pi-plus"></span>&nbsp;Nuevo ejercicio</button>
               </div>
             </div>
+
+            <!-- [PVI.13] Qué estás por mandar a autorización. El backend ya calculaba esto
+                 (GET :id/completeness, [VE.5-F]) y NADIE lo consumía: los bloqueos se descubrían
+                 apretando y fallando, y los avisos -lo que conviene mirar y NO frena- no se veían
+                 nunca. Va ARRIBA de las acciones y no en un diálogo: lo que se firma se lee antes
+                 de firmar, no después de que el servidor diga que no. -->
+            @if (b.status === 'borrador' || b.status === 'en_revision') {
+              @if (firma(); as f) {
+                @if (f.bloqueos.length) {
+                  <p class="pres-warn">
+                    <span class="pi pi-exclamation-triangle"></span>
+                    <span><strong>No puede ir a autorización todavía:</strong> @for (x of f.bloqueos; track x) { {{ x }} }</span>
+                  </p>
+                }
+                @for (a of f.avisos; track a) {
+                  <p class="pres-hint"><span class="pi pi-info-circle"></span> {{ a }}</p>
+                }
+                <!-- ⛔ «Listo» mide CANTIDAD, no RESPALDO: la compuerta cuenta renglones y
+                     periodos, y declara listo un ejercicio cuyo mayor supuesto de crecimiento no
+                     lo firma nadie. Esta línea es la única que lo dice. -->
+                @if (leyendaRespaldo(f); as leyenda) {
+                  <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <span>{{ leyenda }}</span></p>
+                }
+                @if (f.conteos; as c) {
+                  <p class="pres-hint"><span class="pi pi-list"></span>
+                    Lo que contiene: <strong>{{ c.plan_ventas }}</strong> renglones de ventas ({{ c.periodos_con_meta }} de {{ c.periodos_totales }} periodos) ·
+                    <strong>{{ c.plan_gastos }}</strong> de gastos · <strong>{{ c.partidas }}</strong> partidas materializadas.
+                  </p>
+                }
+              }
+            }
 
             <!-- [VE.7] Los supuestos DEJARON DE CAPTURARSE. Antes eran seis inputs y un boton
                  «Guardar»: el numero que gobierna todo el plan dependia de que alguien se
@@ -485,7 +461,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <th class="ta-r">Vigente</th><th class="ta-r">Comprometido</th><th class="ta-r">Ejercido</th><th class="ta-r">Disponible</th><th class="ta-r">Ocupación</th>
                   <th class="ta-r" title="Suma de los meses del plan ya cerrados. El mes en curso no cuenta.">Debería a hoy</th>
                   <th>Ritmo</th>
-                  <th style="width:3rem"><span class="sr-only">Acciones</span></th>
+                  <th style="width:5.5rem"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template #body let-l>
@@ -504,7 +480,10 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td [title]="ritmoTitulo(l)">
                     <span [class.pres-neg]="ritmoEsAlerta(l)" [class.pres-muted]="ritmoEsMudo(l)">{{ ritmoEtiqueta(l) }}</span>
                   </td>
-                  <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
+                  <td style="white-space:nowrap">
+                    <button pButton type="button" class="p-button-sm p-button-text" (click)="openBitacora(l)" title="Bitácora de la partida" aria-label="Ver bitácora de la partida"><span class="pi pi-history"></span></button>
+                    @if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }
+                  </td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="13" class="pres-empty">Sin partidas de gasto todavía. Se materializan del <strong>presupuesto propuesto</strong> (abajo) al aprobar el ejercicio.</td></tr></ng-template>
@@ -571,177 +550,24 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
 
       <!-- ══════════ PRESUPUESTO DE VENTAS (PV) ══════════ -->
       @if (view() === 'ventas') {
-        <section class="pres-section">
-          @if (selected(); as b) {
-            <div class="pres-section-head">
-              <h2>Presupuesto de ventas · <span class="pres-muted">{{ b.name }} {{ b.fiscal_year }}</span></h2>
-              <div class="pres-detail-actions">
-                <app-segmented [options]="salesTabOpts" [value]="salesTab()" (valueChange)="setSalesTab($any($event))" ariaLabel="Vista de ventas" />
-                @if (b.status === 'borrador' || b.status === 'en_revision') {
-                  <button pButton type="button" class="p-button-sm" (click)="runProposePlan()" [loading]="savingPropose()" title="Arma el plan con los supuestos del año (Ejercicio)"><span class="pi pi-bolt"></span>&nbsp;Proponer plan del año</button>
-                }
-                <button pButton type="button" class="p-button-sm p-button-text" (click)="loadSalesComparison()" [loading]="loadingSales()" title="Consulta el sell-out del ODS (unos segundos)"><span class="pi pi-refresh"></span>&nbsp;{{ salesCmp() ? 'Actualizar real' : 'Cargar meta vs real' }}</button>
-                <button pButton type="button" class="p-button-sm p-button-text" (click)="projectTargets()" [loading]="projecting()" title="Reparte la meta del plan (13×4) a metas mensuales del «vs objetivo» del sub-módulo Análisis (reparto por días)."><span class="pi pi-share-alt"></span>&nbsp;Proyectar a Análisis</button>
-              </div>
-            </div>
-
-            <!-- ── PLAN (pivote meta vs real) ── -->
-            @if (salesTab() === 'plan') {
-              @if (salesCmp(); as c) {
-                <div class="pres-summary-head">
-                  @if (c.real_available && c.data_as_of) {
-                    <app-freshness-pill measures="data" [freshness]="c.freshness" />
-                  } @else {
-                    <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: sin datos</span>
-                  }
-                  <span class="pres-muted">CREC = crecimiento vs {{ c.prior_year }}</span>
-                  @if (c.coverage?.measured && c.coverage?.pct != null) {
-                    <span class="pres-muted" [title]="c.coverage.note">Cobertura real: {{ c.coverage.pct }}%</span>
-                  }
-                </div>
-                <app-metric-strip [items]="salesKpis(c)" mode="strip" ariaLabel="Resumen del presupuesto de ventas" />
-                <!-- [PU.V6] El total cubre PARTE del año y eso se dice acá, no en un tooltip. El
-                     motor hace bien en no inventar los periodos sin base; lo que estaba mal era
-                     que el aviso viviera en la columna method -que el encabezado no suma- y el
-                     $0 en el campo que si suma. Dice ademas CUANTO falta, porque "incompleto" no
-                     deja decidir y "faltan ~$166M" si. -->
-                @if (c.periodos && !c.periodos.completo) {
-                  <p class="pres-warn">
-                    <span class="pi pi-exclamation-triangle"></span>
-                    <span>{{ c.periodos.nota }}</span>
-                  </p>
-                }
-                @if (lastCoverage(); as cov) {
-                  @if (covEnDinero(cov); as cm) {
-                    <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta, <strong>en dinero</strong>:
-                      {{ money(cm.historico_ajustado) }} de base real ({{ cov.historico_ajustado }} celdas) ·
-                      {{ money(cm.estacional) }} por estacionalidad ({{ cov.estacional }}) ·
-                      {{ money(cm.proxy_canal) }} proxy de canal ({{ cov.proxy_canal }}) ·
-                      <strong>{{ cov.sin_base_declarado }}</strong> celdas sin base, declaradas (—, no $0) ·
-                      {{ cov.manual_kept }} a mano.
-                    </p>
-                    @if (proxyAviso(cov); as av) {
-                      <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <span>{{ av }}</span></p>
-                    }
-                  } @else {
-                    <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.proxy_canal }}</strong> proxy de canal · <strong>{{ cov.sin_base_declarado }}</strong> sin base (declaradas, no en 0) · <strong>{{ cov.no_signal }}</strong> sin señal · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
-                    <p class="pres-hint pres-nodata"><span class="pi pi-info-circle"></span> <strong>Cuánto DINERO representa cada origen: no medido.</strong> Esta API todavía no publica el desglose por monto. El conteo de celdas no lo dice: un cuarto de las celdas puede ser un cuarto de la meta o la mitad.</p>
-                  }
-                }
-                <div class="pres-detail-actions" style="margin:.6rem 0 .2rem">
-                  <label class="pres-muted">Periodo (13×4):</label>
-                  <p-select [options]="periodOpts" [(ngModel)]="salesPeriod" optionLabel="label" optionValue="value" placeholder="Todos" styleClass="pres-inline-select" />
-                </div>
-                <p-table [value]="salesRows()" [loading]="loadingSales()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
-                  <ng-template #header>
-                    <tr>
-                      <th>Entidad</th><th>Canal</th><th>Origen</th>
-                      <th class="ta-r">Meta</th><th class="ta-r">Real</th><th class="ta-r">Cumpl.</th>
-                      <th class="ta-r">CREC</th><th class="ta-r">PART</th>
-                      <th style="width:3rem"><span class="sr-only">Acciones</span></th>
-                    </tr>
-                  </ng-template>
-                  <ng-template #body let-r>
-                    <tr [class.pres-rollup]="r.is_rollup">
-                      <td>{{ r.label }}</td>
-                      <td class="pres-muted">{{ r.channel_label }}</td>
-                      <td>@if (!r.is_rollup && r.method) { <span class="ec-src ec-src-{{ r.method }}">{{ methodLabel(r.method) }}</span> }</td>
-                      <td class="ta-r pres-mono">{{ r.meta == null ? '—' : money(r.meta) }}</td>
-                      <td class="ta-r pres-mono">{{ r.real == null ? '—' : money(r.real) }}</td>
-                      <td class="ta-r pres-mono">{{ r.cumplimiento_pct == null ? '—' : r.cumplimiento_pct + '%' }}</td>
-                      <td class="ta-r pres-mono" [class.pres-neg]="r.crec_pct != null && r.crec_pct < 0">{{ r.crec_pct == null ? '—' : r.crec_pct + '%' }}</td>
-                      <td class="ta-r pres-mono">{{ r.part_pct == null ? '—' : r.part_pct + '%' }}</td>
-                      <td></td>
-                    </tr>
-                  </ng-template>
-                  <ng-template #emptymessage><tr><td colspan="9" class="pres-empty">Sin plan de ventas todavía. @if (b.status === 'borrador' || b.status === 'en_revision') { Usá «Proponer plan del año» para que el sistema lo arme desde la historia. }</td></tr></ng-template>
-                </p-table>
-                <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Meta</strong> = plan. <strong>Origen</strong>: Histórico (real año anterior × crecimiento) · Estacional (participación + estacionalidad) · Proxy canal (entidad nueva, estimada desde su canal) · Sin base (ni entidad ni canal con señal → declarada en 0, no ausente) · Manual. <strong>Real</strong> = sell-out del ODS por el calendario 13×4. «Sin datos» ≠ cero (—).</p>
-              } @else if (loadingSales()) {
-                <p class="pres-muted">Cargando presupuesto de ventas…</p>
-              } @else {
-                <p class="pres-hint"><span class="pi pi-info-circle"></span> El «meta vs real» consulta el sell-out del ODS (unos segundos). Pulsá <strong>«Cargar meta vs real»</strong> para verlo. La propuesta del plan no lo necesita.</p>
-              }
-            }
-
-            <!-- ── INDICADORES (CREC/PART histórico + meta-vs-real) ── -->
-            @if (salesTab() === 'indicadores') {
-              @if (indicators(); as ind) {
-                <div class="pres-summary-head">
-                  @if (ind.real_available && ind.data_as_of) {
-                    <app-freshness-pill measures="data" [freshness]="ind.freshness" />
-                  } @else {
-                    <span class="pres-nodata"><span class="pi pi-info-circle"></span> Real del ODS: sin datos</span>
-                  }
-                  <span class="pres-muted">Años con historia: {{ ind.years_available.join(', ') }} · CREC vs {{ ind.prior_year }}</span>
-                </div>
-                <p-table [value]="ind.by_channel" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
-                  <ng-template #header>
-                    <tr>
-                      <th>Canal</th>
-                      <th class="ta-r">Real {{ ind.budget.fiscal_year }}</th><th class="ta-r">CREC</th><th class="ta-r">PART</th>
-                      <th class="ta-r">Meta</th><th class="ta-r">Cumpl.</th>
-                    </tr>
-                  </ng-template>
-                  <ng-template #body let-r>
-                    <tr>
-                      <td>{{ r.channel_label }}</td>
-                      <td class="ta-r pres-mono">{{ r.current.real == null ? '—' : money(r.current.real) }}</td>
-                      <td class="ta-r pres-mono" [class.pres-neg]="r.current.crec_pct != null && r.current.crec_pct < 0">{{ r.current.crec_pct == null ? '—' : r.current.crec_pct + '%' }}</td>
-                      <td class="ta-r pres-mono">{{ indPart(r) }}</td>
-                      <td class="ta-r pres-mono">{{ r.current.meta == null ? '—' : money(r.current.meta) }}</td>
-                      <td class="ta-r pres-mono">{{ r.current.cumplimiento_pct == null ? '—' : r.current.cumplimiento_pct + '%' }}</td>
-                    </tr>
-                  </ng-template>
-                  <ng-template #footer>
-                    <tr class="pres-rollup">
-                      <td>Total Venta</td>
-                      <td class="ta-r pres-mono">{{ ind.company.current.real == null ? '—' : money(ind.company.current.real) }}</td>
-                      <td class="ta-r pres-mono">{{ ind.company.current.crec_pct == null ? '—' : ind.company.current.crec_pct + '%' }}</td>
-                      <td class="ta-r pres-mono">100%</td>
-                      <td class="ta-r pres-mono">{{ ind.company.current.meta == null ? '—' : money(ind.company.current.meta) }}</td>
-                      <td class="ta-r pres-mono">{{ ind.company.current.cumplimiento_pct == null ? '—' : ind.company.current.cumplimiento_pct + '%' }}</td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-                <p class="pres-hint"><span class="pi pi-info-circle"></span> Bloques de consolidación del reporte (CREC = crecimiento año vs año · PART = participación en el total), directo del sell-out del ODS. Reemplaza el seguimiento manual del Excel.</p>
-              } @else if (loadingIndicators()) {
-                <p class="pres-muted">Cargando indicadores…</p>
-              }
-            }
-
-            <!-- ── CONCILIACIÓN (documentada) sell-out ↔ facturación contable 401 ── -->
-            @if (salesTab() === 'conciliacion') {
-              @if (reconciliation(); as rec) {
-                @if (rec.freshness) { <div class="pres-summary-head"><app-freshness-pill measures="data" [freshness]="rec.freshness" /><span class="pres-muted">Conciliación documental — el real del presupuesto sigue siendo el sell-out</span></div> }
-                <p-table [value]="rec.annual" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
-                  <ng-template #header>
-                    <tr><th>Año</th><th>Canal</th><th class="ta-r">Sell-out</th><th class="ta-r">Facturación (401)</th><th class="ta-r">Δ</th><th class="ta-r">401/sell-out</th><th>Estado</th></tr>
-                  </ng-template>
-                  <ng-template #body let-r>
-                    <tr>
-                      <td class="pres-mono">{{ r.year }}</td>
-                      <td class="pres-muted">{{ r.channel_label }}</td>
-                      <td class="ta-r pres-mono">{{ money(r.sell_out) }}</td>
-                      <td class="ta-r pres-mono">{{ money(r.facturacion) }}</td>
-                      <td class="ta-r pres-mono" [class.pres-neg]="r.delta < 0">{{ money(r.delta) }}</td>
-                      <td class="ta-r pres-mono">{{ r.ratio_pct == null ? '—' : r.ratio_pct + '%' }}</td>
-                      <td><span class="ec-src ec-src-recon-{{ r.status }}">{{ statusLabel(r.status) }}</span></td>
-                    </tr>
-                  </ng-template>
-                  <ng-template #emptymessage><tr><td colspan="7" class="pres-empty">Sin datos de conciliación.</td></tr></ng-template>
-                </p-table>
-                <div class="pres-recon-notes">
-                  @for (n of rec.notes; track n) { <p class="pres-hint"><span class="pi pi-info-circle"></span> {{ n }}</p> }
-                </div>
-              } @else if (loadingReconciliation()) {
-                <p class="pres-muted">Cargando conciliación…</p>
-              }
-            }
-          } @else {
+        <!-- [PVI.9] La vista vive en presupuesto/presupuesto-ventas.component.ts. El estado y el
+             HTTP se quedan ACA a proposito: las vistas se montan con @if, asi que un hijo con
+             estado propio perderia lo cargado cada vez que el usuario sale y vuelve -y "Cargar
+             meta vs real" consulta el sell-out del ODS, que tarda segundos. Mismo patron que
+             bancos: hijo presentacional, shell con los datos. -->
+        @if (selected(); as b) {
+          <pres-ventas
+            [budget]="b" [tab]="salesTab()" [cmp]="salesCmp()"
+            [indicators]="indicators()" [reconciliation]="reconciliation()" [coverage]="lastCoverage()"
+            [loadingSales]="loadingSales()" [loadingIndicators]="loadingIndicators()" [loadingReconciliation]="loadingReconciliation()"
+            [savingPropose]="savingPropose()" [projecting]="projecting()" [period]="salesPeriod"
+            (tabChange)="setSalesTab($event)" (periodChange)="salesPeriod = $event"
+            (proposePlan)="runProposePlan()" (loadComparison)="loadSalesComparison()" (projectTargets)="projectTargets()" />
+        } @else {
+          <section class="pres-section">
             <p class="pres-muted">Elegí un ejercicio en la pestaña «Ejercicios» para ver su presupuesto de ventas.</p>
-          }
-        </section>
+          </section>
+        }
       }
 
       <!-- ══════════ FLUJO / RESULTADO (PU.3 + PR.4) ══════════ -->
@@ -1231,6 +1057,40 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       }
     </p-dialog>
 
+    <!-- PU.VG.4 — La bitacora del ledger. Cada transicion queda grabada desde que el libro existe
+         y hasta hoy no habia donde verla. La columna Efecto es la que la vuelve cuadrable: dice
+         que acumulador movio, que es justo lo que el libro no registraba. -->
+    <p-dialog [(visible)]="bitacoraVisible" [modal]="true" [header]="'Bitácora — ' + (bitacoraLine()?.concept || '')" [style]="{ width: '54rem' }">
+      @if (bitacoraCargando()) {
+        <p class="pres-muted">Cargando…</p>
+      } @else if (bitacoraError()) {
+        <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> No se pudo leer la bitácora. No afirma que no haya movimientos.</p>
+      } @else if (bitacora(); as movs) {
+        @if (!movs.length) {
+          <p class="pres-muted">Esta partida no tiene ni un movimiento registrado.</p>
+        } @else {
+          <!-- La clase va en el HOST, no en styleClass: v22 lo retiró de p-table y es una falla
+               MUDA (build verde, sin aviso). El candado lo cuenta contra un techo: no se sube. -->
+          <p-table [value]="movs" class="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="24rem">
+            <ng-template #header>
+              <tr><th>Cuándo</th><th>Qué</th><th class="ta-r">Monto</th><th>Efecto</th><th>Quién</th><th>Nota</th></tr>
+            </ng-template>
+            <ng-template #body let-m>
+              <tr>
+                <td class="pres-mono pres-muted">{{ m.created_at | date: 'dd/MM/yy HH:mm' }}</td>
+                <td>{{ movLabel(m.movement_type) }}</td>
+                <td class="ta-r pres-mono">{{ money(m.amount) }}</td>
+                <td [class.pres-neg]="movOpaco(m)" [title]="movOpaco(m) ? 'Se registró antes de que el libro guardara el objetivo: no se puede recomputar.' : ''">{{ movEfecto(m) }}</td>
+                <td class="pres-muted">{{ m.created_by || '—' }}</td>
+                <td class="pres-muted">{{ m.note || '—' }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+          <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Efecto</strong> es lo que vuelve cuadrable la partida: una cancelación declara si bajó la <strong>reserva</strong> o el <strong>compromiso</strong>, y un compromiso declara si <strong>movió una reserva</strong> o salió del disponible. Los dos caminos escribían un movimiento idéntico hasta que el libro empezó a guardarlo.</p>
+        }
+      }
+    </p-dialog>
+
     <!-- Nueva campaña -->
     <p-dialog [(visible)]="newCampVisible" [modal]="true" header="Nueva campaña" [style]="{ width: '28rem' }">
       <label class="pres-lbl">Nombre</label>
@@ -1272,124 +1132,9 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     <!-- PR.5 (ADR-074): «Nuevo gasto autorizado» retirado — las obligaciones se auto-generan del plan
          de gastos (estado propuesta) y se autorizan en lote desde la pestaña Obligaciones. -->
   `,
-  styles: [`
-    :host { display:block; }
-    .surf-page-head { display:flex; justify-content:space-between; align-items:flex-start; gap:1rem; flex-wrap:wrap; }
-    .pres-section { margin-top:1.4rem; }
-    .pres-section-head { display:flex; justify-content:space-between; align-items:center; }
-    .pres-section h2 { font-size:.95rem; margin:0 0 .5rem; }
-    .pres-budget-chips { display:flex; gap:.5rem; flex-wrap:wrap; margin:.4rem 0 1rem; }
-    .pres-chip { display:inline-flex; align-items:center; gap:.4rem; padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:.82rem; cursor:pointer; }
-    .pres-chip.on { border-color:var(--action); box-shadow:0 0 0 1px var(--action); }
-    .pres-chip-yr { color:var(--text-muted); }
-    /* El nombre acompana al folio, no compite con el: el folio es la identidad. */
-    .pres-chip-name { color:var(--text-muted); }
-    .pres-summary-head { display:flex; justify-content:flex-end; align-items:center; gap:.75rem; flex-wrap:wrap; margin:.6rem 0 .4rem; }
-    .pres-summary-title { font-size:.9rem; font-weight:600; display:inline-flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
-    .pres-detail-bar { display:flex; justify-content:space-between; align-items:center; gap:.75rem; flex-wrap:wrap; margin:.4rem 0 .2rem; }
-    .pres-detail-actions { display:flex; gap:.4rem; flex-wrap:wrap; }
-    .pres-mov-state { display:flex; flex-wrap:wrap; gap:.4rem 1rem; font-size:.78rem; color:var(--text-muted); padding:.5rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); margin-bottom:.6rem; }
-    .pres-mov-state b { color:var(--text-main); margin-left:.25rem; }
-    .pres-lbl-hint { font-size:.72rem; color:var(--text-faint); margin:.3rem 0 0; }
-    .pres-cf-period { display:flex; gap:.4rem; flex-wrap:wrap; align-items:center; }
-    .pres-eval-notes { margin:.6rem 0; font-size:.82rem; }
-    .pres-eval-notes p { margin:.35rem 0; display:flex; align-items:center; gap:.4rem; flex-wrap:wrap; }
-    .pres-inline-calc { display:inline-flex; align-items:center; gap:.3rem; }
-    .pres-margen { width:9rem; }
-    .pres-row2 { display:flex; gap:.6rem; } .pres-row2 > div { flex:1; }
-    .pres-alert { display:flex; align-items:center; gap:.4rem; font-size:.8rem; color:var(--warn-fg,#b45309); background:color-mix(in srgb, var(--warn-fg,#b45309) 8%, transparent); border:1px solid color-mix(in srgb, var(--warn-fg,#b45309) 25%, transparent); border-radius:var(--r-md); padding:.4rem .6rem; margin:.5rem 0; }
-    .pres-nodata { font-size:.76rem; color:var(--warn-fg,#b45309); display:inline-flex; align-items:center; gap:.3rem; }
-    .pres-cap-form { display:flex; gap:.5rem; flex-wrap:wrap; align-items:center; }
-    .pres-nav { display:flex; gap:.6rem; align-items:center; flex-wrap:wrap; }
-    /* [PU.VA] Era texto gris en MAYÚSCULAS pegado a las pestañas, y se leía como una octava
-       pestaña deshabilitada. Ahora es un rótulo de grupo: minúscula, sin tracking de botón, con
-       el divisor separado del texto y el cursor de texto apagado. */
-    .pres-nav-sep { font-size:.7rem; color:var(--text-muted); letter-spacing:0; margin-left:.5rem;
-      padding-left:.75rem; border-left:1px solid var(--border-color); cursor:default; user-select:none; }
-    /* [PU.VA] Acción-herramienta: ícono sin rótulo, para que no compita con la acción de negocio. */
-    .pres-act-ico { min-width:2rem; padding-inline:.5rem; }
-    .pres-assump { border:1px solid var(--border-color); border-radius:var(--r-md); padding:.7rem .8rem; margin:.6rem 0 1rem; background:color-mix(in srgb, var(--action, #d97706) 4%, transparent); }
-    .pres-assump-head { display:flex; align-items:center; justify-content:space-between; gap:.6rem; flex-wrap:wrap; margin-bottom:.5rem; }
-    .pres-assump-head h3 { margin:0; font-size:.92rem; }
-    .pres-assump-grid { display:flex; gap:1.4rem; flex-wrap:wrap; }
-    .pres-assump-col { flex:1; min-width:14rem; }
-    .pres-assump-col h4 { margin:.2rem 0 .4rem; font-size:.8rem; color:var(--text-muted); }
-    /* [VE.7.1] Sin text-transform capitalize: capitalizaba CADA palabra y producia
-       "Presupuestar Por Sucursal", "Control De Sobregiro" y "Respaldo (Canal Sin Historia
-       Propia)". Los rotulos ya vienen escritos como deben leerse. */
-    .pres-assump-row { display:flex; align-items:center; justify-content:space-between; gap:.5rem; margin:.25rem 0; font-size:.82rem; }
-    /* [PU.VA] La casilla y su rótulo son UNA cosa: sin esto 'space-between' los manda a los
-       extremos opuestos del renglón. */
-    .pres-assump-check { display:inline-flex; align-items:center; gap:.45rem; }
-    /* [PU.VA] Los valores de la columna se alineaban por su BORDE derecho, no por el dígito: el
-       renglón del respaldo («29.3 % · respaldo») es más ancho y su número quedaba corrido, o sea
-       que el único que avisa que no es una medición propia era el único que no se podía escanear.
-       Un ancho fijo para el número y el sufijo afuera arregla las dos cosas. */
-    .pres-assump-row .pres-mono { font-variant-numeric: tabular-nums; }
-    .pres-assump-val { display:inline-flex; align-items:baseline; gap:.35rem; justify-content:flex-end; }
-    .pres-assump-val > .pres-assump-num { min-width:4.2rem; text-align:right; }
-    /* [PU.VA] El sufijo reserva su ancho SIEMPRE, incluso vacío. Sin esto no alcanzaba con darle
-       ancho al número: el «· respaldo» va después y lo corre hacia la izquierda, así que el único
-       renglón que avisa que no es una medición propia era el único que no se podía escanear.
-       Medido en pantalla: el primer intento (ancho sólo en el número) NO lo arregló. */
-    .pres-assump-val > .pres-assump-suf { min-width:5.2rem; text-align:left; }
-    /* [VE.7] Separa lo que el sistema CALCULA de lo que la persona DECIDE. */
-    .pres-assump-sub { margin:1rem 0 .35rem; padding-top:.6rem; border-top:1px solid var(--border-subtle,#e5e1dc); font-size:var(--fs-xs); color:var(--text-muted); }
-    .pres-assump-in { width:8rem; }
-    /* [PU.R] La cascada del estado de resultados. El renglon de corte va en negritas y con
-       linea arriba: es lo que separa margen bruto de resultado al leerla de corrido. */
-    .pres-pnl { border-collapse:collapse; margin:.4rem 0 .8rem; min-width:min(100%,38rem); }
-    .pres-pnl th { text-align:left; font-size:.68rem; text-transform:uppercase; letter-spacing:.05em;
-      color:var(--text-muted,#78716c); font-weight:600; padding:.3rem .7rem;
-      border-bottom:1px solid var(--surface-border,#e7e5e4); }
-    .pres-pnl td { padding:.32rem .7rem; font-size:.84rem; }
-    .pres-pnl-rgl { white-space:nowrap; }
-    .pres-pnl-fuerte td { font-weight:700; border-top:1px solid var(--surface-border,#e7e5e4); }
-    .pres-date { padding:.35rem .6rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:.85rem; }
-    .pres-amt { width:10rem; } .pres-reason { flex:1; min-width:12rem; }
-    .pres-current { font-size:.82rem; color:var(--text-muted); margin-top:.5rem; }
-    .pres-none { color:var(--warn-fg); }
-    .pres-hist-table { width:100%; border-collapse:collapse; font-size:.78rem; margin-top:.6rem; }
-    .pres-hist-table th, .pres-hist-table td { padding:.3rem .5rem; border-bottom:1px solid var(--border-color); text-align:left; }
-    .pres-mono { font-family:var(--font-mono); font-variant-numeric:tabular-nums; }
-    .ta-r { text-align:right; }
-    .pres-neg { color:var(--bad-fg,#b42318); }
-    .pres-table { font-size:.84rem; margin-top:.4rem; }
-    .pres-muted { color:var(--text-muted); }
-    .pres-hint { font-size:.76rem; color:var(--text-muted); margin-top:.5rem; display:flex; align-items:center; gap:.35rem; }
-    /* [PU.V6] El aviso de que el total cubre PARTE del ejercicio. No es un hint apagado: una
-       persona esta por aprobar un presupuesto al que le falta su mejor trimestre. */
-    .pres-warn { font-size:.8rem; margin:.5rem 0 0; padding:.5rem .7rem; display:flex; align-items:flex-start; gap:.45rem;
-      border-radius:var(--radius-sm); border:1px solid var(--warn-border, var(--border));
-      background:var(--warn-bg, var(--surface-2)); color:var(--warn-text, var(--text)); }
-    .pres-warn .pi { margin-top:.1rem; flex:0 0 auto; }
-    .pres-crit { color:var(--bad-fg); margin-left:.3rem; }
-    .pres-row-critical { background:color-mix(in srgb, var(--bad-fg) 5%, transparent); }
-    .pres-empty-block { text-align:center; padding:1.6rem; color:var(--text-muted); display:flex; flex-direction:column; align-items:center; gap:.5rem; }
-    .pres-empty-ico { font-size:1.6rem; color:var(--text-faint); }
-    :host ::ng-deep .pres-tag { font-size:.64rem; }
-    .pres-empty { text-align:center; color:var(--text-faint); padding:1.2rem; }
-    .pres-lbl { display:block; font-size:.76rem; color:var(--text-muted); margin:.4rem 0 .2rem; }
-    .pres-full { width:100%; }
-    .pres-check { display:flex; align-items:center; gap:.4rem; margin-top:.6rem; font-size:.82rem; }
-    .pres-dlg-actions { margin-top:.8rem; }
-    /* PVA — badge de origen de la meta */
-    .ec-src { display:inline-block; font-size:.62rem; padding:.05rem .35rem; border-radius:.35rem; border:1px solid var(--border); color:var(--text-muted); white-space:nowrap; }
-    .ec-src-historico_ajustado { color:var(--good-fg,#067647); border-color:color-mix(in srgb, var(--good-fg,#067647) 40%, transparent); }
-    .ec-src-estacional { color:var(--text-muted); border-style:dashed; }
-    .ec-src-proxy_canal { color:var(--warn-fg); border-style:dashed; }
-    .ec-src-sin_base_declarado { color:var(--text-faint); border-style:dotted; }
-    .ec-src-manual { color:var(--bad-fg,#b42318); border-color:color-mix(in srgb, var(--bad-fg,#b42318) 40%, transparent); }
-    .ec-src-mixto { color:var(--text-faint); }
-    .pres-propose-tbl { width:100%; border-collapse:collapse; font-size:.82rem; margin:.4rem 0 .2rem; }
-    .pres-propose-tbl th, .pres-propose-tbl td { padding:.3rem .4rem; border-bottom:1px solid var(--border); text-align:left; }
-    .pres-growth-in { width:5rem; text-align:right; }
-    /* PVR — badges de estado de conciliación */
-    .ec-src-recon-concilia { color:var(--good-fg,#067647); border-color:color-mix(in srgb, var(--good-fg,#067647) 40%, transparent); }
-    .ec-src-recon-revisar { color:var(--bad-fg,#b42318); border-color:color-mix(in srgb, var(--bad-fg,#b42318) 40%, transparent); }
-    .ec-src-recon-sin_facturacion, .ec-src-recon-sin_sellout { color:var(--text-faint); border-style:dashed; }
-    .pres-recon-notes { margin-top:.6rem; }
-  `],
+  // `[PVI.9]` Las reglas viven en presupuesto/presupuesto.styles.ts: con encapsulacion emulada
+  // el estilo del shell NO alcanza a un hijo, y la vista Ventas ya salio a su propio componente.
+  styles: [PRESUPUESTO_STYLES],
 })
 export class FinanzasPresupuestoComponent implements OnInit {
   private readonly http = inject(HttpClient);
@@ -1515,12 +1260,10 @@ export class FinanzasPresupuestoComponent implements OnInit {
   salesCmp = signal<SalesComparison | null>(null);
   loadingSales = signal(false);
   salesPeriod = 0; // 0 = Todos (anual); 1..13 = periodo
-  periodOpts = [{ label: 'Todos (anual)', value: 0 }, ...Array.from({ length: 13 }, (_, i) => ({ label: `P${i + 1}`, value: i + 1 }))];
   genPlanVisible = false; savingGen = signal(false); genGrowthPct: number | null = 10; genOverwriteManual = false;
   metaEditVisible = false; savingMeta = signal(false); metaEditRow = signal<SalesRow | null>(null); metaEditAmount: number | null = null;
   // PVA — automatización
   salesTab = signal<'plan' | 'indicadores' | 'conciliacion'>('plan');
-  salesTabOpts = [{ label: 'Plan', value: 'plan' }, { label: 'Indicadores', value: 'indicadores' }, { label: 'Conciliación', value: 'conciliacion' }];
   proposeVisible = false; savingPropose = signal(false); loadingProposal = signal(false);
   growthRows = signal<GrowthEditRow[]>([]); proposeDefaultGrowth: number | null = 8; proposeOverwriteManual = false;
   proposal = signal<GrowthProposal | null>(null); lastCoverage = signal<ProposeCoverage | null>(null);
@@ -1622,6 +1365,12 @@ export class FinanzasPresupuestoComponent implements OnInit {
       error: () => { this.loadingDetail.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudo cargar el ejercicio.' }); },
     });
     this.loadAssumptions();
+    // `[PVI.13]` La compuerta de completitud, APARTE del `forkJoin` y con el mismo criterio que el
+    // latido del piloto: si no se puede leer, la pantalla igual pinta el ejercicio y el signal
+    // queda en `null` — que el resumen lee como «no sé si está listo», nunca como «lo está».
+    this.completeness.set(null);
+    this.http.get<Completeness>(`${this.base}/budgets/${b.id}/completeness`).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (c) => this.completeness.set(c), error: () => this.completeness.set(null) });
     if (this.view() === 'flujo') this.loadResultado();
     if (this.view() === 'gasto-op') this.loadExpensePlan();
     if (this.view() === 'gastos') this.loadExpenses();
@@ -1881,6 +1630,56 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
 
+  // ── [PU.VG.4] Bitácora del ledger ───────────────────────────────────────────
+  // El libro de 5 estados graba cada transición desde que existe y NINGUNA pantalla lo mostraba.
+  // Con `cancel_target` y `from_reserva` ya se puede leer POR QUE se movio cada bucket, que es lo
+  // que vuelve cuadrable la partida; sin eso la bitacora se lee pero no se puede reconstruir.
+  bitacora = signal<BudgetLineMovement[] | null>(null);
+  bitacoraLine = signal<BudgetLine | null>(null);
+  bitacoraVisible = false;
+  bitacoraError = signal(false);
+  bitacoraCargando = signal(false);
+
+  openBitacora(l: BudgetLine): void {
+    this.bitacoraLine.set(l);
+    this.bitacora.set(null);
+    this.bitacoraError.set(false);
+    this.bitacoraCargando.set(true);
+    this.bitacoraVisible = true;
+    this.http.get<BudgetLineMovement[]>(`${this.base}/lines/${l.id}/movements`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (m) => { this.bitacora.set(m); this.bitacoraCargando.set(false); },
+      error: () => { this.bitacoraError.set(true); this.bitacoraCargando.set(false); },
+    });
+  }
+
+  movLabel(t: string): string {
+    const M: Record<string, string> = {
+      apertura: 'Apertura', reserva: 'Reserva', compromiso: 'Compromiso', ejercido: 'Ejercido',
+      pago: 'Pago', ampliacion: 'Ampliación', reduccion: 'Reducción', cancelacion: 'Cancelación',
+      transferencia_in: 'Transferencia (entra)', transferencia_out: 'Transferencia (sale)',
+      reversion: 'Reversión',
+    };
+    return M[t] ?? t;
+  }
+
+  /** Qué acumulador movió. Es lo único que vuelve cuadrable el renglón. */
+  movEfecto(m: BudgetLineMovement): string {
+    if (m.movement_type === 'cancelacion') {
+      return m.cancel_target
+        ? 'Bajó ' + (m.cancel_target === 'reserva' ? 'la reserva' : 'el compromiso')
+        : 'No declara qué bajó';
+    }
+    if (m.movement_type === 'compromiso') {
+      return m.from_reserva ? 'Movió una reserva previa' : 'Salió del disponible';
+    }
+    return '—';
+  }
+
+  /** Lo que el libro NO puede explicar se marca; no se disfraza de normal. */
+  movOpaco(m: BudgetLineMovement): boolean {
+    return m.movement_type === 'cancelacion' && !m.cancel_target;
+  }
+
   // ── [PU.VG.2] Procedencia del plan de gasto ─────────────────────────────────
   coverage = signal<ExpensePlanCoverage | null>(null);
   coverageError = signal(false);
@@ -2026,100 +1825,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
 
-  salesKpis(c: SalesComparison): MetricStripItem[] {
-    // [PU.V6] El total NO se rotula «Meta total» a secas cuando cubre parte del año. Medido en
-    // prod: el «Presupuesto 2027» publicaba $604.8M y eran 10 de 13 períodos — los tres que
-    // faltaban (nov–ene) valieron $166.6M en 2025 y son los MEJORES del año. El motor hizo bien
-    // en no inventarlos; lo que estaba mal era presentar el subtotal como si fuera el ejercicio.
-    const per = c.periodos;
-    const parcial = per != null && per.completo === false;
-    return [
-      {
-        label: parcial ? `Meta de ${per.con_meta} de ${per.del_anio} períodos` : 'Meta total',
-        value: c.totals.meta, format: 'currency-short',
-        sub: parcial ? `faltan ${per.sin_meta.join(', ')} — sin base aún` : undefined,
-        tone: parcial ? 'warn' : undefined,
-      },
-      { label: 'Real', value: c.totals.real == null ? '—' : c.totals.real, format: c.totals.real == null ? 'text' : 'currency-short', sub: c.totals.real == null ? 'sin datos' : undefined },
-      // `[PVI.4]` ⛔ Acá la ausencia se convertía en CERO: `?? 0` metía un 0 en el modelo y lo
-      // único que lo disimulaba era cambiar `format` a 'text'. Sobrevive a cualquier cambio de
-      // formato — el día que alguien lo vuelva 'percent', la pantalla publica «0 %» donde no hay
-      // meta. ⭐ Y el patrón correcto no había que inventarlo: la tarjeta «Real», dos líneas más
-      // arriba, ya devuelve el guion. Tres tarjetas de la misma función con dos criterios para la
-      // misma ausencia. «No hay dato» no es «hay dato y vale cero» (ADR-056).
-      {
-        label: 'Cumplimiento',
-        value: c.totals.cumplimiento_pct == null ? '—' : c.totals.cumplimiento_pct,
-        format: c.totals.cumplimiento_pct == null ? 'text' : 'percent',
-        sub: c.totals.cumplimiento_pct == null ? 'sin meta capturada' : undefined,
-        // sin meta no se puede merecer verde: el tono queda inhabilitado, no en gris.
-        tone: c.totals.cumplimiento_pct != null && c.totals.cumplimiento_pct >= 100 ? 'ok' : undefined,
-      },
-      {
-        label: `CREC vs ${c.prior_year}`,
-        value: c.totals.crec_pct == null ? '—' : c.totals.crec_pct,
-        format: c.totals.crec_pct == null ? 'text' : 'percent',
-        sub: c.totals.crec_pct == null ? 'sin base del año anterior' : undefined,
-        tone: c.totals.crec_pct != null && c.totals.crec_pct < 0 ? 'bad' : undefined,
-      },
-    ];
-  }
 
-  /** Pivote entidad × periodo → filas por entidad (o del periodo elegido) + subtotales por canal + total. */
-  salesRows(): SalesRow[] {
-    const c = this.salesCmp(); if (!c) return [];
-    const period = this.salesPeriod;
-    const cells = period > 0 ? c.cells.filter((x) => x.period_no === period) : c.cells;
-    // total real del alcance mostrado (para PART)
-    const scopeReal = cells.reduce((s, x) => s + (x.real ?? 0), 0);
-    // agregar por entidad
-    const byEntity = new Map<string, { label: string; channel: string; channel_label: string; meta: number | null; real: number | null; prior: number | null; methods: Set<string> }>();
-    for (const x of cells) {
-      let e = byEntity.get(x.entity_key);
-      if (!e) { e = { label: x.branch_name || x.warehouse_code, channel: x.channel, channel_label: x.channel_label, meta: null, real: null, prior: null, methods: new Set() }; byEntity.set(x.entity_key, e); }
-      if (x.meta != null) e.meta = (e.meta ?? 0) + x.meta;
-      if (x.real != null) e.real = (e.real ?? 0) + x.real;
-      if (x.real_prior != null) e.prior = (e.prior ?? 0) + x.real_prior;
-      if (x.method) e.methods.add(x.method);
-    }
-    const rowMethod = (ms: Set<string>): string | null => (ms.size === 0 ? null : ms.size === 1 ? [...ms][0] : 'mixto');
-    const pct = (n: number | null, d: number | null) => (n == null || d == null || d === 0 ? null : Math.round((n / d) * 1000) / 10);
-    // «Sin datos» ≠ cero (ADR-056): sin real (r=null) el CREC es desconocido, NO −100%.
-    const crec = (r: number | null, p: number | null) => (r == null || p == null || p === 0 ? null : Math.round((((r - p) / p) * 100) * 10) / 10);
-    const rows: SalesRow[] = [];
-    const entries = [...byEntity.entries()];
-    // [VSO.8] Se recorren TODOS los canales PRESENTES, ordenados por un orden conocido y con lo
-    // desconocido al final — **nunca se descarta uno**. Antes esto era la lista literal
-    // `['mostrador','credito','ruta','preventa']`, y como el bucle FILTRA por ella, las entidades
-    // de canal `mayoreo` y `contado_nf` no producían renglón. Medido en prod el 2026-09-28: eran
-    // **$21,754,366 de meta capturada** que esta pantalla no pintaba. Un canal nuevo entra solo.
-    const ORDEN = ['mostrador', 'contado_nf', 'credito', 'mayoreo', 'ruta', 'preventa'];
-    const pos = (c: string) => { const i = ORDEN.indexOf(c); return i < 0 ? ORDEN.length : i; };
-    const channelOrder = entries.map(([, e]) => e.channel)
-      .filter((v, i, a) => a.indexOf(v) === i)   // dedup sin spread de Set (bundle lo downlevelea mal)
-      .sort((a, b) => (pos(a) - pos(b)) || String(a).localeCompare(String(b)));
-    for (const ch of channelOrder) {
-      const inCh = entries.filter(([, e]) => e.channel === ch);
-      if (!inCh.length) continue;
-      for (const [ek, e] of inCh) {
-        rows.push({ label: e.label, channel_label: e.channel_label, entity_key: ek, is_rollup: false,
-          meta: e.meta, real: e.real, cumplimiento_pct: pct(e.real, e.meta), crec_pct: crec(e.real, e.prior), part_pct: pct(e.real, scopeReal), method: rowMethod(e.methods) });
-      }
-      // subtotal por canal — real NULL si ningún miembro tiene real (no 0 falso → CREC/PART correctos)
-      const sMeta = inCh.reduce((s, [, e]) => s + (e.meta ?? 0), 0);
-      const sReal = inCh.some(([, e]) => e.real != null) ? inCh.reduce((s, [, e]) => s + (e.real ?? 0), 0) : null;
-      const sPrior = inCh.reduce((s, [, e]) => s + (e.prior ?? 0), 0);
-      rows.push({ label: `Subtotal ${inCh[0][1].channel_label}`, channel_label: '', entity_key: null, is_rollup: true,
-        meta: sMeta, real: sReal, cumplimiento_pct: pct(sReal, sMeta), crec_pct: crec(sReal, sPrior), part_pct: pct(sReal, scopeReal), method: null });
-    }
-    // total general
-    const tMeta = entries.reduce((s, [, e]) => s + (e.meta ?? 0), 0);
-    const tReal = entries.some(([, e]) => e.real != null) ? entries.reduce((s, [, e]) => s + (e.real ?? 0), 0) : null;
-    const tPrior = entries.reduce((s, [, e]) => s + (e.prior ?? 0), 0);
-    rows.push({ label: 'Total Venta', channel_label: '', entity_key: null, is_rollup: true,
-      meta: tMeta, real: tReal, cumplimiento_pct: pct(tReal, tMeta), crec_pct: crec(tReal, tPrior), part_pct: tReal != null && tReal > 0 ? 100 : null, method: null });
-    return rows;
-  }
 
   openGenPlan(): void { this.genGrowthPct = 10; this.genOverwriteManual = false; this.genPlanVisible = true; }
   confirmGenPlan(): void {
@@ -2155,7 +1861,6 @@ export class FinanzasPresupuestoComponent implements OnInit {
     // que da sentido a la pestaña.
     if (t === 'plan' && !this.salesCmp()) this.loadSalesComparison();
   }
-  statusLabel(s: string): string { return s === 'concilia' ? 'Concilia' : s === 'revisar' ? 'Revisar' : s === 'sin_facturacion' ? 'Sin facturación' : s === 'sin_sellout' ? 'Sin sell-out' : s; }
   loadReconciliation(): void {
     this.loadingReconciliation.set(true);
     this.http.get<SalesReconciliation>(`${this.base}/sales-reconciliation`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
@@ -2164,38 +1869,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
 
-  methodLabel(m: string | null): string {
-    return m === 'historico_ajustado' ? 'Histórico' : m === 'estacional' ? 'Estacional' : m === 'proxy_canal' ? 'Proxy canal' : m === 'sin_base_declarado' ? 'Sin base' : m === 'manual' ? 'Manual' : m === 'mixto' ? 'Mixto' : '—';
-  }
 
-  /**
-   * `[PVI.2]` El desglose en DINERO, o `null` si la API no lo emite.
-   *
-   * ⛔ Devuelve `null` —no un objeto en ceros— a propósito: la pantalla tiene que poder distinguir
-   * «la cobertura en dinero vale cero» de «no la pude medir». Un objeto relleno de ceros colapsa
-   * las dos cosas y es la forma exacta del defecto que esto viene a corregir (ADR-056).
-   */
-  covEnDinero(cov: ProposeCoverage): ProposeCoverage['coverage_monto'] | null {
-    const m = cov.coverage_monto;
-    return m && typeof m.historico_ajustado === 'number' ? m : null;
-  }
 
-  /**
-   * `[PVI.2]` El aviso del proxy, sólo cuando hay proxy y su monto se pudo medir.
-   *
-   * ⭐ Dice **de dónde sale** la cifra, no sólo que es estimada: el proxy reparte el promedio de
-   * OTRAS entidades del canal, en partes iguales, a entidades sin historia propia. Medido en prod:
-   * 8 entidades recibieron $197,160,564 contra $19,063,383 de venta real — 10.3×, y en el extremo
-   * una recibió 2,860× lo suyo. Un «estimado» genérico no deja ver eso; el método sí.
-   */
-  proxyAviso(cov: ProposeCoverage): string | null {
-    const m = this.covEnDinero(cov);
-    if (!m || !(m.proxy_canal > 0)) return null;
-    const pct = cov.proxy_canal_pct;
-    const parte = typeof pct === 'number' ? `${(pct * 100).toFixed(1)} % de la meta` : `${this.money(m.proxy_canal)} de la meta`;
-    return `${parte} se repartió con el PROMEDIO DE OTRAS entidades del canal, no con historia propia. `
-      + `Son ${cov.proxy_canal} celdas sin base: la entidad no aporta ninguna señal y su monto sale del canal.`;
-  }
   basisLabel(b: string): string {
     return b === 'yoy_paired' ? 'tendencia histórica' : b === 'global' ? 'tendencia global' : 'default (sin tendencia confiable)';
   }
@@ -2252,7 +1927,13 @@ export class FinanzasPresupuestoComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.projecting.set(false);
-          if (r.note === 'plan vacío' || !r.lines) {
+          // `[PVI.11]` Las dos ausencias NO son la misma y no pueden compartir aviso: «no hay plan»
+          // se arregla armándolo, y «es un ejercicio de prueba» no se arregla — se arregla eligiendo
+          // otro ejercicio. Mandarlas al mismo toast haría que alguien intente capturar metas en la
+          // copia de prueba porque la pantalla le dijo que faltaban (ADR-056).
+          if (r.note === 'ejercicio de prueba') {
+            this.toast.add({ severity: 'warn', summary: 'No se proyecta', detail: 'Este ejercicio está marcado como PRUEBA. Sus metas no se publican al «vs objetivo» de Análisis, que es con lo que se mide a un vendedor. Elegí el ejercicio real.' });
+          } else if (r.note === 'plan vacío' || !r.lines) {
             this.toast.add({ severity: 'warn', summary: 'Sin plan', detail: 'No hay metas capturadas para proyectar. Armá el plan primero.' });
           } else {
             this.toast.add({ severity: 'success', summary: 'Proyectado a Análisis', detail: `${r.projected} metas mensuales (scope×mes) desde ${r.lines} celdas del plan · ${r.months} meses. Ya se ve en el «vs objetivo» de Análisis.` });
@@ -2266,6 +1947,17 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   // ── Supuestos del año (consolida las perillas de ventas + gastos) ──
   loadingAssump = signal(false); savingAssump = signal(false); assumpLoaded = signal(false);
+
+  // ── `[PVI.13]` Qué estás por mandar a autorización ──────────────────────────────────────────
+  // La compuerta de completitud (`[VE.5-F]`) existía en el backend con CERO consumidores: la
+  // persona descubría los bloqueos apretando y fallando, y los `avisos` —lo que conviene mirar y
+  // NO frena— no los veía nunca. Y «listo» mide CANTIDAD, no RESPALDO: declara listo un ejercicio
+  // cuyo mayor supuesto no lo firma nadie. Reglas y candado en `presupuesto/presupuesto-firma.ts`.
+  completeness = signal<Completeness | null>(null);
+  growthProvenance = signal<Record<string, ProcedenciaCanal> | null>(null);
+  growthByChannel = signal<Record<string, number>>({});
+  firma = computed(() => resumenFirma(this.completeness(), this.growthProvenance(), this.growthByChannel()));
+  protected readonly leyendaRespaldo = leyendaRespaldo;
   /** [VSO.8] Lo declara el backend (`sales-plan/settings.channels`, derivado de `v_sales_entity`).
    *  Esta lista es sólo el respaldo del primer pintado: cuando era la fuente, las perillas de
    *  crecimiento no alcanzaban a `mayoreo` ni a `contado_nf`, y al GUARDAR (`gbc`) tampoco los
@@ -2292,8 +1984,16 @@ export class FinanzasPresupuestoComponent implements OnInit {
   loadAssumptions(): void {
     const b = this.selected(); if (!b) return;
     this.loadingAssump.set(true);
-    this.http.get<{ default_growth_pct: number; growth_by_channel: Record<string, number>; channels?: { value: string; label: string }[] }>(`${this.base}/budgets/${b.id}/sales-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.http.get<{ default_growth_pct: number; growth_by_channel: Record<string, number>; growth_provenance?: Record<string, ProcedenciaCanal> | null; channels?: { value: string; label: string }[] }>(`${this.base}/budgets/${b.id}/sales-plan/settings`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (s) => {
+        // `[PVI.13]` ⛔ Acá se tiraba la procedencia, igual que la tiraba el autopilot antes de
+        // `[PVI.4]`: la API la devuelve desde `[PVI.3]` y el tipo de esta línea no la nombraba, así
+        // que `mayoreo` en +26.67 % (el `default` al decimal, sobre $169,970,622 de meta) se veía
+        // igual que un canal medido. Se guardan en SIGNALS y no en campos planos a propósito: el
+        // resumen de firma es un `computed()` y `check:reactividad` prohíbe —con razón— que un
+        // computed dependa de un campo mutable, que se queda congelado sin avisar.
+        this.growthProvenance.set(s.growth_provenance ?? null);
+        this.growthByChannel.set(s.growth_by_channel || {});
         // [VSO.8] El vocabulario llega del backend; el respaldo local queda sólo si no vino.
         if (s.channels?.length) {
           this.channelsList = s.channels.map((c) => c.value);
@@ -2584,10 +2284,6 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
 
-  indPart(r: IndicatorRow): string {
-    const last = r.series && r.series.length ? r.series[r.series.length - 1] : null;
-    return last && last.part_pct != null ? last.part_pct + '%' : '—';
-  }
 
   loadIndicators(): void {
     const b = this.selected(); if (!b) return;

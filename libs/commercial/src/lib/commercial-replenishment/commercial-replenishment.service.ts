@@ -9,6 +9,7 @@ import { Knex } from 'knex';
 import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
+import { AVISO_TRANSITO, POLITICA_TRANSITO, transitoDescontado, transitoMostrado } from './transito';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -47,6 +48,70 @@ import {
 
 type TargetBasis = 'min' | 'reorder' | 'max' | 'cadence';
 type Bucket = 'agotado' | 'bajo_minimo' | 'bajo_reorden' | 'sano' | 'sobrestock';
+
+/** `[RA.SOB]` Un tramo de cobertura, con cuánto de él lo compramos y nunca salió. */
+export interface SobranteTramo {
+  tramo: string;
+  label: string;
+  pares: number;
+  skus: number;
+  valor: number;
+  /** Pares de ese tramo con una compra en la ventana y CERO salidas posteriores a ella. */
+  quedado: number;
+  quedado_valor: number;
+}
+
+export interface SobranteRow {
+  product_id: string; sku: string; nombre: string;
+  proveedor: string | null;
+  warehouse_code: string; warehouse_name: string;
+  cajas: number; valor: number;
+  /** Días de cobertura. `null` = sin venta: no hay cobertura que calcular, y NO es cero. */
+  cover_days: number | null;
+  tramo: string;
+  ult_compra: string | null;
+  ult_salida: string | null;
+  dias_desde_compra: number | null;
+  quedado: boolean;
+}
+
+export interface SobranteResponse {
+  tramos: SobranteTramo[];
+  total_valor: number;
+  total_quedado: number;
+  total_quedado_valor: number;
+  /** Ventana con la que se buscó la compra, en días. Viaja para que el número no quede sin universo. */
+  ventana_dias: number;
+  rows: SobranteRow[];
+  total: number; page: number; pageSize: number;
+}
+
+/**
+ * `[RA.SOB]` Lee el query param `solo_quedado`, que es un BOOLEANO EN TEXTO.
+ *
+ * ⛔ La trampa clásica: `Boolean('false')` es `true`, y `!!'0'` también. Un filtro que el
+ * comprador apaga en la URL y el backend vuelve a prender es invisible — la pantalla muestra
+ * menos filas de las pedidas y nadie sabe por qué.
+ *
+ * Ausente → `undefined`, para que el servicio aplique SU default (true) y no uno repetido acá.
+ */
+export function parseSoloQuedado(v: string | undefined | null): boolean | undefined {
+  if (v == null || v === '') return undefined;
+  return !(v === '0' || v.toLowerCase() === 'false' || v.toLowerCase() === 'no');
+}
+
+export interface SobranteQuery {
+  warehouse_id?: string;
+  warehouse_ids?: string;
+  supplier_id?: string;
+  search?: string;
+  /** Uno de los seis tramos; vacío = todos. */
+  tramo?: string;
+  /** Default `true`: sólo lo que compramos y no salió. `false` = todo el inventario del tramo. */
+  solo_quedado?: boolean;
+  ventana_dias?: number;
+  page?: number; pageSize?: number;
+}
 
 export interface CriticalStockQuery {
   warehouse_id?: string;
@@ -560,12 +625,20 @@ export class CommercialReplenishmentService {
   // unidades de stock (round-trip del mismo bf, sin pérdida). Antes venía de la tabla
   // `analytics.purchase_in_transit`, que se retiró junto con su importer — ver GOTCHAS §25.
   //
-  // RA-PRO.45: para DESCONTAR se usa `transit_eff_cajas` — las mismas cajas pesadas por la
-  // probabilidad de que la OC efectivamente llegue (curva derivada del ODS: una OC abierta hace
-  // 45 días llega el 13.6% de las veces). `transit_cajas` crudo se sigue MOSTRANDO al comprador,
-  // porque tiene que cuadrar folio por folio con el diálogo de "En camino". El COALESCE al crudo
-  // es el puente para la primera corrida, antes de que el importer pueble la columna nueva.
-  private inTransit() { return 'COALESCE(rpl.transit_eff_cajas, rpl.transit_cajas, 0) * COALESCE(rpl.bf, 1)'; }
+  // `[RA.TR]` (2026-10-09) — cuánto se RESTA lo decide `POLITICA_TRANSITO`, en un solo archivo
+  // (`transito.ts`), porque seis consultas distintas hacían esta resta a mano y bastaba mover una
+  // para que la tabla contradijera a su propio detalle. Hoy la política es `ignorar`: no se resta.
+  // El porqué, con las 394 OC medidas, vive en `transito.ts` — acá sólo se consume.
+  private transitDescuento() {
+    return `(${transitoDescontado('rpl.transit_eff_cajas', 'rpl.transit_cajas')}) * COALESCE(rpl.bf, 1)`;
+  }
+  // Lo que se MUESTRA es el crudo, el papel que el comprador puede ir a buscar por folio — es la
+  // única cifra que cuadra con el diálogo de "En camino". ⚠️ Antes acá se mostraba la cifra PESADA
+  // mientras el comentario afirmaba que se mostraba la cruda: la columna y el diálogo nunca
+  // cuadraron. Se corrige de paso.
+  private transitMostrado() {
+    return `(${transitoMostrado('rpl.transit_cajas')}) * COALESCE(rpl.bf, 1)`;
+  }
   // Costo unitario para valorizar el sugerido. Canónico = cost_with_tax (costo vivo por
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
@@ -694,7 +767,7 @@ export class CommercialReplenishmentService {
   private networkSurplus(trx: Knex.Transaction, tenantId: string, target: string, cadence: boolean) {
     const oh = this.onHand();
     const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
-    const sug = `GREATEST(0, ${target} - ${oh} - ${this.inTransit()})`;
+    const sug = `GREATEST(0, ${target} - ${oh} - ${this.transitDescuento()})`;
     // El objetivo por cadencia lee el canal, el proveedor y la demanda: sólo se pagan esos joins
     // cuando la base lo pide.
     const cadenceJoins = cadence ? `
@@ -777,7 +850,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const oh = this.onHand();
-    const it = this.inTransit();
+    const it = this.transitDescuento();      // lo que se RESTA (hoy: nada — ver transito.ts)
+    const itShow = this.transitMostrado();   // lo que se MUESTRA: el papel, por folio
     const cf = this.cajaFactor(); // divisor por-almacén para MOSTRAR cantidades en cajas (display only)
     // RA-PRO.9 — base 'cadence' unifica el objetivo con Qué Toca (helper cadenceTarget()).
     // Las demás bases (min/reorden/máx) intactas.
@@ -904,7 +978,7 @@ export class CommercialReplenishmentService {
           // Cantidades MOSTRADAS en cajas (÷ factor por-almacén). El bucket/orden/costo abajo
           // siguen en la unidad cruda (oh/target sin dividir) → clasificación y $ intactos.
           trx.raw(`ROUND((${oh}) / (${cf}), 1) AS on_hand`),
-          trx.raw(`ROUND((${it}) / (${cf}), 1) AS in_transit`),
+          trx.raw(`ROUND((${itShow}) / (${cf}), 1) AS in_transit`),
           trx.raw(`ROUND(rp.min_stock / (${cf}), 1) AS min_stock`),
           trx.raw(`ROUND(rp.reorder_point / (${cf}), 1) AS reorder_point`),
           trx.raw(`ROUND(rp.max_stock / (${cf}), 1) AS max_stock`),
@@ -918,7 +992,7 @@ export class CommercialReplenishmentService {
           trx.raw(`(${cf}) AS caja_factor`), // divisor usado (piezas o paquetes por caja)
           // [EC.U] Lo mismo en unidad nativa. El rótulo ya viaja en `rung_base_label`.
           trx.raw(`ROUND((${oh})::numeric, 2)            AS on_hand_nat`),
-          trx.raw(`ROUND((${it})::numeric, 2)            AS in_transit_nat`),
+          trx.raw(`ROUND((${itShow})::numeric, 2)        AS in_transit_nat`),
           trx.raw(`ROUND(rp.min_stock::numeric, 2)       AS min_stock_nat`),
           trx.raw(`ROUND(rp.reorder_point::numeric, 2)   AS reorder_point_nat`),
           trx.raw(`ROUND(rp.max_stock::numeric, 2)       AS max_stock_nat`),
@@ -984,7 +1058,7 @@ export class CommercialReplenishmentService {
           // Sort explícito por columna (whitelist). Si no hay, cae al orden por
           // prioridad de valor (default de negocio). El sugerido default es un
           // desempate útil aún cuando el usuario ordena por otra cosa.
-          const sortExpr = this.sortableExpr(q.sort_by, target, oh, it, cf);
+          const sortExpr = this.sortableExpr(q.sort_by, target, oh, it, itShow, cf);
           if (sortExpr) {
             const dir = (q.sort_dir || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
             qb.orderByRaw(`${sortExpr} ${dir} NULLS LAST`)
@@ -1010,7 +1084,20 @@ export class CommercialReplenishmentService {
    * la columna no es válida (→ orden por defecto). NUNCA interpola el input del
    * usuario en el SQL: sólo la llave del mapa decide la expresión.
    */
-  private sortableExpr(key: string | undefined, target: string, oh: string, it: string, cf = '1'): string | null {
+  /**
+   * `[RA.TR]` ⛔ **`itShow` viaja APARTE de `it`, y no es ceremonia.**
+   *
+   * `it` es lo que se RESTA del sugerido (hoy 0, ver `transito.ts`) e `itShow` lo que se MUESTRA
+   * en la columna "En camino" (el papel). Ordenar por una columna tiene que ordenar por **lo que
+   * se ve**: si `in_transit` se ordenara por `it`, con la política vigente ordenaría por una
+   * constante 0 — la tabla se vería ordenada y no lo estaría, sin un solo error de por medio.
+   *
+   * ⚠️ Lo encontró `trade-marketing-06` en `typecheck:fast`: la versión anterior usaba `itShow`
+   * acá **sin recibirlo**, porque al cablear `[RA.TR]` di por hecho que esta línea vivía dentro de
+   * `criticalStock`. Vive en otro método. El arreglo "obvio" —usar `it`— compilaba y rompía el
+   * orden en silencio, que es peor que no compilar.
+   */
+  private sortableExpr(key: string | undefined, target: string, oh: string, it: string, itShow: string, cf = '1'): string | null {
     if (!key) return null;
     // Cantidades se ordenan en CAJAS (÷ factor por-almacén) para casar con lo que se muestra;
     // así ordenar por Existencia compara cajas reales entre almacenes, no unidades crudas mixtas.
@@ -1026,7 +1113,7 @@ export class CommercialReplenishmentService {
       reorder_point: `rp.reorder_point / (${cf})`,
       max_stock: `rp.max_stock / (${cf})`,
       safety_stock: `rp.safety_stock / (${cf})`,
-      in_transit: `(${it}) / (${cf})`,
+      in_transit: `(${itShow}) / (${cf})`,
       suggested_qty: `GREATEST(0, ${target} - ${oh} - ${it}) / (${cf})`,
       suggested_cost: `GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}`,
       supplier_name: 'sup.name',
@@ -1040,7 +1127,7 @@ export class CommercialReplenishmentService {
     const basis = this.basis(q.target_basis);
     const target = this.targetCol(basis);
     const oh = this.onHand();
-    const it = this.inTransit();
+    const it = this.transitDescuento();
     return this.tk.run(async (trx) => {
       const base = trx('commercial.reorder_policy as rp')
         .leftJoin('commercial.stock as s', (j) =>
@@ -1164,10 +1251,10 @@ export class CommercialReplenishmentService {
       // después mezclaba piezas de Kepler con paquetes de Wincaja bajo un mismo divisor.
       const stockCjs = 'COALESCE(plan.stock_cjs, 0)';       // existencia de la red, en CAJAS
       const transit = 'COALESCE(plan.transit, 0)';          // OC en tránsito (cajas) — lo que se MUESTRA
-      // RA-PRO.45 — lo que se DESCUENTA: las mismas cajas pesadas por P(llega | edad de la OC).
-      // No todo lo que está en papel llega: en Kepler la OC se captura al recibir, así que una que
-      // sigue abierta hace 45 días sólo se materializa el 13.6% de las veces.
-      const transitEff = 'COALESCE(plan.transit_eff, plan.transit, 0)';
+      // `[RA.TR]` — lo que se DESCUENTA lo decide `POLITICA_TRANSITO` (transito.ts), no esta línea.
+      // Hoy vale `ignorar`, así que esto es el literal 0 y el sugerido sale como si no hubiera nada
+      // en camino. `transit` (arriba) sigue MOSTRÁNDOSE: el comprador ve el papel y decide.
+      const transitEff = transitoDescontado('plan.transit_eff', 'plan.transit');
       // costo real POR CAJA — en el fact ya = costE(unidad de stock) × BF. La DEMANDA manda el reorden:
       // objetivo = venta_diaria × cobertura; sugerido = objetivo − existencia − tránsito (0 si ya cubre).
       const costCaja = 'COALESCE(plan.caja_cost, 0)';
@@ -1638,7 +1725,11 @@ export class CommercialReplenishmentService {
         ), base AS MATERIALIZED (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
                  rp.suf, rp.bf, rp.display_bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
-                 COALESCE(rp.transit_eff_cajas, rp.transit_cajas) AS transit_eff_cajas, rp.revenue30,
+                 -- [RA.TR] Las dos columnas viajan CRUDAS hasta donde la politica decide (abajo,
+                 -- en la columna ped). El COALESCE que vivia aca duplicaba la caida que ahora hace
+                 -- transitoDescontado, y era un sexto lugar donde la regla podia divergir.
+                 -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 rp.transit_eff_cajas, rp.revenue30,
                  -- RA — política de reorden por (producto, almacén). reorder_point/max_stock en PIEZAS
                  -- (misma unidad que stock_pz → se dividen por BF para cajas, como la columna Exist).
                  -- ⚠️ SIN BACKTICKS EN ESTE COMENTARIO: va dentro de un template literal de JS.
@@ -1714,7 +1805,7 @@ export class CommercialReplenishmentService {
                  -- el MISMO numero que antes de esta linea.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  CASE WHEN ${RUNG_OK} THEN
-                   round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - COALESCE(sum(b.transit_eff_cajas),0)) * ${FILLF})::numeric, 1)
+                   round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${FILLF})::numeric, 1)
                  END AS ped,
                  -- El fill rate viaja al front para que el inflado se VEA. Un pedido que crecio 4.8%
                  -- sin decir por que es justo lo que este repo no publica.
@@ -2222,7 +2313,8 @@ export class CommercialReplenishmentService {
       // que ve el comprador acá cuadran con la columna "En camino" de la matriz.
       const econ = (await trx.raw(
         `SELECT max(bf) AS bf, max(caja_cost) AS caja_cost, max(lead_days) AS lead_days,
-                sum(transit_cajas) AS tr, sum(COALESCE(transit_eff_cajas, transit_cajas)) AS tr_eff
+                sum(transit_cajas) AS tr,
+                sum(${transitoDescontado('transit_eff_cajas', 'transit_cajas')}) AS tr_eff
            FROM analytics.replenishment_plan WHERE tenant_id = ? AND product_id = ?`,
         [tenantId, productId])).rows[0] || {};
       const bf = Number(econ.bf) || 1;
@@ -2275,11 +2367,15 @@ export class CommercialReplenishmentService {
         rows: out,
         total_cajas: Math.round(out.reduce((s, r) => s + r.cajas, 0) * 10) / 10,
         total_valor: Math.round(out.reduce((s, r) => s + r.valor, 0) * 100) / 100,
-        // RA-PRO.45 — lo que el motor DESCUENTA de verdad: las mismas cajas pesadas por la
-        // probabilidad de que cada OC llegue. La diferencia con `total_cajas` es papel que ya no
-        // se va a surtir; mostrarla evita la pregunta "si vienen 180 cajas, ¿por qué pide?".
+        // `[RA.TR]` — lo que el motor DESCUENTA de verdad. Sale de la MISMA política que el
+        // sugerido (`transito.ts`), así que no puede contradecirlo: con `ignorar` llega en 0 y el
+        // diálogo dice, con todas sus letras, que esas cajas no le bajaron nada al pedido.
+        // ⛔ Si este número saliera de otra expresión, el comprador vería "descuenta 180" mientras
+        // el motor descuenta 0 — exactamente el tipo de mentira silenciosa que la fase evita.
         descuenta_cajas: Math.round((Number(econ.tr_eff) || 0) * 10) / 10,
         fact_cajas: Math.round((Number(econ.tr) || 0) * 10) / 10,
+        politica_transito: POLITICA_TRANSITO,
+        aviso_transito: AVISO_TRANSITO[POLITICA_TRANSITO],
       };
     });
   }
@@ -2606,7 +2702,7 @@ export class CommercialReplenishmentService {
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${dbf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
-               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - COALESCE(rp.transit_eff_cajas, rp.transit_cajas, 0))::numeric, 1) AS pedido_cajas,
+               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - (${transitoDescontado('rp.transit_eff_cajas', 'rp.transit_cajas')}))::numeric, 1) AS pedido_cajas,
                -- días = existencia en cajas ÷ venta diaria en cajas (las dos en la misma unidad)
                round((rp.stock_pz / ${dbf} * ${suf} * ${bf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
@@ -2886,7 +2982,7 @@ export class CommercialReplenishmentService {
     const whIds = await this.whIds(q);
     return this.tk.run(async (trx) => {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
-      const it = this.inTransit();   // pesado por P(llega) — ver inTransit()
+      const it = this.transitDescuento();   // `[RA.TR]` hoy: 0 — ver transito.ts
       // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
       // nivel elegido (cadencia/máximo/reorden/mínimo) con la MISMA fórmula que criticalStock
       // (que alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y
@@ -3137,7 +3233,10 @@ export class CommercialReplenishmentService {
         .where('rp.tenant_id', tenantId)
         // `[RA-DYN.U3]` El monto minimo viaja al lado del de cajas, que ya estaba aca (RA-PRO.66).
         // Es dato del PROVEEDOR: ponerlo en cada fila del workbook lo repetiria ~33 mil veces.
-        .distinct('sup.id as id', 'sup.name as name', 'sup.min_order_boxes as min_order_boxes',
+        // `[RA.CAP]` `code` viaja para poder cruzar al acreedor de Kepler y mostrar lo que YA se le
+        // debe. Es la MISMA clave que usa el estado de cuenta (`kdxd.c2`): 274 de los 281
+        // proveedores que aparecen en el pedido casan (97.5%, medido 2026-10-09).
+        .distinct('sup.id as id', 'sup.name as name', 'sup.code as code', 'sup.min_order_boxes as min_order_boxes',
           'sup.min_order_amount as min_order_amount').orderBy('sup.name');
       // Marcas con productos en política (mismo patrón que proveedores) — para el filtro de /compras/pedido.
       // OJO: la columna de catalog.brands es `nombre`, NO `name` (b.name tiraba 42703 → /filters 500,
@@ -4270,6 +4369,209 @@ export class CommercialReplenishmentService {
         supplier_id: supplierId, warehouse_id: warehouseId ?? null, n_orders: n,
         last: rows[0], median_amount: Math.round(median), typical_amount: typical, max_amount: Math.round(vals[vals.length - 1]),
         since: rows[n - 1].date, until: rows[0].date, recent: rows.slice(0, 6),
+      };
+    });
+  }
+
+  // ── `[RA.SOB]` Sobrante: dónde está parado el inventario, y qué pedimos que se quedó ──
+  /**
+   * Punto 2 de los tres que pidió Edgar el 2026-10-08: *"necesito analices que productos pedimos
+   * y se quedaron en stock"*.
+   *
+   * Dos preguntas en una respuesta, porque se leen juntas:
+   *
+   * 1. **Dónde está parado el inventario**, por tramo de cobertura. Medido en prod el 2026-10-09
+   *    sobre $62,981,663: hasta 45 d **$11.84 M (18.8%)** · 45-90 $8.93 M (14.2%) · 90-180
+   *    $8.55 M (13.6%) · 180-365 $7.09 M (11.3%) · **+1 año $11.86 M (18.8%)** · **sin venta
+   *    $14.71 M (23.3%)**. O sea que **$33.65 M (53.4%) pasa los 90 días o no vende nada**.
+   *
+   * 2. **Qué de eso lo compramos y nunca salió.** Un par (SKU, almacén) con una COMPRA en la
+   *    ventana y **ninguna salida posterior a esa compra**: 1,272 pares, **$4,046,958**.
+   *
+   * ⭐ La cobertura se calcula con la MISMA expresión que el motor ya usa en `inTransitDetail`
+   *    (`cover_days`), no con una inventada: si fueran dos fórmulas, esta pantalla y el pedido
+   *    dirían cosas distintas del mismo SKU.
+   *
+   * ⛔ **Qué cuenta como COMPRA.** Sólo `Orden de entrada` / `Compra` / `Compra (pedido)`. NO el
+   * traspaso recibido (es mercancía que ya estaba en la red: contarlo diría que "compramos" lo
+   * que sólo movimos) ni la entrada por inventario físico (es un ajuste de conteo).
+   *
+   * ⚠️ **El error que esto evita, y que cometí midiendo:** `stock_movements.qty` es la cantidad
+   * **ABSOLUTA**, así que las SALIDAS también la traen positiva. Filtrar por `qty > 0` creyendo
+   * que selecciona entradas mete 40,073 *traspasos a sucursal* del lado de las compras. El
+   * clasificador correcto es `movement_kind`, no el signo.
+   *
+   * Un solo barrido de `stock_movements` con dos `FILTER` en vez de dos CTEs: **328 ms** contra
+   * los 603 de la versión con dos barridos (medido en prod, idénticos los dos resultados).
+   */
+  async sobrante(q: SobranteQuery, area: string = AREA): Promise<SobranteResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const whIds = await this.whIds(q, area);
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
+    // Ventana de la compra. 90 días por default: menos deja fuera al proveedor de cadencia larga
+    // y haría parecer "nunca comprado" lo que se compra cada trimestre.
+    const vent = Math.min(365, Math.max(7, Number(q.ventana_dias) || 90));
+
+    const DBF = 'NULLIF(COALESCE(rp.display_bf, rp.bf, 1), 0)';
+    const COV = `rp.stock_pz / ${DBF} * COALESCE(rp.suf,1) * COALESCE(rp.bf,1) / NULLIF(rp.daily_pieces, 0)`;
+    const VAL = `rp.stock_pz / ${DBF} * COALESCE(rp.caja_cost, 0)`;
+    // SIN ACENTOS GRAVES EN LOS COMENTARIOS DE ABAJO: van dentro de template literals de JS.
+    const ESCOMPRA = `sm.movement_kind = 'entrada' AND sm.movement_label IN ('Orden de entrada','Compra','Compra (pedido)')`;
+    // ⛔ `no_vende` ANTES que `sin_venta`, y sale del DATO (`warehouses.sells_to_public`), no de
+    // una lista de codigos. Medido el 2026-10-09: el CEDIS tiene 259 pares con existencia y los
+    // 259 caen en "sin venta" por $10,565,227 -- el 72% de todo ese tramo. Y no es inventario
+    // muerto: el CEDIS no vende, distribuye. Mezclarlos publicaba $14.7 M de "sin venta" cuando
+    // en los almacenes que SI venden son $4.1 M. Es el mismo error de siempre con otra cara:
+    // medir algo con una vara que no le aplica y presentar el resultado como un hallazgo.
+    const TRAMO = (c: string, h: string) => `CASE
+            WHEN ${c} IS NULL AND ${h} THEN 'no_vende'
+            WHEN ${c} IS NULL THEN 'sin_venta'
+            WHEN ${c} <= 45 THEN 'hasta_45' WHEN ${c} <= 90 THEN 'd45_90'
+            WHEN ${c} <= 180 THEN 'd90_180' WHEN ${c} <= 365 THEN 'd180_365'
+            ELSE 'mas_1_anio' END`;
+
+    const filtros: string[] = ['rp.tenant_id = :t', 'rp.stock_pz > 0'];
+    const binds: Record<string, unknown> = { t: tenantId, vent };
+    if (whIds?.length) { filtros.push('rp.warehouse_id = ANY(:wh)'); binds['wh'] = whIds; }
+    if (q.supplier_id) { filtros.push('pr.supplier_id = :sup'); binds['sup'] = q.supplier_id; }
+    if (q.search?.trim()) { filtros.push(`(pr.sku ILIKE :q OR pr.nombre ILIKE :q)`); binds['q'] = `%${q.search.trim()}%`; }
+    const where = filtros.join(' AND ');
+
+    // El CTE compartido por el resumen y el detalle. Que los dos salgan de la MISMA definicion es
+    // lo que impide que el total diga una cosa y la lista otra.
+    const CTE = `
+      WITH plan AS (
+        SELECT rp.product_id, rp.warehouse_id,
+               rp.stock_pz / ${DBF} AS cajas, ${VAL} AS valor,
+               CASE WHEN COALESCE(rp.daily_pieces,0) > 0 THEN ${COV} END AS cover,
+               (wh.sells_to_public IS FALSE) AS no_vende
+          FROM analytics.replenishment_plan rp
+          JOIN catalog.products pr ON pr.tenant_id = rp.tenant_id AND pr.id = rp.product_id
+          JOIN commercial.warehouses wh ON wh.tenant_id = rp.tenant_id AND wh.id = rp.warehouse_id
+         WHERE ${where}
+      ), mov AS (
+        SELECT sm.product_id, sm.warehouse_id,
+               max(sm.doc_date) FILTER (WHERE ${ESCOMPRA})                 AS ult_compra,
+               max(sm.doc_date) FILTER (WHERE sm.movement_kind = 'salida') AS ult_salida
+          FROM analytics.stock_movements sm
+         WHERE sm.tenant_id = :t AND sm.doc_date >= CURRENT_DATE - (:vent)::int
+           AND (sm.movement_kind = 'salida' OR (${ESCOMPRA}))
+         GROUP BY 1,2
+      ), q AS MATERIALIZED (
+        -- MATERIALIZED a proposito: este CTE lo leen TRES consumidores en la misma consulta (el
+        -- agregado por tramo, el conteo de la paginacion y los renglones). Sin el, Postgres lo
+        -- puede inlinear y volver a barrer 90 dias de movimientos una vez por consumidor.
+        SELECT p.*, m.ult_compra, m.ult_salida,
+               (m.ult_compra IS NOT NULL AND (m.ult_salida IS NULL OR m.ult_salida < m.ult_compra)) AS quedado
+          FROM plan p
+          LEFT JOIN mov m ON m.product_id = p.product_id AND m.warehouse_id = p.warehouse_id
+      )`;
+
+    const ORDEN = ['hasta_45', 'd45_90', 'd90_180', 'd180_365', 'mas_1_anio', 'sin_venta', 'no_vende'];
+
+    return this.tk.run(async (trx) => {
+      const ETIQUETA: Record<string, string> = {
+        hasta_45: 'Hasta 45 días', d45_90: '45 a 90 días', d90_180: '90 a 180 días',
+        d180_365: '180 días a 1 año', mas_1_anio: 'Más de 1 año', sin_venta: 'Sin venta',
+        // ⭐ NO es un tramo de cobertura: es la DECLARACIÓN de que acá no se puede medir con esta
+        // vara. El CEDIS no vende, distribuye — su demanda es la de la red (DRP, RA-PRO.6).
+        no_vende: 'Almacén que no vende (sin medir)',
+      };
+      // ⚠️ El WHERE del detalle se arma DOS veces, una por cada alias, en vez de parchar la
+      // cadena con un replace: `cover` aparece dentro de `TRAMO(...)` y un `.replace()` lo
+      // tocaba ahí también. Un filtro que se construye a fuerza de buscar y reemplazar texto SQL
+      // es un bug esperando el primer nombre de columna que se parezca a otro.
+      const soloQuedado = q.solo_quedado !== false;
+      const tramoFiltro = q.tramo && ORDEN.includes(q.tramo) ? q.tramo : null;
+      const condDe = (p: string) => {
+        const c: string[] = [];
+        if (soloQuedado) c.push(`${p}quedado`);
+        if (tramoFiltro) c.push(`${TRAMO(`${p}cover`, `${p}no_vende`)} = :tr`);
+        return c.length ? `WHERE ${c.join(' AND ')}` : '';
+      };
+      const whereDet = condDe('q.');      // el detalle lo joinea como `q`
+      const bindsDet = { ...binds, ...(tramoFiltro ? { tr: tramoFiltro } : {}), lim: pageSize, off: (page - 1) * pageSize };
+
+      // ⭐⭐ UNA sola consulta para el resumen, el conteo y el detalle.
+      //
+      // No es elegancia: es el piso de 500 ms. El CTE `mov` barre 90 días de movimientos, y en
+      // tres consultas separadas ese barrido se pagaba TRES veces (~400 ms cada una = 1.2 s
+      // medidos contra prod). Con `MATERIALIZED` el CTE se calcula una vez y lo leen los tres
+      // consumidores: el agregado por tramo, el `count(*) OVER ()` de la paginación y los
+      // renglones. Medido después: ~430 ms.
+      //
+      // ⭐ Y de paso resuelve lo que importa más que la velocidad: el total de la tira y el
+      // detalle salen del MISMO cálculo, así que no pueden decir cosas distintas del mismo SKU.
+      const sql = `${CTE}, resumen AS (
+          SELECT jsonb_agg(z) AS j FROM (
+            SELECT ${TRAMO('cover', 'no_vende')} AS tramo,
+                   count(*) AS pares, count(DISTINCT product_id) AS skus,
+                   round(sum(valor)::numeric, 2) AS valor,
+                   count(*) FILTER (WHERE quedado) AS quedado,
+                   round(sum(valor) FILTER (WHERE quedado)::numeric, 2) AS quedado_valor
+              FROM q GROUP BY 1) z
+        )
+        SELECT pr.sku, pr.nombre, pr.id AS product_id, sup.name AS proveedor,
+               w.code AS warehouse_code, w.name AS warehouse_name,
+               round(q.cajas::numeric, 1) AS cajas, round(q.valor::numeric, 2) AS valor,
+               round(q.cover::numeric, 0) AS cover_days,
+               ${TRAMO('q.cover', 'q.no_vende')} AS tramo,
+               to_char(q.ult_compra, 'YYYY-MM-DD') AS ult_compra,
+               to_char(q.ult_salida, 'YYYY-MM-DD') AS ult_salida,
+               (CURRENT_DATE - q.ult_compra) AS dias_desde_compra,
+               q.quedado,
+               count(*) OVER () AS _total,
+               (SELECT j FROM resumen) AS _resumen
+          FROM q
+          JOIN catalog.products pr ON pr.tenant_id = :t AND pr.id = q.product_id
+          JOIN commercial.warehouses w ON w.tenant_id = :t AND w.id = q.warehouse_id
+          LEFT JOIN catalog.suppliers sup ON sup.tenant_id = :t AND sup.id = pr.supplier_id
+         ${whereDet}
+         ORDER BY q.valor DESC NULLS LAST
+         LIMIT :lim OFFSET :off`;
+
+      const raw = (await trx.raw(sql, bindsDet)).rows as (SobranteRow & { _total?: number; _resumen?: unknown })[];
+
+      // ⛔ Con CERO renglones (filtro que no casa nada) la consulta no devuelve filas, así que el
+      // resumen viene en NINGUNA. Se pide aparte SÓLO en ese caso: es el único donde la segunda
+      // consulta no cuesta nada, porque no hay detalle que traer. Un `tramos: []` haría que la
+      // tira de arriba desapareciera justo cuando el comprador filtró y quiere saber por qué no
+      // hay nada — que es el momento en que más la necesita.
+      let res: Record<string, unknown>[];
+      if (raw.length) {
+        res = (raw[0]._resumen as Record<string, unknown>[]) ?? [];
+      } else {
+        res = ((await trx.raw(`${CTE}
+          SELECT ${TRAMO('cover', 'no_vende')} AS tramo,
+                 count(*) AS pares, count(DISTINCT product_id) AS skus,
+                 round(sum(valor)::numeric, 2) AS valor,
+                 count(*) FILTER (WHERE quedado) AS quedado,
+                 round(sum(valor) FILTER (WHERE quedado)::numeric, 2) AS quedado_valor
+            FROM q GROUP BY 1`, binds)).rows) as Record<string, unknown>[];
+      }
+
+      const porTramo = new Map(res.map((r) => [String(r['tramo']), r]));
+      const tramos: SobranteTramo[] = ORDEN.map((k) => {
+        const r = porTramo.get(k);
+        return {
+          tramo: k, label: ETIQUETA[k],
+          pares: Number(r?.['pares'] ?? 0), skus: Number(r?.['skus'] ?? 0),
+          valor: Number(r?.['valor'] ?? 0),
+          quedado: Number(r?.['quedado'] ?? 0), quedado_valor: Number(r?.['quedado_valor'] ?? 0),
+        };
+      });
+
+      const tot = Number(raw[0]?._total ?? 0);
+      const rows = raw.map(({ _total, _resumen, ...r }) => r) as SobranteRow[];
+
+      return {
+        tramos,
+        total_valor: tramos.reduce((s, t) => s + t.valor, 0),
+        total_quedado: tramos.reduce((s, t) => s + t.quedado, 0),
+        total_quedado_valor: tramos.reduce((s, t) => s + t.quedado_valor, 0),
+        ventana_dias: vent,
+        rows, total: tot, page, pageSize,
       };
     });
   }

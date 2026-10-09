@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mapa de la superficie · Presupuestos</title>
+<!-- Artefacto de los tres carriles de /presupuestos (Ventas · Gastos · Tesoreria).
+     Explora un lenguaje visual que NO existe: como un numero dice con que se calculo.
+     Las cifras de la seccion Tesoreria son REALES, medidas contra pg-prod en una sola foto.
+     Las de Ventas y Gastos las llenan sus carriles. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+
+<!-- EL SISTEMA REAL. `tokens.css` es autocontenido (0 @import), asi que se enlaza directo y
+     este prototipo deja de tener color propio. La primera version definia 15 hex a mano en un
+     :root local, copiando la forma de los prototipos vecinos -- pero la convencion del vecino
+     NO es el sistema: DESIGN.md, checklist punto 2, dice "cero hex crudo".
+     ⚠️ Ninguna compuerta lo exige aca: check:tokens escanea apps/*/src, no docs/. Que nadie lo
+     vigile lo hace mas importante, no menos: este archivo puede derivar y nadie se entera. -->
+<link rel="stylesheet" href="../../../../libs/design-tokens/tokens.css">
+
+<style>
+/* Capa de ALIAS, no de definicion: los nombres cortos que usa este documento salen de los
+   tokens reales. Cero hex. Si manana cambia la paleta del sistema, este archivo la sigue. */
+:root{
+  --bg:var(--surface-ground); --surface:var(--card-bg); --sunken:var(--hover-bg);
+  --line:var(--border-color); --line-strong:var(--border-color);
+  --fg:var(--text-main); --muted:var(--text-muted); --faint:var(--text-faint);
+  --action-soft:var(--action-ring); --action-fg:var(--action-ink);
+  --no:var(--bad-fg); --no-soft:var(--bad-soft-bg);
+  --ok-soft:var(--ok-soft-bg); --warn-soft:var(--warn-soft-bg);
+  --info:var(--info-fg); --info-soft:var(--info-soft-bg);
+  --f-ui:var(--font-body); --f-mono:var(--font-mono);
+}
+/* ⚠️ El oscuro del sistema NO es prefers-color-scheme: es la clase `theme-monochrome` sobre la
+   raiz (DESIGN.md seccion Dark mode). El data-theme de la primera version era invento mio, y un
+   prototipo que se ve bien pero activa el tema por otro mecanismo NO transfiere a codigo. */
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 20px 72px;display:flex;flex-direction:column;gap:26px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+h1{font-size:1.45rem;margin:0;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.02rem;margin:0 0 2px;font-weight:700}
+h3{font-size:.86rem;margin:0 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+p{margin:0 0 8px} ul{margin:4px 0 8px;padding-left:18px} li{margin:4px 0}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+/* ⚠️ El 0.86em COMPONE dentro de cualquier contenedor ya reducido: medido en el render, cinco
+   elementos de este documento caian a 9.6px -- el mas chico, un `code` con el nombre del tipo que
+   el documento viene a explicar. No fue una decision, fue cascada, y ninguna compuerta la ve
+   porque las dos reglas son validas por separado. El `max()` pone un piso en el token mas chico
+   del sistema en vez de dejar que se multipliquen. */
+code{font-family:var(--f-mono);font-size:max(.86em, var(--fs-nano));background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
+
+header{border-bottom:1px solid var(--line);padding-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+.hd-l{display:flex;flex-direction:column;gap:4px;min-width:min(100%,520px)}
+.asof{font-size:.73rem;display:inline-flex;gap:6px;align-items:center;background:var(--sunken);border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--muted)}
+.tgl{font:inherit;font-size:.78rem;cursor:pointer;background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-md);padding:6px 11px}
+
+section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.lead{font-size:.93rem;color:var(--muted);max-width:78ch}
+.note{font-size:.8rem;background:var(--sunken);border:1px solid var(--line);border-left:3px solid var(--line-strong);border-radius:var(--r-md);padding:9px 12px;color:var(--muted)}
+.note.bad{border-left-color:var(--no)} .note.warn{border-left-color:var(--warn)} .note.ok{border-left-color:var(--ok)}
+
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(182px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.mi{background:var(--surface);padding:11px 13px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.mi-lab{font-size:.73rem;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mi-val{font-family:var(--f-mono);font-size:1.17rem;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.mi-sub{font-size:.71rem;color:var(--faint);line-height:1.35}
+.t-ok{color:var(--ok)} .t-bad{color:var(--no)} .t-warn{color:var(--warn)}
+.mi-val.unk{color:var(--faint);font-weight:500;font-size:1rem}
+
+.st{font-size:.64rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:3px;padding:1px 6px;border:1px solid transparent;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.st::before{font-size:.9em;line-height:1}
+.st-medido{color:var(--ok);background:var(--ok-soft)}
+.st-medido::before{content:"\25CF"}
+.st-parcial{color:var(--info);background:var(--info-soft)}
+.st-parcial::before{content:"\25D0"}
+.st-derivado{color:var(--warn);background:var(--warn-soft)}
+.st-derivado::before{content:"\25B3"}
+.st-nomedido{color:var(--muted);background:transparent;border-color:var(--line-strong);border-style:dashed}
+.st-nomedido::before{content:"?"}
+.rg{font-size:.64rem;font-weight:600;letter-spacing:.03em;border-radius:3px;padding:1px 6px;white-space:nowrap;color:var(--muted);background:var(--sunken);border:1px solid var(--line)}
+
+table{width:100%;border-collapse:collapse;font-size:.83rem}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;background:var(--sunken)}
+td.num,th.num{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md)}
+
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:820px){ .ba{grid-template-columns:1fr} }
+.ba-col{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;display:flex;flex-direction:column}
+.ba-hd{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:6px 11px;border-bottom:1px solid var(--line)}
+.ba-hd.mal{color:var(--no);background:var(--no-soft)}
+.ba-hd.bien{color:var(--ok);background:var(--ok-soft)}
+.ba-bd{padding:11px;display:flex;flex-direction:column;gap:9px}
+
+.rule{display:flex;gap:11px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.rule:last-child{border-bottom:none}
+.rule-n{flex:0 0 26px;height:26px;border-radius:var(--r-sm);background:var(--action-soft);color:var(--action-fg);font-weight:700;font-size:.8rem;display:grid;place-items:center;font-family:var(--f-mono)}
+.rule-b{min-width:0}
+.rule-t{font-weight:700;font-size:.9rem;margin-bottom:2px}
+.rule-d{font-size:.83rem;color:var(--muted)}
+
+.pend{border:1px dashed var(--line-strong);border-radius:var(--r-md);padding:18px;text-align:center;color:var(--faint);font-size:.85rem;background:repeating-linear-gradient(45deg,transparent,transparent 9px,var(--sunken) 9px,var(--sunken) 18px)}
+.pend b{display:block;color:var(--muted);font-size:.95rem;margin-bottom:4px}
+.owner{font-size:.72rem;background:var(--sunken);border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--muted);font-weight:600;vertical-align:middle}
+</style></head>
+<body><div class="wrap">
+
+<header>
+<header>
+  <div class="hd-l">
+    <h1>Mapa de la superficie · Presupuestos</h1>
+    <p class="lead" style="margin:0">Artefacto <strong>de los tres carriles</strong>, hermano de <code>presupuesto-estados.html</code>. Aquél acordó <em>cómo se dice un número</em>; éste acuerda <strong>dónde vive cada pantalla</strong> antes de mover una sola. Las secciones 4 · 5 · 6 las llena su dueño.</p>
+  </div>
+  <span class="asof mono">Superficie medida 2026-10-09</span>
+  <button class="tgl" id="tgl" type="button">Cambiar a oscuro</button>
+</header>
+
+<section>
+  <h2>1 · La superficie HOY, medida</h2>
+  <p class="lead">Ocho destinos en dos grupos, más una página aparte. No es una propuesta: es lo que declara el código.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Destino</th><th>Grupo</th><th>Carril</th><th>Qué pregunta contesta</th><th>De dónde saca</th></tr></thead>
+    <tbody>
+      <tr><td>Ejercicio</td><td>armar</td><td>compartido</td><td>¿Qué ejercicio estoy mirando y cómo se armó?</td><td><code>/budgets</code> · <code>/autopilot</code></td></tr>
+      <tr><td>Ventas</td><td>armar</td><td><strong>06</strong></td><td>¿Cuánto vamos a vender?</td><td><code>/sales-reconciliation</code></td></tr>
+      <tr><td>Gastos</td><td>armar</td><td><strong>8c</strong></td><td>¿Cuánto vamos a gastar?</td><td><code>/expenses</code></td></tr>
+      <tr><td>Flujo / Resultado</td><td>armar</td><td><strong>cc</strong></td><td>¿Alcanza el dinero, semana a semana?</td><td><code>/cashflow</code> · <code>/compare</code></td></tr>
+      <tr><td>Campañas</td><td>armar</td><td>compartido</td><td>¿Qué campañas consumen presupuesto?</td><td><code>/campaigns</code></td></tr>
+      <tr><td>Capacidad de pago</td><td>pagos</td><td><strong>cc</strong></td><td>¿Cuánto se autoriza pagar por día?</td><td><code>/capacity</code></td></tr>
+      <tr><td>Obligaciones</td><td>pagos</td><td><strong>cc</strong></td><td>¿Qué está comprometido y con quién?</td><td><code>/expenses</code></td></tr>
+      <tr><td>Tesorería · diagnóstico</td><td class="faint">fuera de las pestañas</td><td><strong>cc</strong></td><td>¿Cuánto aguantamos, y cómo cierra el ciclo?</td><td><code>/cash-runway</code> · <code>/cash-cycle</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><strong>Y un dato de tamaño:</strong> siete de esos ocho destinos viven en <strong>un archivo de 2,328 líneas</strong>. 06 ya empezó a partirlo — <code>pages/presupuesto/</code> tiene <code>-ventas.component</code>, <code>-firma</code>, <code>-shared</code> y <code>.styles</code> — y ése es el patrón que el resto sigue.</div>
+</section>
+
+<section>
+  <h2>2 · Los tres defectos de la estructura, medidos</h2>
+  <p class="lead">No son de gusto. Cada uno ya cobró algo esta semana.</p>
+
+  <div class="rule"><div class="rule-n">1</div><div class="rule-b"><div class="rule-t">Un archivo, cinco carriles.</div><div class="rule-d">El trabajo se mezcló <strong>cuatro veces en un día</strong>, la última con los dos lados haciendo todo bien. <strong>Git no reportó nada en ninguna</strong>, porque no hubo conflictos. Partir el componente no es higiene: es el único mecanismo que cierra esa ventana.</div></div></div>
+
+  <div class="rule"><div class="rule-n">2</div><div class="rule-b"><div class="rule-t">El agrupado no sigue ninguna pregunta.</div><div class="rule-d">Las <strong>tres</strong> superficies de Tesorería están <strong>repartidas entre los dos grupos</strong>: «Flujo / Resultado» quedó en <em>armar</em> y «Capacidad de pago» + «Obligaciones» en <em>pagos</em>, cuando las tres contestan la misma pregunta — <strong>¿alcanza el dinero?</strong> —. Y la cuarta, el diagnóstico, no está en ningún grupo: vive fuera de las pestañas.</div></div></div>
+
+  <div class="rule"><div class="rule-n">3</div><div class="rule-b"><div class="rule-t">⛔ La pantalla abre sobre el ejercicio de PRUEBA.</div><div class="rule-d">Medido hoy, tres eslabones: <code>listBudgets()</code> <strong>no filtra <code>is_test</code></strong> (sólo lo honran 2 servicios de todo <code>libs/finance/budget</code>) · su <code>ORDER BY fiscal_year DESC, created_at DESC</code> pone al duplicado <strong>primero justo por ser el más nuevo</strong> · y el front hace <code>selectBudget(rows[0])</code>. ⭐ La copia es <strong>byte a byte</strong> igual a la real, así que la pantalla <strong>no se ve mal: se ve perfecta, con las cifras equivocadas</strong>. <em>El selector de ejercicio es la raíz de todo lo que se publica, y no es una pestaña: es estado.</em></div></div></div>
+</section>
+
+<section>
+  <h2>3 · Lo que este mapa tiene que decidir</h2>
+  <p class="lead">Tres preguntas. Ninguna la puede contestar un carril solo, y por eso el documento existe antes que el código.</p>
+  <ul>
+    <li><strong>¿Cuántos grupos, y por qué pregunta?</strong> Hoy son dos («armar» / «pagos») y parten en dos un carril. La alternativa de abajo agrupa <strong>por pregunta de negocio</strong>, no por origen del dato.</li>
+    <li><strong>¿Dónde vive el selector de ejercicio?</strong> Es la raíz de todo número publicado y hoy es una tira de chips arriba de las pestañas, sin filtro de <code>is_test</code>.</li>
+    <li><strong>¿Qué sale del shell, en qué orden y quién lo saca?</strong> Dos carriles tocando el mismo archivo la misma tarde es la ventana del defecto 1.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>4 · Tesorería <span class="owner">carril cc · lleno</span></h2>
+  <p class="lead">Mis cuatro superficies contestan <strong>una</strong> pregunta en cuatro horizontes, y hoy están en tres lugares distintos.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Superficie</th><th>Horizonte</th><th>Hoy</th><th>Propuesta</th></tr></thead>
+    <tbody>
+      <tr><td>Diagnóstico (holgura + ciclo)</td><td>la respuesta en una línea</td><td>página aparte</td><td><strong>Primera</strong> del grupo — es el <em>answer-first</em> del carril</td></tr>
+      <tr><td>Flujo / Resultado</td><td>8 semanas</td><td>grupo «armar»</td><td>Segunda del mismo grupo</td></tr>
+      <tr><td>Capacidad de pago</td><td>por día</td><td>grupo «pagos»</td><td>Tercera</td></tr>
+      <tr><td>Obligaciones</td><td>el compromiso vivo</td><td>grupo «pagos»</td><td>Cuarta</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note ok"><strong>Propuesta concreta:</strong> un solo grupo <strong>«¿Alcanza el dinero?»</strong> con las cuatro, en orden de horizonte. El diagnóstico deja de ser una página huérfana y pasa a ser la portada del grupo.</div>
+  <div class="note warn">⚠️ <strong>Lo que NO propongo, y conviene decirlo:</strong> no muevo «Ventas» ni «Gastos» de lugar. Están en el carril de otro, y una propuesta sobre la superficie ajena hecha por quien no la construyó es <strong>exactamente el renglón que la tabla 9.2 de <code>presupuesto-estados.html</code> ya me devolvió corregido dos veces hoy</strong>.</div>
+</section>
+
+<section>
+  <h2>5 · Ventas <span class="owner">carril 06 · pendiente</span></h2>
+  <div class="pend"><b>Lo llena 06</b>¿Cuántas superficies tiene Ventas, qué pregunta contesta cada una, y en qué orden? El molde es la sección 4. Insumo que ya existe: la partición de <code>presupuesto-ventas.component.ts</code>.</div>
+</section>
+
+<section>
+  <h2>6 · Gastos <span class="owner">carril 8c · pendiente</span></h2>
+  <div class="pend"><b>Lo llena 8c</b>¿Cuántas superficies tiene Gastos, qué pregunta contesta cada una, y en qué orden? Insumos que ya existen: la vista de cobertura, <code>ritmo</code> y la bitácora del ledger de #342.</div>
+</section>
+
+<section>
+  <h2>7 · Cómo se ejecuta entre tres sin pisarse</h2>
+  <p class="lead">El defecto 1 dice que la disciplina de un lado no alcanza. Estas cuatro reglas son lo que sí se puede verificar.</p>
+  <div class="rule"><div class="rule-n">1</div><div class="rule-b"><div class="rule-t">Primero el mapa, después el código.</div><div class="rule-d">Las secciones 5 y 6 se llenan <strong>antes</strong> de mover una pestaña. Mover la superficie con un carril sin opinar es decidir por él.</div></div></div>
+  <div class="rule"><div class="rule-n">2</div><div class="rule-b"><div class="rule-t">Un carril por archivo, por turno.</div><div class="rule-d">El shell lo toca <strong>uno a la vez</strong>, y el que entra avisa. No es cortesía: es que git no frena la ventana.</div></div></div>
+  <div class="rule"><div class="rule-n">3</div><div class="rule-b"><div class="rule-t">Se saca contenido, no se reacomoda.</div><div class="rule-d">Cada carril extrae <strong>lo suyo</strong> al patrón de <code>pages/presupuesto/</code> — hijo presentacional, estado y HTTP en el shell. El reagrupado de las pestañas es el <strong>último</strong> paso, cuando el shell ya es chico.</div></div></div>
+  <div class="rule"><div class="rule-n">4</div><div class="rule-b"><div class="rule-t">El defecto 3 va primero, y es de los tres.</div><div class="rule-d">Mientras <code>listBudgets()</code> no filtre <code>is_test</code>, <strong>las tres secciones publican las cifras del duplicado</strong>. Reestructurar encima de eso es reacomodar una pantalla que miente.</div></div></div>
+</section>
+
+</div>
+<script>
+(function(){
+  var b=document.getElementById('tgl'),r=document.documentElement;
+  function paint(){ b.textContent = r.classList.contains('theme-monochrome') ? 'Cambiar a claro' : 'Cambiar a oscuro'; }
+  b.addEventListener('click',function(){ r.classList.toggle('theme-monochrome'); paint(); });
+  paint();
+})();
+</script>
+</body></html>

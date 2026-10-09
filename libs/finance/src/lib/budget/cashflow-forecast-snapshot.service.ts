@@ -55,6 +55,14 @@ export class CashflowForecastSnapshotService {
       const hasta = new Date(Date.now() + HORIZONTE_DIAS * 86400000).toISOString().slice(0, 10);
 
       await this.knex.transaction(async (trx) => {
+        // ⛔ NO `SET LOCAL app.tenant_id = ?`. `SET` es una sentencia de utilidad: no se puede
+        // preparar, así que no admite parámetro ligado y revienta con 42601 (`syntax error at
+        // or near "SET"`) apenas knex manda el binding por el protocolo extendido. Probado
+        // contra pg-prod: `PREPARE p AS SET LOCAL app.tenant_id = $1` → 42601, y la forma de
+        // abajo → PREPARE OK. El resto del repo ya lo hacía bien de dos maneras (`set_config`
+        // con binding, o `SET LOCAL` con literal interpolado); estas dos líneas —ésta y la de
+        // su propio candado— eran las únicas con la combinación que falla, y por eso el test
+        // no podía atraparlo: traía el mismo defecto.
         await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [MEGA]);
 
         const cob = await cobranzaPrevista(trx, MEGA, hoy, hasta);

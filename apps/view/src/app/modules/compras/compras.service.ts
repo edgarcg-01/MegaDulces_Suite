@@ -215,9 +215,14 @@ export interface InTransitResponse {
   lead_days?: number;
   rows: InTransitOc[];
   total_cajas: number; total_valor: number;
-  // RA-PRO.45 — cajas que el motor descuenta de verdad (pesadas por P(llega|edad)) vs las que
-  // dicen los papeles. La brecha es papel abierto que ya no se va a surtir.
+  // `[RA.TR]` — cajas que el motor descuenta DE VERDAD, contra las que dicen los papeles. Las dos
+  // salen de la misma política que el sugerido (`libs/.../transito.ts`), así que no pueden
+  // contradecirlo: desde el 2026-10-09 la política es `ignorar` y esto llega en 0.
   descuenta_cajas?: number; fact_cajas?: number;
+  /** Cuál de las tres reglas está vigente. Viaja para que la pantalla no la adivine. */
+  politica_transito?: 'ignorar' | 'curva' | 'crudo';
+  /** El motivo, en una frase, para ponerlo DONDE ESTÁ EL NÚMERO (ADR-056). */
+  aviso_transito?: string;
 }
 // RA-PRO.45 — bandeja: las OCs de Kepler que siguen abiertas, para cerrarlas o cancelarlas.
 export interface OpenOcRow {
@@ -382,6 +387,46 @@ export interface DeadStockRow {
   created_at: string;        // alta en catálogo (fallback del "desde cuándo")
   supplier_name: string | null;
 }
+/** `[RA.CAP]` El saldo de un acreedor, en corto. Sin detalle de documentos. */
+export interface DeudaAcreedor {
+  codigo: string; nombre: string;
+  pendiente: number; vencido: number; saldo: number;
+}
+export interface DeudaProveedorResponse {
+  /** Fecha con la que se decidió qué está vencido (hora de México). */
+  al: string;
+  /** ⚠️ SÓLO los que deben algo. Que un proveedor no esté acá significa «no le debemos», pero si
+   *  la llamada falló entera NO significa eso — por eso el error se declara aparte. */
+  acreedores: DeudaAcreedor[];
+}
+
+/** `[RA.SOB]` Un tramo de cobertura, con cuánto de él lo compramos y nunca salió. */
+export interface SobranteTramo {
+  tramo: string; label: string;
+  pares: number; skus: number; valor: number;
+  quedado: number; quedado_valor: number;
+}
+export interface SobranteRow {
+  product_id: string; sku: string; nombre: string;
+  proveedor: string | null;
+  warehouse_code: string; warehouse_name: string;
+  cajas: number; valor: number;
+  /** `null` = sin venta. NO es cero: no hay cobertura que calcular. */
+  cover_days: number | null;
+  tramo: string;
+  ult_compra: string | null; ult_salida: string | null;
+  dias_desde_compra: number | null;
+  quedado: boolean;
+}
+export interface SobranteResponse {
+  tramos: SobranteTramo[];
+  total_valor: number; total_quedado: number; total_quedado_valor: number;
+  /** Ventana con la que se buscó la compra. Viaja para que el número no quede sin universo. */
+  ventana_dias: number;
+  rows: SobranteRow[];
+  total: number; page: number; pageSize: number;
+}
+
 export interface DeadStockResponse {
   total: number;
   page: number;
@@ -432,7 +477,10 @@ export interface ReplenishmentFilters {
    * es el pedido TÍPICO del almacén principal del proveedor, no un mínimo que el proveedor exija
    * (no hay columna que separe lo capturado a mano de lo derivado).
    */
-  suppliers: { id: string; name: string; min_order_boxes: number | null;
+  suppliers: { id: string; name: string;
+    /** `[RA.CAP]` Código del proveedor = clave del acreedor en Kepler, para cruzar la deuda. */
+    code?: string | null;
+    min_order_boxes: number | null;
     /** `[RA-DYN.U3]` Piso en pesos por orden. `null` = no capturado, NUNCA "no tiene minimo". */
     min_order_amount: number | null }[];
   brands?: { id: string; name: string }[];
@@ -1188,6 +1236,42 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<DeadStockResponse>(`${this.base}/dead-stock${qs ? '?' + qs : ''}`);
+  }
+
+  /**
+   * `[RA.CAP]` Lo que YA le debemos a cada acreedor, en corto, para cruzarlo con el proveedor del
+   * pedido. Sale del MISMO `resumen()` que publica el estado de cuenta de Finanzas (Fase ECA), no
+   * de una consulta nueva: dos cálculos de la misma deuda darían dos cifras y nadie sabría cuál.
+   *
+   * ⛔ Vive en `/finance/...` y no en `/commercial/...` a propósito: la deuda es de Finanzas, y
+   * Compras la LEE. Lo único que se amplió es el permiso de esa ruta.
+   */
+  deudaPorProveedor(): Observable<DeudaProveedorResponse> {
+    return this.http.get<DeudaProveedorResponse>(`${environment.apiUrl}/finance/creditor-statements/por-proveedor`);
+  }
+
+  /**
+   * `[RA.SOB]` Sobrante: dónde está parado el inventario por tramo de cobertura, y qué de eso lo
+   * compramos y nunca salió. Punto 2 de los tres que pidió Edgar el 2026-10-08.
+   */
+  sobrante(q: {
+    warehouse_ids?: string[]; supplier_id?: string; search?: string;
+    tramo?: string; solo_quedado?: boolean; ventana_dias?: number;
+    page?: number; pageSize?: number;
+  }): Observable<SobranteResponse> {
+    const p = new URLSearchParams();
+    if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.search) p.set('search', q.search);
+    if (q.tramo) p.set('tramo', q.tramo);
+    // ⚠️ Se manda SIEMPRE que sea `false`: omitirlo deja ganar el default del backend (true) y el
+    // comprador vería el filtro apagado en pantalla y prendido en los datos.
+    if (q.solo_quedado === false) p.set('solo_quedado', '0');
+    if (q.ventana_dias) p.set('ventana_dias', String(q.ventana_dias));
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<SobranteResponse>(`${this.base}/sobrante${qs ? '?' + qs : ''}`);
   }
 
   summary(q: { warehouse_id?: string; warehouse_ids?: string[]; supplier_id?: string; search?: string; category_id?: string; target_basis?: string }): Observable<ReplenishmentSummary> {

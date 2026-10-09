@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
@@ -36,6 +38,19 @@ const VACIO = {
   territories: [], totals: { pedido: 0, venta: 0, exis: 0 }, rows: [],
 };
 
+/**
+ * `[RA.TR]` Lo que devuelve el diálogo de "En camino". Es mutable a propósito: los casos que
+ * importan son justo los que cambian la FORMA de la respuesta (un backend sin desplegar que no
+ * manda `aviso_transito`), no sus números.
+ */
+let EN_CAMINO: Record<string, unknown> | null = null;
+
+/**
+ * `[RA.CAP]` Lo que devuelve la deuda por acreedor. `'error'` simula el 403 de un comprador sin
+ * permiso de Finanzas — el caso que NO puede terminar diciendo «no le debemos nada».
+ */
+let DEUDA: Record<string, unknown> | 'error' = { al: '2026-10-09', acreedores: [] };
+
 const FRESCO: Freshness = {
   data_as_of: new Date(Date.now() - 4 * 60_000).toISOString(),
   status: 'fresh', stale: false, age_human: '4 min',
@@ -67,6 +82,10 @@ function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1
     transferSuggestion: () => of({ rows: [] }),
     overstock: () => of({ rows: [] }),
     deadStock: () => of({ rows: [], total_value: 0 }),
+    inTransit: () => of(EN_CAMINO),
+    sobrante: () => of({ tramos: [], total_valor: 0, total_quedado: 0, total_quedado_valor: 0, ventana_dias: 90, rows: [], total: 0, page: 1, pageSize: 50 }),
+    // `[RA.CAP]` `null` = la llamada falló (es lo que devuelve el `catchError` del componente).
+    deudaPorProveedor: () => (DEUDA === 'error' ? throwError(() => new Error('403')) : of(DEUDA)),
     worklist: () => (worklist === 'error'
       ? throwError(() => new Error('500'))
       : of(worklist ?? { total: 0, vencidos: 0, hoy: 0, prox7: 0, page: 1, pageSize: 500, rows: [] })),
@@ -341,5 +360,151 @@ describe('[RA-PERF.7] los índices memoizados no cambian lo que la pantalla resp
     const c = montar(VACIO).componentInstance;
     expect(c.prodTr('no-existe')).toBe(0);
     expect(c.detailRows('no-existe')).toEqual([]);
+  });
+});
+
+describe('[RA.TR] el diálogo de "En camino" no explica una regla que ya no corre', () => {
+  const FUENTE = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+
+  it('el motivo lo PINTA el servidor, no la pantalla', () => {
+    // Si el texto viviera en el template, al cambiar POLITICA_TRANSITO en el backend la pantalla
+    // seguiría explicando el comportamiento viejo — y nadie lo notaría, porque sigue siendo una
+    // frase con sentido. Por eso viaja en la respuesta (ADR-056).
+    expect(FUENTE).toContain('tranAviso()');
+    expect(FUENTE).toContain('res.aviso_transito');
+  });
+
+  it('⛔ NEGATIVA: el template ya NO trae la explicación vieja de la curva', () => {
+    // Era literalmente "Cada orden pesa según su antigüedad", y desde el 2026-10-09 es falsa:
+    // ninguna orden pesa, porque ninguna se descuenta.
+    expect(FUENTE).not.toContain('Cada orden pesa según su antigüedad');
+    expect(FUENTE).not.toContain('se descuenta casi completa');
+  });
+
+  it('⭐ y el aviso arranca VACÍO: sin dato del servidor la pantalla calla, no inventa', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.tranAviso()).toBe('');
+  });
+
+  it('cuando el servidor manda la política, el diálogo la publica tal cual', () => {
+    EN_CAMINO = {
+      product: { sku: '95434', nombre: 'DEMO' }, lead_days: 4, rows: [],
+      total_cajas: 180, total_valor: 42000,
+      descuenta_cajas: 0, fact_cajas: 180,
+      politica_transito: 'ignorar', aviso_transito: 'El sugerido NO descuenta las OC en camino.',
+    };
+    const c = montar(VACIO).componentInstance;
+    c.openTransit({ product_id: 'p-1', sku: '95434', nombre: 'DEMO' } as never);
+    expect(c.tranAviso()).toBe('El sugerido NO descuenta las OC en camino.');
+    expect(c.tranDescuenta()).toBe(0);
+  });
+
+  it('⛔ un backend SIN desplegar (sin el campo) deja el aviso vacío, no un texto inventado', () => {
+    // Éste es el caso que de verdad puede pasar: el view se despliega antes que la api. Si la
+    // pantalla rellenara con la explicación vieja, diría que el motor pesa por antigüedad — que
+    // es justo lo que dejó de hacer. Callar es correcto; inventar, no.
+    EN_CAMINO = {
+      product: { sku: '95434', nombre: 'DEMO' }, rows: [],
+      total_cajas: 180, total_valor: 42000, descuenta_cajas: 97.4,
+    };
+    const c = montar(VACIO).componentInstance;
+    c.tranAviso.set('resto de una apertura anterior');
+    c.openTransit({ product_id: 'p-1', sku: '95434', nombre: 'DEMO' } as never);
+    expect(c.tranAviso()).toBe('');
+    // ⭐ Y el número sí llega: la ausencia del motivo no se contagia a la cifra.
+    expect(c.tranDescuenta()).toBe(97.4);
+  });
+
+  it('⭐ el aviso NO queda pegado entre dos productos distintos', () => {
+    EN_CAMINO = { product: null, rows: [], total_cajas: 1, total_valor: 1, aviso_transito: 'A' };
+    const c = montar(VACIO).componentInstance;
+    c.openTransit({ product_id: 'p-1', sku: 'X', nombre: 'X' } as never);
+    expect(c.tranAviso()).toBe('A');
+    EN_CAMINO = { product: null, rows: [], total_cajas: 1, total_valor: 1 };
+    c.openTransit({ product_id: 'p-2', sku: 'Y', nombre: 'Y' } as never);
+    expect(c.tranAviso()).toBe('');
+  });
+});
+
+describe('[RA.CAP] la deuda del proveedor al momento de pedirle', () => {
+  const FILTROS_SUP = {
+    suppliers: [
+      { id: 's-1', name: 'DULCES DEMO', code: 'C0001', min_order_boxes: null, min_order_amount: null },
+      { id: 's-2', name: 'SIN ACREEDOR', code: 'C9999', min_order_boxes: null, min_order_amount: null },
+      { id: 's-3', name: 'SIN CODIGO', code: null, min_order_boxes: null, min_order_amount: null },
+    ],
+    brands: [], categories: [], warehouses: [],
+  };
+
+  function montarConDeuda(sub = 'u1') {
+    const c = montar(VACIO, undefined, sub).componentInstance;
+    c.filters.set(FILTROS_SUP);
+    return c;
+  }
+
+  beforeEach(() => {
+    DEUDA = {
+      al: '2026-10-09',
+      acreedores: [{ codigo: 'C0001', nombre: 'DULCES DEMO', pendiente: 480000, vencido: 310000, saldo: 480000 }],
+    };
+  });
+
+  it('sin proveedor elegido no se muestra nada: el dato es POR proveedor', () => {
+    const c = montarConDeuda();
+    expect(c.deudaProv()).toBeNull();
+    expect(c.deudaSinCruce()).toBe(false);
+  });
+
+  it('⭐ con proveedor que casa, publica pendiente y vencido', () => {
+    const c = montarConDeuda();
+    c.fSupplier = 's-1';
+    expect(c.deudaProv()?.pendiente).toBe(480000);
+    expect(c.deudaProv()?.vencido).toBe(310000);
+    expect(c.deudaAl()).toBe('2026-10-09');
+  });
+
+  it('⛔ un proveedor SIN acreedor se DECLARA, no se calla', () => {
+    // Callarse se lee como "no le debemos nada", que es una afirmación. Acá no se midió.
+    const c = montarConDeuda();
+    c.fSupplier = 's-2';
+    expect(c.deudaProv()).toBeNull();
+    expect(c.deudaSinCruce()).toBe(true);
+  });
+
+  it('⛔ y uno sin código tampoco se calla', () => {
+    const c = montarConDeuda();
+    c.fSupplier = 's-3';
+    expect(c.deudaSinCruce()).toBe(true);
+  });
+
+  it('⭐⭐ si la llamada FALLA (403 del comprador), no dice ni que debe ni que no debe', () => {
+    // Éste es el caso que importa: un comprador sin permiso de Finanzas. Mostrar «sin acreedor»
+    // sería mentir con cara de dato; mostrar $0 sería peor. El silencio es lo correcto hasta que
+    // haya dato, y `deudaError` lo deja registrado.
+    DEUDA = 'error';
+    const c = montarConDeuda();
+    c.fSupplier = 's-1';
+    expect(c.deudaError()).toBe(true);
+    expect(c.deudaProv()).toBeNull();
+    expect(c.deudaSinCruce()).toBe(false);
+  });
+
+  it('⭐ un acreedor sin deuda simplemente no viene, y eso SÍ es «no le debemos»', () => {
+    // El backend filtra los que están en cero. La diferencia con el caso de arriba es que acá la
+    // llamada SÍ funcionó.
+    DEUDA = { al: '2026-10-09', acreedores: [] };
+    const c = montarConDeuda();
+    c.fSupplier = 's-1';
+    expect(c.deudaError()).toBe(false);
+    expect(c.deudaProv()).toBeNull();
+    // ⚠️ Con el mapa vacío NO se declara «sin cruce»: no se puede distinguir de «nadie debe nada».
+    expect(c.deudaSinCruce()).toBe(false);
+  });
+
+  it('el código se compara sin espacios: Kepler los trae a la derecha', () => {
+    DEUDA = { al: '2026-10-09', acreedores: [{ codigo: 'C0001  ', nombre: 'X', pendiente: 10, vencido: 0, saldo: 10 }] };
+    const c = montarConDeuda();
+    c.fSupplier = 's-1';
+    expect(c.deudaProv()?.pendiente).toBe(10);
   });
 });
