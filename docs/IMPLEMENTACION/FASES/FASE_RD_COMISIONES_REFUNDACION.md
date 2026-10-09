@@ -376,23 +376,65 @@ chofer" se cayó con los criterios sembrados (se arregló **filtrando como el mo
 número), y su vigilancia de RLS usa `relname LIKE 'commission%'` — `objective_marks` **no empieza
 con commission**, así que habría quedado sin vigilar. Se amplió el patrón, no sólo el conteo.
 
-### Las pantallas del artefacto que NO se construyeron, con su motivo medido
+### [RD.60] ✅ Gasto renglón por renglón + la ficha de cada unidad (2026-10-08)
 
-- **Gasto de flota (hoja 3).** Su único grano derivable —plaza × concepto × quincena— ya vive
-  dentro de `[RD.57]`. Lo que la haría distinta (el `$/litro` de cada carga contra las últimas
-  diez de esa ruta) **no tiene dato**: ni litros ni ruta en el gasto.
-- **Ficha de la unidad (hoja 4).** El padrón está casi vacío: de 56 vehículos vivos, **año 1/56**
-  y **VIN, nº económico, aseguradora, póliza, odómetro y rendimiento en 0/56**. Y **no existe
-  ninguna columna de vencimiento de seguro en toda la base**, que era justo el valor que la
-  pantalla prometía. ⚠️ Hay un **segundo padrón** (`analytics.v_kepler_transporte`) con placas en
-  **tres formatos** (`NS-0886-D`, `NB-0703D`, `GN3865D`) que cubre **4 de las 8** camionetas de RD.
-  ⚠️ Y un **vínculo malo**: el tracker `CHEVROLET S10 NM8497D R-321` cuelga del vehículo de placa
-  `MW7947C` — otra camioneta; `NM8497D` no existe en el padrón.
-- **Objetivo mensual (hoja 5).** De sus tres criterios: **visitas SÍ** se pueden medir (`tickets`
-  por ruta; ⚠️ son visitas **con venta**, la que no vendió no deja ticket) · **volumen SÍ** (pero
-  su meta no está autorizada, ver arriba) · **desarrollo de marcas NO** — `v_sellout_daily` con el
-  `vendor_code` de las rutas de RD devuelve **0 filas**.
-- **El recibo (hoja 6).** Sigue bloqueado por el padrón de personas (Fase RH).
+⛔ **Las dos las había declarado NO construibles, y me equivoqué.** Al volver a medir, las dos
+salen — con menos de lo que el libro promete, y con algo que el libro no tiene. Lo que estaba mal
+no era la medición de los huecos (siguen siendo ciertos, se enumeran abajo) sino la conclusión que
+saqué de ella: *un dato faltante no vuelve inútil a la pantalla; la vuelve una pantalla que tiene
+que declarar el hueco.*
+
+**`/comercial/ruta-directa/gastos` — el gasto renglón por renglón.** Es la hoja `CONTROL DE GASTOS
+RD`, salvo que los renglones **ya existen**: salen de la contabilidad, nadie los captura. `[RD.57]`
+los muestra agregados; ésta muestra el movimiento. Medido en la quincena 20: **95 renglones, 17
+conceptos, 89 con comentario**, y el comentario dice cosas que nadie miraba (`ARRENDAMIENTO NP300
+RD PH` $18,525.86 · `ROTULACIÓN CAMIONETA PIN PON` $7,000 · `LONA PARA CAMIONETA DE RD` $350).
+⛔ El comentario **se muestra como texto y no se parsea**: a veces nombra la camioneta, pero
+derivar la ruta de una cadena escrita a mano sería adivinar.
+
+**`/comercial/ruta-directa/flota` — la ficha de cada unidad.** El padrón sigue casi vacío **y la
+pantalla lo dice en la cara** en vez de verse pobre: cada ficha enumera *«falta capturar: modelo,
+año, número de serie, aseguradora»*, que convierte «la pantalla está pobre» en «esto es trabajo
+pendiente» (ADR-056). ⭐ Y da lo que el libro no tenía: el **odómetro vivo** del GPS, los días sin
+reportar, y los **vínculos sospechosos** — la 321 sale marcada sola.
+
+**Dos defectos que encontró el propio armado:**
+
+- El `track` de la tabla pegaba dos campos nulables para fabricar una llave. **`expense_entries` ya
+  tiene `id`**, y en el dato hay **dos `CASETAS MORELIA` de $26.10 el mismo día**: un `track` que
+  colisiona hace que Angular reutilice la fila equivocada justo al reordenar, que es lo que esa
+  tabla hace. El arreglo no era callar al compilador con `!`.
+- **El total de arriba y el de abajo se dicen los dos.** El de arriba es el de la quincena entera
+  (`v_rd_expense_period`), el de abajo el de lo que se ve con el filtro puesto. Si el total saliera
+  de la página, una tabla filtrada publicaría una cifra más chica sin avisar. Hay **tope de 400
+  renglones y se declara** cuando trunca.
+
+Mismo permiso `COMMERCIAL_ROUTE_PROFIT_VER` — **sin migración y sin re-login**. Validado contra
+prod: el total cuadra al centavo ($288,988.44 = $288,988.44), **16 ms** el gasto y **17 ms** la
+flota. Con esto Ruta Directa suma **cinco pantallas**.
+
+---
+
+### La única pantalla del artefacto que sigue sin construirse
+
+- **El recibo (hoja 6).** Bloqueado por el **padrón de personas** (Fase RH): la hoja trae RFC,
+  CURP, NSS y fecha de inicio de relación laboral, y nada de eso vive en `identity.users`. El
+  detalle —y el defecto del origen, que las rutas **321 y 322 comparten identidad fiscal**— en
+  `[RD.55]`.
+
+**Lo que se midió como hueco y sigue siéndolo, dentro de pantallas que SÍ se construyeron:**
+
+- **`$/litro` por carga** (hoja 3): no hay dato — ni litros ni ruta en el gasto. La pantalla
+  muestra el renglón; el rendimiento no.
+- **Vencimiento de póliza** (hoja 4): **no existe la columna en toda la base**, y era justo el
+  aviso que la hoja prometía. La ficha lo enumera como pendiente de captura, no lo dibuja. ⚠️ Hay
+  un **segundo padrón** (`analytics.v_kepler_transporte`) con placas en **tres formatos**
+  (`NS-0886-D`, `NB-0703D`, `GN3865D`) que cubre **4 de las 8** camionetas de RD.
+- **Desarrollo de marcas** (hoja 5): `v_sellout_daily` con el `vendor_code` de las rutas de RD
+  devuelve **0 filas**. El criterio existe en `[RD.59]` y se **marca a mano con motivo**, porque no
+  se puede medir. Sus otros dos criterios sí se miden: **visitas** (`tickets` por ruta; ⚠️ son
+  visitas **con venta**, la que no vendió no deja ticket) y **volumen** (su meta sigue sin
+  autorizarse).
 
 ---
 
