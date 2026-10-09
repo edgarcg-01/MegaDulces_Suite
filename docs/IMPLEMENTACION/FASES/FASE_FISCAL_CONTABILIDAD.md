@@ -122,3 +122,101 @@ Leyenda: ✅ existe/reutilizable · 🔨 hecho este sprint · ⬜ por construir 
 - **ADR:** falta formalizar el ADR del dominio Fiscal (número siguiente disponible).
 - **PAC:** Facturama ya integrado (timbrado) — ¿mismo PAC para descarga/verificación de estatus, o WS del SAT directo?
 - **Art. 69 URLs:** verificar con HEAD las rutas Azure Blob del SAT antes de confiar en prod; idealmente scrapear el índice `contribuyentes_publicados.html` en runtime.
+
+---
+
+## MAT.5 — La pasada masiva del casamiento CFDI ↔ operación (2026-10-09) 🧪
+
+Nace de una auditoría que pidió Edgar: *"qué procesos existen que no están casados?"*. Se midieron
+las **once juntas** de la cadena documental contra prod, y de ahí salió esta fase.
+
+### ⛔⛔ El hallazgo: dos tablas de casamiento en prod con CERO filas
+
+| junta | universo | casados | |
+|---|---:|---:|---:|
+| REP (complemento de pago) → factura | 176 | 176 | 100 % |
+| CFDI recibido → contabilidad | 14,982 | 12,579 | 84.0 % |
+| Factura de proveedor → pago aplicado (`kdxf`) | 23,598 | 18,998 | 80.5 % |
+| OC de Kepler → entrada de mercancía | 12,977 | 10,487 | 80.8 % |
+| Movimiento bancario → documento Kepler | 60,550 | 18,915 | 31.2 % |
+| Pago a proveedor → comprobante escaneado | 4,714 | 1,350 | 28.6 % |
+| Entrada de mercancía → factura (por importe) | 6,210 | 1,641 | 26.4 % |
+| Requisición nuestra → OC de Kepler | 751 | 63 | 8.4 % |
+| Entrada de mercancía → CFDI (por folio) | 6,210 | 41 | 1.1 % |
+| **Cobro de cliente → ficha de depósito** | 27,921 | **0** | ⛔ |
+| **CFDI recibido → operación de Kepler** | 14,982 | **0** | ⛔ |
+
+⭐ **El patrón:** lo que casa por **llave estructural** casa (100 %, 84 %, 80 %); lo que depende de
+que alguien **teclee una referencia o suba un papel**, no. El 1.1 % de entrada↔CFDI es literalmente
+`F-18852`, `10-8853`, `0-F8803` escritos a mano.
+
+⛔ Y lo peor no es lo que falta casar: **`fiscal.cfdi_assignments` y `finance.collection_deposits`
+están en producción, con esquema, índices, OCR y pantalla, y nunca se usaron ni una vez.** No es un
+hueco de datos: es trabajo terminado que no entró a la operación.
+
+### Por qué `cfdi_assignments` quedó vacía — y por qué eso SÍ es código
+
+`reconcile()` recibe **UN RFC a la vez** y propone candidatos para confirmar factura por factura.
+Con **399 proveedores** y **14,891 CFDIs recibidos** en 365 días, nadie iba a hacerlo nunca. El
+sugeridor es bueno; lo que faltaba era la pasada masiva.
+
+Medido con la MISMA heurística de `reconcile` (RFC + importe ±$1 + fecha ±5 d):
+
+| | CFDIs |
+|---|---:|
+| recibidos en 365 d | 14,891 |
+| con al menos un candidato fuerte | 2,297 |
+| con **un solo** candidato | 2,016 |
+| **pares estrictamente 1:1** | **1,900 · $99,961,324** |
+
+### ⛔⛔ La decisión que manda: proponer no es confirmar
+
+El `CHECK` sólo admitía `confirmed` y `rejected`. Escribir el casamiento automático como
+`confirmed` **sería una mentira con consecuencia fiscal**: esta tabla es la evidencia de
+materialidad que consume `MAT.3`, y un cruce por importe y fecha es una **pista fuerte, no la
+prueba de que la operación existió**. Confirmado queda indistinguible de lo que una persona
+verificó — y ésa es justo la diferencia que importa en una auditoría.
+
+⇒ Estado nuevo **`auto`** (mig `20261009153940`). Los consumidores que filtran `confirmed` ven
+exactamente lo mismo que antes —nadie hereda evidencia que nadie miró— y la persona pasa de
+**buscar** los pares a **aprobarlos** (`confirm-batch`, que es donde queda su nombre).
+
+⭐ **Dos índices únicos parciales**, aprovechando que la tabla está VACÍA: es el único momento en
+que no pueden fallar al crearse. Vuelven estructural lo que hoy era una promesa del comentario del
+servicio ("1:1 en ambos sentidos"). `rejected` queda fuera: descartar el mismo par N veces no es
+asignar.
+
+### Lo que el lote NO hace, a propósito
+
+- ⛔ **No usa el casamiento DÉBIL** (`[MAT.1.1]`, sin RFC, cruzado porque dos nombres comparten una
+  palabra). Proponerlo en masa siembra trabajo de revisión en vez de ahorrarlo.
+- ⛔ **Sólo el 1:1 estricto.** De 2,725 pares candidatos, 1,900 cumplen; los otros 825 quedan para
+  la persona, que es exactamente donde su criterio vale algo.
+- ⭐ **Declara el universo.** La respuesta trae `cfdis_sin_candidato` y `pares_ambiguos` aparte,
+  porque «1,900 propuestas» sin denominador se lee como *«ya está casado todo lo que se podía»* y
+  es falso: ~12,900 CFDIs no tienen **ni un** candidato. Eso no es ambigüedad, es ausencia.
+
+### Candado
+
+`materialidad-auto.spec.ts`, 22 aserciones. ⚠️ Vive en `libs/finance` porque **`libs/fiscal` no
+tiene runner de tests** y dárselo toca la config de Nx, que no se toca sin autorización — se
+declara la deuda en vez de cambiar la config por mi cuenta.
+
+**Mutado a rojo** poniendo `'confirmed'` donde va `'auto'`: caen las dos aserciones de consecuencia
+fiscal. ⛔ Y una negativa mía nació mal otra vez: barría todo el `INSERT` y salía roja con el código
+correcto, porque los `NOT EXISTS` de idempotencia nombran `'confirmed'` legítimamente —están
+**comprobando** filas, no insertándolas—. Se acotó a la lista de valores.
+
+### ⚠️ Lo que falta, y NO se hizo
+
+- ⛔ **La migración no se aplicó** y **el lote no se corrió contra prod**. Correrlo escribe ~1,900
+  filas en una tabla de evidencia fiscal: va con autorización explícita y fuera de horario.
+- ⛔ **`finance.collection_deposits` no se arregla con código.** Está completa —OCR, cuadre,
+  pantalla, permisos— y vacía porque nadie sube la ficha de depósito. Es un cambio de proceso, con
+  dueño, no un sprint.
+- **La pantalla** de materialidad todavía pinta igual una propuesta y una confirmación: el backend
+  ya manda `status`, falta que el front lo use y ofrezca el confirmar en lote.
+- ⛔ **El traspaso no cuadra con nadie**: $119.3 M salieron y $79.6 M se registraron recibidos en
+  180 d, con el hueco **creciendo** (jul $7.1 M → sep $16.4 M) y **negativo** en mayo-junio. Eso
+  descarta rezago de tránsito: las dos puntas no son un par que cuadre. Nadie lo ha cuadrado nunca
+  y es el movimiento por el que pasa casi todo el inventario de la red.

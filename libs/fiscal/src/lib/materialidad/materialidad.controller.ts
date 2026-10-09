@@ -47,6 +47,22 @@ export class MaterialidadController {
   @ApiOperation({ summary: 'Descarta un par sugerido para que no vuelva a proponerse.' })
   reject(@Body() body: AssignmentInput) { return this.assign.reject(body); }
 
+  /**
+   * `[MAT.5]` La pasada masiva. ⛔ **Propone, no confirma**: escribe `status = 'auto'`, que la
+   * base distingue de la evidencia que miró una persona.
+   *
+   * Pide `_GESTIONAR` porque ESCRIBE en la tabla, aunque lo que escriba no sea evidencia todavía.
+   */
+  @Post('assignments/auto')
+  @RequirePermissions(Permission.FISCAL_MATERIALIDAD_GESTIONAR)
+  @ApiOperation({ summary: 'Propone en lote los pares CFDI↔operación estrictamente 1:1 (status=auto). NO confirma: eso lo hace una persona.' })
+  auto(@Body() body: { dias?: number; limite?: number }) { return this.assign.autoProponer(body ?? {}); }
+
+  @Post('assignments/confirm-batch')
+  @RequirePermissions(Permission.FISCAL_MATERIALIDAD_GESTIONAR)
+  @ApiOperation({ summary: 'Confirma en lote las propuestas (auto → confirmed). Acá el casamiento se vuelve evidencia, y queda el nombre de quien la miró.' })
+  confirmBatch(@Body() body: { ids: string[] }) { return this.assign.confirmarPropuestas(body?.ids ?? []); }
+
   @Delete('assignments/:id')
   @RequirePermissions(Permission.FISCAL_MATERIALIDAD_GESTIONAR)
   @ApiOperation({ summary: 'Revierte una asignación confirmada.' })
