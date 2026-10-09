@@ -122,6 +122,17 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
       text-transform:uppercase; letter-spacing:.04em; height:var(--row-h-sm);
       position:sticky; top:0; z-index:1; background:var(--card-bg); }
     .cpr-tabla tbody tr:hover{ background:var(--table-hover); }
+    /* [ETQ-CAMBIOS.9] La fila entera se puede pulsar para imprimir su etiqueta. */
+    .cpr-tabla tbody tr.cpr-fila-click{ cursor:pointer; }
+    .cpr-accion{ text-align:right; white-space:nowrap; }
+    .cpr-btn-imprimir{ display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .6rem;
+      min-height:var(--row-h-sm); font-size:var(--fs-xs); font-weight:var(--fw-medium); cursor:pointer;
+      background:var(--card-bg); color:var(--fg-1); border:1px solid var(--border-color);
+      border-radius:var(--radius-sm); }
+    .cpr-btn-imprimir:hover{ background:var(--table-hover); }
+    .cpr-btn-imprimir:focus-visible{ outline:2px solid var(--focus-ring); outline-offset:1px; }
+    @media (pointer: coarse){ .cpr-btn-imprimir{ min-height:2.75rem; padding:.2rem .9rem; } }
+    .cpr-sr{ position:absolute; inline-size:1px; block-size:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
     .cpr-tabla tbody tr.is-sel{ background:var(--table-hover); }
     .cpr-num{ font-variant-numeric:tabular-nums; color:var(--fg-2); }
     .cpr-money{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -185,7 +196,7 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
 
       <div class="cpr-head">
         <h1>Cambios de precio</h1>
-        <p>Lo que el ERP movió ese día en tu tienda. Marca lo que quieras y mándalo a la cola de impresión.</p>
+        <p>Lo que el ERP movió ese día en tu tienda. Haz clic en un producto para imprimir su etiqueta, o marca varios y mándalos juntos.</p>
       </div>
 
       <!-- [ETQ-CAMBIOS.6] Sin tienda propia ya no es un callejón: se elige una. La bitácora sigue
@@ -341,6 +352,7 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                   <th style="width:7rem">Código</th>
                   <th>Producto</th>
                   <th>Qué cambió</th>
+                  <th style="width:7rem"><span class="cpr-sr">Imprimir</span></th>
                 </tr>
               </thead>
               <tbody>
@@ -348,8 +360,13 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                      producto llegaba tres veces; la etiqueta es una por producto. Lo que cambió en cada
                      presentación va adentro, una línea por unidad. -->
                 @for (p of productos(); track p.sku) {
-                  <tr [class.is-sel]="marcado(p)">
-                    <td>
+                  <!-- [ETQ-CAMBIOS.9] Clic en la fila = imprimir ESA etiqueta. Una fila con clic y nada más es invisible
+                       sin ratón, así que la fila también se enfoca (tabindex) y Enter / Espacio hacen lo mismo. El botón
+                       de la última columna es para quien ve el ratón o el dedo y no sabe que la fila se pulsa: queda
+                       FUERA del orden de tabulador (tabindex -1) para no duplicar las paradas por fila. -->
+                  <tr class="cpr-fila-click" tabindex="0" [class.is-sel]="marcado(p)" (click)="clicFila(p)"
+                      (keydown)="teclaFila($event, p)" title="Clic, Enter o Espacio para imprimir la etiqueta de este producto">
+                    <td (click)="$event.stopPropagation()">
                       <label class="cpr-check">
                         <input type="checkbox" [checked]="marcado(p)" (change)="alternar(p)"
                                [attr.aria-label]="'Marcar ' + p.sku" />
@@ -379,6 +396,12 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
                           }
                         </div>
                       }
+                    </td>
+                    <td class="cpr-accion">
+                      <button type="button" class="cpr-btn-imprimir" tabindex="-1" (click)="imprimirUno($event, p)"
+                              [attr.aria-label]="'Imprimir la etiqueta de ' + p.sku" title="Imprimir esta etiqueta">
+                        <i class="pi pi-print" aria-hidden="true"></i> Imprimir
+                      </button>
                     </td>
                   </tr>
                 }
@@ -606,5 +629,37 @@ export class TiendaCambiosPrecioComponent {
     const codes = Array.from(new Set(productos.map((p) => p.sku).filter(Boolean)));
     if (!codes.length) return;
     this.router.navigate(['/tienda/etiquetas'], { state: { codes, modo: this.modo() } });
+  }
+
+  /**
+   * `[ETQ-CAMBIOS.9]` Clic en la fila: va a la etiquetera con ESE producto ya en la cola y con el
+   * precio que está elegido en «Precio en la etiqueta». No abre la ventana de impresión sola:
+   * allá la persona todavía ve el aviso de frescura, el precio grande y la hoja antes de gastar
+   * papel, que es justo lo que esa pantalla existe para que revise.
+   *
+   * ⚠️ Si hay texto seleccionado NO se navega: copiar un código o un nombre con el ratón también
+   * termina en un clic sobre la fila, y perder lo seleccionado sería un castigo por copiar.
+   */
+  clicFila(p: ProductoCambio): void {
+    if (typeof window !== 'undefined' && String(window.getSelection?.() ?? '').length > 0) return;
+    this.imprimir([p]);
+  }
+
+  /**
+   * `[ETQ-CAMBIOS.9]` Enter o Espacio sobre la FILA enfocada. ⚠️ Sólo cuando el foco está en la fila
+   * misma: Enter sobre la casilla de marcar (que está dentro de la fila) sube hasta acá y, sin esta
+   * guarda, imprimiría en vez de marcar.
+   */
+  teclaFila(e: KeyboardEvent, p: ProductoCambio): void {
+    if (e.target !== e.currentTarget) return;
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault(); // el Espacio no debe además hacer scroll
+    this.clicFila(p);
+  }
+
+  /** El botón de la fila. Frena la propagación: sin eso el clic sube a la fila y navegaría DOS veces. */
+  imprimirUno(e: Event, p: ProductoCambio): void {
+    e.stopPropagation();
+    this.imprimir([p]);
   }
 }

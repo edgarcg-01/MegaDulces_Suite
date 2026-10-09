@@ -115,6 +115,61 @@ describe('TiendaCambiosPrecioComponent · un código, una fila', () => {
     expect(navegar).toHaveBeenLastCalledWith(['/tienda/etiquetas'], { state: { codes: ['95459'], modo: 'caja' } });
   });
 
+  describe('clic en la fila imprime ESA etiqueta', () => {
+    const filaDe = (sku: string): HTMLTableRowElement =>
+      Array.from(root().querySelectorAll('tbody tr')).find((tr) => tr.querySelector('td.cpr-num')?.textContent?.trim() === sku) as HTMLTableRowElement;
+
+    it('⭐ un clic en la fila manda ESE producto a la etiquetera, con el precio elegido', async () => {
+      cmp.modo.set('caja');
+      filaDe('95459').click();
+      expect(navegar).toHaveBeenCalledTimes(1);
+      expect(navegar).toHaveBeenCalledWith(['/tienda/etiquetas'], { state: { codes: ['95459'], modo: 'caja' } });
+    });
+
+    it('⛔ marcar la casilla NO navega: es para armar un lote, no para imprimir', () => {
+      (filaDe('91059').querySelector('input[type=checkbox]') as HTMLInputElement).click();
+      expect(navegar).not.toHaveBeenCalled();
+      expect(cmp.marcados().map((p) => p.sku)).toEqual(['91059']);
+    });
+
+    it('⭐ el botón «Imprimir» de la fila navega UNA sola vez (el clic no sube a la fila)', () => {
+      (filaDe('91059').querySelector('button.cpr-btn-imprimir') as HTMLButtonElement).click();
+      expect(navegar).toHaveBeenCalledTimes(1);
+      expect(navegar).toHaveBeenCalledWith(['/tienda/etiquetas'], { state: { codes: ['91059'], modo: 'todos' } });
+    });
+
+    it('⭐ la FILA se alcanza con el teclado, y Enter o Espacio imprimen su etiqueta', () => {
+      const fila = filaDe('91059');
+      expect(fila.getAttribute('tabindex')).toBe('0');
+      const tecla = (key: string) => fila.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }));
+      tecla('Enter');
+      expect(navegar).toHaveBeenLastCalledWith(['/tienda/etiquetas'], { state: { codes: ['91059'], modo: 'todos' } });
+      tecla(' ');
+      expect(navegar).toHaveBeenCalledTimes(2);
+      tecla('a'); // otra tecla no hace nada
+      expect(navegar).toHaveBeenCalledTimes(2);
+    });
+
+    it('⛔ Enter sobre la CASILLA no imprime: marcar es marcar, aunque la tecla suba hasta la fila', () => {
+      const casilla = filaDe('91059').querySelector('input[type=checkbox]') as HTMLInputElement;
+      casilla.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+      expect(navegar).not.toHaveBeenCalled();
+    });
+
+    it('el botón es para el ratón y el dedo: sale del orden de tabulador (una parada por fila) y dice de qué producto es', () => {
+      const b = filaDe('91059').querySelector('button.cpr-btn-imprimir') as HTMLButtonElement;
+      expect(b.getAttribute('tabindex')).toBe('-1');
+      expect(b.getAttribute('aria-label')).toBe('Imprimir la etiqueta de 91059');
+    });
+
+    it('⛔ si hay texto seleccionado no navega: copiar un código no debe costar la selección', () => {
+      const sel = vi.spyOn(window, 'getSelection').mockReturnValue({ toString: () => '91059' } as unknown as Selection);
+      filaDe('91059').click();
+      expect(navegar).not.toHaveBeenCalled();
+      sel.mockRestore();
+    });
+  });
+
   it('el selector de precio está en la barra, antes de imprimir', () => {
     expect(root().textContent).toContain('Precio en la etiqueta');
     const opciones = Array.from(root().querySelectorAll('.seg-btn')).map((b) => b.textContent?.trim());
