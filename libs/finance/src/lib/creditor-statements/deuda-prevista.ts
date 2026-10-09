@@ -51,6 +51,8 @@ export interface DeudaCobertura {
 export interface DeudaPrevista {
   porSemana: { bucket: string; monto: number }[];
   cobertura: DeudaCobertura;
+  /** `[TES.11]` De cuántos proveedores depende lo que la curva dibuja. Ver `Concentracion`. */
+  concentracion: { n: number; top1_pct: number | null; top5_pct: number | null };
   /** Desglose por el tipo que decide `clasificarAcreedor()`. */
   porTipo: Record<string, number>;
   as_of: string | null;
@@ -89,6 +91,10 @@ export async function deudaPrevista(
   };
   const porTipo: Record<string, number> = {};
   const semanas = new Map<string, number>();
+  // [TES.11] Espejo de la concentración del cobro. No hace falta tocar el SQL: ya viene agrupado
+  // por proveedor. Medido contra prod el 2026-10-09: los 5 mayores concentran el **44.7 %** de la
+  // deuda y los 20 el **68.3 %**, sobre 397 proveedores — MÁS concentrado que la cartera.
+  const porProveedor = new Map<string, number>();
 
   for (const row of rows) {
     const monto = Number(row.monto) || 0;
@@ -107,6 +113,9 @@ export async function deudaPrevista(
     if (row.bucket) {
       const b = String(row.bucket).slice(0, 10);
       semanas.set(b, r2((semanas.get(b) ?? 0) + monto));
+      // Sólo lo que la curva DIBUJA: el riesgo es que lo proyectado dependa de pocos.
+      const p = String(row.proveedor ?? '?');
+      porProveedor.set(p, r2((porProveedor.get(p) ?? 0) + monto));
     }
   }
 
@@ -114,7 +123,15 @@ export async function deudaPrevista(
   // cuando lo que pasa es que no hay con qué medirlo.
   cob.pct_en_ventana = cob.total > 0 ? Math.round((cob.en_ventana / cob.total) * 1000) / 10 : null;
 
+  // [TES.11] Concentración de lo que la curva dibuja. Sin proveedores en la ventana queda
+  // DESCONOCIDA, no 0%: un 0 se leería como «bien repartida» y lo que pasa es que no hay con qué.
+  const montos = [...porProveedor.values()].sort((a, b) => b - a);
+  const totalV = montos.reduce((s, m) => s + m, 0);
+  const topN = (k: number) => (totalV > 0
+    ? Math.round((montos.slice(0, k).reduce((s, m) => s + m, 0) / totalV) * 1000) / 10 : null);
+
   return {
+    concentracion: { n: montos.length, top1_pct: topN(1), top5_pct: topN(5) },
     porSemana: [...semanas.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1))
       .map(([bucket, monto]) => ({ bucket, monto })),
     cobertura: cob,
