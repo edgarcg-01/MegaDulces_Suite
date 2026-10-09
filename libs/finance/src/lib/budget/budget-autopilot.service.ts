@@ -7,6 +7,7 @@ import { decidirProcedencia, type PropuestaCanal, type ResumenProcedencia } from
 import { BudgetExpensePlanService } from './budget-expense-plan.service';
 import { BudgetMaterializeService } from './budget-materialize.service';
 import { BudgetGenerationService } from './budget-generation.service';
+import { BudgetFindingsService } from './budget-findings.service';
 import { SelloutRollupService } from './sellout-rollup.service';
 import { esEjercicioOperable } from './budget-autopilot.policy';
 
@@ -117,6 +118,9 @@ export class BudgetAutopilotService {
     private readonly generation: BudgetGenerationService,
     private readonly rollup: SelloutRollupService,
     @Optional() private readonly tenantCtx?: TenantContextService,
+    // [PU.VG.8] Opcional a proposito: si el modulo no lo cablea, el autopiloto sigue armando el
+    // presupuesto y lo DECLARA en errores, en vez de caerse o de callarse.
+    @Optional() private readonly findings?: BudgetFindingsService,
   ) {}
 
   /**
@@ -215,6 +219,23 @@ export class BudgetAutopilotService {
       // se DECLARA como falla: es el síntoma exacto del bug de arriba volviendo.
       if (tenants.length > 0 && vistos === 0) {
         errores.push('no se vio ni un ejercicio en ninguna tabla: ¿contexto de tenant / RLS?');
+      }
+
+      // [PU.VG.8] Lo que el presupuesto tiene para decir sale a la bandeja que la gente abre.
+      // Va DESPUES de la pasada, para que mida el estado ya actualizado, y cuelga de este cron
+      // porque es el unico del carril con latido y umbral registrados -- uno nuevo sin umbral
+      // caeria en el `cfg ? classify : 'ok'` que da verde incondicional.
+      // Una falla acá NO tumba la pasada: el presupuesto ya quedó armado. Pero tampoco se come
+      // en silencio -- viaja en `errores`, que es lo que el latido reporta.
+      if (this.findings) {
+        for (const tid of tenants) {
+          try {
+            const f = await this.findings.scan(tid);
+            if (!f.medido) errores.push(`hallazgos de presupuesto NO MEDIDOS: ${f.motivo}`);
+          } catch (e) {
+            errores.push(`hallazgos de presupuesto: ${(e as Error)?.message ?? e}`);
+          }
+        }
       }
 
       const res: AutopilotResult = {
