@@ -85,6 +85,9 @@ export * from './lib/scope/scope.module';
 export * from './lib/scope/scope.service';
 export * from './lib/scope/scope.types';
 export * from './lib/scope/scope-params';
+// `[PVI.17]` El filtro del ejercicio de prueba, en un solo lugar: lo consumen `libs/finance` y
+// `libs/trade`, que no se pueden importar entre sí. Copiarlo publicaba el doble.
+export * from './lib/budget/ejercicio-prueba.sql';
 
 // ── search (motor de búsqueda compartido) ──
 export * from './lib/search/smart-search';

@@ -8,7 +8,7 @@ import {
   type MeFlujo,
   type MeVeredicto,
 } from '@megadulces/contracts';
-import { branchKeySql } from '@megadulces/platform-core';
+import { branchKeySql, ejercicioNoEsDePruebaSql, obligacionNoEsDePruebaSql } from '@megadulces/platform-core';
 
 /**
  * `[SN.7]` — El registro de BANDEJAS de trabajo pendiente que alimenta `GET /users/me/work`.
@@ -77,7 +77,9 @@ export type ResponsabilidadKey =
   | 'sistemas.salud_datos'
   | 'finanzas.cartera'
   | 'compras.entradas'
-  | 'servicio.atender';
+  | 'servicio.atender'
+  /** `[PVI.17]` Las dos puertas donde una propuesta de presupuesto se vuelve un hecho. */
+  | 'finanzas.presupuesto';
 
 /**
  * `[SN.15]` Lo que cada conteo necesita saber de quién pregunta.
@@ -1139,6 +1141,126 @@ export const BANDEJAS: readonly BandejaDef[] = [
         },
       );
     },
+  },
+  /*
+   * `[PVI.17]` ── Las dos puertas donde una propuesta de presupuesto se vuelve un hecho ───────
+   *
+   * ── Por qué entran acá y no se quedan en su módulo ─────────────────────────────────────────
+   * `PendingApprovalsService` (`[TES.17]`) ya arma esta bandeja y la pinta **dentro de
+   * `/presupuesto`**. Eso la deja donde el destinatario no está: por ADR-076 la torre de control
+   * de Dirección es «Mi trabajo», no una pantalla por módulo — un tablero aparte sería la 12ª
+   * landing. Que el número viva en el módulo obliga a entrar al módulo para enterarse de que hay
+   * algo que firmar, que es justo lo que una portada existe para evitar.
+   *
+   * ⭐ **Son DOS entradas y no una.** Medido en prod el 2026-10-09: 0 ejercicios en `pendiente` y
+   * 156 obligaciones en `propuesta`. Con un solo contador el 156 se come al 0 — y el 0 es el que
+   * dice que *nadie mandó un presupuesto a aprobar*, que es un problema distinto y más grave que
+   * tener cola. Es la misma razón por la que `[TES.17]` publica `por_cola[]`.
+   *
+   * ⛔ Y **el 0 no se va a pintar**: la regla 4 del registro dice que una bandeja en 0 no se
+   * muestra. Se declara igual, porque el día que alguien envíe un ejercicio la cola existe y
+   * aparece sola; sin la entrada, ese envío sería invisible para siempre (`[SN.30]`).
+   */
+  {
+    id: 'presupuesto-ejercicios',
+    label: 'Ejercicios de presupuesto por aprobar',
+    detalle: 'presupuestos enviados a firma: sin aprobar no se hacen vigentes ni materializan sus partidas',
+    ruta: '/presupuesto',
+    icono: 'pi pi-verified',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.presupuesto',
+    acotablePorSucursal: false,
+    /*
+     * 7 días = un ciclo de revisión. Un ejercicio fiscal se lee, no se despacha: no es la misma
+     * urgencia que una propuesta de pago. Es política, y se cambia acá en una línea.
+     */
+    umbral_dias: 7,
+    // ⚠️ La ruta `/presupuesto` la gatea `permissionGuard(PRESUPUESTOS_VER)`, y el registro exige
+    // que `anyOf` intersecte con el guard o el número lleva a un rebote. Firmar pide además
+    // `PRESUPUESTOS_APROBAR` (hoy `direccion` y `superadmin`); por eso el rótulo dice «por
+    // aprobar» y no «esperando TU firma»: con `alcance: 'bandeja'` es una cola COMPARTIDA, y
+    // quien la mira sin poder firmarla igual necesita ver que está trabada.
+    anyOf: [Permission.PRESUPUESTOS_VER],
+    medir: (knex, { tenantId }) =>
+      medirCola(
+        knex,
+        // `ejercicioNoEsDePruebaSql`: el duplicado `is_test` es copia byte a byte del real.
+        knex('budget.budgets').where({ tenant_id: tenantId }).whereRaw(ejercicioNoEsDePruebaSql('budget.budgets')),
+        {
+          estadoCol: 'status',
+          estadoAbierto: 'pendiente',
+          /*
+           * ⚠️ `updated_at` es un PROXY y hay que saberlo: ninguna de las dos tablas guarda
+           * *cuándo entró a la cola*. Es la fecha del último toque, no la del envío a firma.
+           * Se usa igual porque es la mejor disponible y porque el umbral de 7 días tolera el
+           * error; lo que no se hace es publicar «lleva 12 días esperando» como medición.
+           */
+          fecha: 'updated_at',
+          /*
+           * `authorized_at` SÍ sirve acá: es `NULL`able y **sin default** (verificado contra el
+           * esquema de prod), y está vacía en los 3 ejercicios, los 3 en `borrador`. O sea que
+           * la escribe la transición, no el INSERT — al revés que su homónima de la tabla de
+           * obligaciones, ver abajo.
+           */
+          cierre: 'authorized_at',
+        },
+      ),
+  },
+  {
+    id: 'presupuesto-obligaciones',
+    label: 'Obligaciones de gasto por autorizar',
+    detalle: 'sin autorizar NO entran al Calendario de pagos: no se les puede asignar día ni reservar capacidad',
+    ruta: '/presupuesto',
+    icono: 'pi pi-file-check',
+    alcance: 'bandeja',
+    responsabilidad: 'finanzas.presupuesto',
+    acotablePorSucursal: false,
+    /*
+     * 3 días, el mismo criterio que `maat-acciones` y por la misma razón medida: una propuesta de
+     * pago que espera tres días ya no sirve para decidir, porque el vencimiento y el saldo con
+     * los que se calculó se movieron. Acá además tienen `original_due_date`.
+     */
+    umbral_dias: 3,
+    anyOf: [Permission.PRESUPUESTOS_VER],
+    medir: (knex, { tenantId }) =>
+      medirCola(
+        knex,
+        knex('budget.expense_obligations')
+          .where({ tenant_id: tenantId })
+          // ⛔ `NOT EXISTS` de dos saltos, no `JOIN`: la tabla no tiene `budget_id` y un `JOIN`
+          //    también se comería las obligaciones SIN partida, que no son de prueba. Hoy son 0
+          //    (medido) y por eso el defecto sería invisible. El predicado vive en `libs/`.
+          .whereRaw(obligacionNoEsDePruebaSql()),
+        {
+          estadoCol: 'status',
+          estadoAbierto: 'propuesta',
+          fecha: 'created_at',
+          /*
+           * ⛔⛔ **`cierre: null` — y es un hallazgo, no una omisión.**
+           *
+           * La columna que suena bien es `authorized_at`, y **miente**. Medido contra prod el
+           * 2026-10-09, esquema y datos:
+           *
+           *     authorized_at  NOT NULL DEFAULT now()   ← no puede valer NULL jamás
+           *     312 de 312 filas la traen llena
+           *     312 de 312 siguen en status 'propuesta'
+           *     authorized_by  vacío en las 312
+           *     authorized_at = created_at en 312 de 312
+           *
+           * Es una marca de creación con el nombre de una autorización. Quien derive «cuántas
+           * están autorizadas» de `authorized_at IS NOT NULL` obtiene **el 100 %**.
+           *
+           * Usarla de `cierre` no rompería el número HOY —`CERRADA` también exige
+           * `status <> 'propuesta'`, y ninguna salió— pero haría que la cola se declarara sana
+           * por una columna que no mide lo que dice. `null` ⇒ `cerradas_30d: null`, que es «esta
+           * fuente no puede contestarlo», **nunca 0**, que es «nadie cerró ninguna» (ADR-056).
+           *
+           * ⚠️ El arreglo de fondo —que la transición escriba la fecha y el autor— es del módulo
+           * de presupuestos, no de este registro, y queda declarado acá para que se pueda buscar.
+           */
+          cierre: null,
+        },
+      ),
   },
 ];
 
