@@ -263,6 +263,92 @@ SUPERVISOR`). Por orden de dinero, no de hoja:
 
 ---
 
+### [RD.57] ✅ Rentabilidad de Ruta Directa — la pregunta que la comisión no contesta (2026-10-08)
+
+`/comercial/ruta-directa/rentabilidad`. Permiso propio `COMMERCIAL_ROUTE_PROFIT_VER` (4 roles,
+15 personas, derivado de quién ya ve la nómina de RD). Migraciones **845** (datos) y **846**
+(permiso) en prod. Candado `test-newdb-rd-rentabilidad.js`.
+
+**Lo que resultó derivable, medido contra prod:**
+
+| El libro teclea | ¿Sale del sistema? | De dónde |
+|---|---|---|
+| Odómetro | ✅ **por ruta y por día** | `logistics.trackers.route_number` ⋈ `vehicle_positions.odometer` |
+| Gasto por concepto | ✅ pero **por PLAZA** | 3 departamentos contables: `1-01-10-20` · `1-03-50-51` · `1-02-32-98` |
+| Ruta del gasto | ⛔ no | la contabilidad llega al departamento; el comentario dice "combustible rd" |
+| Litros · `$/litro` · `km/l` | ⛔ no | el CFDI guarda sólo el encabezado; XML en 105 de 6,241 facturas |
+
+**Combustible RD 2026 = $821,778** contra los $523,166 que acumula el libro: la contabilidad
+tiene **más** que el Excel, no menos.
+
+⭐ **El hueco que destapó:** el libro paga **$1,721,128** de comisión y bonos en 2026; la
+contabilidad registra **$1,057,960** en los tres departamentos de RD. Faltan **$663,168**, en las
+14 quincenas, sin una excepción. La hipótesis del rezago a la quincena siguiente **se probó y no
+lo explica** (con N+1 el delta sigue entre −$28k y −$42k). Se declara con monto; no se netea.
+
+⚠️ **Tres trampas del dato, las tres con guarda:** dos trackers por ruta (unidad + dashcam, cada
+uno con su odómetro) · el odómetro que se reinicia (1 de 736 filas: 21,202 km en un día) · la
+misma clave de departamento con dos grafías (`CANINDO RD.` y `CANINDO RD`), que agrupada por
+nombre parte el total en dos sin avisar.
+
+⭐ **El umbral de «día medido» lo fijó el dato, no el pulgar.** La regla obvia (pocos pings = no
+medido) es falsa: un día de 5-19 pings con **20 horas de cobertura** es el camión reportando
+**quieto**. El separador son las horas, con un hueco limpio entre 2.1 y 10.1.
+
+### [RD.58] ✅ Quién viene empeorando — la serie (2026-10-08)
+
+`GET /commercial/route-profit/series`. Tendencia por ruta: las últimas tres quincenas contra las
+tres anteriores. Es lo que una foto de una quincena no puede dar, y el libro tampoco porque cada
+quincena vive en su propia hoja.
+
+⛔⛔ **La primera versión estaba mal y la medición lo destapó antes de publicarla.** Las **seis**
+rutas con GPS salían «empeorando» a la vez, con caídas de −$72 a −$230. Que las seis cayeran
+juntas no es desempeño: es un artefacto. Medido:
+
+| Quincena | Días con señal | km ruta 26 |
+|---|---|---|
+| 15 | **3 de 14** | 337 |
+| 16 | **11 de 14** | 699 |
+| 17–20 | 14 de 14 | 988–1,054 |
+
+El `$/km` de la Q15 dividía la venta de **catorce** días entre **tres** de kilómetros. No
+empeoraron: **se completó la medición**. Es el denominador incompleto de `[IC.8]`.
+
+**El arreglo:** el `$/km` sólo se publica con la quincena **completa** de GPS, y cada punto
+declara su cobertura (`completa` / `parcial` / `sin_gps`). Después: 3 suben, 2 bajan levemente, y
+los niveles son coherentes (160–250 en vez de 300–410). La **28 pasó de «−230, empeora» a sin
+base**, que es la verdad. El control del candado: sin la guarda el `$/km` llega a **$675.48**;
+con ella el máximo publicado es **$255.65**, sobre **25 de 52** ruta-quincena parciales.
+
+⭐ **Lo que sobrevive como hallazgo:** la **321** es la única cuyo margen empeora (−1.09 pp) y la
+**501** la única que mejora (+3.56 pp); las otras once caen dentro de ±0.7.
+
+⛔ **Sin meta, y se declara.** `budget.sales_plan_lines` tiene las 13 rutas de RD con 13 periodos
+cada una, pero los **tres** presupuestos cargados están en `borrador`, **ninguno autorizado**, uno
+marcado `is_test` y el único de 2026 se llama literalmente **`prueba 2`**. Además hay **tres filas
+por (ruta, periodo)** con montos distintos (461,357 / 574,368 / 574,368 en el periodo 1 de la
+ruta 21), así que unir sin elegir presupuesto **triplica la meta**.
+
+### Las pantallas del artefacto que NO se construyeron, con su motivo medido
+
+- **Gasto de flota (hoja 3).** Su único grano derivable —plaza × concepto × quincena— ya vive
+  dentro de `[RD.57]`. Lo que la haría distinta (el `$/litro` de cada carga contra las últimas
+  diez de esa ruta) **no tiene dato**: ni litros ni ruta en el gasto.
+- **Ficha de la unidad (hoja 4).** El padrón está casi vacío: de 56 vehículos vivos, **año 1/56**
+  y **VIN, nº económico, aseguradora, póliza, odómetro y rendimiento en 0/56**. Y **no existe
+  ninguna columna de vencimiento de seguro en toda la base**, que era justo el valor que la
+  pantalla prometía. ⚠️ Hay un **segundo padrón** (`analytics.v_kepler_transporte`) con placas en
+  **tres formatos** (`NS-0886-D`, `NB-0703D`, `GN3865D`) que cubre **4 de las 8** camionetas de RD.
+  ⚠️ Y un **vínculo malo**: el tracker `CHEVROLET S10 NM8497D R-321` cuelga del vehículo de placa
+  `MW7947C` — otra camioneta; `NM8497D` no existe en el padrón.
+- **Objetivo mensual (hoja 5).** De sus tres criterios: **visitas SÍ** se pueden medir (`tickets`
+  por ruta; ⚠️ son visitas **con venta**, la que no vendió no deja ticket) · **volumen SÍ** (pero
+  su meta no está autorizada, ver arriba) · **desarrollo de marcas NO** — `v_sellout_daily` con el
+  `vendor_code` de las rutas de RD devuelve **0 filas**.
+- **El recibo (hoja 6).** Sigue bloqueado por el padrón de personas (Fase RH).
+
+---
+
 ## 3. Lo que NO se va a hacer, y por qué
 
 - **Volver a poner el cron.** Una quincena cerrada es un valor congelado; el reloj que despertaba
