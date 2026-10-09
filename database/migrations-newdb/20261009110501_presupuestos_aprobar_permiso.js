@@ -55,9 +55,18 @@ exports.up = async function up(knex) {
   // ⛔ `permissions -> ? IS NULL` y NO el operador `?` de JSONB (`permissions ? 'CLAVE'`): knex
   // usa `?` como su propio placeholder de binding y no lo escapa, así que `permissions ? ?` se
   // rompe o liga mal. Está escrito en CLAUDE.md y lo escribí mal igual en el primer intento.
+  //
+  // ⛔ **Y el `::text` del primer `?` no es decorativo.** Sin él, contra prod (2026-10-09):
+  //     could not determine data type of parameter $1
+  // `jsonb_build_object` es **variádica `"any"`**: Postgres no tiene de dónde deducir el tipo de un
+  // parámetro suelto en esa posición, y el error llega recién al ejecutar — el archivo "se ve bien".
+  // Los otros dos `?` no lo necesitan porque `->>` y `->` sí declaran `text` en su firma.
+  // ⭐ Es la TERCERA vez hoy del mismo defecto de familia: un parámetro ligado donde Postgres no
+  // puede inferir — `COMMENT ON` ([PVI.4]), `SET LOCAL` ([TES.12]) y ésta. Las tres fallaron en su
+  // primera corrida real contra prod, no en el editor.
   const { rows } = await knex.raw(
     `UPDATE identity.role_permissions
-        SET permissions = permissions || jsonb_build_object(?, true)
+        SET permissions = permissions || jsonb_build_object(?::text, true)
       WHERE (permissions ->> ?) = 'true'
         AND permissions -> ? IS NULL
       RETURNING role_name`,
