@@ -732,7 +732,7 @@ export class PresaleControlService {
     const p = partesFolio(folio);
     if (!p) return [];
     const { rows: ped } = await trx.raw(
-      `SELECT ol.product_id::text AS product_id, p.sku, p.name AS description,
+      `SELECT ol.product_id::text AS product_id, p.sku, p.nombre AS description,
               ol.quantity::float8 AS quantity,
               (CASE WHEN ol.quantity > 0 AND ol.line_subtotal IS NOT NULL
                     THEN ol.line_subtotal / ol.quantity ELSE ol.unit_price END)::float8 AS unit_price
