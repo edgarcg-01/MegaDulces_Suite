@@ -2,6 +2,7 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, evalInput, composeFreshness } from '@megadulces/platform-core';
 import type { Coverage } from '@megadulces/contracts';
 import { cobranzaPrevista } from '../customer-ledger/cobranza-prevista';
+import { deudaPrevista } from '../creditor-statements/deuda-prevista';
 
 /**
  * Fase PU.3 — Presupuestos: flujo de efectivo previsto (ADR-066 / ADR-056).
@@ -84,9 +85,24 @@ export class BudgetCashflowService {
       const pagos = await trx.from(pagosUnion.as('u')).groupBy('bucket')
         .select('bucket', trx.raw('coalesce(sum(pending),0) AS monto'));
 
+      // ── [TES.2] Deuda DERIVADA del ERP — el lado del pago dejaba de existir ──────
+      // Medido en prod el 2026-10-08: las tres tablas de arriba no tienen ni una obligación
+      // vigente (312 filas, las 312 'propuesta' y venciendo en 2027; 0 y 0 las otras dos), así
+      // que esta curva publicaba $0 de pago en 8 semanas y se leía como liquidez excelente.
+      // Lo que de verdad vence en la ventana, derivado de Kepler: $30,905,393.63.
+      //
+      // ⛔ NO se suma a `pagos`. Son DOS universos y su traslape NO está resuelto: una
+      // obligación autorizada presumiblemente corresponde a una factura que ya está en el ERP,
+      // y sumarlas contaría el mismo peso dos veces. La proyección usa la deuda del ERP (el
+      // universo completo, sin captura humana de por medio) y las obligaciones autorizadas
+      // viajan declaradas aparte. El día que alguien capture obligaciones, el traslape es un
+      // hueco con nombre, no una suma silenciosa (ADR-056).
+      const deuda = await deudaPrevista(trx, tenantId, from, to);
+
       // ── Ensamble semanal (semanas vacías = 0 real, no "sin datos") ────────────
       const cobMap = new Map(cobros.map((r: any) => [this.iso(r.bucket), Number(r.monto)]));
-      const pagMap = new Map(pagos.map((r: any) => [this.iso(r.bucket), Number(r.monto)]));
+      const autMap = new Map(pagos.map((r: any) => [this.iso(r.bucket), Number(r.monto)]));
+      const pagMap = new Map(deuda.porSemana.map((r) => [r.bucket, r.monto]));
       const weeks = this.weekBuckets(from, to);
       let acumNeto = 0;
       let saldo = opening.available ? (opening.amount as number) : null;
@@ -94,11 +110,17 @@ export class BudgetCashflowService {
       const buckets = weeks.map((wk) => {
         const c = round2(cobMap.get(wk) ?? 0);
         const p = round2(pagMap.get(wk) ?? 0);
+        // Las obligaciones AUTORIZADAS viajan en su propia columna: no se suman a `p` (ver el
+        // bloque [TES.2] arriba — el traslape con la deuda del ERP no está resuelto).
+        const aut = round2(autMap.get(wk) ?? 0);
         const neto = round2(c - p);
         acumNeto = round2(acumNeto + neto);
         const saldoProy = opening.available ? round2((opening.amount as number) + acumNeto) : null;
         if (saldoProy != null) { saldo = saldoProy; if (saldoMin == null || saldoProy < saldoMin) saldoMin = saldoProy; }
-        return { week: wk, cobros: c, pagos: p, neto, neto_acumulado: acumNeto, saldo_proyectado: saldoProy };
+        return {
+          week: wk, cobros: c, pagos: p, pagos_autorizados: aut,
+          neto, neto_acumulado: acumNeto, saldo_proyectado: saldoProy,
+        };
       });
 
       // ── Alerta de insuficiencia — solo si hay saldo inicial (si no, se DECLARA) ─
@@ -113,7 +135,22 @@ export class BudgetCashflowService {
         totals: {
           cobros: round2(buckets.reduce((s, b) => s + b.cobros, 0)),
           pagos: round2(buckets.reduce((s, b) => s + b.pagos, 0)),
+          // Declarado, NO sumado a `pagos`: ver [TES.2]. Hoy es 0 en prod y eso es un hecho
+          // de captura, no de negocio — la empresa sí paga (~$50.6M/mes medidos en Fase PP).
+          pagos_autorizados: round2(buckets.reduce((s, b) => s + b.pagos_autorizados, 0)),
           neto: round2(acumNeto),
+        },
+        // [TES.2] La deuda que la curva NO dibuja, con su monto. Simétrico a la cobranza: lo ya
+        // vencido es exigible y no tiene fecha comprometida, así que viaja aparte en vez de
+        // caer en la semana 1 (que afirmaría que se paga el lunes).
+        deuda_erp: {
+          base: deuda.base,
+          por_tipo: deuda.porTipo,
+          cobertura: deuda.cobertura,
+          as_of: deuda.as_of,
+          as_of_reason: deuda.as_of_reason,
+          fuente: 'analytics.v_supplier_payables (derivada de kepler_ods.kdxe/kdxf/kdxd)',
+          clasificador: 'clasificarAcreedor() — creditor-statements.engine.ts',
         },
         saldo_minimo_proyectado: opening.available ? saldoMin : null,
         buckets,
@@ -122,6 +159,10 @@ export class BudgetCashflowService {
         freshness: composeFreshness([
           evalInput('cartera_cxc', 'Cartera / cobranza (kdue, CXC)', cobrosMeta?.as_of ?? null, 30),
           evalInput('bancos_cb', 'Bancos (Fase CB)', bank?.as_of ?? null, 30),
+          // [TES.2] El ODS no publica marca de frescura en `kdxe`: entra con `null`, que
+          // `evalInput` resuelve como `unknown`. Es el tercer estado de ADR-056 — ni fresco ni
+          // rancio: NO MEDIDO. Fabricarle un `now()` diría "recién medido" sin haberlo medido.
+          evalInput('deuda_erp', 'Deuda con proveedor (kdxe, ERP)', deuda.as_of, 30),
         ]),
         // [CXC.22] La cobertura ya no mide sólo si hay saldo inicial: mide **qué porción de la
         // cartera cobrable dibuja esta curva**. Con 86.5% de la cartera ya vencida, una curva
@@ -139,6 +180,17 @@ export class BudgetCashflowService {
                 + `$${prevista.cobertura.total.toLocaleString('en-US')}). Quedan fuera `
                 + `$${prevista.cobertura.vencido_fuera.toLocaleString('en-US')} ya vencidos: son `
                 + 'exigibles HOY y no tienen fecha comprometida, por eso no se agendan en una semana.',
+            // [TES.2] La cobertura del PAGO, simétrica. Sin esta línea la curva dibujaba una
+            // fracción del pago sin decirlo, que es el mismo defecto que [CXC.22] corrigió del
+            // lado del cobro — y en el lado del pago era peor, porque la fracción era CERO.
+            deuda.cobertura.pct_en_ventana == null
+              ? 'Sin deuda con proveedor derivable: la cobertura del pago queda SIN MEDIR, no en cero.'
+              : `Del lado del pago la curva dibuja ${deuda.cobertura.pct_en_ventana}% de la deuda `
+                + `($${deuda.cobertura.en_ventana.toLocaleString('en-US')} de `
+                + `$${deuda.cobertura.total.toLocaleString('en-US')}). Quedan fuera `
+                + `$${deuda.cobertura.vencido_fuera.toLocaleString('en-US')} ya vencidos, exigibles `
+                + 'sin fecha comprometida. '
+                + `Excluidos por no ser deuda con terceros: $${deuda.cobertura.interno_excluido.toLocaleString('en-US')} de traspasos internos.`,
           ].join(' '),
         } as Coverage,
         // [CXC.22] Lo vencido viaja APARTE, con su monto. Meterlo en la primera semana
@@ -147,7 +199,11 @@ export class BudgetCashflowService {
         sources: {
           cobros: { source: 'analytics.customer_receivables', base: prevista.base,
             as_of: cobrosMeta?.as_of ?? null },
-          pagos: { source: 'budget.expense_obligations + commercial.supplier_payment_obligations + finance.financial_commitments' },
+          // [TES.2] `pagos` dejó de salir de las tres tablas de obligación (vacías de vigentes
+          // en prod) y sale de la deuda derivada del ERP. Las obligaciones autorizadas siguen
+          // publicándose, en `pagos_autorizados`, sin sumarse: el traslape no está resuelto.
+          pagos: { source: 'analytics.v_supplier_payables', base: deuda.base, as_of: deuda.as_of },
+          pagos_autorizados: { source: 'budget.expense_obligations + commercial.supplier_payment_obligations + finance.financial_commitments' },
           saldo_inicial: opening,
         },
         notes: {
