@@ -23,6 +23,7 @@ export * from './http/provenance.contract';
 // [VU.0] La unidad viaja CON la cantidad al escribir. Censo 2026-09-12: 22 tablas con una
 // columna de cantidad y ninguna de unidad al lado. Leer el contrato antes de agregar otra.
 export * from './http/quantity-unit.contract';
+export * from './http/unit-ladder.contract';
 // `[ETQ-PRES.0]` La misma regla de VU.0, aplicada al PRECIO: una presentación lleva su unidad,
 // su factor, su contenido derivado y su propio peldaño de mayoreo.
 export * from './http/price-presentation.contract';

@@ -15,7 +15,9 @@ import {
   esKindValido,
   estadoDe,
   etapaDe,
-  existenciaDesglose,
+  escaleraComun,
+  escaleraDeFicha,
+  existenciaEnDuda,
   ocultarCosto,
   porSemana,
   recomendar,
@@ -209,7 +211,7 @@ describe('armarProducto — por sucursal', () => {
     expect(p03.recomendacion.veredicto).toBe('recomprar');
     expect(p03.recomendacion.motivos.join(' ')).toContain('Se agotó');
     expect(p05.existencia_unidad).toBe('PZA');
-    expect(p05.existencia_desglose).toEqual([{ unidad: 'CJA', cantidad: 3 }]);
+    expect(p05.existencia_duda).toBeNull();
   });
 
   it('cada plaza cuenta sus días desde SU primera actividad', () => {
@@ -278,60 +280,83 @@ describe('unidades de Kepler (NP.11)', () => {
   });
 });
 
-describe('[NP.16] existencia en las presentaciones de la ficha de cada plaza, en enteros', () => {
-  const ex = { product_id: 'p1', plaza: '03', cantidad: 36, factor: 1 };
-  const k = { ...ex, fuente: 'kepler', unidad: 'PZA' };
+describe('[NP.16] la escalera de cada plaza y la existencia en duda', () => {
+  // 96087 Kinder Delice, ficha real: paquete de 10 y caja de 60 (el factor del costo trae decimales).
+  const KINDER = { u1: 'PZA', u2: 'PAQ', u3: 'CJA', f2: '9.9961', f3: '59.9786', uxc: '60.00' };
+  const esc = escaleraDeFicha(KINDER)!;
 
-  it('Kepler: cajas enteras y lo que sobra en la base', () => {
-    expect(existenciaDesglose({ ...k, cantidad: 13, unidad_mayor: 'CJA', factor_mayor: 12 }))
-      .toEqual([{ unidad: 'CJA', cantidad: 1 }, { unidad: 'PZA', cantidad: 1 }]);
-    expect(existenciaDesglose({ ...k, unidad_mayor: 'PAQ', factor_mayor: 12 })).toEqual([{ unidad: 'PAQ', cantidad: 3 }]);
+  it('la ficha de la plaza da su escalera, con la misma regla que /compras/pedido', () => {
+    expect(esc.map((e) => `${e.rotulo}×${e.factor}`)).toEqual(['PZA×1', 'PAQ×10', 'CJA×60']);
+    expect(escaleraDeFicha({})).toBeNull();
+    expect(escaleraDeFicha({ u1: 'KG', u2: 'KG', u3: 'KG', uxc: 1 })!.map((e) => e.rotulo)).toEqual(['KG']);
   });
 
-  it('⭐ con paquete en medio: cajas, paquetes y piezas (334 = 5 cajas de 60, 3 paquetes de 10 y 4 piezas)', () => {
-    const tres = { ...k, cantidad: 334, unidad_mayor: 'CJA', factor_mayor: '60.00', unidad_media: 'PAQ', factor_media: '10.00', peldano_caja: 3 };
-    expect(existenciaDesglose(tres)).toEqual([
-      { unidad: 'CJA', cantidad: 5 }, { unidad: 'PAQ', cantidad: 3 }, { unidad: 'PZA', cantidad: 4 },
+  it('la escalera del producto: la común a sus plazas, o ninguna si difieren', () => {
+    const otra = escaleraDeFicha({ ...KINDER, uxc: '120.00', f3: '119.9' })!;
+    expect(escaleraComun([esc, null, escaleraDeFicha(KINDER)])).toEqual(esc);
+    expect(escaleraComun([esc, otra])).toBeNull();
+    expect(escaleraComun([null])).toBeNull();
+  });
+
+  it('⭐ Canindo: Kepler dice -3 (agotado), pero sumó 167 paquetes como piezas: deberían ser 1,500', () => {
+    const k = { u: { PAQ: { q: 167, ult: '2026-09-19' }, PZA: { q: -170, ult: '2026-10-08' } }, crudo: -3, kdil: -3 };
+    expect(existenciaEnDuda(k, esc)).toEqual({ kepler: -3, estimada: 1500, base: 'PZA', otros: ['PAQ'] });
+    // Morelia: 334 en Kepler, 1,918 convirtiendo los 176 paquetes netos.
+    const m = { u: { PAQ: { q: 176, ult: '2026-09-19' }, PZA: { q: 158, ult: '2026-10-08' } }, crudo: 334, kdil: '334.000' };
+    expect(existenciaEnDuda(m, esc)?.estimada).toBe(1918);
+  });
+
+  it('⛔ un conteo físico DESPUÉS de los renglones viejos fija la existencia: se le cree (8 Esquinas)', () => {
+    const k = { u: { PAQ: { q: 30, ult: '2026-09-19' }, PZA: { q: 156, ult: '2026-10-09' } }, crudo: 186, kdil: 186, aj: '2026-09-22' };
+    expect(existenciaEnDuda(k, esc)).toBeNull();
+    // Un ajuste ANTERIOR no corrige nada.
+    expect(existenciaEnDuda({ ...k, aj: '2026-09-01' }, esc)?.estimada).toBe(456);
+  });
+
+  it('⛔ sin renglones en otro rótulo, o si Kepler no sumó crudo, no se acusa', () => {
+    expect(existenciaEnDuda({ u: { PZA: { q: 40 } }, crudo: 40, kdil: 40 }, esc)).toBeNull();
+    expect(existenciaEnDuda({ u: { PAQ: { q: 4, ult: '2026-09-19' }, PZA: { q: 36 } }, crudo: 40, kdil: 76 }, esc)).toBeNull();
+    expect(existenciaEnDuda({ u: { PAQ: { q: 4 }, PZA: { q: 36 } }, crudo: 40 }, esc)).toBeNull();
+    expect(existenciaEnDuda({ u: { PAQ: { q: 4 } }, crudo: 4, kdil: 4 }, null)).toBeNull();
+    // CAJA y CJA valen lo mismo en una ficha de cajas: no hay nada que corregir.
+    const cajas = escaleraDeFicha({ u1: 'CJA', uxc: 1 });
+    expect(existenciaEnDuda({ u: { CAJA: { q: 4 }, CJA: { q: 2 } }, crudo: 6, kdil: 6 }, cajas)).toBeNull();
+  });
+
+  it('un rótulo que no se puede convertir: en duda, pero sin estimada (no se inventa)', () => {
+    const k = { u: { '500': { q: 3, ult: '2026-09-19' }, PZA: { q: 10 } }, crudo: 13, kdil: 13 };
+    expect(existenciaEnDuda(k, esc)).toEqual({ kepler: 13, estimada: null, base: 'PZA', otros: ['500'] });
+  });
+
+  it('⭐ armarProducto: la plaza en duda NO se da por agotada, decide la estimada y se manda a contar', () => {
+    const f = fuente({
+      dias: 45,
+      venta_por_plaza: { '03': new Array(45).fill(100), '06': new Array(45).fill(80) },
+      escalera_plaza: { '03': KINDER, '06': KINDER },
+      kardex_plaza: { '06': { u: { PAQ: { q: 167, ult: '2026-09-19' }, PZA: { q: -170, ult: '2026-10-06' } }, crudo: -3, kdil: -3 } },
+    });
+    const { fila, plazas } = armarProducto(f, HOY, [], [
+      { product_id: 'p1', plaza: '03', cantidad: 60, factor: 1, fuente: 'kepler', unidad: 'PZA' },
+      { product_id: 'p1', plaza: '06', cantidad: 0, factor: 1, fuente: 'kepler', unidad: 'PZA' },
     ]);
-    // Menos de una caja: paquetes y piezas, sin "0 cajas".
-    expect(existenciaDesglose({ ...tres, cantidad: 34 })).toEqual([{ unidad: 'PAQ', cantidad: 3 }, { unidad: 'PZA', cantidad: 4 }]);
+    const p06 = plazas.find((p) => p.plaza === '06')!;
+    expect(p06.existencia).toBe(0);
+    expect(p06.existencia_duda?.estimada).toBe(1500);
+    expect(p06.escalera?.map((e) => e.rotulo)).toEqual(['PZA', 'PAQ', 'CJA']);
+    expect(p06.recomendacion.motivos.join(' ')).not.toContain('Se agotó');
+    expect(fila.agotado_en).toBe(0);
+    expect(fila.plazas_con_existencia).toBe(2);
+    expect(fila.existencia_en_duda).toBe(1);
+    expect(fila.escalera?.map((e) => e.factor)).toEqual([1, 10, 60]);
+    // La plaza sin duda conserva la existencia de Kepler.
+    expect(plazas.find((p) => p.plaza === '03')!.existencia_duda).toBeNull();
   });
 
-  it('⛔ el intermedio entra sólo si la caja es múltiplo exacto de él, y si es otra presentación', () => {
-    // Medido: caja de 200 con paquete de 11. Partirla en paquetes daría una cuenta que no cuadra.
-    const raro = { ...k, cantidad: 425, unidad_mayor: 'CJA', factor_mayor: 200, unidad_media: 'PAQ', factor_media: 11, peldano_caja: 3 };
-    expect(existenciaDesglose(raro)).toEqual([{ unidad: 'CJA', cantidad: 2 }, { unidad: 'PZA', cantidad: 25 }]);
-    // La ficha más común: u2 repite la base con factor 1.
-    const plana = { ...k, cantidad: 13, unidad_mayor: 'CJA', factor_mayor: 12, unidad_media: 'PZA', factor_media: 1, peldano_caja: 3 };
-    expect(existenciaDesglose(plana)).toEqual([{ unidad: 'CJA', cantidad: 1 }, { unidad: 'PZA', cantidad: 1 }]);
-    // Con la caja en el peldaño 2, u2 ES la caja: no hay intermedio.
-    expect(existenciaDesglose({ ...plana, unidad_media: 'CJA', factor_media: 12, peldano_caja: 2 }))
-      .toEqual([{ unidad: 'CJA', cantidad: 1 }, { unidad: 'PZA', cantidad: 1 }]);
-  });
-
-  it('un bulto de peso con factor fraccionario: bultos enteros y el resto en kilos', () => {
-    expect(existenciaDesglose({ ...k, cantidad: 20, unidad: 'KG', unidad_mayor: 'BTO', factor_mayor: '6.84' }))
-      .toEqual([{ unidad: 'BTO', cantidad: 2 }, { unidad: 'KG', cantidad: 6.32 }]);
-    // El flotante no se come una caja: 60 = 1 caja exacta.
-    expect(existenciaDesglose({ ...k, cantidad: 59.9999999999, unidad_mayor: 'CJA', factor_mayor: 60 }))
-      .toEqual([{ unidad: 'CJA', cantidad: 1 }]);
-  });
-
-  it('⛔ sin ficha, con una sola unidad, agotado, o sin alcanzar una caja: no hay desglose', () => {
-    expect(existenciaDesglose({ ...k, unidad: null, unidad_mayor: null, factor_mayor: null })).toBeNull();
-    expect(existenciaDesglose({ ...k, unidad_mayor: 'PZA', factor_mayor: 1 })).toBeNull();
-    expect(existenciaDesglose({ ...k, unidad_mayor: 'CJA', factor_mayor: null })).toBeNull();
-    expect(existenciaDesglose({ ...k, cantidad: 0, unidad_mayor: 'CJA', factor_mayor: 12 })).toBeNull();
-    expect(existenciaDesglose({ ...k, cantidad: 8, unidad_mayor: 'CJA', factor_mayor: 12 })).toBeNull();
-  });
-
-  it('Wincaja: el divisor de presentación (ADR-055) es la caja, y la base queda sin rótulo de Kepler', () => {
-    expect(existenciaDesglose({ ...ex, cantidad: 53, factor: 10, fuente: 'wincaja', unidad: 'PZA' }))
-      .toEqual([{ unidad: 'CJA', cantidad: 5 }, { unidad: '?', cantidad: 3 }]);
-    const { plazas } = armarProducto(fuente(), HOY, [], [{ ...ex, cantidad: 50, factor: 10, fuente: 'wincaja', unidad: 'PZA' }]);
-    expect(plazas[0].existencia_unidad).toBeNull();
-    expect(plazas[0].existencia_fuente).toBe('wincaja');
-    expect(plazas[0].existencia_desglose).toEqual([{ unidad: 'CJA', cantidad: 5 }]);
+  it('[negativa] sin el kardex, la misma plaza SÍ sale agotada (lo que la pantalla decía antes)', () => {
+    const f = fuente({ dias: 45, venta_por_plaza: { '06': new Array(45).fill(80) }, escalera_plaza: { '06': KINDER } });
+    const { fila } = armarProducto(f, HOY, [], [{ product_id: 'p1', plaza: '06', cantidad: 0, factor: 1, fuente: 'kepler', unidad: 'PZA' }]);
+    expect(fila.agotado_en).toBe(1);
+    expect(fila.existencia_en_duda).toBe(0);
   });
 });
 

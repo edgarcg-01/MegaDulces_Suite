@@ -72,7 +72,7 @@ const COLUMNAS = `
   to_char(m.corte, 'YYYY-MM-DD')             AS corte,
   m.venta_dia, m.venta_por_plaza, m.venta_unidades, m.entradas,
   m.margen_plaza, m.compra_base,
-  m.llegada, m.venta_unidades_hito, m.reparto,
+  m.llegada, m.venta_unidades_hito, m.reparto, m.kardex_plaza, m.escalera_plaza,
   r.kind                                     AS clasificacion,
   r.note                                     AS nota,
   r.updated_by_username                      AS clasificado_por,
@@ -142,8 +142,7 @@ export class NewProductsService {
              -- unit_source dice en qué unidad viene la cantidad ('kepler' = la base de su ficha;
              -- 'wincaja' / 'wincaja_multipack' = la de Wincaja). source NO sirve: vale 'kepler_ods'.
              CASE WHEN s.unit_source LIKE 'wincaja%' THEN 'wincaja' ELSE s.unit_source END AS fuente,
-             l.u1_label AS unidad, l.unidad_caja AS unidad_mayor, l.factor_caja AS factor_mayor,
-             l.u2_label AS unidad_media, l.f2_cap AS factor_media, l.peldano_caja
+             l.u1_label AS unidad, l.unidad_caja AS unidad_mayor, l.factor_caja AS factor_mayor
         FROM analytics.v_erp_stock_on_hand s
         LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
         LEFT JOIN analytics.v_kepler_unit_ladder l

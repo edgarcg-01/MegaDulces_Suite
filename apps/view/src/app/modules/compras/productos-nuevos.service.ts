@@ -2,6 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type { UnidadEscalera } from '@megadulces/contracts';
 
 /**
  * `[NP.5]` Productos nuevos — cliente de `/commercial/products/new-products`.
@@ -26,11 +27,6 @@ export interface Recomendacion {
  * rótulo por su lado: no se suman entre sí. `?` = renglón sin unidad declarada.
  */
 export type UnidadesKepler = Record<string, number>;
-
-export interface CantidadEnUnidad {
-  unidad: string;
-  cantidad: number;
-}
 
 export interface HitoValores {
   cerrado: boolean;
@@ -103,6 +99,21 @@ export interface ProductoNuevo {
   mejor_plaza: MejorPlazaNuevo | null;
   /** `[NP.16]` NULL = no hay compra ni entrada con qué fecharlo. */
   llegada: LlegadaNueva | null;
+  /** `[NP.16]` La escalera de unidades común a sus sucursales; NULL = sin ficha o fichas distintas. */
+  escalera: UnidadEscalera[] | null;
+  /** `[NP.16]` Sucursales cuya existencia de Kepler está en duda. */
+  existencia_en_duda: number;
+}
+
+/**
+ * `[NP.16]` La existencia de Kepler no se puede creer: sumó renglones de otro rótulo (paquetes) como
+ * si fueran de la base de la ficha (piezas). `estimada` = convirtiéndolos; NULL = no se pudo convertir.
+ */
+export interface ExistenciaDudaNueva {
+  kepler: number;
+  estimada: number | null;
+  base: string;
+  otros: string[];
 }
 
 /** `[NP.15]` Un margen con lo que alcanza a cubrir; `pct` NULL = no se pudo medir (`nota` dice por qué). */
@@ -154,8 +165,10 @@ export interface PlazaNueva {
   /** Rótulo de la ficha de Kepler de la plaza; NULL = no se sabe (Wincaja o sin ficha). */
   existencia_unidad: string | null;
   existencia_fuente: string | null;
-  /** `[NP.16]` La existencia en las presentaciones de la ficha, de la mayor a la base, en enteros. */
-  existencia_desglose: CantidadEnUnidad[] | null;
+  /** `[NP.16]` La escalera de unidades de la ficha de esta sucursal; NULL = sin ficha. */
+  escalera: UnidadEscalera[] | null;
+  /** `[NP.16]` NULL = la existencia de Kepler se puede creer. */
+  existencia_duda: ExistenciaDudaNueva | null;
   unidades_vendidas: UnidadesKepler;
   venta_sin_unidad: number;
   unidades_recibidas: UnidadesKepler;

@@ -167,6 +167,8 @@
 - «Llegó a la empresa»: la fecha de la primera compra física en Kepler y en qué sucursales entró; avisa si el producto ya había entrado antes por un ajuste o un traspaso.
 - Unidades vendidas (cajas, paquetes, piezas, como las registró Kepler) en cada corte de 30, 60 y 90 días, y en el ranking de sucursales junto con la existencia de hoy.
 - Arriba de «Por sucursal»: lo que llegó en compras y cómo se repartió: lo que compró cada sucursal, lo que le llegó de otra, lo que mandó a otras y a rutas, y su existencia.
+- Todas las cantidades en cajas completas y lo demás en paquetes o piezas, según la ficha de cada sucursal; columna «Le llegó» en el ranking.
+- «Existencia en duda»: donde Kepler sumó paquetes como si fueran piezas, la sucursal ya no sale como agotada; se muestra lo que debería haber según el kardex y se recomienda contarla.
 
 ### Added — Productos nuevos: márgenes y dónde se mueve mejor (NP.15, 2026-10-08)
 - Tres márgenes por producto y por sucursal, sin IVA ni IEPS: de lista (la meta de la ficha de Kepler por la unidad que se vendió), real (con el costo que Kepler registró en cada venta) y sobre lo pagado (lo que costó en sus compras). Cada uno dice qué parte de la venta cubre.

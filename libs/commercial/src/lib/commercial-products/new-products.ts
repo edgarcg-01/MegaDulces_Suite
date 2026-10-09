@@ -1,3 +1,5 @@
+import { escaleraUnidades, factorDeRotulo, type UnidadEscalera } from '@megadulces/contracts';
+
 /**
  * `[NP.2]` Productos nuevos — la lógica pura: junta la historia (matvista) con lo de hoy (ODS en
  * vivo) y la existencia, y de ahí saca etapa, hitos 30/60/90, tendencia, plazas agotadas y la
@@ -113,6 +115,10 @@ export interface NewProductSource {
    * `desde` = el primer día que le llegó por traspaso.
    */
   reparto?: Record<string, Partial<Record<TipoReparto, Record<string, number | string>>> & { desde?: string }>;
+  /** `[NP.16]` Por plaza, el kardex: neto por rótulo y su última fecha, último ajuste y existencia de Kepler. */
+  kardex_plaza?: Record<string, KardexPlaza>;
+  /** `[NP.16]` Por plaza, la ficha de Kepler: rótulos de sus peldaños, factores del costo y de la caja. */
+  escalera_plaza?: Record<string, FichaPlaza>;
   clasificacion: NewProductKind | null;
   nota: string | null;
   clasificado_por: string | null;
@@ -227,16 +233,44 @@ export interface Existencia {
   /** El peldaño mayor de esa misma ficha y su factor (en unidades base). */
   unidad_mayor?: string | null;
   factor_mayor?: number | string | null;
-  /** `[NP.16]` El peldaño intermedio de la ficha (`kdii` u2) y su factor, y en qué peldaño está la caja. */
-  unidad_media?: string | null;
-  factor_media?: number | string | null;
-  peldano_caja?: number | string | null;
 }
 
-/** Una cantidad en una unidad de la ficha. */
-export interface CantidadEnUnidad {
-  unidad: string;
-  cantidad: number;
+/** `[NP.16]` El kardex de una plaza, como lo deja la matvista. */
+export interface KardexPlaza {
+  /** Neto (entradas - salidas) por rótulo del renglón, y la fecha del último renglón en ese rótulo. */
+  u?: Record<string, { q: number | string; ult?: string }>;
+  /** La suma de los netos SIN convertir: lo que Kepler guarda si suma rótulos distintos. */
+  crudo?: number | string;
+  /** El último ajuste de inventario (conteo físico, `N-A-30` / `N-D-30`). */
+  aj?: string;
+  /** La existencia de Kepler al calcular, sin el piso en cero. */
+  kdil?: number | string;
+}
+
+/** `[NP.16]` La ficha de Kepler de una plaza (`v_kepler_unit_ladder`). */
+export interface FichaPlaza {
+  u1?: string;
+  u2?: string;
+  u3?: string;
+  /** Factor de los peldaños 2 y 3 contra la base, derivado del costo. */
+  f2?: number | string;
+  f3?: number | string;
+  /** Factor de la caja. */
+  uxc?: number | string;
+}
+
+/**
+ * `[NP.16]` La existencia de Kepler no es confiable: el kardex trae renglones en un rótulo que no es
+ * el de la ficha (p. ej. paquetes en una ficha de piezas) y Kepler los sumó sin convertir.
+ */
+export interface ExistenciaDuda {
+  /** Lo que dice Kepler, en la base de la ficha (puede ser negativo: la pantalla lo da por agotado). */
+  kepler: number;
+  /** Lo que debería haber convirtiendo cada renglón con la ficha. NULL = un rótulo no se pudo convertir. */
+  estimada: number | null;
+  /** El rótulo de la ficha y los rótulos que Kepler sumó como si fueran ése. */
+  base: string;
+  otros: string[];
 }
 
 export interface HitoValores {
@@ -285,6 +319,8 @@ export interface Senales {
   /** Plazas que lo vendieron en la ventana y hoy no tienen existencia. */
   agotado_en: number;
   plazas_con_existencia: number;
+  /** `[NP.16]` Plazas con la existencia en duda: no se dan por agotadas, se mandan a contar. */
+  en_duda?: number;
 }
 
 export interface NewProductRow {
@@ -348,6 +384,14 @@ export interface NewProductRow {
   mejor_plaza: MejorPlaza | null;
   /** `[NP.16]` Cuándo llegó a la empresa. NULL = no hay compra ni entrada con qué fecharlo. */
   llegada: Llegada | null;
+  /**
+   * `[NP.16]` La escalera de unidades del producto (pieza → paquete → caja), si TODAS sus plazas con
+   * ficha la tienen igual. NULL = sin ficha, o fichas distintas entre plazas: los totales del producto
+   * se dicen como los registró Kepler, sin convertir.
+   */
+  escalera: UnidadEscalera[] | null;
+  /** `[NP.16]` Plazas cuya existencia está en duda (ver `ExistenciaDuda`). */
+  existencia_en_duda: number;
 }
 
 export interface PlazaRow {
@@ -368,12 +412,10 @@ export interface PlazaRow {
   existencia_unidad: string | null;
   /** `kepler` | `wincaja` | NULL. */
   existencia_fuente: string | null;
-  /**
-   * `[NP.16]` La misma existencia en las presentaciones de la ficha de la plaza, de la mayor a la base y
-   * en enteros: 334 piezas = 5 cajas, 3 paquetes y 4 piezas. NULL si la ficha no declara una caja con
-   * su factor, o si no alcanza para una presentación mayor (no diría nada nuevo).
-   */
-  existencia_desglose: CantidadEnUnidad[] | null;
+  /** `[NP.16]` La escalera de unidades de la ficha de ESTA plaza. NULL = la plaza no tiene ficha. */
+  escalera: UnidadEscalera[] | null;
+  /** `[NP.16]` NULL = la existencia de Kepler se puede creer. */
+  existencia_duda: ExistenciaDuda | null;
   unidades_vendidas: Unidades;
   venta_sin_unidad: number;
   unidades_recibidas: Unidades;
@@ -468,42 +510,60 @@ const sinUnidad = (total: number, cubierto: number) => {
 };
 
 /**
- * `[NP.16]` La existencia partida en las presentaciones de la ficha de ESA plaza (`kdii`), de la mayor a
- * la base, en enteros: con caja de 60 y paquete de 10, 334 piezas son 5 cajas, 3 paquetes y 4 piezas.
- * Nunca de otra plaza ni de un catálogo, y sin factor > 1 no se inventa la caja.
- * - El intermedio entra sólo si la caja es múltiplo exacto de él (medido 2026-10-09: hay una caja de 200
- *   con paquete de 11; ahí se dice en cajas y piezas).
- * - Un bulto de peso puede tener factor fraccionario (6.84 kg): las cajas van enteras y el resto en la
- *   base, con sus decimales.
- * - Wincaja: el divisor de presentación (ADR-055) es la caja, y su base no tiene rótulo de Kepler.
+ * `[NP.16]` La escalera de unidades de la ficha de una plaza, con la MISMA regla que `/compras/pedido`
+ * (`escaleraUnidades`): un peldaño cuenta si su factor crece, y el del medio sólo si cabe en la caja.
  */
-export function existenciaDesglose(e: Existencia | undefined): CantidadEnUnidad[] | null {
-  if (!e) return null;
-  const cant = num(e.cantidad) ?? 0;
-  if (cant <= 0) return null;
-  const wincaja = e.fuente === 'wincaja';
-  const fCaja = num(wincaja ? e.factor : e.factor_mayor);
-  const caja = wincaja ? 'CJA' : (e.unidad_mayor ?? '').trim().toUpperCase();
-  const base = wincaja ? '?' : (e.unidad ?? '').trim().toUpperCase();
-  if (!caja || fCaja === null || fCaja <= 1 || caja === base) return null;
-  const peldanos: Array<{ unidad: string; factor: number }> = [{ unidad: caja, factor: fCaja }];
-  const media = (e.unidad_media ?? '').trim().toUpperCase();
-  const fMedia = num(e.factor_media);
-  if (!wincaja && Number(e.peldano_caja) === 3 && media && media !== base && media !== caja
-    && fMedia !== null && fMedia > 1 && fMedia < fCaja && Number.isInteger(fMedia) && Number.isInteger(fCaja / fMedia)) {
-    peldanos.push({ unidad: media, factor: fMedia });
+export function escaleraDeFicha(fi: FichaPlaza | null | undefined): UnidadEscalera[] | null {
+  if (!fi?.u1) return null;
+  return escaleraUnidades({ u1: fi.u1, u2: fi.u2, u3: fi.u3, f2: fi.f2, f3: fi.f3, uxc: num(fi.uxc) });
+}
+
+/** `[NP.16]` La escalera común a todas las plazas con ficha; NULL si no hay ficha o si difieren. */
+export function escaleraComun(escaleras: Array<UnidadEscalera[] | null>): UnidadEscalera[] | null {
+  const con = escaleras.filter((e): e is UnidadEscalera[] => !!e?.length);
+  if (!con.length) return null;
+  const firma = (e: UnidadEscalera[]) => e.map((x) => `${x.rotulo}:${x.factor}`).join('|');
+  const f0 = firma(con[0]);
+  return con.every((e) => firma(e) === f0) ? con[0] : null;
+}
+
+/**
+ * `[NP.16]` ¿La existencia de Kepler de esta plaza está en duda? Medido 2026-10-09: Kepler guarda la
+ * existencia como la SUMA CRUDA de las cantidades del kardex, sin mirar el rótulo de cada renglón
+ * (96.4% de 4,959 plaza×producto). Si la ficha cambió de unidad base (96087: de paquete a pieza el día
+ * que llegó), los renglones viejos se suman como si fueran de la base nueva: 180 paquetes cuentan como
+ * 180 piezas y la plaza puede salir agotada con 1,500 piezas en el anaquel.
+ *
+ * Se declara SÓLO si: (1) hay renglones en un rótulo que no es el de la ficha, (2) Kepler de verdad
+ * sumó crudo (su existencia al calcular = la suma cruda), y (3) no hubo un conteo físico (ajuste)
+ * DESPUÉS del último de esos renglones: el ajuste fija la existencia y se le cree.
+ */
+export function existenciaEnDuda(k: KardexPlaza | null | undefined, esc: UnidadEscalera[] | null): ExistenciaDuda | null {
+  if (!k?.u || !esc?.length) return null;
+  const base = (esc[0].rotulo ?? '').toUpperCase();
+  const otros = Object.entries(k.u)
+    .filter(([r, x]) => r.toUpperCase() !== base && Math.abs(num(x.q) ?? 0) >= 0.001);
+  if (!otros.length) return null;
+  const ultOtro = otros.map(([, x]) => x.ult ?? '').sort().at(-1) ?? '';
+  if (k.aj && k.aj >= ultOtro) return null;
+  const kdil = num(k.kdil);
+  const crudo = num(k.crudo);
+  if (kdil === null || crudo === null || Math.abs(kdil - crudo) > 0.01) return null;
+  let ajuste = 0;
+  let medible = true;
+  for (const [r, x] of otros) {
+    const fct = factorDeRotulo(r, esc);
+    if (fct === null) { medible = false; continue; }
+    ajuste += (num(x.q) ?? 0) * (fct - 1);
   }
-  const out: CantidadEnUnidad[] = [];
-  let resto = cant;
-  for (const p of peldanos) {
-    // El épsilon evita que 59.999999 cuente como 0 cajas por el redondeo del flotante.
-    const n = Math.floor(resto / p.factor + 1e-9);
-    if (n > 0) out.push({ unidad: p.unidad, cantidad: n });
-    resto = Math.round((resto - n * p.factor) * 1000) / 1000;
-  }
-  if (resto > 0) out.push({ unidad: base || '?', cantidad: resto });
-  // Si no alcanzó ni para la presentación mayor, el desglose sería la misma cifra de la base.
-  return out.length && out[0].unidad !== (base || '?') ? out : null;
+  // Un rótulo distinto que vale lo mismo que la base (`CAJA` y `CJA`) no cambia nada.
+  if (medible && Math.abs(ajuste) < 0.5) return null;
+  return {
+    kepler: kdil,
+    estimada: medible ? Math.max(0, r3(kdil + ajuste)) : null,
+    base: esc[0].rotulo ?? base,
+    otros: otros.map(([r]) => r).sort(),
+  };
 }
 const pesos = (v: number) => `$${Math.round(v).toLocaleString('es-MX')}`;
 
@@ -656,6 +716,9 @@ export function recomendar(s: Senales, opts: { conCosto: boolean } = { conCosto:
     motivos.push(opts.conCosto
       ? `Vendió $${recuperado.toFixed(2)} por cada $1 invertido`
       : (recuperadoAlto ? 'Ya vendió la mayor parte de lo que se compró' : 'Todavía no vende lo que se compró'));
+  }
+  if (s.en_duda) {
+    motivos.push(`La existencia de Kepler está en duda en ${s.en_duda} plaza${s.en_duda === 1 ? '' : 's'}: conviene contarla antes de recomprar`);
   }
   if (agotado || sinExistencia || recuperadoAlto) return { veredicto: 'recomprar', motivos };
   return {
@@ -818,6 +881,9 @@ export function armarProducto(
   ]);
   const plazas: PlazaRow[] = [];
   let agotadoEn = 0;
+  let enDuda = 0;
+  let conExistencia = 0;
+  const escaleras: Array<UnidadEscalera[] | null> = [];
   for (const p of [...codigos].sort()) {
     const serieP = lanzamiento
       ? serieDiaria(lanzamiento, hoy, f.corte, f.venta_por_plaza?.[p] ?? [],
@@ -840,8 +906,16 @@ export function armarProducto(
     const ex = exPorPlaza.get(p);
     const totalP = serieP.reduce((a, b) => a + b, 0);
     const invP = entradasP.length ? entradasP.reduce((a, e) => a + e.i, 0) : null;
-    const hayExistencia = !!ex && ex.cantidad > 0;
-    const agotadaAqui = vp.dias > 0 && !hayExistencia;
+    // [NP.16] Si la existencia de Kepler está en duda, decide la estimada del kardex; si ni ésa se
+    // pudo medir, la plaza NO se da por agotada: se manda a contar.
+    const escP = escaleraDeFicha(f.escalera_plaza?.[p]);
+    escaleras.push(escP);
+    const duda = ex && ex.fila.fuente !== 'wincaja' ? existenciaEnDuda(f.kardex_plaza?.[p], escP) : null;
+    if (duda) enDuda += 1;
+    const cantidadP = duda ? duda.estimada : ex ? ex.cantidad : null;
+    const hayExistencia = cantidadP !== null && cantidadP > 0;
+    if (hayExistencia) conExistencia += 1;
+    const agotadaAqui = vp.dias > 0 && !hayExistencia && !(duda && duda.estimada === null);
     if (agotadaAqui) agotadoEn += 1;
     const diaP = primeraAct ? diasEntre(primeraAct, hoy) : null;
     // Unidades de ESTA plaza: historia (matvista) + lo de hoy (en vivo). Venta y entradas aparte.
@@ -883,7 +957,8 @@ export function armarProducto(
       existencia: ex ? ex.cantidad : null,
       existencia_unidad: ex && ex.fila.fuente !== 'wincaja' ? (ex.fila.unidad ?? null) : null,
       existencia_fuente: ex ? (ex.fila.fuente ?? null) : null,
-      existencia_desglose: ex ? existenciaDesglose(ex.fila) : null,
+      escalera: escP,
+      existencia_duda: duda,
       unidades_vendidas: limpiarUnidades(vendidasP),
       venta_sin_unidad: sinUnidad(totalP, cubiertoP),
       unidades_recibidas: limpiarUnidades(recibidasP),
@@ -898,15 +973,16 @@ export function armarProducto(
       recomendacion: recomendar({
         dia: diaP, venta_total: totalP, inversion_total: invP, dias_con_venta_28: vp.dias, venta_28: vp.venta,
         venta_28_previa: vp.previa, dias_sin_venta: vp.ultima,
-        agotado_en: agotadaAqui ? 1 : 0, plazas_con_existencia: hayExistencia ? 1 : 0,
+        agotado_en: agotadaAqui ? 1 : 0, plazas_con_existencia: hayExistencia ? 1 : 0, en_duda: duda ? 1 : 0,
       }, { conCosto: opts.conCosto }),
       margenes: fuenteP ? margenesDe([fuenteP], f.compra_base) : null,
       movimiento: {
         venta_neta_dia: diasHist !== null && diasHist > 0 && netaP !== null ? r2(netaP / diasHist) : null,
         dias: diasHist,
         // Vendido contra lo que hay hoy, en la MISMA unidad base (la de la ficha de la plaza).
-        desplazado: ex && vendidoBase !== null && vendidoBase + ex.cantidad > 0
-          ? r3(vendidoBase / (vendidoBase + Math.max(0, ex.cantidad)))
+        // [NP.16] Con la existencia en duda, contra la estimada; si no se pudo estimar, no se dice.
+        desplazado: cantidadP !== null && vendidoBase !== null && vendidoBase + Math.max(0, cantidadP) > 0
+          ? r3(vendidoBase / (vendidoBase + Math.max(0, cantidadP)))
           : null,
         lugar: null,
       },
@@ -941,7 +1017,9 @@ export function armarProducto(
     }];
   })) as Record<Hito, HitoValores>;
   const recompra = primeraRecompra(todasEntradas);
-  const plazasConExistencia = [...exPorPlaza.values()].filter((x) => x.cantidad > 0).length;
+  // [NP.16] Contadas en el ciclo de plazas, con la existencia estimada donde la de Kepler está en duda
+  // (toda plaza con existencia está en `codigos`).
+  const plazasConExistencia = conExistencia;
   const venta30 = hitos[30].venta;
 
   const fila: NewProductRow = {
@@ -992,7 +1070,7 @@ export function armarProducto(
       ? recomendar({
         dia, venta_total: ventaTotal, inversion_total: invTotal, dias_con_venta_28: v.dias, venta_28: v.venta,
         venta_28_previa: v.previa, dias_sin_venta: v.ultima, agotado_en: agotadoEn,
-        plazas_con_existencia: plazasConExistencia,
+        plazas_con_existencia: plazasConExistencia, en_duda: enDuda,
       }, { conCosto: opts.conCosto })
       : null,
     margenes: margenesDe(Object.values(f.margen_plaza ?? {}), f.compra_base),
@@ -1001,6 +1079,8 @@ export function armarProducto(
           dias: mejor.movimiento.dias ?? 0 }
       : null,
     llegada: llegadaDe(f, entradasVivo, nombres),
+    escalera: escaleraComun(escaleras),
+    existencia_en_duda: enDuda,
   };
   return { fila, plazas };
 }

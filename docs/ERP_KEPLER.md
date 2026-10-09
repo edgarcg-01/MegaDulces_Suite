@@ -1015,6 +1015,13 @@ Medido en 30 días: 1,207 remisiones de telemarketing, 804 traspasos `TI`, 265 c
 En un producto, 26 cajas mandadas con `U-D-41 TI` = 26 cajas recibidas con `U-A-50`.
 ⚠️ **No sumar las remisiones de telemarketing como reparto ni como venta aparte:** se cuentan dos veces.
 
+⛔ **La existencia (`kdil`) es la SUMA CRUDA del kardex, sin convertir rótulos.** Medido 2026-10-09 sobre los
+productos nuevos: en 4,781 de 4,959 plaza×producto (96.4%) `sum(kdil.c4 + c8 - c9)` = la suma de `kdij.c11` con
+signo por `c30`, sin mirar `c12`. Si la ficha cambia de unidad base (paquete → pieza), los renglones viejos quedan
+en el rótulo viejo y se suman como si fueran de la base nueva: 180 paquetes cuentan como 180 piezas. 173
+plaza×producto de 50 productos nuevos estaban así. Un ajuste de inventario (`N-A-30` / `N-D-30`) posterior lo
+corrige (fija la existencia por conteo). Productos nuevos lo declara como «existencia en duda» (`[NP.16]`).
+
 ---
 
 ## 4. Cómo llega Kepler a la plataforma — el pipeline `kepler_ods`

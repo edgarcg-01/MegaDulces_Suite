@@ -9,11 +9,10 @@ import { TooltipModule } from 'primeng/tooltip';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { SparklineComponent } from '../../../shared/components/charts/sparkline.component';
-import { unidadLegible } from '@megadulces/contracts';
+import { componerEnEscalera, unidadLegible, type UnidadEscalera } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import {
-  CantidadEnUnidad,
   HitoNuevo,
   MargenesNuevo,
   PlazaNueva,
@@ -179,56 +178,79 @@ export function cantidadTexto(q: number, unidad: string | null | undefined): str
   return `${p.cifra} ${p.rotulo}`;
 }
 
-/** `[NP.16]` Las unidades de un producto, una por renglón y de lo grande a lo chico. */
-export function listaUnidades(u: UnidadesKepler | null | undefined): CantidadPartes[] {
-  return Object.entries(u ?? {})
+/**
+ * `[NP.16]` Las unidades de un producto, una por renglón. Con la escalera de la ficha, en cajas
+ * completas y lo demás en paquetes o piezas (178 paquetes y 2 piezas = 29 cajas, 4 paquetes y 2
+ * piezas); lo que no se puede convertir va al final, tal cual. Sin escalera, cada rótulo de Kepler
+ * por su lado, de lo grande a lo chico.
+ */
+export function listaUnidades(u: UnidadesKepler | null | undefined, esc?: ReadonlyArray<UnidadEscalera> | null): CantidadPartes[] {
+  const comp = componerEnEscalera(u, esc);
+  const crudas = (x: UnidadesKepler | null | undefined) => Object.entries(x ?? {})
     .filter(([, q]) => Math.abs(q) >= 0.0005)
     .sort(([a], [b]) => rangoUnidad(a) - rangoUnidad(b) || a.localeCompare(b))
     .map(([k, q]) => cantidadPartes(q, k));
+  if (!comp) return crudas(u);
+  return [...comp.partes.map((p) => cantidadPartes(p.cantidad, p.rotulo)), ...crudas(comp.sin_convertir)];
 }
 
-/** Todas las unidades de un producto, cada rótulo por su lado: "3 cajas · 40 piezas". */
-export function textoUnidades(u: UnidadesKepler | null | undefined): string {
-  return listaUnidades(u).map((p) => `${p.cifra} ${p.rotulo}`).join(' · ');
+/** Las unidades en una línea: "29 cajas, 4 paquetes y 2 piezas" (o "3 cajas · 40 piezas" sin escalera). */
+export function textoUnidades(u: UnidadesKepler | null | undefined, esc?: ReadonlyArray<UnidadEscalera> | null): string {
+  const l = listaUnidades(u, esc).map((p) => `${p.cifra} ${p.rotulo}`);
+  return componerEnEscalera(u, esc) ? enumerar(l) : l.join(' · ');
 }
 
-/**
- * `[NP.16]` La existencia en las presentaciones de la ficha, en enteros: "5 cajas, 3 paquetes y 4 piezas".
- * Lo que sobra de Wincaja no trae rótulo de Kepler: se dice "unidades".
- */
-export function desgloseTexto(d: ReadonlyArray<CantidadEnUnidad> | null | undefined): string {
-  return enumerar((d ?? []).map((c) => (c.unidad === '?' ? `${cifra(c.cantidad)} unidades` : cantidadTexto(c.cantidad, c.unidad))));
-}
-
-/** `[NP.16]` La existencia partida para una tabla: estado, cantidad y cómo se reparte en cajas. */
+/** `[NP.16]` La existencia partida para una tabla. */
 export interface ExistenciaPartes {
-  estado: 'hay' | 'agotado' | 'sin_registro';
-  cantidad: CantidadPartes | null;
-  /** "5 cajas, 3 paquetes y 4 piezas"; NULL si la ficha no declara la caja o no alcanza para una. */
-  desglose: string | null;
+  estado: 'hay' | 'agotado' | 'sin_registro' | 'en_duda';
+  /** La existencia (o la estimada, si está en duda) en la escalera de la ficha. Vacía = cero o no medida. */
+  partes: CantidadPartes[];
+  /** Con la existencia en duda: lo que dice Kepler ("Agotado", "334 piezas"). */
+  kepler: string | null;
+  /** Con la existencia en duda: por qué ("Kepler sumó paquetes como si fueran piezas"). */
+  motivo: string | null;
 }
 
-type ExistenciaDe = Pick<PlazaNueva, 'existencia' | 'existencia_unidad' | 'existencia_fuente' | 'existencia_desglose'>;
+type ExistenciaDe = Pick<PlazaNueva, 'existencia' | 'existencia_unidad' | 'existencia_fuente' | 'escalera' | 'existencia_duda'>;
+
+/** Una cantidad en la base de la ficha, escrita en su escalera. */
+function enBase(q: number, p: ExistenciaDe): CantidadPartes[] {
+  if (!p.existencia_unidad) {
+    return [{ cifra: cifra(q), rotulo: p.existencia_fuente === 'wincaja' ? 'unidades de Wincaja' : '(unidad sin declarar en Kepler)' }];
+  }
+  return listaUnidades({ [p.existencia_unidad]: q }, p.escalera);
+}
 
 export function existenciaPartes(p: ExistenciaDe): ExistenciaPartes {
-  if (p.existencia === null) return { estado: 'sin_registro', cantidad: null, desglose: null };
-  if (p.existencia <= 0) return { estado: 'agotado', cantidad: null, desglose: null };
-  const cantidad = p.existencia_unidad
-    ? cantidadPartes(p.existencia, p.existencia_unidad)
-    : { cifra: cifra(p.existencia), rotulo: p.existencia_fuente === 'wincaja' ? 'unidades de Wincaja' : '(unidad sin declarar en Kepler)' };
-  return { estado: 'hay', cantidad, desglose: desgloseTexto(p.existencia_desglose) || null };
+  const d = p.existencia_duda;
+  if (d) {
+    const plural = (r: string) => unidadLegible(r).conocida ? unidadLegible(r).plural : r;
+    return {
+      estado: 'en_duda',
+      partes: d.estimada !== null && d.estimada > 0 ? enBase(d.estimada, p) : [],
+      kepler: d.kepler <= 0 ? 'Agotado' : enumerar(enBase(d.kepler, p).map((x) => `${x.cifra} ${x.rotulo}`)),
+      motivo: `Kepler sumó ${enumerar(d.otros.map(plural))} como si fueran ${plural(d.base)}`
+        + (d.estimada === null ? '; no se pudieron convertir con la ficha.' : '. Convertidos con la ficha, ésta es la existencia.'),
+    };
+  }
+  if (p.existencia === null) return { estado: 'sin_registro', partes: [], kepler: null, motivo: null };
+  if (p.existencia <= 0) return { estado: 'agotado', partes: [], kepler: null, motivo: null };
+  return { estado: 'hay', partes: enBase(p.existencia, p), kepler: null, motivo: null };
 }
 
 /**
- * La existencia de una plaza, en palabras y en la unidad de SU ficha de Kepler: "Hay 24 piezas
- * (2 cajas)". La caja sólo aparece si la ficha la declara con su factor; nunca se inventa.
+ * La existencia de una plaza en palabras, en la escalera de SU ficha de Kepler: "Hay 5 cajas, 3
+ * paquetes y 4 piezas". La caja sólo aparece si la ficha la declara con su factor; nunca se inventa.
  */
 export function existenciaTexto(p: ExistenciaDe): string {
   const e = existenciaPartes(p);
+  const txt = enumerar(e.partes.map((x) => `${x.cifra} ${x.rotulo}`));
   if (e.estado === 'sin_registro') return 'Sin existencia registrada';
-  if (e.estado === 'agotado' || !e.cantidad) return 'Agotado';
-  const base = `Hay ${e.cantidad.cifra} ${e.cantidad.rotulo}`;
-  return e.desglose ? `${base} (${e.desglose})` : base;
+  if (e.estado === 'agotado') return 'Agotado';
+  if (e.estado === 'en_duda') {
+    return `En duda: Kepler dice ${e.kepler === 'Agotado' ? 'agotado' : e.kepler}; ${txt ? `según el kardex hay ${txt}` : 'el kardex no alcanza para estimarla'}`;
+  }
+  return `Hay ${txt}`;
 }
 
 /**
@@ -406,13 +428,13 @@ export function tendenciaTexto(t: number | null): string {
                     }
                     @if (f.venta_hoy > 0) {
                       <div class="pn-hoy"><span class="pn-punto" aria-hidden="true"></span>Hoy {{ dinero(f.venta_hoy) }}</div>
-                      @if (textoUnidades(f.unidades_hoy); as u) { <div class="pn-meta pn-hoy-u">{{ u }}</div> }
+                      @if (textoUnidades(f.unidades_hoy, f.escalera); as u) { <div class="pn-meta pn-hoy-u">{{ u }}</div> }
                     }
                   </td>
                   <td class="pn-num dt-num" role="cell" data-label="Vendido">
                     @if (f.venta_total !== null) {
                       <div class="pn-mono pn-fuerte">{{ dinero(f.venta_total) }}</div>
-                      @if (textoUnidades(f.unidades_vendidas); as u) {
+                      @if (textoUnidades(f.unidades_vendidas, f.escalera); as u) {
                         <div class="pn-unid" [pTooltip]="tipUnidades(f)">{{ u }}</div>
                       } @else if (f.venta_total > 0) {
                         <div class="pn-meta" [pTooltip]="tipUnidades(f)">sólo en pesos</div>
@@ -562,8 +584,8 @@ export function tendenciaTexto(t: number | null): string {
                       @if (sucursalesTexto(ll.sucursales); as s) { <small>a {{ s }}</small> }</div>
                   }
                   <div><span>Vendido</span><b>{{ dt.producto.venta_total === null ? '—' : dinero(dt.producto.venta_total) }}</b>
-                    @if (textoUnidades(dt.producto.unidades_vendidas); as u) { <small>{{ u }}</small> }</div>
-                  <div><span>Llegó en compras</span><b class="pk-txt">{{ textoUnidades(dt.producto.unidades_recibidas) || 'Sin compras en Kepler' }}</b></div>
+                    @if (textoUnidades(dt.producto.unidades_vendidas, dt.producto.escalera); as u) { <small>{{ u }}</small> }</div>
+                  <div><span>Llegó en compras</span><b class="pk-txt">{{ textoUnidades(dt.producto.unidades_recibidas, dt.producto.escalera) || 'Sin compras en Kepler' }}</b></div>
                   @if (dt.costo_visible) {
                     <div><span>Invertido</span><b>{{ dt.producto.inversion_total === null ? 'No medido' : dinero(dt.producto.inversion_total) }}</b></div>
                     <div><span>Por $1 invertido</span><b>{{ dt.producto.venta_por_peso === null ? '—' : veces(dt.producto.venta_por_peso) }}</b></div>
@@ -571,7 +593,7 @@ export function tendenciaTexto(t: number | null): string {
                   <div><span>Días con venta (28)</span><b>{{ dt.producto.dias_con_venta_28 }} de 28</b></div>
                   <div><span>Última venta</span><b>{{ fecha(dt.producto.ultima_venta) }}</b></div>
                   <div><span>Hoy</span><b>{{ dinero(dt.producto.venta_hoy) }}</b>
-                    @if (textoUnidades(dt.producto.unidades_hoy); as u) { <small>{{ u }}</small> }</div>
+                    @if (textoUnidades(dt.producto.unidades_hoy, dt.producto.escalera); as u) { <small>{{ u }}</small> }</div>
                 </div>
                 @if (dt.producto.llegada; as ll) {
                   @if (ll.antes; as an) {
@@ -603,7 +625,7 @@ export function tendenciaTexto(t: number | null): string {
                       <tr>
                         <td>A {{ h }} días</td>
                         <td class="pn-num pn-mono">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (dt.producto.hitos[h].venta === null ? 'sin venta' : dinero(dt.producto.hitos[h].venta)) }}</td>
-                        <td class="pk-unid">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (textoUnidades(dt.producto.hitos[h].unidades) || '—') }}</td>
+                        <td class="pk-unid">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (textoUnidades(dt.producto.hitos[h].unidades, dt.producto.escalera) || '—') }}</td>
                         @if (dt.costo_visible) {
                           <td class="pn-num pn-mono">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (dt.producto.hitos[h].inversion === null ? 'no medida' : dinero(dt.producto.hitos[h].inversion)) }}</td>
                         }
@@ -657,9 +679,9 @@ export function tendenciaTexto(t: number | null): string {
                               @if (p.movimiento.dias !== null) { <span class="pn-meta pk-dias">{{ p.movimiento.dias }} días</span> }</td>
                             <td class="pn-num pn-mono dt-num" role="cell" data-label="Venta por día">{{ dinero(p.movimiento.venta_neta_dia) }}</td>
                             <td class="pk-cel" role="cell" data-label="Le llegó">
-                              <ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: leLlego(p), vacio: '—' }" /></td>
+                              <ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: leLlego(p), vacio: '—', esc: p.escalera }" /></td>
                             <td class="pk-cel" role="cell" data-label="Vendido">
-                              <ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.unidades_vendidas, vacio: p.venta_sin_unidad > 0 ? 'sólo en pesos' : '—' }" /></td>
+                              <ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.unidades_vendidas, vacio: p.venta_sin_unidad > 0 ? 'sólo en pesos' : '—', esc: p.escalera }" /></td>
                             <td class="pk-cel" role="cell" data-label="Existencia hoy">
                               <ng-container *ngTemplateOutlet="existenciaTpl; context: { $implicit: p }" /></td>
                             <td class="pn-num pn-mono dt-num" role="cell" data-label="Vendido de lo que llegó">{{ p.movimiento.desplazado === null ? '—' : pct(p.movimiento.desplazado) }}</td>
@@ -674,7 +696,10 @@ export function tendenciaTexto(t: number | null): string {
                     <p class="pn-meta">Venta sin impuestos por día desde que el producto llegó a cada sucursal, hasta el {{ fecha(vispera(dt.frescura.corte)) }}.
                       Una sucursal con menos de {{ diasMinimosSucursal }} días todavía no compite: una sola venta la pondría arriba.
                       "Le llegó" es lo que compró más lo que le llegó de otra sucursal desde el inicio, en la unidad de cada documento.
-                      "Vendido de lo que llegó" compara lo vendido con lo vendido más la existencia de hoy, en la unidad de la ficha.</p>
+                      "Vendido de lo que llegó" compara lo vendido con lo vendido más la existencia de hoy, en la unidad de la ficha.
+                      Las cantidades van en cajas completas y lo demás en paquetes o piezas, según la ficha de cada sucursal.
+                      "En duda": Kepler sumó renglones de otra unidad (paquetes) como si fueran de la de su ficha (piezas); se muestra lo que
+                      debería haber convirtiéndolos, y conviene contar la sucursal.</p>
                   </section>
                 }
               }
@@ -687,7 +712,7 @@ export function tendenciaTexto(t: number | null): string {
                 @if (ordenReparto(dt.plazas); as rp) {
                   @if (rp.length) {
                     <div class="pk-reparto">
-                      <p class="pk-reparto-t">Nos llegaron <b>{{ textoUnidades(dt.producto.unidades_recibidas) || 'sin compras en Kepler' }}</b> en compras@if (dt.producto.llegada?.fecha) {, la primera el {{ fecha(dt.producto.llegada!.fecha) }}}. Así se repartió:</p>
+                      <p class="pk-reparto-t">Nos llegaron <b>{{ textoUnidades(dt.producto.unidades_recibidas, dt.producto.escalera) || 'sin compras en Kepler' }}</b> en compras@if (dt.producto.llegada?.fecha) {, la primera el {{ fecha(dt.producto.llegada!.fecha) }}}. Así se repartió:</p>
                       <div class="dt-scope">
                       <table class="pk-hitos pk-repartot dt-stack">
                         <thead><tr>
@@ -698,10 +723,10 @@ export function tendenciaTexto(t: number | null): string {
                           @for (p of rp; track p.plaza) {
                             <tr>
                               <td class="dt-id" role="cell">{{ p.nombre || ('Sucursal ' + p.plaza) }}</td>
-                              <td class="pk-cel" role="cell" data-label="Compró"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.unidades_recibidas, vacio: '—' }" /></td>
-                              <td class="pk-cel" role="cell" data-label="Le llegó de otra"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.recibido_traspaso, vacio: '—' }" /></td>
-                              <td class="pk-cel" role="cell" data-label="Mandó a otras"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.enviado_sucursales, vacio: '—' }" /></td>
-                              <td class="pk-cel" role="cell" data-label="Mandó a rutas"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.enviado_rutas, vacio: '—' }" /></td>
+                              <td class="pk-cel" role="cell" data-label="Compró"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.unidades_recibidas, vacio: '—', esc: p.escalera }" /></td>
+                              <td class="pk-cel" role="cell" data-label="Le llegó de otra"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.recibido_traspaso, vacio: '—', esc: p.escalera }" /></td>
+                              <td class="pk-cel" role="cell" data-label="Mandó a otras"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.enviado_sucursales, vacio: '—', esc: p.escalera }" /></td>
+                              <td class="pk-cel" role="cell" data-label="Mandó a rutas"><ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.enviado_rutas, vacio: '—', esc: p.escalera }" /></td>
                               <td class="pk-cel" role="cell" data-label="Existencia hoy"><ng-container *ngTemplateOutlet="existenciaTpl; context: { $implicit: p }" /></td>
                             </tr>
                           }
@@ -728,23 +753,23 @@ export function tendenciaTexto(t: number | null): string {
                     <div class="pk-plaza-cuerpo">
                       <div class="pk-plaza-datos">
                         <div><span>Vendido</span><b>{{ dinero(p.venta_total) }}</b>
-                          @if (textoUnidades(p.unidades_vendidas); as u) { <small>{{ u }}</small> }
+                          @if (textoUnidades(p.unidades_vendidas, p.escalera); as u) { <small>{{ u }}</small> }
                           @else if (p.venta_sin_unidad > 0) { <small>sólo en pesos</small> }</div>
                         <div><span>Últimas 4 semanas</span><b>{{ dinero(p.venta_28) }}</b></div>
-                        <div><span>Existencia hoy</span><b class="pk-txt" [class.pn-agotado]="p.existencia !== null && p.existencia <= 0">{{ existenciaTexto(p) }}</b></div>
+                        <div><span>Existencia hoy</span><b class="pk-txt" [class.pn-agotado]="!p.existencia_duda && p.existencia !== null && p.existencia <= 0" [class.pk-aviso]="!!p.existencia_duda">{{ existenciaTexto(p) }}</b></div>
                         <div><span>Última venta</span><b>{{ fecha(p.ultima_venta) }}</b></div>
                         @if (dt.costo_visible) {
                           <div><span>Invertido</span><b>{{ p.inversion_total === null ? 'No medido' : dinero(p.inversion_total) }}</b></div>
                           <div><span>Margen lista · real · pagado</span><b>{{ tresMargenes(p.margenes) }}</b></div>
                         }
-                        <div><span>Compró</span><b class="pk-txt">{{ textoUnidades(p.unidades_recibidas) || 'Sin compras en Kepler' }}</b></div>
-                        @if (textoUnidades(p.recibido_traspaso); as u) {
+                        <div><span>Compró</span><b class="pk-txt">{{ textoUnidades(p.unidades_recibidas, p.escalera) || 'Sin compras en Kepler' }}</b></div>
+                        @if (textoUnidades(p.recibido_traspaso, p.escalera); as u) {
                           <div><span>Le llegó de otra sucursal</span><b class="pk-txt">{{ u }}</b></div>
                         }
-                        @if (textoUnidades(p.enviado_sucursales); as u) {
+                        @if (textoUnidades(p.enviado_sucursales, p.escalera); as u) {
                           <div><span>Mandó a otras sucursales</span><b class="pk-txt">{{ u }}</b></div>
                         }
-                        @if (textoUnidades(p.enviado_rutas); as u) {
+                        @if (textoUnidades(p.enviado_rutas, p.escalera); as u) {
                           <div><span>Mandó a rutas</span><b class="pk-txt">{{ u }}</b></div>
                         }
                         <div><span>Recompra</span><b>{{ p.primera_recompra ? fecha(p.primera_recompra) : 'Todavía no' }}</b></div>
@@ -756,7 +781,7 @@ export function tendenciaTexto(t: number | null): string {
                         }
                       }
                     </div>
-                    <p class="pn-meta">{{ p.recomendacion.motivos.join(' · ') }}@if (p.venta_hoy > 0) { · Hoy {{ dinero(p.venta_hoy) }}@if (textoUnidades(p.unidades_hoy); as u) { ({{ u }}) } }</p>
+                    <p class="pn-meta">{{ p.recomendacion.motivos.join(' · ') }}@if (p.venta_hoy > 0) { · Hoy {{ dinero(p.venta_hoy) }}@if (textoUnidades(p.unidades_hoy, p.escalera); as u) { ({{ u }}) } }</p>
                   </article>
                 }
               </section>
@@ -774,24 +799,30 @@ export function tendenciaTexto(t: number | null): string {
       </app-side-peek>
     </div>
     <!-- [NP.16] Una cantidad por renglón: la cifra en mono y negrita, la unidad de Kepler al lado. -->
-    <ng-template #cantidadesTpl let-u let-vacio="vacio">
-      @let lista = listaUnidades(u);
+    <ng-template #cantidadesTpl let-u let-vacio="vacio" let-esc="esc">
+      @let lista = listaUnidades(u, esc);
       @if (lista.length) {
         <span class="pk-cants">
           @for (c of lista; track $index) { <span class="pk-cant"><b>{{ c.cifra }}</b> {{ c.rotulo }}</span> }
         </span>
       } @else { <span class="pk-vacio">{{ vacio }}</span> }
     </ng-template>
-    <!-- [NP.16] Existencia: la cantidad de la ficha arriba y su equivalencia en la unidad mayor abajo. -->
+    <!-- [NP.16] Existencia en la escalera de la ficha. En duda: la estimada del kardex y lo que dice Kepler. -->
     <ng-template #existenciaTpl let-p>
       @let e = existenciaPartes(p);
       @switch (e.estado) {
         @case ('agotado') { <span class="pk-tag-agotado">Agotado</span> }
         @case ('sin_registro') { <span class="pk-vacio">Sin registro</span> }
+        @case ('en_duda') {
+          <span class="pk-cants">
+            <span class="pk-tag-duda" [pTooltip]="e.motivo || ''">En duda</span>
+            @for (c of e.partes; track $index) { <span class="pk-cant"><b>{{ c.cifra }}</b> {{ c.rotulo }}</span> }
+            <span class="pk-cant-sub">Kepler dice: {{ e.kepler }}</span>
+          </span>
+        }
         @default {
           <span class="pk-cants">
-            <span class="pk-cant"><b>{{ e.cantidad?.cifra }}</b> {{ e.cantidad?.rotulo }}</span>
-            @if (e.desglose) { <span class="pk-cant-sub">{{ e.desglose }}</span> }
+            @for (c of e.partes; track $index) { <span class="pk-cant"><b>{{ c.cifra }}</b> {{ c.rotulo }}</span> }
           </span>
         }
       }
@@ -928,6 +959,8 @@ export function tendenciaTexto(t: number | null): string {
       font-weight: var(--fw-bold); color: var(--c-text-1); }
     .pk-cant-sub { max-width: 13rem; font-size: var(--fs-xs); color: var(--c-text-3); }
     .pk-vacio { font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pk-tag-duda { display: inline-block; align-self: flex-start; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs);
+      font-weight: var(--fw-bold); color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); }
     .pk-tag-agotado { display: inline-block; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs);
       font-weight: var(--fw-bold); color: var(--bad-soft-fg); background: var(--bad-soft-bg); border: 1px solid var(--bad-border); }
     .pk-dias { display: block; }

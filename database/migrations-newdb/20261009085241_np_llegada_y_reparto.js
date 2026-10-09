@@ -410,16 +410,23 @@ $np16$`);
                GROUP BY 1, 2, 3) q
        GROUP BY 1, 2
     ), kardex AS (
-      -- [NP.16] El BARRIDO del kardex (kdij): toda la historia de ENTRADAS de inventario de cada
-      -- producto en el almacen principal de cada sucursal (c1 = sucursal, c2 = 1, c3 = SKU,
-      -- c30 = 'E'). La compra fisica es la orden de entrada X-A-40: ahi entra el inventario, dias
-      -- antes de que se aplique la compra (X-A-20, la que lee primera_recepcion).
+      -- [NP.16] El BARRIDO del kardex (kdij): toda la historia de inventario de cada producto en el
+      -- almacen principal de cada sucursal (c1 = sucursal, c2 = 1, c3 = SKU), entradas (c30 = 'E')
+      -- y salidas. La compra fisica es la orden de entrada X-A-40: ahi entra el inventario, dias
+      -- antes de que se aplique la compra (X-A-20, la que lee primera_recepcion). c11/c12 = cantidad
+      -- y rotulo QUE ESCRIBIO EL RENGLON: si la ficha cambia de unidad base, los renglones viejos
+      -- siguen en el rotulo viejo y Kepler los suma sin convertir (medido 2026-10-09).
       SELECT u.tenant_id, u.sku, j.sucursal::text AS plaza, j.c10::date AS fecha,
+             (j.c30 = 'E') AS es_entrada,
              (j.c4 = 'X' AND j.c5 = 'A' AND j.c6 = 40) AS es_compra,
-             j.c4 || '-' || j.c5 || '-' || j.c6::text AS doc
+             -- Ajuste de inventario (N-A-30 / N-D-30): un conteo fisico que fija la existencia.
+             (j.c4 = 'N' AND j.c6 = 30) AS es_ajuste,
+             j.c4 || '-' || j.c5 || '-' || j.c6::text AS doc,
+             nullif(btrim(j.c12), '') AS unidad,
+             CASE WHEN j.c30 = 'E' THEN j.c11 ELSE -j.c11 END::numeric AS q
         FROM universo u
         JOIN kepler_ods.kdij j ON j.c3 = u.sku
-       WHERE j.c1 = j.sucursal AND j.c2 = 1 AND j.c30 = 'E' AND j.c10 IS NOT NULL
+       WHERE j.c1 = j.sucursal AND j.c2 = 1 AND j.c10 IS NOT NULL
     ), llegada AS (
       -- Una sola pasada: la primera compra, la primera entrada de cualquier tipo (y su documento,
       -- prefiriendo la compra si caen el mismo dia), y las compras con su sucursal para saber donde
@@ -431,6 +438,53 @@ $np16$`);
              array_agg(k.fecha::text || '|' || k.plaza ORDER BY k.fecha, k.plaza)
                FILTER (WHERE k.es_compra) AS compras
         FROM kardex k
+       WHERE k.es_entrada
+       GROUP BY 1, 2
+    ), kdx_u AS (
+      -- [NP.16] Por sucursal y ROTULO del renglon: el neto (entradas - salidas) y la ultima fecha.
+      SELECT k.tenant_id, k.sku, k.plaza, coalesce(k.unidad, '\\?') AS unidad,
+             sum(k.q) AS q, max(k.fecha) AS ult
+        FROM kardex k
+       GROUP BY 1, 2, 3, 4
+    ), kdx_aj AS (
+      SELECT k.tenant_id, k.sku, k.plaza, max(k.fecha) AS aj
+        FROM kardex k WHERE k.es_ajuste
+       GROUP BY 1, 2, 3
+    ), kdil_plaza AS (
+      -- La existencia de Kepler al momento del calculo, SIN el piso en cero de v_erp_stock_on_hand:
+      -- se compara contra la suma cruda del kardex para saber si Kepler sumo rotulos distintos.
+      SELECT u.tenant_id, u.sku, k.sucursal::text AS plaza, sum(k.c4 + k.c8 - k.c9)::numeric AS kdil
+        FROM universo u
+        JOIN kepler_ods.kdil k ON btrim(k.c3) = btrim(u.sku) AND k.sucursal = k.c1
+       GROUP BY 1, 2, 3
+    ), kardex_plaza AS (
+      -- { plaza: { u: { rotulo: { q, ult } }, crudo, aj, kdil } }. La conversion de rotulos y el
+      -- juicio de si la existencia esta en duda viven en TS (factorDeRotulo, una sola regla).
+      SELECT x.tenant_id, x.sku, jsonb_object_agg(x.plaza, x.j) AS kardex_plaza
+        FROM (SELECT a.tenant_id, a.sku, a.plaza,
+                     jsonb_strip_nulls(jsonb_build_object(
+                       'u', jsonb_object_agg(a.unidad, jsonb_build_object(
+                              'q', round(a.q, 3), 'ult', to_char(a.ult, 'YYYY-MM-DD'))),
+                       'crudo', round(sum(a.q), 3),
+                       'aj', to_char(max(aj.aj), 'YYYY-MM-DD'),
+                       'kdil', round(max(kl.kdil), 3))) AS j
+                FROM kdx_u a
+                LEFT JOIN kdx_aj aj
+                  ON aj.tenant_id = a.tenant_id AND aj.sku = a.sku AND aj.plaza = a.plaza
+                LEFT JOIN kdil_plaza kl
+                  ON kl.tenant_id = a.tenant_id AND kl.sku = a.sku AND kl.plaza = a.plaza
+               GROUP BY 1, 2, 3) x
+       GROUP BY 1, 2
+    ), escalera_plaza AS (
+      -- [NP.16] La ficha de Kepler de cada sucursal (kdii): rotulos de sus tres peldanos, el factor
+      -- de cada uno derivado del costo, y el factor de la caja. La escalera la arma TS
+      -- (escaleraUnidades, la misma regla que /compras/pedido).
+      SELECT u.tenant_id, u.sku,
+             jsonb_object_agg(l.sucursal, jsonb_strip_nulls(jsonb_build_object(
+               'u1', l.u1_label, 'u2', l.u2_label, 'u3', l.u3_label,
+               'f2', l.f2_costo, 'f3', l.f3_costo, 'uxc', l.factor_caja))) AS escalera_plaza
+        FROM universo u
+        JOIN analytics.v_kepler_unit_ladder l ON l.sku = btrim(u.sku)
        GROUP BY 1, 2
     ), hito_u AS (
       -- [NP.16] Unidades vendidas en los primeros 30, 60 y 90 dias desde el lanzamiento, por rotulo.
@@ -501,6 +555,8 @@ $np16$`);
         'entrada_doc', ll.entrada_doc) END                                AS llegada,
       coalesce(vuh.hitos, '{}'::jsonb)                                    AS venta_unidades_hito,
       coalesce(rp.reparto, '{}'::jsonb)                                   AS reparto,
+      coalesce(kp.kardex_plaza, '{}'::jsonb)                              AS kardex_plaza,
+      coalesce(ep.escalera_plaza, '{}'::jsonb)                            AS escalera_plaza,
       now()                                                               AS calculado_at
       FROM universo u
       CROSS JOIN params pa
@@ -515,6 +571,8 @@ $np16$`);
       LEFT JOIN llegada ll           ON ll.tenant_id = u.tenant_id AND ll.sku = u.sku
       LEFT JOIN venta_unidades_hito vuh ON vuh.tenant_id = u.tenant_id AND vuh.sku = u.sku
       LEFT JOIN reparto rp           ON rp.tenant_id = u.tenant_id AND rp.sku = u.sku
+      LEFT JOIN kardex_plaza kp      ON kp.tenant_id = u.tenant_id AND kp.sku = u.sku
+      LEFT JOIN escalera_plaza ep    ON ep.tenant_id = u.tenant_id AND ep.sku = u.sku
       LEFT JOIN codigos cb           ON cb.tenant_id = u.tenant_id AND cb.barcode = btrim(u.barcode)
     WITH NO DATA
   `);
@@ -540,7 +598,9 @@ $np16$`);
       'plaza, venta neta (n), la que trae costo (nc), su costo (c), la que tiene meta (nm), los pesos de '
       'margen meta (m) y lo vendido por unidad base (b). compra_base: lo comprado por unidad base. llegada: '
       'barrido del kardex (primera compra X-A-40 y donde, primera entrada de cualquier tipo). '
-      'venta_unidades_hito: unidades vendidas a 30/60/90 dias. reparto: traspaso recibido y salidas.'`);
+      'venta_unidades_hito: unidades vendidas a 30/60/90 dias. reparto: traspaso recibido y salidas. '
+      'kardex_plaza: neto del kardex por rotulo, ultimo ajuste y existencia de Kepler al calcular. '
+      'escalera_plaza: la ficha de cada sucursal (rotulos, factores del costo y de la caja).'`);
 };
 
 /**

@@ -452,6 +452,46 @@ const nulo = (v) => (v === 0 ? null : v);
       ll03.compra === esc.fecha(hoy, -45) && ll03.entrada === ll03.compra && ll03.entrada_doc === 'X-A-40', ll03);
     check('sin kardex: llegada vacía (no se inventa una fecha)',
       fila('09') && Object.keys(fila('09').llegada || {}).length === 0, fila('09') && fila('09').llegada);
+
+    // [NP.16] El kardex por sucursal (entradas Y salidas, por rótulo), recalculado de lo sembrado. Es lo
+    // que el servidor usa para decir que la existencia de Kepler está en duda.
+    const kardexEsperado = (clave) => {
+      const p = esc.PRODUCTOS.find((x) => x.clave === clave);
+      const out = {};
+      for (const k of esc.KARDEX.filter((x) => x.clave === clave)) {
+        const a = (out[k.plaza] = out[k.plaza] || { u: {}, crudo: 0 });
+        const q = (k.es === 'S' ? -1 : 1) * k.qty;
+        const f = esc.fecha(hoy, k.d);
+        const u = (a.u[k.u] = a.u[k.u] || { q: 0, ult: f });
+        u.q += q;
+        if (f > u.ult) u.ult = f;
+        a.crudo += q;
+        if (k.doc[0] === 'N' && k.doc[2] === 30 && (!a.aj || f > a.aj)) a.aj = f;
+      }
+      for (const pl of Object.keys(out)) if (p.existencia.includes(pl)) out[pl].kdil = p.stock ?? 24;
+      return out;
+    };
+    const kpEsp = kardexEsperado('03');
+    const kpMv = (fila('03') && fila('03').kardex_plaza) || {};
+    const kpMalas = [...new Set([...Object.keys(kpEsp), ...Object.keys(kpMv)])].filter((pl) => {
+      const e = kpEsp[pl] || {};
+      const g = kpMv[pl] || {};
+      const rot = [...new Set([...Object.keys(e.u || {}), ...Object.keys(g.u || {})])];
+      return !rot.every((r) => e.u?.[r] && g.u?.[r] && Math.abs(Number(e.u[r].q) - Number(g.u[r].q)) < 0.001 && e.u[r].ult === g.u[r].ult)
+        || Math.abs(Number(e.crudo) - Number(g.crudo)) > 0.001
+        || (e.kdil ?? null) !== (g.kdil === undefined ? null : Number(g.kdil)) || (e.aj ?? null) !== (g.aj ?? null);
+    });
+    check(`NPDEMO-03: kardex por sucursal = segunda implementación (${Object.keys(kpEsp).length} sucursales)`,
+      Object.keys(kpEsp).length > 0 && kpMalas.length === 0, kpMalas.map((pl) => ({ plaza: pl, matvista: kpMv[pl], esperado: kpEsp[pl] })));
+    check('⭐ la 04 del 03: Kepler sumó las cajas crudas (su existencia = la suma cruda del kardex, con las salidas)',
+      kpMv['04'] && Number(kpMv['04'].crudo) === 24 && Number(kpMv['04'].kdil) === 24 && Number(kpMv['04'].u.CJA.q) === 4, kpMv['04']);
+    check('la 01 del 03: su existencia NO es la suma cruda (no hay con qué acusar a Kepler)',
+      kpMv['01'] && Number(kpMv['01'].crudo) !== Number(kpMv['01'].kdil), kpMv['01']);
+    check('el ajuste de inventario queda fechado (la 04 del producto 01)',
+      fila('01') && fila('01').kardex_plaza?.['04']?.aj === esc.fecha(hoy, -200), fila('01') && fila('01').kardex_plaza);
+    const ep = (fila('03') && fila('03').escalera_plaza) || {};
+    check('la ficha de cada sucursal viaja con el producto (rótulos y factor de la caja)',
+      ep['04'] && ep['04'].u1 === 'PZA' && ep['04'].u2 === 'CJA' && Number(ep['04'].uxc) === 12, ep['04']);
   } catch (e) {
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);

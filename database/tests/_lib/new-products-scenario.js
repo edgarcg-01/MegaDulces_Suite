@@ -344,8 +344,10 @@ const VIVO = [
  *    hacia un cliente de telemarketing (`c27 = TELEMARK`). Ésa NO es reparto: se factura después
  *    como `U-D-8` y ya cuenta como venta, así que el candado exige que NO aparezca.
  *  · `U-A-50` es la recepción en la sucursal que recibe.
- *  · El kardex (`kdij`) guarda las ENTRADAS de inventario: la compra física (`X-A-40`) y, para el 01,
- *    un ajuste (`N-A-30`) ANTERIOR a su compra: la llegada tiene que decir que entró antes.
+ *  · El kardex (`kdij`) guarda las entradas y salidas de inventario: la compra física (`X-A-40`) y, para
+ *    el 01, un ajuste (`N-A-30`) ANTERIOR a su compra: la llegada tiene que decir que entró antes.
+ *  · El 03 en la 04 trae una entrada en CAJAS en una ficha de PIEZAS, y Kepler la suma cruda: 420 - 400
+ *    + 4 = 24 = su existencia. Es el caso que la pantalla tiene que poner "en duda" (24 + 4 × 11 = 68).
  */
 const REPARTO = [
   { clave: '03', tipo: 'U-D-41', plaza: '01', d: -30, destino: 'TI005', qty: 2, u: 'CJA', f: 12 },
@@ -359,6 +361,8 @@ const KARDEX = [
   { clave: '01', doc: ['N', 'A', 30], plaza: '04', d: -200, qty: 5, u: 'PZA' },
   { clave: '03', doc: ['X', 'A', 40], plaza: '01', d: -45, qty: 600, u: 'PZA' },
   { clave: '03', doc: ['X', 'A', 40], plaza: '04', d: -44, qty: 420, u: 'PZA' },
+  { clave: '03', doc: ['X', 'A', 40], plaza: '04', d: -30, qty: 4, u: 'CJA' },
+  { clave: '03', doc: ['U', 'D', 10], plaza: '04', d: -10, qty: 400, u: 'PZA', es: 'S' },
 ];
 
 /** `[NP.16]` Siembra el reparto (documentos U-D-41 / U-A-50) y el kardex. */
@@ -383,9 +387,9 @@ async function sembrarReparto(db, hoy) {
     const p = PRODUCTOS.find((x) => x.clave === k.clave);
     await db.raw(
       `INSERT INTO kepler_ods.kdij (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c30)
-       VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 1, ?::timestamp, ?, ?, 'E')`,
+       VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 1, ?::timestamp, ?, ?, ?)`,
       [k.plaza, k.plaza, sku(p), k.doc[0], k.doc[1], k.doc[2], SERIE, `NPDK${String(i + 1).padStart(6, '0')}`,
-        fecha(hoy, k.d), k.qty, k.u]);
+        fecha(hoy, k.d), k.qty, k.u, k.es || 'E']);
   }
 }
 

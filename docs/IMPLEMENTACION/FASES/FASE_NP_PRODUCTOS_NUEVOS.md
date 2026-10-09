@@ -451,14 +451,34 @@ Todo en las unidades que registró Kepler en cada documento, sin convertir.
    ranking; arriba de «Por sucursal», el total comprado y la tabla del reparto; en cada tarjeta, lo que le llegó de
    otra y lo que mandó. Los días de una sucursal cuentan desde que le llegó, también por traspaso.
 
-### La existencia, en cajas enteras
+### Todo en cajas, y la existencia que Kepler sumó mal
 
-La existencia se dice en la unidad base de la ficha de Kepler de cada sucursal y, debajo, partida en sus
-presentaciones **en enteros**: con caja de 60 y paquete de 10, 334 piezas son *5 cajas, 3 paquetes y 4
-piezas* (antes decía *≈ 5.6 cajas*). Medido en prod sobre las fichas de los productos nuevos: la mayoría
-tiene sólo base y caja; ~500 tienen un intermedio real (pieza → paquete → caja). El intermedio entra sólo si
-la caja es múltiplo exacto de él (hay una caja de 200 con paquete de 11: ahí se dice en cajas y piezas), y un
-bulto de peso con factor fraccionario (6.84 kg) va en bultos enteros y el resto en kilos.
+**Las cantidades van en cajas completas y lo demás en paquetes o piezas**, con la ficha de Kepler de cada
+sucursal: lo vendido (178 paquetes y 2 piezas → *29 cajas, 4 paquetes y 2 piezas*), lo que llegó, el reparto y
+la existencia (334 piezas → *5 cajas, 3 paquetes y 4 piezas*). Los totales del producto usan la ficha común a
+sus sucursales; si las fichas difieren (89 de 1,214 productos nuevos), se dicen como los registró Kepler. La regla
+de la escalera es la de `/compras/pedido` (`escaleraUnidades`, RA-PRO.70), que se movió a `libs/contracts`
+(`unit-ladder.contract.ts`) para que la usen el servidor y las dos pantallas; Pedido la re-exporta y no cambia.
+
+**Al poner «Le llegó» junto a lo vendido, la existencia de Kepler dejó de cuadrar.** Medido 2026-10-09:
+
+- Kepler guarda la existencia como la **suma cruda** de las cantidades del kardex, sin mirar el rótulo de cada
+  renglón: en 4,781 de 4,959 plaza×producto nuevos (96.4%) su existencia es exactamente esa suma.
+- Si la ficha cambia de unidad base, los renglones viejos se suman como si fueran de la nueva. 96087 Kinder
+  Delice cambió de paquete a pieza el día que llegó: Canindo recibió 180 paquetes (1,800 piezas), Kepler le contó
+  180, y la pantalla lo daba por **agotado** con ~1,500 piezas según el kardex (vendió 770 piezas cuando Kepler
+  decía que tenía 167).
+- **173 plaza×producto de 50 productos** traen renglones en un rótulo que no es el de su ficha y Kepler los sumó
+  crudos; sólo en 6 la existencia sí sale convertida.
+
+La matvista guarda por sucursal el kardex neto por rótulo, el último ajuste y la existencia de Kepler al calcular
+(`kardex_plaza`) y la ficha (`escalera_plaza`). El servidor marca la existencia **en duda** sólo si (1) hay renglones
+en otro rótulo, (2) Kepler de verdad sumó crudo y (3) no hubo un conteo físico (`N-A-30`/`N-D-30`) después: 8 Esquinas
+y La Piedad hicieron ese ajuste y no se marcan. Una sucursal en duda **no se da por agotada**; decide la existencia
+estimada (convertida con la ficha), y la recomendación dice *«conviene contarla antes de recomprar»*. Con eso, el
+veredicto de 96087 pasa de *recomprar* (tres sucursales «agotadas») a *esperar*.
+
+Candado: 159/159 contra una segunda implementación del kardex; negativa: con el kardex sólo de entradas fallan 2.
 
 ### ⚠️ Decisiones abiertas
 
@@ -472,7 +492,7 @@ bulto de peso con factor fraccionario (6.84 kg) va en bultos enteros y el resto 
 
 Candado **154/154** (9 nuevas contra una segunda implementación: reparto, unidades por corte y llegada). Prueba
 negativa: contando las remisiones de telemarketing, «a rutas» da 2 cajas en vez de 1 y fallan 2. La migración
-va y vuelve. Lógica 57/57, pantalla 30/30.
+va y vuelve. Lógica 61/61, pantalla 36/36, escalera compartida 9/9 (Pedido 120/120 sin cambios).
 
 ### Para llevarlo a producción
 
