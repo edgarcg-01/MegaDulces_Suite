@@ -31,7 +31,7 @@ import { generarRequisicionGlobalPdf, generarRequisicionPdf, ReqGlobalPdfData, R
 import { agruparPorProveedor, LineaCompra, repartoProducto } from '../pedido-requisicion-global';
 import {
   ComprasService, PurchaseSuggestionRow, PurchaseSuggestionResponse, ReplenishmentFilters,
-  DeadStockRow, DeudaAcreedor, SobranteRow, SobranteTramo, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
+  DeadStockRow, DeudaAcreedor, PostmortemRow, PostmortemVeredicto, SobranteRow, SobranteTramo, CreateRequisitionDto, CreateRequisitionLine, PedidoExportLine, saveXlsxResponse,
   TransferSuggestionRow, TransferSuggestionResponse, OverstockRow, OverstockResponse, WorkbookRow, WorkbookResponse,
   InTransitOc, InTransitResponse, MonthlySalesResponse, WorklistRow,
 } from '../compras.service';
@@ -1015,7 +1015,88 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
         <!-- [RA.SOB] SOBRANTE: dónde está parado el inventario (tira de tramos) y qué de eso lo
              compramos y nunca salió (tabla). Las dos salen de la MISMA consulta. -->
         <div class="dt-scope">
-        @if (sobError()) {
+        <!-- [RA.PM] Dos lentes de la misma pregunta: el inventario de hoy (cuánto lleva parado) y
+             la compra (si volvió a salir). Juntas porque separarlas en dos pestañas obligaría a
+             acordarse de abrir las dos. -->
+        <div class="pr-uu pr-lente" role="group" aria-label="Qué mirar">
+          <button type="button" class="pr-uu-b" [class.pr-uu-on]="sobLente()==='existencia'"
+                  [attr.aria-pressed]="sobLente()==='existencia'" (click)="setLente('existencia')"
+                  title="El inventario de hoy, por cuántos días de cobertura lleva parado">Qué está parado</button>
+          <button type="button" class="pr-uu-b" [class.pr-uu-on]="sobLente()==='compra'"
+                  [attr.aria-pressed]="sobLente()==='compra'" (click)="setLente('compra')"
+                  title="Lo que compramos en los últimos 180 días contra lo que volvió a salir">Qué compramos que no salió</button>
+        </div>
+        @if (sobLente()==='compra') {
+          @if (pmError()) {
+            <p class="pr-sob-err"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+              No se pudo leer la autopsia de compra. La cifra NO es cero: no se midió.</p>
+          } @else {
+            <div class="pr-sobstrip" role="group" aria-label="Veredicto de la compra">
+              @for (v of pmVeredictos(); track v.veredicto) {
+                <button type="button" class="pr-sob" [class]="pmCls(v)"
+                        [class.pr-sob-on]="pmVeredicto() === v.veredicto"
+                        [attr.aria-pressed]="pmVeredicto() === v.veredicto"
+                        (click)="pickVeredicto(v.veredicto)" [title]="pmTitle(v)">
+                  <span class="pr-sob-lab">{{ v.label }}</span>
+                  <span class="pr-sob-val">{{ money(v.comprado) }}</span>
+                  <span class="pr-sob-sub">{{ v.pares | number }} pares · salió {{ money(v.salido) }}</span>
+                </button>
+              }
+            </div>
+            <div class="pr-filters">
+              <p-iconfield styleClass="pr-search">
+                <p-inputicon styleClass="pi pi-search" />
+                <input pInputText type="text" [(ngModel)]="search" (keyup.enter)="loadPostmortem()" placeholder="SKU, producto o proveedor…" aria-label="Buscar" />
+              </p-iconfield>
+              <span class="pr-count">
+                {{ pmTotal() | number }} renglones · comprado {{ money(pmComprado()) }} en 180 d
+                @if (pmComputedOn()) { <span class="pr-muted">· al {{ pmComputedOn() }}</span> }
+                @else { <span class="pr-muted">· frescura sin medir</span> }
+              </span>
+            </div>
+            @if (pmSinResolver() > 0) {
+              <p class="pr-deuda pr-deuda-mute">
+                <i class="pi pi-question-circle" aria-hidden="true"></i>
+                <span><strong>{{ money(pmSinResolver()) }}</strong> de lo comprado no se puede juzgar:
+                  el documento de entrada no dice a qué plaza iba la mercancía. Se declara, no se reparte.</span>
+              </p>
+            }
+            <p-table [value]="pmRows()" [loading]="loading()"
+                     [paginator]="true" [rows]="50" [rowsPerPageOptions]="[50, 100, 200]"
+                     class="p-datatable-sm pr-table dt-stack">
+              <ng-template #header>
+                <tr><th style="min-width:16rem">Producto</th><th style="width:5rem">Almacén</th>
+                  <th class="pr-r pr-val">Comprado</th><th class="pr-r pr-val">Volvió a salir</th>
+                  <th class="pr-r" title="Lo que salió entre lo que se compró. Más de 100% no es error: movió más de lo que se le compró en la ventana.">Rotación</th>
+                  <th class="pr-r pr-val">En piso hoy</th>
+                  <th>Última compra</th><th>Proveedor</th></tr>
+              </ng-template>
+              <ng-template #body let-r>
+                <tr>
+                  <td class="dt-id" role="cell"><div class="pr-prod">{{ r.nombre }}</div><div class="pr-sku">{{ r.sku }}</div></td>
+                  <td class="pr-mono pr-muted" role="cell" data-label="Almacén">{{ r.warehouse_code | sucursal }}</td>
+                  <td class="pr-r pr-val pr-strong dt-num" role="cell" data-label="Comprado">{{ money(r.comprado) }}</td>
+                  <td class="pr-r pr-val dt-num" role="cell" data-label="Volvió a salir">{{ money(r.salido) }}</td>
+                  <td class="pr-r dt-num" role="cell" data-label="Rotación">
+                    <span [class.pr-sob-bad-t]="r.rotacion != null && r.rotacion < 0.5">{{ pmRot(r) }}</span>
+                  </td>
+                  <td class="pr-r pr-val dt-num" role="cell" data-label="En piso hoy">{{ money(r.valor_hoy) }}</td>
+                  <td class="pr-muted" role="cell" data-label="Última compra">
+                    {{ r.ultima_compra ? (r.ultima_compra | date:'dd/MM/yy') : '—' }}
+                    @if (r.n_recibos > 1) { <span class="pr-muted">· {{ r.n_recibos }} entradas</span> }
+                  </td>
+                  <td class="pr-supp" role="cell" data-label="Proveedor">{{ r.proveedor || '—' }}</td>
+                </tr>
+              </ng-template>
+              <ng-template #emptymessage>
+                <tr><td colspan="8" class="pr-empty"><i class="pi pi-inbox"></i>
+                  <p>Nada que mostrar con estos filtros.</p>
+                  <span>Acá aparece lo que se compró en los últimos 180 días contra lo que volvió a salir del mismo almacén.</span>
+                </td></tr>
+              </ng-template>
+            </p-table>
+          }
+        } @else if (sobError()) {
           <p class="pr-sob-err"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
             No se pudo leer el sobrante. La cifra NO es cero: no se midió.</p>
         } @else {
@@ -1228,6 +1309,8 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     :host ::ng-deep .pr-sel { min-width: 13rem; }
     :host ::ng-deep .pr-search input { min-width: 12rem; }
     .pr-count { margin-left: auto; font-size: var(--fs-sm); color: var(--text-muted); }
+    /* [RA.PM] El selector de lente de la pestana Sobrante. SIN ACENTOS GRAVES ACA. */
+    .pr-lente { margin: 0 0 .6rem; }
     /* [RA.CAP] Lo que ya le debemos al proveedor elegido. Un renglon, no una tarjeta: es contexto
        para la decision de compra, no la pantalla de Finanzas. SIN ACENTOS GRAVES ACA. */
     .pr-deuda {
@@ -3905,6 +3988,92 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         if (gen !== this.reqGen) return;
         this.loading.set(false); this.deadRows.set(r?.rows ?? []); this.deadValue.set(Number(r?.total_value) || 0); this.loadedAt.set(Date.now());
       });
+  }
+
+  // ── `[RA.PM]` La autopsia de la compra: qué pedimos que no volvió a salir ─────────────────
+  /**
+   * Pedido de Edgar (2026-10-09): *"comparar las compras con pedidos que se hayan quedado en stock
+   * o no hayan rendido como se pensaba, para aprender esos pedidos y no volverlos a repetir"*.
+   *
+   * ⭐ Vive DENTRO de la pestaña Sobrante, como una segunda lente, porque las dos responden la
+   * misma pregunta desde distinto lado: *Sobrante* mira el inventario de hoy y pregunta cuánto
+   * lleva parado; *Autopsia* mira la compra y pregunta si volvió a salir. Separarlas en dos
+   * pestañas obligaría a acordarse de abrir las dos.
+   *
+   * ⛔ Lo FISCAL no es la espina — el CFDI no tiene SKU. El porqué, medido, está en la migración
+   * `20261009133029`; acá sólo se consume.
+   */
+  readonly sobLente = signal<'existencia' | 'compra'>('existencia');
+  readonly pmVeredictos = signal<PostmortemVeredicto[]>([]);
+  readonly pmRows = signal<PostmortemRow[]>([]);
+  readonly pmTotal = signal(0);
+  readonly pmComprado = signal(0);
+  readonly pmSinResolver = signal(0);
+  /** `null` = no se pudo leer. ⛔ NO se cae a "hoy": sería afirmar una frescura que no se midió. */
+  readonly pmComputedOn = signal<string | null>(null);
+  readonly pmVeredicto = signal<string | null>(null);
+  /** ⚠️ Separado de `pmRows().length === 0`: "no pude leer" y "no hay nada" son cosas distintas. */
+  readonly pmError = signal(false);
+
+  setLente(l: 'existencia' | 'compra'): void {
+    if (this.sobLente() === l) return;
+    this.sobLente.set(l);
+    l === 'compra' ? this.loadPostmortem() : this.loadSobrante();
+  }
+
+  loadPostmortem(): void {
+    const gen = ++this.reqGen;
+    this.loading.set(true); this.pmError.set(false); this.saveFilters();
+    this.api.postmortem({
+      supplier_id: this.fSupplier || undefined,
+      warehouse_ids: this.wbWarehouses.length ? this.wbWarehouses : undefined,
+      search: this.search.trim() || undefined,
+      veredicto: this.pmVeredicto() ?? undefined,
+      pageSize: 200,
+    }).pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        if (gen !== this.reqGen) return;
+        this.loading.set(false);
+        if (!r) { this.pmError.set(true); this.pmRows.set([]); this.pmVeredictos.set([]); return; }
+        this.pmVeredictos.set(r.veredictos ?? []);
+        this.pmRows.set(r.rows ?? []);
+        this.pmTotal.set(Number(r.total) || 0);
+        this.pmComprado.set(Number(r.total_comprado) || 0);
+        this.pmSinResolver.set(Number(r.total_sin_resolver) || 0);
+        this.pmComputedOn.set(r.computed_on ?? null);
+        this.loadedAt.set(Date.now());
+      });
+  }
+
+  pickVeredicto(v: string): void {
+    this.pmVeredicto.set(this.pmVeredicto() === v ? null : v);
+    this.loadPostmortem();
+  }
+
+  /**
+   * El color del mosaico. ⭐ `sin_resolver` va NEUTRO: no es un veredicto de desempeño, es la
+   * declaración de que el documento no dice a qué plaza iba la mercancía. Pintarlo de rojo diría
+   * que esa compra salió mal, cuando lo que pasa es que no se puede juzgar.
+   */
+  pmCls(v: PostmortemVeredicto): string {
+    if (v.veredicto === 'sin_resolver') return 'pr-sob-mute';
+    if (v.veredicto === 'nunca_salio') return 'pr-sob-bad';
+    if (v.veredicto === 'salio_poco') return 'pr-sob-warn';
+    return 'pr-sob-ok';
+  }
+
+  pmTitle(v: PostmortemVeredicto): string {
+    if (v.veredicto === 'sin_resolver') {
+      return `${v.pares} pares por ${this.money(v.comprado)} donde el documento de entrada NO dice a qué plaza iba `
+        + 'la mercancía. No se puede juzgar si rindió: se DECLARA, no se reparte a ojo.';
+    }
+    return `${v.pares} pares · se compraron ${this.money(v.comprado)} y volvieron a salir `
+      + `${this.money(v.salido)}. Hoy quedan ${this.money(v.en_piso)} en piso.`;
+  }
+
+  /** Rotación como texto. `null` no es 0: es que no se pudo calcular. */
+  pmRot(r: PostmortemRow): string {
+    return r.rotacion == null ? '—' : `${Math.round(r.rotacion * 100)}%`;
   }
 
   // ── `[RA.CAP]` Lo que YA le debemos al proveedor que se está por pedir ────────────────────
