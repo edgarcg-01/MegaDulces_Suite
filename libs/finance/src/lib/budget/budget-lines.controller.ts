@@ -74,9 +74,22 @@ export class BudgetLinesController {
   @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
   submit(@Param('id') id: string, @Req() req: AuthedRequest) { return this.svc.submitBudget(id, this.who(req)); }
 
+  // `[PVI.10]` ⛔ Acá **preparar y autorizar eran la misma llave**: este endpoint pedía
+  // `PRESUPUESTOS_GESTIONAR`, igual que `submit` y que editar una partida — tanto que la
+  // descripción de esa clave decía textual «crear **y aprobar** el ejercicio presupuestal». El
+  // único freno era no poder auto-aprobar la propia captura, que separa PERSONAS, no FACULTADES:
+  // dos personas que preparan se aprueban el ejercicio entre sí sin que nadie autorice nada.
+  //
+  // ⚠️ `submit` se queda en `GESTIONAR` a propósito: mandar a firma es el último acto de quien
+  //    prepara. Y `close` también, por ahora — cerrar no autoriza dinero, termina el ejercicio;
+  //    si debe exigir autoridad es una pregunta aparte y se declara, no se amplía de contrabando.
+  //
+  // ⛔ El orden de entrega NO es libre: la migración que reparte la clave va **antes** que este
+  //    código. Al revés, `direccion` pierde la aprobación en el instante del deploy (sólo
+  //    `superadmin` seguiría pasando, por god-mode de rol) — fail-closed sobre gente real.
   @Post('budgets/:id/approve')
-  @RequirePermissions(Permission.PRESUPUESTOS_GESTIONAR)
-  @ApiOperation({ summary: 'Aprueba/hace vigente + materializa las partidas del plan. No se puede autoaprobar la propia captura.' })
+  @RequirePermissions(Permission.PRESUPUESTOS_APROBAR)
+  @ApiOperation({ summary: 'Aprueba/hace vigente + materializa las partidas del plan. Exige PRESUPUESTOS_APROBAR (preparar ≠ autorizar). No se puede autoaprobar la propia captura.' })
   async approve(@Param('id') id: string, @Req() req: AuthedRequest) {
     const who = this.who(req);
     const budget = await this.svc.approveBudget(id, who);

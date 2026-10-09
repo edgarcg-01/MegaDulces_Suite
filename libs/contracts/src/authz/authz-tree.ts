@@ -437,14 +437,25 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
         icon: 'pi pi-chart-pie',
         route: '/presupuesto',
         modules: [
-          { id: 'presupuesto', label: 'Presupuesto', route: '/presupuesto', view: [Permission.PRESUPUESTOS_VER], manage: [Permission.PRESUPUESTOS_GESTIONAR] },
+          // `[PVI.10]` `PRESUPUESTOS_APROBAR` va en `manage` y no en `view`: quien sólo aprueba
+          // igual necesita ENTRAR a la pantalla —no se firma lo que no se ve—, y `manage` es lo
+          // que `entryPermissions` suma para decidir si la entrada se le abre. No se agrega al
+          // `MODULE_GROUP` `presupuestos` (molde TP.6): ahí se otorgaría "de paquete" junto con
+          // GESTIONAR, que es exactamente lo que esta clave viene a separar.
+          { id: 'presupuesto', label: 'Presupuesto', route: '/presupuesto', view: [Permission.PRESUPUESTOS_VER], manage: [Permission.PRESUPUESTOS_GESTIONAR, Permission.PRESUPUESTOS_APROBAR] },
           // `[TES.15]` ⛔ Sin este renglón la pantalla EXISTE y nadie puede llegar: la ruta estaba
           // registrada y el enlace no. Es la mitad del defecto que `[LC.6.2]` documentó —allá el
           // permiso estaba declarado y sin repartir; acá el permiso está bien y falta la puerta—.
           // **Una pantalla sin entrada en el mapa no está entregada, está escrita.**
           // Mismo permiso que su hermana: los dos endpoints ya exigen `PRESUPUESTOS_VER`, así que
           // esto NO agrega nada al JWT y nadie tiene que re-loguearse.
-          { id: 'tesoreria-diagnostico', label: 'Tesorería · diagnóstico', route: '/presupuesto/tesoreria', view: [Permission.PRESUPUESTOS_VER] },
+          // ⛔ `manage: []` NO es decorativo: es OBLIGATORIO en `AuthzModule` (línea 40 de este
+          // archivo) y sin él `clavesDeModulo` hace `[...m.manage]` y `entryPermissions` hace
+          // `m.manage.forEach` sobre `undefined`. Medido: **26 pruebas de `contracts` y 60 de
+          // `view` en rojo**, todas con el mismo TypeError, y ninguna menciona a Tesorería — se
+          // lee como si el árbol entero estuviera roto. Va vacío porque la pantalla es un
+          // diagnóstico de LECTURA: no hay nada que gestionar en ella.
+          { id: 'tesoreria-diagnostico', label: 'Tesorería · diagnóstico', route: '/presupuesto/tesoreria', view: [Permission.PRESUPUESTOS_VER], manage: [] },
         ],
       },
       {
