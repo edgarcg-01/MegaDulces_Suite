@@ -97,10 +97,88 @@ export interface NewProductSource {
   /** Venta de TIENDA KEPLER en sus unidades, por plaza; `i` = los pesos que cubren esas unidades. */
   venta_unidades?: Record<string, { u: Record<string, number | string>; i: number | string }>;
   entradas: Array<{ f: string; p: string; folio?: string; i: number | string; u?: Record<string, number | string> }>;
+  /** `[NP.15]` Por plaza, lo que hace falta para los márgenes (historia, pesos SIN impuesto). */
+  margen_plaza?: Record<string, MargenFuente>;
+  /** `[NP.15]` Lo comprado en UNIDAD BASE: `{ rótulo: { q: cantidad, i: importe sin impuesto } }`. */
+  compra_base?: Record<string, { q: number | string; i: number | string }>;
   clasificacion: NewProductKind | null;
   nota: string | null;
   clasificado_por: string | null;
 }
+
+/**
+ * `[NP.15]` Lo que la matvista deja por plaza para los márgenes. Todo en pesos SIN IVA/IEPS y sobre
+ * la HISTORIA (del lanzamiento a la víspera del corte): lo de hoy no entra en los márgenes.
+ */
+export interface MargenFuente {
+  /** Venta neta. */
+  n: number | string;
+  /** La parte de la venta neta que trae el costo del renglón (`kdm2.c62`). */
+  nc: number | string;
+  /** El costo de esa venta. */
+  c: number | string;
+  /** La parte de la venta neta cuya ficha trae % de margen para el peldaño vendido. */
+  nm: number | string;
+  /** Los pesos de margen que daría la meta de la ficha sobre esa venta. */
+  m: number | string;
+  /** Lo vendido en unidad base: `{ rótulo: { q: cantidad, n: venta neta } }`. */
+  b?: Record<string, { q: number | string; n: number | string }>;
+}
+
+/**
+ * Un margen, con lo que alcanza a cubrir. `pct` sobre la venta neta que cubre; NULL = no se pudo
+ * medir, y `nota` dice por qué. Nunca se dibuja un cero donde no hubo con qué medir (ADR-056).
+ */
+export interface Margen {
+  pct: number | null;
+  /** Pesos de margen sobre la venta que cubre. */
+  utilidad: number | null;
+  /** Qué parte de la venta neta cubre (0 a 1). */
+  cobertura: number | null;
+  /** Por qué no se midió, o qué parte queda fuera. */
+  nota: string | null;
+}
+
+/** `[NP.15]` Los tres márgenes de un producto (o de una plaza). */
+export interface Margenes {
+  /** Venta sin IVA/IEPS de la historia: el denominador de los tres. */
+  venta_neta: number;
+  /** ¿Con qué margen lo pusimos a la venta? La meta de la ficha, por el peldaño vendido. */
+  lista: Margen;
+  /** ¿Cuánto dejó? Con el costo que Kepler escribió en cada renglón vendido. */
+  real: Margen;
+  /** ¿La ficha tiene el costo correcto? Con lo que se pagó en sus compras. */
+  pagado: Margen;
+  /** Lo pagado por unidad base en sus compras: la base del margen sobre lo pagado. */
+  costo_pagado: { unidad: string; por_unidad: number } | null;
+}
+
+/** `[NP.15]` Qué tan bien se mueve en una plaza. */
+export interface Movilidad {
+  /** Venta sin impuesto por día, desde su primera actividad en la plaza hasta la víspera del corte. */
+  venta_neta_dia: number | null;
+  /** Días de historia en la plaza (los que entran en `venta_neta_dia`). */
+  dias: number | null;
+  /** De lo que pasó por la plaza (vendido + existencia de hoy), qué parte se vendió. En unidad base. */
+  desplazado: number | null;
+  /** Lugar entre las plazas (1 = la que mejor se mueve). NULL = todavía no compite. */
+  lugar: number | null;
+}
+
+export interface MejorPlaza {
+  plaza: string;
+  nombre: string | null;
+  venta_neta_dia: number;
+  dias: number;
+}
+
+/**
+ * Para comparar plazas. Una plaza con pocos días puede verse enorme por una sola venta: hasta
+ * `diasMinimos` de historia en la plaza no entra al ranking.
+ */
+export const CRITERIO_SUCURSAL = {
+  diasMinimos: 7,
+} as const;
 
 /** Lo que pasó desde el corte (ODS en vivo). */
 export interface Movimiento {
@@ -215,6 +293,10 @@ export interface NewProductRow {
   unidades_recibidas: Unidades;
   unidades_hoy: Unidades;
   recomendacion: Recomendacion | null;
+  /** `[NP.15]` NULL = sin venta en la historia, o sin permiso de costo. */
+  margenes: Margenes | null;
+  /** `[NP.15]` La plaza donde mejor se mueve (venta neta por día). NULL = ninguna compite todavía. */
+  mejor_plaza: MejorPlaza | null;
 }
 
 export interface PlazaRow {
@@ -246,6 +328,9 @@ export interface PlazaRow {
   semanas: number[];
   venta_hoy: number;
   recomendacion: Recomendacion;
+  /** `[NP.15]` NULL = sin venta en la historia de la plaza, o sin permiso de costo. */
+  margenes: Margenes | null;
+  movimiento: Movilidad;
 }
 
 export interface Cohorte {
@@ -499,6 +584,97 @@ export function recomendar(s: Senales, opts: { conCosto: boolean } = { conCosto:
   };
 }
 
+// ─────────────────────────────── los márgenes (NP.15) ───────────────────────────────
+
+const r3 = (v: number) => Math.round(v * 1000) / 1000;
+/** Una cobertura que no llega a esto se dice: la diferencia ya no es de redondeo. */
+const COBERTURA_COMPLETA = 0.995;
+const pctTexto = (v: number) => `${Math.round(v * 100)}%`;
+const sinMedir = (nota: string): Margen => ({ pct: null, utilidad: null, cobertura: 0, nota });
+const margenSobre = (venta: number, ganancia: number, total: number): Pick<Margen, 'pct' | 'utilidad' | 'cobertura'> => ({
+  pct: Math.round((ganancia / venta) * 1000) / 10,
+  utilidad: r2(ganancia),
+  cobertura: r3(venta / total),
+});
+
+/**
+ * Los tres márgenes, sumando las plazas que se le pasen (una sola = el margen de esa plaza). `compra`
+ * es la del PRODUCTO: lo pagado por unidad base no depende de la plaza donde se vendió.
+ *
+ *   · De lista — `m / nm`: la meta de la ficha ponderada por la venta de cada peldaño vendido.
+ *   · Real     — `(nc − c) / nc`: con el costo que Kepler escribió en el renglón.
+ *   · Pagado   — lo vendido en la MISMA unidad base que la compra, contra lo que costó esa unidad.
+ *
+ * El denominador de cada uno es SÓLO la venta que puede juzgar; lo demás va a la cobertura y a la
+ * nota. Promediar con cero la venta que no trae costo diría que se regaló (ADR-056).
+ */
+export function margenesDe(
+  fuentes: MargenFuente[],
+  compra: Record<string, { q: number | string; i: number | string }> | undefined,
+): Margenes | null {
+  let n = 0, nc = 0, c = 0, nm = 0, m = 0;
+  const base = new Map<string, { q: number; n: number }>();
+  for (const f of fuentes) {
+    n += num(f.n) ?? 0;
+    nc += num(f.nc) ?? 0;
+    c += num(f.c) ?? 0;
+    nm += num(f.nm) ?? 0;
+    m += num(f.m) ?? 0;
+    for (const [u, x] of Object.entries(f.b ?? {})) {
+      const acc = base.get(u) ?? { q: 0, n: 0 };
+      acc.q += num(x.q) ?? 0;
+      acc.n += num(x.n) ?? 0;
+      base.set(u, acc);
+    }
+  }
+  if (n <= 0) return null;
+
+  const lista: Margen = nm > 0
+    ? { ...margenSobre(nm, m, n),
+        nota: nm / n < COBERTURA_COMPLETA
+          ? `La ficha de Kepler no trae % de margen para el ${pctTexto(1 - nm / n)} de lo vendido`
+          : null }
+    : sinMedir('La ficha de Kepler no trae % de margen para lo que se vendió');
+
+  const real: Margen = nc > 0
+    ? { ...margenSobre(nc, nc - c, n),
+        nota: nc / n < COBERTURA_COMPLETA
+          ? `Kepler no registró el costo en el ${pctTexto(1 - nc / n)} de la venta (suele ser venta de mayoreo)`
+          : null }
+    : sinMedir('Kepler no registró el costo en ninguna venta de este producto');
+
+  // Lo pagado: un costo por unidad base, de las compras que traen cantidad e importe.
+  const compras = Object.entries(compra ?? {})
+    .map(([u, x]) => ({ u, q: num(x.q) ?? 0, i: num(x.i) ?? 0 }))
+    .filter((x) => x.q > 0 && x.i > 0);
+  let pagado: Margen;
+  let costoPagado: Margenes['costo_pagado'] = null;
+  if (!compras.length) {
+    pagado = sinMedir('Sin compras en Kepler dentro de su historia: llegó por traspaso o antes de los 180 días');
+  } else if (compras.length > 1) {
+    pagado = sinMedir(`La compra viene en varias unidades base (${compras.map((x) => x.u).join(', ')}): no hay un solo costo por unidad`);
+  } else {
+    const { u, q, i } = compras[0];
+    const porUnidad = i / q;
+    costoPagado = { unidad: u, por_unidad: Math.round(porUnidad * 10_000) / 10_000 };
+    const vend = base.get(u);
+    if (!vend || vend.n <= 0) {
+      const otras = [...base.keys()].filter((x) => x !== u);
+      pagado = sinMedir(otras.length
+        ? `La compra viene en ${u} y la venta en ${otras.join(', ')}: Kepler no las declara en la misma unidad`
+        : 'Sin venta en la unidad de la compra');
+    } else {
+      pagado = {
+        ...margenSobre(vend.n, vend.n - vend.q * porUnidad, n),
+        nota: vend.n / n < COBERTURA_COMPLETA
+          ? `El ${pctTexto(1 - vend.n / n)} de la venta viene en otra unidad base y no se compara`
+          : null,
+      };
+    }
+  }
+  return { venta_neta: r2(n) ?? 0, lista, real, pagado, costo_pagado: costoPagado };
+}
+
 // ─────────────────────────────── armado por producto ───────────────────────────────
 
 export interface Armado {
@@ -589,6 +765,12 @@ export function armarProducto(
     sumarUnidades(unidadesRecibidas, recibidasP);
     sumarUnidades(unidadesHoy, hoyP);
     cubierto += cubiertoP;
+    // [NP.15] Márgenes y movimiento de la plaza, sobre la HISTORIA (hasta la víspera del corte).
+    const fuenteP = f.margen_plaza?.[p];
+    const diasHist = primeraAct && primeraAct < f.corte ? diasEntre(primeraAct, f.corte) : null;
+    const netaP = num(fuenteP?.n);
+    const unidadEx = ex && ex.fila.fuente !== 'wincaja' ? (ex.fila.unidad ?? '').trim().toUpperCase() : '';
+    const vendidoBase = unidadEx ? num(fuenteP?.b?.[unidadEx]?.q) : null;
     plazas.push({
       plaza: p,
       nombre: nombres.get(p) ?? null,
@@ -617,8 +799,27 @@ export function armarProducto(
         venta_28_previa: vp.previa, dias_sin_venta: vp.ultima,
         agotado_en: agotadaAqui ? 1 : 0, plazas_con_existencia: hayExistencia ? 1 : 0,
       }, { conCosto: opts.conCosto }),
+      margenes: fuenteP ? margenesDe([fuenteP], f.compra_base) : null,
+      movimiento: {
+        venta_neta_dia: diasHist !== null && diasHist > 0 && netaP !== null ? r2(netaP / diasHist) : null,
+        dias: diasHist,
+        // Vendido contra lo que hay hoy, en la MISMA unidad base (la de la ficha de la plaza).
+        desplazado: ex && vendidoBase !== null && vendidoBase + ex.cantidad > 0
+          ? r3(vendidoBase / (vendidoBase + Math.max(0, ex.cantidad)))
+          : null,
+        lugar: null,
+      },
     });
   }
+
+  // [NP.15] Dónde se mueve mejor: venta neta por día desde que llegó a cada plaza. Una plaza con
+  // menos de `diasMinimos` de historia no compite: una sola venta la pondría arriba.
+  const compiten = plazas
+    .filter((x) => x.movimiento.dias !== null && x.movimiento.dias >= CRITERIO_SUCURSAL.diasMinimos
+      && x.movimiento.venta_neta_dia !== null && x.movimiento.venta_neta_dia > 0)
+    .sort((a, b) => (b.movimiento.venta_neta_dia ?? 0) - (a.movimiento.venta_neta_dia ?? 0));
+  compiten.forEach((x, i) => { x.movimiento.lugar = i + 1; });
+  const mejor = compiten[0];
 
   // ── Global ──
   const ventaTotal = serie.reduce((a, b) => a + b, 0);
@@ -686,6 +887,11 @@ export function armarProducto(
         venta_28_previa: v.previa, dias_sin_venta: v.ultima, agotado_en: agotadoEn,
         plazas_con_existencia: plazasConExistencia,
       }, { conCosto: opts.conCosto })
+      : null,
+    margenes: margenesDe(Object.values(f.margen_plaza ?? {}), f.compra_base),
+    mejor_plaza: mejor
+      ? { plaza: mejor.plaza, nombre: mejor.nombre, venta_neta_dia: mejor.movimiento.venta_neta_dia ?? 0,
+          dias: mejor.movimiento.dias ?? 0 }
       : null,
   };
   return { fila, plazas };
@@ -769,11 +975,13 @@ export function ocultarCosto(filas: NewProductRow[]): NewProductRow[] {
     inversion_total: null,
     venta_por_peso: null,
     hitos: Object.fromEntries((HITOS as readonly Hito[]).map((n) => [n, { ...f.hitos[n], inversion: null }])) as Record<Hito, HitoValores>,
+    // [NP.15] Un margen deja ver el costo (venta y % de margen bastan para despejarlo).
+    margenes: null,
   }));
 }
 
 export function ocultarCostoPlazas(plazas: PlazaRow[]): PlazaRow[] {
-  return plazas.map((p) => ({ ...p, inversion_total: null }));
+  return plazas.map((p) => ({ ...p, inversion_total: null, margenes: null }));
 }
 
 export function esKindValido(v: unknown): v is NewProductKind {

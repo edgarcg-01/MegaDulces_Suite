@@ -1,9 +1,14 @@
 import {
   CRITERIO_RECOMPRA,
+  CRITERIO_SUCURSAL,
+  Existencia,
+  MargenFuente,
   Movimiento,
   NewProductSource,
   Senales,
   armarProducto,
+  margenesDe,
+  ocultarCostoPlazas,
   construirCohortes,
   construirResumen,
   esKindValido,
@@ -332,5 +337,132 @@ describe('cohortes, resumen y costo oculto', () => {
   it('esKindValido acepta las cuatro clasificaciones y nada más', () => {
     expect(['nuevo', 'recodificacion', 'promocion', 'no_mercancia'].every(esKindValido)).toBe(true);
     expect(esKindValido('otro')).toBe(false);
+  });
+});
+
+/**
+ * `[NP.15]` Los tres márgenes y dónde se mueve mejor. Las cifras de entrada son pesos SIN impuesto
+ * (los deja así la matvista); aquí se prueba que cada margen use SU denominador y declare lo que no
+ * alcanza a cubrir.
+ */
+const mf = (over: Partial<MargenFuente> = {}): MargenFuente => ({
+  n: 1000, nc: 800, c: 600, nm: 1000, m: 170, b: { PZA: { q: 100, n: 1000 } }, ...over,
+});
+
+describe('[NP.15] los tres márgenes', () => {
+  it('cada uno con su denominador: lista 17%, real 25% sobre lo que trae costo, pagado 35%', () => {
+    const m = margenesDe([mf()], { PZA: { q: 200, i: 1300 } })!;
+    expect(m.venta_neta).toBe(1000);
+    expect(m.lista).toEqual({ pct: 17, utilidad: 170, cobertura: 1, nota: null });
+    // El real se mide SÓLO sobre los $800 que traen costo: (800 − 600) / 800.
+    expect(m.real.pct).toBe(25);
+    expect(m.real.utilidad).toBe(200);
+    expect(m.real.cobertura).toBe(0.8);
+    expect(m.real.nota).toContain('20%');
+    // Pagado: $1,300 / 200 PZA = $6.50 la pieza; 100 PZA vendidas cuestan $650.
+    expect(m.costo_pagado).toEqual({ unidad: 'PZA', por_unidad: 6.5 });
+    expect(m.pagado).toEqual({ pct: 35, utilidad: 350, cobertura: 1, nota: null });
+  });
+
+  it('⛔ la venta sin costo NO es margen cero: se declara', () => {
+    const m = margenesDe([mf({ nc: 0, c: 0 })], { PZA: { q: 200, i: 1300 } })!;
+    expect(m.real.pct).toBeNull();
+    expect(m.real.utilidad).toBeNull();
+    expect(m.real.cobertura).toBe(0);
+    expect(m.real.nota).toMatch(/no registró el costo/);
+    // Los otros dos no dependen del costo del renglón.
+    expect(m.lista.pct).toBe(17);
+    expect(m.pagado.pct).toBe(35);
+  });
+
+  it('el margen de varias plazas se pondera por venta, no promedia porcentajes', () => {
+    // A: $100 al 50% · B: $900 al 10% → (1000 − 860) / 1000 = 14%, no el 30% del promedio simple.
+    const m = margenesDe([
+      mf({ n: 100, nc: 100, c: 50, nm: 0, m: 0, b: {} }),
+      mf({ n: 900, nc: 900, c: 810, nm: 0, m: 0, b: {} }),
+    ], undefined)!;
+    expect(m.real.pct).toBe(14);
+    expect(m.real.utilidad).toBe(140);
+  });
+
+  it('compra y venta en distinta unidad base: no se compara, se dice', () => {
+    const m = margenesDe([mf()], { CJA: { q: 10, i: 1300 } })!;
+    expect(m.pagado.pct).toBeNull();
+    expect(m.pagado.nota).toContain('CJA');
+    expect(m.pagado.nota).toContain('PZA');
+    expect(m.costo_pagado).toEqual({ unidad: 'CJA', por_unidad: 130 });
+  });
+
+  it('compra en dos unidades base, o sin compras: tampoco se adivina', () => {
+    expect(margenesDe([mf()], { PZA: { q: 10, i: 65 }, CJA: { q: 1, i: 600 } })!.pagado.nota).toMatch(/varias unidades/);
+    expect(margenesDe([mf()], undefined)!.pagado.nota).toMatch(/Sin compras/);
+    expect(margenesDe([mf()], {})!.costo_pagado).toBeNull();
+  });
+
+  it('sin meta en la ficha: el de lista se declara; con meta parcial, dice cuánto falta', () => {
+    expect(margenesDe([mf({ nm: 0, m: 0 })], undefined)!.lista.nota).toMatch(/no trae % de margen/);
+    const parcial = margenesDe([mf({ nm: 600, m: 90 })], undefined)!;
+    expect(parcial.lista.pct).toBe(15);
+    expect(parcial.lista.cobertura).toBe(0.6);
+    expect(parcial.lista.nota).toContain('40%');
+  });
+
+  it('sin venta en la historia no hay márgenes', () => {
+    expect(margenesDe([], undefined)).toBeNull();
+    expect(margenesDe([mf({ n: 0 })], undefined)).toBeNull();
+  });
+});
+
+describe('[NP.15] dónde se mueve mejor', () => {
+  // Lanzado hace 45 días en la 03; la 05 empezó a vender hace 10 días y la 06 hace 3.
+  const serie = (desde: number) => Array.from({ length: 45 }, (_, i) => (i >= desde ? 100 : 0));
+  const ex: Existencia[] = [
+    { product_id: 'p1', plaza: '03', cantidad: 50, factor: null, fuente: 'kepler', unidad: 'PZA' },
+  ];
+  const nombres = new Map([['03', 'La Piedad'], ['05', 'Zamora'], ['06', 'Yurécuaro']]);
+  const armado = () => armarProducto(fuente({
+    venta_por_plaza: { '03': serie(0), '05': serie(35), '06': serie(42) },
+    margen_plaza: {
+      '03': mf({ n: 4500, b: { PZA: { q: 450, n: 4500 } } }),
+      '05': mf({ n: 2000 }),
+      '06': mf({ n: 900 }),
+    },
+  }), HOY, [], ex, { conCosto: true, nombres });
+
+  it('ordena por venta neta por día desde que llegó a cada plaza', () => {
+    const { fila, plazas } = armado();
+    const p = (c: string) => plazas.find((x) => x.plaza === c)!.movimiento;
+    expect(p('03')).toMatchObject({ dias: 45, venta_neta_dia: 100, lugar: 2 });
+    expect(p('05')).toMatchObject({ dias: 10, venta_neta_dia: 200, lugar: 1 });
+    expect(fila.mejor_plaza).toEqual({ plaza: '05', nombre: 'Zamora', venta_neta_dia: 200, dias: 10 });
+  });
+
+  it(`⛔ una plaza con menos de ${CRITERIO_SUCURSAL.diasMinimos} días no compite, aunque venda más por día`, () => {
+    const m = armado().plazas.find((x) => x.plaza === '06')!.movimiento;
+    expect(m.venta_neta_dia).toBe(300);
+    expect(m.lugar).toBeNull();
+  });
+
+  it('lo desplazado se mide en la unidad de la ficha: 450 vendidas contra 50 en existencia = 90%', () => {
+    const plazas = armado().plazas;
+    expect(plazas.find((x) => x.plaza === '03')!.movimiento.desplazado).toBe(0.9);
+    // Sin renglón de existencia no hay contra qué medir: NULL, no 100%.
+    expect(plazas.find((x) => x.plaza === '05')!.movimiento.desplazado).toBeNull();
+  });
+
+  it('los márgenes van por producto y por plaza', () => {
+    const { fila, plazas } = armado();
+    expect(fila.margenes!.venta_neta).toBe(7400);
+    expect(plazas.find((x) => x.plaza === '05')!.margenes!.venta_neta).toBe(2000);
+  });
+
+  it('⛔ sin permiso de costo no viajan los márgenes, pero sí dónde se mueve mejor', () => {
+    const { fila, plazas } = armado();
+    const [f] = ocultarCosto([fila]);
+    expect(f.margenes).toBeNull();
+    expect(f.mejor_plaza?.plaza).toBe('05');
+    const ps = ocultarCostoPlazas(plazas);
+    expect(ps.every((x) => x.margenes === null)).toBe(true);
+    expect(ps.find((x) => x.plaza === '05')!.movimiento.lugar).toBe(1);
   });
 });
