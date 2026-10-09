@@ -53,9 +53,14 @@ donde_vive() {
 }
 
 copiar_al_pod() { # copiar_al_pod <archivo> <ruta-origen>
+  # ⛔ `ssh -n` en la verificación, y no es cosmético: **sin eso esta función se come la entrada
+  # del `while read` que la llama**, y el bucle termina después del PRIMER archivo. Pasó en el
+  # primer uso real — el script anunció «3 archivos» y copió uno, y el aplicador siguió abortando.
+  # El primer `ssh` no necesita `-n` porque la tubería del `base64` ya le da su propia entrada;
+  # el segundo heredaba la del bucle y la vaciaba.
   base64 -w0 "$2" | ssh -o BatchMode=yes "$MD" \
     "$KC; kubectl -n prod exec -i deploy/api -c api -- sh -c 'base64 -d > /app/$DIR/$1'" >/dev/null 2>&1 || return 1
-  _p=$(ssh -o BatchMode=yes "$MD" "$KC; kubectl -n prod exec deploy/api -c api -- sh -c 'wc -c < /app/$DIR/$1'" 2>/dev/null | tr -d ' \r')
+  _p=$(ssh -n -o BatchMode=yes "$MD" "$KC; kubectl -n prod exec deploy/api -c api -- sh -c 'wc -c < /app/$DIR/$1'" 2>/dev/null | tr -d ' \r')
   # ⚠️ Se comparan los BYTES, no se confía en que `exec` haya salido 0: una copia truncada
   # produce un archivo que existe, pasa cualquier `test -f`, y revienta recién al ejecutarse.
   [ "$_p" = "$(wc -c < "$2" | tr -d ' ')" ]
@@ -63,7 +68,34 @@ copiar_al_pod() { # copiar_al_pod <archivo> <ruta-origen>
 
 git fetch origin --quiet 2>/dev/null || aviso "no se pudo hacer fetch — se juzga contra el origin/main que haya en disco"
 
-# ── Lo que el ledger de prod nombra y en `main` no está ──────────────────────────────────────
+# ── Lo que el ledger nombra y AL POD le falta ────────────────────────────────────────────────
+#
+# ⛔ **La primera versión de esto comparaba contra `origin/main` y estaba MAL.** Falló en su primer
+# uso real: el aplicador siguió abortando por `20261008174741_…`, un archivo que **sí está en
+# `main`** y que este script por lo tanto no copiaba. La imagen que corre en prod es anterior a ese
+# commit, así que al pod le faltaba igual.
+#
+# ⭐ El conjunto correcto no es «lo que no está en main» sino **«lo que el pod no tiene»**, que es
+# contra lo que `knex.migrate.list()` compara de verdad. Son cosas distintas y se confunden fácil:
+# un archivo puede estar en `main`, en el ledger, y aun así faltar en el contenedor — y ésa es
+# justamente la combinación que aborta el aplicador.
+faltan_en_el_pod() {
+  ssh -o BatchMode=yes "$MD" "$KC; kubectl -n prod exec -i deploy/pg-prod -- psql -U postgres -d railway -At -c 'select name from public.knex_migrations;'" 2>/dev/null \
+    | tr -d '\r' | LC_ALL=C sort > /tmp/_mig_led.$$
+  ssh -o BatchMode=yes "$MD" "$KC; kubectl -n prod exec deploy/api -c api -- sh -c 'ls /app/$DIR'" 2>/dev/null \
+    | tr -d '\r' | LC_ALL=C sort > /tmp/_mig_pod.$$
+  # ⚠️ Si el `ls` viene vacío, NO se devuelve "faltan todas": sería pedir copiar 1,100 archivos por
+  # un fallo de conexión. Se declara y se sigue; el aplicador dirá qué falta de verdad.
+  if [ ! -s /tmp/_mig_pod.$$ ]; then
+    aviso "no se pudo listar las migraciones del pod — no se destraba nada por las dudas"
+  else
+    LC_ALL=C comm -23 /tmp/_mig_led.$$ /tmp/_mig_pod.$$
+  fi
+  rm -f /tmp/_mig_led.$$ /tmp/_mig_pod.$$
+}
+
+# Lo que el ledger nombra y en `main` no está — sólo para INFORMAR en `--pendientes`. Es deuda de
+# proceso (alguien aplicó sin empujar), distinta de lo que hay que copiar para destrabar.
 huerfanos() {
   ssh -o BatchMode=yes "$MD" "$KC; kubectl -n prod exec -i deploy/pg-prod -- psql -U postgres -d railway -At -c 'select name from public.knex_migrations;'" 2>/dev/null \
     | tr -d '\r' | LC_ALL=C sort > /tmp/_mig_prod.$$
@@ -100,13 +132,21 @@ fi
 echo "✓ '$ARCHIVO' está en origin/main"
 
 # ── Destrabar el ledger: copiar lo que ya nombra y a la imagen le falta ──────────────────────
-FALTAN=$(huerfanos)
+FALTAN=$(faltan_en_el_pod)
 if [ -n "$FALTAN" ]; then
-  echo "── el ledger nombra $(printf '%s\n' "$FALTAN" | wc -l | tr -d ' ') archivo(s) que no están en main; se copian para destrabar ──"
-  printf '%s\n' "$FALTAN" | while read -r h; do
+  echo "── el ledger nombra $(printf '%s\n' "$FALTAN" | awk 'NF' | wc -l | tr -d ' ') archivo(s) que el pod no tiene; se copian para destrabar ──"
+  # ⚠️ Sin tubería: un `while read` del otro lado de un `|` corre en una subshell, y ahí los
+  # contadores y cualquier estado se pierden al terminar. Se usa un archivo temporal.
+  _LISTA=$(mktemp); printf '%s\n' "$FALTAN" > "$_LISTA"
+  while IFS= read -r h; do
     [ -n "$h" ] || continue
-    _src=''
-    [ -f "$DIR/$h" ] && _src="$DIR/$h"
+    _src=''; _tmp=''
+    # Orden de búsqueda: `origin/main` primero (es la fuente autorizada), después el árbol de
+    # trabajo, y por último los worktrees de otras sesiones — que es donde terminó una el 8-oct.
+    if en_main "$h"; then
+      _tmp=$(mktemp); git show "origin/main:$DIR/$h" > "$_tmp" 2>/dev/null && _src="$_tmp"
+    fi
+    [ -z "$_src" ] && [ -f "$DIR/$h" ] && _src="$DIR/$h"
     if [ -z "$_src" ]; then
       for _w in $(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{print substr($0,10)}'); do
         [ -f "$_w/$DIR/$h" ] && { _src="$_w/$DIR/$h"; break; }
@@ -115,11 +155,13 @@ if [ -n "$FALTAN" ]; then
     if [ -z "$_src" ]; then
       aviso "$h — $(donde_vive "$h"); si el aplicador aborta por 'directory is corrupt', es por ésta"
     elif copiar_al_pod "$h" "$_src"; then
-      printf '   copiada (deuda vieja): %s\n' "$h"
+      printf '   copiada: %-52s %s\n' "$h" "$(en_main "$h" && echo '(de origin/main)' || echo '⚠️ NO está en main — deuda de proceso')"
     else
       aviso "$h — no se pudo copiar"
     fi
-  done
+    [ -n "$_tmp" ] && rm -f "$_tmp"
+  done < "$_LISTA"
+  rm -f "$_LISTA"
 fi
 
 # ── Copiar la que se quiere aplicar, y aplicarla ─────────────────────────────────────────────
