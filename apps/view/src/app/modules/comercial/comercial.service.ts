@@ -2203,6 +2203,17 @@ export class ComercialService {
       `${this.base}/commissions/contrast`, { params: new HttpParams().set('anio', String(anio)) });
   }
 
+  /** `[RD.57]` Quincenas que tienen renglones para abrir en Rentabilidad de Ruta Directa. */
+  routeProfitPeriodos() {
+    return this.http.get<RouteProfitPeriodo[]>(`${this.base}/route-profit/periods`);
+  }
+
+  /** `[RD.57]` El tablero de una quincena. Sin `periodId` abre la última con renglones. */
+  routeProfit(periodId?: string) {
+    const params = periodId ? new HttpParams().set('period_id', periodId) : undefined;
+    return this.http.get<RouteProfit>(`${this.base}/route-profit`, params ? { params } : {});
+  }
+
   /**
    * RD.52 — corre el MOTOR sobre las quincenas con espejo y guarda su resultado.
    * ⚠️ ~12 s por quincena: veinte son cuatro minutos. No está en el camino de lectura.
@@ -4450,4 +4461,75 @@ export interface CommissionUniverseRow {
   plaza_o_zona: string | null; en_identidad: boolean; en_config: boolean;
   chofer_nombre: string | null; supervisor_nombre: string | null;
   nomina_banco: string | number | null; carga_desde: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// `[RD.57]` Rentabilidad de Ruta Directa. Tres bloques que NO se suman entre sí: la ruta
+// (venta, costo, comisión, km del GPS), la plaza (el gasto del departamento, que no baja al
+// camión) y el contraste de la comisión, que destapa lo que la contabilidad no registra.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface RouteProfitPeriodo {
+  id: string; anio: number; period_no: number;
+  date_from: string; date_to: string;
+  status: string; origen: string; rutas: number;
+}
+
+export interface RouteProfitRuta {
+  route_code: string;
+  chofer: string | null;
+  zona: string | null;
+  subtotal: string; venta: string; costo: string;
+  utilidad_bruta: string;
+  margen_pct: string | null;
+  comision: string; bonos: string;
+  despues_de_su_comision: string;
+  motivo_no_pago: string | null;
+  pct_aplicado: string | null;
+  subtotal_origen: string | null;
+  costo_status: string | null;
+  km: string | null;
+  dias_medidos: number | null;
+  dias_con_senal: number | null;
+  dias_quieto: number | null;
+  /**
+   * ⭐ TRES estados, no dos. `sin_gps` es una camioneta sin rastreador — el dato no existe —
+   * y `parcial` es una que sí lo tiene pero tuvo días sin cobertura. Pintarlos igual
+   * convertiría una ausencia de aparato en un bajo kilometraje.
+   */
+  km_veredicto: 'medido' | 'parcial' | 'sin_gps';
+  venta_por_km: string | null;
+  utilidad_por_km: string | null;
+}
+
+export interface RouteProfitPlaza {
+  plaza: string | null; dpto: string | null; dpto_norm: string | null;
+  veredicto_plaza: string;
+  rutas: number; subtotal: number; costo: number; utilidad_bruta: number;
+  gasto: number;
+  gasto_por_familia: { familia: string; importe: number; lineas: number }[];
+  /** NULL cuando la plaza no tiene rutas: sin utilidad que restar no hay resultado, hay un hueco. */
+  resultado: number | null;
+}
+
+export interface RouteProfitConcepto {
+  dpto: string; dpto_norm: string;
+  concepto: string; concepto_norm: string; familia: string;
+  lineas: number; importe: string;
+}
+
+export interface RouteProfitHueco { clave: string; detalle: string }
+
+export interface RouteProfit {
+  periodo: { id: string; anio: number; period_no: number; date_from: string; date_to: string; cerrado: boolean };
+  rutas: RouteProfitRuta[];
+  plazas: RouteProfitPlaza[];
+  gasto_por_concepto: RouteProfitConcepto[];
+  contraste_comision: { libro: number; contabilidad: number; delta: number };
+  totales: {
+    subtotal: number; costo: number; utilidad_bruta: number; comision: number; km: number;
+    margen_pct: number | null; gasto_departamento: number;
+  };
+  procedencia: { gasto_calculado_at: string | null; km_desde: string | null; km_hasta: string | null };
+  huecos: RouteProfitHueco[];
 }
