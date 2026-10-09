@@ -113,11 +113,16 @@ export * from './finance/ejercicio.contract';
 // `[GX.41]` el vale que Kepler asigna por la caja «Solicita» = un username nuestro.
 export * from './finance/vale-asignado.contract';
 export * from './finance/protocolo-gasto.contract';
+// `[GX.75]` La transferencia XD2601 que pagó el gasto: tercer número del expediente.
+export * from './finance/transferencia-gasto.contract';
 // `[GX.65.4a]` Nadie decide sobre su propio vale: la regla la leen servidor y pantalla.
 export * from './finance/dueno-del-vale.contract';
 export * from './finance/ver-expediente.contract';
 // [PC.5]/[PC.6] las cuatro coincidencias comprobante↔pago (banco, fecha, monto, proveedor)
 export * from './finance/coincidencia-pago.contract';
+// `[GX.78]` los filtros del Historial de levantamientos: el servidor acota el calendario y la
+// pantalla la lista del día con la MISMA regla.
+export * from './finance/historial-filtro.contract';
 
 // ── [ID.28] authz — NO se re-exporta desde acá, a propósito ───────────────────
 // El catálogo de permisos vive en `./authz` y se importa por SUBRUTA. ⚠️ Las rutas que decían

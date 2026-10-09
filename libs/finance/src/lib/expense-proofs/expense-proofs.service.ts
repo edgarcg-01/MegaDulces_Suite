@@ -36,6 +36,7 @@ import { constanciaDeAutorizacion, documentoKepler, quedaDebiendoComprobante } f
 import { protocoloDelVale } from '@megadulces/contracts';
 import type { FiltroExpediente, OpcionDepartamentoExpediente, PersonaExpediente, RespuestaExpediente, ValeExpediente } from '@megadulces/contracts';
 import { pideSinDepartamento } from './expediente-filtro';
+import { leerTransferenciasDelGasto, transferenciasDelVale } from './transferencias-del-gasto';
 import type { AutorizacionKepler } from '@megadulces/contracts';
 
 /**
@@ -60,9 +61,10 @@ import {
   type EtapaGasto, type ParticionDelDia,
 } from './etapas-del-dia';
 import {
-  mesValido, rangoDelMes, totalDelMes,
-  type CalendarioDelMes, type DiaDelCalendario,
+  facetasDelMes, mesValido, rangoDelMes, totalDelMes,
+  type CalendarioDelMes, type DiaDelCalendario, type GrupoDelMes,
 } from './calendario-gastos';
+import { FILTRO_HISTORIAL_VACIO, type FiltroHistorial } from '@megadulces/contracts';
 import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-gastos-abiertos';
 import { agruparGastosPorSolicitud, datosKeplerDeLaFila } from './mis-gastos-kepler';
 import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, MENSAJE_PROPIO_VALE, type IdentidadQueDecide, type QuienAbreExpediente } from '@megadulces/contracts';
@@ -1472,11 +1474,25 @@ export class ExpenseProofsService {
       // `[GX.65.3]` Proveedor por clave + gastos XA1001: DATO para las 3 columnas, no decisión.
       // Sólo en «lo mío»: las otras pantallas que usan list() no lo piden y no pagan la consulta.
       const gastos = q.mine ? await this.gastosPorSolicitud(trx, crudas) : new Map<string, string[]>();
-      const rows = this.conEtapa(crudas, kep).map((r) => ({
-        ...r,
-        ...datosKeplerDeLaFila(kep.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal)),
-          gastos, r.folio_solicitud, r.sucursal),
-      }));
+      /**
+       * `[GX.75]` La transferencia `XD2601` de esos gastos, en UN viaje — la MISMA lectura que el
+       * Expediente. Con ella «Mis gastos» por fin llena «Pagados». Sólo en «lo mío», como los gastos.
+       * `null` = no se pudo medir (sin ODS): la pantalla no afirma ni «pagado» ni «sin pago».
+       */
+      const transf = q.mine
+        ? await leerTransferenciasDelGasto(trx, crudas.flatMap((r) =>
+          datosKeplerDeLaFila(undefined, gastos, r.folio_solicitud, r.sucursal).gasto_folios
+            .map((g) => ({ sucursal: r.sucursal, gasto_folio: g }))))
+        : null;
+      const rows = this.conEtapa(crudas, kep).map((r) => {
+        const dk = datosKeplerDeLaFila(kep.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal)),
+          gastos, r.folio_solicitud, r.sucursal);
+        return {
+          ...r,
+          ...dk,
+          ...(q.mine ? { transferencias: transf ? transferenciasDelVale(r.sucursal, dk.gasto_folios, transf) : null } : {}),
+        };
+      });
 
       const agg = await filtros(trx('finance.expense_proofs'))
         .groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
@@ -1520,35 +1536,64 @@ export class ExpenseProofsService {
    * ⚠️ `mine` NO es un filtro opcional de conveniencia: es el alcance. Cuando viene, la
    * consulta se acota a esa persona; cuando no, devuelve el de toda la empresa — y eso lo
    * decide el controller, que es quien sabe si hay god-mode.
+   *
+   * `[GX.78]` `filtro` sí es de conveniencia, y sólo ACHICA: estado, sucursal y quien levantó,
+   * con las mismas tres igualdades de `pasaFiltroHistorial` (que la pantalla usa para la lista
+   * del día). Se aplica DENTRO del alcance, nunca en su lugar.
    */
-  async calendarioMes(mesPedido: string | undefined, opts: { mine?: string } = {}): Promise<CalendarioDelMes> {
+  async calendarioMes(
+    mesPedido: string | undefined,
+    opts: { mine?: string; filtro?: FiltroHistorial } = {},
+  ): Promise<CalendarioDelMes> {
     const tenantId = this.tenantCtx.requireTenantId();
     const pedido = mesPedido == null || String(mesPedido).trim() === '' ? null : String(mesPedido).trim();
     const mes = mesValido(pedido) ?? hoyMx().slice(0, 7);
     const { desde, hasta } = rangoDelMes(mes);
+    const filtro = opts.filtro ?? FILTRO_HISTORIAL_VACIO;
 
     return this.tk.run(async (trx) => {
       interface FilaCruda { dia: string; n: number; monto: string | number }
-      const b = trx('finance.v_expense_proofs')
-        .where({ tenant_id: tenantId })
-        .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [desde])
-        .whereRaw(`created_at <  (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [hasta])
+      /** El mes en el alcance, SIN filtro: de acá salen las opciones y el «de N». */
+      const delMes = () => {
+        const q = trx('finance.v_expense_proofs')
+          .where({ tenant_id: tenantId })
+          .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [desde])
+          .whereRaw(`created_at <  (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [hasta]);
+        // `[GX.34]` Mismo criterio que la lista: el calendario de «Míos» y «Mis gastos»
+        // tienen que contar lo mismo, o el mes dice 6 y la lista muestra 8.
+        if (opts.mine) q.where((w: Knex.QueryBuilder) => w.where('created_by', opts.mine).orWhere('evidencia_por', opts.mine));
+        return q;
+      };
+
+      const b = delMes()
         .groupByRaw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD')`)
         .orderByRaw('1 ASC')
         .select(
           trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`),
           trx.raw('COUNT(*)::int AS n'),
           trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
-      // `[GX.34]` Mismo criterio que la lista: el calendario de «Míos» y «Mis gastos»
-      // tienen que contar lo mismo, o el mes dice 6 y la lista muestra 8.
-      if (opts.mine) b.where((w: Knex.QueryBuilder) => w.where('created_by', opts.mine).orWhere('evidencia_por', opts.mine));
+      // `[GX.78]` Las MISMAS tres igualdades que `pasaFiltroHistorial`.
+      if (filtro.estados.length) b.whereIn('status', filtro.estados);
+      if (filtro.sucursal) b.where('sucursal', filtro.sucursal);
+      if (filtro.persona) b.where('created_by', filtro.persona);
 
-      const filas: FilaCruda[] = await b;
+      // ~120 grupos al mes en prod (medido oct-2026): las tres listas del filtro se cuentan en
+      // memoria con ellos. 20–45 ms las dos consultas juntas.
+      const g = delMes()
+        .groupBy('status', 'sucursal', 'created_by')
+        .select('status', 'sucursal', 'created_by',
+          trx.raw('COUNT(*)::int AS n'),
+          trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
+
+      const [filasDb, gruposDb] = await Promise.all([b, g]);
+      const filas = filasDb as FilaCruda[];
+      const crudos = gruposDb as GrupoDelMes[];
       const dias: DiaDelCalendario[] = filas.map((f) => ({
         dia: f.dia,
         n: Number(f.n) || 0,
         monto: Math.round((Number(f.monto) || 0) * 100) / 100,
       }));
+      const grupos: GrupoDelMes[] = crudos.map((x) => ({ ...x, n: Number(x.n) || 0, monto: Number(x.monto) || 0 }));
 
       return {
         mes,
@@ -1557,6 +1602,10 @@ export class ExpenseProofsService {
         dias,
         total: totalDelMes(dias),
         alcance: opts.mine ? 'mios' : 'todos',
+        filtro,
+        total_sin_filtro: totalDelMes(grupos.map((x) => ({ dia: '', n: x.n, monto: x.monto }))),
+        // En «Míos» no se ofrece filtrar por persona: la única es quien mira.
+        facetas: facetasDelMes(grupos, filtro, !opts.mine),
       };
     });
   }
@@ -2070,7 +2119,8 @@ export class ExpenseProofsService {
         if (periodo === 'mes') b.whereRaw("r.fecha >= date_trunc('month', current_date)");
         else b.whereRaw(`r.fecha >= current_date - interval '${meses} months'`);
         b.whereRaw('r.fecha <= current_date');
-        if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]);
+        // `[GX.75]` `'\\s+'`: con una sola barra JS se la come y a Postgres llegaba `'s+'`.
+        if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]);
         return b;
       };
 
@@ -2089,7 +2139,7 @@ export class ExpenseProofsService {
         .where('r.tenant_id', tenantId)
         .whereRaw("r.fecha >= date_trunc('month', current_date) - interval '6 months'")
         .whereRaw('r.fecha <= current_date')
-        .modify((b: any) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]); })
+        .modify((b: Knex.QueryBuilder) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]); })
         .groupByRaw("to_char(r.fecha,'YYYY-MM')")
         .orderByRaw("to_char(r.fecha,'YYYY-MM')")
         .select(trx.raw("to_char(r.fecha,'YYYY-MM') AS mes"), trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(r.importe),0)::numeric AS monto'));
@@ -2580,6 +2630,7 @@ export class ExpenseProofsService {
       /**
        * `[GX.62]` **El gasto `XA1001` entra al expediente.** Es el segundo de los tres
        * numeros que el usuario pidio que el expediente contenga (solicitud -> gasto -> pago).
+       * El tercero, la transferencia `XD2601`, llega con `[GX.75]` (abajo, por `kdm5`).
        *
        * ⚠️ Es una LISTA, no un folio. Medido en `[GX.15]`: 8,705 solicitudes tienen 1 gasto,
        * **165 tienen 2, 10 tienen 3 y 2 tienen 4**. Modelarlo 1:1 mostraria un gasto
@@ -2597,6 +2648,14 @@ export class ExpenseProofsService {
                      AND d.doc_tipo = 'XA1001') AS gasto_folios`));
 
       const filas: Cruda[] = await q;
+
+      /**
+       * `[GX.75]` El tercer número: la transferencia `XD2601` que pagó cada gasto. UN viaje
+       * para todos los vales (medido en prod: ~25 ms con 293 gastos). `null` = no hay ODS de
+       * Kepler en este entorno, y así viaja: «no medido», no «nadie pagó».
+       */
+      const transferencias = await leerTransferenciasDelGasto(trx, filas.flatMap((f) =>
+        (Array.isArray(f.gasto_folios) ? f.gasto_folios : []).map((g) => ({ sucursal: f.sucursal, gasto_folio: g }))));
 
       // El nombre completo, de una sola consulta. Un lookup por fila serían 155 viajes.
       const usuarios: { username: string; nombre: string | null }[] = await trx('identity.users')
@@ -2625,6 +2684,7 @@ export class ExpenseProofsService {
           comprobacion_kepler: comprobacionKepler,
         });
 
+        const gastoFolios = Array.isArray(f.gasto_folios) ? f.gasto_folios.filter(Boolean) : [];
         const vale: ValeExpediente = {
           id: f.id,
           folio_solicitud: f.folio_solicitud,
@@ -2641,7 +2701,9 @@ export class ExpenseProofsService {
           comprobacion_kepler: comprobacionKepler,
           comprobacion_folio: f.comprobacion_folio || null,
           // `[GX.62]` Los folios del gasto aplicado. Vacio = Kepler todavia no lo ejercio.
-          gasto_folios: Array.isArray(f.gasto_folios) ? f.gasto_folios.filter(Boolean) : [],
+          gasto_folios: gastoFolios,
+          // `[GX.75]` Las transferencias de esos gastos. `null` = no se midió.
+          transferencias: transferencias ? transferenciasDelVale(f.sucursal, gastoFolios, transferencias) : null,
           // Los roles alcanzan para decidir qué botón ofrecer. Las URL firmadas caducan y
           // mandarlas para 155 vales de una sería regalar 155 enlaces que nadie va a abrir.
           roles: archivos.map((a) => String(a?.role || '')).filter(Boolean),

@@ -219,13 +219,85 @@ describe('FinanzasMisGastosComponent', () => {
     });
 
     /**
-     * ⛔ «Pagados» hoy siempre vacío, y lo DICE: el pago XD2601 no trae a qué gasto paga.
-     * Dibujar un pagado sin esa liga sería inventar el dato.
+     * `[GX.77]` **El ciclo cerrado sale del tablero.** Revisado + gasto aplicado en Kepler = el
+     * trámite terminó. ⛔ No se pierde: queda plegado al pie («Ver…»), porque el Historial no
+     * admite a quien sólo captura.
      */
-    it('⛔ «Pagados» vacío explica por qué, no dibuja pagos', () => {
-      montar(CON_ETAPAS());
-      const col = fix.nativeElement.querySelector('[data-col="expedientes"]') as HTMLElement;
-      expect(col.textContent).toContain('XD2601 aún no se puede ligar');
+    describe('[GX.77] el ciclo cerrado', () => {
+      const cerrados = () => fix.nativeElement.querySelector('.mg-cerrados') as HTMLElement | null;
+
+      it('⭐ el revisado con gasto aplicado sale de las columnas y queda al pie, plegado', () => {
+        montar({ ...REPORTE(), asignados: [], rows: [
+          FILA({ id: 'c', status: 'validada', folio_solicitud: '0097012', gasto_folios: ['0097093'] }),
+          FILA({ id: 'v', status: 'validada', folio_solicitud: '0097013' }),
+        ] } as unknown as ExpenseProofsReport);
+        expect(folios('expedientes')).toEqual(['0097013']);
+        const pie = cerrados();
+        expect(pie).toBeTruthy();
+        expect(pie?.hasAttribute('open')).toBe(false);
+        expect(pie?.textContent).toContain('Ver el vale cerrado');
+        expect(pie?.textContent).toContain('0097012');
+      });
+
+      it('⛔ con gasto aplicado pero SIN revisar sigue en el tablero', () => {
+        montar({ ...REPORTE(), asignados: [], rows: [
+          FILA({ id: 'a', status: 'aprobada', folio_solicitud: '0097020', gasto_folios: ['0097093'] }),
+        ] } as unknown as ExpenseProofsReport);
+        expect(folios('comprobacion')).toEqual(['0097020']);
+        expect(cerrados()).toBeNull();
+      });
+
+      it('Expedientes ya no tiene zona «Pagados»; su zona no va en rojo (espera a Kepler, no a ti)', () => {
+        montar(CON_ETAPAS());
+        const col = fix.nativeElement.querySelector('[data-col="expedientes"]') as HTMLElement;
+        expect(col.querySelectorAll('.mg-zona').length).toBe(1);
+        expect(col.textContent).not.toContain('Pagados');
+        expect(col.querySelector('.mg-zona-h')?.classList.contains('rojo')).toBe(false);
+        expect(col.textContent).toContain('Falta el gasto en Kepler');
+      });
+
+      it('sin cerrados no aparece el pie', () => {
+        montar(CON_ETAPAS());
+        expect(cerrados()).toBeNull();
+      });
+    });
+
+    /** `[GX.75]` La transferencia que pagó el gasto, en la tarjeta de quien levantó la solicitud. */
+    describe('[GX.75] la transferencia XD2601', () => {
+      const TR = (o: Record<string, unknown> = {}) => ({
+        gasto_folio: '0097093', folio: '0022709', fecha: '2026-09-23', importe: 387.25, aplicado: 387.25, cancelada: false, ...o,
+      });
+      // Un vale ABIERTO (aprobado, debe su evidencia) con gasto aplicado: ahí sí se ve el pago.
+      const abierto = (transferencias: unknown[]) => ({ ...REPORTE(), asignados: [], rows: [
+        FILA({ id: 'a', status: 'aprobada', folio_solicitud: '0097020', gasto_folios: ['0097093'], transferencias }),
+      ] } as unknown as ExpenseProofsReport);
+
+      it('⭐ la tarjeta muestra su XD2601 y el monto y día del pago', () => {
+        montar(abierto([TR()]));
+        const txt = fix.nativeElement.textContent as string;
+        expect(txt).toContain('Kepler: XD2601-0022709');
+        expect(txt).toContain('Pagado por transferencia: $387.25 el 23/09/2026');
+      });
+
+      it('⛔ un pago parcial se avisa', () => {
+        montar(abierto([TR({ aplicado: 100 })]));
+        expect(fix.nativeElement.textContent).toContain('Pago parcial');
+      });
+
+      it('⛔ la cancelada se tacha, no paga, y se dice', () => {
+        montar(abierto([TR({ cancelada: true })]));
+        const chip = fix.nativeElement.querySelector('.mg-chip-cancelada') as HTMLElement;
+        expect(chip.textContent).toContain('XD2601-0022709');
+        expect(fix.nativeElement.textContent).toContain('La transferencia se canceló en Kepler');
+      });
+
+      it('⛔ un pago de Kepler no saca de su columna a un vale que no está revisado', () => {
+        montar({ ...REPORTE(), asignados: [], rows: [
+          FILA({ id: 'a', status: 'aprobada', folio_solicitud: '0097020', gasto_folios: ['0097093'], transferencias: [TR()] }),
+        ] } as unknown as ExpenseProofsReport);
+        expect(folios('comprobacion')).toEqual(['0097020']);
+        expect(fix.nativeElement.textContent).toContain('Kepler: XD2601-0022709');
+      });
     });
 
     /** Abajo se agrupa por la CLAVE de proveedor de Kepler (decisión del usuario). */
@@ -240,13 +312,16 @@ describe('FinanzasMisGastosComponent', () => {
       expect((grupos[0] as HTMLElement).querySelectorAll('.mg-item').length).toBe(2);
     });
 
-    /** `[GX.65.3]` El gasto de Kepler se muestra como DATO, sin mover el vale. */
+    /**
+     * `[GX.65.3]` El gasto de Kepler se muestra como DATO, sin mover el vale de columna.
+     * `[GX.77]` Con un vale ABIERTO: el revisado con gasto ya cerró y sale del tablero.
+     */
     it('el XA1001 ligado se muestra como dato', () => {
       montar({ ...REPORTE(), asignados: [], rows: [
-        FILA({ id: 'v', status: 'validada', folio_solicitud: '0097012', gasto_folios: ['0097093'] }),
+        FILA({ id: 'v', status: 'revision', folio_solicitud: '0097012', gasto_folios: ['0097093'] }),
       ] } as unknown as ExpenseProofsReport);
       expect(fix.nativeElement.textContent).toContain('Kepler: XA1001-0097093');
-      expect(folios('expedientes')).toEqual(['0097012']);
+      expect(folios('comprobacion')).toEqual(['0097012']);
     });
 
     /** ⭐ El vale de Kepler ya NO vive en un cuadro aparte: es una fila más. */

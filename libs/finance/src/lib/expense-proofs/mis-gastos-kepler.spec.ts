@@ -85,6 +85,13 @@ describe('[GX.65.3] list() lo publica sólo en «lo mío»', () => {
     expect(SERVICIO).toContain('...colsProv');
   });
 
+  /** `[GX.75]` La transferencia XD2601: sólo en «lo mío», y con la MISMA lectura del Expediente. */
+  it('[GX.75] las transferencias se piden sólo en «lo mío», con leerTransferenciasDelGasto', () => {
+    expect(SERVICIO).toContain('const transf = q.mine');
+    expect(SERVICIO).toContain('leerTransferenciasDelGasto(trx, crudas.flatMap');
+    expect(SERVICIO).toContain('...(q.mine ? { transferencias:');
+  });
+
   /** ⛔ La etapa NO se tocó: las pestañas de hoy siguen leyendo lo mismo. */
   it('⛔ la etapa sigue saliendo de conEtapa, igual que antes', () => {
     expect(SERVICIO).toContain('this.conEtapa(crudas, kep)');

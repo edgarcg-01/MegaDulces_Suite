@@ -223,6 +223,37 @@ const noMedido = (label, motivo) => { nm++; console.log(`  ⓘ NO MEDIDO · ${la
       FROM km`);
   const cob = cobertura[0];
   console.log(`     ${cob.filas} ruta-quincena · ${cob.completas} completas · ${cob.parciales} parciales`);
+
+  // ── `[RD.58.2]` El contador correcto es `dias_medidos`, NO `dias_con_senal` ───────────
+  // Un día que reportó pero cuyo odómetro no se pudo medir cuenta como cobertura y aporta
+  // CERO kilómetros: el denominador queda corto y el $/km sale inflado. Es el MISMO defecto
+  // que la guarda de arriba existe para cerrar, un peldaño más abajo — y la primera versión
+  // de la guarda lo tenía. ⭐ Lo que se vigila es que los dos contadores SE DISTINGAN en el
+  // dato: si fueran siempre iguales, elegir uno u otro sería indistinto y este bloque se
+  // pondría verde sin probar nada.
+  const dosContadores = await q(`
+    WITH per AS (SELECT period_no, date_from, date_to, (date_to - date_from + 1)::int dias_q
+                   FROM commercial.commission_periods WHERE anio = 2026),
+    km AS (SELECT per.period_no, per.dias_q, k.route_code,
+                  count(k.km)::int medidos, count(*)::int con_senal
+             FROM per JOIN analytics.v_rd_route_km_daily k
+               ON k.dia >= per.date_from AND k.dia <= per.date_to
+            GROUP BY 1,2,3)
+    SELECT count(*)::int total,
+           count(*) FILTER (WHERE con_senal >= dias_q)::int pasan_con_senal,
+           count(*) FILTER (WHERE medidos  >= dias_q)::int pasan_medidos,
+           count(*) FILTER (WHERE con_senal >= dias_q AND medidos < dias_q)::int se_colarian
+      FROM km`);
+  const dc = dosContadores[0];
+  console.log(`     con dias_con_senal pasarían ${dc.pasan_con_senal} · con dias_medidos pasan ${dc.pasan_medidos}`);
+  if (dc.se_colarian > 0) {
+    check('⭐ los dos contadores SE DISTINGUEN: elegir el correcto no es indistinto',
+      dc.pasan_medidos < dc.pasan_con_senal,
+      `${dc.se_colarian} ruta-quincena se colarían con el contador equivocado`);
+  } else {
+    noMedido('la distinción entre dias_medidos y dias_con_senal',
+      'hoy ninguna ruta-quincena tiene señal sin kilometraje: los dos contadores coinciden');
+  }
   if (cob.parciales > 0) {
     check('⭐ el caso parcial EXISTE en el dato (la guarda no es un no-op)',
       true, `parciales=${cob.parciales}`);

@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — Finanzas › Historial de levantamientos: filtros (GX.78, 2026-10-09)
+- Filtrar por **estado** (varios a la vez), **sucursal** y **quién levantó** (esta última sólo en «Todos»). Cada opción dice cuántos vales tiene.
+- El calendario, el total del mes y la lista del día abierto cuentan lo filtrado, y lo dicen contra el total: «58 de 392 levantamientos del mes».
 ### Changed — RH: Asistencia con la forma de Horarios de Mega Talento (RH.1.7c, 2026-10-08)
 - Una sola sección con pestañas **Checadas · Tolerancia · Faltas · Incidencias · Relojes**, con lo que espera en cada una. La plaza, la semana y los filtros se conservan al cambiar de pestaña.
 - Checadas es el **reporte semanal calcado**: una fila por persona, una columna por día, por departamento, con D/C de desayuno y comida; en rojo lo tarde y lo faltado. La ficha se abre de lado. Exportar a PDF para firmar y a Excel sale con lo que se ve, y si es parcial lo dice.
@@ -187,6 +190,20 @@
 - **La píldora pasa a decir la edad del DATO.** ⛔ `replenishment_plan.computed_at` **no servía**: el UPSERT es sin churn, así que dice *cuándo cambió esa fila*, no *cuándo se verificó* — **415 sellos distintos en 34 días** sobre una tabla sana, donde un `max()` diría «hace 4 min» y un `min()` «hace 34 días». La fuente correcta es un **latido propio del importer** (el del carril `feed_stock` tampoco sirve: `run-prod-feeds.js` reporta `ok` salvo que fallen *todos* sus pasos). Sin latido, la pantalla dice **«datos sin medir»** en vez de esconderse.
 - **Primera prueba que existe sobre este componente** (3,652 líneas: las 4 specs del módulo cubrían sólo los ayudantes ya extraídos). 43 aserciones nuevas en 4 archivos, **las cuatro mutadas a rojo**. Suite de `view`: 1,991 verdes.
 - ⚠️ **Pendiente: desplegar api + view + la imagen `trade-ingest`.** Sin migraciones ni permisos nuevos → **sin re-login**.
+### Changed — Finanzas › Mis gastos: el ciclo cerrado sale del tablero (GX.77, 2026-10-08)
+- Un vale **revisado y con su gasto aplicado en Kepler** ya terminó: sale de las columnas y queda al pie, plegado («Ver los N vales cerrados»). No se manda al Historial porque esa pantalla no admite a quien sólo captura.
+- La columna Expedientes muestra sólo los revisados a los que les falta el gasto en Kepler; se quita la zona «Pagados» (GX.75).
+### Added — Finanzas › Expediente en PDF: las evidencias adentro (GX.76, 2026-10-07)
+- Las **fotos** de evidencia van reducidas en la sección nueva «6 · Las evidencias», y los **PDF** de evidencia (71 % de los archivos) se anexan al final, cada página marcada con su expediente y su archivo. Lo que no se puede incluir (otro tipo, no se pudo bajar, dañado) se dice en la sección.
+- Fixed: una solicitud autorizada **sin gasto aplicado** decía «No falta nada»; ahora dice que falta que Kepler aplique el gasto.
+- Dependencia nueva: `pdf-lib` (para anexar los PDF). ⚠️ Pendiente: redeploy api.
+### Added — Finanzas › Expediente: la transferencia que pagó el gasto (GX.75, 2026-10-07)
+- Cada vale muestra la cadena completa **`XA1501` → `XA1001` → `XD2601`**: la transferencia de «Alta transferencias» que Kepler aplicó a su gasto, con «transferido $… el …». Si se pagó en varias, salen todas; la **cancelada** se tacha y no suma. El **Expediente en PDF** gana la sección «La transferencia».
+- Fuente: `kepler_ods.kdm5` (sin importer). En prod: 58 de 342 vales tienen transferencia; la consulta cuesta ~25 ms.
+- **Mis gastos** (quien levantó la solicitud) también la ve: cada tarjeta muestra `XD2601` y «Pagado por transferencia: $… el …», y la zona **«Pagados»** de Expedientes —que siempre salía vacía— por fin se llena con los revisados que Kepler ya pagó (lo transferido cubre el importe del vale; parcial se avisa y no cuenta).
+- Fixed de paso: el filtro por área de «listas para comprobar» y el resumen del solicitante mandaban `'s+'` a Postgres en vez de `'\s+'`.
+- Fixed de paso: en el **Expediente en PDF** las fechas de la solicitud y del gasto salían «Mon Oct 05» (inglés, sin año); ahora «5 oct 2026».
+- ⚠️ Pendiente: redeploy api + view. Sin migraciones ni permisos → sin re-login.
 ### Added — Finanzas › Expediente: filtro por fechas y por departamento (GX.72, 2026-10-07)
 - Barra de filtros arriba de los KPIs: **levantado desde / hasta** (día de México) y **departamento** (las opciones salen de los vales del periodo, con su conteo, más «Sin departamento»). Lo filtra el servidor: los KPIs y las personas salen de lo filtrado, y el rótulo dice qué se contó.
 ### Added — Finanzas › Historial: Mayra Gutiérrez ve el historial de todos (GX.71, 2026-10-07)
