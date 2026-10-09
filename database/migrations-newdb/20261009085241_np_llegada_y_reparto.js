@@ -4,8 +4,11 @@
  * vendidas en cada corte.** Pedido de Compras (2026-10-09), sobre la pantalla de `[NP.15]`:
  *  · en el comportamiento global, el día que la mercancía LLEGÓ a la empresa, buscado en la base;
  *  · en la tabla de 30·60·90 días y en "¿Dónde se mueve mejor?", las cajas y piezas vendidas;
- *  · arriba de "Por sucursal", lo que nos llegó en total y cuánto le tocó a cada sucursal.
- * Todo en las unidades que registró Kepler en cada documento, sin convertir.
+ *  · arriba de "Por sucursal", lo que nos llegó en total y cuánto le tocó a cada sucursal;
+ *  · todo en cajas completas y lo demás en paquetes o piezas, según la ficha de cada sucursal.
+ * La matvista guarda cada cantidad como la registró Kepler, SIN convertir; la conversión a cajas
+ * (escaleraUnidades, la regla de /compras/pedido) y el juicio de "existencia en duda" viven en TS,
+ * una sola implementación (libs/contracts + new-products.ts).
  *
  * ── Lo medido antes (prod, sólo lectura, 2026-10-09) ──────────────────────────────────────
  *  · **La llegada se busca en el kardex (`kepler_ods.kdij`).** Es la historia de movimientos de
@@ -23,6 +26,12 @@
  *    (`RUTA nn` / `RD nnn`) y 1,207 remisiones a clientes de telemarketing (`c27 = TELEMARK`). Ésas
  *    se facturan después como `U-D-8` a los mismos clientes (verificado: 300 piezas de cada lado),
  *    o sea que YA son venta: aquí no entran, contarlas sería contarlas dos veces.
+ *  · **La existencia de Kepler (`kdil`) es la SUMA CRUDA del kardex, sin convertir rótulos**: en
+ *    4,781 de 4,959 sucursal×producto nuevos (96.4%) `sum(c4 + c8 - c9)` = la suma con signo de
+ *    `kdij.c11`, sin mirar `c12`. Cuando la ficha cambia de unidad base, los renglones viejos se
+ *    suman como si fueran de la nueva: 96087 recibió 180 paquetes (1,800 piezas) en Canindo y Kepler
+ *    le contó 180, así que la pantalla lo daba por agotado. 173 sucursal×producto (50 productos)
+ *    están así; en sólo 6 Kepler sí convirtió.
  *
  * ── Lo que cambia ───────────────────────────────────────────────────────────────────────────
  *  · La función trae tres tipos más: `traspaso` (U-A-50 recibido en el almacén principal),
@@ -35,6 +44,11 @@
  *  · La matvista agrega `llegada` (el barrido del kardex: primera compra física y en qué sucursales,
  *    y la primera entrada de cualquier tipo), `venta_unidades_hito` (unidades vendidas en los
  *    primeros 30/60/90 días) y `reparto` (por sucursal: recibido de otra, mandado a otras y a rutas).
+ *  · Y por sucursal, para la existencia en duda y las cajas: `kardex_plaza` (el kardex neto por
+ *    rótulo con su última fecha, el último ajuste de inventario `N-A-30`/`N-D-30` y la existencia de
+ *    Kepler al calcular, sin el piso en cero) y `escalera_plaza` (la ficha: rótulos de sus tres
+ *    peldaños, factores del costo y factor de la caja, de `v_kepler_unit_ladder`). Medido en prod
+ *    por separado: el barrido del kardex con salidas + `kdil` + fichas de todo el universo, ~3.5 s.
  *
  * ⚠️ Si un REFRESH de la matvista está corriendo, el DROP espera 5 s y la migración falla entera.
  * ⚠️ Nace `WITH NO DATA`; el ciclo la puebla en el siguiente tick.
@@ -70,7 +84,8 @@ exports.up = async function up(knex) {
   await knex.raw(`SET LOCAL lock_timeout = '5s'`);
 
   // ── 1. La función, con traspasos y salidas ────────────────────────────────────────────
-  // DROP + CREATE porque cambian las columnas de salida; se lleva la matvista (la única que la usa).
+  // Mismas columnas de salida que [NP.15]; DROP + CREATE para que el CASCADE se lleve la matvista
+  // (la única que la usa), que de todos modos se reconstruye en el paso 2 con columnas nuevas.
   await knex.raw(`DROP FUNCTION IF EXISTS ${FIRMA} CASCADE`);
   await knex.raw(`
     CREATE FUNCTION ${FN}(p_tenant uuid, p_skus text[], p_desde date, p_hasta date)
