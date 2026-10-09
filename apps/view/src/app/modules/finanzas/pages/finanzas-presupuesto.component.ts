@@ -1464,6 +1464,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // ── Gastos (TP) ──
   expenses = signal<ExpenseObligation[]>([]);
   loadingExpenses = signal(false);
+  /** `[VP.MS]` ¿la lista LLEGÓ? Un `[]` no distingue «no cargó» de «no hay». Ver `loadExpenses()`. */
+  expensesLoaded = signal(false);
   saving = signal(false);
   subtypeOpts = [
     { label: 'Luz', value: 'luz' }, { label: 'Renta', value: 'renta' }, { label: 'Sueldos', value: 'sueldos' },
@@ -1840,8 +1842,27 @@ export class FinanzasPresupuestoComponent implements OnInit {
         tone: parcial ? 'warn' : undefined,
       },
       { label: 'Real', value: c.totals.real == null ? '—' : c.totals.real, format: c.totals.real == null ? 'text' : 'currency-short', sub: c.totals.real == null ? 'sin datos' : undefined },
-      { label: 'Cumplimiento', value: c.totals.cumplimiento_pct ?? 0, format: c.totals.cumplimiento_pct == null ? 'text' : 'percent', sub: c.totals.cumplimiento_pct == null ? 's/meta' : undefined, tone: c.totals.cumplimiento_pct != null && c.totals.cumplimiento_pct >= 100 ? 'ok' : undefined },
-      { label: `CREC vs ${c.prior_year}`, value: c.totals.crec_pct ?? 0, format: c.totals.crec_pct == null ? 'text' : 'percent', sub: c.totals.crec_pct == null ? 's/base' : undefined, tone: c.totals.crec_pct != null && c.totals.crec_pct < 0 ? 'bad' : undefined },
+      // `[PVI.4]` ⛔ Acá la ausencia se convertía en CERO: `?? 0` metía un 0 en el modelo y lo
+      // único que lo disimulaba era cambiar `format` a 'text'. Sobrevive a cualquier cambio de
+      // formato — el día que alguien lo vuelva 'percent', la pantalla publica «0 %» donde no hay
+      // meta. ⭐ Y el patrón correcto no había que inventarlo: la tarjeta «Real», dos líneas más
+      // arriba, ya devuelve el guion. Tres tarjetas de la misma función con dos criterios para la
+      // misma ausencia. «No hay dato» no es «hay dato y vale cero» (ADR-056).
+      {
+        label: 'Cumplimiento',
+        value: c.totals.cumplimiento_pct == null ? '—' : c.totals.cumplimiento_pct,
+        format: c.totals.cumplimiento_pct == null ? 'text' : 'percent',
+        sub: c.totals.cumplimiento_pct == null ? 'sin meta capturada' : undefined,
+        // sin meta no se puede merecer verde: el tono queda inhabilitado, no en gris.
+        tone: c.totals.cumplimiento_pct != null && c.totals.cumplimiento_pct >= 100 ? 'ok' : undefined,
+      },
+      {
+        label: `CREC vs ${c.prior_year}`,
+        value: c.totals.crec_pct == null ? '—' : c.totals.crec_pct,
+        format: c.totals.crec_pct == null ? 'text' : 'percent',
+        sub: c.totals.crec_pct == null ? 'sin base del año anterior' : undefined,
+        tone: c.totals.crec_pct != null && c.totals.crec_pct < 0 ? 'bad' : undefined,
+      },
     ];
   }
 
@@ -2266,6 +2287,16 @@ export class FinanzasPresupuestoComponent implements OnInit {
       rows.filter(f).reduce((s, e) => s + (Number(e.available_amount) || 0), 0);
     const n = (f: (e: ExpenseObligation) => boolean) => rows.filter(f).length;
     const autorizada = (e: ExpenseObligation) => e.status === 'pending' || e.status === 'partial';
+
+    // ⛔ Un arreglo vacío significa TRES cosas y el signal las serializa igual. Sin este freno
+    // la tira decía «Autorizado $0.00 · medido» mientras cargaba y también si el GET fallaba:
+    // la ausencia afirmando que contamos. Un cero sólo es un cero cuando la lista LLEGÓ.
+    if (!this.expensesLoaded()) {
+      const motivo = this.loadingExpenses() ? 'La lista todavía está cargando' : 'La lista no se pudo cargar: el cero no sería un cero, sería la ausencia';
+      return ['Autorizado — entra al Calendario', 'Propuesto — NO entra', 'Ineludibles', 'Del ejercicio de prueba']
+        .map((label): MetricStripItem => ({ label, value: '—', format: 'text', state: 'no_medido', stateNote: motivo }));
+    }
+
     return [
       { label: 'Autorizado — entra al Calendario', value: sum(autorizada), format: 'currency-short',
         state: 'medido', stateNote: `${n(autorizada)} obligaciones · disponible = original − reservado − pagado` },
@@ -2613,10 +2644,20 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
 
   // ── Gastos (TP) ──
+  /**
+   * `[VP.MS]` **`expensesLoaded` existe porque un arreglo vacío significa TRES cosas** —
+   * «todavía no cargó», «falló la carga» y «cargó y de verdad no hay obligaciones»— y el
+   * signal las serializa idénticas. Sin esta marca, la tira publicaba
+   * **«Autorizado $0.00 · medido»** mientras la lista cargaba y también si el `GET` fallaba:
+   * una ausencia afirmando que contamos y el resultado fue cero.
+   *
+   * ⚠️ Se pone en `false` **al empezar**, no sólo en el error: si no, un segundo `load` que
+   * falla dejaría la marca en `true` del anterior y el cero volvería a declararse medido.
+   */
   loadExpenses(): void {
-    this.loadingExpenses.set(true);
+    this.loadingExpenses.set(true); this.expensesLoaded.set(false);
     this.http.get<ExpenseObligation[]>(`${this.base}/expenses`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => { this.expenses.set(rows); this.loadingExpenses.set(false); },
+      next: (rows) => { this.expenses.set(rows); this.expensesLoaded.set(true); this.loadingExpenses.set(false); },
       error: () => { this.loadingExpenses.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los gastos.' }); },
     });
   }
