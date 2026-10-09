@@ -1,3 +1,5 @@
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { TestBed } from '@angular/core/testing';
 import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
@@ -36,6 +38,13 @@ const VACIO = {
   territories: [], totals: { pedido: 0, venta: 0, exis: 0 }, rows: [],
 };
 
+/**
+ * `[RA.TR]` Lo que devuelve el diálogo de "En camino". Es mutable a propósito: los casos que
+ * importan son justo los que cambian la FORMA de la respuesta (un backend sin desplegar que no
+ * manda `aviso_transito`), no sus números.
+ */
+let EN_CAMINO: Record<string, unknown> | null = null;
+
 const FRESCO: Freshness = {
   data_as_of: new Date(Date.now() - 4 * 60_000).toISOString(),
   status: 'fresh', stale: false, age_human: '4 min',
@@ -67,6 +76,7 @@ function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1
     transferSuggestion: () => of({ rows: [] }),
     overstock: () => of({ rows: [] }),
     deadStock: () => of({ rows: [], total_value: 0 }),
+    inTransit: () => of(EN_CAMINO),
     worklist: () => (worklist === 'error'
       ? throwError(() => new Error('500'))
       : of(worklist ?? { total: 0, vencidos: 0, hoy: 0, prox7: 0, page: 1, pageSize: 500, rows: [] })),
@@ -341,5 +351,68 @@ describe('[RA-PERF.7] los índices memoizados no cambian lo que la pantalla resp
     const c = montar(VACIO).componentInstance;
     expect(c.prodTr('no-existe')).toBe(0);
     expect(c.detailRows('no-existe')).toEqual([]);
+  });
+});
+
+describe('[RA.TR] el diálogo de "En camino" no explica una regla que ya no corre', () => {
+  const FUENTE = readFileSync(join(__dirname, 'compras-pedido-real.component.ts'), 'utf8');
+
+  it('el motivo lo PINTA el servidor, no la pantalla', () => {
+    // Si el texto viviera en el template, al cambiar POLITICA_TRANSITO en el backend la pantalla
+    // seguiría explicando el comportamiento viejo — y nadie lo notaría, porque sigue siendo una
+    // frase con sentido. Por eso viaja en la respuesta (ADR-056).
+    expect(FUENTE).toContain('tranAviso()');
+    expect(FUENTE).toContain('res.aviso_transito');
+  });
+
+  it('⛔ NEGATIVA: el template ya NO trae la explicación vieja de la curva', () => {
+    // Era literalmente "Cada orden pesa según su antigüedad", y desde el 2026-10-09 es falsa:
+    // ninguna orden pesa, porque ninguna se descuenta.
+    expect(FUENTE).not.toContain('Cada orden pesa según su antigüedad');
+    expect(FUENTE).not.toContain('se descuenta casi completa');
+  });
+
+  it('⭐ y el aviso arranca VACÍO: sin dato del servidor la pantalla calla, no inventa', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.tranAviso()).toBe('');
+  });
+
+  it('cuando el servidor manda la política, el diálogo la publica tal cual', () => {
+    EN_CAMINO = {
+      product: { sku: '95434', nombre: 'DEMO' }, lead_days: 4, rows: [],
+      total_cajas: 180, total_valor: 42000,
+      descuenta_cajas: 0, fact_cajas: 180,
+      politica_transito: 'ignorar', aviso_transito: 'El sugerido NO descuenta las OC en camino.',
+    };
+    const c = montar(VACIO).componentInstance;
+    c.openTransit({ product_id: 'p-1', sku: '95434', nombre: 'DEMO' } as never);
+    expect(c.tranAviso()).toBe('El sugerido NO descuenta las OC en camino.');
+    expect(c.tranDescuenta()).toBe(0);
+  });
+
+  it('⛔ un backend SIN desplegar (sin el campo) deja el aviso vacío, no un texto inventado', () => {
+    // Éste es el caso que de verdad puede pasar: el view se despliega antes que la api. Si la
+    // pantalla rellenara con la explicación vieja, diría que el motor pesa por antigüedad — que
+    // es justo lo que dejó de hacer. Callar es correcto; inventar, no.
+    EN_CAMINO = {
+      product: { sku: '95434', nombre: 'DEMO' }, rows: [],
+      total_cajas: 180, total_valor: 42000, descuenta_cajas: 97.4,
+    };
+    const c = montar(VACIO).componentInstance;
+    c.tranAviso.set('resto de una apertura anterior');
+    c.openTransit({ product_id: 'p-1', sku: '95434', nombre: 'DEMO' } as never);
+    expect(c.tranAviso()).toBe('');
+    // ⭐ Y el número sí llega: la ausencia del motivo no se contagia a la cifra.
+    expect(c.tranDescuenta()).toBe(97.4);
+  });
+
+  it('⭐ el aviso NO queda pegado entre dos productos distintos', () => {
+    EN_CAMINO = { product: null, rows: [], total_cajas: 1, total_valor: 1, aviso_transito: 'A' };
+    const c = montar(VACIO).componentInstance;
+    c.openTransit({ product_id: 'p-1', sku: 'X', nombre: 'X' } as never);
+    expect(c.tranAviso()).toBe('A');
+    EN_CAMINO = { product: null, rows: [], total_cajas: 1, total_valor: 1 };
+    c.openTransit({ product_id: 'p-2', sku: 'Y', nombre: 'Y' } as never);
+    expect(c.tranAviso()).toBe('');
   });
 });

@@ -357,7 +357,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <td class="pr-r">
                     @if (r.transito_cajas && r.transito_cajas > 0) {
                       <button type="button" class="pr-tran-btn" (click)="openTransit(r); $event.stopPropagation()"
-                              [title]="'Ver las órdenes de compra abiertas de ' + r.sku">
+                              [title]="'OC abiertas de ' + r.sku + ' — NO se descuentan del sugerido. Clic para ver los folios.'">
                         <i class="pi pi-truck" aria-hidden="true"></i> {{ r.transito_cajas | number:'1.0-1' }}
                       </button>
                     } @else { <span class="pr-muted">—</span> }
@@ -764,14 +764,21 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
               La llegada es <strong>estimada</strong>: Kepler no guarda fecha prometida, así que se calcula
               como fecha de la orden + el tiempo de surtido del proveedor@if (tranLead()) { ({{ tranLead() }} d) }.
             </p>
-            <!-- RA-PRO.45 — la brecha entre lo que dice el papel y lo que el motor descuenta. Sin
-                 esto la pantalla se contradice sola: "vienen 180 cajas" y aun así sugiere pedir. -->
+            <!-- [RA.TR] La brecha entre lo que dice el papel y lo que el motor descuenta. Sin esto
+                 la pantalla se contradice sola: "vienen 180 cajas" y aun así sugiere pedir.
+                 El motivo lo manda el SERVIDOR (aviso_transito), que es quien sabe qué política
+                 está vigente: si lo escribiera la pantalla, al cambiar la regla el texto quedaría
+                 explicando algo que ya no ocurre. -->
             @if (tranGap() > 0.05) {
               <p class="pr-tran-gap">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
-                El pedido descuenta <strong>{{ tranDescuenta() | number:'1.0-1' }} cajas</strong>, no las
-                {{ tranTotalCajas() | number:'1.0-1' }}: en Kepler la orden se captura al recibir, así que
-                una que sigue abierta hace semanas casi nunca llega. Cada orden pesa según su antigüedad.
+                @if (tranDescuenta() > 0.05) {
+                  El pedido descuenta <strong>{{ tranDescuenta() | number:'1.0-1' }} cajas</strong>, no las
+                  {{ tranTotalCajas() | number:'1.0-1' }}.
+                } @else {
+                  El pedido <strong>no descuenta</strong> estas {{ tranTotalCajas() | number:'1.0-1' }} cajas.
+                }
+                {{ tranAviso() }}
               </p>
             }
             <table class="pr-peek-tbl">
@@ -3026,7 +3033,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   readonly tranRows = signal<InTransitOc[]>([]);
   readonly tranProduct = signal<{ sku: string; nombre: string } | null>(null);
   readonly tranLead = signal<number | null>(null);
-  readonly tranDescuenta = signal(0);          // RA-PRO.45 — cajas que el motor sí resta
+  readonly tranDescuenta = signal(0);          // `[RA.TR]` — cajas que el motor sí resta (hoy: 0)
+  /**
+   * `[RA.TR]` El motivo que manda el servidor. Arranca vacío a propósito: si el endpoint no lo
+   * trae, la pantalla no inventa una explicación — prefiere no decir nada antes que decir algo
+   * que ya no sea cierto.
+   */
+  readonly tranAviso = signal('');
   tranTotalCajas = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.cajas) || 0), 0));
   tranTotalValor = computed(() => this.tranRows().reduce((s, o) => s + (Number(o.valor) || 0), 0));
   tranGap = computed(() => Math.max(0, this.tranTotalCajas() - this.tranDescuenta()));
@@ -3042,19 +3055,25 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         this.tranRows.set(res.rows ?? []);
         this.tranLead.set(res.lead_days ?? null);
         this.tranDescuenta.set(Number(res.descuenta_cajas ?? 0));
+        this.tranAviso.set(res.aviso_transito ?? '');
         if (res.product) this.tranProduct.set(res.product);
       });
   }
-  /** Antigüedad de la OC: es lo que decide cuánto pesa. +30 d = prácticamente muerta. */
+  /**
+   * Antigüedad de la OC. `[RA.TR]` Ya no decide cuánto pesa —hoy no se descuenta nada— pero sigue
+   * siendo lo que le dice al comprador si vale la pena contar con ella: medido el 2026-10-08,
+   * una OC de más de 60 días llega el 9.8% de las veces, y una de menos de 3 el 86.2%.
+   */
   edadCls(o: InTransitOc): string {
     const d = Number(o.dias_abierta) || 0;
     return d > 30 ? 'pr-edad pr-edad-bad' : d > 14 ? 'pr-edad pr-edad-warn' : 'pr-edad';
   }
   edadTitle(o: InTransitOc): string {
     const d = Number(o.dias_abierta) || 0;
-    if (d > 30) return 'Lleva más de un mes abierta: históricamente sólo una de cada siete llega. Casi no descuenta pedido.';
-    if (d > 14) return 'Lleva más de dos semanas abierta: cerca de la mitad de estas ya no se surte.';
-    return 'Orden reciente: se descuenta casi completa.';
+    if (d > 60) return 'Más de 60 días abierta: de éstas llega el 9.8%. 151 de las 394 OC abiertas están así — conviene cerrarla o reclamarla.';
+    if (d > 30) return 'Más de un mes abierta: históricamente sólo una de cada cinco llega.';
+    if (d > 14) return 'Más de dos semanas abierta: cerca de la mitad de éstas ya no se surte.';
+    return 'Orden reciente: de éstas llega entre el 76% y el 86%. Es la que de verdad conviene mirar antes de volver a pedir.';
   }
   /** Semáforo de llegada: vencida (debió llegar) · esta semana · más adelante. */
   llegaSev(o: InTransitOc): Sev {

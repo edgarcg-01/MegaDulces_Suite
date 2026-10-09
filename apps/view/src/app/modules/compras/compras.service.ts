@@ -215,9 +215,14 @@ export interface InTransitResponse {
   lead_days?: number;
   rows: InTransitOc[];
   total_cajas: number; total_valor: number;
-  // RA-PRO.45 — cajas que el motor descuenta de verdad (pesadas por P(llega|edad)) vs las que
-  // dicen los papeles. La brecha es papel abierto que ya no se va a surtir.
+  // `[RA.TR]` — cajas que el motor descuenta DE VERDAD, contra las que dicen los papeles. Las dos
+  // salen de la misma política que el sugerido (`libs/.../transito.ts`), así que no pueden
+  // contradecirlo: desde el 2026-10-09 la política es `ignorar` y esto llega en 0.
   descuenta_cajas?: number; fact_cajas?: number;
+  /** Cuál de las tres reglas está vigente. Viaja para que la pantalla no la adivine. */
+  politica_transito?: 'ignorar' | 'curva' | 'crudo';
+  /** El motivo, en una frase, para ponerlo DONDE ESTÁ EL NÚMERO (ADR-056). */
+  aviso_transito?: string;
 }
 // RA-PRO.45 — bandeja: las OCs de Kepler que siguen abiertas, para cerrarlas o cancelarlas.
 export interface OpenOcRow {
