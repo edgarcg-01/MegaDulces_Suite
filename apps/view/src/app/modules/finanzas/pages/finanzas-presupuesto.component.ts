@@ -47,11 +47,25 @@ interface Summary {
   kpis: { cumplimiento_ventas_pct: number | null; desviacion_ventas: number | null; margen_real: number | null; ocupacion_presupuestaria_pct: number | null };
   freshness: Freshness; coverage: Coverage;
 }
-interface CashBucket { week: string; cobros: number; pagos: number; neto: number; neto_acumulado: number; saldo_proyectado: number | null }
+interface CashBucket { week: string; cobros: number; pagos: number; pagos_autorizados?: number; neto: number; neto_acumulado: number; saldo_proyectado: number | null }
 interface Cashflow {
   period: { from: string; to: string; bucket: string };
-  opening_balance: { available: boolean; amount: number | null; as_of: string | null; source: string; reason?: string };
-  totals: { cobros: number; pagos: number; neto: number };
+  opening_balance: {
+    available: boolean; amount: number | null; as_of: string | null; source: string; reason?: string;
+    /** `[TES.3]` Filas de fecha imposible, excluidas del saldo y de la frescura. Declaradas, no borradas. */
+    anomalias?: { filas: number; futuras: number; absurdas: number; rango: { min: string; max: string }; efecto: string };
+  };
+  /** `[TES.2]` La deuda DERIVADA del ERP: lo que la curva de pago dibuja, y lo que deja fuera. */
+  deuda_erp?: {
+    base: string; por_tipo: Record<string, number>; as_of: string | null; as_of_reason: string;
+    fuente: string; clasificador: string;
+    cobertura: {
+      en_ventana: number; vencido_fuera: number; posterior: number; sin_vencimiento: number;
+      total: number; pct_en_ventana: number | null; interno_excluido: number;
+    };
+  };
+  /** ⛔ `pagos_autorizados` NO se suma a `pagos`: el traslape con la deuda del ERP no está resuelto. */
+  totals: { cobros: number; pagos: number; pagos_autorizados?: number; neto: number };
   saldo_minimo_proyectado: number | null;
   buckets: CashBucket[];
   alerts: { week: string; saldo_proyectado: number | null; tipo: string }[];
@@ -777,6 +791,37 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   en una semana sin inventarles una.
                 </p>
               }
+            }
+
+            <!-- [TES.2] El mismo aviso del lado del PAGO. Sin él la pantalla publica la curva de
+                 pagos sin decir que ve una fracción — que es el defecto que [CXC.22] corrigió
+                 arriba, y acá era peor: hasta hoy la fracción era CERO. -->
+            @if (cf.deuda_erp?.cobertura; as dc) {
+              @if (dc.vencido_fuera > 0) {
+                <p class="pres-nodata">
+                  <span class="pi pi-info-circle"></span>
+                  Del lado del <b>pago</b> dibuja
+                  <strong>{{ dc.pct_en_ventana != null ? dc.pct_en_ventana + '%' : 'una parte' }}</strong>
+                  de la deuda con proveedor ({{ money(dc.en_ventana) }} de {{ money(dc.total) }}).
+                  Quedan fuera <strong>{{ money(dc.vencido_fuera) }}</strong> que <b>ya vencieron</b>:
+                  exigibles sin fecha comprometida, por la misma razón que la cobranza.
+                  @if (dc.interno_excluido > 0) {
+                    No se cuentan {{ money(dc.interno_excluido) }} de traspasos entre sucursales,
+                    que no son deuda con terceros.
+                  }
+                </p>
+              }
+            }
+
+            <!-- [TES.3] Las filas de fecha imposible se EXCLUYEN del saldo y de la frescura, y se
+                 declaran acá: son del dominio de contabilidad, no se borran. -->
+            @if (cf.opening_balance?.anomalias; as an) {
+              <p class="pres-nodata">
+                <span class="pi pi-exclamation-triangle"></span>
+                {{ an.filas }} movimientos bancarios con fecha imposible
+                ({{ an.futuras }} en el futuro, {{ an.absurdas }} anteriores a 2015) quedan
+                <b>fuera del saldo y de la frescura</b>. No se borran: hay que reclasificarlos.
+              </p>
             }
 
             <p-table [value]="cf.buckets" styleClass="p-datatable-sm surf-table pres-table">
