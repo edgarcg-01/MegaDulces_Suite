@@ -4676,7 +4676,12 @@ export interface ObjetivoCriterioFila {
 
 export interface ObjetivoFila {
   route_code: string; chofer: string | null; zona: string | null;
-  dias_con_venta: number;
+  /** ⛔ `null` cuando la ventana no cubre el mes: un 0 ahí afirma que la ruta no vendió. */
+  dias_con_venta: number | null;
+  dias_con_venta_motivo: string | null;
+  /** ⭐ Separa «no alcanzó» de «está de baja»: la bandera `comisiona` es manual y no caduca. */
+  ultima_actividad: string | null;
+  dias_sin_actividad: number | null;
   criterios: ObjetivoCriterioFila[];
   alcanzado_pct: number;
   sin_resolver_pct: number;
