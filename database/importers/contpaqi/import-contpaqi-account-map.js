@@ -46,6 +46,18 @@ const BATCH = 1000;
 const VOTOS_SOLIDO = 3;
 const PUREZA_SOLIDA = 90;
 
+/**
+ * ⛔⛔ **La cuenta de un proveedor vive en TRES rubros, no en uno.** `2120` es su cuenta por
+ * pagar; `5010` y `5020` son sus compras. Medido: **973 de 1,025 sufijos compartidos entre esos
+ * rubros tienen el MISMO nombre (94.9 %)** — `2120000108` y `5010000108` son el mismo tercero.
+ *
+ * ⭐ Esta lista nació sólo con `2120` y el recorte se destapó comparando dos universos: al
+ * restringir la derivación a pólizas 1:1, `compra_mercancia` se caía a `no_aplica` porque esas
+ * pólizas cargan a `5010`/`5020`. Con los tres rubros, la concentración pasa de **65.1 % a
+ * 94.7 %** y el tipo queda **estable** bajo las dos ventanas.
+ */
+const RUBROS_PROVEEDOR = ['2120', '5010', '5020'];
+
 const SRC = {
   server: process.env.CONTPAQI_SQL_HOST || '192.168.0.35',
   user: process.env.CONTPAQI_SQL_USER || 'platform_ro',
@@ -89,7 +101,7 @@ const norm = (s) => (s || '').trim().toUpperCase()
       JOIN MovimientosPoliza mp ON mp.Guid = a.GuidRef
       JOIN Polizas  p ON p.Id = mp.IdPoliza
       JOIN Cuentas  c ON c.Id = mp.IdCuenta
-     WHERE p.Fecha >= @d AND c.Codigo LIKE '2120%'`)).recordset;
+     WHERE p.Fecha >= @d AND (c.Codigo LIKE '2120%' OR c.Codigo LIKE '5010%' OR c.Codigo LIKE '5020%')`)).recordset;
   await mss.close();
   console.log(`  origen: ${cuentas.length} cuentas · ${prov.length} proveedores · ${pares.length} pares (cuenta, UUID)`);
 
@@ -131,7 +143,7 @@ const norm = (s) => (s || '').trim().toUpperCase()
   const filas = [];
   for (const c of cuentas) {
     const cod = clean(c.Codigo);
-    if (!cod || !cod.startsWith('2120')) continue;
+    if (!cod || !RUBROS_PROVEEDOR.some((r) => cod.startsWith(r))) continue;
 
     const cands = porNombre.get(norm(c.Nombre));
     const rfcA = cands && cands.size === 1 ? [...cands.keys()][0] : null;

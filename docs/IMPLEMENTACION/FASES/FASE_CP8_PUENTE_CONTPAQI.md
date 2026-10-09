@@ -1291,3 +1291,81 @@ estructural** (30,073 de 30,033, Fase ECA), y de la factura sale el UUID con su 
 
 Los 6 candados de CP.8 + LC, verdes: token 29 · armador 33 · sink 44 · cuadre 35 · **lote 38** ·
 LC 38. Registrado en `run-all-tests.js`.
+
+---
+
+## 19. ⛔⛔ `[CP.8.22]` La evidencia estaba inflada por el agrupamiento, y un error mío la escondía
+
+Siguiendo con los bloqueos medidos en `[CP.8.21]` (`sin_regla` 954 · `proveedor_sin_cuenta` 216).
+Lo que iba a hacer era **sembrar las cuentas candidatas** de `[CP.8.18]` para que el contador sólo
+confirmara. Medir antes de sembrar lo impidió, y encontró dos cosas.
+
+### 19.1 El porcentaje de la cuenta candidata medía otra cosa
+
+La candidata se infería tomando **el cargo mayor** de la póliza pareada. Eso sólo vale si la
+póliza es de ese movimiento — y `[CP.8.21]` ya había medido que **ContPAQi agrupa** (7.3
+renglones en mercancía, 14.6 en tarjeta, **278 en comisiones**).
+
+Restringiendo el voto a pólizas de **≤3 renglones** (cargo + IVA + banco, la forma 1:1):
+
+| categoría | candidata SIN filtro | con filtro 1:1 |
+|---|---|---|
+| `comision_bancaria` | `5200650000` COMISIONES · **94.4 %** | ⛔ **desaparece** — era 100 % artefacto del lote |
+| `compra_tarjeta` | `5200600000` GASOLINA · 73.8 % | ⛔ **cambia de cuenta**: `2140800000` TARJETA · 36.4 % |
+| `impuestos` | `5201000000` NO DEDUCIBLES · 64.7 % | ✅ **68.8 %** — la única que sobrevive, y mejora |
+
+⭐ **Mi retractación de `comision_bancaria` en §17.3 era correcta, y ahora está probada**: el
+filtro la borra entera. *Un porcentaje calculado sobre el universo equivocado es peor que no
+tenerlo, porque se ve igual de convincente.*
+
+⛔ **Conclusión: la cuenta exacta para `por_categoria` NO es derivable.** Ninguna llega a un
+umbral defendible. **No se sembró nada** — sembrar candidatas débiles con un número que parece
+alto es justo lo que ADR-056 prohíbe. Esa decisión sigue siendo del contador.
+
+### 19.2 ⭐⭐ Pero el `tipo_regla` sí sobrevive — y comprobarlo destapó un error mío
+
+Si el agrupamiento contaminó la cuenta, había que comprobar que no contaminó el **tipo**. Se
+recalculó sólo sobre pólizas 1:1 y se comparó. **`compra_mercancia` cambiaba de `por_proveedor` a
+`no_aplica`.**
+
+Investigado: las pólizas 1:1 de esa categoría cargan a **`5010`** (MARAVIMUNDO SA DE CV) y
+**`5020`** (MIGUEL ANGEL BRIBIESCA RODRIGUEZ) — **nombres de proveedor**, no de gasto.
+
+⛔ **La cuenta de un proveedor vive en TRES rubros y mi clasificador miraba uno.** `2120` es su
+cuenta por pagar; `5010` y `5020` son sus compras. Y `[CP.8.20]` **ya lo había medido**: 973 de
+1,025 sufijos compartidos entre esos rubros tienen el mismo nombre (94.9 %). *Lo vi y no lo
+incorporé.*
+
+Corregido:
+
+| | antes | después |
+|---|--:|--:|
+| `compra_mercancia` toca cuenta de proveedor | 65.1 % | **94.7 %** |
+| ¿estable bajo el filtro 1:1? | ⛔ no | ✅ **sí** |
+| cuentas utilizables en `supplier_accounts` | 173 | **421** |
+| filas en el mapa | 1,015 | **3,050** |
+
+⚠️ Y las **4 discrepancias** nombre-vs-UUID tienen **un solo voto las cuatro** — el mismo patrón
+que ya había fijado el umbral de `uuid_solido`.
+
+⭐ **Lo destapó comparar DOS universos.** Mirando uno solo, el clasificador se veía consistente —
+con un 65.1 % que nadie habría cuestionado.
+
+### 19.3 La cadena por Kepler se midió y NO rinde — se declara
+
+Para resolver `proveedor_sin_cuenta` se probó enganchar el egreso de CB con el pago a proveedor de
+Kepler (`analytics.erp_supplier_payments`, que trae `proveedor_rfc`):
+
+| ene–feb 2026, `compra_mercancia` | |
+|---|--:|
+| enganche exacto (fecha + importe) | **648 / 1,122 · 57.8 %** |
+| placebo +43 d | 3 · 0.3 % → **216×** |
+| …y de ésos, con cuenta `2120` resuelta | **97 · 8.6 %** |
+
+⛔ **El corte no está en el enganche: está en el RFC de Kepler.** De los 648 enganchados, **481
+no traen RFC** y el resto viene sucio: `CCO-820507-BV` (con guiones y truncado contra
+`CCO820507BV4`), `DC9181011CK5` (un carácter cambiado contra `DCP181011CK5`), `CIS-030827-AF`.
+
+Es **calidad de dato de Kepler**, no del puente. Se declara y no se persigue: normalizar guiones
+recuperaría algunos y **emparejar RFC truncados es adivinar**. El camino bueno sigue siendo
+`kdxf` (casamiento estructural pago→factura, Fase ECA), que no depende del RFC capturado.
