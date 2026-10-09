@@ -17,9 +17,9 @@ import { ServicioSolicitudesComponent } from './servicio-solicitudes.component';
  */
 const DOS_AREAS: SdCatalogResponse = {
   queues: [
-    { id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', priority_model: 'impacto', asks_zone: false },
-    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'impacto', asks_zone: true },
-    { id: 'q-vacia', code: 'vacia', name: 'Sin categorías', priority_model: 'impacto', asks_zone: false },
+    { id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'impacto', asks_zone: true, confidential: false, uses_priority: true, sla_enabled: true },
+    { id: 'q-vacia', code: 'vacia', name: 'Sin categorías', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true },
   ],
   zones: [{ code: 'bodega', name: 'Bodega' }],
   fields: [{ code: 'equipo', queue_id: 'q-mto', label: 'Equipo', type: 'text', required: true, options: [] }],

@@ -1920,6 +1920,128 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       check('⭐ en conjunto: ningún aviso de los tickets de esta área llegó a alguien ajeno a ella', todos.length > 0 && todos.every((id) => equipo.includes(id) || id === sol.id), JSON.stringify([...new Set(todos)]));
     }
 
+    // ── 35. [MSH.2] Cola CONFIDENCIAL (RH): vista limitada del administrador, sin oráculo, sin prioridad/SLA, avisos neutros, reportes con mínimo ───
+    {
+      console.log('\n35 — cola confidencial');
+      const [{ id: qC }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: 'smoke_cf_rh', name: 'SMOKE RH confidencial', sort_order: 912, confidential: true, uses_priority: false, sla_enabled: false, report_min_cases: 3 }).returning('id');
+      const [{ id: catC }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qC, code: 'smoke_cf_cat', name: 'SMOKE RH categoría', default_priority: 'media', requires_branch: false }).returning('id');
+      const jefeC = await crearUsuario('rhc_jefe', ['SERVICIO_ATENDER', 'SERVICIO_COORDINAR'], [{ queue_id: qC, role: 'coordinador' }]);
+      const tecC = await crearUsuario('rhc_tec', ['SERVICIO_ATENDER'], [{ queue_id: qC, role: 'tecnico' }]);
+      const diosC = await crearUsuario('rhc_dios');
+      await knex('identity.users').where({ id: diosC.id }).update({ role_name: 'superadmin' });
+      diosC.token = (await req('POST', '/auth-mt/login', null, { tenant_slug: 'mega_dulces', username: diosC.username, password: PASS_PLANO })).body?.access_token ?? null;
+      usuarios.push(jefeC, tecC, diosC);
+      check('(preparación) los usuarios de la prueba entran', [jefeC, tecC, diosC].every((u) => !!u.token));
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Mexico_City', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+      const secreto = `acosoXYZ${SUF}`;
+      const mk = (token, title, extra = {}) => req('POST', `${SD}/requests`, token, { category_id: catC, title, ...extra });
+      const rep = (tok, q = '') => req('GET', `${SD}/reports?from=${hoy}&to=${hoy}${q}`, tok);
+
+      // Línea base ANTES de crear nada confidencial (la base dev es compartida: se compara contra sí misma).
+      const statsAntes = (await req('GET', `${SD}/requests/stats`, diosC.token)).body;
+      const repGlobalAntes = (await rep(diosC.token)).body;
+
+      // A) Nace confidencial, sin prioridad y sin plazos.
+      const t1 = await mk(sol.token, `Queja ${secreto} contra mi jefe`, { description: 'detalle muy privado' });
+      check('⭐ se levanta (201/200)', t1.status < 300 && !!t1.body?.id, dump(t1));
+      const fila = await knex('servicedesk.requests').where({ id: t1.body?.id }).first('confidential', 'priority', 'due_at', 'first_response_due_at');
+      check('⭐ NACE confidencial (lo fija la base copiando el de su cola)', fila?.confidential === true);
+      check('⭐ guarda la prioridad NEUTRA interna y NO le calcula plazos', fila?.priority === 'media' && fila?.due_at === null && fila?.first_response_due_at === null, JSON.stringify(fila));
+      check('⛔ la API NO publica prioridad en esta cola (`priority: null`)', t1.body?.priority === null, JSON.stringify(t1.body?.priority));
+      const mine = (await req('GET', `${SD}/requests/mine`, sol.token)).body;
+      check('⭐ quien reportó ve el suyo COMPLETO en «mis solicitudes» (título y prioridad nula)', (mine?.rows ?? []).some((r) => r.id === t1.body.id && r.title.includes(secreto) && r.priority === null && !r.basic));
+
+      // B) El administrador (god-mode) ve SÓLO lo básico: la API no envía el contenido.
+      const dDios = await req('GET', `${SD}/requests/${t1.body.id}`, diosC.token);
+      check('⭐ el administrador abre el ticket confidencial en VISTA LIMITADA (200, `basic: true`)', dDios.status === 200 && dDios.body?.basic === true && dDios.body?.folio === t1.body.folio, dump(dDios));
+      check('⛔ y NADA del contenido viaja: ni título, ni descripción, ni hilo, ni quien reportó, ni categoría', !JSON.stringify(dDios.body).includes(secreto) && !JSON.stringify(dDios.body).includes('muy privado') && dDios.body?.title === '' && dDios.body?.description === '' && (dDios.body?.messages ?? []).length === 0 && dDios.body?.requester_id === '' && dDios.body?.requester_name === null && dDios.body?.category_name === null, JSON.stringify(dDios.body).slice(0, 300));
+      check('⛔ ni siquiera como acciones: sin quien lo atiende ni plazos', dDios.body?.assigned_to === null && dDios.body?.sla?.due_at === null);
+      const inboxDios = await req('GET', `${SD}/requests/inbox?queue_id=${qC}`, diosC.token);
+      const filaDios = (inboxDios.body?.rows ?? []).find((r) => r.id === t1.body.id);
+      check('⭐ en la bandeja del administrador aparece SÓLO folio/cola/estado/fecha', !!filaDios && filaDios.basic === true && filaDios.title === '' && !JSON.stringify(inboxDios.body).includes(secreto), dump(inboxDios));
+      // Anti-oráculo: ningún filtro de contenido puede revelar si «hay un caso de …».
+      const porTexto = await req('GET', `${SD}/requests/inbox?queue_id=${qC}&search=${secreto}`, diosC.token);
+      check('⛔ ORÁCULO — buscar el texto secreto NO devuelve el ticket confidencial ni lo cuenta', (porTexto.body?.rows ?? []).length === 0 && Number(porTexto.body?.total ?? 0) === 0, dump(porTexto));
+      const porCat = await req('GET', `${SD}/requests/inbox?queue_id=${qC}&category_id=${catC}`, diosC.token);
+      check('⛔ ORÁCULO — filtrar por la categoría tampoco', (porCat.body?.rows ?? []).length === 0 && Number(porCat.body?.total ?? 0) === 0, dump(porCat));
+      const porPersona = await req('GET', `${SD}/requests/inbox?queue_id=${qC}&assigned_to=${tecC.id}`, diosC.token);
+      check('⛔ ORÁCULO — ni por «quién lo atiende»', (porPersona.body?.rows ?? []).length === 0, dump(porPersona));
+      const statsDespues = (await req('GET', `${SD}/requests/stats`, diosC.token)).body;
+      check('⭐ el tablero del administrador NO cuenta lo confidencial (los números no se movieron)', statsDespues?.open_total === statsAntes?.open_total && statsDespues?.unassigned === statsAntes?.unassigned, JSON.stringify([statsAntes?.open_total, statsDespues?.open_total]));
+
+      // C) Quien es de la cola sí lo ve completo; quien no lo es, nada.
+      const dJefe = await req('GET', `${SD}/requests/${t1.body.id}`, jefeC.token);
+      check('⭐ la coordinación de RH lo ve COMPLETO', dJefe.status === 200 && !dJefe.body?.basic && dJefe.body?.title.includes(secreto) && dJefe.body?.description.includes('muy privado'), dump(dJefe));
+      const busqJefe = await req('GET', `${SD}/requests/inbox?queue_id=${qC}&search=${secreto}`, jefeC.token);
+      check('⭐ y RH sí puede buscar por texto en su propia cola', (busqJefe.body?.rows ?? []).some((r) => r.id === t1.body.id), dump(busqJefe));
+      check('⛔ quien coordina TI (otra cola) ni lo ve → 404', (await req('GET', `${SD}/requests/${t1.body.id}`, coord.token)).status === 404);
+      check('⛔ otra persona sin permisos → 404', (await req('GET', `${SD}/requests/${t1.body.id}`, otro.token)).status === 404);
+      const agentesTi = (await req('GET', `${SD}/agents`, coord.token)).body ?? [];
+      check('⛔ la lista de agentes de TI no incluye a la gente de RH', !agentesTi.some((a) => a.user_id === tecC.id || a.user_id === jefeC.id));
+      await req('POST', `${SD}/requests/${t1.body.id}/assign`, jefeC.token, { user_id: tecC.id });
+      const agentesRh = (await req('GET', `${SD}/agents?queue_id=${qC}`, jefeC.token)).body ?? [];
+      check('⛔ la carga de trabajo de quien atiende RH NO cuenta lo confidencial (no es un contador del caso)', agentesRh.find((a) => a.user_id === tecC.id)?.open_count === 0, JSON.stringify(agentesRh));
+
+      // D) Quién administra la cola: sólo su coordinación (no el god-mode).
+      check('⛔ el administrador NO edita los miembros de una cola confidencial → 403', (await req('PUT', `${SD}/config/queues/${qC}/members/${tecC.id}`, diosC.token, { role: 'coordinador' })).status === 403);
+      check('⛔ ni los ve agregar a alguien → 403', (await req('PUT', `${SD}/config/queues/${qC}/members/${otro.id}`, diosC.token, { role: 'tecnico' })).status === 403);
+      const rolIgual = await req('PUT', `${SD}/config/queues/${qC}/members/${tecC.id}`, jefeC.token, { role: 'tecnico' });
+      check('⭐ la coordinación de RH sí administra sus miembros (CONTROL: la negativa de arriba no es por un 403 genérico)', rolIgual.status < 300, dump(rolIgual));
+
+      // E) H7: levantar «a nombre de otro» sólo lo hace quien atiende la cola.
+      const aNombre = await mk(diosC.token, 'a nombre de otro', { requester_id: sol.id });
+      check('⛔ el administrador NO levanta una solicitud confidencial a nombre de OTRA persona → 403', aNombre.status === 403, dump(aNombre));
+      const aNombreJefe = await mk(jefeC.token, 'a nombre de otro, por RH', { requester_id: sol.id });
+      check('⭐ quien atiende la cola SÍ (CONTROL)', aNombreJefe.status < 300, dump(aNombreJefe));
+
+      // F) R3: un ticket confidencial NO sale de su clase.
+      const hacia = await req('POST', `${SD}/requests/${t1.body.id}/transfer`, jefeC.token, { queue_id: await idColaTi(), category_id: catSimple.id, reason: 'prueba' });
+      check('⛔ NO se traslada a una cola normal → 409', hacia.status === 409, dump(hacia));
+      check('⛔ y sigue en su cola (nada se movió)', (await knex('servicedesk.requests').where({ id: t1.body.id }).first('queue_id')).queue_id === qC);
+
+      // G) Avisos neutros: el título y el texto de un comentario NO viajan a la campana/correo/WhatsApp.
+      await req('POST', `${SD}/requests/${t1.body.id}/messages`, jefeC.token, { body: `Respuesta de RH sobre ${secreto}` });
+      const avisos = await knex('servicedesk.notification_log').where({ request_id: t1.body.id }).select('recipient_id', 'channel', 'payload');
+      check('(preparación) hubo avisos de este ticket', avisos.length > 0);
+      check('⛔ NINGÚN aviso lleva el título ni el texto del comentario (se neutraliza al escribirlo)', avisos.every((a) => !JSON.stringify(a.payload).includes(secreto)), JSON.stringify(avisos.map((a) => a.payload)).slice(0, 300));
+      const app = avisos.filter((a) => a.channel === 'app');
+      check('⭐ el aviso nombra la «Solicitud confidencial» (no el título real) y la prioridad no se publica', app.some((a) => String(a.payload?.message).includes('Solicitud confidencial')) && app.every((a) => a.payload?.priority === null), JSON.stringify(avisos.map((a) => a.payload)).slice(0, 300));
+      check('⛔ y nadie ajeno a RH ni a quien reportó los recibió', avisos.every((a) => [jefeC.id, tecC.id, sol.id].includes(a.recipient_id)), JSON.stringify([...new Set(avisos.map((a) => a.recipient_id))]));
+
+      // H) Sin SLA: el barrido no toca esta cola.
+      await knex('servicedesk.requests').where({ id: t1.body.id }).update({ due_at: new Date(Date.now() - 3600e3), first_response_due_at: new Date(Date.now() - 7200e3) });
+      const escAntes = (await knex('servicedesk.settings').where({ tenant_id: T }).first('escalation_enabled')).escalation_enabled;
+      await knex('servicedesk.settings').where({ tenant_id: T }).update({ escalation_enabled: true });
+      const nAntes = Number((await knex('servicedesk.notification_log').where({ request_id: t1.body.id }).count({ n: '*' }).first()).n);
+      await req('POST', `${SD}/sla/scan-now`, coord.token);
+      await knex('servicedesk.settings').where({ tenant_id: T }).update({ escalation_enabled: escAntes });
+      const nDespues = Number((await knex('servicedesk.notification_log').where({ request_id: t1.body.id }).count({ n: '*' }).first()).n);
+      const marcas = await knex('servicedesk.requests').where({ id: t1.body.id }).first('sla_first_breached_at', 'sla_resolution_breached_at');
+      check('⭐ el barrido del SLA NO toca una cola sin SLA (ni marca incumplimiento ni avisa) aunque el plazo esté vencido', nDespues === nAntes && marcas.sla_first_breached_at === null && marcas.sla_resolution_breached_at === null, JSON.stringify([nAntes, nDespues, marcas]));
+      const dSla = await req('GET', `${SD}/requests/${t1.body.id}`, jefeC.token);
+      check('⭐ y la ficha NO muestra semáforo ni plazos de esa cola', dSla.body?.sla?.first_breached === false && dSla.body?.sla?.resolution_breached === false && dSla.body?.sla?.due_at === null, JSON.stringify(dSla.body?.sla));
+      check('⛔ no se cambia la prioridad en un área que no la usa → 409', (await req('POST', `${SD}/requests/${t1.body.id}/priority`, jefeC.token, { priority: 'alta', reason: 'x' })).status === 409);
+
+      // I) Reportes: lo confidencial no entra al global y el de RH pasa por el mínimo de casos.
+      const repGlobalDespues = (await rep(diosC.token)).body;
+      check('⭐ el reporte GLOBAL del administrador no cuenta los tickets confidenciales', repGlobalDespues?.totales?.creados === repGlobalAntes?.totales?.creados, JSON.stringify([repGlobalAntes?.totales?.creados, repGlobalDespues?.totales?.creados]));
+      check('⛔ el administrador NO pide el reporte de la cola confidencial → 403', (await rep(diosC.token, `&queue_id=${qC}`)).status === 403);
+      check('⛔ y la cola confidencial ni se le ofrece en el selector', !(repGlobalDespues?.colas ?? []).some((c) => c.id === qC));
+      const repRhPoco = (await rep(jefeC.token, `&queue_id=${qC}`)).body;
+      check('⭐ RH ve su cola en el selector del reporte', (repRhPoco?.colas ?? []).some((c) => c.id === qC));
+      check('⛔ con MENOS casos que el mínimo (2 < 3) el reporte se SUPRIME: ninguna cifra', !!repRhPoco?.suprimido && repRhPoco.suprimido.minimo === 3 && repRhPoco.totales.creados === 0 && (repRhPoco.por_categoria ?? []).length === 0, JSON.stringify(repRhPoco?.suprimido));
+      await mk(sol.token, 'otro caso 3');
+      await mk(sol.token, 'otro caso 4');
+      const repRh = (await rep(jefeC.token, `&queue_id=${qC}`)).body;
+      check('⭐ con el mínimo cubierto el reporte SÍ sale (sin `suprimido`)', repRh?.suprimido === undefined && repRh?.totales?.creados >= 3, JSON.stringify([repRh?.suprimido, repRh?.totales]));
+      check('⭐ sin desglose por prioridad (esa área no la usa)', (repRh?.por_prioridad ?? []).length === 0);
+      check('⛔ y el reporte de RH no trae nada por persona ni el texto de ningún caso', !JSON.stringify(repRh).includes(secreto) && !/"(assign[a-z_]*|requester[a-z_]*|resolved_by|assignee[a-z_]*)":/i.test(JSON.stringify(repRh)));
+      check('⛔ quien coordina TI no puede pedir el reporte de RH → 403', (await rep(coord.token, `&queue_id=${qC}`)).status === 403);
+
+      noMedido.push('la URL de un adjunto confidencial vive 60 s: no hay bucket configurado en este entorno; se cubre con el spec de `vidaDeUrlAdjunto` (60 < 600)');
+      noMedido.push('el filtro de la Bitácora (H9): el puerto hoy no hace nada; se cubre con el spec de `sinConfidenciales`');
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');

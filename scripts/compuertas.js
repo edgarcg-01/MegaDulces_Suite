@@ -178,6 +178,9 @@ const COMPUERTAS = [
   // `npm run check` antes de commitear; al push no llegaba. Cumple el criterio de admisión:
   // escaneo estático, sin red, sin DB, 2,273 ms medidos (tope ~3 s).
   { nombre: 'set-bind', script: 'check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)', push: true, ms: 2273 },
+  // [MSH.2] H2: la confidencialidad de la cola de RH se rompe cuando alguien escribe una consulta NUEVA a `servicedesk.requests` sin saber
+  // que existe lo confidencial. La lista de lectores es CERRADA: uno nuevo rompe el build y quien lo agrega escribe por qué es seguro.
+  { nombre: 'sd-confid', script: 'check-service-desk-confidential-reads.js', que: 'sólo los lectores listados leen servicedesk.requests (lo confidencial no se filtra por una consulta nueva)', push: true, ms: 150 },
   /**
    * ⭐⭐ `[ETQ-FIT.4]` LA ETIQUETA SE MIDE RENDERIZADA, Y EN LOS DOS ESCENARIOS.
    *
