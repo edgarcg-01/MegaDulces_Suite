@@ -1031,7 +1031,7 @@ export class AndenComponent implements OnInit {
         if (cap.verdict === 'en_cola') enCola++;
       } catch (err: unknown) {
         const x = err as { error?: { message?: string }; message?: string };
-        fallas.push(`${formatExpiryEcho(e.caducidadIso)}: ${x?.error?.message || x?.message || 'error'}`);
+        fallas.push(`${e.caducidadIso ? formatExpiryEcho(e.caducidadIso) : 'Sin caducidad'}: ${x?.error?.message || x?.message || 'error'}`);
       }
     }
 
@@ -1095,10 +1095,12 @@ export class AndenComponent implements OnInit {
       return;
     }
     const cantidad = f.entradas.reduce((a, e) => a + e.cantidad, 0);
+    // `[WMS-REC.22]` Lo que se declaró sin caducidad se dice así, no como "lote NA".
+    const sinCaducidad = n === 1 && !f.entradas[0].caducidadIso;
     this.toast.add({
-      severity: 'success', summary: 'Fechada',
+      severity: 'success', summary: sinCaducidad ? 'Guardada sin caducidad' : 'Fechada',
       detail: n === 1
-        ? `${this.nombre(f.linea)} — ${cantidad} ${unidad}, lote ${f.entradas[0].lote}.`
+        ? `${this.nombre(f.linea)} — ${cantidad} ${unidad}, ${sinCaducidad ? 'sin caducidad' : `lote ${f.entradas[0].lote}`}.`
         : `${this.nombre(f.linea)} — ${n} caducidades, ${cantidad} ${unidad} en total.`,
     });
   }
@@ -1119,7 +1121,8 @@ export class AndenComponent implements OnInit {
       supplier_code: v.supplier_code || undefined,
       quantity: e.cantidad,
       confirmed_lot: e.lote,
-      confirmed_expiry: e.caducidadIso,
+      // `[WMS-REC.22]` Sin caducidad no se manda: el servidor la guarda vacía y el lote como NA.
+      confirmed_expiry: e.caducidadIso ?? undefined,
       photo_data_uri: e.fotoDataUri || undefined,
       client_uuid: nuevaLlave(),
     };

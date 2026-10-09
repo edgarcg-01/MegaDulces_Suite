@@ -9,7 +9,7 @@ import {
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline } from '@megadulces/contracts';
+import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline, AndenLlegadas } from '@megadulces/contracts';
 import {
   ReceivingSessionService,
   OpenSessionDto,
@@ -112,6 +112,21 @@ export class ReceivingSessionController {
   })
   offlinePack(@Query('sucursal') sucursal: string): Promise<AndenPaqueteOffline> {
     return this.service.offlinePack(sucursal);
+  }
+
+  /**
+   * `[WMS-REC.22]` Llegadas al andén: qué camiones llegaron, qué traían y si se les capturó la
+   * caducidad. Permiso propio sin repartir (hoy sólo lo pasa el modo god). Va ANTES de
+   * `@Get(':id')`, igual que `en-curso`.
+   */
+  @Get('arrivals')
+  @RequirePermissions(Permission.ALMACEN_LLEGADAS_VER)
+  @ApiOperation({
+    summary:
+      'Llegadas al anden: ordenes de entrada y traspasos de la ventana del Anden (hoy y 7 dias atras), cada uno con su vale, sus renglones y sus lotes. Marca los que Kepler ya recibio y nadie abrio en el Anden.',
+  })
+  arrivals(): Promise<AndenLlegadas> {
+    return this.service.arrivals();
   }
 
   @Get('erp-search')

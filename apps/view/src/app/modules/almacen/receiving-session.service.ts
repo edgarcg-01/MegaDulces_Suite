@@ -5,8 +5,8 @@ import { environment } from '../../../environments/environment';
 // [WMS-REC.15] La forma del menu del Anden y del vale del ERP vive en el contrato
 // compartido (ADR-052): el backend devuelve ESTE tipo. Se re-exporta para que los
 // componentes sigan importando desde este servicio, que es donde ya lo buscan.
-import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline } from '@megadulces/contracts';
-export type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline } from '@megadulces/contracts';
+import type { ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline, AndenLlegadas } from '@megadulces/contracts';
+export type { ErpPendingBranch, ErpPendingMenu, ErpOrderMatch, AndenValeEnCurso, AndenPaqueteOffline, AndenLlegadas } from '@megadulces/contracts';
 
 /**
  * Fase WMS-REC (Pieza 1 — Modo recepción por escaneo / Vale vivo, ADR-044).
@@ -239,6 +239,11 @@ export class ReceivingSessionService {
 
   enCurso(): Observable<AndenValeEnCurso[]> {
     return this.http.get<AndenValeEnCurso[]>(`${this.base}/en-curso`);
+  }
+
+  /** `[WMS-REC.22]` Llegadas al andén: los camiones de la ventana, con su vale, renglones y lotes. */
+  llegadas(): Observable<AndenLlegadas> {
+    return this.http.get<AndenLlegadas>(`${this.base}/arrivals`);
   }
 
   lookupErpOrder(sucursal: string, folio: string): Observable<ErpOrderLookup> {

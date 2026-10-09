@@ -169,3 +169,114 @@ describe('AndenCaducidadComponent · varias caducidades en un renglón', () => {
     expect(c.cantidad()).toBe(100);
   });
 });
+
+/**
+ * `[WMS-REC.22]` **Un producto que no cuenta con fecha de caducidad.**
+ *
+ * El botón es chico a propósito (es la excepción) y lo que guarda tiene que ser exactamente lo que
+ * el servidor ya entiende como "sin caducidad": sin fecha y lote NA. Si arrastrara una fecha a medio
+ * teclear, el renglón entraría con una caducidad que nadie leyó de la etiqueta.
+ */
+describe('AndenCaducidadComponent · producto sin caducidad', () => {
+  let fix: ComponentFixture<AndenCaducidadComponent>;
+  let c: AndenCaducidadComponent;
+
+  const el = (): HTMLElement => fix.nativeElement as HTMLElement;
+  const texto = (): string => el().textContent ?? '';
+  const boton = (t: string): HTMLButtonElement | undefined =>
+    Array.from(el().querySelectorAll<HTMLButtonElement>('button')).find((b) => (b.textContent || '').includes(t));
+
+  async function render(l: AndenLinea = linea()): Promise<void> {
+    fix = TestBed.createComponent(AndenCaducidadComponent);
+    fix.componentRef.setInput('linea', l);
+    c = fix.componentInstance;
+    fix.detectChanges();
+    await fix.whenStable();
+  }
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({ imports: [AndenCaducidadComponent] }).compileComponents();
+  });
+
+  it('ofrece el botón, chico: un enlace de texto, no un botón grande', async () => {
+    await render();
+    const b = boton('Este producto no cuenta con fecha de caducidad');
+    expect(b).toBeTruthy();
+    expect(b!.classList.contains('fx-sincad')).toBe(true);
+    expect(b!.classList.contains('p-button')).toBe(false);
+  });
+
+  it('al tocarlo esconde foto, lote y fecha, y limpia la fecha a medio teclear', async () => {
+    await render();
+    c.setFecha('3004');
+    c.lote.set('A1');
+    fix.detectChanges();
+    boton('Este producto no cuenta con fecha de caducidad')!.click();
+    fix.detectChanges();
+    expect(c.sinCaducidad()).toBe(true);
+    expect(c.fechaRaw()).toBe('');
+    expect(c.lote()).toBe('');
+    expect(el().querySelector('.fx-fecha')).toBeNull();
+    expect(el().querySelector('.fx-foto')).toBeNull();
+    expect(texto()).toContain('entra como lote NA');
+  });
+
+  it('guarda UNA entrada sin fecha, lote NA y sin foto, con todo lo que falta', async () => {
+    await render();
+    c.marcarSinCaducidad();
+    fix.detectChanges();
+    expect(c.puedeGuardar()).toBe(true);
+    // La unidad del vale, como la dice el resto del panel (`unidadDelVale`).
+    expect(c.textoGuardar()).toBe('Guardar 100 paq sin caducidad');
+    let emitido: FechadoConfirmado | null = null;
+    c.confirmar.subscribe((f) => (emitido = f));
+    c.emitir();
+    expect(emitido!.entradas).toEqual([{ cantidad: 100, lote: 'NA', caducidadIso: null, fotoDataUri: null }]);
+  });
+
+  it('sin caducidad no se ofrece «otra fecha»: un producto no llega con y sin caducidad', async () => {
+    await render();
+    c.marcarSinCaducidad();
+    c.setCantidad('40');
+    fix.detectChanges();
+    expect(c.puedeAgregarOtra()).toBe(false);
+    expect(boton('Otra fecha')).toBeUndefined();
+  });
+
+  it('PRUEBA NEGATIVA: sin cantidad no se puede guardar, y el botón lo dice', async () => {
+    await render();
+    c.marcarSinCaducidad();
+    c.setCantidad('');
+    fix.detectChanges();
+    expect(c.puedeGuardar()).toBe(false);
+    expect(c.textoGuardar()).toBe('Falta la cantidad');
+  });
+
+  it('«Sí tiene caducidad» regresa a capturar la fecha', async () => {
+    await render();
+    c.marcarSinCaducidad();
+    fix.detectChanges();
+    boton('Sí tiene caducidad')!.click();
+    fix.detectChanges();
+    expect(c.sinCaducidad()).toBe(false);
+    expect(el().querySelector('.fx-fecha')).not.toBeNull();
+    expect(c.textoGuardar()).toBe('Falta la caducidad');
+  });
+
+  it('con fechas ya en la lista no se ofrece el botón', async () => {
+    await render();
+    c.setFecha('300427');
+    c.setCantidad('40');
+    c.agregarOtra();
+    fix.detectChanges();
+    expect(boton('Este producto no cuenta con fecha de caducidad')).toBeUndefined();
+  });
+
+  it('al pasar a otro renglón el panel vuelve a pedir la fecha', async () => {
+    await render();
+    c.marcarSinCaducidad();
+    fix.componentRef.setInput('linea', linea({ id: 'l2', sku: '20000' }));
+    fix.detectChanges();
+    expect(c.sinCaducidad()).toBe(false);
+  });
+});

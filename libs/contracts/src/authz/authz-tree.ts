@@ -223,6 +223,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // `[UB.0]` Ubicaciones de mercancía (Fase UB, ADR-090). Permisos PROPIOS (ver el
           // comentario en permissions.ts) y repartidos por migración en la misma entrega.
           // La ruta llegó con la pantalla en `[UB.1]` (el Mapa, /almacen/ubicaciones).
+          // `[WMS-REC.22]` Llegadas al andén: superficie de LECTURA. La clave nace sin repartir
+          // (sólo el modo god la ve) y se otorga desde Roles cuando haga falta.
+          { id: 'llegadas', label: 'Llegadas al andén', route: '/almacen/inventory/llegadas', view: [Permission.ALMACEN_LLEGADAS_VER], manage: [] },
           { id: 'ubicaciones', label: 'Ubicaciones', route: '/almacen/ubicaciones', view: [Permission.ALMACEN_UBICACIONES_VER], manage: [Permission.ALMACEN_UBICACIONES_ACOMODAR, Permission.ALMACEN_UBICACIONES_GESTIONAR] },
           // [GP.3c] Consola de surtido: una sola clave, que ve Y maneja (la pantalla existe para decidir).
           // [GP.4] Checado: pantalla de foco del checador. Una clave, que hace (no hay sólo-ver).

@@ -194,6 +194,49 @@ describe('[WMS-REC.20] Andén · sin red', () => {
     expect(localStorage.getItem('anden.borrador.srv-7')).toBeNull();
   });
 
+  it('[WMS-REC.22] un producto sin caducidad viaja al servidor sin fecha y con lote NA', async () => {
+    await store.guardarPaquete(paquete as never);
+    montar();
+    await pinta();
+    boton('Dar de alta caducidades')!.click();
+    await respira();
+    (el().querySelector('button.su-row') as HTMLButtonElement).click();
+    await respira();
+    (el().querySelector('button.va-row') as HTMLButtonElement).click();
+    await respira();
+
+    const cmp = fixture.componentInstance;
+    const paleta = cmp.s.lineas().find((l) => l.expected_sku === '70001')!;
+    await cmp.confirmarFechado({ linea: paleta, entradas: [{ cantidad: 24, lote: 'NA', caducidadIso: null, fotoDataUri: null }] });
+    await respira();
+    cmp.volverALista();
+    await pinta();
+
+    conRed = true;
+    const red = TestBed.inject(AndenOfflineService);
+    red.online.set(true);
+    const envio = red.flush();
+    await respira();
+    http.expectOne((r) => r.method === 'POST' && r.url === BASE).flush(delServidor());
+    await respira();
+    const fechar = http.expectOne((r) => r.method === 'POST' && r.url === `${API}/commercial/receiving/evaluate`);
+    expect(fechar.request.body).toMatchObject({ receiving_line_id: 'srv-a', quantity: 24, confirmed_lot: 'NA' });
+    // Sin la llave: el servidor la guarda vacía. Un null o una cadena vacía también caerían ahí, pero
+    // lo que se manda es nada, que es lo que el contrato declara (`confirmed_expiry?: string`).
+    expect('confirmed_expiry' in fechar.request.body && fechar.request.body.confirmed_expiry !== undefined).toBe(false);
+    fechar.flush({ id: 'c1', verdict: 'green', status: 'accepted' });
+    await respira();
+    http.expectOne((r) => r.method === 'POST' && r.url === `${BASE}/srv-1/lines/srv-a`).flush(delServidor());
+    await envio;
+    await respira();
+    // La pantalla recarga el vale y lo que cuelga de él; se contesta todo hasta que no quede nada.
+    for (let i = 0; i < 3; i++) {
+      for (const r of http.match(() => true)) r.flush(r.request.url.includes('warehouse-freeze') ? { frozen: false } : r.request.url.endsWith('/srv-1') ? delServidor() : []);
+      await respira();
+    }
+    expect(red.pendientes()).toBe(0);
+  });
+
   it('sin red y sin nada bajado, el menú lo dice en vez de quedarse vacío', async () => {
     montar();
     await pinta();

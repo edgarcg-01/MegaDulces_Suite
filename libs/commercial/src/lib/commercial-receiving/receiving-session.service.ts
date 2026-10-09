@@ -15,12 +15,23 @@ import type {
   AndenValeEnCurso,
   AndenLineaOffline,
   AndenPaqueteOffline,
+  AndenLlegada,
+  AndenLlegadas,
 } from '@megadulces/contracts';
 import { DIAS_PENDIENTES_ANDEN } from '@megadulces/contracts';
 import { CommercialInventoryService } from '../commercial-inventory/commercial-inventory.service';
 import { classifyReceivingOrigin } from './receiving-origin';
 import { ReceivingClaimsService } from './receiving-claims.service';
 import { UX_SESIONES_CLIENT_UUID, conLlave, esChoqueDe } from './receiving-idempotency';
+import {
+  type LoteCrudo,
+  type RenglonValeCrudo,
+  aLote,
+  armarLlegada,
+  renglonesDeKepler,
+  renglonesDeVale,
+  unidadesPorSku,
+} from './receiving-arrivals';
 import {
   TRANSFER_REF_PREFIX,
   TRANSFER_WINDOW_DAYS,
@@ -98,6 +109,35 @@ interface FilaValeEnCurso {
   abierto_por: string | null;
   renglones: number | string;
   por_fechar: number | string;
+}
+
+/** `[WMS-REC.22]` Una orden de entrada de la ventana, para Llegadas al andén. */
+interface FilaCompraLlegada {
+  sucursal: string;
+  folio: string;
+  receipt_date: string;
+  proveedor_nombre: string | null;
+  monto: string | number | null;
+  warehouse_id: string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+}
+
+/** `[WMS-REC.22]` Un vale de la ventana, para Llegadas al andén. */
+interface FilaValeLlegada {
+  id: string;
+  folio: string;
+  source_kind: string;
+  source_ref: string | null;
+  status: 'open' | 'validating' | 'closed';
+  created_at: Date | string;
+  closed_at: Date | string | null;
+  warehouse_id: string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  /** Día de México en que se abrió (`YYYY-MM-DD`). */
+  dia: string;
+  abierto_por: string | null;
 }
 
 interface FilaEmbarque {
@@ -576,6 +616,195 @@ export class ReceivingSessionService {
         generado_en: new Date().toISOString(),
         vales: vales.map((v, i) => ({ ...v, lineas: lineas.get(claveDoc(docs[i])) ?? [] })),
       };
+    });
+  }
+
+  /**
+   * `[WMS-REC.22]` **Llegadas al andén**: qué camiones llegaron, qué traían y si se les capturó la
+   * caducidad. Los documentos de Kepler de la ventana del Andén (órdenes de entrada y traspasos),
+   * cada uno con su vale si lo tiene, más los vales manuales abiertos en la ventana.
+   *
+   * Lo que este monitor agrega sobre «Por fechar» es el camión **sin abrir**: Kepler ya le dio
+   * entrada y nadie abrió el vale, así que su mercancía está en el inventario sin caducidad y no
+   * aparece en ninguna bandeja.
+   *
+   * Cuesta seis consultas sin importar cuántos camiones haya: órdenes, embarques, vales, renglones,
+   * lotes y lo que espera cada documento. Lo que espera cada documento lo arma `lineasEsperadas`, la
+   * misma función de abrir el vale y del paquete sin red. La vista de órdenes de entrada es la más
+   * cara (medio segundo, medido en el menú). No medido en prod.
+   */
+  async arrivals(): Promise<AndenLlegadas> {
+    const tenantId = this.tenantCtx.get()?.tenantId || null;
+    const alcance = await this.scope.current();
+    const dim = alcance.dims.warehouse;
+    const visible = (code: string | null) =>
+      dim.mode === 'all' || (!!code && this.scope.canRead(alcance, 'warehouse', code));
+
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT to_char(d, 'YYYY-MM-DD') AS hoy, to_char(d - ?::int, 'YYYY-MM-DD') AS desde
+           FROM (SELECT (now() AT TIME ZONE 'America/Mexico_City')::date AS d) x`,
+        [DIAS_PENDIENTES_ANDEN],
+      );
+      const hoy = String(rows[0].hoy);
+      const desde = String(rows[0].desde);
+      const generado_en = new Date().toISOString();
+      if (dim.mode === 'none') return { hoy, desde, generado_en, llegadas: [] };
+
+      // 1) Las órdenes de entrada de la ventana, con el almacén al que entran (misma cascada que
+      //    el menú: el mapa de la sucursal, si no el que trae el espejo).
+      const compras = (await trx('analytics.erp_goods_receipts as r')
+        .leftJoin('commercial.erp_sucursal_warehouse as m', function (this: Knex.JoinClause) {
+          this.on('m.tenant_id', '=', 'r.tenant_id').andOn('m.sucursal', '=', 'r.sucursal');
+        })
+        .leftJoin('commercial.warehouses as w', function (this: Knex.JoinClause) {
+          this.on('w.tenant_id', '=', 'r.tenant_id').andOn('w.id', '=', trx.raw('COALESCE(m.warehouse_id, r.warehouse_id)'));
+        })
+        .where({ 'r.tenant_id': tenantId })
+        .whereNull('r.dup_of_folio')
+        .whereRaw(VENTANA_MX)
+        .select(
+          'r.sucursal', 'r.folio', 'r.proveedor_nombre', 'r.monto',
+          // Como TEXTO: un `date` de pg llega como medianoche UTC = el día anterior (LC.16).
+          trx.raw(`to_char(r.receipt_date, 'YYYY-MM-DD') AS receipt_date`),
+          'w.id as warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
+        )) as FilaCompraLlegada[];
+
+      // 2) Los traspasos de la ventana: salidos y por salir, recibidos o no.
+      const traspasos = await this.embarques(trx, { ventana: true });
+
+      const docCompra = (c: FilaCompraLlegada): DocErp => ({ tipo: 'compra', sucursal: c.sucursal, folio: c.folio });
+      const docTraspaso = (e: FilaEmbarque): DocErp => ({ tipo: 'traspaso', sucursal: e.origen, serie: Number(e.serie), folio: e.folio });
+      const docs = [...compras.map(docCompra), ...traspasos.map(docTraspaso)];
+      const refs = docs.map(claveDoc);
+
+      // 3) Los vales de esos documentos, y los manuales abiertos en la ventana.
+      const vales = (await trx('commercial.receiving_sessions as s')
+        .leftJoin('identity.users as u', 'u.id', 's.created_by')
+        .leftJoin('commercial.warehouses as w', function (this: Knex.JoinClause) {
+          this.on('w.tenant_id', '=', 's.tenant_id').andOn('w.id', '=', 's.warehouse_id');
+        })
+        .where('s.tenant_id', tenantId)
+        .whereNot('s.status', 'cancelled')
+        .where((q) => {
+          if (refs.length) q.whereIn('s.source_ref', refs);
+          q.orWhere((m) =>
+            m.where('s.source_kind', 'manual')
+              .whereRaw(`(s.created_at AT TIME ZONE 'America/Mexico_City')::date >= ?::date`, [desde]),
+          );
+        })
+        .orderBy('s.created_at', 'desc')
+        .select(
+          's.id', 's.folio', 's.source_kind', 's.source_ref', 's.status', 's.created_at', 's.closed_at',
+          's.warehouse_id', 'w.code as warehouse_code', 'w.name as warehouse_name',
+          trx.raw(`to_char((s.created_at AT TIME ZONE 'America/Mexico_City')::date, 'YYYY-MM-DD') AS dia`),
+          trx.raw(`COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS abierto_por`),
+        )) as FilaValeLlegada[];
+
+      // Un documento tiene a lo más un vale vivo; si hubiera dos, manda el más reciente.
+      const valeDe = new Map<string, FilaValeLlegada>();
+      for (const v of vales)
+        if (v.source_kind !== 'manual' && v.source_ref && !valeDe.has(v.source_ref)) valeDe.set(v.source_ref, v);
+
+      // 4) Los renglones y los lotes de esos vales, en dos consultas.
+      const ids = vales.map((v) => v.id);
+      const renglones = ids.length
+        ? ((await trx('commercial.receiving_lines as l')
+            .leftJoin('public.products as p', 'p.id', 'l.product_id')
+            .whereIn('l.session_id', ids)
+            .orderBy('l.created_at')
+            .orderBy('l.id')
+            .select(
+              'l.id', 'l.session_id', 'l.expected_qty',
+              trx.raw('COALESCE(p.sku, l.expected_sku) AS sku'),
+              trx.raw('COALESCE(p.nombre, l.expected_name) AS nombre'),
+              // La misma regla que «Incompletos» en el menú: lo que el vale todavía espera.
+              trx.raw(`(l.discrepancy_kind = 'pending' AND l.expected_qty > 0) AS pendiente`),
+            )) as Array<RenglonValeCrudo & { session_id: string }>)
+        : [];
+      const lotes = ids.length
+        ? ((await trx('commercial.receiving_lot_captures as c')
+            .join('commercial.receiving_lines as l', 'l.id', 'c.receiving_line_id')
+            .whereIn('l.session_id', ids)
+            .orderBy('c.created_at')
+            .select(
+              'c.receiving_line_id', 'c.quantity', 'c.confirmed_lot', 'c.verdict', 'c.status',
+              trx.raw(`to_char(c.confirmed_expiry, 'YYYY-MM-DD') AS confirmed_expiry`),
+            )) as Array<LoteCrudo & { receiving_line_id: string }>)
+        : [];
+      const lotesDe = new Map<string, ReturnType<typeof aLote>[]>();
+      for (const c of lotes) {
+        const lista = lotesDe.get(c.receiving_line_id) ?? [];
+        lista.push(aLote(c));
+        lotesDe.set(c.receiving_line_id, lista);
+      }
+      const renglonesDe = new Map<string, RenglonValeCrudo[]>();
+      for (const r of renglones) {
+        const lista = renglonesDe.get(r.session_id) ?? [];
+        lista.push(r);
+        renglonesDe.set(r.session_id, lista);
+      }
+
+      // 5) Lo que manda Kepler en cada documento: los renglones de los que no tienen vale y la
+      //    unidad de los que sí.
+      const esperadas = docs.length ? await this.lineasEsperadas(trx, docs) : new Map<string, AndenLineaOffline[]>();
+
+      const valeDto = (v: FilaValeLlegada) => ({
+        id: v.id,
+        folio: v.folio,
+        status: v.status,
+        abierto_en: new Date(v.created_at).toISOString(),
+        abierto_por: v.abierto_por,
+        cerrado_en: v.closed_at ? new Date(v.closed_at).toISOString() : null,
+      });
+      const renglonesDelDoc = (clave: string, v: FilaValeLlegada | undefined) => {
+        const kepler = esperadas.get(clave) ?? [];
+        return v ? renglonesDeVale(renglonesDe.get(v.id) ?? [], lotesDe, unidadesPorSku(kepler)) : renglonesDeKepler(kepler);
+      };
+
+      const llegadas: AndenLlegada[] = [];
+      for (const c of compras) {
+        if (!visible(c.warehouse_code)) continue;
+        const clave = claveDoc(docCompra(c));
+        const v = valeDe.get(clave);
+        llegadas.push(armarLlegada({
+          clave, tipo: 'compra', dia: c.receipt_date,
+          warehouse_id: c.warehouse_id, warehouse_code: c.warehouse_code, warehouse_name: c.warehouse_name,
+          documento: clave, proveedor: c.proveedor_nombre,
+          origen_code: null, origen_nombre: null, salio: null, recibido_kepler: null,
+          importe: c.monto == null ? null : Number(c.monto),
+          vale: v ? valeDto(v) : null,
+          renglones: renglonesDelDoc(clave, v),
+        }));
+      }
+      for (const e of traspasos) {
+        if (!visible(e.warehouse_code)) continue;
+        const clave = claveDoc(docTraspaso(e));
+        const v = valeDe.get(clave);
+        llegadas.push(armarLlegada({
+          clave, tipo: 'traspaso',
+          // Cuenta el día que llegó: el de Kepler si ya lo recibió, el del vale si se abrió antes.
+          dia: e.recibido_kepler ?? v?.dia ?? e.fecha,
+          warehouse_id: e.warehouse_id, warehouse_code: e.warehouse_code, warehouse_name: e.warehouse_name,
+          documento: `Embarque ${e.origen}-${e.serie}-${e.folio}`, proveedor: null,
+          origen_code: e.origen, origen_nombre: e.origen_nombre, salio: e.fecha, recibido_kepler: e.recibido_kepler,
+          importe: e.monto == null ? null : Number(e.monto),
+          vale: v ? valeDto(v) : null,
+          renglones: renglonesDelDoc(clave, v),
+        }));
+      }
+      for (const v of vales) {
+        if (v.source_kind !== 'manual' || !visible(v.warehouse_code)) continue;
+        llegadas.push(armarLlegada({
+          clave: `VE:${v.id}`, tipo: 'manual', dia: v.dia,
+          warehouse_id: v.warehouse_id, warehouse_code: v.warehouse_code, warehouse_name: v.warehouse_name,
+          documento: null, proveedor: null, origen_code: null, origen_nombre: null, salio: null, recibido_kepler: null,
+          importe: null,
+          vale: valeDto(v),
+          renglones: renglonesDeVale(renglonesDe.get(v.id) ?? [], lotesDe, new Map()),
+        }));
+      }
+      return { hoy, desde, generado_en, llegadas };
     });
   }
 

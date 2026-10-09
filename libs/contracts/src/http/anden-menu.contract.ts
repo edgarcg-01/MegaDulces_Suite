@@ -187,3 +187,109 @@ export interface AndenPaqueteOffline {
   generado_en: string;
   vales: AndenValeOffline[];
 }
+
+/**
+ * `[WMS-REC.22]` **Llegadas al andén**: qué camiones llegaron a cada sucursal, qué traían y si se
+ * les capturó la caducidad. Lo ve quien tenga `ALMACEN_LLEGADAS_VER`, que nace sin repartir: hoy,
+ * sólo el modo god (superadmin y admin).
+ *
+ * Estado del camión:
+ *  - `sin_abrir`: Kepler ya le dio entrada (la orden de entrada, o el traspaso recibido) y nadie
+ *    abrió el vale en el Andén. La mercancía está en el inventario sin lote ni caducidad.
+ *  - `a_medias`: hay vale y le faltan renglones por fechar.
+ *  - `completa`: hay vale y ningún renglón espera fecha.
+ *  - `en_camino`: traspaso que salió y Kepler todavía no recibe, sin vale. No cuenta como llegada.
+ */
+export type AndenLlegadaEstado = 'sin_abrir' | 'a_medias' | 'completa' | 'en_camino';
+
+/**
+ * Estado del renglón:
+ *  - `fechado`: tiene al menos un lote con caducidad.
+ *  - `sin_caducidad`: se declaró que el producto no tiene caducidad (sus lotes van sin fecha).
+ *  - `falta`: el vale lo espera y todavía no se termina de fechar.
+ *  - `no_llego`: se cerró sin lote vivo (no llegó, o se rechazó lo que llegó).
+ *  - `sin_vale`: el camión no tiene vale; es lo que manda Kepler.
+ */
+export type AndenLlegadaRenglonEstado = 'fechado' | 'sin_caducidad' | 'falta' | 'no_llego' | 'sin_vale';
+
+/** Un lote capturado en el Andén para un renglón. */
+export interface AndenLlegadaLote {
+  lote: string;
+  /** `YYYY-MM-DD`; `null` = se declaró sin caducidad. */
+  caducidad: string | null;
+  cantidad: number;
+  semaforo: 'green' | 'yellow' | 'red';
+  /** `pending_authorization` = rojo que espera autorización. */
+  estatus: 'accepted' | 'pending_authorization' | 'authorized' | 'rejected';
+}
+
+export interface AndenLlegadaRenglon {
+  sku: string | null;
+  nombre: string | null;
+  /** Lo que manda Kepler; en un vale manual, lo que se declaró. */
+  cantidad: number;
+  /** Unidad tal cual la manda Kepler (`PAQ`, `PZA`…); `ambigua` si el SKU trae dos; `null` si no hay de dónde. */
+  unidad: string | null;
+  estado: AndenLlegadaRenglonEstado;
+  lotes: AndenLlegadaLote[];
+}
+
+export interface AndenLlegadaVale {
+  id: string;
+  folio: string;
+  status: 'open' | 'validating' | 'closed';
+  /** ISO. Es la única hora de llegada que se conoce: Kepler sólo guarda el día. */
+  abierto_en: string;
+  abierto_por: string | null;
+  cerrado_en: string | null;
+}
+
+export interface AndenLlegadaResumen {
+  renglones: number;
+  /** Renglones que ya no esperan fecha: fechados, sin caducidad o que no llegaron. */
+  listos: number;
+  faltan: number;
+  sin_caducidad: number;
+  /** Lotes con caducidad, por semáforo. Los rechazados no cuentan. */
+  verdes: number;
+  amarillos: number;
+  rojos: number;
+  /** Rojos que esperan autorización. */
+  por_autorizar: number;
+}
+
+export interface AndenLlegada {
+  /** La llave del documento (`01/0004127`, `UD41/06/2/0001045`) o la del vale manual (`VE:<id>`). */
+  clave: string;
+  tipo: 'compra' | 'traspaso' | 'manual';
+  estado: AndenLlegadaEstado;
+  /** El día que cuenta para Hoy y Ayer (`YYYY-MM-DD`, México). */
+  dia: string;
+  warehouse_id: string | null;
+  warehouse_code: string | null;
+  warehouse_name: string | null;
+  /** Como lo reconoce el almacén: `01/0004127`, `Embarque 06-2-0001045`; `null` en un vale manual. */
+  documento: string | null;
+  proveedor: string | null;
+  /** Traspaso: la sucursal que embarcó. */
+  origen_code: string | null;
+  origen_nombre: string | null;
+  /** Traspaso: el día que salió y el día que Kepler lo recibió (`null` = todavía no). */
+  salio: string | null;
+  recibido_kepler: string | null;
+  /** Importe del documento de Kepler; `null` en un vale manual. */
+  importe: number | null;
+  vale: AndenLlegadaVale | null;
+  resumen: AndenLlegadaResumen;
+  renglones: AndenLlegadaRenglon[];
+}
+
+export interface AndenLlegadas {
+  /** Hoy en México (`YYYY-MM-DD`). */
+  hoy: string;
+  /** Primer día de la ventana: hoy menos `DIAS_PENDIENTES_ANDEN`. */
+  desde: string;
+  /** Cuándo respondió el servidor, en ISO. Kepler llega por el CDC, casi en vivo. */
+  generado_en: string;
+  llegadas: AndenLlegada[];
+}
