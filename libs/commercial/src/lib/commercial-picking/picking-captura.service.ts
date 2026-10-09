@@ -197,125 +197,35 @@ export class PickingCapturaService {
                              WHERE wol.wave_id = pw.id AND wol.order_id = wo.order_id)`,
         [DIAS_CAPTURA, lista, lista],
       );
-
-      // Lo que se surtió, por pedido y producto. Lo pedido viene CONGELADO al arrancar (GP.3) y lo
-      // surtido es lo repartido a ESE pedido al cerrar la ola (una tanda reparte entre varios).
-      // Un pedido de Kepler entra a una sola ola (`validarKepler`), así que no se mezclan olas.
-      const { rows } = await trx.raw(
-        `SELECT pw.code AS wave_code, btrim(w.code) AS sucursal, pw.finished_at,
-                wo.order_id, wo.kepler_sucursal, wo.kepler_serie, wo.kepler_folio, wo.destino_nombre,
-                pw.origen, wol.order_code,
-                p.sku, p.nombre AS producto,
-                wol.qty_requested, wol.qty_unit, wol.qty_presentacion, wol.unidad_presentacion,
-                wa.qty_allocated,
-                COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS surtidor
-           FROM commercial.picking_waves pw
-           JOIN commercial.warehouses w ON w.id = pw.warehouse_id
-           JOIN commercial.wave_orders wo ON wo.wave_id = pw.id AND wo.source = 'kepler'
-           JOIN commercial.wave_order_lines wol ON wol.wave_id = pw.id AND wol.order_id = wo.order_id
-           LEFT JOIN catalog.products p ON p.id = wol.product_id
-           LEFT JOIN commercial.wave_allocations wa
-                  ON wa.wave_id = pw.id AND wa.order_id = wo.order_id AND wa.product_id = wol.product_id
-           LEFT JOIN commercial.wave_lines wl ON wl.wave_id = pw.id AND wl.product_id = wol.product_id
-           LEFT JOIN identity.users u ON u.id = wl.picked_by
-          WHERE pw.status = 'surtida' AND pw.finished_at >= now() - (? || ' days')::interval
-            AND (?::text[] IS NULL OR btrim(w.code) = ANY(?::text[]))
-          ORDER BY pw.finished_at, wo.kepler_folio, p.sku`,
-        [DIAS_CAPTURA, lista, lista],
-      );
-      const filas = rows as FilaSuite[];
+      const filas = await this.filasSuite(trx, { lista });
       const sinCong = Number(sinCongelado[0]?.n) || 0;
       if (!filas.length) return { ...this.vacio(keplerAl, lista ?? [], false), sin_congelado: sinCong };
 
-      const pedidos = new Map<string, FilaSuite[]>();
-      for (const f of filas) {
-        const arr = pedidos.get(f.order_id) ?? [];
-        arr.push(f);
-        pedidos.set(f.order_id, arr);
-      }
-      const llaveDe = (f: FilaSuite): string => `${f.kepler_sucursal}/${Number(f.kepler_serie)}/${f.kepler_folio}`;
-      const llaves = JSON.stringify(
-        [...pedidos.values()].map((fs) => ({ sucursal: fs[0].kepler_sucursal, serie: Number(fs[0].kepler_serie), folio: fs[0].kepler_folio })),
-      );
-
-      // Cabecera VIGENTE y renglones de Kepler. Escritas para usar `ix_kdm1_venta_doc` y
-      // `ix_kdm2_venta_doc` (btrim(sucursal), c4::int, c5::int, btrim(c6)). Medido en prod con los
-      // 2,510 pedidos U-D-40 de 30 días (el peor caso): 38 ms y 522 ms.
-      const { rows: cabs } = await trx.raw(
-        `SELECT k.sucursal, k.serie, k.folio, hh.estatus, hh.origen
-           FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, serie int, folio text)
-           LEFT JOIN LATERAL (
-             SELECT upper(NULLIF(btrim(h.c11::text), '')) AS estatus,
-                    upper(NULLIF(btrim(h.c27::text), '')) AS origen
-               FROM kepler_ods.kdm1 h
-              WHERE h.c2 = 'U' AND h.c3 = 'D' AND btrim(h.sucursal) = k.sucursal AND (h.c4)::integer = 40
-                AND (h.c5)::integer = k.serie AND btrim(h.c6) = k.folio AND btrim(h.c1) = btrim(h.sucursal)
-              ORDER BY h.c9 DESC
-              LIMIT 1
-           ) hh ON true`,
-        [llaves],
-      );
-      const cabDe = new Map<string, { estatus: string | null; origen: string | null }>();
-      for (const c of cabs as Array<{ sucursal: string; serie: number; folio: string; estatus: string | null; origen: string | null }>) {
-        cabDe.set(`${c.sucursal}/${Number(c.serie)}/${c.folio}`, { estatus: c.estatus, origen: c.origen });
-      }
-
-      const { rows: lk } = await trx.raw(
-        `SELECT k.sucursal, k.serie, k.folio, btrim(l.c8::text) AS sku, count(*)::int AS n,
-                sum(coalesce(NULLIF(btrim(l.c9::text), '')::numeric, 0)) AS base,
-                sum(coalesce(NULLIF(btrim(l.c56::text), '')::numeric, 0)) AS pres,
-                array_remove(array_agg(DISTINCT upper(NULLIF(btrim(l.c55::text), ''))), NULL) AS unidades,
-                min(NULLIF(btrim(l.c10::text), '')) AS descripcion
-           FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, serie int, folio text)
-           JOIN kepler_ods.kdm2 l
-             ON l.c2 = 'U' AND l.c3 = 'D' AND btrim(l.sucursal) = k.sucursal AND (l.c4)::integer = 40
-            AND (l.c5)::integer = k.serie AND btrim(l.c6) = k.folio AND btrim(l.c1) = btrim(l.sucursal)
-          -- Lo agregado EN el checado o el embarque (c28 = etapa de alta) es trabajo de esas etapas.
-          WHERE coalesce(upper(NULLIF(btrim(l.c28::text), '')), '') NOT IN ('CHECADO', 'EMBARCADO')
-          GROUP BY 1, 2, 3, 4`,
-        [llaves],
-      );
-      const keplerDe = new Map<string, Map<string, KeplerProducto>>();
-      for (const r of lk as Array<{ sucursal: string; serie: number; folio: string; sku: string; n: number; base: string; pres: string; unidades: string[] | null; descripcion: string | null }>) {
-        const key = `${r.sucursal}/${Number(r.serie)}/${r.folio}`;
-        const m = keplerDe.get(key) ?? new Map<string, KeplerProducto>();
-        m.set(r.sku, { n: Number(r.n), base: Number(r.base) || 0, pres: Number(r.pres) || 0, unidades: r.unidades ?? [], descripcion: r.descripcion });
-        keplerDe.set(key, m);
-      }
-
       const salida: CapturaKeplerPedido[] = [];
       let capturadosAntes = 0;
-      for (const [orderId, fs] of pedidos) {
-        const f0 = fs[0];
-        const key = llaveDe(f0);
-        const cab = cabDe.get(key);
-        const estatus = cab?.estatus ?? null;
-        // Sin cabecera = Kepler no lo trae: no hay renglones que comparar (no se lee como "todo en cero").
-        const kepler = estatus ? (keplerDe.get(key) ?? new Map<string, KeplerProducto>()) : null;
-        const { estado, pendientes } = evaluarPedido(fs, kepler, estatus);
-
+      for (const [orderId, e] of await this.evaluarFilas(trx, filas)) {
+        const f0 = e.filas[0];
         // Los ya capturados de días anteriores no se listan: sólo se cuentan. "Hoy" es el día en
         // que TERMINÓ EL SURTIDO: Kepler no guarda cuándo se capturó, así que no se promete eso.
-        if (estado === 'capturado' && this.diaMx(f0.finished_at) !== hoy) {
+        if (e.estado === 'capturado' && this.diaMx(f0.finished_at) !== hoy) {
           capturadosAntes += 1;
           continue;
         }
-
         salida.push({
           order_id: orderId,
           sucursal: f0.sucursal,
           code: f0.order_code ?? `UD40${String(f0.kepler_serie).padStart(2, '0')}-${f0.kepler_folio}`,
           serie: Number(f0.kepler_serie),
           folio: f0.kepler_folio,
-          origen: cab?.origen ?? f0.origen,
+          origen: e.origen ?? f0.origen,
           destino: f0.destino_nombre,
           wave_code: f0.wave_code,
           surtido_at: new Date(f0.finished_at).toISOString(),
-          surtidores: [...new Set(fs.map((f) => f.surtidor).filter((s): s is string => !!s))],
-          estado,
-          estatus_kepler: estatus,
-          renglones: fs.length,
-          pendientes,
+          surtidores: [...new Set(e.filas.map((x) => x.surtidor).filter((x): x is string => !!x))],
+          estado: e.estado,
+          estatus_kepler: e.estatus,
+          renglones: e.filas.length,
+          pendientes: e.pendientes,
         });
       }
 
@@ -323,13 +233,142 @@ export class PickingCapturaService {
         generado_en: new Date().toISOString(),
         kepler_al: keplerAl,
         dias: DIAS_CAPTURA,
-        sucursales: lista ?? [...new Set(filas.map((f) => f.sucursal))].sort(),
+        sucursales: lista ?? [...new Set(filas.map((x) => x.sucursal))].sort(),
         sin_alcance: false,
         pedidos: salida,
         capturados_antes: capturadosAntes,
         sin_congelado: sinCong,
       };
     });
+  }
+
+  /**
+   * `[GP.4]` Dónde está cada pedido frente a Kepler, para pedidos dados. Lo usa el checado: sólo se
+   * checa lo que Kepler ya trae en SURTIDO **y cuadra** con lo surtido (Facturación ya lo cerró).
+   * Corre dentro de la transacción de quien llama.
+   */
+  async estadosDe(
+    trx: Knex.Transaction,
+    orderIds: string[],
+  ): Promise<Map<string, { estado: CapturaKeplerEstado; estatus: string | null }>> {
+    const out = new Map<string, { estado: CapturaKeplerEstado; estatus: string | null }>();
+    if (!orderIds.length) return out;
+    const filas = await this.filasSuite(trx, { orderIds });
+    for (const [id, e] of await this.evaluarFilas(trx, filas)) out.set(id, { estado: e.estado, estatus: e.estatus });
+    return out;
+  }
+
+  /**
+   * Lo que se surtió, por pedido y producto. Lo pedido viene CONGELADO al arrancar (GP.3) y lo
+   * surtido es lo repartido a ESE pedido al cerrar la ola (una tanda reparte entre varios). Un
+   * pedido de Kepler entra a una sola ola (`validarKepler`), así que no se mezclan olas.
+   */
+  private async filasSuite(
+    trx: Knex.Transaction,
+    filtro: { lista: string[] | null } | { orderIds: string[] },
+  ): Promise<FilaSuite[]> {
+    const porPedido = 'orderIds' in filtro;
+    const { rows } = await trx.raw(
+      `SELECT pw.code AS wave_code, btrim(w.code) AS sucursal, pw.finished_at,
+              wo.order_id, wo.kepler_sucursal, wo.kepler_serie, wo.kepler_folio, wo.destino_nombre,
+              pw.origen, wol.order_code,
+              p.sku, p.nombre AS producto,
+              wol.qty_requested, wol.qty_unit, wol.qty_presentacion, wol.unidad_presentacion,
+              wa.qty_allocated,
+              COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS surtidor
+         FROM commercial.picking_waves pw
+         JOIN commercial.warehouses w ON w.id = pw.warehouse_id
+         JOIN commercial.wave_orders wo ON wo.wave_id = pw.id AND wo.source = 'kepler'
+         JOIN commercial.wave_order_lines wol ON wol.wave_id = pw.id AND wol.order_id = wo.order_id
+         LEFT JOIN catalog.products p ON p.id = wol.product_id
+         LEFT JOIN commercial.wave_allocations wa
+                ON wa.wave_id = pw.id AND wa.order_id = wo.order_id AND wa.product_id = wol.product_id
+         LEFT JOIN commercial.wave_lines wl ON wl.wave_id = pw.id AND wl.product_id = wol.product_id
+         LEFT JOIN identity.users u ON u.id = wl.picked_by
+        WHERE pw.status = 'surtida'
+          AND (CASE WHEN ?::boolean THEN wo.order_id = ANY(?::uuid[])
+                    ELSE pw.finished_at >= now() - (? || ' days')::interval
+                         AND (?::text[] IS NULL OR btrim(w.code) = ANY(?::text[])) END)
+        ORDER BY pw.finished_at, wo.kepler_folio, p.sku`,
+      porPedido
+        ? [true, filtro.orderIds, DIAS_CAPTURA, null, null]
+        : [false, [], DIAS_CAPTURA, filtro.lista, filtro.lista],
+    );
+    return rows as FilaSuite[];
+  }
+
+  /** Lee Kepler (cabecera vigente y renglones) para los pedidos de `filas` y evalúa cada uno. */
+  private async evaluarFilas(
+    trx: Knex.Transaction,
+    filas: FilaSuite[],
+  ): Promise<Map<string, { filas: FilaSuite[]; estado: CapturaKeplerEstado; estatus: string | null; origen: string | null; pendientes: CapturaKeplerRenglon[] }>> {
+    const pedidos = new Map<string, FilaSuite[]>();
+    for (const x of filas) {
+      const arr = pedidos.get(x.order_id) ?? [];
+      arr.push(x);
+      pedidos.set(x.order_id, arr);
+    }
+    const llaveDe = (x: FilaSuite): string => `${x.kepler_sucursal}/${Number(x.kepler_serie)}/${x.kepler_folio}`;
+    const llaves = JSON.stringify(
+      [...pedidos.values()].map((fs) => ({ sucursal: fs[0].kepler_sucursal, serie: Number(fs[0].kepler_serie), folio: fs[0].kepler_folio })),
+    );
+
+    // Cabecera VIGENTE y renglones de Kepler. Escritas para usar `ix_kdm1_venta_doc` y
+    // `ix_kdm2_venta_doc` (btrim(sucursal), c4::int, c5::int, btrim(c6)). Medido en prod con los
+    // 2,510 pedidos U-D-40 de 30 días (el peor caso): 42 ms y 404 ms.
+    const { rows: cabs } = await trx.raw(
+      `SELECT k.sucursal, k.serie, k.folio, hh.estatus, hh.origen
+         FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, serie int, folio text)
+         LEFT JOIN LATERAL (
+           SELECT upper(NULLIF(btrim(h.c11::text), '')) AS estatus,
+                  upper(NULLIF(btrim(h.c27::text), '')) AS origen
+             FROM kepler_ods.kdm1 h
+            WHERE h.c2 = 'U' AND h.c3 = 'D' AND btrim(h.sucursal) = k.sucursal AND (h.c4)::integer = 40
+              AND (h.c5)::integer = k.serie AND btrim(h.c6) = k.folio AND btrim(h.c1) = btrim(h.sucursal)
+            ORDER BY h.c9 DESC
+            LIMIT 1
+         ) hh ON true`,
+      [llaves],
+    );
+    const cabDe = new Map<string, { estatus: string | null; origen: string | null }>();
+    for (const c of cabs as Array<{ sucursal: string; serie: number; folio: string; estatus: string | null; origen: string | null }>) {
+      cabDe.set(`${c.sucursal}/${Number(c.serie)}/${c.folio}`, { estatus: c.estatus, origen: c.origen });
+    }
+
+    const { rows: lk } = await trx.raw(
+      `SELECT k.sucursal, k.serie, k.folio, btrim(l.c8::text) AS sku, count(*)::int AS n,
+              sum(coalesce(NULLIF(btrim(l.c9::text), '')::numeric, 0)) AS base,
+              sum(coalesce(NULLIF(btrim(l.c56::text), '')::numeric, 0)) AS pres,
+              array_remove(array_agg(DISTINCT upper(NULLIF(btrim(l.c55::text), ''))), NULL) AS unidades,
+              min(NULLIF(btrim(l.c10::text), '')) AS descripcion
+         FROM jsonb_to_recordset(?::jsonb) AS k(sucursal text, serie int, folio text)
+         JOIN kepler_ods.kdm2 l
+           ON l.c2 = 'U' AND l.c3 = 'D' AND btrim(l.sucursal) = k.sucursal AND (l.c4)::integer = 40
+          AND (l.c5)::integer = k.serie AND btrim(l.c6) = k.folio AND btrim(l.c1) = btrim(l.sucursal)
+        -- Lo agregado EN el checado o el embarque (c28 = etapa de alta) es trabajo de esas etapas.
+        WHERE coalesce(upper(NULLIF(btrim(l.c28::text), '')), '') NOT IN ('CHECADO', 'EMBARCADO')
+        GROUP BY 1, 2, 3, 4`,
+      [llaves],
+    );
+    const keplerDe = new Map<string, Map<string, KeplerProducto>>();
+    for (const r of lk as Array<{ sucursal: string; serie: number; folio: string; sku: string; n: number; base: string; pres: string; unidades: string[] | null; descripcion: string | null }>) {
+      const key = `${r.sucursal}/${Number(r.serie)}/${r.folio}`;
+      const m = keplerDe.get(key) ?? new Map<string, KeplerProducto>();
+      m.set(r.sku, { n: Number(r.n), base: Number(r.base) || 0, pres: Number(r.pres) || 0, unidades: r.unidades ?? [], descripcion: r.descripcion });
+      keplerDe.set(key, m);
+    }
+
+    const out = new Map<string, { filas: FilaSuite[]; estado: CapturaKeplerEstado; estatus: string | null; origen: string | null; pendientes: CapturaKeplerRenglon[] }>();
+    for (const [orderId, fs] of pedidos) {
+      const key = llaveDe(fs[0]);
+      const cab = cabDe.get(key);
+      const estatus = cab?.estatus ?? null;
+      // Sin cabecera = Kepler no lo trae: no hay renglones que comparar (no se lee como "todo en cero").
+      const kepler = estatus ? (keplerDe.get(key) ?? new Map<string, KeplerProducto>()) : null;
+      const { estado, pendientes } = evaluarPedido(fs, kepler, estatus);
+      out.set(orderId, { filas: fs, estado, estatus, origen: cab?.origen ?? null, pendientes });
+    }
+    return out;
   }
 
   private vacio(keplerAl: string | null, sucursales: string[], sinAlcance: boolean): CapturaKeplerResponse {

@@ -234,6 +234,11 @@ export const ALMACEN_LANDING: LandingCandidate[] = withTreeCandidates('almacen',
   { perm: Permission.COMMERCIAL_EXPIRY_VER, url: '/almacen/inventory/caducidades' },
   { perm: Permission.COMMERCIAL_MOVEMENTS_VER, url: '/almacen/movimientos' },
   { perm: Permission.COMMERCIAL_PREVENTION_VER, url: '/almacen/prevencion' },
+  // `[GP.4]` El piso de pedidos. Sin estos, `withTreeCandidates` mandaba al `surtidor` y al
+  // `checador` (que también traen `ALMACEN_UBICACIONES_VER`) al Mapa de Ubicaciones, que va antes
+  // en el árbol. Van AL FINAL: quien tiene cualquier clave de arriba no cambia de aterrizaje.
+  { perm: Permission.COMMERCIAL_PICKING_GESTIONAR, url: '/almacen/surtir' },
+  { perm: Permission.ALMACEN_CHECADO_GESTIONAR, url: '/almacen/checar' },
 ]);
 
 /** Landing de `/almacen`. */

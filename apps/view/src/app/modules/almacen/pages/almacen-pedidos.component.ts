@@ -73,6 +73,9 @@ const dmy = (v: string | null | undefined): string => {
           @if (puedeSurtir()) {
             <a pButton routerLink="/almacen/surtir" class="p-button-sm gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-shopping-bag" aria-hidden="true"></span><span class="p-button-label">Surtir</span></a>
           }
+          @if (puedeChecar()) {
+            <a pButton routerLink="/almacen/checar" class="p-button-sm gp-surtir"><span class="p-button-icon p-button-icon-left pi pi-check-square" aria-hidden="true"></span><span class="p-button-label">Checar</span></a>
+          }
           <div class="gp-seg" role="group" aria-label="Periodo">
             @for (p of presets; track p.key) {
               <button type="button" class="gp-seg-b" [class.on]="preset() === p.key" [attr.aria-pressed]="preset() === p.key" (click)="pickPreset(p.key)">{{ p.label }}</button>
@@ -281,6 +284,8 @@ export class AlmacenPedidosComponent implements OnInit {
    * la puerta para quien ve el tablero y también surte.
    */
   readonly puedeSurtir = this.perms.has$(Permission.COMMERCIAL_PICKING_GESTIONAR);
+  /** [GP.4] Misma razón que Surtir: Checar es pantalla de foco y su entrada no pinta botón. */
+  readonly puedeChecar = this.perms.has$(Permission.ALMACEN_CHECADO_GESTIONAR);
   private readonly destroyRef = inject(DestroyRef);
   private readonly q$ = new Subject<string>();
 
