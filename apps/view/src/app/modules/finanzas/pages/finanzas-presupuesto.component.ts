@@ -492,7 +492,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <!-- [PVI.16] Por que el ejercicio no puede declarar un resultado. Va DEBAJO de la
                    tira y no dentro: es una ausencia con motivo, no una cifra. Sale del roll-up por
                    tipo de partida, que hasta hoy no tenia un solo consumidor en pantalla. -->
-              @if (motivoSinResultado(resultado()); as motivo) {
+              @if (motivoSinResultado(ladosEjercicio()); as motivo) {
                 <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <span>{{ motivo }}</span></p>
               }
             }
@@ -2136,9 +2136,14 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // un solo consumidor en pantalla. Es lo único que contesta con el ledger sin mover: qué lados
   // del ejercicio existen y cuáles no. De ahí sale si se puede declarar un resultado.
   variance = signal<FilaPorTipo[] | null>(null);
-  resultado = computed(() => resultadoEjercicio(this.variance()));
+  // ⚠️ `ladosEjercicio`, NO `resultado`: este archivo YA tiene `resultado` (el P&L de
+  // `GET budgets/:id/resultado`, con su `loadResultado()` que le hace `.set()`). Son dos preguntas
+  // distintas —aquélla es plan contra real renglón por renglón; ésta es qué LADOS del ejercicio
+  // existen en el ledger— y el nombre corto le pertenece a la que llegó primero y tiene
+  // consumidores vivos. Un `computed` no tiene `.set()`: la colisión no fallaba en pantalla, dejaba
+  // el archivo sin compilar y con él `main` en rojo, que frena el despliegue de todas las sesiones.
+  ladosEjercicio = computed(() => resultadoEjercicio(this.variance()));
   protected readonly motivoSinResultado = motivoSinResultado;
-  protected readonly tipoLabel = tipoLabel;
 
   completeness = signal<Completeness | null>(null);
   growthProvenance = signal<Record<string, ProcedenciaCanal> | null>(null);
@@ -2643,9 +2648,9 @@ export class FinanzasPresupuestoComponent implements OnInit {
       // del plan de ventas, y el gasto son 14 partidas OPERATIVAS — ninguna es costo de ventas.
       // ⛔ Restar igual publicaría 87.6 % de margen. El `CHECK` de la tabla admite `costo_ventas`
       // y en toda la base no existe ni una partida de ese tipo: el casillero está, vacío.
-      ...(this.resultado().resultado != null
-        ? [{ label: 'Resultado del ejercicio', value: this.resultado().resultado as number, format: 'currency-short' } as MetricStripItem]
-        : [{ label: 'Resultado del ejercicio', value: '—', format: 'text', sub: `falta ${this.resultado().faltan.map(tipoLabel).join(' y ')}`, tone: 'warn' } as MetricStripItem]),
+      ...(this.ladosEjercicio().resultado != null
+        ? [{ label: 'Resultado del ejercicio', value: this.ladosEjercicio().resultado as number, format: 'currency-short' } as MetricStripItem]
+        : [{ label: 'Resultado del ejercicio', value: '—', format: 'text', sub: `falta ${this.ladosEjercicio().faltan.map(tipoLabel).join(' y ')}`, tone: 'warn' } as MetricStripItem]),
       // La meta de ventas es el OTRO lado del presupuesto y ahora se ve como tal, en vez de estar
       // disuelta dentro del saldo de gasto.
       ...(s.ejecucion.ingreso_meta != null
