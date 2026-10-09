@@ -3452,7 +3452,14 @@ Comparable = venta en **≥ 8 de 9** periodos cerrados, en **ambos** años (P10 
 | **preventa** | 4.60 % | +51.21 % | +51.21 % | **+18.62 %** | −32.59 pp | ⛔ desviado 32.6 pp |
 | **ruta** | 8.84 % | +8.26 % | +8.26 % | **+13.98 %** | +5.72 pp | ⚠️ **subestimado** |
 
-⛔ **Meta construida sobre crecimiento defendible: $0 de $604,775,116. El 100 %.**
+⛔ **Ninguno de los cuatro canales pasa.** Los $604,775,116 de meta se reparten entre canales cuyo
+supuesto de crecimiento la medición **refuta en los cuatro casos**: tres por desviación o signo, y el
+cuarto (`ruta`) porque está **subestimado**.
+
+⚠️ **Lo que esto NO dice.** No dice que la meta valga cero ni que la venta sea falsa: la **base**
+(`base_amount` = $491,652,797) sale del real medido y se sostiene. Lo refutado es el **crecimiento**
+que se le aplicó encima — los $113,122,319 de Δ. *Un supuesto refutado no anula el hecho sobre el
+que se apoya.*
 
 ### 24.4 El negocio establecido se CONTRAE
 
