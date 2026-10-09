@@ -100,3 +100,26 @@ export function conceptoConToken(token: string, descripcion: string, ancho = 100
   const disponible = ancho - token.length - 1; // -1 por el espacio que los separa
   return desc ? `${token} ${desc.slice(0, Math.max(0, disponible))}`.trimEnd() : token;
 }
+
+/**
+ * `[CP.8.24]` — **El `Guid` de la póliza, derivado del evento.**
+ *
+ * El archivo real de ContPAQi trae un `Guid` de 36 en cada encabezado (`[CP.8.13]` §10.3), y es
+ * **el mejor candidato a llave de correlación del puente**: es estructural, no gasta los 100
+ * caracteres del concepto y no depende de que nadie edite el texto.
+ *
+ * ⭐ Determinista por `(evento_tipo, evento_id)`, igual que `tokenDe` y por la misma razón: con
+ * uno aleatorio, re-emitir el mismo evento dejaría huérfana la entrega anterior.
+ *
+ * ⚠️ **Sigue sin verificarse si ContPAQi RESPETA el guid que uno manda o genera el suyo.** Hasta
+ * que se sepa, el token en el concepto es la llave y esto va de más — pero va, porque si no se
+ * emite, la pregunta no se puede contestar nunca.
+ *
+ * Formato UUID v4 (variante y versión fijadas) para que su propio catálogo no lo rechace.
+ */
+export function guidDe(eventoTipo: string, eventoId: string): string {
+  const h = createHash('sha256').update(`${eventoTipo}|${eventoId}`, 'utf8').digest('hex');
+  const v = `4${h.slice(13, 16)}`;                              // versión 4
+  const y = ((parseInt(h[16], 16) & 0x3) | 0x8).toString(16);   // variante RFC 4122
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${v}-${y}${h.slice(17, 20)}-${h.slice(20, 32)}`.toUpperCase();
+}

@@ -1432,3 +1432,67 @@ un carácter corrupto.
 | firmar las reglas `por_categoria` | el contador | ⛔ **no es derivable** — probado en §19.1 |
 | centro de costo por movimiento en CB | negocio | `por_sucursal` (135 movs/mes) |
 | la Ñ rota en la ingesta de Kepler | Sistemas | 5 nombres, y evita alias contra basura |
+
+---
+
+## 21. ✅ `[CP.8.24]` Los dos archivos de prueba — y dos bugs que el clic habría descubierto peor
+
+Pedido: *"hagámoslo"* sobre el clic de la contadora. Lo que se puede hacer de este lado es
+**dejarle el archivo listo**, y partirlo en dos para que sus tres preguntas no se confundan:
+
+| | contenido | contesta |
+|---|---|---|
+| **A** `prueba-A-formato.txt` | `P` + 2 × `M1`, $1.00 | ¿acepta el formato? ¿respeta el `Guid`? |
+| **B** `prueba-B-con-ad.txt` | lo mismo + un renglón `AD` | ¿se pueden prender los `AD`? |
+
+⭐ *Si A entra y B no, el problema es el `AD` y no el layout. Un solo archivo no distingue.*
+
+### 21.1 ⭐⭐ La forma salió del archivo REAL, y corrige a la fuente externa
+
+La **primera póliza** de la exportación real es exactamente **`P M1 M1 M1 AD`** — sin `AM`, sin
+`AP`, sin `I`/`W2`/`V`.
+
+⭐ **Eso contesta lo que §10.5 dejó abierto: esos renglones NO son obligatorios.** Una póliza
+mínima válida es encabezado + movimientos + `AD`.
+
+⛔ **Y corrige a §9.1**, que decía (de fuentes externas) que el `AD` va *"después del `P`"*. En el
+archivo real **va al final de la póliza**, después de todos los `M1`. Las 14 pólizas lo
+confirman; los 62 renglones `AD` miden 40 caracteres exactos.
+
+### 21.2 ⛔ El primer archivo salía con la fecha rota
+
+La primera versión del generador llamaba a `construirTxt` **directo** y emitió
+`P  2026-10-` — el campo mide 8 y `YYYY-MM-DD` mide 10, así que se recortó. El real dice
+`20260901`.
+
+✅ El sink **sí** convierte (`txt-sink.adapter.ts`: exige `YYYY-MM-DD`, pasa a `yyyyMMdd` por
+posición, rechaza con `fecha_invalida`). **El puente estaba bien; el error fue saltármelo.**
+
+⭐ *El archivo de prueba tiene que salir del MISMO camino que usará el puente, o no prueba el
+puente.* Reescrito para pasar por `ContpaqiTxtSinkAdapter`.
+
+### 21.3 ⛔ Y el sink no emitía el `Guid` — la pregunta no se podía contestar
+
+Una de las tres preguntas es *"¿ContPAQi respeta el guid que mandamos?"*, y el sink **nunca lo
+emitía**: el campo salía en blanco.
+
+Agregado `guidDe(evento_tipo, evento_id)` en `token.ts` — UUID v4 **determinista**, por la misma
+razón que `tokenDe`: con uno aleatorio, re-emitir el mismo evento dejaría huérfana la entrega
+anterior. El encabezado ahora cierra igual que el real:
+
+```
+REAL    | 0 F22291A3-8AE4-477F-9789-A8FAB8415A87 |
+NUESTRO | 0 3AD7167D-93E6-46E8-A9D5-1F91B0F1CA17 |
+```
+
+⚠️ **Y el candado del sink no lo notó**: siguió en 44 ✓ después de cablear el guid. *Un candado
+que no ve lo que guarda no lo guarda.* Se le agregaron 6 aserciones (**44 → 50 ✓**), **mutadas a
+rojo** quitando el guid del sink: 46 ✓ / 4 ✗.
+
+### 21.4 Qué queda del lado humano
+
+Los archivos y la hoja de instrucciones están listos:
+[`CONTPAQI_PRUEBA_IMPORTACION.md`](../RUNBOOKS/CONTPAQI_PRUEBA_IMPORTACION.md).
+
+⛔ Los `.txt` **no se commitean** — llevan cuentas reales y un UUID de CFDI real, y el repo es
+público. Se generan con `database/scripts/generar-prueba-contpaqi.js --out <carpeta>`.
