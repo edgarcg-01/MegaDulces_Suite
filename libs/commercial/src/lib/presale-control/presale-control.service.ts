@@ -56,7 +56,11 @@ type Partes = { sucursal: string; doc_prefix: string; folio: string };
  * Es la que se usa para buscar tickets: Morelia Madero corre Wincaja como `32` pero cobra en
  * Kepler como `07` (confirmado por Francisco, 2026-10-08).
  */
-const SUCURSAL_KEPLER_SQL = `CASE WHEN w.kepler_code ~ '^[0-9]{2}$' THEN w.kepler_code ELSE ${branchKeySql('w')} END`;
+/** `[MCP.6]` Subconsulta: el pedido `o` tiene una entrega de conformidad registrada en una guía. */
+const ENTREGADO_SQL = `SELECT 1 FROM commercial.load_guide_orders e0
+                         WHERE e0.order_id = o.id AND e0.tenant_id = o.tenant_id AND e0.status = 'entregado'`;
+
+const SUCURSAL_KEPLER_SQL =`CASE WHEN w.kepler_code ~ '^[0-9]{2}$' THEN w.kepler_code ELSE ${branchKeySql('w')} END`;
 
 /**
  * `[MCP.1]` / `[MCP.4]` Mesa de Control de Preventa (Fase MCP, ADR-089).
@@ -214,68 +218,128 @@ export class PresaleControlService {
 
     return this.tk.run(async (trx) => {
       const fila = await this.pedidoEnAlcance(trx, orderId, query, true);
-      if (fila['status'] !== 'confirmed') {
-        throw new ConflictException(`El pedido está ${fila['status']}: sólo se liga un pedido confirmado.`);
-      }
-      const bloqueo = await this.bloqueo(trx, tenantId, fila);
-      if (bloqueo) throw new ConflictException(`No se puede ligar: ${bloqueo}.`);
-
-      const viva = await trx('commercial.order_kepler_documents')
-        .where({ order_id: orderId })
-        .whereNull('unlinked_at')
-        .first('folio_digital');
+      await this.sinEntregaEnGuia(trx, orderId);
+      const viva = await this.ligaViva(trx, orderId);
       if (viva) {
-        throw new ConflictException(`El pedido ya tiene el documento ${viva.folio_digital}. Corrígelo primero.`);
+        throw new ConflictException(`El pedido ya tiene el documento ${viva}. Corrígelo primero.`);
       }
-
-      // El documento tiene que ser UNO de los candidatos de este pedido: misma sucursal, mismo
-      // cliente, desde la captura. Ligar un folio arbitrario cobraría el ticket de otra persona.
-      const cands = await this.buscarCandidatos(trx, tenantId, fila, fila['created_date'] as string, hoy, partes);
-      const c = cands.find((x) => x.folio_digital === folio);
-      if (!c) {
-        throw new BadRequestException('Ese documento no es de este cliente, de esta sucursal o es anterior al pedido.');
-      }
-      if (c.linked_to_order_code) {
-        throw new ConflictException(`Ese documento ya está ligado al pedido ${c.linked_to_order_code}.`);
-      }
-
-      // Un documento que quedó ligado a un pedido CANCELADO se libera aquí, con autor y motivo.
-      // Sin esto, una liga equivocada en un pedido que luego se canceló bloquearía el documento
-      // para siempre (la llave única es sobre la liga viva, sin importar el estado del pedido).
-      await trx('commercial.order_kepler_documents as d')
-        .where('d.folio_digital', folio)
-        .whereNull('d.unlinked_at')
-        .whereExists(function () {
-          this.select(trx.raw('1'))
-            .from('commercial.orders as o')
-            .whereRaw('o.id = d.order_id AND o.tenant_id = d.tenant_id')
-            .andWhere('o.status', 'cancelled');
-        })
-        .update({
-          unlinked_at: trx.fn.now(),
-          unlinked_by: userId,
-          unlink_reason: `Liberado al ligarlo a ${fila['code'] as string}: el pedido anterior está cancelado.`,
-        });
-
-      try {
-        await trx('commercial.order_kepler_documents').insert({
-          tenant_id: tenantId,
-          order_id: orderId,
-          sucursal: c.sucursal,
-          folio_digital: folio,
-          link_source: 'mesa',
-          linked_by: userId,
-        });
-      } catch (e) {
-        // Carrera: otro usuario lo ligó entre la validación y el insert. La llave única lo frena.
-        if (/ux_okd_|duplicate key/i.test((e as Error).message)) {
-          throw new ConflictException('Ese documento o este pedido se acaban de ligar en otra pantalla.');
-        }
-        throw e;
-      }
-      this.logger.log(`[MCP.4] ${fila['code'] as string} ↔ ${folio} ligado desde la mesa por ${userId}`);
+      await this.ligarDocumento(trx, { fila, folio, partes, source: 'mesa', userId, tenantId, hoy });
       return { ok: true as const, order_id: orderId, folio_digital: folio };
     });
+  }
+
+  /**
+   * `[MCP.6]` Liga el documento DESDE EL CELULAR, al entregar. El llamador ya validó que el pedido va
+   * en una guía de quien entrega (no se usa el alcance de la mesa). Si el pedido ya tiene ESE
+   * documento ligado (lo ligó la mesa) no hace nada; si tiene OTRO, se detiene: lo corrige la caja.
+   */
+  async ligarDesdeCampo(trx: Knex.Transaction, orderId: string, folioDigital: string, userId: string): Promise<string> {
+    const folio = String(folioDigital ?? '').trim();
+    const partes = partesFolio(folio);
+    if (!partes) throw new BadRequestException('folio_digital inválido (ej. 04UD1003-0002097)');
+    const [fila] = await this.leerPedidos(trx, { almacenes: null, orderId });
+    if (!fila) throw new NotFoundException('Pedido de preventa no encontrado.');
+    if (fila['status'] !== 'confirmed') {
+      throw new ConflictException(`El pedido está ${fila['status'] as string}: no se entrega. Regrésalo a caja.`);
+    }
+    const viva = await this.ligaViva(trx, orderId);
+    if (viva === folio) return folio;
+    if (viva) {
+      throw new ConflictException(`El pedido ya tiene ligado el documento ${viva}. Si no es el que entregas, pide en caja que lo corrijan.`);
+    }
+    await this.ligarDocumento(trx, {
+      fila, folio, partes, source: 'celular', userId,
+      tenantId: this.tenantCtx.requireTenantId(), hoy: relojMx(new Date()).fecha,
+    });
+    return folio;
+  }
+
+  /**
+   * `[MCP.6]` Con el pedido ya entregado en su guía, la liga queda congelada: el cobro que registró
+   * quien entregó es de ESE documento. Corregirla es devolución + NC en Kepler, no un cambio aquí.
+   */
+  private async sinEntregaEnGuia(trx: Knex.Transaction, orderId: string): Promise<void> {
+    const e = await trx('commercial.load_guide_orders').where({ order_id: orderId, status: 'entregado' }).first('id');
+    if (e) throw new ConflictException('El pedido ya se entregó con su documento: la liga ya no se cambia.');
+  }
+
+  private async ligaViva(trx: Knex.Transaction, orderId: string): Promise<string | null> {
+    const viva = await trx('commercial.order_kepler_documents')
+      .where({ order_id: orderId })
+      .whereNull('unlinked_at')
+      .first('folio_digital');
+    return (viva?.folio_digital as string) ?? null;
+  }
+
+  /** Las validaciones de la liga, UNA sola vez para la mesa y el celular. */
+  private async ligarDocumento(
+    trx: Knex.Transaction,
+    a: { fila: Record<string, unknown>; folio: string; partes: Partes; source: 'mesa' | 'celular'; userId: string; tenantId: string; hoy: string },
+  ): Promise<void> {
+    const { fila, folio, partes, source, userId, tenantId, hoy } = a;
+    if (fila['status'] !== 'confirmed') {
+      throw new ConflictException(`El pedido está ${fila['status'] as string}: sólo se liga un pedido confirmado.`);
+    }
+    const bloqueo = await this.bloqueo(trx, tenantId, fila);
+    if (bloqueo) throw new ConflictException(`No se puede ligar: ${bloqueo}.`);
+
+    // El documento tiene que ser UNO de los candidatos de este pedido: misma sucursal, mismo
+    // cliente, desde la captura. Ligar un folio arbitrario cobraría el ticket de otra persona.
+    const cands = await this.buscarCandidatos(trx, tenantId, fila, fila['created_date'] as string, hoy, partes);
+    const c = cands.find((x) => x.folio_digital === folio);
+    if (!c) {
+      throw new BadRequestException('Ese documento no es de este cliente, de esta sucursal o es anterior al pedido.');
+    }
+    if (c.linked_to_order_code) {
+      throw new ConflictException(`Ese documento ya está ligado al pedido ${c.linked_to_order_code}.`);
+    }
+
+    // Un documento que quedó ligado a un pedido CANCELADO se libera aquí, con autor y motivo.
+    // Sin esto, una liga equivocada en un pedido que luego se canceló bloquearía el documento
+    // para siempre (la llave única es sobre la liga viva, sin importar el estado del pedido).
+    await trx('commercial.order_kepler_documents as d')
+      .where('d.folio_digital', folio)
+      .whereNull('d.unlinked_at')
+      .whereExists(function () {
+        this.select(trx.raw('1'))
+          .from('commercial.orders as o')
+          .whereRaw('o.id = d.order_id AND o.tenant_id = d.tenant_id')
+          .andWhere('o.status', 'cancelled');
+      })
+      .update({
+        unlinked_at: trx.fn.now(),
+        unlinked_by: userId,
+        unlink_reason: `Liberado al ligarlo a ${fila['code'] as string}: el pedido anterior está cancelado.`,
+      });
+
+    try {
+      await trx('commercial.order_kepler_documents').insert({
+        tenant_id: tenantId,
+        order_id: fila['id'] as string,
+        sucursal: c.sucursal,
+        folio_digital: folio,
+        link_source: source,
+        linked_by: userId,
+      });
+    } catch (e) {
+      // Carrera: otro usuario lo ligó entre la validación y el insert. La llave única lo frena.
+      if (/ux_okd_|duplicate key/i.test((e as Error).message)) {
+        throw new ConflictException('Ese documento o este pedido se acaban de ligar en otra pantalla.');
+      }
+      throw e;
+    }
+    this.logger.log(`[MCP.4] ${fila['code'] as string} ↔ ${folio} ligado desde ${source} por ${userId}`);
+  }
+
+  /** `[MCP.6]` Candidatos de Kepler de un pedido, para el celular (sin el alcance de la mesa). */
+  async candidatosParaCampo(trx: Knex.Transaction, orderId: string): Promise<{ order: PresaleOrderRow; candidates: PresaleCandidate[] }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = relojMx(new Date()).fecha;
+    const [fila] = await this.leerPedidos(trx, { almacenes: null, orderId });
+    if (!fila) throw new NotFoundException('Pedido de preventa no encontrado.');
+    const [order] = await this.completar(trx, tenantId, [fila], hoy);
+    const candidates = order.link_block ? [] : await this.buscarCandidatos(trx, tenantId, fila, fila['created_date'] as string, hoy);
+    return { order, candidates };
   }
 
   /**
@@ -291,6 +355,7 @@ export class PresaleControlService {
 
     return this.tk.run(async (trx) => {
       const fila = await this.pedidoEnAlcance(trx, orderId, query, true);
+      await this.sinEntregaEnGuia(trx, orderId);
       if (fila['status'] !== 'confirmed' && fila['status'] !== 'cancelled') {
         throw new ConflictException(`El pedido está ${fila['status']}: su liga ya no se corrige aquí.`);
       }
@@ -349,16 +414,21 @@ export class PresaleControlService {
       donde += ' AND o.id = ? AND o.status = ANY(?::text[])';
       params.push(f.orderId, [...STATUS_EN_MESA]);
     } else if (f.soloAbiertos) {
-      donde += ` AND o.status = 'confirmed'`;
+      // `[MCP.6]` Abierto = confirmado y SIN entrega registrada (la entrega no toca `orders.status`).
+      donde += ` AND o.status = 'confirmed' AND NOT EXISTS (${ENTREGADO_SQL})`;
     } else if (f.orderIds) {
       // Los pedidos de una guía se leen en cualquier estado de la mesa (uno ya entregado sigue en ella).
       donde += ' AND o.status = ANY(?::text[])';
       params.push([...STATUS_EN_MESA]);
     } else {
-      donde += ` AND (o.status = 'confirmed'
+      // `[MCP.6]` Un pedido entregado en la guía sigue `confirmed`: cuenta como cerrado y sale de la
+      // lista igual que un `fulfilled`, pasada la ventana de cerrados.
+      donde += ` AND ((o.status = 'confirmed'
+                       AND NOT EXISTS (${ENTREGADO_SQL} AND e0.delivered_at < now() - (? || ' days')::interval))
                  OR (o.status IN ('fulfilled', 'cancelled')
                      AND coalesce(o.fulfilled_at, o.cancelled_at, o.updated_at) >= now() - (? || ' days')::interval))`;
-      params.push(String(f.diasCerrados ?? DIAS_CERRADOS_DEFAULT));
+      const dias = String(f.diasCerrados ?? DIAS_CERRADOS_DEFAULT);
+      params.push(dias, dias);
     }
     if (f.almacenes !== null) {
       // `f.almacenes` son llaves de sucursal (2 dígitos) del alcance, no ids de almacén.
@@ -397,7 +467,10 @@ export class PresaleControlService {
                 WHERE wo.order_id = o.id ORDER BY wo.added_at DESC LIMIT 1) AS wave_stage,
               d.sucursal AS link_sucursal, d.folio_digital AS link_folio, d.link_source,
               d.linked_at, lu.nombre AS linked_by_name,
-              lg.id AS guide_id, lg.folio AS guide_folio, lg.status AS guide_status, lg.rider_name AS guide_rider_name
+              lg.id AS guide_id, lg.folio AS guide_folio, lg.status AS guide_status, lg.rider_name AS guide_rider_name,
+              en.delivered_at, en.delivery_outcome, en.delivery_note, en.cash_amount, en.transfer_amount,
+              en.transfer_ref, en.guide_folio AS delivery_guide_folio, en.delivered_by_name,
+              en.delivered_folio_digital
          FROM commercial.orders o
          LEFT JOIN commercial.customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
          LEFT JOIN commercial.warehouses w ON w.id = o.warehouse_id AND w.tenant_id = o.tenant_id
@@ -415,6 +488,16 @@ export class PresaleControlService {
               AND g.status <> 'cancelada'
             LIMIT 1
          ) lg ON true
+         -- [MCP.6] La entrega de conformidad (a lo más una: llave ux_lgo_pedido_entregado).
+         LEFT JOIN LATERAL (
+           SELECT e.delivered_at, e.delivery_outcome, e.delivery_note, e.cash_amount, e.transfer_amount,
+                  e.transfer_ref, eg.folio AS guide_folio, eu.nombre AS delivered_by_name, e.delivered_folio_digital
+             FROM commercial.load_guide_orders e
+             JOIN commercial.load_guides eg ON eg.id = e.guide_id AND eg.tenant_id = e.tenant_id
+             LEFT JOIN identity.users eu ON eu.id = e.delivered_by AND eu.tenant_id = e.tenant_id
+            WHERE e.order_id = o.id AND e.tenant_id = o.tenant_id AND e.status = 'entregado'
+            LIMIT 1
+         ) en ON true
         WHERE o.requested_delivery_date IS NOT NULL
           AND o.delivery_type = 'route'
           AND o.deleted_at IS NULL
@@ -526,6 +609,7 @@ export class PresaleControlService {
         ligado,
         customer_erp_code: claveCliente(f['erp_customer_code'] as string),
         en_guia_impresa: f['guide_status'] === 'impresa',
+        entregado_en_guia: !!f['delivered_at'],
       });
       const sem = semaforo(f['requested_delivery_date'] as string, hoy, stage);
       const branch = (f['branch'] as string) ?? null;
@@ -572,6 +656,19 @@ export class PresaleControlService {
               folio: f['guide_folio'] as string,
               status: f['guide_status'] as 'abierta' | 'impresa',
               rider_name: (f['guide_rider_name'] as string) ?? null,
+            }
+          : null,
+        delivery: f['delivered_at']
+          ? {
+              delivered_at: new Date(f['delivered_at'] as string).toISOString(),
+              delivered_by_name: (f['delivered_by_name'] as string) ?? null,
+              outcome: f['delivery_outcome'] as 'completo' | 'con_diferencia',
+              note: (f['delivery_note'] as string) ?? null,
+              cash_amount: Number(f['cash_amount']),
+              transfer_amount: Number(f['transfer_amount']),
+              transfer_ref: (f['transfer_ref'] as string) ?? null,
+              guide_folio: f['delivery_guide_folio'] as string,
+              folio_digital: f['delivered_folio_digital'] as string,
             }
           : null,
       };

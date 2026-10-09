@@ -196,6 +196,10 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="mc-row"><span>Sucursal</span><span>{{ x.order.branch || '' }} {{ x.order.warehouse_name || '—' }}</span></div>
                 <div class="mc-row"><span>Pedido</span><span class="num">{{ x.order.lines }} renglones · {{ money(x.order.total) }}</span></div>
                 @if (x.order.load_guide; as g) { <div class="mc-row"><span>Guía de carga</span><span><span class="mono">{{ g.folio }}</span> · {{ g.rider_name || '—' }} · {{ g.status === 'impresa' ? 'impresa' : 'sin imprimir' }}</span></div> }
+                @if (x.order.delivery; as e) {
+                  <div class="mc-row"><span>Entrega</span><span>{{ e.outcome === 'con_diferencia' ? 'Con diferencia' : 'Completa' }} · {{ fechaHora(e.delivered_at) }}@if (e.delivered_by_name) { · {{ e.delivered_by_name }} } · <span class="mono">{{ e.guide_folio }}</span>@if (e.note) { <span class="muted mc-sub">{{ e.note }}</span> }</span></div>
+                  <div class="mc-row"><span>Cobró</span><span class="num mc-wrap"><span class="mono">{{ e.folio_digital }}</span> · {{ money(e.cash_amount) }} efectivo · {{ money(e.transfer_amount) }} transferencia@if (e.transfer_ref) { <span class="muted mono"> · ref. {{ e.transfer_ref }}</span> }</span></div>
+                }
               </div>
 
               <div class="mc-step">
@@ -205,7 +209,7 @@ const dmy = (v: string | null | undefined): string => {
                     <div><span class="mono">{{ l.folio_digital }}</span><span class="muted mc-sub">Caja {{ l.caja ?? '—' }} · {{ dmy(l.fecha) }} · {{ l.link_source === 'celular' ? 'lo ligó quien entregó' : 'ligado en la mesa' }}@if (l.linked_by_name) { por {{ l.linked_by_name }} }</span></div>
                     <b class="num">{{ l.total === null ? '—' : money(l.total) }}</b>
                   </div>
-                  @if (puedeLigar() && (x.order.status === 'confirmed' || x.order.status === 'cancelled')) {
+                  @if (puedeLigar() && !x.order.delivery && (x.order.status === 'confirmed' || x.order.status === 'cancelled')) {
                     @if (!desligando()) {
                       <button type="button" class="mc-link mc-mt" (click)="abrirCorregir()">Este no es el documento: corregir</button>
                     } @else {
@@ -319,6 +323,7 @@ const dmy = (v: string | null | undefined): string => {
     .mc-det-head { display:flex; align-items:center; gap:.6rem; padding:0 0 .5rem; font-size:var(--fs-sm); flex-wrap:wrap; }
     .mc-step { padding:.7rem 0; border-top:1px solid var(--border-color); }
     .mc-step h3 { font-size:var(--fs-sm); font-weight:700; margin:0 0 .45rem; }
+    .mc-row .mc-wrap { white-space:normal; text-align:right; min-width:0; }
     .mc-row { display:flex; justify-content:space-between; gap:.8rem; font-size:var(--fs-sm); padding:.22rem 0; border-bottom:1px dashed var(--border-color); }
     .mc-row > span:first-child { color:var(--text-muted); flex:none; }
     .mc-row > span:last-child { text-align:right; min-width:0; }

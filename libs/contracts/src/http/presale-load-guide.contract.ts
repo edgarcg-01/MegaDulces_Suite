@@ -7,7 +7,7 @@
  *
  * Servicio en `libs/commercial/src/lib/presale-control/load-guide.service.ts`.
  */
-import type { PresaleOrderRow } from './warehouse-presale.contract';
+import type { PresaleCandidate, PresaleOrderRow } from './warehouse-presale.contract';
 
 export type LoadGuideStatus = 'abierta' | 'impresa' | 'cancelada';
 
@@ -19,9 +19,50 @@ export interface LoadGuideOrderRow {
   /** `YYYY-MM-DD`. */
   requested_delivery_date: string;
   total: number;
-  /** Documento de Kepler ligado (si ya lo hay), con su total. */
+  /** Documento de Kepler: el que se entregó, o el ligado si todavía no se entrega. Con su total. */
   folio_digital: string | null;
   document_total: number | null;
+  /**
+   * `[MCP.6]` `cargado` = va en camino; `entregado` = se registró la conformidad;
+   * `no_entregado` (lo dijo el celular) y `regreso` (lo registró la caja) = volvió sin entregarse:
+   * siguen en la guía porque están en el papel firmado, pero no suman al total.
+   */
+  status: 'cargado' | 'entregado' | 'no_entregado' | 'regreso';
+  /** `[MCP.6]` Lo que cobró quien entregó (null mientras no se entrega). */
+  cash_amount: number | null;
+  transfer_amount: number | null;
+  transfer_ref: string | null;
+  delivery_outcome: 'completo' | 'con_diferencia' | null;
+  /** `[MCP.6]` Por qué volvió sin entregarse (`no_entregado` / `regreso`). */
+  removed_reason: string | null;
+}
+
+/** `[MCP.6]` Lo que ve el celular al abrir un pedido para entregarlo. */
+export interface PresaleFieldOrderDetail {
+  order: PresaleOrderRow;
+  guide: { id: string; folio: string; status: 'abierta' | 'impresa' };
+  /** Renglones del pedido (lo que se lleva). */
+  lines: Array<{ sku: string | null; description: string | null; quantity: number; unit: string | null }>;
+  /** Documentos de Kepler del cliente, el más parecido al pedido primero. Vacío si hay `link_block`. */
+  candidates: PresaleCandidate[];
+}
+
+export interface PresaleDeliverRequest {
+  order_id: string;
+  /** Documento de Kepler que se entrega (uno de los candidatos, o el ya ligado). */
+  folio_digital: string;
+  outcome: 'completo' | 'con_diferencia';
+  /** Obligatoria si `con_diferencia`. */
+  note?: string;
+  cash_amount: number;
+  transfer_amount: number;
+  /** Obligatoria si hay transferencia. */
+  transfer_ref?: string;
+}
+
+export interface PresaleNotDeliveredRequest {
+  order_id: string;
+  reason: string;
 }
 
 export interface LoadGuide {

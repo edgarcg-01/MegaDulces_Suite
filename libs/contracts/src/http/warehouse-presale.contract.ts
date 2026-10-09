@@ -102,6 +102,23 @@ export interface PresaleOrderRow {
   possible_documents: number | null;
   /** `[MCP.5]` La guía de carga en la que va cargado, o `null` si nadie lo ha pescado. */
   load_guide: { id: string; folio: string; status: 'abierta' | 'impresa'; rider_name: string | null } | null;
+  /** `[MCP.6]` La entrega de conformidad registrada en el celular, o `null` si no se ha entregado. */
+  delivery: PresaleDelivery | null;
+}
+
+/** `[MCP.6]` Entrega de conformidad (en el renglón de la guía, NO en `orders.status`). */
+export interface PresaleDelivery {
+  /** ISO. */
+  delivered_at: string;
+  delivered_by_name: string | null;
+  outcome: 'completo' | 'con_diferencia';
+  note: string | null;
+  cash_amount: number;
+  transfer_amount: number;
+  transfer_ref: string | null;
+  guide_folio: string;
+  /** El documento de Kepler que se entregó (el cobro es de ése). */
+  folio_digital: string;
 }
 
 export interface PresaleListResponse {
