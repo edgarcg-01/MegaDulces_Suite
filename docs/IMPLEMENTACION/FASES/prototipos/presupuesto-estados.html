@@ -265,11 +265,25 @@ tbody tr:last-child td{border-bottom:none}
   <div class="tw"><table>
     <thead><tr><th>Contrato</th><th class="num">Archivos que lo usan</th><th>Qué contesta</th><th>Qué le falta</th></tr></thead>
     <tbody>
-      <tr><td><code>Freshness</code> <span class="st st-medido">medido</span></td><td class="num">33</td><td>¿de cuándo es el dato? Ternario <code>fresh&nbsp;|&nbsp;stale&nbsp;|&nbsp;unknown</code>.</td><td>Nada. Funcionó: sólo <strong>2</strong> archivos declaran el tipo a mano, y uno es el contrato mismo.</td></tr>
-      <tr><td><code>Coverage</code> <span class="st st-parcial">parcial</span></td><td class="num">11</td><td>¿qué parte del universo cubre <strong>la respuesta</strong>? <code>measured · pct · note</code>.</td><td><strong>El <code>method</code>.</strong> Sabe decir cuánto cubre, no <strong>cómo se derivó</strong>.</td></tr>
+      <tr><td><code>Freshness</code> <span class="st st-medido">medido</span></td><td class="num">34</td><td>¿de cuándo es el dato? Ternario <code>fresh&nbsp;|&nbsp;stale&nbsp;|&nbsp;unknown</code>.</td><td>Nada. Funcionó: sólo <strong>2</strong> archivos declaran el tipo a mano, y uno es el contrato mismo.</td></tr>
+      <tr><td><code>FreshnessPill</code> <span class="st st-medido">medido</span></td><td class="num">38</td><td>el <strong>render</strong> del eje frescura. Otra capa que el tipo.</td><td>Nada. Es la adopción más alta de las tres.</td></tr>
+      <tr><td><code>Coverage</code> <span class="st st-parcial">parcial</span></td><td class="num">12</td><td>¿qué parte del universo cubre <strong>la respuesta</strong>? <code>measured · pct · note</code>.</td><td><strong>El <code>method</code>.</strong> Sabe decir cuánto cubre, no <strong>cómo se derivó</strong>.</td></tr>
     </tbody>
   </table></div>
-  <div class="note bad"><strong>Íbamos a construir por segunda vez un primitivo que ya existía — mientras escribíamos un documento sobre no hacer eso.</strong> Lo que lo evitó no fue releer el contrato: fue <strong>medir la adopción en vez de asumir la ausencia</strong>. El hueco real es que <code>Coverage</code> tiene <strong>un tercio</strong> de los adoptantes de su hermano, y es de adopción, no de diseño.</div>
+  <p class="lead"><strong>Medido así</strong>, y el comando importa: <code class="mono">grep -rl '\bCoverage\b' --include=*.ts libs/ apps/ | wc -l</code>. <strong>El límite de palabra no es un detalle.</strong> Sin él, <code>ProposeCoverage</code>, <code>ExpenseCoverage</code> y <code>VisionCoverage</code> cuentan como adoptantes — y son justo <strong>los tipos que el compartido venía a reemplazar</strong>. Dos carriles midieron este número por separado y dieron <strong>12</strong> y <strong>42</strong>; el segundo medía reinvención y la publicaba como adopción.</p>
+
+  <h3>⛔⛔ Y el hallazgo que salió de esa discrepancia: la reinvención está medida, y somos parte</h3>
+  <p class="lead">La pregunta no era «¿cuántos adoptaron?» sino «¿cuántos escribieron el suyo?». <strong>Diez.</strong> Uno se llama <code>Coverage</code> a secas: una sombra del tipo compartido, con su mismo nombre.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:34%">Tipo declarado a mano</th><th>Dónde vive</th></tr></thead>
+    <tbody>
+      <tr><td><code>Coverage</code> ⛔</td><td><code>finanzas/findings.service.ts</code> — mismo nombre que el del contrato</td></tr>
+      <tr><td><code>ProposeCoverage</code></td><td><code>finanzas-presupuesto.component.ts</code> — <strong>del carril de Ventas</strong></td></tr>
+      <tr><td><code>ExpenseCoverage</code></td><td><code>finanzas-presupuesto.component.ts:179</code> — <strong>del carril de Gastos</strong></td></tr>
+      <tr><td colspan="2"><code>PeriodCoverage</code> · <code>ThreeWayCoverage</code> · <code>VisionCoverage</code> · <code>SalesExecCoverage</code> · <code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code> · <code>ModuleCoverage</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Íbamos a construir por segunda vez un primitivo que ya existía — mientras escribíamos un documento sobre no hacer eso.</strong> Y la primera versión de esta sección decía que el hueco era de <em>adopción</em>: <strong>también estaba incompleta</strong>. No es no-adopción pasiva, es <strong>reinvención activa, diez veces</strong> — y <strong>dos de las diez están en el mismo archivo que este documento viene a arreglar</strong>, una por carril. ⇒ La tesis original estaba <strong>equivocada en la forma</strong> (el primitivo existe) y <strong>acertada en el fondo</strong> (se está reinventando), sólo que en otro eje del que creíamos.</div>
 
   <h3>⛔ Pero <code>Coverage</code> no alcanza: está en otro GRANO</h3>
   <p class="lead">Una respuesta trae <strong>un</strong> <code>Coverage</code>. Una tira trae <strong>varios números con estados distintos</strong>. El primero no puede hablar por el segundo.</p>
@@ -289,8 +303,10 @@ tbody tr:last-child td{border-bottom:none}
     <tbody>
       <tr><td>Tesorería</td><td><code>'sin base'</code> como <code>value</code>, sin tono</td><td>Una <strong>ausencia renderizada como valor normal</strong>. Se ve como un dato más de la tira.</td></tr>
       <tr><td><strong>Ventas</strong> (éste)</td><td><code>value: cumplimiento_pct ?? 0</code></td><td><strong>La ausencia se convierte en 0 en el MODELO</strong>, y lo único que la disimula es cambiar <code>format</code> a <code>'text'</code>. Sobrevive a cualquier cambio de formato: el día que alguien lo vuelva <code>'percent'</code>, la pantalla publica <strong>0 %</strong> donde no hay meta. Igual en <code>CREC</code>.</td></tr>
+      <tr><td>Gastos</td><td><code>ocupacion_pct</code> = <strong>0 de verdad</strong></td><td>⭐ <strong>Una división honesta.</strong> El denominador es $74.8 M y el numerador es 0 legítimamente, así que <code>pct()</code> no devuelve <code>null</code>: devuelve <strong>0</strong>, y está bien calculado. La tarjeta publica <strong>«0 %»</strong>, que se lee <em>«no hemos gastado»</em> cuando la verdad es <em>«no hemos registrado»</em>.</td></tr>
     </tbody>
   </table></div>
+  <div class="note bad"><strong>Las tres puertas no se parecen, y por eso la regla 2 no alcanza como estaba escrita.</strong> Prohibir el <code>$0.00</code> de una ausencia atrapa la primera y la segunda. <strong>No atrapa la tercera</strong>, porque ahí no hay ninguna ausencia: hay un cero que la aritmética calcula bien y que <em>significa otra cosa</em>. ⇒ La regla tiene que prohibir también <strong>el cero verdadero cuyo significado no es el que el lector va a entender</strong>. Y las tres comparten algo: <strong>ninguna la habría atrapado <code>Coverage</code></strong>, porque mira la respuesta y los tres defectos están en la tarjeta.</div>
 
   <h3>Dos cosas que este carril debe declarar</h3>
   <ul>
