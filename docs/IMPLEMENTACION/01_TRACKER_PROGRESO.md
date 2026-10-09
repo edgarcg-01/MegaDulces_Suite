@@ -10031,6 +10031,15 @@ contra `pg-prod` (namespace `prod`, k3s).
   reales. Lo que sí está probado es la REGLA que ejecuta (motor, 35 ✓). 🔨 2026-10-09
 - [ ] **[CP.8.11]** Bandeja de divergencias + el plazo.
 
+- [x] **[CP.8.1c]** 🚀 **EN PROD batch 858** — las reglas estaban claveadas a categorías que NO
+  EXISTEN en CB (combustible, mant_reparto, renta_muebles: las inventé bautizándolas con los
+  CONCEPTOS de ContPAQi). Cubrían **17 de 55,648** movimientos. Re-sembradas sobre las **19
+  categorías de salida reales**: cobertura **0.03% → 99.7%**, huérfanas **3 → 0**, y
+  ⭐ **utilizables 5 → 0** — que es la corrección, no un defecto: el puente conoce los egresos y se
+  NIEGA a asentarlos hasta que el contador firme. El mapa categoría→cuenta **no es derivable**,
+  medido con placebo (3,371 pares reales vs 463 de ruido) y con el universo declarado
+  (analytics.gl_polizas mezcla kepler y contpaqi: dos planes de cuentas). 2026-10-09
+
 ### E3 — El mapa firmado *(dependencia: el contador)*
 
 - [ ] **[CP.8.14]** UI de reglas con confianza + aprobación (`derivada` → `aprobada`).

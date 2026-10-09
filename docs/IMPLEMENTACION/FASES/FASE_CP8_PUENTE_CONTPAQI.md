@@ -727,3 +727,89 @@ habría sido por permiso y no por el CHECK. Casi publico una aserción falsa. Se
 A mitad de la verificación, un `57P03 — the database system is shutting down`. **No lo causé**:
 era `auto-deploy` reemplazando los pods con la imagen `de2f53c8`. Se esperó el rollout y se
 re-verificó: **misma identidad de clúster, las 2 tablas y las 6 reglas intactas**.
+
+---
+
+## 15. ⛔⛔ `[CP.8.1c]` — Las reglas estaban claveadas a categorías que no existen
+
+**2026-10-09, batch 858.** Un error de diseño propio, encontrado al ir a construir el eslabón que
+arma y entrega un evento: **nada podía armarse**, y al medir por qué apareció esto.
+
+### 15.1 Derivé del lado equivocado
+
+La semilla de `20261008155000` nació de medir lo que **ContPAQi asienta**, agrupando por sus
+CONCEPTOS (`PAGO COMBUSTIBLE`, `PAGO ARRENDADORA HMS`…). **Esa medición es correcta y sigue
+valiendo.** El error fue **bautizar las reglas con esos nombres como si fueran categorías de CB**.
+
+```text
+combustible · mant_reparto · renta_muebles   ->  NO EXISTEN en finance.movement_categories
+imss_sua · renta · traslado_valores          ->  existen
+```
+
+⭐ **La entrada del puente es `movement_categories.code`.** Las reglas tienen que estar claveadas
+a eso, no a los conceptos del otro lado. Son **dos taxonomías distintas** y asumí que coincidían
+porque tres nombres se parecían.
+
+**Lo que costaba:** las 6 reglas cubrían **17 movimientos de 55,648**, y 12 eran justamente la
+categoría sin regla. El volumen real —`compra_mercancia` 4,749/$404M, `compra_tarjeta`,
+`comision_bancaria`, `nomina`— **no tenía ninguna**.
+
+### 15.2 Se intentó derivar el mapa correcto. No se puede con estas llaves
+
+Pareo movimiento bancario ↔ póliza por `(fecha, importe)`:
+
+| | |
+|---|---|
+| **Placebo** (fecha desfasada 37 y 91 días) | 463 y 453 pares contra **3,371** del real |
+| Veredicto | hay señal (7.3× el piso) pero el piso es **14%** de los pares |
+
+⚠️ **Y el primer intento estaba peor por un error mío:** `analytics.gl_polizas` mezcla **dos
+fuentes** y no filtré `source`.
+
+```text
+kepler    110,007 pólizas · plan corto (511, 601-014) ·      0 cuentas de 10 dígitos
+contpaqi   19,398 pólizas ·                              249,122 cuentas de 10 dígitos
+```
+
+El **85%** de los pareos traía el plan de cuentas ajeno — por eso `nomina` daba *"RENTA BIENES
+INMUEBLES"*. ⭐ *El primer veredicto fue correcto por el motivo equivocado*, que es su propia
+clase de error.
+
+Filtrado bien **sigue sin servir**: `traspaso_entre_cuentas` → renta al 76% (y un traspaso no
+tiene cuenta de resultado), y los importes son una astilla del volumen. Una póliza trae decenas
+de renglones de gasto: parear por el total del documento no dice cuál corresponde al pago.
+
+### 15.3 Qué se sembró, y por qué CERO utilizables es el punto
+
+| | antes | ahora |
+|---|--:|--:|
+| Reglas | 6 | **19** (las de salida reales de CB) |
+| Huérfanas | **3** | **0** |
+| Cobertura de egresos | 17 / 55,648 (0.03%) | **22,819 / 22,899 (99.7%)** |
+| Utilizables | 5 | **0** |
+
+⭐ **Cero utilizables no es un defecto: es la corrección.** El puente ahora conoce el 99.7% de los
+egresos y **se niega a asentar cualquiera** hasta que el contador firme. Antes conocía el 0.03% y
+creía poder asentar 5.
+
+`cuenta_gasto` y `confianza_pct` quedan **NULL en las 19**: un porcentaje al lado de una cuenta
+vacía se lee como *«esta regla ya está confirmada»*. La evidencia viaja en `concepto_medido` como
+texto, así que aprobar **exige escribir la cuenta** — que es el acto que se le está pidiendo.
+
+### 15.4 Lo que la evidencia dice, y que el contador va a necesitar
+
+Cuatro categorías **probablemente no deban asentarse por este puente**, y está escrito en cada una:
+
+- `traspaso_entre_cuentas` ($225M) — neto 0, sin P&L.
+- `iva_acreditable` — no es gasto; el armador ya pone ese renglón desde el CFDI.
+- `gasto_admin` — cajón de sastre (`VIATICOS AARON`, `BONO CAPITAN DE MARCA`): **partir antes de mapear**.
+- `compra_mercancia` ($404M) — no es cuenta fija: es **proveedor → su subcuenta**, resoluble por
+  RFC contra `analytics.contpaqi_suppliers` (3,411, 99.6% con RFC).
+
+Y las dos propuestas con respaldo, declaradas como **inferencia entre taxonomías**:
+`renta` → `5200510001` (97.9%) · `traslado_valores` → `5200680000` (100%).
+
+### 15.5 ⚠️ Séptima vez que un acento grave rompe el build
+
+Escribí `` `renta` `` dentro de un template literal del SQL y cortó la cadena
+(`missing ) after argument list`). Lo agarró `node -c` **antes** de llegar a prod.
