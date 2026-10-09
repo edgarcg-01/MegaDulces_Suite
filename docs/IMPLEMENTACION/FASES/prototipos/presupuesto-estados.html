@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vocabulario de estados · Presupuestos</title>
+<!-- Artefacto de los tres carriles de /presupuestos (Ventas · Gastos · Tesoreria).
+     Explora un lenguaje visual que NO existe: como un numero dice con que se calculo.
+     Las cifras de la seccion Tesoreria son REALES, medidas contra pg-prod en una sola foto.
+     Las de Ventas y Gastos las llenan sus carriles. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --bg:#FAFAF9; --surface:#FFFFFF; --sunken:#F5F5F4; --line:#E7E5E4; --line-strong:#D6D3D1;
+  --fg:#1C1917; --muted:#57534E; --faint:#A8A29E;
+  --action:#EA580C; --action-soft:#FFEDD5; --action-fg:#9A3412;
+  --ok:#15803D; --ok-soft:#DCFCE7; --no:#B91C1C; --no-soft:#FEE2E2;
+  --warn:#A16207; --warn-soft:#FEF9C3; --info:#1D4ED8; --info-soft:#DBEAFE;
+  --f-ui:"Hanken Grotesk", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --f-mono:"Geist Mono", ui-monospace, Consolas, monospace;
+  --r-sm:4px; --r-md:6px; --r-lg:10px;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
+  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
+  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
+  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212;
+  --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
+  color-scheme: dark; } }
+:root[data-theme="dark"]{
+  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
+  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
+  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
+  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212;
+  --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
+  color-scheme: dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 20px 72px;display:flex;flex-direction:column;gap:26px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+h1{font-size:1.45rem;margin:0;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.02rem;margin:0 0 2px;font-weight:700}
+h3{font-size:.86rem;margin:0 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+p{margin:0 0 8px} ul{margin:4px 0 8px;padding-left:18px} li{margin:4px 0}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
+
+header{border-bottom:1px solid var(--line);padding-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+.hd-l{display:flex;flex-direction:column;gap:4px;min-width:min(100%,520px)}
+.asof{font-size:.73rem;display:inline-flex;gap:6px;align-items:center;background:var(--sunken);border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--muted)}
+.tgl{font:inherit;font-size:.78rem;cursor:pointer;background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-md);padding:6px 11px}
+
+section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.lead{font-size:.93rem;color:var(--muted);max-width:78ch}
+.note{font-size:.8rem;background:var(--sunken);border:1px solid var(--line);border-left:3px solid var(--line-strong);border-radius:var(--r-md);padding:9px 12px;color:var(--muted)}
+.note.bad{border-left-color:var(--no)} .note.warn{border-left-color:var(--warn)} .note.ok{border-left-color:var(--ok)}
+
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(182px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.mi{background:var(--surface);padding:11px 13px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.mi-lab{font-size:.73rem;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mi-val{font-family:var(--f-mono);font-size:1.17rem;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.mi-sub{font-size:.71rem;color:var(--faint);line-height:1.35}
+.t-ok{color:var(--ok)} .t-bad{color:var(--no)} .t-warn{color:var(--warn)}
+.mi-val.unk{color:var(--faint);font-weight:500;font-size:1rem}
+
+.st{font-size:.64rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:3px;padding:1px 6px;border:1px solid transparent;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.st::before{font-size:.9em;line-height:1}
+.st-medido{color:var(--ok);background:var(--ok-soft)}
+.st-medido::before{content:"\25CF"}
+.st-parcial{color:var(--info);background:var(--info-soft)}
+.st-parcial::before{content:"\25D0"}
+.st-derivado{color:var(--warn);background:var(--warn-soft)}
+.st-derivado::before{content:"\25B3"}
+.st-nomedido{color:var(--muted);background:transparent;border-color:var(--line-strong);border-style:dashed}
+.st-nomedido::before{content:"?"}
+.rg{font-size:.64rem;font-weight:600;letter-spacing:.03em;border-radius:3px;padding:1px 6px;white-space:nowrap;color:var(--muted);background:var(--sunken);border:1px solid var(--line)}
+
+table{width:100%;border-collapse:collapse;font-size:.83rem}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;background:var(--sunken)}
+td.num,th.num{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md)}
+
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:820px){ .ba{grid-template-columns:1fr} }
+.ba-col{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;display:flex;flex-direction:column}
+.ba-hd{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:6px 11px;border-bottom:1px solid var(--line)}
+.ba-hd.mal{color:var(--no);background:var(--no-soft)}
+.ba-hd.bien{color:var(--ok);background:var(--ok-soft)}
+.ba-bd{padding:11px;display:flex;flex-direction:column;gap:9px}
+
+.rule{display:flex;gap:11px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.rule:last-child{border-bottom:none}
+.rule-n{flex:0 0 26px;height:26px;border-radius:var(--r-sm);background:var(--action-soft);color:var(--action-fg);font-weight:700;font-size:.8rem;display:grid;place-items:center;font-family:var(--f-mono)}
+.rule-b{min-width:0}
+.rule-t{font-weight:700;font-size:.9rem;margin-bottom:2px}
+.rule-d{font-size:.83rem;color:var(--muted)}
+
+.pend{border:1px dashed var(--line-strong);border-radius:var(--r-md);padding:18px;text-align:center;color:var(--faint);font-size:.85rem;background:repeating-linear-gradient(45deg,transparent,transparent 9px,var(--sunken) 9px,var(--sunken) 18px)}
+.pend b{display:block;color:var(--muted);font-size:.95rem;margin-bottom:4px}
+.owner{font-size:.72rem;background:var(--sunken);border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--muted);font-weight:600;vertical-align:middle}
+</style></head>
+<body><div class="wrap">
+
+<header>
+  <div class="hd-l">
+    <h1>Un número que dice con qué se calculó</h1>
+    <p class="lead" style="margin:0">Vocabulario compartido de los tres carriles de <code>/presupuestos</code>. La reestructuración no es reacomodar bloques: es que cada cifra en pantalla pueda decir <strong>de dónde salió, qué cubre y cuándo no se pudo medir</strong>.</p>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:7px;align-items:flex-end">
+    <button class="tgl" id="tgl" type="button">Cambiar a oscuro</button>
+    <span class="asof mono">Tesorería · as_of 2026-10-08 20:11:26 CST</span>
+  </div>
+</header>
+
+<section>
+  <h2>1 · Los cuatro estados</h2>
+  <p class="lead">El estado <strong>no es un color</strong>. Viaja aparte del tono, tiene forma y texto propios, y se lee sin distinguir colores.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:124px">Estado</th><th>Qué afirma</th><th>Qué obliga a mostrar</th></tr></thead>
+    <tbody>
+      <tr><td><span class="st st-medido">medido</span></td><td>La cifra sale de su fuente, completa, para todo el universo declarado.</td><td>Nada extra.</td></tr>
+      <tr><td><span class="st st-parcial">parcial</span></td><td>La cifra es correcta pero cubre una <strong>fracción</strong> del universo.</td><td><strong>La ventana</strong>: cuánto cubre y cuánto queda fuera, con su monto.</td></tr>
+      <tr><td><span class="st st-derivado">derivado</span></td><td>La cifra no se observó: se calculó con una regla.</td><td><strong>El método</strong>, obligatorio y a la vista. No basta decir «derivado».</td></tr>
+      <tr><td><span class="st st-nomedido">no medido</span></td><td>No se pudo medir. <strong>Distinto de cero.</strong></td><td><strong>El motivo</strong>. Y el valor va en guion, nunca en <code>$0.00</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn"><strong>Por carril el juego cambia, y eso es información.</strong> Tesorería usa tres —no tiene <code>derivado</code>, porque no se rellena nada: o lo dice el banco, o lo dice el ERP, o no se sabe—. Ventas y Gastos sí derivan, con métodos que <strong>no son comparables entre sí</strong>. Que un carril no use un estado no es falta de simetría: es su naturaleza.</div>
+</section>
+
+<section>
+  <h2>2 · El segundo eje: <em>cuándo</em>, y de cuándo</h2>
+  <p class="lead">Un <code>as_of</code> solo <strong>miente por omisión</strong>: dice cuándo lo leí, no de cuándo es el dato. Dos cifras igual de «recientes» pueden tener 18 horas de diferencia real.</p>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">Régimen <span class="rg">vivo</span></span><span class="mi-val unk" style="font-size:.88rem">tabla o vista que cambia sola</span><span class="mi-sub">El <code>as_of</code> es el instante de lectura y el dato es de ese instante. Caduca en minutos.</span></div>
+    <div class="mi"><span class="mi-lab">Régimen <span class="rg">snapshot · 14:09Z</span></span><span class="mi-val unk" style="font-size:.88rem">matvista, rollup, foto nocturna</span><span class="mi-sub">El dato es de cuando se refrescó, no de cuando se leyó. Un <code>as_of</code> reciente aquí engaña.</span></div>
+    <div class="mi"><span class="mi-lab">Régimen <span class="rg">sin marca</span></span><span class="mi-val unk" style="font-size:.88rem">la fuente no publica frescura</span><span class="mi-sub">Se declara <strong>desconocido</strong>. Fabricar un <code>now()</code> diría «recién medido» sin haberlo medido.</span></div>
+  </div>
+  <div class="note ok"><strong>No se inventa vocabulario:</strong> <code>FreshnessPill</code> ya distingue <code>measures: 'data' | 'fetch'</code> y resuelve el eje frescura con un ternario explícito en <strong>37 de 47</strong> pantallas. El régimen reusa ese mismo lenguaje. <strong>Lo que falta no es frescura: es cobertura y método.</strong></div>
+  <div class="note bad"><strong>Los tres regímenes conviven en este documento.</strong> Las cifras de Tesorería son <span class="rg">vivo</span> (ERP y bancos), menos la deuda, cuya fuente <strong>no publica marca</strong>. Las de Ventas salen de un rollup <span class="rg">snapshot</span> con <strong>18 h</strong> de antigüedad — y su latido de refresco <strong>nunca ha corrido</strong>, así que nadie vigila esa antigüedad. Citarlas juntas sin el régimen reproduce el defecto que venimos a corregir.</div>
+</section>
+
+<section>
+  <h2>3 · Anatomía de un número</h2>
+  <p class="lead">El mismo dato, con y sin vocabulario. A la izquierda, lo que hoy publica <code>/finanzas/presupuesto</code> — medido en su propio código, no inventado para el ejemplo.</p>
+  <div class="ba">
+    <div class="ba-col"><div class="ba-hd mal">Hoy · el estado se codifica como color</div><div class="ba-bd">
+      <div class="strip">
+        <div class="mi"><span class="mi-lab">Cobros previstos</span><span class="mi-val t-ok">$8.39 M</span></div>
+        <div class="mi"><span class="mi-lab">Pagos previstos</span><span class="mi-val">$30.91 M</span></div>
+        <div class="mi"><span class="mi-lab">Saldo mín. proyectado</span><span class="mi-val">sin base</span></div>
+      </div>
+      <div class="note bad" style="margin:0"><code>tone: 'ok'</code> <strong>clavado sin condición</strong> en «Cobros previstos»: verde mientras la curva ve una fracción de la cartera. «sin base» es una <strong>ausencia renderizada como valor</strong>. Y «Pagos» no dice que también es parcial.</div>
+    </div></div>
+    <div class="ba-col"><div class="ba-hd bien">Con vocabulario · el estado es un estado</div><div class="ba-bd">
+      <div class="strip">
+        <div class="mi"><span class="mi-lab">Cobros previstos <span class="st st-parcial">parcial</span></span><span class="mi-val">$8.39 M</span><span class="mi-sub">vencen en la ventana · $56.23 M exigibles sin fecha quedan fuera</span></div>
+        <div class="mi"><span class="mi-lab">Pagos previstos <span class="st st-parcial">parcial</span></span><span class="mi-val">$30.91 M</span><span class="mi-sub">vencen en la ventana · $114.29 M vencidos quedan fuera</span></div>
+        <div class="mi"><span class="mi-lab">Saldo mín. proyectado <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">sin saldo inicial de bancos no hay base contra la cual proyectar</span></div>
+      </div>
+      <div class="note ok" style="margin:0">Ningún verde. Ninguno de los tres <strong>merece</strong> verde hoy, y el vocabulario lo hace evidente en vez de dejarlo al criterio de quien escribe la tira.</div>
+    </div></div>
+  </div>
+  <div class="note bad"><strong>Medido en el organismo compartido, no sólo en esta pantalla:</strong> <code>MetricStripItem.tone</code> es <code>'default' | 'ok' | 'warn' | 'bad' | 'brand' | 'muted'</code> — <strong>seis colores y cero estados</strong>. Lo usan <strong>85 pantallas</strong> y hay <strong>22 sitios con <code>tone: 'ok'</code> clavado sin condición</strong>.</div>
+</section>
+
+<section>
+  <h2>4 · Las cinco reglas</h2>
+  <div>
+    <div class="rule"><div class="rule-n">1</div><div class="rule-b"><div class="rule-t">Ningún número sin su estado.</div><div class="rule-d">Y <code>no medido</code> <strong>inhabilita el tono</strong>: no es que se pinte gris, es que <strong>no se puede pedir verde</strong>. Si el tipo lo permite, alguien lo va a pedir — los 22 clavados son la prueba.</div></div></div>
+    <div class="rule"><div class="rule-n">2</div><div class="rule-b"><div class="rule-t">Dos ausencias distintas, dos tratamientos.</div><div class="rule-d">«No hay dato» no es «hay dato y vale cero». Un guion, nunca un <code>$0.00</code>. Y el motivo decide quién la arregla: <code>sin medir</code> es de Sistemas, <code>sin meta</code> es de Dirección.</div></div></div>
+    <div class="rule"><div class="rule-n">3</div><div class="rule-b"><div class="rule-t">El número viejo se conserva al lado, no se reemplaza.</div><div class="rule-d">Cuando una cifra nueva contesta <strong>otra pregunta</strong>, las dos conviven con su etiqueta. Reemplazar borra la posibilidad de explicar por qué cambió.</div></div></div>
+    <div class="rule"><div class="rule-n">4</div><div class="rule-b"><div class="rule-t">Lo que es decisión de negocio se muestra como decisión pendiente, no como error.</div><div class="rule-d">Mandar al contralor a Sistemas por algo que alguien ya decidió quema el canal. Una decisión pendiente lleva <strong>dueño</strong>.</div></div></div>
+    <div class="rule"><div class="rule-n">5</div><div class="rule-b"><div class="rule-t">Un agregado no puede fundir poblaciones cuya procedencia difiere.</div><div class="rule-d">Se publica <strong>desglosado por la dimensión que las hace incomparables</strong>. En Ventas esa dimensión es el <code>method</code> —un relleno con historia propia no es el promedio de otras entidades—. En Tesorería es <em>por qué creemos que la deuda está abierta</em>, y <code>method</code> no la distingue: las dos poblaciones salen del mismo cálculo.</div></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>5 · Tesorería <span class="owner">carril cc · lleno</span></h2>
+  <p class="lead">Flujo de efectivo, capacidad de pago y obligaciones. Todas las cifras de abajo son <strong>reales</strong>, medidas contra <code>pg-prod</code> en <strong>una sola consulta del mismo instante</strong>. Régimen <span class="rg">vivo</span>, salvo donde se indica.</p>
+
+  <h3>La tira, como debería verse</h3>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">Saldo inicial <span class="st st-medido">medido</span></span><span class="mi-val">$2,588,183.56</span><span class="mi-sub">23 filas de fecha imposible excluidas y declaradas</span></div>
+    <div class="mi"><span class="mi-lab">Cobros en ventana <span class="st st-parcial">parcial</span></span><span class="mi-val">$8,394,167.08</span><span class="mi-sub">$56,231,901.26 exigibles sin fecha quedan fuera</span></div>
+    <div class="mi"><span class="mi-lab">Pagos en ventana <span class="st st-parcial">parcial</span> <span class="rg">sin marca</span></span><span class="mi-val">$30,909,942.02</span><span class="mi-sub">$114,292,263.03 vencidos quedan fuera · el ODS no publica frescura</span></div>
+    <div class="mi"><span class="mi-lab">Obligaciones autorizadas <span class="st st-medido">medido</span></span><span class="mi-val">$0.00</span><span class="mi-sub">cero real: 0 filas vigentes. Hecho de captura, no de negocio</span></div>
+    <div class="mi"><span class="mi-lab">Cobertura del pago <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">el denominador no se capturó en esta misma foto</span></div>
+  </div>
+  <div class="note ok"><strong>Las dos últimas tarjetas son el punto del artefacto.</strong> «$0.00» es un <strong>cero real</strong> —hay 0 obligaciones vigentes— y va con su cifra. «Cobertura del pago» es una <strong>ausencia</strong> y va con guion: el porcentaje existía en mediciones anteriores, pero su denominador no se tomó en este instante, y mezclar instantes es el defecto que este documento combate. <strong>Dos celdas vacías de distinta naturaleza, dos tratamientos.</strong></div>
+
+  <h3>El caso que ejercita la regla 5</h3>
+  <p class="lead">La deuda vencida no es una población: son dos, y no se distinguen por método porque salen del mismo cálculo.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Población</th><th class="num">Monto</th><th>Por qué creemos que está abierta</th></tr></thead>
+    <tbody>
+      <tr><td>Posterior al corte del 1-oct</td><td class="num">$61,903,283.56</td><td>El ERP la reporta abierta y su casamiento es contemporáneo.</td></tr>
+      <tr><td>Anterior al corte, de sucursal</td><td class="num">$52,388,979.47</td><td><strong>Puede ser artefacto de captura</strong>: <code>kdxf</code> no casa pagos previos al corte. Abierta o ya pagada sin casar — no se sabe.</td></tr>
+      <tr style="background:var(--sunken)"><td><strong>Total publicado</strong></td><td class="num"><strong>$114,292,263.03</strong></td><td><strong>45.8 %</strong> del total es la población incierta.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Confesión que pertenece al documento.</strong> Publiqué esta cifra como <strong>$152,936,952.90</strong> dos veces, el mismo día en que escribí la regla 5 — incluía <strong>$38,644,689.87 de traspasos entre sucursales</strong>, que no son deuda con terceros. Fundía dos poblaciones incomparables en un agregado. <strong>No lo destapó releer la regla: lo destapó tomar todas las medidas del mismo instante.</strong></div>
+
+  <h3>Tres antipatrones, medidos en esta pantalla</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:38%">Lo que hace hoy</th><th>Por qué engaña</th></tr></thead>
+    <tbody>
+      <tr><td><code>tone: 'ok'</code> clavado en «Cobros previstos»</td><td>Verde incondicional sobre una cifra parcial. No es <code>cfg ? classify : 'ok'</code> — <strong>no hay ni <code>cfg</code></strong>.</td></tr>
+      <tr><td>«Saldo mín. proyectado: <em>sin base</em>» sin tono</td><td>Una <strong>ausencia renderizada como valor normal</strong>. Viola la regla 2 por la vía del tono.</td></tr>
+      <tr><td>«Neto» verde cuando es positivo</td><td>Hasta hoy ese neto era <strong>+$10,642,041 porque «Pagos» valía $0</strong>. El verde más confiado estaba sobre el número más falso.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Dos rótulos que el artefacto no puede omitir</h3>
+  <ul>
+    <li><strong><code>pagos</code> y <code>pagos_autorizados</code> nunca se suman.</strong> Deuda del ERP contra obligación autorizada: dos universos con traslape sin resolver. Apilarlos en una barra publica dinero inventado.</li>
+    <li><strong>«Capacidad de pago» es una autorización, no dinero.</strong> Si se pinta junto al saldo bancario sin rotularla, se lee como liquidez. Propondría <span class="mono">$185,159.07</span> por día hábil contra <span class="mono">$2,332,149.22</span> reales — <strong>12.6× abajo</strong>.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>6 · Ventas <span class="owner">carril 06 · pendiente</span></h2>
+  <div class="pend"><b>Esta sección la llena su carril</b>Los cinco estados de Ventas (incluidos los <strong>dos rellenos que no son comparables</strong>), sus cifras con <code>as_of</code> y régimen <span class="rg">snapshot</span>, el caso del agregado por <code>method</code> que originó la regla 5, y el hueco del latido de refresco que nunca corrió.</div>
+</section>
+
+<section>
+  <h2>7 · Gastos <span class="owner">carril 8c · pendiente</span></h2>
+  <div class="pend"><b>Esta sección la llena su carril</b>El contrato de <code>expense-plan/coverage</code> (<code>observado · promedio_plano · ausente · sin_base_declarada</code>), los frenos por nivel, y la decisión pendiente del freno duro.</div>
+</section>
+
+<section>
+  <h2>8 · Lo que este documento NO resuelve</h2>
+  <ul>
+    <li><strong>Tres decisiones de negocio vivas</strong>, que van con dueño y no como error: si el gasto debe tener freno duro, cómo se resuelve FY2026 publicando 5 meses como anual, y quién firma el supuesto de crecimiento.</li>
+    <li><strong>El estado se propone, no se implementa.</strong> Agregarlo a <code>MetricStripItem</code> toca un organismo de 85 pantallas: necesita su <strong>compuerta con prueba negativa</strong> —un <code>check:</code> que falle si un item pide <code>tone: 'ok'</code> con estado distinto de <code>medido</code>, y que se rompa a propósito una vez para verificar el rojo—.</li>
+    <li><strong>Las cifras caducan.</strong> La cobranza en ventana se movió <strong>+10.6 % en tres horas</strong> el día que se midió. Ninguna cifra de este documento vale sin su <code>as_of</code> <em>y su régimen</em>.</li>
+  </ul>
+</section>
+
+</div>
+<script>
+(function(){
+  var b=document.getElementById('tgl'),r=document.documentElement;
+  function cur(){ var a=r.getAttribute('data-theme'); if(a) return a;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'; }
+  function paint(){ b.textContent = cur()==='dark' ? 'Cambiar a claro' : 'Cambiar a oscuro'; }
+  b.addEventListener('click',function(){ r.setAttribute('data-theme', cur()==='dark'?'light':'dark'); paint(); });
+  paint();
+})();
+</script>
+</body></html>
