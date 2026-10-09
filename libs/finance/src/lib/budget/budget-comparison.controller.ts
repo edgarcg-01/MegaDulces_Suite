@@ -4,6 +4,7 @@ import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform
 import { BudgetComparisonService } from './budget-comparison.service';
 import { BudgetCashflowService } from './budget-cashflow.service';
 import { BudgetResultService } from './budget-result.service';
+import { CashCycleService } from './cash-cycle.service';
 import type { BudgetResult } from '@megadulces/contracts';
 
 /**
@@ -20,6 +21,7 @@ export class BudgetComparisonController {
     private readonly svc: BudgetComparisonService,
     private readonly cashflow: BudgetCashflowService,
     private readonly resultSvc: BudgetResultService,
+    private readonly cycle: CashCycleService,
   ) {}
 
   @Get('cashflow')
@@ -27,6 +29,18 @@ export class BudgetComparisonController {
   @ApiOperation({ summary: 'Flujo de efectivo previsto por semana: cobros (cartera) − pagos (obligaciones) sobre saldo bancario. Saldo mínimo proyectado + alerta de insuficiencia.' })
   cashflowProjection(@Query('from') from?: string, @Query('to') to?: string) {
     return this.cashflow.projection({ from, to });
+  }
+
+  /**
+   * `[TES.13]` Ruta propia y no un campo del flujo, a propósito: el flujo ya cuesta ~2.4 s por
+   * la ventana FIFO de la cartera, y colgarle tres agregados de 90 días lo empeora para quien
+   * sólo quiere la curva. Quien pregunta por el ciclo, pregunta por el ciclo.
+   */
+  @Get('cash-cycle')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Ciclo de conversión de efectivo: DSO y DPO medidos sobre 90 días. El DPO va con y sin la masa de deuda en disputa; el DIO se declara pendiente con su motivo.' })
+  cashCycle() {
+    return this.cycle.cycle();
   }
 
   @Get('budgets/:id/summary')
