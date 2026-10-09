@@ -9770,3 +9770,35 @@ Auditoría de gastos read-only contra prod (2026-10-08). **El plan de egresos no
 **Compartidos con `[PVI]`, no duplicados acá:** la etiqueta `method` (`[PVI.5]`), el COGS ausente (`[PVI.7]`), los umbrales sin registrar (`[PVI.8]`) y el hueco del Q4 (`[PVI.4]` — el relleno plano del gasto cae en **el mismo trimestre** que la meta en $0.00: un defecto estructural, no dos).
 
 **Pendiente humano:** asignar ADR · **push** (⚠️ la fila `20261008174531` del ledger de prod es hoy **la única sin archivo en `origin/main`**: medido 1 de 1,166, y hasta que se empuje, `knex.migrate.list()` desde el contenedor aborta con *migration directory is corrupt*) · redeploy api · correr `test-newdb-budget-is-test.js` contra un destino seguro. **Sin permisos nuevos → sin re-login.**
+
+---
+
+### `[TES]` Tesorería y liquidez — Flujo / Capacidad de Pago / Obligaciones (2026-10-08)
+
+Carril de Presupuestos que responde *¿alcanza el dinero para pagar lo que se debe?*. Verdad absoluta
+del carril en [`VERDAD_ABSOLUTA.md` §26](../VERDAD_ABSOLUTA.md). Todo medido con consultas read-only
+contra `pg-prod` (namespace `prod`, k3s).
+
+- [x] ✅ `[TES.0]` **Auditoría del carril contra prod.** El flujo publicaba **+$10,642,041 en 8 semanas** viendo el **7.7 % del cobro y el 0 % del pago**: cobro real ~$53.3M/mes contra ~$4.1M que la curva dibuja, y pago real ~$50.6M/mes contra **$0**. ⭐ Las dos cegueras se compensaban en un verde tranquilizador. Con los dos run-rates reales el neto defendible es **≈ +$5.0M**: el negocio cobra algo más de lo que paga — **el estrés de caja lo fabricaba el modelo, no la operación**.
+- [x] ✅ `[TES.1]` **`analytics.v_supplier_payables`** — la deuda con proveedor **derivada** de `kepler_ods.kdxe/kdxf/kdxd`, no sincronizada (regla principal: el espejo de este carril, la cartera, vive porque es vista; su antecesora era tabla con importer y **quedó vacía en prod**). Validada contra prod en **355 ms**, 5,805 documentos abiertos. ⛔ **No clasifica**: el dueño de esa regla es `clasificarAcreedor()` del motor de ECA. Migración `20261008174741`, commit `9f9f9c146`. **NO aplicada a prod.**
+- [x] ✅ `[TES.2]` **`deudaPrevista()` + cableado al flujo.** Espejo exacto de `cobranzaPrevista()`. En la ventana vencen **$30,905,393.63**; **$114,440,471.87 ya vencidos viajan APARTE** — meterlos en la semana 1 afirmaría que se pagan el lunes. ⛔ **No se suma** a las obligaciones autorizadas: son dos universos y su traslape no está resuelto, así que van separadas (`pagos_autorizados`). `as_of` en `null` → `unknown`: el ODS no publica frescura en `kdxe`. Commit `2c59385f4`.
+- [x] ✅ `[TES.3]` **El saldo inicial de bancos y su detector de frescura.** 17 filas fechadas `2027-08-06` y 6 en el año `0206`: de 20 cuentas, **una quedaba anclada al futuro**. Saldo **$3,105,321.19 → $2,588,183.56** (**$517,137.63**, +19.98 %). ⭐ **El daño mayor era el `as_of`**, que salía del mismo `max(movement_date)`: **una fecha futura nunca tiene más de 30 días**, así que la píldora decía «fresco» incondicionalmente y lo habría seguido diciendo hasta agosto de 2027. ⚠️ `movement_date <= current_date` **no alcanza** — el año `0206` pasa ese filtro. Las 23 anómalas **no se borran**: viajan declaradas. Commit `5ee9195e8`.
+- [x] ✅ `[TES.4]` **Candado `test-newdb-supplier-payables.js`** con **dos pruebas negativas** (la regla del grupo 140 mueve $551,742.26; hay $38.6M de internos que excluir) y **tercer estado**: sin la vista aplicada reporta **NO MEDIDO**, no verde. ⚠️ **No registrado en `run-all-tests.js`** — ese archivo está modificado sin commitear por otra sesión y agregarle una línea habría arrastrado su trabajo.
+
+**Dos bugs que el compilador no habría visto, y cómo aparecieron:**
+
+- ⚠️ **Un `===` contra una unión de literales SIEMPRE tipa.** Escribí `tipo === 'traspaso_interno'`; el literal canónico es **`'interno'`**. La rama nunca dispara y **$38.6M de traspasos internos entran como deuda con terceros**. Lo encontró **leer** `clasificarAcreedor()`, no `tsc` ni el lint.
+- ⛔ **Re-implementar un clasificador que ya tiene dueño cuesta dinero medible:** mi regla ad-hoc en SQL ponía **$551,742.26 como `servicios` que son `financiero`** (grupo 140 con clave `G*`, STM Financial). El comentario del motor de ECA ya lo advertía.
+
+**Hallazgo que excede el carril — `[TES.5]`, sin dueño asignado:**
+
+- [ ] ⬜ `[TES.5]` **Las estadísticas del ODS mienten 808×.** `kepler_ods.kdxe` reporta **63 filas y tiene 50,885**; `kdxf` reporta 76 y tiene **30,556**; **237 de 240 tablas de `kepler_ods` tienen `last_analyze` Y `last_autoanalyze` en NULL**. La misma pregunta costó **224 ms una vez y más de 150 s la siguiente** (hubo que cancelarla con `pg_cancel_backend` contra prod en horario hábil). Hipótesis **no verificada**: apagado sucio de los pods → Postgres descarta el archivo de estadísticas. ⛔ **Ningún consumidor del ODS puede declarar un gate de tiempo hasta que exista un `ANALYZE`** — ni este carril ni la pantalla de ECA que salió el 2026-10-07.
+
+**Items abiertos del carril:**
+
+- [ ] ⬜ `[TES.6]` **Curva de recuperación de lo vencido.** `customer_receivable_snapshots` tiene **14 fechas** (2026-09-24 → 2026-10-08): no alcanza para un porcentaje mensual. Defendible **alrededor del 20-nov-2026**, con ~8 semanas de serie. ⛔ **No sale de `payment_program`**, que es dinero que SALE.
+- [ ] ⬜ `[TES.7]` **Razón corriente / prueba del ácido.** No existen: falta firmar **qué familias de cuenta son circulantes** — decisión contable sin dueño. Hasta entonces el renglón de solvencia sale `sin_medir`. ⚠️ Riesgo nombrado: confundir el `falta_liquidez` del flujo (prospectivo) con una razón de balance.
+- [ ] ⬜ `[TES.8]` **El 89.7 % de la deuda de mercancía ($122,755,716.27) tiene fecha anterior al 1-oct.** ⚠️ **No contradice** los $59.9M de ECA: ellos midieron facturas *de sucursal*, esto son *todas*. Abierto: deuda vieja impaga, o `kdxf` no captura pagos pre-corte y el saldo abierto está inflado. **Del dominio de ECA.**
+- [ ] ⬜ `[TES.9]` **`budget.daily_capacity` leída como cero.** La columna es `NOT NULL DEFAULT 0` y **57 de 57 días de la ventana no tienen fila**: sin fila es capacidad **NO DEFINIDA**, no cero. El defecto está **en el lector**, no en el esquema; y lo que se bloquea es **la liberación del lote**, nunca la proyección (el flujo no usa capacidad).
+
+**Pendiente humano:** asignar ADR · autorizar **`ANALYZE`** (`[TES.5]`) · aplicar la migración `20261008174741` a prod (es una vista, no toca datos) · **push** · redeploy api · registrar el candado en `run-all-tests.js` cuando el archivo quede libre. **Sin permisos nuevos → sin re-login.**
