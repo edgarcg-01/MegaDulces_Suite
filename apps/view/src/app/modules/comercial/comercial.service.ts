@@ -240,8 +240,24 @@ export interface ProductStats {
   with_cost: number;
   with_location: number;
   with_price: number;
-  /** Fecha del precio mas reciente de la lista. Alimenta el aviso de rezago. */
+  /**
+   * `[CAT.PRECIO]` Fecha del precio mas reciente de **la lista completa**, siempre — el buscador no
+   * la toca. Alimenta el aviso de rezago.
+   *
+   * ⛔ Antes salia del universo FILTRADO: buscar el SKU 44430 imprimia «Precios actualizados el
+   * 6 oct» cuando la lista se habia movido 13 minutos antes (medido en prod, 2026-10-09), y con un
+   * producto de mas de 7 dias la pantalla acusaba a toda la red de tener la lista parada.
+   *
+   * ⚠️ Es un UPSERT sin churn: dice cuando cambio **algun** precio, no cuando se **verifico** la
+   * lista. Es un piso de frescura, no una medicion del carril.
+   */
   price_updated_at: string | null;
+  /**
+   * `[CAT.PRECIO]` Fecha del precio mas reciente **de lo que se esta viendo**. `null` cuando no hay
+   * busqueda: ahi no existe un subconjunto del que hablar, y repetir el mismo numero se leeria como
+   * dos mediciones distintas (ADR-056).
+   */
+  price_updated_at_filtrado: string | null;
   brands: number;
   categories: number;
   top_brands: { name: string; sku_count: number }[];
