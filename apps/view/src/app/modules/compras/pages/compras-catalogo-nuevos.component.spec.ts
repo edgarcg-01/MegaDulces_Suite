@@ -19,6 +19,7 @@ import {
   desgloseTexto,
   existenciaPartes,
   existenciaTexto,
+  leLlego,
   listaUnidades,
   fechaCorta,
   hitoVisible,
@@ -424,6 +425,7 @@ describe('[NP.16] llegada, unidades por corte y reparto', () => {
     const filas = Array.from(document.querySelectorAll('.pk-rank tbody tr'));
     const celda = (tr: Element, label: string) => tr.querySelector(`td[data-label="${label}"]`)!;
     const limpio = (el: Element | null) => el?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(Array.from(celda(filas[0], 'Le llegó').querySelectorAll('.pk-cant')).map(limpio)).toEqual(['100 cajas']);
     expect(limpio(celda(filas[0], 'Vendido').querySelector('.pk-cant'))).toBe('22 cajas');
     expect(celda(filas[0], 'Vendido').querySelector('.pk-cant b')?.textContent).toBe('22');
     expect(celda(filas[0], 'Existencia hoy').querySelector('.pk-tag-agotado')?.textContent).toBe('Agotado');
@@ -466,6 +468,12 @@ describe('[NP.16] funciones puras', () => {
       p('03', { existencia: 12 }),
     ]);
     expect(orden.map((x) => x.plaza)).toEqual(['01', '05', '03']);
+  });
+
+  it('⭐ lo que le llegó: compras más lo de otra sucursal, cada rótulo por su lado', () => {
+    expect(leLlego({ unidades_recibidas: { CJA: 50 }, recibido_traspaso: { CJA: 10, PAQ: 3 } })).toEqual({ CJA: 60, PAQ: 3 });
+    expect(leLlego({ unidades_recibidas: {}, recibido_traspaso: { PZA: 0.1 } })).toEqual({ PZA: 0.1 });
+    expect(leLlego({ unidades_recibidas: {}, recibido_traspaso: {} })).toEqual({});
   });
 
   it('⭐ cada unidad en su renglón, de lo grande a lo chico, con la cifra aparte del rótulo', () => {

@@ -71,6 +71,18 @@ export function ordenReparto(plazas: PlazaNueva[]): PlazaNueva[] {
     .sort((a, b) => grupo(a) - grupo(b) || a.plaza.localeCompare(b.plaza));
 }
 
+/**
+ * `[NP.16]` Lo que le llegó a una sucursal desde el inicio: sus compras más lo que le llegó de otra
+ * sucursal. Cada rótulo de Kepler por su lado (no se convierten entre sí).
+ */
+export function leLlego(p: Pick<PlazaNueva, 'unidades_recibidas' | 'recibido_traspaso'>): UnidadesKepler {
+  const out: UnidadesKepler = {};
+  for (const u of [p.unidades_recibidas, p.recibido_traspaso]) {
+    for (const [k, q] of Object.entries(u ?? {})) out[k] = Math.round(((out[k] ?? 0) + q) * 1000) / 1000;
+  }
+  return out;
+}
+
 export function ordenMovimiento(plazas: PlazaNueva[]): PlazaNueva[] {
   return plazas
     .filter((p) => p.movimiento?.venta_neta_dia !== null && p.movimiento?.venta_neta_dia !== undefined)
@@ -633,7 +645,7 @@ export function tendenciaTexto(t: number | null): string {
                       <thead><tr>
                         <th scope="col">Lugar</th><th scope="col">Sucursal</th>
                         <th scope="col" class="pn-num">Venta por día</th>
-                        <th scope="col">Vendido</th><th scope="col">Existencia hoy</th>
+                        <th scope="col">Le llegó</th><th scope="col">Vendido</th><th scope="col">Existencia hoy</th>
                         <th scope="col" class="pn-num">Vendido de lo que llegó</th>
                         @if (dt.costo_visible) { <th scope="col" class="pn-num">Margen real</th> }
                       </tr></thead>
@@ -644,6 +656,8 @@ export function tendenciaTexto(t: number | null): string {
                             <td class="dt-id" role="cell">{{ p.nombre || ('Sucursal ' + p.plaza) }}
                               @if (p.movimiento.dias !== null) { <span class="pn-meta pk-dias">{{ p.movimiento.dias }} días</span> }</td>
                             <td class="pn-num pn-mono dt-num" role="cell" data-label="Venta por día">{{ dinero(p.movimiento.venta_neta_dia) }}</td>
+                            <td class="pk-cel" role="cell" data-label="Le llegó">
+                              <ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: leLlego(p), vacio: '—' }" /></td>
                             <td class="pk-cel" role="cell" data-label="Vendido">
                               <ng-container *ngTemplateOutlet="cantidadesTpl; context: { $implicit: p.unidades_vendidas, vacio: p.venta_sin_unidad > 0 ? 'sólo en pesos' : '—' }" /></td>
                             <td class="pk-cel" role="cell" data-label="Existencia hoy">
@@ -659,6 +673,7 @@ export function tendenciaTexto(t: number | null): string {
                     </div>
                     <p class="pn-meta">Venta sin impuestos por día desde que el producto llegó a cada sucursal, hasta el {{ fecha(vispera(dt.frescura.corte)) }}.
                       Una sucursal con menos de {{ diasMinimosSucursal }} días todavía no compite: una sola venta la pondría arriba.
+                      "Le llegó" es lo que compró más lo que le llegó de otra sucursal desde el inicio, en la unidad de cada documento.
                       "Vendido de lo que llegó" compara lo vendido con lo vendido más la existencia de hoy, en la unidad de la ficha.</p>
                   </section>
                 }
@@ -939,6 +954,7 @@ export class ComprasCatalogoNuevosComponent {
   readonly existenciaTexto = existenciaTexto;
   readonly textoUnidades = textoUnidades;
   readonly listaUnidades = listaUnidades;
+  readonly leLlego = leLlego;
   readonly existenciaPartes = existenciaPartes;
   readonly tendenciaTexto = tendenciaTexto;
   readonly tiposMargen = TIPOS_MARGEN;
