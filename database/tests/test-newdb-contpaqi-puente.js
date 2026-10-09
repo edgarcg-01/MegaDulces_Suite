@@ -128,17 +128,41 @@ const declarar = (label) => { nomedido++; console.log(`  ⚠ NO MEDIDO: ${label}
   check(/warnH:\s*\d+/.test(linea || '') && /critH:\s*\d+/.test(linea || ''),
     'y trae sus dos umbrales');
 
-  console.log('\n[6] Las reglas sembradas, contra la medición que las originó');
+  console.log('\n[6] ⭐ Las reglas están claveadas a categorías que EXISTEN, y ninguna es usable todavía');
   const reglas = await knex('contpaqi.account_rules').where({ tenant_id: MEGA })
-    .select('categoria_code', 'cuenta_gasto', 'confianza_pct', 'estado').orderBy('categoria_code');
-  check(reglas.length === 6, `6 reglas sembradas (son ${reglas.length})`);
-  const derivadas = reglas.filter((r) => r.estado === 'derivada');
-  check(derivadas.length === 5, '5 derivadas');
-  check(derivadas.every((r) => r.cuenta_gasto && Number(r.confianza_pct) >= 97),
-    '⭐ toda regla derivada tiene cuenta Y concentra ≥97% — es lo que la hace usable');
-  const sinRegla = reglas.filter((r) => r.estado === 'sin_regla');
-  check(sinRegla.length === 1 && !sinRegla[0].cuenta_gasto,
-    '⛔ `imss_sua` sigue DECLARADA sin cuenta (10.2% no concluye; forzarla sería inventar)');
+    .select('categoria_code', 'cuenta_gasto', 'confianza_pct', 'estado', 'concepto_medido')
+    .orderBy('categoria_code');
+  check(reglas.length >= 19, `las 19 categorías de salida de CB (son ${reglas.length})`);
+
+  // ⛔⛔ LA aserción que justifica esta migración. La semilla anterior tenía 3 reglas claveadas a
+  // `combustible`, `mant_reparto` y `renta_muebles` — códigos que NO EXISTEN en CB, inventados al
+  // bautizar las reglas con los CONCEPTOS de ContPAQi. Cubrían 17 movimientos de 55,648.
+  const codes = reglas.map((r) => r.categoria_code);
+  const enCb = await knex('finance.movement_categories').whereIn('code', codes).select('code');
+  const existe = new Set(enCb.map((c) => c.code));
+  const huerfanas = codes.filter((c) => !existe.has(c));
+  check(huerfanas.length === 0,
+    `⭐ ninguna regla apunta a una categoría inexistente${huerfanas.length ? ` — huérfanas: ${huerfanas.join(', ')}` : ''}`);
+
+  // Cobertura real: qué porción de los egresos de CB cae en una categoría que el puente conoce.
+  const cov = await knex.raw(
+    `SELECT count(*)::int total,
+            sum(CASE WHEN c.code = ANY(?::text[]) THEN 1 ELSE 0 END)::int cubiertos
+       FROM finance.bank_movements m
+       JOIN finance.movement_categories c ON c.id = m.category_id
+      WHERE m.tenant_id = ? AND m.deleted_at IS NULL AND m.amount_out > 0`, [codes, MEGA]);
+  const { total, cubiertos } = cov.rows[0];
+  const pct = total ? (100 * cubiertos / total) : 0;
+  check(pct > 95, `cubre ${pct.toFixed(1)}% de los egresos de CB (${cubiertos}/${total}) — antes era 0.03%`);
+
+  // ⭐ Y lo que parece un defecto y es el punto: NINGUNA se puede usar todavía.
+  const usables = reglas.filter((r) => r.estado !== 'sin_regla');
+  check(usables.length === 0,
+    `⛔ CERO reglas utilizables: el mapa categoría→cuenta NO es derivable y lo firma el contador (hay ${usables.length})`);
+  check(reglas.every((r) => !r.cuenta_gasto && r.confianza_pct === null),
+    '⭐ ni cuenta ni confianza: un % al lado de una cuenta vacía se leería como "ya está confirmada"');
+  check(reglas.every((r) => (r.concepto_medido || '').length > 40),
+    'cada una lleva su evidencia escrita, para que el contador no reciba una hoja en blanco');
 
   console.log('\n[7] Lo que este candado NO cubre');
   declarar('el camino de ESCRITURA (`guardar()` y el latido): `edgar` sólo tiene SELECT en contpaqi.*');
