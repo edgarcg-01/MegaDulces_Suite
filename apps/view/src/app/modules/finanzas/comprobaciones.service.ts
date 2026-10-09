@@ -10,7 +10,6 @@ import type { FormaPagoId } from '@megadulces/contracts';
 import type { AutorizacionKepler, EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
 // [GX.59] El Expediente por persona: la forma la define el contrato, no esta clase.
 import type { FiltroExpediente, RespuestaExpediente } from '@megadulces/contracts';
-import { filtroHistorialAParams, type FacetasHistorial, type FiltroHistorial } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -403,6 +402,9 @@ export interface GastosDelDia {
  */
 import type { ReaperturaPendiente } from '@megadulces/contracts';
 export type { ReaperturaPendiente };
+
+// `[GX.78]` Los filtros del Historial: la misma regla la usa el servidor para el calendario.
+import { filtroHistorialAParams, type FacetasHistorial, type FiltroHistorial } from '@megadulces/contracts';
 
 /** `[GX.27]` Un dia del calendario del historial. Solo viajan los dias CON movimiento. */
 export interface DiaDelCalendario { dia: string; n: number; monto: number }
