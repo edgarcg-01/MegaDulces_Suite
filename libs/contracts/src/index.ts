@@ -8,6 +8,7 @@ export * from './ports/order-fulfillment.port';
 export * from './ports/customer-provisioning.port';
 export * from './ports/finance-notifier.port';
 export * from './ports/recon-notifier.port';
+export * from './ports/contpaqi-poliza-sink.port';
 export * from './ports/finance-findings-sink.port';
 export * from './ports/invoice-issuer.port';
 export * from './ports/commerce-conversation.port';

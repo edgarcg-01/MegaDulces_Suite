@@ -163,3 +163,9 @@ apps/catalogo-kp/public/verificador*.html
 # Salida generada por la herramienta graphify (AST, chunks, análisis). Se regenera sola;
 # versionarla metía 2.2 MB de artefactos y ruido en cada diff. Retirada 2026-10-02.
 graphify-out/
+
+# [CP.8.4] TXT de polizas REALES de ContPAQi, usados como arbitro del layout por los candados
+# de las fases LC y CP. Traen cuentas contables, importes, conceptos y UUID de CFDI de la
+# contabilidad de la empresa, y ESTE REPO ES PUBLICO. Viven en la maquina, nunca se publican;
+# los smokes que los usan hacen skip-graceful cuando no estan (que es el caso en CI).
+database/tests/fixtures/*.txt

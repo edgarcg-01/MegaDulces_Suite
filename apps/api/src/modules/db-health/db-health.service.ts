@@ -1255,6 +1255,12 @@ const CRON_JOBS: CronCfg[] = [
   // veces, porque nadie podía comprobar que el incremental estuviera vivo. Umbral de job de alta
   // frecuencia, mismo criterio que `kepler_stock`.
   { key: 'twins_pairing',                     label: 'Apareo de recepciones gemelas (cron API)', cadence: 'cada 5 min', warnH: 3, critH: 12 },
+  // [CP.8.10] El cuadre del puente a ContPAQi (`ContpaqiCuadreService`, cada 10 min). Se registra
+  // acá porque sin umbral el sensor cae en `cfg ? classify : 'ok'` y da **verde incondicional** —
+  // lo midió la Fase VP sobre 3 matvistas del sell-out. Y porque este job es justamente el que
+  // afirma que una póliza llegó a ContPAQi: si deja de correr, lo entregado vuelve a ser
+  // inverificable y nadie se entera. Umbral de job de alta frecuencia, criterio de `twins_pairing`.
+  { key: 'contpaqi_cuadre',                   label: 'Cuadre del puente ContPAQi',        cadence: 'cada 10 min', warnH: 3, critH: 12 },
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_payment_terms',   label: 'Refresh MV condición de pago (SD-PAY, nightly)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },

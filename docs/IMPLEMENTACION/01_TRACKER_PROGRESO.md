@@ -9968,3 +9968,109 @@ contra `pg-prod` (namespace `prod`, k3s).
 - [ ] ⬜ `[TES.9]` **`budget.daily_capacity` leída como cero.** La columna es `NOT NULL DEFAULT 0` y **57 de 57 días de la ventana no tienen fila**: sin fila es capacidad **NO DEFINIDA**, no cero. El defecto está **en el lector**, no en el esquema; y lo que se bloquea es **la liberación del lote**, nunca la proyección (el flujo no usa capacidad).
 
 **Pendiente humano:** asignar ADR · ⛔ **aplicar la migración `20261008174741` a prod — el clasificador de auto-mode bloqueó el `kubectl exec` del aplicador** (los archivos ya están copiados en `api-75c847b79b-cvqpl`: la migración en `/app/database/migrations-newdb/` y el aplicador en `/app/database/scripts/`; falta sólo ejecutarlo) · **push** (⚠️ `main` local arrastra commits de las otras dos sesiones del carril `/presupuestos`, y `origin/main` dispara `auto-deploy` — no es una decisión de este carril) · redeploy api · registrar el candado en `run-all-tests.js` cuando el archivo quede libre · decidir el `ANALYZE` de schema completo (`[TES.5]`). **Sin permisos nuevos → sin re-login.**
+
+## Fase CP.8 — El puente Suite ↔ ContPAQi — ADR-040
+
+> Plan: [`FASE_CP8_PUENTE_CONTPAQI.md`](FASES/FASE_CP8_PUENTE_CONTPAQI.md) ·
+> Bitácora: `03_LOG_REVISIONES.md` 2026-10-08/09.
+> **Tesis:** un puente son TRES cosas — ida, vuelta y **cuadre**. La vuelta ya corría (carril
+> `contpaqi` @1 min). Dos tubos paralelos no son un puente.
+
+### E0 — Cimientos
+
+- [x] **[CP.8.1]** `contpaqi.account_rules` + `contpaqi.poliza_exports` (RLS forzado, `tenant_id`,
+  idempotencia por evento). Siembra las 5 reglas **derivadas de sus libros** con su confianza
+  medida; `imss_sua` entra como `sin_regla` (10.2 %) — declarada, no forzada.
+  🚀 **EN PROD 2026-10-09, batch 856** + `20261009101500_contpaqi_grants_dev_ro.js` (batch 857,
+  corrige que `dev_ro` había quedado sin USAGE). Verificado en prod: RLS forzado, políticas,
+  grants, 6 reglas, y el CHECK probado en NEGATIVO (`derivada` sin cuenta → rechazada;
+  `sin_regla` sin cuenta → aceptada).
+- [x] **[CP.8.2]** `poliza-egreso.ts` — el armador. Puro, sin DI. ⭐ El IVA **viene del CFDI**, no
+  se calcula (medido: difiere 1–2 ¢). 🧪 2026-10-08
+- [x] **[CP.8.3]** Candado `test-newdb-contpaqi-poliza-egreso.js` — **33 ✓ / 0 ✗**, reproduce 3
+  pólizas REALES, probado por mutación. 🧪 2026-10-08
+
+### E1 — La ida por archivo
+
+- [x] **[CP.8.4]** ⭐⭐ **El árbitro del layout.** `02-evaluar-esquema.ps1` encontró una exportación
+  real de ContPAQi en la máquina de trabajo. **El emisor escribía P=147/M=211 y el real es
+  P=185/M=272.** Verificado doble: aritmética exacta + cruce contra la base (14/14 `Polizas.Guid`,
+  82/82 `MovimientosPoliza.Guid`, 62 `AD` → 234 `AsocCFDIs`). 🧪 2026-10-08
+- [x] **[CP.8.5]** `CONTPAQI_POLIZA_SINK_PORT` + `ContpaqiTxtSinkAdapter`. Reusa el layout de LC
+  (no una segunda serialización). ⭐ Devuelve `entregada`, **nunca `aplicada`**.
+  **42 ✓ / 0 ✗ · 7 NO MEDIDO** 🧪 2026-10-08
+- [x] **[CP.8.12]** `layout.params.ts` — los parámetros declarados con **estado y respaldo**
+  (`decidido` / `heredado` / `en_disputa`). Decididos por nosotros: folio 0, token `MD:`+8hex,
+  tipo de póliza, segmento. 🧪 2026-10-08
+- [x] **[CP.8.13]** `poliza-txt.ts` **reescrito al formato real**. ⭐⭐ **Round-trip byte a byte:
+  14/14 pólizas reales idénticas.** Encontró `impTxt` escribiendo `11787.50` donde ContPAQi
+  escribe `11787.5` (el comentario del código siempre tuvo razón) e `impresa` clavado en `0`.
+  LC sigue en **38 ✓ / 0 ✗**. 🧪 2026-10-08
+- [x] **[CP.8.6]** `token.ts` — el token de correlación, ciclo completo (generar · extraer · armar
+  el concepto). **Determinista** por `(evento_tipo, evento_id)`: con uno aleatorio, re-emitir
+  dejaría huérfana la entrega anterior. ⛔ **El largo pasó de 8 a 12 hex y el respaldo viejo estaba
+  MAL razonado**: decía "~5k eventos/año" cuando el universo medido son **55,369**, y comparaba el
+  tamaño del espacio contra el volumen — el error clásico del cumpleaños. Con 8 hex se esperan
+  **0.357 colisiones** sobre los datos que YA tenemos. **29 ✓ / 0 ✗**, 3 mutaciones. 🧪 2026-10-09
+- [ ] **[CP.8.7]** Bandeja `/finanzas/contpaqi`: armar → revisar → entregar (HITL).
+
+### E2 — El cuadre *(lo que lo vuelve puente)*
+
+- [x] **[CP.8.8]** + **[CP.8.9]** `cuadre.engine.ts`. **Dos llaves y NO son intercambiables**:
+  `token` = certeza (asciende solo) · `importe` = sospecha (queda `probable`). Seis veredictos:
+  `esperando` devuelve `null`, `no_aparecio` devuelve `false` — las dos ausencias son distintas
+  (ADR-056). **35 ✓ / 0 ✗**, 3 mutaciones. 🧪 2026-10-08
+- [~] **[CP.8.10]** `contpaqi-cuadre.service.ts` — la I/O alrededor del motor: lee lo que espera
+  confirmación, busca candidatos en `analytics.gl_polizas` (que el carril refresca **cada minuto**),
+  llama al motor puro y escribe el veredicto. `@Cron` cada 10 min + latido `contpaqi_cuadre`
+  **con umbral registrado en `CRON_JOBS`** (sin él el sensor da verde incondicional — Fase VP).
+  ⛔ **`aplicada` sólo llega por el veredicto homónimo**; `probable`/`difiere`/`ambiguo`/`esperando`
+  NO mueven el estado. **NO está registrado en ningún módulo a propósito**: su `@Cron` no se agenda
+  y no va a fallar cada 10 min en prod contra una tabla que no existe.
+  ⚠️ **NO MEDIDO** — la migración [CP.8.1] no está aplicada, así que no se ejerció contra datos
+  reales. Lo que sí está probado es la REGLA que ejecuta (motor, 35 ✓). 🔨 2026-10-09
+- [ ] **[CP.8.11]** Bandeja de divergencias + el plazo.
+
+### E3 — El mapa firmado *(dependencia: el contador)*
+
+- [ ] **[CP.8.14]** UI de reglas con confianza + aprobación (`derivada` → `aprobada`).
+- [ ] **[CP.8.15]** Proveedor → su subcuenta por RFC (`analytics.contpaqi_suppliers`, 99.6 % con RFC).
+- [ ] **[CP.8.16]** Las categorías que no concentran (`imss_sua` 10.2 %): medir o declarar.
+
+### E4 — La ida automática *(opcional: el puente cierra sin SDK)*
+
+- [x] **[CP.8.17]** `01-probe-sdk.ps1` — sondeo read-only, ejercido en rama negativa (encontró 2
+  defectos propios: instanciaba COM ajenos y publicaba una ausencia como veredicto). 🧪 2026-10-08
+- [ ] **[CP.8.18]** Correrlo en una terminal ContPAQi · **[CP.8.19]** el agente · **[CP.8.20]**
+  `SdkSinkAdapter` + reversa a TXT.
+
+### ⛔ Bloqueos abiertos
+
+- [ ] ⭐ **Importar UN archivo** para confirmar que ContPAQi lo acepta. **Un minuto de la
+  contadora**, y contesta tres cosas: si el formato vale, si respeta el `guid`, y si los
+  renglones `AD` se pueden prender.
+- [ ] Aplicar `[CP.8.1]` a prod · [ ] Firmar el mapa de 5 reglas · [ ] Emitir renglones `AD`
+- [ ] Decodificar `AM`, `AP`, `I`, `V`, `W2` (los guids de `AM` **no cruzan con nada**)
+
+---
+
+## Fase CP.9 — Cobertura total de ContPAQi
+
+> Plan: [`FASE_CP9_COBERTURA_TOTAL.md`](FASES/FASE_CP9_COBERTURA_TOTAL.md) · 🔍 **medido, sin código**
+
+**El denominador (2026-10-09):** 119 tablas · **52 con datos** · **4,706,885 filas** · cubrimos
+**31.2 %**. El ADD tiene **4 repositorios y leemos 1**. Nóminas (`ctLFLG`, 2.3 GB) en **cero**.
+
+- [ ] **Ola 1** ⭐⭐ `MovimientosImpuestos` (331,955) + `DevolucionesIVA` (201,036) — base y tasa de
+  IVA/IEPS **por movimiento, con UUID**. Es lo que LC reconstruye a mano desde el ADD; sirve para
+  simplificarlo y, sobre todo, para **cruzarlo como segunda implementación**.
+- [ ] **Ola 2** `AsocCFDIs` (979,977) + `DocumentosAdministrativos` + `MovimientosAdministrativos`.
+- [ ] **Ola 3** Bancos/egresos propios — ⚠️ **en desuso desde 2019**, valor bajo.
+- [ ] **Ola 4** `Personas`, `Clientes`, `Domicilios`.
+- [ ] **Ola 5** Los 3 repositorios ADD — ⛔ **medir antes de planear**.
+- [ ] **Ola 6** Nóminas — dominio entero, conecta con Fase RH.
+- [ ] **Ola 7** Escritura completa (cerrar el puente).
+
+⛔ **Recomendación escrita: NO perseguir el 100 %.** Es métrica vanidosa (`Counters`, `Folios`,
+`ModulosListados` son mecánica interna). El valor está en las olas 1 y 6 — y **ninguna vale lo que
+cerrar el puente**, que está a un clic de probarse.
