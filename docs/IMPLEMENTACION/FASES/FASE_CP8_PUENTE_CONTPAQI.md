@@ -813,3 +813,73 @@ Y las dos propuestas con respaldo, declaradas como **inferencia entre taxonomía
 
 Escribí `` `renta` `` dentro de un template literal del SQL y cortó la cadena
 (`missing ) after argument list`). Lo agarró `node -c` **antes** de llegar a prod.
+
+---
+
+## 16. `[CP.8.7]` La plomería: de un movimiento bancario a una póliza (2026-10-09)
+
+`ContpaqiArmadoService` — el eslabón que faltaba. Sin él `poliza_exports` queda vacía para
+siempre y el cuadre no tiene qué cuadrar.
+
+### 16.1 ⭐⭐ El modelo de entrada era otro: el IVA NO viene en el mismo renglón
+
+Lo primero que había que entender, y no lo sabía: **el banco cobra el gasto y su impuesto como
+dos movimientos distintos.**
+
+```text
+"ADM PAQUETE PYME"  ->  490.00     (categoría del gasto)
+"IVA"               ->   78.40     (categoría iva_acreditable)      490 × 0.16 = 78.40
+```
+
+Por eso CB tiene 4,632 movimientos en `iva_acreditable`. Medido contra prod:
+
+| | |
+|---|--:|
+| IVA con hermano exacto (misma cuenta, misma fecha, ×0.16) | **76.8%** |
+| ambiguos (más de un candidato) | 1.5% |
+| ⭐ **placebo** — fecha corrida 43 días | **0.1%** |
+
+**768× el piso de ruido.** El pareo es real, no una coincidencia aritmética.
+
+⚠️ El 23.2% sin hermano **se declara**: puede ser gasto exento, IVA cobrado otro día, o un cargo
+con impuesto adentro. Se arma con IVA 0 — **nunca calculando un 16% que nadie cobró**.
+
+⛔ Y no hay atajo por CFDI: `bank_movements.client_uuid` parece un UUID pero es la llave de
+idempotencia del importer (SHA-1); **0 de 55,648 cruzan con `fiscal.cfdis`**.
+
+### 16.2 Ejercitado contra prod, y lo que encontró
+
+Corrido en simulación sobre enero y febrero: **4,166 egresos reales**, cada uno rechazado con
+motivo específico.
+
+| Motivo | ene | feb |
+|---|--:|--:|
+| `sin_regla` — el mapa no está firmado | 1,474 | 1,176 |
+| cuenta de banco **`CG`** sin `contpaqi_cuenta` | 864 | 619 |
+| cuenta de banco **`FAC`** sin `contpaqi_cuenta` | 12 | 21 |
+| categoría sin fila de regla | 2 | 2 |
+
+**Dos hallazgos:**
+
+1. ⚠️ **`CAJA CG` ($81.8M / 10,303 egresos) y `FACTORAJE` ($17.4M) no tienen enlace a ContPAQi** —
+   y no es un error: **no son bancos** (`kind` = `cash` y `factoraje`). Las **18 cuentas de banco
+   reales sí están enlazadas**. CP.2 enlazó bancos; nadie mapeó caja ni factoraje. Es un hueco del
+   crosswalk, declarado, no inventable desde acá.
+2. ⛔ **Un hueco propio de `[CP.8.1c]`**: sembré las categorías con `flow` `out`/`both`, y hay **2
+   de `flow='in'` que aparecen con salida** — `cobranza` (79) e `ingreso_devolucion` (1). Son
+   reversos: un cobro que se devuelve sale por el banco. *El `flow` del catálogo describe la
+   intención de la categoría, no lo que cada movimiento termina haciendo.* Cerrado con
+   `[CP.8.1d]` (batch 859).
+
+### 16.3 ⭐ Hoy rechaza TODO, y eso es lo correcto
+
+Las 21 reglas están en `sin_regla`. **Cero armables no es una falla a medias: es la única conducta
+honesta mientras el mapa no esté firmado** — y el día que se firme una regla, el candado se pone
+rojo, que es exactamente cuando hay que volver a mirarlo.
+
+Candado del puente: **39 ✓ / 0 ✗ · 2 NO MEDIDO**, con el armador ejercitado contra prod en
+simulación (lee de verdad, no escribe una fila).
+
+⚠️ Una aserción mía dio falso rojo: cortaba el motivo a 40 caracteres y eso partía
+`contpaqi_cuenta` por la mitad. **Fallaba por el recorte, no por el dato** — y parecía un
+hallazgo.
