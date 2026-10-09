@@ -55,7 +55,7 @@ export class CashflowForecastSnapshotService {
       const hasta = new Date(Date.now() + HORIZONTE_DIAS * 86400000).toISOString().slice(0, 10);
 
       await this.knex.transaction(async (trx) => {
-        await trx.raw('SET LOCAL app.tenant_id = ?', [MEGA]);
+        await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [MEGA]);
 
         const cob = await cobranzaPrevista(trx, MEGA, hoy, hasta);
         const deu = await deudaPrevista(trx, MEGA, hoy, hasta);
