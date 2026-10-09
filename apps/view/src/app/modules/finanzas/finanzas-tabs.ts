@@ -1,5 +1,6 @@
 import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../core/constants/permissions';
+import { GASTOS_TABS } from './gastos-tabs';
 
 /**
  * Tabs del proyecto Finanzas. Aquí crece lo contable (documentos, hallazgos,
@@ -122,38 +123,9 @@ export const FINANZAS_TABS: PageTab[] = [
    * Kepler empiecen a escribirlo, en producción esta puerta cerrada deja a la gente sin por
    * dónde entrar. En local el sembrador lo resuelve.
    */
-  {
-    // `[GX.17]` La otra mitad del trámite. Mismo orden que el sidebar, a propósito.
-    label: 'Aprobación de gastos',
-    route: '/finanzas/aprobacion-gastos',
-    icon: 'pi pi-verified',
-    permission: Permission.FINANCE_EXPENSES_COMPROBAR,
-  },
-  {
-    // `[GX.33]` Lo que levantó uno mismo, con su estado. Para quien sólo captura.
-    label: 'Mis gastos',
-    route: '/finanzas/mis-gastos',
-    icon: 'pi pi-wallet',
-    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR],
-  },
-  {
-    // `[GX.59]` El tramite de TODAS las personas, agrupado por persona, con el veredicto del
-    // protocolo. Es la pantalla que el usuario pidio «en lugar de historial».
-    label: 'Expediente',
-    route: '/finanzas/expediente',
-    icon: 'pi pi-folder-open',
-    permission: Permission.FINANCE_EXPENSES_COMPROBAR,
-  },
-  {
-    // `[GX.33]` De todas las fechas y de toda la empresa: es para quien REVISA.
-    // ⚠️ `[GX.59]` NO se retiro: 14 personas con `_VER` y sin `_COMPROBAR` se quedarian sin
-    // ninguna vista de empresa. Queda abierto si se retira.
-    label: 'Historial',
-    route: '/finanzas/gastos-historial',
-    icon: 'pi pi-history',
-    // `[GX.71]` + HISTORIAL_TODOS (por persona), el mismo trío que la ruta.
-    anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS],
-  },
+  // `[GX.80]` Las cuatro pantallas de Gastos viven en `gastos-tabs.ts`: es la MISMA lista que
+  // pinta la barra de pestañas del área y a la que lleva la entrada «Gastos» del menú.
+  ...GASTOS_TABS,
   // `[GX.18]` La pestaña del tablero salió por pedido del usuario. La ruta sigue viva.
   {
     label: 'Pregúntale a Maat',

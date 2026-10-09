@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Finanzas › Gastos: una entrada en el menú y sus cuatro pantallas en pestañas (GX.80, 2026-10-09)
+- En el menú lateral, Aprobación de gastos, Mis gastos, Expediente e Historial se juntan en una sola entrada «Gastos». Adentro se cambia de pantalla con pestañas horizontales; cada quien ve sólo las que puede abrir y, con una sola, no hay barra.
+- Las direcciones (URL) de las cuatro pantallas no cambian.
 ### Changed — Logística: la guía se llena sólo en la pestaña Guías (EMB.22, 2026-10-09)
 - **Hoja de «Nuevo embarque»:** ya no pide tripulación ni horario. Lo que trae Kepler se ve bloqueado; lo que no, dice «Se captura en Guías» (ayudantes, salida, llegada y el chofer si Kepler no lo trae) o «Se calculan en Guías» (comisión y viáticos). Peso, kilómetros y flete se siguen capturando ahí.
 - **Al tomar el viaje** la guía nace incompleta con lo de Kepler. En **Guías** aparece «Incompleta» con el botón **Completar**: el chofer de Kepler va bloqueado, se capturan ayudantes y horario una sola vez y se calculan comisión y viáticos; después ya no se edita.
