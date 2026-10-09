@@ -1496,3 +1496,145 @@ Los archivos y la hoja de instrucciones están listos:
 
 ⛔ Los `.txt` **no se commitean** — llevan cuentas reales y un UUID de CFDI real, y el repo es
 público. Se generan con `database/scripts/generar-prueba-contpaqi.js --out <carpeta>`.
+
+---
+
+## 22. ⛔⛔ `[CP.8.25]` La asociación de CFDI SÍ ocurre — la premisa de los "0 de 33,303" estaba mal aplicada
+
+Edgar mandó una captura de **`XML Recibidos > Facturas`** del ADD en `192.168.0.208`
+(`0contabilidadd`) preguntando si conviene XML. La pantalla mostraba
+**`Total Registros: 10 · Documentos Asociados: 0`**, y eso obligó a medir.
+
+### 22.1 Lo medido
+
+| año | CFDIs recibidos | asociados | % |
+|---|--:|--:|--:|
+| 2018 | 19,608 | 17,484 | 89.2 |
+| 2021 | 19,893 | 18,636 | 93.7 |
+| 2024 | 18,281 | 17,001 | 93.0 |
+| 2025 | 18,107 | 16,352 | 90.3 |
+| 2026 | 13,504 | 10,704 | 79.3 |
+| **histórico** | **169,030** | **152,061** | **90.0** |
+
+Y por mes, el 2026: may **88.8 %** · jun 89.8 · jul 71.1 · ago 71.4 · sep 54.8 · **oct 6.6 %**.
+
+⭐ **El `0` de la pantalla no es una falla: es el rezago del mes en curso.** La rampa
+descendente hacia hoy es exactamente la forma que tiene *"la contadora todavía no llegó a eso"*.
+
+### 22.2 ⛔ Qué estaba mal en cómo lo venía contando
+
+`FASE_CP` §7.9 mide **33,303 movimientos de póliza** sin CFDI asociado, y `[CP.8.13]` §10.4
+concluyó —correctamente— que el formato **sí** transporta el UUID. Pero al presentarlo yo lo
+convertí en *"cerramos un hueco del 0 %"*, **mezclando dos universos**:
+
+| universo | medida |
+|---|--:|
+| renglones de póliza del **libro de compras** sin UUID | 33,303 en 5 años |
+| **CFDIs recibidos** sin asociar | **10 % — y el 90 % sí se asocia** |
+
+⭐ *Los dos números son ciertos y no hablan de lo mismo.* Un CFDI puede estar asociado a su
+documento y aun así no aparecer en el renglón de la póliza del libro.
+
+### 22.3 El valor del renglón `AD`, corregido
+
+No es *"cerrar un 0 %"*. Es:
+
+1. **Ahorrar el trabajo manual**: ~1,400 comprobantes al mes que hoy alguien asocia a mano con el
+   botón **Asociar** de esa misma pantalla.
+2. **Cerrar el 10 % que nunca se asocia**: **2,606 CFDIs de 2026 por $105,399,045.52**.
+
+Sigue valiendo la prueba —y mucho—, pero con el número correcto.
+
+### 22.4 Lo que la captura aporta además
+
+- ⭐ **`192.168.0.208` (`0contabilidadd`) es la máquina donde corre ContPAQi Contabilidad**, no la
+  `.35` (que es el SQL Server). Es el candidato para `E4` (el SDK), que hasta ahora no tenía
+  dirección.
+- La pantalla tiene un botón **`Preliminar`**, que en el ADD suele generar una **póliza preliminar
+  desde los XML seleccionados**. ⚠️ **Sin verificar qué hace exactamente acá** — si genera póliza
+  desde CFDI, es un camino de automatización alterno que hay que medir antes de descartar.
+- ⛔ **Esta pantalla NO es la de importar pólizas.** Es el repositorio de comprobantes. La
+  pregunta sobre XML vs TXT sigue abierta y se contesta en *Pólizas → Importar*.
+
+---
+
+## 23. ⭐⭐⭐ `[CP.8.26]` El árbitro apareció — y el `SEP` deja de ser una suposición
+
+`[CP.8.4]` §9.2 identificó **`C:\Compac\Empresas\Esquemas\Contpaq\CT_EST_Poliza_NG.xls`** como el
+esquema que ContPAQi usa para *leer* el TXT, y lo declaró **inalcanzable** (SMB denegado).
+
+Resultó que **está escrito en el propio diálogo de `Cargar Pólizas`**, en el campo
+`Configuración de datos`. No hacía falta ningún acceso remoto: hacía falta abrir la pantalla.
+
+⚠️ Lo que llegó fue **`CT_EST_Prepoliza_NG.xls`** — el de **Prepóliza**, no el de Póliza. Sus
+anchos son otros (`Referencia` 100 vs 30, `Cuenta` 52 vs 30), así que **no sirve para validar
+nuestro layout**. Pero sí entrega la **gramática**, y con eso alcanza para cerrar el riesgo mayor.
+
+### 23.1 ⭐⭐ El separador: confirmado por el propio esquema de ContPAQi
+
+El archivo declara el formato como una secuencia de renglones `Tipo | Nombre | Longitud`:
+
+```
+E | prepolizas.1   | 2  | R        <- etiqueta del registro (2 chars) + su letra de tipo
+S |                | 1             <- SEPARADOR de 1 caracter
+A | Codigo         | 20 |  | derecha
+S |                | 1
+A | Nombre         | 100
+S |                | 1
+...
+A | ClaveBaseISR   | 20
+S |                | 1             <- ⭐ TAMBIEN despues del ULTIMO campo
+```
+
+⭐⭐ **Hay un `S` de 1 carácter después de CADA campo, incluido el último.** O sea
+**`Σanchos + n`**, no `n−1`.
+
+Eso es **exactamente** lo que `[CP.8.13]` §10.3 había medido a mano sobre las 232 líneas del
+archivo real (*"toda línea termina en UN ESPACIO"*), y es lo que el emisor implementa hoy:
+
+| | Σanchos | +n | +(n−1) | **real** |
+|---|--:|--:|--:|--:|
+| `P` (11 campos) | 174 | **185** | 184 | **185** ✓ |
+| `M` (11 campos) | 261 | **272** | 271 | **272** ✓ |
+
+**El `SEP` deja de ser una suposición.** `[CP.8.4]` lo tenía como el riesgo ⛔ de toda la fase
+(*"todo E1 descansa en un formato supuesto"*) y ahora está confirmado por la especificación del
+fabricante, no sólo por nuestra lectura de un archivo.
+
+### 23.2 Lo demás que la gramática confirma
+
+| del esquema | lo que valida |
+|---|---|
+| `E ... 2 ... R` / `M` | la **etiqueta de registro mide 2** y lleva una letra de tipo — por eso `P ` y `M1` |
+| `A` vs `R` | `A` = alfanumérico · **`R` = referencia a catálogo** (Cuenta, Diario, SegNeg) |
+| `A \| TipoMovto \| 1 \| 1,0` | confirma `0` = cargo / `1` = abono |
+| columna `Alineación: derecha` | existe el concepto — y el emisor ya alinea a la derecha algunos campos |
+
+### 23.3 ⚠️ Una anomalía SIN explicar, declarada
+
+Varios campos traen **longitud `52`**: `TipoPol`, `Folio`, `Diario`, `Cuenta`, `CtaFinal`,
+`Importe`, `ImporteME`, `SegNeg`. **Todos son numéricos o referencias a catálogo**; los
+alfanuméricos sí traen longitudes creíbles (20, 100, 1, 2, 254, 10, 5).
+
+En el archivo real esos campos miden 4, 9, 10, 30, 20 y 4 — **ninguno 52**.
+
+⛔ **No se interpreta.** La hipótesis cómoda sería *"52 = longitud variable, el importador tolera
+y delimita por el separador"* — y si fuera cierta, nuestros anchos exactos importarían menos.
+Pero la columna `Alineación` sólo tiene sentido en ancho fijo, así que la hipótesis se contradice
+sola. **Se mide con `CT_EST_Poliza_NG.xls`, no se adivina** (ADR-056).
+
+### 23.4 Lo que falta pedir, ahora con nombre exacto
+
+```
+C:\Compac\Empresas\Esquemas\Contpaq\CT_EST_Poliza_NG.xls      <- SIN "Pre"
+```
+
+Misma carpeta, el archivo de al lado. Con ése se valida nuestro layout **campo por campo antes de
+importar**, y la contadora importa una vez en vez de tres.
+
+### 23.5 ⭐ Y el diálogo trae dos cosas que abaratan la prueba
+
+- **`Cargar sin Afectar`** — carga la póliza **sin tocar los saldos**, por el MISMO camino y el
+  MISMO formato. Mejor red de seguridad que la prepóliza, que es otro formato (éste).
+- **`Archivo de bitácora`** (`Cargar_Pólizas_AAAAMMDD.xls`) — ContPAQi escribe el detalle del
+  proceso. ⭐ **No dependemos de que alguien interprete un popup**: se manda el archivo y se lee.
