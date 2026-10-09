@@ -143,8 +143,8 @@ import {
                       <td role="cell" data-label="Su comisión" class="num dt-num mono dim">{{ dinero(r.comision) }}</td>
                       <td role="cell" data-label="Le queda" class="num dt-num mono">{{ dinero(r.despues_de_su_comision) }}</td>
                       <td role="cell" data-label="Kilómetros" class="num dt-num mono">
-                        <!-- ⛔ Sin `title`: en táctil no hay hover, así que lo que explica la
-                             cifra va como texto visible (DESIGN_TABLES §"además del ancho"). -->
+                        <!-- ⛔ Sin atributo title: en táctil no hay hover, así que lo que
+                             explica la cifra va como texto visible (DESIGN_TABLES). -->
                         @if (r.km_veredicto === 'sin_gps') {
                           <span class="rp-nd">sin rastreador</span>
                         } @else {

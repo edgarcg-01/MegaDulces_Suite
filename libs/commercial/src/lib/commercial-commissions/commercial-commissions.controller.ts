@@ -3,7 +3,7 @@ import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 import { CommissionRecalcService, type RecalcResultado } from './commission-recalc.service';
-import { CommissionContrastService } from './commission-contrast.service';
+import { CommissionContrastService, type FaltoResumen, type FaltoFila } from './commission-contrast.service';
 
 /**
  * RD.6 — Comisiones de Ruta Directa.
@@ -53,7 +53,7 @@ export class CommercialCommissionsController {
       + '($18,620). ⭐ Y 141 de 238 ya están en el TOPE: decir dónde NO hay nada que perseguir '
       + 'evita mandar a un supervisor a una ruta sin margen. Lee vista: 16 ms.',
   })
-  headroom(@Query('anio') anio?: string) {
+  headroom(@Query('anio') anio?: string): Promise<{ resumen: FaltoResumen[]; filas: FaltoFila[] }> {
     return this.contraste.loQueFalto(anio ? Number(anio) : new Date().getFullYear());
   }
 

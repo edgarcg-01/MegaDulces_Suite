@@ -356,6 +356,12 @@ export interface RentabilidadPlaza {
   resultado: number | null;
 }
 
+export interface ConceptoGasto {
+  dpto: string; dpto_norm: string;
+  concepto: string; concepto_norm: string; familia: string;
+  lineas: number; importe: string;
+}
+
 export interface Hueco { clave: string; detalle: string }
 
 interface Totales {
@@ -366,7 +372,7 @@ export interface RentabilidadPeriodo {
   periodo: { id: string; anio: number; period_no: number; date_from: string; date_to: string; cerrado: boolean };
   rutas: RentabilidadRuta[];
   plazas: RentabilidadPlaza[];
-  gasto_por_concepto: unknown[];
+  gasto_por_concepto: ConceptoGasto[];
   contraste_comision: { libro: number; contabilidad: number; delta: number };
   totales: Totales & { margen_pct: number | null; gasto_departamento: number };
   procedencia: { gasto_calculado_at: Date | null; km_desde: string | null; km_hasta: string | null };

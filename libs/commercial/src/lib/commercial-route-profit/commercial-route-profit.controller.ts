@@ -1,7 +1,9 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { RouteProfitService } from './route-profit.service';
+import {
+  RouteProfitService, type PeriodoDisponible, type RentabilidadPeriodo,
+} from './route-profit.service';
 
 /**
  * `[RD.57]` — Rentabilidad de Ruta Directa. **Sólo lectura, a propósito:** acá no se corrige
@@ -18,14 +20,14 @@ export class CommercialRouteProfitController {
   /** Quincenas que tienen renglones para leer. */
   @Get('periods')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_PROFIT_VER)
-  periodos() {
+  periodos(): Promise<PeriodoDisponible[]> {
     return this.svc.periodos();
   }
 
   /** El tablero de una quincena. Sin `period_id` abre la última con renglones. */
   @Get()
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_PROFIT_VER)
-  rentabilidad(@Query('period_id') periodId?: string) {
+  rentabilidad(@Query('period_id') periodId?: string): Promise<RentabilidadPeriodo> {
     return this.svc.rentabilidad(periodId);
   }
 }
