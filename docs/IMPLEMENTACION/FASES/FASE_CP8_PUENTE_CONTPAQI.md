@@ -1837,3 +1837,53 @@ revisarlos.
 ⛔ **Lo que sigue SIN MEDIR y se declara**: si ContPAQi **honra** los `AD` al importar. El formato
 es correcto contra su propia especificación; que su importador actúe sobre él es otra afirmación,
 y la contesta el archivo B.
+
+---
+
+## 27. ⛔ `[CP.8.30]` El interruptor que NO se acciona todavía — y por qué está escrito
+
+Con `[CP.8.29]` el emisor ya sabe escribir renglones `AD`. **Lo que más valor tiene de esa
+capacidad no es el puente de egresos: es el libro de compras.**
+
+### 27.1 Está a una línea, y eso es precisamente el riesgo
+
+`purchase-book.service.ts` arma la póliza mensual desde las facturas del mes:
+
+```ts
+const movs = this.construirMovimientos(dentro, modo, conUuid);
+const txt  = this.construirTxt(anioMes, run.folio_poliza ?? FOLIO_LIBRO, concepto, movs);
+```
+
+`dentro` es `FacturaMes[]` y **`FacturaMes.uuid` existe**. O sea: `dentro.map((f) => f.uuid)`
+pasado como último argumento, y la póliza de compras sale con **todos sus CFDIs asociados**.
+
+⭐ Y retiraría una muleta: `[LC.15]` mete el UUID **dentro del `concepto`**
+(`const concepto = conUuid ? f.uuid : ''`) justamente porque `FASE_LC` concluyó que *"el layout no
+tiene campo de UUID"*. **Lo tiene.** El `AD` es el lugar correcto; el concepto queda libre para
+lo que es.
+
+### 27.2 ⛔ Por qué no se acciona
+
+| | |
+|---|--:|
+| lo que mueve la póliza del libro de compras | **$30–56M al mes** |
+| renglones por póliza | 460–848 |
+| ¿ContPAQi **honra** los `AD` al importar? | **SIN MEDIR** |
+
+El formato es correcto **contra la especificación del fabricante**. Que su importador **actúe**
+sobre ese renglón —y no lo rechace, ni lo ignore, ni tumbe el archivo entero— **es otra
+afirmación**, y no la tenemos.
+
+⛔ **Prenderlo antes de la prueba sería apostar el cierre contable del mes a un comportamiento
+que nadie observó.** Si el archivo se rechaza por los `AD`, la póliza de compras no entra — y se
+descubre el día del cierre.
+
+### 27.3 El orden correcto
+
+1. La contadora importa el archivo **`B`** (§21). Son dos renglones y un peso.
+2. Si ContPAQi lo acepta **y** asocia el CFDI → se prende acá, con su candado y su medición.
+3. Si lo acepta y **no** asocia → el `AD` no sirve para esto y `[LC.15]` se queda. Se declara.
+4. Si lo rechaza → el motivo sale en la bitácora `.xls` y se corrige el layout.
+
+⭐ **Los cuatro caminos son útiles.** El único que no informa nada es prenderlo a ciegas y que
+funcione por casualidad.
