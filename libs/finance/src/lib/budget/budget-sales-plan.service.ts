@@ -551,6 +551,13 @@ export class BudgetSalesPlanService {
           if (existing && existing.method === 'manual' && !dto.overwrite_manual) { cov.manual_kept++; continue; }
 
           let meta: number | null = null;
+          // `[PVI.5]` ⚠️ Estos literales NO son vocabulario compartido: `budget.expense_plan_lines`
+          // tiene su propio CHECK con una lista distinta, y ahí **`estacional` significa otra cosa**
+          // — promedio plano de lo observado, no un índice. El de acá sí es estacional de verdad
+          // (`seasonalIndexByEntity`: participación por periodo con shrinkage hacia el canal). Quien
+          // lea un `method` de cualquiera de las dos tablas y crea que sabe cómo se calculó el
+          // renglón, acierta la mitad de las veces. Deuda con dueño en el tracker: el renombre va
+          // del lado del GASTO, que es donde el nombre miente. `VERDAD_ABSOLUTA` §24.7.
           let rowMethod: 'historico_ajustado' | 'estacional' | 'proxy_canal' | 'sin_base_declarado' | null = null;
           let baseAmount: number | null = null;
           if (base > 0) {
