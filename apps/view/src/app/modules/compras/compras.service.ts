@@ -387,6 +387,36 @@ export interface DeadStockRow {
   created_at: string;        // alta en catálogo (fallback del "desde cuándo")
   supplier_name: string | null;
 }
+/** `[RA.PM]` Un veredicto de la autopsia de compra, con su dinero. */
+export interface PostmortemVeredicto {
+  veredicto: string; label: string;
+  pares: number; comprado: number; salido: number; en_piso: number;
+}
+export interface PostmortemRow {
+  product_id: string; sku: string; nombre: string;
+  proveedor: string | null; supplier_id: string | null;
+  warehouse_code: string; warehouse_name: string; no_vende: boolean;
+  comprado: number;
+  /** Parte de lo comprado que el documento NO atribuye a una plaza. Se declara, no se reparte. */
+  comprado_sin_resolver: number;
+  n_recibos: number;
+  primera_compra: string | null; ultima_compra: string | null; dias_desde_compra: number | null;
+  salido: number; vendido: number; traspasado: number;
+  ultima_salida: string | null; valor_hoy: number;
+  /** salido ÷ comprado. >1 NO es error: movió más de lo que se le compró en la ventana. */
+  rotacion: number | null;
+  veredicto: string;
+}
+export interface PostmortemResponse {
+  veredictos: PostmortemVeredicto[];
+  total_comprado: number; total_nunca_salio: number; total_sin_resolver: number;
+  /** Fecha con la que se construyó la matvista. `null` = no se pudo leer; NO es "hoy". */
+  computed_on: string | null;
+  ventana_dias: number;
+  rows: PostmortemRow[];
+  total: number; page: number; pageSize: number;
+}
+
 /** `[RA.CAP]` El saldo de un acreedor, en corto. Sin detalle de documentos. */
 export interface DeudaAcreedor {
   codigo: string; nombre: string;
@@ -1236,6 +1266,29 @@ export class ComprasService {
     if (q.pageSize) p.set('pageSize', String(q.pageSize));
     const qs = p.toString();
     return this.http.get<DeadStockResponse>(`${this.base}/dead-stock${qs ? '?' + qs : ''}`);
+  }
+
+  /**
+   * `[RA.PM]` La autopsia de la compra: lo comprado contra lo que volvió a salir.
+   *
+   * ⛔ Lee una matvista que se construye de noche; si la migración `20261009133029` no está
+   * aplicada, esto devuelve 42P01. Es a propósito: una pestaña rota se ve y se arregla, una
+   * pestaña vacía se lee como "no hay compras que no rindieran".
+   */
+  postmortem(q: {
+    warehouse_ids?: string[]; supplier_id?: string; search?: string;
+    veredicto?: string; solo_venden?: boolean; page?: number; pageSize?: number;
+  }): Observable<PostmortemResponse> {
+    const p = new URLSearchParams();
+    if (q.warehouse_ids?.length) p.set('warehouse_ids', q.warehouse_ids.join(','));
+    if (q.supplier_id) p.set('supplier_id', q.supplier_id);
+    if (q.search) p.set('search', q.search);
+    if (q.veredicto) p.set('veredicto', q.veredicto);
+    if (q.solo_venden === false) p.set('solo_venden', '0');
+    if (q.page) p.set('page', String(q.page));
+    if (q.pageSize) p.set('pageSize', String(q.pageSize));
+    const qs = p.toString();
+    return this.http.get<PostmortemResponse>(`${this.base}/postmortem${qs ? '?' + qs : ''}`);
   }
 
   /**

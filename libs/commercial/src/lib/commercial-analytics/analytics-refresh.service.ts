@@ -424,6 +424,20 @@ export class AnalyticsRefreshService {
       ['analytics.mv_erp_count_line_signals', 'analytics_refresh_count_signals',
         'Refresh MV señales del descuadre (nightly)',
         ['analytics.mv_erp_physical_count_variance', 'analytics.mv_erp_count_rollforward']],
+      // `[RA.PM]` La autopsia de la compra: lo comprado contra lo que volvió a salir.
+      //
+      // ⛔ NOCTURNA sin discusión: el poblado cruza DOS vistas derivadas del ODS
+      // (`erp_goods_receipts` ⋈ `erp_goods_receipt_lines`) y las dos se re-derivan. Medido contra
+      // prod: ~5 min a 180 días, y a 365 se pasa de 10. Esa es justamente la razón de que sea
+      // matvista y no vista — la consulta en vivo no entra ni de lejos en el piso de 500 ms.
+      //
+      // `deps` VACÍO a propósito: lee vistas del ODS y `replenishment_plan`, no otra MV.
+      //
+      // ⚠️ Su umbral va en `CRON_JOBS` (`analytics_refresh_purchase_postmortem`). Sin esa fila el
+      // sensor cae en `cfg ? classify : 'ok'` y una MV parada se ve VERDE (OBS.1). Y acá parada no
+      // vacía la pantalla: la deja publicando la foto de ayer como si fuera la de hoy, que es peor.
+      ['analytics.mv_purchase_postmortem', 'analytics_refresh_purchase_postmortem',
+        'Refresh MV autopsia de la compra (nightly)', []],
       // [PR.D5] El universo elegible para experimentos de precio. `deps` VACIO a proposito:
       // sale de `analytics.v_price_psychology`, que es una vista sobre el ODS, no de otra MV.
       //

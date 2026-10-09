@@ -1323,6 +1323,12 @@ const CRON_JOBS: CronCfg[] = [
   // de arriba se refrescan, la pantalla etiqueta renglones nuevos con los testigos de la semana
   // pasada — un veredicto equivocado se lee con la misma confianza que uno correcto.
   { key: 'analytics_refresh_count_signals',     label: 'Refresh MV señales del descuadre (EXP.1b)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [RA.PM] La autopsia de la compra. Sin esta fila el sensor cae en `cfg ? classify : 'ok'` y la
+  // MV parada se ve VERDE. El modo de falla NO es una pantalla vacía: es que Compras siga leyendo
+  // la foto de hace una semana y "aprenda" de compras que desde entonces ya salieron — o peor,
+  // que no vea la compra de ayer que se quedó parada. Un veredicto viejo se lee con la misma
+  // confianza que uno correcto.
+  { key: 'analytics_refresh_purchase_postmortem', label: 'Refresh MV autopsia de la compra (RA.PM)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [PR.D5] El universo de los experimentos de precio. Sin esta fila el sensor cae en
   // `cfg ? classify : 'ok'` y la MV parada se ve VERDE. El modo de falla no es una pantalla
   // vacia: es un experimento disenado sobre el universo de la semana pasada, indistinguible
