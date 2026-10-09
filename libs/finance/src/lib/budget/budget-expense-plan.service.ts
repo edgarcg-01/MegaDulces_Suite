@@ -1,4 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import type { ExpensePlanCoverage, ExpenseRhythm } from '@megadulces/contracts';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
 // [PU.VG.7] El ritmo vive en un módulo PURO: se prueba sin Postgres y sin Nest.
 import {
@@ -140,7 +141,7 @@ export class BudgetExpensePlanService {
    * ⚠️ Si la vista no existe todavia (la migracion va aparte), esto devuelve `medido: false` con
    * su motivo -- NUNCA ceros, que se leerian como "no hay relleno" (ADR-056).
    */
-  async getCoverage(budgetId: string) {
+  async getCoverage(budgetId: string): Promise<ExpensePlanCoverage> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       try {
@@ -224,7 +225,7 @@ export class BudgetExpensePlanService {
    *
    * ⛔ No emite semáforo: no hay umbral de materialidad registrado (ver `resumirRitmo`).
    */
-  async getRitmo(budgetId: string) {
+  async getRitmo(budgetId: string): Promise<ExpenseRhythm> {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
       const budget = await trx('budget.budgets').where({ tenant_id: tenantId, id: budgetId }).first();

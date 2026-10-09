@@ -17,7 +17,8 @@ import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual }
+import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual,
+  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 
@@ -185,22 +186,11 @@ interface ExpensePlan { budget: BudgetHeader; settings: ExpensePlanSettings; lin
 interface ExpenseCoverage { historico_ajustado: number; estacional: number; no_signal: number; manual_kept: number; accounts: number }
 
 /**
- * [PU.VG.7] El RITMO. El ledger no guarda mes (period_month NULL en las 139 filas de prod), asi
- * que «Ocupacion» es un porcentaje ANUAL: un 0 % ahi se lee «no hemos gastado» cuando la verdad
- * puede ser «no hemos registrado». El servidor deriva el perfil del plan y emite el veredicto;
- * la pantalla no lo calcula ni lo pinta de verde — no hay umbral de materialidad registrado.
+ * [PU.VG.2 / PU.VG.7] La procedencia de cada celda y el ritmo del gasto viajan en el contrato
+ * compartido (`libs/contracts/http/budget-expense-plan.contract.ts`), NO en interfaces locales.
+ * Este archivo ya tenia una copia a mano -- `ExpenseCoverage` -- y es exactamente el patron que
+ * ADR-056 nombra: un contrato copiado deja de ser un contrato al primer cambio de un lado solo.
  */
-type EstadoRitmo = 'sin_plan' | 'sin_perfil' | 'desfase_plan_vs_linea' | 'sin_consumo' | 'sobre_perfil' | 'bajo_perfil' | 'en_ritmo';
-interface RitmoFila {
-  account_code: string; sucursal: string; concept: string | null;
-  deberia: number | null; consumido: number; brecha: number | null; brecha_pct: number | null;
-  meses_plan: number; meses_cerrados: number; estado: EstadoRitmo; motivo: string | null;
-}
-interface RitmoResp {
-  mes_en_curso: string; fuente: string; nota_grano: string;
-  resumen: { partidas: number; sobre_perfil: number; sin_consumo: number; no_evaluables: number; brecha_total: number | null; umbral_registrado: false };
-  partidas: RitmoFila[];
-}
 interface ExpenseGrowthProposal { global: { growth_pct: number; basis: string; paired_months: number; meses_abiertos_excluidos?: number }; years_available: number[]; fiscal_year: number; families: string[]; as_of: string | null; min_paired_months?: number; by_account: Record<string, { growth_pct: number; basis: string; paired_months: number; account_name: string | null }> }
 
 type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
@@ -528,6 +518,32 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
             @if (lastExpenseCoverage(); as cov) {
               <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.accounts }}</strong> cuentas · <strong>{{ cov.historico_ajustado }}</strong> por base histórica · <strong>{{ cov.estacional }}</strong> por recurrencia · <strong>{{ cov.no_signal }}</strong> sin señal (no se inventan) · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
             }
+            <!-- PU.VG.2 / PU.VG.6 — Cuanto de lo que se publica lo observo alguien, y que ventana
+                 cubre. Las dos cosas las emite el SERVIDOR; si no se pudieron medir lo dice. -->
+            @if (coverageError()) {
+              <p class="pres-hint"><span class="pi pi-question-circle"></span> <strong>Procedencia no medida.</strong> No se pudo leer de dónde salió cada celda.</p>
+            } @else if (coverage(); as cv) {
+              @if (!cv.medido) {
+                <p class="pres-hint"><span class="pi pi-question-circle"></span> <strong>Procedencia no medida.</strong> <span class="pres-muted">{{ cv.motivo }}</span></p>
+              } @else {
+                <p class="pres-hint">
+                  <span class="pi pi-eye-slash"></span>
+                  @if (cv.relleno_pct != null) {
+                    <strong class="pres-mono">{{ cv.relleno_pct }}%</strong> de lo publicado es <strong>relleno plano</strong> —el motor lo calculó con suma/n y lo rotuló «estacional», aunque no varía entre sus meses—
+                  } @else {
+                    Relleno plano <strong>no medido</strong> <span class="pres-muted">(sin total no hay porcentaje)</span>
+                  }
+                  @if (cv.celdas_ausentes) { · <strong>{{ cv.celdas_ausentes }}</strong> celdas <strong>ausentes</strong> <span class="pres-muted">(suman $0.00 sin avisar)</span> }
+                  @if (cv.ventana; as w) {
+                    @if (!w.completa) {
+                      · <span class="pres-neg">el plan cubre <strong>{{ w.meses }} de {{ w.meses_esperados }}</strong> meses ({{ w.desde }}→{{ w.hasta }}): el importe <strong>no es anual</strong></span>
+                    } @else {
+                      · ventana completa <span class="pres-muted">({{ w.desde }}→{{ w.hasta }})</span>
+                    }
+                  }
+                </p>
+              }
+            }
             <p-table [value]="expenseByAccount()" [loading]="loadingExpense()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
               <ng-template #header>
                 <tr><th>Cuenta mayor</th><th>Familia</th><th>Sucursal</th><th>Origen</th><th class="ta-r">Meses</th><th class="ta-r">Presupuesto anual</th></tr>
@@ -537,7 +553,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td>{{ r.account_code }} · <span class="pres-muted">{{ r.account_name }}</span></td>
                   <td class="pres-muted">{{ r.familia || '—' }}</td>
                   <td class="pres-muted">{{ (r.sucursal | sucursal) || 'Consolidado' }}</td>
-                  <td>{{ r.method }}</td>
+                  <td [title]="origenGastoTitulo(r.method)">{{ origenGasto(r.method) }}</td>
                   <td class="ta-r pres-mono">{{ r.months }}</td>
                   <td class="ta-r pres-mono">{{ money(r.anual) }}</td>
                 </tr>
@@ -1852,24 +1868,55 @@ export class FinanzasPresupuestoComponent implements OnInit {
     // [PU.VG.7] El ritmo viaja aparte: si falla, la tabla sigue sirviendo y la columna DECLARA
     // que no se pudo medir, en vez de quedarse en blanco (que se lee igual que «todo bien»).
     this.ritmo.set(null); this.ritmoError.set(false);
-    this.http.get<RitmoResp>(`${this.base}/budgets/${b.id}/expense-plan/ritmo`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.http.get<ExpenseRhythm>(`${this.base}/budgets/${b.id}/expense-plan/ritmo`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => this.ritmo.set(r),
       error: () => this.ritmoError.set(true),
     });
+    // [PU.VG.2] La procedencia de cada celda. El endpoint ya DECLARA medido:false cuando la vista
+    // no esta aplicada, asi que no hace falta adivinar: se muestra el motivo.
+    this.coverage.set(null); this.coverageError.set(false);
+    this.http.get<ExpensePlanCoverage>(`${this.base}/budgets/${b.id}/expense-plan/coverage`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.coverage.set(r),
+      error: () => this.coverageError.set(true),
+    });
+  }
+
+  // ── [PU.VG.2] Procedencia del plan de gasto ─────────────────────────────────
+  coverage = signal<ExpensePlanCoverage | null>(null);
+  coverageError = signal(false);
+
+  /**
+   * El rotulo del ORIGEN **solo en la tabla de gasto**. `methodLabel()` es COMPARTIDO con ventas,
+   * donde `estacional` si es estacionalidad real; renombrarlo alla mal-rotularia esa tabla. Aca el
+   * motor rellena con suma/n y lo guarda como `estacional`, que dice lo contrario de lo que hace.
+   */
+  origenGasto(m: string | null | undefined): string {
+    if (m === 'estacional') return 'Promedio plano';
+    if (m === 'historico_ajustado') return 'Histórico';
+    if (m === 'manual') return 'Manual';
+    return m || '—';
+  }
+
+  origenGastoTitulo(m: string | null | undefined): string {
+    return m === 'estacional'
+      ? 'El motor rellenó esta celda con el promedio de los meses con dato (suma/n) y lo guardó como "estacional". No varía entre sus meses: nadie observó este gasto.'
+      : m === 'historico_ajustado'
+        ? 'Base del año anterior × el supuesto de crecimiento.'
+        : 'Capturado a mano.';
   }
 
   // ── [PU.VG.7] Ritmo ──────────────────────────────────────────────────────────
-  ritmo = signal<RitmoResp | null>(null);
+  ritmo = signal<ExpenseRhythm | null>(null);
   ritmoError = signal(false);
 
   /** Indexa por la MISMA llave que usa el servidor: cuenta + sucursal (el cost_center). */
   private ritmoIndex = computed(() => {
-    const m = new Map<string, RitmoFila>();
+    const m = new Map<string, ExpenseRhythmRow>();
     for (const f of this.ritmo()?.partidas ?? []) m.set(f.account_code + '|' + f.sucursal, f);
     return m;
   });
 
-  ritmoDe(l: BudgetLine): RitmoFila | null {
+  ritmoDe(l: BudgetLine): ExpenseRhythmRow | null {
     return this.ritmoIndex().get(String(l.account_code ?? '') + '|' + String(l.cost_center ?? '')) ?? null;
   }
 
@@ -1884,7 +1931,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
     if (this.ritmoError()) return 'no medido';
     const r = this.ritmoDe(l);
     if (!r) return 'no medido';
-    const E: Record<EstadoRitmo, string> = {
+    const E: Record<ExpenseRhythmState, string> = {
       sin_plan: 'sin plan',
       sin_perfil: 'periodo sin abrir',
       desfase_plan_vs_linea: 'plan movido',

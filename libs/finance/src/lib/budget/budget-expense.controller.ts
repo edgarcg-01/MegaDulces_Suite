@@ -1,5 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import type { ExpensePlanCoverage, ExpenseRhythm } from '@megadulces/contracts';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
   BudgetExpensePlanService, ProposeExpensePlanDto, UpsertExpensePlanSettingsDto, UpsertExpensePlanLineDto,
@@ -29,14 +30,14 @@ export class BudgetExpenseController {
   @Get('budgets/:id/expense-plan/coverage')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'De dónde salió cada celda: observado | promedio_plano | ausente, con el % del total que nadie observó.' })
-  getCoverage(@Param('id') id: string) { return this.plan.getCoverage(id); }
+  getCoverage(@Param('id') id: string): Promise<ExpensePlanCoverage> { return this.plan.getCoverage(id); }
 
   // [PU.VG.7] El ledger es anual (period_month NULL en las 139 filas de prod): sin esto nadie se
   // entera de un sobre-ejercicio hasta el cierre. El perfil se deriva del plan, no se guarda.
   @Get('budgets/:id/expense-plan/ritmo')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Cuanto deberia llevarse consumido a la fecha segun el perfil mensual del plan (excluye el mes en curso).' })
-  getRitmo(@Param('id') id: string) { return this.plan.getRitmo(id); }
+  getRitmo(@Param('id') id: string): Promise<ExpenseRhythm> { return this.plan.getRitmo(id); }
 
   @Get('budgets/:id/expense-plan/settings')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
