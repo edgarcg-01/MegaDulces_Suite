@@ -262,7 +262,7 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 ### 8.0b Antes de pedir revisión — el protocolo previo al PR
 
-> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08). Cada punto es algo que **ya costó**: lo midió él al mergear una cadena de PR, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
+> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09) y el rojo del CI de #346 (2026-10-09). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
 
 **1. El PR apunta a `main`. Siempre. No se apilan PR sobre ramas de feature.**
 - **Por qué:** el CI sólo corre con `pull_request: branches: [main]`. Un PR apuntado a otra rama **nunca se compila**: #305 llegó con 411 líneas que ningún compilador había visto. Y **re-apuntar la base no dispara el CI** (GitHub corre con `opened`/`synchronize`; cambiar la base no es ninguno): lo dispara un *push*.
@@ -285,6 +285,16 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 - Qué comportamiento cambia, **para quién** y qué se rompe (p. ej. «poner en espera ahora exige motivo: una integración por API sin `pause_reason` recibe 400»), y **lo que el PR NO incluye**. Es lo que Edgar valoró de #304: *«casi nunca se dice»*.
 
 **5. Pruebas con evidencia.** Pega lo que corriste y el resultado (conteos, no «pasa»); si es una compuerta o una defensa, la **prueba negativa** (rómpela a propósito y muestra el rojo).
+
+**6. Si cambias un tipo compartido (`libs/contracts`), recorre TODOS sus consumidores — y no escribas «compila» sin haberlo medido.**
+- **Por qué:** #346 (MSH.2) volvió `priority` nullable en el contrato (`SdPriority | null`) y tres plantillas de `apps/view` indexaban `PRIORITY_LABEL[t.priority]` → **`TS2538: Type 'null' cannot be used as an index type`**, que tiró `Build & typecheck`. `nx test view` pasó **2657 verdes** porque **vitest no tipa las plantillas Angular**; y el PR decía «la app compila», cosa que nadie había medido. Un test verde no es una compilación.
+- **Cómo:** `git grep` del campo cambiado en `apps/*` y `libs/*` **incluidas las plantillas** (`{{ x[campo] }}`, `[attr.data-p]`, `@if`); estrechar el tipo con `@if (campo) {…}` en vez de indexar a ciegas. En el PR di la evidencia real: o pegas el build, o dices «lo compila el CI» (si no se compila en local, que es la regla de sesión), y **no pides revisión con `Build & typecheck` en rojo**.
+
+**7. Lo que Edgar valoró en #336 — mantenerlo en los PR de seguridad y de base de datos.**
+- Las pruebas **intentan violar la defensa y esperan el error exacto** (`ERRCODE 23514`), no sólo el camino feliz; y cada defensa se prueba **apagándola** una por una.
+- Si el PR es **más estricto que el plan**, dilo (aquí: se prohibió también el sentido inverso, normal → confidencial).
+- Los triggers y funciones multi-tenant **filtran por `tenant_id`** en el `SELECT` que hacen (ahí es donde se rompen en silencio).
+- Declara qué RLS tienen las tablas que tocas y **verifícalo contra producción** (`relrowsecurity` y `relforcerowsecurity`), en vez de suponerlo; y mide que la marca de tiempo de la migración no solape con `main`, los PR abiertos y lo ya aplicado.
 
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
