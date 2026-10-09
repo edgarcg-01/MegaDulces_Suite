@@ -1,6 +1,6 @@
 # Fase PF — Flujo de venta de cualquier producto (Compras › Catálogo › Productos)
 
-> Estado: 🧪 PF.1, PF.2 y PF.3 en código y probados en local (2026-10-09). Sin migración. Sin push.
+> Estado: 🧪 PF.1–PF.5 en código y probados en local (2026-10-09). Sin migración. Sin push.
 
 ## Pedido (Compras, 2026-10-09)
 
@@ -73,7 +73,10 @@ Lo de Productos nuevos, para **todos** los productos, en la sección de **Produc
 - **Medido en prod**: 245 líderes hacen el 50%. La clase A (el 80%) son 952: demasiados para «cuidado especial».
 - **El cuidado**: se le recomienda comprar con menos de **21** días de inventario (al resto, 15); el veredicto lo dice
   primero («Es líder: el #N…») y, si está agotado en una sucursal, cuánto se deja de vender ahí por día.
-- **Para cuidar hoy** (arriba de la tabla): los líderes que piden atención. ⛔ El primer criterio (cualquier sucursal
+- **Corrección del pedido (2026-10-09):** «Para cuidar hoy» son **dos lados**: de uno **todos los líderes** (por su lugar,
+  con su venta del mes, lo que piden y su margen), del otro **lo que no se vende** (PF.4). Lo de abajo (criterio de
+  «piden atención») queda como **filtro por motivo** dentro de Líderes, no como la lista.
+- Primera versión: los líderes que piden atención. ⛔ El primer criterio (cualquier sucursal
   estancada o frenada) marcaba **239 de 245**: una lista que marca todo no ayuda. Pide atención un líder que hay que
   comprar, mover, que está agotado donde se vende o cuya venta de toda la red se frenó. Aun así son **217**: medido,
   104 agotados en alguna sucursal, 108 a comprar, 107 mal repartidos. Por eso la lista va **ordenada por lo que se
@@ -99,9 +102,39 @@ Lo de Productos nuevos, para **todos** los productos, en la sección de **Produc
 - La unidad de `stock_lots` no está declarada en la tabla (se toma como unidad base). La revisión de caducidades puede
   capturar en cajas y la alimentación al lote no convierte (1 renglón en prod con `unidad = caja`): declarado, no corregido aquí.
 
+## PF.4 — Los que no se venden (el otro lado de «Para cuidar hoy»)
+
+- **Qué es**: con existencia en la red y **sin una sola venta en 30 días o más** (o ninguna en el año que se mira).
+  Existencia con las reglas de Productos nuevos (`EXISTENCIA_KEPLER_SQL`); última venta de `mv_kepler_sales_daily`
+  y el servidor descarta los que vendieron HOY en vivo. Primero lo de más **dinero detenido** (costo estándar
+  `kdii.c77`; sin permiso de costo no hay pesos, sólo cajas).
+- **Medido en prod**: **928 productos, $1.16M detenidos**; 273 de 30–89 días, 380 de 90 o más y 275 sin venta en el
+  año. Muchos son de **temporada** (navideños, de Halloween): la pantalla no los distingue todavía.
+- Fuera los **productos nuevos** de los últimos 90 días (tienen su pestaña). ⚠️ Si la matvista de Productos nuevos no
+  está poblada (truena al leerla, `55000`) se usa la variante sin esa exclusión y **la pantalla lo declara**.
+- **Caducidad** (PF.3) vive aquí como filtro «Caducan antes de venderse»: es mercancía que hay que sacar.
+- ⚠️ **Encontrado de paso**: 439 fichas de Kepler traen el costo (`c77`) **vacío** y `''::numeric` truena; la consulta de
+  costo de PF.1 (`KDIL_CRUDO_SQL`) caía con esos productos. Corregido en las dos.
+
+## PF.5 — Márgenes en el catálogo (como en Productos nuevos)
+
+- **Los tres de `[NP.15]`** con la **misma función** (`margenesDe`): de lista (la meta de la ficha por el peldaño
+  vendido), real (`kdm2.c62`) y sobre lo pagado (compras `XA2001` por unidad base). Cada uno con su cobertura.
+- **En la tabla**: columna «Margen 30 d» (sólo el real) de `analytics.mv_erp_margin_daily`, venta de tienda desde el
+  corte de cada sucursal. 200 productos en 0.42 s.
+- **En el producto**: los tres, en total y por sucursal, con `fn_new_products_movimientos` (la de Productos nuevos):
+  1.1–1.4 s con los que más se venden → **carga aparte**, el panel no la espera.
+- ⭐ **Dos implementaciones del mismo margen, cruzadas**: por sucursal coinciden **al centavo** hasta ayer (medido en
+  prod con 70001 y 17085; candado en la prueba de base de datos). Hoy la matvista lleva un tramo parcial, por eso el
+  periodo son los **30 días cerrados** (hasta ayer).
+- **Sólo con permiso de costo** (`COMPRAS_COSTO_ESTANDAR_VER`): un margen junto a la venta deja despejar el costo. El
+  endpoint responde 403 sin él y la pantalla ni lo pide.
+- **Hallazgo**: en 70001 (Mazapán, líder #2) el margen de lista es 14.1% y el real 13.6%, pero **sobre lo pagado 7.9%**
+  (Morelia Abastos 5.2%): la ficha de Kepler tiene un costo más bajo que lo que se paga.
+
 ## Tiempos (prod, sólo lectura, con el servicio real)
 
-- «Para cuidar hoy» junta ~300 productos: **2.0–2.5 s** (historia 0.54 s y kardex de los líderes). Es igual para todo el
+- «Para cuidar hoy» (líderes + lotes + lo que no se vende): **~3.2 s**; antes de PF.4, 2.0–2.5 s (historia 0.54 s y kardex de los líderes). Es igual para todo el
   tenant y la pantalla lo pide cada minuto: se guarda **un minuto** y, vencido, se entrega el anterior mientras se
   recalcula. ⚠️ El primer pedido tras arrancar el servidor o tras más de un minuto sin nadie sí espera ~2 s; el bloque
   carga aparte, la tabla no lo espera.

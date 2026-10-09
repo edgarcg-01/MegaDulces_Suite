@@ -15,7 +15,10 @@
  *  - Los umbrales son una PROPUESTA a calibrar con Compras (`CRITERIO_FLUJO`), no una verdad.
  */
 import type { UnidadEscalera } from '@megadulces/contracts';
-import { escaleraDeFicha, existenciaEnDuda, type ExistenciaDuda, type FichaPlaza, type KardexPlaza } from './new-products';
+import {
+  escaleraDeFicha, existenciaEnDuda, margenesDe,
+  type ExistenciaDuda, type FichaPlaza, type KardexPlaza, type Margen, type MargenFuente, type Margenes,
+} from './new-products';
 
 export const CRITERIO_FLUJO = {
   /** Días para medir el ritmo de venta (venta por día, cobertura). */
@@ -42,6 +45,16 @@ export const CRITERIO_FLUJO = {
   coberturaComprarLider: 21,
   /** `[PF.3]` Un lote que caduca en estos días o menos se avisa aunque alcance a venderse. */
   caducidadAviso: 30,
+  /** `[PF.4]` Con existencia y sin una venta en la red en tantos días: no se vende. */
+  diasSinVenta: 30,
+  /** `[PF.4]` Hasta dónde se busca la última venta; más atrás se dice "sin venta en el año". */
+  ventanaSinVenta: 365,
+  /** `[PF.4]` Los productos nuevos de estos días van en su propia pestaña, no aquí. */
+  ventanaNuevos: 90,
+  /** `[PF.4]` Cuántos se traen (los de más dinero detenido primero). */
+  limiteNoSeVenden: 300,
+  /** `[PF.5]` Días CERRADOS para los márgenes (hasta ayer). */
+  ventanaMargen: 30,
 } as const;
 
 // ─────────────────────────────── utilidades ───────────────────────────────
@@ -431,6 +444,8 @@ export interface FlujoResumen {
   lider: Lider | null;
   /** `[PF.3]` NULL = no tiene ningún lote con fecha registrada (NO quiere decir que no caduque). */
   caducidad: CaducidadResumen | null;
+  /** `[PF.5]` Margen real de los últimos días cerrados. NULL = sin permiso de costo o sin venta. */
+  margen_real?: Margen | null;
 }
 
 export interface FlujoListaRespuesta {
@@ -788,6 +803,137 @@ export function resumirCaducidad(lotes: LoteCaducidad[]): CaducidadResumen | nul
   };
 }
 
+// ─────────────────────────────── [PF.4] los que no se venden ───────────────────────────────
+
+export type TramoSinVenta = 'mes' | 'trimestre' | 'anio';
+
+/** El tramo de días sin venta. NULL = no vendió en todo el año que se mira. */
+export function tramoSinVenta(dias: number | null): TramoSinVenta {
+  if (dias === null) return 'anio';
+  return dias >= 90 ? 'trimestre' : 'mes';
+}
+
+/** Un producto con existencia en la red que no se vende, tal como sale de `NO_SE_VENDEN_SQL`. */
+export interface NoSeVendeFila {
+  product_id: string;
+  sku: string;
+  nombre: string | null;
+  existencia: number | string;
+  valor: number | string | null;
+  sin_costo: boolean | null;
+  plazas: string[] | null;
+  ultima: string | null;
+  dias: number | string | null;
+}
+
+export interface NoSeVende {
+  product_id: string;
+  sku: string;
+  nombre: string | null;
+  /** En unidad base de Kepler. */
+  existencia: number;
+  /** A costo estándar. NULL = sin permiso de costo. */
+  valor: number | null;
+  /** Alguna sucursal con existencia no trae costo en la ficha: el valor se queda corto. */
+  valor_incompleto: boolean;
+  plazas: Array<{ plaza: string; nombre: string | null }>;
+  /** Última venta en el año que se mira. NULL = ninguna. */
+  ultima_venta: string | null;
+  dias_sin_venta: number | null;
+  tramo: TramoSinVenta;
+  escalera: UnidadEscalera[] | null;
+  /** Hay lotes registrados que caducan o ya caducaron. */
+  caducidad: CaducidadResumen | null;
+}
+
+export function noSeVende(f: NoSeVendeFila, nombres: Map<string, string>, escalera: UnidadEscalera[] | null,
+  puedeVerCosto: boolean, caducidad: CaducidadResumen | null = null): NoSeVende {
+  const dias = num(f.dias);
+  return {
+    product_id: f.product_id, sku: f.sku, nombre: f.nombre,
+    existencia: Math.round((num(f.existencia) ?? 0) * 1000) / 1000,
+    valor: puedeVerCosto ? r2(num(f.valor) ?? 0) : null,
+    valor_incompleto: puedeVerCosto && !!f.sin_costo,
+    plazas: (f.plazas ?? []).map((plaza) => ({ plaza, nombre: nombres.get(plaza) ?? null })),
+    ultima_venta: f.ultima, dias_sin_venta: dias, tramo: tramoSinVenta(dias), escalera, caducidad,
+  };
+}
+
+// ─────────────────────────────── [PF.5] márgenes ───────────────────────────────
+
+/** Un renglón de `MARGEN_DETALLE_SQL` (la función de Productos nuevos agrupada). */
+export interface MargenFila {
+  tipo: 'venta' | 'entrada' | string;
+  plaza: string;
+  factor: number | string | null;
+  unidad_base: string | null;
+  n: number | string | null;
+  nc: number | string | null;
+  c: number | string | null;
+  q: number | string | null;
+}
+
+/**
+ * Arma las fuentes de `margenesDe` (las de `[NP.15]`) desde las filas de la función: por sucursal la venta
+ * neta, la que trae costo y su costo; la meta de la ficha ponderada por el peldaño VENDIDO; lo vendido por
+ * unidad base; y lo comprado por unidad base. Misma suma que la matvista de Productos nuevos, en TS.
+ */
+export function fuentesDeMargen(filas: MargenFila[], meta: Array<{ plaza: string; factor: number | string; margen: number | string }>): {
+  porPlaza: Map<string, MargenFuente>;
+  compra: Record<string, { q: number; i: number }>;
+} {
+  const metaDe = new Map(meta.map((m) => [`${m.plaza}|${Number(m.factor).toFixed(4)}`, num(m.margen)]));
+  const porPlaza = new Map<string, { n: number; nc: number; c: number; nm: number; m: number; b: Record<string, { q: number; n: number }> }>();
+  const compra: Record<string, { q: number; i: number }> = {};
+  for (const f of filas) {
+    const n = num(f.n) ?? 0;
+    const u = f.unidad_base ?? '?';
+    if (f.tipo === 'entrada') {
+      const x = compra[u] ?? { q: 0, i: 0 };
+      x.q += num(f.q) ?? 0;
+      x.i += n;
+      compra[u] = x;
+      continue;
+    }
+    if (f.tipo !== 'venta') continue;
+    const p = porPlaza.get(f.plaza) ?? { n: 0, nc: 0, c: 0, nm: 0, m: 0, b: {} };
+    p.n += n;
+    p.nc += num(f.nc) ?? 0;
+    p.c += num(f.c) ?? 0;
+    const meta = metaDe.get(`${f.plaza}|${(num(f.factor) ?? 1).toFixed(4)}`);
+    if (meta !== undefined && meta !== null) { p.nm += n; p.m += (n * meta) / 100; }
+    const b = p.b[u] ?? { q: 0, n: 0 };
+    b.q += num(f.q) ?? 0;
+    b.n += n;
+    p.b[u] = b;
+    porPlaza.set(f.plaza, p);
+  }
+  return { porPlaza: new Map([...porPlaza].map(([k, v]) => [k, v as MargenFuente])), compra };
+}
+
+export interface MargenesPlaza {
+  plaza: string;
+  nombre: string | null;
+  margenes: Margenes;
+}
+
+export interface MargenesProducto {
+  product_id: string;
+  /** Primer día del periodo. */
+  desde: string;
+  /** Último día del periodo (ayer: lo de hoy no entra en los márgenes). */
+  hasta: string;
+  dias: number;
+  /** NULL = no vendió en el periodo. */
+  total: Margenes | null;
+  plazas: MargenesPlaza[];
+}
+
+/** El margen real de la lista (sólo ése: el de lista y el de lo pagado necesitan el peldaño y la compra). */
+export function margenRealDe(n: number | string | null, nc: number | string | null, c: number | string | null): Margen | null {
+  return margenesDe([{ n: num(n) ?? 0, nc: num(nc) ?? 0, c: num(c) ?? 0, nm: 0, m: 0 }], undefined)?.real ?? null;
+}
+
 export { escaleraDeFicha, existenciaEnDuda };
 export type { FichaPlaza, KardexPlaza };
 
@@ -813,10 +959,21 @@ export interface CuidarRespuesta {
     total: number;
     /** Cuándo se calculó el ranking (`product_sales_stats.computed_at`). NULL = no se pudo medir. */
     calculado: string | null;
-    /** Los líderes con algo que atender, primero lo que más se juega por día. */
-    piden_atencion: ProductoACuidar[];
+    /** Todos los líderes, por su lugar en la venta de la red, con lo que piden. */
+    lista: ProductoACuidar[];
     /** Cuántos líderes por cada motivo. */
     por_motivo: Record<MotivoLider, number>;
+  };
+  /** `[PF.4]` Lo que no se vende: con existencia y sin venta en la red, primero lo de más dinero detenido. */
+  no_se_venden: {
+    /** Si se pudieron dejar fuera los productos nuevos (su matvista está poblada). false = pueden aparecer. */
+    nuevos_excluidos: boolean;
+    /** Cuántos hay (puede ser más que los que se traen). */
+    total: number;
+    /** Dinero detenido de todos, a costo estándar. NULL = sin permiso de costo. */
+    valor_total: number | null;
+    por_tramo: Record<TramoSinVenta, number>;
+    productos: NoSeVende[];
   };
   caducidad: {
     /** Los productos con un lote caducado, que no alcanza a venderse o que caduca pronto; el más próximo primero. */

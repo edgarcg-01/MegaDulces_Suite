@@ -32,10 +32,13 @@ import { CATALOGO_TABS } from '../catalogo-tabs';
 import { avisoDePrecio } from '../catalogo-precio-aviso';
 import { ProductosNuevosService } from '../productos-nuevos.service';
 import {
-  CuidarRespuesta, FlujoLista, FlujoResumen, MotivoLider, ProductoACuidar, ProductosFlujoService, VeredictoCompra,
+  CuidarRespuesta, FlujoLista, FlujoResumen, MotivoLider, NoSeVende, ProductoACuidar, ProductosFlujoService,
+  TramoSinVenta, VeredictoCompra,
 } from '../productos-flujo.service';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
-import { ProductoFlujoPanelComponent, VEREDICTO_CLASE, diasTexto, dinero, fechaCorta, variacionTexto } from './producto-flujo-panel.component';
+import {
+  ProductoFlujoPanelComponent, VEREDICTO_CLASE, cantidadEnCajas, diasTexto, dinero, fechaCorta, margenTexto, variacionTexto,
+} from './producto-flujo-panel.component';
 import { catchError, of } from 'rxjs';
 
 /** `[PF.1]` La situacion de compra en una palabra o dos, para la tabla. */
@@ -67,6 +70,18 @@ export function caducidadTexto(c: NonNullable<FlujoResumen['caducidad']>): { est
   if (c.vencido > 0) return { estado: 'caducado', texto: `Caducado según el registro en ${c.plazas_vencido.join(', ')}` };
   if (c.en_riesgo > 0) return { estado: 'no_alcanza', texto: `No alcanza a venderse en ${c.plazas_en_riesgo.join(', ')}` };
   return { estado: 'justo', texto: 'Caduca pronto: ponerlo al frente' };
+}
+
+/** `[PF.4]` El tramo de días sin venta, en palabras. */
+export const TRAMO_TEXTO: Record<TramoSinVenta, string> = {
+  mes: '30 a 89 días', trimestre: '90 días o más', anio: 'Sin venta en el año',
+};
+
+/** `[PF.4]` "Sin vender hace 45 días" / "Sin una venta en el último año". */
+export function sinVenderTexto(x: Pick<NoSeVende, 'dias_sin_venta'>, ventana: number): string {
+  return x.dias_sin_venta === null
+    ? (ventana >= 365 ? 'Sin una venta en el último año' : 'Sin una venta en ' + ventana + ' días')
+    : 'Sin vender hace ' + x.dias_sin_venta + ' días';
 }
 
 /** Lo que se abre en el panel lateral: un renglón de la tabla o un producto de "Para cuidar hoy". */
@@ -240,16 +255,16 @@ interface AbiertoFlujo {
           </div>
         }
     
-        <!-- [PF.2]/[PF.3] Para cuidar hoy: los lideres que piden atencion y lo que caduca antes de venderse. -->
+        <!-- [PF.2]/[PF.4] Para cuidar hoy: de un lado los lideres, del otro lo que no se vende (con lo que caduca). -->
         @if (cuidar(); as c) {
           <section class="pc" aria-label="Para cuidar hoy">
             <article class="pc-card">
               <header class="pc-head">
-                <h2 class="pc-t">Líderes que piden atención</h2>
-                <span class="pc-n">{{ c.lideres.piden_atencion.length }} de {{ c.lideres.total }} líderes</span>
+                <h2 class="pc-t">Líderes</h2>
+                <span class="pc-n">{{ c.lideres.total }} productos hacen la mitad de la venta</span>
               </header>
-              <div class="pc-chips" role="group" aria-label="Filtrar por motivo">
-                <button type="button" class="pc-chip" [class.is-on]="motivo() === null" (click)="motivo.set(null)">Todos · {{ c.lideres.piden_atencion.length }}</button>
+              <div class="pc-chips" role="group" aria-label="Filtrar líderes">
+                <button type="button" class="pc-chip" [class.is-on]="motivo() === null" (click)="motivo.set(null)">Todos · {{ c.lideres.lista.length }}</button>
                 @for (m of motivos; track m) {
                   @if (c.lideres.por_motivo[m]) {
                     <button type="button" class="pc-chip" [class.is-on]="motivo() === m" (click)="motivo.set(m)">{{ motivoTexto(m) }} · {{ c.lideres.por_motivo[m] }}</button>
@@ -267,55 +282,99 @@ interface AbiertoFlujo {
                           <span class="pc-det">
                             <span class="pp-ver" [ngClass]="claseVeredicto(x.resumen.compra.veredicto)">{{ x.resumen.compra.titulo }}</span>
                             @if (x.resumen.agotadas.length) { <span>Agotado en {{ nombresDe(x.resumen.agotadas) }}</span> }
+                            @if (x.resumen.margen_real?.pct != null) { <span class="pc-margen">Margen {{ margenTxt(x.resumen.margen_real) }}</span> }
                           </span>
                         </span>
-                        @if ((x.en_juego_dia ?? 0) > 0) {
-                          <span class="pc-dinero" pTooltip="Lo que ya se deja de vender por día donde está agotado; si se acaba en menos de una semana, toda su venta por día.">{{ dinero(x.en_juego_dia) }}<small>por día</small></span>
-                        }
+                        <span class="pc-dinero">{{ dinero(x.resumen.mes) }}<small [class.is-up]="(x.resumen.variacion ?? 0) > 0" [class.is-down]="(x.resumen.variacion ?? 0) < 0">{{ variacion(x.resumen.variacion) }} este mes</small></span>
                       </button>
                     </li>
                   } @empty {
-                    <li class="pc-vacio">Ningún líder pide atención por este motivo.</li>
+                    <li class="pc-vacio">Ningún líder por este motivo.</li>
                   }
                 </ul>
                 @if (lideresFiltrados().length > ls.length) {
                   <button type="button" class="pc-mas" (click)="verTodos.set(true)">Ver los {{ lideresFiltrados().length }}</button>
                 }
               }
-              <p class="pc-meta">Líder = está entre los {{ c.lideres.total }} productos que juntos hacen la mitad de la venta de la red en 90 días
-                (nuestra venta, no participación de mercado). Primero lo que más se juega por día.
+              <p class="pc-meta">Líder = está entre los productos que juntos hacen la mitad de la venta de la red en 90 días
+                (nuestra venta, no participación de mercado), en orden de venta.
                 @if (c.lideres.calculado) { Ranking al {{ hora(c.lideres.calculado) }}. }</p>
             </article>
 
             <article class="pc-card">
               <header class="pc-head">
-                <h2 class="pc-t">Caducan antes de venderse</h2>
-                <span class="pc-n">{{ c.caducidad.productos.length }} producto{{ c.caducidad.productos.length === 1 ? '' : 's' }}</span>
+                <h2 class="pc-t">No se venden</h2>
+                <span class="pc-n">{{ c.no_se_venden.total }} productos
+                  @if (c.no_se_venden.valor_total !== null) { · {{ dinero(c.no_se_venden.valor_total) }} detenidos }</span>
               </header>
-              <ul class="pc-lista">
-                @for (x of c.caducidad.productos; track x.resumen.product_id) {
-                  @let cad = caducidad(x);
-                  <li>
-                    <button type="button" class="pc-item" (click)="abrirCuidar(x)">
-                      <span class="pc-cuerpo">
-                        <span class="pc-nom">{{ x.nombre || x.sku }}</span>
-                        <span class="pc-det">
-                          <span class="pc-cad" [ngClass]="'is-' + cad.estado">{{ cad.texto }}</span>
-                        </span>
-                      </span>
-                      @if (x.resumen.caducidad?.proxima; as f) {
-                        <span class="pc-fecha">{{ fecha(f) }}<small>{{ diasA(f) }}</small></span>
-                      }
-                    </button>
-                  </li>
-                } @empty {
-                  <li class="pc-vacio">Ningún lote registrado está por caducar sin venderse.</li>
+              <div class="pc-chips" role="group" aria-label="Filtrar lo que no se vende">
+                <button type="button" class="pc-chip" [class.is-on]="tramo() === null" (click)="tramo.set(null)">Todos · {{ c.no_se_venden.total }}</button>
+                @for (t of tramos; track t) {
+                  @if (c.no_se_venden.por_tramo[t]) {
+                    <button type="button" class="pc-chip" [class.is-on]="tramo() === t" (click)="tramo.set(t)">{{ tramoTexto(t) }} · {{ c.no_se_venden.por_tramo[t] }}</button>
+                  }
                 }
-              </ul>
-              <p class="pc-meta">Sólo lo que tiene fecha registrada en el andén o en la revisión de caducidades:
-                {{ c.caducidad.cobertura.lotes }} lotes de {{ c.caducidad.cobertura.productos }} productos
-                @if (c.caducidad.cobertura.sucursales.length) { en {{ nombresDe(c.caducidad.cobertura.sucursales) }} }.
-                Lo que no tiene fecha registrada no aparece aquí, y eso no quiere decir que no caduque.</p>
+                <button type="button" class="pc-chip pc-chip-cad" [class.is-on]="tramo() === 'caducidad'" (click)="tramo.set('caducidad')">Caducan antes de venderse · {{ c.caducidad.productos.length }}</button>
+              </div>
+              @if (tramo() === 'caducidad') {
+                <ul class="pc-lista">
+                  @for (x of c.caducidad.productos; track x.resumen.product_id) {
+                    @let cad = caducidad(x);
+                    <li>
+                      <button type="button" class="pc-item" (click)="abrirCuidar(x)">
+                        <span class="pc-cuerpo">
+                          <span class="pc-nom">{{ x.nombre || x.sku }}</span>
+                          <span class="pc-det"><span class="pc-cad" [ngClass]="'is-' + cad.estado">{{ cad.texto }}</span></span>
+                        </span>
+                        @if (x.resumen.caducidad?.proxima; as f) {
+                          <span class="pc-fecha">{{ fecha(f) }}<small>{{ diasA(f) }}</small></span>
+                        }
+                      </button>
+                    </li>
+                  } @empty {
+                    <li class="pc-vacio">Ningún lote registrado está por caducar sin venderse.</li>
+                  }
+                </ul>
+                <p class="pc-meta">Sólo lo que tiene fecha registrada en el andén o en la revisión de caducidades:
+                  {{ c.caducidad.cobertura.lotes }} lotes de {{ c.caducidad.cobertura.productos }} productos
+                  @if (c.caducidad.cobertura.sucursales.length) { en {{ nombresDe(c.caducidad.cobertura.sucursales) }} }.
+                  Lo que no tiene fecha registrada no aparece aquí, y eso no quiere decir que no caduque.</p>
+              } @else {
+                @if (noVendenVista(); as ns) {
+                  <ul class="pc-lista">
+                    @for (x of ns; track x.product_id) {
+                      <li>
+                        <button type="button" class="pc-item" (click)="abrirNoSeVende(x)">
+                          <span class="pc-cuerpo">
+                            <span class="pc-nom">{{ x.nombre || x.sku }}</span>
+                            <span class="pc-det">
+                              <span class="pc-sin">{{ sinVenderTexto(x) }}</span>
+                              <span>Hay en {{ nombresDe(x.plazas) }}</span>
+                              @if (x.caducidad && (x.caducidad.vencido > 0 || x.caducidad.en_riesgo > 0)) {
+                                <span class="pc-cad is-no_alcanza">{{ caducidadTexto(x.caducidad).texto }}</span>
+                              }
+                            </span>
+                          </span>
+                          <span class="pc-dinero">
+                            @if (x.valor !== null) { {{ dinero(x.valor) }}<small>{{ cajas(x.existencia, x.escalera) }}</small> }
+                            @else { {{ cajas(x.existencia, x.escalera) }} }
+                          </span>
+                        </button>
+                      </li>
+                    } @empty {
+                      <li class="pc-vacio">Nada en este tramo.</li>
+                    }
+                  </ul>
+                  @if (noVendenFiltrados().length > ns.length) {
+                    <button type="button" class="pc-mas" (click)="verTodosNV.set(true)">Ver los {{ noVendenFiltrados().length }}</button>
+                  }
+                }
+                <p class="pc-meta">Con existencia y sin una sola venta en toda la red en {{ c.criterio.diasSinVenta }} días o más; primero
+                  lo de más dinero detenido{{ c.no_se_venden.valor_total === null ? '' : ' (a costo estándar de Kepler)' }}.
+                  @if (c.no_se_venden.nuevos_excluidos) { Fuera los productos nuevos de los últimos {{ c.criterio.ventanaNuevos }} días (tienen su pestaña). }
+                  @else { <b>Pueden aparecer productos nuevos:</b> su seguimiento todavía no está calculado. }
+                  @if (c.no_se_venden.total > c.no_se_venden.productos.length) { Se muestran los {{ c.no_se_venden.productos.length }} de más dinero. }</p>
+              }
             </article>
           </section>
         } @else if (cuidarError()) {
@@ -347,6 +406,9 @@ interface AbiertoFlujo {
                   <th scope="col">SKU</th>
                   <th scope="col" class="comm-num" pTooltip="Venta con impuestos del 1 a hoy, contra los mismos días del mes anterior. En vivo.">Este mes</th>
                   <th scope="col">Situación</th>
+                  @if (margenVisible()) {
+                    <th scope="col" class="comm-num" pTooltip="Margen real de los últimos 30 días cerrados: venta sin IVA ni IEPS contra el costo que Kepler registró en cada venta. Cubre sólo la venta que trae costo.">Margen 30 d</th>
+                  }
                   <th scope="col">Marca</th>
                   <th scope="col">Proveedor</th>
                   <th scope="col">Categoría</th>
@@ -402,6 +464,20 @@ interface AbiertoFlujo {
                       <span class="comm-muted">—</span>
                     }
                   </td>
+                  @if (margenVisible()) {
+                    <td class="comm-num">
+                      @if (fl?.margen_real; as mr) {
+                        @if (mr.pct !== null) {
+                          <span class="pp-margen" [class.is-down]="mr.pct < 0">{{ margenTxt(mr) }}</span>
+                          @if ((mr.cobertura ?? 0) < 0.995) { <span class="pp-var" [pTooltip]="mr.nota || ''">cubre {{ pctTexto(mr.cobertura) }}</span> }
+                        } @else {
+                          <span class="comm-muted" [pTooltip]="mr.nota || ''">sin costo</span>
+                        }
+                      } @else {
+                        <span class="comm-muted">—</span>
+                      }
+                    </td>
+                  }
                   <td>
                     @if (p.brand_name) {
                       <span class="pp-brand-tag">{{ p.brand_name }}</span>
@@ -476,7 +552,7 @@ interface AbiertoFlujo {
               </ng-template>
               <ng-template #emptymessage>
                 <tr>
-                  <td colspan="13" class="comm-empty-cell">
+                  <td [attr.colspan]="margenVisible() ? 14 : 13" class="comm-empty-cell">
                     <div class="comm-empty">
                       <div class="comm-empty-icon"><i [class]="searchInput ? 'pi pi-search' : 'pi pi-box'" aria-hidden="true"></i></div>
                       <h3>{{ searchInput ? 'Sin resultados' : 'Sin productos' }}</h3>
@@ -623,6 +699,13 @@ interface AbiertoFlujo {
     .pc-mas { align-self: flex-start; background: none; border: 0; padding: .2rem 0; color: var(--action); font-size: var(--fs-sm);
       font-weight: var(--fw-bold); cursor: pointer; }
     .pc-meta { margin: 0; font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pc-margen { color: var(--c-text-2); }
+    .pc-sin { font-weight: var(--fw-bold); color: var(--warn-soft-fg); }
+    .pc-dinero small.is-up { color: var(--ok-fg); }
+    .pc-dinero small.is-down { color: var(--bad-fg); }
+    .pc-chip-cad.is-on { background: var(--bad-soft-bg); border-color: var(--bad-border); color: var(--bad-soft-fg); }
+    .pp-margen { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .pp-margen.is-down { color: var(--bad-fg); }
 
     .pp-filters-cell { display: flex; flex-direction: column; }
     .pp-toolbar {
@@ -905,12 +988,31 @@ export class ComprasCatalogoComponent {
   readonly verTodos = signal(false);
   readonly lideresFiltrados = computed(() => {
     const m = this.motivo();
-    const xs = this.cuidar()?.lideres.piden_atencion ?? [];
+    const xs = this.cuidar()?.lideres.lista ?? [];
     return m ? xs.filter((x) => x.motivos?.includes(m)) : xs;
   });
   /** Los primeros 8; con "Ver todos", todos (la lista tiene su propio scroll). */
   readonly lideresVista = computed(() => (this.verTodos() ? this.lideresFiltrados() : this.lideresFiltrados().slice(0, 8)));
   readonly fecha = fechaCorta;
+  readonly cajas = cantidadEnCajas;
+  readonly margenTxt = margenTexto;
+  readonly caducidadTexto = caducidadTexto;
+  // [PF.4] Lo que no se vende, por tramo de dias sin venta; 'caducidad' muestra lo que caduca antes de venderse.
+  readonly tramos: TramoSinVenta[] = ['mes', 'trimestre', 'anio'];
+  readonly tramo = signal<TramoSinVenta | 'caducidad' | null>(null);
+  readonly verTodosNV = signal(false);
+  readonly noVendenFiltrados = computed(() => {
+    const t = this.tramo();
+    const xs = this.cuidar()?.no_se_venden.productos ?? [];
+    return t && t !== 'caducidad' ? xs.filter((x) => x.tramo === t) : xs;
+  });
+  readonly noVendenVista = computed(() => (this.verTodosNV() ? this.noVendenFiltrados() : this.noVendenFiltrados().slice(0, 8)));
+  /** [PF.5] La columna de margen sólo con permiso de costo (el servidor tampoco la manda sin él). */
+  readonly margenVisible = computed(() => !!this.flujoRes.value()?.costo_visible);
+  tramoTexto(t: TramoSinVenta): string { return TRAMO_TEXTO[t]; }
+  sinVenderTexto(x: NoSeVende): string { return sinVenderTexto(x, this.cuidar()?.criterio.ventanaSinVenta ?? 365); }
+  pctTexto(v: number | null): string { return v === null ? '—' : Math.round(v * 100) + '%'; }
+  abrirNoSeVende(x: NoSeVende): void { this.abierto.set({ id: x.product_id, nombre: x.nombre, sku: x.sku }); }
   motivoTexto(m: MotivoLider): string { return MOTIVO_LIDER[m]; }
   caducidad(x: ProductoACuidar) { return caducidadTexto(x.resumen.caducidad!); }
   nombresDe(xs: Array<{ plaza: string; nombre: string | null }>): string { return xs.map((x) => x.nombre || 'Sucursal ' + x.plaza).join(', '); }

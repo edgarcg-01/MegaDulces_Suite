@@ -102,7 +102,7 @@ export const KARDEX_SQL = `
 /** La existencia de Kepler SIN el piso en cero y el costo estándar de la base (`kdii.c77`). Parámetro: skus. */
 export const KDIL_CRUDO_SQL = `
   SELECT d.sucursal AS plaza, d.c3 AS sku, sum(d.c4 + d.c8 - d.c9)::numeric AS kdil,
-         (SELECT max(i.c77) FROM kepler_ods.kdii i WHERE i.sucursal = d.sucursal AND i.c1 = d.c3)::numeric AS costo
+         (SELECT nullif(btrim(max(i.c77)), '')::numeric FROM kepler_ods.kdii i WHERE i.sucursal = d.sucursal AND i.c1 = d.c3) AS costo
     FROM kepler_ods.kdil d
    WHERE d.sucursal = d.c1 AND d.c3 = ANY(?::text[])
    GROUP BY 1, 2`;
@@ -188,3 +188,96 @@ export const LOTES_CADUCIDAD_SQL = `
    WHERE l.tenant_id = public.current_tenant_id()
      AND l.expiry_date IS NOT NULL AND l.quantity > 0 AND w.kepler_code IS NOT NULL AND p.sku IS NOT NULL
      AND (?::uuid[] IS NULL OR l.product_id = ANY(?::uuid[]))`;
+
+/**
+ * `[PF.4]` Los que NO se venden: productos con existencia en la red y sin una sola venta en N días.
+ * Medido en prod el 2026-10-09: 969 productos con 30 días o más sin venderse (≈$1.11M a costo estándar);
+ * muchos de temporada (navideños, de Halloween). La existencia sigue las reglas de `EXISTENCIA_KEPLER_SQL`
+ * (almacén principal, sin los códigos de servicio, el 00 sólo desde su corte); la última venta sale de la
+ * historia cerrada (`mv_kepler_sales_daily`) y el servidor descarta los que vendieron hoy en vivo.
+ * Los productos nuevos en seguimiento (lanzados hace menos de 90 días) van en su propia pestaña: fuera.
+ * Parámetros: desdeHistoria (fecha), diasMinimos (int), diasNuevos (int), limite (int).
+ * ⚠️ Una matvista sin poblar truena al leerla (`55000`): si `mv_new_products` está vacía (recién creada o
+ * tras un redespliegue) se usa `NO_SE_VENDEN_SIN_NUEVOS_SQL` y la pantalla lo DECLARA.
+ */
+export const NO_SE_VENDEN_SQL = `
+  WITH ex AS (
+    SELECT btrim(k.c3) AS sku, k.sucursal AS plaza, GREATEST(sum(k.c4 + k.c8 - k.c9), 0) AS q,
+           (SELECT nullif(btrim(max(i.c77)), '')::numeric FROM kepler_ods.kdii i WHERE i.sucursal = k.sucursal AND i.c1 = k.c3) AS costo
+      FROM kepler_ods.kdil k
+     WHERE k.sucursal = k.c1 AND btrim(k.c3) <> ALL (ARRAY['00001', '00002', '00022'])
+       AND (k.sucursal <> '00'
+            OR GREATEST(k.c6, k.c7)::date >= (SELECT min(c.cutover_date) FROM analytics.v_branch_erp_cutover c
+                                               WHERE c.kepler_code = '00'))
+     GROUP BY 1, 2, k.c3),
+  red AS (
+    SELECT sku, sum(q) AS existencia, sum(q * coalesce(costo, 0)) AS valor,
+           bool_or(q > 0 AND costo IS NULL) AS sin_costo,
+           array_agg(plaza ORDER BY plaza) FILTER (WHERE q > 0) AS plazas
+      FROM ex GROUP BY 1 HAVING sum(q) > 0),
+  ult AS (
+    SELECT s.product_id, max(s.business_date) AS ultima
+      FROM analytics.mv_kepler_sales_daily s
+     WHERE s.business_date >= ?::date AND s.units > 0
+     GROUP BY 1)
+  SELECT p.id::text AS product_id, p.sku, p.nombre, red.existencia::float AS existencia, red.valor::float AS valor,
+         red.sin_costo, red.plazas, to_char(ult.ultima, 'YYYY-MM-DD') AS ultima,
+         (CURRENT_DATE - ult.ultima) AS dias
+    FROM red
+    JOIN catalog.products p
+      ON p.tenant_id = public.current_tenant_id() AND p.sku = red.sku AND p.deleted_at IS NULL
+    LEFT JOIN ult ON ult.product_id = p.id
+   WHERE (ult.ultima IS NULL OR CURRENT_DATE - ult.ultima >= ?::int)
+     AND NOT EXISTS (SELECT 1 FROM analytics.mv_new_products n
+                      WHERE n.tenant_id = p.tenant_id AND n.product_id = p.id
+                        AND n.lanzamiento >= CURRENT_DATE - ?::int)
+   ORDER BY red.valor DESC NULLS LAST, p.sku
+   LIMIT ?::int`;
+
+/** La misma, sin poder excluir los nuevos (su matvista no está poblada). Mismos parámetros. */
+export const NO_SE_VENDEN_SIN_NUEVOS_SQL = NO_SE_VENDEN_SQL.replace(
+  /AND NOT EXISTS \(SELECT 1 FROM analytics\.mv_new_products n[\s\S]*?CURRENT_DATE - \?::int\)/,
+  'AND ?::int IS NOT NULL',
+);
+
+/** ¿Está poblada la matvista de Productos nuevos? */
+export const NUEVOS_POBLADA_SQL = `
+  SELECT coalesce((SELECT ispopulated FROM pg_matviews WHERE schemaname = 'analytics' AND matviewname = 'mv_new_products'), false) AS poblada`;
+
+/**
+ * `[PF.5]` Margen real de unos productos en los últimos días CERRADOS (sin hoy), de
+ * `analytics.mv_erp_margin_daily`: venta sin IVA/IEPS, la que trae costo del renglón (`kdm2.c62`) y ese
+ * costo. Venta de tienda (sin rutas) y desde el corte de Kepler de cada sucursal: el mismo universo que
+ * `fn_new_products_movimientos`. Medido en prod el 2026-10-09: por sucursal coinciden al centavo hasta
+ * ayer (hoy la matvista lleva un tramo parcial; por eso el periodo termina ayer). 200 productos: 0.42 s.
+ * Parámetros: desde (fecha), hasta (fecha, exclusiva), ids.
+ */
+export const MARGEN_LISTA_SQL = `
+  SELECT d.product_id::text AS product_id, sum(d.venta_neta) AS n, sum(d.venta_neta_costeada) AS nc,
+         sum(d.cogs_arbitrado) AS c
+    FROM analytics.mv_erp_margin_daily d
+    JOIN analytics.v_branch_erp_cutover x
+      ON x.tenant_id = d.tenant_id AND x.kepler_code = d.warehouse_code AND d.sale_date >= x.cutover_date
+   WHERE d.tenant_id = public.current_tenant_id() AND NOT d.es_ruta
+     AND d.sale_date >= ?::date AND d.sale_date < ?::date AND d.product_id = ANY(?::uuid[])
+   GROUP BY 1`;
+
+/**
+ * `[PF.5]` Los tres márgenes de UN producto, con la misma función y la misma meta que Productos nuevos
+ * (`[NP.15]`): venta por (sucursal, peldaño, unidad base) y entradas por unidad base. ~1–1.4 s con los que
+ * más se venden: el panel la pide aparte para no detener lo demás.
+ * Parámetros: tenant, sku, desde, hasta (inclusiva).
+ */
+export const MARGEN_DETALLE_SQL = `
+  SELECT tipo, plaza, factor, unidad_base, sum(importe_neto) AS n, sum(importe_neto_costeado) AS nc,
+         sum(costo) AS c, sum(cantidad_base) AS q
+    FROM analytics.fn_new_products_movimientos(?::uuid, ARRAY[?]::text[], ?::date, ?::date)
+   GROUP BY 1, 2, 3, 4`;
+
+/** `[PF.5]` La meta de margen de la ficha por (sucursal, peldaño), con el mismo filtro que `[NP.15]`. Parámetro: sku. */
+export const META_MARGEN_SQL = `
+  SELECT t.sucursal AS plaza, round(t.factor, 4) AS factor, min(t.margen_venta_pct) AS margen
+    FROM analytics.v_kepler_margin_target t
+   WHERE t.sku = ? AND t.veredicto = 'capturado' AND t.factor IS NOT NULL
+   GROUP BY 1, 2
+  HAVING count(DISTINCT t.margen_venta_pct) = 1`;
