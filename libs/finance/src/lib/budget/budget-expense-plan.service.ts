@@ -123,6 +123,60 @@ export class BudgetExpensePlanService {
     return this.tk.run((trx) => this.settingsRow(trx, tenantId, budgetId));
   }
 
+  /**
+   * `[PU.VG.2]` De donde salio cada celda del plan: la pantalla tiene que poder DECLARARLO.
+   *
+   * Hoy los tres origenes se suman igual y ninguno se distingue: lo `observado` (el gasto
+   * contable real del mes), lo `promedio_plano` (que el motor rellena con suma/n y rotula
+   * `estacional`, diciendo lo contrario de lo que hace) y lo `ausente` (sin renglon, que suma
+   * $0.00 sin marcar nada). Medido en prod el 2026-10-08: en FY2027 el relleno plano es
+   * **$18,871,884.76 de $74,852,190.82 = 25.21 %** del presupuesto de gasto.
+   *
+   * ⚠️ Si la vista no existe todavia (la migracion va aparte), esto devuelve `medido: false` con
+   * su motivo -- NUNCA ceros, que se leerian como "no hay relleno" (ADR-056).
+   */
+  async getCoverage(budgetId: string) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      try {
+        const rows = await trx('budget.v_expense_plan_coverage')
+          .where({ tenant_id: tenantId, budget_id: budgetId })
+          .select('estado')
+          .count({ celdas: '*' })
+          .sum({ importe: 'monto' })
+          .groupBy('estado');
+
+        const porEstado: Record<string, { celdas: number; importe: number | null }> = {};
+        let total = 0;
+        for (const r of rows as Array<Record<string, unknown>>) {
+          const imp = r.importe == null ? null : round2(Number(r.importe));
+          porEstado[String(r.estado)] = { celdas: Number(r.celdas), importe: imp };
+          if (imp != null) total = round2(total + imp);
+        }
+        const relleno = porEstado['promedio_plano']?.importe ?? 0;
+        return {
+          medido: true,
+          motivo: null as string | null,
+          por_estado: porEstado,
+          total_publicado: total,
+          // El numero que la pantalla tiene que poner al lado del total: que tanto de lo que se
+          // publica NO lo observo nadie. Sin total no hay porcentaje: null, no 0.
+          relleno_pct: total > 0 ? round2((relleno / total) * 100) : null,
+          celdas_ausentes: porEstado['ausente']?.celdas ?? 0,
+        };
+      } catch (e) {
+        return {
+          medido: false,
+          motivo: `no se pudo leer budget.v_expense_plan_coverage: ${(e as Error)?.message ?? e}`,
+          por_estado: {} as Record<string, { celdas: number; importe: number | null }>,
+          total_publicado: null as number | null,
+          relleno_pct: null as number | null,
+          celdas_ausentes: null as number | null,
+        };
+      }
+    });
+  }
+
   async upsertSettings(budgetId: string, dto: UpsertExpensePlanSettingsDto, username: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (dto.control_level && !['informativo', 'advertencia', 'bloqueo'].includes(dto.control_level)) throw new BadRequestException('control_level inválido');

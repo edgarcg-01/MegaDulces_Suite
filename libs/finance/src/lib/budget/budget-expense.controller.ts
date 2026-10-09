@@ -26,6 +26,11 @@ export class BudgetExpenseController {
   @ApiOperation({ summary: 'Plan de gastos propuesto (cuenta mayor × sucursal × mes) + supuestos.' })
   getPlan(@Param('id') id: string) { return this.plan.getPlan(id); }
 
+  @Get('budgets/:id/expense-plan/coverage')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'De dónde salió cada celda: observado | promedio_plano | ausente, con el % del total que nadie observó.' })
+  getCoverage(@Param('id') id: string) { return this.plan.getCoverage(id); }
+
   @Get('budgets/:id/expense-plan/settings')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Supuestos del presupuesto de gastos (familias, crecimiento por cuenta, por sucursal).' })
