@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Holgura y ciclo · Tesorería</title>
+<!-- [TES.13/14] Capa visual de los dos instrumentos que el carril produjo y que NO tienen
+     pantalla: la holgura de liquidez y el ciclo de conversion de efectivo.
+     Cifras REALES medidas contra pg-prod el 2026-10-09. Libro vivo: dos consultas del mismo
+     dia pueden diferir, y eso se declara en la cabecera en vez de disimularse. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../../../../libs/design-tokens/tokens.css">
+<style>
+/* Alias, no definicion: los nombres cortos salen de los tokens reales. Cero hex. El oscuro lo
+   activa `theme-monochrome` sobre la raiz, como el sistema -- no prefers-color-scheme. */
+:root{
+  --bg:var(--surface-ground); --surface:var(--card-bg); --sunken:var(--hover-bg);
+  --line:var(--border-color); --fg:var(--text-main); --muted:var(--text-muted);
+  --faint:var(--text-faint); --no:var(--bad-fg); --no-soft:var(--bad-soft-bg);
+  --ok-soft:var(--ok-soft-bg); --warn-soft:var(--warn-soft-bg);
+  --info:var(--info-fg); --info-soft:var(--info-soft-bg);
+  --f-ui:var(--font-body); --f-mono:var(--font-mono);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+.wrap{max-width:1120px;margin:0 auto;padding:18px 20px 72px;display:flex;flex-direction:column;gap:22px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+h1{font-size:var(--fs-h1);margin:0;font-weight:700;letter-spacing:-.01em}
+h2{font-size:var(--fs-lg);margin:0 0 2px;font-weight:700}
+h3{font-size:var(--fs-micro);margin:0 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+p{margin:0 0 8px} ul{margin:4px 0 8px;padding-left:18px} li{margin:4px 0}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
+
+header{border-bottom:1px solid var(--line);padding-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+.asof{font-size:var(--fs-nano);display:inline-flex;gap:6px;align-items:center;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-pill);padding:3px 10px;color:var(--muted)}
+.tgl{font:inherit;font-size:var(--fs-xs);cursor:pointer;background:var(--surface);color:var(--fg);border:1px solid var(--line);border-radius:var(--r-md);padding:6px 11px}
+section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.lead{font-size:var(--fs-sm);color:var(--muted);max-width:78ch}
+.note{font-size:var(--fs-xs);background:var(--sunken);border:1px solid var(--line);border-left:3px solid var(--line);border-radius:var(--r-md);padding:9px 12px;color:var(--muted)}
+.note.bad{border-left-color:var(--bad-fg)} .note.warn{border-left-color:var(--warn-fg)} .note.ok{border-left-color:var(--ok-fg)}
+
+/* ── EL VEREDICTO: answer-first (DESIGN.md §15). La respuesta, no el grid. ── */
+.ver{display:grid;grid-template-columns:minmax(0,1.1fr) minmax(0,1fr);gap:18px;align-items:center}
+@media (max-width:760px){ .ver{grid-template-columns:1fr} }
+.ver-q{font-size:var(--fs-sm);color:var(--muted);margin-bottom:4px}
+.ver-a{font-size:var(--fs-display);font-weight:700;line-height:1.05;letter-spacing:-.02em;color:var(--ok-fg)}
+.ver-sub{font-size:var(--fs-sm);color:var(--muted);margin-top:6px}
+/* La barra: cuanto del cobro habitual consume el hueco. La forma dice lo que el numero dice. */
+.bar{height:2.1rem;border:1px solid var(--line);border-radius:var(--r-md);background:var(--sunken);position:relative;overflow:hidden}
+.bar-fill{position:absolute;inset:0 auto 0 0;background:var(--ok-soft-bg);border-right:2px solid var(--ok-fg)}
+.bar-um{position:absolute;top:0;bottom:0;width:0;border-left:2px dashed var(--warn-fg)}
+.bar-lab{position:absolute;inset:0;display:flex;align-items:center;justify-content:space-between;padding:0 .5rem;font-size:var(--fs-nano);color:var(--muted);font-family:var(--f-mono)}
+
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.mi{background:var(--surface);padding:11px 13px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.mi-lab{font-size:var(--fs-nano);color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mi-val{font-family:var(--f-mono);font-size:var(--fs-h2);font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.mi-val.neg{color:var(--bad-fg)} .mi-val.unk{color:var(--text-faint);font-weight:500;font-size:var(--fs-body)}
+.mi-sub{font-size:var(--fs-nano);color:var(--faint);line-height:1.35}
+
+/* Chip de estado: neutrales + glifo + texto. El color entero queda para el tono. */
+.st{display:inline-flex;align-items:center;gap:.25rem;font-size:var(--fs-nano);font-weight:700;
+    letter-spacing:.04em;text-transform:uppercase;color:var(--muted);border:1px solid var(--line);
+    border-radius:var(--r-sm);padding:0 .3rem;line-height:1.5;white-space:nowrap}
+.st::before{content:'';width:.42rem;height:.42rem;border:1px solid currentColor;border-radius:var(--r-pill)}
+.st.medido::before{background:currentColor}
+.st.parcial::before{background:linear-gradient(90deg,currentColor 50%,transparent 50%)}
+.st.nomedido{border-style:dashed;color:var(--faint)}
+.st.nomedido::before{background:transparent}
+
+table{width:100%;border-collapse:collapse;font-size:var(--fs-xs)}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:var(--fs-nano);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;background:var(--sunken)}
+td.num,th.num{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md)}
+.dos{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:760px){ .dos{grid-template-columns:1fr} }
+</style></head>
+<body><div class="wrap">
+
+<header>
+  <div style="min-width:min(100%,540px)">
+    <h1>Holgura y ciclo</h1>
+    <p class="lead" style="margin:4px 0 0">Los dos instrumentos que el carril de Tesorería produjo y que <strong>todavía no tienen pantalla</strong>. Cifras reales; el diseño es lo que está a revisión.</p>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:7px;align-items:flex-end">
+    <button class="tgl" id="tgl" type="button">Cambiar a oscuro</button>
+    <span class="asof mono">medido 2026-10-09 · libro vivo</span>
+  </div>
+</header>
+
+<section>
+  <h2>1 · ¿Alcanza el dinero para pagar lo que se debe?</h2>
+  <p class="lead">La pregunta que el carril existe para contestar. Va primero y en una sola línea — el detalle vive abajo (<code>DESIGN.md</code> §15, answer-first).</p>
+  <div class="ver">
+    <div>
+      <div class="ver-q">Para cubrir lo que vence en 8 semanas hay que cobrar de lo vencido</div>
+      <div class="ver-a">22.9&thinsp;%</div>
+      <div class="ver-sub">de lo que el negocio <strong>ya cobra</strong> cada semana. Holgura <strong>4.4×</strong>.</div>
+    </div>
+    <div>
+      <div class="bar">
+        <div class="bar-fill" style="width:22.9%"></div>
+        <div class="bar-um" style="left:70%"></div>
+        <div class="bar-lab"><span>requerido 22.9%</span><span>umbral 70%</span></div>
+      </div>
+      <p class="note ok" style="margin:8px 0 0">La barra no decora: el <strong>umbral</strong> está dibujado. Un número sin su umbral no se puede juzgar, y un color verde sin umbral es el <code>cfg ? classify : 'ok'</code> otra vez.</p>
+    </div>
+  </div>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">Requerido por semana <span class="st medido">medido</span></span><span class="mi-val">$2,395,779</span><span class="mi-sub">de la masa vencida, para cerrar el hueco</span></div>
+    <div class="mi"><span class="mi-lab">Cobro semanal real <span class="st medido">medido</span></span><span class="mi-val">$10,456,971</span><span class="mi-sub">promedio de las 8 semanas cerradas</span></div>
+    <div class="mi"><span class="mi-lab">Hueco de la ventana <span class="st parcial">parcial</span></span><span class="mi-val neg">−$19,166,235</span><span class="mi-sub">saldo + cobro en ventana − pago en ventana</span></div>
+    <div class="mi"><span class="mi-lab">Saldo inicial <span class="st medido">medido</span></span><span class="mi-val">$1,479,870</span><span class="mi-sub">23 movimientos de fecha imposible excluidos</span></div>
+  </div>
+  <div class="note bad"><strong>Lo que esta pantalla NO va a decir, y es el punto.</strong> El hueco de −$19.2M <b>no</b> se publica como «falta liquidez». El caso base de la curva es negativo <strong>por construcción</strong> —agenda por vencimiento y los $55M vencidos viajan sin fecha— así que un semáforo rojo ahí sería una alarma que grita todos los días. <em>Una alarma que grita en falso enseña a ignorar el tablero.</em> Lo que se publica es la pregunta que se puede contestar: <strong>¿cabe el hueco en lo que ya cobramos?</strong></div>
+</section>
+
+<section>
+  <h2>2 · El ciclo de conversión de efectivo</h2>
+  <p class="lead">Las tres métricas que todo CFO pide primero. Dos están medidas; la tercera se declara.</p>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">DSO · cobrar <span class="st medido">medido</span></span><span class="mi-val">34.7 d</span><span class="mi-sub">cartera $62.1M ÷ venta diaria</span></div>
+    <div class="mi"><span class="mi-lab">DPO · pagar <span class="st parcial">parcial</span></span><span class="mi-val">77.3 d</span><span class="mi-sub">y <b>50.0 d</b> sin la masa en disputa</span></div>
+    <div class="mi"><span class="mi-lab">DIO · rotar <span class="st nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">valuación de inventario en disputa (Fase MR)</span></div>
+    <div class="mi"><span class="mi-lab">Ciclo <span class="st nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">DSO − DPO + DIO: falta un término</span></div>
+  </div>
+  <div class="dos">
+    <div class="note warn"><strong>El DPO va dos veces, y no es redundancia.</strong> Los $148.1M de deuda incluyen <strong>$52,388,979.47</strong> de facturas de sucursal anteriores al corte del 1-oct, cuya apertura puede ser <b>artefacto de captura</b>. No se sabe cuál de los dos números es el bueno — <strong>elegir uno escondería que hubo elección</strong>.</div>
+    <div class="note"><strong>Y el ciclo no se publica a medias.</strong> Con el DIO ausente, la resta le falta un término: se muestran sus dos lados medidos y se declara el tercero <strong>con su dueño</strong>. Un ciclo «aproximado» sería una cifra que nadie puede defender en una junta.</div>
+  </div>
+  <h3>Los insumos, para que el número se pueda auditar</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Insumo (90 días)</th><th class="num">Monto</th><th>Procedencia</th></tr></thead>
+    <tbody>
+      <tr><td>Venta</td><td class="num">$161,245,354.02</td><td><code>analytics.sales_daily</code> · 99.4 % de renglones con costo</td></tr>
+      <tr><td>COGS</td><td class="num">$142,967,835.62</td><td>⚠️ mitad Kepler derivada por álgebra ciega al precio (ADR-051)</td></tr>
+      <tr><td>Compra</td><td class="num">$172,314,861.75</td><td><code>analytics.erp_goods_receipts</code></td></tr>
+      <tr style="background:var(--sunken)"><td><strong>Margen implícito</strong></td><td class="num"><strong>11.3 %</strong></td><td>⭐ coincide con el ~11.5 % que el negocio reporta: <strong>primera validación cruzada entre los dos facts</strong></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section>
+  <h2>3 · De cuántos depende</h2>
+  <p class="lead">Dos curvas con el mismo total no son el mismo riesgo. Y el riesgo <strong>no está donde se supone</strong>.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Masa</th><th class="num">Sujetos</th><th class="num">Top 5</th><th>Lectura</th></tr></thead>
+    <tbody>
+      <tr><td>Cobranza <b>en la ventana</b> (lo que la curva dibuja)</td><td class="num">217</td><td class="num">15.7 %</td><td>Bien repartida. <strong>Acá no está el riesgo.</strong></td></tr>
+      <tr><td>Cobranza <b>vencida</b> (lo que declara sin fecha)</td><td class="num">1,095</td><td class="num"><strong>48.2 %</strong></td><td>⭐ Acá sí. Es la masa de la que depende la holgura.</td></tr>
+      <tr><td>Deuda con proveedor</td><td class="num">397</td><td class="num">44.7 %</td><td>Más concentrada que la cartera.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note ok"><strong>Una alerta por decisión, no por hallazgo.</strong> Cinco clientes concentrando el 48 % de lo vencido es <em>una</em> línea, no cinco alertas. Y va al lado de la holgura porque es su supuesto: el 22.9 % sale de esa masa.</div>
+</section>
+
+<section>
+  <h2>4 · Decisiones de diseño a revisar</h2>
+  <ul>
+    <li><strong>El veredicto arriba, el grid abajo.</strong> La pantalla abre con la respuesta en una línea. Las tres pestañas actuales abren con formularios y tablas — ésta no.</li>
+    <li><strong>Cero rojo en el hueco.</strong> Es el cambio de criterio más fuerte: −$19.2M es el caso base, no una alarma. El semáforo vive en el <strong>22.9 % contra su umbral</strong>, que sí se puede juzgar.</li>
+    <li><strong>El umbral se dibuja.</strong> El 70 % está en la barra, no en una nota al pie. ⚠️ <b>Y hoy ese 70 % es una propuesta mía, sin registrar</b>: por ADR-076 va a <code>analytics.kpi_thresholds</code> con dueño, o el estado es <code>sin_meta</code>.</li>
+    <li><strong>Dos vacíos de distinta naturaleza.</strong> DIO y Ciclo salen en guion con su motivo; ningún <code>$0.00</code>.</li>
+    <li><strong>Ruta propia, no un campo del flujo.</strong> La curva ya cuesta ~2.4 s por la ventana FIFO de la cartera; colgarle tres agregados de 90 días la empeora para quien sólo quiere la curva.</li>
+  </ul>
+  <div class="note warn"><strong>Lo que este prototipo no resuelve.</strong> El umbral del 70 % necesita dueño · el DIO necesita que la Fase MR cierre la valuación · y las cifras son de un <strong>libro vivo</strong>: dos consultas del mismo día difieren, así que la pantalla implementada tiene que traer su <code>as_of</code> y su régimen, no la fecha de hoy.</div>
+</section>
+
+</div>
+<script>
+(function(){
+  var b=document.getElementById('tgl'),r=document.documentElement;
+  function oscuro(){ return r.classList.contains('theme-monochrome'); }
+  function paint(){ b.textContent = oscuro() ? 'Cambiar a claro' : 'Cambiar a oscuro'; }
+  b.addEventListener('click',function(){ r.classList.toggle('theme-monochrome'); paint(); });
+  paint();
+})();
+</script>
+</body></html>
