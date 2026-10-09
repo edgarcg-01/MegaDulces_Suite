@@ -228,7 +228,30 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
           // ⭐ La huella que delató a `mayoreo`: un canal cuyo número ES el default al decimal
           // tiene que declararse `default`, no `yoy_paired`. Si dice que lo midió, miente.
           for (const c of canales) {
-            const esDef = Math.abs(Number(s.g[c]) - Number(s.def)) < 1e-9;
+            // ⛔ GUARDA ANTI-NaN. Si `s.def` o `s.g[c]` vinieran ausentes, `Number(undefined)` da
+            // NaN, `NaN < 1e-9` es **false**, `esDef` queda false y el `continue` de abajo saltaría
+            // la fila **en silencio**: el detector de mentiras no correría y el bloque igual se
+            // imprimiría verde. Es el mismo falso verde que el carril de gastos se comió el
+            // 2026-10-08 (comparaban contra una columna que el SELECT no traía: cero filas
+            // marcadas y ✅ sobre una diferencia real de $49M). *Un campo ausente se lee
+            // EXACTAMENTE igual que «no hay diferencia».*
+            // ⭐⭐ `Number(null)` es **0**, NO NaN — y eso es PEOR que NaN, porque 0 es un valor
+            // plausible (este mismo ejercicio tiene `default_growth_pct = 0` de verdad). Con un
+            // guard que sólo mirara `Number.isFinite`, una columna ausente pasaría como «el
+            // default es 0», ningún canal coincidiría con él y el detector se saltaría TODAS las
+            // filas en silencio. Por eso el guard es `== null` ANTES de convertir.
+            if (s.def == null || s.g[c] == null) {
+              t(`«${s.name}» · ${c}: los campos para juzgar la procedencia están presentes`, false,
+                `growth=${JSON.stringify(s.g[c])} default=${JSON.stringify(s.def)} — un NULL se convierte en 0 y el detector se saltaría la fila en silencio`);
+              continue;
+            }
+            const gv = Number(s.g[c]), dv = Number(s.def);
+            if (!Number.isFinite(gv) || !Number.isFinite(dv)) {
+              t(`«${s.name}» · ${c}: los campos para juzgar la procedencia son numéricos`, false,
+                `growth=${JSON.stringify(s.g[c])} default=${JSON.stringify(s.def)}`);
+              continue;
+            }
+            const esDef = Math.abs(gv - dv) < 1e-9;
             const dice = s.p[c] && s.p[c].basis;
             if (!esDef) continue;
             t(`«${s.name}» · ${c}: su número ES el default (${pct(Number(s.def))}) y lo declara`,
@@ -269,6 +292,11 @@ const mx = (x) => Number(x || 0).toLocaleString('es-MX', { style: 'currency', cu
         const base = (await db.raw(`
           SELECT entity_key, sum(monto)::float8 AS m FROM ${MV}
            WHERE entity_key = ANY(?) AND fiscal_year = ? GROUP BY 1`, [eks, prior])).rows;
+        // ⛔ Misma guarda anti-NaN: un `m` no numérico haría `Number(m) > 0` false, `conBase`
+        // vacío y la aserción VERDE sin haber mirado nada.
+        const noNum = base.filter((r) => !Number.isFinite(Number(r.m)));
+        t(`FY${fy}: el real del año base llega numérico (si no, el freno se salta en silencio)`,
+          noNum.length === 0, noNum.map((r) => `${r.entity_key}=${JSON.stringify(r.m)}`).join(', '));
         const conBase = base.filter((r) => Number(r.m) > 0);
         t(`FY${fy}: ninguna entidad con proxy tenía real en ${prior} (el proxy es el ÚLTIMO recurso)`,
           conBase.length === 0,
