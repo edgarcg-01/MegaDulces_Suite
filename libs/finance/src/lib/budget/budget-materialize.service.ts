@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { supuestoGastoFirmado } from './budget-materialize.policy';
 
 /**
  * Fase PR.1 — Materialización plan → ledger de 5 estados (ADR-074).
@@ -57,6 +58,13 @@ interface Desired {
   control_level: 'informativo' | 'advertencia' | 'bloqueo';
   expense_class: 'fijo' | 'variable' | null;
   recurrence: 'recurrente' | 'no_recurrente' | null;
+  /**
+   * [PU.VG.3] true = derivada del PLAN DE GASTO y sin supuesto firmado. ⚠️ Entra igual al conjunto
+   * deseado —y por lo tanto a `seen`— porque el barrido de huerfanas cierra todo `source='plan'`
+   * que no este ahi: omitirla cerraria las 40 partidas de gasto que ya existen, con vigente en
+   * cero. Lo que se frena es la ESCRITURA, no la pertenencia.
+   */
+  bloqueada?: boolean;
 }
 
 @Injectable()
@@ -79,7 +87,14 @@ export class BudgetMaterializeService {
       const desired = new Map<string, Desired>();
 
       // ── GASTOS: agrupar expense_plan_lines por cuenta × sucursal ──
-      const expControl = (await trx('budget.expense_plan_settings').where({ tenant_id: tenantId, budget_id: budgetId }).first())?.control_level || 'advertencia';
+      // [PU.VG.3] La MISMA fila sirve para dos cosas: el control por default y la FIRMA. Medido en
+      // prod el 2026-10-08: esta tabla esta en 0 filas, y aun asi se materializaban 40 partidas de
+      // gasto -- o sea el pasado copiado publicado con forma de presupuesto, sin que nadie firmara
+      // un crecimiento. La firma no puede ser un VALOR (un supuesto de 0% es una decision legitima
+      // y se ve igual que no haber decidido): es el hecho de que una persona haya tocado esto.
+      const expSettings = await trx('budget.expense_plan_settings').where({ tenant_id: tenantId, budget_id: budgetId }).first();
+      const expControl = expSettings?.control_level || 'advertencia';
+      const firmado = supuestoGastoFirmado({ existe: !!expSettings, autor: expSettings?.created_by });
       const expRows = await trx('budget.expense_plan_lines').where({ tenant_id: tenantId, budget_id: budgetId })
         .select('account_code', 'account_name', 'sucursal', 'monto', 'familia');
       const gmap = new Map<string, { name: string | null; sucursal: string; monto: number; months: number; familia: string }>();
@@ -108,6 +123,8 @@ export class BudgetMaterializeService {
           control_level: expControl,
           expense_class: null,
           recurrence: g.months >= 6 ? 'recurrente' : 'no_recurrente',
+          // [PU.VG.3] Sin supuesto firmado, el plan de gasto NO se vuelve presupuesto.
+          bloqueada: !firmado,
         });
       }
 
@@ -133,11 +150,16 @@ export class BudgetMaterializeService {
         });
       }
 
-      const summary = { created: 0, updated: 0, adjusted: 0, closed: 0, skipped: 0, gasto: 0, ingreso: 0 };
+      const summary = { created: 0, updated: 0, adjusted: 0, closed: 0, skipped: 0, gasto: 0, ingreso: 0, bloqueado_sin_firma: 0 };
       const seen = new Set<string>();
 
       for (const [sref, d] of desired) {
+        // ⚠️ [PU.VG.3] El `seen.add` va ANTES del bloqueo, y es la linea que evita el desastre: el
+        // barrido de huerfanas de mas abajo cierra todo `source='plan'` que no este en `seen`
+        // (status='cerrada', vigente_amount=0). Si una bloqueada no entrara aca, la compuerta
+        // cerraria las 40 partidas de gasto que ya existen en prod. Se frena la ESCRITURA.
         seen.add(sref);
+        if (d.bloqueada) { summary.bloqueado_sin_firma++; continue; }
         const existing = await trx('budget.budget_lines')
           .where({ tenant_id: tenantId, budget_id: budgetId, source_ref: sref }).first();
 
@@ -207,7 +229,14 @@ export class BudgetMaterializeService {
         }
       }
 
-      return { budget_status: b.status, ...summary, total_desired: desired.size };
+      // [PU.VG.3] La firma viaja con el resultado: el autopiloto la escribe en `generation_runs` y
+      // el latido la puede declarar. Un `bloqueado_sin_firma > 0` con `supuesto_gasto_firmado:false`
+      // dice exactamente por que no se movio nada -- en vez de un «sin_cambio» que se lee como
+      // «todo en orden» (ADR-056).
+      return {
+        budget_status: b.status, ...summary, total_desired: desired.size,
+        supuesto_gasto_firmado: firmado,
+      };
     });
   }
 

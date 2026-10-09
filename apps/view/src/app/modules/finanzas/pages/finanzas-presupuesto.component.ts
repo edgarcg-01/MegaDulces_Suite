@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
@@ -17,7 +17,8 @@ import { MessageService } from 'primeng/api';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
-import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual }
+import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual,
+  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 
@@ -33,6 +34,8 @@ interface BudgetLine {
   id: string; concept: string; line_type: string; area: string | null;
   /** `[PU.VA]` Ya viajaban (el servicio devuelve la fila entera); faltaba declararlos para poder usarlos. */
   cost_center?: string | null; source?: string | null;
+  /** `[PU.VG.7]` Idem: `listLines` hace `select *` y `decorate` sólo agrega. Es la llave del ritmo. */
+  account_code?: string | null;
   vigente_amount: number; reserved_amount: number; committed_amount: number; exercised_amount: number;
   paid_amount: number; available_amount: number; control_level: string; status: string;
   expense_class: string | null; recurrence: string | null; responsible: string | null;
@@ -181,6 +184,13 @@ interface ExpensePlanLine { account_code: string; account_name: string | null; f
 interface ExpensePlanSettings { proposal_families: string[]; default_growth_pct: number; growth_by_account: Record<string, number>; by_sucursal: boolean; control_level: string; exists?: boolean }
 interface ExpensePlan { budget: BudgetHeader; settings: ExpensePlanSettings; lines: ExpensePlanLine[] }
 interface ExpenseCoverage { historico_ajustado: number; estacional: number; no_signal: number; manual_kept: number; accounts: number }
+
+/**
+ * [PU.VG.2 / PU.VG.7] La procedencia de cada celda y el ritmo del gasto viajan en el contrato
+ * compartido (`libs/contracts/http/budget-expense-plan.contract.ts`), NO en interfaces locales.
+ * Este archivo ya tenia una copia a mano -- `ExpenseCoverage` -- y es exactamente el patron que
+ * ADR-056 nombra: un contrato copiado deja de ser un contrato al primer cambio de un lado solo.
+ */
 interface ExpenseGrowthProposal { global: { growth_pct: number; basis: string; paired_months: number; meses_abiertos_excluidos?: number }; years_available: number[]; fiscal_year: number; families: string[]; as_of: string | null; min_paired_months?: number; by_account: Record<string, { growth_pct: number; basis: string; paired_months: number; account_name: string | null }> }
 
 type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
@@ -446,11 +456,35 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               }
             </div>
             <app-metric-strip [items]="gastoKpis()" mode="strip" ariaLabel="Resumen de gasto operativo" />
+            <!-- PU.VG.7 — El ledger no guarda mes, asi que Ocupacion es un porcentaje anual y un
+                 0 por ciento ahi no distingue "no gastamos" de "no registramos". El perfil se
+                 deriva del plan y se declara al lado. No hay umbral de materialidad registrado:
+                 no se pinta semaforo. -->
+            @if (ritmoError()) {
+              <p class="pres-hint"><span class="pi pi-question-circle"></span> <strong>Ritmo no medido.</strong> No se pudo leer el perfil del plan; la columna «Ritmo» no afirma nada.</p>
+            } @else if (ritmo(); as rt) {
+              <p class="pres-hint">
+                <span class="pi pi-clock"></span>
+                <strong>Ritmo al cierre de {{ mesAnterior(rt.mes_en_curso) }}</strong> ·
+                @if (rt.resumen.brecha_total == null) {
+                  ninguna de las <strong>{{ rt.resumen.partidas }}</strong> partidas se puede evaluar todavía
+                  <span class="pres-muted">(el periodo no abrió o el plan no coincide con la partida)</span>.
+                } @else {
+                  <strong>{{ rt.resumen.sobre_perfil }}</strong> sobre el perfil ·
+                  <strong>{{ rt.resumen.sin_consumo }}</strong> sin un peso registrado ·
+                  <strong>{{ rt.resumen.no_evaluables }}</strong> no evaluables ·
+                  brecha <strong class="pres-mono" [class.pres-neg]="rt.resumen.brecha_total > 0">{{ money(rt.resumen.brecha_total) }}</strong>.
+                }
+                <span class="pres-muted">El mes en curso no cuenta. Sin umbral de materialidad registrado, esto no es un semáforo: es el dato.</span>
+              </p>
+            }
             <p-table [value]="gastoLines()" [loading]="loadingDetail()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
               <ng-template #header>
                 <tr>
                   <th>Concepto</th><th>Área / CC</th><th>Responsable</th><th>Clase</th><th>Recurrencia</th>
                   <th class="ta-r">Vigente</th><th class="ta-r">Comprometido</th><th class="ta-r">Ejercido</th><th class="ta-r">Disponible</th><th class="ta-r">Ocupación</th>
+                  <th class="ta-r" title="Suma de los meses del plan ya cerrados. El mes en curso no cuenta.">Debería a hoy</th>
+                  <th>Ritmo</th>
                   <th style="width:3rem"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
@@ -466,10 +500,14 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td class="ta-r pres-mono">{{ dash(l.exercised_amount) }}</td>
                   <td class="ta-r pres-mono" [class.pres-neg]="l.available_amount < 0">{{ money(l.available_amount) }}</td>
                   <td class="ta-r pres-mono">{{ ocupacion(l) }}</td>
+                  <td class="ta-r pres-mono" [title]="ritmoTitulo(l)">{{ ritmoDeberia(l) }}</td>
+                  <td [title]="ritmoTitulo(l)">
+                    <span [class.pres-neg]="ritmoEsAlerta(l)" [class.pres-muted]="ritmoEsMudo(l)">{{ ritmoEtiqueta(l) }}</span>
+                  </td>
                   <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
                 </tr>
               </ng-template>
-              <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">Sin partidas de gasto todavía. Se materializan del <strong>presupuesto propuesto</strong> (abajo) al aprobar el ejercicio.</td></tr></ng-template>
+              <ng-template #emptymessage><tr><td colspan="13" class="pres-empty">Sin partidas de gasto todavía. Se materializan del <strong>presupuesto propuesto</strong> (abajo) al aprobar el ejercicio.</td></tr></ng-template>
             </p-table>
             <p class="pres-hint"><span class="pi pi-info-circle"></span> Control antes de comprometer: el disponible manda. Reservar/comprometer más que el disponible se <strong>bloquea</strong> (o avisa) según el control de cada partida. Los movimientos se operan con el ejercicio <strong>aprobado</strong>.</p>
 
@@ -480,6 +518,32 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
             @if (lastExpenseCoverage(); as cov) {
               <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.accounts }}</strong> cuentas · <strong>{{ cov.historico_ajustado }}</strong> por base histórica · <strong>{{ cov.estacional }}</strong> por recurrencia · <strong>{{ cov.no_signal }}</strong> sin señal (no se inventan) · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
             }
+            <!-- PU.VG.2 / PU.VG.6 — Cuanto de lo que se publica lo observo alguien, y que ventana
+                 cubre. Las dos cosas las emite el SERVIDOR; si no se pudieron medir lo dice. -->
+            @if (coverageError()) {
+              <p class="pres-hint"><span class="pi pi-question-circle"></span> <strong>Procedencia no medida.</strong> No se pudo leer de dónde salió cada celda.</p>
+            } @else if (coverage(); as cv) {
+              @if (!cv.medido) {
+                <p class="pres-hint"><span class="pi pi-question-circle"></span> <strong>Procedencia no medida.</strong> <span class="pres-muted">{{ cv.motivo }}</span></p>
+              } @else {
+                <p class="pres-hint">
+                  <span class="pi pi-eye-slash"></span>
+                  @if (cv.relleno_pct != null) {
+                    <strong class="pres-mono">{{ cv.relleno_pct }}%</strong> de lo publicado es <strong>relleno plano</strong> —el motor lo calculó con suma/n y lo rotuló «estacional», aunque no varía entre sus meses—
+                  } @else {
+                    Relleno plano <strong>no medido</strong> <span class="pres-muted">(sin total no hay porcentaje)</span>
+                  }
+                  @if (cv.celdas_ausentes) { · <strong>{{ cv.celdas_ausentes }}</strong> celdas <strong>ausentes</strong> <span class="pres-muted">(suman $0.00 sin avisar)</span> }
+                  @if (cv.ventana; as w) {
+                    @if (!w.completa) {
+                      · <span class="pres-neg">el plan cubre <strong>{{ w.meses }} de {{ w.meses_esperados }}</strong> meses ({{ w.desde }}→{{ w.hasta }}): el importe <strong>no es anual</strong></span>
+                    } @else {
+                      · ventana completa <span class="pres-muted">({{ w.desde }}→{{ w.hasta }})</span>
+                    }
+                  }
+                </p>
+              }
+            }
             <p-table [value]="expenseByAccount()" [loading]="loadingExpense()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
               <ng-template #header>
                 <tr><th>Cuenta mayor</th><th>Familia</th><th>Sucursal</th><th>Origen</th><th class="ta-r">Meses</th><th class="ta-r">Presupuesto anual</th></tr>
@@ -489,7 +553,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td>{{ r.account_code }} · <span class="pres-muted">{{ r.account_name }}</span></td>
                   <td class="pres-muted">{{ r.familia || '—' }}</td>
                   <td class="pres-muted">{{ (r.sucursal | sucursal) || 'Consolidado' }}</td>
-                  <td>{{ r.method }}</td>
+                  <td [title]="origenGastoTitulo(r.method)">{{ origenGasto(r.method) }}</td>
                   <td class="ta-r pres-mono">{{ r.months }}</td>
                   <td class="ta-r pres-mono">{{ money(r.anual) }}</td>
                 </tr>
@@ -1801,6 +1865,105 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: (p) => { this.expensePlan.set(p); this.loadingExpense.set(false); },
       error: () => { this.loadingExpense.set(false); },
     });
+    // [PU.VG.7] El ritmo viaja aparte: si falla, la tabla sigue sirviendo y la columna DECLARA
+    // que no se pudo medir, en vez de quedarse en blanco (que se lee igual que «todo bien»).
+    this.ritmo.set(null); this.ritmoError.set(false);
+    this.http.get<ExpenseRhythm>(`${this.base}/budgets/${b.id}/expense-plan/ritmo`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.ritmo.set(r),
+      error: () => this.ritmoError.set(true),
+    });
+    // [PU.VG.2] La procedencia de cada celda. El endpoint ya DECLARA medido:false cuando la vista
+    // no esta aplicada, asi que no hace falta adivinar: se muestra el motivo.
+    this.coverage.set(null); this.coverageError.set(false);
+    this.http.get<ExpensePlanCoverage>(`${this.base}/budgets/${b.id}/expense-plan/coverage`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.coverage.set(r),
+      error: () => this.coverageError.set(true),
+    });
+  }
+
+  // ── [PU.VG.2] Procedencia del plan de gasto ─────────────────────────────────
+  coverage = signal<ExpensePlanCoverage | null>(null);
+  coverageError = signal(false);
+
+  /**
+   * El rotulo del ORIGEN **solo en la tabla de gasto**. `methodLabel()` es COMPARTIDO con ventas,
+   * donde `estacional` si es estacionalidad real; renombrarlo alla mal-rotularia esa tabla. Aca el
+   * motor rellena con suma/n y lo guarda como `estacional`, que dice lo contrario de lo que hace.
+   */
+  origenGasto(m: string | null | undefined): string {
+    if (m === 'estacional') return 'Promedio plano';
+    if (m === 'historico_ajustado') return 'Histórico';
+    if (m === 'manual') return 'Manual';
+    return m || '—';
+  }
+
+  origenGastoTitulo(m: string | null | undefined): string {
+    return m === 'estacional'
+      ? 'El motor rellenó esta celda con el promedio de los meses con dato (suma/n) y lo guardó como "estacional". No varía entre sus meses: nadie observó este gasto.'
+      : m === 'historico_ajustado'
+        ? 'Base del año anterior × el supuesto de crecimiento.'
+        : 'Capturado a mano.';
+  }
+
+  // ── [PU.VG.7] Ritmo ──────────────────────────────────────────────────────────
+  ritmo = signal<ExpenseRhythm | null>(null);
+  ritmoError = signal(false);
+
+  /** Indexa por la MISMA llave que usa el servidor: cuenta + sucursal (el cost_center). */
+  private ritmoIndex = computed(() => {
+    const m = new Map<string, ExpenseRhythmRow>();
+    for (const f of this.ritmo()?.partidas ?? []) m.set(f.account_code + '|' + f.sucursal, f);
+    return m;
+  });
+
+  ritmoDe(l: BudgetLine): ExpenseRhythmRow | null {
+    return this.ritmoIndex().get(String(l.account_code ?? '') + '|' + String(l.cost_center ?? '')) ?? null;
+  }
+
+  /** Lo que DEBERIA llevarse consumido. Una ausencia es un guion, nunca $0.00. */
+  ritmoDeberia(l: BudgetLine): string {
+    if (this.ritmoError()) return '—';
+    const r = this.ritmoDe(l);
+    return r?.deberia == null ? '—' : this.money(r.deberia);
+  }
+
+  ritmoEtiqueta(l: BudgetLine): string {
+    if (this.ritmoError()) return 'no medido';
+    const r = this.ritmoDe(l);
+    if (!r) return 'no medido';
+    const E: Record<ExpenseRhythmState, string> = {
+      sin_plan: 'sin plan',
+      sin_perfil: 'periodo sin abrir',
+      desfase_plan_vs_linea: 'plan movido',
+      sin_consumo: 'sin registrar',
+      sobre_perfil: 'sobre el perfil',
+      bajo_perfil: 'bajo el perfil',
+      en_ritmo: 'en ritmo',
+    };
+    return E[r.estado] ?? r.estado;
+  }
+
+  /** Solo se marca lo que el servidor pudo juzgar. Lo no medible NO se pinta. */
+  ritmoEsAlerta(l: BudgetLine): boolean { return this.ritmoDe(l)?.estado === 'sobre_perfil'; }
+  ritmoEsMudo(l: BudgetLine): boolean {
+    const e = this.ritmoDe(l)?.estado;
+    return this.ritmoError() || !e || e === 'sin_plan' || e === 'sin_perfil' || e === 'desfase_plan_vs_linea';
+  }
+
+  /** El perfil corta en el mes ANTERIOR al que corre: decirlo evita que se lea como "a hoy". */
+  mesAnterior(mesEnCurso: string): string {
+    const [y, m] = String(mesEnCurso || '').split('-').map(Number);
+    if (!y || !m) return '—';
+    const prev = m === 1 ? { y: y - 1, m: 12 } : { y, m: m - 1 };
+    return new Date(prev.y, prev.m - 1, 1).toLocaleDateString('es-MX', { month: 'long', year: 'numeric' });
+  }
+
+  ritmoTitulo(l: BudgetLine): string {
+    if (this.ritmoError()) return 'No se pudo leer el ritmo: la columna no afirma nada.';
+    const r = this.ritmoDe(l);
+    if (!r) return 'Esta partida no aparece en el perfil del plan.';
+    const base = r.motivo ?? ('Lleva ' + this.money(r.consumido) + ' contra ' + this.money(r.deberia ?? 0) + ' del perfil.');
+    return base + ' Meses cerrados: ' + r.meses_cerrados + ' de ' + r.meses_plan + '. El mes en curso no cuenta.';
   }
 
   /** Agrega la rejilla propuesta (cuenta × sucursal × mes) a una fila por cuenta con Σ anual. */

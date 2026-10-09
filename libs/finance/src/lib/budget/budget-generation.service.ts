@@ -79,8 +79,13 @@ export class BudgetGenerationService {
     tenantId: string, fiscalYear: number, username: string,
   ): Promise<{ created: boolean; id: string; folio: string | null; name: string }> {
     return this.tk.run(async (trx) => {
+      // [PU.VG.1] Un ejercicio de PRUEBA no cuenta como "ya existe el del año". Si contara, el
+      // día que alguien marque como prueba el UNICO ejercicio de un año, esta consulta lo vería,
+      // devolveria created:false, y el año se quedaria sin presupuesto EN SILENCIO -- un hueco
+      // nuevo abierto justo por el cambio que vino a cerrar otro. Es la mitad invisible de
+      // is_test: sin esta linea, marcar una fila apaga la garantia de [VE.5-A].
       const ya = await trx('budget.budgets')
-        .where({ tenant_id: tenantId, fiscal_year: fiscalYear })
+        .where({ tenant_id: tenantId, fiscal_year: fiscalYear, is_test: false })
         .orderBy('created_at', 'asc')
         .first();
       if (ya) {
@@ -124,10 +129,14 @@ export class BudgetGenerationService {
    * ⚠️ Es la SEGUNDA vez que el mismo bug se cobra esta pasada. `[VE.4]` ya lo había arreglado
    * moviendo la consulta adentro del contexto — y el contexto nunca fue lo que faltaba.
    */
-  async listBudgets(): Promise<Array<{ id: string; name: string; fiscal_year: number; status: string }>> {
+  async listBudgets(): Promise<Array<{ id: string; name: string; fiscal_year: number; status: string; is_test: boolean }>> {
+    // [PU.VG.1] is_test viaja en el SELECT y NO se filtra aca: esta lista es el catalogo, y el
+    // unico consumidor es el autopiloto, que decide a cual entrar. Filtrar adentro escondería la
+    // bandera justo del lado que tiene que verla para poder saltarla, y dejaria la decision sin
+    // sitio donde probarla.
     return this.tk.run(async (trx) => trx('budget.budgets')
-      .select('id', 'name', 'fiscal_year', 'status')
-      .orderBy('fiscal_year', 'asc')) as unknown as Array<{ id: string; name: string; fiscal_year: number; status: string }>;
+      .select('id', 'name', 'fiscal_year', 'status', 'is_test')
+      .orderBy('fiscal_year', 'asc')) as unknown as Array<{ id: string; name: string; fiscal_year: number; status: string; is_test: boolean }>;
   }
 
   /** `[D]` Abre el registro de una generación y devuelve su folio. */

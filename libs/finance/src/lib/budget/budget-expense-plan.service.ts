@@ -1,5 +1,11 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import type { ExpensePlanCoverage, ExpenseRhythm } from '@megadulces/contracts';
 import { TenantKnexService, TenantContextService, todayMx } from '@megadulces/platform-core';
+// [PU.VG.7] El ritmo vive en un módulo PURO: se prueba sin Postgres y sin Nest.
+import {
+  perfilAcumulado, evaluarRitmo, resumirRitmo, llaveDePartida,
+  type PlanRow, type LedgerRow,
+} from './budget-phasing';
 
 /**
  * Fase PVG — Presupuesto de GASTOS auto-propuesto desde los egresos de Kepler (ADR-073).
@@ -121,6 +127,132 @@ export class BudgetExpensePlanService {
   async getSettings(budgetId: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run((trx) => this.settingsRow(trx, tenantId, budgetId));
+  }
+
+  /**
+   * `[PU.VG.2]` De donde salio cada celda del plan: la pantalla tiene que poder DECLARARLO.
+   *
+   * Hoy los tres origenes se suman igual y ninguno se distingue: lo `observado` (el gasto
+   * contable real del mes), lo `promedio_plano` (que el motor rellena con suma/n y rotula
+   * `estacional`, diciendo lo contrario de lo que hace) y lo `ausente` (sin renglon, que suma
+   * $0.00 sin marcar nada). Medido en prod el 2026-10-08: en FY2027 el relleno plano es
+   * **$18,871,884.76 de $74,852,190.82 = 25.21 %** del presupuesto de gasto.
+   *
+   * ⚠️ Si la vista no existe todavia (la migracion va aparte), esto devuelve `medido: false` con
+   * su motivo -- NUNCA ceros, que se leerian como "no hay relleno" (ADR-056).
+   */
+  async getCoverage(budgetId: string): Promise<ExpensePlanCoverage> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      try {
+        const rows = await trx('budget.v_expense_plan_coverage')
+          .where({ tenant_id: tenantId, budget_id: budgetId })
+          .select('estado')
+          .count({ celdas: '*' })
+          .sum({ importe: 'monto' })
+          .groupBy('estado');
+
+        const porEstado: Record<string, { celdas: number; importe: number | null }> = {};
+        let total = 0;
+        for (const r of rows as Array<Record<string, unknown>>) {
+          const imp = r.importe == null ? null : round2(Number(r.importe));
+          porEstado[String(r.estado)] = { celdas: Number(r.celdas), importe: imp };
+          if (imp != null) total = round2(total + imp);
+        }
+        const relleno = porEstado['promedio_plano']?.importe ?? 0;
+
+        // `[PU.VG.6]` LA VENTANA. `fiscal_year` es un entero, no un periodo: el ejercicio NO guarda
+        // qué meses cubre, y eso vive sólo en `expense_plan_lines.year_month`. Medido en prod el
+        // 2026-10-08: **FY2026 publica $32,425,843.06 con `period_month = NULL` en sus 12 partidas
+        // —o sea "anual"— y su plan cubre ago–dic, 5 meses**. Quien lo lea como año subestima ~58 %.
+        //
+        // ⚠️ Esto mide el gasto contra los 12 meses naturales, y NO contra los 13 periodos del plan
+        // de ventas. Los dos cubren el año entero con calendarios distintos (13×4 contra mes
+        // natural): marcar esa diferencia como hueco sería una alarma falsa, y una alarma que grita
+        // en falso enseña a ignorar el tablero.
+        const vent = await trx('budget.expense_plan_lines')
+          .where({ tenant_id: tenantId, budget_id: budgetId })
+          .min({ desde: 'year_month' }).max({ hasta: 'year_month' })
+          .countDistinct({ meses: 'year_month' })
+          .first() as unknown as Record<string, unknown> | undefined;
+        const meses = Number(vent?.meses ?? 0);
+        const ventana = {
+          desde: (vent?.desde as string) ?? null,
+          hasta: (vent?.hasta as string) ?? null,
+          meses,
+          meses_esperados: 12,
+          cobertura_pct: meses > 0 ? round2((meses / 12) * 100) : null,
+          completa: meses === 12,
+          nota: meses === 12 ? null
+            : `El plan cubre ${meses} de 12 meses: el importe NO es anual aunque las partidas digan period_month = NULL.`,
+        };
+
+        return {
+          medido: true,
+          motivo: null as string | null,
+          por_estado: porEstado,
+          ventana,
+          total_publicado: total,
+          // El numero que la pantalla tiene que poner al lado del total: que tanto de lo que se
+          // publica NO lo observo nadie. Sin total no hay porcentaje: null, no 0.
+          relleno_pct: total > 0 ? round2((relleno / total) * 100) : null,
+          celdas_ausentes: porEstado['ausente']?.celdas ?? 0,
+        };
+      } catch (e) {
+        return {
+          medido: false,
+          motivo: `no se pudo leer budget.v_expense_plan_coverage: ${(e as Error)?.message ?? e}`,
+          por_estado: {} as Record<string, { celdas: number; importe: number | null }>,
+          ventana: null,
+          total_publicado: null as number | null,
+          relleno_pct: null as number | null,
+          celdas_ausentes: null as number | null,
+        };
+      }
+    });
+  }
+
+  /**
+   * `[PU.VG.7]` EL RITMO — cuánto del presupuesto anual debería llevarse consumido a la fecha.
+   *
+   * El ledger no tiene mes (`budget_lines.period_month` NULL en las 139 filas de prod), así que
+   * `available_amount` es un número ANUAL y nadie se entera de un sobre-ejercicio hasta el cierre.
+   * Meter el mes en el grano sería destructivo —`source_ref` es la clave con la que `materialize`
+   * reconcilia—, así que el perfil se lee AL LADO: ya vive en `expense_plan_lines.year_month`.
+   *
+   * ⚠️ El mes en curso se EXCLUYE con el MISMO criterio que ya usa este archivo. Medido contra
+   * prod el 2026-10-09: incluirlo movía la brecha de FY2026 un 46 %.
+   *
+   * ⛔ No emite semáforo: no hay umbral de materialidad registrado (ver `resumirRitmo`).
+   */
+  async getRitmo(budgetId: string): Promise<ExpenseRhythm> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const budget = await trx('budget.budgets').where({ tenant_id: tenantId, id: budgetId }).first();
+      if (!budget) throw new NotFoundException('Presupuesto no encontrado');
+
+      const mesEnCurso = todayMx().slice(0, 7);
+      const planRows = await trx('budget.expense_plan_lines')
+        .where({ tenant_id: tenantId, budget_id: budgetId })
+        .select('account_code', 'sucursal', 'year_month', 'monto');
+      const lineas = await trx('budget.budget_lines')
+        .where({ tenant_id: tenantId, budget_id: budgetId, line_type: 'gasto' })
+        .select('account_code', 'cost_center', 'concept', 'original_amount',
+          'reserved_amount', 'committed_amount', 'exercised_amount')
+        .orderBy('original_amount', 'desc');
+
+      const perfiles = perfilAcumulado(planRows as PlanRow[], mesEnCurso);
+      const filas = (lineas as LedgerRow[]).map((l) => evaluarRitmo(l, perfiles.get(llaveDePartida(l))));
+
+      return {
+        mes_en_curso: mesEnCurso,
+        // La ausencia tiene nombre: sin plan NO es lo mismo que con plan sin meses cerrados.
+        fuente: 'budget.expense_plan_lines.year_month (perfil) × budget.budget_lines (consumo)',
+        nota_grano: 'El ledger no guarda mes; el perfil se deriva del plan y se compara al lado.',
+        resumen: resumirRitmo(filas),
+        partidas: filas,
+      };
+    });
   }
 
   async upsertSettings(budgetId: string, dto: UpsertExpensePlanSettingsDto, username: string) {
