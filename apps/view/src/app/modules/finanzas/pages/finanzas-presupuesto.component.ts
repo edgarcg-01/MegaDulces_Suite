@@ -18,7 +18,7 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual,
-  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState }
+  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 
@@ -485,7 +485,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <th class="ta-r">Vigente</th><th class="ta-r">Comprometido</th><th class="ta-r">Ejercido</th><th class="ta-r">Disponible</th><th class="ta-r">Ocupación</th>
                   <th class="ta-r" title="Suma de los meses del plan ya cerrados. El mes en curso no cuenta.">Debería a hoy</th>
                   <th>Ritmo</th>
-                  <th style="width:3rem"><span class="sr-only">Acciones</span></th>
+                  <th style="width:5.5rem"><span class="sr-only">Acciones</span></th>
                 </tr>
               </ng-template>
               <ng-template #body let-l>
@@ -504,7 +504,10 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <td [title]="ritmoTitulo(l)">
                     <span [class.pres-neg]="ritmoEsAlerta(l)" [class.pres-muted]="ritmoEsMudo(l)">{{ ritmoEtiqueta(l) }}</span>
                   </td>
-                  <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
+                  <td style="white-space:nowrap">
+                    <button pButton type="button" class="p-button-sm p-button-text" (click)="openBitacora(l)" title="Bitácora de la partida" aria-label="Ver bitácora de la partida"><span class="pi pi-history"></span></button>
+                    @if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }
+                  </td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage><tr><td colspan="13" class="pres-empty">Sin partidas de gasto todavía. Se materializan del <strong>presupuesto propuesto</strong> (abajo) al aprobar el ejercicio.</td></tr></ng-template>
@@ -1231,6 +1234,38 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
       }
     </p-dialog>
 
+    <!-- PU.VG.4 — La bitacora del ledger. Cada transicion queda grabada desde que el libro existe
+         y hasta hoy no habia donde verla. La columna Efecto es la que la vuelve cuadrable: dice
+         que acumulador movio, que es justo lo que el libro no registraba. -->
+    <p-dialog [(visible)]="bitacoraVisible" [modal]="true" [header]="'Bitácora — ' + (bitacoraLine()?.concept || '')" [style]="{ width: '54rem' }">
+      @if (bitacoraCargando()) {
+        <p class="pres-muted">Cargando…</p>
+      } @else if (bitacoraError()) {
+        <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> No se pudo leer la bitácora. No afirma que no haya movimientos.</p>
+      } @else if (bitacora(); as movs) {
+        @if (!movs.length) {
+          <p class="pres-muted">Esta partida no tiene ni un movimiento registrado.</p>
+        } @else {
+          <p-table [value]="movs" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true" scrollHeight="24rem">
+            <ng-template #header>
+              <tr><th>Cuándo</th><th>Qué</th><th class="ta-r">Monto</th><th>Efecto</th><th>Quién</th><th>Nota</th></tr>
+            </ng-template>
+            <ng-template #body let-m>
+              <tr>
+                <td class="pres-mono pres-muted">{{ m.created_at | date: 'dd/MM/yy HH:mm' }}</td>
+                <td>{{ movLabel(m.movement_type) }}</td>
+                <td class="ta-r pres-mono">{{ money(m.amount) }}</td>
+                <td [class.pres-neg]="movOpaco(m)" [title]="movOpaco(m) ? 'Se registró antes de que el libro guardara el objetivo: no se puede recomputar.' : ''">{{ movEfecto(m) }}</td>
+                <td class="pres-muted">{{ m.created_by || '—' }}</td>
+                <td class="pres-muted">{{ m.note || '—' }}</td>
+              </tr>
+            </ng-template>
+          </p-table>
+          <p class="pres-hint"><span class="pi pi-info-circle"></span> <strong>Efecto</strong> es lo que vuelve cuadrable la partida: una cancelación declara si bajó la <strong>reserva</strong> o el <strong>compromiso</strong>, y un compromiso declara si <strong>movió una reserva</strong> o salió del disponible. Los dos caminos escribían un movimiento idéntico hasta que el libro empezó a guardarlo.</p>
+        }
+      }
+    </p-dialog>
+
     <!-- Nueva campaña -->
     <p-dialog [(visible)]="newCampVisible" [modal]="true" header="Nueva campaña" [style]="{ width: '28rem' }">
       <label class="pres-lbl">Nombre</label>
@@ -1879,6 +1914,56 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: (r) => this.coverage.set(r),
       error: () => this.coverageError.set(true),
     });
+  }
+
+  // ── [PU.VG.4] Bitácora del ledger ───────────────────────────────────────────
+  // El libro de 5 estados graba cada transición desde que existe y NINGUNA pantalla lo mostraba.
+  // Con `cancel_target` y `from_reserva` ya se puede leer POR QUE se movio cada bucket, que es lo
+  // que vuelve cuadrable la partida; sin eso la bitacora se lee pero no se puede reconstruir.
+  bitacora = signal<BudgetLineMovement[] | null>(null);
+  bitacoraLine = signal<BudgetLine | null>(null);
+  bitacoraVisible = false;
+  bitacoraError = signal(false);
+  bitacoraCargando = signal(false);
+
+  openBitacora(l: BudgetLine): void {
+    this.bitacoraLine.set(l);
+    this.bitacora.set(null);
+    this.bitacoraError.set(false);
+    this.bitacoraCargando.set(true);
+    this.bitacoraVisible = true;
+    this.http.get<BudgetLineMovement[]>(`${this.base}/lines/${l.id}/movements`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (m) => { this.bitacora.set(m); this.bitacoraCargando.set(false); },
+      error: () => { this.bitacoraError.set(true); this.bitacoraCargando.set(false); },
+    });
+  }
+
+  movLabel(t: string): string {
+    const M: Record<string, string> = {
+      apertura: 'Apertura', reserva: 'Reserva', compromiso: 'Compromiso', ejercido: 'Ejercido',
+      pago: 'Pago', ampliacion: 'Ampliación', reduccion: 'Reducción', cancelacion: 'Cancelación',
+      transferencia_in: 'Transferencia (entra)', transferencia_out: 'Transferencia (sale)',
+      reversion: 'Reversión',
+    };
+    return M[t] ?? t;
+  }
+
+  /** Qué acumulador movió. Es lo único que vuelve cuadrable el renglón. */
+  movEfecto(m: BudgetLineMovement): string {
+    if (m.movement_type === 'cancelacion') {
+      return m.cancel_target
+        ? 'Bajó ' + (m.cancel_target === 'reserva' ? 'la reserva' : 'el compromiso')
+        : 'No declara qué bajó';
+    }
+    if (m.movement_type === 'compromiso') {
+      return m.from_reserva ? 'Movió una reserva previa' : 'Salió del disponible';
+    }
+    return '—';
+  }
+
+  /** Lo que el libro NO puede explicar se marca; no se disfraza de normal. */
+  movOpaco(m: BudgetLineMovement): boolean {
+    return m.movement_type === 'cancelacion' && !m.cancel_target;
   }
 
   // ── [PU.VG.2] Procedencia del plan de gasto ─────────────────────────────────
