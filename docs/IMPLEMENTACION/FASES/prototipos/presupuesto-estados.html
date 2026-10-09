@@ -9,32 +9,31 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+
+<!-- EL SISTEMA REAL. `tokens.css` es autocontenido (0 @import), asi que se enlaza directo y
+     este prototipo deja de tener color propio. La primera version definia 15 hex a mano en un
+     :root local, copiando la forma de los prototipos vecinos -- pero la convencion del vecino
+     NO es el sistema: DESIGN.md, checklist punto 2, dice "cero hex crudo".
+     ⚠️ Ninguna compuerta lo exige aca: check:tokens escanea apps/*/src, no docs/. Que nadie lo
+     vigile lo hace mas importante, no menos: este archivo puede derivar y nadie se entera. -->
+<link rel="stylesheet" href="../../../../libs/design-tokens/tokens.css">
+
 <style>
+/* Capa de ALIAS, no de definicion: los nombres cortos que usa este documento salen de los
+   tokens reales. Cero hex. Si manana cambia la paleta del sistema, este archivo la sigue. */
 :root{
-  --bg:#FAFAF9; --surface:#FFFFFF; --sunken:#F5F5F4; --line:#E7E5E4; --line-strong:#D6D3D1;
-  --fg:#1C1917; --muted:#57534E; --faint:#A8A29E;
-  --action:#EA580C; --action-soft:#FFEDD5; --action-fg:#9A3412;
-  --ok:#15803D; --ok-soft:#DCFCE7; --no:#B91C1C; --no-soft:#FEE2E2;
-  --warn:#A16207; --warn-soft:#FEF9C3; --info:#1D4ED8; --info-soft:#DBEAFE;
-  --f-ui:"Hanken Grotesk", ui-sans-serif, system-ui, "Segoe UI", sans-serif;
-  --f-mono:"Geist Mono", ui-monospace, Consolas, monospace;
-  --r-sm:4px; --r-md:6px; --r-lg:10px;
+  --bg:var(--surface-ground); --surface:var(--card-bg); --sunken:var(--hover-bg);
+  --line:var(--border-color); --line-strong:var(--border-color);
+  --fg:var(--text-main); --muted:var(--text-muted); --faint:var(--text-faint);
+  --action-soft:var(--action-ring); --action-fg:var(--action-ink);
+  --no:var(--bad-fg); --no-soft:var(--bad-soft-bg);
+  --ok-soft:var(--ok-soft-bg); --warn-soft:var(--warn-soft-bg);
+  --info:var(--info-fg); --info-soft:var(--info-soft-bg);
+  --f-ui:var(--font-body); --f-mono:var(--font-mono);
 }
-@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
-  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
-  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
-  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
-  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212;
-  --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
-  color-scheme: dark; } }
-:root[data-theme="dark"]{
-  --bg:#111111; --surface:#18181B; --sunken:#1F1F23; --line:#2A2A2E; --line-strong:#3F3F46;
-  --fg:#F4F4F5; --muted:#A1A1AA; --faint:#71717A;
-  --action:#FB923C; --action-soft:#3B1D0B; --action-fg:#FDBA74;
-  --ok:#4ADE80; --ok-soft:#0F2A1A; --no:#F87171; --no-soft:#2E1212;
-  --warn:#FACC15; --warn-soft:#2A2408; --info:#93C5FD; --info-soft:#13213D;
-  color-scheme: dark;
-}
+/* ⚠️ El oscuro del sistema NO es prefers-color-scheme: es la clase `theme-monochrome` sobre la
+   raiz (DESIGN.md seccion Dark mode). El data-theme de la primera version era invento mio, y un
+   prototipo que se ve bien pero activa el tema por otro mecanismo NO transfiere a codigo. */
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
 .wrap{max-width:1180px;margin:0 auto;padding:18px 20px 72px;display:flex;flex-direction:column;gap:26px}
@@ -307,21 +306,54 @@ tbody tr:last-child td{border-bottom:none}
 
 <section>
   <h2>8 · Lo que este documento NO resuelve</h2>
+  <p class="lead">Y lo primero es el encuadre con el que nació, que resultó falso.</p>
+
+  <div class="note bad"><strong>⛔ La tesis original —«falta el segundo primitivo»— es FALSA, y descubrirlo es el aporte más grande del artefacto.</strong> <code>Coverage</code> ya existe en <code>libs/contracts/src/http/provenance.contract.ts</code>, con <code>measured · pct · note</code>, y su comentario —escrito semanas antes— ya decía nuestra regla 2: <em>«sin <code>measured</code>, "no falta nada" y "nadie contó" se serializan igual»</em>. Dos de los tres carriles <strong>ya lo usaban sin saberlo</strong>. Íbamos a construir por segunda vez el primitivo que existía, <strong>mientras escribíamos un documento sobre no hacer exactamente eso</strong>.</div>
+
+  <h3>Lo que falta de verdad, medido</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Hueco</th><th>Tamaño</th><th>De qué tipo es</th></tr></thead>
+    <tbody>
+      <tr><td><code>Freshness</code></td><td class="num">33 adoptantes</td><td>✅ Funcionó. Casi cero deriva: 2 archivos declaran el tipo a mano y uno es el contrato.</td></tr>
+      <tr><td><code>Coverage</code></td><td class="num">11 adoptantes</td><td><strong>Hueco de ADOPCIÓN, no de diseño.</strong> Subirlo de 11 a 33 es el premio mayor, y no requiere inventar nada.</td></tr>
+      <tr><td><code>method</code></td><td class="num">no existe</td><td>Lo único genuinamente ausente. <code>Coverage</code> no tiene con qué decir <strong>cómo</strong> se derivó.</td></tr>
+      <tr><td>El grano <strong>por número</strong></td><td class="num">capa aparte</td><td>Ver abajo. No lo cubre extender <code>Coverage</code>.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Por qué extender <code>Coverage</code> no alcanza</h3>
+  <p class="lead">Medido en los dos carriles, el mismo día:</p>
+  <div class="tw"><table>
+    <thead><tr><th>Función</th><th class="num">Números</th><th class="num">Estados distintos</th><th class="num"><code>Coverage</code> en la respuesta</th></tr></thead>
+    <tbody>
+      <tr><td><code>salesKpis()</code></td><td class="num">4</td><td class="num">3</td><td class="num">1</td></tr>
+      <tr><td><code>cashflowKpis()</code></td><td class="num">5</td><td class="num">3</td><td class="num">1</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><code>Coverage</code> responde <em>¿qué cubre la RESPUESTA?</em>; el vocabulario responde <em>¿con qué se calculó ESTE número?</em>. Una respuesta con un solo <code>Coverage</code> no puede decir que su KPI #1 está medido y su #5 no. <strong>Son complementarios y de distinto grano</strong>, no redundantes. La prueba más dura: <strong>ninguno de los tres antipatrones de este documento lo habría atrapado <code>Coverage</code></strong> — mira la respuesta, y los tres defectos están en la tarjeta.</div>
+
+  <h3>Lo que queda abierto</h3>
   <ul>
     <li><strong>Tres decisiones de negocio vivas</strong>, que van con dueño y no como error: si el gasto debe tener freno duro, cómo se resuelve FY2026 publicando 5 meses como anual, y quién firma el supuesto de crecimiento.</li>
-    <li><strong>El estado se propone, no se implementa.</strong> Agregarlo a <code>MetricStripItem</code> toca un organismo de 85 pantallas: necesita su <strong>compuerta con prueba negativa</strong> —un <code>check:</code> que falle si un item pide <code>tone: 'ok'</code> con estado distinto de <code>medido</code>, y que se rompa a propósito una vez para verificar el rojo—.</li>
+    <li><strong>El estado vive en el lugar equivocado.</strong> <code>MetricState</code> se implementó en <code>apps/view/…/metric-strip.component.ts</code>, y por ADR-056 un primitivo no cierra hasta vivir en <code>libs/</code>. Va al lado de <code>Coverage</code>, con el naming alineado: <code>measured === false</code> <strong>es</strong> <code>no_medido</code>, y hoy son dos maneras de decir lo mismo en dos capas. <em>El defecto que este documento denuncia, cometido mientras se escribía.</em></li>
+    <li><strong>La compuerta no existe.</strong> Falta un <code>check:</code> que falle si un item pide <code>tone: 'ok'</code> con estado distinto de <code>medido</code> — <strong>con su prueba negativa</strong>, rompiéndolo a propósito una vez. Hoy los <strong>22 verdes clavados</strong> pasarían sin que nadie se entere. ⚠️ Y la que el encargo citaba como «compuerta con tolerancia cero», <code>check:primeng-api</code>, <strong>no está cableada en <code>package.json</code></strong>: el archivo existe y nadie lo corre.</li>
+    <li><strong>No se puede contar procedencia por nombre de campo.</strong> Se escribe de al menos ocho maneras (<code>freshness · data_as_of · base · basis · cobertura · source · reason · as_of_reason</code>) y al menos tres son <strong>polisémicas</strong>: <code>base</code> es procedencia en un archivo y un monto en otro. ⇒ Antes de medir la deuda hay que decidir <strong>qué campo ES procedencia</strong>. Un conteo por nombre tiene error en las dos direcciones y no se sabe cuál domina.</li>
     <li><strong>Las cifras caducan.</strong> La cobranza en ventana se movió <strong>+10.6 % en tres horas</strong> el día que se midió. Ninguna cifra de este documento vale sin su <code>as_of</code> <em>y su régimen</em>.</li>
   </ul>
+
+  <div class="note warn"><strong>Un hallazgo que no es de diseño y conviene que viaje con el documento.</strong> Tres sesiones trabajaron sobre los mismos archivos y el trabajo se mezcló <strong>tres veces</strong>, la última con los dos lados haciendo todo bien: avisar antes de editar, mirar el aviso de «cambió en disco», inspeccionar el diff y retirarse. <strong>Git no reportó nada en ninguna de las tres, porque no hubo conflictos.</strong> Un conflicto frena; esto deja pasar. ⇒ La disciplina de un lado no alcanza: hace falta que las dos partes acierten el <em>timing</em>, y no hay nada que las sincronice.</div>
 </section>
 
 </div>
 <script>
 (function(){
+  // El oscuro del sistema se activa con la clase `theme-monochrome` sobre la raiz, no con una
+  // media query ni con un atributo propio. Si el prototipo lo hiciera distinto, lo que se
+  // aprueba aca no seria lo que se implementa alla.
   var b=document.getElementById('tgl'),r=document.documentElement;
-  function cur(){ var a=r.getAttribute('data-theme'); if(a) return a;
-    return window.matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'; }
-  function paint(){ b.textContent = cur()==='dark' ? 'Cambiar a claro' : 'Cambiar a oscuro'; }
-  b.addEventListener('click',function(){ r.setAttribute('data-theme', cur()==='dark'?'light':'dark'); paint(); });
+  function oscuro(){ return r.classList.contains('theme-monochrome'); }
+  function paint(){ b.textContent = oscuro() ? 'Cambiar a claro' : 'Cambiar a oscuro'; }
+  b.addEventListener('click',function(){ r.classList.toggle('theme-monochrome'); paint(); });
   paint();
 })();
 </script>
