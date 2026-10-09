@@ -28,6 +28,27 @@ export type CorteEstadoCobro = 'sin_cobro' | 'parcial' | 'cobrado' | 'sobrecobra
  */
 export type CorteCuadre = 'cuadra' | 'faltante_arqueo' | 'sobrante_arqueo' | 'corte_distinto' | 'sin_arqueo';
 
+/**
+ * `[CSU.8]` Clase de la cuenta de tesorería a la que ENTRÓ el cobro — `kdm1.c45` ⋈ `kdb1`.
+ *
+ * ⛔ No confundir con `forma_pago`, que es cómo pagó el **cliente**. Son dos preguntas distintas:
+ * un cobro con `forma_pago: 'tarjeta'` puede entrar a un banco, y uno en efectivo a `CAJA GENERAL`.
+ *
+ *  · `banco`        — cuenta bancaria; `cuenta_tesoreria` trae su nombre (ej. `BBVA  4885`).
+ *  · `caja`         — ⭐ entró en EFECTIVO a una caja, no a un banco. Medido: **3,599 cobros por
+ *                     $75,075,947.72 a `CAJA GENERAL`**, o sea ~15 %. No es un hueco: es la
+ *                     respuesta.
+ *  · `puente`       — cuenta que no es ni caja ni banco (`DEVOLUCIONES`, `AJUSTE A SALDO`,
+ *                     `TRASPASOS DE SUCURSAL`).
+ *  · `sin_declarar` — el documento no trae cuenta de tesorería. Medido: **6 de 24,763** (0.02 %).
+ *  · `no_resuelve`  — trae cuenta pero no existe en `kdb1`. Medido: **cero**; existe para que el
+ *                     día que aparezca se vea, en vez de colgarse del lado «banco».
+ *
+ * ⚠️ Las dos ausencias son DISTINTAS a propósito (ADR-056): `sin_declarar` lo arregla quien captura
+ * en Kepler, `no_resuelve` lo arregla el catálogo.
+ */
+export type CorteMedioCobro = 'banco' | 'caja' | 'puente' | 'sin_declarar' | 'no_resuelve';
+
 export interface CorteCobro {
   /** Prefijo del documento que abona, ej. `UA0501` (Cobro PUE). */
   doc_prefix: string;
@@ -37,6 +58,14 @@ export interface CorteCobro {
   monto: number;
   forma_pago: string | null;
   concepto: string | null;
+  /** `[CSU.8]` Clase de la cuenta donde entró el dinero. `null` si el cobro no está en la vista. */
+  medio_cobro: CorteMedioCobro | null;
+  /**
+   * `[CSU.8]` Nombre de la cuenta (`kdb1.c2`): el banco del depósito, o `CAJA GENERAL` cuando entró
+   * en efectivo. `null` cuando `medio_cobro` es `sin_declarar`/`no_resuelve` — o sea, **nunca se
+   * dibuja un banco que no se sabe**.
+   */
+  cuenta_tesoreria: string | null;
 }
 
 /**
