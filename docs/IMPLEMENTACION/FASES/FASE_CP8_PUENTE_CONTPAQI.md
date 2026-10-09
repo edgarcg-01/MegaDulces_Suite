@@ -883,3 +883,214 @@ simulación (lee de verdad, no escribe una fila).
 ⚠️ Una aserción mía dio falso rojo: cortaba el motivo a 40 caracteres y eso partía
 `contpaqi_cuenta` por la mitad. **Fallaba por el recorte, no por el dato** — y parecía un
 hallazgo.
+
+---
+
+## 17. ⭐⭐⭐ `[CP.8.17]` El mapa SÍ se deriva — y la derivación dice que el diseño está mal (2026-10-09)
+
+**Pedido de Edgar:** *"dime qué podemos hacer con toda esa información, qué es y cómo la podemos
+cablear para automatizar trabajo"*. Antes de contestar se midió. Lo medido cambia el plan.
+
+### 17.1 El cruce que `[CP.8.1c]` declaró imposible, con las llaves correctas, funciona
+
+`[CP.8.1c]` concluyó que el mapa categoría→cuenta **no es derivable**. Esa conclusión se sacó
+cruzando `analytics.gl_polizas` contra los *conceptos* de ContPAQi. Con la llave correcta —
+**(cuenta de banco, fecha, importe)** contra los **abonos a `102*`** de ContPAQi — sí cruza:
+
+| ene–feb 2026 | |
+|---|--:|
+| Egresos de CB con cuenta de banco enlazada | 2,650 |
+| **Pareo exacto 1:1** | **737 · 27.8 %** |
+| Ambiguos (≥2 pólizas con mismo banco/fecha/importe) | 48 · 1.8 % |
+| ⭐ **Placebo** (fecha corrida 43 días) | **2 · 0.1 %** |
+
+**278× el piso de ruido.** El cruce es real.
+
+### 17.2 ⛔ Pero el mapa NO tiene la forma de la tabla que construimos
+
+`contpaqi.account_rules` tiene **una fila por categoría con UNA cuenta**. La derivación muestra
+que eso sólo sirve para una minoría. Hay **tres tipos de regla distintos**:
+
+| Categoría CB | Pareados | Renglones/póliza | % con IVA | La cuenta la decide… |
+|---|--:|--:|--:|---|
+| `compra_mercancia` | 361 | 7.3 | 91 % | ⭐ **el PROVEEDOR** (65 % toca `2120*`, cuenta por pagar) |
+| `nomina` | 159 | 2.9 | 23 % | ⭐ **la SUCURSAL** (75 % toca `215011*` *SUELDOS X PAGAR \<plaza\>*) |
+| `compra_tarjeta` | 126 | 14.6 | 83 % | la **naturaleza** del gasto (74 % `5200600000` GASOLINA) |
+| `traspaso_entre_cuentas` | 25 | 16.0 | 4 % | ⛔ **nadie: no es un gasto**, es banco↔banco |
+| `comision_bancaria` | 18 | 278.3 | 100 % | la categoría (`5200650000`) — ver ⚠️ abajo |
+| `impuestos` | 17 | **2.1** | **6 %** | la categoría (`5201000000` / `5200090000`) |
+| `servicios` · `gasto_admin` | 12 · 9 | 3.9 · 4.0 | 67 % · 78 % | dispersas, muestra chica |
+
+⭐ **Por qué el mapa no se podía derivar de un solo lado, ahora medido:** **CB clasifica por
+INSTRUMENTO y ContPAQi por NATURALEZA.** `compra_tarjeta` (instrumento) es en 74 % *GASOLINA Y
+LUBRICANTES* (naturaleza). Por eso mi derivación original coronó conceptos como `combustible` o
+`mant_reparto`, que **sí existen — del lado de ContPAQi**; el error fue nombrarlos como si fueran
+categorías de CB. Las dos listas eran ciertas; faltaba el puente, y el puente es este cruce.
+
+### 17.3 ⛔⛔ El hallazgo que manda: la granularidad NO es 1:1
+
+**ContPAQi agrupa.** Una póliza de egreso promedia **7.3 renglones** en compra de mercancía,
+**14.6** en tarjeta y **278** en comisiones: un solo asiento cubre muchos movimientos bancarios.
+`ContpaqiArmadoService` hace **una póliza por movimiento**.
+
+⭐ Aun con el mapa firmado, el archivo que hoy generaríamos tendría una forma que la contadora
+**no reconoce como su trabajo**: 4,727 pólizas donde ella hace ~500. **La unidad de armado no es
+el movimiento: es el lote (cuenta de banco × día).**
+
+⚠️ Y de ahí sale una retractación propia: el *94.4 %* de `comision_bancaria` se calculó tomando
+**el renglón de cargo mayor** de la póliza pareada — sobre pólizas de **278 renglones** esa
+inferencia es débil, no una regla limpia. Se declara como indicio, no como regla.
+
+### 17.4 ⛔ Y `armarAsientoEgreso` asume una forma que casi nunca ocurre
+
+El armador genera **gasto + IVA + banco**. Contrastado contra lo real:
+
+- `impuestos` es el **único** que calza en número de renglones (2.1) — y ahí el armador
+  **agregaría IVA donde el 94 % no lo lleva**.
+- `compra_mercancia` no lleva cuenta de gasto: lleva **`2120<proveedor>`** (el IVA ya se acreditó
+  al registrar la factura, no al pagarla). Meterle un renglón de IVA sería **acreditarlo dos veces**.
+- `traspaso_entre_cuentas` **no debe generar póliza de egreso**: hoy el armador lo intentaría.
+
+### 17.5 Qué se hace con esto
+
+1. `contpaqi.account_rules` necesita un **discriminante** (`por_categoria | por_proveedor |
+   por_sucursal | no_aplica`), no una cuenta suelta. Migración nueva, no editar la aplicada.
+2. `por_proveedor` **ya es derivable**: `analytics.contpaqi_suppliers` (3,411 · 99.6 % RFC) ×
+   el RFC del CFDI. No requiere al contador.
+3. `por_sucursal` **está bloqueado por el dato de entrada**: CB no trae centro de costo por
+   movimiento (es la razón de `seg_negocio: 0`). Se declara.
+4. El armador pasa de **1 póliza por movimiento** a **1 póliza por (banco, día)**.
+5. `traspaso_entre_cuentas` se marca `no_aplica` — rechazo con motivo, no regla faltante.
+
+⭐ **Lo que esto le ahorra a la media hora con el contador:** deja de ser *"decidí 21 cosas desde
+cero"* y pasa a *"confirmá estos renglones, cada uno con su evidencia y su porcentaje medido"*.
+
+---
+
+## 18. 📋 `[CP.8.18]`–`[CP.8.22]` El plan paso a paso (2026-10-09)
+
+**Pedido de Edgar:** *"documentémoslo y hagámoslo paso a paso"*. Cada paso es entregable solo,
+cierra con una medición, y **ninguno depende del contador salvo donde se dice**.
+
+### 18.0 Dos sondeos más que acotan el diseño
+
+| Pregunta | Respuesta medida |
+|---|---|
+| ¿ContPAQi guarda la cuenta de cada proveedor en `Proveedores`? | ⛔ **No.** `IdCuenta`/`CodigoCuenta` poblados en **1 de 3,426**. El campo existe y nadie lo llena |
+| ¿El renglón de póliza trae al proveedor? | ⛔ **No.** `MovimientosPoliza` no tiene columna de persona — **la identidad del proveedor ES la cuenta** (`2120<sufijo>`) |
+| ¿El sufijo del código de cuenta identifica al proveedor entre rubros? | ⭐ **Sí: 973 de 1,025 sufijos** compartidos entre `2120`/`5010`/`5020` tienen el **mismo nombre** (94.9 %) |
+| ¿Se puede empatar cuenta `2120*` con proveedor? | ⭐ Por **nombre exacto**: 771 de 1,015 cuentas · de las **147 usadas en 2026, 106** · **$218.8M de $304.2M (71.9 %)** |
+| Ambigüedad | 11 nombres con ≥2 cuentas `2120`, 39 RFC repetidos. Chico y declarable |
+
+⚠️ Las 41 cuentas usadas que no empatan son **casi-empates** (`HERSHEY··MEXICO` con doble espacio,
+`SWEETS DIMENSION SA de CV` en minúsculas, nombres truncados). Normalizar sube la cobertura; **lo
+que quede se declara, no se adivina**.
+
+### 📍 Paso 1 — `[CP.8.18]` El derivador deja de ser un script tirado
+
+Hoy la evidencia de §17 vive en el scratchpad: **se perdió en cuanto cierre la sesión**. Pasa a
+`database/scripts/derivar-reglas-contpaqi.js` — read-only de los dos lados, **placebo obligatorio
+en la salida** (sin placebo, un cruce por importe no es evidencia), y produce la tabla
+pre-llenada que el contador firma.
+
+**Terminado cuando:** se corre dos veces y da lo mismo · el placebo sale impreso al lado del
+número real · hay una fila por categoría con su cuenta candidata, su % y su conteo.
+
+### 📍 Paso 2 — `[CP.8.19]` El discriminante en `account_rules`
+
+Migración nueva (⛔ no editar la aplicada, batch 856). La tabla gana:
+
+- `tipo_regla` — `por_categoria | por_proveedor | por_sucursal | no_aplica`
+- `lleva_iva` — `boolean NULL` (**NULL = sin medir**, no `false`)
+- `cuenta_pasivo` — para las reglas `por_proveedor`, donde el cargo va a `2120*` y **no hay
+  cuenta de gasto**
+
+Y se siembran dos veredictos que **ya están medidos** y no necesitan al contador:
+`traspaso_entre_cuentas` → `no_aplica` (4 % lleva IVA: es banco↔banco, no un gasto) ·
+`iva_acreditable` → `no_aplica` (es el renglón 2 del asiento de su hermano, no un asiento).
+
+**Terminado cuando:** el CHECK rechaza `por_proveedor` con `cuenta_gasto` y `por_categoria` sin
+ella — **probado mandando los dos a propósito**.
+
+### 📍 Paso 3 — `[CP.8.20]` El mapa proveedor → cuenta
+
+Vista `analytics.v_contpaqi_supplier_account`: `contpaqi_suppliers` × catálogo de cuentas `2120*`
+por **nombre normalizado**, con **veredicto por fila** (`exacto | normalizado | ambiguo |
+sin_cuenta`) y el RFC de arrastre.
+
+⚠️ Requiere traer el catálogo `Cuentas` (8,811), que hoy sólo se usa como join dentro del
+importer de pólizas y **no existe como tabla consultable**.
+
+**Terminado cuando:** la cobertura se publica en pesos (hoy 71.9 %) y la ambigüedad aparece como
+fila con motivo, nunca colapsada a la primera coincidencia.
+
+### 📍 Paso 4 — `[CP.8.21]` El armador por lote, con forma por tipo de regla
+
+Dos cambios en `ContpaqiArmadoService`:
+
+1. La unidad pasa de **movimiento** a **(cuenta de banco × día)** — porque ContPAQi agrupa
+   (7.3 renglones en mercancía, 14.6 en tarjeta).
+2. La forma del asiento la decide `tipo_regla`, no una plantilla fija:
+   `por_proveedor` → `2120<prov> / 102<banco>` **sin renglón de IVA** (ya se acreditó al
+   registrar la factura: ponerlo sería **acreditarlo dos veces**) · `por_categoria` → gasto
+   [+ IVA si `lleva_iva`] / banco · `no_aplica` → rechazo con motivo.
+
+**Terminado cuando:** un lote real de enero reproduce el **número de renglones** de la póliza que
+la contadora hizo ese día, no sólo el total.
+
+### 📍 Paso 5 — `[CP.8.22]` La bandeja
+
+Recién acá. Antes, una pantalla alrededor de algo que rechaza todo no es entrega.
+
+### ⛔ Lo que sigue dependiendo de un humano
+
+| | Quién | Qué desbloquea |
+|---|---|---|
+| Importar UN archivo a ContPAQi | la contadora, 1 min | si el formato se acepta · si respeta el `guid` · si los `AD` se prenden |
+| Firmar las reglas pre-llenadas | el contador, ~30 min | que el armador deje de rechazar |
+| Centro de costo por movimiento en CB | decisión de negocio | ⛔ **`por_sucursal` está bloqueado por el dato de entrada**, no por código |
+
+### ✅ Paso 1 cerrado — `database/scripts/derivar-reglas-contpaqi.js` (2026-10-09)
+
+Corrido contra prod + ContPAQi, ventana ene–feb 2026, **$144,093,601.04 en 2,650 egresos**:
+
+| | exacto | % | ambiguo |
+|---|--:|--:|--:|
+| real | **737** | 27.8 | 48 |
+| placebo +43 d | **2** | 0.1 | 4 |
+
+**369× el piso de ruido.** Dos corridas seguidas dan salida **idéntica**.
+
+**`tipo_regla` derivado — ya no hay que preguntarle esto al contador:**
+
+| Categoría | Pareados | `tipo_regla` | Evidencia |
+|---|--:|---|---|
+| `compra_mercancia` | 361 | **`por_proveedor`** | 65.1 % toca `2120*` |
+| `nomina` | 159 | **`por_sucursal`** | 74.2 % toca `215011*` |
+| `compra_tarjeta` | 126 | `por_categoria` | 83.3 % toca `52*` |
+| `comision_bancaria` | 18 | `por_categoria` | 100 % toca `52*` → `5200650000` (94.4 %) |
+| `impuestos` | 17 | `por_categoria` | 88.2 % toca `52*` |
+| `servicios` · `gasto_admin` · `imss_sua` | 12 · 9 · 6 | `por_categoria` | 75–100 % |
+| `traspaso_entre_cuentas` | 25 | **`no_aplica`** | 4 % en `52*` |
+| `caja_ahorro` | 1 | `no_aplica` | muestra CHICA |
+
+⭐ **El veredicto `no_aplica` de `traspaso_entre_cuentas` se confirmó solo**: sus cuentas
+candidatas son **otras cuentas de banco** (`1020020000` BBVA, `1020070000` Bajío). El cargo va a
+otro banco — es banco↔banco, no un gasto. Evidencia independiente del umbral que lo clasificó.
+
+⚠️ **SIN MEDIR** (cero pareos en la ventana, se declaran y no se dibujan en cero):
+`pago_factoraje`, `renta`, `traslado_valores`, `pago_credito`.
+
+#### ⛔ El bug que encontró este paso, y que casi se publica como hallazgo
+
+La primera corrida salió con **ceros en todas las columnas de forma y en las doce categorías**, y
+el script concluyó, con cara seria, *"no toca cuenta de gasto"* para todas. No era el mundo: era
+**`MovimientosPoliza.TipoMovto`, que es `bit` en SQL Server y el driver entrega como `boolean`**.
+`x.TipoMovto === 0` **nunca empata contra `false`**.
+
+⭐ **Una comparación de tipo equivocado no tira error: dibuja un cero.** Y un cero se publica.
+Arreglado con `Number(x.TipoMovto) === 0`, que además sobrevive si la columna cambia a `tinyint`.
+
+De ahí salió un **freno permanente** en el script: si todas las categorías caen en el mismo cubo,
+o si ninguna toca una cuenta de gasto, **sale `FATAL` y no publica** — eso no es un hallazgo, es
+un clasificador roto. **Probado en rojo** re-introduciendo el bug a propósito.
