@@ -249,6 +249,15 @@ const COMPUERTAS = [
   // regla estaba invertido: la que MENOS se infla es `estilos` (×1.16), la más pesada. Tabla
   // completa y el porqué —el castigo es aditivo, así que el cociente explota donde el
   // denominador es chico— en la cabecera, junto a la definición de `ms`.
+  //
+  // ⭐ **Y el `2,273` tampoco era un número viejo: lo medí hoy, tres corridas, 2,273/2,176/2,330.**
+  // Re-medido unas horas después, CINCO corridas: 1,461/1,567/1,558/1,672/1,583. Mismo comando,
+  // misma máquina, mismo día, **−32 %**. La dispersión DENTRO de cada tanda es chica (±7 % y
+  // ±13 %); entre tandas es enorme. ⇒ La variable no es la antigüedad ni el método: es **cuántas
+  // de las ocho sesiones estaban trabajando en ese momento**. Un `ms` suelto en esta máquina no
+  // es reproducible ni contra sí mismo, así que **sólo es comparable contra otro medido en la
+  // MISMA corrida** — que es exactamente por qué la única cifra que decide una admisión es la
+  // pared de la rueda completa, con y sin la compuerta, tomadas una al lado de la otra.
   { nombre: 'set-bind', script: 'check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)', push: true, ms: 2273 },
   // [MSH.2] H2: la confidencialidad de la cola de RH se rompe cuando alguien escribe una consulta NUEVA a `servicedesk.requests` sin saber
   // que existe lo confidencial. La lista de lectores es CERRADA: uno nuevo rompe el build y quien lo agrega escribe por qué es seguro.
