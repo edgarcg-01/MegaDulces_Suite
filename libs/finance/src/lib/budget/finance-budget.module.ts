@@ -14,6 +14,7 @@ import { BudgetSalesComparisonService } from './budget-sales-comparison.service'
 import { BudgetSalesIndicatorsService } from './budget-sales-indicators.service';
 import { BudgetSalesController } from './budget-sales.controller';
 import { BudgetExpensePlanService } from './budget-expense-plan.service';
+import { BudgetFindingsService } from './budget-findings.service';
 import { BudgetExpenseController } from './budget-expense.controller';
 import { BudgetMaterializeService } from './budget-materialize.service';
 import { SelloutRollupService } from './sellout-rollup.service';
@@ -33,7 +34,7 @@ import { BudgetGenerationService } from './budget-generation.service';
  */
 @Module({
   controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController, BudgetExpenseController],
-  providers: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService],
-  exports: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService],
+  providers: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, BudgetFindingsService],
+  exports: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, BudgetFindingsService],
 })
 export class FinanceBudgetModule {}
