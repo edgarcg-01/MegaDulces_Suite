@@ -154,7 +154,8 @@ export interface PlazaNueva {
   /** Rótulo de la ficha de Kepler de la plaza; NULL = no se sabe (Wincaja o sin ficha). */
   existencia_unidad: string | null;
   existencia_fuente: string | null;
-  existencia_mayor: CantidadEnUnidad | null;
+  /** `[NP.16]` La existencia en las presentaciones de la ficha, de la mayor a la base, en enteros. */
+  existencia_desglose: CantidadEnUnidad[] | null;
   unidades_vendidas: UnidadesKepler;
   venta_sin_unidad: number;
   unidades_recibidas: UnidadesKepler;

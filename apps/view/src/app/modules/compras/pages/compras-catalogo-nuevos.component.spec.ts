@@ -16,6 +16,7 @@ import {
   ComprasCatalogoNuevosComponent,
   cantidadTexto,
   cantidadPartes,
+  desgloseTexto,
   existenciaPartes,
   existenciaTexto,
   listaUnidades,
@@ -109,7 +110,7 @@ const DETALLE: DetalleNuevo = {
   plazas: [
     { plaza: '01', nombre: 'Padre Hidalgo', dia: 45, primera_actividad: '2026-08-23', venta_total: 20000, venta_28: 12000,
       dias_con_venta_28: 20, inversion_total: 19000, entradas: 2, primera_recompra: '2026-09-17', existencia: 0,
-      existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: null,
+      existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_desglose: null,
       unidades_vendidas: { CJA: 22 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 100 }, unidades_hoy: {},
       recibido_traspaso: {}, enviado_sucursales: { CJA: 10 }, enviado_rutas: { PAQ: 4 },
       ultima_venta: '2026-10-06', semanas: [100, 200, 300], venta_hoy: 0,
@@ -117,7 +118,7 @@ const DETALLE: DetalleNuevo = {
       margenes: MARGENES, movimiento: { venta_neta_dia: 400, dias: 45, desplazado: 1, lugar: 1 } },
     { plaza: '04', nombre: 'Yurécuaro', dia: 44, primera_actividad: '2026-08-24', venta_total: 14185, venta_28: 8000,
       dias_con_venta_28: 22, inversion_total: 7000, entradas: 1, primera_recompra: null, existencia: 36,
-      existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: { unidad: 'CJA', cantidad: 3 },
+      existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_desglose: [{ unidad: 'CJA', cantidad: 3 }],
       unidades_vendidas: { PZA: 40 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 35 }, unidades_hoy: { PZA: 2 },
       recibido_traspaso: { CJA: 10 }, enviado_sucursales: {}, enviado_rutas: {},
       ultima_venta: '2026-10-07', semanas: [100, 150, 120], venta_hoy: 530,
@@ -152,17 +153,17 @@ describe('[NP.5] funciones puras de Productos nuevos', () => {
 
   it('⛔ la existencia va en la unidad de la ficha de Kepler, y la caja sólo si la ficha la declara', () => {
     const k = { existencia_fuente: 'kepler' as const };
-    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_mayor: { unidad: 'CJA', cantidad: 3 } }))
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_desglose: [{ unidad: 'CJA', cantidad: 3 }] }))
       .toBe('Hay 36 piezas (3 cajas)');
-    expect(existenciaTexto({ ...k, existencia: 24, existencia_unidad: 'PZA', existencia_mayor: { unidad: 'CJA', cantidad: 0.8 } }))
-      .toBe('Hay 24 piezas (≈ 0.8 cajas)');
-    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_mayor: null })).toBe('Hay 36 piezas');
-    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: null, existencia_mayor: null }))
+    expect(existenciaTexto({ ...k, existencia: 13, existencia_unidad: 'PZA',
+      existencia_desglose: [{ unidad: 'CJA', cantidad: 1 }, { unidad: 'PZA', cantidad: 1 }] })).toBe('Hay 13 piezas (1 caja y 1 pieza)');
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_desglose: null })).toBe('Hay 36 piezas');
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: null, existencia_desglose: null }))
       .toBe('Hay 36 (unidad sin declarar en Kepler)');
-    expect(existenciaTexto({ existencia: 50, existencia_unidad: null, existencia_fuente: 'wincaja', existencia_mayor: { unidad: 'CJA', cantidad: 5 } }))
+    expect(existenciaTexto({ existencia: 50, existencia_unidad: null, existencia_fuente: 'wincaja', existencia_desglose: [{ unidad: 'CJA', cantidad: 5 }] }))
       .toBe('Hay 50 unidades de Wincaja (5 cajas)');
-    expect(existenciaTexto({ ...k, existencia: 0, existencia_unidad: 'PZA', existencia_mayor: null })).toBe('Agotado');
-    expect(existenciaTexto({ ...k, existencia: null, existencia_unidad: null, existencia_mayor: null })).toBe('Sin existencia registrada');
+    expect(existenciaTexto({ ...k, existencia: 0, existencia_unidad: 'PZA', existencia_desglose: null })).toBe('Agotado');
+    expect(existenciaTexto({ ...k, existencia: null, existencia_unidad: null, existencia_desglose: null })).toBe('Sin existencia registrada');
   });
 
   it('⭐ las unidades se dicen como Kepler las registró, de lo grande a lo chico, sin sumarse', () => {
@@ -429,6 +430,7 @@ describe('[NP.16] llegada, unidades por corte y reparto', () => {
     expect(limpio(celda(filas[1], 'Vendido').querySelector('.pk-cant'))).toBe('40 piezas');
     expect(limpio(celda(filas[1], 'Existencia hoy').querySelector('.pk-cant'))).toBe('36 piezas');
     expect(celda(filas[1], 'Existencia hoy').querySelector('.pk-cant-sub')?.textContent).toBe('3 cajas');
+    expect(celda(filas[1], 'Existencia hoy').textContent).not.toContain('≈');
   });
 
   it('⭐ arriba de Por sucursal: lo que nos llegó en compras y cómo se repartió', async () => {
@@ -477,13 +479,23 @@ describe('[NP.16] funciones puras', () => {
     expect(cantidadPartes(3, '?')).toEqual({ cifra: '3', rotulo: 'sin unidad' });
   });
 
+  it('⭐ el desglose va en enteros: cajas y lo que sobra, nunca "≈ 3.1 cajas"', () => {
+    expect(desgloseTexto([{ unidad: 'CJA', cantidad: 1 }, { unidad: 'PZA', cantidad: 1 }])).toBe('1 caja y 1 pieza');
+    expect(desgloseTexto([{ unidad: 'CJA', cantidad: 2 }, { unidad: 'PAQ', cantidad: 1 }, { unidad: 'PZA', cantidad: 4 }]))
+      .toBe('2 cajas, 1 paquete y 4 piezas');
+    expect(desgloseTexto([{ unidad: 'BTO', cantidad: 2 }, { unidad: 'KG', cantidad: 6.32 }])).toBe('2 bultos y 6.32 kg');
+    expect(desgloseTexto([{ unidad: 'CJA', cantidad: 5 }, { unidad: '?', cantidad: 3 }])).toBe('5 cajas y 3 unidades');
+    expect(desgloseTexto(null)).toBe('');
+  });
+
   it('⛔ la existencia partida: agotado y sin registro no traen cifra, y la caja sólo si la ficha la declara', () => {
     const k = { existencia_fuente: 'kepler' as const };
-    expect(existenciaPartes({ ...k, existencia: 334, existencia_unidad: 'PZA', existencia_mayor: { unidad: 'CJA', cantidad: 5.6 } }))
-      .toEqual({ estado: 'hay', cantidad: { cifra: '334', rotulo: 'piezas' }, mayor: '≈ 5.6 cajas' });
-    expect(existenciaPartes({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_mayor: null }).mayor).toBeNull();
-    expect(existenciaPartes({ ...k, existencia: 0, existencia_unidad: 'PZA', existencia_mayor: null }))
-      .toEqual({ estado: 'agotado', cantidad: null, mayor: null });
-    expect(existenciaPartes({ ...k, existencia: null, existencia_unidad: null, existencia_mayor: null }).estado).toBe('sin_registro');
+    const desglose = [{ unidad: 'CJA', cantidad: 5 }, { unidad: 'PAQ', cantidad: 3 }, { unidad: 'PZA', cantidad: 4 }];
+    expect(existenciaPartes({ ...k, existencia: 334, existencia_unidad: 'PZA', existencia_desglose: desglose }))
+      .toEqual({ estado: 'hay', cantidad: { cifra: '334', rotulo: 'piezas' }, desglose: '5 cajas, 3 paquetes y 4 piezas' });
+    expect(existenciaPartes({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_desglose: null }).desglose).toBeNull();
+    expect(existenciaPartes({ ...k, existencia: 0, existencia_unidad: 'PZA', existencia_desglose: null }))
+      .toEqual({ estado: 'agotado', cantidad: null, desglose: null });
+    expect(existenciaPartes({ ...k, existencia: null, existencia_unidad: null, existencia_desglose: null }).estado).toBe('sin_registro');
   });
 });

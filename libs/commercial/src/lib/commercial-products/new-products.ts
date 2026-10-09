@@ -227,9 +227,13 @@ export interface Existencia {
   /** El peldaño mayor de esa misma ficha y su factor (en unidades base). */
   unidad_mayor?: string | null;
   factor_mayor?: number | string | null;
+  /** `[NP.16]` El peldaño intermedio de la ficha (`kdii` u2) y su factor, y en qué peldaño está la caja. */
+  unidad_media?: string | null;
+  factor_media?: number | string | null;
+  peldano_caja?: number | string | null;
 }
 
-/** La existencia dicha también en la unidad mayor de la plaza. */
+/** Una cantidad en una unidad de la ficha. */
 export interface CantidadEnUnidad {
   unidad: string;
   cantidad: number;
@@ -364,8 +368,12 @@ export interface PlazaRow {
   existencia_unidad: string | null;
   /** `kepler` | `wincaja` | NULL. */
   existencia_fuente: string | null;
-  /** La misma existencia en la unidad mayor de la plaza, si la ficha la declara con su factor. */
-  existencia_mayor: CantidadEnUnidad | null;
+  /**
+   * `[NP.16]` La misma existencia en las presentaciones de la ficha de la plaza, de la mayor a la base y
+   * en enteros: 334 piezas = 5 cajas, 3 paquetes y 4 piezas. NULL si la ficha no declara una caja con
+   * su factor, o si no alcanza para una presentación mayor (no diría nada nuevo).
+   */
+  existencia_desglose: CantidadEnUnidad[] | null;
   unidades_vendidas: Unidades;
   venta_sin_unidad: number;
   unidades_recibidas: Unidades;
@@ -435,7 +443,6 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 const r2 = (v: number | null): number | null => (v === null ? null : Math.round(v * 100) / 100);
-const r1 = (v: number) => Math.round(v * 10) / 10;
 
 /** Suma rótulo por rótulo (nunca entre rótulos distintos). */
 function sumarUnidades(dst: Unidades, src: Record<string, number | string> | null | undefined): Unidades {
@@ -461,22 +468,42 @@ const sinUnidad = (total: number, cubierto: number) => {
 };
 
 /**
- * La existencia en la unidad mayor de la plaza. Kepler: el peldaño mayor de SU ficha (`kdii`),
- * nunca de otra plaza ni de un catálogo. Wincaja: el divisor de presentación (ADR-055), que es
- * la caja. Sin factor > 1 no se dice nada: no se inventa la caja.
+ * `[NP.16]` La existencia partida en las presentaciones de la ficha de ESA plaza (`kdii`), de la mayor a
+ * la base, en enteros: con caja de 60 y paquete de 10, 334 piezas son 5 cajas, 3 paquetes y 4 piezas.
+ * Nunca de otra plaza ni de un catálogo, y sin factor > 1 no se inventa la caja.
+ * - El intermedio entra sólo si la caja es múltiplo exacto de él (medido 2026-10-09: hay una caja de 200
+ *   con paquete de 11; ahí se dice en cajas y piezas).
+ * - Un bulto de peso puede tener factor fraccionario (6.84 kg): las cajas van enteras y el resto en la
+ *   base, con sus decimales.
+ * - Wincaja: el divisor de presentación (ADR-055) es la caja, y su base no tiene rótulo de Kepler.
  */
-export function existenciaMayor(e: Existencia | undefined): CantidadEnUnidad | null {
+export function existenciaDesglose(e: Existencia | undefined): CantidadEnUnidad[] | null {
   if (!e) return null;
   const cant = num(e.cantidad) ?? 0;
-  if (e.fuente === 'wincaja') {
-    const f = num(e.factor);
-    return f !== null && f > 1 ? { unidad: 'CJA', cantidad: r1(cant / f) } : null;
+  if (cant <= 0) return null;
+  const wincaja = e.fuente === 'wincaja';
+  const fCaja = num(wincaja ? e.factor : e.factor_mayor);
+  const caja = wincaja ? 'CJA' : (e.unidad_mayor ?? '').trim().toUpperCase();
+  const base = wincaja ? '?' : (e.unidad ?? '').trim().toUpperCase();
+  if (!caja || fCaja === null || fCaja <= 1 || caja === base) return null;
+  const peldanos: Array<{ unidad: string; factor: number }> = [{ unidad: caja, factor: fCaja }];
+  const media = (e.unidad_media ?? '').trim().toUpperCase();
+  const fMedia = num(e.factor_media);
+  if (!wincaja && Number(e.peldano_caja) === 3 && media && media !== base && media !== caja
+    && fMedia !== null && fMedia > 1 && fMedia < fCaja && Number.isInteger(fMedia) && Number.isInteger(fCaja / fMedia)) {
+    peldanos.push({ unidad: media, factor: fMedia });
   }
-  const f = num(e.factor_mayor);
-  const mayor = (e.unidad_mayor ?? '').trim().toUpperCase();
-  const base = (e.unidad ?? '').trim().toUpperCase();
-  if (!mayor || f === null || f <= 1 || mayor === base) return null;
-  return { unidad: mayor, cantidad: r1(cant / f) };
+  const out: CantidadEnUnidad[] = [];
+  let resto = cant;
+  for (const p of peldanos) {
+    // El épsilon evita que 59.999999 cuente como 0 cajas por el redondeo del flotante.
+    const n = Math.floor(resto / p.factor + 1e-9);
+    if (n > 0) out.push({ unidad: p.unidad, cantidad: n });
+    resto = Math.round((resto - n * p.factor) * 1000) / 1000;
+  }
+  if (resto > 0) out.push({ unidad: base || '?', cantidad: resto });
+  // Si no alcanzó ni para la presentación mayor, el desglose sería la misma cifra de la base.
+  return out.length && out[0].unidad !== (base || '?') ? out : null;
 }
 const pesos = (v: number) => `$${Math.round(v).toLocaleString('es-MX')}`;
 
@@ -856,7 +883,7 @@ export function armarProducto(
       existencia: ex ? ex.cantidad : null,
       existencia_unidad: ex && ex.fila.fuente !== 'wincaja' ? (ex.fila.unidad ?? null) : null,
       existencia_fuente: ex ? (ex.fila.fuente ?? null) : null,
-      existencia_mayor: ex ? existenciaMayor(ex.fila) : null,
+      existencia_desglose: ex ? existenciaDesglose(ex.fila) : null,
       unidades_vendidas: limpiarUnidades(vendidasP),
       venta_sin_unidad: sinUnidad(totalP, cubiertoP),
       unidades_recibidas: limpiarUnidades(recibidasP),

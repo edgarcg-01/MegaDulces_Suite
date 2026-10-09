@@ -15,7 +15,7 @@ import {
   esKindValido,
   estadoDe,
   etapaDe,
-  existenciaMayor,
+  existenciaDesglose,
   ocultarCosto,
   porSemana,
   recomendar,
@@ -209,7 +209,7 @@ describe('armarProducto — por sucursal', () => {
     expect(p03.recomendacion.veredicto).toBe('recomprar');
     expect(p03.recomendacion.motivos.join(' ')).toContain('Se agotó');
     expect(p05.existencia_unidad).toBe('PZA');
-    expect(p05.existencia_mayor).toEqual({ unidad: 'CJA', cantidad: 3 });
+    expect(p05.existencia_desglose).toEqual([{ unidad: 'CJA', cantidad: 3 }]);
   });
 
   it('cada plaza cuenta sus días desde SU primera actividad', () => {
@@ -278,31 +278,60 @@ describe('unidades de Kepler (NP.11)', () => {
   });
 });
 
-describe('existencia en la unidad mayor de cada plaza', () => {
+describe('[NP.16] existencia en las presentaciones de la ficha de cada plaza, en enteros', () => {
   const ex = { product_id: 'p1', plaza: '03', cantidad: 36, factor: 1 };
+  const k = { ...ex, fuente: 'kepler', unidad: 'PZA' };
 
-  it('Kepler: el peldaño mayor de la ficha de ESA plaza', () => {
-    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'PAQ', factor_mayor: 12 }))
-      .toEqual({ unidad: 'PAQ', cantidad: 3 });
+  it('Kepler: cajas enteras y lo que sobra en la base', () => {
+    expect(existenciaDesglose({ ...k, cantidad: 13, unidad_mayor: 'CJA', factor_mayor: 12 }))
+      .toEqual([{ unidad: 'CJA', cantidad: 1 }, { unidad: 'PZA', cantidad: 1 }]);
+    expect(existenciaDesglose({ ...k, unidad_mayor: 'PAQ', factor_mayor: 12 })).toEqual([{ unidad: 'PAQ', cantidad: 3 }]);
   });
 
-  it('⛔ sin ficha, o con una sola unidad, NO se inventa la caja', () => {
-    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: null, unidad_mayor: null, factor_mayor: null })).toBeNull();
-    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'PZA', factor_mayor: 1 })).toBeNull();
-    expect(existenciaMayor({ ...ex, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'CJA', factor_mayor: null })).toBeNull();
+  it('⭐ con paquete en medio: cajas, paquetes y piezas (334 = 5 cajas de 60, 3 paquetes de 10 y 4 piezas)', () => {
+    const tres = { ...k, cantidad: 334, unidad_mayor: 'CJA', factor_mayor: '60.00', unidad_media: 'PAQ', factor_media: '10.00', peldano_caja: 3 };
+    expect(existenciaDesglose(tres)).toEqual([
+      { unidad: 'CJA', cantidad: 5 }, { unidad: 'PAQ', cantidad: 3 }, { unidad: 'PZA', cantidad: 4 },
+    ]);
+    // Menos de una caja: paquetes y piezas, sin "0 cajas".
+    expect(existenciaDesglose({ ...tres, cantidad: 34 })).toEqual([{ unidad: 'PAQ', cantidad: 3 }, { unidad: 'PZA', cantidad: 4 }]);
   });
 
-  it('Wincaja: el divisor de presentación (ADR-055), y la base queda sin rótulo de Kepler', () => {
-    expect(existenciaMayor({ ...ex, cantidad: 50, factor: 10, fuente: 'wincaja', unidad: 'PZA' }))
-      .toEqual({ unidad: 'CJA', cantidad: 5 });
+  it('⛔ el intermedio entra sólo si la caja es múltiplo exacto de él, y si es otra presentación', () => {
+    // Medido: caja de 200 con paquete de 11. Partirla en paquetes daría una cuenta que no cuadra.
+    const raro = { ...k, cantidad: 425, unidad_mayor: 'CJA', factor_mayor: 200, unidad_media: 'PAQ', factor_media: 11, peldano_caja: 3 };
+    expect(existenciaDesglose(raro)).toEqual([{ unidad: 'CJA', cantidad: 2 }, { unidad: 'PZA', cantidad: 25 }]);
+    // La ficha más común: u2 repite la base con factor 1.
+    const plana = { ...k, cantidad: 13, unidad_mayor: 'CJA', factor_mayor: 12, unidad_media: 'PZA', factor_media: 1, peldano_caja: 3 };
+    expect(existenciaDesglose(plana)).toEqual([{ unidad: 'CJA', cantidad: 1 }, { unidad: 'PZA', cantidad: 1 }]);
+    // Con la caja en el peldaño 2, u2 ES la caja: no hay intermedio.
+    expect(existenciaDesglose({ ...plana, unidad_media: 'CJA', factor_media: 12, peldano_caja: 2 }))
+      .toEqual([{ unidad: 'CJA', cantidad: 1 }, { unidad: 'PZA', cantidad: 1 }]);
+  });
+
+  it('un bulto de peso con factor fraccionario: bultos enteros y el resto en kilos', () => {
+    expect(existenciaDesglose({ ...k, cantidad: 20, unidad: 'KG', unidad_mayor: 'BTO', factor_mayor: '6.84' }))
+      .toEqual([{ unidad: 'BTO', cantidad: 2 }, { unidad: 'KG', cantidad: 6.32 }]);
+    // El flotante no se come una caja: 60 = 1 caja exacta.
+    expect(existenciaDesglose({ ...k, cantidad: 59.9999999999, unidad_mayor: 'CJA', factor_mayor: 60 }))
+      .toEqual([{ unidad: 'CJA', cantidad: 1 }]);
+  });
+
+  it('⛔ sin ficha, con una sola unidad, agotado, o sin alcanzar una caja: no hay desglose', () => {
+    expect(existenciaDesglose({ ...k, unidad: null, unidad_mayor: null, factor_mayor: null })).toBeNull();
+    expect(existenciaDesglose({ ...k, unidad_mayor: 'PZA', factor_mayor: 1 })).toBeNull();
+    expect(existenciaDesglose({ ...k, unidad_mayor: 'CJA', factor_mayor: null })).toBeNull();
+    expect(existenciaDesglose({ ...k, cantidad: 0, unidad_mayor: 'CJA', factor_mayor: 12 })).toBeNull();
+    expect(existenciaDesglose({ ...k, cantidad: 8, unidad_mayor: 'CJA', factor_mayor: 12 })).toBeNull();
+  });
+
+  it('Wincaja: el divisor de presentación (ADR-055) es la caja, y la base queda sin rótulo de Kepler', () => {
+    expect(existenciaDesglose({ ...ex, cantidad: 53, factor: 10, fuente: 'wincaja', unidad: 'PZA' }))
+      .toEqual([{ unidad: 'CJA', cantidad: 5 }, { unidad: '?', cantidad: 3 }]);
     const { plazas } = armarProducto(fuente(), HOY, [], [{ ...ex, cantidad: 50, factor: 10, fuente: 'wincaja', unidad: 'PZA' }]);
     expect(plazas[0].existencia_unidad).toBeNull();
     expect(plazas[0].existencia_fuente).toBe('wincaja');
-  });
-
-  it('una fracción de caja se dice con un decimal', () => {
-    expect(existenciaMayor({ ...ex, cantidad: 24, fuente: 'kepler', unidad: 'PZA', unidad_mayor: 'CJA', factor_mayor: 30 }))
-      .toEqual({ unidad: 'CJA', cantidad: 0.8 });
+    expect(plazas[0].existencia_desglose).toEqual([{ unidad: 'CJA', cantidad: 5 }]);
   });
 });
 

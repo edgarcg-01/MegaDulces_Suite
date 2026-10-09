@@ -451,6 +451,15 @@ Todo en las unidades que registró Kepler en cada documento, sin convertir.
    ranking; arriba de «Por sucursal», el total comprado y la tabla del reparto; en cada tarjeta, lo que le llegó de
    otra y lo que mandó. Los días de una sucursal cuentan desde que le llegó, también por traspaso.
 
+### La existencia, en cajas enteras
+
+La existencia se dice en la unidad base de la ficha de Kepler de cada sucursal y, debajo, partida en sus
+presentaciones **en enteros**: con caja de 60 y paquete de 10, 334 piezas son *5 cajas, 3 paquetes y 4
+piezas* (antes decía *≈ 5.6 cajas*). Medido en prod sobre las fichas de los productos nuevos: la mayoría
+tiene sólo base y caja; ~500 tienen un intermedio real (pieza → paquete → caja). El intermedio entra sólo si
+la caja es múltiplo exacto de él (hay una caja de 200 con paquete de 11: ahí se dice en cajas y piezas), y un
+bulto de peso con factor fraccionario (6.84 kg) va en bultos enteros y el resto en kilos.
+
 ### ⚠️ Decisiones abiertas
 
 - **El lanzamiento sigue fechado con la compra aplicada (`X-A-20`).** Con el kardex se podría fechar con la

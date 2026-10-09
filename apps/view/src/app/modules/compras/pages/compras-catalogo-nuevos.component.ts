@@ -13,6 +13,7 @@ import { unidadLegible } from '@megadulces/contracts';
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import {
+  CantidadEnUnidad,
   HitoNuevo,
   MargenesNuevo,
   PlazaNueva,
@@ -48,10 +49,11 @@ export function tresMargenes(m: MargenesNuevo | null): string {
  * no aparecen: no hay nada que comparar.
  */
 /** `[NP.16]` "Padre Hidalgo y Canindo": las sucursales donde entró la primera compra. */
+/** "A", "A y B", "A, B y C". */
+const enumerar = (n: string[]) => (n.length <= 1 ? (n[0] ?? '') : `${n.slice(0, -1).join(', ')} y ${n[n.length - 1]}`);
+
 export function sucursalesTexto(s: ReadonlyArray<{ plaza: string; nombre: string | null }>): string {
-  const n = s.map((x) => x.nombre || `Sucursal ${x.plaza}`);
-  if (n.length <= 1) return n[0] ?? '';
-  return `${n.slice(0, -1).join(', ')} y ${n[n.length - 1]}`;
+  return enumerar(s.map((x) => x.nombre || `Sucursal ${x.plaza}`));
 }
 
 /**
@@ -178,24 +180,31 @@ export function textoUnidades(u: UnidadesKepler | null | undefined): string {
   return listaUnidades(u).map((p) => `${p.cifra} ${p.rotulo}`).join(' · ');
 }
 
-/** `[NP.16]` La existencia partida para una tabla: estado, cantidad y su equivalencia en la unidad mayor. */
+/**
+ * `[NP.16]` La existencia en las presentaciones de la ficha, en enteros: "5 cajas, 3 paquetes y 4 piezas".
+ * Lo que sobra de Wincaja no trae rótulo de Kepler: se dice "unidades".
+ */
+export function desgloseTexto(d: ReadonlyArray<CantidadEnUnidad> | null | undefined): string {
+  return enumerar((d ?? []).map((c) => (c.unidad === '?' ? `${cifra(c.cantidad)} unidades` : cantidadTexto(c.cantidad, c.unidad))));
+}
+
+/** `[NP.16]` La existencia partida para una tabla: estado, cantidad y cómo se reparte en cajas. */
 export interface ExistenciaPartes {
   estado: 'hay' | 'agotado' | 'sin_registro';
   cantidad: CantidadPartes | null;
-  /** "≈ 5.6 cajas"; NULL si la ficha no declara la unidad mayor con su factor. */
-  mayor: string | null;
+  /** "5 cajas, 3 paquetes y 4 piezas"; NULL si la ficha no declara la caja o no alcanza para una. */
+  desglose: string | null;
 }
 
-type ExistenciaDe = Pick<PlazaNueva, 'existencia' | 'existencia_unidad' | 'existencia_fuente' | 'existencia_mayor'>;
+type ExistenciaDe = Pick<PlazaNueva, 'existencia' | 'existencia_unidad' | 'existencia_fuente' | 'existencia_desglose'>;
 
 export function existenciaPartes(p: ExistenciaDe): ExistenciaPartes {
-  if (p.existencia === null) return { estado: 'sin_registro', cantidad: null, mayor: null };
-  if (p.existencia <= 0) return { estado: 'agotado', cantidad: null, mayor: null };
+  if (p.existencia === null) return { estado: 'sin_registro', cantidad: null, desglose: null };
+  if (p.existencia <= 0) return { estado: 'agotado', cantidad: null, desglose: null };
   const cantidad = p.existencia_unidad
     ? cantidadPartes(p.existencia, p.existencia_unidad)
     : { cifra: cifra(p.existencia), rotulo: p.existencia_fuente === 'wincaja' ? 'unidades de Wincaja' : '(unidad sin declarar en Kepler)' };
-  const m = p.existencia_mayor;
-  return { estado: 'hay', cantidad, mayor: m ? `${Number.isInteger(m.cantidad) ? '' : '≈ '}${cantidadTexto(m.cantidad, m.unidad)}` : null };
+  return { estado: 'hay', cantidad, desglose: desgloseTexto(p.existencia_desglose) || null };
 }
 
 /**
@@ -207,7 +216,7 @@ export function existenciaTexto(p: ExistenciaDe): string {
   if (e.estado === 'sin_registro') return 'Sin existencia registrada';
   if (e.estado === 'agotado' || !e.cantidad) return 'Agotado';
   const base = `Hay ${e.cantidad.cifra} ${e.cantidad.rotulo}`;
-  return e.mayor ? `${base} (${e.mayor})` : base;
+  return e.desglose ? `${base} (${e.desglose})` : base;
 }
 
 /**
@@ -767,7 +776,7 @@ export function tendenciaTexto(t: number | null): string {
         @default {
           <span class="pk-cants">
             <span class="pk-cant"><b>{{ e.cantidad?.cifra }}</b> {{ e.cantidad?.rotulo }}</span>
-            @if (e.mayor) { <span class="pk-cant-sub">{{ e.mayor }}</span> }
+            @if (e.desglose) { <span class="pk-cant-sub">{{ e.desglose }}</span> }
           </span>
         }
       }
@@ -902,7 +911,7 @@ export function tendenciaTexto(t: number | null): string {
     .pk-cant { white-space: nowrap; font-size: var(--fs-xs); color: var(--c-text-2); }
     .pk-cant b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-sm);
       font-weight: var(--fw-bold); color: var(--c-text-1); }
-    .pk-cant-sub { white-space: nowrap; font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pk-cant-sub { max-width: 13rem; font-size: var(--fs-xs); color: var(--c-text-3); }
     .pk-vacio { font-size: var(--fs-xs); color: var(--c-text-3); }
     .pk-tag-agotado { display: inline-block; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs);
       font-weight: var(--fw-bold); color: var(--bad-soft-fg); background: var(--bad-soft-bg); border: 1px solid var(--bad-border); }
