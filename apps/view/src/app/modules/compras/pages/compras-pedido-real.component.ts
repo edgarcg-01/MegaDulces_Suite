@@ -7,7 +7,8 @@ import { FormsModule } from '@angular/forms';
 import { catchError, of, forkJoin } from 'rxjs';
 import { compareWarehouseCodes, type Freshness, WAREHOUSE_DISPLAY_ORDER } from '@megadulces/contracts';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
-import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, roundSeed, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
+import { diasInventario, dineroCorto, EtiquetaUnidades, escaleraUnidades, etiquetaUnidades, evaluarPedidoTipico, PedidoTipicoEval, pasoCantidad, pasoPorTecla, textoUnidades, UnidadEscalera } from '../pedido-redondeo';
+import { MotivoTope, roundSeedConTope, textoTope, TOPE_COBERTURA_DIAS } from '../pedido-tope';
 import { ButtonModule } from 'primeng/button';
 import { TableModule } from 'primeng/table';
 import { PaginatorModule, PaginatorState } from 'primeng/paginator';
@@ -84,8 +85,18 @@ interface BranchBuy {
   code: string; name: string;
   vta: number;           // venta 30 d, en cajas — es lo que ordena la lista
   exis: number;          // existencia, en cajas
-  seed: number;          // sugerido del motor YA REDONDEADO, en cajas (valor inicial del input) — ver roundSeed
+  seed: number;          // sugerido del motor YA REDONDEADO Y TOPADO, en cajas (valor inicial del input)
   seedUnit: 'caja' | 'pieza';   // unidad en que se PROPONE el sugerido: cajas cerradas, o piezas si no llega a media caja
+  /**
+   * `[RA.45D]` Por qué el tope de 45 días tocó (o no) este renglón. `null` = el sugerido cabía.
+   * `'sin_medir'` NO es "no se topó porque sí": es que no hay con qué medir la cobertura, y se
+   * declara en vez de recortar con un número inventado.
+   */
+  tope: MotivoTope;
+  /** Lo que el motor sugería ANTES del tope, en cajas. Sin esto el recorte no se puede explicar. */
+  sugeridoCrudo: number;
+  /** Días de cobertura que deja el sugerido topado. `null` = no medible. */
+  diasTope: number | null;
   cc: number;            // costo de caja DE ESA SUCURSAL
   /** U.2 — peldaño de unidad contradicho por el costo: acá no se puede ni convertir ni pedir. */
   rung: string | null;
@@ -1753,13 +1764,22 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       const out: BranchBuy[] = [];
       for (const [code, c] of Object.entries(r.cells ?? {})) {
         if (code === 'GENERAL') continue;   // defensivo: el agregado de red no es una sucursal
-        const sd = roundSeed(Number(c.ped) || 0, Number(r.uxc) || 1);
+        // `[RA.45D]` El sugerido sale YA TOPADO a 45 días de cobertura. El tope va acá y no en el
+        // backend a propósito: es el redondeo a caja cerrada lo que rompe la regla (el motor por
+        // construcción nunca pasa la cobertura que se le pidió), y el redondeo vive de este lado.
+        const sd = roundSeedConTope(
+          Number(c.ped) || 0, Number(r.uxc) || 1,
+          Number(c.exis) || 0, Number(c.vta) || 0, !!c.rung,
+        );
         out.push({
           code, name: names.get(code) || '',
           vta: Number(c.vta) || 0,
           exis: Number(c.exis) || 0,
           seed: sd.cajas,
           seedUnit: sd.unit,
+          tope: sd.motivo,
+          sugeridoCrudo: sd.sugerido,
+          diasTope: sd.dias,
           // Sin costo por celda (feed viejo) se cae al del producto, que es el `max` entre
           // almacenes: sobrevalúa, pero es lo que ya publicaba la pantalla. No se inventa 0.
           cc: Number(c.cc ?? r.caja_cost) || 0,
@@ -1780,6 +1800,10 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         out.push({
           code, name: names.get(code) || '',
           vta: 0, exis: 0, seed: 0, seedUnit: 'caja',
+          // `[RA.45D]` Una sucursal agregada a mano no trae venta, así que NO hay cobertura que
+          // medir: el tope se declara `sin_medir`, no `null`. `null` significaría "el sugerido
+          // cabía bajo el tope", que es una afirmación — y acá no se midió nada.
+          tope: 'sin_medir', sugeridoCrudo: 0, diasTope: null,
           // Sin celda no hay costo de ESE almacén: se usa el del producto (el max entre almacenes,
           // mismo respaldo que ya aplica arriba a una celda sin `cc`). No se inventa 0.
           cc: Number(r.caja_cost) || 0,
@@ -2084,7 +2108,27 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
         title: this.pendienteTitle(r),
       });
     }
+    // `[RA.45D]` El tope de 45 días. Va como insignia y no como nota al pie porque es la única
+    // señal de la pantalla que EXPLICA UN NÚMERO MÁS CHICO: sin ella, el comprador ve un sugerido
+    // que no cuadra con la cobertura que conoce y lo sube a mano, que es justo lo que la regla
+    // viene a evitar. `sin_medir` NO se pinta: no se tocó nada, no hay nada que explicar.
+    if (b.tope === 'recortado') {
+      out.push({ txt: `tope ${TOPE_COBERTURA_DIAS} d`, cls: 'pr-bflag-pend', title: this.topeTitle(b) });
+    } else if (b.tope === 'ya_pasa_sin_pedir' || b.tope === 'no_cabe') {
+      out.push({ txt: 'no pedir', cls: 'pr-bflag-bad', title: this.topeTitle(b) });
+    }
     return out;
+  }
+
+  /**
+   * `[RA.45D]` La frase del tope. Sale del mismo helper puro que decidió el recorte, así que no
+   * puede describir otra cosa que lo que pasó.
+   */
+  topeTitle(b: BranchBuy): string {
+    return textoTope(
+      { cajas: b.seed, unit: b.seedUnit, sugerido: b.sugeridoCrudo, dias: b.diasTope, diasHoy: this.diasHoy(b), motivo: b.tope },
+      TOPE_COBERTURA_DIAS,
+    );
   }
 
   // ── [RA-PRO.65] V30d / MÁX y la PELÍCULA DE 12 MESES ─────────────────
@@ -2248,7 +2292,15 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (b.rung) return 'No se puede calcular: el peldaño de unidad de este almacén no está verificado.';
     if (!(b.vta > 0)) return 'Sin venta en los últimos 30 días en esta sucursal: no hay cobertura que calcular.';
     const q = this.qtyOf(r, b);
-    return `(${b.exis.toFixed(1)} de existencia + ${q.toFixed(1)} de pedido) ÷ (${b.vta.toFixed(1)} de venta 30 d ÷ 30.4 días)`;
+    const base = `(${b.exis.toFixed(1)} de existencia + ${q.toFixed(1)} de pedido) ÷ (${b.vta.toFixed(1)} de venta 30 d ÷ 30.4 días)`;
+    // `[RA.45D]` Si el comprador subió la cantidad a mano por encima del tope, se le dice acá — el
+    // tope gobierna lo que el motor SUGIERE, no prohíbe capturar. Pero un número que pasa la regla
+    // sin decirlo es peor que no tener regla.
+    const d = this.diasInv(r, b);
+    if (d != null && d > TOPE_COBERTURA_DIAS) {
+      return `${base}. ⚠️ Queda con ${Math.round(d)} días, por encima del tope de ${TOPE_COBERTURA_DIAS}.`;
+    }
+    return base;
   }
 
   // ── totales del renglón de producto (los de arriba) ──────────────────
@@ -3821,7 +3873,19 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
   typeSev(t: UType): Sev { return t === 'comprar' ? 'success' : t === 'traspaso' ? 'info' : 'warn'; }
   abcSev(c: string | null): Sev { return c === 'A' ? 'success' : c === 'B' ? 'info' : 'secondary'; }
   unitLabel(src: string | undefined): string { return src === 'granel' ? 'granel' : src === 'revisar' ? 'revisar unidad' : src === 'manual' ? 'unidad fija' : ''; }
-  coverSev(d: number | null): Sev { if (d == null) return 'secondary'; if (d < 7) return 'danger'; if (d < 30) return 'warn'; if (d > 90) return 'info'; return 'success'; }
+  /**
+   * `[RA.45D]` El corte de arriba pasó de 90 a **45 días**, que es el tope que el motor ahora
+   * respeta. Dejarlo en 90 habría pintado en verde una cobertura de 60 días en la misma pantalla
+   * que se niega a pedirla — el semáforo contradiciendo a la regla que acaba de aplicar.
+   *
+   * ⚠️ Esto pinta MÁS renglones en azul, y no es un efecto colateral: es el hallazgo. Medido el
+   * 2026-10-08, **8,023 de 15,927 pares SKU×almacén (50.4%) ya pasan los 45 días sin pedir nada**
+   * — $36,290,904 de inventario. La pantalla deja de taparlo.
+   *
+   * `info` (azul) y no `danger`: sobra inventario, no falta. El rojo es de los agotados, y un
+   * color que significa dos cosas deja de significar cualquiera.
+   */
+  coverSev(d: number | null): Sev { if (d == null) return 'secondary'; if (d < 7) return 'danger'; if (d < 30) return 'warn'; if (d > TOPE_COBERTURA_DIAS) return 'info'; return 'success'; }
 
   // ── override de unidad de venta ──────────────────────────────────────
   unitVisible = false;
