@@ -29,7 +29,9 @@ interface ExpenseObligation {
   original_amount: number; reserved_amount: number; paid_amount: number; available_amount: number;
   original_due_date: string | null; status: string; is_critical: boolean; critical_reason: string | null;
 }
-interface BudgetHeader { id: string; folio: string | null; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number }
+interface BudgetHeader { id: string; folio: string | null; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number;
+  /** `[PU.VG.9]` Ya viajaba (`listBudgets` devuelve la fila entera) y la pantalla no lo decía. */
+  is_test?: boolean }
 interface BudgetLine {
   id: string; concept: string; line_type: string; area: string | null;
   /** `[PU.VA]` Ya viajaban (el servicio devuelve la fila entera); faltaba declararlos para poder usarlos. */
@@ -243,7 +245,11 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                      es texto libre que se teclea una vez y queda para siempre (de ahi salio
                      "presupesto"). Si el folio falta -- fila anterior a la migracion -- se declara
                      en vez de dejar un hueco mudo. -->
+                <!-- PU.VG.9 — La marca de PRUEBA va PRIMERO y en rojo, antes que el folio. El
+                     duplicado de FY2027 publica la misma cifra al centavo que el real, asi que un
+                     ejercicio de prueba NO se delata por su numero: si no se dice, no se ve. -->
                 <button type="button" class="pres-chip" [class.on]="selected()?.id === b.id" (click)="selectBudget(b)">
+                  @if (b.is_test) { <p-tag value="PRUEBA" severity="danger" styleClass="pres-tag" /> }
                   <span class="pres-mono">{{ b.folio || 'sin folio' }}</span>
                   <span class="pres-chip-name">{{ b.name }}</span>
                   <span class="pres-chip-yr pres-mono">{{ b.fiscal_year }}</span>
@@ -269,8 +275,14 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
           }
 
           @if (selected(); as b) {
+            <!-- PU.VG.9 — Un ejercicio de prueba NO se delata por su cifra: el duplicado de FY2027
+                 publica $74,850,066.62, exactamente lo mismo que el real. Si no se dice, se lee
+                 como presupuesto. -->
+            @if (b.is_test) {
+              <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <strong>Este es un ejercicio de PRUEBA.</strong> Sus cifras no son presupuesto: el autopiloto no lo toca y no cuenta como el ejercicio del año. <span class="pres-muted">Elegí otro arriba para ver el que manda.</span></p>
+            }
             <div class="pres-detail-bar">
-              <span class="pres-summary-title">{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span> <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" /></span>
+              <span class="pres-summary-title">@if (b.is_test) { <p-tag value="PRUEBA" severity="danger" styleClass="pres-tag" />&nbsp; }{{ b.name }} · {{ b.fiscal_year }} · <span class="pres-muted">escenario {{ b.scenario }}</span> <p-tag [value]="b.status" [severity]="budgetSeverity(b.status)" styleClass="pres-tag" /></span>
               <div class="pres-detail-actions">
                 @if (b.status === 'borrador' || b.status === 'en_revision') {
                   <!-- [VE.9] Adelanta la pasada nocturna sobre ESTE ejercicio. No reemplaza al
