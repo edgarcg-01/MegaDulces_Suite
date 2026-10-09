@@ -96,6 +96,12 @@ const COMPUERTAS = [
   //     13 archivos de libs/ así, 166 pruebas sin correr una sola vez, entre ellas el candado
   //     del teclado de todas las tablas.
   { nombre: 'spec-vivo', script: 'check-spec-vivo.js', que: 'ningún spec de libs/ importa de "vitest" (cargaría en cero)', push: true, ms: 180 },
+  //   · sidebar-tabs: una pantalla que sólo está en una barra de pestañas, para quien no
+  //     conoce la pestaña, NO EXISTE — es la lección que `[AU.3]` ya había dejado escrita y
+  //     que nadie podía sostener sin compuerta. Medido el 2026-10-09: **81 pantallas** en esa
+  //     situación, entre ellas las cinco de Ruta Directa y las cuatro de MKT, que no tenían
+  //     entrada por sidebar en ningún proyecto.
+  { nombre: 'sidebar-tabs', script: 'check-sidebar-tabs.js', que: 'toda pestaña tiene entrada en el sidebar de su proyecto', push: true, ms: 120 },
   /**
    * ⛔ **Las cuatro de abajo faltaban acá, y el encabezado de este archivo dice "corre todas las
    * que existen".** Hallado el 2026-10-01: `check-dense-tables` y `check-css-tokens` vivían en
