@@ -12,6 +12,7 @@ import { InputTextModule } from 'primeng/inputtext';
 import { IconFieldModule } from 'primeng/iconfield';
 import { InputIconModule } from 'primeng/inputicon';
 import { MultiSelectModule } from 'primeng/multiselect';
+import { SelectModule } from 'primeng/select';
 import { ToggleSwitchModule } from 'primeng/toggleswitch';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
@@ -19,7 +20,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import {
   ExistenciaApiService, ExistenciaRow, ExistenciaCell, ExistenciaColumn,
-  ExistenciaTotals, ExistenciaFreshness, ExistenciaDetailRow,
+  ExistenciaTotals, ExistenciaFreshness, ExistenciaDetailRow, ExistenciaSupplier,
 } from '../existencia.service';
 
 type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
@@ -45,7 +46,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, PaginatorModule, TagModule,
-    InputTextModule, IconFieldModule, InputIconModule, MultiSelectModule, ToggleSwitchModule,
+    InputTextModule, IconFieldModule, InputIconModule, MultiSelectModule, SelectModule, ToggleSwitchModule,
     MetricStripComponent, FreshnessPillComponent, ContextHelpComponent, SidePeekComponent,
   ],
   template: `
@@ -108,12 +109,41 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         }
       }
 
+      <!-- [EX.7] Filtrar por proveedor DEJA FUERA lo que nadie clasificó, y eso no se puede
+           callar: medido el 2026-10-08, 1,617 de 11,090 productos activos (14.6 %) no tienen
+           proveedor asignado. Sin este aviso, la tabla filtrada se lee como «esto es todo» y
+           quien compara contra el inventario real encuentra un faltante que no existe. -->
+      @if (avisoSinProveedor()) {
+        <p class="ex-aviso-prov" role="status">
+          <i class="pi pi-info-circle" aria-hidden="true"></i>
+          Filtrando por proveedor quedan fuera <strong>{{ sinProveedor() | number }}</strong>
+          productos activos que no tienen proveedor asignado en el catálogo — no es que no tengan
+          existencia, es que nadie los clasificó.
+          <button type="button" class="ex-aviso-link" (click)="fSupplier = null; reload(1)">Quitar el filtro</button>
+        </p>
+      }
+      @if (filtrosError()) {
+        <p class="ex-aviso-prov" role="status">
+          <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+          No se pudo leer la lista de proveedores. El selector queda vacío: <strong>eso no quiere
+          decir que no haya</strong>.
+        </p>
+      }
+
       <div class="ex-filters">
         <p-iconfield class="ex-search">
           <p-inputicon styleClass="pi pi-search" />
           <input pInputText type="text" [(ngModel)]="fSearch" (ngModelChange)="search$.next($event)"
                  placeholder="SKU o nombre…" aria-label="Buscar producto" />
         </p-iconfield>
+        <!-- [EX.7] Buscador por PROVEEDOR. Es un select con filtro de texto y no un
+             multiselect: son 375 opciones y la pregunta real es «¿qué tengo de ESTE proveedor?»,
+             de uno a la vez. Con virtualScroll porque 375 nodos en el DOM al abrir se sienten. -->
+        <p-select [options]="supplierOpts()" [(ngModel)]="fSupplier" (onChange)="reload(1)"
+                  optionLabel="label" optionValue="value" placeholder="Todos los proveedores"
+                  [showClear]="true" [filter]="true" filterBy="label" [virtualScroll]="true"
+                  [virtualScrollItemSize]="34" class="ex-sel-wide" appendTo="body"
+                  ariaLabel="Filtrar por proveedor" />
         <p-multiselect [options]="whOpts()" [(ngModel)]="fWarehouses" (onChange)="reload(1)"
                        optionLabel="label" optionValue="value" placeholder="Todos los almacenes"
                        [showClear]="true" [maxSelectedLabels]="3" selectedItemsLabel="{0} almacenes"
@@ -328,6 +358,18 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
     .ex-filters { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
     .ex-search { flex: 0 1 18rem; }
     .ex-search input { width: 100%; }
+    /* EX.7 — el selector de proveedor necesita mas ancho que los otros: los nombres son razones
+       sociales completas y recortarlas a 12rem vuelve indistinguibles a los que comparten raiz.
+       Va como clase del HOST y no por styleClass: PrimeNG 22 retiro styleClass en p-select y lo
+       ignora en SILENCIO -- build verde, estilo ausente. Lo caza check:primeng-api. */
+    .ex-sel-wide { min-width: 16rem; }
+    .ex-aviso-prov { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
+      margin: .4rem 0 0; padding: .45rem .7rem; font-size: var(--fs-sm); color: var(--text-main);
+      border: 1px solid var(--border-color); border-left: 3px solid var(--action);
+      border-radius: var(--r-sm, 8px); background: var(--surface-soft, transparent); }
+    .ex-aviso-prov i { color: var(--action); }
+    .ex-aviso-link { background: none; border: 0; padding: 0; color: var(--action);
+      text-decoration: underline; cursor: pointer; font: inherit; }
     .ex-toggle { display: inline-flex; align-items: center; gap: .4rem; font-size: .78rem; color: var(--text-muted); }
     /* [EX.U] Selector de unidad: segmentado, las dos opciones SIEMPRE a la vista. Un desplegable
        esconderia en que unidad se esta leyendo, y esa es justo la informacion que faltaba. */
@@ -425,6 +467,8 @@ export class AlmacenExistenciaComponent implements OnInit {
   alcanceAuto = false;
 
   fSearch = '';
+  /** `[EX.7]` Proveedor elegido. `null` = todos. */
+  fSupplier: string | null = null;
   fWarehouses: string[] = [];
   fBucket: string[] = [];
   fHideZero = true;
@@ -443,6 +487,33 @@ export class AlmacenExistenciaComponent implements OnInit {
   ];
   readonly whOpts = computed(() => this.columns().map((c) => ({ label: `${c.code} · ${c.name}`, value: c.code })));
 
+  // ── `[EX.7]` Buscador por proveedor ────────────────────────────────────────────────────────
+  private readonly suppliers = signal<ExistenciaSupplier[]>([]);
+  /** Productos activos SIN proveedor: los que se caen de la tabla al filtrar. Ver `cargarFiltros`. */
+  readonly sinProveedor = signal(0);
+  /** `null` mientras no se pudo leer: «no sé» no es «no hay» (ADR-056). */
+  readonly filtrosError = signal(false);
+  /** El conteo de SKUs va en la etiqueta: un proveedor con 1 y uno con 400 no se eligen igual. */
+  readonly supplierOpts = computed(() =>
+    this.suppliers().map((s) => ({ label: `${s.name} · ${s.skus}`, value: s.id })));
+  /** Hay filtro de proveedor puesto Y hay productos sin clasificar que quedaron fuera. */
+  readonly avisoSinProveedor = computed(() => !!this.fSupplier && this.sinProveedor() > 0);
+
+  private cargarFiltros(): void {
+    this.api.filtros()
+      .pipe(catchError(() => of(null)), takeUntilDestroyed(this.destroyRef))
+      .subscribe((r) => {
+        if (!r) {
+          // Un selector vacío se lee como «no hay proveedores». Se DECLARA que no se pudo leer.
+          this.filtrosError.set(true);
+          return;
+        }
+        this.filtrosError.set(false);
+        this.suppliers.set(r.suppliers || []);
+        this.sinProveedor.set(Number(r.sin_proveedor) || 0);
+      });
+  }
+
   // Side-peek
   readonly peek = signal(false);
   readonly detail = signal<ExistenciaDetailRow[]>([]);
@@ -456,6 +527,7 @@ export class AlmacenExistenciaComponent implements OnInit {
     this.search$.pipe(debounceTime(300), distinctUntilChanged(), takeUntilDestroyed(this.destroyRef))
       .subscribe(() => this.reload(1));
     this.escucharAncho();
+    this.cargarFiltros();   // [EX.7] va en paralelo con la tabla: no la bloquea si tarda
     this.reload(1);
   }
 
@@ -515,6 +587,7 @@ export class AlmacenExistenciaComponent implements OnInit {
     this.loading.set(true);
     this.api.list({
       search: this.fSearch,
+      supplier_id: this.fSupplier || undefined,
       warehouse_ids: this.fWarehouses,
       bucket: this.fBucket.length === 1 ? this.fBucket[0] : undefined,
       hide_zero: this.fHideZero,

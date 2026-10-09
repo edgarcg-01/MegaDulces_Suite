@@ -118,6 +118,21 @@ export interface ExistenciaDetailRow {
   safety_stock: number | null; xyz_class: string | null;
 }
 
+/** `[EX.7]` Un proveedor del selector, con cuántos SKUs activos trae. */
+export interface ExistenciaSupplier { id: string; name: string; skus: number; }
+/**
+ * `[EX.7]` Lo que alimenta los filtros.
+ *
+ * `sin_proveedor` NO es adorno: son los productos activos que nadie clasificó y que **se caen de
+ * la tabla en cuanto alguien filtra por proveedor**. Medido en prod el 2026-10-08: 1,617 de
+ * 11,090 (14.6 %). La pantalla lo DECLARA en vez de dejar que el filtro parezca exhaustivo.
+ */
+export interface ExistenciaFiltros {
+  suppliers: ExistenciaSupplier[];
+  sin_proveedor: number;
+  productos_activos: number;
+}
+
 export interface ExistenciaQuery {
   warehouse_ids?: string[];
   supplier_id?: string; brand_id?: string; category_id?: string;
@@ -131,6 +146,15 @@ export interface ExistenciaQuery {
 export class ExistenciaApiService {
   private readonly http = inject(HttpClient);
   private readonly base = `${environment.apiUrl}/commercial/inventory/existencia`;
+
+  /**
+   * `[EX.7]` Catálogos de los filtros. ⛔ NO se usa el `/filters` de Compras: exige
+   * `COMPRAS_PEDIDO_VER` y esta pantalla la abren dos proyectos — a un almacenista le llegaría
+   * vacío y sin decir por qué. Éste pide el mismo `EXISTENCIA_VER` que la pantalla.
+   */
+  filtros(): Observable<ExistenciaFiltros> {
+    return this.http.get<ExistenciaFiltros>(`${this.base}/filtros`);
+  }
 
   list(q: ExistenciaQuery): Observable<ExistenciaResponse> {
     let p = new HttpParams();

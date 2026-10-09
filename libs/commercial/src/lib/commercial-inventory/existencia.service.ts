@@ -595,6 +595,44 @@ export class ExistenciaService {
   }
 
   /** Drill de un SKU: el desglose por almacén con la escalera de unidad y su procedencia. */
+  /**
+   * `[EX.7]` Los proveedores que alimentan el buscador de la pantalla.
+   *
+   * Sólo los que tienen al menos un producto ACTIVO: en prod son **375 de 1,321**, y ofrecer los
+   * 946 restantes es ruido que no puede dar resultado. Viene con su conteo de SKUs para que el
+   * selector pueda ordenarlos o mostrarlos, y porque un proveedor con 1 SKU y uno con 400 no se
+   * eligen igual.
+   *
+   * ⚠️ **La cobertura se declara, no se esconde:** `sin_proveedor` dice cuántos productos activos
+   * NO tienen proveedor asignado — medido el 2026-10-08, **1,617 de 11,090 (14.6 %)**. Son los que
+   * desaparecen de la tabla en cuanto alguien filtra por proveedor, y la pantalla tiene que poder
+   * decirlo. Sin este número, filtrar se lee como "esto es todo lo que hay de ese proveedor"
+   * cuando en realidad también se fue lo que nadie clasificó.
+   *
+   * Medido contra prod: 18 ms.
+   */
+  async filtros() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const suppliers = (await trx.raw(
+        `SELECT s.id, s.name, count(DISTINCT p.id)::int AS skus
+           FROM catalog.suppliers s
+           JOIN catalog.products p ON p.tenant_id = s.tenant_id AND p.supplier_id = s.id AND p.activo = true
+          WHERE s.tenant_id = ? AND s.deleted_at IS NULL
+          GROUP BY s.id, s.name
+          ORDER BY s.name`, [tenantId])).rows;
+      const cob = (await trx.raw(
+        `SELECT count(*) FILTER (WHERE supplier_id IS NULL)::int AS sin_proveedor,
+                count(*)::int                                   AS activos
+           FROM catalog.products WHERE tenant_id = ? AND activo = true`, [tenantId])).rows[0];
+      return {
+        suppliers,
+        sin_proveedor: Number(cob?.sin_proveedor || 0),
+        productos_activos: Number(cob?.activos || 0),
+      };
+    });
+  }
+
   async detail(productId: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     if (!UUID_RX.test(productId)) return { product: null, rows: [] };
