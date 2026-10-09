@@ -61,15 +61,15 @@ const MOVS = [
   try {
     // ── 1. Layout ──────────────────────────────────────────────────────────
     console.log('\n═══ 1. Layout ═══');
-    ok(largoLinea(LAYOUT_P) === 147, `encabezado P mide 147 (138 de campos + 9 separadores) — dio ${largoLinea(LAYOUT_P)}`);
-    ok(largoLinea(LAYOUT_M) === 211, `movimiento M mide 211 (203 de campos + 8 separadores) — dio ${largoLinea(LAYOUT_M)}`);
-    ok(LAYOUT_P.length === 10 && LAYOUT_M.length === 9, 'P tiene 10 campos y M tiene 9');
+    ok(largoLinea(LAYOUT_P) === 185, `encabezado P mide 185 (174 de campos + 11 separadores, el ultimo cierra la linea) — dio ${largoLinea(LAYOUT_P)}`);
+    ok(largoLinea(LAYOUT_M) === 272, `movimiento M mide 272 (261 de campos + 11 separadores, el ultimo cierra la linea) — dio ${largoLinea(LAYOUT_M)}`);
+    ok(LAYOUT_P.length === 11 && LAYOUT_M.length === 11, 'P tiene 11 campos y M tiene 11');
 
     const txt = construirTxt('20260731', 2, 'COMPLEMENTO REGISTRO DE COMPRAS 2026-07', MOVS);
     const lineas = txt.split('\r\n').filter((l) => l !== '');
     ok(txt.endsWith('\r\n'), 'el archivo cierra con CRLF');
     ok(lineas.length === MOVS.length + 1, `1 encabezado + ${MOVS.length} movimientos`);
-    ok(lineas.every((l, i) => l.length === (i === 0 ? 147 : 211)), 'todas las líneas miden exactamente su largo');
+    ok(lineas.every((l, i) => l.length === (i === 0 ? 185 : 272)), 'todas las líneas miden exactamente su largo');
 
     const p = parsearTxt(txt);
     ok(p.invalidos.length === 0, `el TXT propio parsea sin renglones inválidos (${p.invalidos.map((x) => x.motivo).join(', ')})`);
@@ -100,12 +100,14 @@ const MOVS = [
 
     // ── 2. El parser falla ruidoso ─────────────────────────────────────────
     console.log('\n═══ 2. El parser falla ruidoso (no adivina) ═══');
+    // [CP.8.13] Arma un renglón M a mano para poder romperlo campo por campo.
+    // ⚠️ La etiqueta es `M1` (lo que escribe ContPAQi de verdad) y el separador cierra TAMBIÉN
+    // la línea — las dos cosas se midieron contra una exportación real el 2026-10-08.
     const linM = (campos) => {
-      // Arma un renglón M a mano para poder romperlo campo por campo.
       let s = '';
       LAYOUT_M.forEach((c, i) => {
-        const v = String(campos[i] ?? '');
-        s += (c.der ? v.padStart(c.ancho, ' ') : v.padEnd(c.ancho, ' ')) + (i < LAYOUT_M.length - 1 ? SEP : '');
+        const v = String(i === 0 ? 'M1' : (campos[i] ?? ''));
+        s += (c.der ? v.padStart(c.ancho, ' ') : v.padEnd(c.ancho, ' ')) + SEP;
       });
       return s;
     };
