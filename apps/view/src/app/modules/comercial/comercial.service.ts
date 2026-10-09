@@ -4630,7 +4630,15 @@ export interface ObjetivoCriterio {
 export interface ObjetivoConfig {
   grupo: string;
   criterios: ObjetivoCriterio[];
+  /** El peso NOMINAL de los criterios configurados, encendidos o no. */
   peso_total: number;
+  /**
+   * ⭐ Lo ALCANZABLE: el peso de los **encendidos**. Si no es 100, el techo bajó — con
+   * «Desarrollo de marcas» apagado una ruta perfecta llega a 75%, no a 100%. **No se
+   * renormaliza**: se declara, porque renormalizar convertiría ese 75 en 100 y nadie se
+   * enteraría de que falta un criterio.
+   */
+  peso_activo: number;
   monto_total: number;
   activos: number;
   /** ⛔ `encendido` NO es «funciona»: exige que los pesos cierren y que haya importe. */
