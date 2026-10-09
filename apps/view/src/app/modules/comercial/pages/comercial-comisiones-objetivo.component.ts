@@ -189,6 +189,19 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             </ul>
           }
 
+          @if (!criteriosActivos().length) {
+            <!-- Con cero criterios encendidos la tabla eran TRECE renglones de 0% / 0%: el
+                 usuario no puede distinguir «nadie alcanzó nada» de «no se está evaluando».
+                 El dato de las rutas no aporta hasta que haya un criterio contra qué medirlas. -->
+            <section class="ob-vacio" aria-label="Sin criterios encendidos">
+              <p class="ob-vacio-t">Todavía no hay nada que evaluar</p>
+              <p class="ob-vacio-d">
+                Los {{ d.config.criterios.length }} criterios están apagados, así que las
+                {{ d.filas.length }} rutas no se miden contra nada. No es que hayan sacado cero:
+                es que el bono no está corriendo. Se enciende arriba, en la configuración.
+              </p>
+            </section>
+          } @else {
           <div class="ob-wrap dt-scope">
             <table class="ob-table dt-stack">
               <caption class="sr-only">Resultado del mes por ruta</caption>
@@ -201,6 +214,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   }
                   <th scope="col" class="num">Alcanzado</th>
                   <th scope="col" class="num">Sin resolver</th>
+                  <th scope="col" class="num">Fallado</th>
                 </tr>
               </thead>
               <tbody>
@@ -226,14 +240,18 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                     <td role="cell" data-label="Alcanzado" class="num dt-num mono fuerte">{{ f.alcanzado_pct }}%</td>
                     <td role="cell" data-label="Sin resolver" class="num dt-num mono"
                         [class.ob-pendiente]="f.sin_resolver_pct > 0">{{ f.sin_resolver_pct }}%</td>
+                    <!-- El pie afirma que los tres porcentajes suman el peso activo. Sin esta
+                         columna la afirmacion no se puede comprobar: faltaba el sumando. -->
+                    <td role="cell" data-label="Fallado" class="num dt-num mono"
+                        [class.ob-no]="f.fallado_pct > 0">{{ f.fallado_pct }}%</td>
                   </tr>
                 }
               </tbody>
             </table>
           </div>
           <p class="ob-mini">
-            Los tres porcentajes de cada ruta suman <b>{{ d.config.peso_activo }}%</b>, que es el
-            peso de los criterios encendidos
+            Alcanzado + sin resolver + fallado suman <b>{{ d.config.peso_activo }}%</b> en cada
+            ruta, que es el peso de los criterios encendidos
             @if (d.config.peso_activo !== 100) {
               <b> — el techo bajó porque hay criterios apagados, y por eso ninguna ruta puede
               llegar a 100%</b>
@@ -241,6 +259,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             Lo que nadie resolvió no cuenta como fallo: en la hoja de Excel una celda vacía valía
             <i>NO CUMPLIDO</i>, y es justo lo que esa columna existe para no repetir.
           </p>
+          }
 
           @if (marcando(); as m) {
             <section class="ob-editor" aria-label="Marcar criterio">
@@ -318,6 +337,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .ob-no { color: var(--bad-fg); }
     .ob-pendiente { color: var(--warn-fg); }
     .ob-techo { color: var(--warn-fg); }
+    .ob-vacio { border: 1px dashed var(--border-color); border-radius: 8px;
+      padding: 18px 20px; background: var(--card-bg); }
+    .ob-vacio-t { margin: 0; font-size: var(--fs-body); font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .ob-vacio-d { margin: 6px 0 0; font-size: var(--fs-sm); color: var(--c-text-3); max-width: 70ch; line-height: 1.6; }
     .ob-fila-baja { opacity: .72; }
     .ob-baja { margin-left: 6px; padding: 1px 6px; border-radius: 10px; cursor: help;
       font-size: var(--fs-micro); color: var(--warn-fg); border: 1px solid var(--warn-fg); }

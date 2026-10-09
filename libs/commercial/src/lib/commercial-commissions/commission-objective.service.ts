@@ -236,11 +236,18 @@ export class CommissionObjectiveService {
       } else if (!v.cerrado) {
         huecos.push('El mes todavía no termina: lo medido va a seguir subiendo.');
       }
-      // ⚠️ La fuente es una ventana RODANTE de 200 días: el mes más viejo que hoy se puede medir
-      // deja de poderse medir solo, sin que nadie cambie nada. Un bono mensual que no se puede
-      // auditar a los siete meses es una limitación real y va dicha, no descubierta.
+      // ⚠️ La fuente es una ventana RODANTE de 200 días: un mes que hoy se mide deja de poderse
+      // medir solo. Es cierto SIEMPRE, y por eso la primera versión lo empujaba a `huecos` en
+      // todas las respuestas — visto en pantalla, un aviso permanente en una lista de excepciones
+      // no informa: diluye a los dos que sí piden acción. Se avisa sólo cuando ESTE mes está por
+      // caerse del borde, que es cuando hay algo que hacer (guardar el resultado antes).
+      const DIAS_DE_AVISO = 31;
       if (v.fuente_desde) {
-        huecos.push(`La fuente es una ventana móvil de 200 días (hoy arranca el ${iso(v.fuente_desde)}) y avanza cada día: un mes que hoy se mide va a dejar de medirse. Para auditar un bono viejo hay que guardar el resultado, no volver a calcularlo.`);
+        const margen = Math.round(
+          (new Date(v.desde).getTime() - new Date(v.fuente_desde).getTime()) / 86400000);
+        if (margen >= 0 && margen <= DIAS_DE_AVISO) {
+          huecos.push(`Este mes está a ${margen} día(s) de caerse de la ventana de la fuente, que es móvil (200 días, hoy arranca el ${iso(v.fuente_desde)}). Cuando se caiga ya no se va a poder recalcular: hay que guardar el resultado.`);
+        }
       }
       // ⭐ `comisiona` sale de `commission_route_config`, que es configuración a mano: no caduca.
       // Medido en prod el 2026-10-09: 13 rutas encendidas, y 321/322 sin actividad desde junio y
