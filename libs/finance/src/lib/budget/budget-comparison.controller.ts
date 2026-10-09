@@ -5,6 +5,7 @@ import { BudgetComparisonService } from './budget-comparison.service';
 import { BudgetCashflowService } from './budget-cashflow.service';
 import { BudgetResultService } from './budget-result.service';
 import { CashCycleService } from './cash-cycle.service';
+import { PendingApprovalsService } from './pending-approvals.service';
 import type { BudgetResult } from '@megadulces/contracts';
 
 /**
@@ -22,7 +23,23 @@ export class BudgetComparisonController {
     private readonly cashflow: BudgetCashflowService,
     private readonly resultSvc: BudgetResultService,
     private readonly cycle: CashCycleService,
+    private readonly firmas: PendingApprovalsService,
   ) {}
+
+  /**
+   * `[TES.17]` La bandeja de firmas. `PRESUPUESTOS_VER` y no `_APROBAR` a propósito: **ver qué
+   * espera una firma no es firmar**, y quien prepara necesita saber si lo que mandó llegó.
+   * El freno de la acción sigue donde siempre estuvo — en `approve` y en `authorize`.
+   *
+   * ⚠️ Devuelve `vacia_porque` cuando no hay nada: una bandeja vacía y una tubería trabada se
+   * ven igual, y hoy en prod son cero items con 312 obligaciones esperando aguas arriba.
+   */
+  @Get('firmas-pendientes')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Qué espera una firma: ejercicios en pendiente + obligaciones en propuesta, con monto, antigüedad (proxy declarado) y qué se traba si no se firma. Si está vacía, declara POR QUÉ.' })
+  firmasPendientes() {
+    return this.firmas.bandeja();
+  }
 
   @Get('cashflow')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
