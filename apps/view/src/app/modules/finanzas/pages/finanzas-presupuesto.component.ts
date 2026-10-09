@@ -2214,17 +2214,64 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
   /** «Sin datos» del saldo inicial se DECLARA (texto), nunca 0 (ADR-056). */
+  /**
+   * `[VP.MS]` **La tira declara con qué se calculó cada cifra.** Antes de esto tenía tres
+   * defectos medidos, y los tres eran la misma cosa —el estado codificado como color—:
+   *
+   *   · «Cobros previstos» llevaba `tone: 'ok'` **clavado, sin condición**: verde mientras la
+   *     curva ve una fracción de la cartera. No era un `cfg ? classify : 'ok'`: no había `cfg`.
+   *   · «Saldo mín. proyectado: sin base» era una **ausencia renderizada como valor normal**.
+   *   · «Neto» salía verde con sólo ser positivo — y hasta el 2026-10-08 ese neto era
+   *     **+$10,642,041 porque «Pagos» valía $0**: el verde más confiado sobre el número más falso.
+   *
+   * ⚠️ El `no_medido` ya no necesita que acá se elija un tono: `effTone()` del componente lo
+   * neutraliza. Se declara el estado y el color deja de ser una decisión del llamador.
+   */
   cashflowKpis(cf: Cashflow): MetricStripItem[] {
+    const cc = cf.cobranza_cobertura, dd = cf.deuda_erp?.cobertura;
+    const fuera = (m: number | undefined) => (m ? `${this.money(m)} exigibles sin fecha quedan fuera` : undefined);
     return [
       cf.opening_balance.available
-        ? { label: 'Saldo inicial', value: cf.opening_balance.amount as number, format: 'currency-short' }
-        : { label: 'Saldo inicial', value: 'sin datos', format: 'text', tone: 'warn' },
-      { label: 'Cobros previstos', value: cf.totals.cobros, format: 'currency-short', tone: 'ok' },
-      { label: 'Pagos previstos', value: cf.totals.pagos, format: 'currency-short' },
-      { label: 'Neto', value: cf.totals.neto, format: 'currency-short', tone: cf.totals.neto < 0 ? 'bad' : 'ok' },
+        ? {
+            label: 'Saldo inicial', value: cf.opening_balance.amount as number, format: 'currency-short',
+            state: 'medido',
+            stateNote: cf.opening_balance.anomalias
+              ? `${cf.opening_balance.anomalias.filas} movimientos de fecha imposible quedan fuera del saldo`
+              : undefined,
+          }
+        : {
+            label: 'Saldo inicial', value: '—', format: 'text',
+            state: 'no_medido', stateNote: cf.opening_balance.reason || 'Sin movimientos bancarios (Fase CB)',
+          },
+      {
+        label: 'Cobros previstos', value: cf.totals.cobros, format: 'currency-short',
+        // Parcial, no verde: la curva agenda por vencimiento y lo ya vencido no tiene fecha.
+        state: cc && cc.vencido_fuera > 0 ? 'parcial' : 'medido',
+        stateNote: fuera(cc?.vencido_fuera),
+      },
+      {
+        label: 'Pagos previstos', value: cf.totals.pagos, format: 'currency-short',
+        state: dd && dd.vencido_fuera > 0 ? 'parcial' : 'medido',
+        stateNote: fuera(dd?.vencido_fuera),
+      },
+      {
+        label: 'Neto', value: cf.totals.neto, format: 'currency-short',
+        tone: cf.totals.neto < 0 ? 'bad' : 'ok',
+        // ⛔ El neto hereda la PEOR cobertura de sus dos sumandos: si cualquiera de los dos lados
+        // ve una fracción, el neto también — aunque su tono siga calificando el signo.
+        state: (cc && cc.vencido_fuera > 0) || (dd && dd.vencido_fuera > 0) ? 'parcial' : 'medido',
+        stateNote: 'Cobros − pagos de lo que vence DENTRO de la ventana; lo vencido de ambos lados queda fuera',
+      },
       cf.opening_balance.available && cf.saldo_minimo_proyectado != null
-        ? { label: 'Saldo mín. proyectado', value: cf.saldo_minimo_proyectado, format: 'currency-short', tone: cf.saldo_minimo_proyectado < 0 ? 'bad' : 'ok' }
-        : { label: 'Saldo mín. proyectado', value: 'sin base', format: 'text' },
+        ? {
+            label: 'Saldo mín. proyectado', value: cf.saldo_minimo_proyectado, format: 'currency-short',
+            tone: cf.saldo_minimo_proyectado < 0 ? 'bad' : 'ok', state: 'parcial',
+            stateNote: 'Proyectado sobre la ventana; no incluye lo vencido de ninguno de los dos lados',
+          }
+        : {
+            label: 'Saldo mín. proyectado', value: '—', format: 'text',
+            state: 'no_medido', stateNote: 'Sin saldo inicial de bancos no hay base contra la cual proyectar',
+          },
     ];
   }
 
