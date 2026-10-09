@@ -711,6 +711,30 @@ export class BudgetSalesPlanService {
       if (!b) throw new NotFoundException('Presupuesto no encontrado');
       const fy = Number(b.fiscal_year);
 
+      /**
+       * `[PVI.11]` ⛔ **Un ejercicio de PRUEBA no publica metas a la operación.**
+       *
+       * `commercial.sales_targets` alimenta el «vs objetivo» del sub-módulo Análisis, que es con lo
+       * que se mide a un vendedor. Hasta acá esta función no preguntaba nada: el autopilot la llama
+       * **por cada ejercicio abierto** (su filtro mira `status`, no `is_test`), así que el ejercicio
+       * marcado de prueba se proyectaba todas las noches junto con los reales.
+       *
+       * ⚠️ **Por qué nadie lo vio, medido en prod el 2026-10-09:** el ejercicio `is_test` es una
+       * copia byte a byte del real —los dos FY2027, 429 renglones, $604,775,116 cada uno— y el
+       * upsert va por `(scope, scope_key, year_month)`. O sea que escribía **los mismos números
+       * encima de los mismos números**. El total publicado cuadra al peso con los dos ejercicios
+       * reales ($806,217,119 + $604,775,116 = $1,410,992,235) **por casualidad, no por diseño**:
+       * el día que alguien toque una cifra en la copia de prueba, esa cifra aterriza en la meta de
+       * un vendedor. Y `sales_targets` **no tiene `budget_id`**, así que nada registraría de dónde
+       * salió.
+       *
+       * Devuelve una nota en vez de lanzar: el autopilot la llama en bucle, y un `throw` metería un
+       * error todas las noches por un estado que es legítimo.
+       */
+      if (b.is_test === true) {
+        return { projected: 0, months: 0, lines: 0, fiscal_year: fy, note: 'ejercicio de prueba' };
+      }
+
       const lines = await trx('budget.sales_plan_lines')
         .where({ tenant_id: tenantId, budget_id: budgetId })
         .select('entity_key', 'period_no', 'meta_amount');

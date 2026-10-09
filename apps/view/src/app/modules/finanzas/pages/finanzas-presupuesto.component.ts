@@ -1889,7 +1889,13 @@ export class FinanzasPresupuestoComponent implements OnInit {
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: (r) => {
           this.projecting.set(false);
-          if (r.note === 'plan vacío' || !r.lines) {
+          // `[PVI.11]` Las dos ausencias NO son la misma y no pueden compartir aviso: «no hay plan»
+          // se arregla armándolo, y «es un ejercicio de prueba» no se arregla — se arregla eligiendo
+          // otro ejercicio. Mandarlas al mismo toast haría que alguien intente capturar metas en la
+          // copia de prueba porque la pantalla le dijo que faltaban (ADR-056).
+          if (r.note === 'ejercicio de prueba') {
+            this.toast.add({ severity: 'warn', summary: 'No se proyecta', detail: 'Este ejercicio está marcado como PRUEBA. Sus metas no se publican al «vs objetivo» de Análisis, que es con lo que se mide a un vendedor. Elegí el ejercicio real.' });
+          } else if (r.note === 'plan vacío' || !r.lines) {
             this.toast.add({ severity: 'warn', summary: 'Sin plan', detail: 'No hay metas capturadas para proyectar. Armá el plan primero.' });
           } else {
             this.toast.add({ severity: 'success', summary: 'Proyectado a Análisis', detail: `${r.projected} metas mensuales (scope×mes) desde ${r.lines} celdas del plan · ${r.months} meses. Ya se ve en el «vs objetivo» de Análisis.` });
