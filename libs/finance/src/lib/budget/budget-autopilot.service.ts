@@ -4,6 +4,7 @@ import { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantContextService } from '@megadulces/platform-core';
 import { BudgetSalesPlanService, type ProcedenciaCrec, type UpsertSalesPlanSettingsDto } from './budget-sales-plan.service';
 import { decidirProcedencia, type PropuestaCanal, type ResumenProcedencia } from './budget-growth-provenance.engine';
+import { huellaVentas, type HuellaVentas, type ResultadoPropuesta } from './budget-run-output.engine';
 import { BudgetExpensePlanService } from './budget-expense-plan.service';
 import { BudgetMaterializeService } from './budget-materialize.service';
 import { BudgetGenerationService } from './budget-generation.service';
@@ -77,7 +78,11 @@ export interface AutopilotBudgetResult {
   /** `[PVI.2]` `proxy_canal_pct` = fracción de la meta repartida con el **promedio del canal**,
    *  o sea sin ninguna señal de la propia entidad. Viaja en el resultado de la pasada y queda en
    *  `generation_runs`: era el número que nadie calculaba. Medido en el FY2026: **24.46 %**. */
-  ventas: { escritas: number; manual_kept: number; proxy_canal_monto: number; proxy_canal_pct: number | null } | null;
+  /** `[PVI.14]` La huella incluye ahora `meta_total`: la CIFRA que produjo la pasada, no sólo el
+   *  conteo. Sin ella dos pasadas de 429 renglones son idénticas en el registro aunque publiquen
+   *  metas distintas, y «¿por qué cambió la meta?» no tiene respuesta. Los montos son `number |
+   *  null` a propósito: ausente es «no lo sé», nunca 0. */
+  ventas: HuellaVentas | null;
   gastos: { escritas: number; manual_kept: number } | null;
   targets: { filas: number } | null;
   partidas: { creadas: number; ajustadas: number; sin_cambio: number } | null;
@@ -350,13 +355,14 @@ export class BudgetAutopilotService {
 
       if (base.ok) try {
         const r = await this.salesPlan.proposePlan(budgetId, {}, AUTOR);
-        const c = r.coverage as Record<string, number>;
-        out.ventas = {
-          escritas: (c.historico_ajustado ?? 0) + (c.estacional ?? 0) + (c.proxy_canal ?? 0) + (c.sin_base_declarado ?? 0),
-          manual_kept: c.manual_kept ?? 0,
-          proxy_canal_monto: Number((r as { coverage_monto?: { proxy_canal?: number } }).coverage_monto?.proxy_canal ?? 0),
-          proxy_canal_pct: (r as { proxy_canal_pct?: number | null }).proxy_canal_pct ?? null,
-        };
+        // `[PVI.14]` La huella de la pasada: qué CIFRA produjo, no sólo cuántas celdas tocó.
+        // ⛔ Acá faltaba `meta_total` —que `proposePlan` ya devuelve desde `[PVI.2]`— y por eso dos
+        // pasadas del mismo día con 429 renglones cada una son indistinguibles en el registro,
+        // aunque hayan publicado metas distintas. Medido: `GEN-20261009-001` vs `-003`.
+        // ⛔ Y `proxy_canal_monto` llevaba `?? 0` pegado a un `?? null` correcto: dos criterios
+        // para la misma ausencia. Un cero en el registro HISTÓRICO se lee como medición y nadie
+        // recomputa una pasada de hace tres meses para desmentirlo. Reglas y candado en el engine.
+        out.ventas = huellaVentas(r as ResultadoPropuesta);
       } catch (e) { out.errores.push(`plan de ventas: ${(e as Error)?.message ?? e}`); }
 
       try {
