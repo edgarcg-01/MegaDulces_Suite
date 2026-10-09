@@ -107,6 +107,20 @@ export interface CampoFijo {
   ancho: number;
   /** Alineado a la derecha (`padL`). Por default va a la izquierda (`padR`). */
   der?: boolean;
+  /**
+   * ⭐⭐ `[CP.8.28]` — **No lleva separador DESPUÉS de este campo.**
+   *
+   * El esquema del fabricante (`CT_EST_Poliza_NG.xls`) intercala un renglón `S | 1` entre cada
+   * par de campos… **salvo entre `Concepto` y `SistOrig` del encabezado**, donde no hay ninguno.
+   *
+   * ⛔ Asumir que el separador es uniforme **cuadra el total igual** (185 de las dos formas) y
+   * parte mal esos dos campos. Hoy no se nota porque `SistOrig` vale `11` y alineado a la derecha
+   * en 3 da `" 11"`, que es byte por byte lo mismo que separador + `"11"`. Con un valor de 3
+   * dígitos el archivo se correría entero.
+   *
+   * *Un total que cuadra no prueba que los campos estén donde van.*
+   */
+  sinSep?: boolean;
 }
 
 /**
@@ -121,8 +135,8 @@ export const LAYOUT_P: CampoFijo[] = [
   // ⭐ 1, no 4. Una fuente externa decía 4; el archivo real le dio la razón a nuestro decode.
   { nombre: 'clase', ancho: 1, der: true },
   { nombre: 'id_diario', ancho: 10 },
-  { nombre: 'concepto', ancho: 100 },
-  { nombre: 'sist_orig', ancho: 2, der: true },
+  { nombre: 'concepto', ancho: 100, sinSep: true },
+  { nombre: 'sist_orig', ancho: 3, der: true },
   { nombre: 'impresa', ancho: 1, der: true },
   { nombre: 'ajuste', ancho: 1, der: true },
   // ⭐ Campo que NO teníamos. Es `Polizas.Guid`, y es el mejor candidato a llave de correlación
@@ -220,10 +234,11 @@ export interface PolizaTxtParseada {
  * renglón 1 carácter corto — un defecto invisible en pantalla y fatal al importar.
  */
 export const armarLinea = (layout: readonly CampoFijo[], vals: unknown[]) =>
-  layout.map((c, i) => (c.der ? padL(vals[i], c.ancho) : padR(vals[i], c.ancho))).join(SEP) + SEP;
+  layout.map((c, i) => (c.der ? padL(vals[i], c.ancho) : padR(vals[i], c.ancho))
+    + (c.sinSep ? '' : SEP)).join('');
 
 export const largoLinea = (layout: readonly CampoFijo[]) =>
-  layout.reduce((a, c) => a + c.ancho, 0) + layout.length * SEP.length;
+  layout.reduce((a, c) => a + c.ancho + (c.sinSep ? 0 : SEP.length), 0);
 
 /**
  * Corta una línea en sus campos por posición. **No se puede usar `split`** por el
@@ -235,7 +250,7 @@ export const partirLinea = (layout: CampoFijo[], linea: string): string[] => {
   let i = 0;
   for (const c of layout) {
     out.push(linea.slice(i, i + c.ancho));
-    i += c.ancho + SEP.length;
+    i += c.ancho + (c.sinSep ? 0 : SEP.length);
   }
   return out;
 };

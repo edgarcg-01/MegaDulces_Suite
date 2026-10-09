@@ -1705,3 +1705,79 @@ propio motivo.
 De las 21 categorías: **6 ya están resueltas** sin él (2 `no_aplica`, 1 `por_proveedor`,
 1 `por_sucursal`, y 2 estables con candidata ≥60 %), **3 no son pregunta para él** (§24.3), y el
 resto sigue siendo decisión suya. **La conversación se acorta, pero no desaparece.**
+
+---
+
+## 25. ⭐⭐⭐ `[CP.8.28]` Llegó el árbitro, y encontró un campo mal modelado
+
+**`CT_EST_Poliza_NG.xls`** — el esquema que el importador de ContPAQi usa para *leer* el TXT.
+723 filas, transcritas a `database/tests/fixtures/contpaqi-esquema-poliza.json` y convertidas en
+candado: **`test-newdb-contpaqi-esquema.js`, 42 ✓ / 0 ✗.**
+
+⭐ **Por qué hacía falta aunque el round-trip ya diera 14/14**: una exportación real prueba que
+**leemos bien lo que ContPAQi escribe**, no que **escribamos lo que ContPAQi espera al leer**.
+Son dos afirmaciones distintas y hasta hoy sólo teníamos la primera.
+
+### 25.1 ⛔ El defecto que encontró: `SistOrig`
+
+| | esquema | emisor (antes) |
+|---|---|---|
+| `Concepto` | 41–140 | 41–140 ✓ |
+| **`SistOrig`** | **141–143** (ancho **3**) | **142–143** (ancho 2, precedido de separador) ✗ |
+
+⛔ **El esquema NO pone separador entre `Concepto` y `SistOrig`.** Nosotros asumíamos que el
+separador es uniforme, y modelábamos un campo de 3 alineado a la derecha como
+*"separador + campo de 2"*.
+
+⭐ **Produce los mismos bytes hoy** — `SistOrig` vale `11`, y `" 11"` es lo mismo de las dos
+formas. Por eso ningún candado lo había visto, y el total cuadraba en 185 por los dos caminos.
+**Con un valor de 3 dígitos el archivo se corría entero.**
+
+*Un total que cuadra no prueba que los campos estén donde van.* Por eso este candado compara
+**posición por posición**, no la suma.
+
+Arreglado con `sinSep` en `CampoFijo`: declara que un campo **no lleva separador después**.
+`armarLinea`, `largoLinea` y `partirLinea` lo respetan.
+
+### 25.2 ⭐⭐ Y decodifica lo que `[CP.8.13]` §10.5 declaró sin decodificar
+
+| etiqueta | registro | qué es |
+|---|---|---|
+| `AM` | `asocmovto.1` | UUID — asociación **a nivel de movimiento** (el `AD` es a nivel de póliza) |
+| `AP` | `asocnodopago.1` | `UUIDRep` + nodo de pago: **complemento de pago** |
+| `I` | `MovtoImpuesto.1` | ⭐ impuesto por movimiento con `UUID`, `TasaOCuota`, `ImpBase` — **es `MovimientosImpuestos`**, la Ola 1 de `FASE_CP9` |
+| `V` | `devolucion.1` | devolución de IVA por proveedor, con `UUID` y `RFC` |
+| `W2` | `devolucion.2` | IETU |
+
+⚠️ §10.5 decía *"los guids de `AM` no son `MovimientosPoliza.Guid` ni `AsocCFDIs.GuidRef` — se
+cruzaron los dos y dieron 0"*. **Ahora se sabe por qué: no es un Guid, es un UUID de CFDI.** Se
+comparó contra lo que no era.
+
+### 25.3 ⭐ Y aparecen registros que nadie había visto
+
+`CH` cheque · `EG` egreso · `IN` ingreso · `DE` depósito · `DI` ingresos no depositados ·
+`DP` dispersión de pago · `MC` `movimientocfd.1` · `FE` anexo.
+
+⭐⭐ **`MC` es el más grande de todos** (56 campos): trae `IdCuentaFlujoEfectivo`, `UUID`,
+`ImporteIVA` **con su `IdCuentaIVA`**, retenciones con sus cuentas, `IVAAcreditable`,
+`IVANoAcreditable`… O sea **el desglose fiscal completo con sus cuentas, en el mismo archivo**.
+
+Y `EG`/`IN`/`DE` son los documentos de **tesorería**: el camino para que el movimiento bancario
+entre al módulo de bancos de ContPAQi, no sólo como renglón de póliza.
+
+⛔ **No se emite nada de eso todavía.** Se registra porque cambia el techo de lo que el puente
+puede hacer — y porque `FASE_CP9` planeaba **importar** `MovimientosImpuestos` para leerlo,
+cuando resulta que también se puede **escribir**.
+
+### 25.4 ⚠️ Dos defectos propios en el camino, los dos del mismo tipo
+
+1. **Un `sed` marcó `sinSep` en los DOS `concepto`** (encabezado y movimiento). En `M1` el
+   esquema **sí** tiene separador. Lo atrapó releer el esquema, no el candado.
+2. **El candado se puso en rojo por su propio modelo**: su helper `nuestro()` seguía sumando un
+   separador por campo — la misma suposición que el candado existe para refutar.
+   ⭐ *Un candado que modela el mundo distinto del código no verifica el código: verifica su
+   propia copia.*
+
+**Mutado a rojo tres veces**: `sist_orig` a 2 (37/5) · sin `sinSep` (36/6) · `referencia` a 10
+(32/10). Y los otros 6 candados **siguen verdes** — incluido el round-trip de LC (38 ✓), que es
+la prueba de que los bytes no cambiaron.
