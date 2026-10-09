@@ -4307,6 +4307,21 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.79] · la evidencia de un gasto acepta archivos de hasta 20 MB — 2026-10-09
+
+- [x] **[GX.79]** 🧪 Pedido: *«lo máximo que aceptamos cuando suben las pruebas es de 10 MB, hay que aumentarlo a
+  20 MB»*. El tope vivía en TRES lugares y bastaba uno atrás para que el archivo rebotara: la **pantalla** (Levantar
+  vale y el diálogo de evidencia, `10 * 1024 * 1024` a mano), la **API** (`json({ limit: '16mb' })` en
+  `/api/finance/expenses/proofs`: el archivo viaja en base64, ~4/3 de su peso, así que 16mb ya no dejaba pasar ~12 MB)
+  y el **proxy** (`nginx.conf`, `client_max_body_size 32m`, que ya alcanzaba; Caddy no pone tope). Ahora el número
+  vive una vez (`MAX_ARCHIVO_GASTO_BYTES`, `archivo-gasto.contract.ts`), las dos pantallas lo usan y la API sube a
+  `32mb`. Candado `limite-archivo-gasto.spec.ts`: LEE `main.ts` y `nginx.conf` y falla si no dejan pasar 20 MB en
+  base64 (con 16mb, en rojo). No toca la página de captura por enlace (sólo sube fotos de la cámara, reducidas a
+  1600 px) ni la ruta de comprobaciones (ninguna pantalla sube archivos ahí). Una foto de más de ~5 MB no la lee la
+  visión (límite del modelo): el vale entra igual con el aviso «no se pudo leer», como ya pasaba entre 5 y 10 MB.
+  Pruebas: Finanzas (view) 660/660 · finance expense-proofs 213/213 · contratos 496/496 · mutación (tope en 10) en rojo.
+- [ ] **[GX.79.p]** Redeploy api+view (sin migración ni re-login).
+
 ### 🔨 [GX.73] · el vale se veía en una fase anterior a la de Kepler — 2026-10-07
 
 - [x] **[GX.73]** 🧪 Reporte: *«a los usuarios les tarda mucho cuando el estatus de su vale cambia, aún lo ven en
