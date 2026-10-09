@@ -3151,7 +3151,17 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // único que dependía del resultado. El método sigue devolviendo `void` a propósito: quien lo
     // llama lo hace desde un efecto de vista y no tiene nada que hacer con la promesa.
     void pintarQr(this.qrRef?.nativeElement ?? null, cod ? this.urlFirmaTelefono(cod) : null, 148)
-      .then((ok) => { if (!ok && cod && reintentar) setTimeout(() => this.pintarQrFirma(false)); });
+      .then((ok) => {
+        /**
+         * ⚠️ `[CG.74b]` Entre que se pide y que se pinta **pasa tiempo** (se baja el trozo
+         * diferido), y en ese hueco el código puede haber cambiado: el cajero canceló, o pidió
+         * otro. Lo que acaba de aterrizar sería entonces el QR **viejo** — y uno vencido en
+         * pantalla es peor que ninguno, porque se escanea igual y falla recién del otro lado.
+         * Se vuelve a pintar con el código que está vivo AHORA, sin reintento (ya hubo uno).
+         */
+        if (this.firmaCodigo() !== cod) { this.pintarQrFirma(false); return; }
+        if (!ok && cod && reintentar) setTimeout(() => this.pintarQrFirma(false));
+      });
   }
   private firmaPad: FirmaCanvas | null = null;
   /** El canvas sobre el que se preparó `firmaPad`. Cambia cada vez que el `@if` lo re-crea. */

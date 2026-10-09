@@ -107,7 +107,12 @@ interface CajaGeneral {
   /** [CG.8] Frescura del espejo medida por el servidor. Puede faltar si la medición falló. */
   freshness?: { data_as_of: string | null; status: 'fresh'|'stale'|'unknown'; stale: boolean; age_human: string | null } | null;
   period: { from: string; to: string };
-  totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number; saldo_fecha: string | null };
+  /**
+   * `[CG.75]` `saldo` viaja en **`null`**: el origen no lleva saldo de caja. El tipo lo dice para
+   * que el día que alguien vuelva a leerlo tenga que mirar el `null` de frente, en vez de
+   * encontrarse un `number` y suponer que hay una cifra.
+   */
+  totals: { ingreso: number; gasto: number; neto: number; n: number; saldo: number | null; saldo_fecha: string | null; saldo_motivo?: string };
   por_mes: { mes: string; ingreso: number; gasto: number; n: number }[];
   por_cuenta: { cuenta: string; cuenta_nombre: string | null; ingreso: number; gasto: number; n: number }[];
   movimientos: { uid: string; mov_id: string; tipo_dto: number; tipo: string | null; fecha: string; hora: string | null; usuario: string | null; cuenta: string; cuenta_nombre: string | null; nombre_cliente: string | null; concepto: string | null; ingreso: number; gasto: number; saldo: number; denom: Record<string, number> | null }[];
@@ -246,7 +251,7 @@ const TENDER_LABEL: Record<string, string> = { efectivo: 'Efectivo', morralla: '
             </ng-template>
             <ng-template #emptymessage><tr><td colspan="6"><div class="cg-empty"><i class="pi pi-inbox" aria-hidden="true"></i><span>Sin movimientos en el periodo.</span></div></td></tr></ng-template>
           </p-table>
-          <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). Saldo actual: <b>{{ money(d.totals.saldo) }}</b>@if (d.totals.saldo_fecha) { <span class="muted"> (al {{ dmy(d.totals.saldo_fecha) }})</span> }. Mostrando hasta 500 movimientos del periodo.</p>
+          <p class="cg-note">Caja general <b>viva</b> de Comisionistas (sistema operativo <code>Doctos</code>): la venta de ruta <b>entra</b> (ingreso) y sale a <b>pagar proveedores</b> (remisiones), comisiones y gastos por sucursal. Reemplaza el Base Movimientos (abandonado abr-2026). <b>No publica saldo de caja</b>: el origen no lo lleva &mdash; lo que se ve es el <b>flujo</b> del periodo. Para saber cuanto HAY hay que contarlo, y eso es el corte con su arqueo. Mostrando hasta 500 movimientos del periodo.</p>
         }
       }
 
@@ -1276,7 +1281,16 @@ export class FinanzasCajaComponent implements OnInit {
       { label: 'Ingresos', value: d.totals.ingreso, format: 'currency-short', tone: 'ok', sub: `${d.totals.n} movs` },
       { label: 'Gastos', value: d.totals.gasto, format: 'currency-short', tone: 'default' },
       { label: 'Neto', value: d.totals.neto, format: 'currency-short', tone: d.totals.neto >= 0 ? 'ok' : 'warn' },
-      { label: 'Saldo caja', value: d.totals.saldo, format: 'currency-short', tone: 'default', sub: d.totals.saldo_fecha ? 'actual' : undefined },
+      /**
+       * ⛔⛔ `[CG.75]` Esto decía **«Saldo caja · actual»** con una cifra, y la cifra era **el
+       * importe de una operación suelta** (medido: 409/409 filas de la columna `saldo` son el
+       * monto de su propio renglón; como saldo corrido cuadra 0 de 79).
+       *
+       * El origen no lleva saldo de caja, así que se DECLARA en vez de dibujarse (ADR-056). Y
+       * no se borra el mosaico: sacarlo dejaría la pregunta «¿cuánto hay?» sin respuesta en
+       * pantalla, y alguien volvería a inventar una. Puesto así, dice qué falta y dónde se saca.
+       */
+      { label: 'Saldo caja', value: '—', format: 'text', tone: 'default', sub: 'no se mide: el origen no lleva saldo — se cuenta en el arqueo' },
     ];
   }
   ovKpis(d: Overview): MetricStripItem[] {
