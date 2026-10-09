@@ -101,6 +101,18 @@ export interface NewProductSource {
   margen_plaza?: Record<string, MargenFuente>;
   /** `[NP.15]` Lo comprado en UNIDAD BASE: `{ rótulo: { q: cantidad, i: importe sin impuesto } }`. */
   compra_base?: Record<string, { q: number | string; i: number | string }>;
+  /**
+   * `[NP.16]` El barrido del kardex: primera compra física (`X-A-40`) y dónde, y la primera entrada
+   * de cualquier tipo. `{}` = el producto no tiene kardex en ningún almacén principal.
+   */
+  llegada?: { compra?: string | null; compra_plazas?: string[] | null; entrada?: string | null; entrada_doc?: string | null } | null;
+  /** `[NP.16]` Unidades vendidas en los primeros 30/60/90 días: `{ "30": { CJA: 3 } }`. */
+  venta_unidades_hito?: Record<string, Record<string, number | string>>;
+  /**
+   * `[NP.16]` Por plaza, lo recibido de otra sucursal y lo mandado a otras y a rutas, por rótulo; y
+   * `desde` = el primer día que le llegó por traspaso.
+   */
+  reparto?: Record<string, Partial<Record<TipoReparto, Record<string, number | string>>> & { desde?: string }>;
   clasificacion: NewProductKind | null;
   nota: string | null;
   clasificado_por: string | null;
@@ -180,10 +192,18 @@ export const CRITERIO_SUCURSAL = {
   diasMinimos: 7,
 } as const;
 
+/**
+ * `[NP.16]` Los movimientos que no son venta ni compra: lo que una sucursal recibe de otra (`U-A-50`)
+ * y lo que manda a otra sucursal o a un camión de ruta (`U-D-41`). La remisión a un cliente de
+ * telemarketing no está aquí: se factura después como `U-D-8` y ya cuenta como venta.
+ */
+export type TipoReparto = 'traspaso' | 'salida_sucursal' | 'salida_ruta';
+export const TIPOS_REPARTO: readonly TipoReparto[] = ['traspaso', 'salida_sucursal', 'salida_ruta'];
+
 /** Lo que pasó desde el corte (ODS en vivo). */
 export interface Movimiento {
   product_id: string;
-  tipo: 'venta' | 'entrada';
+  tipo: 'venta' | 'entrada' | TipoReparto;
   plaza: string;
   fecha: string;
   folio?: string | null;
@@ -220,7 +240,32 @@ export interface HitoValores {
   cerrado: boolean;
   inversion: number | null;
   venta: number | null;
+  /** `[NP.16]` Lo vendido en tienda Kepler en ese tramo, en las unidades en que se vendió. */
+  unidades: Unidades;
 }
+
+/**
+ * `[NP.16]` Cuándo llegó el producto a la empresa, del barrido del kardex de Kepler. La compra física
+ * es la orden de entrada (`X-A-40`): ahí entra el inventario, días antes de que se aplique la compra.
+ */
+export interface Llegada {
+  /** La primera compra física, en cualquier sucursal. NULL = no hay compra en Kepler. */
+  fecha: string | null;
+  /** En qué sucursales entró ese primer día. */
+  sucursales: Array<{ plaza: string; nombre: string | null }>;
+  /** `kardex` = del barrido; `compra_aplicada` = el kardex no trae nada y se usa la compra aplicada. */
+  fuente: 'kardex' | 'compra_aplicada';
+  /** Si entró ANTES por otro camino (o sin compra), cuándo y por qué documento. */
+  antes: { fecha: string; tipo: string } | null;
+}
+
+/** El documento de Kepler en palabras. Uno que no está decodificado se dice con su clave. */
+const TIPO_ENTRADA: Record<string, string> = {
+  'X-A-40': 'compra',
+  'U-A-50': 'traspaso de otra sucursal',
+  'N-A-30': 'ajuste de inventario',
+};
+export const tipoEntradaTexto = (doc: string): string => TIPO_ENTRADA[doc] ?? `otro movimiento (${doc})`;
 
 /** Las señales que alimentan la recomendación (global o de una plaza). */
 export interface Senales {
@@ -297,6 +342,8 @@ export interface NewProductRow {
   margenes: Margenes | null;
   /** `[NP.15]` La plaza donde mejor se mueve (venta neta por día). NULL = ninguna compite todavía. */
   mejor_plaza: MejorPlaza | null;
+  /** `[NP.16]` Cuándo llegó a la empresa. NULL = no hay compra ni entrada con qué fecharlo. */
+  llegada: Llegada | null;
 }
 
 export interface PlazaRow {
@@ -322,6 +369,12 @@ export interface PlazaRow {
   unidades_vendidas: Unidades;
   venta_sin_unidad: number;
   unidades_recibidas: Unidades;
+  /** `[NP.16]` Lo que le llegó de otra sucursal (`U-A-50`), en las unidades en que llegó. */
+  recibido_traspaso: Unidades;
+  /** `[NP.16]` Lo que mandó a otras sucursales (`U-D-41` a `TI###`). */
+  enviado_sucursales: Unidades;
+  /** `[NP.16]` Lo que mandó a camiones de ruta (`U-D-41` a `RUTA`/`RD`). */
+  enviado_rutas: Unidades;
   unidades_hoy: Unidades;
   ultima_venta: string | null;
   /** Venta por semana de las últimas 8 semanas (la última puede ir incompleta). */
@@ -699,8 +752,12 @@ export function armarProducto(
   ];
   const ventaUnidades = f.venta_unidades ?? {};
 
-  // Un producto sin historia que HOY entra o se vende arranca hoy: "Nuevo · día 0".
-  const primeraViva = vivo.map((m) => m.fecha).sort()[0] ?? null;
+  // [NP.16] Traspasos recibidos y salidas a otras sucursales o rutas, de hoy.
+  const repartoVivo = vivo.filter((m) => (TIPOS_REPARTO as readonly string[]).includes(m.tipo));
+
+  // Un producto sin historia que HOY entra o se vende arranca hoy: "Nuevo · día 0". Un traspaso no
+  // es lanzamiento (`[NP.16]`, igual que en la matvista): el producto ya había llegado a otra.
+  const primeraViva = [...ventasVivo, ...entradasVivo].map((m) => m.fecha).sort()[0] ?? null;
   const lanzamiento = f.lanzamiento ?? primeraViva;
   const sinMovimiento = lanzamiento === null;
   const { estado, motivo } = estadoDe({
@@ -728,6 +785,9 @@ export function armarProducto(
     ...ventasVivo.map((m) => m.plaza),
     ...todasEntradas.map((e) => e.p),
     ...[...exPorPlaza.entries()].filter(([, x]) => x.cantidad > 0).map(([p]) => p),
+    // [NP.16] Una sucursal que sólo recibió por traspaso (o mandó) también es parte del reparto.
+    ...Object.keys(f.reparto ?? {}),
+    ...repartoVivo.map((m) => m.plaza),
   ]);
   const plazas: PlazaRow[] = [];
   let agotadoEn = 0;
@@ -740,7 +800,12 @@ export function armarProducto(
     const primeraVentaIdx = serieP.findIndex((x) => x > 0);
     const primeraEntrada = entradasP.map((e) => e.f.slice(0, 10)).sort()[0] ?? null;
     const primeraVentaP = primeraVentaIdx >= 0 && lanzamiento ? sumarDias(lanzamiento, primeraVentaIdx) : null;
-    const primeraAct = [primeraEntrada, primeraVentaP].filter((x): x is string => !!x).sort()[0] ?? null;
+    // [NP.16] Lo que llegó por traspaso también cuenta como llegada a la plaza.
+    const repartoP = f.reparto?.[p];
+    const repartoVivoP = repartoVivo.filter((m) => m.plaza === p);
+    const primerTraspaso = [repartoP?.desde ?? null, ...repartoVivoP.filter((m) => m.tipo === 'traspaso').map((m) => m.fecha)]
+      .filter((x): x is string => !!x).sort()[0] ?? null;
+    const primeraAct = [primeraEntrada, primeraVentaP, primerTraspaso].filter((x): x is string => !!x).sort()[0] ?? null;
     // La serie de la plaza arranca en SU primera actividad, no en la del producto.
     const desde = primeraAct && lanzamiento ? Math.max(0, diasEntre(lanzamiento, primeraAct) ?? 0) : serieP.length;
     const serieDesde = serieP.slice(desde);
@@ -771,6 +836,12 @@ export function armarProducto(
     const netaP = num(fuenteP?.n);
     const unidadEx = ex && ex.fila.fuente !== 'wincaja' ? (ex.fila.unidad ?? '').trim().toUpperCase() : '';
     const vendidoBase = unidadEx ? num(fuenteP?.b?.[unidadEx]?.q) : null;
+    // [NP.16] El reparto de la plaza: historia (matvista) + lo de hoy, cada tipo por su lado.
+    const repartoDe = (tipo: TipoReparto): Unidades => {
+      const u = sumarUnidades({}, repartoP?.[tipo]);
+      for (const m of repartoVivoP.filter((x) => x.tipo === tipo)) sumarUnidades(u, unidadesDe(m));
+      return limpiarUnidades(u);
+    };
     plazas.push({
       plaza: p,
       nombre: nombres.get(p) ?? null,
@@ -789,6 +860,9 @@ export function armarProducto(
       unidades_vendidas: limpiarUnidades(vendidasP),
       venta_sin_unidad: sinUnidad(totalP, cubiertoP),
       unidades_recibidas: limpiarUnidades(recibidasP),
+      recibido_traspaso: repartoDe('traspaso'),
+      enviado_sucursales: repartoDe('salida_sucursal'),
+      enviado_rutas: repartoDe('salida_ruta'),
       unidades_hoy: limpiarUnidades(hoyP),
       ultima_venta: vp.ultima === null ? null : sumarDias(hoy, -vp.ultima),
       semanas: porSemana(serieDesde).slice(-8),
@@ -827,10 +901,16 @@ export function armarProducto(
   const hitos = Object.fromEntries((HITOS as readonly Hito[]).map((n) => {
     const ven = serie.slice(0, n);
     const inv = lanzamiento ? todasEntradas.filter((e) => (diasEntre(lanzamiento, e.f) ?? 0) < n) : [];
+    // [NP.16] Unidades del tramo: la historia de la matvista + lo de hoy, si hoy cae dentro.
+    const uni = sumarUnidades({}, f.venta_unidades_hito?.[String(n)]);
+    if (lanzamiento) {
+      for (const m of ventasVivo.filter((x) => (diasEntre(lanzamiento, x.fecha) ?? n) < n)) sumarUnidades(uni, unidadesDe(m));
+    }
     return [n, {
       cerrado: dia !== null && dia >= n,
       inversion: inv.length ? r2(inv.reduce((a, e) => a + e.i, 0)) : null,
       venta: ven.some((x) => x > 0) ? r2(ven.reduce((a, b) => a + b, 0)) : null,
+      unidades: limpiarUnidades(uni),
     }];
   })) as Record<Hito, HitoValores>;
   const recompra = primeraRecompra(todasEntradas);
@@ -893,8 +973,40 @@ export function armarProducto(
       ? { plaza: mejor.plaza, nombre: mejor.nombre, venta_neta_dia: mejor.movimiento.venta_neta_dia ?? 0,
           dias: mejor.movimiento.dias ?? 0 }
       : null,
+    llegada: llegadaDe(f, entradasVivo, nombres),
   };
   return { fila, plazas };
+}
+
+/**
+ * `[NP.16]` Cuándo llegó a la empresa. Primero el barrido del kardex (la orden de entrada `X-A-40`);
+ * si el kardex no trae nada, la compra aplicada de la historia o la de hoy. Si entró ANTES por otro
+ * camino (un ajuste de inventario, un traspaso), o nunca hubo compra, se dice cuándo y por qué.
+ */
+export function llegadaDe(
+  f: Pick<NewProductSource, 'llegada' | 'primera_recepcion' | 'entradas'>,
+  entradasVivo: Movimiento[], nombres: Map<string, string>,
+): Llegada | null {
+  const sucursales = (codigos: string[]) => [...new Set(codigos)].sort()
+    .map((plaza) => ({ plaza, nombre: nombres.get(plaza) ?? null }));
+  const k = f.llegada ?? {};
+  if (k.compra || k.entrada) {
+    const antes = k.entrada && (!k.compra || k.entrada < k.compra)
+      ? { fecha: k.entrada, tipo: tipoEntradaTexto(k.entrada_doc ?? '?') }
+      : null;
+    return { fecha: k.compra ?? null, sucursales: sucursales(k.compra_plazas ?? []), fuente: 'kardex', antes };
+  }
+  // Sin kardex: la compra aplicada (X-A-20) de la historia, o la que entró hoy.
+  const aplicadas = [
+    ...(Array.isArray(f.entradas) ? f.entradas : []).map((e) => ({ f: e.f.slice(0, 10), p: e.p })),
+    ...entradasVivo.map((m) => ({ f: m.fecha, p: m.plaza })),
+  ];
+  const fecha = f.primera_recepcion ?? aplicadas.map((x) => x.f).sort()[0] ?? null;
+  if (!fecha) return null;
+  return {
+    fecha, fuente: 'compra_aplicada', antes: null,
+    sucursales: sucursales(aplicadas.filter((x) => x.f === fecha).map((x) => x.p)),
+  };
 }
 
 /** Sólo los lanzamientos reales cuentan para cohortes y KPIs. */

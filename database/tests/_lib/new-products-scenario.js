@@ -320,6 +320,7 @@ async function sembrar(db) {
     }
     out.push({ clave: p.clave, sku: sku(p), product_id: productId, esperado: esperado(p) });
   }
+  await sembrarReparto(db, hoy);
   return { hoy, productos: out };
 }
 
@@ -336,6 +337,57 @@ const VIVO = [
   // [NP.13] La primera venta de su vida, hoy: tiene que entrar al universo en el refresco siguiente.
   { clave: '10', tipo: 'venta', plaza: '03', qty: 3, precio: 15, u: 'PZA', f: 1 },
 ];
+
+/**
+ * `[NP.16]` El reparto entre sucursales y el kardex, como los escribe Kepler.
+ *  · `U-D-41` sale de la sucursal que compró hacia otra (`TI###`), hacia un camión (`RUTA nn`) o
+ *    hacia un cliente de telemarketing (`c27 = TELEMARK`). Ésa NO es reparto: se factura después
+ *    como `U-D-8` y ya cuenta como venta, así que el candado exige que NO aparezca.
+ *  · `U-A-50` es la recepción en la sucursal que recibe.
+ *  · El kardex (`kdij`) guarda las ENTRADAS de inventario: la compra física (`X-A-40`) y, para el 01,
+ *    un ajuste (`N-A-30`) ANTERIOR a su compra: la llegada tiene que decir que entró antes.
+ */
+const REPARTO = [
+  { clave: '03', tipo: 'U-D-41', plaza: '01', d: -30, destino: 'TI005', qty: 2, u: 'CJA', f: 12 },
+  { clave: '03', tipo: 'U-A-50', plaza: '05', d: -30, destino: 'TI001', qty: 2, u: 'CJA', f: 12 },
+  { clave: '03', tipo: 'U-D-41', plaza: '01', d: -20, destino: 'RUTA 22', qty: 1, u: 'CJA', f: 12 },
+  { clave: '03', tipo: 'U-D-41', plaza: '01', d: -15, destino: 'C1001', telemark: true, qty: 1, u: 'CJA', f: 12 },
+];
+const KARDEX = [
+  { clave: '01', doc: ['X', 'A', 40], plaza: '03', d: -120, qty: 400, u: 'PZA' },
+  { clave: '01', doc: ['X', 'A', 40], plaza: '04', d: -118, qty: 300, u: 'PZA' },
+  { clave: '01', doc: ['N', 'A', 30], plaza: '04', d: -200, qty: 5, u: 'PZA' },
+  { clave: '03', doc: ['X', 'A', 40], plaza: '01', d: -45, qty: 600, u: 'PZA' },
+  { clave: '03', doc: ['X', 'A', 40], plaza: '04', d: -44, qty: 420, u: 'PZA' },
+];
+
+/** `[NP.16]` Siembra el reparto (documentos U-D-41 / U-A-50) y el kardex. */
+async function sembrarReparto(db, hoy) {
+  let folio = 800000;
+  for (const r of REPARTO) {
+    folio += 1;
+    const p = PRODUCTOS.find((x) => x.clave === r.clave);
+    const f = `NPDT${folio}`;
+    const [c3, c4] = r.tipo === 'U-A-50' ? ['A', 50] : ['D', 41];
+    const uv = unidadRenglon(p, r);
+    await db.raw(
+      `INSERT INTO kepler_ods.kdm1 (sucursal, c1, c2, c3, c4, c5, c6, c9, c10, c27, c43)
+       VALUES (?, ?, 'U', ?, ?, ?, ?, ?::timestamp, ?, ?, 'N')`,
+      [r.plaza, r.plaza, c3, c4, SERIE, f, fecha(hoy, r.d), r.destino, r.telemark ? 'TELEMARK' : 'SUCURSAL']);
+    await db.raw(
+      `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c11, c12, c13, c55, c56, c58)
+       VALUES (?, ?, 'U', ?, ?, ?, ?, 1, ?, ?, ?, 100, ?, ?, ?, ?)`,
+      [r.plaza, r.plaza, c3, c4, SERIE, f, sku(p), uv.c9, uv.c11, r2(r.qty * 100), uv.c55, uv.c56, uv.c58]);
+  }
+  for (const [i, k] of KARDEX.entries()) {
+    const p = PRODUCTOS.find((x) => x.clave === k.clave);
+    await db.raw(
+      `INSERT INTO kepler_ods.kdij (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c30)
+       VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?, 1, ?::timestamp, ?, ?, 'E')`,
+      [k.plaza, k.plaza, sku(p), k.doc[0], k.doc[1], k.doc[2], SERIE, `NPDK${String(i + 1).padStart(6, '0')}`,
+        fecha(hoy, k.d), k.qty, k.u]);
+  }
+}
 
 async function sembrarVivo(db, hoy) {
   let folio = 900000;
@@ -379,6 +431,7 @@ async function limpiar(db) {
   await db.raw(`DELETE FROM kepler_ods.kdm1 WHERE c5 = ? AND c6 LIKE 'NPD%'`, [SERIE]);
   await db.raw(`DELETE FROM kepler_ods.kdil WHERE c3 LIKE ?`, [`${PREFIJO_SKU}%`]);
   await db.raw(`DELETE FROM kepler_ods.kdii WHERE c1 LIKE ?`, [`${PREFIJO_SKU}%`]);
+  await db.raw(`DELETE FROM kepler_ods.kdij WHERE c3 LIKE ?`, [`${PREFIJO_SKU}%`]);
   await db.raw(`DELETE FROM catalog.new_product_reviews WHERE product_id IN (SELECT id FROM catalog.products WHERE sku LIKE ?)`, [`${PREFIJO_SKU}%`]);
   await db.raw(`DELETE FROM catalog.products WHERE sku LIKE ?`, [`${PREFIJO_SKU}%`]);
 }
@@ -391,5 +444,5 @@ async function refrescar(db) {
 
 module.exports = {
   TENANT, SERIE, PREFIJO_SKU, PRODUCTOS, VIVO, sembrar, sembrarVivo, limpiar, refrescar, fecha, hoyMx,
-  unidadRenglon, costoRenglon,
+  unidadRenglon, costoRenglon, REPARTO, KARDEX,
 };

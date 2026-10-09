@@ -72,6 +72,7 @@ const COLUMNAS = `
   to_char(m.corte, 'YYYY-MM-DD')             AS corte,
   m.venta_dia, m.venta_por_plaza, m.venta_unidades, m.entradas,
   m.margen_plaza, m.compra_base,
+  m.llegada, m.venta_unidades_hito, m.reparto,
   r.kind                                     AS clasificacion,
   r.note                                     AS nota,
   r.updated_by_username                      AS clasificado_por,

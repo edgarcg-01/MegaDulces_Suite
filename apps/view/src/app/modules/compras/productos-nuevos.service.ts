@@ -36,6 +36,19 @@ export interface HitoValores {
   cerrado: boolean;
   inversion: number | null;
   venta: number | null;
+  /** `[NP.16]` Lo vendido en tienda Kepler en ese tramo, en las unidades en que se vendió. */
+  unidades: UnidadesKepler;
+}
+
+/** `[NP.16]` Cuándo llegó a la empresa (barrido del kardex de Kepler). */
+export interface LlegadaNueva {
+  /** La primera compra física (orden de entrada). NULL = no hay compra en Kepler. */
+  fecha: string | null;
+  sucursales: Array<{ plaza: string; nombre: string | null }>;
+  /** `kardex` = del barrido; `compra_aplicada` = el kardex no trae nada. */
+  fuente: 'kardex' | 'compra_aplicada';
+  /** Si entró antes por otro camino, o no hubo compra: cuándo y por qué documento. */
+  antes: { fecha: string; tipo: string } | null;
 }
 
 export interface ProductoNuevo {
@@ -88,6 +101,8 @@ export interface ProductoNuevo {
   margenes: MargenesNuevo | null;
   /** `[NP.15]` La sucursal donde mejor se mueve. NULL = ninguna compite todavía. */
   mejor_plaza: MejorPlazaNuevo | null;
+  /** `[NP.16]` NULL = no hay compra ni entrada con qué fecharlo. */
+  llegada: LlegadaNueva | null;
 }
 
 /** `[NP.15]` Un margen con lo que alcanza a cubrir; `pct` NULL = no se pudo medir (`nota` dice por qué). */
@@ -143,6 +158,12 @@ export interface PlazaNueva {
   unidades_vendidas: UnidadesKepler;
   venta_sin_unidad: number;
   unidades_recibidas: UnidadesKepler;
+  /** `[NP.16]` Lo que le llegó de otra sucursal (traspaso). */
+  recibido_traspaso: UnidadesKepler;
+  /** `[NP.16]` Lo que mandó a otras sucursales. */
+  enviado_sucursales: UnidadesKepler;
+  /** `[NP.16]` Lo que mandó a camiones de ruta. */
+  enviado_rutas: UnidadesKepler;
   unidades_hoy: UnidadesKepler;
   ultima_venta: string | null;
   semanas: number[];

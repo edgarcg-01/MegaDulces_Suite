@@ -385,6 +385,73 @@ const nulo = (v) => (v === 0 ? null : v);
     }
     check('sin compras en su historia: compra_base vacía (el margen sobre lo pagado se declara)',
       fila('09') && Object.keys(fila('09').compra_base || {}).length === 0, fila('09') && fila('09').compra_base);
+
+    console.log('\n── 10. [NP.16] Llegada, unidades por corte y reparto: contra una segunda implementación ──');
+    const mismoMapa = (a, b) => {
+      const ka = Object.keys(a || {}).sort();
+      const kb = Object.keys(b || {}).sort();
+      return ka.join() === kb.join() && ka.every((k) => Math.abs(Number(a[k]) - Number(b[k])) < 0.001);
+    };
+    // El reparto, recalculado de lo sembrado. La remisión a cliente de telemarketing NO cuenta.
+    const repartoEsperado = (clave) => {
+      const out = {};
+      for (const r of esc.REPARTO.filter((x) => x.clave === clave && !x.telemark)) {
+        const tipo = r.tipo === 'U-A-50' ? 'traspaso' : /^TI[0-9]+$/.test(r.destino) ? 'salida_sucursal' : 'salida_ruta';
+        const a = (out[r.plaza] = out[r.plaza] || {});
+        a[tipo] = a[tipo] || {};
+        a[tipo][r.u] = (a[tipo][r.u] || 0) + r.qty;
+        const f = esc.fecha(hoy, r.d);
+        if (tipo === 'traspaso' && (!a.desde || f < a.desde)) a.desde = f;
+      }
+      return out;
+    };
+    const rpEsp = repartoEsperado('03');
+    const rpMv = (fila('03') && fila('03').reparto) || {};
+    const plazasRp = [...new Set([...Object.keys(rpEsp), ...Object.keys(rpMv)])].sort();
+    const rpMalas = plazasRp.filter((pl) => {
+      const e = rpEsp[pl] || {};
+      const g = rpMv[pl] || {};
+      const tipos = [...new Set([...Object.keys(e), ...Object.keys(g)])].filter((t) => t !== 'desde');
+      return (e.desde || null) !== (g.desde || null) || !tipos.every((t) => mismoMapa(e[t], g[t]));
+    });
+    check(`NPDEMO-03: reparto por sucursal = segunda implementación (${plazasRp.length} sucursales)`,
+      plazasRp.length > 0 && rpMalas.length === 0, rpMalas.map((pl) => ({ plaza: pl, matvista: rpMv[pl], esperado: rpEsp[pl] })));
+    check('⛔ la remisión a cliente de telemarketing NO es reparto: a rutas sólo 1 caja, no 2',
+      rpMv['01'] && rpMv['01'].salida_ruta && Number(rpMv['01'].salida_ruta.CJA) === 1
+        && !Object.values(rpMv).some((x) => Object.keys(x).some((k) => !['traspaso', 'salida_sucursal', 'salida_ruta', 'desde'].includes(k))),
+      rpMv['01']);
+    check('una sucursal que sólo RECIBIÓ por traspaso tiene su reparto y la fecha desde que le llegó',
+      rpMv['05'] && rpMv['05'].desde === esc.fecha(hoy, -30) && mismoMapa(rpMv['05'].traspaso, { CJA: 2 }), rpMv['05']);
+
+    // Unidades vendidas en los primeros 30/60/90 días, recalculadas de lo sembrado.
+    const hitoEsperado = (clave, n) => {
+      const p = esc.PRODUCTOS.find((x) => x.clave === clave);
+      const L = P(clave).esperado.lanzamiento;
+      const out = {};
+      for (const v of p.ventas.filter((x) => x.d < L + n)) {
+        const u = v.u && !v.rota ? v.u : (p.base || 'PZA');
+        out[u] = Math.round(((out[u] || 0) + v.qty) * 1000) / 1000;
+      }
+      return out;
+    };
+    for (const c of ['01', '03']) {
+      const g = (fila(c) && fila(c).venta_unidades_hito) || {};
+      const malos = [30, 60, 90].filter((n) => !mismoMapa(g[String(n)], hitoEsperado(c, n)));
+      check(`NPDEMO-${c}: unidades vendidas a 30/60/90 días = segunda implementación`, malos.length === 0,
+        malos.map((n) => ({ n, matvista: g[String(n)], esperado: hitoEsperado(c, n) })));
+    }
+
+    // La llegada: el barrido del kardex.
+    const ll01 = (fila('01') && fila('01').llegada) || {};
+    check('llegada del 01: la primera compra física y dónde (no la aplicación de la compra)',
+      ll01.compra === esc.fecha(hoy, -120) && JSON.stringify(ll01.compra_plazas) === JSON.stringify(['03']), ll01);
+    check('llegada del 01: el ajuste ANTERIOR a la compra queda dicho (primera entrada y su documento)',
+      ll01.entrada === esc.fecha(hoy, -200) && ll01.entrada_doc === 'N-A-30', ll01);
+    const ll03 = (fila('03') && fila('03').llegada) || {};
+    check('llegada del 03: si la primera entrada ES la compra, no hay "antes"',
+      ll03.compra === esc.fecha(hoy, -45) && ll03.entrada === ll03.compra && ll03.entrada_doc === 'X-A-40', ll03);
+    check('sin kardex: llegada vacía (no se inventa una fecha)',
+      fila('09') && Object.keys(fila('09').llegada || {}).length === 0, fila('09') && fila('09').llegada);
   } catch (e) {
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);

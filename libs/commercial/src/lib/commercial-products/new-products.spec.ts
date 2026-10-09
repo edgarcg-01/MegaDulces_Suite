@@ -7,6 +7,7 @@ import {
   NewProductSource,
   Senales,
   armarProducto,
+  llegadaDe,
   margenesDe,
   ocultarCostoPlazas,
   construirCohortes,
@@ -20,6 +21,7 @@ import {
   recomendar,
   serieDiaria,
   sumarDias,
+  tipoEntradaTexto,
 } from './new-products';
 
 /**
@@ -147,7 +149,7 @@ describe('armarProducto — global', () => {
   it('hitos: un hito que todavía no llega no está cerrado', () => {
     const { fila } = armarProducto(fuente({ dias: 45 }), HOY, [], []);
     expect(fila.dia).toBe(45);
-    expect(fila.hitos[30]).toEqual({ cerrado: true, inversion: 2000, venta: 3000 });
+    expect(fila.hitos[30]).toEqual({ cerrado: true, inversion: 2000, venta: 3000, unidades: {} });
     expect(fila.hitos[60].cerrado).toBe(false);
   });
 
@@ -464,5 +466,75 @@ describe('[NP.15] dónde se mueve mejor', () => {
     const ps = ocultarCostoPlazas(plazas);
     expect(ps.every((x) => x.margenes === null)).toBe(true);
     expect(ps.find((x) => x.plaza === '05')!.movimiento.lugar).toBe(1);
+  });
+});
+
+/** `[NP.16]` Cuándo llegó, las unidades de cada corte y el reparto entre sucursales. */
+describe('[NP.16] llegada a la empresa', () => {
+  const nombres = new Map([['01', 'Padre Hidalgo'], ['06', 'Canindo'], ['08', 'Morelia Abastos']]);
+
+  it('sale del kardex: la primera compra física y dónde entró ese día', () => {
+    const ll = llegadaDe({ llegada: { compra: '2026-09-18', compra_plazas: ['06', '01'], entrada: '2026-09-18', entrada_doc: 'X-A-40' },
+      primera_recepcion: '2026-09-20', entradas: [] }, [], nombres)!;
+    expect(ll.fecha).toBe('2026-09-18');
+    expect(ll.fuente).toBe('kardex');
+    expect(ll.sucursales).toEqual([{ plaza: '01', nombre: 'Padre Hidalgo' }, { plaza: '06', nombre: 'Canindo' }]);
+    expect(ll.antes).toBeNull();
+  });
+
+  it('⛔ si entró ANTES por otro camino, se dice cuándo y por qué documento', () => {
+    const ll = llegadaDe({ llegada: { compra: '2026-07-09', compra_plazas: ['01'], entrada: '2026-01-29', entrada_doc: 'N-A-30' },
+      primera_recepcion: null, entradas: [] }, [], nombres)!;
+    expect(ll.antes).toEqual({ fecha: '2026-01-29', tipo: 'ajuste de inventario' });
+  });
+
+  it('sin compra en Kepler: la fecha va vacía y se dice por dónde entró', () => {
+    const ll = llegadaDe({ llegada: { compra: null, compra_plazas: [], entrada: '2026-09-22', entrada_doc: 'U-A-50' },
+      primera_recepcion: null, entradas: [] }, [], nombres)!;
+    expect(ll.fecha).toBeNull();
+    expect(ll.antes).toEqual({ fecha: '2026-09-22', tipo: 'traspaso de otra sucursal' });
+    expect(tipoEntradaTexto('U-A-25')).toBe('otro movimiento (U-A-25)');
+  });
+
+  it('sin kardex: la compra aplicada, y si tampoco hay, nada (no se inventa)', () => {
+    const ll = llegadaDe({ llegada: {}, primera_recepcion: '2026-09-03', entradas: [{ f: '2026-09-03', p: '08', i: 100 }] }, [], nombres)!;
+    expect(ll).toMatchObject({ fecha: '2026-09-03', fuente: 'compra_aplicada', sucursales: [{ plaza: '08', nombre: 'Morelia Abastos' }] });
+    expect(llegadaDe({ llegada: {}, primera_recepcion: null, entradas: [] }, [], nombres)).toBeNull();
+  });
+});
+
+describe('[NP.16] unidades por corte y reparto', () => {
+  it('las unidades de cada corte: la historia + lo de hoy sólo si hoy cae dentro del tramo', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'venta', plaza: '03', fecha: HOY, importe: 50, unidad: 'PZA', cantidad: 4 }];
+    const { fila } = armarProducto(fuente({
+      dias: 45,
+      venta_unidades_hito: { '30': { CJA: 2 }, '60': { CJA: 3, PZA: 10 }, '90': { CJA: 3, PZA: 10 } },
+    }), HOY, vivo, []);
+    expect(fila.hitos[30].unidades).toEqual({ CJA: 2 });            // hoy (día 45) ya no es del tramo de 30
+    expect(fila.hitos[60].unidades).toEqual({ CJA: 3, PZA: 14 });   // sí del de 60
+  });
+
+  it('⭐ por sucursal: lo que le llegó de otra y lo que mandó a otras y a rutas; una que sólo recibió también aparece', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'traspaso', plaza: '05', fecha: HOY, importe: 0, unidad: 'CJA', cantidad: 1 }];
+    const { plazas } = armarProducto(fuente({
+      reparto: {
+        '03': { salida_sucursal: { CJA: 5 }, salida_ruta: { PAQ: 4 } },
+        '04': { traspaso: { CJA: 2 }, desde: sumarDias(HOY, -10) },
+      },
+    }), HOY, vivo, []);
+    const p = (c: string) => plazas.find((x) => x.plaza === c)!;
+    expect(p('03')).toMatchObject({ enviado_sucursales: { CJA: 5 }, enviado_rutas: { PAQ: 4 }, recibido_traspaso: {} });
+    // La 04 no vendió ni compró: está por el traspaso, y sus días cuentan desde que le llegó.
+    expect(p('04')).toMatchObject({ recibido_traspaso: { CJA: 2 }, primera_actividad: sumarDias(HOY, -10), dia: 10 });
+    // Lo de hoy también se suma.
+    expect(p('05').recibido_traspaso).toEqual({ CJA: 1 });
+  });
+
+  it('⛔ un traspaso no es un lanzamiento: el producto sin historia sigue "sin movimiento"', () => {
+    const vivo: Movimiento[] = [{ product_id: 'p1', tipo: 'traspaso', plaza: '05', fecha: HOY, importe: 0, unidad: 'CJA', cantidad: 1 }];
+    const { fila } = armarProducto(fuente({ lanzamiento: null, sin_movimiento: true, venta_dia: [], venta_por_plaza: {}, entradas: [] }),
+      HOY, vivo, []);
+    expect(fila.lanzamiento).toBeNull();
+    expect(fila.estado).toBe('sin_movimiento');
   });
 });

@@ -47,6 +47,28 @@ export function tresMargenes(m: MargenesNuevo | null): string {
  * lugar) y después las que todavía no (por venta por día). Las que no tienen venta en la historia
  * no aparecen: no hay nada que comparar.
  */
+/** `[NP.16]` "Padre Hidalgo y Canindo": las sucursales donde entró la primera compra. */
+export function sucursalesTexto(s: ReadonlyArray<{ plaza: string; nombre: string | null }>): string {
+  const n = s.map((x) => x.nombre || `Sucursal ${x.plaza}`);
+  if (n.length <= 1) return n[0] ?? '';
+  return `${n.slice(0, -1).join(', ')} y ${n[n.length - 1]}`;
+}
+
+/**
+ * `[NP.16]` Las sucursales del reparto: primero las que compraron (las que reparten), luego las que
+ * recibieron de otra, y al final las demás con existencia. Una sin compra, sin traspaso, sin envío y
+ * sin existencia no tiene nada que decir en el reparto.
+ */
+export function ordenReparto(plazas: PlazaNueva[]): PlazaNueva[] {
+  const hay = (u: UnidadesKepler | undefined) => Object.keys(u ?? {}).length > 0;
+  const grupo = (p: PlazaNueva) => (hay(p.unidades_recibidas) ? 0 : hay(p.recibido_traspaso) ? 1 : 2);
+  return plazas
+    .filter((p) => hay(p.unidades_recibidas) || hay(p.recibido_traspaso) || hay(p.enviado_sucursales)
+      || hay(p.enviado_rutas) || (p.existencia ?? 0) > 0)
+    .slice()
+    .sort((a, b) => grupo(a) - grupo(b) || a.plaza.localeCompare(b.plaza));
+}
+
 export function ordenMovimiento(plazas: PlazaNueva[]): PlazaNueva[] {
   return plazas
     .filter((p) => p.movimiento?.venta_neta_dia !== null && p.movimiento?.venta_neta_dia !== undefined)
@@ -483,9 +505,13 @@ export function tendenciaTexto(t: number | null): string {
               <section class="pk-bloque" aria-labelledby="pk-global">
                 <h3 id="pk-global" class="pk-h">Comportamiento global</h3>
                 <div class="pk-kpis">
+                  @if (dt.producto.llegada; as ll) {
+                    <div><span>Llegó a la empresa</span><b>{{ ll.fecha ? fecha(ll.fecha) : 'Sin compra' }}</b>
+                      @if (sucursalesTexto(ll.sucursales); as s) { <small>a {{ s }}</small> }</div>
+                  }
                   <div><span>Vendido</span><b>{{ dt.producto.venta_total === null ? '—' : dinero(dt.producto.venta_total) }}</b>
                     @if (textoUnidades(dt.producto.unidades_vendidas); as u) { <small>{{ u }}</small> }</div>
-                  <div><span>Recibido</span><b class="pk-txt">{{ textoUnidades(dt.producto.unidades_recibidas) || 'Sin entradas en Kepler' }}</b></div>
+                  <div><span>Llegó en compras</span><b class="pk-txt">{{ textoUnidades(dt.producto.unidades_recibidas) || 'Sin compras en Kepler' }}</b></div>
                   @if (dt.costo_visible) {
                     <div><span>Invertido</span><b>{{ dt.producto.inversion_total === null ? 'No medido' : dinero(dt.producto.inversion_total) }}</b></div>
                     <div><span>Por $1 invertido</span><b>{{ dt.producto.venta_por_peso === null ? '—' : veces(dt.producto.venta_por_peso) }}</b></div>
@@ -495,6 +521,15 @@ export function tendenciaTexto(t: number | null): string {
                   <div><span>Hoy</span><b>{{ dinero(dt.producto.venta_hoy) }}</b>
                     @if (textoUnidades(dt.producto.unidades_hoy); as u) { <small>{{ u }}</small> }</div>
                 </div>
+                @if (dt.producto.llegada; as ll) {
+                  @if (ll.antes; as an) {
+                    <p class="pn-meta pk-aviso">{{ ll.fecha ? 'Antes de la compra ya había entrado' : 'No hay compra en Kepler: entró' }}
+                      por {{ an.tipo }} el {{ fechaLarga(an.fecha) }}.</p>
+                  }
+                  @if (ll.fuente === 'compra_aplicada') {
+                    <p class="pn-meta">La fecha de llegada es la de la compra aplicada: el kardex de Kepler no trae su entrada.</p>
+                  }
+                }
                 @if (dt.producto.venta_sin_unidad > 0) {
                   <p class="pn-meta">{{ dinero(dt.producto.venta_sin_unidad) }} de la venta no traen la unidad de Kepler y van sólo en pesos.</p>
                 }
@@ -509,12 +544,14 @@ export function tendenciaTexto(t: number | null): string {
                 }
                 <table class="pk-hitos">
                   <thead><tr><th scope="col">Corte</th><th scope="col" class="pn-num">Vendido</th>
+                    <th scope="col">Unidades vendidas</th>
                     @if (dt.costo_visible) { <th scope="col" class="pn-num">Invertido</th> }<th scope="col">Estado</th></tr></thead>
                   <tbody>
                     @for (h of hitos; track h) {
                       <tr>
                         <td>A {{ h }} días</td>
                         <td class="pn-num pn-mono">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (dt.producto.hitos[h].venta === null ? 'sin venta' : dinero(dt.producto.hitos[h].venta)) }}</td>
+                        <td class="pk-unid">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (textoUnidades(dt.producto.hitos[h].unidades) || '—') }}</td>
                         @if (dt.costo_visible) {
                           <td class="pn-num pn-mono">{{ !hitoVisible(dt.producto.dia, h) ? '—' : (dt.producto.hitos[h].inversion === null ? 'no medida' : dinero(dt.producto.hitos[h].inversion)) }}</td>
                         }
@@ -551,28 +588,33 @@ export function tendenciaTexto(t: number | null): string {
                 @if (rk.length) {
                   <section class="pk-bloque" aria-labelledby="pk-donde">
                     <h3 id="pk-donde" class="pk-h">¿Dónde se mueve mejor?</h3>
-                    <table class="pk-hitos pk-rank">
+                    <div class="dt-scope">
+                    <table class="pk-hitos pk-rank dt-stack">
                       <thead><tr>
                         <th scope="col">Lugar</th><th scope="col">Sucursal</th>
-                        <th scope="col" class="pn-num">Venta por día</th><th scope="col" class="pn-num">Días</th>
+                        <th scope="col" class="pn-num">Venta por día</th>
+                        <th scope="col">Vendido</th><th scope="col">Existencia hoy</th>
                         <th scope="col" class="pn-num">Vendido de lo que llegó</th>
                         @if (dt.costo_visible) { <th scope="col" class="pn-num">Margen real</th> }
                       </tr></thead>
                       <tbody>
                         @for (p of rk; track p.plaza) {
                           <tr [class.is-mejor]="p.movimiento.lugar === 1">
-                            <td>{{ p.movimiento.lugar === null ? 'Aún no' : p.movimiento.lugar }}</td>
-                            <td>{{ p.nombre || ('Sucursal ' + p.plaza) }}</td>
-                            <td class="pn-num pn-mono">{{ dinero(p.movimiento.venta_neta_dia) }}</td>
-                            <td class="pn-num pn-mono">{{ p.movimiento.dias ?? '—' }}</td>
-                            <td class="pn-num pn-mono">{{ p.movimiento.desplazado === null ? '—' : pct(p.movimiento.desplazado) }}</td>
+                            <td role="cell" data-label="Lugar">{{ p.movimiento.lugar === null ? 'Aún no' : p.movimiento.lugar }}</td>
+                            <td class="dt-id" role="cell">{{ p.nombre || ('Sucursal ' + p.plaza) }}
+                              @if (p.movimiento.dias !== null) { <span class="pn-meta pk-dias">{{ p.movimiento.dias }} días</span> }</td>
+                            <td class="pn-num pn-mono dt-num" role="cell" data-label="Venta por día">{{ dinero(p.movimiento.venta_neta_dia) }}</td>
+                            <td class="pk-unid" role="cell" data-label="Vendido">{{ textoUnidades(p.unidades_vendidas) || (p.venta_sin_unidad > 0 ? 'sólo en pesos' : '—') }}</td>
+                            <td class="pk-unid" role="cell" data-label="Existencia hoy" [class.pn-agotado]="p.existencia !== null && p.existencia <= 0">{{ existenciaTexto(p) }}</td>
+                            <td class="pn-num pn-mono dt-num" role="cell" data-label="Vendido de lo que llegó">{{ p.movimiento.desplazado === null ? '—' : pct(p.movimiento.desplazado) }}</td>
                             @if (dt.costo_visible) {
-                              <td class="pn-num pn-mono" [pTooltip]="p.margenes?.real?.nota || ''">{{ margenTexto(p.margenes?.real?.pct) }}</td>
+                              <td class="pn-num pn-mono dt-num" role="cell" data-label="Margen real" [pTooltip]="p.margenes?.real?.nota || ''">{{ margenTexto(p.margenes?.real?.pct) }}</td>
                             }
                           </tr>
                         }
                       </tbody>
                     </table>
+                    </div>
                     <p class="pn-meta">Venta sin impuestos por día desde que el producto llegó a cada sucursal, hasta el {{ fecha(vispera(dt.frescura.corte)) }}.
                       Una sucursal con menos de {{ diasMinimosSucursal }} días todavía no compite: una sola venta la pondría arriba.
                       "Vendido de lo que llegó" compara lo vendido con lo vendido más la existencia de hoy, en la unidad de la ficha.</p>
@@ -584,6 +626,36 @@ export function tendenciaTexto(t: number | null): string {
                 <h3 id="pk-plazas" class="pk-h">Por sucursal</h3>
                 @if (!dt.plazas.length) {
                   <p class="pn-meta">Todavía no llega a ninguna sucursal.</p>
+                }
+                @if (ordenReparto(dt.plazas); as rp) {
+                  @if (rp.length) {
+                    <div class="pk-reparto">
+                      <p class="pk-reparto-t">Nos llegaron <b>{{ textoUnidades(dt.producto.unidades_recibidas) || 'sin compras en Kepler' }}</b> en compras@if (dt.producto.llegada?.fecha) {, la primera el {{ fecha(dt.producto.llegada!.fecha) }}}. Así se repartió:</p>
+                      <div class="dt-scope">
+                      <table class="pk-hitos pk-repartot dt-stack">
+                        <thead><tr>
+                          <th scope="col">Sucursal</th><th scope="col">Compró</th><th scope="col">Le llegó de otra</th>
+                          <th scope="col">Mandó a otras</th><th scope="col">Mandó a rutas</th><th scope="col">Existencia hoy</th>
+                        </tr></thead>
+                        <tbody>
+                          @for (p of rp; track p.plaza) {
+                            <tr>
+                              <td class="dt-id" role="cell">{{ p.nombre || ('Sucursal ' + p.plaza) }}</td>
+                              <td class="pk-unid" role="cell" data-label="Compró">{{ textoUnidades(p.unidades_recibidas) || '—' }}</td>
+                              <td class="pk-unid" role="cell" data-label="Le llegó de otra">{{ textoUnidades(p.recibido_traspaso) || '—' }}</td>
+                              <td class="pk-unid" role="cell" data-label="Mandó a otras">{{ textoUnidades(p.enviado_sucursales) || '—' }}</td>
+                              <td class="pk-unid" role="cell" data-label="Mandó a rutas">{{ textoUnidades(p.enviado_rutas) || '—' }}</td>
+                              <td class="pk-unid" role="cell" data-label="Existencia hoy" [class.pn-agotado]="p.existencia !== null && p.existencia <= 0">{{ existenciaTexto(p) }}</td>
+                            </tr>
+                          }
+                        </tbody>
+                      </table>
+                      </div>
+                      <p class="pn-meta">Compró = sus entradas de compra. Le llegó de otra = traspasos recibidos de otra sucursal. Mandó = traspasos
+                        a otras sucursales y cargas a camión de ruta. Las remisiones a clientes de telemarketing no están aquí: se facturan y ya
+                        cuentan como venta. Cada cantidad, en la unidad en que la registró Kepler.</p>
+                    </div>
+                  }
                 }
                 @for (p of dt.plazas; track p.plaza) {
                   <article class="pk-plaza">
@@ -608,7 +680,16 @@ export function tendenciaTexto(t: number | null): string {
                           <div><span>Invertido</span><b>{{ p.inversion_total === null ? 'No medido' : dinero(p.inversion_total) }}</b></div>
                           <div><span>Margen lista · real · pagado</span><b>{{ tresMargenes(p.margenes) }}</b></div>
                         }
-                        <div><span>Recibido</span><b class="pk-txt">{{ textoUnidades(p.unidades_recibidas) || 'Sin entradas en Kepler' }}</b></div>
+                        <div><span>Compró</span><b class="pk-txt">{{ textoUnidades(p.unidades_recibidas) || 'Sin compras en Kepler' }}</b></div>
+                        @if (textoUnidades(p.recibido_traspaso); as u) {
+                          <div><span>Le llegó de otra sucursal</span><b class="pk-txt">{{ u }}</b></div>
+                        }
+                        @if (textoUnidades(p.enviado_sucursales); as u) {
+                          <div><span>Mandó a otras sucursales</span><b class="pk-txt">{{ u }}</b></div>
+                        }
+                        @if (textoUnidades(p.enviado_rutas); as u) {
+                          <div><span>Mandó a rutas</span><b class="pk-txt">{{ u }}</b></div>
+                        }
                         <div><span>Recompra</span><b>{{ p.primera_recompra ? fecha(p.primera_recompra) : 'Todavía no' }}</b></div>
                       </div>
                       @if (cerradas(p.semanas, p.dia); as sem) {
@@ -759,6 +840,12 @@ export function tendenciaTexto(t: number | null): string {
     .pk-margen small.pk-margen-u { color: var(--c-text-2); }
     .pk-margen small.pk-nota { color: var(--warn-fg); }
     .pk-rank tr.is-mejor > td { background: var(--ok-soft-bg); font-weight: var(--fw-bold); }
+    .pk-unid { font-size: var(--fs-xs); color: var(--c-text-2); }
+    .pk-dias { display: block; }
+    .pk-aviso { color: var(--warn-fg); }
+    .pk-reparto { display: flex; flex-direction: column; gap: .5rem; border: 1px solid var(--c-divider); border-radius: 10px;
+      padding: .7rem .85rem; background: var(--c-surface-1); }
+    .pk-reparto-t { margin: 0; font-size: var(--fs-sm); color: var(--c-text-1); }
     .pk-plaza { border: 1px solid var(--c-divider); border-radius: 10px; padding: .7rem .85rem; display: flex; flex-direction: column; gap: .5rem; }
     .pk-plaza header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
     .pk-plaza-cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) 8rem; gap: .75rem; align-items: center; }
@@ -782,6 +869,8 @@ export class ComprasCatalogoNuevosComponent {
   readonly margenTexto = margenTexto;
   readonly tresMargenes = tresMargenes;
   readonly ordenMovimiento = ordenMovimiento;
+  readonly ordenReparto = ordenReparto;
+  readonly sucursalesTexto = sucursalesTexto;
   /** El mismo umbral que usa el servidor para dejar competir a una sucursal (`CRITERIO_SUCURSAL`). */
   readonly diasMinimosSucursal = 7;
 
@@ -925,6 +1014,15 @@ export class ComprasCatalogoNuevosComponent {
 
   fecha(iso: string | null): string {
     return fechaCorta(iso);
+  }
+
+  /** Fecha con año ("29 ene 2026"): para entradas que pueden ser de otro año. */
+  fechaLarga(iso: string | null): string {
+    if (!iso) return '—';
+    const t = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+    return Number.isFinite(t)
+      ? new Intl.DateTimeFormat('es-MX', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(t)
+      : '—';
   }
 
   /** El día anterior a `iso` (`YYYY-MM-DD`): el último día que entra en la historia. */

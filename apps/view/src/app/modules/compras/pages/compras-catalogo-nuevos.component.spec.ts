@@ -20,6 +20,8 @@ import {
   hitoVisible,
   margenTexto,
   ordenMovimiento,
+  ordenReparto,
+  sucursalesTexto,
   tresMargenes,
   pasaBusqueda,
   pasaFiltro,
@@ -44,9 +46,9 @@ function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
     lanzamiento: '2026-08-23', dia: 45, fuentes: ['entradas', 'kepler'], etapa: 'mes_2', estado: 'seguimiento',
     motivo: null, posible_recodificacion: false, clasificacion: null, nota: null, clasificado_por: null,
     hitos: {
-      30: { cerrado: true, inversion: 26000, venta: 22260 },
-      60: { cerrado: false, inversion: 26000, venta: 34185 },
-      90: { cerrado: false, inversion: 26000, venta: 34185 },
+      30: { cerrado: true, inversion: 26000, venta: 22260, unidades: { CJA: 10, PZA: 20 } },
+      60: { cerrado: false, inversion: 26000, venta: 34185, unidades: { CJA: 22, PZA: 40 } },
+      90: { cerrado: false, inversion: 26000, venta: 34185, unidades: { CJA: 22, PZA: 40 } },
     },
     inversion_total: 26000, venta_total: 34185, venta_por_peso: 1.31, entradas: 3, plazas_recibido: 2,
     primera_recompra: '2026-09-17', dia_recompra: 25, plazas_venta: 2, plazas_con_existencia: 1, agotado_en: 1,
@@ -56,6 +58,11 @@ function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
     recomendacion: { veredicto: 'recomprar', motivos: ['Se vendió 27 de los últimos 28 días', 'Se agotó en 1 plaza que lo vende'] },
     margenes: MARGENES,
     mejor_plaza: { plaza: '01', nombre: 'Padre Hidalgo', venta_neta_dia: 400, dias: 45 },
+    llegada: {
+      fecha: '2026-08-21', fuente: 'kardex',
+      sucursales: [{ plaza: '01', nombre: 'Padre Hidalgo' }, { plaza: '06', nombre: 'Canindo' }],
+      antes: { fecha: '2026-01-29', tipo: 'ajuste de inventario' },
+    },
     ...over,
   };
 }
@@ -65,9 +72,9 @@ const FILAS: ProductoNuevo[] = [
   producto({
     product_id: 'p-2', sku: 'NP09', nombre: 'PALOMITAS CARAMELO', inversion_total: null, venta_por_peso: null,
     hitos: {
-      30: { cerrado: true, inversion: null, venta: 1320 },
-      60: { cerrado: false, inversion: null, venta: 1496 },
-      90: { cerrado: false, inversion: null, venta: 1496 },
+      30: { cerrado: true, inversion: null, venta: 1320, unidades: {} },
+      60: { cerrado: false, inversion: null, venta: 1496, unidades: {} },
+      90: { cerrado: false, inversion: null, venta: 1496, unidades: {} },
     },
     sin_venta_30: true, entradas: 0, dia_recompra: null, primera_recompra: null, venta_hoy: 0,
     unidades_vendidas: {}, venta_sin_unidad: 1496, unidades_recibidas: {}, unidades_hoy: {},
@@ -101,6 +108,7 @@ const DETALLE: DetalleNuevo = {
       dias_con_venta_28: 20, inversion_total: 19000, entradas: 2, primera_recompra: '2026-09-17', existencia: 0,
       existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: null,
       unidades_vendidas: { CJA: 22 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 100 }, unidades_hoy: {},
+      recibido_traspaso: {}, enviado_sucursales: { CJA: 10 }, enviado_rutas: { PAQ: 4 },
       ultima_venta: '2026-10-06', semanas: [100, 200, 300], venta_hoy: 0,
       recomendacion: { veredicto: 'recomprar', motivos: ['Se agotó en 1 plaza que lo vende'] },
       margenes: MARGENES, movimiento: { venta_neta_dia: 400, dias: 45, desplazado: 1, lugar: 1 } },
@@ -108,6 +116,7 @@ const DETALLE: DetalleNuevo = {
       dias_con_venta_28: 22, inversion_total: 7000, entradas: 1, primera_recompra: null, existencia: 36,
       existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: { unidad: 'CJA', cantidad: 3 },
       unidades_vendidas: { PZA: 40 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 35 }, unidades_hoy: { PZA: 2 },
+      recibido_traspaso: { CJA: 10 }, enviado_sucursales: {}, enviado_rutas: {},
       ultima_venta: '2026-10-07', semanas: [100, 150, 120], venta_hoy: 530,
       recomendacion: { veredicto: 'esperar', motivos: ['Se vende bien, pero todavía hay existencia'] },
       margenes: null, movimiento: { venta_neta_dia: 290.5, dias: 44, desplazado: 0.9, lugar: 2 } },
@@ -367,5 +376,86 @@ describe('[NP.15] márgenes y sucursales: funciones puras', () => {
       ({ ...DETALLE.plazas[0], plaza, movimiento: { venta_neta_dia: venta, dias: 10, desplazado: null, lugar } }) as PlazaNueva;
     const orden = ordenMovimiento([p('A', 50, 2), p('B', 900, null), p('C', 80, 1), p('D', null, null)]);
     expect(orden.map((x) => x.plaza)).toEqual(['C', 'A', 'B']);
+  });
+});
+
+describe('[NP.16] llegada, unidades por corte y reparto', () => {
+  let fix: ComponentFixture<ComprasCatalogoNuevosComponent>;
+
+  async function abrirDetalle() {
+    const api = { listar: vi.fn(() => of(RESPUESTA)), detalle: vi.fn(() => of(DETALLE)) };
+    await TestBed.configureTestingModule({
+      imports: [ComprasCatalogoNuevosComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
+        { provide: ProductosNuevosService, useValue: api },
+      ],
+    }).compileComponents();
+    fix = TestBed.createComponent(ComprasCatalogoNuevosComponent);
+    await tick(fix);
+    (fix.nativeElement.querySelector('tr.pn-fila') as HTMLElement).click();
+    await tick(fix);
+  }
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('⭐ el global dice cuándo llegó a la empresa y a dónde, y avisa si entró antes por otro camino', async () => {
+    await abrirDetalle();
+    const global = document.querySelector('#pk-global')!.parentElement!.textContent!;
+    expect(global).toContain('Llegó a la empresa');
+    expect(global).toContain('a Padre Hidalgo y Canindo');
+    expect(document.querySelector('.pk-aviso')?.textContent).toContain('ajuste de inventario');
+    expect(document.querySelector('.pk-aviso')?.textContent).toContain('2026');
+  });
+
+  it('⭐ la tabla de 30 · 60 · 90 trae las unidades vendidas en cada corte', async () => {
+    await abrirDetalle();
+    const filas = Array.from(document.querySelectorAll('#pk-global ~ table tbody tr, .pk-hitos:not(.pk-rank):not(.pk-repartot) tbody tr'));
+    expect(filas[0].textContent).toContain('10 cajas · 20 piezas');
+    expect(filas[1].textContent).toContain('22 cajas · 40 piezas');
+  });
+
+  it('⭐ ¿Dónde se mueve mejor? trae lo vendido en unidades de Kepler y la existencia de hoy', async () => {
+    await abrirDetalle();
+    const filas = Array.from(document.querySelectorAll('.pk-rank tbody tr'));
+    expect(filas[0].textContent).toContain('22 cajas');
+    expect(filas[0].textContent).toContain('Agotado');
+    expect(filas[1].textContent).toContain('40 piezas');
+    expect(filas[1].textContent).toContain('Hay 36 piezas');
+  });
+
+  it('⭐ arriba de Por sucursal: lo que nos llegó en compras y cómo se repartió', async () => {
+    await abrirDetalle();
+    const bloque = document.querySelector('.pk-reparto')!;
+    expect(bloque.textContent).toContain('Nos llegaron');
+    expect(bloque.textContent).toContain('135 cajas');
+    const filas = Array.from(bloque.querySelectorAll('tbody tr')).map((tr) => tr.textContent!.replace(/\s+/g, ' '));
+    expect(filas[0]).toContain('Padre Hidalgo');
+    expect(filas[0]).toContain('100 cajas');   // compró
+    expect(filas[0]).toContain('4 paquetes');  // mandó a rutas
+    expect(filas[1]).toContain('Yurécuaro');
+    expect(filas[1]).toContain('10 cajas');    // le llegó de otra
+  });
+});
+
+describe('[NP.16] funciones puras', () => {
+  it('las sucursales se dicen como se leen', () => {
+    expect(sucursalesTexto([])).toBe('');
+    expect(sucursalesTexto([{ plaza: '01', nombre: 'Padre Hidalgo' }])).toBe('Padre Hidalgo');
+    expect(sucursalesTexto([{ plaza: '01', nombre: 'A' }, { plaza: '06', nombre: null }, { plaza: '08', nombre: 'C' }]))
+      .toBe('A, Sucursal 06 y C');
+  });
+
+  it('el reparto: primero las que compraron, luego las que recibieron de otra; sin nada que decir, no aparece', () => {
+    const base = DETALLE.plazas[0];
+    const p = (plaza: string, over: Partial<PlazaNueva>) => ({ ...base, plaza, unidades_recibidas: {}, recibido_traspaso: {},
+      enviado_sucursales: {}, enviado_rutas: {}, existencia: null, ...over }) as PlazaNueva;
+    const orden = ordenReparto([
+      p('05', { recibido_traspaso: { CJA: 1 } }),
+      p('07', {}),
+      p('01', { unidades_recibidas: { CJA: 50 } }),
+      p('03', { existencia: 12 }),
+    ]);
+    expect(orden.map((x) => x.plaza)).toEqual(['01', '05', '03']);
   });
 });
