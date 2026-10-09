@@ -670,7 +670,9 @@ export class CommercialProductsService {
   async stats(search?: string) {
     const term = (search || '').trim();
     return this.tk.run(async (trx) => {
-      const base = () => {
+      // [CAT.PRECIO] `conTermino=false` da el MISMO universo sin el filtro de busqueda. Lo necesita
+      // la frescura de la lista: es una afirmacion sobre la LISTA ENTERA, no sobre lo que se busco.
+      const base = (conTermino = true) => {
         let q = trx('products as p')
           // [RP.12] mismo join que el listado: la cobertura de precio es un KPI del catalogo,
           // no del paginado. Sin esto el "con precio" contaria la pagina, no el universo.
@@ -686,7 +688,7 @@ export class CommercialProductsService {
               .andOnNull('pv.deleted_at');
           })
           .whereNull('p.deleted_at');
-        if (term) {
+        if (term && conTermino) {
           const t = `%${term}%`;
           q = q.where((b) =>
             b.where('p.nombre', 'ilike', t)
@@ -726,6 +728,14 @@ export class CommercialProductsService {
         .orderBy('sku_count', 'desc')
         .limit(8);
 
+      // [CAT.PRECIO] Medido en prod el 2026-10-09: buscando el SKU 44430 el banner decia "Precios
+      // actualizados el 6 oct" mientras la lista se habia actualizado 13 minutos antes — porque
+      // `agg` sale de `base()`, que aplica el termino. Con un producto de mas de 7 dias la pantalla
+      // llega a acusar a TODA la red de tener la lista parada. 6 ms, sin indice nuevo.
+      const listaAt = term
+        ? await base(false).max({ at: 'pv.updated_at' }).first<{ at: string | null }>()
+        : { at: agg?.price_updated_at ?? null };
+
       return {
         total: agg?.total ?? 0,
         active: agg?.active ?? 0,
@@ -733,9 +743,14 @@ export class CommercialProductsService {
         with_cost: agg?.with_cost ?? 0,
         with_location: agg?.with_location ?? 0,
         with_price: agg?.with_price ?? 0,
-        // La pantalla lo usa para decir DESDE CUANDO no se mueve la lista. Sin este dato
-        // un precio viejo se lee igual que uno de hoy.
-        price_updated_at: agg?.price_updated_at ?? null,
+        // [CAT.PRECIO] Frescura de la LISTA COMPLETA — nunca del subconjunto buscado.
+        // ⚠️ Es un UPSERT sin churn: dice cuando cambio ALGUN precio, no cuando se verifico la
+        // lista. Es un PISO de frescura, no una medicion del carril (misma leccion que
+        // `replenishment_plan.computed_at`, que decia "hace 4 min" sobre 34 dias sin verificar).
+        price_updated_at: listaAt?.at ?? null,
+        // [CAT.PRECIO] Frescura de lo que se esta viendo. `null` sin busqueda: ahi no hay
+        // subconjunto del que hablar, y repetir el mismo numero se lee como dos medidas.
+        price_updated_at_filtrado: term ? (agg?.price_updated_at ?? null) : null,
         brands: agg?.brands ?? 0,
         categories: agg?.categories ?? 0,
         top_brands: (topBrands as { name: string | null; sku_count: number }[]).map((r) => ({
