@@ -28,6 +28,7 @@ import { makeLazyLoad, makeDebouncedSearch } from '../../../shared/util';
 import { MetricCardComponent } from '../../../shared/components/metric-card/metric-card.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CATALOGO_TABS } from '../catalogo-tabs';
+import { avisoDePrecio } from '../catalogo-precio-aviso';
 import { ProductosNuevosService } from '../productos-nuevos.service';
 import { catchError, of } from 'rxjs';
 
@@ -561,26 +562,12 @@ export class ComprasCatalogoComponent {
    * red — la fase RP existe porque el precio difiere entre las 7 sucursales, y este numero no lo
    * muestra; (2) la alimenta un importer desde la DB legacy, asi que puede llevar semanas parada.
    * El umbral son 7 dias: mas que eso ya no es "el precio de hoy".
+   *
+   * [CAT.PRECIO] La logica vive en `catalogo-precio-aviso.ts`, como funcion pura con el reloj
+   * inyectado: adentro de un `computed()` no se puede probar sin montar Angular, y con `Date.now()`
+   * adentro la prueba depende de la hora del que la corre. El candado esta en su `.spec.ts`.
    */
-  readonly avisoPrecio = computed(() => {
-    const st = this.stats();
-    if (!st) return null;
-    const iso = st.price_updated_at;
-    if (!iso) {
-      return {
-        viejo: true,
-        titulo: 'No se sabe de cuando es este precio.',
-        detalle: 'La lista de mostrador no trae fecha de actualizacion.',
-      };
-    }
-    const dias = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
-    const fecha = new Date(iso).toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' });
-    const base = 'Precio de mostrador (lista BASE-MXN), uno solo para toda la red: no distingue sucursal. '
-      + 'El precio por sucursal vive en la pestana Precios.';
-    return dias > 7
-      ? { viejo: true, titulo: 'Estos precios llevan ' + dias + ' dias sin actualizarse (ultimo: ' + fecha + ').', detalle: base }
-      : { viejo: false, titulo: 'Precios actualizados el ' + fecha + '.', detalle: base };
-  });
+  readonly avisoPrecio = computed(() => avisoDePrecio(this.stats(), Date.now()));
 
   readonly subtituloPrecio = computed(() => {
     const st = this.stats();
