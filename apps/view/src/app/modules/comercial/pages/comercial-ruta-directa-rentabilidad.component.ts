@@ -146,11 +146,11 @@ import {
                       <td role="cell" data-label="Kilómetros" class="num dt-num mono">
                         <!-- ⛔ Sin atributo title: en táctil no hay hover, así que lo que
                              explica la cifra va como texto visible (DESIGN_TABLES). -->
-                        @if (r.km_veredicto === 'sin_gps') {
+                        @if (r.cobertura_km === 'sin_gps') {
                           <span class="rp-nd">sin rastreador</span>
                         } @else {
                           {{ entero(r.km) }}
-                          @if (r.km_veredicto === 'parcial') {
+                          @if (r.cobertura_km === 'parcial') {
                             <span class="rp-nd">{{ r.dias_medidos }} de {{ r.dias_con_senal }} días</span>
                           }
                         }
@@ -541,7 +541,7 @@ export class ComercialRutaDirectaRentabilidadComponent {
 
   /** ⛔ Declara cuántas rutas NO tienen kilometraje: el total engaña si no se dice. */
   private kmSub(d: RouteProfit): string {
-    const sin = d.rutas.filter((r) => r.km_veredicto === 'sin_gps').length;
+    const sin = d.rutas.filter((r) => r.cobertura_km === 'sin_gps').length;
     if (!sin) return 'las ' + d.rutas.length + ' rutas';
     return `sólo ${d.rutas.length - sin} de ${d.rutas.length} rutas`;
   }

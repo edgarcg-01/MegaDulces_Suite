@@ -4538,7 +4538,9 @@ export interface RouteProfitRuta {
    * y `parcial` es una que sí lo tiene pero tuvo días sin cobertura. Pintarlos igual
    * convertiría una ausencia de aparato en un bajo kilometraje.
    */
-  km_veredicto: 'medido' | 'parcial' | 'sin_gps';
+  /** Mismo nombre y mismos valores que en la serie: un concepto, una palabra. */
+  cobertura_km: 'completa' | 'parcial' | 'sin_gps';
+  dias_de_la_quincena: number;
   venta_por_km: string | null;
   utilidad_por_km: string | null;
 }

@@ -43,6 +43,34 @@ import { TenantKnexService } from '@megadulces/platform-core';
  *   · Kilómetros de **Canindo 501-505**: esas camionetas no tienen GPS.
  *   · Kilómetros **antes del 2026-07-27**: ahí arranca la historia de posiciones.
  */
+/**
+ * ⛔⛔ **La regla del `$/km` vive acá y en ningún otro lado.**
+ *
+ * `[RD.58]` la endureció y `[RD.58.2]` la corrigió — las dos veces **en `serie()` solamente**,
+ * porque `rentabilidad()` tenía su propia copia. Medido contra prod el 2026-10-09: de 36
+ * ruta-quincena con kilometraje, **13 (36%) publicaban en la tarjeta una cifra que la serie se
+ * negaba a publicar**, incluida la que motivó toda la corrección — la ruta 21 en la Q15
+ * mostrando **$450.94/km con 3 de 14 días medidos**. Dos pantallas, la misma ruta, la misma
+ * quincena, dos respuestas.
+ *
+ * Por eso el texto es UNA constante que las dos consultas interpolan: mientras la regla esté
+ * escrita dos veces, arreglarla una vez va a seguir pareciendo que la arregló entera.
+ *
+ * Exige los alias `li` (la línea, con `subtotal` y `dias_de_la_quincena`) y `k` (el kilometraje
+ * agregado, con `km` y `dias_medidos`).
+ *
+ * ⚠️ La cobertura se mide con los días **MEDIDOS**, no con los que tuvieron señal: un día en
+ * que el odómetro no se pudo leer tiene señal, aporta CERO kilómetros y pasaría como cobertura.
+ */
+const KM_SQL = `
+               CASE WHEN k.km > 0 AND k.dias_medidos >= li.dias_de_la_quincena
+                    THEN round(li.subtotal / k.km, 2) END AS venta_por_km,
+               CASE WHEN k.km > 0 AND k.dias_medidos >= li.dias_de_la_quincena
+                    THEN round((li.subtotal - li.costo) / k.km, 2) END AS utilidad_por_km,
+               CASE WHEN k.km IS NULL THEN 'sin_gps'
+                    WHEN k.dias_medidos < li.dias_de_la_quincena THEN 'parcial'
+                    ELSE 'completa' END AS cobertura_km`;
+
 @Injectable()
 export class RouteProfitService {
   private readonly logger = new Logger(RouteProfitService.name);
@@ -111,22 +139,9 @@ export class RouteProfitService {
                round(li.comision + li.bonos, 2) AS comision,
                li.motivo_no_pago,
                k.km, k.dias_medidos, k.dias_con_senal, li.dias_de_la_quincena,
-               -- ⛔⛔ El $/km SÓLO sale con la quincena completa de GPS. Medido el 2026-10-08:
-               -- la Q15 tenía 3 días de señal de 14 y la Q16 once, así que dividir la venta de
-               -- catorce días entre tres kilómetros daba $373 contra los ~$210 de una quincena
-               -- entera, y las SEIS rutas con GPS salían «empeorando» a la vez. No empeoraron:
-               -- se completó la medición. Es el denominador incompleto de [IC.8].
-               -- ⛔⛔ La cobertura se mide con los días MEDIDOS (con kilometraje), no con los
-               -- días CON SEÑAL (cualquier ping). Un día que reportó pero cuyo
-               -- odómetro no se pudo medir cuenta como cobertura y aporta CERO kilómetros, así
-               -- que el denominador queda corto y el $/km sale inflado — el mismo defecto que
-               -- esta guarda existe para cerrar, un peldaño más abajo. Medido: la ruta 22 en la
-               -- quincena 17 tiene 14 días con señal y 13 medidos, y se colaba.
-               CASE WHEN k.km > 0 AND k.dias_medidos >= li.dias_de_la_quincena
-                    THEN round(li.subtotal / k.km, 2) END AS venta_por_km,
-               CASE WHEN k.km IS NULL THEN 'sin_gps'
-                    WHEN k.dias_medidos < li.dias_de_la_quincena THEN 'parcial'
-                    ELSE 'completa' END AS cobertura_km
+               -- El $/km SÓLO sale con la quincena completa de GPS. La regla, su medición y el
+               -- motivo de cada guarda están en KM_SQL, que es el único lugar donde se escribe.
+               ${KM_SQL}
           FROM lin li
           LEFT JOIN km k ON k.route_code = li.route_code AND k.period_no = li.period_no
          ORDER BY li.route_code, li.period_no`, [year]);
@@ -414,9 +429,12 @@ export class RouteProfitService {
           SELECT l.route_code, l.beneficiario_nombre, l.zona, u.plaza,
                  l.subtotal, l.venta, l.costo, l.comision, l.bonos, l.a_pagar,
                  l.motivo_no_pago, l.pct_aplicado, l.dias_con_venta, l.dias_esperados,
-                 l.subtotal_origen, l.costo_status
+                 l.subtotal_origen, l.costo_status,
+                 -- Lo exige KM_SQL: sin los días de la quincena no hay con qué medir cobertura.
+                 (p.date_to - p.date_from + 1)::int AS dias_de_la_quincena
             FROM commercial.commission_run_lines l
             JOIN commercial.commission_runs r ON r.id = l.run_id AND r.deleted_at IS NULL
+            JOIN commercial.commission_periods p ON p.id = r.period_id
             LEFT JOIN analytics.v_rd_commission_universe u
               ON u.tenant_id = l.tenant_id AND u.route_code = l.route_code
            WHERE r.period_id = ? AND l.deleted_at IS NULL AND l.beneficiario = 'chofer'
@@ -447,15 +465,12 @@ export class RouteProfitService {
                li.pct_aplicado,
                li.subtotal_origen,
                li.costo_status,
-               k.km, k.dias_medidos, k.dias_con_senal, k.dias_quieto,
-               CASE
-                 WHEN k.km IS NULL                  THEN 'sin_gps'
-                 WHEN k.dias_medidos < k.dias_con_senal THEN 'parcial'
-                 ELSE 'medido'
-               END AS km_veredicto,
-               CASE WHEN k.km > 0 THEN round(li.subtotal / k.km, 2) END AS venta_por_km,
-               CASE WHEN k.km > 0
-                    THEN round((li.subtotal - li.costo) / k.km, 2) END AS utilidad_por_km
+               k.km, k.dias_medidos, k.dias_con_senal, k.dias_quieto, li.dias_de_la_quincena,
+               -- Aca vivia una SEGUNDA copia de la regla, con dos defectos que la copia de la
+               -- serie ya no tenia: el $/km salia con cualquier kilometraje (sin exigir la
+               -- quincena completa) y la cobertura se media contra los dias CON SENAL en vez de
+               -- los MEDIDOS. Arreglar la serie dos veces no arreglo esto ni una.
+               ${KM_SQL}
           FROM linea li
           LEFT JOIN km k ON k.route_code = li.route_code
          ORDER BY li.route_code`,
@@ -502,7 +517,7 @@ export class RouteProfitService {
 
       // ── Lo que no se pudo medir, con nombre ──────────────────────────────────────────
       const huecos: Hueco[] = [];
-      const sinGps = rutas.filter((r: RentabilidadRuta) => r.km_veredicto === 'sin_gps').map((r) => r.route_code);
+      const sinGps = rutas.filter((r: RentabilidadRuta) => r.cobertura_km === 'sin_gps').map((r) => r.route_code);
       if (sinGps.length) {
         huecos.push({
           clave: 'rutas_sin_gps',
@@ -669,7 +684,9 @@ export interface RentabilidadRuta {
   dias_medidos: number | null;
   dias_con_senal: number | null;
   dias_quieto: number | null;
-  km_veredicto: 'medido' | 'parcial' | 'sin_gps';
+  /** Mismo nombre y mismos valores que en la serie: un concepto, una palabra. */
+  cobertura_km: 'completa' | 'parcial' | 'sin_gps';
+  dias_de_la_quincena: number;
   venta_por_km: string | null;
   utilidad_por_km: string | null;
 }
