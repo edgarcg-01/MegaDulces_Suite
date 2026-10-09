@@ -9,6 +9,7 @@ import { Knex } from 'knex';
 import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
+import { AVISO_TRANSITO, POLITICA_TRANSITO, transitoDescontado, transitoMostrado } from './transito';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -560,12 +561,20 @@ export class CommercialReplenishmentService {
   // unidades de stock (round-trip del mismo bf, sin pérdida). Antes venía de la tabla
   // `analytics.purchase_in_transit`, que se retiró junto con su importer — ver GOTCHAS §25.
   //
-  // RA-PRO.45: para DESCONTAR se usa `transit_eff_cajas` — las mismas cajas pesadas por la
-  // probabilidad de que la OC efectivamente llegue (curva derivada del ODS: una OC abierta hace
-  // 45 días llega el 13.6% de las veces). `transit_cajas` crudo se sigue MOSTRANDO al comprador,
-  // porque tiene que cuadrar folio por folio con el diálogo de "En camino". El COALESCE al crudo
-  // es el puente para la primera corrida, antes de que el importer pueble la columna nueva.
-  private inTransit() { return 'COALESCE(rpl.transit_eff_cajas, rpl.transit_cajas, 0) * COALESCE(rpl.bf, 1)'; }
+  // `[RA.TR]` (2026-10-09) — cuánto se RESTA lo decide `POLITICA_TRANSITO`, en un solo archivo
+  // (`transito.ts`), porque seis consultas distintas hacían esta resta a mano y bastaba mover una
+  // para que la tabla contradijera a su propio detalle. Hoy la política es `ignorar`: no se resta.
+  // El porqué, con las 394 OC medidas, vive en `transito.ts` — acá sólo se consume.
+  private transitDescuento() {
+    return `(${transitoDescontado('rpl.transit_eff_cajas', 'rpl.transit_cajas')}) * COALESCE(rpl.bf, 1)`;
+  }
+  // Lo que se MUESTRA es el crudo, el papel que el comprador puede ir a buscar por folio — es la
+  // única cifra que cuadra con el diálogo de "En camino". ⚠️ Antes acá se mostraba la cifra PESADA
+  // mientras el comentario afirmaba que se mostraba la cruda: la columna y el diálogo nunca
+  // cuadraron. Se corrige de paso.
+  private transitMostrado() {
+    return `(${transitoMostrado('rpl.transit_cajas')}) * COALESCE(rpl.bf, 1)`;
+  }
   // Costo unitario para valorizar el sugerido. Canónico = cost_with_tax (costo vivo por
   // PIEZA desde kdik.c16, saneado 2026-07-15); cost_base (costo_matriz) es fallback — está
   // a escala de CAJA/PAQUETE en muchos granel, lo que inflaba el encargo ~16.6% al
@@ -694,7 +703,7 @@ export class CommercialReplenishmentService {
   private networkSurplus(trx: Knex.Transaction, tenantId: string, target: string, cadence: boolean) {
     const oh = this.onHand();
     const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
-    const sug = `GREATEST(0, ${target} - ${oh} - ${this.inTransit()})`;
+    const sug = `GREATEST(0, ${target} - ${oh} - ${this.transitDescuento()})`;
     // El objetivo por cadencia lee el canal, el proveedor y la demanda: sólo se pagan esos joins
     // cuando la base lo pide.
     const cadenceJoins = cadence ? `
@@ -777,7 +786,8 @@ export class CommercialReplenishmentService {
     const tenantId = this.tenantCtx.requireTenantId();
     const basis = this.basis(q.target_basis);
     const oh = this.onHand();
-    const it = this.inTransit();
+    const it = this.transitDescuento();      // lo que se RESTA (hoy: nada — ver transito.ts)
+    const itShow = this.transitMostrado();   // lo que se MUESTRA: el papel, por folio
     const cf = this.cajaFactor(); // divisor por-almacén para MOSTRAR cantidades en cajas (display only)
     // RA-PRO.9 — base 'cadence' unifica el objetivo con Qué Toca (helper cadenceTarget()).
     // Las demás bases (min/reorden/máx) intactas.
@@ -904,7 +914,7 @@ export class CommercialReplenishmentService {
           // Cantidades MOSTRADAS en cajas (÷ factor por-almacén). El bucket/orden/costo abajo
           // siguen en la unidad cruda (oh/target sin dividir) → clasificación y $ intactos.
           trx.raw(`ROUND((${oh}) / (${cf}), 1) AS on_hand`),
-          trx.raw(`ROUND((${it}) / (${cf}), 1) AS in_transit`),
+          trx.raw(`ROUND((${itShow}) / (${cf}), 1) AS in_transit`),
           trx.raw(`ROUND(rp.min_stock / (${cf}), 1) AS min_stock`),
           trx.raw(`ROUND(rp.reorder_point / (${cf}), 1) AS reorder_point`),
           trx.raw(`ROUND(rp.max_stock / (${cf}), 1) AS max_stock`),
@@ -918,7 +928,7 @@ export class CommercialReplenishmentService {
           trx.raw(`(${cf}) AS caja_factor`), // divisor usado (piezas o paquetes por caja)
           // [EC.U] Lo mismo en unidad nativa. El rótulo ya viaja en `rung_base_label`.
           trx.raw(`ROUND((${oh})::numeric, 2)            AS on_hand_nat`),
-          trx.raw(`ROUND((${it})::numeric, 2)            AS in_transit_nat`),
+          trx.raw(`ROUND((${itShow})::numeric, 2)        AS in_transit_nat`),
           trx.raw(`ROUND(rp.min_stock::numeric, 2)       AS min_stock_nat`),
           trx.raw(`ROUND(rp.reorder_point::numeric, 2)   AS reorder_point_nat`),
           trx.raw(`ROUND(rp.max_stock::numeric, 2)       AS max_stock_nat`),
@@ -1026,7 +1036,7 @@ export class CommercialReplenishmentService {
       reorder_point: `rp.reorder_point / (${cf})`,
       max_stock: `rp.max_stock / (${cf})`,
       safety_stock: `rp.safety_stock / (${cf})`,
-      in_transit: `(${it}) / (${cf})`,
+      in_transit: `(${itShow}) / (${cf})`,
       suggested_qty: `GREATEST(0, ${target} - ${oh} - ${it}) / (${cf})`,
       suggested_cost: `GREATEST(0, ${target} - ${oh} - ${it}) * ${this.costUnit()}`,
       supplier_name: 'sup.name',
@@ -1040,7 +1050,7 @@ export class CommercialReplenishmentService {
     const basis = this.basis(q.target_basis);
     const target = this.targetCol(basis);
     const oh = this.onHand();
-    const it = this.inTransit();
+    const it = this.transitDescuento();
     return this.tk.run(async (trx) => {
       const base = trx('commercial.reorder_policy as rp')
         .leftJoin('commercial.stock as s', (j) =>
@@ -1164,10 +1174,10 @@ export class CommercialReplenishmentService {
       // después mezclaba piezas de Kepler con paquetes de Wincaja bajo un mismo divisor.
       const stockCjs = 'COALESCE(plan.stock_cjs, 0)';       // existencia de la red, en CAJAS
       const transit = 'COALESCE(plan.transit, 0)';          // OC en tránsito (cajas) — lo que se MUESTRA
-      // RA-PRO.45 — lo que se DESCUENTA: las mismas cajas pesadas por P(llega | edad de la OC).
-      // No todo lo que está en papel llega: en Kepler la OC se captura al recibir, así que una que
-      // sigue abierta hace 45 días sólo se materializa el 13.6% de las veces.
-      const transitEff = 'COALESCE(plan.transit_eff, plan.transit, 0)';
+      // `[RA.TR]` — lo que se DESCUENTA lo decide `POLITICA_TRANSITO` (transito.ts), no esta línea.
+      // Hoy vale `ignorar`, así que esto es el literal 0 y el sugerido sale como si no hubiera nada
+      // en camino. `transit` (arriba) sigue MOSTRÁNDOSE: el comprador ve el papel y decide.
+      const transitEff = transitoDescontado('plan.transit_eff', 'plan.transit');
       // costo real POR CAJA — en el fact ya = costE(unidad de stock) × BF. La DEMANDA manda el reorden:
       // objetivo = venta_diaria × cobertura; sugerido = objetivo − existencia − tránsito (0 si ya cubre).
       const costCaja = 'COALESCE(plan.caja_cost, 0)';
@@ -1638,7 +1648,11 @@ export class CommercialReplenishmentService {
         ), base AS MATERIALIZED (
           SELECT pr.id AS product_id, pr.sku, pr.nombre, pr.supplier_id,
                  rp.suf, rp.bf, rp.display_bf, rp.caja_cost, rp.daily_pieces, rp.stock_pz, rp.transit_cajas,
-                 COALESCE(rp.transit_eff_cajas, rp.transit_cajas) AS transit_eff_cajas, rp.revenue30,
+                 -- [RA.TR] Las dos columnas viajan CRUDAS hasta donde la politica decide (abajo,
+                 -- en la columna ped). El COALESCE que vivia aca duplicaba la caida que ahora hace
+                 -- transitoDescontado, y era un sexto lugar donde la regla podia divergir.
+                 -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
+                 rp.transit_eff_cajas, rp.revenue30,
                  -- RA — política de reorden por (producto, almacén). reorder_point/max_stock en PIEZAS
                  -- (misma unidad que stock_pz → se dividen por BF para cajas, como la columna Exist).
                  -- ⚠️ SIN BACKTICKS EN ESTE COMENTARIO: va dentro de un template literal de JS.
@@ -1714,7 +1728,7 @@ export class CommercialReplenishmentService {
                  -- el MISMO numero que antes de esta linea.
                  -- SIN ACENTOS GRAVES EN ESTE COMENTARIO: va dentro de un template literal de JS.
                  CASE WHEN ${RUNG_OK} THEN
-                   round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - COALESCE(sum(b.transit_eff_cajas),0)) * ${FILLF})::numeric, 1)
+                   round((GREATEST(0, COALESCE(sum(b.daily_pieces),0) * COALESCE(max(b.season_ratio),1) * :cov / (${SUF} * ${BF}) - COALESCE(sum(b.stock_pz),0) / ${DBF} - (${transitoDescontado('sum(b.transit_eff_cajas)', 'sum(b.transit_cajas)')})) * ${FILLF})::numeric, 1)
                  END AS ped,
                  -- El fill rate viaja al front para que el inflado se VEA. Un pedido que crecio 4.8%
                  -- sin decir por que es justo lo que este repo no publica.
@@ -2222,7 +2236,8 @@ export class CommercialReplenishmentService {
       // que ve el comprador acá cuadran con la columna "En camino" de la matriz.
       const econ = (await trx.raw(
         `SELECT max(bf) AS bf, max(caja_cost) AS caja_cost, max(lead_days) AS lead_days,
-                sum(transit_cajas) AS tr, sum(COALESCE(transit_eff_cajas, transit_cajas)) AS tr_eff
+                sum(transit_cajas) AS tr,
+                sum(${transitoDescontado('transit_eff_cajas', 'transit_cajas')}) AS tr_eff
            FROM analytics.replenishment_plan WHERE tenant_id = ? AND product_id = ?`,
         [tenantId, productId])).rows[0] || {};
       const bf = Number(econ.bf) || 1;
@@ -2275,11 +2290,15 @@ export class CommercialReplenishmentService {
         rows: out,
         total_cajas: Math.round(out.reduce((s, r) => s + r.cajas, 0) * 10) / 10,
         total_valor: Math.round(out.reduce((s, r) => s + r.valor, 0) * 100) / 100,
-        // RA-PRO.45 — lo que el motor DESCUENTA de verdad: las mismas cajas pesadas por la
-        // probabilidad de que cada OC llegue. La diferencia con `total_cajas` es papel que ya no
-        // se va a surtir; mostrarla evita la pregunta "si vienen 180 cajas, ¿por qué pide?".
+        // `[RA.TR]` — lo que el motor DESCUENTA de verdad. Sale de la MISMA política que el
+        // sugerido (`transito.ts`), así que no puede contradecirlo: con `ignorar` llega en 0 y el
+        // diálogo dice, con todas sus letras, que esas cajas no le bajaron nada al pedido.
+        // ⛔ Si este número saliera de otra expresión, el comprador vería "descuenta 180" mientras
+        // el motor descuenta 0 — exactamente el tipo de mentira silenciosa que la fase evita.
         descuenta_cajas: Math.round((Number(econ.tr_eff) || 0) * 10) / 10,
         fact_cajas: Math.round((Number(econ.tr) || 0) * 10) / 10,
+        politica_transito: POLITICA_TRANSITO,
+        aviso_transito: AVISO_TRANSITO[POLITICA_TRANSITO],
       };
     });
   }
@@ -2606,7 +2625,7 @@ export class CommercialReplenishmentService {
                round((rp.daily_pieces * 30 / (${suf} * ${bf}))::numeric, 1) AS venta_cajas,
                round((rp.stock_pz / ${dbf})::numeric, 1) AS existencia_cajas,
                round(rp.transit_cajas::numeric, 1) AS transito_cajas,
-               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - COALESCE(rp.transit_eff_cajas, rp.transit_cajas, 0))::numeric, 1) AS pedido_cajas,
+               round(GREATEST(0, rp.daily_pieces * COALESCE(rp.season_ratio,1) * :cov / (${suf} * ${bf}) - rp.stock_pz / ${dbf} - (${transitoDescontado('rp.transit_eff_cajas', 'rp.transit_cajas')}))::numeric, 1) AS pedido_cajas,
                -- días = existencia en cajas ÷ venta diaria en cajas (las dos en la misma unidad)
                round((rp.stock_pz / ${dbf} * ${suf} * ${bf} / NULLIF(rp.daily_pieces, 0))::numeric, 0) AS cover_days
           FROM analytics.replenishment_plan rp
@@ -2886,7 +2905,7 @@ export class CommercialReplenishmentService {
     const whIds = await this.whIds(q);
     return this.tk.run(async (trx) => {
       const oh = '(COALESCE(s.quantity,0)-COALESCE(s.reserved_quantity,0))';
-      const it = this.inTransit();   // pesado por P(llega) — ver inTransit()
+      const it = this.transitDescuento();   // `[RA.TR]` hoy: 0 — ver transito.ts
       // Base GLOBAL (como "Objetivo" de Existencia Crítica): el sugerido llena hasta el
       // nivel elegido (cadencia/máximo/reorden/mínimo) con la MISMA fórmula que criticalStock
       // (que alimenta el drill) → la columna "Costo est." y el detalle SIEMPRE coinciden y

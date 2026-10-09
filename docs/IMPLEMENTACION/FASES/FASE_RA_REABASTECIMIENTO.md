@@ -796,3 +796,88 @@ Mismo protocolo (hecho independiente + prueba de unidad). **El costo era el úni
   Los números redondos son firma de duplicación, no de pérdida.
 
 **Pendiente:** redeploy api + view (sin migraciones ni permisos nuevos → sin re-login).
+
+---
+
+## RA.TR — El tránsito deja de descontarse, y la regla pasa a vivir en UN solo lugar (2026-10-09) 🧪
+
+Pedido de Edgar el 2026-10-08: *"ignoremos en transito ya que hay muchas ordenes que no cumplen o
+se ignoran"*. Antes de tocar nada se midió, y el usuario pidió **ver las OC abiertas primero**.
+
+### Lo que se midió (prod, 2026-10-08)
+
+El motor **ya ignoraba la mayor parte** del tránsito, y no por decreto: la curva
+`analytics.oc_survival_curve` se deriva del ODS en cada corrida.
+
+| lo que hay en papel | lo que ya se ignoraba | lo que todavía se descontaba |
+|---|---:|---:|
+| $60,272,454 | $42,655,515 — 70.8% en pesos, **82.5% en cajas** | $17,616,939 |
+
+Las 394 OC abiertas ($36.8 M) por antigüedad, contra la probabilidad que la curva les asigna:
+
+| antigüedad | OCs | pesos | P(llega) |
+|---|---:|---:|---:|
+| 0-3 d | 20 | $4,861,749 | **86.2%** |
+| 4-7 | 18 | $1,746,428 | 76.3% |
+| 8-14 | 36 | $5,637,180 | 66.0% |
+| 15-21 | 32 | $2,358,211 | 53.4% |
+| 22-30 | 41 | $3,211,103 | 43.9% |
+| 31-45 | 55 | $4,787,312 | 20.3% |
+| 46-60 | 41 | $6,437,354 | 11.3% |
+| **+60** | **151** | **$7,778,469** | **9.8%** |
+
+⭐ **La premisa del pedido quedó confirmada en su parte fuerte: 151 de 394 OC (38%) llevan más de
+60 días abiertas**, y la curva —que nadie calibró a mano— ya las descartaba casi enteras. Los
+peores proveedores con OC de más de 60 días: DISTRIBUIDORA DE LA ROSA (9 OC, $1,502,861, la más
+vieja 78 d) · DISTRIBUIDORA GRUBERSA (2, $543,797) · DULCES LAS DELICIAS (8, $457,913, **113 d**) ·
+FERRERO DE MEXICO (3, $351,254) · CANELS (4, $297,776) · BOLSAS DE LOS ALTOS (8, $277,985, 104 d).
+
+⚠️ **Lo que la decisión cambia de verdad** son las **38 OC de menos de 7 días ($6.6 M)**, donde la
+curva da 76-86%. Ésas sí llegan, y al dejar de descontarlas el motor va a volver a sugerir lo que
+entra esta semana. Es una compra doble **conocida y aceptada**, a cambio de no quedarse corto por
+papeles que nadie cierra.
+
+### El hallazgo de ingeniería: eran SEIS expresiones, no cuatro
+
+El diagnóstico inicial contó cuatro lugares que restaban tránsito. Al cablear aparecieron **seis**:
+la matriz, el desglose por sucursal, el drill por producto, los dos resúmenes, el escáner de
+hallazgos y **el diálogo "En camino"**, que publica cuánto descuenta el motor. El sexto es el peor
+de todos: si se hubiera quedado con su propia expresión, el comprador vería *"descuenta 180 cajas"*
+mientras el motor descuenta 0, sin ningún error de por medio.
+
+Y un **séptimo** lo encontró el candado, no yo: un `COALESCE(rp.transit_eff_cajas,
+rp.transit_cajas)` en el CTE `base` que duplicaba la caída de la política.
+
+**La regla ahora vive en `libs/commercial/.../transito.ts`**, en una constante:
+`POLITICA_TRANSITO: 'ignorar' | 'curva' | 'crudo'`. Revertir es una línea, y las tres opciones leen
+la misma columna del fact — no hace falta recalcular nada ni volver a correr un importer.
+
+### Lo que NO cambia, y una corrección de paso
+
+El tránsito **se sigue mostrando**. Y pasa a mostrarse **crudo**: ⛔ la columna "En tránsito" venía
+mostrando la cifra **pesada** mientras su propio comentario afirmaba que mostraba la cruda, así que
+nunca cuadró con los folios que lista el diálogo. Se corrige acá.
+
+⭐ La compensación de fondo: el motor deja de decidir por el comprador y a cambio le pone enfrente
+el dato completo — el papel, su antigüedad, y un aviso que **manda el servidor** (`aviso_transito`),
+no la pantalla. Si el texto viviera en el template, al cambiar la política seguiría explicando el
+comportamiento viejo y nadie lo notaría: sigue siendo una frase con sentido.
+
+### Candado
+
+`transito.spec.ts` — 30 aserciones. Tres clases: la función (las tres políticas, el SQL que sale,
+que ninguna pueda devolver NULL), el reparto (ningún fuente de la carpeta resta a mano) y la
+decisión vigente con su aviso. **Probado por mutación**: devolviendo un sitio a la expresión vieja,
+el candado enrojece nombrando la línea exacta (1180). Del lado de la pantalla,
+`compras-pedido-real.component.spec.ts` sube de 28 a 34, con la negativa también mutada a rojo.
+
+⚠️ El escaneo de fuentes **no es un test**: no prueba que el SQL corra ni que la cifra sea correcta.
+Prueba una sola cosa, que es la que importa acá — que siga habiendo *una* definición y no seis.
+
+### Abierto
+
+- ⛔ **151 OC de más de 60 días no son un tema de reabasto, son papeles que nadie cerró.** Mientras
+  sigan abiertas ensucian cualquier cálculo que las mire. La bandeja "OC abiertas sin movimiento"
+  ataca la causa; esta fase sólo deja de creerles.
+- La cifra del $17.6 M es de la medición del 2026-10-08: el efecto real del cambio hay que medirlo
+  contra prod después del redeploy, no darlo por hecho.
