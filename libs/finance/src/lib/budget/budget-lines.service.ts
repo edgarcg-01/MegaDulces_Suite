@@ -118,9 +118,34 @@ export class BudgetLinesService {
     });
   }
 
+  /**
+   * `[PU.VG.9]` El catálogo que alimenta el selector de la pantalla.
+   *
+   * ⛔ **La pantalla abría sobre el ejercicio de PRUEBA**, y los tres eslabones son inocentes por
+   * separado: esta lista ordena por `fiscal_year DESC, created_at DESC`, el duplicado de FY2027 es
+   * **el más nuevo**, y el front hace `selectBudget(rows[0])`. Medido en prod el 2026-10-09, el
+   * orden real era `[0] FY2027 [PRUEBA] · [1] FY2027 real · [2] FY2026`.
+   *
+   * ⭐ **Y lo que lo volvía invisible:** el duplicado es exacto al centavo, así que la cifra que se
+   * publicaba era CORRECTA ($74,850,066.62 de los dos lados). No es un número falso: es el número
+   * bueno leído de una fila que nadie mantiene. El día que alguien edite una de las dos, la
+   * pantalla sigue anclada a la de prueba y nada cambia visualmente.
+   *
+   * ⛔ **NO se filtra, y es deliberado.** Esconder el ejercicio de prueba lo vuelve inalcanzable
+   * desde la UI —nadie podría ni borrarlo— y es un cambio de comportamiento en silencio. Lo que
+   * cambia es el ORDEN: `is_test` último. Deja de ser `rows[0]` sin desaparecer, y se arregla para
+   * **todo** cliente del endpoint, no sólo para esta pantalla. El freno va en el servicio porque
+   * la pantalla es un cliente entre varios.
+   */
   async listBudgets() {
     this.tenantCtx.requireTenantId();
-    return this.tk.run((trx) => trx('budget.budgets').orderBy([{ column: 'fiscal_year', order: 'desc' }, { column: 'created_at', order: 'desc' }]));
+    return this.tk.run((trx) => trx('budget.budgets').orderBy([
+      // Primero lo que manda. `is_test` es NOT NULL con default false, así que no hay NULLs que
+      // ordenar: un ejercicio nuevo se asume REAL y entra arriba, que es lo que se quiere.
+      { column: 'is_test', order: 'asc' },
+      { column: 'fiscal_year', order: 'desc' },
+      { column: 'created_at', order: 'desc' },
+    ]));
   }
 
   async getBudget(id: string) {
