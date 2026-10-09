@@ -342,7 +342,132 @@ const noMedido = (label, motivo) => { nm++; console.log(`  ⓘ NO MEDIDO · ${la
   }
 
   // ───────────────────────────────────────────────────────────────────────────────────────
-  console.log('\n— 8. el costo de leer: la pantalla no puede esperar —');
+  // `[RD.58.3]` La regla del $/km estuvo escrita DOS veces y sólo se arregló una. Este bloque
+  // no comprueba que la regla sea correcta —eso ya lo hace el bloque 2— sino que **las dos
+  // pantallas den la MISMA respuesta**, que es lo que falló. Medido el 2026-10-09: de 35
+  // ruta-quincena con kilometraje, 13 (37%) daban en la tarjeta una cifra que la serie se
+  // negaba a publicar; la peor, $450.94/km con 3 de 14 días medidos.
+  console.log('\n— 9. [RD.58.3] el $/km: una sola regla para las dos pantallas —');
+  const KM_ESTRICTA = `
+    CASE WHEN k.km > 0 AND k.dias_medidos >= li.dias_de_la_quincena
+         THEN round(li.subtotal / k.km, 2) END`;
+  const BASE_KM = `
+    WITH per AS (SELECT p.id, p.period_no, p.date_from, p.date_to,
+                        (p.date_to - p.date_from + 1)::int dq
+                   FROM commercial.commission_periods p WHERE p.anio = 2026),
+    li AS (SELECT pe.period_no, pe.dq AS dias_de_la_quincena, l.route_code, l.subtotal, l.costo
+             FROM per pe
+             JOIN commercial.commission_runs r ON r.period_id = pe.id AND r.deleted_at IS NULL
+             JOIN commercial.commission_run_lines l
+               ON l.run_id = r.id AND l.deleted_at IS NULL AND l.beneficiario = 'chofer'),
+    k AS (SELECT pe.period_no, kk.route_code, sum(kk.km)::bigint km,
+                 count(kk.km)::int dias_medidos
+            FROM per pe JOIN analytics.v_rd_route_km_daily kk
+              ON kk.dia >= pe.date_from AND kk.dia <= pe.date_to
+           GROUP BY 1, 2)`;
+
+  const kmFilas = await q(`${BASE_KM}
+    SELECT li.period_no, li.route_code, k.km, k.dias_medidos, li.dias_de_la_quincena,
+           ${KM_ESTRICTA} AS estricta,
+           CASE WHEN k.km > 0 THEN round(li.subtotal / k.km, 2) END AS laxa
+      FROM li LEFT JOIN k ON k.route_code = li.route_code AND k.period_no = li.period_no
+     WHERE k.km IS NOT NULL ORDER BY li.period_no, li.route_code`);
+
+  if (!kmFilas.length) {
+    noMedido('el cruce de las dos reglas del $/km', 'ninguna ruta-quincena de 2026 tiene kilometraje');
+  } else {
+    // Lo que de verdad se vigila: una cifra publicada con cobertura incompleta.
+    const coladas = kmFilas.filter(
+      (r) => r.estricta !== null && Number(r.dias_medidos) < Number(r.dias_de_la_quincena));
+    check('ninguna cifra de $/km sale con la quincena incompleta',
+      coladas.length === 0,
+      coladas.length ? `se colaron ${coladas.length}: ${coladas.map((r) => `Q${r.period_no}/${r.route_code}`).join(', ')}` : '');
+    check('y con la quincena completa SÍ sale (la guarda no apaga todo)',
+      kmFilas.some((r) => r.estricta !== null),
+      'si nunca publicara, la columna estaría muerta y se leería igual que «sin GPS»');
+
+    // ⭐⭐ CONTROL: la regla laxa —la que vivía en `rentabilidad()`— tiene que publicar de MÁS
+    // en este dataset. Si dejara de hacerlo, este bloque se volvería un no-op y un verde acá
+    // significaría «no hay diferencia», no «la diferencia está controlada».
+    const demas = kmFilas.filter((r) => r.laxa !== null && r.estricta === null);
+    if (demas.length) {
+      const med = (a) => a.slice().sort((x, y) => x - y)[Math.floor(a.length / 2)];
+      const mRetirado = med(demas.map((r) => Number(r.laxa)));
+      const mQueda = med(kmFilas.filter((r) => r.estricta !== null).map((r) => Number(r.estricta)));
+      check('⭐⭐ CONTROL: la regla laxa SÍ publicaba de más (el candado no es decorativo)',
+        true, `${demas.length} de ${kmFilas.length} ruta-quincena`);
+      check('y lo que retira está INFLADO contra lo que queda (es el denominador incompleto)',
+        mRetirado > mQueda, `mediana retirada $${mRetirado}/km contra $${mQueda}/km`);
+      check('toda cifra retirada tenía cobertura incompleta de verdad',
+        demas.every((r) => Number(r.dias_medidos) < Number(r.dias_de_la_quincena)));
+    } else {
+      noMedido('el control de la regla laxa',
+        'en este dataset las dos reglas coinciden: el candado no discrimina acá');
+    }
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────
+  // `[RD.61]` Una ruta puede quedarse muda mientras su sucursal madre sigue vendiendo. Pasó
+  // con la 321 y la 322 (caja montada EN la camioneta, dejó de recogerse) y nadie lo vio en
+  // tres meses: el libro siguió pagando $551,274.08 que la fuente derivada no veía.
+  console.log('\n— 10. [RD.61] una ruta muda con su sucursal viva —');
+  // ⚠️ La primera versión usaba una subconsulta correlacionada por rama más un LEFT JOIN contra
+  // la vista entera: se comía el `statement_timeout` de 120 s. Y su `.catch(() => null)` atribuía
+  // CUALQUIER error a «el schema no existe», que es una causa que nunca se midió — un NO MEDIDO
+  // con explicación inventada es peor que una falla, porque se lee como ausencia benigna. Acá se
+  // recorre la vista UNA vez con GROUP BY, acotada por fecha, y el error se imprime tal cual.
+  let mudaErr = null;
+  const mudas = await q(`
+    WITH ult AS (
+      SELECT source_branch, max(business_date) AS ult
+        FROM wincaja.v_sales_lines
+       WHERE business_date >= '2026-01-01' AND business_date < '2027-01-01'
+       GROUP BY 1
+    )
+    SELECT b.source_branch AS ruta, b.parent_branch AS madre, b.status,
+           ur.ult AS ult_ruta, um.ult AS ult_madre, b.kepler_cutover_date AS corte_madre
+      FROM wincaja.branches b
+      LEFT JOIN ult ur ON ur.source_branch = b.source_branch
+      LEFT JOIN ult um ON um.source_branch = b.parent_branch
+     WHERE b.is_route AND b.status = 'route'
+     ORDER BY 1`).catch((e) => { mudaErr = e.message; return null; });
+
+  if (!mudas) {
+    noMedido('la detección de ruta muda', `la consulta no corrió: ${mudaErr}`);
+  } else if (!mudas.length) {
+    noMedido('la detección de ruta muda', 'no hay rutas con status route en el catálogo');
+  } else {
+    const dia = (x) => (x ? new Date(x).toISOString().slice(0, 10) : null);
+    // Muda = su dato murió MUCHO antes que el de su madre, y su madre no había cortado aún.
+    const sospechosas = mudas.filter((m) => {
+      if (!m.ult_ruta || !m.ult_madre) return false;
+      const d = (new Date(m.ult_madre) - new Date(m.ult_ruta)) / 86400000;
+      return d > 30;
+    });
+    for (const m of mudas) {
+      console.log(`     ruta ${String(m.ruta).padEnd(5)} madre ${String(m.madre).padEnd(3)} `
+        + `última ruta ${dia(m.ult_ruta) ?? '—'} · última madre ${dia(m.ult_madre) ?? '—'} · corte ${dia(m.corte_madre) ?? '—'}`);
+    }
+    check('⭐⭐ CONTROL: el detector encuentra las rutas que se callaron antes que su madre',
+      sospechosas.length > 0,
+      sospechosas.length
+        ? `${sospechosas.map((m) => `${m.ruta} (${dia(m.ult_ruta)} vs madre ${dia(m.ult_madre)})`).join(', ')}`
+        : 'si fueran cero, el detector dejó de probar: 321 y 322 son el caso que lo justifica');
+    // Y la prueba negativa: las que cortaron CON su madre no deben salir marcadas.
+    const falsas = mudas.filter((m) => {
+      if (!m.ult_ruta || !m.ult_madre) return false;
+      return Math.abs((new Date(m.ult_madre) - new Date(m.ult_ruta)) / 86400000) <= 30
+        && sospechosas.includes(m);
+    });
+    check('PRUEBA NEGATIVA: una ruta que cortó junto con su madre NO sale marcada',
+      falsas.length === 0, `falsos positivos: ${falsas.length}`);
+    check('y hay al menos una ruta que cortó junto con su madre (hay con qué contrastar)',
+      mudas.some((m) => m.ult_ruta && m.ult_madre
+        && Math.abs((new Date(m.ult_madre) - new Date(m.ult_ruta)) / 86400000) <= 30));
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────────────────
+  console.log('\n— 11. el costo de leer: la pantalla no puede esperar —');
   const t0 = Date.now();
   await q(`select count(*) from analytics.v_rd_expense_period where anio = 2026`);
   const msG = Date.now() - t0;
