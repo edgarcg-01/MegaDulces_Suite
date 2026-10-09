@@ -116,8 +116,8 @@ export class RouteProfitService {
                -- catorce días entre tres kilómetros daba $373 contra los ~$210 de una quincena
                -- entera, y las SEIS rutas con GPS salían «empeorando» a la vez. No empeoraron:
                -- se completó la medición. Es el denominador incompleto de [IC.8].
-               -- ⛔⛔ La cobertura se mide con `dias_medidos` (días con KILOMETRAJE), no con
-               -- `dias_con_senal` (días con cualquier ping). Un día que reportó pero cuyo
+               -- ⛔⛔ La cobertura se mide con los días MEDIDOS (con kilometraje), no con los
+               -- días CON SEÑAL (cualquier ping). Un día que reportó pero cuyo
                -- odómetro no se pudo medir cuenta como cobertura y aporta CERO kilómetros, así
                -- que el denominador queda corto y el $/km sale inflado — el mismo defecto que
                -- esta guarda existe para cerrar, un peldaño más abajo. Medido: la ruta 22 en la
