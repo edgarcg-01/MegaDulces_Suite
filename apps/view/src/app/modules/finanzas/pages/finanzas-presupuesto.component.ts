@@ -143,7 +143,21 @@ interface GrowthProposal {
   years_available: number[]; fiscal_year: number; min_paired_periods?: number;
 }
 interface GrowthEditRow { channel: string; channel_label: string; growth_pct: number; basis: string; paired_periods: number }
-interface ProposeCoverage { historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number; no_signal: number; manual_kept: number }
+interface ProposeCoverage {
+  historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number; no_signal: number; manual_kept: number;
+  /**
+   * `[PVI.2]` El DINERO por método. `coverage` cuenta CELDAS, y el dinero no se reparte por celda:
+   * medido en prod, el proxy eran 104 de 429 celdas (24.2 %) **y** $197,160,564 (24.46 % de la
+   * meta) — que casi coincidieran fue casualidad de ese ejercicio, no una regla, y **nadie
+   * calculaba el segundo**. Opcional a propósito: contra una API que todavía no lo emite la
+   * pantalla **declara que no lo midió**, en vez de quedarse en blanco o dibujar un 0.
+   */
+  coverage_monto?: { historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number };
+  meta_total?: number;
+  /** Fracción de la meta repartida con el PROMEDIO DE OTRAS entidades del canal. `null` si la meta
+   *  es 0: una meta de 0 no tiene «0 % sin base», tiene un porcentaje indefinido. */
+  proxy_canal_pct?: number | null;
+}
 interface IndicatorSeries { year: number; real: number | null; crec_pct: number | null; part_pct: number | null }
 interface IndicatorCurrent { meta: number | null; real: number | null; cumplimiento_pct: number | null; crec_pct: number | null }
 interface IndicatorRow { channel?: string; channel_label: string; label?: string; entity_key?: string; series: IndicatorSeries[]; current: IndicatorCurrent }
@@ -530,7 +544,21 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   </p>
                 }
                 @if (lastCoverage(); as cov) {
-                  <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.proxy_canal }}</strong> proxy de canal · <strong>{{ cov.sin_base_declarado }}</strong> sin base (declaradas en 0) · <strong>{{ cov.no_signal }}</strong> sin señal · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
+                  @if (covEnDinero(cov); as cm) {
+                    <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta, <strong>en dinero</strong>:
+                      {{ money(cm.historico_ajustado) }} de base real ({{ cov.historico_ajustado }} celdas) ·
+                      {{ money(cm.estacional) }} por estacionalidad ({{ cov.estacional }}) ·
+                      {{ money(cm.proxy_canal) }} proxy de canal ({{ cov.proxy_canal }}) ·
+                      <strong>{{ cov.sin_base_declarado }}</strong> celdas sin base, declaradas (—, no $0) ·
+                      {{ cov.manual_kept }} a mano.
+                    </p>
+                    @if (proxyAviso(cov); as av) {
+                      <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <span>{{ av }}</span></p>
+                    }
+                  } @else {
+                    <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.proxy_canal }}</strong> proxy de canal · <strong>{{ cov.sin_base_declarado }}</strong> sin base (declaradas, no en 0) · <strong>{{ cov.no_signal }}</strong> sin señal · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
+                    <p class="pres-hint pres-nodata"><span class="pi pi-info-circle"></span> <strong>Cuánto DINERO representa cada origen: no medido.</strong> Esta API todavía no publica el desglose por monto. El conteo de celdas no lo dice: un cuarto de las celdas puede ser un cuarto de la meta o la mitad.</p>
+                  }
                 }
                 <div class="pres-detail-actions" style="margin:.6rem 0 .2rem">
                   <label class="pres-muted">Periodo (13×4):</label>
@@ -1918,6 +1946,35 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   methodLabel(m: string | null): string {
     return m === 'historico_ajustado' ? 'Histórico' : m === 'estacional' ? 'Estacional' : m === 'proxy_canal' ? 'Proxy canal' : m === 'sin_base_declarado' ? 'Sin base' : m === 'manual' ? 'Manual' : m === 'mixto' ? 'Mixto' : '—';
+  }
+
+  /**
+   * `[PVI.2]` El desglose en DINERO, o `null` si la API no lo emite.
+   *
+   * ⛔ Devuelve `null` —no un objeto en ceros— a propósito: la pantalla tiene que poder distinguir
+   * «la cobertura en dinero vale cero» de «no la pude medir». Un objeto relleno de ceros colapsa
+   * las dos cosas y es la forma exacta del defecto que esto viene a corregir (ADR-056).
+   */
+  covEnDinero(cov: ProposeCoverage): ProposeCoverage['coverage_monto'] | null {
+    const m = cov.coverage_monto;
+    return m && typeof m.historico_ajustado === 'number' ? m : null;
+  }
+
+  /**
+   * `[PVI.2]` El aviso del proxy, sólo cuando hay proxy y su monto se pudo medir.
+   *
+   * ⭐ Dice **de dónde sale** la cifra, no sólo que es estimada: el proxy reparte el promedio de
+   * OTRAS entidades del canal, en partes iguales, a entidades sin historia propia. Medido en prod:
+   * 8 entidades recibieron $197,160,564 contra $19,063,383 de venta real — 10.3×, y en el extremo
+   * una recibió 2,860× lo suyo. Un «estimado» genérico no deja ver eso; el método sí.
+   */
+  proxyAviso(cov: ProposeCoverage): string | null {
+    const m = this.covEnDinero(cov);
+    if (!m || !(m.proxy_canal > 0)) return null;
+    const pct = cov.proxy_canal_pct;
+    const parte = typeof pct === 'number' ? `${(pct * 100).toFixed(1)} % de la meta` : `${this.money(m.proxy_canal)} de la meta`;
+    return `${parte} se repartió con el PROMEDIO DE OTRAS entidades del canal, no con historia propia. `
+      + `Son ${cov.proxy_canal} celdas sin base: la entidad no aporta ninguna señal y su monto sale del canal.`;
   }
   basisLabel(b: string): string {
     return b === 'yoy_paired' ? 'tendencia histórica' : b === 'global' ? 'tendencia global' : 'default (sin tendencia confiable)';
