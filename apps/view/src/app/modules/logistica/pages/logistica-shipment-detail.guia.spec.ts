@@ -4,6 +4,7 @@ import { HttpTestingController, provideHttpClientTesting, TestRequest } from '@a
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { of } from 'rxjs';
 import { LogisticaShipmentDetailComponent } from './logistica-shipment-detail.component';
+import { conTarifaCompleta, hojaGuia0001419 } from '../../../../testing/nuevo-embarque.fixture';
 
 /**
  * EMB.19 — «Nueva guía» en el detalle del embarque: ya no se teclea.
@@ -43,7 +44,7 @@ const base = {
   freight_revenue: 0, cargo_value: 0, boxes_count: 0, total_weight_kg: 0, route_id: 'r1',
 };
 
-function montar(shipment: Record<string, unknown>) {
+function montar(shipment: Record<string, unknown>, guias: unknown[] = []) {
   TestBed.configureTestingModule({
     imports: [LogisticaShipmentDetailComponent],
     providers: [
@@ -55,10 +56,14 @@ function montar(shipment: Record<string, unknown>) {
   const http = TestBed.inject(HttpTestingController);
   const mapa: Array<[RegExp, unknown]> = [
     [/\/shipments\/e1$/, shipment],
-    [/\/guides(\?|$)/, []],
+    [/\/gps-review$/, REVISION],
+    // El detalle de Kepler lee los destinatarios de su guía (las entregas de la hoja final).
+    [/\/guides\/g1$/, { id: 'g1', recipients: [] }],
+    [/\/guides(\?|$)/, guias],
     [/\/fleet\/drivers/, PERSONAS],
     [/\/config\/routes\/list/, [RUTA]],
     [/\/config(\?|$)/, VIATICO],
+    [/nuevo-embarque$/, conTarifaCompleta(hojaGuia0001419())],
   ];
   f.detectChanges();
   contestar(http, mapa);
@@ -68,6 +73,15 @@ function montar(shipment: Record<string, unknown>) {
   return { f, http, comp, el: f.nativeElement as HTMLElement, responder: () => contestar(http, mapa) };
 }
 
+const REVISION = {
+  estado: 'difiere', motivo: null, tolerancias: { minutos: 60, km: 0.2 },
+  capturado: { salida: '06:30', llegada: '17:30', duerme_fuera: false, km: 40, viaticos: 200 },
+  gps: { salida: '08:30', llegada: '17:30', duerme_fuera: false, km: 40, km_metodo: 'odometro', puntos: 300, viaticos: 100 },
+  diferencias: ['Viáticos: con el horario del GPS serían $100.00 en vez de $200.00 (cambia desayuno).'],
+};
+const GUIA = { id: 'g1', number: 'GUIA-2026-00001', shipment_id: 'e1', type: 'entrega', status: 'pendiente',
+  driver_id: 'd1', driver_commission: 120, helper1_commission: 0, helper2_commission: 0, overnight: false, per_diem_total: 200 };
+
 const botonNuevaGuia = (el: HTMLElement) => [...el.querySelectorAll('button')].filter((b) => b.textContent?.includes('Nueva guía'));
 
 describe('Detalle de embarque — «Nueva guía» (EMB.19)', () => {
@@ -75,7 +89,7 @@ describe('Detalle de embarque — «Nueva guía» (EMB.19)', () => {
     const { el, comp } = montar({ ...base, kepler_sucursal: '06', kepler_guia: '0009999' });
     expect(comp.canAddGuide()).toBe(false);
     expect(botonNuevaGuia(el)).toHaveLength(0);
-    expect(el.textContent).toContain('sale de su hoja de Kepler');
+    expect(el.textContent).toContain('Lo que Kepler no tiene (ayudantes, horario) se completa aquí');
   });
 
   it('en un embarque manual sí, y comisión y viáticos salen calculados', () => {
@@ -122,5 +136,61 @@ describe('Detalle de embarque — «Nueva guía» (EMB.19)', () => {
     comp.guideForm.patchValue({ driver_id: 'd1' });
     expect(comp.choferOptions().map((o) => o.value)).toEqual(['d1']);
     expect(comp.ayudanteOptions().map((o) => o.value)).toEqual(['d2']);
+  });
+
+  // ── EMB.21: la revisión con GPS ─────────────────────────────────────────────────────────
+
+  it('al abrir Guías se pide la revisión con GPS y se pinta debajo de la guía', () => {
+    const { f, el, comp, responder } = montar({ ...base, kepler_sucursal: '06', kepler_guia: '0009999' }, [GUIA]);
+    responder();
+    f.detectChanges();
+    expect(comp.gpsReview()?.estado).toBe('difiere');
+    const card = el.querySelector('app-revision-gps')!;
+    expect(card).not.toBeNull();
+    expect(card.textContent).toContain('Difiere del GPS');
+    expect(card.textContent).toContain('cambia desayuno');
+  });
+
+  it('sin guía no hay nada que revisar: no se pinta', () => {
+    const { el } = montar({ ...base, kepler_sucursal: null, kepler_guia: null });
+    expect(el.querySelector('app-revision-gps')).toBeNull();
+  });
+
+  // ── EMB.22: la guía de Kepler nace incompleta y se completa AQUÍ ─────────────────────────
+
+  const INCOMPLETA = { ...GUIA, driver_id: 'd1', driver_commission: 0, per_diem_total: 0, departure_time: null, arrival_time: null };
+
+  it('la guía de Kepler sin horario se marca «Incompleta», sin montos, con «Completar»', () => {
+    const { f, el, responder } = montar({ ...base, kepler_sucursal: '06', kepler_guia: '0001419' }, [INCOMPLETA]);
+    responder();
+    f.detectChanges();
+    const fila = el.querySelector('p-table tbody tr')!;
+    expect(fila.textContent).toContain('Incompleta');
+    expect(fila.textContent).not.toContain('$0.00');
+    expect([...fila.querySelectorAll('button')].some((b) => b.textContent?.includes('Completar'))).toBe(true);
+  });
+
+  it('completar: el chofer de Kepler va bloqueado; comisión de la tarifa del viaje y viáticos del horario', () => {
+    const { comp, responder } = montar({ ...base, kepler_sucursal: '06', kepler_guia: '0001419' }, [INCOMPLETA]);
+    responder();
+    comp.openCompleteGuide(INCOMPLETA as never);
+    responder();
+    expect(comp.choferBloqueado()).toBe('d1');
+    expect(comp.guiaErrores()).toEqual(['Indica la hora de salida.', 'Indica la hora de llegada.']);
+    comp.guideForm.patchValue({ helper1_id: 'd2', departure_time: '08:00', arrival_time: '14:00' });
+    expect(comp.guiaErrores()).toEqual([]);
+    expect(comp.guiaComisiones()?.driver_commission).toBeGreaterThan(0);
+    expect(comp.origenTarifa()).toContain('la tarifa del viaje');
+  });
+
+  it('guardar completa la guía: va a /complete con lo capturado y SIN el chofer (es el de Kepler)', () => {
+    const { http, comp, responder } = montar({ ...base, kepler_sucursal: '06', kepler_guia: '0001419' }, [INCOMPLETA]);
+    responder();
+    comp.openCompleteGuide(INCOMPLETA as never);
+    responder();
+    comp.guideForm.patchValue({ departure_time: '08:00', arrival_time: '14:00' });
+    comp.createGuide();
+    const req = http.expectOne((r) => r.method === 'POST' && r.url.endsWith('/logistics/guides/g1/complete'));
+    expect(req.request.body).toEqual({ helper1_id: null, helper2_id: null, departure_time: '08:00', arrival_time: '14:00', overnight: false });
   });
 });

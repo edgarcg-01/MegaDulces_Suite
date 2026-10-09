@@ -2093,6 +2093,48 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   un PATCH que cambie tripulación, horario, comisión o viáticos (409: se cancela y se crea otra). Se
   guardan `departure_time`, `arrival_time` y el cálculo completo en `per_diem_breakdown` (horario,
   tarifas, comidas por persona). Sin migraciones: las columnas ya existían.
+- [x] **[EMB.21]** 🧪 **Lo capturado en la guía, revisado contra el GPS** (2026-10-08, decidido con el usuario:
+  «capturar y revisar con GPS»). Medido en prod antes de construir: el embarque `U-D-41` **no tiene**
+  ayudantes, flete, peso, kilómetros ni hora de salida/llegada (las 200 columnas, 600 embarques de 10
+  días; `c106`–`c114` en 0.00); los catálogos de transporte y chofer tampoco, el GPS no trae operador
+  (0 de 57 rastreadores) y Kepler no tiene producto «flete» ni peso por producto (1,500 productos con el
+  peso en la descripción, ninguna columna coincide). Peso y flete quedan **en blanco para capturar**
+  (se quitó el «0.00» de ejemplo del flete, que parecía un valor). Horario y km: el GPS los da sólo
+  **después** del viaje y no siempre — con ventana de 48 h desde la captura de Kepler, **29 de 42** viajes
+  con rastreador se reconstruyen; el odómetro va en km y casi siempre queda en 1.0–1.3× el trazo, pero
+  en **9 de 34** es basura (negativo o 37–133×) y ahí se usa el trazo y se declara. Por eso **no
+  reemplaza: revisa**. `GET /logistics/shipments/:id/gps-review` (dos consultas por índice, ~20 ms en
+  prod) → recuadro «Revisión con GPS» en la pestaña Guías: capturado contra GPS (salida, llegada,
+  durmió fuera, km, viáticos), y marca **difiere** si una hora se separa >60 min, los km >20 % o **cambian
+  los viáticos** (cruzar las 7:00 cambia el desayuno aunque sean minutos). Lo que no se puede medir
+  dice POR QUÉ (embarque manual, sin rastreador, sucursal sin coordenadas —el CEDIS `00` no tiene—,
+  no regresa en 48 h, en curso…), nunca «coincide». Regla en `revision-gps.contract.ts` + `gps-viaje.logic.ts`.
+  Sin migraciones. **Pendiente:** una lista para revisar las guías que difieren (hoy se ve embarque por
+  embarque) y coordenadas del CEDIS.
+- [x] **[EMB.22]** 🧪 **La guía se llena SÓLO en la pestaña Guías: lo que no está en Kepler sale de la
+  guía de la Suite** (2026-10-09, decidido con el usuario). La hoja de «Nuevo embarque» deja de pedir
+  tripulación y horario: muestra **bloqueado** lo que trae Kepler (unidad, chofer…) y lo que no, con la
+  leyenda «Se captura en Guías» (ayudantes, salida, llegada, el chofer si Kepler no lo trae) o «Se
+  calculan en Guías» (comisión y viáticos). Peso, km y flete se siguen capturando ahí (son del embarque,
+  decisión del usuario). Al tomar el viaje la guía **nace incompleta** con lo de Kepler (chofer si lo
+  trae; sin ayudantes, horario ni montos); la API **rechaza** recibir tripulación u horario en la toma, y
+  la tarifa de las rutas ya no frena la toma: se exige al completar. En **Guías** la guía sale
+  «Incompleta», sin montos (nunca $0), con **Completar**: el chofer de Kepler va bloqueado, se capturan
+  ayudantes y horario UNA vez, `POST /logistics/guides/:id/complete` valida tarifa (la del viaje de
+  Kepler, la mayor de sus rutas; o la de la ruta del embarque manual) y horario, calcula comisión y
+  viáticos, y la deja bloqueada (completarla dos veces → 409; dos personas a la vez → 409). El formulario
+  de embarque manual deja de capturar la guía (se crea en Guías › Nueva guía). **Freno nuevo:** no se
+  cierra un embarque con una guía incompleta (se liquidaría en $0 sin que nadie lo note). El costo
+  estimado del viaje deja de sumar $0 de una guía incompleta y lo dice. Regla en el contrato
+  (`pendientesDeLaGuia`, `CompletarGuiaBody`) y `validarCompletar`/`calcularCompletar` en libs/logistics.
+  Sin migraciones.
+- [ ] **[EMB.23]** ⚠️ **Ninguna guía llega a «entregada», y Liquidaciones sólo cuenta las entregadas.**
+  Medido en el código el 2026-10-09: ningún flujo de la app (entregar, cerrar el embarque, entregar
+  destinatarios) cambia `delivery_guides.status`; sólo el `PATCH` de estado, que ninguna pantalla usa. Y
+  `logistics-payroll.service.ts` suma comisiones con `WHERE g.status = 'entregada'` → hoy no pagaría
+  ninguna comisión de guía. En prod no pega todavía (1 guía en total, de junio; 0 embarques en 90 días).
+  **Decisión pendiente** junto con EMB.20: ¿la guía pasa a entregada al entregar el embarque, al cerrar,
+  o cuando se entregan sus destinatarios?
 - [ ] **[EMB.20]** ⚠️ **Liquidaciones no paga los viáticos que la guía calcula.**
   `logistics-payroll.service.ts` suma `per_diem_total` **sólo si `overnight`** y **sólo al chofer**
   (decisión «beta, intencional» de su docblock). Con la regla de horario (EMB.19), una salida a las

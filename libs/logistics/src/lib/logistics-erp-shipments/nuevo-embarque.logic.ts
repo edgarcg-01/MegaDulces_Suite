@@ -15,10 +15,8 @@
  */
 import type {
   KeplerDestinoTipo, KeplerMetodoResolucion, NuevoEmbarqueComision, NuevoEmbarqueResumen,
-  NuevoEmbarqueTipoViaje, TarifasViatico,
+  NuevoEmbarqueTipoViaje,
 } from '@megadulces/contracts';
-import { comisionesDeLaGuia, erroresDeTarifa, erroresDeViaticos, viaticosDeLaGuia } from '@megadulces/contracts';
-import { capturasQueNoCoinciden, horarioDe } from '../logistics-guides/guia-calculada.logic';
 
 export type MetodoResolucion = KeplerMetodoResolucion;
 
@@ -265,38 +263,46 @@ export function comisionSugerida(
 
 export interface TomaInput {
   delivery_type?: string | null;
+  freight_revenue?: number | null;
+  actual_km?: number | null;
+  total_weight_kg?: number | null;
+  notes?: string | null;
+  /**
+   * EMB.22 — NO se aceptan al tomar el viaje: la tripulación, el horario y los montos de la guía se
+   * capturan sólo en la pestaña Guías («Completar guía»). Están declarados para RECHAZARLOS.
+   */
   driver_id?: string | null;
   helper1_id?: string | null;
   helper2_id?: string | null;
+  departure_time?: string | null;
+  arrival_time?: string | null;
+  overnight?: boolean | null;
   driver_commission?: number | null;
   helper1_commission?: number | null;
   helper2_commission?: number | null;
   per_diem_total?: number | null;
   per_diem_breakdown?: unknown;
-  /** EMB.19 — el horario del viaje (`HH:MM`): de él salen los viáticos. */
-  departure_time?: string | null;
-  arrival_time?: string | null;
-  overnight?: boolean | null;
-  freight_revenue?: number | null;
-  actual_km?: number | null;
-  total_weight_kg?: number | null;
-  notes?: string | null;
 }
+
+/** Lo que se captura en Guías y por eso no entra al tomar el viaje. */
+const SE_CAPTURA_EN_GUIAS: ReadonlyArray<keyof TomaInput> = [
+  'driver_id', 'helper1_id', 'helper2_id', 'departure_time', 'arrival_time', 'overnight',
+  'driver_commission', 'helper1_commission', 'helper2_commission', 'per_diem_total', 'per_diem_breakdown',
+];
+export const TRIPULACION_EN_GUIAS = 'La tripulación, el horario, la comisión y los viáticos se capturan en la pestaña Guías del embarque, no al tomar el viaje.';
 
 export interface TomaContexto {
-  /** El chofer que Kepler trae, ya resuelto a `logistics.drivers.id`. null = no lo trae o no está en la Suite. */
-  chofer_kepler_driver_id: string | null;
   /** Folio del embarque que ya tomó esta guía, si existe. */
   ya_tomado_folio: string | null;
-  /** La tarifa del viaje (la mayor de sus rutas) y las rutas que no tienen tarifa. */
-  comision: Pick<NuevoEmbarqueComision, 'driver' | 'helper' | 'sin_tarifa' | 'ruta_usada'>;
-  /** Paradas sin ruta en Kepler: sin ruta no hay tarifa que aplicar. */
-  paradas_sin_ruta: number;
-  /** Tarifas de viático por comida (`config_finance`, categoría `viatico`). */
-  tarifas_viatico: TarifasViatico;
 }
 
-/** Errores en lenguaje del usuario. Lista vacía = se puede tomar. */
+/**
+ * Errores en lenguaje del usuario. Lista vacía = se puede tomar.
+ *
+ * EMB.22 — Tomar el viaje sólo registra lo del EMBARQUE (tipo de entrega, flete, km, peso, notas).
+ * La guía nace con lo que Kepler tiene (el chofer, si lo trae) y lo que Kepler no tiene se completa
+ * en Guías: ahí se valida la tarifa de las rutas y el horario, y se calculan comisión y viáticos.
+ */
 export function validarToma(input: TomaInput, ctx: TomaContexto): string[] {
   const errores: string[] = [];
   if (ctx.ya_tomado_folio) {
@@ -305,36 +311,8 @@ export function validarToma(input: TomaInput, ctx: TomaContexto): string[] {
   if (!input.delivery_type || !['route', 'long_trip'].includes(input.delivery_type)) {
     errores.push('Indica si la entrega es por ruta o viaje largo.');
   }
-  // Lo que Kepler escribió no se cambia en la Suite: si Kepler trae al chofer, va ése. Otro
-  // chofer se corrige en Kepler, no aquí (la hoja lo muestra bloqueado; esto lo sostiene en la API).
-  if (ctx.chofer_kepler_driver_id && input.driver_id && input.driver_id !== ctx.chofer_kepler_driver_id) {
-    errores.push('El chofer viene de Kepler y no se cambia aquí: corrígelo en Kepler.');
-  }
-  const chofer = input.driver_id || ctx.chofer_kepler_driver_id;
-  if (!chofer) {
-    errores.push('Falta el chofer: Kepler no lo trae para esta unidad. Elígelo.');
-  }
-  const h1 = input.helper1_id || null;
-  const h2 = input.helper2_id || null;
-  if (chofer && (h1 === chofer || h2 === chofer)) errores.push('El chofer no puede ir también como ayudante.');
-  if (h1 && h2 && h1 === h2) errores.push('Ayudante 1 y ayudante 2 son la misma persona.');
-  if (h2 && !h1) errores.push('Captura primero al ayudante 1.');
-
-  // La comisión se CALCULA de la tarifa de las rutas del viaje (fórmula de la beta de Logística) y
-  // los viáticos del horario (EMB.19): sin tarifa o sin horario no se crea, y un monto tecleado que
-  // no coincide con el calculado se rechaza.
-  const ayudantes = { helper1: !!h1, helper2: !!h2 };
-  const horario = horarioDe(input);
-  const faltan = [
-    ...erroresDeTarifa(ctx.comision, ctx.paradas_sin_ruta, ayudantes),
-    ...erroresDeViaticos(horario, ctx.tarifas_viatico),
-  ];
-  errores.push(...faltan);
-  if (!faltan.length) {
-    errores.push(...capturasQueNoCoinciden(input, {
-      comisiones: comisionesDeLaGuia(ctx.comision, ayudantes),
-      viaticos: viaticosDeLaGuia(horario, ctx.tarifas_viatico, { driver: !!chofer, ...ayudantes }),
-    }));
+  if (SE_CAPTURA_EN_GUIAS.some((k) => input[k] != null && input[k] !== false && input[k] !== '')) {
+    errores.push(TRIPULACION_EN_GUIAS);
   }
 
   const montos: Array<[keyof TomaInput, string]> = [

@@ -1,14 +1,16 @@
 import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { pendientesDeLaGuia } from '@megadulces/contracts';
 import { DeliveryGuide, Driver } from '../logistica.service';
 
 export interface CostoEstimado {
-  comisiones: number;
-  viaticos: number;
+  /** null = la guía está incompleta (EMB.22): se calculan al completarla en Guías. No es cero. */
+  comisiones: number | null;
+  viaticos: number | null;
   /** Gasto de Kepler ATRIBUIDO a esta guía. null = no se pudo medir (sin permiso o sin dato): no es cero. */
   gastos_kepler: number | null;
   total: number;
-  /** El total no incluye los gastos de Kepler porque no se pudieron medir. */
+  /** El total no incluye todo: el gasto de Kepler no se pudo medir o la guía está incompleta. */
   incompleto: boolean;
   /** Costo como % del valor movido. null si el valor es cero. */
   pct_sobre_valor: number | null;
@@ -26,20 +28,22 @@ const centavos = (v: unknown) => Math.round((Number(v) || 0) * 100);
  * único honesto es «cuánto cuesta mover» (lo mismo que hace la pantalla de costos por guía).
  */
 export function costoEstimado(
-  guia: Pick<DeliveryGuide, 'driver_commission' | 'helper1_commission' | 'helper2_commission' | 'per_diem_total'> | null,
+  guia: Pick<DeliveryGuide, 'driver_commission' | 'helper1_commission' | 'helper2_commission' | 'per_diem_total' | 'driver_id' | 'departure_time' | 'arrival_time'> | null,
   gastosKepler: number | null,
   valor: number,
 ): CostoEstimado {
-  const com = guia ? centavos(guia.driver_commission) + centavos(guia.helper1_commission) + centavos(guia.helper2_commission) : 0;
-  const via = guia ? centavos(guia.per_diem_total) : 0;
+  // EMB.22 — una guía incompleta trae comisión y viáticos en 0 hasta que se completa: no se suman como $0.
+  const sinCalcular = !!guia && pendientesDeLaGuia(guia).length > 0;
+  const com = guia && !sinCalcular ? centavos(guia.driver_commission) + centavos(guia.helper1_commission) + centavos(guia.helper2_commission) : 0;
+  const via = guia && !sinCalcular ? centavos(guia.per_diem_total) : 0;
   const kep = gastosKepler == null ? 0 : centavos(gastosKepler);
   const total = com + via + kep;
   return {
-    comisiones: com / 100,
-    viaticos: via / 100,
+    comisiones: sinCalcular ? null : com / 100,
+    viaticos: sinCalcular ? null : via / 100,
     gastos_kepler: gastosKepler == null ? null : kep / 100,
     total: total / 100,
-    incompleto: gastosKepler == null,
+    incompleto: gastosKepler == null || sinCalcular,
     pct_sobre_valor: valor > 0 ? Math.round((total / 100 / valor) * 10000) / 100 : null,
     movido_por_peso: total > 0 ? Math.round((valor / (total / 100)) * 100) / 100 : null,
   };
@@ -60,6 +64,9 @@ export function costoEstimado(
       <section class="kc-card" aria-labelledby="kc-pago">
         <h3 id="kc-pago">Tripulación y pago</h3>
         @if (guia(); as g) {
+          @if (pendientes().length) {
+            <p class="kc-hint is-warn">La guía <code>{{ g.number }}</code> está incompleta: falta {{ pendientes().join(' y ') }}. Se completa en la pestaña Guías; ahí se calculan la comisión y los viáticos.</p>
+          } @else {
           <table class="kc-table">
             <tbody>
               <tr><th scope="row">Chofer · {{ nombre(g.driver_id) }}</th><td class="num">{{ g.driver_commission | currency:'MXN':'symbol-narrow':'1.2-2' }}</td></tr>
@@ -73,6 +80,7 @@ export function costoEstimado(
             </tbody>
           </table>
           <p class="kc-hint">Guía de entrega <code>{{ g.number }}</code>.</p>
+          }
         } @else {
           <p class="kc-hint">Este embarque no tiene guía de entrega.</p>
         }
@@ -82,8 +90,10 @@ export function costoEstimado(
         <h3 id="kc-costo">Costo estimado del viaje</h3>
         @let c = costo();
         <dl class="kc-dl">
-          <dt>Comisiones</dt><dd>{{ c.comisiones | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd>
-          <dt>Viáticos</dt><dd>{{ c.viaticos | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd>
+          <dt>Comisiones</dt>
+          <dd>@if (c.comisiones !== null) { {{ c.comisiones | currency:'MXN':'symbol-narrow':'1.2-2' }} } @else { <span class="kc-missing">Se calculan en Guías</span> }</dd>
+          <dt>Viáticos</dt>
+          <dd>@if (c.viaticos !== null) { {{ c.viaticos | currency:'MXN':'symbol-narrow':'1.2-2' }} } @else { <span class="kc-missing">Se calculan en Guías</span> }</dd>
           <dt>Gastos de Kepler atribuidos</dt>
           <dd>
             @if (c.gastos_kepler !== null) { {{ c.gastos_kepler | currency:'MXN':'symbol-narrow':'1.2-2' }} }
@@ -91,8 +101,11 @@ export function costoEstimado(
           </dd>
           <dt class="kc-total">Costo estimado</dt><dd class="kc-total">{{ c.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</dd>
         </dl>
-        @if (c.incompleto) {
+        @if (c.gastos_kepler === null) {
           <p class="kc-hint is-warn">{{ motivoGastos() || 'El gasto de Kepler no se pudo leer: el total no lo incluye.' }}</p>
+        }
+        @if (c.comisiones === null) {
+          <p class="kc-hint is-warn">El total todavía no incluye comisiones ni viáticos: la guía está incompleta.</p>
         }
         <div class="kc-kpis">
           <div><span>Costo sobre el valor</span><b>{{ c.pct_sobre_valor !== null ? (c.pct_sobre_valor | number:'1.2-2') + '%' : '—' }}</b></div>
@@ -132,6 +145,10 @@ export class KeplerCostoComponent {
   readonly motivoGastos = input<string | null>(null);
 
   readonly costo = computed(() => costoEstimado(this.guia(), this.gastosKepler(), this.valor()));
+  readonly pendientes = computed(() => {
+    const g = this.guia();
+    return g ? pendientesDeLaGuia(g) : [];
+  });
 
   nombre(id: string | null | undefined): string {
     if (!id) return '—';

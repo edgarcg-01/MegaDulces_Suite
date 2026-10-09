@@ -24,9 +24,12 @@ import {
 import { KeplerHojaComponent } from '../components/kepler-hoja.component';
 import { KeplerCostoComponent } from '../components/kepler-costo.component';
 import { GuiaCalculadaComponent, PersonaDeLaGuia } from '../components/guia-calculada.component';
+import { RevisionGpsComponent } from '../components/revision-gps.component';
+import type { RevisionGps } from '@megadulces/contracts';
 import type { TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
 import {
-  comisionesDeLaGuia, erroresDeGuiaManual, erroresDeTarifaDeRuta, erroresDeViaticos, tarifasDeViatico, viaticosDeLaGuia,
+  comisionesDeLaGuia, erroresDeTarifa, erroresDeTarifaDeRuta, erroresDeTripulacion, erroresDeViaticos,
+  pendientesDeLaGuia, tarifasDeViatico, viaticosDeLaGuia,
 } from '@megadulces/contracts';
 import { forkJoin, startWith } from 'rxjs';
 
@@ -40,7 +43,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, CheckboxModule, SelectModule, AutoCompleteModule,
     TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
-    KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent,
+    KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent, RevisionGpsComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -252,7 +255,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                   @if (canAddGuide()) {
                     Elegí chofer, ayudantes y horario: la comisión y los viáticos se calculan solos.
                   } @else {
-                    La guía de este embarque sale de su hoja de Kepler, con sus paradas: no se agrega a mano.
+                    La guía nace al tomar el viaje de Kepler. Lo que Kepler no tiene (ayudantes, horario) se completa aquí.
                   }
                 </span>
                 <div class="shd-cta-actions">
@@ -279,18 +282,28 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 </ng-template>
                 <ng-template #body let-g>
                   <tr>
-                    <td><code class="comm-code">{{ g.number }}</code></td>
+                    <td>
+                      <code class="comm-code">{{ g.number }}</code>
+                      @if (incompleta(g)) { <span class="comm-pill is-warn shd-incompleta">Incompleta</span> }
+                    </td>
                     <td class="comm-cell-strong">{{ driverName(g.driver_id) || '—' }}</td>
                     <td class="comm-num">
-                      {{ (g.driver_commission + g.helper1_commission + g.helper2_commission) | currency:'MXN':'symbol-narrow':'1.2-2' }}
+                      @if (incompleta(g)) { <span class="comm-muted">—</span> }
+                      @else { {{ (g.driver_commission + g.helper1_commission + g.helper2_commission) | currency:'MXN':'symbol-narrow':'1.2-2' }} }
                     </td>
-                    <td class="comm-num">{{ g.per_diem_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                    <td class="comm-num">
+                      @if (incompleta(g)) { <span class="comm-muted">—</span> }
+                      @else { {{ g.per_diem_total | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    </td>
                     <td>
                       <span class="comm-pill" [class]="guidePillClass(g.status)">
                         {{ guideLabel(g.status) }}
                       </span>
                     </td>
                     <td class="comm-actions">
+                      @if (incompleta(g) && isEditable() && g.status !== 'cancelada') {
+                        <button pButton size="small" (click)="openCompleteGuide(g)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span><span class="p-button-label">Completar</span></button>
+                      }
                       <button pButton size="small" severity="secondary" [text]="true" (click)="openGuideDetail(g)" pTooltip="Ver destinatarios"><span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span></button>
                     </td>
                   </tr>
@@ -312,6 +325,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </p-table>
             </article>
           </div>
+          <!-- EMB.21: lo capturado en la guía contra el GPS de la unidad -->
+          @if (guides().length) {
+            <div class="sheet cols-12">
+              <article class="cell cell-span-12">
+                <app-revision-gps [revision]="gpsReview()" [cargando]="gpsReviewLoading()" [error]="gpsReviewError()"></app-revision-gps>
+              </article>
+            </div>
+          }
           <!-- ETA de ruta (J12.4) -->
           @if (guides().length) {
             <div class="sheet cols-12">
@@ -506,13 +527,21 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       </p-dialog>
     
       <!-- Create guide dialog. EMB.19: tripulacion y horario se eligen; comision y viaticos se calculan -->
-      <p-dialog [(visible)]="guideDialog" [modal]="true" [draggable]="false" [style]="{ width: '680px' }" [breakpoints]="{ '720px': '96vw' }" header="Nueva guía">
+      <p-dialog [(visible)]="guideDialog" [modal]="true" [draggable]="false" [style]="{ width: '680px' }" [breakpoints]="{ '720px': '96vw' }"
+        [header]="guiaACompletar() ? 'Completar guía ' + guiaACompletar()!.number : 'Nueva guía'">
         <form [formGroup]="guideForm" class="comm-form-grid">
-          <label class="full">
-            <span>Chofer</span>
-            <p-select formControlName="driver_id" [options]="choferOptions()" optionLabel="label" optionValue="value"
-            placeholder="Seleccionar" [showClear]="true" [filter]="true" appendTo="body"></p-select>
-          </label>
+          @if (choferBloqueado(); as ch) {
+            <div class="full shd-locked">
+              <span class="shd-locked-l">Chofer</span>
+              <span class="shd-locked-v">{{ driverName(ch) || ch }} · de Kepler</span>
+            </div>
+          } @else {
+            <label class="full">
+              <span>Chofer</span>
+              <p-select formControlName="driver_id" [options]="choferOptions()" optionLabel="label" optionValue="value"
+              placeholder="Seleccionar" [showClear]="true" [filter]="true" appendTo="body"></p-select>
+            </label>
+          }
           <label>
             <span>Ayudante 1</span>
             <p-select formControlName="helper1_id" [options]="ayudanteOptions()" optionLabel="label" optionValue="value"
@@ -538,7 +567,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         </form>
         <div class="shd-guia-calc">
           <p class="comm-muted is-small">
-            Comisión de la ruta {{ rutaGuia()?.nombre || 'del embarque' }} y viáticos por horario. Se calculan; no se teclean.
+            Comisión de {{ origenTarifa() }} y viáticos por horario. Se calculan; no se teclean.
           </p>
           <app-guia-calculada [personas]="guiaPersonas()" [comisiones]="guiaComisiones()"
             [viaticos]="guiaViaticos()" [tarifas]="tarifasViatico()"></app-guia-calculada>
@@ -546,7 +575,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
             <p class="comm-muted is-small" role="status">Leyendo la tarifa de la ruta y de viáticos…</p>
           } @else if (guiaErrores().length) {
             <div class="shd-guia-faltan">
-              <p class="shd-guia-faltan-titulo">Para crear la guía falta:</p>
+              <p class="shd-guia-faltan-titulo">Para {{ guiaACompletar() ? 'completar' : 'crear' }} la guía falta:</p>
               <ul id="guia-faltan" role="status">
                 @for (e of guiaErrores(); track e) { <li>{{ e }}</li> }
               </ul>
@@ -556,7 +585,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         <ng-template #footer>
           <button pButton severity="secondary" [outlined]="true" (click)="guideDialog = false"><span class="p-button-label">Cancelar</span></button>
           <button pButton [loading]="savingGuide()" [disabled]="guiaCargando() || guiaErrores().length > 0"
-            [attr.aria-describedby]="guiaErrores().length ? 'guia-faltan' : null" (click)="createGuide()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Crear guía</span></button>
+            [attr.aria-describedby]="guiaErrores().length ? 'guia-faltan' : null" (click)="createGuide()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">{{ guiaACompletar() ? 'Guardar guía' : 'Crear guía' }}</span></button>
         </ng-template>
       </p-dialog>
 
@@ -777,6 +806,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       padding: .75rem 1rem;
     }
     .shd-cta-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
+    /* EMB.22 — chofer de Kepler bloqueado y la marca de guía incompleta */
+    .shd-locked { display: flex; flex-direction: column; gap: .25rem; font-size: .85rem; }
+    .shd-locked-l { color: var(--c-text-2); }
+    .shd-locked-v { min-height: 2.25rem; display: flex; align-items: center; padding: 0 .6rem; border-radius: var(--r-sm); background: var(--c-surface-2); color: var(--c-text-1); }
+    .shd-incompleta { margin-left: .4rem; }
     /* EMB.19 — Nueva guía: lo calculado y lo que falta */
     .shd-guia-calc { display: flex; flex-direction: column; gap: .5rem; margin-top: .875rem; }
     .shd-guia-calc p { margin: 0; }
@@ -930,7 +964,7 @@ export class LogisticaShipmentDetailComponent {
   );
   /** Ayudantes y cargadores, sin el chofer elegido (no puede ir dos veces). */
   readonly ayudanteOptions = computed(() => {
-    const chofer = this.guiaValor().driver_id;
+    const chofer = this.choferBloqueado() ?? this.guiaValor().driver_id;
     return this.drivers()
       .filter((d) => d.active && d.id !== chofer && (d.roles?.includes('ayudante') || d.roles?.includes('cargador')))
       .map((d) => ({ label: d.full_name, value: d.id }));
@@ -956,6 +990,23 @@ export class LogisticaShipmentDetailComponent {
   setTab(t: 'info' | 'guides' | 'expenses' | 'cartaporte') {
     this.tab.set(t);
     if (t === 'cartaporte') this.loadCp();
+    if (t === 'guides' && !this.gpsReview() && !this.gpsReviewLoading()) this.loadGpsReview();
+  }
+
+  // ── EMB.21 Revisión con GPS ──────────────────────────────────────────────
+  readonly gpsReview = signal<RevisionGps | null>(null);
+  readonly gpsReviewLoading = signal(false);
+  readonly gpsReviewError = signal<string | null>(null);
+  loadGpsReview() {
+    this.gpsReviewLoading.set(true);
+    this.gpsReviewError.set(null);
+    this.api.shipmentGpsReview(this.shipmentId()).subscribe({
+      next: (r) => { this.gpsReview.set(r); this.gpsReviewLoading.set(false); },
+      error: (err) => {
+        this.gpsReviewLoading.set(false);
+        this.gpsReviewError.set(err?.error?.message || 'intenta de nuevo en un momento.');
+      },
+    });
   }
 
   metricsDialog = false;
@@ -976,22 +1027,55 @@ export class LogisticaShipmentDetailComponent {
   /** La ruta del embarque con su tarifa. undefined = leyendo; null = el embarque no tiene ruta. */
   readonly rutaGuia = signal<TarifaDeRuta | null | undefined>(undefined);
   readonly tarifasViatico = signal<TarifasViatico | null>(null);
-  readonly guiaCargando = computed(() => this.rutaGuia() === undefined || this.tarifasViatico() === null);
-  readonly guiaErrores = computed(() => {
-    const t = this.tarifasViatico();
+  /** EMB.22 — la guía que se está completando (nació al tomar el viaje de Kepler). null = guía nueva. */
+  readonly guiaACompletar = signal<DeliveryGuide | null>(null);
+  /** El chofer que ya trae la guía (de Kepler): se muestra bloqueado y no se cambia aquí. */
+  readonly choferBloqueado = computed(() => this.guiaACompletar()?.driver_id ?? null);
+  /**
+   * De dónde sale la tarifa: el viaje de Kepler (la mayor de sus rutas, EMB.13) o la ruta del
+   * embarque manual. undefined = todavía leyendo.
+   */
+  private readonly tarifaGuia = computed(():
+    { comision: { driver: number | null; helper: number | null }; errores: (ay: { helper1: boolean; helper2: boolean }) => string[] } | undefined => {
+    const s = this.shipment();
+    if (s?.kepler_guia) {
+      const h = this.hojaKepler();
+      if (h) return { comision: h.comision, errores: (ay) => erroresDeTarifa(h.comision, h.resumen.paradas_sin_ruta, ay) };
+      if (this.errorKepler()) return { comision: { driver: null, helper: null }, errores: () => ['No se pudo leer el viaje de Kepler para tomar su tarifa. Recarga el embarque.'] };
+      return undefined;
+    }
     const r = this.rutaGuia();
-    if (!t || r === undefined) return [];
-    return erroresDeGuiaManual(this.guiaValor(), r, t);
+    if (r === undefined) return undefined;
+    return { comision: { driver: r?.driver ?? null, helper: r?.helper ?? null }, errores: (ay) => erroresDeTarifaDeRuta(r, ay) };
   });
+  readonly origenTarifa = computed(() => {
+    const h = this.shipment()?.kepler_guia ? this.hojaKepler() : null;
+    const ruta = h?.comision.ruta_usada;
+    if (h) return ruta ? `la tarifa del viaje (${ruta.nombre || ruta.clave})` : 'la tarifa del viaje';
+    return `la ruta ${this.rutaGuia()?.nombre || 'del embarque'}`;
+  });
+  readonly guiaCargando = computed(() => this.tarifaGuia() === undefined || this.tarifasViatico() === null);
   private readonly guiaVa = computed(() => {
     const v = this.guiaValor();
-    return { driver: !!v.driver_id, helper1: !!v.helper1_id, helper2: !!v.helper2_id };
+    return { driver: !!(this.choferBloqueado() ?? v.driver_id), helper1: !!v.helper1_id, helper2: !!v.helper2_id };
+  });
+  readonly guiaErrores = computed(() => {
+    const t = this.tarifasViatico();
+    const tar = this.tarifaGuia();
+    if (!t || tar === undefined) return [];
+    const v = this.guiaValor();
+    const va = this.guiaVa();
+    return [
+      ...erroresDeTripulacion({ driver_id: this.choferBloqueado() ?? (v.driver_id || null), helper1_id: v.helper1_id || null, helper2_id: v.helper2_id || null }),
+      ...tar.errores(va),
+      ...erroresDeViaticos({ salida: v.departure_time || null, llegada: v.arrival_time || null, duerme_fuera: !!v.overnight }, t),
+    ];
   });
   readonly guiaComisiones = computed(() => {
-    const r = this.rutaGuia();
+    const tar = this.tarifaGuia();
     const va = this.guiaVa();
-    if (!r || erroresDeTarifaDeRuta(r, va).length) return null;
-    return comisionesDeLaGuia({ driver: r.driver, helper: r.helper }, va);
+    if (!tar || tar.errores(va).length) return null;
+    return comisionesDeLaGuia(tar.comision, va);
   });
   readonly guiaViaticos = computed(() => {
     const t = this.tarifasViatico();
@@ -1003,11 +1087,15 @@ export class LogisticaShipmentDetailComponent {
   readonly guiaPersonas = computed((): PersonaDeLaGuia[] => {
     const v = this.guiaValor();
     const nombre = (id: string | null | undefined) => (id ? this.drivers().find((d) => d.id === id)?.full_name ?? null : null);
-    const xs: PersonaDeLaGuia[] = [{ key: 'driver', rol: 'Chofer', nombre: nombre(v.driver_id) }];
+    const xs: PersonaDeLaGuia[] = [{ key: 'driver', rol: 'Chofer', nombre: nombre(this.choferBloqueado() ?? v.driver_id) }];
     if (v.helper1_id) xs.push({ key: 'helper1', rol: 'Ayudante 1', nombre: nombre(v.helper1_id) });
     if (v.helper2_id) xs.push({ key: 'helper2', rol: 'Ayudante 2', nombre: nombre(v.helper2_id) });
     return xs;
   });
+  /** EMB.22 — a la guía le falta lo que se completa en Guías: no tiene montos todavía. */
+  incompleta(g: Pick<DeliveryGuide, 'driver_id' | 'departure_time' | 'arrival_time'>): boolean {
+    return pendientesDeLaGuia(g).length > 0;
+  }
 
   recipientForm: FormGroup = this.fb.group({
     customer_id: [null as string | null],
@@ -1273,6 +1361,14 @@ export class LogisticaShipmentDetailComponent {
 
   // ── Guides ──────────────────────────────────────────────────────────
   openCreateGuide() {
+    this.abrirDialogoGuia(null);
+  }
+  /** EMB.22 — completar la guía que nació al tomar el viaje de Kepler. */
+  openCompleteGuide(g: DeliveryGuide) {
+    this.abrirDialogoGuia(g);
+  }
+  private abrirDialogoGuia(g: DeliveryGuide | null) {
+    this.guiaACompletar.set(g);
     this.guideForm.reset({
       driver_id: null, helper1_id: null, helper2_id: null,
       departure_time: '', arrival_time: '', overnight: false,
@@ -1280,7 +1376,8 @@ export class LogisticaShipmentDetailComponent {
     this.rutaGuia.set(undefined);
     this.tarifasViatico.set(null);
     this.guideDialog = true;
-    // La comisión sale de la tarifa de la RUTA DEL EMBARQUE (aunque la ruta esté inactiva: es la suya).
+    // Manual: la comisión sale de la tarifa de la RUTA DEL EMBARQUE (aunque la ruta esté inactiva).
+    // Kepler: de la tarifa del viaje, que ya trae la hoja (`hojaKepler`).
     const routeId = this.shipment()?.route_id;
     forkJoin({ rutas: this.api.listRoutes(), viatico: this.api.listConfig('viatico', true) }).subscribe({
       next: ({ rutas, viatico }) => {
@@ -1297,19 +1394,23 @@ export class LogisticaShipmentDetailComponent {
   createGuide() {
     if (this.guiaCargando() || this.guiaErrores().length) return;
     const v = this.guideForm.value;
-    this.savingGuide.set(true);
-    this.api.createGuide({
-      shipment_id: this.shipmentId(),
-      driver_id: v.driver_id || null,
+    const tripulacion = {
       helper1_id: v.helper1_id || null,
       helper2_id: v.helper2_id || null,
       departure_time: v.departure_time || null,
       arrival_time: v.arrival_time || null,
       overnight: !!v.overnight,
-    }).subscribe({
+    };
+    const completar = this.guiaACompletar();
+    this.savingGuide.set(true);
+    const peticion = completar
+      ? this.api.completeGuide(completar.id, { ...tripulacion, ...(this.choferBloqueado() ? {} : { driver_id: v.driver_id || null }) })
+      : this.api.createGuide({ shipment_id: this.shipmentId(), driver_id: v.driver_id || null, ...tripulacion });
+    peticion.subscribe({
       next: () => {
         this.savingGuide.set(false); this.guideDialog = false;
-        this.toast.add({ severity:'success', summary:'Guía creada' });
+        this.toast.add({ severity:'success', summary: completar ? 'Guía completada' : 'Guía creada' });
+        this.gpsReview.set(null);
         this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
         this.refreshReadiness();
       },
