@@ -64,6 +64,21 @@ export const REPORTS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_ROUTE_PROFIT_VER,
   },
   {
+    // [RD.60] el gasto renglon por renglon. Mismo permiso: es la misma superficie.
+    label: 'Gasto RD',
+    route: '/comercial/ruta-directa/gastos',
+    icon: 'pi pi-receipt',
+    permission: Permission.COMMERCIAL_ROUTE_PROFIT_VER,
+  },
+  {
+    // [RD.60] la ficha de cada camioneta, con lo que falta capturar declarado.
+    label: 'Flota RD',
+    route: '/comercial/ruta-directa/flota',
+    icon: 'pi pi-truck',
+    permission: Permission.COMMERCIAL_ROUTE_PROFIT_VER,
+  },
+
+  {
     // AX.2 — el documento que se le entrega al cliente (anexo imprimible + pagaré).
     // AX.9: se llamaba "Documentos", más ancho de lo que muestra — la pantalla trae SÓLO
     // facturas de telemarketing (U/D/8, canal TELEMARK en el 100%). El tab va corto por el

@@ -304,6 +304,18 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_PROFIT_VER)]
       },
       {
+        // [RD.60] El gasto RENGLON por renglon -- la pestana Por plaza lo muestra agregado.
+        path: 'ruta-directa/gastos',
+        loadComponent: () => import('./modules/comercial/pages/comercial-ruta-directa-gastos.component').then(m => m.ComercialRutaDirectaGastosComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_PROFIT_VER)]
+      },
+      {
+        // [RD.60] La ficha de cada camioneta, con lo que falta capturar DECLARADO.
+        path: 'ruta-directa/flota',
+        loadComponent: () => import('./modules/comercial/pages/comercial-ruta-directa-flota.component').then(m => m.ComercialRutaDirectaFlotaComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_PROFIT_VER)]
+      },
+      {
         // Fase MR — Motor de Rentabilidad: cascada de margen sobre venta real.
         path: 'rentabilidad',
         loadComponent: () => import('./modules/comercial/pages/comercial-rentabilidad.component').then(m => m.ComercialRentabilidadComponent),

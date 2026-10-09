@@ -2229,6 +2229,17 @@ export class ComercialService {
     return this.http.post(`${this.base}/commissions/objective/marks`, dto);
   }
 
+  /** `[RD.60]` El gasto de la quincena, renglón por renglón. */
+  routeProfitGasto(anio: number, periodNo: number) {
+    return this.http.get<RouteProfitGasto>(`${this.base}/route-profit/expenses`,
+      { params: new HttpParams().set('anio', String(anio)).set('period_no', String(periodNo)) });
+  }
+
+  /** `[RD.60]` La flota de Ruta Directa: lo que se sabe de cada camioneta, y lo que no. */
+  routeProfitFlota() {
+    return this.http.get<RouteProfitFlota>(`${this.base}/route-profit/fleet`);
+  }
+
   /** `[RD.58]` La serie del año y la tendencia por ruta. */
   routeProfitSerie(anio?: number) {
     const params = anio ? new HttpParams().set('anio', String(anio)) : undefined;
@@ -4678,4 +4689,55 @@ export interface ObjetivoResultado {
   config: ObjetivoConfig;
   filas: ObjetivoFila[];
   huecos: string[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// `[RD.60]` El gasto renglón por renglón y la flota. Lo que el tablero muestra agregado, y
+// lo que de verdad se sabe de cada camioneta.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface RouteProfitGastoRenglon {
+  fecha: string;
+  dpto: string; dpto_norm: string; plaza: string | null;
+  concepto: string; concepto_norm: string; familia: string;
+  cuenta: string | null; cuenta_nombre: string | null;
+  beneficiario: string | null;
+  /** ⭐ A veces nombra la camioneta. Se muestra como texto; NO se parsea para inferir la ruta. */
+  comentario: string | null;
+  doc_tipo: string | null; doc_folio: string | null;
+  importe: string;
+}
+
+export interface RouteProfitGasto {
+  anio: number; period_no: number;
+  date_from: string | null; date_to: string | null;
+  renglones: RouteProfitGastoRenglon[];
+  por_familia: { familia: string; lineas: number; importe: number }[];
+  /** ⛔ El total es el de la QUINCENA, no el de los renglones visibles. */
+  total: number;
+  truncado: boolean;
+  huecos: RouteProfitHueco[];
+}
+
+export interface RouteProfitUnidad {
+  route_code: string;
+  plaza: string | null;
+  chofer: string | null;
+  placa: string | null; marca: string | null; modelo: string | null;
+  anio: number | null; vin: string | null; aseguradora: string | null;
+  odometro: string | null;
+  ultimo_visto: string | null;
+  dias_sin_reportar: number | null;
+  aparatos: number;
+  /** ⚠️ El nombre del rastreador trae OTRA placa que la del vehículo al que cuelga. */
+  vinculo_sospechoso: boolean;
+  nombre_tracker: string | null;
+  /** Los campos de la ficha que están vacíos, enumerados: un NULL no se explica solo. */
+  sin_capturar: string[];
+}
+
+export interface RouteProfitFlota {
+  unidades: RouteProfitUnidad[];
+  rutas_sin_gps: string[];
+  huecos: RouteProfitHueco[];
 }
