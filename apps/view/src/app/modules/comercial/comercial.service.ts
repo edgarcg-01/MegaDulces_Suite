@@ -2208,6 +2208,27 @@ export class ComercialService {
     return this.http.get<RouteProfitPeriodo[]>(`${this.base}/route-profit/periods`);
   }
 
+  /** `[RD.59]` La configuración del bono por objetivo: criterios, pesos y estado. */
+  objetivoConfig() {
+    return this.http.get<ObjetivoConfig>(`${this.base}/commissions/objective`);
+  }
+
+  /** `[RD.59]` El resultado del mes por ruta: lo medido, lo marcado y lo que nadie resolvió. */
+  objetivoResultado(anio: number, mes: number) {
+    return this.http.get<ObjetivoResultado>(`${this.base}/commissions/objective/result`,
+      { params: new HttpParams().set('anio', String(anio)).set('mes', String(mes)) });
+  }
+
+  /** `[RD.59]` Cambiar umbral, importe, peso, comparador o encender/apagar un criterio. */
+  objetivoEditarCriterio(id: string, cambios: Partial<{ umbral: number; monto: number; peso_pct: number; comparador: string; activo: boolean }>) {
+    return this.http.patch<ObjetivoCriterio>(`${this.base}/commissions/objective/criteria/${id}`, cambios);
+  }
+
+  /** `[RD.59]` La marca humana del criterio que nadie puede derivar. El motivo es obligatorio. */
+  objetivoMarcar(dto: { bonus_id: string; route_code: string; anio: number; mes: number; cumplido: boolean; motivo: string }) {
+    return this.http.post(`${this.base}/commissions/objective/marks`, dto);
+  }
+
   /** `[RD.58]` La serie del año y la tendencia por ruta. */
   routeProfitSerie(anio?: number) {
     const params = anio ? new HttpParams().set('anio', String(anio)) : undefined;
@@ -4589,4 +4610,61 @@ export interface RouteProfitSerie {
   anio: number;
   rutas: RouteProfitSerieRuta[];
   huecos: RouteProfitHueco[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// `[RD.59]` El bono por objetivo mensual: configurable, y lo que se puede medir se mide.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface ObjetivoCriterio {
+  id: string; nombre: string; metrica: string; comparador: string;
+  umbral: string; monto: string; peso_pct: string | null;
+  route_code: string | null; activo: boolean; beneficiario: string;
+  updated_at: string;
+  escala?: string; escala_nombre?: string;
+}
+
+export interface ObjetivoConfig {
+  grupo: string;
+  criterios: ObjetivoCriterio[];
+  peso_total: number;
+  monto_total: number;
+  activos: number;
+  /** ⛔ `encendido` NO es «funciona»: exige que los pesos cierren y que haya importe. */
+  estado: 'sin_configurar' | 'apagado' | 'encendido_incompleto' | 'encendido';
+  pendientes: string[];
+  /** Hoy `false` siempre: `computeRun` sólo paga `periodo='quincena'`. */
+  entra_a_nomina: boolean;
+}
+
+export interface ObjetivoCriterioFila {
+  bonus_id: string; nombre: string; metrica: string;
+  peso_pct: number; umbral: number; comparador: string;
+  valor: number | null;
+  /**
+   * ⛔ TERNARIO a propósito. En el Excel la celda vacía valía `NO CUMPLIDO` y el silencio
+   * castigaba; acá `null` es «nadie lo resolvió» y suma a `sin_resolver_pct`, aparte.
+   */
+  cumplido: boolean | null;
+  motivo: string | null;
+  marcado_por: string | null;
+  marcado_at: string | null;
+  marca_motivo: string | null;
+}
+
+export interface ObjetivoFila {
+  route_code: string; chofer: string | null; zona: string | null;
+  dias_con_venta: number;
+  criterios: ObjetivoCriterioFila[];
+  alcanzado_pct: number;
+  sin_resolver_pct: number;
+  fallado_pct: number;
+}
+
+export interface ObjetivoResultado {
+  anio: number; mes: number;
+  desde: string | null; hasta: string | null; cerrado: boolean;
+  config: ObjetivoConfig;
+  filas: ObjetivoFila[];
+  huecos: string[];
 }

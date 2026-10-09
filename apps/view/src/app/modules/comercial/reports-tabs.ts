@@ -46,6 +46,15 @@ export const REPORTS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_COMMISSIONS_VER,
   },
   {
+    // `[RD.59]` — el bono por objetivo mensual. Tab propio y no una pestaña dentro de
+    // Comisiones: configurar un bono y verificar una corrida de nómina son dos trabajos
+    // distintos. Mismo permiso de lectura; editar exige GESTIONAR, que gatea el servidor.
+    label: 'Objetivo RD',
+    route: '/comercial/comisiones/objetivo',
+    icon: 'pi pi-flag',
+    permission: Permission.COMMERCIAL_COMMISSIONS_VER,
+  },
+  {
     // `[RD.57]` — la misma operacion mirada por el resultado: utilidad bruta, kilometros del
     // GPS y gasto del departamento. Permiso PROPIO y mas estrecho que Comisiones: publica el
     // gasto del area completo (nomina, SUA, comisiones), no lo que cobra cada persona.
