@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { CommonModule } from '@angular/common';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
-import { Router } from '@angular/router';
+import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
@@ -11,6 +11,7 @@ import { AuthService } from '../../../core/services/auth.service';
 import { of } from 'rxjs';
 import { EtiquetasService, PriceChange, PriceChangeBranch } from '../etiquetas.service';
 import { ETIQUETAS_TABS } from '../etiquetas-tabs';
+import { CambiosCompartirComponent } from '../components/cambios-compartir.component';
 
 /**
  * `[ETQ-CAMBIOS.2]` **Cambios de precio** — qué etiquetas quedaron viejas en el anaquel.
@@ -64,7 +65,7 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
 @Component({
   selector: 'app-tienda-cambios-precio',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, MetricStripComponent, SucursalPipe],
+  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, MetricStripComponent, SucursalPipe, CambiosCompartirComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .cpr-screen{ padding:1rem 1.25rem 2rem; display:flex; flex-direction:column; gap:.9rem; }
@@ -223,6 +224,8 @@ import { ETIQUETAS_TABS } from '../etiquetas-tabs';
           <input id="cpr-fecha" type="date" [ngModel]="fecha()" (ngModelChange)="verDia($event)" [max]="hoy" />
           <p-button label="Ayer" size="small" [text]="true" (onClick)="verDia(ayer)" />
           <span class="spacer"></span>
+          <!-- [ETQ-AVISOS.3] Compartir: sólo existe para quien tiene STORE_LABELS_COMPARTIR (Compras). -->
+          <app-cambios-compartir [items]="items()" [plaza]="sucursal()" [fecha]="fecha()" />
           <p-button label="Actualizar" icon="pi pi-refresh" size="small" [text]="true" (onClick)="datos.reload()" />
         </div>
 
@@ -395,6 +398,7 @@ export class TiendaCambiosPrecioComponent {
   private readonly svc = inject(EtiquetasService);
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+  private readonly route = inject(ActivatedRoute);
 
   readonly tabs = ETIQUETAS_TABS;
 
@@ -410,7 +414,7 @@ export class TiendaCambiosPrecioComponent {
     ? String(this.auth.user()?.warehouse_code) : null;
 
   /** La que eligió quien NO tiene tienda propia. */
-  readonly sucursalElegida = signal<string | null>(null);
+  readonly sucursalElegida = signal<string | null>(this.plazaDelEnlace());
 
   /** La plaza efectiva. Quien tiene la suya queda ANCLADO: el selector no es para espiar otra tienda. */
   readonly sucursal = computed(() => this.sucursalPropia ?? this.sucursalElegida());
@@ -430,7 +434,24 @@ export class TiendaCambiosPrecioComponent {
   /** Hoy y ayer en hora de México — el día que se revisa al abrir la tienda es AYER, no el UTC. */
   readonly hoy = TiendaCambiosPrecioComponent.diaMx(0);
   readonly ayer = TiendaCambiosPrecioComponent.diaMx(-1);
-  readonly fecha = signal(this.ayer);
+  readonly fecha = signal(this.fechaDelEnlace());
+
+  /**
+   * `[ETQ-AVISOS.2]` Enlace directo desde la campana: `?plaza=01&fecha=2026-10-08`. Se valida con la
+   * MISMA forma que el backend (dos dígitos; día `YYYY-MM-DD` que no sea futuro): un parámetro
+   * inventado no puede dejar la pantalla en una tabla vacía que se lee «no cambió nada».
+   * Sin parámetros (o inválidos) todo sigue como siempre: ayer.
+   */
+  private fechaDelEnlace(): string {
+    const f = this.route.snapshot.queryParamMap.get('fecha');
+    return f && /^\d{4}-\d{2}-\d{2}$/.test(f) && f <= this.hoy ? f : this.ayer;
+  }
+
+  /** La plaza del enlace sólo vale para quien NO tiene tienda propia: quien la tiene queda anclado a la suya. */
+  private plazaDelEnlace(): string | null {
+    const p = this.route.snapshot.queryParamMap.get('plaza');
+    return p && /^[0-9]{2}$/.test(p) ? p : null;
+  }
 
   private static diaMx(offset: number): string {
     const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));

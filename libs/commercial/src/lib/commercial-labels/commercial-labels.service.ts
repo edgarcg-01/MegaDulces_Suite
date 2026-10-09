@@ -5,7 +5,7 @@ import {
 } from '../shared/freshness';
 // `[ETQ-PRES.2]` La forma la define el contrato, no este archivo (ADR-056: un primitivo vive en
 // `libs/` o no existe). `PresentacionPrecio` extiende al `QtyUnitLabel` de VU.0 al PRECIO.
-import type { PresentacionPrecio } from '@megadulces/contracts';
+import type { PresentacionPrecio, PriceChangeRow } from '@megadulces/contracts';
 
 export interface LabelModel {
   code: string;                       // el código con el que se pidió (sku o barcode)
@@ -370,26 +370,67 @@ export class CommercialLabelsService {
    * el síntoma es "falta mi tienda", no un número mal.
    */
   async priceChangeBranches(): Promise<{ sucursal: string; nombre: string | null; ultimo_dia: string }[]> {
-    return this.tk.run(async (trx) => {
-      const r = await trx.raw(`
-        SELECT v.sucursal, max(v.fecha)::text AS ultimo_dia, max(w.name) AS nombre
-          FROM analytics.v_label_price_changes v
-          LEFT JOIN commercial.warehouses w ON w.code = v.sucursal AND w.deleted_at IS NULL
-         WHERE v.fecha >= CURRENT_DATE - 60
-         GROUP BY 1 ORDER BY 1`);
-      return (r?.rows ?? []).map((x: any) => ({
-        sucursal: String(x.sucursal),
-        nombre: x.nombre ?? null,
-        ultimo_dia: String(x.ultimo_dia),
-      }));
-    });
+    return this.tk.run((trx) => this.branchesIn(trx));
+  }
+
+  /**
+   * `[ETQ-AVISOS.1]` La lista de plazas, corriendo dentro de una transacción YA abierta. Existe para
+   * que el generador de avisos (un cron, sin request) lea EXACTAMENTE lo mismo que la pantalla.
+   */
+  async branchesIn(trx: any): Promise<{ sucursal: string; nombre: string | null; ultimo_dia: string }[]> {
+    const r = await trx.raw(`
+      SELECT v.sucursal, max(v.fecha)::text AS ultimo_dia, max(w.name) AS nombre
+        FROM analytics.v_label_price_changes v
+        LEFT JOIN commercial.warehouses w ON w.code = v.sucursal AND w.deleted_at IS NULL
+       WHERE v.fecha >= CURRENT_DATE - 60
+       GROUP BY 1 ORDER BY 1`);
+    return (r?.rows ?? []).map((x: any) => ({
+      sucursal: String(x.sucursal),
+      nombre: x.nombre ?? null,
+      ultimo_dia: String(x.ultimo_dia),
+    }));
+  }
+
+  /**
+   * `[ETQ-AVISOS.1]` TODAS las filas visibles de una plaza y un día, SIN el tope de productos de la
+   * pantalla. El aviso tiene que contar lo que hubo, no lo que cupo en la lista.
+   *
+   * El filtro es el MISMO de `SQL_CAMBIOS` (`PISO_DELTA`): lo que la pantalla oculta por ser
+   * ruido, el aviso tampoco lo cuenta. Si discreparan, el aviso diría 14 y la lista mostraría 12.
+   *
+   * `sucursal` y `fecha` van SIN `btrim` ni envoltura: es lo que entra por el PK de la bitácora
+   * (GOTCHAS §28).
+   */
+  async filasDelDia(trx: any, plaza: string, fecha: string): Promise<PriceChangeRow[]> {
+    const r = await trx.raw(
+      `SELECT sku, nombre AS name, unidad, precio_anterior, precio_nuevo, delta, es_baja, hora
+         FROM analytics.v_label_price_changes
+        WHERE sucursal = ? AND fecha = ?::date AND abs(delta) > ?`,
+      [plaza, fecha, CommercialLabelsService.PISO_DELTA],
+    );
+    const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
+    return ((r?.rows ?? []) as any[]).map((x) => ({
+      sku: String(x.sku),
+      name: x.name ?? null,
+      unidad: x.unidad ?? null,
+      precio_anterior: num(x.precio_anterior),
+      precio_nuevo: num(x.precio_nuevo),
+      delta: num(x.delta),
+      es_baja: x.es_baja === true,
+      hora: x.hora ?? null,
+    }));
   }
 
   /** Ayer en hora de México, que es el día que el operador quiere revisar al abrir la tienda. */
   private static ayer(): string {
-    const hoyMx = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
-    hoyMx.setDate(hoyMx.getDate() - 1);
-    return `${hoyMx.getFullYear()}-${String(hoyMx.getMonth() + 1).padStart(2, '0')}-${String(hoyMx.getDate()).padStart(2, '0')}`;
+    return CommercialLabelsService.diaMx(-1);
+  }
+
+  /** `[ETQ-AVISOS.1]` Un día en hora de México (`offset` 0 = hoy, -1 = ayer), como `YYYY-MM-DD`. */
+  static diaMx(offset: number): string {
+    const d = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Mexico_City' }));
+    d.setDate(d.getDate() + offset);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   }
 
   /** Búsqueda de catálogo para el buscador de la etiquetera (nombre / sku / barcode de CUALQUIER unidad). */

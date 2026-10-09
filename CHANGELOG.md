@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Avisos de cambios de precio a las sucursales, y Compras comparte la lista (ETQ-AVISOS.1–3, 2026-10-09)
+- **Aviso a la campana de cada sucursal:** a las **07:30** (resume AYER) y a las **14:00** (lo que va de HOY) llega «N productos cambiaron de precio» a quien ve la etiquetera de esa tienda, con enlace directo a la lista de ese día. Se cuenta con la **misma regla de la pantalla** (una sola función en `libs/contracts`), así aviso y lista no pueden discrepar. Un día sin cambios **no genera aviso**; si la bitácora de la plaza aún no llega a ese día se **declara** (`sin dato`), no se dice «no hubo cambios».
+- **Compras puede compartir** (permiso nuevo `STORE_LABELS_COMPARTIR`): botón «Compartir» en Cambios de precio para **avisar a sucursales** (elige plazas, agrega nota; cada plaza devuelve su estado con el motivo) y **descargar la lista en CSV** (se abre en Excel con acentos).
+- Cambios de comportamiento: la campana hace un poll cada 5 min a `GET /store/labels/notices` sólo para quien tiene `STORE_LABELS_VER`. La pantalla de cambios acepta `?plaza=&fecha=` (validados; quien tiene tienda propia no cambia de plaza). **Migraciones aditivas ANTES del código** (`20261009160146` tabla, `20261009160147` reparto del permiso) y los afectados deben **re-loguear**. Nada aplicado a prod todavía. Plan y pendientes en `FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md`.
 ### Changed — Logística: la guía se llena sólo en la pestaña Guías (EMB.22, 2026-10-09)
 - **Hoja de «Nuevo embarque»:** ya no pide tripulación ni horario. Lo que trae Kepler se ve bloqueado; lo que no, dice «Se captura en Guías» (ayudantes, salida, llegada y el chofer si Kepler no lo trae) o «Se calculan en Guías» (comisión y viáticos). Peso, kilómetros y flete se siguen capturando ahí.
 - **Al tomar el viaje** la guía nace incompleta con lo de Kepler. En **Guías** aparece «Incompleta» con el botón **Completar**: el chofer de Kepler va bloqueado, se capturan ayudantes y horario una sola vez y se calculan comisión y viáticos; después ya no se edita.

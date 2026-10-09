@@ -75,7 +75,13 @@ export interface PriceChangesResult {
  * `stale: false` y la pantalla callaba, que es el silencio que la fase vino a matar.
  */
 export type { Freshness, FreshnessInput, FreshnessStatus } from '@megadulces/contracts';
-import type { Freshness } from '@megadulces/contracts';
+import type {
+  Freshness,
+  PriceChangeNoticeDto,
+  PriceNoticeRecipientsDto,
+  PriceNoticeShareRequestDto,
+  PriceNoticeShareResultDto,
+} from '@megadulces/contracts';
 
 export interface ResolveResult { labels: LabelModel[]; not_found: string[]; freshness?: Freshness; }
 
@@ -120,5 +126,22 @@ export class EtiquetasService {
    */
   priceChangeBranches(): Observable<PriceChangeBranch[]> {
     return this.http.get<PriceChangeBranch[]>(`${this.base}/price-changes/branches`);
+  }
+
+  // ── `[ETQ-AVISOS]` Avisos de cambios de precio ─────────────────────────────────────────
+
+  /** Los avisos que le tocan a quien pregunta (el servidor recorta por alcance). `since` = sólo los posteriores. */
+  notices(since?: string): Observable<PriceChangeNoticeDto[]> {
+    return this.http.get<PriceChangeNoticeDto[]>(`${this.base}/notices`, since ? { params: { since } } : {});
+  }
+
+  /** Por plaza: cuántos la ven y hasta qué día llega su bitácora. Sólo para quien comparte. */
+  noticeRecipients(): Observable<PriceNoticeRecipientsDto[]> {
+    return this.http.get<PriceNoticeRecipientsDto[]>(`${this.base}/notices/recipients`);
+  }
+
+  /** Compras manda el aviso. Cada plaza devuelve SU estado con el motivo. */
+  shareNotices(body: PriceNoticeShareRequestDto): Observable<PriceNoticeShareResultDto[]> {
+    return this.http.post<PriceNoticeShareResultDto[]>(`${this.base}/notices/share`, body);
   }
 }

@@ -1,7 +1,9 @@
-import { Body, Controller, Get, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, Query, UseGuards, BadRequestException } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
-import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
+import { RolesGuard, RequirePermissions, Permission, ReqUser, ScopeService } from '@megadulces/platform-core';
+import type { PriceNoticeShareRequestDto } from '@megadulces/contracts';
 import { CommercialLabelsService } from './commercial-labels.service';
+import { PriceChangeNoticesService } from './price-change-notices.service';
 
 /**
  * Etiquetera (proyecto Tienda). Ruta bajo /store/* para mantener Tienda cohesivo,
@@ -13,7 +15,11 @@ import { CommercialLabelsService } from './commercial-labels.service';
 @UseGuards(RolesGuard)
 @Controller('store/labels')
 export class CommercialLabelsController {
-  constructor(private readonly svc: CommercialLabelsService) {}
+  constructor(
+    private readonly svc: CommercialLabelsService,
+    private readonly notices: PriceChangeNoticesService,
+    private readonly scope: ScopeService,
+  ) {}
 
   @Get('search')
   @RequirePermissions(Permission.STORE_LABELS_VER)
@@ -54,6 +60,63 @@ export class CommercialLabelsController {
   })
   priceChangeBranches() {
     return this.svc.priceChangeBranches();
+  }
+
+  // ── `[ETQ-AVISOS]` Avisos de cambios de precio ─────────────────────────────────────────────
+
+  @Get('notices')
+  @RequirePermissions(Permission.STORE_LABELS_VER)
+  @ApiQuery({ name: 'since', required: false, description: 'ISO. Sólo avisos posteriores (la campana lo avanza). Sin él, los últimos 3 días.' })
+  @ApiOperation({
+    summary: 'Etiquetera — avisos de cambios de precio que le tocan a quien pregunta.',
+    description:
+      'Recortado a las plazas de su alcance (`ScopeService`): quien no tiene alcance declarado ve todas. ' +
+      'Los genera el cron (07:30 resume AYER, 14:00 lo que va de HOY) o los manda Compras. Nunca hay un aviso ' +
+      'vacío: un día sin cambios no genera fila.',
+  })
+  async listNotices(@Query('since') since?: string) {
+    // `ScopeService.readParam(undefined, …)` = el alcance del usuario sin filtro pedido: `null` = todas.
+    const plazas = await this.scope.readParam(undefined, 'warehouse', 'store/labels/notices');
+    return this.notices.list(plazas, since);
+  }
+
+  @Get('notices/recipients')
+  @RequirePermissions(Permission.STORE_LABELS_COMPARTIR)
+  @ApiOperation({
+    summary: 'Etiquetera — por plaza: cuántas personas con tienda asignada ven el aviso y hasta qué día llega su bitácora.',
+    description: 'Para el diálogo de compartir. `destinatarios = 0` no apaga el aviso (quien tiene alcance total lo ve): lo DECLARA.',
+  })
+  recipients() {
+    return this.notices.recipients();
+  }
+
+  @Post('notices/share')
+  @RequirePermissions(Permission.STORE_LABELS_COMPARTIR)
+  @ApiOperation({
+    summary: 'Etiquetera — Compras manda el aviso de cambios de precio a una o varias sucursales.',
+    description:
+      'Cada plaza devuelve SU estado con el motivo: `enviado`, `sin_cambios` (no se manda un aviso vacío), ' +
+      '`sin_dato` (la bitácora no llega a ese día: no es lo mismo que «no hubo»), `repetido` (la misma persona, ' +
+      'misma plaza y día en 10 min) o `plaza_invalida` (no existe o está fuera de tu alcance).',
+  })
+  async shareNotices(@Body() body: PriceNoticeShareRequestDto, @ReqUser() user: { sub?: string }) {
+    if (!user?.sub) throw new BadRequestException('Sin usuario en la sesión.');
+    const alcance = await this.scope.readParam(undefined, 'warehouse', 'store/labels/notices/share');
+    return this.notices.share(body, user.sub, alcance);
+  }
+
+  @Post('notices/generate')
+  @RequirePermissions(Permission.STORE_LABELS_COMPARTIR)
+  @ApiOperation({
+    summary: 'Etiquetera — dispara a mano el corte de avisos (`manana` resume AYER, `tarde` HOY).',
+    description:
+      'Para probar sin esperar a las 07:30 / 14:00. Es idempotente (un aviso automático por plaza, día y corte: ' +
+      'repetirlo actualiza los conteos, no duplica) y la fecha la fija el corte, no el que llama.',
+  })
+  async generateNotices(@Body() body: { corte?: string }) {
+    const corte = body?.corte;
+    if (corte !== 'manana' && corte !== 'tarde') throw new BadRequestException('corte debe ser «manana» o «tarde».');
+    return this.notices.generarTodos(corte);
   }
 
   @Post('resolve')

@@ -11,6 +11,8 @@ import { Permission } from '../../../core/constants/permissions';
 import { DataScopeService } from '../../../core/services/data-scope.service';
 import { encuestarVisible } from '../../../core/utils/poll-visible';
 import { ServiceDeskService } from '../../servicio/service-desk.service';
+import { EtiquetasService } from '../../tienda/etiquetas.service';
+import { avisoDePrecio } from '../../tienda/aviso-precio';
 
 interface FeedItem { type: string; severity: 'info' | 'warn' | 'critical'; title: string; message: string; at: number; route?: string }
 
@@ -141,6 +143,7 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private readonly router = inject(Router);
   private readonly dataScope = inject(DataScopeService);
   private readonly serviceDesk = inject(ServiceDeskService);
+  private readonly etiquetas = inject(EtiquetasService);
 
   readonly open = signal(false);
   readonly criticos = signal(0);
@@ -213,6 +216,16 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
   private sdVisto = new Set<string>();
   private sdDesde: string | undefined;
 
+  /**
+   * `[ETQ-AVISOS.2]` Avisos de cambios de precio. Mismo molde que la mesa: la fila de
+   * `commercial.price_change_notices` ES la entrega y la campana la lee por poll — el cron que las
+   * escribe corre en el worker, que no tiene WebSocket (ADR-080). El servidor ya recorta por el
+   * alcance de sucursales de quien pregunta, así que acá no se vuelve a filtrar.
+   */
+  private readonly pcActivo = computed(() => this.perms.has(Permission.STORE_LABELS_VER));
+  private pcVisto = new Set<string>();
+  private pcDesde: string | undefined;
+
   private sub?: Subscription;
   private readonly destroyRef = inject(DestroyRef);
   private readonly zone = inject(NgZone);
@@ -231,6 +244,11 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
     if (this.sdActivo()) {
       this.pollServicio();
       encuestarVisible(60_000, () => this.pollServicio(), { destroyRef: this.destroyRef, zone: this.zone });
+    }
+    // `[ETQ-AVISOS.2]` Los avisos de precio salen a las 07:30 y a las 14:00: un poll de 5 min alcanza.
+    if (this.pcActivo()) {
+      this.pollPrecios();
+      encuestarVisible(300_000, () => this.pollPrecios(), { destroyRef: this.destroyRef, zone: this.zone });
     }
     // `[RE.27.C]` Alcance de sucursales para filtrar los avisos de entradas. Va
     // cacheado en el servicio (una llamada por sesión) y es best-effort: si no
@@ -264,6 +282,28 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
           type: 'service_desk', severity: n.severity, title: n.title, message: n.message,
           at: Date.parse(n.created_at) || Date.now(), route: this.rutaServicio(n.event, n.request_id),
         }));
+        this.feed.update((f) => [...items, ...f].sort((a, b) => b.at - a.at).slice(0, 20));
+        // Sólo pulsa por lo posterior a la última vez que abrieron la campana (no por el histórico al cargar).
+        if (items.some((i) => i.at > this.lastReadAt())) this.newSince.set(true);
+      },
+      // Best-effort: un fallo de red no calla la campana, vuelve a intentar en el siguiente ciclo.
+      error: () => undefined,
+    });
+  }
+
+  /** Trae los avisos de cambios de precio nuevos y los suma al feed. Best-effort: un fallo no calla la campana. */
+  private pollPrecios(): void {
+    this.etiquetas.notices(this.pcDesde).subscribe({
+      next: (rows) => {
+        const nuevos = rows.filter((n) => !this.pcVisto.has(n.id));
+        if (!nuevos.length) return;
+        for (const n of nuevos) this.pcVisto.add(n.id);
+        // `since` avanza al más reciente que ya se vio; el servidor devuelve estrictamente posteriores.
+        this.pcDesde = rows.reduce((m, n) => (n.created_at > m ? n.created_at : m), this.pcDesde ?? '');
+        const items: FeedItem[] = nuevos.map((n) => {
+          const a = avisoDePrecio(n);
+          return { type: 'price_changes', severity: a.severity, title: a.title, message: a.message, at: Date.parse(n.created_at) || Date.now(), route: a.route };
+        });
         this.feed.update((f) => [...items, ...f].sort((a, b) => b.at - a.at).slice(0, 20));
         // Sólo pulsa por lo posterior a la última vez que abrieron la campana (no por el histórico al cargar).
         if (items.some((i) => i.at > this.lastReadAt())) this.newSince.set(true);
@@ -370,6 +410,8 @@ export class NotificationsBellComponent implements OnInit, OnDestroy {
       case 'vale_resuelto': return 'pi-verified';
       // `[MS.3.6]` Mesa de Servicio: una solicitud que se movió o que espera a alguien.
       case 'service_desk': return 'pi-ticket';
+      // `[ETQ-AVISOS.2]` Cambios de precio: hay etiquetas del anaquel que quedaron viejas.
+      case 'price_changes': return 'pi-tag';
       default: return 'pi-bell';
     }
   }
