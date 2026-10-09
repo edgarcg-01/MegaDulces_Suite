@@ -1598,6 +1598,13 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_EXPIRY_CAPTURAR)]
       },
       {
+        // [WMS-REC.22] Llegadas al andén: qué camiones llegaron, qué traían y si se les capturó la
+        // caducidad. Permiso propio sin repartir: hoy sólo lo ve el modo god.
+        path: 'inventory/llegadas',
+        loadComponent: () => import('./modules/almacen/pages/almacen-llegadas.component').then(m => m.AlmacenLlegadasComponent),
+        canActivate: [permissionGuard(Permission.ALMACEN_LLEGADAS_VER)]
+      },
+      {
         // P2.6 — Control de Caducidades: lista de hojas de inspección de anaquel
         path: 'inventory/caducidades',
         loadComponent: () => import('./modules/comercial/pages/comercial-expiry-reviews.component').then(m => m.ComercialExpiryReviewsComponent),
