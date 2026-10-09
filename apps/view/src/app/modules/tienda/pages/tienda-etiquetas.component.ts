@@ -1183,14 +1183,19 @@ export class TiendaEtiquetasComponent {
     if (!modo || modo === 'todos') return [];
     const sinEsa: string[] = [];
     const porId = new Map(modelos.map((m) => [m.product_id, m]));
+    let aplicados = 0;
     this.queue.update((q) => q.map((it) => {
       const m = porId.get(it.model.product_id);
       if (!m) return it;
       const unidad = unidadDeModo(m.presentaciones, modo);
       if (!unidad) { sinEsa.push(m.sku || m.name); return it; }
+      aplicados++;
       return { ...it, hero: unidad };
     }));
-    this.sections.update((s) => s.filter((x) => x !== 'presentaciones'));
+    // Si a NINGÚN producto le tocó la presentación pedida, no se le quita nada a la etiqueta: sólo
+    // se avisa. Quitar «Otras presentaciones» sin haber puesto lo pedido dejaba al producto con
+    // menos información y sin lo que se había elegido.
+    if (aplicados > 0) this.sections.update((s) => s.filter((x) => x !== 'presentaciones'));
     return sinEsa;
   }
 

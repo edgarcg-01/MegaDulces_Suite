@@ -410,6 +410,14 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
             </div>
           }
 
+          @if (volvieron() > 0) {
+            <p class="cpr-head"><span style="font-size:var(--fs-xs); color:var(--fg-3)">
+              <b>{{ volvieron() }}</b> {{ volvieron() === 1 ? 'producto cambió' : 'productos cambiaron' }} de precio y
+              {{ volvieron() === 1 ? 'volvió' : 'volvieron' }} al de antes durante el día, así que no se listan: la
+              etiqueta del anaquel sigue bien.
+            </span></p>
+          }
+
           @if (ocultosCentavo() > 0) {
             <p class="cpr-head"><span style="font-size:var(--fs-xs); color:var(--fg-3)">
               Además hubo <b>{{ ocultosCentavo() }}</b> movimientos de un centavo, que no se listan:
@@ -517,7 +525,16 @@ export class TiendaCambiosPrecioComponent {
    * La selección es por código y ya no hay que cuidar que marcar una casilla marque las otras dos:
    * la fila es el producto, y la etiqueta también.
    */
-  readonly productos = computed<ProductoCambio[]>(() => agruparPorCodigo(this.items()));
+  private readonly agrupados = computed<ProductoCambio[]>(() => agruparPorCodigo(this.items()));
+
+  /**
+   * Los productos que de verdad cambiaron. Uno que se movió y terminó el día en el mismo precio
+   * con el que empezó no necesita etiqueta nueva, así que no se lista — pero se DICE cuántos son
+   * (`volvieron`): una lista más corta de lo que la bitácora registró, sin explicación, se lee
+   * como que falta algo.
+   */
+  readonly productos = computed<ProductoCambio[]>(() => this.agrupados().filter((p) => p.direccion !== 'sin_cambio'));
+  readonly volvieron = computed(() => this.agrupados().length - this.productos().length);
 
   /** Lo que la persona confirma: qué precio lleva la etiqueta. Por defecto, todos. */
   readonly modos = MODOS_PRECIO;

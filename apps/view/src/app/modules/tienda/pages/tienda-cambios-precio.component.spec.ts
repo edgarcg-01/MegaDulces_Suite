@@ -11,19 +11,21 @@ if (typeof (globalThis as any).ResizeObserver === 'undefined') {
   (globalThis as any).ResizeObserver = class { observe(): void {} unobserve(): void {} disconnect(): void {} };
 }
 
-const fila = (sku: string, unidad: string, antes: number | null, ahora: number | null): PriceChange => ({
+const fila = (sku: string, unidad: string, antes: number | null, ahora: number | null, h = '10:00'): PriceChange => ({
   sku, name: `PROD ${sku}`, unidad, precio_anterior: antes, precio_nuevo: ahora,
   delta: antes == null || ahora == null ? null : Math.round((ahora - antes) * 100) / 100,
-  es_baja: ahora === 0, hora: '2026-10-08T10:00:00Z',
+  es_baja: ahora === 0, hora: `2026-10-08T${h}:00Z`,
 });
 
 /** El caso del reporte: el 91059 llegaba TRES veces, una por presentación. */
 const ITEMS: PriceChange[] = [
-  fila('91059', 'CJA', 0, 6378.26),
-  fila('91059', '500', 6523.34, 203.85),
-  fila('91059', '500', 5602.87, 6523.34),
-  fila('95459', '500', 2882.83, 240.23),
+  fila('91059', 'CJA', 0, 6378.26, '08:00'),
+  fila('91059', '500', 6523.34, 203.85, '10:00'), // el precio de la unidad 500 se movió DOS veces el mismo día
+  fila('91059', '500', 5602.87, 6523.34, '09:00'),
+  fila('95459', '500', 2882.83, 240.23, '10:00'),
   fila('77777', 'PAQ', 10, 0),
+  fila('88888', 'PAQ', 10, 12, '09:00'), // oscila y termina donde empezó: no se lista
+  fila('88888', 'PAQ', 12, 10, '10:00'),
 ];
 
 class EtiquetasStub {
@@ -69,7 +71,22 @@ describe('TiendaCambiosPrecioComponent · un código, una fila', () => {
     expect(filas).toHaveLength(3); // 91059, 95459, 77777 — no 5
     const codigos = filas.map((tr) => tr.querySelector('td.cpr-num')?.textContent?.trim());
     expect(codigos).toEqual(['91059', '95459', '77777']);
-    expect(filas[0].querySelectorAll('.cpr-linea')).toHaveLength(3);
+    // 3 renglones de la bitácora = 2 líneas: la unidad 500 se movió dos veces y se resume en una
+    expect(filas[0].querySelectorAll('.cpr-linea')).toHaveLength(2);
+  });
+
+  it('⭐ una unidad que se movió varias veces el mismo día muestra el primer «antes» y el último «ahora»', () => {
+    const p = cmp.productos().find((x) => x.sku === '91059')!;
+    const u500 = p.filas.find((r) => r.unidad === '500')!;
+    expect(u500.precio_anterior).toBe(5602.87); // lo que hay en el anaquel
+    expect(u500.precio_nuevo).toBe(203.85);     // lo que dice Kepler ahora
+    expect(u500.delta).toBe(-5399.02);
+  });
+
+  it('un producto que terminó el día en su mismo precio no se lista, pero se declara cuántos fueron', () => {
+    expect(cmp.productos().map((p) => p.sku)).not.toContain('88888');
+    expect(cmp.volvieron()).toBe(1);
+    expect(root().textContent).toContain('volvió al de antes');
   });
 
   it('el resumen cuenta PRODUCTOS y cuadra: suben + bajan + sin precio = total', () => {

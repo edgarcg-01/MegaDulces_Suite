@@ -50,6 +50,37 @@ export interface ProductoCambio {
   direccion: 'sube' | 'baja' | 'sin_precio' | 'sin_cambio';
 }
 
+const redondea = (n: number): number => Math.round(n * 100) / 100;
+
+/**
+ * Una presentación puede moverse VARIAS veces el mismo día: el 91059 pasó de $5,602.87 a $6,523.34
+ * y después a $203.85 en la misma unidad (`500`), y la pantalla lo mostraba como dos renglones de
+ * la misma unidad encadenados. A quien reimprime no le sirve la cadena: le sirve lo que está hoy
+ * en el anaquel (el primer «antes» del día) contra lo que dice Kepler ahora (el último «ahora»).
+ *
+ * ⚠️ Se colapsa SÓLO si se puede ordenar con certeza: la consulta ordena por tamaño del cambio, no
+ * por hora, así que sin horas distintas y completas no hay cadena que reconstruir y las filas se
+ * dejan tal cual (mejor repetir una unidad que inventar cuál fue primero).
+ */
+function colapsarUnidad(grupo: PriceChange[]): PriceChange[] {
+  if (grupo.length === 1) return grupo;
+  const horas = grupo.map((r) => r.hora);
+  // Sin orden cierto no hay cadena que reconstruir: se devuelven TODAS tal como llegaron.
+  if (horas.some((h) => !h) || new Set(horas).size !== grupo.length) return grupo;
+  const ord = [...grupo].sort((a, b) => String(a.hora).localeCompare(String(b.hora)));
+  const primera = ord[0];
+  const ultima = ord[ord.length - 1];
+  const antes = primera.precio_anterior;
+  const ahora = ultima.precio_nuevo;
+  return [{
+    ...ultima,
+    precio_anterior: antes,
+    precio_nuevo: ahora,
+    delta: antes != null && ahora != null ? redondea(ahora - antes) : null,
+    es_baja: ultima.es_baja,
+  }];
+}
+
 const proporcion = (r: PriceChange): number => {
   if (r.delta == null) return 0;
   const antes = r.precio_anterior;
@@ -73,7 +104,16 @@ export function agruparPorCodigo(items: readonly PriceChange[]): ProductoCambio[
     if (lista) lista.push(r); else porSku.set(r.sku, [r]);
   }
   const out: ProductoCambio[] = [];
-  for (const [sku, filas] of porSku) {
+  for (const [sku, todas] of porSku) {
+    // Una línea por presentación: la cadena de movimientos del día se resume en antes → ahora.
+    const porUnidad = new Map<string, PriceChange[]>();
+    for (const r of todas) {
+      const k = r.unidad ?? '';
+      const g = porUnidad.get(k);
+      if (g) g.push(r); else porUnidad.set(k, [r]);
+    }
+    // Lo que terminó en el mismo precio con el que empezó el día no necesita etiqueta nueva.
+    const filas = Array.from(porUnidad.values()).flatMap(colapsarUnidad).filter((r) => r.delta == null || r.delta !== 0);
     const es_baja = filas.some((r) => r.es_baja);
     const mayor = filas
       .filter((r) => !r.es_baja)
@@ -81,7 +121,7 @@ export function agruparPorCodigo(items: readonly PriceChange[]): ProductoCambio[
     const delta = mayor?.delta ?? 0;
     out.push({
       sku,
-      name: filas.find((r) => r.name)?.name ?? null,
+      name: todas.find((r) => r.name)?.name ?? null,
       filas,
       es_baja,
       direccion: es_baja ? 'sin_precio' : delta > 0 ? 'sube' : delta < 0 ? 'baja' : 'sin_cambio',

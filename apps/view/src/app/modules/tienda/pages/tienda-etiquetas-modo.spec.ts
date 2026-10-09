@@ -38,8 +38,9 @@ const CON_TRES = modelo('10001', [pres('PZA', 'base', 8.66), pres('PAQ', 'unidad
 const SIN_CAJA = modelo('10002', [pres('PZA', 'base', 5), pres('PAQ', 'unidad2', 40, 8)]);
 
 class EtiquetasStub {
-  resolve(): ReturnType<EtiquetasService['resolve']> {
-    const r: ResolveResult = { labels: [CON_TRES, SIN_CAJA], not_found: [], freshness: FRESH };
+  resolve(codes: string[]): ReturnType<EtiquetasService['resolve']> {
+    const todos = [CON_TRES, SIN_CAJA];
+    const r: ResolveResult = { labels: todos.filter((m) => codes.includes(m.sku!)), not_found: [], freshness: FRESH };
     return of(r);
   }
   search() { return of([]); }
@@ -90,6 +91,13 @@ describe('TiendaEtiquetasComponent · el precio confirmado en «Cambios de preci
     expect(heroDe('10001')).toBe('PAQ');
     expect(heroDe('10002')).toBe('PAQ');
     expect(cmp.msg()?.text ?? '').not.toContain('sin paquete');
+  });
+
+  it('⛔ si a NINGÚN producto le toca la presentación pedida, no se le quita nada a la etiqueta: sólo se avisa', async () => {
+    await abrirCon({ codes: ['10002'], modo: 'caja' }); // el 10002 no tiene caja
+    expect(cmp.msg()?.text ?? '').toContain('sin caja');
+    expect(cmp.msg()?.kind).toBe('warn');
+    expect(cmp.sections()).toContain('presentaciones'); // sigue mostrando lo que tiene
   });
 
   it('«todos» no toca nada: mismo precio grande de siempre y «Otras presentaciones» sigue prendido', async () => {

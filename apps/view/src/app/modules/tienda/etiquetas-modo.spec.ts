@@ -26,6 +26,51 @@ describe('agruparPorCodigo · un código, una fila', () => {
     expect(r[0].filas).toHaveLength(3);
   });
 
+  describe('una unidad que se movió varias veces el mismo día', () => {
+    const h = (hh: string): Partial<PriceChange> => ({ hora: `2026-10-08T${hh}:00:00Z` });
+
+    it('⭐ se resume en el primer «antes» y el último «ahora», sin importar en qué orden llegue la consulta', () => {
+      // el caso real del 91059: la consulta las trae por tamaño del cambio, no por hora
+      const r = agruparPorCodigo([
+        fila('91059', '500', 6523.34, 203.85, h('10:00')),
+        fila('91059', '500', 5602.87, 6523.34, h('09:00')),
+      ]);
+      expect(r[0].filas).toHaveLength(1);
+      expect(r[0].filas[0].precio_anterior).toBe(5602.87);
+      expect(r[0].filas[0].precio_nuevo).toBe(203.85);
+      expect(r[0].filas[0].delta).toBe(-5399.02);
+      expect(r[0].direccion).toBe('baja');
+    });
+
+    it('⛔ sin horas completas y distintas NO se inventa el orden: las filas quedan como llegan', () => {
+      const sinHora = agruparPorCodigo([fila('X', '500', 10, 20, { hora: null }), fila('X', '500', 20, 5, { hora: null })]);
+      expect(sinHora[0].filas).toHaveLength(2);
+      const iguales = agruparPorCodigo([fila('Y', '500', 10, 20, h('09:00')), fila('Y', '500', 20, 5, h('09:00'))]);
+      expect(iguales[0].filas).toHaveLength(2);
+    });
+
+    it('si terminó en el mismo precio con el que empezó, no hay nada que reimprimir', () => {
+      const r = agruparPorCodigo([fila('Z', 'PAQ', 10, 12, h('09:00')), fila('Z', 'PAQ', 12, 10, h('10:00'))]);
+      expect(r[0].filas).toEqual([]);
+      expect(r[0].direccion).toBe('sin_cambio');
+    });
+
+    it('una unidad en cero neto no estorba a las otras del mismo producto', () => {
+      const r = agruparPorCodigo([
+        fila('W', 'PAQ', 10, 12, h('09:00')), fila('W', 'PAQ', 12, 10, h('10:00')),
+        fila('W', 'CJA', 100, 120, h('09:30')),
+      ]);
+      expect(r[0].filas.map((f) => f.unidad)).toEqual(['CJA']);
+      expect(r[0].direccion).toBe('sube');
+    });
+
+    it('si la última movida le quitó el precio, el producto es «sin precio»', () => {
+      const r = agruparPorCodigo([fila('V', 'PAQ', 10, 12, h('09:00')), fila('V', 'PAQ', 12, 0, h('10:00'))]);
+      expect(r[0].es_baja).toBe(true);
+      expect(r[0].direccion).toBe('sin_precio');
+    });
+  });
+
   it('conserva el orden en que aparece cada código y no mezcla productos', () => {
     const r = agruparPorCodigo([fila('B', 'PAQ', 10, 11), fila('A', 'PZA', 1, 2), fila('B', 'CJA', 100, 110)]);
     expect(r.map((p) => p.sku)).toEqual(['B', 'A']);
