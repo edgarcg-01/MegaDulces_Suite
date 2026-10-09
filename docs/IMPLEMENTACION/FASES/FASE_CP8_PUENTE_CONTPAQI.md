@@ -1141,3 +1141,77 @@ marcadores vacíos**. Se va a repetir en cada sesión que migre desde el contene
 ⛔ **Esto NO habilita a nadie a asentar.** Las 19 filas que no son `no_aplica` siguen en
 `sin_regla`. Lo que cambia es que el armador ya puede distinguir *"falta decidir"* de *"ya se
 decidió que no aplica"* — dos estados que hoy se veían iguales (misma lección que `[CP.8.1d]`).
+
+### 🚀 Paso 3 cerrado — `[CP.8.20]` EN PROD, batch 864 (2026-10-09)
+
+`analytics.contpaqi_accounts` (8,811 cuentas — el catálogo que sólo existía como JOIN dentro de
+otro importer) + `contpaqi.supplier_accounts` (1,015 cuentas `2120*` con veredicto).
+Las llena `import-contpaqi-account-map.js`, READ-ONLY sobre ContPAQi.
+
+#### ⛔ ContPAQi no guarda la cuenta del proveedor — hubo que derivarla
+
+| | |
+|---|---|
+| `Proveedores.IdCuenta` / `.CodigoCuenta` | poblados en **1 de 3,426** |
+| `Personas.CtaContableGasto` | **0 de 5,676** |
+| `MovimientosPoliza` | **no tiene columna de persona** — la identidad del proveedor **ES** la cuenta |
+
+#### Dos derivaciones independientes, cruzadas entre sí
+
+| vía | cuentas (de 147 usadas en 2026) | % del importe |
+|---|--:|--:|
+| **A** — nombre de cuenta ≈ nombre de proveedor, normalizado | 125 | 89.4 % |
+| **B** — ⭐ **UUID del CFDI** que ContPAQi ató al renglón (`AsocCFDIs`) → RFC del emisor | **146** | **100 %** |
+
+⭐ **B domina a A**: no hay **ni una** cuenta que el nombre resuelva y el UUID no. Y es
+estructural — ContPAQi mismo hizo esa asociación; no se adivina ninguna grafía.
+
+⛔ **Por qué el nombre no puede ser la llave**, medido: la cuenta
+`SOCIEDAD COOPERATIVA TRABAJADORES PASCUAL` sólo tiene candidato en el proveedor
+`PASCUAL ALEJANDRO GONZALEZ LOPEZ`, **una persona física distinta**. Normalizar más agresivo sube
+la cobertura **y empieza a emparejar cosas distintas** (medido: `exacto` 71.8 % → `sufijos` 87.5 %
+del importe, pero las llaves que colapsan dos RFC pasan de 22 a 31). El nombre queda como
+**testigo corroborante**, nunca como resolvedor.
+
+#### ⭐⭐ Lo que el cruce encontró, y que ninguna vía sola habría visto
+
+De 125 cuentas donde opinan las dos, **124 coinciden y 1 discrepa**: `2120000366 CANAP BOLSAS`
+tiene asociado un CFDI de **ABARROTES LA VIOLETA** por **$44,272.35** — y La Violeta **tiene su
+propia cuenta** (`2120000336`). Es un **error de captura**, no un empate dudoso. Va a bandeja
+como `en_disputa`; **el motor no elige uno de los dos**.
+
+⚠️ Y la lección de umbral que salió de ahí: esa cuenta tenía **pureza 100 % sobre UN voto**.
+*Pureza perfecta sobre n=1 no es certeza.* Medida la distribución, **36 de 183 cuentas (20 %) se
+apoyan en una sola asociación** — justo la franja donde vivía el único falso positivo. Por eso el
+veredicto pesa **votos**, no sólo pureza, y el CHECK exige `votos >= 3` para `uuid_solido`.
+
+#### Veredictos en prod, y la cobertura que importa — en pesos
+
+| veredicto | cuentas | importe 2026 | % |
+|---|--:|--:|--:|
+| `confirmado` (los dos testigos) | 155 | $272,741,576.77 | 89.7 |
+| `uuid_solido` (n≥3, pureza≥90) | 18 | $30,876,097.56 | 10.1 |
+| `uuid_debil` (n<3) | 9 | $449,017.60 | 0.1 |
+| `sin_proveedor` | 148 | $96,980.00 | 0.0 |
+| `en_disputa` | 1 | $44,272.35 | 0.0 |
+| `solo_nombre` (sin actividad de CFDI desde 2025) | 684 | — | — |
+
+⭐ **99.8 % del importe queda con cuenta utilizable.** `compra_mercancia` —el renglón más grande
+de egresos— deja de depender del contador.
+
+#### Prueba negativa de los CHECK (como `postgres`)
+
+| Caso | Resultado |
+|---|---|
+| `confirmado` con `rfc` NULL | ✗ `supplier_accounts_rfc_chk` |
+| `uuid_solido` con 1 voto | ✗ `supplier_accounts_solido_chk` |
+| veredicto inventado (`mas_o_menos`) | ✗ `supplier_accounts_veredicto_chk` |
+| tocar las 155 filas válidas | ✓ `UPDATE 155` |
+
+⚠️ **El importer NO corre desde la máquina de trabajo**: `edgar` es read-only por diseño y el
+`INSERT` muere con *"read-only transaction"*. Corre desde el pod `feeds-cron` del namespace
+`ingesta` en `md`, que tiene `mssql` y el `DATABASE_URL_NEW` con escritura.
+
+⚠️ Y una corrección de ruta: `feeds-cron` aparece `Exited (137)` en `docker ps` de `md` hace 8
+días — **no es una caída**: los feeds se mudaron a k3s igual que prod, y el contenedor de Docker
+es el sustrato viejo. *Medir dónde corre hoy, no dónde vivía.*
