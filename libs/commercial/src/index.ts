@@ -12,6 +12,8 @@ export * from './lib/commercial-profitability/commercial-profitability.module';
 export * from './lib/commercial-profitability/commercial-profitability.service';
 export * from './lib/commercial-commissions/commercial-commissions.module';
 export * from './lib/commercial-commissions/commercial-commissions.service';
+export * from './lib/commercial-route-profit/commercial-route-profit.module';
+export * from './lib/commercial-route-profit/route-profit.service';
 export * from './lib/commercial-inventory/commercial-inventory.module';
 export * from './lib/commercial-receiving/commercial-receiving.module';
 export * from './lib/commercial-expiry-reviews/commercial-expiry-reviews.module';

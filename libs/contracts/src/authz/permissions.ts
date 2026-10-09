@@ -347,6 +347,13 @@ export enum Permission {
   // esto último es nómina. GESTIONAR = calcular, aprobar y marcar pagada la corrida.
   COMMERCIAL_COMMISSIONS_VER = 'COMMERCIAL_COMMISSIONS_VER',
   COMMERCIAL_COMMISSIONS_GESTIONAR = 'COMMERCIAL_COMMISSIONS_GESTIONAR',
+  // `[RD.57]` /comercial/ruta-directa/rentabilidad — ¿la ruta GANA dinero?, que no es
+  // la misma pregunta que cuánto vendió ni que cuánto cobra su chofer. Permiso PROPIO y
+  // no COMMERCIAL_ROUTE_SALES_VER: esta pantalla publica el gasto del departamento, que
+  // incluye nómina, SUA y comisiones ($3.2M de la familia `personal` en 2026), y los
+  // supervisores de ruta tienen ROUTE_SALES. Tampoco cuelga de COMMISSIONS_VER: ahí se
+  // ve lo que cobra cada persona, acá el resultado de la operación.
+  COMMERCIAL_ROUTE_PROFIT_VER = 'COMMERCIAL_ROUTE_PROFIT_VER',
   // /comercial/documentos (AX.2, facturas de venta + anexo imprimible). Nació
   // reusando COMMERCIAL_ORDERS_VER, así que no se podía asignar sin dar Pedidos
   // ni quitar sin quitarlos. Backfill ← ORDERS_VER en 20260825120000.

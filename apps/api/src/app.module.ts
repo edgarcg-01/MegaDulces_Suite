@@ -58,6 +58,8 @@ import { CommercialProfitabilityModule } from '@megadulces/commercial';
 // en ESTE commit, que es la condicion que dejo escrita el descableado de las 11:25.
 import { CommercialStandardCostModule } from '@megadulces/commercial';
 import { CommercialCommissionsModule } from '@megadulces/commercial';
+// [RD.57] Rentabilidad de Ruta Directa: utilidad bruta + km del GPS + gasto del dpto.
+import { CommercialRouteProfitModule } from '@megadulces/commercial';
 import { CommercialInventoryModule } from '@megadulces/commercial';
 import { CommercialReceivingModule } from '@megadulces/commercial';
 import { CommercialExpiryReviewsModule } from '@megadulces/commercial';
@@ -198,6 +200,7 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       // [CE.2] Costo estandar de Kepler por producto (solo lectura sobre analytics).
       CommercialStandardCostModule,
       CommercialCommissionsModule,
+      CommercialRouteProfitModule,
       CommercialInventoryModule,
       CommercialReceivingModule,
       CommercialExpiryReviewsModule,
