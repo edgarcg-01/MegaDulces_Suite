@@ -290,10 +290,12 @@ async function bootstrap() {
   // - Endpoints de upload (daily-captures multipart): los maneja AnyFilesInterceptor
   //   sin pasar por este middleware, así que el límite del JSON no aplica.
   // - Endpoints con payload grande (base64 photos legacy): override por route si surge necesidad.
-  // Comprobación de gasto (GX.7): el comprobante PDF/imagen llega como base64
-  // (hasta 10MB → ~13MB en base64). Parser de mayor límite SOLO para esa ruta,
+  // Comprobación de gasto (GX.7): el comprobante PDF/imagen llega como base64.
+  // `[GX.79]` Hasta 20 MB (MAX_ARCHIVO_GASTO_BYTES) → ~27 MB en base64 → 32mb, igual que el
+  // `client_max_body_size 32m` de nginx. Parser de mayor límite SOLO para esa ruta,
   // montado antes del global para que gane (express salta el segundo si ya parseó).
-  app.use('/api/finance/expenses/proofs', json({ limit: '16mb' }));
+  // ⚠️ El candado `limite-archivo-gasto.spec.ts` lee esta línea: si baja, falla.
+  app.use('/api/finance/expenses/proofs', json({ limit: '32mb' }));
   // Comprobación de gastos (GX.8): OCR + upload del documento "Gastos" de Kepler (foto/PDF) como base64.
   app.use('/api/finance/expenses/comprobaciones', json({ limit: '16mb' }));
   // Evidencia por foto/PDF (RE.5 recepción, CC cobranza, CC pagos): la remisión/ficha/

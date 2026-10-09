@@ -122,6 +122,8 @@ export * from './finance/dueno-del-vale.contract';
 export * from './finance/ver-expediente.contract';
 // [PC.5]/[PC.6] las cuatro coincidencias comprobante↔pago (banco, fecha, monto, proveedor)
 export * from './finance/coincidencia-pago.contract';
+// `[GX.79]` el tope de un archivo de evidencia de gasto (20 MB): pantalla, API y proxy.
+export * from './finance/archivo-gasto.contract';
 // `[GX.78]` los filtros del Historial de levantamientos: el servidor acota el calendario y la
 // pantalla la lista del día con la MISMA regla.
 export * from './finance/historial-filtro.contract';

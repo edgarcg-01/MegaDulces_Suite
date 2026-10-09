@@ -650,3 +650,41 @@ describe('[GX.41] FinanzasCapturarGastoComponent · abrir desde la URL', () => {
     expect(comp.gasto()).toBeNull();
   });
 });
+
+/**
+ * `[GX.79]` Levantar vale acepta archivos de hasta **20 MB** (antes 10). El tope es el compartido
+ * de contracts; el candado del servidor comprueba que la API y el proxy lo dejan pasar.
+ */
+describe('[GX.79] FinanzasCapturarGastoComponent · tope de 20 MB', () => {
+  const MB = 1024 * 1024;
+  let comp: FinanzasCapturarGastoComponent;
+
+  /** El evento de un `<input type="file">` con un archivo que DICE pesar `mb`. */
+  const eventoCon = (mb: number, nombre: string) => {
+    const f = new File(['%PDF-1.4'], nombre, { type: 'application/pdf' });
+    Object.defineProperty(f, 'size', { value: mb * MB });
+    return { target: { files: [f], value: 'C:/fakepath/' + nombre } } as unknown as Event;
+  };
+
+  beforeEach(async () => {
+    await TestBed.configureTestingModule({
+      imports: [FinanzasCapturarGastoComponent],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
+    }).compileComponents();
+    comp = TestBed.createComponent(FinanzasCapturarGastoComponent).componentInstance;
+  });
+
+  it('⭐ un archivo de 15 MB (antes rechazado) entra', async () => {
+    comp.onFile(eventoCon(15, 'factura.pdf'), 'comprobante_1');
+    expect(comp.formError()).toBe('');
+    // Se espera a que el navegador termine de leerlo (bajo carga tarda más de unos ms).
+    await vi.waitFor(() => expect(comp.names()['comprobante_1']).toBe('factura.pdf'));
+  });
+
+  /** ⛔ Prueba negativa: más de 20 MB se rechaza y lo dice con el tope nuevo. */
+  it('⛔ uno de 21 MB se rechaza diciendo el tope', () => {
+    comp.onFile(eventoCon(21, 'escaneo.pdf'), 'comprobante_1');
+    expect(comp.formError()).toBe('"escaneo.pdf" supera 20 MB.');
+    expect(comp.names()['comprobante_1']).toBeUndefined();
+  });
+});

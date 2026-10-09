@@ -17,9 +17,16 @@
 - API: `POST /logistics/guides/:id/complete`; la toma de Kepler rechaza tripulación u horario. Sin migraciones.
 - ⚠️ Hallazgo abierto como EMB.23: ningún flujo pasa una guía a «entregada», y Liquidaciones sólo cuenta las entregadas.
 
+### Changed — Finanzas › Gastos: la evidencia acepta archivos de hasta 20 MB (GX.79, 2026-10-09)
+- Levantar vale y el diálogo de evidencia aceptan archivos de hasta 20 MB (antes 10). La API de evidencia sube su límite a 32 MB para el archivo en base64.
 ### Added — Finanzas › Historial de levantamientos: filtros (GX.78, 2026-10-09)
 - Filtrar por **estado** (varios a la vez), **sucursal** y **quién levantó** (esta última sólo en «Todos»). Cada opción dice cuántos vales tiene.
 - El calendario, el total del mes y la lista del día abierto cuentan lo filtrado, y lo dicen contra el total: «58 de 392 levantamientos del mes».
+### Added — Llegadas al andén y el producto sin caducidad (WMS-REC.22, 2026-10-09)
+- **Llegadas al andén** (`/almacen/inventory/llegadas`, pestaña de Inventario): qué camiones llegaron a cada sucursal, qué mercancía traían y si se les capturó la caducidad. Incluye los que **Kepler ya recibió y nadie abrió en el Andén**, cuya mercancía está en el inventario sin caducidad. Hoy, sólo la ve el modo god (permiso propio `ALMACEN_LLEGADAS_VER`, sin repartir).
+- En el Andén, el botón **«Este producto no cuenta con fecha de caducidad»** al fechar un renglón: guarda sin fecha y como lote NA. Se ve en Llegadas como «sin caducidad».
+### Internal — Llegadas al andén (WMS-REC.22, 2026-10-09)
+- `GET /commercial/receiving/sessions/arrivals`: órdenes de entrada y traspasos de la ventana del Andén con su vale, renglones y lotes; seis consultas. Lógica pura en `receiving-arrivals.ts`. Sin migraciones. Costo en prod sin medir.
 ### Changed — RH: Asistencia con la forma de Horarios de Mega Talento (RH.1.7c, 2026-10-08)
 - Una sola sección con pestañas **Checadas · Tolerancia · Faltas · Incidencias · Relojes**, con lo que espera en cada una. La plaza, la semana y los filtros se conservan al cambiar de pestaña.
 - Checadas es el **reporte semanal calcado**: una fila por persona, una columna por día, por departamento, con D/C de desayuno y comida; en rojo lo tarde y lo faltado. La ficha se abre de lado. Exportar a PDF para firmar y a Excel sale con lo que se ve, y si es parcial lo dice.
