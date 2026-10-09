@@ -215,8 +215,8 @@ export class RouteProfitService {
       // `sum(km)` ignora esos días y `dias_medidos` dice cuántos entraron de verdad.
       const { rows: rutas } = await trx.raw(`
         WITH linea AS (
-          -- ⛔⛔ La PLAZA sale del resolvedor por `route_code`, NO del texto de `zona`.
-          -- La primera versión cruzaba cadenas (`zona.includes(plaza)`) y «Zamora, Michoacán»
+          -- ⛔⛔ La PLAZA sale del resolvedor por route_code, NO del texto de la zona.
+          -- La primera versión cruzaba cadenas (zona contiene plaza) y «Zamora, Michoacán»
           -- NO contiene «Canindo»: las 4 rutas de Canindo nunca se pegaban a su plaza, así que
           -- su tarjeta publicaba el gasto con CERO rutas y resultado «sin medir» — $158,383.69
           -- de utilidad bruta, el 42% del total de RD, desaparecidos de la vista por plaza.
