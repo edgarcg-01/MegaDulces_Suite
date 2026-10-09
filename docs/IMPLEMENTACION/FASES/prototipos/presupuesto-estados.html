@@ -261,6 +261,38 @@ tbody tr:last-child td{border-bottom:none}
     </tbody>
   </table></div>
 
+  <h3>⭐ El primitivo ya existe — y lo que de verdad falta es otra cosa</h3>
+  <p class="lead">Este documento nació para proponer «el segundo primitivo, sobre el eje cobertura». <strong>Medido: ya existe.</strong> <code>libs/contracts/src/http/provenance.contract.ts</code> exporta <code>Coverage</code> desde hace semanas, y su comentario es nuestra regla 2 escrita antes que nosotros: <em>«<code>measured</code> es el campo que no puede faltar. Sin él, "no falta nada" y "nadie contó" se serializan igual»</em>.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Contrato</th><th class="num">Archivos que lo usan</th><th>Qué contesta</th><th>Qué le falta</th></tr></thead>
+    <tbody>
+      <tr><td><code>Freshness</code> <span class="st st-medido">medido</span></td><td class="num">33</td><td>¿de cuándo es el dato? Ternario <code>fresh&nbsp;|&nbsp;stale&nbsp;|&nbsp;unknown</code>.</td><td>Nada. Funcionó: sólo <strong>2</strong> archivos declaran el tipo a mano, y uno es el contrato mismo.</td></tr>
+      <tr><td><code>Coverage</code> <span class="st st-parcial">parcial</span></td><td class="num">11</td><td>¿qué parte del universo cubre <strong>la respuesta</strong>? <code>measured · pct · note</code>.</td><td><strong>El <code>method</code>.</strong> Sabe decir cuánto cubre, no <strong>cómo se derivó</strong>.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Íbamos a construir por segunda vez un primitivo que ya existía — mientras escribíamos un documento sobre no hacer eso.</strong> Lo que lo evitó no fue releer el contrato: fue <strong>medir la adopción en vez de asumir la ausencia</strong>. El hueco real es que <code>Coverage</code> tiene <strong>un tercio</strong> de los adoptantes de su hermano, y es de adopción, no de diseño.</div>
+
+  <h3>⛔ Pero <code>Coverage</code> no alcanza: está en otro GRANO</h3>
+  <p class="lead">Una respuesta trae <strong>un</strong> <code>Coverage</code>. Una tira trae <strong>varios números con estados distintos</strong>. El primero no puede hablar por el segundo.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Una sola respuesta</th><th class="num">Números</th><th class="num">Estados distintos</th><th class="num">Objetos <code>Coverage</code></th></tr></thead>
+    <tbody>
+      <tr><td><code>salesKpis(SalesComparison)</code> — Ventas</td><td class="num">4</td><td class="num">3</td><td class="num"><strong>1</strong></td></tr>
+      <tr><td><code>cashflowKpis()</code> — Tesorería</td><td class="num">5</td><td class="num">3</td><td class="num"><strong>1</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note ok"><strong>No son redundantes: son complementarios y de distinto grano.</strong> <code>Coverage</code> contesta <em>¿qué cubre la RESPUESTA?</em>; el vocabulario de estados contesta <em>¿con qué se calculó ESTE número?</em>. Extender <code>Coverage</code> con <code>method</code> hace falta igual — pero no alcanza al per-número, porque un solo objeto no puede decir que el KPI #1 está parcial y el #3 no se midió.</div>
+
+  <h3>Dos antipatrones, el mismo defecto por puertas distintas</h3>
+  <p class="lead">Los dos carriles encontramos la regla 2 violada en nuestra propia tira, de formas que no se parecen — y que <code>Coverage</code> no habría atrapado en ninguno de los dos casos, porque mira la respuesta y el defecto está en la tarjeta.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:30%">Carril</th><th>Cómo entra la ausencia</th><th>Por qué es peor de lo que parece</th></tr></thead>
+    <tbody>
+      <tr><td>Tesorería</td><td><code>'sin base'</code> como <code>value</code>, sin tono</td><td>Una <strong>ausencia renderizada como valor normal</strong>. Se ve como un dato más de la tira.</td></tr>
+      <tr><td><strong>Ventas</strong> (éste)</td><td><code>value: cumplimiento_pct ?? 0</code></td><td><strong>La ausencia se convierte en 0 en el MODELO</strong>, y lo único que la disimula es cambiar <code>format</code> a <code>'text'</code>. Sobrevive a cualquier cambio de formato: el día que alguien lo vuelva <code>'percent'</code>, la pantalla publica <strong>0 %</strong> donde no hay meta. Igual en <code>CREC</code>.</td></tr>
+    </tbody>
+  </table></div>
+
   <h3>Dos cosas que este carril debe declarar</h3>
   <ul>
     <li><strong>El latido del refresco nunca ha corrido.</strong> Las cifras de arriba salen de una matvista <span class="rg">snapshot</span> cuyo trabajo nocturno (<code>analytics_refresh_sellout_budget</code>) <strong>no tiene ni un registro</strong>: su propio candado lo reporta <code>NO MEDIDO</code>. El rollup está a 18 h y <strong>nadie vigila esa antigüedad</strong>. Un <code>as_of</code> fresco sobre esta pantalla sería exactamente la mentira por omisión de la sección 2.</li>
