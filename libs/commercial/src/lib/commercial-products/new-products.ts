@@ -230,9 +230,6 @@ export interface Existencia {
   fuente?: string | null;
   /** Rótulo base de la ficha de Kepler de ESA plaza (`kdii.c11`): Kepler guarda el inventario en él. */
   unidad?: string | null;
-  /** El peldaño mayor de esa misma ficha y su factor (en unidades base). */
-  unidad_mayor?: string | null;
-  factor_mayor?: number | string | null;
 }
 
 /** `[NP.16]` El kardex de una plaza, como lo deja la matvista. */

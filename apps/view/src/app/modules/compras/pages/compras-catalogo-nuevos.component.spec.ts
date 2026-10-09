@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
 import { provideHttpClientTesting } from '@angular/common/http/testing';
-import { of, throwError } from 'rxjs';
+import { NEVER, of, throwError } from 'rxjs';
 import { vi } from 'vitest';
 import {
   DetalleNuevo,
@@ -484,6 +484,55 @@ describe('[NP.16] llegada, unidades por corte y reparto', () => {
     expect(filas[0]).toContain('4 paquetes');  // mandó a rutas
     expect(filas[1]).toContain('Yurécuaro');
     expect(filas[1]).toContain('10 cajas');    // le llegó de otra
+  });
+});
+
+describe('[NP.17] sin pantallazo al recargar', () => {
+  const pendiente = async (fix: ComponentFixture<unknown>) => {
+    for (let i = 0; i < 3; i++) { fix.detectChanges(); await new Promise((r) => setTimeout(r, 0)); }
+  };
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('⭐ mientras el detalle se vuelve a pedir, se queda el que había (no "Cargando sucursales…")', async () => {
+    let llamadas = 0;
+    // La primera vez responde; las recargas se quedan esperando, como una consulta lenta.
+    const api = { listar: vi.fn(() => of(RESPUESTA)), detalle: vi.fn(() => (++llamadas === 1 ? of(DETALLE) : NEVER)) };
+    await TestBed.configureTestingModule({
+      imports: [ComprasCatalogoNuevosComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting(), { provide: ProductosNuevosService, useValue: api }],
+    }).compileComponents();
+    const fix = TestBed.createComponent(ComprasCatalogoNuevosComponent);
+    await tick(fix);
+    (fix.nativeElement.querySelector('tr.pn-fila') as HTMLElement).click();
+    await tick(fix);
+    expect(document.querySelectorAll('.pk-plaza').length).toBe(2);
+    fix.componentInstance.recargar();
+    // Sin esperar estabilidad: la recarga queda pendiente a propósito (whenStable no regresaría).
+    await pendiente(fix);
+    expect(api.detalle).toHaveBeenCalledTimes(2);
+    expect(document.querySelectorAll('.pk-plaza').length).toBe(2);
+    expect(document.body.textContent).not.toContain('Cargando sucursales');
+    // Y la lista tampoco se vacía.
+    expect(fix.nativeElement.querySelectorAll('tr.pn-fila').length).toBeGreaterThan(0);
+  });
+
+  it('[negativa] al abrir OTRO producto no se muestra el detalle del anterior', async () => {
+    const otro = { ...DETALLE, producto: { ...DETALLE.producto, product_id: 'p-2' } };
+    const api = { listar: vi.fn(() => of(RESPUESTA)), detalle: vi.fn((id: string) => (id === 'p-1' ? of(DETALLE) : NEVER)) };
+    await TestBed.configureTestingModule({
+      imports: [ComprasCatalogoNuevosComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting(), { provide: ProductosNuevosService, useValue: api }],
+    }).compileComponents();
+    const fix = TestBed.createComponent(ComprasCatalogoNuevosComponent);
+    await tick(fix);
+    const c = fix.componentInstance;
+    c.abrir(FILAS[0]);
+    await tick(fix);
+    expect(c.det()?.producto.product_id).toBe('p-1');
+    c.abrir(FILAS[1]);
+    await pendiente(fix);
+    expect(c.det()).toBeNull();
+    void otro;
   });
 });
 
