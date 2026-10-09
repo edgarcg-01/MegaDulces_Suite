@@ -21,7 +21,7 @@ import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResult
   ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
-// `[PVI.5]` La vista Ventas salió a su propio componente. Los tipos y los estilos quedan en
+// `[PVI.9]` La vista Ventas salió a su propio componente. Los tipos y los estilos quedan en
 // archivos compartidos porque **el shell los sigue necesitando**: el estado y el HTTP no se
 // movieron (ver la cabecera del hijo). Mismo patrón que `bancos/`.
 import { PresupuestoVentasComponent } from './presupuesto/presupuesto-ventas.component';
@@ -518,7 +518,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
 
       <!-- ══════════ PRESUPUESTO DE VENTAS (PV) ══════════ -->
       @if (view() === 'ventas') {
-        <!-- [PVI.5] La vista vive en presupuesto/presupuesto-ventas.component.ts. El estado y el
+        <!-- [PVI.9] La vista vive en presupuesto/presupuesto-ventas.component.ts. El estado y el
              HTTP se quedan ACA a proposito: las vistas se montan con @if, asi que un hijo con
              estado propio perderia lo cargado cada vez que el usuario sale y vuelve -y "Cargar
              meta vs real" consulta el sell-out del ODS, que tarda segundos. Mismo patron que
@@ -1100,7 +1100,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
     <!-- PR.5 (ADR-074): «Nuevo gasto autorizado» retirado — las obligaciones se auto-generan del plan
          de gastos (estado propuesta) y se autorizan en lote desde la pestaña Obligaciones. -->
   `,
-  // `[PVI.5]` Las reglas viven en presupuesto/presupuesto.styles.ts: con encapsulacion emulada
+  // `[PVI.9]` Las reglas viven en presupuesto/presupuesto.styles.ts: con encapsulacion emulada
   // el estilo del shell NO alcanza a un hijo, y la vista Ventas ya salio a su propio componente.
   styles: [PRESUPUESTO_STYLES],
 })

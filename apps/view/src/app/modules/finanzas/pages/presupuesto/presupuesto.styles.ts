@@ -1,5 +1,5 @@
 /**
- * `[PVI.5]` — Estilos COMPARTIDOS de `/finanzas/presupuesto` (shell + hijos).
+ * `[PVI.9]` — Estilos COMPARTIDOS de `/finanzas/presupuesto` (shell + hijos).
  *
  * Por qué existe: al partir la pantalla por vista, la encapsulación emulada de Angular hace que
  * **el estilo del padre no alcance al hijo**. Bancos ya pagó esa lección y la dejó escrita: sin un

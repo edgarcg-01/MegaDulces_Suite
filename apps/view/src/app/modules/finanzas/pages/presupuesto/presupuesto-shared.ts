@@ -1,5 +1,5 @@
 /**
- * `[PVI.5]` — Tipos del **presupuesto de ventas**, compartidos entre el shell y la vista Ventas.
+ * `[PVI.9]` — Tipos del **presupuesto de ventas**, compartidos entre el shell y la vista Ventas.
  *
  * Vivían dentro de `finanzas-presupuesto.component.ts` (líneas 113–177), un archivo de **2,719
  * líneas que tocan al menos cinco carriles** — Ventas, Tesorería, Gastos, VP y Sucursales. Medido
