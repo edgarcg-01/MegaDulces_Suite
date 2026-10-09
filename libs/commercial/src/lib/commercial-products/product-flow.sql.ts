@@ -148,3 +148,43 @@ export const TRASPASOS_SQL = `
      AND h.c9::date >= ?::date AND btrim(h.c1) = btrim(h.sucursal)
      AND coalesce(nullif(btrim(h.c43), ''), '') <> 'C'
    GROUP BY 1, 2`;
+
+/**
+ * `[PF.2]` Líderes: los productos que juntos hacen la primera mitad de la venta de la red en 90 días.
+ * Fuente: `analytics.product_sales_stats` (el carril `live` la recalcula cada 30 min). Medido en prod el
+ * 2026-10-09: 244 productos hacen el 50% (la clase A, el 80%, son 952: demasiados para "cuidado especial").
+ * Es el ranking de NUESTRA venta, no participación de mercado: no hay datos del mercado.
+ * Parámetros: corte (fracción acumulada ANTES del producto, p. ej. 0.5), ids (NULL = todos los líderes).
+ */
+export const LIDERES_SQL = `
+  WITH s AS (
+    SELECT product_id, revenue_90d, computed_at,
+           row_number() OVER (ORDER BY revenue_90d DESC, product_id) AS rank,
+           coalesce(sum(revenue_90d) OVER (ORDER BY revenue_90d DESC, product_id
+                                          ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING), 0)
+             / nullif(sum(revenue_90d) OVER (), 0) AS acum_antes,
+           revenue_90d / nullif(sum(revenue_90d) OVER (), 0) AS participacion
+      FROM analytics.product_sales_stats
+     WHERE tenant_id = public.current_tenant_id() AND revenue_90d > 0
+  )
+  SELECT s.product_id::text AS product_id, s.rank::int AS rank, s.participacion::float AS participacion,
+         s.revenue_90d::float AS venta_90d, s.computed_at
+    FROM s
+   WHERE s.acum_antes < ?::numeric
+     AND (?::uuid[] IS NULL OR s.product_id = ANY(?::uuid[]))`;
+
+/**
+ * `[PF.3]` Lotes con fecha de caducidad registrada (andén, revisión de caducidades), por sucursal de Kepler.
+ * Fuente: `commercial.stock_lots`. ⚠️ La cantidad es la REGISTRADA: Kepler no descuenta por lote al vender,
+ * así que se topa con la existencia de hoy en la lógica. Parámetros: ids (NULL = todos los productos con lote).
+ */
+export const LOTES_CADUCIDAD_SQL = `
+  SELECT l.product_id::text AS product_id, p.sku, p.nombre, w.kepler_code AS plaza, l.lot_code AS lote,
+         to_char(l.expiry_date, 'YYYY-MM-DD') AS caduca, l.quantity::float AS cantidad,
+         to_char(l.received_at, 'YYYY-MM-DD') AS registrado
+    FROM commercial.stock_lots l
+    JOIN commercial.warehouses w ON w.id = l.warehouse_id
+    JOIN catalog.products p ON p.id = l.product_id
+   WHERE l.tenant_id = public.current_tenant_id()
+     AND l.expiry_date IS NOT NULL AND l.quantity > 0 AND w.kepler_code IS NOT NULL AND p.sku IS NOT NULL
+     AND (?::uuid[] IS NULL OR l.product_id = ANY(?::uuid[]))`;

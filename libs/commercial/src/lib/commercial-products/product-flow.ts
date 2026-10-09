@@ -36,6 +36,12 @@ export const CRITERIO_FLUJO = {
   coberturaQueSeQueda: 30,
   /** Las compras recientes (reparto) se miran en esta ventana. */
   ventanaReparto: 90,
+  /** `[PF.2]` Líder: está entre los productos que juntos hacen esta fracción de la venta de la red (90 días). */
+  lideresCorte: 0.5,
+  /** `[PF.2]` A un líder se le compra antes: con menos de estos días de inventario. */
+  coberturaComprarLider: 21,
+  /** `[PF.3]` Un lote que caduca en estos días o menos se avisa aunque alcance a venderse. */
+  caducidadAviso: 30,
 } as const;
 
 // ─────────────────────────────── utilidades ───────────────────────────────
@@ -301,8 +307,12 @@ export function sugerirTraspasos(plazas: PlazaFlujo[]): TraspasoSugerido[] {
   return out;
 }
 
-export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: number; mes_anterior_mismo: number }): AnalisisCompra {
+export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: number; mes_anterior_mismo: number },
+  extra: { lider?: Lider | null; caducidad?: CaducidadResumen | null } = {}): AnalisisCompra {
   const C = CRITERIO_FLUJO;
+  const lider = extra.lider ?? null;
+  // A un líder se le compra antes: que falte cuesta más que tener unos días de más.
+  const umbralComprar = lider ? C.coberturaComprarLider : C.coberturaComprar;
   const unidadesDia = plazas.reduce((a, x) => a + x.unidades_dia, 0);
   const ventaDia = r2(plazas.reduce((a, x) => a + x.venta_dia, 0));
   const sinMedir = plazas.filter((x) => x.existencia_duda && x.existencia_duda.estimada === null);
@@ -320,6 +330,9 @@ export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: 
   const vari = variacion(total.mes, total.mes_anterior_mismo);
   const nombres = (xs: PlazaFlujo[]) => xs.map((x) => x.nombre || `Sucursal ${x.plaza}`).join(', ');
 
+  if (lider) {
+    motivos.push(`Es líder: el #${lider.rank} en venta de la red en 90 días (${(lider.participacion * 100).toFixed(1)}% de la venta). No debe faltar`);
+  }
   if (enDuda.length) {
     motivos.push(`La existencia de Kepler está en duda en ${nombres(enDuda)}: conviene contarla antes de decidir`);
   }
@@ -345,7 +358,7 @@ export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: 
         ? `Comprar más sumaría a ${pesos(inmov)} que ya están detenidos en inventario`
         : 'Comprar más sumaría a un inventario que no se está vendiendo');
     }
-  } else if (cobertura !== null && cobertura < C.coberturaComprar) {
+  } else if (cobertura !== null && cobertura < umbralComprar) {
     veredicto = 'comprar';
     if (existencia <= 0) {
       titulo = 'Comprar: ya no hay existencia';
@@ -358,7 +371,7 @@ export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: 
       impacto.push(`Desde entonces se dejarían de vender cerca de ${pesos(ventaDia)} por día`);
     }
     if (traspasos.length) impacto.push('Antes de comprar, se puede mover existencia de las sucursales que les sobra (abajo)');
-  } else if (traspasos.length && (agotadas.length || plazas.some((x) => x.cobertura_dias !== null && x.cobertura_dias < C.coberturaComprar))) {
+  } else if (traspasos.length && (agotadas.length || plazas.some((x) => x.cobertura_dias !== null && x.cobertura_dias < umbralComprar))) {
     veredicto = 'traspasar';
     titulo = 'No comprar: mover entre sucursales';
     impacto.push(`En la red alcanza para ${Math.round(cobertura ?? 0)} días, pero está en las sucursales equivocadas`);
@@ -373,8 +386,19 @@ export function analizarCompra(p: Periodos, plazas: PlazaFlujo[], total: { mes: 
     veredicto = 'esperar';
     titulo = `Esperar: alcanza para ${Math.round(cobertura ?? 0)} días`;
     if (cobertura !== null) {
-      impacto.push(`Conviene revisarlo en unos ${Math.max(1, Math.round(cobertura - C.coberturaComprar))} días, cuando quede para ${C.coberturaComprar}`);
+      impacto.push(`Conviene revisarlo en unos ${Math.max(1, Math.round(cobertura - umbralComprar))} días, cuando quede para ${umbralComprar}`);
     }
+  }
+  if (lider && agotadas.length) {
+    const perdida = agotadas.reduce((a, x) => a + x.venta_dia, 0);
+    impacto.push(`Es líder y está agotado en ${nombres(agotadas)}: ahí se dejan de vender cerca de ${pesos(perdida)} por día`);
+  }
+  const cad = extra.caducidad ?? null;
+  if (cad && (cad.vencido > 0 || cad.en_riesgo > 0)) {
+    motivos.push(cad.vencido > 0
+      ? `Hay lotes registrados como ya caducados en ${cad.plazas_vencido.join(', ')}: confirmarlos en el piso y sacarlos`
+      : `Hay lotes que caducan antes de venderse en ${cad.plazas_en_riesgo.join(', ')}: sacarlos antes (ver Caducidad)`);
+    if (veredicto === 'comprar') impacto.push('Antes de comprar, mover o promover lo que está por caducar');
   }
   if (sinMedir.length) {
     motivos.push(`En ${nombres(sinMedir)} no se pudo estimar la existencia (unidad que no se puede convertir)`);
@@ -400,8 +424,13 @@ export interface FlujoResumen {
   /** Sucursales por estado, con su nombre. */
   estancadas: Array<{ plaza: string; nombre: string | null; dias_sin_venta: number | null }>;
   frenadas: Array<{ plaza: string; nombre: string | null; variacion: number | null }>;
-  agotadas: Array<{ plaza: string; nombre: string | null }>;
+  /** Con lo que vendía por día cada una (lo que hoy se deja de vender ahí). */
+  agotadas: Array<{ plaza: string; nombre: string | null; venta_dia: number }>;
   compra: AnalisisCompra;
+  /** `[PF.2]` NULL = no es líder. */
+  lider: Lider | null;
+  /** `[PF.3]` NULL = no tiene ningún lote con fecha registrada (NO quiere decir que no caduque). */
+  caducidad: CaducidadResumen | null;
 }
 
 export interface FlujoListaRespuesta {
@@ -414,7 +443,8 @@ export interface FlujoListaRespuesta {
   productos: FlujoResumen[];
 }
 
-export function resumirProducto(productId: string, p: Periodos, plazas: PlazaFlujo[]): FlujoResumen {
+export function resumirProducto(productId: string, p: Periodos, plazas: PlazaFlujo[],
+  extra: { lider?: Lider | null; caducidad?: CaducidadResumen | null } = {}): FlujoResumen {
   const mes = r2(plazas.reduce((a, x) => a + x.mes, 0));
   const ant = r2(plazas.reduce((a, x) => a + x.mes_anterior_mismo, 0));
   return {
@@ -427,8 +457,10 @@ export function resumirProducto(productId: string, p: Periodos, plazas: PlazaFlu
       .map((x) => ({ plaza: x.plaza, nombre: x.nombre, dias_sin_venta: x.dias_sin_venta })),
     frenadas: plazas.filter((x) => x.estado === 'se_freno')
       .map((x) => ({ plaza: x.plaza, nombre: x.nombre, variacion: x.variacion })),
-    agotadas: plazas.filter((x) => x.estado === 'agotado').map((x) => ({ plaza: x.plaza, nombre: x.nombre })),
-    compra: analizarCompra(p, plazas, { mes, mes_anterior_mismo: ant }),
+    agotadas: plazas.filter((x) => x.estado === 'agotado').map((x) => ({ plaza: x.plaza, nombre: x.nombre, venta_dia: x.venta_dia })),
+    compra: analizarCompra(p, plazas, { mes, mes_anterior_mismo: ant }, extra),
+    lider: extra.lider ?? null,
+    caducidad: extra.caducidad ?? null,
   };
 }
 
@@ -491,6 +523,8 @@ export interface FlujoDetalle {
   reparto: RepartoPlaza[];
   /** La escalera común a sus sucursales (para los totales); NULL si difieren. */
   escalera: UnidadEscalera[] | null;
+  /** `[PF.3]` Cada lote con fecha registrada, juzgado contra el ritmo de su sucursal. */
+  lotes: LoteCaducidad[];
 }
 
 /** Orden de las sucursales en el detalle: primero lo que pide acción. */
@@ -536,5 +570,258 @@ export function llegadaDeKardex(filas: KardexFila[], nombres: Map<string, string
   };
 }
 
+// ─────────────────────────────── [PF.2] líderes ───────────────────────────────
+
+export interface Lider {
+  /** Lugar en la venta de la red en 90 días (1 = el que más vende). */
+  rank: number;
+  /** Fracción de la venta de la red que hace este producto (0.013 = 1.3%). */
+  participacion: number;
+}
+
+/**
+ * Un líder pide atención si le falta (comprar), está mal repartido (mover), se agotó donde se vende o la venta
+ * de toda la red se frenó. Una sucursal estancada sola NO: en un líder casi siempre hay alguna, y con ese
+ * criterio pedían atención 239 de 245 (medido en prod el 2026-10-09): una lista que lo marca todo no ayuda.
+ */
+export function liderPideAtencion(p: Periodos, r: FlujoResumen): boolean {
+  return motivosLider(p, r).length > 0;
+}
+
+export type MotivoLider = 'agotado' | 'comprar' | 'mover' | 'se_freno';
+
+/** Por qué pide atención un líder (puede ser más de uno). */
+export function motivosLider(p: Periodos, r: FlujoResumen): MotivoLider[] {
+  const C = CRITERIO_FLUJO;
+  const out: MotivoLider[] = [];
+  if (r.agotadas.length) out.push('agotado');
+  if (r.compra.veredicto === 'comprar') out.push('comprar');
+  if (r.compra.veredicto === 'traspasar') out.push('mover');
+  if (p.dias >= C.diasMinimosComparar && r.variacion !== null && r.variacion <= -C.caidaFrenado) out.push('se_freno');
+  return out;
+}
+
+/**
+ * Lo que se juega por día, para ordenar: lo que YA se deja de vender donde está agotado, más toda su venta si
+ * se acaba en menos de una semana. Medido en prod el 2026-10-09: 217 de 245 líderes piden algo (104 agotados
+ * en alguna sucursal): sin orden la lista no dice por dónde empezar.
+ */
+export function enJuegoPorDia(r: FlujoResumen): number {
+  const yaSePierde = r.agotadas.reduce((a, x) => a + x.venta_dia, 0);
+  const seAcaba = r.compra.veredicto === 'comprar' && r.compra.cobertura_dias !== null && r.compra.cobertura_dias < 7
+    ? r.venta_dia : 0;
+  return r2(Math.max(yaSePierde, seAcaba));
+}
+
+// ─────────────────────────────── [PF.3] caducidad ───────────────────────────────
+
+/** La sucursal de Kepler del CEDIS. */
+export const PLAZA_CEDIS = '00';
+
+/** Un lote con fecha registrada, tal como sale de `commercial.stock_lots`. */
+export interface LoteFila {
+  product_id: string;
+  plaza: string;
+  lote: string;
+  /** `YYYY-MM-DD`. */
+  caduca: string;
+  /** La cantidad REGISTRADA, en unidad base. */
+  cantidad: number | string;
+  registrado: string | null;
+}
+
+export type EstadoLote = 'caducado' | 'no_alcanza' | 'justo' | 'a_tiempo';
+
+export interface LoteCaducidad {
+  plaza: string;
+  nombre: string | null;
+  lote: string | null;
+  caduca: string;
+  /** Días que faltan (negativo = ya caducó). */
+  dias: number;
+  /** Lo que se registró con esa fecha. */
+  registrado: number;
+  /**
+   * Lo que se da por presente hoy: lo registrado topado con la existencia de la sucursal, repartida del lote
+   * más viejo al más nuevo (si de verdad se vendió primero lo viejo, aquí sobra: es el lado prudente).
+   * NULL = la existencia de la sucursal no se pudo medir (se usa lo registrado).
+   */
+  en_existencia: number | null;
+  /** Lo que alcanza a venderse antes de que caduque, al ritmo de los últimos 30 días. */
+  se_vende_antes: number;
+  /** Lo que caducaría sin venderse. */
+  queda: number;
+  estado: EstadoLote;
+  /** Qué hacer, en una frase. */
+  accion: string;
+  /** A dónde moverlo: las sucursales que lo venden antes de que caduque, la que más absorbe primero. */
+  mover_a: Array<{ plaza: string; nombre: string | null; cantidad: number }>;
+  /** Lo que ninguna sucursal alcanza a vender a tiempo (promover o devolver). */
+  sin_destino: number;
+  escalera: UnidadEscalera[] | null;
+}
+
+export interface CaducidadResumen {
+  /** Unidades base ya caducadas según el registro. */
+  vencido: number;
+  /** Unidades base que caducarían sin venderse. */
+  en_riesgo: number;
+  /** Lotes con existencia que caducan en `caducidadAviso` días o menos (aunque alcancen a venderse). */
+  por_caducar: number;
+  /** La fecha más próxima de un lote que pide acción (caducado, no alcanza o justo). NULL = ninguno. */
+  proxima: string | null;
+  plazas_vencido: string[];
+  plazas_en_riesgo: string[];
+  lotes: number;
+}
+
+/**
+ * Juzga los lotes de UN producto contra el ritmo de venta de cada sucursal.
+ *  - Lo presente se topa con la existencia de hoy (Kepler no descuenta por lote).
+ *  - Se vende primero lo que caduca primero (FEFO): cada lote sólo cuenta con la venta que le queda después
+ *    de los lotes que caducan antes.
+ *  - Lo que no alcanza se propone moverlo a la sucursal que sí lo vende a tiempo (después de su propia
+ *    existencia, que se vende primero); si ninguna, promoverlo o devolverlo al proveedor.
+ */
+export function juzgarLotes(p: Periodos, lotes: LoteFila[], plazas: PlazaFlujo[], nombres: Map<string, string>): LoteCaducidad[] {
+  const C = CRITERIO_FLUJO;
+  // El CEDIS surte a las sucursales, no vende en mostrador: su lote se agota al ritmo de toda la red.
+  const ritmoRed = plazas.filter((x) => x.plaza !== PLAZA_CEDIS).reduce((a, x) => a + x.unidades_dia, 0);
+  const porPlaza = new Map(plazas.map((x) => [x.plaza, x]));
+  const out: LoteCaducidad[] = [];
+  // Lo que ya se le propuso mover a cada sucursal (para no mandarle más de lo que vende a tiempo).
+  const yaRecibe = new Map<string, number>();
+  const grupos = new Map<string, LoteFila[]>();
+  for (const l of lotes) grupos.set(l.plaza, [...(grupos.get(l.plaza) ?? []), l]);
+  for (const [plaza, ls] of [...grupos].sort(([a], [b]) => a.localeCompare(b))) {
+    const pl = porPlaza.get(plaza);
+    const esCedis = plaza === PLAZA_CEDIS;
+    const ritmo = esCedis ? Math.max(pl?.unidades_dia ?? 0, ritmoRed) : pl?.unidades_dia ?? 0;
+    const existencia = pl ? pl.existencia_usada : null;
+    let porRepartir = existencia === null ? Infinity : Math.max(0, existencia);
+    let vendidoAntes = 0;
+    for (const l of [...ls].sort((a, b) => a.caduca.localeCompare(b.caduca))) {
+      const registrado = num(l.cantidad) ?? 0;
+      const presente = Math.min(registrado, porRepartir);
+      porRepartir -= presente;
+      const dias = diasEntre(p.hoy, l.caduca);
+      const capacidad = Math.max(0, ritmo * Math.max(0, dias) - vendidoAntes);
+      const seVende = dias < 0 ? 0 : Math.min(presente, Math.floor(capacidad));
+      vendidoAntes += seVende;
+      const queda = Math.max(0, Math.round((presente - seVende) * 1000) / 1000);
+      let estado: EstadoLote;
+      if (presente <= 0) estado = 'a_tiempo';
+      else if (dias < 0) estado = 'caducado';
+      else if (queda >= 1) estado = 'no_alcanza';
+      else if (dias <= C.caducidadAviso) estado = 'justo';
+      else estado = 'a_tiempo';
+      const moverA: LoteCaducidad['mover_a'] = [];
+      let sinDestino = 0;
+      let accion: string;
+      if (presente <= 0) {
+        accion = 'Ya no hay existencia para este lote: seguramente se vendió';
+      } else if (estado === 'caducado') {
+        accion = 'Caducado según el registro: confirmarlo en el piso y sacarlo de la venta';
+      } else if (estado === 'no_alcanza' && esCedis) {
+        accion = ritmo > 0
+          ? 'Ni toda la red lo alcanza a vender antes de que caduque: promoverlo o devolverlo al proveedor'
+          : 'No se vende en ninguna sucursal: promoverlo o devolverlo al proveedor antes de que caduque';
+      } else if (estado === 'no_alcanza') {
+        // Las que lo pueden vender a tiempo, después de su propia existencia; la que más absorbe primero.
+        const destinos = plazas
+          .filter((x) => x.plaza !== plaza && x.plaza !== PLAZA_CEDIS && x.unidades_dia > 0)
+          .map((x) => ({ x, cabe: Math.floor(x.unidades_dia * dias - Math.max(0, x.existencia_usada ?? 0) - (yaRecibe.get(x.plaza) ?? 0)) }))
+          .filter((d) => d.cabe >= 1)
+          .sort((a, b) => b.cabe - a.cabe);
+        let falta = Math.ceil(queda);
+        for (const d of destinos) {
+          if (falta <= 0) break;
+          const q = Math.min(falta, d.cabe);
+          yaRecibe.set(d.x.plaza, (yaRecibe.get(d.x.plaza) ?? 0) + q);
+          moverA.push({ plaza: d.x.plaza, nombre: d.x.nombre, cantidad: q });
+          falta -= q;
+        }
+        sinDestino = Math.max(0, falta);
+        if (!moverA.length) {
+          accion = 'Ninguna sucursal lo alcanza a vender a tiempo: promoverlo o devolverlo al proveedor';
+        } else {
+          accion = (ritmo > 0
+            ? 'Aquí no se alcanza a vender antes de que caduque: moverlo a donde sí se vende'
+            : 'Aquí no se vende: moverlo a donde sí se vende antes de que caduque')
+            + (sinDestino > 0 ? '. Lo que no cabe en ninguna: promoverlo o devolverlo al proveedor' : '');
+        }
+      } else if (estado === 'justo') {
+        accion = 'Alcanza a venderse, pero con poco margen: ponerlo al frente';
+      } else {
+        accion = 'Alcanza a venderse antes de que caduque';
+      }
+      out.push({
+        plaza, nombre: pl?.nombre ?? nombres.get(plaza) ?? null, lote: l.lote && l.lote !== 'NA' ? l.lote : null,
+        caduca: l.caduca, dias, registrado,
+        en_existencia: existencia === null ? null : Math.round(presente * 1000) / 1000,
+        se_vende_antes: seVende, queda: presente <= 0 ? 0 : queda, estado, accion, mover_a: moverA,
+        sin_destino: estado === 'no_alcanza' && esCedis ? queda : sinDestino,
+        escalera: pl?.escalera ?? null,
+      });
+    }
+  }
+  const ORDEN: Record<EstadoLote, number> = { caducado: 0, no_alcanza: 1, justo: 2, a_tiempo: 3 };
+  return out.sort((a, b) => ORDEN[a.estado] - ORDEN[b.estado] || a.caduca.localeCompare(b.caduca) || a.plaza.localeCompare(b.plaza));
+}
+
+export function resumirCaducidad(lotes: LoteCaducidad[]): CaducidadResumen | null {
+  if (!lotes.length) return null;
+  const nombre = (l: LoteCaducidad) => l.nombre || `Sucursal ${l.plaza}`;
+  const unicos = (xs: string[]) => [...new Set(xs)];
+  const presente = (l: LoteCaducidad) => l.en_existencia ?? l.registrado;
+  const caducados = lotes.filter((l) => l.estado === 'caducado');
+  const riesgo = lotes.filter((l) => l.estado === 'no_alcanza');
+  const accion = lotes.filter((l) => l.estado !== 'a_tiempo');
+  return {
+    vencido: caducados.reduce((a, l) => a + presente(l), 0),
+    en_riesgo: riesgo.reduce((a, l) => a + l.queda, 0),
+    por_caducar: lotes.filter((l) => l.dias >= 0 && l.dias <= CRITERIO_FLUJO.caducidadAviso && presente(l) > 0).length,
+    proxima: accion.map((l) => l.caduca).sort()[0] ?? null,
+    plazas_vencido: unicos(caducados.map(nombre)),
+    plazas_en_riesgo: unicos(riesgo.map(nombre)),
+    lotes: lotes.length,
+  };
+}
+
 export { escaleraDeFicha, existenciaEnDuda };
 export type { FichaPlaza, KardexPlaza };
+
+/** `[PF.2]`/`[PF.3]` Para cuidar hoy (arriba de la tabla de Productos). */
+export interface ProductoACuidar {
+  sku: string;
+  nombre: string | null;
+  resumen: FlujoResumen;
+  /** `[PF.2]` Por qué pide atención (sólo líderes). */
+  motivos?: MotivoLider[];
+  /** `[PF.2]` Lo que se juega por día (sólo líderes): el orden de la lista. */
+  en_juego_dia?: number;
+}
+
+export interface CuidarRespuesta {
+  periodos: Periodos;
+  corte: string;
+  en_vivo_al: string;
+  costo_visible: boolean;
+  criterio: typeof CRITERIO_FLUJO;
+  lideres: {
+    /** Cuántos productos son líderes hoy. */
+    total: number;
+    /** Cuándo se calculó el ranking (`product_sales_stats.computed_at`). NULL = no se pudo medir. */
+    calculado: string | null;
+    /** Los líderes con algo que atender, primero lo que más se juega por día. */
+    piden_atencion: ProductoACuidar[];
+    /** Cuántos líderes por cada motivo. */
+    por_motivo: Record<MotivoLider, number>;
+  };
+  caducidad: {
+    /** Los productos con un lote caducado, que no alcanza a venderse o que caduca pronto; el más próximo primero. */
+    productos: ProductoACuidar[];
+    /** Qué tanto se ha registrado: sin fecha registrada NO quiere decir que no caduque. */
+    cobertura: { lotes: number; productos: number; sucursales: Array<{ plaza: string; nombre: string | null }> };
+  };
+}

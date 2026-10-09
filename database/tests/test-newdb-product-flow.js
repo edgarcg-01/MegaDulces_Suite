@@ -136,6 +136,44 @@ function periodosJs(hoy) {
     check('traspaso recibido en la 05: 24 piezas', tra.length === 1 && tra[0].plaza === '05' && n(tra[0].q) === 24, tra);
     const fichas = (await trx.raw(SQL.FICHAS_SQL, [[p03.sku]])).rows;
     check('la ficha de la sucursal viaja para la escalera', fichas.some((f) => f.plaza === '04' && f.u1 === 'PZA'), fichas);
+
+    console.log('\n── 5. [PF.2] Líderes: la consulta = el corte de Pareto calculado aquí en JS ──');
+    const stats = (await trx.raw(`
+      SELECT product_id::text AS id, revenue_90d::float AS r FROM analytics.product_sales_stats
+       WHERE tenant_id = ? AND revenue_90d > 0`, [esc.TENANT])).rows
+      .sort((a, b) => b.r - a.r || (a.id < b.id ? -1 : 1));
+    if (!stats.length) {
+      console.log('  · NO MEDIDO: analytics.product_sales_stats está vacía en esta base');
+    } else {
+      const total = stats.reduce((a, x) => a + x.r, 0);
+      let acum = 0;
+      const lideresJs = [];
+      for (const [i, x] of stats.entries()) { if (acum / total < 0.5) lideresJs.push({ id: x.id, rank: i + 1 }); acum += x.r; }
+      const lideres = (await trx.raw(SQL.LIDERES_SQL, [0.5, null, null])).rows;
+      check(`los líderes = los que juntos hacen la primera mitad de la venta (${lideresJs.length} de ${stats.length})`,
+        JSON.stringify(lideres.map((l) => [l.product_id, l.rank]).sort()) === JSON.stringify(lideresJs.map((l) => [l.id, l.rank]).sort()),
+        { sql: lideres.slice(0, 5), js: lideresJs.slice(0, 5) });
+      const uno = lideresJs[0].id;
+      const filtrado = (await trx.raw(SQL.LIDERES_SQL, [0.5, [uno, ids[0]], [uno, ids[0]]])).rows;
+      check('con ids, el lugar es el de TODA la red (no el de los pedidos)', filtrado.some((l) => l.product_id === uno && l.rank === 1), filtrado);
+      check('[negativa] con corte 0 no hay líderes', (await trx.raw(SQL.LIDERES_SQL, [0, null, null])).rows.length === 0);
+    }
+
+    console.log('\n── 6. [PF.3] Lotes con caducidad: lo sembrado, por sucursal de Kepler ──');
+    const wh = (await trx.raw(`SELECT id FROM commercial.warehouses WHERE tenant_id = ? AND kepler_code = '04' AND deleted_at IS NULL LIMIT 1`, [esc.TENANT])).rows[0];
+    if (!wh) {
+      console.log('  · NO MEDIDO: no hay almacén con sucursal de Kepler 04 en esta base');
+    } else {
+      await trx.raw(`
+        INSERT INTO commercial.stock_lots (tenant_id, warehouse_id, product_id, lot_code, expiry_date, quantity, received_at)
+        VALUES (?, ?, ?, 'PF3-A', ?::date, 36, now()), (?, ?, ?, 'PF3-B', NULL, 10, now()), (?, ?, ?, 'PF3-C', ?::date, 0, now())`,
+      [esc.TENANT, wh.id, p03.product_id, dia(hoy, 20), esc.TENANT, wh.id, p03.product_id, esc.TENANT, wh.id, p03.product_id, dia(hoy, 5)]);
+      const lotes = (await trx.raw(SQL.LOTES_CADUCIDAD_SQL, [[p03.product_id], [p03.product_id]])).rows.filter((l) => l.lote.startsWith('PF3-'));
+      check('sólo el lote con fecha y con cantidad (sin fecha o en cero no cuentan)',
+        lotes.length === 1 && lotes[0].lote === 'PF3-A' && lotes[0].plaza === '04' && lotes[0].caduca === dia(hoy, 20) && n(lotes[0].cantidad) === 36, lotes);
+      const todos = (await trx.raw(SQL.LOTES_CADUCIDAD_SQL, [null, null])).rows;
+      check('sin ids trae todos los productos con lote (para "Para cuidar hoy")', todos.some((l) => l.lote === 'PF3-A'));
+    }
   } catch (e) {
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);

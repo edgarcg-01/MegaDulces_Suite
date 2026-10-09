@@ -30,6 +30,47 @@ export interface CriterioFlujo {
   coberturaSobra: number;
   coberturaQueSeQueda: number;
   ventanaReparto: number;
+  lideresCorte: number;
+  coberturaComprarLider: number;
+  caducidadAviso: number;
+}
+
+/** `[PF.2]` Lugar en la venta de la red en 90 días. */
+export interface Lider {
+  rank: number;
+  participacion: number;
+}
+
+export type MotivoLider = 'agotado' | 'comprar' | 'mover' | 'se_freno';
+
+/** `[PF.3]` Resumen de los lotes con fecha registrada de un producto. Cantidades en unidad base. */
+export interface CaducidadResumen {
+  vencido: number;
+  en_riesgo: number;
+  por_caducar: number;
+  proxima: string | null;
+  plazas_vencido: string[];
+  plazas_en_riesgo: string[];
+  lotes: number;
+}
+
+export type EstadoLote = 'caducado' | 'no_alcanza' | 'justo' | 'a_tiempo';
+
+export interface LoteCaducidad {
+  plaza: string;
+  nombre: string | null;
+  lote: string | null;
+  caduca: string;
+  dias: number;
+  registrado: number;
+  en_existencia: number | null;
+  se_vende_antes: number;
+  queda: number;
+  estado: EstadoLote;
+  accion: string;
+  mover_a: Array<{ plaza: string; nombre: string | null; cantidad: number }>;
+  sin_destino: number;
+  escalera: UnidadEscalera[] | null;
 }
 
 export type VeredictoCompra = 'comprar' | 'traspasar' | 'esperar' | 'sobra' | 'no_comprar' | 'sin_movimiento';
@@ -64,8 +105,10 @@ export interface FlujoResumen {
   venta_dia: number;
   estancadas: Array<{ plaza: string; nombre: string | null; dias_sin_venta: number | null }>;
   frenadas: Array<{ plaza: string; nombre: string | null; variacion: number | null }>;
-  agotadas: Array<{ plaza: string; nombre: string | null }>;
+  agotadas: Array<{ plaza: string; nombre: string | null; venta_dia: number }>;
   compra: AnalisisCompra;
+  lider: Lider | null;
+  caducidad: CaducidadResumen | null;
 }
 
 export interface FlujoLista {
@@ -128,6 +171,29 @@ export interface FlujoDetalle {
   };
   reparto: RepartoPlaza[];
   escalera: UnidadEscalera[] | null;
+  lotes: LoteCaducidad[];
+}
+
+export interface ProductoACuidar {
+  sku: string;
+  nombre: string | null;
+  resumen: FlujoResumen;
+  motivos?: MotivoLider[];
+  en_juego_dia?: number;
+}
+
+/** `[PF.2]`/`[PF.3]` Para cuidar hoy. */
+export interface CuidarRespuesta {
+  periodos: PeriodosFlujo;
+  corte: string;
+  en_vivo_al: string;
+  costo_visible: boolean;
+  criterio: CriterioFlujo;
+  lideres: { total: number; calculado: string | null; piden_atencion: ProductoACuidar[]; por_motivo: Record<MotivoLider, number> };
+  caducidad: {
+    productos: ProductoACuidar[];
+    cobertura: { lotes: number; productos: number; sucursales: Array<{ plaza: string; nombre: string | null }> };
+  };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -137,6 +203,10 @@ export class ProductosFlujoService {
 
   listar(ids: string[]): Observable<FlujoLista> {
     return this.http.get<FlujoLista>(`${this.base}/flow`, { params: new HttpParams().set('ids', ids.join(',')) });
+  }
+
+  cuidar(): Observable<CuidarRespuesta> {
+    return this.http.get<CuidarRespuesta>(`${this.base}/flow/cuidar`);
   }
 
   detalle(id: string): Observable<FlujoDetalle> {

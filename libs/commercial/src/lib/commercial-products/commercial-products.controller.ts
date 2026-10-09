@@ -21,7 +21,7 @@ import {
   NewProductsService,
 } from './new-products.service';
 import { ProductFlowService } from './product-flow.service';
-import type { FlujoDetalle, FlujoListaRespuesta } from './product-flow';
+import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta } from './product-flow';
 
 /**
  * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
@@ -220,6 +220,21 @@ export class CommercialProductsController {
       req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
       isPlatformAdminRole(req?.user?.role_name);
     return this.flow.list(String(ids ?? '').split(',').map((x) => x.trim()).filter(Boolean), { puedeVerCosto });
+  }
+
+  @Get('flow/cuidar')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.2]`/`[PF.3]` Para cuidar hoy: los líderes (la mitad de la venta de la red) que piden atención '
+      + 'y los productos con lotes que caducan antes de venderse.',
+  })
+  flowCuidar(
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<CuidarRespuesta> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.flow.cuidar({ puedeVerCosto });
   }
 
   @Get(':id/flow')

@@ -3,7 +3,9 @@ import { CommonModule } from '@angular/common';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { TooltipModule } from 'primeng/tooltip';
 import type { UnidadEscalera } from '@megadulces/contracts';
-import { FlujoDetalle, PlazaFlujo, ProductosFlujoService, EstadoPlaza, VeredictoCompra } from '../productos-flujo.service';
+import {
+  EstadoLote, EstadoPlaza, FlujoDetalle, LoteCaducidad, PlazaFlujo, ProductosFlujoService, VeredictoCompra,
+} from '../productos-flujo.service';
 import { existenciaPartes, listaUnidades, textoUnidades } from './compras-catalogo-nuevos.component';
 
 /** Cada minuto, sólo con la pestaña a la vista (como Productos nuevos). */
@@ -12,6 +14,15 @@ const REFRESCO_MS = 60_000;
 export const ESTADO_TEXTO: Record<EstadoPlaza, string> = {
   agotado: 'Agotado', estancado: 'Estancado', se_freno: 'Se frenó', le_sobra: 'Le sobra', se_mueve: 'Se mueve', sin_movimiento: 'Sin movimiento',
 };
+export const LOTE_TEXTO: Record<EstadoLote, string> = {
+  caducado: 'Caducado', no_alcanza: 'No alcanza a venderse', justo: 'Caduca pronto', a_tiempo: 'Se vende a tiempo',
+};
+/** "en 25 días" / "hoy" / "hace 8 días". */
+export const diasTexto = (d: number) => d === 0 ? 'hoy' : d === 1 ? 'mañana' : d > 0 ? `en ${d} días` : d === -1 ? 'ayer' : `hace ${-d} días`;
+/** "Líder · #3 en venta de la red (1.2%)". */
+export const liderTexto = (l: { rank: number; participacion: number }) =>
+  `Líder · #${l.rank} en venta de la red (${(l.participacion * 100).toFixed(1)}%)`;
+
 export const VEREDICTO_CLASE: Record<VeredictoCompra, string> = {
   comprar: 'is-comprar', traspasar: 'is-traspasar', esperar: 'is-esperar', sobra: 'is-sobra',
   no_comprar: 'is-no', sin_movimiento: 'is-neutro',
@@ -66,6 +77,9 @@ export function trazos(serie: FlujoDetalle['serie']): { actual: string; anterior
       <div class="pf">
         <!-- El veredicto primero: es la pregunta que trae al usuario. -->
         <section class="pf-veredicto" [ngClass]="claseVeredicto(d.resumen.compra.veredicto)" aria-labelledby="pf-v">
+          @if (d.resumen.lider; as l) {
+            <span class="pf-lider" pTooltip="Está entre los productos que juntos hacen la mitad de la venta de la red en 90 días. A un líder se le compra antes: no debe faltar.">{{ liderTexto(l) }}</span>
+          }
           <h3 id="pf-v" class="pf-v-t">{{ d.resumen.compra.titulo }}</h3>
           @if (d.resumen.compra.motivos.length) {
             <ul class="pf-lista">
@@ -88,6 +102,49 @@ export function trazos(serie: FlujoDetalle['serie']): { actual: string; anterior
             </ul>
           }
         </section>
+
+        <!-- [PF.3] Lo que caduca antes de venderse va arriba: hay que actuar antes de la fecha. -->
+        @if (d.lotes.length) {
+          <section class="pf-bloque" aria-labelledby="pf-cad">
+            <h3 id="pf-cad" class="pf-h">Caducidad</h3>
+            <div class="dt-scope">
+              <table class="pf-tabla dt-stack">
+                <thead><tr>
+                  <th scope="col">Sucursal</th><th scope="col">Caduca</th><th scope="col">Hay hoy</th>
+                  <th scope="col">Alcanza a venderse</th><th scope="col">Caducaría</th><th scope="col">Qué hacer</th>
+                </tr></thead>
+                <tbody>
+                  @for (l of d.lotes; track $index) {
+                    <tr>
+                      <td class="dt-id" role="cell">{{ l.nombre || ('Sucursal ' + l.plaza) }}
+                        @if (l.lote) { <small class="pf-lote">Lote {{ l.lote }}</small> }</td>
+                      <td role="cell" data-label="Caduca">
+                        <span class="pf-estado" [ngClass]="'is-lote-' + l.estado">{{ loteEstado(l.estado) }}</span>
+                        <span class="pf-fecha">{{ fecha(l.caduca) }} · {{ dias(l.dias) }}</span>
+                      </td>
+                      <td role="cell" data-label="Hay hoy">{{ hayHoy(l) }}</td>
+                      <td role="cell" data-label="Alcanza a venderse">{{ l.dias < 0 ? '—' : cajas(l.se_vende_antes, l.escalera) }}</td>
+                      <td role="cell" data-label="Caducaría">
+                        @if (l.queda > 0) { <b class="pf-down">{{ cajas(l.queda, l.escalera) }}</b> } @else { — }
+                      </td>
+                      <td role="cell" data-label="Qué hacer">{{ l.accion }}
+                        @for (m of l.mover_a; track m.plaza) {
+                          <b class="pf-mover">Mover {{ cajas(m.cantidad, l.escalera) }} a {{ m.nombre || ('Sucursal ' + m.plaza) }}</b>
+                        }
+                        @if (l.sin_destino > 0 && l.mover_a.length) {
+                          <b class="pf-mover pf-down">Promover o devolver {{ cajas(l.sin_destino, l.escalera) }}</b>
+                        }
+                      </td>
+                    </tr>
+                  }
+                </tbody>
+              </table>
+            </div>
+            <p class="pf-meta">Fechas registradas en el andén y en la revisión de caducidades. Kepler no descuenta por lote al vender: lo registrado
+              se topa con la existencia de hoy y se da por vendido primero lo que caduca primero, al ritmo de los últimos
+              {{ d.criterio.ventanaRitmo }} días. En el CEDIS el ritmo es el de toda la red. Un producto sin fecha registrada no es uno que no caduque.</p>
+          </section>
+        }
 
         <section class="pf-bloque" aria-labelledby="pf-flujo">
           <h3 id="pf-flujo" class="pf-h">Flujo de venta</h3>
@@ -190,6 +247,10 @@ export function trazos(serie: FlujoDetalle['serie']): { actual: string; anterior
             <p class="pf-meta">Sin compras ni traspasos en la ventana.</p>
           }
         </section>
+        @if (!d.lotes.length) {
+          <p class="pf-meta">Caducidad: este producto no tiene fechas registradas (se registran en el andén y en la revisión de caducidades).
+            Sin fecha registrada no quiere decir que no caduque.</p>
+        }
       </div>
     } @else if (error()) {
       <p class="pf-meta" role="alert">No se pudo cargar el comportamiento del producto.</p>
@@ -242,6 +303,14 @@ export function trazos(serie: FlujoDetalle['serie']): { actual: string; anterior
     .pf-cant b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-sm); font-weight: var(--fw-bold); color: var(--c-text-1); }
     .pf-vacio { font-size: var(--fs-xs); color: var(--c-text-3); }
     .pf-tag-agotado, .pf-tag-duda { display: inline-block; align-self: flex-start; padding: .05rem .45rem; border-radius: 999px; font-size: var(--fs-xs); font-weight: var(--fw-bold); }
+    .pf-lider { display: inline-block; margin-bottom: .3rem; padding: .05rem .5rem; border-radius: 999px; font-size: var(--fs-xs);
+      font-weight: var(--fw-bold); color: var(--action); border: 1px solid currentColor; }
+    .pf-lote, .pf-fecha { display: block; font-size: var(--fs-xs); color: var(--c-text-3); }
+    .pf-fecha { margin-top: .15rem; white-space: nowrap; }
+    .pf-mover { display: block; margin-top: .15rem; }
+    .pf-estado.is-lote-caducado, .pf-estado.is-lote-no_alcanza { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border-color: var(--bad-border); }
+    .pf-estado.is-lote-justo { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-color: var(--warn-border); }
+    .pf-estado.is-lote-a_tiempo { color: var(--ok-fg); background: var(--ok-soft-bg); }
     .pf-tag-agotado { color: var(--bad-soft-fg); background: var(--bad-soft-bg); border: 1px solid var(--bad-border); }
     .pf-tag-duda { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border: 1px solid var(--warn-border); }
   `],
@@ -275,6 +344,8 @@ export class ProductoFlujoPanelComponent {
   readonly existencia = existenciaDe;
   readonly cajas = cantidadEnCajas;
   readonly listaUnidades = listaUnidades;
+  readonly liderTexto = liderTexto;
+  readonly dias = diasTexto;
 
   constructor() {
     const id = setInterval(() => {
@@ -284,6 +355,13 @@ export class ProductoFlujoPanelComponent {
   }
 
   estado(e: EstadoPlaza): string { return ESTADO_TEXTO[e]; }
+  loteEstado(e: EstadoLote): string { return LOTE_TEXTO[e]; }
+  /** Lo presente hoy; si la existencia no se pudo medir, lo registrado (y se dice). */
+  hayHoy(l: LoteCaducidad): string {
+    if (l.en_existencia === null) return `${cantidadEnCajas(l.registrado, l.escalera)} (registrado; existencia sin medir)`;
+    if (l.en_existencia <= 0) return 'Ya no hay';
+    return cantidadEnCajas(l.en_existencia, l.escalera);
+  }
   claseVeredicto(v: VeredictoCompra): string { return VEREDICTO_CLASE[v]; }
   unidades(u: Record<string, number>, esc: UnidadEscalera[] | null): string { return textoUnidades(u, esc); }
   escaleraDe(d: FlujoDetalle, plaza: string): UnidadEscalera[] | null {
