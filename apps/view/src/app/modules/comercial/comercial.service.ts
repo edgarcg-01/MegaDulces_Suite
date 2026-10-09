@@ -4697,6 +4697,8 @@ export interface ObjetivoResultado {
 // ─────────────────────────────────────────────────────────────────────────────────────────
 
 export interface RouteProfitGastoRenglon {
+  /** La llave real del renglón, del servidor — no una concatenación de campos. */
+  id: string;
   fecha: string;
   dpto: string; dpto_norm: string; plaza: string | null;
   concepto: string; concepto_norm: string; familia: string;

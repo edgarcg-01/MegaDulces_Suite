@@ -106,7 +106,7 @@ import {
                 </tr>
               </thead>
               <tbody>
-                @for (r of visibles(); track r.doc_tipo + r.doc_folio + r.fecha + r.importe) {
+                @for (r of visibles(); track r.id) {
                   <tr>
                     <td role="cell" data-label="Fecha" class="mono dt-id">{{ dia(r.fecha) }}</td>
                     <td role="cell" data-label="Plaza">
