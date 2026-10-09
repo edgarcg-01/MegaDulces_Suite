@@ -171,10 +171,22 @@ const COMPUERTAS = [
   // corre no es una compuerta. El costo no era leer 27 MB: era **arrancar git 1,879 veces**
   // (~86 ms por `git show`, contra 113 ms del `ls-tree` entero). Con `git cat-file --batch`:
   // **141 s → ~8.7 s, 16×**, misma salida verificada contra los dos refs.
-  // ⛔ SIGUE SIN `push: true`: ~8.7 s es ~3× el criterio de admisión (~3 s) y la decisión de
-  // relajarlo para ESTE caso es de Edgar — el argumento a favor es que su modo de falla es TOTAL
-  // (un checkout limpio no compila) y que **ninguna otra compuerta local puede verlo**, porque
-  // todas compilan el árbol de trabajo, donde el archivo sí existe.
+  // ⛔ SIGUE SIN `push: true`, y la decisión es de Edgar. ⚠️ El costo NO es «8.7 s contra un
+  // criterio de ~3 s»: `gate-push.js:322` corre las compuertas en `Promise.all`, así que lo que
+  // el equipo espera es la **PARED**, no la suma. Medido en vivo, 3 rondas, corriéndolas de
+  // verdad en paralelo:
+  //
+  //     hoy, las 14          6,747 / 6,745 / 7,241 ms   →  ~6.9 s
+  //     con commit-wiring   11,358 / 11,043 / 10,831 ms →  ~11.1 s     (+4.2 s, +61 %)
+  //
+  // ⛔⛔ Y de paso: **los `ms` de este archivo están medidos EN AISLAMIENTO y subestiman ~2×.**
+  // `estilos` dice 3,106 y en la corrida concurrente cuesta **6,589** — es la pared real de hoy,
+  // no los 3,106 que se leen acá. Quien compare una compuerta nueva contra estos números está
+  // comparando contra un piso que no existe.
+  //
+  // El argumento a favor no es el tiempo: es que su modo de falla es TOTAL (un checkout limpio
+  // no compila) y que **ninguna otra compuerta local puede verlo**, porque todas compilan el
+  // árbol de trabajo, donde el archivo sí existe.
   { nombre: 'commit-wiring', cmd: 'node scripts/check-commit-wiring.js', que: 'lo que el commit referencia viaja EN el commit (no sólo en tu árbol de trabajo)' },
   // [ODS.1] Una lista de sucursales escrita a mano falla HACIA ABAJO y en silencio: el proceso
   // recorre menos ramas de las que hay, no da error, y no puede reportar faltantes porque una rama
