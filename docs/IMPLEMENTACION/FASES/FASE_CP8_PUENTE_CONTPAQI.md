@@ -1638,3 +1638,70 @@ importar**, y la contadora importa una vez en vez de tres.
   MISMO formato. Mejor red de seguridad que la prepóliza, que es otro formato (éste).
 - **`Archivo de bitácora`** (`Cargar_Pólizas_AAAAMMDD.xls`) — ContPAQi escribe el detalle del
   proceso. ⭐ **No dependemos de que alguien interprete un popup**: se manda el archivo y se lee.
+
+---
+
+## 24. `[CP.8.27]` Nueve meses en vez de dos: los tipos aguantan, las cuentas siguen sin concentrar
+
+`[CP.8.22]` concluyó que la cuenta `por_categoria` **no es derivable**, pero lo midió sobre
+**ene–feb** ($144M). Antes de dar esa puerta por cerrada, se amplió la ventana a **ene–sep**:
+**11,804 egresos · $624,596,502.83**, 4.3× el universo.
+
+| | exacto | % | placebo |
+|---|--:|--:|--:|
+| ene–feb | 737 | 27.8 | 2 → 369× |
+| **ene–sep** | **3,417** | **28.9** | 25 → **137×** |
+
+### 24.1 ✅ Los `tipo_regla` aguantan, y con más fuerza
+
+| categoría | pareados | tipo | antes | ahora |
+|---|--:|---|--:|--:|
+| `compra_mercancia` | 1,548 | `por_proveedor` | 94.7 % | **92.7 %** · estable |
+| `nomina` | 811 | `por_sucursal` | 74.2 % | 66.2 % · estable |
+| `compra_tarjeta` | 647 | `por_categoria` | 83.3 % | 83.6 % · estable |
+| `traspaso_entre_cuentas` | 85 | `no_aplica` | 4.0 % | **1.2 %** · estable |
+| `gasto_admin` | 32 | `por_categoria` | (9 pareados) | 93.8 % · estable |
+
+⛔ **Dos cambian bajo el filtro 1:1 y se declaran**: `cobranza` y `servicios`. Sus pólizas
+promedian **255.6** y 4.9 renglones — con ese agrupamiento el tipo no es confiable.
+
+### 24.2 ⛔ La conclusión de §19.1 se REFUERZA, no se cae
+
+Con 4.3× más datos, **ninguna cuenta `por_categoria` pasa de ~65 %**:
+
+| categoría | mejor candidata | % |
+|---|---|--:|
+| `impuestos` | `5201000000` NO DEDUCIBLES | 64.7 |
+| `gasto_admin` | `5200530000` SEGUROS Y FIANZAS | 63.6 |
+| `servicios` | `2140700000` STM FINANCIAL (una SOFOM) | 46.7 |
+| `compra_tarjeta` | `5200730000` MANT. EQUIPO DE REPARTO | **24.3** |
+
+⭐ Y confirma la retractación de §19.1 por segunda vía: con 2 meses `compra_tarjeta` daba
+**73.8 % GASOLINA**; con 9 meses da **24.3 % de otra cuenta**. *El 73.8 % era el lote, no la regla.*
+
+### 24.3 ⭐⭐ El hallazgo nuevo: tres categorías NO pueden tener UNA cuenta
+
+`compra_tarjeta` (647 pareados, la 3ª más grande) se reparte así:
+
+```
+MANT. EQUIPO DE REPARTO 24.3 · TARJETA DE CREDITO 22.9 · PAPELERIA 14.3
+VARIOS 10.0 · MANT. LOCAL 7.1 · MANT. EQUIPO DE COMPUTO 7.1
+```
+
+⛔ **Eso no es una regla sin firmar: es una categoría que no determina la cuenta.** La tarjeta se
+usa para seis cosas distintas. Ninguna firma del contador puede arreglarlo — *la respuesta
+correcta no es una cuenta, es un mecanismo distinto* (mirar el concepto del movimiento).
+
+Lo mismo en `nomina`, que mezcla `2150110004` SUELDOS, `2150140002` PENSIÓN ALIMENTICIA y
+`5200090000` 2% SOBRE NÓMINA; y en `servicios`, cuya mejor candidata es **una SOFOM** — o sea un
+pago de crédito clasificado como servicio.
+
+⭐ **Separar *"falta que lo firmen"* de *"la categoría no alcanza"* es lo que evita mandarle al
+contador una decisión que no existe.** Las tres salen de la lista de las 21 y se declaran con su
+propio motivo.
+
+### 24.4 Lo que esto cambia para la media hora del contador
+
+De las 21 categorías: **6 ya están resueltas** sin él (2 `no_aplica`, 1 `por_proveedor`,
+1 `por_sucursal`, y 2 estables con candidata ≥60 %), **3 no son pregunta para él** (§24.3), y el
+resto sigue siendo decisión suya. **La conversación se acorta, pero no desaparece.**
