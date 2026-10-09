@@ -3,7 +3,9 @@ import type { Knex } from 'knex';
 import {
   CONTPAQI_POLIZA_SINK_PORT, type ContpaqiPolizaSinkPort,
 } from '@megadulces/contracts';
-import { armarAsientoEgreso, AsientoRechazado, type ReglaCuenta } from './poliza-egreso';
+import {
+  armarAsientoEgreso, armarLoteEgresos, AsientoRechazado, type ReglaCuenta,
+} from './poliza-egreso';
 import { tokenDe } from './token';
 
 /**
@@ -46,6 +48,23 @@ import { tokenDe } from './token';
  */
 
 const MEGA = '00000000-0000-0000-0000-00000000d01c';
+
+/**
+ * `[CP.8.21]` — Un lote = una póliza candidata, al grano real (cuenta de banco × día).
+ * `motivos` lleva el conteo **por motivo**, no un total: cuatro rechazos distintos tienen cuatro
+ * dueños distintos y colapsarlos a "N rechazadas" borra justamente la información accionable.
+ */
+export interface ResumenLote {
+  cuenta_banco: string;
+  fecha: string;
+  movimientos: number;
+  incluidas: number;
+  renglones: number;
+  total: number;
+  /** `'no_emitido'` = el lote cuadra pero le falta el traspaso de impuesto. Se declara. */
+  iva_traspaso: 'no_emitido' | null;
+  motivos: Record<string, number>;
+}
 
 export interface ResultadoArmado {
   evento_id: string;
@@ -177,17 +196,97 @@ export class ContpaqiArmadoService {
       .orderBy('m.id');
   }
 
-  /** Las reglas, por código de categoría. Hoy todas en `sin_regla` — y el armador lo respeta. */
+  /**
+   * Las reglas, por código de categoría.
+   *
+   * ⭐ `[CP.8.19]` agregó `tipo_regla`: la cuenta de cargo no siempre la decide la categoría.
+   * Leerlo acá es lo que hace que `no_aplica` (ya decidido) deje de verse igual que `sin_regla`
+   * (falta decidir) — dos estados con dueños distintos.
+   */
   private async leerReglas(): Promise<Map<string, ReglaCuenta>> {
     const filas = await this.db('contpaqi.account_rules').where({ tenant_id: MEGA })
-      .select('categoria_code', 'cuenta_gasto', 'cuenta_iva', 'confianza_pct', 'estado');
+      .select('categoria_code', 'cuenta_gasto', 'cuenta_iva', 'confianza_pct', 'estado',
+        'tipo_regla', 'cuenta_prefijo');
     return new Map(filas.map((f: any) => [f.categoria_code, {
       categoria_code: f.categoria_code,
       cuenta_gasto: f.cuenta_gasto,
       cuenta_iva: f.cuenta_iva,
       confianza_pct: f.confianza_pct === null ? null : Number(f.confianza_pct),
       estado: f.estado,
+      tipo_regla: f.tipo_regla ?? 'por_categoria',
+      cuenta_prefijo: f.cuenta_prefijo ?? null,
     } as ReglaCuenta]));
+  }
+
+  /**
+   * `[CP.8.21]` — **Simula el armado POR LOTE**, que es la unidad real: ContPAQi agrupa.
+   *
+   * Medido: 4,067 de 4,457 pólizas de egreso de 2026 (91.2 %) tienen **un solo renglón de
+   * banco**. Una póliza por movimiento daría 4,727 donde la contadora hace ~500 — un archivo
+   * que cuadra y que ella no reconoce como su trabajo.
+   *
+   * Devuelve un renglón por lote con lo que entraría y los motivos de lo que no. No escribe.
+   */
+  async simularLotes(anioMes: string): Promise<ResumenLote[]> {
+    const egresos = await this.leerEgresos(anioMes);
+    const reglas = await this.leerReglas();
+
+    // (cuenta de banco × día) — exactamente el grano de la póliza real.
+    const grupos = new Map<string, any[]>();
+    const sinBanco: any[] = [];
+    for (const e of egresos) {
+      if (!e.cuenta_banco) { sinBanco.push(e); continue; }
+      const k = `${e.cuenta_banco}|${e.fecha}`;
+      if (!grupos.has(k)) grupos.set(k, []);
+      grupos.get(k)!.push(e);
+    }
+
+    const out: ResumenLote[] = [];
+    for (const [k, filas] of [...grupos.entries()].sort()) {
+      const [cuenta_banco, fecha] = k.split('|');
+      const entradas = filas.map((e) => {
+        const subtotal = Number(e.amount_out);
+        const iva = Number(e.iva_hermano ?? 0);
+        return {
+          // Una categoría sin fila en `account_rules` no se inventa: entra con `sin_medir`
+          // para que el lote la rechace con ese motivo, no con uno prestado.
+          regla: reglas.get(e.categoria_code) ?? {
+            categoria_code: e.categoria_code, cuenta_gasto: null, cuenta_iva: '1060000000',
+            confianza_pct: null, estado: 'sin_regla' as const, tipo_regla: 'sin_medir' as const,
+            cuenta_prefijo: null,
+          },
+          subtotal,
+          iva,
+          total: Math.round((subtotal + iva) * 100) / 100,
+          cuenta_banco,
+          concepto: String(e.concept ?? '').trim() || e.categoria_nombre,
+          fecha,
+          seg_negocio: 0,
+        };
+      });
+
+      const lote = armarLoteEgresos(cuenta_banco, fecha, entradas,
+        `EGRESOS ${fecha} ${cuenta_banco}`);
+      const porMotivo: Record<string, number> = {};
+      for (const r of lote.rechazadas) porMotivo[r.motivo] = (porMotivo[r.motivo] ?? 0) + 1;
+
+      out.push({
+        cuenta_banco,
+        fecha,
+        movimientos: filas.length,
+        incluidas: lote.incluidas,
+        renglones: lote.asiento?.movimientos.length ?? 0,
+        total: lote.asiento?.total ?? 0,
+        iva_traspaso: lote.asiento?.iva_traspaso ?? null,
+        motivos: porMotivo,
+      });
+    }
+    if (sinBanco.length) {
+      this.log.warn(`${sinBanco.length} egresos sin contpaqi_cuenta (crosswalk CP.2): no agrupan`);
+    }
+    const conAsiento = out.filter((l) => l.incluidas > 0).length;
+    this.log.log(`lotes ${anioMes}: ${out.length} (banco × día) · ${conAsiento} con asiento`);
+    return out;
   }
 
   /**
