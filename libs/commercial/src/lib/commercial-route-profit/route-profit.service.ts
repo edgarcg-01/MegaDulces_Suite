@@ -276,30 +276,42 @@ export class RouteProfitService {
     return this.tk.run(async (trx) => {
       const { rows } = await trx.raw(`
         WITH tr AS (
-          SELECT t.route_number, t.external_name, t.last_odometer, t.last_seen_at,
+          SELECT t.tenant_id, t.route_number, t.external_name, t.last_odometer, t.last_seen_at,
                  t.vehicle_id,
                  (t.external_name ~* 'DASHCAM|[(]CAM[)]') AS es_camara
             FROM logistics.trackers t
            WHERE t.route_number IS NOT NULL AND t.deleted_at IS NULL
         )
         SELECT tr.route_number::text AS route_code,
-               u.plaza, u.chofer_nombre AS chofer,
+               -- La ficha es para IDENTIFICAR la unidad, no para agrupar dinero: aca el respaldo
+               -- sirve. Con la plaza resuelta a secas, las rutas 321 y 322 salen con un guion
+               -- aunque el universo sepa que son de Morelia. En rentabilidad() NO se usa el
+               -- respaldo: alla la plaza reparte gasto y el texto de la zona ya se equivoco una vez.
+               coalesce(u.plaza, u.plaza_o_zona) AS plaza, u.chofer_nombre AS chofer,
                v.plate AS placa, v.brand AS marca, v.model AS modelo, v.year AS anio,
                v.vin, v.insurance_carrier AS aseguradora,
                tr.last_odometer AS odometro,
                to_char(tr.last_seen_at, 'YYYY-MM-DD') AS ultimo_visto,
                (current_date - tr.last_seen_at::date)::int AS dias_sin_reportar,
                tr.external_name AS nombre_tracker,
-               -- ⚠️ El nombre del aparato trae la placa. Si no es la del vehículo al que cuelga,
-               -- el vínculo está mal: son dos camionetas distintas.
-               (v.plate IS NOT NULL AND tr.external_name !~ v.plate) AS vinculo_sospechoso,
+               -- El nombre del aparato trae la placa. Si no es la del vehiculo al que cuelga,
+               -- el vinculo esta mal: son dos camionetas distintas.
+               -- ⛔ Esto comparaba con el operador de EXPRESION REGULAR, o sea que usaba la
+               -- placa como patron. Verificado contra prod: una placa con un parentesis suelto
+               -- rompe la consulta entera (parentheses not balanced) y una con un punto da
+               -- FALSO NEGATIVO -- el punto matchea cualquier caracter, asi que un vinculo malo
+               -- se ve bien. Hoy ninguna de las 56 placas trae metacaracteres, pero ya conviven
+               -- OCHO formatos distintos: el dato no esta disciplinado y el riesgo es latente.
+               -- position() compara TEXTO, que es lo que se queria comparar.
+               (v.plate IS NOT NULL AND position(v.plate in tr.external_name) = 0)
+                 AS vinculo_sospechoso,
                count(*) OVER (PARTITION BY tr.route_number)::int AS aparatos,
                row_number() OVER (PARTITION BY tr.route_number
                                   ORDER BY tr.es_camara, tr.last_seen_at DESC) AS rn
           FROM tr
           LEFT JOIN logistics.vehicles v ON v.id = tr.vehicle_id AND v.deleted_at IS NULL
           LEFT JOIN analytics.v_rd_commission_universe u
-            ON u.route_code = tr.route_number::text
+            ON u.tenant_id = tr.tenant_id AND u.route_code = tr.route_number::text
          ORDER BY tr.route_number, tr.es_camara`);
 
       // Una fila por ruta: la del aparato principal (no cámara, más reciente).
@@ -342,9 +354,30 @@ export class RouteProfitService {
                             WHERE t.route_number::text = u.route_code AND t.deleted_at IS NULL)
          ORDER BY u.route_code`);
 
+      // ⛔ Acá iba la cobertura del padrón ESCRITA A MANO en el texto («de 56 unidades vivas,
+      // el año en 1, el VIN en ninguna»). Era cierta el día que se midió y seguiría diciendo lo
+      // mismo el día que alguien capture: una medición congelada en una cadena no avisa cuando
+      // deja de ser cierta. Es la lección de `[CDRP.2.1]`, que costó una migración aparte porque
+      // la cifra vivía en un COMMENT de prod. Se cuenta cada vez.
+      const { rows: [pad] } = await trx.raw(`
+        SELECT count(*)::int AS total, count(plate)::int AS placa, count(brand)::int AS marca,
+               count(model)::int AS modelo, count(year)::int AS anio, count(vin)::int AS vin,
+               count(insurance_carrier)::int AS aseguradora
+          FROM logistics.vehicles WHERE deleted_at IS NULL`);
+      const faltantes = ([
+        ['modelo', pad.modelo], ['año', pad.anio], ['número de serie', pad.vin],
+        ['aseguradora', pad.aseguradora],
+      ] as [string, number][])
+        .filter(([, n]) => n < pad.total)
+        .map(([k, n]) => `${k} ${n}/${pad.total}`);
+
       const huecos: Hueco[] = [{
         clave: 'padron_vacio',
-        detalle: 'El padrón de vehículos está casi vacío: de 56 unidades vivas, placa y marca están en las 56, pero el año en 1 y el VIN, el número económico, la aseguradora y la póliza en ninguna.',
+        detalle: faltantes.length
+          ? `El padrón de vehículos está incompleto: sobre ${pad.total} unidades vivas, `
+            + `placa ${pad.placa}/${pad.total} y marca ${pad.marca}/${pad.total}, pero `
+            + `${faltantes.join(', ')}. Se captura en Logística.`
+          : `El padrón de vehículos está completo en las ${pad.total} unidades vivas.`,
       }, {
         clave: 'sin_vencimiento_de_seguro',
         detalle: 'No existe ninguna columna de vencimiento de seguro en toda la base, así que el aviso por póliza que pedía el libro no tiene dónde vivir todavía. El dato está sólo en el Excel.',
