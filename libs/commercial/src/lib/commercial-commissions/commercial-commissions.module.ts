@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 import { CommissionRecalcService } from './commission-recalc.service';
 import { CommissionContrastService } from './commission-contrast.service';
+import { CommissionObjectiveService } from './commission-objective.service';
 import { CommercialCommissionsController } from './commercial-commissions.controller';
 
 /**
@@ -15,7 +16,7 @@ import { CommercialCommissionsController } from './commercial-commissions.contro
  */
 @Module({
   controllers: [CommercialCommissionsController],
-  providers: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService],
-  exports: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService],
+  providers: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService, CommissionObjectiveService],
+  exports: [CommercialCommissionsService, CommissionRecalcService, CommissionContrastService, CommissionObjectiveService],
 })
 export class CommercialCommissionsModule {}
