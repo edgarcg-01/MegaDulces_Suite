@@ -1094,3 +1094,50 @@ Arreglado con `Number(x.TipoMovto) === 0`, que además sobrevive si la columna c
 De ahí salió un **freno permanente** en el script: si todas las categorías caen en el mismo cubo,
 o si ninguna toca una cuenta de gasto, **sale `FATAL` y no publica** — eso no es un hallazgo, es
 un clasificador roto. **Probado en rojo** re-introduciendo el bug a propósito.
+
+### 🚀 Paso 2 cerrado — `[CP.8.19]` EN PROD, batch 863 (2026-10-09)
+
+`contpaqi.account_rules` gana `tipo_regla` · `cuenta_prefijo` · `lleva_iva` · `forma_medida`.
+Aplicada **una sola** con `apply-one-migration-prod.js` dentro de `prod-api`, 0.1 s.
+
+**Estado sembrado en prod** (21 filas, 17 con evidencia en `forma_medida`):
+
+| `tipo_regla` | n | Categorías |
+|---|--:|---|
+| `sin_medir` | 11 | caja_ahorro, cobranza, comisiones_venta, compra_factoraje, devolucion_spei, ingreso_devolucion, pago_credito, pago_factoraje, pension_alimenticia, renta, traslado_valores |
+| `por_categoria` | 6 | comision_bancaria, compra_tarjeta, gasto_admin, impuestos, imss_sua, servicios |
+| `no_aplica` | 2 | iva_acreditable, traspaso_entre_cuentas |
+| `por_proveedor` | 1 | compra_mercancia (`cuenta_prefijo = 2120`) |
+| `por_sucursal` | 1 | nomina (`cuenta_prefijo = 215011`) |
+
+⭐ **`lleva_iva`: 2 en `false`, 19 en NULL.** El NULL es el punto. La medición de IVA es **a nivel
+de póliza** y ContPAQi agrupa 7–278 movimientos por póliza: que el 90.9 % de las pólizas de
+`compra_mercancia` traigan un renglón de IVA **no dice** que el pago a proveedor lo lleve. La
+única donde se pudo concluir es `impuestos` — promedia **2.1 renglones** (póliza ~1:1) y el
+94.1 % no lleva IVA. *Una medición sobre otro grano es otra afirmación.*
+
+#### Prueba negativa del CHECK — corrida como `postgres`, no como `edgar`
+
+⚠️ Correrla como `edgar` habría fallado por **permisos**, no por el CHECK, y eso se lee igual de
+verde (lección ya pagada en `[CP.8.1]`).
+
+| Caso | Resultado |
+|---|---|
+| `por_proveedor` **con** `cuenta_gasto` | ✗ rechazado (`account_rules_coherencia_chk`) |
+| `por_categoria` **con** `cuenta_prefijo` | ✗ rechazado (`account_rules_coherencia_chk`) |
+| `tipo_regla` inventado (`por_luna`) | ✗ rechazado (`account_rules_tipo_regla_chk`) |
+| `por_proveedor` **sin** `cuenta_gasto` | ✓ `UPDATE 1` |
+
+⭐ Por qué el CHECK y no una convención: una regla `por_proveedor` con `cuenta_gasto` puesta
+cargaría **todos** los pagos a proveedor a una sola cuenta de gasto — y eso **cuadra**, así que
+ningún cuadre lo atraparía. *Un asiento que cuadra y está mal es peor que uno que no cuadra.*
+
+⚠️ **El hueco de `migration directory is corrupt` volvió a aparecer** y frenó el primer intento:
+prod tiene en su ledger las 4 migraciones de esta sesión (856–859) cuyos archivos **no están en
+la imagen desplegada**. Se resolvió copiándolas al pod junto con la nueva — **sin crear
+marcadores vacíos**. Se va a repetir en cada sesión que migre desde el contenedor hasta que haya
+`git push` + redeploy.
+
+⛔ **Esto NO habilita a nadie a asentar.** Las 19 filas que no son `no_aplica` siguen en
+`sin_regla`. Lo que cambia es que el armador ya puede distinguir *"falta decidir"* de *"ya se
+decidió que no aplica"* — dos estados que hoy se veían iguales (misma lección que `[CP.8.1d]`).
