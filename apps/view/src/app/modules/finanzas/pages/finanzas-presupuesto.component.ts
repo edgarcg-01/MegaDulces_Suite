@@ -935,8 +935,21 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         <section class="pres-section">
           <!-- Proponer capacidad desde el flujo (cobranza esperada) · PR.2 -->
           <div class="pres-section-head">
-            <h2>Capacidad de pago <span class="pres-muted">— el sistema la propone desde el flujo; tú confirmas</span></h2>
+            <h2>Capacidad de pago <span class="pres-muted">— cuánto se AUTORIZA pagar por día; el sistema lo propone, tú confirmas</span></h2>
           </div>
+
+          <!-- [VP.MS] La respuesta arriba (DESIGN.md §15 answer-first): antes esta pestaña
+               abria con dos formularios y una tabla, sin una sola cifra que contestara
+               cuanto se autorizo ni con que se calculo. -->
+          <app-metric-strip [items]="capacidadKpis()" mode="strip" ariaLabel="Resumen de capacidad de pago" />
+
+          <p class="pres-nodata">
+            <span class="pi pi-info-circle"></span>
+            <strong>Esto es un permiso, no un saldo.</strong> La capacidad es el tope que Presupuestos
+            autoriza para un día; responde <em>¿alcanza la autorización?</em>, no <em>¿alcanza el dinero?</em>.
+            El saldo en banco vive en <strong>Flujo / Resultado</strong> y no se suma acá.
+          </p>
+
           <div class="pres-cap-form">
             <input type="date" [(ngModel)]="capProposeFrom" class="pres-date" aria-label="Desde" />
             <input type="date" [(ngModel)]="capProposeTo" class="pres-date" aria-label="Hasta" />
@@ -998,7 +1011,23 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <button pButton type="button" class="p-button-sm" (click)="authorizeOblig()" [loading]="authorizingOblig()" title="Autoriza las seleccionadas (entran al Calendario)"><span class="pi pi-check"></span>&nbsp;Autorizar seleccionadas</button>
             </div>
           </div>
+          <!-- [VP.MS] La respuesta arriba: con 312 filas, la tabla cruda no dejaba decir
+               cuanto suma lo que de verdad va a pagarse. -->
+          <app-metric-strip [items]="obligacionesKpis()" mode="strip" ariaLabel="Resumen de obligaciones" />
+
           <p class="pres-hint"><span class="pi pi-info-circle"></span> Las <strong>propuesta</strong> son auto-generadas (sin autorizar): selecciónalas y autoriza. Sólo las autorizadas entran al Calendario de Pagos.</p>
+
+          <!-- [TES.10] Medido en prod el 2026-10-08: de 312 obligaciones, 156 cuelgan del
+               FY2027 real y 156 del duplicado marcado is_test. El endpoint no devuelve de que
+               ejercicio viene cada fila, asi que la pantalla NO puede separarlas: se declara.
+               Autorizar una del duplicado la mete al Calendario de Pagos. -->
+          <p class="pres-nodata">
+            <span class="pi pi-exclamation-triangle"></span>
+            <strong>Esta lista no distingue el ejercicio de prueba.</strong> La obligación no trae
+            de qué presupuesto viene, así que si hay un ejercicio marcado como prueba sus
+            obligaciones aparecen acá mezcladas — y autorizar una la mete al Calendario.
+            Verificá el ejercicio antes de autorizar.
+          </p>
           <p-table [value]="expenses()" [loading]="loadingExpenses()" styleClass="p-datatable-sm surf-table pres-table">
             <ng-template #header>
               <tr><th style="width:2.2rem"><span class="sr-only">Seleccionar</span></th><th>Concepto</th><th>Beneficiario</th><th>Tipo</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr>
@@ -2128,14 +2157,91 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
 
+  /**
+   * `[VP.MS]` **Capacidad de pago — la respuesta arriba, y el rótulo que evita leerla como dinero.**
+   *
+   * ⛔ `budget.daily_capacity.authorized_amount` es un **tope que pone un humano**, no un saldo.
+   * Cruzarlo contra obligaciones responde *¿alcanza el permiso?*, nunca *¿alcanza la plata?*.
+   * Si se publica junto al saldo bancario sin rotularlo, se lee como liquidez.
+   *
+   * ⚠️ Y la propuesta **deriva del tramo de cartera con vencimiento futuro**, que es una
+   * fracción: por eso sale `parcial` con su cobertura, no como cifra cerrada.
+   */
+  capacidadKpis(): MetricStripItem[] {
+    const p = this.capProposal();
+    const cc = p?.cobranza_cobertura;
+    const dias = p?.items?.length ?? 0;
+    const total = this.capProposalTotal();
+    const cur = this.currentCapacity();
+    const fuera = cc && cc.vencido_fuera > 0
+      ? `${this.money(cc.vencido_fuera)} de cartera vencida no sostiene esta propuesta: es exigible, pero sin fecha`
+      : undefined;
+    return [
+      p?.available
+        ? { label: 'Capacidad propuesta', value: total, format: 'currency-short', state: 'parcial', stateNote: fuera }
+        : { label: 'Capacidad propuesta', value: '—', format: 'text', state: 'no_medido', stateNote: p?.reason || 'Todavía no se propuso capacidad para un rango' },
+      p?.available && dias > 0
+        ? { label: 'Por día hábil', value: total / dias, format: 'currency-short', state: 'parcial', stateNote: `Repartida entre ${dias} días hábiles del rango` }
+        : { label: 'Por día hábil', value: '—', format: 'text', state: 'no_medido', stateNote: 'Sin propuesta no hay reparto por día' },
+      cc
+        ? { label: 'Cobranza que la sostiene', value: cc.en_ventana, format: 'currency-short', state: 'parcial',
+            stateNote: cc.pct_en_ventana != null ? `Es el ${cc.pct_en_ventana}% de la cartera cobrable` : undefined }
+        : { label: 'Cobranza que la sostiene', value: '—', format: 'text', state: 'no_medido', stateNote: 'La propuesta no trajo su cobertura' },
+      // ⛔ NULL ≠ 0: un día sin fila es capacidad **no definida**, no cero. Leerlo como cero
+      // fabrica una insolvencia que no existe — y hoy en prod son 57 de 57 días sin fila.
+      cur
+        ? { label: `Autorizado el ${this.capDate}`, value: cur.authorized_amount, format: 'currency-short', state: 'medido',
+            stateNote: `Tope autorizado por ${cur.updated_by || 'alguien sin registrar'} — es un permiso, no un saldo` }
+        : { label: `Autorizado el ${this.capDate}`, value: '—', format: 'text', state: 'no_medido',
+            stateNote: 'Sin fila para ese día: capacidad NO DEFINIDA, que no es lo mismo que cero' },
+    ];
+  }
+
+  /**
+   * `[VP.MS]` **Obligaciones — qué entra al Calendario y qué no.**
+   *
+   * ⚠️ Sólo las **autorizadas** entran. La tabla mezclaba los dos universos sin totalizar
+   * ninguno: con 312 filas nadie podía decir cuánto suma lo que de verdad va a pagarse.
+   */
+  obligacionesKpis(): MetricStripItem[] {
+    const rows = this.expenses() ?? [];
+    const sum = (f: (e: ExpenseObligation) => boolean) =>
+      rows.filter(f).reduce((s, e) => s + (Number(e.available_amount) || 0), 0);
+    const n = (f: (e: ExpenseObligation) => boolean) => rows.filter(f).length;
+    const autorizada = (e: ExpenseObligation) => e.status === 'pending' || e.status === 'partial';
+    return [
+      { label: 'Autorizado — entra al Calendario', value: sum(autorizada), format: 'currency-short',
+        state: 'medido', stateNote: `${n(autorizada)} obligaciones · disponible = original − reservado − pagado` },
+      { label: 'Propuesto — NO entra', value: sum((e) => e.status === 'propuesta'), format: 'currency-short',
+        state: 'medido', stateNote: `${n((e) => e.status === 'propuesta')} auto-generadas, esperando autorización` },
+      { label: 'Ineludibles', value: sum((e) => e.is_critical && autorizada(e)), format: 'currency-short',
+        state: 'medido', stateNote: `${n((e) => e.is_critical)} marcadas a mano con motivo. La criticidad NUNCA se infiere del importe` },
+      // Medido el 2026-10-08: de las 312 filas de prod, 156 cuelgan del FY2027 real y 156 del
+      // duplicado `is_test`. El endpoint NO devuelve de qué ejercicio viene cada una, así que
+      // esto se DECLARA en vez de fabricarse. Autorizar una del duplicado la mete al Calendario.
+      { label: 'Del ejercicio de prueba', value: '—', format: 'text', state: 'no_medido',
+        stateNote: 'La lista no distingue el ejercicio de prueba: la obligación no trae su presupuesto. En prod la mitad de las filas son del duplicado' },
+    ];
+  }
+
   // ── Capacidad propuesta desde el flujo ──
   capProposeFrom = ''; capProposeTo = '';
-  capProposal = signal<{ available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }>; note?: string; reason?: string } | null>(null);
+  /**
+   * `[VP.MS]` `cobranza_cobertura` y `base` **ya viajaban** desde `budget-capacity.service.ts`
+   * y esta pantalla los tiraba: el tipo estaba copiado a mano y se quedó corto. Proponer
+   * capacidad desde el 11.8% de la cartera sin decirlo es el mismo defecto que `[CXC.22]`
+   * corrigió del lado del flujo.
+   */
+  capProposal = signal<{
+    available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }>;
+    note?: string; reason?: string; base?: string; as_of?: string | null;
+    cobranza_cobertura?: { en_ventana: number; vencido_fuera: number; posterior: number; sin_vencimiento: number; total: number; pct_en_ventana: number | null };
+  } | null>(null);
   loadingCapProp = signal(false); confirmingCap = signal(false);
   proposeCapacity(): void {
     if (!this.capProposeFrom || !this.capProposeTo) { this.toast.add({ severity: 'warn', summary: 'Fechas', detail: 'Elegí desde y hasta.' }); return; }
     this.loadingCapProp.set(true);
-    this.http.get<{ available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }> }>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.http.get<NonNullable<ReturnType<typeof this.capProposal>>>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.capProposal.set(r); this.loadingCapProp.set(false); },
       error: (e) => { this.loadingCapProp.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer la capacidad.' }); },
     });
