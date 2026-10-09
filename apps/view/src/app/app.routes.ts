@@ -286,6 +286,15 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.COMMERCIAL_THOT_VER)]
       },
       {
+        // `[RD.57]` — ¿la ruta GANA dinero? Utilidad bruta + kilómetros del GPS + gasto del
+        // departamento. Ruta propia y no `rentabilidad`, que ya es de la Fase MR (margen por
+        // producto). Permiso PROPIO: publica nómina y comisiones del área, así que no puede
+        // colgar de COMMERCIAL_ROUTE_SALES_VER, que lo tienen los supervisores de ruta.
+        path: 'ruta-directa/rentabilidad',
+        loadComponent: () => import('./modules/comercial/pages/comercial-ruta-directa-rentabilidad.component').then(m => m.ComercialRutaDirectaRentabilidadComponent),
+        canActivate: [permissionGuard(Permission.COMMERCIAL_ROUTE_PROFIT_VER)]
+      },
+      {
         // Fase MR — Motor de Rentabilidad: cascada de margen sobre venta real.
         path: 'rentabilidad',
         loadComponent: () => import('./modules/comercial/pages/comercial-rentabilidad.component').then(m => m.ComercialRentabilidadComponent),
