@@ -43,6 +43,18 @@ export class BudgetComparisonController {
     return this.cycle.cycle();
   }
 
+  /**
+   * `[TES.14]` El estrés que el encargo pedía al revés. No «y si la venta cae 20 %» —una caída
+   * de hoy no cambia lo que vence el martes— sino **cuánto de lo vencido hay que cobrar por
+   * semana, y si eso cabe en lo que el negocio ya cobra**.
+   */
+  @Get('cash-runway')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Holgura de liquidez: el hueco de la ventana, la recuperación semanal que exige, y qué porcentaje es eso del cobro histórico real. Con veredicto.' })
+  cashRunway() {
+    return this.cycle.runway();
+  }
+
   @Get('budgets/:id/summary')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Resumen ejecutivo: presupuesto vs real, disponible, ocupación, KPIs §10.' })

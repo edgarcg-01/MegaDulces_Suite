@@ -5,6 +5,8 @@ import type { Coverage } from '@megadulces/contracts';
 const round1 = (n: number) => Math.round(Number(n) * 10) / 10;
 const round2 = (n: number) => Math.round(Number(n) * 100) / 100;
 const VENTANA_DIAS = 90;
+/** La misma ventana que proyecta el flujo: comparar contra otra sería comparar otra pregunta. */
+const VENTANA_FLUJO_DIAS = 56;
 
 /**
  * `[TES.13]` **El ciclo de conversión de efectivo — las tres métricas que todo CFO pide primero
@@ -37,6 +39,97 @@ export class CashCycleService {
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
   ) {}
+
+  /**
+   * `[TES.14]` **La holgura de liquidez — y el escenario de estrés que el encargo pedía mal.**
+   *
+   * El encargo pedía *«asumí que las ventas caen 20 % y vé si la capacidad de pago cubre lo
+   * ineludible»*. ⛔ Ese estrés no sirve acá, por dos razones medidas:
+   *
+   *   1. **Una caída de venta de hoy no cambia lo que vence el martes.** La cobranza de la
+   *      ventana son facturas YA emitidas; el golpe llega después del plazo de crédito.
+   *   2. ⭐ **El caso base ya no cierra.** Medido el 2026-10-09: saldo $1.48M + cobranza en
+   *      ventana $7.16M − deuda en ventana $27.80M = **−$19.17M**. Un estrés encima de un base
+   *      que ya es negativo es académico: no distingue nada.
+   *
+   * La pregunta que sí es accionable es **la inversa**: ¿cuánto de la masa vencida hay que
+   * cobrar por semana para cubrir lo que vence, y es eso plausible? Y tiene respuesta:
+   *
+   *     requerido        $2,395,779.40 por semana
+   *     cobro histórico $10,456,970.65 por semana
+   *     ⇒ requerido = 22.9 % de lo que el negocio ya cobra -- holgura ~4.4x
+   *
+   * Ese porcentaje es **el instrumento**: un solo número, con umbral natural (si trepa al 70 %
+   * hay problema de verdad) y comparable contra el desempeño real, no contra una meta.
+   *
+   * ⚠️ `requerido = 0` es un CERO REAL (la ventana se sostiene sola), distinto de «no se pudo
+   * medir». Y si no hay histórico, el porcentaje va `null`: sin con qué comparar no hay veredicto.
+   */
+  async runway() {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const [m] = await trx.raw(
+        `WITH banco AS (
+           SELECT coalesce(sum(running_balance), 0) s, max(movement_date) at FROM (
+             SELECT DISTINCT ON (bank_account_id) running_balance, movement_date
+               FROM finance.bank_movements
+              WHERE tenant_id = ? AND deleted_at IS NULL
+                AND movement_date BETWEEN '2015-01-01' AND current_date
+              ORDER BY bank_account_id, movement_date DESC, created_at DESC) x
+         ), cob AS (
+           SELECT coalesce(sum(saldo_ajustado), 0) s FROM analytics.customer_receivables
+            WHERE tenant_id = ? AND saldo_ajustado > 0
+              AND vencimiento BETWEEN current_date AND current_date + ?::int
+         ), pag AS (
+           SELECT coalesce(sum(pendiente), 0) s FROM analytics.v_supplier_payables
+            WHERE tenant_id = ? AND NOT upper(btrim(proveedor)) LIKE 'TI%'
+              AND vencimiento BETWEEN current_date AND current_date + ?::int
+         ), hist AS (
+           SELECT sum(monto) / 8.0 AS sem, count(*) n FROM analytics.erp_collections
+            WHERE tenant_id = ?
+              AND cobro_date >= date_trunc('week', current_date)::date - 56
+              AND cobro_date <  date_trunc('week', current_date)::date
+         )
+         SELECT banco.s AS saldo, banco.at AS saldo_at, cob.s AS cobro, pag.s AS pago,
+                hist.sem AS cobro_sem, hist.n AS hist_n
+           FROM banco, cob, pag, hist`,
+        [tenantId, tenantId, VENTANA_FLUJO_DIAS, tenantId, VENTANA_FLUJO_DIAS, tenantId],
+      ).then((r: { rows?: unknown[] }) => (r.rows ?? r) as Record<string, unknown>[]);
+
+      const saldo = Number(m.saldo) || 0;
+      const cobro = Number(m.cobro) || 0;
+      const pago = Number(m.pago) || 0;
+      const cobroSem = m.cobro_sem == null ? null : Number(m.cobro_sem);
+      const semanas = VENTANA_FLUJO_DIAS / 7;
+
+      const hueco = round2(saldo + cobro - pago);
+      const requerido = round2(Math.max(pago - cobro - saldo, 0) / semanas);
+      // `null`, no 0: sin histórico no hay con qué juzgar si el requerido es alcanzable, y un
+      // 0 % se leería como «no hace falta nada» — el veredicto opuesto al real.
+      const pct = cobroSem && cobroSem > 0 ? round1((requerido / cobroSem) * 100) : null;
+
+      return {
+        ventana_dias: VENTANA_FLUJO_DIAS,
+        saldo_inicial: round2(saldo),
+        cobro_en_ventana: round2(cobro),
+        pago_en_ventana: round2(pago),
+        hueco_de_la_ventana: hueco,
+        recuperacion_semanal_requerida: requerido,
+        cobro_semanal_historico: cobroSem == null ? null : round2(cobroSem),
+        requerido_pct_del_historico: pct,
+        holgura_veces: pct != null && pct > 0 ? round1(100 / pct) : null,
+        veredicto: pct == null
+          ? 'sin_medir'
+          : requerido === 0 ? 'la_ventana_se_sostiene_sola'
+            : pct <= 70 ? 'alcanzable_con_la_cobranza_habitual'
+              : 'exige_mas_de_lo_que_el_negocio_cobra_normalmente',
+        nota: 'El encargo pedía estresar la venta −20 %. No aplica: una caída de venta de hoy no cambia lo que vence el martes (la cobranza de la ventana son facturas ya emitidas) y el caso base ya es negativo. La pregunta accionable es la inversa: cuánto de lo vencido hay que cobrar por semana, y si eso cabe en lo que el negocio ya cobra.',
+        freshness: composeFreshness([
+          evalInput('bancos', 'Bancos (saldo saneado)', (m.saldo_at as string) ?? null, 72),
+        ]),
+      };
+    });
+  }
 
   async cycle() {
     const tenantId = this.tenantCtx.requireTenantId();
