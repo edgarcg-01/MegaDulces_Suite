@@ -959,3 +959,92 @@ ellas. Suite de `compras` completa: 22 archivos / 364 tests verde.
 **commiteado** contra `origin/main`, así que con el trabajo sin commitear midió cero archivos. Se
 volvió a correr con `--files=` apuntando a los tres fuentes. Es el hueco que la propia compuerta
 documenta en su cabecera.
+
+---
+
+## RA.SOB — Sobrante: dónde está parado el inventario, y qué pedimos que se quedó (2026-10-09) 🧪
+
+Punto 2 de los tres de Edgar: *"necesito analices que productos pedimos y se quedaron en stock"*.
+Pestaña **Sobrante** en `/compras/pedido` + `GET /commercial/replenishment/sobrante`.
+
+### El inventario por tramo de cobertura (prod, 2026-10-09, $62,981,663)
+
+| tramo | pares | SKUs | valor | % | de eso, se quedó |
+|---|---:|---:|---:|---:|---:|
+| Hasta 45 días | 7,895 | 3,174 | $11,837,770 | 18.8% | 539 · $900,077 |
+| 45 a 90 | 3,055 | 2,017 | $8,926,294 | 14.2% | 213 · $592,656 |
+| 90 a 180 | 2,285 | 1,646 | $8,554,913 | 13.6% | 161 · $582,459 |
+| 180 a 365 | 1,421 | 1,135 | $7,092,442 | 11.3% | 75 · $287,742 |
+| **Más de 1 año** | 1,284 | 892 | **$11,855,978** | 18.8% | 70 · $303,248 |
+| **Sin venta** | 5,593 | 3,418 | **$4,149,039** | 6.6% | 136 · $190,878 |
+| *Almacén que no vende* | *259* | *259* | *$10,565,227* | *16.8%* | *78 · $1,189,898* |
+
+**Lo que pedimos y se quedó: 1,272 pares, $4,046,958** — con una compra en los últimos 90 días y
+**cero salidas posteriores a esa compra**.
+
+### ⛔⛔ Dos correcciones a lo que yo mismo había reportado
+
+**1. `qty > 0` no selecciona entradas.** `analytics.stock_movements.qty` es la cantidad
+**ABSOLUTA**: las salidas también la traen positiva. Mi primera medición filtró por el signo y metió
+**40,073 "Traspaso a sucursal"** del lado de las compras, lo que dio *"$12.6 M comprado en los
+últimos 30 días"* cuando lo real son $6.94 M. El clasificador es `movement_kind`, no el signo.
+
+Con el clasificador correcto, **compra** son exactamente tres documentos: `Orden de entrada`,
+`Compra`, `Compra (pedido)`. **NO** el traspaso recibido (es mercancía que ya estaba en la red:
+contarla diría que "compramos" lo que sólo movimos) ni la entrada por inventario físico (ajuste de
+conteo).
+
+**2. El "sin venta" de $14.7 M eran $4.1 M.** De ese tramo, **$10,565,227 son los 259 pares del
+CEDIS**, y los 259 caen en "sin venta" por una razón que no es un problema: **el CEDIS no vende,
+distribuye**. Medirlo con la venta es usar una vara que no le aplica. Ahora es un tramo propio,
+`no_vende`, derivado del DATO (`warehouses.sells_to_public`) y no de una lista de códigos — un
+almacén nuevo que no venda entra solo.
+
+⭐ Se pinta **neutro**, no en rojo: no es bueno ni malo, es la declaración de que ahí no se puede
+medir así (ADR-056). Y sólo aplica cuando la cobertura es NULL: si algún día el DRP (RA-PRO.6)
+puebla la demanda dependiente del CEDIS, su cobertura es medible y cae en su tramo real.
+
+### La consulta
+
+⭐ **Una sola**, que devuelve el detalle, el total de la paginación (`count(*) OVER ()`) y el
+resumen de los 7 tramos (`jsonb_agg` en un CTE). No es elegancia: en tres consultas separadas el
+barrido de 90 días de movimientos se pagaba **tres veces** — ~400 ms cada una, 1.2 s medidos contra
+prod. Con `q AS MATERIALIZED` se calcula una vez: **368–395 ms** en caliente, bajo el piso de 500.
+
+⭐ Y de paso resuelve lo que importa más que la velocidad: la tira de arriba y la tabla salen del
+**mismo** cálculo, así que no pueden decir cosas distintas del mismo SKU.
+
+⛔ Con **cero** renglones la consulta no devuelve filas y el resumen vendría en ninguna → se pide
+aparte **sólo en ese caso**. Un `tramos: []` haría desaparecer la tira justo cuando el comprador
+filtró y quiere saber por qué no hay nada.
+
+### Candado
+
+`sobrante.spec.ts`, 23 aserciones. ⚠️ Un doble de Knex no ejecuta SQL, así que **no** afirma que las
+cifras sean correctas — eso se midió contra prod y quedó arriba con fecha. Protege las decisiones
+que, si alguien las deshace, **no fallan: mienten**. La principal: que `no_vende` se evalúe ANTES
+que `sin_venta`. **Mutado a rojo** invirtiendo ese orden.
+
+⛔ **La primera mutación no se aplicó** (el `perl` no casó por CRLF) y el 23/23 verde que dio no
+probaba nada. Se rehízo con `Edit`, que falla si el texto no casa. *Una prueba negativa que no se
+pone roja no prueba nada* — segunda vez en este repo con la misma causa.
+
+### ⚠️⚠️ Decimotercera vez con el acento grave, y es una VARIANTE NUEVA
+
+Los backticks estaban **BALANCEADOS** — cinco pares, 10 en total. Por eso `check:templates` los dejó
+pasar: el literal "sigue entero". Pero **cada par abre y cierra una interpolación**, y el HTML que
+queda en medio se parsea como TypeScript → 10 `TS1005` en cadena.
+
+⭐ **La regla "no dejar backticks sin cerrar" es insuficiente: dentro de un `template:` no va
+NINGUNO, ni en pares.** Lo cazó `check:template-types`, que es exactamente para lo que la hermana no
+puede ver. (La sesión `trade-marketing-06` lo detectó en paralelo y `8c` encontró la causa
+sistémica: `check:primeng-api` te empuja a convertir, convertir pide explicar, y el lugar natural de
+la explicación es dentro del `template:` — dos compuertas correctas que juntas fabrican el caso que
+una prohíbe. Corregido en el consejo del gate, commit `6a1546ea8`, ajeno a esta fase.)
+
+### Abierto
+
+- La tabla no tiene export a XLSX todavía (la hermana Stock muerto sí).
+- El tramo `no_vende` depende de que `sells_to_public` esté bien capturado. Hoy el único `false` es
+  el CEDIS; si mañana una ruta o una bodega se marca mal, su inventario se declara "sin medir"
+  cuando sí se podía medir. **Es un dato de captura, no derivado.**
