@@ -114,7 +114,12 @@ function nuestro(layout) {
 }
 
 console.log('\n[3] ⭐ Posición por posición: nuestro emisor contra el esquema');
-for (const [etiqueta, spec, mio] of [['P', P, nuestro(T.LAYOUT_P)], ['M1', M1, nuestro(T.LAYOUT_M)]]) {
+// ⚠️ `LAYOUT_AD` entró acá después de que una mutación lo destapara: ponerle `sinSep` al UUID
+// ponía rojo el candado del sink y **dejaba este verde**, porque comparaba el esquema contra sí
+// mismo. Un candado tiene que cubrir TODOS los registros que el emisor escribe, no los dos
+// grandes — si no, el que falta es justo donde se cuela el defecto.
+for (const [etiqueta, spec, mio] of [['P', P, nuestro(T.LAYOUT_P)], ['M1', M1, nuestro(T.LAYOUT_M)],
+  ['AD', AD, nuestro(T.LAYOUT_AD)]]) {
   console.log(`\n  ── ${etiqueta} ──`);
   check(spec.largo === mio.largo, `${etiqueta}: largo total ${mio.largo} = ${spec.largo}`);
   check(spec.campos.length === mio.campos.length,
