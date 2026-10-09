@@ -54,13 +54,27 @@ export class CommissionObjectiveService {
          ORDER BY b.peso_pct DESC, b.nombre`, [GRUPO]);
 
       const pesos = criterios.reduce((a: number, c: Criterio) => a + Number(c.peso_pct ?? 0), 0);
-      const activos = criterios.filter((c: Criterio) => c.activo).length;
+      const encendidos = criterios.filter((c: Criterio) => c.activo);
+      const activos = encendidos.length;
+      // ⭐ El peso que importa es el de los ENCENDIDOS, no el nominal. Son dos números y
+      // confundirlos es el defecto que esta línea existe para cerrar: con «Desarrollo de marcas»
+      // apagado, el nominal sigue siendo 100 pero una ruta perfecta alcanza 75 — y la pantalla
+      // afirma que alcanzado + sin_resolver + fallado suman 100 siempre.
+      const pesoActivo = encendidos.reduce((a: number, c: Criterio) => a + Number(c.peso_pct ?? 0), 0);
       const montoTotal = criterios.reduce((a: number, c: Criterio) => a + Number(c.monto ?? 0), 0);
 
       const pendientes: string[] = [];
       if (!criterios.length) pendientes.push('No hay ningún criterio configurado.');
       if (criterios.length && Math.abs(pesos - 100) > 0.0001) {
         pendientes.push(`Los pesos suman ${pesos}% y tienen que sumar 100%.`);
+      }
+      // ⛔ No se renormaliza en silencio (ADR-056): se DICE que el techo bajó. Renormalizar
+      // convertiría un 75 en un 100 y nadie se enteraría de que falta un criterio.
+      if (activos > 0 && Math.abs(pesoActivo - 100) > 0.0001) {
+        const apagados = criterios.filter((c: Criterio) => !c.activo).map((c: Criterio) => c.nombre);
+        pendientes.push(
+          `Los criterios encendidos suman ${pesoActivo}% del peso, no 100%: una ruta perfecta alcanzaría ${pesoActivo}%. Apagado(s): ${apagados.join(', ')}.`,
+        );
       }
       if (montoTotal === 0) {
         pendientes.push('Nadie ha fijado el importe del bono: hoy vale $0 y por eso sigue apagado.');
@@ -78,6 +92,8 @@ export class CommissionObjectiveService {
         grupo: GRUPO,
         criterios,
         peso_total: Number(pesos.toFixed(4)),
+        /** Lo alcanzable de verdad: el peso de los criterios ENCENDIDOS. */
+        peso_activo: Number(pesoActivo.toFixed(4)),
         monto_total: Number(montoTotal.toFixed(2)),
         activos,
         // ⛔ Encendido NO es «funciona»: es que los criterios activos cubran el 100% del peso
@@ -334,6 +350,8 @@ export interface ObjetivoConfig {
   grupo: string;
   criterios: Criterio[];
   peso_total: number;
+  /** ⭐ Lo ALCANZABLE: el peso de los encendidos. Con uno apagado, el techo baja y se DICE. */
+  peso_activo: number;
   monto_total: number;
   activos: number;
   estado: 'sin_configurar' | 'apagado' | 'encendido_incompleto' | 'encendido';
