@@ -386,7 +386,13 @@ export class RouteProfitService {
       if (sospechosos.length) {
         huecos.push({
           clave: 'vinculo_sospechoso',
-          detalle: `${sospechosos.length} ruta(s) tienen el rastreador colgado de un vehículo con OTRA placa: ${sospechosos.join(', ')}. Se arregla en Logística; mientras tanto la ficha muestra una camioneta que puede no ser la que anda.`,
+          // ⛔ Acá decía «la ficha muestra una camioneta que puede no ser la que anda», y medirlo
+          // lo refutó: la ruta 321 tiene DOS aparatos sobre la MISMA placa `MW7947C` —el de la
+          // unidad y la cámara—, y el de la cámara sí la lleva en el nombre. O sea que el
+          // vehículo está bien y lo que está mal es el NOMBRE del rastreador en MagniTracking,
+          // que quedó con la placa de otra camioneta. Es un error de etiqueta, no de vínculo:
+          // decir lo contrario mandaba a Logística a buscar un problema que no existe.
+          detalle: `${sospechosos.length} rastreador(es) tienen en su nombre una placa distinta de la del vehículo al que cuelgan: ${sospechosos.join(', ')}. El vínculo puede estar bien y el nombre mal —en la 321 la cámara de la misma unidad sí trae la placa correcta—, pero mientras no coincidan no se puede saber cuál de los dos miente. Se corrige renombrando el aparato en el rastreo.`,
         });
       }
       if (sinGps.length) {

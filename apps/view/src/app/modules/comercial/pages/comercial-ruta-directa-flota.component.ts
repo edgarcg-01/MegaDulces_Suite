@@ -118,8 +118,11 @@ import { ComercialService, RouteProfitFlota, RouteProfitUnidad } from '../comerc
                 @if (u.vinculo_sospechoso) {
                   <p class="fl-alerta">
                     El rastreador se llama <b>{{ u.nombre_tracker }}</b> pero cuelga del vehículo
-                    de placa <b>{{ u.placa }}</b>. Son placas distintas: esta ficha puede estar
-                    mostrando una camioneta que no es la que anda. Se corrige en Logística.
+                    de placa <b>{{ u.placa }}</b>. Son placas distintas, así que una de las dos
+                    está mal y no se puede saber cuál sin verlo: en la 321 la cámara de la misma
+                    unidad sí trae <b>{{ u.placa }}</b>, lo que apunta a que el vehículo está bien
+                    y el nombre del aparato quedó con la placa de otra camioneta. Se corrige
+                    renombrándolo en el rastreo.
                   </p>
                 }
 
