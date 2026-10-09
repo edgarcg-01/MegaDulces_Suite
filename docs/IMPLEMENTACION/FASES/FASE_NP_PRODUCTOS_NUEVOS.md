@@ -50,6 +50,7 @@ de posición, y lo único parecido era la categoría *innovation* de las recomen
 | `[NP.13]` | **Sólo Kepler y en vivo las 24 h** (pedido del usuario): mig `20261008091317` rehace la matvista sobre Kepler (sin Wincaja ni ruta por push), con la primera venta de `mv_kepler_sales_daily`, el corte en lo que esa matvista ya tiene cerrado, lanzamientos detectados en vivo y la historia medida POR SUCURSAL; se refresca cada 30 min y sin JIT. | 🧪 |
 | `[NP.14]` | **El primer cálculo en producción no terminaba**: mig `20261008111426` arma las series buscando cada día en un mapa (sin unir tablas) y pasa `fn_new_products_movimientos` a `plpgsql` planeada con sus valores reales (misma consulta, leída de `pg_proc`); el refresco lleva tope de 3 min y una matvista vacía no espera su cadencia. | 🧪 |
 | `[NP.15]` | **Los tres márgenes y dónde se mueve mejor** (pedido del jefe de Compras): mig `20261008131320` — la función trae venta neta de IVA/IEPS, costo del renglón, peldaño y unidad base; la matvista guarda por plaza `margen_plaza` y la compra por unidad base `compra_base`. Márgenes de lista (meta de la ficha por peldaño vendido), real (`c62`) y sobre lo pagado, cada uno con su cobertura; ranking de sucursales por venta neta por día. Revisa la decisión #7: el margen ya se mide con el costo del renglón, no con el álgebra del markup. | 🧪 |
+| `[NP.16]` | **Cuándo llegó, unidades por corte y reparto** (pedido de Compras): mig `20261009085241` — la función trae también traspasos recibidos (`U-A-50`) y salidas a sucursal o ruta (`U-D-41`, en la misma pasada que la venta); la matvista agrega `llegada` (barrido del kardex `kdij`), `venta_unidades_hito` y `reparto`. Pantalla: «Llegó a la empresa», unidades vendidas en 30·60·90, vendido y existencia en «¿Dónde se mueve mejor?», y el reparto arriba de «Por sucursal». | 🧪 |
 | `[NP.11]` | **Unidades de Kepler**: lo vendido y lo recibido en la unidad que declara el renglón (cajas, paquetes, piezas, gramaje), global y por sucursal; la existencia en la unidad base de la ficha de cada sucursal con su equivalente en la unidad mayor. | 🧪 |
 
 ## Medido (base local, 2026-10-07)
@@ -409,3 +410,92 @@ y vuelve (`down` → `up` → `up`). Lógica 50/50, pantalla 24/24.
    espera 5 s y falla entero: cancelarlo antes.
 2. Nace vacía; el ciclo la llena en el siguiente tick (una vacía no espera su cadencia, `[NP.14]`).
 3. Medir el refresco: suma la lectura de la meta (~0.7 s) al de `NP.14`.
+
+---
+
+## Octava entrega (2026-10-09): cuándo llegó, unidades por corte y reparto (`NP.16`)
+
+Pedido de Compras sobre la pantalla de `NP.15`:
+- en el comportamiento global, **cuándo llegó la mercancía a la empresa**, buscándolo en la base;
+- en la tabla de 30·60·90 días y en «¿Dónde se mueve mejor?», **las cajas y piezas vendidas**;
+- arriba de «Por sucursal», **lo que nos llegó en total y cuánto le tocó a cada sucursal**, con su existencia.
+
+Todo en las unidades que registró Kepler en cada documento, sin convertir.
+
+### Lo medido antes (prod, sólo lectura)
+
+- **La llegada se busca en el kardex (`kdij`)**, decodificado en [`ERP_KEPLER.md`](../../ERP_KEPLER.md) §3.x.
+  El barrido de los 1,207 productos nuevos con movimiento tarda 0.8 s por su llave.
+- **La pantalla fechaba la compra con su aplicación contable (`X-A-20`)**, que llega días después de que
+  entra la mercancía (`X-A-40`): en 33 productos el kardex trae una entrada anterior.
+- **Primeras entradas:** compra 837 · ajuste de inventario 97 · traspaso 71 · otros 20 · sin kardex 182.
+  145 productos nunca se compraron en Kepler (sólo llegaron por traspaso o ajuste).
+- **`U-D-41` no es sólo traspaso:** también es carga a camión de ruta y, sobre todo, remisión a clientes de
+  telemarketing, que se factura como `U-D-8` y ya cuenta como venta. Sólo se cuentan `TI###` (a sucursal) y
+  `RUTA`/`RD` (a camión).
+- **Producto de muestra (96087 Kinder Delice):** llegaron 150 cajas el 18-19 sep a Padre Hidalgo, Canindo y
+  Morelia Abastos; Padre Hidalgo mandó 25 cajas a otras sucursales y 13 paquetes a rutas, Canindo 1 caja y 17
+  paquetes; recibieron La Piedad Abastos 13 cajas, 8 Esquinas 10, Yurécuaro 2 y Zamora Centro 1 (26 = 26).
+
+### Qué cambió
+
+1. **La función** trae tres tipos más: `traspaso` (U-A-50 en el almacén principal), `salida_sucursal` y
+   `salida_ruta` (U-D-41). La salida va **en la misma pasada que la venta**: en su propia rama volvía a recorrer
+   los 180 días de encabezados de venta, lo más caro del cálculo. El traspaso entra por el índice de abonos por
+   SKU: 118 ms reales para los ~1,200 productos. Los lanzamientos en vivo siguen contando sólo venta y compra.
+2. **La matvista** agrega `llegada` (primera compra física y dónde, y la primera entrada de cualquier tipo),
+   `venta_unidades_hito` (unidades vendidas en los primeros 30/60/90 días) y `reparto` (por sucursal: recibido de
+   otra, mandado a otras y a rutas, y desde cuándo le llegó por traspaso).
+3. **La pantalla:** «Llegó a la empresa» con fecha y sucursales (y aviso si entró antes por un ajuste o un
+   traspaso, o si nunca hubo compra); unidades vendidas en cada corte; vendido en unidades y existencia en el
+   ranking; arriba de «Por sucursal», el total comprado y la tabla del reparto; en cada tarjeta, lo que le llegó de
+   otra y lo que mandó. Los días de una sucursal cuentan desde que le llegó, también por traspaso.
+
+### Todo en cajas, y la existencia que Kepler sumó mal
+
+**Las cantidades van en cajas completas y lo demás en paquetes o piezas**, con la ficha de Kepler de cada
+sucursal: lo vendido (178 paquetes y 2 piezas → *29 cajas, 4 paquetes y 2 piezas*), lo que llegó, el reparto y
+la existencia (334 piezas → *5 cajas, 3 paquetes y 4 piezas*). Los totales del producto usan la ficha común a
+sus sucursales; si las fichas difieren (89 de 1,214 productos nuevos), se dicen como los registró Kepler. La regla
+de la escalera es la de `/compras/pedido` (`escaleraUnidades`, RA-PRO.70), que se movió a `libs/contracts`
+(`unit-ladder.contract.ts`) para que la usen el servidor y las dos pantallas; Pedido la re-exporta y no cambia.
+
+**Al poner «Le llegó» junto a lo vendido, la existencia de Kepler dejó de cuadrar.** Medido 2026-10-09:
+
+- Kepler guarda la existencia como la **suma cruda** de las cantidades del kardex, sin mirar el rótulo de cada
+  renglón: en 4,781 de 4,959 plaza×producto nuevos (96.4%) su existencia es exactamente esa suma.
+- Si la ficha cambia de unidad base, los renglones viejos se suman como si fueran de la nueva. 96087 Kinder
+  Delice cambió de paquete a pieza el día que llegó: Canindo recibió 180 paquetes (1,800 piezas), Kepler le contó
+  180, y la pantalla lo daba por **agotado** con ~1,500 piezas según el kardex (vendió 770 piezas cuando Kepler
+  decía que tenía 167).
+- **173 plaza×producto de 50 productos** traen renglones en un rótulo que no es el de su ficha y Kepler los sumó
+  crudos; sólo en 6 la existencia sí sale convertida.
+
+La matvista guarda por sucursal el kardex neto por rótulo, el último ajuste y la existencia de Kepler al calcular
+(`kardex_plaza`) y la ficha (`escalera_plaza`). El servidor marca la existencia **en duda** sólo si (1) hay renglones
+en otro rótulo, (2) Kepler de verdad sumó crudo y (3) no hubo un conteo físico (`N-A-30`/`N-D-30`) después: 8 Esquinas
+y La Piedad hicieron ese ajuste y no se marcan. Una sucursal en duda **no se da por agotada**; decide la existencia
+estimada (convertida con la ficha), y la recomendación dice *«conviene contarla antes de recomprar»*. Con eso, el
+veredicto de 96087 pasa de *recomprar* (tres sucursales «agotadas») a *esperar*.
+
+Candado: 159/159 contra una segunda implementación del kardex; negativa: con el kardex sólo de entradas fallan 2.
+
+### ⚠️ Decisiones abiertas
+
+- **El lanzamiento sigue fechado con la compra aplicada (`X-A-20`).** Con el kardex se podría fechar con la
+  entrada física (`X-A-40`); cambia el día de seguimiento de 33 productos (en uno, 3 meses). No se cambió sin
+  decidirlo.
+- **97 productos aparecen primero por un ajuste de inventario**, algunos meses antes de su «lanzamiento»: es
+  probable que no sean nuevos. La pantalla lo avisa en cada producto; reclasificarlos es otra decisión.
+
+### Medido (local)
+
+Candado **154/154** (9 nuevas contra una segunda implementación: reparto, unidades por corte y llegada). Prueba
+negativa: contando las remisiones de telemarketing, «a rutas» da 2 cajas en vez de 1 y fallan 2. La migración
+va y vuelve. Lógica 61/61, pantalla 36/36, escalera compartida 9/9 (Pedido 120/120 sin cambios).
+
+### Para llevarlo a producción
+
+1. Aplicar la migración `20261009085241` sola; si un `REFRESH` de la matvista corre, cancelarlo antes.
+2. Mergear. Medir el primer llenado en el log `Refreshed analytics.mv_new_products (N ms…)` contra el tope de
+   180 s: hoy tarda ~43 s y esto suma el barrido del kardex (un recorrido en paralelo de `kdij`, segundos).

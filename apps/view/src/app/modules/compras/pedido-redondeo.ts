@@ -1,3 +1,5 @@
+import { escaleraUnidades } from '@megadulces/contracts';
+
 /**
  * `[RA-PRO.51]` Redondeo del SUGERIDO del motor para `/compras/pedido`, aislado del componente
  * para poder probarlo sin montar Angular (ADR-056: un primitivo que decide un número se prueba).
@@ -108,85 +110,16 @@ export interface EtiquetaUnidades {
   base: string;
 }
 
-const ABR: Record<string, string> = {
-  PZA: 'pz', PAQ: 'paq', KG: 'kg', CJA: 'cj', CAJA: 'cj', BTO: 'bto', BULTO: 'bto', CUB: 'cub', CUBETA: 'cub',
-};
-const NOMBRE: Record<string, string> = {
-  pz: 'Pieza', paq: 'Paquete', kg: 'Kilo', cj: 'Caja', bto: 'Bulto', cub: 'Cubeta', 'u.': 'Unidad',
-};
-
 /** Etiquetas por defecto (lo que la pantalla decía antes): cajas y piezas, sin intermedio. */
 export const UNIDADES_CJ_PZ: EtiquetaUnidades = { mayor: 'cj', medio: null, medioAbr: 'paq', base: 'pz' };
 
-/** `[RA-PRO.70]` Una unidad real del artículo: su abreviatura, su nombre y cuántas unidades BASE trae. */
-export interface UnidadEscalera { abr: string; nombre: string; factor: number }
-
-/** Abreviatura de un rótulo de Kepler. Un GRAMAJE (`500`, `250`) es "u." (UNIDADES_DE_MEDIDA §7.6). */
-function abrDe(raw: string): string {
-  if (!raw) return '';
-  if (/^[\d.]+$/.test(raw)) return 'u.';
-  return ABR[raw] ?? raw.toLowerCase();
-}
-
 /**
- * `[RA-PRO.70]` La escalera REAL de unidades del artículo, de menor a mayor: 1, 2 o 3 unidades.
- *
- * Kepler RELLENA los tres peldaños aunque el artículo no los tenga: repite el rótulo con factor 1
- * (`70001` mazapán = PAQ ×1 · PAQ ×1 · CJA ×20; `17063` rollo = KG · KG · KG). Leer sólo los
- * rótulos daba botones "kg | kg" o una "cj" que no existe (`57009` cubeta). La regla: hay una
- * unidad por cada peldaño donde el FACTOR crece (≥ 1.5× el anterior), con el factor que se deriva
- * del costo por peldaño (`f2`, `f3`, contra la base).
- *
- * Medido en prod el 2026-10-03 sobre 6,291 artículos del plan: 604 con 1 unidad, 5,313 con 2 y
- * 374 con 3. La unidad MAYOR siempre trae el factor del motor (`uxc`), que es el que convierte el
- * pedido: en 22 artículos el peldaño de Kepler no coincide y manda `uxc`.
- *
- * Sin factores (feed viejo) cae a los rótulos + la etiquetera, como antes.
+ * `[RA-PRO.70]` La escalera de unidades del artículo. `[NP.16]` La regla vive en
+ * `@megadulces/contracts` (la usan también Productos nuevos y el servidor); se re-exporta aquí
+ * para que nada que la importaba de este archivo cambie.
  */
-export function escaleraUnidades(o: {
-  u1?: string | null; u2?: string | null; u3?: string | null;
-  f2?: number | string | null; f3?: number | string | null;
-  uxc?: number | null; boxSize?: number | null; packSize?: number | null;
-}): UnidadEscalera[] {
-  const up = (s: string | null | undefined) => (s || '').trim().toUpperCase();
-  const u1 = up(o.u1), u2 = up(o.u2), u3 = up(o.u3);
-  const uxc = Number(o.uxc) > 0 ? Number(o.uxc) : 1;
-  const mk = (raw: string, factor: number): UnidadEscalera => {
-    const abr = abrDe(raw) || (factor === 1 ? 'pz' : 'cj');
-    return { abr, nombre: NOMBRE[abr] ?? raw, factor };
-  };
-  const base = mk(u1, 1);
-  if (uxc <= 1) return [base];   // una sola unidad: el pedido se cuenta en la base
-
-  const f2 = Number(o.f2), f3 = Number(o.f3);
-  const tieneFactores = Number.isFinite(f2) && f2 > 0 || Number.isFinite(f3) && f3 > 0;
-  const cerca = (a: number, b: number) => Math.abs(a - b) <= 0.02 * Math.max(a, b);
-  const real2 = !!u2 && Number.isFinite(f2) && f2 >= 1.5;
-  const real3 = !!u3 && Number.isFinite(f3) && f3 >= 1.5 && (!real2 || f3 / f2 >= 1.5);
-
-  // La mayor: el peldaño cuyo factor coincide con el del motor; si ninguno, el rótulo más alto.
-  let mayorRaw = '';
-  if (real3 && cerca(f3, uxc)) mayorRaw = u3;
-  else if (real2 && cerca(f2, uxc)) mayorRaw = u2;
-  else mayorRaw = [u3, u2].find((u) => u && u !== u1) || 'CJA';
-  let mayor = mk(mayorRaw, uxc);
-  // Kepler a veces rotula base y mayor igual con factor distinto (89106: PAQ ×1 y PAQ ×24, medido
-  // 2026-10-03 en 3 artículos). Dos botones "paq | paq" no se distinguen: la mayor lleva su tamaño.
-  if (mayor.abr === base.abr) mayor = { abr: mayor.abr + '×' + uxc, nombre: mayor.nombre + ' de ' + uxc, factor: uxc };
-
-  // El del medio: el peldaño 2 cuando es real, no es la mayor, cabe exacto en la caja y su rótulo
-  // no repite el de la base (20323 trae PAQ/PAQ: "1 paq 3 paq" no se lee como nada).
-  let medio: UnidadEscalera | null = null;
-  if (tieneFactores) {
-    const m = Math.round(f2);
-    if (real2 && mayorRaw !== u2 && m > 1 && m < uxc && cerca(uxc / m, Math.round(uxc / m)) && u2 !== u1) medio = mk(u2, m);
-  } else {
-    // Feed viejo: la etiquetera (pack que cabe exacto en la caja y caja = factor del motor).
-    const pack = Number(o.packSize), box = Number(o.boxSize);
-    if (u3 && u2 && u2 !== u1 && pack > 1 && pack < uxc && uxc % pack === 0 && box === uxc) medio = mk(u2, pack);
-  }
-  return medio ? [base, medio, mayor] : [base, mayor];
-}
+export { escaleraUnidades } from '@megadulces/contracts';
+export type { UnidadEscalera } from '@megadulces/contracts';
 
 /** Las etiquetas de mayor a menor, derivadas de la escalera (ver `escaleraUnidades`). */
 export function etiquetaUnidades(o: Parameters<typeof escaleraUnidades>[0]): EtiquetaUnidades {

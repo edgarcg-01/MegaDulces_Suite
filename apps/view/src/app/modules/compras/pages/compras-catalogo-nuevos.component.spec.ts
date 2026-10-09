@@ -15,11 +15,17 @@ import {
 import {
   ComprasCatalogoNuevosComponent,
   cantidadTexto,
+  cantidadPartes,
+  existenciaPartes,
   existenciaTexto,
+  leLlego,
+  listaUnidades,
   fechaCorta,
   hitoVisible,
   margenTexto,
   ordenMovimiento,
+  ordenReparto,
+  sucursalesTexto,
   tresMargenes,
   pasaBusqueda,
   pasaFiltro,
@@ -27,6 +33,7 @@ import {
   tendenciaTexto,
   textoUnidades,
 } from './compras-catalogo-nuevos.component';
+import { escaleraUnidades, type UnidadEscalera } from '@megadulces/contracts';
 
 /** `[NP.15]` Lista y real medidos; el de lo pagado, sin compras con qué medirlo. */
 const MARGENES: MargenesNuevo = {
@@ -37,6 +44,12 @@ const MARGENES: MargenesNuevo = {
   costo_pagado: null,
 };
 
+/** `[NP.16]` Ficha de caja de 12 piezas, como la arma `escaleraUnidades`. */
+const CAJA_12: UnidadEscalera[] = [
+  { abr: 'pz', nombre: 'Pieza', factor: 1, rotulo: 'PZA' },
+  { abr: 'cj', nombre: 'Caja', factor: 12, rotulo: 'CJA' },
+];
+
 function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
   return {
     product_id: 'p-1', sku: 'NP01', nombre: 'PALETA MANGO', marca: 'DULCERA', proveedor: 'PROV A',
@@ -44,9 +57,9 @@ function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
     lanzamiento: '2026-08-23', dia: 45, fuentes: ['entradas', 'kepler'], etapa: 'mes_2', estado: 'seguimiento',
     motivo: null, posible_recodificacion: false, clasificacion: null, nota: null, clasificado_por: null,
     hitos: {
-      30: { cerrado: true, inversion: 26000, venta: 22260 },
-      60: { cerrado: false, inversion: 26000, venta: 34185 },
-      90: { cerrado: false, inversion: 26000, venta: 34185 },
+      30: { cerrado: true, inversion: 26000, venta: 22260, unidades: { CJA: 10, PZA: 20 } },
+      60: { cerrado: false, inversion: 26000, venta: 34185, unidades: { CJA: 22, PZA: 40 } },
+      90: { cerrado: false, inversion: 26000, venta: 34185, unidades: { CJA: 22, PZA: 40 } },
     },
     inversion_total: 26000, venta_total: 34185, venta_por_peso: 1.31, entradas: 3, plazas_recibido: 2,
     primera_recompra: '2026-09-17', dia_recompra: 25, plazas_venta: 2, plazas_con_existencia: 1, agotado_en: 1,
@@ -56,6 +69,12 @@ function producto(over: Partial<ProductoNuevo> = {}): ProductoNuevo {
     recomendacion: { veredicto: 'recomprar', motivos: ['Se vendió 27 de los últimos 28 días', 'Se agotó en 1 plaza que lo vende'] },
     margenes: MARGENES,
     mejor_plaza: { plaza: '01', nombre: 'Padre Hidalgo', venta_neta_dia: 400, dias: 45 },
+    llegada: {
+      fecha: '2026-08-21', fuente: 'kardex',
+      sucursales: [{ plaza: '01', nombre: 'Padre Hidalgo' }, { plaza: '06', nombre: 'Canindo' }],
+      antes: { fecha: '2026-01-29', tipo: 'ajuste de inventario' },
+    },
+    escalera: CAJA_12, existencia_en_duda: 0,
     ...over,
   };
 }
@@ -65,9 +84,9 @@ const FILAS: ProductoNuevo[] = [
   producto({
     product_id: 'p-2', sku: 'NP09', nombre: 'PALOMITAS CARAMELO', inversion_total: null, venta_por_peso: null,
     hitos: {
-      30: { cerrado: true, inversion: null, venta: 1320 },
-      60: { cerrado: false, inversion: null, venta: 1496 },
-      90: { cerrado: false, inversion: null, venta: 1496 },
+      30: { cerrado: true, inversion: null, venta: 1320, unidades: {} },
+      60: { cerrado: false, inversion: null, venta: 1496, unidades: {} },
+      90: { cerrado: false, inversion: null, venta: 1496, unidades: {} },
     },
     sin_venta_30: true, entradas: 0, dia_recompra: null, primera_recompra: null, venta_hoy: 0,
     unidades_vendidas: {}, venta_sin_unidad: 1496, unidades_recibidas: {}, unidades_hoy: {},
@@ -99,15 +118,17 @@ const DETALLE: DetalleNuevo = {
   plazas: [
     { plaza: '01', nombre: 'Padre Hidalgo', dia: 45, primera_actividad: '2026-08-23', venta_total: 20000, venta_28: 12000,
       dias_con_venta_28: 20, inversion_total: 19000, entradas: 2, primera_recompra: '2026-09-17', existencia: 0,
-      existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: null,
+      existencia_unidad: 'PZA', existencia_fuente: 'kepler', escalera: CAJA_12, existencia_duda: null,
       unidades_vendidas: { CJA: 22 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 100 }, unidades_hoy: {},
+      recibido_traspaso: {}, enviado_sucursales: { CJA: 10 }, enviado_rutas: { PAQ: 4 },
       ultima_venta: '2026-10-06', semanas: [100, 200, 300], venta_hoy: 0,
       recomendacion: { veredicto: 'recomprar', motivos: ['Se agotó en 1 plaza que lo vende'] },
       margenes: MARGENES, movimiento: { venta_neta_dia: 400, dias: 45, desplazado: 1, lugar: 1 } },
     { plaza: '04', nombre: 'Yurécuaro', dia: 44, primera_actividad: '2026-08-24', venta_total: 14185, venta_28: 8000,
       dias_con_venta_28: 22, inversion_total: 7000, entradas: 1, primera_recompra: null, existencia: 36,
-      existencia_unidad: 'PZA', existencia_fuente: 'kepler', existencia_mayor: { unidad: 'CJA', cantidad: 3 },
+      existencia_unidad: 'PZA', existencia_fuente: 'kepler', escalera: CAJA_12, existencia_duda: null,
       unidades_vendidas: { PZA: 40 }, venta_sin_unidad: 0, unidades_recibidas: { CJA: 35 }, unidades_hoy: { PZA: 2 },
+      recibido_traspaso: { CJA: 10 }, enviado_sucursales: {}, enviado_rutas: {},
       ultima_venta: '2026-10-07', semanas: [100, 150, 120], venta_hoy: 530,
       recomendacion: { veredicto: 'esperar', motivos: ['Se vende bien, pero todavía hay existencia'] },
       margenes: null, movimiento: { venta_neta_dia: 290.5, dias: 44, desplazado: 0.9, lugar: 2 } },
@@ -138,19 +159,29 @@ describe('[NP.5] funciones puras de Productos nuevos', () => {
     expect(fechaCorta('2026-09-01')).toMatch(/^1 /);
   });
 
-  it('⛔ la existencia va en la unidad de la ficha de Kepler, y la caja sólo si la ficha la declara', () => {
-    const k = { existencia_fuente: 'kepler' as const };
-    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_mayor: { unidad: 'CJA', cantidad: 3 } }))
-      .toBe('Hay 36 piezas (3 cajas)');
-    expect(existenciaTexto({ ...k, existencia: 24, existencia_unidad: 'PZA', existencia_mayor: { unidad: 'CJA', cantidad: 0.8 } }))
-      .toBe('Hay 24 piezas (≈ 0.8 cajas)');
-    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', existencia_mayor: null })).toBe('Hay 36 piezas');
-    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: null, existencia_mayor: null }))
+  it('⛔ la existencia va en cajas completas y lo demás en la base, y la caja sólo si la ficha la declara', () => {
+    const k = { existencia_fuente: 'kepler' as const, existencia_duda: null };
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', escalera: CAJA_12 })).toBe('Hay 3 cajas');
+    expect(existenciaTexto({ ...k, existencia: 13, existencia_unidad: 'PZA', escalera: CAJA_12 })).toBe('Hay 1 caja y 1 pieza');
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: 'PZA', escalera: null })).toBe('Hay 36 piezas');
+    expect(existenciaTexto({ ...k, existencia: 36, existencia_unidad: null, escalera: CAJA_12 }))
       .toBe('Hay 36 (unidad sin declarar en Kepler)');
-    expect(existenciaTexto({ existencia: 50, existencia_unidad: null, existencia_fuente: 'wincaja', existencia_mayor: { unidad: 'CJA', cantidad: 5 } }))
-      .toBe('Hay 50 unidades de Wincaja (5 cajas)');
-    expect(existenciaTexto({ ...k, existencia: 0, existencia_unidad: 'PZA', existencia_mayor: null })).toBe('Agotado');
-    expect(existenciaTexto({ ...k, existencia: null, existencia_unidad: null, existencia_mayor: null })).toBe('Sin existencia registrada');
+    expect(existenciaTexto({ ...k, existencia: 50, existencia_unidad: null, existencia_fuente: 'wincaja', escalera: null }))
+      .toBe('Hay 50 unidades de Wincaja');
+    expect(existenciaTexto({ ...k, existencia: 0, existencia_unidad: 'PZA', escalera: CAJA_12 })).toBe('Agotado');
+    expect(existenciaTexto({ ...k, existencia: null, existencia_unidad: null, escalera: null })).toBe('Sin existencia registrada');
+  });
+
+  it('⭐ existencia en duda: lo que dice Kepler y, aparte, lo que debería haber según el kardex', () => {
+    const p = { existencia_fuente: 'kepler' as const, existencia: 0, existencia_unidad: 'PZA', escalera: CAJA_12,
+      existencia_duda: { kepler: -3, estimada: 1500, base: 'PZA', otros: ['PAQ'] } };
+    expect(existenciaTexto(p)).toBe('En duda: según el kardex hay 125 cajas');
+    const e = existenciaPartes(p);
+    expect(e.estado).toBe('en_duda');
+    expect(e.motivo).toContain('Kepler sumó paquetes como si fueran piezas');
+    // Sin estimada (un rótulo que no se pudo convertir): se dice que no alcanza, no se inventa.
+    expect(existenciaTexto({ ...p, existencia: 13, existencia_duda: { kepler: 13, estimada: null, base: 'PZA', otros: ['500'] } }))
+      .toBe('En duda: el kardex no alcanza para estimarla');
   });
 
   it('⭐ las unidades se dicen como Kepler las registró, de lo grande a lo chico, sin sumarse', () => {
@@ -268,10 +299,10 @@ describe('[NP.5] ComprasCatalogoNuevosComponent', () => {
     expect(plazas.length).toBe(2);
     expect(plazas[0].textContent).toContain('Padre Hidalgo');
     expect(plazas[0].textContent).toContain('Agotado');
-    expect(plazas[1].textContent).toContain('Hay 36 piezas (3 cajas)');
-    // Lo vendido y lo recibido, en la unidad de Kepler de cada plaza.
+    expect(plazas[1].textContent).toContain('Hay 3 cajas');
+    // Lo vendido y lo recibido, en cajas completas y lo demás en piezas, con la ficha de cada plaza.
     expect(plazas[0].textContent).toContain('22 cajas');
-    expect(plazas[1].textContent).toContain('40 piezas');
+    expect(plazas[1].textContent).toContain('3 cajas y 4 piezas');
     expect(plazas[1].textContent).toContain('35 cajas');
   });
 
@@ -280,7 +311,7 @@ describe('[NP.5] ComprasCatalogoNuevosComponent', () => {
     const filas = Array.from(el.querySelectorAll('tbody tr'));
     const paleta = filas.find((tr) => tr.textContent?.includes('PALETA'));
     const palomitas = filas.find((tr) => tr.textContent?.includes('PALOMITAS'));
-    expect(paleta?.querySelector('.pn-unid')?.textContent).toBe('22 cajas · 40 piezas');
+    expect(paleta?.querySelector('.pn-unid')?.textContent).toBe('25 cajas y 4 piezas');
     expect(paleta?.querySelector('.pn-hoy-u')?.textContent).toBe('1 caja');
     expect(palomitas?.textContent).toContain('sólo en pesos');
   });
@@ -367,5 +398,152 @@ describe('[NP.15] márgenes y sucursales: funciones puras', () => {
       ({ ...DETALLE.plazas[0], plaza, movimiento: { venta_neta_dia: venta, dias: 10, desplazado: null, lugar } }) as PlazaNueva;
     const orden = ordenMovimiento([p('A', 50, 2), p('B', 900, null), p('C', 80, 1), p('D', null, null)]);
     expect(orden.map((x) => x.plaza)).toEqual(['C', 'A', 'B']);
+  });
+});
+
+describe('[NP.16] llegada, unidades por corte y reparto', () => {
+  let fix: ComponentFixture<ComprasCatalogoNuevosComponent>;
+
+  async function abrirDetalle() {
+    const api = { listar: vi.fn(() => of(RESPUESTA)), detalle: vi.fn(() => of(DETALLE)) };
+    await TestBed.configureTestingModule({
+      imports: [ComprasCatalogoNuevosComponent],
+      providers: [
+        provideRouter([]), provideHttpClient(), provideHttpClientTesting(),
+        { provide: ProductosNuevosService, useValue: api },
+      ],
+    }).compileComponents();
+    fix = TestBed.createComponent(ComprasCatalogoNuevosComponent);
+    await tick(fix);
+    (fix.nativeElement.querySelector('tr.pn-fila') as HTMLElement).click();
+    await tick(fix);
+  }
+
+  afterEach(() => TestBed.resetTestingModule());
+
+  it('⭐ el global dice cuándo llegó a la empresa y a dónde, y avisa si entró antes por otro camino', async () => {
+    await abrirDetalle();
+    const global = document.querySelector('#pk-global')!.parentElement!.textContent!;
+    expect(global).toContain('Llegó a la empresa');
+    expect(global).toContain('a Padre Hidalgo y Canindo');
+    expect(document.querySelector('.pk-aviso')?.textContent).toContain('ajuste de inventario');
+    expect(document.querySelector('.pk-aviso')?.textContent).toContain('2026');
+  });
+
+  it('⭐ la tabla de 30 · 60 · 90 trae las unidades vendidas en cada corte', async () => {
+    await abrirDetalle();
+    const filas = Array.from(document.querySelectorAll('#pk-global ~ table tbody tr, .pk-hitos:not(.pk-rank):not(.pk-repartot) tbody tr'));
+    // 10 cajas y 20 piezas = 11 cajas y 8 piezas con caja de 12.
+    expect(filas[0].textContent).toContain('11 cajas y 8 piezas');
+    expect(filas[1].textContent).toContain('25 cajas y 4 piezas');
+  });
+
+  it('⭐ ¿Dónde se mueve mejor? trae lo vendido en unidades de Kepler y la existencia de hoy', async () => {
+    await abrirDetalle();
+    const filas = Array.from(document.querySelectorAll('.pk-rank tbody tr'));
+    const celda = (tr: Element, label: string) => tr.querySelector(`td[data-label="${label}"]`)!;
+    const limpio = (el: Element | null) => el?.textContent?.replace(/\s+/g, ' ').trim();
+    expect(Array.from(celda(filas[0], 'Le llegó').querySelectorAll('.pk-cant')).map(limpio)).toEqual(['100 cajas']);
+    expect(limpio(celda(filas[0], 'Vendido').querySelector('.pk-cant'))).toBe('22 cajas');
+    expect(celda(filas[0], 'Vendido').querySelector('.pk-cant b')?.textContent).toBe('22');
+    expect(celda(filas[0], 'Existencia hoy').querySelector('.pk-tag-agotado')?.textContent).toBe('Agotado');
+    expect(Array.from(celda(filas[1], 'Vendido').querySelectorAll('.pk-cant')).map(limpio)).toEqual(['3 cajas', '4 piezas']);
+    expect(Array.from(celda(filas[1], 'Le llegó').querySelectorAll('.pk-cant')).map(limpio)).toEqual(['45 cajas']);
+    expect(Array.from(celda(filas[1], 'Existencia hoy').querySelectorAll('.pk-cant')).map(limpio)).toEqual(['3 cajas']);
+    expect(celda(filas[1], 'Existencia hoy').textContent).not.toContain('≈');
+  });
+
+  it('⭐ una sucursal con la existencia en duda: la etiqueta, lo que debería haber y lo que dice Kepler', async () => {
+    const plazas = DETALLE.plazas.map((p, i) => (i === 0
+      ? { ...p, existencia_duda: { kepler: -3, estimada: 60, base: 'PZA', otros: ['PAQ'] } } : p));
+    const api = { listar: vi.fn(() => of(RESPUESTA)), detalle: vi.fn(() => of({ ...DETALLE, plazas })) };
+    TestBed.resetTestingModule();
+    await TestBed.configureTestingModule({
+      imports: [ComprasCatalogoNuevosComponent],
+      providers: [provideRouter([]), provideHttpClient(), provideHttpClientTesting(), { provide: ProductosNuevosService, useValue: api }],
+    }).compileComponents();
+    fix = TestBed.createComponent(ComprasCatalogoNuevosComponent);
+    await tick(fix);
+    (fix.nativeElement.querySelector('tr.pn-fila') as HTMLElement).click();
+    await tick(fix);
+    const td = document.querySelector('.pk-rank tbody tr td[data-label="Existencia hoy"]')!;
+    expect(td.querySelector('.pk-tag-duda')?.textContent).toBe('En duda');
+    expect(td.querySelector('.pk-tag-agotado')).toBeNull();
+    expect(td.querySelector('.pk-cant')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('5 cajas');
+    expect(td.textContent).not.toContain('Kepler dice');
+  });
+
+  it('⭐ arriba de Por sucursal: lo que nos llegó en compras y cómo se repartió', async () => {
+    await abrirDetalle();
+    const bloque = document.querySelector('.pk-reparto')!;
+    expect(bloque.textContent).toContain('Nos llegaron');
+    expect(bloque.textContent).toContain('135 cajas');
+    const filas = Array.from(bloque.querySelectorAll('tbody tr')).map((tr) => tr.textContent!.replace(/\s+/g, ' '));
+    expect(filas[0]).toContain('Padre Hidalgo');
+    expect(filas[0]).toContain('100 cajas');   // compró
+    expect(filas[0]).toContain('4 paquetes');  // mandó a rutas
+    expect(filas[1]).toContain('Yurécuaro');
+    expect(filas[1]).toContain('10 cajas');    // le llegó de otra
+  });
+});
+
+describe('[NP.16] funciones puras', () => {
+  it('las sucursales se dicen como se leen', () => {
+    expect(sucursalesTexto([])).toBe('');
+    expect(sucursalesTexto([{ plaza: '01', nombre: 'Padre Hidalgo' }])).toBe('Padre Hidalgo');
+    expect(sucursalesTexto([{ plaza: '01', nombre: 'A' }, { plaza: '06', nombre: null }, { plaza: '08', nombre: 'C' }]))
+      .toBe('A, Sucursal 06 y C');
+  });
+
+  it('el reparto: primero las que compraron, luego las que recibieron de otra; sin nada que decir, no aparece', () => {
+    const base = DETALLE.plazas[0];
+    const p = (plaza: string, over: Partial<PlazaNueva>) => ({ ...base, plaza, unidades_recibidas: {}, recibido_traspaso: {},
+      enviado_sucursales: {}, enviado_rutas: {}, existencia: null, ...over }) as PlazaNueva;
+    const orden = ordenReparto([
+      p('05', { recibido_traspaso: { CJA: 1 } }),
+      p('07', {}),
+      p('01', { unidades_recibidas: { CJA: 50 } }),
+      p('03', { existencia: 12 }),
+    ]);
+    expect(orden.map((x) => x.plaza)).toEqual(['01', '05', '03']);
+  });
+
+  it('⭐ lo que le llegó: compras más lo de otra sucursal, cada rótulo por su lado', () => {
+    expect(leLlego({ unidades_recibidas: { CJA: 50 }, recibido_traspaso: { CJA: 10, PAQ: 3 } })).toEqual({ CJA: 60, PAQ: 3 });
+    expect(leLlego({ unidades_recibidas: {}, recibido_traspaso: { PZA: 0.1 } })).toEqual({ PZA: 0.1 });
+    expect(leLlego({ unidades_recibidas: {}, recibido_traspaso: {} })).toEqual({});
+  });
+
+  it('⭐ cada unidad en su renglón, de lo grande a lo chico, con la cifra aparte del rótulo', () => {
+    expect(listaUnidades({ PZA: 2, PAQ: 178 })).toEqual([
+      { cifra: '178', rotulo: 'paquetes' }, { cifra: '2', rotulo: 'piezas' },
+    ]);
+    expect(listaUnidades({ CJA: 1, KG: 0.0001 })).toEqual([{ cifra: '1', rotulo: 'caja' }]);
+    expect(listaUnidades(null)).toEqual([]);
+    // La versión partida y la de una línea dicen lo mismo: una sola regla.
+    expect(cantidadPartes(500, '250')).toEqual({ cifra: '500', rotulo: 'de 250 g' });
+    expect(cantidadPartes(3, '?')).toEqual({ cifra: '3', rotulo: 'sin unidad' });
+  });
+
+  it('⭐ con la ficha: cajas completas y lo demás en paquetes o piezas, nunca "≈ 3.1 cajas"', () => {
+    // 96087: paquete de 10, caja de 60.
+    const kinder = escaleraUnidades({ u1: 'PZA', u2: 'PAQ', u3: 'CJA', f2: 10, f3: 60, uxc: 60 });
+    expect(textoUnidades({ PAQ: 178, PZA: 2 }, kinder)).toBe('29 cajas, 4 paquetes y 2 piezas');
+    expect(textoUnidades({ PZA: 334 }, kinder)).toBe('5 cajas, 3 paquetes y 4 piezas');
+    expect(textoUnidades({ CJA: 60 }, kinder)).toBe('60 cajas');
+    expect(listaUnidades({ PZA: 13 }, CAJA_12)).toEqual([{ cifra: '1', rotulo: 'caja' }, { cifra: '1', rotulo: 'pieza' }]);
+    // Un rótulo fuera de la ficha va al final, tal cual, sin sumarse.
+    expect(textoUnidades({ PZA: 13, PAQ: 4 }, CAJA_12)).toBe('1 caja, 1 pieza y 4 paquetes');
+    // Sin ficha, como lo registró Kepler.
+    expect(textoUnidades({ PAQ: 178, PZA: 2 }, null)).toBe('178 paquetes · 2 piezas');
+  });
+
+  it('⛔ la existencia partida: agotado y sin registro no traen cifra', () => {
+    const k = { existencia_fuente: 'kepler' as const, existencia_duda: null };
+    expect(existenciaPartes({ ...k, existencia: 13, existencia_unidad: 'PZA', escalera: CAJA_12 }))
+      .toEqual({ estado: 'hay', partes: [{ cifra: '1', rotulo: 'caja' }, { cifra: '1', rotulo: 'pieza' }], motivo: null });
+    expect(existenciaPartes({ ...k, existencia: 0, existencia_unidad: 'PZA', escalera: CAJA_12 }))
+      .toEqual({ estado: 'agotado', partes: [], motivo: null });
+    expect(existenciaPartes({ ...k, existencia: null, existencia_unidad: null, escalera: null }).estado).toBe('sin_registro');
   });
 });
