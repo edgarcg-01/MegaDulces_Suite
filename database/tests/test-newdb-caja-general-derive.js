@@ -193,6 +193,39 @@ const ok = (c, m) => { if (c) { pass++; console.log('  ✔', m); } else { fail++
       ok(m.rows.every((r) => r.wm != null), 'todas las rutas tienen marca — ninguna quedó sin shipear');
     }
 
+    /**
+     * ⛔⛔ `[CG.75]` **LA COLUMNA `saldo` NO ES UN SALDO, Y ESTO VIGILA ESA PREMISA.**
+     *
+     * El endpoint publicaba un KPI «Saldo caja · actual» tomando el último renglón del período
+     * con `saldo <> 0`. Medido contra producción, tres hipótesis:
+     *
+     *   corrido global      → cuadran   0 de  79 pares
+     *   corrido por cuenta  → cuadran   0 de 103 pares
+     *   importe del renglón → cuadran 409 de 409 filas (100%, 30 días)
+     *
+     * O sea que lo publicado como «el efectivo que hay en la caja» era el monto de una operación.
+     *
+     * ⭐ Este bloque no comprueba el arreglo —el arreglo es que el campo va en `null`, y eso lo
+     * fija el tipo—: comprueba **la premisa que lo justifica**. El día que el origen empiece a
+     * llevar un saldo corrido de verdad, esto se pone rojo y alguien tiene que volver a decidir
+     * si publicarlo. Una premisa escrita como ley en un comentario no avisa cuando deja de serlo.
+     */
+    console.log('\n── [CG.75] la columna "saldo" es el importe del renglón, no un saldo ──');
+    {
+      const q = await c.query(`
+        SELECT count(*)::int AS con_saldo,
+               count(*) FILTER (WHERE abs(saldo - (ingreso - gasto)) < 0.005)::int AS es_el_renglon
+          FROM analytics.caja_general_movimientos
+         WHERE saldo <> 0 AND fecha >= current_date - 30`);
+      const { con_saldo: n, es_el_renglon: m } = q.rows[0];
+      if (!n) {
+        // ⚠️ Sin filas con cifra no se puede afirmar nada: se DECLARA, no se pone ✓.
+        console.log('  ⃝ NO MEDIDO — ninguna fila con saldo <> 0 en 30 días; la premisa queda sin comprobar');
+      } else {
+        ok(m === n, `${m} de ${n} filas: "saldo" == el importe de su propio renglón (si esto baja, el origen cambió y hay que revisar si ya se puede publicar un saldo)`);
+      }
+    }
+
     console.log(`\n=== ${pass} ✓ · ${fail} ✗ ===\n`);
     process.exitCode = fail === 0 ? 0 : 1;
   } finally {
