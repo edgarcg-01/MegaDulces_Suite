@@ -438,6 +438,67 @@ flota. Con esto Ruta Directa suma **cinco pantallas**.
 
 ---
 
+### Auditoría de lo construido esta semana — tres defectos míos, medidos contra prod (2026-10-09)
+
+Auditar el código propio de ayer encontró, otra vez, lo que su validación original había dejado
+pasar. Los tres son de la misma familia: **una ausencia publicada como si fuera un hecho.**
+
+**`[RD.58.3]` — el `$/km` estaba escrito DOS veces y sólo se arregló una.** `[RD.58]` endureció la
+regla y `[RD.58.2]` la corrigió; las dos veces **en `serie()` solamente**, porque `rentabilidad()`
+tenía su propia copia con los dos defectos que la otra ya no tenía. Medido sobre 2026: de **35
+ruta-quincena** con kilometraje, **13 (37%)** daban en la tarjeta una cifra que la serie se negaba
+a publicar — incluida la que motivó toda la corrección, la ruta 21 en la Q15 con **$450.94/km sobre
+3 de 14 días medidos**. Mediana de lo retirado **$340.72/km** contra **$206.10** de lo que queda:
+**1.65×**, el artefacto del denominador intacto. ⭐ El arreglo NO fue copiar la guarda buena a la
+segunda consulta —escribirla dos veces es lo que produjo esto— sino sacarla a `KM_SQL`, una
+constante que ambas interpolan; el veredicto pasa a llamarse `cobertura_km` con los mismos valores
+en las dos. *Mientras una regla esté escrita dos veces, arreglarla una vez va a seguir pareciendo
+que la arregló entera.*
+
+**`[RD.59.3]` — la pantalla del objetivo dibujaba ceros y guardaba marcas invisibles.**
+(1) `dias_con_venta: m?.dias ?? 0` **dibujaba un cero**: para un mes anterior a la fuente las 13
+rutas publicaban *«0 días con venta»* **al lado** de criterios que decían *«sin fuente para ese
+mes»* — el renglón se contradecía a sí mismo y el cero es el que se lee. (2) La guarda protegía el
+borde **pasado** y no el **futuro**: `resultado(2027,5)` afirmaba *«la ruta no registró venta en el
+mes»* sobre un mes que no ha ocurrido. (3) `marcar()` no validaba `route_code` —no hay FK, el
+universo es una vista—, así que una ruta mal escrita se guardaba, devolvía 200 y **no aparecía
+nunca**: el usuario veía «guardado» y la pantalla seguía diciendo «sin marcar». (4) `anio` no se
+validaba aunque `mes` sí. Y se declara que la fuente es una **ventana rodante de 200 días**: un mes
+que hoy se mide deja de medirse solo, así que un bono viejo se audita guardando el resultado, no
+recalculándolo.
+
+**`[RD.60.1]` — la placa se usaba como EXPRESIÓN REGULAR.** El vínculo sospechoso comparaba con
+`!~`, o sea que tomaba la placa como patrón. Verificado en prod: una placa con un **paréntesis
+suelto rompe la consulta entera** (`parentheses () not balanced`) y una con un **punto da falso
+negativo** —el punto matchea cualquier carácter, así que un vínculo malo se ve bien—. Hoy ninguna
+de las 56 placas trae metacaracteres, así que el riesgo es **latente, no vivo**; pero ya conviven
+**ocho formatos** (`XXXXXX`, `XXX-XXX`, `XX-XXXX-X`…): el dato no está disciplinado. Además la
+cobertura del padrón estaba **escrita a mano en el texto del hueco** («de 56 unidades, el año en
+1») — cierta el día que se midió y vigente para siempre. Es la lección de `[CDRP.2.1]`; ahora se
+cuenta cada vez, y aparece lo que el texto fijo omitía: **modelo 18/56**.
+
+#### Lo que la auditoría midió y NO es mío de arreglar
+
+⛔ **Las rutas 321 y 322 están retiradas desde el 2026-07-15 y el sistema las trata como activas.**
+Es el punto 1 de §4, ahora con números: `comisiona` sale de `commission_route_config`, que es
+configuración **manual y no caduca** — **13 rutas encendidas, ninguna apagada**. El libro dejó de
+pagarles en la **Q14 (2026-07-15)**, hace 12 semanas, y la fuente derivada dejó de verlas antes
+(**321 el 2026-06-02**, **322 el 2026-07-01**). La pantalla ahora las **marca «sin actividad»** con
+su última fecha en vez de publicarlas como «0% alcanzado», que se lee como desempeño. ⭐ **No se
+apaga nada por código**: la baja la decide la configuración de rutas. ⚠️ La **505** es distinta —
+intermitente, no retirada: 10 de 19 quincenas en el libro, última actividad hace 29 días; el umbral
+de 60 días la deja correctamente sin marcar.
+
+⛔ **Hueco sin explicar: $551,274.08.** El libro registra esa venta de la ruta **321** en tres
+quincenas enteras (**2026-06-04 → 2026-07-15**, comisión pagada $8,361.52) que la fuente derivada
+**no ve**. La 322 tiene lo mismo a menor escala: **$24,505.52**. **Descartada la renumeración**:
+ninguna ruta nace el 2026-06-02 y las que aparecen después (`1V002`, `2V001`, `2V003`, `2V005`) son
+códigos vecinales de otra serie. Quedan en pie dos hipótesis —la ruta operó y el carril la perdió,
+o el libro siguió registrando una ruta que ya no salía— y **el libro es la única fuente de las dos
+que afirma que hubo venta.**
+
+---
+
 ## 3. Lo que NO se va a hacer, y por qué
 
 - **Volver a poner el cron.** Una quincena cerrada es un valor congelado; el reloj que despertaba
