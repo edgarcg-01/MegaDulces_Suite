@@ -59,7 +59,10 @@ const PRODUCTOS = [
       d: -119 + i * 2, plaza: ['03', '04', '05'][i % 3], qty: 6, precio: 19.5, u: 'PZA', f: 1,
     })),
     existencia: ['03', '04', '05'],
-    ficha: { c80: 'PAQ', c81: 12 },
+    // [NP.15] IEPS 8%, costo del renglón $13 la pieza y la meta de la ficha: 25% sobre costo en la
+    // pieza y 12% en el paquete (Kepler la guarda como markup).
+    ieps: 8, costo_venta: 13,
+    ficha: { c80: 'PAQ', c81: 12, k1: 25, k2: 12 },
   },
   {
     clave: '02', nombre: 'NPDEMO GOMITA ACIDA SANDIA 1KG', alta: -78, L: -75,
@@ -67,6 +70,9 @@ const PRODUCTOS = [
     // Sin c55: el renglón sólo dice su unidad base, y eso es lo que se publica.
     ventas: Array.from({ length: 18 }, (_, i) => ({ d: -73 + i * 4, plaza: '02', qty: 2, precio: 210 })),
     existencia: ['02'],
+    // [NP.15] Sin impuesto, y uno de cada dos renglones SIN costo (como la venta de mayoreo, U-D-8):
+    // el margen real tiene que cubrir sólo la mitad, no promediar ceros. La ficha no trae meta.
+    costo_venta: 140, sin_costo_cada: 2,
     ficha: {},
   },
   {
@@ -81,7 +87,10 @@ const PRODUCTOS = [
       ? { d: -43 + i, plaza: '04', qty: 4, precio: 24, u: 'PZA', f: 1 }
       : { d: -43 + i, plaza: '01', qty: 1, precio: 265, u: 'CJA', f: 12 })),
     existencia: ['01', '04'],
-    ficha: { c80: 'CJA', c81: 12 },
+    // [NP.15] IVA 16%; la caja (factor 12) tiene su propia meta: el margen de lista se pondera por
+    // el peldaño VENDIDO, no por el base.
+    iva: 16, costo_venta: 15,
+    ficha: { c80: 'CJA', c81: 12, k1: 30, k2: 10 },
   },
   {
     // Entró y NO se vendió: es la señal temprana de un lanzamiento que no despegó.
@@ -132,6 +141,8 @@ const PRODUCTOS = [
       d: -35 + i * 2, plaza: '03', qty: 4, precio: 22, ...(i === 0 ? { u: 'CJA', f: 24, rota: true } : {}),
     })),
     existencia: ['03'],
+    // [NP.15] Con costo en el renglón, pero sin ficha (sin meta) y sin compras (sin "pagado").
+    costo_venta: 16,
   },
   {
     // [NP.13] Viejo en el catálogo (la Suite lo vio hace 400 días) y SIN ningún movimiento hasta
@@ -167,6 +178,21 @@ function unidadRenglon(p, x) {
 }
 /** La unidad que el candado espera ver publicada: la declarada sólo si su identidad cierra. */
 const unidadEsperada = (p, x) => (x.u && !x.rota ? x.u : (p.base || 'PZA'));
+
+/**
+ * `[NP.15]` Las columnas de impuesto y costo de un renglón de VENTA, como las escribe Kepler: `c17`
+ * la tasa de IVA y `c18` la de IEPS (en negativo), y `c62` el costo de UNA unidad del peldaño
+ * vendido. Sin `costo_venta`, o en los renglones `sin_costo_cada`, no hay costo (como el mayoreo).
+ * El renglón "roto" no lleva costo: su identidad no cierra y no se sabe qué unidad costearía.
+ */
+function costoRenglon(p, x, i) {
+  const sinCosto = p.costo_venta === undefined || x.rota || (p.sin_costo_cada && i % p.sin_costo_cada === 1);
+  return {
+    c17: p.iva ? String(-p.iva) : '0',
+    c18: p.ieps ? String(-p.ieps) : '0',
+    c62: sinCosto ? null : String(r2(p.costo_venta * (x.u ? x.f : 1))),
+  };
+}
 function acumularUnidades(lista, p) {
   const out = {};
   for (const x of lista) {
@@ -262,7 +288,7 @@ async function sembrar(db) {
         [e.plaza, e.plaza, SERIE, f, sku(p), ue.c9, p.nombre, ue.c11, r2(e.costo / (e.f || 1)), r2(e.qty * e.costo),
           ue.c55, ue.c56, ue.c58]);
     }
-    for (const v of p.ventas) {
+    for (const [iv, v] of p.ventas.entries()) {
       folio += 1;
       const f = `NPDV${String(folio).padStart(6, '0')}`;
       const importe = r2(v.qty * v.precio);
@@ -271,10 +297,12 @@ async function sembrar(db) {
          VALUES (?, ?, 'U', 'D', 10, ?, ?, ?::timestamp, '991', 0, ?, 'N')`,
         [v.plaza, v.plaza, SERIE, f, fecha(hoy, v.d), importe]);
       const uv = unidadRenglon(p, v);
+      const cv = costoRenglon(p, v, iv);
       await db.raw(
-        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c11, c12, c13, c55, c56, c58)
-         VALUES (?, ?, 'U', 'D', 10, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [v.plaza, v.plaza, SERIE, f, sku(p), uv.c9, uv.c11, r2(v.precio / (v.f || 1)), importe, uv.c55, uv.c56, uv.c58]);
+        `INSERT INTO kepler_ods.kdm2 (sucursal, c1, c2, c3, c4, c5, c6, c7, c8, c9, c11, c12, c13, c55, c56, c58, c17, c18, c62)
+         VALUES (?, ?, 'U', 'D', 10, ?, ?, 1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [v.plaza, v.plaza, SERIE, f, sku(p), uv.c9, uv.c11, r2(v.precio / (v.f || 1)), importe, uv.c55, uv.c56, uv.c58,
+          cv.c17, cv.c18, cv.c62]);
     }
     for (const plaza of p.existencia) {
       await db.raw(
@@ -282,11 +310,12 @@ async function sembrar(db) {
         [plaza, plaza, sku(p), p.stock ?? 24]);
       // La ficha de Kepler de esa plaza: rótulo base y, si tiene, la Unidad Dos con su factor.
       if (p.ficha) {
+        // [NP.15] c87/c88 = el % de margen de la ficha (markup sobre costo) de la base y la Unidad Dos.
         await db.raw(
-          `INSERT INTO kepler_ods.kdii (sucursal, c1, c2, c11, c77, c80, c81, c78)
-           VALUES (?, ?, ?, ?, '10', ?, ?, ?)`,
+          `INSERT INTO kepler_ods.kdii (sucursal, c1, c2, c11, c77, c80, c81, c78, c87, c88)
+           VALUES (?, ?, ?, ?, '10', ?, ?, ?, ?, ?)`,
           [plaza, sku(p), p.nombre, p.base || 'PZA', p.ficha.c80 ?? null, p.ficha.c81 ?? null,
-            p.ficha.c81 ? 10 * p.ficha.c81 : null]);
+            p.ficha.c81 ? 10 * p.ficha.c81 : null, p.ficha.k1 ?? null, p.ficha.k2 ?? null]);
       }
     }
     out.push({ clave: p.clave, sku: sku(p), product_id: productId, esperado: esperado(p) });
@@ -360,4 +389,7 @@ async function refrescar(db) {
   await db.raw('REFRESH MATERIALIZED VIEW analytics.mv_new_products');
 }
 
-module.exports = { TENANT, SERIE, PREFIJO_SKU, PRODUCTOS, VIVO, sembrar, sembrarVivo, limpiar, refrescar, fecha, hoyMx };
+module.exports = {
+  TENANT, SERIE, PREFIJO_SKU, PRODUCTOS, VIVO, sembrar, sembrarVivo, limpiar, refrescar, fecha, hoyMx,
+  unidadRenglon, costoRenglon,
+};

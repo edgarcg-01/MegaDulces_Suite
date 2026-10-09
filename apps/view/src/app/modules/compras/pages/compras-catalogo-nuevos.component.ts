@@ -14,6 +14,7 @@ import { coincideBusqueda } from '@megadulces/ui-web';
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import {
   HitoNuevo,
+  MargenesNuevo,
   PlazaNueva,
   ProductoNuevo,
   ProductosNuevosService,
@@ -21,6 +22,38 @@ import {
   UnidadesKepler,
   VeredictoNuevo,
 } from '../productos-nuevos.service';
+
+/** `[NP.15]` Los tres márgenes, cada uno con la pregunta que contesta. */
+export const TIPOS_MARGEN: ReadonlyArray<{ id: 'lista' | 'real' | 'pagado'; titulo: string; pregunta: string }> = [
+  { id: 'lista', titulo: 'De lista', pregunta: '¿Con qué margen lo pusimos a la venta? (ficha de Kepler)' },
+  { id: 'real', titulo: 'Real', pregunta: '¿Cuánto dejó? (costo que Kepler registró en cada venta)' },
+  { id: 'pagado', titulo: 'Sobre lo pagado', pregunta: '¿La ficha tiene el costo correcto? (lo que se pagó al comprarlo)' },
+];
+
+/** Un margen en porcentaje, con un decimal; sin medir = guion, nunca 0%. */
+export function margenTexto(v: number | null | undefined): string {
+  if (v === null || v === undefined) return '—';
+  return `${v.toLocaleString('es-MX', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+/** Los tres márgenes en una línea: "17.0% · 10.1% · 10.0%" (lista · real · pagado). */
+export function tresMargenes(m: MargenesNuevo | null): string {
+  if (!m) return '—';
+  return TIPOS_MARGEN.map((t) => margenTexto(m[t.id].pct)).join(' · ');
+}
+
+/**
+ * `[NP.15]` Las sucursales en el orden de "dónde se mueve mejor": primero las que compiten (por su
+ * lugar) y después las que todavía no (por venta por día). Las que no tienen venta en la historia
+ * no aparecen: no hay nada que comparar.
+ */
+export function ordenMovimiento(plazas: PlazaNueva[]): PlazaNueva[] {
+  return plazas
+    .filter((p) => p.movimiento?.venta_neta_dia !== null && p.movimiento?.venta_neta_dia !== undefined)
+    .slice()
+    .sort((a, b) => (a.movimiento.lugar ?? 999) - (b.movimiento.lugar ?? 999)
+      || (b.movimiento.venta_neta_dia ?? 0) - (a.movimiento.venta_neta_dia ?? 0));
+}
 
 /** Qué se está mirando: todo lo que se sigue, un veredicto, o lo que queda fuera del seguimiento. */
 export type FiltroNuevos =
@@ -246,15 +279,18 @@ export function tendenciaTexto(t: number | null): string {
             </label>
           </div>
 
-          <div class="pn-tabla">
+          <div class="pn-tabla dt-scope">
             <p-table [value]="filas()" dataKey="product_id" [paginator]="filas().length > 50" [rows]="50"
-                     size="small" class="surf-table surf-table--sticky">
+                     size="small" class="surf-table surf-table--sticky" styleClass="dt-stack">
               <ng-template #header>
                 <tr>
                   <th scope="col">Producto</th>
                   <th scope="col">¿Volver a comprar?</th>
                   <th scope="col">Venta por semana</th>
                   <th scope="col" class="pn-num">Vendido</th>
+                  @if (d.costo_visible) {
+                    <th scope="col" class="pn-num" pTooltip="Real, sobre la venta sin impuestos. Debajo: de lista y sobre lo pagado.">Margen</th>
+                  }
                   <th scope="col">30 · 60 · 90 días</th>
                   <th scope="col">Sucursales</th>
                   <th scope="col"><span class="pn-sr">Abrir</span></th>
@@ -263,7 +299,7 @@ export function tendenciaTexto(t: number | null): string {
               <ng-template #body let-f>
                 <tr class="pn-fila" tabindex="0" role="button" [attr.aria-label]="'Ver ' + (f.nombre || f.sku) + ' por sucursal'"
                     (click)="abrir(f)" (keydown.enter)="abrir(f)" (keydown.space)="$event.preventDefault(); abrir(f)">
-                  <td class="pn-c-prod">
+                  <td class="pn-c-prod dt-id" role="cell">
                     <div class="pn-prod">{{ f.nombre || 'Sin nombre en catálogo' }}</div>
                     <div class="pn-meta"><span class="pn-mono">{{ f.sku }}</span>@if (f.marca) { · {{ f.marca }} }</div>
                     <div class="pn-tags">
@@ -273,7 +309,7 @@ export function tendenciaTexto(t: number | null): string {
                       }
                     </div>
                   </td>
-                  <td class="pn-c-rec">
+                  <td class="pn-c-rec" role="cell" data-label="¿Volver a comprar?">
                     @if (f.recomendacion; as rec) {
                       <span [class]="'pn-pill pn-tono-' + verd(rec.veredicto).tono">
                         <i [class]="verd(rec.veredicto).icon" aria-hidden="true"></i>{{ verd(rec.veredicto).label }}
@@ -283,7 +319,7 @@ export function tendenciaTexto(t: number | null): string {
                       <span class="pn-pill pn-tono-muted">{{ f.motivo }}</span>
                     }
                   </td>
-                  <td class="pn-c-spk">
+                  <td class="pn-c-spk" role="cell" data-label="Venta por semana">
                     @if (cerradas(f.semanas, f.dia); as sem) {
                       @if (sem.length > 1) {
                         <app-sparkline [data]="sem" [labels]="etiquetasSemanas(sem.length)" format="currency"
@@ -299,7 +335,7 @@ export function tendenciaTexto(t: number | null): string {
                       @if (textoUnidades(f.unidades_hoy); as u) { <div class="pn-meta pn-hoy-u">{{ u }}</div> }
                     }
                   </td>
-                  <td class="pn-num">
+                  <td class="pn-num dt-num" role="cell" data-label="Vendido">
                     @if (f.venta_total !== null) {
                       <div class="pn-mono pn-fuerte">{{ dinero(f.venta_total) }}</div>
                       @if (textoUnidades(f.unidades_vendidas); as u) {
@@ -321,7 +357,17 @@ export function tendenciaTexto(t: number | null): string {
                       <span class="pn-muted">—</span>
                     }
                   </td>
-                  <td>
+                  @if (d.costo_visible) {
+                    <td class="pn-num pn-c-margen dt-num" role="cell" data-label="Margen">
+                      @if (f.margenes; as mg) {
+                        <div class="pn-mono pn-fuerte" [pTooltip]="mg.real.nota || ''">{{ margenTexto(mg.real.pct) }}</div>
+                        <div class="pn-meta">lista {{ margenTexto(mg.lista.pct) }} · pagado {{ margenTexto(mg.pagado.pct) }}</div>
+                      } @else {
+                        <span class="pn-muted">—</span>
+                      }
+                    </td>
+                  }
+                  <td role="cell" data-label="30 · 60 · 90 días">
                     <div class="pn-hitos">
                       @for (h of hitos; track h) {
                         <span class="pn-hito" [class.is-curso]="!f.hitos[h].cerrado && hitoVisible(f.dia, h)"
@@ -336,7 +382,7 @@ export function tendenciaTexto(t: number | null): string {
                       }
                     </div>
                   </td>
-                  <td class="pn-c-plazas">
+                  <td class="pn-c-plazas" role="cell" data-label="Sucursales">
                     @if (f.plazas_venta > 0 || f.plazas_con_existencia > 0) {
                       <div>Vende en {{ f.plazas_venta }}</div>
                       @if (f.agotado_en > 0) {
@@ -344,15 +390,18 @@ export function tendenciaTexto(t: number | null): string {
                       } @else {
                         <div class="pn-meta">Hay existencia en {{ f.plazas_con_existencia }}</div>
                       }
+                      @if (f.mejor_plaza; as mp) {
+                        <div class="pn-meta" pTooltip="La que más vende por día desde que le llegó">Mejor: {{ mp.nombre || mp.plaza }}</div>
+                      }
                     } @else {
                       <span class="pn-muted">—</span>
                     }
                   </td>
-                  <td class="pn-c-abrir"><i class="pi pi-chevron-right" aria-hidden="true"></i></td>
+                  <td class="pn-c-abrir dt-actions" role="cell"><i class="pi pi-chevron-right" aria-hidden="true"></i></td>
                 </tr>
               </ng-template>
               <ng-template #emptymessage>
-                <tr><td colspan="7" class="pn-vacio">Ningún producto en esta vista.</td></tr>
+                <tr><td [attr.colspan]="d.costo_visible ? 8 : 7" class="pn-vacio">Ningún producto en esta vista.</td></tr>
               </ng-template>
             </p-table>
           </div>
@@ -405,7 +454,7 @@ export function tendenciaTexto(t: number | null): string {
               <li><b>Esperar</b> — se vende bien, pero todavía hay existencia y no ha recuperado lo invertido.</li>
             </ul>
             <p class="pn-meta">Es una propuesta del sistema; la decisión es de Compras. Mide rotación y recuperación de lo invertido
-              (a precio de venta), no margen: el costo de lo vendido todavía no se puede medir bien para un producto nuevo.
+              (a precio de venta); no usa el margen. Los márgenes se muestran aparte, sin impuestos, al abrir cada producto.
               Cuenta sólo lo que registra Kepler: la venta de las tiendas y las entradas de mercancía. No incluye Wincaja.
               Un producto que sólo se ha movido en sucursales con menos de 90 días en Kepler no se puede medir todavía.</p>
           </details>
@@ -476,6 +525,61 @@ export function tendenciaTexto(t: number | null): string {
                 </table>
               </section>
 
+              @if (dt.costo_visible && dt.producto.margenes; as mg) {
+                <section class="pk-bloque" aria-labelledby="pk-margenes">
+                  <h3 id="pk-margenes" class="pk-h">Márgenes</h3>
+                  <div class="pk-margenes">
+                    @for (t of tiposMargen; track t.id) {
+                      <div class="pk-margen">
+                        <span class="pk-margen-t">{{ t.titulo }}</span>
+                        <b class="pn-mono" [class.pn-muted]="mg[t.id].pct === null">{{ margenTexto(mg[t.id].pct) }}</b>
+                        <small>{{ t.pregunta }}</small>
+                        @if (mg[t.id].utilidad !== null) {
+                          <small class="pk-margen-u">{{ dinero(mg[t.id].utilidad) }} de margen</small>
+                        }
+                        @if (mg[t.id].nota) { <small class="pk-nota">{{ mg[t.id].nota }}</small> }
+                      </div>
+                    }
+                  </div>
+                  <p class="pn-meta">Sobre la venta sin IVA ni IEPS ({{ dinero(mg.venta_neta) }}) hasta el {{ fecha(vispera(dt.frescura.corte)) }}; lo de hoy no entra.
+                    @if (mg.costo_pagado; as cp) { En sus compras se pagó {{ veces(cp.por_unidad) }} por {{ unidadUna(cp.unidad) }}. }
+                    No descuenta las notas de crédito ni los apoyos del proveedor: por producto todavía no se pueden repartir.</p>
+                </section>
+              }
+
+              @if (ordenMovimiento(dt.plazas); as rk) {
+                @if (rk.length) {
+                  <section class="pk-bloque" aria-labelledby="pk-donde">
+                    <h3 id="pk-donde" class="pk-h">¿Dónde se mueve mejor?</h3>
+                    <table class="pk-hitos pk-rank">
+                      <thead><tr>
+                        <th scope="col">Lugar</th><th scope="col">Sucursal</th>
+                        <th scope="col" class="pn-num">Venta por día</th><th scope="col" class="pn-num">Días</th>
+                        <th scope="col" class="pn-num">Vendido de lo que llegó</th>
+                        @if (dt.costo_visible) { <th scope="col" class="pn-num">Margen real</th> }
+                      </tr></thead>
+                      <tbody>
+                        @for (p of rk; track p.plaza) {
+                          <tr [class.is-mejor]="p.movimiento.lugar === 1">
+                            <td>{{ p.movimiento.lugar === null ? 'Aún no' : p.movimiento.lugar }}</td>
+                            <td>{{ p.nombre || ('Sucursal ' + p.plaza) }}</td>
+                            <td class="pn-num pn-mono">{{ dinero(p.movimiento.venta_neta_dia) }}</td>
+                            <td class="pn-num pn-mono">{{ p.movimiento.dias ?? '—' }}</td>
+                            <td class="pn-num pn-mono">{{ p.movimiento.desplazado === null ? '—' : pct(p.movimiento.desplazado) }}</td>
+                            @if (dt.costo_visible) {
+                              <td class="pn-num pn-mono" [pTooltip]="p.margenes?.real?.nota || ''">{{ margenTexto(p.margenes?.real?.pct) }}</td>
+                            }
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                    <p class="pn-meta">Venta sin impuestos por día desde que el producto llegó a cada sucursal, hasta el {{ fecha(vispera(dt.frescura.corte)) }}.
+                      Una sucursal con menos de {{ diasMinimosSucursal }} días todavía no compite: una sola venta la pondría arriba.
+                      "Vendido de lo que llegó" compara lo vendido con lo vendido más la existencia de hoy, en la unidad de la ficha.</p>
+                  </section>
+                }
+              }
+
               <section class="pk-bloque" aria-labelledby="pk-plazas">
                 <h3 id="pk-plazas" class="pk-h">Por sucursal</h3>
                 @if (!dt.plazas.length) {
@@ -502,6 +606,7 @@ export function tendenciaTexto(t: number | null): string {
                         <div><span>Última venta</span><b>{{ fecha(p.ultima_venta) }}</b></div>
                         @if (dt.costo_visible) {
                           <div><span>Invertido</span><b>{{ p.inversion_total === null ? 'No medido' : dinero(p.inversion_total) }}</b></div>
+                          <div><span>Margen lista · real · pagado</span><b>{{ tresMargenes(p.margenes) }}</b></div>
                         }
                         <div><span>Recibido</span><b class="pk-txt">{{ textoUnidades(p.unidades_recibidas) || 'Sin entradas en Kepler' }}</b></div>
                         <div><span>Recompra</span><b>{{ p.primera_recompra ? fecha(p.primera_recompra) : 'Todavía no' }}</b></div>
@@ -644,12 +749,23 @@ export function tendenciaTexto(t: number | null): string {
     .pk-hitos th, .pk-hitos td { padding: .35rem .5rem; border-bottom: 1px solid var(--c-divider); text-align: left; }
     .pk-hitos th { font-size: var(--fs-xs); color: var(--c-text-2); }
     .pk-hitos th.pn-num, .pk-hitos td.pn-num { text-align: right; }
+    .pn-c-margen { min-width: 7.5rem; }
+    .pk-margenes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .6rem; }
+    .pk-margen { display: flex; flex-direction: column; gap: .2rem; border: 1px solid var(--c-divider); border-radius: 10px;
+      padding: .65rem .75rem; background: var(--c-surface-1); }
+    .pk-margen-t { font-size: var(--fs-xs); font-weight: var(--fw-bold); color: var(--c-text-2); }
+    .pk-margen b { font-size: var(--fs-lg); color: var(--c-text-1); }
+    .pk-margen small { font-size: var(--fs-xs); color: var(--c-text-3); line-height: 1.35; }
+    .pk-margen small.pk-margen-u { color: var(--c-text-2); }
+    .pk-margen small.pk-nota { color: var(--warn-fg); }
+    .pk-rank tr.is-mejor > td { background: var(--ok-soft-bg); font-weight: var(--fw-bold); }
     .pk-plaza { border: 1px solid var(--c-divider); border-radius: 10px; padding: .7rem .85rem; display: flex; flex-direction: column; gap: .5rem; }
     .pk-plaza header { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
     .pk-plaza-cuerpo { display: grid; grid-template-columns: minmax(0, 1fr) 8rem; gap: .75rem; align-items: center; }
     @media (max-width: 48rem) {
       .pn-buscar, .pn-buscar input { width: 100%; }
       .pk-plaza-cuerpo { grid-template-columns: 1fr; }
+      .pk-margenes { grid-template-columns: 1fr; }
     }
   `],
 })
@@ -662,6 +778,12 @@ export class ComprasCatalogoNuevosComponent {
   readonly existenciaTexto = existenciaTexto;
   readonly textoUnidades = textoUnidades;
   readonly tendenciaTexto = tendenciaTexto;
+  readonly tiposMargen = TIPOS_MARGEN;
+  readonly margenTexto = margenTexto;
+  readonly tresMargenes = tresMargenes;
+  readonly ordenMovimiento = ordenMovimiento;
+  /** El mismo umbral que usa el servidor para dejar competir a una sucursal (`CRITERIO_SUCURSAL`). */
+  readonly diasMinimosSucursal = 7;
 
   private readonly api = inject(ProductosNuevosService);
 
@@ -803,6 +925,19 @@ export class ComprasCatalogoNuevosComponent {
 
   fecha(iso: string | null): string {
     return fechaCorta(iso);
+  }
+
+  /** El día anterior a `iso` (`YYYY-MM-DD`): el último día que entra en la historia. */
+  vispera(iso: string | null): string | null {
+    if (!iso) return null;
+    const t = Date.parse(`${iso.slice(0, 10)}T00:00:00Z`);
+    return Number.isFinite(t) ? new Date(t - 86_400_000).toISOString().slice(0, 10) : null;
+  }
+
+  /** "pieza", "caja"…; un rótulo que no se conoce, tal cual. */
+  unidadUna(u: string): string {
+    const leg = unidadLegible(u);
+    return leg.conocida ? leg.singular : u;
   }
 
   hora(iso: string | null | undefined): string {
