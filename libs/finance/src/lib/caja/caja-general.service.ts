@@ -179,22 +179,22 @@ export class CajaGeneralService {
       const tot: any = await inRange()
         .select(trx.raw('COALESCE(SUM(ingreso),0)::numeric AS ingreso'),
           trx.raw('COALESCE(SUM(gasto),0)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n')).first();
-      // Saldo al CIERRE DEL PERIODO = último SaldoD (running balance) REAL dentro de [from,to].
-      // Ojo: mov_id es texto (IdDocto por TipoDto) → ordenar por él es un sort lexicográfico, no
-      // cronológico; y la última fila suele traer saldo=0. Tomamos el saldo más reciente DISTINTO
-      // de 0 por (fecha, hora); `hora` viene 'HH:MM:SS' con cero a la izquierda, así que el orden
-      // de texto SÍ es cronológico.
-      //
-      // ⛔ **Acá faltaba el filtro de periodo, y por eso el KPI "Saldo caja" era el mismo número
-      // para todos los meses.** Tomaba el último saldo de TODA la historia y lo ponía al lado de
-      // Ingresos/Gastos/Neto, que sí están filtrados. MEDIDO en `platform_test` (12,276 movs,
-      // ene→sep 2026): la pantalla publicaba **$750** —el saldo del 18-sep— mirases el mes que
-      // mirases, cuando el cierre real de enero fue **$20,778** y el de mayo **$20,487**. No es
-      // un número mal calculado: es el número de otro periodo.
-      const sal: any = await trx(T).where('tenant_id', tenantId).whereRaw('saldo <> 0')
-        .whereBetween('fecha', [from, to])
-        .orderByRaw(`fecha DESC, hora DESC NULLS LAST`).first('saldo', 'fecha');
-
+      /**
+       * ⛔⛔ `[CG.75]` **ACÁ VIVÍA LA CONSULTA DEL "SALDO", Y SE FUE ENTERA.**
+       *
+       * Buscaba «el último renglón del período con `saldo <> 0`» y eso alimentaba el KPI
+       * «Saldo caja». La columna **no es un saldo**: es el importe del propio renglón (medido en
+       * prod: corrido global 0/79 · corrido por cuenta 0/103 · importe del renglón **409/409**).
+       *
+       * ⭐ Acá vivía también un comentario de doce líneas explicando cómo se había arreglado que
+       * el KPI tomara el saldo *de otro período* — una corrección real, cuidadosa y medida, sobre
+       * un número que **no existía**. *Afinar la puntería de una medición no la vuelve la
+       * medición correcta, y un comentario largo sobre un valor falso lo hace ver más confiable.*
+       *
+       * Se borra la consulta y no sólo su uso: una lectura de prod por petición para alimentar
+       * un campo que ahora va en `null` es costo puro, y la próxima persona la vería y supondría
+       * que el dato existe.
+       */
       const porMes = await trx(T).where('tenant_id', tenantId)
         .select(trx.raw(`to_char(fecha,'YYYY-MM') AS mes`), trx.raw('SUM(ingreso)::numeric AS ingreso'),
           trx.raw('SUM(gasto)::numeric AS gasto'), trx.raw('COUNT(*)::int AS n'))
@@ -231,7 +231,41 @@ export class CajaGeneralService {
         freshness,
         totals: {
           ingreso: r2(n(tot?.ingreso)), gasto: r2(n(tot?.gasto)), neto: r2(n(tot?.ingreso) - n(tot?.gasto)),
-          n: n(tot?.n), saldo: r2(n(sal?.saldo)), saldo_fecha: sal?.fecha || null,
+          n: n(tot?.n),
+          /**
+           * ⛔⛔ `[CG.75]` **ACÁ SE PUBLICABA UN SALDO QUE NO EXISTE.**
+           *
+           * Esto era `r2(n(sal?.saldo))`: el último renglón del período con `saldo <> 0`. La
+           * pantalla lo mostraba como KPI «Saldo caja» con el subtítulo «actual», y en prosa como
+           * *«Saldo actual: $16,473.40 (al 07/10/26)»*.
+           *
+           * ⭐ **La columna `saldo` NO es un saldo: es el importe del propio renglón.** Medido
+           * contra producción, tres hipótesis:
+           *
+           *   corrido global     → cuadran   0 de  79 pares
+           *   corrido por cuenta → cuadran   0 de 103 pares
+           *   importe del renglón→ cuadran 409 de 409 filas  (100%, 30 días)
+           *
+           * O sea que el número publicado como «el efectivo que hay en la caja» era **el monto de
+           * una operación suelta**, elegida por ser la última del período que traía cifra. Hay un
+           * comentario largo más arriba explicando cómo se arregló *qué* operación elegía —se
+           * corrigió el filtro de período— y nadie cuestionó que fuera un saldo. *Afinar la
+           * puntería de una medición no la vuelve la medición correcta.*
+           *
+           * El origen tampoco lo tiene por otro lado: los «arqueos» de la caja 20 son depósitos a
+           * bancos (banco + cuenta + beneficiario en las observaciones; el mayor del 05/10 fue
+           * $1,320,253), y el último `Fondo Caja` declarado es de 2026-05-26 y vale $0.
+           *
+           * Entonces se DECLARA, no se dibuja (ADR-056): `null` con su motivo. El flujo del
+           * período —ingreso, gasto, neto— sí es real y se sigue publicando; lo que no existe es
+           * el stock.
+           *
+           * ⚠️ Quien quiera el saldo de verdad tiene que CONTAR: es lo que hace el corte de
+           * `finance.cash_ledger_cuts` con su fondo inicial y su arqueo ciego.
+           */
+          saldo: null as number | null,
+          saldo_fecha: null as string | null,
+          saldo_motivo: 'no_se_lleva' as const,
         },
         por_mes: (porMes as any[]).map((r) => ({ mes: r.mes, ingreso: r2(n(r.ingreso)), gasto: r2(n(r.gasto)), n: n(r.n) })),
         por_cuenta: (porCuenta as any[]).map((r) => ({ cuenta: r.cuenta, cuenta_nombre: r.cuenta_nombre, ingreso: r2(n(r.ingreso)), gasto: r2(n(r.gasto)), n: n(r.n) })),

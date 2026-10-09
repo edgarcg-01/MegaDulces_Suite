@@ -13,6 +13,9 @@ import { armarRespuesta, type CorteCrudo } from './cortes-sucursales.engine';
  *  · Arqueo = `analytics.cash_cuts` por (sucursal, caja, folio). ⚠️ El folio de arqueo se REPITE
  *             entre fechas (Hidalgo caja 1 folio 93 aparece 22-sep, 28-sep y 2-oct): se casa con
  *             la fecha más cercana dentro de ±3 días, nunca con cualquiera.
+ *  · `[CSU.7]` Devoluciones = `kepler_ods.kdm1` notas de crédito POS (`U-A-21-1` fiscal, `U-A-25-1`
+ *             no fiscal) no canceladas, ligadas al turno por `c81` (caja) + `c80` (folio de turno)
+ *             y ±1 día. El corte ya las resta; el arqueo no — el motor juzga contra el neto.
  *
  * Costo medido en prod (2026-10-05): un mes completo, 106 cortes, 630-750 ms en caliente; casi todo
  * el tiempo es la vista analytics.erp_collections (forma de pago del cobro).
@@ -51,9 +54,21 @@ ap AS (
     FROM kepler_ods.kdm5 m
    WHERE m.c2 = 'U' AND btrim(m.c1) = m.sucursal AND btrim(m.c8) = 'D' AND btrim(m.c9::text) = '23' AND btrim(m.c10::text) = '1'
      AND btrim(m.c1) IN (SELECT DISTINCT sucursal FROM co)
+),
+dv AS (
+  -- [CSU.7] Notas de crédito POS pagadas en caja (UA2101 fiscal, UA2501 no fiscal), con su turno.
+  SELECT m.sucursal, btrim(m.c81) AS caja, btrim(m.c80::text) AS turno, m.c9::date AS fecha_d,
+         'UA' || lpad(btrim(m.c4::text), 2, '0') || lpad(btrim(m.c5::text), 2, '0') AS doc_prefix,
+         btrim(m.c6) AS folio, round(m.c16::numeric, 2) AS monto,
+         nullif(btrim(m.c32), '') AS cliente, nullif(btrim(m.c24), '') AS motivo, nullif(btrim(m.c67), '') AS cajero
+    FROM kepler_ods.kdm1 m
+   WHERE m.c2 = 'U' AND m.c3 = 'A' AND m.c4::text IN ('21', '25') AND m.c5::text = '1'
+     AND btrim(m.c1) = m.sucursal AND coalesce(m.c43, '') <> 'C'
+     AND m.c9 >= (?::date - 1) AND m.c9 < (?::date + 2)
+     AND m.sucursal IN (SELECT DISTINCT sucursal FROM co)
 )
 SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.monto,
-       a.cobros, coalesce(a.cobrado, 0) AS cobrado,
+       a.cobros, coalesce(a.cobrado, 0) AS cobrado, d.devoluciones,
        to_char(cc.business_date, 'YYYY-MM-DD') AS arqueo_fecha,
        cc.efectivo_esperado, cc.efectivo_contado,
        cc.tarjeta_esperado, cc.tarjeta_contado,
@@ -71,6 +86,14 @@ SELECT co.sucursal, co.folio, co.fecha, co.referencia, co.caja, co.turno, co.mon
         ON ec.tenant_id = ?::uuid AND ec.sucursal = ap.sucursal AND ec.doc_prefix = ap.doc_prefix AND ec.folio = ap.folio
      WHERE ap.sucursal = co.sucursal AND ap.corte_folio = co.folio
   ) a ON true
+  LEFT JOIN LATERAL (
+    -- El folio de turno se repite entre fechas: sólo la devolución del día del corte (±1 por medianoche).
+    SELECT jsonb_agg(jsonb_build_object(
+             'doc_prefix', dv.doc_prefix, 'folio', dv.folio, 'fecha', to_char(dv.fecha_d, 'YYYY-MM-DD'), 'monto', dv.monto,
+             'cliente', dv.cliente, 'motivo', dv.motivo, 'cajero', dv.cajero) ORDER BY dv.doc_prefix, dv.folio) AS devoluciones
+      FROM dv
+     WHERE dv.sucursal = co.sucursal AND dv.caja = co.caja AND dv.turno = co.turno AND abs(dv.fecha_d - co.fecha_d) <= 1
+  ) d ON true
   LEFT JOIN LATERAL (
     SELECT c.* FROM analytics.cash_cuts c
      WHERE c.tenant_id = ?::uuid AND c.warehouse_code = co.sucursal AND c.caja = co.caja AND c.folio = co.turno
@@ -134,7 +157,7 @@ export class CortesSucursalesService {
     const codigos = alcance.sucursales.map((x) => x.codigo);
     const t0 = Date.now();
     return this.tk.run(async (trx) => {
-      const r = await trx.raw(SQL, [periodo.from, periodo.to, alcance.todas, codigos, tenantId, tenantId]);
+      const r = await trx.raw(SQL, [periodo.from, periodo.to, alcance.todas, codigos, periodo.from, periodo.to, tenantId, tenantId]);
       const nom = await trx.raw(
         `SELECT warehouse_code, max(warehouse_name) AS nombre FROM analytics.cash_cuts WHERE tenant_id = ?::uuid GROUP BY 1`,
         [tenantId],

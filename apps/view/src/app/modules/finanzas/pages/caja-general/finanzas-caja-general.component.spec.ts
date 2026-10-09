@@ -756,6 +756,74 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(cuerpo['firma_png'], 'se mandó una firma que ya no correspondía').toBeUndefined();
   });
 
+  /**
+   * ⛔ `[CG.74]` La pantalla mandaba a un menú que NO EXISTE.
+   *
+   * Decía *«Abrí Caja General › Firmar en el teléfono»*. Medido: la ruta está registrada y **nada
+   * en la navegación apunta ahí** — la única mención en el repo era un comentario. O sea: teclear
+   * una URL de memoria, en un teléfono, con un código que vive tres minutos. Lo encontró Edgar
+   * preguntando «¿cómo hago esto?».
+   *
+   * Las aserciones van contra el DOM: lo que falla acá es lo que la persona LEE y ESCANEA, y un
+   * test sobre el método pasaría verde con el texto equivocado puesto.
+   */
+  /**
+   * ⚠️ El pintado del QR es ASÍNCRONO desde que el codificador se carga diferido (el `import`
+   * estático metía 449 kB en el paquete inicial y reventaba el presupuesto de `main`). Esperar
+   * "un turno" no alcanza: hay que esperar a que baje el trozo. Se espera con techo, no para
+   * siempre — si no aparece, la aserción de abajo falla con su mensaje, que es lo que se quiere.
+   */
+  async function esperarQr(fx: { detectChanges(): void; nativeElement: HTMLElement }): Promise<void> {
+    for (let i = 0; i < 50; i++) {
+      fx.detectChanges();
+      if (fx.nativeElement.querySelector('.cg-firma-qr svg')) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    fx.detectChanges();
+  }
+
+  it('⭐ [CG.74] pedir el código pinta un QR, y el texto deja de mandar a un menú inexistente', async () => {
+    const fx = montar();
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');          // la firma sólo se pide en el egreso
+    fx.detectChanges();
+    await comp.firmaPedirEnTelefono();
+    await esperarQr(fx);
+
+    const hueco = fx.nativeElement.querySelector('.cg-firma-qr') as HTMLElement | null;
+    expect(hueco, 'no hay hueco para el QR').not.toBeNull();
+    expect(hueco!.querySelector('svg'), 'el hueco quedó vacío: el QR no se pintó').not.toBeNull();
+
+    const panel = (fx.nativeElement.querySelector('.cg-firma-codigo') as HTMLElement).textContent ?? '';
+    expect(panel).toContain('ABC234');                      // el código sigue a la vista
+    expect(panel).toContain('/finanzas/caja-general/firma'); // y ahora dice DÓNDE
+    expect(panel, 'sigue mandando a una entrada de menú que no existe')
+      .not.toMatch(/Caja General\s*[›>]/);
+  });
+
+  it('⛔ [CG.74] [negativa] al cancelar, el QR vencido NO se queda en pantalla', async () => {
+    // Un QR vencido es peor que ninguno: alguien lo escanea, el teléfono dice que el código no
+    // existe, y queda buscando el error donde no está.
+    const fx = montar();
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    fx.detectChanges();
+    await comp.firmaPedirEnTelefono();
+    await esperarQr(fx);
+    expect(fx.nativeElement.querySelector('.cg-firma-qr svg')).not.toBeNull();
+
+    comp.firmaCerrarRemota();
+    fx.detectChanges();
+    expect(fx.nativeElement.querySelector('.cg-firma-qr svg'),
+      'quedó el QR del código que ya se cerró').toBeNull();
+  });
+
+  it('[CG.74] la ruta que se dicta no lleva el esquema: nadie dicta "https://"', () => {
+    montar();
+    expect(comp.rutaFirmaCorta()).toContain('/finanzas/caja-general/firma');
+    expect(comp.rutaFirmaCorta()).not.toContain('http');
+  });
+
   it('el código del emparejamiento NO sobrevive a la captura anterior', async () => {
     // Un código viejo traería la firma de otro movimiento a esta captura.
     const fx = montar();

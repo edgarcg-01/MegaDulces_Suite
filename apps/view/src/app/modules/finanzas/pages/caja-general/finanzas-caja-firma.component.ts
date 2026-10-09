@@ -139,7 +139,27 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
   readonly money = (v: number) =>
     (Number(v) || 0).toLocaleString('es-MX', { style: 'currency', currency: 'MXN', minimumFractionDigits: 2 });
 
-  ngOnInit(): void { this.caja.connect(); }
+  /**
+   * `[CG.74]` **El código puede llegar por la URL**, que es lo que hace útil al QR de la caja.
+   *
+   * Antes sólo se tecleaba, y el procedimiento real era: abrir una URL de memoria en un teléfono,
+   * iniciar sesión, y escribir 6 caracteres contra un reloj de tres minutos.
+   *
+   * ⚠️ `?c=` se trata EXACTAMENTE como lo tecleado: pasa por el mismo `tomar()`, con la misma
+   * normalización y los mismos fallos. Un atajo que valide distinto que la puerta principal es
+   * un segundo camino con sus propios agujeros.
+   *
+   * ⚠️ No se reintenta si falla: el código pudo vencer o ya estar tomado, y el aviso que deja
+   * `tomar()` es justamente lo que la persona necesita leer. Reintentar lo taparía.
+   */
+  ngOnInit(): void {
+    this.caja.connect();
+    const porUrl = new URLSearchParams(location.search).get('c');
+    if (porUrl) {
+      this.codigo = porUrl;
+      void this.tomar();
+    }
+  }
   ngOnDestroy(): void { this.caja.disconnect(); }
 
   /**

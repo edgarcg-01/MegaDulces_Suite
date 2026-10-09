@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ConflictException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { CommercialCommissionsService } from './commercial-commissions.service';
 
@@ -57,6 +57,27 @@ export class CommissionContrastService {
   async contrastarPeriodo(periodId: string): Promise<ContrasteResultado> {
     if (!periodId) throw new NotFoundException('period_id requerido');
     const t0 = Date.now();
+
+    // ⛔ Una quincena que TODAVIA CORRE no se contrasta. `computeRun` en modo vista previa la
+    // acepta -- para eso existe la vista previa -- pero guardar ese numero parcial como "lo que
+    // el motor pagaria" lo vuelve comparable con algo que no tiene contraparte: nadie la pago
+    // todavia, asi que saldria `solo_el_motor` y se quedaria asi hasta que alguien lo pise.
+    // `contrastarAnio` ya filtraba por `date_to < current_date`; este camino no, y el endpoint
+    // acepta `{ period_id }` directo. Es el mismo defecto de siempre: un valor que PARECE
+    // comparable y no lo es.
+    const { rows: [per] } = await this.tk.run(async (trx) => trx.raw(
+      `SELECT p.anio, p.period_no, to_char(p.date_to, 'YYYY-MM-DD') date_to,
+              (p.date_to < current_date) cerrada
+         FROM commercial.commission_periods p
+        WHERE p.id = ? AND p.deleted_at IS NULL`, [periodId]));
+    if (!per) throw new NotFoundException(`Periodo ${periodId} no existe`);
+    if (!per.cerrada) {
+      throw new ConflictException(
+        `La quincena ${per.anio}-${per.period_no} cierra el ${per.date_to} y todavia corre: `
+        + 'no hay con que contrastarla. El contraste mide lo que se PAGO contra lo que el motor '
+        + 'pagaria, y a un periodo abierto no se le pago nada. Para mirar como va esta la vista previa.',
+      );
+    }
 
     // ⚠️ `dryRun` a propósito: el motor NO debe dejar una corrida. Si la dejara, chocaría con
     // el espejo en el índice de una-viva-por-periodo y, peor, una simulación entraría al libro
@@ -135,6 +156,49 @@ export class CommissionContrastService {
     return { anio, periodos: rows.length, hechas, fallas, duracion_ms: Date.now() - t0 };
   }
 
+  /**
+   * `[RD.56]` **«Lo que faltó»** — la pregunta que el Excel no puede contestar.
+   *
+   * El tabulador es ESCALONADO: quedarse corto por poco no paga "un poco menos", paga el
+   * escalón de abajo o **cero**. Medido sobre las 238 ruta-periodo del espejo:
+   *
+   *   ⭐ Q13 · ruta 28 · Maria Elena Valadez Limon
+   *      vendio $189,643.22 — le faltaron **$356.77** — cobro **$0** en vez de **$4,827.96**
+   *
+   *    6 no cobraron nada estando a menos de $10,000 del piso  →  $30,264
+   *   29 quedaron a menos de $5,000 del siguiente escalon       →  $18,620
+   *  141 de 238 ya estan en el TOPE: para esas no hay nada que perseguir, y decirlo
+   *      tambien es informacion — evita mandar a un supervisor a una ruta donde no hay nada.
+   *
+   * Lee vista, no calcula: medido en prod, **16 ms**.
+   */
+  async loQueFalto(anio: number): Promise<{ resumen: FaltoResumen[]; filas: FaltoFila[] }> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    return this.tk.run(async (trx) => {
+      const { rows: filas } = await trx.raw(
+        `SELECT period_no, route_code, beneficiario_nombre, zona,
+                venta::float8 venta, pct_aplicado::float8 pct_aplicado,
+                a_pagar::float8 a_pagar, motivo_no_pago,
+                escalon_umbral::float8 escalon_umbral, escalon_pct::float8 escalon_pct,
+                escalon_falta::float8 escalon_falta, escalon_ganancia::float8 escalon_ganancia,
+                bono_nombre, bono_umbral::float8 bono_umbral,
+                bono_falta::float8 bono_falta, bono_monto::float8 bono_monto,
+                oportunidad::float8 oportunidad, cercania
+           FROM analytics.v_rd_commission_lo_que_falto
+          WHERE tenant_id = ? AND anio = ?
+          ORDER BY period_no DESC, escalon_falta NULLS LAST`, [tenantId, anio]);
+
+      const { rows: resumen } = await trx.raw(
+        `SELECT cercania, count(*)::int n,
+                round(coalesce(sum(oportunidad), 0), 2)::float8 oportunidad
+           FROM analytics.v_rd_commission_lo_que_falto
+          WHERE tenant_id = ? AND anio = ?
+          GROUP BY cercania`, [tenantId, anio]);
+
+      return { resumen, filas };
+    });
+  }
+
   /** Lo que lee la pantalla: una fila por ruta-periodo, ya con veredicto. Tabla, no cálculo. */
   async leer(anio: number): Promise<{ resumen: ContrasteResumen[]; filas: ContrasteFila[] }> {
     const tenantId = this.tenantCtx.requireTenantId();
@@ -163,6 +227,20 @@ export class CommissionContrastService {
       return { resumen, filas };
     });
   }
+}
+
+export interface FaltoResumen { cercania: string; n: number; oportunidad: number }
+export interface FaltoFila {
+  period_no: number; route_code: string;
+  beneficiario_nombre: string | null; zona: string | null;
+  venta: number | null; pct_aplicado: number | null;
+  a_pagar: number | null; motivo_no_pago: string | null;
+  escalon_umbral: number | null; escalon_pct: number | null;
+  escalon_falta: number | null; escalon_ganancia: number | null;
+  bono_nombre: string | null; bono_umbral: number | null;
+  bono_falta: number | null; bono_monto: number | null;
+  oportunidad: number | null;
+  cercania: 'sin_cobrar_por_poco' | 'sin_cobrar' | 'al_alcance' | 'cerca' | 'lejos' | 'en_el_tope';
 }
 
 export interface ContrasteResultado { period_id: string; lineas: number; duracion_ms: number }

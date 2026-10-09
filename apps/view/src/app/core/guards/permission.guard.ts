@@ -167,6 +167,9 @@ export const COMERCIAL_LANDING: LandingCandidate[] = withTreeCandidates('comerci
   // `[SN.4]` Medido en prod: `contabilidad` (2 usuarios) entra a Ventas sólo por COMISIONES, y
   // ninguna de las 12 de arriba la cubría → `denied()`.
   { perm: Permission.COMMERCIAL_COMMISSIONS_VER, url: '/comercial/comisiones' },
+  // `[RD.57]` COMMERCIAL_ROUTE_PROFIT_VER NO va a mano: `withTreeCandidates` lo deriva del
+  // nodo `route-profit` de `authz-tree.ts`, que ya trae su ruta. Ponerlo acá además sería una
+  // segunda copia de la misma decisión, y el candado exige que no se repita la clave.
   { perm: Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER, url: '/comercial/analisis' },
   { perm: Permission.COMMERCIAL_CARTERA_VER, url: '/comercial/cartera' },
   { perm: Permission.COMMERCIAL_THOT_VER, url: '/comercial/thot-chat' },
@@ -231,6 +234,11 @@ export const ALMACEN_LANDING: LandingCandidate[] = withTreeCandidates('almacen',
   { perm: Permission.COMMERCIAL_EXPIRY_VER, url: '/almacen/inventory/caducidades' },
   { perm: Permission.COMMERCIAL_MOVEMENTS_VER, url: '/almacen/movimientos' },
   { perm: Permission.COMMERCIAL_PREVENTION_VER, url: '/almacen/prevencion' },
+  // `[GP.4]` El piso de pedidos. Sin estos, `withTreeCandidates` mandaba al `surtidor` y al
+  // `checador` (que también traen `ALMACEN_UBICACIONES_VER`) al Mapa de Ubicaciones, que va antes
+  // en el árbol. Van AL FINAL: quien tiene cualquier clave de arriba no cambia de aterrizaje.
+  { perm: Permission.COMMERCIAL_PICKING_GESTIONAR, url: '/almacen/surtir' },
+  { perm: Permission.ALMACEN_CHECADO_GESTIONAR, url: '/almacen/checar' },
 ]);
 
 /** Landing de `/almacen`. */

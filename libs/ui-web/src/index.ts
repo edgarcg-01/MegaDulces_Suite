@@ -15,6 +15,14 @@ export { prepararFirma, MIN_TRAZO } from './firma/firma-canvas';
 export type { FirmaCanvas, PuntoFirma } from './firma/firma-canvas';
 
 /**
+ * `[CG.74]` Un texto a QR, como SVG. ⚠️ **Sin dependencias nuevas**: `@zxing/browser` ya estaba
+ * declarada para ESCANEAR códigos de producto y su `BrowserQRCodeSvgWriter` también genera.
+ * Vive acá porque «convertir un texto en un QR» no es de caja: el verificador de precios, las
+ * etiquetas de tienda y las guías de logística tienen el mismo problema (ADR-056).
+ */
+export { qrSvg, pintarQr, QR_LADO_MINIMO } from './qr/qr-svg';
+
+/**
  * `[SEG.2]` Borrar el rastro de la sesion que se va. Vive aca y no en una app porque las tres
  * comparten el problema: el service worker cachea por URL y no mira quien pregunta.
  */

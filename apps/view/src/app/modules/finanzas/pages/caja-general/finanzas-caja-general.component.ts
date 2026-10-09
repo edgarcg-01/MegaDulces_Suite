@@ -17,7 +17,14 @@ import { MessageModule } from 'primeng/message';
 import { ToastModule } from 'primeng/toast';
 import { MessageService } from 'primeng/api';
 import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, evaluarCambio, type Denominacion, firmaSigueValiendo } from '@megadulces/contracts';
-import { prepararFirma, type FirmaCanvas } from '@megadulces/ui-web';
+import { prepararFirma, pintarQr, type FirmaCanvas } from '@megadulces/ui-web';
+
+/**
+ * `[CG.74]` La página que abre el teléfono para firmar. Vive acá como constante porque la dicen
+ * DOS lugares —el QR y el texto de respaldo— y escribirla dos veces es la forma barata de que una
+ * de las dos quede vieja el día que la ruta cambie.
+ */
+const RUTA_FIRMA = '/finanzas/caja-general/firma';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 // `[CG.45]` Tres piezas del repertorio compartido que esta pantalla se había construido a mano
@@ -351,10 +358,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* ⛔ touch-action:none es lo que impide que el dedo SCROLLEE en vez de dibujar. Sin esto,
        en un telefono la firma es imposible: el gesto se lo come la pagina. */
     /* [CG.68] El codigo se dicta en voz alta o se lee de lejos. */
-    .cg-firma-codigo { display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-1);
+    .cg-firma-codigo { display:flex; align-items:center; gap:var(--sp-4);
                        padding:var(--sp-3); border:1px dashed var(--action);
                        border-radius:var(--r-md); background:var(--action-ring); }
+    .cg-firma-cod-txt { display:flex; flex-direction:column; align-items:flex-start; gap:var(--sp-1);
+                        flex:1 1 auto; min-width:0; }
     .cg-firma-cod { font-size:var(--fs-h1); font-weight:700; letter-spacing:.18em; line-height:1; }
+    /* [CG.74] El QR. Fondo BLANCO siempre, tambien en tema oscuro: un QR invertido no lo lee
+       ninguna camara, y esta pantalla se usa en oscuro. El padding es la zona de silencio que
+       el lector necesita alrededor del patron. */
+    .cg-firma-qr { flex:none; background:#FFFFFF; padding:var(--sp-2); border-radius:var(--r-sm,4px);
+                   line-height:0; }
+    .cg-firma-qr svg { display:block; }
     .cg-firma-elegir { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap;
                        font-size:var(--fs-xs); }
     .cg-firma-remota { display:flex; flex-direction:column; gap:var(--sp-2); }
@@ -532,11 +547,21 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-app { height:100vh; overflow:hidden; display:flex; flex-direction:column;
               padding-top:0; padding-bottom:0; }
     .cg-app > .cg-split { flex:1 1 auto; min-height:0; }
-    .cg-bar { display:flex; align-items:center; gap:var(--sp-3); flex:none;
+    /* ⛔ [CG.73] El saldo que [CG.71] metio en esta barra APRETABA a sus vecinos: medido en la
+       pagina viva, el titulo caia a DOS lineas (60px) y el desplegable de la jornada a 57px.
+       La barra no declaraba quien cede: ".cg-saldo" ya se encogia, pero el h1 y el boton tambien,
+       y un titulo partido en "Caja / General" se lee como un defecto de la pantalla.
+       Ahora cede SOLO el saldo. Medido con la regla puesta en vivo: titulo 60 -> 30px (una linea),
+       boton 57 -> 37px, y el saldo hasta gana ancho (317 -> 350px).
+       El flex-wrap es el piso: si en una pantalla angosta ni encogiendo el saldo entra todo,
+       la barra baja a dos renglones en vez de desbordar. */
+    .cg-bar { display:flex; flex-wrap:wrap; align-items:center; gap:var(--sp-3); flex:none;
               padding:var(--sp-2) 0; border-bottom:1px solid var(--border-color); }
-    .cg-bar-id > h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em; }
+    .cg-bar-id { flex:none; }
+    .cg-bar-id > h1 { margin:0; font-size:var(--fs-h2); font-weight:700; letter-spacing:-.02em;
+                      white-space:nowrap; }
     /* El desplegable: un <button> con su aria-expanded, no un div con (click). */
-    .cg-jornada-btn { display:inline-flex; align-items:center; gap:var(--sp-2); cursor:pointer;
+    .cg-jornada-btn { display:inline-flex; flex:none; align-items:center; gap:var(--sp-2); cursor:pointer;
                       font-family:inherit; color:var(--fg-1); text-align:left;
                       background:var(--card-bg); border:1px solid var(--border-color);
                       border-radius:var(--r-md); padding:var(--sp-2) var(--sp-3); }
@@ -2256,13 +2281,26 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     </div>
                   </div>
                 } @else if (firmaCodigo(); as cod) {
-                  <!-- ⚠️ El codigo se dicta en voz alta o se lee de lejos: va grande y en mono. -->
+                  <!-- ⛔ [CG.74] ACA DECIA "Abri Caja General > Firmar en el telefono", Y ESA
+                       ENTRADA DE MENU NO EXISTE. Medido: la ruta /finanzas/caja-general/firma
+                       esta registrada y NADA en la navegacion apunta ahi -- la unica mencion en
+                       todo el repo era un comentario en este archivo. O sea que el procedimiento
+                       real era teclear una URL de memoria, en un telefono, con un codigo que vive
+                       TRES MINUTOS. Lo encontro Edgar del modo mas directo: "como hago esto".
+                       Ahora el camino corto es el QR y el codigo queda como respaldo -- se sigue
+                       dictando en voz alta cuando el telefono no puede escanear. -->
                   <div class="cg-firma-codigo">
-                    <span class="cg-lbl-micro">Escribí este código en el teléfono</span>
-                    <strong class="mono cg-firma-cod">{{ cod }}</strong>
-                    <small class="fin-dim">{{ firmaTelefonoListo() ? 'El teléfono ya está — esperando la firma…' : 'Abrí Caja General › Firmar en el teléfono' }}</small>
-                    <p-button label="Cancelar" size="small" severity="secondary" [text]="true"
-                              (onClick)="firmaCerrarRemota()"></p-button>
+                    <div class="cg-firma-cod-txt">
+                      <span class="cg-lbl-micro">Escaneá el QR con el teléfono</span>
+                      <strong class="mono cg-firma-cod">{{ cod }}</strong>
+                      <small class="fin-dim">{{ firmaTelefonoListo() ? 'El teléfono ya está — esperando la firma…' : 'o entrá a ' + rutaFirmaCorta() + ' y escribí el código' }}</small>
+                      <p-button label="Cancelar" size="small" severity="secondary" [text]="true"
+                                (onClick)="firmaCerrarRemota()"></p-button>
+                    </div>
+                    <!-- El SVG lo inyecta pintarQr cuando cambia el codigo: el escritor de
+                         @zxing devuelve un ELEMENTO, no una cadena, asi que NO hace falta
+                         bypassSecurityTrustHtml -- que es por donde se cuela el XSS. -->
+                    <div class="cg-firma-qr" #qrFirma></div>
                   </div>
                 } @else {
                   <div class="cg-firma-elegir">
@@ -3077,6 +3115,54 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   // firma del cliente en la entrega a domicilio. Acá vive sólo el pegamento con Angular.
 
   @ViewChild('firmaCanvas') firmaRef?: ElementRef<HTMLCanvasElement>;
+
+  /** `[CG.74]` El hueco donde se inyecta el SVG del QR. */
+  @ViewChild('qrFirma') qrRef?: ElementRef<HTMLElement>;
+
+  /** La ruta que se dicta cuando el teléfono no puede escanear. Sin el `https://`, que nadie dicta. */
+  rutaFirmaCorta(): string {
+    return `${location.host}${RUTA_FIRMA}`;
+  }
+
+  /**
+   * `[CG.74]` La URL absoluta que va dentro del QR, **con el código ya puesto**.
+   *
+   * ⚠️ `location.origin` y no una constante: la misma pantalla corre en `localhost:4200` y en
+   * `megadulcessuite.com`, y un QR con el dominio clavado mandaría el teléfono a producción
+   * mientras alguien prueba en local — o al revés, que es peor.
+   */
+  private urlFirmaTelefono(codigo: string): string {
+    return `${location.origin}${RUTA_FIRMA}?c=${encodeURIComponent(codigo)}`;
+  }
+
+  /**
+   * Pinta el QR del código vivo, o limpia el hueco si ya no hay código.
+   *
+   * ⚠️ El hueco vive dentro de un `@if`: en el mismo turno en que aparece el código todavía puede
+   * no estar montado, y `@ViewChild` se resuelve después. Si no está, se reintenta **una vez** en
+   * el turno siguiente — no en bucle: un reintento sin techo sobre un panel que el usuario acaba
+   * de cerrar gira para siempre.
+   */
+  private pintarQrFirma(reintentar = true): void {
+    const cod = this.firmaCodigo();
+    // `[CG.74]` `pintarQr` pasó a ser asincrónica: el codificador de QR se carga diferido para no
+    // meter 449 kB en el paquete inicial de TODA la app (rompió el presupuesto de Angular y dejó
+    // `main` sin poder desplegar). Acá no se espera a nadie — se encadena el reintento, que es lo
+    // único que dependía del resultado. El método sigue devolviendo `void` a propósito: quien lo
+    // llama lo hace desde un efecto de vista y no tiene nada que hacer con la promesa.
+    void pintarQr(this.qrRef?.nativeElement ?? null, cod ? this.urlFirmaTelefono(cod) : null, 148)
+      .then((ok) => {
+        /**
+         * ⚠️ `[CG.74b]` Entre que se pide y que se pinta **pasa tiempo** (se baja el trozo
+         * diferido), y en ese hueco el código puede haber cambiado: el cajero canceló, o pidió
+         * otro. Lo que acaba de aterrizar sería entonces el QR **viejo** — y uno vencido en
+         * pantalla es peor que ninguno, porque se escanea igual y falla recién del otro lado.
+         * Se vuelve a pintar con el código que está vivo AHORA, sin reintento (ya hubo uno).
+         */
+        if (this.firmaCodigo() !== cod) { this.pintarQrFirma(false); return; }
+        if (!ok && cod && reintentar) setTimeout(() => this.pintarQrFirma(false));
+      });
+  }
   private firmaPad: FirmaCanvas | null = null;
   /** El canvas sobre el que se preparó `firmaPad`. Cambia cada vez que el `@if` lo re-crea. */
   private firmaEl: HTMLCanvasElement | null = null;
@@ -3176,6 +3262,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
       }
       this.firmaCodigo.set(r.codigo);
       this.firmaTelefonoListo.set(false);
+      this.pintarQrFirma();   // `[CG.74]` el QR del codigo que acaba de nacer
     } finally {
       this.firmaPidiendo.set(false);
     }
@@ -3188,6 +3275,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.firmaCodigo.set(null);
     this.firmaTelefonoListo.set(false);
     this.firmaAviso.set(null);
+    // `[CG.74]` Y se borra el QR: uno vencido en pantalla es peor que ninguno — alguien lo
+    // escanea, la pagina dice "ese codigo no existe", y queda buscando el error donde no esta.
+    this.pintarQrFirma(false);
   }
 
   /** Traduce el fallo del canal a algo que se pueda leer y actuar. */

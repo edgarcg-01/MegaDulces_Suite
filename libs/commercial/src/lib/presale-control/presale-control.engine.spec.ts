@@ -37,6 +37,12 @@ describe('etapaDe', () => {
   it('la liga manda sobre la ola: cobrado aunque la ola siga abierta', () => {
     expect(etapaDe({ ...base, wave_stage: 'en_ola', ligado: true })).toBe('cobrado');
   });
+  it('entregado de conformidad en la guía = entregado, aunque el pedido siga confirmado', () => {
+    expect(etapaDe({ ...base, ligado: true, en_guia_impresa: true, entregado_en_guia: true })).toBe('entregado');
+  });
+  it('negativa: un cancelado con entrega registrada sigue siendo cancelado', () => {
+    expect(etapaDe({ ...base, status: 'cancelled', entregado_en_guia: true })).toBe('cancelado');
+  });
   it('en una guía impresa = en ruta, aunque ya tenga documento ligado', () => {
     expect(etapaDe({ ...base, ligado: true, en_guia_impresa: true })).toBe('en_ruta');
     expect(etapaDe({ ...base, en_guia_impresa: false, ligado: true })).toBe('cobrado');

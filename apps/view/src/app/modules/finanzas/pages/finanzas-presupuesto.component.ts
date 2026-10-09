@@ -47,11 +47,25 @@ interface Summary {
   kpis: { cumplimiento_ventas_pct: number | null; desviacion_ventas: number | null; margen_real: number | null; ocupacion_presupuestaria_pct: number | null };
   freshness: Freshness; coverage: Coverage;
 }
-interface CashBucket { week: string; cobros: number; pagos: number; neto: number; neto_acumulado: number; saldo_proyectado: number | null }
+interface CashBucket { week: string; cobros: number; pagos: number; pagos_autorizados?: number; neto: number; neto_acumulado: number; saldo_proyectado: number | null }
 interface Cashflow {
   period: { from: string; to: string; bucket: string };
-  opening_balance: { available: boolean; amount: number | null; as_of: string | null; source: string; reason?: string };
-  totals: { cobros: number; pagos: number; neto: number };
+  opening_balance: {
+    available: boolean; amount: number | null; as_of: string | null; source: string; reason?: string;
+    /** `[TES.3]` Filas de fecha imposible, excluidas del saldo y de la frescura. Declaradas, no borradas. */
+    anomalias?: { filas: number; futuras: number; absurdas: number; rango: { min: string; max: string }; efecto: string };
+  };
+  /** `[TES.2]` La deuda DERIVADA del ERP: lo que la curva de pago dibuja, y lo que deja fuera. */
+  deuda_erp?: {
+    base: string; por_tipo: Record<string, number>; as_of: string | null; as_of_reason: string;
+    fuente: string; clasificador: string;
+    cobertura: {
+      en_ventana: number; vencido_fuera: number; posterior: number; sin_vencimiento: number;
+      total: number; pct_en_ventana: number | null; interno_excluido: number;
+    };
+  };
+  /** ⛔ `pagos_autorizados` NO se suma a `pagos`: el traslape con la deuda del ERP no está resuelto. */
+  totals: { cobros: number; pagos: number; pagos_autorizados?: number; neto: number };
   saldo_minimo_proyectado: number | null;
   buckets: CashBucket[];
   alerts: { week: string; saldo_proyectado: number | null; tipo: string }[];
@@ -129,7 +143,21 @@ interface GrowthProposal {
   years_available: number[]; fiscal_year: number; min_paired_periods?: number;
 }
 interface GrowthEditRow { channel: string; channel_label: string; growth_pct: number; basis: string; paired_periods: number }
-interface ProposeCoverage { historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number; no_signal: number; manual_kept: number }
+interface ProposeCoverage {
+  historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number; no_signal: number; manual_kept: number;
+  /**
+   * `[PVI.2]` El DINERO por método. `coverage` cuenta CELDAS, y el dinero no se reparte por celda:
+   * medido en prod, el proxy eran 104 de 429 celdas (24.2 %) **y** $197,160,564 (24.46 % de la
+   * meta) — que casi coincidieran fue casualidad de ese ejercicio, no una regla, y **nadie
+   * calculaba el segundo**. Opcional a propósito: contra una API que todavía no lo emite la
+   * pantalla **declara que no lo midió**, en vez de quedarse en blanco o dibujar un 0.
+   */
+  coverage_monto?: { historico_ajustado: number; estacional: number; proxy_canal: number; sin_base_declarado: number };
+  meta_total?: number;
+  /** Fracción de la meta repartida con el PROMEDIO DE OTRAS entidades del canal. `null` si la meta
+   *  es 0: una meta de 0 no tiene «0 % sin base», tiene un porcentaje indefinido. */
+  proxy_canal_pct?: number | null;
+}
 interface IndicatorSeries { year: number; real: number | null; crec_pct: number | null; part_pct: number | null }
 interface IndicatorCurrent { meta: number | null; real: number | null; cumplimiento_pct: number | null; crec_pct: number | null }
 interface IndicatorRow { channel?: string; channel_label: string; label?: string; entity_key?: string; series: IndicatorSeries[]; current: IndicatorCurrent }
@@ -237,7 +265,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   <!-- [PU.VA] Re-armar es una HERRAMIENTA, no una decisión: adelanta el cron para
                        no esperar a mañana. Pasa a icono con tooltip, para que no compita con la
                        única acción que el subtítulo declara tuya. -->
-                  <button pButton type="button" class="p-button-sm p-button-text pres-act-ico" (click)="runAutopilot()" [loading]="runningAutopilot()" aria-label="Re-armar ahora" title="Re-armar ahora — corre la pasada del cron sobre este ejercicio: supuestos derivados + plan de ventas + plan de gastos + partidas. Respeta lo capturado a mano"><span class="pi pi-bolt"></span></button>
+                  <button pButton type="button" class="p-button-sm p-button-text pres-act-ico" (click)="runAutopilot()" [loading]="runningAutopilot()" aria-label="Re-armar ahora" title="Re-armar ahora — corre la pasada de la mañana sobre TODOS los ejercicios (no sólo éste): supuestos derivados + plan de ventas + plan de gastos + partidas. Respeta lo capturado a mano"><span class="pi pi-bolt"></span></button>
                   <button pButton type="button" class="p-button-sm" (click)="lifecycle(b, 'submit')" [loading]="savingLifecycle()">Enviar a autorización</button>
                 }
                 @if (b.status === 'pendiente') {
@@ -380,7 +408,11 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                    2026-10-07 en prod, 'budget_autopilot' estaba en **error** con la causa probable
                    («¿contexto de tenant / RLS?») y 'generation_runs' en cero. Ahora se pregunta. -->
               <ng-template #emptymessage><tr><td colspan="11" class="pres-empty">
-                Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) en la pasada nocturna — no se capturan a mano.
+                <!-- [PU.V7] Decia solo "en la pasada nocturna" y mandaba a esperar hasta manana a
+                     quien acababa de crear un ejercicio. El boton de rayo de arriba corre la MISMA
+                     pasada ahora mismo; omitirlo convertia un clic en un dia de espera. -->
+                Sin partidas todavía. Las partidas se <strong>materializan solas</strong> de los planes (Ventas + Gastos) — no se capturan a mano.
+                Si acabás de crear este ejercicio, dale al botón <span class="pi pi-bolt"></span> <strong>Re-armar ahora</strong> de arriba y las arma en el momento; si no, entran solas en la pasada de la mañana.
                 @if (autopilot(); as a) {
                   @if (a.status === 'error') {
                     <div class="pres-empty-diag bad"><span class="pi pi-times-circle"></span> La pasada <strong>falló</strong>{{ a.last_start ? ' (' + (a.last_start | date:'dd/MM HH:mm') + ')' : '' }}: {{ a.error || 'sin detalle' }}</div>
@@ -512,7 +544,21 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                   </p>
                 }
                 @if (lastCoverage(); as cov) {
-                  <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.proxy_canal }}</strong> proxy de canal · <strong>{{ cov.sin_base_declarado }}</strong> sin base (declaradas en 0) · <strong>{{ cov.no_signal }}</strong> sin señal · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
+                  @if (covEnDinero(cov); as cm) {
+                    <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta, <strong>en dinero</strong>:
+                      {{ money(cm.historico_ajustado) }} de base real ({{ cov.historico_ajustado }} celdas) ·
+                      {{ money(cm.estacional) }} por estacionalidad ({{ cov.estacional }}) ·
+                      {{ money(cm.proxy_canal) }} proxy de canal ({{ cov.proxy_canal }}) ·
+                      <strong>{{ cov.sin_base_declarado }}</strong> celdas sin base, declaradas (—, no $0) ·
+                      {{ cov.manual_kept }} a mano.
+                    </p>
+                    @if (proxyAviso(cov); as av) {
+                      <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <span>{{ av }}</span></p>
+                    }
+                  } @else {
+                    <p class="pres-hint"><span class="pi pi-check-circle"></span> Última propuesta: <strong>{{ cov.historico_ajustado }}</strong> de base real · <strong>{{ cov.estacional }}</strong> por estacionalidad · <strong>{{ cov.proxy_canal }}</strong> proxy de canal · <strong>{{ cov.sin_base_declarado }}</strong> sin base (declaradas, no en 0) · <strong>{{ cov.no_signal }}</strong> sin señal · <strong>{{ cov.manual_kept }}</strong> a mano.</p>
+                    <p class="pres-hint pres-nodata"><span class="pi pi-info-circle"></span> <strong>Cuánto DINERO representa cada origen: no medido.</strong> Esta API todavía no publica el desglose por monto. El conteo de celdas no lo dice: un cuarto de las celdas puede ser un cuarto de la meta o la mitad.</p>
+                  }
                 }
                 <div class="pres-detail-actions" style="margin:.6rem 0 .2rem">
                   <label class="pres-muted">Periodo (13×4):</label>
@@ -775,6 +821,37 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               }
             }
 
+            <!-- [TES.2] El mismo aviso del lado del PAGO. Sin él la pantalla publica la curva de
+                 pagos sin decir que ve una fracción — que es el defecto que [CXC.22] corrigió
+                 arriba, y acá era peor: hasta hoy la fracción era CERO. -->
+            @if (cf.deuda_erp?.cobertura; as dc) {
+              @if (dc.vencido_fuera > 0) {
+                <p class="pres-nodata">
+                  <span class="pi pi-info-circle"></span>
+                  Del lado del <b>pago</b> dibuja
+                  <strong>{{ dc.pct_en_ventana != null ? dc.pct_en_ventana + '%' : 'una parte' }}</strong>
+                  de la deuda con proveedor ({{ money(dc.en_ventana) }} de {{ money(dc.total) }}).
+                  Quedan fuera <strong>{{ money(dc.vencido_fuera) }}</strong> que <b>ya vencieron</b>:
+                  exigibles sin fecha comprometida, por la misma razón que la cobranza.
+                  @if (dc.interno_excluido > 0) {
+                    No se cuentan {{ money(dc.interno_excluido) }} de traspasos entre sucursales,
+                    que no son deuda con terceros.
+                  }
+                </p>
+              }
+            }
+
+            <!-- [TES.3] Las filas de fecha imposible se EXCLUYEN del saldo y de la frescura, y se
+                 declaran acá: son del dominio de contabilidad, no se borran. -->
+            @if (cf.opening_balance?.anomalias; as an) {
+              <p class="pres-nodata">
+                <span class="pi pi-exclamation-triangle"></span>
+                {{ an.filas }} movimientos bancarios con fecha imposible
+                ({{ an.futuras }} en el futuro, {{ an.absurdas }} anteriores a 2015) quedan
+                <b>fuera del saldo y de la frescura</b>. No se borran: hay que reclasificarlos.
+              </p>
+            }
+
             <p-table [value]="cf.buckets" styleClass="p-datatable-sm surf-table pres-table">
               <ng-template #header>
                 <tr><th>Semana</th><th class="ta-r">Cobros</th><th class="ta-r">Pagos</th><th class="ta-r">Neto</th><th class="ta-r">Neto acum.</th><th class="ta-r">Saldo proyectado</th></tr>
@@ -886,8 +963,21 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
         <section class="pres-section">
           <!-- Proponer capacidad desde el flujo (cobranza esperada) · PR.2 -->
           <div class="pres-section-head">
-            <h2>Capacidad de pago <span class="pres-muted">— el sistema la propone desde el flujo; tú confirmas</span></h2>
+            <h2>Capacidad de pago <span class="pres-muted">— cuánto se AUTORIZA pagar por día; el sistema lo propone, tú confirmas</span></h2>
           </div>
+
+          <!-- [VP.MS] La respuesta arriba (DESIGN.md §15 answer-first): antes esta pestaña
+               abria con dos formularios y una tabla, sin una sola cifra que contestara
+               cuanto se autorizo ni con que se calculo. -->
+          <app-metric-strip [items]="capacidadKpis()" mode="strip" ariaLabel="Resumen de capacidad de pago" />
+
+          <p class="pres-nodata">
+            <span class="pi pi-info-circle"></span>
+            <strong>Esto es un permiso, no un saldo.</strong> La capacidad es el tope que Presupuestos
+            autoriza para un día; responde <em>¿alcanza la autorización?</em>, no <em>¿alcanza el dinero?</em>.
+            El saldo en banco vive en <strong>Flujo / Resultado</strong> y no se suma acá.
+          </p>
+
           <div class="pres-cap-form">
             <input type="date" [(ngModel)]="capProposeFrom" class="pres-date" aria-label="Desde" />
             <input type="date" [(ngModel)]="capProposeTo" class="pres-date" aria-label="Hasta" />
@@ -949,7 +1039,23 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
               <button pButton type="button" class="p-button-sm" (click)="authorizeOblig()" [loading]="authorizingOblig()" title="Autoriza las seleccionadas (entran al Calendario)"><span class="pi pi-check"></span>&nbsp;Autorizar seleccionadas</button>
             </div>
           </div>
+          <!-- [VP.MS] La respuesta arriba: con 312 filas, la tabla cruda no dejaba decir
+               cuanto suma lo que de verdad va a pagarse. -->
+          <app-metric-strip [items]="obligacionesKpis()" mode="strip" ariaLabel="Resumen de obligaciones" />
+
           <p class="pres-hint"><span class="pi pi-info-circle"></span> Las <strong>propuesta</strong> son auto-generadas (sin autorizar): selecciónalas y autoriza. Sólo las autorizadas entran al Calendario de Pagos.</p>
+
+          <!-- [TES.10] Medido en prod el 2026-10-08: de 312 obligaciones, 156 cuelgan del
+               FY2027 real y 156 del duplicado marcado is_test. El endpoint no devuelve de que
+               ejercicio viene cada fila, asi que la pantalla NO puede separarlas: se declara.
+               Autorizar una del duplicado la mete al Calendario de Pagos. -->
+          <p class="pres-nodata">
+            <span class="pi pi-exclamation-triangle"></span>
+            <strong>Esta lista no distingue el ejercicio de prueba.</strong> La obligación no trae
+            de qué presupuesto viene, así que si hay un ejercicio marcado como prueba sus
+            obligaciones aparecen acá mezcladas — y autorizar una la mete al Calendario.
+            Verificá el ejercicio antes de autorizar.
+          </p>
           <p-table [value]="expenses()" [loading]="loadingExpenses()" styleClass="p-datatable-sm surf-table pres-table">
             <ng-template #header>
               <tr><th style="width:2.2rem"><span class="sr-only">Seleccionar</span></th><th>Concepto</th><th>Beneficiario</th><th>Tipo</th><th>Vence</th><th class="ta-r">Disponible</th><th>Estado</th><th style="width:3rem"><span class="sr-only">Acciones</span></th></tr>
@@ -1358,6 +1464,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // ── Gastos (TP) ──
   expenses = signal<ExpenseObligation[]>([]);
   loadingExpenses = signal(false);
+  /** `[VP.MS]` ¿la lista LLEGÓ? Un `[]` no distingue «no cargó» de «no hay». Ver `loadExpenses()`. */
+  expensesLoaded = signal(false);
   saving = signal(false);
   subtypeOpts = [
     { label: 'Luz', value: 'luz' }, { label: 'Renta', value: 'renta' }, { label: 'Sueldos', value: 'sueldos' },
@@ -1734,8 +1842,27 @@ export class FinanzasPresupuestoComponent implements OnInit {
         tone: parcial ? 'warn' : undefined,
       },
       { label: 'Real', value: c.totals.real == null ? '—' : c.totals.real, format: c.totals.real == null ? 'text' : 'currency-short', sub: c.totals.real == null ? 'sin datos' : undefined },
-      { label: 'Cumplimiento', value: c.totals.cumplimiento_pct ?? 0, format: c.totals.cumplimiento_pct == null ? 'text' : 'percent', sub: c.totals.cumplimiento_pct == null ? 's/meta' : undefined, tone: c.totals.cumplimiento_pct != null && c.totals.cumplimiento_pct >= 100 ? 'ok' : undefined },
-      { label: `CREC vs ${c.prior_year}`, value: c.totals.crec_pct ?? 0, format: c.totals.crec_pct == null ? 'text' : 'percent', sub: c.totals.crec_pct == null ? 's/base' : undefined, tone: c.totals.crec_pct != null && c.totals.crec_pct < 0 ? 'bad' : undefined },
+      // `[PVI.4]` ⛔ Acá la ausencia se convertía en CERO: `?? 0` metía un 0 en el modelo y lo
+      // único que lo disimulaba era cambiar `format` a 'text'. Sobrevive a cualquier cambio de
+      // formato — el día que alguien lo vuelva 'percent', la pantalla publica «0 %» donde no hay
+      // meta. ⭐ Y el patrón correcto no había que inventarlo: la tarjeta «Real», dos líneas más
+      // arriba, ya devuelve el guion. Tres tarjetas de la misma función con dos criterios para la
+      // misma ausencia. «No hay dato» no es «hay dato y vale cero» (ADR-056).
+      {
+        label: 'Cumplimiento',
+        value: c.totals.cumplimiento_pct == null ? '—' : c.totals.cumplimiento_pct,
+        format: c.totals.cumplimiento_pct == null ? 'text' : 'percent',
+        sub: c.totals.cumplimiento_pct == null ? 'sin meta capturada' : undefined,
+        // sin meta no se puede merecer verde: el tono queda inhabilitado, no en gris.
+        tone: c.totals.cumplimiento_pct != null && c.totals.cumplimiento_pct >= 100 ? 'ok' : undefined,
+      },
+      {
+        label: `CREC vs ${c.prior_year}`,
+        value: c.totals.crec_pct == null ? '—' : c.totals.crec_pct,
+        format: c.totals.crec_pct == null ? 'text' : 'percent',
+        sub: c.totals.crec_pct == null ? 'sin base del año anterior' : undefined,
+        tone: c.totals.crec_pct != null && c.totals.crec_pct < 0 ? 'bad' : undefined,
+      },
     ];
   }
 
@@ -1840,6 +1967,35 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   methodLabel(m: string | null): string {
     return m === 'historico_ajustado' ? 'Histórico' : m === 'estacional' ? 'Estacional' : m === 'proxy_canal' ? 'Proxy canal' : m === 'sin_base_declarado' ? 'Sin base' : m === 'manual' ? 'Manual' : m === 'mixto' ? 'Mixto' : '—';
+  }
+
+  /**
+   * `[PVI.2]` El desglose en DINERO, o `null` si la API no lo emite.
+   *
+   * ⛔ Devuelve `null` —no un objeto en ceros— a propósito: la pantalla tiene que poder distinguir
+   * «la cobertura en dinero vale cero» de «no la pude medir». Un objeto relleno de ceros colapsa
+   * las dos cosas y es la forma exacta del defecto que esto viene a corregir (ADR-056).
+   */
+  covEnDinero(cov: ProposeCoverage): ProposeCoverage['coverage_monto'] | null {
+    const m = cov.coverage_monto;
+    return m && typeof m.historico_ajustado === 'number' ? m : null;
+  }
+
+  /**
+   * `[PVI.2]` El aviso del proxy, sólo cuando hay proxy y su monto se pudo medir.
+   *
+   * ⭐ Dice **de dónde sale** la cifra, no sólo que es estimada: el proxy reparte el promedio de
+   * OTRAS entidades del canal, en partes iguales, a entidades sin historia propia. Medido en prod:
+   * 8 entidades recibieron $197,160,564 contra $19,063,383 de venta real — 10.3×, y en el extremo
+   * una recibió 2,860× lo suyo. Un «estimado» genérico no deja ver eso; el método sí.
+   */
+  proxyAviso(cov: ProposeCoverage): string | null {
+    const m = this.covEnDinero(cov);
+    if (!m || !(m.proxy_canal > 0)) return null;
+    const pct = cov.proxy_canal_pct;
+    const parte = typeof pct === 'number' ? `${(pct * 100).toFixed(1)} % de la meta` : `${this.money(m.proxy_canal)} de la meta`;
+    return `${parte} se repartió con el PROMEDIO DE OTRAS entidades del canal, no con historia propia. `
+      + `Son ${cov.proxy_canal} celdas sin base: la entidad no aporta ninguna señal y su monto sale del canal.`;
   }
   basisLabel(b: string): string {
     return b === 'yoy_paired' ? 'tendencia histórica' : b === 'global' ? 'tendencia global' : 'default (sin tendencia confiable)';
@@ -2079,14 +2235,101 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
 
+  /**
+   * `[VP.MS]` **Capacidad de pago — la respuesta arriba, y el rótulo que evita leerla como dinero.**
+   *
+   * ⛔ `budget.daily_capacity.authorized_amount` es un **tope que pone un humano**, no un saldo.
+   * Cruzarlo contra obligaciones responde *¿alcanza el permiso?*, nunca *¿alcanza la plata?*.
+   * Si se publica junto al saldo bancario sin rotularlo, se lee como liquidez.
+   *
+   * ⚠️ Y la propuesta **deriva del tramo de cartera con vencimiento futuro**, que es una
+   * fracción: por eso sale `parcial` con su cobertura, no como cifra cerrada.
+   */
+  capacidadKpis(): MetricStripItem[] {
+    const p = this.capProposal();
+    const cc = p?.cobranza_cobertura;
+    const dias = p?.items?.length ?? 0;
+    const total = this.capProposalTotal();
+    const cur = this.currentCapacity();
+    const fuera = cc && cc.vencido_fuera > 0
+      ? `${this.money(cc.vencido_fuera)} de cartera vencida no sostiene esta propuesta: es exigible, pero sin fecha`
+      : undefined;
+    return [
+      p?.available
+        ? { label: 'Capacidad propuesta', value: total, format: 'currency-short', state: 'parcial', stateNote: fuera }
+        : { label: 'Capacidad propuesta', value: '—', format: 'text', state: 'no_medido', stateNote: p?.reason || 'Todavía no se propuso capacidad para un rango' },
+      p?.available && dias > 0
+        ? { label: 'Por día hábil', value: total / dias, format: 'currency-short', state: 'parcial', stateNote: `Repartida entre ${dias} días hábiles del rango` }
+        : { label: 'Por día hábil', value: '—', format: 'text', state: 'no_medido', stateNote: 'Sin propuesta no hay reparto por día' },
+      cc
+        ? { label: 'Cobranza que la sostiene', value: cc.en_ventana, format: 'currency-short', state: 'parcial',
+            stateNote: cc.pct_en_ventana != null ? `Es el ${cc.pct_en_ventana}% de la cartera cobrable` : undefined }
+        : { label: 'Cobranza que la sostiene', value: '—', format: 'text', state: 'no_medido', stateNote: 'La propuesta no trajo su cobertura' },
+      // ⛔ NULL ≠ 0: un día sin fila es capacidad **no definida**, no cero. Leerlo como cero
+      // fabrica una insolvencia que no existe — y hoy en prod son 57 de 57 días sin fila.
+      cur
+        ? { label: `Autorizado el ${this.capDate}`, value: cur.authorized_amount, format: 'currency-short', state: 'medido',
+            stateNote: `Tope autorizado por ${cur.updated_by || 'alguien sin registrar'} — es un permiso, no un saldo` }
+        : { label: `Autorizado el ${this.capDate}`, value: '—', format: 'text', state: 'no_medido',
+            stateNote: 'Sin fila para ese día: capacidad NO DEFINIDA, que no es lo mismo que cero' },
+    ];
+  }
+
+  /**
+   * `[VP.MS]` **Obligaciones — qué entra al Calendario y qué no.**
+   *
+   * ⚠️ Sólo las **autorizadas** entran. La tabla mezclaba los dos universos sin totalizar
+   * ninguno: con 312 filas nadie podía decir cuánto suma lo que de verdad va a pagarse.
+   */
+  obligacionesKpis(): MetricStripItem[] {
+    const rows = this.expenses() ?? [];
+    const sum = (f: (e: ExpenseObligation) => boolean) =>
+      rows.filter(f).reduce((s, e) => s + (Number(e.available_amount) || 0), 0);
+    const n = (f: (e: ExpenseObligation) => boolean) => rows.filter(f).length;
+    const autorizada = (e: ExpenseObligation) => e.status === 'pending' || e.status === 'partial';
+
+    // ⛔ Un arreglo vacío significa TRES cosas y el signal las serializa igual. Sin este freno
+    // la tira decía «Autorizado $0.00 · medido» mientras cargaba y también si el GET fallaba:
+    // la ausencia afirmando que contamos. Un cero sólo es un cero cuando la lista LLEGÓ.
+    if (!this.expensesLoaded()) {
+      const motivo = this.loadingExpenses() ? 'La lista todavía está cargando' : 'La lista no se pudo cargar: el cero no sería un cero, sería la ausencia';
+      return ['Autorizado — entra al Calendario', 'Propuesto — NO entra', 'Ineludibles', 'Del ejercicio de prueba']
+        .map((label): MetricStripItem => ({ label, value: '—', format: 'text', state: 'no_medido', stateNote: motivo }));
+    }
+
+    return [
+      { label: 'Autorizado — entra al Calendario', value: sum(autorizada), format: 'currency-short',
+        state: 'medido', stateNote: `${n(autorizada)} obligaciones · disponible = original − reservado − pagado` },
+      { label: 'Propuesto — NO entra', value: sum((e) => e.status === 'propuesta'), format: 'currency-short',
+        state: 'medido', stateNote: `${n((e) => e.status === 'propuesta')} auto-generadas, esperando autorización` },
+      { label: 'Ineludibles', value: sum((e) => e.is_critical && autorizada(e)), format: 'currency-short',
+        state: 'medido', stateNote: `${n((e) => e.is_critical)} marcadas a mano con motivo. La criticidad NUNCA se infiere del importe` },
+      // Medido el 2026-10-08: de las 312 filas de prod, 156 cuelgan del FY2027 real y 156 del
+      // duplicado `is_test`. El endpoint NO devuelve de qué ejercicio viene cada una, así que
+      // esto se DECLARA en vez de fabricarse. Autorizar una del duplicado la mete al Calendario.
+      { label: 'Del ejercicio de prueba', value: '—', format: 'text', state: 'no_medido',
+        stateNote: 'La lista no distingue el ejercicio de prueba: la obligación no trae su presupuesto. En prod la mitad de las filas son del duplicado' },
+    ];
+  }
+
   // ── Capacidad propuesta desde el flujo ──
   capProposeFrom = ''; capProposeTo = '';
-  capProposal = signal<{ available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }>; note?: string; reason?: string } | null>(null);
+  /**
+   * `[VP.MS]` `cobranza_cobertura` y `base` **ya viajaban** desde `budget-capacity.service.ts`
+   * y esta pantalla los tiraba: el tipo estaba copiado a mano y se quedó corto. Proponer
+   * capacidad desde el 11.8% de la cartera sin decirlo es el mismo defecto que `[CXC.22]`
+   * corrigió del lado del flujo.
+   */
+  capProposal = signal<{
+    available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }>;
+    note?: string; reason?: string; base?: string; as_of?: string | null;
+    cobranza_cobertura?: { en_ventana: number; vencido_fuera: number; posterior: number; sin_vencimiento: number; total: number; pct_en_ventana: number | null };
+  } | null>(null);
   loadingCapProp = signal(false); confirmingCap = signal(false);
   proposeCapacity(): void {
     if (!this.capProposeFrom || !this.capProposeTo) { this.toast.add({ severity: 'warn', summary: 'Fechas', detail: 'Elegí desde y hasta.' }); return; }
     this.loadingCapProp.set(true);
-    this.http.get<{ available: boolean; items: Array<{ date: string; amount: number; week: string; cobros_week: number }> }>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.http.get<NonNullable<ReturnType<typeof this.capProposal>>>(`${this.base}/capacity/propose`, { params: { from: this.capProposeFrom, to: this.capProposeTo } }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => { this.capProposal.set(r); this.loadingCapProp.set(false); },
       error: (e) => { this.loadingCapProp.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: e?.error?.message || 'No se pudo proponer la capacidad.' }); },
     });
@@ -2165,17 +2408,64 @@ export class FinanzasPresupuestoComponent implements OnInit {
     });
   }
   /** «Sin datos» del saldo inicial se DECLARA (texto), nunca 0 (ADR-056). */
+  /**
+   * `[VP.MS]` **La tira declara con qué se calculó cada cifra.** Antes de esto tenía tres
+   * defectos medidos, y los tres eran la misma cosa —el estado codificado como color—:
+   *
+   *   · «Cobros previstos» llevaba `tone: 'ok'` **clavado, sin condición**: verde mientras la
+   *     curva ve una fracción de la cartera. No era un `cfg ? classify : 'ok'`: no había `cfg`.
+   *   · «Saldo mín. proyectado: sin base» era una **ausencia renderizada como valor normal**.
+   *   · «Neto» salía verde con sólo ser positivo — y hasta el 2026-10-08 ese neto era
+   *     **+$10,642,041 porque «Pagos» valía $0**: el verde más confiado sobre el número más falso.
+   *
+   * ⚠️ El `no_medido` ya no necesita que acá se elija un tono: `effTone()` del componente lo
+   * neutraliza. Se declara el estado y el color deja de ser una decisión del llamador.
+   */
   cashflowKpis(cf: Cashflow): MetricStripItem[] {
+    const cc = cf.cobranza_cobertura, dd = cf.deuda_erp?.cobertura;
+    const fuera = (m: number | undefined) => (m ? `${this.money(m)} exigibles sin fecha quedan fuera` : undefined);
     return [
       cf.opening_balance.available
-        ? { label: 'Saldo inicial', value: cf.opening_balance.amount as number, format: 'currency-short' }
-        : { label: 'Saldo inicial', value: 'sin datos', format: 'text', tone: 'warn' },
-      { label: 'Cobros previstos', value: cf.totals.cobros, format: 'currency-short', tone: 'ok' },
-      { label: 'Pagos previstos', value: cf.totals.pagos, format: 'currency-short' },
-      { label: 'Neto', value: cf.totals.neto, format: 'currency-short', tone: cf.totals.neto < 0 ? 'bad' : 'ok' },
+        ? {
+            label: 'Saldo inicial', value: cf.opening_balance.amount as number, format: 'currency-short',
+            state: 'medido',
+            stateNote: cf.opening_balance.anomalias
+              ? `${cf.opening_balance.anomalias.filas} movimientos de fecha imposible quedan fuera del saldo`
+              : undefined,
+          }
+        : {
+            label: 'Saldo inicial', value: '—', format: 'text',
+            state: 'no_medido', stateNote: cf.opening_balance.reason || 'Sin movimientos bancarios (Fase CB)',
+          },
+      {
+        label: 'Cobros previstos', value: cf.totals.cobros, format: 'currency-short',
+        // Parcial, no verde: la curva agenda por vencimiento y lo ya vencido no tiene fecha.
+        state: cc && cc.vencido_fuera > 0 ? 'parcial' : 'medido',
+        stateNote: fuera(cc?.vencido_fuera),
+      },
+      {
+        label: 'Pagos previstos', value: cf.totals.pagos, format: 'currency-short',
+        state: dd && dd.vencido_fuera > 0 ? 'parcial' : 'medido',
+        stateNote: fuera(dd?.vencido_fuera),
+      },
+      {
+        label: 'Neto', value: cf.totals.neto, format: 'currency-short',
+        tone: cf.totals.neto < 0 ? 'bad' : 'ok',
+        // ⛔ El neto hereda la PEOR cobertura de sus dos sumandos: si cualquiera de los dos lados
+        // ve una fracción, el neto también — aunque su tono siga calificando el signo.
+        state: (cc && cc.vencido_fuera > 0) || (dd && dd.vencido_fuera > 0) ? 'parcial' : 'medido',
+        stateNote: 'Cobros − pagos de lo que vence DENTRO de la ventana; lo vencido de ambos lados queda fuera',
+      },
       cf.opening_balance.available && cf.saldo_minimo_proyectado != null
-        ? { label: 'Saldo mín. proyectado', value: cf.saldo_minimo_proyectado, format: 'currency-short', tone: cf.saldo_minimo_proyectado < 0 ? 'bad' : 'ok' }
-        : { label: 'Saldo mín. proyectado', value: 'sin base', format: 'text' },
+        ? {
+            label: 'Saldo mín. proyectado', value: cf.saldo_minimo_proyectado, format: 'currency-short',
+            tone: cf.saldo_minimo_proyectado < 0 ? 'bad' : 'ok', state: 'parcial',
+            stateNote: 'Proyectado sobre la ventana; no incluye lo vencido de ninguno de los dos lados',
+          }
+        : {
+            label: 'Saldo mín. proyectado', value: '—', format: 'text',
+            state: 'no_medido', stateNote: 'Sin saldo inicial de bancos no hay base contra la cual proyectar',
+          },
     ];
   }
 
@@ -2354,10 +2644,20 @@ export class FinanzasPresupuestoComponent implements OnInit {
   }
 
   // ── Gastos (TP) ──
+  /**
+   * `[VP.MS]` **`expensesLoaded` existe porque un arreglo vacío significa TRES cosas** —
+   * «todavía no cargó», «falló la carga» y «cargó y de verdad no hay obligaciones»— y el
+   * signal las serializa idénticas. Sin esta marca, la tira publicaba
+   * **«Autorizado $0.00 · medido»** mientras la lista cargaba y también si el `GET` fallaba:
+   * una ausencia afirmando que contamos y el resultado fue cero.
+   *
+   * ⚠️ Se pone en `false` **al empezar**, no sólo en el error: si no, un segundo `load` que
+   * falla dejaría la marca en `true` del anterior y el cero volvería a declararse medido.
+   */
   loadExpenses(): void {
-    this.loadingExpenses.set(true);
+    this.loadingExpenses.set(true); this.expensesLoaded.set(false);
     this.http.get<ExpenseObligation[]>(`${this.base}/expenses`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: (rows) => { this.expenses.set(rows); this.loadingExpenses.set(false); },
+      next: (rows) => { this.expenses.set(rows); this.expensesLoaded.set(true); this.loadingExpenses.set(false); },
       error: () => { this.loadingExpenses.set(false); this.toast.add({ severity: 'error', summary: 'Error', detail: 'No se pudieron cargar los gastos.' }); },
     });
   }

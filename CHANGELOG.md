@@ -16,6 +16,13 @@
 ### Fixed — RH: desayuno y promotoría como los corrigió Mega Talento el 08/10 (RH.1.5b/c)
 - Con una sola pausa, esa pausa es la comida (antes salía como «desayuno»); la alerta junta las lecturas repetidas. Medido: alertas de desayuno 683 → 4 en un mes de datos reales; horas netas sin cambio.
 - «PROMOTORIA MEGA DULCES» se mide como personal de piso.
+### Added — Checado (GP.4, 2026-10-08)
+- `/almacen/checar`: el checador toma el siguiente pedido ya surtido y ya en SURTIDO en Kepler (nunca uno que él surtió), escanea todo, arma las cajas P de paquetería y las etiqueta (TSC TE200, 3 por fila, 32 × 48 mm; la caja P por triplicado al cerrarla, las cajas 1/N al terminar).
+- Mig `20261008143820`: tablas del checado, rol `checador` con alcance a su sucursal, `ALMACEN_CHECADO_GESTIONAR` (también a `almacenista`) y puesto **Checador de Pedidos**.
+
+### Fixed — Cortes/Sucursales: una devolución pagada en caja ya no sale como diferencia del corte (CSU.7, 2026-10-08)
+- El corte de caja de Kepler ya descuenta las notas de crédito POS pagadas en esa caja (fiscal `UA2101` y no fiscal `UA2501`) y el arqueo del turno no. El cuadre ahora se juzga contra lo esperado **neto de devoluciones**: del 1 al 8 de octubre cuadran 184 de los 196 cortes con arqueo (antes 141), y los «Faltante en arqueo» de Madero 4-28 (−$2,641.97) y Abastos 3-12 (−$3,450.52) eran devoluciones.
+- El detalle del corte lista cada devolución del turno (folio, cliente, motivo y monto) y el «Esperado neto de devoluciones».
 ### Fixed — Almacén: vuelve el botón «Surtir» del tablero de pedidos (GP.3, 2026-10-08)
 - `/almacen/pedidos` había perdido el botón que lleva a `/almacen/surtir` (la pantalla del surtidor es de foco y no tiene otra entrada desde el tablero). Lo agregó GP.3c (#319) y el barrido de nombres de sucursal SUC.1 (`fcf85959c`) lo borró sin querer al reescribir el archivo; su prueba quedó roja en `main`. Se restaura tal cual, conservando el nombre de sucursal de SUC.1.
 
@@ -33,6 +40,11 @@
 - Mig `20261007213847`: `client_uuid` con índice único parcial en `commercial.receiving_sessions` y `commercial.receiving_lot_captures`. Reintentar abrir o fechar devuelve lo existente en vez de duplicar existencia. El código sólo escribe la columna cuando viene la llave.
 - `GET /commercial/receiving/sessions/offline-pack?sucursal=`: los vales del menú con sus renglones, armados por la misma función que usa abrir el vale.
 - ⚠️ **Pendiente:** aplicar a prod, una por una, `20261006143917` (REC.17) y `20261007213847` (REC.19) + redeploy api+view + validación en un equipo sin señal. Sin permisos nuevos → sin re-login.
+### Added — Preventa: entrega de conformidad en el celular (MCP.6, 2026-10-08)
+- En **Llevar**, cada pedido de una guía ya impresa tiene **Entregar**: el repartidor elige el documento de Kepler que entrega (el ligado en caja o el que comparte más productos con el pedido, ya marcado), dice si fue completo o con diferencia (con nota) y cuánto cobró en efectivo y en transferencia (con referencia). Avisa si lo cobrado no cuadra con el documento.
+- **No se pudo entregar** (con motivo): el pedido sale de la guía y queda libre para otro día, igual que el regreso en caja.
+- La caja ve en **Guías de carga** qué se entregó y cuánto se cobró, y la mesa de preventa muestra el pedido como **Entregado** con su cobro. No factura ni mueve inventario: el cobro ya se hizo en Kepler. Mig `20261008141401`.
+
 ### Added — Preventa: llevar pedidos y guía de carga (MCP.5, 2026-10-08)
 - Celular del repartidor (**Llevar**) y del vendedor (desde **Mi día**): elige los pedidos de preventa que se lleva; quedan en su guía de carga del día, una por ruta.
 - Almacén › Pedidos › **Guías de carga** (`/almacen/pedidos/guias`): la caja imprime la guía en PDF para que la firme quien se lleva la carga; la reimpresión sale igual, marcada REIMPRESIÓN. Si un pedido regresa sin entregarse, la caja lo registra con motivo (**Regresó sin entregar**) y puede salir otro día. Permiso nuevo `PREVENTA_GUIAS_GESTIONAR` (lo recibe quien hace el arqueo de caja).
@@ -132,6 +144,11 @@
 - Al lado, lo que cada tipo lleva: el **retiro** muestra los retiros ya guardados del turno y el que se cuenta, y **ya no pide medios de pago**; cierre, RD y RV conservan sus medios; relevo, nada.
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
+
+### Added — Productos nuevos: márgenes y dónde se mueve mejor (NP.15, 2026-10-08)
+- Tres márgenes por producto y por sucursal, sin IVA ni IEPS: de lista (la meta de la ficha de Kepler por la unidad que se vendió), real (con el costo que Kepler registró en cada venta) y sobre lo pagado (lo que costó en sus compras). Cada uno dice qué parte de la venta cubre.
+- Ranking de sucursales: venta por día desde que el producto llegó a cada una, y qué parte de lo que llegó ya se vendió.
+- Los márgenes sólo se ven con permiso de costo.
 
 ### Fixed — Productos nuevos: el primer cálculo en producción no terminaba (NP.14, 2026-10-08)
 - La serie diaria se arma buscando cada día en un mapa, sin cruzar tablas: el plan de producción la cruzaba con un ciclo anidado que podía tardar horas.
@@ -605,6 +622,8 @@ inexistentes, el nombre del autor en el hilo, la lista apretada con la ficha abi
 **Verificación punta a punta de la Mesa multi-área (MS.7.19):** prueba automática del ciclo completo con TI y Mantenimiento reales (levantar, asignar, poner en espera, resolver, cerrar, trasladar y volver) y del acceso cruzado entre áreas, más la guía de despliegue con el orden exacto de las migraciones. **Nada aplicado a prod.**
 
 **Solicitudes de prueba (MS.7.12):** la coordinación puede marcar una solicitud como «de prueba» (también si ya está cerrada o cancelada): deja de contar en reportes, tablero, carga de trabajo, «Mi trabajo» y avisos, y queda registrado en el historial. Sigue apareciendo en la bandeja con la etiqueta «Prueba» para poder quitarle la marca. **Nada aplicado a prod** (migración `20261007340000`).
+
+**Base de la cola confidencial de RH (MSH.1, interno):** la base de datos de la Mesa de Servicio aprende a marcar una cola como confidencial y a impedir —aunque falle el código— que la marca de una solicitud se cambie o que una solicitud confidencial salga a una cola que ve otra área. **Ninguna cola es confidencial todavía**: TI y Mantenimiento no cambian. La cola de RH se siembra en un sprint posterior. **Nada aplicado a prod.**
 
 **Avisos por área (MS.7.13):** los avisos de una solicitud sólo llegan a quien la reportó, a quien la tiene asignada y a la gente del área donde está (tras un traslado, la del área nueva). Cuando hay más de un área encendida, el aviso dice a cuál pertenece la solicitud, por ejemplo «SRV-2026-00042 (Mantenimiento) · …»; con una sola área se ve igual que siempre. **Nada aplicado a prod** (no requiere migración).
 

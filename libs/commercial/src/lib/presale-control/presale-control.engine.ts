@@ -35,6 +35,11 @@ export interface HechosEtapa {
   customer_erp_code: string | null;
   /** `[MCP.5]` Va cargado en una guía de carga ya IMPRESA (el repartidor la firmó y salió). */
   en_guia_impresa?: boolean;
+  /**
+   * `[MCP.6]` Se registró la entrega de conformidad en el renglón de la guía. Cuenta como entregado
+   * aunque `orders.status` siga en `confirmed`: marcarlo `fulfilled` lo facturaría otra vez (FE.5).
+   */
+  entregado_en_guia?: boolean;
 }
 
 /**
@@ -46,7 +51,7 @@ export interface HechosEtapa {
  */
 export function etapaDe(h: HechosEtapa): PresaleStage {
   if (h.status === 'cancelled') return 'cancelado';
-  if (h.status === 'fulfilled') return 'entregado';
+  if (h.status === 'fulfilled' || h.entregado_en_guia) return 'entregado';
   if (h.en_guia_impresa) return 'en_ruta';
   if (h.ligado) return 'cobrado';
   if (!h.customer_erp_code) return 'esperando_alta';

@@ -18,6 +18,28 @@ export type MetricStripMode = 'strip' | 'spark' | 'ring' | 'bullet' | 'compositi
  * tipos con el mismo nombre en dos archivos: agregar un tono acá no lo agrega allá.
  */
 export type MetricTone = 'default' | 'ok' | 'warn' | 'bad' | 'brand' | 'muted';
+
+/**
+ * `[VP.MS]` **Estado de MEDICIÓN — el eje que faltaba, y es ORTOGONAL al tono.**
+ *
+ * `tone` dice si el número es bueno o malo (juicio de negocio). `state` dice **con qué se
+ * calculó**. Son dos preguntas distintas y hasta hoy sólo había vocabulario para la primera:
+ * un KPI sin dato tenía que elegir un color, y `default` se pinta como un número normal.
+ *
+ * Medido el 2026-10-08 antes de agregar esto: **85 pantallas** usan este organismo y hay
+ * **22 sitios con `tone: 'ok'` clavado sin condición** — el `cfg ? classify : 'ok'` que la
+ * Fase VP documentó, viviendo adentro del componente compartido.
+ *
+ * ⛔ **Los chips NO usan la paleta semántica**, a propósito. `--status-*` y `--ok/--warn/--bad`
+ * codifican **severidad**, y si el estado toma prestada esa paleta los dos ejes **colapsan
+ * visualmente** — que es justo el defecto que esto viene a corregir. El estado se distingue por
+ * **forma y texto** sobre neutrales estructurales; el color queda entero para el tono.
+ * Además cumple la regla #5 de `DESIGN.md` (el color nunca es único portador) y sobrevive a
+ * `forced-colors`, donde los fondos se fuerzan y la forma es lo único que queda.
+ *
+ * ⚠️ `derivado` **exige `method`**: decir «derivado» sin decir con qué regla no informa nada.
+ */
+export type MetricState = 'medido' | 'parcial' | 'derivado' | 'no_medido';
 /** `currency2` = moneda CON centavos, para precios unitarios ($/unidad, $/partida). */
 export type MetricFormat = 'number' | 'decimal1' | 'currency' | 'currency2' | 'currency-short' | 'percent' | 'text';
 
@@ -26,6 +48,15 @@ export interface MetricStripItem {
   value: number | string;
   format?: MetricFormat;
   tone?: MetricTone;
+  /**
+   * Con qué se calculó la cifra. Ver `MetricState`. Omitirlo deja la métrica como está hoy
+   * (sin chip), así que esto es **aditivo**: ninguna de las 85 pantallas cambia sin tocarla.
+   */
+  state?: MetricState;
+  /** Obligatorio cuando `state === 'derivado'`: la regla con la que se rellenó. */
+  method?: string;
+  /** La ventana si es `parcial`; el motivo si es `no_medido`. Va al `title` del chip. */
+  stateNote?: string;
   sub?: string;
   /** delta % vs periodo anterior → ▲/▼ + número (flecha, no solo color). */
   delta?: number | null;
@@ -81,9 +112,11 @@ export interface MetricStripItem {
         </div>
       } @else {
         @for (it of items(); track it.label) {
-          <div class="ms-item" [class]="'tone-' + (it.tone || 'default')">
+          <div class="ms-item" [class]="'tone-' + effTone(it)">
             <span class="ms-l">{{ it.label }}@if (it.live) {
               <span class="ms-live" title="En vivo" aria-hidden="true"></span>
+            }@if (it.state) {
+              <span class="ms-st" [class]="'st-' + it.state" [attr.title]="stateTitle(it)">{{ stateText(it) }}</span>
             }</span>
     
             @if (mode() === 'ring') {
@@ -125,6 +158,25 @@ export interface MetricStripItem {
     `,
   styles: [`
     :host { display:block; }
+
+    /* ── [VP.MS] chip de ESTADO DE MEDICIÓN ──────────────────────────────────────
+       Neutrales estructurales a propósito: el color entero queda para el tono. Se
+       distinguen por GLIFO + TEXTO, así que sobreviven a forced-colors (donde los
+       fondos se fuerzan y la forma es lo único que queda) y a quien no distingue
+       colores. El glifo es decorativo: el texto ya dice el estado. */
+    .ms-st { display:inline-flex; align-items:center; gap:.25rem; font-size:var(--fs-nano);
+             font-weight:var(--fw-bold,700); letter-spacing:.04em; text-transform:uppercase;
+             color:var(--text-muted); border:1px solid var(--border-color);
+             border-radius:var(--r-sm); padding:0 .3rem; line-height:1.5; white-space:nowrap; }
+    .ms-st::before { content:''; width:.42rem; height:.42rem; border:1px solid currentColor; }
+    .ms-st.st-medido::before   { border-radius:var(--r-pill,50%); background:currentColor; }
+    .ms-st.st-parcial::before  { border-radius:var(--r-pill,50%);
+                                 background:linear-gradient(90deg,currentColor 50%,transparent 50%); }
+    .ms-st.st-derivado::before { border:none; width:0; height:0; border-left:.26rem solid transparent;
+                                 border-right:.26rem solid transparent; border-bottom:.42rem solid currentColor; }
+    .ms-st.st-no_medido        { border-style:dashed; color:var(--text-faint); }
+    .ms-st.st-no_medido::before{ border-radius:var(--r-pill,50%); background:transparent; }
+
     /* ── fila de métricas sin caja ── */
     .ms { display:flex; flex-wrap:wrap; }
     .ms-item { display:flex; flex-direction:column; justify-content:center; gap:.2rem; padding:.15rem 1.4rem; position:relative; }
@@ -212,6 +264,40 @@ export class MetricStripComponent implements AfterViewInit {
     this.items().reduce((s, it) => s + (Number(it.value) || 0), 0));
 
   num(it: MetricStripItem): number { return Number(it.value) || 0; }
+
+  /**
+   * `[VP.MS]` **`no_medido` INHABILITA el tono — no es que se pinte gris, es que no se puede
+   * pedir verde.** Un número que no se pudo medir no puede estar bien ni mal: no hay número.
+   * El freno vive acá, en el componente, y no en cada una de las 85 pantallas que lo usan,
+   * porque una regla que depende de que 85 llamadores se acuerden no es una regla.
+   *
+   * ⚠️ `parcial` y `derivado` SÍ conservan su tono: una cifra parcial puede ser buena o mala
+   * dentro de lo que cubre, y neutralizarla escondería el juicio en vez de calificarlo.
+   */
+  effTone(it: MetricStripItem): MetricTone {
+    return it.state === 'no_medido' ? 'muted' : (it.tone || 'default');
+  }
+
+  /** `derivado` se muestra con su método: decirlo sin la regla no informa nada. */
+  stateText(it: MetricStripItem): string {
+    const base: Record<MetricState, string> = {
+      medido: 'medido', parcial: 'parcial', derivado: 'derivado', no_medido: 'no medido',
+    };
+    const t = base[it.state as MetricState] ?? '';
+    return it.state === 'derivado' && it.method ? `${t} · ${it.method}` : t;
+  }
+
+  /**
+   * El `title` carga la ventana o el motivo. ⚠️ Si `derivado` llega SIN `method`, el chip lo
+   * declara en vez de callarlo: un «derivado» mudo es exactamente lo que la regla prohíbe, y
+   * esconderlo lo volvería indistinguible de un derivado bien documentado.
+   */
+  stateTitle(it: MetricStripItem): string | null {
+    if (it.state === 'derivado' && !it.method) {
+      return 'Derivado sin método declarado: falta decir con qué regla se calculó.';
+    }
+    return it.stateNote || null;
+  }
 
   /**
    * ¿Se pinta como TEXTO? Sí cuando lo declara el llamador, y **también** cuando el valor no es un

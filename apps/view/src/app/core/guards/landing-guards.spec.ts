@@ -82,10 +82,11 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   // se la da sólo a roles que también reciben OBLIGACIONES_VER (gerente_compras, compras, direccion).
   { perm: Permission.COMPRAS_PLAZOS_AUTORIZAR, url: '/compras/obligaciones', motivo: 'facultad de firma: la ruta exige OBLIGACIONES_VER' },
   { perm: Permission.COMPRAS_REQUISICIONES_GESTIONAR, url: '/compras/requisiciones', motivo: 'manage sin view' },
-  // `[RQ.12]` (2026-10-08) entró al árbol como `manage` y la ruta exige VER. Hoy no rebota a nadie: se reparte POR
-  // PERSONA (`identity.user_permissions`) a una gerente de compras que ya tiene VER. Si algún día se reparte a quien
-  // no ve requisiciones, la ruta tiene que aceptarla (y el GET de la lista también). Mismo caso que PLAZOS_AUTORIZAR.
-  { perm: Permission.COMPRAS_REQUISICIONES_AUTORIZAR, url: '/compras/requisiciones', motivo: 'facultad de firma: se reparte por persona a quien ya tiene REQUISICIONES_VER; la ruta exige VER' },
+  // [RQ.12] Autorizar una requisición es una facultad de firma, no una puerta: se otorga por PERSONA
+  // (identity.user_permissions) a quien ya ve la pantalla. Medido en prod el 2026-10-08: una sola
+  // persona la tiene, y su rol trae REQUISICIONES_VER. Ensanchar la ruta no serviría: el GET del
+  // backend que lista las requisiciones también exige VER, así que con AUTORIZAR sola abriría vacía.
+  { perm: Permission.COMPRAS_REQUISICIONES_AUTORIZAR, url: '/compras/requisiciones', motivo: 'facultad de firma: la ruta y el GET del backend exigen REQUISICIONES_VER' },
   { perm: Permission.COMPRAS_ORDENES_GESTIONAR, url: '/compras/ordenes', motivo: 'manage sin view' },
   { perm: Permission.COMPRAS_ENTRADAS_VALIDAR, url: '/compras/entradas', motivo: 'la bandeja exige GESTIONAR; VALIDAR solo no abre nada' },
   { perm: Permission.COMPRAS_360_VER, url: '/compras/costo-por-compra', motivo: 'la ruta exige ENTRADAS_VER; medido 2026-08-29: todo rol con 360 tiene ENTRADAS_VER' },
@@ -245,5 +246,23 @@ describe('SN.4 · la puerta que la landing abre no rebota en el índice del proy
     expect(guards.get('/finanzas/egresos')!.includes(Permission.FINANCE_EXPENSES_CAPTURAR)).toBe(false);
     // Y anyPermissionGuard se lee como lista.
     expect(guardsDelProyecto('almacen').get('/almacen/movimientos')).toEqual([Permission.COMMERCIAL_MOVEMENTS_VER, Permission.RECONCILIATION_VER]);
+  });
+});
+
+describe('GP.4 · el surtidor y el checador entran a su pantalla, no al Mapa de Ubicaciones', () => {
+  const almacen = LANDINGS_BY_PROJECT['almacen'] ?? [];
+  const entrada = (claves: Permission[]): string | undefined =>
+    almacen.find((c: LandingCandidate) => claves.includes(c.perm))?.url;
+
+  it('⭐ perfil surtidor (sus claves reales) → /almacen/surtir', () => {
+    expect(entrada([Permission.COMMERCIAL_PICKING_VER, Permission.COMMERCIAL_PICKING_GESTIONAR, Permission.ALMACEN_UBICACIONES_VER, Permission.SERVICIO_REPORTAR])).toBe('/almacen/surtir');
+  });
+
+  it('⭐ perfil checador (sus claves reales) → /almacen/checar', () => {
+    expect(entrada([Permission.ALMACEN_CHECADO_GESTIONAR, Permission.ALMACEN_UBICACIONES_VER, Permission.SERVICIO_REPORTAR])).toBe('/almacen/checar');
+  });
+
+  it('prueba negativa: almacenista sigue entrando por su trabajo del día, no por Surtir', () => {
+    expect(entrada([Permission.COMMERCIAL_INVENTORY_VER, Permission.COMMERCIAL_PICKING_GESTIONAR, Permission.ALMACEN_CHECADO_GESTIONAR])).not.toBe('/almacen/surtir');
   });
 });

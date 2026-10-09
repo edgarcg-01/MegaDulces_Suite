@@ -2,7 +2,7 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
 import { KNEX_NEW_DB, TenantContextService } from '@megadulces/platform-core';
-import { BudgetSalesPlanService } from './budget-sales-plan.service';
+import { BudgetSalesPlanService, type ProcedenciaCrec } from './budget-sales-plan.service';
 import { BudgetExpensePlanService } from './budget-expense-plan.service';
 import { BudgetMaterializeService } from './budget-materialize.service';
 import { BudgetGenerationService } from './budget-generation.service';
@@ -66,12 +66,18 @@ export interface AutopilotBudgetResult {
   budget_id: string;
   name: string;
   fiscal_year: number;
-  ventas: { escritas: number; manual_kept: number } | null;
+  /** `[PVI.2]` `proxy_canal_pct` = fracción de la meta repartida con el **promedio del canal**,
+   *  o sea sin ninguna señal de la propia entidad. Viaja en el resultado de la pasada y queda en
+   *  `generation_runs`: era el número que nadie calculaba. Medido en el FY2026: **24.46 %**. */
+  ventas: { escritas: number; manual_kept: number; proxy_canal_monto: number; proxy_canal_pct: number | null } | null;
   gastos: { escritas: number; manual_kept: number } | null;
   targets: { filas: number } | null;
   partidas: { creadas: number; ajustadas: number; sin_cambio: number } | null;
   /** [VE.7] Supuestos derivados por el sistema vs respetados porque alguien los fijo. */
-  supuestos?: { derivados: number; respetados: number };
+  /** `[PVI.3]` `sin_medir` = canales cuyo YoY NO se pudo calcular y cayeron al `default`. Se
+   *  declara en el resultado de la pasada porque es lo único que distingue un supuesto medido de
+   *  uno de relleno — y el de relleno fue el que puso +26.67 % sobre un canal que cae −9.36 %. */
+  supuestos?: { derivados: number; respetados: number; sin_medir: number };
   /** [VE.5-D] El folio de la generacion que produjo estos numeros. */
   run_folio?: string;
   errores: string[];
@@ -289,15 +295,41 @@ export class BudgetAutopilotService {
         const actual = await this.salesPlan.getSettings(budgetId).catch(() => null);
         const yaGuardado = (actual?.growth_by_channel ?? {}) as Record<string, number>;
         const derivado: Record<string, number> = {};
+        // `[PVI.3]` ⛔ Acá moría la procedencia: esta línea leía `.growth_pct` y tiraba `basis`,
+        // `paired_periods`, `years_used` y la cobertura del pareo. Por eso nadie podía saber que
+        // el 0.2667 de `mayoreo` era el `default` —su YoY no se pudo calcular— y no una medición;
+        // el canal mide **−9.36 %** y el plan le puso **+26.67 %** sobre $169,970,622 de meta.
+        // Un número sin procedencia no se puede auditar sin recomputarlo. `VERDAD_ABSOLUTA` §24.7.
+        const procedencia: Record<string, ProcedenciaCrec> = {};
+        const at = new Date().toISOString();
         for (const [canal, v] of Object.entries(g.by_channel ?? {})) {
-          if (yaGuardado[canal] == null) derivado[canal] = Number((v as { growth_pct: number }).growth_pct);
+          const c = v as { growth_pct: number; basis?: string; paired_periods?: number; years_used?: number[]; cobertura?: ProcedenciaCrec['cobertura'] };
+          if (yaGuardado[canal] == null) {
+            derivado[canal] = Number(c.growth_pct);
+            procedencia[canal] = {
+              basis: (c.basis ?? 'default') as ProcedenciaCrec['basis'],
+              paired_periods: c.paired_periods,
+              years_used: c.years_used,
+              cobertura: c.cobertura,
+              at,
+            };
+          } else {
+            // ⭐ Lo puso una persona y el autopilot lo respeta: eso TAMBIÉN es procedencia, y es la
+            // que faltaba — sin ella un supuesto humano y uno derivado se ven idénticos en la tabla.
+            procedencia[canal] = { basis: 'manual', at };
+          }
         }
         if (Object.keys(derivado).length) {
           await this.salesPlan.upsertSettings(budgetId, {
             default_growth_pct: Number(g.global?.growth_pct ?? 0),
             growth_by_channel: { ...yaGuardado, ...derivado },
+            growth_provenance: procedencia,
           }, AUTOR);
-          out.supuestos = { derivados: Object.keys(derivado).length, respetados: Object.keys(yaGuardado).length };
+          out.supuestos = {
+            derivados: Object.keys(derivado).length,
+            respetados: Object.keys(yaGuardado).length,
+            sin_medir: Object.values(procedencia).filter((p) => p.basis === 'default').length,
+          };
         }
       } catch (e) { out.errores.push(`supuestos: ${(e as Error)?.message ?? e}`); }
 
@@ -317,6 +349,8 @@ export class BudgetAutopilotService {
         out.ventas = {
           escritas: (c.historico_ajustado ?? 0) + (c.estacional ?? 0) + (c.proxy_canal ?? 0) + (c.sin_base_declarado ?? 0),
           manual_kept: c.manual_kept ?? 0,
+          proxy_canal_monto: Number((r as { coverage_monto?: { proxy_canal?: number } }).coverage_monto?.proxy_canal ?? 0),
+          proxy_canal_pct: (r as { proxy_canal_pct?: number | null }).proxy_canal_pct ?? null,
         };
       } catch (e) { out.errores.push(`plan de ventas: ${(e as Error)?.message ?? e}`); }
 

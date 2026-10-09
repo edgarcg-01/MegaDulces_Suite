@@ -124,6 +124,33 @@ idénticas. El latido las distingue.
 No es una falla del carril: **es el carril funcionando.** `origin/main` trae migraciones que prod
 no tiene aplicadas, y subir ese código reventaría en la cara de quien abra la pantalla.
 
+### ⭐ El camino vigente: `aplicar-migracion.sh`
+
+```sh
+sh ops/prod/aplicar-migracion.sh --pendientes          # qué falta, y qué sobra
+sh ops/prod/aplicar-migracion.sh <archivo>.js          # una por una, en orden
+```
+
+Hace tres cosas que el camino manual de abajo no hacía:
+
+1. ⛔ **Se niega si el archivo no está en `origin/main`**, y te dice dónde vive (este árbol, un
+   commit sin empujar, o el worktree de otra sesión).
+2. **Destraba el ledger solo**: copia al pod las migraciones que la tabla ya nombra y a la imagen
+   le faltan — el baile que había que hacer a mano, tres veces en un día.
+3. **Verifica la copia por BYTES**, no por código de salida: una copia truncada produce un archivo
+   que existe, pasa cualquier `test -f`, y revienta recién al ejecutarse.
+
+> ⛔ **Por qué existe la compuerta.** El 2026-10-08 se aplicaron **ocho** migraciones a producción
+> desde commits que nunca se empujaron. Cada una deja `knex_migrations` nombrando un archivo que la
+> imagen no tiene, y `knex.migrate.list()` aborta con *«the migration directory is corrupt»* — o
+> sea que **frena la siguiente migración de cualquiera**, no sólo la de quien la aplicó. Una de las
+> ocho hubo que rastrearla hasta `/c/tmp` porque el archivo no existía en ningún otro lado.
+>
+> ⚠️ La comprobación **no puede vivir en el aplicador**: ése corre dentro del pod, donde no hay
+> git. Por eso es un envoltorio y no un parche.
+
+<details><summary>El camino manual (sigue sirviendo si el envoltorio no está a mano)</summary>
+
 ```sh
 # 1. Copiar la migración y el aplicador al contenedor de prod, que ya tiene la URL buena
 scp database/migrations-newdb/<archivo>.js superoot@192.168.0.222:/tmp/
@@ -135,6 +162,11 @@ ssh superoot@192.168.0.222 'docker cp /tmp/<archivo>.js prod-api:/app/database/m
 # 2. Una por una, en orden
 ssh superoot@192.168.0.222 'docker exec prod-api node /app/database/scripts/apply-one-migration-prod.js <archivo>.js'
 ```
+
+⚠️ Hoy prod corre en **k3s**, así que `docker exec prod-api` hay que leerlo como
+`kubectl -n prod exec deploy/api -c api --`.
+
+</details>
 
 ⛔ **Nunca `migrate:latest`.** Hay **dos** `knex_migrations` en prod y el `search_path` lleva a la
 vacía: reaplicaría ~800 migraciones.

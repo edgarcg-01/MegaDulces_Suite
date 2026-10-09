@@ -82,7 +82,7 @@ const dmy = (v: string | null | undefined): string => {
                   </div>
                 </div>
                 @if (g.status === 'impresa') {
-                  <p class="gc-hint">Impresa {{ fechaHora(g.printed_at) }}@if (g.printed_by_name) { por {{ g.printed_by_name }} }@if (g.print_count > 1) { · {{ g.print_count - 1 }} {{ g.print_count === 2 ? 'reimpresión' : 'reimpresiones' }} }. Lo que el repartidor pesque después va en una guía nueva.</p>
+                  <p class="gc-hint">Impresa {{ fechaHora(g.printed_at) }}@if (g.printed_by_name) { por {{ g.printed_by_name }}}@if (g.print_count > 1) { · {{ g.print_count - 1 }} {{ g.print_count === 2 ? 'reimpresión' : 'reimpresiones' }} }. Lo que el repartidor pesque después va en una guía nueva.</p>
                 }
                 <table class="gc-tbl">
                   <thead><tr><th>Pedido</th><th>Cliente</th><th>Entrega</th><th>Documento Kepler</th><th class="ta-r">Importe</th>@if (g.status === 'impresa') { <th><span class="sr-only">Acciones</span></th> }</tr></thead>
@@ -92,11 +92,17 @@ const dmy = (v: string | null | undefined): string => {
                         <td class="mono">{{ o.code }}</td>
                         <td>{{ o.customer_name || '—' }}@if (o.customer_erp_code) { <span class="muted mono"> · {{ o.customer_erp_code }}</span> }</td>
                         <td class="mono">{{ dmy(o.requested_delivery_date) }}</td>
-                        <td class="mono" [class.muted]="!o.folio_digital">{{ o.folio_digital || 'se elige al entregar' }}</td>
-                        <td class="ta-r num">{{ money(o.document_total ?? o.total) }}</td>
+                        <td class="mono" [class.muted]="!o.folio_digital">{{ o.folio_digital || (o.status === 'cargado' ? 'se elige al entregar' : '—') }}</td>
+                        <td class="ta-r num" [class.gc-tachado]="o.status === 'no_entregado' || o.status === 'regreso'">{{ money(o.document_total ?? o.total) }}</td>
                         @if (g.status === 'impresa') {
                           <td class="ta-r">
-                            @if (regresando() !== o.order_id) {
+                            @if (o.status === 'entregado') {
+                              <span class="gc-ent" [class.dif]="o.delivery_outcome === 'con_diferencia'">{{ o.delivery_outcome === 'con_diferencia' ? 'Entregado con diferencia' : 'Entregado' }}</span>
+                              <span class="gc-cobro num">{{ cobroTexto(o.cash_amount, o.transfer_amount) }}@if (o.transfer_ref) { · ref. {{ o.transfer_ref }} }</span>
+                            } @else if (o.status !== 'cargado') {
+                              <span class="gc-ent gc-no">{{ o.status === 'regreso' ? 'Regresó a caja' : 'No se entregó (lo dijo el repartidor)' }}</span>
+                              @if (o.removed_reason) { <span class="gc-cobro">{{ o.removed_reason }}</span> }
+                            } @else if (regresando() !== o.order_id) {
                               <button type="button" class="gc-link" (click)="abrirRegreso(o.order_id)">Regresó sin entregar</button>
                             }
                           </td>
@@ -150,6 +156,11 @@ const dmy = (v: string | null | undefined): string => {
     .gc-bad { color:var(--bad-fg); font-weight:600; }
     .gc-warn { color:var(--warn-soft-fg); font-weight:600; }
     .gc-link { background:none; border:0; padding:0; color:var(--action); cursor:pointer; font:inherit; font-size:var(--fs-xs); text-decoration:underline; }
+    .gc-ent { display:inline-block; font-size:var(--fs-micro); font-weight:700; padding:.1rem .45rem; border-radius:999px; background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
+    .gc-ent.dif { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
+    .gc-tachado { text-decoration:line-through; color:var(--text-muted); }
+    .gc-ent.gc-no { background:var(--hover-bg); color:var(--text-main); }
+    .gc-cobro { display:block; font-size:var(--fs-xs); color:var(--text-muted); margin-top:.15rem; }
     .gc-link:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .gc-reg td { background:var(--hover-bg); }
     .gc-reg-form { display:flex; flex-wrap:wrap; gap:.4rem; align-items:center; font-size:var(--fs-sm); }
@@ -176,6 +187,14 @@ export class AlmacenPreventaGuiasComponent implements OnInit {
 
   readonly skel = Array.from({ length: 4 });
   readonly money = money;
+
+  /** `[MCP.6]` Lo que cobró el repartidor al entregar, para que la caja lo vea antes de liquidar. */
+  cobroTexto(efectivo: number | null, transferencia: number | null): string {
+    const partes: string[] = [];
+    if (efectivo) partes.push(money(efectivo) + ' efectivo');
+    if (transferencia) partes.push(money(transferencia) + ' transf.');
+    return partes.length ? partes.join(' + ') : 'sin cobro';
+  }
   readonly dmy = dmy;
 
   readonly fecha = signal(hoyMx());

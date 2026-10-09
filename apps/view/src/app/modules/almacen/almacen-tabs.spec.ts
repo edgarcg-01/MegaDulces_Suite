@@ -222,3 +222,23 @@ describe('almacen-tabs · Consola de surtido (GP.3c)', () => {
     expect(salida.match).toContain('/almacen/surtido-consola');
   });
 });
+
+describe('almacen-tabs · Checar (GP.4)', () => {
+  const salida = ALMACEN_AREAS.find((a) => a.key === 'salida');
+  if (!salida) throw new Error('falta el área salida');
+  const primeraPara = (tiene: Set<string>) =>
+    almacenLandingCandidates(salida).find((t) => !t.permission || tiene.has(t.permission))?.route;
+
+  it('⭐ quien sólo checa (rol checador) entra directo a Checar', () => {
+    expect(primeraPara(new Set([Permission.ALMACEN_CHECADO_GESTIONAR]))).toBe('/almacen/checar');
+  });
+
+  it('prueba negativa: quien también ve el Tablero entra por el Tablero (ahí tiene el botón Checar)', () => {
+    expect(primeraPara(new Set([Permission.ALMACEN_PEDIDOS_VER, Permission.ALMACEN_CHECADO_GESTIONAR]))).toBe('/almacen/pedidos');
+  });
+
+  it('Checar no es un tab de la barra (es foco) y el área se reconoce desde ahí', () => {
+    expect(salida.tabs.some((t) => t.route === '/almacen/checar')).toBe(false);
+    expect(salida.match).toContain('/almacen/checar');
+  });
+});

@@ -71,9 +71,39 @@ EDAD_CACHE="${PODA_EDAD_CACHE:-336h}"     # 14 días — cubre una quincena sin 
 EDAD_APRETADA="${PODA_EDAD_APRETADA:-72h}" # lo que ANTES era el default, ahora es la emergencia
 TECHO_CACHE="${PODA_TECHO_CACHE:-80GB}"   # segunda pasada, best-effort — NO se le cree
 TECHO_DURO_GB="${PODA_TECHO_DURO_GB:-90}" # pasado esto, se apura la edad una vez
+# ⭐ El PISO es el único número que de verdad importa: es el que decide si se escala (§4). El
+# techo del caché es un medio; esto es el fin. Referencia medida: el kubelet marca `DiskPressure`
+# por debajo del **10% de `nodefs`** — en los 492 GB de `md`, unos 49 GB. 60 deja margen para que
+# la poda actúe ANTES de que el nodo empiece a desalojar pods, no después.
 PISO_LIBRE_GB="${PODA_PISO_LIBRE_GB:-60}"
+# Edad mínima de una imagen sin usar para que el escalón de §4 la borre. 7 días conserva las
+# imágenes base de la semana (volver a bajarlas cuesta segundos, pero sin motivo no se tiran).
+EDAD_IMG="${PODA_EDAD_IMG:-168h}"
 TENANT="${CRON_TENANT_ID:-00000000-0000-0000-0000-00000000d01c}"
+# ⛔⛔ **CADA IMAGEN VA DOS VECES: con el nombre pelado Y con el prefijo del registro.**
+# Medido el 2026-10-08, y es la causa exacta de que esta poda informara `imágenes 74→74GB`:
+#
+#     trade-prod-api:33d64470            → a13a8183c3dd
+#     localhost:5000/trade-prod-api:…    → a13a8183c3dd   ← EL MISMO ID
+#
+# `auto-deploy.sh` construye con el nombre pelado y después re-etiqueta al registro para que k3s
+# pueda tirar de ahí. Son **dos etiquetas del mismo ID**, no dos imágenes. Y esta lista sólo tenía
+# las peladas, así que `docker rmi trade-prod-api:<viejo>` **borraba el alias y el ID sobrevivía**
+# colgado de la etiqueta del registro: cero bytes liberados, sin error, sin aviso.
+#
+# ⭐ Lo que eso significa es peor que un desperdicio: **la retención de 5 nunca existió.** Medido
+# ese día: 6 etiquetas peladas por imagen contra **44 del registro** — o sea 44 versiones vivas de
+# ~2.1 GB cada una sólo en `api`. La política estaba escrita y no se aplicaba a nada.
+#
+# ⚠️ Por eso NO hace falta bajar `RETENER_IMG`: no es cuántos puntos de regreso conservar, es que
+# no se estaba conservando 5 sino 44. Con los dos nombres acá, 5 vuelve a significar 5.
+#
+# ⚠️ El blob del REGISTRO es otra cosa y sigue aparte (`prod_registry-data`, 20.33 GB): esto borra
+# la etiqueta local, no lo que el registro guarda. Eso pide su propio `registry garbage-collect`,
+# y queda DECLARADO, no resuelto acá.
 IMAGENES="trade-prod-pg trade-prod-api trade-prod-worker trade-prod-portal trade-prod-vendor trade-prod-backup trade-prod-caddy"
+IMAGENES="$IMAGENES localhost:5000/trade-prod-pg localhost:5000/trade-prod-api localhost:5000/trade-prod-worker"
+IMAGENES="$IMAGENES localhost:5000/trade-prod-portal localhost:5000/trade-prod-vendor localhost:5000/trade-prod-caddy"
 
 di() { echo "[$(date '+%F %T')] $*"; }
 
@@ -164,13 +194,60 @@ if [ "${_c:-0}" -gt "$TECHO_DURO_GB" ]; then
   docker buildx prune --force --filter "until=${EDAD_APRETADA}" >/dev/null 2>&1 || true
 fi
 
+# ── 4. ⭐ EL ÚLTIMO PELDAÑO: si el disco sigue bajo el piso, se escala hasta resolver ────────
+#
+# ⛔ **POR QUÉ EXISTE: el 2026-10-08 producción se cayó.** `DiskPressure=True`, el kubelet puso
+# `node.kubernetes.io/disk-pressure:NoSchedule` y desalojó a `pg-prod`. Con la base afuera, nada
+# arrancaba. 27 GB libres de 492.
+#
+# ⭐ **Y este script había corrido tres veces ese día, con la prueba delante, sin hacer nada:**
+#     `caché 95→95GB · imágenes 74→74GB · libre 33→33GB`
+# Liberó CERO las tres, incluido su escalón de emergencia. Tenía la medición del antes/después,
+# que es exactamente la evidencia de que no sirvió, y se limitó a escribirla y salir con 1. El
+# aviso tampoco salió: el correo lleva meses fallando (`Application-specific password required`).
+# *Una poda que no comprueba si podó es un adorno; declarar sin actuar, con el disco llenándose,
+# es mirar el incendio y anotar la temperatura.*
+#
+# ⛔ **Lo que quedó refutado:** la política de edad de §2 NO alcanza acá. Medido ese día, sobre un
+# caché de 95 GB: `until=336h` liberó 0 y `until=72h` liberó 0. Con despliegues cada hora **todo
+# el caché cuenta como usado hace poco**, así que *ninguna edad practicable muerde*. Lo que sí
+# resolvió fue `builder prune -af`: **46 GB, 38 → 115 GB libres**, y el nodo se recuperó solo
+# cuando venció el periodo de transición de 5 min del kubelet.
+#
+# ⚠️ El reparo de §3 contra `--all` sigue siendo CIERTO: vacía los cache mounts de npm y de Nx y
+# el próximo despliegue sale en frío (~15 min en vez de ~4). Lo que cambia es la comparación.
+# **Quince minutos de build no se comparan con producción caída**, y eso dejó de ser hipótesis.
+# Por eso el disparador NO es el techo del caché —que es un medio— sino **el piso de disco libre**,
+# que es el fin. Mientras haya espacio, no se toca nada aunque el caché esté gordo.
+#
+# El orden va de menos a más doloroso: primero imágenes (volver a bajarlas es rápido), y sólo
+# después el caché (recompilar es lo caro).
+escalon() { # escalon <rótulo> <comando…>
+  _r="$1"; shift
+  _l=$(libre_gb)
+  [ "${_l:-0}" -ge "$PISO_LIBRE_GB" ] && return 0
+  di "libre ${_l}GB < piso ${PISO_LIBRE_GB}GB — escalando: $_r"
+  "$@" >/dev/null 2>&1 || di "aviso: el escalón '$_r' falló"
+  di "   tras '$_r': libre $(libre_gb)GB"
+}
+
+# ⚠️ Acotado por edad a propósito: las imágenes base de los últimos días se conservan. Y NO toca
+# lo que k3s sirve — los pods tiran de `localhost:5000`, que es un VOLUMEN, no estas imágenes.
+escalon "imágenes sin usar de más de ${EDAD_IMG:-168h}" \
+  docker image prune -af --filter "until=${EDAD_IMG:-168h}"
+escalon "caché de construcción COMPLETO (el próximo build sale en frío)" \
+  docker buildx prune -af
+
 c1=$(cache_gb); i1=$(imagenes_gb); l1=$(libre_gb)
 di "después: caché ${c1}GB · imágenes ${i1}GB · libre ${l1}GB"
 
 nota="caché ${c0}→${c1}GB · imágenes ${i0}→${i1}GB · libre ${l0}→${l1}GB (edad $EDAD_CACHE, retener $RETENER)"
 if [ "${l1:-0}" -lt "$PISO_LIBRE_GB" ]; then
-  di "⛔ el disco quedó en ${l1}GB libres, por debajo del piso de ${PISO_LIBRE_GB}GB"
-  latir error "$nota — POR DEBAJO DEL PISO de ${PISO_LIBRE_GB}GB, revisar a mano"
+  # Acá sí se agotó lo que este script puede hacer: ya escaló hasta vaciar el caché entero.
+  # Lo que queda ocupando no es basura de construcción y lo tiene que mirar una persona —
+  # el 2026-10-08 eran 122 GB de `~/pgbackrest` y 131 GB de volúmenes de Docker.
+  di "⛔ el disco quedó en ${l1}GB libres, por debajo del piso de ${PISO_LIBRE_GB}GB — Y YA SE ESCALÓ TODO"
+  latir error "$nota — BAJO EL PISO de ${PISO_LIBRE_GB}GB tras escalar hasta vaciar el caché: lo que ocupa NO es basura de build, revisar a mano"
   exit 1
 fi
 latir ok "$nota"
