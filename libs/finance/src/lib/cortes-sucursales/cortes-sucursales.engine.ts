@@ -84,6 +84,10 @@ export interface CorteCrudo {
   transfer_esperado: string | number | null;
   transfer_contado: string | number | null;
   cajero_cierre: string | null;
+  /** `[CSU.9]` Denominaciones del arqueo (`c43`/`c44`) y lo retirado en el turno (`c48`). */
+  arqueo_billetes?: string | number | null;
+  arqueo_monedas?: string | number | null;
+  efectivo_retirado?: string | number | null;
 }
 
 const n = (v: string | number | null | undefined): number => Number(v) || 0;
@@ -96,6 +100,15 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     transfer_esperado: r2(n(c.transfer_esperado)), transfer_contado: r2(n(c.transfer_contado)),
   };
   const esperado_total = r2(a.efectivo_esperado + a.tarjeta_esperado + a.transfer_esperado);
+  // [CSU.9] El conteo físico: billetes + monedas + lo retirado durante el turno. Es el ÚNICO
+  // efectivo que alguien contó — `efectivo_contado` es un número declarado. ⚠️ `arqueo_otros`
+  // (c45) NO entra: medido, con él la identidad cae del 53.4% al 19.3%.
+  const bil = c.arqueo_billetes, mon = c.arqueo_monedas, ret = c.efectivo_retirado;
+  const hayDenominacion = bil != null || mon != null || ret != null;
+  const fisicoBruto = hayDenominacion ? r2(n(bil) + n(mon) + n(ret)) : null;
+  // Un corte sin denominaciones llega con las tres en 0, que NO es "contaron cero" sino "no hay
+  // dato". Se declara `null` (ADR-056); medido: 72 de 1,125 cortes (6.4%).
+  const conteo_fisico = fisicoBruto && fisicoBruto > 0 ? fisicoBruto : null;
   return {
     fecha: c.arqueo_fecha,
     ...a,
@@ -103,6 +116,10 @@ function arqueoDe(c: CorteCrudo, devoluciones: number): CorteArqueo | null {
     esperado_neto: r2(esperado_total - devoluciones),
     contado_total: r2(a.efectivo_contado + a.tarjeta_contado + a.transfer_contado),
     cajero: c.cajero_cierre || null,
+    conteo_fisico,
+    fisico_diferencia: conteo_fisico === null ? null : r2(conteo_fisico - a.efectivo_contado),
+    // ⛔ El arqueo declaró lo esperado en vez de contarlo. Medido: 81.2% de los cortes.
+    arqueo_declarado: a.efectivo_contado === a.efectivo_esperado,
   };
 }
 

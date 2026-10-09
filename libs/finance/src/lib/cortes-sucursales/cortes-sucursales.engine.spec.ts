@@ -232,3 +232,65 @@ describe('[CSU.8] la cuenta donde entró el cobro', () => {
     expect(c.cuadre).toBe('cuadra');
   });
 });
+
+/**
+ * `[CSU.9]` El conteo por denominación — el único efectivo que alguien contó.
+ *
+ * Caso REAL: Padre Hidalgo, `UD2301-0000017 · Caja 2-97`, medido contra prod el 2026-10-09 en
+ * `kepler_ods.kdpv_folio_caja`:
+ *
+ *     c15 esperado 81,736.84  ·  c25 contado 81,736.84  ·  c35 diferencia 0.00
+ *     c43 billetes  8,460.00  ·  c44 monedas  2,077.00  ·  c48 retirado 74,000.00
+ *     → conteo físico 84,537.00, que NO es 81,736.84: sobran $2,800.16
+ *
+ * ⛔ La pantalla decía «Cuadra $0.00» porque comparaba el corte contra `c25`, y `c25` es un número
+ * DECLARADO idéntico al esperado en el **81.2 %** de los cortes (996 medidos desde sep-2026). De
+ * 870 cortes con denominación, **409 (47.0 %) difieren** del declarado: **$1,106,561.32** en total
+ * absoluto, peor caso **$56,329.65**, neto **−$133,292.90**.
+ */
+describe('[CSU.9] el conteo por denominación contra el efectivo declarado', () => {
+  const ph = base({
+    folio: '0000017', referencia: 'Caja 2-97', caja: '2', turno: '97', monto: '85788.99',
+    efectivo_esperado: '81736.84', efectivo_contado: '81736.84',
+    tarjeta_esperado: '3150.64', tarjeta_contado: '3150.64',
+    transfer_esperado: '901.51', transfer_contado: '901.51',
+    arqueo_billetes: '8460.00', arqueo_monedas: '2077.00', efectivo_retirado: '74000.00',
+  });
+
+  it('⭐ reproduce el caso real: el físico son $84,537.00 y sobran $2,800.16 sobre lo declarado', () => {
+    const a = construirCorte(ph, NOMBRES).arqueo!;
+    expect(a.conteo_fisico).toBe(84537);
+    expect(a.fisico_diferencia).toBe(2800.16);
+  });
+
+  it('⛔ declara que el arqueo NO contó: el declarado es idéntico al esperado', () => {
+    const a = construirCorte(ph, NOMBRES).arqueo!;
+    expect(a.arqueo_declarado).toBe(true);
+    // Y el veredicto viejo sigue diciendo "cuadra" — por eso hacía falta el otro renglón.
+    expect(construirCorte(ph, NOMBRES).cuadre).toBe('cuadra');
+  });
+
+  it('NEGATIVA: un arqueo que SÍ contó no se marca como declarado', () => {
+    const a = construirCorte(base({ ...ph, efectivo_contado: '81000.00' }), NOMBRES).arqueo!;
+    expect(a.arqueo_declarado).toBe(false);
+  });
+
+  it('⛔ NEGATIVA: sin denominaciones NO se dibuja un cero — se declara que no se puede verificar', () => {
+    const a = construirCorte(base({ ...ph, arqueo_billetes: null, arqueo_monedas: null, efectivo_retirado: null }), NOMBRES).arqueo!;
+    expect(a.conteo_fisico).toBeNull();
+    expect(a.fisico_diferencia).toBeNull();
+    expect(a.conteo_fisico).not.toBe(0);
+  });
+
+  it('NEGATIVA: tres ceros tampoco son un conteo — 6.4% de los cortes llegan así', () => {
+    const a = construirCorte(base({ ...ph, arqueo_billetes: '0', arqueo_monedas: '0', efectivo_retirado: '0' }), NOMBRES).arqueo!;
+    expect(a.conteo_fisico).toBeNull();
+  });
+
+  it('⚠️ `arqueo_otros` (c45) NO entra: con él la identidad cae del 53.4% al 19.3%', () => {
+    // El crudo ni siquiera lo acepta: si alguien lo agregara, este número cambiaría.
+    const a = construirCorte(ph, NOMBRES).arqueo!;
+    expect(a.conteo_fisico).toBe(8460 + 2077 + 74000);
+    expect(a.conteo_fisico).not.toBe(8460 + 2077 + 74000 + 4052.05);
+  });
+});
