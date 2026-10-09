@@ -593,6 +593,7 @@ export class ComercialRutaDirectaRentabilidadComponent {
       sin_meta_autorizada: 'Sin meta que comparar',
       km_arrancan_en_julio: 'La serie de kilómetros es más corta',
       gasto_no_baja_a_la_ruta: 'El gasto llega al departamento',
+      rutas_sin_plaza: 'Rutas que no entran a ninguna plaza',
       sin_litros: 'Sin litros',
       comision_libro_vs_contabilidad: 'La comisión no cuadra',
     };

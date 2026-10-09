@@ -215,12 +215,19 @@ export class RouteProfitService {
       // `sum(km)` ignora esos días y `dias_medidos` dice cuántos entraron de verdad.
       const { rows: rutas } = await trx.raw(`
         WITH linea AS (
-          SELECT l.route_code, l.beneficiario_nombre, l.zona,
+          -- ⛔⛔ La PLAZA sale del resolvedor por `route_code`, NO del texto de `zona`.
+          -- La primera versión cruzaba cadenas (`zona.includes(plaza)`) y «Zamora, Michoacán»
+          -- NO contiene «Canindo»: las 4 rutas de Canindo nunca se pegaban a su plaza, así que
+          -- su tarjeta publicaba el gasto con CERO rutas y resultado «sin medir» — $158,383.69
+          -- de utilidad bruta, el 42% del total de RD, desaparecidos de la vista por plaza.
+          SELECT l.route_code, l.beneficiario_nombre, l.zona, u.plaza,
                  l.subtotal, l.venta, l.costo, l.comision, l.bonos, l.a_pagar,
                  l.motivo_no_pago, l.pct_aplicado, l.dias_con_venta, l.dias_esperados,
                  l.subtotal_origen, l.costo_status
             FROM commercial.commission_run_lines l
             JOIN commercial.commission_runs r ON r.id = l.run_id AND r.deleted_at IS NULL
+            LEFT JOIN analytics.v_rd_commission_universe u
+              ON u.tenant_id = l.tenant_id AND u.route_code = l.route_code
            WHERE r.period_id = ? AND l.deleted_at IS NULL AND l.beneficiario = 'chofer'
         ), km AS (
           SELECT k.route_code,
@@ -235,6 +242,7 @@ export class RouteProfitService {
         SELECT li.route_code,
                li.beneficiario_nombre AS chofer,
                li.zona,
+               li.plaza,
                round(li.subtotal, 2)  AS subtotal,
                round(li.venta, 2)     AS venta,
                round(li.costo, 2)     AS costo,
@@ -342,7 +350,13 @@ export class RouteProfitService {
 
       // El resultado de la plaza = utilidad bruta de SUS rutas − gasto de SU departamento.
       // Sólo se publica donde la plaza resuelve; donde no, se dice por qué.
-      const plazas = armarPlazas(rutas, gasto);
+      const { plazas, rutasSinPlaza } = armarPlazas(rutas, gasto);
+      if (rutasSinPlaza.length) {
+        huecos.push({
+          clave: 'rutas_sin_plaza',
+          detalle: `${rutasSinPlaza.length} ruta(s) no entran a ninguna plaza: ${rutasSinPlaza.join(', ')}. El resolvedor de identidad no las ubica, así que su utilidad bruta se ve arriba —por ruta— pero no se resta contra ningún gasto abajo.`,
+        });
+      }
 
       return {
         periodo: per,
@@ -386,8 +400,9 @@ const money = (n: number | string): string =>
  * departamento, y un departamento cuya plaza no resuelve (`MORELIA MADERO RD`, que gasta sin
  * tener rutas en el resolvedor de identidad) sale igual, declarado, en vez de desaparecer.
  */
-function armarPlazas(rutas: RentabilidadRuta[], gasto: GastoFamilia[]): RentabilidadPlaza[] {
+function armarPlazas(rutas: RentabilidadRuta[], gasto: GastoFamilia[]): ArmadoPlazas {
   const porPlaza = new Map<string, RentabilidadPlaza>();
+  const rutasSinPlaza: string[] = [];
   const clave = (p: string | null, dpto: string | null): string => p ?? `dpto:${dpto}`;
 
   for (const g of gasto) {
@@ -405,29 +420,37 @@ function armarPlazas(rutas: RentabilidadRuta[], gasto: GastoFamilia[]): Rentabil
     p.gasto_por_familia.push({ familia: g.familia, importe: Number(g.importe ?? 0), lineas: g.lineas });
   }
 
+  // ⛔⛔ Se une por PLAZA EXACTA, que el resolvedor da por `route_code`. La versión anterior
+  // cruzaba cadenas (`zona.includes(plaza)`) y «Zamora, Michoacán» no contiene «Canindo»:
+  // las 4 rutas de Canindo nunca se pegaban y su tarjeta decía «sin medir» teniendo $158,383.69
+  // de utilidad bruta. Un cruce por texto comercial parece funcionar porque UNA de las tres
+  // zonas sí contiene su plaza, y esa coincidencia es lo que lo hace difícil de ver.
+  const huerfanas: string[] = [];
   for (const r of rutas) {
-    // La zona del renglón de comisión nombra la plaza en otro vocabulario ("Zamora,
-    // Michoacán" por Canindo), así que se une por la plaza que ya resolvió el gasto.
-    const k = [...porPlaza.keys()].find((kk) => {
-      const p = porPlaza.get(kk)!;
-      if (!p.plaza || !r.zona) return false;
-      return r.zona.toUpperCase().includes(p.plaza.toUpperCase());
-    });
-    if (!k) continue;
-    const p = porPlaza.get(k)!;
+    if (!r.plaza) { huerfanas.push(r.route_code); continue; }
+    const p = porPlaza.get(r.plaza);
+    // La ruta tiene plaza pero su departamento no gastó en esta quincena: no se inventa
+    // una tarjeta vacía, se cuenta como huérfana y la pantalla lo declara.
+    if (!p) { huerfanas.push(r.route_code); continue; }
     p.rutas += 1;
     p.subtotal = round2(p.subtotal + Number(r.subtotal ?? 0));
     p.costo = round2(p.costo + Number(r.costo ?? 0));
     p.utilidad_bruta = round2(p.utilidad_bruta + Number(r.utilidad_bruta ?? 0));
   }
+  rutasSinPlaza.push(...huerfanas);
 
   for (const p of porPlaza.values()) {
     p.gasto_por_familia.sort((a, b) => b.importe - a.importe);
     // ⛔ Sin rutas no hay utilidad que restar: el resultado queda NULL, no en negativo.
     p.resultado = p.rutas > 0 ? round2(p.utilidad_bruta - p.gasto) : null;
   }
-  return [...porPlaza.values()].sort((a, b) => (b.gasto ?? 0) - (a.gasto ?? 0));
+  return {
+    plazas: [...porPlaza.values()].sort((a, b) => (b.gasto ?? 0) - (a.gasto ?? 0)),
+    rutasSinPlaza,
+  };
 }
+
+interface ArmadoPlazas { plazas: RentabilidadPlaza[]; rutasSinPlaza: string[] }
 
 export interface PeriodoDisponible {
   id: string; anio: number; period_no: number;
@@ -438,7 +461,10 @@ export interface PeriodoDisponible {
 export interface RentabilidadRuta {
   route_code: string;
   chofer: string | null;
+  /** Texto comercial ("Zamora, Michoacán"). ⛔ NO sirve para unir con la plaza. */
   zona: string | null;
+  /** La plaza EXACTA, del resolvedor por route_code. NULL = el resolvedor no la ubica. */
+  plaza: string | null;
   subtotal: string; venta: string; costo: string;
   utilidad_bruta: string;
   margen_pct: string | null;
