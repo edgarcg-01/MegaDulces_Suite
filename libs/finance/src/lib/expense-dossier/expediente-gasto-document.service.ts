@@ -1,8 +1,44 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
+import { ObjectStorageService } from '@megadulces/platform-core';
 // `[GX.74]` El detalle del pago puede traer varios renglones: se muestran como `1234 · 5678`.
-import { detallesParaMostrar } from '@megadulces/contracts';
+// `[GX.75]` La transferencia XD2601 que pagó el gasto: su resumen sale del contrato.
+import { detallesParaMostrar, resumenTransferencias, type TransferenciaGasto } from '@megadulces/contracts';
 import { esc, htmlAPdf, money } from '../shared/chromium-pdf';
 import { ExpedienteGastoService, type ExpedienteGasto } from './expediente-gasto.service';
+import {
+  anexarPdfs, htmlEvidencias, prepararEvidencias, type Achicar, type ArchivoEvidencia, type EvidenciasPreparadas,
+} from './evidencias-pdf';
+
+// `sharp` es opcional, igual que en `CloudinaryService`: sin él la foto entra sin reducir (y se dice).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+let sharp: any = null;
+try {
+  sharp = require('sharp');
+} catch {
+  sharp = null;
+}
+
+/** `[GX.76]` La foto reducida: lado mayor 1400 px, JPEG 78, orientada por su EXIF. */
+const achicarImagen: Achicar = async (bytes) => {
+  if (!sharp) return null;
+  return sharp(bytes).rotate().resize({ width: 1400, height: 1400, fit: 'inside', withoutEnlargement: true })
+    .jpeg({ quality: 78 }).toBuffer();
+};
+
+/**
+ * `[GX.76]` Los archivos de evidencia del expediente, con de dónde vienen: lo que aportó quien
+ * gastó y lo de cada comprobación. Pura: se prueba sin bucket.
+ */
+export function archivosDeEvidencia(x: Pick<ExpedienteGasto, 'expediente' | 'comprobaciones'>): { origen: string; archivo: ArchivoEvidencia }[] {
+  const out: { origen: string; archivo: ArchivoEvidencia }[] = [];
+  const lista = (v: unknown): ArchivoEvidencia[] => (Array.isArray(v) ? v as ArchivoEvidencia[] : []);
+  for (const a of lista((x.expediente as { files?: unknown } | null)?.files)) out.push({ origen: 'Expediente', archivo: a });
+  for (const c of (x.comprobaciones || []) as { folio_comprobacion?: string | null; folio_gasto?: string | null; files?: unknown }[]) {
+    const origen = `Comprobación ${c.folio_comprobacion || c.folio_gasto || ''}`.trim();
+    for (const a of lista(c.files)) out.push({ origen, archivo: a });
+  }
+  return out;
+}
 
 const CLASIFICACION_LABEL: Record<string, string> = {
   fiscal: 'Con factura',
@@ -21,11 +57,21 @@ const ESTADO_NUESTRO: Record<string, string> = {
   rechazada: 'Rechazada', revision: 'En revisión',
 };
 
-function fecha(v: unknown): string {
+/**
+ * `[GX.75]` La fecha del documento, «5 oct 2026».
+ *
+ * ⚠️ `pg` entrega las columnas `date`/`timestamp` como **objeto `Date`** (el repo no fija
+ * `setTypeParser`), y `String(date).slice(0, 10)` daba **«Mon Oct 05»** — en inglés y sin año —
+ * en la solicitud y el gasto de todo PDF desde `[GX.15]`. Con `Date` se leen los getters LOCALES:
+ * `pg` lo armó en hora local, así que son los que devuelven el día que guardó Kepler.
+ */
+export function fecha(v: unknown): string {
   if (!v) return '—';
-  const iso = String(v).slice(0, 10);
+  const iso = v instanceof Date
+    ? (Number.isNaN(v.getTime()) ? '' : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, '0')}-${String(v.getDate()).padStart(2, '0')}`)
+    : String(v).slice(0, 10);
   const [y, m, d] = iso.split('-').map(Number);
-  if (!y || !m || !d) return esc(iso);
+  if (!y || !m || !d) return iso ? esc(iso) : '—';
   const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
   return `${d} ${MESES[m - 1]} ${y}`;
 }
@@ -35,11 +81,42 @@ function fechaHora(iso: string): string {
 }
 
 /**
+ * `[GX.75]` La sección «La transferencia» del PDF: el documento `XD2601` de «Alta
+ * transferencias» que pagó cada gasto, leído de Kepler (`kdm5`). Pura y exportada para
+ * probarla sin levantar Chromium.
+ *
+ * ⛔ Cada ausencia se dice distinto: sin gasto no hay qué pagar; `null` es «no se pudo
+ * consultar» (no «nadie pagó»); `[]` es «Kepler no tiene transferencia aplicada». Y la
+ * cancelada se lista tachada pero NO entra a la suma: Kepler conserva su aplicación.
+ */
+export function bloqueTransferenciasHtml(ts: readonly TransferenciaGasto[] | null, hayGastos: boolean): string {
+  const vacio = (t: string) => `<p class="vacio">${esc(t)}</p>`;
+  if (!hayGastos) return vacio('Todavía no hay gasto que pagar.');
+  if (ts == null) return vacio('No se pudo consultar Kepler para saber con qué transferencia se pagó.');
+  if (!ts.length) return vacio('Kepler no tiene una transferencia (XD2601) aplicada a este gasto.');
+  const filas = ts.map((t) => `<tr${t.cancelada ? ' class="cancelada"' : ''}>
+      <td class="mono">${esc(t.folio)}</td>
+      <td>${fecha(t.fecha)}</td>
+      <td class="mono">${esc(t.gasto_folio)}</td>
+      <td>${t.cancelada ? 'Cancelada — no cuenta' : 'Vigente'}</td>
+      <td class="num">${t.importe == null ? '—' : money(t.importe)}</td>
+      <td class="num">${money(t.aplicado)}</td>
+    </tr>`).join('');
+  // Con más de una, la cifra que importa es la SUMA de las vigentes: contra ella se compara el gasto.
+  const total = ts.length > 1
+    ? `<tr class="tot"><td colspan="5">Aplicado por transferencias vigentes</td><td class="num">${money(resumenTransferencias(ts).aplicado)}</td></tr>`
+    : '';
+  return `<table class="tabla">
+      <thead><tr><th>Folio</th><th>Fecha</th><th>Al gasto</th><th>Estado</th><th class="num">Importe del documento</th><th class="num">Aplicado</th></tr></thead>
+      <tbody>${filas}${total}</tbody></table>`;
+}
+
+/**
  * `[GX.15]` — **El expediente del gasto, imprimible.**
  *
- * Un solo documento con los cuatro eslabones: la solicitud de Kepler, lo que aportó quien
- * gastó (forma de pago + fotos), el gasto aplicado y la comprobación. Es lo que hoy
- * obliga a abrir tres pantallas y copiar a mano.
+ * Un solo documento con los eslabones del trámite: la solicitud de Kepler, lo que aportó quien
+ * gastó (forma de pago + fotos), el gasto aplicado, la transferencia que lo pagó (`[GX.75]`)
+ * y la comprobación. Es lo que hoy obliga a abrir tres pantallas y copiar a mano.
  *
  * ## Lo que este documento NO es
  * **No es un comprobante fiscal ni una póliza.** No lo emite Kepler, no se sube a
@@ -47,19 +124,27 @@ function fechaHora(iso: string): string {
  * a partir de lo que ya existe. Lo dice en el pie, en el propio papel, para que nadie lo
  * presente como lo que no es.
  *
- * ## Las fotos NO se embeben
- * Las evidencias viven en un bucket privado y se sirven con URL firmada temporal. Meterlas
- * en el PDF (a `data:`) haría un archivo de decenas de MB **y** convertiría una evidencia
- * con caducidad en una copia permanente que viaja por correo sin control. El documento
- * **lista** cada archivo con su rol, su sello de captura y su hora; quien necesite verlas
- * entra al expediente. Se declara acá porque es una decisión, no un olvido.
+ * ## `[GX.76]` Las evidencias SÍ viajan en el archivo (antes no, a propósito)
+ * `[GX.15]` decidió no embeberlas —tamaño, y una evidencia con URL que caduca convertida en
+ * copia permanente—. El usuario pidió lo contrario el 2026-10-07: el expediente debe bastarse
+ * solo. Las fotos van reducidas en la sección «Las evidencias» y los PDF (71 % de los archivos)
+ * se anexan al final, marcados página por página. Ver `evidencias-pdf.ts`.
  *
  * Usa el Chromium compartido de `libs/finance` (`shared/chromium-pdf.ts`), no una cuarta
  * copia del singleton.
  */
 @Injectable()
 export class ExpedienteGastoDocumentService {
-  constructor(private readonly svc: ExpedienteGastoService) {}
+  private readonly logger = new Logger(ExpedienteGastoDocumentService.name);
+
+  constructor(
+    private readonly svc: ExpedienteGastoService,
+    /**
+     * `[GX.76]` Para bajar las evidencias del bucket. Ya está en este módulo: lo provee
+     * `CloudinaryModule` (ver `finance-expediente-gasto.module.ts`, la caída del 2026-09-24).
+     */
+    private readonly storage: ObjectStorageService,
+  ) {}
 
   async render(
     sucursal: string,
@@ -67,7 +152,23 @@ export class ExpedienteGastoDocumentService {
     user?: { sub?: string; role_name?: string; permissions?: Record<string, boolean> },
   ): Promise<{ pdf: Buffer; nombre: string }> {
     const x = await this.svc.expediente(sucursal, folio, user);
-    const pdf = await htmlAPdf(this.html(x), { footer: this.pie(x) });
+    const evid = await prepararEvidencias(archivosDeEvidencia(x), (k) => this.storage.getDataUri(k), achicarImagen);
+    const principal = await htmlAPdf(this.html(x, evid), { footer: this.pie(x) });
+    const etiqueta = `Expediente ${x.sucursal}-${x.folio_solicitud}`;
+    let pdf: Buffer = principal;
+    try {
+      pdf = Buffer.from(await anexarPdfs(principal, evid.pdfs, etiqueta));
+    } catch (e) {
+      // ⛔ El documento ya dice «anexados al final»: entregarlo sin ellos sería afirmar algo falso.
+      // Se vuelve a armar declarándolos como no incluidos, y se registra.
+      this.logger.warn(`${etiqueta}: no se pudieron anexar los PDF de evidencia: ${(e as Error)?.message || e}`);
+      const sinAnexos: EvidenciasPreparadas = {
+        ...evid,
+        pdfs: [],
+        omitidas: [...evid.omitidas, ...evid.pdfs.map((p) => ({ etiqueta: p.etiqueta, motivo: 'no se pudo anexar al archivo: se consulta en el expediente' }))],
+      };
+      pdf = await htmlAPdf(this.html(x, sinAnexos), { footer: this.pie(x) });
+    }
     return { pdf, nombre: `expediente-${x.sucursal}-${x.folio_solicitud}.pdf` };
   }
 
@@ -163,11 +264,11 @@ export class ExpedienteGastoDocumentService {
     </table>`).join('');
   }
 
-  private html(x: ExpedienteGasto): string {
+  private html(x: ExpedienteGasto, evid: EvidenciasPreparadas): string {
     const s = x.solicitud as any;
     const faltan = x.tramite.falta.length
       ? `<div class="falta"><strong>Qué falta</strong><ul>${x.tramite.falta.map((f) => `<li>${esc(f)}</li>`).join('')}</ul></div>`
-      : '<div class="ok"><strong>No falta nada.</strong> Los cuatro eslabones están completos.</div>';
+      : '<div class="ok"><strong>No falta nada.</strong> El trámite está completo.</div>';
 
     return `<!doctype html><html lang="es"><head><meta charset="utf-8"><title>Expediente ${esc(x.folio_solicitud)}</title>
 <style>
@@ -196,6 +297,8 @@ export class ExpedienteGastoDocumentService {
   table.tabla td { padding: 5px 6px; border-bottom: 1px solid #F4F4F5; }
   table.tabla .num, td.num, th.num { text-align: right; font-family: "Geist Mono", monospace; }
   table.tabla tr.tot td { font-weight: 700; border-top: 1px solid #09090B; border-bottom: none; }
+  table.tabla tr.cancelada td { color: #991B1B; }
+  table.tabla tr.cancelada td.mono, table.tabla tr.cancelada td.num { text-decoration: line-through; }
   ul.files { margin: 0; padding-left: 14px; }
   ul.files li { margin-bottom: 2px; }
   .rol { font-family: "Geist Mono", monospace; font-size: 9pt; }
@@ -207,6 +310,13 @@ export class ExpedienteGastoDocumentService {
   .falta ul { margin: 5px 0 0; padding-left: 16px; }
   .ok { margin-top: 14px; padding: 10px 12px; border: 1px solid #BBF7D0; background: #F0FDF4;
         border-radius: 4px; font-size: 9.5pt; color: #15803D; }
+  /* [GX.76] Las evidencias arrancan en página nueva, y una foto nunca se parte entre dos. */
+  .evidencias { break-before: page; }
+  .evidencias h2 { margin-top: 0; }
+  figure.evid { margin: 10px 0 14px; break-inside: avoid; }
+  figure.evid figcaption { font-size: 9pt; color: #52525B; margin-bottom: 4px; font-weight: 600; }
+  figure.evid img { display: block; max-width: 100%; max-height: 225mm; border: 1px solid #E4E4E7; border-radius: 4px; }
+  .anexos { margin: 6px 0 4px; font-size: 9.5pt; }
 </style></head><body>
   <div class="head">
     <div>
@@ -230,17 +340,25 @@ export class ExpedienteGastoDocumentService {
   <h2><span class="n">3</span>El gasto aplicado<span class="fuente">Kepler · XA1001</span></h2>
   ${this.bloqueGastos(x)}
 
-  <h2><span class="n">4</span>La comprobación<span class="fuente">Suite · comprobación</span></h2>
+  <h2><span class="n">4</span>La transferencia<span class="fuente">Kepler · XD2601</span></h2>
+  ${bloqueTransferenciasHtml(x.transferencias, x.gastos.length > 0)}
+
+  <h2><span class="n">5</span>La comprobación<span class="fuente">Suite · comprobación</span></h2>
   ${this.bloqueComprobaciones(x)}
 
   ${faltan}
+
+  <section class="evidencias">
+    <h2><span class="n">6</span>Las evidencias<span class="fuente">Suite · archivos del expediente</span></h2>
+    ${htmlEvidencias(evid)}
+  </section>
 </body></html>`;
   }
 
   private pie(x: ExpedienteGasto): string {
     return `<div style="width:100%;font-size:7pt;color:#71717A;font-family:'Segoe UI',system-ui,sans-serif;padding:0 9mm;">
       <span>Expediente ${esc(x.sucursal)}-${esc(x.folio_solicitud)} · armado el ${esc(fechaHora(x.generado_at))} ·
-      <strong>respaldo interno, no es comprobante fiscal ni póliza</strong>. Las evidencias no viajan en este archivo: se consultan en el expediente.</span>
+      <strong>respaldo interno, no es comprobante fiscal ni póliza</strong>. Las fotos van en la sección 6; los PDF de evidencia, anexados al final.</span>
       <span style="float:right;">Pág. <span class="pageNumber"></span> de <span class="totalPages"></span></span>
     </div>`;
   }

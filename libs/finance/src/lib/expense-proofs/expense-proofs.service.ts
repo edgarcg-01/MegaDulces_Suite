@@ -36,6 +36,7 @@ import { constanciaDeAutorizacion, documentoKepler, quedaDebiendoComprobante } f
 import { protocoloDelVale } from '@megadulces/contracts';
 import type { FiltroExpediente, OpcionDepartamentoExpediente, PersonaExpediente, RespuestaExpediente, ValeExpediente } from '@megadulces/contracts';
 import { pideSinDepartamento } from './expediente-filtro';
+import { leerTransferenciasDelGasto, transferenciasDelVale } from './transferencias-del-gasto';
 import type { AutorizacionKepler } from '@megadulces/contracts';
 
 /**
@@ -1472,11 +1473,25 @@ export class ExpenseProofsService {
       // `[GX.65.3]` Proveedor por clave + gastos XA1001: DATO para las 3 columnas, no decisión.
       // Sólo en «lo mío»: las otras pantallas que usan list() no lo piden y no pagan la consulta.
       const gastos = q.mine ? await this.gastosPorSolicitud(trx, crudas) : new Map<string, string[]>();
-      const rows = this.conEtapa(crudas, kep).map((r) => ({
-        ...r,
-        ...datosKeplerDeLaFila(kep.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal)),
-          gastos, r.folio_solicitud, r.sucursal),
-      }));
+      /**
+       * `[GX.75]` La transferencia `XD2601` de esos gastos, en UN viaje — la MISMA lectura que el
+       * Expediente. Con ella «Mis gastos» por fin llena «Pagados». Sólo en «lo mío», como los gastos.
+       * `null` = no se pudo medir (sin ODS): la pantalla no afirma ni «pagado» ni «sin pago».
+       */
+      const transf = q.mine
+        ? await leerTransferenciasDelGasto(trx, crudas.flatMap((r) =>
+          datosKeplerDeLaFila(undefined, gastos, r.folio_solicitud, r.sucursal).gasto_folios
+            .map((g) => ({ sucursal: r.sucursal, gasto_folio: g }))))
+        : null;
+      const rows = this.conEtapa(crudas, kep).map((r) => {
+        const dk = datosKeplerDeLaFila(kep.get(this.claveKepler(String(r.folio_solicitud || ''), r.sucursal)),
+          gastos, r.folio_solicitud, r.sucursal);
+        return {
+          ...r,
+          ...dk,
+          ...(q.mine ? { transferencias: transf ? transferenciasDelVale(r.sucursal, dk.gasto_folios, transf) : null } : {}),
+        };
+      });
 
       const agg = await filtros(trx('finance.expense_proofs'))
         .groupBy('status').select('status', trx.raw('COUNT(*)::int AS n'));
@@ -2070,7 +2085,8 @@ export class ExpenseProofsService {
         if (periodo === 'mes') b.whereRaw("r.fecha >= date_trunc('month', current_date)");
         else b.whereRaw(`r.fecha >= current_date - interval '${meses} months'`);
         b.whereRaw('r.fecha <= current_date');
-        if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]);
+        // `[GX.75]` `'\\s+'`: con una sola barra JS se la come y a Postgres llegaba `'s+'`.
+        if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]);
         return b;
       };
 
@@ -2089,7 +2105,7 @@ export class ExpenseProofsService {
         .where('r.tenant_id', tenantId)
         .whereRaw("r.fecha >= date_trunc('month', current_date) - interval '6 months'")
         .whereRaw('r.fecha <= current_date')
-        .modify((b: any) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]); })
+        .modify((b: Knex.QueryBuilder) => { if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(r.solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]); })
         .groupByRaw("to_char(r.fecha,'YYYY-MM')")
         .orderByRaw("to_char(r.fecha,'YYYY-MM')")
         .select(trx.raw("to_char(r.fecha,'YYYY-MM') AS mes"), trx.raw('COUNT(*)::int AS n'), trx.raw('COALESCE(SUM(r.importe),0)::numeric AS monto'));
@@ -2580,6 +2596,7 @@ export class ExpenseProofsService {
       /**
        * `[GX.62]` **El gasto `XA1001` entra al expediente.** Es el segundo de los tres
        * numeros que el usuario pidio que el expediente contenga (solicitud -> gasto -> pago).
+       * El tercero, la transferencia `XD2601`, llega con `[GX.75]` (abajo, por `kdm5`).
        *
        * ⚠️ Es una LISTA, no un folio. Medido en `[GX.15]`: 8,705 solicitudes tienen 1 gasto,
        * **165 tienen 2, 10 tienen 3 y 2 tienen 4**. Modelarlo 1:1 mostraria un gasto
@@ -2597,6 +2614,14 @@ export class ExpenseProofsService {
                      AND d.doc_tipo = 'XA1001') AS gasto_folios`));
 
       const filas: Cruda[] = await q;
+
+      /**
+       * `[GX.75]` El tercer número: la transferencia `XD2601` que pagó cada gasto. UN viaje
+       * para todos los vales (medido en prod: ~25 ms con 293 gastos). `null` = no hay ODS de
+       * Kepler en este entorno, y así viaja: «no medido», no «nadie pagó».
+       */
+      const transferencias = await leerTransferenciasDelGasto(trx, filas.flatMap((f) =>
+        (Array.isArray(f.gasto_folios) ? f.gasto_folios : []).map((g) => ({ sucursal: f.sucursal, gasto_folio: g }))));
 
       // El nombre completo, de una sola consulta. Un lookup por fila serían 155 viajes.
       const usuarios: { username: string; nombre: string | null }[] = await trx('identity.users')
@@ -2625,6 +2650,7 @@ export class ExpenseProofsService {
           comprobacion_kepler: comprobacionKepler,
         });
 
+        const gastoFolios = Array.isArray(f.gasto_folios) ? f.gasto_folios.filter(Boolean) : [];
         const vale: ValeExpediente = {
           id: f.id,
           folio_solicitud: f.folio_solicitud,
@@ -2641,7 +2667,9 @@ export class ExpenseProofsService {
           comprobacion_kepler: comprobacionKepler,
           comprobacion_folio: f.comprobacion_folio || null,
           // `[GX.62]` Los folios del gasto aplicado. Vacio = Kepler todavia no lo ejercio.
-          gasto_folios: Array.isArray(f.gasto_folios) ? f.gasto_folios.filter(Boolean) : [],
+          gasto_folios: gastoFolios,
+          // `[GX.75]` Las transferencias de esos gastos. `null` = no se midió.
+          transferencias: transferencias ? transferenciasDelVale(f.sucursal, gastoFolios, transferencias) : null,
           // Los roles alcanzan para decidir qué botón ofrecer. Las URL firmadas caducan y
           // mandarlas para 155 vales de una sería regalar 155 enlaces que nadie va a abrir.
           roles: archivos.map((a) => String(a?.role || '')).filter(Boolean),
