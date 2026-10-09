@@ -3,6 +3,7 @@ import { Permission } from '@megadulces/contracts/authz/permissions';
 import {
   CAJA_VENTANA_DIAS,
   parseHHMM,
+  resumenEjercicioPendiente,
   type BusinessCalendar,
   type MeDesgloseItem,
   type MeFlujo,
@@ -1205,6 +1206,75 @@ export const BANDEJAS: readonly BandejaDef[] = [
           cierre: 'authorized_at',
         },
       ),
+    /*
+     * `[PVI.17]` **Qué le pasa a ESTE ejercicio, en el renglón, antes de abrirlo.**
+     *
+     * El registro pide desglosar «sólo donde el QUÉ importa más que el CUÁNTO y el total es chico
+     * por naturaleza». Un ejercicio de presupuesto es el caso extremo: son 2 o 3 al año, y lo que
+     * decide si se firma hoy o se devuelve **no es cuántos hay, es qué les falta**.
+     *
+     * Las dos cosas que se dicen acá son las que la pantalla del módulo ya contesta, traídas al
+     * momento en que cambian una decisión —el de firmar— en vez de obligar a entrar a buscarlas:
+     *
+     *   · **qué lados le faltan** para poder declarar un resultado (`ladosFaltantes`, la misma
+     *     regla de `libs/contracts` que usa la pantalla: medido en prod, los 3 ejercicios tienen
+     *     `ingreso` y `gasto` y **ninguno** tiene `costo_ventas`, así que ninguno puede restar);
+     *   · **cuántos supuestos de crecimiento no tienen procedencia registrada** (medido: 4 canales
+     *     con número en `PRE-2027-002` y `growth_provenance` NULL en los 3 ejercicios).
+     *
+     * ⚠️ Dice «sin procedencia registrada», NO «sin respaldo». `growth_provenance` en NULL
+     * significa que la fila es anterior a `[PVI.3]` o que el autopiloto todavía no la escribió —
+     * no que alguien haya decidido a dedo. Son dos afirmaciones distintas y sólo una es medible.
+     *
+     * ⛔ Hoy devuelve VACÍO, porque la cola está vacía. Eso no es un defecto del desglose: es el
+     * estado real. Dirección puede aprobar y no tiene nada que aprobar.
+     */
+    desglosar: async (knex, { tenantId }, tope) => {
+      const filas = await knex('budget.budgets as b')
+        .leftJoin('budget.budget_lines as l', 'l.budget_id', 'b.id')
+        .leftJoin('budget.sales_plan_settings as s', 's.budget_id', 'b.id')
+        .where({ 'b.tenant_id': tenantId, 'b.status': 'pendiente' })
+        .whereRaw(ejercicioNoEsDePruebaSql('b'))
+        .groupBy('b.id', 'b.folio', 'b.name', 'b.fiscal_year', 'b.updated_at', 's.growth_by_channel', 's.growth_provenance')
+        .orderBy('b.updated_at', 'asc')
+        .limit(tope)
+        .select(
+          'b.id',
+          'b.folio',
+          'b.name',
+          'b.fiscal_year',
+          'b.updated_at',
+          's.growth_by_channel',
+          's.growth_provenance',
+          knex.raw(`array_remove(array_agg(distinct l.line_type), null) as tipos`),
+        );
+
+      return filas.map((f) => {
+        // La regla de QUÉ se afirma vive en `libs/contracts` y está probada ahí. Acá sólo se le
+        // entrega lo que la consulta trajo: este archivo no tiene runner de pruebas, así que una
+        // copia local de la regla sería una regla sin candado.
+        const r = resumenEjercicioPendiente({
+          tipos: (f.tipos as string[]) ?? [],
+          crecimiento: (f.growth_by_channel ?? null) as Record<string, number> | null,
+          procedencia: (f.growth_provenance ?? null) as Record<string, unknown> | null,
+        });
+
+        return {
+          id: String(f.id),
+          label: `${f.folio ?? 'sin folio'} · ${f.name ?? `Ejercicio ${f.fiscal_year}`}`,
+          /*
+           * ⛔ `null` cuando no falta nada: la gravedad la declara el hecho, no el renglón. Pintar
+           * `warn` en un ejercicio completo haría que el color dejara de significar algo.
+           */
+          nivel: r.hay_pendiente ? ('warn' as const) : null,
+          // ⚠️ `updated_at` es el mismo PROXY que usa `medir`: es el último toque, no el envío a
+          // firma. Las dos fechas tienen que salir de la misma columna o el renglón contradice al
+          // contador que lo encabeza.
+          desde: f.updated_at ? new Date(f.updated_at).toISOString() : null,
+          nota: r.nota,
+        };
+      });
+    },
   },
   {
     id: 'presupuesto-obligaciones',
