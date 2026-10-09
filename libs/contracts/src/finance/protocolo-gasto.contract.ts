@@ -1,3 +1,5 @@
+import type { TransferenciaGasto } from './transferencia-gasto.contract';
+
 /**
  * `[GX.59]` — **¿Este vale completó el protocolo?**
  *
@@ -224,6 +226,12 @@ export interface ValeExpediente {
    * Vacío = Kepler todavía no lo ejerció (la solicitud está autorizada pero sin gasto).
    */
   gasto_folios: string[];
+  /**
+   * `[GX.75]` Las transferencias **`XD2601`** que pagaron esos gastos (Kepler `kdm5`), con su
+   * `gasto_folio` para saber a cuál. ⛔ `null` = NO se midió (no hay ODS de Kepler en este
+   * entorno); `[]` = se midió y todavía no se paga.
+   */
+  transferencias: TransferenciaGasto[] | null;
   /** Los roles de los adjuntos. Alcanza para decidir qué botón ofrecer, sin mandar URLs. */
   roles: string[];
   protocolo: VeredictoProtocolo;

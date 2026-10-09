@@ -1,6 +1,8 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { TenantKnexService, TenantContextService, ObjectStorageService, Permission } from '@megadulces/platform-core';
+import type { TransferenciaGasto } from '@megadulces/contracts';
 import { ExpenseProofsService } from '../expense-proofs/expense-proofs.service';
+import { leerTransferenciasDelGasto, transferenciasDelVale } from '../expense-proofs/transferencias-del-gasto';
 
 /**
  * `[GX.15]` — **El expediente del gasto: los cuatro eslabones en un solo lugar.**
@@ -65,6 +67,13 @@ export interface ExpedienteGasto {
   solicitud: Record<string, unknown> | null;
   expediente: Record<string, unknown> | null;
   gastos: Record<string, unknown>[];
+  /**
+   * `[GX.75]` Las transferencias `XD2601` que pagaron esos gastos (Kepler `kdm5`).
+   * ⛔ `null` = no se pudo medir (no hay ODS de Kepler); `[]` = Kepler no tiene ninguna aplicada.
+   * Es información del expediente, NO un requisito del trámite: un gasto se paga también en
+   * efectivo o por caja, así que `derivarEtapa` no la lee.
+   */
+  transferencias: TransferenciaGasto[] | null;
   comprobaciones: Record<string, unknown>[];
   tramite: { etapa: EtapaExpediente; label: string; falta: string[] };
   /** Cuándo se armó. Un expediente es una foto, y la foto lleva su hora. */
@@ -114,6 +123,14 @@ export function derivarEtapa(e: EntradaEtapa): { etapa: EtapaExpediente; label: 
       falta.push('la foto del comprobante en el expediente');
     }
   }
+  /**
+   * `[GX.76]` ⛔ Lo que falta de KEPLER también falta. Sin estas dos líneas, una solicitud
+   * autorizada SIN gasto aplicado —y con su expediente propio completo— decía «No falta nada.
+   * Los cuatro eslabones están completos» con las secciones 3 y 4 vacías debajo. Visto en el
+   * PDF de producción de la 06-0000045 el 2026-10-07 (estado «A», ningún XA1001 la referencia).
+   */
+  if (etapa === 'por_autorizar') falta.push('que Kepler autorice la solicitud');
+  if (etapa === 'autorizada_sin_gasto') falta.push('que Kepler aplique el gasto (XA1001) de esta solicitud');
   if (etapa === 'gastada_sin_comprobar') falta.push('la comprobación del gasto');
   if (etapa === 'comprobada_sin_validar') falta.push('que Finanzas valide la comprobación');
   // El descuadre se DECLARA, no se corrige solo: con varios gastos la pregunta es la SUMA.
@@ -239,9 +256,14 @@ export class ExpedienteGastoService {
         cuadra_con_solicitud: this.cuadra(Number(g.importe), solImporte),
       }));
       const sumaGastos = gastos.reduce((a, g) => a + Number(g.importe), 0);
+      const folios: string[] = gastos.map((g) => g.doc_folio).filter(Boolean);
+
+      // ── 3b · `[GX.75]` La transferencia XD2601 que pagó cada gasto (Kepler kdm5) ──
+      // La misma lectura que la pantalla del Expediente: una sola regla, no dos.
+      const mapaTransf = await leerTransferenciasDelGasto(trx, folios.map((f: string) => ({ sucursal: suc, gasto_folio: f })));
+      const transferencias = mapaTransf ? transferenciasDelVale(suc, folios.map(String), mapaTransf) : null;
 
       // ── 4 · Las comprobaciones propias, por folio de GASTO ────────────────────────
-      const folios = gastos.map((g: any) => g.doc_folio).filter(Boolean);
       const compsRaw: any[] = folios.length
         ? await trx('finance.expense_comprobaciones')
           .where('tenant_id', tenantId)
@@ -273,6 +295,7 @@ export class ExpedienteGastoService {
         solicitud: { ...s, importe: solImporte, iva: s.iva == null ? null : Number(s.iva) },
         expediente,
         gastos,
+        transferencias,
         comprobaciones,
         tramite,
         generado_at: new Date().toISOString(),
@@ -335,7 +358,9 @@ export class ExpedienteGastoService {
         .whereRaw('fecha <= current_date')
         .whereNot('estado', 'C') // cancelada en Kepler no se comprueba: se canceló
         .modify((b: any) => {
-          if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(solicitante),'\s+',' ','g')) = ANY(?::text[])", [claves]);
+          // `[GX.75]` `'\\s+'`, no `'\s+'`: en un string de JS el `\s` se come la barra y a
+          // Postgres le llegaba `'s+'` — reemplazaba letras «s», no espacios.
+          if (!veTodo) b.whereRaw("upper(regexp_replace(btrim(solicitante),'\\s+',' ','g')) = ANY(?::text[])", [claves]);
         })
         .select('sucursal', 'folio', 'estado', 'solicitante', trx.raw('importe::numeric AS importe'));
 

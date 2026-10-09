@@ -46,6 +46,20 @@ describe('[GX.15] la etapa del trámite', () => {
     expect(derivarEtapa(base({ estado: 'N', gastos: [], comprobaciones: [] })).etapa).toBe('por_autorizar');
   });
 
+  /**
+   * ⛔ `[GX.76]` El caso del PDF de producción (06-0000045): autorizada, sin gasto aplicado, con
+   * el expediente propio completo. Decía «No falta nada» con las secciones 3 y 4 vacías.
+   */
+  it('⛔ [GX.76] sin gasto aplicado NUNCA dice «no falta nada»: falta lo de Kepler', () => {
+    const autorizada = derivarEtapa(base({ estado: 'A', gastos: [], comprobaciones: [] }));
+    expect(autorizada.falta).toEqual(['que Kepler aplique el gasto (XA1001) de esta solicitud']);
+    const porAutorizar = derivarEtapa(base({ estado: 'N', gastos: [], comprobaciones: [] }));
+    expect(porAutorizar.falta).toEqual(['que Kepler autorice la solicitud']);
+    // Y lo propio que falte se sigue diciendo, además de lo de Kepler.
+    const sinExp = derivarEtapa(base({ estado: 'A', gastos: [], comprobaciones: [], expediente: null }));
+    expect(sinExp.falta).toHaveLength(2);
+  });
+
   it('con gasto y sin comprobación, pide la comprobación', () => {
     const r = derivarEtapa(base({ comprobaciones: [] }));
     expect(r.etapa).toBe('gastada_sin_comprobar');

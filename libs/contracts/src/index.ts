@@ -112,6 +112,8 @@ export * from './finance/ejercicio.contract';
 // `[GX.41]` el vale que Kepler asigna por la caja «Solicita» = un username nuestro.
 export * from './finance/vale-asignado.contract';
 export * from './finance/protocolo-gasto.contract';
+// `[GX.75]` La transferencia XD2601 que pagó el gasto: tercer número del expediente.
+export * from './finance/transferencia-gasto.contract';
 // `[GX.65.4a]` Nadie decide sobre su propio vale: la regla la leen servidor y pantalla.
 export * from './finance/dueno-del-vale.contract';
 export * from './finance/ver-expediente.contract';
