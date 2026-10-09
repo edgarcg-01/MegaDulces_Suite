@@ -56,14 +56,25 @@ export const SUGGEST_MIN_SCORE = 0.45;
 /** Cuántas ofrecer. Más de tres deja de ser una pista y vuelve a ser un menú. */
 export const SUGGEST_MAX = 3;
 
-/** Ordena candidatos por parecido y devuelve los mejores por encima del umbral. */
+/**
+ * Ordena candidatos por parecido y devuelve los mejores por encima del umbral.
+ *
+ * ⭐ **La coincidencia EXACTA gana siempre, antes de comparar parecidos.** Sin esto, dos rutas
+ * que terminan en el mismo segmento empatan en 1.0 y desempata el orden del arreglo: medido con
+ * `/comercial/ruta-directa/rentabilidad` contra `/comercial/rentabilidad`, las dos puntúan
+ * exactamente 1.0 (mismo proyecto, último segmento idéntico, todos los segmentos compartidos) y
+ * la ruta **no se encontraba a sí misma**. Le pasa a cualquier ruta anidada cuyo último
+ * segmento ya exista arriba, así que se arregla acá y no renombrando la pantalla.
+ */
 export function rankRoutes<T extends { route: string }>(url: string, candidates: T[]): T[] {
-  const segs = url.split('?')[0].split('#')[0].split('/').filter(Boolean);
+  const limpia = url.split('?')[0].split('#')[0];
+  const segs = limpia.split('/').filter(Boolean);
   if (!segs.length) return [];
+  const normal = '/' + segs.join('/');
   return candidates
-    .map((c) => ({ c, s: score(segs, c.route) }))
+    .map((c) => ({ c, s: score(segs, c.route), exacta: '/' + c.route.split('/').filter(Boolean).join('/') === normal }))
     .filter((x) => x.s > SUGGEST_MIN_SCORE)
-    .sort((a, b) => b.s - a.s)
+    .sort((a, b) => (Number(b.exacta) - Number(a.exacta)) || (b.s - a.s))
     .slice(0, SUGGEST_MAX)
     .map((x) => x.c);
 }

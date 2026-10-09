@@ -48,6 +48,10 @@ export interface UpsertSalesPlanSettingsDto {
   proposal_method?: 'hibrido' | 'historico';
   default_growth_pct?: number;
   growth_by_channel?: Record<string, number>;
+  /** `[PVI.3]` Procedencia por canal, misma llave que `growth_by_channel`. Opcional: quien no la
+   *  mande deja la columna como estaba — **NULL no se pisa con `{}`**, que se leería como
+   *  «se midió y no había nada». */
+  growth_provenance?: Record<string, ProcedenciaCrec>;
 }
 
 /**
@@ -70,6 +74,39 @@ const SEASON_SHRINK_K = 4;
 /** periodos apareados mínimos para confiar en un YoY (menos = tendencia no confiable → default).
  *  Protege la rampa: con un año anterior parcial, un YoY sobre 1-2 periodos da números absurdos. */
 const MIN_PAIRED_PERIODS = 4;
+/** `[PVI.1]` Fracción de los periodos CERRADOS que una entidad tiene que haber vendido **en los dos
+ *  años** para entrar al YoY. Con 9 periodos cerrados exige 8. No es un número de gusto: con el
+ *  criterio viejo (`monto > 0`, una sola fila alcanza) `mostrador:03` entraba con venta en **1 de 9**
+ *  periodos de 2025 y aportaba **24.28 pp** del crecimiento del canal. Ver `VERDAD_ABSOLUTA` §24.2. */
+const MIN_ENTITY_COVERAGE = 0.8;
+
+/** `[PVI.1]` Procedencia del YoY: con cuántas entidades se midió y cuántas quedaron fuera por no ser
+ *  comparables. `growth_pct_todo` conserva el número VIEJO (todas las entidades) porque las dos cifras
+ *  contestan preguntas distintas y ninguna es «la» verdad sin decir cuál se preguntó (`VERDAD_ABSOLUTA` §24.5).
+ *  Nunca se publica una sin la otra: ésa fue exactamente la forma del defecto. */
+type CoberturaYoY = {
+  entidades_comparables: number;
+  entidades_excluidas: number;
+  excluido_monto_y1: number;
+  min_periodos_entidad: number;
+  growth_pct_todo: number | null;
+};
+type CrecCanal = { growth_pct: number; basis: string; paired_periods: number; years_used: number[]; cobertura?: CoberturaYoY };
+
+/** `[PVI.3]` Lo que se guarda AL LADO de cada número de `growth_by_channel`, con la misma llave
+ *  de canal. Sin esto un supuesto **refutado** y uno **defendible** se ven idénticos en la tabla:
+ *  `mayoreo` quedó en 0.2667 — el `default` al decimal, o sea que su YoY NO se pudo calcular — y
+ *  eso sólo se descubría recomputando. `basis: 'manual'` es el caso que el motor no sabía
+ *  expresar: un supuesto que puso una persona y el autopilot respeta. ADR-056. */
+export type ProcedenciaCrec = {
+  basis: 'yoy_paired' | 'global' | 'default' | 'manual';
+  paired_periods?: number;
+  years_used?: number[];
+  cobertura?: CoberturaYoY;
+  /** cuándo se derivó. Un supuesto calculado ANTES de un arreglo de la fuente es sospechoso:
+   *  los del ejercicio vivo son de las 00:16 Z y el fix del canal entró a las 14:15 Z. */
+  at: string;
+};
 
 const round2 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
 const round4 = (n: number) => Math.round((Number(n) + Number.EPSILON) * 10000) / 10000;
@@ -108,7 +145,7 @@ export class BudgetSalesPlanService {
     });
   }
 
-  /** Real del AÑO ANTERIOR rolado a entidad × periodo. Servido del rollup DuckDB+Parquet (ADR-075). */
+  /** Real del AÑO ANTERIOR rolado a entidad × periodo. Servido de `analytics.mv_sellout_budget_rollup`. */
   private async priorYearRealByEntityPeriod(_trx: import('knex').Knex, tenantId: string, priorYear: number) {
     return this.rollup.priorYearByEntityPeriod(tenantId, priorYear);
   }
@@ -207,13 +244,16 @@ export class BudgetSalesPlanService {
   // el humano solo ajusta. «Sin datos» ≠ cero (escalera de fallback, cobertura declarada).
   // ════════════════════════════════════════════════════════════════════════════════════════════
 
-  /** Real por entidad × año × periodo. Servido del rollup DuckDB+Parquet (ADR-075) en <30ms
-   *  en vez de las vistas vivas del ODS (medido 76s en prod). Misma forma de salida. */
+  /** Real por entidad × año × periodo. Servido de la matvista `analytics.mv_sellout_budget_rollup`
+   *  en vez de las vistas vivas del ODS (medido 76s en prod). Misma forma de salida.
+   *  ⚠️ El sustrato DuckDB+Parquet de ADR-075 **se retiró el 2026-10-07** (dos pods, dos Parquets
+   *  en `/tmp`, 503 tras cada deploy): hoy es matvista + refresco nocturno + latido. El detalle,
+   *  en la cabecera de `sellout-rollup.service.ts`. */
   private async realByEntityYearPeriod(_trx: import('knex').Knex, tenantId: string, years: number[]) {
     return this.rollup.realByEntityYearPeriod(tenantId, years);
   }
 
-  /** Años fiscales con real, anteriores a `fy`. Servido del rollup DuckDB+Parquet (ADR-075). */
+  /** Años fiscales con real, anteriores a `fy`. Servido de `analytics.mv_sellout_budget_rollup`. */
   private async yearsWithRealBefore(_trx: import('knex').Knex, tenantId: string, fy: number): Promise<number[]> {
     return this.rollup.yearsWithRealBefore(tenantId, fy);
   }
@@ -255,7 +295,7 @@ export class BudgetSalesPlanService {
       // [VSO.8] El vocabulario sale de la vista de entidades, no de una lista de este archivo.
       const canales = settings.channels.map((c) => c.value);
 
-      const empty = { by_channel: {} as Record<string, { growth_pct: number; basis: string; paired_periods: number; years_used: number[] }>, global: { growth_pct: def, basis: 'default', paired_periods: 0 }, years_available: years, fiscal_year: fy };
+      const empty = { by_channel: {} as Record<string, CrecCanal>, global: { growth_pct: def, basis: 'default', paired_periods: 0 }, years_available: years, fiscal_year: fy };
       if (years.length < 2) {
         for (const ch of canales) empty.by_channel[ch] = { growth_pct: def, basis: 'default', paired_periods: 0, years_used: [] };
         return empty; // sin par de años → todo default, declarado
@@ -268,36 +308,81 @@ export class BudgetSalesPlanService {
       // la misma trampa que el mes en curso le costaba al motor de gastos (`VERDAD_ABSOLUTA` §22.5).
       const abierto = await this.periodoAbierto(trx, y1);
 
-      // yoy(channelFilter): crecimiento sobre periodos con real en AMBOS años
+      // `[PVI.1]` ⛔ Una entidad entra al YoY sólo si VENDIÓ EN LOS DOS AÑOS, medido por COBERTURA
+      // DE PERIODOS. El criterio anterior evaluaba `e.a > 0 && e.b > 0` sobre el AGREGADO del canal,
+      // así que (1) una plaza que nace en el año nuevo sumaba a `b` sin contraparte en `a`, y
+      // (2) `> 0` no es umbral: bastaba una fila. Medido contra prod el 2026-10-08:
+      // `mostrador:03` (8ESQ) pasó de $230,601 a $39,240,479 con venta en **1 de 9** periodos de
+      // 2025 y PAREABA — esa sola entidad aportaba **24.28 pp** de los 21.46 % del canal, y con el
+      // pareo correcto el canal cae a **−2.82 %**. ⭐ Una base casi-cero no es una base, y lo que
+      // así se publica es COBERTURA del pipeline entrando al fact, no negocio. `VERDAD_ABSOLUTA` §24.
+      const periodosCerrados = new Set<number>();
+      for (const r of rows) if (abierto == null || r.period < abierto) periodosCerrados.add(r.period);
+      const minPeriodosEntidad = Math.max(MIN_PAIRED_PERIODS, Math.ceil(periodosCerrados.size * MIN_ENTITY_COVERAGE));
+
+      const cobPorEntidad = new Map<string, { a: number; b: number }>(); // #periodos CON VENTA por año
+      for (const r of rows) {
+        if (abierto != null && r.period >= abierto) continue;
+        if (!(r.monto > 0)) continue;
+        const e = cobPorEntidad.get(r.entity_key) || { a: 0, b: 0 };
+        if (r.year === y0) e.a++; else if (r.year === y1) e.b++;
+        cobPorEntidad.set(r.entity_key, e);
+      }
+      const esComparable = (ek: string) => {
+        const e = cobPorEntidad.get(ek);
+        return !!e && e.a >= minPeriodosEntidad && e.b >= minPeriodosEntidad;
+      };
+
+      // yoy(channelFilter): crecimiento sobre periodos con real en AMBOS años, entidades comparables
       const yoy = (pred: (channel: string) => boolean) => {
-        const byPeriod = new Map<number, { a: number; b: number }>(); // a=y0, b=y1
+        const comp = new Map<number, { a: number; b: number }>();  // sólo entidades comparables
+        const todo = new Map<number, { a: number; b: number }>();  // todas (el número viejo, declarado)
+        const dentro = new Set<string>(), fuera = new Set<string>();
+        let excluidoY1 = 0;
         for (const r of rows) {
           if (!pred(r.channel)) continue;
-          const e = byPeriod.get(r.period) || { a: 0, b: 0 };
-          if (r.year === y0) e.a += r.monto; else if (r.year === y1) e.b += r.monto;
-          byPeriod.set(r.period, e);
+          const ok = esComparable(r.entity_key);
+          (ok ? dentro : fuera).add(r.entity_key);
+          for (const m of ok ? [comp, todo] : [todo]) {
+            const e = m.get(r.period) || { a: 0, b: 0 };
+            if (r.year === y0) e.a += r.monto; else if (r.year === y1) e.b += r.monto;
+            m.set(r.period, e);
+          }
+          if (!ok && r.year === y1 && (abierto == null || r.period < abierto)) excluidoY1 += r.monto;
         }
-        let a = 0, bb = 0, paired = 0, abiertos = 0;
-        for (const [p, e] of byPeriod) {
-          if (abierto != null && p >= abierto) { abiertos++; continue; } // `[PU.VA]` ni el abierto ni los posteriores
-          if (e.a > 0 && e.b > 0) { a += e.a; bb += e.b; paired++; }
-        }
+        const sumar = (m: Map<number, { a: number; b: number }>) => {
+          let a = 0, bb = 0, paired = 0, abiertos = 0;
+          for (const [p, e] of m) {
+            if (abierto != null && p >= abierto) { abiertos++; continue; } // `[PU.VA]` ni el abierto ni los posteriores
+            if (e.a > 0 && e.b > 0) { a += e.a; bb += e.b; paired++; }
+          }
+          return { a, bb, paired, abiertos };
+        };
+        const sc = sumar(comp), st = sumar(todo);
+        const cobertura: CoberturaYoY = {
+          entidades_comparables: dentro.size,
+          entidades_excluidas: fuera.size,
+          excluido_monto_y1: round2(excluidoY1),
+          min_periodos_entidad: minPeriodosEntidad,
+          growth_pct_todo: st.paired >= MIN_PAIRED_PERIODS && st.a > 0 ? round4((st.bb - st.a) / st.a) : null,
+        };
         // YoY sólo confiable con suficientes periodos apareados (rampa: año anterior parcial → no confiar)
-        return paired >= MIN_PAIRED_PERIODS && a > 0 ? { growth_pct: round4((bb - a) / a), paired, abiertos } : null;
+        const growth_pct = sc.paired >= MIN_PAIRED_PERIODS && sc.a > 0 ? round4((sc.bb - sc.a) / sc.a) : null;
+        return { growth_pct, paired: sc.paired, abiertos: sc.abiertos, cobertura };
       };
 
       const g = yoy(() => true);
-      const global = g
-        ? { growth_pct: g.growth_pct, basis: 'yoy_paired' as const, paired_periods: g.paired, periodos_abiertos_excluidos: g.abiertos }
-        : { growth_pct: def, basis: 'default' as const, paired_periods: 0, periodos_abiertos_excluidos: 0 };
-      const by_channel: Record<string, { growth_pct: number; basis: string; paired_periods: number; years_used: number[] }> = {};
+      const global = g.growth_pct != null
+        ? { growth_pct: g.growth_pct, basis: 'yoy_paired' as const, paired_periods: g.paired, periodos_abiertos_excluidos: g.abiertos, cobertura: g.cobertura }
+        : { growth_pct: def, basis: 'default' as const, paired_periods: 0, periodos_abiertos_excluidos: 0, cobertura: g.cobertura };
+      const by_channel: Record<string, CrecCanal> = {};
       for (const ch of canales) {
         const c = yoy((x) => x === ch);
-        if (c) by_channel[ch] = { growth_pct: c.growth_pct, basis: 'yoy_paired', paired_periods: c.paired, years_used: [y0, y1] };
-        else if (global.basis === 'yoy_paired') by_channel[ch] = { growth_pct: global.growth_pct, basis: 'global', paired_periods: global.paired_periods, years_used: [y0, y1] };
-        else by_channel[ch] = { growth_pct: def, basis: 'default', paired_periods: 0, years_used: [] };
+        if (c.growth_pct != null) by_channel[ch] = { growth_pct: c.growth_pct, basis: 'yoy_paired', paired_periods: c.paired, years_used: [y0, y1], cobertura: c.cobertura };
+        else if (global.basis === 'yoy_paired') by_channel[ch] = { growth_pct: global.growth_pct, basis: 'global', paired_periods: global.paired_periods, years_used: [y0, y1], cobertura: c.cobertura };
+        else by_channel[ch] = { growth_pct: def, basis: 'default', paired_periods: 0, years_used: [], cobertura: c.cobertura };
       }
-      return { by_channel, global, years_available: years, fiscal_year: fy, min_paired_periods: MIN_PAIRED_PERIODS, periodo_abierto: abierto };
+      return { by_channel, global, years_available: years, fiscal_year: fy, min_paired_periods: MIN_PAIRED_PERIODS, min_periodos_entidad: minPeriodosEntidad, periodo_abierto: abierto };
     });
   }
 
@@ -444,6 +529,12 @@ export class BudgetSalesPlanService {
       const chSeasShare = (ch: string): number[] | null => { const arr = chPeriodSum.get(ch); if (!arr) return null; const tot = arr.reduce((a, c) => a + c, 0); return tot > 0 ? arr.map((v) => v / tot) : null; };
 
       const cov = { historico_ajustado: 0, estacional: 0, proxy_canal: 0, sin_base_declarado: 0, no_signal: 0, manual_kept: 0 };
+      // `[PVI.2]` ⛔ `cov` cuenta CELDAS, y el dinero no se reparte por celda. Medido en prod el
+      // 2026-10-08: en el FY2026 el `proxy_canal` son **104 de 429 celdas (24.2 %)** y también
+      // **$197,160,564 = 24.46 % de la meta** — que coincidan es casualidad de ese ejercicio, no
+      // una regla. Nadie calculaba el segundo número, así que «un cuarto de esta meta no tiene
+      // base» sólo se descubría auditando. Ahora sale en la misma respuesta que lo propone.
+      const covMonto = { historico_ajustado: 0, estacional: 0, proxy_canal: 0, sin_base_declarado: 0 };
       for (const e of entities) {
         const ek = e.entity_key as string;
         const ch = e.channel as string;
@@ -460,6 +551,13 @@ export class BudgetSalesPlanService {
           if (existing && existing.method === 'manual' && !dto.overwrite_manual) { cov.manual_kept++; continue; }
 
           let meta: number | null = null;
+          // `[PVI.5]` ⚠️ Estos literales NO son vocabulario compartido: `budget.expense_plan_lines`
+          // tiene su propio CHECK con una lista distinta, y ahí **`estacional` significa otra cosa**
+          // — promedio plano de lo observado, no un índice. El de acá sí es estacional de verdad
+          // (`seasonalIndexByEntity`: participación por periodo con shrinkage hacia el canal). Quien
+          // lea un `method` de cualquiera de las dos tablas y crea que sabe cómo se calculó el
+          // renglón, acierta la mitad de las veces. Deuda con dueño en el tracker: el renombre va
+          // del lado del GASTO, que es donde el nombre miente. `VERDAD_ABSOLUTA` §24.7.
           let rowMethod: 'historico_ajustado' | 'estacional' | 'proxy_canal' | 'sin_base_declarado' | null = null;
           let baseAmount: number | null = null;
           if (base > 0) {
@@ -491,9 +589,32 @@ export class BudgetSalesPlanService {
             .onConflict(['tenant_id', 'budget_id', 'entity_key', 'period_no'])
             .merge({ meta_amount: meta, method: rowMethod, growth_pct: round4(growth), base_amount: baseAmount, updated_by: username, updated_at: trx.fn.now() });
           cov[rowMethod]++;
+          covMonto[rowMethod] += meta;
         }
       }
-      return { prior_year: priorYear, method, growth_by_channel: growthByChannel, default_growth_pct: def, coverage: cov, total_cells: entities.length * 13 };
+      // `[PVI.2]` Tres grados de respaldo, porque no son lo mismo y hoy se sumaban como si:
+      //   · `historico_ajustado` — base REAL de la entidad (`base_amount` poblado).
+      //   · `estacional`         — sin base en esa celda, pero derivado de la historia ANUAL de la
+      //                            MISMA entidad. Débil, no inventado.
+      //   · `proxy_canal`        — ⛔ la entidad no tiene NINGUNA señal: recibe el **promedio de su
+      //                            canal**, el mismo importe para todas. Medido: `mostrador` repartió
+      //                            un único importe entre 2 entidades y `preventa` entre 5, y el
+      //                            total fue **10.3× lo que esas entidades hicieron de verdad**
+      //                            ($197,160,564 contra $19,063,383). `VERDAD_ABSOLUTA` §24.7.
+      const metaTotal = Object.values(covMonto).reduce((a, v) => a + v, 0);
+      const red = (n: number) => round2(n);
+      return {
+        prior_year: priorYear, method, growth_by_channel: growthByChannel, default_growth_pct: def,
+        coverage: cov, total_cells: entities.length * 13,
+        coverage_monto: {
+          historico_ajustado: red(covMonto.historico_ajustado), estacional: red(covMonto.estacional),
+          proxy_canal: red(covMonto.proxy_canal), sin_base_declarado: red(covMonto.sin_base_declarado),
+        },
+        meta_total: red(metaTotal),
+        /** Fracción de la meta que NO tiene ninguna señal de su propia entidad. `null` si no hay
+         *  meta: una meta de 0 no tiene un «0 % sin base», tiene un porcentaje indefinido. */
+        proxy_canal_pct: metaTotal > 0 ? round4(covMonto.proxy_canal / metaTotal) : null,
+      };
     });
   }
 
@@ -513,8 +634,11 @@ export class BudgetSalesPlanService {
     const tenantId = this.tenantCtx.requireTenantId();
     const row = await trx('budget.sales_plan_settings').where({ tenant_id: tenantId, budget_id: budgetId }).first();
     const channels = await this.canalesDelUniverso(trx);
-    if (!row) return { budget_id: budgetId, proposal_method: 'hibrido' as const, default_growth_pct: 0, growth_by_channel: {} as Record<string, number>, channels, exists: false };
-    return { ...row, growth_by_channel: row.growth_by_channel || {}, channels, exists: true };
+    if (!row) return { budget_id: budgetId, proposal_method: 'hibrido' as const, default_growth_pct: 0, growth_by_channel: {} as Record<string, number>, growth_provenance: null as Record<string, ProcedenciaCrec> | null, channels, exists: false };
+    // `[PVI.3]` ⚠️ `growth_provenance` NO degrada a `{}`: una fila guardada antes de PVI.3 tiene
+    // procedencia DESCONOCIDA, que no es lo mismo que «sin procedencia». Degradarla a objeto vacío
+    // haría que la pantalla no pueda distinguir «nunca se midió» de «se midió y no había nada».
+    return { ...row, growth_by_channel: row.growth_by_channel || {}, growth_provenance: row.growth_provenance ?? null, channels, exists: true };
   }
 
   async getSettings(budgetId: string) {
@@ -531,18 +655,22 @@ export class BudgetSalesPlanService {
       if (dto.proposal_method != null) patch.proposal_method = dto.proposal_method;
       if (dto.default_growth_pct != null) patch.default_growth_pct = round4(Number(dto.default_growth_pct));
       if (dto.growth_by_channel != null) patch.growth_by_channel = JSON.stringify(dto.growth_by_channel);
+      // `[PVI.3]` Sólo se escribe si vino: quien no la manda deja la columna como estaba. Pisarla
+      // con `{}` convertiría «desconocida» en «medida y vacía», que es la mentira que esto evita.
+      if (dto.growth_provenance != null) patch.growth_provenance = JSON.stringify(dto.growth_provenance);
       const [row] = await trx('budget.sales_plan_settings')
         .insert({
           tenant_id: tenantId, budget_id: budgetId,
           proposal_method: dto.proposal_method ?? 'hibrido',
           default_growth_pct: dto.default_growth_pct != null ? round4(Number(dto.default_growth_pct)) : 0,
           growth_by_channel: JSON.stringify(dto.growth_by_channel ?? {}),
+          growth_provenance: dto.growth_provenance != null ? JSON.stringify(dto.growth_provenance) : null,
           created_by: username, updated_by: username,
         })
         .onConflict(['tenant_id', 'budget_id'])
         .merge(patch)
         .returning('*');
-      return { ...row, growth_by_channel: row.growth_by_channel || {} };
+      return { ...row, growth_by_channel: row.growth_by_channel || {}, growth_provenance: row.growth_provenance ?? null };
     });
   }
 

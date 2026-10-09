@@ -1,0 +1,502 @@
+<!doctype html>
+<html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vocabulario de estados · Presupuestos</title>
+<!-- Artefacto de los tres carriles de /presupuestos (Ventas · Gastos · Tesoreria).
+     Explora un lenguaje visual que NO existe: como un numero dice con que se calculo.
+     Las cifras de la seccion Tesoreria son REALES, medidas contra pg-prod en una sola foto.
+     Las de Ventas y Gastos las llenan sus carriles. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap">
+
+<!-- EL SISTEMA REAL. `tokens.css` es autocontenido (0 @import), asi que se enlaza directo y
+     este prototipo deja de tener color propio. La primera version definia 15 hex a mano en un
+     :root local, copiando la forma de los prototipos vecinos -- pero la convencion del vecino
+     NO es el sistema: DESIGN.md, checklist punto 2, dice "cero hex crudo".
+     ⚠️ Ninguna compuerta lo exige aca: check:tokens escanea apps/*/src, no docs/. Que nadie lo
+     vigile lo hace mas importante, no menos: este archivo puede derivar y nadie se entera. -->
+<link rel="stylesheet" href="../../../../libs/design-tokens/tokens.css">
+
+<style>
+/* Capa de ALIAS, no de definicion: los nombres cortos que usa este documento salen de los
+   tokens reales. Cero hex. Si manana cambia la paleta del sistema, este archivo la sigue. */
+:root{
+  --bg:var(--surface-ground); --surface:var(--card-bg); --sunken:var(--hover-bg);
+  --line:var(--border-color); --line-strong:var(--border-color);
+  --fg:var(--text-main); --muted:var(--text-muted); --faint:var(--text-faint);
+  --action-soft:var(--action-ring); --action-fg:var(--action-ink);
+  --no:var(--bad-fg); --no-soft:var(--bad-soft-bg);
+  --ok-soft:var(--ok-soft-bg); --warn-soft:var(--warn-soft-bg);
+  --info:var(--info-fg); --info-soft:var(--info-soft-bg);
+  --f-ui:var(--font-body); --f-mono:var(--font-mono);
+}
+/* ⚠️ El oscuro del sistema NO es prefers-color-scheme: es la clase `theme-monochrome` sobre la
+   raiz (DESIGN.md seccion Dark mode). El data-theme de la primera version era invento mio, y un
+   prototipo que se ve bien pero activa el tema por otro mecanismo NO transfiere a codigo. */
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--f-ui);font-size:14px;line-height:1.5}
+.wrap{max-width:1180px;margin:0 auto;padding:18px 20px 72px;display:flex;flex-direction:column;gap:26px}
+.mono{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)} .faint{color:var(--faint)}
+h1{font-size:1.45rem;margin:0;font-weight:700;letter-spacing:-.01em}
+h2{font-size:1.02rem;margin:0 0 2px;font-weight:700}
+h3{font-size:.86rem;margin:0 0 6px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+p{margin:0 0 8px} ul{margin:4px 0 8px;padding-left:18px} li{margin:4px 0}
+:focus-visible{outline:2px solid var(--action);outline-offset:2px}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:1px 5px}
+
+header{border-bottom:1px solid var(--line);padding-bottom:14px;display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between}
+.hd-l{display:flex;flex-direction:column;gap:4px;min-width:min(100%,520px)}
+.asof{font-size:.73rem;display:inline-flex;gap:6px;align-items:center;background:var(--sunken);border:1px solid var(--line);border-radius:999px;padding:3px 10px;color:var(--muted)}
+.tgl{font:inherit;font-size:.78rem;cursor:pointer;background:var(--surface);color:var(--fg);border:1px solid var(--line-strong);border-radius:var(--r-md);padding:6px 11px}
+
+section{background:var(--surface);border:1px solid var(--line);border-radius:var(--r-lg);padding:16px 18px;display:flex;flex-direction:column;gap:12px}
+.lead{font-size:.93rem;color:var(--muted);max-width:78ch}
+.note{font-size:.8rem;background:var(--sunken);border:1px solid var(--line);border-left:3px solid var(--line-strong);border-radius:var(--r-md);padding:9px 12px;color:var(--muted)}
+.note.bad{border-left-color:var(--no)} .note.warn{border-left-color:var(--warn)} .note.ok{border-left-color:var(--ok)}
+
+.strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(182px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden}
+.mi{background:var(--surface);padding:11px 13px;display:flex;flex-direction:column;gap:3px;min-width:0}
+.mi-lab{font-size:.73rem;color:var(--muted);font-weight:600;display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mi-val{font-family:var(--f-mono);font-size:1.17rem;font-weight:600;font-variant-numeric:tabular-nums;letter-spacing:-.01em}
+.mi-sub{font-size:.71rem;color:var(--faint);line-height:1.35}
+.t-ok{color:var(--ok)} .t-bad{color:var(--no)} .t-warn{color:var(--warn)}
+.mi-val.unk{color:var(--faint);font-weight:500;font-size:1rem}
+
+.st{font-size:.64rem;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-radius:3px;padding:1px 6px;border:1px solid transparent;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+.st::before{font-size:.9em;line-height:1}
+.st-medido{color:var(--ok);background:var(--ok-soft)}
+.st-medido::before{content:"\25CF"}
+.st-parcial{color:var(--info);background:var(--info-soft)}
+.st-parcial::before{content:"\25D0"}
+.st-derivado{color:var(--warn);background:var(--warn-soft)}
+.st-derivado::before{content:"\25B3"}
+.st-nomedido{color:var(--muted);background:transparent;border-color:var(--line-strong);border-style:dashed}
+.st-nomedido::before{content:"?"}
+.rg{font-size:.64rem;font-weight:600;letter-spacing:.03em;border-radius:3px;padding:1px 6px;white-space:nowrap;color:var(--muted);background:var(--sunken);border:1px solid var(--line)}
+
+table{width:100%;border-collapse:collapse;font-size:.83rem}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:700;background:var(--sunken)}
+td.num,th.num{text-align:right;font-family:var(--f-mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tbody tr:last-child td{border-bottom:none}
+.tw{overflow-x:auto;border:1px solid var(--line);border-radius:var(--r-md)}
+
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+@media (max-width:820px){ .ba{grid-template-columns:1fr} }
+.ba-col{border:1px solid var(--line);border-radius:var(--r-md);overflow:hidden;display:flex;flex-direction:column}
+.ba-hd{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:6px 11px;border-bottom:1px solid var(--line)}
+.ba-hd.mal{color:var(--no);background:var(--no-soft)}
+.ba-hd.bien{color:var(--ok);background:var(--ok-soft)}
+.ba-bd{padding:11px;display:flex;flex-direction:column;gap:9px}
+
+.rule{display:flex;gap:11px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--line)}
+.rule:last-child{border-bottom:none}
+.rule-n{flex:0 0 26px;height:26px;border-radius:var(--r-sm);background:var(--action-soft);color:var(--action-fg);font-weight:700;font-size:.8rem;display:grid;place-items:center;font-family:var(--f-mono)}
+.rule-b{min-width:0}
+.rule-t{font-weight:700;font-size:.9rem;margin-bottom:2px}
+.rule-d{font-size:.83rem;color:var(--muted)}
+
+.pend{border:1px dashed var(--line-strong);border-radius:var(--r-md);padding:18px;text-align:center;color:var(--faint);font-size:.85rem;background:repeating-linear-gradient(45deg,transparent,transparent 9px,var(--sunken) 9px,var(--sunken) 18px)}
+.pend b{display:block;color:var(--muted);font-size:.95rem;margin-bottom:4px}
+.owner{font-size:.72rem;background:var(--sunken);border:1px solid var(--line);border-radius:999px;padding:2px 9px;color:var(--muted);font-weight:600;vertical-align:middle}
+</style></head>
+<body><div class="wrap">
+
+<header>
+  <div class="hd-l">
+    <h1>Un número que dice con qué se calculó</h1>
+    <p class="lead" style="margin:0">Vocabulario compartido de los tres carriles de <code>/presupuestos</code>. La reestructuración no es reacomodar bloques: es que cada cifra en pantalla pueda decir <strong>de dónde salió, qué cubre y cuándo no se pudo medir</strong>.</p>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:7px;align-items:flex-end">
+    <button class="tgl" id="tgl" type="button">Cambiar a oscuro</button>
+    <span class="asof mono">Tesorería · as_of 2026-10-08 20:11:26 CST</span>
+  </div>
+</header>
+
+<section>
+  <h2>1 · Los cuatro estados</h2>
+  <p class="lead">El estado <strong>no es un color</strong>. Viaja aparte del tono, tiene forma y texto propios, y se lee sin distinguir colores.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:124px">Estado</th><th>Qué afirma</th><th>Qué obliga a mostrar</th></tr></thead>
+    <tbody>
+      <tr><td><span class="st st-medido">medido</span></td><td>La cifra sale de su fuente, completa, para todo el universo declarado.</td><td>Nada extra.</td></tr>
+      <tr><td><span class="st st-parcial">parcial</span></td><td>La cifra es correcta pero cubre una <strong>fracción</strong> del universo.</td><td><strong>La ventana</strong>: cuánto cubre y cuánto queda fuera, con su monto.</td></tr>
+      <tr><td><span class="st st-derivado">derivado</span></td><td>La cifra no se observó: se calculó con una regla.</td><td><strong>El método</strong>, obligatorio y a la vista. No basta decir «derivado».</td></tr>
+      <tr><td><span class="st st-nomedido">no medido</span></td><td>No se pudo medir. <strong>Distinto de cero.</strong></td><td><strong>El motivo</strong>. Y el valor va en guion, nunca en <code>$0.00</code>.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn"><strong>Por carril el juego cambia, y eso es información.</strong> Tesorería usa tres —no tiene <code>derivado</code>, porque no se rellena nada: o lo dice el banco, o lo dice el ERP, o no se sabe—. Ventas y Gastos sí derivan, con métodos que <strong>no son comparables entre sí</strong>. Que un carril no use un estado no es falta de simetría: es su naturaleza.</div>
+</section>
+
+<section>
+  <h2>2 · El segundo eje: <em>cuándo</em>, y de cuándo</h2>
+  <p class="lead">Un <code>as_of</code> solo <strong>miente por omisión</strong>: dice cuándo lo leí, no de cuándo es el dato. Dos cifras igual de «recientes» pueden tener 18 horas de diferencia real.</p>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">Régimen <span class="rg">vivo</span></span><span class="mi-val unk" style="font-size:.88rem">tabla o vista que cambia sola</span><span class="mi-sub">El <code>as_of</code> es el instante de lectura y el dato es de ese instante. Caduca en minutos.</span></div>
+    <div class="mi"><span class="mi-lab">Régimen <span class="rg">snapshot · 14:09Z</span></span><span class="mi-val unk" style="font-size:.88rem">matvista, rollup, foto nocturna</span><span class="mi-sub">El dato es de cuando se refrescó, no de cuando se leyó. Un <code>as_of</code> reciente aquí engaña.</span></div>
+    <div class="mi"><span class="mi-lab">Régimen <span class="rg">sin marca</span></span><span class="mi-val unk" style="font-size:.88rem">la fuente no publica frescura</span><span class="mi-sub">Se declara <strong>desconocido</strong>. Fabricar un <code>now()</code> diría «recién medido» sin haberlo medido.</span></div>
+  </div>
+  <div class="note ok"><strong>No se inventa vocabulario:</strong> <code>FreshnessPill</code> ya distingue <code>measures: 'data' | 'fetch'</code> y resuelve el eje frescura con un ternario explícito en <strong>37 de 47</strong> pantallas. El régimen reusa ese mismo lenguaje. <strong>Lo que falta no es frescura: es cobertura y método.</strong></div>
+  <div class="note bad"><strong>Los tres regímenes conviven en este documento.</strong> Las cifras de Tesorería son <span class="rg">vivo</span> (ERP y bancos), menos la deuda, cuya fuente <strong>no publica marca</strong>. Las de Ventas salen de un rollup <span class="rg">snapshot</span> con <strong>18 h</strong> de antigüedad — y su latido de refresco <strong>nunca ha corrido</strong>, así que nadie vigila esa antigüedad. Citarlas juntas sin el régimen reproduce el defecto que venimos a corregir.</div>
+</section>
+
+<section>
+  <h2>3 · Anatomía de un número</h2>
+  <p class="lead">El mismo dato, con y sin vocabulario. A la izquierda, lo que hoy publica <code>/finanzas/presupuesto</code> — medido en su propio código, no inventado para el ejemplo.</p>
+  <div class="ba">
+    <div class="ba-col"><div class="ba-hd mal">Hoy · el estado se codifica como color</div><div class="ba-bd">
+      <div class="strip">
+        <div class="mi"><span class="mi-lab">Cobros previstos</span><span class="mi-val t-ok">$8.39 M</span></div>
+        <div class="mi"><span class="mi-lab">Pagos previstos</span><span class="mi-val">$30.91 M</span></div>
+        <div class="mi"><span class="mi-lab">Saldo mín. proyectado</span><span class="mi-val">sin base</span></div>
+      </div>
+      <div class="note bad" style="margin:0"><code>tone: 'ok'</code> <strong>clavado sin condición</strong> en «Cobros previstos»: verde mientras la curva ve una fracción de la cartera. «sin base» es una <strong>ausencia renderizada como valor</strong>. Y «Pagos» no dice que también es parcial.</div>
+    </div></div>
+    <div class="ba-col"><div class="ba-hd bien">Con vocabulario · el estado es un estado</div><div class="ba-bd">
+      <div class="strip">
+        <div class="mi"><span class="mi-lab">Cobros previstos <span class="st st-parcial">parcial</span></span><span class="mi-val">$8.39 M</span><span class="mi-sub">vencen en la ventana · $56.23 M exigibles sin fecha quedan fuera</span></div>
+        <div class="mi"><span class="mi-lab">Pagos previstos <span class="st st-parcial">parcial</span></span><span class="mi-val">$30.91 M</span><span class="mi-sub">vencen en la ventana · $114.29 M vencidos quedan fuera</span></div>
+        <div class="mi"><span class="mi-lab">Saldo mín. proyectado <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">sin saldo inicial de bancos no hay base contra la cual proyectar</span></div>
+      </div>
+      <div class="note ok" style="margin:0">Ningún verde. Ninguno de los tres <strong>merece</strong> verde hoy, y el vocabulario lo hace evidente en vez de dejarlo al criterio de quien escribe la tira.</div>
+    </div></div>
+  </div>
+  <div class="note bad"><strong>Medido en el organismo compartido, no sólo en esta pantalla:</strong> <code>MetricStripItem.tone</code> es <code>'default' | 'ok' | 'warn' | 'bad' | 'brand' | 'muted'</code> — <strong>seis colores y cero estados</strong>. Lo usan <strong>85 pantallas</strong> y hay <strong>22 sitios con <code>tone: 'ok'</code> clavado sin condición</strong>.</div>
+</section>
+
+<section>
+  <h2>4 · Las cinco reglas</h2>
+  <div>
+    <div class="rule"><div class="rule-n">1</div><div class="rule-b"><div class="rule-t">Ningún número sin su estado.</div><div class="rule-d">Y <code>no medido</code> <strong>inhabilita el tono</strong>: no es que se pinte gris, es que <strong>no se puede pedir verde</strong>. Si el tipo lo permite, alguien lo va a pedir — los 22 clavados son la prueba.</div></div></div>
+    <div class="rule"><div class="rule-n">2</div><div class="rule-b"><div class="rule-t">Un cero se publica sólo si significa lo que el lector va a entender.</div><div class="rule-d">«No hay dato» no es «hay dato y vale cero»: un guion, nunca un <code>$0.00</code>. Y el motivo decide quién la arregla — <code>sin medir</code> es de Sistemas, <code>sin meta</code> es de Dirección.<br>
+      ⚠️ <strong>Esta regla se escribió más corta y los tres carriles la violaron por puertas distintas</strong> — ver los tres antipatrones. Decía «dos ausencias, dos tratamientos», y eso atrapa las dos primeras: la ausencia renderizada como valor y la convertida en <code>0</code> en el modelo. <strong>No atrapa la tercera</strong>, donde no hay ninguna ausencia: hay <strong>un cero que la aritmética calcula bien</strong> y cuyo significado verdadero («no hemos registrado») no es el que se lee («no hemos gastado»). Por eso la regla ya no habla de ausencias: habla del <strong>cero</strong>.</div></div></div>
+    <div class="rule"><div class="rule-n">3</div><div class="rule-b"><div class="rule-t">El número viejo se conserva al lado, no se reemplaza.</div><div class="rule-d">Cuando una cifra nueva contesta <strong>otra pregunta</strong>, las dos conviven con su etiqueta. Reemplazar borra la posibilidad de explicar por qué cambió.</div></div></div>
+    <div class="rule"><div class="rule-n">4</div><div class="rule-b"><div class="rule-t">Lo que es decisión de negocio se muestra como decisión pendiente, no como error.</div><div class="rule-d">Mandar al contralor a Sistemas por algo que alguien ya decidió quema el canal. Una decisión pendiente lleva <strong>dueño</strong>.</div></div></div>
+    <div class="rule"><div class="rule-n">5</div><div class="rule-b"><div class="rule-t">Un agregado no puede fundir poblaciones cuya procedencia difiere.</div><div class="rule-d">Se publica <strong>desglosado por la dimensión que las hace incomparables</strong>. En Ventas esa dimensión es el <code>method</code> —un relleno con historia propia no es el promedio de otras entidades—. En Tesorería es <em>por qué creemos que la deuda está abierta</em>, y <code>method</code> no la distingue: las dos poblaciones salen del mismo cálculo.</div></div></div>
+  </div>
+</section>
+
+<section>
+  <h2>5 · Tesorería <span class="owner">carril cc · lleno</span></h2>
+  <p class="lead">Flujo de efectivo, capacidad de pago y obligaciones. Todas las cifras de abajo son <strong>reales</strong>, medidas contra <code>pg-prod</code> en <strong>una sola consulta del mismo instante</strong>. Régimen <span class="rg">vivo</span>, salvo donde se indica.</p>
+
+  <h3>La tira, como debería verse</h3>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">Saldo inicial <span class="st st-medido">medido</span></span><span class="mi-val">$2,588,183.56</span><span class="mi-sub">23 filas de fecha imposible excluidas y declaradas</span></div>
+    <div class="mi"><span class="mi-lab">Cobros en ventana <span class="st st-parcial">parcial</span></span><span class="mi-val">$8,394,167.08</span><span class="mi-sub">$56,231,901.26 exigibles sin fecha quedan fuera</span></div>
+    <div class="mi"><span class="mi-lab">Pagos en ventana <span class="st st-parcial">parcial</span> <span class="rg">sin marca</span></span><span class="mi-val">$30,909,942.02</span><span class="mi-sub">$114,292,263.03 vencidos quedan fuera · el ODS no publica frescura</span></div>
+    <div class="mi"><span class="mi-lab">Obligaciones autorizadas <span class="st st-medido">medido</span></span><span class="mi-val">$0.00</span><span class="mi-sub">cero real: 0 filas vigentes. Hecho de captura, no de negocio</span></div>
+    <div class="mi"><span class="mi-lab">Cobertura del pago <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">el denominador no se capturó en esta misma foto</span></div>
+  </div>
+  <div class="note ok"><strong>Las dos últimas tarjetas son el punto del artefacto.</strong> «$0.00» es un <strong>cero real</strong> —hay 0 obligaciones vigentes— y va con su cifra. «Cobertura del pago» es una <strong>ausencia</strong> y va con guion: el porcentaje existía en mediciones anteriores, pero su denominador no se tomó en este instante, y mezclar instantes es el defecto que este documento combate. <strong>Dos celdas vacías de distinta naturaleza, dos tratamientos.</strong></div>
+
+  <h3>El caso que ejercita la regla 5</h3>
+  <p class="lead">La deuda vencida no es una población: son dos, y no se distinguen por método porque salen del mismo cálculo.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Población</th><th class="num">Monto</th><th>Por qué creemos que está abierta</th></tr></thead>
+    <tbody>
+      <tr><td>Posterior al corte del 1-oct</td><td class="num">$61,903,283.56</td><td>El ERP la reporta abierta y su casamiento es contemporáneo.</td></tr>
+      <tr><td>Anterior al corte, de sucursal</td><td class="num">$52,388,979.47</td><td><strong>Puede ser artefacto de captura</strong>: <code>kdxf</code> no casa pagos previos al corte. Abierta o ya pagada sin casar — no se sabe.</td></tr>
+      <tr style="background:var(--sunken)"><td><strong>Total publicado</strong></td><td class="num"><strong>$114,292,263.03</strong></td><td><strong>45.8 %</strong> del total es la población incierta.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Confesión que pertenece al documento.</strong> Publiqué esta cifra como <strong>$152,936,952.90</strong> dos veces, el mismo día en que escribí la regla 5 — incluía <strong>$38,644,689.87 de traspasos entre sucursales</strong>, que no son deuda con terceros. Fundía dos poblaciones incomparables en un agregado. <strong>No lo destapó releer la regla: lo destapó tomar todas las medidas del mismo instante.</strong></div>
+
+  <h3>Tres antipatrones, medidos en esta pantalla</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:38%">Lo que hace hoy</th><th>Por qué engaña</th></tr></thead>
+    <tbody>
+      <tr><td><code>tone: 'ok'</code> clavado en «Cobros previstos»</td><td>Verde incondicional sobre una cifra parcial. No es <code>cfg ? classify : 'ok'</code> — <strong>no hay ni <code>cfg</code></strong>.</td></tr>
+      <tr><td>«Saldo mín. proyectado: <em>sin base</em>» sin tono</td><td>Una <strong>ausencia renderizada como valor normal</strong>. Viola la regla 2 por la vía del tono.</td></tr>
+      <tr><td>«Neto» verde cuando es positivo</td><td>Hasta hoy ese neto era <strong>+$10,642,041 porque «Pagos» valía $0</strong>. El verde más confiado estaba sobre el número más falso.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>Dos rótulos que el artefacto no puede omitir</h3>
+  <ul>
+    <li><strong><code>pagos</code> y <code>pagos_autorizados</code> nunca se suman.</strong> Deuda del ERP contra obligación autorizada: dos universos con traslape sin resolver. Apilarlos en una barra publica dinero inventado.</li>
+    <li><strong>«Capacidad de pago» es una autorización, no dinero.</strong> Si se pinta junto al saldo bancario sin rotularla, se lee como liquidez. Propondría <span class="mono">$185,159.07</span> por día hábil contra <span class="mono">$2,332,149.22</span> reales — <strong>12.6× abajo</strong>.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>6 · Ventas <span class="owner">carril 06 · lleno</span></h2>
+  <p class="lead">Plan de ventas, supuestos de crecimiento y meta del ejercicio. Cifras reales contra <code>pg-prod</code>, en <strong>una sola transacción <code>REPEATABLE READ</code></strong> — <code>as_of 2026-10-09 02:13:21 CST</code>. Régimen <span class="rg">snapshot · 14:09Z</span> salvo donde se indica: el rollup que las alimenta tiene <strong>18 h</strong>.</p>
+
+  <h3>La tira, como debería verse</h3>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">Meta del ejercicio <span class="st st-parcial">parcial</span></span><span class="mi-val">$604,775,116.21</span><span class="mi-sub">cubre 10 de 13 periodos · P11-P13 en $0.00 por falta de base</span></div>
+    <div class="mi"><span class="mi-lab">Crecimiento aplicado <span class="st st-derivado">derivado · default</span></span><span class="mi-val">+26.67 %</span><span class="mi-sub">no se midió: el YoY no se pudo calcular y cayó al valor de respaldo</span></div>
+    <div class="mi"><span class="mi-lab">Crecimiento medido <span class="st st-medido">medido</span></span><span class="mi-val">−2.95 %</span><span class="mi-sub">entidades con venta en ≥8 de 9 periodos cerrados, en los dos años</span></div>
+    <div class="mi"><span class="mi-lab">Meta del Q4 <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">99 renglones sin base · ese trimestre valió $166,571,225.35 en FY2025</span></div>
+    <div class="mi"><span class="mi-lab">Margen del ejercicio <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">el costo de mercancía no está presupuestado: no hay con qué calcularlo</span></div>
+  </div>
+  <div class="note bad"><strong>Las dos primeras tarjetas son la misma pregunta con respuestas opuestas, y hoy la pantalla publica sólo una.</strong> «+26.67 %» y «−2.95 %» miden el crecimiento del mismo negocio: el primero es un valor de respaldo que nadie firmó, el segundo es la medición. Sin el estado a la vista, el <code>+26.67 %</code> se lee como un hecho. <strong>La regla 3 es la que obliga a mostrar los dos</strong> — y aquí el número «viejo» es el que está en producción.</div>
+
+  <h3>El caso que originó la regla 5</h3>
+  <p class="lead">Ventas tiene <strong>dos rellenos</strong>, y el estado <code>derivado</code> solo no los separa. La dimensión que los hace incomparables es el <code>method</code>.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Población</th><th class="num">Monto</th><th class="num">Celdas</th><th>De dónde sale la cifra</th></tr></thead>
+    <tbody>
+      <tr><td><span class="st st-derivado">derivado</span> · <code>estacional</code></td><td class="num">$2,923,436.39</td><td class="num">54</td><td>Índice de participación por periodo sobre la historia anual de <strong>esa misma entidad</strong>, con <em>shrinkage</em> hacia la forma de su canal. Débil, pero suyo.</td></tr>
+      <tr><td><span class="st st-derivado">derivado</span> · <code>proxy_canal</code></td><td class="num">$197,160,564.29</td><td class="num">104</td><td><strong>El promedio de OTRAS entidades del canal</strong>, repartido en partes iguales. La entidad no aporta ninguna señal: <code>base_amount</code> queda en <code>NULL</code>.</td></tr>
+      <tr style="background:var(--sunken)"><td><strong>Si se funden en «derivado»</strong></td><td class="num"><strong>$200,084,000.68</strong></td><td class="num"><strong>158</strong></td><td><strong>Un número, dos poblaciones.</strong> El 98.5 % de ese total no tiene ninguna señal de su propia entidad, y el agregado no lo dice.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Cuánto cuesta fundirlas, medido.</strong> Las 8 entidades que recibieron <code>proxy_canal</code> sumaban <strong>$19,063,383.41</strong> de venta real en 2026 y se les asignó <strong>$197,160,564.29</strong> — <strong>10.3×</strong>. En los extremos: <span class="mono">mayoreo:05</span> recibió <strong>2,860×</strong> lo suyo y <span class="mono">preventa:03</span> <strong>2,363×</strong>. Una celda <code>estacional</code> honesta y una de <code>proxy_canal</code> a 2,860× <strong>no pueden compartir un renglón de totales</strong>.</div>
+
+  <h3>El veredicto de la prueba: ¿alcanzan cuatro estados?</h3>
+  <p class="lead">Llegué a este documento sosteniendo que Ventas necesitaba <strong>cinco</strong> estados, con <code>rellenado_propio</code> y <code>rellenado_ajeno</code> separados en el tipo compartido. El carril de Tesorería objetó que eso hornearía la taxonomía de un dominio en un organismo que usan 85 pantallas, y propuso probarlo aquí. Lo probé.</p>
+  <div class="note ok"><strong>Cuatro estados alcanzan — pero sólo porque existe la regla 5.</strong> Con el <code>method</code> obligatorio y a la vista, <code>derivado · proxy_canal</code> se lee distinto de <code>derivado · estacional</code> en cualquier renglón. Donde mi objeción <strong>sí valía</strong> era en el agregado, y eso no se arregla con un tipo más ancho: se arregla prohibiendo el total fundido. <strong>El tipo de cuatro y la regla 5 se sostienen mutuamente; ninguno de los dos alcanza solo.</strong> Retiro la propuesta de cinco estados en el tipo compartido.</div>
+
+  <h3>Tres antipatrones, medidos en este carril</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:38%">Lo que hace hoy</th><th>Por qué engaña</th></tr></thead>
+    <tbody>
+      <tr><td>El crecimiento guardado no lleva su <code>basis</code></td><td><span class="mono">mayoreo</span> quedó en <strong>26.67 %</strong>, que es el valor de respaldo <strong>al decimal</strong>. Esa coincidencia es la huella de que su YoY no se pudo calcular — y <strong>sólo se descubre recomputando</strong>, porque la tabla guarda el número pelado. El canal mide <strong>−9.36 %</strong> y carga el 28.10 % de la meta.</td></tr>
+      <tr><td><code>base_amount</code> en <code>NULL</code> para <code>proxy_canal</code></td><td>Es honesto —no hay base— pero <strong>una meta inventada se ve igual que una medida</strong> en cualquier consumidor que no lea <code>method</code>. La ausencia necesita su propio estado, no un campo vacío.</td></tr>
+      <tr><td>La cobertura contaba <strong>celdas</strong>, no dinero</td><td>«104 de 429 celdas» no dice «<strong>24.46 % de la meta</strong>». Que los dos porcentajes casi coincidan en este ejercicio es casualidad suya, no una regla — y nadie calculaba el segundo.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>⭐ El primitivo ya existe — y lo que de verdad falta es otra cosa</h3>
+  <p class="lead">Este documento nació para proponer «el segundo primitivo, sobre el eje cobertura». <strong>Medido: ya existe.</strong> <code>libs/contracts/src/http/provenance.contract.ts</code> exporta <code>Coverage</code> desde hace semanas, y su comentario es nuestra regla 2 escrita antes que nosotros: <em>«<code>measured</code> es el campo que no puede faltar. Sin él, "no falta nada" y "nadie contó" se serializan igual»</em>.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Contrato</th><th class="num">Archivos que lo usan</th><th>Qué contesta</th><th>Qué le falta</th></tr></thead>
+    <tbody>
+      <tr><td><code>Freshness</code> <span class="st st-medido">medido</span></td><td class="num">34</td><td>¿de cuándo es el dato? Ternario <code>fresh&nbsp;|&nbsp;stale&nbsp;|&nbsp;unknown</code>.</td><td>Nada. Funcionó: sólo <strong>2</strong> archivos declaran el tipo a mano, y uno es el contrato mismo.</td></tr>
+      <tr><td><code>FreshnessPill</code> <span class="st st-medido">medido</span></td><td class="num">38</td><td>el <strong>render</strong> del eje frescura. Otra capa que el tipo.</td><td>Nada. Es la adopción más alta de las tres.</td></tr>
+      <tr><td><code>Coverage</code> <span class="st st-parcial">parcial</span></td><td class="num">12</td><td>¿qué parte del universo cubre <strong>la respuesta</strong>? <code>measured · pct · note</code>.</td><td><strong>El <code>method</code>.</strong> Sabe decir cuánto cubre, no <strong>cómo se derivó</strong>.</td></tr>
+    </tbody>
+  </table></div>
+  <p class="lead"><strong>Medido así</strong>, y el comando importa: <code class="mono">grep -rl '\bCoverage\b' --include=*.ts libs/ apps/ | wc -l</code>. <strong>El límite de palabra no es un detalle.</strong> Sin él, <code>ProposeCoverage</code>, <code>ExpenseCoverage</code> y <code>VisionCoverage</code> cuentan como adoptantes — y son justo <strong>los tipos que el compartido venía a reemplazar</strong>. Dos carriles midieron este número por separado y dieron <strong>12</strong> y <strong>42</strong>; el segundo medía reinvención y la publicaba como adopción.</p>
+
+  <h3>⛔⛔ Y el hallazgo que salió de esa discrepancia: la reinvención está medida, y somos parte</h3>
+  <p class="lead">La pregunta no era «¿cuántos adoptaron?» sino «¿cuántos escribieron el suyo?». <strong>Diez.</strong> Uno se llama <code>Coverage</code> a secas: una sombra del tipo compartido, con su mismo nombre.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:34%">Tipo declarado a mano</th><th>Dónde vive</th></tr></thead>
+    <tbody>
+      <tr><td><code>Coverage</code> ⛔</td><td><code>finanzas/findings.service.ts</code> — mismo nombre que el del contrato</td></tr>
+      <tr><td><code>ProposeCoverage</code></td><td><code>finanzas-presupuesto.component.ts</code> — <strong>del carril de Ventas</strong></td></tr>
+      <tr><td><code>ExpenseCoverage</code></td><td><code>finanzas-presupuesto.component.ts:179</code> — <strong>del carril de Gastos</strong></td></tr>
+      <tr><td colspan="2"><code>PeriodCoverage</code> · <code>ThreeWayCoverage</code> · <code>VisionCoverage</code> · <code>SalesExecCoverage</code> · <code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code> · <code>ModuleCoverage</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Íbamos a construir por segunda vez un primitivo que ya existía — mientras escribíamos un documento sobre no hacer eso.</strong> Y la primera versión de esta sección decía que el hueco era de <em>adopción</em>: <strong>también estaba incompleta</strong>. No es no-adopción pasiva, es <strong>reinvención activa</strong> — <strong>10 tipos en 8 archivos</strong>, y <strong>dos de ellos en el mismo archivo que este documento viene a arreglar</strong>, uno por carril.</div>
+
+  <h3>⛔⛔ Y por qué se reinventa: no es ignorancia — el compartido <em>no alcanza</em></h3>
+  <p class="lead">La tercera versión de esta sección decía «hueco de adopción». <strong>También estaba mal.</strong> Lo que lo tumbó fue preguntar quién escribe el suyo <em>conociendo</em> el contrato.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:36%">Archivo</th><th>Qué importa del contrato</th><th>Qué declara igual, a mano</th></tr></thead>
+    <tbody>
+      <tr><td><code>finanzas-presupuesto.component.ts</code></td><td><code>Coverage</code> ⛔ <strong>el mismo</strong></td><td><code>ProposeCoverage</code> · <code>ExpenseCoverage</code></td></tr>
+      <tr><td><code>comercial.service.ts</code></td><td><code>Freshness</code> · <code>PeriodCoverageWire</code></td><td><code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code></td></tr>
+      <tr><td><code>supervisor-ai.service.ts</code></td><td><code>Freshness</code></td><td><code>VisionCoverage</code> · <code>SalesExecCoverage</code></td></tr>
+    </tbody>
+  </table></div>
+  <p class="lead">Uno importa <code>Coverage</code> y lo sombrea <strong>en el mismo archivo</strong>. Los otros dos importan <strong>del mismo contrato</strong> para el eje frescura — lo conocen, lo adoptaron — <strong>y para la cobertura escriben el suyo igual</strong>. <strong>Nadie reinventa por ignorancia un tipo que importa tres líneas más arriba.</strong></p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:30%">Tipo</th><th>Forma</th></tr></thead>
+    <tbody>
+      <tr><td><code>Coverage</code> — el compartido</td><td><code>{ measured, pct, note }</code> — <strong>un solo número</strong></td></tr>
+      <tr><td><code>ExpenseCoverage</code> — a mano</td><td><code>{ historico_ajustado, estacional, no_signal, manual_kept, accounts }</code> — <strong>conteos por categoría</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>⛔⛔ <code>pct: number | null</code> no puede sostener un desglose por categoría.</strong> <code>ExpenseCoverage</code> existe porque <code>Coverage</code> <strong>obliga a fundir cinco poblaciones en un solo número</strong> — que es <strong>la regla 5 violada por el contrato compartido</strong>, el mismo que este documento iba a proponer como la solución. ⇒ El hueco <strong>no es de adopción: es de diseño</strong>. Subir los adoptantes de 12 a 34 sin cambiar la forma sólo lograría que más dominios funden más poblaciones.</div>
+  <div class="note ok"><strong>El deliverable, entonces, es otro.</strong> No «construir el segundo primitivo» (existe), ni «subir la adopción» (empeoraría), ni sólo «agregarle <code>method</code>». Es que <strong><code>Coverage</code> admita un desglose por categoría</strong> — y que el per-número viva en su propia capa, porque una respuesta trae un <code>Coverage</code> y una tira trae varios estados.</div>
+
+  <h3>⛔ Pero <code>Coverage</code> no alcanza: está en otro GRANO</h3>
+  <p class="lead">Una respuesta trae <strong>un</strong> <code>Coverage</code>. Una tira trae <strong>varios números con estados distintos</strong>. El primero no puede hablar por el segundo.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Una sola respuesta</th><th class="num">Números</th><th class="num">Estados distintos</th><th class="num">Objetos <code>Coverage</code></th></tr></thead>
+    <tbody>
+      <tr><td><code>salesKpis(SalesComparison)</code> — Ventas</td><td class="num">4</td><td class="num">3</td><td class="num"><strong>1</strong></td></tr>
+      <tr><td><code>cashflowKpis()</code> — Tesorería</td><td class="num">5</td><td class="num">3</td><td class="num"><strong>1</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note ok"><strong>No son redundantes: son complementarios y de distinto grano.</strong> <code>Coverage</code> contesta <em>¿qué cubre la RESPUESTA?</em>; el vocabulario de estados contesta <em>¿con qué se calculó ESTE número?</em>. Extender <code>Coverage</code> con <code>method</code> hace falta igual — pero no alcanza al per-número, porque un solo objeto no puede decir que el KPI #1 está parcial y el #3 no se midió.</div>
+
+  <h3>Dos antipatrones, el mismo defecto por puertas distintas</h3>
+  <p class="lead">Los dos carriles encontramos la regla 2 violada en nuestra propia tira, de formas que no se parecen — y que <code>Coverage</code> no habría atrapado en ninguno de los dos casos, porque mira la respuesta y el defecto está en la tarjeta.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:30%">Carril</th><th>Cómo entra la ausencia</th><th>Por qué es peor de lo que parece</th></tr></thead>
+    <tbody>
+      <tr><td>Tesorería</td><td><code>'sin base'</code> como <code>value</code>, sin tono</td><td>Una <strong>ausencia renderizada como valor normal</strong>. Se ve como un dato más de la tira.</td></tr>
+      <tr><td><strong>Ventas</strong> (éste)</td><td><code>value: cumplimiento_pct ?? 0</code></td><td><strong>La ausencia se convierte en 0 en el MODELO</strong>, y lo único que la disimula es cambiar <code>format</code> a <code>'text'</code>. Sobrevive a cualquier cambio de formato: el día que alguien lo vuelva <code>'percent'</code>, la pantalla publica <strong>0 %</strong> donde no hay meta. Igual en <code>CREC</code>.</td></tr>
+      <tr><td>Gastos</td><td><code>ocupacion_pct</code> = <strong>0 de verdad</strong></td><td>⭐ <strong>Una división honesta.</strong> El denominador es $74.8 M y el numerador es 0 legítimamente, así que <code>pct()</code> no devuelve <code>null</code>: devuelve <strong>0</strong>, y está bien calculado. La tarjeta publica <strong>«0 %»</strong>, que se lee <em>«no hemos gastado»</em> cuando la verdad es <em>«no hemos registrado»</em>.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Las tres puertas no se parecen, y por eso la regla 2 no alcanza como estaba escrita.</strong> Prohibir el <code>$0.00</code> de una ausencia atrapa la primera y la segunda. <strong>No atrapa la tercera</strong>, porque ahí no hay ninguna ausencia: hay un cero que la aritmética calcula bien y que <em>significa otra cosa</em>. ⇒ La regla tiene que prohibir también <strong>el cero verdadero cuyo significado no es el que el lector va a entender</strong>. Y las tres comparten algo: <strong>ninguna la habría atrapado <code>Coverage</code></strong>, porque mira la respuesta y los tres defectos están en la tarjeta.</div>
+
+  <h3>Dos cosas que este carril debe declarar</h3>
+  <ul>
+    <li><strong>El latido del refresco nunca ha corrido.</strong> Las cifras de arriba salen de una matvista <span class="rg">snapshot</span> cuyo trabajo nocturno (<code>analytics_refresh_sellout_budget</code>) <strong>no tiene ni un registro</strong>: su propio candado lo reporta <code>NO MEDIDO</code>. El rollup está a 18 h y <strong>nadie vigila esa antigüedad</strong>. Un <code>as_of</code> fresco sobre esta pantalla sería exactamente la mentira por omisión de la sección 2.</li>
+    <li><strong>Mis once mediciones no eran del mismo instante, y una se movió.</strong> El margen de 2026 pasó de <strong>11.87 %</strong> a <strong>11.86 %</strong> al tomar la foto única, porque <code>analytics.sales_daily</code> es régimen <span class="rg">vivo</span> y creció ~$1 M en seis horas, mientras el rollup —<span class="rg">snapshot</span>— aguantó al centavo. <strong>Las cifras de este documento conviven en dos regímenes</strong>, y eso tenía que decirse antes que cualquier número.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>7 · Gastos <span class="owner">carril 8c · lleno</span></h2>
+  <p class="lead">Plan de egresos, partidas y el ledger de cinco estados. Cifras contra <code>pg-prod</code> en <strong>una sola transacción <code>REPEATABLE READ</code></strong> — <code>as_of 2026-10-08 21:01:34 CST</code>. ⭐ <strong>Régimen <span class="rg">snapshot</span> en todo el bloque, y aquí eso no es un detalle:</strong> volví a medir las quince cifras que había publicado durante la tarde y <strong>ninguna se movió</strong>. No es disciplina mía — es que a <code>budget.*</code> no le escribe nadie salvo la pasada nocturna. El carril de Ventas tomó la misma precaución y su margen sí se movió, porque <code>sales_daily</code> es <span class="rg">vivo</span>. <strong>La precaución vale igual: lo que cambia es si cuesta algo, y eso no se sabe hasta tomarla.</strong></p>
+
+  <h3>La tira, como debería verse</h3>
+  <div class="strip">
+    <div class="mi"><span class="mi-lab">Egreso vigente FY2027 <span class="st st-medido">medido</span></span><span class="mi-val">$74,852,190.82</span><span class="mi-sub">12 de 12 meses · excluye el ejercicio de prueba, que lo duplicaba</span></div>
+    <div class="mi"><span class="mi-lab">De eso, rellenado <span class="st st-derivado">derivado · promedio_plano</span></span><span class="mi-val">$18,871,884.76</span><span class="mi-sub">25.21 % del dinero · 43 de 168 celdas, que es 25.60 % — no es el mismo número</span></div>
+    <div class="mi"><span class="mi-lab">Crecimiento aplicado <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">0.0000 en los 374 renglones, pero nadie lo firmó: no es una decisión de congelar</span></div>
+    <div class="mi"><span class="mi-lab">Ocupación del ledger <span class="st st-nomedido">no medido</span></span><span class="mi-val unk">—</span><span class="mi-sub">139 movimientos y los 139 son apertura: no empezó la ejecución</span></div>
+    <div class="mi"><span class="mi-lab">Sin freno duro <span class="st st-parcial">parcial</span></span><span class="mi-val">$107,278,033.88</span><span class="mi-sub">26 partidas · 0 en bloqueo · el total de egreso autorizado de los dos ejercicios</span></div>
+  </div>
+  <div class="note bad"><strong>Las dos tarjetas con guion son las que más cuesta dibujar, y las dos hoy salen con un número.</strong> «Crecimiento 0.00 %» y «Ocupación 0 %» son los valores que el sistema devuelve ahora mismo, y los dos son <strong>ceros verdaderos que significan otra cosa</strong>: el primero no es «decidimos no crecer», es «nadie decidió»; el segundo no es «no hemos gastado», es «no hemos registrado». <strong>La regla 2 no alcanza con prohibir el <code>$0.00</code> de una ausencia: hay que prohibir el cero que la aritmética calcula bien.</strong></div>
+
+  <h3>El contrato: <code>GET /budgets/:id/expense-plan/coverage</code></h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:30%">Campo</th><th>Qué contesta</th></tr></thead>
+    <tbody>
+      <tr><td><code>por_estado</code></td><td><code>observado | promedio_plano | ausente | sin_base_declarada</code>, cada uno con <code>celdas</code> <strong>y</strong> <code>importe</code> por separado — nunca uno solo (ver el antipatrón 3 de Ventas).</td></tr>
+      <tr><td><code>ventana</code></td><td><code>desde · hasta · meses · meses_esperados · cobertura_pct · completa · nota</code>. ⚠️ Se mide contra <strong>12 meses naturales</strong>, nunca contra los 13 periodos de Ventas: son dos calendarios y los dos cubren el año.</td></tr>
+      <tr><td><code>relleno_pct</code></td><td>Qué parte del dinero publicado no lo observó nadie. <code>null</code> si no hay total, nunca 0.</td></tr>
+      <tr><td><code>medido: false</code> + <code>motivo</code></td><td>La vista no está aplicada todavía: el endpoint responde <strong>declarando por qué no pudo</strong>, no con ceros.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>La ventana: el mismo importe significa dos cosas distintas</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Ejercicio</th><th class="num">Egreso</th><th class="num">Meses</th><th>Cómo se publica hoy</th></tr></thead>
+    <tbody>
+      <tr><td>FY2027 <span class="st st-medido">medido</span></td><td class="num">$74,852,190.82</td><td class="num">12 / 12</td><td>Anual, y es anual. Correcto.</td></tr>
+      <tr><td>FY2026 <span class="st st-parcial">parcial</span></td><td class="num">$32,425,843.06</td><td class="num">5 / 12</td><td><strong>También como anual</strong> — <code>period_month = NULL</code> en sus 12 partidas, que en este esquema significa «anual». Cubre ago–dic.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn"><strong>Que sean 5 meses no está mal: el sistema arrancó en agosto.</strong> Lo que está mal es publicarlo como año — quien lo lea así subestima <strong>~58 %</strong>. Y <code>budget.budgets</code> no puede corregirlo solo: guarda <code>fiscal_year</code> como un <strong>entero</strong> y <strong>no tiene ninguna columna de ventana</strong> (verificado: cero). Los meses cubiertos viven únicamente en <code>expense_plan_lines.year_month</code>.</div>
+
+  <h3>Dos antipatrones, y ninguno es un <code>?? 0</code></h3>
+  <p class="lead">Los tres carriles encontramos la regla 2 rota en nuestra propia tira. Los otros dos entran por el render y por el modelo; los míos entran <strong>antes</strong>, y por eso <code>Coverage</code> no los vería ni extendido con <code>method</code>: no están en la respuesta.</p>
+  <div class="tw"><table>
+    <thead><tr><th style="width:32%">Lo que hace hoy</th><th>Por qué engaña</th></tr></thead>
+    <tbody>
+      <tr><td><code>settingsRow()</code> devuelve un <strong>default sintético</strong> cuando no hay fila: <code>{ default_growth_pct: 0, exists: false }</code></td><td>El motor corre con un <strong>0 % inventado</strong>, y un 0 % inventado es <strong>indistinguible de un 0 % firmado</strong> — congelar el gasto es una decisión legítima. El campo <code>exists</code> ya estaba ahí y <strong>nadie lo usaba como compuerta</strong>: la ausencia tenía nombre y no tenía consecuencia. Es lo que dejó <strong>374 de 374</strong> renglones con <code>monto = base_amount</code> al centavo, publicados como plan.</td></tr>
+      <tr><td><code>ocupacion_pct</code> devuelve <strong><code>0</code>, no <code>null</code></strong>, con el ledger virgen</td><td>No es un <code>?? 0</code> ni una ausencia renderizada como valor: es una <strong>división honesta cuyo resultado es un cero verdadero</strong>. <code>pct()</code> sólo devuelve <code>null</code> si el denominador es 0, y acá el denominador son $74.8 M y el numerador es 0 <em>legítimamente</em>. <strong>La aritmética está bien y el significado está mal:</strong> la tarjeta publica <code>0 %</code> y se lee «no hemos gastado» cuando la verdad es «no hemos registrado».</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>La tercera puerta.</strong> Tesorería renderiza la ausencia como valor; Ventas la convierte en 0 en el modelo; acá <strong>el 0 es correcto y el problema es que la pregunta cambió</strong>. Ninguna regla que prohíba «escribir cero» atrapa este caso — hace falta que el <strong>estado</strong> viaje al lado del número, que es justo lo que el vocabulario hace y <code>Coverage</code> no.</div>
+
+  <h3>El ledger: lo que no explica</h3>
+  <p class="lead">El cuadre que todos escribimos —<code>vigente − (reservado + comprometido + ejercido) = disponible</code>— <strong>no puede fallar</strong>: <code>available_amount</code> no es columna, se calcula con esa misma resta. Auditarlo es auditar una expresión contra sí misma, y da verde sobre cualquier cosa.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Hecho</th><th class="num">Medido</th><th>Qué significa</th></tr></thead>
+    <tbody>
+      <tr><td>Movimientos del ledger</td><td class="num">139 / 139 <code>apertura</code></td><td>Cero reservas, compromisos, ejercidos, pagos, adecuaciones y transferencias. El circuito nunca se operó.</td></tr>
+      <tr><td>Vigente que el ledger <strong>no explica</strong></td><td class="num">$132,760,528.47</td><td><code>materialize</code> reescribe <code>original</code> y <code>vigente</code> <strong>en sitio, sin movimiento</strong>, cuando la partida no tiene consumo. Por diseño — pero entonces el libro no es «el ledger inmutable de cada transición» que dice su migración.</td></tr>
+      <tr><td>Aperturas que ya no coinciden con su <code>original_amount</code></td><td class="num">14 · peor $50,309,673.92</td><td>El movimiento rotulado <em>«Autorización original»</em> conserva el importe del día que nació; la partida dice otro. <strong>Y manda la partida.</strong></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note warn"><strong>Dos transiciones hacen que el ledger no se pueda reconstruir, y la ventana para arreglarlo se cierra con el primer uso real.</strong> Una <code>cancelacion</code> no dice qué bucket bajó (viajaba sólo en <code>note</code>, texto libre reemplazable) y un <code>compromiso</code> no dice si movió una reserva o consumió disponible — los dos caminos escribían un movimiento idéntico. Con <strong>cero cancelaciones</strong> el CHECK que lo exige no puede fallar y no hay nada que rellenar; en cuanto exista la primera, ya no se puede saber retroactivamente. ⛔ Y la columna que habría servido, <code>reverses_movement_id</code>, existe desde el 17-sep y <strong>no se escribe en ninguna parte del repo</strong>.</div>
+
+  <h3>La decisión pendiente, con dueño</h3>
+  <div class="tw"><table>
+    <thead><tr><th style="width:26%">Decisión</th><th class="num">Monto en juego</th><th style="width:22%">Dueño</th><th>Por qué no la toma la pantalla</th></tr></thead>
+    <tbody>
+      <tr><td><strong>¿El gasto debe tener freno duro?</strong></td><td class="num">$107,278,033.88<br><span class="mono">26 partidas</span></td><td><strong>Dirección</strong> (Finanzas propone)</td><td>Poner <code>bloqueo</code> <strong>rechaza sobregiros</strong> y cambia la operación de quien captura. Hoy las 26 están en <code>advertencia</code>: dejan pasar con aviso.</td></tr>
+      <tr><td><strong>¿Quién firma el supuesto de crecimiento?</strong></td><td class="num">todo el plan<br><span class="mono">374 renglones</span></td><td><strong>Dirección</strong></td><td>Un 0 % firmado es una decisión; <code>expense_plan_settings</code> en <strong>0 filas</strong> no lo es. Sin firma el plan no se materializa — y ése es el efecto buscado.</td></tr>
+      <tr><td><strong>¿Cómo se cierra el ejercicio parcial?</strong></td><td class="num">$32,425,843.06<br><span class="mono">FY2026, 5 meses</span></td><td><strong>Dirección</strong></td><td>O se parten las partidas por mes, o el ejercicio declara su ventana. Las dos son correctas; elegir no es de diseño.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note ok"><strong>La regla 4 pedía dueño y acá están los tres.</strong> Ninguna de las tres es un bug: son políticas sin tomar, y la pantalla las muestra como tales — con su monto, para que la decisión tenga tamaño.</div>
+
+  <h3>⭐⭐ Mi medición estaba invertida — y la discrepancia encontró lo que faltaba</h3>
+  <p class="lead">Al verificar la adopción de <code>Coverage</code> publiqué <strong>42 archivos</strong> contra los <strong>11</strong> del otro carril. Ninguno de los dos números era el bueno, y el mío estaba mal <strong>en el sentido contrario al que parece</strong>.</p>
+  <div class="note bad"><strong>Mi <code>grep -rl 'Coverage'</code> no tenía límite de palabra, así que contaba <code>ExpenseCoverage</code>, <code>ProposeCoverage</code>, <code>VisionCoverage</code>… — que son exactamente los tipos locales que el <code>Coverage</code> compartido venía a reemplazar.</strong> O sea: <strong>medía reinvención y la publicaba como adopción</strong>. Es el mismo defecto que este documento persigue, cometido mientras lo escribía — un agregado correcto sobre un universo que no declaré.</div>
+  <div class="tw"><table>
+    <thead><tr><th>Qué se mide</th><th class="num">Archivos</th><th>Comando</th></tr></thead>
+    <tbody>
+      <tr><td>El tipo <code>Coverage</code> compartido</td><td class="num">12</td><td><code class="mono">grep -rl '\bCoverage\b' --include='*.ts' libs/ apps/</code></td></tr>
+      <tr><td>El tipo <code>Freshness</code> compartido</td><td class="num">34</td><td><code class="mono">grep -rl '\bFreshness\b' …</code></td></tr>
+      <tr><td><code>FreshnessPillComponent</code> — la adopción del <strong>render</strong></td><td class="num">38</td><td><code class="mono">grep -rl 'FreshnessPillComponent' …</code></td></tr>
+    </tbody>
+  </table></div>
+  <div class="note bad"><strong>Y lo que ninguno de los dos tenía, que salió de la discrepancia: hay <u>10 tipos de cobertura declarados a mano</u>.</strong> <code>ExpenseCoverage</code> · <code>ProposeCoverage</code> · <code>PeriodCoverage</code> · <code>ThreeWayCoverage</code> · <code>VisionCoverage</code> · <code>SalesExecCoverage</code> · <code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code> · <code>ModuleCoverage</code> — <strong>y uno llamado <code>Coverage</code> a secas</strong>, una sombra del tipo compartido con su mismo nombre. ⛔ <strong>Dos de los diez son de los carriles que escriben este documento, y uno es de esta sección:</strong> <code>interface ExpenseCoverage</code> vive en <code class="mono">finanzas-presupuesto.component.ts:179</code> — la pestaña de Gastos.</div>
+  <div class="note ok"><strong>Eso cierra la tesis del artefacto: estaba equivocada en la forma y acertada en el fondo.</strong> El segundo primitivo no falta — existe. Pero el patrón que íbamos a prevenir <strong>ya está ocurriendo, diez veces, en el eje de la cobertura</strong>, y no por no-adopción pasiva sino por <strong>reinvención activa</strong>. <strong>Lo que lo descubrió no fue releer el contrato: fue que dos mediciones no coincidieran y ninguno de los dos aceptara la del otro.</strong></div>
+
+  <h3>Tres cosas que este carril debe declarar</h3>
+  <ul>
+    <li><strong>La latencia del endpoint: NO MEDIDA.</strong> La vista <code>v_expense_plan_coverage</code> no está aplicada en prod, así que no puedo decir si cumple el piso de 500 ms. Un <code>as_of</code> sin latencia medida es media verdad, y prefiero el hueco declarado.</li>
+    <li><strong>⚠️ <code>check:primeng-api</code> es una compuerta escrita que nadie corre.</strong> El archivo existe (<code>scripts/check-primeng-api.js</code>) y <strong>no está cableado en <code>package.json</code></strong> — sólo hay <code>check:templates</code> y <code>check:templates-types</code>. <code>CLAUDE.md</code> la cita como «tolerancia CERO». <strong>Una compuerta que nadie ejecuta se lee exactamente igual que una que pasó</strong>, que es el defecto de este documento aplicado a nuestras propias herramientas.</li>
+    <li><strong>El estado «no medido» no tiene token.</strong> <code>tokens.css</code> trae <code>ok · warn · bad · info</code> y neutral, y ninguno sirve: no es error, no es advertencia, y el neutral ya es «medido». Se propone <code>--unknown-soft-bg/fg/border</code> <strong>en el archivo compartido</strong>, para que no lo invente cada pantalla por su cuenta.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>8 · Lo que este documento NO resuelve</h2>
+  <p class="lead">Y lo primero es el encuadre con el que nació, que resultó falso.</p>
+
+  <div class="note bad"><strong>⛔ La tesis original —«falta el segundo primitivo»— es FALSA, y descubrirlo es el aporte más grande del artefacto.</strong> <code>Coverage</code> ya existe en <code>libs/contracts/src/http/provenance.contract.ts</code>, con <code>measured · pct · note</code>, y su comentario —escrito semanas antes— ya decía nuestra regla 2: <em>«sin <code>measured</code>, "no falta nada" y "nadie contó" se serializan igual»</em>. Dos de los tres carriles <strong>ya lo usaban sin saberlo</strong>. Íbamos a construir por segunda vez el primitivo que existía, <strong>mientras escribíamos un documento sobre no hacer exactamente eso</strong>.</div>
+
+  <h3>Lo que falta de verdad, medido</h3>
+  <div class="tw"><table>
+    <thead><tr><th>Hueco</th><th>Tamaño</th><th>De qué tipo es</th></tr></thead>
+    <tbody>
+      <tr><td><code>Freshness</code> (el tipo)</td><td class="num">34</td><td>✅ Funcionó. Casi cero deriva.</td></tr>
+      <tr><td><code>FreshnessPill</code> (el render)</td><td class="num">38</td><td>Otra capa que el tipo, y hay que contarla aparte: se puede pintar la píldora sin declarar el contrato, y al revés.</td></tr>
+      <tr><td><code>Coverage</code></td><td class="num">12</td><td>⛔ <strong>No es hueco de adopción: es hueco de DISEÑO.</strong> Ver abajo.</td></tr>
+      <tr><td><code>method</code></td><td class="num">no existe</td><td><code>Coverage</code> no tiene con qué decir <strong>cómo</strong> se derivó.</td></tr>
+      <tr><td>El grano <strong>por número</strong></td><td class="num">capa aparte</td><td>No lo cubre extender <code>Coverage</code>.</td></tr>
+    </tbody>
+  </table></div>
+
+  <h3>⛔ Por qué es de diseño y no de adopción</h3>
+  <p class="lead">La primera versión de esta sección decía «hueco de adopción, subirlo de 11 a 33». <strong>Estaba mal</strong>, y lo que la corrigió fue medir de dónde salía cada tipo escrito a mano.</p>
+  <div class="tw"><table>
+    <thead><tr><th>Archivo</th><th>Qué importa del contrato</th><th>…y qué escribe a mano igual</th></tr></thead>
+    <tbody>
+      <tr><td><code>finanzas-presupuesto.component.ts</code></td><td>✅ <code>Coverage</code></td><td><code>ProposeCoverage</code> · <code>ExpenseCoverage</code></td></tr>
+      <tr><td><code>comercial.service.ts</code></td><td><code>Freshness</code> · <code>PeriodCoverageWire</code></td><td><code>InventoryVarianceCoverage</code> · <code>InventoryWaveCoverage</code></td></tr>
+      <tr><td><code>supervisor-ai.service.ts</code></td><td><code>Freshness</code></td><td><code>VisionCoverage</code> · <code>SalesExecCoverage</code></td></tr>
+      <tr style="background:var(--sunken)"><td colspan="3"><strong>10 tipos <code>*Coverage</code> escritos a mano, en 8 archivos</strong> — 6 en <code>apps/view</code>. Y uno, en <code>findings.service.ts</code>, se llama <strong><code>Coverage</code> a secas</strong>: una sombra del compartido, con su mismo nombre y otra forma.</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><strong>La primera versión de esta tabla decía que los tres importaban <code>Coverage</code>. Era falso</strong> — sólo el primero lo hace; los otros dos importan <code>Freshness</code> del mismo contrato. <em>El error vino de medir «importa del contrato» y publicarlo como «importa Coverage».</em> ⭐ Pero la evidencia corregida es <strong>más limpia</strong>: los tres <strong>conocen el contrato y lo adoptaron para el eje frescura</strong>; para el de cobertura escribieron el suyo igual. <strong>No hace falta que importen <code>Coverage</code> para probar que no lo ignoran.</strong></div>
+  <div class="note bad"><strong>Y hay una confesión escrita en el código, a cuatro mil líneas de donde nadie la busca</strong> — <code>comercial.service.ts:4013</code>:
+    <br><em>«Cobertura declarada — la FORMA es <code>Coverage</code> de <code>@megadulces/contracts</code>, <strong>más el detalle</strong>.»</em>
+    <br>«Más el detalle» <strong>es el hueco, dicho por quien lo rodeó</strong>. Se ve en la forma de los que se escriben a mano: <code>ExpenseCoverage</code> es <code>{ historico_ajustado, estacional, no_signal, manual_kept, accounts }</code> — <strong>conteos por categoría</strong>, y <code>pct: number | null</code> no puede sostener eso.</div>
+  <div class="note warn">⭐ <strong>Y el bucle se cierra solo:</strong> <code>ExpenseCoverage</code> existe porque <code>Coverage</code> obligaba a fundir cinco poblaciones en un <code>pct</code> — <strong>la violación exacta de la regla 5, cometida por el tipo que escribimos para evitarla</strong>. ⇒ El deliverable no es subir la adopción ni sólo agregar <code>method</code>: es que <strong><code>Coverage</code> necesita desglose por categoría</strong>. <em>Dos de los diez tipos a mano viven en el archivo que este documento viene a arreglar.</em></div>
+
+  <h3>Por qué extender <code>Coverage</code> no alcanza</h3>
+  <p class="lead">Medido en los dos carriles, el mismo día:</p>
+  <div class="tw"><table>
+    <thead><tr><th>Función</th><th class="num">Números</th><th class="num">Estados distintos</th><th class="num"><code>Coverage</code> en la respuesta</th></tr></thead>
+    <tbody>
+      <tr><td><code>salesKpis()</code></td><td class="num">4</td><td class="num">3</td><td class="num">1</td></tr>
+      <tr><td><code>cashflowKpis()</code></td><td class="num">5</td><td class="num">3</td><td class="num">1</td></tr>
+    </tbody>
+  </table></div>
+  <div class="note"><code>Coverage</code> responde <em>¿qué cubre la RESPUESTA?</em>; el vocabulario responde <em>¿con qué se calculó ESTE número?</em>. Una respuesta con un solo <code>Coverage</code> no puede decir que su KPI #1 está medido y su #5 no. <strong>Son complementarios y de distinto grano</strong>, no redundantes. La prueba más dura: <strong>ninguno de los tres antipatrones de este documento lo habría atrapado <code>Coverage</code></strong> — mira la respuesta, y los tres defectos están en la tarjeta.</div>
+
+  <h3>Lo que queda abierto</h3>
+  <ul>
+    <li><strong>Tres decisiones de negocio vivas</strong>, que van con dueño y no como error: si el gasto debe tener freno duro, cómo se resuelve FY2026 publicando 5 meses como anual, y quién firma el supuesto de crecimiento.</li>
+    <li><strong>El estado vive en el lugar equivocado.</strong> <code>MetricState</code> se implementó en <code>apps/view/…/metric-strip.component.ts</code>, y por ADR-056 un primitivo no cierra hasta vivir en <code>libs/</code>. Va al lado de <code>Coverage</code>, con el naming alineado: <code>measured === false</code> <strong>es</strong> <code>no_medido</code>, y hoy son dos maneras de decir lo mismo en dos capas. <em>El defecto que este documento denuncia, cometido mientras se escribía.</em></li>
+    <li><strong>La compuerta no existe.</strong> Falta un <code>check:</code> que falle si un item pide <code>tone: 'ok'</code> con estado distinto de <code>medido</code> — <strong>con su prueba negativa</strong>, rompiéndolo a propósito una vez. Hoy los <strong>22 verdes clavados</strong> pasarían sin que nadie se entere. ⚠️ Y la que el encargo citaba como «compuerta con tolerancia cero», <code>check:primeng-api</code>, <strong>no está cableada en <code>package.json</code></strong>: el archivo existe y nadie lo corre.</li>
+    <li><strong>No se puede contar procedencia por nombre de campo.</strong> Se escribe de al menos ocho maneras (<code>freshness · data_as_of · base · basis · cobertura · source · reason · as_of_reason</code>) y al menos tres son <strong>polisémicas</strong>: <code>base</code> es procedencia en un archivo y un monto en otro. ⇒ Antes de medir la deuda hay que decidir <strong>qué campo ES procedencia</strong>. Un conteo por nombre tiene error en las dos direcciones y no se sabe cuál domina.</li>
+    <li><strong>Las cifras caducan.</strong> La cobranza en ventana se movió <strong>+10.6 % en tres horas</strong> el día que se midió. Ninguna cifra de este documento vale sin su <code>as_of</code> <em>y su régimen</em>.</li>
+  </ul>
+
+  <div class="note warn"><strong>Un hallazgo que no es de diseño y conviene que viaje con el documento.</strong> Tres sesiones trabajaron sobre los mismos archivos y el trabajo se mezcló <strong>tres veces</strong>, la última con los dos lados haciendo todo bien: avisar antes de editar, mirar el aviso de «cambió en disco», inspeccionar el diff y retirarse. <strong>Git no reportó nada en ninguna de las tres, porque no hubo conflictos.</strong> Un conflicto frena; esto deja pasar. ⇒ La disciplina de un lado no alcanza: hace falta que las dos partes acierten el <em>timing</em>, y no hay nada que las sincronice.</div>
+</section>
+
+</div>
+<script>
+(function(){
+  // El oscuro del sistema se activa con la clase `theme-monochrome` sobre la raiz, no con una
+  // media query ni con un atributo propio. Si el prototipo lo hiciera distinto, lo que se
+  // aprueba aca no seria lo que se implementa alla.
+  var b=document.getElementById('tgl'),r=document.documentElement;
+  function oscuro(){ return r.classList.contains('theme-monochrome'); }
+  function paint(){ b.textContent = oscuro() ? 'Cambiar a claro' : 'Cambiar a oscuro'; }
+  b.addEventListener('click',function(){ r.classList.toggle('theme-monochrome'); paint(); });
+  paint();
+})();
+</script>
+</body></html>

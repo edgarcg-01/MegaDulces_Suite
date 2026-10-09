@@ -359,6 +359,27 @@ function leerBloque(ws, { route_code, colCosto, filaBase }) {
   await db.query('BEGIN');
   try {
     if (REEMPLAZAR) {
+      // ⛔ `--reemplazar` BORRA corridas en estado `pagado`, que es justo lo que `persist()` se
+      // niega a tocar ("lo pagado no se edita, nunca, ni con replace"). Este script vive fuera
+      // de ese freno porque es el que ESCRIBE el espejo, pero no puede pasarse por encima de
+      // una firma humana: si alguien aprobo, anulo o cambio de estado una de estas corridas,
+      // eso es un acto de una persona y borrarlo seria borrar su rastro.
+      const { rows: firmadas } = await db.query(
+        `SELECT p.period_no, r.status, r.approved_by, r.paid_by
+           FROM commercial.commission_runs r
+           JOIN commercial.commission_periods p ON p.id = r.period_id
+          WHERE r.tenant_id = $1 AND r.origen = 'libro'
+            AND (r.status <> 'pagado' OR r.approved_by IS NOT NULL OR r.paid_by IS NOT NULL)
+          ORDER BY p.period_no`, [TENANT]);
+      if (firmadas.length) {
+        for (const f of firmadas) {
+          console.error(`  ✖ Q${f.period_no}: status=${f.status} approved_by=${f.approved_by ?? '—'} paid_by=${f.paid_by ?? '—'}`);
+        }
+        throw new Error(
+          `${firmadas.length} corrida(s) del espejo llevan la marca de una persona (otro estado, `
+          + 'aprobacion o pago registrado). No se reemplazan: anulalas a mano primero, que deja el acto escrito.');
+      }
+
       const { rowCount: borradas } = await db.query(
         `DELETE FROM commercial.commission_run_lines l
            USING commercial.commission_runs r

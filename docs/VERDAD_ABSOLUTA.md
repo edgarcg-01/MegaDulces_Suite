@@ -3397,3 +3397,451 @@ refresco nocturno + umbral; ése era el único que no.
    los mismos >300 s: su `FULL JOIN` obliga a materializar el CTE caro **aunque sólo pidas la otra
    columna**. Sale de `ledger_monthly` directo en 10 ms. ⭐ *Filtrar una columna no evita calcular
    la otra.*
+
+---
+
+## 24. ⭐⭐ El crecimiento de VENTAS era COBERTURA, no negocio: lo establecido CAE 2.95 % y el plan proyecta +26.67 % (PU.VI, 2026-10-08)
+
+### 24.1 Qué cambió desde §22: la pasada corrió
+
+§22.2 cerró con *«todo lo que sigue está latente hasta que la pasada vuelva a correr»* —
+`generation_runs` en **0**, `sales_plan_lines` en **0**, el autopilot en `error`.
+
+**La pasada corrió.** Medido contra prod (`system_identifier` 7688376744939610156, PG 18.6) el
+**2026-10-08 ~16:15 MX**, dentro del pod `api-75c847b79b-cvqpl`:
+
+| tabla | 2026-10-07 (§22.2) | 2026-10-08 |
+|---|---:|---:|
+| `budget.budgets` | 1 | **3** |
+| `budget.sales_plan_lines` | 0 | **1,287** |
+| `budget.sales_plan_settings` | 0 | **3** |
+| `budget.generation_runs` | 0 | **20** |
+
+Ésta es la primera medición de **lo que esa pasada produjo**. §22 arbitró el supuesto de GASTO;
+esta sección arbitra el de VENTA, que §22 no alcanzó a medir.
+
+### 24.2 ⛔ El criterio de comparabilidad deja pasar una base casi-cero
+
+`proposeGrowth` parea por periodo y exige `e.a > 0 && e.b > 0`
+(`budget-sales-plan.service.ts:283`) **sobre el agregado del canal**. Dos agujeros, no uno:
+
+1. **No exige pareo a nivel ENTIDAD.** Una sucursal que sólo existe en el año nuevo entra en `e.b`
+   sin contraparte en `e.a`.
+2. **`> 0` no es un umbral.** Basta una fila.
+
+El caso testigo:
+
+    mostrador:03 (8ESQ)   $230,601  ->  $39,240,479   = +16,916.62 %
+                          venta en 1 de 9 periodos de 2025
+
+8ESQ **no creció**: entró al fact en 2026 (ya estaba declarado — `sales_daily` arranca 2026-01 para
+`03`, y `mv_sales_blended` le da 262 de 634 días). Pero `$230,601 > 0`, así que **parea**. Esa sola
+entidad aporta **24.28 pp** de los 21.46 % que el canal publicaba.
+
+⭐ **Una base casi-cero no es una base.** Y la prueba que lo detecta no es «¿hay fila?» sino
+**«¿en cuántos periodos vendió, en los dos años?»**.
+
+### 24.3 La tabla: presupuestado contra real comparable
+
+Comparable = venta en **≥ 8 de 9** periodos cerrados, en **ambos** años (P10 abierto, excluido):
+
+| canal | % meta | presupuestado | motor (todo) | **real comparable** | Δ | veredicto |
+|---|---:|---:|---:|---:|---:|---|
+| **mostrador** | 58.46 % | +21.05 % | +21.46 % | **−2.82 %** | −23.87 pp | ⛔ signo invertido |
+| **mayoreo** | 28.10 % | +26.67 % | −8.76 % | **−9.36 %** | −36.03 pp | ⛔ signo invertido |
+| **preventa** | 4.60 % | +51.21 % | +51.21 % | **+18.62 %** | −32.59 pp | ⛔ desviado 32.6 pp |
+| **ruta** | 8.84 % | +8.26 % | +8.26 % | **+13.98 %** | +5.72 pp | ⚠️ **subestimado** |
+
+⛔ **Ninguno de los cuatro canales pasa.** Los $604,775,116 de meta se reparten entre canales cuyo
+supuesto de crecimiento la medición **refuta en los cuatro casos**: tres por desviación o signo, y el
+cuarto (`ruta`) porque está **subestimado**.
+
+⚠️ **Lo que esto NO dice.** No dice que la meta valga cero ni que la venta sea falsa: la **base**
+(`base_amount` = $491,652,797) sale del real medido y se sostiene. Lo refutado es el **crecimiento**
+que se le aplicó encima — los $113,122,319 de Δ. *Un supuesto refutado no anula el hecho sobre el
+que se apoya.*
+
+### 24.4 El negocio establecido se CONTRAE
+
+Sólo entidades comparables, P1–P9:
+
+    2025  $393,041,551   ->   2026  $381,431,040   =   -2.95 %
+
+Sucursal por sucursal, y es consistente:
+
+| mostrador | | mayoreo | |
+|---|---:|---|---:|
+| `:06` | **−11.45 %** | `:08` | **−14.10 %** |
+| `:02` | −6.57 % | `:01` | **−13.01 %** |
+| `:01` | −0.82 % | `:06` | −0.77 % |
+| `:08` | +0.24 % | | |
+| `:07` | +3.29 % | | |
+
+Lo que creció en 2026 **es cobertura**: 8ESQ ($39.2 M), Zamora ($8.7 M), Yurécuaro ($4.7 M) y los
+cinco `preventa` nuevos entrando al fact. **Es venta real, pero no es crecimiento del mismo negocio
+y no se repite en 2027** — esas plazas ya están adentro.
+
+### 24.5 ⭐ La excepción va al revés: `ruta` está SUBESTIMADA
+
+Único canal que crece de verdad: **+13.98 %** contra **+8.26 %** presupuestado. Diez rutas
+comparables, **las diez positivas** (`RUTA-22` +48.65 %, `RUTA-21` +18.07 %, `RUTA-23` +15.25 %).
+
+⚠️ **Con un matiz que no se puede omitir:** quedan fuera `RUTA-321` (9 periodos en 2025, 6 en 2026)
+y `RUTA-322` (9 → 7) porque **cerraron**. Las dos cifras contestan preguntas distintas: si esas
+rutas no vuelven, el canal crece 13.98 %; si el negocio contaba con ellas, el +8.26 % del motor ya
+absorbe su caída. **Ninguna de las dos es «la» verdad sin decir cuál se preguntó.**
+
+### 24.6 ⚠️ Tres cosas que yo mismo afirmé en esta auditoría, y la medición corrigió
+
+Mismo formato que §22.6, porque el error se repitió igual:
+
+1. **Certifiqué `mostrador` como defendible aplicándole una prueba que nunca le corrí.** Le había
+   corrido la prueba de cobertura a `preventa` —donde dio 51.21 % de puro nacimiento— y concluí
+   sobre `mostrador` sin repetirla. Cuando la corrí, el canal que sostiene el **58.46 %** de la meta
+   pasó de «✔ defendible» a **signo invertido**.
+2. **Mi propio test de cobertura tenía el agujero del motor.** Clasificaba por `NULL` contra
+   `no-NULL`, así que `mostrador:03` con $230,601 pasaba como comparable. *El test heredó el
+   defecto que venía a buscar.*
+3. **Mi reconstrucción de «meta defendible» en $748,059,625 queda REFUTADA.** Usaba el global
+   10.87 %, contaminado por la misma cobertura. Con el comparable (−2.95 %) esa cifra no se sostiene.
+
+⭐ Y las tres fallas —más dos bugs de alias de columna y un veredicto que imprimía **«✔ defendible»
+sobre cuatro NULL** (el `cfg ? classify : 'ok'` de la Fase VP, reproducido por mí)— las encontró
+**un bloque de la misma corrida contradiciendo a otro**, nunca una relectura del código.
+
+### 24.7 Los huecos declarados, con nombre
+
+| hueco | medido | efecto |
+|---|---|---|
+| **`proxy_canal` escribe `base_amount` NULL** | 104 renglones · **$197,160,564** · FY2026 | reparte **el mismo importe a cada entidad del canal** sin mirar su tamaño: `mayoreo:05` recibe $52.2 M contra **$18,254** de real (**2,860×**); las 8 entidades suman $19.1 M de historia contra $197.2 M de meta (**10.3×**). Una meta inventada **se ve igual que una medida**. |
+| **`basis` no se persiste** | `growth_by_channel` es un jsonb de números pelados | `proposeGrowth` calcula `yoy_paired` / `global` / `default` y la tabla guarda sólo el número. `mayoreo` quedó en **26.67 % = el `default` exacto** — huella de que su YoY no se pudo calcular, invisible sin recomputar. |
+| **La etiqueta `method` no carga información** | `estacional` = índice por entidad en ventas · promedio plano en gastos | el mismo string, dos cálculos. Quien lea `method` y crea que sabe cómo se calculó el renglón, acierta la mitad de las veces. |
+| **Basura de fecha en el rollup** | 6 filas · FY2014/2020/2024 · **$40,292** | poco dinero, pero envenena cualquier YoY que tome «primer y último año con dato» (a mí me dio **+877,002 %**). |
+| **Los supuestos son PRE-fix** | settings `2026-10-08 00:16 Z` · fix del canal `14:15 Z` | §23 corrigió $314 M de real **14 horas después** de que se calcularan los supuestos, y **nunca se recomputaron**. |
+| **FY2027 duplicado** | 2 ejercicios byte a byte, timestamps a 1 s | agregar por `fiscal_year` publica **$1,209,550,232** en vez de $604,775,116. |
+
+### 24.8 Qué arbitra qué
+
+| pregunta | resolvedor | NO usar |
+|---|---|---|
+| ¿cuánto creció un canal? | `mv_sellout_budget_rollup` con **pareo por entidad y cobertura de periodos** | el agregado del canal (mezcla negocio con cobertura) |
+| ¿esta entidad es comparable? | ≥ 8 de 9 periodos con venta **en ambos años** | `monto > 0` (deja pasar $230,601 contra $39 M) |
+| ¿el periodo cerró? | `v_retail_calendar` contra `current_date`; excluir `p >= abierto` | sumar el año completo (2026 llevaba 10 de 13) |
+| ¿cuál es el margen real? | `analytics.sales_daily`: **11.87 %** (2026: $491,286,704 − $432,986,385) | meta − egreso presupuestado (da **87.62 %**: el COGS no está presupuestado) |
+| ¿cuánto sale de la caja? | `finance.payment_program` — **85.70 % es compra** | su bucket de gasto como gasto operativo: **la nómina no pasa por ahí** (§24.9) |
+
+### 24.9 ⛔ La trampa de universo: `payment_program` NO es el gasto operativo
+
+`finance.payment_program` es **tesorería** (desembolso bancario, filtro de proveedor de compra
+`c10 LIKE 'C%'`); `analytics.expense_entries` es **contable por mayor 6xx** e incluye `601` Sueldos.
+
+**La prueba que lo cierra sola:** Sueldos son ~$3.46 M/mes y **todo** el bucket de gasto de
+`payment_program` son $3.34 M/mes. La nómina no cabe adentro.
+
+⚠️ Cruzarlos anualizando ese bucket ($23.35 M / 7 m → $40.03 M) contra el OPEX presupuestado
+($74.85 M) reporta **«el presupuesto es 187 % del real»**, que es falso. *Un denominador sin
+declarar produce un hallazgo falso en la primera consulta* — le pasó al carril de gastos
+**inmediatamente después de escribir esta misma advertencia**.
+
+⭐ Para qué **sí** sirve: el 85.70 % prueba que **la compra de mercancía no está presupuestada**.
+`budget.budget_lines` sólo tiene `ingreso` y `gasto`; los tipos `costo_ventas`, `compra_inventario`,
+`inversion` y `flujo` existen en el CHECK con **cero** filas. Por eso meta ($604,775,116) menos
+egreso ($74,852,191) da **87.62 %**, imposible contra un margen medido de **11.87 %**.
+**No hay margen que dictaminar hasta que el COGS esté presupuestado.**
+
+**Medición reproducible:** los 11 scripts de esta auditoría corrieron read-only dentro del pod de
+prod. El decisivo es el pareo por cobertura de periodos (§24.3), cuyo control negativo es el propio
+`mostrador:03`: con el criterio `> 0` da +16,916 %, con el de cobertura queda **excluido**.
+
+---
+
+## 25. ⭐⭐ El GASTO no se proyecta: se COPIA. La venta crece 26.67 % y el egreso 0.0000 % (PU.VG, 2026-10-08)
+
+### 25.1 Qué arbitra esta sección
+
+§24 arbitró el crecimiento de **ventas** y encontró que era cobertura. Ésta arbitra el otro lado
+del mismo plan: **el egreso**. No es la misma pregunta ni la misma fuente, y el resultado es el
+opuesto — el gasto es **trazable al centavo y no crece nada**.
+
+Medido contra **prod** (`192.168.0.222:5434`, usuario `edgar` con
+`default_transaction_read_only = on`), **2026-10-08 16:13 MX**, read-only.
+
+### 25.2 ⛔ Los 374 renglones del plan de gasto son copia exacta de la historia
+
+| afirmación | medición |
+|---|---|
+| `monto = base_amount` | **374 de 374** renglones, en los 3 ejercicios |
+| `Σ\|monto − base\|` | **$0.00** |
+| `growth_pct` | **0.0000** en los 374, cero nulos, en los dos métodos |
+| `budget.expense_plan_settings` | **0 filas** — nadie firmó un supuesto de gasto |
+
+### 25.3 El árbitro, y cuadra al centavo
+
+La base **no es una derivación**: es el gasto contable realizado. Fuente declarada en
+`budget-expense-plan.service.ts:181` → `analytics.expense_entries`, acotado a las cuentas del plan.
+
+| cuenta | base del plan FY2027 | `expense_entries` ene–sep 2026 | Δ |
+|---|---:|---:|---:|
+| 601 Sueldos | $31,153,775.32 | $31,153,775.32 | $0.00 |
+| 602 Logística | $6,923,063.02 | $6,923,063.02 | $0.00 |
+| 611 Venta | $6,529,448.74 | $6,529,448.74 | $0.00 |
+| 603 Local | $5,187,149.60 | $5,187,149.60 | $0.00 |
+| **14 de 14 cuentas** | | | **Σ = $0.00** |
+
+FY2026 `prueba 2` usa la misma mecánica con otro año: su base ago–dic 2026 **es `expense_entries`
+ago–dic 2025**, al centavo en los 5 meses. ⭐ El motor toma el mismo mes del año completo más
+reciente — **esa parte está bien hecha**. El defecto no es de dónde sale la base.
+
+### 25.4 ⭐⭐ La asimetría: el margen del ejercicio mejora por construcción
+
+`budget.generation_runs.assumptions` (GEN-20261008-019, `trigger: cron`) guarda **sólo supuestos de
+venta**: `growth_by_channel` = ruta 8.26 % · mayoreo 26.67 % · preventa 51.21 % · mostrador
+21.05 %; `default_growth_pct` 26.67 %. Del lado del gasto, **0.0000**.
+
+⛔ **Ningún «margen operativo proyectado» que cruce meta contra egreso es defendible**: la mejora no
+viene de una decisión, viene de que un lado crece y el otro está congelado. Puesto junto a §24 —donde
+el comparable de venta **cae 2.95 %**— el ejercicio proyecta margen creciente sobre una venta que se
+contrae y un gasto que se repite.
+
+### 25.5 El método `estacional` del gasto es el PROMEDIO PLANO
+
+Rellena oct/nov/dic con `suma(ene–sep) / 9`, idéntico en los tres meses, verificado al centavo:
+
+| cuenta | observado (9m) | promedio | relleno (3m) |
+|---|---:|---:|---:|
+| 601 | $31,153,775.32 | $3,461,530.59 | $3,461,530.59 ×3 |
+| 602 | $6,923,063.02 | $769,229.22 | $769,229.22 ×3 |
+| 611 | $6,529,448.74 | $725,494.30 | $725,494.30 ×3 |
+
+⛔ Para una dulcería eso **subestima el trimestre más caro del año**, y en 601 aplana diciembre, que
+lleva aguinaldo por ley. ⭐ Y cae en **el mismo trimestre** que el hueco de ventas de §24: el
+presupuesto no ve la temporada alta por **ninguno** de los dos lados — no le pone venta y le pone
+gasto promedio. Es un solo defecto estructural visto dos veces.
+
+⚠️ **Alcance:** esto es de `budget-expense-plan`. El `estacional` de `budget-sales-plan` **sí** varía
+por entidad. Ese contraste es el defecto de contrato de **§24.7**: la etiqueta `method` no carga
+información.
+
+### 25.6 ⛔ El presupuesto no contempla la compra de mercancía
+
+`budget.budget_lines` tiene **sólo dos `line_type`: `ingreso` (99) y `gasto` (40)**. Los tipos
+`costo_ventas`, `compra_inventario`, `inversion` y `flujo` existen en el CHECK y **no tienen ni una
+sola partida**.
+
+Testigo independiente — `finance.payment_program`, ene–jul 2026 ($354,486,680.75): `compra` =
+**$303,802,201.44 = 85.70 %** del desembolso de tesorería (de la rosa, mondelez, ferrero, mars,
+hershey, bimbo). ⚠️ Ese 85.70 % es *share del desembolso de tesorería* y **no sirve de denominador
+del gasto operativo**: ver la trampa de universo en **§24.9**.
+
+### 25.7 ⛔ FY2027 está duplicado: todo agregado por `fiscal_year` publica el DOBLE
+
+| id | FY | folio | creado | huella md5 | nombre |
+|---|---|---|---|---|---|
+| `e6c86aab…871723` | 2027 | `PRE-2027-002` | 10-07 13:07 | `12e0cfab…` | Presupuesto 2027 |
+| `f517eabd…1fef64e` | 2027 | **(sin folio)** | 10-07 19:40 | `12e0cfab…` | PRUEBA ciclo ledger — no usar |
+
+Huella sobre `(concept, line_type, vigente_amount)`, 47 partidas cada uno.
+
+| | agrupado por año | real |
+|---|---:|---:|
+| Gasto FY2027 | $149,704,381.64 | **$74,852,190.82** |
+| Ingreso FY2027 | $1,209,550,232.42 | **$604,775,116.21** |
+| Obligaciones FY2027 | $149,618,183.14 | **$74,809,091.57** |
+
+⭐ **Tres señales independientes** identifican al duplicado sin depender del nombre: huella
+repetida, **sin folio** (el real lo creó `ensureBudgetForYear`, que asigna `PRE-YYYY-NNN`; éste lo
+creó alguien a mano) y `created_at` más nuevo. **Hoy el filtro seguro es por `budget_id`, nunca por
+`fiscal_year`** hasta que `is_test` esté aplicado y marcado (`[PU.VG.1]`).
+
+### 25.8 El ledger nunca se operó, y el cuadre obvio no puede fallar
+
+`budget.line_movements` = **139 filas y las 139 son `apertura`**. Diez tipos sin una sola fila:
+`reserva`, `compromiso`, `ejercido`, `pago`, `cancelacion`, `reversion`, `ampliacion`, `reduccion`,
+`transferencia_in`, `transferencia_out`. → `reserved = committed = exercised = paid = $0.00` en el
+**100 %** de las partidas; ocupación 0 % en todas. Causa: las **312 `expense_obligations` están
+ligadas a partida y las 312 en `propuesta`**.
+
+⚠️ **`available_amount` no es columna** — se calcula en `budget-lines.service.ts:243` con la misma
+resta. Verificar `vigente − (res+com+eje) = disponible` es **auditar una expresión contra sí misma:
+no puede fallar**. El cuadre que SÍ puede fallar es acumuladores contra `SUM(line_movements)` por
+tipo, y `vigente = original + ampliaciones − reducciones + transferencias`.
+
+⚠️ Y un `disponible` negativo **no es un error de datos**: es el resultado legítimo de una partida en
+`informativo`/`advertencia`. Medido: `control_level` = **99 `informativo` + 40 `advertencia` + 0
+`bloqueo`**, con el default de la columna en `'bloqueo'`. **Ninguna partida puede frenar hoy un
+sobregiro.**
+
+### 25.9 Dos ausencias que se leen como cero
+
+- **10 celdas (cuenta, mes) sin renglón**: la cuenta `612` sólo existe en marzo y junio. Una ausencia
+  suma `$0.00` en cualquier agregado sin marcar nada.
+- **FY2026 publica $32,425,843.06 como presupuesto ANUAL y son 5 meses.** `period_month = NULL` en
+  las 12 partidas, pero su importe **es exactamente la suma de ago–dic**. Quien lo lea como año
+  subestima ~58 %.
+
+### 25.10 Lo que queda SIN arbitrar
+
+- Por qué el motor elige `estacional` para unas cuentas y `historico_ajustado` para otras.
+- Si las 2 cuentas extra de FY2027 (14 vs 12) explican parte del corrimiento de participaciones.
+- Los umbrales de «Sueldos > 45 % / > 40 % del gasto total»: hay **al menos tres briefs en
+  circulación** con números distintos para el mismo sujeto y el mismo denominador. Y aunque se
+  fijara, como `plan == base` el **55.49 %** medido *es la participación histórica realizada*, no una
+  decisión presupuestal. Por ADR-076 va a `analytics.kpi_thresholds` con dueño, o el estado es
+  `sin_meta`.
+- «Gastos logísticos proporcionales al crecimiento del canal Ruta»: compara participación sobre el
+  GASTO contra participación sobre el CRECIMIENTO DE LA META — **no son conmensurables**, y la
+  atribución partida↔canal **no existe en el dato** (`budget-comparison.service.ts` la declara como
+  no construida).
+- `605 GASTO EN TECNOLOGIA` ($1,147,589.24) y `613 GASTOS EN TECNOLOGIA` ($533,603.88) son **dos
+  cuentas distintas del catálogo**, no un concepto mal escrito dos veces. El catálogo viene de
+  Kepler → el arreglo es allá (ADR-040).
+
+**Medición reproducible:** 18 scripts read-only contra `pg-prod`. Detalle completo en
+[`FASE_PU_VERDAD_GASTOS.md`](IMPLEMENTACION/FASES/FASE_PU_VERDAD_GASTOS.md). El primer arreglo
+—`budget.budgets.is_test`, con su prueba negativa mutada a rojo— es `[PU.VG.1]`.
+
+⚠️ **Lección de método, propia:** la comparación de 25.3 se corrió primero **sin acotar a las cuentas
+del plan** y dio un desfase de **12×** que parecía hallazgo. Lo detectó el bloque siguiente de la
+misma corrida, no una relectura. Un denominador sin declarar fabrica una anomalía en la primera
+consulta — incluso cuando quien consulta acaba de escribir la advertencia (§24.9).
+
+---
+
+## 26. ⭐⭐ La LIQUIDEZ: el modelo veía el 7.7 % del cobro y el 0 % del pago, y publicaba un verde (TES, 2026-10-08)
+
+> **La pregunta que esta sección arbitra:** *¿alcanza el dinero para pagar lo que se debe?* Y la
+> respuesta honesta medida hoy: **el módulo no podía opinar, y aun así publicaba una cifra con cara
+> de que sí.**
+
+### 26.1 Las tres lecturas de las MISMAS 8 semanas
+
+```
+1. El modelo tal como estaba ................ +$10,642,041   ← verde falso: no veía ni un pago
+2. Con la deuda derivada, el cobro sin derivar  −$20,740,638   ← ROJO IGUAL DE FALSO
+3. Los dos run-rates reales, medidos ........... ≈ +$5,000,000   ← lo defendible
+```
+
+⭐ **La #2 es la lección de método:** cablear *la mitad* del modelo produce un rojo tan falso como el
+verde que corrige. Compara un lado del pago casi completo contra un lado del cobro que ve el 11.8 %.
+**Un modelo asimétrico miente con más confianza que uno vacío**, porque ya trae un número.
+
+### 26.2 Qué ARBITRA cada número del flujo
+
+| Número | Fuente | Árbitro independiente | Estado |
+|---|---|---|---|
+| Saldo inicial | `finance.bank_movements.running_balance` | ContPAQi `102xxx` (CP.2, crosswalk 16/18) | ✅ fresco a hoy, 55,346 filas |
+| Cobranza | `analytics.customer_receivables` (vista) | `analytics.erp_collections`: **$44.2M–$57.4M/mes** | ✅ |
+| Deuda | `analytics.v_supplier_payables` (vista, `[TES.1]`) | ECA por otro camino: 1.4 % de deriva | ✅ |
+| Pago real | `finance.payment_program` | — | ⚠️ ene–jul completos; ago parcial, sep/oct **ausentes** |
+| Capacidad | `budget.daily_capacity` | **ninguno — es una política, no un hecho** | ⛔ 57 de 57 días sin definir |
+| Razón corriente | — | — | ⛔ **no existe**: falta el mapa de cuentas circulantes |
+
+**El contraste que ordena todo:** cobro real ~$53.3M/mes contra pago real ~$50.6M/mes. **El negocio
+cobra algo más de lo que paga.** El estrés de caja lo fabricaba el modelo, no la operación.
+
+### 26.3 Las DOS masas vencidas que ninguna curva dibuja — y está bien que no las dibuje
+
+| | en ventana (8 sem) | ya vencido, sin fecha | % que la curva ve |
+|---|---:|---:|---:|
+| Cobranza | $7,591,521.77 | **$56,071,967.36** | 11.8 % |
+| Deuda | $30,905,393.63 | **$114,440,471.87** | 21.3 % |
+
+⛔ **No se meten en la semana 1.** Eso afirmaría que se cobran —o se pagan— el lunes, que es inventar
+una fecha. Viajan **aparte, con su monto**, y por eso la cobertura se publica. ⭐ Y el hecho de fondo:
+**esta empresa paga con cobranza vencida**, así que cualquier modelo que sólo mire vencimientos
+futuros va a proponer una fracción de lo que la operación mueve de verdad.
+
+### 26.4 «Capacidad de pago» es una AUTORIZACIÓN, no dinero
+
+`budget.daily_capacity.authorized_amount` es un tope que fija un humano. Cruzarlo contra obligaciones
+responde *¿alcanza el permiso?*, nunca *¿alcanza el saldo?*. Medido: la propuesta daría **$185,159.07
+por día hábil** contra un pago real de **$2,332,149.22** — **12.6× por debajo**.
+
+⚠️ **No es un bug del servicio**, que está bien construido: declara su cobertura y excluye el saldo
+bancario a propósito. Es que deriva del 11.8 % de la cartera con vencimiento futuro.
+⛔ Y la columna es `NOT NULL DEFAULT 0`: **un día sin fila es capacidad NO DEFINIDA, no cero**. Leerlo
+como cero fabrica una insolvencia que no existe. El defecto está **en el lector**, no en el esquema.
+
+### 26.5 Tres defectos medidos, con su monto
+
+1. **`[TES.1/2]` El lado del pago no existía.** Las tres tablas de obligación: 312 filas, **las 312
+   `status='propuesta'` venciendo en 2027** (el motor las excluye bien), y **0 y 0** las otras dos.
+   ⛔ Corolario contraintuitivo: **un `UPDATE` masivo de `is_critical` sobre esas 312 no cambia NADA**
+   — ni a rojo ni a nada. Quedan fuera por año y por estado.
+2. **`[TES.3]` Una fila fechada en 2027 secuestraba el saldo *y cegaba la frescura*.** 17 filas en
+   `2027-08-06` y 6 en el año `0206`. Saldo **$3,105,321.19 → $2,588,183.56** ($517,137.63, +19.98 %).
+   ⭐ **El daño mayor era el `as_of`**: salía del mismo `max(movement_date)`, y **una fecha futura
+   nunca tiene más de 30 días**, así que el detector de rancidez decía «fresco» incondicionalmente.
+   ⚠️ `movement_date <= current_date` **no alcanza**: el año `0206` pasa ese filtro. Va acotado por
+   los dos lados.
+3. **El precipicio de plan sobre `kepler_ods`, y una hipótesis MÍA refutada por la medición.**
+   La misma pregunta costó **224 ms una vez y más de 150 s la siguiente**, y hubo que cancelarla
+   con `pg_cancel_backend` contra prod en horario hábil.
+
+   **Lo que afirmé:** que la causa eran las estadísticas. Eran malas de verdad — `kdxe` decía 63
+   filas y tiene **50,891**, `kdue` decía 738 y tiene **590,504**, y **237 de 240 tablas de
+   `kepler_ods` tenían `last_analyze` Y `last_autoanalyze` en NULL**.
+
+   ⛔ **Y aun así NO era la causa.** Se corrieron las cuatro `ANALYZE` (1.84 s en total, las
+   estadísticas quedaron correctas) y **la consulta siguió pasando de 60 s**. Lo que sí mejoró fue
+   otra: la de esta sección, de 355 a **237 ms**.
+
+   ⭐ **La causa real, leída del plan:** `btrim(c1) = sucursal` —el ancla anti-réplica de ECA— es
+   una comparación **columna contra columna a través de una función**. Postgres no tiene con qué
+   estimarla y cae a una selectividad por defecto; apilada con `c3 = 'A'` el plan estima **1 fila**
+   sobre `kdxe` cuando son miles, elige `Nested Loop` y **re-agrega `kdxf` entero por cada fila de
+   afuera**. No es cuántas filas tiene la tabla: es que el predicado **no se puede estimar**.
+
+   **El arreglo, medido: `AS MATERIALIZED` en los CTE → de más de 150 s a 405 ms.** Es el mismo
+   recurso que ya usaba `cobranza-prevista.ts` del lado del cobro, por la misma razón: fijar la
+   forma en vez de confiar en que el planner adivine bien.
+
+   ⚠️ **Lección de método:** una explicación que encaja con los síntomas y además corrige un defecto
+   real —las estadísticas lo eran— es la más fácil de dar por buena sin probarla. Lo que la refutó
+   fue **re-correr la consulta lenta después del arreglo**, no releer el razonamiento.
+
+### 26.6 Tres trampas que ya cobraron en este carril
+
+- ⛔ **No sincronizar lo que se puede derivar.** La cartera vive porque es **vista**; su antecesora era
+  tabla con importer y **quedó vacía en prod porque el importer nunca corrió**. La deuda se derivó de
+  `kdxe` por la misma razón.
+- ⛔ **No re-implementar un clasificador que ya tiene dueño.** Mi regla ad-hoc en SQL ponía
+  **$551,742.26 como `servicios` que son `financiero`** (grupo 140 con clave `G*`, STM Financial). El
+  canónico es `clasificarAcreedor()`.
+- ⚠️ **Un `===` contra una unión de literales SIEMPRE tipa.** Escribí `tipo === 'traspaso_interno'` y
+  el literal es **`'interno'`**: la rama nunca dispara y **$38.6M de traspasos internos entran como
+  deuda con terceros**. Ni `tsc` ni el lint lo marcan. **Lo encuentra leer el clasificador, no
+  compilar.**
+
+### 26.7 Lo que queda SIN arbitrar — declarado, no dibujado
+
+- **La razón corriente y la prueba del ácido NO EXISTEN.** Falta firmar qué familias de cuenta son
+  circulantes: es una **decisión contable sin dueño**. Hasta entonces el renglón de solvencia sale
+  `sin_medir`, ni verde ni rojo. ⚠️ Y el riesgo mayor es confundir el `falta_liquidez` del flujo
+  —prospectivo— con una razón de balance.
+- **La curva de recuperación de lo vencido no se puede derivar todavía.**
+  `customer_receivable_snapshots` tiene **14 fechas (2026-09-24 → 2026-10-08)**. Defendible alrededor
+  del **20 de noviembre**, con ~8 semanas de serie. ⛔ Y **no sale de `payment_program`**, que es
+  dinero que SALE.
+- **El 89.7 % de la deuda de mercancía tiene fecha anterior al 1-oct.** ⭐ **El cabo suelto con ECA
+  quedó cerrado** cuando la consulta que se colgaba por fin corrió (405 ms con `AS MATERIALIZED`):
+
+  | | 00 (concentrador) | sucursal |
+  |---|---:|---:|
+  | Anterior al corte | $62,994,567.61 (1,162 docs) | **$59,609,277.46** (1,970 docs) |
+  | Desde el 1-oct | $6,289,860.58 (76) | $7,766,043.42 (180) |
+
+  Los **$59,609,277.46** de la celda *(anterior al corte × sucursal)* son los **$59.9M que ECA
+  declaró** — 0.5 % de deriva sobre un libro vivo. Nunca hubo contradicción: su cifra era esa celda
+  y la mía era la fila entera. ⚠️ **Sigue abierto lo que importa**, que no es la aritmética: si son
+  deuda vieja genuinamente impaga, o los casamientos de `kdxf` no capturan pagos pre-corte y el
+  saldo abierto está inflado. **Del dominio de ECA.**
+- **El traslape entre la deuda del ERP y las obligaciones autorizadas.** Hoy no muerde (las
+  autorizadas son 0), por eso se publican **separadas y sin sumar**. El día que alguien capture
+  obligaciones, es un hueco con nombre.
+- **La frescura de `kdxe`**: el ODS no publica marca, así que `as_of` viaja en `null` → `unknown`.
+  Fabricarle un `now()` diría «recién medido» sin haberlo medido.
+
+**Medición reproducible:** 15 consultas read-only contra `pg-prod` (namespace `prod`,
+`kubectl exec -i … -- psql -f -`). Candado: `database/tests/test-newdb-supplier-payables.js`, con
+**dos pruebas negativas** y tercer estado `NO MEDIDO`. Commits `9f9f9c146`, `2c59385f4`, `5ee9195e8`.

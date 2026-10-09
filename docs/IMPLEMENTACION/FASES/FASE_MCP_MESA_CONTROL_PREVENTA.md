@@ -403,6 +403,56 @@ devolvía el contador anterior. La de MD-32 chocaba con la llave única si MD-32
 sesiones (el candado se razonó y se revisó, la prueba integrada corre en una sola transacción) y
 las pantallas en el navegador.
 
+### 6.5 MCP.6 — entrega de conformidad en el celular (🧪 en código, 2026-10-08)
+
+**Qué hace (D2, D9, D10):** en una guía **ya impresa** (firmada), cada pedido tiene **Entregar**.
+El celular trae el pedido, sus renglones y los documentos de Kepler del cliente: primero el que ya
+ligó la caja, si lo hay, y si no el que comparte más productos con el pedido. El repartidor elige
+el documento que entrega, dice si fue **completo** o **con diferencia** (con nota) y cuánto cobró
+en **efectivo** y en **transferencia** (con referencia). El efectivo se propone con el total del
+documento, y si lo cobrado no cuadra la pantalla avisa, pero no bloquea: puede haber una diferencia
+real. **No se pudo entregar** (con motivo) saca el pedido de la guía y lo deja para otro día.
+
+**Dónde vive:** todo en el renglón de la guía (`commercial.load_guide_orders`): `status
+'entregado' | 'no_entregado'`, `delivered_at/by`, `delivery_outcome`, `delivery_note`,
+`cash_amount`, `transfer_amount`, `transfer_ref`. Mig `20261008141401`, con CHECK por estado
+(entregado ⇔ campos de entrega; quitado/regreso/no_entregado ⇔ `removed_*`), pago sin negativos y
+con referencia si hay transferencia, nota obligatoria con diferencia, índice único de un solo
+entregado por pedido, y prueba negativa dentro de la migración.
+
+**⛔ Lo que NO hace, a propósito:** no pasa el pedido a `fulfilled`. El reintento de CFDI (FE.5)
+factura todo pedido `fulfilled` sin UUID cuyo cliente tenga datos fiscales, y `fulfill()`
+descuenta `commercial.stock`: las dos cosas ya ocurrieron en Kepler. La mesa deriva **Entregado**
+del renglón (`etapaDe` con `entregado_en_guia`), y lo entregado sale de "para llevar" y de la
+ventana de abiertos.
+
+**La liga desde el celular:** el mismo `ligarDocumento` de la mesa con origen `celular`. Si es el
+mismo documento que ya estaba ligado no hace nada, y si el pedido trae **otro** documento
+responde 409 (eso se corrige en la mesa, no en la calle).
+
+**Revisión independiente (15 hallazgos; 14 atendidos):**
+- **No se entrega un pedido cancelado:** la entrega lee el estado del pedido con candado y exige
+  `confirmed`, también cuando el documento ya venía ligado de la mesa.
+- **Carrera con la mesa:** entregar y "no se entregó" toman el candado del PEDIDO y luego el de la
+  guía (mismo orden que pescar). Con el pedido entregado, la mesa ya **no liga ni desliga**, y
+  `cancel()` de pedidos se niega (va por devolución + NC en Kepler). El renglón guarda el
+  documento entregado (`delivered_folio_digital`): el cobro queda atado a ése.
+- **Guías impresas de días anteriores** con pedidos sin entregar siguen en el celular.
+- **Sin preselección a ciegas:** se marca el documento sólo si ya está ligado, si es el único o si
+  comparte productos con el pedido; los importes empiezan vacíos y hay un atajo "Cobré el total".
+  Con documento ligado sólo se ofrece ése.
+- **Reintento seguro:** repetir la misma entrega (falla de red) responde bien; lo contrario, 409 claro.
+- **Documento que todavía no llega al ODS:** el texto pide NO marcar "no se pudo entregar".
+- **Lo que volvió sin entregarse** (`no_entregado` y `regreso`) sigue en la guía con su motivo,
+  tachado y fuera del total; la caja ve la referencia de la transferencia.
+- **Topes** de largo y de importe en servidor e inputs (antes daban 500); `down()` reversible con
+  datos (convierte a `regreso`, declarado destructivo); foco, Escape y `inert` en la hoja.
+- **Declarado sin cambiar:** `detalleCampo` relee el pedido dos veces (costo, no error).
+
+**Declarado, sin cambiar:** "Por entregar" de `apps/vendor` (lee `confirmed`) sigue mostrando los
+pedidos entregados en guía; la conformidad no lleva firma del cliente; se aceptan importes en cero
+(entrega a crédito o pagada antes). La regla de dos intentos y la liquidación son MCP.7.
+
 ## 7. Fuera de alcance
 
 - **Embudo de altas de clientes** (D7): módulo propio, fase aparte. Esta fase sólo **bloquea** el

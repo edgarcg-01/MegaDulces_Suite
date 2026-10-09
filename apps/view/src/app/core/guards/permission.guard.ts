@@ -167,6 +167,9 @@ export const COMERCIAL_LANDING: LandingCandidate[] = withTreeCandidates('comerci
   // `[SN.4]` Medido en prod: `contabilidad` (2 usuarios) entra a Ventas sólo por COMISIONES, y
   // ninguna de las 12 de arriba la cubría → `denied()`.
   { perm: Permission.COMMERCIAL_COMMISSIONS_VER, url: '/comercial/comisiones' },
+  // `[RD.57]` COMMERCIAL_ROUTE_PROFIT_VER NO va a mano: `withTreeCandidates` lo deriva del
+  // nodo `route-profit` de `authz-tree.ts`, que ya trae su ruta. Ponerlo acá además sería una
+  // segunda copia de la misma decisión, y el candado exige que no se repita la clave.
   { perm: Permission.COMMERCIAL_SELLOUT_ANALYSIS_VER, url: '/comercial/analisis' },
   { perm: Permission.COMMERCIAL_CARTERA_VER, url: '/comercial/cartera' },
   { perm: Permission.COMMERCIAL_THOT_VER, url: '/comercial/thot-chat' },

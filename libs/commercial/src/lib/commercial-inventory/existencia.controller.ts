@@ -38,7 +38,26 @@ export class ExistenciaController {
     return this.service.list({ ...q, export: true });
   }
 
-  // ⚠️ Va DESPUÉS de 'export': si fuera antes, la ruta ':productId' se comería esa palabra.
+  /**
+   * `[EX.7]` Los proveedores para el buscador de la pantalla.
+   *
+   * ⛔ **No se reusa el `/filters` de Compras**, que era lo primero que venía a la mano: exige
+   * `COMPRAS_PEDIDO_VER`, y esta pantalla la abren DOS proyectos — un almacenista en
+   * `/almacen/inventory/existencia` no tiene ese permiso, así que el selector le llegaría **vacío
+   * y sin decir por qué**. Un filtro que se pinta sin opciones se lee como "no hay proveedores".
+   *
+   * Lista sólo proveedores con al menos un producto ACTIVO (375 de 1,321 en prod): ofrecer los
+   * 946 que no tienen catálogo vivo es ruido que no puede dar resultado. Medido: 18 ms.
+   */
+  @Get('filtros')
+  @RequirePermissions(Permission.EXISTENCIA_VER)
+  @ApiOperation({ summary: 'Catálogos para los filtros de la pantalla: proveedores con producto activo.' })
+  filtros() {
+    return this.service.filtros();
+  }
+
+  // ⚠️ Va DESPUÉS de 'export' y de 'filtros': si fuera antes, la ruta ':productId' se comería
+  // esas palabras y las pediría como si fueran un uuid de producto.
   @Get(':productId')
   @RequirePermissions(Permission.EXISTENCIA_VER)
   @ApiOperation({ summary: 'Desglose de un SKU por almacén, con la escalera de unidad' })

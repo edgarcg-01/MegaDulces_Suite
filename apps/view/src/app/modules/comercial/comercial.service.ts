@@ -2203,12 +2203,60 @@ export class ComercialService {
       `${this.base}/commissions/contrast`, { params: new HttpParams().set('anio', String(anio)) });
   }
 
+  /** `[RD.57]` Quincenas que tienen renglones para abrir en Rentabilidad de Ruta Directa. */
+  routeProfitPeriodos() {
+    return this.http.get<RouteProfitPeriodo[]>(`${this.base}/route-profit/periods`);
+  }
+
+  /** `[RD.59]` La configuración del bono por objetivo: criterios, pesos y estado. */
+  objetivoConfig() {
+    return this.http.get<ObjetivoConfig>(`${this.base}/commissions/objective`);
+  }
+
+  /** `[RD.59]` El resultado del mes por ruta: lo medido, lo marcado y lo que nadie resolvió. */
+  objetivoResultado(anio: number, mes: number) {
+    return this.http.get<ObjetivoResultado>(`${this.base}/commissions/objective/result`,
+      { params: new HttpParams().set('anio', String(anio)).set('mes', String(mes)) });
+  }
+
+  /** `[RD.59]` Cambiar umbral, importe, peso, comparador o encender/apagar un criterio. */
+  objetivoEditarCriterio(id: string, cambios: Partial<{ umbral: number; monto: number; peso_pct: number; comparador: string; activo: boolean }>) {
+    return this.http.patch<ObjetivoCriterio>(`${this.base}/commissions/objective/criteria/${id}`, cambios);
+  }
+
+  /** `[RD.59]` La marca humana del criterio que nadie puede derivar. El motivo es obligatorio. */
+  objetivoMarcar(dto: { bonus_id: string; route_code: string; anio: number; mes: number; cumplido: boolean; motivo: string }) {
+    return this.http.post(`${this.base}/commissions/objective/marks`, dto);
+  }
+
+  /** `[RD.58]` La serie del año y la tendencia por ruta. */
+  routeProfitSerie(anio?: number) {
+    const params = anio ? new HttpParams().set('anio', String(anio)) : undefined;
+    return this.http.get<RouteProfitSerie>(`${this.base}/route-profit/series`, params ? { params } : {});
+  }
+
+  /** `[RD.57]` El tablero de una quincena. Sin `periodId` abre la última con renglones. */
+  routeProfit(periodId?: string) {
+    const params = periodId ? new HttpParams().set('period_id', periodId) : undefined;
+    return this.http.get<RouteProfit>(`${this.base}/route-profit`, params ? { params } : {});
+  }
+
   /**
    * RD.52 — corre el MOTOR sobre las quincenas con espejo y guarda su resultado.
    * ⚠️ ~12 s por quincena: veinte son cuatro minutos. No está en el camino de lectura.
    */
   commissionContrastRun(anio: number) {
     return this.http.post<CommissionContrastRunResult>(`${this.base}/commissions/contrast/run`, { anio });
+  }
+
+  /**
+   * RD.56 — **lo que faltó**: cuánto le faltó a cada ruta para el siguiente escalón o bono.
+   * El tabulador es escalonado, así que quedarse corto por poco no paga «un poco menos»:
+   * paga el escalón de abajo o **cero**. Lee vista — 16 ms medidos.
+   */
+  commissionHeadroom(anio: number) {
+    return this.http.get<CommissionHeadroom>(
+      `${this.base}/commissions/headroom`, { params: new HttpParams().set('anio', String(anio)) });
   }
 
   /** BI.4 — Serie mensual (tendencia). */
@@ -4389,6 +4437,32 @@ export interface CommissionContrastRunResult {
   anio: number; periodos: number; hechas: number[]; fallas: string[]; duracion_ms: number;
 }
 
+/**
+ * `RD.56` **Lo que faltó.** El tabulador NO es proporcional: por debajo de $189,999.99 de venta
+ * la comisión es **cero**, no «menos». Por eso `sin_cobrar_por_poco` no es un grado de
+ * `al_alcance` — es el acantilado, y se lee distinto: a esa persona le faltaron unos pesos y
+ * cobró nada. `en_el_tope` dice dónde **no** hay nada que perseguir, que también es información.
+ */
+export interface CommissionHeadroomRow {
+  period_no: number; route_code: string;
+  beneficiario_nombre: string | null; zona: string | null;
+  venta: number | null; pct_aplicado: number | null;
+  a_pagar: number | null; motivo_no_pago: string | null;
+  escalon_umbral: number | null; escalon_pct: number | null;
+  escalon_falta: number | null;
+  /** ⚠️ Mantiene el subtotal FIJO: es el PISO de lo que se habría ganado, no una proyección. */
+  escalon_ganancia: number | null;
+  bono_nombre: string | null; bono_umbral: number | null;
+  bono_falta: number | null; bono_monto: number | null;
+  oportunidad: number | null;
+  cercania: 'sin_cobrar_por_poco' | 'sin_cobrar' | 'al_alcance' | 'cerca' | 'lejos' | 'en_el_tope';
+}
+export interface CommissionHeadroomSummary { cercania: string; n: number; oportunidad: number }
+export interface CommissionHeadroom {
+  resumen: CommissionHeadroomSummary[];
+  filas: CommissionHeadroomRow[];
+}
+
 export interface CommissionBoardRow {
   period_id: string; period_no: number;
   date_from: string; date_to: string; pay_date: string | null;
@@ -4414,4 +4488,183 @@ export interface CommissionUniverseRow {
   plaza_o_zona: string | null; en_identidad: boolean; en_config: boolean;
   chofer_nombre: string | null; supervisor_nombre: string | null;
   nomina_banco: string | number | null; carga_desde: string | null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// `[RD.57]` Rentabilidad de Ruta Directa. Tres bloques que NO se suman entre sí: la ruta
+// (venta, costo, comisión, km del GPS), la plaza (el gasto del departamento, que no baja al
+// camión) y el contraste de la comisión, que destapa lo que la contabilidad no registra.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface RouteProfitPeriodo {
+  id: string; anio: number; period_no: number;
+  date_from: string; date_to: string;
+  status: string; origen: string; rutas: number;
+}
+
+export interface RouteProfitRuta {
+  route_code: string;
+  chofer: string | null;
+  zona: string | null;
+  subtotal: string; venta: string; costo: string;
+  utilidad_bruta: string;
+  margen_pct: string | null;
+  comision: string; bonos: string;
+  despues_de_su_comision: string;
+  motivo_no_pago: string | null;
+  pct_aplicado: string | null;
+  subtotal_origen: string | null;
+  costo_status: string | null;
+  km: string | null;
+  dias_medidos: number | null;
+  dias_con_senal: number | null;
+  dias_quieto: number | null;
+  /**
+   * ⭐ TRES estados, no dos. `sin_gps` es una camioneta sin rastreador — el dato no existe —
+   * y `parcial` es una que sí lo tiene pero tuvo días sin cobertura. Pintarlos igual
+   * convertiría una ausencia de aparato en un bajo kilometraje.
+   */
+  km_veredicto: 'medido' | 'parcial' | 'sin_gps';
+  venta_por_km: string | null;
+  utilidad_por_km: string | null;
+}
+
+export interface RouteProfitPlaza {
+  plaza: string | null; dpto: string | null; dpto_norm: string | null;
+  veredicto_plaza: string;
+  rutas: number; subtotal: number; costo: number; utilidad_bruta: number;
+  gasto: number;
+  gasto_por_familia: { familia: string; importe: number; lineas: number }[];
+  /** NULL cuando la plaza no tiene rutas: sin utilidad que restar no hay resultado, hay un hueco. */
+  resultado: number | null;
+}
+
+export interface RouteProfitConcepto {
+  dpto: string; dpto_norm: string;
+  concepto: string; concepto_norm: string; familia: string;
+  lineas: number; importe: string;
+}
+
+export interface RouteProfitHueco { clave: string; detalle: string }
+
+export interface RouteProfit {
+  periodo: { id: string; anio: number; period_no: number; date_from: string; date_to: string; cerrado: boolean };
+  rutas: RouteProfitRuta[];
+  plazas: RouteProfitPlaza[];
+  gasto_por_concepto: RouteProfitConcepto[];
+  contraste_comision: { libro: number; contabilidad: number; delta: number };
+  totales: {
+    subtotal: number; costo: number; utilidad_bruta: number; comision: number; km: number;
+    margen_pct: number | null; gasto_departamento: number;
+  };
+  procedencia: { gasto_calculado_at: string | null; km_desde: string | null; km_hasta: string | null };
+  huecos: RouteProfitHueco[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// `[RD.58]` La serie y la tendencia: quién viene empeorando. Una foto de una quincena no lo dice.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface RouteProfitTendencia {
+  reciente: number | null;
+  previo: number | null;
+  delta: number | null;
+  /** Cuántas quincenas entraron de cada lado de la comparación. */
+  quincenas: number;
+  /** Cuántos puntos con cifra tenía la serie entera. */
+  puntos: number;
+  /** ⛔ `sin_base` NO es «no cambió»: es que no hay con qué comparar. */
+  veredicto: 'empeora' | 'mejora' | 'estable' | 'sin_base';
+}
+
+export interface RouteProfitSeriePunto {
+  period_no: number;
+  subtotal: number; costo: number; utilidad_bruta: number;
+  margen_pct: number | null;
+  comision: number;
+  motivo_no_pago: string | null;
+  km: number | null;
+  dias_medidos: number | null;
+  dias_con_senal: number | null;
+  dias_de_la_quincena: number;
+  /**
+   * ⛔ `parcial` significa que el denominador está incompleto y por eso **no se publica
+   * `venta_por_km`**: dividir la venta de catorce días entre tres de kilómetros daba $373
+   * contra los ~$210 de una quincena entera, y hacía que las seis rutas con GPS salieran
+   * «empeorando» a la vez.
+   */
+  cobertura_km: 'completa' | 'parcial' | 'sin_gps';
+  venta_por_km: number | null;
+}
+
+export interface RouteProfitSerieRuta {
+  route_code: string;
+  chofer: string | null;
+  zona: string | null;
+  puntos: RouteProfitSeriePunto[];
+  margen: RouteProfitTendencia;
+  venta_por_km: RouteProfitTendencia;
+}
+
+export interface RouteProfitSerie {
+  anio: number;
+  rutas: RouteProfitSerieRuta[];
+  huecos: RouteProfitHueco[];
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────────────
+// `[RD.59]` El bono por objetivo mensual: configurable, y lo que se puede medir se mide.
+// ─────────────────────────────────────────────────────────────────────────────────────────
+
+export interface ObjetivoCriterio {
+  id: string; nombre: string; metrica: string; comparador: string;
+  umbral: string; monto: string; peso_pct: string | null;
+  route_code: string | null; activo: boolean; beneficiario: string;
+  updated_at: string;
+  escala?: string; escala_nombre?: string;
+}
+
+export interface ObjetivoConfig {
+  grupo: string;
+  criterios: ObjetivoCriterio[];
+  peso_total: number;
+  monto_total: number;
+  activos: number;
+  /** ⛔ `encendido` NO es «funciona»: exige que los pesos cierren y que haya importe. */
+  estado: 'sin_configurar' | 'apagado' | 'encendido_incompleto' | 'encendido';
+  pendientes: string[];
+  /** Hoy `false` siempre: `computeRun` sólo paga `periodo='quincena'`. */
+  entra_a_nomina: boolean;
+}
+
+export interface ObjetivoCriterioFila {
+  bonus_id: string; nombre: string; metrica: string;
+  peso_pct: number; umbral: number; comparador: string;
+  valor: number | null;
+  /**
+   * ⛔ TERNARIO a propósito. En el Excel la celda vacía valía `NO CUMPLIDO` y el silencio
+   * castigaba; acá `null` es «nadie lo resolvió» y suma a `sin_resolver_pct`, aparte.
+   */
+  cumplido: boolean | null;
+  motivo: string | null;
+  marcado_por: string | null;
+  marcado_at: string | null;
+  marca_motivo: string | null;
+}
+
+export interface ObjetivoFila {
+  route_code: string; chofer: string | null; zona: string | null;
+  dias_con_venta: number;
+  criterios: ObjetivoCriterioFila[];
+  alcanzado_pct: number;
+  sin_resolver_pct: number;
+  fallado_pct: number;
+}
+
+export interface ObjetivoResultado {
+  anio: number; mes: number;
+  desde: string | null; hasta: string | null; cerrado: boolean;
+  config: ObjetivoConfig;
+  filas: ObjetivoFila[];
+  huecos: string[];
 }

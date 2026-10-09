@@ -767,16 +767,28 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
    * Las aserciones van contra el DOM: lo que falla acá es lo que la persona LEE y ESCANEA, y un
    * test sobre el método pasaría verde con el texto equivocado puesto.
    */
+  /**
+   * ⚠️ El pintado del QR es ASÍNCRONO desde que el codificador se carga diferido (el `import`
+   * estático metía 449 kB en el paquete inicial y reventaba el presupuesto de `main`). Esperar
+   * "un turno" no alcanza: hay que esperar a que baje el trozo. Se espera con techo, no para
+   * siempre — si no aparece, la aserción de abajo falla con su mensaje, que es lo que se quiere.
+   */
+  async function esperarQr(fx: { detectChanges(): void; nativeElement: HTMLElement }): Promise<void> {
+    for (let i = 0; i < 50; i++) {
+      fx.detectChanges();
+      if (fx.nativeElement.querySelector('.cg-firma-qr svg')) return;
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    fx.detectChanges();
+  }
+
   it('⭐ [CG.74] pedir el código pinta un QR, y el texto deja de mandar a un menú inexistente', async () => {
     const fx = montar();
     comp.abrirCaptura();
     comp.setF('tipo', 'gasto');          // la firma sólo se pide en el egreso
     fx.detectChanges();
     await comp.firmaPedirEnTelefono();
-    fx.detectChanges();
-    // El hueco vive dentro de un @if: el pintado se reintenta una vez en el turno siguiente.
-    await new Promise((r) => setTimeout(r));
-    fx.detectChanges();
+    await esperarQr(fx);
 
     const hueco = fx.nativeElement.querySelector('.cg-firma-qr') as HTMLElement | null;
     expect(hueco, 'no hay hueco para el QR').not.toBeNull();
@@ -797,9 +809,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('tipo', 'gasto');
     fx.detectChanges();
     await comp.firmaPedirEnTelefono();
-    fx.detectChanges();
-    await new Promise((r) => setTimeout(r));
-    fx.detectChanges();
+    await esperarQr(fx);
     expect(fx.nativeElement.querySelector('.cg-firma-qr svg')).not.toBeNull();
 
     comp.firmaCerrarRemota();
