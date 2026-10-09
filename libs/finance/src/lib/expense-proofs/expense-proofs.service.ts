@@ -1570,7 +1570,9 @@ export class ExpenseProofsService {
           trx.raw('COUNT(*)::int AS n'),
           trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
 
-      const [filas, crudos] = await Promise.all([b as Promise<FilaCruda[]>, g as Promise<GrupoDelMes[]>]);
+      const [filasDb, gruposDb] = await Promise.all([b, g]);
+      const filas = filasDb as FilaCruda[];
+      const crudos = gruposDb as GrupoDelMes[];
       const dias: DiaDelCalendario[] = filas.map((f) => ({
         dia: f.dia,
         n: Number(f.n) || 0,
