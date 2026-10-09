@@ -487,7 +487,10 @@ importes honestos pero **le faltan P11/P12/P13** (27.37 % del año en FY2025).
   umbral que nunca dispara se lee igual que «no hay desviación». Patrón de
   `test-newdb-branch-cutover.js`.
 
-**MVP = PVI.0 → PVI.1 → PVI.3.** Sin esos tres, cualquier herramienta que se construya encima
+**MVP = PVI.1 → PVI.3 → *redeploy* → PVI.0.** ⛔ El orden importa y el que escribí primero estaba invertido:
+recomputar los supuestos ANTES de desplegar PVI.1 los recalcula con el pareo por canal todavía roto —
+`mayoreo` mejoraría y `mostrador` quedaría en +21.46 % en vez de −2.82 %, dando el ejercicio por corregido
+con el número equivocado del canal que carga el 58.46 % de la meta. Sin esos tres, cualquier herramienta que se construya encima
 hereda un supuesto refutado.
 
 **Pendiente humano (no es código):** asignar el ADR · decidir el Q4 (PVI.4) · decidir el COGS
