@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { TenantKnexService, TenantContextService, obligacionNoEsDePruebaSql } from '@megadulces/platform-core';
 
 const round2 = (n: number) => Math.round(Number(n) * 100) / 100;
 
@@ -116,12 +116,16 @@ export class PendingApprovalsService {
         .orderBy('updated_at', 'asc');
 
       // ── Cola 2: obligaciones esperando autorización ────────────────────
-      // El `whereNotExists` saca SÓLO lo que prueba colgar de un ejercicio de prueba.
-      const noEsDePrueba = (qb: any) => qb.whereNotExists(function (this: any) {
-        this.select(1).from('budget.budget_lines as bl')
-          .join('budget.budgets as bb', 'bb.id', 'bl.budget_id')
-          .whereRaw('bl.id = budget_line_id').andWhere('bb.is_test', true);
-      });
+      /*
+       * `[PVI.17]` El `NOT EXISTS` que saca SÓLO lo que cuelga de un ejercicio de prueba se mudó a
+       * `libs/platform-core` **sin cambiar una coma de su lógica**. Motivo: «Mi trabajo»
+       * (`libs/trade`) necesita exactamente el mismo filtro para contar esta cola en la portada de
+       * Dirección, y las dos librerías no se pueden importar entre sí. Copiarlo ya cobró el mismo
+       * día: una sesión midió «312 obligaciones por $149,618,183.14» —el duplicado incluido— y
+       * estuvo a un commit de cablear el doble a la portada. **Dos definiciones de la misma cola
+       * es cómo nacen los dos números.**
+       */
+      const noEsDePrueba = (qb: any) => qb.whereRaw(obligacionNoEsDePruebaSql());
 
       const oblig = await noEsDePrueba(trx('budget.expense_obligations'))
         .where({ tenant_id: tenantId }).andWhere('status', 'propuesta')

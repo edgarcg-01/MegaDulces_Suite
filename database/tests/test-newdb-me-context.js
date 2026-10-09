@@ -296,8 +296,9 @@ const tieneDecoradorPermisos = (tramo) =>
   // `[SN.36]` +1: entró «Cartera de clientes» con su clave `finanzas.cartera`.
   // `[SN.39]` +1: entró «Comprobantes de entrada de mercancía» con su clave `compras.entradas`.
   // `[MS.3.8]` +1: entró «Solicitudes de servicio por asignar» con su clave `servicio.atender`.
+  // `[PVI.17]` +1: entró «Presupuesto por autorizar» con su clave `finanzas.presupuesto`.
   check('se leyó el catálogo de las migraciones (si no, este bloque no mide nada)',
-    catalogo.length === 19, catalogo);
+    catalogo.length === 20, catalogo);
 
   /*
    * `[SN.17]` Las colas viven en TRES registros y las tres cuentan: bandejas, tareas y ciclos.
@@ -343,8 +344,13 @@ const tieneDecoradorPermisos = (tramo) =>
   // `[SN.39]` +1 bandeja y +1 clave: «Entradas de mercancía sin comprobante».
   // `[MS.3.8]` +1 bandeja y +1 clave: «Solicitudes de servicio sin asignar». ⚠️ El esperado venía en 21 con 22
   // declaradas desde antes de este cambio (una bandeja anterior no actualizó la cuenta): 22 + la de la Mesa = 23.
-  check('cada cola declara su responsabilidad (14 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
-    declaradas.length === 23, declaradas);
+  // `[PVI.17]` +2 COLAS pero +1 CLAVE: «ejercicios por aprobar» y «obligaciones por autorizar»
+  // son las dos puertas de la misma responsabilidad (`finanzas.presupuesto`), igual que el caso de
+  // `finanzas.cartera`. Van DOS entradas a propósito: medido en prod, 0 ejercicios y 156
+  // obligaciones — con un solo contador el 0 se esconde detrás del 156, y el 0 es el que dice que
+  // nadie mandó un presupuesto a firmar.
+  check('cada cola declara su responsabilidad (16 bandejas + 1 tarea + 4 ciclos + 3 canales + dirección)',
+    declaradas.length === 25, declaradas);
   const sinCatalogo = declaradas.filter((k) => !catalogo.includes(k));
   const sinCola = catalogo.filter((k) => !declaradas.includes(k));
   check('ninguna cola usa una clave que el catálogo no declara', sinCatalogo.length === 0, sinCatalogo);
