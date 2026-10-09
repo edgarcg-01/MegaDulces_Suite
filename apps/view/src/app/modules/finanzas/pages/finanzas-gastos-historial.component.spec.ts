@@ -409,4 +409,161 @@ describe('FinanzasGastosHistorialComponent', () => {
       expect(c.mesDatos()).toBe(delNuevo);
     });
   });
+  /**
+   * `[GX.78]` Los filtros del Historial. Lo que cuidan:
+   *  · que el calendario y la lista del día cuenten con la MISMA regla;
+   *  · que filtrado se diga «N de M», no sólo «N»;
+   *  · que un filtro que el servidor no aplicó no se presente como aplicado.
+   */
+  describe('[GX.78] los filtros', () => {
+    const CAL_F = (over: Partial<CalendarioDelMes> = {}): CalendarioDelMes => CAL({
+      alcance: 'todos',
+      filtro: { estados: [], sucursal: null, persona: null },
+      total_sin_filtro: { n: 22, monto: 86662.15 },
+      facetas: {
+        estados: [
+          { valor: 'recibida', n: 7, monto: 700 },
+          { valor: 'validada', n: 15, monto: 85962.15 },
+        ],
+        sucursales: [{ valor: '00', n: 20, monto: 86000 }, { valor: '08', n: 2, monto: 662.15 }],
+        personas: [{ valor: 'capturista_a', n: 18, monto: 80000 }, { valor: 'capturista_b', n: 4, monto: 6662.15 }],
+      },
+      ...over,
+    });
+    const pedidoMes = () => http.expectOne((r) => r.url.includes('/finance/expenses/proofs/calendario'));
+    const enTodos = () => {
+      montar('superadmin', {}, CAL_F({ alcance: 'mios', facetas: { ...CAL_F().facetas!, personas: null } }));
+      c.cambiar('todos');
+      pedidoMes().flush(CAL_F());
+      fix.detectChanges();
+    };
+    const texto = () => fix.nativeElement.textContent as string;
+
+    it('sin las opciones del servidor no hay barra de filtros', () => {
+      montar('superadmin');
+      expect(fix.nativeElement.querySelector('.hist-filtros')).toBeNull();
+    });
+
+    it('ofrece los estados con su cifra, y la persona sólo en «Todos»', () => {
+      enTodos();
+      const chips = [...fix.nativeElement.querySelectorAll('.hist-chip')].map((b: HTMLElement) => b.textContent?.replace(/\s+/g, ' ').trim());
+      expect(chips).toEqual(['Espera firma 7', 'Comprobado 15']);
+      expect(texto()).toContain('Quién levantó');
+      c.cambiar('mios');
+      pedidoMes().flush(CAL_F({ alcance: 'mios', facetas: { ...CAL_F().facetas!, personas: null } }));
+      fix.detectChanges();
+      expect(texto()).not.toContain('Quién levantó');
+    });
+
+    it('⭐ elegir un estado pide el mes filtrado SIN esconder el calendario', () => {
+      enTodos();
+      c.alternarEstado('recibida');
+      const req = pedidoMes();
+      expect(req.request.params.get('estado')).toBe('recibida');
+      expect(req.request.params.get('alcance')).toBe('todos');
+      // El calendario se queda (atenuado): no hay «Cargando…» a cada clic.
+      expect(c.cargando()).toBe(false);
+      expect(c.filtrando()).toBe(true);
+      fix.detectChanges();
+      expect(fix.nativeElement.querySelector('.cal.filtrando')).not.toBeNull();
+      req.flush(CAL_F({ filtro: { estados: ['recibida'], sucursal: null, persona: null }, total: { n: 7, monto: 700 } }));
+      fix.detectChanges();
+      expect(c.filtrando()).toBe(false);
+      // Filtrado se dice contra el universo.
+      expect(texto()).toContain('7 de 22 levantamientos del mes');
+      expect(texto()).toContain('$700.00 de $86,662.15');
+    });
+
+    it('los estados se combinan y viajan en el orden del trámite', () => {
+      enTodos();
+      c.alternarEstado('validada');
+      pedidoMes().flush(CAL_F({ filtro: { estados: ['validada'], sucursal: null, persona: null } }));
+      c.alternarEstado('recibida');
+      expect(pedidoMes().request.params.get('estado')).toBe('recibida,validada');
+    });
+
+    it('sucursal y persona viajan; «Limpiar filtros» no manda ninguno', () => {
+      enTodos();
+      c.elegirSucursal('08');
+      pedidoMes().flush(CAL_F({ filtro: { estados: [], sucursal: '08', persona: null } }));
+      c.elegirPersona('capturista_b');
+      const req = pedidoMes();
+      expect(req.request.params.get('sucursal')).toBe('08');
+      expect(req.request.params.get('persona')).toBe('capturista_b');
+      req.flush(CAL_F({ filtro: { estados: [], sucursal: '08', persona: 'capturista_b' } }));
+      c.limpiarFiltros();
+      const limpio = pedidoMes();
+      for (const k of ['estado', 'sucursal', 'persona']) expect(limpio.request.params.has(k)).toBe(false);
+      limpio.flush(CAL_F());
+    });
+
+    /** ⭐ La lista del día usa la MISMA regla que el calendario: se acota sin volver a pedirla. */
+    it('⭐ la lista del día abierto se acota con el filtro, y lo dice', () => {
+      enTodos();
+      c.abrirDia(c.semanas().flat().find((x) => x.dia === D1)!);
+      http.expectOne((r) => r.url.includes('/finance/expenses/proofs') && r.params.get('dia') === D1).flush(DIA_ROWS);
+      c.alternarEstado('recibida');
+      pedidoMes().flush(CAL_F({ filtro: { estados: ['recibida'], sucursal: null, persona: null } }));
+      fix.detectChanges();
+      // No se volvió a pedir el día: se filtró acá.
+      http.expectNone((r) => r.params.get('dia') === D1);
+      expect(c.filasVisibles().map((r) => r.id)).toEqual(['p1']);
+      expect(c.totalDia()).toBe(1250.5);
+      expect(texto()).toContain('1 de 2');
+      expect(texto()).not.toContain('0009902');
+    });
+
+    it('un día con vales que no pasan el filtro no se confunde con un día sin gasto', () => {
+      enTodos();
+      c.alternarEstado('rechazada');
+      pedidoMes().flush(CAL_F({ filtro: { estados: ['rechazada'], sucursal: null, persona: null } }));
+      c.abrirDia(c.semanas().flat().find((x) => x.dia === D1)!);
+      http.expectOne((r) => r.params.get('dia') === D1).flush(DIA_ROWS);
+      fix.detectChanges();
+      expect(texto()).toContain('Ninguno de los 2 vales de este día pasa el filtro');
+      expect(texto()).not.toContain('no se levantó ningún gasto');
+    });
+
+    it('al pasar a «Míos» se suelta la persona (ahí la única es quien mira)', () => {
+      enTodos();
+      c.elegirPersona('capturista_b');
+      pedidoMes().flush(CAL_F({ filtro: { estados: [], sucursal: null, persona: 'capturista_b' } }));
+      c.cambiar('mios');
+      const req = pedidoMes();
+      expect(req.request.params.has('persona')).toBe(false);
+      expect(c.filtro().persona).toBeNull();
+      req.flush(CAL_F({ alcance: 'mios' }));
+    });
+
+    /** ⛔ Dos clics rápidos: la respuesta del primero NO puede pisar la del segundo. */
+    it('⛔ un filtro nuevo cancela el pedido anterior', () => {
+      enTodos();
+      c.alternarEstado('recibida');
+      c.alternarEstado('validada');
+      const [primero, segundo] = http.match((r) => r.url.includes('/calendario'));
+      expect(primero.cancelled).toBe(true);
+      expect(segundo.request.params.get('estado')).toBe('recibida,validada');
+      segundo.flush(CAL_F({ filtro: { estados: ['recibida', 'validada'], sucursal: null, persona: null } }));
+    });
+
+    /** ⛔ Si el servidor aplicó OTRO filtro, la cifra es de otra pregunta: se dice. */
+    it('⛔ declara cuando el servidor no aplicó el filtro pedido', () => {
+      enTodos();
+      c.alternarEstado('recibida');
+      pedidoMes().flush(CAL_F({ filtro: { estados: [], sucursal: null, persona: null } }));
+      fix.detectChanges();
+      expect(c.filtroNoCoincide()).toBe(true);
+      expect(texto()).toContain('El servidor no aplicó este filtro');
+    });
+
+    /** Prueba negativa del aviso: con el filtro aplicado tal cual, no hay aviso. */
+    it('sin aviso cuando el servidor aplicó el mismo filtro', () => {
+      enTodos();
+      c.alternarEstado('recibida');
+      pedidoMes().flush(CAL_F({ filtro: { estados: ['recibida'], sucursal: null, persona: null } }));
+      fix.detectChanges();
+      expect(c.filtroNoCoincide()).toBe(false);
+      expect(texto()).not.toContain('El servidor no aplicó este filtro');
+    });
+  });
 });

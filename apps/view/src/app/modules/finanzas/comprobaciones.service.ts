@@ -410,6 +410,9 @@ export interface GastosDelDia {
 import type { ReaperturaPendiente } from '@megadulces/contracts';
 export type { ReaperturaPendiente };
 
+// `[GX.78]` Los filtros del Historial: la misma regla la usa el servidor para el calendario.
+import { filtroHistorialAParams, type FacetasHistorial, type FiltroHistorial } from '@megadulces/contracts';
+
 /** `[GX.27]` Un dia del calendario del historial. Solo viajan los dias CON movimiento. */
 export interface DiaDelCalendario { dia: string; n: number; monto: number }
 
@@ -420,6 +423,15 @@ export interface CalendarioDelMes {
   dias: DiaDelCalendario[];
   total: { n: number; monto: number };
   alcance: 'mios' | 'todos';
+  /**
+   * `[GX.78]` El filtro que APLICÓ el servidor. Opcionales: un servidor anterior no los manda, y
+   * la pantalla lo dice en vez de presentar el mes entero como si estuviera filtrado.
+   */
+  filtro?: FiltroHistorial;
+  /** `[GX.78]` El mes sin filtrar: para decir «58 de 392». */
+  total_sin_filtro?: { n: number; monto: number };
+  /** `[GX.78]` Las opciones de cada filtro, contadas. */
+  facetas?: FacetasHistorial;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -467,9 +479,11 @@ export class ComprobacionesService {
    * (!) El `alcance` lo VALIDA el servidor: pedir `todos` sin god-mode devuelve 403, no una
    * version recortada. Aca se manda lo que la pantalla puede ofrecer; la puerta esta alla.
    */
-  calendario(mes?: string, alcance: 'mios' | 'todos' = 'mios'): Observable<CalendarioDelMes> {
+  calendario(mes?: string, alcance: 'mios' | 'todos' = 'mios', filtro?: FiltroHistorial): Observable<CalendarioDelMes> {
     let params = new HttpParams().set('alcance', alcance);
     if (mes) params = params.set('mes', mes);
+    // `[GX.78]` Sólo viaja lo que está puesto.
+    for (const [k, v] of Object.entries(filtroHistorialAParams(filtro))) params = params.set(k, v);
     return this.http.get<CalendarioDelMes>(`${this.base}/calendario`, { params });
   }
 

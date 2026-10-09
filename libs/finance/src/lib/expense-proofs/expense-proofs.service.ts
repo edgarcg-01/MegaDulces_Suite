@@ -61,9 +61,10 @@ import {
   type EtapaGasto, type ParticionDelDia,
 } from './etapas-del-dia';
 import {
-  mesValido, rangoDelMes, totalDelMes,
-  type CalendarioDelMes, type DiaDelCalendario,
+  facetasDelMes, mesValido, rangoDelMes, totalDelMes,
+  type CalendarioDelMes, type DiaDelCalendario, type GrupoDelMes,
 } from './calendario-gastos';
+import { FILTRO_HISTORIAL_VACIO, type FiltroHistorial } from '@megadulces/contracts';
 import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-gastos-abiertos';
 import { agruparGastosPorSolicitud, datosKeplerDeLaFila } from './mis-gastos-kepler';
 import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, MENSAJE_PROPIO_VALE, type IdentidadQueDecide, type QuienAbreExpediente } from '@megadulces/contracts';
@@ -1535,35 +1536,64 @@ export class ExpenseProofsService {
    * ⚠️ `mine` NO es un filtro opcional de conveniencia: es el alcance. Cuando viene, la
    * consulta se acota a esa persona; cuando no, devuelve el de toda la empresa — y eso lo
    * decide el controller, que es quien sabe si hay god-mode.
+   *
+   * `[GX.78]` `filtro` sí es de conveniencia, y sólo ACHICA: estado, sucursal y quien levantó,
+   * con las mismas tres igualdades de `pasaFiltroHistorial` (que la pantalla usa para la lista
+   * del día). Se aplica DENTRO del alcance, nunca en su lugar.
    */
-  async calendarioMes(mesPedido: string | undefined, opts: { mine?: string } = {}): Promise<CalendarioDelMes> {
+  async calendarioMes(
+    mesPedido: string | undefined,
+    opts: { mine?: string; filtro?: FiltroHistorial } = {},
+  ): Promise<CalendarioDelMes> {
     const tenantId = this.tenantCtx.requireTenantId();
     const pedido = mesPedido == null || String(mesPedido).trim() === '' ? null : String(mesPedido).trim();
     const mes = mesValido(pedido) ?? hoyMx().slice(0, 7);
     const { desde, hasta } = rangoDelMes(mes);
+    const filtro = opts.filtro ?? FILTRO_HISTORIAL_VACIO;
 
     return this.tk.run(async (trx) => {
       interface FilaCruda { dia: string; n: number; monto: string | number }
-      const b = trx('finance.v_expense_proofs')
-        .where({ tenant_id: tenantId })
-        .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [desde])
-        .whereRaw(`created_at <  (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [hasta])
+      /** El mes en el alcance, SIN filtro: de acá salen las opciones y el «de N». */
+      const delMes = () => {
+        const q = trx('finance.v_expense_proofs')
+          .where({ tenant_id: tenantId })
+          .whereRaw(`created_at >= (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [desde])
+          .whereRaw(`created_at <  (?::date)::timestamp AT TIME ZONE 'America/Mexico_City'`, [hasta]);
+        // `[GX.34]` Mismo criterio que la lista: el calendario de «Míos» y «Mis gastos»
+        // tienen que contar lo mismo, o el mes dice 6 y la lista muestra 8.
+        if (opts.mine) q.where((w: Knex.QueryBuilder) => w.where('created_by', opts.mine).orWhere('evidencia_por', opts.mine));
+        return q;
+      };
+
+      const b = delMes()
         .groupByRaw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD')`)
         .orderByRaw('1 ASC')
         .select(
           trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') AS dia`),
           trx.raw('COUNT(*)::int AS n'),
           trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
-      // `[GX.34]` Mismo criterio que la lista: el calendario de «Míos» y «Mis gastos»
-      // tienen que contar lo mismo, o el mes dice 6 y la lista muestra 8.
-      if (opts.mine) b.where((w: Knex.QueryBuilder) => w.where('created_by', opts.mine).orWhere('evidencia_por', opts.mine));
+      // `[GX.78]` Las MISMAS tres igualdades que `pasaFiltroHistorial`.
+      if (filtro.estados.length) b.whereIn('status', filtro.estados);
+      if (filtro.sucursal) b.where('sucursal', filtro.sucursal);
+      if (filtro.persona) b.where('created_by', filtro.persona);
 
-      const filas: FilaCruda[] = await b;
+      // ~120 grupos al mes en prod (medido oct-2026): las tres listas del filtro se cuentan en
+      // memoria con ellos. 20–45 ms las dos consultas juntas.
+      const g = delMes()
+        .groupBy('status', 'sucursal', 'created_by')
+        .select('status', 'sucursal', 'created_by',
+          trx.raw('COUNT(*)::int AS n'),
+          trx.raw('COALESCE(SUM(importe), 0)::numeric AS monto'));
+
+      const [filasDb, gruposDb] = await Promise.all([b, g]);
+      const filas = filasDb as FilaCruda[];
+      const crudos = gruposDb as GrupoDelMes[];
       const dias: DiaDelCalendario[] = filas.map((f) => ({
         dia: f.dia,
         n: Number(f.n) || 0,
         monto: Math.round((Number(f.monto) || 0) * 100) / 100,
       }));
+      const grupos: GrupoDelMes[] = crudos.map((x) => ({ ...x, n: Number(x.n) || 0, monto: Number(x.monto) || 0 }));
 
       return {
         mes,
@@ -1572,6 +1602,10 @@ export class ExpenseProofsService {
         dias,
         total: totalDelMes(dias),
         alcance: opts.mine ? 'mios' : 'todos',
+        filtro,
+        total_sin_filtro: totalDelMes(grupos.map((x) => ({ dia: '', n: x.n, monto: x.monto }))),
+        // En «Míos» no se ofrece filtrar por persona: la única es quien mira.
+        facetas: facetasDelMes(grupos, filtro, !opts.mine),
       };
     });
   }

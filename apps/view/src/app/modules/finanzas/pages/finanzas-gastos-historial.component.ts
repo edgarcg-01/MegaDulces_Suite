@@ -1,6 +1,14 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, computed, inject, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import type { Subscription } from 'rxjs';
+import { SelectModule } from 'primeng/select';
+import {
+  ESTADOS_LEVANTAMIENTO, FILTRO_HISTORIAL_VACIO, filtroHistorialActivo, pasaFiltroHistorial,
+  type FacetaHistorial, type FiltroHistorial,
+} from '@megadulces/contracts';
+import { branchLabel } from '../../../core/constants/store-branches';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { parseLocalDate, todayMx } from '../../../core/utils/mx-date';
@@ -23,6 +31,26 @@ const ESTADO_LABEL: Record<string, string> = {
   validada: 'Comprobado',
   rechazada: 'Rechazado',
 };
+
+/** `[GX.78]` Dos filtros iguales piden lo mismo. */
+function mismoFiltro(a: FiltroHistorial, b: FiltroHistorial): boolean {
+  return a.sucursal === b.sucursal && a.persona === b.persona
+    && a.estados.length === b.estados.length && a.estados.every((e, i) => e === b.estados[i]);
+}
+
+/**
+ * `[GX.78]` Las opciones de un selector: lo que el servidor contó, más lo elegido aunque este
+ * mes no tenga nada (con 0) — si desapareciera, el selector se vería vacío con un filtro puesto.
+ */
+function opcionesDeFaceta(
+  facetas: readonly FacetaHistorial[] | null | undefined,
+  elegido: string | null,
+  rotulo: (v: string) => string,
+): { label: string; value: string }[] {
+  const ops = (facetas ?? []).map((f) => ({ label: `${rotulo(f.valor)} · ${f.n}`, value: f.valor }));
+  if (elegido && !ops.some((o) => o.value === elegido)) ops.unshift({ label: `${rotulo(elegido)} · 0`, value: elegido });
+  return ops;
+}
 
 /**
  * `[GX.27]` — **Historial de levantamientos, como calendario.**
@@ -54,7 +82,7 @@ const ESTADO_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-finanzas-gastos-historial',
   standalone: true,
-  imports: [CommonModule, ToastModule, ValeGastoPeekComponent],
+  imports: [CommonModule, FormsModule, SelectModule, ToastModule, ValeGastoPeekComponent],
   providers: [MessageService],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
@@ -95,6 +123,45 @@ const ESTADO_LABEL: Record<string, string> = {
         </button>
       </div>
 
+      <!--
+        [GX.78] Filtros. Viven FUERA del bloque de carga (mismo criterio que el Expediente, GX.72):
+        si se escondieran mientras recarga, la barra saltaría bajo el cursor a cada clic.
+        El SERVIDOR los aplica al calendario y la pantalla a la lista del día, con la misma regla
+        (pasaFiltroHistorial): la casilla y la lista cuentan lo mismo.
+      -->
+      @if (facetas(); as fc) {
+        <div class="hist-filtros" role="search" aria-label="Filtrar el historial">
+          <div class="hist-f">
+            <span class="hist-f-l" id="hist-f-estado">Estado</span>
+            <div class="hist-chips" role="group" aria-labelledby="hist-f-estado">
+              @for (e of opcionesEstado(); track e.valor) {
+                <button type="button" class="hist-chip" [class.on]="estadoElegido(e.valor)"
+                        [attr.aria-pressed]="estadoElegido(e.valor)" (click)="alternarEstado(e.valor)">
+                  {{ etiqueta(e.valor) }} <span class="hist-chip-n">{{ e.n }}</span>
+                </button>
+              }
+            </div>
+          </div>
+          <div class="hist-f">
+            <span class="hist-f-l" id="hist-f-suc">Sucursal</span>
+            <p-select [options]="opcionesSucursal()" [ngModel]="filtro().sucursal" (ngModelChange)="elegirSucursal($event)"
+                      optionLabel="label" optionValue="value" placeholder="Todas" [showClear]="true"
+                      class="hist-f-sel" ariaLabelledBy="hist-f-suc" />
+          </div>
+          @if (fc.personas) {
+            <div class="hist-f">
+              <span class="hist-f-l" id="hist-f-persona">Quién levantó</span>
+              <p-select [options]="opcionesPersona()" [ngModel]="filtro().persona" (ngModelChange)="elegirPersona($event)"
+                        optionLabel="label" optionValue="value" placeholder="Todas las personas" [showClear]="true"
+                        [filter]="true" class="hist-f-sel" ariaLabelledBy="hist-f-persona" />
+            </div>
+          }
+          @if (filtroActivo()) {
+            <button type="button" class="hist-limpiar" (click)="limpiarFiltros()">Limpiar filtros</button>
+          }
+        </div>
+      }
+
       @if (cargando()) {
         <div class="hist-vacio">Cargando…</div>
       } @else if (error()) {
@@ -106,14 +173,27 @@ const ESTADO_LABEL: Record<string, string> = {
             «{{ m.mes_pedido }}» no es un mes. Se está mostrando el actual.</div>
         }
 
+        @if (filtroNoCoincide()) {
+          <!-- [GX.78] La cifra es de otra pregunta: se dice, no se presenta como filtrada. -->
+          <div class="hist-aviso"><i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
+            El servidor no aplicó este filtro: las cifras del calendario son del mes completo.</div>
+        }
+
         <div class="hist-kpis">
-          <span><b>{{ m.total.n }}</b> {{ m.total.n === 1 ? 'levantamiento' : 'levantamientos' }} en el mes</span>
-          <span><b>{{ money(m.total.monto) }}</b> en total</span>
-          @if (!m.total.n) { <span class="hist-faint">Este mes no tiene levantamientos.</span> }
+          @if (filtroActivo() && m.total_sin_filtro) {
+            <!-- [GX.78] Filtrado se dice «58 de 392»: el número solo no dice de qué universo es. -->
+            <span><b>{{ m.total.n }}</b> de {{ m.total_sin_filtro.n }} levantamientos del mes</span>
+            <span><b>{{ money(m.total.monto) }}</b> de {{ money(m.total_sin_filtro.monto) }}</span>
+            @if (!m.total.n) { <span class="hist-faint">Ningún levantamiento del mes pasa el filtro.</span> }
+          } @else {
+            <span><b>{{ m.total.n }}</b> {{ m.total.n === 1 ? 'levantamiento' : 'levantamientos' }} en el mes</span>
+            <span><b>{{ money(m.total.monto) }}</b> en total</span>
+            @if (!m.total.n) { <span class="hist-faint">Este mes no tiene levantamientos.</span> }
+          }
         </div>
 
         <!-- ── El calendario ─────────────────────────────────────────────────── -->
-        <div class="cal" role="grid" aria-label="Calendario de levantamientos">
+        <div class="cal" role="grid" aria-label="Calendario de levantamientos" [class.filtrando]="filtrando()" [attr.aria-busy]="filtrando()">
           <div class="cal-cab" role="row">
             @for (d of diasSemana; track $index) { <span role="columnheader">{{ d }}</span> }
           </div>
@@ -145,7 +225,7 @@ const ESTADO_LABEL: Record<string, string> = {
               <h2>{{ diaLocal(d) | date: "EEEE d 'de' MMMM" }}</h2>
               <span class="hist-grow"></span>
               @if (!cargandoDia() && !errorDia()) {
-                <span class="hist-faint">{{ filasDia().length }} · {{ money(totalDia()) }}</span>
+                <span class="hist-faint">{{ filtroActivo() ? filasVisibles().length + ' de ' + filasDia().length : filasDia().length }} · {{ money(totalDia()) }}</span>
               }
               <button type="button" class="hist-cerrar" aria-label="Cerrar el día" (click)="cerrarDia()">
                 <i class="pi pi-times" aria-hidden="true"></i>
@@ -158,8 +238,11 @@ const ESTADO_LABEL: Record<string, string> = {
             }
             @else if (!filasDia().length) {
               <div class="hist-vacio">Ese día no se levantó ningún gasto.</div>
+            } @else if (!filasVisibles().length) {
+              <!-- [GX.78] No es «no hubo gasto»: hubo, y ninguno pasa el filtro. -->
+              <div class="hist-vacio">Ninguno de los {{ filasDia().length }} vales de este día pasa el filtro.</div>
             } @else {
-              @for (r of filasDia(); track r.id) {
+              @for (r of filasVisibles(); track r.id) {
                 <article class="hist-vale" role="button" tabindex="0"
                          [attr.aria-label]="'Ver el vale ' + (r.folio_solicitud || 'sin folio')"
                          (click)="abrirVale(r)" (keydown.enter)="abrirVale(r)"
@@ -211,6 +294,25 @@ const ESTADO_LABEL: Record<string, string> = {
       font: inherit; font-size: var(--fs-xs); color: var(--action); cursor: pointer; }
 
     .hist-kpis { display: flex; flex-wrap: wrap; gap: var(--sp-4); font-size: var(--fs-xs); color: var(--fg-2); }
+    /* [GX.78] Barra de filtros: etiqueta arriba del control, en una fila que se parte en angosto. */
+    .hist-filtros { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--sp-3);
+      background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md);
+      padding: var(--sp-2) var(--sp-3); }
+    .hist-f { display: flex; flex-direction: column; gap: 2px; }
+    .hist-f-l { font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .06em;
+      color: var(--fg-2); font-weight: var(--fw-bold); }
+    .hist-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+    .hist-chip { display: inline-flex; align-items: center; gap: 6px; min-height: var(--tap-min);
+      padding: 0 var(--sp-2); border: 1px solid var(--border-color); border-radius: var(--r-sm);
+      background: transparent; font: inherit; font-size: var(--fs-sm); color: var(--fg-2); cursor: pointer; }
+    .hist-chip:hover { border-color: var(--action); }
+    .hist-chip:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+    .hist-chip.on { background: var(--fg-1); border-color: var(--fg-1); color: var(--card-bg); }
+    .hist-chip-n { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-xs); }
+    /* La clase va en el HOST de p-select (v22 retiró styleClass): la regla es propia, sin ng-deep. */
+    .hist-f-sel { min-width: 13rem; }
+    .hist-limpiar { min-height: var(--tap-min); padding: 0 var(--sp-2); border: 0; background: none;
+      font: inherit; font-size: var(--fs-xs); color: var(--action); cursor: pointer; }
     .hist-vacio { padding: var(--sp-5); text-align: center; font-size: var(--fs-sm); color: var(--fg-3); }
     .hist-vacio.bad { color: var(--bad-fg); }
     .hist-aviso { display: flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-sm);
@@ -220,6 +322,8 @@ const ESTADO_LABEL: Record<string, string> = {
     /* ── Calendario ────────────────────────────────────────────────────────── */
     .cal { background: var(--card-bg); border: 1px solid var(--border-color); border-radius: var(--r-md);
       padding: var(--sp-2); }
+    /* [GX.78] Mientras llega el mes del filtro nuevo, las cifras viejas se atenúan: no son de este filtro. */
+    .cal.filtrando { opacity: .5; }
     .cal-cab, .cal-fila { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 2px; }
     .cal-cab span { text-align: center; padding: 4px 0; font-size: var(--fs-micro);
       text-transform: uppercase; letter-spacing: .05em; color: var(--fg-3); }
@@ -314,6 +418,49 @@ export class FinanzasGastosHistorialComponent {
   /** `[GX.29]` Hay una solicitud de reapertura en vuelo: el botón se bloquea. */
   readonly pidiendo = signal(false);
 
+  /**
+   * `[GX.78]` **El filtro vigente.** Sobrevive al cambio de mes (se sigue mirando lo mismo en
+   * otro mes); la persona NO sobrevive al cambio a «Míos», donde la única persona es quien mira.
+   *
+   * Un filtro sólo ACHICA lo que se ve: el alcance lo sigue decidiendo el servidor por permiso.
+   */
+  readonly filtro = signal<FiltroHistorial>(FILTRO_HISTORIAL_VACIO);
+  readonly filtroActivo = computed(() => filtroHistorialActivo(this.filtro()));
+  /** Hay un mes pidiéndose por un cambio de filtro: el calendario se atenúa, no se esconde. */
+  readonly filtrando = signal(false);
+  /** Las opciones de cada filtro las cuenta el servidor. Sin ellas (servidor anterior), no hay barra. */
+  readonly facetas = computed(() => this.mesDatos()?.facetas ?? null);
+  /** La lista del día, acotada con la MISMA regla que el servidor usa en el calendario. */
+  readonly filasVisibles = computed(() => this.filasDia().filter((r) => pasaFiltroHistorial(r, this.filtro())));
+
+  /**
+   * Los estados que se ofrecen: los que el servidor contó, más los elegidos que este mes no
+   * tienen (con 0) — si desaparecieran, no habría cómo quitarlos. Sólo los estados que la regla
+   * conoce: elegir uno desconocido devolvería 400.
+   */
+  readonly opcionesEstado = computed<FacetaHistorial[]>(() => {
+    const ops = (this.facetas()?.estados ?? []).filter((e) => (ESTADOS_LEVANTAMIENTO as readonly string[]).includes(e.valor));
+    for (const e of this.filtro().estados) if (!ops.some((o) => o.valor === e)) ops.push({ valor: e, n: 0, monto: 0 });
+    const pos = (v: string) => (ESTADOS_LEVANTAMIENTO as readonly string[]).indexOf(v);
+    return ops.sort((a, b) => pos(a.valor) - pos(b.valor));
+  });
+  readonly opcionesSucursal = computed(() =>
+    opcionesDeFaceta(this.facetas()?.sucursales, this.filtro().sucursal, (v) => branchLabel(v)));
+  readonly opcionesPersona = computed(() =>
+    opcionesDeFaceta(this.facetas()?.personas, this.filtro().persona, (v) => v));
+
+  /**
+   * `[GX.78]` ¿El servidor aplicó OTRO filtro que el elegido? Mientras hay un pedido en vuelo
+   * no se juzga (la respuesta todavía es la del filtro anterior). Un servidor que no devuelve el
+   * filtro y con algo elegido es el mismo caso: las cifras son del mes completo.
+   */
+  readonly filtroNoCoincide = computed(() => {
+    const m = this.mesDatos();
+    if (!m || this.cargando() || this.filtrando()) return false;
+    if (!m.filtro) return this.filtroActivo();
+    return !mismoFiltro(m.filtro, this.filtro());
+  });
+
   constructor() {
     this.cargarMes();
     // `[GX.73]` Se refresca sola mientras la pestaña se ve (el mes y, si hay uno abierto, el día).
@@ -332,17 +479,18 @@ export class FinanzasGastosHistorialComponent {
    * refresco no puede ganarle la carrera a lo que la persona acaba de pedir.
    */
   refrescar(): void {
-    if (this.valeAbierto() || this.cargando() || this.cargandoDia() || this.refrescando) return;
+    if (this.valeAbierto() || this.cargando() || this.filtrando() || this.cargandoDia() || this.refrescando) return;
     this.refrescando = true;
     const ambito = this.ambito();
     const mes = this.mes();
     const dia = this.diaSel();
-    this.svc.calendario(mes || undefined, ambito)
+    const filtro = this.filtro();
+    this.svc.calendario(mes || undefined, ambito, filtro)
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
         next: (m: CalendarioDelMes) => {
           // Si mientras volaba cambió el ámbito o el mes, la respuesta es de otra vista: se descarta.
-          if (this.ambito() === ambito && this.mes() === mes) { this.mesDatos.set(m); this.cdr.markForCheck(); }
+          if (this.ambito() === ambito && this.mes() === mes && this.filtro() === filtro) { this.mesDatos.set(m); this.cdr.markForCheck(); }
           this.refrescando = false;
         },
         error: () => { this.refrescando = false; },
@@ -370,24 +518,71 @@ export class FinanzasGastosHistorialComponent {
   readonly semanas = computed<CeldaCalendario[][]>(() =>
     semanasDelMes(this.mesActivo(), this.mesDatos()?.dias ?? [], todayMx()));
 
-  readonly totalDia = computed(() => this.filasDia().reduce((a, r) => a + (Number(r.importe) || 0), 0));
+  readonly totalDia = computed(() => this.filasVisibles().reduce((a, r) => a + (Number(r.importe) || 0), 0));
 
-  cargarMes(): void {
-    this.cargando.set(true);
+  /** `[GX.78]` El pedido del mes en curso: uno nuevo lo cancela, para que no gane la respuesta vieja. */
+  private pedidoMes?: Subscription;
+
+  /**
+   * Pide el mes con el ámbito y el filtro vigentes.
+   *
+   * `[GX.78]` `suave` = cambio de filtro: el calendario se queda a la vista (atenuado) en vez de
+   * desaparecer tras un «Cargando…» a cada clic. Un error se dice igual en los dos casos — dejar
+   * a la vista el calendario del filtro anterior sería mostrar cifras de otra pregunta.
+   */
+  cargarMes(suave = false): void {
+    if (suave && !this.cargando()) this.filtrando.set(true);
+    else this.cargando.set(true);
     this.error.set('');
-    this.svc.calendario(this.mes() || undefined, this.ambito())
+    this.pedidoMes?.unsubscribe();
+    this.pedidoMes = this.svc.calendario(this.mes() || undefined, this.ambito(), this.filtro())
       .pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({
-        next: (m: CalendarioDelMes) => { this.mesDatos.set(m); this.cargando.set(false); this.cdr.markForCheck(); },
+        next: (m: CalendarioDelMes) => {
+          this.mesDatos.set(m); this.cargando.set(false); this.filtrando.set(false); this.cdr.markForCheck();
+        },
         // Un error NO se pinta como mes vacío: es otra afirmación, y la equivocada haría creer
         // que no hubo gasto.
-        error: () => { this.error.set('No se pudo cargar el mes. Vuelve a intentar.'); this.cargando.set(false); this.cdr.markForCheck(); },
+        error: () => {
+          this.error.set('No se pudo cargar el mes. Vuelve a intentar.');
+          this.cargando.set(false); this.filtrando.set(false); this.cdr.markForCheck();
+        },
       });
+  }
+
+  /** `[GX.78]` Prende o apaga un estado. Se pueden elegir varios. */
+  alternarEstado(valor: string): void {
+    const actuales = this.filtro().estados as readonly string[];
+    const nuevos = actuales.includes(valor) ? actuales.filter((e) => e !== valor) : [...actuales, valor];
+    // Orden fijo (el del trámite): dos selecciones iguales son el mismo filtro.
+    this.aplicarFiltro({ ...this.filtro(), estados: ESTADOS_LEVANTAMIENTO.filter((e) => nuevos.includes(e)) });
+  }
+
+  estadoElegido(valor: string): boolean {
+    return (this.filtro().estados as readonly string[]).includes(valor);
+  }
+
+  elegirSucursal(v: string | null): void { this.aplicarFiltro({ ...this.filtro(), sucursal: v || null }); }
+
+  elegirPersona(v: string | null): void { this.aplicarFiltro({ ...this.filtro(), persona: v || null }); }
+
+  limpiarFiltros(): void { this.aplicarFiltro(FILTRO_HISTORIAL_VACIO); }
+
+  /**
+   * El día abierto se QUEDA abierto: su lista se acota acá mismo con la regla compartida, sin
+   * volver a pedirla. El mes sí se pide de nuevo — sus cifras las cuenta el servidor.
+   */
+  private aplicarFiltro(f: FiltroHistorial): void {
+    if (mismoFiltro(f, this.filtro())) return;
+    this.filtro.set(f);
+    this.cargarMes(true);
   }
 
   cambiar(a: 'mios' | 'todos'): void {
     if (this.ambito() === a) return;
     this.ambito.set(a);
+    // `[GX.78]` En «Míos» la única persona es quien mira: un filtro de otra persona lo vaciaría.
+    if (a === 'mios' && this.filtro().persona) this.filtro.set({ ...this.filtro(), persona: null });
     // El día abierto es del otro ámbito: dejarlo mostraría vales que ya no corresponden.
     this.cerrarDia();
     this.cargarMes();
