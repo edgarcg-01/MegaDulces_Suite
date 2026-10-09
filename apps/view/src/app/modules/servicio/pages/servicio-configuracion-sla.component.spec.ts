@@ -25,8 +25,8 @@ const CFG: SdConfigResponse = {
     { queue_id: 'q-mto', priority: 'urgente', first_response_minutes: 60, resolution_minutes: 240, clock: 'business' },
   ],
   queues: [
-    { id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', department_code: null, active: true, sort_order: 10, priority_model: 'impacto', asks_zone: false, default_assignee_id: null, default_assignee_name: null },
-    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: false, sort_order: 20, priority_model: 'riesgo_operacion', asks_zone: true, default_assignee_id: null, default_assignee_name: null },
+    { id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', department_code: null, active: true, sort_order: 10, priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true, default_assignee_id: null, default_assignee_name: null, report_min_cases: 5 },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: false, sort_order: 20, priority_model: 'riesgo_operacion', asks_zone: true, confidential: false, uses_priority: true, sla_enabled: true, default_assignee_id: null, default_assignee_name: null, report_min_cases: 5 },
   ],
   categories: [],
   zones: [],

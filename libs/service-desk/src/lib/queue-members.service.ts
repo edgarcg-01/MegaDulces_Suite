@@ -19,7 +19,7 @@ import type { Knex } from 'knex';
 import { SD_QUEUE_ROLES, type SdQueueCandidateDto, type SdQueueMemberDto, type SdQueueMembersResponse, type SdQueueRole } from '@megadulces/contracts';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { ServiceDeskAgentsService } from './agents.service';
-import { puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
+import { puedeAdministrarCola, puedeAtenderCola } from './domain/queue-access';
 import type { ActorCtx } from './service-desk.types';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -44,8 +44,8 @@ export class ServiceDeskQueueMembersService {
   async candidates(ctx: ActorCtx, queueId: string): Promise<SdQueueCandidateDto[]> {
     if (!UUID_RE.test(queueId)) throw new NotFoundException('Cola no encontrada');
     return this.tk.run(async (trx) => {
-      await this.exigirCola(trx, queueId);
-      this.exigirCoordinacion(ctx, queueId);
+      const conf = await this.exigirCola(trx, queueId);
+      this.exigirCoordinacion(ctx, queueId, conf);
       return this.agents.candidatos(trx, queueId);
     });
   }
@@ -58,8 +58,8 @@ export class ServiceDeskQueueMembersService {
     }
     const rol = role as SdQueueRole;
     return this.tk.run(async (trx) => {
-      await this.exigirCola(trx, queueId);
-      this.exigirCoordinacion(ctx, queueId);
+      const conf = await this.exigirCola(trx, queueId);
+      this.exigirCoordinacion(ctx, queueId, conf);
 
       const persona = await trx('identity.users')
         .where({ id: userId })
@@ -101,8 +101,8 @@ export class ServiceDeskQueueMembersService {
     if (!UUID_RE.test(queueId)) throw new NotFoundException('Cola no encontrada');
     if (!UUID_RE.test(userId)) throw new BadRequestException('user_id inválido');
     return this.tk.run(async (trx) => {
-      await this.exigirCola(trx, queueId);
-      this.exigirCoordinacion(ctx, queueId);
+      const conf = await this.exigirCola(trx, queueId);
+      this.exigirCoordinacion(ctx, queueId, conf);
       const m = await trx('servicedesk.queue_members').where({ queue_id: queueId, user_id: userId, active: true }).first('id', 'role');
       if (!m) throw new NotFoundException('Esa persona no es miembro de la cola');
       if (m.role === 'coordinador') await this.exigirOtroCoordinador(trx, queueId, userId);
@@ -134,14 +134,22 @@ export class ServiceDeskQueueMembersService {
 
   // ── internos ──
 
-  private exigirCoordinacion(ctx: ActorCtx, queueId: string): void {
-    if (!ctx.esCoordinador && !ctx.esGod) throw new ForbiddenException('Sólo la coordinación administra a quienes atienden una cola');
-    if (!puedeCoordinarCola(ctx.colas, queueId)) throw new ForbiddenException('Sólo la coordinación de esa cola administra a sus miembros');
+  /**
+   * `[MSH.2]` H1: en una cola CONFIDENCIAL los miembros los edita SÓLO su coordinación, no el god-mode (se agregaría a sí mismo y lo vería
+   * todo). Se exige además la clave de coordinar: ser coordinador de la cola sin la clave tampoco alcanza (como siempre).
+   */
+  private exigirCoordinacion(ctx: ActorCtx, queueId: string, confidencial: boolean): void {
+    if (!ctx.esCoordinador && !(ctx.esGod && !confidencial)) throw new ForbiddenException('Sólo la coordinación administra a quienes atienden una cola');
+    if (!puedeAdministrarCola(ctx.colas, queueId, confidencial)) {
+      throw new ForbiddenException(confidencial ? 'Esta área es confidencial: sólo su coordinación administra a sus miembros' : 'Sólo la coordinación de esa cola administra a sus miembros');
+    }
   }
 
-  private async exigirCola(trx: Knex.Transaction, queueId: string): Promise<void> {
-    const q = await trx('servicedesk.queues').where({ id: queueId }).whereNull('deleted_at').first('id');
+  /** Devuelve si la cola es confidencial (para decidir quién la administra). */
+  private async exigirCola(trx: Knex.Transaction, queueId: string): Promise<boolean> {
+    const q = await trx('servicedesk.queues').where({ id: queueId }).whereNull('deleted_at').first('id', 'confidential');
     if (!q) throw new NotFoundException('Cola no encontrada');
+    return q.confidential === true;
   }
 
   private async exigirOtroCoordinador(trx: Knex.Transaction, queueId: string, excepto: string): Promise<void> {
@@ -167,6 +175,8 @@ export class ServiceDeskQueueMembersService {
       can_attend: caps.get(f.user_id)?.atender === true || caps.get(f.user_id)?.coordinar === true,
       can_coordinate: caps.get(f.user_id)?.coordinar === true,
     }));
-    return { queue_id: queueId, members, can_manage: (ctx.esCoordinador || ctx.esGod) && puedeCoordinarCola(ctx.colas, queueId) };
+    // `[MSH.2]` H1: en una cola confidencial el god-mode NO administra (can_manage false): la pantalla no le ofrece lo que el servidor rechaza.
+    const conf = (await trx('servicedesk.queues').where({ id: queueId }).first('confidential'))?.confidential === true;
+    return { queue_id: queueId, members, can_manage: (ctx.esCoordinador || (ctx.esGod && !conf)) && puedeAdministrarCola(ctx.colas, queueId, conf) };
   }
 }

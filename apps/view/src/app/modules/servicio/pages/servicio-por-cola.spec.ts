@@ -103,9 +103,9 @@ describe('[MS.7.16] bandeja — por cola', () => {
 describe('[MS.7.16] ficha — Transferir a otra área', () => {
   const CAT: SdCatalogResponse = {
     queues: [
-      { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false },
-      { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'impacto', asks_zone: true },
-      { id: 'q-vacia', code: 'vacia', name: 'Sin categorías', priority_model: 'impacto', asks_zone: false },
+      { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true },
+      { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'impacto', asks_zone: true, confidential: false, uses_priority: true, sla_enabled: true },
+      { id: 'q-vacia', code: 'vacia', name: 'Sin categorías', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true },
     ],
     zones: [], fields: [],
     categories: [

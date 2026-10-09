@@ -76,7 +76,8 @@ export class ServiceDeskAttachmentsService {
   }
 
   /** URL prefirmada fresca. Vacía si el bucket no está configurado (no se inventa un enlace). */
-  firmar(key: string): Promise<string> {
-    return this.storage.signedUrl(key, 600);
+  /** `[MSH.2]` H4: `vidaS` = segundos de vida de la URL (600 de siempre; 60 en un ticket confidencial: una URL reenviada vale eso). */
+  firmar(key: string, vidaS = 600): Promise<string> {
+    return this.storage.signedUrl(key, vidaS);
   }
 }

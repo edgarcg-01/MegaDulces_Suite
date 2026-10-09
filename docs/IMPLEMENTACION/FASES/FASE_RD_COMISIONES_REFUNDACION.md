@@ -477,25 +477,58 @@ cobertura del padrón estaba **escrita a mano en el texto del hueco** («de 56 u
 1») — cierta el día que se midió y vigente para siempre. Es la lección de `[CDRP.2.1]`; ahora se
 cuenta cada vez, y aparece lo que el texto fijo omitía: **modelo 18/56**.
 
-#### Lo que la auditoría midió y NO es mío de arreglar
+#### `[RD.61]` El hueco de $551,274.08 — RESUELTO, y de paso tres conclusiones mías refutadas
 
-⛔ **Las rutas 321 y 322 están retiradas desde el 2026-07-15 y el sistema las trata como activas.**
-Es el punto 1 de §4, ahora con números: `comisiona` sale de `commission_route_config`, que es
-configuración **manual y no caduca** — **13 rutas encendidas, ninguna apagada**. El libro dejó de
-pagarles en la **Q14 (2026-07-15)**, hace 12 semanas, y la fuente derivada dejó de verlas antes
-(**321 el 2026-06-02**, **322 el 2026-07-01**). La pantalla ahora las **marca «sin actividad»** con
-su última fecha en vez de publicarlas como «0% alcanzado», que se lee como desempeño. ⭐ **No se
-apaga nada por código**: la baja la decide la configuración de rutas. ⚠️ La **505** es distinta —
-intermitente, no retirada: 10 de 19 quincenas en el libro, última actividad hace 29 días; el umbral
-de 60 días la deja correctamente sin marcar.
+⛔⛔ **Ninguna de las dos rutas se retiró: las dos operan, en Kepler, con código nuevo.** La huella
+que lo prueba es el chofer:
 
-⛔ **Hueco sin explicar: $551,274.08.** El libro registra esa venta de la ruta **321** en tres
-quincenas enteras (**2026-06-04 → 2026-07-15**, comisión pagada $8,361.52) que la fuente derivada
-**no ve**. La 322 tiene lo mismo a menor escala: **$24,505.52**. **Descartada la renumeración**:
-ninguna ruta nace el 2026-06-02 y las que aparecen después (`1V002`, `2V001`, `2V003`, `2V005`) son
-códigos vecinales de otra serie. Quedan en pie dos hipótesis —la ruta operó y el carril la perdió,
-o el libro siguió registrando una ruta que ya no salía— y **el libro es la única fuente de las dos
-que afirma que hubo venta.**
+```
+321  Joseph Agustin Guerrero  ->  2V001  "RVMM02 JOSEPH AGUSTIN GUERERRO"  alm 07  $297,595.45
+322  (el chofer cambió)       ->  2V003  "RVMM01 GUILLERMO HERNANDEZ"      alm 07  $548,594.30
+```
+
+`RVMM` = **R**uta **V**ecinal **M**orelia **M**adero. La sucursal 32 tenía **dos** rutas en Wincaja
+(321, 322) y tiene **dos** en Kepler (2V001, 2V003), desde el **2026-09-08**, que es exactamente su
+fecha de corte. El chofer de la 321 es el mismo de los dos lados.
+
+**El hueco son DOS tramos que no son la misma cosa:**
+
+| Tramo | Veredicto |
+|---|---|
+| **02-jun → 07-sep** (321) · **01-jul → 07-sep** (322) | ⛔ **El hueco real.** La caja de la camioneta dejó de recogerse mientras la sucursal 32 seguía vendiendo normal (**$1.9M/mes** de mostrador hasta el 07-sep). |
+| **desde el 08-sep** | ✅ No es hueco: es el corte a Kepler. Las rutas siguen con código nuevo. |
+
+**El mecanismo**, que el catálogo de Wincaja ya tenía escrito: `caja 98 = ruta_bordo`, con la nota
+*«la venta a bordo ocurre en el camión (fuera de esta base)»*. **La venta de ruta vive en una caja
+Wincaja física montada en la camioneta.** Cada ruta corta el día del corte de su sucursal madre —
+`21,23,26,27` con la 10 el 06-27, `501-505` con la 50 el 08-11— y el carril de empuje del CEDIS
+(`route_push_lines`) las releva. **321 y 322 cortaron dos y tres meses ANTES que su madre y nunca
+entraron al carril de empuje.** Su `status` en `wincaja.branches` sigue en `'route'`; `VEC-PH-H` sí
+quedó `'archived'` cuando terminó. Nadie las tocó. Fase WR ya las traía declaradas como diferidas.
+
+**Las tres cosas que afirmé y la medición refutó:**
+
+1. ⛔ *«están retiradas»* — **falso**: venden $846,189.75 desde el 08-sep bajo los códigos nuevos.
+2. ⛔ *«descartada la renumeración»* — **la descarté con la prueba equivocada.** Busqué una ruta que
+   naciera el día que la 321 murió (2026-06-02). El renombre no ocurre en el hueco de datos: ocurre
+   en **el corte de la sucursal**, el 2026-09-08, que es justo cuando nacen las 2V. *Buscar el
+   relevo en la fecha de la ausencia y no en la del evento que lo causa es no buscarlo.*
+3. ⛔ *«el libro es la única fuente que afirma que hubo venta»* — **falso**: el GPS también. La 322
+   hizo **1,226 km en agosto, 992 en septiembre y 250 en octubre**, con sus dos aparatos (unidad y
+   cámara) sobre la placa correcta `GC2558C`. Ese testigo estaba disponible desde el principio.
+
+⛔⛔ **Y lo que costó el método:** con las tres conclusiones de arriba se apagó la ruta 321 en
+`commission_route_config` de prod. **Se revirtió el mismo día** (13 de 13 activas, estado original)
+al aparecer el renombre. La evidencia que había —la fuente murió, el libro dejó de pagar, el GPS
+casi quieto— era **toda cierta y toda llevaba a la conclusión equivocada**. *Se escribió en
+producción antes de terminar de medir; la autorización no reemplaza a la medición.*
+
+**Lo que queda abierto, con número:** las dos rutas venden **$846,189.75 desde el 2026-09-08** y el
+libro **no les paga comisión** (ningún renglón). El universo ya las clasifica `fuera_no_es_camion`,
+igual que las demás vecinales, así que puede ser correcto — pero el mismo chofer que comisionaba
+en junio no comisiona hoy. **Decisión de Edgar**, no derivable: ¿la comisión de RD sigue al chofer
+o al tipo de ruta? ⚠️ La **505** es distinta: intermitente, no renombrada (10 de 19 quincenas,
+última actividad hace 29 días); el umbral de 60 días la deja correctamente sin marcar.
 
 ---
 
@@ -515,7 +548,7 @@ que afirma que hubo venta.**
 
 | # | Qué | Quién |
 |---|---|---|
-| 1 | El padrón: ¿321/322/505 siguen comisionando o se marcan inactivas? | Edgar |
+| 1 | ⭐ **Resuelto en parte por `[RD.61]`**: 321 y 322 **no** se retiraron — son `2V001` y `2V003` en Kepler desde el 2026-09-08 y venden **$846,189.75**. Lo que queda es otra pregunta: el libro **no les paga comisión** y el universo las clasifica `fuera_no_es_camion`. ¿La comisión de RD sigue al **chofer** o al **tipo de ruta**? La 505 es intermitente, no renombrada | Edgar |
 | 2 | ¿`VEC-PH-H` entra, se excluye, o se declara? | Edgar |
 | 3 | Los tres Jefes de Zona: el libro y la escala sembrada coinciden en **uno de tres** | Edgar |
 | 4 | Los 3 criterios del objetivo mensual (visitas, desarrollo de marca, volumen) | Edgar + investigación |

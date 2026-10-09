@@ -48,6 +48,8 @@
     "check:wiring": "node scripts/check-commit-wiring.js",
     "check:wiring:staged": "node scripts/check-commit-wiring.js --staged",
     "check:wiring:self": "node scripts/check-commit-wiring.js --self-test",
+    "check:sd-confid": "node scripts/check-service-desk-confidential-reads.js",
+    "check:sd-confid:self": "node scripts/check-service-desk-confidential-reads.js --self-test",
     "api": "nx serve api",
     "api:dev": "nx build api && concurrently -k -n build,api -c blue,green \"nx build api --watch\" \"node --watch dist/apps/api/main.js\"",
     "view": "nx serve view",

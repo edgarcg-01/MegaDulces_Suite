@@ -15,7 +15,7 @@ import { ServicioSolicitudesComponent } from './servicio-solicitudes.component';
  *  · `?nueva=1` (el botón del header) abre el formulario directo y `?id=` (la campana) abre esa ficha.
  */
 const CATALOGO: SdCatalogResponse = {
-  queues: [{ id: 'q1', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false }],
+  queues: [{ id: 'q1', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true }],
   zones: [],
   fields: [],
   categories: [
