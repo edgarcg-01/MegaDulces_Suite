@@ -10,6 +10,7 @@ import type { FormaPagoId } from '@megadulces/contracts';
 import type { AutorizacionKepler, EtapaEjercicio, ValeAsignado } from '@megadulces/contracts';
 // [GX.59] El Expediente por persona: la forma la define el contrato, no esta clase.
 import type { FiltroExpediente, RespuestaExpediente } from '@megadulces/contracts';
+import { filtroHistorialAParams, type FacetasHistorial, type FiltroHistorial } from '@megadulces/contracts';
 
 /** GX.7 — cliente de solicitudes de reembolso (captura multi-archivo + validación). */
 
@@ -413,6 +414,15 @@ export interface CalendarioDelMes {
   dias: DiaDelCalendario[];
   total: { n: number; monto: number };
   alcance: 'mios' | 'todos';
+  /**
+   * `[GX.78]` El filtro que APLICÓ el servidor. Opcionales: un servidor anterior no los manda, y
+   * la pantalla lo dice en vez de presentar el mes entero como si estuviera filtrado.
+   */
+  filtro?: FiltroHistorial;
+  /** `[GX.78]` El mes sin filtrar: para decir «58 de 392». */
+  total_sin_filtro?: { n: number; monto: number };
+  /** `[GX.78]` Las opciones de cada filtro, contadas. */
+  facetas?: FacetasHistorial;
 }
 
 @Injectable({ providedIn: 'root' })
@@ -460,9 +470,11 @@ export class ComprobacionesService {
    * (!) El `alcance` lo VALIDA el servidor: pedir `todos` sin god-mode devuelve 403, no una
    * version recortada. Aca se manda lo que la pantalla puede ofrecer; la puerta esta alla.
    */
-  calendario(mes?: string, alcance: 'mios' | 'todos' = 'mios'): Observable<CalendarioDelMes> {
+  calendario(mes?: string, alcance: 'mios' | 'todos' = 'mios', filtro?: FiltroHistorial): Observable<CalendarioDelMes> {
     let params = new HttpParams().set('alcance', alcance);
     if (mes) params = params.set('mes', mes);
+    // `[GX.78]` Sólo viaja lo que está puesto.
+    for (const [k, v] of Object.entries(filtroHistorialAParams(filtro))) params = params.set(k, v);
     return this.http.get<CalendarioDelMes>(`${this.base}/calendario`, { params });
   }
 
