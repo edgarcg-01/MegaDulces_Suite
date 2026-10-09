@@ -16,9 +16,33 @@
  * proveedor "00001" = "PRODUCTOS SIN PROVEEDOR ASIGNADO" (marcador Kepler; se
  * importa tal cual, es más honesto que dejar un proveedor equivocado).
  *
- * MULTI-BRANCH: kdxd/kdpv_prov_prod son por-sucursal (catálogos sin columna
- * sucursal). Se recorren las 6 y se UNEN: un código de proveedor toma el primer
- * nombre no vacío; un SKU toma el primer proveedor no vacío que aparezca.
+ * ⭐⭐ FUENTE = EL ODS (fix 2026-10-09). Antes abría una conexión a CADA base de sucursal
+ * (`stockMap`, **6**) y unía los catálogos a mano. El ODS ya consolida **9** sucursales, así que
+ * esa unión importaba DE MENOS, en silencio y sin fallar.
+ *
+ * Medido contra prod el 2026-10-09, con el importer corriendo normal (última corrida 03:31 del
+ * mismo día, 997 proveedores):
+ *
+ *   `kepler_ods.kdxd`        784 códigos, los 784 con nombre
+ *   `catalog.suppliers`      faltaban 51 de esos
+ *   productos sin proveedor  21 que SÍ lo tienen en Kepler
+ *
+ * El caso que lo destapó: SKU `44430` (PAL TIPITIN CERVECITA / 20 COLOMBINA) salía con la columna
+ * Proveedor vacía en `/compras/catalogo`. Su proveedor `CA049` (DISTRIBUIDORA COLOMBINA DE MEXICO)
+ * está en **las 9 sucursales** del ODS con nombre válido — y no estaba en `catalog.suppliers`, así
+ * que el enlace no tenía a dónde apuntar.
+ *
+ * ⛔ No es sólo cobertura: seis conexiones de red cruzando subredes pueden fallar una por una, y el
+ * código sólo aborta si fallan TODAS (`if (!reached) throw`). Una sucursal caída producía un
+ * catálogo de proveedores incompleto que se veía exactamente igual que uno completo. El ODS es UNA
+ * consulta local y no tiene esa falla.
+ *
+ * ⚠️ Lo que NO cambia: un SKU con proveedor distinto entre sucursales sigue resolviéndose por la
+ * sucursal más baja (`DISTINCT ON … ORDER BY sku, sucursal`) y se CUENTA para reportarlo. Medido:
+ * **37 de 9,682 SKUs** tienen dos proveedores; ninguno tiene tres.
+ *
+ * ⚠️ `kdxd`/`kdpv_prov_prod` en el ODS SÍ traen columna `sucursal` (en las bases por-sucursal no
+ * existía). Por eso el desempate es explícito y no "el primero que aparezca".
  *
  * NO toca products sin entrada en kdpv_prov_prod (conservan su supplier_id actual;
  * se reporta el conteo). NO borra los suppliers viejos huérfanos (quedan con 0
@@ -27,10 +51,9 @@
  *   node database/importers/kepler/import-kepler-suppliers.js          # dry-run
  *   node database/importers/kepler/import-kepler-suppliers.js --apply
  *
- * Env: DATABASE_URL_NEW (destino). Fuente Kepler (prioridad):
- *   SUPPLIERS_BRANCH_MAP  = JSON ["postgresql://…/md_01", …]  (override explícito)
- *   STOCK_BRANCH_MAP      = JSON [{code,url}, …]              (reuso, recomendado)
- *   SUPPLIERS_BRANCH_URL  = <una sola url>                    (legacy, back-compat)
+ * Env: `DATABASE_URL_NEW` — **y sólo eso**. La fuente (`kepler_ods.*`) vive en la MISMA base que el
+ * destino, así que no hay credenciales ni subredes de por medio. Las tres variables de sucursal
+ * (`SUPPLIERS_BRANCH_MAP`, `STOCK_BRANCH_MAP`, `SUPPLIERS_BRANCH_URL`) ya **no se leen**.
  */
 
 const { Client } = require('pg');
@@ -40,15 +63,9 @@ const DST = process.env.DATABASE_URL_NEW || (() => { throw new Error('falta la U
 const APPLY = process.argv.includes('--apply');
 const BATCH = 1000;
 
-// Fuente única del mapa de sucursales (paso 3 normalización almacén). Default = las 6 (url strings).
-const { stockMap } = require('../lib/kepler-branches');
-const BRANCHES = process.env.SUPPLIERS_BRANCH_MAP
-  ? JSON.parse(process.env.SUPPLIERS_BRANCH_MAP)
-  : process.env.STOCK_BRANCH_MAP
-    ? JSON.parse(process.env.STOCK_BRANCH_MAP).map((b) => b.url)
-    : process.env.SUPPLIERS_BRANCH_URL
-      ? [process.env.SUPPLIERS_BRANCH_URL]
-      : stockMap({ cedis: true }).map((b) => b.url);
+// ⛔ Se retiró el mapa de sucursales (`stockMap` + `SUPPLIERS_BRANCH_MAP`/`STOCK_BRANCH_MAP`/
+// `SUPPLIERS_BRANCH_URL`): la fuente es el ODS, que ya tiene las 9 sucursales. Dejarlo declarado
+// sin uso haría creer que todavía se puede apuntar el importer a una sucursal suelta, y no.
 
 // Clave normalizada anti-duplicado (espejo de database/scripts/suppliers-normalize.js): quita
 // puntuación + sufijos de razón social. Kepler trunca nombres a 30 chars (char(30) en kdxd.c3) y
@@ -78,40 +95,41 @@ async function stage(db, table, cols, rows) {
   await db.connect();
 
   try {
-    console.log(`\n=== Import PROVEEDOR REAL Kepler (kdxd + kdpv_prov_prod) → suppliers + products.supplier_id (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}) — ${BRANCHES.length} sucursal(es) ===\n`);
+    console.log(`\n=== Import PROVEEDOR REAL Kepler (kdxd + kdpv_prov_prod del ODS) → suppliers + products.supplier_id (BULK, ${APPLY ? 'APPLY' : 'DRY-RUN'}) ===\n`);
 
-    const supMap = new Map();   // code -> name (proveedor real, kdxd)
-    const linkMap = new Map();  // sku  -> prov_code (kdpv_prov_prod)
-    let conflicts = 0, reached = 0;
-    for (const url of BRANCHES) {
-      const src = new Client({ connectionString: url, connectionTimeoutMillis: 8000, statement_timeout: 120000 });
-      const tag = (url.match(/@([^/]+)\/(\w+)/) || [, url, ''])[2] || url;
-      try {
-        await src.connect();
-        const { rows: xd } = await src.query(
-          `SELECT btrim(c2) AS code, btrim(c3) AS name FROM md.kdxd
-            WHERE btrim(coalesce(c2,'')) <> '' AND btrim(coalesce(c3,'')) <> ''`);
-        const { rows: link } = await src.query(
-          `SELECT btrim(c2) AS sku, btrim(c1) AS prov_code FROM md.kdpv_prov_prod
-            WHERE NULLIF(btrim(c1),'') IS NOT NULL AND NULLIF(btrim(c2),'') IS NOT NULL`);
-        for (const g of xd) if (!supMap.has(g.code)) supMap.set(g.code, g.name);
-        for (const l of link) {
-          const prev = linkMap.get(l.sku);
-          if (prev == null) linkMap.set(l.sku, l.prov_code);
-          else if (prev !== l.prov_code) conflicts++;
-        }
-        reached++;
-        console.log(`  ✅ ${tag}: ${xd.length} proveedores · ${link.length} enlaces prov→sku`);
-      } catch (e) {
-        console.log(`  ⚠ ${tag}: sin conexión (${e.message}) — skip`);
-      } finally {
-        await src.end().catch(() => {});
-      }
+    // El ODS ya consolida las 9 sucursales: una consulta local reemplaza las 6 conexiones.
+    // `max(name)` desempata el nombre igual que el `GROUP BY` del upsert de abajo, para que el
+    // conteo que se imprime sea el mismo que se escribe.
+    const { rows: xd } = await db.query(
+      `SELECT btrim(c2) AS code, max(btrim(c3)) AS name
+         FROM kepler_ods.kdxd
+        WHERE btrim(coalesce(c2,'')) <> '' AND btrim(coalesce(c3,'')) <> ''
+        GROUP BY btrim(c2)`);
+
+    // ⚠️ Desempate EXPLÍCITO por sucursal: 37 de 9,682 SKUs traen dos proveedores distintos
+    // (medido 2026-10-09; ninguno tres). Gana la sucursal más baja — determinista y reproducible,
+    // a diferencia de "el primero que aparezca", que dependía del orden en que respondían las bases.
+    const { rows: link } = await db.query(
+      `SELECT DISTINCT ON (btrim(c2)) btrim(c2) AS sku, btrim(c1) AS prov_code
+         FROM kepler_ods.kdpv_prov_prod
+        WHERE NULLIF(btrim(c1),'') IS NOT NULL AND NULLIF(btrim(c2),'') IS NOT NULL
+        ORDER BY btrim(c2), sucursal`);
+
+    // El conflicto se CUENTA aparte: perderlo seria dejar de ver que 37 SKUs tienen la respuesta
+    // en disputa. No bloquea — es un aviso, como antes.
+    const { rows: [cf] } = await db.query(
+      `SELECT count(*)::int AS n FROM (
+         SELECT btrim(c2) FROM kepler_ods.kdpv_prov_prod
+          WHERE NULLIF(btrim(c1),'') IS NOT NULL AND NULLIF(btrim(c2),'') IS NOT NULL
+          GROUP BY btrim(c2) HAVING count(DISTINCT btrim(c1)) > 1) d`);
+    const conflicts = cf?.n ?? 0;
+
+    // ⛔ El freno que reemplaza al `if (!reached)`: un ODS vacío NO puede pasar por "no hay
+    // proveedores". Antes, seis conexiones caidas abortaban; ahora aborta un ODS sin filas.
+    if (!xd.length || !link.length) {
+      throw new Error(`ODS sin datos de proveedor (kdxd=${xd.length}, kdpv_prov_prod=${link.length}) — abort.`);
     }
-    if (!reached) throw new Error('Ninguna sucursal Kepler alcanzable — abort.');
-    const xd = [...supMap].map(([code, name]) => ({ code, name }));
-    const link = [...linkMap].map(([sku, prov_code]) => ({ sku, prov_code }));
-    console.log(`\n  UNION (${reached}/${BRANCHES.length} sucursales): ${xd.length} proveedores · ${link.length} SKUs enlazados${conflicts ? ` · ⚠ ${conflicts} SKUs con proveedor divergente entre sucursales (gana el 1º)` : ''}`);
+    console.log(`  ODS: ${xd.length} proveedores · ${link.length} SKUs enlazados${conflicts ? ` · ⚠ ${conflicts} SKUs con proveedor divergente entre sucursales (gana la sucursal más baja)` : ''}`);
 
     await db.query('BEGIN');
     await db.query(`SET LOCAL app.tenant_id = '${M}'`);
