@@ -17,8 +17,8 @@ import { ServicioSolicitudesComponent } from './servicio-solicitudes.component';
  */
 const CATALOGO: SdCatalogResponse = {
   queues: [
-    { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false },
-    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'impacto', asks_zone: false },
+    { id: 'q-ti', code: 'ti', name: 'TI', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true },
+    { id: 'q-mto', code: 'mantenimiento', name: 'Mantenimiento', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true },
   ],
   zones: [],
   fields: [
@@ -133,7 +133,7 @@ describe('[MS.7.4] configuración — los campos propios de la cola', () => {
       auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60,
     },
     policies: [],
-    queues: [{ id: 'q1', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: true, sort_order: 10, priority_model: 'riesgo_operacion', asks_zone: true, default_assignee_id: null, default_assignee_name: null }],
+    queues: [{ id: 'q1', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: true, sort_order: 10, priority_model: 'riesgo_operacion', asks_zone: true, confidential: false, uses_priority: true, sla_enabled: true, default_assignee_id: null, default_assignee_name: null, report_min_cases: 5 }],
     zones: [],
     categories: [],
     fields: [

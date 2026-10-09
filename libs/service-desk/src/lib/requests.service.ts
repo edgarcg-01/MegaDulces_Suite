@@ -58,11 +58,12 @@ import { nombreUbicacionExtra, ubicacionExtra } from './domain/ubicaciones';
 import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments.service';
 import { efectosDe, motivoDeCierre, puedeTransicionar, respuestaReanuda, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
+import { sinConfidenciales, vidaDeUrlAdjunto } from './domain/destinatarios';
 import { estadoTrasTraslado, terminaEspera, validarTraslado } from './domain/traslado';
 import { normalizarUbicacion } from './ubicacion.util';
 import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
 import { clausulasOrden, validarOrden } from './domain/inbox-sort';
-import { accesoATicket, colasDeLectura, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
+import { accesoATicket, type AccesoTicket, colasDeLectura, esMiembroDeCola, puedeAtenderCola, puedeCoordinarCola } from './domain/queue-access';
 import { fechaValida } from './domain/report-period';
 import { puedeCambiarPrioridad, sugerirPrioridadPorModelo } from './domain/priority';
 import { evaluarSla, plazosIniciales, plazosTrasCambioDePrioridad, reanudarTrasPausa } from './domain/sla';
@@ -77,8 +78,11 @@ interface RequestRow {
   tenant_id: string;
   folio: string;
   queue_id: string;
-  /** `[MS.7.6]` Hueco de la Fase MSH: la columna llega con MSH.1; hasta entonces es `undefined` (nada es confidencial). */
+  /** `[MSH.1]` La FIJA la base desde la cola al crear el ticket (trigger). */
   confidential?: boolean;
+  /** `[MSH.2]` Banderas de SU cola (las trae el JOIN de `base()` y de `bloquear()`). `false` = no usa prioridad / no mide SLA. */
+  queue_uses_priority?: boolean;
+  queue_sla_enabled?: boolean;
   category_id: string;
   title: string;
   description: string;
@@ -168,6 +172,8 @@ const ABIERTOS: SdStatus[] = ['nuevo', 'asignado', 'en_proceso', 'en_espera'];
 const NOMBRES_UBICACION: Readonly<Record<string, string>> = Object.freeze({ ...KEPLER_BRANCH_NAMES, ...SD_UBICACIONES_EXTRA });
 const FINALES: SdStatus[] = ['cerrado', 'cancelado'];
 const MAX_TITULO = 200;
+/** `[MSH.2]` El valor interno de una cola que NO usa prioridad: la columna es NOT NULL, pero esto NUNCA se publica (`mapRow` lo vuelve `null`). */
+const PRIORIDAD_NEUTRA: SdPriority = 'media';
 const MAX_TEXTO = 5000;
 const CARPETA = 'service-desk/requests';
 
@@ -234,7 +240,7 @@ export class ServiceDeskRequestsService {
           .where('c.id', dto.category_id)
           .where({ 'c.active': true, 'q.active': true })
           .whereNull('c.deleted_at')
-          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model', 'q.asks_zone');
+          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model', 'q.asks_zone', 'q.uses_priority', 'q.sla_enabled', 'q.confidential');
         if (!cat) throw new BadRequestException('La categoría no existe o no está disponible');
         if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la ubicación');
         /*
@@ -242,7 +248,23 @@ export class ServiceDeskRequestsService {
          * para personas?» es OBLIGATORIA y debe ser verdadero o falso: un faltante NO se toma como «no hay riesgo» (el peligro nunca
          * se infiere por omisión). En `impacto` la respuesta se ignora y se guarda NULL («no se preguntó»), no un `false` inventado.
          */
-        const modelo: string = cat.priority_model ?? 'impacto';
+        /*
+         * `[MSH.2]` R5: una cola que NO usa prioridad (RH) no hace ninguna de las preguntas de prioridad —ni impacto, ni «me impide
+         * trabajar», ni riesgo— y lo que llegue de ellas se IGNORA: la base guarda el valor neutro interno (`PRIORIDAD_NEUTRA`), nunca
+         * se publica y nadie lo ve. Una cola que no mide SLA no tiene plazos (`due_at` NULL): «—», nunca un 0 inventado.
+         */
+        const usaPrioridad = cat.uses_priority !== false;
+        const midePlazos = cat.sla_enabled !== false;
+        const impactoEf = usaPrioridad ? impact : 'yo';
+        const bloqueaEf = usaPrioridad ? blocksWork : false;
+        /*
+         * `[MSH.2]` H7 — levantar a nombre de OTRA persona hacia una cola confidencial: sólo quien es de ESA cola. Si no, un agente de TI
+         * podría mandar un ticket a RH a nombre de alguien y quedar él como quien lo abrió. Lo ven sólo el solicitante y los miembros.
+         */
+        if (cat.confidential === true && (pidioOtro || pidioArea) && !esMiembroDeCola(ctx.colas, cat.queue_id)) {
+          throw new ForbiddenException('Sólo quien es de esa área puede levantar una solicitud confidencial a nombre de otra persona');
+        }
+        const modelo: string = usaPrioridad ? (cat.priority_model ?? 'impacto') : 'impacto';
         if (modelo === 'riesgo_operacion' && typeof dto.safety_risk !== 'boolean') {
           throw new BadRequestException('Indica si hay riesgo para personas (sí o no): sin eso no se puede sugerir la prioridad de esta área');
         }
@@ -289,10 +311,10 @@ export class ServiceDeskRequestsService {
         }
         const nombreSolicitante = me?.nombre || me?.username || ctx.nombre;
         const now = new Date();
-        const priority = sugerirPrioridadPorModelo({ defaultPriority: cat.default_priority, impact, blocksWork, modelo, safetyRisk: riesgo });
+        const priority: SdPriority = usaPrioridad ? sugerirPrioridadPorModelo({ defaultPriority: cat.default_priority, impact: impactoEf, blocksWork: bloqueaEf, modelo, safetyRisk: riesgo }) : PRIORIDAD_NEUTRA;
         const politica = politicaDe(config, cat.queue_id, priority);
-        if (!politica) throw new ConflictException(`No hay política de SLA configurada para la prioridad «${priority}»`);
-        const plazos = plazosIniciales(now, politica, config.settings.calendar);
+        if (midePlazos && !politica) throw new ConflictException(`No hay política de SLA configurada para la prioridad «${priority}»`);
+        const plazos = midePlazos && politica ? plazosIniciales(now, politica, config.settings.calendar) : { due_at: null, first_response_due_at: null };
 
         const tenantId = this.tenantCtx.requireTenantId();
         const year = Number(toMxDateKey(now).slice(0, 4));
@@ -307,9 +329,9 @@ export class ServiceDeskRequestsService {
             title,
             description,
             priority,
-            priority_suggested: priority,
-            impact,
-            blocks_work: blocksWork,
+            priority_suggested: usaPrioridad ? priority : null,
+            impact: impactoEf,
+            blocks_work: bloqueaEf,
             safety_risk: riesgo,
             zone_code: zona,
             extra: JSON.stringify(extraValidado.valores),
@@ -332,7 +354,7 @@ export class ServiceDeskRequestsService {
           authorId: ctx.userId,
           authorLabel: ctx.nombre,
           body: pidioOtro ? `Solicitud levantada por ${ctx.nombre} a nombre de ${nombreSolicitante}` : 'Solicitud creada',
-          meta: { priority, impact, blocks_work: blocksWork, ...(riesgo !== null ? { safety_risk: riesgo } : {}), ...(pidioOtro ? { opened_on_behalf: true, opened_by: ctx.userId, requester_id: solicitanteId } : {}) },
+          meta: { ...(usaPrioridad ? { priority, impact: impactoEf, blocks_work: bloqueaEf } : {}), ...(riesgo !== null ? { safety_risk: riesgo } : {}), ...(pidioOtro ? { opened_on_behalf: true, opened_by: ctx.userId, requester_id: solicitanteId } : {}) },
         });
         await this.insertAdjuntos(trx, tenantId, id, msgId, ctx.userId, subidos);
 
@@ -377,7 +399,7 @@ export class ServiceDeskRequestsService {
 
         // Lo urgente y lo alto no pueden esperar a que alguien abra la bandeja: se avisa a quien atiende
         // (menos a quien la regla ya le asignó el ticket, que recibe su propio aviso de asignación).
-        if (priority === 'alta' || priority === 'urgente') {
+        if (usaPrioridad && (priority === 'alta' || priority === 'urgente')) {
           // `[MS.7.6]` Sólo a quien atiende ESA cola: un ticket de Mantenimiento no despierta a TI.
           const agentes = (await this.agents.listIn(trx, cat.queue_id)).map((a) => a.user_id).filter((u) => u !== asignadoA);
           if (agentes.length) efectos.avisos.push({ event: 'nuevo_prioritario', request_id: id, folio, title, priority, recipients: agentes, actor_id: ctx.userId, actor_name: ctx.nombre });
@@ -405,7 +427,7 @@ export class ServiceDeskRequestsService {
       else if (scope !== 'all') throw new BadRequestException('scope debe ser open, closed o all');
       this.buscar(qb, q.search);
       qb.orderBy('r.created_at', 'desc');
-      return this.paginar(qb, config, q.limit, q.offset);
+      return this.paginar(qb, config, ctx, q.limit, q.offset);
     });
   }
 
@@ -464,6 +486,13 @@ export class ServiceDeskRequestsService {
       // `[MS.7.6]` Sólo las colas que esta persona atiende (clave ∩ pertenencia). `[]` = ninguna: no devuelve nada, no TODO.
       const colas = colasDeLectura(ctx.colas);
       if (colas) qb.whereIn('r.queue_id', colas);
+      /*
+       * `[MSH.2]` R2: el god-mode ve lo confidencial SÓLO en vista limitada (folio, cola, estado, fechas)… y sólo si la consulta no sirve de
+       * ORÁCULO. Buscar un texto, filtrar por categoría, ubicación, prioridad o persona sobre filas confidenciales respondería «hay un caso de
+       * “despido” / en “conflicto laboral” / de Ana»: aunque la fila salga enmascarada, el filtro ya contó. Con cualquiera de esos filtros se
+       * EXCLUYEN las confidenciales. (Quien es miembro de la cola no pasa por aquí: la ve completa y puede filtrar lo que quiera.)
+       */
+      if (ctx.colas.todas && (q.search?.trim() || q.category_id || q.warehouse_code || q.priority || q.assigned_to)) qb.where('r.confidential', false);
       if (q.queue_id) {
         if (!esUuid(q.queue_id)) throw new BadRequestException('queue_id inválido');
         qb.where('r.queue_id', q.queue_id);
@@ -497,7 +526,7 @@ export class ServiceDeskRequestsService {
           .orderByRaw('r.due_at ASC NULLS LAST')
           .orderBy('r.created_at', 'asc');
       }
-      return this.paginar(qb, config, q.limit, q.offset);
+      return this.paginar(qb, config, ctx, q.limit, q.offset);
     });
   }
 
@@ -506,7 +535,10 @@ export class ServiceDeskRequestsService {
     return this.tk.run(async (trx) => {
       const config = await this.cfg.load(trx);
       const r = await this.base(trx).where('r.id', id).first();
-      if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
+      const acceso = r ? this.accesoDe(r, ctx) : 'ninguno';
+      if (!r || acceso === 'ninguno') throw new NotFoundException('Solicitud no encontrada');
+      // `[MSH.2]` R2: el administrador (god-mode) ve de un ticket confidencial sólo lo básico; la API no envía el resto.
+      if (acceso === 'basico') return this.detalleBasico(r);
       // `[MS.7.6]` «Quien atiende» es POR TICKET: la capacidad de atender y ser de la cola de ESTE ticket.
       const atiendeAqui = ctx.esAgente && puedeAtenderCola(ctx.colas, r.queue_id);
 
@@ -570,7 +602,8 @@ export class ServiceDeskRequestsService {
           file_name: a.file_name,
           content_type: a.content_type,
           size_bytes: Number(a.size_bytes),
-          url: await this.att.firmar(a.storage_key),
+          // `[MSH.2]` H4: en un ticket confidencial la URL vive 60 s (la matriz sólo garantiza el acceso AL EMITIRLA; una URL reenviada vale 10 min).
+          url: await this.att.firmar(a.storage_key, vidaDeUrlAdjunto(r.confidential === true)),
           created_at: iso(a.created_at) as string,
         })),
       );
@@ -613,7 +646,9 @@ export class ServiceDeskRequestsService {
     if (!ctx.esAgente) throw new ForbiddenException('El tablero es para quien atiende solicitudes');
     // `[MS.7.6]` Los números son sólo de las colas de esta persona (`[]` = ninguna → todo en 0, no el total de la empresa).
     const colas = colasDeLectura(ctx.colas);
-    const deMisColas = (qb: Knex.QueryBuilder): Knex.QueryBuilder => (colas ? qb.whereIn('queue_id', colas) : qb);
+    // `[MSH.2]` H8: el tablero del god-mode NO cuenta lo confidencial (no es de ninguna de sus colas: la lectura por membresía ya lo excluye
+    // para los demás). Quien SÍ es miembro de la cola confidencial la cuenta como suya.
+    const deMisColas = (qb: Knex.QueryBuilder): Knex.QueryBuilder => (colas ? qb.whereIn('queue_id', colas) : qb.where({ confidential: false }));
     return this.tk.run(async (trx) => {
       // `[MS.7.12]` Los tickets de prueba no cuentan en el tablero.
       const rows: { status: SdStatus; priority: SdPriority; n: string | number }[] = await trx('servicedesk.requests')
@@ -828,7 +863,7 @@ export class ServiceDeskRequestsService {
       if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
       if (!ctx.esCoordinador || !puedeCoordinarCola(ctx.colas, r.queue_id)) throw new ForbiddenException('Sólo la coordinación del área donde está la solicitud puede trasladarla');
 
-      const destino = await trx('servicedesk.queues').where({ id: dto.queue_id, active: true }).whereNull('deleted_at').first('id', 'name');
+      const destino = await trx('servicedesk.queues').where({ id: dto.queue_id, active: true }).whereNull('deleted_at').first('id', 'name', 'confidential', 'sla_enabled');
       const categoria = destino
         ? await trx('servicedesk.categories').where({ id: dto.category_id, queue_id: dto.queue_id, active: true }).whereNull('deleted_at').first('id', 'name')
         : null;
@@ -841,11 +876,15 @@ export class ServiceDeskRequestsService {
         categoriaEsDelDestino: !!categoria,
         miembrosDestino: miembros.length,
         motivo,
+        origenConfidencial: r.confidential === true,
+        destinoConfidencial: destino?.confidential === true,
       });
       if (veto) throw veto.http === 400 ? new BadRequestException(veto.mensaje) : new ConflictException(veto.mensaje);
 
-      const politica = politicaDe(config, dto.queue_id, r.priority as SdPriority);
-      if (!politica) throw new ConflictException(`El área destino no tiene política de SLA para la prioridad «${r.priority}»`);
+      // `[MSH.2]` Un área destino que no mide SLA no tiene política que pedir: el ticket llega sin plazos.
+      const destinoMide = destino.sla_enabled !== false;
+      const politica = destinoMide ? politicaDe(config, dto.queue_id, r.priority as SdPriority) : null;
+      if (destinoMide && !politica) throw new ConflictException(`El área destino no tiene política de SLA para la prioridad «${r.priority}»`);
       const now = new Date();
       /*
        * Un ticket EN ESPERA termina su espera al trasladarse (ver `estadoTrasTraslado`): se acredita lo que ya estuvo en pausa
@@ -855,16 +894,18 @@ export class ServiceDeskRequestsService {
       let liberaPausa = false;
       if (terminaEspera(r.status as SdStatus)) {
         if (!r.paused_at) throw new ConflictException('La solicitud está en espera pero no tiene hora de pausa registrada');
-        const rr = reanudarTrasPausa(
-          { due_at: r.due_at ? new Date(r.due_at) : null, first_response_due_at: r.first_response_due_at ? new Date(r.first_response_due_at) : null, first_responded_at: r.first_responded_at ? new Date(r.first_responded_at) : null, paused_at: new Date(r.paused_at) },
-          now,
-          politica,
-          config.settings.calendar,
-        );
-        pausado += rr.paused_delta_minutes;
+        if (politica) {
+          const rr = reanudarTrasPausa(
+            { due_at: r.due_at ? new Date(r.due_at) : null, first_response_due_at: r.first_response_due_at ? new Date(r.first_response_due_at) : null, first_responded_at: r.first_responded_at ? new Date(r.first_responded_at) : null, paused_at: new Date(r.paused_at) },
+            now,
+            politica,
+            config.settings.calendar,
+          );
+          pausado += rr.paused_delta_minutes;
+        }
         liberaPausa = true;
       }
-      const plazos = plazosTrasCambioDePrioridad(new Date(r.created_at), pausado, r.first_responded_at ? new Date(r.first_responded_at) : null, politica, config.settings.calendar);
+      const plazos = politica ? plazosTrasCambioDePrioridad(new Date(r.created_at), pausado, r.first_responded_at ? new Date(r.first_responded_at) : null, politica, config.settings.calendar) : { due_at: null, first_response_due_at: null };
       const origen = await trx('servicedesk.queues').where({ id: r.queue_id }).first('name');
       const catOrigen = await trx('servicedesk.categories').where({ id: r.category_id }).first('name');
       const nuevoEstado = estadoTrasTraslado(r.status as SdStatus);
@@ -952,6 +993,7 @@ export class ServiceDeskRequestsService {
       if (!r || !this.puedeVer(r, ctx)) throw new NotFoundException('Solicitud no encontrada');
       const actor: SdActor = ctx.esCoordinador && puedeCoordinarCola(ctx.colas, r.queue_id) ? 'coordinator' : ctx.esAgente && puedeAtenderCola(ctx.colas, r.queue_id) ? 'agent' : 'requester';
       if (!puedeCambiarPrioridad(actor)) throw new ForbiddenException('La prioridad la define quien atiende la solicitud');
+      if (r.queue_uses_priority === false) throw new ConflictException('Esta área no usa prioridad');
       if (FINALES.includes(r.status) || r.status === 'resuelto') throw new ConflictException('La solicitud ya no admite cambio de prioridad');
       if (r.priority === dto.priority) throw new BadRequestException('La solicitud ya tiene esa prioridad');
       const politica = politicaDe(config, r.queue_id, dto.priority);
@@ -1047,10 +1089,14 @@ export class ServiceDeskRequestsService {
     if (ef.reanuda) {
       // La base exige que el motivo sólo exista MIENTRAS está en espera: se va con la pausa, en la misma operación.
       patch.pause_reason = null;
-      const politica = politicaDe(config, r.queue_id, r.priority as SdPriority);
-      if (!politica) throw new ConflictException(`No hay política de SLA para la prioridad «${r.priority}»`);
       // Un CHECK de la base garantiza `paused_at` mientras está en espera; si falta, el dato mintió: no se adivina.
       if (!r.paused_at) throw new ConflictException('La solicitud está en espera pero no tiene hora de pausa registrada');
+      if (r.queue_sla_enabled === false) {
+        // `[MSH.2]` Sin SLA no hay plazos que empujar: sólo se suelta la pausa.
+        patch.paused_at = null;
+      } else {
+      const politica = politicaDe(config, r.queue_id, r.priority as SdPriority);
+      if (!politica) throw new ConflictException(`No hay política de SLA para la prioridad «${r.priority}»`);
       const rr = reanudarTrasPausa(
         {
           due_at: r.due_at ? new Date(r.due_at) : null,
@@ -1066,6 +1112,7 @@ export class ServiceDeskRequestsService {
       patch.due_at = rr.due_at;
       patch.first_response_due_at = rr.first_response_due_at;
       patch.paused_minutes = Number(r.paused_minutes) + rr.paused_delta_minutes;
+      }
     }
     if (ef.resuelve) Object.assign(patch, { resolved_at: now, resolved_by: ctx.userId, resolution_note: nota || null });
     if (ef.reabre) Object.assign(patch, { resolved_at: null, resolved_by: null, resolution_note: null, reopened_count: Number(r.reopened_count) + 1 });
@@ -1126,7 +1173,20 @@ export class ServiceDeskRequestsService {
     } catch (e) {
       this.logger.warn(`avisos no despachados: ${e instanceof Error ? e.message : String(e)}`);
     }
-    for (const b of fx.bitacora) {
+    // `[MSH.2]` H9: la Bitácora no se entera de los tickets confidenciales.
+    let paraBitacora = fx.bitacora;
+    if (fx.bitacora.length) {
+      try {
+        const ids = [...new Set(fx.bitacora.map((b) => b.requestId))];
+        const conf = new Set((await this.tk.run(tenantId ?? this.tenantCtx.requireTenantId(), (trx) => trx('servicedesk.requests').whereIn('id', ids).where({ confidential: true }).pluck('id'))) as string[]);
+        paraBitacora = sinConfidenciales(fx.bitacora, conf);
+      } catch (e) {
+        // Ante la duda NO se manda: un espejo que falla es un reintento; uno que filtra un ticket confidencial no se arregla.
+        this.logger.warn(`Bitácora: no se pudo saber qué tickets son confidenciales; no se notifica este lote (${e instanceof Error ? e.message : String(e)})`);
+        paraBitacora = [];
+      }
+    }
+    for (const b of paraBitacora) {
       try {
         await this.bitacora?.onTicketChanged(b);
       } catch (e) {
@@ -1185,12 +1245,86 @@ export class ServiceDeskRequestsService {
    * ticket confidencial, Fase MSH) NO abre la ficha: la vista limitada la arma MSH.2 con su propio DTO; mientras tanto
    * `basico` cae del lado seguro (no se ve).
    */
+  private accesoDe(r: RequestRow, ctx: ActorCtx): AccesoTicket {
+    return accesoATicket(ctx, { requester_id: r.requester_id, queue_id: r.queue_id, confidential: r.confidential });
+  }
+
+  /**
+   * `[MSH.2]` R2 — la vista LIMITADA de un ticket confidencial: folio, cola, fecha de alta, estado y fecha de resolución. **Todo lo demás
+   * viene vacío**: ni título, ni descripción, ni hilo, ni adjuntos, ni nombre del solicitante, ni categoría, ni quién lo atiende. No basta
+   * esconderlo en pantalla: la API no lo envía. (`updated_at` se iguala a la fecha de alta: la última actividad también delata.)
+   */
+  private mapBasico(r: RequestRow): SdRequestRow {
+    return {
+      basic: true,
+      confidential: true,
+      id: r.id,
+      folio: r.folio,
+      queue_id: r.queue_id,
+      queue_name: r.queue_name ?? null,
+      category_id: '',
+      category_name: null,
+      title: '',
+      priority: null,
+      priority_suggested: null,
+      impact: 'yo',
+      blocks_work: false,
+      safety_risk: null,
+      status: r.status,
+      requester_id: '',
+      requester_name: null,
+      warehouse_code: null,
+      warehouse_name: null,
+      zone_code: null,
+      zone_name: null,
+      pause_reason: null,
+      is_test: false,
+      assigned_to: null,
+      assigned_to_name: null,
+      assigned_at: null,
+      created_at: iso(r.created_at) as string,
+      updated_at: iso(r.created_at) as string,
+      resolved_at: iso(r.resolved_at),
+      sla: { first_response_due_at: null, due_at: null, first_responded_at: null, paused: false, first_breached: false, resolution_breached: false, used_ratio: null },
+    };
+  }
+
+  private detalleBasico(r: RequestRow): SdRequestDetail {
+    return {
+      ...this.mapBasico(r),
+      description: '',
+      requester_department_code: null,
+      requester_department_name: null,
+      opened_by_name: null,
+      requester_position_code: null,
+      channel: 'web',
+      resolved_at: iso(r.resolved_at),
+      resolution_note: null,
+      closed_at: null,
+      close_reason: null,
+      reopened_count: 0,
+      messages: [],
+      attachments: [],
+      time_logged_minutes: null,
+      time_entries: null,
+    };
+  }
+
   private puedeVer(r: RequestRow, ctx: ActorCtx): boolean {
     return accesoATicket(ctx, { requester_id: r.requester_id, queue_id: r.queue_id, confidential: r.confidential }) === 'completo';
   }
 
   private bloquear(trx: Knex.Transaction, id: string): Promise<RequestRow | undefined> {
-    return trx('servicedesk.requests').where({ id }).whereNull('deleted_at').forUpdate().first();
+    // `[MSH.2]` Con las banderas de su cola (¿usa prioridad? ¿mide SLA?). `FOR UPDATE OF r`: se bloquea el ticket, no la cola.
+    return trx('servicedesk.requests as r')
+      .join('servicedesk.queues as q', function () {
+        this.on('q.tenant_id', 'r.tenant_id').andOn('q.id', 'r.queue_id');
+      })
+      .where('r.id', id)
+      .whereNull('r.deleted_at')
+      .select('r.*', 'q.uses_priority as queue_uses_priority', 'q.sla_enabled as queue_sla_enabled')
+      .forUpdate('r')
+      .first();
   }
 
   private async siguienteFolio(trx: Knex.Transaction, tenantId: string, year: number): Promise<string> {
@@ -1262,19 +1396,20 @@ export class ServiceDeskRequestsService {
         this.on('z.tenant_id', 'r.tenant_id').andOn('z.code', 'r.zone_code');
       })
       .whereNull('r.deleted_at')
-      .select('r.*', 'q.name as queue_name', 'c.name as category_name', 'ua.nombre as assigned_nombre', 'ua.username as assigned_username', 'z.name as zone_name');
+      .select('r.*', 'q.name as queue_name', 'q.uses_priority as queue_uses_priority', 'q.sla_enabled as queue_sla_enabled', 'c.name as category_name', 'ua.nombre as assigned_nombre', 'ua.username as assigned_username', 'z.name as zone_name');
   }
 
   private buscar(qb: Knex.QueryBuilder, search: string | undefined): void {
     applySmartSearch(qb, search, { columns: ['r.folio', 'r.title', 'r.description', 'r.requester_name', 'c.name'] });
   }
 
-  private async paginar(qb: Knex.QueryBuilder, config: SdConfig, limit?: number, offset?: number): Promise<SdListResponse> {
+  private async paginar(qb: Knex.QueryBuilder, config: SdConfig, ctx: ActorCtx, limit?: number, offset?: number): Promise<SdListResponse> {
     const lim = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const off = Math.max(Number(offset) || 0, 0);
     const total = await qb.clone().clearSelect().clearOrder().count({ n: 'r.id' }).first();
     const rows = await qb.limit(lim).offset(off);
-    return { rows: (rows as RequestRow[]).map((r) => this.mapRow(r, config)), total: Number(total?.n ?? 0) };
+    // `[MSH.2]` Un ticket confidencial al que esta persona NO tiene acceso completo (el god-mode) sale en VISTA LIMITADA: la API no envía el contenido.
+    return { rows: (rows as RequestRow[]).map((r) => (this.accesoDe(r, ctx) === 'basico' ? this.mapBasico(r) : this.mapRow(r, config))), total: Number(total?.n ?? 0) };
   }
 
   private mapRow(r: RequestRow, config: SdConfig, now = new Date()): SdRequestRow {
@@ -1286,8 +1421,9 @@ export class ServiceDeskRequestsService {
       category_id: r.category_id,
       category_name: r.category_name ?? null,
       title: r.title,
-      priority: r.priority,
-      priority_suggested: r.priority_suggested ?? null,
+      // `[MSH.2]` Una cola sin prioridad NO publica la que guarda la base (valor neutro interno): `null`.
+      priority: r.queue_uses_priority === false ? null : r.priority,
+      priority_suggested: r.queue_uses_priority === false ? null : r.priority_suggested ?? null,
       impact: r.impact,
       blocks_work: !!r.blocks_work,
       safety_risk: r.safety_risk ?? null,
@@ -1310,6 +1446,10 @@ export class ServiceDeskRequestsService {
   }
 
   private slaView(r: RequestRow, config: SdConfig, now: Date): SdSlaView {
+    // `[MSH.2]` Una cola que no mide SLA no tiene plazos: «—» (nunca un 0 ni un «a tiempo» inventados).
+    if (r.queue_sla_enabled === false) {
+      return { first_response_due_at: null, due_at: null, first_responded_at: iso(r.first_responded_at), paused: !!r.paused_at, first_breached: false, resolution_breached: false, used_ratio: null };
+    }
     const politica = politicaDe(config, r.queue_id, r.priority as SdPriority);
     const due = r.due_at ? new Date(r.due_at) : null;
     const firstDue = r.first_response_due_at ? new Date(r.first_response_due_at) : null;

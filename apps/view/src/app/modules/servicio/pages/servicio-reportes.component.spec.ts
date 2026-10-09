@@ -14,7 +14,7 @@ const T = { n: 0, p50: null, p90: null };
 
 const REPORTE: SdReportResponse = {
   periodo: { desde: '2026-10-01', hasta: '2026-10-05' },
-  colas: [{ id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', priority_model: 'impacto', asks_zone: false }],
+  colas: [{ id: 'q-ti', code: 'ti', name: 'TI (Sistemas)', priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true }],
   cola_id: null,
   medido_at: '2026-10-05T18:00:00.000Z',
   truncado: false,

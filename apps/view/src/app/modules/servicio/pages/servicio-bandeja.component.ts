@@ -124,7 +124,7 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
                     <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}@if (t.is_test) { <span class="prueba" title="Solicitud de prueba: no cuenta en reportes, tablero ni avisos">Prueba</span> }<small>@if (hayVariasColas() && t.queue_name) { <b class="cola">{{ t.queue_name }}</b> · }{{ t.category_name }}</small></td>
                     <td class="opc" role="cell" data-label="Reportó">{{ t.requester_name || '—' }}</td>
                     <td class="opc" role="cell" data-label="Ubicación">{{ t.warehouse_name || '—' }}</td>
-                    <td role="cell" data-label="Prioridad"><span class="pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span></td>
+                    <td role="cell" data-label="Prioridad">@if (t.priority) { <span class="pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span> } @else { <span>—</span> }</td>
                     <td role="cell" data-label="Estado"><span class="est" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span>@if (t.pause_reason) { <small class="espera">{{ motivoPausa(t.pause_reason) }}</small> }</td>
                     <td class="opc" role="cell" data-label="Atiende">{{ t.assigned_to_name || '—' }}</td>
                     <td role="cell" data-label="Plazo"><span class="sla" [attr.data-t]="plazo(t).tono">{{ plazo(t).texto }}</span></td>

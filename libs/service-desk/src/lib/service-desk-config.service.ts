@@ -76,7 +76,7 @@ export class ServiceDeskConfigService {
   /** Lo que la pantalla «Nueva solicitud» necesita para pintarse. */
   async catalog(): Promise<SdCatalogResponse> {
     return this.tk.run(async (trx) => {
-      const queues = await trx('servicedesk.queues').where({ active: true }).whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'priority_model', 'asks_zone');
+      const queues = await trx('servicedesk.queues').where({ active: true }).whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'priority_model', 'asks_zone', 'confidential', 'uses_priority', 'sla_enabled');
       const activas = new Set(queues.map((q: { id: string }) => q.id));
       const cats = await trx('servicedesk.categories')
         .where({ active: true })

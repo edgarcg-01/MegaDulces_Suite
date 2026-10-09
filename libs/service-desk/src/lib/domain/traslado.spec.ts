@@ -63,3 +63,31 @@ describe('MS.7.11 · estadoTrasTraslado', () => {
     for (const s of ['nuevo', 'asignado', 'en_proceso'] as SdStatus[]) expect(terminaEspera(s)).toBe(false);
   });
 });
+
+/**
+ * `[MSH.2]` R3 (confirmada por Sistemas el 2026-10-06): un ticket confidencial NO sale a un área que no lo es, y uno normal no entra a una
+ * confidencial. Entre las coordinadoras de RH se usa REASIGNAR. La base lo impide con un trigger (23514), pero un 500 no explica nada.
+ */
+describe('MSH.2 · validarTraslado — la clase de la cola (R3)', () => {
+  it('⛔ NEGATIVA — confidencial → no confidencial: 409 con la salida correcta («reasígnala»)', () => {
+    const e = validarTraslado(con({ origenConfidencial: true, destinoConfidencial: false }));
+    expect(e?.http).toBe(409);
+    expect(e?.mensaje).toMatch(/reasígnala/i);
+  });
+  it('⛔ NEGATIVA — normal → confidencial: 409 con la salida correcta («levanta una solicitud nueva»)', () => {
+    const e = validarTraslado(con({ origenConfidencial: false, destinoConfidencial: true }));
+    expect(e?.http).toBe(409);
+    expect(e?.mensaje).toMatch(/solicitud nueva/i);
+  });
+  it('CONTROL: confidencial → OTRA confidencial pasa a esta función (quién puede es regla de coordinación del origen); normal → normal pasa', () => {
+    expect(validarTraslado(con({ origenConfidencial: true, destinoConfidencial: true }))).toBeNull();
+    expect(validarTraslado(con({ origenConfidencial: false, destinoConfidencial: false }))).toBeNull();
+  });
+  it('⭐ lo de antes no cambia: sin los campos nuevos (ausentes = no confidencial) el traslado se valida igual', () => {
+    expect(validarTraslado(OK)).toBeNull();
+  });
+  it('el motivo, el estado y la cola vacía se revisan ANTES que la clase (el mensaje que se ve primero es el que se puede arreglar)', () => {
+    expect(validarTraslado(con({ motivo: '', origenConfidencial: true, destinoConfidencial: false }))?.http).toBe(400);
+    expect(validarTraslado(con({ status: 'resuelto', origenConfidencial: true, destinoConfidencial: false }))?.http).toBe(409);
+  });
+});

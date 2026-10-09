@@ -19,7 +19,7 @@ const CFG: SdConfigResponse = {
     auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60,
   },
   policies: [],
-  queues: [{ id: 'q1', code: 'ti', name: 'TI', department_code: null, active: true, sort_order: 10, priority_model: 'impacto', asks_zone: false, default_assignee_id: null, default_assignee_name: null }],
+  queues: [{ id: 'q1', code: 'ti', name: 'TI', department_code: null, active: true, sort_order: 10, priority_model: 'impacto', asks_zone: false, confidential: false, uses_priority: true, sla_enabled: true, default_assignee_id: null, default_assignee_name: null, report_min_cases: 5 }],
   zones: [
     { id: 'z1', code: 'bodega', name: 'Bodega', sort_order: 10, active: true },
     { id: 'z2', code: 'anden', name: 'Andén', sort_order: 20, active: false },

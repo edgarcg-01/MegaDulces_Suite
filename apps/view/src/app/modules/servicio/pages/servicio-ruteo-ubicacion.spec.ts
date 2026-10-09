@@ -21,7 +21,7 @@ const CFG: SdConfigResponse = {
     auto_close_days: 3, escalate_at_pct: 80, escalation_enabled: false, max_attachment_mb: 8, unassigned_alert_minutes: 60,
   },
   policies: [],
-  queues: [{ id: 'q1', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: true, sort_order: 10, priority_model: 'riesgo_operacion', asks_zone: true, default_assignee_id: null, default_assignee_name: null }],
+  queues: [{ id: 'q1', code: 'mantenimiento', name: 'Mantenimiento', department_code: null, active: true, sort_order: 10, priority_model: 'riesgo_operacion', asks_zone: true, confidential: false, uses_priority: true, sla_enabled: true, default_assignee_id: null, default_assignee_name: null, report_min_cases: 5 }],
   zones: [], fields: [], categories: [],
 };
 const REGLA_UBIC: SdRoutingRuleDto = {

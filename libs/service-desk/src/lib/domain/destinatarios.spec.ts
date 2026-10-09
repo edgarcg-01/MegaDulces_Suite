@@ -1,5 +1,5 @@
 // [CG.38.1] Sin `import ... from 'vitest'`: la config usa `globals: true`. Importarlo hace que el archivo NO CARGUE.
-import { filtrarDestinatarios, type TicketParaAvisos } from './destinatarios';
+import { TITULO_CONFIDENCIAL, VIDA_URL_CONFIDENCIAL_S, VIDA_URL_NORMAL_S, contenidoDeAviso, filtrarDestinatarios, sinConfidenciales, vidaDeUrlAdjunto, type TicketParaAvisos } from './destinatarios';
 
 /**
  * `[MS.7.13]` «Nadie fuera de la cola recibe el aviso». Lo que se defiende:
@@ -47,5 +47,43 @@ describe('MS.7.13 · filtrarDestinatarios', () => {
     const r = filtrarDestinatarios(['u-tec', 'u-x', 'u-jefe'], T());
     expect(r.permitidos).toEqual(['u-tec', 'u-jefe']);
     expect([...r.permitidos, ...r.descartados].sort()).toEqual(['u-jefe', 'u-tec', 'u-x']);
+  });
+});
+
+/**
+ * `[MSH.2]` Lo que NO sale de la Mesa de un ticket confidencial. Lo que se defiende:
+ *  · ⛔ el aviso de un ticket confidencial NO lleva el título ni el texto del comentario (se neutraliza al ESCRIBIR);
+ *  · ⛔ la URL de un adjunto confidencial vive 60 s, no 10 min;
+ *  · ⛔ la Bitácora no recibe el evento de un ticket confidencial; el resto sí.
+ */
+describe('MSH.2 · contenidoDeAviso (H3)', () => {
+  it('⭐ un ticket NORMAL conserva su título y su extracto (nada cambia para TI ni Mantenimiento)', () => {
+    expect(contenidoDeAviso(false, { title: 'No abre la caja', extracto: 'ya intenté reiniciar' })).toEqual({ title: 'No abre la caja', extracto: 'ya intenté reiniciar' });
+    expect(contenidoDeAviso(false, { title: 'x' })).toEqual({ title: 'x', extracto: null });
+  });
+  it('⛔ NEGATIVA — un ticket CONFIDENCIAL sale neutro: ni su título ni el texto del comentario', () => {
+    const r = contenidoDeAviso(true, { title: 'Queja de acoso contra mi jefe', extracto: 'me amenazó con despedirme' });
+    expect(r).toEqual({ title: TITULO_CONFIDENCIAL, extracto: null });
+    expect(JSON.stringify(r)).not.toMatch(/acoso|despedir|jefe/i);
+  });
+});
+
+describe('MSH.2 · vidaDeUrlAdjunto (H4)', () => {
+  it('⭐ normal: 10 minutos de siempre', () => expect(vidaDeUrlAdjunto(false)).toBe(600));
+  it('⛔ NEGATIVA — confidencial: 60 s, y MENOS que la normal', () => {
+    expect(vidaDeUrlAdjunto(true)).toBe(60);
+    expect(VIDA_URL_CONFIDENCIAL_S).toBeLessThan(VIDA_URL_NORMAL_S);
+  });
+});
+
+describe('MSH.2 · sinConfidenciales (H9)', () => {
+  const ev = (requestId: string) => ({ requestId, event: 'status' as const });
+  it('⛔ NEGATIVA — el evento de un ticket confidencial NO pasa; los demás sí, en su orden', () => {
+    const r = sinConfidenciales([ev('a'), ev('conf'), ev('b')], new Set(['conf']));
+    expect(r.map((e) => e.requestId)).toEqual(['a', 'b']);
+  });
+  it('CONTROL: sin confidenciales pasa todo; y todos confidenciales → nada', () => {
+    expect(sinConfidenciales([ev('a'), ev('b')], new Set())).toHaveLength(2);
+    expect(sinConfidenciales([ev('a')], new Set(['a']))).toEqual([]);
   });
 });

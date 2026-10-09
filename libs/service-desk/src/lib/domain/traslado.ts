@@ -24,6 +24,9 @@ export interface EntradaTraslado {
   /** Cuántas personas pueden atender la cola destino hoy (miembros activos con permiso). */
   miembrosDestino: number;
   motivo: string;
+  /** `[MSH.2]` El ticket de origen es confidencial / la cola destino es confidencial. Ausente = no (lo de siempre). */
+  origenConfidencial?: boolean;
+  destinoConfidencial?: boolean;
 }
 
 /** `400` = lo que se pidió está mal; `409` = lo pedido no cabe en el estado de las cosas. */
@@ -40,6 +43,16 @@ export function validarTraslado(e: EntradaTraslado): ErrorTraslado | null {
   if (e.origenId === e.destinoId) return { http: 400, mensaje: 'La solicitud ya está en esa área: elige otra' };
   if (!e.destinoActiva) return { http: 400, mensaje: 'El área destino no existe o no está disponible' };
   if (!e.categoriaEsDelDestino) return { http: 400, mensaje: 'La categoría debe ser una de las del área destino' };
+  /*
+   * `[MSH.2]` R3 (confirmada por Sistemas el 2026-10-06): un ticket CONFIDENCIAL no sale a un área que no lo es —los miembros de esa
+   * área verían un ticket de RH— y uno normal tampoco entra a una confidencial —quedaría con la marca equivocada—. La base ya lo
+   * impide (trigger, 23514), pero un 500 no explica nada: aquí se dice. Entre las coordinadoras de RH se usa REASIGNAR, no trasladar.
+   */
+  if ((e.origenConfidencial === true) !== (e.destinoConfidencial === true)) {
+    return e.origenConfidencial === true
+      ? { http: 409, mensaje: 'Una solicitud confidencial no se traslada a un área que no es confidencial. Para pasarla entre quienes atienden esa área, reasígnala.' }
+      : { http: 409, mensaje: 'Una solicitud normal no se traslada a un área confidencial: levanta una solicitud nueva ahí, para que nazca confidencial.' };
+  }
   if (e.miembrosDestino < 1) return { http: 409, mensaje: 'Nadie atiende hoy esa área: la solicitud quedaría sin que nadie la vea. Pide que sumen a alguien a la cola primero' };
   return null;
 }

@@ -11,7 +11,7 @@
 import { BadRequestException, ForbiddenException, Injectable } from '@nestjs/common';
 import type { SdReportResponse } from '@megadulces/contracts';
 import { TenantKnexService, branchName, toMxDateKey } from '@megadulces/platform-core';
-import { armarReporte, type FilaReporte } from './domain/report';
+import { aplicarMinimoDeCasos, armarReporte, type FilaReporte } from './domain/report';
 import { colasDeLectura } from './domain/queue-access';
 import { nombreUbicacionExtra } from './domain/ubicaciones';
 import { resolverPeriodo } from './domain/report-period';
@@ -45,6 +45,14 @@ export class ServiceDeskReportsService {
     return this.tk.run(async (trx) => {
       const config = await this.cfg.load(trx);
       const tz = config.settings.calendar.tz;
+      /*
+       * `[MSH.2]` H8 — lo CONFIDENCIAL no entra a un reporte de varias áreas (ni al del god-mode): el global no lo cuenta. Su reporte existe sólo
+       * si se pide EXPLÍCITAMENTE su cola y sólo para SU coordinación (no el god-mode), y pasa por el mínimo de casos de esa cola.
+       */
+      const confidenciales = (await trx('servicedesk.queues').where({ confidential: true }).whereNull('deleted_at').select('id', 'report_min_cases')) as { id: string; report_min_cases: number }[];
+      const colaConf = q.queue_id ? confidenciales.find((c) => c.id === q.queue_id) : undefined;
+      if (colaConf && !ctx.colas.coordina.has(colaConf.id)) throw new ForbiddenException('Esta área es confidencial: su reporte es sólo para su coordinación');
+      const confidencialPedida = !!colaConf;
       // `TOPE_FILAS + 1` para saber si hay más sin traerlas todas.
       const { rows } = await trx.raw(
         `SELECT r.queue_id, r.priority, r.category_id, c.name AS category_name, r.warehouse_code, r.status,
@@ -56,6 +64,7 @@ export class ServiceDeskReportsService {
            JOIN servicedesk.categories c ON c.tenant_id = r.tenant_id AND c.id = r.category_id
           WHERE r.deleted_at IS NULL
             AND NOT r.is_test
+            ${confidencialPedida ? '' : 'AND NOT r.confidential'}
             AND r.created_at >= (?::date)::timestamp AT TIME ZONE ?
             AND r.created_at <  ((?::date + 1))::timestamp AT TIME ZONE ?
             ${colas ? "AND r.queue_id = ANY(string_to_array(?, ',')::uuid[])" : ''}
@@ -73,15 +82,25 @@ export class ServiceDeskReportsService {
         nombreSucursal: (code) => nombreUbicacionExtra(code) ?? branchName(code),
       });
       // `[MS.7.18]` Para que la pantalla ofrezca el selector de cola: las colas de las que este reporte puede ser.
+      // `[MSH.2]` Una cola confidencial sólo se ofrece a SU coordinación (al god-mode no: el servidor se lo rechazaría).
       const colasPosibles = (await trx('servicedesk.queues')
         .whereNull('deleted_at')
         .modify((qb) => {
           if (coordina) qb.whereIn('id', coordina);
+          qb.where((w) => {
+            w.where('confidential', false);
+            const mias = [...ctx.colas.coordina];
+            if (mias.length) w.orWhereIn('id', mias);
+          });
         })
         .orderBy('sort_order')
         .orderBy('name')
-        .select('id', 'code', 'name', 'priority_model', 'asks_zone')) as { id: string; code: string; name: string; priority_model: 'impacto' | 'riesgo_operacion'; asks_zone: boolean }[];
-      return { ...reporte, colas: colasPosibles, cola_id: q.queue_id ?? null };
+        .select('id', 'code', 'name', 'priority_model', 'asks_zone', 'confidential', 'uses_priority', 'sla_enabled')) as { id: string; code: string; name: string; priority_model: 'impacto' | 'riesgo_operacion'; asks_zone: boolean; confidential: boolean; uses_priority: boolean; sla_enabled: boolean }[];
+      // `[MSH.2]` El reporte de una cola confidencial pasa por su mínimo de casos; y una cola sin prioridad no publica un desglose por prioridad.
+      const delArea = colaConf ? aplicarMinimoDeCasos(reporte, Number(colaConf.report_min_cases)) : reporte;
+      const colaPedida = q.queue_id ? colasPosibles.find((c) => c.id === q.queue_id) : undefined;
+      const final = colaPedida && colaPedida.uses_priority === false ? { ...delArea, por_prioridad: [] } : delArea;
+      return { ...final, colas: colasPosibles, cola_id: q.queue_id ?? null };
     });
   }
 }

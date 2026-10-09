@@ -98,3 +98,15 @@ describe('llaveDeAviso', () => {
     expect(llaveDeAviso('resuelto', 'r1', 'u1', null)).toBe('resuelto:r1:u1');
   });
 });
+
+describe('`[MSH.2]` el aviso de un comentario sin extracto (ticket confidencial)', () => {
+  it('⛔ NO deja unas comillas vacías: dice que hay un mensaje, sin texto', () => {
+    const a = armarAviso({ ...base, event: 'comentario', extracto: null, actor: 'Lesly' });
+    expect(a.message).toContain('Lesly');
+    expect(a.message).not.toContain('«');
+    expect(a.message).not.toContain('»');
+  });
+  it('CONTROL: con extracto sigue citándolo (TI y Mantenimiento no cambian)', () => {
+    expect(armarAviso({ ...base, event: 'comentario', extracto: 'hola' }).message).toContain('«hola»');
+  });
+});

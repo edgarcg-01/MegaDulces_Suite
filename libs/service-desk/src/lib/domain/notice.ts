@@ -78,7 +78,8 @@ export function armarAviso(e: EntradaAviso): Aviso {
         severity: e.priority === 'urgente' ? 'critical' : 'info',
       };
     case 'comentario':
-      return { title: 'Nuevo mensaje en una solicitud', message: `${ref}${quien ? ` — ${quien}` : ''}: «${recortar(e.extracto, 140)}»`, severity: 'info' };
+      // `[MSH.2]` Sin extracto (un ticket confidencial no lo manda) el aviso NO deja unas comillas vacías: sólo dice que hay un mensaje.
+      return { title: 'Nuevo mensaje en una solicitud', message: `${ref}${quien ? ` — ${quien}` : ''}${e.extracto ? `: «${recortar(e.extracto, 140)}»` : ''}`, severity: 'info' };
     case 'resuelto':
       return { title: 'Tu solicitud quedó resuelta', message: `${ref}. Confírmala si ya funciona, o reábrela si el problema sigue.`, severity: 'info' };
     case 'reabierto':

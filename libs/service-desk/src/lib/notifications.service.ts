@@ -34,7 +34,7 @@ import {
   type ServiceDeskChannelPort,
 } from '@megadulces/contracts';
 import { TenantKnexService } from '@megadulces/platform-core';
-import { filtrarDestinatarios } from './domain/destinatarios';
+import { contenidoDeAviso, filtrarDestinatarios } from './domain/destinatarios';
 import { armarAviso, llaveDeAviso, type SdEventoClave } from './domain/notice';
 
 /** Lo que pasó y a quién le toca saberlo. Lo arma quien provoca el evento, DESPUÉS de confirmar su transacción. */
@@ -133,7 +133,7 @@ export class ServiceDeskNotificationsService {
         this.on('q.tenant_id', 'r.tenant_id').andOn('q.id', 'r.queue_id');
       })
       .where('r.id', ev.request_id)
-      .first('r.is_test', 'r.queue_id', 'r.requester_id', 'r.assigned_to', 'q.name as queue_name');
+      .first('r.is_test', 'r.confidential', 'r.queue_id', 'r.requester_id', 'r.assigned_to', 'q.name as queue_name', 'q.uses_priority');
     if (ticket?.is_test) return;
     /*
      * `[MS.7.13]` «Nadie fuera de la cola recibe el aviso»: segunda llave en el punto único de entrega. Quien armó el evento ya calculó los
@@ -148,7 +148,14 @@ export class ServiceDeskNotificationsService {
       ids = f.permitidos;
     }
     if (!ids.length) return;
-    const aviso = armarAviso({ event: ev.event, folio: ev.folio, title: ev.title, priority: ev.priority, actor: ev.actor_name, extracto: ev.extracto, dias: ev.dias, automatico: ev.automatico, cola: variasAreas ? ticket?.queue_name ?? null : null });
+    /*
+     * `[MSH.2]` H3: el aviso de un ticket CONFIDENCIAL sale NEUTRO desde que se ESCRIBE (ni el título del ticket ni el texto del comentario).
+     * Y en una cola SIN prioridad (RH) el aviso no lleva la prioridad interna: es un valor neutro que nunca se publica.
+     */
+    const confidencial = ticket?.confidential === true;
+    const sinPrioridad = ticket?.uses_priority === false;
+    const { title: tituloAviso, extracto: extractoAviso } = contenidoDeAviso(confidencial, { title: ev.title, extracto: ev.extracto });
+    const aviso = armarAviso({ event: ev.event, folio: ev.folio, title: tituloAviso, priority: sinPrioridad ? 'media' : ev.priority, actor: ev.actor_name, extracto: extractoAviso, dias: ev.dias, automatico: ev.automatico, cola: variasAreas ? ticket?.queue_name ?? null : null });
 
     const contactos: Contacto[] = await trx('identity.users as u')
       .leftJoin('servicedesk.notification_prefs as p', function () {
@@ -162,7 +169,7 @@ export class ServiceDeskNotificationsService {
       try {
         // La llave lleva al DESTINATARIO: el índice único de la base no lo menciona (ver `llaveDeAviso`).
         const dedup = llaveDeAviso(ev.event, ev.request_id, c.id, ev.discriminador);
-        const payload = { title: aviso.title, message: aviso.message, severity: aviso.severity, folio: ev.folio, priority: ev.priority };
+        const payload = { title: aviso.title, message: aviso.message, severity: aviso.severity, folio: ev.folio, priority: sinPrioridad || confidencial ? null : ev.priority };
         // 1) La fila `app` es la compuerta anti-repetición Y la entrega más confiable.
         const nuevo = await this.registrar(trx, tenantId, ev, c.id, 'app', 'sent', null, dedup, payload);
         if (!nuevo) continue; // ya salió: no se repite por ningún canal
