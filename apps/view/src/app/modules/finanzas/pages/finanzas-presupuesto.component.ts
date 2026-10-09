@@ -19,7 +19,7 @@ import { SegmentedComponent } from '../../../shared/components/segmented/segment
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import type { Freshness, Coverage, BudgetResult, BudgetResultMonth, BudgetResultAnnual,
-  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement }
+  ExpensePlanCoverage, ExpenseRhythm, ExpenseRhythmRow, ExpenseRhythmState, BudgetLineMovement, ExpenseConcentration }
   from '@megadulces/contracts'; // solo tipos → cero bytes al bundle
 import { environment } from '../../../../environments/environment';
 // `[PVI.9]` La vista Ventas salió a su propio componente. Los tipos y los estilos quedan en
@@ -524,6 +524,20 @@ const VISTA_DEFAULT: PresView = 'direccion';
               }
             }
 
+            <!-- PU.VG.10 — El mismo 0.0% de Ocupacion que la pestana Gastos ya declara, pero aca
+                 estaba MUDO: medido en prod, las 26 partidas tienen los cuatro estados en cero, o
+                 sea que la columna pinta 0.0% en todas las filas y "Disponible 100%" es una
+                 tautologia (disponible = original - reservado - pagado, los dos en cero). -->
+            @if (ledgerVirgen()) {
+              <p class="pres-hint"><span class="pi pi-info-circle"></span>
+                <strong>El libro de este ejercicio no registra un solo movimiento.</strong>
+                Reservado, comprometido, ejercido y pagado están en <strong class="pres-mono">$0.00</strong> en las
+                <strong>{{ lines().length }}</strong> partidas — por eso <em>Ocupación</em> dice 0.0 % y <em>Disponible</em>
+                dice el total.
+                <span class="pres-muted">No significa que no se haya gastado: significa que el gasto no se registró acá. El consumo real está en la columna «Ritmo» de la pestaña <strong>Gastos</strong>.</span>
+              </p>
+            }
+
             <p-table [value]="lines()" [loading]="loadingDetail()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
               <ng-template #header>
                 <tr>
@@ -543,7 +557,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
                   <td class="ta-r pres-mono">{{ dash(l.committed_amount) }}</td>
                   <td class="ta-r pres-mono">{{ dash(l.exercised_amount) }}</td>
                   <td class="ta-r pres-mono" [class.pres-neg]="l.available_amount < 0">{{ money(l.available_amount) }}</td>
-                  <td class="ta-r pres-mono">{{ ocupacion(l) }}</td>
+                  <td class="ta-r pres-mono" [title]="ocupacionTitulo(l)">{{ ocupacion(l) }}</td>
                   <td><p-tag [value]="l.status" [severity]="l.status === 'activa' ? 'info' : 'secondary'" styleClass="pres-tag" /></td>
                   <td>@if (b.status === 'aprobado' && l.status === 'activa') { <button pButton type="button" class="p-button-sm p-button-text" (click)="openMovement(l)" title="Movimiento" aria-label="Movimiento de partida"><span class="pi pi-bolt"></span></button> }</td>
                 </tr>
@@ -590,6 +604,59 @@ const VISTA_DEFAULT: PresView = 'direccion';
               }
             </div>
             <app-metric-strip [items]="gastoKpis()" mode="strip" ariaLabel="Resumen de gasto operativo" />
+            <!-- PU.VG.10 — La concentracion va ANTES de la tabla porque es la respuesta, y la tabla
+                 es el detalle: 14 renglones que se ven todos iguales no contestan "puedo recortar".
+                 Va por EJERCICIO; el agregado de los dos no corresponde a ningun ano fiscal. -->
+            @if (concError()) {
+              <p class="pres-hint"><span class="pi pi-question-circle"></span> <strong>Concentración no medida.</strong> No se pudo leer el peso de cada partida; este bloque no afirma nada.</p>
+            } @else if (conc(); as cc) {
+              <div class="pres-conc">
+                <div class="pres-conc-head">
+                  <h3>¿Cuánto de este gasto se puede mover?</h3>
+                  @if (cc.total == null) {
+                    <span class="pres-muted">Sin un total medible no hay porcentaje que publicar.</span>
+                  } @else if (cc.partidas_80 != null) {
+                    <span><strong class="pres-mono">{{ cc.partidas_80 }}</strong> de <strong class="pres-mono">{{ cc.cobertura.partidas }}</strong> partidas deciden el <strong>80 %</strong> del gasto de {{ cc.fiscal_year }}@if (cc.pct_mayor != null) { · la mayor sola es el <strong class="pres-mono">{{ cc.pct_mayor | number:'1.2-2' }} %</strong> }</span>
+                  }
+                </div>
+                @if (cc.total != null) {
+                  <table class="pres-conc-tbl">
+                    <thead><tr><th>Partida</th><th class="ta-r">Monto</th><th class="ta-r">% del año</th><th class="ta-r">Acumulado</th><th>Responsable</th><th>Freno</th></tr></thead>
+                    <tbody>
+                      @for (f of concTop(); track f.id || f.concepto) {
+                        <tr>
+                          <td>{{ f.concepto }}</td>
+                          <td class="ta-r pres-mono">{{ f.monto == null ? '—' : money(f.monto) }}</td>
+                          <td class="ta-r pres-mono">{{ f.pct == null ? '—' : (f.pct | number:'1.2-2') + '%' }}</td>
+                          <td class="ta-r pres-mono pres-muted">{{ f.acumulado == null ? '—' : (f.acumulado | number:'1.2-2') + '%' }}</td>
+                          <td class="pres-muted">{{ f.responsable || 'sin asignar' }}</td>
+                          <td [class.pres-muted]="f.freno !== 'bloqueo'">{{ frenoLabel(f.freno) }}</td>
+                        </tr>
+                      }
+                      @if (concResto(); as r) {
+                        <tr class="pres-conc-resto">
+                          <td class="pres-muted">y {{ r.n }} partidas más</td>
+                          <td class="ta-r pres-mono pres-muted">{{ r.monto == null ? '—' : money(r.monto) }}</td>
+                          <td class="ta-r pres-mono pres-muted">{{ r.pct == null ? '—' : (r.pct | number:'1.2-2') + '%' }}</td>
+                          <td class="ta-r pres-mono pres-muted">100.00%</td>
+                          <td colspan="2"></td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                }
+                <p class="pres-hint pres-conc-dec">
+                  <span class="pi pi-exclamation-triangle"></span>
+                  <strong>Lo que esta pantalla todavía no puede contestar.</strong>
+                  Responsable capturado en <strong class="pres-mono">{{ cc.cobertura.con_responsable }} de {{ cc.cobertura.partidas }}</strong> partidas ·
+                  fijo/variable en <strong class="pres-mono">{{ cc.cobertura.con_clase }} de {{ cc.cobertura.partidas }}</strong> ·
+                  freno duro en <strong class="pres-mono">{{ cc.cobertura.con_freno_duro }} de {{ cc.cobertura.partidas }}</strong>
+                  <span class="pres-muted">— las tres columnas existen y están vacías: es captura humana, no un cálculo que falte.</span>
+                  @if (cc.cobertura.sin_monto) { · <strong class="pres-neg">{{ cc.cobertura.sin_monto }}</strong> partidas sin monto legible quedaron <strong>fuera</strong> del total <span class="pres-muted">(no suman cero)</span> }
+                  @if (!cc.umbral_registrado) { <br /><span class="pi pi-ban"></span> <strong>Sin semáforo a propósito:</strong> no hay un solo umbral registrado en el sistema, así que cualquier color sería inventado. <span class="pres-muted">Registrarlos es decisión de Dirección.</span> }
+                </p>
+              </div>
+            }
             <!-- PU.VG.7 — El ledger no guarda mes, asi que Ocupacion es un porcentaje anual y un
                  0 por ciento ahi no distingue "no gastamos" de "no registramos". El perfil se
                  deriva del plan y se declara al lado. No hay umbral de materialidad registrado:
@@ -633,7 +700,7 @@ const VISTA_DEFAULT: PresView = 'direccion';
                   <td class="ta-r pres-mono">{{ dash(l.committed_amount) }}</td>
                   <td class="ta-r pres-mono">{{ dash(l.exercised_amount) }}</td>
                   <td class="ta-r pres-mono" [class.pres-neg]="l.available_amount < 0">{{ money(l.available_amount) }}</td>
-                  <td class="ta-r pres-mono">{{ ocupacion(l) }}</td>
+                  <td class="ta-r pres-mono" [title]="ocupacionTitulo(l)">{{ ocupacion(l) }}</td>
                   <td class="ta-r pres-mono" [title]="ritmoTitulo(l)">{{ ritmoDeberia(l) }}</td>
                   <td [title]="ritmoTitulo(l)">
                     <span [class.pres-neg]="ritmoEsAlerta(l)" [class.pres-muted]="ritmoEsMudo(l)">{{ ritmoEtiqueta(l) }}</span>
@@ -1900,6 +1967,13 @@ export class FinanzasPresupuestoComponent implements OnInit {
       next: (r) => this.coverage.set(r),
       error: () => this.coverageError.set(true),
     });
+    // [PU.VG.10] La concentración: «¿cuánto de este gasto puedo mover?». Viaja aparte por el mismo
+    // motivo que el ritmo — si falla, el bloque DECLARA que no se midió en vez de desaparecer.
+    this.conc.set(null); this.concError.set(false);
+    this.http.get<ExpenseConcentration>(`${this.base}/budgets/${b.id}/expense-plan/concentracion`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => this.conc.set(r),
+      error: () => this.concError.set(true),
+    });
   }
 
   // ── [PU.VG.4] Bitácora del ledger ───────────────────────────────────────────
@@ -1975,6 +2049,42 @@ export class FinanzasPresupuestoComponent implements OnInit {
         ? 'Base del año anterior × el supuesto de crecimiento.'
         : 'Capturado a mano.';
   }
+
+  // ── [PU.VG.10] Concentración: qué puede mover Dirección y qué no ─────────────
+  // La pregunta de Dirección frente a un presupuesto es «¿puedo recortar?», y la tabla de arriba
+  // muestra 14 renglones que se ven todos iguales. Medido en prod: en FY2027 SUELDOS Y SALARIOS
+  // solo es el 55.50 %, y hacen falta CUATRO renglones para mover el 80 % del gasto.
+  conc = signal<ExpenseConcentration | null>(null);
+  concError = signal(false);
+
+  /**
+   * El nivel de control, en palabras. `bloqueo` es el ÚNICO que frena de verdad; `advertencia`
+   * avisa y deja pasar, así que rotularlo «control» insinuaría una compuerta que no existe.
+   */
+  frenoLabel(f: string | null | undefined): string {
+    if (f === 'bloqueo') return 'Bloquea';
+    if (f === 'advertencia') return 'Sólo avisa';
+    if (f === 'informativo') return 'Informativo';
+    return f || 'sin freno';
+  }
+
+  /** Las que explican el grueso, para no pedirle a nadie que lea 14 renglones iguales. */
+  concTop = computed(() => (this.conc()?.filas ?? []).slice(0, 6));
+
+  /** El resto, resumido en un renglón: cuántas son y cuánto suman entre todas. */
+  concResto = computed(() => {
+    const filas = this.conc()?.filas ?? [];
+    const resto = filas.slice(6);
+    if (!resto.length) return null;
+    const montos = resto.map((f) => f.monto).filter((m): m is number => m != null);
+    return {
+      n: resto.length,
+      // Si ninguna trae monto no se publica un 0: se declara con el guion de siempre.
+      monto: montos.length ? Math.round(montos.reduce((a, b) => a + b, 0) * 100) / 100 : null,
+      pct: resto[0]?.acumulado != null && filas[5]?.acumulado != null
+        ? Math.round((100 - filas[5].acumulado) * 100) / 100 : null,
+    };
+  });
 
   // ── [PU.VG.7] Ritmo ──────────────────────────────────────────────────────────
   ritmo = signal<ExpenseRhythm | null>(null);
@@ -2803,6 +2913,36 @@ export class FinanzasPresupuestoComponent implements OnInit {
     const used = Number(l.reserved_amount) + Number(l.committed_amount) + Number(l.exercised_amount);
     return `${Math.round((used / v) * 1000) / 10}%`;
   }
+
+  /**
+   * `[PU.VG.10]` **Un 0.0 % de ocupación no distingue «no gastamos» de «no registramos».**
+   *
+   * Medido contra prod el 2026-10-09: las 26 partidas tienen reservado, comprometido, ejercido y
+   * pagado en **$0.00** — el ledger de cinco estados **nunca se operó**. O sea que la columna
+   * publica 0.0 % en todas las filas de las DOS pestañas y se lee como «no hemos gastado», que es
+   * lo contrario de lo que pasa. El número no cambia (es el que es); lo que cambia es que ahora
+   * dice de qué está hecho.
+   */
+  ocupacionTitulo(l: BudgetLine): string {
+    const v = Number(l.vigente_amount);
+    if (!(v > 0)) return 'Sin vigente no hay denominador: la ocupación no se puede calcular.';
+    const used = Number(l.reserved_amount) + Number(l.committed_amount) + Number(l.exercised_amount);
+    return used > 0
+      ? 'Reservado + comprometido + ejercido, sobre el vigente de la partida. Es ANUAL: el ledger no guarda mes.'
+      : 'Cero movimientos en el libro de esta partida: ni reserva, ni compromiso, ni ejercido. '
+        + 'No dice «no gastamos» — dice que el gasto no se registró acá. El consumo real se ve en la columna «Ritmo» de la pestaña Gastos.';
+  }
+
+  /**
+   * ¿El ledger de este ejercicio se operó alguna vez? Si no, «Disponible = 100 %» es una
+   * tautología: `available = original − reservado − pagado` con los dos sustraendos en cero.
+   */
+  ledgerVirgen = computed(() => {
+    const ls = this.lines();
+    if (!ls.length) return false;
+    return ls.every((l) => (Number(l.reserved_amount) || 0) + (Number(l.committed_amount) || 0)
+      + (Number(l.exercised_amount) || 0) + (Number(l.paid_amount) || 0) === 0);
+  });
   tipoLabel(t: string): string {
     return ({ ingreso: 'Ingreso', costo_ventas: 'Costo vta.', gasto: 'Gasto', compra_inventario: 'Compra inv.', inversion: 'Inversión', flujo: 'Flujo' } as Record<string, string>)[t] || t;
   }

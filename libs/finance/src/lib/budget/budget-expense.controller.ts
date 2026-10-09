@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Put, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
-import type { ExpensePlanCoverage, ExpenseRhythm } from '@megadulces/contracts';
+import type { ExpenseConcentration, ExpensePlanCoverage, ExpenseRhythm } from '@megadulces/contracts';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
   BudgetExpensePlanService, ProposeExpensePlanDto, UpsertExpensePlanSettingsDto, UpsertExpensePlanLineDto,
@@ -38,6 +38,13 @@ export class BudgetExpenseController {
   @RequirePermissions(Permission.PRESUPUESTOS_VER)
   @ApiOperation({ summary: 'Cuanto deberia llevarse consumido a la fecha segun el perfil mensual del plan (excluye el mes en curso).' })
   getRitmo(@Param('id') id: string): Promise<ExpenseRhythm> { return this.plan.getRitmo(id); }
+
+  // [PU.VG.10] La pregunta de Dirección es "¿puedo recortar?" y la tabla muestra 14 renglones que se
+  // ven todos iguales. Va POR EJERCICIO: el agregado de los dos no corresponde a ningún año fiscal.
+  @Get('budgets/:id/expense-plan/concentracion')
+  @RequirePermissions(Permission.PRESUPUESTOS_VER)
+  @ApiOperation({ summary: 'Cuanto del gasto de ESTE ejercicio esta en las partidas grandes: % por partida, acumulado, y cuantas hacen el 80%.' })
+  getConcentracion(@Param('id') id: string): Promise<ExpenseConcentration> { return this.plan.getConcentracion(id); }
 
   @Get('budgets/:id/expense-plan/settings')
   @RequirePermissions(Permission.PRESUPUESTOS_VER)

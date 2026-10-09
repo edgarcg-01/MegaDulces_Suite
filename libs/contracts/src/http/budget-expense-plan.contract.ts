@@ -147,3 +147,49 @@ export interface ExpenseRhythm {
   resumen: ExpenseRhythmSummary;
   partidas: ExpenseRhythmRow[];
 }
+
+/**
+ * `[PU.VG.10]` **La concentración del gasto — qué puede mover Dirección y qué no.**
+ *
+ * ⛔ Es **por ejercicio, nunca agregada**. Sumar FY2026 + FY2027 da «$107.3 M, SUELDOS 53.90 %»:
+ * una cifra que no corresponde a ningún año y contra la que nadie puede firmar.
+ *
+ * ⚠️ `monto`/`pct`/`acumulado` en `null` significan **«no medible»**, nunca cero — una partida sin
+ * monto legible sale de la base y se declara en `cobertura.sin_monto`.
+ */
+export interface ExpenseConcentrationRow {
+  id: string | null;
+  concepto: string;
+  account_code: string | null;
+  monto: number | null;
+  pct: number | null;
+  acumulado: number | null;
+  responsable: string | null;
+  clase: string | null;
+  freno: string | null;
+}
+
+/** Lo que falta capturar se CUENTA, no se rellena. Medido en prod: 0 de 26 en los tres. */
+export interface ExpenseConcentrationCoverage {
+  partidas: number;
+  sin_monto: number;
+  con_responsable: number;
+  con_clase: number;
+  con_freno_duro: number;
+}
+
+export interface ExpenseConcentration {
+  /** Suma de las partidas con monto legible. `null` si no hay ninguna. */
+  total: number | null;
+  filas: ExpenseConcentrationRow[];
+  /** Mínimo de partidas cuya suma ALCANZA el 80 %. Es la que CRUZA la línea, no la última de abajo. */
+  partidas_80: number | null;
+  /** Porcentaje de la partida más grande: el número que contesta «¿puedo recortar?». */
+  pct_mayor: number | null;
+  cobertura: ExpenseConcentrationCoverage;
+  /** Hoy siempre `false`: `analytics.kpi_thresholds` tiene cero filas en todo el sistema. */
+  umbral_registrado: boolean;
+  fiscal_year: number | null;
+  folio: string | null;
+  fuente: string;
+}
