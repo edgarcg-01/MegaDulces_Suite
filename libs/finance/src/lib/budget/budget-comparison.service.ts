@@ -107,6 +107,30 @@ export class BudgetComparisonService {
         .sum({ vigente: 'vigente_amount', reserved: 'reserved_amount', committed: 'committed_amount', exercised: 'exercised_amount', paid: 'paid_amount' })) as unknown as FilaPorTipo[];
       const t = (type: string, field: string) => round2(Number(byType.find((r) => r.line_type === type)?.[field] ?? 0));
 
+      // `[PU.VG.5]` CUÁNTO DINERO NO PUEDE FRENARSE. `control_level` decide si un sobregiro se
+      // bloquea, se advierte o sólo se informa (`budget-lines.service.ts`). Medido en prod el
+      // 2026-10-08: **cero partidas en `bloqueo`** — y NO porque alguien lo haya bajado, que era
+      // la lectura fácil y es falsa. El DEFAULT de la columna dice `'bloqueo'` y **nunca se usa**:
+      // `materialize` siempre pasa un valor explícito, y para el gasto ese valor sale de
+      // `expense_plan_settings.control_level`, cuyo propio default es `'advertencia'`… sobre una
+      // tabla con CERO filas, así que en los hechos manda el literal `|| 'advertencia'` del código.
+      //
+      // ⭐ O sea el esquema DECLARA un freno que no existe, y quien lea la migración va a creer
+      // que las partidas nacen bloqueadas. Acá no se decide cuál debe ser —poner `bloqueo` cambia
+      // la operación y es decisión de Dirección— se DECLARA la exposición (ADR-056).
+      //
+      // ⚠️ Sólo el EGRESO: un ingreso es meta, no tope, y `informativo` ahí es correcto.
+      const frenos = (await trx('budget.budget_lines')
+        .where({ budget_id: budgetId, line_type: 'gasto' })
+        .groupBy('control_level').select('control_level')
+        .sum({ importe: 'vigente_amount' })
+        .count({ partidas: '*' })) as unknown as Array<Record<string, unknown>>;
+      const porFreno: Record<string, { partidas: number; importe: number }> = {};
+      for (const f of frenos) porFreno[String(f.control_level)] = { partidas: Number(f.partidas), importe: round2(Number(f.importe ?? 0)) };
+      const sinFreno = ['informativo', 'advertencia']
+        .reduce((a, k) => ({ partidas: a.partidas + (porFreno[k]?.partidas ?? 0), importe: round2(a.importe + (porFreno[k]?.importe ?? 0)) }),
+          { partidas: 0, importe: 0 });
+
       // `[PU.VA]` ⛔ **Los cinco estados del ledger son del EGRESO, y esto sumaba el INGRESO con
       // ellos.** Medido contra prod el 2026-10-07, con el primer ejercicio que el motor llegó a
       // armar: `vigente` publicaba **$547,249,778**, que es la meta de ventas ($472,397,590) más el
@@ -216,6 +240,13 @@ export class BudgetComparisonService {
         ejecucion: {
           ...totals, disponible, ocupacion_pct: ocupacion, alcance: 'egreso' as const, ingreso_meta,
           by_type: byType.map((r) => this.withOccupancy(r)),
+          // `[PU.VG.5]` Qué parte del egreso autorizado no tiene freno duro, declarado y no implícito.
+          frenos: {
+            por_nivel: porFreno,
+            sin_freno: sinFreno,
+            bloqueo: porFreno['bloqueo'] ?? { partidas: 0, importe: 0 },
+            nota: 'control_level=bloqueo rechaza el sobregiro; advertencia e informativo lo dejan pasar con aviso. El DEFAULT de la columna dice bloqueo y nunca se aplica: materialize siempre pasa valor explícito y el efectivo sale del literal del código.',
+          },
         },
         presupuesto,
         real,

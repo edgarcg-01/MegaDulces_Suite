@@ -320,12 +320,25 @@ export class BudgetLinesService {
     }).first();
   }
 
-  private async writeMovement(trx: Knex.Transaction, tenantId: string, lineId: string, type: string, amount: number, opts: MovementOpts & { counterpart?: string }, username: string) {
+  private async writeMovement(trx: Knex.Transaction, tenantId: string, lineId: string, type: string, amount: number, opts: MovementOpts & { counterpart?: string; cancelTarget?: 'reserva' | 'compromiso' }, username: string) {
     try {
       const [mov] = await trx('budget.line_movements').insert({
         tenant_id: tenantId, budget_line_id: lineId, movement_type: type, amount,
         counterpart_line_id: opts.counterpart ?? null,
         source_kind: opts.sourceKind ?? null, source_ref: opts.sourceRef ?? null,
+        // [PU.VG.4a] QUE acumulador bajo esta cancelacion. Antes esto viajaba SOLO en `note`, texto
+        // libre que el llamador puede reemplazar -- o sea que `reserved_amount` y
+        // `committed_amount` no se podian recomputar desde el ledger, y ese es el unico cuadre que
+        // puede fallar (el obvio es una tautologia: `available_amount` no es columna). El CHECK de
+        // la tabla exige esto en las dos direcciones, asi que una cancelacion sin objetivo ya no
+        // entra. NULL = no aplica, nunca "no se" (ADR-056).
+        cancel_target: type === 'cancelacion' ? (opts.cancelTarget ?? null) : null,
+        // [PU.VG.4a] El gemelo del mismo defecto: un `compromiso` con fromReserva MUEVE reservado a
+        // comprometido, y sin el, `committed += amt` sale del disponible y reserved no se toca.
+        // Los dos escribian un movimiento IDENTICO, asi que reserved_amount tampoco se podia
+        // recomputar. Va booleano y no nullable: para un movimiento que no es compromiso, `false`
+        // es cierto, no una suposicion.
+        from_reserva: type === 'compromiso' ? !!opts.fromReserva : false,
         note: opts.note ?? null, created_by: username,
       }).returning('*');
       return mov;
@@ -412,6 +425,15 @@ export class BudgetLinesService {
           }
           break;
         case 'cancelacion':
+          // [PU.VG.4a] El `else` de abajo mandaba a `compromiso` CUALQUIER cancelTarget que no
+          // fuera exactamente 'reserva' -- incluido `undefined`. O sea que un llamador que lo
+          // olvidara bajaba el bucket equivocado EN SILENCIO, y el movimiento quedaba escrito sin
+          // decir cual fue. Ahora se exige explicito: una ambiguedad se rechaza, no se resuelve
+          // por default. (El CHECK de la tabla lo atrapa igual, pero da un 500 de constraint en
+          // vez de un 400 que se entienda.)
+          if (cancelTarget !== 'reserva' && cancelTarget !== 'compromiso') {
+            throw new BadRequestException("cancelacion exige target explicito: 'reserva' o 'compromiso'");
+          }
           if (cancelTarget === 'reserva') {
             if (round2(reserved) < amt) throw new BadRequestException(`No hay tanta reserva para cancelar: reservado ${round2(reserved)}`);
             reserved = round2(reserved - amt);
@@ -424,7 +446,7 @@ export class BudgetLinesService {
 
       const newVigente = type === 'ampliacion' ? round2(vigente + amt) : type === 'reduccion' ? round2(vigente - amt) : vigente;
 
-      const mov = await this.writeMovement(trx, tenantId, lineId, type, amt, opts, username);
+      const mov = await this.writeMovement(trx, tenantId, lineId, type, amt, { ...opts, cancelTarget }, username);
       const [updated] = await trx('budget.budget_lines').where({ tenant_id: tenantId, id: lineId })
         .update({
           vigente_amount: newVigente, reserved_amount: reserved, committed_amount: committed,
