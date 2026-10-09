@@ -32,6 +32,12 @@ require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), qu
 require('./_lib/assert-safe-target').assertSafeTarget('test-newdb-new-products');
 const knex = require('knex')(require('../knexfile-newdb.js').development);
 const esc = require('./_lib/new-products-scenario');
+// [NP.17] El SQL REAL de la existencia que usa el servidor (no una copia), para compararlo con la vista.
+require('ts-node').register({
+  transpileOnly: true, skipProject: true,
+  compilerOptions: { module: 'commonjs', target: 'es2020', esModuleInterop: true, moduleResolution: 'node', ignoreDeprecations: '6.0' },
+});
+const { EXISTENCIA_KEPLER_SQL } = require(path.resolve(__dirname, '../../libs/commercial/src/lib/commercial-products/new-products.sql.ts'));
 
 let ok = 0;
 let ko = 0;
@@ -452,6 +458,29 @@ const nulo = (v) => (v === 0 ? null : v);
       ll03.compra === esc.fecha(hoy, -45) && ll03.entrada === ll03.compra && ll03.entrada_doc === 'X-A-40', ll03);
     check('sin kardex: llegada vacía (no se inventa una fecha)',
       fila('09') && Object.keys(fila('09').llegada || {}).length === 0, fila('09') && fila('09').llegada);
+
+    console.log('\n── 11. [NP.17] La existencia directa de kdil = la rama Kepler de v_erp_stock_on_hand ──');
+    // Dos implementaciones: la vista (con su factor de caja de todo el catálogo, 1-2 s en prod) y la
+    // consulta directa que usa el servidor. Tienen que dar las mismas filas y las mismas cantidades.
+    // El servidor corre dentro de tk.run, que deja puesto el tenant; aquí se pone a mano (local a la transacción).
+    await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [esc.TENANT]);
+    const idsEx = productos.map((p) => p.product_id);
+    const skusEx = [...new Set(productos.map((p) => p.sku))];
+    const vista = (await trx.raw(`
+      SELECT product_id::text AS product_id, warehouse_code AS plaza, qty_stock_units AS cantidad
+        FROM analytics.v_erp_stock_on_hand
+       WHERE tenant_id = public.current_tenant_id() AND product_id = ANY(?::uuid[]) AND unit_source = 'kepler'`,
+    [idsEx])).rows;
+    const directa = (await trx.raw(EXISTENCIA_KEPLER_SQL, [skusEx, idsEx])).rows;
+    const llave = (r) => `${r.product_id}|${r.plaza}`;
+    const mv = new Map(vista.map((r) => [llave(r), Number(r.cantidad)]));
+    const md = new Map(directa.map((r) => [llave(r), Number(r.cantidad)]));
+    const malas = [...new Set([...mv.keys(), ...md.keys()])]
+      .filter((k) => !mv.has(k) || !md.has(k) || Math.abs(mv.get(k) - md.get(k)) > 0.001)
+      .map((k) => ({ k, vista: mv.get(k), directa: md.get(k) }));
+    check(`existencia directa = vista (${mv.size} sucursal×producto)`, mv.size > 0 && malas.length === 0, malas);
+    check('la directa trae la sucursal de Kepler para buscar la ficha',
+      directa.length > 0 && directa.every((r) => typeof r.sucursal === 'string' && r.sucursal.length > 0), directa.slice(0, 3));
 
     // [NP.16] El kardex por sucursal (entradas Y salidas, por rótulo), recalculado de lo sembrado. Es lo
     // que el servidor usa para decir que la existencia de Kepler está en duda.

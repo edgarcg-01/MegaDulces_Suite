@@ -13,6 +13,7 @@ import { componerEnEscalera, unidadLegible, type UnidadEscalera } from '@megadul
 import { coincideBusqueda } from '@megadulces/ui-web';
 import { CATALOGO_TABS } from '../catalogo-tabs';
 import {
+  DetalleNuevo,
   HitoNuevo,
   MargenesNuevo,
   PlazaNueva,
@@ -1014,10 +1015,19 @@ export class ComprasCatalogoNuevosComponent {
     },
     stream: ({ params }) => (params ? this.api.detalle(params.id) : of(null)),
   });
-  /** Sólo el detalle del producto que está abierto: al cambiar de producto no se ve el anterior. */
-  readonly det = computed(() => {
-    const d = this.detRes.error() ? null : this.detRes.value() ?? null;
-    return d && d.producto.product_id === this.abierto()?.product_id ? d : null;
+  /**
+   * Sólo el detalle del producto que está abierto: al cambiar de producto no se ve el anterior.
+   * `[NP.17]` Mientras se recarga (cada minuto) se queda el último del MISMO producto: antes el panel
+   * se vaciaba, mostraba "Cargando sucursales…" y se volvía a pintar desde arriba (el pantallazo).
+   */
+  readonly det = linkedSignal<DetalleNuevo | null, DetalleNuevo | null>({
+    source: () => (this.detRes.error() ? null : this.detRes.value() ?? null),
+    computation: (nuevo, previo) => {
+      const id = this.abierto()?.product_id;
+      if (nuevo && nuevo.producto.product_id === id) return nuevo;
+      const ant = previo?.value;
+      return ant && ant.producto.product_id === id ? ant : null;
+    },
   });
   readonly detError = computed(() => !!this.detRes.error());
 
