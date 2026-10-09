@@ -205,6 +205,14 @@ const COMPUERTAS = [
   // estaba arreglado en `main`. La compuerta corría en `npm run check` y nadie corre
   // `npm run check` antes de commitear; al push no llegaba. Cumple el criterio de admisión:
   // escaneo estático, sin red, sin DB, 2,273 ms medidos (tope ~3 s).
+  //
+  // ⚠️ Esos 2,273 ms los medí EN AISLAMIENTO el mismo día, y 06 midió después que los `ms` de
+  // este registro son pisos: bajo la concurrencia real del push, `estilos` pasa de 3,106 a
+  // 6,526 y `templates` de 2,521 a 4,821. ⭐ Pero la inflación **no es uniforme y conviene no
+  // generalizarla**: re-medido en la corrida concurrente de las 14, ésta cuesta **2,071 ms**,
+  // o sea ×0.91 — no se infla porque no está en la ruta crítica. Las que se inflan son las que
+  // recorren el repo entero compitiendo por el mismo disco. Regla práctica: el `ms` de una
+  // compuerta liviana se parece a la realidad; el de una pesada hay que medirlo EN la rueda.
   { nombre: 'set-bind', script: 'check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)', push: true, ms: 2273 },
   // [MSH.2] H2: la confidencialidad de la cola de RH se rompe cuando alguien escribe una consulta NUEVA a `servicedesk.requests` sin saber
   // que existe lo confidencial. La lista de lectores es CERRADA: uno nuevo rompe el build y quien lo agrega escribe por qué es seguro.
