@@ -258,8 +258,40 @@ const money = (v) => (v === null ? 'null' : Number(v).toLocaleString('es-MX', { 
       t('⛔ NEGATIVA — un tenant que no existe devuelve CERO filas', Number(falso.rows[0].n) === 0);
     }
 
-    // ── 7. El tiempo, publicado aunque incomode ──────────────────────────────────────────────
-    console.log('\n── 7. Tiempo ──');
+    // ── 7. El tiempo, y ⭐ que el ÍNDICE SE USE (no que exista) ──────────────────────────────
+    console.log('\n── 7. Tiempo, y el plan ──');
+
+    /*
+     * ⛔⛔ Este bloque nace de un defecto propio, medido el 2026-10-10. El índice cubriente
+     * `ix_fiscal_cfdis_mes_rol` estaba aplicado, era `indisvalid` y pesaba 6,320 kB — y el
+     * planificador **nunca lo elegía**: la vista filtraba con un literal `DATE` contra un índice
+     * parcial en `timestamptz`, y esa implicación Postgres no la puede probar.
+     *
+     * ⭐ La lección: un gate sobre un índice que mira el CATÁLOGO pasa en verde mientras el
+     * índice no sirve para nada. Hay que mirar el PLAN.
+     */
+    {
+      const ix = await knex.raw(`
+        SELECT i.indisvalid AS valido FROM pg_index i
+          JOIN pg_class c ON c.oid = i.indexrelid
+         WHERE c.relname = 'ix_fiscal_cfdis_mes_rol'`);
+      if (!ix.rows.length) {
+        noMedido('el plan usa el índice de fiscal.cfdis', 'el índice no existe (migración 20261010101129)');
+      } else {
+        t('el índice de fiscal.cfdis es válido (no quedó INVALID por un CONCURRENTLY cortado)',
+          ix.rows[0].valido === true);
+        const plan = await knex.raw(`
+          EXPLAIN (ANALYZE, COSTS OFF)
+          SELECT tenant_id, to_char(fecha,'YYYY-MM'),
+                 sum(total) FILTER (WHERE rol='recibidas'), sum(total) FILTER (WHERE rol='emitidas')
+            FROM fiscal.cfdis WHERE fecha >= TIMESTAMPTZ '2025-01-01 00:00:00+00' GROUP BY 1,2`);
+        const txt = plan.rows.map((r) => r['QUERY PLAN']).join(' ');
+        t('⭐ el plan del testigo de CFDI USA el índice, no lo ignora (existir no es servir)',
+          /ix_fiscal_cfdis_mes_rol/.test(txt), txt.slice(0, 140));
+        t('…y lo usa como Index Only Scan: no baja al heap de 460 MB',
+          /Index Only Scan/.test(txt));
+      }
+    }
     if (!existe) {
       noMedido('tiempo de la vista', 'la vista no existe todavía');
     } else {
@@ -277,9 +309,22 @@ const money = (v) => (v === null ? 'null' : Number(v).toLocaleString('es-MX', { 
       if (mejor <= GATE_MS) {
         t(`cumple el gate de ${GATE_MS} ms (${mejor} ms)`, true);
       } else {
+        /*
+         * ⚠️ Este motivo YA FUE FALSO UNA VEZ. Decía "falta el índice cubriente de fiscal.cfdis"
+         * y el índice estaba aplicado, válido y en uso: el mensaje culpaba a algo arreglado. Una
+         * causa escrita a mano envejece sin avisar, así que ahora se nombra lo que el desglose
+         * MEDIDO dice (2026-10-10, con el índice ya en uso):
+         *
+         *     testigo CFDI 115 ms · señal 110 · testigo banco 61 · meses 20 · futuras 5
+         *     ──────────────────────────────────────────────────────────────────────────
+         *     suma de las partes ~320 ms · la vista entera 548 ms
+         *
+         * O sea: lo que falta **no es otra fuente, es el ARMADO** (el CROSS JOIN mes × familia,
+         * la base materializada y la mediana). Quien lo persiga, que empiece por ahí.
+         */
         noMedido(`el gate de ${GATE_MS} ms`,
-          `mide ${mejor} ms — falta el índice cubriente de fiscal.cfdis ` +
-          '(migración 20261010101129, se aplica FUERA de horario). Está declarado, no escondido.');
+          `mide ${mejor} ms. El testigo de CFDI ya usa Index Only Scan (115 ms); las partes suman `
+          + '~320 ms y el resto es el ARMADO de la vista, no una fuente lenta. Declarado, no escondido.');
       }
     }
 

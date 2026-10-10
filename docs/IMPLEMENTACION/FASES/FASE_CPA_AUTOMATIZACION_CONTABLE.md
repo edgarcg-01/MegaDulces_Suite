@@ -341,7 +341,65 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 > vista en **~450–500 ms**, o sea **al borde del gate, no cómodamente debajo**. Se vuelve a medir
 > con el índice puesto; si no alcanza, el siguiente candidato es el armado, no el testigo.
 >
-> ⚠️ **Falta:** la migración del índice (`20261010101129`) **fuera de horario** · `git push` +
+> ⛔⛔ **EL ÍNDICE SE APLICÓ Y NO SIRVIÓ — y el defecto es mío.** Verificado el 2026-10-10 con el
+> índice ya en prod (`indisvalid`, 6,320 kB): el testigo CFDI sigue en **436–567 ms** y la vista
+> en **888–1,330 ms**. El plan sigue eligiendo `Seq Scan`, mismos 58,900 buffers.
+>
+> La causa está en la definición que quedó grabada:
+> `WHERE (fecha >= '2024-12-31 18:00:00-06'::timestamp with time zone)`.
+> ⭐ **`fiscal.cfdis.fecha` es `timestamptz`, no `date`**, y yo escribí el predicado parcial con un
+> literal `DATE '2025-01-01'`. Para usar un índice parcial, Postgres tiene que **demostrar** que
+> el filtro de la consulta implica el predicado del índice; comparar `timestamptz` contra `date`
+> depende del `TimeZone` de la sesión, que no es inmutable, así que **no puede demostrarlo** y
+> descarta el índice. No hay error, no hay aviso: simplemente nunca se usa.
+>
+> ⚠️ Y confirma que **el índice no era el único costo**: forzando `enable_seqscan=off` el
+> planificador toma *otro* índice y baja a **316 ms**, no a decenas. O sea que aun arreglado, el
+> gate de 500 ms **no está garantizado** — había que medirlo, no suponerlo (era justo lo que esta
+> ficha declaraba como "al borde, no cómodamente debajo").
+>
+> ### ✅ ARREGLADO 2026-10-10 — y no era el índice, era el literal de la vista
+>
+> Otra sesión ya había corregido el predicado del índice para que **se pudiera crear**
+> (`8edb4f070`: `DATE` → `TIMESTAMPTZ`, porque un índice parcial exige predicado inmutable). Eso
+> resolvió la creación; lo que yo medí es otra cosa: **creado y válido, el planificador seguía sin
+> elegirlo.**
+>
+> La causa estaba **del lado de la consulta**: la vista filtraba `fecha >= DATE '2025-01-01'`
+> contra un índice parcial en `timestamptz`. Postgres tiene que **demostrar** que el filtro
+> implica el predicado, y la conversión `date → timestamptz` depende del GUC `TimeZone` (STABLE,
+> no constante al planear): no lo puede probar y descarta el índice **en silencio**.
+>
+> | Literal en la vista | Plan | Tiempo |
+> |---|---|---:|
+> | `DATE '2025-01-01'` | `Seq Scan`, 58,900 buffers | **538.7 ms** |
+> | `TIMESTAMPTZ '2025-01-01 00:00:00+00'` | **`Index Only Scan`** | **109.5 ms** |
+>
+> 🚀 **Migración `20261010120742` en prod (batch 882)**, un `CREATE OR REPLACE VIEW` de 0.2 s con
+> `security_invoker` y el `GRANT` re-aplicados (ADR-057). Sólo se tocó el testigo de CFDI: el de
+> `bank_movements` sigue con `DATE` **a propósito**, porque `movement_date` **es** `date` y ahí no
+> hay conversión que probar.
+>
+> **La vista pasó de 888–1,330 ms a 548–680 ms.** Desglose medido con el índice ya en uso:
+> testigo CFDI 115 · señal 110 · testigo banco 61 · meses 20 · futuras 5 = **~320 ms de partes,
+> contra 548 de la vista entera**.
+> ⚠️ **Sigue arriba del gate de 500 ms, y se declara.** Lo que falta **no es otra fuente lenta:
+> es el ARMADO** (el `CROSS JOIN` mes × familia, la base materializada y la mediana). Quien lo
+> persiga, que empiece por ahí — está escrito en el candado para que no haya que re-descubrirlo.
+>
+> ⛔⛔ **La lección, que vale más que los 430 ms:** el candado preguntaba si el índice **existía**.
+> Existía, era válido, pesaba 6,320 kB — y no servía para nada. **Un gate sobre un índice tiene
+> que mirar el PLAN, no el catálogo.** Ahora lo hace, y falla si alguien vuelve a romper la
+> implicación. ⚠️ Y el `NO MEDIDO` del gate **ya había envejecido**: culpaba a un índice que
+> faltaba cuando el índice ya estaba en uso. Una causa escrita a mano caduca sin avisar.
+>
+> ~~**El arreglo:** una migración nueva que lo recree **sin predicado parcial**~~
+> (`(tenant_id, fecha) INCLUDE (rol, total)`, ~26 MB estimados sobre 428,626 filas), o con el
+> predicado escrito como `timestamptz`. Y el candado tiene que dejar de preguntar si el índice
+> *existe* y empezar a preguntar si el plan **lo usa** — un índice que nadie elige se ve igual
+> que uno que no está.
+>
+> ⚠️ **Falta:** rehacer el índice (`20261010101129` ya está aplicado, pero inútil) · `git push` +
 > redeploy api+view (hoy prod tiene la vista pero **no el endpoint ni la pantalla**) · validación
 > visual. **Sin permiso nuevo → sin re-login.**
 >
@@ -419,7 +477,72 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 
 ### Bloque C — la ida, en orden de rendimiento (renglones ÷ dificultad del mapa)
 
-#### `[CPA.5]` Septiembre: el libro de compras que falta ⬜ 🔥 mayor valor inmediato
+#### `[CPA.5]` Septiembre: el libro de compras que falta 🔍 MEDIDO 2026-10-10 — no es lo que yo creía
+
+> ⛔⛔ **El plan decía "usar el módulo tal cual". No se puede: el módulo se niega, y tiene razón.**
+> Reproducidas sus reglas contra prod (sólo lectura), septiembre-2026 da **1,068 CFDIs recibidas
+> tipo I**, de los cuales 86 ya están en póliza y **982 entrarían**. Pero el botón de generar sale
+> apagado por **618 facturas de 117 RFCs que no tienen cuenta de proveedor** en el mapa que LC
+> usa (`finance.gl_supplier_accounts`, 901 RFCs).
+>
+> **Dos hipótesis mías, las dos REFUTADAS midiendo** (por eso se miden):
+>  1. *"`analytics.contpaqi_suppliers` tiene 3,375 RFCs y cubre 110 de los 117"* — cubre los
+>     nombres, **no la cuenta**. Probé que su `codigo` fuera el sufijo contable: **0 de 902
+>     coinciden** (código `666` ↔ sufijo `0005272`). Son numeraciones distintas.
+>  2. *"lo cubre `contpaqi.supplier_accounts` de `[CP.8.20]`"* — cubre **3 de 117**.
+>
+> Derivando por nombre exacto contra las **8,811 cuentas** de ContPAQi: **3 más**. Quedan **114
+> RFCs ($5,093,917) que de verdad NO tienen cuenta `2120` en ContPAQi.**
+>
+> ⭐⭐ **Y al mirar QUIÉNES son, el problema cambia de naturaleza:** IMSS ($1,339,780),
+> INFONAVIT, BBVA, una gasolinera con **181 facturas en el mes**, una arrendadora, traslado de
+> valores. **No son proveedores de mercancía: son GASTO.** No tienen cuenta `2120` porque no les
+> toca una — la contabilidad los asienta por el otro camino, las ~375 pólizas mensuales de
+> `PAGO …` que §3 ya había contado como una familia **aparte**.
+>
+> → **El bloqueo no es un mapa incompleto: es que LC toma TODO CFDI recibido tipo I y espera que
+> cada emisor sea un proveedor de mercancía.** Mezcla las dos familias que `[CPA.0]` separa.
+>
+> **Lo que sí está listo:** las **450 facturas con mapa suman $38,229,166** — el libro de
+> septiembre está **88 % completo por valor**; lo bloqueado son $5.2 M (12 %) en una cola larga.
+>
+> ### ⭐⭐ La lista para la contadora: **9 RFCs, no 117**
+>
+> El diagnóstico se confirmó con un **testigo estructural**, no con una corazonada sobre el
+> nombre: para cada RFC se miró **a qué cuenta ató ContPAQi sus CFDIs** alguna vez
+> (`gl_poliza_lines.cfdi_uuid`). Resultado sobre los 117:
+>
+> | | RFCs | Importe sep |
+> |---|---:|---:|
+> | **GASTO** — ContPAQi los ató a `5xxx`/`21xx`/`147`/`106`/`102`, **nunca** a `501/502/2120` | **108** | **$4,616,189** |
+> | **MERCANCÍA** — ya atados a `501/502/2120` | 2 | $37,332 |
+> | Sin evidencia — ningún CFDI suyo atado jamás | 7 | $569,268 |
+>
+> ⭐ **El 88 % de lo bloqueado es gasto que no le toca estar en el libro de compras.** El ejemplo
+> que lo dice solo: una gasolinera con **181 facturas en septiembre y 2,174 en el año**, cuyos
+> CFDIs ContPAQi ató 1,497 veces a `1020` (bancos) y 499 a `5200` (gastos). Eso no es una compra.
+>
+> **Y de los 9 que quedan, 3 ni siquiera son trabajo de ella:** ya tienen cuenta `2120` en
+> ContPAQi y lo que falta es **agregarlos al mapa de LC** (trabajo nuestro). Los otros 6 son
+> $477,729, y cuatro se ven mercancía nueva — dos de ellos, **$431,245 entre los dos, con una
+> sola factura cada uno**.
+>
+> ⚠️ **El clasificador no puede con los 6 restantes y se declara:** sin un solo CFDI atado no hay
+> testigo, y ahí entran mezclados tanto mercancía nueva como gasto obvio (hay uno de **$51** de
+> publicidad). Esos seis los separa una persona en dos minutos mirando el importe; lo que el
+> candado no puede hacer es **adivinarlo**.
+>
+> ⛔ **La lista con RFCs y nombres NO se commitea** — el repo es público, misma regla que el TXT
+> real de `[CP.8]`. Vive fuera de git y se entrega por el canal que corresponda.
+>
+> **Lo que falta, y de quién es:**
+>  · ⛔ **Decisión (contadora + Edgar):** acotar el universo del libro a compras de mercancía, o
+>    declarar explícitamente qué RFC de gasto entra. Es criterio contable, no código.
+>  · ⚠️ De los 114 hay **unos pocos que sí parecen mercancía nueva** (`DISTRIBUIDORA COLOMBINA DE
+>    MEXICO` $242,785 · `DISTRIBUIDORA DE BASICOS DEL CENTRO` $188,460, una factura cada uno): a
+>    ésos hay que **darles de alta la cuenta en ContPAQi**, y eso sí desbloquea dinero del libro.
+>  · ⛔ **Y ninguna de las dos se puede empezar sin `[CPA.3]`** (el clic): aunque el mes quedara
+>    limpio, nunca se ha importado un TXT nuestro.
 - **Usar el módulo que ya existe** (`POST /finance/purchase-book/:mes/generar` + `/archivo`), no
   construir nada.
 - ⚠️ **El riesgo real es duplicar:** `2120` de sep ya trae $30.3 M de pagos asentados. Las cuatro
