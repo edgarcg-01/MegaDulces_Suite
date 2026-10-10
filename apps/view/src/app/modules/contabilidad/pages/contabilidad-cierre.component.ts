@@ -3,7 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
 import { TableModule } from 'primeng/table';
 import {
-  CierreContableService, type CierreResp, type EstadoCierre, type FamiliaCierre, type MesCierre,
+  CierreContableService, type CierreResp, type EstadoCierre, type MesCierre,
 } from '../cierre-contable.service';
 
 /**
@@ -287,38 +287,9 @@ export class ContabilidadCierreComponent implements OnInit {
   readonly error = signal<string | null>(null);
 
   /** Sólo los meses cerrados: el que corre está incompleto por definición y no se juzga. */
-  readonly cerrados = computed(() => (this.data()?.meses ?? []).filter((m) => m.periodo_estado === 'cerrado'));
-
-  /**
-   * ⭐ Lo accionable, y nada más: familias en `bad` de meses CERRADOS. `sin_meta` y `sin_medir`
-   * quedan fuera del titular a propósito — son trabajo de otra persona y mezclarlos vuelve el
-   * encabezado un número que no le dice a nadie qué hacer (la lección de `[CP.8.32]`).
-   */
-  readonly faltantes = computed(() =>
-    this.cerrados().flatMap((m: MesCierre) =>
-      m.familias
-        .filter((f: FamiliaCierre) => f.estado === 'bad')
-        .map((f: FamiliaCierre) => ({
-          mes: m.anio_mes,
-          familia: f.familia,
-          etiqueta: f.etiqueta,
-          senal: f.senal,
-          renglones: f.senal_renglones,
-          testigo: f.cobertura_base === 'testigo' ? f.testigo : f.mediana_6m,
-          testigo_fuente: f.testigo_fuente ?? 'mediana de 6 meses',
-          escala_a: f.escala_a,
-        })),
-    ),
-  );
-
-  readonly peorCerrado = computed<EstadoCierre>(() => {
-    const ms = this.cerrados();
-    if (ms.some((m) => m.estado === 'bad')) return 'bad';
-    if (ms.some((m) => m.estado === 'warn')) return 'warn';
-    if (ms.length && ms.every((m) => m.estado === 'ok')) return 'ok';
-    return 'sin_medir';
-  });
-
+  readonly cerrados = computed(() => soloCerrados(this.data()?.meses ?? []));
+  readonly faltantes = computed(() => faltantesDe(this.data()?.meses ?? []));
+  readonly peorCerrado = computed<EstadoCierre>(() => peorDeCerrados(this.data()?.meses ?? []));
   readonly familiasPorMes = computed(() => this.data()?.meses[0]?.familias.length ?? 0);
 
   ngOnInit(): void { this.cargar(); }
@@ -335,14 +306,76 @@ export class ContabilidadCierreComponent implements OnInit {
     });
   }
 
-  /** ⛔ Las dos ausencias NO comparten texto: una la arregla Dirección, la otra Sistemas. */
-  texto(e: EstadoCierre): string {
-    switch (e) {
-      case 'ok': return 'Asentado';
-      case 'warn': return 'Corto';
-      case 'bad': return 'Sin asentar';
-      case 'sin_meta': return 'Sin umbral';
-      default: return 'Sin medir';
-    }
+  texto = textoEstado;
+}
+
+/*
+ * ── Las reglas de lectura, PURAS y exportadas ───────────────────────────────────────────────
+ * Fuera de la clase a propósito, igual que `[CP.8.33]`: así el candado las prueba sin levantar
+ * jsdom ni arrastrar PrimeNG y media app en imports transitivos. Lo que acá puede mentir es un
+ * número en el encabezado, y eso se prueba con funciones, no con un componente montado.
+ */
+
+/** Un mes cerrado es el único que se puede juzgar. El que corre está incompleto por definición. */
+export function soloCerrados(meses: readonly MesCierre[]): MesCierre[] {
+  return meses.filter((m) => m.periodo_estado === 'cerrado');
+}
+
+export interface FaltanteCierre {
+  mes: string;
+  familia: string;
+  etiqueta: string;
+  senal: number;
+  renglones: number;
+  testigo: number | null;
+  testigo_fuente: string;
+  escala_a: string | null;
+}
+
+/**
+ * ⭐ Lo accionable, y nada más: familias en `bad` de meses **cerrados**.
+ *
+ * ⛔ `sin_meta` y `sin_medir` quedan FUERA del titular a propósito. Son trabajo de otra persona
+ * —uno lo arregla quien registra el umbral, el otro Sistemas— y mezclarlos vuelve el encabezado
+ * un número que no le dice a nadie qué hacer: la lección de `[CP.8.32]` («1,474 pendientes») y la
+ * de `[LC.16]`, donde el rojo significaba cuatro cosas y una de ellas era «todo bien».
+ */
+export function faltantesDe(meses: readonly MesCierre[]): FaltanteCierre[] {
+  return soloCerrados(meses).flatMap((m) =>
+    m.familias
+      .filter((f) => f.estado === 'bad')
+      .map((f) => ({
+        mes: m.anio_mes,
+        familia: f.familia,
+        etiqueta: f.etiqueta,
+        senal: f.senal,
+        renglones: f.senal_renglones,
+        testigo: f.cobertura_base === 'testigo' ? f.testigo : f.mediana_6m,
+        testigo_fuente: f.testigo_fuente ?? 'mediana de 6 meses',
+        escala_a: f.escala_a,
+      })),
+  );
+}
+
+/**
+ * El color del encabezado. ⚠️ Sin meses cerrados devuelve `sin_medir`, **no `ok`**: una lista
+ * vacía no es un cierre sano, es que no hay nada que juzgar.
+ */
+export function peorDeCerrados(meses: readonly MesCierre[]): EstadoCierre {
+  const ms = soloCerrados(meses);
+  if (ms.some((m) => m.estado === 'bad')) return 'bad';
+  if (ms.some((m) => m.estado === 'warn')) return 'warn';
+  if (ms.length > 0 && ms.every((m) => m.estado === 'ok')) return 'ok';
+  return 'sin_medir';
+}
+
+/** ⛔ Las dos ausencias NO comparten texto: una la arregla Dirección, la otra Sistemas. */
+export function textoEstado(e: EstadoCierre): string {
+  switch (e) {
+    case 'ok': return 'Asentado';
+    case 'warn': return 'Corto';
+    case 'bad': return 'Sin asentar';
+    case 'sin_meta': return 'Sin umbral';
+    default: return 'Sin medir';
   }
 }

@@ -129,6 +129,11 @@ const DEUDA: ReadonlyArray<{ perm: Permission; url: string; motivo: string }> = 
   { perm: Permission.FISCAL_MATERIALIDAD_GESTIONAR, url: '/contabilidad/materialidad', motivo: 'ídem' },
   { perm: Permission.FISCAL_CONTAB_GESTIONAR, url: '/contabilidad/contabilidad', motivo: 'manage sin view' },
   { perm: Permission.FISCAL_IMPUESTOS_VER, url: '/contabilidad/impuestos', motivo: 'la ruta exige DIOT_VER, no IMPUESTOS_VER' },
+  // ⚠️ Deuda AJENA a [CPA.0], declarada al encontrarla: entró con [CP.8.32]/[CP.8.33] y dejó este
+  // candado ROJO en `main` desde entonces. El par del puente se repartió completo "para el día que
+  // haya algo que entregar", pero la ruta sólo acepta `_VER` — mismo patrón que las de arriba.
+  // Es benigna hoy porque nadie tiene GESTIONAR sin VER; se borra de acá cuando exista el botón.
+  { perm: Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR, url: '/contabilidad/contpaqi-puente', motivo: 'manage sin view' },
   // admin
   { perm: Permission.ROLES_CONFIGURAR, url: '/admin/roles', motivo: 'manage sin view: la ruta exige ROLES_VER' },
 ];
