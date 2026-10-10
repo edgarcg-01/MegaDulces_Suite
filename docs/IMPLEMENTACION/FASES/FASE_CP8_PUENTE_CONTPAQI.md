@@ -2005,3 +2005,77 @@ en la ruta crítica de nada**.
 | `[CP.8.33]` UI de aprobación de reglas | código | tras firmar |
 | los **33 alias** | compras | `por_proveedor` 72.7 % → ~94.5 % |
 | `DISABLE_CRONS` en `deploy/api` | plataforma | ⛔ **no es de esta fase**, pero afecta a todos los crons |
+
+---
+
+## 30. ✅ `[CP.8.32]` La bandeja del puente — el backend, y el permiso REPARTIDO (prod batch 871)
+
+Elegida sobre `[CP.8.11]` (divergencias) por una razón medible: **la de divergencias estaría
+vacía por construcción** —`poliza_exports` no tiene una sola fila— mientras que ésta **ya tiene
+qué mostrar hoy**.
+
+### 30.1 Lo que la bandeja entrega, y por qué es eso
+
+El puente rechaza todo. Una bandeja que listara *lo entregado* mostraría una pantalla en blanco.
+⭐ **Lo que vale hoy es el rechazo con DUEÑO.** Enero, medido en vivo:
+
+| motivo | movs | quién lo arregla |
+|---|--:|---|
+| `sin_regla` | 954 | el contador |
+| `proveedor_sin_cuenta` | 216 | compras — los 33 alias |
+| **`no_aplica`** | **148** | ⭐ **nadie: ya se midió y NO genera póliza** |
+| `sin_centro_costo` | 135 | negocio — CB no trae centro de costo |
+| `sin_medir` | 21 | sistemas |
+
+**Esa tabla ES la entrega.** Antes todo caía en un rechazo genérico y la pantalla habría dicho
+*"1,474 pendientes"* — un número que no le dice a nadie qué hacer. Y **148 de ellos no son trabajo
+pendiente de nadie**: mezclarlos haría que la bandeja pida trabajo que no existe.
+
+⛔ **No hay `POST /entregar`, a propósito.** Nunca se importó un archivo a ContPAQi: un botón de
+entregar sería ofrecer un camino que nadie recorrió.
+
+### 30.2 ⛔ El permiso NO se calcó del módulo hermano
+
+Lo natural era copiar `FISCAL_PURCHASE_BOOK_*`. Leído en vivo, su `VER` lo tienen **8 roles**,
+entre ellos `marketing`, `credito_cobranza` y `gerente_compras`.
+
+Esta pantalla muestra **movimientos de banco con su cuenta contable**, y ninguno de esos tres
+opera egresos bancarios. ⭐ *Copiar una distribución hereda también sus errores.*
+
+| rol | VER | GESTIONAR | personas |
+|---|:-:|:-:|--:|
+| `contabilidad` · `finanzas` · `superadmin` | ✓ | ✓ | 4 · 1 · 8 |
+| `direccion` · `auditor_externo` | ✓ | — | 2 · 0 |
+
+⭐ *Entre quedarse corto y pasarse, corto es el lado barato*: si a alguien le falta, lo pide y se
+ve; si le sobra, nadie se entera.
+
+⚠️ **`GESTIONAR` se repartió aunque no haya nada que entregar.** El día que se firme una regla, la
+puerta ya está separada — repartir permisos con el botón vivo es cuando se cometen los errores.
+
+### 30.3 Dos defectos propios, atrapados antes de llegar a ninguna pantalla
+
+1. **Inventé `cuadre.resumen()`**, que no existe. Lo que existe es `cuadrarPendientes()`, que
+   devuelve justo ese resumen **y escribe** (asciende estados, mueve el latido).
+   ⛔ Un `GET` que lo llamara convertiría **cada visita en una ejecución**, y el latido dejaría de
+   medir la cadencia real para medir cuánta gente abrió la pantalla. Se agregó `estado()`, de
+   solo lectura — y el candado comprueba que **no escribió ni una fila**.
+2. El candado cargaba un servicio de Nest con `skipProject: true`, que deja fuera los alias
+   `@megadulces/*`. Los smokes anteriores no lo sufrían porque cargaban **archivos puros**.
+
+### 30.4 El candado — **22 ✓ / 0 ✗**, mutado a rojo dos veces
+
+Existe por `[LC.6.2]`: ahí el par de permisos nació con la fase, vivió **sólo en el enum**, y el
+módulo estuvo en prod con **cero roles** pudiendo abrirlo. Este candado mira **el reparto**, no la
+declaración — y además que el permiso **cuelgue de un nodo con ruta**, porque uno huérfano no se
+alcanza desde la navegación.
+
+| mutación | |
+|---|---|
+| copiar la distribución del Libro de Compras | ✗ 18/2 |
+| mezclar `no_aplica` con los pendientes | ✗ 21/1 |
+
+🚀 **Migración `20261009182612` aplicada a prod — batch 871.** ⚠️ Volvió a aparecer el
+`migration directory is corrupt`, esta vez por una migración **de otra sesión**
+(`cg76_kdm1_indice_captura`) que está en el ledger y no en la imagen: se copió al pod, no se
+inventó un marcador.

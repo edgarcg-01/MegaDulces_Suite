@@ -228,6 +228,57 @@ export class ContpaqiCuadreService {
     } catch { /* el latido nunca rompe al que late */ }
   }
 
+  /**
+   * `[CP.8.32]` — **Estado del cuadre, de SOLO LECTURA.** Para que la bandeja pueda mirarse sin
+   * que mirar cambie nada.
+   *
+   * ⛔ La tentación era que el `GET` llamara a `cuadrarPendientes()`, que devuelve justo este
+   * resumen — y **escribe**: asciende estados y mueve el latido. Un tablero que corre el proceso
+   * al abrirlo convierte a cada visita en una ejecución, y el latido deja de medir la cadencia
+   * real para medir cuánta gente abrió la pantalla.
+   *
+   * ⚠️ Hoy devuelve todo en cero **y el cero es el dato**: `poliza_exports` está vacía porque
+   * nunca se entregó nada. Por eso viaja `hay_entregas`: un `0 %` sin decir que el denominador
+   * es cero miente por omisión (ADR-056).
+   */
+  async estado(): Promise<{
+    hay_entregas: boolean;
+    por_estado: { estado: string; n: number }[];
+    verificadas: number;
+    esperando: number;
+    divergentes: number;
+    plazo_dias: number;
+  }> {
+    const filas = await this.db('contpaqi.poliza_exports')
+      .where({ tenant_id: MEGA })
+      .select('estado', 'verificada')
+      .count({ n: '*' })
+      .groupBy('estado', 'verificada');
+
+    const num = (v: unknown) => Number(v ?? 0);
+    const porEstado = new Map<string, number>();
+    let verificadas = 0;
+    let esperando = 0;
+    let divergentes = 0;
+    for (const f of filas as any[]) {
+      const n = num(f.n);
+      porEstado.set(f.estado, (porEstado.get(f.estado) ?? 0) + n);
+      if (f.verificada === true) verificadas += n;
+      else if (f.verificada === null) esperando += n;
+      else divergentes += n;
+    }
+    const total = [...porEstado.values()].reduce((a, b) => a + b, 0);
+
+    return {
+      hay_entregas: total > 0,
+      por_estado: [...porEstado.entries()].map(([estado, n]) => ({ estado, n })),
+      verificadas,
+      esperando,
+      divergentes,
+      plazo_dias: PLAZO_DIAS,
+    };
+  }
+
   /** Para la bandeja de `[CP.8.11]`: lo que no cuadró y necesita a una persona. */
   async divergencias(): Promise<unknown[]> {
     return this.db('contpaqi.poliza_exports')

@@ -3,6 +3,7 @@ import { CONTPAQI_POLIZA_SINK_PORT } from '@megadulces/contracts';
 import { ContpaqiTxtSinkAdapter } from './txt-sink.adapter';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
 import { ContpaqiArmadoService } from './contpaqi-armado.service';
+import { ContpaqiBridgeController } from './contpaqi-bridge.controller';
 
 /**
  * Fase CP `[CP.8]` — **El puente a ContPAQi.** Hereda ADR-040: la plataforma **nunca** escribe a
@@ -25,6 +26,8 @@ import { ContpaqiArmadoService } from './contpaqi-armado.service';
  * entregado en verificable.
  */
 @Module({
+  // `[CP.8.32]` La bandeja: lo que saldria de poliza y, de lo que no, el motivo CON DUENO.
+  controllers: [ContpaqiBridgeController],
   providers: [
     ContpaqiArmadoService,
     ContpaqiCuadreService,

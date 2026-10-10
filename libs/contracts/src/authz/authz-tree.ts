@@ -469,6 +469,10 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // Un solo módulo con dos pantallas (no asociados + libro completo del mes); el
           // par de permisos vive acá y en ningún otro nodo. La ruta apunta a la principal.
           { id: 'libro-compras', label: 'Libro de Compras (no asociados → TXT a ContPAQi)', route: '/contabilidad/movimientos-no-asociados', view: [Permission.FISCAL_PURCHASE_BOOK_VER], manage: [Permission.FISCAL_PURCHASE_BOOK_GESTIONAR] },
+          // `[CP.8.32]` El puente a ContPAQi. Vecino del Libro de Compras y con permiso propio:
+          // los dos emiten TXT al mismo sistema, pero el libro es el trámite MENSUAL de compras y
+          // esto es el flujo CONTINUO de egresos de banco. Quien revisa uno no revisa el otro.
+          { id: 'contpaqi-puente', label: 'Puente ContPAQi (egresos → póliza)', route: '/contabilidad/contpaqi', view: [Permission.FISCAL_CONTPAQI_BRIDGE_VER], manage: [Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR] },
           { id: 'facturar', label: 'Facturación (emisión CFDI)', route: '/contabilidad/facturar', view: [Permission.FISCAL_FACTURAR_VER], manage: [Permission.FISCAL_FACTURAR_GESTIONAR] },
           { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
           { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },

@@ -665,6 +665,16 @@ export enum Permission {
   // del SAT, y el árbol de authz exige que cada permiso viva en un solo módulo.
   FISCAL_PURCHASE_BOOK_VER = 'FISCAL_PURCHASE_BOOK_VER',
   FISCAL_PURCHASE_BOOK_GESTIONAR = 'FISCAL_PURCHASE_BOOK_GESTIONAR',
+  // CP.8 (ADR-040) = el PUENTE a ContPAQi: la bandeja que muestra qué egresos se
+  // armarían como póliza y, de los que no, por qué y de quién es el arreglo.
+  // Permiso PROPIO por el mismo criterio que el Libro de Compras: quien revisa el
+  // puente de egresos no es necesariamente quien arma el libro mensual, y el árbol
+  // de authz exige que cada permiso viva en un solo módulo.
+  // ⛔ `GESTIONAR` existe desde ahora aunque todavía no haya nada que entregar: el
+  // día que se firme una regla, la puerta de entregar ya está separada de la de
+  // mirar. Repartirlo después, con el botón vivo, es cuando se cometen los errores.
+  FISCAL_CONTPAQI_BRIDGE_VER = 'FISCAL_CONTPAQI_BRIDGE_VER',
+  FISCAL_CONTPAQI_BRIDGE_GESTIONAR = 'FISCAL_CONTPAQI_BRIDGE_GESTIONAR',
   // FE = facturación electrónica (emisión/timbrado CFDI 4.0 vía PAC SW/Conectia).
   FISCAL_FACTURAR_VER = 'FISCAL_FACTURAR_VER',
   FISCAL_FACTURAR_GESTIONAR = 'FISCAL_FACTURAR_GESTIONAR',
