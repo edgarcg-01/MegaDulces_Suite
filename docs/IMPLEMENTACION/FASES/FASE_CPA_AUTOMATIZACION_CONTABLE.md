@@ -284,7 +284,7 @@ Estados: ⬜ TODO · 🔨 EN CÓDIGO · 🧪 PROBADO · 🚀 PROD · ✅ CERRADO
 
 ### Bloque A — rinde sin depender de nadie (sólo lectura, riesgo cero)
 
-#### `[CPA.0]` Semáforo de cierre contable 🔨 EN CÓDIGO 2026-10-10
+#### `[CPA.0]` Semáforo de cierre contable 🚀 LAS 2 MIGRACIONES EN PROD 2026-10-10
 **Por qué primero:** es lo único que habría gritado el hueco de septiembre el día 1. No espera al
 contador, ni al SDK, ni a que ContPAQi acepte nada.
 
@@ -320,8 +320,29 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 > (`FISCAL_CONTPAQI_BRIDGE_GESTIONAR` abre el módulo en el árbol y la ruta sólo acepta `_VER`),
 > declarado ahora en `DEUDA` con motivo, que es lo que ese spec pide.
 >
-> ⚠️ **Falta:** aplicar las 3 migraciones en `md` (una por una, `apply-one-migration-prod.js`
-> dentro de `prod-api`; la del índice **fuera de horario**) · redeploy api+view · validación
+> 🚀 **EN PROD 2026-10-10 — batches 879 y 880.** Aplicadas una por una con
+> `apply-one-migration-prod.js` dentro del pod `api` de k3s, con identidad de clúster verificada
+> (`7688376744939610156`) y **pre-vuelo desde el pod de Postgres**, no desde `edgar`: el runbook
+> avisa que desde ese rol el `query` de las demás sesiones viene en blanco y se lee como *"no hay
+> nada corriendo"*. Salió limpio y el rollout estaba terminado. 0.1 s cada una.
+>
+> **El candado contra prod: 21 ✔ · 0 ✘ · 1 ◻ NO MEDIDO.** Lo verificado en vivo: la vista ve
+> `(2026-09, compras)` con 0 renglones y $0 mientras el `GROUP BY` no la ve; señal + provisional
+> **cuadra con la balanza al peso** en 12 pares; las 231 pólizas futuras quedan fuera de la señal
+> y `16,007,700 + provisional = 52,813,192` al centavo; los 5 umbrales con procedencia,
+> `manual_lock` y escalando a una silla con gente; `security_invoker` puesto y un tenant falso
+> devolviendo cero.
+>
+> ⛔ **Y una cifra mía que la medición en prod corrigió:** yo había declarado **938 ms**. La vista
+> ya creada mide **833–1,261 ms** (el 938 era la consulta cruda, sin la indirección de la vista
+> ni el filtro del consumidor). Desglose medido en prod: testigo CFDI **~400 ms** · señal
+> ~130 ms · testigo banco ~70 ms · el resto, armado y mediana.
+> ⚠️ **Eso cambia lo que el índice puede prometer:** quitar los ~400 ms del `Seq Scan` deja la
+> vista en **~450–500 ms**, o sea **al borde del gate, no cómodamente debajo**. Se vuelve a medir
+> con el índice puesto; si no alcanza, el siguiente candidato es el armado, no el testigo.
+>
+> ⚠️ **Falta:** la migración del índice (`20261010101129`) **fuera de horario** · `git push` +
+> redeploy api+view (hoy prod tiene la vista pero **no el endpoint ni la pantalla**) · validación
 > visual. **Sin permiso nuevo → sin re-login.**
 >
 > ⛔ **Procedencia rota, declarada:** los 14 archivos de `[CPA.0]` **no están en un commit
