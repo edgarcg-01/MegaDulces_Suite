@@ -508,10 +508,18 @@ export class CommercialReplenishmentController {
   @ApiOperation({ summary: 'Rechaza una requisición (pending_approval → cancelled).' })
   reject(@Param('id') id: string) { return this.svc.reject(id); }
 
+  /**
+   * `[RQ.15]` ⚠️ **Cambio de contrato:** el cuerpo con la OC de Kepler ahora es OBLIGATORIO.
+   * Antes esta ruta no recibía nada y la requisición quedaba ordenada sin decir contra qué — por
+   * eso las 53 `ordered` por $11,586,824 que ya existen no se pueden seguir hasta la entrada.
+   * Un cliente viejo recibe 400 con el motivo, que es mejor que seguir guardando el hueco.
+   */
   @Post('requisitions/:id/order')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)
-  @ApiOperation({ summary: 'RA.14 — marca la requisición como ordenada/en tránsito (approved → ordered).' })
-  markOrdered(@Param('id') id: string) { return this.svc.markOrdered(id); }
+  @ApiOperation({ summary: 'RA.14/RQ.15 — marca la requisición como ordenada (approved → ordered). Body OBLIGATORIO: { oc_sucursal, oc_folio } de la orden de compra de Kepler.' })
+  markOrdered(@Param('id') id: string, @Body() dto?: { oc_sucursal?: string; oc_folio?: string }) {
+    return this.svc.markOrdered(id, { sucursal: dto?.oc_sucursal, folio: dto?.oc_folio });
+  }
 
   @Post('requisitions/:id/receive')
   @RequirePermissions(Permission.COMPRAS_REQUISICIONES_GESTIONAR)

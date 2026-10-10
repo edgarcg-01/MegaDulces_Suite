@@ -1412,8 +1412,16 @@ export class ComprasService {
     return this.http.post<{ id: string; estado: RequisitionEstado }>(`${this.base}/requisitions/${id}/reject`, {});
   }
   /** RA.14 — approved → ordered (OC emitida / en tránsito). */
-  markOrdered(id: string): Observable<{ id: string; estado: RequisitionEstado }> {
-    return this.http.post<{ id: string; estado: RequisitionEstado }>(`${this.base}/requisitions/${id}/order`, {});
+  /**
+   * `[RQ.15]` Marcar ordenada exige decir CUÁL orden de compra de Kepler salió.
+   *
+   * ⚠️ Los dos campos son obligatorios y el backend devuelve 400 sin ellos. No es rigidez: la
+   * junta requisición↔OC **no existía** —sólo se guardaba cuándo y quién ordenó— y por eso las 53
+   * requisiciones ya ordenadas, por $11,586,824, no se pueden seguir hasta la entrada de
+   * mercancía. Dejarlo opcional lo habría dejado vacío igual.
+   */
+  markOrdered(id: string, oc: { oc_sucursal: string; oc_folio: string }): Observable<{ id: string; estado: RequisitionEstado }> {
+    return this.http.post<{ id: string; estado: RequisitionEstado }>(`${this.base}/requisitions/${id}/order`, oc);
   }
   /** RA.14 — ordered → received (+ cantidades recibidas por línea). */
   markReceived(id: string, lines?: ReceiveLine[]): Observable<{ id: string; estado: RequisitionEstado }> {
