@@ -184,22 +184,29 @@ describe('[AU.33] contra el árbol REAL', () => {
    * en Egresos contables, y `FINANCE_FINDINGS_GESTIONAR` no tiene módulo «Hallazgos» propio—.
    * Comprobar una derivación contra sí misma la pasa en verde; sólo el árbol la refuta.
    */
-  const LAS_18_PANTALLAS = [
-    'contabilidad/cfdi', 'contabilidad/conciliacion', 'contabilidad/contabilidad',
-    'contabilidad/credenciales', 'contabilidad/descarga', 'contabilidad/diot',
-    'contabilidad/facturar', 'contabilidad/impuestos', 'contabilidad/libro-compras',
-    'contabilidad/listas-sat', 'contabilidad/materialidad',
+  /*
+   * ⭐ Pasó de 18 a 19 con `[CPA.0]`, y la lista crece ENUMERANDO la pantalla nueva, no subiendo
+   * un contador. El semáforo de cierre (`contabilidad/cierre-contable`) reusa `FISCAL_CONTAB_VER`
+   * —que está en LAS_27— a propósito, para no estrenar un permiso que alguien tendría que
+   * repartir en prod (`[LC.6.2]`). El efecto correcto de esa decisión es justo éste: quitarle esa
+   * clave a alguien ahora le quita una pantalla más, y este candado lo dice.
+   */
+  const LAS_19_PANTALLAS = [
+    'contabilidad/cfdi', 'contabilidad/cierre-contable', 'contabilidad/conciliacion',
+    'contabilidad/contabilidad', 'contabilidad/credenciales', 'contabilidad/descarga',
+    'contabilidad/diot', 'contabilidad/facturar', 'contabilidad/impuestos',
+    'contabilidad/libro-compras', 'contabilidad/listas-sat', 'contabilidad/materialidad',
     'finanzas/bancos', 'finanzas/calendario-pagos', 'finanzas/cartera', 'finanzas/cobranza',
     'finanzas/gastos', 'finanzas/maat', 'finanzas/tareas',
   ];
 
-  it('las 27 claves del caso real caen en 18 pantallas de 2 proyectos', () => {
+  it('las 27 claves del caso real caen en 19 pantallas de 2 proyectos', () => {
     const r = pantallasAfectadas(
       LAS_27.map((k) => ({ permission_key: k, allow: false })),
       AUTHZ_TREE,
     );
     expect(r.sinModulo).toEqual([]);
-    expect(r.pantallas.map((p) => `${p.projectId}/${p.moduleId}`).sort()).toEqual(LAS_18_PANTALLAS);
+    expect(r.pantallas.map((p) => `${p.projectId}/${p.moduleId}`).sort()).toEqual(LAS_19_PANTALLAS);
     expect(new Set(r.pantallas.map((p) => p.projectId))).toEqual(new Set(['finanzas', 'contabilidad']));
     // La suma vuelve a dar 27: ninguna clave se perdió ni se contó dos veces al agrupar.
     expect(r.pantallas.reduce((s, p) => s + p.quita.length + p.concede.length, 0)).toBe(27);
