@@ -18,6 +18,9 @@ export const CONTABILIDAD_TABS: PageTab[] = [
   { label: 'Contabilidad e.', route: '/contabilidad/contabilidad', icon: 'pi pi-book', permission: Permission.FISCAL_CONTAB_VER },
   { label: 'ContPAQi', route: '/contabilidad/contpaqi', icon: 'pi pi-database', permission: Permission.FISCAL_CONTAB_VER },
   { label: 'Pólizas', route: '/contabilidad/polizas', icon: 'pi pi-check-circle', permission: Permission.FISCAL_CONTAB_VER },
+  // `[CPA.0]` Qué mes ya está asentado en ContPAQi y cuál no. Mismo permiso que ContPAQi y
+  // Pólizas: lo mira quien revisa los libros, y así no estrena puerta que alguien deba repartir.
+  { label: 'Cierre', route: '/contabilidad/cierre', icon: 'pi pi-calendar-times', permission: Permission.FISCAL_CONTAB_VER },
   // Fase LC. El sub-módulo va primero: es el trámite del día a día. El libro completo del
   // mes es el caso excepcional (un mes que nunca se subió).
   { label: 'No asociados', route: '/contabilidad/movimientos-no-asociados', icon: 'pi pi-link', permission: Permission.FISCAL_PURCHASE_BOOK_VER },

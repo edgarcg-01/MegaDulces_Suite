@@ -132,6 +132,71 @@ const CTA = (cuenta, nombre, veredicto = 'confirmado', rfc = 'XAXX010101000') =>
         check(afectados.length > 0,
           `⛔ y ${afectados.length} de los ${resueltos.length} resueltos son de esos nombres: sin rubro se perderían`);
 
+        /**
+         * ⭐⭐ [4] **Cruce de DOS implementaciones del mismo hecho**, que es como aparecen los
+         * bugs en este repo:
+         *   A = este resolvedor: el **concepto del banco** → cuenta `2120*`.
+         *   B = el camino de `[CP.8.23]`: el **pago registrado en Kepler** trae el nombre del
+         *       proveedor, y ese nombre se resuelve contra el mismo padrón.
+         *
+         * Son dos fuentes independientes. Si contradicen, una está mal — y hay que verlo
+         * **antes** de que salga en una póliza, no al cuadrar la balanza.
+         *
+         * ⚠️ El pareo A↔B es por (fecha, importe exacto) y sólo cuando hay **un** candidato:
+         * dos pagos del mismo importe el mismo día no se desempatan, y forzarlo inventaría la
+         * contradicción o la taparía.
+         */
+        const pagos = await knex('analytics.erp_supplier_payments')
+          .select('proveedor_nombre', 'monto', knex.raw(`to_char(pago_date,'YYYY-MM-DD') as f`))
+          .whereRaw(`to_char(pago_date,'YYYY-MM') = '2026-01'`)
+          .catch(() => []);
+        if (!pagos.length) {
+          nm += 1;
+          console.log('  [NO MEDIDO] `analytics.erp_supplier_payments` vacía: el cruce A↔B no corre');
+        } else {
+          const porClave = new Map();
+          for (const p of pagos) {
+            const key = `${p.f}|${Math.round(Number(p.monto) * 100)}`;
+            if (!porClave.has(key)) porClave.set(key, []);
+            porClave.get(key).push(p);
+          }
+          const conFecha = await knex('finance.bank_movements as m')
+            .join('finance.movement_categories as c', 'c.id', 'm.category_id')
+            .join('finance.bank_accounts as ba', 'ba.id', 'm.bank_account_id')
+            .select('m.concept', 'm.amount_out', knex.raw(`to_char(m.movement_date,'YYYY-MM-DD') as f`))
+            .where('m.tenant_id', MEGA).whereNull('m.deleted_at').where('m.amount_out', '>', 0)
+            .where('c.code', 'compra_mercancia').whereNotNull('ba.contpaqi_cuenta')
+            .whereRaw(`to_char(m.movement_date,'YYYY-MM') = '2026-01'`);
+          let de = 0; let contra = 0;
+          const choques = [];
+          for (const m of conFecha) {
+            const a = resolverProveedor(conRubro, m.concept);
+            if (a.veredicto !== 'resuelto') continue;
+            const cand = porClave.get(`${m.f}|${Math.round(Number(m.amount_out) * 100)}`);
+            if (!cand || cand.length !== 1) continue;
+            const b = resolverProveedor(conRubro, cand[0].proveedor_nombre);
+            if (b.veredicto !== 'resuelto') continue;
+            de += 1;
+            if (b.cuenta !== a.cuenta) {
+              contra += 1;
+              choques.push(`"${m.concept}"→${a.cuenta} vs "${cand[0].proveedor_nombre}"→${b.cuenta}`);
+            }
+          }
+          if (!de) {
+            nm += 1;
+            console.log('  [NO MEDIDO] ningún movimiento pudo cruzarse contra un pago de Kepler');
+          } else {
+            const acuerdo = ((de - contra) / de) * 100;
+            check(acuerdo >= 95,
+              `⭐⭐ las DOS vías (banco y pago de Kepler) coinciden en ${de - contra} de ${de} (${acuerdo.toFixed(1)}%)`);
+            // ⚠️ No se exige CERO contradicciones: un nombre comercial contra el nombre legal
+            // puede ser el mismo proveedor con dos cuentas en el catálogo de ContPAQi, y eso se
+            // arregla allá, no acá. Lo que no se tolera es que crezcan.
+            check(contra <= 2,
+              `⛔ contradicciones: ${contra}${choques.length ? ' — ' + choques.slice(0, 2).join(' · ') : ''}`);
+          }
+        }
+
         // Ninguna cuenta devuelta puede salirse del rubro pedido.
         const fuera = resueltos
           .map((m) => resolverProveedor(conRubro, m.concept).cuenta)
