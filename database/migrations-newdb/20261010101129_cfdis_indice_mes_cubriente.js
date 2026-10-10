@@ -48,11 +48,30 @@
 exports.config = { transaction: false };
 
 exports.up = async function up(knex) {
+  // ⛔ El predicado decía `fecha >= DATE '2025-01-01'` y PROD LO RECHAZA:
+  //
+  //     ERROR: functions in index predicate must be marked IMMUTABLE
+  //
+  // `fiscal.cfdis.fecha` es `timestamptz` (verificado en prod), así que comparar contra un
+  // `date` inserta una conversión `date -> timestamptz` que depende del GUC `TimeZone`: es
+  // STABLE, no IMMUTABLE, y un índice parcial sólo admite predicados inmutables. Un literal
+  // `timestamptz` CON offset explícito se resuelve a un instante absoluto y sí lo es.
+  //
+  // Medido en prod sobre una tabla TEMP (no toca nada), las tres variantes:
+  //     DATE '2025-01-01'                      -> ⛔ rechaza
+  //     TIMESTAMPTZ '2025-01-01 00:00:00+00'   -> ✅ acepta
+  //     sin WHERE (índice completo)            -> ✅ acepta
+  //
+  // Se elige el corte en UTC y no en `-06` a propósito: cae ANTES que la medianoche local,
+  // así que el índice cubre de más. Para que el planner use un índice parcial, el predicado
+  // de la consulta tiene que IMPLICAR el del índice — con el corte más temprano eso se
+  // cumple venga la consulta en hora local o en UTC. Con `-06` una consulta expresada en UTC
+  // pediría más temprano que el índice y el planner lo descartaría, en silencio.
   await knex.raw(`
     CREATE INDEX CONCURRENTLY IF NOT EXISTS ix_fiscal_cfdis_mes_rol
         ON fiscal.cfdis (tenant_id, fecha)
      INCLUDE (rol, total)
-         WHERE fecha >= DATE '2025-01-01'`);
+         WHERE fecha >= TIMESTAMPTZ '2025-01-01 00:00:00+00'`);
 
   const { rows } = await knex.raw(`
     SELECT i.indisvalid AS valido, pg_size_pretty(pg_relation_size(i.indexrelid)) AS tamano
