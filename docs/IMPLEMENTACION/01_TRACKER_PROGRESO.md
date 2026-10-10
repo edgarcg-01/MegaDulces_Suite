@@ -10174,6 +10174,23 @@ contra `pg-prod` (namespace `prod`, k3s).
 - [ ] **[CP.8.18]** Correrlo en una terminal ContPAQi · **[CP.8.19]** el agente · **[CP.8.20]**
   `SdkSinkAdapter` + reversa a TXT.
 
+- [x] **[CP.8.30]** 🧪 **El renglón `AD` en el libro de compras — construido y APAGADO.** Bandera
+  propia `asocia_cfdi` (mig `20261010093324`, **sin aplicar**), `opts.asociar === true`: con la
+  bandera en cero el archivo sale **idéntico al byte**. ⛔ **Dos cifras de esta fase eran falsas**:
+  «~4,200 asociaciones/mes» contaba TODOS los CFDI asociados (16× de más) y el «~1,400» de §22.3 no
+  tiene derivación (5×). Lo medido: el libro transporta **~263 comprobantes al mes** (1,838 en 7
+  meses, cuadra con los 256 abonos a `212` de enero) + **1,772 de atraso del complemento**. *Eso
+  degrada la fase*: el premio mayor sigue siendo el libro. ⛔ `construirTxt` tiene **9 parámetros
+  posicionales** y los UUID aterrizaron en `impresa` — el array se serializaba **dentro del
+  encabezado**; lo atrapó el invariante «apagado == lista vacía», no el compilador. Candado
+  **38 → 48 ✓** con 2 pruebas negativas. 2026-10-10
+- [x] **[CP.8.31]** ⛔ **Un candado con la fecha escrita adentro caducó solo.** `caratula`
+  afirmaba *«ago-2026 no tiene póliza»*: al 2026-10-10 **agosto ya está posteado** (293 abonos a
+  `212`, $40.9M) y se puso rojo sin que nadie rompiera nada. Medido: **ene–ago tienen las ocho
+  pólizas**; **sep y oct están en cero**. Ahora **deriva** el mes sin póliza en vez de nombrarlo
+  (lección de `[CDRP.2.1]`). ⚠️ Corrige el plan presentado al área: el mes candidato es
+  **septiembre**, no agosto. **66 ✓**. 2026-10-10
+
 ### ⛔ Bloqueos abiertos
 
 - [ ] ⭐ **Importar UN archivo** para confirmar que ContPAQi lo acepta. **Un minuto de la

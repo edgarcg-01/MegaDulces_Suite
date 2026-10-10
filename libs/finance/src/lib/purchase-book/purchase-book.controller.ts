@@ -82,7 +82,7 @@ export class PurchaseBookController {
   @ApiOperation({ summary: 'Genera el TXT del complemento: solo los movimientos que faltan por asociar.' })
   async generarNoAsociados(
     @Param('mes') mes: string,
-    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean; forzar_importe?: boolean; motivo?: string },
+    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean; asociar?: boolean; forzar_importe?: boolean; motivo?: string },
   ) {
     const r = await this.svc.generar(mes, { ...(body ?? {}), tipo: 'complemento' });
     const { txt, ...resumen } = r;
@@ -171,7 +171,7 @@ export class PurchaseBookController {
   @ApiOperation({ summary: 'Genera el TXT del mes y deja la corrida firmada por su hash.' })
   async generar(
     @Param('mes') mes: string,
-    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean },
+    @Body() body: { impuestos?: ImpuestosModo; uuid?: boolean; asociar?: boolean },
   ) {
     const r = await this.svc.generar(mes, body ?? {});
     // El contenido va aparte: el front lo descarga por /archivo cuando el usuario quiere.
