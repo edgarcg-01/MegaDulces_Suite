@@ -188,3 +188,95 @@ describe('[MAT.5] las rutas', () => {
     }
   });
 });
+
+/**
+ * `[MAT.5.1]` — **que el dato viaje no sirve de nada si el consumidor no lo mira.**
+ *
+ * ⛔ La aserción de arriba («y el estado VIAJA al front, para que no los pinte igual») estaba en
+ * VERDE mientras la pantalla los pintaba **exactamente igual**: el backend llenaba bien
+ * `assignment.status`, y el estado del RENGLÓN —que es sobre el que la plantilla hace `@switch`—
+ * decía `assignment ? 'confirmed' : …`. Una propuesta de la máquina salía con palomita verde y
+ * «Asignada por …», que es la frase que afirma que una persona la miró.
+ *
+ * ⭐ Esto no era teórico: el lote de MAT.5 **todavía no se había corrido**. Correrlo antes habría
+ * metido **1,900 pares por $99,961,324** a la pantalla como evidencia fiscal verificada.
+ *
+ * ⚠️ La lección que este bloque fija: una prueba que mide que el productor EMITE un campo no
+ * prueba nada sobre lo que el consumidor HACE con él. Hay que medir los dos lados.
+ */
+const PANT = readFileSync(join(RAIZ, 'apps', 'view', 'src', 'app', 'modules', 'contabilidad', 'pages', 'contabilidad-materialidad.component.ts'), 'utf8');
+const CLI = readFileSync(join(RAIZ, 'apps', 'view', 'src', 'app', 'modules', 'contabilidad', 'materialidad.service.ts'), 'utf8');
+
+describe('[MAT.5.1] ⛔ una propuesta NO se pinta como evidencia', () => {
+  it('⭐⭐ el estado del RENGLÓN distingue auto de confirmed', () => {
+    // Es el campo sobre el que la plantilla hace @switch. El de adentro no alcanza.
+    expect(CODIGO).toMatch(/status: assignment\s*\?\s*\(assignment\.status === 'auto' \? 'auto' : 'confirmed'\)/);
+  });
+
+  it('⛔ NEGATIVA: no queda el aplastamiento viejo', () => {
+    expect(CODIGO).not.toMatch(/status: assignment \? 'confirmed' :/);
+  });
+
+  it('⭐⭐ la pantalla tiene su propio caso, y NO lleva palomita ni "Asignada por"', () => {
+    const i = PANT.indexOf("@case ('auto')");
+    expect(i).toBeGreaterThan(0);
+    const fin = PANT.indexOf("@case ('suggested')", i);
+    expect(fin).toBeGreaterThan(i);
+    // ⚠️ SIN los comentarios HTML: el comentario de ese bloque CITA la frase prohibida para
+    // explicar por qué está prohibida, y el candado se puso rojo por la prosa. Es la misma
+    // trampa de medir redacción en vez de código, cobrada otra vez.
+    const bloque = PANT.slice(i, fin).replace(/<!--[\s\S]*?-->/g, ' ');
+    // Las dos marcas que dicen "una persona lo verificó". Ninguna puede aparecer acá.
+    expect(bloque).not.toContain('Asignada por');
+    expect(bloque).not.toMatch(/mt-est e-vigente/);
+    // Y dice en pantalla lo que es, no sólo en un title.
+    expect(bloque).toContain('propuesta');
+  });
+
+  it('⭐ el tipo del front admite auto — si no, TypeScript no deja escribir el caso', () => {
+    expect(CLI).toMatch(/status: 'confirmed' \| 'auto' \| 'suggested' \| 'unmatched'/);
+    expect(CLI).toMatch(/status: 'confirmed' \| 'auto'/);
+  });
+});
+
+describe('[MAT.5.1] ⭐ el conteo no infla la evidencia', () => {
+  it('⛔ las propuestas se cuentan APARTE, nunca sumadas a las asignadas', () => {
+    expect(PANT).toMatch(/auto: rows\.filter\(\(r\) => r\.status === 'auto'\)\.length/);
+    // Y `confirmed` sigue contando SÓLO lo confirmado.
+    expect(PANT).toMatch(/confirmed: rows\.filter\(\(r\) => r\.status === 'confirmed'\)\.length/);
+  });
+});
+
+describe('[MAT.5.1] ⭐ confirmar en lote existe y está acotado', () => {
+  it('⛔⛔ el endpoint tenía cliente y NINGÚN componente lo llamaba', () => {
+    expect(CLI).toContain('confirmBatch');
+    expect(CLI).toContain('assignments/confirm-batch');
+    expect(PANT).toContain('confirmBatch');
+  });
+
+  it('⭐⭐ el lote confirma SÓLO lo que está en pantalla, nunca todo el tenant', () => {
+    // Un botón que confirmara en ciego lo que nadie abrió convertiría en evidencia un lote que
+    // nadie vio — justo lo que el estado `auto` existe para impedir.
+    const i = PANT.indexOf('confirmarPropuestas() {');
+    expect(i).toBeGreaterThan(0);
+    const b = PANT.slice(i, i + 1600);
+    expect(b).toMatch(/this\.recon\(\) \|\| \[\]/);
+    expect(b).toMatch(/r\.status === 'auto'/);
+  });
+
+  it('⭐ y una propuesta se confirma por confirmBatch, NO por confirmAssign', () => {
+    // `confirmAssign` INSERTA una asignación nueva; acá la fila ya existe y chocaría contra el
+    // índice único de MAT.5.
+    const i = PANT.indexOf('confirmarPropuesta(row: MatReconcileRow) {');
+    expect(i).toBeGreaterThan(0);
+    const b = PANT.slice(i, i + 1400);
+    expect(b).toContain('confirmBatch');
+    expect(b).not.toContain('confirmAssign');
+  });
+
+  it('⛔ y lo que se reporta es lo que el servidor CONFIRMÓ, no lo que se pidió', () => {
+    const i = PANT.indexOf('confirmarPropuestas() {');
+    const b = PANT.slice(i, i + 1600);
+    expect(b).toMatch(/r\?\.confirmadas/);
+  });
+});
