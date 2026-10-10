@@ -458,6 +458,34 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 - Hereda la regla de [`VERDAD_ABSOLUTA`](../../VERDAD_ABSOLUTA.md): el hueco se declara con
   **nombre y monto**.
 
+#### `[CPA.0.1]` ⛔ Auditoría adversaria del semáforo: dos formas en que todavía puede mentir ⬜
+
+Medido contra prod el 2026-10-10, preguntándole a la vista **cómo podría engañar**, no si funciona.
+
+**⛔ Hueco 1 — un mes posteado DOS VECES se ve sano.** `direction` es `higher_is_better` en las
+cinco familias, así que `clasificarKpi` sólo mira el piso: **una cobertura de 2.0 sale `ok`**. Si
+la póliza de compras de un mes se asentara duplicada —el riesgo exacto contra el que el Libro de
+Compras tiene cuatro puertas— la cobertura treparía y el tablero diría **verde**.
+*Medido hoy: la máxima cobertura de un mes cerrado es **1.3868** (gastos, 91 celdas), así que
+**hoy no ocurre**. Pero el diseño no lo vería.* ⚠️ Y no se arregla poniendo `lower_is_better`: eso
+rompe la detección de ausencia, que es para lo que existe. Hace falta **declarar lo alto aparte**,
+no invertir el criterio.
+
+**⛔ Hueco 2 — la mediana puede descansar en UN solo mes, y la vista no dice cuántos.** Para
+`gastos` y `nomina` el patrón de comparación es la mediana de los 6 meses previos, pero sólo se
+cuentan los meses con renglones. Medido: `2025-02 gastos` y `2025-02 nomina` la calculan con
+**1 mes**; `2025-03`, con 2. Un veredicto sobre n=1 se publica **idéntico** a uno sobre n=6.
+Es la misma lección de `[CP.8.20]`: *pureza perfecta sobre n=1 no es certeza.*
+
+**✅ Lo que la auditoría sí confirmó que funciona:** `bancos` **no tiene testigo en ningún mes de
+2025** —`finance.bank_movements` arranca en 2026-01— y la vista lo publica como `sin_medir` con
+señal de $120–215 M al lado, **no como cero ni como verde**. El tercer estado de ADR-056 está
+haciendo su trabajo sobre datos reales. Y cero incoherencias entre `senal` y `senal_renglones`.
+
+**El arreglo propuesto** (una migración de vista + engine + pantalla + candado): publicar
+`mediana_meses` y un `cobertura_alta` que marque lo que se despega por arriba, para que un mes
+duplicado y un mes sano **dejen de verse igual**.
+
 ### Bloque B — la dependencia humana (cero código)
 
 #### `[CPA.3]` El clic ⬜ ⛔⛔ RUTA CRÍTICA DE TODO EL BLOQUE C
