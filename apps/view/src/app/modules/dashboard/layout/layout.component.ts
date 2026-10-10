@@ -121,6 +121,33 @@ interface NavItem {
   tabs?: readonly PageTab[];
 }
 
+/**
+ * Convierte la barra de pestañas de un sub-módulo en items de sidebar.
+ *
+ * ⛔ **Por qué derivar y no copiar.** Medido el 2026-10-09 sobre los 14 archivos `*-tabs.ts`:
+ * **81 pantallas vivían SÓLO en una pestaña** y no aparecían en ningún sidebar. No es un
+ * descuido puntual: son dos listas escritas a mano que describen lo mismo, así que divergen
+ * siempre. Contabilidad y Finanzas estaban al día (15/15 y 18/18) porque alguien las mantuvo;
+ * Comercial tenía 4 de 11. El propio archivo ya lo resolvió así para Almacén —*«sus items de
+ * acá para que nunca se desincronice de la barra de tabs»*— y ésta es la misma idea generalizada.
+ *
+ * ⭐ Es la razón que `[AU.3]`/`[AU.4]` ya habían dejado escrita: *una pantalla que no está en el
+ * sidebar, para quien no conoce la pestaña, no existe.*
+ *
+ * `PageTab` ya trae `label`, `route`, `icon`, `permission` y `anyOf`, que es exactamente lo que
+ * `NavItem` necesita: no hay traducción, hay proyección. `dedupeByRoute` se encarga de las que
+ * también estén escritas a mano (p. ej. «Facturación TM» y «Documentos» son la misma ruta).
+ */
+function navDeTabs(tabs: PageTab[], iconoPorDefecto = 'pi pi-circle'): NavItem[] {
+  return tabs.map((t) => ({
+    label: t.label,
+    icon: t.icon ?? iconoPorDefecto,
+    route: t.route,
+    ...(t.anyOf ? { anyOf: t.anyOf } : {}),
+    ...(t.permission ? { permission: t.permission } : {}),
+  }));
+}
+
 @Component({
   selector: 'app-layout',
   standalone: true,
@@ -380,6 +407,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
+    // Las cuatro de MKT (`/mkt/*`) vivían SÓLO en su barra: promociones, promos del ERP,
+    // acuerdos y resultado. Ninguna tenía entrada por sidebar en ningún proyecto.
+    ...navDeTabs(PROMOS_TABS),
   ];
 
   private tradeMkAdminItems: NavItem[] = [
@@ -402,6 +432,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // distintos.
         { label: 'Tickets',           icon: 'pi pi-receipt',    route: '/comercial/tickets',        permission: Permission.COMMERCIAL_TICKETS_VER },
         { label: 'Razonamiento (Thot)', icon: 'pi pi-lightbulb', route: '/comercial/razonamiento', permission: Permission.COMMERCIAL_THOT_VER },
+        // Clientes 360 sólo existía como pestaña de Clientes.
+        ...navDeTabs(CUSTOMERS_TABS),
       ],
     },
     {
@@ -420,6 +452,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
           anyOf: [Permission.COMMERCIAL_MARGIN_ENGINE_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
+        // Motor, Competencia y Experimentos vivían sólo en la barra de Control de margen.
+        ...navDeTabs(PRECIOS_TABS),
       ],
     },
     {
@@ -435,11 +469,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Ventas generales', icon: 'pi pi-sparkles', route: '/comercial/ventas-generales', permission: Permission.COMMERCIAL_ANALYTICS_VER },
         { label: 'Rentabilidad', icon: 'pi pi-percentage', route: '/comercial/rentabilidad', permission: Permission.COMMERCIAL_PROFITABILITY_VER },
-        { label: 'Sell-Out por empresa', icon: 'pi pi-file-excel', route: '/comercial/sell-out', permission: Permission.COMMERCIAL_SELLOUT_VER },
-        { label: 'Salidas por producto', icon: 'pi pi-box', route: '/comercial/salidas', permission: Permission.COMMERCIAL_SALIDAS_VER },
-        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', permission: Permission.COMMERCIAL_ROUTE_SALES_VER },
-        { label: 'Documentos', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
         { label: 'Sucursales Wincaja', icon: 'pi pi-building', route: '/comercial/wincaja', permission: Permission.COMMERCIAL_ANALYTICS_VER },
+        // ⭐ Las once pestañas del sub-módulo, derivadas. Siete no estaban acá —entre ellas las
+        // cinco de Ruta Directa— así que sólo llegaba quien ya conocía la pestaña.
+        // `dedupeByRoute` pliega «Documentos»/«Facturación TM», que son la misma ruta.
+        ...navDeTabs(REPORTS_TABS),
+        { label: 'Documentos', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
+        // La barra de Análisis es del mismo sub-módulo de reportes (Thot, histórico, curaduría).
+        ...navDeTabs(ANALYTICS_TABS),
       ],
     },
   ];
@@ -587,14 +624,17 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Análisis y control',
       items: [
         { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
+        ...navDeTabs(ANALISIS_TABS),
         // Una sola entrada: adentro son pestanas (ARQUEO_TABS). El acto de contar y
         // la vista por persona son el mismo tema, no dos modulos.
         { label: 'Arqueo de caja',     icon: 'pi pi-eye-slash', route: '/tienda/arqueo',           permission: Permission.STORE_ARQUEO_VER },
+        ...navDeTabs(ARQUEO_TABS),
         // `anyOf`: el colaborador de sucursal solo tiene CAPTURAR — con el gate
         // en VER, la pantalla donde trabaja no le aparecía en el menú.
         { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER,
           anyOf: [Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
         { label: 'Etiquetas',          icon: 'pi pi-tag',       route: '/tienda/etiquetas',        permission: Permission.STORE_LABELS_VER },
+        ...navDeTabs(ETIQUETAS_TABS),
       ],
     },
   ];
@@ -623,6 +663,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Cotizaciones', icon: 'pi pi-calculator', route: '/telemarketing/cotizaciones', permission: Permission.COMMERCIAL_QUOTES_VER },
         { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
+        ...navDeTabs(TELEMARKETING_TABS),
       ],
     },
   ];
@@ -844,6 +885,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // viven en la lista de órdenes, a la que se llega por Control. Una pantalla menos que
         // aprender y un solo lugar donde se decide. La ruta redirige, no tira 404.
         { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
+        // Listado, capturas duplicadas, sin OC y parámetros sólo estaban en la barra.
+        ...navDeTabs(ENTRADAS_CONTROL_TABS),
         // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
         { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
@@ -878,6 +921,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         // [CAT.1] Vino de Ventas. Adentro trae su pestaña de códigos repetidos.
         { label: 'Catálogo',    icon: 'pi pi-shopping-bag', route: '/compras/catalogo', permission: Permission.COMMERCIAL_PRODUCTS_VER },
+        // Las nueve del sub-modulo de catalogo: costos, precios, codigos, productos nuevos...
+        ...navDeTabs(CATALOGO_TABS),
         { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
         { label: 'Obligaciones a proveedor', icon: 'pi pi-calendar', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
         { label: 'Cuentas de pago',          icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },
