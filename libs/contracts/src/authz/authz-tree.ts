@@ -483,6 +483,12 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'descarga', label: 'Descarga masiva CFDI', route: '/contabilidad/descarga', view: [Permission.FISCAL_DESCARGA_VER], manage: [Permission.FISCAL_DESCARGA_GESTIONAR] },
           { id: 'materialidad', label: 'Expediente de materialidad', route: '/contabilidad/materialidad', view: [Permission.FISCAL_MATERIALIDAD_VER], manage: [Permission.FISCAL_MATERIALIDAD_GESTIONAR] },
           { id: 'contabilidad', label: 'Contabilidad electrónica', route: '/contabilidad/contabilidad', view: [Permission.FISCAL_CONTAB_VER], manage: [Permission.FISCAL_CONTAB_GESTIONAR] },
+          // `[CPA.0]` El semáforo de cierre: qué mes ya está asentado en ContPAQi y cuál no.
+          // ⭐ Reusa `FISCAL_CONTAB_VER` a propósito y NO estrena permiso: lo mira exactamente
+          // quien ya revisa los libros fiscales, y así nace repartido en prod — la condición que
+          // `[LC.6.2]` midió que faltaba (un módulo no está entregado hasta que su permiso está
+          // REPARTIDO, no sólo declarado en el enum). Sin `manage`: esta pantalla no asienta nada.
+          { id: 'cierre-contable', label: 'Cierre contable (qué mes falta)', route: '/contabilidad/cierre', view: [Permission.FISCAL_CONTAB_VER], manage: [] },
           { id: 'impuestos', label: 'Impuestos provisionales', route: '/contabilidad/impuestos', view: [Permission.FISCAL_IMPUESTOS_VER], manage: [] },
           { id: 'credenciales', label: 'Credenciales SAT (e.firma)', route: '/contabilidad/credenciales', view: [], manage: [Permission.FISCAL_CREDENCIALES_GESTIONAR] },
         ],

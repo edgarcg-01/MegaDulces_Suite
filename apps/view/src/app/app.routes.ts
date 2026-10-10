@@ -966,6 +966,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
       },
       {
+        // `[CPA.0]` El semáforo de cierre: qué mes ya está asentado en ContPAQi y cuál no.
+        // ⭐ Mismo permiso que Pólizas y ContPAQi — no estrena puerta, así que nadie tiene que
+        // repartir nada ni volver a entrar.
+        path: 'cierre',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-cierre.component').then(m => m.ContabilidadCierreComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
+      {
         // LC — lo que ContPAQi no tiene atado a ninguna póliza. Es el propósito del módulo:
         // sacar lo que falta en TXT para que contabilidad cierre el trámite.
         path: 'movimientos-no-asociados',

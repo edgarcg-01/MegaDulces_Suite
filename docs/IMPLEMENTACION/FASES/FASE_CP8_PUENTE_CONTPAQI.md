@@ -2297,3 +2297,38 @@ vieja.*
 `test-newdb-contpaqi-proveedor.js` — **17 ✓ / 0 ✗**, con placebo y con la prueba negativa del
 rubro medida sobre el padrón real. Vecinos sin regresión: lote 38 · esquema 46 · libro-txt 49 ·
 bandeja 28.
+
+### 33.6 ⭐⭐ Cruce de dos implementaciones, y lo que queda NO es derivable
+
+**El cruce.** `[CP.8.23]` ya había llegado al proveedor por otro camino: *«la contadora no adivina
+el proveedor mirando el estado de cuenta — lo lee del pago registrado en Kepler»*
+(`analytics.erp_supplier_payments`). Eso no contradice a este resolvedor: son **dos fuentes
+independientes del mismo hecho**, y cruzarlas es como aparecen los bugs acá.
+
+**Coinciden en 66 de 67** donde las dos pueden opinar (**98.5 %**), con **una** contradicción:
+
+```
+$69,257.27  banco  "Botanas y Cereales de Zamora"            → 2120000529
+            kepler "ALIMENTOS PROCESADOS DE ZAMORA SA DE CV" → 2120000018
+```
+
+⚠️ Probablemente el **nombre comercial contra el legal**, o sea el mismo proveedor con dos cuentas
+en el catálogo de ContPAQi — y eso se arregla allá, no acá. Por eso el candado tolera ≤ 2 y lo que
+vigila es que **no crezcan**. El cruce quedó como aserción permanente, no como script suelto.
+
+**Lo que queda NO es derivable, y el derivador tiene razón en negarse.** Corrido sobre ene–mar
+(razón real/placebo **369×**):
+
+| categoría | movs enero | qué dice la evidencia | candidato |
+|---|--:|---|---|
+| `comision_bancaria` | 500 | `100 %` toca `52*` | ⛔ **ninguno** |
+| `compra_tarjeta` | 407 | `83.3 %` toca `52*` | `2140800000` con **4 votos / 36.4 %** |
+
+⭐ `comision_bancaria` parea **18 de 500**, y contra pólizas de **278 renglones promedio**: ahí
+cualquier cuenta parece la contraparte, y el filtro 1:1 las descarta con razón. *Una regla sin
+candidato defendible se declara; no se rellena con el más votado de una póliza de 278 líneas.*
+
+⚠️ Y el dinero no está ahí: los 954 `sin_regla` son **$0.7M** del mes. Lo grande que queda son los
+**72 proveedores sin resolver, $6.8M** — 60 sin pareo, 4 ambiguos, 8 con veredicto sin RFC. Ésa es
+la lista acotada para compras, y **todavía no tiene dónde guardarse**: no existe tabla de alias de
+proveedor (hay tres para productos, ninguna para esto). Declarado como deuda con nombre.
