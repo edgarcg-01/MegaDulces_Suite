@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Internal — Matriz de accesos por puesto, generada desde prod (2026-10-10)
+- `docs/MATRIZ_ACCESOS.md`: puesto → rol → módulos (ver/gestionar), permisos sensibles y quién los tiene, huecos medidos (puestos sin rol propuesto, permisos que sólo tiene superadmin) y la **checklist de permisos para un módulo nuevo**. Sólo conteos de personas, nunca nombres (repo público).
+- La genera `npm run docs:matriz-accesos` (`database/scripts/gen-matriz-accesos.js`): lee prod en sesión de sólo lectura y el árbol `authz-tree.ts`, así no se queda vieja con la siguiente migración de reparto.
 ### Changed — Finanzas › Gastos: una entrada en el menú y sus cuatro pantallas en pestañas (GX.80, 2026-10-09)
 - En el menú lateral, Aprobación de gastos, Mis gastos, Expediente e Historial se juntan en una sola entrada «Gastos». Adentro se cambia de pantalla con pestañas horizontales; cada quien ve sólo las que puede abrir y, con una sola, no hay barra.
 - Las direcciones (URL) de las cuatro pantallas no cambian.
