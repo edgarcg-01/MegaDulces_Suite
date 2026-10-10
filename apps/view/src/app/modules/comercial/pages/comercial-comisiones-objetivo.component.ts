@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import {
   ComercialService, ObjetivoResultado, ObjetivoCriterio, ObjetivoFila, ObjetivoCriterioFila,
@@ -35,10 +37,11 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones-objetivo',
   standalone: true,
-  imports: [FormsModule, TagModule, LoadStateComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ob">
+      <app-page-tabs [tabs]="tabsRD" />
       <header class="ob-head">
         <div>
           <h1>Bono por objetivo mensual</h1>
@@ -378,6 +381,8 @@ import { PermissionsService } from '../../../core/services/permissions.service';
   `],
 })
 export class ComercialComisionesObjetivoComponent {
+  /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
+  readonly tabsRD = RUTA_DIRECTA_TABS;
   private readonly svc = inject(ComercialService);
   private readonly perms = inject(PermissionsService);
 

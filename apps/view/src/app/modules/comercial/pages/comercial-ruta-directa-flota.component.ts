@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { TagModule } from 'primeng/tag';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { ComercialService, RouteProfitFlota, RouteProfitUnidad } from '../comercial.service';
 
@@ -31,10 +33,11 @@ import { ComercialService, RouteProfitFlota, RouteProfitUnidad } from '../comerc
 @Component({
   selector: 'app-comercial-ruta-directa-flota',
   standalone: true,
-  imports: [TagModule, LoadStateComponent],
+  imports: [PageTabsComponent, TagModule, LoadStateComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fl">
+      <app-page-tabs [tabs]="tabsRD" />
       <header class="fl-head">
         <div>
           <h1>La flota de Ruta Directa</h1>
@@ -175,6 +178,8 @@ import { ComercialService, RouteProfitFlota, RouteProfitUnidad } from '../comerc
   `],
 })
 export class ComercialRutaDirectaFlotaComponent {
+  /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
+  readonly tabsRD = RUTA_DIRECTA_TABS;
   private readonly svc = inject(ComercialService);
 
   readonly cargando = signal(true);

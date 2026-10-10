@@ -32,8 +32,17 @@ const lay = fs.readFileSync(LAYOUT, 'utf8');
 // 1. Las rutas escritas a mano en el layout.
 const enSidebar = new Set([...lay.matchAll(/route:\s*'([^']+)'/g)].map((m) => m[1]));
 
-// 2. Las DERIVADAS: `...navDeTabs(X_TABS)` + el import que dice de qué archivo sale X_TABS.
-const derivadas = [...lay.matchAll(/navDeTabs\(\s*([A-Z_0-9]+)\s*\)/g)].map((m) => m[1]);
+// 2. Las DERIVADAS, en sus DOS formas:
+//    · `...navDeTabs(X_TABS)` — una entrada por pantalla;
+//    · `tabs: X_TABS` — ⭐ el patrón de `[GX.80]`: UNA entrada para todo un sub-módulo, que
+//      lleva a la primera pestaña visible y queda activa en cualquiera de ellas. Es una forma
+//      legítima de estar en el sidebar, y la primera versión de esta compuerta no la conocía:
+//      marcaba en rojo a «Gastos», que estaba bien hecho. Una compuerta que no entiende un
+//      patrón válido del repo no mide calidad, mide parecido.
+const derivadas = [
+  ...[...lay.matchAll(/navDeTabs\(\s*([A-Z_0-9]+)\s*\)/g)].map((m) => m[1]),
+  ...[...lay.matchAll(/tabs:\s*([A-Z_0-9]+)\s*[,}]/g)].map((m) => m[1]),
+];
 const importes = new Map();
 for (const m of lay.matchAll(/import\s*\{([^}]+)\}\s*from\s*'([^']+)'/g)) {
   for (const sym of m[1].split(',').map((s) => s.trim().replace(/^type\s+/, ''))) {
