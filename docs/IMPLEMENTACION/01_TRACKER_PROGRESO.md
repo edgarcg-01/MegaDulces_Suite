@@ -10141,6 +10141,26 @@ contra `pg-prod` (namespace `prod`, k3s).
   armador 33 · cuadre 35 · lote 38 · LC 38. ⛔ **SIN MEDIR**: si ContPAQi **honra** los `AD` al
   importar — lo contesta el archivo `B`. 2026-10-09
 
+- [x] **[CP.8.33]** 🧪 **La pantalla de la bandeja** — `/contabilidad/contpaqi-puente`, Operations,
+  answer-first. ⛔ **Ruta nueva porque la que `[CP.8.32]` declaró ya estaba ocupada**: el nodo del
+  árbol apuntaba a `/contabilidad/contpaqi`, que existe desde CP.1–CP.4 y la gatea
+  `FISCAL_CONTAB_VER` — quien sólo tuviera el permiso del puente veía el renglón y **el guard lo
+  rebotaba** (gates mal partidos, `[IC.13]`). Y el candado viejo daba verde porque comparaba con
+  `includes` y la ruta mala es **prefijo** de la buena. `no_aplica` **no se suma** a los
+  pendientes (148 de 1,474); `Fuera de lote` y `Entregas` usan `state: 'no_medido'`, no un cero.
+  ⛔ La tabla de motivos **no es un control** — el filtro vive en botones alcanzables por teclado.
+  Candado `contpaqi-puente.spec.ts` **12 ✓**, mutado a rojo devolviendo la ruta vieja.
+  Sin migración ni permiso nuevo → **sin re-login**. 2026-10-09
+- [x] **[CP.8.34]** ⭐⭐ **La bandeja publicaba un denominador recortado en 37.3 %** —
+  `simularLotes` tiraba a un `logger.warn` los **876 movimientos** de enero que no entran a ningún
+  lote, así que 1,474 se leía como el universo del mes y el universo es **2,350**. ⛔ **Y la causa
+  no era la que el `warn` decía**: «sin `contpaqi_cuenta`» suena a mapeo faltante y es falso — son
+  `CAJA CG` (864, $10.19M) y `FACTORAJE FAC` (12, $876k), que **tienen cuenta y no son bancos**.
+  El propio mapa `DUENO` de `[CP.8.32]` ya lo decía y el `warn` de al lado afirmaba lo contrario.
+  Ahora `simularLotes` devuelve `{ lotes, fuera_de_lote }` con desglose por cuenta, nombre e
+  importe, y el endpoint agrega `resumen.universo`. Candado **22 → 28 ✓**, mutado a rojo poniendo
+  el hueco en 0. 2026-10-09
+
 ### E3 — El mapa firmado *(dependencia: el contador)*
 
 - [ ] **[CP.8.14]** UI de reglas con confianza + aprobación (`derivada` → `aprobada`).

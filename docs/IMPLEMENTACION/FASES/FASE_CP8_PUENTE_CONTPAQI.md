@@ -2079,3 +2079,96 @@ alcanza desde la navegación.
 `migration directory is corrupt`, esta vez por una migración **de otra sesión**
 (`cg76_kdm1_indice_captura`) que está en el ledger y no en la imagen: se copió al pod, no se
 inventó un marcador.
+
+---
+
+## §31 `[CP.8.33]` + `[CP.8.34]` — La pantalla de la bandeja, y el universo que la bandeja omitía
+
+🧪 **EN CÓDIGO 2026-10-09.** Sin migraciones ni permisos nuevos (el reparto es el batch 871 de
+§30) → **no hace falta re-login**. Falta `git push` + redeploy api+view + validación visual.
+
+### 31.1 ⛔ La ruta que `[CP.8.32]` declaró ya estaba ocupada
+
+El nodo `contpaqi-puente` del árbol apuntaba a **`/contabilidad/contpaqi`**, y esa página
+**existe desde CP.1–CP.4**: es el *otro sentido* del conector (leer balanza, bancos, EFOS y
+libros-vs-operación de ContPAQi), gateada por `FISCAL_CONTAB_VER`.
+
+El efecto no era un error visible sino el patrón de **gates mal partidos** de `[IC.13]`: alguien
+con sólo `FISCAL_CONTPAQI_BRIDGE_VER` veía el renglón en la navegación y **el guard de la ruta lo
+rebotaba**, porque pide otro permiso. Y al revés, el árbol rotulaba la página de los libros con el
+nombre del puente.
+
+El puente queda en **`/contabilidad/contpaqi-puente`**, con su propio guard. ⛔ No se resolvió
+como pestaña de la página existente: eso lo habría escondido detrás de `FISCAL_CONTAB_VER`, que
+**lo tienen 8 roles** contra los 5 del puente — incluidos los tres que §30 recortó con motivo.
+
+⚠️ El candado viejo decía `json.includes('/contabilidad/contpaqi')` y **daba verde con el nodo
+apuntando a la página equivocada**, porque es prefijo de la ruta correcta. Ahora busca el nodo y
+compara la ruta **exacta**.
+
+### 31.2 ⭐⭐ El hallazgo: la bandeja publicaba un denominador recortado en 37.3 %
+
+Al sacar los lotes reales para la maqueta, el servicio escribió esto en el log:
+
+```
+876 egresos sin contpaqi_cuenta (crosswalk CP.2): no agrupan
+```
+
+**No estaban en los 1,474.** El universo de enero es **2,350**, y la bandeja publicaba 1,474 como
+si fuera el mes entero — el mismo defecto que esta fase le corrigió al `0 %` del cuadre, esta vez
+del otro lado del cociente.
+
+⛔ **Y la causa no era la que el `warn` sugería.** «Sin `contpaqi_cuenta`» se lee como *falta un
+mapeo*, y es falso. Medido:
+
+| cuenta | movs | importe |
+|---|--:|--:|
+| `CAJA CG` | 864 | $10,193,960 |
+| `FACTORAJE FAC` | 12 | $876,417 |
+
+**Tienen cuenta; no son bancos.** No existe una cuenta `102*` que ponerles porque son otro
+circuito. El propio mapa `DUENO` de `[CP.8.32]` ya lo decía —
+`contpaqi_cuenta: 'sistemas — el crosswalk de CP.2 (CAJA CG y FACTORAJE no son bancos)'` — y el
+`warn` de al lado afirmaba lo contrario. *Dos líneas del mismo módulo decían cosas distintas del
+mismo hecho, y la que se leía era la del log.*
+
+`simularLotes` pasa a devolver `{ lotes, fuera_de_lote }` con el desglose **por cuenta, con
+nombre e importe**, y el endpoint agrega `resumen.universo`. ⭐ *Un hueco que sólo existe en el log
+no lo ve quien mira la pantalla, que es justo quien necesita saber que el denominador no es el mes.*
+
+### 31.3 La pantalla
+
+`/contabilidad/contpaqi-puente`, superficie Operations. Answer-first: el veredicto (**0 de 1,474**)
+antes de cualquier tabla, el hueco declarado **arriba** del número que lo omite, la tira de KPIs
+sin caja, el rechazo con dueño, el maestro-detalle de lotes y el cuadre vacío.
+
+- **`no_aplica` no se suma a los pendientes.** 148 de 1,474 (10.0 %) ya se midieron y no generan
+  póliza; el pie dice **1,326 de alguien · 148 de nadie**.
+- **`Fuera de lote` y `Entregas` usan `state: 'no_medido'`** de `MetricStrip`, no un cero con tono
+  neutro: *«este puente no lo cubre»* y *«nunca se importó un archivo»* no son la cifra 0.
+- ⛔ **La tabla de motivos NO es un control.** El filtro vive en botones de verdad abajo: una fila
+  clicable sin equivalente de teclado deja afuera a quien no usa mouse, y tener el filtro en dos
+  lugares son dos sitios donde se desincroniza.
+- **No hay botón de entregar**, igual que en el backend.
+
+### 31.4 Los candados
+
+| candado | |
+|---|---|
+| `test-newdb-contpaqi-bandeja.js` | **28 ✓ / 0 ✗** (eran 22) |
+| `contpaqi-puente.spec.ts` | **12 ✓** — cableado ruta↔guard↔árbol↔sidebar + la clasificación |
+
+Mutaciones verificadas en rojo:
+
+| mutación | |
+|---|---|
+| `fuera_de_lote.movimientos` vuelve a 0 (el hueco invisible) | ✗ 25/2 |
+| el nodo del árbol vuelve a apuntar a `/contabilidad/contpaqi` | ✗ 11/1 |
+
+⚠️ Tres defectos míos los atrapó el propio candado mientras se escribía: el barrel
+`@megadulces/contracts` **no re-exporta `authz` a propósito** (`[ID.28]`) y el import dejaba
+`AUTHZ_TREE` en `undefined`, con lo que el candado habría dicho *«el nodo no existe»* en vez de
+*«el import está mal»* — ahora lo comprueba primero; una ventana de N caracteres sobre
+`app.routes.ts` **se comía la ruta vecina** (`polizas`, que sí usa `FISCAL_CONTAB_VER`) y la
+prueba negativa fallaba por el vecino; y `check:estilos` frenó un breakpoint en **px** (§R los
+pide en `rem`).
