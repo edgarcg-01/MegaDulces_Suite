@@ -2700,6 +2700,17 @@ export interface RouteInventoryRow {
   ultima_venta_imp: number | null;
   /** Tope de inventario del camion, en pesos al costo. NULL = sin tope declarado. */
   tope_inventario: number | null;
+  /**
+   * [RD.63] El tope que la operacion de ESTE camion justifica: venta diaria x lead +
+   * Z(95%) x sigma x raiz(lead), al costo. NULL **con motivo** cuando no se puede
+   * dimensionar (ruta parada, pocos dias): un numero ahi seria inventado.
+   */
+  tope_sugerido: number | null;
+  tope_sugerido_motivo: string | null;
+  /** Las tres piezas, para que el numero se discuta en vez de creerse. */
+  venta_diaria_costo: number | null;
+  sigma_diaria: number | null;
+  lead_dias: number | null;
   /** Lo que el cliente pago DE VERDAD. Viaja aparte del vendido que cierra la identidad. */
   cobrado_real: number | null;
   carga_costo: number; cogs_costo: number; inventario_costo: number;

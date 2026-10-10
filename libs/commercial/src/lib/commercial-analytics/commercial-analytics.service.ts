@@ -216,6 +216,31 @@ const STALE_DIAS = 7;
 const STALE_COBERTURA_PCT = 96.1;
 
 /**
+ * `[RD.63]` Nivel de servicio del tope sugerido del camión, y su `Z` de la normal.
+ *
+ * 95% = de cada veinte reposiciones, una puede quedarse corta. Es la clase **B** de la escala
+ * que Compras ya usa (A=98, B=95, C=90, `RA-PRO.1`); se elige B porque el camión se resurte
+ * **a diario** y una falta se corrige al día siguiente, no en una semana.
+ *
+ * ⛔⛔ **Esto se calcula A NIVEL RUTA a propósito, y NO por SKU.** Medido contra prod el
+ * 2026-10-10: por SKU la fórmula da **$632,840**, que es MÁS de lo que los camiones ya cargan
+ * ($560,727), y el percentil 95 da **$1,912,755**. La causa: el **75% de los pares (ruta, sku)
+ * vende en menos del 20% de los días operativos, con CV medio 4.77** — demanda intermitente,
+ * donde `Z × σ` deja de significar algo porque σ es casi cinco veces la media. Esos SKUs raros
+ * son el 74% de los renglones y se llevan el 44% del objetivo.
+ *
+ * ⭐ Al agregar por ruta, el pico de unos compensa el valle de otros (*risk pooling*) y el
+ * número vuelve a ser defendible: **$272,223 contra $880,000 de tope plano**. Hacerlo por SKU
+ * exige **Croston**, que el repo ya tiene declarado como deuda (`RA-PRO.4`).
+ */
+const TOPE_Z_95 = 1.645;
+const TOPE_VENTANA_DIAS = 60;
+/** Días operativos mínimos para dimensionar. Con menos, la media y σ no significan nada. */
+const TOPE_DIAS_MINIMOS = 20;
+/** Días sin mover nada tras los cuales la ruta se considera parada y NO se dimensiona. */
+const TOPE_PARADA_DIAS = 14;
+
+/**
  * `[VEC.2]` Código de RUTA VECINAL en Kepler (`kdm1.c12`): `1V001`, `2V003`, `3V001`…
  *
  * ⚠️ El discriminante es el CÓDIGO, no el nombre. En Michoacán las rutas se llaman con el
@@ -252,6 +277,20 @@ export interface RouteInventoryRow {
   ultima_venta_imp: number | null;
   /** Tope de inventario del camion, en pesos al costo. NULL = sin tope declarado. */
   tope_inventario: number | null;
+  /**
+   * `[RD.63]` El tope que la operación de ESTE camión justifica, medido:
+   * `venta_diaria × lead + Z(95%) × σ × √lead`, todo al costo.
+   *
+   * ⛔ **`null` cuando no se puede calcular**, con el motivo en `tope_sugerido_motivo`: una ruta
+   * parada o con pocos días no tiene demanda que dimensionar, y un número ahí sería inventado.
+   */
+  tope_sugerido: number | null;
+  tope_sugerido_motivo: string | null;
+  /** Las tres piezas, para que el número se pueda discutir en vez de creer. */
+  venta_diaria_costo: number | null;
+  sigma_diaria: number | null;
+  /** Cada cuántos días operativos se le carga. Es el lead REAL, medido, no un supuesto. */
+  lead_dias: number | null;
   /** Lo que el cliente pago DE VERDAD. Viaja aparte del vendido que cierra la identidad. */
   cobrado_real: number | null;
   // Columna COSTO — valuada con el costo del EMBARQUE (lo que la sucursal le cargó al camión).
@@ -8694,6 +8733,72 @@ export class CommercialAnalyticsService {
           [tenantId, desde, hasta, tenantId, ayer, ayer, tenantId, tenantId, tenantId],
         )).rows;
 
+      /**
+       * `[RD.63]` Las tres piezas del tope dimensionado: venta diaria al costo, su desviación y
+       * el ritmo real de carga. Va en su propia consulta y **sobre su propia ventana fija** (60
+       * días): el tope es una propiedad de la operación del camión, no del rango que el usuario
+       * tenga puesto en el filtro — si colgara del filtro, el mismo camión tendría un tope
+       * distinto por mirarlo de otra forma.
+       *
+       * ⚠️ Los días sin venta **cuentan como cero** en la media y en σ: son días en que el
+       * camión salió y no vendió ese peso. Excluirlos inflaría la media y haría ver al camión
+       * más demandado de lo que es.
+       */
+      const dem = (await trx.raw(
+        `WITH cu AS (
+           SELECT route_no, sku,
+                  coalesce(sum(costo_doc) FILTER (WHERE clase = 'carga')
+                             / nullif(sum(qty) FILTER (WHERE clase = 'carga'), 0),
+                           sum(costo_doc) FILTER (WHERE clase = 'conteo')
+                             / nullif(sum(qty) FILTER (WHERE clase = 'conteo'), 0)) AS u
+             FROM analytics.mv_rd_route_ledger WHERE tenant_id = ? GROUP BY 1, 2
+         ), dr AS (
+           SELECT route_no,
+                  count(DISTINCT business_date)::int AS dias,
+                  (current_date - max(business_date))::int AS dias_sin_mover
+             FROM analytics.mv_rd_route_ledger
+            WHERE tenant_id = ? AND business_date >= current_date - ?::int
+            GROUP BY 1
+         ), dia AS (
+           SELECT l.route_no, l.business_date, sum(l.qty * cu.u) AS venta
+             FROM analytics.mv_rd_route_ledger l
+             JOIN cu ON cu.route_no = l.route_no AND cu.sku = l.sku
+            WHERE l.tenant_id = ? AND l.clase = 'venta'
+              AND l.business_date >= current_date - ?::int AND cu.u IS NOT NULL
+            GROUP BY 1, 2
+         ), lead AS (
+           SELECT l.route_no,
+                  dr.dias::numeric / nullif(count(DISTINCT l.business_date), 0) AS lead
+             FROM analytics.mv_rd_route_ledger l JOIN dr ON dr.route_no = l.route_no
+            WHERE l.tenant_id = ? AND l.clase = 'carga'
+              AND l.business_date >= current_date - ?::int
+            GROUP BY 1, dr.dias
+         )
+         SELECT dr.route_no, dr.dias, dr.dias_sin_mover,
+                round(sum(d.venta) / dr.dias, 2)::float AS venta_diaria,
+                round(sqrt(greatest(sum(d.venta * d.venta) / dr.dias
+                      - (sum(d.venta) / dr.dias) ^ 2, 0)), 2)::float AS sigma,
+                round(lead.lead, 2)::float AS lead
+           FROM dr
+           LEFT JOIN dia d ON d.route_no = dr.route_no
+           LEFT JOIN lead ON lead.route_no = dr.route_no
+          GROUP BY dr.route_no, dr.dias, dr.dias_sin_mover, lead.lead`,
+        [tenantId, tenantId, TOPE_VENTANA_DIAS, tenantId, TOPE_VENTANA_DIAS, tenantId, TOPE_VENTANA_DIAS],
+      )).rows as { route_no: string; dias: number; dias_sin_mover: number | null;
+                   venta_diaria: number | null; sigma: number | null; lead: number | null }[];
+      const demPorRuta = new Map(dem.map((d) => [String(d.route_no), d]));
+      for (const fila of rows as RouteInventoryRow[]) {
+        const d = demPorRuta.get(String(fila.route_no));
+        const { tope, motivo } = this.topeSugerido(
+          d?.venta_diaria ?? null, d?.sigma ?? null, d?.lead ?? null,
+          d?.dias ?? 0, d?.dias_sin_mover ?? null);
+        fila.tope_sugerido = tope;
+        fila.tope_sugerido_motivo = motivo;
+        fila.venta_diaria_costo = d?.venta_diaria ?? null;
+        fila.sigma_diaria = d?.sigma ?? null;
+        fila.lead_dias = d?.lead ?? null;
+      }
+
       const asOf = (await trx.raw(
         `SELECT to_char(max(business_date),'YYYY-MM-DD') AS data_as_of
            FROM analytics.mv_rd_route_ledger WHERE tenant_id = ?`, [tenantId])).rows[0];
@@ -9132,6 +9237,42 @@ export class CommercialAnalyticsService {
         LIMIT ?`,
       [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
     )).rows as RouteNegativeRow[]);
+  }
+
+  /**
+   * `[RD.63]` **El tope que cada camión justifica**, contra el que tiene puesto.
+   *
+   * `tope = venta_diaria × lead + Z(95%) × σ × √lead`, todo al costo del embarque. Las tres
+   * piezas viajan en la respuesta para que el número se discuta en vez de creerse.
+   *
+   * ── Lo medido que lo justifica (prod, 2026-10-10) ────────────────────────────────────────
+   * El tope hoy es **$80,000 plano para los once camiones** y no sale de nada: ni de lo que
+   * vende cada uno ni de cada cuánto se resurte. Medido, **se les carga cada 1.0–1.1 días
+   * operativos**, así que un camión no necesita semanas de inventario a bordo. La suma de los
+   * topes dimensionados da **$272,223 contra $880,000** — el tope actual es **3.2×** lo que la
+   * operación pide.
+   *
+   * ⛔ **No se dimensiona una ruta parada.** La 505 no mueve nada desde el 2026-09-10: su
+   * «venta diaria» sería un promedio sobre días que no trabajó, y el tope saldría chico por una
+   * razón que no es eficiencia. Sale `null` con motivo (ADR-056).
+   */
+  private topeSugerido(
+    ventaDia: number | null, sigma: number | null, lead: number | null,
+    diasOperativos: number, diasSinMover: number | null,
+  ): { tope: number | null; motivo: string | null } {
+    if (diasSinMover !== null && diasSinMover > TOPE_PARADA_DIAS) {
+      return { tope: null, motivo: `la ruta no mueve nada hace ${diasSinMover} días: no hay demanda que dimensionar` };
+    }
+    if (diasOperativos < TOPE_DIAS_MINIMOS) {
+      return { tope: null, motivo: `sólo ${diasOperativos} día(s) operativo(s) en la ventana: la media y la desviación no significan nada todavía` };
+    }
+    if (ventaDia === null || sigma === null || lead === null || lead <= 0) {
+      return { tope: null, motivo: 'falta la venta diaria, su desviación o el ritmo de carga' };
+    }
+    return {
+      tope: Number((ventaDia * lead + TOPE_Z_95 * sigma * Math.sqrt(lead)).toFixed(2)),
+      motivo: null,
+    };
   }
 
   /**
