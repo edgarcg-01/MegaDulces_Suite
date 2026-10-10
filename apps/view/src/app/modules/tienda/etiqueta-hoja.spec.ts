@@ -771,7 +771,7 @@ describe('etiquetera · lo que la revisión del 2026-09-08 encontró', () => {
     const caption = /<div class="etqp-tcap">([\s\S]*?)<\/div>/.exec(PAGE)![1];
     expect(caption).toContain('MAX_LABELS');
     // …y lo que no entró vuelve al textarea, no se pierde.
-    expect(metodo(PAGE, 'addBulk(): void')).toContain('leftover');
+    expect(metodo(PAGE, 'addBulk(modo?: ModoPrecio): void')).toContain('leftover');
     // …y la hoja oculta se arma por hojas, cediendo el hilo entre una y otra.
     expect(metodo(PAGE, 'async print(): Promise<void>')).toContain('this.PER_SHEET');
   });

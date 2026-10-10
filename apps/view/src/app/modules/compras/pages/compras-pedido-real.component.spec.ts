@@ -51,6 +51,15 @@ let EN_CAMINO: Record<string, unknown> | null = null;
  */
 let DEUDA: Record<string, unknown> | 'error' = { al: '2026-10-09', acreedores: [] };
 
+/**
+ * `[RA.PM]` Lo que devuelve la autopsia. `'error'` simula el 42P01 de un deploy que llego ANTES
+ * que su migracion -- el caso que NO puede terminar leyendose como "no hay compras que no rindieran".
+ */
+let PM: Record<string, unknown> | 'error' = {
+  veredictos: [], total_comprado: 0, total_nunca_salio: 0, total_sin_resolver: 0,
+  computed_on: null, ventana_dias: 180, rows: [], total: 0, page: 1, pageSize: 50,
+};
+
 const FRESCO: Freshness = {
   data_as_of: new Date(Date.now() - 4 * 60_000).toISOString(),
   status: 'fresh', stale: false, age_human: '4 min',
@@ -83,6 +92,7 @@ function montar(workbook: Record<string, unknown>, worklist?: unknown, sub = 'u1
     overstock: () => of({ rows: [] }),
     deadStock: () => of({ rows: [], total_value: 0 }),
     inTransit: () => of(EN_CAMINO),
+    postmortem: () => (PM === 'error' ? throwError(() => new Error('42P01')) : of(PM)),
     sobrante: () => of({ tramos: [], total_valor: 0, total_quedado: 0, total_quedado_valor: 0, ventana_dias: 90, rows: [], total: 0, page: 1, pageSize: 50 }),
     // `[RA.CAP]` `null` = la llamada falló (es lo que devuelve el `catchError` del componente).
     deudaPorProveedor: () => (DEUDA === 'error' ? throwError(() => new Error('403')) : of(DEUDA)),
@@ -506,5 +516,78 @@ describe('[RA.CAP] la deuda del proveedor al momento de pedirle', () => {
     const c = montarConDeuda();
     c.fSupplier = 's-1';
     expect(c.deudaProv()?.pendiente).toBe(10);
+  });
+});
+
+describe('[RA.PM] la autopsia de la compra, como segunda lente de Sobrante', () => {
+  beforeEach(() => {
+    PM = {
+      veredictos: [
+        { veredicto: 'nunca_salio', label: 'Nunca salió', pares: 441, comprado: 4435816, salido: 0, en_piso: 3900000 },
+        { veredicto: 'rindio', label: 'Rindió', pares: 9000, comprado: 150000000, salido: 210000000, en_piso: 9000000 },
+      ],
+      total_comprado: 166855583, total_nunca_salio: 4435816, total_sin_resolver: 66378636,
+      computed_on: '2026-10-09', ventana_dias: 180,
+      rows: [{ product_id: 'p-1', sku: '1', nombre: 'X', proveedor: 'P', supplier_id: null,
+        warehouse_code: '01', warehouse_name: 'PH', no_vende: false, comprado: 1000,
+        comprado_sin_resolver: 0, n_recibos: 2, primera_compra: null, ultima_compra: '2026-09-01',
+        dias_desde_compra: 38, salido: 0, vendido: 0, traspasado: 0, ultima_salida: null,
+        valor_hoy: 900, rotacion: 0, veredicto: 'nunca_salio' }],
+      total: 1, page: 1, pageSize: 50,
+    };
+  });
+
+  it('arranca en la lente de existencia: la pestaña no cambia de significado sola', () => {
+    expect(montar(VACIO).componentInstance.sobLente()).toBe('existencia');
+  });
+
+  it('⭐ al cambiar de lente carga la autopsia y publica sus veredictos', () => {
+    const c = montar(VACIO).componentInstance;
+    c.setLente('compra');
+    expect(c.sobLente()).toBe('compra');
+    expect(c.pmVeredictos().length).toBe(2);
+    expect(c.pmComprado()).toBe(166855583);
+    expect(c.pmSinResolver()).toBe(66378636);
+  });
+
+  it('⛔⛔ si el endpoint falla (deploy sin su migración), lo DECLARA — no muestra cero', () => {
+    // Una tabla vacía acá se lee como «no hay compras que no rindieran», que es exactamente la
+    // conclusión opuesta a la verdadera.
+    PM = 'error';
+    const c = montar(VACIO).componentInstance;
+    c.setLente('compra');
+    expect(c.pmError()).toBe(true);
+    expect(c.pmRows().length).toBe(0);
+    expect(c.pmVeredictos().length).toBe(0);
+  });
+
+  it('⛔ la frescura `null` NO se cae a hoy: se declara sin medir', () => {
+    PM = { ...(PM as Record<string, unknown>), computed_on: null };
+    const c = montar(VACIO).componentInstance;
+    c.setLente('compra');
+    expect(c.pmComputedOn()).toBeNull();
+  });
+
+  it('⭐ `sin_resolver` se pinta NEUTRO, no como una compra que salió mal', () => {
+    const c = montar(VACIO).componentInstance;
+    const neutro = c.pmCls({ veredicto: 'sin_resolver', label: '', pares: 1, comprado: 1, salido: 0, en_piso: 0 });
+    const malo = c.pmCls({ veredicto: 'nunca_salio', label: '', pares: 1, comprado: 1, salido: 0, en_piso: 0 });
+    expect(neutro).toContain('mute');
+    expect(malo).toContain('bad');
+    expect(neutro).not.toBe(malo);
+  });
+
+  it('⭐ y su explicación dice que NO se puede juzgar, no que rindió mal', () => {
+    const c = montar(VACIO).componentInstance;
+    const t = c.pmTitle({ veredicto: 'sin_resolver', label: '', pares: 441, comprado: 4435816, salido: 0, en_piso: 0 });
+    expect(t).toMatch(/no se puede juzgar/i);
+    // ⛔ Y NO dice nada que suene a desempeño: el dinero está ahí, pero el veredicto no existe.
+    expect(t).not.toMatch(/rindió mal|no rindió/i);
+  });
+
+  it('la rotación `null` sale como guion, nunca como 0%', () => {
+    const c = montar(VACIO).componentInstance;
+    expect(c.pmRot({ rotacion: null } as never)).toBe('—');
+    expect(c.pmRot({ rotacion: 0 } as never)).toBe('0%');
   });
 });

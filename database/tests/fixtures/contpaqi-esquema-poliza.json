@@ -1,0 +1,5063 @@
+[
+    {
+        "tipo":  "E",
+        "nombre":  "poliza.1",
+        "longitud":  "2",
+        "formato":  "P",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Fecha",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoPol",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "9",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Clase",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDiario",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Concepto",
+        "longitud":  "100",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "SistOrig",
+        "longitud":  "3",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Impresa",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Ajuste",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Guid",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "movtopoliza.1",
+        "longitud":  "2",
+        "formato":  "M",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuenta",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoMovto",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Importe",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDiario",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImporteME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Concepto",
+        "longitud":  "100",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegNeg",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "causacion.2",
+        "longitud":  "2",
+        "formato":  "D",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa15NoAcred",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa10NoAcred",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETU",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Modificado",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Origen",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotTasa16",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseTasa16",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa16",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa16NoAcred",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotTasa11",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseTasa11",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa11",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa11NoAcred",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotTasa8",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseTasa8",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa8",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa8NoAcred",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "causacion.3",
+        "longitud":  "2",
+        "formato":  "E",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdConceptoIETU",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "causacion.1",
+        "longitud":  "2",
+        "formato":  "C",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Tipo",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotTasa15",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseTasa15",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa15",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotTasa10",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseTasa10",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasa10",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotTasa0",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseTasa0",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotTasaExento",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseTasaExento",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotOtraTasa",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseOtraTasa",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVAOtraTasa",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ISRRetenido",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotOtros",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVARetenido",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Captado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NoCausar",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IEPS",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "periodocausacion.1",
+        "longitud":  "2",
+        "formato":  "R",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EjercicioAsignado",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PeriodoAsignado",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "devolucion.2",
+        "longitud":  "2",
+        "formato":  "W",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETUDeducible",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETUModificado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "devolucion.2",
+        "longitud":  "2",
+        "formato":  "W2",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETUDeducible",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETUAcreditable",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETUModificado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdConceptoIETU",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "devolucion.1",
+        "longitud":  "2",
+        "formato":  "V",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdProveedor",
+        "longitud":  "6",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpTotal",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PorIVA",
+        "longitud":  "9",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpBase",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpIVA",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CausaIVA",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ExentoIVA",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Serie",
+        "longitud":  "15",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "8",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "OtrosImptos",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpSinRet",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVARetenido",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ISRRetenido",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "GranTotal",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EjercicioAsignado",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PeriodoAsignado",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuenta",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVAPagNoAcred",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUID",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "AE",
+        "nombre":  "RFC",
+        "longitud":  "13",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IEPS",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "poliza.2",
+        "longitud":  "2",
+        "formato":  "FE",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "RutaAnexo",
+        "longitud":  "254",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ArchivoAnexo",
+        "longitud":  "254",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "movimientocfd.1",
+        "longitud":  "2",
+        "formato":  "MC",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaFlujoEfectivo",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegmentoNegCtaFlujo",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Fecha",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Serie",
+        "longitud":  "15",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUID",
+        "longitud":  "60",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ClaveRastreo",
+        "longitud":  "60",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdProveedor",
+        "longitud":  "6",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "CodigoConceptoIETU",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpNeto",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpNetoME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaNeto",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegmentoNegNeto",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PorIVA",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImporteIVA",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImporteIVAME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVATasaExcenta",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaIVA",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegmentoNegIVA",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NombreImpuesto",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpImpuesto",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpImpuestoME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaImpuesto",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegmentoNegImp",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpOtrosGastos",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpOtrosGastosME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaOtrosGastos",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegmentoNegOtrosGastos",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVARetenido",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVARetenidoME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaRetIVA",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegmentoNegRetIVA",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ISRRetenido",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ISRRetenidoME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaRetISR",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegmentoNegRetISR",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NombreOtrasRetenciones",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpOtrasRetenciones",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpOtrasRetencionesME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaOtrasRetenciones",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegmentoNegOtrasRet",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseIVADIOT",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BaseIETU",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVANoAcreditable",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpTotalErogacion",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVAAcreditable",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpExtra1",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpExtra2",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCategoria",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSubCategoria",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoCambio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDocGastos",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EsCapturaCompleta",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FolioStr",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "movtopoliza.1",
+        "longitud":  "2",
+        "formato":  "M1",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuenta",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoMovto",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Importe",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDiario",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImporteME",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Concepto",
+        "longitud":  "100",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdSegNeg",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Guid",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FechaAplicacion",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "asocdocto.1",
+        "longitud":  "2",
+        "formato":  "AD",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUID",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "asocmovto.1",
+        "longitud":  "2",
+        "formato":  "AM",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUID",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "cheque.1",
+        "longitud":  "2",
+        "formato":  "CH",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDocumentoDe",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoDocumento",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Fecha",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FechaAplicacion",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoPersona",
+        "longitud":  "6",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BeneficiarioPagador",
+        "longitud":  "200",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaCheques",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoMoneda",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Total",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Origen",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CuentaDestino",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "BancoDestino",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Guid",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "AE",
+        "nombre":  "RFC",
+        "longitud":  "13",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "OtroMetodoDePago",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoCambio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUIDRep",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NodoPago",
+        "longitud":  "3",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoMonedaTipoCambio",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumAsoc",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "egreso.1",
+        "longitud":  "2",
+        "formato":  "EG",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDocumentoDe",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoDocumento",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Fecha",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FechaAplicacion",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoPersona",
+        "longitud":  "6",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BeneficiarioPagador",
+        "longitud":  "200",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaCheques",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoMoneda",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Total",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Origen",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "BancoDestino",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CuentaDestino",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "OtroMetodoDePago",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Guid",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "AE",
+        "nombre":  "RFC",
+        "longitud":  "13",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "AE",
+        "nombre":  "BancoExtranjero",
+        "longitud":  "60",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoCambio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUIDRep",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NodoPago",
+        "longitud":  "3",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoMonedaTipoCambio",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumAsoc",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "ingreso.1",
+        "longitud":  "2",
+        "formato":  "IN",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDocumentoDe",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoDocumento",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Fecha",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FechaAplicacion",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoPersona",
+        "longitud":  "6",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BeneficiarioPagador",
+        "longitud":  "200",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaCheques",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoMoneda",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Total",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Origen",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "BancoOrigen",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CuentaOrigen",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "OtroMetodoDePago",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Guid",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "AE",
+        "nombre":  "RFC",
+        "longitud":  "13",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "AE",
+        "nombre":  "BancoExtranjero",
+        "longitud":  "60",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoCambio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumeroCheque",
+        "longitud":  "100",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUIDRep",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NodoPago",
+        "longitud":  "3",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoMonedaTipoCambio",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumAsoc",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "deposito.1",
+        "longitud":  "2",
+        "formato":  "DE",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDocumentoDe",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoDocumento",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Fecha",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Ejercicio",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Periodo",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FechaAplicacion",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EjercicioAp",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PeriodoAp",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuentaCheques",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NatBancaria",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Naturaleza",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Total",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Concepto",
+        "longitud":  "100",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EsConciliado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IdMovEdoCta",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EjercicioPol",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PeriodoPol",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoPol",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumPol",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FormaDeposito",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IdPoliza",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Origen",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IdDocumento",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PolizaAgrupada",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UsuarioCrea",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UsuarioModifica",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "tieneCFD",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Guid",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "IngresosNoDepositados.1",
+        "longitud":  "2",
+        "formato":  "DI",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdDocumentoDe",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoDocumento",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Fecha",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Ejercicio",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Periodo",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FechaAplicacion",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EjercicioAp",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PeriodoAp",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoPersona",
+        "longitud":  "6",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BeneficiarioPagador",
+        "longitud":  "200",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NatBancaria",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Naturaleza",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoMoneda",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CodigoMonedaTipoCambio",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoCambio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Total",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Concepto",
+        "longitud":  "100",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EsAsociado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UsuAutorizaPresupuesto",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PosibilidadPago",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EsProyectado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Origen",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IdChequeOrigen",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoCambioDeposito",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IdDocumento",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EsAnticipo",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EsTraspasado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UsuarioCrea",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UsuarioModifica",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "tieneCFD",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Guid",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "CuentaOrigen",
+        "longitud":  "50",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "BancoOrigen",
+        "longitud":  "10",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "OtroMetodoDePago",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumeroCheque",
+        "longitud":  "100",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumAsoc",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "asocnodopago.1",
+        "longitud":  "2",
+        "formato":  "AP",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUIDRep",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumNodoPago",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "GuidReferencia",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "AplicationType",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "dispersionpago.1",
+        "longitud":  "2",
+        "formato":  "DP",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUID",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUIDRep",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "GuidRef",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NumNodoPago",
+        "longitud":  "5",
+        "formato":  "",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "FechaPago",
+        "longitud":  "8",
+        "formato":  "yyyyMMdd",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotalPago",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoCambio",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TotalPagoComprobante",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "E",
+        "nombre":  "MovtoImpuesto.1",
+        "longitud":  "2",
+        "formato":  "I",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  " "
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdPersona",
+        "longitud":  "6",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "EjercicioAsignado",
+        "longitud":  "4",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "PeriodoAsignado",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdCuenta",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "AplicaImpuesto",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Serie",
+        "longitud":  "15",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Folio",
+        "longitud":  "8",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Referencia",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "UUID",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Origen",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Computable",
+        "longitud":  "36",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoMovimiento",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TipoFactor",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Impuesto",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ObjetoImpuesto",
+        "longitud":  "1",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "NombreImpLocal",
+        "longitud":  "30",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "TasaOCuota",
+        "longitud":  "9",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpBase",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpImpuesto",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ImpTotal",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Desglosado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IVANoAcred",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "AcumulaIETU",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "IdConceptoIETU",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETUDeducible",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETUModificado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "IETUAcreditable",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "GuidMov",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "GuidMovPadre",
+        "longitud":  "36",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "Migrado",
+        "longitud":  "1",
+        "formato":  "1,0",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "ConceptoIVA",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "SubconceptoIVA",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "ClasificadorIVA",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "ProporcionDIOT",
+        "longitud":  "9",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "A",
+        "nombre":  "DeducibleDIOT",
+        "longitud":  "2",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "R",
+        "nombre":  "SubConceptoDIOT",
+        "longitud":  "20",
+        "formato":  "",
+        "alineacion":  ""
+    },
+    {
+        "tipo":  "S",
+        "nombre":  "",
+        "longitud":  "1",
+        "formato":  " ",
+        "alineacion":  ""
+    }
+]

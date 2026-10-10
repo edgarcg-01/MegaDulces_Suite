@@ -976,6 +976,37 @@ tabla espejo. El único que hay que sumar a la replicación es `kdvcontactos`.
 cliente* que la pantalla muestra en gris — el enganche prospecto→cliente al convertirlo. No hay
 ningún prospecto convertido con qué probarlo; **no construir la conversión sobre esto sin medirlo.**
 
+### 3.d ⭐ La NOTA DE CRÉDITO / DEVOLUCIÓN sobre un ticket: va a la FACTURA, no al ticket (decodificado 2026-10-10, `[MCP.7.1]`)
+
+Kepler **nunca** aplica la nota al ticket `U-D-10`: la aplica a la factura que nace del ticket. La
+cadena se lee en los campos de **documento origen** de `kdm1` (`c36` naturaleza · `c37` tipo ·
+`c38` serie/caja · `c39` folio), siempre **tipo + serie + folio** (el folio no es único entre tipos):
+
+```
+ticket U-D-10 (caja c5, folio c6)
+  ← factura U-D-5 (fiscal) o U-D-12 (cliente CONTADO): c36='D', c37=10, c38=caja del ticket, c39=folio del ticket
+    ← nota U-A-21 (NC/dev POS fiscal) o U-A-25 (NoFis POS): c36='D', c37=tipo factura, c38=serie, c39=folio factura
+```
+
+- **Medido en prod, 2026:** 189/189 U-A-21 → U-D-5 y 475/475 U-A-25 → U-D-12 encuentran su factura,
+  con cliente y fecha correctos; 9,383/9,391 U-D-5 y 4,412/4,412 U-D-12 encuentran su ticket.
+- **Testigo independiente:** el saldo de la factura (`c42`) = total − Σ notas ligadas (176/183 y
+  437/459; el resto, centavos). Nota cancelada: `c43='C'` y `c16=0`.
+- **`kdm2`** repite la liga por renglón (`c19`–`c22` documento origen, `c23` renglón): sirve para
+  saber **qué productos** se devolvieron.
+- **⛔ No sirven para esta liga:** `kdm5` (en sucursales no hay aplicaciones de U-A-21/25),
+  `kdue` (trae cargo y abono del cliente pero sin folio que los una) ni
+  `analytics.erp_receivable_documents` (no incluye el tipo 10).
+- **⛔ El estado del ticket (`c43`) NO es señal:** 'A'/'R' sólo por el camino U-A-21 y con
+  CONTADO hay 2,333 tickets 'A' sin cadena; el camino U-A-25 deja el ticket en 'F'.
+- **⛔ Notas sin documento origen** (en la 04, 2026: 24 U-A-21 y 104 U-A-25) **no se ligan**. Buscarlas
+  por cliente + importe da candidato único en 6 de 52: no se hace. La nota se debe hacer **desde la
+  factura del ticket** en Kepler.
+- **Uso:** `analytics.erp_ticket_credit_notes(sucursal[], caja[], folio[])` (función, mig
+  `20261010042824`): por lote, en vivo, 97 ms por 300 tickets. Como vista tardaba ~1 s por 300.
+- Ejemplo: `04UD1003-0002051` $326.80 ← `UD0501-0001768` (saldo 0.00) ← `UA2101-0000106` $326.80
+  «CUCHARA ERA MAS GRANDE».
+
 ### 3.x El kardex (`kdij`) y el reparto entre sucursales — `[NP.16]`, medido 2026-10-09
 
 **`kdij` es la historia de movimientos de inventario por almacén** (2.1 M renglones, 635 MB). Decodificado

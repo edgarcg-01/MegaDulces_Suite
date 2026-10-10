@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
+import { RouterLink } from '@angular/router';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -26,6 +27,8 @@ import { environment } from '../../../../environments/environment';
 // movieron (ver la cabecera del hijo). Mismo patrón que `bancos/`.
 import { PresupuestoVentasComponent } from './presupuesto/presupuesto-ventas.component';
 import { leyendaRespaldo, resumenFirma, type Completeness, type ProcedenciaCanal } from './presupuesto/presupuesto-firma';
+import { ejercicioInicial } from './presupuesto/presupuesto-seleccion';
+import { motivoSinResultado, resultadoEjercicio, tipoLabel, type FilaPorTipo } from './presupuesto/presupuesto-resultado';
 import { PRESUPUESTO_STYLES } from './presupuesto/presupuesto.styles';
 import type {
   GrowthEditRow, GrowthProposal, ProposeCoverage, SalesComparison, SalesIndicators,
@@ -39,9 +42,10 @@ interface ExpenseObligation {
   original_amount: number; reserved_amount: number; paid_amount: number; available_amount: number;
   original_due_date: string | null; status: string; is_critical: boolean; critical_reason: string | null;
 }
-interface BudgetHeader { id: string; folio: string | null; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number;
-  /** `[PU.VG.9]` Ya viajaba (`listBudgets` devuelve la fila entera) y la pantalla no lo decía. */
-  is_test?: boolean }
+/** `[PVI.15]` `is_test` viaja desde siempre en el payload (`select *`) y la pantalla NO lo miraba:
+ *  por eso abría sobre la copia de prueba. Opcional y nullable a propósito — un ejercicio anterior
+ *  a la columna trae NULL y es tan real como uno en `false`. */
+interface BudgetHeader { id: string; folio: string | null; name: string; fiscal_year: number; scenario: string; status: string; currency: string; version: number; is_test?: boolean | null }
 interface BudgetLine {
   id: string; concept: string; line_type: string; area: string | null;
   /** `[PU.VA]` Ya viajaban (el servicio devuelve la fila entera); faltaba declararlos para poder usarlos. */
@@ -139,6 +143,26 @@ interface ExpenseCoverage { historico_ajustado: number; estacional: number; no_s
  */
 interface ExpenseGrowthProposal { global: { growth_pct: number; basis: string; paired_months: number; meses_abiertos_excluidos?: number }; years_available: number[]; fiscal_year: number; families: string[]; as_of: string | null; min_paired_months?: number; by_account: Record<string, { growth_pct: number; basis: string; paired_months: number; account_name: string | null }> }
 
+/**
+ * `[TES.17]` La bandeja de firmas. Interfaz local a propósito y no en `libs/contracts`: la forma
+ * todavía se está acordando con los otros dos carriles en el mapa de superficie, y subir al
+ * contrato algo que va a cambiar es peor que copiarlo una vez y declararlo. Sube cuando el mapa
+ * esté firmado -- queda anotado acá para que no se olvide, que es como nacen las copias a mano.
+ */
+interface FirmaPendiente {
+  tipo: 'ejercicio' | 'obligacion'; id: string; titulo: string; detalle: string;
+  monto: number | null; desde: string | null; dias_esperando: number | null;
+  desde_es_proxy: boolean; que_se_traba: string; ruta: string; permiso: string;
+}
+interface EstadoCola { cola: 'ejercicios' | 'obligaciones'; total: number; monto: number | null; vacia_porque: string | null }
+interface BandejaFirmas {
+  total: number; monto_total: number | null; items: FirmaPendiente[];
+  por_cola: EstadoCola[]; vacia_porque: string | null;
+  aguas_arriba: { ejercicios_borrador: number; ejercicios_en_revision: number; obligaciones_propuesta: number; monto_propuesta: number | null };
+  excluido_por_prueba: { ejercicios: number; obligaciones: number; monto: number | null };
+  as_of: string;
+}
+
 type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
 
 /**
@@ -154,7 +178,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule,
     CheckboxModule, TagModule, ToastModule, SegmentedComponent, MetricStripComponent, FreshnessPillComponent, SucursalPipe,
-    PresupuestoVentasComponent,
+    PresupuestoVentasComponent, RouterLink,
   ],
   providers: [MessageService],
   template: `
@@ -165,12 +189,101 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
           <h1>Presupuesto</h1>
           <p class="surf-page-sub">El sistema <strong>arma solo</strong> el presupuesto desde el ODS y Kepler — supuestos, plan y partidas. Tú <strong>autorizas</strong>. Alimenta el <strong>Calendario de pagos</strong> con la capacidad y las obligaciones.</p>
         </div>
+        <!--
+          [TES.16] Los dos grupos se rotulan por la PREGUNTA que contestan, no por el origen
+          del dato. Antes el segundo decía «Programación de pagos» y el primero no decía nada,
+          y eso partía en dos un carril: «Flujo / Resultado» quedaba del lado de «armar» mientras
+          «Capacidad» y «Obligaciones» estaban del otro, contestando las tres lo mismo.
+          ⭐ Y el diagnóstico de Tesorería —holgura y ciclo— existía desde [TES.15] en su propia
+          ruta y NO SE LLEGABA DESDE ACÁ: una pantalla sin entrada donde se la busca está
+          escrita, no entregada. Va primero porque es el answer-first del grupo.
+          ⚠️ Abre como página aparte, no como pestaña, a propósito: meterla adentro duplicaría
+          su carga de datos en un shell de 2,300 líneas que editan cinco carriles. Se vuelve
+          pestaña cuando el shell esté partido (mapa de superficie, regla 3).
+          ⚠️⚠️ SÉPTIMA vez que un acento grave en un comentario rompe el build: este bloque los
+          tenía y check:templates lo frenó. Adentro del template van SIN acento grave.
+        -->
         <div class="pres-nav">
+          <span class="pres-nav-sep pres-nav-sep--first">Armar el presupuesto</span>
           <app-segmented [options]="viewOptsArmar" [value]="view()" (valueChange)="setView($event)" ariaLabel="Armar el presupuesto" />
-          <span class="pres-nav-sep">Programación de pagos</span>
-          <app-segmented [options]="viewOptsPagos" [value]="view()" (valueChange)="setView($event)" ariaLabel="Programación de pagos" />
+          <span class="pres-nav-sep">¿Alcanza el dinero?</span>
+          <a class="p-button p-button-sm p-button-text pres-nav-link" routerLink="/presupuesto/tesoreria">Diagnóstico</a>
+          <app-segmented [options]="viewOptsPagos" [value]="view()" (valueChange)="setView($event)" ariaLabel="¿Alcanza el dinero?" />
         </div>
       </header>
+
+      <!--
+        [TES.17] LA BANDEJA DE FIRMAS. Va arriba de todo porque el encabezado promete el verbo
+        ("Tú autorizas") y hasta hoy no había dónde ver qué lo esperaba. DESIGN §15 answer-first:
+        una línea con la respuesta, y el detalle sólo si se pide.
+        ⭐ El estado va POR COLA y no sólo en total: medido en prod son 0 ejercicios y 156
+        obligaciones por $74.8M, y con un contador único ese CERO queda tapado por las 156.
+        Una cola vacía se esconde detrás de una llena.
+        ⚠️ Si la consulta falla se DECLARA. Un bloque que desaparece en silencio se lee como
+        "nada espera tu firma", que es la respuesta contraria a la verdad.
+      -->
+      @if (firmasError()) {
+        <div class="pres-alert"><i class="pi pi-exclamation-triangle"></i> {{ firmasError() }}</div>
+      } @else if (firmas(); as f) {
+        <div class="pres-firmas">
+          <button type="button" class="pres-firmas-head" (click)="firmasAbierta.set(!firmasAbierta())"
+                  [attr.aria-expanded]="firmasAbierta()" aria-controls="firmas-detalle">
+            <i class="pi" [class.pi-flag]="f.total > 0" [class.pi-check]="f.total === 0"></i>
+            @if (f.total > 0) {
+              <span class="pres-firmas-answer">
+                <strong>{{ f.total }}</strong> esperan tu firma
+                @if (f.monto_total !== null) { · <strong>{{ money(f.monto_total) }}</strong> }
+              </span>
+            } @else {
+              <span class="pres-firmas-answer pres-firmas-answer--vacia">{{ f.vacia_porque }}</span>
+            }
+            <span class="pres-firmas-colas">
+              @for (c of f.por_cola; track c.cola) {
+                <span class="pres-firmas-chip" [class.pres-firmas-chip--cero]="c.total === 0">{{ c.cola }}: {{ c.total }}</span>
+              }
+            </span>
+            <i class="pi pres-firmas-chev" [class.pi-chevron-down]="!firmasAbierta()" [class.pi-chevron-up]="firmasAbierta()"></i>
+          </button>
+
+          @if (firmasAbierta()) {
+            <div class="pres-firmas-body" id="firmas-detalle">
+              @for (c of f.por_cola; track c.cola) {
+                @if (c.vacia_porque) {
+                  <p class="pres-firmas-nota"><i class="pi pi-info-circle"></i> {{ c.vacia_porque }}</p>
+                }
+              }
+              @for (it of firmasTop(); track it.id) {
+                <div class="pres-firmas-row">
+                  <div class="pres-firmas-row-main">
+                    <span class="pres-firmas-tit">{{ it.titulo }}</span>
+                    <span class="pres-firmas-det">{{ it.detalle }}</span>
+                  </div>
+                  <div class="pres-firmas-row-num">
+                    @if (it.monto !== null) { <span class="pres-firmas-monto">{{ money(it.monto) }}</span> }
+                    @else { <span class="pres-firmas-sin">sin monto</span> }
+                    @if (it.dias_esperando !== null) {
+                      <span class="pres-firmas-dias" [title]="it.desde_es_proxy ? 'Aproximado: ninguna tabla guarda cuándo entró a la cola. Se usa la fecha del último cambio.' : ''">
+                        {{ it.dias_esperando }} d{{ it.desde_es_proxy ? ' aprox.' : '' }}
+                      </span>
+                    }
+                  </div>
+                  <div class="pres-firmas-traba">{{ it.que_se_traba }}</div>
+                </div>
+              }
+              @if (firmasResto() > 0) {
+                <p class="pres-firmas-nota">y {{ firmasResto() }} más — la bandeja responde, no enumera.</p>
+              }
+              <p class="pres-firmas-pie">
+                @if (f.excluido_por_prueba.obligaciones > 0 || f.excluido_por_prueba.ejercicios > 0) {
+                  Fuera del conteo, por venir del ejercicio de prueba:
+                  {{ f.excluido_por_prueba.ejercicios }} ejercicio(s) y {{ f.excluido_por_prueba.obligaciones }} obligación(es).
+                }
+                Medido {{ f.as_of | date:'dd/MM/yyyy HH:mm' }}.
+              </p>
+            </div>
+          }
+        </div>
+      }
 
       <!-- ══════════ EJERCICIOS (sistema de presupuestos) ══════════ -->
       @if (view() === 'ejercicios') {
@@ -376,6 +489,12 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
                 }
               </div>
               <app-metric-strip [items]="kpiItems(s)" mode="strip" ariaLabel="Resumen ejecutivo del presupuesto" />
+              <!-- [PVI.16] Por que el ejercicio no puede declarar un resultado. Va DEBAJO de la
+                   tira y no dentro: es una ausencia con motivo, no una cifra. Sale del roll-up por
+                   tipo de partida, que hasta hoy no tenia un solo consumidor en pantalla. -->
+              @if (motivoSinResultado(ladosEjercicio()); as motivo) {
+                <p class="pres-warn"><span class="pi pi-exclamation-triangle"></span> <span>{{ motivo }}</span></p>
+              }
             }
 
             <p-table [value]="lines()" [loading]="loadingDetail()" styleClass="p-datatable-sm surf-table pres-table" [scrollable]="true">
@@ -1173,15 +1292,29 @@ export class FinanzasPresupuestoComponent implements OnInit {
 
   // ── Sub-navegación ──
   view = signal<PresView>('ejercicios');
-  // Grupo «armar el presupuesto» (automático) + grupo «programación de pagos» (alimenta Calendario).
+  // `[TES.16]` Dos grupos, rotulados por la PREGUNTA que contesta cada uno.
+  //
+  //   «Armar el presupuesto»  → ¿cuánto vamos a vender y a gastar?
+  //   «¿Alcanza el dinero?»   → el mismo dinero en tres horizontes: la semana (flujo),
+  //                             el día (capacidad) y el compromiso vivo (obligaciones).
+  //
+  // ⛔ Antes «Flujo / Resultado» estaba en el primer grupo. Era el único de los tres que
+  // contesta la pregunta de liquidez y vivía del lado de los que la plantean — o sea que el
+  // carril de Tesorería estaba partido entre los dos grupos y el agrupado no seguía ninguna
+  // pregunta: seguía el orden en que se fueron construyendo las pestañas.
   viewOptsArmar = [
     { label: 'Ejercicio', value: 'ejercicios' },
     { label: 'Ventas', value: 'ventas' },
     { label: 'Gastos', value: 'gasto-op' },
-    { label: 'Flujo / Resultado', value: 'flujo' },
     { label: 'Campañas', value: 'campanas' },
   ];
+  // ⚠️ «Obligaciones» sigue acá por ahora y es PROVISIONAL: su dato es
+  // `budget.expense_obligations`, del carril de Gastos, y las 312 filas vivas están en
+  // `propuesta` — o sea que el 100 % de lo que la pantalla muestra hoy pertenece al ciclo
+  // `propuesta → autorizada`, que no es el mío. Se mueve cuando 8c firme la sección 6 del
+  // mapa de superficie; moverla antes sería decidir sobre el carril de otro.
   viewOptsPagos = [
+    { label: 'Flujo / Resultado', value: 'flujo' },
     { label: 'Capacidad de pago', value: 'capacidad' },
     { label: 'Obligaciones', value: 'gastos' },
   ];
@@ -1329,7 +1462,32 @@ export class FinanzasPresupuestoComponent implements OnInit {
   newVisible = false;
   form: { concept?: string; beneficiary?: string; subtype?: string; area?: string; original_amount?: number; original_due_date?: string; is_critical?: boolean; critical_reason?: string } = {};
 
-  ngOnInit(): void { this.loadBudgets(); this.loadCapacity(); this.loadExpenses(); }
+  ngOnInit(): void { this.loadBudgets(); this.loadCapacity(); this.loadExpenses(); this.loadFirmas(); }
+
+  // ── [TES.17] Bandeja de firmas ──
+  firmas = signal<BandejaFirmas | null>(null);
+  firmasAbierta = signal(false);
+  firmasError = signal<string | null>(null);
+
+  /**
+   * Una sola consulta al entrar. No se recarga al cambiar de pestaña: la bandeja es de la
+   * PÁGINA, no de la vista, y refrescarla siete veces por navegar sería ruido contra la base.
+   * ⚠️ Si falla, se DECLARA -- un bloque que desaparece en silencio se lee como "no hay nada
+   * esperando tu firma", que es la respuesta contraria a la verdad.
+   */
+  loadFirmas(): void {
+    this.http.get<BandejaFirmas>(`${this.base}/firmas-pendientes`).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+      next: (r) => { this.firmas.set(r); this.firmasError.set(null); this.cdr.markForCheck(); },
+      error: () => { this.firmas.set(null); this.firmasError.set('No se pudo consultar qué espera tu firma.'); this.cdr.markForCheck(); },
+    });
+  }
+
+  /** Los de arriba por monto. El resto se cuenta, no se lista: la bandeja responde, no enumera. */
+  firmasTop(): FirmaPendiente[] { return (this.firmas()?.items ?? []).slice(0, 6); }
+  firmasResto(): number { return Math.max(0, (this.firmas()?.total ?? 0) - this.firmasTop().length); }
+  colaDe(c: 'ejercicios' | 'obligaciones'): EstadoCola | undefined {
+    return this.firmas()?.por_cola?.find((x) => x.cola === c);
+  }
 
   // ── Ejercicios ──
   loadBudgets(): void {
@@ -1339,7 +1497,11 @@ export class FinanzasPresupuestoComponent implements OnInit {
         this.budgets.set(rows ?? []);
         this.loadingBudgets.set(false);
         const cur = this.selected();
-        if (!cur && rows?.length) this.selectBudget(rows[0]);
+        // `[PVI.15]` ⛔ Era `rows[0]`, y con el orden de `listBudgets` eso era el ejercicio de
+        // PRUEBA: quedaba primero por ser el más nuevo. La pantalla abría sobre la copia. La regla
+        // vive aparte y con candado — apoyar la garantía en el ORDER BY es como nació el defecto.
+        const inicial = ejercicioInicial(rows ?? []);
+        if (!cur && inicial) this.selectBudget(inicial);
         // Re-sincronizar el header del ejercicio abierto (estado/versión) con la fila fresca:
         // sin esto, tras un cambio de ciclo de vida el chip mostraba el estado nuevo y la barra
         // de detalle el viejo (selectBudget solo refresca resumen/partidas, no el header).
@@ -1383,6 +1545,11 @@ export class FinanzasPresupuestoComponent implements OnInit {
     this.completeness.set(null);
     this.http.get<Completeness>(`${this.base}/budgets/${b.id}/completeness`).pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (c) => this.completeness.set(c), error: () => this.completeness.set(null) });
+    // `[PVI.16]` Mismo criterio: aparte, y si falla el signal queda en `null` — que el resumen lee
+    // como «no sé qué lados tiene», nunca como «no tiene ninguno».
+    this.variance.set(null);
+    this.http.get<FilaPorTipo[]>(`${this.base}/budgets/${b.id}/variance`).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (v) => this.variance.set(v ?? []), error: () => this.variance.set(null) });
     if (this.view() === 'flujo') this.loadResultado();
     if (this.view() === 'gasto-op') this.loadExpensePlan();
     if (this.view() === 'gastos') this.loadExpenses();
@@ -1965,6 +2132,19 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // persona descubría los bloqueos apretando y fallando, y los `avisos` —lo que conviene mirar y
   // NO frena— no los veía nunca. Y «listo» mide CANTIDAD, no RESPALDO: declara listo un ejercicio
   // cuyo mayor supuesto no lo firma nadie. Reglas y candado en `presupuesto/presupuesto-firma.ts`.
+  // `[PVI.16]` El roll-up por tipo de partida (`GET budgets/:id/variance`), que hasta hoy NO tenía
+  // un solo consumidor en pantalla. Es lo único que contesta con el ledger sin mover: qué lados
+  // del ejercicio existen y cuáles no. De ahí sale si se puede declarar un resultado.
+  variance = signal<FilaPorTipo[] | null>(null);
+  // ⚠️ `ladosEjercicio`, NO `resultado`: este archivo YA tiene `resultado` (el P&L de
+  // `GET budgets/:id/resultado`, con su `loadResultado()` que le hace `.set()`). Son dos preguntas
+  // distintas —aquélla es plan contra real renglón por renglón; ésta es qué LADOS del ejercicio
+  // existen en el ledger— y el nombre corto le pertenece a la que llegó primero y tiene
+  // consumidores vivos. Un `computed` no tiene `.set()`: la colisión no fallaba en pantalla, dejaba
+  // el archivo sin compilar y con él `main` en rojo, que frena el despliegue de todas las sesiones.
+  ladosEjercicio = computed(() => resultadoEjercicio(this.variance()));
+  protected readonly motivoSinResultado = motivoSinResultado;
+
   completeness = signal<Completeness | null>(null);
   growthProvenance = signal<Record<string, ProcedenciaCanal> | null>(null);
   growthByChannel = signal<Record<string, number>>({});
@@ -2463,6 +2643,14 @@ export class FinanzasPresupuestoComponent implements OnInit {
       // de ventas con el plan de gastos: $547 M que no eran ni lo uno ni lo otro.
       { label: 'Egreso vigente', value: s.ejecucion.vigente, format: 'currency-short' },
       { label: 'Disponible', value: s.ejecucion.disponible, format: 'currency-short', tone: s.ejecucion.disponible < 0 ? 'bad' : 'ok' },
+      // `[PVI.16]` El RESULTADO del ejercicio, o la declaración de por qué no lo hay. Medido en
+      // prod: el ingreso del ledger ($604,775,116 en 33 partidas) cuadra **al peso** con la meta
+      // del plan de ventas, y el gasto son 14 partidas OPERATIVAS — ninguna es costo de ventas.
+      // ⛔ Restar igual publicaría 87.6 % de margen. El `CHECK` de la tabla admite `costo_ventas`
+      // y en toda la base no existe ni una partida de ese tipo: el casillero está, vacío.
+      ...(this.ladosEjercicio().resultado != null
+        ? [{ label: 'Resultado del ejercicio', value: this.ladosEjercicio().resultado as number, format: 'currency-short' } as MetricStripItem]
+        : [{ label: 'Resultado del ejercicio', value: '—', format: 'text', sub: `falta ${this.ladosEjercicio().faltan.map(tipoLabel).join(' y ')}`, tone: 'warn' } as MetricStripItem]),
       // La meta de ventas es el OTRO lado del presupuesto y ahora se ve como tal, en vez de estar
       // disuelta dentro del saldo de gasto.
       ...(s.ejecucion.ingreso_meta != null

@@ -107,6 +107,20 @@ export interface CampoFijo {
   ancho: number;
   /** Alineado a la derecha (`padL`). Por default va a la izquierda (`padR`). */
   der?: boolean;
+  /**
+   * ⭐⭐ `[CP.8.28]` — **No lleva separador DESPUÉS de este campo.**
+   *
+   * El esquema del fabricante (`CT_EST_Poliza_NG.xls`) intercala un renglón `S | 1` entre cada
+   * par de campos… **salvo entre `Concepto` y `SistOrig` del encabezado**, donde no hay ninguno.
+   *
+   * ⛔ Asumir que el separador es uniforme **cuadra el total igual** (185 de las dos formas) y
+   * parte mal esos dos campos. Hoy no se nota porque `SistOrig` vale `11` y alineado a la derecha
+   * en 3 da `" 11"`, que es byte por byte lo mismo que separador + `"11"`. Con un valor de 3
+   * dígitos el archivo se correría entero.
+   *
+   * *Un total que cuadra no prueba que los campos estén donde van.*
+   */
+  sinSep?: boolean;
 }
 
 /**
@@ -121,8 +135,8 @@ export const LAYOUT_P: CampoFijo[] = [
   // ⭐ 1, no 4. Una fuente externa decía 4; el archivo real le dio la razón a nuestro decode.
   { nombre: 'clase', ancho: 1, der: true },
   { nombre: 'id_diario', ancho: 10 },
-  { nombre: 'concepto', ancho: 100 },
-  { nombre: 'sist_orig', ancho: 2, der: true },
+  { nombre: 'concepto', ancho: 100, sinSep: true },
+  { nombre: 'sist_orig', ancho: 3, der: true },
   { nombre: 'impresa', ancho: 1, der: true },
   { nombre: 'ajuste', ancho: 1, der: true },
   // ⭐ Campo que NO teníamos. Es `Polizas.Guid`, y es el mejor candidato a llave de correlación
@@ -182,6 +196,23 @@ export const LAYOUT_M_LEGACY: CampoFijo[] = [
 export const largoLineaLegacy = (layout: readonly CampoFijo[]) =>
   layout.reduce((a, c) => a + c.ancho, 0) + (layout.length - 1) * SEP.length;
 
+/**
+ * ⭐⭐ `[CP.8.29]` — **El renglón de asociación de CFDI.** `asocdocto.1` en el esquema del
+ * fabricante: etiqueta `AD` + `UUID` de 36 = **40 caracteres** con sus dos separadores.
+ *
+ * Verificado por partida doble: el esquema lo declara así, y el archivo real trae **62 renglones
+ * `AD`, los 62 de 40 caracteres**, que cruzan a 234 filas de `AsocCFDIs`.
+ *
+ * ⚠️ El archivo real usa el UUID **tanto en mayúsculas como en minúsculas** (32 y 30 de los 62),
+ * así que ContPAQi no distingue. No se normaliza: se manda como viene.
+ */
+export const LARGO_UUID = 36;
+
+export const LAYOUT_AD: CampoFijo[] = [
+  { nombre: 'tipo', ancho: 2 },
+  { nombre: 'uuid', ancho: LARGO_UUID },
+];
+
 export interface Movimiento {
   cuenta: string;
   referencia: string;
@@ -220,10 +251,11 @@ export interface PolizaTxtParseada {
  * renglón 1 carácter corto — un defecto invisible en pantalla y fatal al importar.
  */
 export const armarLinea = (layout: readonly CampoFijo[], vals: unknown[]) =>
-  layout.map((c, i) => (c.der ? padL(vals[i], c.ancho) : padR(vals[i], c.ancho))).join(SEP) + SEP;
+  layout.map((c, i) => (c.der ? padL(vals[i], c.ancho) : padR(vals[i], c.ancho))
+    + (c.sinSep ? '' : SEP)).join('');
 
 export const largoLinea = (layout: readonly CampoFijo[]) =>
-  layout.reduce((a, c) => a + c.ancho, 0) + layout.length * SEP.length;
+  layout.reduce((a, c) => a + c.ancho + (c.sinSep ? 0 : SEP.length), 0);
 
 /**
  * Corta una línea en sus campos por posición. **No se puede usar `split`** por el
@@ -235,7 +267,7 @@ export const partirLinea = (layout: CampoFijo[], linea: string): string[] => {
   let i = 0;
   for (const c of layout) {
     out.push(linea.slice(i, i + c.ancho));
-    i += c.ancho + SEP.length;
+    i += c.ancho + (c.sinSep ? 0 : SEP.length);
   }
   return out;
 };
@@ -282,6 +314,20 @@ export function construirTxt(
    */
   impresa: string = '0',
   ajuste: string = '0',
+  /**
+   * ⭐⭐ `[CP.8.29]` — **Los UUID de CFDI que esta póliza asocia** (renglones `AD`).
+   *
+   * El esquema del fabricante lo define como `asocdocto.1`: etiqueta `AD` de 2 + separador +
+   * `UUID` de 36 + separador = **40 caracteres**, y el archivo real trae 62 de esos, todos de 40.
+   *
+   * ⭐ **Van al FINAL de la póliza**, después de todos los `M1`. Medido sobre las 14 pólizas del
+   * archivo real: la primera es `P M1 M1 M1 AD`. ⛔ Las fuentes externas decían *"después del
+   * `P`"* (§9.1) — **es falso**, y ponerlo ahí habría sido el primer motivo de rechazo.
+   *
+   * ⚠️ Default `[]`: **el libro de compras llama sin este argumento y su archivo sale idéntico
+   * al byte.** Es lo que permite prender esto sin tocar un flujo que mueve $30–56M al mes.
+   */
+  uuids: readonly string[] = [],
 ): string {
   const sinCuenta = movs.findIndex((m) => !m.cuenta || !String(m.cuenta).trim());
   if (sinCuenta >= 0) {
@@ -296,7 +342,23 @@ export function construirTxt(
     impTxt(m.importe), '0', '0.0', m.concepto, m.seg_negocio ?? '',
     m.guid ?? '', m.fecha_aplicacion ?? '',
   ]));
-  return [header, ...lineas].join('\r\n') + '\r\n';
+  /**
+   * `[CP.8.29]` — El renglón `AD`, con el layout del esquema: `AD` (2) + sep + UUID (36) + sep.
+   *
+   * ⛔ **Se niega ante un UUID que no mide 36.** Rellenarlo o recortarlo produciría un renglón de
+   * 40 que el importador acepta y que asocia **el comprobante equivocado** — o ninguno. Un
+   * archivo rechazado es infinitamente preferible (misma regla que `[LC.9]`).
+   */
+  const asociaciones = uuids.map((u) => {
+    const s = String(u ?? '').trim();
+    if (s.length !== LARGO_UUID) {
+      throw new Error(
+        `el UUID "${s}" mide ${s.length} y el renglón AD exige ${LARGO_UUID}; el archivo sería basura`,
+      );
+    }
+    return armarLinea(LAYOUT_AD, ['AD', s]);
+  });
+  return [header, ...lineas, ...asociaciones].join('\r\n') + '\r\n';
 }
 
 /**

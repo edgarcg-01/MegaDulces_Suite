@@ -459,6 +459,29 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        .78 de la fila, --text-muted cae a 4.10 y deja de pasar AA") nunca se aplicó, y lo mismo
        el tamaño y el margen de la marca. ⚠️ El repo tiene 99 p-tag con styleClass: todos inertes. */
     .cg-trabada .cg-motivo-tag { opacity:1; }
+    /* ⭐⭐ [CG.77] LA FILA TRABADA OCUPA MENOS ALTO. Pedido de Edgar el 2026-10-09: "lo que no es
+       seleccionable hacerlo mas pequeño, visible pero que no quite espacio".
+
+       ⛔ Y no es una fila de cada tantas: MEDIDO en prod ese dia, la cola tiene 2,035 movimientos
+       en su ventana de 45 dias -- 537 ingresos (431 con ruta declarada, o sea confirmables) y
+       **1,498 gastos contra UNA sola regla de clasificacion**. O sea que ~74% de la tabla es fila
+       trabada. Lo que llena la pantalla no es el trabajo: es lo que todavia NO se puede hacer.
+
+       Dos cambios, ninguno de color ni de contraste -- el color ya se neutralizo en [CG.47] y la
+       legibilidad del motivo se midio en vivo en [CG.33]:
+
+         1) la marca del motivo sube AL RENGLON del nombre. Hoy entra con margin-top y abre un
+            segundo renglon dentro de la celda: con 1,498 filas eso son 1,498 renglones de alto
+            que no dicen nada nuevo (el motivo ya va agrupado y contado arriba, [CG.37]).
+         2) las celdas pierden la mitad del alto vertical.
+
+       ⚠️ Lo que NO se toca, a proposito: la opacidad de la fila (.78, ya calibrada), el tamaño de
+       la marca ni el del nombre. Achicar la tipografia de una fila ya atenuada es justo lo que
+       [CG.33] midio que tiraba el contraste abajo de AA -- "mas chico" se consigue con el alto,
+       no con la letra. Y la fila SIGUE en la lista y SIGUE seleccionable para abrirla a mano:
+       esconderla dejaria a la persona sin saber que el movimiento existe. */
+    .cg-trabada > td { padding-top:var(--sp-1); padding-bottom:var(--sp-1); }
+    .cg-trabada .cg-motivo-tag { margin-top:0; margin-left:var(--sp-2); vertical-align:middle; }
     /* ⛔ [CG.48] Acá vivía ".cg-contado", el input de conteo por renglón de la bandeja. Se fue
        con su columna: era la única forma de meter una cifra contada al libro SIN desglose. */
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }

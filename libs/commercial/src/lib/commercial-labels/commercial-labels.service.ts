@@ -120,8 +120,11 @@ export interface LabelPriceChange {
  */
 export type LabelsFreshness = Freshness;
 
+/** Lo mínimo de una fila de precios que hace falta para saber si cotiza (y de qué SKU es). */
+type FilaPrecioErp = { sku?: unknown; piece_price?: unknown; pack_price?: unknown; box_price?: unknown };
+
 /** Mismo criterio que `usable()` de la pantalla: al menos UN precio (pieza, paquete o caja) mayor a 0. */
-const tienePrecio = (r: any): boolean =>
+const tienePrecio = (r: FilaPrecioErp): boolean =>
   [r?.piece_price, r?.pack_price, r?.box_price].some((v) => (n(v) ?? 0) > 0);
 
 const n = (v: unknown): number | null => {
@@ -633,7 +636,7 @@ export class CommercialLabelsService {
       const estadoErp = new Map<string, NonNullable<LabelModel['erp_estado']>>();
       if (suc) {
         const sinPrecio: string[] = Array.from(new Set<string>(
-          (rows as any[])
+          (rows as FilaPrecioErp[])
             .filter((r) => !tienePrecio(r))
             .map((r) => String(r.sku ?? '').trim())
             .filter(Boolean),
@@ -644,7 +647,7 @@ export class CommercialLabelsService {
               WHERE btrim(sucursal::text) = ? AND btrim(c1::text) = ANY(?)`,
             [suc, sinPrecio],
           );
-          const hayEnPlaza = new Set<string>((enPlaza?.rows ?? []).map((x: any) => String(x.sku)));
+          const hayEnPlaza = new Set<string>(((enPlaza?.rows ?? []) as Array<{ sku: unknown }>).map((x) => String(x.sku)));
           for (const s of hayEnPlaza) estadoErp.set(s, 'sin_precio');
           const faltan = sinPrecio.filter((s) => !hayEnPlaza.has(s));
           if (faltan.length) {
@@ -653,7 +656,7 @@ export class CommercialLabelsService {
                 WHERE btrim(c1::text) = ANY(?)`,
               [faltan],
             );
-            const hayEnOtra = new Set<string>((enOtra?.rows ?? []).map((x: any) => String(x.sku)));
+            const hayEnOtra = new Set<string>(((enOtra?.rows ?? []) as Array<{ sku: unknown }>).map((x) => String(x.sku)));
             for (const s of faltan) estadoErp.set(s, hayEnOtra.has(s) ? 'no_existe_en_plaza' : 'no_existe_en_erp');
           }
         }

@@ -23,6 +23,14 @@
  *  · `entregado`       `fulfilled` (flujo anterior a la mesa; la entrega de conformidad llega en MCP.6).
  *  · `cancelado`
  */
+/**
+ * `[MCP]` Cuántas veces puede SALIR OTRA VEZ un pedido que no se entregó, con el mismo documento,
+ * antes de ir a devolución y nota de crédito en Kepler (I2, Francisco 2026-10-08: "sólo 2 entregas
+ * más, se empieza a maltratar la mercancía"). Sale 1 vez + 2 reintentos = 3 intentos. Vive aquí para
+ * que el motor y las pantallas lean el mismo número.
+ */
+export const PRESALE_MAX_REINTENTOS = 2;
+
 export const PRESALE_STAGES = [
   'esperando_alta',
   'por_surtir',
@@ -31,11 +39,13 @@ export const PRESALE_STAGES = [
   'cobrado',
   'en_ruta',
   'entregado',
+  // [MCP.7.1] La mercancía no se entregó y Kepler ya aplicó devolución + nota de crédito que cubre todo el ticket.
+  'devuelto',
   'cancelado',
 ] as const;
 export type PresaleStage = (typeof PRESALE_STAGES)[number];
 
-/** Contra la fecha de entrega prometida. `null` = pedido cerrado (entregado o cancelado). */
+/** Contra la fecha de entrega prometida. `null` = pedido cerrado (entregado, devuelto o cancelado). */
 export type PresaleDue = 'a_tiempo' | 'hoy' | 'vencido' | null;
 
 /**
@@ -101,9 +111,33 @@ export interface PresaleOrderRow {
    */
   possible_documents: number | null;
   /** `[MCP.5]` La guía de carga en la que va cargado, o `null` si nadie lo ha pescado. */
-  load_guide: { id: string; folio: string; status: 'abierta' | 'impresa'; rider_name: string | null } | null;
+  load_guide: { id: string; folio: string; status: 'abierta' | 'impresa' | 'liquidada'; rider_name: string | null } | null;
   /** `[MCP.6]` La entrega de conformidad registrada en el celular, o `null` si no se ha entregado. */
   delivery: PresaleDelivery | null;
+  /** `[MCP.7]` Veces que salió y volvió sin entregarse (`regreso` + `no_entregado`). */
+  failed_attempts: number;
+  /**
+   * `[MCP.7]` Agotó los reintentos (D10/I2): ya no sale otra vez; va a devolución y nota de crédito en
+   * Kepler. Cerrarlo cuando la devolución aparezca en el ODS depende de I1 (aún sin decodificar).
+   */
+  return_required: boolean;
+  /**
+   * `[MCP.7.1]` Notas de crédito / devoluciones que Kepler aplicó al ticket del pedido (vía su
+   * factura), leídas en vivo del ODS. `saldado` = cubren el ticket completo (el pedido pasa a
+   * `devuelto`); `parcial` = sólo una parte (el pedido sigue abierto). `null` = sin documento
+   * ligado o sin notas. Las notas hechas en Kepler SIN documento origen no se ven (se declaran).
+   */
+  credit_note: PresaleCreditNote | null;
+}
+
+/** `[MCP.7.1]` Lo que Kepler acreditó contra el ticket de un pedido. */
+export interface PresaleCreditNote {
+  status: 'saldado' | 'parcial';
+  /** Σ de las notas ligadas. */
+  credited: number;
+  /** Total del ticket contra el que se compara. */
+  ticket_total: number;
+  notes: Array<{ folio: string; factura: string; fecha: string; importe: number; motivo: string | null }>;
 }
 
 /** `[MCP.6]` Entrega de conformidad (en el renglón de la guía, NO en `orders.status`). */

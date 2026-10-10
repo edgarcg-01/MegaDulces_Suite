@@ -87,7 +87,17 @@ export class PickingConsolaService {
         `SELECT pw.id, pw.code, pw.status, pw.origen, pw.armada_por, pw.prioridad, pw.prioridad_motivo,
                 pw.assigned_to, COALESCE(NULLIF(btrim(u.nombre), ''), u.username) AS assigned_nombre,
                 pw.created_at, pw.started_at, pw.liberada_at,
-                (SELECT count(*) FROM commercial.wave_lines wl WHERE wl.wave_id = pw.id)::int AS renglones,
+                -- Los renglones de la ola nacen al arrancarla. Antes de eso, los del pedido en Kepler
+                -- (productos distintos, como los cuenta la ola): si no, decía "0 de 0".
+                (CASE WHEN EXISTS (SELECT 1 FROM commercial.wave_lines wl WHERE wl.wave_id = pw.id)
+                      THEN (SELECT count(*) FROM commercial.wave_lines wl WHERE wl.wave_id = pw.id)
+                      ELSE (SELECT count(DISTINCT btrim(l.c8::text))
+                              FROM commercial.wave_orders wo
+                              JOIN kepler_ods.kdm2 l
+                                ON l.c2 = 'U' AND l.c3 = 'D' AND btrim(l.sucursal) = wo.kepler_sucursal AND (l.c4)::integer = 40
+                               AND (l.c5)::integer = wo.kepler_serie AND btrim(l.c6) = wo.kepler_folio
+                               AND btrim(l.c1) = btrim(l.sucursal)
+                             WHERE wo.wave_id = pw.id AND wo.source = 'kepler') END)::int AS renglones,
                 (SELECT count(*) FROM commercial.wave_lines wl
                   WHERE wl.wave_id = pw.id AND wl.status <> 'pendiente')::int AS tocados,
                 (SELECT array_agg(COALESCE(o.code,

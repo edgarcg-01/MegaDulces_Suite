@@ -35,6 +35,20 @@ import { ModoDetalle, MultitareaService } from '../../../core/services/multitare
 // WMS.1 — fuente única de áreas/tabs del proyecto Almacén: el sidebar deriva
 // sus items de acá para que nunca se desincronice de la barra de tabs.
 import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../../almacen/almacen-tabs';
+import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
+import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
+import { REPORTS_TABS } from '../../comercial/reports-tabs';
+import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
+import { CUSTOMERS_TABS } from '../../comercial/customers-tabs';
+import { PRECIOS_TABS } from '../../comercial/precios-tabs';
+import { PROMOS_TABS } from '../../comercial/promos-tabs';
+import { TELEMARKETING_TABS } from '../../comercial/telemarketing-tabs';
+import { CATALOGO_TABS } from '../../compras/catalogo-tabs';
+import { ENTRADAS_CONTROL_TABS } from '../../compras/entradas-control-tabs';
+import { ANALISIS_TABS } from '../../tienda/analisis/analisis-tabs';
+import { ARQUEO_TABS } from '../../tienda/arqueo-tabs';
+import { ETIQUETAS_TABS } from '../../tienda/etiquetas-tabs';
 import { HealthAlertToastComponent } from './health-alert-toast.component';
 import { NotificationsBellComponent } from './notifications-bell.component';
 
@@ -96,6 +110,42 @@ interface NavItem {
    * también empieza con `/almacen/inventory/`.
    */
   activeAreaKey?: string;
+  /**
+   * `[GX.80]` Item de un **área con pestañas** (ej. «Gastos»): UNA entrada en el menú para varias
+   * pantallas que se cambian con la barra de arriba. Con `tabs`:
+   *  · se ve si la persona ve AL MENOS una pestaña — la misma regla que la barra
+   *    (`pestanas-de-area.ts`), así el menú nunca ofrece un área en la que no puede entrar;
+   *  · lleva a la PRIMERA pestaña que la persona ve (`route` queda sólo como valor por omisión);
+   *  · se marca activo en cualquiera de las pantallas del área, no sólo en la de su `route`.
+   */
+  tabs?: readonly PageTab[];
+}
+
+/**
+ * Convierte la barra de pestañas de un sub-módulo en items de sidebar.
+ *
+ * ⛔ **Por qué derivar y no copiar.** Medido el 2026-10-09 sobre los 14 archivos `*-tabs.ts`:
+ * **81 pantallas vivían SÓLO en una pestaña** y no aparecían en ningún sidebar. No es un
+ * descuido puntual: son dos listas escritas a mano que describen lo mismo, así que divergen
+ * siempre. Contabilidad y Finanzas estaban al día (15/15 y 18/18) porque alguien las mantuvo;
+ * Comercial tenía 4 de 11. El propio archivo ya lo resolvió así para Almacén —*«sus items de
+ * acá para que nunca se desincronice de la barra de tabs»*— y ésta es la misma idea generalizada.
+ *
+ * ⭐ Es la razón que `[AU.3]`/`[AU.4]` ya habían dejado escrita: *una pantalla que no está en el
+ * sidebar, para quien no conoce la pestaña, no existe.*
+ *
+ * `PageTab` ya trae `label`, `route`, `icon`, `permission` y `anyOf`, que es exactamente lo que
+ * `NavItem` necesita: no hay traducción, hay proyección. `dedupeByRoute` se encarga de las que
+ * también estén escritas a mano (p. ej. «Facturación TM» y «Documentos» son la misma ruta).
+ */
+function navDeTabs(tabs: PageTab[], iconoPorDefecto = 'pi pi-circle'): NavItem[] {
+  return tabs.map((t) => ({
+    label: t.label,
+    icon: t.icon ?? iconoPorDefecto,
+    route: t.route,
+    ...(t.anyOf ? { anyOf: t.anyOf } : {}),
+    ...(t.permission ? { permission: t.permission } : {}),
+  }));
 }
 
 @Component({
@@ -357,6 +407,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
     { label: 'Supervisor IA',     icon: 'pi pi-sparkles',      route: '/dashboard/supervisor-ai',        permission: Permission.SUPERVISOR_AI_VER     },
     { label: 'Asignación Diaria', icon: 'pi pi-calendar-plus', route: '/dashboard/daily-assignments',    permission: Permission.USUARIOS_ASIGNAR_RUTA },
     { label: 'Tiendas',           icon: 'pi pi-building',      route: '/dashboard/stores',               permission: Permission.TIENDAS_VER           },
+    // Las cuatro de MKT (`/mkt/*`) vivían SÓLO en su barra: promociones, promos del ERP,
+    // acuerdos y resultado. Ninguna tenía entrada por sidebar en ningún proyecto.
+    ...navDeTabs(PROMOS_TABS),
   ];
 
   private tradeMkAdminItems: NavItem[] = [
@@ -379,6 +432,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // distintos.
         { label: 'Tickets',           icon: 'pi pi-receipt',    route: '/comercial/tickets',        permission: Permission.COMMERCIAL_TICKETS_VER },
         { label: 'Razonamiento (Thot)', icon: 'pi pi-lightbulb', route: '/comercial/razonamiento', permission: Permission.COMMERCIAL_THOT_VER },
+        // Clientes 360 sólo existía como pestaña de Clientes.
+        ...navDeTabs(CUSTOMERS_TABS),
       ],
     },
     {
@@ -397,6 +452,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
           anyOf: [Permission.COMMERCIAL_MARGIN_ENGINE_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_VER, Permission.COMMERCIAL_PRICE_EXPERIMENT_GESTIONAR] },
         { label: 'Promociones',       icon: 'pi pi-gift',         route: '/comercial/promotions', permission: Permission.COMMERCIAL_PROMOTIONS_VER },
         { label: 'Empuje (Thot)',     icon: 'pi pi-bolt',         route: '/comercial/empuje',     permission: Permission.COMMERCIAL_PROMOTIONS_GESTIONAR },
+        // Motor, Competencia y Experimentos vivían sólo en la barra de Control de margen.
+        ...navDeTabs(PRECIOS_TABS),
       ],
     },
     {
@@ -412,11 +469,14 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Ventas generales', icon: 'pi pi-sparkles', route: '/comercial/ventas-generales', permission: Permission.COMMERCIAL_ANALYTICS_VER },
         { label: 'Rentabilidad', icon: 'pi pi-percentage', route: '/comercial/rentabilidad', permission: Permission.COMMERCIAL_PROFITABILITY_VER },
-        { label: 'Sell-Out por empresa', icon: 'pi pi-file-excel', route: '/comercial/sell-out', permission: Permission.COMMERCIAL_SELLOUT_VER },
-        { label: 'Salidas por producto', icon: 'pi pi-box', route: '/comercial/salidas', permission: Permission.COMMERCIAL_SALIDAS_VER },
-        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', permission: Permission.COMMERCIAL_ROUTE_SALES_VER },
-        { label: 'Documentos', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
         { label: 'Sucursales Wincaja', icon: 'pi pi-building', route: '/comercial/wincaja', permission: Permission.COMMERCIAL_ANALYTICS_VER },
+        // ⭐ Las once pestañas del sub-módulo, derivadas. Siete no estaban acá —entre ellas las
+        // cinco de Ruta Directa— así que sólo llegaba quien ya conocía la pestaña.
+        // `dedupeByRoute` pliega «Documentos»/«Facturación TM», que son la misma ruta.
+        ...navDeTabs(REPORTS_TABS),
+        { label: 'Documentos', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
+        // La barra de Análisis es del mismo sub-módulo de reportes (Thot, histórico, curaduría).
+        ...navDeTabs(ANALYTICS_TABS),
       ],
     },
   ];
@@ -485,6 +545,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
    */
   private hasPermFor(item: NavItem): boolean {
     if (this.perms.isAdmin()) return true;
+    // `[GX.80]` Un área con pestañas se ve si la persona ve al menos una de ellas.
+    if (item.tabs) return item.tabs.some((t) => pestanaVisible(t, (p) => this.canPerm(p)));
     const legacy = this.user()?.permissions;
     // Gate OR: si el item declara `anyOf`, basta con una de esas perms.
     if (item.anyOf?.length) {
@@ -517,6 +579,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * de área queda activo a la vez.
    */
   isNavActive(item: NavItem): boolean {
+    // `[GX.80]` Un área con pestañas está activa en cualquiera de sus pantallas.
+    if (item.tabs) return urlEnPestanas(this.currentUrl(), item.tabs);
     if (!item.activeAreaKey) return false;
     return resolveAlmacenArea(this.currentUrl())?.key === item.activeAreaKey;
   }
@@ -560,14 +624,17 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Análisis y control',
       items: [
         { label: 'Análisis de ventas', icon: 'pi pi-chart-bar', route: '/tienda/analisis-semanal', permission: Permission.STORE_ANALYTICS_VER },
+        ...navDeTabs(ANALISIS_TABS),
         // Una sola entrada: adentro son pestanas (ARQUEO_TABS). El acto de contar y
         // la vista por persona son el mismo tema, no dos modulos.
         { label: 'Arqueo de caja',     icon: 'pi pi-eye-slash', route: '/tienda/arqueo',           permission: Permission.STORE_ARQUEO_VER },
+        ...navDeTabs(ARQUEO_TABS),
         // `anyOf`: el colaborador de sucursal solo tiene CAPTURAR — con el gate
         // en VER, la pantalla donde trabaja no le aparecía en el menú.
         { label: 'Caducidades',        icon: 'pi pi-clipboard', route: '/tienda/caducidades',      permission: Permission.COMMERCIAL_EXPIRY_VER,
           anyOf: [Permission.COMMERCIAL_EXPIRY_VER, Permission.COMMERCIAL_EXPIRY_CAPTURAR] },
         { label: 'Etiquetas',          icon: 'pi pi-tag',       route: '/tienda/etiquetas',        permission: Permission.STORE_LABELS_VER },
+        ...navDeTabs(ETIQUETAS_TABS),
       ],
     },
   ];
@@ -596,6 +663,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         { label: 'Cotizaciones', icon: 'pi pi-calculator', route: '/telemarketing/cotizaciones', permission: Permission.COMMERCIAL_QUOTES_VER },
         { label: 'Facturación', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
+        ...navDeTabs(TELEMARKETING_TABS),
       ],
     },
   ];
@@ -660,50 +728,18 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Gastos',
       items: [
         /**
-         * `[GX.17]` GX.10 había fundido todo en UN destino porque las dos mitades eran
-         * vistas del mismo trámite. Ya no: subir, firmar y consultar son tres oficios
-         * con tres públicos distintos, y las dos rutas nuevas nacieron SIN entrada —
-         * sólo se llegaba escribiendo la URL. Es la falla de `[LC.6.2]`: una pantalla
-         * en prod que nadie puede abrir.
+         * `[GX.80]` **UNA entrada para las cuatro pantallas de Gastos** (pedido del usuario,
+         * 2026-10-09). Adentro se cambia con la barra de pestañas: `GASTOS_TABS`, la MISMA lista
+         * que pinta `GastosAreaShellComponent`. La entrada lleva a la primera pestaña que la
+         * persona ve —quien firma cae en Aprobación, quien sólo captura en Mis gastos— y queda
+         * marcada en las cuatro. El permiso de cada pantalla sigue en su pestaña y en su ruta.
          *
-         * El grupo crece sólo para quien firma. Medido en `platform_test` (166 usuarios
-         * activos): 166 ven «Gastos», 12 ven «Aprobación», 25 ven «Tablero».
-         *
-         * Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21.
+         * Lo que sigue valiendo de antes: «Levantamiento de gasto» (`[GX.42]`) y el «Tablero de
+         * gastos» (`[GX.18]`) salieron del menú pero sus RUTAS siguen vivas — a la primera lleva
+         * el botón «Subir evidencia» y la segunda está en marcadores. Historial se conserva
+         * (`[GX.59]`): 14 personas con `_VER` y sin `_COMPROBAR` no tendrían otra vista de empresa.
          */
-        // SIN compuerta, a propósito: la ruta es `canActivate: []` («para este tendrán
-        // acceso todos», GX.17). Con el `anyOf` que traía, 66 de los 166 activos podían
-        // ENTRAR escribiendo la URL pero no veían el renglón — el menú contradecía a la
-        // ruta. El dato sigue acotado por áreas del lado del backend.
-        // `[GX.18]` Se llama LEVANTAMIENTO: es el acto de levantar el gasto, no el gasto.
-        // `[GX.42]` **«Levantamiento de gasto» se retiro del menu por pedido del usuario:**
-        // el gasto ya no se busca, LLEGA -- Kepler lo asigna por la caja «Solicita» y aparece
-        // en «Mis gastos». La RUTA sigue viva porque es a donde lleva «Subir evidencia»; lo que
-        // se quita es la puerta de entrada por folio tecleado.
-        // Dar luz verde. `FINANCE_EXPENSES_COMPROBAR` ya existía (GX.7) y ya gateaba
-        // approve/validate/reject — no se inventó un permiso para la misma puerta.
-        { label: 'Aprobación de gastos', icon: 'pi pi-verified', route: '/finanzas/aprobacion-gastos',
-          permission: Permission.FINANCE_EXPENSES_COMPROBAR },
-        // `[GX.33]` Lo que levantó UNO MISMO. Es lo que ve quien sólo captura -- para él
-        // el «Historial» prometía la empresa entera y le daba lo propio.
-        { label: 'Mis gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos',
-          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR] },
-        // `[GX.33]` El Historial pasa a ser de quien REVISA (ver el comentario de la ruta).
-        // ⚠️ Sin `permission:` suelto: con `anyOf` presente el filtro devuelve ahí mismo y
-        // esa clave era letra muerta -- se leía como una segunda compuerta que no existía.
-        // `[GX.59]` EXPEDIENTE: el tramite de todas las personas, agrupado por persona.
-        // Va ARRIBA de Historial porque es la pantalla que pidio el usuario para reemplazarlo.
-        // ⚠️ Historial se conserva: con `_COMPROBAR` sola, 14 personas (direccion,
-        // contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing) se
-        // quedaban sin ninguna vista de empresa. Retirarlo es decision del usuario.
-        { label: 'Expediente', icon: 'pi pi-folder-open', route: '/finanzas/expediente',
-          permission: Permission.FINANCE_EXPENSES_COMPROBAR },
-        { label: 'Historial', icon: 'pi pi-history', route: '/finanzas/gastos-historial',
-          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS] },
-        // `[GX.18]` El «Tablero de gastos» salió del menú por pedido del usuario. ⚠️ La RUTA
-        // `/finanzas/gastos-tablero` sigue viva: 25 personas con `_VER` la tenían en
-        // marcadores y hay enlaces internos que apuntan ahí. Quitar el renglón es esconder
-        // la puerta; borrar la ruta es romperle el enlace a alguien.
+        { label: 'Gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos', tabs: GASTOS_TABS },
       ],
     },
     {
@@ -842,6 +878,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // viven en la lista de órdenes, a la que se llega por Control. Una pantalla menos que
         // aprender y un solo lugar donde se decide. La ruta redirige, no tira 404.
         { label: 'Control de entradas',  icon: 'pi pi-sitemap',  route: '/compras/entradas/control',  permission: Permission.COMPRAS_ENTRADAS_VER },
+        // Listado, capturas duplicadas, sin OC y parámetros sólo estaban en la barra.
+        ...navDeTabs(ENTRADAS_CONTROL_TABS),
         // RE.3 — el compromiso de pago que la orden de entrada ya traía y nadie veía.
         { label: 'Qué vence',            icon: 'pi pi-calendar-clock', route: '/compras/vencimientos', permission: Permission.COMPRAS_ENTRADAS_VER },
       ],
@@ -876,6 +914,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
       items: [
         // [CAT.1] Vino de Ventas. Adentro trae su pestaña de códigos repetidos.
         { label: 'Catálogo',    icon: 'pi pi-shopping-bag', route: '/compras/catalogo', permission: Permission.COMMERCIAL_PRODUCTS_VER },
+        // Las nueve del sub-modulo de catalogo: costos, precios, codigos, productos nuevos...
+        ...navDeTabs(CATALOGO_TABS),
         { label: 'Proveedores', icon: 'pi pi-truck', route: '/compras/proveedores', permission: Permission.COMPRAS_PROVEEDORES_VER },
         { label: 'Obligaciones a proveedor', icon: 'pi pi-calendar', route: '/compras/obligaciones', permission: Permission.COMPRAS_OBLIGACIONES_VER },
         { label: 'Cuentas de pago',          icon: 'pi pi-credit-card', route: '/compras/cuentas-pago', permission: Permission.COMPRAS_OBLIGACIONES_VER },
@@ -1154,12 +1194,23 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   /** Aplana los grupos de un proyecto a una lista de items (para navItems/bottomNav/título). */
   private flatOf(groups: { title: string; items: NavItem[] }[]): NavItem[] {
-    return groups.flatMap((g) => g.items);
+    return groups.flatMap((g) => g.items.map((i) => this.conDestino(i)));
+  }
+
+  /**
+   * `[GX.80]` El destino de un área con pestañas: la PRIMERA que la persona ve. Quien firma cae en
+   * «Aprobación de gastos»; quien sólo captura, en «Mis gastos». Un item sin `tabs` no cambia.
+   */
+  private conDestino(item: NavItem): NavItem {
+    if (!item.tabs) return item;
+    const primera = primeraPestanaVisible(item.tabs, (p) => this.canPerm(p));
+    return primera ? { ...item, route: primera.route } : item;
   }
 
   /** Mapea grupos → {title, items} filtrados; descarta grupos vacíos. `filter`=aplicar permiso. */
   private mapGroups(groups: { title: string; items: NavItem[] }[], filter: boolean): { title: string; items: NavItem[] }[] {
     return groups
+      .map((g) => ({ title: g.title, items: g.items.map((i) => this.conDestino(i)) }))
       .map((g) => ({ title: g.title, items: this.dedupeByRoute(filter ? g.items.filter((i) => this.hasPermFor(i)) : g.items) }))
       .filter((g) => g.items.length > 0);
   }
