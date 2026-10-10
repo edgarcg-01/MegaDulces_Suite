@@ -1,106 +1,141 @@
 import {
   BANDA_EN_LINEA,
-  UMBRAL_CONCENTRACION,
-  concentracion,
+  UMBRAL_COLA_PCT,
+  bandas,
   costoDeNoFirmar,
+  fraseConcentracion,
+  leyendaUniverso,
   llegada,
-  type FilaVenta,
+  sumaBanda,
+  type FilaConcentracion,
+  type VistaConcentracion,
 } from './presupuesto-decision';
 
 /**
- * `[PVI.19]` — **La superficie de decidir, medida contra el ejercicio real.**
+ * `[PVI.19]`/`[PVI.20]` — **Lo que la superficie de decidir afirma.**
  *
- * Las filas de abajo son las NUEVE que la pantalla publica hoy para el canal Mostrador del
- * ejercicio 2027, copiadas al centavo. Suman exactamente su propio subtotal ($353,538,587.63), y
- * ese subtotal viaja como una fila más — que es la trampa principal de este archivo.
+ * ⛔ `concentracion()` ya NO vive acá: era el sexto artefacto duplicado del día y gana el del
+ * carril de Gastos (`budget-concentration.ts`, `[PU.VG.10]`). Lo que queda probado es lo que NO
+ * estaba duplicado —el veredicto y el costo de no firmar— más lo que la auditoría obligó a
+ * agregar: **las tres bandas, el universo y la frase canónica**.
+ *
+ * El caso de prueba es el canal Mostrador del ejercicio real (2026-10-09), con los OCHO renglones,
+ * porque ahí está el defecto que esto cierra: la versión anterior pintaba 4 y contaba 2, y dejaba
+ * caer **$45,514,824 en ningún grupo**.
  */
 
-const fila = (label: string, meta: number | null, is_rollup = false): FilaVenta => ({
-  label,
-  channel_label: 'Mostrador',
-  entity_key: label.toLowerCase().replace(/ /g, '-'),
-  is_rollup,
-  meta,
-  real: null,
-});
+const f = (concepto: string, monto: number | null, pct: number | null, acumulado: number | null): FilaConcentracion =>
+  ({ id: concepto.toLowerCase().replace(/ /g, '-'), concepto, monto, pct, acumulado });
 
-/** El canal Mostrador tal como sale de `sales-comparison`: 8 hojas + su subtotal. */
-const MOSTRADOR: FilaVenta[] = [
-  fila('Padre Hidalgo', 58_103_857.07),
-  fila('La Piedad Abastos', 22_909_527.99),
-  fila('8 Esquinas', 52_778_444.77),
-  fila('Yurécuaro', 6_557_858.01),
-  fila('Zamora Centro', 12_838_038.62),
-  fila('Canindo', 54_854_348.29),
-  fila('Morelia Madero', 22_605_296.05),
-  fila('Morelia Abastos', 122_891_216.83),
-  fila('Subtotal Mostrador', 353_538_587.63, true),
-];
+/** Las 8 entidades de Mostrador, ordenadas y con su acumulado, como las devuelve el primitivo. */
+const MOSTRADOR: VistaConcentracion = {
+  total: 353_538_587.63,
+  partidas_80: 4,
+  pct_mayor: 34.7607,
+  sin_monto: 0,
+  universo: 'Mostrador',
+  parte_de: { de: 'el ingreso del ejercicio', pct: 58.4578 },
+  filas: [
+    f('Morelia Abastos', 122_891_216.83, 34.7607, 34.7607),
+    f('Padre Hidalgo', 58_103_857.07, 16.4350, 51.1957),
+    f('Canindo', 54_854_348.29, 15.5157, 66.7114),
+    f('8 Esquinas', 52_778_444.77, 14.9286, 81.6400),
+    f('La Piedad Abastos', 22_909_527.99, 6.4800, 88.1200),
+    f('Morelia Madero', 22_605_296.05, 6.3941, 94.5141),
+    f('Zamora Centro', 12_838_038.62, 3.6311, 98.1452),
+    f('Yurécuaro', 6_557_858.01, 1.8549, 100.0000),
+  ],
+};
 
-describe('[PVI.19] la concentración que la tabla esconde', () => {
-  it('⭐ EL HECHO EJECUTIVO: una entidad es el 34.8 % de todo el canal', () => {
-    const c = concentracion(MOSTRADOR);
-    expect(c.mayor?.label).toBe('Morelia Abastos');
-    expect(Math.round(c.mayor!.share * 1000) / 10).toBe(34.8);
+describe('[PVI.20] ⛔ ninguna fila se cae: las tres bandas suman el total', () => {
+  it('⛔ EL DEFECTO QUE CIERRA: las 2 intermedias existen y valen $45,514,824', () => {
+    const b = bandas(MOSTRADOR);
+    expect(b.medio.map((x) => x.concepto)).toEqual(['La Piedad Abastos', 'Morelia Madero']);
+    expect(sumaBanda(b.medio)).toBe(45_514_824.04);
   });
 
-  it('⭐ CUATRO de ocho cargan el 81.6 % del plan', () => {
-    const c = concentracion(MOSTRADOR);
-    expect(c.cuantas).toBe(4);
-    expect(c.de_cuantas).toBe(8);
-    expect(Math.round(c.entidades[3].acumulado * 1000) / 10).toBe(81.6);
-    expect(c.entidades.slice(0, 4).map((e) => e.label))
-      .toEqual(['Morelia Abastos', 'Padre Hidalgo', 'Canindo', '8 Esquinas']);
+  it('⛔ PRUEBA NEGATIVA: las intermedias son 2.3× las que la pantalla llamaba chicas', () => {
+    const b = bandas(MOSTRADOR);
+    const medio = sumaBanda(b.medio)!;
+    const cola = sumaBanda(b.cola)!;
+    expect(cola).toBe(19_395_896.63);
+    expect(medio / cola).toBeGreaterThan(2.3);
+    // Y ninguna intermedia está por debajo del umbral de cola: no son "chicas".
+    for (const x of b.medio) expect(x.pct!).toBeGreaterThan(UMBRAL_COLA_PCT);
   });
 
-  it('la cola son dos entidades que juntas no llegan al 5.5 %', () => {
-    const c = concentracion(MOSTRADOR);
-    expect(c.cola.map((e) => e.label)).toEqual(['Zamora Centro', 'Yurécuaro']);
-    const suma = c.cola.reduce((s, e) => s + e.share, 0);
-    expect(Math.round(suma * 1000) / 10).toBe(5.5);
+  it('⭐ EL CANDADO: cabeza + medio + cola == el total, al centavo', () => {
+    const b = bandas(MOSTRADOR);
+    const suma = sumaBanda([...b.cabeza, ...b.medio, ...b.cola])!;
+    expect(suma).toBe(MOSTRADOR.total);
+    expect(b.cabeza.length + b.medio.length + b.cola.length).toBe(MOSTRADOR.filas.length);
   });
 
-  it('la lectura nombra la entidad y el reparto, no publica un porcentaje suelto', () => {
-    const l = concentracion(MOSTRADOR).lectura!;
-    expect(l).toContain('Morelia Abastos');
-    expect(l).toContain('34.8 %');
-    expect(l).toContain('4 de 8');
-  });
-});
-
-describe('[PVI.19] ⛔ las dos trampas del renglón', () => {
-  it('⛔ PRUEBA NEGATIVA: contar el subtotal duplicaría el canal y partiría a la mitad cada parte', () => {
-    const c = concentracion(MOSTRADOR);
-    expect(c.total).toBe(353_538_587.63);
-
-    // Lo que daría no mirar `is_rollup`: el subtotal entra como una novena entidad.
-    const conSubtotal = MOSTRADOR.reduce((s, f) => s + (f.meta ?? 0), 0);
-    expect(conSubtotal).toBe(353_538_587.63 * 2);
-    expect(122_891_216.83 / conSubtotal).toBeCloseTo(0.174, 3);   // 17.4 %, la mitad del real
-    // Y el subtotal sería "la mayor", con el 50 % — un renglón que no es una entidad.
-    expect(c.entidades.some((e) => e.label.startsWith('Subtotal'))).toBe(false);
+  it('la cabeza son las que CRUZAN el 80 %, no las que caben abajo', () => {
+    const b = bandas(MOSTRADOR);
+    expect(b.cabeza.length).toBe(4);
+    expect(b.cabeza[2].acumulado!).toBeLessThan(80);
+    expect(b.cabeza[3].acumulado!).toBeGreaterThanOrEqual(80);
   });
 
-  it('⛔ una meta ausente se SALTA, no entra como 0 diluyendo a las demás', () => {
-    const c = concentracion([...MOSTRADOR, fila('Sucursal nueva', null)]);
-    expect(c.de_cuantas).toBe(8);
-    expect(c.total).toBe(353_538_587.63);
-    expect(c.entidades.some((e) => e.label === 'Sucursal nueva')).toBe(false);
+  it('una fila sin monto legible va al medio y se ve, no se descarta', () => {
+    const v: VistaConcentracion = {
+      ...MOSTRADOR, sin_monto: 1,
+      filas: [...MOSTRADOR.filas, f('Partida sin importe', null, null, null)],
+    };
+    const b = bandas(v);
+    expect(b.medio.some((x) => x.concepto === 'Partida sin importe')).toBe(true);
+    // Y no contamina el total: `sumaBanda` sólo suma lo legible.
+    expect(sumaBanda([...b.cabeza, ...b.medio, ...b.cola])).toBe(MOSTRADOR.total);
   });
 
-  it('el corte INCLUYE la entidad donde cae el umbral (3 no alcanzan el 80 %)', () => {
-    const c = concentracion(MOSTRADOR);
-    expect(c.entidades[2].acumulado).toBeLessThan(UMBRAL_CONCENTRACION);
-    expect(c.entidades[3].acumulado).toBeGreaterThanOrEqual(UMBRAL_CONCENTRACION);
-  });
-
-  it('sin filas no afirma nada — `lectura` es null, no una frase sobre un conjunto vacío', () => {
-    for (const vacio of [null, undefined, [], [fila('Subtotal', 10, true)]]) {
-      const c = concentracion(vacio as FilaVenta[] | null);
-      expect(c.lectura).toBeNull();
-      expect(c.total).toBe(0);
-      expect(c.mayor).toBeNull();
+  it('sin filas no inventa bandas', () => {
+    for (const vacio of [null, undefined, { ...MOSTRADOR, filas: [], partidas_80: null }]) {
+      const b = bandas(vacio as VistaConcentracion | null);
+      expect(b.cabeza.length + b.medio.length + b.cola.length).toBe(0);
     }
+    expect(sumaBanda([])).toBeNull();
+  });
+});
+
+describe('[PVI.20] ⛔ el universo se declara, siempre', () => {
+  it('⛔ EL HALLAZGO DE LA AUDITORÍA: la frase dice de QUÉ es el 80 %, nunca «del plan»', () => {
+    const s = fraseConcentracion(MOSTRADOR)!;
+    expect(s).toBe('4 partidas cruzan el 80 % de Mostrador. La mayor sola es el 34.8 %.');
+    expect(s).not.toContain('del plan');
+  });
+
+  it('⛔ y la leyenda dice de qué es RECORTE: 81.6 % de Mostrador no es 81.6 % del plan', () => {
+    expect(leyendaUniverso(MOSTRADOR)).toBe('Mostrador — 58.5 % de el ingreso del ejercicio');
+  });
+
+  it('cuando el universo ES el total, no inventa un «parte de»', () => {
+    const completo: VistaConcentracion = {
+      ...MOSTRADOR, universo: 'el ingreso del ejercicio', parte_de: null,
+    };
+    expect(leyendaUniverso(completo)).toBe('el ingreso del ejercicio');
+  });
+
+  it('⭐ el ejercicio COMPLETO cuenta otra historia, y la frase la refleja', () => {
+    // Medido en prod: ingreso 33 líneas, mayor 20.32 %, 9 cruzan el 80 %.
+    const ingreso: VistaConcentracion = {
+      total: 604_775_116.21, partidas_80: 9, pct_mayor: 20.32, sin_monto: 0,
+      universo: 'el ingreso del ejercicio', parte_de: null,
+      filas: [f('Ventas mostrador · 08', 122_891_216.83, 20.32, 20.32)],
+    };
+    expect(fraseConcentracion(ingreso)).toContain('9 partidas cruzan el 80 % de el ingreso del ejercicio');
+    expect(fraseConcentracion(ingreso)).toContain('20.3 %');
+  });
+
+  it('el singular se escribe en singular', () => {
+    const una: VistaConcentracion = { ...MOSTRADOR, partidas_80: 1 };
+    expect(fraseConcentracion(una)).toContain('1 partida cruza el 80 %');
+  });
+
+  it('sin concentración no hay frase: null, no una oración vacía', () => {
+    expect(fraseConcentracion(null)).toBeNull();
+    expect(fraseConcentracion({ ...MOSTRADOR, partidas_80: null })).toBeNull();
+    expect(leyendaUniverso(null)).toBeNull();
   });
 });
 
@@ -144,10 +179,10 @@ describe('[PVI.19] ¿vamos a llegar?', () => {
 
 describe('[PVI.19] lo que cuesta no firmar', () => {
   it('nombra la consecuencia, no el conteo', () => {
-    const f = costoDeNoFirmar(156, 74_809_091.57)!;
-    expect(f).toContain('156');
-    expect(f).toContain('Calendario de pagos');
-    expect(f).toMatch(/\$74,809,09[12]/);
+    const s = costoDeNoFirmar(156, 74_809_091.57)!;
+    expect(s).toContain('156');
+    expect(s).toContain('Calendario de pagos');
+    expect(s).toMatch(/\$74,809,09[12]/);
   });
 
   it('⛔ sin cola devuelve null — «no hay nada» y «todo al día» no son lo mismo', () => {
@@ -156,8 +191,8 @@ describe('[PVI.19] lo que cuesta no firmar', () => {
   });
 
   it('sin monto medible sigue diciendo la consecuencia, sin inventar un peso', () => {
-    const f = costoDeNoFirmar(3, null)!;
-    expect(f).toContain('Calendario de pagos');
-    expect(f).not.toContain('$');
+    const s = costoDeNoFirmar(3, null)!;
+    expect(s).toContain('Calendario de pagos');
+    expect(s).not.toContain('$');
   });
 });

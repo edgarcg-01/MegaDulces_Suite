@@ -1,138 +1,40 @@
 /**
- * `[PVI.19]` — **La superficie de DECIDIR: lo que se afirma, separado de lo que se dibuja.**
+ * `[PVI.19]` — **Lo que la superficie de DECIDIR afirma.** Answer-first, separado de lo que dibuja.
  *
- * ── Por qué existe ──────────────────────────────────────────────────────────────────────────
+ * ── ⛔ `[PVI.20]` Qué se BORRÓ de este archivo, y por qué ────────────────────────────────────
  *
- * La pantalla de Ventas abre con una tabla de 9 renglones y 8 columnas, de las cuales 4 están
- * vacías. Eso está bien para quien ARMA el presupuesto. Para quien lo FIRMA es una herramienta
- * cruda donde debería haber una conclusión: es el antipatrón que `DESIGN.md §Q.1` (answer-first)
- * marca como falla de review — *«si lo primero que ve el usuario es una tabla en vez de la lectura
- * del periodo, falló»*.
+ * Acá vivía `concentracion()`. **Era el sexto artefacto duplicado del día**: el carril de Gastos
+ * ya tenía `libs/finance/src/lib/budget/budget-concentration.ts` (`[PU.VG.10]`), con su contrato
+ * `ExpenseConcentration` en `libs/contracts` y su candado de 173 líneas. Lo mío llegó después y no
+ * lo vi porque estaba en una rama sin mergear.
  *
- * ⭐ **El hecho que la tabla esconde**, medido sobre el ejercicio real (2026-10-09, los 9 renglones
- * de Mostrador cuadran al centavo con su subtotal $353,538,587.63):
+ * Decisión del usuario: **gana el suyo**. El de ellos es mejor donde importa — declara `cobertura`
+ * (cuántas partidas sin monto, sin responsable, sin clase) y **no tira ninguna fila en silencio**,
+ * que es justo el defecto que la auditoría encontró en el mío.
  *
- *     Morelia Abastos   $122,891,216.83   = 34.8 % de TODO el canal
- *     + PH + Canindo + 8 Esquinas         = 81.6 % entre CUATRO
- *     Yurécuaro + Zamora Centro           =  5.5 % entre dos
+ * ⇒ Este archivo se queda sólo con lo que NO estaba duplicado: el veredicto de llegada y el costo
+ * de no firmar. La concentración ahora **entra al componente como dato**, calculada por el
+ * primitivo único.
  *
- * Un tercio del canal vive en la fila 8 de una lista, con la misma altura de renglón y la misma
- * tipografía que una entidad veinte veces más chica. La concentración **es** el dato ejecutivo y
- * la tabla le da peso visual uniforme. Esto lo calcula y lo nombra.
+ * ── ⛔ Y el error de fondo que la auditoría destapó, que no era de código ────────────────────
  *
- * ── Qué NO hace ─────────────────────────────────────────────────────────────────────────────
+ * Mi superficie titulaba la concentración como «el hecho que la tabla escondía», medida sobre el
+ * canal **Mostrador**. Verificado contra prod el 2026-10-09 sobre el ejercicio COMPLETO:
  *
- * ⛔ No contesta *«¿qué cambió desde que miré?»*. Esa pregunta necesita una foto anterior y **no
- * existe**: no hay snapshot de la meta por entidad. Se DECLARA como hueco con nombre en vez de
- * inventar un delta contra el arranque del año, que se leería como movimiento y no lo es
- * (ADR-056). El día que haya historia, entra acá y no en la pantalla.
+ *     Mostrador solo   mayor 34.8 %   ← el recorte que elegí
+ *     Ingreso entero   mayor 20.32 %  · 9 de 33 cruzan el 80 %   → NO está concentrado
+ *     Gasto            mayor 55.50 %  · 4 de 14 cruzan el 80 %   → SÍ lo está
  *
- * ⛔ No dibuja. Devuelve números y frases; el componente decide la forma. Por eso se puede probar.
+ * O sea que mostré **el único recorte donde la concentración se ve alta** y lo llamé el hallazgo.
+ * El hecho real es la **asimetría**: el ingreso está repartido y el gasto cuelga de una partida.
+ *
+ * ⚠️ Y una precisión sobre esa asimetría: está en **la mayor**, no en la forma de Pareto. Cruzan
+ * el 80 % 9 de 33 (27 %) contra 4 de 14 (29 %) — casi igual. Lo que cambia es el renglón de
+ * arriba, 20 % contra 55 %: es riesgo de punto único, no de reparto.
+ *
+ * Por eso el componente ahora **exige declarar el universo** y de qué es recorte: un bloque que
+ * muestra una parte y no dice de qué, miente aunque cada cifra esté bien.
  */
-
-/** Un renglón de la tabla de ventas, tal como lo sirve `sales-comparison`. */
-export interface FilaVenta {
-  label: string;
-  channel_label: string;
-  entity_key: string | null;
-  /** `true` en los subtotales por canal. ⛔ Ver `concentracion`: incluirlos duplica el total. */
-  is_rollup: boolean;
-  meta: number | null;
-  real: number | null;
-}
-
-export interface EntidadConcentracion {
-  label: string;
-  channel_label: string;
-  entity_key: string | null;
-  meta: number;
-  /** Su parte del total, 0..1. */
-  share: number;
-  /** Lo acumulado hasta este renglón inclusive, 0..1. */
-  acumulado: number;
-}
-
-export interface Concentracion {
-  /** Entidades HOJA ordenadas de mayor a menor. Nunca subtotales. */
-  entidades: EntidadConcentracion[];
-  total: number;
-  /** Cuántas entidades hacen falta para cubrir `UMBRAL_CONCENTRACION` del total. */
-  cuantas: number;
-  de_cuantas: number;
-  mayor: EntidadConcentracion | null;
-  /** Las que juntas no llegan a `UMBRAL_COLA` del total. */
-  cola: EntidadConcentracion[];
-  /** ⛔ `null` cuando no hay con qué afirmar nada. Nunca una frase sobre un conjunto vacío. */
-  lectura: string | null;
-}
-
-/**
- * Dónde se corta «las pocas que cargan el plan».
- *
- * 0.80 es la convención de Pareto y se deja explícita y en un solo lugar para que mover el corte
- * sea una decisión visible, no un número suelto adentro de un `filter`.
- */
-export const UMBRAL_CONCENTRACION = 0.8;
-/** Debajo de esto, una entidad es cola: su desempeño no mueve el total. */
-export const UMBRAL_COLA = 0.05;
-
-const num = (v: unknown): number | null => {
-  if (v === null || v === undefined) return null;
-  const n = typeof v === 'string' ? Number(v) : v;
-  return typeof n === 'number' && Number.isFinite(n) ? n : null;
-};
-
-const pct = (x: number): string => `${Math.round(x * 1000) / 10} %`;
-
-/**
- * `[PVI.19]` **Quién carga el plan.**
- *
- * ⛔ **Los `is_rollup` se excluyen, y es la primera trampa del renglón.** La tabla trae
- * «Subtotal Mostrador» como una fila más; sumarla con sus ocho hijas **duplica el canal** y manda
- * todos los porcentajes a la mitad. El defecto no se vería: los números seguirían ordenados y
- * sumando a algo.
- *
- * ⛔ Una `meta` ausente se SALTA, no entra como 0. Una entidad sin meta capturada no es una
- * entidad que planea vender cero, y meterla al denominador diluye a todas las demás.
- */
-export function concentracion(filas: readonly FilaVenta[] | null | undefined): Concentracion {
-  const hojas = (filas ?? [])
-    .filter((f) => f && !f.is_rollup)
-    .map((f) => ({ f, meta: num(f.meta) }))
-    .filter((x): x is { f: FilaVenta; meta: number } => x.meta !== null && x.meta > 0)
-    .sort((a, b) => b.meta - a.meta);
-
-  const total = hojas.reduce((s, x) => s + x.meta, 0);
-  if (!hojas.length || total <= 0) {
-    return { entidades: [], total: 0, cuantas: 0, de_cuantas: 0, mayor: null, cola: [], lectura: null };
-  }
-
-  let acum = 0;
-  const entidades: EntidadConcentracion[] = hojas.map(({ f, meta }) => {
-    acum += meta;
-    return {
-      label: f.label,
-      channel_label: f.channel_label,
-      entity_key: f.entity_key,
-      meta,
-      share: meta / total,
-      acumulado: acum / total,
-    };
-  });
-
-  // La primera que ALCANZA el umbral ya está adentro: con 34.8 % + 16.4 % + ... el corte cae
-  // dentro de una entidad, y redondear hacia abajo diría «tres» de un 81.6 % que necesita cuatro.
-  const idx = entidades.findIndex((e) => e.acumulado >= UMBRAL_CONCENTRACION);
-  const cuantas = idx === -1 ? entidades.length : idx + 1;
-  const cola = entidades.filter((e) => e.share < UMBRAL_COLA);
-  const mayor = entidades[0];
-
-  const lectura =
-    `${mayor.label} es el ${pct(mayor.share)} de ${mayor.channel_label}. ` +
-    `${cuantas} de ${entidades.length} entidades cargan el ${pct(entidades[cuantas - 1].acumulado)} del plan.`;
-
-  return { entidades, total, cuantas, de_cuantas: entidades.length, mayor, cola, lectura };
-}
 
 export type ClaveLlegada = 'sin_real' | 'sin_meta' | 'adelante' | 'en_linea' | 'atras';
 
@@ -148,10 +50,18 @@ export interface Llegada {
 /** Dentro de esta banda, cumplir no es ir adelante ni atrás: es ir en línea. */
 export const BANDA_EN_LINEA = 0.02;
 
+const num = (v: unknown): number | null => {
+  if (v === null || v === undefined) return null;
+  const n = typeof v === 'string' ? Number(v) : v;
+  return typeof n === 'number' && Number.isFinite(n) ? n : null;
+};
+
+const pct = (x: number): string => `${Math.round(x * 1000) / 10} %`;
+
 /**
  * `[PVI.19]` **¿Vamos a llegar?** — la única pregunta que una pantalla de decidir abre contestando.
  *
- * ⛔ Cuando no se puede contestar, **lo dice y dice qué falta**. Medido hoy: `real_available` es
+ * ⛔ Cuando no se puede contestar, **lo dice y dice qué falta**. Medido: `real_available` es
  * `false` y la cobertura real es 0 %, así que la respuesta honesta es «todavía no se puede» con el
  * nombre de lo que falta — no un cumplimiento de 0 %, que se lee como un desastre, ni un guion,
  * que se lee como que la pantalla está rota.
@@ -189,8 +99,7 @@ export function llegada(
   /*
    * ⚠️ Se redondea ANTES de comparar contra la banda. Sin esto, `1000 → 1020` da un desvío de
    * `0.02000000000000002` y el borde documentado como inclusivo queda afuera: la frase saltaría de
-   * «en línea» a «arriba del plan» por un error de representación, no por el dinero. Nueve
-   * decimales son ~una millonésima de punto porcentual: muy por debajo de cualquier peso real.
+   * «en línea» a «arriba del plan» por un error de representación, no por el dinero.
    */
   const desvio = Math.round((avance - 1) * 1e9) / 1e9;
   if (Math.abs(desvio) <= BANDA_EN_LINEA) {
@@ -222,4 +131,111 @@ export function costoDeNoFirmar(items: number, monto: number | null): string | n
   return dinero
     ? `${items} obligaciones por ${dinero} no pueden entrar al Calendario de pagos hasta que se autoricen.`
     : `${items} obligaciones no pueden entrar al Calendario de pagos hasta que se autoricen.`;
+}
+
+/**
+ * `[PVI.20]` **Lo que el componente necesita de la concentración, y nada más.**
+ *
+ * ⚠️ **Es una proyección, no una segunda implementación**: acá no se calcula nada. Son los campos
+ * de `ExpenseConcentration` (`libs/contracts/src/http/budget-expense-plan.contract.ts`, `[PU.VG.10]`)
+ * que esta pantalla pinta, más los DOS que la auditoría exigió agregar y que todavía no están en
+ * el contrato porque vive en una rama sin mergear.
+ *
+ * ⇒ El día que `feat/pu-selector` entre a `main`, **esto se borra** y el `input` se tipa con el
+ * import real. Se deja declarado acá y no en un comentario suelto para que el reemplazo sea una
+ * línea y no una arqueología.
+ */
+export interface FilaConcentracion {
+  id: string | null;
+  concepto: string;
+  /** `null` = no medible. NUNCA 0 para decir «no sé». */
+  monto: number | null;
+  pct: number | null;
+  acumulado: number | null;
+}
+
+export interface VistaConcentracion {
+  total: number | null;
+  filas: readonly FilaConcentracion[];
+  /** Mínimo de partidas cuya suma ALCANZA el 80 %: la que CRUZA la línea, no la última de abajo. */
+  partidas_80: number | null;
+  pct_mayor: number | null;
+  /** Cuántas partidas no traen monto legible. Se declaran; no entran al total. */
+  sin_monto: number;
+  /**
+   * ⛔ **De qué es esta concentración.** Obligatorio: un bloque que muestra una parte y no dice de
+   * qué, miente aunque cada cifra esté bien. Fue el hallazgo principal de la auditoría.
+   */
+  universo: string;
+  /** `null` cuando el universo ES el total. Si es un recorte, de qué y qué parte. */
+  parte_de: { de: string; pct: number } | null;
+}
+
+/** Las tres bandas en que se parte la lista. Juntas tienen que dar el 100 %: hay un test. */
+export interface BandasConcentracion {
+  /** Las que cruzan el 80 %, nombradas una por una. */
+  cabeza: readonly FilaConcentracion[];
+  /** ⛔ Las del medio. Existen y antes se CAÍAN de la pantalla: $45.5 M invisibles. */
+  medio: readonly FilaConcentracion[];
+  /** Las que aportan menos de `UMBRAL_COLA` cada una. */
+  cola: readonly FilaConcentracion[];
+}
+
+/** Debajo de esto, una partida es cola: su desempeño no mueve el total. */
+export const UMBRAL_COLA_PCT = 5;
+
+/**
+ * `[PVI.20]` **Parte la lista en tres bandas SIN perder ninguna fila.**
+ *
+ * ⛔ El defecto que esto cierra, medido por la auditoría: la pantalla pintaba las 4 de cabeza y
+ * contaba las 2 de cola — y **dejaba caer 2 entidades por $45,514,824 en silencio**. Peor: la
+ * frase «2 entidades aportan menos del 5 %» invitaba a leer todo lo que no estaba arriba como
+ * chico, cuando las omitidas eran **2.3× más grandes** que las declaradas chicas.
+ *
+ * Las filas sin monto legible van a `medio` con su `null` a la vista: declararlas es el punto.
+ */
+export function bandas(v: VistaConcentracion | null | undefined): BandasConcentracion {
+  const filas = v?.filas ?? [];
+  const corte = v?.partidas_80 ?? 0;
+  const cabeza = filas.slice(0, corte);
+  const resto = filas.slice(corte);
+  const cola = resto.filter((f) => f.pct !== null && f.pct < UMBRAL_COLA_PCT);
+  const medio = resto.filter((f) => !(f.pct !== null && f.pct < UMBRAL_COLA_PCT));
+  return { cabeza, medio, cola };
+}
+
+/** Suma de los montos legibles de una banda. `null` si ninguno lo es. */
+export function sumaBanda(filas: readonly FilaConcentracion[]): number | null {
+  const ms = filas.map((f) => f.monto).filter((m): m is number => m !== null);
+  return ms.length ? Math.round(ms.reduce((a, b) => a + b, 0) * 100) / 100 : null;
+}
+
+/**
+ * `[PVI.20]` **La frase canónica de la concentración**, acordada entre los dos carriles para que
+ * dos pantallas del mismo módulo no digan cosas distintas del mismo hecho.
+ *
+ * Forma: «N partidas cruzan el 80 % de <universo>». ⛔ Nunca «del plan» cuando el universo es un
+ * recorte: ése fue el defecto — «4 de 8 cargan el 81.6 % del plan» era de Mostrador; del plan
+ * cargan el 47.72 %.
+ */
+export function fraseConcentracion(v: VistaConcentracion | null | undefined): string | null {
+  if (!v || v.partidas_80 === null || !v.filas.length) return null;
+  const n = v.partidas_80;
+  const de = v.universo;
+  const mayor = v.pct_mayor === null ? null : `${Math.round(v.pct_mayor * 10) / 10} %`;
+  const base = `${n} partida${n === 1 ? '' : 's'} cruza${n === 1 ? '' : 'n'} el 80 % de ${de}.`;
+  return mayor ? `${base} La mayor sola es el ${mayor}.` : base;
+}
+
+/**
+ * `[PVI.20]` **De qué es recorte este universo.** `null` cuando es el total.
+ *
+ * Sin esto, «el 81.6 %» y «el 58.5 %» se leen como el mismo denominador. Es la lección de la
+ * auditoría convertida en una línea que la pantalla no puede omitir.
+ */
+export function leyendaUniverso(v: VistaConcentracion | null | undefined): string | null {
+  if (!v) return null;
+  if (!v.parte_de) return v.universo;
+  const p = Math.round(v.parte_de.pct * 10) / 10;
+  return `${v.universo} — ${p} % de ${v.parte_de.de}`;
 }
