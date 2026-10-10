@@ -1216,3 +1216,77 @@ responde 42P01.
   conciliar; para "no repetir la compra" no hace falta.
 - La `referencia` tecleada a mano es un problema de **captura**, no de código. Mientras siga así,
   ningún cruce por folio va a pasar del 1%.
+
+---
+
+## RQ.15 — La requisición dice CUÁL orden de compra salió de ella (2026-10-09) 🧪
+
+Sale de la auditoría de juntas. De las once, ésta no estaba floja: **no existía**.
+
+### Lo medido
+
+`commercial.purchase_requisitions` guardaba `ordered_at` y `ordered_by` —*cuándo* y *quién*— y
+nunca **cuál** orden salió. ⇒ Las **53 requisiciones `ordered` por $11,586,824** no se pueden
+seguir hasta la entrada de mercancía.
+
+⭐ **Y el 8.4% que la auditoría mostró para esta junta era un artefacto.** `approved`, `ordered` y
+`received` arrancan TODOS el **2026-09-28**: el flujo lleva once días vivo, y ese porcentaje
+promediaba dos meses en los que el camino no existía. En la cohorte real:
+
+| estado | docs | importe |
+|---|---:|---:|
+| pending_approval | 191 | $6,569,988 |
+| approved | 158 | $6,512,618 |
+| ordered | 53 | $11,586,824 |
+| received | 10 | $450,000 |
+| cancelled | 37 | $464,501 |
+
+**221 de 449 avanzaron (49%)** y sólo 37 se cancelaron. El embudo funciona; lo que faltaba era
+atar el final.
+
+### Lo entregado
+
+Cuatro columnas (`oc_sucursal`, `oc_folio`, `oc_capturada_at`, `oc_capturada_por`) y el folio
+**OBLIGATORIO** al marcar ordenada.
+
+⭐ **Obligatorio y no opcional**, porque un campo opcional en una junta que nadie llena se queda
+vacío — es exactamente lo que pasó con `ordered_at`, que sí se llena y no sirve para seguir nada.
+
+⚠️ **Es la coordenada de KEPLER (sucursal + folio), no una llave nuestra**: la OC vive allá
+(ADR-040), y es la misma coordenada con la que `analytics.erp_purchase_orders` y
+`erp_goods_receipts.oc_folio` ya la nombran. Así la cadena se recorre entera: requisición → OC →
+entrada → factura.
+
+⛔ **Las DOS columnas o NINGUNA** (CHECK): el folio se repite entre sucursales —lo midió la Fase CC
+con `doc_prefix`— así que uno suelto apunta a varios documentos mientras se lee como si apuntara a
+uno. Más un índice único parcial: una OC sale de UNA requisición.
+
+⛔ **Nace NULLABLE y sin backfill.** Las 53 que ya existen no tienen de dónde sacar el folio: nadie
+lo capturó. Inferirlo por cercanía de fecha e importe sería fabricar un vínculo que nadie verificó,
+**en la columna que después se usa para decir "esto se compró"** (ADR-056).
+
+### ⚠️ Lo que esto destapó, y es el patrón del día
+
+**Ninguna pantalla marca una requisición como ordenada.** El endpoint existe desde `RA.14`, el
+método del cliente existe en `compras.service.ts`, y **ningún componente los llama**. Las 53
+`ordered` llegaron por otro camino.
+
+Es el tercer caso del mismo día: `fiscal.cfdi_assignments` con cero filas,
+`finance.collection_deposits` con cero, y el pareo de traspasos de la Fase T funcionando sin que
+nadie mire más allá de 30 días. ⭐ **Lo construido supera largamente lo usado**, y el cuello no
+está en el motor.
+
+### Candado
+
+`requisicion-oc.spec.ts`, 11 aserciones, **mutado a rojo** haciendo el folio opcional.
+
+⚠️ Una negativa mía volvió a nacer mal (tercera vez hoy con esta familia): buscaba `NOT NULL` como
+cadena para probar que la columna es nullable, y casa con el `WHERE oc_folio IS NOT NULL` del
+índice parcial, que es correcto. Se apuntó a la DECLARACIÓN (`.notNullable()`, `SET NOT NULL`).
+
+### Abierto
+
+- **La pantalla.** Mientras ningún componente llame a `order`, el folio obligatorio no lo captura
+  nadie. Esto cierra la junta en la base y en el backend; falta el lugar donde se teclea.
+- **Las 53 ya ordenadas** quedan sin folio, declarado. Si alguien quiere recuperarlas, es trabajo
+  humano contra Kepler, no una inferencia.

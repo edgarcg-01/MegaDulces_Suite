@@ -3928,15 +3928,18 @@ export class CommercialReplenishmentService {
     });
   }
 
-  private async setEstado(id: string, from: string, to: string) {
+  private async setEstado(id: string, from: string, to: string, extra?: Record<string, unknown>) {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
-      const patch: any = { estado: to, updated_at: trx.fn.now() };
+      const patch: any = { estado: to, updated_at: trx.fn.now(), ...(extra ?? {}) };
       if (to === 'approved') { patch.approved_by = userId; patch.approved_at = trx.fn.now(); }
       if (to === 'ordered') { patch.ordered_by = userId; patch.ordered_at = trx.fn.now(); }
       if (to === 'received') { patch.received_by = userId; patch.received_at = trx.fn.now(); }
+      // `[RQ.15]` Quién capturó el folio de la OC es dato aparte de quién marcó el estado: con el
+      // tiempo el segundo se automatiza y el primero sigue siendo una persona mirando un papel.
+      if (extra && 'oc_folio' in extra) { patch.oc_capturada_por = userId; patch.oc_capturada_at = trx.fn.now(); }
       const n = await trx('commercial.purchase_requisitions')
         .where({ tenant_id: tenantId, id, estado: from }).update(patch);
       if (!n) throw new BadRequestException(`La requisición no está en estado '${from}'`);
@@ -4001,7 +4004,28 @@ export class CommercialReplenishmentService {
     return { pedidas: unicos.length, hechas: ok.length, ok, fallas };
   }
   /** RA.14 — approved → ordered (OC emitida / exportada al proveedor). */
-  markOrdered(id: string) { return this.setEstado(id, 'approved', 'ordered'); }
+  /**
+   * `[RQ.15]` Marcar ORDENADA exige decir **cuál** orden de compra salió.
+   *
+   * ⭐ El folio es OBLIGATORIO y no un campo más. La junta requisición↔OC no estaba floja en la
+   * auditoría del 2026-10-09: **no existía** — `ordered_at` y `ordered_by` guardan cuándo y quién,
+   * nunca cuál. Dejarlo opcional lo habría dejado vacío igual que a las 53 `ordered` por
+   * $11,586,824 que hoy no se pueden seguir hasta la entrada de mercancía.
+   *
+   * ⚠️ Es la coordenada de KEPLER (sucursal + folio), no una llave nuestra: la OC vive allá
+   * (ADR-040). Las dos juntas o ninguna — un folio suelto se repite entre sucursales y apunta a
+   * varios documentos mientras se lee como si apuntara a uno.
+   */
+  markOrdered(id: string, oc?: { sucursal?: string; folio?: string }) {
+    const sucursal = String(oc?.sucursal ?? '').trim();
+    const folio = String(oc?.folio ?? '').trim();
+    if (!sucursal || !folio) {
+      throw new BadRequestException(
+        'Para marcar la requisición como ordenada hay que decir de qué orden de compra de Kepler se trata: sucursal y folio.',
+      );
+    }
+    return this.setEstado(id, 'approved', 'ordered', { oc_sucursal: sucursal, oc_folio: folio });
+  }
 
   /**
    * RA.14 — ordered → received (mercancía entró; espejo de la orden de entrada
