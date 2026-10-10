@@ -2,7 +2,10 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
+  LoadGuideLiquidationPreview,
+  LoadGuideLiquidationsResponse,
   LoadGuidesResponse,
+  PresaleLiquidateRequest,
   PresaleCandidatesResponse,
   PresaleDetail,
   PresaleLinkResponse,
@@ -66,5 +69,29 @@ export class AlmacenPreventaService {
     let p = new HttpParams();
     if (date) p = p.set('date', date);
     return this.http.post<LoadGuidesResponse>(`${this.guias}/${guideId}/return`, { order_id: orderId, reason }, { params: p });
+  }
+
+  // ── [MCP.7] Liquidación contra la guía ───────────────────────────────────────────────────────
+
+  /** Lo que se espera al liquidar estas guías (un regreso) y si se puede. */
+  previewLiquidation(guideIds: string[]): Observable<LoadGuideLiquidationPreview> {
+    return this.http.post<LoadGuideLiquidationPreview>(`${this.guias}/liquidation/preview`, { guide_ids: guideIds });
+  }
+
+  /** Liquida con el arqueo y devuelve el comprobante en PDF (folio en el header X-Liquidacion-Folio). */
+  liquidate(req: PresaleLiquidateRequest): Observable<HttpResponse<Blob>> {
+    return this.http.post(`${this.guias}/liquidate`, req, { responseType: 'blob', observe: 'response' });
+  }
+
+  /** Liquidaciones del día (`YYYY-MM-DD`, default hoy). */
+  listLiquidations(date?: string): Observable<LoadGuideLiquidationsResponse> {
+    let p = new HttpParams();
+    if (date) p = p.set('date', date);
+    return this.http.get<LoadGuideLiquidationsResponse>(`${this.guias}/liquidations`, { params: p });
+  }
+
+  /** Reimprime el comprobante de una liquidación (marcado REIMPRESIÓN). */
+  reprintLiquidation(id: string): Observable<HttpResponse<Blob>> {
+    return this.http.post(`${this.guias}/liquidations/${id}/print`, {}, { responseType: 'blob', observe: 'response' });
   }
 }

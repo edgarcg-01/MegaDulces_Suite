@@ -10,7 +10,11 @@ import {
   isPlatformAdminRole,
 } from '@megadulces/platform-core';
 import type {
+  LoadGuideLiquidationPreview,
+  LoadGuideLiquidationsResponse,
   LoadGuidesResponse,
+  PresaleLiquidateRequest,
+  PresaleLiquidationPreviewRequest,
   PresaleDeliverRequest,
   PresaleFieldOrderDetail,
   PresaleFieldResponse,
@@ -118,6 +122,44 @@ export class PresaleGuidesController {
     res.setHeader('Content-Disposition', `inline; filename="${guia.folio}.pdf"`);
     res.setHeader('X-Guia-Folio', guia.folio);
     res.setHeader('Access-Control-Expose-Headers', 'X-Guia-Folio');
+    res.end(pdf);
+  }
+
+  @Get('liquidations')
+  @RequirePermissions(Permission.PREVENTA_GUIAS_GESTIONAR)
+  @ApiOperation({ summary: '[MCP.7] Liquidaciones del día (date=YYYY-MM-DD, default hoy) de las sucursales de mi alcance.' })
+  liquidaciones(@Query() query: Record<string, unknown>, @Req() req: ReqUsuario): Promise<LoadGuideLiquidationsResponse> {
+    return this.svc.liquidaciones(query, quienPide(req));
+  }
+
+  @Post('liquidation/preview')
+  @RequirePermissions(Permission.PREVENTA_GUIAS_GESTIONAR)
+  @ApiOperation({ summary: '[MCP.7] Lo que se espera al liquidar un regreso: entregado, declarado en efectivo y transferencia, y si se puede liquidar.' })
+  previewLiquidacion(@Body() body: PresaleLiquidationPreviewRequest, @Query() query: Record<string, unknown>, @Req() req: ReqUsuario): Promise<LoadGuideLiquidationPreview> {
+    return this.svc.previewLiquidacion(body, query, quienPide(req));
+  }
+
+  @Post('liquidate')
+  @RequirePermissions(Permission.PREVENTA_GUIAS_GESTIONAR)
+  @ApiOperation({ summary: '[MCP.7] Liquida las guías de un regreso con el arqueo por denominación y devuelve el comprobante en PDF para firmar.' })
+  async liquidar(@Body() body: PresaleLiquidateRequest, @Query() query: Record<string, unknown>, @Req() req: ReqUsuario, @Res() res: Response): Promise<void> {
+    const { pdf, liquidacion } = await this.svc.liquidar(body, query, quienPide(req));
+    this.enviarPdf(res, pdf, liquidacion.folio);
+  }
+
+  @Post('liquidations/:id/print')
+  @RequirePermissions(Permission.PREVENTA_GUIAS_GESTIONAR)
+  @ApiOperation({ summary: '[MCP.7] Reimprime el comprobante de una liquidación, marcado REIMPRESIÓN.' })
+  async reimprimirLiquidacion(@Param('id') id: string, @Query() query: Record<string, unknown>, @Req() req: ReqUsuario, @Res() res: Response): Promise<void> {
+    const { pdf, liquidacion } = await this.svc.reimprimirLiquidacion(id, query, quienPide(req));
+    this.enviarPdf(res, pdf, liquidacion.folio);
+  }
+
+  private enviarPdf(res: Response, pdf: Buffer, folio: string): void {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${folio}.pdf"`);
+    res.setHeader('X-Liquidacion-Folio', folio);
+    res.setHeader('Access-Control-Expose-Headers', 'X-Liquidacion-Folio');
     res.end(pdf);
   }
 

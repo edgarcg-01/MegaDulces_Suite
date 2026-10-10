@@ -250,7 +250,7 @@ Todas las decisiones de diseño están tomadas. Lo que queda abierto es de imple
 
 | # | Qué | Para qué sprint |
 |---|---|---|
-| **I1** | Decodificar en `kepler_ods` el documento de **devolución de venta / nota de crédito al cliente** (el `X-D-55` conocido es de **proveedor**, no sirve) para que la Suite vea solo cuándo un documento quedó cerrado por devolución. | MCP.7 |
+| ~~**I1**~~ | ✅ **Resuelto 2026-10-10 (MCP.7.1):** la NC / devolución (U-A-21 / U-A-25) se aplica a la factura del ticket (U-D-5 / U-D-12) y se liga por los campos de documento origen de `kdm1`. Ver §6.7 y `docs/ERP_KEPLER.md` §3.d. | MCP.7 |
 | ~~**I2**~~ | ✅ **Resuelto por Francisco (2026-10-08): máximo 2 reintentos** — *"sólo 2 entregas más, se empieza a maltratar la mercancía"*. El pedido sale la primera vez y puede salir 2 veces más; si al 3er intento no se entrega, va a devolución + NC en Kepler. Constante `MAX_REINTENTOS_ENTREGA = 2` en el motor. | MCP.7 |
 | ~~**I4**~~ | ✅ **Resuelto (MCP.4.1, 2026-10-08): Morelia Madero cobra en Kepler como 07** (confirmado por Francisco). Medido: `MD-32` se dio de **baja** el 2026-09-11 y lo reemplazó el almacén `07` "Morelia Madero" (`kepler_code = '07'`), así que los pedidos nuevos ya caen solos en la 07. Para los 7 viejos que apuntan a `MD-32`: mig `20261008040859` le escribe `kepler_code = '07'`, y la mesa busca por la sucursal Kepler del almacén (`kepler_code`) y recorta el alcance **por sucursal**, no por almacén vivo (antes los escondía al encargado). Simulado en prod: PD-00028 con 3 posibles y PD-00032 con 2; los otros 5 son de clientes sin clave → *Esperando alta*. | MCP.4 |
 | **I3** | Comprobante de transferencia: ¿basta la referencia capturada, o se pide foto? Su cruce con el banco es de la Fase CB, no de ésta. | MCP.7 |
@@ -452,6 +452,74 @@ responde 409 (eso se corrige en la mesa, no en la calle).
 **Declarado, sin cambiar:** "Por entregar" de `apps/vendor` (lee `confirmed`) sigue mostrando los
 pedidos entregados en guía; la conformidad no lleva firma del cliente; se aceptan importes en cero
 (entrega a crédito o pagada antes). La regla de dos intentos y la liquidación son MCP.7.
+
+### 6.6 MCP.7 — liquidación contra la guía (🧪 en código, 2026-10-10)
+
+**Qué hace (D9, D10, D11, I2):** en **Almacén › Pedidos › Guías de carga**, la sección **Por
+liquidar** agrupa las guías impresas por quien entregó. **Liquidar** abre el panel:
+- **Lo que se espera:** documentos de Kepler entregados, transferencias declaradas (cada una con
+  su referencia), efectivo declarado y *documentos − lo declarado*.
+- **Efectivo contado:** arqueo por denominación (el catálogo compartido de `libs/contracts`).
+- **Cuadre:** contado contra declarado. La nota es obligatoria si no cuadra, **o** si hay
+  `unexplained_difference`: lo que Kepler cobró en un pedido entregado «completo» y nadie declaró
+  (un «con diferencia» ya trae su nota por pedido).
+- Al confirmar sale el **comprobante en PDF** (`LQP-AAAA-NNNNN`) para que lo firmen los dos;
+  sustituye la tira de ingresos reimpresa. Se reimprime desde su foto, marcado REIMPRESIÓN.
+
+**No se liquida:** con pedidos en camino; con un pedido cancelado después de imprimir (se ve en la
+guía y la caja registra su regreso); si los renglones crudos de la guía no coinciden con lo que
+muestra la mesa; si quien liquida es quien entregó (salvo modo god); o si lo declarado cambió
+mientras se contaba (409, se recargan las cifras).
+
+**Regla de reintentos (I2):** un pedido sale una vez y puede salir 2 veces más. Al tercer fallo
+(`regreso` o `no_entregado`) ya no se puede pescar y la mesa lo marca «Devolución y NC en Kepler».
+La constante vive en `libs/contracts` (`PRESALE_MAX_REINTENTOS`) para que motor y pantallas lean
+el mismo número.
+
+**⛔ Desviación del plan (§2.4):** no se extendió `commercial.rider_liquidations`. Su esperado sale
+de `commercial.payments` (la preventa no escribe ahí), su llave es un corte por repartidor y día (y
+puede haber dos vueltas) y la cajera no tiene su permiso. Se calcó su patrón en
+`commercial.load_guide_liquidations`. Protege `PREVENTA_GUIAS_GESTIONAR`, el permiso que ya tiene
+la caja.
+
+**Revisión independiente:** 2 altos (pedido cancelado escondido que dejaba liquidar en camino; cobro
+de Kepler no declarado que salía «cuadra») y 9 medios (total del documento entregado y no de la
+liga actual, liquidar parte de las guías, rezago y orden de la lista, reimprimir una guía liquidada,
+vista previa vieja, autoliquidación, ventana bloqueada, panel atascado en error, índice de
+fallidos), todos atendidos.
+
+**Comprobante (pedido de Francisco, 2026-10-10):** arriba los **pendientes** (regresan a la
+sucursal: motivo y valor de lo que regresa —el documento de Kepler o, si aún no hay, el total del
+pedido, marcado—) y abajo los **entregados y liquidados**, cada bloque con su subtotal.
+
+**Pendiente:** revisar cada transferencia contra el banco queda para la conciliación bancaria (I3).
+
+### 6.7 MCP.7.1 — el pedido se cierra con la nota de crédito de Kepler (🧪 en código, 2026-10-10; resuelve I1)
+
+**Qué hace:** cuando Kepler aplica devolución / nota de crédito al ticket del pedido, la mesa lo ve
+en vivo y el pedido pasa a la etapa nueva **Devuelto con NC** (cerrado, sin semáforo, ya no se
+puede llevar). El detalle muestra la nota, su factura, fecha, importe y motivo; el total «cobrado en
+Kepler» de la mesa es neto de notas.
+
+**Decode (medido en prod, solo lectura):** Kepler no aplica la nota al ticket sino a la **factura
+que nace del ticket** (U-D-5 fiscal / U-D-12 CONTADO), y la nota (U-A-21 / U-A-25) apunta a esa
+factura. La cadena va por los campos de documento origen de `kdm1` (`c36`–`c39`). Detalle,
+cobertura y testigo en [`docs/ERP_KEPLER.md` §3.d](../../ERP_KEPLER.md).
+
+**Decisiones de Francisco (2026-10-10):**
+- **Sólo se cierra si la nota cubre TODO el ticket** (tolerancia de centavos). Una nota parcial se
+  muestra («NC parcial $X de $Y») y el pedido sigue abierto.
+- **Notas sin documento origen no se adivinan.** La mesa pide hacerlas **desde la factura del
+  ticket** en Kepler para que se liguen solas.
+
+**Cómo se lee:** `analytics.erp_ticket_credit_notes(sucursal[], caja[], folio[])`, una función de
+solo lectura (mig `20261010042824`) derive-no-copy sobre `kepler_ods`: recibe el lote de tickets y
+busca primero sus facturas (97 ms por 300 tickets; como vista, ~1 s). Sólo cuentan las notas del
+mismo cliente y con fecha posterior al ticket.
+
+**Declarado:** un pedido devuelto sigue `confirmed` en `orders` (no se toca, igual que la entrega),
+así que permanece en la lista de la mesa como «Devuelto con NC»; el marcador de factura cancelada se
+supone `c43='C'` (no medido); los tickets con más de una factura hija suman todas sus notas.
 
 ## 7. Fuera de alcance
 
