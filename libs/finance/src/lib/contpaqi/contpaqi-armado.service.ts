@@ -7,6 +7,10 @@ import {
   armarAsientoEgreso, armarLoteEgresos, AsientoRechazado, type ReglaCuenta,
 } from './poliza-egreso';
 import { tokenDe } from './token';
+import {
+  construirIndice, resolverProveedor,
+  type CuentaProveedor, type IndiceProveedores,
+} from './proveedor-resolver';
 
 /**
  * Fase CP `[CP.8.7]` — **El eslabón que faltaba: de un movimiento bancario a una póliza.**
@@ -243,6 +247,42 @@ export class ContpaqiArmadoService {
    * Leerlo acá es lo que hace que `no_aplica` (ya decidido) deje de verse igual que `sin_regla`
    * (falta decidir) — dos estados con dueños distintos.
    */
+  /**
+   * `[CP.8.35]` — Un índice de proveedores **por rubro**, uno por cada regla `por_proveedor`.
+   *
+   * ⛔ El rubro sale de `cuenta_prefijo` de la propia regla y no de una constante: ahí estuvo el
+   * defecto que tuvo esto en 1.4 % de resolución. Las cuentas de proveedor viven en 2120, 5010 y
+   * 5020; un PAGO carga a la de por pagar, y el mismo nombre existe en los tres rubros.
+   */
+  private async leerIndicesProveedor(
+    reglas: Map<string, ReglaCuenta>,
+  ): Promise<Map<string, IndiceProveedores>> {
+    const prefijos = [...new Set([...reglas.values()]
+      .filter((r) => r.tipo_regla === 'por_proveedor' && r.cuenta_prefijo)
+      .map((r) => r.cuenta_prefijo as string))];
+    if (!prefijos.length) return new Map();
+
+    const filas = await this.db('contpaqi.supplier_accounts').where({ tenant_id: MEGA })
+      .select('cuenta', 'proveedor_nombre', 'cuenta_nombre', 'veredicto', 'rfc');
+    const out = new Map<string, IndiceProveedores>();
+    for (const p of prefijos) out.set(p, construirIndice(filas as CuentaProveedor[], p));
+    this.log.log(`índice de proveedores: ${filas.length} cuentas · rubros ${prefijos.join(', ')}`);
+    return out;
+  }
+
+  /** Devuelve la regla con la cuenta del proveedor puesta, o igual con su motivo si no resolvió. */
+  private conProveedor(
+    base: ReglaCuenta,
+    concepto: unknown,
+    indices: Map<string, IndiceProveedores>,
+  ): ReglaCuenta {
+    if (base.tipo_regla !== 'por_proveedor') return base;
+    const idx = base.cuenta_prefijo ? indices.get(base.cuenta_prefijo) : undefined;
+    if (!idx) return base;
+    const r = resolverProveedor(idx, concepto);
+    return r.veredicto === 'resuelto' ? { ...base, cuenta_gasto: r.cuenta } : base;
+  }
+
   private async leerReglas(): Promise<Map<string, ReglaCuenta>> {
     const filas = await this.db('contpaqi.account_rules').where({ tenant_id: MEGA })
       .select('categoria_code', 'cuenta_gasto', 'cuenta_iva', 'confianza_pct', 'estado',
@@ -270,6 +310,7 @@ export class ContpaqiArmadoService {
   async simularLotes(anioMes: string): Promise<ResumenMes> {
     const egresos = await this.leerEgresos(anioMes);
     const reglas = await this.leerReglas();
+    const indices = await this.leerIndicesProveedor(reglas);
 
     // (cuenta de banco × día) — exactamente el grano de la póliza real.
     const grupos = new Map<string, any[]>();
@@ -287,14 +328,20 @@ export class ContpaqiArmadoService {
       const entradas = filas.map((e) => {
         const subtotal = Number(e.amount_out);
         const iva = Number(e.iva_hermano ?? 0);
+        // Una categoría sin fila en `account_rules` no se inventa: entra con `sin_medir`
+        // para que el lote la rechace con ese motivo, no con uno prestado.
+        const base = reglas.get(e.categoria_code) ?? {
+          categoria_code: e.categoria_code, cuenta_gasto: null, cuenta_iva: '1060000000',
+          confianza_pct: null, estado: 'sin_regla' as const, tipo_regla: 'sin_medir' as const,
+          cuenta_prefijo: null,
+        };
         return {
-          // Una categoría sin fila en `account_rules` no se inventa: entra con `sin_medir`
-          // para que el lote la rechace con ese motivo, no con uno prestado.
-          regla: reglas.get(e.categoria_code) ?? {
-            categoria_code: e.categoria_code, cuenta_gasto: null, cuenta_iva: '1060000000',
-            confianza_pct: null, estado: 'sin_regla' as const, tipo_regla: 'sin_medir' as const,
-            cuenta_prefijo: null,
-          },
+          // ⭐ `[CP.8.35]` En una regla `por_proveedor` la cuenta **no es de la categoría**: hay
+          // que resolverla por movimiento, desde el concepto del banco. Sin este paso los 216
+          // movimientos de `compra_mercancia` de enero ($43.5M) se rechazaban en bloque.
+          // ⛔ Si no resuelve, se deja `cuenta_gasto` en null **con su motivo**: el armador la
+          // rechaza con `proveedor_sin_cuenta` y la bandeja dice por qué, en vez de inventar.
+          regla: this.conProveedor(base, e.concept, indices),
           subtotal,
           iva,
           total: Math.round((subtotal + iva) * 100) / 100,
