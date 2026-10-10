@@ -2238,3 +2238,62 @@ existe para impedir.
 | `test-newdb-libro-compras-txt.js` | **38 → 48 ✓** (10 nuevas, 2 de ellas negativas) |
 | `test-newdb-libro-compras-caratula.js` | **66 ✓** (derivando, antes 64 ✓ / 2 ✗ por caducidad) |
 | esquema 46 · lote 38 · bandeja 28 | sin regresión |
+
+---
+
+## §33 `[CP.8.35]` — El resolvedor de proveedor: **el puente emite su primera póliza**
+
+🧪 **EN CÓDIGO 2026-10-10.** Sin migración. Falta `git push` + redeploy.
+
+### 33.1 ⛔ El paso que faltaba, y por qué nadie lo había visto
+
+`armarPagoProveedor` lee `regla.cuenta_gasto`. Para una regla `por_proveedor` esa columna es
+**NULL por diseño** — lo exige el CHECK de coherencia de `[CP.8.19]`, porque la cuenta no es de la
+categoría sino **del proveedor**. O sea que había que resolverla **por movimiento**, desde el
+concepto del banco, y **ese paso simplemente no existía**.
+
+⭐ Y no necesita al contador: `armarAsientoEgreso` devuelve en `por_proveedor` **antes** de mirar
+`estado`. *La primera póliza del puente nunca dependió de una firma.*
+
+### 33.2 ⭐⭐ 1.4 % → 70.4 %: no era el nombre, era el rubro
+
+| | pareo contra todo el padrón | honrando `cuenta_prefijo` |
+|---|--:|--:|
+| resuelto | **1.4 %** (3 de 216) | **70.4 %** (152) |
+| ambiguo | 70.8 % (153) | 1.9 % (4) |
+| placebo | 0.0 % | 0.0 % |
+
+Las cuentas de proveedor viven en **tres rubros** (`2120`, `5010`, `5020`) y el mismo nombre está
+en los tres, así que casi todo salía *ambiguo*. Un **pago** carga a la cuenta por pagar, no a la de
+compras — y la propia regla ya lo decía en `cuenta_prefijo = '2120'`.
+
+⛔ **Medido como prueba negativa, no como anécdota: 1,002 nombres del padrón existen en `2120` y
+también en `5010`/`5020`, y 141 de los 144 resueltos son de esos.** Sin el rubro se perderían casi
+todos.
+
+### 33.3 El efecto en la bandeja
+
+| | antes | después |
+|---|--:|--:|
+| lotes con asiento | **0** | **88** |
+| movimientos incluidos | 0 | **144** (9.8 %) |
+| importe | $0 | **$36,718,975** |
+| `proveedor_sin_cuenta` | 216 | **72** |
+
+⚠️ 144 y no 152: ocho pareos caen en veredictos **sin RFC** (`solo_nombre` 6, `sin_proveedor` 2) y
+el resolvedor **se niega a usarlos**. Es el mismo criterio del CHECK de `supplier_accounts`,
+repetido del lado del consumidor a propósito: *un CHECK protege la tabla, no a quien lee una fila
+vieja.*
+
+### 33.4 Las tres cosas que se niega a hacer
+
+1. **Elegir entre dos cuentas** del mismo rubro → `ambiguo`, cuenta `null`.
+2. **Usar un veredicto sin RFC** → `veredicto_debil`, cuenta `null`.
+3. **Parear parecido** — sin subcadenas ni distancia de edición: un `HERSHEYS` que casara con
+   `HERSHEYS DISTRIBUIDORA` cargaría a la cuenta equivocada **sin que nada se descuadre**.
+
+### 33.5 Candado
+
+`test-newdb-contpaqi-proveedor.js` — **17 ✓ / 0 ✗**, con placebo y con la prueba negativa del
+rubro medida sobre el padrón real. Vecinos sin regresión: lote 38 · esquema 46 · libro-txt 49 ·
+bandeja 28.

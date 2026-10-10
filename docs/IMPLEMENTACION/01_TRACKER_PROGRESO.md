@@ -10191,6 +10191,19 @@ contra `pg-prod` (namespace `prod`, k3s).
   (lección de `[CDRP.2.1]`). ⚠️ Corrige el plan presentado al área: el mes candidato es
   **septiembre**, no agosto. **66 ✓**. 2026-10-10
 
+- [x] **[CP.8.35]** ⭐⭐ **El resolvedor de proveedor — el puente emite su PRIMERA póliza.**
+  `armarPagoProveedor` lee `regla.cuenta_gasto`, que en una regla `por_proveedor` es **NULL por
+  diseño** (lo exige el CHECK de `[CP.8.19]`): la cuenta se resuelve **por movimiento** desde el
+  concepto del banco, y **ese paso no existía** — los 216 movimientos de `compra_mercancia` de
+  enero ($43.5M) se rechazaban en bloque. ⭐ **No necesita al contador**: `armarAsientoEgreso`
+  devuelve en `por_proveedor` antes de mirar `estado`. ⛔ **1.4 % → 70.4 % honrando
+  `cuenta_prefijo`**: las cuentas de proveedor viven en **tres rubros** y el mismo nombre está en
+  los tres, así que todo salía *ambiguo*; un pago carga a la de **por pagar**. Prueba negativa
+  medida: **1,002 nombres existen en `2120` y en `5010`/`5020`, y 141 de los 144 resueltos son de
+  esos**. **Efecto: lotes con asiento 0 → 88 · incluidas 0 → 144 · $36,718,975 ·
+  `proveedor_sin_cuenta` 216 → 72.** Se niega a adivinar (ambiguo → null, veredicto sin RFC →
+  null, nada de subcadenas). Candado **17 ✓** con placebo (padrón invertido parea 0). 2026-10-10
+
 ### ⛔ Bloqueos abiertos
 
 - [ ] ⭐ **Importar UN archivo** para confirmar que ContPAQi lo acepta. **Un minuto de la
