@@ -1,6 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
@@ -55,9 +57,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent],
   template: `
     <div class="cm-page">
+      <app-page-tabs [tabs]="tabsRD" />
       <header class="cm-head">
         <div>
           <h1>Comisiones de Ruta Directa</h1>
@@ -695,6 +698,8 @@ export class ComercialComisionesComponent {
   readonly sel = signal<CommissionBoardRow | null>(null);
   readonly run = signal<CommissionRunDetail | null>(null);
   readonly tab = signal<string>('chofer');
+  /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
+  readonly tabsRD = RUTA_DIRECTA_TABS;
   readonly cargando = signal(false);
   readonly err = signal<string | null>(null);
 

@@ -38,7 +38,8 @@ import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../
 import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
 import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
 import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
-import { REPORTS_TABS } from '../../comercial/reports-tabs';
+import { REPORTES_GENERALES_TABS } from '../../comercial/reports-tabs';
+import { RUTA_DIRECTA_TABS } from '../../comercial/ruta-directa-tabs';
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 import { CUSTOMERS_TABS } from '../../comercial/customers-tabs';
 import { PRECIOS_TABS } from '../../comercial/precios-tabs';
@@ -462,6 +463,13 @@ export class LayoutComponent implements OnInit, OnDestroy {
         { label: 'Cartera de ventas',  icon: 'pi pi-sitemap',    route: '/comercial/cartera',       permission: Permission.USUARIOS_ASIGNAR_RUTA },
         { label: 'Cierre de ruta',     icon: 'pi pi-receipt',    route: '/comercial/route-tickets', permission: Permission.ROUTE_CONTROL_VER },
         { label: 'Ventas de vendedor', icon: 'pi pi-money-bill', route: '/comercial/vendor-sales',  permission: Permission.COMMERCIAL_VENDOR_SALES_VER },
+        // ⭐ UNA entrada para las SIETE pantallas de Ruta Directa, con el patrón de `[GX.80]`:
+        // lleva a la primera que la persona puede ver y queda activa en cualquiera de ellas.
+        // Primero las puse como siete items sueltos dentro de «Reportes» y era la forma
+        // equivocada dos veces: no son reportes, y no son siete cosas — son un sub-módulo,
+        // la misma operación mirada por siete lados. La tira de arriba es la que mueve entre
+        // ellas, y por eso cada una de esas pantallas la pinta.
+        { label: 'Ventas por ruta', icon: 'pi pi-directions', route: '/comercial/ventas-por-ruta', tabs: RUTA_DIRECTA_TABS },
       ],
     },
     {
@@ -473,7 +481,7 @@ export class LayoutComponent implements OnInit, OnDestroy {
         // ⭐ Las once pestañas del sub-módulo, derivadas. Siete no estaban acá —entre ellas las
         // cinco de Ruta Directa— así que sólo llegaba quien ya conocía la pestaña.
         // `dedupeByRoute` pliega «Documentos»/«Facturación TM», que son la misma ruta.
-        ...navDeTabs(REPORTS_TABS),
+        ...navDeTabs(REPORTES_GENERALES_TABS),
         { label: 'Documentos', icon: 'pi pi-file', route: '/comercial/documentos', permission: Permission.COMMERCIAL_SALES_DOCS_VER },
         // La barra de Análisis es del mismo sub-módulo de reportes (Thot, histórico, curaduría).
         ...navDeTabs(ANALYTICS_TABS),

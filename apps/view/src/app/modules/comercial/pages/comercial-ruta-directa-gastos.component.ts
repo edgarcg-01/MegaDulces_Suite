@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
@@ -29,10 +31,11 @@ import {
 @Component({
   selector: 'app-comercial-ruta-directa-gastos',
   standalone: true,
-  imports: [FormsModule, LoadStateComponent, SegmentedComponent],
+  imports: [PageTabsComponent, FormsModule, LoadStateComponent, SegmentedComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="gf">
+      <app-page-tabs [tabs]="tabsRD" />
       <header class="gf-head">
         <div>
           <h1>Gasto de flota</h1>
@@ -209,6 +212,8 @@ import {
   `],
 })
 export class ComercialRutaDirectaGastosComponent {
+  /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
+  readonly tabsRD = RUTA_DIRECTA_TABS;
   private readonly svc = inject(ComercialService);
 
   readonly cargando = signal(true);
