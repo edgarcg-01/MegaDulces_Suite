@@ -199,10 +199,10 @@ services:
   #
   # ⚠️ El espejo NO cambia: su `ODS_EXCLUDE_TABLES` ya nombra `kdm1` y lo sigue ignorando.
   #
-  # ⛔ Los 3 s NO son el objetivo final (el pedido es ≤1 s): son el piso del código
-  # (`WATCH_SEC = Math.max(3, ...)`). Bajarlo a 1 s cuesta ~25,900 s/día de CPU contra los
-  # 7,487 s/día que `[CPU.3]` eliminó POR CAROS — 3.5× lo ya rechazado. El camino a ≤1 s es
-  # empujar, no sondear más rápido, y va medido y decidido aparte.
+  # ⭐ `--watch=1` (`[CG.79]` bajó el piso del código de 3 s a 1 s). Medido: el ciclo EN CALIENTE
+  # son 4.7 ms, o sea 404 s/día sondeando cada segundo — 18× MENOS que los 7,487 s/día que
+  # `[CPU.3]` retiró por caros. La versión anterior de este bloque decía 25,900 s/día y estaba
+  # mal por ~64×: medía el arranque (require + 9 conexiones), que en modo watch no recurre.
   ods-live-caja:
     # [K3S.11] NACIÓ EN K3s -- acá sólo para que el candado de partición y `check:k3s` lo lean.
     profiles: ["retirado-k3s"]
@@ -216,7 +216,7 @@ services:
       # bug de `[CT.3]`, y una lista ausente no se distingue de una mal escrita. `kdm1` es
       # append-only: va por carril ctid, nunca por hash.
       ODS_HASH_TABLES: ""
-    command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=3", "--tables=kdm1"]
+    command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=1", "--tables=kdm1"]
 
   # ═══ ESPEJO COMPLETO ═══ todo md.* MENOS el set del hot. @300 s.
   ods-live-mirror:
