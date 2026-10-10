@@ -1887,3 +1887,67 @@ descubre el día del cierre.
 
 ⭐ **Los cuatro caminos son útiles.** El único que no informa nada es prenderlo a ciegas y que
 funcione por casualidad.
+
+---
+
+## 28. ⛔⛔ `[CP.8.31]` El cuadre tenía umbral, `@Cron` y latido — y el módulo no estaba registrado
+
+Revisando qué faltaba del plan apareció lo peor posible: **`FinanceContpaqiModule` no estaba en
+ninguna app.** El servicio de cuadre tiene su `@Cron('0 */10 * * * *')` desde `[CP.8.8]` y su
+umbral en `CRON_JOBS` desde `[CP.8.10]`… y **nunca arrancó**.
+
+⭐ *Un umbral sin proceso detrás se lee en el tablero exactamente igual que un proceso sano que
+no tiene nada que hacer.* Por eso nadie lo notó: `contpaqi_cuadre` no está en rojo — está mudo, y
+mudo y tranquilo se ven igual.
+
+Registrado en `app.module.ts` + exportado desde el barrel de `libs/finance`.
+
+### 28.1 ⛔⛔ Y al medir dónde correría, apareció un defecto de PLATAFORMA
+
+Antes de registrarlo había que saber dónde cae el `@Cron`. Medido en prod el 2026-10-09:
+
+```
+deploy/api      2 réplicas   DISABLE_CRONS=[]   WORKER=[]
+deploy/worker   1 réplica    DISABLE_CRONS=[]   WORKER=[true]
+```
+
+`app.module.ts` registra `ScheduleModule.forRoot()` **salvo que `DISABLE_CRONS === 'true'`**, y
+esa variable **no está puesta en ningún pod**.
+
+⭐⭐ **Todo `@Cron` de la plataforma corre en TRES procesos a la vez.** Evidencia directa, no
+inferida:
+
+| | |
+|---|--:|
+| `cron_runs` con `host = 'api'` | **36 jobs** |
+| líneas de scanner/cron en el log de **un** pod de API (2 h) | **12** |
+| `DISABLE_CRONS` leído dentro de los pods | **vacío en los 3** |
+
+⚠️ **Y es invisible**: `analytics.cron_runs` es **UPSERT por `job_key`** — guarda la última
+corrida, no un log. Tres ejecuciones simultáneas producen exactamente la misma fila que una.
+*La duplicación no se puede ver en el tablero que existe para ver los crons.*
+
+⛔ **No se arregla desde acá.** Poner `DISABLE_CRONS=true` en `deploy/api` es un cambio de
+plataforma que toca **todos** los crons, y equivocarse de pod los apaga a todos. Lo que sí
+corresponde es **no sumar uno más**: el `@Cron` del cuadre sale por `return` si
+`process.env.WORKER !== 'true'` — el marcador que el propio repo ya usa en `QueueService.isWorker()`.
+
+### 28.2 El candado notó los cambios, que es su trabajo
+
+`test-newdb-contpaqi-puente.js` se puso en **35 ✓ / 4 ✗** contra prod. Los cuatro eran el candado
+afirmando un mundo que mi propio trabajo cambió a propósito — ninguno una regresión.
+
+⭐ **Y en uno la corrección cómoda era la equivocada.** La aserción decía *"CERO reglas
+utilizables"*; `[CP.8.19]` dejó 2 filas en `derivada`. Cambiar el `0` por un `2` habría sido
+aflojar el candado: *"hay 2 que no son `sin_regla`"* no afirma nada. Lo que importa es **por qué**
+no lo son, y son dos cosas distintas:
+
+- `tipo_regla = 'no_aplica'` → **veredicto derivado**: ya se decidió que no genera póliza.
+- cualquier otra con `estado <> 'sin_regla'` → una regla que **asentaría**, y eso sólo pasa cuando
+  el contador firme.
+
+Ahora son dos aserciones separadas. Y la lista de tablas reguladas **se nombra** en vez de
+contarse: un número no dice *cuál* falta.
+
+**40 ✓ / 0 ✗**, mutado a rojo tres veces — incluida la mutación *"aflojar a `estado !==
+'sin_regla'`"*, que es exactamente el atajo que estuve por tomar.
