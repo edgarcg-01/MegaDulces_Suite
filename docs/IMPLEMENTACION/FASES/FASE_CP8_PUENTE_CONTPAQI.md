@@ -2172,3 +2172,69 @@ Mutaciones verificadas en rojo:
 `app.routes.ts` **se comía la ruta vecina** (`polizas`, que sí usa `FISCAL_CONTAB_VER`) y la
 prueba negativa fallaba por el vecino; y `check:estilos` frenó un breakpoint en **px** (§R los
 pide en `rem`).
+
+---
+
+## §32 `[CP.8.30]` — El renglón `AD` en el libro de compras, **apagado y con número corregido**
+
+🧪 **EN CÓDIGO 2026-10-10.** Migración `20261010093324` **sin aplicar**. Falta `git push` + aplicar
++ redeploy.
+
+### 32.1 ⛔ Dos cifras que circulaban eran falsas, y la fase se apoyaba en ellas
+
+Antes de escribir una línea se midió el universo que un `AD` puede alcanzar — los comprobantes que
+**viajan dentro del archivo**, ni uno más:
+
+| cifra | de dónde salía | veredicto |
+|---|---|---|
+| «~4,200 al mes» | todos los CFDI asociados del mes | ⛔ **16× de más**: incluye los que ContPAQi asocia solo al capturarlos |
+| «~1,400 al mes» (§22.3) | sin derivación escrita | ⛔ **5× de más** |
+| **~263 al mes** | `finance.v_purchase_book_uuids`, 1,838 en 7 meses | ✅ y **cuadra** con los 256 abonos a `212` de enero |
+
+⭐ *Eso degrada la fase*: 263 asociaciones al mes son una o dos horas, no el premio mayor. El premio
+mayor sigue siendo el libro en sí (460–848 renglones tecleados). Lo que sí queda grande es el
+**atraso del complemento: 1,772 comprobantes de 2026**, que se asocian en una sola carga.
+
+### 32.2 Dos banderas, no una
+
+`[LC.15]` ya escribe el UUID en el **concepto** del renglón `M1`, y eso sólo sirve para **leerlo de
+vuelta**. ⛔ No asocia: la asociación vive en `AsocCFDIs` y el único registro que la crea es `AD`.
+
+Por eso `asocia_cfdi` es una columna **nueva** y no se cuelga de `incluye_uuid`, que viene en `true`
+por omisión — colgarla ahí habría prendido el `AD` **en todas las corridas de golpe**. Y en el
+servicio es `opts.asociar === true`, no `!== false`: la forma permisiva es para una bandera probada,
+no para una que emite un registro que ningún import verificó.
+
+Con la bandera apagada **el archivo sale idéntico al byte**, y eso es ahora una aserción del candado.
+
+### 32.3 ⛔ El defecto que atrapó el invariante, no el compilador
+
+`construirTxt` tiene **nueve** parámetros posicionales. Entre `guid` y `uuids` están `impresa` y
+`ajuste`, así que el primer intento pasó el arreglo de UUID **en la posición de `impresa`**: el
+array se serializaba **dentro del encabezado** y el archivo salía corrupto, sin error de tipos.
+
+Lo detectó la aserción *«apagado y lista vacía dan el mismo archivo»*. ⭐ *Una función con nueve
+argumentos posicionales no se prueba leyéndola; se prueba con un invariante que compare su salida
+contra sí misma.*
+
+### 32.4 ⛔ Y un candado con la fecha escrita adentro, que caducó
+
+`test-newdb-libro-compras-caratula.js` afirmaba que **ago-2026 no tiene póliza**. Era cierto al
+escribirlo; al 2026-10-10 **agosto ya está posteado** (293 abonos a `212` por $40.9M) y el candado se
+puso rojo **sin que nadie rompiera nada**.
+
+Medido: **enero a agosto tienen las ocho pólizas** (un folio cada mes, $30–45M); **septiembre y
+octubre están en cero**. El candado ahora **deriva** el mes sin póliza en vez de nombrarlo — misma
+lección que `[CDRP.2.1]`.
+
+⚠️ Esto corrige también el plan que se le presentó al área: el mes candidato es **septiembre**, no
+agosto. Mandar a contabilidad a rehacer un mes ya posteado es justo el duplicado que `[LC.14]`
+existe para impedir.
+
+### 32.5 Candados
+
+| | |
+|---|---|
+| `test-newdb-libro-compras-txt.js` | **38 → 48 ✓** (10 nuevas, 2 de ellas negativas) |
+| `test-newdb-libro-compras-caratula.js` | **66 ✓** (derivando, antes 64 ✓ / 2 ✗ por caducidad) |
+| esquema 46 · lote 38 · bandeja 28 | sin regresión |

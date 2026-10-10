@@ -895,10 +895,33 @@ export class PurchaseBookService {
    * El TXT del mes. El layout vive en `./poliza-txt` — acá sólo se resuelve la fecha de la
    * póliza, que es el último día del mes.
    */
-  construirTxt(anioMes: string, folio: number, concepto: string, movs: Movimiento[]): string {
+  construirTxt(
+    anioMes: string,
+    folio: number,
+    concepto: string,
+    movs: Movimiento[],
+    /**
+     * `[CP.8.30]` — Los UUID que salen como renglones `AD`, para que **ContPAQi asocie** el
+     * comprobante al importar.
+     *
+     * ⚠️ No confundir con `conUuid` de `construirMovimientos`, que escribe el UUID en el
+     * **concepto** del renglón: eso sólo nos deja leerlo de vuelta (`[LC.15]`), no asocia nada.
+     * La asociación vive en `AsocCFDIs` y el único registro que la crea es `AD`.
+     *
+     * ⛔ Default `[]` **a propósito**: sin este argumento el archivo sale idéntico al byte, que
+     * es el invariante que `[CP.8.29]` dejó probado sobre un flujo que mueve $30–56M al mes.
+     */
+    uuids: readonly string[] = [],
+  ): string {
     const d = this.finDeMes(anioMes);
     const fecha = `${d.getUTCFullYear()}${String(d.getUTCMonth() + 1).padStart(2, '0')}${String(d.getUTCDate()).padStart(2, '0')}`;
-    return construirTxt(fecha, folio, concepto, movs);
+    /**
+     * ⚠️ `uuids` es el **noveno** argumento, no el séptimo: entre `guid` y él están `impresa` y
+     * `ajuste`. Pasarlo en la posición equivocada no falla — el array se serializa dentro del
+     * ENCABEZADO y el archivo sale corrupto en silencio. Lo atrapó el invariante del candado
+     * («apagado y lista vacía dan el mismo archivo»), no el compilador.
+     */
+    return construirTxt(fecha, folio, concepto, movs, undefined, undefined, undefined, undefined, uuids);
   }
 
   /** Desarma un TXT de póliza. El parser vive en ./poliza-txt, junto al layout. */
@@ -916,10 +939,17 @@ export class PurchaseBookService {
    * `libro` es estrictamente más peligroso: arrastra los CFDIs que ContPAQi YA tiene
    * asociados, que es una vía de duplicado que ninguna de las dos puertas cubre.
    */
-  async generar(anioMes: string, opts: { impuestos?: ImpuestosModo; uuid?: boolean; tipo?: TipoCorrida; forzar_importe?: boolean; motivo?: string } = {}) {
+  async generar(anioMes: string, opts: { impuestos?: ImpuestosModo; uuid?: boolean; asociar?: boolean; tipo?: TipoCorrida; forzar_importe?: boolean; motivo?: string } = {}) {
     this.mesValido(anioMes);
     const modo: ImpuestosModo = opts.impuestos === 'por-cuenta' ? 'por-cuenta' : 'global';
     const conUuid = opts.uuid !== false;
+    /**
+     * `[CP.8.30]` — ⛔ `=== true`, no `!== false`. La bandera de al lado (`uuid`) usa la forma
+     * permisiva porque lleva meses probada; ésta **tiene que estar apagada salvo que alguien la
+     * pida explícitamente**, porque emite un registro (`AD`) que ningún import real verificó y
+     * el archivo que lo llevaría es la póliza del mes.
+     */
+    const asocia = opts.asociar === true;
     const tipo: TipoCorrida = opts.tipo === 'complemento' ? 'complemento' : 'libro';
     if (tipo === 'libro') {
       throw new BadRequestException(
@@ -1000,7 +1030,19 @@ export class PurchaseBookService {
       }
 
       const concepto = run.concepto || `REGISTRO DE COMPRAS DEL MES ${anioMes}`;
-      const txt = this.construirTxt(anioMes, run.folio_poliza ?? FOLIO_LIBRO, concepto, movs);
+      /**
+       * `[CP.8.30]` — Un `AD` por comprobante incluido. ⚠️ `dentro`, no `movs`: una factura
+       * produce **varios** renglones (exento, gravado, IVA, IEPS) y emitir un `AD` por renglón
+       * asociaría el mismo comprobante tres o cuatro veces.
+       *
+       * ⛔ El emisor **se niega** ante un UUID que no mida 36 en vez de rellenarlo: un renglón
+       * `AD` de largo correcto con basura adentro asocia el comprobante equivocado, y eso no lo
+       * detecta nadie hasta cuadrar la balanza.
+       */
+      const asociados = asocia
+        ? [...new Set(dentro.map((f) => String(f.uuid ?? '').trim()).filter(Boolean))]
+        : [];
+      const txt = this.construirTxt(anioMes, run.folio_poliza ?? FOLIO_LIBRO, concepto, movs, asociados);
       const hash = createHash('sha256').update(txt, 'latin1').digest('hex');
       const nombre = tipo === 'complemento'
         ? `complemento-compras-${anioMes}.txt`
@@ -1015,7 +1057,7 @@ export class PurchaseBookService {
         // El contenido se guarda, no sólo su hash: `fiscal.cfdis` sigue creciendo, así que
         // este archivo no se puede reproducir mañana. Es la evidencia de lo entregado.
         archivo_hash: hash, archivo_nombre: nombre, archivo_contenido: txt,
-        impuestos_modo: modo, incluye_uuid: conUuid,
+        impuestos_modo: modo, incluye_uuid: conUuid, asocia_cfdi: asocia,
         generado_at: knex.fn.now(), generado_by: userId,
         updated_at: knex.fn.now(), updated_by: userId,
         // Un override sin rastro es un override que nadie audita.
