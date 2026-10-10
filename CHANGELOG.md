@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Preventa: liquidación contra la guía de carga (MCP.7, 2026-10-10)
+- Almacén › Pedidos › **Guías de carga** › **Por liquidar**: al regresar quien entregó, la caja revisa lo entregado y lo declarado (efectivo y transferencias con referencia), cuenta el efectivo por denominación y cierra la vuelta. Si algo no cuadra, la nota es obligatoria. Sale un comprobante en PDF para firmar (sustituye la tira de ingresos), reimprimible.
+- Un pedido que no se entrega en 3 intentos (sale una vez + 2 reintentos) ya no se puede llevar: la mesa lo marca «Devolución y NC en Kepler».
+- Mig `20261010030657`. Se aplica en producción ANTES del código.
 ### Internal — Matriz de accesos por puesto, generada desde prod (2026-10-10)
 - `docs/MATRIZ_ACCESOS.md`: puesto → rol → módulos (ver/gestionar), permisos sensibles y quién los tiene, huecos medidos (puestos sin rol propuesto, permisos que sólo tiene superadmin) y la **checklist de permisos para un módulo nuevo**. Sólo conteos de personas, nunca nombres (repo público).
 - La genera `npm run docs:matriz-accesos` (`database/scripts/gen-matriz-accesos.js`): lee prod en sesión de sólo lectura y el árbol `authz-tree.ts`, así no se queda vieja con la siguiente migración de reparto.

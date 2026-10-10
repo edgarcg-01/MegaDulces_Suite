@@ -17,6 +17,8 @@ import {
   etapaDe,
   MAX_REINTENTOS_ENTREGA,
   partesFolio,
+  requiereDevolucion,
+  resumenLiquidacion,
   semaforo,
 } from './presale-control.engine';
 
@@ -166,5 +168,53 @@ describe('partesFolio', () => {
     expect(partesFolio('99UD9999-CANDADO')).toBeNull();
     expect(partesFolio('UD1003-0002097')).toBeNull();
     expect(partesFolio('')).toBeNull();
+  });
+});
+
+describe('[MCP.7] reintentos y liquidación', () => {
+  it('sale una vez y puede salir 2 más: al 3er intento fallido va a devolución', () => {
+    expect(requiereDevolucion(0)).toBe(false);
+    expect(requiereDevolucion(2)).toBe(false);
+    expect(requiereDevolucion(3)).toBe(true);
+  });
+  it('sólo lo entregado se espera; efectivo y transferencia por separado', () => {
+    const r = resumenLiquidacion([
+      { status: 'entregado', document_total: 1580.5, cash_amount: 1080.5, transfer_amount: 500 },
+      { status: 'entregado', document_total: 742, cash_amount: 700, transfer_amount: 0, delivery_outcome: 'con_diferencia' },
+      { status: 'no_entregado', document_total: 315.25, cash_amount: null, transfer_amount: null },
+      { status: 'regreso', document_total: 100, cash_amount: null, transfer_amount: null },
+    ]);
+    expect(r).toEqual({
+      entregados: 2, no_entregados: 2, pendientes: 0, documents_total: 2322.5,
+      documentos_sin_total: 0, declared_cash: 1780.5, declared_transfer: 500, por_cobrar: 42, sin_explicar: 0,
+    });
+  });
+  it('negativa: un pedido aún en camino se cuenta como pendiente y no suma', () => {
+    const r = resumenLiquidacion([{ status: 'cargado', document_total: 500, cash_amount: null, transfer_amount: null }]);
+    expect(r.pendientes).toBe(1);
+    expect(r.documents_total).toBe(0);
+  });
+  it('un documento sin total en el ODS se declara, no se suma como cero escondido', () => {
+    const r = resumenLiquidacion([{ status: 'entregado', document_total: null, cash_amount: 50, transfer_amount: 0 }]);
+    expect(r.documentos_sin_total).toBe(1);
+    expect(r.declared_cash).toBe(50);
+  });
+});
+
+describe('[MCP.7] lo que Kepler cobró y nadie declaró', () => {
+  it('negativa: un pedido "completo" con cobro declarado en 0 queda SIN EXPLICAR (no se cierra como cuadrado)', () => {
+    const r = resumenLiquidacion([{ status: 'entregado', document_total: 5000, cash_amount: 0, transfer_amount: 0, delivery_outcome: 'completo' }]);
+    expect(r.por_cobrar).toBe(5000);
+    expect(r.sin_explicar).toBe(5000);
+  });
+  it('un "con diferencia" ya trae su nota: cuenta en por cobrar, no en sin explicar', () => {
+    const r = resumenLiquidacion([{ status: 'entregado', document_total: 500, cash_amount: 450, transfer_amount: 0, delivery_outcome: 'con_diferencia' }]);
+    expect(r.por_cobrar).toBe(50);
+    expect(r.sin_explicar).toBe(0);
+  });
+  it('documento sin total: no entra al cuadre contra el documento', () => {
+    const r = resumenLiquidacion([{ status: 'entregado', document_total: null, cash_amount: 80, transfer_amount: 0, delivery_outcome: 'completo' }]);
+    expect(r.por_cobrar).toBe(0);
+    expect(r.sin_explicar).toBe(0);
   });
 });

@@ -9,7 +9,8 @@
  */
 import type { PresaleCandidate, PresaleOrderRow } from './warehouse-presale.contract';
 
-export type LoadGuideStatus = 'abierta' | 'impresa' | 'cancelada';
+/** `[MCP.7]` `liquidada` = ya se cuadró en caja contra lo que trajo quien entregó. */
+export type LoadGuideStatus = 'abierta' | 'impresa' | 'liquidada' | 'cancelada';
 
 export interface LoadGuideOrderRow {
   order_id: string;
@@ -33,8 +34,15 @@ export interface LoadGuideOrderRow {
   transfer_amount: number | null;
   transfer_ref: string | null;
   delivery_outcome: 'completo' | 'con_diferencia' | null;
+  /** `[MCP.7]` Qué fue diferente, cuando se entregó con diferencia. */
+  delivery_note: string | null;
   /** `[MCP.6]` Por qué volvió sin entregarse (`no_entregado` / `regreso`). */
   removed_reason: string | null;
+  /**
+   * `[MCP.7]` El pedido se canceló después de cargarlo. Si la guía ya se imprimió, la caja registra su
+   * regreso; no suma al total ni se entrega.
+   */
+  order_cancelled: boolean;
 }
 
 /** `[MCP.6]` Lo que ve el celular al abrir un pedido para entregarlo. */
@@ -82,6 +90,8 @@ export interface LoadGuide {
   orders: LoadGuideOrderRow[];
   /** Σ de los pedidos que lleva (total del pedido). La liquidación (MCP.7) se hace contra los documentos. */
   total: number;
+  /** `[MCP.7]` La liquidación que la cerró, o `null` si aún no se liquida. */
+  liquidation: { id: string; folio: string } | null;
 }
 
 /** Lo que ve el repartidor o el vendedor en su celular. */
@@ -101,7 +111,10 @@ export interface PresaleFieldResponse {
 }
 
 export interface LoadGuidesResponse {
-  /** Las guías del día consultado, más las ABIERTAS de días anteriores (siguen esperando impresión). */
+  /**
+   * Las guías del día consultado, más las de días anteriores que siguen pendientes: ABIERTAS (esperan
+   * impresión) e IMPRESAS (esperan liquidación, MCP.7).
+   */
   data: LoadGuide[];
   /** `YYYY-MM-DD` consultado. */
   date: string;
@@ -121,4 +134,82 @@ export interface PresaleLoadRequest {
 
 export interface PresaleUnloadRequest {
   order_id: string;
+}
+
+/** `[MCP.7]` Lo que la caja revisa antes de contar: las guías de un regreso y lo que se espera. */
+export interface LoadGuideLiquidationPreview {
+  rider_user_id: string;
+  rider_name: string | null;
+  branch: string;
+  guides: LoadGuide[];
+  /** Σ documentos de Kepler entregados (los que el ODS conoce). */
+  documents_total: number;
+  /** Entregados cuyo documento no trae total en el ODS: se declaran aparte. */
+  documents_without_total: number;
+  delivered: number;
+  not_delivered: number;
+  /** Pedidos que siguen en camino: con alguno, NO se puede liquidar (se registra su regreso antes). */
+  pending: number;
+  /** Lo que quien entregó declaró al entregar. */
+  declared_cash: number;
+  declared_transfer: number;
+  /** Cada transferencia con su referencia, para revisarla. */
+  transfers: Array<{ order_code: string; customer_name: string | null; folio_digital: string | null; amount: number; ref: string | null }>;
+  /** Por qué no se puede liquidar, o `null` si se puede. */
+  /** Documentos entregados − lo declarado (efectivo + transferencia), donde el documento trae total. */
+  pending_collection: number;
+  /**
+   * La parte de `pending_collection` que nadie explicó (pedidos entregados "completo" cuyo cobro no
+   * cuadra con el documento). Si no es 0, la liquidación exige nota.
+   */
+  unexplained_difference: number;
+  blocked_reason: string | null;
+}
+
+export interface PresaleLiquidationPreviewRequest {
+  guide_ids: string[];
+}
+
+export interface PresaleLiquidateRequest {
+  guide_ids: string[];
+  /** Arqueo por denominación (llaves del catálogo de `money/denominations`) → cantidad de piezas. */
+  cash_breakdown: Record<string, number>;
+  /** Obligatoria si lo contado no cuadra con lo declarado. */
+  notes?: string;
+  /**
+   * Lo declarado que la caja VIO en la vista previa. Si cambió (alguien registró una entrega
+   * mientras se contaba), el servidor responde 409 para que la caja revise antes de firmar.
+   */
+  expected_declared_cash: number;
+  expected_declared_transfer: number;
+}
+
+export interface LoadGuideLiquidation {
+  id: string;
+  folio: string;
+  rider_user_id: string;
+  rider_name: string | null;
+  branch: string;
+  /** `YYYY-MM-DD`. */
+  business_date: string;
+  guide_folios: string[];
+  documents_total: number;
+  declared_cash: number;
+  declared_transfer: number;
+  counted_cash: number;
+  /** contado − declarado: negativo = faltante, positivo = sobrante. */
+  cash_difference: number;
+  /** Lo que Kepler cobró y no se declaró en pedidos "completo" (explicado en la nota). */
+  unexplained_difference: number;
+  notes: string | null;
+  /** ISO. */
+  liquidated_at: string;
+  liquidated_by_name: string | null;
+  print_count: number;
+}
+
+export interface LoadGuideLiquidationsResponse {
+  data: LoadGuideLiquidation[];
+  /** `YYYY-MM-DD` consultado. */
+  date: string;
 }

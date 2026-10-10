@@ -23,6 +23,14 @@
  *  · `entregado`       `fulfilled` (flujo anterior a la mesa; la entrega de conformidad llega en MCP.6).
  *  · `cancelado`
  */
+/**
+ * `[MCP]` Cuántas veces puede SALIR OTRA VEZ un pedido que no se entregó, con el mismo documento,
+ * antes de ir a devolución y nota de crédito en Kepler (I2, Francisco 2026-10-08: "sólo 2 entregas
+ * más, se empieza a maltratar la mercancía"). Sale 1 vez + 2 reintentos = 3 intentos. Vive aquí para
+ * que el motor y las pantallas lean el mismo número.
+ */
+export const PRESALE_MAX_REINTENTOS = 2;
+
 export const PRESALE_STAGES = [
   'esperando_alta',
   'por_surtir',
@@ -101,9 +109,16 @@ export interface PresaleOrderRow {
    */
   possible_documents: number | null;
   /** `[MCP.5]` La guía de carga en la que va cargado, o `null` si nadie lo ha pescado. */
-  load_guide: { id: string; folio: string; status: 'abierta' | 'impresa'; rider_name: string | null } | null;
+  load_guide: { id: string; folio: string; status: 'abierta' | 'impresa' | 'liquidada'; rider_name: string | null } | null;
   /** `[MCP.6]` La entrega de conformidad registrada en el celular, o `null` si no se ha entregado. */
   delivery: PresaleDelivery | null;
+  /** `[MCP.7]` Veces que salió y volvió sin entregarse (`regreso` + `no_entregado`). */
+  failed_attempts: number;
+  /**
+   * `[MCP.7]` Agotó los reintentos (D10/I2): ya no sale otra vez; va a devolución y nota de crédito en
+   * Kepler. Cerrarlo cuando la devolución aparezca en el ODS depende de I1 (aún sin decodificar).
+   */
+  return_required: boolean;
 }
 
 /** `[MCP.6]` Entrega de conformidad (en el renglón de la guía, NO en `orders.status`). */

@@ -453,6 +453,45 @@ responde 409 (eso se corrige en la mesa, no en la calle).
 pedidos entregados en guía; la conformidad no lleva firma del cliente; se aceptan importes en cero
 (entrega a crédito o pagada antes). La regla de dos intentos y la liquidación son MCP.7.
 
+### 6.6 MCP.7 — liquidación contra la guía (🧪 en código, 2026-10-10)
+
+**Qué hace (D9, D10, D11, I2):** en **Almacén › Pedidos › Guías de carga**, la sección **Por
+liquidar** agrupa las guías impresas por quien entregó. **Liquidar** abre el panel:
+- **Lo que se espera:** documentos de Kepler entregados, transferencias declaradas (cada una con
+  su referencia), efectivo declarado y *documentos − lo declarado*.
+- **Efectivo contado:** arqueo por denominación (el catálogo compartido de `libs/contracts`).
+- **Cuadre:** contado contra declarado. La nota es obligatoria si no cuadra, **o** si hay
+  `unexplained_difference`: lo que Kepler cobró en un pedido entregado «completo» y nadie declaró
+  (un «con diferencia» ya trae su nota por pedido).
+- Al confirmar sale el **comprobante en PDF** (`LQP-AAAA-NNNNN`) para que lo firmen los dos;
+  sustituye la tira de ingresos reimpresa. Se reimprime desde su foto, marcado REIMPRESIÓN.
+
+**No se liquida:** con pedidos en camino; con un pedido cancelado después de imprimir (se ve en la
+guía y la caja registra su regreso); si los renglones crudos de la guía no coinciden con lo que
+muestra la mesa; si quien liquida es quien entregó (salvo modo god); o si lo declarado cambió
+mientras se contaba (409, se recargan las cifras).
+
+**Regla de reintentos (I2):** un pedido sale una vez y puede salir 2 veces más. Al tercer fallo
+(`regreso` o `no_entregado`) ya no se puede pescar y la mesa lo marca «Devolución y NC en Kepler».
+La constante vive en `libs/contracts` (`PRESALE_MAX_REINTENTOS`) para que motor y pantallas lean
+el mismo número.
+
+**⛔ Desviación del plan (§2.4):** no se extendió `commercial.rider_liquidations`. Su esperado sale
+de `commercial.payments` (la preventa no escribe ahí), su llave es un corte por repartidor y día (y
+puede haber dos vueltas) y la cajera no tiene su permiso. Se calcó su patrón en
+`commercial.load_guide_liquidations`. Protege `PREVENTA_GUIAS_GESTIONAR`, el permiso que ya tiene
+la caja.
+
+**Revisión independiente:** 2 altos (pedido cancelado escondido que dejaba liquidar en camino; cobro
+de Kepler no declarado que salía «cuadra») y 9 medios (total del documento entregado y no de la
+liga actual, liquidar parte de las guías, rezago y orden de la lista, reimprimir una guía liquidada,
+vista previa vieja, autoliquidación, ventana bloqueada, panel atascado en error, índice de
+fallidos), todos atendidos.
+
+**Pendiente:** cerrar la devolución cuando aparezca en el ODS depende de **I1** (decodificar el
+documento de devolución de venta / NC a cliente); hoy la mesa sólo lo señala. Revisar cada
+transferencia contra el banco queda para la conciliación bancaria (I3).
+
 ## 7. Fuera de alcance
 
 - **Embudo de altas de clientes** (D7): módulo propio, fase aparte. Esta fase sólo **bloquea** el

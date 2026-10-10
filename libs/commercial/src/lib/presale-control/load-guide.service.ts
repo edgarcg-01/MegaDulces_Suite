@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -8,10 +9,16 @@ import {
 } from '@nestjs/common';
 import type { Knex } from 'knex';
 import { TenantKnexService, TenantContextService, ScopeService, branchName, branchKeySql } from '@megadulces/platform-core';
+import { DENOMINACIONES_MXN, denomDe, totalDenominaciones } from '@megadulces/contracts';
 import type {
   LoadGuide,
+  LoadGuideLiquidation,
+  LoadGuideLiquidationPreview,
+  LoadGuideLiquidationsResponse,
   LoadGuideOrderRow,
   LoadGuidesResponse,
+  PresaleLiquidateRequest,
+  PresaleLiquidationPreviewRequest,
   PresaleDeliverRequest,
   PresaleFieldOrderDetail,
   PresaleFieldResponse,
@@ -22,6 +29,8 @@ import { relojMx } from '../warehouse-orders/warehouse-orders.engine';
 import { AnexoVentaService } from '../commercial-sales-documents/anexo-venta.service';
 import { PresaleControlService } from './presale-control.service';
 import { htmlGuiaCarga, pieGuiaCarga, type LoadGuideSnapshot } from './load-guide.pdf';
+import { htmlLiquidacion, pieLiquidacion, type LiquidationSnapshot } from './load-guide-liquidation.pdf';
+import { partesFolio, resumenLiquidacion } from './presale-control.engine';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -32,6 +41,11 @@ const SIN_RUTA = 'SIN RUTA';
 const MAX_TEXTO = 500;
 const MAX_REF = 60;
 const MAX_IMPORTE = 9_999_999.99;
+/** `[MCP.7]` Guías de un mismo regreso (una por ruta): un repartidor no trae más en una vuelta. */
+const MAX_GUIAS_LIQUIDACION = 30;
+/** `[MCP.7]` Tope de piezas por denominación en el arqueo. */
+const MAX_PIEZAS = 100_000;
+const c2 = (n: number) => Math.round(n * 100) / 100;
 
 /** Quién pide, según `RolesGuard` (permisos y roles FRESCOS, no los del token). */
 export interface QuienPide {
@@ -48,7 +62,7 @@ export interface QuienPide {
 type GuideRow = {
   id: string;
   folio: string;
-  status: 'abierta' | 'impresa' | 'cancelada';
+  status: 'abierta' | 'impresa' | 'liquidada' | 'cancelada';
   rider_user_id: string;
   rider_name: string | null;
   branch: string;
@@ -57,6 +71,8 @@ type GuideRow = {
   printed_at: string | null;
   printed_by_name: string | null;
   print_count: number;
+  liquidation_id: string | null;
+  liquidation_folio: string | null;
 };
 
 /**
@@ -140,6 +156,11 @@ export class LoadGuideService {
       if (yaCargados.length) {
         throw new ConflictException(`Ya van en una guía: ${yaCargados.map((p) => `${p.code} (${p.load_guide?.folio})`).join(', ')}.`);
       }
+      // [MCP.7] Agotó los reintentos (I2): no sale otra vez, va a devolución y NC en Kepler (D10).
+      const agotados = pedidos.filter((p) => p.return_required);
+      if (agotados.length) {
+        throw new ConflictException(`Ya no salen: agotaron sus reintentos y van a devolución en Kepler: ${agotados.map((p) => p.code).join(', ')}.`);
+      }
       const sinAlta = pedidos.filter((p) => p.stage === 'esperando_alta');
       if (sinAlta.length) {
         throw new ConflictException(`Cliente sin alta en Kepler, no se puede cargar: ${sinAlta.map((p) => p.code).join(', ')}.`);
@@ -203,7 +224,10 @@ export class LoadGuideService {
     const fecha = DATE_RE.test(raw) ? raw : relojMx(new Date()).fecha;
     const branches = await this.sucursalesCaja(query, quien);
     if (branches !== null && branches.length === 0) return { data: [], date: fecha, scope: 'ninguno' };
-    const data = await this.tk.run((trx) => this.guias(trx, { fecha, conAbiertas: true, branches }));
+    // Lo pendiente de liquidar (impresas de días anteriores) se suma sólo a la vista de HOY: al
+    // consultar un día pasado se ve ese día, no lo que quedó pendiente después.
+    const esHoy = fecha === relojMx(new Date()).fecha;
+    const data = await this.tk.run((trx) => this.guias(trx, { fecha, conAbiertas: true, conSinLiquidar: esHoy, branches }));
     return { data, date: fecha, scope: branches === null ? 'todos' : 'recortado' };
   }
 
@@ -232,7 +256,8 @@ export class LoadGuideService {
         | undefined;
       if (!estado || estado.status === 'cancelada') throw new ConflictException('La guía está cancelada.');
 
-      if (estado.status === 'impresa') {
+      // Impresa o ya liquidada: se reimprime la misma foto que se firmó.
+      if (estado.status === 'impresa' || estado.status === 'liquidada') {
         const snap = estado.snapshot as LoadGuideSnapshot;
         const pdf = await this.renderizar(snap, true, sello);
         await trx('commercial.load_guides').where({ id }).update({ print_count: trx.raw('print_count + 1'), updated_at: trx.fn.now() });
@@ -486,6 +511,345 @@ export class LoadGuideService {
     return t;
   }
 
+  // ──────────────────────────────────────────────── liquidación (MCP.7) ──
+
+  /**
+   * `[MCP.7]` Lo que la caja revisa antes de contar: las guías de un regreso, lo entregado y lo
+   * declarado. Dice por qué no se puede liquidar, en vez de dejarlo descubrir al confirmar.
+   */
+  async previewLiquidacion(
+    body: PresaleLiquidationPreviewRequest | undefined,
+    query: Record<string, unknown> | undefined,
+    quien: QuienPide,
+  ): Promise<LoadGuideLiquidationPreview> {
+    const ids = this.idsGuias(body?.guide_ids);
+    const branches = await this.sucursalesCaja(query, quien);
+    if (branches !== null && branches.length === 0) throw new NotFoundException('Guía no encontrada.');
+    return this.tk.run((trx) => this.armarPreview(trx, ids, branches));
+  }
+
+  /**
+   * `[MCP.7]` Liquida un regreso (D9/D11): cuenta el efectivo por denominación contra lo que quien
+   * entregó declaró, registra la diferencia (con nota si no cuadra), cierra las guías y devuelve el
+   * comprobante en PDF para firmar. El PDF se hace DENTRO de la transacción: si falla, no se liquida.
+   */
+  async liquidar(
+    body: PresaleLiquidateRequest | undefined,
+    query: Record<string, unknown> | undefined,
+    quien: QuienPide,
+  ): Promise<{ pdf: Buffer; liquidacion: LoadGuideLiquidation }> {
+    const ids = this.idsGuias(body?.guide_ids);
+    const conteo = this.conteo(body?.cash_breakdown);
+    const notas = this.texto(body?.notes, 'La nota');
+    const userId = this.usuario();
+    const tenantId = this.tenantCtx.requireTenantId();
+    const hoy = relojMx(new Date()).fecha;
+    const branches = await this.sucursalesCaja(query, quien);
+    if (branches !== null && branches.length === 0) throw new NotFoundException('Guía no encontrada.');
+
+    return this.tk.run(async (trx) => {
+      // Alcance sin candado; luego el candado de las guías, en orden fijo (dos cajas a la vez no
+      // se bloquean cruzado), y la relectura con el candado puesto.
+      const visibles = await this.guias(trx, { ids, branches });
+      if (visibles.length !== ids.length) throw new NotFoundException('Alguna guía no existe o no es de tu sucursal.');
+      await trx.raw('SELECT 1 FROM commercial.load_guides WHERE id = ANY(?::uuid[]) ORDER BY id FOR UPDATE', [ids]);
+      const p = await this.armarPreview(trx, ids, null);
+      if (p.blocked_reason) throw new ConflictException(p.blocked_reason);
+      // Separación de funciones: quien entregó no recibe su propio dinero (salvo modo god).
+      if (!quien.god && p.rider_user_id === userId) {
+        throw new ForbiddenException('No puedes liquidar tu propia vuelta: la recibe otra persona de caja.');
+      }
+      // Lo que la caja vio al contar tiene que ser lo que se cierra: si alguien registró una entrega
+      // mientras tanto, se revisa antes de firmar.
+      if (c2(Number(body?.expected_declared_cash)) !== p.declared_cash || c2(Number(body?.expected_declared_transfer)) !== p.declared_transfer) {
+        throw new ConflictException('Lo declarado cambió mientras contabas (se registró otra entrega). Revisa las cifras y vuelve a confirmar.');
+      }
+
+      const contado = c2(conteo.total);
+      const diferencia = c2(contado - p.declared_cash);
+      if ((diferencia !== 0 || p.unexplained_difference !== 0) && notas.length < 5) {
+        const partes: string[] = [];
+        if (diferencia !== 0) partes.push(`el efectivo ${diferencia < 0 ? 'falta' : 'sobra'} $${Math.abs(diferencia).toFixed(2)}`);
+        if (p.unexplained_difference !== 0) partes.push(`hay $${Math.abs(p.unexplained_difference).toFixed(2)} entre lo que cobró Kepler y lo declarado sin explicar`);
+        throw new BadRequestException(`No cuadra: ${partes.join(' y ')}. Escribe la nota (mínimo 5 letras).`);
+      }
+
+      const year = Number(hoy.slice(0, 4));
+      const { rows: seq } = await trx.raw(
+        `INSERT INTO commercial.load_guide_liquidation_sequences (tenant_id, year, current_value)
+         VALUES (?, ?, 1)
+         ON CONFLICT (tenant_id, year)
+         DO UPDATE SET current_value = commercial.load_guide_liquidation_sequences.current_value + 1, updated_at = now()
+         RETURNING current_value`,
+        [tenantId, year],
+      );
+      const folio = `LQP-${year}-${String(seq[0].current_value).padStart(5, '0')}`;
+      const quienLiquida = await trx('identity.users').where({ id: userId }).first('nombre');
+
+      const snap: LiquidationSnapshot = {
+        version: 1,
+        empresa: 'Mega Dulces',
+        folio,
+        sucursal: p.branch,
+        sucursal_nombre: branchName(p.branch) || null,
+        repartidor: p.rider_name,
+        liquidada_por: quienLiquida?.nombre ?? null,
+        liquidada_en: new Date().toISOString(),
+        fecha: hoy,
+        guias: p.guides.map((g) => ({ folio: g.folio, ruta: g.sales_route })),
+        pedidos: p.guides.flatMap((g) =>
+          g.orders
+            .filter((o) => o.status !== 'cargado')
+            .map((o) => ({
+              guia: g.folio,
+              code: o.code,
+              cliente: o.customer_name,
+              folio_digital: o.folio_digital,
+              estado: o.status as 'entregado' | 'no_entregado' | 'regreso',
+              resultado: o.delivery_outcome,
+              document_total: o.document_total,
+              efectivo: o.cash_amount,
+              transferencia: o.transfer_amount,
+              referencia: o.transfer_ref,
+              nota: o.status === 'entregado' ? o.delivery_note : o.removed_reason,
+            })),
+        ),
+        documents_total: p.documents_total,
+        documentos_sin_total: p.documents_without_total,
+        declared_cash: p.declared_cash,
+        declared_transfer: p.declared_transfer,
+        counted_cash: contado,
+        cash_difference: diferencia,
+        por_cobrar: p.pending_collection,
+        sin_explicar: p.unexplained_difference,
+        conteo: DENOMINACIONES_MXN.map((d) => ({
+          label: `${d.label}${d.familia === 'moneda' ? ' moneda' : ''}`,
+          piezas: conteo.piezas[d.key] ?? 0,
+          importe: c2((conteo.piezas[d.key] ?? 0) * d.valor),
+        })),
+        notas: notas || null,
+      };
+
+      const [liq] = await trx('commercial.load_guide_liquidations')
+        .insert({
+          tenant_id: tenantId,
+          folio,
+          rider_user_id: p.rider_user_id,
+          branch: p.branch,
+          business_date: hoy,
+          documents_total: p.documents_total,
+          declared_cash: p.declared_cash,
+          declared_transfer: p.declared_transfer,
+          counted_cash: contado,
+          cash_breakdown: JSON.stringify(conteo.piezas),
+          cash_difference: diferencia,
+          unexplained_difference: p.unexplained_difference,
+          notes: notas || null,
+          snapshot: JSON.stringify(snap),
+          liquidated_by: userId,
+        })
+        .returning('id');
+      const liqId = (liq as { id: string }).id;
+      const n = await trx('commercial.load_guides')
+        .whereIn('id', ids)
+        .andWhere('status', 'impresa')
+        .update({ status: 'liquidada', liquidation_id: liqId, updated_at: trx.fn.now(), updated_by: userId });
+      if (n !== ids.length) throw new ConflictException('Una de las guías cambió mientras se liquidaba: actualiza.');
+
+      const sello = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
+      const pdf = await this.pdf.renderPdf(htmlLiquidacion(snap, { reimpresion: false }), pieLiquidacion(folio, 'liquidada ' + sello));
+      const [liquidacion] = await this.leerLiquidaciones(trx, { id: liqId, branches: null });
+      this.logger.log(`[MCP.7] ${folio}: ${ids.length} guía(s) de ${p.rider_user_id}, contado ${contado} vs declarado ${p.declared_cash} (dif ${diferencia})`);
+      return { pdf, liquidacion };
+    });
+  }
+
+  /** `[MCP.7]` Las liquidaciones de un día (default hoy) de las sucursales de mi alcance. */
+  async liquidaciones(query: Record<string, unknown> | undefined, quien: QuienPide): Promise<LoadGuideLiquidationsResponse> {
+    const raw = String(query?.['date'] ?? '').trim();
+    const fecha = DATE_RE.test(raw) ? raw : relojMx(new Date()).fecha;
+    const branches = await this.sucursalesCaja(query, quien);
+    if (branches !== null && branches.length === 0) return { data: [], date: fecha };
+    const data = await this.tk.run((trx) => this.leerLiquidaciones(trx, { fecha, branches }));
+    return { data, date: fecha };
+  }
+
+  /** `[MCP.7]` Reimprime el comprobante desde su foto, marcado REIMPRESIÓN. */
+  async reimprimirLiquidacion(id: string, query: Record<string, unknown> | undefined, quien: QuienPide): Promise<{ pdf: Buffer; liquidacion: LoadGuideLiquidation }> {
+    if (!UUID_RE.test(id)) throw new BadRequestException('id de liquidación inválido');
+    const branches = await this.sucursalesCaja(query, quien);
+    if (branches !== null && branches.length === 0) throw new NotFoundException('Liquidación no encontrada.');
+    return this.tk.run(async (trx) => {
+      const [visible] = await this.leerLiquidaciones(trx, { id, branches });
+      if (!visible) throw new NotFoundException('Liquidación no encontrada.');
+      const fila = (await trx('commercial.load_guide_liquidations').where({ id }).first('snapshot')) as { snapshot: LiquidationSnapshot };
+      const sello = new Date().toLocaleString('es-MX', { timeZone: 'America/Mexico_City' });
+      const pdf = await this.pdf.renderPdf(
+        htmlLiquidacion(fila.snapshot, { reimpresion: true, reimpresa_en: sello }),
+        pieLiquidacion(visible.folio, 'reimpresa ' + sello),
+      );
+      await trx('commercial.load_guide_liquidations').where({ id }).update({ print_count: trx.raw('print_count + 1') });
+      const [liquidacion] = await this.leerLiquidaciones(trx, { id, branches: null });
+      return { pdf, liquidacion };
+    });
+  }
+
+  private async armarPreview(trx: Knex.Transaction, ids: string[], branches: string[] | null): Promise<LoadGuideLiquidationPreview> {
+    const guides = await this.guias(trx, { ids, branches });
+    if (guides.length !== ids.length) throw new NotFoundException('Alguna guía no existe o no es de tu sucursal.');
+    const renglones = guides.flatMap((g) => g.orders);
+    const r = resumenLiquidacion(renglones);
+    // La AUTORIDAD son los renglones crudos de las guías: la lista de arriba pasa por la consulta
+    // de la mesa, que deja fuera un pedido borrado o que ya no es de preventa. Si no coinciden, no
+    // se liquida a ciegas (revisión independiente, 2026-10-10).
+    const { rows: crudo } = await trx.raw(
+      `SELECT count(*) FILTER (WHERE status = 'cargado')::int AS cargados,
+              count(*) FILTER (WHERE status = 'entregado')::int AS entregados,
+              coalesce(sum(cash_amount) FILTER (WHERE status = 'entregado'), 0)::float8 AS efectivo,
+              coalesce(sum(transfer_amount) FILTER (WHERE status = 'entregado'), 0)::float8 AS transferencia
+         FROM commercial.load_guide_orders
+        WHERE guide_id = ANY(?::uuid[])`,
+      [ids],
+    );
+    const c = crudo[0] as { cargados: number; entregados: number; efectivo: number; transferencia: number };
+    const cancelados = renglones.filter((o) => o.status === 'cargado' && o.order_cancelled);
+
+    let blocked: string | null = null;
+    if (new Set(guides.map((g) => g.rider_user_id)).size > 1) {
+      blocked = 'Las guías son de distintas personas: se liquida el regreso de una persona a la vez.';
+    } else if (new Set(guides.map((g) => g.branch)).size > 1) {
+      blocked = 'Las guías son de distintas sucursales.';
+    } else {
+      const noLista = guides.filter((g) => g.status !== 'impresa');
+      if (noLista.length) {
+        blocked = noLista
+          .map((g) => (g.status === 'liquidada' ? `La guía ${g.folio} ya se liquidó (${g.liquidation?.folio ?? '—'}).` : `La guía ${g.folio} no se ha impreso.`))
+          .join(' ');
+      } else if (c.cargados !== r.pendientes || c.entregados !== r.entregados) {
+        blocked = 'Hay pedidos en estas guías que la mesa ya no muestra (borrados o modificados). No se puede liquidar a ciegas: avisa a sistemas.';
+      } else if (cancelados.length) {
+        blocked = `${cancelados.map((o) => o.code).join(', ')} se ${cancelados.length === 1 ? 'canceló' : 'cancelaron'} después de imprimir la guía: registra su regreso antes de liquidar.`;
+      } else if (r.pendientes) {
+        blocked = `${r.pendientes} ${r.pendientes === 1 ? 'pedido sigue' : 'pedidos siguen'} en camino: registra si se entregó o su regreso antes de liquidar.`;
+      }
+    }
+
+    return {
+      rider_user_id: guides[0].rider_user_id,
+      rider_name: guides[0].rider_name,
+      branch: guides[0].branch,
+      guides,
+      documents_total: r.documents_total,
+      documents_without_total: r.documentos_sin_total,
+      delivered: r.entregados,
+      not_delivered: r.no_entregados,
+      pending: c.cargados,
+      declared_cash: c2(c.efectivo),
+      declared_transfer: c2(c.transferencia),
+      pending_collection: r.por_cobrar,
+      unexplained_difference: r.sin_explicar,
+      transfers: renglones
+        .filter((o) => o.status === 'entregado' && Number(o.transfer_amount ?? 0) > 0)
+        .map((o) => ({
+          order_code: o.code,
+          customer_name: o.customer_name,
+          folio_digital: o.folio_digital,
+          amount: Number(o.transfer_amount),
+          ref: o.transfer_ref,
+        })),
+      blocked_reason: blocked,
+    };
+  }
+
+  private async leerLiquidaciones(
+    trx: Knex.Transaction,
+    f: { id?: string; fecha?: string; branches: string[] | null },
+  ): Promise<LoadGuideLiquidation[]> {
+    let qb = trx('commercial.load_guide_liquidations as l')
+      .leftJoin('identity.users as ru', function () {
+        this.on('ru.id', '=', 'l.rider_user_id').andOn('ru.tenant_id', '=', 'l.tenant_id');
+      })
+      .leftJoin('identity.users as lu', function () {
+        this.on('lu.id', '=', 'l.liquidated_by').andOn('lu.tenant_id', '=', 'l.tenant_id');
+      });
+    if (f.id) qb = qb.where('l.id', f.id);
+    if (f.fecha) qb = qb.where('l.business_date', f.fecha);
+    if (f.branches !== null) qb = qb.whereIn('l.branch', f.branches);
+    const rows = (await qb
+      .select(
+        'l.id', 'l.folio', 'l.rider_user_id', 'ru.nombre as rider_name', 'l.branch',
+        trx.raw(`to_char(l.business_date, 'YYYY-MM-DD') AS business_date`),
+        'l.documents_total', 'l.declared_cash', 'l.declared_transfer', 'l.counted_cash', 'l.cash_difference', 'l.unexplained_difference',
+        'l.notes', 'l.liquidated_at', 'lu.nombre as liquidated_by_name', 'l.print_count',
+        trx.raw(`(SELECT coalesce(array_agg(g.folio ORDER BY g.folio), '{}') FROM commercial.load_guides g
+                   WHERE g.liquidation_id = l.id AND g.tenant_id = l.tenant_id) AS guide_folios`),
+      )
+      .orderBy('l.liquidated_at', 'desc')
+      .limit(300)) as Array<Record<string, unknown>>;
+    return rows.map((r) => ({
+      id: r['id'] as string,
+      folio: r['folio'] as string,
+      rider_user_id: r['rider_user_id'] as string,
+      rider_name: (r['rider_name'] as string) ?? null,
+      branch: r['branch'] as string,
+      business_date: r['business_date'] as string,
+      guide_folios: (r['guide_folios'] as string[]) ?? [],
+      documents_total: Number(r['documents_total']),
+      declared_cash: Number(r['declared_cash']),
+      declared_transfer: Number(r['declared_transfer']),
+      counted_cash: Number(r['counted_cash']),
+      cash_difference: Number(r['cash_difference']),
+      unexplained_difference: Number(r['unexplained_difference']),
+      notes: (r['notes'] as string) ?? null,
+      liquidated_at: new Date(r['liquidated_at'] as string).toISOString(),
+      liquidated_by_name: (r['liquidated_by_name'] as string) ?? null,
+      print_count: Number(r['print_count']) || 0,
+    }));
+  }
+
+  /**
+   * `[MCP.7]` Total (con impuestos) de documentos de Kepler por folio digital, leído en vivo del ODS.
+   * La vista no tiene RLS: se filtra el tenant aquí. Se busca por las partes del folio (sucursal,
+   * prefijo, folio), que es lo que usa el índice; por `folio_digital` costaba 40× más (MCP.4).
+   */
+  private async totalesDocumentos(trx: Knex.Transaction, folios: string[]): Promise<Map<string, number | null>> {
+    const partes = [...new Set(folios)].map((f) => partesFolio(f)).filter((p): p is NonNullable<typeof p> => !!p);
+    if (!partes.length) return new Map();
+    const { rows } = await trx.raw(
+      `SELECT t.folio_digital, t.total::float8 AS total
+         FROM analytics.erp_sale_tickets t
+         JOIN unnest(?::text[], ?::text[], ?::text[]) AS k(s, p, f)
+           ON t.sucursal = k.s AND t.doc_prefix = k.p AND t.folio = k.f
+        WHERE t.tenant_id = ?`,
+      [partes.map((p) => p.sucursal), partes.map((p) => p.doc_prefix), partes.map((p) => p.folio), this.tenantCtx.requireTenantId()],
+    );
+    return new Map((rows as Array<{ folio_digital: string; total: number | null }>).map((r) => [r.folio_digital, r.total]));
+  }
+
+  private idsGuias(v: unknown): string[] {
+    const ids = [...new Set((Array.isArray(v) ? v : []).map((x) => String(x).trim()))];
+    if (!ids.length) throw new BadRequestException('Elige al menos una guía.');
+    if (ids.length > MAX_GUIAS_LIQUIDACION) throw new BadRequestException(`Máximo ${MAX_GUIAS_LIQUIDACION} guías por liquidación.`);
+    if (ids.some((x) => !UUID_RE.test(x))) throw new BadRequestException('Hay un id de guía inválido.');
+    return ids;
+  }
+
+  /** El arqueo: sólo denominaciones del catálogo compartido, piezas enteras y no negativas. */
+  private conteo(v: unknown): { piezas: Record<string, number>; total: number } {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new BadRequestException('Falta el conteo del efectivo.');
+    const piezas: Record<string, number> = {};
+    for (const [key, cant] of Object.entries(v as Record<string, unknown>)) {
+      const d = denomDe(key);
+      if (!d) throw new BadRequestException(`La denominación "${key}" no existe.`);
+      const n = cant === '' || cant == null ? 0 : Number(cant);
+      if (!Number.isInteger(n) || n < 0 || n > MAX_PIEZAS) throw new BadRequestException(`Las piezas de ${d.label} no son válidas.`);
+      if (n > 0) piezas[d.key] = n;
+    }
+    const t = totalDenominaciones(piezas);
+    if (t.total > MAX_IMPORTE) throw new BadRequestException('El efectivo contado es demasiado grande.');
+    return { piezas, total: t.total };
+  }
+
   // ─────────────────────────────────────────────────────────── internos ──
 
   private usuario(): string {
@@ -601,7 +965,11 @@ export class LoadGuideService {
    */
   private async guias(
     trx: Knex.Transaction,
-    f: { id?: string; riderId?: string; fecha?: string; conAbiertas?: boolean; conPendientes?: boolean; branches: string[] | null },
+    f: {
+      id?: string; ids?: string[]; riderId?: string; fecha?: string; conAbiertas?: boolean; conPendientes?: boolean;
+      /** `[MCP.7]` Suma las IMPRESAS de cualquier día: siguen esperando su liquidación en caja. */
+      conSinLiquidar?: boolean; branches: string[] | null;
+    },
   ): Promise<LoadGuide[]> {
     let qb = trx('commercial.load_guides as g')
       .leftJoin('identity.users as ru', function () {
@@ -610,14 +978,19 @@ export class LoadGuideService {
       .leftJoin('identity.users as pu', function () {
         this.on('pu.id', '=', 'g.printed_by').andOn('pu.tenant_id', '=', 'g.tenant_id');
       })
+      .leftJoin('commercial.load_guide_liquidations as lq', function () {
+        this.on('lq.id', '=', 'g.liquidation_id').andOn('lq.tenant_id', '=', 'g.tenant_id');
+      })
       .whereNot('g.status', 'cancelada');
     if (f.id) qb = qb.where('g.id', f.id);
+    if (f.ids) qb = qb.whereIn('g.id', f.ids);
     if (f.riderId) qb = qb.where('g.rider_user_id', f.riderId);
     if (f.fecha) {
       const fecha = f.fecha;
       qb = qb.where((w) => {
         w.where('g.business_date', fecha);
         if (f.conAbiertas) w.orWhere('g.status', 'abierta');
+        if (f.conSinLiquidar) w.orWhere('g.status', 'impresa');
         // `[MCP.6]` Una guía impresa de otro día con pedidos sin entregar sigue en el celular: si no,
         // el repartidor que entrega al día siguiente no tendría dónde registrar la entrega.
         if (f.conPendientes) {
@@ -639,8 +1012,10 @@ export class LoadGuideService {
         'g.id', 'g.folio', 'g.status', 'g.rider_user_id', 'ru.nombre as rider_name', 'g.branch',
         'g.sales_route', trx.raw(`to_char(g.business_date, 'YYYY-MM-DD') AS business_date`),
         'g.printed_at', 'pu.nombre as printed_by_name', 'g.print_count',
+        'g.liquidation_id', 'lq.folio as liquidation_folio',
       )
-      .orderBy([{ column: 'g.business_date' }, { column: 'g.branch' }, { column: 'g.sales_route' }, { column: 'g.created_at' }])
+      // Lo más reciente primero: si se acumulara rezago, el tope de filas corta lo VIEJO, nunca lo de hoy.
+      .orderBy([{ column: 'g.business_date', order: 'desc' }, { column: 'g.branch' }, { column: 'g.sales_route' }, { column: 'g.created_at' }])
       .limit(300)) as GuideRow[];
     if (!rows.length) return [];
 
@@ -649,7 +1024,7 @@ export class LoadGuideService {
     type Renglon = {
       guide_id: string; order_id: string; status: LoadGuideOrderRow['status'];
       cash_amount: string | null; transfer_amount: string | null; transfer_ref: string | null;
-      delivery_outcome: 'completo' | 'con_diferencia' | null; removed_reason: string | null;
+      delivery_outcome: 'completo' | 'con_diferencia' | null; delivery_note: string | null; removed_reason: string | null;
       delivered_folio_digital: string | null;
     };
     const lgo = (await trx('commercial.load_guide_orders')
@@ -657,20 +1032,22 @@ export class LoadGuideService {
       .whereIn('status', ['cargado', 'entregado', 'no_entregado', 'regreso'])
       .orderBy('added_at')
       .select('guide_id', 'order_id', 'status', 'cash_amount', 'transfer_amount', 'transfer_ref',
-        'delivery_outcome', 'removed_reason', 'delivered_folio_digital')) as Renglon[];
+        'delivery_outcome', 'delivery_note', 'removed_reason', 'delivered_folio_digital')) as Renglon[];
     const pedidos = lgo.length
       ? await this.presale.pedidosParaGuias(trx, { almacenes: null, orderIds: lgo.map((x) => x.order_id) })
       : [];
     const porId = new Map(pedidos.map((p) => [p.id, p]));
+    // `[MCP.7]` El total del documento ENTREGADO (no el de la liga actual: si la mesa la corrigiera
+    // después, el comprobante mostraría el folio entregado con el total de otro documento).
+    const totalEntregado = await this.totalesDocumentos(trx, lgo.map((x) => x.delivered_folio_digital).filter((f): f is string => !!f));
 
     return rows.map((r) => {
       const orders: LoadGuideOrderRow[] = lgo
         .filter((x) => x.guide_id === r.id)
         .map((x) => ({ x, p: porId.get(x.order_id) }))
         .filter((v): v is { x: Renglon; p: PresaleOrderRow } => !!v.p)
-        // Un cancelado no se cobra: no aparece (al imprimir sale de la guía). Lo ENTREGADO se queda
-        // siempre: su cobro es real aunque el pedido se tocara después.
-        .filter(({ x, p }) => p.status !== 'cancelled' || x.status === 'entregado')
+        // Un pedido cancelado NO se esconde: si va cargado en una guía impresa, la caja tiene que
+        // registrar su regreso (y la liquidación no se cierra mientras siga en camino).
         .map(({ x, p }) => ({
           order_id: p.id,
           code: p.code,
@@ -679,15 +1056,20 @@ export class LoadGuideService {
           requested_delivery_date: p.requested_delivery_date,
           total: p.total,
           folio_digital: x.delivered_folio_digital ?? p.link?.folio_digital ?? null,
-          document_total: p.link?.total ?? null,
+          document_total: x.delivered_folio_digital
+            ? totalEntregado.get(x.delivered_folio_digital) ?? null
+            : p.link?.total ?? null,
           status: x.status,
           cash_amount: x.cash_amount == null ? null : Number(x.cash_amount),
           transfer_amount: x.transfer_amount == null ? null : Number(x.transfer_amount),
           transfer_ref: x.transfer_ref,
           delivery_outcome: x.delivery_outcome,
+          delivery_note: x.delivery_note,
           removed_reason: x.removed_reason,
+          order_cancelled: p.status === 'cancelled',
         }));
-      const llevados = orders.filter((o) => o.status === 'cargado' || o.status === 'entregado');
+      // Lo que suma: lo entregado y lo que va en camino, menos un cancelado que todavía no regresa.
+      const llevados = orders.filter((o) => o.status === 'entregado' || (o.status === 'cargado' && !o.order_cancelled));
       return {
         id: r.id,
         folio: r.folio,
@@ -701,6 +1083,7 @@ export class LoadGuideService {
         printed_at: r.printed_at ? new Date(r.printed_at).toISOString() : null,
         printed_by_name: r.printed_by_name,
         print_count: Number(r.print_count) || 0,
+        liquidation: r.liquidation_id ? { id: r.liquidation_id, folio: r.liquidation_folio as string } : null,
         orders,
         // Mismo criterio del PDF: el documento cuando ya está ligado, si no el pedido.
         // Lo que volvió sin entregarse no suma.

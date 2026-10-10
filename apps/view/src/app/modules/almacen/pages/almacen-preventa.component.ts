@@ -10,6 +10,7 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { TagModule } from 'primeng/tag';
 import { DrawerModule } from 'primeng/drawer';
+import { PRESALE_MAX_REINTENTOS } from '@megadulces/contracts';
 import type {
   PresaleCandidate,
   PresaleCandidatesResponse,
@@ -152,7 +153,7 @@ const dmy = (v: string | null | undefined): string => {
                 <td role="cell" data-label="Pedido"><span class="mono">{{ r.code }}</span><span class="muted mc-sub">{{ r.seller_name || '—' }}</span></td>
                 @if (multiSucursal()) { <td class="mono muted" role="cell" data-label="Suc">{{ r.branch || '—' }}</td> }
                 <td role="cell" data-label="Cliente"><span class="mc-trunc">{{ r.customer_name || '—' }}</span><span class="muted mc-sub">{{ r.sales_route || 'sin ruta' }}@if (r.customer_erp_code) { · <span class="mono">{{ r.customer_erp_code }}</span> }</span></td>
-                <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" class="mc-tag" />@if (r.load_guide; as g) { <span class="muted mc-sub">{{ g.status === 'impresa' ? 'Lleva' : 'Pescado por' }} {{ g.rider_name || '—' }} · <span class="mono">{{ g.folio }}</span></span> }</td>
+                <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" class="mc-tag" />@if (r.load_guide; as g) { <span class="muted mc-sub">{{ g.status === 'impresa' ? 'Lleva' : 'Pescado por' }} {{ g.rider_name || '—' }} · <span class="mono">{{ g.folio }}</span></span> }@if (r.return_required) { <span class="mc-dev">Devolución y NC en Kepler</span> } @else if (r.failed_attempts) { <span class="muted mc-sub">{{ r.failed_attempts }} {{ r.failed_attempts === 1 ? 'intento fallido' : 'intentos fallidos' }}</span> }</td>
                 <td role="cell" data-label="Entrega"><span class="mono">{{ dm(r.requested_delivery_date) }}</span><span class="mc-sub" [class.mc-bad]="r.due === 'vencido'" [class.mc-warn]="r.due === 'hoy'" [class.muted]="r.due !== 'vencido' && r.due !== 'hoy'">{{ dueTexto(r) }}</span></td>
                 <td role="cell" data-label="Documento Kepler">
                   @if (r.link) { <span class="mono">{{ r.link.folio_digital }}</span><span class="muted mc-sub">{{ r.link.link_source === 'celular' ? 'lo ligó quien entregó' : 'ligado en la mesa' }}</span> }
@@ -196,6 +197,7 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="mc-row"><span>Sucursal</span><span>{{ x.order.branch || '' }} {{ x.order.warehouse_name || '—' }}</span></div>
                 <div class="mc-row"><span>Pedido</span><span class="num">{{ x.order.lines }} renglones · {{ money(x.order.total) }}</span></div>
                 @if (x.order.load_guide; as g) { <div class="mc-row"><span>Guía de carga</span><span><span class="mono">{{ g.folio }}</span> · {{ g.rider_name || '—' }} · {{ g.status === 'impresa' ? 'impresa' : 'sin imprimir' }}</span></div> }
+                @if (x.order.failed_attempts) { <div class="mc-row"><span>Intentos fallidos</span><span>{{ x.order.failed_attempts }} de {{ maxIntentos + 1 }}@if (x.order.return_required) { <span class="mc-dev">ya no sale: aplicar devolución y nota de crédito en Kepler</span> }</span></div> }
                 @if (x.order.delivery; as e) {
                   <div class="mc-row"><span>Entrega</span><span>{{ e.outcome === 'con_diferencia' ? 'Con diferencia' : 'Completa' }} · {{ fechaHora(e.delivered_at) }}@if (e.delivered_by_name) { · {{ e.delivered_by_name }} } · <span class="mono">{{ e.guide_folio }}</span>@if (e.note) { <span class="muted mc-sub">{{ e.note }}</span> }</span></div>
                   <div class="mc-row"><span>Cobró</span><span class="num mc-wrap"><span class="mono">{{ e.folio_digital }}</span> · {{ money(e.cash_amount) }} efectivo · {{ money(e.transfer_amount) }} transferencia@if (e.transfer_ref) { <span class="muted mono"> · ref. {{ e.transfer_ref }}</span> }</span></div>
@@ -324,6 +326,7 @@ const dmy = (v: string | null | undefined): string => {
     .mc-step { padding:.7rem 0; border-top:1px solid var(--border-color); }
     .mc-step h3 { font-size:var(--fs-sm); font-weight:700; margin:0 0 .45rem; }
     .mc-row .mc-wrap { white-space:normal; text-align:right; min-width:0; }
+    .mc-dev { display:inline-block; margin-left:.35rem; padding:.05rem .45rem; border-radius:999px; font-size:var(--fs-micro); font-weight:700; background:var(--bad-soft-bg, var(--warn-soft-bg)); color:var(--bad-fg); }
     .mc-row { display:flex; justify-content:space-between; gap:.8rem; font-size:var(--fs-sm); padding:.22rem 0; border-bottom:1px dashed var(--border-color); }
     .mc-row > span:first-child { color:var(--text-muted); flex:none; }
     .mc-row > span:last-child { text-align:right; min-width:0; }
@@ -367,6 +370,8 @@ export class AlmacenPreventaComponent implements OnInit {
   readonly skel = Array.from({ length: 8 });
   readonly skelDet = Array.from({ length: 6 });
   readonly money = money;
+  /** `[MCP.7]` Reintentos permitidos (I2): sale 1 vez + estos. */
+  readonly maxIntentos = PRESALE_MAX_REINTENTOS;
   readonly dmy = dmy;
   readonly etapas = ETAPAS;
   readonly cerradosOpts = [

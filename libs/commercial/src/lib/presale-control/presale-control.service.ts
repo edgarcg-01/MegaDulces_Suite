@@ -25,7 +25,9 @@ import {
   compararRenglones,
   contarPorEtapa,
   etapaDe,
+  MAX_REINTENTOS_ENTREGA,
   partesFolio,
+  requiereDevolucion,
   semaforo,
   STATUS_EN_MESA,
   type RenglonDocumento,
@@ -59,6 +61,12 @@ type Partes = { sucursal: string; doc_prefix: string; folio: string };
 /** `[MCP.6]` Subconsulta: el pedido `o` tiene una entrega de conformidad registrada en una guía. */
 const ENTREGADO_SQL = `SELECT 1 FROM commercial.load_guide_orders e0
                          WHERE e0.order_id = o.id AND e0.tenant_id = o.tenant_id AND e0.status = 'entregado'`;
+
+/** `[MCP.7]` Veces que el pedido salió en una guía y volvió sin entregarse (cuenta para los reintentos). */
+const FALLIDOS_SQL = `(SELECT count(*) FROM commercial.load_guide_orders f0
+                          JOIN commercial.load_guides fg ON fg.id = f0.guide_id AND fg.tenant_id = f0.tenant_id
+                         WHERE f0.order_id = o.id AND f0.tenant_id = o.tenant_id
+                           AND f0.status IN ('regreso', 'no_entregado') AND fg.status <> 'cancelada')::int`;
 
 const SUCURSAL_KEPLER_SQL =`CASE WHEN w.kepler_code ~ '^[0-9]{2}$' THEN w.kepler_code ELSE ${branchKeySql('w')} END`;
 
@@ -448,7 +456,10 @@ export class PresaleControlService {
                  AND NOT EXISTS (SELECT 1 FROM commercial.load_guide_orders x
                                    JOIN commercial.load_guides xg ON xg.id = x.guide_id AND xg.tenant_id = x.tenant_id
                                   WHERE x.order_id = o.id AND x.tenant_id = o.tenant_id
-                                    AND x.status = 'cargado' AND xg.status <> 'cancelada')`;
+                                    AND x.status = 'cargado' AND xg.status <> 'cancelada')
+                 AND ${FALLIDOS_SQL} <= ?`;
+      // [MCP.7] Agotó los reintentos (I2): ya no sale; va a devolución y NC en Kepler (D10).
+      params.push(MAX_REINTENTOS_ENTREGA);
     }
     // Por ids no hay tope: son los de una guía (acotados por quien los pesca), y cortar ahí haría
     // que un pedido desapareciera de la guía y de su snapshot.
@@ -470,7 +481,8 @@ export class PresaleControlService {
               lg.id AS guide_id, lg.folio AS guide_folio, lg.status AS guide_status, lg.rider_name AS guide_rider_name,
               en.delivered_at, en.delivery_outcome, en.delivery_note, en.cash_amount, en.transfer_amount,
               en.transfer_ref, en.guide_folio AS delivery_guide_folio, en.delivered_by_name,
-              en.delivered_folio_digital
+              en.delivered_folio_digital,
+              ${FALLIDOS_SQL} AS failed_attempts
          FROM commercial.orders o
          LEFT JOIN commercial.customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
          LEFT JOIN commercial.warehouses w ON w.id = o.warehouse_id AND w.tenant_id = o.tenant_id
@@ -654,7 +666,7 @@ export class PresaleControlService {
           ? {
               id: f['guide_id'] as string,
               folio: f['guide_folio'] as string,
-              status: f['guide_status'] as 'abierta' | 'impresa',
+              status: f['guide_status'] as 'abierta' | 'impresa' | 'liquidada',
               rider_name: (f['guide_rider_name'] as string) ?? null,
             }
           : null,
@@ -671,6 +683,9 @@ export class PresaleControlService {
               folio_digital: f['delivered_folio_digital'] as string,
             }
           : null,
+        failed_attempts: Number(f['failed_attempts'] ?? 0),
+        // Sólo un pedido abierto puede necesitar devolución: uno entregado o cancelado ya cerró.
+        return_required: stage !== 'entregado' && stage !== 'cancelado' && requiereDevolucion(Number(f['failed_attempts'] ?? 0)),
       };
       return { row, created_date: f['created_date'] as string };
     });
