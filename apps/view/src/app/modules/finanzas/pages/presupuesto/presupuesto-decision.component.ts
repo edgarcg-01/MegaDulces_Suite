@@ -4,8 +4,8 @@ import { ButtonModule } from 'primeng/button';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { PRESUPUESTO_STYLES } from './presupuesto.styles';
 import {
-  bandas, costoDeNoFirmar, fraseConcentracion, leyendaUniverso, llegada, sumaBanda,
-  type FilaConcentracion, type VistaConcentracion,
+  bandas, costoDeNoFirmar, leyendaUniverso, llegada, sumaBanda,
+  type VistaConcentracion,
 } from './presupuesto-decision';
 
 /**
@@ -96,7 +96,12 @@ import {
           <div class="dec-block">
             <!-- El universo PRIMERO: sin el, el porcentaje de abajo no tiene denominador. -->
             <p class="dec-universo">{{ leyenda() }}</p>
-            <p class="dec-lead">{{ frase() }}</p>
+            <!-- La frase la emite el SERVIDOR: si la arma cada cliente, las dos mitades del
+                 modulo vuelven a decir la misma idea con dos gramaticas. -->
+            <p class="dec-lead">{{ c.frase.titular }}</p>
+            @if (c.frase.detalle; as det) {
+              <p class="dec-note"><span>{{ det }}</span></p>
+            }
 
             <app-metric-strip mode="composition" [items]="reparto()" [total]="c.total"
                               ariaLabel="Reparto del universo entre las partidas que cruzan el 80 por ciento, las del medio y la cola" />
@@ -125,7 +130,7 @@ import {
               }
               @if (banda().cola.length) {
                 <div>
-                  <dt>{{ banda().cola.length }} bajo el 5 % cada una</dt>
+                  <dt>{{ banda().cola.length }} bajo el {{ c.umbral_menor_pct }} % cada una</dt>
                   <dd class="pres-mono">{{ dinero(sumaCola()) }}</dd>
                 </div>
               }
@@ -137,11 +142,11 @@ import {
               }
             </dl>
 
-            @if (banda().cola.length) {
+            <!-- La frase inversa -- donde NO mirar -- tambien viene del servidor. -->
+            @if (c.frase.inversa; as inv) {
               <p class="dec-note">
                 <i class="pi pi-info-circle" aria-hidden="true"></i>
-                <span>Las {{ banda().cola.length }} de la cola aportan menos del 5 % cada una: su
-                  desempeno no mueve el total. Las intermedias si.</span>
+                <span>{{ inv }}</span>
               </p>
             }
           </div>
@@ -256,7 +261,6 @@ export class PresupuestoDecisionComponent {
   });
 
   protected readonly banda = computed(() => bandas(this.conc()));
-  protected readonly frase = computed(() => fraseConcentracion(this.conc()));
   protected readonly leyenda = computed(() => leyendaUniverso(this.conc()));
   protected readonly sumaMedio = computed(() => sumaBanda(this.banda().medio));
   protected readonly sumaCola = computed(() => sumaBanda(this.banda().cola));
@@ -282,9 +286,14 @@ export class PresupuestoDecisionComponent {
     const cab = sumaBanda(b.cabeza);
     const med = this.sumaMedio();
     const col = this.sumaCola();
-    if (cab !== null) items.push({ label: `${b.cabeza.length} cruzan el 80 %`, value: cab, format: 'currency-short', tone: 'brand' });
+    // ⚠️ Los umbrales se NOMBRAN con el valor que vino en el dato, no con un 80 ni un 5 escritos
+    //    acá: si el servidor mueve su corte, la etiqueta tiene que moverse con él.
+    const u = this.conc();
+    const up = u ? Math.round(u.umbral_pct) : 80;
+    const um = u ? Math.round(u.umbral_menor_pct) : 5;
+    if (cab !== null) items.push({ label: `${b.cabeza.length} cruzan el ${up} %`, value: cab, format: 'currency-short', tone: 'brand' });
     if (med !== null) items.push({ label: `${b.medio.length} intermedias`, value: med, format: 'currency-short', tone: 'warn' });
-    if (col !== null) items.push({ label: `${b.cola.length} bajo el 5 %`, value: col, format: 'currency-short', tone: 'muted' });
+    if (col !== null) items.push({ label: `${b.cola.length} bajo el ${um} %`, value: col, format: 'currency-short', tone: 'muted' });
     return items;
   });
 

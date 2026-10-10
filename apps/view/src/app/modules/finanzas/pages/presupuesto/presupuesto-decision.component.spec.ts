@@ -31,8 +31,16 @@ const MOSTRADOR: VistaConcentracion = {
   partidas_80: 4,
   pct_mayor: 34.7607,
   sin_monto: 0,
-  universo: 'Mostrador',
-  parte_de: { de: 'el ingreso del ejercicio', pct: 58.4578 },
+  universo: { nombre: 'Mostrador', completo: false, de: 'el ingreso del ejercicio', pct: 58.4578 },
+  umbral_pct: 80,
+  umbral_menor_pct: 5,
+  menores: { filas: 2, monto: 19_395_896.63, pct: 5.486 },
+  frase: {
+    titular: '4 partidas cruzan el 80 % de Mostrador.',
+    detalle: 'La mayor sola es el 34.8 %.',
+    inversa: '2 partidas aportan menos del 5 % cada una: su desempeno no mueve el total.',
+    es_ausencia: false,
+  },
   filas: [
     f('Morelia Abastos', 122_891_216.83, 34.7607, 34.7607),
     f('Padre Hidalgo', 58_103_857.07, 16.4350, 51.1957),
@@ -83,9 +91,15 @@ describe('[PVI.20] la pantalla de decidir', () => {
     expect(txt).toContain('$19,395,897');
   });
 
-  it('⛔ y la frase ya NO invita a leer el resto como chico', () => {
+  it('⛔ la frase INVERSA sale del servidor, tal cual, sin que la pantalla la reescriba', () => {
     const txt = montar().textContent ?? '';
-    expect(txt).toContain('Las intermedias si');
+    expect(txt).toContain(MOSTRADOR.frase.inversa!);
+  });
+
+  it('⛔ y el umbral de la cola se ROTULA con el que vino en el dato, no con un 5 escrito acá', () => {
+    const el = montar({ concentracion: { ...MOSTRADOR, umbral_menor_pct: 7 } });
+    expect(el.textContent).toContain('bajo el 7 %');
+    expect(el.textContent).not.toContain('bajo el 5 %');
   });
 
   it('⛔ EL UNIVERSO: la pantalla dice de qué es el 80 % y de qué es recorte', () => {
@@ -93,7 +107,8 @@ describe('[PVI.20] la pantalla de decidir', () => {
     expect(el.querySelector('.dec-universo')?.textContent)
       .toContain('Mostrador — 58.5 % de el ingreso del ejercicio');
     const txt = el.textContent ?? '';
-    expect(txt).toContain('4 partidas cruzan el 80 % de Mostrador');
+    // El titular es el del SERVIDOR, verbatim: la pantalla no lo reescribe.
+    expect(txt).toContain(MOSTRADOR.frase.titular);
     expect(txt).not.toContain('del plan');
   });
 
