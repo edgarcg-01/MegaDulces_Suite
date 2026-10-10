@@ -106,8 +106,38 @@ concurrency:
 # (medido con un token inventado — `Invalid Credentials (CI Access Token) ... (code: 401)`,
 # exit 0). Eso es bueno para no tumbar el CI, y es justo por eso que hace falta el paso
 # "Declarar el caché remoto" de abajo: si no, la ausencia del token se ve igual que tenerlo.
+#
+# ⛔⛔ `[NX.6]` **LA PREMISA DE ARRIBA CADUCÓ, Y NADIE LO MIDIÓ.** El caché remoto no está
+# "VERIFICADO funcionando": Nx Cloud lo **cortó por cuota**. Textual, de 4 de 4 corridas del
+# 2026-10-10 (`38063633919`, `38062701363`, `38056067252`, `38046873929`):
+#
+#     Nx Cloud wasn't able to store artifacts to the remote cache.
+#     This Nx Cloud organization has been disabled due to exceeding the FREE plan.
+#     Cache: 0/5 hit (0%)
+#
+# El token SÍ está cargado — lo que falló es el plan, no el secret. Por eso el declarador de
+# abajo decía "caché remoto: activo" mientras el caché no servía una sola tarea: **medía la
+# presencia del token, no la entrega.** Es el mismo pecado que ADR-053 nombra para los feeds
+# (el latido mide que el proceso corre, no que entregó), cometido por el propio paso que
+# existe para que no degrademos en silencio. Corregido abajo: ahora lee el veredicto de Nx.
+#
+# Lo que costó, medido: el comentario del job `build` registra `build 10 s` el 2026-10-02 con
+# el remoto vivo. El 2026-10-10, sin él, los mismos 5 targets tardan **175.7 s** (view 100.3 ·
+# api 30.4 · vendor 19.3 · portal 18.0 · shared-scoring 7.7). **17× más, en cada corrida.**
+#
+# ⭐ `NX_CACHE_DIRECTORY` NO es cosmético — es lo que hace que el caché de abajo NO sea un
+# no-op. Nx 23 mueve el caché a un directorio por usuario (`~/.nx/<workspaceId>/cache`) cuando
+# puede; medido en vivo sobre `exports.cacheDir` de nx 23.2.1:
+#
+#     sin env                      -> ~/.nx/efdfe46898c991ff/cache   (share: "user")
+#     NX_CACHE_DIRECTORY=.nx/cache -> <workspaceRoot>/.nx/cache      (share: "none")
+#
+# O sea: un `actions/cache` sobre `.nx/cache` sin fijar esto cachea un directorio **vacío** y
+# se reporta igual que uno que funciona. Fijarlo también alinea el CI con los Dockerfiles, que
+# ya montan `/app/.nx/cache`.
 env:
   NX_CLOUD_ACCESS_TOKEN: ${{ secrets.NX_CLOUD_ACCESS_TOKEN }}
+  NX_CACHE_DIRECTORY: .nx/cache
 
 jobs:
   # Escaneo de secretos. Job SEPARADO del build (no lo bloquea). gitleaks-action
@@ -174,22 +204,30 @@ jobs:
           PUPPETEER_SKIP_DOWNLOAD: 'true'
           CI: 'true'
 
-      # `[NX.5]` El `actions/cache` de `.nx/cache` que vivía acá SE RETIRÓ. Era el sustituto
-      # pobre de cuando no había Nx Cloud, y su propio comentario decía "No hay Nx Cloud
-      # configurado" — dejó de ser cierto en el PR #115. Ahora es peor que redundante: sube y
-      # baja un tarball con lo mismo que el caché remoto ya sirve, y encima particionado por
-      # rama (`restore-keys`), así que una rama nueva arrancaba en frío aunque otra corrida ya
-      # hubiera compilado ese hash exacto. El caché remoto no tiene esa frontera: es uno solo
-      # para todas las ramas, todas las máquinas y —esto es lo nuevo— también los builds de
-      # Railway (`[NX.4]`).
-      - name: Declarar el caché remoto (ADR-056 — no degradar en silencio)
-        run: |
-          if [ -z "${NX_CLOUD_ACCESS_TOKEN}" ]; then
-            echo "::warning title=Nx Cloud sin token::Falta el secret NX_CLOUD_ACCESS_TOKEN. El CI corre SIN caché remoto (cada tarea desde cero). Cargalo en Settings → Secrets → Actions."
-            echo "caché remoto: NO MEDIDO (sin token)"
-          else
-            echo "caché remoto: activo"
-          fi
+      # `[NX.5]` retiró de acá el `actions/cache` de `.nx/cache` con un argumento CORRECTO para
+      # su momento: con el remoto vivo era un tarball redundante, y encima con la frontera por
+      # rama que GitHub le impone a `actions/cache` (una rama lee su caché y el de su base, no
+      # el de las demás). El remoto no tiene esa frontera.
+      #
+      # `[NX.6]` lo repone porque **la condición que lo justificaba se cayó**: el remoto está
+      # deshabilitado por cuota y sirve 0/5. La frontera por rama sigue siendo real y se
+      # declara — pero un caché que acierta dentro de una rama es estrictamente mejor que 0%,
+      # y en `push` a `main` (que es por donde entra casi todo) la frontera ni siquiera aplica.
+      #
+      # ⛔ Esto NO reemplaza al remoto: en cuanto el plan se reactive, el remoto vuelve a ganar
+      # solo (Nx consulta primero el local y después el remoto) y este paso pasa a costar unos
+      # segundos de tarball. El declarador de abajo es el que avisa cuál de los dos está vivo.
+      - name: Caché de tareas de Nx (respaldo local mientras el remoto esté caído)
+        uses: actions/cache@v4
+        with:
+          # Fijado por `NX_CACHE_DIRECTORY` en el env global — sin eso Nx 23 lo pone en
+          # ~/.nx/<workspaceId>/cache y este paso cachea un directorio vacío EN SILENCIO.
+          path: .nx/cache
+          # Clave por SHA: `actions/cache` no reescribe una entrada existente, así que una
+          # clave fija se congela en el primer tarball y nunca más incorpora nada nuevo.
+          key: nx-${{ runner.os }}-node20-${{ github.sha }}
+          restore-keys: |
+            nx-${{ runner.os }}-node20-
 
       - name: Derivar SHAs base/head para affected
         uses: nrwl/nx-set-shas@v4
@@ -210,12 +248,90 @@ jobs:
       # runner se queda sin RAM; el job muere sin imprimir error de TypeScript.
       # Mismo criterio que el Dockerfile raíz.
       - name: Build (affected)
-        run: npx nx affected -t build --configuration=production --parallel=1
+        # ⛔ `set -o pipefail` NO es decorativo: el `run:` de Actions en Linux corre con
+        # `bash -e`, SIN pipefail, así que el exit code de un pipe es el del ÚLTIMO comando.
+        # Sin esta línea, `tee` (que siempre sale 0) convertiría un build ROJO en un job
+        # VERDE, y `build` es una de las dos compuertas obligatorias de `main`. Es la misma
+        # familia del gotcha ya documentado en el repo: leer `$?` después de un pipe lee el
+        # comando equivocado.
+        run: |
+          set -o pipefail
+          npx nx affected -t build --configuration=production --parallel=1 2>&1 | tee nx-build.log
         env:
           NX_DAEMON: 'false'
           # Mismo arranque que los Dockerfiles: heap 4096 + @angular/compiler
           # precargado (Angular v18 + esbuild en Node 20 lo necesita).
           NODE_OPTIONS: "--max-old-space-size=4096 --import file://${{ github.workspace }}/load-compiler.mjs"
+
+      # `[NX.6]` Reemplaza al viejo "Declarar el caché remoto", que preguntaba si el SECRET
+      # existía y con eso imprimía "caché remoto: activo". El secret estaba cargado y el caché
+      # servía 0/5: el paso que existe para no degradar en silencio **degradó en silencio**.
+      #
+      # ⭐ Ahora lee el veredicto que Nx ya imprime. Y distingue las DOS ausencias (ADR-056):
+      # "no hubo tareas que cachear" (affected vacío — correcto, no es un 0%) no es lo mismo
+      # que "hubo tareas y ninguna acertó".
+      #
+      # `if: always()` a propósito: cuando el build falla es justo cuando querés saber si
+      # arrancó en frío. Y nunca falla el job — declara, no bloquea.
+      - name: Declarar el caché (ADR-056 — medir ENTREGA, no configuración)
+        if: always()
+        run: |
+          LOG=nx-build.log
+          if [ ! -f "$LOG" ]; then
+            echo "::warning title=Caché NO MEDIDO::El build no dejó log. No se puede afirmar nada sobre el caché."
+            echo "caché: NO MEDIDO (sin log)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          # ── ¿se EJERCIÓ el caché? Sin tareas no hay nada que afirmar sobre el remoto. ───
+          # ⛔ La primera versión de este paso daba "activo" por ausencia de error, y con
+          # `affected` vacío eso afirma algo que nadie midió — exactamente el pecado que este
+          # paso viene a corregir, una vuelta más abajo. "Activo" exige evidencia POSITIVA.
+          HIT=$(grep -oE 'Cache: *[0-9]+/[0-9]+ hit \([0-9]+%\)' "$LOG" | tail -1 || true)
+          HUBO_TAREAS=no
+          if [ -n "$HIT" ] || grep -qiE 'ran target .*build.* for [0-9]+ project' "$LOG"; then
+            HUBO_TAREAS=si
+          fi
+
+          # ── remoto: ¿entregó, o sólo estaba configurado? ────────────────────────────────
+          REMOTO="NO MEDIDO (no se ejerció: sin tareas)"
+          if grep -qi 'disabled due to exceeding' "$LOG"; then
+            REMOTO="CAÍDO (plan excedido)"
+            echo "::warning title=Nx Cloud deshabilitado por cuota::El caché remoto NO sirve tareas: la organización excedió el plan FREE. Cada corrida compila desde cero y sólo queda el respaldo local por rama. Lo reactiva un admin en https://cloud.nx.app"
+          elif grep -qiE 'Invalid Credentials|code: 401' "$LOG"; then
+            REMOTO="CAÍDO (token inválido)"
+            echo "::warning title=Nx Cloud rechazó el token::NX_CLOUD_ACCESS_TOKEN no autentica (401). El CI corre sin caché remoto."
+          elif grep -qi "wasn't able to store artifacts" "$LOG"; then
+            REMOTO="CAÍDO (no almacena)"
+            echo "::warning title=Nx Cloud no almacena::El remoto no pudo guardar artefactos. La próxima corrida arranca en frío."
+          elif [ -z "${NX_CLOUD_ACCESS_TOKEN}" ]; then
+            REMOTO="NO MEDIDO (sin token)"
+            echo "::warning title=Nx Cloud sin token::Falta el secret NX_CLOUD_ACCESS_TOKEN."
+          elif [ "$HUBO_TAREAS" = "si" ]; then
+            REMOTO="activo"
+          fi
+
+          # ── aciertos: la línea que Nx imprime, o la ausencia DECLARADA ──────────────────
+          # Las dos ausencias NO son la misma: "no hubo qué cachear" lo arregla nadie,
+          # "hubo tareas y Nx no imprimió la línea" lo arregla Sistemas.
+          if [ -z "$HIT" ]; then
+            if [ "$HUBO_TAREAS" = "si" ]; then
+              HIT="sin línea de caché (hubo tareas) — NO MEDIDO"
+            else
+              HIT="sin tareas que cachear (affected vacío)"
+            fi
+          fi
+
+          echo "caché remoto: $REMOTO"
+          echo "aciertos:     $HIT"
+          {
+            echo "### Caché de Nx"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| remoto | $REMOTO |"
+            echo "| aciertos | \`$HIT\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
   # INFRA.5 (ADR-043): lint + test SOLO de lo que el cambio toca (nx affected).
   # La regression suite (database/run-all-tests.js) NO va acá — necesita API arriba
