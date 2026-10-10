@@ -325,7 +325,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   <th class="pr-r" title="Cumplimiento del proveedor medido en Kepler (orden de compra vs vale de entrada), ponderado por dinero. El Pedido YA viene dividido por él, topado en +30%. — = no se midió (menos de 25 renglones, o nombre repetido en el catálogo): en ese caso el pedido NO se tocó.">Surt.</th>
                   <th class="pr-r" title="Existencia de toda la red, en CAJAS (suma de las sucursales). El desglose por sucursal está al abrir la fila.">Exist.<br/>red</th>
                   <th class="pr-r" title="Clase XYZ de red (X estable · Y variable · Z errático) — peor caso entre sucursales">XYZ</th>
-                  <th class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. El Pedido la descuenta PESADA por la probabilidad de que llegue: una orden abierta hace semanas casi no cuenta, porque en Kepler la OC se captura al recibir.">En camino</th>
+                  <th class="pr-r" title="Mercancía ya pedida que todavía no llega (OC abierta en Kepler). Clic para ver folios, antigüedad y cuándo llega. ⛔ El Pedido NO la descuenta: muchas OC llevan meses abiertas porque en Kepler la orden se captura al RECIBIR, así que restarlas taparía compras que sí hacen falta. Mirá esta columna antes de pedir: lo de acá se SUMA a lo que pidas.">En camino</th>
                   <th class="pr-r" title="Punto de reorden de red (cajas)">Reorden</th>
                   <th class="pr-r" title="Máximo de red (cajas)">Máx</th>
                   <th class="pr-r" title="Total de lo que se va a pedir, en CAJAS. Es la suma de las sucursales del desglose y SE MUEVE al editarlas.">Σ Ped.<br/>cajas</th>
@@ -481,7 +481,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                                   <th>Sucursal</th>
                                   <th class="pr-r" title="Venta de los últimos 30 días en esa sucursal ÷ su MÁXIMO (política de reorden), en CAJAS. Clic en la cifra para ver la venta por mes de 12 meses contra el año anterior. Ordena la lista dentro de cada zona: la que más vende, arriba.">V30d / Máx</th>
                                   <th class="pr-r" title="Existencia de esa sucursal, en CAJAS.">Exist.</th>
-                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × cobertura − existencia − en camino). Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente (como en Excel) · ← → restan o suman uno (también Alt + ↑ ↓) · escribí para reemplazar. En celular y tableta: botones − y +, mantener presionado repite.">Pedido ✎</th>
+                                  <th class="pr-r pr-ped-h" title="Lo que se le va a pedir. Arranca en el sugerido del motor (venta × estación × cobertura − existencia). ⛔ NO resta lo que viene en camino: revisá esa columna aparte. Teclado: ↑ ↓ o Enter mueven al campo anterior/siguiente (como en Excel) · ← → restan o suman uno (también Alt + ↑ ↓) · escribí para reemplazar. En celular y tableta: botones − y +, mantener presionado repite.">Pedido ✎</th>
                                   <th class="pr-r" title="En qué unidad estás capturando ESTE renglón. Sólo cambia cómo se escribe: el pedido, los días y el valor siempre se calculan en cajas.">Unidad</th>
                                   <th class="pr-r" title="Cuánto dura el inventario con lo que pidas: (existencia + pedido) ÷ (venta 30d ÷ 30.4). Se mueve mientras escribís.">Días inv.</th>
                                   <th title="Dónde entrega el proveedor: directo en la sucursal, o consolidado en un CEDIS (que después baja la mercancía por traspaso).">Entrega</th>
@@ -727,7 +727,7 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                          [rowsPerPageOptions]="[20, 50, 100]" (onPageChange)="onWbPage($event)"
                          styleClass="pr-pager"></p-paginator>
           }
-          <p class="pr-foot">Una fila por producto, en <strong>cajas</strong>. <strong>Exist. red</strong> = existencia sumada de las sucursales · <strong>Σ Ped.</strong> = lo que se va a pedir, suma viva del desglose (arranca en el sugerido: venta diaria × <strong>estación</strong> × cobertura − existencia − <strong>en camino</strong>). La columna <strong>Est.</strong> muestra la razón estacional que ya lleva puesta; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios, antigüedad y fechas: se descuenta pesado por la probabilidad de que cada orden llegue, así que una OC estancada deja de tapar el pedido. La venta de las <strong>rutas</strong> cuenta en su sucursal madre. <em>Clic en una fila para abrir su desglose por sucursal — podés abrir varias a la vez.</em></p>
+          <p class="pr-foot">Una fila por producto, en <strong>cajas</strong>. <strong>Exist. red</strong> = existencia sumada de las sucursales · <strong>Σ Ped.</strong> = lo que se va a pedir, suma viva del desglose (arranca en el sugerido: venta diaria × <strong>estación</strong> × cobertura − existencia). La columna <strong>Est.</strong> muestra la razón estacional que ya lleva puesta; <strong>En camino</strong> es lo ya pedido y sin recibir — clic para ver folios, antigüedad y fechas. <strong>⛔ El sugerido NO descuenta lo que viene en camino</strong>, a propósito: en Kepler la OC se captura al RECIBIR, así que una orden puede llevar meses abierta sin que exista mercancía en viaje, y restarla dejaría de pedir lo que sí hace falta. Lo que elijas se <strong>suma</strong> a esa columna. La venta de las <strong>rutas</strong> cuenta en su sucursal madre. <em>Clic en una fila para abrir su desglose por sucursal — podés abrir varias a la vez.</em></p>
         }
 
         @if (wbRows().length) {
@@ -777,8 +777,11 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
           </div>
         }
 
-        <!-- RA-PRO.44 — QUÉ VIENE EN CAMINO: las OCs abiertas del SKU. Es la explicación del
-             "Pedido 0" — el motor descuenta lo ya pedido, y hasta ahora eso era invisible. -->
+        <!-- RA-PRO.44 — QUÉ VIENE EN CAMINO: las OCs abiertas del SKU.
+             ⚠️ [RA.TR] Este comentario decía "el motor descuenta lo ya pedido" y describía la
+             politica 'curva', que dejo de estar vigente el 2026-10-09. Con 'ignorar' el motor NO
+             descuenta nada, y este dialogo es la UNICA via por la que el comprador se entera de
+             que ademas viene mercancia. -->
         <p-dialog [(visible)]="tranVisible" [modal]="true" [style]="{ width: '46rem' }" [dismissableMask]="true"
                   [header]="'En camino — ' + (tranProduct()?.nombre || '')">
           @if (tranLoading()) {
@@ -871,6 +874,20 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
                   }
                 </tbody>
               </table>
+              <!-- [RA.TR.2] Lo que YA VIENE de estos mismos productos. No bloquea -- puede ser
+                   correcto comprar igual -- pero es el ultimo momento en que se puede saber, y el
+                   sugerido NO lo resta: lo de abajo se SUMA a lo de arriba. -->
+              @if (p.compras > 0 && p.trCajas > 0.05) {
+                <p class="pr-plan-tran">
+                  <i class="pi pi-truck" aria-hidden="true"></i>
+                  De estos productos <strong>ya vienen {{ p.trCajas | number:'1.0-1' }} cajas</strong>
+                  ({{ money(p.trValor) }}) en OC abiertas, en toda la red.
+                  <strong>El sugerido no las descuenta</strong>: esta compra se suma a eso.
+                  @if (p.trSinDato > 0) {
+                    <span class="pr-plan-tran-nd">{{ p.trSinDato }} producto(s) del lote no están en las filas cargadas: su tránsito no se midió.</span>
+                  }
+                </p>
+              }
               <!-- [RA-PEND.2] Los bloqueantes van ARRIBA del botón y lo apagan: son la razón de
                    que esté apagado, y esconderlos deja un botón muerto sin explicación. -->
               @if (planBloqueos(); as bl) {
@@ -1643,6 +1660,13 @@ interface Entrega { code: string; name: string; direct: boolean; cajas: number; 
     .pr-plan-stop i { margin-right: .35rem; }
     .pr-plan-stop ul { margin: 0; padding-left: 1.1rem; }
     .pr-plan-stop li { margin: .15rem 0; }
+    /* [RA.TR.2] Lo que ya viene. Ambar, NO rojo: no bloquea -- puede ser correcto comprar igual.
+       Pintarlo como bloqueo ensenaria a saltearlo, que es como mueren los avisos. */
+    .pr-plan-tran { margin: .6rem 0 0; padding: .55rem .7rem; border: 1px solid var(--warn-border);
+      border-radius: var(--r-sm, 8px); background: var(--warn-soft-bg, transparent);
+      color: var(--warn-soft-fg); font-size: var(--fs-sm); }
+    .pr-plan-tran i { margin-right: .35rem; }
+    .pr-plan-tran-nd { display: block; margin-top: .25rem; color: var(--text-muted); font-size: var(--fs-xs); }
     /* [RA-PRO.65] V30d / Máx: la cifra ES el botón del globo. */
     .pr-vmx { border: 0; background: transparent; color: var(--text-main); cursor: pointer; font: inherit;
       font-variant-numeric: tabular-nums; padding: .1rem .3rem; border-radius: var(--r-sm, 8px);
@@ -2307,9 +2331,13 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
     if (p.documentos > 1) {
       partes.push('⚠️ Más de un documento: ya se pidió lo mismo más de una vez. Conviene destrabar las que hay antes de armar otra.');
     }
+    // ⚠️ [RA.TR] Esta frase contrastaba "la requisición pendiente NO se descuenta, pero la OC SÍ".
+    // La segunda mitad dejó de ser cierta el 2026-10-09 (política `ignorar`), y un contraste con
+    // una mitad falsa es peor que no decir nada: afirma que algo más SÍ se está restando.
     partes.push('⛔ El sugerido NO lo descuenta, a propósito: una requisición pendiente no es mercancía comprometida '
-      + '—puede no aprobarse nunca— y restarla dejaría de pedir lo que sí hace falta. Lo que el motor SÍ descuenta son '
-      + 'las órdenes de compra ya capturadas en Kepler (columna "En camino").');
+      + '—puede no aprobarse nunca— y restarla dejaría de pedir lo que sí hace falta. ⛔ Hoy el motor TAMPOCO descuenta '
+      + 'las órdenes de compra abiertas (columna "En camino"), por el mismo motivo: en Kepler la OC se captura al recibir. '
+      + 'Las dos columnas se SUMAN a lo que pidas; revisalas antes de armar.');
     return partes.join(' ');
   }
 
@@ -4552,8 +4580,40 @@ export class ComprasPedidoRealComponent implements OnInit, HasUnsavedChanges {
       entregas: [...new Set(compras.map((x) => codigo(x.warehouse_id)))].sort(),
       destinos: [...new Set(traspasos.map((x) => codigo(x.warehouse_id)))].sort(),
       ligadas: traspasos.filter((x) => typeof x.link_to === 'number').length,
+      ...this.enCaminoDelPlan(compras),
     };
   });
+
+  /**
+   * `[RA.TR.2]` — **Lo que YA VIENE de los productos que se están por comprar.**
+   *
+   * ⛔ Hasta acá, el único momento en que alguien decide gastar dinero no decía una palabra del
+   * tránsito. Y con la política vigente (`ignorar`) el sugerido **no lo resta**, así que lo que
+   * se confirma se SUMA a lo que ya está en viaje.
+   *
+   * Medido en prod el 2026-10-10: **4,496 renglones** donde el motor sugiere comprar
+   * **$8,541,081** mientras ya vienen **$22,994,527**. No es un caso de borde: es la mayoría.
+   *
+   * ⚠️ Es a grano de PRODUCTO (red), no de sucursal: `transito_cajas` es lo único que la pantalla
+   * tiene cargado, y `BranchBuy` no trae tránsito. Se rotula como red para no sugerir una
+   * precisión que el dato no da — y lo que no se puede medir no se dibuja (ADR-056): un producto
+   * que no esté en las filas cargadas cuenta como NO MEDIDO, no como cero.
+   */
+  private enCaminoDelPlan(compras: CreateRequisitionDto[]): { trCajas: number; trValor: number; trSinDato: number } {
+    const known = this.knownRows();
+    const pids = new Set<string>();
+    for (const x of compras) for (const l of x.lines) if (Number(l.final_qty) > 0) pids.add(l.product_id);
+    let trCajas = 0, trValor = 0, trSinDato = 0;
+    for (const pid of pids) {
+      const r = known.get(pid);
+      if (!r) { trSinDato++; continue; }
+      const cj = Number(r.transito_cajas ?? 0);
+      if (!(cj > 0)) continue;
+      trCajas += cj;
+      trValor += cj * (Number(r.caja_cost) || 0);
+    }
+    return { trCajas, trValor, trSinDato };
+  }
 
   /** `[RA-PEND.2]` Tope del servidor (`createRequisitionBatch`). Acá se vuelve visible ANTES del clic. */
   static readonly MAX_DOCS = 300;
