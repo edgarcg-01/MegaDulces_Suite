@@ -244,9 +244,18 @@ RUN --mount=type=cache,id=trade-npm,target=/root/.npm \
 #
 # Las dos líneas van DESPUÉS del `npm ci` a propósito: `main.js` cambia en cada build, y copiarlo
 # antes invalidaría la instalación entera en cada deploy.
+#
+# `[NX.8]` El segundo candado mira el MISMO artefacto buscando otra cosa: un spread de
+# iterable emitido como `[].concat(`, que en runtime deja el Set/MapIterator adentro del
+# array y burla cualquier guard `.length`. Son SIETE incidentes en `GOTCHAS.md`, todos con
+# el build en verde. Acá es donde más vale: éste es exactamente el bundle que va a prod,
+# no uno parecido compilado en otra máquina.
 COPY --from=build-api /app/dist/apps/api/main.js ./main.js
 COPY scripts/check-bundle-externals.js ./check-bundle-externals.js
-RUN node ./check-bundle-externals.js ./main.js /app/node_modules && rm -f ./main.js ./check-bundle-externals.js
+COPY scripts/check-bundle-downlevel.js ./check-bundle-downlevel.js
+RUN node ./check-bundle-externals.js ./main.js /app/node_modules \
+ && node ./check-bundle-downlevel.js ./main.js \
+ && rm -f ./main.js ./check-bundle-externals.js ./check-bundle-downlevel.js
 
 
 # ═══ 5. Los tiempos de ejecución, en rama para compartir lo caro ═════════════════════════════
