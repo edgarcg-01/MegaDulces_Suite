@@ -40,6 +40,11 @@ export interface HechosEtapa {
    * aunque `orders.status` siga en `confirmed`: marcarlo `fulfilled` lo facturaría otra vez (FE.5).
    */
   entregado_en_guia?: boolean;
+  /**
+   * `[MCP.7.1]` Kepler ya aplicó devolución + nota de crédito que cubre TODO el ticket del pedido:
+   * la venta se deshizo. Una nota parcial NO cierra el pedido (decisión de Francisco, 2026-10-10).
+   */
+  devuelto_nc?: boolean;
 }
 
 /**
@@ -51,7 +56,9 @@ export interface HechosEtapa {
  */
 export function etapaDe(h: HechosEtapa): PresaleStage {
   if (h.status === 'cancelled') return 'cancelado';
-  if (h.status === 'fulfilled' || h.entregado_en_guia) return 'entregado';
+  if (h.status === 'fulfilled') return 'entregado';
+  if (h.devuelto_nc) return 'devuelto';
+  if (h.entregado_en_guia) return 'entregado';
   if (h.en_guia_impresa) return 'en_ruta';
   if (h.ligado) return 'cobrado';
   if (!h.customer_erp_code) return 'esperando_alta';
@@ -61,7 +68,7 @@ export function etapaDe(h: HechosEtapa): PresaleStage {
 }
 
 /** Etapas en que el pedido ya no espera nada de la sucursal: no llevan semáforo. */
-const CERRADAS: ReadonlySet<PresaleStage> = new Set<PresaleStage>(['entregado', 'cancelado']);
+const CERRADAS: ReadonlySet<PresaleStage> = new Set<PresaleStage>(['entregado', 'devuelto', 'cancelado']);
 
 /** Días entre dos fechas `YYYY-MM-DD` (b − a), sin pasar por la zona horaria del servidor. */
 export function diasEntre(a: string, b: string): number {
@@ -301,4 +308,16 @@ export function resumenLiquidacion(renglones: readonly RenglonLiquidacion[]): Re
   r.por_cobrar = c2(r.por_cobrar);
   r.sin_explicar = c2(r.sin_explicar);
   return r;
+}
+
+/** Tolerancia de centavos al comparar lo acreditado contra el ticket (redondeo de Kepler). */
+const TOLERANCIA_NC = 0.05;
+
+/**
+ * `[MCP.7.1]` ¿Las notas de crédito ligadas cubren el ticket? `saldado` sólo si cubren TODO (con
+ * tolerancia de centavos); `parcial` si cubren una parte; `null` si no hay nota.
+ */
+export function estadoNotaCredito(acreditado: number, totalTicket: number): 'saldado' | 'parcial' | null {
+  if (!(acreditado > 0)) return null;
+  return acreditado >= totalTicket - TOLERANCIA_NC ? 'saldado' : 'parcial';
 }

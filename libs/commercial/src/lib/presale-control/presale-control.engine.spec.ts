@@ -14,6 +14,7 @@ import {
   compararRenglones,
   contarPorEtapa,
   diasEntre,
+  estadoNotaCredito,
   etapaDe,
   MAX_REINTENTOS_ENTREGA,
   partesFolio,
@@ -153,7 +154,7 @@ describe('contarPorEtapa y reglas', () => {
     expect(c.por_surtir).toBe(2);
     expect(c.cobrado).toBe(1);
     expect(c.esperando_alta).toBe(0);
-    expect(Object.keys(c)).toHaveLength(8);
+    expect(Object.keys(c)).toHaveLength(9);
   });
   it('la regla de reintentos es la que pidió Francisco: 2', () => {
     expect(MAX_REINTENTOS_ENTREGA).toBe(2);
@@ -216,5 +217,24 @@ describe('[MCP.7] lo que Kepler cobró y nadie declaró', () => {
     const r = resumenLiquidacion([{ status: 'entregado', document_total: null, cash_amount: 80, transfer_amount: 0, delivery_outcome: 'completo' }]);
     expect(r.por_cobrar).toBe(0);
     expect(r.sin_explicar).toBe(0);
+  });
+});
+
+describe('[MCP.7.1] nota de crédito de Kepler sobre el ticket', () => {
+  it('cubre todo el ticket = saldado (con tolerancia de centavos); una parte = parcial', () => {
+    expect(estadoNotaCredito(326.8, 326.8)).toBe('saldado');
+    expect(estadoNotaCredito(326.77, 326.8)).toBe('saldado');
+    expect(estadoNotaCredito(353.76, 626.62)).toBe('parcial');
+    expect(estadoNotaCredito(0, 100)).toBeNull();
+  });
+  it('saldado lleva el pedido a devuelto, que es cerrado y sin semáforo', () => {
+    const b = { status: 'confirmed', wave_stage: null, ligado: true, customer_erp_code: '10182' };
+    expect(etapaDe({ ...b, devuelto_nc: true })).toBe('devuelto');
+    expect(semaforo('2026-06-20', '2026-10-08', 'devuelto')).toEqual({ due: null, days_late: null });
+  });
+  it('negativa: un cancelado sigue cancelado y un fulfilled sigue entregado aunque haya NC', () => {
+    const b = { status: 'cancelled', wave_stage: null, ligado: true, customer_erp_code: '10182', devuelto_nc: true };
+    expect(etapaDe(b)).toBe('cancelado');
+    expect(etapaDe({ ...b, status: 'fulfilled' })).toBe('entregado');
   });
 });

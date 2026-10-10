@@ -236,24 +236,24 @@ const dmy = (v: string | null | undefined): string => {
 
       @if (liqs(); as l) {
         @if (l.data.length) {
-          <section class="gc-sec" aria-labelledby="gc-liqs-h">
+          <section class="gc-sec dt-scope" aria-labelledby="gc-liqs-h">
             <h2 id="gc-liqs-h" class="gc-sec-h">Liquidaciones del {{ dmy(l.date) }}</h2>
-            <table class="gc-tbl">
+            <table class="gc-tbl dt-stack">
               <thead><tr><th>Folio</th><th>Quién entregó</th><th>Guías</th><th class="ta-r">Documentos</th><th class="ta-r">Transferencias</th><th class="ta-r">Efectivo contado</th><th class="ta-r">Diferencia</th><th><span class="sr-only">Acciones</span></th></tr></thead>
               <tbody>
                 @for (x of l.data; track x.id) {
                   <tr>
-                    <td class="mono">{{ x.folio }}</td>
-                    <td>{{ x.rider_name || '—' }}<span class="gc-cobro">Recibió {{ x.liquidated_by_name || '—' }} · {{ fechaHora(x.liquidated_at) }}</span></td>
-                    <td class="mono">{{ x.guide_folios.join(', ') }}</td>
-                    <td class="ta-r num">{{ money(x.documents_total) }}</td>
-                    <td class="ta-r num">{{ money(x.declared_transfer) }}</td>
-                    <td class="ta-r num">{{ money(x.counted_cash) }}</td>
-                    <td class="ta-r">
+                    <td role="cell" data-label="Folio" class="mono">{{ x.folio }}</td>
+                    <td role="cell" data-label="Quién entregó">{{ x.rider_name || '—' }}<span class="gc-cobro">Recibió {{ x.liquidated_by_name || '—' }} · {{ fechaHora(x.liquidated_at) }}</span></td>
+                    <td role="cell" data-label="Guías" class="mono">{{ x.guide_folios.join(', ') }}</td>
+                    <td role="cell" data-label="Documentos" class="ta-r num">{{ money(x.documents_total) }}</td>
+                    <td role="cell" data-label="Transferencias" class="ta-r num">{{ money(x.declared_transfer) }}</td>
+                    <td role="cell" data-label="Efectivo contado" class="ta-r num">{{ money(x.counted_cash) }}</td>
+                    <td role="cell" data-label="Diferencia" class="ta-r">
                       <span class="num" [class.gc-bad]="x.cash_difference < 0" [class.gc-warn]="x.cash_difference > 0">{{ x.cash_difference === 0 ? 'Cuadra' : (x.cash_difference < 0 ? 'Faltan ' : 'Sobran ') + money(abs(x.cash_difference)) }}</span>
                       @if (x.notes) { <span class="gc-cobro">{{ x.notes }}</span> }
                     </td>
-                    <td class="ta-r"><button pButton type="button" class="p-button-sm p-button-outlined" [loading]="reimprimiendo() === x.id" [disabled]="!!reimprimiendo()" (click)="reimprimirLiquidacion(x.id)" [attr.aria-label]="'Reimprimir ' + x.folio"><span class="p-button-icon pi pi-print" aria-hidden="true"></span></button></td>
+                    <td role="cell" data-label="Comprobante" class="ta-r"><button pButton type="button" class="p-button-sm p-button-outlined" [loading]="reimprimiendo() === x.id" [disabled]="!!reimprimiendo()" (click)="reimprimirLiquidacion(x.id)" [attr.aria-label]="'Reimprimir ' + x.folio"><span class="p-button-icon pi pi-print" aria-hidden="true"></span></button></td>
                   </tr>
                 }
               </tbody>

@@ -39,11 +39,13 @@ export const PRESALE_STAGES = [
   'cobrado',
   'en_ruta',
   'entregado',
+  // [MCP.7.1] La mercancía no se entregó y Kepler ya aplicó devolución + nota de crédito que cubre todo el ticket.
+  'devuelto',
   'cancelado',
 ] as const;
 export type PresaleStage = (typeof PRESALE_STAGES)[number];
 
-/** Contra la fecha de entrega prometida. `null` = pedido cerrado (entregado o cancelado). */
+/** Contra la fecha de entrega prometida. `null` = pedido cerrado (entregado, devuelto o cancelado). */
 export type PresaleDue = 'a_tiempo' | 'hoy' | 'vencido' | null;
 
 /**
@@ -119,6 +121,23 @@ export interface PresaleOrderRow {
    * Kepler. Cerrarlo cuando la devolución aparezca en el ODS depende de I1 (aún sin decodificar).
    */
   return_required: boolean;
+  /**
+   * `[MCP.7.1]` Notas de crédito / devoluciones que Kepler aplicó al ticket del pedido (vía su
+   * factura), leídas en vivo del ODS. `saldado` = cubren el ticket completo (el pedido pasa a
+   * `devuelto`); `parcial` = sólo una parte (el pedido sigue abierto). `null` = sin documento
+   * ligado o sin notas. Las notas hechas en Kepler SIN documento origen no se ven (se declaran).
+   */
+  credit_note: PresaleCreditNote | null;
+}
+
+/** `[MCP.7.1]` Lo que Kepler acreditó contra el ticket de un pedido. */
+export interface PresaleCreditNote {
+  status: 'saldado' | 'parcial';
+  /** Σ de las notas ligadas. */
+  credited: number;
+  /** Total del ticket contra el que se compara. */
+  ticket_total: number;
+  notes: Array<{ folio: string; factura: string; fecha: string; importe: number; motivo: string | null }>;
 }
 
 /** `[MCP.6]` Entrega de conformidad (en el renglón de la guía, NO en `orders.status`). */

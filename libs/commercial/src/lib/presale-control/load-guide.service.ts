@@ -157,6 +157,11 @@ export class LoadGuideService {
         throw new ConflictException(`Ya van en una guía: ${yaCargados.map((p) => `${p.code} (${p.load_guide?.folio})`).join(', ')}.`);
       }
       // [MCP.7] Agotó los reintentos (I2): no sale otra vez, va a devolución y NC en Kepler (D10).
+      // [MCP.7.1] Ya devuelto con nota de crédito en Kepler: la venta se deshizo, no sale.
+      const devueltos = pedidos.filter((p) => p.stage === 'devuelto');
+      if (devueltos.length) {
+        throw new ConflictException(`Ya se devolvieron con nota de crédito en Kepler: ${devueltos.map((p) => p.code).join(', ')}.`);
+      }
       const agotados = pedidos.filter((p) => p.return_required);
       if (agotados.length) {
         throw new ConflictException(`Ya no salen: agotaron sus reintentos y van a devolución en Kepler: ${agotados.map((p) => p.code).join(', ')}.`);

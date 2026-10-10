@@ -38,6 +38,7 @@ const ETAPAS: { key: PresaleStage; label: string; sev: Sev }[] = [
   { key: 'cobrado', label: 'Cobrado', sev: 'info' },
   { key: 'en_ruta', label: 'En ruta', sev: 'info' },
   { key: 'entregado', label: 'Entregado', sev: 'success' },
+  { key: 'devuelto', label: 'Devuelto con NC', sev: 'secondary' },
   { key: 'cancelado', label: 'Cancelado', sev: 'secondary' },
 ];
 const ETAPA = new Map(ETAPAS.map((e) => [e.key, e]));
@@ -153,7 +154,7 @@ const dmy = (v: string | null | undefined): string => {
                 <td role="cell" data-label="Pedido"><span class="mono">{{ r.code }}</span><span class="muted mc-sub">{{ r.seller_name || '—' }}</span></td>
                 @if (multiSucursal()) { <td class="mono muted" role="cell" data-label="Suc">{{ r.branch || '—' }}</td> }
                 <td role="cell" data-label="Cliente"><span class="mc-trunc">{{ r.customer_name || '—' }}</span><span class="muted mc-sub">{{ r.sales_route || 'sin ruta' }}@if (r.customer_erp_code) { · <span class="mono">{{ r.customer_erp_code }}</span> }</span></td>
-                <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" class="mc-tag" />@if (r.load_guide; as g) { <span class="muted mc-sub">{{ g.status === 'impresa' ? 'Lleva' : 'Pescado por' }} {{ g.rider_name || '—' }} · <span class="mono">{{ g.folio }}</span></span> }@if (r.return_required) { <span class="mc-dev">Devolución y NC en Kepler</span> } @else if (r.failed_attempts) { <span class="muted mc-sub">{{ r.failed_attempts }} {{ r.failed_attempts === 1 ? 'intento fallido' : 'intentos fallidos' }}</span> }</td>
+                <td role="cell" data-label="Etapa"><p-tag [value]="etapaLabel(r.stage)" [severity]="etapaSev(r.stage)" class="mc-tag" />@if (r.load_guide; as g) { <span class="muted mc-sub">{{ g.status === 'impresa' ? 'Lleva' : 'Pescado por' }} {{ g.rider_name || '—' }} · <span class="mono">{{ g.folio }}</span></span> }@if (r.credit_note?.status === 'parcial') { <span class="mc-dev">NC parcial {{ money(r.credit_note!.credited) }} de {{ money(r.credit_note!.ticket_total) }}</span> } @else if (r.return_required) { <span class="mc-dev">Devolución y NC en Kepler</span> } @else if (r.failed_attempts) { <span class="muted mc-sub">{{ r.failed_attempts }} {{ r.failed_attempts === 1 ? 'intento fallido' : 'intentos fallidos' }}</span> }</td>
                 <td role="cell" data-label="Entrega"><span class="mono">{{ dm(r.requested_delivery_date) }}</span><span class="mc-sub" [class.mc-bad]="r.due === 'vencido'" [class.mc-warn]="r.due === 'hoy'" [class.muted]="r.due !== 'vencido' && r.due !== 'hoy'">{{ dueTexto(r) }}</span></td>
                 <td role="cell" data-label="Documento Kepler">
                   @if (r.link) { <span class="mono">{{ r.link.folio_digital }}</span><span class="muted mc-sub">{{ r.link.link_source === 'celular' ? 'lo ligó quien entregó' : 'ligado en la mesa' }}</span> }
@@ -176,7 +177,7 @@ const dmy = (v: string | null | undefined): string => {
           <div class="mc-foot" aria-label="Totales de lo filtrado">
             <span><b class="num">{{ filas().length }}</b> pedidos</span>
             <span><b class="num">{{ money(totalPedido()) }}</b> pedido</span>
-            <span><b class="num">{{ money(totalCobrado()) }}</b> cobrado en Kepler@if (sinTotal()) { <span class="mc-warn"> · {{ sinTotal() }} sin total en Kepler</span> }</span>
+            <span><b class="num">{{ money(totalCobrado()) }}</b> cobrado en Kepler (neto de notas de crédito)@if (sinTotal()) { <span class="mc-warn"> · {{ sinTotal() }} sin total en Kepler</span> }</span>
           </div>
         </section>
 
@@ -197,7 +198,7 @@ const dmy = (v: string | null | undefined): string => {
                 <div class="mc-row"><span>Sucursal</span><span>{{ x.order.branch || '' }} {{ x.order.warehouse_name || '—' }}</span></div>
                 <div class="mc-row"><span>Pedido</span><span class="num">{{ x.order.lines }} renglones · {{ money(x.order.total) }}</span></div>
                 @if (x.order.load_guide; as g) { <div class="mc-row"><span>Guía de carga</span><span><span class="mono">{{ g.folio }}</span> · {{ g.rider_name || '—' }} · {{ g.status === 'impresa' ? 'impresa' : 'sin imprimir' }}</span></div> }
-                @if (x.order.failed_attempts) { <div class="mc-row"><span>Intentos fallidos</span><span>{{ x.order.failed_attempts }} de {{ maxIntentos + 1 }}@if (x.order.return_required) { <span class="mc-dev">ya no sale: aplicar devolución y nota de crédito en Kepler</span> }</span></div> }
+                @if (x.order.failed_attempts) { <div class="mc-row"><span>Intentos fallidos</span><span>{{ x.order.failed_attempts }} de {{ maxIntentos + 1 }}@if (x.order.return_required) { <span class="mc-dev">ya no sale: aplicar devolución y nota de crédito en Kepler</span><span class="muted mc-sub">Hazla DESDE la factura del ticket en Kepler: así se liga sola y el pedido se cierra aquí.</span> }</span></div> }
                 @if (x.order.delivery; as e) {
                   <div class="mc-row"><span>Entrega</span><span>{{ e.outcome === 'con_diferencia' ? 'Con diferencia' : 'Completa' }} · {{ fechaHora(e.delivered_at) }}@if (e.delivered_by_name) { · {{ e.delivered_by_name }} } · <span class="mono">{{ e.guide_folio }}</span>@if (e.note) { <span class="muted mc-sub">{{ e.note }}</span> }</span></div>
                   <div class="mc-row"><span>Cobró</span><span class="num mc-wrap"><span class="mono">{{ e.folio_digital }}</span> · {{ money(e.cash_amount) }} efectivo · {{ money(e.transfer_amount) }} transferencia@if (e.transfer_ref) { <span class="muted mono"> · ref. {{ e.transfer_ref }}</span> }</span></div>
@@ -205,13 +206,19 @@ const dmy = (v: string | null | undefined): string => {
               </div>
 
               <div class="mc-step">
+                @if (x.order.credit_note; as nc) {
+                  <div class="mc-row"><span>Nota de crédito Kepler</span><span class="mc-wrap">{{ nc.status === 'saldado' ? 'Saldado' : 'Parcial' }} · {{ money(nc.credited) }} de {{ money(nc.ticket_total) }}</span></div>
+                  @for (n of nc.notes; track n.folio) {
+                    <div class="mc-row"><span class="mono">{{ n.folio }}</span><span class="mc-wrap">{{ dmy(n.fecha) }} · {{ money(n.importe) }} · factura <span class="mono">{{ n.factura }}</span>@if (n.motivo) { <span class="muted mc-sub">{{ n.motivo }}</span> }</span></div>
+                  }
+                }
                 <h3>Documento de Kepler</h3>
                 @if (x.order.link; as l) {
                   <div class="mc-doc mc-doc-on">
                     <div><span class="mono">{{ l.folio_digital }}</span><span class="muted mc-sub">Caja {{ l.caja ?? '—' }} · {{ dmy(l.fecha) }} · {{ l.link_source === 'celular' ? 'lo ligó quien entregó' : 'ligado en la mesa' }}@if (l.linked_by_name) { por {{ l.linked_by_name }} }</span></div>
                     <b class="num">{{ l.total === null ? '—' : money(l.total) }}</b>
                   </div>
-                  @if (puedeLigar() && !x.order.delivery && (x.order.status === 'confirmed' || x.order.status === 'cancelled')) {
+                  @if (puedeLigar() && !x.order.delivery && x.order.stage !== 'devuelto' && (x.order.status === 'confirmed' || x.order.status === 'cancelled')) {
                     @if (!desligando()) {
                       <button type="button" class="mc-link mc-mt" (click)="abrirCorregir()">Este no es el documento: corregir</button>
                     } @else {
@@ -428,7 +435,8 @@ export class AlmacenPreventaComponent implements OnInit {
     return this.base().filter((r) => (!e || r.stage === e) && (!v || r.due === 'vencido'));
   });
   readonly totalPedido = computed(() => this.filas().reduce((t, r) => t + r.total, 0));
-  readonly totalCobrado = computed(() => this.filas().reduce((t, r) => t + (r.link?.total ?? 0), 0));
+  /** Lo cobrado en Kepler, neto de las notas de crédito que Kepler ya aplicó al ticket (MCP.7.1). */
+  readonly totalCobrado = computed(() => this.filas().reduce((t, r) => t + (r.link?.total ?? 0) - (r.credit_note?.credited ?? 0), 0));
   /** Pedidos con documento ligado cuyo total no aparece en Kepler: se DECLARAN, no se suman como 0. */
   readonly sinTotal = computed(() => this.filas().filter((r) => r.link && r.link.total === null).length);
 
@@ -626,7 +634,7 @@ export class AlmacenPreventaComponent implements OnInit {
   dm(v: string | null): string { return v ? dmy(v).slice(0, 5) : '—'; }
 
   dueTexto(r: PresaleOrderRow): string {
-    if (r.due === null) return r.stage === 'cancelado' ? 'cancelado' : 'entregado';
+    if (r.due === null) return r.stage === 'cancelado' ? 'cancelado' : r.stage === 'devuelto' ? 'devuelto con NC' : 'entregado';
     if (r.due === 'vencido') return 'vencido ' + r.days_late + ' d';
     if (r.due === 'hoy') return 'hoy';
     const d = -(r.days_late ?? 0);
