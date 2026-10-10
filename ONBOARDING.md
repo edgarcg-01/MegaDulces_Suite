@@ -262,7 +262,7 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 
 ### 8.0b Antes de pedir revisión — el protocolo previo al PR
 
-> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09) y el rojo del CI de #346 (2026-10-09). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
+> **Origen:** feedback de Edgar en #304 y #305 (2026-10-08), lo que valoró en #336 (2026-10-09), el rojo del CI de #346 (2026-10-09) y lo que costó llevar #349/#350/#351 (etiquetas) a verde (2026-10-10, puntos 8–13). Cada punto es algo que **ya costó** o que **sí se valoró**: se midió al mergear, no es teoría. La plantilla del PR trae las mismas casillas; esta sección dice **por qué** y **cómo**.
 
 **1. El PR apunta a `main`. Siempre. No se apilan PR sobre ramas de feature.**
 - **Por qué:** el CI sólo corre con `pull_request: branches: [main]`. Un PR apuntado a otra rama **nunca se compila**: #305 llegó con 411 líneas que ningún compilador había visto. Y **re-apuntar la base no dispara el CI** (GitHub corre con `opened`/`synchronize`; cambiar la base no es ninguno): lo dispara un *push*.
@@ -295,6 +295,18 @@ ponerse roja — lo rojo no llega a prod, pero tampoco llega nada más hasta que
 - Si el PR es **más estricto que el plan**, dilo (aquí: se prohibió también el sentido inverso, normal → confidencial).
 - Los triggers y funciones multi-tenant **filtran por `tenant_id`** en el `SELECT` que hacen (ahí es donde se rompen en silencio).
 - Declara qué RLS tienen las tablas que tocas y **verifícalo contra producción** (`relrowsecurity` y `relforcerowsecurity`), en vez de suponerlo; y mide que la marca de tiempo de la migración no solape con `main`, los PR abiertos y lo ya aplicado.
+
+**8. Corre a mano lo que SÓLO corre en CI.** El `pre-push` (`scripts/gate-push.js`) **no** corre el `Boundary type gate` (`scripts/lint-boundary-gate.js`), pero el CI sí: #350 y #351 llegaron a `Lint & test` con 12 y 4 violaciones (`any`, métodos de controller sin tipo de retorno, `trx: any`) y quedaron en rojo hasta arreglarlas. Si tu diff toca un `*.controller.ts` o `*.service.ts`, corre `node scripts/lint-boundary-gate.js` **con tu trabajo ya commiteado** (en mitad de una fusión sin commitear el gate ve también los archivos ajenos que trae `main` y da falsos rojos; me pasó con 9 violaciones que no eran mías). El criterio general: **antes de empujar, mira qué pasos tiene `ci.yml` que el `pre-push` no tiene, y corre esos.**
+
+**9. Prueba el directorio ENTERO del módulo que tocaste, no un filtro por nombre.** Cambié la firma de `addBulk` y corrí sólo la prueba del componente: `etiqueta-hoja.spec.ts` comprobaba **como texto** esa firma y el CI lo atrapó. `nx test view -- modules/tienda`, no `-- tienda-cambios-precio`.
+
+**10. Después de fusionar `main`, busca lo que tu PR y lo recién entrado hacen por duplicado — aunque git no marque conflicto.** `agruparPorCodigo` quedó en dos archivos distintos (la app, en #349; `libs/contracts`, en #350) y la fusión fue limpia. Dos copias de una regla es justo lo que `libs/contracts` existe para evitar: compara los cuerpos, deja una y reexporta la otra, y que las pruebas de ambas sigan pasando contra la que quedó.
+
+**11. Entre PR abiertos también hay conflictos — compruébalo, no lo recuerdes.** Dos PR limpios contra `main` pueden chocar entre sí: `git merge-tree --write-tree origin/<ramaA> origin/<ramaB>`. Escribí en una descripción que #350 y #351 «no tocan los mismos archivos» y era falso (chocan en `commercial-labels.service.ts`). Declara el orden de fusión y el conflicto que le queda al segundo.
+
+**12. Cada cifra y cada afirmación de la descripción se verifica contra el diff.** «55 pruebas nuevas» con un desglose que sumaba 64; «0 commits de atraso» después de que `main` avanzó; «ya compila» sin haber compilado. Tras el último push, **relee la descripción** buscando lo que cambió: conteos, atraso contra `main`, y toda función que se haya quitado (una descripción que sigue prometiendo una descarga que ya no existe es una afirmación falsa).
+
+**13. Una mutación que no se aplicó parece una prueba que pasa.** Con archivos CRLF, `str.replace` de Python puede no cambiar nada y la prueba «sobrevive» sin haber probado. La mutación **afirma que el reemplazo ocurrió** (`assert a in s`) antes de correr la prueba, y se restaura el archivo y se vuelve a correr en verde.
 
 > 🤖 Los comentarios de `nx-cloud` («AI Fix») en los PR son ruido del bot (la organización de Nx Cloud está deshabilitada): no son feedback ni hay que atenderlos.
 
