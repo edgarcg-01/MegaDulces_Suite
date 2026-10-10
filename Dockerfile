@@ -208,7 +208,7 @@ RUN --mount=type=cache,id=trade-nx,target=/app/.nx/cache,sharing=locked \
 # todo el stack de front —`@imgly` 184MB, `@angular` 64MB, `@zxing` 29MB, PrimeNG+temas+iconos
 # 26MB, chart.js/leaflet/gsap/dexie/capacitor/ngrx/zone.js— que el bundle de la api nunca pide.
 #
-# `apps/api/webpack.config.js` emite `generatePackageJson: true`, o sea que el build escribe en
+# `apps/api/rspack.config.js` emite `generatePackageJson: true`, o sea que el build escribe en
 # `dist/apps/api/` un `package.json` con las 64 deps que el grafo de imports REALMENTE usa, más
 # su `package-lock.json` podado. Esa lista es DERIVADA, no mantenida a mano.
 #
@@ -244,9 +244,17 @@ RUN --mount=type=cache,id=trade-npm,target=/root/.npm \
 #
 # Las dos líneas van DESPUÉS del `npm ci` a propósito: `main.js` cambia en cada build, y copiarlo
 # antes invalidaría la instalación entera en cada deploy.
+#
+# `[NX.7]` El segundo candado mira el MISMO artefacto, buscando otra cosa: un spread de
+# iterable emitido como `[].concat(`, que en runtime deja el Set/MapIterator adentro del
+# array. Son SIETE incidentes de producción en `GOTCHAS.md`, todos con el build en verde.
+# Acá es donde más vale: éste es el bundle que se va a prod, no uno parecido.
 COPY --from=build-api /app/dist/apps/api/main.js ./main.js
 COPY scripts/check-bundle-externals.js ./check-bundle-externals.js
-RUN node ./check-bundle-externals.js ./main.js /app/node_modules && rm -f ./main.js ./check-bundle-externals.js
+COPY scripts/check-bundle-downlevel.js ./check-bundle-downlevel.js
+RUN node ./check-bundle-externals.js ./main.js /app/node_modules \
+ && node ./check-bundle-downlevel.js ./main.js \
+ && rm -f ./main.js ./check-bundle-externals.js ./check-bundle-downlevel.js
 
 
 # ═══ 5. Los tiempos de ejecución, en rama para compartir lo caro ═════════════════════════════

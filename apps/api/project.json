@@ -9,11 +9,20 @@
   ],
   "targets": {
     "build": {
-      "executor": "@nx/webpack:webpack",
+      "executor": "@nx/rspack:rspack",
       "outputs": [
         "{options.outputPath}"
       ],
       "//": [
+        "`[NX.7]` El bundler pasó de @nx/webpack a @nx/rspack. Misma API de config (los",
+        "externals y el plugin de la api entraron tal cual) y el mismo compilador, swc.",
+        "",
+        "⚠️ `apps/api/webpack.config.js` QUEDA en su lugar a propósito, sin usar. Es el camino",
+        "de vuelta: revertir es cambiar estas dos líneas, no restaurar un archivo. Los dos",
+        "bugs que esta capa ya costó (herencia loose y spread de iterables) compilaban VERDE y",
+        "fallaban en runtime, así que el CI no es testigo suficiente. Se retira cuando rspack",
+        "acumule despliegues sin incidente.",
+        "",
         "⛔ Los `assets` de abajo traen DOS carpetas de FUERA del proyecto (database/migrations y",
         "database/seeds). El input por default de Nx es {projectRoot}/**/* + sharedGlobals, o sea",
         "que esas dos NO entran al hash. MEDIDO el 2026-09-17, con la cache recien encendida:",
@@ -33,11 +42,10 @@
       ],
       "options": {
         "target": "node",
-        "compiler": "swc",
         "outputPath": "dist/apps/api",
         "main": "apps/api/src/main.ts",
         "tsConfig": "apps/api/tsconfig.app.json",
-        "webpackConfig": "apps/api/webpack.config.js",
+        "rspackConfig": "apps/api/rspack.config.js",
         "assets": [
           {
             "glob": "**/*",

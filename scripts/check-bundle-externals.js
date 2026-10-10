@@ -6,7 +6,7 @@
  * El stage `prod-deps` del Dockerfile ya no instala desde el `package.json` de
  * la RAÍZ (116 deps, con todo el stack de Angular/PrimeNG/Capacitor adentro)
  * sino desde el manifiesto PODADO que emite el propio build de la api
- * (`generatePackageJson: true` en `apps/api/webpack.config.js`) — 64 deps.
+ * (`generatePackageJson: true` en `apps/api/rspack.config.js`) — 64 deps.
  *
  * Ese manifiesto lo deriva webpack de los `externals` que VE en el grafo de
  * imports. O sea que hay un modo de falla real: un paquete que se requiere de

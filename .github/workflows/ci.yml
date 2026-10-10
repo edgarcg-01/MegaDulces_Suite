@@ -217,6 +217,20 @@ jobs:
           # precargado (Angular v18 + esbuild en Node 20 lo necesita).
           NODE_OPTIONS: "--max-old-space-size=4096 --import file://${{ github.workspace }}/load-compiler.mjs"
 
+      # `[NX.7]` El único testigo de los dos bugs que esta capa ya costó. Los dos compilaban
+      # VERDE y mentían en runtime: una clase decorada que hereda de una ES2015 real (todo
+      # `PUT /api/users/:id` daba 500) y `[...new Set(x)]` emitido como `[].concat(new Set(x))`
+      # — SIETE incidentes de producción en `GOTCHAS.md`, entre ellos el 22P02 que tumbó el
+      # sell-out y la conciliación de bancos en $0.
+      #
+      # ⭐ Mira el ARTEFACTO, no la configuración: no le importa qué bundler lo produjo. Por eso
+      # entra junto con el cambio de bundler — la defensa de hoy vive en la config de UNO.
+      # Sin bundle dice NO MEDIDO y sale 0: `affected` puede legítimamente no incluir la api.
+      - name: Candado del bundle (spread de iterables — ver GOTCHAS)
+        run: |
+          node scripts/check-bundle-downlevel.js --self-test
+          node scripts/check-bundle-downlevel.js dist/apps/api/main.js
+
   # INFRA.5 (ADR-043): lint + test SOLO de lo que el cambio toca (nx affected).
   # La regression suite (database/run-all-tests.js) NO va acá — necesita API arriba
   # + multi-DB sembrada; queda como gate local/manual.
