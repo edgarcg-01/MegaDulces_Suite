@@ -11,7 +11,7 @@
  * Cruzar una implementacion consigo misma no valida nada.
  *
  *   - implementacion A (aqui, en SQL):  sum() OVER (ORDER BY ... ROWS UNBOUNDED PRECEDING)
- *   - implementacion B (el producto):   `concentracionDeGasto` en TypeScript puro
+ *   - implementacion B (el producto):   `concentracion` en TypeScript puro
  *
  * EL BORDE QUE IMPORTA: ?CUANTAS PARTIDAS HACEN EL 80%?
  * -----------------------------------------------------
@@ -42,7 +42,7 @@ const money = (n) => n == null ? '(null)' : '$' + Number(n).toLocaleString('en-U
 
 // Implementacion B: la del producto, cargada del fuente real. Si el modulo cambia, este candado
 // mide el modulo nuevo -- que es exactamente lo que tiene que pasar.
-let concentracionDeGasto;
+let concentracion, fraseConcentracion;
 try {
   // ts-node no esta garantizado en este runner: se compila el unico archivo que hace falta.
   const ts = require('typescript');
@@ -51,7 +51,8 @@ try {
   const js = ts.transpileModule(src, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 } }).outputText;
   const mod = { exports: {} };
   new Function('exports', 'module', 'require', js)(mod.exports, mod, require);
-  concentracionDeGasto = mod.exports.concentracionDeGasto;
+  concentracion = mod.exports.concentracion;
+  fraseConcentracion = mod.exports.fraseConcentracion;
 } catch (e) {
   console.log('  (no se pudo cargar el modulo del producto:', e.message, ')');
 }
@@ -95,9 +96,10 @@ async function concSQL(budgetId) {
         [T, b.id])).rows;
 
       if (!sql.length) { nm(`FY${b.fiscal_year} no tiene partidas de gasto con monto`); continue; }
-      if (!concentracionDeGasto) { nm('el modulo del producto no se pudo cargar: no hay con que cruzar'); continue; }
+      if (!concentracion) { nm('el modulo del producto no se pudo cargar: no hay con que cruzar'); continue; }
 
-      const ts = concentracionDeGasto(filasDb);
+      const universo = { nombre: `el gasto de ${b.fiscal_year}`, completo: true };
+      const ts = concentracion(filasDb, universo);
       const totalSql = Math.round(sql.reduce((a, r) => a + Number(r.amt), 0) * 100) / 100;
 
       console.log(`   total ${money(totalSql)} · ${sql.length} partidas · mayor ${sql[0].concept} ${sql[0].pct}%`);
@@ -150,6 +152,65 @@ async function concSQL(budgetId) {
       ok(difer > 0.5,
         `el agregado publica ${agg.pct_mayor}% donde el ejercicio real es ${porEjercicio[0].pct}% ` +
         `(${difer.toFixed(2)} pp de deformacion sobre ${money(agg.total)} que no son de ningun ano)`);
+    }
+
+    console.log('\n── [PU.VG.11] EL UNIVERSO ES PARTE DEL NUMERO ──');
+    // La superficie de ingreso publicaba "4 de 8 entidades cargan el 81.6% del plan". Ese 81.6%
+    // es de MOSTRADOR. Este bloque mide las DOS lecturas del MISMO hecho y exige que DIFIERAN: si
+    // coincidieran, nombrar el universo seria decorativo y este candado no diria nada.
+    const bi = budgets[0];
+    const planRow = bi && (await knex.raw(
+      `SELECT sum(original_amount)::numeric t FROM budget.budget_lines
+         WHERE tenant_id = ? AND budget_id = ? AND line_type = 'ingreso'`, [T, bi.id])).rows[0];
+    const most = bi ? (await knex.raw(
+      `SELECT original_amount::numeric amt FROM budget.budget_lines
+         WHERE tenant_id = ? AND budget_id = ? AND line_type = 'ingreso'
+           AND cost_center LIKE 'mostrador:%' ORDER BY amt DESC`, [T, bi.id])).rows : [];
+
+    if (!planRow || !Number(planRow.t) || most.length < 4) {
+      nm('el ejercicio no tiene plan de ingreso por canal con 4+ renglones de mostrador: la leccion del universo no se puede ejercer con datos reales hoy');
+    } else {
+      const totalPlan = Number(planRow.t);
+      const subMost = most.reduce((a, r) => a + Number(r.amt), 0);
+      const top4 = most.slice(0, 4).reduce((a, r) => a + Number(r.amt), 0);
+      const pctEnMostrador = 100 * top4 / subMost;
+      const pctEnPlan = 100 * top4 / totalPlan;
+      const fraccion = 100 * subMost / totalPlan;
+      console.log(`   Mostrador ${money(subMost)} = ${fraccion.toFixed(2)}% del plan ${money(totalPlan)}`);
+      console.log(`   las 4 mayores: ${pctEnMostrador.toFixed(2)}% de Mostrador  vs  ${pctEnPlan.toFixed(2)}% del plan`);
+      ok(Math.abs(pctEnMostrador - pctEnPlan) > 1,
+        `PRUEBA NEGATIVA: la misma cifra vale ${pctEnMostrador.toFixed(2)}% o ${pctEnPlan.toFixed(2)}% segun el universo ` +
+        `(${(pctEnMostrador - pctEnPlan).toFixed(2)} pp): nombrar el universo NO es decorativo`);
+      ok(fraccion < 99.5,
+        `Mostrador es un RECORTE (${fraccion.toFixed(2)}% del plan): publicar su % como "del plan" sobredeclara`);
+
+      if (concentracion && fraseConcentracion) {
+        const recorte = { nombre: 'Mostrador', completo: false, de: 'el plan de ingreso', pct: Math.round(fraccion * 100) / 100 };
+        const fr = fraseConcentracion(concentracion(most.map((r) => ({ concept: 'x', original_amount: r.amt })), recorte));
+        ok(fr.detalle != null && fr.detalle.includes('del plan de ingreso'),
+          `la frase del servidor CARGA la fraccion del recorte: "${fr.detalle}"`);
+      }
+    }
+
+    console.log('\n── La frase la emite el SERVIDOR, no la plantilla ──');
+    if (concentracion && fraseConcentracion && budgets.length) {
+      const filasG = (await knex.raw(
+        `SELECT id, concept, account_code, original_amount, control_level, responsible, expense_class
+           FROM budget.budget_lines WHERE tenant_id = ? AND budget_id = ? AND line_type = 'gasto'`,
+        [T, budgets[0].id])).rows;
+      const cc = concentracion(filasG, { nombre: 'el gasto de ' + budgets[0].fiscal_year, completo: true });
+      const fr = fraseConcentracion(cc);
+      console.log('   titular: ' + fr.titular);
+      console.log('   detalle: ' + fr.detalle);
+      console.log('   inversa: ' + fr.inversa);
+      ok(!fr.titular.includes('?') && !fr.titular.includes('\u00bf'),
+        'el titular CONTESTA, no pregunta');
+      ok(fr.titular.includes(String(budgets[0].fiscal_year)),
+        'el titular NOMBRA el universo: sin eso la cifra no se puede defender');
+      ok(fr.es_ausencia === (cc.total == null),
+        'es_ausencia distingue un hecho de una ausencia declarada');
+    } else {
+      nm('el modulo del producto no se pudo cargar: la gramatica no se pudo ejercer');
     }
 
     console.log('\n── El umbral que no existe ──');
