@@ -217,6 +217,16 @@ describe('[PF.2]/[PF.4] Para cuidar hoy: líderes de un lado, lo que no se vende
     expect(document.querySelector('.pp-peek-acciones')).toBeNull();
   });
 
+  it('[PF.6] dice si salió de la foto del servidor o del cálculo en vivo', async () => {
+    const foto = await montar({ ...sinTabla(), cuidar: vi.fn(() => of({ ...CUIDAR, origen: { fuente: 'foto' as const, calculado_at: '2026-10-09T18:05:00-06:00' } })) });
+    expect(texto(foto.fix.nativeElement.querySelector('.pc-origen'))).toMatch(/^Calculado a las .*se actualiza cada minuto\.$/);
+    TestBed.resetTestingModule();
+    const vivo = await montar({ ...sinTabla(), cuidar: vi.fn(() => of({ ...CUIDAR, origen: { fuente: 'en_vivo' as const, calculado_at: '2026-10-09T18:05:00-06:00' } })) });
+    const el = vivo.fix.nativeElement.querySelector('.pc-origen') as HTMLElement;
+    expect(el.classList).toContain('is-vivo');
+    expect(el.textContent).toContain('la foto del servidor no está al día');
+  });
+
   it('[negativa] si falla, lo dice y la tabla sigue', async () => {
     const { fix } = await montar({ listar: vi.fn(() => of(LISTA([resumen('p-1')]))), detalle: vi.fn(() => NEVER),
       cuidar: vi.fn(() => throwError(() => new Error('x'))) });

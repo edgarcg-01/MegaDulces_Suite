@@ -949,6 +949,11 @@ export interface ProductoACuidar {
 }
 
 export interface CuidarRespuesta {
+  /**
+   * `[PF.6]` De dónde salió: la foto que el worker calcula cada minuto, o el cálculo en vivo (sin foto o con
+   * la foto vieja). `calculado_at` es cuándo se calculó lo que se ve.
+   */
+  origen?: { fuente: 'foto' | 'en_vivo'; calculado_at: string };
   periodos: Periodos;
   corte: string;
   en_vivo_al: string;

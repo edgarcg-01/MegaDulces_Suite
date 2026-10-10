@@ -1,6 +1,7 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { Knex } from 'knex';
-import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
+import { KNEX_NEW_DB, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import { escaleraComun, margenesDe } from './new-products';
 import { EXISTENCIA_KEPLER_SQL } from './new-products.sql';
 import {
@@ -67,6 +68,14 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 const MAX_IDS = 200;
 /** Cuánto se guarda "Para cuidar hoy" (la pantalla lo pide cada minuto). */
 const CUIDAR_VIGENCIA_MS = 60_000;
+/**
+ * `[PF.6]` La foto del worker se sirve si tiene menos de esto. Calcula cada minuto y tarda ~3 s: 3 minutos
+ * aguantan dos pasadas perdidas antes de caer al cálculo en vivo (que se declara).
+ */
+const FOTO_VIGENCIA_MS = 3 * 60_000;
+/** El tenant que el worker fotografía (como los demás trabajos programados de comercial). */
+const MEGA = '00000000-0000-0000-0000-00000000d01c';
+type Variante = 'costo' | 'sin_costo';
 
 const num = (v: unknown): number | null => {
   if (v === null || v === undefined || v === '') return null;
@@ -86,9 +95,13 @@ const agrupar = <T,>(xs: T[], k: (x: T) => string) => {
  */
 @Injectable()
 export class ProductFlowService {
+  private readonly logger = new Logger(ProductFlowService.name);
+  private fotoEnCurso = false;
+
   constructor(
     private readonly tk: TenantKnexService,
     private readonly tenantCtx: TenantContextService,
+    @Inject(KNEX_NEW_DB) private readonly knex: Knex,
   ) {}
 
   /**
@@ -156,19 +169,50 @@ export class ProductFlowService {
         criterio: CRITERIO_FLUJO, productos,
       });
       if (!limpios.length) return respuesta([]);
-      return respuesta(await this.resumenes(trx, p, corte, limpios, opts));
+      return respuesta((await this.resumenes(trx, p, corte, limpios, [opts.puedeVerCosto])).get(opts.puedeVerCosto) ?? []);
     });
   }
 
   /** `[PF.2]`/`[PF.3]` Para cuidar hoy: los líderes que piden atención y los lotes que caducan antes de venderse. */
   async cuidar(opts: { puedeVerCosto: boolean }): Promise<CuidarRespuesta> {
+    // [PF.6] Primero la foto que calcula el worker cada minuto: nadie espera el cálculo.
+    const foto = await this.leerFoto(opts.puedeVerCosto ? 'costo' : 'sin_costo');
+    if (foto) return foto;
+    return this.cuidarEnVivo(opts);
+  }
+
+  /** La foto del worker si es reciente; NULL si no hay, está vieja o la tabla aún no existe (se calcula en vivo). */
+  private async leerFoto(variante: Variante): Promise<CuidarRespuesta | null> {
+    try {
+      const r = await this.tk.run(async (trx) => (await trx.raw(`
+        SELECT payload, calculado_at FROM analytics.product_flow_watch
+         WHERE tenant_id = public.current_tenant_id() AND variante = ?`, [variante])).rows[0] as
+        { payload: CuidarRespuesta; calculado_at: Date | string } | undefined);
+      if (!r) return null;
+      const at = new Date(r.calculado_at).getTime();
+      if (Date.now() - at > FOTO_VIGENCIA_MS) return null;
+      return { ...r.payload, origen: { fuente: 'foto', calculado_at: new Date(at).toISOString() } };
+    } catch (e) {
+      // Antes de aplicar la migración la tabla no existe: se calcula en vivo como antes, sin tumbar la pantalla.
+      this.logger.warn(`Foto de Para cuidar hoy no disponible: ${(e as Error).message.slice(0, 120)}`);
+      return null;
+    }
+  }
+
+  /** El cálculo en vivo (sin foto o con foto vieja), guardado un minuto en este proceso. */
+  private async cuidarEnVivo(opts: { puedeVerCosto: boolean }): Promise<CuidarRespuesta> {
     const key = `${this.tenantCtx.requireTenantId()}:${opts.puedeVerCosto ? 1 : 0}`;
     const m = this.memoCuidar.get(key) ?? { at: 0 };
     this.memoCuidar.set(key, m);
     if (m.valor && Date.now() - m.at < CUIDAR_VIGENCIA_MS) return m.valor;
     if (!m.enCurso) {
-      m.enCurso = this.calcularCuidar(opts)
-        .then((v) => { m.valor = v; m.at = Date.now(); return v; })
+      m.enCurso = this.tk.run((trx) => this.calcularCuidar(trx, [opts.puedeVerCosto]))
+        .then((vs) => {
+          const v = vs.get(opts.puedeVerCosto)!;
+          const conOrigen: CuidarRespuesta = { ...v, origen: { fuente: 'en_vivo', calculado_at: v.en_vivo_al } };
+          m.valor = conOrigen; m.at = Date.now();
+          return conOrigen;
+        })
         .finally(() => { m.enCurso = undefined; });
       // Si falla el recálculo de fondo se queda el anterior; sin anterior, el error le llega a quien pidió.
       m.enCurso.catch(() => undefined);
@@ -176,20 +220,39 @@ export class ProductFlowService {
     return m.valor ?? m.enCurso;
   }
 
-  private async calcularCuidar(opts: { puedeVerCosto: boolean }): Promise<CuidarRespuesta> {
-    return this.tk.run(async (trx) => {
-      const { corte, p } = await this.base(trx);
-      const { mapa, calculado } = await this.lideres(trx, null);
-      const lotes = await this.lotes(trx, null);
-      const ids = [...new Set([...mapa.keys(), ...lotes.map((l) => l.product_id)])];
-      const resumenes = ids.length ? await this.resumenes(trx, p, corte, ids, opts, { lideres: mapa, lotes }) : [];
+  /**
+   * `[PF.6]` Calcula «Para cuidar hoy» en las variantes pedidas (con costo = true) con UNA sola pasada de
+   * consultas: lo que cambia entre variantes son funciones puras sobre los mismos datos.
+   */
+  private async calcularCuidar(trx: Knex.Transaction, variantes: boolean[]): Promise<Map<boolean, CuidarRespuesta>> {
+    const { corte, p } = await this.base(trx);
+    const { mapa, calculado } = await this.lideres(trx, null);
+    const lotes = await this.lotes(trx, null);
+    const ids = [...new Set([...mapa.keys(), ...lotes.map((l) => l.product_id)])];
+    const porVariante = ids.length ? await this.resumenes(trx, p, corte, ids, variantes, { lideres: mapa, lotes }) : new Map<boolean, FlujoListaRespuesta['productos']>();
+    const info = new Map<string, { sku: string; nombre: string | null }>();
+    for (const r of (await trx.raw(`
+      SELECT id::text AS id, sku, nombre FROM catalog.products
+       WHERE tenant_id = public.current_tenant_id() AND id = ANY(?::uuid[])`, [ids])).rows as Array<{ id: string; sku: string; nombre: string | null }>) {
+      info.set(r.id, { sku: r.sku, nombre: r.nombre });
+    }
+    const nombres = await this.nombres(trx);
+    const caducidadPorId = new Map(([...porVariante.values()][0] ?? []).map((r) => [r.product_id, r.caducidad]));
+    const noSeVenden = await this.noSeVenden(trx, p, corte, variantes, caducidadPorId);
+    const out = new Map<boolean, CuidarRespuesta>();
+    for (const conCosto of variantes) {
+      const resumenes = porVariante.get(conCosto) ?? [];
+      out.set(conCosto, this.armarCuidar(p, corte, conCosto, resumenes, info, nombres, mapa, calculado, lotes, noSeVenden.get(conCosto)!));
+    }
+    return out;
+  }
+
+  private armarCuidar(p: Periodos, corte: string, conCosto: boolean, resumenes: FlujoListaRespuesta['productos'],
+    info: Map<string, { sku: string; nombre: string | null }>, nombres: Map<string, string>, mapa: Map<string, Lider>,
+    calculado: string | null, lotes: LoteFila[], noSeVenden: CuidarRespuesta['no_se_venden']): CuidarRespuesta {
+    {
       const porId = new Map(resumenes.map((r) => [r.product_id, r]));
       const info = new Map<string, { sku: string; nombre: string | null }>();
-      for (const r of (await trx.raw(`
-        SELECT id::text AS id, sku, nombre FROM catalog.products
-         WHERE tenant_id = public.current_tenant_id() AND id = ANY(?::uuid[])`, [ids])).rows as Array<{ id: string; sku: string; nombre: string | null }>) {
-        info.set(r.id, { sku: r.sku, nombre: r.nombre });
-      }
       // Los líderes, TODOS y por su lugar en la venta de la red (pedido 2026-10-09: de un lado los
       // líderes, del otro lo que no se vende); cada uno dice lo que pide.
       const lideres = [...mapa.keys()]
@@ -199,14 +262,12 @@ export class ProductFlowService {
         .sort((a, b) => (a.resumen.lider?.rank ?? 0) - (b.resumen.lider?.rank ?? 0));
       const porMotivo = { agotado: 0, comprar: 0, mover: 0, se_freno: 0 };
       for (const x of lideres) for (const m of x.motivos) porMotivo[m]++;
-      const noSeVenden = await this.noSeVenden(trx, p, corte, opts, new Map(resumenes.map((r) => [r.product_id, r.caducidad])));
       const caducidad = resumenes
         .filter((r) => r.caducidad && (r.caducidad.vencido > 0 || r.caducidad.en_riesgo > 0 || r.caducidad.por_caducar > 0))
         .sort((a, b) => (a.caducidad!.proxima ?? '9999').localeCompare(b.caducidad!.proxima ?? '9999'))
         .map((r) => ({ ...info.get(r.product_id)!, resumen: r }));
-      const nombres = await this.nombres(trx);
       return {
-        periodos: p, corte, en_vivo_al: new Date().toISOString(), costo_visible: opts.puedeVerCosto, criterio: CRITERIO_FLUJO,
+        periodos: p, corte, en_vivo_al: new Date().toISOString(), costo_visible: conCosto, criterio: CRITERIO_FLUJO,
         lideres: { total: mapa.size, calculado, lista: lideres, por_motivo: porMotivo },
         no_se_venden: noSeVenden,
         caducidad: {
@@ -218,18 +279,22 @@ export class ProductFlowService {
           },
         },
       };
-    });
+    }
   }
 
-  /** Resumen de unos productos (ya validados). Con `extra` se reusan líderes y lotes ya leídos. */
-  private async resumenes(trx: Knex.Transaction, p: Periodos, corte: string, ids: string[], opts: { puedeVerCosto: boolean },
-    extra?: { lideres: Map<string, Lider>; lotes: LoteFila[] }): Promise<FlujoListaRespuesta['productos']> {
+  /**
+   * Resumen de unos productos (ya validados), por variante (con costo = true). Las consultas se hacen una vez;
+   * el costo y el margen sólo si alguna variante los lleva. Con `extra` se reusan líderes y lotes ya leídos.
+   */
+  private async resumenes(trx: Knex.Transaction, p: Periodos, corte: string, ids: string[], variantes: boolean[],
+    extra?: { lideres: Map<string, Lider>; lotes: LoteFila[] }): Promise<Map<boolean, FlujoListaRespuesta['productos']>> {
+    const conCosto = variantes.includes(true);
     {
       const prods = (await trx.raw(`
         SELECT id::text AS id, sku FROM catalog.products
          WHERE tenant_id = public.current_tenant_id() AND id = ANY(?::uuid[]) AND deleted_at IS NULL AND sku IS NOT NULL`,
       [ids])).rows as Array<{ id: string; sku: string }>;
-      if (!prods.length) return [];
+      if (!prods.length) return new Map(variantes.map((v) => [v, []]));
       const ids2 = prods.map((x) => x.id);
       const lideres = extra?.lideres ?? (await this.lideres(trx, ids2)).mapa;
       const lotesPor = agrupar(extra?.lotes ?? await this.lotes(trx, ids2), (l) => l.product_id);
@@ -257,32 +322,34 @@ export class ProductFlowService {
       }).map((x) => x.sku);
       const skusKardex = [...new Set(candidatos)];
       const { kardex, kdil } = await this.kardex(trx, skusKardex, sumarDias(p.hoy, -CRITERIO_FLUJO.ventanaReparto));
-      const costos = opts.puedeVerCosto
+      const costos = conCosto
         ? (await trx.raw(KDIL_CRUDO_SQL, [skus])).rows as Array<{ plaza: string; sku: string; costo: string | null }>
         : [];
       const fichas = await this.fichas(trx, skusKardex);
 
       // [PF.5] El margen real de los últimos días cerrados, sólo con permiso de costo (un margen deja ver el costo).
       const margen = new Map<string, { n: string; nc: string; c: string }>();
-      if (opts.puedeVerCosto) {
+      if (conCosto) {
         for (const r of (await trx.raw(MARGEN_LISTA_SQL, [sumarDias(p.hoy, -CRITERIO_FLUJO.ventanaMargen), p.hoy, ids2])).rows as
           Array<{ product_id: string; n: string; nc: string; c: string }>) margen.set(r.product_id, r);
       }
-      return prods.map((x) => {
+      const armar = (puedeVerCosto: boolean) => prods.map((x) => {
         const lotes = lotesPor.get(x.id) ?? [];
         const plazas = this.armarPlazas(p, {
           hist: histPor.get(x.id) ?? [], vivo: vivoPor.get(x.sku) ?? [], exist: exPor.get(x.id) ?? [],
           kardex: kardex.filter((k) => k.sku === x.sku), kdil: kdil.filter((k) => k.sku === x.sku),
-          costos: costos.filter((c) => c.sku === x.sku), fichas: fichas.get(x.sku) ?? new Map(), nombres,
+          // Sin permiso de costo el costo ni entra: el análisis de compra no puede citar pesos detenidos.
+          costos: puedeVerCosto ? costos.filter((c) => c.sku === x.sku) : [], fichas: fichas.get(x.sku) ?? new Map(), nombres,
           // Con lotes se juzgan TODAS sus sucursales: un lote donde no se vende es justo el que caduca.
           todas: lotes.length > 0,
         });
         const caducidad = resumirCaducidad(juzgarLotes(p, lotes, plazas, nombres));
         const r = resumirProducto(x.id, p, plazas.filter((pl) => pl.estado !== 'sin_movimiento'), { lider: lideres.get(x.id) ?? null, caducidad });
+        if (!puedeVerCosto) return { ...r, margen_real: null, compra: { ...r.compra, inmovilizado: null } };
         const mg = margen.get(x.id);
-        const conMargen = { ...r, margen_real: mg ? margenRealDe(mg.n, mg.nc, mg.c) : null };
-        return opts.puedeVerCosto ? conMargen : { ...conMargen, compra: { ...r.compra, inmovilizado: null } };
+        return { ...r, margen_real: mg ? margenRealDe(mg.n, mg.nc, mg.c) : null };
       });
+      return new Map(variantes.map((v) => [v, armar(v)]));
     }
   }
 
@@ -374,8 +441,8 @@ export class ProductFlowService {
    * `[PF.4]` Lo que no se vende en la red. La consulta mira la historia cerrada; aquí se descartan los que
    * vendieron hoy en vivo (una venta de hoy no es "30 días sin vender").
    */
-  private async noSeVenden(trx: Knex.Transaction, p: Periodos, corte: string, opts: { puedeVerCosto: boolean },
-    caducidad: Map<string, CaducidadResumen | null>): Promise<CuidarRespuesta['no_se_venden']> {
+  private async noSeVenden(trx: Knex.Transaction, p: Periodos, corte: string, variantes: boolean[],
+    caducidad: Map<string, CaducidadResumen | null>): Promise<Map<boolean, CuidarRespuesta['no_se_venden']>> {
     const C = CRITERIO_FLUJO;
     const nuevosExcluidos = !!(await trx.raw(NUEVOS_POBLADA_SQL)).rows[0]?.poblada;
     const filas = (await trx.raw(nuevosExcluidos ? NO_SE_VENDEN_SQL : NO_SE_VENDEN_SIN_NUEVOS_SQL, [
@@ -388,18 +455,68 @@ export class ProductFlowService {
     const fichas = await this.fichas(trx, muestra.map((f) => f.sku));
     const nombres = await this.nombres(trx);
     const porTramo = { mes: 0, trimestre: 0, anio: 0 };
-    const todos = quedan.map((f) => noSeVende(f, nombres, null, opts.puedeVerCosto));
-    for (const x of todos) porTramo[x.tramo]++;
-    return {
+    for (const f of quedan) porTramo[noSeVende(f, nombres, null, false).tramo]++;
+    const escaleras = new Map(muestra.map((f) => [f.sku, escaleraComun([...(fichas.get(f.sku) ?? new Map()).entries()]
+      .filter(([pl]) => (f.plazas ?? []).includes(pl)).map(([, fi]) => escaleraDeFicha(fi)))]));
+    return new Map(variantes.map((puedeVerCosto) => [puedeVerCosto, {
       nuevos_excluidos: nuevosExcluidos,
       total: quedan.length,
-      valor_total: opts.puedeVerCosto ? Math.round(quedan.reduce((a, f) => a + (num(f.valor) ?? 0), 0) * 100) / 100 : null,
-      por_tramo: porTramo,
-      productos: muestra.map((f) => noSeVende(f, nombres,
-        escaleraComun([...(fichas.get(f.sku) ?? new Map()).entries()]
-          .filter(([pl]) => (f.plazas ?? []).includes(pl)).map(([, fi]) => escaleraDeFicha(fi))),
-        opts.puedeVerCosto, caducidad.get(f.product_id) ?? null)),
-    };
+      valor_total: puedeVerCosto ? Math.round(quedan.reduce((a, f) => a + (num(f.valor) ?? 0), 0) * 100) / 100 : null,
+      por_tramo: { ...porTramo },
+      productos: muestra.map((f) => noSeVende(f, nombres, escaleras.get(f.sku) ?? null, puedeVerCosto, caducidad.get(f.product_id) ?? null)),
+    }]));
+  }
+
+  /**
+   * `[PF.6]` La foto de «Para cuidar hoy», cada minuto, en el WORKER (la API tiene los trabajos programados
+   * apagados, ADR-043). Una pasada → las dos variantes → `analytics.product_flow_watch`. Latido en
+   * `analytics.cron_runs` (`product_flow_watch`, umbral en `CRON_JOBS`): sin él una foto parada se vería verde.
+   */
+  @Cron('0 * * * * *')
+  async refrescarFoto(): Promise<void> {
+    if (this.fotoEnCurso) return; // una pasada lenta no se encima con la siguiente
+    this.fotoEnCurso = true;
+    const t0 = Date.now();
+    let error: string | null = null;
+    let filas = 0;
+    try {
+      await this.tk.run(MEGA, async (trx) => {
+        const vs = await this.calcularCuidar(trx, [true, false]);
+        const calculado = new Date();
+        for (const [conCosto, v] of vs) {
+          const variante: Variante = conCosto ? 'costo' : 'sin_costo';
+          await trx.raw(`
+            INSERT INTO analytics.product_flow_watch (tenant_id, variante, payload, calculado_at, duracion_ms)
+            VALUES (public.current_tenant_id(), ?, ?::jsonb, ?, ?)
+            ON CONFLICT (tenant_id, variante) DO UPDATE
+               SET payload = EXCLUDED.payload, calculado_at = EXCLUDED.calculado_at,
+                   duracion_ms = EXCLUDED.duracion_ms, updated_at = now()`,
+          [variante, JSON.stringify(v), calculado, Date.now() - t0]);
+          filas++;
+        }
+      });
+    } catch (e) {
+      error = (e as Error).message.slice(0, 500);
+      this.logger.error(`Foto de Para cuidar hoy falló: ${error}`);
+    } finally {
+      this.fotoEnCurso = false;
+      await this.latirFoto(t0, filas, error);
+    }
+  }
+
+  private async latirFoto(t0: number, filas: number, error: string | null): Promise<void> {
+    try {
+      await this.knex('analytics.cron_runs')
+        .insert({
+          tenant_id: MEGA, job_key: 'product_flow_watch', label: 'Foto de Para cuidar hoy (Productos)',
+          last_start: new Date(t0), last_finish: this.knex.fn.now(), duration_ms: Date.now() - t0,
+          // Cero variantes escritas es FALLA aunque no haya excepción.
+          status: error || filas < 2 ? 'error' : 'ok', rows_affected: filas,
+          error, host: 'worker', updated_at: this.knex.fn.now(),
+        })
+        .onConflict(['tenant_id', 'job_key'])
+        .merge(['label', 'last_start', 'last_finish', 'duration_ms', 'status', 'rows_affected', 'error', 'host', 'updated_at']);
+    } catch { /* el latido no debe romper la foto */ }
   }
 
   /**
