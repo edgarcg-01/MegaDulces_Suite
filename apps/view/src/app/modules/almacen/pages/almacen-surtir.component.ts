@@ -362,8 +362,9 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
 
     /* Botones del pulgar: igual que la pantalla hermana (contar camión) — ícono arriba, texto abajo. */
-    .sr-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .3rem;
-      min-height: 5.5rem; border-radius: var(--r-lg); border: 2px solid transparent;
+    /* [GP.4] Más bajos (5.5 → 4.25rem) para que la tarjeta completa quepa sobre el pie fijo. */
+    .sr-btn { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: .1rem;
+      min-height: 4.25rem; border-radius: var(--r-lg); border: 2px solid transparent;
       font-size: var(--fs-lg); font-weight: 800; cursor: pointer; transition: transform var(--dur-micro) ease; }
     .sr-btn i { font-size: var(--fs-h2); }
     .sr-btn:disabled { opacity: .55; cursor: not-allowed; }
@@ -412,16 +413,16 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-n { font-size: var(--fs-body); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
     .sr-ren { background: var(--surface-card); border: 1px solid var(--surface-border); border-radius: var(--r-lg);
-      padding: .9rem 1rem; margin-bottom: .6rem; display: flex; flex-direction: column; gap: .6rem; }
-    .sr-ren-prod { display: flex; flex-direction: column; gap: .15rem; }
-    .sr-ren-prod strong { font-size: var(--fs-lg); line-height: 1.25; }
+      padding: .6rem .85rem; margin-bottom: .5rem; display: flex; flex-direction: column; gap: .4rem; }
+    .sr-ren-prod { display: flex; flex-direction: column; gap: 0; }
+    .sr-ren-prod strong { font-size: var(--fs-lg); line-height: 1.15; }
     .sr-sku { font-family: var(--font-mono); font-size: var(--fs-xs); color: var(--text-muted); }
     /* La cantidad es lo que se lee a un brazo de distancia: número grande, unidad un escalón abajo. */
     .sr-cant { display: flex; align-items: baseline; flex-wrap: wrap; gap: .4rem; }
     .sr-cant-n { font-size: var(--fs-display); font-weight: 900; line-height: 1; font-variant-numeric: tabular-nums; }
     .sr-cant-u { font-size: var(--fs-h2); font-weight: 800; }
     .sr-cant-b { flex-basis: 100%; font-size: var(--fs-body); color: var(--text-muted); }
-    .sr-datos { display: flex; flex-wrap: wrap; gap: .4rem .9rem; }
+    .sr-datos { display: flex; flex-wrap: wrap; gap: .15rem .9rem; }
     .sr-dato { display: inline-flex; align-items: center; gap: .35rem; font-size: var(--fs-body); color: var(--text-muted); }
     .sr-exist-ok, .sr-exist-neutral { color: var(--text-main); }
     .sr-exist-poca { color: var(--warn-fg); font-weight: 700; }
@@ -435,7 +436,7 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-falta-input:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .sr-falta .sr-tip { text-align: center; }
     .sr-falta-acc { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; }
-    .sr-nada { margin-top: .75rem; padding-top: .75rem; min-height: var(--tap-min); width: 100%; display: flex;
+    .sr-nada { margin-top: .4rem; min-height: max(2.75rem, var(--tap-min)); width: 100%; display: flex;
       align-items: center; justify-content: center; gap: .5rem; border-radius: var(--r-md); cursor: pointer;
       border: 2px solid var(--bad-fg); background: var(--surface-card); color: var(--bad-fg);
       font-size: var(--fs-body); font-weight: 700; }
@@ -449,14 +450,14 @@ function plural(n: number, uno: string, varios: string): string {
     .sr-hecho-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       font-size: var(--fs-body); color: var(--text-muted); }
 
-    .sr-pie { position: sticky; bottom: 0; z-index: 5; display: flex; flex-direction: column; gap: .5rem; margin-top: 1rem;
-      padding: .75rem 0 calc(.75rem + env(safe-area-inset-bottom));
+    .sr-pie { position: sticky; bottom: 0; z-index: 5; display: flex; flex-direction: column; gap: .25rem; margin-top: 1rem;
+      padding: .4rem 0 calc(.4rem + env(safe-area-inset-bottom));
       background: var(--surface-ground, var(--surface-card)); border-top: 1px solid var(--surface-border); }
     .sr-pie-n { font-size: var(--fs-body); color: var(--text-muted); text-align: center; }
     .sr-pend { font-weight: 800; color: var(--warn-fg); font-variant-numeric: tabular-nums; }
     .sr-pend-cero { color: var(--ok-fg); }
     .sr-falt { font-weight: 800; color: var(--warn-fg); }
-    .sr-btn-fin { min-height: 4rem; margin-top: 0; }
+    .sr-btn-fin { min-height: 3.25rem; margin-top: 0; }
 
     @media (prefers-reduced-motion: reduce) {
       .sr-barra > span, .sr-btn { transition: none; }

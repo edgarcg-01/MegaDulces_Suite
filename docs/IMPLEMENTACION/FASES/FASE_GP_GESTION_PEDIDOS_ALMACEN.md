@@ -1009,6 +1009,45 @@ escáner al rastrillar; 23 PAQ se checa como 1 CJA + 3 PAQ.
 8. Facturación: un pedido **surtido y luego cancelado en Kepler** dice "Kepler lo trae en CANCELADO" pero no
    qué hacer con la mercancía ya levantada (regresarla).
 
+#### 9.6.4 Decisiones de Francisco sobre la prueba con pedidos reales (2026-10-10) y lo que se hizo
+
+| # | Decisión | Hecho |
+|---|---|---|
+| 1 | Simular el teclado del celular sobre la cantidad escribible; si tapa, botones +5 / +10 | Simulado (ventana a ~55% del alto): tapa el aviso y toda la lista, y **una lectura del escáner cayó dentro de la cantidad ("20725226003894")** → **+5 / +10**, que no se quedan con el foco |
+| 2 | Señal por lectura | El aviso dice "**llevas 2 de 3 PAQ**" (lo arma el servidor) y destella en cada lectura |
+| 3 | "Todo listo" | Aviso verde con "Cierra la caja P1 y termina" y el botón Terminar ahí mismo |
+| 4 | Caja P llena | Desde 20 artículos sugiere cerrarla y seguir en la siguiente (sugerencia, no tope) |
+| 5 | Cajas y bultos | "7 cajas y 3 bultos"; las etiquetas dicen "sus N etiquetas (1/N…)" |
+| 6 | Surtidor: compactar | Espaciado e interlineado, **no la letra** (la cantidad grande se lee a un brazo): botones 5.5 → 4.25 rem, tarjeta y pie con menos relleno |
+| 7 | Consola | Barra de carga desde el primer momento; la hora se guarda **al salir de la casilla** (sin botón Guardar), en **24 h** ("930" → 09:30); el ejemplo del motivo de cancelar ya no es el de urgente |
+
+**Segunda prueba visual con los dos pedidos reales (2026-10-10)**: todo lo anterior verificado en pantalla
+(barra de carga; horas "900"/"1030" guardadas con Tab como 09:00/10:30; tarjeta del surtidor y "No había
+nada" libres del pie; "llevas 2 BTO de 2 BTO"; **0 avisos idénticos seguidos en 56 lecturas, contra 25
+antes**; "Todo listo"; caja P con 38 artículos sugiere cerrarla; "15 cajas y 1 bulto", 3 + 16 etiquetas).
+Aparecieron y se corrigieron dos cosas más:
+
+| Lo que se vio | Corrección |
+|---|---|
+| **+10 desde el 1 inicial daba 11**: para 20 se terminaba en 21 y el escaneo sobraba | Desde el 1 inicial, +5 y +10 dan 5 y 10: "+10 +10" = 20 (2 toques; antes 19) |
+| Ese escaneo de 21 con 0 llevados dijo **"Ya van completas: 20 PAQ… esto sobra"**: falso, no llevaba ninguno | Si no estaba completo: "Con 21 PAQ te pasas: el pedido es de 20 PAQ y llevas 0 PAQ. No se contó: revisa la cantidad" |
+| "Todo listo: cierra la caja P1 y termina" sonaba a dos pasos | "Al terminar, la caja P1 se cierra y se imprimen sus etiquetas" |
+
+#### 9.6.5 ⏳ PENDIENTE (se retoma al volver a este módulo): regresar mercancía de un pedido cancelado
+
+**[GP.4.3]** Un pedido **surtido (y quizá checado y etiquetado) que luego se cancela en Kepler** hoy sólo
+dice "Kepler lo trae en CANCELADO". Pedido de Francisco (2026-10-10), **laborioso, en plan**:
+
+1. **Nota** a quien corresponda: regresar la mercancía a su lugar y **retirar las etiquetas**.
+2. **Tarea de regreso**: devolver cada producto a su ubicación, **quitando la evidencia** de que se surtió o
+   etiquetó para otra orden (etiquetas P y 1/N, marcas del surtido).
+3. **Firma de autorización** de quien **evidenció** que la mercancía regresó a su lugar y **salió del área de
+   surtido y checado**.
+
+No se ha diseñado ni construido nada. Lo que hay hoy: la bandeja de Facturación lo detecta (`kepler_otro`),
+la consola advierte al cancelar un surtido con renglones levantados, y el checado no toma pedidos que Kepler
+no trae en SURTIDO.
+
 ### 9.7 Fuera de esta entrega
 
 Contenedor de plástico compartido (§5c), mover cajas entre ubicaciones, la carga al camión (GP.5) y

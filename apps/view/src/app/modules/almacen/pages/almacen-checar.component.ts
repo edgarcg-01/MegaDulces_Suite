@@ -31,6 +31,26 @@ const PREF_ALMACEN = 'gp.checar.almacen';
 const PREF_ORIGEN = 'gp.checar.origen';
 /** El último pedido checado, para reimprimir sus etiquetas aunque se haya recargado la página. */
 const PREF_ULTIMO = 'gp.checar.ultimo';
+/** Medido: un pedido de ruta típico (30 renglones) metió 38 artículos en UNA caja P. */
+const CAJA_P_LLENA = 20;
+const NOMBRE_CERRADA: Record<string, [string, string]> = { CJA: ['caja', 'cajas'], BTO: ['bulto', 'bultos'], CUB: ['cubeta', 'cubetas'] };
+
+/** "7 cajas y 3 bultos": las etiquetas 1/N cuentan cajas, bultos y cubetas, no sólo cajas. */
+export function cerradasTexto(etiquetas: Array<{ unidad: string | null }>): string {
+  if (!etiquetas.length) return '0 cajas';
+  const porUnidad = new Map<string, number>();
+  for (const e of etiquetas) {
+    const u = String(e.unidad ?? 'CJA').toUpperCase();
+    porUnidad.set(u, (porUnidad.get(u) ?? 0) + 1);
+  }
+  // Primero cajas, luego bultos y cubetas; otra unidad, al final.
+  const orden = (u: string) => { const i = Object.keys(NOMBRE_CERRADA).indexOf(u); return i < 0 ? 99 : i; };
+  const partes = [...porUnidad].sort((a, b) => orden(a[0]) - orden(b[0])).map(([u, n]) => {
+    const [uno, varios] = NOMBRE_CERRADA[u] ?? [u.toLowerCase(), u.toLowerCase()];
+    return `${n} ${n === 1 ? uno : varios}`;
+  });
+  return partes.length > 1 ? `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}` : partes[0];
+}
 
 const plural = (n: number, uno: string, varios: string): string => `${n} ${n === 1 ? uno : varios}`;
 const junto = (...partes: Array<string | number | null | undefined>): string =>
@@ -143,6 +163,10 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
                   <button type="button" class="ck-step" (pointerdown)="$event.preventDefault()" (click)="paso(-1)" [disabled]="cantidad() <= 1" aria-label="Una menos">−</button>
                   <span class="ck-n" aria-live="polite">{{ cantidad() }}</span>
                   <button type="button" class="ck-step" (pointerdown)="$event.preventDefault()" (click)="paso(1)" [disabled]="cantidad() >= 999" aria-label="Una más">+</button>
+                  <!-- +5 / +10 y no un campo escribible: con el teclado abierto se tapaba media pantalla y una
+                       lectura del escáner caía DENTRO de la cantidad ("20725226003894"; prueba visual 2026-10-10). -->
+                  <button type="button" class="ck-step ck-step-w" (pointerdown)="$event.preventDefault()" (click)="paso(5)" [disabled]="cantidad() >= 999" aria-label="Cinco más">+5</button>
+                  <button type="button" class="ck-step ck-step-w" (pointerdown)="$event.preventDefault()" (click)="paso(10)" [disabled]="cantidad() >= 999" aria-label="Diez más">+10</button>
                   <label class="ck-check"><input type="checkbox" [ngModel]="comoCajas()" (ngModelChange)="comoCajas.set($event); enfocar()" name="cajas" /> Son cajas cerradas</label>
                 </div>
                 <p class="ck-hint">¿Varias iguales sin etiqueta? Pon cuántas (y marca "Son cajas cerradas" si lo son) ANTES de escanear la pieza.</p>
@@ -150,7 +174,10 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
             </form>
 
             <div class="ck-aviso" [ngClass]="'ck-' + (aviso()?.tono ?? 'ok')" role="status" aria-live="polite">
-              @if (aviso(); as a) { <span>{{ a.texto }}</span> }
+              <!-- Se vuelve a crear en cada lectura: el destello marca que ESTA lectura entró aunque el texto se parezca. -->
+              @for (k of [lecturas()]; track k) {
+                @if (aviso(); as a) { <span class="ck-destello">{{ a.texto }}</span> }
+              }
               @if (pendientesEnCola() > 0) { <span class="ck-cola"> · guardando {{ pendientesEnCola() }}…</span> }
             </div>
 
@@ -165,9 +192,19 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
               </div>
             }
 
+            @if (todoListo() && !confirmando()) {
+              <section class="ck-listo" role="status">
+                <p><b>Todo listo.</b> {{ cajaAbierta() ? 'Al terminar, la caja P' + cajaAbierta()?.numero + ' se cierra y se imprimen sus etiquetas.' : 'Ya puedes terminar.' }}</p>
+                <button type="button" class="ck-btn ck-grande" [disabled]="ocupado() || pendientesEnCola() > 0" (click)="abrirTerminar()">Terminar checado</button>
+              </section>
+            }
+
             @if (cajaAbierta(); as c) {
               <section class="ck-caja">
                 <div><b>Caja P{{ c.numero }} abierta</b> · {{ plural(articulos(c), 'artículo', 'artículos') }}</div>
+                @if (articulos(c) >= cajaPLlena) {
+                  <p class="ck-llena">Lleva {{ articulos(c) }} artículos. Si ya no caben, ciérrala aquí: lo que sigas escaneando abre la P{{ c.numero + 1 }}.</p>
+                }
                 <button type="button" class="ck-btn" [disabled]="ocupado() || !c.contenido.length" (click)="cerrarCaja()">Cerrar caja P{{ c.numero }} e imprimir sus 3 etiquetas</button>
               </section>
             } @else {
@@ -236,7 +273,7 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
           @if (fin(); as f) {
             <section class="ck-card">
               <h2>{{ f.order_code }} checado</h2>
-              <p class="ck-muted">{{ f.destino || '—' }} · {{ plural(f.cajas_p, 'caja P', 'cajas P') }} · {{ plural(f.etiquetas_cj.length, 'caja completa', 'cajas completas') }}</p>
+              <p class="ck-muted">{{ f.destino || '—' }} · {{ plural(f.cajas_p, 'caja P', 'cajas P') }} · {{ cerradasTexto(f.etiquetas_cj) }}</p>
               @if (f.etiqueta_p; as ep) { <p class="ck-muted">La caja P{{ ep.numero }} se cerró al terminar: se mandaron a imprimir sus 3 etiquetas.</p> }
               @if (f.diferencias.length) {
                 <p class="ck-warn">Sale con {{ plural(f.diferencias.length, 'diferencia', 'diferencias') }}:</p>
@@ -247,10 +284,10 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
                 <p class="ck-ok">Todo cuadró.</p>
               }
               @if (f.etiquetas_cj.length) {
-                <p class="ck-muted">Se mandaron a imprimir las {{ f.etiquetas_cj.length }} etiquetas de cajas (1/{{ f.etiquetas_cj.length }}…).</p>
+                <p class="ck-muted">Se mandaron a imprimir sus {{ f.etiquetas_cj.length }} etiquetas (1/{{ f.etiquetas_cj.length }}…).</p>
               }
               <div class="ck-row">
-                @if (f.etiquetas_cj.length) { <button type="button" class="ck-sec" (click)="imprimirCajas()">Reimprimir etiquetas de cajas</button> }
+                @if (f.etiquetas_cj.length) { <button type="button" class="ck-sec" (click)="imprimirCajas()">Reimprimir etiquetas 1/{{ f.etiquetas_cj.length }}</button> }
                 @if (f.etiqueta_p; as ep) { <button type="button" class="ck-sec" (click)="imprimirP(ep)">Reimprimir P{{ ep.numero }}</button> }
               </div>
               <button type="button" class="ck-go" [disabled]="ocupado()" (click)="tomar()"><i class="pi pi-play" aria-hidden="true"></i><span>Tomar siguiente</span></button>
@@ -286,6 +323,14 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
     /* --tap-min vale 0 con mouse: el botón de un solo signo necesita su propia medida o desaparece. */
     .ck-step { display:inline-flex; align-items:center; justify-content:center; width:max(2.75rem, var(--tap-min)); height:max(2.75rem, var(--tap-min)); padding:0; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-lg); line-height:1; cursor:pointer; }
     .ck-step:disabled { color:var(--text-muted); cursor:not-allowed; }
+    .ck-step-w { width:auto; padding:0 .7rem; font-size:var(--fs-body); font-weight:700; }
+    /* Destello de cada lectura: fondo que se aclara y vuelve. Sin movimiento si así lo pide el equipo. */
+    .ck-destello { display:block; animation:ck-destello var(--dur-max, 350ms) ease-out; }
+    @keyframes ck-destello { from { opacity:.35; } to { opacity:1; } }
+    @media (prefers-reduced-motion: reduce) { .ck-destello { animation:none; } }
+    .ck-listo { display:flex; flex-direction:column; gap:.5rem; border:1px solid var(--ok-fg); border-radius:var(--r-lg); background:var(--ok-soft-bg); color:var(--ok-soft-fg); padding:var(--sp-3); margin-bottom:var(--sp-3); }
+    .ck-listo p { margin:0; font-size:var(--fs-lg); }
+    .ck-llena { margin:0; font-size:var(--fs-body); color:var(--warn-fg); font-weight:600; }
     .ck-n { min-width:2.5rem; text-align:center; font-family:var(--font-mono); font-size:var(--fs-lg); font-weight:800; }
     .ck-check { display:inline-flex; align-items:center; gap:.4rem; min-height:var(--tap-min); font-size:var(--fs-sm); cursor:pointer; }
     .ck-check input { width:1.25rem; height:1.25rem; }
@@ -348,6 +393,7 @@ export class AlmacenChecarComponent implements OnInit {
 
   readonly plural = plural;
   readonly junto = junto;
+  readonly cerradasTexto = cerradasTexto;
   readonly origenes: Array<{ v: Origen; l: string }> = [
     { v: '', l: 'Todos' },
     { v: 'TELEMARK', l: 'Telemarketing' },
@@ -384,6 +430,14 @@ export class AlmacenChecarComponent implements OnInit {
   private enviando = false;
 
   readonly pendientesEnCola = computed(() => this.cola().length);
+  /** Cuenta las respuestas del servidor: cada lectura vuelve a pintar (y destellar) el aviso. */
+  readonly lecturas = signal(0);
+  /** Artículos a partir de los cuales se sugiere cerrar la caja P (sugerencia, no tope: el tamaño real varía). */
+  readonly cajaPLlena = CAJA_P_LLENA;
+  readonly todoListo = computed(() => {
+    const rs = this.pedido()?.renglones ?? [];
+    return rs.length > 0 && rs.every((r) => r.estado === 'completo');
+  });
   readonly almacenNombre = computed(() => {
     const a = this.almacenes().find((x) => x.id === this.almacenId());
     return a ? `${a.code} · ${a.nombre}` : '';
@@ -484,7 +538,9 @@ export class AlmacenChecarComponent implements OnInit {
   }
 
   paso(d: number): void {
-    this.cantidad.set(Math.min(999, Math.max(1, this.cantidad() + d)));
+    // +5 / +10 desde el 1 inicial dan 5 y 10, no 6 y 11: "+10 +10" son 20 (con 11 se terminaba en 21 y sobraba).
+    const base = d > 1 && this.cantidad() === 1 ? 0 : this.cantidad();
+    this.cantidad.set(Math.min(999, Math.max(1, base + d)));
     this.enfocar();
   }
 
@@ -737,6 +793,7 @@ export class AlmacenChecarComponent implements OnInit {
           this.enviando = false;
           this.pedido.set(r.pedido);
           this.aviso.set({ tono: TONO[r.resultado], texto: r.mensaje });
+          this.lecturas.update((n) => n + 1);
           if (pesoKg === undefined) this.cola.update((c) => c.slice(1));
           if (r.resultado === 'pide_peso') {
             this.pidePeso.set({ code: item.code, producto: r.producto ?? item.code });

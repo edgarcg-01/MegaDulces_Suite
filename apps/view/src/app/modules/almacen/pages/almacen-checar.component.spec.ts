@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Subject, of, throwError } from 'rxjs';
 import type { ChecadoEscaneoResponse, ChecadoPedido, ChecadoRenglon } from '@megadulces/contracts';
-import { AlmacenChecarComponent } from './almacen-checar.component';
+import { AlmacenChecarComponent, cerradasTexto } from './almacen-checar.component';
 import { PickingService } from '../../reparto/picking.service';
 import { AuthService } from '../../../core/services/auth.service';
 import * as etiquetas from '../checado-etiquetas';
@@ -167,6 +167,55 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     expect(api['checadoEscanear']).toHaveBeenCalledWith('chk-1', { code: 'C06001', cantidad: 1, como_cajas: undefined, peso_kg: undefined });
   });
 
+  it('+5 y +10 suman sin quitarle el foco al escáner', async () => {
+    await montar(P());
+    // Desde el 1 inicial, +10 da 10 (no 11): "+10 +10" son 20 exactos.
+    boton('+10')?.click();
+    expect(c.cantidad()).toBe(10);
+    boton('+10')?.click();
+    expect(c.cantidad()).toBe(20);
+    boton('+5')?.click();
+    expect(c.cantidad()).toBe(25);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(document.activeElement?.id).toBe('ck-code');
+  });
+
+  it('⭐ cada lectura vuelve a pintar el aviso (dos iguales seguidas ya no se ven idénticas)', async () => {
+    await montar(P());
+    escanea('C06001');
+    const primero = el().querySelector('.ck-destello');
+    escanea('C06001');
+    const segundo = el().querySelector('.ck-destello');
+    expect(c.lecturas()).toBe(2);
+    expect(segundo).not.toBe(primero);
+  });
+
+  it('⭐ con todo completo dice "Todo listo" y ofrece terminar ahí mismo', async () => {
+    await montar(P({
+      renglones: [R({ checado: 384, checado_mayor: 2, estado: 'completo', llevas_texto: '2 CJA' })],
+      cajas_p: [{ id: 'p1', numero: 1, status: 'abierta', contenido: [{ sku: 'x', producto: 'X', unidad: 'PAQ', cantidad: 3 }] }],
+    }));
+    expect(texto()).toContain('Todo listo. Al terminar, la caja P1 se cierra y se imprimen sus etiquetas.');
+    expect(el().querySelector('.ck-listo button')).not.toBeNull();
+  });
+
+  it('prueba negativa: con algo pendiente NO dice "Todo listo"', async () => {
+    await montar(P());
+    expect(texto()).not.toContain('Todo listo');
+  });
+
+  it('la caja P con muchos artículos sugiere cerrarla y seguir en la siguiente', async () => {
+    await montar(P({ cajas_p: [{ id: 'p1', numero: 1, status: 'abierta', contenido: [{ sku: 'x', producto: 'X', unidad: 'PAQ', cantidad: 25 }] }] }));
+    expect(texto()).toContain('Lleva 25 artículos. Si ya no caben, ciérrala aquí: lo que sigas escaneando abre la P2.');
+  });
+
+  it('cerradasTexto distingue cajas de bultos', () => {
+    expect(cerradasTexto([{ unidad: 'CJA' }, { unidad: 'CJA' }, { unidad: 'BTO' }])).toBe('2 cajas y 1 bulto');
+    expect(cerradasTexto([{ unidad: 'BTO' }, { unidad: 'BTO' }, { unidad: 'CJA' }])).toBe('1 caja y 2 bultos');
+    expect(cerradasTexto([{ unidad: 'CJA' }])).toBe('1 caja');
+    expect(cerradasTexto([])).toBe('0 cajas');
+  });
+
   it('un producto ajeno se avisa en rojo', async () => {
     await montar(P());
     api['checadoEscanear'].mockReturnValueOnce(of(OK({ resultado: 'ajeno', mensaje: 'MAZAPAN no va en este pedido. Sepáralo.', producto: 'MAZAPAN', pedido: P() })));
@@ -208,7 +257,7 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     expect(c.fase()).toBe('terminado');
     const [lista] = imprimir.mock.calls.at(-1) ?? [[]];
     expect(lista.map((e: { grande: string }) => e.grande)).toEqual(['1/2', '2/2']);
-    expect(boton('Reimprimir etiquetas de cajas')).toBeDefined();
+    expect(boton('Reimprimir etiquetas 1/2')).toBeDefined();
   });
 
   it('⭐ muestra la unidad PEDIDA ("2 BOL") y la diferencia que manda el servidor', async () => {

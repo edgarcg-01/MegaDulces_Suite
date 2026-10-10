@@ -349,8 +349,14 @@ export class ChecadoService {
       const esperado = Number(linea.qty_expected);
       const antes = Number(linea.qty_checked);
       if (excede(esperado, antes, qtyBase, linea.se_pesa)) {
-        const completas = cantidadEnUnidad(esperado, linea.qty_unit, linea.unidad_pedida, linea.factor_pedida == null ? null : Number(linea.factor_pedida));
-        return responder('sobra', `Ya van completas: ${completas} de ${nombre}. Esto sobra: regrésalo a su lugar (no se contó).`, nombre);
+        const fp = linea.factor_pedida == null ? null : Number(linea.factor_pedida);
+        const en = (n: number) => cantidadEnUnidad(n, linea.qty_unit, linea.unidad_pedida, fp);
+        // Ya completo: lo que llega sobra. Si NO estaba completo, el escaneo con cantidad se pasó: decir
+        // "ya van completas" era falso (prueba visual: llevaba 0 de 20 y escaneó 21).
+        const mensaje = cuadraChecado(esperado, antes, linea.se_pesa)
+          ? `Ya van completas: ${en(esperado)} de ${nombre}. Esto sobra: regrésalo a su lugar (no se contó).`
+          : `Con ${en(qtyBase)} te pasas: el pedido es de ${en(esperado)} y llevas ${en(antes)} de ${nombre}. No se contó: revisa la cantidad.`;
+        return responder('sobra', mensaje, nombre);
       }
 
       const paquete = kind === 'menor' ? await this.cajaAbierta(trx, chk.id, userId) : null;
@@ -360,8 +366,13 @@ export class ChecadoService {
       });
       await trx('commercial.order_check_lines').where({ id: linea.id }).update({ qty_checked: r3(antes + qtyBase), updated_at: trx.fn.now() });
 
+      // El aviso dice cuánto LLEVAS del pedido: dos lecturas iguales seguidas dejaban el mismo texto
+      // ("+1 PAQ · …") y el checador no sabía si la segunda había entrado (prueba visual, 2026-10-10).
       const cuanto = pesado ? `${qtyBase} kg` : `${cantidad} ${unidad ?? ''}`.trim();
-      return responder('ok', `+${cuanto} · ${nombre}${kind === 'menor' ? ' → caja P' : ''}`, nombre);
+      const pedido = await this.cargar(trx, chk.id);
+      const ren = pedido.renglones.find((x) => x.id === linea.id);
+      const lleva = ren ? ` · llevas ${ren.llevas_texto} de ${ren.pedido_texto}` : '';
+      return { resultado: 'ok' as const, mensaje: `+${cuanto} · ${nombre}${kind === 'menor' ? ' → caja P' : ''}${lleva}`, producto: nombre, pedido };
     });
   }
 
