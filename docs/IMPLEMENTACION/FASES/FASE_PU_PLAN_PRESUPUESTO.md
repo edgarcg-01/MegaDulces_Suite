@@ -38,8 +38,11 @@ nuestra propia implementación consigo misma**. Cuando este carril midió *«el 
 renglones»* y el de Ingresos midió *«Mostrador es el 34.8 %»*, los dos estábamos describiendo **la
 salida de nuestro propio motor**, no el negocio.
 
-Y por eso el *«plan de ingreso 3.05× la venta real»* nunca fue un error a explicar: **es lo que pasa
-cuando nadie revisa lo que la máquina propuso.**
+Y por eso lo que este carril venía llamando *«el plan de ingreso declara 3.05× la venta real»*
+nunca fue un error a explicar: **es lo que pasa cuando nadie revisa lo que la máquina propuso.**
+⚠️ Esa cifra, además, **era mía y estaba mal** (§1.5): el plan es **1.20×** el FY2026 y **0.90×**
+el FY2027. Lo que la máquina dejó sin revisar no es un múltiplo disparatado — es **$0.00 planeado
+en Halloween, Navidad y Reyes** (§1.6), que es peor y no se veía.
 
 ### 1.2 Las cinco ausencias que impiden administrar
 
@@ -83,6 +86,57 @@ pendiente. Hallazgo de `trade-marketing-cc`, verificado acá antes de incorporar
 > —su lector trata el día sin fila como **cero autorizado** en vez de *capacidad no definida*—, con
 > lo que el calendario de pagos opera hoy sin techo y sin saberlo.
 
+### 1.5 ⛔ La cifra que este carril más repitió estaba mal — y el denominador era el problema
+
+Este plan, la torre de control y dos mensajes a los otros carriles citaron *«el plan de ingreso
+declara **3.05×** la venta real»*. **No reproduce.** Lo levantó Ingresos y lo re-medí acá contra
+`analytics.sales_daily`:
+
+| | |
+|---|---|
+| Venta real, 12 meses cerrados (2025-10 → 2026-09) | **$669,067,048.83** |
+| Plan **FY2026** $806,217,118.81 | **1.20×** |
+| Plan **FY2027** $604,775,116.21 | **0.90×** |
+| Para que diera 3.05, el denominador tendría que ser | **$198,286,923.35** ≈ 3.6 meses |
+
+⛔ **Comparé un plan ANUAL contra una venta PARCIAL.** Es un denominador sin declarar: el mismo
+defecto que este carril le marcó a la superficie de ingreso («el 81.6 % *del plan*» siendo de
+Mostrador) y que corrigió en su propio `[PU.VG.11]` («38.72 %» sumando dos ejercicios). **Tercera
+vez en dos días, y las tres veces la aritmética estaba bien.**
+
+⚠️ **Lo que NO cambia:** que nadie firmó el plan. 1.20× sigue siendo una meta que ninguna persona
+aprobó. El error estaba en el **tamaño** del disparate, no en que hubiera uno.
+
+⚠️ `sales_daily` trae `sale_date` hasta **2026-12-06**, dos meses en el futuro. No se persiguió acá
+—no es de este carril— pero **cualquier «año en curso» que alguien calcule sobre ese fact viene
+inflado**, y eso incluye el denominador que produjo el 3.05.
+
+⚠️ Mi 12-meses ($669,067,048.83) e Ingresos ($660,980,381.64) difieren **1.2 %** por la fuente
+(`analytics.sales_daily` contra `v_sellout_daily`). **No se promedian**: las dos llevan a 1.2×, y
+cuál arbitra es una pregunta abierta de Fase VP.
+
+### 1.6 ⭐⭐ Y al medir el denominador apareció algo peor: el plan 2027 proyecta CERO la temporada
+
+Ingresos reportó *«FY2027 tiene 10 de 13 períodos con meta»* y este carril midió *«13 de 13»*.
+**Los dos son correctos y miden cosas distintas** — y la diferencia es el hallazgo:
+
+```
+FY2026  P1=68.9M P2=65.2M … P11=65.2M  P12=74.9M  P13=79.1M
+FY2027  P1=66.8M P2=59.2M … P11=0      P12=0      P13=0        (99 filas en CERO)
+```
+
+**Las filas existen y declaran cero.** No es un período ausente: es un período **planeado en
+$0.00**. En una dulcería, P11–P13 son **Halloween, Navidad y Reyes** — en FY2026 valieron
+**$219,2 M, el 27.2 % del año**.
+
+⭐ Y eso explica la caída que Ingresos marcó como artefacto: el plan 2027 es **$201.4 M** menor que
+el 2026, y el Q4 que le falta al 2026 vale **$219.2 M**. **No «baja 25 %»: le falta la temporada.**
+
+⛔ **Es la trampa fundacional de este proyecto, dentro del presupuesto**: un cero que significa «no
+sé» se suma en silencio y se lee como medición. Un presupuesto que proyecta cero en su mejor
+trimestre **no es conservador, está roto** — y ningún tablero lo iba a gritar porque $0.00 es un
+número perfectamente válido.
+
 ---
 
 ## 2 · Qué hacen las empresas grandes — y qué vale para nosotros
@@ -99,8 +153,13 @@ mismo número, **nadie pronostica honesto** —pronosticar mal te deja mal parad
 es también el permiso para gastar, **todos piden de más**.
 
 ⭐ **Para nosotros esto no es teoría: es exactamente lo que pasó.** El autopiloto produjo UN número
-que hoy se usa como las tres cosas. Y el 3.05× es la prueba: como meta es ambiciosa, como pronóstico
-es falsa, y como permiso de gasto sería ruinosa.
+que hoy se usa como las tres cosas: como **meta** nadie la firmó, como **pronóstico** proyecta
+**$0.00** en Halloween, Navidad y Reyes (§1.6), y como **permiso de gasto** autorizaría contra una
+venta que el propio plan dice que no va a ocurrir.
+
+⚠️ Una versión anterior de este párrafo citaba *«3.05×»* como prueba. **Esa cifra era mía y estaba
+mal** — comparaba un plan anual contra una venta parcial. Corregida y explicada en §1.5; el
+argumento se sostiene sin ella, y de hecho mejor.
 
 ### 2.2 ⭐ Planear por DRIVERS, no por «el año pasado + %»
 
@@ -180,9 +239,16 @@ la misma fila y por eso ninguno sirve.**
 **D2 · El plan se arma por drivers, y el renglón contable es la SALIDA.** Ingreso =
 `clientes_activos × frecuencia × ticket`, por canal. Gasto = `fijo` (no se mueve con el volumen) +
 `variable` (se mueve con un driver declarado). El renglón de `budget_lines` se **deriva**; nadie lo
-captura. ⚠️ **Verificado hoy: `analytics.sales_daily` NO tiene cliente** (producto × almacén × canal
-× fecha) — la descomposición sale de **`analytics.erp_sales_invoices`**, que sí trae `cliente_code`,
-`fecha`, `vendedor_code` y `sucursal`. **Es una pierna que hay que construir, no una que ya está.**
+captura. ⛔ **Y acá este plan se equivocó de fuente, lo levantó Ingresos midiendo antes de construir.**
+`analytics.sales_daily` no tiene cliente, es cierto; pero `analytics.erp_sales_invoices`, que sí lo
+tiene, **cubre $32,066,375 = 4.85 % del plan, y el 77 % de eso es TELEMARK**. Construir ahí
+«clientes × frecuencia × ticket» describiría el 4.85 % y lo llamaría *los drivers del negocio* —
+**el mismo defecto que este documento existe para corregir, metido en el diseño de la fase
+siguiente**. **Mostrador, el 58.5 % del plan, no deja factura por cliente.**
+
+⇒ **El driver se declara POR CANAL**: donde hay cliente (telemarketing, preventa), `clientes ×
+frecuencia × ticket`; donde no lo hay (Mostrador), `tickets × ticket promedio`, y **se dice cuál
+es cuál**. Un driver uniforme sobre canales que no comparten grano es un promedio sin universo.
 
 **D3 · Cada partida tiene un nombre antes de tener un peso.** Sin `responsible`, la partida **no se
 materializa**. Es compuerta, no campo opcional.
@@ -228,7 +294,7 @@ paralelo** — y es lo primero que hay que destrabar si el objetivo es crecer.
 |---|---|---|---|
 | **0 · La verdad del proceso** | Dónde vive el presupuesto real hoy; quién lo arma; `sales_targets` ¿persona o importer? | **Ingresos** + **Tesorería** | este carril |
 | **1 · Los tres números** | Separar meta / pronóstico / asignación en el esquema; migrar lo que el autopiloto escribió a `pronostico`, **no a meta** | **Tesorería** | Ingresos |
-| **2 · Drivers de ingreso** | `clientes × frecuencia × ticket` por canal desde `erp_sales_invoices`; el renglón se deriva | **Ingresos** | Tesorería |
+| **2 · Drivers de ingreso** | ⛔ **Reescrito: la fuente no alcanzaba.** `erp_sales_invoices` cubre **4.85 %** del plan y **77 % de eso es TELEMARK**. Van **drivers distintos por canal**, declarando cuál tiene cliente y cuál no: con cliente (telemarketing, preventa) `clientes × frecuencia × ticket`; sin cliente (**Mostrador, el 58.5 % del plan**) `tickets × ticket promedio` desde `v_sellout_daily`. El renglón se deriva | **Ingresos** | Tesorería |
 | **3 · Dueño y clase de gasto** | `responsible` obligatorio; `expense_class` capturado; compuerta que impide materializar sin dueño | **Tesorería** | Ingresos |
 | **4 · El puente PVM** | Precio / volumen / mezcla sobre la desviación de venta | **Ingresos** | este carril |
 | **5 · Ciclo de efectivo** | DIO + DSO − DPO. ⛔ **Depende de que Fase MR cierre la valuación de inventario**: DSO y DPO ya están, el signo lo decide DIO | **Tesorería** | Ingresos |
@@ -271,8 +337,11 @@ Ninguna de estas sale de una base de datos. **Adivinarlas es volver al ejercicio
 4. **¿Contra qué se compara al cierre del mes — y quién mira esa comparación?**
 5. **¿Quién va a ser dueño de cada familia de gasto?** Son ~12 nombres. Es la decisión de mayor
    retorno de todo el plan y **no cuesta software**.
-6. **¿Cuál es la meta de crecimiento, y de dónde sale?** Hoy el plan dice 3.05× la venta real sin que
-   nadie la haya firmado.
+6. **¿Cuál es la meta de crecimiento, y de dónde sale?** Medido (§1.5): el plan FY2026 es **1.20×**
+   la venta de los últimos 12 meses cerrados y el FY2027 **0.90×** — y **ninguno lo firmó nadie**.
+   ⛔ Y antes de fijar una meta hay que contestar §1.6: **¿por qué el plan 2027 proyecta cero en
+   noviembre, diciembre y enero?** Si es un defecto del motor se arregla; si alguien decidió no
+   planear la temporada, es la decisión más cara del ejercicio y no está escrita en ningún lado.
 7. **¿Quién decide hoy que algo se paga, y contra qué tope?** ⛔ Reemplaza a la pregunta que este
    plan traía (*«¿la obligación nace antes o después del pago?»*), que quedó **demostrada como no
    medible**: `payment_calendar_lots`, `payment_allocations` y `payment_allocation_items` están
