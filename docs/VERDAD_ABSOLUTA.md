@@ -3938,9 +3938,27 @@ existe para frenar, y la evidencia no lo resuelve: lo confirma como bloqueo para
 
 | Dónde | Qué es | Volumen medido |
 |---|---|---|
-| `analytics.erp_supplier_payments` | lo que Kepler **efectivamente pagó** | **~$45M/mes** · 1,299 pagos / **$125,687,622** en 90 días |
+| `analytics.erp_supplier_payments` | lo que Kepler **efectivamente pagó** | **$44,935,572.38/mes** · 2,592 pagos / **$224,677,861.88** en may–sep 2026 |
 | `finance.payment_program` | la bitácora del Excel de Tesorería (Fase PP) | **2,694 pagos / $372,447,210** en 2026 |
 | `budget.*` + `finance.payment_calendar_*` | el circuito que la Suite diseñó | **$0** |
+
+⛔ **Corrección del 2026-10-10, y el defecto es de método, no de redondeo.** La primera versión
+publicó **«~$45M/mes»** derivado de un filtro `pago_date >= current_date - 90` **sin tope superior**.
+Medido: ese filtro devuelve fechas que van del **2026-07-13 al 2026-12-01** — adentro está el pago
+futuro que esta misma sección declara —, así que **el rango y el divisor describían períodos
+distintos**. Es exactamente el defecto que este carril le marcó a Ventas: un número sin su universo.
+
+⭐ Y la corrección tiene una vuelta que vale escribir. Gastos, al auditar, propuso **$41.9M/mes**
+dividiendo los $125.7M entre 3 — pero **eso hereda la misma ventana rota** y además parte dos meses
+por la mitad (julio desde el 13, octubre hasta el 10). Re-medido sobre **meses COMPLETOS**:
+
+```
+may–sep 2026    2,592 pagos    $224,677,861.88    ->    $44,935,572.38 / mes
+```
+
+⇒ **La cifra original estaba cerca y el método estaba mal; la corrección tenía el método bien
+planteado y el número peor.** Las dos se produjeron con una ventana que nadie había acotado. La
+única defendible es la de arriba, y va con sus bordes escritos.
 
 Desglose mensual de lo pagado, para que la cifra tenga ventana y no sea un promedio:
 
