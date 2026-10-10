@@ -36,8 +36,12 @@ export interface MaterialidadChain {
 export interface MatReconcileRow {
   cfdi_id: string; uuid: string; serie: string | null; folio: string | null; fecha: string | null;
   total: number; tipo_comprobante: string | null; metodo_pago: string | null; estatus_sat: string; has_xml: boolean;
-  status: 'confirmed' | 'suggested' | 'unmatched';
-  assignment: { id: string; sucursal: string; doc_tipo: string; doc_folio: string; importe_operacion: number | null; diff_importe: number | null; diff_days: number | null; by: string | null; at: string | null } | null;
+  /**
+   * `[MAT.5.1]` `'auto'` = **lo propuso la máquina y todavía NO es evidencia**. Va separado de
+   * `'confirmed'` a propósito: son los dos estados que no se pueden pintar igual.
+   */
+  status: 'confirmed' | 'auto' | 'suggested' | 'unmatched';
+  assignment: { id: string; sucursal: string; doc_tipo: string; doc_folio: string; importe_operacion: number | null; diff_importe: number | null; diff_days: number | null; by: string | null; at: string | null; status: 'confirmed' | 'auto' } | null;
   suggestion: { sucursal: string; doc_tipo: string; doc_folio: string; importe: number | null; fecha: string | null; diff_importe: number | null; diff_days: number | null; beneficiario: string | null; strength: 'strong' | 'weak' } | null;
 }
 export interface MatAssignInput { cfdi_id: string; sucursal: string; doc_tipo?: string; doc_folio: string; note?: string; }
@@ -71,6 +75,13 @@ export class MaterialidadService {
   /** MAT.1 — conciliación CFDI↔operación del proveedor (asignación confirmada o sugerida). */
   reconcile(rfc: string): Observable<MatReconcileRow[]> { return this.http.get<MatReconcileRow[]>(`${this.base}/${encodeURIComponent(rfc)}/reconcile`); }
   confirmAssign(b: MatAssignInput): Observable<unknown> { return this.http.post(`${this.base}/assignments/confirm`, b); }
+  /**
+   * `[MAT.5.1]` Confirma en lote las PROPUESTAS de la máquina (`auto` → `confirmed`). Recibe ids
+   * de asignación, no de CFDI. El endpoint existía desde MAT.5 y ningún componente lo llamaba.
+   */
+  confirmBatch(ids: string[]): Observable<{ confirmadas: number; pedidas: number }> {
+    return this.http.post<{ confirmadas: number; pedidas: number }>(`${this.base}/assignments/confirm-batch`, { ids });
+  }
   rejectAssign(b: MatAssignInput): Observable<unknown> { return this.http.post(`${this.base}/assignments/reject`, b); }
   unassign(id: string): Observable<unknown> { return this.http.delete(`${this.base}/assignments/${encodeURIComponent(id)}`); }
 }

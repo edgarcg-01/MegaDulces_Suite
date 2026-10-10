@@ -375,7 +375,22 @@ export class MaterialidadAssignmentsService {
       cfdi_id: row.cfdi_id, uuid: row.uuid, serie: row.serie, folio: row.folio, fecha: row.fecha,
       total: Number(row.total || 0), tipo_comprobante: row.tipo_comprobante, metodo_pago: row.metodo_pago,
       estatus_sat: row.estatus_sat, has_xml: !!row.has_xml,
-      status: assignment ? 'confirmed' : (suggestion ? 'suggested' : 'unmatched'),
+      /**
+       * `[MAT.5.1]` ⛔ Acá estaba el agujero que anulaba todo el cuidado de arriba: el estado del
+       * RENGLÓN decía `assignment ? 'confirmed' : …`, así que una propuesta de la máquina llegaba
+       * a la pantalla como `confirmed` y se pintaba con palomita verde y «Asignada por …».
+       *
+       * ⚠️ El campo `assignment.status` viajaba bien **y nadie lo miraba**: la pantalla hace
+       * `@switch (c.status)` sobre ESTE valor, no sobre el de adentro. Un dato correcto en un
+       * campo que el consumidor no lee es indistinguible de no tenerlo.
+       *
+       * ⭐ Importa ahora y no en abstracto: el lote de MAT.5 todavía no se corrió. Correrlo antes
+       * de este arreglo habría metido **1,900 pares por $99,961,324** a una pantalla que los
+       * muestra como evidencia fiscal verificada por una persona.
+       */
+      status: assignment
+        ? (assignment.status === 'auto' ? 'auto' : 'confirmed')
+        : (suggestion ? 'suggested' : 'unmatched'),
       assignment, suggestion,
     };
   }
