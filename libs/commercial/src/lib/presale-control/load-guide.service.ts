@@ -608,6 +608,7 @@ export class LoadGuideService {
               estado: o.status as 'entregado' | 'no_entregado' | 'regreso',
               resultado: o.delivery_outcome,
               document_total: o.document_total,
+              pedido_total: o.total,
               efectivo: o.cash_amount,
               transferencia: o.transfer_amount,
               referencia: o.transfer_ref,
