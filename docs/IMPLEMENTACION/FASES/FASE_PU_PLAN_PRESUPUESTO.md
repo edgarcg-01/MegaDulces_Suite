@@ -107,9 +107,23 @@ vez en dos días, y las tres veces la aritmética estaba bien.**
 ⚠️ **Lo que NO cambia:** que nadie firmó el plan. 1.20× sigue siendo una meta que ninguna persona
 aprobó. El error estaba en el **tamaño** del disparate, no en que hubiera uno.
 
-⚠️ `sales_daily` trae `sale_date` hasta **2026-12-06**, dos meses en el futuro. No se persiguió acá
-—no es de este carril— pero **cualquier «año en curso» que alguien calcule sobre ese fact viene
-inflado**, y eso incluye el denominador que produjo el 3.05.
+> ⛔ **Y este párrafo tenía otro error mío, levantado por Ingresos y peor de lo que ellos vieron.**
+> Decía que `sales_daily` con fechas futuras «inflaba el denominador que produjo el 3.05». Medido:
+> son **4 filas por $230.49 — el 0.0000 %** del año en curso. Ingresos marcó que la magnitud no
+> alcanzaba; al verificarlo apareció que **la dirección también estaba al revés**: inflar un
+> denominador **baja** el múltiplo, y para llegar a 3.05 hace falta uno **más chico**
+> ($198,286,923.35 = **40.1 %** del año en curso). Las filas futuras empujaban **en contra** de mi
+> propia explicación.
+>
+> ⭐ **La lección es más fina que el número:** le colgué a una cifra una causa que sonaba razonable
+> **sin comprobar que empujara para el lado correcto**. Eso es una afirmación causal disfrazada de
+> medición — y pasó en el párrafo donde estaba corrigiendo mi propio denominador sin declarar.
+> **La causa del 3.05 es una sola y ya estaba escrita: plan anual contra venta parcial.**
+
+⚠️ **Hallazgo aparte, que sigue valiendo y no es la causa de nada de esto:** `analytics.sales_daily`
+tiene **4 filas con `sale_date` en el futuro** (2026-12-06, $230.49). No es de este carril y no se
+persiguió; queda reportado porque un fact de venta con fecha futura **no debería existir**, por
+chico que sea.
 
 ⚠️ Mi 12-meses ($669,067,048.83) e Ingresos ($660,980,381.64) difieren **1.2 %** por la fuente
 (`analytics.sales_daily` contra `v_sellout_daily`). **No se promedian**: las dos llevan a 1.2×, y
