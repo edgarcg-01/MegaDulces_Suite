@@ -6,8 +6,9 @@ import {
   perfilAcumulado, evaluarRitmo, resumirRitmo, llaveDePartida,
   type PlanRow, type LedgerRow,
 } from './budget-phasing';
-// [PU.VG.10] La concentración también es pura: recibe las partidas de UN ejercicio y no puede mezclarlos.
-import { concentracionDeGasto, type PartidaRow } from './budget-concentration';
+// [PU.VG.11] La concentración es pura y AGNÓSTICA: sirve para gasto, ingreso o un canal. El
+// universo entra por parámetro, así que no se puede publicar un número sin decir de qué es.
+import { concentracion, fraseConcentracion, type FilaConcentrable, type Universo } from './budget-concentration';
 
 /**
  * Fase PVG — Presupuesto de GASTOS auto-propuesto desde los egresos de Kepler (ADR-073).
@@ -281,8 +282,19 @@ export class BudgetExpensePlanService {
         .select('id', 'concept', 'account_code', 'original_amount', 'control_level',
           'responsible', 'expense_class');
 
+      // El gasto del ejercicio es un universo COMPLETO: no es el recorte de nada. Mezclarlo con el
+      // ingreso en un denominador no significaría nada — son dos preguntas, no dos mitades de una.
+      const universo: Universo = {
+        nombre: `el gasto de ${budget.fiscal_year ?? 'el ejercicio'}`,
+        completo: true,
+      };
+      const c = concentracion(partidas as FilaConcentrable[], universo);
+
       return {
-        ...concentracionDeGasto(partidas as PartidaRow[]),
+        ...c,
+        // La frase sale del servidor: si la arma cada cliente, las dos mitades del módulo vuelven
+        // a contar la misma idea con dos gramáticas distintas.
+        frase: fraseConcentracion(c),
         fiscal_year: budget.fiscal_year ?? null,
         folio: budget.folio ?? null,
         fuente: 'budget.budget_lines (line_type = gasto) de UN ejercicio',

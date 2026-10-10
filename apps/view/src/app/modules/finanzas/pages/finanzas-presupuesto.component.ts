@@ -611,13 +611,15 @@ const VISTA_DEFAULT: PresView = 'direccion';
               <p class="pres-hint"><span class="pi pi-question-circle"></span> <strong>Concentración no medida.</strong> No se pudo leer el peso de cada partida; este bloque no afirma nada.</p>
             } @else if (conc(); as cc) {
               <div class="pres-conc">
+                <!-- El titular CONTESTA; antes preguntaba. Y la frase viene del SERVIDOR: si la
+                     arma cada plantilla, las dos mitades del modulo vuelven a contar la misma idea
+                     con dos gramaticas, que es lo que esta entrega cierra. -->
                 <div class="pres-conc-head">
-                  <h3>¿Cuánto de este gasto se puede mover?</h3>
-                  @if (cc.total == null) {
-                    <span class="pres-muted">Sin un total medible no hay porcentaje que publicar.</span>
-                  } @else if (cc.partidas_80 != null) {
-                    <span><strong class="pres-mono">{{ cc.partidas_80 }}</strong> de <strong class="pres-mono">{{ cc.cobertura.partidas }}</strong> partidas deciden el <strong>80 %</strong> del gasto de {{ cc.fiscal_year }}@if (cc.pct_mayor != null) { · la mayor sola es el <strong class="pres-mono">{{ cc.pct_mayor | number:'1.2-2' }} %</strong> }</span>
-                  }
+                  <h3 [class.pres-conc-ausente]="cc.frase.es_ausencia">
+                    @if (cc.frase.es_ausencia) { <span class="pi pi-minus-circle"></span>&nbsp; }
+                    {{ cc.frase.titular }}
+                  </h3>
+                  @if (cc.frase.detalle) { <span>{{ cc.frase.detalle }}</span> }
                 </div>
                 @if (cc.total != null) {
                   <table class="pres-conc-tbl">
@@ -644,6 +646,11 @@ const VISTA_DEFAULT: PresView = 'direccion';
                       }
                     </tbody>
                   </table>
+                }
+                <!-- La frase INVERSA: donde NO mirar. Es la mitad que ninguna tabla ordenada por
+                     importe contesta, y la tomamos de la superficie de ingreso de Ventas. -->
+                @if (cc.frase.inversa) {
+                  <p class="pres-hint pres-conc-inv"><span class="pi pi-eye-slash"></span> {{ cc.frase.inversa }}</p>
                 }
                 <p class="pres-hint pres-conc-dec">
                   <span class="pi pi-exclamation-triangle"></span>

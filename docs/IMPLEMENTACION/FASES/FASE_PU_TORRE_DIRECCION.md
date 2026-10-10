@@ -233,3 +233,116 @@ respuestas correctas son **4 y 3**. Si un ejercicio no distinguiera las dos, el 
 ⚠️ **Falta, declarado:** verificación HTTP del endpoint (ADR-044) y validación visual — no se
 levanta backend en local durante una sesión. Sin migración ni permiso nuevo: **no hace falta
 re-login**, sí redeploy de `api` + `view`.
+
+---
+
+## 10 · `[PU.VG.11]` El acuerdo entre sesiones — un primitivo, una gramática
+
+> **Para la sesión de Ventas.** Esta sección es el acuerdo, no una opinión sobre su pantalla. Lo
+> que su superficie de `DECIDIR` hizo bien está adoptado acá, y lo que se corrige se corrige en
+> **las dos mitades**, porque la falta fue simétrica.
+
+### 10.1 El hallazgo que lo motivó, medido contra prod el 2026-10-09
+
+La superficie de ingreso publicaba *«4 de 8 entidades cargan el 81.6 % del plan»*. Verificado:
+
+| Afirmación | Veredicto |
+|---|---|
+| Subtotal Mostrador $353,538,587.63 | ✅ **exacto al centavo** (8 renglones) |
+| «la mayor es el 34.8 % de Mostrador» | ✅ 34.76 % |
+| «2 entidades aportan menos del 5 % cada una» | ✅ 3.63 % y 1.85 % |
+| «los **nueve** renglones de Mostrador» | ⚠️ son **ocho** |
+| «4 de 8 cargan el 81.6 % **del plan**» | ⛔ ese 81.6 % es **de Mostrador** |
+
+```
+Mostrador  $353,538,587.63 = 58.46 % del plan $604,775,116.21
+las 4 mayores:  81.64 % de Mostrador   vs   47.72 % del plan     → 33.91 pp
+```
+
+⛔ **Y es exactamente mi falta, espejada.** Yo sumé FY2026 + FY2027 y publiqué 38.72 % donde el
+ejercicio real es 55.4954 %. **Las dos cifras son aritméticamente correctas sobre un universo que
+la frase no nombra.** Ninguno de los dos mintió; los dos omitimos el denominador.
+
+### 10.2 Lo que el recorte borraba, y es lo más caro
+
+El mismo primitivo sobre los dos lados **completos**:
+
+| | Renglones | La mayor | Cruzan el 80 % |
+|---|---|---|---|
+| **Ingreso** | 33 | **20.32 %** | **9** |
+| **Gasto** | 14 | **55.4954 %** | **4** |
+
+⭐ **El gasto está concentrado y el ingreso no.** Traducido: *no se puede recortar rápido, pero
+tampoco se depende de un cliente*. Esa asimetría es la decisión que Dirección necesita y **ninguna
+de las dos mitades la decía** — la de ingreso porque mostraba un canal donde la concentración se ve
+artificialmente alta, la de gasto porque no mostraba concentración.
+
+### 10.3 El acuerdo, en cuatro puntos
+
+**(1) Un solo primitivo, ya compartido.** `libs/finance/src/lib/budget/budget-concentration.ts`
+es puro y **agnóstico**: recibe filas con `concept` + `original_amount` y no sabe de qué son. Los
+números de §10.1 y §10.2 salieron de él. Ventas lo importa; no hay que escribir nada.
+
+**(2) El universo es un ARGUMENTO con unión discriminada.**
+
+```ts
+type Universo =
+  | { nombre: string; completo: true }
+  | { nombre: string; completo: false; de: string; pct: number | null };
+```
+
+No se puede construir un resultado sin declarar si el conjunto está completo o es un recorte, **y de
+qué es recorte**. Un comentario que pide nombrar el universo se puede no leer; un tipo que no
+compila, no. `pct: null` = no medible, **nunca 0**.
+
+**(3) La regla de N se fija: la que CRUZA el umbral, y el umbral se nombra.** *«N renglones deciden
+el 80 % de \<universo\>»*. El 80 % y el 5 % de la frase inversa son **cortes de descripción, no
+políticas**: viajan en la salida (`umbral_pct`, `umbral_menor_pct`) y la frase los dice. Un corte
+que se usa y no se dice es indistinguible de una política que nadie firmó.
+
+**(4) La frase la emite el SERVIDOR.** `fraseConcentracion()` devuelve `{ titular, detalle,
+inversa, es_ausencia }`. Si la arma cada plantilla, las dos mitades vuelven a contar la misma idea
+con dos gramáticas — que es el problema que esto cierra. Hereda el espíritu de ADR-076: el veredicto
+no lo arma el cliente.
+
+### 10.4 Lo que este carril ADOPTA de la superficie de Ventas
+
+- **El titular contesta, y contesta que no cuando no se puede.** Mi bloque **preguntaba**
+  («¿Cuánto se puede mover?»); ahora afirma, y cuando no hay con qué, el titular lo declara
+  (`es_ausencia`) en vez de dejar un bloque vacío, que se lee como «todo bien».
+- **La frase inversa.** *«10 renglones aportan menos del 5 % cada uno (11.30 % entre todos): no
+  mueven el total.»* Le dice a quien decide **dónde no mirar** — la mitad que ninguna tabla
+  ordenada por importe contesta.
+
+### 10.5 Lo que queda del lado de Ventas
+
+1. Cambiar *«del plan»* por *«de Mostrador»*, **o** mostrar el ingreso completo.
+2. Si se queda el recorte, declarar que **Mostrador es el 58.46 % del plan** — con el primitivo sale
+   solo en `detalle`.
+3. Corregir «nueve renglones» → **ocho**.
+4. «Mostrador» repetido en las cuatro filas es tinta muerta: va en el encabezado.
+5. El tercer modo (teléfono) no se pudo verificar: en la imagen sólo viajan oscuro y claro.
+
+**No se propone tocar el layout.** El answer-first sin tabla es correcto y la paridad oscuro/claro
+se ve limpia.
+
+### 10.6 Verificación de este acuerdo
+
+| Qué | Dónde | Resultado |
+|---|---|---|
+| Unitaria | `budget-concentration.spec.ts` | **32 ✓**, mutada a rojo **7 veces** |
+| Candado DB-direct | `test-newdb-budget-concentracion.js` | **25 ✓ / 0 ✗ / 0 no medido** contra prod |
+| Las 6 suites de budget | `libs/finance` | **104 ✓** |
+
+**Las siete mutaciones:** borde `>= 80` → `> 80` · la fila sin monto suma 0 · orden ascendente ·
+`menores` con `<=` · la frase omite la fracción del recorte · `es_ausencia` clavado en `false` ·
+`de el` sin contraer.
+
+⚠️ **Y una trampa del método, vivida acá:** la primera mutación con `sed` **no aplicó**, y eso se ve
+**idéntico** a una mutación que las pruebas sobrevivieron. El script de mutación ahora **falla con
+exit 2** si no encuentra la línea. *Una mutación que no se aplica es un candado verde que no probó
+nada.*
+
+**La prueba negativa que sostiene todo §10:** el candado mide **las dos lecturas del mismo hecho**
+contra prod y **exige que difieran** — hoy 81.64 % contra 47.72 %, **33.91 pp**. Si coincidieran,
+nombrar el universo sería decorativo y esta sección no haría falta.

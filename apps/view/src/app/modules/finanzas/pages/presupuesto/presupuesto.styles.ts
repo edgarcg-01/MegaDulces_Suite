@@ -161,6 +161,10 @@ export const PRESUPUESTO_STYLES = `
     .pres-conc-head h3 { margin:0; font-size:var(--fs-h3); }
     .pres-conc-head span { font-size:var(--fs-sm); color:var(--text-muted); }
     .pres-conc-head strong { color:var(--text); }
+    /* Un titular que es una AUSENCIA no se pinta igual que uno que afirma: apagado, no rojo --
+       no haber podido medir no es una falla del negocio. */
+    .pres-conc-ausente { color:var(--text-muted); font-weight:600; }
+    .pres-conc-inv { margin-top:.45rem; }
     .pres-conc-tbl { width:100%; border-collapse:collapse; font-size:var(--fs-sm); margin-top:.55rem; }
     .pres-conc-tbl th { text-align:left; font-weight:600; color:var(--text-muted); font-size:var(--fs-micro);
       text-transform:uppercase; letter-spacing:.02em; padding:.2rem .5rem .3rem 0; border-bottom:1px solid var(--border); }

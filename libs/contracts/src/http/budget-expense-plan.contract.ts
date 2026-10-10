@@ -149,14 +149,34 @@ export interface ExpenseRhythm {
 }
 
 /**
- * `[PU.VG.10]` **La concentración del gasto — qué puede mover Dirección y qué no.**
+ * `[PU.VG.11]` **La concentración — cuánto de un total está en pocos renglones.**
  *
- * ⛔ Es **por ejercicio, nunca agregada**. Sumar FY2026 + FY2027 da «$107.3 M, SUELDOS 53.90 %»:
- * una cifra que no corresponde a ningún año y contra la que nadie puede firmar.
+ * ⛔ **El universo es parte del número, y por eso es obligatorio.** Las dos mitades de
+ * `/presupuestos` cometieron la misma falta, espejada: este carril sumó FY2026 + FY2027 y publicó
+ * «38.72 %», que no es de ningún año fiscal; la superficie de ingreso recortó a un canal y lo llamó
+ * «del plan» cuando el 81.6 % era **de Mostrador** (58.46 % del ingreso) y del plan esas cuatro
+ * entidades cargan **47.72 %**. Las dos cifras son aritméticamente correctas sobre un universo que
+ * la frase no nombra. `ExpenseUniverse` es una **unión discriminada**: no se puede publicar un
+ * bloque sin declarar si el conjunto está completo o es un recorte, y de qué es recorte.
  *
- * ⚠️ `monto`/`pct`/`acumulado` en `null` significan **«no medible»**, nunca cero — una partida sin
- * monto legible sale de la base y se declara en `cobertura.sin_monto`.
+ * ⚠️ `pct` en `null` significa **«no medible»**, nunca cero.
  */
+export interface ExpenseUniverseComplete {
+  nombre: string;
+  completo: true;
+}
+
+export interface ExpenseUniverseSlice {
+  nombre: string;
+  completo: false;
+  /** El total mayor del que este conjunto es una parte. */
+  de: string;
+  /** Qué fracción del total mayor es este recorte. `null` = no se pudo medir. */
+  pct: number | null;
+}
+
+export type ExpenseUniverse = ExpenseUniverseComplete | ExpenseUniverseSlice;
+
 export interface ExpenseConcentrationRow {
   id: string | null;
   concepto: string;
@@ -178,14 +198,43 @@ export interface ExpenseConcentrationCoverage {
   con_freno_duro: number;
 }
 
+/**
+ * La frase inversa: **dónde NO mirar**. Es la mitad que ninguna tabla ordenada por importe
+ * contesta. Idea tomada de la superficie de ingreso de la sesión de Ventas.
+ */
+export interface ExpenseConcentrationMinor {
+  filas: number;
+  monto: number | null;
+  pct: number | null;
+}
+
+/**
+ * ⭐ **La frase la emite el SERVIDOR, no la plantilla.** Si la arma cada cliente, las dos mitades
+ * del módulo vuelven a decir la misma idea con dos gramáticas — que es el problema que esto cierra.
+ * `es_ausencia` marca cuándo el titular es una ausencia declarada y no un hecho (ADR-056): un
+ * bloque vacío y uno que no pudo medirse se ven igual, y la diferencia es lo único que importa.
+ */
+export interface ExpenseConcentrationPhrase {
+  titular: string;
+  detalle: string | null;
+  inversa: string | null;
+  es_ausencia: boolean;
+}
+
 export interface ExpenseConcentration {
-  /** Suma de las partidas con monto legible. `null` si no hay ninguna. */
+  universo: ExpenseUniverse;
+  frase: ExpenseConcentrationPhrase;
+  /** Suma de las filas con monto legible. `null` si no hay ninguna. */
   total: number | null;
   filas: ExpenseConcentrationRow[];
-  /** Mínimo de partidas cuya suma ALCANZA el 80 %. Es la que CRUZA la línea, no la última de abajo. */
+  /** Mínimo de filas cuya suma ALCANZA `umbral_pct`. La que CRUZA la línea, no la última de abajo. */
   partidas_80: number | null;
-  /** Porcentaje de la partida más grande: el número que contesta «¿puedo recortar?». */
+  /** El corte que define `partidas_80`. Viaja para que la frase pueda nombrarlo. */
+  umbral_pct: number;
+  /** Porcentaje de la fila más grande: el número que contesta «¿puedo recortar?». */
   pct_mayor: number | null;
+  menores: ExpenseConcentrationMinor;
+  umbral_menor_pct: number;
   cobertura: ExpenseConcentrationCoverage;
   /** Hoy siempre `false`: `analytics.kpi_thresholds` tiene cero filas en todo el sistema. */
   umbral_registrado: boolean;
