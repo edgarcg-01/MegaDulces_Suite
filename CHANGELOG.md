@@ -203,6 +203,9 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Changed — Productos: «Para cuidar hoy» ya no se espera (PF.6, 2026-10-09)
+- El servidor lo calcula cada minuto en segundo plano y la pantalla lo recibe al instante (23–50 ms medidos en local, antes ~3 s y hasta 6.5 s la primera vez). Dice a qué hora se calculó; si la foto no está al día lo calcula en el momento y lo avisa.
+
 ### Added — Productos: lo que no se vende y márgenes (PF.4/PF.5, 2026-10-09)
 - «Para cuidar hoy» queda en dos lados: **Líderes** (todos, en orden de venta, con su venta del mes, lo que piden y su margen) y **No se venden** (con existencia y sin venta en la red en 30 días o más, primero lo de más dinero detenido; filtro por tramo y «Caducan antes de venderse»).
 - Columna «Margen 30 d» en la tabla de Productos y, al abrir un producto, los tres márgenes de Productos nuevos (de lista, real y sobre lo pagado) en total y por sucursal. Sólo con permiso de costo.

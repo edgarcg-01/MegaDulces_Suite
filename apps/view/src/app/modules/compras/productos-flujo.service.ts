@@ -234,6 +234,8 @@ export interface ProductoACuidar {
 
 /** `[PF.2]`/`[PF.3]` Para cuidar hoy. */
 export interface CuidarRespuesta {
+  /** `[PF.6]` La foto del worker (cada minuto) o el cálculo en vivo; y cuándo se calculó. */
+  origen?: { fuente: 'foto' | 'en_vivo'; calculado_at: string };
   periodos: PeriodosFlujo;
   corte: string;
   en_vivo_al: string;

@@ -257,6 +257,12 @@ interface AbiertoFlujo {
     
         <!-- [PF.2]/[PF.4] Para cuidar hoy: de un lado los lideres, del otro lo que no se vende (con lo que caduca). -->
         @if (cuidar(); as c) {
+          @if (c.origen; as o) {
+            <p class="pc-meta pc-origen" [class.is-vivo]="o.fuente === 'en_vivo'">
+              @if (o.fuente === 'foto') { Calculado a las {{ horaCorta(o.calculado_at) }}; se actualiza cada minuto. }
+              @else { Calculado en vivo a las {{ horaCorta(o.calculado_at) }}: la foto del servidor no está al día. }
+            </p>
+          }
           <section class="pc" aria-label="Para cuidar hoy">
             <article class="pc-card">
               <header class="pc-head">
@@ -700,6 +706,8 @@ interface AbiertoFlujo {
       font-weight: var(--fw-bold); cursor: pointer; }
     .pc-meta { margin: 0; font-size: var(--fs-xs); color: var(--c-text-3); }
     .pc-margen { color: var(--c-text-2); }
+    .pc-origen { margin: 0 0 .4rem; }
+    .pc-origen.is-vivo { color: var(--warn-soft-fg); }
     .pc-sin { font-weight: var(--fw-bold); color: var(--warn-soft-fg); }
     .pc-dinero small.is-up { color: var(--ok-fg); }
     .pc-dinero small.is-down { color: var(--bad-fg); }
@@ -1011,6 +1019,9 @@ export class ComprasCatalogoComponent {
   readonly margenVisible = computed(() => !!this.flujoRes.value()?.costo_visible);
   tramoTexto(t: TramoSinVenta): string { return TRAMO_TEXTO[t]; }
   sinVenderTexto(x: NoSeVende): string { return sinVenderTexto(x, this.cuidar()?.criterio.ventanaSinVenta ?? 365); }
+  horaCorta(iso: string): string {
+    return new Intl.DateTimeFormat('es-MX', { hour: '2-digit', minute: '2-digit' }).format(new Date(iso));
+  }
   pctTexto(v: number | null): string { return v === null ? '—' : Math.round(v * 100) + '%'; }
   abrirNoSeVende(x: NoSeVende): void { this.abierto.set({ id: x.product_id, nombre: x.nombre, sku: x.sku }); }
   motivoTexto(m: MotivoLider): string { return MOTIVO_LIDER[m]; }
