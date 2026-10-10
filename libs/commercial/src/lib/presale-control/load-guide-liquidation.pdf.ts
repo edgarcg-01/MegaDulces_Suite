@@ -77,7 +77,17 @@ export function pieLiquidacion(folio: string, sello: string): string {
 export function htmlLiquidacion(s: LiquidationSnapshot, opts: { reimpresion: boolean; reimpresa_en?: string }): string {
   // Arriba lo PENDIENTE (regresa a la sucursal): es lo primero que la caja tiene que revisar y
   // recibir de vuelta. Abajo lo entregado y liquidado, con su subtotal (pedido de Francisco, 2026-10-10).
-  const pendientes = s.pedidos.filter((p) => p.estado !== 'entregado');
+  // Un pedido que salió en más de una guía de esta vuelta y volvió en cada una es UNA sola
+  // mercancía que regresa: un renglón por pedido, con sus guías y el motivo de cada intento.
+  const porPedido = new Map<string, LiquidationSnapshotOrder>();
+  for (const p of s.pedidos.filter((x) => x.estado !== 'entregado')) {
+    const ya = porPedido.get(p.code);
+    if (!ya) { porPedido.set(p.code, { ...p }); continue; }
+    ya.guia = ya.guia + ', ' + p.guia;
+    ya.nota = [ya.nota, p.nota].filter(Boolean).join(' · ') || null;
+    ya.estado = p.estado;
+  }
+  const pendientes = [...porPedido.values()];
   const entregados = s.pedidos.filter((p) => p.estado === 'entregado');
 
   // Lo que regresa vale su documento de Kepler; si todavía no tiene, el total del pedido (marcado).

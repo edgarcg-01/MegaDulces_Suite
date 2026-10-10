@@ -49,3 +49,20 @@ describe('htmlLiquidacion', () => {
     expect(solo).toContain('Entregados y liquidados (2)');
   });
 });
+
+describe('htmlLiquidacion: un pedido que volvió en dos guías', () => {
+  it('es UN renglón y su valor cuenta UNA vez (negativa del doble conteo)', () => {
+    const dos = htmlLiquidacion({
+      ...base,
+      guias: [{ folio: 'GDC-A', ruta: 'R' }, { folio: 'GDC-B', ruta: 'R' }],
+      pedidos: [
+        { guia: 'GDC-A', code: 'PD-9', cliente: 'X', folio_digital: '07UD1003-0000009', estado: 'no_entregado', resultado: null, document_total: 742, efectivo: null, transferencia: null, referencia: null, nota: 'Intento 2' },
+        { guia: 'GDC-B', code: 'PD-9', cliente: 'X', folio_digital: '07UD1003-0000009', estado: 'no_entregado', resultado: null, document_total: 742, efectivo: null, transferencia: null, referencia: null, nota: 'Intento 3' },
+      ],
+    }, { reimpresion: false });
+    expect(dos).toContain('Pendientes: regresan a la sucursal (1)');
+    expect(dos).toContain('Valor de lo que regresa</td><td class="r mono">$742.00');
+    expect(dos).toContain('GDC-A, GDC-B');
+    expect(dos).toContain('Intento 2 · Intento 3');
+  });
+});
