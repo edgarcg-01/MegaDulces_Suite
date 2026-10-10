@@ -947,8 +947,9 @@ encontraron 8 detalles, todos corregidos:
 | Los botones **− / +** se veían como un punto | `--tap-min` vale **0 con mouse** (44 px sólo en táctil) y el botón lo usaba de ancho y alto: medida mínima propia |
 | La consola decía **"0 de 0" renglones** en un surtido sin arrancar | Antes de arrancar se cuentan del pedido en Kepler (productos distintos, como los cuenta la ola) |
 
-Columnas nuevas en la MISMA migración (`20261008143820`, sin aplicar en prod): van en el `CREATE` y
-con `ADD COLUMN IF NOT EXISTS` para las bases donde la tabla ya existía.
+Columnas nuevas en una **migración nueva**, `20261010024352_gp4_checado_unidad_pedida`: la
+`20261008143820` ya estaba aplicada en prod (2026-10-09, con 0 checados) cuando se armó este cambio, y
+una migración aplicada no se edita. Crea esquema (no frena la compuerta) y va **antes del código**.
 
 Vistos y **no corregidos aquí** (no son de GP.4): la migaja dice "Pedidos" en Surtir y Checar y los
 íconos de la barra de abajo salen como círculos (navegación general); `printIsolated` pide
