@@ -10,6 +10,13 @@ import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { PRIORITY_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
 import { SdQueueMembersComponent } from '../sd-queue-members.component';
 
+/** `[MSH.3]` Lo que se le dice a quien cambia una bandera de la cola. */
+const MENSAJE_BANDERA: Record<'confidential' | 'uses_priority' | 'sla_enabled', (nuevo: boolean) => string> = {
+  confidential: (n) => (n ? 'Esta cola ahora es confidencial: sus solicitudes sólo las verán quien las reporta y su equipo.' : 'Esta cola ya no es confidencial.'),
+  uses_priority: (n) => (n ? 'Esta cola vuelve a usar prioridad.' : 'Esta cola ya no usa prioridad: no se pregunta ni se muestra.'),
+  sla_enabled: (n) => (n ? 'Esta cola vuelve a medir plazos.' : 'Esta cola ya no mide plazos.'),
+};
+
 const DIAS = [
   { n: 1, l: 'Lun' }, { n: 2, l: 'Mar' }, { n: 3, l: 'Mié' }, { n: 4, l: 'Jue' }, { n: 5, l: 'Vie' }, { n: 6, l: 'Sáb' }, { n: 0, l: 'Dom' },
 ];
@@ -192,12 +199,26 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
                 @if (!q.active) { <em class="sc-off">apagada</em> }
                 <span class="sc-sp"></span>
                 <!-- [MS.7.7] Cómo se SUGIERE la prioridad de esta cola. Lo elige la coordinación de la cola; el servidor lo exige. -->
-                <label class="sc-modelo"><span>Prioridad sugerida por</span>
-                  <p-select [options]="modelos" optionLabel="label" optionValue="value" [ngModel]="q.priority_model" (ngModelChange)="cambiarModelo(q.id, q.priority_model, $event)"
-                            appendTo="body" [ariaLabel]="'Cómo se sugiere la prioridad en ' + q.name" /></label>
+                @if (q.uses_priority) {
+                  <label class="sc-modelo"><span>Prioridad sugerida por</span>
+                    <p-select [options]="modelos" optionLabel="label" optionValue="value" [ngModel]="q.priority_model" (ngModelChange)="cambiarModelo(q.id, q.priority_model, $event)"
+                              appendTo="body" [ariaLabel]="'Cómo se sugiere la prioridad en ' + q.name" /></label>
+                }
                 <!-- [MS.7.3] Si el formulario de esta cola pregunta la zona. -->
                 <label class="sc-modelo sc-chk"><input type="checkbox" [ngModel]="q.asks_zone" (ngModelChange)="cambiarPreguntaZona(q.id, q.asks_zone, $event)" [attr.aria-label]="'Preguntar la zona en ' + q.name" /> Pregunta la zona</label>
                 <p-button [label]="q.active ? 'Apagar cola' : 'Encender cola'" size="small" severity="secondary" [text]="true" (onClick)="alternarCola(q.id, q.active)" />
+              </div>
+              <!-- [MSH.3] Cómo se COMPORTA el área: confidencial, con o sin prioridad, con o sin plazos. «Confidencial» NO se cambia con solicitudes ya
+                   levantadas (la base lo impide: la marca de un ticket no puede cambiar) y sólo la coordinación de esa cola la administra. -->
+              <div class="sc-flags" role="group" [attr.aria-label]="'Comportamiento de ' + q.name">
+                <label class="sc-chk"><input type="checkbox" [ngModel]="q.confidential" (ngModelChange)="cambiarBandera(q.id, 'confidential', q.confidential, $event)" [attr.aria-label]="'Cola confidencial: ' + q.name" /> Confidencial</label>
+                <label class="sc-chk"><input type="checkbox" [ngModel]="q.uses_priority" (ngModelChange)="cambiarBandera(q.id, 'uses_priority', q.uses_priority, $event)" [attr.aria-label]="'Usa prioridad: ' + q.name" /> Usa prioridad</label>
+                <label class="sc-chk"><input type="checkbox" [ngModel]="q.sla_enabled" (ngModelChange)="cambiarBandera(q.id, 'sla_enabled', q.sla_enabled, $event)" [attr.aria-label]="'Mide plazos: ' + q.name" /> Mide plazos</label>
+                @if (q.confidential) {
+                  <label class="sc-modelo"><span>Mínimo de casos para mostrar un reporte</span>
+                    <input pInputText type="number" min="1" max="1000" class="sc-min" [ngModel]="q.report_min_cases" (change)="cambiarMinimo(q.id, q.report_min_cases, $any($event.target).value)" [attr.aria-label]="'Mínimo de casos del reporte de ' + q.name" /></label>
+                  <span class="sc-hint">Con menos casos que el mínimo, el reporte de esta área no muestra cifras (un número tan chico identifica a una persona).</span>
+                }
               </div>
               <!-- [MS.7.17] Quién atiende esta cola: la coordinación de ESA cola administra a sus miembros. -->
               <app-sd-queue-members [queueId]="q.id" [defaultAssigneeId]="q.default_assignee_id" (configChange)="cfg.set($event)" />
@@ -303,6 +324,9 @@ interface PolForm { priority: SdPriority; first_response_minutes: number; resolu
     .sc-pri[data-p='alta'] { color: var(--warn-fg); background: var(--warn-soft-bg); }
     .sc-pri[data-p='urgente'] { color: var(--bad-fg); background: var(--bad-soft-bg); font-weight: 600; }
     .sc-ambito { max-width: 22rem; }
+    .sc-flags { display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; font-size: var(--fs-xs); color: var(--text-muted); }
+    .sc-min { width: 5rem; }
+    .sc-hint { color: var(--text-muted); }
     .sc-modelo { display: inline-flex; align-items: center; gap: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); }
     .sc-tag { font-style: normal; font-size: var(--fs-xs); color: var(--text-muted); margin-left: var(--sp-2); }
     .sc-tag.propio { color: var(--action); font-weight: 600; }
@@ -520,6 +544,18 @@ export class ServicioConfiguracionComponent implements OnInit {
   cambiarModelo(id: string, actual: string, nuevo: string): void {
     if (nuevo === actual) return;
     this.guardar(this.api.updateQueue(id, { priority_model: nuevo as 'impacto' | 'riesgo_operacion' }), nuevo === 'riesgo_operacion' ? 'La prioridad de esta cola se sugiere ahora por riesgo para personas y si detiene la operación.' : 'La prioridad de esta cola se sugiere ahora por impacto y bloqueo.');
+  }
+  /** `[MSH.3]` Cambia una bandera de comportamiento de la cola. El servidor decide (p. ej. rechaza «confidencial» si la cola ya tiene solicitudes). */
+  cambiarBandera(id: string, campo: 'confidential' | 'uses_priority' | 'sla_enabled', actual: boolean, nuevo: boolean): void {
+    if (nuevo === actual) return;
+    this.guardar(this.api.updateQueue(id, { [campo]: nuevo }), MENSAJE_BANDERA[campo](nuevo));
+  }
+  /** `[MSH.3]` El mínimo de casos del reporte (entero 1–1000). Un valor inválido NO viaja: se avisa y se deja el que había. */
+  cambiarMinimo(id: string, actual: number, valor: string | number): void {
+    const n = Number(valor);
+    if (!Number.isInteger(n) || n < 1 || n > 1000) { this.error.set('El mínimo de casos debe ser un número entero entre 1 y 1000.'); return; }
+    if (n === actual) return;
+    this.guardar(this.api.updateQueue(id, { report_min_cases: n }), `Los reportes de esta área sólo se mostrarán con ${n} casos o más.`);
   }
   alternarCola(id: string, activa: boolean): void { this.guardar(this.api.updateQueue(id, { active: !activa }), activa ? 'Cola apagada.' : 'Cola encendida.'); }
   alternarCategoria(id: string, activa: boolean): void { this.guardar(this.api.updateCategory(id, { active: !activa }), activa ? 'Categoría apagada.' : 'Categoría encendida.'); }

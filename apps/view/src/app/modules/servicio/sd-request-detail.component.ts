@@ -10,7 +10,8 @@ import { TextareaModule } from 'primeng/textarea';
 import type { Observable } from 'rxjs';
 import type { SdAgentDto, SdAttachmentInput, SdCatalogResponse, SdPauseReason, SdPriority, SdRequestDetail, SdStatus, SdTransferResult } from '@megadulces/contracts';
 import { SD_PRIORITIES } from '@megadulces/contracts';
-import { PAUSE_REASONS, PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError, slaTexto } from './service-desk.service';
+import { PAUSE_REASONS, PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, IMPACT_LABEL, ServiceDeskService, sdError } from './service-desk.service';
+import { TEXTO_VISTA_LIMITADA, TITULO_VISTA_LIMITADA, esVistaLimitada, etiquetaPrioridad, plazoDeFila } from './confidencial';
 
 /** Máximo de archivos por envío: el mismo tope que el servidor (`MAX_ADJUNTOS_POR_ENVIO`). */
 export const MAX_ARCHIVOS = 5;
@@ -62,6 +63,26 @@ function leerComoDataUri(f: File): Promise<string> {
     @if (loading() && !r()) { <p class="sd-hint">Cargando…</p> }
     @if (loadError(); as e) { <p class="sd-banner bad" role="alert">{{ e }}</p> }
     @if (r(); as t) {
+     @if (limitada()) {
+      <!-- [MSH.3] VISTA LIMITADA: el administrador sobre un ticket confidencial. El servidor no envía el contenido; aquí tampoco se pinta
+           nada que lo sugiera (ni título, ni quién reportó, ni quién atiende, ni acciones, ni hilo). -->
+      <div class="sd-d">
+        <div class="sd-d-head">
+          <div>
+            <span class="sd-mono">{{ t.folio }}</span>
+            <h2>{{ tituloLimitada }}</h2>
+          </div>
+          <p-button icon="pi pi-times" [text]="true" severity="secondary" ariaLabel="Cerrar ficha" (onClick)="cerrar.emit()" />
+        </div>
+        <div class="sd-badges"><span class="sd-st" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span></div>
+        <p class="sd-hint" role="note"><i class="pi pi-lock" aria-hidden="true"></i> {{ textoLimitada }}</p>
+        <dl class="sd-meta">
+          <div><dt>Área</dt><dd>{{ t.queue_name || '—' }}</dd></div>
+          <div><dt>Alta</dt><dd>{{ t.created_at | date:'dd/MM/yy HH:mm' }}</dd></div>
+          @if (t.resolved_at) { <div><dt>Resuelta</dt><dd>{{ t.resolved_at | date:'dd/MM/yy HH:mm' }}</dd></div> }
+        </dl>
+      </div>
+     } @else {
       <div class="sd-d">
         <div class="sd-d-head">
           <div>
@@ -74,7 +95,8 @@ function leerComoDataUri(f: File): Promise<string> {
         <div class="sd-badges">
           <span class="sd-st" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span>
           @if (t.is_test) { <span class="sd-test" title="Solicitud de prueba: no cuenta en reportes, tablero, Mi trabajo ni avisos.">Prueba</span> }
-          @if (t.priority) { <span class="sd-pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span> }
+          @if (t.confidential) { <span class="sd-conf" title="Confidencial: sólo la ven quien la reportó y el equipo del área"><i class="pi pi-lock" aria-hidden="true"></i> Confidencial</span> }
+          @if (etiquetaPri(t.priority); as pl) { <span class="sd-pri" [attr.data-p]="t.priority">{{ pl }}</span> }
           @if (sla().texto !== '—') { <span class="sd-sla" [attr.data-t]="sla().tono">{{ sla().texto }}</span> }
         </div>
 
@@ -87,7 +109,9 @@ function leerComoDataUri(f: File): Promise<string> {
           @if (t.requester_department_name) { <div><dt>Área</dt><dd>{{ t.requester_department_name }}</dd></div> }
           <div><dt>Atiende</dt><dd>{{ t.assigned_to_name || 'Sin asignar' }}</dd></div>
           <div><dt>Cola</dt><dd>{{ t.queue_name }} · {{ t.category_name }}</dd></div>
-          @if (t.safety_risk === true || t.safety_risk === false) {
+          @if (t.priority === null) {
+            <!-- [MSH.3] Un área sin prioridad no preguntó impacto ni riesgo: no se muestra un «Afecta: sólo a mí» que nadie contestó. -->
+          } @else if (t.safety_risk === true || t.safety_risk === false) {
             <!-- [MS.7.7] Cola de riesgo × operación: se muestra lo que SÍ se preguntó (el impacto no). -->
             <div><dt>Riesgo para personas</dt><dd>{{ t.safety_risk ? 'Sí' : 'No' }}</dd></div>
             <div><dt>Detiene la operación</dt><dd>{{ t.blocks_work ? 'Sí' : 'No' }}</dd></div>
@@ -149,9 +173,11 @@ function leerComoDataUri(f: File): Promise<string> {
               @if (puedeTransferir()) {
                 <p-button icon="pi pi-arrow-right-arrow-left" label="Transferir a otra área" size="small" severity="secondary" [text]="true" (onClick)="pedirTraslado()" />
               }
+              @if (t.priority !== null) {
               <p-select [options]="prioridades" optionLabel="label" optionValue="value" [ngModel]="nuevaPrio()"
                         (ngModelChange)="nuevaPrio.set($event)" placeholder="Cambiar prioridad…" appendTo="body" ariaLabel="Cambiar prioridad" />
-              @if (nuevaPrio() && nuevaPrio() !== t.priority) { <p-button label="Aplicar prioridad" size="small" [loading]="busy()" (onClick)="cambiarPrioridad()" /> }
+              }
+              @if (t.priority !== null && nuevaPrio() && nuevaPrio() !== t.priority) { <p-button label="Aplicar prioridad" size="small" [loading]="busy()" (onClick)="cambiarPrioridad()" /> }
             } @else {
               @if (t.status === 'resuelto') {
                 <p-button icon="pi pi-check" label="Ya quedó, cerrar" size="small" [loading]="busy()" (onClick)="confirmar()" />
@@ -298,10 +324,12 @@ function leerComoDataUri(f: File): Promise<string> {
           }
         </section>
       </div>
+     }
     }
   `,
   styles: [`
     :host { display: block; }
+    .sd-conf { font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
     .sd-d { display: flex; flex-direction: column; gap: var(--sp-3); }
     .sd-d-head { display: flex; justify-content: space-between; align-items: flex-start; gap: var(--sp-2); }
     .sd-d-head h2 { margin: 2px 0 0; font: 700 var(--fs-h3)/1.25 var(--font-body); color: var(--text-main); overflow-wrap: anywhere; }
@@ -429,7 +457,12 @@ export class SdRequestDetailComponent {
   private agentesDe: string | null = null;
   readonly agentes = computed(() => this.agentesRaw().map((a) => ({ ...a, etiqueta: `${a.name || a.username} (${a.open_count})` })));
 
-  readonly sla = computed(() => { const t = this.r(); return t ? slaTexto(t.sla, t.status) : { texto: '—', tono: 'mute' as const }; });
+  readonly sla = computed(() => { const t = this.r(); return t ? plazoDeFila(t) : { texto: '—', tono: 'mute' as const }; });
+  /** `[MSH.3]` ¿Es la vista limitada de un ticket confidencial? */
+  readonly limitada = computed(() => esVistaLimitada(this.r()));
+  readonly tituloLimitada = TITULO_VISTA_LIMITADA;
+  readonly textoLimitada = TEXTO_VISTA_LIMITADA;
+  readonly etiquetaPri = etiquetaPrioridad;
   readonly esFinal = computed(() => { const s = this.r()?.status; return s === 'cerrado' || s === 'cancelado'; });
   readonly oferta = computed<SdStatus[]>(() => {
     const s = this.r()?.status;

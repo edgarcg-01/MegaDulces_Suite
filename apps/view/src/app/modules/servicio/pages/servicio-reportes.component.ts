@@ -60,6 +60,15 @@ function restarDias(fecha: string, n: number): string {
       @if (r(); as d) {
         @if (d.truncado) { <p class="sr-banner warn" role="status">El periodo trae más solicitudes de las que el reporte calcula: los números son de las más recientes. Acorta el periodo para verlos completos.</p> }
 
+        <!-- [MSH.3] Un área CONFIDENCIAL con menos casos que su mínimo: ninguna cifra (un agregado de 2 casos casi identifica a una persona).
+             El servidor manda todo en cero/vacío sólo para cumplir el tipo: acá NO se pinta ni un cero, ni «0 %». -->
+        @if (d.suprimido; as s) {
+          <section class="sr-card" aria-labelledby="h-sup">
+            <h2 id="h-sup">Reporte no disponible</h2>
+            <p class="sr-sup" role="status"><i class="pi pi-lock" aria-hidden="true"></i> Esta área es confidencial y tiene menos de {{ s.minimo }} solicitudes en el periodo: para proteger a quien las reportó no se muestra ninguna cifra. Amplía el periodo para ver el reporte.</p>
+            <ul>@for (t of d.no_medido; track t) { <li>{{ t }}</li> }</ul>
+          </section>
+        } @else {
         <section class="sr-kpis" aria-label="Resumen del periodo">
           <div class="sr-kpi"><b>{{ d.totales.creados }}</b><span>Creadas</span></div>
           <div class="sr-kpi"><b>{{ d.totales.resueltos }}</b><span>Resueltas</span></div>
@@ -70,6 +79,7 @@ function restarDias(fecha: string, n: number): string {
           <div class="sr-kpi" title="Solicitudes que alguna vez se reabrieron: «resuelto» no resolvió."><b>{{ fmtPct(d.totales.reabiertos_pct) }}</b><span>Reabiertas</span></div>
         </section>
 
+        @if (d.por_prioridad.length) {
         <section class="sr-card" aria-labelledby="h-pri">
           <h2 id="h-pri">Por prioridad</h2>
           <div class="sr-wrap dt-scope">
@@ -94,6 +104,8 @@ function restarDias(fecha: string, n: number): string {
           </div>
           <p class="sr-hint">Los tiempos van en minutos del reloj de cada prioridad (hábil o corrido, según su política) y la resolución <b>no cuenta lo que estuvo en espera del solicitante</b>. «—» = no hubo con qué medir, no «cero».</p>
         </section>
+
+        }
 
         <section class="sr-card" aria-labelledby="h-cat">
           <h2 id="h-cat">Por categoría</h2>
@@ -162,6 +174,7 @@ function restarDias(fecha: string, n: number): string {
           <ul>@for (t of d.no_medido; track t) { <li>{{ t }}</li> }</ul>
           <p class="sr-hint">Periodo {{ d.periodo.desde }} a {{ d.periodo.hasta }} · calculado en vivo sobre las solicitudes ({{ medido(d.medido_at) }}). Sin semáforo: no hay una meta de cumplimiento registrada.</p>
         </section>
+        }
       } @else if (!error()) {
         <p class="sr-hint">Cargando…</p>
       }
@@ -178,6 +191,7 @@ function restarDias(fecha: string, n: number): string {
     .sr-chip.on { border-color: var(--action); color: var(--text-main); background: var(--surface-selected-bg); }
     .sr-chip:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
     .sr-fecha { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); font-weight: 600; color: var(--text-main); }
+    .sr-sup { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; font-size: var(--fs-sm); color: var(--text-main); }
     .sr-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); }
     .sr-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .sr-banner.warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }

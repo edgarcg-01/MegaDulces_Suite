@@ -11,6 +11,7 @@ import { TextareaModule } from 'primeng/textarea';
 import { SD_IMPACTS, SD_UBICACIONES_EXTRA, type SdAttachmentInput, type SdCatalogResponse, type SdDepartmentDto, type SdImpact, type SdPreferencesDto, type SdRequesterDto, type SdRequestRow } from '@megadulces/contracts';
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { optimizarImagenes } from '../image-compress';
+import { avisoConfidencial, etiquetaPrioridad } from '../confidencial';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { IMPACT_LABEL, PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError } from '../service-desk.service';
@@ -76,7 +77,7 @@ function dataUri(f: File): Promise<string> {
                     <span class="ss-st" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span></span>
                   <span class="ss-title">{{ t.title }}</span>
                   <span class="ss-r3">
-                    @if (t.priority) { <span class="ss-pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span> }
+                    @if (etiquetaPri(t.priority); as pl) { <span class="ss-pri" [attr.data-p]="t.priority">{{ pl }}</span> }
                     <span>{{ t.assigned_to_name || 'Sin asignar' }}</span>
                     <span class="ss-mono ss-date">{{ t.created_at | date:'dd/MM/yy' }}</span>
                   </span>
@@ -143,6 +144,10 @@ function dataUri(f: File): Promise<string> {
                   <p-select [options]="categoriasDelArea()" optionLabel="name" optionValue="id" [ngModel]="form.category_id" [disabled]="!areaEfectiva()"
                             (ngModelChange)="elegirCategoria($event)" [placeholder]="areaEfectiva() ? 'Elige una categoría' : 'Primero elige el área'" appendTo="body" ariaLabel="Categoría" [filter]="true" filterBy="name" />
                 </label>
+                <!-- [MSH.3] Antes de escribir nada: quién la verá y quién NO. Sólo en un área confidencial. -->
+                @if (confidencial()) {
+                  <p class="ss-conf" role="note"><i class="pi pi-lock" aria-hidden="true"></i> {{ avisoConf() }}</p>
+                }
                 <label class="ss-field"><span>Título corto <em>*</em></span>
                   <input pInputText [(ngModel)]="form.title" maxlength="200" placeholder="Ej. No me abre el sistema de caja" /></label>
                 <label class="ss-field"><span>Cuéntanos qué pasa</span>
@@ -179,7 +184,9 @@ function dataUri(f: File): Promise<string> {
                 }
 
                 <!-- [MS.7.7] Qué se pregunta lo dicta el MODELO de la cola (no su nombre): impacto × bloqueo, o riesgo × operación. -->
-                @if (modeloRiesgo()) {
+                @if (!usaPrioridad()) {
+                  <!-- [MSH.3] Un área sin prioridad (RH) no pregunta cuántas personas afecta ni si bloquea el trabajo: no hay a qué aplicarlo. -->
+                } @else if (modeloRiesgo()) {
                   <fieldset class="ss-impact">
                     <legend>¿Hay riesgo para personas? *</legend>
                     <label class="ss-radio"><input type="radio" name="safety_risk" [value]="true" [(ngModel)]="form.safety_risk" /> Sí</label>
@@ -219,7 +226,7 @@ function dataUri(f: File): Promise<string> {
                   }
                 </div>
 
-                <p class="ss-hint">La prioridad la propone el sistema según lo que marcaste y la confirma quien atiende.</p>
+                @if (usaPrioridad()) { <p class="ss-hint">La prioridad la propone el sistema según lo que marcaste y la confirma quien atiende.</p> }
                 <div class="ss-ffoot">
                   <p-button label="Enviar solicitud" icon="pi pi-send" [loading]="enviando()" [disabled]="!puedeEnviar()" (onClick)="enviar()" />
                   <p-button label="Cancelar" [text]="true" severity="secondary" (onClick)="cerrar()" />
@@ -269,6 +276,7 @@ function dataUri(f: File): Promise<string> {
     .ss-search { position: relative; flex: 1 1 220px; max-width: 360px; margin-left: auto; }
     .ss-search i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: var(--fs-xs); }
     .ss-search input { width: 100%; padding-left: 30px; }
+    .ss-conf { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--text-main); }
     .ss-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); }
     .ss-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .ss-body { display: grid; grid-template-columns: 1fr; gap: var(--sp-4); align-items: start; }
@@ -416,11 +424,23 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly fotoRequerida = computed(() => this.camposCola().find((f) => f.type === 'photo' && f.required) ?? null);
   /** `[MS.7.4]` Lo contestado en los campos propios `{ codigo: valor }`. Plano porque `ngModel` escribe ahí. */
   extraForm: Record<string, unknown> = {};
+  /** `[MSH.3]` La cola de la categoría elegida (lo dice la cola, no su nombre). */
+  private readonly colaElegida = computed(() => {
+    const c = this.catalogo();
+    const cat = c?.categories.find((k) => k.id === this.categoriaId());
+    return cat ? c?.queues.find((q) => q.id === cat.queue_id) ?? null : null;
+  });
+  readonly confidencial = computed(() => this.colaElegida()?.confidential === true);
+  /** `[MSH.3]` Un área sin prioridad (`uses_priority: false`) no pregunta impacto, riesgo ni bloqueo. Sin dato = sí la usa (lo de siempre). */
+  readonly usaPrioridad = computed(() => this.colaElegida()?.uses_priority !== false);
+  readonly avisoConf = computed(() => avisoConfidencial(this.colaElegida()?.name));
+  readonly etiquetaPri = etiquetaPrioridad;
   /** `[MS.7.7]` ¿La cola de la categoría elegida sugiere la prioridad por riesgo × operación? (lo dice la cola, no su nombre) */
   readonly modeloRiesgo = computed(() => {
     const c = this.catalogo();
     const cat = c?.categories.find((k) => k.id === this.categoriaId());
-    return !!cat && c?.queues.find((q) => q.id === cat.queue_id)?.priority_model === 'riesgo_operacion';
+    // `[MSH.3]` Un área sin prioridad no pregunta el riesgo, aunque su modelo diga «riesgo_operacion».
+    return !!cat && this.usaPrioridad() && c?.queues.find((q) => q.id === cat.queue_id)?.priority_model === 'riesgo_operacion';
   });
 
   // ── preferencias ──
@@ -601,8 +621,9 @@ export class ServicioSolicitudesComponent implements OnInit {
         title: this.form.title.trim(),
         description: this.form.description.trim() || undefined,
         // `[MS.7.7]` En una cola de riesgo el impacto no se pregunta (el servidor lo ignora); sí viaja el riesgo.
-        impact: this.modeloRiesgo() ? 'yo' : this.form.impact,
-        blocks_work: this.form.blocks_work,
+        // `[MSH.3]` En un área sin prioridad no se pregunta: viaja lo neutro (el servidor igual lo ignora).
+        impact: this.modeloRiesgo() || !this.usaPrioridad() ? 'yo' : this.form.impact,
+        blocks_work: this.usaPrioridad() ? this.form.blocks_work : false,
         safety_risk: this.modeloRiesgo() ? (this.form.safety_risk ?? undefined) : undefined,
         warehouse_code: this.form.warehouse_code || null,
         // `[MS.7.3]` La zona sólo viaja si la cola la pregunta (si no, el servidor la ignora de todos modos).

@@ -41,6 +41,40 @@
  *   ms      lo que tardó la última vez que se midió, en la máquina de trabajo.
  *           ⚠️ Es DOCUMENTACIÓN: ningún código lo lee. El criterio que pretende sostener
  *           ("si pasa de 5 s, sacalo de acá") no lo verifica nadie — se comprueba a mano.
+ *
+ *           ⛔⛔ `[PVI.18]` **NO SIRVEN PARA DECIDIR SI UNA COMPUERTA NUEVA ENTRA.** Medido el
+ *           2026-10-09, las 14 con `push`, cada una SOLA en serie y después las 14 en
+ *           `Promise.all` como las corre `gate-push.js:322`:
+ *
+ *               compuerta      declara    sola   junta   junta/sola
+ *               tablas densas     1146     225    1100      x4.89
+ *               mig-colisiones    1362     296    1094      x3.70
+ *               búsqueda           198     289     708      x2.45
+ *               tokens CSS        1318     281     624      x2.22
+ *               primeng           2084     892    1500      x1.68
+ *               set-bind          2273    1513    2225      x1.47
+ *               templates         2521    3851    5266      x1.37
+ *               estilos           3106    5768    6689      x1.16
+ *
+ *           Tres cosas que esa tabla deja dicho, y las tres contradicen algo que se afirmó
+ *           antes en este archivo:
+ *
+ *            1. **Los `ms` declarados están viejos en LAS DOS DIRECCIONES.** `estilos` dice
+ *               3,106 y sola tarda **5,768**; `tablas densas` dice 1,146 y tarda **225**. No son
+ *               "pisos" ni "mediciones en aislamiento que subestiman ~2×" (lo afirmé yo y es
+ *               falso): son números de fechas distintas que nadie volvió a tomar.
+ *            2. **La inflación es al revés de lo que parece.** No se inflan las pesadas: se
+ *               inflan las LIVIANAS. `estilos`, la que más recorre el repo, es la que MENOS se
+ *               infla (×1.16); `tablas densas`, la más liviana, la que más (×4.89). El castigo
+ *               de la concurrencia es **aditivo y parecido para todas** (+178 a +1,415 ms,
+ *               mediana ~+500), así que el COCIENTE es grande justo donde el denominador es
+ *               chico. Una regla que diga "la liviana se parece a la realidad" tiene el signo
+ *               invertido.
+ *            3. ⚠️ Un ×0.91 sale de comparar el `ms` DECLARADO contra la corrida concurrente.
+ *               Eso no mide contención: mide cuánto envejeció el número.
+ *
+ *           ⇒ Para decidir si una compuerta entra, la única cifra que significa algo es **la
+ *           PARED de la rueda completa, medida hoy, con y sin ella**. Hoy: ~6.9 s las 14.
  *   final   true = va DESPUÉS de las de Nx en `check-all`. Hoy sólo `boot`, que necesita el
  *           compilado que produce `build`.
  */
@@ -165,6 +199,29 @@ const COMPUERTAS = [
   // archivos SÍ existen; Docker compila el commit pelado. Un build local verde no dice nada sobre
   // un commit. Por eso este candado lee el ÁRBOL DE GIT, nunca el disco. Validado: contra
   // `af6a88d0` encuentra las 4 referencias rotas y ninguna de más.
+  // ⭐ `[PVI.18]` **Volvió a pasar el 2026-10-09** y este candado lo detecta EXACTO: `main` quedó
+  // irreproducible porque `finanzas-presupuesto.component.ts` importaba un archivo sin trackear
+  // (`[PVI.15]`). Nadie lo corrió antes de empujar — **costaba 141 s**, y una compuerta que nadie
+  // corre no es una compuerta. El costo no era leer 27 MB: era **arrancar git 1,879 veces**
+  // (~86 ms por `git show`, contra 113 ms del `ls-tree` entero). Con `git cat-file --batch`:
+  // **141 s → ~8.7 s, 16×**, misma salida verificada contra los dos refs.
+  // ⛔ SIGUE SIN `push: true`, y la decisión es de Edgar. ⚠️ El costo NO es «8.7 s contra un
+  // criterio de ~3 s»: `gate-push.js:322` corre las compuertas en `Promise.all`, así que lo que
+  // el equipo espera es la **PARED**, no la suma. Medido en vivo, 3 rondas, corriéndolas de
+  // verdad en paralelo:
+  //
+  //     hoy, las 14          6,747 / 6,745 / 7,241 ms   →  ~6.9 s
+  //     con commit-wiring   11,358 / 11,043 / 10,831 ms →  ~11.1 s     (+4.2 s, +61 %)
+  //
+  // ⛔ Acá yo había escrito que «los `ms` están medidos en aislamiento y subestiman ~2×».
+  // **Es falso y lo refuta la tabla de la cabecera**: están viejos en las dos direcciones
+  // (`tablas densas` declara 1,146 y sola tarda 225) y la inflación por concurrencia es
+  // ADITIVA, no un factor — se nota más en las livianas, no en las pesadas. La única cifra que
+  // decide es la pared de la rueda completa, medida hoy.
+  //
+  // El argumento a favor no es el tiempo: es que su modo de falla es TOTAL (un checkout limpio
+  // no compila) y que **ninguna otra compuerta local puede verlo**, porque todas compilan el
+  // árbol de trabajo, donde el archivo sí existe.
   { nombre: 'commit-wiring', cmd: 'node scripts/check-commit-wiring.js', que: 'lo que el commit referencia viaja EN el commit (no sólo en tu árbol de trabajo)' },
   // [ODS.1] Una lista de sucursales escrita a mano falla HACIA ABAJO y en silencio: el proceso
   // recorre menos ramas de las que hay, no da error, y no puede reportar faltantes porque una rama
@@ -183,6 +240,24 @@ const COMPUERTAS = [
   // estaba arreglado en `main`. La compuerta corría en `npm run check` y nadie corre
   // `npm run check` antes de commitear; al push no llegaba. Cumple el criterio de admisión:
   // escaneo estático, sin red, sin DB, 2,273 ms medidos (tope ~3 s).
+  //
+  // ⚠️ Esos 2,273 ms se midieron EN AISLAMIENTO el mismo día. La corrida concurrente da 2,071,
+  // de donde se concluyó ×0.91 («no se infla; las que se inflan son las pesadas que compiten por
+  // disco»). ⛔ **Ese ×0.91 es un artefacto**: compara el `ms` DECLARADO contra la rueda, o sea
+  // mide cuánto envejeció el número, no la contención. Medida SOLA hoy, ésta tarda **1,513 ms**
+  // y en la rueda **2,225** → ×1.47, con +712 ms de castigo, igual que todas. Y el signo de la
+  // regla estaba invertido: la que MENOS se infla es `estilos` (×1.16), la más pesada. Tabla
+  // completa y el porqué —el castigo es aditivo, así que el cociente explota donde el
+  // denominador es chico— en la cabecera, junto a la definición de `ms`.
+  //
+  // ⭐ **Y el `2,273` tampoco era un número viejo: lo medí hoy, tres corridas, 2,273/2,176/2,330.**
+  // Re-medido unas horas después, CINCO corridas: 1,461/1,567/1,558/1,672/1,583. Mismo comando,
+  // misma máquina, mismo día, **−32 %**. La dispersión DENTRO de cada tanda es chica (±7 % y
+  // ±13 %); entre tandas es enorme. ⇒ La variable no es la antigüedad ni el método: es **cuántas
+  // de las ocho sesiones estaban trabajando en ese momento**. Un `ms` suelto en esta máquina no
+  // es reproducible ni contra sí mismo, así que **sólo es comparable contra otro medido en la
+  // MISMA corrida** — que es exactamente por qué la única cifra que decide una admisión es la
+  // pared de la rueda completa, con y sin la compuerta, tomadas una al lado de la otra.
   { nombre: 'set-bind', script: 'check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)', push: true, ms: 2273 },
   // [MSH.2] H2: la confidencialidad de la cola de RH se rompe cuando alguien escribe una consulta NUEVA a `servicedesk.requests` sin saber
   // que existe lo confidencial. La lista de lectores es CERRADA: uno nuevo rompe el build y quien lo agrega escribe por qué es seguro.

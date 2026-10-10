@@ -103,7 +103,12 @@ export class ContpaqiTxtSinkAdapter implements ContpaqiPolizaSinkPort {
       // de que nadie edite el texto; si lo pisa con el suyo, no se pierde nada -- el token sigue.
       // Emitirlo es la unica forma de llegar a saberlo.
       const guid = guidDe(entrada.evento_tipo, entrada.evento_id);
-      const contenido = construirTxt(fechaTxt, 0, concepto, movs, String(entrada.tipo_poliza), guid);
+      // [CP.8.29] Los UUID viajan al final de la poliza (renglones AD). Sin uuids el archivo
+      // sale identico a antes -- el libro de compras no se entera.
+      const contenido = construirTxt(
+        fechaTxt, 0, concepto, movs, String(entrada.tipo_poliza), guid, '0', '0',
+        entrada.uuids ?? [],
+      );
       return {
         sink: this.sink,
         estado: 'entregada',

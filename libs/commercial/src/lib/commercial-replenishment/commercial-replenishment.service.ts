@@ -49,6 +49,59 @@ import {
 type TargetBasis = 'min' | 'reorder' | 'max' | 'cadence';
 type Bucket = 'agotado' | 'bajo_minimo' | 'bajo_reorden' | 'sano' | 'sobrestock';
 
+/** `[RA.PM]` Un veredicto de la autopsia, con su dinero. */
+export interface PostmortemVeredicto {
+  veredicto: string;
+  label: string;
+  pares: number;
+  comprado: number;
+  salido: number;
+  en_piso: number;
+}
+
+export interface PostmortemRow {
+  product_id: string; sku: string; nombre: string;
+  proveedor: string | null; supplier_id: string | null;
+  warehouse_code: string; warehouse_name: string;
+  no_vende: boolean;
+  comprado: number;
+  /** Parte de lo comprado que el documento NO pudo atribuir a una plaza. Se declara, no se reparte. */
+  comprado_sin_resolver: number;
+  n_recibos: number;
+  primera_compra: string | null; ultima_compra: string | null;
+  dias_desde_compra: number | null;
+  salido: number; vendido: number; traspasado: number;
+  ultima_salida: string | null;
+  valor_hoy: number;
+  /** salido ÷ comprado. `null` = no se pudo calcular. >1 no es error: movió más de lo comprado. */
+  rotacion: number | null;
+  veredicto: string;
+}
+
+export interface PostmortemResponse {
+  veredictos: PostmortemVeredicto[];
+  total_comprado: number;
+  total_nunca_salio: number;
+  /** Dinero que el documento no atribuye a una plaza: NO se reparte, se declara (ADR-056). */
+  total_sin_resolver: number;
+  /** Fecha con la que se construyó la matvista. `null` = no se pudo leer. */
+  computed_on: string | null;
+  ventana_dias: number;
+  rows: PostmortemRow[];
+  total: number; page: number; pageSize: number;
+}
+
+export interface PostmortemQuery {
+  warehouse_id?: string;
+  warehouse_ids?: string;
+  supplier_id?: string;
+  search?: string;
+  veredicto?: string;
+  /** `true` (default) deja fuera los almacenes que no venden; se miden contra su SALIDA, no la venta. */
+  solo_venden?: boolean;
+  page?: number; pageSize?: number;
+}
+
 /** `[RA.SOB]` Un tramo de cobertura, con cuánto de él lo compramos y nunca salió. */
 export interface SobranteTramo {
   tramo: string;
@@ -4369,6 +4422,140 @@ export class CommercialReplenishmentService {
         supplier_id: supplierId, warehouse_id: warehouseId ?? null, n_orders: n,
         last: rows[0], median_amount: Math.round(median), typical_amount: typical, max_amount: Math.round(vals[vals.length - 1]),
         since: rows[n - 1].date, until: rows[0].date, recent: rows.slice(0, 6),
+      };
+    });
+  }
+
+  // ── `[RA.PM]` La autopsia de la compra: qué pedimos que no rindió ─────────────────────
+  /**
+   * Pedido de Edgar (2026-10-09): *"ya tenemos las ordenes de compra o las compras desde contpaq o
+   * fiscales. hay que comparar eso con pedidos que se hayan quedado en stock o no hayan rendido
+   * como se pensaba, para aprender esos pedidos y no volverlos a repetir"*.
+   *
+   * ⛔ **Lo fiscal no es la espina, y hay que decirlo cada vez.** `fiscal.cfdis` NO tiene
+   * renglones (no existe tabla de conceptos; el detalle vive en el XML y trae el código del
+   * PROVEEDOR, no nuestro SKU). Sin SKU no hay autopsia por producto. Además sólo el 47.9% de los
+   * recibos trae RFC, y la `referencia` tecleada a mano casa con el folio del CFDI el **1.1%** de
+   * las veces. La espina es el renglón de la ORDEN DE ENTRADA de Kepler, que sí trae SKU, cantidad
+   * y costo. El detalle medido vive en la migración `20261009133029`.
+   *
+   * ⭐ Lee la matvista porque la consulta en vivo tarda **~5 minutos**: cruza dos vistas derivadas
+   * del ODS y las dos se re-derivan. Acá se paga un `SELECT` sobre una tabla con índice.
+   */
+  async postmortem(q: PostmortemQuery, area: string = AREA): Promise<PostmortemResponse> {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const whIds = await this.whIds(q, area);
+    const page = Math.max(1, Number(q.page) || 1);
+    const pageSize = Math.min(500, Math.max(1, Number(q.pageSize) || 50));
+
+    const ORDEN = ['nunca_salio', 'salio_poco', 'parcial', 'rindio', 'sin_resolver'];
+    const ETIQUETA: Record<string, string> = {
+      nunca_salio: 'Nunca salió',
+      salio_poco: 'Salió menos de la mitad',
+      parcial: 'Salió, pero no todo',
+      rindio: 'Rindió',
+      // ⭐ NO es un veredicto de desempeño: es la declaración de que el documento no dice a qué
+      // plaza iba la mercancía, así que no se puede juzgar. Repartirlo a ojo sería inventar.
+      sin_resolver: 'Sin resolver el destino',
+    };
+
+    const filtros: string[] = ['pm.tenant_id = :t'];
+    const binds: Record<string, unknown> = { t: tenantId };
+    if (whIds?.length) { filtros.push('pm.warehouse_id = ANY(:wh)'); binds['wh'] = whIds; }
+    if (q.supplier_id) { filtros.push('pm.supplier_id = :sup'); binds['sup'] = q.supplier_id; }
+    if (q.search?.trim()) { filtros.push('(pm.sku ILIKE :q OR pm.nombre ILIKE :q OR pm.proveedor ILIKE :q)'); binds['q'] = `%${q.search.trim()}%`; }
+    // ⚠️ El default deja fuera los almacenes que NO venden: su "rindió" se mide contra la salida
+    // (el traspaso), no contra la venta, y mezclarlos en una sola tabla haría que el CEDIS —por
+    // donde entra la mayor parte de la compra— arrastre el veredicto de toda la red.
+    if (q.solo_venden !== false) filtros.push('pm.no_vende IS NOT TRUE');
+    const where = filtros.join(' AND ');
+
+    const vFiltro = q.veredicto && ORDEN.includes(q.veredicto) ? q.veredicto : null;
+    const whereDet = vFiltro ? `${where} AND pm.veredicto = :v` : where;
+    const bindsDet = { ...binds, ...(vFiltro ? { v: vFiltro } : {}), lim: pageSize, off: (page - 1) * pageSize };
+
+    return this.tk.run(async (trx) => {
+      // Una sola consulta: el resumen por veredicto viaja en una columna, igual que en `sobrante`.
+      // Acá no es por velocidad (la MV es rápida) sino porque el total de la tira y el detalle
+      // tienen que salir del MISMO filtro, o la tira dice una cosa y la tabla otra.
+      const sql = `
+        WITH res AS (
+          SELECT jsonb_agg(z) AS j FROM (
+            SELECT pm.veredicto, count(*) AS pares,
+                   round(sum(pm.comprado)::numeric, 2)  AS comprado,
+                   round(sum(pm.salido)::numeric, 2)    AS salido,
+                   round(sum(pm.valor_hoy)::numeric, 2) AS en_piso
+              FROM analytics.mv_purchase_postmortem pm
+             WHERE ${where} GROUP BY 1) z
+        ), tot AS (
+          SELECT round(sum(pm.comprado)::numeric, 2) AS comprado,
+                 round(sum(pm.comprado_sin_resolver)::numeric, 2) AS sin_resolver,
+                 max(pm.computed_on)::text AS computed_on
+            FROM analytics.mv_purchase_postmortem pm WHERE ${where}
+        )
+        SELECT pm.product_id, pm.sku, pm.nombre, pm.proveedor, pm.supplier_id,
+               pm.warehouse_code, pm.warehouse_name, pm.no_vende,
+               pm.comprado, pm.comprado_sin_resolver, pm.n_recibos,
+               pm.primera_compra::text AS primera_compra, pm.ultima_compra::text AS ultima_compra,
+               pm.dias_desde_compra, pm.salido, pm.vendido, pm.traspasado,
+               pm.ultima_salida::text AS ultima_salida, pm.valor_hoy, pm.rotacion, pm.veredicto,
+               count(*) OVER () AS _total,
+               (SELECT j FROM res) AS _res,
+               (SELECT to_jsonb(t) FROM tot t) AS _tot
+          FROM analytics.mv_purchase_postmortem pm
+         WHERE ${whereDet}
+         ORDER BY pm.comprado DESC NULLS LAST
+         LIMIT :lim OFFSET :off`;
+
+      const raw = (await trx.raw(sql, bindsDet)).rows as (PostmortemRow & {
+        _total?: number; _res?: Record<string, unknown>[]; _tot?: Record<string, unknown>;
+      })[];
+
+      // Con cero renglones el resumen no viene en ninguna fila: se pide aparte SÓLO entonces.
+      // Una tira vacía haría desaparecer el contexto justo cuando el comprador filtró y quiere
+      // saber por qué no hay nada.
+      let res: Record<string, unknown>[];
+      let tot: Record<string, unknown>;
+      if (raw.length) {
+        res = raw[0]._res ?? [];
+        tot = raw[0]._tot ?? {};
+      } else {
+        const r = (await trx.raw(`
+          SELECT (SELECT jsonb_agg(z) FROM (
+                    SELECT pm.veredicto, count(*) AS pares,
+                           round(sum(pm.comprado)::numeric,2) AS comprado,
+                           round(sum(pm.salido)::numeric,2) AS salido,
+                           round(sum(pm.valor_hoy)::numeric,2) AS en_piso
+                      FROM analytics.mv_purchase_postmortem pm WHERE ${where} GROUP BY 1) z) AS j,
+                 (SELECT round(sum(pm.comprado)::numeric,2) FROM analytics.mv_purchase_postmortem pm WHERE ${where}) AS comprado,
+                 (SELECT round(sum(pm.comprado_sin_resolver)::numeric,2) FROM analytics.mv_purchase_postmortem pm WHERE ${where}) AS sin_resolver,
+                 (SELECT max(pm.computed_on)::text FROM analytics.mv_purchase_postmortem pm WHERE ${where}) AS computed_on`, binds)).rows[0];
+        res = (r?.j as Record<string, unknown>[]) ?? [];
+        tot = { comprado: r?.comprado, sin_resolver: r?.sin_resolver, computed_on: r?.computed_on };
+      }
+
+      const por = new Map(res.map((r) => [String(r['veredicto']), r]));
+      const veredictos: PostmortemVeredicto[] = ORDEN.map((k) => {
+        const r = por.get(k);
+        return {
+          veredicto: k, label: ETIQUETA[k],
+          pares: Number(r?.['pares'] ?? 0),
+          comprado: Number(r?.['comprado'] ?? 0),
+          salido: Number(r?.['salido'] ?? 0),
+          en_piso: Number(r?.['en_piso'] ?? 0),
+        };
+      });
+
+      return {
+        veredictos,
+        total_comprado: Number(tot['comprado'] ?? 0),
+        total_nunca_salio: veredictos.find((v) => v.veredicto === 'nunca_salio')?.comprado ?? 0,
+        total_sin_resolver: Number(tot['sin_resolver'] ?? 0),
+        computed_on: (tot['computed_on'] as string) ?? null,
+        ventana_dias: 180,
+        rows: raw.map(({ _total, _res, _tot, ...r }) => r) as PostmortemRow[],
+        total: Number(raw[0]?._total ?? 0),
+        page, pageSize,
       };
     });
   }
