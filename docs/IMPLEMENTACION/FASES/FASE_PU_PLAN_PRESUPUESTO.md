@@ -321,7 +321,7 @@ paralelo** — y es lo primero que hay que destrabar si el objetivo es crecer.
 |---|---|---|---|
 | **0 · La verdad del proceso** | Dónde vive el presupuesto real hoy; quién lo arma; `sales_targets` ¿persona o importer? | **Ingresos** + **Tesorería** | este carril |
 | **1 · Los tres números** | Separar meta / pronóstico / asignación en el esquema; migrar lo que el autopiloto escribió a `pronostico`, **no a meta** | **Tesorería** | Ingresos |
-| **2 · Drivers de ingreso** | ⛔ **Reescrito: la fuente no alcanzaba.** `erp_sales_invoices` cubre **4.85 %** del plan y **77 % de eso es TELEMARK**. Van **drivers distintos por canal**, declarando cuál tiene cliente y cuál no: con cliente (telemarketing, preventa) `clientes × frecuencia × ticket`; sin cliente (**Mostrador, el 58.5 % del plan**) `tickets × ticket promedio` desde `v_sellout_daily`. El renglón se deriva | **Ingresos** | Tesorería |
+| **2 · Drivers de ingreso** | ⛔ **Dos fuentes propuestas, dos refutadas por medición (§10.4).** El sprint ya **no nombra fuente**: nombra la pregunta — *¿de dónde salen los tickets sin heredar el eje mezclado de `sales_daily`?* El eje canónico de canal vive en `v_sellout_daily` y ahí no hay ambigüedad; lo que falta ahí son los tickets. **Lo decide Ingresos, que tiene el sprint** | **Ingresos** | Tesorería |
 | **3 · Dueño y clase de gasto** | `responsible` obligatorio; `expense_class` capturado; compuerta que impide materializar sin dueño | **Tesorería** | Ingresos |
 | **4 · El puente PVM** | Precio / volumen / mezcla sobre la desviación de venta | **Ingresos** | este carril |
 | **5 · Ciclo de efectivo** | DIO + DSO − DPO. ⛔ **Depende de que Fase MR cierre la valuación de inventario**: DSO y DPO ya están, el signo lo decide DIO | **Tesorería** | Ingresos |
@@ -345,6 +345,11 @@ No apruebo nada que no cumpla las seis:
    con exit 2 si no encuentra la línea.
 5. **Lo que no se puede medir se DECLARA** (ADR-056): NULL con motivo, nunca 0 ni verde.
 6. **El primitivo vive en `libs/`**, o es deuda con nombre en el tracker.
+7. ⭐ **La fuente se mide ANTES de nombrarla en un sprint**, no al empezarlo — cobertura del
+   universo y vocabulario de sus columnas. Regla **propuesta por Ingresos** después de que este
+   carril nombrara **dos** fuentes que no sostenían su sprint (`erp_sales_invoices` al 4.85 %;
+   `sales_daily` con el eje de canal mezclado). **Las dos las encontró quien iba a construir, no
+   quien escribió el plan** — y por eso la regla cae de este lado, no del suyo.
 
 ⚠️ **Y lo que yo no puedo hacer:** no «controlo» las otras sesiones — especifico, reviso y **me
 niego a aceptar lo que no esté verificado**. Si un carril discrepa con una medición mía, la medición
@@ -524,6 +529,64 @@ hallazgo del Sprint 0. **La tabla nace vacía, con `vacia_porque` derivado.**
 ✅ **Sprint 2 puede arrancar sin esperar §7.** Los drivers se miden sobre la venta **real**, que
 existe y no depende de que alguien haya fijado una meta. Las respuestas de §7 cambian **cómo se fija
 la meta**, no cómo se miden los drivers.
+
+### 10.4 ⛔ Sprint 2 · el decode de `tienda` y `credito` — y por qué no es (a) ni (b)
+
+Ingresos quedó bloqueado pidiendo decode de `kepler/tienda` y `kepler/credito` ($138 M, 20.7 % de la
+venta) y propuso dos salidas: **(a)** agregar `tickets` a `v_sellout_daily`, o **(b)** dos filas en
+`sellout_channel_map`. **Medido, no es ninguna de las dos.**
+
+**Primero, la premisa del método:**
+
+```
+analytics.sales_daily.channel — 12 meses cerrados
+  wincaja_mostrador   $271,614,070.63   3,695,241 tickets   40.60%
+  wincaja_credito     $172,496,237.43     202,810           25.78%
+  tienda              $115,928,014.52   1,713,182           17.33%   <- SIN prefijo
+  wincaja_ruta         $48,916,154.89     522,848            7.31%
+  mayoreo              $24,653,626.11      33,281            3.68%   <- SIN prefijo
+  credito              $22,443,202.20     148,075            3.35%   <- SIN prefijo
+  wincaja_preventa     $13,015,743.05     107,434            1.95%
+```
+
+⛔ **«Derivar el `source` del prefijo» no se puede: 3 de los 7 canales NO tienen prefijo** —
+$163,024,842.83 y 1,894,538 tickets, el **24.37 %**. No dicen `kepler_`: dicen el nombre pelado.
+
+⛔ **Y (b) no arreglaría nada:** `kepler/tienda` y `kepler/credito` **no existen en
+`v_sellout_daily`**, que es a quien `sellout_channel_map` sirve. Esa vista ya traduce
+`credito → contado_nf` en su propio `CASE`, y el mapa lo cubre. Agregarle filas para un vocabulario
+que no gobierna dejaría **dos traducciones del mismo concepto en dos lugares**.
+
+**El cruce, septiembre 2026, almacén por almacén** — dinero contra dinero, no nombres:
+
+| `sales_daily` | `v_sellout_daily` | Total | Veredicto |
+|---|---|---|---|
+| `tienda` | kepler `mostrador` | $25,301,368.28 vs $24,675,499.72 · **+2.54 %** | ✅ **es el mismo concepto** |
+| `mayoreo` | kepler `mayoreo` | $11,366,049.36 vs $11,219,208.82 · **+1.31 %** | ✅ ya mapeaba |
+| `credito` | kepler `contado_nf` | $7,911,360.75 vs $282,880.69 · **+2696.71 %** | ⛔ **NO lo es** |
+
+⭐ **La hipótesis la puse yo y la medición la tumbó.** Escribí que `sales_daily.credito` era el
+`credito` crudo que la vista renombra a `contado_nf`. **Difiere 2,696 %**: no es eso.
+
+⭐⭐ **Y lo que el cruce sí revela es por qué ninguna opción servía: `channel` de `sales_daily` mezcla
+DOS EJES.** `credito` aparece en las sucursales **y** en nueve almacenes `RUTA-*` ($3.9 M de los
+$7.9 M de septiembre). Un canal es **dónde se vende**; esto se comporta como **cómo se cobra**.
+`tienda` arrastra el mismo defecto en menor grado: incluye $1.1 M de almacenes `RUTA-*` que la vista
+clasifica como `ruta`.
+
+⛔ **Por eso no hay decode que dar: pedirlo asumía que `credito` ES un canal.** Declararlo como tal
+—mayoreo, mostrador, el que sea— sería **inventar el canal de $22.4 M**, que es exactamente lo que
+Ingresos quería evitar al no adivinarlo. Hizo bien en no construir.
+
+**Lo que queda para que decida Ingresos, que es quien tiene el sprint:** el eje canónico de canal
+vive en `v_sellout_daily` y ahí no hay ambigüedad; lo que falta ahí son los `tickets`. La pregunta
+honesta ya no es *«qué canal es `credito`»* sino **«de dónde salen los tickets sin heredar el eje
+mezclado de `sales_daily`»**.
+
+⭐ **Séptima regla, aceptada, propuesta por Ingresos:** *la fuente se mide **antes** de nombrarla en
+un sprint, no al empezarlo.* Es la **segunda** vez que una fuente que este carril nombró no sostiene
+el sprint —`erp_sales_invoices` al 4.85 %, y ahora ésta—, y **las dos las encontró quien iba a
+construir, no quien escribió el plan**. Entra a §6 como la séptima condición de aprobación.
 
 ---
 
