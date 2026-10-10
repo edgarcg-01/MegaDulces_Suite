@@ -2023,6 +2023,12 @@ export class ComercialService {
       { params: this.routeParams(routeNo, from, to) });
   }
 
+  /** `[RD.62]` Lo que el camión carga y NO vende: el candidato a bajarle el tope. */
+  routeStale(routeNo: string, from?: string, to?: string) {
+    return this.http.get<RouteStaleReport>(`${this.base}/analytics/route-inventory/stale`,
+      { params: this.routeParams(routeNo, from, to) });
+  }
+
   private routeParams(routeNo: string, from?: string, to?: string): HttpParams {
     let p = new HttpParams().set('route_no', routeNo);
     if (from) p = p.set('from', from);
@@ -2773,6 +2779,29 @@ export interface RouteShipmentLine {
 }
 
 /** RD.20 - un numero rojo, con su familia y desde cuando lo es. */
+/**
+ * `[RD.62]` Un producto que el camión carga y no vende.
+ *
+ * ⭐ `cargas > 1` es la fila que más duele: se lo siguieron cargando sin que vendiera una sola.
+ */
+export interface RouteStaleRow {
+  sku: string; producto: string; unidad: string;
+  desde: string; dias: number;
+  ultima_carga: string; cargas: number; cargado: number;
+  /** `null` = el embarque no trajo costo. No es cero: es sin medir. */
+  costo: number | null;
+}
+
+export interface RouteStaleReport {
+  rows: RouteStaleRow[];
+  /** Días tras los cuales no venderse deja de ser normal. Sale del dato, no del pulgar. */
+  umbral_dias: number;
+  /** El % de lo cargado que se vende dentro del umbral: la razón del número de arriba. */
+  cobertura_pct: number;
+  costo_total: number | null;
+  sin_costo: number;
+}
+
 export interface RouteNegativeRow {
   sku: string; producto: string; unidad: string;
   saldo: number;

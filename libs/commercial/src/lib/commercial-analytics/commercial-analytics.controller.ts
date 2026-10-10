@@ -1216,6 +1216,27 @@ export class CommercialAnalyticsController {
     return this.service.routeNegatives(routeNo, from, to);
   }
 
+  @Get('route-inventory/stale')
+  @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
+  @ApiOperation({
+    summary:
+      'RD.62 - Lo que el camion CARGA y NO VENDE: el candidato a bajarle el tope de carga. '
+      + 'El umbral sale del dato, no del pulgar: medido sobre 90 dias, el 96.1% de lo que se '
+      + 'vende sale dentro de 7 dias del embarque (54.1% el mismo dia), asi que pasados 7 dias '
+      + 'no haberse vendido es la cola del 4%. La respuesta publica `umbral_dias` y '
+      + '`cobertura_pct` para que el corte sea discutible con su razon a la vista. `cargas` dice '
+      + 'cuantas veces se lo volvieron a cargar sin vender una sola: >1 no es sobrante, es '
+      + 'habito. El costo puede venir NULL (embarque sin costo) y esas filas se cuentan en '
+      + '`sin_costo`, nunca como cero. Params: route_no, from, to.',
+  })
+  routeStale(
+    @Query('route_no') routeNo: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): ReturnType<CommercialAnalyticsService['routeStale']> {
+    return this.service.routeStale(routeNo, from, to);
+  }
+
   @Get('sales-by-route/routes')
   @RequirePermissions(Permission.COMMERCIAL_ROUTE_SALES_VER)
   @ApiOperation({ summary: 'RR — Opciones del filtro: SOLO las rutas del reporte (value = warehouse_code|route_code).' })

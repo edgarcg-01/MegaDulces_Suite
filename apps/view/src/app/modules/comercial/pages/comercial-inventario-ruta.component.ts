@@ -20,6 +20,7 @@ import {
   RouteDayBreakdown,
   RouteDayLine,
   RouteNegativeRow,
+  RouteStaleReport,
   RouteSeriesPoint,
   RouteShipment,
   RouteShipmentLine,
@@ -35,7 +36,7 @@ import { ContextHelpComponent } from '../../../shared/context-help/context-help.
 /** La valuacion con la que se lee TODA la pantalla. No se mezclan: son dos cuentas distintas. */
 type Metrica = 'costo' | 'venta';
 /** Las pestanas del detalle de una ruta. */
-type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
+type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
 
 /**
  * `[RD.13]`+`[RD.17-21]` **Inventario de los camiones de Ruta Directa.**
@@ -633,6 +634,72 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos';
           </div>
         </app-load-state>
       }
+      @case ('quedados') {
+        <app-load-state [loading]="quedados() === null && !errorTab()" [error]="errorTab()"
+                        [isEmpty]="quedados()?.rows?.length === 0" [skeletonRows]="8"
+                        emptyIcon="pi-check-circle"
+                        emptyTitle="Todo lo que se le cargó a este camión salió a vender"
+                        (retry)="pedirQuedados()">
+          @if (quedados(); as q) {
+            <p class="ir-nota">
+              Lo que se le cargó y <strong>no ha vendido ni una vez</strong>. El corte no es de
+              pulgar: medido sobre noventa días, <strong>{{ q.cobertura_pct }}%</strong> de lo que
+              se vende sale dentro de <strong>{{ q.umbral_dias }} días</strong> del embarque, así
+              que pasado ese plazo no haberse vendido deja de ser el ritmo normal.
+              <strong>Cargas</strong> dice cuántas veces se lo volvieron a subir sin que vendiera:
+              más de una no es un sobrante, es un tope mal puesto.
+            </p>
+            <div class="ir-chips">
+              <span class="ir-chip ir-chip-bad">{{ q.rows.length }} sin vender</span>
+              @if (recargados() > 0) {
+                <span class="ir-chip ir-chip-bad">{{ recargados() }} se volvieron a cargar</span>
+              }
+              @if (q.costo_total !== null) {
+                <span class="ir-chip">{{ q.costo_total | currency:'MXN':'symbol-narrow':'1.2-2' }} detenidos</span>
+              }
+              @if (q.sin_costo > 0) {
+                <span class="ir-chip" title="El embarque no trajo costo: no se puede valuar, y un cero diría que no cuesta nada tenerlo parado">{{ q.sin_costo }} sin costo</span>
+              }
+            </div>
+            <div class="dt-scope">
+              <p-table [value]="q.rows" [scrollable]="true" scrollHeight="48vh"
+                       class="dt-stack surf-table surf-table--sticky" size="small" [rowHover]="true"
+                       [tableStyle]="{ 'min-width': '52rem' }">
+                <ng-template #header>
+                  <tr><th>SKU</th><th>Producto</th><th>Unidad</th>
+                    <th class="num" title="Lo que se le cargó en total y sigue sin vender">Cargado</th>
+                    <th class="num" title="Cuántas veces se lo volvieron a cargar sin que vendiera una sola">Cargas</th>
+                    <th title="El día de su primera carga sin venta posterior">Desde</th>
+                    <th class="num">Días</th>
+                    <th title="La última vez que se lo cargaron: si es de ayer, se le sigue cargando">Última carga</th>
+                    <th class="num" title="Valuado al costo del embarque">Detenido</th></tr>
+                </ng-template>
+                <ng-template #body let-s>
+                  <tr>
+                    <td class="dt-id ir-mono" role="cell">{{ s.sku }}</td>
+                    <td role="cell" data-label="Producto">{{ s.producto }}</td>
+                    <td class="ir-mono ir-tenue" role="cell" data-label="Unidad">{{ s.unidad }}</td>
+                    <td class="num ir-mono" role="cell" data-label="Cargado">{{ s.cargado | number:'1.0-2' }}</td>
+                    <td class="num ir-mono" role="cell" data-label="Cargas">
+                      @if (s.cargas > 1) {
+                        <p-tag severity="danger" [value]="s.cargas + '×'" />
+                      } @else { <span class="ir-tenue">1</span> }
+                    </td>
+                    <td class="ir-mono ir-tenue" role="cell" data-label="Desde">{{ s.desde }}</td>
+                    <td class="num ir-mono ir-bad" role="cell" data-label="Días"><strong>{{ s.dias }}</strong></td>
+                    <td class="ir-mono ir-tenue" role="cell" data-label="Última carga">{{ s.ultima_carga }}</td>
+                    <td class="num ir-mono" role="cell" data-label="Detenido">
+                      @if (s.costo === null) {
+                        <span class="ir-tenue" title="El embarque no trajo costo con qué valuarlo">—</span>
+                      } @else { {{ s.costo | currency:'MXN':'symbol-narrow':'1.2-2' }} }
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+          }
+        </app-load-state>
+      }
     }
   </app-side-peek>
 </div>
@@ -768,6 +835,8 @@ export class ComercialInventarioRutaComponent {
     { label: 'Día por día', value: 'movimiento' },
     { label: 'Embarques', value: 'traspasos' },
     { label: 'Vendió de más', value: 'rojos' },
+    // [RD.62] La incidencia accionable: lo que carga y no vende.
+    { label: 'No se vende', value: 'quedados' },
   ];
   /** Días sin un solo movimiento a partir de los cuales la ruta se marca como parada. */
   private readonly PARADA_DIAS = 7;
@@ -791,6 +860,7 @@ export class ComercialInventarioRutaComponent {
   readonly embarqueSel = signal<RouteShipment | null>(null);
   readonly lineas = signal<RouteShipmentLine[] | null>(null);
   readonly rojos = signal<RouteNegativeRow[] | null>(null);
+  readonly quedados = signal<RouteStaleReport | null>(null);
 
   // ── `[RD.48]` Un día de la comparativa, abierto ────────────────────────────────────────
   /** El día que el usuario tocó, ya resuelto. `null` = se está viendo la lista de días. */
@@ -990,6 +1060,7 @@ export class ComercialInventarioRutaComponent {
       case 'movimiento': this.pedirSerie(); break;
       case 'traspasos': this.pedirEmbarques(); break;
       case 'rojos': this.pedirRojos(); break;
+      case 'quedados': this.pedirQuedados(); break;
     }
   }
 
@@ -1065,6 +1136,29 @@ export class ComercialInventarioRutaComponent {
 
   cuenta(f: RouteNegativeRow['familia']): number {
     return (this.rojos() ?? []).filter((r) => r.familia === f).length;
+  }
+
+  /** `[RD.62]` Lo que carga y no vende. */
+  pedirQuedados(): void {
+    const r = this.rutaSel();
+    if (!r) return;
+    this.quedados.set(null);
+    const [f, t] = this.rangoIso();
+    this.api.routeStale(r.route_no, f, t)
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: (d) => this.quedados.set(d),
+        error: (e) => this.errorTab.set(e?.error?.message ?? 'No se pudo leer lo que no se vende.'),
+      });
+  }
+
+  /**
+   * Cuántos se le volvieron a cargar sin haber vendido una sola vez.
+   * ⭐ Es la cifra que convierte la lista en una decisión: un sobrante se tira una vez; un
+   * producto que se recarga sin venderse es un tope mal puesto, y eso se corrige.
+   */
+  recargados(): number {
+    return (this.quedados()?.rows ?? []).filter((r) => r.cargas > 1).length;
   }
 
   /** Ancho de la barra de proporción: contra el día más grande de la serie. */
