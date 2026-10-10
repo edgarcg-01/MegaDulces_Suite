@@ -49,19 +49,37 @@
 # resuelve en el siguiente ciclo del caliente; una cabecera sin renglones ya pasaba hoy. El
 # orden nuevo es el menos malo de los dos.
 #
-# ── El `--watch=3` no es el final, y queda dicho ───────────────────────────────────────────
+# ── `--watch=1`: por qué el sondeo gana, medido ────────────────────────────────────────────
 #
-# ⛔ Con 3 s esto entrega en **~3.6 s peor caso**, NO en 1 s. El piso lo pone el código
-# (`replicate-ods-live.js`: `WATCH_SEC = Math.max(3, ...)`), y bajarlo a 1 s es una decisión con
-# precio medido, no un número que se cambia:
+# ⛔⛔ Una versión anterior de este archivo decía que sondear al segundo costaba ~25,900 s/día y
+# que por eso había que EMPUJAR (trigger con `ENABLE ALWAYS` sobre `md.kdm1` en las 9 réplicas).
+# **Ese número estaba mal por ~64×** y la conclusión que colgaba de él también. Salía de la
+# pasada en seco de 630 ms, que es casi toda arranque y NO recurre dentro de un `--watch`:
 #
-#     sondear kdm1 cada 1 s .....  ~25,900 s/día de CPU
-#     lo que [CPU.3] eliminó ....    7,487 s/día  ← por considerarlo caro
+#     pasada en seco, proceso nuevo ............ 630 ms   ← de acá salió el rechazo
+#       · require(pg) ..........................  62 ms   \  se paga UNA vez,
+#       · abrir las 9 conexiones ............... 109 ms   /  nunca por ciclo
+#     ciclo EN CALIENTE (9 ramas, ya conectadas)  4.7 ms   (peor de 12: 21.3 ms)
 #
-# O sea que sondear al segundo cuesta **3.5× lo que ya decidimos que era inaceptable**. El
-# camino a ≤1 s sin pagar eso es EMPUJAR en vez de sondear (un `pg_notify` desde la réplica,
-# que exige `ENABLE ALWAYS TRIGGER` sobre `md.kdm1` en las 9 ramas). Eso va aparte, medido y
-# decidido por separado: esta entrega baja 32 s → ~3.6 s sin tocar las réplicas.
+#     proyección a 86,400 ciclos/día (cada 1 s) ....   404 s/día
+#     lo que [CPU.3] eliminó POR CARO .............. 7,487 s/día
+#
+# Sondear cada segundo cuesta **18 veces MENOS** que lo que ya se había retirado por caro.
+#
+# ⭐ Y mata de raíz al sensor "barato" que parecía la salida elegante. Medido en una réplica real
+# (rama 06, mediana de 40 lecturas):
+#
+#     la consulta ctid que este script YA hace ........ 0.68 ms
+#     max(latest_end_lsn) FROM pg_stat_subscription ... 0.70 ms
+#     contador de md.kdm1 en pg_stat_all_tables ....... 1.07 ms
+#     SELECT 1 (puro viaje de ida y vuelta) ........... 0.31 ms
+#
+# O sea: **preguntarle a la tabla cuesta lo mismo que preguntarle al LSN**. No hay nada que
+# ahorrar, porque el watermark por ctid ya convierte la consulta en una lectura de la cola.
+# ⚠️ Y `pg_last_wal_replay_lsn()` devuelve **NULL** en estas réplicas: es de standby FÍSICO, y
+# acá la replicación es LÓGICA.
+#
+# Por eso esto NO toca las réplicas: ni trigger, ni slot de CDC, ni aviso fuera de banda.
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -96,7 +114,7 @@ spec:
           # ⚠️ Los argumentos van en un arreglo YAML y no en una cadena de shell: `--apply` se
           # compara EXACTO, y un retorno de carro pegado lo dejaría corriendo en seco imprimiendo
           # `ok` — lo que pasó en `[VL.4]` cuando el crontab viajó con CRLF.
-          command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=3", "--tables=kdm1"]
+          command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=1", "--tables=kdm1"]
           envFrom:
             - secretRef:
                 name: ingest-env

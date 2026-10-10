@@ -48,7 +48,32 @@ const PRIME = process.argv.includes('--prime');
 const ONLY_BRANCH = (process.argv.find((a) => a.startsWith('--branch=')) || '').split('=')[1] || null;
 const ONLY = (process.argv.find((a) => a.startsWith('--tables=')) || '').split('=')[1];
 const WATCH_ARG = process.argv.find((a) => a === '--watch' || a.startsWith('--watch='));
-const WATCH_SEC = WATCH_ARG ? Math.max(3, Number(WATCH_ARG.split('=')[1] || 10)) : 0;
+// `[CG.79]` EL PISO BAJA DE 3 s A 1 s, y es lo que hace alcanzable el pedido de ≤1 s de Kepler a
+// la caja. No se baja "porque sí": se bajó DESPUÉS de medir el ciclo real, y la medición
+// contradijo a la que yo mismo había usado para rechazarlo.
+//
+//   pasada en seco, proceso nuevo ...... 630 ms   ← de acá salió el rechazo, y estaba MAL
+//     · require(pg) ....................  62 ms   \
+//     · abrir las 9 conexiones ......... 109 ms    |  arranque: se paga UNA vez,
+//     · resumen + salida ............... resto    /   NUNCA dentro del --watch
+//   ciclo EN CALIENTE (9 ramas, conexiones abiertas) ...... 4.7 ms  (peor de 12: 21.3 ms)
+//
+//   proyección a 86,400 ciclos/día (sondeo cada 1 s) ......   404 s/día
+//   lo que `[CPU.3]` eliminó POR CARO .....................  7,487 s/día
+//
+// O sea: sondear cada segundo cuesta **18 veces MENOS** que lo que ya habíamos retirado por caro.
+// El rechazo anterior ("25,900 s/día, 3.5× lo inaceptable") estaba errado por ~64×, porque medía
+// el arranque de un proceso que en modo watch no vuelve a arrancar.
+//
+// ⚠️ Y por eso NO hace falta nada de lo que parecía necesario: ni un trigger con `ENABLE ALWAYS`
+// sobre `md.kdm1` en las 9 réplicas, ni un slot de CDC, ni un aviso fuera de banda. Medido en una
+// réplica real, la consulta ctid que este script ya hace cuesta **0.68 ms** — y el sensor "barato"
+// que la evitaría (`max(latest_end_lsn)`) cuesta **0.70 ms**. No hay nada que ahorrar.
+//
+// ⛔ El piso NO se retira del todo. 1 s es el mínimo porque por debajo el latido a
+// `analytics.cron_runs` escribiría más de una vez por segundo contra prod, y el carril dejaría de
+// ser gratis del lado del destino — que es la pata que nadie estaba midiendo.
+const WATCH_SEC = WATCH_ARG ? Math.max(1, Number(WATCH_ARG.split('=')[1] || 10)) : 0;
 
 // [INFRA.3] SIN LISTA POR DEFECTO, A PROPOSITO. Aca vivia la CUARTA copia a mano del conjunto
 // de tablas; el comentario de ops/vl/docker-compose.yml:160 ya la habia nombrado "el hallazgo
