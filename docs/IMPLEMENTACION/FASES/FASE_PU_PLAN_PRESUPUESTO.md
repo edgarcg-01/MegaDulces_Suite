@@ -588,7 +588,7 @@ un sprint, no al empezarlo.* Es la **segunda** vez que una fuente que este carri
 el sprint —`erp_sales_invoices` al 4.85 %, y ahora ésta—, y **las dos las encontró quien iba a
 construir, no quien escribió el plan**. Entra a §6 como la séptima condición de aprobación.
 
-### 10.5 ✅ Sprint 2 · la opción (a), verificada por este carril a pedido de Ingresos
+### 10.5 ⛔ RETIRADA · Sprint 2 · la opción (a) — el veredicto de esta sección quedó sin efecto por §10.6
 
 Ingresos pidió explícitamente que **alguien que no fuera ellos** re-midiera la cobertura y el reparto
 de `RUTA-*` — *«es el número del que depende toda la recomendación, y el que yo no voy a ver mal»*.
@@ -646,6 +646,72 @@ equivocada —*«`mayoreo` canónico vive entero en sucursal, cero `RUTA-*`»*�
 que eso admite dos explicaciones opuestas. Es el control de placebo que les faltó a tres errores de
 esta misma semana, **dos de ellos de este carril**. Que lo haya hecho el que iba a construir, sobre
 su propia recomendación, es exactamente lo que §9.1 dice que no se puede hacer solo — y lo hizo.
+
+### 10.6 ⛔ RETIRADA la aprobación de §10.5 — y el error de auditoría es de este carril
+
+Ingresos frenó (a) **antes de escribir la migración**, al preguntarse si `sales_daily.tickets`
+aguanta que la sumen. No aguanta. Re-medido acá contra `analytics.pos_ticket_sales`, septiembre:
+
+```
+alm  dias   ratio promedio sum(tickets) / tickets de caja
+08    12          8.81x
+06    30          6.90x
+01    30          4.87x
+07    23          4.69x
+03    30          3.92x
+02    30          3.29x
+05    30          3.18x
+04    30          2.60x
+                  --- 215 pares: min 2.19x  max 10.40x  prom 4.45x  desv 1.747
+```
+
+**Confirmado, y el rango real es MÁS ancho que el que reportaron** (dijeron 5.4–7.6×; es
+**2.19× a 10.40×**): su muestra eran los peores casos.
+
+⭐ **Y la variación confirma la TESIS, no sólo el síntoma.** Un error de escala sería **constante**;
+este ratio se mueve de **2.60×** en el almacén 04 a **8.81×** en el 08. Eso es **tamaño de canasta**:
+la columna cuenta *en cuántos tickets apareció este producto*, así que sumarla da **apariciones de
+producto en ticket**, y el multiplicador es cuántos SKUs lleva el cliente promedio de esa tienda.
+
+⛔ **Cómo falla, que es lo grave:** `tickets × ticket_promedio` armado así publicaría **tickets 4–10×
+de más**, **ticket promedio 4–10× de menos**, y **el producto seguiría dando la venta exacta**.
+Ningún cuadre lo atraparía. Es la familia de defecto de toda la semana —una cifra que concilia en el
+total con los dos factores mal— metida ahora en el **driver**, que es el número con el que se decide
+qué palanca mover.
+
+⚠️ **Salvedad que su reporte no trae:** el árbitro cubre **sólo `source = kepler`** (82,399 tickets
+en septiembre, 215 pares). Alcanza para **establecer el defecto de grano**; **no** para derivar un
+factor de corrección, y menos para Wincaja. Aproximar con ese ratio sería cambiar un error medido
+por uno inventado.
+
+**Estado del Sprint 2: las cuatro fuentes descartadas, cada una por su razón.**
+
+| | |
+|---|---|
+| `erp_sales_invoices` | cubre **4.85 %** del plan |
+| `sales_daily.channel` | mezcla **dos ejes** (lugar y forma de cobro) |
+| `sales_daily.tickets` | **grano de producto**: sobrecuenta 2.19–10.40× |
+| `v_sellout_daily` | eje canónico **limpio**, pero **sin tickets** |
+| `pos_ticket_sales` | tickets **de verdad**, pero sólo Kepler (17.5 %) y **sin canal** |
+
+⇒ **El driver de los canales sin cliente no se puede construir hoy, y eso se DECLARA — no se
+aproxima.** La pregunta pasa a ser si existe un conteo de tickets por canal canónico en algún lado;
+si no existe, es un hueco con nombre y monto, no un sprint.
+
+### ⛔ El error de auditoría, y es de este carril
+
+**§10.5 aprobó (a) verificando el número que Ingresos ofreció, no el que decidía.** Me pidieron
+re-medir la cobertura (1.21 %) y el reparto de `RUTA-*`; lo hice con rigor, reprodujo al centavo, y
+**aprobé**. El número que importaba era **la semántica de la columna que el sprint iba a consumir**,
+y nadie me preguntó por él — así que no lo miré.
+
+⭐⭐ **Un auditor que sólo verifica lo que le ofrecen audita el reporte, no el trabajo.** La
+pregunta que faltaba no era *«¿este número reproduce?»* sino **«¿es éste el número del que depende
+la decisión?»**. Lo encontró Ingresos, sobre su propia recomendación, **después** de que yo la
+aprobara.
+
+⚠️ Y es la **séptima regla de §6 —la que ellos mismos propusieron— aplicada a mí**: *la fuente se
+mide antes de nombrarla*. La aprobé sin medir la fuente, tres horas después de escribir la regla.
 
 ---
 
