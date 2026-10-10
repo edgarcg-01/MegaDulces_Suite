@@ -200,8 +200,23 @@ const money = (v) => (v === null ? 'null' : Number(v).toLocaleString('es-MX', { 
       noMedido('los cinco umbrales de cierre', 'la migración 20261010101128 no está aplicada');
       noMedido('sep-2026 cae del lado "bad" del umbral', 'sin umbral no hay con qué comparar');
     } else {
-      t('las cinco familias tienen umbral registrado', um.rows.length === 5,
-        um.rows.map((r) => r.kpi_key));
+      /*
+       * ⭐ `[CPA.0.1]` Cada familia tiene DOS filas: el piso (¿falta?) y el techo (¿sobra?). La
+       * clave del techo lleva el sufijo `.alto` y su `direction` es `lower_is_better`. Sin
+       * separarlas, este bloque contaba 10 donde esperaba 5 — que fue exactamente cómo se puso
+       * rojo al aplicar el techo.
+       */
+      const pisos = um.rows.filter((r) => !/\.alto$/.test(r.kpi_key));
+      const techos = um.rows.filter((r) => /\.alto$/.test(r.kpi_key));
+      t('las cinco familias tienen umbral de PISO registrado', pisos.length === 5,
+        pisos.map((r) => r.kpi_key));
+      t('⭐ y las cinco tienen TECHO: un mes posteado dos veces ya no se ve sano',
+        techos.length === 5, techos.map((r) => r.kpi_key));
+      t('⛔ los techos van en `lower_is_better` — con la dirección del piso no verían el exceso',
+        techos.every((r) => r.direction === 'lower_is_better'));
+      t('⛔ NEGATIVA — el techo NO es uno solo para todas: cada familia tiene su banda',
+        new Set(techos.map((r) => Number(r.target))).size > 1,
+        techos.map((r) => `${r.kpi_key}=${r.target}`));
       t('⛔ ninguno sin procedencia: un umbral sin `source` es un número que nadie puede discutir',
         um.rows.every((r) => String(r.source || '').trim().length > 20));
       t('todos con `manual_lock`: salieron de una medición humana, el auto-calibrador no los pisa',
@@ -217,7 +232,7 @@ const money = (v) => (v === null ? 'null' : Number(v).toLocaleString('es-MX', { 
         { personas: ocup.rows[0].n });
 
       if (existe) {
-        const uc = Object.fromEntries(um.rows.map((r) => [r.kpi_key, r]));
+        const uc = Object.fromEntries(pisos.map((r) => [r.kpi_key, r]));
         const cob = await knex.raw(`
           SELECT anio_mes, familia, cobertura FROM ${VISTA}
            WHERE tenant_id=? AND anio_mes IN ('2026-07','2026-08','2026-09') AND familia='compras'
