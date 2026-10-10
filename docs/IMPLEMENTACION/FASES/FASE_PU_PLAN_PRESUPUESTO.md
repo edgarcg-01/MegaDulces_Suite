@@ -30,8 +30,13 @@
 | `budget.expense_plan_settings` | **0 filas** |
 | `budgets.authorized_by` | **NULL en los 3 ejercicios** |
 
-**Un autopiloto copió el histórico de Kepler y lo llamó presupuesto.** Ningún humano firmó un
-supuesto de gasto —la tabla está vacía— ni autorizó un ejercicio. El único humano creó 2 cabeceras.
+**Un autopiloto copió el histórico de Kepler y lo llamó presupuesto.** Nadie firmó un supuesto de
+gasto —la tabla está vacía— ni autorizó un ejercicio.
+
+⚠️ **Salvedad de Ingresos, correcta y adoptada en todo este documento:** `superoot` es la cuenta de
+**superadministración**, y desde la base **no se distingue una persona de una sesión que la usó**.
+Donde antes decía *«el único humano creó 2 cabeceras»* debe leerse **«las 2 cabeceras no las creó
+el autopiloto»**. El alcance no cambia: **ningún renglón, ningún supuesto, ninguna firma.**
 
 ⭐⭐ **La consecuencia que invalida todo lo construido encima:** auditar `budget.*` es **cruzar
 nuestra propia implementación consigo misma**. Cuando este carril midió *«el gasto está en 4
@@ -58,8 +63,16 @@ en Halloween, Navidad y Reyes** (§1.6), que es peor y no se veía.
 
 Hay **tres** lugares donde vive algo parecido a una meta, y **ninguno está declarado como el que
 manda**: `commercial.sales_targets` (**572 filas, sin `created_by`: no se sabe quién las puso**),
-`commercial.margin_targets` (1 fila) y la balanza de ContPAQi (58,051 filas / 2,337 cuentas).
-Más lo que esté en un Excel que ninguna sesión vio. **§7 lo convierte en pregunta para personas.**
+`commercial.margin_targets` (1 fila) y ~~la balanza de ContPAQi~~.
+
+⛔ **Los tres quedaron resueltos por el Sprint 0 (§10.1), y ninguno es una meta humana:**
+`sales_targets` la escribió `projectToSalesTargets` —nuestro propio código—, `margin_targets`
+persiste una constante que ya vivía en tres archivos, y **ContPAQi queda descartado midiendo**:
+`contpaqi_ledger_monthly` tiene `saldo_ini · cargos · abonos · neto` y **ninguna columna de
+presupuestado**. El SoR contable guarda **lo que pasó**, no lo que se planeó.
+
+⇒ **No existe ninguna meta fijada por una persona en toda la base.** Lo único que queda es lo que
+esté en un Excel que ninguna sesión vio: **§7 lo convierte en pregunta para personas.**
 
 ### 1.4 ⛔ Y el circuito de pago **nunca corrió** — verificado por Tesorería, re-medido acá
 
@@ -239,7 +252,7 @@ de producir otro ejercicio.
 | **Abolir el presupuesto** (Beyond Budgeting puro) | ⛔ **No.** Acá todavía no existe **uno** que funcione; no se puede abolir lo que no se tiene. Se toma **la separación de los tres números** (§2.1). |
 | **Software de planeación** (Anaplan / Adaptive / Pigment) | ⛔ **No.** El problema no es la herramienta: es que **nadie firma**. Una licencia no crea un dueño. |
 | **Pronóstico mensual desde el mes 1** | ⚠️ **No todavía.** Re-pronosticar un plan que nadie revisó es automatizar el error. Primero un plan firmado (§5, Sprint 1). |
-| **Semáforos y metas por KPI** | ⚠️ **Sólo con umbral registrado** (ADR-076). ⚠️ `analytics.kpi_thresholds` **dejó de estar en cero: tiene 5 filas** — alguien las registró hoy, y hay que ver si alguna aplica al presupuesto antes de pintar nada. |
+| **Semáforos y metas por KPI** | ⚠️ **Sólo con umbral registrado** (ADR-076). ⚠️ `analytics.kpi_thresholds` tiene **5 filas**, y **ninguna aplica a presupuesto**: son de `[CPA.0]` (cierre contable), con `kpi_key` `cierre_contable.{bancos,compras,gastos,nomina,ventas}`. ⛔ Este plan dijo antes que «alguien las registró hoy» — **mal atribuido, lo corrigió Ingresos**. El registro de umbrales **sigue sin una sola meta directiva**. |
 
 ---
 
@@ -429,6 +442,88 @@ capacidad cubría un mes cerrado.
 ⛔ **Y el reparto no se relaya.** Dos veces hoy un carril le pasó a otro una autorización de Edgar
 como si fuera propia, y las dos veces el que la recibió hizo bien en no tomarla. **Una instrucción
 baja de quien manda a cada sesión, o no baja.** Medir no necesita reparto; construir sí.
+
+---
+
+## 10 · Bitácora de auditoría — Sprint 0
+
+> Veredictos de este carril sobre entregas ajenas, re-medidos con **consulta propia y otro método**
+> (§6.3). Un veredicto sin medición propia sería un sello, no una auditoría.
+
+### 10.1 ✅ Ingresos — *«¿de dónde sale la meta de venta hoy?»* · `42c73e554`
+
+**Aprobado.** Conclusión: **no existe ninguna meta fijada por una persona en toda la base**;
+`commercial.sales_targets` (572 filas) la escribió `projectToSalesTargets`, o sea nuestro propio
+código.
+
+**Cómo lo ataqué — no repitiendo su método.** Su barrido filtra **nombres de columna**
+(`target|meta_|_meta|presupuest|budget|objetivo|cuota`), y ellos mismos declararon el riesgo: *si una
+meta se llama de otra forma, la conclusión se cae*. Tres ejes distintos:
+
+| Eje | Qué hice | Resultado |
+|---|---|---|
+| **B · nombres más anchos** | agregué `quota, goal, forecast, proyec, planeado, esperado, compromet, aspira`, en **todos** los schemas y **también vistas** (su barrido era «tablas base» en 2 schemas) | **28 objetos** contra sus 9 |
+| **A · sin mirar nombres** | toda tabla con `created_by` y un autor **no-máquina**: *una meta la pone una persona, se llame como se llame* | **28 tablas** con autor humano, **ninguna de meta** |
+| **C · camadas** | si las 572 fueran de varias fechas, habría más de un escritor | — |
+
+⭐ **El eje B encontró dos familias que su filtro no alcanzaba y que sí podían ser metas** — *una
+cuota de comisión **es** una meta de venta* — y las cerré una por una:
+
+```
+commercial.commission_engine_lines     0 filas
+commercial.commission_run_lines      238 filas · ninguna columna de cuota/meta
+intelligence.push_directives           0 filas · "target_id/target_kind" = objeto, no objetivo
+finance.cashflow_forecast              0 filas
+commercial.promo_agreements            0 filas
+commercial.margin_targets              1 fila  · ya declarada por ellos
+```
+
+⭐⭐ **Y el eje A corrobora por el lado contrario, que es lo que lo vuelve fuerte:** las personas
+**sí** escriben en este sistema — 28 tablas con autor humano, requisiciones, conteos, recepciones,
+cotizaciones, miles de renglones. **No es que nadie capture nada: es que nadie captura una meta.**
+
+**Correcciones suyas que acepto:** las 5 filas de `kpi_thresholds` son de `[CPA.0]` (cierre
+contable), **no «las registró alguien hoy»** como dije — y ninguna aplica a presupuesto; y ContPAQi
+sale de §1.3 como candidato, porque `contpaqi_ledger_monthly` tiene `saldo_ini · cargos · abonos ·
+neto` y **ninguna columna de presupuestado**: el SoR contable guarda lo que pasó, no lo que se
+planeó.
+
+⚠️ **Y su salvedad sobre `superoot` es correcta y la adopto en todo este documento:** `superoot` es
+la cuenta de superadministración, y **desde la base no se distingue una persona de una sesión que la
+usó**. Donde este plan decía *«el único humano creó 2 cabeceras»* debe leerse **«las 2 cabeceras no
+las creó el autopiloto»**. El alcance no cambia: ningún renglón, ningún supuesto, ninguna firma.
+
+### 10.2 ✅ Tesorería — *«¿qué se autoriza hoy y contra qué tope?»* · `03b76eec9`
+
+**Aprobado, con una cifra corregida.** Las cinco mediciones reproducen exactas con consulta propia:
+
+| | Reportado | Medido acá |
+|---|---|---|
+| `erp_supplier_payments` 90 d | $125,687,622 | **$125,687,621.81** · 1,299 pagos ✅ |
+| `payment_program` 2026 | $372,447,210 | **$372,447,210.23** · 2,694 pagos ✅ |
+| el módulo (`payment_calendar_*` + `paid_amount`) | $0 | **0 lotes · $0.00** ✅ |
+| filas en 2006 | 4 · $37,444 | **4 · $37,444**, la más vieja 2006-07-13 ✅ |
+| `payment_program.created_by` | NULL en 2,716 | **0 de 2,716 con autor** ✅ |
+
+⚠️ **La única corrección: «~$45 M/mes» da $41.9 M/mes** ($125,687,621.81 ÷ 3). Y el reparo de fondo
+es la ventana: el filtro de 90 días devuelve fechas que **van del 2026-07-13 al 2026-12-01** porque
+hay un pago fechado en el futuro — **el divisor y el rango no describen el mismo período**. La
+conclusión no se mueve; el promedio mensual sí.
+
+⭐ **Y su hallazgo es el más fuerte del Sprint 0, de los dos:** el presupuesto de pagos **vive fuera
+de Presupuestos**. Se decide en otro lado, se ejecuta en Kepler, se anota después en una bitácora —
+y el módulo mueve **$0.00** mientras por afuera pasan **$372 M al año**.
+
+### 10.3 Lo que esto decide para los Sprints siguientes
+
+⛔ **Sprint 1 va a producir una tabla `meta` VACÍA, y eso es lo correcto.** Ingresos probó que no
+existe ninguna meta humana; si al separar los tres números alguien rellena `meta` con lo del
+autopiloto **por incomodidad de dejarla vacía**, consagramos la extrapolación y perdemos el único
+hallazgo del Sprint 0. **La tabla nace vacía, con `vacia_porque` derivado.**
+
+✅ **Sprint 2 puede arrancar sin esperar §7.** Los drivers se miden sobre la venta **real**, que
+existe y no depende de que alguien haya fijado una meta. Las respuestas de §7 cambian **cómo se fija
+la meta**, no cómo se miden los drivers.
 
 ---
 
