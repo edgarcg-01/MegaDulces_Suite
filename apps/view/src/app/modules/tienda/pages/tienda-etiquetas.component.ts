@@ -21,6 +21,7 @@ import { StoreSocketService, type LabelPricesChanged } from '../store-socket.ser
 import { AuthService } from '../../../core/services/auth.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { ETIQUETAS_TABS } from '../etiquetas-tabs';
+import { ModoPrecio, esModoPrecio, unidadDeModo } from '../etiquetas-modo';
 
 /** `freshness` = la edad del precio en el momento en que ESTE ítem se resolvió. Viaja con él. */
 interface QueueItem { model: LabelModel; copies: number; hero: HeroKey; freshness: Freshness | null; }
@@ -967,13 +968,17 @@ export class TiendaEtiquetasComponent {
     // tope) y se cargan con el MISMO camino que la carga masiva — mismo `resolve`, mismo tope de
     // cola, mismos avisos. Sin esto habría que duplicar la maquinaria de impresión allá, que es
     // un segundo lugar donde arreglar el mismo bug.
-    const traidos = (history.state as { codes?: unknown } | null)?.codes;
+    const estado = history.state as { codes?: unknown; modo?: unknown } | null;
+    const traidos = estado?.codes;
     if (Array.isArray(traidos) && traidos.length) {
       const codes = traidos.filter((c): c is string => typeof c === 'string' && !!c.trim());
       if (codes.length) {
         this.bulk.set(codes.join('\n'));
+        // `[ETQ-CAMBIOS.8]` Qué precio confirmó la persona en «Cambios de precio». Un valor que no
+        // es uno de los cuatro se ignora: el estado del historial lo puede escribir cualquiera.
+        const modo = esModoPrecio(estado?.modo) ? estado.modo : undefined;
         // Diferido un tick: `addBulk` escribe señales que el primer render todavía no leyó.
-        queueMicrotask(() => this.addBulk());
+        queueMicrotask(() => this.addBulk(modo));
       }
     }
 
@@ -1166,7 +1171,35 @@ export class TiendaEtiquetasComponent {
     setTimeout(() => this.scanInput?.nativeElement.focus(), 0);
   }
 
-  addBulk(): void {
+  /**
+   * `[ETQ-CAMBIOS.8]` Aplica lo que se confirmó en «Cambios de precio» a lo que ACABA de resolverse.
+   *
+   * `pieza` / `paquete` / `caja` ponen esa presentación en grande y quitan «Otras presentaciones»
+   * (la persona pidió ese precio, no los tres); `todos` no toca nada. Un producto que no tiene
+   * esa presentación conserva su precio grande de siempre y se DICE — la alternativa era
+   * imprimirle otra cosa sin avisar.
+   */
+  private aplicarModo(modo: ModoPrecio | undefined, modelos: LabelModel[]): string[] {
+    if (!modo || modo === 'todos') return [];
+    const sinEsa: string[] = [];
+    const porId = new Map(modelos.map((m) => [m.product_id, m]));
+    let aplicados = 0;
+    this.queue.update((q) => q.map((it) => {
+      const m = porId.get(it.model.product_id);
+      if (!m) return it;
+      const unidad = unidadDeModo(m.presentaciones, modo);
+      if (!unidad) { sinEsa.push(m.sku || m.name); return it; }
+      aplicados++;
+      return { ...it, hero: unidad };
+    }));
+    // Si a NINGÚN producto le tocó la presentación pedida, no se le quita nada a la etiqueta: sólo
+    // se avisa. Quitar «Otras presentaciones» sin haber puesto lo pedido dejaba al producto con
+    // menos información y sin lo que se había elegido.
+    if (aplicados > 0) this.sections.update((s) => s.filter((x) => x !== 'presentaciones'));
+    return sinEsa;
+  }
+
+  addBulk(modo?: ModoPrecio): void {
     const codes = this.bulk().split(/[\s,;]+/).map((c) => c.trim()).filter(Boolean);
     if (!codes.length) return;
     const suc = this.plazaOAviso();
@@ -1177,13 +1210,18 @@ export class TiendaEtiquetasComponent {
       next: (r) => {
         this.lastFreshness.set(r.freshness ?? null);
         const { added, skipped, leftover } = this.pushLabels(r.labels, r.freshness ?? null);
+        const sinEsa = this.aplicarModo(modo, r.labels);
         this.notFound.set(r.not_found || []);
         const nf = r.not_found?.length || 0;
         let text = `Agregados ${added}`;
         if (skipped.length) text += ` · sin precio ${skipped.length}`;
         if (nf) text += ` · no encontrados ${nf}`;
         if (leftover.length) text += ` · ${leftover.length} fuera por el tope de ${this.MAX_LABELS} etiquetas (siguen en la lista)`;
-        this.msg.set({ text, kind: (skipped.length || nf || leftover.length) ? 'warn' : 'ok' });
+        if (modo && modo !== 'todos') {
+          text += ` · precio en grande: ${modo}`;
+          if (sinEsa.length) text += ` · sin ${modo} (salen con su precio de siempre): ${sinEsa.join(', ')}`;
+        }
+        this.msg.set({ text, kind: (skipped.length || nf || leftover.length || sinEsa.length) ? 'warn' : 'ok' });
         // Lo que no cupo se queda en el textarea: se imprime esta cola y se vuelve a cargar.
         this.bulk.set(leftover.join('\n'));
         this.loading.set(false);
