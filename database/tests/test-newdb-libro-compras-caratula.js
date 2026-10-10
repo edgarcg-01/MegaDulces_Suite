@@ -74,14 +74,31 @@ const SRC = path.resolve(__dirname, '../../libs/finance/src/lib/purchase-book');
       }
       ok(!(await folioDelMes('2026-07', 2)), 'jul-2026 folio 2 está libre → ahí entra su complemento');
 
-      // ago-2026 NO tiene libro: su complemento ES el mes y entra en folio 1.
-      const ago1 = await folioDelMes('2026-08', 1);
-      ok(!ago1, 'ago-2026 NO tiene póliza de compras en el folio 1 → la carátula puede ponerse en folio 1');
-      const agoAbonos = Number((await knex.raw(
-        `SELECT count(*)::int n FROM analytics.gl_poliza_lines
-          WHERE tenant_id = ? AND source = 'contpaqi' AND anio_mes = '2026-08'
-            AND cuenta_mayor LIKE '212%' AND cargo_abono = 'A'`, [T])).rows[0].n);
-      ok(agoAbonos === 0, `ago-2026 no tiene un solo abono a proveedor 212 (dio ${agoAbonos}) — por eso "todo lo no asociado" ES el mes`);
+      /**
+       * ⛔ **Acá había una fecha escrita a mano y caducó.** Este bloque afirmaba que *ago-2026 no
+       * tiene póliza*, y era cierto el día que se escribió: el 2026-10-10 agosto ya está posteado
+       * (293 abonos a 212 por $40.9M) y el candado se puso rojo **sin que nadie rompiera nada**.
+       *
+       * Lo que el módulo necesita no es que sea agosto: es que **exista un mes sin póliza** y que
+       * la carátula pueda ponerse en folio 1 ahí. Eso se DERIVA. Misma lección que `[CDRP.2.1]`:
+       * una medición con fecha adentro es código con fecha de vencimiento.
+       */
+      const sinPoliza = (await knex.raw(
+        `SELECT m.anio_mes,
+                count(*) FILTER (WHERE l.cuenta_mayor LIKE '212%' AND l.cargo_abono = 'A')::int AS abonos
+           FROM (SELECT DISTINCT anio_mes FROM analytics.gl_poliza_lines
+                  WHERE tenant_id = ? AND anio_mes >= '2026-01') m
+           LEFT JOIN analytics.gl_poliza_lines l
+             ON l.tenant_id = ? AND l.source = 'contpaqi' AND l.anio_mes = m.anio_mes
+          GROUP BY 1 HAVING count(*) FILTER (WHERE l.cuenta_mayor LIKE '212%' AND l.cargo_abono = 'A') = 0
+          ORDER BY 1`, [T, T])).rows;
+      ok(sinPoliza.length > 0,
+        `hay ${sinPoliza.length} mes(es) de 2026 SIN póliza de compras (${sinPoliza.map((x) => x.anio_mes).join(', ') || '—'})`
+        + ' → ahí la carátula entra en folio 1 y el complemento ES el mes');
+      if (sinPoliza.length) {
+        const mes = sinPoliza[0].anio_mes;
+        ok(!(await folioDelMes(mes, 1)), `${mes} tiene el folio 1 libre`);
+      }
 
       // La segunda puerta: sin ella, ago-2026 duplicaba. Que siga habiendo qué atrapar.
       const agoCargos = (await knex.raw(
