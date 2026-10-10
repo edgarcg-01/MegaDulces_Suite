@@ -1,0 +1,104 @@
+# ═══ CARRIL DE CAOS ═══  [CG.80]  — la caja fuerte deja el cron y pasa a demonio @1 s
+#
+# ── Por qué, medido contra el aparato real el 2026-10-10 ───────────────────────────────────
+#
+# Pedido de Edgar: "necesito a CAOS también a 1s". Antes de hacerlo se midió el rezago REAL de
+# la máquina a nuestra base, sobre 118 movimientos de 14 días:
+#
+#     mediana 60 s · p90 107 s · peor 220 s
+#
+# y el carril corría cada 120 s con pasadas de 865 ms. La primera lectura de ese 865 ms llevaba
+# a rechazar el pedido ("son 74,000 s/día a 1 s"). ⛔ Esa lectura era la MISMA equivocación que
+# ya se había cometido con el carril de Kepler: medir el ARRANQUE de un proceso que en modo
+# demonio no vuelve a arrancar. Descompuesto dentro del pod, contra `192.168.0.110`:
+#
+#     ensureSession (leer pubKey + RSA + POST /adminlogin) .... 759 ms   ← 88 % de la pasada
+#     getTransactions con la sesión YA abierta ................ 11–48 ms
+#
+# ⭐ Los 865 ms SON EL LOGIN, y se pagaban cada 2 minutos porque `crond` levanta un proceso nuevo
+# cada vez. El adapter además construía un `CaosAdapter` DENTRO del ciclo, así que ni siquiera
+# dentro de una corrida se reutilizaba. Con la sesión viva, sondear cada segundo cuesta
+# ~4,100 s/día — por debajo de los 7,487 s/día que `[CPU.3]` retiró por caros.
+#
+# ── Lo que este carril NO resuelve, y hay que saberlo ──────────────────────────────────────
+#
+# ⚠️ CAOS **sólo reconoce billetes**. Medido en `analytics.caos_cash_denominations`, las únicas
+# denominaciones que existen son 500 · 200 · 100 · 50 · 20 (y sus negativos al dispensar). **No
+# hay monedas.** Verificado en vivo con el depósito del 2026-10-09: la máquina registró
+# $16,710.00 y el libro $16,725.00 — los $15 son monedas que el aparato no puede ver.
+#
+# ⛔ Eso importa porque ADR-059 usa a CAOS como ÁRBITRO del arqueo: un árbitro que
+# estructuralmente no ve las monedas **nunca va a cuadrar al centavo**, y hoy esa diferencia se
+# captura en silencio. Acelerar el reloj no lo arregla; se arregla declarando el hueco. Queda
+# ABIERTO y con nombre, no dibujado como resuelto.
+#
+# ── El cron se RETIRA en el mismo commit ───────────────────────────────────────────────────
+#
+# ⛔ La línea `*/2 * * * *` de `ops/vl/crontab.feeds` se borra acá mismo. Dos dueños del mismo
+# feed escribiendo el mismo latido `caos_movimientos` darían una lectura de frescura que no
+# corresponde a ninguno de los dos, y el `flock` de `run-feed.sh` **no protege** contra un
+# proceso que vive fuera del cron.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: caos-live
+  namespace: ingesta
+  labels:
+    carril: caos-live
+    singleton: "true"
+    # `migrado` = lo corre k3s. Nació acá; `preparado` lo reportaría como huérfano por no estar
+    # en `SERVICIOS_DEF` del compose.
+    migracion: migrado
+spec:
+  replicas: 1                  # ⛔ NUNCA subir: dos demonios = dos sesiones contra el aparato
+  strategy:
+    type: Recreate             # ⛔ NUNCA RollingUpdate: solaparía dos sesiones durante el cambio
+  selector:
+    matchLabels:
+      carril: caos-live
+  template:
+    metadata:
+      labels:
+        carril: caos-live
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: caos
+          image: localhost:5000/trade-ingest:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          # ⚠️ Arreglo YAML, no cadena de shell: `--apply` se compara EXACTO y un retorno de carro
+          # pegado lo dejaría corriendo en seco imprimiendo `ok` (lo que pasó en `[VL.4]`).
+          command: ["node", "database/importers/caos/import-caos-movements.js", "--apply", "--watch=1"]
+          envFrom:
+            - secretRef:
+                name: ingest-env
+          env:
+            - name: TZ
+              value: America/Mexico_City
+            # ⚠️ EL LATIDO SE ACOTA, y no por eficiencia. A 1 s serían 86,400 escrituras diarias a
+            # `analytics.cron_runs` EN PROD: el carril dejaría de ser gratis del lado del destino,
+            # que es la pata que nadie estaba midiendo. Una pasada con filas nuevas o con error
+            # late SIEMPRE de inmediato — acotar la frecuencia no puede perder un hecho, sólo
+            # repetir menos un "no pasó nada". El umbral de `db-health` está en HORAS.
+            - name: CAOS_HB_SEG
+              value: "30"
+            - name: ODS_HB_KEY
+              value: caos_movimientos
+            # La máquina mueve ~8 movimientos/día: la señal de vida es el latido acotado de 30 s,
+            # no el flujo. 10 min sin latir = el demonio dejó de dar vueltas.
+            - name: ODS_HB_MAX_MIN
+              value: "10"
+          # ⛔ Mide ENTREGA contra `analytics.cron_runs`, no "el proceso existe". Sin `ODS_HB_KEY`
+          # arriba, `ops/ingest/health.js` sale 0 SIEMPRE y la sonda sería un adorno.
+          livenessProbe:
+            exec:
+              command: ["node", "/app/ops/ingest/health.js"]
+            initialDelaySeconds: 90
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { memory: "96Mi", cpu: "50m" }
+            limits:   { memory: "384Mi" }

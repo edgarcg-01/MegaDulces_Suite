@@ -33,6 +33,7 @@ const ARGS = process.argv.slice(2).map((a) => a.trim());
 const APPLY = ARGS.includes('--apply');
 const KEY = 'caos_movimientos';
 const CANAL = 'caos_movimientos';
+const ETIQUETA = 'CAOS — movimientos de caja fuerte';
 const TENANT = process.env.CRON_TENANT_ID || '00000000-0000-0000-0000-00000000d01c';
 
 const argVal = (name, def) => {
@@ -90,8 +91,27 @@ function rowHash(mov, det) {
 
 // ── El ciclo ───────────────────────────────────────────────────────────────────────────────────
 
+/**
+ * `[CG.80]` **EL ADAPTER VIVE FUERA DEL CICLO**, y es lo que hace posible el pedido de ≤1 s.
+ *
+ * Estaba adentro, o sea que cada pasada abría sesión de cero. Medido contra el aparato real
+ * (dentro del pod, 2026-10-10):
+ *
+ *     ensureSession (leer pubKey + RSA + POST /adminlogin) .... 759 ms   ← 88 % de la pasada
+ *     getTransactions con la sesión YA abierta ................ 11–48 ms
+ *
+ * O sea que los 865 ms que cuesta hoy una pasada **son el login**, y se pagan cada 2 minutos
+ * porque `crond` levanta un proceso nuevo cada vez. Con la sesión viva, sondear cada segundo
+ * cuesta ~4,100 s/día — por debajo de los 7,487 s/día que `[CPU.3]` retiró por caros.
+ *
+ * ⚠️ El adapter RELOGUEA solo cuando la sesión expira (ve el HTML del login o un no-2xx), así que
+ * mantenerlo vivo no lo vuelve frágil: lo vuelve barato. Es el mismo patrón del adapter de flota.
+ */
+let ADAPTER = null;
+const adapterVivo = () => (ADAPTER || (ADAPTER = new CaosAdapter()));
+
 async function ciclo(c) {
-  const adapter = new CaosAdapter();
+  const adapter = adapterVivo();
   if (!adapter.isConfigured()) {
     return { nota: 'CAOS sin credenciales (CAOS_USER/CAOS_PASS) — feed inactivo en este entorno', filas: 0, nuevos: 0 };
   }
@@ -199,26 +219,87 @@ async function ciclo(c) {
   return { filas: rr.n, nuevos, actualizados, device };
 }
 
+/**
+ * `[CG.80]` **MODO DEMONIO** — `--watch=<segundos>`, para el pedido de ≤1 s de la caja.
+ *
+ * Sin la bandera se comporta EXACTAMENTE como antes: una pasada y sale. Con ella, mantiene viva
+ * la conexión a Postgres y la sesión del aparato, y repite el ciclo.
+ *
+ * ⛔ **Un error NO mata al demonio** (el aparato se reinicia, la sesión caduca, la red parpadea):
+ * se reporta por latido y se sigue. Lo que SÍ sale con código 1 es no poder conectar a Postgres al
+ * arrancar — ahí no hay nada que reintentar en caliente y el kubelet lo levanta de nuevo.
+ *
+ * ⚠️ **El latido se ACOTA, y no es un detalle de eficiencia.** A 1 s serían 86,400 escrituras por
+ * día contra `analytics.cron_runs` **en prod** — el carril dejaría de ser gratis justo del lado
+ * del destino, que es la pata que nadie estaba midiendo. Se escribe como mucho una vez cada
+ * `CAOS_HB_SEG` (30 s por defecto), y SIEMPRE de inmediato cuando el ciclo trajo filas o falló:
+ * acotar la frecuencia del latido no puede hacer que un hecho se pierda, sólo que un "no pasó
+ * nada" se repita menos. El umbral de `db-health` está en horas, así que 30 s sobran.
+ */
+const WATCH_ARG = ARGS.find((a) => a === '--watch' || a.startsWith('--watch='));
+// Piso de 1 s por la misma razón que en `replicate-ods-live.js`: por debajo, el latido y el
+// `pg_notify` contra prod dejan de ser despreciables.
+const WATCH_SEG = WATCH_ARG ? Math.max(1, Number(WATCH_ARG.split('=')[1] || 60)) : 0;
+const HB_MIN_MS = Math.max(0, Number(process.env.CAOS_HB_SEG || 30)) * 1000;
+const dormir = (ms) => new Promise((r) => setTimeout(r, ms));
+
 (async () => {
-  if (!APPLY) { console.log('dry-run: no se escribe nada. Agregá --apply.'); return; }
+  if (!APPLY && !WATCH_SEG) { console.log('dry-run: no se escribe nada. Agregá --apply.'); return; }
   const hb = require(path.join(__dirname, '..', 'lib', 'cron-heartbeat'));
-  await hb.begin(KEY, 'CAOS — movimientos de caja fuerte').catch(() => {});
   const c = conexion();
   try {
     await c.connect();
-    const r = await ciclo(c);
-    if (r.nota) {
-      console.log(r.nota);
-      await hb.end(KEY, { status: 'ok', rows: 0, note: r.nota }).catch(() => {});
-      return;
-    }
-    console.log(`CAOS: ${r.filas} filas totales · ${r.nuevos} nuevos · ${r.actualizados} actualizados (${r.device})`);
-    await hb.end(KEY, { status: 'ok', rows: r.nuevos + r.actualizados }).catch(() => {});
   } catch (e) {
-    console.error('falló:', e.message);
-    await hb.end(KEY, { status: 'error', error: e.message }).catch(() => {});
-    process.exitCode = 1;
-  } finally {
+    console.error('no conecta a Postgres:', e.message);
+    process.exit(1);
+  }
+
+  let ultimoLatido = 0;
+  /** Una pasada con su latido. Devuelve false sólo si hay que abortar el proceso entero. */
+  const pasada = async () => {
+    const debeLatir = (hubo) => hubo || Date.now() - ultimoLatido >= HB_MIN_MS;
+    try {
+      const r = await ciclo(c);
+      const hubo = !r.nota && (r.nuevos + r.actualizados) > 0;
+      if (r.nota) {
+        console.log(r.nota);
+        if (debeLatir(false)) { ultimoLatido = Date.now(); await hb.begin(KEY, ETIQUETA).catch(() => {}); await hb.end(KEY, { status: 'ok', rows: 0, note: r.nota }).catch(() => {}); }
+        return true;
+      }
+      // En modo demonio sólo se imprime cuando hay novedad: a 1 s, un renglón por ciclo son
+      // 86,400 líneas diarias de "0 nuevos" que entierran justo lo que hay que ver.
+      if (hubo || !WATCH_SEG) {
+        console.log(`CAOS: ${r.filas} filas totales · ${r.nuevos} nuevos · ${r.actualizados} actualizados (${r.device})`);
+      }
+      if (debeLatir(hubo)) {
+        ultimoLatido = Date.now();
+        await hb.begin(KEY, ETIQUETA).catch(() => {});
+        await hb.end(KEY, { status: 'ok', rows: r.nuevos + r.actualizados }).catch(() => {});
+      }
+      return true;
+    } catch (e) {
+      console.error('falló:', e.message);
+      // Una falla SIEMPRE late, sin importar el acotado: es el hecho que hay que ver.
+      ultimoLatido = Date.now();
+      await hb.begin(KEY, ETIQUETA).catch(() => {});
+      await hb.end(KEY, { status: 'error', error: e.message }).catch(() => {});
+      if (!WATCH_SEG) { process.exitCode = 1; return false; }
+      // En demonio: la sesión del aparato puede haber caducado de una forma que el adapter no
+      // detectó. Se tira y el próximo ciclo abre una nueva — 759 ms una vez, no por ciclo.
+      ADAPTER = null;
+      return true;
+    }
+  };
+
+  if (!WATCH_SEG) {
+    await pasada();
     await c.end().catch(() => {});
+    return;
+  }
+
+  console.log(`CAOS en modo demonio: ciclo cada ${WATCH_SEG}s · latido como mucho cada ${HB_MIN_MS / 1000}s`);
+  for (;;) {
+    if (!(await pasada())) break;
+    await dormir(WATCH_SEG * 1000);
   }
 })();
