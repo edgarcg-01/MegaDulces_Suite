@@ -1,7 +1,7 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { ContpaqiArmadoService, type ResumenLote } from './contpaqi-armado.service';
+import { ContpaqiArmadoService, type ResumenLote, type ResumenMes } from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
 
 /**
@@ -63,11 +63,16 @@ export class ContpaqiBridgeController {
   async lotes(@Query('mes') mes?: string): Promise<{
     mes: string;
     lotes: ResumenLote[];
-    resumen: { lotes: number; con_asiento: number; movimientos: number; incluidas: number };
+    resumen: {
+      lotes: number; con_asiento: number; movimientos: number; incluidas: number;
+      /** ⭐ El universo del mes: `movimientos + fuera_de_lote`. Ver `fuera_de_lote`. */
+      universo: number;
+    };
+    fuera_de_lote: ResumenMes['fuera_de_lote'];
     motivos: { motivo: string; movimientos: number; dueno: string }[];
   }> {
     const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
-    const lotes = await this.armado.simularLotes(anioMes);
+    const { lotes, fuera_de_lote } = await this.armado.simularLotes(anioMes);
 
     const acc: Record<string, number> = {};
     let movimientos = 0;
@@ -86,7 +91,9 @@ export class ContpaqiBridgeController {
         con_asiento: lotes.filter((l) => l.incluidas > 0).length,
         movimientos,
         incluidas,
+        universo: movimientos + fuera_de_lote.movimientos,
       },
+      fuera_de_lote,
       // ⭐ Ordenado por tamaño: lo primero que se ve es lo que más trabajo representa.
       motivos: Object.entries(acc)
         .sort((a, b) => b[1] - a[1])

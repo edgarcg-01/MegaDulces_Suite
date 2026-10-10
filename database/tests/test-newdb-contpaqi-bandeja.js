@@ -88,7 +88,21 @@ const check = (cond, label) => {
     // desde la navegación — declarado y huérfano, que es la mitad del defecto de `[LC.6.2]`.
     const json = JSON.stringify(AUTHZ_TREE);
     check(json.includes(VER) && json.includes(GESTIONAR), 'los dos cuelgan de un nodo del árbol');
-    check(json.includes('/contabilidad/contpaqi'), 'el nodo tiene ruta: /contabilidad/contpaqi');
+    // ⛔ La ruta EXACTA, no un prefijo: `/contabilidad/contpaqi` también existe y es OTRA
+    // página (los libros fiscales de CP.1–CP.4, con otro permiso). Un `includes` del prefijo
+    // daba verde con el nodo apuntando a la página equivocada — que es como estaba.
+    const buscar = (nodos, id) => {
+      for (const n of nodos ?? []) {
+        if (n.id === id) return n;
+        const hijo = buscar(n.projects ?? n.modules, id);
+        if (hijo) return hijo;
+      }
+      return null;
+    };
+    const nodo = buscar(AUTHZ_TREE, 'contpaqi-puente');
+    check(!!nodo, 'el nodo `contpaqi-puente` existe en el árbol');
+    check(nodo?.route === '/contabilidad/contpaqi-puente',
+      `el nodo apunta a SU ruta, no a la de los libros: ${nodo?.route}`);
 
     console.log('\n[2] ⭐ Y está REPARTIDO en prod — que es lo que `[LC.6.2]` midió que faltaba');
     const roles = await knex('identity.role_permissions').select('role_name', 'permissions');
@@ -124,7 +138,7 @@ const check = (cond, label) => {
     const { ContpaqiArmadoService } = require(path.resolve(
       __dirname, '..', '..', 'libs', 'finance', 'src', 'lib', 'contpaqi', 'contpaqi-armado.service.ts'));
     const svc = new ContpaqiArmadoService(knex, undefined);
-    const lotes = await svc.simularLotes('2026-01');
+    const { lotes, fuera_de_lote: fuera } = await svc.simularLotes('2026-01');
     check(lotes.length > 0, `enero produce ${lotes.length} lotes (banco × día)`);
     const movs = lotes.reduce((a, l) => a + l.movimientos, 0);
     check(lotes.length < movs / 3,
@@ -139,6 +153,25 @@ const check = (cond, label) => {
     check(motivos.no_aplica > 0,
       `⭐ ${motivos.no_aplica ?? 0} movimientos en \`no_aplica\` — ya se decidió, NO son pendientes`);
     check((motivos.sin_regla ?? 0) > 0, `${motivos.sin_regla ?? 0} en \`sin_regla\` — esos sí esperan al contador`);
+
+    console.log('\n[3b] ⭐ `[CP.8.34]` El universo del mes, no sólo lo que alcanzó a agruparse');
+    // ⛔ Esto vivía en un `logger.warn` y la bandeja publicaba `movs` como si fuera el mes
+    // entero. El denominador real de enero es 2,350: declararlo es la mitad de la medición.
+    check(fuera.movimientos > 0,
+      `⭐ ${fuera.movimientos} movimientos quedan FUERA de todo lote y el servicio los devuelve`);
+    check(fuera.cuentas.length > 0 && fuera.cuentas.every((c) => c.cuenta && c.cuenta !== '(sin cuenta)'),
+      `y los NOMBRA: ${fuera.cuentas.map((c) => `${c.cuenta} (${c.movimientos})`).join(' · ')}`);
+    const sumaCuentas = fuera.cuentas.reduce((a, c) => a + c.movimientos, 0);
+    check(sumaCuentas === fuera.movimientos,
+      `el desglose suma el total (${sumaCuentas} = ${fuera.movimientos}) — ninguna cuenta se pierde`);
+    check(fuera.importe > 0,
+      `con importe: $${fuera.importe.toLocaleString('es-MX')} que este puente NO cubre`);
+    // ⚠️ La prueba que corrige mi propia atribución: NO es "les falta el crosswalk". Tienen
+    // cuenta; no son bancos. Si alguna vez una cuenta `102*` cae acá, es OTRO defecto y este
+    // candado tiene que gritarlo en vez de dejarlo pasar como "ya sabido".
+    const bancarias = fuera.cuentas.filter((c) => /^\d/.test(c.cuenta));
+    check(bancarias.length === 0,
+      '⛔ ninguna cuenta de banco cae fuera de lote — las que caen (CAJA, FACTORAJE) no son bancos');
 
     console.log('\n[4] El estado del cuadre se lee SIN escribir, y el vacío se declara');
     const { ContpaqiCuadreService } = require(path.resolve(

@@ -56,6 +56,12 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
  */
 export interface ResumenLote {
   cuenta_banco: string;
+  /**
+   * Cómo lo nombra finanzas (`BBAJIO 4166`). ⚠️ Viaja además de la cuenta contable, no en vez
+   * de ella: la pantalla no debe inventar el alias, y una cuenta mal rotulada en contabilidad
+   * es peor que una cuenta sin rótulo.
+   */
+  banco_label: string | null;
   fecha: string;
   movimientos: number;
   incluidas: number;
@@ -64,6 +70,37 @@ export interface ResumenLote {
   /** `'no_emitido'` = el lote cuadra pero le falta el traspaso de impuesto. Se declara. */
   iva_traspaso: 'no_emitido' | null;
   motivos: Record<string, number>;
+}
+
+/**
+ * `[CP.8.34]` — **Lo que el puente NO cubre, dicho por el servidor.**
+ *
+ * ⛔ Antes esto vivía en un `logger.warn` que nadie lee: *"876 egresos sin contpaqi_cuenta"*.
+ * La bandeja publicaba 1,474 como si fuera el universo del mes, y el universo real de enero es
+ * **2,350** — un denominador recortado en 37.3 %, el mismo defecto que esta fase le corrigió al
+ * `0 %` del cuadre.
+ *
+ * ⚠️ **Y la causa no es la que el `warn` sugería.** Medido el 2026-10-09: los 876 **sí tienen
+ * cuenta**; son `CAJA CG` (864) y `FACTORAJE FAC` (12), que **no son bancos** y por eso no
+ * tienen cuenta `102*` que ponerles. No es un mapeo que falte: es un circuito distinto, fuera
+ * del alcance de un puente de egresos de banco. Se declara con nombre e importe para que nadie
+ * lo lea como trabajo pendiente ni como cero.
+ */
+export interface CuentaFueraDeLote {
+  /** Como la conoce finanzas: `CAJA CG`, `FACTORAJE FAC`. */
+  cuenta: string;
+  movimientos: number;
+  importe: number;
+}
+
+/** Lo que devuelve la simulación de un mes: los lotes **y** lo que quedó fuera de todo lote. */
+export interface ResumenMes {
+  lotes: ResumenLote[];
+  fuera_de_lote: {
+    movimientos: number;
+    importe: number;
+    cuentas: CuentaFueraDeLote[];
+  };
 }
 
 export interface ResultadoArmado {
@@ -169,6 +206,9 @@ export class ContpaqiArmadoService {
         this.db.raw(`to_char(m.movement_date, 'YYYY-MM-DD') as fecha`),
         'c.code as categoria_code', 'c.name as categoria_nombre',
         'ba.contpaqi_cuenta as cuenta_banco', 'ba.account_label as banco_label',
+        // `[CP.8.34]` El nombre del banco viaja para poder NOMBRAR lo que queda fuera de lote:
+        // `CAJA CG` y `FACTORAJE FAC` se leen solos; un `CG` suelto no lo entiende nadie.
+        'ba.bank as banco_nombre',
         this.db.raw('iva.amount_out as iva_hermano'),
       )
       .from('finance.bank_movements as m')
@@ -227,7 +267,7 @@ export class ContpaqiArmadoService {
    *
    * Devuelve un renglón por lote con lo que entraría y los motivos de lo que no. No escribe.
    */
-  async simularLotes(anioMes: string): Promise<ResumenLote[]> {
+  async simularLotes(anioMes: string): Promise<ResumenMes> {
     const egresos = await this.leerEgresos(anioMes);
     const reglas = await this.leerReglas();
 
@@ -272,6 +312,7 @@ export class ContpaqiArmadoService {
 
       out.push({
         cuenta_banco,
+        banco_label: [filas[0]?.banco_nombre, filas[0]?.banco_label].filter(Boolean).join(' ').trim() || null,
         fecha,
         movimientos: filas.length,
         incluidas: lote.incluidas,
@@ -281,12 +322,28 @@ export class ContpaqiArmadoService {
         motivos: porMotivo,
       });
     }
-    if (sinBanco.length) {
-      this.log.warn(`${sinBanco.length} egresos sin contpaqi_cuenta (crosswalk CP.2): no agrupan`);
+    // ⭐ `[CP.8.34]` Lo que quedó fuera se AGRUPA y se devuelve, no se registra en un `warn`.
+    // Un hueco que sólo existe en el log no lo ve quien mira la pantalla, que es justo
+    // quien necesita saber que el denominador no es el universo del mes.
+    const porCuenta = new Map<string, CuentaFueraDeLote>();
+    for (const e of sinBanco) {
+      const cuenta = [e.banco_nombre, e.banco_label].filter(Boolean).join(' ').trim() || '(sin cuenta)';
+      const acc = porCuenta.get(cuenta) ?? { cuenta, movimientos: 0, importe: 0 };
+      acc.movimientos += 1;
+      acc.importe = Math.round((acc.importe + Number(e.amount_out)) * 100) / 100;
+      porCuenta.set(cuenta, acc);
     }
+    const cuentas = [...porCuenta.values()].sort((a, b) => b.movimientos - a.movimientos);
+    const fuera = {
+      movimientos: sinBanco.length,
+      importe: Math.round(cuentas.reduce((a, c) => a + c.importe, 0) * 100) / 100,
+      cuentas,
+    };
+
     const conAsiento = out.filter((l) => l.incluidas > 0).length;
-    this.log.log(`lotes ${anioMes}: ${out.length} (banco × día) · ${conAsiento} con asiento`);
-    return out;
+    this.log.log(`lotes ${anioMes}: ${out.length} (banco × día) · ${conAsiento} con asiento`
+      + ` · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
+    return { lotes: out, fuera_de_lote: fuera };
   }
 
   /**
