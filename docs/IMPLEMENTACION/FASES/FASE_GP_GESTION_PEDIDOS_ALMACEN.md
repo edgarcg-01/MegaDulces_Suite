@@ -929,6 +929,33 @@ escáner en todos los caminos, peso con el nombre del producto, `inputmode="none
 - **Pendiente:** la impresión en la TSC real (imprimir una fila de prueba y leer el código con el
   handheld). Liberar un checado desde la consola del coordinador (hoy sólo lo suelta el checador).
 
+#### 9.6.2 Prueba visual con datos de prueba (2026-10-10) y lo que se corrigió
+
+Recorrido en el navegador, contra una base Docker con datos sembrados (sucursal 07, 4 usuarios,
+3 pedidos): consola → surtidor → Facturación → checador. La cadena funcionó de punta a punta y se
+encontraron 8 detalles, todos corregidos:
+
+| Lo que se vio | Corrección |
+|---|---|
+| La paleta pedida en **BOL** se mostraba "40 PZA" | ⭐ **Se respeta la unidad PEDIDA** (decisión de Francisco): "Pedido 2 BOL · Llevas 1 BOL · Faltan 1 BOL"; lo que no completa una bolsa sale en la base ("2 BOL + 5 PZA"). `order_check_lines` guarda `unidad_pedida`/`factor_pedida` (la presentación congelada al arrancar el surtido); los textos los arma **el servidor** (`cantidadEnUnidad`, `textosRenglon`) para que la lista, el aviso de lo que sobra y las diferencias al terminar digan lo mismo. Si se pidió en caja cerrada distingue cajas de sueltas ("1 CJA + 600 PZA"), porque de eso salen las etiquetas 1/N |
+| Se ofrecía **"Deshacer"** para un escaneo que ya iba en una caja P cerrada (el servidor lo rechazaba) | `ultimo_escaneo.deshacible`; sin botón y con "Ya va en una caja P cerrada". Prueba negativa con mutación |
+| Lo que sobra decía "Ya van completas: **1200 PZA**" con el renglón en "2 CJA" | El mensaje usa la unidad pedida |
+| Al pesar 2.5 kg el "Último" decía **"1 KG"** | Si se pesó, el último escaneo trae los kilos |
+| Un producto **ajeno** aparecía como "Último" (con la clave en vez del nombre) y con "Deshacer" | "Último" es el último que **cuenta**; lo ajeno ya se avisó en rojo con su nombre |
+| El peso arrancaba con un **0** escrito: teclear 2.5 dejaba "02.5" | Campo vacío con ejemplo; "Agregar" apagado hasta que haya peso |
+| La confirmación de **Terminar** aparecía hasta abajo, medio tapada (el foco regresaba al escáner, arriba); botón chico; el aviso rojo viejo seguía visible | Se lleva la vista a la confirmación y el foco a "Sí, terminar"; botones grandes; se borra el aviso viejo (igual en "Soltar") |
+| Los botones **− / +** se veían como un punto | `--tap-min` vale **0 con mouse** (44 px sólo en táctil) y el botón lo usaba de ancho y alto: medida mínima propia |
+| La consola decía **"0 de 0" renglones** en un surtido sin arrancar | Antes de arrancar se cuentan del pedido en Kepler (productos distintos, como los cuenta la ola) |
+
+Columnas nuevas en la MISMA migración (`20261008143820`, sin aplicar en prod): van en el `CREATE` y
+con `ADD COLUMN IF NOT EXISTS` para las bases donde la tabla ya existía.
+
+Vistos y **no corregidos aquí** (no son de GP.4): la migaja dice "Pedidos" en Surtir y Checar y los
+íconos de la barra de abajo salen como círculos (navegación general); `printIsolated` pide
+`styles.css` con ruta relativa que dentro del iframe resuelve a `/almacen/styles.css` (ruido en
+consola en TODAS las impresiones; la etiqueta sale bien porque los estilos van dentro); y un login
+frenado por demasiados intentos (429) se muestra como "sesión expirada".
+
 ### 9.7 Fuera de esta entrega
 
 Contenedor de plástico compartido (§5c), mover cajas entre ubicaciones, la carga al camión (GP.5) y

@@ -69,6 +69,70 @@ export function etiquetasCJ(cajas: Array<{ sku: string | null; producto: string 
   return out;
 }
 
+const num = (n: number): string => String(r3(n));
+const junto = (...partes: Array<string | number | null | undefined>): string =>
+  partes.filter((p) => p !== null && p !== undefined && String(p).trim() !== '').join(' ');
+
+/**
+ * Una cantidad en la unidad en que se PIDIÓ (decisión de Francisco, 2026-10-10: "2 BOL",
+ * respetando la unidad solicitada). Lo que no completa una unidad pedida sale en la base:
+ * 45 PZA con BOL de 20 → "2 BOL + 5 PZA". Sin unidad pedida (o igual a la base) → la base.
+ */
+export function cantidadEnUnidad(base: number, unidadBase: string | null, unidadPedida: string | null, factorPedida: number | null): string {
+  const b = r3(Math.max(0, Number(base) || 0));
+  const f = Number(factorPedida) || 0;
+  if (!unidadPedida || f <= 1 + TOL || unidadPedida === unidadBase) return junto(num(b), unidadBase);
+  if (b <= TOL) return junto(0, unidadPedida);
+  const enteras = Math.floor(b / f + TOL);
+  const resto = r3(b - enteras * f);
+  if (enteras <= 0) return junto(num(b), unidadBase);
+  if (resto <= TOL) return junto(enteras, unidadPedida);
+  return `${junto(enteras, unidadPedida)} + ${junto(num(resto), unidadBase)}`;
+}
+
+/** Lo mínimo de un renglón para armar sus textos. */
+export interface RenglonParaTexto {
+  esperado: number;
+  checado: number;
+  unidad: string | null;
+  unidad_pedida: string | null;
+  factor_pedida: number | null;
+  unidad_mayor: string | null;
+  factor_mayor: number | null;
+  esperado_mayor: number | null;
+  checado_mayor: number;
+  checado_sueltas: number;
+  estado: ChecadoRenglon['estado'];
+}
+
+/**
+ * Los textos de un renglón: lo pedido, lo que lleva y la diferencia, todo en la unidad pedida.
+ * Si se pidió en caja cerrada (CJA) lo que lleva distingue cajas de sueltas ("1 CJA + 600 PZA"):
+ * físicamente no es lo mismo, y de eso salen las etiquetas 1/N.
+ */
+export function textosRenglon(l: RenglonParaTexto): Pick<ChecadoRenglon, 'pedido_texto' | 'llevas_texto' | 'diferencia_texto'> {
+  // Sin la unidad del pedido (surtidos anteriores a GP.3), la caja si lo esperado da cajas enteras.
+  const sinPedida = !l.unidad_pedida || !l.factor_pedida;
+  const u = sinPedida ? (l.esperado_mayor !== null ? l.unidad_mayor : null) : l.unidad_pedida;
+  const f = sinPedida ? (l.esperado_mayor !== null ? l.factor_mayor : null) : l.factor_pedida;
+  const en = (n: number) => cantidadEnUnidad(n, l.unidad, u, f);
+
+  let llevas: string;
+  if (u && esCerrada(u) && u === l.unidad_mayor) {
+    const partes: string[] = [];
+    if (l.checado_mayor > 0) partes.push(junto(l.checado_mayor, u));
+    if (l.checado_sueltas > TOL) partes.push(junto(num(l.checado_sueltas), l.unidad));
+    llevas = partes.length ? partes.join(' + ') : junto(0, u);
+  } else {
+    llevas = en(l.checado);
+  }
+  const diferencia =
+    l.estado === 'falta' ? `Faltan ${en(l.esperado - l.checado)}`
+    : l.estado === 'sobra' ? `Sobran ${en(l.checado - l.esperado)}`
+    : null;
+  return { pedido_texto: en(l.esperado), llevas_texto: llevas, diferencia_texto: diferencia };
+}
+
 interface Linea {
   id: string;
   sku: string | null;
@@ -79,6 +143,8 @@ interface Linea {
   unidad_mayor: string | null;
   factor_mayor: string | null;
   se_pesa: boolean;
+  unidad_pedida: string | null;
+  factor_pedida: string | null;
 }
 
 interface Chk {
@@ -283,7 +349,8 @@ export class ChecadoService {
       const esperado = Number(linea.qty_expected);
       const antes = Number(linea.qty_checked);
       if (excede(esperado, antes, qtyBase, linea.se_pesa)) {
-        return responder('sobra', `Ya van completas: ${esperado} ${linea.qty_unit ?? ''} de ${nombre}. Esto sobra: regrésalo a su lugar (no se contó).`.replace('  ', ' '), nombre);
+        const completas = cantidadEnUnidad(esperado, linea.qty_unit, linea.unidad_pedida, linea.factor_pedida == null ? null : Number(linea.factor_pedida));
+        return responder('sobra', `Ya van completas: ${completas} de ${nombre}. Esto sobra: regrésalo a su lugar (no se contó).`, nombre);
       }
 
       const paquete = kind === 'menor' ? await this.cajaAbierta(trx, chk.id, userId) : null;
@@ -338,7 +405,10 @@ export class ChecadoService {
       const pedido = await this.cargar(trx, chk.id);
       const diferencias = pedido.renglones
         .filter((l) => l.estado !== 'completo')
-        .map((l) => ({ sku: l.sku, producto: l.producto, unidad: l.unidad, esperado: l.esperado, checado: l.checado }));
+        .map((l) => ({
+          sku: l.sku, producto: l.producto, unidad: l.unidad, esperado: l.esperado, checado: l.checado,
+          pedido_texto: l.pedido_texto, checado_texto: l.llevas_texto,
+        }));
       const cajasP = pedido.cajas_p.filter((c) => c.status === 'cerrada').length;
 
       await trx('commercial.order_checks').where({ id: chk.id }).update({
@@ -495,7 +565,8 @@ export class ChecadoService {
   /** Los renglones del checado: lo surtido (ya en Kepler) + la caja cerrada del producto en Kepler. */
   private async crearRenglones(trx: Knex.Transaction, checkId: string, waveId: string, orderId: string, sucursal: string): Promise<void> {
     const { rows } = await trx.raw(
-      `SELECT wol.product_id, p.sku, p.nombre, wol.qty_unit, coalesce(wa.qty_allocated, 0) AS esperado, wl.picked_by
+      `SELECT wol.product_id, p.sku, p.nombre, wol.qty_unit, coalesce(wa.qty_allocated, 0) AS esperado, wl.picked_by,
+              wol.qty_requested, wol.qty_presentacion, wol.unidad_presentacion
          FROM commercial.wave_order_lines wol
          LEFT JOIN catalog.products p ON p.id = wol.product_id
          LEFT JOIN commercial.wave_allocations wa ON wa.wave_id = wol.wave_id AND wa.order_id = wol.order_id AND wa.product_id = wol.product_id
@@ -503,14 +574,19 @@ export class ChecadoService {
         WHERE wol.wave_id = ? AND wol.order_id = ?`,
       [waveId, orderId],
     );
-    const renglones = (rows as Array<{ product_id: string; sku: string | null; nombre: string | null; qty_unit: string | null; esperado: string; picked_by: string | null }>)
-      .filter((r) => Number(r.esperado) > TOL);
+    const renglones = (rows as Array<{
+      product_id: string; sku: string | null; nombre: string | null; qty_unit: string | null; esperado: string; picked_by: string | null;
+      qty_requested: string; qty_presentacion: string | null; unidad_presentacion: string | null;
+    }>).filter((r) => Number(r.esperado) > TOL);
     if (!renglones.length) return;
     const kdii = new Map((await this.kdiiPorSku(trx, sucursal, renglones.map((r) => r.sku).filter((s): s is string => !!s))).map((f) => [f.sku, f]));
     await trx('commercial.order_check_lines').insert(
       renglones.map((r) => {
         const f = r.sku ? kdii.get(r.sku) : undefined;
         const mayor = f ? unidadMayor(f) : null;
+        // La unidad del pedido (congelada al arrancar el surtido, GP.3): "3 BOL" = 60 PZA → 20.
+        const pres = Number(r.qty_presentacion) || 0;
+        const factorPedida = pres > 0 && r.unidad_presentacion ? r3(Number(r.qty_requested) / pres) : null;
         return {
           check_id: checkId,
           product_id: r.product_id,
@@ -522,6 +598,8 @@ export class ChecadoService {
           factor_mayor: mayor?.factor ?? null,
           se_pesa: String(r.qty_unit ?? '').toUpperCase() === 'KG',
           picked_by: r.picked_by,
+          unidad_pedida: factorPedida ? String(r.unidad_presentacion).toUpperCase().slice(0, 20) : null,
+          factor_pedida: factorPedida,
         };
       }),
     );
@@ -586,6 +664,7 @@ export class ChecadoService {
 
     const { rows: ls } = await trx.raw(
       `SELECT l.id, l.sku, l.product_name, l.qty_unit, l.qty_expected, l.qty_checked, l.unidad_mayor, l.factor_mayor, l.se_pesa,
+              l.unidad_pedida, l.factor_pedida,
               coalesce(sum(s.qty_units) FILTER (WHERE s.kind = 'mayor'), 0) AS cajas,
               coalesce(sum(s.qty_base) FILTER (WHERE s.kind = 'menor'), 0) AS sueltas
          FROM commercial.order_check_lines l
@@ -600,7 +679,7 @@ export class ChecadoService {
       const checado = Number(l.qty_checked);
       const f = l.factor_mayor == null ? null : Number(l.factor_mayor);
       const cajasEsp = f && f > 0 ? esperado / f : null;
-      return {
+      const base = {
         id: l.id,
         sku: l.sku,
         producto: l.product_name,
@@ -614,7 +693,10 @@ export class ChecadoService {
         checado_sueltas: r3(Number(l.sueltas) || 0),
         se_pesa: !!l.se_pesa,
         estado: estadoRenglon(esperado, checado, !!l.se_pesa),
+        unidad_pedida: l.unidad_pedida,
+        factor_pedida: l.factor_pedida == null ? null : Number(l.factor_pedida),
       };
+      return { ...base, ...textosRenglon(base) };
     });
 
     const { rows: cajas } = await trx.raw(
@@ -634,12 +716,16 @@ export class ChecadoService {
       porCaja.set(r.id, c);
     }
 
+    // El último que CUENTA: lo ajeno no suma (ya se avisó con su nombre), así que "Deshacer"
+    // siempre deshace algo contado.
     const ultimo = await trx('commercial.check_scans as s')
       .leftJoin('commercial.order_check_lines as l', 'l.id', 's.line_id')
+      .leftJoin('commercial.check_packages as c', 'c.id', 's.package_id')
       .where('s.check_id', checkId)
       .whereNull('s.undone_at')
+      .whereNot('s.kind', 'ajeno')
       .orderBy('s.scanned_at', 'desc')
-      .first('s.id', 's.unidad', 's.qty_units', 's.kind', 's.sku', 'l.product_name');
+      .first('s.id', 's.unidad', 's.qty_units', 's.kind', 's.sku', 's.weight_kg', 'l.product_name', 'c.status as caja_status');
 
     return {
       id: chk.id,
@@ -650,7 +736,17 @@ export class ChecadoService {
       started_at: new Date(chk.started_at).toISOString(),
       renglones,
       cajas_p: [...porCaja.values()],
-      ultimo_escaneo: ultimo ? { id: ultimo.id, producto: ultimo.product_name ?? ultimo.sku, unidad: ultimo.unidad, cantidad: Number(ultimo.qty_units), kind: ultimo.kind } : null,
+      ultimo_escaneo: ultimo
+        ? {
+            id: ultimo.id,
+            producto: ultimo.product_name ?? ultimo.sku,
+            // Si se pesó, lo que cuenta son los kilos, no "1 KG".
+            unidad: ultimo.weight_kg != null ? 'kg' : ultimo.unidad,
+            cantidad: ultimo.weight_kg != null ? r3(Number(ultimo.weight_kg)) : Number(ultimo.qty_units),
+            kind: ultimo.kind,
+            deshacible: ultimo.caja_status !== 'cerrada',
+          }
+        : null,
     };
   }
 }

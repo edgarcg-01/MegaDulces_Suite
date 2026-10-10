@@ -31,7 +31,6 @@ const PREF_ALMACEN = 'gp.checar.almacen';
 const PREF_ORIGEN = 'gp.checar.origen';
 /** El último pedido checado, para reimprimir sus etiquetas aunque se haya recargado la página. */
 const PREF_ULTIMO = 'gp.checar.ultimo';
-const TOL = 0.001;
 
 const plural = (n: number, uno: string, varios: string): string => `${n} ${n === 1 ? uno : varios}`;
 const junto = (...partes: Array<string | number | null | undefined>): string =>
@@ -124,8 +123,8 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
               @if (pidePeso(); as pp) {
                 <label class="ck-l" for="ck-peso">Peso de {{ pp.producto }} en la báscula (kg)</label>
                 <div class="ck-row">
-                  <input #pesoInput id="ck-peso" name="peso" type="number" step="0.001" min="0" inputmode="decimal" class="ck-input" [ngModel]="peso()" (ngModelChange)="peso.set($event)" />
-                  <button type="submit" class="ck-btn" [disabled]="!(peso() > 0)">Agregar</button>
+                  <input #pesoInput id="ck-peso" name="peso" type="number" step="0.001" min="0" inputmode="decimal" class="ck-input" placeholder="Ej. 2.5" [ngModel]="peso()" (ngModelChange)="peso.set($event)" />
+                  <button type="submit" class="ck-btn" [disabled]="!pesoValido()">Agregar</button>
                   <button type="button" class="ck-sec" (click)="cancelarPeso()">Cancelar</button>
                 </div>
               } @else {
@@ -154,7 +153,11 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
             @if (p.ultimo_escaneo; as u) {
               <div class="ck-ult">
                 <span>Último: {{ ultimoTexto(u) }}</span>
-                <button type="button" class="ck-sec" [disabled]="ocupado()" (click)="deshacer(u.id)">Deshacer</button>
+                @if (u.deshacible) {
+                  <button type="button" class="ck-sec" [disabled]="ocupado()" (click)="deshacer(u.id)">Deshacer</button>
+                } @else {
+                  <span class="ck-muted ck-fija">Ya va en una caja P cerrada</span>
+                }
               </div>
             }
 
@@ -172,8 +175,8 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
                 <li class="ck-item" [ngClass]="'ck-e-' + r.estado">
                   <div class="ck-item-t"><span class="ck-prod">{{ r.producto ?? r.sku }}</span><span class="ck-sku">{{ r.sku }}</span></div>
                   <div class="ck-item-n">
-                    <span>Pedido: <b>{{ pedidoTexto(r) }}</b></span>
-                    <span>Llevas: <b class="ck-chk">{{ llevasTexto(r) }}</b></span>
+                    <span>Pedido: <b>{{ r.pedido_texto }}</b></span>
+                    <span>Llevas: <b class="ck-chk">{{ r.llevas_texto }}</b></span>
                     <span class="ck-badge">{{ estadoTexto(r) }}</span>
                   </div>
                 </li>
@@ -194,18 +197,18 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
 
             @if (!confirmando()) {
               <button type="button" class="ck-go ck-fin" [disabled]="ocupado() || pendientesEnCola() > 0" (click)="abrirTerminar()"><span>Terminar checado</span></button>
-              <button type="button" class="ck-sec ck-soltar" [disabled]="ocupado()" (click)="soltando.set(true)">Soltar este pedido</button>
+              <button type="button" class="ck-sec ck-soltar" [disabled]="ocupado()" (click)="abrirSoltar()">Soltar este pedido</button>
               @if (soltando()) {
-                <section class="ck-confirm" role="group" aria-label="Soltar el pedido">
+                <section #confirmSoltar class="ck-confirm" role="group" aria-label="Soltar el pedido">
                   <p>¿Soltar {{ p.order_code }}? Vuelve a la fila y otro lo checa desde cero.</p>
-                  <div class="ck-row">
-                    <button type="button" class="ck-btn" [disabled]="ocupado()" (click)="soltar()">Sí, soltarlo</button>
-                    <button type="button" class="ck-sec" (click)="soltando.set(false); enfocar()">Volver</button>
+                  <div class="ck-row ck-acciones">
+                    <button type="button" class="ck-btn ck-grande" [disabled]="ocupado()" (click)="soltar()">Sí, soltarlo</button>
+                    <button type="button" class="ck-sec ck-grande" (click)="soltando.set(false); enfocar()">Volver</button>
                   </div>
                 </section>
               }
             } @else {
-              <section class="ck-confirm" role="group" aria-label="Terminar checado">
+              <section #confirmTerminar class="ck-confirm" role="group" aria-label="Terminar checado">
                 @if (noCuadran().length) {
                   <p class="ck-warn">Si terminas así, lo que falta sale incompleto:</p>
                   <ul class="ck-dif">
@@ -216,9 +219,9 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
                 }
                 <label class="ck-l" for="ck-espera">Dónde queda esperando la unidad (opcional)</label>
                 <input id="ck-espera" class="ck-input" [ngModel]="espera()" (ngModelChange)="espera.set($event)" maxlength="40" placeholder="Ej. A2" />
-                <div class="ck-row">
-                  <button type="button" class="ck-btn" [disabled]="ocupado()" (click)="terminar()">Sí, terminar</button>
-                  <button type="button" class="ck-sec" [disabled]="ocupado()" (click)="confirmando.set(false); enfocar()">Volver</button>
+                <div class="ck-row ck-acciones">
+                  <button #siTerminar type="button" class="ck-btn ck-grande" [disabled]="ocupado()" (click)="terminar()">Sí, terminar</button>
+                  <button type="button" class="ck-sec ck-grande" [disabled]="ocupado()" (click)="confirmando.set(false); enfocar()">Volver</button>
                 </div>
               </section>
             }
@@ -234,7 +237,7 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
               @if (f.diferencias.length) {
                 <p class="ck-warn">Sale con {{ plural(f.diferencias.length, 'diferencia', 'diferencias') }}:</p>
                 <ul class="ck-dif">
-                  @for (d of f.diferencias; track $index) { <li>{{ d.producto ?? d.sku }}: pedido {{ junto(d.esperado, d.unidad) }}, checado {{ junto(d.checado, d.unidad) }}</li> }
+                  @for (d of f.diferencias; track $index) { <li>{{ d.producto ?? d.sku }}: pedido {{ d.pedido_texto }}, checado {{ d.checado_texto }}</li> }
                 </ul>
               } @else {
                 <p class="ck-ok">Todo cuadró.</p>
@@ -276,7 +279,9 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
     .ck-row .ck-input { flex:1; min-width:10rem; }
     .ck-cant { margin-top:.4rem; }
     .ck-cant .ck-l { margin:0; }
-    .ck-step { width:var(--tap-min); height:var(--tap-min); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-lg); cursor:pointer; }
+    /* --tap-min vale 0 con mouse: el botón de un solo signo necesita su propia medida o desaparece. */
+    .ck-step { display:inline-flex; align-items:center; justify-content:center; width:max(2.75rem, var(--tap-min)); height:max(2.75rem, var(--tap-min)); padding:0; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-lg); line-height:1; cursor:pointer; }
+    .ck-step:disabled { color:var(--text-muted); cursor:not-allowed; }
     .ck-n { min-width:2.5rem; text-align:center; font-family:var(--font-mono); font-size:var(--fs-lg); font-weight:800; }
     .ck-check { display:inline-flex; align-items:center; gap:.4rem; min-height:var(--tap-min); font-size:var(--fs-sm); cursor:pointer; }
     .ck-check input { width:1.25rem; height:1.25rem; }
@@ -291,6 +296,9 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
     .ck-sec { min-height:var(--tap-min); padding:0 .9rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-sm); font-weight:600; cursor:pointer; }
     .ck-sec:disabled { color:var(--text-muted); cursor:not-allowed; }
     .ck-soltar { display:block; margin:var(--sp-2) auto 0; }
+    .ck-acciones { margin-top:var(--sp-2); }
+    .ck-grande { flex:1; min-height:max(3.25rem, var(--tap-min)); font-size:var(--fs-lg); }
+    .ck-fija { font-size:var(--fs-sm); text-align:right; }
     .ck-go:focus-visible, .ck-btn:focus-visible, .ck-sec:focus-visible, .ck-step:focus-visible, .ck-seg-b:focus-visible, .ck-salir:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
     .ck-aviso { min-height:2.6rem; margin:var(--sp-2) 0; padding:.55rem .8rem; border-radius:var(--r-md); font-size:var(--fs-lg); font-weight:700; }
     .ck-aviso:empty { padding:0; min-height:0; }
@@ -330,6 +338,9 @@ export class AlmacenChecarComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly codigoInput = viewChild<ElementRef<HTMLInputElement>>('codigoInput');
   private readonly pesoInput = viewChild<ElementRef<HTMLInputElement>>('pesoInput');
+  private readonly confirmTerminar = viewChild<ElementRef<HTMLElement>>('confirmTerminar');
+  private readonly siTerminar = viewChild<ElementRef<HTMLButtonElement>>('siTerminar');
+  private readonly confirmSoltar = viewChild<ElementRef<HTMLElement>>('confirmSoltar');
 
   readonly plural = plural;
   readonly junto = junto;
@@ -354,7 +365,12 @@ export class AlmacenChecarComponent implements OnInit {
   readonly comoCajas = signal(false);
   readonly teclado = signal(false);
   readonly pidePeso = signal<{ code: string; producto: string } | null>(null);
-  readonly peso = signal<number>(0);
+  /** Vacío al pedirlo: con un 0 puesto, teclear 2.5 dejaba "02.5". */
+  readonly peso = signal<number | null>(null);
+  readonly pesoValido = computed(() => {
+    const p = this.peso();
+    return p !== null && Number(p) > 0;
+  });
   readonly confirmando = signal(false);
   readonly soltando = signal(false);
   readonly espera = signal('');
@@ -476,7 +492,7 @@ export class AlmacenChecarComponent implements OnInit {
   enviar(): void {
     const pp = this.pidePeso();
     if (pp) {
-      if (!(this.peso() > 0)) return;
+      if (!this.pesoValido()) return;
       this.mandar({ code: pp.code, cantidad: 1, comoCajas: false }, Number(this.peso()));
       return;
     }
@@ -544,10 +560,29 @@ export class AlmacenChecarComponent implements OnInit {
     });
   }
 
+  /**
+   * La confirmación sale al final de la lista: se lleva la vista a ella y el foco al botón. Antes
+   * el foco volvía al escáner (arriba) y la confirmación quedaba fuera de la pantalla. El aviso
+   * del último escaneo se borra: ya no aplica y confundía ("ya no se deshace" junto a "Todo cuadra").
+   */
   abrirTerminar(): void {
     this.confirmando.set(true);
     this.soltando.set(false);
-    this.enfocar();
+    this.aviso.set(null);
+    this.mostrar(this.confirmTerminar, this.siTerminar);
+  }
+
+  abrirSoltar(): void {
+    this.soltando.set(true);
+    this.aviso.set(null);
+    this.mostrar(this.confirmSoltar);
+  }
+
+  private mostrar(seccion: () => ElementRef<HTMLElement> | undefined, boton?: () => ElementRef<HTMLButtonElement> | undefined): void {
+    setTimeout(() => {
+      seccion()?.nativeElement.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      boton?.()?.nativeElement.focus({ preventScroll: true });
+    });
   }
 
   terminar(): void {
@@ -642,33 +677,17 @@ export class AlmacenChecarComponent implements OnInit {
 
   // ── Textos ───────────────────────────────────────────────────────────────────────────────
 
-  /** En cajas sólo si el pedido da cajas enteras y no se ha contado nada suelto. */
-  private enCajas(r: ChecadoRenglon): boolean {
-    return r.esperado_mayor !== null && !!r.unidad_mayor && r.checado_sueltas <= TOL;
-  }
-
-  pedidoTexto(r: ChecadoRenglon): string {
-    return this.enCajas(r) ? junto(r.esperado_mayor, r.unidad_mayor) : junto(this.num(r.esperado), r.unidad);
-  }
-
-  llevasTexto(r: ChecadoRenglon): string {
-    if (this.enCajas(r)) return junto(r.checado_mayor, r.unidad_mayor);
-    if (r.checado_mayor > 0 && r.unidad_mayor) return `${junto(r.checado_mayor, r.unidad_mayor)} + ${junto(this.num(r.checado_sueltas), r.unidad)}`;
-    return junto(this.num(r.checado), r.unidad);
-  }
+  // Los textos de cantidad los arma el servidor, en la unidad pedida ("2 BOL"): así la lista, el
+  // aviso de lo que sobra y las diferencias al terminar dicen lo mismo.
 
   estadoTexto(r: ChecadoRenglon): string {
-    const cajas = this.enCajas(r);
-    switch (r.estado) {
-      case 'completo': return 'Listo';
-      case 'falta': return cajas ? `Faltan ${junto((r.esperado_mayor ?? 0) - r.checado_mayor, r.unidad_mayor)}` : `Faltan ${junto(this.num(r.esperado - r.checado), r.unidad)}`;
-      case 'sobra': return `Sobran ${junto(this.num(r.checado - r.esperado), r.unidad)}`;
-      default: return 'Pendiente';
-    }
+    if (r.estado === 'completo') return 'Listo';
+    if (r.estado === 'pendiente') return 'Pendiente';
+    return r.diferencia_texto ?? (r.estado === 'falta' ? 'Falta' : 'Sobra');
   }
 
   ultimoTexto(u: NonNullable<ChecadoPedido['ultimo_escaneo']>): string {
-    return junto(u.cantidad, u.unidad, '·', u.producto, u.kind === 'ajeno' ? '(no va en el pedido)' : null);
+    return junto(this.num(u.cantidad), u.unidad, '·', u.producto);
   }
 
   contenidoTexto(c: ChecadoCajaP): string {
@@ -716,7 +735,7 @@ export class AlmacenChecarComponent implements OnInit {
           if (pesoKg === undefined) this.cola.update((c) => c.slice(1));
           if (r.resultado === 'pide_peso') {
             this.pidePeso.set({ code: item.code, producto: r.producto ?? item.code });
-            this.peso.set(0);
+            this.peso.set(null);
             setTimeout(() => this.pesoInput()?.nativeElement.focus());
             return;
           }

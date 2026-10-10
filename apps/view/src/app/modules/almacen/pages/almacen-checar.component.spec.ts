@@ -14,7 +14,8 @@ import * as etiquetas from '../checado-etiquetas';
  */
 const R = (o: Partial<ChecadoRenglon> = {}): ChecadoRenglon => ({
   id: 'l1', sku: '06001', producto: 'CHOC SNICKERS /6', unidad: 'PZA', esperado: 384, checado: 0,
-  unidad_mayor: 'CJA', factor_mayor: 192, esperado_mayor: 2, checado_mayor: 0, checado_sueltas: 0, se_pesa: false, estado: 'pendiente', ...o,
+  unidad_mayor: 'CJA', factor_mayor: 192, esperado_mayor: 2, checado_mayor: 0, checado_sueltas: 0, se_pesa: false, estado: 'pendiente',
+  unidad_pedida: 'CJA', factor_pedida: 192, pedido_texto: '2 CJA', llevas_texto: '0 CJA', diferencia_texto: null, ...o,
 });
 const P = (o: Partial<ChecadoPedido> = {}): ChecadoPedido => ({
   id: 'chk-1', order_code: 'UD4001-0002781', destino: 'ABARROTES LUPITA', sucursal: '01', warehouse_id: 'w-01',
@@ -22,7 +23,10 @@ const P = (o: Partial<ChecadoPedido> = {}): ChecadoPedido => ({
 });
 const OK = (o: Partial<ChecadoEscaneoResponse> = {}): ChecadoEscaneoResponse => ({
   resultado: 'ok', mensaje: '+1 CJA · CHOC SNICKERS /6', producto: 'CHOC SNICKERS /6',
-  pedido: P({ renglones: [R({ checado: 192, checado_mayor: 1, estado: 'falta' })], ultimo_escaneo: { id: 's1', producto: 'CHOC SNICKERS /6', unidad: 'CJA', cantidad: 1, kind: 'mayor' } }),
+  pedido: P({
+    renglones: [R({ checado: 192, checado_mayor: 1, estado: 'falta', llevas_texto: '1 CJA', diferencia_texto: 'Faltan 1 CJA' })],
+    ultimo_escaneo: { id: 's1', producto: 'CHOC SNICKERS /6', unidad: 'CJA', cantidad: 1, kind: 'mayor', deshacible: true },
+  }),
   ...o,
 });
 
@@ -150,6 +154,9 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     api['checadoEscanear'].mockReturnValueOnce(of(OK({ resultado: 'pide_peso', mensaje: 'Pesa ALTOS y escribe los kilos.', producto: 'ALTOS', pedido: P() })));
     escanea('17083');
     expect(texto()).toContain('Peso de ALTOS en la báscula (kg)');
+    // Vacío, no "0": con el cero puesto, teclear 2.5 dejaba "02.5".
+    expect(c.peso()).toBeNull();
+    expect(boton('Agregar')?.disabled).toBe(true);
     c.peso.set(6.14);
     c.enviar();
     expect(api['checadoEscanear']).toHaveBeenLastCalledWith('chk-1', { code: '17083', cantidad: 1, como_cajas: undefined, peso_kg: 6.14 });
@@ -177,6 +184,37 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     const [lista] = imprimir.mock.calls.at(-1) ?? [[]];
     expect(lista.map((e: { grande: string }) => e.grande)).toEqual(['1/2', '2/2']);
     expect(boton('Reimprimir etiquetas de cajas')).toBeDefined();
+  });
+
+  it('⭐ muestra la unidad PEDIDA ("2 BOL") y la diferencia que manda el servidor', async () => {
+    await montar(P({ renglones: [R({
+      sku: '990002', producto: 'PALETA FRESA', unidad: 'PZA', esperado: 40, checado: 20, unidad_mayor: null, factor_mayor: null,
+      esperado_mayor: null, unidad_pedida: 'BOL', factor_pedida: 20, estado: 'falta',
+      pedido_texto: '2 BOL', llevas_texto: '1 BOL', diferencia_texto: 'Faltan 1 BOL',
+    })] }));
+    expect(texto()).toContain('Pedido: 2 BOL');
+    expect(texto()).toContain('Llevas: 1 BOL');
+    expect(texto()).toContain('Faltan 1 BOL');
+    expect(texto()).not.toContain('40 PZA');
+  });
+
+  it('⭐ prueba negativa: un escaneo que ya va en una caja P cerrada NO ofrece "Deshacer"', async () => {
+    await montar(P({ ultimo_escaneo: { id: 's9', producto: 'CACAHUATE', unidad: 'kg', cantidad: 2.5, kind: 'menor', deshacible: false } }));
+    expect(texto()).toContain('Último: 2.5 kg · CACAHUATE');
+    expect(boton('Deshacer')).toBeUndefined();
+    expect(texto()).toContain('Ya va en una caja P cerrada');
+  });
+
+  it('abrir Terminar borra el aviso del último escaneo (ya no aplica)', async () => {
+    await montar(P());
+    api['checadoDeshacer'].mockReturnValueOnce(throwError(() => ({ error: { message: 'La caja P1 ya se cerró y etiquetó: ese escaneo ya no se deshace.' } })));
+    c.deshacer('s1');
+    render();
+    expect(texto()).toContain('ya no se deshace');
+    boton('Terminar checado')?.click();
+    render();
+    expect(texto()).not.toContain('ya no se deshace');
+    expect(boton('Sí, terminar')).toBeDefined();
   });
 
   it('soltar el pedido pide confirmar y regresa a la fila', async () => {

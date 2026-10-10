@@ -108,6 +108,8 @@ exports.up = async function up(knex) {
         qty_checked      numeric(14,3) NOT NULL DEFAULT 0,
         unidad_mayor     varchar(20),
         factor_mayor     numeric(14,3),
+        unidad_pedida    varchar(20),
+        factor_pedida    numeric(14,3),
         se_pesa          boolean NOT NULL DEFAULT false,
         picked_by        uuid,
         created_at       timestamptz NOT NULL DEFAULT now(),
@@ -118,6 +120,11 @@ exports.up = async function up(knex) {
     await knex.raw(`COMMENT ON TABLE commercial.order_check_lines IS
       '[GP.4] Por producto: lo esperado (lo surtido, ya en Kepler), lo checado y quién lo surtió. Unidad base.'`);
   }
+  // La unidad en que se PIDIÓ (BOL, PAQ, CJA) y su factor: la pantalla muestra "2 BOL", no "40 PZA"
+  // (Francisco, 2026-10-10). Aparte del CREATE para las bases donde la tabla ya existía.
+  await knex.raw(`ALTER TABLE commercial.order_check_lines
+    ADD COLUMN IF NOT EXISTS unidad_pedida varchar(20),
+    ADD COLUMN IF NOT EXISTS factor_pedida numeric(14,3)`);
 
   // ── 3. Cajas P ───────────────────────────────────────────────────────────────────────────
   if (!(await tabla('check_packages'))) {
