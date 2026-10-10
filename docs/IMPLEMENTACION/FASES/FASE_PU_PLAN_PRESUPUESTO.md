@@ -345,6 +345,12 @@ No apruebo nada que no cumpla las seis:
    con exit 2 si no encuentra la línea.
 5. **Lo que no se puede medir se DECLARA** (ADR-056): NULL con motivo, nunca 0 ni verde.
 6. **El primitivo vive en `libs/`**, o es deuda con nombre en el tracker.
+8. ⭐⭐ **El que entrega dice cuál es el número que DECIDE; el auditor pregunta cuál es.** Regla
+   conjunta, propuesta por Ingresos corrigiendo la versión de este carril. La mía decía sólo la
+   mitad del auditor —*«un auditor que sólo verifica lo que le ofrecen audita el reporte, no el
+   trabajo»*— y ellos pusieron la otra: **la obligación del que entrega viene antes**, porque el que
+   ofrece el número elige qué someter a verificación desde el mismo modelo que contiene el error.
+   Medido: §10.5 aprobó un número que reproducía al centavo y no era el que decidía (§10.6).
 7. ⭐ **La fuente se mide ANTES de nombrarla en un sprint**, no al empezarlo — cobertura del
    universo y vocabulario de sus columnas. Regla **propuesta por Ingresos** después de que este
    carril nombrara **dos** fuentes que no sostenían su sprint (`erp_sales_invoices` al 4.85 %;
