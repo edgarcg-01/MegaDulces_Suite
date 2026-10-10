@@ -62,7 +62,7 @@ spec:
             - name: ODS_HB_MAX_MIN
               value: "20"
             - name: KP_ODS_TABLES
-              value: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+              value: kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
             - name: ODS_HASH_TABLES
               value: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
           # ⭐ ACÁ SE DISUELVE EL PUNTO 3. Esta sonda ES el brazo: cuando falla, el kubelet

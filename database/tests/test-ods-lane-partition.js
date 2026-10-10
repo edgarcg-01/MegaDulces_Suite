@@ -88,10 +88,18 @@ const cubre = (lista, nombre) => new Set(_lits(lista)).has(nombre) || matchesGlo
   const texto = fs.readFileSync(COMPOSE, 'utf8');
   const hot = envDeServicio(texto, 'ods-live-hot');
   const mirror = envDeServicio(texto, 'ods-live-mirror');
+  // [CG.78] El TERCER carril. Antes acá había dos, y el modelo de dos carriles convertía a
+  // `kdm1` en un "hueco" cuando se mudó al suyo -- o sea que la unica tabla que entrega el
+  // carril mas rapido del sistema habria quedado declarada como "NADIE la entrega". Declarar un
+  // hueco falso es peor que no declarar nada: enmascara el hueco de verdad si ese carril muere.
+  const caja = envDeServicio(texto, 'ods-live-caja');
 
   const HOT = tok(hot.KP_ODS_TABLES);
+  const CAJA = tok(caja.KP_ODS_TABLES);
   const HASH = tok(hot.ODS_HASH_TABLES);
   const EXC = tok(mirror.ODS_EXCLUDE_TABLES);
+  /** Lo que ENTREGA alguien que no es el espejo. Es contra esto que se miden traslapes y huecos. */
+  const ENTREGADAS = HOT.concat(CAJA);
 
   console.log('0) las dos listas se leyeron de verdad  <- sin esto el candado es un no-op');
   A(HOT.length > 0, 'ods-live-hot declara KP_ODS_TABLES (' + HOT.length + ' entradas)');
@@ -99,15 +107,27 @@ const cubre = (lista, nombre) => new Set(_lits(lista)).has(nombre) || matchesGlo
   A(mirror.KP_ODS_TABLES === '*',
     'el espejo esta en ALL_MODE (KP_ODS_TABLES="*"); si no, excluir no significa lo mismo');
 
-  console.log('\n1) SIN TRASLAPE: todo lo del caliente esta excluido del espejo');
-  const traslape = HOT.filter((t) => !cubre(EXC, t));
+  console.log('\n1) SIN TRASLAPE: todo lo que entrega un carril esta excluido del espejo');
+  const traslape = ENTREGADAS.filter((t) => !cubre(EXC, t));
   A(traslape.length === 0,
     traslape.length === 0
-      ? 'ningun carril pisa al otro (' + HOT.length + ' tablas del hot, todas excluidas del espejo)'
+      ? 'ningun carril pisa al espejo (' + ENTREGADAS.length + ' tablas entregadas, todas excluidas)'
       : 'DOBLE SHIP en: ' + traslape.join(', ') + ' -- se pisan ods.ctl y pierden filas sin avisar');
 
+  // [CG.78] La regla que el modelo de DOS carriles no podia expresar: el espejo se excluye por
+  // lista, pero entre dos carriles que EMBARCAN no hay ninguna exclusion que los separe. Si
+  // `kdm1` se queda en los dos, los dos escriben `ods.ctl` bajo la misma llave `(table_name)`,
+  // uno graba un ctid viejo encima del nuevo y las filas del medio no se vuelven a mirar.
+  console.log('\n1b) SIN TRASLAPE ENTRE CARRILES QUE EMBARCAN  <- [CG.78] la carrera de watermark');
+  const choque = HOT.filter((t) => cubre(CAJA, t)).concat(CAJA.filter((t) => cubre(HOT, t)));
+  A(choque.length === 0,
+    choque.length === 0
+      ? 'caliente y caja no comparten ninguna tabla (' + HOT.length + ' + ' + CAJA.length + ')'
+      : 'DOS DUENOS de: ' + [...new Set(choque)].join(', ') + ' -- carrera de watermark en ods.ctl');
+  A(CAJA.length > 0, 'ods-live-caja declara KP_ODS_TABLES (' + CAJA.length + ' entradas)');
+
   console.log('\n2) HUECOS DECLARADOS: lo excluido que nadie entrega tiene motivo escrito');
-  const huecos = EXC.filter((t) => !cubre(HOT, t));
+  const huecos = EXC.filter((t) => !cubre(ENTREGADAS, t));
   for (const h of huecos) {
     const declarado = Object.prototype.hasOwnProperty.call(HUECOS_DECLARADOS, h);
     A(declarado, h + ': excluida del espejo y ausente del caliente => NADIE la entrega'
@@ -121,7 +141,7 @@ const cubre = (lista, nombre) => new Set(_lits(lista)).has(nombre) || matchesGlo
   }
 
   console.log('\n4) ODS_HASH_TABLES es un FILTRO, no agrega nada  <- el bug de [CT.3]');
-  const inertes = HASH.filter((t) => !cubre(HOT, t));
+  const inertes = HASH.filter((t) => !cubre(ENTREGADAS, t));
   A(inertes.length === 0,
     inertes.length === 0
       ? 'las ' + HASH.length + ' del carril hash estan en la maestra'
@@ -168,12 +188,21 @@ const cubre = (lista, nombre) => new Set(_lits(lista)).has(nombre) || matchesGlo
     'meter kdpord en el caliente sin excluirlo del espejo => la regla 1 suma exactamente 1 violacion');
   const EXC_MALO = EXC.concat(['kdlogmov']);
   const sinDeclararAhora = huecos.filter((t) => !HUECOS_DECLARADOS[t]).length;
-  A(EXC_MALO.filter((t) => !cubre(HOT, t)).filter((t) => !HUECOS_DECLARADOS[t]).length
+  // [CG.78] La simulacion mide contra ENTREGADAS, igual que la regla 2. Con `cubre(HOT, ...)`
+  // seguia pasando por casualidad mientras hubo un solo carril que embarcaba; en cuanto `kdm1`
+  // se mudo, la negativa empezo a contar a `kdm1` como hueco nuevo y daba 2 en vez de 1.
+  // Una negativa que no calca a la regla que vigila deja de vigilarla.
+  A(EXC_MALO.filter((t) => !cubre(ENTREGADAS, t)).filter((t) => !HUECOS_DECLARADOS[t]).length
       - sinDeclararAhora === 1,
-    'excluir kdlogmov del espejo sin ponerlo en el caliente => la regla 2 suma exactamente 1 hueco');
-  A(cubre(EXC, 'kdc2601') && cubre(HOT, 'kdc2601'),
+    'excluir kdlogmov del espejo sin ponerlo en ningun carril => la regla 2 suma exactamente 1 hueco');
+  // [CG.78] Y la negativa de la regla 1b: si `kdm1` volviera al caliente, los dos carriles
+  // quedarian de duenos y `ods.ctl` perderia filas en silencio. Tiene que dar EXACTAMENTE 1.
+  const HOT_CON_KDM1 = HOT.concat(['kdm1']);
+  A(HOT_CON_KDM1.filter((t) => cubre(CAJA, t)).length === 1,
+    'devolver kdm1 al caliente => la regla 1b detecta exactamente 1 tabla con dos duenos');
+  A(cubre(EXC, 'kdc2601') && cubre(ENTREGADAS, 'kdc2601'),
     'el glob kdc2-asterisco cubre una poliza mensual concreta en las DOS listas');
-  A(!cubre(HOT, 'kdib'), 'y NO cubre de mas: kdib no entra al caliente por parecerse a nada');
+  A(!cubre(ENTREGADAS, 'kdib'), 'y NO cubre de mas: kdib no entra a ningun carril por parecerse a nada');
 
   console.log('\n=== ' + ok + ' ✔ · ' + fail + ' ✖ · ' + nm + ' no medido ===\n');
   process.exit(fail ? 1 : 0);
