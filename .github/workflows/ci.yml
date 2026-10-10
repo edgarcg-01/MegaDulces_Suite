@@ -333,6 +333,28 @@ jobs:
             echo "| aciertos | \`$HIT\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # `[NX.8]` El único testigo de una familia de bugs que el build NO puede ver.
+      #
+      # Cuando SWC compila con `jsc.loose = true`, `[...iterable]` no sale con el helper que
+      # itera: sale como `[].concat(iterable)`, que asume array-like y deja el Set/MapIterator
+      # ADENTRO del array. `.length === 1`, así que burla cualquier guard `if (xs.length)`.
+      # Son SIETE incidentes de producción en `GOTCHAS.md` — el 22P02 que tumbó el sell-out,
+      # `/compras/costo-neto` vacío, la conciliación de bancos en $0, un 500 en el XLSX de
+      # `/compras/pedido` y una violación de RLS por un `insert ... default values`.
+      # **Todos con build verde, typecheck verde y cero errores en consola.**
+      #
+      # La defensa de hoy es (a) un plugin que fuerza `loose:false` y vive en la config de UN
+      # bundler, y (b) la regla «nunca spread de iterable en la api», que el barrido de
+      # 2026-08-18 aplicó a mano en 53 sitios de 35 archivos. Las dos dependen de que alguien
+      # se acuerde. Este candado mira el ARTEFACTO, que es lo único que no se olvida.
+      #
+      # Sin bundle dice NO MEDIDO y sale 0: `affected` puede legítimamente no incluir la api,
+      # y un verde dibujado sería peor que no medir (ADR-056).
+      - name: Candado del bundle (spread de iterables — ver GOTCHAS)
+        run: |
+          node scripts/check-bundle-downlevel.js --self-test
+          node scripts/check-bundle-downlevel.js dist/apps/api/main.js
+
   # INFRA.5 (ADR-043): lint + test SOLO de lo que el cambio toca (nx affected).
   # La regression suite (database/run-all-tests.js) NO va acá — necesita API arriba
   # + multi-DB sembrada; queda como gate local/manual.
