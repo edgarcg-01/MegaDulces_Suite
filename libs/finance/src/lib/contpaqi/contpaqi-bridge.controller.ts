@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
+import type { Response } from 'express';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
 import {
@@ -102,6 +103,38 @@ export class ContpaqiBridgeController {
         .sort((a, b) => b[1] - a[1])
         .map(([motivo, n]) => ({ motivo, movimientos: n, dueno: DUENO[motivo] ?? 'sin clasificar' })),
     };
+  }
+
+  /**
+   * `[CP.8.38]` — **El archivo del mes, para descargar.**
+   *
+   * ⛔⛔ **Generar no es entregar.** No escribe `contpaqi.poliza_exports`, así que **no arranca el
+   * reloj del cuadre**. Marcar entregado al descargar pondría en ese estado a archivos que nadie
+   * importó, y el cuadre pasaría a medir cuánta gente apretó un botón.
+   *
+   * Exige `_GESTIONAR`: producir el artefacto es hacer, no mirar.
+   */
+  @Get('archivo')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: 'Genera el TXT del mes (una póliza por lote). NO lo marca entregado.' })
+  async archivo(@Query('mes') mes: string | undefined, @Res() res: Response) {
+    const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
+    let r: Awaited<ReturnType<ContpaqiArmadoService['generarArchivoMes']>>;
+    try {
+      r = await this.armado.generarArchivoMes(anioMes);
+    } catch (e) {
+      throw new BadRequestException((e as Error).message);
+    }
+    // `latin1`: el layout es de ancho fijo en bytes, y un acento en UTF-8 ocuparía dos,
+    // corriendo todas las columnas del renglón.
+    const buf = Buffer.from(r.contenido, 'latin1');
+    res.setHeader('Content-Type', 'text/plain; charset=iso-8859-1');
+    res.setHeader('Content-Disposition', `attachment; filename="${r.nombre}"`);
+    res.setHeader('X-Polizas', String(r.polizas));
+    res.setHeader('X-Movimientos', String(r.movimientos));
+    // ⭐ Viaja en la respuesta para que nadie confunda descargar con entregar.
+    res.setHeader('X-Entregado', 'false');
+    res.send(buf);
   }
 
   /**

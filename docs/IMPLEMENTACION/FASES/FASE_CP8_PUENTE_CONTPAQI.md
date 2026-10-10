@@ -2448,3 +2448,55 @@ pantalla. *Un candado que salta un bloque en silencio se lee igual que uno que l
 
 ⚠️⚠️ **Séptima vez que un acento grave en un comentario de `template`/`styles` rompe el build.** Lo
 agarró `check:templates`.
+
+---
+
+## §36 `[CP.8.38]` — El botón de generar, y la línea que no se cruza
+
+🧪 **EN CÓDIGO 2026-10-10.** Sin migración. Pedido explícito tras preguntar *«¿para qué me serviría
+esta interfaz?»* — la respuesta honesta era que **sin salida no servía para sacar la póliza**.
+
+### 36.1 ⛔⛔ Generar NO es entregar
+
+`GET /finance/contpaqi/archivo` **no escribe `contpaqi.poliza_exports`**, y lo dice en la respuesta
+(`X-Entregado: false`) y en la pantalla.
+
+`entregada` significa *«salió un archivo de acá»* y **arranca el reloj del cuadre**: a los 5 días el
+motor empieza a preguntar por qué no aparece del otro lado. Marcarlo al **descargar** pondría en ese
+estado a archivos que nadie importó nunca, y el cuadre pasaría a medir **cuánta gente apretó un
+botón** en vez de cuánto llegó a ContPAQi. Es el mismo defecto que `[CP.8.32]` evitó al descubrir
+que `cuadrarPendientes()` escribe.
+
+Marcar entregado queda como acción **aparte y explícita**, para cuando la prueba de importación
+confirme que el formato se acepta.
+
+### 36.2 Un solo camino de armado
+
+`simularLotes` y `generarArchivoMes` consumen el **mismo** `construirLotes`. Si fueran dos, el
+archivo podría no decir lo que la bandeja muestra, y eso no se descubre hasta la balanza.
+
+⚠️ Y serializa con el **sink**, que es el único lugar donde el token entra al concepto del
+encabezado — duplicar esa regla sería tener dos reglas.
+
+⛔ **No se usó `armarPeriodo`**, que existía y parecía servir: emite **una póliza por movimiento**
+—el diseño que `[CP.8.21]` reemplazó por lotes— y no pasa por el resolvedor de proveedor. *Un
+método que existe no es un método que sirve.*
+
+### 36.3 Un lote que no serializa tumba el archivo entero
+
+No se sirve «el resto». Una póliza incompleta **cuadra sola** y le falta un día de banco: nadie la
+vería hasta la balanza.
+
+### 36.4 Candado — bandeja **28 → 34 ✓**
+
+Medido sobre enero: **88 pólizas · 144 movimientos · $36,718,975.48 · 232 renglones**.
+
+| aserción | |
+|---|---|
+| ⛔⛔ generar no escribió en `poliza_exports` | 0 → 0, y `entregado: false` |
+| las 88 pólizas **cuadran al centavo** | cargos = abonos, una por una |
+| 88 encabezados `P`, uno por póliza | parseadas con el mismo lector que valida el formato real |
+| 232 renglones para 144 movimientos | cada uno con su IVA y el abono al banco |
+| ⛔ **CRLF en todas las líneas** | un archivo con LF se importa y corre todas las columnas |
+
+Sin regresión: proveedor 30 ✓ · libro-txt 49 ✓ · esquema 46 ✓.
