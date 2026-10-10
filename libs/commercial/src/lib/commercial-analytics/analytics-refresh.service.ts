@@ -495,6 +495,19 @@ export class AnalyticsRefreshService {
       // un gate de 1 s. ⚠️ Umbral en `CRON_JOBS` (`analytics_refresh_cost_origin`): sin el, una MV
       // parada se ve VERDE (OBS.1), y acá eso seria la pantalla explicando con un movimiento viejo.
       ['analytics.mv_kepler_cost_origin', 'analytics_refresh_cost_origin', 'Refresh MV origen del costo (nightly)', []],
+      /**
+       * `[PP.0]` La ventana OBSERVADA del pronto pago. `deps` vacío: sale del ODS, no cuelga de
+       * ninguna otra matvista.
+       *
+       * ⚠️ Nocturno y no en el ciclo de 30 min porque la derivación cruza `kdm1 x kdxf x kdxe`
+       * sobre 12 meses y tarda **22-25 s** medidos en prod. Lo que calcula es historia de un año:
+       * no se mueve de una hora a otra, así que pagar eso cada media hora sería tirar el tiempo.
+       *
+       * ⛔ Umbral en `CRON_JOBS` (`analytics_refresh_prompt_discount`): sin él una MV parada se ve
+       * VERDE (OBS.1) — y acá eso sería Tesorería leyendo una fecha límite que ya caducó.
+       */
+      ['analytics.mv_supplier_prompt_discount', 'analytics_refresh_prompt_discount',
+        'Refresh MV ventana de pronto pago (nightly)', []],
       // [NP.13] Productos nuevos, SOLO KEPLER. Además del ciclo de 30 min (array `MVS`), va aquí,
       // justo DESPUÉS de `mv_kepler_sales_daily`: su corte es lo que esa matvista ya tiene cerrado,
       // así que refrescarla enseguida mueve la historia al día de hoy. Depende sólo de la pierna

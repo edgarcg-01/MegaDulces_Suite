@@ -385,6 +385,9 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'cobranza', label: 'Cobranza (comprobantes)', route: '/finanzas/cobranza', view: [Permission.FINANCE_COLLECTIONS_VER], manage: [Permission.FINANCE_COLLECTIONS_GESTIONAR] },
           { id: 'cartera', label: 'Crédito de clientes', route: '/finanzas/cartera', view: [Permission.FINANCE_RECEIVABLES_VER], manage: [] },
           { id: 'pagos-comprobantes', label: 'Pagos a proveedor (comprobantes)', route: '/finanzas/pagos-comprobantes', view: [Permission.FINANCE_PAYMENTS_VER], manage: [Permission.FINANCE_PAYMENTS_GESTIONAR] },
+          // [PP.1] Pronto pago. Sólo lectura (pagar se hace en Tesorería, no acá): reusa
+          // FINANCE_PAYMENTS_VER, sin permiso nuevo → sin migración ni re-login.
+          { id: 'pronto-pago', label: 'Pronto pago (descuento por pagar a tiempo)', route: '/finanzas/pronto-pago', view: [Permission.FINANCE_PAYMENTS_VER], manage: [] },
           // [ECA.2] Estado de cuenta de acreedores. Sólo lectura (los pagos se aplican en Kepler):
           // reusa FINANCE_PAYMENTS_VER, sin permiso nuevo → sin migración ni re-login. Va ANTES de
           // `calendario-pagos` a propósito: la "casa" de una clave es el ÚLTIMO módulo que la usa

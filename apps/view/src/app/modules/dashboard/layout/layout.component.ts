@@ -723,6 +723,9 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Pagos',
       items: [
         { label: 'Pagos a proveedor', icon: 'pi pi-send', route: '/finanzas/pagos-comprobantes', permission: Permission.FINANCE_PAYMENTS_VER },
+        // [PP.1] Primero de la sección a propósito: es lo ÚNICO de Pagos que caduca. El resto
+        // sigue ahí mañana; el descuento por pronto pago no.
+        { label: 'Pronto pago', icon: 'pi pi-bolt', route: '/finanzas/pronto-pago', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Calendario de pagos', icon: 'pi pi-calendar', route: '/finanzas/calendario-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Programa de pagos', icon: 'pi pi-calendar', route: '/finanzas/programa-pagos', permission: Permission.FINANCE_PAYMENTS_VER },
         { label: 'Cuadre y deuda', icon: 'pi pi-wallet', route: '/finanzas/cuadre-proveedor', permission: Permission.FINANCE_PAYMENTS_VER },
