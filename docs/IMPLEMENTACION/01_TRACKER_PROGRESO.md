@@ -10179,8 +10179,18 @@ contra `pg-prod` (namespace `prod`, k3s).
 - [ ] ⭐ **Importar UN archivo** para confirmar que ContPAQi lo acepta. **Un minuto de la
   contadora**, y contesta tres cosas: si el formato vale, si respeta el `guid`, y si los
   renglones `AD` se pueden prender.
-- [ ] Aplicar `[CP.8.1]` a prod · [ ] Firmar el mapa de 5 reglas · [ ] Emitir renglones `AD`
-- [ ] Decodificar `AM`, `AP`, `I`, `V`, `W2` (los guids de `AM` **no cruzan con nada**)
+- [ ] ⭐ **Firmar el mapa.** Medido en prod 2026-10-10: `contpaqi.account_rules` tiene **21 filas —
+  2 `derivada`, 19 `sin_regla`, CERO `aprobada`**. Por eso el puente rechaza el 100 %. Es lo único
+  que, una vez resuelto, hace que la bandeja deje de ser una lista de pendientes.
+- [x] ~~Aplicar `[CP.8.1]` a prod~~ — **ya está**: las dos tablas existen en producción
+  (`account_rules` 21 filas · `poliza_exports` 0). Verificado 2026-10-10.
+- [x] ~~Emitir renglones `AD`~~ — cerrado en `[CP.8.29]`.
+- [x] ~~Decodificar `AM`, `AP`, `I`, `V`, `W2`~~ — cerrado en `[CP.8.28]` con el esquema del
+  fabricante.
+
+> ⚠️ **Tres de los cuatro bloqueos de esta lista llevaban días hechos.** Una lista de bloqueos que
+> enumera trabajo terminado **esconde el que sí bloquea**: acá quedaban dos (el clic y la firma)
+> entre cuatro renglones. *Un bloqueo se tacha el día que se cierra, no cuando alguien lo relee.*
 
 ---
 
