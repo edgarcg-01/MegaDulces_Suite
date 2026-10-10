@@ -151,7 +151,8 @@ import {
               </ng-template>
               <ng-template #footer>
                 <tr><td colspan="4" class="cpp-foot">
-                  <span class="mono">{{ pendientes() | number }}</span> son trabajo de alguien &middot;
+                  <span class="mono">{{ pendientes() | number }}</span> esperan a alguien &middot;
+                  <span class="mono">{{ d.resumen.incluidas | number }}</span> ya entran al asiento &middot;
                   <span class="mono">{{ deNadie() | number }}</span> no son trabajo de nadie:
                   ya se midi&oacute; que no generan p&oacute;liza.
                 </td></tr>
@@ -548,7 +549,16 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
 
   readonly deNadie = computed(() => contarDeNadie(this.data()?.motivos ?? []));
 
-  readonly pendientes = computed(() => (this.data()?.resumen.movimientos ?? 0) - this.deNadie());
+  /**
+   * ⛔ Resta TAMBIÉN las incluidas. Mientras el puente rechazaba todo, `movimientos − no_aplica`
+   * daba lo mismo; desde `[CP.8.35]` entran 144 al asiento y esa cuenta **sobredeclara el trabajo
+   * pendiente**, que es justo el número que alguien mira para estimar cuánto falta.
+   */
+  readonly pendientes = computed(() => {
+    const r = this.data()?.resumen;
+    if (!r) return 0;
+    return Math.max(0, r.movimientos - this.deNadie() - r.incluidas);
+  });
 
   ngOnInit(): void { this.cargar(); }
 
