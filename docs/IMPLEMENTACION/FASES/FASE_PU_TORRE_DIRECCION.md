@@ -263,19 +263,45 @@ las 4 mayores:  81.64 % de Mostrador   vs   47.72 % del plan     → 33.91 pp
 ejercicio real es 55.4954 %. **Las dos cifras son aritméticamente correctas sobre un universo que
 la frase no nombra.** Ninguno de los dos mintió; los dos omitimos el denominador.
 
-### 10.2 Lo que el recorte borraba, y es lo más caro
+### 10.2 Lo que el recorte borraba — y la medida que lo dice
 
-El mismo primitivo sobre los dos lados **completos**:
+> ⛔ **CORREGIDO el 2026-10-09 por la sesión de Ventas (`trade-marketing-06`), y tenía razón.**
+> Este párrafo decía *«el gasto está concentrado y el ingreso no»* y lo sacaba de **«4 contra 9»**
+> — un conteo **absoluto** sobre universos de **14 y 33** renglones. Es **un denominador sin
+> declarar**: exactamente la falta que esta sección existe para corregir, cometida en el párrafo
+> que la corrige. El commit `89ef533db` ya está en el historial y no se puede enmendar; la
+> corrección vive acá.
 
-| | Renglones | La mayor | Cruzan el 80 % |
+El mismo primitivo sobre los dos lados **completos**, con las medidas **invariantes de escala**:
+
+| | Gasto | Ingreso | |
 |---|---|---|---|
-| **Ingreso** | 33 | **20.32 %** | **9** |
-| **Gasto** | 14 | **55.4954 %** | **4** |
+| Renglones | 14 | 33 | |
+| **Renglones para cruzar el 80 %** | 4 = **28.6 %** | 9 = **27.3 %** | ⚠️ **casi idénticos** |
+| **El mayor (top-1)** | **55.4954 %** | **20.32 %** | **2.7×** |
+| Los tres mayores | 79.46 % | 39.99 % | 2.0× |
+| HHI | 0.3476 (≈ **2.9** renglones iguales) | 0.0972 (≈ **10.3**) | 3.6× |
+| Gini | 0.7419 | 0.6620 | 1.1× |
 
-⭐ **El gasto está concentrado y el ingreso no.** Traducido: *no se puede recortar rápido, pero
-tampoco se depende de un cliente*. Esa asimetría es la decisión que Dirección necesita y **ninguna
-de las dos mitades la decía** — la de ingreso porque mostraba un canal donde la concentración se ve
-artificialmente alta, la de gasto porque no mostraba concentración.
+⚠️ **El HHI no es evidencia independiente**: 0.308 de sus 0.3476 son SUELDOS sola. Repite el
+top-1 con otro nombre, no lo corrobora. El Gini —que sí mira toda la curva— apenas se mueve.
+
+⭐ **La forma de Pareto de los dos lados es prácticamente la misma.** Lo que cambia es **el renglón
+de arriba**. La frase que se sostiene es:
+
+> **Riesgo de punto único en el gasto: una sola partida (SUELDOS Y SALARIOS) es el 55.50 %,
+> el equivalente a 2.9 renglones iguales. Del lado del ingreso, el mayor es el 20.32 % — 10.3
+> renglones equivalentes.**
+
+Y **no** es la misma conversación con Dirección: *«no puedo recortar rápido»* (forma de la curva,
+que acá es igual en los dos lados) contra *«dependo de una sola partida»* (el top-1, que es donde
+está la diferencia real).
+
+⛔ **Lo que NO hay que corregir: el código nunca dijo la frase comparativa.** `fraseConcentracion()`
+emite un hecho sobre **un** universo — *«4 de 14 renglones deciden el 80 % del gasto de 2027»* y
+*«El mayor solo es el 55.50 %»* — y **no compara dos lados**, porque recibe uno solo. La
+comparación la hice yo en prosa, fuera del tipo que la habría frenado. *El tipo protegió al
+producto y no al documento.*
 
 ### 10.3 El acuerdo, en cuatro puntos
 
@@ -331,7 +357,7 @@ se ve limpia.
 | Qué | Dónde | Resultado |
 |---|---|---|
 | Unitaria | `budget-concentration.spec.ts` | **32 ✓**, mutada a rojo **7 veces** |
-| Candado DB-direct | `test-newdb-budget-concentracion.js` | **25 ✓ / 0 ✗ / 0 no medido** contra prod |
+| Candado DB-direct | `test-newdb-budget-concentracion.js` | **27 ✓ / 0 ✗ / 0 no medido** contra prod |
 | Las 6 suites de budget | `libs/finance` | **104 ✓** |
 
 **Las siete mutaciones:** borde `>= 80` → `> 80` · la fila sin monto suma 0 · orden ascendente ·
