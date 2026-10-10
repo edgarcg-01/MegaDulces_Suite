@@ -4,6 +4,18 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-10 — `[ETQ-CAMBIOS.8–9]` y `[ETQ-ESTADO.1]` + lo que costó llevar tres PR de etiquetas a verde
+
+**Qué se hizo.** (a) *Cambios de precio* pasó a **un código, una fila**, con confirmación del precio que lleva la etiqueta, y un clic en la fila lleva a imprimirla (#349, ya en `main`). (b) La etiquetera ahora dice **por qué** un producto no tiene precio (#351). (c) Se retiró del aviso la descarga en Excel/CSV por decisión de Edgar (#350).
+
+**Lo que falló en el camino, y qué se aprendió** (cada punto está ya en `ONBOARDING.md` §8.0b, puntos 8–12):
+1. **El `pre-push` NO corre el `Boundary type gate` y el CI sí.** #350 y #351 llegaron a CI con 12 y 4 violaciones (`any`, métodos sin tipo de retorno). Un paso que sólo existe en CI se descubre tarde: hay que correr `node scripts/lint-boundary-gate.js` a mano cuando se toca un controller o service.
+2. **Filtrar las pruebas por nombre dejó pasar un fallo.** Un texto de `etiqueta-hoja.spec.ts` comprobaba la firma de `addBulk` y no lo corrí porque filtré por componente. Se corre **el directorio entero** del módulo tocado.
+3. **Fusionar `main` puede duplicar lógica sin conflicto de git.** `agruparPorCodigo` quedó en dos lugares (la app y `libs/contracts`); git no lo vio porque eran archivos distintos. Tras fusionar, se busca lo que tu PR y lo recién entrado hacen por duplicado.
+4. **Entre PR abiertos también chocan.** #350 y #351 chocan entre sí en `commercial-labels.service.ts` aunque cada uno esté limpio contra `main`; lo escribí al revés en una descripción y lo corregí. Se verifica con `git merge-tree`, no de memoria.
+5. **Una cifra en la descripción tiene que sumar.** Dije «55 pruebas» con un desglose que sumaba 64.
+6. **Una mutación que no se aplicó parece una prueba que pasa.** Los archivos con CRLF hicieron que `str.replace` no cambiara nada; la prueba «sobrevivió» sin probar nada. La mutación debe afirmar que el reemplazo ocurrió.
+
 ## 2026-10-09 — `[ETQ-AVISOS.1–3]` Avisar a las sucursales que cambió un precio, y que Compras comparta la lista
 
 **Qué se pidió.** Mandar una notificación a los usuarios de sucursal cuando hay cambios de precio, y darle a
