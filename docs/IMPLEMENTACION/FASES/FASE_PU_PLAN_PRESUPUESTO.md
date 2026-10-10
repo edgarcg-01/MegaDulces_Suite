@@ -588,6 +588,49 @@ un sprint, no al empezarlo.* Es la **segunda** vez que una fuente que este carri
 el sprint —`erp_sales_invoices` al 4.85 %, y ahora ésta—, y **las dos las encontró quien iba a
 construir, no quien escribió el plan**. Entra a §6 como la séptima condición de aprobación.
 
+### 10.5 ✅ Sprint 2 · la opción (a), verificada por este carril a pedido de Ingresos
+
+Ingresos pidió explícitamente que **alguien que no fuera ellos** re-midiera la cobertura y el reparto
+de `RUTA-*` — *«es el número del que depende toda la recomendación, y el que yo no voy a ver mal»*.
+Re-medido acá con consulta propia, ventana 2025-10-01 → 2026-09-30:
+
+| | Reportado | Medido acá |
+|---|---|---|
+| `sales_daily` 12 meses | $669,067,048.83 | **$669,067,048.83** ✅ |
+| `v_sellout_daily` 12 meses | $660,980,381.64 | **$660,980,381.64** ✅ |
+| Diferencia | 1.21 % | **1.21 %** ($8,086,667.19) ✅ |
+| `RUTA-*` · ruta·kepler | $14,803,772.26 | **$14,803,772.26** ✅ |
+| `RUTA-*` · ruta·wincaja | $48,916,154.89 | **$48,916,154.89** ✅ |
+| Canónicos ≠ `ruta` en almacenes de ruta | ninguno | **ninguno** ✅ |
+
+⭐⭐ **Y el chequeo que este carril agregó podía tumbar la recomendación — la reforzó desde el lado
+contrario.** Ingresos comparó los **totales** y por separado miró los almacenes de ruta; eso deja
+abierta una tercera lectura que ellos no cerraron: **si ese 1.21 % faltante estuviera concentrado
+justo en `RUTA-*`**, la vista se vería «limpia» precisamente por no tener el dato que la ensuciaría,
+y *clasifica bien* / *le falta dato* volverían a ser indistinguibles. Partido por grupo de almacén:
+
+```
+RUTA-*     sales_daily   $60,560,841.24    v_sellout   $63,719,927.15    −5.22 %
+sucursal   sales_daily  $608,506,207.59    v_sellout  $597,260,454.49    +1.85 %
+```
+
+⇒ **En los almacenes de ruta `v_sellout_daily` tiene MÁS dinero, no menos** — $3,159,085.91 más.
+No puede estar «limpio por ausencia» de algo que tiene en exceso. **La conclusión de Ingresos queda
+confirmada por un argumento más fuerte que el suyo**, y el faltante del 1.21 % resulta estar del
+lado de **sucursal** (+1.85 %), que es otra pregunta y queda declarada, no resuelta.
+
+**Veredicto: (a) APROBADA.** Agregar `tickets` a `v_sellout_daily` es aditivo —ningún `SELECT`
+existente cambia de resultado—, su conteo de 53 consumidores distingue bien el historial de
+migraciones de los 12 lectores vivos en `libs`, y el riesgo real es de recompilación, no de
+semántica. **La decidió Ingresos con el costo a la vista; este carril verificó el número que la
+sostiene.**
+
+⭐ **Lo mejor del día, y conviene que quede escrito:** Ingresos **casi** recomienda (a) por la razón
+equivocada —*«`mayoreo` canónico vive entero en sucursal, cero `RUTA-*`»*— y **se frenó solo** al ver
+que eso admite dos explicaciones opuestas. Es el control de placebo que les faltó a tres errores de
+esta misma semana, **dos de ellos de este carril**. Que lo haya hecho el que iba a construir, sobre
+su propia recomendación, es exactamente lo que §9.1 dice que no se puede hacer solo — y lo hizo.
+
 ---
 
 ## Fuentes
