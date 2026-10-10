@@ -134,17 +134,41 @@ export function costoDeNoFirmar(items: number, monto: number | null): string | n
 }
 
 /**
- * `[PVI.20]` **Lo que el componente necesita de la concentración, y nada más.**
+ * `[PVI.21]` **La proyección de `ExpenseConcentration`, alineada al contrato del carril de Gastos.**
  *
- * ⚠️ **Es una proyección, no una segunda implementación**: acá no se calcula nada. Son los campos
- * de `ExpenseConcentration` (`libs/contracts/src/http/budget-expense-plan.contract.ts`, `[PU.VG.10]`)
- * que esta pantalla pinta, más los DOS que la auditoría exigió agregar y que todavía no están en
- * el contrato porque vive en una rama sin mergear.
+ * ⚠️ **No calcula nada.** Son los campos de `ExpenseConcentration`
+ * (`libs/contracts/src/http/budget-expense-plan.contract.ts`, `[PU.VG.11]`) que esta pantalla
+ * pinta, con **sus nombres exactos**, para que el día que `feat/pu-selector` entre a `main` el
+ * reemplazo sea cambiar el `import` y borrar este bloque — no una traducción de campos.
  *
- * ⇒ El día que `feat/pu-selector` entre a `main`, **esto se borra** y el `input` se tipa con el
- * import real. Se deja declarado acá y no en un comentario suelto para que el reemplazo sea una
- * línea y no una arqueología.
+ * ── ⛔ Qué se borró acá, y por qué ──────────────────────────────────────────────────────────
+ *
+ * Vivían `fraseConcentracion()` y mi propio `universo: string` + `parte_de`. Los dos quedaron
+ * obsoletos el mismo día: `[PU.VG.11]` ya publica **`ExpenseUniverse` como unión discriminada**
+ * —no se puede publicar un bloque sin declarar si el conjunto está completo o es un recorte— y
+ * **la frase la emite el SERVIDOR** (`ExpenseConcentrationPhrase`), justamente para que las dos
+ * mitades del módulo no digan la misma idea con dos gramáticas.
+ *
+ * ⇒ Mi constructor de frases habría sido el séptimo artefacto duplicado del día. Se va.
+ *
+ * ⭐ Y su `menores` —la frase inversa, dónde NO mirar— **salió de esta pantalla**: ellos lo citan
+ * como tomado de acá. O sea que el intercambio fue en los dos sentidos.
  */
+
+/** Universo completo: el conjunto ES el total. */
+export interface UniversoCompleto { nombre: string; completo: true }
+
+/** Universo recortado: hay que decir de qué es recorte y qué fracción es. */
+export interface UniversoRecorte {
+  nombre: string;
+  completo: false;
+  de: string;
+  /** `null` = no se pudo medir. NUNCA 0. */
+  pct: number | null;
+}
+
+export type Universo = UniversoCompleto | UniversoRecorte;
+
 export interface FilaConcentracion {
   id: string | null;
   concepto: string;
@@ -154,54 +178,73 @@ export interface FilaConcentracion {
   acumulado: number | null;
 }
 
-export interface VistaConcentracion {
-  total: number | null;
-  filas: readonly FilaConcentracion[];
-  /** Mínimo de partidas cuya suma ALCANZA el 80 %: la que CRUZA la línea, no la última de abajo. */
-  partidas_80: number | null;
-  pct_mayor: number | null;
-  /** Cuántas partidas no traen monto legible. Se declaran; no entran al total. */
-  sin_monto: number;
-  /**
-   * ⛔ **De qué es esta concentración.** Obligatorio: un bloque que muestra una parte y no dice de
-   * qué, miente aunque cada cifra esté bien. Fue el hallazgo principal de la auditoría.
-   */
-  universo: string;
-  /** `null` cuando el universo ES el total. Si es un recorte, de qué y qué parte. */
-  parte_de: { de: string; pct: number } | null;
+/** La frase que emite el servidor. `es_ausencia` separa «no hay» de «no se pudo medir». */
+export interface FraseConcentracion {
+  titular: string;
+  detalle: string | null;
+  /** Dónde NO mirar. `null` cuando no hay cola que declarar. */
+  inversa: string | null;
+  es_ausencia: boolean;
 }
 
-/** Las tres bandas en que se parte la lista. Juntas tienen que dar el 100 %: hay un test. */
+/** Las que no mueven la aguja, contadas por el servidor. */
+export interface MenoresConcentracion {
+  filas: number;
+  monto: number | null;
+  pct: number | null;
+}
+
+export interface VistaConcentracion {
+  universo: Universo;
+  frase: FraseConcentracion;
+  total: number | null;
+  filas: readonly FilaConcentracion[];
+  /** Mínimo de filas cuya suma ALCANZA `umbral_pct`: la que CRUZA la línea. */
+  partidas_80: number | null;
+  /** El corte que define `partidas_80`. Viaja para que nadie lo asuma. */
+  umbral_pct: number;
+  pct_mayor: number | null;
+  menores: MenoresConcentracion;
+  /** Debajo de esto una fila es cola. ⛔ Viaja: si la pantalla lo clavara, su cola y la del
+   *  servidor podrían discrepar y las dos se verían bien. */
+  umbral_menor_pct: number;
+  /** Cuántas filas no traen monto legible. Se declaran; no entran al total. */
+  sin_monto: number;
+}
+
+/** Las tres bandas en que se parte la lista. Juntas tienen que dar el total: hay un test. */
 export interface BandasConcentracion {
-  /** Las que cruzan el 80 %, nombradas una por una. */
+  /** Las que cruzan el umbral, nombradas una por una. */
   cabeza: readonly FilaConcentracion[];
   /** ⛔ Las del medio. Existen y antes se CAÍAN de la pantalla: $45.5 M invisibles. */
   medio: readonly FilaConcentracion[];
-  /** Las que aportan menos de `UMBRAL_COLA` cada una. */
+  /** Las que aportan menos de `umbral_menor_pct` cada una. */
   cola: readonly FilaConcentracion[];
 }
-
-/** Debajo de esto, una partida es cola: su desempeño no mueve el total. */
-export const UMBRAL_COLA_PCT = 5;
 
 /**
  * `[PVI.20]` **Parte la lista en tres bandas SIN perder ninguna fila.**
  *
- * ⛔ El defecto que esto cierra, medido por la auditoría: la pantalla pintaba las 4 de cabeza y
- * contaba las 2 de cola — y **dejaba caer 2 entidades por $45,514,824 en silencio**. Peor: la
- * frase «2 entidades aportan menos del 5 %» invitaba a leer todo lo que no estaba arriba como
- * chico, cuando las omitidas eran **2.3× más grandes** que las declaradas chicas.
+ * ⛔ El defecto que esto cierra, encontrado por la auditoría del carril de Gastos: la pantalla
+ * pintaba las de cabeza y contaba las de cola, y **dejaba caer 2 entidades por $45,514,824 en
+ * silencio**. Peor: la frase «2 entidades aportan menos del 5 %» invitaba a leer todo lo que no
+ * estaba arriba como chico, cuando las omitidas eran **2.3× más grandes** que las declaradas
+ * chicas.
+ *
+ * ⚠️ `[PVI.21]` El umbral de cola sale del DATO (`umbral_menor_pct`), no de una constante local:
+ * si la pantalla lo clavara en 5 y el servidor cambiara el suyo, su `menores` y esta `cola`
+ * dirían números distintos del mismo hecho **y las dos se verían bien**.
  *
  * Las filas sin monto legible van a `medio` con su `null` a la vista: declararlas es el punto.
  */
 export function bandas(v: VistaConcentracion | null | undefined): BandasConcentracion {
   const filas = v?.filas ?? [];
   const corte = v?.partidas_80 ?? 0;
+  const umbral = v?.umbral_menor_pct ?? 0;
   const cabeza = filas.slice(0, corte);
   const resto = filas.slice(corte);
-  const cola = resto.filter((f) => f.pct !== null && f.pct < UMBRAL_COLA_PCT);
-  const medio = resto.filter((f) => !(f.pct !== null && f.pct < UMBRAL_COLA_PCT));
-  return { cabeza, medio, cola };
+  const esCola = (f: FilaConcentracion) => f.pct !== null && f.pct < umbral;
+  return { cabeza, medio: resto.filter((f) => !esCola(f)), cola: resto.filter(esCola) };
 }
 
 /** Suma de los montos legibles de una banda. `null` si ninguno lo es. */
@@ -211,31 +254,16 @@ export function sumaBanda(filas: readonly FilaConcentracion[]): number | null {
 }
 
 /**
- * `[PVI.20]` **La frase canónica de la concentración**, acordada entre los dos carriles para que
- * dos pantallas del mismo módulo no digan cosas distintas del mismo hecho.
+ * `[PVI.21]` **De qué es recorte este universo**, en una línea.
  *
- * Forma: «N partidas cruzan el 80 % de <universo>». ⛔ Nunca «del plan» cuando el universo es un
- * recorte: ése fue el defecto — «4 de 8 cargan el 81.6 % del plan» era de Mostrador; del plan
- * cargan el 47.72 %.
- */
-export function fraseConcentracion(v: VistaConcentracion | null | undefined): string | null {
-  if (!v || v.partidas_80 === null || !v.filas.length) return null;
-  const n = v.partidas_80;
-  const de = v.universo;
-  const mayor = v.pct_mayor === null ? null : `${Math.round(v.pct_mayor * 10) / 10} %`;
-  const base = `${n} partida${n === 1 ? '' : 's'} cruza${n === 1 ? '' : 'n'} el 80 % de ${de}.`;
-  return mayor ? `${base} La mayor sola es el ${mayor}.` : base;
-}
-
-/**
- * `[PVI.20]` **De qué es recorte este universo.** `null` cuando es el total.
- *
- * Sin esto, «el 81.6 %» y «el 58.5 %» se leen como el mismo denominador. Es la lección de la
- * auditoría convertida en una línea que la pantalla no puede omitir.
+ * ⛔ Es **formato**, no gramática: la frase del bloque la emite el servidor. Esto sólo rotula el
+ * universo que el contrato ya declaró — y por eso no puede inventar uno: con la unión
+ * discriminada, un recorte sin `de` no compila.
  */
 export function leyendaUniverso(v: VistaConcentracion | null | undefined): string | null {
-  if (!v) return null;
-  if (!v.parte_de) return v.universo;
-  const p = Math.round(v.parte_de.pct * 10) / 10;
-  return `${v.universo} — ${p} % de ${v.parte_de.de}`;
+  const u = v?.universo;
+  if (!u) return null;
+  if (u.completo) return u.nombre;
+  const p = u.pct === null ? null : Math.round(u.pct * 10) / 10;
+  return p === null ? `${u.nombre} — parte de ${u.de}` : `${u.nombre} — ${p} % de ${u.de}`;
 }

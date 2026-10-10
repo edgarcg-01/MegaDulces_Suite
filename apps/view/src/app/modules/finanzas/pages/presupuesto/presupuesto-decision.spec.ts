@@ -1,9 +1,7 @@
 import {
   BANDA_EN_LINEA,
-  UMBRAL_COLA_PCT,
   bandas,
   costoDeNoFirmar,
-  fraseConcentracion,
   leyendaUniverso,
   llegada,
   sumaBanda,
@@ -33,8 +31,16 @@ const MOSTRADOR: VistaConcentracion = {
   partidas_80: 4,
   pct_mayor: 34.7607,
   sin_monto: 0,
-  universo: 'Mostrador',
-  parte_de: { de: 'el ingreso del ejercicio', pct: 58.4578 },
+  universo: { nombre: 'Mostrador', completo: false, de: 'el ingreso del ejercicio', pct: 58.4578 },
+  umbral_pct: 80,
+  umbral_menor_pct: 5,
+  menores: { filas: 2, monto: 19_395_896.63, pct: 5.486 },
+  frase: {
+    titular: '4 partidas cruzan el 80 % de Mostrador.',
+    detalle: 'La mayor sola es el 34.8 %.',
+    inversa: '2 partidas aportan menos del 5 % cada una: su desempeno no mueve el total.',
+    es_ausencia: false,
+  },
   filas: [
     f('Morelia Abastos', 122_891_216.83, 34.7607, 34.7607),
     f('Padre Hidalgo', 58_103_857.07, 16.4350, 51.1957),
@@ -61,7 +67,7 @@ describe('[PVI.20] ⛔ ninguna fila se cae: las tres bandas suman el total', () 
     expect(cola).toBe(19_395_896.63);
     expect(medio / cola).toBeGreaterThan(2.3);
     // Y ninguna intermedia está por debajo del umbral de cola: no son "chicas".
-    for (const x of b.medio) expect(x.pct!).toBeGreaterThan(UMBRAL_COLA_PCT);
+    for (const x of b.medio) expect(x.pct!).toBeGreaterThan(MOSTRADOR.umbral_menor_pct);
   });
 
   it('⭐ EL CANDADO: cabeza + medio + cola == el total, al centavo', () => {
@@ -98,44 +104,52 @@ describe('[PVI.20] ⛔ ninguna fila se cae: las tres bandas suman el total', () 
   });
 });
 
-describe('[PVI.20] ⛔ el universo se declara, siempre', () => {
-  it('⛔ EL HALLAZGO DE LA AUDITORÍA: la frase dice de QUÉ es el 80 %, nunca «del plan»', () => {
-    const s = fraseConcentracion(MOSTRADOR)!;
-    expect(s).toBe('4 partidas cruzan el 80 % de Mostrador. La mayor sola es el 34.8 %.');
-    expect(s).not.toContain('del plan');
-  });
-
-  it('⛔ y la leyenda dice de qué es RECORTE: 81.6 % de Mostrador no es 81.6 % del plan', () => {
+/**
+ * `[PVI.21]` ⛔ **La FRASE ya no se prueba acá: la emite el servidor.**
+ *
+ * `[PU.VG.11]` publica `ExpenseConcentrationPhrase` con `titular`, `detalle`, `inversa` y
+ * `es_ausencia`, justamente para que las dos mitades del módulo no digan la misma idea con dos
+ * gramáticas. Mi constructor de frases se borró: habría sido el séptimo artefacto duplicado.
+ *
+ * Lo que SÍ queda probado acá es el formato del universo, que es presentación y no gramática.
+ */
+describe('[PVI.21] ⛔ el universo se declara, siempre', () => {
+  it('⛔ EL HALLAZGO DE LA AUDITORÍA: la leyenda dice de qué es RECORTE', () => {
+    // 81.6 % de Mostrador no es 81.6 % del plan: Mostrador es el 58.5 % del ingreso.
     expect(leyendaUniverso(MOSTRADOR)).toBe('Mostrador — 58.5 % de el ingreso del ejercicio');
   });
 
   it('cuando el universo ES el total, no inventa un «parte de»', () => {
     const completo: VistaConcentracion = {
-      ...MOSTRADOR, universo: 'el ingreso del ejercicio', parte_de: null,
+      ...MOSTRADOR, universo: { nombre: 'el ingreso del ejercicio', completo: true },
     };
     expect(leyendaUniverso(completo)).toBe('el ingreso del ejercicio');
   });
 
-  it('⭐ el ejercicio COMPLETO cuenta otra historia, y la frase la refleja', () => {
-    // Medido en prod: ingreso 33 líneas, mayor 20.32 %, 9 cruzan el 80 %.
+  it('⛔ un recorte cuya fracción no se pudo medir lo DICE, no dibuja un porcentaje', () => {
+    const sinPct: VistaConcentracion = {
+      ...MOSTRADOR,
+      universo: { nombre: 'Mostrador', completo: false, de: 'el ingreso del ejercicio', pct: null },
+    };
+    expect(leyendaUniverso(sinPct)).toBe('Mostrador — parte de el ingreso del ejercicio');
+    expect(leyendaUniverso(sinPct)).not.toContain('%');
+  });
+
+  it('⭐ el ejercicio COMPLETO cuenta otra historia, y el dato la refleja', () => {
+    // Medido en prod: ingreso 33 líneas, mayor 20.32 %, 9 cruzan el 80 %; Mostrador solo, 34.8 %.
     const ingreso: VistaConcentracion = {
-      total: 604_775_116.21, partidas_80: 9, pct_mayor: 20.32, sin_monto: 0,
-      universo: 'el ingreso del ejercicio', parte_de: null,
+      ...MOSTRADOR,
+      total: 604_775_116.21, partidas_80: 9, pct_mayor: 20.32,
+      universo: { nombre: 'el ingreso del ejercicio', completo: true },
       filas: [f('Ventas mostrador · 08', 122_891_216.83, 20.32, 20.32)],
     };
-    expect(fraseConcentracion(ingreso)).toContain('9 partidas cruzan el 80 % de el ingreso del ejercicio');
-    expect(fraseConcentracion(ingreso)).toContain('20.3 %');
+    expect(ingreso.pct_mayor).toBeLessThan(MOSTRADOR.pct_mayor!);
+    expect(leyendaUniverso(ingreso)).toBe('el ingreso del ejercicio');
   });
 
-  it('el singular se escribe en singular', () => {
-    const una: VistaConcentracion = { ...MOSTRADOR, partidas_80: 1 };
-    expect(fraseConcentracion(una)).toContain('1 partida cruza el 80 %');
-  });
-
-  it('sin concentración no hay frase: null, no una oración vacía', () => {
-    expect(fraseConcentracion(null)).toBeNull();
-    expect(fraseConcentracion({ ...MOSTRADOR, partidas_80: null })).toBeNull();
+  it('sin concentración no hay leyenda: null, no una oración vacía', () => {
     expect(leyendaUniverso(null)).toBeNull();
+    expect(leyendaUniverso(undefined)).toBeNull();
   });
 });
 
