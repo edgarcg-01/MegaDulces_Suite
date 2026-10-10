@@ -204,6 +204,18 @@ export interface SalesByRouteOption {
 const DETALLE_TOPE = 1000;
 
 /**
+ * `[RD.62]` Días a partir de los cuales un producto cargado y no vendido deja de ser normal.
+ *
+ * ⭐ **Medido, no elegido.** Contra prod el 2026-10-10, sobre 90 días de embarques y mirando
+ * SÓLO lo que efectivamente se vendió: 54.1% sale el mismo día, 90.5% dentro de 4 y **96.1%
+ * dentro de 7**. Siete días es el p95 del ritmo real del camión. Si alguien lo cambia, que
+ * cambie también `STALE_COBERTURA_PCT`: el número y su razón viajan juntos o el número se
+ * vuelve folclore.
+ */
+const STALE_DIAS = 7;
+const STALE_COBERTURA_PCT = 96.1;
+
+/**
  * `[VEC.2]` Código de RUTA VECINAL en Kepler (`kdm1.c12`): `1V001`, `2V003`, `3V001`…
  *
  * ⚠️ El discriminante es el CÓDIGO, no el nombre. En Michoacán las rutas se llaman con el
@@ -342,6 +354,39 @@ export interface RouteNegativeRow {
   familia: 'nunca_cargado' | 'se_acabo';
   desde: string | null; dias_en_rojo: number | null;
   valor_costo: number | null;
+}
+
+/**
+ * `[RD.62]` Un producto que el camión carga y **no vende**: el candidato a bajarle el tope.
+ *
+ * ⭐ `cargas > 1` es la fila que más duele: se le siguió cargando algo que nunca salió.
+ */
+export interface RouteStaleRow {
+  sku: string; producto: string; unidad: string;
+  /** Desde cuándo lo trae sin venderlo: el día de su PRIMERA carga sin venta posterior. */
+  desde: string;
+  dias: number;
+  /** La última vez que se lo volvieron a cargar — si es reciente, se sigue cargando. */
+  ultima_carga: string;
+  /** Cuántas veces se lo cargaron en la ventana sin que vendiera una sola. */
+  cargas: number;
+  cargado: number;
+  /** El dinero detenido. `null` cuando el embarque no trajo costo: no es cero, es sin medir. */
+  costo: number | null;
+}
+
+/**
+ * `[RD.62]` Lo que el camión carga y no vende, con el umbral **medido** y su procedencia.
+ */
+export interface RouteStaleReport {
+  rows: RouteStaleRow[];
+  /** Días a partir de los cuales no venderse deja de ser normal. Sale del dato, no del pulgar. */
+  umbral_dias: number;
+  /** Qué porcentaje de lo cargado se vende dentro del umbral: la razón del número de arriba. */
+  cobertura_pct: number;
+  costo_total: number | null;
+  /** Filas sin costo de embarque: se cuentan aparte en vez de sumar cero. */
+  sin_costo: number;
 }
 
 /** El detalle **con su total**, para que la pantalla pueda declarar si el tope cortó. */
@@ -9087,6 +9132,77 @@ export class CommercialAnalyticsService {
         LIMIT ?`,
       [tenantId, ruta, desde, hasta, tenantId, DETALLE_TOPE],
     )).rows as RouteNegativeRow[]);
+  }
+
+  /**
+   * `[RD.62]` **Lo que el camión carga y no vende** — el candidato a bajarle el tope de carga.
+   *
+   * ── El umbral NO se inventó: sale del propio dato ──────────────────────────────────────
+   * Medido contra prod el 2026-10-10 sobre 90 días de embarques: de todo lo que SÍ se vendió,
+   * el **54.1% sale el mismo día** que se carga, el **90.5% dentro de 4 días** y el **96.1%
+   * dentro de 7**. O sea que pasados **7 días** no haberse vendido deja de ser el ritmo normal
+   * y pasa a ser la cola del 4%. Por eso el corte son 7 días y no una cifra de pulgar — y por
+   * eso el endpoint **publica el umbral y su cobertura**: un número sin su procedencia se
+   * discute, uno con ella se usa.
+   *
+   * ⛔ **Sin el corte la lista es ruido.** Con umbral 0 salen 278 casos y los primeros por
+   * dinero son cosas cargadas AYER: «cargado ayer y no vendido» no es una incidencia, es
+   * miércoles. Con 7 días quedan **159 casos y $15,161.93**, que sí son una lista de trabajo.
+   *
+   * ⭐ `cargas` es la columna que más duele: cuántas veces se lo volvieron a cargar **sin que
+   * vendiera una sola vez**. Un producto con `cargas > 1` no es un sobrante, es un hábito.
+   *
+   * ⚠️ El costo puede venir NULL (embarque sin costo en el documento). Se cuenta aparte en
+   * `sin_costo` en vez de sumar cero: un cero aquí diría «no cuesta nada tenerlo parado».
+   */
+  async routeStale(routeNo: string, from?: string, to?: string): Promise<RouteStaleReport> {
+    const ruta = this.routeNoValido(routeNo);
+    const { desde, hasta } = this.routeInventoryRange(from, to);
+    const tenantId = this.tenantCtx.requireTenantId();
+    const rows = await this.tk.run(async (trx) => (await trx.raw(
+      `WITH mov AS (
+         SELECT l.sku, l.unidad, l.clase, l.business_date, l.qty, l.costo_doc
+           FROM analytics.mv_rd_route_ledger l
+          WHERE l.tenant_id = ? AND l.route_no = ?
+            AND l.business_date >= ? AND l.business_date <= ?
+       ), x AS (
+         SELECT sku, unidad,
+                min(business_date) FILTER (WHERE clase = 'carga') AS desde,
+                max(business_date) FILTER (WHERE clase = 'carga') AS ultima_carga,
+                count(*)           FILTER (WHERE clase = 'carga') AS cargas,
+                sum(qty)           FILTER (WHERE clase = 'carga') AS cargado,
+                sum(costo_doc)     FILTER (WHERE clase = 'carga') AS costo,
+                sum(qty)           FILTER (WHERE clase = 'venta') AS vendido
+           FROM mov GROUP BY 1, 2
+       )
+       SELECT x.sku, coalesce(p.description, x.sku) AS producto, x.unidad,
+              to_char(x.desde, 'YYYY-MM-DD')        AS desde,
+              (current_date - x.desde)::int         AS dias,
+              to_char(x.ultima_carga, 'YYYY-MM-DD') AS ultima_carga,
+              x.cargas::int                         AS cargas,
+              round(x.cargado, 3)::float            AS cargado,
+              round(x.costo, 2)::float              AS costo
+         FROM x
+         LEFT JOIN catalog.products p
+           ON p.tenant_id = ? AND p.sku = x.sku AND p.deleted_at IS NULL
+        WHERE x.cargado > 0
+          AND coalesce(x.vendido, 0) = 0
+          AND (current_date - x.desde) >= ?
+        ORDER BY coalesce(x.costo, 0) DESC, x.dias DESC
+        LIMIT ?`,
+      [tenantId, ruta, desde, hasta, tenantId, STALE_DIAS, DETALLE_TOPE],
+    )).rows as RouteStaleRow[]);
+
+    const conCosto = rows.filter((r) => r.costo !== null && r.costo !== undefined);
+    return {
+      rows,
+      umbral_dias: STALE_DIAS,
+      cobertura_pct: STALE_COBERTURA_PCT,
+      costo_total: conCosto.length
+        ? Number(conCosto.reduce((a, r) => a + Number(r.costo), 0).toFixed(2))
+        : null,
+      sin_costo: rows.length - conCosto.length,
+    };
   }
 
   /**
