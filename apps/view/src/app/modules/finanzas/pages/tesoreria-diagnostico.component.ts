@@ -4,12 +4,17 @@ import { HttpClient } from '@angular/common/http';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { forkJoin } from 'rxjs';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import type { Freshness } from '@megadulces/contracts';
 
 interface Runway {
   ventana_dias: number; saldo_inicial: number; cobro_en_ventana: number; pago_en_ventana: number;
   hueco_de_la_ventana: number; recuperacion_semanal_requerida: number;
   cobro_semanal_historico: number | null; requerido_pct_del_historico: number | null;
   holgura_veces: number | null; veredicto: string; nota: string;
+  // [TES.18] El servicio YA calculaba esto con `composeFreshness` y la pantalla no lo declaraba,
+  // así que se tiraba en el borde. Es el mismo defecto que `[PVI.4]` encontró del otro lado.
+  freshness?: Freshness | null;
 }
 interface Cycle {
   ventana_dias: number;
@@ -18,6 +23,7 @@ interface Cycle {
   dpo_masa_en_disputa: number; dpo_nota: string;
   dio_dias: number | null; dio_motivo: string; ciclo_dias: number | null; ciclo_motivo: string;
   coverage?: { measured: boolean; pct: number | null; note: string };
+  freshness?: Freshness | null;
 }
 
 /**
@@ -38,22 +44,46 @@ interface Cycle {
 @Component({
   selector: 'app-tesoreria-diagnostico',
   standalone: true,
-  imports: [CommonModule, MetricStripComponent],
+  imports: [CommonModule, MetricStripComponent, FreshnessPillComponent],
   template: `
     <div class="td">
       <header class="td-head">
         <h1 class="surf-page-title">Tesorería · diagnóstico</h1>
         <p class="surf-page-sub">¿Alcanza el dinero para pagar lo que se debe, y cuánto tardamos en cobrar y pagar?</p>
+        <!--
+          [TES.18] EL ALCANCE, dicho. Se llega acá desde /presupuesto con un ejercicio
+          seleccionado, así que la suposición natural es que esto habla de ESE ejercicio. No:
+          las dos consultas no reciben presupuesto, leen el ERP y los bancos enteros. Un número
+          cuyo universo el lector supone mal es un número mal leído, aunque esté bien calculado.
+        -->
+        <p class="td-nodata">
+          <span class="pi pi-info-circle"></span>
+          Mide <strong>la operación completa</strong> — ERP y bancos —, no el ejercicio que tengas
+          seleccionado en Presupuesto. No depende de un presupuesto ni cambia al cambiarlo.
+        </p>
       </header>
 
       @if (error()) {
         <p class="td-nodata"><span class="pi pi-exclamation-triangle"></span> {{ error() }}</p>
       }
 
+      <!--
+        [TES.18] Estado de carga. Antes, mientras la consulta viajaba, los dos @if daban falso y
+        la página se renderizaba VACÍA: sin título de sección, sin aviso, sin nada. Una página en
+        blanco se lee como "no hay nada que decir", que es la respuesta contraria a "todavía no sé".
+      -->
+      @if (cargando() && !error()) {
+        <p class="td-nodata"><span class="pi pi-spin pi-spinner"></span> Midiendo contra el ERP y los bancos…</p>
+      }
+
       <!-- ── EL VEREDICTO, primero. DESIGN.md 15: answer-first. ── -->
       @if (runway(); as r) {
         <section class="td-sec">
-          <h2 class="td-h2">¿Alcanza?</h2>
+          <div class="td-sec-head">
+            <h2 class="td-h2">¿Alcanza?</h2>
+            @if (r.freshness) { <app-freshness-pill measures="data" [freshness]="r.freshness" label="holgura" /> }
+            @else { <span class="td-sinfresc">frescura sin declarar</span> }
+          </div>
           @if (r.requerido_pct_del_historico !== null) {
             <p class="td-verdict">
               Para cubrir lo que vence en {{ r.ventana_dias }} días hay que cobrar
@@ -88,12 +118,16 @@ interface Cycle {
 
       @if (cycle(); as c) {
         <section class="td-sec">
-          <h2 class="td-h2">Ciclo de conversión de efectivo <span class="td-muted">— {{ c.ventana_dias }} días</span></h2>
+          <div class="td-sec-head">
+            <h2 class="td-h2">Ciclo de conversión de efectivo <span class="td-muted">— {{ c.ventana_dias }} días</span></h2>
+            @if (c.freshness) { <app-freshness-pill measures="data" [freshness]="c.freshness" label="ciclo" /> }
+            @else { <span class="td-sinfresc">frescura sin declarar</span> }
+          </div>
           <app-metric-strip [items]="cycleKpis(c)" mode="strip" ariaLabel="Ciclo de conversión de efectivo" />
           @if (c.dpo_masa_en_disputa > 0) {
             <p class="td-nodata"><span class="pi pi-info-circle"></span> {{ c.dpo_nota }}</p>
           }
-          <p class="td-nodata"><span class="pi pi-info-circle"></span> <strong>DIO e Ciclo no se calculan:</strong> {{ c.dio_motivo }}</p>
+          <p class="td-nodata"><span class="pi pi-info-circle"></span> <strong>DIO y Ciclo no se calculan:</strong> {{ c.dio_motivo }}</p>
           @if (c.coverage?.note) {
             <p class="td-nodata"><span class="pi pi-info-circle"></span> {{ c.coverage!.note }}</p>
           }
@@ -109,14 +143,34 @@ interface Cycle {
     .td-h2 { font-size:var(--fs-lg); font-weight:700; margin:0; }
     .td-muted { color:var(--text-muted); font-weight:400; }
     .td-verdict { font-size:var(--fs-body); margin:0; color:var(--text-main); }
+    /* [TES.18] ⛔ ESTE NUMERO ERA VERDE SIEMPRE, clavado en --ok-fg, en la misma pantalla que
+       dos lineas mas abajo explica por que eso esta mal. Con un requerido del 95 % -- o sea
+       peor que el umbral -- se seguia pintando de exito.
+       ⭐ Y el arreglo NO es "verde si pasa, rojo si no": el umbral del 70 % NO TIENE DUENO, asi
+       que por ADR-076 el estado es sin_meta y no hay con que emitir veredicto. Pintar un color
+       es afirmar un juicio que nadie firmo. Queda NEUTRO, y el dia que el umbral se registre en
+       analytics.kpi_thresholds se enciende .td-big--juzgado desde el servidor.
+       Es el gemelo exacto de la clase neg de los prototipos: pedida por la FORMA del dato en
+       vez de por el JUICIO sobre el dato.
+       ⚠️⚠️ OCTAVA vez que un acento grave en un comentario rompe el build, y la segunda hoy:
+       este bloque los traia. Adentro de styles: y template: van SIN acento grave, siempre. */
     .td-big { font-family:var(--font-mono); font-size:var(--fs-h1); font-variant-numeric:tabular-nums;
-              letter-spacing:-.02em; color:var(--ok-fg); }
+              letter-spacing:-.02em; color:var(--text-main); }
+    .td-big--juzgado.es-ok  { color:var(--ok-fg); }
+    .td-big--juzgado.es-mal { color:var(--bad-fg); }
+    .td-sinfresc { font-size:var(--fs-nano); color:var(--text-faint); border:1px dashed var(--border-color);
+                   border-radius:999px; padding:1px 8px; white-space:nowrap; }
+    .td-sec-head { display:flex; align-items:center; gap:var(--sp-2); flex-wrap:wrap;
+                   justify-content:space-between; }
     .td-nodata { font-size:var(--fs-xs); color:var(--text-muted); margin:0;
                  display:flex; gap:var(--sp-2); align-items:flex-start; }
     .td-bar { position:relative; height:2rem; border:1px solid var(--border-color);
               border-radius:var(--r-md); background:var(--hover-bg); overflow:hidden; }
-    .td-bar-fill { position:absolute; inset:0 auto 0 0; background:var(--ok-soft-bg);
-                   border-right:2px solid var(--ok-fg); }
+    /* Misma razon que .td-big: el relleno no puede ser del color del exito mientras el umbral
+       sea una propuesta. Neutro, y el umbral se dibuja punteado al lado para que se vea que es
+       una marca propuesta y no una meta firmada. */
+    .td-bar-fill { position:absolute; inset:0 auto 0 0; background:var(--hover-bg);
+                   border-right:2px solid var(--text-muted); }
     .td-bar-um { position:absolute; top:0; bottom:0; width:0; border-left:2px dashed var(--warn-fg); }
     .td-bar-lab { position:absolute; inset:0; display:flex; align-items:center;
                   justify-content:space-between; padding-inline:var(--sp-2);
@@ -134,15 +188,17 @@ export class TesoreriaDiagnosticoComponent {
   readonly runway = signal<Runway | null>(null);
   readonly cycle = signal<Cycle | null>(null);
   readonly error = signal<string | null>(null);
+  /** Arranca en `true`: la página nace midiendo, no nace vacía. */
+  readonly cargando = signal(true);
 
   constructor() {
     forkJoin({
       r: this.http.get<Runway>(`${this.base}/cash-runway`),
       c: this.http.get<Cycle>(`${this.base}/cash-cycle`),
     }).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
-      next: ({ r, c }) => { this.runway.set(r); this.cycle.set(c); },
+      next: ({ r, c }) => { this.runway.set(r); this.cycle.set(c); this.cargando.set(false); },
       // Un error de red NO es un cero: la pantalla lo dice en vez de quedarse vacía.
-      error: () => this.error.set('No se pudieron cargar las cifras de tesorería. No es que den cero: no llegaron.'),
+      error: () => { this.error.set('No se pudieron cargar las cifras de tesorería. No es que den cero: no llegaron.'); this.cargando.set(false); },
     });
   }
 
