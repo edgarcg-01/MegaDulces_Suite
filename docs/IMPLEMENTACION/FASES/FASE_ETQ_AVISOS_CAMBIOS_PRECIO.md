@@ -31,12 +31,12 @@ Medido leyendo el código el 2026-10-09:
 
 ## 3. Decisiones (cerradas por Edgar el 2026-10-09)
 
-> **D1** resumen diario a las **07:30** y un segundo a las **14:00** · **D2** enviar aviso a sucursales **y** descargar la lista · **D3** permiso propio `STORE_LABELS_COMPARTIR` · **D4** mínimo **1** producto después de filtros · **D5** plaza sin usuario con tienda asignada: el aviso **se ve igual** para quien tenga alcance y **se declara**. Lo de abajo es el razonamiento original.
+> **D1** resumen diario a las **07:30** y un segundo a las **14:00** · **D2** enviar aviso a sucursales (~~y descargar la lista~~: **retirado el 2026-10-10**, ver más abajo) · **D3** permiso propio `STORE_LABELS_COMPARTIR` · **D4** mínimo **1** producto después de filtros · **D5** plaza sin usuario con tienda asignada: el aviso **se ve igual** para quien tenga alcance y **se declara**. Lo de abajo es el razonamiento original.
 
 | # | Pregunta | Recomendación | Por qué |
 |---|---|---|---|
 | **D1** | ¿Cuándo avisar? | **Un resumen diario ~07:30 (hora MX) con los cambios de AYER**, no en vivo | Es el día que la encargada revisa al abrir; en vivo avisaría cada oscilación. Un aviso que suena sin motivo se aprende a ignorar (lección VEC.4) |
-| **D2** | ¿Qué significa «compartir» para Compras? | **Dos cosas**: (a) **Enviar aviso a sucursales** (Compras elige plazas y agrega una nota → llega a la campana de esas plazas) y (b) **Descargar la lista** (Excel/CSV) | (a) cumple «mandar la lista»; (b) cubre quien la quiere fuera de la Suite. **WhatsApp y correo quedan fuera** hasta que existan canales reales |
+| **D2** | ¿Qué significa «compartir» para Compras? | **Enviar aviso a sucursales** (Compras elige plazas y agrega una nota → llega a la campana de esas plazas; quien lo toca entra a Cambios de precio y reimprime). ~~(b) Descargar la lista (Excel/CSV)~~ **retirado el 2026-10-10 por decisión de Edgar: no se acepta ningún Excel; a lo mucho PDF, y lo ideal es que la persona reimprima desde la pantalla** | (a) cumple «mandar la lista» sin sacar datos de la Suite. **WhatsApp y correo quedan fuera** hasta que existan canales reales. **PDF: no se construyó**, queda pendiente si se pide |
 | **D3** | ¿Permiso para compartir? | **Permiso nuevo `STORE_LABELS_COMPARTIR`**, repartido por migración a los roles de Compras | Reusar `COMPRAS_VER` acopla un botón de Tienda al módulo de Compras. Cuidado: un permiso nuevo **no está entregado hasta que está repartido en prod** (lección LC.6.2) |
 | **D4** | ¿Cuántos productos mínimo para avisar? | **≥ 1 después de filtros** (el mismo criterio de la pantalla). Un día sin cambios no genera aviso | Que aviso y pantalla no puedan discrepar |
 | **D5** | Plazas sin ningún usuario con tienda asignada | **El aviso se ve igual** para quien tenga alcance sobre esa plaza (patrón `ScopeService` de VEC.4) y se **declara** qué plazas no tienen a nadie | En VEC.4 sólo 1 de 6 almacenistas tenía `warehouse_id`; filtrar por esa columna dejaba el aviso «entregado» sirviendo a nadie |
@@ -77,10 +77,10 @@ Contra **prod** (rol `dev_ro`), no contra la base local:
 - **Permiso `STORE_LABELS_COMPARTIR`**: enum + `authz-tree` + **migración de reparto** derivada del estado vivo + prueba de entrega de permisos. Sin esto el botón no se vería para nadie.
 - **Botón «Compartir»** en la pantalla de cambios, sólo con el permiso:
   - **Enviar aviso a sucursales:** elige una o varias plazas y escribe una nota opcional → escribe filas `origen = 'compras'`; llegan por el mismo camino de la fase 2. Declara cuántas plazas **no tienen a nadie** que lo reciba.
-  - **Descargar lista:** Excel/CSV del día y la plaza vista (una fila por producto, columnas por presentación, mismas reglas de resumen que la pantalla).
+  - ~~**Descargar lista:** Excel/CSV~~ — **retirado (2026-10-10).** El aviso lleva un enlace a Cambios de precio de esa tienda y ese día, donde se reimprime.
 - El selector de plaza de Compras ya existe (`priceChangeBranches`); se reutiliza.
 
-**Cierra cuando:** una persona de Compras envía la lista a una plaza, esa plaza la ve en la campana, y el archivo descargado cuadra con la pantalla.
+**Cierra cuando:** una persona de Compras envía la lista a una plaza, esa plaza la ve en la campana, y al tocarlo llega a Cambios de precio de su tienda y reimprime (sin descargar ningún archivo).
 
 ### ETQ-AVISOS.4 — Afinar con lo que se mida (diferida, sólo si hace falta)
 Preferencia de silenciar · segundo canal (correo, **sólo si** 0 lo confirma) · avisos intradía sobre la señal en vivo, **sólo** si 1–3 muestran que el resumen diario llega tarde · tasa de lectura por plaza (¿alguien abre el aviso?).
@@ -121,11 +121,11 @@ Preferencia de silenciar · segundo canal (correo, **sólo si** 0 lo confirma) �
 | **Generador** (07:30 resume AYER, 14:00 resume HOY), latido a `cron_runs` + umbral en `CRON_JOBS` (`price_change_notices`, warn 20 h / crit 40 h) | `price-change-notices.service.ts` (+ spec, 20) |
 | **API**: `GET notices`, `GET notices/recipients`, `POST notices/share`, `POST notices/generate` | `commercial-labels.controller.ts` |
 | **Campana**: poll cada 5 min, sólo quien tiene `STORE_LABELS_VER` | `notifications-bell.component.ts` (+ spec, 5) y `aviso-precio.ts` (+ 7) |
-| **Compartir** (diálogo: avisar a sucursales + descargar CSV), sólo con el permiso | `cambios-compartir.component.ts` (+ 9) y `cambios-csv.ts` (+ 9) |
+| **Compartir** (diálogo: avisar a sucursales), sólo con el permiso | `cambios-compartir.component.ts` (+ 8). `cambios-csv.ts` **se borró** el 2026-10-10 |
 | **Enlace directo** `?plaza=&fecha=` en la pantalla de cambios | `tienda-cambios-precio.component.ts` (+ 5) |
 
 ### Decisiones que se tomaron al construir (y que el plan no decía)
-- **CSV, no XLSX.** El frontend no tiene exportador de Excel (`exceljs` sólo se usa para LEER). El CSV lleva BOM UTF-8 y neutraliza nombres que empiezan con `= + - @` (inyección de fórmulas desde nombres que vienen del ERP).
+- **Sin exportación (2026-10-10).** Se había construido un CSV; Edgar pidió quitarlo: no se acepta ningún Excel y, a lo mucho, PDF. La prueba `no hay forma de exportar` del diálogo lo vigila (se pone roja si reaparece un botón de descargar/CSV/Excel). Un PDF **no se hizo**: si se pide, va por el Chromium de `libs/finance` o de AX, no con un exportador nuevo.
 - **Los dos cortes se solapan y es a propósito:** el de las 14:00 (HOY) y el de las 07:30 del día siguiente (AYER) cuentan el mismo día. Cada uno es el estado «a esa hora»; no se intentó restar para no avisar dos veces lo mismo (frágil y de poco valor).
 - **Ningún aviso vacío, por construcción:** `CHECK (productos >= 1)` en la tabla, no sólo un `if` en el servicio.
 - **Sin dato no es cero:** si la bitácora de la plaza no llega al día, no se avisa y el latido lo dice (`SIN DATO: 01,04`). Si NINGUNA plaza tiene dato, el latido es **error** (la ingesta está caída y todo lo demás se vería «sin cambios»).

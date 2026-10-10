@@ -1,6 +1,6 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { of, throwError } from 'rxjs';
-import type { PriceChangeRow, PriceNoticeRecipientsDto, PriceNoticeShareResultDto } from '@megadulces/contracts';
+import type { PriceNoticeRecipientsDto, PriceNoticeShareResultDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { EtiquetasService } from '../etiquetas.service';
 import { CambiosCompartirComponent } from './cambios-compartir.component';
@@ -9,9 +9,6 @@ import { CambiosCompartirComponent } from './cambios-compartir.component';
  * `[ETQ-AVISOS.3]` «Compartir» en Cambios de precio, vista como la ve Compras.
  */
 const FECHA = '2026-10-08';
-const fila = (sku: string, antes: number, ahora: number): PriceChangeRow => ({
-  sku, name: `P ${sku}`, unidad: 'PAQ', precio_anterior: antes, precio_nuevo: ahora, delta: ahora - antes, es_baja: ahora === 0, hora: '10:00:00',
-});
 const PLAZAS: PriceNoticeRecipientsDto[] = [
   { plaza: '01', nombre: 'Padre Hidalgo', destinatarios: 3, ultimo_dia: FECHA },
   { plaza: '02', nombre: 'La Piedad', destinatarios: 0, ultimo_dia: FECHA },
@@ -42,7 +39,7 @@ describe('CambiosCompartirComponent', () => {
   const boton = (texto: RegExp): HTMLButtonElement | undefined =>
     Array.from(body().querySelectorAll('button')).find((b) => texto.test(b.textContent ?? '')) as HTMLButtonElement | undefined;
 
-  async function montar(permiso: boolean, items: PriceChangeRow[] = [fila('1', 10, 12)]): Promise<void> {
+  async function montar(permiso: boolean): Promise<void> {
     svc = new SvcStub();
     await TestBed.configureTestingModule({
       providers: [
@@ -51,7 +48,6 @@ describe('CambiosCompartirComponent', () => {
       ],
     }).compileComponents();
     fix = TestBed.createComponent(CambiosCompartirComponent);
-    fix.componentRef.setInput('items', items);
     fix.componentRef.setInput('plaza', '01');
     fix.componentRef.setInput('fecha', FECHA);
     fix.detectChanges();
@@ -140,42 +136,14 @@ describe('CambiosCompartirComponent', () => {
     expect((boton(/Enviar aviso/) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('⭐ descargar genera el CSV de la lista con nombre de plaza y día, y libera el objeto', async () => {
-    await montar(true, [fila('91059', 10, 12), fila('77', 5, 0)]);
-    const crear = vi.fn().mockReturnValue('blob:x');
-    const liberar = vi.fn();
-    (URL as unknown as Record<string, unknown>)['createObjectURL'] = crear;
-    (URL as unknown as Record<string, unknown>)['revokeObjectURL'] = liberar;
-    let nombre = '';
-    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { nombre = this.download; });
+  it('⛔ no hay forma de exportar: ni Excel, ni CSV, ni «Descargar» (la lista no sale de la Suite)', async () => {
+    await montar(true);
     boton(/Compartir/)!.click();
     await tick();
-    boton(/Descargar CSV/)!.click();
-    expect(nombre).toBe('cambios-de-precio_01_2026-10-08.csv');
-    const blob = crear.mock.calls[0][0] as Blob;
-    // jsdom no trae `Blob.text()`: se lee con FileReader.
-    const texto = await new Promise<string>((ok) => {
-      const fr = new FileReader();
-      fr.onload = () => ok(String(fr.result));
-      fr.readAsText(blob);
-    });
-    // El decodificador de texto se come el BOM al leer: se comprueba en los BYTES (EF BB BF).
-    const bytes = await new Promise<Uint8Array>((ok) => {
-      const fr = new FileReader();
-      fr.onload = () => ok(new Uint8Array(fr.result as ArrayBuffer));
-      fr.readAsArrayBuffer(blob);
-    });
-    expect(Array.from(bytes.slice(0, 3))).toEqual([0xef, 0xbb, 0xbf]);
-    expect(texto).toContain('91059');
-    expect(liberar).toHaveBeenCalledWith('blob:x');
-    click.mockRestore();
-  });
-
-  it('sin cambios en la vista no hay nada que descargar y el botón lo dice', async () => {
-    await montar(true, []);
-    boton(/Compartir/)!.click();
-    await tick();
-    expect((boton(/Descargar CSV/) as HTMLButtonElement).disabled).toBe(true);
-    expect(body().textContent).toContain('No hay cambios que descargar');
+    const textos = Array.from(body().querySelectorAll('button, a')).map((b) => (b.textContent ?? '').toLowerCase());
+    expect(textos.some((t) => /descargar|csv|excel|xlsx|exportar/.test(t))).toBe(false);
+    expect(body().querySelector('.pi-download')).toBeNull();
+    // Y el diálogo dice a dónde llega el aviso: la persona toca la campana y reimprime allá.
+    expect(body().textContent).toContain('Cambios de precio');
   });
 });

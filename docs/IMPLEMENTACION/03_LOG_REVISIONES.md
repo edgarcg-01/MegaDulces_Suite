@@ -11,6 +11,8 @@ Compras la opción de compartir la lista. Si no había estructura, un plan por f
 07:30 y a las 14:00 (D1), avisar a sucursales y descargar la lista (D2), permiso propio (D3), mínimo 1 producto
 (D4), plaza sin usuario con tienda asignada se ve igual y se declara (D5).
 
+> **Enmienda 2026-10-10 (Edgar):** se **retiró «descargar la lista»** de D2. No se acepta ningún Excel (a lo mucho PDF, que no se construyó); lo ideal es que a quien puede usar la etiquetera le llegue el aviso a la campana y, al tocarlo, entre a Cambios de precio de su tienda y reimprima. Se borró `cambios-csv.ts` y el botón del diálogo; una prueba negativa vigila que no reaparezca. La campana y el enlace ya existían.
+
 **Lo que se encontró al investigar.**
 - **Casi toda la estructura ya existía:** la fuente de «qué cambió» (`v_label_price_changes`), el molde de aviso
   dirigido con memoria (`[VEC.4]`), la campana del header, el cron con latido. Faltaban la tabla de avisos, el

@@ -252,7 +252,7 @@ import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../e
           <p-button label="Ayer" size="small" [text]="true" (onClick)="verDia(ayer)" />
           <span class="spacer"></span>
           <!-- [ETQ-AVISOS.3] Compartir: sólo existe para quien tiene STORE_LABELS_COMPARTIR (Compras). -->
-          <app-cambios-compartir [items]="items()" [plaza]="sucursal()" [fecha]="fecha()" />
+          <app-cambios-compartir [plaza]="sucursal()" [fecha]="fecha()" />
           <p-button label="Actualizar" icon="pi pi-refresh" size="small" [text]="true" (onClick)="datos.reload()" />
         </div>
 

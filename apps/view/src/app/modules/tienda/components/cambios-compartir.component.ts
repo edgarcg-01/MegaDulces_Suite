@@ -3,11 +3,10 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ButtonModule } from 'primeng/button';
 import { DialogModule } from 'primeng/dialog';
-import type { PriceChangeRow, PriceNoticeRecipientsDto, PriceNoticeShareResultDto, PriceNoticeShareStatus } from '@megadulces/contracts';
+import type { PriceNoticeRecipientsDto, PriceNoticeShareResultDto, PriceNoticeShareStatus } from '@megadulces/contracts';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { EtiquetasService } from '../etiquetas.service';
-import { cambiosACsv, nombreArchivoCambios } from '../cambios-csv';
 
 /** Qué le dice la pantalla a quien manda, por cada plaza. Cada estado trae su motivo: un «no se envió» sin razón no se corrige. */
 const TEXTO_ESTADO: Record<PriceNoticeShareStatus, string> = {
@@ -20,10 +19,11 @@ const TEXTO_ESTADO: Record<PriceNoticeShareStatus, string> = {
 
 /**
  * `[ETQ-AVISOS.3]` Compartir la lista de «Cambios de precio» — sólo para quien tiene
- * `STORE_LABELS_COMPARTIR` (Compras). Dos acciones:
+ * `STORE_LABELS_COMPARTIR` (Compras): elige las plazas, agrega una nota y el aviso llega a su campana;
+ * quien lo recibe lo toca y entra a «Cambios de precio» de su tienda para reimprimir las etiquetas.
  *
- *  · **Avisar a sucursales**: elige las plazas, agrega una nota y el aviso llega a su campana.
- *  · **Descargar la lista** (CSV): la misma que muestra la pantalla, para llevarla fuera de la Suite.
+ * **Sin exportar a Excel/CSV, a propósito** (decisión de Edgar, 2026-10-10): la lista no sale de la Suite.
+ * Lo que se comparte es el AVISO con su enlace, no un archivo que luego nadie sabe si está al día.
  *
  * El botón no existe para quien no tiene el permiso. Se esconde y NO se deshabilita: un botón gris
  * le dice a una cajera que hay algo que ella no puede hacer, y no es un trabajo suyo.
@@ -68,23 +68,11 @@ const TEXTO_ESTADO: Record<PriceNoticeShareStatus, string> = {
                 (visibleChange)="abierto.set($event)" [style]="{ width: '34rem', maxWidth: '94vw' }"
                 [draggable]="false" appendTo="body">
         <section class="ccs-bloque">
-          <h3>Descargar la lista</h3>
-          <p class="ccs-ayuda">
-            La lista del <b>{{ fecha() }}</b>{{ plaza() ? ' de la tienda ' + plaza() : '' }}, como la ves en pantalla
-            (una fila por producto y presentación). Se abre en Excel.
-          </p>
-          <div class="ccs-acciones">
-            <p-button label="Descargar CSV" icon="pi pi-download" size="small" [outlined]="true"
-                      [disabled]="!hayLista()" (onClick)="descargar()" />
-            @if (!hayLista()) { <span class="ccs-ayuda">No hay cambios que descargar en esta vista.</span> }
-          </div>
-        </section>
-
-        <section class="ccs-bloque">
           <h3>Avisar a sucursales</h3>
           <p class="ccs-ayuda">
             Le llega a quien ve la etiquetera de esa tienda, en su campana de notificaciones, con el resumen del
-            <b>{{ fecha() }}</b> y un enlace a la lista.
+            <b>{{ fecha() }}</b>. Al tocarlo entra directo a «Cambios de precio» de su tienda, donde puede reimprimir
+            las etiquetas.
           </p>
 
           @if (cargando()) {
@@ -149,8 +137,6 @@ export class CambiosCompartirComponent {
   private readonly svc = inject(EtiquetasService);
   private readonly perms = inject(PermissionsService);
 
-  /** Las filas crudas de la bitácora de la vista actual (el mismo `items` de la pantalla). */
-  readonly items = input<readonly PriceChangeRow[]>([]);
   /** La plaza que se está viendo (dos dígitos) o `null` si todavía no eligió. */
   readonly plaza = input<string | null>(null);
   /** El día que se está viendo (`YYYY-MM-DD`). */
@@ -168,8 +154,6 @@ export class CambiosCompartirComponent {
   readonly enviando = signal(false);
   readonly falloEnvio = signal<string | null>(null);
   readonly resultados = signal<PriceNoticeShareResultDto[]>([]);
-
-  readonly hayLista = computed(() => this.items().length > 0);
 
   abrir(): void {
     this.abierto.set(true);
@@ -232,17 +216,5 @@ export class CambiosCompartirComponent {
     return r.estado === 'enviado'
       ? `Enviado · ${r.productos} ${r.productos === 1 ? 'producto' : 'productos'}`
       : TEXTO_ESTADO[r.estado];
-  }
-
-  descargar(): void {
-    const csv = cambiosACsv(this.items());
-    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = nombreArchivoCambios(this.plaza(), this.fecha());
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   }
 }
