@@ -1,5 +1,5 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { of, throwError } from 'rxjs';
+import { Subject, of, throwError } from 'rxjs';
 import type { ConsolaSurtidoOla, ConsolaSurtidoResponse } from '@megadulces/contracts';
 import { AlmacenSurtidoConsolaComponent } from './almacen-surtido-consola.component';
 import { PickingService } from '../../reparto/picking.service';
@@ -181,19 +181,60 @@ describe('AlmacenSurtidoConsolaComponent · la consola del coordinador (GP.3c)',
     expect(botones('Reintentar')).toHaveLength(0);
   });
 
-  it('⭐ la hora de salida se guarda sólo cuando cambia; Borrar sólo si ya había una', async () => {
+  it('⭐ la hora de salida se guarda AL SALIR de la casilla (sin botón "Guardar"); Borrar sólo si ya había una', async () => {
     await montar();
     const tc = salida('TIENDA CENTRO');
     const lu = salida('ABARROTES LUPITA');
     expect(botonEn(tc, 'Borrar')).toBeDefined();
     expect(botonEn(lu, 'Borrar')).toBeUndefined();
-    expect(botonEn(lu, 'Guardar')).toBeUndefined();
     c.setBorrador(RESP().destinos[1], '10:15');
     render();
-    botonEn(salida('ABARROTES LUPITA'), 'Guardar').click();
+    expect(botonEn(salida('ABARROTES LUPITA'), 'Guardar')).toBeUndefined();
+    const campo = salida('ABARROTES LUPITA').querySelector('input') as HTMLInputElement;
+    campo.dispatchEvent(new Event('blur'));
     expect(api['consolaSalida']).toHaveBeenCalledWith({ warehouse_id: 'w-08', destino_code: 'C0451', destino_nombre: 'ABARROTES LUPITA', hora_salida: '10:15' });
     botonEn(salida('TIENDA CENTRO'), 'Borrar').click();
     expect(api['consolaSalida']).toHaveBeenLastCalledWith({ warehouse_id: 'w-08', destino_code: 'TI002', destino_nombre: 'TIENDA CENTRO', hora_salida: null });
+  });
+
+  it('la hora es de 24 h: "930" se guarda como 09:30; una hora imposible no se guarda y lo dice', async () => {
+    await montar();
+    const lu = RESP().destinos[1];
+    c.setBorrador(lu, '25:00');
+    render();
+    c.guardarSalida(lu);
+    expect(api['consolaSalida']).not.toHaveBeenCalled();
+    expect(texto()).toContain('Escríbela como 16:30');
+    c.setBorrador(lu, '930');
+    c.guardarSalida(lu);
+    expect(api['consolaSalida']).toHaveBeenCalledWith({ warehouse_id: 'w-08', destino_code: 'C0451', destino_nombre: 'ABARROTES LUPITA', hora_salida: '09:30' });
+  });
+
+  it('el ejemplo del motivo de CANCELAR no es el de "urgente"', async () => {
+    await montar();
+    botonEn(fila('W-2026-00003'), 'Cancelar surtido').click();
+    render();
+    const motivo = el().querySelector('#gp-motivo') as HTMLInputElement;
+    expect(motivo.placeholder).not.toContain('Zamora');
+  });
+
+  it('mientras llega la lista de almacenes hay barra de carga (antes quedaba en blanco)', async () => {
+    const lista = new Subject<Array<{ id: string; code: string; nombre: string }>>();
+    api = {
+      consolaAlmacenes: vi.fn(() => lista.asObservable()),
+      consola: vi.fn(() => of(RESP())),
+    };
+    await TestBed.configureTestingModule({
+      imports: [AlmacenSurtidoConsolaComponent],
+      providers: [{ provide: PickingService, useValue: api }],
+    }).compileComponents();
+    fix = TestBed.createComponent(AlmacenSurtidoConsolaComponent);
+    c = fix.componentInstance;
+    render();
+    expect(el().querySelector('[role="progressbar"]')).not.toBeNull();
+    lista.next([{ id: 'w-08', code: '08', nombre: 'Morelia Abastos' }]);
+    render();
+    expect(el().querySelector('[role="progressbar"]')).toBeNull();
   });
 
   it('el umbral fuera de 1..50 no se puede guardar', async () => {
