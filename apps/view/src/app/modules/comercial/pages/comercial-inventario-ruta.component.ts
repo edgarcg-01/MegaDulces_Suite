@@ -183,6 +183,20 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
                   <span [class.ir-bad]="excede(r)" [class.ir-aviso]="!excede(r) && pctTope(r) >= 80"
                         [title]="'Tope ' + (r.tope_inventario | currency:'MXN':'symbol-narrow':'1.0-0')">{{ pctTope(r) | number:'1.0-0' }}%</span>
                 }
+                <!--
+                  [RD.63] El tope que la operacion justifica, al lado del que tiene puesto. El
+                  tope de hoy es PLANO para los once camiones y no sale de nada: ni de lo que
+                  vende cada uno ni de cada cuanto se resurte. Medido, la suma dimensionada da
+                  $215,479 contra $880,000. Sin esta columna, el 93% de un camion se lee como
+                  "casi lleno" cuando en realidad ya trae el triple de lo que necesita.
+                -->
+                @if (r.tope_sugerido !== null) {
+                  <small class="ir-sug" [title]="tituloSugerido(r)">
+                    le bastan {{ r.tope_sugerido | currency:'MXN':'symbol-narrow':'1.0-0' }}
+                  </small>
+                } @else if (r.tope_sugerido_motivo) {
+                  <small class="ir-tenue" [title]="r.tope_sugerido_motivo">sin dimensionar</small>
+                }
               </td>
               <td class="num ir-mono" role="cell" data-label="Última carga">
                 @if (r.ultima_carga) {
@@ -734,6 +748,9 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
     .ir-bad { color: var(--bad-fg); }
     /* El escalon que falta: 80% del tope no es un error todavia, pero conviene mirarlo. */
     .ir-aviso { color: var(--warn-fg); }
+    /* El tope dimensionado va DEBAJO del porcentaje y en tono menor: es una sugerencia
+       medida, no el dato oficial del camion. */
+    .ir-sug { display: block; font-size: var(--fs-micro); color: var(--c-text-3); cursor: help; }
     .ir-fila-mal { background: var(--bad-soft-bg); }
     .ir-fila-parada td { opacity: .72; }
 
@@ -1304,6 +1321,19 @@ export class ComercialInventarioRutaComponent {
   /** ¿Este camión pasa su tope? Sin tope declarado la respuesta es NO, nunca "sí por las dudas". */
   excede = (r: RouteInventoryRow) =>
     r.tope_inventario !== null && this.inv(r) > Number(r.tope_inventario);
+
+  /**
+   * `[RD.63]` De dónde sale el tope sugerido, con sus tres piezas a la vista.
+   * Un número sin su procedencia se discute; uno con ella se usa.
+   */
+  tituloSugerido(r: RouteInventoryRow): string {
+    if (r.tope_sugerido === null) return r.tope_sugerido_motivo ?? '';
+    const v = this.money(Number(r.venta_diaria_costo ?? 0));
+    const s = this.money(Number(r.sigma_diaria ?? 0));
+    return `Vende ${v} por día al costo (± ${s}) y se le carga cada ${r.lead_dias} día(s). `
+      + `Con eso le basta ${this.money(Number(r.tope_sugerido))} para no quedarse corto 19 de cada 20 veces. `
+      + `Hoy trae ${this.money(this.inv(r))}.`;
+  }
 
   /** Pesos para los textos que se arman en TS, donde el pipe de Angular no llega. */
   money(v: number): string {
