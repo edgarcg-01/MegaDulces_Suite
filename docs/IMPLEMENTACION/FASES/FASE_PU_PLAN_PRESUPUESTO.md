@@ -625,6 +625,22 @@ migraciones de los 12 lectores vivos en `libs`, y el riesgo real es de recompila
 semántica. **La decidió Ingresos con el costo a la vista; este carril verificó el número que la
 sostiene.**
 
+> ⚠️⚠️ **Y un apunte sobre el método, a costa de este carril.** La corrida barata que acompañó a
+> esta verificación imprimió el veredicto **al revés**: midió `Math.abs(A−B)/A < 0.05` —sólo la
+> **magnitud**— y, al no pasar el umbral, imprimió la rama *«no tiene el dinero de ruta»* cuando el
+> signo decía lo contrario (la vista tiene **.3 M MÁS**). Es **exactamente** la falla sobre la que
+> este mismo carril escribió la lección unas horas antes: *magnitud y dirección son dos preguntas, y
+> la primera sola deja pasar causas con el signo invertido*. El veredicto de §10.5 **no se mueve**
+> —sale de la corrida de 12 meses, cuyos números se leyeron a mano— pero **un script de auditoría que
+> imprime la conclusión contraria es peor que no tenerlo**: se lee con la misma confianza.
+
+⭐ **Hallazgo extra que esa corrida sí dejó**, y corrobora §10.4 por otro lado: en los almacenes
+`RUTA-*` de julio–septiembre, `sales_daily` reparte 4.5 M como **`credito` ,709,318.93** +
+`wincaja_ruta` ,018,272.17 + `tienda` ,758,909.93, mientras `v_sellout_daily` clasifica **todo**
+como `ruta`. ⇒ **El `credito` de los almacenes de ruta ES venta de ruta cobrada a crédito** — la
+confirmación directa de que ese campo mide **cómo se cobra**, no **dónde se vende**. Y `wincaja_ruta`
+cuadra **al centavo** entre los dos hechos.
+
 ⭐ **Lo mejor del día, y conviene que quede escrito:** Ingresos **casi** recomienda (a) por la razón
 equivocada —*«`mayoreo` canónico vive entero en sucursal, cero `RUTA-*`»*— y **se frenó solo** al ver
 que eso admite dos explicaciones opuestas. Es el control de placebo que les faltó a tres errores de
