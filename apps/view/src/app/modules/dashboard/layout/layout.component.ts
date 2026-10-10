@@ -36,6 +36,8 @@ import { ModoDetalle, MultitareaService } from '../../../core/services/multitare
 // sus items de acá para que nunca se desincronice de la barra de tabs.
 import { ALMACEN_AREAS, almacenLandingCandidates, resolveAlmacenArea } from '../../almacen/almacen-tabs';
 import type { PageTab } from '../../../shared/components/page-tabs/page-tabs.component';
+import { pestanaVisible, primeraPestanaVisible, urlEnPestanas } from '../../../shared/components/page-tabs/pestanas-de-area';
+import { GASTOS_TABS } from '../../finanzas/gastos-tabs';
 import { REPORTS_TABS } from '../../comercial/reports-tabs';
 import { ANALYTICS_TABS } from '../../comercial/analytics-tabs';
 import { CUSTOMERS_TABS } from '../../comercial/customers-tabs';
@@ -108,6 +110,15 @@ interface NavItem {
    * también empieza con `/almacen/inventory/`.
    */
   activeAreaKey?: string;
+  /**
+   * `[GX.80]` Item de un **área con pestañas** (ej. «Gastos»): UNA entrada en el menú para varias
+   * pantallas que se cambian con la barra de arriba. Con `tabs`:
+   *  · se ve si la persona ve AL MENOS una pestaña — la misma regla que la barra
+   *    (`pestanas-de-area.ts`), así el menú nunca ofrece un área en la que no puede entrar;
+   *  · lleva a la PRIMERA pestaña que la persona ve (`route` queda sólo como valor por omisión);
+   *  · se marca activo en cualquiera de las pantallas del área, no sólo en la de su `route`.
+   */
+  tabs?: readonly PageTab[];
 }
 
 /**
@@ -534,6 +545,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
    */
   private hasPermFor(item: NavItem): boolean {
     if (this.perms.isAdmin()) return true;
+    // `[GX.80]` Un área con pestañas se ve si la persona ve al menos una de ellas.
+    if (item.tabs) return item.tabs.some((t) => pestanaVisible(t, (p) => this.canPerm(p)));
     const legacy = this.user()?.permissions;
     // Gate OR: si el item declara `anyOf`, basta con una de esas perms.
     if (item.anyOf?.length) {
@@ -566,6 +579,8 @@ export class LayoutComponent implements OnInit, OnDestroy {
    * de área queda activo a la vez.
    */
   isNavActive(item: NavItem): boolean {
+    // `[GX.80]` Un área con pestañas está activa en cualquiera de sus pantallas.
+    if (item.tabs) return urlEnPestanas(this.currentUrl(), item.tabs);
     if (!item.activeAreaKey) return false;
     return resolveAlmacenArea(this.currentUrl())?.key === item.activeAreaKey;
   }
@@ -713,50 +728,18 @@ export class LayoutComponent implements OnInit, OnDestroy {
       title: 'Gastos',
       items: [
         /**
-         * `[GX.17]` GX.10 había fundido todo en UN destino porque las dos mitades eran
-         * vistas del mismo trámite. Ya no: subir, firmar y consultar son tres oficios
-         * con tres públicos distintos, y las dos rutas nuevas nacieron SIN entrada —
-         * sólo se llegaba escribiendo la URL. Es la falla de `[LC.6.2]`: una pantalla
-         * en prod que nadie puede abrir.
+         * `[GX.80]` **UNA entrada para las cuatro pantallas de Gastos** (pedido del usuario,
+         * 2026-10-09). Adentro se cambia con la barra de pestañas: `GASTOS_TABS`, la MISMA lista
+         * que pinta `GastosAreaShellComponent`. La entrada lleva a la primera pestaña que la
+         * persona ve —quien firma cae en Aprobación, quien sólo captura en Mis gastos— y queda
+         * marcada en las cuatro. El permiso de cada pantalla sigue en su pestaña y en su ruta.
          *
-         * El grupo crece sólo para quien firma. Medido en `platform_test` (166 usuarios
-         * activos): 166 ven «Gastos», 12 ven «Aprobación», 25 ven «Tablero».
-         *
-         * Las bandejas "Reembolsos" y "Comprobación de gastos" se retiraron el 2026-08-21.
+         * Lo que sigue valiendo de antes: «Levantamiento de gasto» (`[GX.42]`) y el «Tablero de
+         * gastos» (`[GX.18]`) salieron del menú pero sus RUTAS siguen vivas — a la primera lleva
+         * el botón «Subir evidencia» y la segunda está en marcadores. Historial se conserva
+         * (`[GX.59]`): 14 personas con `_VER` y sin `_COMPROBAR` no tendrían otra vista de empresa.
          */
-        // SIN compuerta, a propósito: la ruta es `canActivate: []` («para este tendrán
-        // acceso todos», GX.17). Con el `anyOf` que traía, 66 de los 166 activos podían
-        // ENTRAR escribiendo la URL pero no veían el renglón — el menú contradecía a la
-        // ruta. El dato sigue acotado por áreas del lado del backend.
-        // `[GX.18]` Se llama LEVANTAMIENTO: es el acto de levantar el gasto, no el gasto.
-        // `[GX.42]` **«Levantamiento de gasto» se retiro del menu por pedido del usuario:**
-        // el gasto ya no se busca, LLEGA -- Kepler lo asigna por la caja «Solicita» y aparece
-        // en «Mis gastos». La RUTA sigue viva porque es a donde lleva «Subir evidencia»; lo que
-        // se quita es la puerta de entrada por folio tecleado.
-        // Dar luz verde. `FINANCE_EXPENSES_COMPROBAR` ya existía (GX.7) y ya gateaba
-        // approve/validate/reject — no se inventó un permiso para la misma puerta.
-        { label: 'Aprobación de gastos', icon: 'pi pi-verified', route: '/finanzas/aprobacion-gastos',
-          permission: Permission.FINANCE_EXPENSES_COMPROBAR },
-        // `[GX.33]` Lo que levantó UNO MISMO. Es lo que ve quien sólo captura -- para él
-        // el «Historial» prometía la empresa entera y le daba lo propio.
-        { label: 'Mis gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos',
-          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR] },
-        // `[GX.33]` El Historial pasa a ser de quien REVISA (ver el comentario de la ruta).
-        // ⚠️ Sin `permission:` suelto: con `anyOf` presente el filtro devuelve ahí mismo y
-        // esa clave era letra muerta -- se leía como una segunda compuerta que no existía.
-        // `[GX.59]` EXPEDIENTE: el tramite de todas las personas, agrupado por persona.
-        // Va ARRIBA de Historial porque es la pantalla que pidio el usuario para reemplazarlo.
-        // ⚠️ Historial se conserva: con `_COMPROBAR` sola, 14 personas (direccion,
-        // contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing) se
-        // quedaban sin ninguna vista de empresa. Retirarlo es decision del usuario.
-        { label: 'Expediente', icon: 'pi pi-folder-open', route: '/finanzas/expediente',
-          permission: Permission.FINANCE_EXPENSES_COMPROBAR },
-        { label: 'Historial', icon: 'pi pi-history', route: '/finanzas/gastos-historial',
-          anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS] },
-        // `[GX.18]` El «Tablero de gastos» salió del menú por pedido del usuario. ⚠️ La RUTA
-        // `/finanzas/gastos-tablero` sigue viva: 25 personas con `_VER` la tenían en
-        // marcadores y hay enlaces internos que apuntan ahí. Quitar el renglón es esconder
-        // la puerta; borrar la ruta es romperle el enlace a alguien.
+        { label: 'Gastos', icon: 'pi pi-wallet', route: '/finanzas/mis-gastos', tabs: GASTOS_TABS },
       ],
     },
     {
@@ -1211,12 +1194,23 @@ export class LayoutComponent implements OnInit, OnDestroy {
 
   /** Aplana los grupos de un proyecto a una lista de items (para navItems/bottomNav/título). */
   private flatOf(groups: { title: string; items: NavItem[] }[]): NavItem[] {
-    return groups.flatMap((g) => g.items);
+    return groups.flatMap((g) => g.items.map((i) => this.conDestino(i)));
+  }
+
+  /**
+   * `[GX.80]` El destino de un área con pestañas: la PRIMERA que la persona ve. Quien firma cae en
+   * «Aprobación de gastos»; quien sólo captura, en «Mis gastos». Un item sin `tabs` no cambia.
+   */
+  private conDestino(item: NavItem): NavItem {
+    if (!item.tabs) return item;
+    const primera = primeraPestanaVisible(item.tabs, (p) => this.canPerm(p));
+    return primera ? { ...item, route: primera.route } : item;
   }
 
   /** Mapea grupos → {title, items} filtrados; descarta grupos vacíos. `filter`=aplicar permiso. */
   private mapGroups(groups: { title: string; items: NavItem[] }[], filter: boolean): { title: string; items: NavItem[] }[] {
     return groups
+      .map((g) => ({ title: g.title, items: g.items.map((i) => this.conDestino(i)) }))
       .map((g) => ({ title: g.title, items: this.dedupeByRoute(filter ? g.items.filter((i) => this.hasPermFor(i)) : g.items) }))
       .filter((g) => g.items.length > 0);
   }

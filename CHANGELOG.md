@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Finanzas › Gastos: una entrada en el menú y sus cuatro pantallas en pestañas (GX.80, 2026-10-09)
+- En el menú lateral, Aprobación de gastos, Mis gastos, Expediente e Historial se juntan en una sola entrada «Gastos». Adentro se cambia de pantalla con pestañas horizontales; cada quien ve sólo las que puede abrir y, con una sola, no hay barra.
+- Las direcciones (URL) de las cuatro pantallas no cambian.
 ### Changed — Cambios de precio: un código, una fila; y se confirma qué precio lleva la etiqueta (ETQ-CAMBIOS.8, 2026-10-09)
 - La bitácora de Kepler escribe una fila por presentación **y una por cada vez que se movió el precio**: el mismo código salía tres veces (91059: caja, 500, 500), lo que confundía. Ahora hay **una fila por código** con **una línea por presentación** («Qué cambió»: unidad, antes → ahora, %). Si una presentación se movió varias veces el mismo día (el 91059 pasó de $5,602.87 a $6,523.34 y luego a $203.85) se resume en **lo que hay hoy en el anaquel → lo que dice Kepler ahora** ($5,602.87 → $203.85); sólo se resume si las horas permiten ordenarlas con certeza, si no se dejan tal cual. La selección y los totales de arriba cuentan **productos**, no renglones; suben + bajan + sin precio suman el total.
 - Un producto que se movió y terminó el día en el mismo precio con el que empezó **ya no se lista** (no necesita etiqueta nueva), y la pantalla dice cuántos son. Cambio de comportamiento: antes aparecían ambos renglones.

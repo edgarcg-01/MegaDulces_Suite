@@ -4307,6 +4307,21 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.80] · Gastos: una entrada en el menú y sus cuatro pantallas en pestañas — 2026-10-09
+
+- [x] **[GX.80]** 🧪 Pedido: *«quiero que estos estén en un horizontal»* (Aprobación de gastos · Mis gastos ·
+  Expediente · Historial, que eran cuatro renglones del menú lateral). Se mostró la maqueta con las dos lecturas
+  (pestañas arriba / fila dentro del menú) y se eligió **pestañas arriba**, el patrón de Almacén (`almacen-area-shell`
+  + `app-page-tabs`). El menú tiene UNA entrada «Gastos» que lleva a la **primera pestaña que la persona ve** (quien
+  firma cae en Aprobación, quien sólo captura en Mis gastos) y queda marcada en las cuatro pantallas. La lista vive
+  una vez (`GASTOS_TABS`, `gastos-tabs.ts`) y la leen la barra, el menú y `FINANZAS_TABS`. Las cuatro rutas pasan a
+  ser hijas de `GastosAreaShellComponent` (padre `path: ''`): **las URLs no cambian** y cada una conserva su guard.
+  Con una sola pestaña visible no hay barra. La regla de visibilidad sale a `pestanas-de-area.ts` y la usan la barra
+  y el menú (`NavItem.tabs`), así no pueden discrepar. Pruebas: view completo 2742/2742 (186 archivos) · prueba
+  negativa del shell (barra con una sola pestaña) en rojo. Sin migración ni permisos.
+- [ ] **[GX.80.p]** Redeploy view + validación visual. La migaja de arriba dice «Finanzas / Gastos» en las cuatro
+  (igual que en Almacén); la pantalla exacta la dice la pestaña.
+
 ### 🔨 [GX.79] · la evidencia de un gasto acepta archivos de hasta 20 MB — 2026-10-09
 
 - [x] **[GX.79]** 🧪 Pedido: *«lo máximo que aceptamos cuando suben las pruebas es de 10 MB, hay que aumentarlo a

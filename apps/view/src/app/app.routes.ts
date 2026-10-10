@@ -485,66 +485,6 @@ export const routes: Routes = [
         canActivate: []
       },
       {
-        // `[GX.17]` La otra mitad: dar luz verde. Sólo quien puede firmar.
-        // `FINANCE_EXPENSES_COMPROBAR` ya existía y ya gateaba approve/validate/reject
-        // desde GX.7 — no se inventó un permiso nuevo para la misma puerta.
-        // Hoy lo tienen: `tesoreria` (María) + `superadmin` por god-mode (Luis Francisco,
-        // Guillermo) + Jesús por override de persona (mig 20260924120000).
-        path: 'aprobacion-gastos',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-aprobacion-gastos.component').then(m => m.FinanzasAprobacionGastosComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
-      },
-      {
-        // `[GX.17]` El tablero de GX.10 NO se borra: 25 personas con `FINANCE_EXPENSES_VER`
-        // lo usan para revisar y buscar. Deja de ser lo que sirve `/finanzas/gastos` (que
-        // ahora es sólo captura) y pasa a tener ruta propia.
-        // `[GX.25]` El historial: de TODAS las fechas, y con dos ambitos segun el permiso.
-        // `anyOf` porque quien solo CAPTURA tiene que poder ver lo suyo -- el endpoint
-        // `mine` lo acota por token, asi que no hay forma de pedir el de otro.
-        // `[GX.33]` El Historial deja de ser de TODOS los que capturan y pasa a ser de
-        // quien REVISA. Medido en prod: lo veían 80 personas, y 57 de ellas sólo capturan
-        // -- para ésas el servidor ya acotaba a lo suyo, así que la pantalla les prometía
-        // un historial de la empresa y les daba el propio. Esas 57 pasan a «Mis gastos».
-        //
-        // ⛔ Va `VER` además de `COMPROBAR` a propósito: con COMPROBAR a secas quedaba en
-        // UNA persona, y `credito_cobranza`, `direccion` y `finanzas` (4 usuarios) se
-        // quedaban sin ninguna de las dos pantallas -- no capturan, así que «Mis gastos»
-        // tampoco los cubre. Consultar no es aprobar, pero tampoco es no tener nada.
-        path: 'gastos-historial',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos-historial.component').then(m => m.FinanzasGastosHistorialComponent),
-        // `[GX.71]` + HISTORIAL_TODOS: la llave por persona que abre la pestaña «Todos».
-        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS)]
-      },
-      {
-        /**
-         * [GX.59] EXPEDIENTE - el tramite de gasto de TODAS las personas, agrupado por persona.
-         *
-         * Pedido del usuario (2026-10-01): «en lugar de historial sera expediente, todos
-         * aquellos que tengan el poder de autorizar gastos podran ver los vales de todos».
-         *
-         * El permiso es el de quien FIRMA (FINANCE_EXPENSES_COMPROBAR), el mismo que guarda la
-         * bandeja de aprobacion. El endpoint esta gateado igual: el recorte vive en el
-         * servidor, y esta linea es la cortesia de no mostrar una puerta que no abre.
-         *
-         * ⚠️ `gastos-historial` NO se retiro, y es una decision MEDIDA. Guardar esta pantalla
-         * con COMPROBAR deja fuera a 14 personas que hoy si ven el historial (direccion,
-         * contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing:
-         * todas con _VER y sin _COMPROBAR). Borrar la ruta vieja las dejaba sin ninguna vista
-         * de empresa y sin aviso. Queda ABIERTO si Historial se retira: es decision del
-         * usuario, no un olvido.
-         */
-        path: 'expediente',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-expediente.component').then(m => m.FinanzasExpedienteComponent),
-        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
-      },
-      {
-        // `[GX.33]` Lo que YO levanté y en qué quedó. Mismo alcance que `/mine`, que el
-        // servidor acota por token: acá no se filtra del lado del cliente.
-        path: 'mis-gastos',
-        loadComponent: () => import('./modules/finanzas/pages/finanzas-mis-gastos.component').then(m => m.FinanzasMisGastosComponent),
-        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
-      },
-      {
         path: 'gastos-tablero',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-solicitudes.component').then(m => m.FinanzasSolicitudesComponent),
         canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_VER)]
@@ -690,6 +630,77 @@ export const routes: Routes = [
         path: 'tareas',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]
+      },
+      // ── `[GX.80]` Área Gastos: UNA barra de pestañas para sus cuatro pantallas ──
+      // Padre con `path: ''` (patrón de Almacén, WMS.1): las URLs de los hijos NO cambian, así que
+      // los enlaces guardados y los botones que llevan a cada pantalla siguen valiendo. La barra se
+      // pinta UNA vez en el shell; la lista de pestañas vive en `modules/finanzas/gastos-tabs.ts`.
+      // Va AL FINAL: un padre con path vacío matchea cualquier URL restante.
+      {
+        path: '',
+        loadComponent: () => import('./modules/finanzas/gastos-area-shell.component').then(m => m.GastosAreaShellComponent),
+        children: [
+      {
+        // `[GX.17]` La otra mitad: dar luz verde. Sólo quien puede firmar.
+        // `FINANCE_EXPENSES_COMPROBAR` ya existía y ya gateaba approve/validate/reject
+        // desde GX.7 — no se inventó un permiso nuevo para la misma puerta.
+        // Hoy lo tienen: `tesoreria` + `superadmin` por god-mode + una persona por override
+        // (mig 20260924120000). Sin nombres: el repo es público.
+        path: 'aprobacion-gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-aprobacion-gastos.component').then(m => m.FinanzasAprobacionGastosComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
+        // `[GX.17]` El tablero de GX.10 NO se borra: 25 personas con `FINANCE_EXPENSES_VER`
+        // lo usan para revisar y buscar. Deja de ser lo que sirve `/finanzas/gastos` (que
+        // ahora es sólo captura) y pasa a tener ruta propia.
+        // `[GX.25]` El historial: de TODAS las fechas, y con dos ambitos segun el permiso.
+        // `anyOf` porque quien solo CAPTURA tiene que poder ver lo suyo -- el endpoint
+        // `mine` lo acota por token, asi que no hay forma de pedir el de otro.
+        // `[GX.33]` El Historial deja de ser de TODOS los que capturan y pasa a ser de
+        // quien REVISA. Medido en prod: lo veían 80 personas, y 57 de ellas sólo capturan
+        // -- para ésas el servidor ya acotaba a lo suyo, así que la pantalla les prometía
+        // un historial de la empresa y les daba el propio. Esas 57 pasan a «Mis gastos».
+        //
+        // ⛔ Va `VER` además de `COMPROBAR` a propósito: con COMPROBAR a secas quedaba en
+        // UNA persona, y `credito_cobranza`, `direccion` y `finanzas` (4 usuarios) se
+        // quedaban sin ninguna de las dos pantallas -- no capturan, así que «Mis gastos»
+        // tampoco los cubre. Consultar no es aprobar, pero tampoco es no tener nada.
+        path: 'gastos-historial',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-gastos-historial.component').then(m => m.FinanzasGastosHistorialComponent),
+        // `[GX.71]` + HISTORIAL_TODOS: la llave por persona que abre la pestaña «Todos».
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS)]
+      },
+      {
+        /**
+         * [GX.59] EXPEDIENTE - el tramite de gasto de TODAS las personas, agrupado por persona.
+         *
+         * Pedido del usuario (2026-10-01): «en lugar de historial sera expediente, todos
+         * aquellos que tengan el poder de autorizar gastos podran ver los vales de todos».
+         *
+         * El permiso es el de quien FIRMA (FINANCE_EXPENSES_COMPROBAR), el mismo que guarda la
+         * bandeja de aprobacion. El endpoint esta gateado igual: el recorte vive en el
+         * servidor, y esta linea es la cortesia de no mostrar una puerta que no abre.
+         *
+         * ⚠️ `gastos-historial` NO se retiro, y es una decision MEDIDA. Guardar esta pantalla
+         * con COMPROBAR deja fuera a 14 personas que hoy si ven el historial (direccion,
+         * contabilidad, finanzas_operativo, credito_cobranza, gerente_compras, marketing:
+         * todas con _VER y sin _COMPROBAR). Borrar la ruta vieja las dejaba sin ninguna vista
+         * de empresa y sin aviso. Queda ABIERTO si Historial se retira: es decision del
+         * usuario, no un olvido.
+         */
+        path: 'expediente',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-expediente.component').then(m => m.FinanzasExpedienteComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR)]
+      },
+      {
+        // `[GX.33]` Lo que YO levanté y en qué quedó. Mismo alcance que `/mine`, que el
+        // servidor acota por token: acá no se filtra del lado del cliente.
+        path: 'mis-gastos',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-mis-gastos.component').then(m => m.FinanzasMisGastosComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
+      },
+        ],
       },
     ]
   },
