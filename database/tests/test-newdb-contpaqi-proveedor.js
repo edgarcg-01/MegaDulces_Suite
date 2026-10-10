@@ -23,6 +23,24 @@ require('ts-node').register({
 });
 require('dotenv').config({ path: path.resolve(__dirname, '..', '..', '.env'), quiet: true });
 
+/**
+ * ⚠️ `skipProject: true` deja fuera el `tsconfig.base.json`, y con él los alias `@megadulces/*`.
+ * El resolvedor es un archivo puro y no los necesita, pero `contpaqi-armado.service.ts` —que el
+ * bloque [3] carga para probar el guardado del alias— sí. Mismo arreglo que en
+ * `test-newdb-contpaqi-bandeja.js`: tomar el tsconfig del monorepo hace fallar a ts-node con
+ * `TS5011`, que es justo por lo que se saltea.
+ */
+const ROOT = path.resolve(__dirname, '..', '..');
+const ALIAS = {
+  '@megadulces/contracts': path.join(ROOT, 'libs/contracts/src/index.ts'),
+  '@megadulces/platform-core': path.join(ROOT, 'libs/platform-core/src/index.ts'),
+};
+const Module = require('module');
+const resolveOriginal = Module._resolveFilename;
+Module._resolveFilename = function resolver(pedido, ...resto) {
+  return ALIAS[pedido] ? ALIAS[pedido] : resolveOriginal.call(this, pedido, ...resto);
+};
+
 const SRC = path.resolve(__dirname, '../../libs/finance/src/lib/contpaqi');
 const {
   normalizarNombre, construirIndice, resolverProveedor, VEREDICTOS_USABLES,
@@ -240,6 +258,71 @@ const CTA = (cuenta, nombre, veredicto = 'confirmado', rfc = 'XAXX010101000') =>
             '⛔ la base impide DOS cuentas activas para el mismo texto: elegir no es del resolvedor');
           const pend = await knex('contpaqi.supplier_aliases').count({ n: '*' }).first();
           check(Number(pend.n) >= 0, `alias confirmados hasta hoy: ${pend.n}`);
+        }
+
+        /**
+         * `[CP.8.37]` La lista de trabajo y el guardado del alias, contra el servicio real.
+         * ⛔ Se escribe y se BORRA: un candado que deja filas cambia el dato que el siguiente
+         * candado mide.
+         */
+        const { ContpaqiArmadoService } = require(path.join(SRC, 'contpaqi-armado.service.ts'));
+        const svc = new ContpaqiArmadoService(knex, undefined);
+        const pendientes = await svc.proveedoresPendientes('2026-01');
+        check(pendientes.length > 0 && pendientes.length < movs.length,
+          `⭐ agrupa ${movs.length - resueltos.length} movimientos en ${pendientes.length} nombres: se confirma el NOMBRE`);
+        check(pendientes.every((p, i) => i === 0 || pendientes[i - 1].importe >= p.importe),
+          'vienen ordenados por dinero: lo primero que se ve es lo que más destraba');
+        check(pendientes.some((p) => p.sugerencias.length > 0),
+          `y traen candidatos: ${pendientes.filter((p) => p.sugerencias.length).length} de ${pendientes.length} tienen al menos uno`);
+        check(pendientes.every((p) => p.sugerencias.every((s) => String(s.cuenta).startsWith(p.rubro))),
+          '⛔ ninguna sugerencia sale del rubro de la regla');
+
+        // ⛔ Las tres negativas del guardado. Cada una es un modo real de meter basura.
+        let rechazos = 0;
+        for (const [caso, entrada] of [
+          ['cuenta inexistente', { concepto_banco: 'PRUEBA CANDADO XYZ', cuenta: '2120999999' }],
+          ['cuenta de otro rubro', { concepto_banco: 'PRUEBA CANDADO XYZ', cuenta: '5010000524' }],
+          ['sin autor', { concepto_banco: 'PRUEBA CANDADO XYZ', cuenta: '2120000112', confirmado_por: '' }],
+        ]) {
+          try {
+            await svc.confirmarAlias({ confirmado_por: 'candado', ...entrada });
+            check(false, `⛔ ${caso}: NO se rechazó`);
+          } catch { rechazos += 1; }
+        }
+        check(rechazos === 3, `⛔ el guardado rechaza los 3 casos basura (${rechazos}/3)`);
+
+        /**
+         * El camino feliz escribe, y **desde esta máquina no se puede**: `edgar`/`dev_ro` es
+         * read-only por diseño. ⛔ Se DECLARA en vez de fingirlo — un candado que salta un
+         * bloque en silencio se lee igual que uno que lo probó (ADR-056).
+         *
+         * ⚠️ Las tres negativas de arriba SÍ valen desde acá: validan antes de tocar la base.
+         */
+        const antes = await knex('contpaqi.supplier_aliases').count({ n: '*' }).first()
+          .catch(() => null);
+        let escribio = false;
+        if (antes) {
+          try {
+            await svc.confirmarAlias({
+              concepto_banco: 'PRUEBA CANDADO BORRAR', cuenta: '2120000112', confirmado_por: 'candado',
+            });
+            escribio = true;
+          } catch (e) {
+            if (!/read-only/i.test(String(e && e.message))) throw e;
+            nm += 1;
+            console.log('  [NO MEDIDO] el guardado del alias: esta conexión es read-only por diseño'
+              + ' — se ejerce desde el pod o desde la pantalla');
+          }
+        }
+        if (escribio) {
+          const guardado = await knex('contpaqi.supplier_aliases')
+            .where({ alias_normalizado: 'PRUEBA CANDADO BORRAR' }).first();
+          check(!!guardado && guardado.cuenta === '2120000112' && guardado.confirmado_por === 'candado',
+            'guarda el alias con su cuenta y con el nombre de quien lo afirmó');
+          await knex('contpaqi.supplier_aliases')
+            .where({ alias_normalizado: 'PRUEBA CANDADO BORRAR' }).del();
+          const despues = await knex('contpaqi.supplier_aliases').count({ n: '*' }).first();
+          check(Number(despues.n) === Number(antes.n), 'y el candado no dejó filas atrás');
         }
 
         // Ninguna cuenta devuelta puede salirse del rubro pedido.

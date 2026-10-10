@@ -23,6 +23,20 @@ export class ContpaqiPuenteService {
     return this.http.get<LotesResp>(`${this.base}/lotes${qs}`);
   }
 
+  /**
+   * `[CP.8.37]` Lo que falta enlazar, agrupado por nombre y ordenado por dinero.
+   * ⚠️ Es `_VER`: mirar el trabajo pendiente no es hacerlo.
+   */
+  pendientes(mes?: string): Observable<PendientesResp> {
+    const qs = mes ? `?mes=${encodeURIComponent(mes)}` : '';
+    return this.http.get<PendientesResp>(`${this.base}/proveedores-pendientes${qs}`);
+  }
+
+  /** Confirma que un concepto del banco carga a una cuenta. Exige `_GESTIONAR`. */
+  confirmarAlias(body: { concepto_banco: string; cuenta: string; rubro?: string; nota?: string }) {
+    return this.http.post<{ alias_normalizado: string; cuenta: string }>(`${this.base}/alias-proveedor`, body);
+  }
+
   cuadre(): Observable<CuadreResp> {
     return this.http.get<CuadreResp>(`${this.base}/cuadre`);
   }
@@ -80,4 +94,23 @@ export interface CuadreResp {
   esperando: number;
   divergentes: number;
   plazo_dias: number;
+}
+
+/** `[CP.8.37]` Un nombre del banco que todavía no llega a una cuenta, con sus pistas. */
+export interface PendienteProveedor {
+  alias_normalizado: string;
+  concepto_banco: string;
+  movimientos: number;
+  importe: number;
+  veredicto: string;
+  motivo: string | null;
+  rubro: string;
+  /** ⛔ Pistas por palabras en común. La pantalla NO las aplica sola. */
+  sugerencias: { cuenta: string; nombre: string; veredicto: string; parecido: number }[];
+}
+
+export interface PendientesResp {
+  mes: string;
+  total_importe: number;
+  filas: PendienteProveedor[];
 }

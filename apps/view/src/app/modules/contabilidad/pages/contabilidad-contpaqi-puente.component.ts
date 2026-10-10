@@ -5,7 +5,12 @@ import { FormsModule } from '@angular/forms';
 import { TableModule } from 'primeng/table';
 import { SelectModule } from 'primeng/select';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
-import { ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp } from '../contpaqi-puente.service';
+import { AuthService } from '../../../core/services/auth.service';
+import { Permission } from '../../../core/constants/permissions';
+import {
+  ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp,
+  PendienteProveedor, PendientesResp,
+} from '../contpaqi-puente.service';
 
 /**
  * Fase CP `[CP.8.33]` — **La bandeja del puente: qué saldría de póliza, y qué no sale y por qué.**
@@ -248,6 +253,77 @@ import { ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp } from '../contpa
           </div>
         </section>
 
+        <!-- ── [CP.8.37] LO QUE FALTA ENLAZAR: el rechazo con su acción al lado ── -->
+        @if (pendientes(); as p) {
+          @if (p.filas.length) {
+            <section class="cpp-sec">
+              <div class="cpp-sec-h">
+                <h3>Proveedores por confirmar</h3>
+                <span class="cpp-tag">esto destraba dinero</span>
+              </div>
+              <p class="cpp-sec-p">
+                <strong class="mono">{{ p.filas.length }}</strong> nombres del banco que no llegan a una
+                cuenta, por <strong class="mono">{{ p.total_importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</strong>.
+                Se confirma <strong>el nombre</strong>, no cada movimiento.
+              </p>
+              <div class="cpp-nota-dura">
+                ⛔ Las sugerencias est&aacute;n ordenadas por <strong>palabras en com&uacute;n</strong>: son
+                una pista, no un veredicto. Una cuenta equivocada <strong>cuadra igual</strong> y no se
+                ve hasta la balanza &mdash; por eso elige una persona y queda su nombre.
+              </div>
+              <div class="card-premium card-flat cpp-tablewrap">
+                <p-table [value]="p.filas" size="small" class="surf-table" [rowHover]="true"
+                         [scrollable]="true" scrollHeight="420px">
+                  <ng-template #header>
+                    <tr><th class="r">Importe</th><th class="r">Movs</th><th>Dice el banco</th>
+                      <th>Candidatos de ContPAQi</th><th></th></tr>
+                  </ng-template>
+                  <ng-template #body let-f>
+                    <tr>
+                      <td class="r mono">{{ f.importe | currency:'MXN':'symbol-narrow':'1.0-0' }}</td>
+                      <td class="r mono">{{ f.movimientos | number }}</td>
+                      <td>
+                        <div class="cpp-bank">{{ f.concepto_banco }}</div>
+                        <div class="cpp-code">{{ f.veredicto }}</div>
+                      </td>
+                      <td>
+                        @if (!f.sugerencias.length) {
+                          <span class="muted">sin candidato parecido &mdash; hay que buscarlo en ContPAQi</span>
+                        }
+                        @for (s of f.sugerencias; track s.cuenta) {
+                          <label class="cpp-sug">
+                            <input type="radio" [name]="'sug-' + f.alias_normalizado" [value]="s.cuenta"
+                                   [checked]="elegido()[f.alias_normalizado] === s.cuenta"
+                                   (change)="elegir(f.alias_normalizado, s.cuenta)">
+                            <span class="mono">{{ s.cuenta }}</span>
+                            <span>{{ s.nombre }}</span>
+                            <span class="cpp-pct mono">{{ s.parecido * 100 | number:'1.0-0' }}%</span>
+                            <span class="cpp-code">{{ s.veredicto }}</span>
+                          </label>
+                        }
+                      </td>
+                      <td>
+                        @if (puedeGestionar()) {
+                          <button type="button" class="cpp-btn-ok"
+                                  [disabled]="!elegido()[f.alias_normalizado] || guardando() === f.alias_normalizado"
+                                  (click)="confirmar(f)">
+                            {{ guardando() === f.alias_normalizado ? 'Guardando…' : 'Confirmar' }}
+                          </button>
+                        } @else {
+                          <span class="cpp-code">sin permiso para confirmar</span>
+                        }
+                      </td>
+                    </tr>
+                  </ng-template>
+                </p-table>
+              </div>
+              @if (avisoAlias(); as a) {
+                <div class="cpp-aviso" [class.mal]="a.mal" role="status">{{ a.texto }}</div>
+              }
+            </section>
+          }
+        }
+
         <!-- ── EL CUADRE: el vacío ES el dato ── -->
         <section class="cpp-sec">
           <div class="cpp-sec-h"><h3>Cuadre contra ContPAQi</h3></div>
@@ -374,12 +450,31 @@ import { ContpaqiPuenteService, LoteRow, LotesResp, CuadreResp } from '../contpa
     .cpp-skel { display: grid; gap: .5rem; margin-top: 1.25rem; }
     .cpp-skel-row { height: var(--row-h-md); border-radius: var(--radius-sm); background: var(--surface-200); }
 
+    /* [CP.8.37] confirmar el alias */
+    .cpp-nota-dura { margin: 0 0 .8rem; padding-left: .8rem; border-left: 2px solid var(--c-warn);
+      color: var(--c-text-2); font-size: var(--fs-sm); max-width: 78ch; }
+    .cpp-sug { display: flex; align-items: center; gap: .5rem; padding: 3px 0; cursor: pointer;
+      font-size: var(--fs-sm); flex-wrap: wrap; }
+    .cpp-sug input { accent-color: var(--action); flex: 0 0 auto; }
+    .cpp-sug > span:nth-child(3) { color: var(--c-text-2); }
+    .cpp-btn-ok { border: 1px solid var(--action); background: transparent; color: var(--action);
+      border-radius: var(--radius-sm); padding: 4px 12px; font: inherit; font-size: var(--fs-xs);
+      cursor: pointer; white-space: nowrap; }
+    .cpp-btn-ok:hover:not(:disabled) { background: var(--surface-selected-bg); }
+    .cpp-btn-ok:disabled { border-color: var(--c-divider); color: var(--c-text-3); cursor: default; }
+    .cpp-aviso { margin-top: .75rem; padding: .6rem .8rem; border-radius: var(--radius-md);
+      font-size: var(--fs-sm); border: 1px solid var(--ok-border); background: var(--ok-soft-bg);
+      color: var(--ok-soft-fg); }
+    .cpp-aviso.mal { border-color: var(--bad-border); background: var(--bad-soft-bg);
+      color: var(--bad-soft-fg); }
+
     @media (max-width: 56.25rem) { .cpp-md { grid-template-columns: 1fr; } }
     @media (prefers-reduced-motion: reduce) { .cpp-chip { transition: none; } }
   `],
 })
 export class ContabilidadContpaqiPuenteComponent implements OnInit {
   private readonly api = inject(ContpaqiPuenteService);
+  private readonly auth = inject(AuthService);
   private readonly destroyRef = inject(DestroyRef);
 
   readonly loading = signal(true);
@@ -389,6 +484,20 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   readonly filtro = signal<string | null>(null);
   readonly sel = signal<LoteVista | null>(null);
   readonly mes = signal<string>(mesCerrado());
+  readonly pendientes = signal<PendientesResp | null>(null);
+  /** alias → cuenta elegida en la pantalla. ⛔ Nada se preselecciona: elegir es del humano. */
+  readonly elegido = signal<Record<string, string>>({});
+  readonly guardando = signal<string | null>(null);
+  readonly avisoAlias = signal<{ texto: string; mal: boolean } | null>(null);
+  /**
+   * Confirmar exige `_GESTIONAR`; mirar el pendiente sólo `_VER`.
+   *
+   * ⚠️ Esto esconde el botón, **no** protege nada: quien manda es el guard del endpoint. Un
+   * permiso del lado del navegador es una cortesía, no una puerta.
+   */
+  readonly puedeGestionar = signal<boolean>(
+    this.auth.user()?.permissions?.[Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR] === true,
+  );
 
   /** Los 12 meses cerrados hacia atrás. El mes en curso NO entra: siempre se ve incompleto. */
   readonly mesOpts = mesesAtras(12);
@@ -457,6 +566,41 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
     // pasar es que se pinte un 0 % inventado, así que ante error queda en `null` y no se dibuja.
     this.api.cuadre().pipe(takeUntilDestroyed(this.destroyRef))
       .subscribe({ next: (c) => this.cuadre.set(c), error: () => this.cuadre.set(null) });
+
+    // Igual que el cuadre: si falla, la bandeja sigue sirviendo y la sección no se dibuja.
+    this.api.pendientes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({ next: (p) => this.pendientes.set(p), error: () => this.pendientes.set(null) });
+  }
+
+  elegir(alias: string, cuenta: string): void {
+    this.elegido.update((m) => ({ ...m, [alias]: cuenta }));
+  }
+
+  /**
+   * ⭐ Al confirmar se recarga la bandeja entera, no sólo la lista: el alias cambia **cuántos
+   * movimientos entran al asiento**, y dejar los lotes con el número viejo sería mostrar un
+   * resultado que ya no es cierto.
+   */
+  confirmar(f: PendienteProveedor): void {
+    const cuenta = this.elegido()[f.alias_normalizado];
+    if (!cuenta) return;
+    this.guardando.set(f.alias_normalizado);
+    this.avisoAlias.set(null);
+    this.api.confirmarAlias({ concepto_banco: f.concepto_banco, cuenta, rubro: f.rubro })
+      .pipe(takeUntilDestroyed(this.destroyRef))
+      .subscribe({
+        next: () => {
+          this.guardando.set(null);
+          this.avisoAlias.set({ texto: `"${f.concepto_banco}" queda en ${cuenta}.`, mal: false });
+          this.cargar();
+        },
+        error: (e) => {
+          this.guardando.set(null);
+          // El backend manda el motivo exacto (cuenta inexistente, rubro equivocado): se muestra
+          // tal cual, porque es lo que hace falta leer para corregir.
+          this.avisoAlias.set({ texto: e?.error?.message ?? 'No se pudo guardar', mal: true });
+        },
+      });
   }
 
   setMes(m: string): void { this.mes.set(m); this.filtro.set(null); this.sel.set(null); this.cargar(); }

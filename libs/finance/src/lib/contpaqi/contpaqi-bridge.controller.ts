@@ -1,7 +1,10 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, Permission } from '@megadulces/platform-core';
-import { ContpaqiArmadoService, type ResumenLote, type ResumenMes } from './contpaqi-armado.service';
+import {
+  ContpaqiArmadoService,
+  type PendienteProveedor, type ResumenLote, type ResumenMes,
+} from './contpaqi-armado.service';
 import { ContpaqiCuadreService } from './contpaqi-cuadre.service';
 
 /**
@@ -99,6 +102,56 @@ export class ContpaqiBridgeController {
         .sort((a, b) => b[1] - a[1])
         .map(([motivo, n]) => ({ motivo, movimientos: n, dueno: DUENO[motivo] ?? 'sin clasificar' })),
     };
+  }
+
+  /**
+   * `[CP.8.37]` Los nombres del banco que todavía no llegan a una cuenta, por dinero.
+   *
+   * ⚠️ Va con `_VER` y no con `_GESTIONAR`: **mirar el trabajo pendiente no es hacerlo**, y quien
+   * revisa la bandeja tiene que poder ver por qué está trabada sin poder tocarla.
+   */
+  @Get('proveedores-pendientes')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_VER)
+  @ApiOperation({ summary: 'Nombres del banco sin cuenta de proveedor, agrupados y por importe.' })
+  async pendientes(@Query('mes') mes?: string): Promise<{ mes: string; total_importe: number; filas: PendienteProveedor[] }> {
+    const anioMes = /^\d{4}-\d{2}$/.test(String(mes ?? '')) ? String(mes) : mesPorDefecto();
+    const filas = await this.armado.proveedoresPendientes(anioMes);
+    return {
+      mes: anioMes,
+      total_importe: Math.round(filas.reduce((a, f) => a + f.importe, 0) * 100) / 100,
+      filas,
+    };
+  }
+
+  /**
+   * Confirma que un nombre del banco es tal cuenta de ContPAQi.
+   *
+   * ⛔ Exige `_GESTIONAR` **y** deja el nombre de quien lo afirmó: esto no lo deriva un script, lo
+   * dice una persona, y dentro de un año alguien va a querer saber quién.
+   *
+   * ⚠️ Vive en el puente y no en Compras a propósito: la decisión no es *qué proveedor es* sino
+   * *a qué cuenta contable carga*, y eso es del lado de contabilidad. Si Compras termina
+   * necesitándolo, es un permiso nuevo repartido con nombre, no abrir éste.
+   */
+  @Post('alias-proveedor')
+  @RequirePermissions(Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR)
+  @ApiOperation({ summary: 'Confirma que un concepto del banco carga a una cuenta de proveedor.' })
+  async confirmarAlias(
+    @Body() body: { concepto_banco: string; cuenta: string; rubro?: string; nota?: string },
+    @Req() req: { user?: { username?: string; sub?: string } },
+  ) {
+    const quien = req?.user?.username || req?.user?.sub;
+    if (!quien) throw new BadRequestException('no se pudo identificar quién confirma');
+    if (!body?.concepto_banco || !body?.cuenta) {
+      throw new BadRequestException('hacen falta `concepto_banco` y `cuenta`');
+    }
+    try {
+      return await this.armado.confirmarAlias({ ...body, confirmado_por: quien });
+    } catch (e) {
+      // El servicio lanza con el motivo exacto (cuenta inexistente, rubro equivocado): se
+      // devuelve tal cual, porque es lo que quien confirma necesita leer para corregir.
+      throw new BadRequestException((e as Error).message);
+    }
   }
 
   /**
