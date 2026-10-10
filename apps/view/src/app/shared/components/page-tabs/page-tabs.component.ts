@@ -5,6 +5,7 @@ import { filter } from 'rxjs/operators';
 import { AuthService } from '../../../core/services/auth.service';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
+import { pestanaVisible } from './pestanas-de-area';
 
 export interface PageTab {
   label: string;
@@ -225,11 +226,10 @@ export class PageTabsComponent implements AfterViewInit {
   readonly visibleTabs = computed(() => {
     const all = this.perms.isAdmin();
     const tiene = (p: Permission) => this.auth.user()?.permissions?.[p] === true;
-    return this.tabs().filter((t) => {
-      if (all) return true;
-      if (t.anyOf?.length) return t.anyOf.some(tiene);
-      return !t.permission || tiene(t.permission);
-    });
+    // `[GX.80]` La regla vive en `pestanas-de-area.ts`: la misma que usa el menú lateral para
+    // decidir a qué pestaña lleva la entrada de un área. Si cada uno la escribiera aparte, el
+    // menú podría ofrecer una pantalla que la barra no muestra.
+    return this.tabs().filter((t) => all || pestanaVisible(t, tiene));
   });
 
   ngAfterViewInit(): void {
