@@ -18,6 +18,7 @@
     "hooks:uninstall": "git config --unset core.hooksPath",
     "hooks:check": "git config --get core.hooksPath",
     "check:compuerta-ci": "sh ops/prod/test-compuerta-ci.sh",
+    "docs:matriz-accesos": "node database/scripts/gen-matriz-accesos.js",
     "lint:boundary": "node scripts/lint-boundary-gate.js",
     "lint:changed": "node scripts/lint-changed.js",
     "check:templates": "node scripts/check-template-literals.js",
