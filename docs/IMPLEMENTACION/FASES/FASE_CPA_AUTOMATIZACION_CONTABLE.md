@@ -294,10 +294,31 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 > `ContpaqiCierreService` + `GET /contabilidad/contpaqi/cierre` · pantalla `/contabilidad/cierre`
 > con su pestaña y su nodo en el árbol · candado `test-newdb-contpaqi-cierre.js` en la regresión.
 >
+> **La regla vive en `cierre.engine.ts`, pura** (mismo reparto que `cuadre.engine.ts` de
+> `[CP.8.10]`), y el componente exporta las suyas (`faltantesDe`, `peorDeCerrados`, …) como hizo
+> `[CP.8.33]`: lo que puede mentir con un número se prueba con funciones, no montando un
+> componente.
+>
 > **Medido contra prod hoy:** la vista da **110 filas** (22 meses × 5 familias); la forma
-> optimizada contra la directa, **0 diferencias** y de 1,150 ms a **938 ms**; el candado corre
-> **4 ✔ · 0 ✘ · 7 ◻ NO MEDIDO** (los 7 son lo que no se puede medir hasta aplicar las
-> migraciones — se declaran, no se dan por buenos).
+> optimizada contra la directa, **0 diferencias** y de 1,150 ms a **938 ms**; el candado de base
+> corre **4 ✔ · 0 ✘ · 7 ◻ NO MEDIDO** (los 7 son lo que no se puede medir hasta aplicar las
+> migraciones — se declaran, no se dan por buenos). **Candados de regla: engine 20/20 · pantalla
+> 16/16 · guards + contabilidad 67/67 · contracts/authz 79/79**, con prueba negativa en cada
+> regla.
+>
+> ⛔ **Dos afirmaciones mías que los candados desmintieron**, corregidas en el código y no
+> escondidas: (1) escribí que comparar umbrales en **texto** "miente" — es falso en este camino,
+> JavaScript coacciona cuando el otro lado es número, y lo que de verdad protege es que el engine
+> numere la **cobertura**; (2) recorrí `AUTHZ_TREE` como lista plana y tiene **dos niveles**
+> (`projects → modules`), con lo que tres aserciones decían "el nodo no existe" sobre algo que sí
+> estaba.
+>
+> ⛔ **Dos rojos AJENOS, encontrados al correr las suites vecinas:** `authz-selection` pasó de 18
+> a **19 pantallas** —efecto **correcto** de reusar `FISCAL_CONTAB_VER` en vez de estrenar
+> permiso, y la lista crece **enumerando** la pantalla, no subiendo un contador—; y
+> **`landing-guards` llevaba días rojo en `main`** por `[CP.8.32]`/`[CP.8.33]`
+> (`FISCAL_CONTPAQI_BRIDGE_GESTIONAR` abre el módulo en el árbol y la ruta sólo acepta `_VER`),
+> declarado ahora en `DEUDA` con motivo, que es lo que ese spec pide.
 >
 > ⚠️ **Falta:** aplicar las 3 migraciones en `md` (una por una, `apply-one-migration-prod.js`
 > dentro de `prod-api`; la del índice **fuera de horario**) · redeploy api+view · validación
