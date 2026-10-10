@@ -2332,3 +2332,59 @@ candidato defendible se declara; no se rellena con el más votado de una póliza
 **72 proveedores sin resolver, $6.8M** — 60 sin pareo, 4 ambiguos, 8 con veredicto sin RFC. Ésa es
 la lista acotada para compras, y **todavía no tiene dónde guardarse**: no existe tabla de alias de
 proveedor (hay tres para productos, ninguna para esto). Declarado como deuda con nombre.
+
+---
+
+## §34 `[CP.8.36]` — Dónde se guarda que «Hersheys Mexico» es tal cuenta
+
+🚀 **Migración `20261010104218` EN PROD (batch 878).** Código sin empujar.
+
+`[CP.8.35]` deja **72 movimientos / $6.76M** sin resolver, agrupados en **53 nombres**. No los
+resuelve ningún algoritmo: el banco escribe `"Effem Mexico Inc y Compañia"` y ContPAQi tiene la
+razón social completa.
+
+⛔ **No se arregla con pareo difuso.** Una cuenta equivocada **cuadra igual** y no se ve hasta la
+balanza. Lo que falta no es un algoritmo más listo: es **que una persona lo diga una vez**.
+
+### 34.1 La tabla, y de quién se calcó
+
+`contpaqi.supplier_aliases` sigue el molde de **`finance.bank_classify_rules`** (Fase CB), que ya
+resuelve esta misma forma: texto de un estado de cuenta → un código, editable por humanos, con
+`active` y `nota`.
+
+⚠️ **No** se calcaron `commercial.product_aliases` ni `trade.catalog_aliases`: ésas mapean
+**id → id** (una entidad absorbida por otra), que es otro problema. *Había tres tablas de alias y
+ninguna servía; elegir la correcta es parte del trabajo.*
+
+Lo que la tabla **no permite**: dos cuentas activas para el mismo texto (índice UNIQUE parcial —
+si pudiera, el resolvedor tendría que elegir, y elegir es justo lo que no hace); un alias sin
+autor (`confirmado_por` NOT NULL); una cuenta con forma inválida (CHECK de 10 dígitos).
+
+### 34.2 El alias gana, pero no abre puertas traseras
+
+El resolvedor consulta el alias **antes** del padrón. Y **un alias que apunte fuera del rubro se
+ignora**: sería exactamente la puerta trasera al defecto que costó 69 pp en §33.2.
+
+### 34.3 La lista de trabajo
+
+`database/scripts/alias-proveedor-pendientes.js` — enero: **53 nombres, $6,758,575**, ordenados por
+dinero, con hasta 3 candidatos por **palabras en común**.
+
+⛔ **Propone; no escribe.** La sugerencia es una pista para ordenar, nunca un criterio para
+aplicar. Medido, la mayoría es obvia para un humano:
+
+```
+$1,118,193   "Effem Mexico Inc y Compañia"  → ¿2120000112 EFFEM MEXICO INC Y COMPAÑÍA (100%, confirmado)
+$  425,193   "Hernan Manuel Valencia"       → ¿2120005465 HERNAN MANUEL VALENCIA MELGOZA (75%, confirmado)
+$1,189,887   "Hersheys Mexico"              → sin candidato: hay que buscarlo en ContPAQi
+```
+
+⭐ Y de paso sale un defecto **del catálogo de ContPAQi**: `"Tecnica Mexicana de Alimentacion"`
+existe en **dos cuentas con el mismo nombre** (`2120000047` y `2120000097`). El resolvedor lo marca
+`ambiguo` y se niega — se arregla allá, no acá.
+
+### 34.4 Candado
+
+`test-newdb-contpaqi-proveedor.js` **25 ✓ / 0 ✗**: el alias gana al padrón, queda marcado como
+alias (no como derivado), **se ignora si apunta fuera del rubro**, y la base impide dos cuentas
+activas para el mismo texto.

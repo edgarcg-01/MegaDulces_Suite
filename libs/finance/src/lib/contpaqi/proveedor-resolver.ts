@@ -103,14 +103,32 @@ export const LARGO_MINIMO = 5;
 export interface IndiceProveedores {
   /** nombre normalizado → cuentas candidatas (del rubro pedido). */
   readonly porNombre: Map<string, CuentaProveedor[]>;
+  /**
+   * `[CP.8.36]` alias normalizado → cuenta, **afirmado por una persona**.
+   *
+   * ⭐ Se consulta ANTES del padrón: lo que alguien confirmó le gana a lo derivado. Es el único
+   * camino para los 72 que el padrón no resuelve ($6.8M de enero), y el único honesto: la
+   * alternativa era parear por subcadena, que carga a la cuenta equivocada **y cuadra igual**.
+   */
+  readonly porAlias: Map<string, string>;
   readonly prefijo: string;
+}
+
+/** Una fila de `contpaqi.supplier_aliases`. */
+export interface AliasProveedor {
+  alias_normalizado: string;
+  cuenta: string;
 }
 
 /**
  * Arma el índice para UN rubro. ⛔ El rubro es obligatorio y sin default: olvidarlo fue
  * exactamente el defecto que bajó la resolución de 70.4 % a 1.4 %.
  */
-export function construirIndice(cuentas: CuentaProveedor[], prefijo: string): IndiceProveedores {
+export function construirIndice(
+  cuentas: CuentaProveedor[],
+  prefijo: string,
+  alias: AliasProveedor[] = [],
+): IndiceProveedores {
   if (!prefijo || !/^\d{3,}$/.test(prefijo)) {
     throw new Error(
       `[CP.8.35] el rubro es obligatorio y debe ser numérico (vino "${prefijo}"): sin él, el mismo `
@@ -129,7 +147,18 @@ export function construirIndice(cuentas: CuentaProveedor[], prefijo: string): In
       if (!ya.some((x) => x.cuenta === c.cuenta)) ya.push(c);
     }
   }
-  return { porNombre, prefijo };
+  /**
+   * ⛔ El alias se valida contra el MISMO rubro. Un alias que apuntara a una cuenta de otro
+   * rubro sería una puerta trasera al defecto que costó 69 pp: se ignora y se deja ver.
+   */
+  const porAlias = new Map<string, string>();
+  for (const a of alias) {
+    const n = normalizarNombre(a.alias_normalizado);
+    if (n.length < LARGO_MINIMO) continue;
+    if (!String(a.cuenta ?? '').startsWith(prefijo)) continue;
+    porAlias.set(n, a.cuenta);
+  }
+  return { porNombre, porAlias, prefijo };
 }
 
 /** Resuelve el concepto de un movimiento contra el índice. No adivina. */
@@ -142,6 +171,16 @@ export function resolverProveedor(indice: IndiceProveedores, concepto: unknown):
       motivo: `el movimiento no trae un nombre con qué buscar ("${String(concepto ?? '')}")`,
     };
   }
+  /**
+   * ⭐ `[CP.8.36]` El alias confirmado por una persona va PRIMERO. Si alguien ya dijo que
+   * `"Hersheys Mexico"` del banco es tal cuenta, no hay nada que derivar — y deja de importar
+   * que el padrón no tenga ese nombre.
+   */
+  const alias = indice.porAlias.get(n);
+  if (alias) {
+    return { veredicto: 'resuelto', cuenta: alias, motivo: null, veredicto_padron: 'alias_confirmado' };
+  }
+
   const cand = indice.porNombre.get(n);
   if (!cand || !cand.length) {
     return {
