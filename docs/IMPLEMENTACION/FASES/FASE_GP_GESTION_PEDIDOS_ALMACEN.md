@@ -956,6 +956,59 @@ Vistos y **no corregidos aquí** (no son de GP.4): la migaja dice "Pedidos" en S
 consola en TODAS las impresiones; la etiqueta sale bien porque los estilos van dentro); y un login
 frenado por demasiados intentos (429) se muestra como "sesión expirada".
 
+#### 9.6.3 Prueba con pedidos de forma REAL, actuando cada rol (2026-10-10)
+
+**El perfil, medido en prod (sólo lectura, 60 días, pedidos ya surtidos):**
+
+| | Sucursal | Telemarketing |
+|---|---|---|
+| Pedidos | 1,970 | 2,055 |
+| Renglones: promedio · mediana · p90 · máx | **27.6** · 12 · 81 · 156 | **10.8** · 7 · 26 · 160 |
+| Cajas cerradas por pedido (promedio) | 57.6 | 12.7 |
+| Renglones en caja cerrada / por kilo | 32% / 8% | 55% / 11% |
+| Presentación pedida | **PAQ 58%**, CJA 30%, KG 6%, PZA 3%, BTO 2% | **CJA 49%**, PAQ 36%, BTO 6%, KG 5%, PZA 4% |
+| Pedidos de tanda (≤5 renglones) | 33% | 44% |
+
+Aparecen presentaciones **"500" y "250"** (gramos), poco frecuentes: falta ver cómo se muestran.
+
+**El escenario:** dos pedidos reales de Padre Hidalgo cercanos al promedio, con su ficha `kdii` y sus
+códigos de barras reales, copiados a Docker como sucursal 07: **UD4001-0002680** (ruta, 30 renglones:
+11 CJA, 17 PAQ, 2 KG y 1 en otra presentación) y **UD4001-0002770** (telemarketing, 10 renglones). Traen
+casos que el seed sintético no tenía: caja en la 2ª unidad de Kepler (no en la 3ª), 23 PAQ con caja de 20,
+bultos de 20 kg pedidos en BTO, 2.06 KG a granel y caja de un producto cuya base es el paquete.
+
+**Recorrido:** coordinador (cancela un surtido viejo, fija horas de salida, arma) → surtidor (surte los dos,
+con 2 faltantes en el de la ruta) → Facturación (su bandeja; la captura en Kepler se simula) → checador
+(rastrilla los dos con un escáner simulado: 56 escaneos y 1 pesada en el de 30 renglones). Todo cuadró y
+las etiquetas salieron solas (P1 por triplicado + 10 y 16 etiquetas de caja).
+
+**Funcionó:** la fila respeta la hora de salida en el surtido **y** en el checado; la bandeja de Facturación
+pide exactamente "deja 2 CJA / 3 PAQ"; el checado detecta ajeno, sobra y peso; el foco nunca se salió del
+escáner al rastrillar; 23 PAQ se checa como 1 CJA + 3 PAQ.
+
+**Dos errores que perdían lecturas en silencio, corregidos:**
+
+| Error | Corrección |
+|---|---|
+| ⚠️ Tras tocar **− / +** o la casilla "Son cajas cerradas", el foco se quedaba en ese control: el escáner tecleaba ahí, **la lectura se perdía** y su Enter **volvía a apretar +** (2 → 4) | Esos controles no se quedan con el foco: regresa al escáner. Prueba negativa con mutación |
+| El Enter del escáner dependía del envío implícito del formulario, que **no corre si "Agregar" sigue deshabilitado** porque la pantalla no ha repintado la lectura (escáner más rápido que la pantalla) | El Enter se atiende en el campo. Prueba negativa con mutación |
+
+**Propuestas (decisión de Francisco):**
+1. **Cantidad escribible o +5 / +10**: 20 PAQ sueltos fueron 19 toques al +.
+2. **Señal por cada lectura**: dos escaneos iguales seguidos dejan el aviso idéntico ("+1 PAQ · …"; pasó en
+   25 de 56) y no se sabe si el segundo entró. Propuesta: el aviso dice "llevas 2 de 3 PAQ" y un sonido o
+   destello por lectura.
+3. **Aviso "todo listo"** cuando los renglones están completos: cierra la caja P y termina.
+4. **La caja P se llena**: en el pedido de la ruta cayeron 38 artículos de 20 productos en una sola P.
+   Sugerir cerrarla (por artículos) o dejar que el checador la cierre con un botón más visible.
+5. "10 cajas completas" cuenta también los **bultos** (BTO): decir "cajas y bultos".
+6. Surtidor: la barra fija de abajo tapa a medias "Completo / Faltante" y "No había nada".
+7. Consola: se queda **en blanco al cargar** (sin "Cargando…"); la **hora de salida no se guarda** hasta
+   apretar "Guardar" (fácil irse sin guardar); el ejemplo del motivo de **cancelar** es el de "urgente"
+   ("sale el camión de Zamora a las 10"); la hora sale en formato de 12 h ("09:00 AM").
+8. Facturación: un pedido **surtido y luego cancelado en Kepler** dice "Kepler lo trae en CANCELADO" pero no
+   qué hacer con la mercancía ya levantada (regresarla).
+
 ### 9.7 Fuera de esta entrega
 
 Contenedor de plástico compartido (§5c), mover cajas entre ubicaciones, la carga al camión (GP.5) y

@@ -142,6 +142,31 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     expect(c.comoCajas()).toBe(false);
   });
 
+  it('⭐ prueba negativa: tras tocar "+" el foco regresa al escáner (si no, la lectura se perdía y su Enter volvía a sumar)', async () => {
+    await montar(P());
+    fix.autoDetect = true;
+    // Que termine el enfoque pendiente de entrar al pedido: si no, él solo hace pasar la prueba.
+    await new Promise((r) => setTimeout(r, 10));
+    const mas = el().querySelector('button[aria-label="Una más"]') as HTMLButtonElement;
+    mas.focus();
+    expect(document.activeElement).toBe(mas);
+    mas.click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(c.cantidad()).toBe(2);
+    expect(document.activeElement?.id).toBe('ck-code');
+  });
+
+  it('⭐ prueba negativa: el Enter del escáner se registra aunque "Agregar" siga deshabilitado (sin repintar)', async () => {
+    await montar(P());
+    const input = el().querySelector('#ck-code') as HTMLInputElement;
+    input.value = 'C06001';
+    input.dispatchEvent(new Event('input'));
+    // Sin render(): el botón "Agregar" sigue deshabilitado, como cuando el escáner teclea más rápido que la pantalla.
+    expect(boton('Agregar')?.disabled).toBe(true);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(api['checadoEscanear']).toHaveBeenCalledWith('chk-1', { code: 'C06001', cantidad: 1, como_cajas: undefined, peso_kg: undefined });
+  });
+
   it('un producto ajeno se avisa en rojo', async () => {
     await montar(P());
     api['checadoEscanear'].mockReturnValueOnce(of(OK({ resultado: 'ajeno', mensaje: 'MAZAPAN no va en este pedido. Sepáralo.', producto: 'MAZAPAN', pedido: P() })));

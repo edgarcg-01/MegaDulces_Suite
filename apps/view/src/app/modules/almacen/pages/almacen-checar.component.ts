@@ -123,23 +123,27 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
               @if (pidePeso(); as pp) {
                 <label class="ck-l" for="ck-peso">Peso de {{ pp.producto }} en la báscula (kg)</label>
                 <div class="ck-row">
-                  <input #pesoInput id="ck-peso" name="peso" type="number" step="0.001" min="0" inputmode="decimal" class="ck-input" placeholder="Ej. 2.5" [ngModel]="peso()" (ngModelChange)="peso.set($event)" />
+                  <input #pesoInput id="ck-peso" name="peso" type="number" step="0.001" min="0" inputmode="decimal" class="ck-input" placeholder="Ej. 2.5" [ngModel]="peso()" (ngModelChange)="peso.set($event)" (keydown.enter)="$event.preventDefault(); enviar()" />
                   <button type="submit" class="ck-btn" [disabled]="!pesoValido()">Agregar</button>
                   <button type="button" class="ck-sec" (click)="cancelarPeso()">Cancelar</button>
                 </div>
               } @else {
                 <label class="ck-l" for="ck-code">Escanea o escribe el código</label>
                 <div class="ck-row">
-                  <input #codigoInput id="ck-code" name="code" class="ck-input" [ngModel]="codigo()" (ngModelChange)="codigo.set($event)" [attr.inputmode]="teclado() ? 'text' : 'none'" enterkeyhint="send" autocapitalize="characters" />
+                  <!-- El Enter del escáner se atiende aquí y no con el envío implícito del formulario: ése no
+                       corre si "Agregar" sigue deshabilitado porque la pantalla aún no repinta la lectura. -->
+                  <input #codigoInput id="ck-code" name="code" class="ck-input" [ngModel]="codigo()" (ngModelChange)="codigo.set($event)" (keydown.enter)="$event.preventDefault(); enviar()" [attr.inputmode]="teclado() ? 'text' : 'none'" enterkeyhint="send" autocapitalize="characters" />
                   <button type="submit" class="ck-btn" [disabled]="!codigo().trim()">Agregar</button>
                   <button type="button" class="ck-sec" [attr.aria-pressed]="teclado()" (click)="alternarTeclado()">{{ teclado() ? 'Ocultar teclado' : 'Teclado' }}</button>
                 </div>
                 <div class="ck-row ck-cant">
                   <span class="ck-l">Cantidad</span>
-                  <button type="button" class="ck-step" (click)="paso(-1)" [disabled]="cantidad() <= 1" aria-label="Una menos">−</button>
+                  <!-- Ningún control de aquí se queda con el foco: el escáner teclea donde esté el foco, y en un
+                       botón la lectura se perdía y su Enter volvía a tocar el botón (prueba visual, 2026-10-10). -->
+                  <button type="button" class="ck-step" (pointerdown)="$event.preventDefault()" (click)="paso(-1)" [disabled]="cantidad() <= 1" aria-label="Una menos">−</button>
                   <span class="ck-n" aria-live="polite">{{ cantidad() }}</span>
-                  <button type="button" class="ck-step" (click)="paso(1)" [disabled]="cantidad() >= 999" aria-label="Una más">+</button>
-                  <label class="ck-check"><input type="checkbox" [ngModel]="comoCajas()" (ngModelChange)="comoCajas.set($event)" name="cajas" /> Son cajas cerradas</label>
+                  <button type="button" class="ck-step" (pointerdown)="$event.preventDefault()" (click)="paso(1)" [disabled]="cantidad() >= 999" aria-label="Una más">+</button>
+                  <label class="ck-check"><input type="checkbox" [ngModel]="comoCajas()" (ngModelChange)="comoCajas.set($event); enfocar()" name="cajas" /> Son cajas cerradas</label>
                 </div>
                 <p class="ck-hint">¿Varias iguales sin etiqueta? Pon cuántas (y marca "Son cajas cerradas" si lo son) ANTES de escanear la pieza.</p>
               }
@@ -481,6 +485,7 @@ export class AlmacenChecarComponent implements OnInit {
 
   paso(d: number): void {
     this.cantidad.set(Math.min(999, Math.max(1, this.cantidad() + d)));
+    this.enfocar();
   }
 
   alternarTeclado(): void {
