@@ -49,6 +49,7 @@ export * from './lib/contpaqi/finance-contpaqi.module';
 export * from './lib/contpaqi/contpaqi-cuadre.service';
 export * from './lib/contpaqi/contpaqi-armado.service';
 export * from './lib/contpaqi/txt-sink.adapter';
+export * from './lib/contpaqi/contpaqi-bridge.controller';
 export * from './lib/caos/finance-caos.module';
 export * from './lib/caos/caos.service';
 export * from './lib/caja/caja-general.service';
