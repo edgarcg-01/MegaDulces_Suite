@@ -1223,7 +1223,11 @@ const CRON_JOBS: CronCfg[] = [
   // Sin esta entrada el latido caería en `cfg ? classify : 'ok'` = verde incondicional. La caja
   // mueve ~8/día; el rezago se tolera holgado (warn a ~2 h) porque un hueco no es urgente como el
   // corte de caja, pero un feed muerto un día entero sí importa (crit a 6 h).
-  { key: 'caos_movimientos',    label: 'CAOS — movimientos de caja fuerte',   cadence: 'cada 2 min', warnH: 2, critH: 6 },
+  // `[CG.80]` Pasó de `*/2` en el cron a demonio propio @1 s (`ops/k3s/28-caos-live.deployment.yaml`).
+  // ⚠️ El umbral se aprieta porque la cadencia cambió, no porque sí: con 2 h de `warn` un demonio
+  // muerto a las 9 de la mañana se veía sano hasta las 11. El latido se acota a 30 s (a 1 s serían
+  // 86,400 escrituras diarias contra prod), así que 15 min de silencio ya son 30 latidos perdidos.
+  { key: 'caos_movimientos',    label: 'CAOS — movimientos de caja fuerte',   cadence: 'continuo ~1 s', warnH: 0.25, critH: 1 },
   // [EX-PERF.2] `mv_existencia_aux_refresh`: el factor de caja y el costo del ERP que valuan
   // /compras/existencia. Mismo modo de falla que el matview de caja: si deja de refrescarse
   // **no da error**, sirve la foto vieja — y acá eso vale dinero, porque el factor manda la
