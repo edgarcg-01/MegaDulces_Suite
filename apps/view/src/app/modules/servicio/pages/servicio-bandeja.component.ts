@@ -10,7 +10,8 @@ import { SD_PRIORITIES, SD_STATUSES, SD_UBICACIONES_EXTRA, type SdAgentDto, type
 import { STORE_BRANCHES } from '../../../core/constants/store-branches';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
-import { PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError, slaTexto, type SdInboxQuery } from '../service-desk.service';
+import { PAUSE_REASON_LABEL, PRIORITY_LABEL, STATUS_LABEL, ServiceDeskService, sdError, type SdInboxQuery } from '../service-desk.service';
+import { etiquetaPrioridad, plazoDeFila, tituloVisible } from '../confidencial';
 import { SdRequestDetailComponent } from '../sd-request-detail.component';
 
 /**
@@ -121,10 +122,10 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
                 @for (t of rows(); track t.id) {
                   <tr [class.sel]="selId() === t.id" (click)="abrir(t.id)" tabindex="0" (keydown.enter)="abrir(t.id)">
                     <td class="mono" role="cell" data-label="Folio">{{ t.folio }}</td>
-                    <td class="tit dt-id" role="cell" data-label="Solicitud">{{ t.title }}@if (t.is_test) { <span class="prueba" title="Solicitud de prueba: no cuenta en reportes, tablero ni avisos">Prueba</span> }<small>@if (hayVariasColas() && t.queue_name) { <b class="cola">{{ t.queue_name }}</b> · }{{ t.category_name }}</small></td>
+                    <td class="tit dt-id" role="cell" data-label="Solicitud">{{ titulo(t) }}@if (t.confidential) { <span class="conf" title="Confidencial: su contenido es sólo de quien la reportó y del equipo del área"><i class="pi pi-lock" aria-hidden="true"></i> Confidencial</span> }@if (t.is_test) { <span class="prueba" title="Solicitud de prueba: no cuenta en reportes, tablero ni avisos">Prueba</span> }<small>@if (hayVariasColas() && t.queue_name) { <b class="cola">{{ t.queue_name }}</b> · }{{ t.category_name }}</small></td>
                     <td class="opc" role="cell" data-label="Reportó">{{ t.requester_name || '—' }}</td>
                     <td class="opc" role="cell" data-label="Ubicación">{{ t.warehouse_name || '—' }}</td>
-                    <td role="cell" data-label="Prioridad">@if (t.priority) { <span class="pri" [attr.data-p]="t.priority">{{ priorityLabel[t.priority] }}</span> } @else { <span>—</span> }</td>
+                    <td role="cell" data-label="Prioridad">@if (etiquetaPri(t.priority); as pl) { <span class="pri" [attr.data-p]="t.priority">{{ pl }}</span> } @else { <span class="sin">—</span> }</td>
                     <td role="cell" data-label="Estado"><span class="est" [attr.data-s]="t.status">{{ statusLabel[t.status] }}</span>@if (t.pause_reason) { <small class="espera">{{ motivoPausa(t.pause_reason) }}</small> }</td>
                     <td class="opc" role="cell" data-label="Atiende">{{ t.assigned_to_name || '—' }}</td>
                     <td role="cell" data-label="Plazo"><span class="sla" [attr.data-t]="plazo(t).tono">{{ plazo(t).texto }}</span></td>
@@ -211,6 +212,8 @@ const direccionInicial = (c: ColumnaOrden): 'asc' | 'desc' => (c === 'prioridad'
     .tit { font-weight: 600; overflow-wrap: anywhere; }
     .tit small { display: block; font-weight: 400; color: var(--text-muted); font-size: var(--fs-xs); }
     .vacio { text-align: center; color: var(--text-muted); padding: var(--sp-6) !important; cursor: default; }
+    .conf { margin-left: var(--sp-2); font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+    .sin { color: var(--text-muted); }
     .pri, .est, .sla { display: inline-block; padding: 1px var(--sp-2); border-radius: var(--r-pill); font-size: var(--fs-xs); white-space: nowrap; }
     .pri { color: var(--text-muted); }
     .pri[data-p='alta'] { color: var(--warn-fg); background: var(--warn-soft-bg); }
@@ -441,5 +444,8 @@ export class ServicioBandejaComponent implements OnInit {
   /** Un cambio en la ficha mueve la fila de filtro (p. ej. tomarla la saca de «Sin asignar»). */
   alCambiar(): void { this.recargar(); }
 
-  plazo(t: SdRequestRow): { texto: string; tono: 'ok' | 'warn' | 'bad' | 'mute' } { return slaTexto(t.sla, t.status); }
+  plazo(t: SdRequestRow): { texto: string; tono: 'ok' | 'warn' | 'bad' | 'mute' } { return plazoDeFila(t); }
+  /** `[MSH.3]` Una fila en vista limitada (administrador sobre un ticket confidencial) no trae título: se rotula neutra. */
+  readonly titulo = tituloVisible;
+  readonly etiquetaPri = etiquetaPrioridad;
 }
