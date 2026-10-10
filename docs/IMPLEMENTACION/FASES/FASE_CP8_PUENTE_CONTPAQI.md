@@ -124,7 +124,7 @@ plazo. `NULL` no es `false`.
 | `[CP.8.4]` ⛔ | **Conseguir un TXT real ya aceptado** y cerrar el `SEP` | **Ruta crítica de TODO.** Cuesta cero código. Mientras no esté, cada póliza que generemos es una apuesta sobre un formato sin verificar |
 | `[CP.8.5]` ✅ | `CONTPAQI_POLIZA_SINK_PORT` + `ContpaqiTxtSinkAdapter` | **EN CÓDIGO 2026-10-08.** Ver nota abajo |
 | `[CP.8.6]` ✅ | **El token de correlación** (`token.ts`) | **EN CÓDIGO 2026-10-09.** `MD:`+12 hex, determinista por evento. Ver nota abajo |
-| `[CP.8.7]` | Bandeja `/finanzas/contpaqi`: armar → revisar → entregar | HITL. El motor arma, la persona entrega (ADR-028 intacto) |
+| `[CP.8.32]` | Bandeja `/finanzas/contpaqi`: armar → revisar → entregar | HITL. El motor arma, la persona entrega (ADR-028 intacto) |
 
 #### `[CP.8.5]` — qué se hizo y qué costó (2026-10-08)
 
@@ -229,19 +229,19 @@ existe. **Disparador para agregarlo:** que esa consulta pase de 200 ms, o que `g
 
 | | Qué |
 |---|---|
-| `[CP.8.12]` | UI de reglas con su **confianza medida** + aprobación (`derivada` → `aprobada`) |
-| `[CP.8.13]` | **Proveedor → su subcuenta** por RFC contra `analytics.contpaqi_suppliers` (3,411, 99.6% con RFC) |
-| `[CP.8.14]` | La regla del **IVA desde `fiscal.cfdis`** — nunca calculado (medido: difiere 1–2 ¢) |
-| `[CP.8.15]` | Las categorías que no concentran (`imss_sua`, 10.2%): medirlas mejor **o declararlas** |
+| `[CP.8.33]` | UI de reglas con su **confianza medida** + aprobación (`derivada` → `aprobada`) |
+| ~~`[CP.8.13]`~~ | ✅ **HECHO como `[CP.8.20]`** — y no por RFC sino por el **UUID del CFDI**: 99.8 % del importe |
+| ~~`[CP.8.14]`~~ | ✅ **HECHO en `[CP.8.2]`**: `iva` es parámetro OBLIGATORIO y el armador se niega a derivarlo |
+| ~~`[CP.8.15]`~~ | ✅ **MEDIDAS Y DECLARADAS** en `[CP.8.22]`/`[CP.8.27]`: no son derivables, y 3 **no pueden tener UNA cuenta** |
 
 ### E4 — La ida automática (dependencia: terminal + SDK) ⬜
 
 | | Qué |
 |---|---|
-| `[CP.8.16]` | Correr [`01-probe-sdk.ps1`](../../../database/importers/contpaqi/01-probe-sdk.ps1) en una terminal ContPAQi |
-| `[CP.8.17]` | El agente (`.exe`/servicio C#), **un endpoint**, sin lógica de negocio |
-| `[CP.8.18]` | `SdkSinkAdapter` + **reversa automática a TXT** si el agente no responde |
-| `[CP.8.19]` | Asociación formal de UUID (`AsocCFDIs`) — cierra el **0% en 5 años** medido en §7.9 |
+| `[CP.8.40]` | Correr [`01-probe-sdk.ps1`](../../../database/importers/contpaqi/01-probe-sdk.ps1) en la terminal ContPAQi — ⭐ ya tiene dirección: **`192.168.0.208`** (`0contabilidadd`) |
+| `[CP.8.41]` | El agente (`.exe`/servicio C#), **un endpoint**, sin lógica de negocio |
+| `[CP.8.42]` | `SdkSinkAdapter` + **reversa automática a TXT** si el agente no responde |
+| ~~`[CP.8.19]`~~ | ⭐⭐ **HECHO SIN SDK** en `[CP.8.29]` (renglones `AD`). ⛔ Era el argumento #2 del SDK y **ya no existe** |
 
 ### E5 — Ampliar flujos ⬜
 
@@ -1951,3 +1951,57 @@ contarse: un número no dice *cuál* falta.
 
 **40 ✓ / 0 ✗**, mutado a rojo tres veces — incluida la mutación *"aflojar a `estado !==
 'sin_regla'`"*, que es exactamente el atajo que estuve por tomar.
+
+---
+
+## 29. 🗺️ `[CP.8.32]`+ El mapa de códigos — qué quedó dónde, y qué códigos chocaron
+
+El plan de §3 reservó `[CP.8.1]`–`[CP.8.19]` antes de construir. Al construir, **tres códigos
+quedaron usados dos veces**, con significados distintos:
+
+| código | en el PLAN (§3) | en los COMMITS |
+|---|---|---|
+| `[CP.8.7]` | bandeja `/finanzas/contpaqi` | **la plomería** (movimiento bancario → póliza) |
+| `[CP.8.13]` | proveedor → subcuenta por RFC | **el round-trip byte a byte** |
+| `[CP.8.18]` | `SdkSinkAdapter` | **el derivador del mapa** |
+
+⛔ **El historial manda**: un código que ya vive en un mensaje de commit **no se renumera** — el
+mensaje es inmutable y renombrarlo rompe la trazabilidad. Lo que se renumera es el **placeholder
+del plan**, que no está construido y no lo referencia nadie.
+
+| era | ahora | qué es |
+|---|---|---|
+| `[CP.8.7]` | **`[CP.8.32]`** | bandeja de armado: armar → revisar → entregar |
+| `[CP.8.12]` | **`[CP.8.33]`** | UI de reglas con confianza + aprobación |
+| `[CP.8.16]` | **`[CP.8.40]`** | correr el probe del SDK en `192.168.0.208` |
+| `[CP.8.17]` | **`[CP.8.41]`** | el agente C# |
+| `[CP.8.18]` | **`[CP.8.42]`** | `SdkSinkAdapter` + reversa a TXT |
+
+### 29.1 Y cuatro del plan ya estaban hechos sin que el plan lo dijera
+
+| | |
+|---|---|
+| `[CP.8.13]` proveedor → subcuenta | ✅ es `[CP.8.20]` — y **no por RFC sino por el UUID del CFDI**: 99.8 % del importe |
+| `[CP.8.14]` IVA desde `fiscal.cfdis` | ✅ es `[CP.8.2]`: `iva` es parámetro OBLIGATORIO y el armador **se niega a derivarlo** |
+| `[CP.8.15]` categorías que no concentran | ✅ `[CP.8.22]`/`[CP.8.27]`: **no son derivables**, y 3 **no pueden tener UNA cuenta** |
+| `[CP.8.19]` asociación formal de UUID | ⭐⭐ ✅ `[CP.8.29]`, **y sin SDK** |
+
+### 29.2 ⛔ Lo que esto le hace a E4 (el SDK)
+
+`[CP.8.19]` era **el argumento #2 del SDK**: la asociación formal del UUID. §9.1 ya había avisado
+que si el TXT podía hacerla, *"al SDK le queda un solo argumento"*. **Ahora está hecho por TXT.**
+
+Al SDK le queda **uno**: que nadie tenga que apretar Importar. Sigue siendo válido —
+`[CP.8.40]`–`[CP.8.42]`— pero es mucho más chico de lo que el plan asumía, y **E4 deja de estar
+en la ruta crítica de nada**.
+
+### 29.3 Lo que de verdad falta
+
+| | quién | |
+|---|---|---|
+| **el clic** | contabilidad | desbloquea **3 de los 5** criterios de §5; `poliza_exports` está **vacía: nada se entregó nunca** |
+| `[CP.8.32]` bandeja de armado | código | |
+| `[CP.8.11]` bandeja de divergencias + plazo | código | |
+| `[CP.8.33]` UI de aprobación de reglas | código | tras firmar |
+| los **33 alias** | compras | `por_proveedor` 72.7 % → ~94.5 % |
+| `DISABLE_CRONS` en `deploy/api` | plataforma | ⛔ **no es de esta fase**, pero afecta a todos los crons |
