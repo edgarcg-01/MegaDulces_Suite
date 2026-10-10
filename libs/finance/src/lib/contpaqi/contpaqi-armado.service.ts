@@ -8,7 +8,7 @@ import {
 } from './poliza-egreso';
 import { tokenDe } from './token';
 import {
-  construirIndice, resolverProveedor,
+  construirIndice, resolverProveedor, normalizarNombre, palabrasEnComun,
   type AliasProveedor, type CuentaProveedor, type IndiceProveedores,
 } from './proveedor-resolver';
 
@@ -105,6 +105,19 @@ export interface ResumenMes {
     importe: number;
     cuentas: CuentaFueraDeLote[];
   };
+}
+
+/** `[CP.8.37]` Un nombre del banco que todavía no llega a una cuenta, con sus pistas. */
+export interface PendienteProveedor {
+  alias_normalizado: string;
+  concepto_banco: string;
+  movimientos: number;
+  importe: number;
+  veredicto: string;
+  motivo: string | null;
+  rubro: string;
+  /** ⛔ Pistas por palabras en común. Nunca se aplican solas. */
+  sugerencias: { cuenta: string; nombre: string; veredicto: string; parecido: number }[];
 }
 
 export interface ResultadoArmado {
@@ -283,6 +296,114 @@ export class ContpaqiArmadoService {
     for (const p of prefijos) out.set(p, construirIndice(filas as CuentaProveedor[], p, alias));
     this.log.log(`índice de proveedores: ${filas.length} cuentas · ${alias.length} alias · rubros ${prefijos.join(', ')}`);
     return out;
+  }
+
+  /**
+   * `[CP.8.37]` — **El trabajo pendiente de proveedores, agrupado por NOMBRE y ordenado por dinero.**
+   *
+   * ⭐ Agrupa a propósito: quien confirma no resuelve 72 movimientos, confirma **53 nombres**. Es
+   * la diferencia entre una tarde y una hora.
+   *
+   * ⛔ Las sugerencias se ordenan por **palabras en común** y son una PISTA, no un veredicto. No
+   * se aplican solas nunca: una cuenta equivocada **cuadra igual** y no se ve hasta la balanza.
+   */
+  async proveedoresPendientes(anioMes: string): Promise<PendienteProveedor[]> {
+    const egresos = await this.leerEgresos(anioMes);
+    const reglas = await this.leerReglas();
+    const indices = await this.leerIndicesProveedor(reglas);
+
+    const padron = await this.db('contpaqi.supplier_accounts').where({ tenant_id: MEGA })
+      .select('cuenta', 'proveedor_nombre', 'cuenta_nombre', 'veredicto');
+
+    const pend = new Map<string, PendienteProveedor>();
+    for (const e of egresos) {
+      const regla = reglas.get(e.categoria_code);
+      if (!regla || regla.tipo_regla !== 'por_proveedor' || !e.cuenta_banco) continue;
+      const idx = regla.cuenta_prefijo ? indices.get(regla.cuenta_prefijo) : undefined;
+      if (!idx) continue;
+      const r = resolverProveedor(idx, e.concept);
+      if (r.veredicto === 'resuelto') continue;
+
+      const clave = normalizarNombre(e.concept) || '(sin concepto)';
+      const y = pend.get(clave) ?? {
+        alias_normalizado: clave,
+        concepto_banco: String(e.concept ?? ''),
+        movimientos: 0,
+        importe: 0,
+        veredicto: r.veredicto,
+        motivo: r.motivo,
+        rubro: regla.cuenta_prefijo ?? '2120',
+        sugerencias: [],
+      };
+      y.movimientos += 1;
+      y.importe = Math.round((y.importe + Number(e.amount_out)) * 100) / 100;
+      pend.set(clave, y);
+    }
+
+    const filas = [...pend.values()].sort((a, b) => b.importe - a.importe);
+    for (const f of filas) {
+      f.sugerencias = padron
+        .filter((p: any) => String(p.cuenta).startsWith(f.rubro))
+        .map((p: any) => ({
+          cuenta: p.cuenta,
+          nombre: p.proveedor_nombre ?? p.cuenta_nombre ?? '',
+          veredicto: p.veredicto,
+          parecido: Math.max(
+            palabrasEnComun(f.concepto_banco, p.proveedor_nombre),
+            palabrasEnComun(f.concepto_banco, p.cuenta_nombre),
+          ),
+        }))
+        .filter((s: any) => s.parecido >= 0.5)
+        .sort((a: any, b: any) => b.parecido - a.parecido)
+        .slice(0, 3);
+    }
+    return filas;
+  }
+
+  /**
+   * Guarda un alias confirmado por una PERSONA.
+   *
+   * ⛔ Valida que la cuenta **exista en el catálogo de ContPAQi** y que sea del rubro: el CHECK de
+   * la tabla sólo cuida la forma (10 dígitos), y una cuenta con forma válida que no existe se
+   * importaría como basura.
+   */
+  async confirmarAlias(entrada: {
+    concepto_banco: string; cuenta: string; rubro?: string; nota?: string; confirmado_por: string;
+  }): Promise<{ alias_normalizado: string; cuenta: string }> {
+    const alias = normalizarNombre(entrada.concepto_banco);
+    if (alias.length < 5) throw new Error('el concepto no deja un nombre con qué buscar');
+    const rubro = entrada.rubro ?? '2120';
+    if (!String(entrada.cuenta).startsWith(rubro)) {
+      throw new Error(
+        `la cuenta ${entrada.cuenta} no es del rubro ${rubro}: un alias a otro rubro sería una `
+        + 'puerta trasera al defecto que costó 69 pp de resolución',
+      );
+    }
+    const existe = await this.db('analytics.contpaqi_accounts')
+      .where({ codigo: entrada.cuenta }).first();
+    if (!existe) throw new Error(`la cuenta ${entrada.cuenta} no existe en el catálogo de ContPAQi`);
+    if (!entrada.confirmado_por) throw new Error('un alias sin autor no es una afirmación');
+
+    await this.db('contpaqi.supplier_aliases')
+      .insert({
+        tenant_id: MEGA,
+        concepto_banco: entrada.concepto_banco,
+        alias_normalizado: alias,
+        cuenta: entrada.cuenta,
+        cuenta_nombre: (existe as any).nombre ?? null,
+        confirmado_por: entrada.confirmado_por,
+        nota: entrada.nota ?? null,
+      })
+      .onConflict(this.db.raw('(tenant_id, alias_normalizado) WHERE active') as any)
+      .merge({
+        cuenta: entrada.cuenta,
+        cuenta_nombre: (existe as any).nombre ?? null,
+        nota: entrada.nota ?? null,
+        updated_at: this.db.fn.now(),
+        updated_by: entrada.confirmado_por,
+      });
+    this.log.log(`alias confirmado: "${alias}" → ${entrada.cuenta} (${entrada.confirmado_por})`);
+    return { alias_normalizado: alias, cuenta: entrada.cuenta };
   }
 
   /** Devuelve la regla con la cuenta del proveedor puesta, o igual con su motivo si no resolvió. */

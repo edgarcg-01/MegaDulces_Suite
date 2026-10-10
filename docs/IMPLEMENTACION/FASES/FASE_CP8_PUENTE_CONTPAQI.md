@@ -2388,3 +2388,63 @@ existe en **dos cuentas con el mismo nombre** (`2120000047` y `2120000097`). El 
 `test-newdb-contpaqi-proveedor.js` **25 ✓ / 0 ✗**: el alias gana al padrón, queda marcado como
 alias (no como derivado), **se ignora si apunta fuera del rubro**, y la base impide dos cuentas
 activas para el mismo texto.
+
+---
+
+## §35 `[CP.8.37]` — La pantalla para confirmar el alias: el puente queda probable de punta a punta
+
+🧪 **EN CÓDIGO 2026-10-10.** Sin migración nueva (usa la 878). Falta `git push` + que alguien lo
+levante en local y lo mire.
+
+### 35.1 Por qué sin esto no se podía probar nada
+
+`[CP.8.36]` creó la tabla y **nadie podía escribir en ella desde la UI**. Pedirle a compras que
+corra un `INSERT` rompe la regla de *«todo desde la UI»*, así que el puente quedaba trabado en el
+último metro: la bandeja mostraba 53 nombres pendientes y ningún camino para resolverlos.
+
+### 35.2 Dónde vive, y por qué ahí
+
+**Dentro de la bandeja**, debajo de los rechazos — el trabajo se hace donde se ve el problema.
+
+⚠️ Y en el puente, no en Compras: la decisión no es *qué proveedor es* sino **a qué cuenta
+contable carga**, y eso es de contabilidad. Si Compras termina necesitándolo, es un permiso nuevo
+repartido con nombre, **no abrir éste**.
+
+`GET /proveedores-pendientes` va con **`_VER`** y `POST /alias-proveedor` con **`_GESTIONAR`**:
+*mirar el trabajo pendiente no es hacerlo*, y quien revisa la bandeja tiene que poder ver por qué
+está trabada sin poder tocarla.
+
+### 35.3 Lo que la pantalla NO hace
+
+- **No preselecciona** ninguna sugerencia. Están ordenadas por palabras en común, que es una
+  pista para que un humano reconozca de un vistazo — no un voto.
+- **No esconde el aviso**: arriba de la tabla dice que una cuenta equivocada **cuadra igual** y no
+  se ve hasta la balanza.
+- El permiso del navegador **esconde el botón, no protege nada**: quien manda es el guard del
+  endpoint.
+
+⭐ Al confirmar **recarga la bandeja entera**, no sólo la lista: el alias cambia *cuántos
+movimientos entran al asiento*, y dejar los lotes con el número viejo sería publicar un resultado
+que ya no es cierto.
+
+### 35.4 Lo que valida el guardado, y por qué el CHECK no alcanzaba
+
+El CHECK de la tabla sólo cuida la **forma** (10 dígitos). Una cuenta con forma válida que **no
+existe** se importaría como basura, así que el servicio además verifica contra
+`analytics.contpaqi_accounts`, que sea **del rubro**, y que venga **con autor**.
+
+### 35.5 Candado — **30 ✓ / 0 ✗ · 1 NO MEDIDO**
+
+| | |
+|---|---|
+| agrupa | 72 movimientos → **53 nombres** |
+| con candidato | **39 de 53** |
+| negativas del guardado | cuenta inexistente · cuenta de otro rubro · sin autor → **3/3 rechazados** |
+| ninguna sugerencia fuera del rubro | ✓ |
+
+⛔ **El camino de escritura queda NO MEDIDO y se declara**: `edgar`/`dev_ro` es read-only por
+diseño, así que desde esta máquina no se puede ejercer. Se ejerce desde el pod o desde la
+pantalla. *Un candado que salta un bloque en silencio se lee igual que uno que lo probó.*
+
+⚠️⚠️ **Séptima vez que un acento grave en un comentario de `template`/`styles` rompe el build.** Lo
+agarró `check:templates`.
