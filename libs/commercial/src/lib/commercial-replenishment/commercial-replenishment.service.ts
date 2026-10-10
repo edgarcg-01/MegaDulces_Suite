@@ -321,6 +321,13 @@ export interface RequisitionListRowDto {
   warehouse_code: string | null;
   warehouse_name: string | null;
   supplier_name: string | null;
+  /**
+   * `[RQ.15]` La orden de compra de Kepler que salió de esta requisición. Las DOS o ninguna.
+   * ⛔ `null` en una `ordered` NO significa "no tiene OC": significa que se ordenó antes de que
+   * la columna existiera y **no se puede seguir hasta la entrada de mercancía**. Se declara.
+   */
+  oc_sucursal?: string | null;
+  oc_folio?: string | null;
   source_warehouse_code: string | null;
   source_warehouse_name: string | null;
 }
@@ -3677,6 +3684,12 @@ export class CommercialReplenishmentService {
           ...(loteCols ? ['r.batch_id', 'r.batch_folio', 'r.origin_requisition_id'] : []),
           trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'),
           trx.raw('sup.name AS supplier_name'),
+          // `[RQ.15]` La orden de compra de Kepler. ⚠️ Se piden con `to_jsonb(r) ->> …` y no como
+          // columnas directas para que la lista NO se caiga con un 42703 si el código llega a
+          // prod antes que su migración — el deploy y las migraciones viajan por caminos
+          // distintos y ya llegaron desordenados antes en este repo.
+          trx.raw(`to_jsonb(r) ->> 'oc_sucursal' AS oc_sucursal`),
+          trx.raw(`to_jsonb(r) ->> 'oc_folio'    AS oc_folio`),
           trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
           // `[RQ.2]` La ANTIGUEDAD viaja en la fila. Sin ella la lista ordena por fecha y el
           // lector tiene que restar de cabeza para darse cuenta de que esa requisicion lleva

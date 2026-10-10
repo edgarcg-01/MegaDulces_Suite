@@ -1290,3 +1290,35 @@ cadena para probar que la columna es nullable, y casa con el `WHERE oc_folio IS 
   nadie. Esto cierra la junta en la base y en el backend; falta el lugar donde se teclea.
 - **Las 53 ya ordenadas** quedan sin folio, declarado. Si alguien quiere recuperarlas, es trabajo
   humano contra Kepler, no una inferencia.
+
+### RQ.15.1 — La pantalla, que era lo que de verdad faltaba (2026-10-09)
+
+⛔ **El endpoint existía desde `RA.14` y ningún componente lo llamaba.** Hacer el folio obligatorio
+en el backend no sirve de nada si no hay dónde teclearlo — y ésa era exactamente la mitad que
+faltaba.
+
+Botón **«Capturar OC»** en el renglón de `/compras/requisiciones`, con su diálogo:
+
+- ⭐ **Sólo en la pestaña de PROVEEDOR.** Un traspaso entre sucursales no genera orden de compra;
+  ofrecerlo ahí sería pedir un dato que no existe.
+- ⭐ **Sólo en las `approved`.** En una pendiente no hay nada que ordenar todavía.
+- ⭐ **Por renglón, no en lote**: cada requisición sale con SU folio, y un botón de lote invitaría
+  a ponerle el mismo a varias.
+- La sucursal se **propone** (la de la requisición) pero no se impone: hasta el 1-oct el `00`
+  concentraba las compras de toda la red (Fase PO), así que la OC puede estar capturada en otra
+  plaza.
+- ⛔ **Una `ordered` sin folio se DECLARA como «sin OC»**, no se deja en blanco. Son las 53 que se
+  ordenaron antes de que la columna existiera: un blanco se lee como *«todavía no lo capturaron»*,
+  y la verdad es que **ya no se va a poder**.
+- ⛔ **El error NO cierra el diálogo.** El 409 del índice único es el caso real —ese folio ya está
+  en otra requisición— y cerrar borraría lo recién tecleado.
+
+⚠️ El backend devuelve las columnas con `to_jsonb(r) ->> 'oc_folio'` y no como columnas directas:
+si el código llega a prod antes que su migración, un `42703` tiraría **la lista entera**. En este
+repo el deploy y las migraciones viajan por caminos distintos y ya llegaron desordenados antes.
+
+Candado: 18 aserciones (7 nuevas sobre la pantalla), **mutado a rojo** quitando el botón. Suites:
+`commercial-replenishment` 180, `compras` del front 387.
+
+⚠️ Mi extractor del candado volvió a nacer mal: `indexOf('guardarOc(')` agarraba la aparición del
+**template** (`(keyup.enter)="guardarOc()"`) en vez del método. Anclado a la definición.

@@ -552,6 +552,13 @@ export interface RequisitionRow {
   warehouse_code: string | null;
   warehouse_name: string | null;
   supplier_name: string | null;
+  /**
+   * `[RQ.15]` La orden de compra de Kepler que salió de esta requisición. Las DOS o ninguna.
+   * ⛔ `null` en una `ordered` NO es "no tiene OC": es que se ordenó antes de que la columna
+   * existiera y **no se puede seguir hasta la entrada**. La pantalla lo declara como «sin OC».
+   */
+  oc_sucursal?: string | null;
+  oc_folio?: string | null;
   /** `[RQ.2]` Días desde que se creó, calculados por el SERVIDOR (VP.0: nunca el reloj del navegador). */
   dias?: number;
   /** `[RQ.1]` Vigencia de sus costos. `null` = no se pudo medir ninguno. */
