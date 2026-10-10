@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Added — Avisos de cambios de precio a las sucursales, y Compras comparte la lista (ETQ-AVISOS.1–3, 2026-10-09)
+- **Aviso a la campana de cada sucursal:** a las **07:30** (resume AYER) y a las **14:00** (lo que va de HOY) llega «N productos cambiaron de precio» a quien ve la etiquetera de esa tienda, con enlace directo a la lista de ese día. Se cuenta con la **misma regla de la pantalla** (una sola función en `libs/contracts`), así aviso y lista no pueden discrepar. Un día sin cambios **no genera aviso**; si la bitácora de la plaza aún no llega a ese día se **declara** (`sin dato`), no se dice «no hubo cambios».
+- **Compras puede compartir** (permiso nuevo `STORE_LABELS_COMPARTIR`): botón «Compartir» en Cambios de precio para **avisar a sucursales** (elige plazas, agrega nota; cada plaza devuelve su estado con el motivo) (**sin exportar a Excel/CSV**, decisión de Edgar del 2026-10-10: el aviso lleva a Cambios de precio, donde se reimprime).
+- Cambios de comportamiento: la campana hace un poll cada 5 min a `GET /store/labels/notices` sólo para quien tiene `STORE_LABELS_VER`. La pantalla de cambios acepta `?plaza=&fecha=` (validados; quien tiene tienda propia no cambia de plaza). **Migraciones aditivas ANTES del código** (`20261009160146` tabla, `20261009160147` reparto del permiso) y los afectados deben **re-loguear**. Nada aplicado a prod todavía. Plan y pendientes en `FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md`.
 ### Added — Preventa: liquidación contra la guía de carga (MCP.7, 2026-10-10)
 - Almacén › Pedidos › **Guías de carga** › **Por liquidar**: al regresar quien entregó, la caja revisa lo entregado y lo declarado (efectivo y transferencias con referencia), cuenta el efectivo por denominación y cierra la vuelta. Si algo no cuadra, la nota es obligatoria. Sale un comprobante en PDF para firmar (sustituye la tira de ingresos), reimprimible.
 - Un pedido que no se entrega en 3 intentos (sale una vez + 2 reintentos) ya no se puede llevar: la mesa lo marca «Devolución y NC en Kepler».

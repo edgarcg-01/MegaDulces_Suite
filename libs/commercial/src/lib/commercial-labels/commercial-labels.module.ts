@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { CommercialLabelsService } from './commercial-labels.service';
 import { CommercialLabelsController } from './commercial-labels.controller';
+import { PriceChangeNoticesService } from './price-change-notices.service';
 
 /**
  * Etiquetera (proyecto Tienda). Impresión de etiquetas de anaquel con precio escalonado.
@@ -8,7 +9,7 @@ import { CommercialLabelsController } from './commercial-labels.controller';
  */
 @Module({
   controllers: [CommercialLabelsController],
-  providers: [CommercialLabelsService],
-  exports: [CommercialLabelsService],
+  providers: [CommercialLabelsService, PriceChangeNoticesService],
+  exports: [CommercialLabelsService, PriceChangeNoticesService],
 })
 export class CommercialLabelsModule {}

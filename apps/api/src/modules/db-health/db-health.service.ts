@@ -1036,6 +1036,13 @@ const CRON_JOBS: CronCfg[] = [
   // Medido el 2026-09-21: la tabla de fotos tenia 0 filas y CERO renglones en `cron_runs`, o sea
   // que llevaba quien sabe cuanto sin tomarse y nadie podia enterarse.
   { key: 'cxc_snapshot',        label: 'Foto diaria de cartera (CxC)',      cadence: 'diario 08:30 MX', warnH: 26, critH: 50, maxRunH: 1 },
+  // `[ETQ-AVISOS.1]` Avisos de cambios de precio a las sucursales: DOS cortes al dia (07:30 y
+  // 14:00 MX). El hueco mas largo entre corridas es 17.5 h (14:00 -> 07:30), asi que `warnH: 20`
+  // tolera la cadencia normal y avisa al saltarse una; `critH: 40` es un dia entero sin avisos.
+  // ⛔ Registrarlo es OBLIGATORIO y no cosmetico: sin esta entrada el sensor cae en
+  // `cfg ? classify : 'ok'` -- verde incondicional -- y una encargada seguiria sin enterarse de que
+  // el precio de su anaquel cambio, que es justo lo que este job existe para evitar.
+  { key: 'price_change_notices', label: 'Avisos de cambios de precio',      cadence: '07:30 y 14:00 MX', warnH: 20, critH: 40, maxRunH: 1 },
   // [TES.12] Sin este renglón el sensor del back-test cae en `cfg ? classify : 'ok'` y da verde
   // incondicional — que es justo el defecto que la foto del pronóstico viene a cerrar un nivel
   // más arriba. Un día sin foto deja un hueco en la serie que ya no se puede reconstruir: lo que

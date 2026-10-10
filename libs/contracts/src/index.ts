@@ -28,6 +28,9 @@ export * from './http/unit-ladder.contract';
 // `[ETQ-PRES.0]` La misma regla de VU.0, aplicada al PRECIO: una presentación lleva su unidad,
 // su factor, su contenido derivado y su propio peldaño de mayoreo.
 export * from './http/price-presentation.contract';
+// `[ETQ-AVISOS.1]` Cambios de precio: la regla por producto y los avisos. Una sola cuenta para la
+// pantalla y para el generador, o el aviso y la lista discrepan.
+export * from './http/price-change-notice.contract';
 // [SM.39] Denominaciones MXN. La clave de una denominacion NO es su valor: el
 // billete y la moneda de $20 valen lo mismo y son cosas distintas.
 export * from './money/denominations';
