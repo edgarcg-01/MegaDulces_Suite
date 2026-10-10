@@ -139,6 +139,148 @@ const pairMatchJs = (shipMs: number, rcvMs: number, destWhId: string | null, rcv
     : !destWhId && rcvMs >= shipMs && rcvMs <= shipMs + d(PAIR_BLIND_DAYS);
 };
 
+/**
+ * `[DM.22]` — **el pareo tiene que MIRAR fuera del rango y REPORTAR dentro.**
+ *
+ * ⛔ El defecto que esto cierra: las dos CTEs de candidatos usaban **la misma ventana** que el
+ * rango que pidió la persona, mientras `TRANSFER_PAIR_MATCH` declara que una recepción puede
+ * fecharse hasta **90 días** después de su embarque (y hasta 15 antes). O sea que el pareo
+ * afirmaba una tolerancia que su propia fuente de datos no le daba: todo lo que cayera del otro
+ * lado del borde no estaba *sin pareja*, estaba **fuera de la foto**.
+ *
+ * ⚠️ Y no falla como se esperaría. No deja huecos: **fabrica hallazgos**, que es peor, porque un
+ * hallazgo falso se ve exactamente igual que uno real y manda a alguien a buscar un documento
+ * que sí existe. Medido contra prod el 2026-10-09:
+ *
+ * | ventana            | `sin_origen` publicados | de ésos FALSOS | `sin acuse` | FALSOS | monto falso |
+ * |--------------------|------------------------:|---------------:|------------:|-------:|------------:|
+ * | mes en curso       |                      38 |     **38 (100%)** |          99 |      0 |           — |
+ * | default 30 días    |                      24 |        22 (92%) |         124 |      0 |           — |
+ * | septiembre-2026    |                      21 |        19 (90%) |          75 | **40 (53%)** | $480,134.57 |
+ * | agosto-2026        |                      15 |     **15 (100%)** |          46 | **19 (41%)** | $289,678.50 |
+ *
+ * ⭐ Los dos lados fallan por motivos DISTINTOS, y por eso las dos columnas de ceros no son
+ * suerte: `sin_origen` se rompe en **toda** ventana (el embarque es anterior al rango, y siempre
+ * hay embarques anteriores); `sin acuse` sólo se rompe cuando la ventana **termina en el pasado**
+ * (una recepción posterior a hoy todavía no existe, así que con `to = hoy` no hay nada que
+ * perder). O sea que el mes en curso miente en una punta y un mes cerrado miente en las dos —
+ * y el selector de la pantalla ofrece justamente meses cerrados.
+ *
+ * ⛔ **Ensanchar el rango por default NO lo arregla**: mueve el borde, no lo quita. Con 90 días
+ * el mismo embarque de hace 91 vuelve a aparecer como huérfano. Lo que corrige es separar
+ * *candidato* de *reportado*, que es el patrón que este mismo archivo ya usa en `[DM.12]` para
+ * las pólizas ("sólo reporta dentro del rango; los meses de padding sólo son candidatos").
+ *
+ * ⚠️ El `DISTINCT ON` se resuelve **antes** de recortar al rango, a propósito: filtrar primero
+ * puede descartar al mejor candidato y dejar que el desempate elija a uno peor — el pareo saldría
+ * distinto según la ventana que se mire, que es exactamente lo que esto viene a evitar.
+ *
+ * ⭐ Y de paso deja de haber TRES copias de este bloque. La tercera (`transfersCheckPair`) ya
+ * había derivado: su `coalesce` del destino perdía `u.dest_code`, así que un destino sin etiqueta
+ * salía en blanco sólo en el drill. Es el mismo motivo por el que existen `DEST_WH_VIVO` y
+ * `TRANSFER_PAIR_MATCH`: una regla repetida a mano se desincroniza.
+ *
+ * Devuelve desde el `WITH` hasta `) t`; cada quien le pega su `WHERE`/`ORDER BY`/`LIMIT`.
+ * Los parámetros van en {@link TRANSFER_PAIRING_PARAMS}, en ese orden.
+ */
+const TRANSFER_PAIRING_SQL = (shpDestSql: string) => `
+        WITH shp AS (
+          -- ⚠️ NADA de joins acá adentro. El agregado recorre ~40k renglones de traspaso y cada
+          -- join que cuelgue de él se evalúa por RENGLÓN: el planner elige un nested loop contra
+          -- commercial.warehouses (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s.
+          -- Los nombres y el destino se resuelven en shpd, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
+          -- [DM.22] ventana de CANDIDATOS: un embarque puede preceder a su recepcion por hasta
+          -- PAIR_LATE_DAYS, o fecharse hasta PAIR_EARLY_DAYS despues de ella. Cuesta 14 ms.
+          SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
+                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
+          FROM analytics.stock_movements m
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip'
+            AND m.doc_date BETWEEN ?::date - ${PAIR_LATE_DAYS} AND ?::date + ${PAIR_EARLY_DAYS}${shpDestSql}
+          GROUP BY m.warehouse_id, m.folio, m.doc_serie, m.tenant_id
+        ), shpd AS (
+          -- [DM.20] a dónde va dirigido CADA embarque: es la LLAVE del pareo, no un adorno.
+          -- [DM.15] sólo si el almacén sigue vivo; si no, cuenta como "sin destino resuelto".
+          SELECT s.*, coalesce(w.name, w.code) AS wh_code, dw.id AS dest_wh_id
+          FROM shp s
+          LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
+          LEFT JOIN analytics.transfer_dest_map dmx ON dmx.tenant_id = s.tenant_id AND dmx.dest_code = s.dest_code
+          LEFT JOIN commercial.warehouses dw ON dw.id = dmx.warehouse_id AND ${DEST_WH_VIVO('dw')}
+        ), rcv AS (
+          -- [DM.22] misma ventana de candidatos, espejada.
+          SELECT m.warehouse_id, m.folio, m.parent_serie, m.parent_folio,
+                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
+          FROM analytics.stock_movements m
+          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41'
+            AND m.doc_date BETWEEN ?::date - ${PAIR_EARLY_DAYS} AND ?::date + ${PAIR_LATE_DAYS}
+          GROUP BY m.warehouse_id, m.folio, m.parent_serie, m.parent_folio
+        ), paired_all AS (
+          -- ⚠️ Un LEFT JOIN LATERAL con LIMIT 1 sobre una CTE la re-escanea ENTERA una vez por
+          -- recepción: con ~600 recepciones × ~2,000 embarques eran 2.6 s de los 3.5 s totales, y
+          -- una CTE no se puede indexar. El mismo "mejor candidato" sale de un hash join + un
+          -- DISTINCT ON, que recorre cada lado UNA vez. Mismo orden de desempate, mismo resultado
+          -- (verificado fila a fila contra la versión LATERAL). Medido el 2026-10-06.
+          SELECT DISTINCT ON (r.warehouse_id, r.folio, r.parent_serie, r.parent_folio)
+                 s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
+                 s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
+                 r.warehouse_id AS dest_wh_id, coalesce(rw.name, rw.code) AS dest_wh, r.folio AS rcv_folio,
+                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
+          FROM rcv r
+          LEFT JOIN commercial.warehouses rw ON rw.id = r.warehouse_id
+          LEFT JOIN shpd s
+            ON s.folio = r.parent_folio
+           AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
+           AND s.warehouse_id <> r.warehouse_id
+           AND ${TRANSFER_PAIR_MATCH('s', 'r')}
+          ORDER BY r.warehouse_id, r.folio, r.parent_serie, r.parent_folio,
+                   abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
+        ), paired AS (
+          -- [DM.22] recién acá se recorta al rango, y basta con que CUALQUIER pata caiga dentro:
+          -- un embarque del rango recibido después sigue siendo un documento del rango, y ocultarlo
+          -- sería cambiar una mentira (decía "sin acuse") por un hueco.
+          SELECT * FROM paired_all
+           WHERE rcv_date BETWEEN ?::date AND ?::date OR ship_date BETWEEN ?::date AND ?::date
+        ), unreceived AS (
+          -- Acá el ancla es el EMBARQUE: se reporta el del rango, pero la recepción que lo salva
+          -- puede estar fuera (y con el fin de rango en el pasado, lo esta el 41-53% de las veces).
+          SELECT s.* FROM shpd s
+          WHERE s.doc_date BETWEEN ?::date AND ?::date
+            AND NOT EXISTS (
+            SELECT 1 FROM rcv r
+            WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
+              AND r.warehouse_id <> s.warehouse_id
+              AND ${TRANSFER_PAIR_MATCH('s', 'r')})
+        )
+        SELECT * FROM (
+          SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,
+                 dest_wh_id, dest_wh, rcv_folio, rcv_date, qty_received, rcv_lines,
+                 CASE
+                   WHEN origin_folio IS NULL THEN 'sin_origen'
+                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01 THEN 'ok'
+                   ELSE 'diferencia'
+                 END AS status,
+                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
+          FROM paired
+          UNION ALL
+          SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
+                 dw.id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
+          FROM unreceived u
+          LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
+          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id AND ${DEST_WH_VIVO('dw')}
+        ) t`;
+
+/**
+ * Los 13 parámetros de {@link TRANSFER_PAIRING_SQL}, en el orden en que aparecen sus marcadores:
+ * `shp` (tenant, from, to) · `rcv` (tenant, from, to) · `paired` (from, to, from, to — son DOS
+ * rangos, uno por pata) · `unreceived` (from, to) · el mapa de destino (tenant).
+ *
+ * ⚠️ Contar a ojo salió mal la primera vez: el `OR` de `paired` lleva cuatro, no dos, y un
+ * desfase de uno no explota — corre y devuelve otra cosa. Lo atrapó el verificador que rinde este
+ * mismo template a SQL y cuenta los marcadores contra la lista. Si se agrega un `?`, va acá.
+ */
+const TRANSFER_PAIRING_PARAMS = (tenantId: string, from: string, to: string) =>
+  [tenantId, from, to, tenantId, from, to, from, to, from, to, from, to, tenantId];
+
 @Injectable()
 export class CommercialMovementsService {
   private readonly logger = new Logger(CommercialMovementsService.name);
@@ -781,79 +923,11 @@ export class CommercialMovementsService {
     const destSql = this.destBucketSql(this.destKinds(q), tenantId);
     const shpDestSql = destSql ? ` AND ${destSql}` : '';
     return this.tk.run(async (trx) => {
-      const all: any[] = (await trx.raw(`
-        WITH shp AS (
-          -- ⚠️ NADA de joins acá adentro. El agregado recorre ~40k renglones de traspaso y cada
-          -- join que cuelgue de él se evalúa por RENGLÓN: el planner elige un nested loop contra
-          -- commercial.warehouses (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s.
-          -- Los nombres y el destino se resuelven en shpd, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
-          SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
-                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
-          FROM analytics.stock_movements m
-          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
-          GROUP BY m.warehouse_id, m.folio, m.doc_serie, m.tenant_id
-        ), shpd AS (
-          -- [DM.20] a dónde va dirigido CADA embarque: es la LLAVE del pareo, no un adorno.
-          -- [DM.15] sólo si el almacén sigue vivo; si no, cuenta como "sin destino resuelto".
-          SELECT s.*, coalesce(w.name, w.code) AS wh_code, dw.id AS dest_wh_id
-          FROM shp s
-          LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
-          LEFT JOIN analytics.transfer_dest_map dmx ON dmx.tenant_id = s.tenant_id AND dmx.dest_code = s.dest_code
-          LEFT JOIN commercial.warehouses dw ON dw.id = dmx.warehouse_id AND ${DEST_WH_VIVO('dw')}
-        ), rcv AS (
-          SELECT m.warehouse_id, m.folio, m.parent_serie, m.parent_folio,
-                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
-          FROM analytics.stock_movements m
-          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
-          GROUP BY m.warehouse_id, m.folio, m.parent_serie, m.parent_folio
-        ), paired AS (
-          -- ⚠️ Un LEFT JOIN LATERAL con LIMIT 1 sobre una CTE la re-escanea ENTERA una vez por
-          -- recepción: con ~600 recepciones × ~2,000 embarques eran 2.6 s de los 3.5 s totales, y
-          -- una CTE no se puede indexar. El mismo "mejor candidato" sale de un hash join + un
-          -- DISTINCT ON, que recorre cada lado UNA vez. Mismo orden de desempate, mismo resultado
-          -- (verificado fila a fila contra la versión LATERAL). Medido el 2026-10-06.
-          SELECT DISTINCT ON (r.warehouse_id, r.folio, r.parent_serie, r.parent_folio)
-                 s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
-                 s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
-                 r.warehouse_id AS dest_wh_id, coalesce(rw.name, rw.code) AS dest_wh, r.folio AS rcv_folio,
-                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
-          FROM rcv r
-          LEFT JOIN commercial.warehouses rw ON rw.id = r.warehouse_id
-          LEFT JOIN shpd s
-            ON s.folio = r.parent_folio
-           AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
-           AND s.warehouse_id <> r.warehouse_id
-           AND ${TRANSFER_PAIR_MATCH('s', 'r')}
-          ORDER BY r.warehouse_id, r.folio, r.parent_serie, r.parent_folio,
-                   abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
-        ), unreceived AS (
-          SELECT s.* FROM shpd s
-          WHERE NOT EXISTS (
-            SELECT 1 FROM rcv r
-            WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
-              AND r.warehouse_id <> s.warehouse_id
-              AND ${TRANSFER_PAIR_MATCH('s', 'r')})
-        )
-        SELECT * FROM (
-          SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,
-                 dest_wh_id, dest_wh, rcv_folio, rcv_date, qty_received, rcv_lines,
-                 CASE
-                   WHEN origin_folio IS NULL THEN 'sin_origen'
-                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01 THEN 'ok'
-                   ELSE 'diferencia'
-                 END AS status,
-                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
-          FROM paired
-          UNION ALL
-          SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
-                 dw.id, coalesce(dw.name, dw.code, u.dest_label, u.dest_code), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
-          FROM unreceived u
-          LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
-          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id AND ${DEST_WH_VIVO('dw')}
-        ) t
-        LIMIT 50000
-      `, [tenantId, from, to, tenantId, from, to, tenantId])).rows;
+      const all: any[] = (await trx.raw(
+        `${TRANSFER_PAIRING_SQL(shpDestSql)}
+        LIMIT 50000`,
+        TRANSFER_PAIRING_PARAMS(tenantId, from, to),
+      )).rows;
 
       // ── check: folio a folio (honra whs/twhs), prioriza problemas, top 500 ──
       const inSet = (r: any, set: string[]) => set.includes(r.origin_wh_id) || set.includes(r.dest_wh_id);
@@ -964,82 +1038,14 @@ export class CommercialMovementsService {
     const destMatch = dest ? 't.dest_wh_id = ?' : 't.dest_wh_id IS NULL';
     const pairParams = [...(origin ? [origin] : []), ...(dest ? [dest] : [])];
     return this.tk.run(async (trx) => {
-      const rows = (await trx.raw(`
-        WITH shp AS (
-          -- ⚠️ NADA de joins acá adentro. El agregado recorre ~40k renglones de traspaso y cada
-          -- join que cuelgue de él se evalúa por RENGLÓN: el planner elige un nested loop contra
-          -- commercial.warehouses (28 filas, estimadas en 1) y el agregado pasa de 0.3 s a 2.4 s.
-          -- Los nombres y el destino se resuelven en shpd, sobre ~2k DOCUMENTOS. Medido 2026-10-06.
-          SELECT m.warehouse_id, m.folio, m.doc_serie, m.tenant_id,
-                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, SUM(m.amount) AS amount, COUNT(*)::int AS lineas,
-                 max(m.dest_code) AS dest_code, max(m.dest_label) AS dest_label
-          FROM analytics.stock_movements m
-          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfShip' AND m.doc_date BETWEEN ? AND ?${shpDestSql}
-          GROUP BY m.warehouse_id, m.folio, m.doc_serie, m.tenant_id
-        ), shpd AS (
-          -- [DM.20] a dónde va dirigido CADA embarque: es la LLAVE del pareo, no un adorno.
-          -- [DM.15] sólo si el almacén sigue vivo; si no, cuenta como "sin destino resuelto".
-          SELECT s.*, coalesce(w.name, w.code) AS wh_code, dw.id AS dest_wh_id
-          FROM shp s
-          LEFT JOIN commercial.warehouses w ON w.id = s.warehouse_id
-          LEFT JOIN analytics.transfer_dest_map dmx ON dmx.tenant_id = s.tenant_id AND dmx.dest_code = s.dest_code
-          LEFT JOIN commercial.warehouses dw ON dw.id = dmx.warehouse_id AND ${DEST_WH_VIVO('dw')}
-        ), rcv AS (
-          SELECT m.warehouse_id, m.folio, m.parent_serie, m.parent_folio,
-                 MIN(m.doc_date) AS doc_date, SUM(m.qty) AS qty, COUNT(*)::int AS lineas
-          FROM analytics.stock_movements m
-          WHERE m.tenant_id = ? AND m.doc_code = 'TrsfRcv' AND m.parent_group = '41' AND m.doc_date BETWEEN ? AND ?
-          GROUP BY m.warehouse_id, m.folio, m.parent_serie, m.parent_folio
-        ), paired AS (
-          -- ⚠️ Un LEFT JOIN LATERAL con LIMIT 1 sobre una CTE la re-escanea ENTERA una vez por
-          -- recepción: con ~600 recepciones × ~2,000 embarques eran 2.6 s de los 3.5 s totales, y
-          -- una CTE no se puede indexar. El mismo "mejor candidato" sale de un hash join + un
-          -- DISTINCT ON, que recorre cada lado UNA vez. Mismo orden de desempate, mismo resultado
-          -- (verificado fila a fila contra la versión LATERAL). Medido el 2026-10-06.
-          SELECT DISTINCT ON (r.warehouse_id, r.folio, r.parent_serie, r.parent_folio)
-                 s.warehouse_id AS origin_wh_id, s.wh_code AS origin_wh, s.folio AS origin_folio,
-                 s.doc_serie, s.doc_date AS ship_date, s.qty AS qty_sent, s.amount, s.lineas AS ship_lines,
-                 r.warehouse_id AS dest_wh_id, coalesce(rw.name, rw.code) AS dest_wh, r.folio AS rcv_folio,
-                 r.doc_date AS rcv_date, r.qty AS qty_received, r.lineas AS rcv_lines
-          FROM rcv r
-          LEFT JOIN commercial.warehouses rw ON rw.id = r.warehouse_id
-          LEFT JOIN shpd s
-            ON s.folio = r.parent_folio
-           AND coalesce(s.doc_serie,'') = coalesce(r.parent_serie,'')
-           AND s.warehouse_id <> r.warehouse_id
-           AND ${TRANSFER_PAIR_MATCH('s', 'r')}
-          ORDER BY r.warehouse_id, r.folio, r.parent_serie, r.parent_folio,
-                   abs(coalesce(s.qty,0) - coalesce(r.qty,0)) ASC, abs(s.doc_date - r.doc_date) ASC
-        ), unreceived AS (
-          SELECT s.* FROM shpd s
-          WHERE NOT EXISTS (
-            SELECT 1 FROM rcv r
-            WHERE r.parent_folio = s.folio AND coalesce(r.parent_serie,'') = coalesce(s.doc_serie,'')
-              AND r.warehouse_id <> s.warehouse_id
-              AND ${TRANSFER_PAIR_MATCH('s', 'r')})
-        )
-        SELECT * FROM (
-          SELECT origin_wh_id, origin_wh, origin_folio, doc_serie, ship_date, qty_sent, amount, ship_lines,
-                 dest_wh_id, dest_wh, rcv_folio, rcv_date, qty_received, rcv_lines,
-                 CASE
-                   WHEN origin_folio IS NULL THEN 'sin_origen'
-                   WHEN abs(coalesce(qty_sent,0) - coalesce(qty_received,0)) < 0.01 THEN 'ok'
-                   ELSE 'diferencia'
-                 END AS status,
-                 coalesce(qty_received,0) - coalesce(qty_sent,0) AS delta
-          FROM paired
-          UNION ALL
-          SELECT u.warehouse_id, u.wh_code, u.folio, u.doc_serie, u.doc_date, u.qty, u.amount, u.lineas,
-                 dw.id, coalesce(dw.name, dw.code, u.dest_label), NULL, NULL, NULL, NULL, 'sin_recepcion', -u.qty
-          FROM unreceived u
-          LEFT JOIN analytics.transfer_dest_map dm ON dm.tenant_id = ? AND dm.dest_code = u.dest_code
-          LEFT JOIN commercial.warehouses dw ON dw.id = dm.warehouse_id AND ${DEST_WH_VIVO('dw')}
-        ) t
+      const rows = (await trx.raw(
+        `${TRANSFER_PAIRING_SQL(shpDestSql)}
         WHERE ${originMatch} AND ${destMatch}
         ORDER BY CASE t.status WHEN 'diferencia' THEN 0 WHEN 'sin_recepcion' THEN 1 WHEN 'sin_origen' THEN 2 ELSE 4 END,
                  coalesce(t.ship_date, t.rcv_date) DESC
-        LIMIT 2000
-      `, [tenantId, from, to, tenantId, from, to, tenantId, ...pairParams])).rows;
+        LIMIT 2000`,
+        [...TRANSFER_PAIRING_PARAMS(tenantId, from, to), ...pairParams],
+      )).rows;
       const totals = { ok: 0, diferencia: 0, sin_recepcion: 0, sin_origen: 0 };
       for (const r of rows) totals[r.status as keyof typeof totals]++;
       const origin_wh = rows.find((r: any) => r.origin_wh)?.origin_wh || null;
