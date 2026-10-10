@@ -44,11 +44,15 @@ export interface FamiliaCierre {
   testigo_fuente: string | null;
   cobertura_base: 'testigo' | 'historia';
   mediana_6m: number | null;
+  /** ⭐ Sobre cuántos meses descansa la mediana. Un veredicto sobre n=1 no es un veredicto. */
+  mediana_meses: number;
   cobertura: number | null;
   estado: EstadoCierre;
   motivo: string | null;
   escala_a: string | null;
   umbral: { target: number; warn_at: number; escalate_at: number } | null;
+  /** ⭐ El color lo decidió el TECHO (sobra), no el piso (falta): posible mes duplicado. */
+  por_exceso: boolean;
 }
 
 export interface MesCierre {

@@ -160,8 +160,12 @@ import {
                         <div class="cci-sub">{{ f.testigo_fuente }}</div>
                       } @else {
                         <span class="mono">{{ f.mediana_6m | currency:'MXN':'symbol-narrow':'1.0-0' }}</span>
-                        <!-- ⭐ Se declara que este testigo es más débil, no se disfraza. -->
-                        <div class="cci-sub cci-debil">mediana de 6 meses &mdash; sin testigo propio</div>
+                        <!-- ⭐ Se declara que este testigo es más débil, no se disfraza. Y sobre
+                             CUÁNTOS meses descansa: uno sobre n=1 se veía igual que uno sobre n=6. -->
+                        <div class="cci-sub cci-debil">
+                          mediana de {{ f.mediana_meses }} mes{{ f.mediana_meses === 1 ? '' : 'es' }}
+                          &mdash; sin testigo propio
+                        </div>
                       }
                     </td>
                     <td class="ta-r">
@@ -175,7 +179,11 @@ import {
                       }
                     </td>
                     <td>
-                      <span class="cci-pill" [attr.data-estado]="f.estado">{{ texto(f.estado) }}</span>
+                      <!-- ⭐ «Falta» y «sobra» pintan igual de rojo pero se arreglan al revés:
+                           uno lo asienta la contadora, el otro hay que DESHACERLO. -->
+                      <span class="cci-pill" [attr.data-estado]="f.estado">
+                        {{ f.por_exceso ? 'De m&aacute;s' : texto(f.estado) }}
+                      </span>
                       @if (f.motivo) { <div class="cci-sub">{{ f.motivo }}</div> }
                     </td>
                   </tr>
