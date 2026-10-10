@@ -340,17 +340,30 @@ no lo arma el cliente.
   mueven el total.»* Le dice a quien decide **dónde no mirar** — la mitad que ninguna tabla
   ordenada por importe contesta.
 
-### 10.5 Lo que queda del lado de Ventas
+### 10.5 Lo que quedaba del lado de Ventas — **cerrado el 2026-10-09**
 
-1. Cambiar *«del plan»* por *«de Mostrador»*, **o** mostrar el ingreso completo.
-2. Si se queda el recorte, declarar que **Mostrador es el 58.46 % del plan** — con el primitivo sale
-   solo en `detalle`.
-3. Corregir «nueve renglones» → **ocho**.
-4. «Mostrador» repetido en las cuatro filas es tinta muerta: va en el encabezado.
-5. El tercer modo (teléfono) no se pudo verificar: en la imagen sólo viajan oscuro y claro.
+Los cinco puntos de la auditoría quedaron cerrados el mismo día (`9d1829825` + `ec0c1ae19` y el
+artefacto). Se dejan listados porque **un pendiente borrado no enseña nada y uno tachado sí**:
 
-**No se propone tocar el layout.** El answer-first sin tabla es correcto y la paridad oscuro/claro
-se ve limpia.
+| Hallazgo | Estado |
+|---|---|
+| «del plan» → «de Mostrador» | ✅ el universo es obligatorio; sin él no compila |
+| declarar que Mostrador es el 58.46 % | ✅ `Mostrador — 58.5 % del ingreso del ejercicio`, arriba de todo |
+| «Mostrador» repetido en las 4 filas | ✅ la columna salió |
+| «nueve renglones» → **ocho** | ✅ corregido |
+| el tercer modo (teléfono) sin verificar | ✅ publicado, con las tres bandas |
+
+Y de paso cerraron dos cosas **de este carril** que habían quedado declaradas: la etiqueta de
+frescura ahora dice **«Plan del ODS hace 18 h»** con las obligaciones llevando su propio régimen
+pegado (*«de `budget.expense_obligations`, tabla viva»*) —una sola etiqueta cubría **dos regímenes
+distintos**—, y el encabezado trae el folio **`PRE-2027-002`**, que es lo que distingue el ejercicio
+real del `is_test`.
+
+⚠️ **Lo único que sigue abierto es de este lado:** mientras `feat/pu-selector` no esté en `main`,
+Ventas mantiene una `VistaConcentracion` como **proyección hueca** con los nombres exactos del
+contrato —no calcula nada, está marcada para borrarse— porque importar de una rama sin mergear
+rompe `main`. El reemplazo es cambiar el `import` y tirar el bloque. **El push lo autoriza Edgar;
+un carril hermano no puede levantar esa regla, y pedírselo a otro carril sería saltearla.**
 
 ### 10.6 Verificación de este acuerdo
 
@@ -368,6 +381,20 @@ se ve limpia.
 **idéntico** a una mutación que las pruebas sobrevivieron. El script de mutación ahora **falla con
 exit 2** si no encuentra la línea. *Una mutación que no se aplica es un candado verde que no probó
 nada.*
+
+### 10.7 Qué se llevó cada carril
+
+El acuerdo no fue de uno sobre el otro, y conviene que quede escrito con nombre:
+
+| De Ventas a este carril | De este carril a Ventas |
+|---|---|
+| el titular **contesta** (el mío preguntaba) | el primitivo único, agnóstico |
+| la **frase inversa**: dónde NO mirar | el universo como **unión discriminada** |
+| la **corrección de §10.2** (la asimetría está en el top-1) | los cortes viajando en el dato |
+| | la frase emitida por el **servidor** |
+
+⭐ **De siete artefactos duplicados que se cruzaron hoy, el único que sobrevivió fue el que
+tenía test.** No ganó el que llegó primero ni el que tenía mejor nombre.
 
 **La prueba negativa que sostiene todo §10:** el candado mide **las dos lecturas del mismo hecho**
 contra prod y **exige que difieran** — hoy 81.64 % contra 47.72 %, **33.91 pp**. Si coincidieran,
