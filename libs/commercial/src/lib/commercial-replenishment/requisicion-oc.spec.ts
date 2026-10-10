@@ -114,3 +114,56 @@ describe('[RQ.15] lo que no se capturó se DECLARA, no se inventa', () => {
     expect(MIG).toMatch(/exports\.down[\s\S]*DROP INDEX IF EXISTS/);
   });
 });
+
+describe('[RQ.15] la pantalla, que era lo que de verdad faltaba', () => {
+  const RAIZ = join(DIR, '..', '..', '..', '..', '..');
+  const PANT = readFileSync(join(RAIZ, 'apps', 'view', 'src', 'app', 'modules', 'compras', 'pages', 'compras-requisiciones.component.ts'), 'utf8');
+  const CLI = readFileSync(join(RAIZ, 'apps', 'view', 'src', 'app', 'modules', 'compras', 'compras.service.ts'), 'utf8');
+
+  it('⭐⭐ existe un lugar donde teclear el folio', () => {
+    // El endpoint y el método del cliente existían desde RA.14 y NINGÚN componente los llamaba.
+    // Hacer el folio obligatorio en el backend no sirve de nada sin esto.
+    expect(PANT).toContain('abrirOc');
+    expect(PANT).toContain('guardarOc');
+    expect(PANT).toContain('markOrdered');
+  });
+
+  it('⛔ y manda las DOS coordenadas', () => {
+    expect(PANT).toMatch(/markOrdered\(r\.id, \{ oc_sucursal: suc, oc_folio: fol \}\)/);
+  });
+
+  it('⭐ el botón sólo aparece en las APROBADAS', () => {
+    // En una pendiente no hay nada que ordenar todavía; en una ya ordenada el folio ya está.
+    expect(PANT).toMatch(/@if \(r\.estado === 'approved'\) \{[\s\S]{0,400}abrirOc\(r\)/);
+  });
+
+  it('⛔ una `ordered` SIN folio se DECLARA, no se deja en blanco', () => {
+    // Son las 53 que se ordenaron antes de que la columna existiera. Un blanco se lee como
+    // "todavía no lo capturaron"; «sin OC» dice que ya no se va a poder.
+    expect(PANT).toMatch(/@else if \(r\.estado === 'ordered'\) \{[\s\S]{0,300}sin OC/);
+  });
+
+  it('⛔ el error NO cierra el diálogo: lo tecleado se puede corregir', () => {
+    // El 409 del índice único es el caso real (ese folio ya está en otra requisición). Cerrar
+    // borraría el dato recién tecleado y la persona tendría que volver a escribirlo.
+    // ⚠️ Se ancla a la DEFINICIÓN, no a la primera aparición: `guardarOc(` sale antes en el
+    // template (`(keyup.enter)="guardarOc()"`) y el extractor traía ese pedazo de HTML.
+    const i = PANT.indexOf('guardarOc(): void {');
+    expect(i).toBeGreaterThan(0);
+    const b = PANT.slice(i, i + 2200);
+    expect(b).toContain('error:');
+    expect(b).not.toMatch(/error:[\s\S]{0,400}ocVisible\.set\(false\)/);
+  });
+
+  it('⭐ el backend DEVUELVE el folio, o la pantalla nunca podría mostrarlo', () => {
+    expect(SVC).toMatch(/oc_sucursal' AS oc_sucursal/);
+    expect(SVC).toMatch(/oc_folio'\s+AS oc_folio/);
+    expect(CLI).toContain('oc_folio?: string | null');
+  });
+
+  it('⚠️ y se piden con `to_jsonb` para no romper si el código llega antes que la migración', () => {
+    // El deploy y las migraciones viajan por caminos distintos y ya llegaron desordenados antes
+    // en este repo. Una columna directa daría 42703 y tiraría la lista entera.
+    expect(SVC).toContain(`to_jsonb(r) ->> 'oc_folio'`);
+  });
+});
