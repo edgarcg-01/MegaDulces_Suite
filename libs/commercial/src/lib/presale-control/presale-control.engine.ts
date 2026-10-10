@@ -4,7 +4,7 @@ import type {
   PresaleLinkBlock,
   PresaleStage,
 } from '@megadulces/contracts';
-import { PRESALE_STAGES } from '@megadulces/contracts';
+import { PRESALE_MAX_REINTENTOS, PRESALE_STAGES } from '@megadulces/contracts';
 
 /**
  * `[MCP.1]` / `[MCP.4]` Motor puro de la Mesa de Control de Preventa (Fase MCP, ADR-089).
@@ -20,7 +20,7 @@ import { PRESALE_STAGES } from '@megadulces/contracts';
  * "sólo 2 entregas más, se empieza a maltratar la mercancía". Lo usa MCP.7; vive aquí para que
  * la regla tenga un solo dueño.
  */
-export const MAX_REINTENTOS_ENTREGA = 2;
+export const MAX_REINTENTOS_ENTREGA = PRESALE_MAX_REINTENTOS;
 
 /** Los estados de `commercial.orders` que entran a la mesa. Los borradores no son pedido todavía. */
 export const STATUS_EN_MESA = ['confirmed', 'fulfilled', 'cancelled'] as const;
@@ -40,6 +40,11 @@ export interface HechosEtapa {
    * aunque `orders.status` siga en `confirmed`: marcarlo `fulfilled` lo facturaría otra vez (FE.5).
    */
   entregado_en_guia?: boolean;
+  /**
+   * `[MCP.7.1]` Kepler ya aplicó devolución + nota de crédito que cubre TODO el ticket del pedido:
+   * la venta se deshizo. Una nota parcial NO cierra el pedido (decisión de Francisco, 2026-10-10).
+   */
+  devuelto_nc?: boolean;
 }
 
 /**
@@ -51,7 +56,9 @@ export interface HechosEtapa {
  */
 export function etapaDe(h: HechosEtapa): PresaleStage {
   if (h.status === 'cancelled') return 'cancelado';
-  if (h.status === 'fulfilled' || h.entregado_en_guia) return 'entregado';
+  if (h.status === 'fulfilled') return 'entregado';
+  if (h.devuelto_nc) return 'devuelto';
+  if (h.entregado_en_guia) return 'entregado';
   if (h.en_guia_impresa) return 'en_ruta';
   if (h.ligado) return 'cobrado';
   if (!h.customer_erp_code) return 'esperando_alta';
@@ -61,7 +68,7 @@ export function etapaDe(h: HechosEtapa): PresaleStage {
 }
 
 /** Etapas en que el pedido ya no espera nada de la sucursal: no llevan semáforo. */
-const CERRADAS: ReadonlySet<PresaleStage> = new Set<PresaleStage>(['entregado', 'cancelado']);
+const CERRADAS: ReadonlySet<PresaleStage> = new Set<PresaleStage>(['entregado', 'devuelto', 'cancelado']);
 
 /** Días entre dos fechas `YYYY-MM-DD` (b − a), sin pasar por la zona horaria del servidor. */
 export function diasEntre(a: string, b: string): number {
@@ -229,4 +236,88 @@ export function contarPorEtapa(etapas: PresaleStage[]): Record<PresaleStage, num
 export function partesFolio(folioDigital: string): { sucursal: string; doc_prefix: string; folio: string } | null {
   const m = /^([0-9]{2})(UD[0-9]{4})-([0-9]{4,10})$/.exec(String(folioDigital ?? '').trim());
   return m ? { sucursal: m[1], doc_prefix: m[2], folio: m[3] } : null;
+}
+
+/**
+ * `[MCP.7]` ¿Ya no sale otra vez? El pedido sale la primera vez y puede salir `MAX_REINTENTOS_ENTREGA`
+ * veces más (I2). Con `fallidos` = intentos que volvieron sin entregarse (`regreso` + `no_entregado`),
+ * al agotar los reintentos va a devolución y nota de crédito en Kepler (D10).
+ */
+export function requiereDevolucion(fallidos: number): boolean {
+  return Number(fallidos) > MAX_REINTENTOS_ENTREGA;
+}
+
+/** Un renglón de guía tal como lo ve la liquidación. */
+export interface RenglonLiquidacion {
+  status: 'cargado' | 'entregado' | 'no_entregado' | 'regreso';
+  document_total: number | null;
+  cash_amount: number | null;
+  transfer_amount: number | null;
+  /** Cómo se entregó: los "con diferencia" traen su nota por pedido. */
+  delivery_outcome?: 'completo' | 'con_diferencia' | null;
+}
+
+export interface ResumenLiquidacion {
+  entregados: number;
+  no_entregados: number;
+  /** Siguen en camino: con alguno de éstos la guía NO se puede liquidar. */
+  pendientes: number;
+  /** Σ documentos de Kepler entregados que el ODS conoce. */
+  documents_total: number;
+  /** Entregados cuyo documento no trae total en el ODS: se declaran, no se suman como 0. */
+  documentos_sin_total: number;
+  declared_cash: number;
+  declared_transfer: number;
+  /** Documentos entregados − lo declarado (efectivo + transferencia), sólo donde el documento trae total. */
+  por_cobrar: number;
+  /**
+   * La parte de `por_cobrar` que nadie explicó: pedidos entregados "completo" cuyo cobro no cuadra
+   * con su documento. Si no es 0, la liquidación exige nota.
+   */
+  sin_explicar: number;
+}
+
+const c2 = (n: number) => Math.round(n * 100) / 100;
+
+/**
+ * `[MCP.7]` Lo que se espera en la liquidación (D9/D11): sólo lo ENTREGADO cuenta; lo que volvió
+ * no se cobra. El efectivo y la transferencia se suman por separado, como los declaró quien entregó.
+ */
+export function resumenLiquidacion(renglones: readonly RenglonLiquidacion[]): ResumenLiquidacion {
+  const r: ResumenLiquidacion = {
+    entregados: 0, no_entregados: 0, pendientes: 0, documents_total: 0,
+    documentos_sin_total: 0, declared_cash: 0, declared_transfer: 0, por_cobrar: 0, sin_explicar: 0,
+  };
+  for (const x of renglones) {
+    if (x.status === 'cargado') { r.pendientes++; continue; }
+    if (x.status !== 'entregado') { r.no_entregados++; continue; }
+    r.entregados++;
+    if (x.document_total == null) r.documentos_sin_total++;
+    else r.documents_total += Number(x.document_total);
+    const cobrado = Number(x.cash_amount ?? 0) + Number(x.transfer_amount ?? 0);
+    r.declared_cash += Number(x.cash_amount ?? 0);
+    r.declared_transfer += Number(x.transfer_amount ?? 0);
+    if (x.document_total != null) {
+      r.por_cobrar += Number(x.document_total) - cobrado;
+      if (x.delivery_outcome !== 'con_diferencia') r.sin_explicar += Number(x.document_total) - cobrado;
+    }
+  }
+  r.documents_total = c2(r.documents_total);
+  r.declared_cash = c2(r.declared_cash);
+  r.declared_transfer = c2(r.declared_transfer);
+  r.por_cobrar = c2(r.por_cobrar);
+  r.sin_explicar = c2(r.sin_explicar);
+  return r;
+}
+
+/** Tolerancia de centavos al comparar lo acreditado contra el ticket (redondeo de Kepler). */
+const TOLERANCIA_NC = 0.05;
+
+/**
+ * `[MCP.7.1]` ¿Las notas de crédito ligadas cubren el ticket? `saldado` sólo si cubren TODO (con
+ * tolerancia de centavos); `parcial` si cubren una parte; `null` si no hay nota.
+ */
+export function estadoNotaCredito(acreditado: number, totalTicket: number): 'saldado' | 'parcial' | null {
+  if (!(acreditado > 0)) return null;
+  return acreditado >= totalTicket - TOLERANCIA_NC ? 'saldado' : 'parcial';
 }

@@ -25,7 +25,10 @@ import {
   compararRenglones,
   contarPorEtapa,
   etapaDe,
+  estadoNotaCredito,
+  MAX_REINTENTOS_ENTREGA,
   partesFolio,
+  requiereDevolucion,
   semaforo,
   STATUS_EN_MESA,
   type RenglonDocumento,
@@ -59,6 +62,12 @@ type Partes = { sucursal: string; doc_prefix: string; folio: string };
 /** `[MCP.6]` Subconsulta: el pedido `o` tiene una entrega de conformidad registrada en una guía. */
 const ENTREGADO_SQL = `SELECT 1 FROM commercial.load_guide_orders e0
                          WHERE e0.order_id = o.id AND e0.tenant_id = o.tenant_id AND e0.status = 'entregado'`;
+
+/** `[MCP.7]` Veces que el pedido salió en una guía y volvió sin entregarse (cuenta para los reintentos). */
+const FALLIDOS_SQL = `(SELECT count(*) FROM commercial.load_guide_orders f0
+                          JOIN commercial.load_guides fg ON fg.id = f0.guide_id AND fg.tenant_id = f0.tenant_id
+                         WHERE f0.order_id = o.id AND f0.tenant_id = o.tenant_id
+                           AND f0.status IN ('regreso', 'no_entregado') AND fg.status <> 'cancelada')::int`;
 
 const SUCURSAL_KEPLER_SQL =`CASE WHEN w.kepler_code ~ '^[0-9]{2}$' THEN w.kepler_code ELSE ${branchKeySql('w')} END`;
 
@@ -386,7 +395,10 @@ export class PresaleControlService {
     const tenantId = this.tenantCtx.requireTenantId();
     const hoy = relojMx(new Date()).fecha;
     const filas = await this.leerPedidos(trx, { ...f, diasCerrados: 0 });
-    return this.completar(trx, tenantId, filas, hoy);
+    const pedidos = await this.completar(trx, tenantId, filas, hoy);
+    // [MCP.7.1] Uno ya devuelto con NC en Kepler no se vuelve a llevar. (Se filtra aquí y no en el SQL:
+    // la nota vive en el ODS y se lee por lote; los devueltos son pocos y no desplazan el tope de filas.)
+    return f.paraPescar ? pedidos.filter((p) => p.stage !== 'devuelto') : pedidos;
   }
 
   /** Lee los pedidos de preventa con los hechos que necesita el motor. */
@@ -448,7 +460,10 @@ export class PresaleControlService {
                  AND NOT EXISTS (SELECT 1 FROM commercial.load_guide_orders x
                                    JOIN commercial.load_guides xg ON xg.id = x.guide_id AND xg.tenant_id = x.tenant_id
                                   WHERE x.order_id = o.id AND x.tenant_id = o.tenant_id
-                                    AND x.status = 'cargado' AND xg.status <> 'cancelada')`;
+                                    AND x.status = 'cargado' AND xg.status <> 'cancelada')
+                 AND ${FALLIDOS_SQL} <= ?`;
+      // [MCP.7] Agotó los reintentos (I2): ya no sale; va a devolución y NC en Kepler (D10).
+      params.push(MAX_REINTENTOS_ENTREGA);
     }
     // Por ids no hay tope: son los de una guía (acotados por quien los pesca), y cortar ahí haría
     // que un pedido desapareciera de la guía y de su snapshot.
@@ -470,7 +485,8 @@ export class PresaleControlService {
               lg.id AS guide_id, lg.folio AS guide_folio, lg.status AS guide_status, lg.rider_name AS guide_rider_name,
               en.delivered_at, en.delivery_outcome, en.delivery_note, en.cash_amount, en.transfer_amount,
               en.transfer_ref, en.guide_folio AS delivery_guide_folio, en.delivered_by_name,
-              en.delivered_folio_digital
+              en.delivered_folio_digital,
+              ${FALLIDOS_SQL} AS failed_attempts
          FROM commercial.orders o
          LEFT JOIN commercial.customers c ON c.id = o.customer_id AND c.tenant_id = o.tenant_id
          LEFT JOIN commercial.warehouses w ON w.id = o.warehouse_id AND w.tenant_id = o.tenant_id
@@ -603,14 +619,15 @@ export class PresaleControlService {
 
     const base = filas.map((f) => {
       const ligado = !!f['link_folio'];
-      const stage = etapaDe({
+      const hechos = {
         status: f['status'] as string,
         wave_stage: (f['wave_stage'] as string) ?? null,
         ligado,
         customer_erp_code: claveCliente(f['erp_customer_code'] as string),
         en_guia_impresa: f['guide_status'] === 'impresa',
         entregado_en_guia: !!f['delivered_at'],
-      });
+      };
+      const stage = etapaDe(hechos);
       const sem = semaforo(f['requested_delivery_date'] as string, hoy, stage);
       const branch = (f['branch'] as string) ?? null;
       const link_block = bloqueoDeLiga({
@@ -654,7 +671,7 @@ export class PresaleControlService {
           ? {
               id: f['guide_id'] as string,
               folio: f['guide_folio'] as string,
-              status: f['guide_status'] as 'abierta' | 'impresa',
+              status: f['guide_status'] as 'abierta' | 'impresa' | 'liquidada',
               rider_name: (f['guide_rider_name'] as string) ?? null,
             }
           : null,
@@ -671,8 +688,12 @@ export class PresaleControlService {
               folio_digital: f['delivered_folio_digital'] as string,
             }
           : null,
+        failed_attempts: Number(f['failed_attempts'] ?? 0),
+        // Sólo un pedido abierto puede necesitar devolución: uno entregado o cancelado ya cerró.
+        return_required: stage !== 'entregado' && stage !== 'cancelado' && requiereDevolucion(Number(f['failed_attempts'] ?? 0)),
+        credit_note: null,
       };
-      return { row, created_date: f['created_date'] as string };
+      return { row, hechos, created_date: f['created_date'] as string };
     });
 
     // Documentos posibles: sólo para lo que sigue abierto, sin liga y sin bloqueo. Una consulta por
@@ -726,6 +747,34 @@ export class PresaleControlService {
         l.fecha = t.fecha;
         l.caja = t.caja == null ? null : Number(t.caja);
         l.total = Number(t.total);
+      }
+    }
+
+    // [MCP.7.1] Notas de crédito / devoluciones que Kepler aplicó al ticket ligado (vía su factura).
+    // Sólo cuentan las del MISMO cliente y posteriores al ticket. Si cubren todo el ticket el pedido
+    // pasa a "devuelto" (cerrado); si cubren una parte se muestra y el pedido sigue abierto.
+    const notas = await this.leerNotasCredito(trx, tenantId, ligados.map((l) => l.folio_digital));
+    for (const b of base) {
+      const l = b.row.link;
+      if (!l || l.total == null) continue;
+      const propias = (notas.get(l.folio_digital) ?? []).filter(
+        (n) => claveCliente(n.cliente) === b.row.customer_erp_code && (!l.fecha || n.fecha >= l.fecha),
+      );
+      const acreditado = Math.round(propias.reduce((t, n) => t + n.importe, 0) * 100) / 100;
+      const estado = estadoNotaCredito(acreditado, l.total);
+      if (!estado) continue;
+      b.row.credit_note = {
+        status: estado,
+        credited: acreditado,
+        ticket_total: l.total,
+        notes: propias.map((n) => ({ folio: n.nota_folio, factura: n.factura_folio, fecha: n.fecha, importe: n.importe, motivo: n.motivo })),
+      };
+      if (estado === 'saldado') {
+        b.row.stage = etapaDe({ ...b.hechos, devuelto_nc: true });
+        const sem = semaforo(b.row.requested_delivery_date, hoy, b.row.stage);
+        b.row.due = sem.due;
+        b.row.days_late = sem.days_late;
+        if (b.row.stage === 'devuelto') b.row.return_required = false;
       }
     }
     return base.map((b) => b.row);
@@ -846,6 +895,45 @@ export class PresaleControlService {
       [tenantId, p.sucursal, p.doc_prefix, p.folio],
     );
     return compararRenglones(ped as RenglonPedido[], doc as RenglonDocumento[]);
+  }
+
+  /**
+   * `[MCP.7.1]` Notas de crédito de Kepler por ticket (folio digital), leídas en vivo del ODS con
+   * `analytics.erp_ticket_credit_notes` (función: recibe el lote; ver su migración). El ODS es de
+   * Mega Dulces: la función devuelve ese tenant y aquí se filtra por el que pregunta.
+   */
+  private async leerNotasCredito(
+    trx: Knex.Transaction,
+    tenantId: string,
+    folios: string[],
+  ): Promise<Map<string, Array<{ nota_folio: string; factura_folio: string; fecha: string; cliente: string; importe: number; motivo: string | null }>>> {
+    const partes = [...new Set(folios)].map((f) => ({ f, p: partesFolio(f) })).filter((x) => !!x.p);
+    const out = new Map<string, Array<{ nota_folio: string; factura_folio: string; fecha: string; cliente: string; importe: number; motivo: string | null }>>();
+    if (!partes.length) return out;
+    const { rows } = await trx.raw(
+      `SELECT sucursal, ticket_caja, ticket_folio, nota_folio, factura_folio,
+              to_char(fecha, 'YYYY-MM-DD') AS fecha, cliente, importe::float8 AS importe, motivo
+         FROM analytics.erp_ticket_credit_notes(?::text[], ?::int[], ?::text[])
+        WHERE tenant_id = ?`,
+      [
+        partes.map((x) => x.p!.sucursal),
+        partes.map((x) => Number(x.p!.doc_prefix.slice(4))),
+        partes.map((x) => x.p!.folio),
+        tenantId,
+      ],
+    );
+    for (const r of rows as Array<Record<string, unknown>>) {
+      const folio = String(r['sucursal']) + 'UD10' + String(r['ticket_caja']).padStart(2, '0') + '-' + String(r['ticket_folio']);
+      out.set(folio, [...(out.get(folio) ?? []), {
+        nota_folio: r['nota_folio'] as string,
+        factura_folio: r['factura_folio'] as string,
+        fecha: r['fecha'] as string,
+        cliente: r['cliente'] as string,
+        importe: Number(r['importe']),
+        motivo: (r['motivo'] as string) ?? null,
+      }]);
+    }
+    return out;
   }
 
   private mapLink(l: Record<string, unknown>): PresaleLink {
