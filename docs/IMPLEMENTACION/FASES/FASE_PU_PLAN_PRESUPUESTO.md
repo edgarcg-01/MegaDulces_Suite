@@ -381,6 +381,57 @@ dato?* Si la respuesta es «nosotros», no es una medición del negocio.
 
 ---
 
+## 9 · Cómo se debería trabajar — la regla, con la evidencia del día que la sostiene
+
+Edgar pidió *«cómo se debería hacer correctamente»*. Lo que sigue **no es una propuesta**: es lo que
+produjo resultados el 2026-10-10 entre los tres carriles, medido.
+
+### 9.1 ⭐⭐ Ningún carril verifica sus propias cifras
+
+**Las cinco correcciones del día salieron del CRUCE, ninguna del esfuerzo individual.** Las tres
+sesiones somos capaces, y aun así **ninguna vio lo suyo**:
+
+| Lo encontró | Qué corrigió | De quién era el error |
+|---|---|---|
+| Ingresos | el denominador del **3.05×** (plan anual contra venta parcial) | este carril |
+| Ingresos | la asimetría leída del conteo absoluto («4 contra 9») y no del top-1 | este carril |
+| Ingresos | el Sprint 2 sobre una fuente que cubre **4.85 %** del plan | este carril |
+| este carril | «el 81.6 % **del plan**» siendo de Mostrador | Ingresos |
+| este carril | las **99 filas en $0.00** de P11–P13, leídas como «períodos faltantes» | Ingresos |
+| Tesorería | `daily_capacity` declarada vacía cuando tiene 22 filas de una persona | este carril |
+| Tesorería | el circuito de pago **nunca corrió**: la pregunta no era medible | este carril |
+| este carril | esas 22 filas cubren **un mes ya cerrado** | Tesorería |
+| este carril | dos candados de Tesorería fuera del runner, sin correr | otro carril |
+
+⛔ **El patrón, y es el que justifica la regla:** cada error lo encontró **quien no lo escribió**.
+Revisar lo propio no falla por falta de rigor — falla porque quien escribió la cifra ya aceptó su
+premisa.
+
+### 9.2 Las tres preguntas que ninguna cifra contesta sola
+
+Del día salieron tres, y las tres son independientes:
+
+1. **¿Quién escribió este dato?** Si la respuesta es *«nosotros»*, no es una medición del negocio
+   (§1.1: `autopilot` escribió el presupuesto entero).
+2. **¿Cuál es el universo?** Un porcentaje correcto sobre un universo que la frase no nombra es
+   indefendible. Pasó **tres veces en dos días**, y las tres la aritmética estaba bien.
+3. **¿Hacia dónde empuja la causa?** No alcanza con medir si la causa propuesta **pesa**: hay que ver
+   si empuja **para el lado correcto**. (§1.5: las filas futuras empujaban *en contra* de la
+   explicación que yo les había colgado.)
+
+### 9.3 Y la que vale para el rol de auditor
+
+⭐ **Una corrección que llega de un carril hermano se mide, no se acepta ni se rechaza.** Las nueve de
+§9.1 se re-midieron con consulta propia antes de incorporarse — y en **dos** de ellas la
+verificación encontró más de lo que traía el reporte: la dirección invertida del §1.5, y que la
+capacidad cubría un mes cerrado.
+
+⛔ **Y el reparto no se relaya.** Dos veces hoy un carril le pasó a otro una autorización de Edgar
+como si fuera propia, y las dos veces el que la recibió hizo bien en no tomarla. **Una instrucción
+baja de quien manda a cada sesión, o no baja.** Medir no necesita reparto; construir sí.
+
+---
+
 ## Fuentes
 
 - [Driver-Based Planning in FP&A — Corporate Finance Institute](https://corporatefinanceinstitute.com/resources/fpa/driver-based-planning-guide/)
