@@ -627,6 +627,14 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FINANCE_AI_CHAT)]
       },
       {
+        // `[PP.1]` Pronto pago: lo que Tesorería todavía puede ganar, y hasta cuándo.
+        // Reusa `FINANCE_PAYMENTS_VER` — la misma familia que Pagos a proveedor; un permiso nuevo
+        // la dejaría invisible hasta que alguien lo repartiera (pasó en `[LC.6.2]`).
+        path: 'pronto-pago',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-pronto-pago.component').then(m => m.FinanzasProntoPagoComponent),
+        canActivate: [permissionGuard(Permission.FINANCE_PAYMENTS_VER)]
+      },
+      {
         path: 'tareas',
         loadComponent: () => import('./modules/finanzas/pages/finanzas-tareas.component').then(m => m.FinanzasTareasComponent),
         canActivate: [permissionGuard(Permission.FINANCE_BANK_VER)]

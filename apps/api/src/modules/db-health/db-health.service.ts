@@ -1330,6 +1330,9 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'analytics_refresh_cost_origin',     label: 'Refresh MV origen del costo (CE.11)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [NP.1] Productos nuevos. Parada, la pestaña sigue contando días sobre cifras de otra noche.
   { key: 'analytics_refresh_new_products',    label: 'Refresh MV productos nuevos (NP.1)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PP.0] Si esto se para, Tesoreria sigue viendo una fecha limite de pronto pago que ya caduco:
+  // la pantalla no se rompe, envejece. Mismo umbral que sus hermanas nocturnas.
+  { key: 'analytics_refresh_prompt_discount', label: 'Refresh MV ventana de pronto pago (PP.0)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [IC.10] Roll-forward entre conteos. Mismo motivo que las dos de arriba, con un agravante:
   // cuando envejece la pantalla de Conciliacion no se vacia ni avisa -- sigue mostrando la
   // merma del periodo anterior como si fuera la del actual, que es la clase de fallo que no
