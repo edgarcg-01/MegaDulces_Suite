@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import type { KpiUmbral } from '@megadulces/contracts';
 import {
   armarCierre, familiasSinUmbral, normalizarUmbrales, mesDe, mesMenos,
