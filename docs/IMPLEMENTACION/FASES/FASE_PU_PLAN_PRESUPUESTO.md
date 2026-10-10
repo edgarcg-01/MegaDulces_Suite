@@ -58,6 +58,31 @@ manda**: `commercial.sales_targets` (**572 filas, sin `created_by`: no se sabe q
 `commercial.margin_targets` (1 fila) y la balanza de ContPAQi (58,051 filas / 2,337 cuentas).
 Más lo que esté en un Excel que ninguna sesión vio. **§7 lo convierte en pregunta para personas.**
 
+### 1.4 ⛔ Y el circuito de pago **nunca corrió** — verificado por Tesorería, re-medido acá
+
+| | |
+|---|---|
+| `finance.payment_calendar_lots` | **0 filas** |
+| `finance.payment_allocations` | **0 filas** |
+| `finance.payment_allocation_items` | **0 filas** |
+| `expense_obligations` | 312 · **pagadas 0** · **reservadas 0** · las 312 nacidas el 2026-10-07 |
+
+**Ni un pago pasó jamás por este sistema**, ni completo ni parcial.
+
+⭐ Eso **responde y disuelve** la pregunta de §7.7 (*«¿la obligación nace antes del pago o se
+registra después?»*): **no se puede contestar desde la base, porque no hay un solo caso**. El ledger
+de cinco estados no documenta tarde — *todavía no documenta nada*. El circuito real de pago vive
+**entero fuera** de la Suite, y eso convierte la pregunta en **bloqueo humano**, no en medición
+pendiente. Hallazgo de `trade-marketing-cc`, verificado acá antes de incorporarlo.
+
+> ⚠️ **Corrección a una lectura mía, de Tesorería y tenía razón.** Este plan preguntaba si
+> `budget.daily_capacity` estaba *«vacía como `expense_plan_settings`»*. **No lo está: tiene 22
+> filas y las puso una persona (`superoot`).** El defecto es otro — y re-midiéndolo apareció uno
+> peor que el reportado: **las 22 filas cubren del 2026-09-01 al 2026-09-30, un mes que ya cerró.**
+> Hoy es 10 de octubre: **no hay un solo día futuro con tope autorizado.** A eso se suma `[TES.9]`
+> —su lector trata el día sin fila como **cero autorizado** en vez de *capacidad no definida*—, con
+> lo que el calendario de pagos opera hoy sin techo y sin saberlo.
+
 ---
 
 ## 2 · Qué hacen las empresas grandes — y qué vale para nosotros
@@ -171,10 +196,25 @@ mes, con el puente PVM que explica la diferencia. Sin cierre congelado, nadie pu
 cambió enero** — que es la pregunta que originó la Fase VP.
 
 **D6 · El ciclo de efectivo entra al presupuesto como restricción, no como reporte.** Un plan de
-crecimiento que no declara cuánta caja consume **no es un plan**. ⚠️ Medido hoy: la pierna de
-proveedores existe (`erp_supplier_payments`, 4,735 filas); **cartera e inventario hay que verificar
-columna por columna** — mi primer intento falló por nombres y eso es exactamente lo que no se
-declara a ciegas.
+crecimiento que no declara cuánta caja consume **no es un plan**. 
+
+⭐⭐ **Y medido con Tesorería, la pierna que falta es la que decide el signo.** Ellos ya tienen dos
+de las tres: **DSO 34.7** y **DPO 77.3 / 50.0**. O sea:
+
+```
+ciclo = DIO + 34.7 − 77.3 = DIO − 42.6
+```
+
+**Hoy el proveedor financia 42.6 días de operación.** Si el inventario rota en menos que eso el
+ciclo es **negativo** y crecer *libera* caja; si rota en más, cada peso de crecimiento hay que
+financiarlo. **Las dos conclusiones son opuestas y las separa la única pierna que no tenemos.**
+
+⛔ Y no está bloqueada por falta de dato sino por **valuación**: el DIO espera a que la **Fase MR**
+cierre el costo de inventario. **Eso convierte a MR en prerrequisito del Sprint 5, no en un trabajo
+paralelo** — y es lo primero que hay que destrabar si el objetivo es crecer.
+
+⚠️ La pierna de **cartera también existe** y Tesorería ya la usa (`cobranza-prevista.ts` sobre
+`kepler_ods.kdue`); este plan la había puesto como «por verificar». Corrección suya.
 
 ---
 
@@ -191,7 +231,7 @@ declara a ciegas.
 | **2 · Drivers de ingreso** | `clientes × frecuencia × ticket` por canal desde `erp_sales_invoices`; el renglón se deriva | **Ingresos** | Tesorería |
 | **3 · Dueño y clase de gasto** | `responsible` obligatorio; `expense_class` capturado; compuerta que impide materializar sin dueño | **Tesorería** | Ingresos |
 | **4 · El puente PVM** | Precio / volumen / mezcla sobre la desviación de venta | **Ingresos** | este carril |
-| **5 · Ciclo de efectivo** | DIO + DSO − DPO, y cuánta caja consume el plan de crecimiento | **Tesorería** | Ingresos |
+| **5 · Ciclo de efectivo** | DIO + DSO − DPO. ⛔ **Depende de que Fase MR cierre la valuación de inventario**: DSO y DPO ya están, el signo lo decide DIO | **Tesorería** | Ingresos |
 | **6 · Cierre mensual** | Congelar el mes; rodar el horizonte | **ambos** | este carril |
 
 ⛔ **Sprint 0 bloquea a todos los demás.** Construir sobre un proceso que no entendimos es cómo
@@ -233,6 +273,16 @@ Ninguna de estas sale de una base de datos. **Adivinarlas es volver al ejercicio
    retorno de todo el plan y **no cuesta software**.
 6. **¿Cuál es la meta de crecimiento, y de dónde sale?** Hoy el plan dice 3.05× la venta real sin que
    nadie la haya firmado.
+7. **¿Quién decide hoy que algo se paga, y contra qué tope?** ⛔ Reemplaza a la pregunta que este
+   plan traía (*«¿la obligación nace antes o después del pago?»*), que quedó **demostrada como no
+   medible**: `payment_calendar_lots`, `payment_allocations` y `payment_allocation_items` están
+   **las tres en 0 filas**, y ninguna de las 312 obligaciones tiene un peso pagado ni reservado.
+   **El circuito real de pago vive entero fuera de la Suite.** Diseñar cinco estados contra un
+   circuito que nadie describió es el riesgo que este plan quería evitar, y la evidencia no lo
+   resuelve: lo confirma como bloqueo.
+8. **¿Quién define el tope de pago por día, y cada cuánto se revisa?** Las únicas 22 filas de
+   capacidad que puso una persona cubren **del 1 al 30 de septiembre, un mes que ya cerró**. Hoy
+   no hay un solo día futuro con techo autorizado.
 
 ---
 
