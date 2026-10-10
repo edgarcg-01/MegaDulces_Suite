@@ -1,49 +1,56 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 
 import { PresupuestoDecisionComponent } from './presupuesto-decision.component';
-import type { FilaVenta } from './presupuesto-decision';
+import type { FilaConcentracion, VistaConcentracion } from './presupuesto-decision';
 
 /**
- * `[PVI.19]` — **La superficie de decidir: monta, pinta y NO publica lo que no puede medir.**
+ * `[PVI.19]`/`[PVI.20]` — **La superficie de decidir: monta, pinta y NO esconde ninguna fila.**
  *
  * ⚠️ En este repo no se puede compilar `view` en local y `view` no tiene target `typecheck`, así
  * que montar el componente es **la única verificación** de que sus imports resuelven y su
  * plantilla se renderiza antes del CI. Por eso la primera prueba es «monta y pinta».
  *
- * Lo demás protege las reglas de `DESIGN.md` que un cambio de plantilla rompe en silencio:
+ * Lo demás protege lo que la auditoría de los carriles hermanos encontró, y que una edición de
+ * plantilla vuelve a romper en silencio:
  *
- *   · **Q.1 answer-first** — lo primero del DOM es el veredicto, y es una FRASE. Si alguien mete
- *     una tabla arriba, esta prueba se pone roja.
- *   · **ADR-056** — sin venta real NO se pinta `0 %` de cumplimiento: se dice qué falta.
- *   · **Q.4** — la entidad concentrada es un control que navega, no un texto muerto.
- *   · **La cuarta pregunta se DECLARA** — «qué cambió desde que miraste» no existe, y la pantalla
- *     lo dice. Si alguien la borra por parecer negativa, la pantalla vuelve a mentir por omisión.
+ *   · **Las tres bandas en pantalla** — antes se pintaban 4 y se contaban 2, y $45,514,824 se
+ *     caían sin dejar rastro.
+ *   · **El universo declarado** — «el 81.6 % del plan» era de Mostrador; del plan es 47.72 %.
+ *   · **Q.1 answer-first** — lo primero del DOM es el veredicto, y es una frase.
+ *   · **ADR-056** — sin venta real no se pinta `0 %`: se dice qué falta.
+ *   · **La cuarta pregunta se DECLARA** — si alguien borra esa línea por parecer negativa, la
+ *     pantalla vuelve a mentir por omisión.
  */
 
-const fila = (label: string, meta: number | null, is_rollup = false): FilaVenta => ({
-  label, channel_label: 'Mostrador', entity_key: label.toLowerCase().replace(/ /g, '-'),
-  is_rollup, meta, real: null,
-});
+const f = (concepto: string, monto: number | null, pct: number | null, acumulado: number | null): FilaConcentracion =>
+  ({ id: concepto.toLowerCase().replace(/ /g, '-'), concepto, monto, pct, acumulado });
 
-/** El canal Mostrador del ejercicio real, medido en prod el 2026-10-09. */
-const MOSTRADOR: FilaVenta[] = [
-  fila('Padre Hidalgo', 58_103_857.07),
-  fila('La Piedad Abastos', 22_909_527.99),
-  fila('8 Esquinas', 52_778_444.77),
-  fila('Yurécuaro', 6_557_858.01),
-  fila('Zamora Centro', 12_838_038.62),
-  fila('Canindo', 54_854_348.29),
-  fila('Morelia Madero', 22_605_296.05),
-  fila('Morelia Abastos', 122_891_216.83),
-  fila('Subtotal Mostrador', 353_538_587.63, true),
-];
+/** Mostrador del ejercicio real, los OCHO renglones (2026-10-09). */
+const MOSTRADOR: VistaConcentracion = {
+  total: 353_538_587.63,
+  partidas_80: 4,
+  pct_mayor: 34.7607,
+  sin_monto: 0,
+  universo: 'Mostrador',
+  parte_de: { de: 'el ingreso del ejercicio', pct: 58.4578 },
+  filas: [
+    f('Morelia Abastos', 122_891_216.83, 34.7607, 34.7607),
+    f('Padre Hidalgo', 58_103_857.07, 16.4350, 51.1957),
+    f('Canindo', 54_854_348.29, 15.5157, 66.7114),
+    f('8 Esquinas', 52_778_444.77, 14.9286, 81.6400),
+    f('La Piedad Abastos', 22_909_527.99, 6.4800, 88.1200),
+    f('Morelia Madero', 22_605_296.05, 6.3941, 94.5141),
+    f('Zamora Centro', 12_838_038.62, 3.6311, 98.1452),
+    f('Yurécuaro', 6_557_858.01, 1.8549, 100.0000),
+  ],
+};
 
-describe('[PVI.19] la pantalla de decidir', () => {
+describe('[PVI.20] la pantalla de decidir', () => {
   let fx: ComponentFixture<PresupuestoDecisionComponent>;
 
-  const montar = (over: Partial<Record<string, unknown>> = {}) => {
+  const montar = (over: Record<string, unknown> = {}) => {
     fx = TestBed.createComponent(PresupuestoDecisionComponent);
-    fx.componentRef.setInput('filas', MOSTRADOR);
+    fx.componentRef.setInput('concentracion', MOSTRADOR);
     fx.componentRef.setInput('meta', 604_775_116);
     fx.componentRef.setInput('real', null);
     fx.componentRef.setInput('realDisponible', false);
@@ -68,54 +75,85 @@ describe('[PVI.19] la pantalla de decidir', () => {
     expect(el.querySelector('table')).toBeNull();
   });
 
-  it('⛔ ADR-056: sin venta real NO publica 0 % — dice qué falta', () => {
+  it('⛔ EL DEFECTO QUE CIERRA: las dos bandas que no son cabeza ESTÁN en pantalla', () => {
+    const txt = montar().textContent ?? '';
+    expect(txt).toContain('2 partidas intermedias');
+    expect(txt).toContain('$45,514,824');
+    expect(txt).toContain('2 bajo el 5 % cada una');
+    expect(txt).toContain('$19,395,897');
+  });
+
+  it('⛔ y la frase ya NO invita a leer el resto como chico', () => {
+    const txt = montar().textContent ?? '';
+    expect(txt).toContain('Las intermedias si');
+  });
+
+  it('⛔ EL UNIVERSO: la pantalla dice de qué es el 80 % y de qué es recorte', () => {
+    const el = montar();
+    expect(el.querySelector('.dec-universo')?.textContent)
+      .toContain('Mostrador — 58.5 % de el ingreso del ejercicio');
+    const txt = el.textContent ?? '';
+    expect(txt).toContain('4 partidas cruzan el 80 % de Mostrador');
+    expect(txt).not.toContain('del plan');
+  });
+
+  it('⛔ ADR-056: sin venta real NO publica un cumplimiento — dice qué falta', () => {
     const el = montar();
     const txt = el.textContent ?? '';
     expect(txt).toContain('no se puede decir');
     expect(txt).toContain('venta real del ejercicio');
     expect(txt).toContain('meta de 3 períodos');
-    expect(txt).not.toContain('0 %');
+    /*
+     * ⚠️ La aserción se acota al VEREDICTO. Buscar «0 %» en todo el DOM no sirve: «cruzan el
+     * 80 %» lo contiene, y el test se ponía rojo por una subcadena. Lo que de verdad se afirma
+     * es que el bloque que contesta «¿vamos a llegar?» no publica NINGÚN porcentaje cuando no
+     * se puede medir — ni 0 %, ni ninguno.
+     */
+    const veredicto = (el.querySelector('.dec-verdict')?.textContent ?? '')
+      + (el.querySelector('.dec-falta')?.textContent ?? '');
+    expect(veredicto).not.toMatch(/\d+(\.\d+)?\s*%/);
   });
 
-  it('⭐ nombra la entidad concentrada con su porcentaje', () => {
-    const txt = montar().textContent ?? '';
-    expect(txt).toContain('Morelia Abastos');
-    expect(txt).toContain('34.8 %');
-  });
-
-  it('⭐ Q.4: la entidad es un control que NAVEGA, no texto muerto', () => {
+  it('⭐ Q.4: la partida es un control que NAVEGA, no texto muerto', () => {
     const el = montar();
     const filas = el.querySelectorAll<HTMLButtonElement>('.dec-top-row');
-    expect(filas.length).toBe(4);                       // las 4 que cargan el 81.6 %
-    expect(filas[0].tagName).toBe('BUTTON');            // alcanzable por teclado
+    expect(filas.length).toBe(4);
+    expect(filas[0].tagName).toBe('BUTTON');
     expect(filas[0].getAttribute('aria-label')).toContain('Morelia Abastos');
 
-    const comp = fx.componentInstance;
     const visto: (string | null)[] = [];
-    comp.verEntidad.subscribe((k: string | null) => visto.push(k));
+    fx.componentInstance.verPartida.subscribe((k: string | null) => visto.push(k));
     filas[0].click();
     expect(visto).toEqual(['morelia-abastos']);
   });
 
-  it('⛔ el subtotal NO aparece como entidad (duplicaría el canal)', () => {
+  it('la barra tiene TRES segmentos: ninguna fila queda fuera del dibujo', () => {
     const el = montar();
-    const nombres = [...el.querySelectorAll('.dec-top-name')].map((n) => n.textContent?.trim());
-    expect(nombres.some((n) => n?.startsWith('Subtotal'))).toBe(false);
+    expect(el.querySelectorAll('app-metric-strip .ms-seg').length).toBe(3);
   });
 
   it('dice lo que cuesta no firmar, y el botón emite', () => {
     const el = montar();
     expect(el.textContent).toContain('Calendario de pagos');
-    const comp = fx.componentInstance;
     let fue = 0;
-    comp.irAFirmas.subscribe(() => fue++);
+    fx.componentInstance.irAFirmas.subscribe(() => fue++);
     el.querySelector<HTMLButtonElement>('.dec-block--act button')?.click();
     expect(fue).toBe(1);
   });
 
   it('⛔ DECLARA la pregunta que no puede contestar', () => {
-    const el = montar();
-    expect(el.querySelector('.dec-gap')?.textContent).toContain('cambio desde la ultima vez');
+    expect(montar().querySelector('.dec-gap')?.textContent).toContain('cambio desde la ultima vez');
+  });
+
+  it('una partida sin monto legible se declara, no se descarta', () => {
+    const el = montar({
+      concentracion: {
+        ...MOSTRADOR, sin_monto: 1,
+        filas: [...MOSTRADOR.filas, f('Partida sin importe', null, null, null)],
+      },
+    });
+    expect(el.textContent).toContain('1 sin monto legible');
+    expect(el.textContent).toContain('no medible');
   });
 
   it('sin firmas pendientes no pinta el bloque de acción (ni dice «al día»)', () => {
@@ -124,10 +162,10 @@ describe('[PVI.19] la pantalla de decidir', () => {
     expect(el.textContent).not.toContain('al día');
   });
 
-  it('sin metas por entidad lo declara en vez de pintar una barra vacía', () => {
-    const el = montar({ filas: [fila('Subtotal', 10, true)] });
+  it('sin concentración lo declara en vez de pintar una barra vacía', () => {
+    const el = montar({ concentracion: null });
     expect(el.querySelector('app-metric-strip')).toBeNull();
-    expect(el.textContent).toContain('No hay metas por entidad');
+    expect(el.textContent).toContain('No hay partidas');
   });
 
   it('cargando: esqueleto dimensionado y nada de contenido a medias', () => {
