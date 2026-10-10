@@ -1,0 +1,138 @@
+# ═══ CARRIL DE CAJA ═══  [CG.78]  — `kdm1` sale del carril caliente y viaja solo
+#
+# ── Por qué existe, medido contra prod el 2026-10-10 ───────────────────────────────────────
+#
+# Pedido de Edgar: *"necesito que vayan saliendo con un segundo a lo mucho de latencia entre
+# Kepler y la caja"*. La cadena, medida pata por pata:
+#
+#   Kepler sucursal → réplica (replicación lógica) ....      2–9 ms
+#   réplica → kepler_ods (carril `ods-live-hot`) ......  cada 32 s (peor 71) ← ESTA
+#   kepler_ods → la pantalla (matvista por cron) ......  cada 60 s          ← y ESTA
+#   la consulta ......................................       67 ms
+#   ──────────────────────────────────────────────────────────────────────
+#   total ............................................  ~95 s típico
+#
+# ⭐ **`kdm1` no es el costo del carril caliente: es un polizón.** Medido en sus logs, una pasada
+# mueve **1 o 2 filas de `kdm1` por sucursal**, y lo que infla el ciclo a 12–44 s es otra cosa
+# que viaja en el MISMO proceso:
+#
+#     [coalesce:kdm2:normalizeSalePrice] 0 filas · 125 SKUs · 11850ms · quedan 3507
+#     ⛑ 08/kdii [hash resync]: 9534 delta · 0 escritas
+#     ── ciclo 425: 230 filas escritas (44318ms) ──
+#     ── ciclo 426: 597 filas escritas (11870ms) ──
+#     ── ciclo 427: 102 filas escritas (19146ms) ──
+#
+# Medido en seco dentro del pod, una pasada de **`kdm1` SOLA sobre las 9 sucursales tarda
+# 0.63 s**, arranque de node incluido. O sea que la espera no la paga el trabajo: la paga la
+# compañía.
+#
+# ── Por qué DUEÑO ÚNICO, y no "otro carril que también lo mire" ────────────────────────────
+#
+# ⛔⛔ `ods.ctl` llavea sólo por `(table_name)` y `ods.shadow` por `(table_name, pk_text)`: NO
+# hay ninguna dimensión que diga qué carril escribió. Dos carriles sobre la misma tabla se
+# pisan el watermark, uno graba un ctid viejo encima del nuevo y **las filas del medio no se
+# vuelven a mirar** — sin error, sin reintento, sin una línea de log. Es el mismo modo de falla
+# que costó seis días de precios viejos en la Fase OBS.
+#
+# Por eso este carril NO se agrega encima: `kdm1` **se retira** de `KP_ODS_TABLES` de
+# `ods-live-hot` en el mismo commit. La partición la candadea
+# `database/tests/test-ods-lane-partition.js`, donde `kdm1` queda declarado como hueco del
+# caliente CON SU MOTIVO — un hueco sin declarar se lee igual que uno que no existe.
+#
+# ⚠️ El espejo (`ods-live-mirror`) NO hay que tocarlo: su `ODS_EXCLUDE_TABLES` es una lista
+# aparte que ya nombra `kdm1`, así que sigue sin mirarlo. Verificado antes de escribir esto.
+#
+# ── Efecto colateral, y va en la dirección segura ──────────────────────────────────────────
+#
+# ⭐ `kdm1` son las CABECERAS y `kdm2` los renglones. Al mudarse al carril rápido, la cabecera
+# llega ANTES que sus renglones en vez de después. Un renglón sin cabecera es transitorio y se
+# resuelve en el siguiente ciclo del caliente; una cabecera sin renglones ya pasaba hoy. El
+# orden nuevo es el menos malo de los dos.
+#
+# ── El `--watch=3` no es el final, y queda dicho ───────────────────────────────────────────
+#
+# ⛔ Con 3 s esto entrega en **~3.6 s peor caso**, NO en 1 s. El piso lo pone el código
+# (`replicate-ods-live.js`: `WATCH_SEC = Math.max(3, ...)`), y bajarlo a 1 s es una decisión con
+# precio medido, no un número que se cambia:
+#
+#     sondear kdm1 cada 1 s .....  ~25,900 s/día de CPU
+#     lo que [CPU.3] eliminó ....    7,487 s/día  ← por considerarlo caro
+#
+# O sea que sondear al segundo cuesta **3.5× lo que ya decidimos que era inaceptable**. El
+# camino a ≤1 s sin pagar eso es EMPUJAR en vez de sondear (un `pg_notify` desde la réplica,
+# que exige `ENABLE ALWAYS TRIGGER` sobre `md.kdm1` en las 9 ramas). Eso va aparte, medido y
+# decidido por separado: esta entrega baja 32 s → ~3.6 s sin tocar las réplicas.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ods-live-caja
+  namespace: ingesta
+  labels:
+    carril: ods-live-caja
+    singleton: "true"
+    # `migrado` = lo corre k3s. Este carril NACIÓ acá y nunca pasó por Compose, pero el candado
+    # lee `preparado` como "el YAML existe y el carril sigue corriendo allá" y exige encontrarlo
+    # en `SERVICIOS_DEF`; marcarlo así lo reportaría como huérfano.
+    migracion: migrado
+spec:
+  replicas: 1                  # ⛔ NUNCA subir: dos shippers = carrera de watermark (ver cabecera)
+  strategy:
+    type: Recreate             # ⛔ NUNCA RollingUpdate: levanta el nuevo ANTES de matar el viejo
+  selector:
+    matchLabels:
+      carril: ods-live-caja
+  template:
+    metadata:
+      labels:
+        carril: ods-live-caja
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: shipper
+          image: localhost:5000/trade-ingest:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          # ⚠️ Los argumentos van en un arreglo YAML y no en una cadena de shell: `--apply` se
+          # compara EXACTO, y un retorno de carro pegado lo dejaría corriendo en seco imprimiendo
+          # `ok` — lo que pasó en `[VL.4]` cuando el crontab viajó con CRLF.
+          command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=3", "--tables=kdm1"]
+          envFrom:
+            - secretRef:
+                name: ingest-env
+          env:
+            - name: TZ
+              value: America/Mexico_City
+            # ⛔ `KP_ODS_TABLES` va IGUAL que `--tables`. No es redundante: `[INFRA.3]` retiró el
+            # default del script justamente para que correrlo sin lista salga con código 1 en vez
+            # de embarcar un conjunto plausible, y el candado de partición lee la VARIABLE.
+            - name: KP_ODS_TABLES
+              value: kdm1
+            # `kdm1` va por carril ctid, no por hash: es append-only y su watermark es el ctid.
+            # La lista de hash queda VACÍA a propósito y no ausente — `ODS_HASH_TABLES ⊆
+            # KP_ODS_TABLES` es lo que candadea el bug de `[CT.3]`, y una lista ausente no se
+            # distingue de una mal escrita.
+            - name: ODS_HASH_TABLES
+              value: ""
+            # ⛔⛔ SIN ESTO LA SONDA DE ABAJO ES UN ADORNO. `ops/ingest/health.js` arranca con
+            #   if (!URL_ || !KEYS.length) { … process.exit(0) }
+            # o sea que sin `ODS_HB_KEY` responde SANO SIEMPRE, y un pod colgado se vería igual
+            # que uno trabajando.
+            - name: ODS_HB_KEY
+              value: ods_live_caja
+            # El carril late cada pasada (3 s). 5 min de antigüedad ya es un proceso que dejó de
+            # dar vueltas — no el rezago de un ciclo largo, como en el caliente (20 min).
+            - name: ODS_HB_MAX_MIN
+              value: "5"
+          # ⛔ La sonda mide ENTREGA contra `analytics.cron_runs`, no "el proceso existe". El
+          # cuelgue del 04-09-2026 fue exactamente eso: proceso vivo, CPU 0 %, latido envejeciendo.
+          livenessProbe:
+            exec:
+              command: ["node", "/app/ops/ingest/health.js"]
+            initialDelaySeconds: 60
+            periodSeconds: 60
+            timeoutSeconds: 20
+            failureThreshold: 3
+          resources:
+            requests: { memory: "128Mi", cpu: "50m" }
+            limits:   { memory: "512Mi" }

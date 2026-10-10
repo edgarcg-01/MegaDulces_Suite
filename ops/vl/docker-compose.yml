@@ -181,9 +181,42 @@ services:
       # existe (`run-ods-live-loop.cmd`, muerto desde que `[VL.4]` movió los 13 carriles acá):
       # `RUNBOOK_REPLICACION_LOGICA.md` y `FASE_CV`. Las dos traen `kdib`. No embarcan nada —
       # el riesgo es que alguien las siga durante una recuperación.
-      KP_ODS_TABLES: kdm1,kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
+      KP_ODS_TABLES: kdm2,kdij,kdue,kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
       ODS_HASH_TABLES: kdii,kdil,kdik,kdig,kdid,kduv,kdud,kdb1,kdco,kdc3,kdpv_folio_caja,kdxd,kdxe,kdc2*
     command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=15"]
+
+  # ═══ CARRIL DE CAJA ═══ `kdm1` SOLO, para la bandeja de /finanzas/caja-general. @3 s.  [CG.78]
+  #
+  # ⭐ `kdm1` salió del caliente de arriba en el MISMO commit que creó esto, y no es un ajuste
+  # de reparto: es la condición para que exista. `ods.ctl` llavea sólo por `(table_name)`, así
+  # que dos carriles sobre la misma tabla se pisan el watermark y **las filas del medio no se
+  # vuelven a mirar** — sin error y sin log. Dueño único o nada.
+  #
+  # Por qué se justifica el carril aparte, medido en los logs de prod el 2026-10-10: una pasada
+  # del caliente mueve **1 o 2 filas de `kdm1` por sucursal**, y lo que infla su ciclo a 12–44 s
+  # viaja en el mismo proceso (`[coalesce:kdm2:normalizeSalePrice] … 11850ms`, `kdii hash
+  # resync 9534 delta`). `kdm1` SOLA sobre las 9 sucursales tarda **0.63 s**, arranque incluido.
+  #
+  # ⚠️ El espejo NO cambia: su `ODS_EXCLUDE_TABLES` ya nombra `kdm1` y lo sigue ignorando.
+  #
+  # ⛔ Los 3 s NO son el objetivo final (el pedido es ≤1 s): son el piso del código
+  # (`WATCH_SEC = Math.max(3, ...)`). Bajarlo a 1 s cuesta ~25,900 s/día de CPU contra los
+  # 7,487 s/día que `[CPU.3]` eliminó POR CAROS — 3.5× lo ya rechazado. El camino a ≤1 s es
+  # empujar, no sondear más rápido, y va medido y decidido aparte.
+  ods-live-caja:
+    # [K3S.11] NACIÓ EN K3s -- acá sólo para que el candado de partición y `check:k3s` lo lean.
+    profiles: ["retirado-k3s"]
+    <<: *lane
+    container_name: ods-live-caja
+    environment:
+      ODS_HB_KEY: ods_live_caja
+      ODS_HB_MAX_MIN: "5"
+      KP_ODS_TABLES: kdm1
+      # Vacía y no ausente, a propósito: `ODS_HASH_TABLES ⊆ KP_ODS_TABLES` es lo que candadea el
+      # bug de `[CT.3]`, y una lista ausente no se distingue de una mal escrita. `kdm1` es
+      # append-only: va por carril ctid, nunca por hash.
+      ODS_HASH_TABLES: ""
+    command: ["node", "database/importers/kepler/replicate-ods-live.js", "--apply", "--watch=3", "--tables=kdm1"]
 
   # ═══ ESPEJO COMPLETO ═══ todo md.* MENOS el set del hot. @300 s.
   ods-live-mirror:
