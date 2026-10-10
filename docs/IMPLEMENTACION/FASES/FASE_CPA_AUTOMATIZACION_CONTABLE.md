@@ -302,6 +302,15 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 > ⚠️ **Falta:** aplicar las 3 migraciones en `md` (una por una, `apply-one-migration-prod.js`
 > dentro de `prod-api`; la del índice **fuera de horario**) · redeploy api+view · validación
 > visual. **Sin permiso nuevo → sin re-login.**
+>
+> ⛔ **Procedencia rota, declarada:** los 14 archivos de `[CPA.0]` **no están en un commit
+> propio**. Viajaron dentro de `a048f617b test([CP.8.35])`, de otra sesión, porque yo los había
+> dejado en el índice —que es **compartido por ~10 sesiones**— y esa sesión commiteó sin
+> pathspec. Nada se perdió; lo que se perdió es poder encontrarlos por `git log` buscando la
+> fase. **No se amenda** (hay commits encima y rompería a las otras sesiones).
+> ⭐ La lección, ya en la memoria del proyecto: `git commit -- <rutas>` lee del **worktree** y
+> no necesita `git add`; **stagear no agrega seguridad, sólo abre la ventana** en la que otro
+> te barre.
 
 - Vista `analytics.v_contpaqi_cierre_mensual` — **derivada** de `gl_polizas` +
   `contpaqi_ledger_monthly` (`derive-no-copy`, sin importer). Grano: `(anio_mes × familia)` con
