@@ -356,6 +356,35 @@ export class CommercialReplenishmentController {
     });
   }
 
+  /**
+   * `[RA.PM]` La autopsia de la compra: qué pedimos que no volvió a salir.
+   *
+   * ⛔ **Depende de `analytics.mv_purchase_postmortem`** (migración `20261009133029`), que es
+   * ADITIVA y que el código LEE: va a prod **ANTES** que este deploy. Si el deploy llegara primero,
+   * el endpoint tira 42P01 y la pestaña queda rota — no vacía, rota.
+   */
+  @Get('postmortem')
+  @RequirePermissions(Permission.COMPRAS_PEDIDO_VER)
+  @ApiOperation({ summary: 'Autopsia de la compra: comprado vs lo que volvió a salir, por (almacén, producto). Filtros: warehouse_ids(CSV), supplier_id, search, veredicto, solo_venden.' })
+  postmortem(
+    @Query('warehouse_id') warehouse_id?: string,
+    @Query('warehouse_ids') warehouse_ids?: string,
+    @Query('supplier_id') supplier_id?: string,
+    @Query('search') search?: string,
+    @Query('veredicto') veredicto?: string,
+    @Query('solo_venden') solo_venden?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.svc.postmortem({
+      warehouse_id, warehouse_ids, supplier_id, search, veredicto,
+      // Misma lectura que `solo_quedado`: `Boolean('false')` es true.
+      solo_venden: parseSoloQuedado(solo_venden),
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
   @Get('filters')
   // Lookup compartido (almacenes/proveedores/categorías) para los selects de VARIOS
   // submódulos → basta con poder VER cualquiera de ellos (vista autosuficiente).

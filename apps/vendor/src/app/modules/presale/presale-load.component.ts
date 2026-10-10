@@ -68,10 +68,10 @@ const dm = (v: string | null | undefined): string => {
         @if (d.mine.length) {
           <h2 class="pl-h2">Mis guías de hoy</h2>
           @for (g of d.mine; track g.id) {
-            <section class="pl-guia" [class.impresa]="g.status === 'impresa'">
+            <section class="pl-guia" [class.impresa]="g.status !== 'abierta'">
               <div class="pl-guia-h">
                 <div><b class="mono">{{ g.folio }}</b><span class="muted"> · {{ g.sales_route }} · {{ g.branch }}</span></div>
-                <span class="pl-tag" [class.ok]="g.status === 'impresa'">{{ g.status === 'impresa' ? 'Impresa' : 'Por imprimir' }}</span>
+                <span class="pl-tag" [class.ok]="g.status !== 'abierta'">{{ g.status === 'liquidada' ? 'Liquidada' : g.status === 'impresa' ? 'Impresa' : 'Por imprimir' }}</span>
               </div>
               @for (o of ordenados(g.orders); track o.order_id) {
                 <div class="pl-guia-o" [class.hecho]="o.status !== 'cargado'">
@@ -87,19 +87,21 @@ const dm = (v: string | null | undefined): string => {
                         <span class="pl-chip">{{ o.status === 'regreso' ? 'Regresó a caja' : 'No se entregó' }}</span>
                         @if (o.removed_reason) { <span class="muted">{{ o.removed_reason }}</span> }
                       </div>
+                    } @else if (o.order_cancelled) {
+                      <div class="pl-o-cobro"><span class="pl-chip bad-chip">Pedido cancelado: no lo entregues, regrésalo a caja</span></div>
                     }
                   </div>
-                  <span class="num" [class.tachado]="o.status === 'no_entregado' || o.status === 'regreso'">{{ money(o.document_total ?? o.total) }}</span>
+                  <span class="num" [class.tachado]="o.status === 'no_entregado' || o.status === 'regreso' || o.order_cancelled">{{ money(o.document_total ?? o.total) }}</span>
                   @if (g.status === 'abierta') {
                     <button type="button" class="pl-quitar" [disabled]="!!ocupado()" (click)="quitar(o.order_id)" [attr.aria-label]="'Quitar ' + o.code">Quitar</button>
-                  } @else if (o.status === 'cargado') {
+                  } @else if (o.status === 'cargado' && !o.order_cancelled) {
                     <button type="button" class="pl-entregar" [disabled]="!!ocupado()" (click)="abrirEntrega(o.order_id)" [attr.aria-label]="'Entregar ' + o.code">Entregar</button>
                   }
                 </div>
               }
               <div class="pl-guia-f">
                 <span>{{ enCarga(g.orders) }} {{ enCarga(g.orders) === 1 ? 'pedido' : 'pedidos' }} · <b class="num">{{ money(g.total) }}</b></span>
-                <span class="muted">{{ g.status === 'impresa' ? pendientesTexto(g.orders) : 'Pide en caja que la impriman para firmarla.' }}</span>
+                <span class="muted">{{ g.status === 'liquidada' ? 'Liquidada en caja (' + (g.liquidation?.folio ?? '') + ').' : g.status === 'impresa' ? pendientesTexto(g.orders) : 'Pide en caja que la impriman para firmarla.' }}</span>
               </div>
             </section>
           }
@@ -266,6 +268,7 @@ const dm = (v: string | null | undefined): string => {
     .pl-chip { padding:.05rem .45rem; border-radius:999px; background:var(--hover-bg); color:var(--text-main); }
     .pl-chip.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
     .pl-chip.ok.dif { background:var(--warn-soft-bg); color:var(--warn-soft-fg); }
+    .pl-chip.bad-chip { background:var(--bad-soft-bg); color:var(--bad-fg); }
     .pl-empty { display:flex; flex-direction:column; align-items:center; gap:.4rem; padding:1.5rem; color:var(--text-muted); text-align:center; font-size:var(--fs-body); }
     .pl-skel { display:flex; flex-direction:column; gap:.5rem; margin-top:1rem; }
     .pl-skel div { height:4.5rem; border-radius:12px; background:var(--hover-bg); }

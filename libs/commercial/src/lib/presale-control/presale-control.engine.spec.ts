@@ -14,9 +14,12 @@ import {
   compararRenglones,
   contarPorEtapa,
   diasEntre,
+  estadoNotaCredito,
   etapaDe,
   MAX_REINTENTOS_ENTREGA,
   partesFolio,
+  requiereDevolucion,
+  resumenLiquidacion,
   semaforo,
 } from './presale-control.engine';
 
@@ -151,7 +154,7 @@ describe('contarPorEtapa y reglas', () => {
     expect(c.por_surtir).toBe(2);
     expect(c.cobrado).toBe(1);
     expect(c.esperando_alta).toBe(0);
-    expect(Object.keys(c)).toHaveLength(8);
+    expect(Object.keys(c)).toHaveLength(9);
   });
   it('la regla de reintentos es la que pidió Francisco: 2', () => {
     expect(MAX_REINTENTOS_ENTREGA).toBe(2);
@@ -166,5 +169,72 @@ describe('partesFolio', () => {
     expect(partesFolio('99UD9999-CANDADO')).toBeNull();
     expect(partesFolio('UD1003-0002097')).toBeNull();
     expect(partesFolio('')).toBeNull();
+  });
+});
+
+describe('[MCP.7] reintentos y liquidación', () => {
+  it('sale una vez y puede salir 2 más: al 3er intento fallido va a devolución', () => {
+    expect(requiereDevolucion(0)).toBe(false);
+    expect(requiereDevolucion(2)).toBe(false);
+    expect(requiereDevolucion(3)).toBe(true);
+  });
+  it('sólo lo entregado se espera; efectivo y transferencia por separado', () => {
+    const r = resumenLiquidacion([
+      { status: 'entregado', document_total: 1580.5, cash_amount: 1080.5, transfer_amount: 500 },
+      { status: 'entregado', document_total: 742, cash_amount: 700, transfer_amount: 0, delivery_outcome: 'con_diferencia' },
+      { status: 'no_entregado', document_total: 315.25, cash_amount: null, transfer_amount: null },
+      { status: 'regreso', document_total: 100, cash_amount: null, transfer_amount: null },
+    ]);
+    expect(r).toEqual({
+      entregados: 2, no_entregados: 2, pendientes: 0, documents_total: 2322.5,
+      documentos_sin_total: 0, declared_cash: 1780.5, declared_transfer: 500, por_cobrar: 42, sin_explicar: 0,
+    });
+  });
+  it('negativa: un pedido aún en camino se cuenta como pendiente y no suma', () => {
+    const r = resumenLiquidacion([{ status: 'cargado', document_total: 500, cash_amount: null, transfer_amount: null }]);
+    expect(r.pendientes).toBe(1);
+    expect(r.documents_total).toBe(0);
+  });
+  it('un documento sin total en el ODS se declara, no se suma como cero escondido', () => {
+    const r = resumenLiquidacion([{ status: 'entregado', document_total: null, cash_amount: 50, transfer_amount: 0 }]);
+    expect(r.documentos_sin_total).toBe(1);
+    expect(r.declared_cash).toBe(50);
+  });
+});
+
+describe('[MCP.7] lo que Kepler cobró y nadie declaró', () => {
+  it('negativa: un pedido "completo" con cobro declarado en 0 queda SIN EXPLICAR (no se cierra como cuadrado)', () => {
+    const r = resumenLiquidacion([{ status: 'entregado', document_total: 5000, cash_amount: 0, transfer_amount: 0, delivery_outcome: 'completo' }]);
+    expect(r.por_cobrar).toBe(5000);
+    expect(r.sin_explicar).toBe(5000);
+  });
+  it('un "con diferencia" ya trae su nota: cuenta en por cobrar, no en sin explicar', () => {
+    const r = resumenLiquidacion([{ status: 'entregado', document_total: 500, cash_amount: 450, transfer_amount: 0, delivery_outcome: 'con_diferencia' }]);
+    expect(r.por_cobrar).toBe(50);
+    expect(r.sin_explicar).toBe(0);
+  });
+  it('documento sin total: no entra al cuadre contra el documento', () => {
+    const r = resumenLiquidacion([{ status: 'entregado', document_total: null, cash_amount: 80, transfer_amount: 0, delivery_outcome: 'completo' }]);
+    expect(r.por_cobrar).toBe(0);
+    expect(r.sin_explicar).toBe(0);
+  });
+});
+
+describe('[MCP.7.1] nota de crédito de Kepler sobre el ticket', () => {
+  it('cubre todo el ticket = saldado (con tolerancia de centavos); una parte = parcial', () => {
+    expect(estadoNotaCredito(326.8, 326.8)).toBe('saldado');
+    expect(estadoNotaCredito(326.77, 326.8)).toBe('saldado');
+    expect(estadoNotaCredito(353.76, 626.62)).toBe('parcial');
+    expect(estadoNotaCredito(0, 100)).toBeNull();
+  });
+  it('saldado lleva el pedido a devuelto, que es cerrado y sin semáforo', () => {
+    const b = { status: 'confirmed', wave_stage: null, ligado: true, customer_erp_code: '10182' };
+    expect(etapaDe({ ...b, devuelto_nc: true })).toBe('devuelto');
+    expect(semaforo('2026-06-20', '2026-10-08', 'devuelto')).toEqual({ due: null, days_late: null });
+  });
+  it('negativa: un cancelado sigue cancelado y un fulfilled sigue entregado aunque haya NC', () => {
+    const b = { status: 'cancelled', wave_stage: null, ligado: true, customer_erp_code: '10182', devuelto_nc: true };
+    expect(etapaDe(b)).toBe('cancelado');
+    expect(etapaDe({ ...b, status: 'fulfilled' })).toBe('entregado');
   });
 });

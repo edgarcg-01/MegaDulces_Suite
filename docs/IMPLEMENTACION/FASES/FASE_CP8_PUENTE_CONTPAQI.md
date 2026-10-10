@@ -1496,3 +1496,394 @@ Los archivos y la hoja de instrucciones están listos:
 
 ⛔ Los `.txt` **no se commitean** — llevan cuentas reales y un UUID de CFDI real, y el repo es
 público. Se generan con `database/scripts/generar-prueba-contpaqi.js --out <carpeta>`.
+
+---
+
+## 22. ⛔⛔ `[CP.8.25]` La asociación de CFDI SÍ ocurre — la premisa de los "0 de 33,303" estaba mal aplicada
+
+Edgar mandó una captura de **`XML Recibidos > Facturas`** del ADD en `192.168.0.208`
+(`0contabilidadd`) preguntando si conviene XML. La pantalla mostraba
+**`Total Registros: 10 · Documentos Asociados: 0`**, y eso obligó a medir.
+
+### 22.1 Lo medido
+
+| año | CFDIs recibidos | asociados | % |
+|---|--:|--:|--:|
+| 2018 | 19,608 | 17,484 | 89.2 |
+| 2021 | 19,893 | 18,636 | 93.7 |
+| 2024 | 18,281 | 17,001 | 93.0 |
+| 2025 | 18,107 | 16,352 | 90.3 |
+| 2026 | 13,504 | 10,704 | 79.3 |
+| **histórico** | **169,030** | **152,061** | **90.0** |
+
+Y por mes, el 2026: may **88.8 %** · jun 89.8 · jul 71.1 · ago 71.4 · sep 54.8 · **oct 6.6 %**.
+
+⭐ **El `0` de la pantalla no es una falla: es el rezago del mes en curso.** La rampa
+descendente hacia hoy es exactamente la forma que tiene *"la contadora todavía no llegó a eso"*.
+
+### 22.2 ⛔ Qué estaba mal en cómo lo venía contando
+
+`FASE_CP` §7.9 mide **33,303 movimientos de póliza** sin CFDI asociado, y `[CP.8.13]` §10.4
+concluyó —correctamente— que el formato **sí** transporta el UUID. Pero al presentarlo yo lo
+convertí en *"cerramos un hueco del 0 %"*, **mezclando dos universos**:
+
+| universo | medida |
+|---|--:|
+| renglones de póliza del **libro de compras** sin UUID | 33,303 en 5 años |
+| **CFDIs recibidos** sin asociar | **10 % — y el 90 % sí se asocia** |
+
+⭐ *Los dos números son ciertos y no hablan de lo mismo.* Un CFDI puede estar asociado a su
+documento y aun así no aparecer en el renglón de la póliza del libro.
+
+### 22.3 El valor del renglón `AD`, corregido
+
+No es *"cerrar un 0 %"*. Es:
+
+1. **Ahorrar el trabajo manual**: ~1,400 comprobantes al mes que hoy alguien asocia a mano con el
+   botón **Asociar** de esa misma pantalla.
+2. **Cerrar el 10 % que nunca se asocia**: **2,606 CFDIs de 2026 por $105,399,045.52**.
+
+Sigue valiendo la prueba —y mucho—, pero con el número correcto.
+
+### 22.4 Lo que la captura aporta además
+
+- ⭐ **`192.168.0.208` (`0contabilidadd`) es la máquina donde corre ContPAQi Contabilidad**, no la
+  `.35` (que es el SQL Server). Es el candidato para `E4` (el SDK), que hasta ahora no tenía
+  dirección.
+- La pantalla tiene un botón **`Preliminar`**, que en el ADD suele generar una **póliza preliminar
+  desde los XML seleccionados**. ⚠️ **Sin verificar qué hace exactamente acá** — si genera póliza
+  desde CFDI, es un camino de automatización alterno que hay que medir antes de descartar.
+- ⛔ **Esta pantalla NO es la de importar pólizas.** Es el repositorio de comprobantes. La
+  pregunta sobre XML vs TXT sigue abierta y se contesta en *Pólizas → Importar*.
+
+---
+
+## 23. ⭐⭐⭐ `[CP.8.26]` El árbitro apareció — y el `SEP` deja de ser una suposición
+
+`[CP.8.4]` §9.2 identificó **`C:\Compac\Empresas\Esquemas\Contpaq\CT_EST_Poliza_NG.xls`** como el
+esquema que ContPAQi usa para *leer* el TXT, y lo declaró **inalcanzable** (SMB denegado).
+
+Resultó que **está escrito en el propio diálogo de `Cargar Pólizas`**, en el campo
+`Configuración de datos`. No hacía falta ningún acceso remoto: hacía falta abrir la pantalla.
+
+⚠️ Lo que llegó fue **`CT_EST_Prepoliza_NG.xls`** — el de **Prepóliza**, no el de Póliza. Sus
+anchos son otros (`Referencia` 100 vs 30, `Cuenta` 52 vs 30), así que **no sirve para validar
+nuestro layout**. Pero sí entrega la **gramática**, y con eso alcanza para cerrar el riesgo mayor.
+
+### 23.1 ⭐⭐ El separador: confirmado por el propio esquema de ContPAQi
+
+El archivo declara el formato como una secuencia de renglones `Tipo | Nombre | Longitud`:
+
+```
+E | prepolizas.1   | 2  | R        <- etiqueta del registro (2 chars) + su letra de tipo
+S |                | 1             <- SEPARADOR de 1 caracter
+A | Codigo         | 20 |  | derecha
+S |                | 1
+A | Nombre         | 100
+S |                | 1
+...
+A | ClaveBaseISR   | 20
+S |                | 1             <- ⭐ TAMBIEN despues del ULTIMO campo
+```
+
+⭐⭐ **Hay un `S` de 1 carácter después de CADA campo, incluido el último.** O sea
+**`Σanchos + n`**, no `n−1`.
+
+Eso es **exactamente** lo que `[CP.8.13]` §10.3 había medido a mano sobre las 232 líneas del
+archivo real (*"toda línea termina en UN ESPACIO"*), y es lo que el emisor implementa hoy:
+
+| | Σanchos | +n | +(n−1) | **real** |
+|---|--:|--:|--:|--:|
+| `P` (11 campos) | 174 | **185** | 184 | **185** ✓ |
+| `M` (11 campos) | 261 | **272** | 271 | **272** ✓ |
+
+**El `SEP` deja de ser una suposición.** `[CP.8.4]` lo tenía como el riesgo ⛔ de toda la fase
+(*"todo E1 descansa en un formato supuesto"*) y ahora está confirmado por la especificación del
+fabricante, no sólo por nuestra lectura de un archivo.
+
+### 23.2 Lo demás que la gramática confirma
+
+| del esquema | lo que valida |
+|---|---|
+| `E ... 2 ... R` / `M` | la **etiqueta de registro mide 2** y lleva una letra de tipo — por eso `P ` y `M1` |
+| `A` vs `R` | `A` = alfanumérico · **`R` = referencia a catálogo** (Cuenta, Diario, SegNeg) |
+| `A \| TipoMovto \| 1 \| 1,0` | confirma `0` = cargo / `1` = abono |
+| columna `Alineación: derecha` | existe el concepto — y el emisor ya alinea a la derecha algunos campos |
+
+### 23.3 ⚠️ Una anomalía SIN explicar, declarada
+
+Varios campos traen **longitud `52`**: `TipoPol`, `Folio`, `Diario`, `Cuenta`, `CtaFinal`,
+`Importe`, `ImporteME`, `SegNeg`. **Todos son numéricos o referencias a catálogo**; los
+alfanuméricos sí traen longitudes creíbles (20, 100, 1, 2, 254, 10, 5).
+
+En el archivo real esos campos miden 4, 9, 10, 30, 20 y 4 — **ninguno 52**.
+
+⛔ **No se interpreta.** La hipótesis cómoda sería *"52 = longitud variable, el importador tolera
+y delimita por el separador"* — y si fuera cierta, nuestros anchos exactos importarían menos.
+Pero la columna `Alineación` sólo tiene sentido en ancho fijo, así que la hipótesis se contradice
+sola. **Se mide con `CT_EST_Poliza_NG.xls`, no se adivina** (ADR-056).
+
+### 23.4 Lo que falta pedir, ahora con nombre exacto
+
+```
+C:\Compac\Empresas\Esquemas\Contpaq\CT_EST_Poliza_NG.xls      <- SIN "Pre"
+```
+
+Misma carpeta, el archivo de al lado. Con ése se valida nuestro layout **campo por campo antes de
+importar**, y la contadora importa una vez en vez de tres.
+
+### 23.5 ⭐ Y el diálogo trae dos cosas que abaratan la prueba
+
+- **`Cargar sin Afectar`** — carga la póliza **sin tocar los saldos**, por el MISMO camino y el
+  MISMO formato. Mejor red de seguridad que la prepóliza, que es otro formato (éste).
+- **`Archivo de bitácora`** (`Cargar_Pólizas_AAAAMMDD.xls`) — ContPAQi escribe el detalle del
+  proceso. ⭐ **No dependemos de que alguien interprete un popup**: se manda el archivo y se lee.
+
+---
+
+## 24. `[CP.8.27]` Nueve meses en vez de dos: los tipos aguantan, las cuentas siguen sin concentrar
+
+`[CP.8.22]` concluyó que la cuenta `por_categoria` **no es derivable**, pero lo midió sobre
+**ene–feb** ($144M). Antes de dar esa puerta por cerrada, se amplió la ventana a **ene–sep**:
+**11,804 egresos · $624,596,502.83**, 4.3× el universo.
+
+| | exacto | % | placebo |
+|---|--:|--:|--:|
+| ene–feb | 737 | 27.8 | 2 → 369× |
+| **ene–sep** | **3,417** | **28.9** | 25 → **137×** |
+
+### 24.1 ✅ Los `tipo_regla` aguantan, y con más fuerza
+
+| categoría | pareados | tipo | antes | ahora |
+|---|--:|---|--:|--:|
+| `compra_mercancia` | 1,548 | `por_proveedor` | 94.7 % | **92.7 %** · estable |
+| `nomina` | 811 | `por_sucursal` | 74.2 % | 66.2 % · estable |
+| `compra_tarjeta` | 647 | `por_categoria` | 83.3 % | 83.6 % · estable |
+| `traspaso_entre_cuentas` | 85 | `no_aplica` | 4.0 % | **1.2 %** · estable |
+| `gasto_admin` | 32 | `por_categoria` | (9 pareados) | 93.8 % · estable |
+
+⛔ **Dos cambian bajo el filtro 1:1 y se declaran**: `cobranza` y `servicios`. Sus pólizas
+promedian **255.6** y 4.9 renglones — con ese agrupamiento el tipo no es confiable.
+
+### 24.2 ⛔ La conclusión de §19.1 se REFUERZA, no se cae
+
+Con 4.3× más datos, **ninguna cuenta `por_categoria` pasa de ~65 %**:
+
+| categoría | mejor candidata | % |
+|---|---|--:|
+| `impuestos` | `5201000000` NO DEDUCIBLES | 64.7 |
+| `gasto_admin` | `5200530000` SEGUROS Y FIANZAS | 63.6 |
+| `servicios` | `2140700000` STM FINANCIAL (una SOFOM) | 46.7 |
+| `compra_tarjeta` | `5200730000` MANT. EQUIPO DE REPARTO | **24.3** |
+
+⭐ Y confirma la retractación de §19.1 por segunda vía: con 2 meses `compra_tarjeta` daba
+**73.8 % GASOLINA**; con 9 meses da **24.3 % de otra cuenta**. *El 73.8 % era el lote, no la regla.*
+
+### 24.3 ⭐⭐ El hallazgo nuevo: tres categorías NO pueden tener UNA cuenta
+
+`compra_tarjeta` (647 pareados, la 3ª más grande) se reparte así:
+
+```
+MANT. EQUIPO DE REPARTO 24.3 · TARJETA DE CREDITO 22.9 · PAPELERIA 14.3
+VARIOS 10.0 · MANT. LOCAL 7.1 · MANT. EQUIPO DE COMPUTO 7.1
+```
+
+⛔ **Eso no es una regla sin firmar: es una categoría que no determina la cuenta.** La tarjeta se
+usa para seis cosas distintas. Ninguna firma del contador puede arreglarlo — *la respuesta
+correcta no es una cuenta, es un mecanismo distinto* (mirar el concepto del movimiento).
+
+Lo mismo en `nomina`, que mezcla `2150110004` SUELDOS, `2150140002` PENSIÓN ALIMENTICIA y
+`5200090000` 2% SOBRE NÓMINA; y en `servicios`, cuya mejor candidata es **una SOFOM** — o sea un
+pago de crédito clasificado como servicio.
+
+⭐ **Separar *"falta que lo firmen"* de *"la categoría no alcanza"* es lo que evita mandarle al
+contador una decisión que no existe.** Las tres salen de la lista de las 21 y se declaran con su
+propio motivo.
+
+### 24.4 Lo que esto cambia para la media hora del contador
+
+De las 21 categorías: **6 ya están resueltas** sin él (2 `no_aplica`, 1 `por_proveedor`,
+1 `por_sucursal`, y 2 estables con candidata ≥60 %), **3 no son pregunta para él** (§24.3), y el
+resto sigue siendo decisión suya. **La conversación se acorta, pero no desaparece.**
+
+---
+
+## 25. ⭐⭐⭐ `[CP.8.28]` Llegó el árbitro, y encontró un campo mal modelado
+
+**`CT_EST_Poliza_NG.xls`** — el esquema que el importador de ContPAQi usa para *leer* el TXT.
+723 filas, transcritas a `database/tests/fixtures/contpaqi-esquema-poliza.json` y convertidas en
+candado: **`test-newdb-contpaqi-esquema.js`, 42 ✓ / 0 ✗.**
+
+⭐ **Por qué hacía falta aunque el round-trip ya diera 14/14**: una exportación real prueba que
+**leemos bien lo que ContPAQi escribe**, no que **escribamos lo que ContPAQi espera al leer**.
+Son dos afirmaciones distintas y hasta hoy sólo teníamos la primera.
+
+### 25.1 ⛔ El defecto que encontró: `SistOrig`
+
+| | esquema | emisor (antes) |
+|---|---|---|
+| `Concepto` | 41–140 | 41–140 ✓ |
+| **`SistOrig`** | **141–143** (ancho **3**) | **142–143** (ancho 2, precedido de separador) ✗ |
+
+⛔ **El esquema NO pone separador entre `Concepto` y `SistOrig`.** Nosotros asumíamos que el
+separador es uniforme, y modelábamos un campo de 3 alineado a la derecha como
+*"separador + campo de 2"*.
+
+⭐ **Produce los mismos bytes hoy** — `SistOrig` vale `11`, y `" 11"` es lo mismo de las dos
+formas. Por eso ningún candado lo había visto, y el total cuadraba en 185 por los dos caminos.
+**Con un valor de 3 dígitos el archivo se corría entero.**
+
+*Un total que cuadra no prueba que los campos estén donde van.* Por eso este candado compara
+**posición por posición**, no la suma.
+
+Arreglado con `sinSep` en `CampoFijo`: declara que un campo **no lleva separador después**.
+`armarLinea`, `largoLinea` y `partirLinea` lo respetan.
+
+### 25.2 ⭐⭐ Y decodifica lo que `[CP.8.13]` §10.5 declaró sin decodificar
+
+| etiqueta | registro | qué es |
+|---|---|---|
+| `AM` | `asocmovto.1` | UUID — asociación **a nivel de movimiento** (el `AD` es a nivel de póliza) |
+| `AP` | `asocnodopago.1` | `UUIDRep` + nodo de pago: **complemento de pago** |
+| `I` | `MovtoImpuesto.1` | ⭐ impuesto por movimiento con `UUID`, `TasaOCuota`, `ImpBase` — **es `MovimientosImpuestos`**, la Ola 1 de `FASE_CP9` |
+| `V` | `devolucion.1` | devolución de IVA por proveedor, con `UUID` y `RFC` |
+| `W2` | `devolucion.2` | IETU |
+
+⚠️ §10.5 decía *"los guids de `AM` no son `MovimientosPoliza.Guid` ni `AsocCFDIs.GuidRef` — se
+cruzaron los dos y dieron 0"*. **Ahora se sabe por qué: no es un Guid, es un UUID de CFDI.** Se
+comparó contra lo que no era.
+
+### 25.3 ⭐ Y aparecen registros que nadie había visto
+
+`CH` cheque · `EG` egreso · `IN` ingreso · `DE` depósito · `DI` ingresos no depositados ·
+`DP` dispersión de pago · `MC` `movimientocfd.1` · `FE` anexo.
+
+⭐⭐ **`MC` es el más grande de todos** (56 campos): trae `IdCuentaFlujoEfectivo`, `UUID`,
+`ImporteIVA` **con su `IdCuentaIVA`**, retenciones con sus cuentas, `IVAAcreditable`,
+`IVANoAcreditable`… O sea **el desglose fiscal completo con sus cuentas, en el mismo archivo**.
+
+Y `EG`/`IN`/`DE` son los documentos de **tesorería**: el camino para que el movimiento bancario
+entre al módulo de bancos de ContPAQi, no sólo como renglón de póliza.
+
+⛔ **No se emite nada de eso todavía.** Se registra porque cambia el techo de lo que el puente
+puede hacer — y porque `FASE_CP9` planeaba **importar** `MovimientosImpuestos` para leerlo,
+cuando resulta que también se puede **escribir**.
+
+### 25.4 ⚠️ Dos defectos propios en el camino, los dos del mismo tipo
+
+1. **Un `sed` marcó `sinSep` en los DOS `concepto`** (encabezado y movimiento). En `M1` el
+   esquema **sí** tiene separador. Lo atrapó releer el esquema, no el candado.
+2. **El candado se puso en rojo por su propio modelo**: su helper `nuestro()` seguía sumando un
+   separador por campo — la misma suposición que el candado existe para refutar.
+   ⭐ *Un candado que modela el mundo distinto del código no verifica el código: verifica su
+   propia copia.*
+
+**Mutado a rojo tres veces**: `sist_orig` a 2 (37/5) · sin `sinSep` (36/6) · `referencia` a 10
+(32/10). Y los otros 6 candados **siguen verdes** — incluido el round-trip de LC (38 ✓), que es
+la prueba de que los bytes no cambiaron.
+
+---
+
+## 26. ⭐⭐ `[CP.8.29]` El emisor ya escribe los renglones `AD` — `EMITE_AD_UUID` cerrado
+
+`EMITE_AD_UUID` venía pendiente desde el arranque de la fase. Se prende ahora y no antes porque
+**hasta `[CP.8.28]` el formato era una suposición de foro**; ahora está en el esquema del
+fabricante y el candado lo compara posición por posición.
+
+| | |
+|---|---|
+| layout | `asocdocto.1`: etiqueta `AD` (2) + sep + `UUID` (36) + sep = **40** |
+| ubicación | ⭐ **al FINAL de la póliza**, después de todos los `M1` |
+| contrato | `PolizaSinkEntrada.uuids?: string[]` |
+
+⛔ **Las fuentes externas decían que el `AD` va *"después del `P`"*** (§9.1). El archivo real lo
+desmiente: su primera póliza es `P M1 M1 M1 AD`. **Ponerlo donde decía el foro habría sido el
+primer motivo de rechazo**, y nadie habría sabido por qué.
+
+### 26.1 Lo que el emisor se niega a hacer
+
+Un UUID que no mide 36 **se rechaza**, no se rellena ni se recorta. Rellenarlo produciría un
+renglón de 40 que el importador acepta y que asocia **el comprobante equivocado** — o ninguno.
+Mismo criterio que `[LC.9]`: *un archivo rechazado es infinitamente preferible a uno aceptado y
+mal*.
+
+⭐ **Sin `uuids` el archivo sale idéntico al byte.** Es lo que permite prender esto sin tocar el
+libro de compras, que mueve $30–56M al mes — y el candado de LC lo confirma: **sigue en 38 ✓**.
+
+### 26.2 ⚠️ Un hueco que sólo apareció mutando
+
+El candado del sink pasó de **50 a 64 ✓** y se mutó tres veces: `AD` antes de los `M1` (60/4),
+UUID rellenado en vez de rechazado (60/4), y `AD` sin separador final (62/2).
+
+⛔ **La tercera puso rojo el sink y dejó VERDE el candado del esquema** — porque ése comparaba
+el `AD` de la especificación **contra sí mismo**, sin mirar nuestro `LAYOUT_AD`. Cubría `P` y
+`M1` y se había saltado el tercero.
+
+⭐ *Un candado tiene que cubrir todos los registros que el emisor escribe, no los dos grandes:
+el que falta es justo donde se cuela el defecto.* Cerrado — **46 ✓**, y la misma mutación ahora
+pone rojo a los dos.
+
+### 26.3 El archivo B de la prueba ya sale del camino real
+
+Se armaba **pegando texto** al final del A. Ahora sale del **mismo sink**, pasándole `uuids` —
+misma lección que costó la fecha rota de §21.2: *un archivo de prueba que no sale del camino real
+no prueba el camino real.* Y cada archivo lleva **su propio `guid`**, así se distinguen al
+revisarlos.
+
+| candado | |
+|---|--:|
+| esquema · **sink** · token · armador · cuadre · lote · LC | 46 · **64** · 29 · 33 · 35 · 38 · 38 |
+
+⛔ **Lo que sigue SIN MEDIR y se declara**: si ContPAQi **honra** los `AD` al importar. El formato
+es correcto contra su propia especificación; que su importador actúe sobre él es otra afirmación,
+y la contesta el archivo B.
+
+---
+
+## 27. ⛔ `[CP.8.30]` El interruptor que NO se acciona todavía — y por qué está escrito
+
+Con `[CP.8.29]` el emisor ya sabe escribir renglones `AD`. **Lo que más valor tiene de esa
+capacidad no es el puente de egresos: es el libro de compras.**
+
+### 27.1 Está a una línea, y eso es precisamente el riesgo
+
+`purchase-book.service.ts` arma la póliza mensual desde las facturas del mes:
+
+```ts
+const movs = this.construirMovimientos(dentro, modo, conUuid);
+const txt  = this.construirTxt(anioMes, run.folio_poliza ?? FOLIO_LIBRO, concepto, movs);
+```
+
+`dentro` es `FacturaMes[]` y **`FacturaMes.uuid` existe**. O sea: `dentro.map((f) => f.uuid)`
+pasado como último argumento, y la póliza de compras sale con **todos sus CFDIs asociados**.
+
+⭐ Y retiraría una muleta: `[LC.15]` mete el UUID **dentro del `concepto`**
+(`const concepto = conUuid ? f.uuid : ''`) justamente porque `FASE_LC` concluyó que *"el layout no
+tiene campo de UUID"*. **Lo tiene.** El `AD` es el lugar correcto; el concepto queda libre para
+lo que es.
+
+### 27.2 ⛔ Por qué no se acciona
+
+| | |
+|---|--:|
+| lo que mueve la póliza del libro de compras | **$30–56M al mes** |
+| renglones por póliza | 460–848 |
+| ¿ContPAQi **honra** los `AD` al importar? | **SIN MEDIR** |
+
+El formato es correcto **contra la especificación del fabricante**. Que su importador **actúe**
+sobre ese renglón —y no lo rechace, ni lo ignore, ni tumbe el archivo entero— **es otra
+afirmación**, y no la tenemos.
+
+⛔ **Prenderlo antes de la prueba sería apostar el cierre contable del mes a un comportamiento
+que nadie observó.** Si el archivo se rechaza por los `AD`, la póliza de compras no entra — y se
+descubre el día del cierre.
+
+### 27.3 El orden correcto
+
+1. La contadora importa el archivo **`B`** (§21). Son dos renglones y un peso.
+2. Si ContPAQi lo acepta **y** asocia el CFDI → se prende acá, con su candado y su medición.
+3. Si lo acepta y **no** asocia → el `AD` no sirve para esto y `[LC.15]` se queda. Se declara.
+4. Si lo rechaza → el motivo sale en la bitácora `.xls` y se corrige el layout.
+
+⭐ **Los cuatro caminos son útiles.** El único que no informa nada es prenderlo a ciegas y que
+funcione por casualidad.

@@ -1123,3 +1123,96 @@ comentario— puestos ahí a propósito para que la documentación diga de dónd
 - ⛔ **La capacidad de pago**: quién la carga y con qué criterio. Sin eso, el punto 3 queda a medias
   a propósito.
 - Los 7 proveedores sin acreedor (2.5%) se declaran en pantalla, pero nadie los está conciliando.
+
+---
+
+## RA.PM — La autopsia de la compra: qué pedimos que no rindió (2026-10-09) 🧪
+
+Pedido de Edgar: *"ya tenemos las ordenes de compra o las compras desde contpaq o fiscales. hay que
+comparar eso con pedidos que se hayan quedado en stock o no hayan rendido como se pensaba, para
+aprender esos pedidos y no volverlos a repetir"*.
+
+### ⛔ Lo fiscal NO puede ser la espina — y eso cambia el pedido
+
+Cuatro mediciones contra prod, en este orden:
+
+1. **`fiscal.cfdis` no tiene renglones.** 428,435 CFDIs (141,996 recibidas tipo `I`), pero **no
+   existe tabla de conceptos**: el detalle vive en el XML y trae el código del **proveedor**, no
+   nuestro SKU. **Sin SKU no hay autopsia por producto.**
+2. Sólo **6,210 de 12,977 recibos (47.9%)** traen RFC del proveedor.
+3. La `referencia` del recibo **la teclea a mano** quien captura: `F-18852`, `10-8853`, `0-F8803`,
+   `R-F-4679`, y una que dice `LPA`. Casa con el folio del CFDI **41 de 6,210 veces (1.1%)**.
+4. Por **importe** sí casa: 1,641 únicos (26.4%) + 178 ambiguos, con **placebo de 97 (1.6%)** — el
+   mismo cruce contra OTRO proveedor. ⭐ O sea que el cruce identifica de verdad, pero cubre poco.
+   Aflojar la tolerancia a 0.5% sólo suma 17% más ⇒ el 70% que falta **no es tolerancia ni IVA**
+   (contra `subtotal` casa 152 contra 1,819: `monto` es el total CON impuesto, decode confirmado).
+
+⇒ **La espina es el renglón de la orden de entrada de Kepler** (`analytics.erp_goods_receipt_lines`,
+99,586 renglones con SKU, cantidad y costo). Lo fiscal confirma el dinero donde se puede, y la
+cobertura se declara.
+
+### ⛔ Dos trampas más, las dos medidas
+
+- **`unidad = 'SER'` son 2,108 renglones por $108,253,686**: servicios, no mercancía. Fuera.
+- Las cantidades vienen en **PAQ (63,998) · PZA (26,769) · KG (5,232)** y hasta gramajes crudos
+  (`500`, `250`). Sumarlas da un número que no está en ninguna unidad. ⭐ Por eso **la autopsia se
+  mide en PESOS** — lo único conmensurable (ADR-059: el dinero arbitra).
+
+### ⭐⭐ El hallazgo que invirtió el resultado
+
+`warehouse_id` y `origen_warehouse_id` **difieren en 5,693 de 7,242 recibos (79%)**, $200 M de
+$344 M: el `00` capturaba compras **destinadas a otras plazas** (Fase DM.19 / PO).
+
+Con `warehouse_id` salía que **el 78% de la compra entra por el CEDIS** y que **el 82% nunca
+vendió**. Las dos falsas. Con el destino resuelto:
+
+| destino | pares | comprado | volvió a salir | nunca salió |
+|---|---:|---:|---:|---:|
+| sucursales que venden | 11,818 | $166,855,583 | $218,742,642 | 2,039 · **$3,407,973** |
+| CEDIS | 2,669 | $142,253,390 | $54,736,982 | 441 · **$4,435,816** |
+
+⚠️ **El CEDIS no vende, traspasa**: su "rindió" se mide contra la SALIDA, no contra la venta
+(111,700 traspasos con importe en 180 d, sólo 33 sin él). Es el mismo error que `[RA.SOB]` encontró
+en el tramo "sin venta", tercera vez en el día.
+
+⚠️ **$66,378,636 quedan `sin_resolver`**: el documento no dice a qué plaza iba. Se declara por fila,
+**nunca se reparte a ojo** (ADR-056), y se pinta NEUTRO — no es una compra que salió mal, es una que
+no se puede juzgar.
+
+### Matvista, y por qué MATERIALIZED
+
+La consulta en vivo tarda **~5 min**: cruza dos vistas derivadas del ODS y las dos se re-derivan.
+⇒ `analytics.mv_purchase_postmortem`, refresco nocturno con umbral en `CRON_JOBS`.
+
+⛔ **Los CTE van `AS MATERIALIZED` y eso NO es decoración.** En PG12+ un CTE referenciado una sola
+vez se **inlinea**, lo que mete las vistas del ODS adentro del join y el planificador elige un
+nested loop que re-deriva los renglones por cada recibo. Medido: con la palabra ~5 min; **sin ella
+se pasó de 15 min y hubo que cancelarla**.
+
+### Candado
+
+`postmortem.spec.ts`, 20 aserciones + 7 en la pantalla (378 en el módulo). ⛔ **La primera mutación
+NO enrojeció**: la aserción buscaba `COALESCE(r.origen_warehouse_id, r.warehouse_id)` como cadena, y
+esa expresión aparece **también en el `WHERE ... IS NOT NULL`** — así que seguía verde con la
+columna del SELECT ya cambiada. Se apretó a verificar la **asignación** (`AS warehouse_id`) más una
+negativa. *Un candado que no se cae con la mutación no está midiendo nada.*
+
+### ⚠️ Lo que NO está validado
+
+El `CREATE MATERIALIZED VIEW` **completo nunca corrió de principio a fin**. Las piezas sí (cada CTE
+produjo las cifras de arriba), pero la corrida entera se cortó dos veces: la primera por
+`statement_timeout` a 600 s con la ventana de 365 días —por eso quedó en **180**—, y la segunda con
+`terminating connection due to administrator command` a los 70 s.
+
+⇒ ⛔ **La migración NO se aplicó, y no debe aplicarse en horario hábil**: es una lectura pesada de
+~5 min sobre el ODS, y la regla de esta casa es que eso va fuera de horario. Va en ventana, con
+`apply-one-migration-prod.js`, y **antes** del deploy del código — el endpoint la lee y sin ella
+responde 42P01.
+
+### Abierto
+
+- El enganche fiscal por importe (26.4%, placebo 1.6%) está **medido pero no construido**: la
+  autopsia hoy no muestra el UUID del CFDI. Vale la pena sólo si alguien lo va a usar para
+  conciliar; para "no repetir la compra" no hace falta.
+- La `referencia` tecleada a mano es un problema de **captura**, no de código. Mientras siga así,
+  ningún cruce por folio va a pasar del 1%.

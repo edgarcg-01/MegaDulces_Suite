@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { FINANZAS_TABS } from './finanzas-tabs';
+import { GASTOS_TABS } from './gastos-tabs';
 import { Permission } from '../../core/constants/permissions';
 
 /**
@@ -42,9 +43,15 @@ describe('[GX.18] las puertas del gasto en el nav', () => {
     expect(rutas).toEqual([...RUTAS]);
   });
 
-  it('el sidebar lista las mismas rutas', () => {
-    const fuente = fuenteSidebar();
-    for (const r of RUTAS) expect(fuente).toContain("route: '" + r + "'");
+  /**
+   * `[GX.80]` El sidebar ya no las lista como renglones sueltos: tiene UNA entrada «Gastos» que
+   * lleva `GASTOS_TABS`, y esas pestañas son la barra de arriba de las cuatro pantallas. Lo que
+   * esta prueba cuida sigue igual — que ninguna de estas rutas quede sin puerta en el menú.
+   */
+  it('el sidebar llega a las mismas rutas por la entrada «Gastos»', () => {
+    expect(fuenteSidebar()).toContain('tabs: GASTOS_TABS');
+    const deGastos = GASTOS_TABS.map((t) => t.route);
+    for (const r of RUTAS) expect(deGastos).toContain(r);
   });
 
   /**
@@ -187,11 +194,15 @@ describe('[IG.2] toda pestaña de Finanzas tiene su entrada en el sidebar', () =
 
   it('ninguna pestaña se queda fuera del sidebar', () => {
     const fuente = fuenteDelSidebar();
+    // `[GX.80]` Una pantalla también tiene puerta si es pestaña de un ÁREA que el sidebar lleva como
+    // UNA entrada con `tabs:` (Gastos): esa entrada lleva al área y la barra de arriba a cada pantalla.
+    // Sólo cuenta si la entrada existe de verdad en el fuente: sin ella, las cuatro vuelven a faltar.
+    const porArea = fuente.includes('tabs: GASTOS_TABS') ? GASTOS_TABS.map((t) => t.route) : [];
     const ausentes = FINANZAS_TABS
       .map((t) => t.route)
       // Las rutas que redirigen o viven fuera de /finanzas no se exigen acá.
       .filter((r) => r.startsWith('/finanzas/'))
-      .filter((r) => !fuente.includes("route: '" + r + "'"));
+      .filter((r) => !fuente.includes("route: '" + r + "'") && !porArea.includes(r));
     expect(ausentes).toEqual([]);
   });
 

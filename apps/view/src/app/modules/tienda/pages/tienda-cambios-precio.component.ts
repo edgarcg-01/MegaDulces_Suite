@@ -6,12 +6,14 @@ import { ActivatedRoute, Router } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import { rxResource } from '@angular/core/rxjs-interop';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { AuthService } from '../../../core/services/auth.service';
 import { of } from 'rxjs';
 import { EtiquetasService, PriceChange, PriceChangeBranch } from '../etiquetas.service';
 import { ETIQUETAS_TABS } from '../etiquetas-tabs';
 import { CambiosCompartirComponent } from '../components/cambios-compartir.component';
+import { MODOS_PRECIO, ModoPrecio, ProductoCambio, agruparPorCodigo } from '../etiquetas-modo';
 
 /**
  * `[ETQ-CAMBIOS.2]` **Cambios de precio** — qué etiquetas quedaron viejas en el anaquel.
@@ -65,7 +67,7 @@ import { CambiosCompartirComponent } from '../components/cambios-compartir.compo
 @Component({
   selector: 'app-tienda-cambios-precio',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, MetricStripComponent, SucursalPipe, CambiosCompartirComponent],
+  imports: [CommonModule, FormsModule, ButtonModule, PageTabsComponent, MetricStripComponent, SegmentedComponent, SucursalPipe, CambiosCompartirComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: [`
     .cpr-screen{ padding:1rem 1.25rem 2rem; display:flex; flex-direction:column; gap:.9rem; }
@@ -121,6 +123,17 @@ import { CambiosCompartirComponent } from '../components/cambios-compartir.compo
       text-transform:uppercase; letter-spacing:.04em; height:var(--row-h-sm);
       position:sticky; top:0; z-index:1; background:var(--card-bg); }
     .cpr-tabla tbody tr:hover{ background:var(--table-hover); }
+    /* [ETQ-CAMBIOS.9] La fila entera se puede pulsar para imprimir su etiqueta. */
+    .cpr-tabla tbody tr.cpr-fila-click{ cursor:pointer; }
+    .cpr-accion{ text-align:right; white-space:nowrap; }
+    .cpr-btn-imprimir{ display:inline-flex; align-items:center; gap:.35rem; padding:.2rem .6rem;
+      min-height:var(--row-h-sm); font-size:var(--fs-xs); font-weight:var(--fw-medium); cursor:pointer;
+      background:var(--card-bg); color:var(--fg-1); border:1px solid var(--border-color);
+      border-radius:var(--radius-sm); }
+    .cpr-btn-imprimir:hover{ background:var(--table-hover); }
+    .cpr-btn-imprimir:focus-visible{ outline:2px solid var(--focus-ring); outline-offset:1px; }
+    @media (pointer: coarse){ .cpr-btn-imprimir{ min-height:2.75rem; padding:.2rem .9rem; } }
+    .cpr-sr{ position:absolute; inline-size:1px; block-size:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
     .cpr-tabla tbody tr.is-sel{ background:var(--table-hover); }
     .cpr-num{ font-variant-numeric:tabular-nums; color:var(--fg-2); }
     .cpr-money{ text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
@@ -131,6 +144,20 @@ import { CambiosCompartirComponent } from '../components/cambios-compartir.compo
     .cpr-sube{ color:var(--bad-fg); }
     .cpr-baja{ color:var(--ok-fg); }
     .cpr-pct{ display:block; font-size:var(--fs-micro); color:var(--fg-3); }
+
+    /* [ETQ-CAMBIOS.8] Una linea por presentacion dentro de la celda del producto. Columnas fijas
+       (unidad / antes / flecha / ahora / %) para que los numeros de varias filas se lean en
+       vertical sin que la persona tenga que buscar de que unidad es cada uno. */
+    .cpr-linea{ display:grid; grid-template-columns:3.2rem 6.5rem 1rem 6.5rem 4.5rem; align-items:baseline;
+      column-gap:.4rem; padding:.2rem 0; font-variant-numeric:tabular-nums; }
+    .cpr-linea + .cpr-linea{ border-top:1px dashed var(--border-color); }
+    .cpr-und{ font-size:var(--fs-micro); color:var(--fg-2); font-weight:var(--fw-medium); }
+    .cpr-flecha{ color:var(--fg-3); text-align:center; }
+    .cpr-linea .cpr-antes, .cpr-linea .cpr-ahora{ text-align:right; white-space:nowrap; }
+    .cpr-linea-pct{ font-size:var(--fs-xs); text-align:right; }
+    .cpr-pct-nd{ color:var(--fg-3); }
+    .cpr-modo-lbl{ font-size:var(--fs-xs); color:var(--fg-2); white-space:nowrap; }
+    @media (max-width: 40rem){ .cpr-lote{ flex-wrap:wrap; } }
 
     .cpr-badge{ font-size:var(--fs-micro); font-weight:var(--fw-bold); padding:.05rem .35rem;
       border-radius:var(--radius-sm); background:var(--bad-soft-bg); color:var(--bad-soft-fg);
@@ -170,7 +197,7 @@ import { CambiosCompartirComponent } from '../components/cambios-compartir.compo
 
       <div class="cpr-head">
         <h1>Cambios de precio</h1>
-        <p>Lo que el ERP movió ese día en tu tienda. Marca lo que quieras y mándalo a la cola de impresión.</p>
+        <p>Lo que el ERP movió ese día en tu tienda. Haz clic en un producto para imprimir su etiqueta, o marca varios y mándalos juntos.</p>
       </div>
 
       <!-- [ETQ-CAMBIOS.6] Sin tienda propia ya no es un callejón: se elige una. La bitácora sigue
@@ -327,38 +354,57 @@ import { CambiosCompartirComponent } from '../components/cambios-compartir.compo
                   </th>
                   <th style="width:7rem">Código</th>
                   <th>Producto</th>
-                  <th style="width:4.5rem">Unidad</th>
-                  <th style="width:6.5rem" class="cpr-money">Antes</th>
-                  <th style="width:6.5rem" class="cpr-money">Ahora</th>
-                  <th style="width:7.5rem" class="cpr-money">Diferencia</th>
+                  <th>Qué cambió</th>
+                  <th style="width:7rem"><span class="cpr-sr">Imprimir</span></th>
                 </tr>
               </thead>
               <tbody>
-                @for (r of items(); track clave(r)) {
-                  <tr [class.is-sel]="marcado(r)">
-                    <td>
+                <!-- [ETQ-CAMBIOS.8] UNA fila por CÓDIGO. Kepler registra una por presentación y el mismo
+                     producto llegaba tres veces; la etiqueta es una por producto. Lo que cambió en cada
+                     presentación va adentro, una línea por unidad. -->
+                @for (p of productos(); track p.sku) {
+                  <!-- [ETQ-CAMBIOS.9] Clic en la fila = imprimir ESA etiqueta. Una fila con clic y nada más es invisible
+                       sin ratón, así que la fila también se enfoca (tabindex) y Enter / Espacio hacen lo mismo. El botón
+                       de la última columna es para quien ve el ratón o el dedo y no sabe que la fila se pulsa: queda
+                       FUERA del orden de tabulador (tabindex -1) para no duplicar las paradas por fila. -->
+                  <tr class="cpr-fila-click" tabindex="0" [class.is-sel]="marcado(p)" (click)="clicFila(p)"
+                      (keydown)="teclaFila($event, p)" title="Clic, Enter o Espacio para imprimir la etiqueta de este producto">
+                    <td (click)="$event.stopPropagation()">
                       <label class="cpr-check">
-                        <input type="checkbox" [checked]="marcado(r)" (change)="alternar(r)"
-                               [attr.aria-label]="'Marcar ' + r.sku" />
+                        <input type="checkbox" [checked]="marcado(p)" (change)="alternar(p)"
+                               [attr.aria-label]="'Marcar ' + p.sku" />
                       </label>
                     </td>
-                    <td class="cpr-num">{{ r.sku }}</td>
+                    <td class="cpr-num">{{ p.sku }}</td>
                     <td>
-                      {{ r.name || '—' }}
-                      @if (r.es_baja) {
-                        <span class="cpr-badge" title="El ERP le quitó el precio: esa etiqueta saldría SIN PRECIO.">sin precio</span>
+                      {{ p.name || '—' }}
+                      @if (p.es_baja) {
+                        <span class="cpr-badge" title="El ERP le quitó el precio a una presentación: esa etiqueta saldría SIN PRECIO.">sin precio</span>
                       }
                     </td>
-                    <td class="cpr-num">{{ r.unidad || '—' }}</td>
-                    <td class="cpr-money cpr-antes">{{ r.precio_anterior != null ? ('$' + (r.precio_anterior | number:'1.2-2')) : '—' }}</td>
-                    <td class="cpr-money cpr-ahora">{{ r.precio_nuevo != null ? ('$' + (r.precio_nuevo | number:'1.2-2')) : '—' }}</td>
-                    <td class="cpr-money" [class.cpr-sube]="(r.delta || 0) > 0" [class.cpr-baja]="(r.delta || 0) < 0">
-                      {{ (r.delta || 0) > 0 ? '+' : '' }}{{ r.delta != null ? ('$' + (r.delta | number:'1.2-2')) : '—' }}
-                      <!-- Q.2: el peso solo no dice si importa. +$0.50 sobre $3 es 17%; sobre $500,
-                           0.1%. El porcentaje es lo que decide si vale caminar al anaquel. -->
-                      @if (pct(r) !== null) {
-                        <span class="cpr-pct">{{ (r.delta || 0) > 0 ? '+' : '' }}{{ pct(r) | number:'1.1-1' }}%</span>
+                    <td>
+                      @for (r of p.filas; track $index) {
+                        <div class="cpr-linea">
+                          <span class="cpr-und">{{ r.unidad || '—' }}</span>
+                          <span class="cpr-antes">{{ r.precio_anterior != null ? ('$' + (r.precio_anterior | number:'1.2-2')) : '—' }}</span>
+                          <span class="cpr-flecha" aria-hidden="true">→</span>
+                          <span class="cpr-ahora">{{ r.precio_nuevo != null ? ('$' + (r.precio_nuevo | number:'1.2-2')) : '—' }}</span>
+                          <!-- Q.2: el peso solo no dice si importa. +$0.50 sobre $3 es 17%; sobre $500,
+                               0.1%. El porcentaje es lo que decide si vale caminar al anaquel. -->
+                          @if (pct(r) !== null) {
+                            <span class="cpr-linea-pct" [class.cpr-sube]="(r.delta || 0) > 0" [class.cpr-baja]="(r.delta || 0) < 0">{{ (r.delta || 0) > 0 ? '+' : '' }}{{ pct(r) | number:'1.1-1' }}%</span>
+                          } @else if (r.precio_anterior === 0) {
+                            <!-- Sin precio antes: no hay proporción que calcular, y es justo lo que se dice. -->
+                            <span class="cpr-linea-pct cpr-pct-nd">nuevo</span>
+                          }
+                        </div>
                       }
+                    </td>
+                    <td class="cpr-accion">
+                      <button type="button" class="cpr-btn-imprimir" tabindex="-1" (click)="imprimirUno($event, p)"
+                              [attr.aria-label]="'Imprimir la etiqueta de ' + p.sku" title="Imprimir esta etiqueta">
+                        <i class="pi pi-print" aria-hidden="true"></i> Imprimir
+                      </button>
                     </td>
                   </tr>
                 }
@@ -366,21 +412,36 @@ import { CambiosCompartirComponent } from '../components/cambios-compartir.compo
             </table>
           </div>
 
+          <!-- [ETQ-CAMBIOS.8] Lo que se CONFIRMA antes de imprimir: qué precio lleva la etiqueta.
+               Va en la barra, junto al botón, y no en un diálogo: es un clic menos y se ve la
+               elección en el momento de pulsar Imprimir. -->
           @if (marcados().length) {
             <div class="cpr-lote" role="status">
-              <b>{{ marcados().length }}</b> de {{ items().length }} marcados
+              <b>{{ marcados().length }}</b> de {{ productos().length }} marcados
               <span class="spacer"></span>
+              <span class="cpr-modo-lbl">Precio en la etiqueta</span>
+              <app-segmented [options]="modos" [value]="modo()" (valueChange)="modo.set($any($event))" ariaLabel="Precio en la etiqueta" />
               <p-button label="Quitar selección" size="small" [text]="true" (onClick)="marcarTodos(false)" />
-              <p-button [label]="'Imprimir ' + codigosDe(marcados()).length + ' etiquetas'" icon="pi pi-print"
+              <p-button [label]="'Imprimir ' + marcados().length + (marcados().length === 1 ? ' etiqueta' : ' etiquetas')" icon="pi pi-print"
                         size="small" (onClick)="imprimir(marcados())" />
             </div>
           } @else {
             <div class="cpr-lote">
               <span>Marca los que quieras, o manda todos a la cola.</span>
               <span class="spacer"></span>
-              <p-button [label]="'Imprimir todas (' + codigosDe(items()).length + ')'" icon="pi pi-print"
-                        size="small" [outlined]="true" (onClick)="imprimir(items())" />
+              <span class="cpr-modo-lbl">Precio en la etiqueta</span>
+              <app-segmented [options]="modos" [value]="modo()" (valueChange)="modo.set($any($event))" ariaLabel="Precio en la etiqueta" />
+              <p-button [label]="'Imprimir todas (' + productos().length + ')'" icon="pi pi-print"
+                        size="small" [outlined]="true" (onClick)="imprimir(productos())" />
             </div>
+          }
+
+          @if (volvieron() > 0) {
+            <p class="cpr-head"><span style="font-size:var(--fs-xs); color:var(--fg-3)">
+              <b>{{ volvieron() }}</b> {{ volvieron() === 1 ? 'producto cambió' : 'productos cambiaron' }} de precio y
+              {{ volvieron() === 1 ? 'volvió' : 'volvieron' }} al de antes durante el día, así que no se listan: la
+              etiqueta del anaquel sigue bien.
+            </span></p>
           }
 
           @if (ocultosCentavo() > 0) {
@@ -486,12 +547,12 @@ export class TiendaCambiosPrecioComponent {
    * es que el ERP le quitó el precio y esa etiqueta saldría en blanco.
    */
   readonly resumen = computed<MetricStripItem[]>(() => {
-    const xs = this.items();
-    const bajas = xs.filter((r) => r.es_baja).length;
-    const suben = xs.filter((r) => !r.es_baja && (r.delta ?? 0) > 0).length;
-    const bajan = xs.filter((r) => !r.es_baja && (r.delta ?? 0) < 0).length;
+    const xs = this.productos();
+    const bajas = xs.filter((p) => p.direccion === 'sin_precio').length;
+    const suben = xs.filter((p) => p.direccion === 'sube').length;
+    const bajan = xs.filter((p) => p.direccion === 'baja').length;
     return [
-      { label: 'Para reimprimir', value: xs.length, format: 'number', sub: 'etiquetas' },
+      { label: 'Para reimprimir', value: xs.length, format: 'number', sub: xs.length === 1 ? 'etiqueta' : 'etiquetas' },
       { label: 'Subieron', value: suben, format: 'number', tone: suben ? 'bad' : 'default' },
       { label: 'Bajaron', value: bajan, format: 'number', tone: bajan ? 'ok' : 'default' },
       {
@@ -502,20 +563,37 @@ export class TiendaCambiosPrecioComponent {
   });
 
   /**
-   * Identidad de la FILA, no del SKU. La bitácora registra por presentación: el mismo código puede
-   * venir 3 veces (pieza / paquete / caja). Con la selección por SKU, marcar una casilla marcaba
-   * las tres — parecía un bug de render y era el modelo.
+   * `[ETQ-CAMBIOS.8]` La lista, AGRUPADA por código: una fila por producto. La bitácora escribe una
+   * por presentación (pieza / paquete / caja) y el mismo código llegaba tres veces.
+   *
+   * La selección es por código y ya no hay que cuidar que marcar una casilla marque las otras dos:
+   * la fila es el producto, y la etiqueta también.
    */
-  readonly clave = (r: PriceChange): string => `${r.sku}|${r.unidad || ''}|${r.hora || ''}`;
+  private readonly agrupados = computed<ProductoCambio[]>(() => agruparPorCodigo(this.items()));
+
+  /**
+   * Los productos que de verdad cambiaron. Uno que se movió y terminó el día en el mismo precio
+   * con el que empezó no necesita etiqueta nueva, así que no se lista — pero se DICE cuántos son
+   * (`volvieron`): una lista más corta de lo que la bitácora registró, sin explicación, se lee
+   * como que falta algo.
+   */
+  readonly productos = computed<ProductoCambio[]>(() => this.agrupados().filter((p) => p.direccion !== 'sin_cambio'));
+  readonly volvieron = computed(() => this.agrupados().length - this.productos().length);
+
+  /** Lo que la persona confirma: qué precio lleva la etiqueta. Por defecto, todos. */
+  readonly modos = MODOS_PRECIO;
+  readonly modo = signal<ModoPrecio>('todos');
+
+  readonly clave = (p: ProductoCambio): string => p.sku;
 
   private readonly sel = signal<ReadonlySet<string>>(new Set<string>());
-  readonly marcado = (r: PriceChange): boolean => this.sel().has(this.clave(r));
-  readonly marcados = computed<PriceChange[]>(() => {
+  readonly marcado = (p: ProductoCambio): boolean => this.sel().has(this.clave(p));
+  readonly marcados = computed<ProductoCambio[]>(() => {
     const s = this.sel();
-    return this.items().filter((r) => s.has(this.clave(r)));
+    return this.productos().filter((p) => s.has(this.clave(p)));
   });
   readonly todosMarcados = computed(() => {
-    const n = this.items().length;
+    const n = this.productos().length;
     return n > 0 && this.marcados().length === n;
   });
 
@@ -543,8 +621,8 @@ export class TiendaCambiosPrecioComponent {
     return p?.nombre || `Plaza ${s}`;
   });
 
-  alternar(r: PriceChange): void {
-    const k = this.clave(r);
+  alternar(p: ProductoCambio): void {
+    const k = this.clave(p);
     this.sel.update((prev) => {
       const next = new Set(prev);
       if (!next.delete(k)) next.add(k);
@@ -553,7 +631,7 @@ export class TiendaCambiosPrecioComponent {
   }
 
   marcarTodos(on: boolean): void {
-    this.sel.set(on ? new Set(this.items().map((r) => this.clave(r))) : new Set<string>());
+    this.sel.set(on ? new Set(this.productos().map((p) => this.clave(p))) : new Set<string>());
   }
 
   /** Cuánto cambió en PROPORCIÓN. Sin precio anterior no hay porcentaje — se declara con null. */
@@ -563,18 +641,46 @@ export class TiendaCambiosPrecioComponent {
     return (r.delta / antes) * 100;
   }
 
-  /** Códigos únicos de un conjunto de filas: N presentaciones del mismo SKU son UNA etiqueta. */
-  codigosDe(filas: PriceChange[]): string[] {
-    return Array.from(new Set(filas.map((f) => f.sku).filter(Boolean)));
+  /**
+   * Manda los códigos a la etiquetera por estado del router, junto con el precio que la persona
+   * confirmó. Allá `addBulk()` los resuelve con el mismo camino de siempre — incluido el tope de
+   * cola, que deja el sobrante en el textarea — y aplica el modo a cada producto.
+   */
+  imprimir(productos: ProductoCambio[]): void {
+    const codes = Array.from(new Set(productos.map((p) => p.sku).filter(Boolean)));
+    if (!codes.length) return;
+    this.router.navigate(['/tienda/etiquetas'], { state: { codes, modo: this.modo() } });
   }
 
   /**
-   * Manda los códigos a la etiquetera por estado del router. Allá `addBulk()` los resuelve con el
-   * mismo camino de siempre — incluido el tope de cola, que deja el sobrante en el textarea.
+   * `[ETQ-CAMBIOS.9]` Clic en la fila: va a la etiquetera con ESE producto ya en la cola y con el
+   * precio que está elegido en «Precio en la etiqueta». No abre la ventana de impresión sola:
+   * allá la persona todavía ve el aviso de frescura, el precio grande y la hoja antes de gastar
+   * papel, que es justo lo que esa pantalla existe para que revise.
+   *
+   * ⚠️ Si hay texto seleccionado NO se navega: copiar un código o un nombre con el ratón también
+   * termina en un clic sobre la fila, y perder lo seleccionado sería un castigo por copiar.
    */
-  imprimir(filas: PriceChange[]): void {
-    const codes = this.codigosDe(filas);
-    if (!codes.length) return;
-    this.router.navigate(['/tienda/etiquetas'], { state: { codes } });
+  clicFila(p: ProductoCambio): void {
+    if (typeof window !== 'undefined' && String(window.getSelection?.() ?? '').length > 0) return;
+    this.imprimir([p]);
+  }
+
+  /**
+   * `[ETQ-CAMBIOS.9]` Enter o Espacio sobre la FILA enfocada. ⚠️ Sólo cuando el foco está en la fila
+   * misma: Enter sobre la casilla de marcar (que está dentro de la fila) sube hasta acá y, sin esta
+   * guarda, imprimiría en vez de marcar.
+   */
+  teclaFila(e: KeyboardEvent, p: ProductoCambio): void {
+    if (e.target !== e.currentTarget) return;
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    e.preventDefault(); // el Espacio no debe además hacer scroll
+    this.clicFila(p);
+  }
+
+  /** El botón de la fila. Frena la propagación: sin eso el clic sube a la fila y navegaría DOS veces. */
+  imprimirUno(e: Event, p: ProductoCambio): void {
+    e.stopPropagation();
+    this.imprimir([p]);
   }
 }

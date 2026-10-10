@@ -929,6 +929,126 @@ escáner en todos los caminos, peso con el nombre del producto, `inputmode="none
 - **Pendiente:** la impresión en la TSC real (imprimir una fila de prueba y leer el código con el
   handheld). Liberar un checado desde la consola del coordinador (hoy sólo lo suelta el checador).
 
+#### 9.6.2 Prueba visual con datos de prueba (2026-10-10) y lo que se corrigió
+
+Recorrido en el navegador, contra una base Docker con datos sembrados (sucursal 07, 4 usuarios,
+3 pedidos): consola → surtidor → Facturación → checador. La cadena funcionó de punta a punta y se
+encontraron 8 detalles, todos corregidos:
+
+| Lo que se vio | Corrección |
+|---|---|
+| La paleta pedida en **BOL** se mostraba "40 PZA" | ⭐ **Se respeta la unidad PEDIDA** (decisión de Francisco): "Pedido 2 BOL · Llevas 1 BOL · Faltan 1 BOL"; lo que no completa una bolsa sale en la base ("2 BOL + 5 PZA"). `order_check_lines` guarda `unidad_pedida`/`factor_pedida` (la presentación congelada al arrancar el surtido); los textos los arma **el servidor** (`cantidadEnUnidad`, `textosRenglon`) para que la lista, el aviso de lo que sobra y las diferencias al terminar digan lo mismo. Si se pidió en caja cerrada distingue cajas de sueltas ("1 CJA + 600 PZA"), porque de eso salen las etiquetas 1/N |
+| Se ofrecía **"Deshacer"** para un escaneo que ya iba en una caja P cerrada (el servidor lo rechazaba) | `ultimo_escaneo.deshacible`; sin botón y con "Ya va en una caja P cerrada". Prueba negativa con mutación |
+| Lo que sobra decía "Ya van completas: **1200 PZA**" con el renglón en "2 CJA" | El mensaje usa la unidad pedida |
+| Al pesar 2.5 kg el "Último" decía **"1 KG"** | Si se pesó, el último escaneo trae los kilos |
+| Un producto **ajeno** aparecía como "Último" (con la clave en vez del nombre) y con "Deshacer" | "Último" es el último que **cuenta**; lo ajeno ya se avisó en rojo con su nombre |
+| El peso arrancaba con un **0** escrito: teclear 2.5 dejaba "02.5" | Campo vacío con ejemplo; "Agregar" apagado hasta que haya peso |
+| La confirmación de **Terminar** aparecía hasta abajo, medio tapada (el foco regresaba al escáner, arriba); botón chico; el aviso rojo viejo seguía visible | Se lleva la vista a la confirmación y el foco a "Sí, terminar"; botones grandes; se borra el aviso viejo (igual en "Soltar") |
+| Los botones **− / +** se veían como un punto | `--tap-min` vale **0 con mouse** (44 px sólo en táctil) y el botón lo usaba de ancho y alto: medida mínima propia |
+| La consola decía **"0 de 0" renglones** en un surtido sin arrancar | Antes de arrancar se cuentan del pedido en Kepler (productos distintos, como los cuenta la ola) |
+
+Columnas nuevas en una **migración nueva**, `20261010024352_gp4_checado_unidad_pedida`: la
+`20261008143820` ya estaba aplicada en prod (2026-10-09, con 0 checados) cuando se armó este cambio, y
+una migración aplicada no se edita. Crea esquema (no frena la compuerta) y va **antes del código**.
+
+Vistos y **no corregidos aquí** (no son de GP.4): la migaja dice "Pedidos" en Surtir y Checar y los
+íconos de la barra de abajo salen como círculos (navegación general); `printIsolated` pide
+`styles.css` con ruta relativa que dentro del iframe resuelve a `/almacen/styles.css` (ruido en
+consola en TODAS las impresiones; la etiqueta sale bien porque los estilos van dentro); y un login
+frenado por demasiados intentos (429) se muestra como "sesión expirada".
+
+#### 9.6.3 Prueba con pedidos de forma REAL, actuando cada rol (2026-10-10)
+
+**El perfil, medido en prod (sólo lectura, 60 días, pedidos ya surtidos):**
+
+| | Sucursal | Telemarketing |
+|---|---|---|
+| Pedidos | 1,970 | 2,055 |
+| Renglones: promedio · mediana · p90 · máx | **27.6** · 12 · 81 · 156 | **10.8** · 7 · 26 · 160 |
+| Cajas cerradas por pedido (promedio) | 57.6 | 12.7 |
+| Renglones en caja cerrada / por kilo | 32% / 8% | 55% / 11% |
+| Presentación pedida | **PAQ 58%**, CJA 30%, KG 6%, PZA 3%, BTO 2% | **CJA 49%**, PAQ 36%, BTO 6%, KG 5%, PZA 4% |
+| Pedidos de tanda (≤5 renglones) | 33% | 44% |
+
+Aparecen presentaciones **"500" y "250"** (gramos), poco frecuentes: falta ver cómo se muestran.
+
+**El escenario:** dos pedidos reales de Padre Hidalgo cercanos al promedio, con su ficha `kdii` y sus
+códigos de barras reales, copiados a Docker como sucursal 07: **UD4001-0002680** (ruta, 30 renglones:
+11 CJA, 17 PAQ, 2 KG y 1 en otra presentación) y **UD4001-0002770** (telemarketing, 10 renglones). Traen
+casos que el seed sintético no tenía: caja en la 2ª unidad de Kepler (no en la 3ª), 23 PAQ con caja de 20,
+bultos de 20 kg pedidos en BTO, 2.06 KG a granel y caja de un producto cuya base es el paquete.
+
+**Recorrido:** coordinador (cancela un surtido viejo, fija horas de salida, arma) → surtidor (surte los dos,
+con 2 faltantes en el de la ruta) → Facturación (su bandeja; la captura en Kepler se simula) → checador
+(rastrilla los dos con un escáner simulado: 56 escaneos y 1 pesada en el de 30 renglones). Todo cuadró y
+las etiquetas salieron solas (P1 por triplicado + 10 y 16 etiquetas de caja).
+
+**Funcionó:** la fila respeta la hora de salida en el surtido **y** en el checado; la bandeja de Facturación
+pide exactamente "deja 2 CJA / 3 PAQ"; el checado detecta ajeno, sobra y peso; el foco nunca se salió del
+escáner al rastrillar; 23 PAQ se checa como 1 CJA + 3 PAQ.
+
+**Dos errores que perdían lecturas en silencio, corregidos:**
+
+| Error | Corrección |
+|---|---|
+| ⚠️ Tras tocar **− / +** o la casilla "Son cajas cerradas", el foco se quedaba en ese control: el escáner tecleaba ahí, **la lectura se perdía** y su Enter **volvía a apretar +** (2 → 4) | Esos controles no se quedan con el foco: regresa al escáner. Prueba negativa con mutación |
+| El Enter del escáner dependía del envío implícito del formulario, que **no corre si "Agregar" sigue deshabilitado** porque la pantalla no ha repintado la lectura (escáner más rápido que la pantalla) | El Enter se atiende en el campo. Prueba negativa con mutación |
+
+**Propuestas (decisión de Francisco):**
+1. **Cantidad escribible o +5 / +10**: 20 PAQ sueltos fueron 19 toques al +.
+2. **Señal por cada lectura**: dos escaneos iguales seguidos dejan el aviso idéntico ("+1 PAQ · …"; pasó en
+   25 de 56) y no se sabe si el segundo entró. Propuesta: el aviso dice "llevas 2 de 3 PAQ" y un sonido o
+   destello por lectura.
+3. **Aviso "todo listo"** cuando los renglones están completos: cierra la caja P y termina.
+4. **La caja P se llena**: en el pedido de la ruta cayeron 38 artículos de 20 productos en una sola P.
+   Sugerir cerrarla (por artículos) o dejar que el checador la cierre con un botón más visible.
+5. "10 cajas completas" cuenta también los **bultos** (BTO): decir "cajas y bultos".
+6. Surtidor: la barra fija de abajo tapa a medias "Completo / Faltante" y "No había nada".
+7. Consola: se queda **en blanco al cargar** (sin "Cargando…"); la **hora de salida no se guarda** hasta
+   apretar "Guardar" (fácil irse sin guardar); el ejemplo del motivo de **cancelar** es el de "urgente"
+   ("sale el camión de Zamora a las 10"); la hora sale en formato de 12 h ("09:00 AM").
+8. Facturación: un pedido **surtido y luego cancelado en Kepler** dice "Kepler lo trae en CANCELADO" pero no
+   qué hacer con la mercancía ya levantada (regresarla).
+
+#### 9.6.4 Decisiones de Francisco sobre la prueba con pedidos reales (2026-10-10) y lo que se hizo
+
+| # | Decisión | Hecho |
+|---|---|---|
+| 1 | Simular el teclado del celular sobre la cantidad escribible; si tapa, botones +5 / +10 | Simulado (ventana a ~55% del alto): tapa el aviso y toda la lista, y **una lectura del escáner cayó dentro de la cantidad ("20725226003894")** → **+5 / +10**, que no se quedan con el foco |
+| 2 | Señal por lectura | El aviso dice "**llevas 2 de 3 PAQ**" (lo arma el servidor) y destella en cada lectura |
+| 3 | "Todo listo" | Aviso verde con "Cierra la caja P1 y termina" y el botón Terminar ahí mismo |
+| 4 | Caja P llena | Desde 20 artículos sugiere cerrarla y seguir en la siguiente (sugerencia, no tope) |
+| 5 | Cajas y bultos | "7 cajas y 3 bultos"; las etiquetas dicen "sus N etiquetas (1/N…)" |
+| 6 | Surtidor: compactar | Espaciado e interlineado, **no la letra** (la cantidad grande se lee a un brazo): botones 5.5 → 4.25 rem, tarjeta y pie con menos relleno |
+| 7 | Consola | Barra de carga desde el primer momento; la hora se guarda **al salir de la casilla** (sin botón Guardar), en **24 h** ("930" → 09:30); el ejemplo del motivo de cancelar ya no es el de urgente |
+
+**Segunda prueba visual con los dos pedidos reales (2026-10-10)**: todo lo anterior verificado en pantalla
+(barra de carga; horas "900"/"1030" guardadas con Tab como 09:00/10:30; tarjeta del surtidor y "No había
+nada" libres del pie; "llevas 2 BTO de 2 BTO"; **0 avisos idénticos seguidos en 56 lecturas, contra 25
+antes**; "Todo listo"; caja P con 38 artículos sugiere cerrarla; "15 cajas y 1 bulto", 3 + 16 etiquetas).
+Aparecieron y se corrigieron dos cosas más:
+
+| Lo que se vio | Corrección |
+|---|---|
+| **+10 desde el 1 inicial daba 11**: para 20 se terminaba en 21 y el escaneo sobraba | Desde el 1 inicial, +5 y +10 dan 5 y 10: "+10 +10" = 20 (2 toques; antes 19) |
+| Ese escaneo de 21 con 0 llevados dijo **"Ya van completas: 20 PAQ… esto sobra"**: falso, no llevaba ninguno | Si no estaba completo: "Con 21 PAQ te pasas: el pedido es de 20 PAQ y llevas 0 PAQ. No se contó: revisa la cantidad" |
+| "Todo listo: cierra la caja P1 y termina" sonaba a dos pasos | "Al terminar, la caja P1 se cierra y se imprimen sus etiquetas" |
+
+#### 9.6.5 ⏳ PENDIENTE (se retoma al volver a este módulo): regresar mercancía de un pedido cancelado
+
+**[GP.4.3]** Un pedido **surtido (y quizá checado y etiquetado) que luego se cancela en Kepler** hoy sólo
+dice "Kepler lo trae en CANCELADO". Pedido de Francisco (2026-10-10), **laborioso, en plan**:
+
+1. **Nota** a quien corresponda: regresar la mercancía a su lugar y **retirar las etiquetas**.
+2. **Tarea de regreso**: devolver cada producto a su ubicación, **quitando la evidencia** de que se surtió o
+   etiquetó para otra orden (etiquetas P y 1/N, marcas del surtido).
+3. **Firma de autorización** de quien **evidenció** que la mercancía regresó a su lugar y **salió del área de
+   surtido y checado**.
+
+No se ha diseñado ni construido nada. Lo que hay hoy: la bandeja de Facturación lo detecta (`kepler_otro`),
+la consola advierte al cancelar un surtido con renglones levantados, y el checado no toma pedidos que Kepler
+no trae en SURTIDO.
+
 ### 9.7 Fuera de esta entrega
 
 Contenedor de plástico compartido (§5c), mover cajas entre ubicaciones, la carga al camión (GP.5) y
