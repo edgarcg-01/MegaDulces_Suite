@@ -213,6 +213,42 @@ async function concSQL(budgetId) {
       nm('el modulo del producto no se pudo cargar: la gramatica no se pudo ejercer');
     }
 
+    console.log('\n── ¿EN QUE se diferencian el gasto y el ingreso? (correccion de Ventas) ──');
+    // El doc afirmaba "el gasto esta concentrado y el ingreso no" sacandolo de "4 contra 9" --
+    // un conteo ABSOLUTO sobre universos de 14 y 33 renglones. Medido: la FRACCION de renglones
+    // que cruza el 80% es casi igual (28.6% vs 27.3%); lo que difiere es EL RENGLON DE ARRIBA
+    // (55.50% vs 20.32%). Este bloque fija esa distincion para que la prosa no vuelva a derivar.
+    const forma = {};
+    for (const tipo of ['gasto', 'ingreso']) {
+      const r = (await knex.raw(
+        `SELECT original_amount::numeric amt FROM budget.budget_lines
+           WHERE tenant_id = ? AND budget_id = ? AND line_type = ? AND original_amount IS NOT NULL
+           ORDER BY amt DESC`, [T, budgets[0].id, tipo])).rows;
+      if (!r.length) continue;
+      const tot = r.reduce((a, x) => a + Number(x.amt), 0);
+      if (!(tot > 0)) continue;
+      let ac = 0, k = 0;
+      for (const x of r) { ac += Number(x.amt); k++; if (100 * ac / tot >= 80) break; }
+      forma[tipo] = { n: r.length, top1: 100 * Number(r[0].amt) / tot, fraccion: 100 * k / r.length, k };
+    }
+
+    if (!forma.gasto || !forma.ingreso) {
+      nm('el ejercicio no tiene los dos lados cargados: la comparacion de forma no se puede medir hoy');
+    } else {
+      const g = forma.gasto, i = forma.ingreso;
+      console.log(`   GASTO    top-1 ${g.top1.toFixed(2)}%   cruzan el 80%: ${g.k}/${g.n} = ${g.fraccion.toFixed(1)}% de los renglones`);
+      console.log(`   INGRESO  top-1 ${i.top1.toFixed(2)}%   cruzan el 80%: ${i.k}/${i.n} = ${i.fraccion.toFixed(1)}% de los renglones`);
+      const brechaTop1 = Math.abs(g.top1 - i.top1);
+      const brechaForma = Math.abs(g.fraccion - i.fraccion);
+      console.log(`   brecha en top-1: ${brechaTop1.toFixed(2)} pp   ·   brecha en forma: ${brechaForma.toFixed(2)} pp`);
+      ok(brechaTop1 > brechaForma * 3,
+        `la diferencia esta en EL RENGLON DE ARRIBA (${brechaTop1.toFixed(2)} pp), no en la forma de Pareto ` +
+        `(${brechaForma.toFixed(2)} pp): la frase que se sostiene es "riesgo de punto unico en gasto", ` +
+        'no "el gasto esta mas concentrado"');
+      ok(g.top1 > i.top1,
+        `el punto unico esta del lado del GASTO (${g.top1.toFixed(2)}% contra ${i.top1.toFixed(2)}%)`);
+    }
+
     console.log('\n── El umbral que no existe ──');
     const umbrales = (await knex.raw(`SELECT count(*)::int n FROM analytics.kpi_thresholds`)).rows[0].n;
     ok(umbrales === 0,
