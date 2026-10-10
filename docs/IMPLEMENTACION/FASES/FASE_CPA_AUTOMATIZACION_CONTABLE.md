@@ -345,6 +345,20 @@ contador, ni al SDK, ni a que ContPAQi acepte nada.
 > redeploy api+view (hoy prod tiene la vista pero **no el endpoint ni la pantalla**) · validación
 > visual. **Sin permiso nuevo → sin re-login.**
 >
+> ⛔⛔ **Y el orden NO es libre: el índice va ANTES del push, o se congelan los despliegues de
+> TODOS.** Medido el 2026-10-10 contra el script, no contra la doc. `auto-deploy.sh` ya no frena
+> por cualquier migración pendiente (`[CD.1]` lo volvió discriminante): pregunta si el código que
+> se despliega **nombra** los objetos que la migración crea. Pero `compuerta-migraciones.sh`
+> extrae objetos de `CREATE TABLE|SCHEMA|VIEW|MATERIALIZED VIEW`, `ALTER TABLE`, `ADD COLUMN` y
+> del builder de knex — **`CREATE INDEX` no está en la lista**. Corridos sus cinco patrones sobre
+> `20261010101129`: **cero objetos**, y la línea 318 del script dice
+> `NO_MEDIDO hay migraciones de las que no se pudo extraer ningun objeto` → `exit 1`.
+>
+> ⭐ El sesgo del freno es correcto —no adivinar es ADR-056—; lo que está incompleto es el
+> extractor. Dos salidas, y la primera es la barata: **aplicar el índice antes de empujar**. La
+> segunda, para que no vuelva a pasarle a nadie: **enseñarle `CREATE INDEX` al extractor**, que
+> hoy manda a `NO_MEDIDO` a toda una familia de migraciones legítimas.
+>
 > ⛔ **Procedencia rota, declarada:** los 14 archivos de `[CPA.0]` **no están en un commit
 > propio**. Viajaron dentro de `a048f617b test([CP.8.35])`, de otra sesión, porque yo los había
 > dejado en el índice —que es **compartido por ~10 sesiones**— y esa sesión commiteó sin
