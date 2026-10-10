@@ -254,7 +254,7 @@ import {
         </section>
 
         <!-- ── [CP.8.37] LO QUE FALTA ENLAZAR: el rechazo con su acción al lado ── -->
-        @if (pendientes(); as p) {
+        @if (porConfirmar(); as p) {
           @if (p.filas.length) {
             <section class="cpp-sec">
               <div class="cpp-sec-h">
@@ -484,7 +484,12 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
   readonly filtro = signal<string | null>(null);
   readonly sel = signal<LoteVista | null>(null);
   readonly mes = signal<string>(mesCerrado());
-  readonly pendientes = signal<PendientesResp | null>(null);
+  // ⛔ Se llamaba `pendientes` y COLISIONABA con el `computed` del mismo nombre que ya vivía
+  // más abajo (el de `[CP.8.33]`, que cuenta movimientos). Dos miembros con el mismo nombre en
+  // una clase: `TS2300` + `TS2717`, y el `| number` del template recibiendo un objeto (`TS2769`).
+  // Ninguna de las dos ramas podía verlo sola — se tocaron al integrarlas. El nombre sale de
+  // su propio título en pantalla: «Proveedores por confirmar».
+  readonly porConfirmar = signal<PendientesResp | null>(null);
   /** alias → cuenta elegida en la pantalla. ⛔ Nada se preselecciona: elegir es del humano. */
   readonly elegido = signal<Record<string, string>>({});
   readonly guardando = signal<string | null>(null);
@@ -569,7 +574,7 @@ export class ContabilidadContpaqiPuenteComponent implements OnInit {
 
     // Igual que el cuadre: si falla, la bandeja sigue sirviendo y la sección no se dibuja.
     this.api.pendientes(this.mes()).pipe(takeUntilDestroyed(this.destroyRef))
-      .subscribe({ next: (p) => this.pendientes.set(p), error: () => this.pendientes.set(null) });
+      .subscribe({ next: (p) => this.porConfirmar.set(p), error: () => this.porConfirmar.set(null) });
   }
 
   elegir(alias: string, cuenta: string): void {
