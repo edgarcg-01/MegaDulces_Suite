@@ -31,7 +31,26 @@ const PREF_ALMACEN = 'gp.checar.almacen';
 const PREF_ORIGEN = 'gp.checar.origen';
 /** El último pedido checado, para reimprimir sus etiquetas aunque se haya recargado la página. */
 const PREF_ULTIMO = 'gp.checar.ultimo';
-const TOL = 0.001;
+/** Medido: un pedido de ruta típico (30 renglones) metió 38 artículos en UNA caja P. */
+const CAJA_P_LLENA = 20;
+const NOMBRE_CERRADA: Record<string, [string, string]> = { CJA: ['caja', 'cajas'], BTO: ['bulto', 'bultos'], CUB: ['cubeta', 'cubetas'] };
+
+/** "7 cajas y 3 bultos": las etiquetas 1/N cuentan cajas, bultos y cubetas, no sólo cajas. */
+export function cerradasTexto(etiquetas: Array<{ unidad: string | null }>): string {
+  if (!etiquetas.length) return '0 cajas';
+  const porUnidad = new Map<string, number>();
+  for (const e of etiquetas) {
+    const u = String(e.unidad ?? 'CJA').toUpperCase();
+    porUnidad.set(u, (porUnidad.get(u) ?? 0) + 1);
+  }
+  // Primero cajas, luego bultos y cubetas; otra unidad, al final.
+  const orden = (u: string) => { const i = Object.keys(NOMBRE_CERRADA).indexOf(u); return i < 0 ? 99 : i; };
+  const partes = [...porUnidad].sort((a, b) => orden(a[0]) - orden(b[0])).map(([u, n]) => {
+    const [uno, varios] = NOMBRE_CERRADA[u] ?? [u.toLowerCase(), u.toLowerCase()];
+    return `${n} ${n === 1 ? uno : varios}`;
+  });
+  return partes.length > 1 ? `${partes.slice(0, -1).join(', ')} y ${partes[partes.length - 1]}` : partes[0];
+}
 
 const plural = (n: number, uno: string, varios: string): string => `${n} ${n === 1 ? uno : varios}`;
 const junto = (...partes: Array<string | number | null | undefined>): string =>
@@ -124,43 +143,68 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
               @if (pidePeso(); as pp) {
                 <label class="ck-l" for="ck-peso">Peso de {{ pp.producto }} en la báscula (kg)</label>
                 <div class="ck-row">
-                  <input #pesoInput id="ck-peso" name="peso" type="number" step="0.001" min="0" inputmode="decimal" class="ck-input" [ngModel]="peso()" (ngModelChange)="peso.set($event)" />
-                  <button type="submit" class="ck-btn" [disabled]="!(peso() > 0)">Agregar</button>
+                  <input #pesoInput id="ck-peso" name="peso" type="number" step="0.001" min="0" inputmode="decimal" class="ck-input" placeholder="Ej. 2.5" [ngModel]="peso()" (ngModelChange)="peso.set($event)" (keydown.enter)="$event.preventDefault(); enviar()" />
+                  <button type="submit" class="ck-btn" [disabled]="!pesoValido()">Agregar</button>
                   <button type="button" class="ck-sec" (click)="cancelarPeso()">Cancelar</button>
                 </div>
               } @else {
                 <label class="ck-l" for="ck-code">Escanea o escribe el código</label>
                 <div class="ck-row">
-                  <input #codigoInput id="ck-code" name="code" class="ck-input" [ngModel]="codigo()" (ngModelChange)="codigo.set($event)" [attr.inputmode]="teclado() ? 'text' : 'none'" enterkeyhint="send" autocapitalize="characters" />
+                  <!-- El Enter del escáner se atiende aquí y no con el envío implícito del formulario: ése no
+                       corre si "Agregar" sigue deshabilitado porque la pantalla aún no repinta la lectura. -->
+                  <input #codigoInput id="ck-code" name="code" class="ck-input" [ngModel]="codigo()" (ngModelChange)="codigo.set($event)" (keydown.enter)="$event.preventDefault(); enviar()" [attr.inputmode]="teclado() ? 'text' : 'none'" enterkeyhint="send" autocapitalize="characters" />
                   <button type="submit" class="ck-btn" [disabled]="!codigo().trim()">Agregar</button>
                   <button type="button" class="ck-sec" [attr.aria-pressed]="teclado()" (click)="alternarTeclado()">{{ teclado() ? 'Ocultar teclado' : 'Teclado' }}</button>
                 </div>
                 <div class="ck-row ck-cant">
                   <span class="ck-l">Cantidad</span>
-                  <button type="button" class="ck-step" (click)="paso(-1)" [disabled]="cantidad() <= 1" aria-label="Una menos">−</button>
+                  <!-- Ningún control de aquí se queda con el foco: el escáner teclea donde esté el foco, y en un
+                       botón la lectura se perdía y su Enter volvía a tocar el botón (prueba visual, 2026-10-10). -->
+                  <button type="button" class="ck-step" (pointerdown)="$event.preventDefault()" (click)="paso(-1)" [disabled]="cantidad() <= 1" aria-label="Una menos">−</button>
                   <span class="ck-n" aria-live="polite">{{ cantidad() }}</span>
-                  <button type="button" class="ck-step" (click)="paso(1)" [disabled]="cantidad() >= 999" aria-label="Una más">+</button>
-                  <label class="ck-check"><input type="checkbox" [ngModel]="comoCajas()" (ngModelChange)="comoCajas.set($event)" name="cajas" /> Son cajas cerradas</label>
+                  <button type="button" class="ck-step" (pointerdown)="$event.preventDefault()" (click)="paso(1)" [disabled]="cantidad() >= 999" aria-label="Una más">+</button>
+                  <!-- +5 / +10 y no un campo escribible: con el teclado abierto se tapaba media pantalla y una
+                       lectura del escáner caía DENTRO de la cantidad ("20725226003894"; prueba visual 2026-10-10). -->
+                  <button type="button" class="ck-step ck-step-w" (pointerdown)="$event.preventDefault()" (click)="paso(5)" [disabled]="cantidad() >= 999" aria-label="Cinco más">+5</button>
+                  <button type="button" class="ck-step ck-step-w" (pointerdown)="$event.preventDefault()" (click)="paso(10)" [disabled]="cantidad() >= 999" aria-label="Diez más">+10</button>
+                  <label class="ck-check"><input type="checkbox" [ngModel]="comoCajas()" (ngModelChange)="comoCajas.set($event); enfocar()" name="cajas" /> Son cajas cerradas</label>
                 </div>
                 <p class="ck-hint">¿Varias iguales sin etiqueta? Pon cuántas (y marca "Son cajas cerradas" si lo son) ANTES de escanear la pieza.</p>
               }
             </form>
 
             <div class="ck-aviso" [ngClass]="'ck-' + (aviso()?.tono ?? 'ok')" role="status" aria-live="polite">
-              @if (aviso(); as a) { <span>{{ a.texto }}</span> }
+              <!-- Se vuelve a crear en cada lectura: el destello marca que ESTA lectura entró aunque el texto se parezca. -->
+              @for (k of [lecturas()]; track k) {
+                @if (aviso(); as a) { <span class="ck-destello">{{ a.texto }}</span> }
+              }
               @if (pendientesEnCola() > 0) { <span class="ck-cola"> · guardando {{ pendientesEnCola() }}…</span> }
             </div>
 
             @if (p.ultimo_escaneo; as u) {
               <div class="ck-ult">
                 <span>Último: {{ ultimoTexto(u) }}</span>
-                <button type="button" class="ck-sec" [disabled]="ocupado()" (click)="deshacer(u.id)">Deshacer</button>
+                @if (u.deshacible) {
+                  <button type="button" class="ck-sec" [disabled]="ocupado()" (click)="deshacer(u.id)">Deshacer</button>
+                } @else {
+                  <span class="ck-muted ck-fija">Ya va en una caja P cerrada</span>
+                }
               </div>
+            }
+
+            @if (todoListo() && !confirmando()) {
+              <section class="ck-listo" role="status">
+                <p><b>Todo listo.</b> {{ cajaAbierta() ? 'Al terminar, la caja P' + cajaAbierta()?.numero + ' se cierra y se imprimen sus etiquetas.' : 'Ya puedes terminar.' }}</p>
+                <button type="button" class="ck-btn ck-grande" [disabled]="ocupado() || pendientesEnCola() > 0" (click)="abrirTerminar()">Terminar checado</button>
+              </section>
             }
 
             @if (cajaAbierta(); as c) {
               <section class="ck-caja">
                 <div><b>Caja P{{ c.numero }} abierta</b> · {{ plural(articulos(c), 'artículo', 'artículos') }}</div>
+                @if (articulos(c) >= cajaPLlena) {
+                  <p class="ck-llena">Lleva {{ articulos(c) }} artículos. Si ya no caben, ciérrala aquí: lo que sigas escaneando abre la P{{ c.numero + 1 }}.</p>
+                }
                 <button type="button" class="ck-btn" [disabled]="ocupado() || !c.contenido.length" (click)="cerrarCaja()">Cerrar caja P{{ c.numero }} e imprimir sus 3 etiquetas</button>
               </section>
             } @else {
@@ -172,8 +216,8 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
                 <li class="ck-item" [ngClass]="'ck-e-' + r.estado">
                   <div class="ck-item-t"><span class="ck-prod">{{ r.producto ?? r.sku }}</span><span class="ck-sku">{{ r.sku }}</span></div>
                   <div class="ck-item-n">
-                    <span>Pedido: <b>{{ pedidoTexto(r) }}</b></span>
-                    <span>Llevas: <b class="ck-chk">{{ llevasTexto(r) }}</b></span>
+                    <span>Pedido: <b>{{ r.pedido_texto }}</b></span>
+                    <span>Llevas: <b class="ck-chk">{{ r.llevas_texto }}</b></span>
                     <span class="ck-badge">{{ estadoTexto(r) }}</span>
                   </div>
                 </li>
@@ -194,18 +238,18 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
 
             @if (!confirmando()) {
               <button type="button" class="ck-go ck-fin" [disabled]="ocupado() || pendientesEnCola() > 0" (click)="abrirTerminar()"><span>Terminar checado</span></button>
-              <button type="button" class="ck-sec ck-soltar" [disabled]="ocupado()" (click)="soltando.set(true)">Soltar este pedido</button>
+              <button type="button" class="ck-sec ck-soltar" [disabled]="ocupado()" (click)="abrirSoltar()">Soltar este pedido</button>
               @if (soltando()) {
-                <section class="ck-confirm" role="group" aria-label="Soltar el pedido">
+                <section #confirmSoltar class="ck-confirm" role="group" aria-label="Soltar el pedido">
                   <p>¿Soltar {{ p.order_code }}? Vuelve a la fila y otro lo checa desde cero.</p>
-                  <div class="ck-row">
-                    <button type="button" class="ck-btn" [disabled]="ocupado()" (click)="soltar()">Sí, soltarlo</button>
-                    <button type="button" class="ck-sec" (click)="soltando.set(false); enfocar()">Volver</button>
+                  <div class="ck-row ck-acciones">
+                    <button type="button" class="ck-btn ck-grande" [disabled]="ocupado()" (click)="soltar()">Sí, soltarlo</button>
+                    <button type="button" class="ck-sec ck-grande" (click)="soltando.set(false); enfocar()">Volver</button>
                   </div>
                 </section>
               }
             } @else {
-              <section class="ck-confirm" role="group" aria-label="Terminar checado">
+              <section #confirmTerminar class="ck-confirm" role="group" aria-label="Terminar checado">
                 @if (noCuadran().length) {
                   <p class="ck-warn">Si terminas así, lo que falta sale incompleto:</p>
                   <ul class="ck-dif">
@@ -216,9 +260,9 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
                 }
                 <label class="ck-l" for="ck-espera">Dónde queda esperando la unidad (opcional)</label>
                 <input id="ck-espera" class="ck-input" [ngModel]="espera()" (ngModelChange)="espera.set($event)" maxlength="40" placeholder="Ej. A2" />
-                <div class="ck-row">
-                  <button type="button" class="ck-btn" [disabled]="ocupado()" (click)="terminar()">Sí, terminar</button>
-                  <button type="button" class="ck-sec" [disabled]="ocupado()" (click)="confirmando.set(false); enfocar()">Volver</button>
+                <div class="ck-row ck-acciones">
+                  <button #siTerminar type="button" class="ck-btn ck-grande" [disabled]="ocupado()" (click)="terminar()">Sí, terminar</button>
+                  <button type="button" class="ck-sec ck-grande" [disabled]="ocupado()" (click)="confirmando.set(false); enfocar()">Volver</button>
                 </div>
               </section>
             }
@@ -229,21 +273,21 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
           @if (fin(); as f) {
             <section class="ck-card">
               <h2>{{ f.order_code }} checado</h2>
-              <p class="ck-muted">{{ f.destino || '—' }} · {{ plural(f.cajas_p, 'caja P', 'cajas P') }} · {{ plural(f.etiquetas_cj.length, 'caja completa', 'cajas completas') }}</p>
+              <p class="ck-muted">{{ f.destino || '—' }} · {{ plural(f.cajas_p, 'caja P', 'cajas P') }} · {{ cerradasTexto(f.etiquetas_cj) }}</p>
               @if (f.etiqueta_p; as ep) { <p class="ck-muted">La caja P{{ ep.numero }} se cerró al terminar: se mandaron a imprimir sus 3 etiquetas.</p> }
               @if (f.diferencias.length) {
                 <p class="ck-warn">Sale con {{ plural(f.diferencias.length, 'diferencia', 'diferencias') }}:</p>
                 <ul class="ck-dif">
-                  @for (d of f.diferencias; track $index) { <li>{{ d.producto ?? d.sku }}: pedido {{ junto(d.esperado, d.unidad) }}, checado {{ junto(d.checado, d.unidad) }}</li> }
+                  @for (d of f.diferencias; track $index) { <li>{{ d.producto ?? d.sku }}: pedido {{ d.pedido_texto }}, checado {{ d.checado_texto }}</li> }
                 </ul>
               } @else {
                 <p class="ck-ok">Todo cuadró.</p>
               }
               @if (f.etiquetas_cj.length) {
-                <p class="ck-muted">Se mandaron a imprimir las {{ f.etiquetas_cj.length }} etiquetas de cajas (1/{{ f.etiquetas_cj.length }}…).</p>
+                <p class="ck-muted">Se mandaron a imprimir sus {{ f.etiquetas_cj.length }} etiquetas (1/{{ f.etiquetas_cj.length }}…).</p>
               }
               <div class="ck-row">
-                @if (f.etiquetas_cj.length) { <button type="button" class="ck-sec" (click)="imprimirCajas()">Reimprimir etiquetas de cajas</button> }
+                @if (f.etiquetas_cj.length) { <button type="button" class="ck-sec" (click)="imprimirCajas()">Reimprimir etiquetas 1/{{ f.etiquetas_cj.length }}</button> }
                 @if (f.etiqueta_p; as ep) { <button type="button" class="ck-sec" (click)="imprimirP(ep)">Reimprimir P{{ ep.numero }}</button> }
               </div>
               <button type="button" class="ck-go" [disabled]="ocupado()" (click)="tomar()"><i class="pi pi-play" aria-hidden="true"></i><span>Tomar siguiente</span></button>
@@ -276,7 +320,17 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
     .ck-row .ck-input { flex:1; min-width:10rem; }
     .ck-cant { margin-top:.4rem; }
     .ck-cant .ck-l { margin:0; }
-    .ck-step { width:var(--tap-min); height:var(--tap-min); border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-lg); cursor:pointer; }
+    /* --tap-min vale 0 con mouse: el botón de un solo signo necesita su propia medida o desaparece. */
+    .ck-step { display:inline-flex; align-items:center; justify-content:center; width:max(2.75rem, var(--tap-min)); height:max(2.75rem, var(--tap-min)); padding:0; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font-size:var(--fs-lg); line-height:1; cursor:pointer; }
+    .ck-step:disabled { color:var(--text-muted); cursor:not-allowed; }
+    .ck-step-w { width:auto; padding:0 .7rem; font-size:var(--fs-body); font-weight:700; }
+    /* Destello de cada lectura: fondo que se aclara y vuelve. Sin movimiento si así lo pide el equipo. */
+    .ck-destello { display:block; animation:ck-destello var(--dur-max, 350ms) ease-out; }
+    @keyframes ck-destello { from { opacity:.35; } to { opacity:1; } }
+    @media (prefers-reduced-motion: reduce) { .ck-destello { animation:none; } }
+    .ck-listo { display:flex; flex-direction:column; gap:.5rem; border:1px solid var(--ok-fg); border-radius:var(--r-lg); background:var(--ok-soft-bg); color:var(--ok-soft-fg); padding:var(--sp-3); margin-bottom:var(--sp-3); }
+    .ck-listo p { margin:0; font-size:var(--fs-lg); }
+    .ck-llena { margin:0; font-size:var(--fs-body); color:var(--warn-fg); font-weight:600; }
     .ck-n { min-width:2.5rem; text-align:center; font-family:var(--font-mono); font-size:var(--fs-lg); font-weight:800; }
     .ck-check { display:inline-flex; align-items:center; gap:.4rem; min-height:var(--tap-min); font-size:var(--fs-sm); cursor:pointer; }
     .ck-check input { width:1.25rem; height:1.25rem; }
@@ -291,6 +345,9 @@ const ORDEN_ESTADO: Record<ChecadoRenglon['estado'], number> = { sobra: 0, falta
     .ck-sec { min-height:var(--tap-min); padding:0 .9rem; border:1px solid var(--border-color); border-radius:var(--r-md); background:var(--card-bg); color:var(--text-main); font:inherit; font-size:var(--fs-sm); font-weight:600; cursor:pointer; }
     .ck-sec:disabled { color:var(--text-muted); cursor:not-allowed; }
     .ck-soltar { display:block; margin:var(--sp-2) auto 0; }
+    .ck-acciones { margin-top:var(--sp-2); }
+    .ck-grande { flex:1; min-height:max(3.25rem, var(--tap-min)); font-size:var(--fs-lg); }
+    .ck-fija { font-size:var(--fs-sm); text-align:right; }
     .ck-go:focus-visible, .ck-btn:focus-visible, .ck-sec:focus-visible, .ck-step:focus-visible, .ck-seg-b:focus-visible, .ck-salir:focus-visible { outline:2px solid var(--action-ring); outline-offset:2px; }
     .ck-aviso { min-height:2.6rem; margin:var(--sp-2) 0; padding:.55rem .8rem; border-radius:var(--r-md); font-size:var(--fs-lg); font-weight:700; }
     .ck-aviso:empty { padding:0; min-height:0; }
@@ -330,9 +387,13 @@ export class AlmacenChecarComponent implements OnInit {
   private readonly destroyRef = inject(DestroyRef);
   private readonly codigoInput = viewChild<ElementRef<HTMLInputElement>>('codigoInput');
   private readonly pesoInput = viewChild<ElementRef<HTMLInputElement>>('pesoInput');
+  private readonly confirmTerminar = viewChild<ElementRef<HTMLElement>>('confirmTerminar');
+  private readonly siTerminar = viewChild<ElementRef<HTMLButtonElement>>('siTerminar');
+  private readonly confirmSoltar = viewChild<ElementRef<HTMLElement>>('confirmSoltar');
 
   readonly plural = plural;
   readonly junto = junto;
+  readonly cerradasTexto = cerradasTexto;
   readonly origenes: Array<{ v: Origen; l: string }> = [
     { v: '', l: 'Todos' },
     { v: 'TELEMARK', l: 'Telemarketing' },
@@ -354,7 +415,12 @@ export class AlmacenChecarComponent implements OnInit {
   readonly comoCajas = signal(false);
   readonly teclado = signal(false);
   readonly pidePeso = signal<{ code: string; producto: string } | null>(null);
-  readonly peso = signal<number>(0);
+  /** Vacío al pedirlo: con un 0 puesto, teclear 2.5 dejaba "02.5". */
+  readonly peso = signal<number | null>(null);
+  readonly pesoValido = computed(() => {
+    const p = this.peso();
+    return p !== null && Number(p) > 0;
+  });
   readonly confirmando = signal(false);
   readonly soltando = signal(false);
   readonly espera = signal('');
@@ -364,6 +430,14 @@ export class AlmacenChecarComponent implements OnInit {
   private enviando = false;
 
   readonly pendientesEnCola = computed(() => this.cola().length);
+  /** Cuenta las respuestas del servidor: cada lectura vuelve a pintar (y destellar) el aviso. */
+  readonly lecturas = signal(0);
+  /** Artículos a partir de los cuales se sugiere cerrar la caja P (sugerencia, no tope: el tamaño real varía). */
+  readonly cajaPLlena = CAJA_P_LLENA;
+  readonly todoListo = computed(() => {
+    const rs = this.pedido()?.renglones ?? [];
+    return rs.length > 0 && rs.every((r) => r.estado === 'completo');
+  });
   readonly almacenNombre = computed(() => {
     const a = this.almacenes().find((x) => x.id === this.almacenId());
     return a ? `${a.code} · ${a.nombre}` : '';
@@ -464,7 +538,10 @@ export class AlmacenChecarComponent implements OnInit {
   }
 
   paso(d: number): void {
-    this.cantidad.set(Math.min(999, Math.max(1, this.cantidad() + d)));
+    // +5 / +10 desde el 1 inicial dan 5 y 10, no 6 y 11: "+10 +10" son 20 (con 11 se terminaba en 21 y sobraba).
+    const base = d > 1 && this.cantidad() === 1 ? 0 : this.cantidad();
+    this.cantidad.set(Math.min(999, Math.max(1, base + d)));
+    this.enfocar();
   }
 
   alternarTeclado(): void {
@@ -476,7 +553,7 @@ export class AlmacenChecarComponent implements OnInit {
   enviar(): void {
     const pp = this.pidePeso();
     if (pp) {
-      if (!(this.peso() > 0)) return;
+      if (!this.pesoValido()) return;
       this.mandar({ code: pp.code, cantidad: 1, comoCajas: false }, Number(this.peso()));
       return;
     }
@@ -544,10 +621,29 @@ export class AlmacenChecarComponent implements OnInit {
     });
   }
 
+  /**
+   * La confirmación sale al final de la lista: se lleva la vista a ella y el foco al botón. Antes
+   * el foco volvía al escáner (arriba) y la confirmación quedaba fuera de la pantalla. El aviso
+   * del último escaneo se borra: ya no aplica y confundía ("ya no se deshace" junto a "Todo cuadra").
+   */
   abrirTerminar(): void {
     this.confirmando.set(true);
     this.soltando.set(false);
-    this.enfocar();
+    this.aviso.set(null);
+    this.mostrar(this.confirmTerminar, this.siTerminar);
+  }
+
+  abrirSoltar(): void {
+    this.soltando.set(true);
+    this.aviso.set(null);
+    this.mostrar(this.confirmSoltar);
+  }
+
+  private mostrar(seccion: () => ElementRef<HTMLElement> | undefined, boton?: () => ElementRef<HTMLButtonElement> | undefined): void {
+    setTimeout(() => {
+      seccion()?.nativeElement.scrollIntoView?.({ block: 'center', behavior: 'smooth' });
+      boton?.()?.nativeElement.focus({ preventScroll: true });
+    });
   }
 
   terminar(): void {
@@ -642,33 +738,17 @@ export class AlmacenChecarComponent implements OnInit {
 
   // ── Textos ───────────────────────────────────────────────────────────────────────────────
 
-  /** En cajas sólo si el pedido da cajas enteras y no se ha contado nada suelto. */
-  private enCajas(r: ChecadoRenglon): boolean {
-    return r.esperado_mayor !== null && !!r.unidad_mayor && r.checado_sueltas <= TOL;
-  }
-
-  pedidoTexto(r: ChecadoRenglon): string {
-    return this.enCajas(r) ? junto(r.esperado_mayor, r.unidad_mayor) : junto(this.num(r.esperado), r.unidad);
-  }
-
-  llevasTexto(r: ChecadoRenglon): string {
-    if (this.enCajas(r)) return junto(r.checado_mayor, r.unidad_mayor);
-    if (r.checado_mayor > 0 && r.unidad_mayor) return `${junto(r.checado_mayor, r.unidad_mayor)} + ${junto(this.num(r.checado_sueltas), r.unidad)}`;
-    return junto(this.num(r.checado), r.unidad);
-  }
+  // Los textos de cantidad los arma el servidor, en la unidad pedida ("2 BOL"): así la lista, el
+  // aviso de lo que sobra y las diferencias al terminar dicen lo mismo.
 
   estadoTexto(r: ChecadoRenglon): string {
-    const cajas = this.enCajas(r);
-    switch (r.estado) {
-      case 'completo': return 'Listo';
-      case 'falta': return cajas ? `Faltan ${junto((r.esperado_mayor ?? 0) - r.checado_mayor, r.unidad_mayor)}` : `Faltan ${junto(this.num(r.esperado - r.checado), r.unidad)}`;
-      case 'sobra': return `Sobran ${junto(this.num(r.checado - r.esperado), r.unidad)}`;
-      default: return 'Pendiente';
-    }
+    if (r.estado === 'completo') return 'Listo';
+    if (r.estado === 'pendiente') return 'Pendiente';
+    return r.diferencia_texto ?? (r.estado === 'falta' ? 'Falta' : 'Sobra');
   }
 
   ultimoTexto(u: NonNullable<ChecadoPedido['ultimo_escaneo']>): string {
-    return junto(u.cantidad, u.unidad, '·', u.producto, u.kind === 'ajeno' ? '(no va en el pedido)' : null);
+    return junto(this.num(u.cantidad), u.unidad, '·', u.producto);
   }
 
   contenidoTexto(c: ChecadoCajaP): string {
@@ -713,10 +793,11 @@ export class AlmacenChecarComponent implements OnInit {
           this.enviando = false;
           this.pedido.set(r.pedido);
           this.aviso.set({ tono: TONO[r.resultado], texto: r.mensaje });
+          this.lecturas.update((n) => n + 1);
           if (pesoKg === undefined) this.cola.update((c) => c.slice(1));
           if (r.resultado === 'pide_peso') {
             this.pidePeso.set({ code: item.code, producto: r.producto ?? item.code });
-            this.peso.set(0);
+            this.peso.set(null);
             setTimeout(() => this.pesoInput()?.nativeElement.focus());
             return;
           }

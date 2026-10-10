@@ -25,6 +25,13 @@ const PREF_CONSOLA = 'gp.consola.almacen';
 const REFRESCO_MS = 30_000;
 const HORA_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
+/** "930" → "09:30", "1630" → "16:30", "9:30" → "09:30". Lo que no se entiende se deja igual (no valida). */
+export function normalizarHora(v: string): string {
+  const t = String(v ?? '').trim();
+  const m = /^(\d{1,2}):?(\d{2})$/.exec(t);
+  return m ? `${m[1].padStart(2, '0')}:${m[2]}` : t;
+}
+
 const dmy = (v: string): string => {
   const [y, m, d] = v.slice(0, 10).split('-');
   return `${d}/${m}/${y}`;
@@ -67,6 +74,10 @@ const dmy = (v: string): string => {
           <button pButton type="button" class="p-button-sm p-button-outlined" [loading]="loading()" [disabled]="!almacen() || loading()" (click)="reload()" aria-label="Actualizar"><span class="p-button-icon pi pi-refresh" aria-hidden="true"></span></button>
         </div>
       </header>
+
+      @if (cargandoAlmacenes() || loading()) {
+        <div class="gp-loadbar" role="progressbar" aria-label="Cargando la consola"><span></span></div>
+      }
 
       <p class="gp-rule"><i class="pi pi-sort-amount-down" aria-hidden="true"></i><span>"Tomar siguiente" da los surtidos en este orden: <b>urgentes</b>, luego la <b>salida más próxima</b> de sus destinos, luego <b>lo más viejo</b>.</span></p>
 
@@ -150,7 +161,7 @@ const dmy = (v: string): string => {
                             <span class="gp-confirm-t">{{ tituloAccion(o) }}</span>
                             @if (pideMotivo()) {
                               <label for="gp-motivo" class="gp-lbl">Motivo</label>
-                              <input pInputText id="gp-motivo" class="gp-motivo-in" [ngModel]="motivo()" (ngModelChange)="motivo.set($event)" (keydown.enter)="confirmar(o)" placeholder="Ej. sale el camión de Zamora a las 10" maxlength="200" />
+                              <input pInputText id="gp-motivo" class="gp-motivo-in" [ngModel]="motivo()" (ngModelChange)="motivo.set($event)" (keydown.enter)="confirmar(o)" [placeholder]="accion()?.tipo === 'cancelar' ? 'Ej. el cliente canceló el pedido' : 'Ej. sale el camión de Zamora a las 10'" maxlength="200" />
                             }
                             <button pButton id="gp-confirm-ok" type="button" class="p-button-sm" [class.p-button-danger]="accion()?.tipo === 'cancelar'" [loading]="guardando()" [disabled]="!puedeConfirmar()" (click)="confirmar(o)"><span class="p-button-label">{{ etiquetaConfirmar() }}</span></button>
                             <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="cerrar()"><span class="p-button-label">Volver</span></button>
@@ -190,10 +201,12 @@ const dmy = (v: string): string => {
                         <td class="num ta-r">{{ s.en_surtido }}</td>
                         <td>
                           <div class="gp-hora">
-                            <input type="time" class="gp-time" [attr.aria-label]="'Hora de salida de ' + (s.destino_nombre || s.destino_code)" [ngModel]="borrador(s)" (ngModelChange)="setBorrador(s, $event)" (keydown.enter)="guardarSalida(s)" />
-                            @if (cambio(s)) {
-                              <button pButton type="button" class="p-button-sm" [disabled]="guardando() || !horaValida(s)" (click)="guardarSalida(s)"><span class="p-button-label">Guardar</span></button>
-                            } @else if (s.hora_salida) {
+                            <!-- Texto de 24 h, no type="time": ése sigue el formato del equipo ("09:00 AM").
+                                 Se guarda al salir de la casilla (Tab, tocar fuera) o con Enter: sin botón. -->
+                            <input type="text" inputmode="numeric" maxlength="5" placeholder="16:30" class="gp-time" [attr.aria-label]="'Hora de salida de ' + (s.destino_nombre || s.destino_code) + ', formato de 24 horas'" [ngModel]="borrador(s)" (ngModelChange)="setBorrador(s, $event)" (blur)="guardarSalida(s)" (keydown.enter)="guardarSalida(s)" />
+                            @if (cambio(s) && !horaValida(s)) {
+                              <span class="gp-hora-err" role="alert">Escríbela como 16:30</span>
+                            } @else if (s.hora_salida && !cambio(s)) {
                               <button pButton type="button" class="p-button-sm p-button-text" [disabled]="guardando()" (click)="borrarSalida(s)" [attr.aria-label]="'Borrar la hora de ' + (s.destino_nombre || s.destino_code)"><span class="p-button-label">Borrar</span></button>
                             }
                           </div>
@@ -296,6 +309,13 @@ const dmy = (v: string): string => {
     .gp-confirm-t { font-weight:600; font-size:var(--fs-sm); }
     .gp-motivo-in { flex:1; min-width:14rem; min-height:var(--tap-min); }
     .gp-hora { display:flex; align-items:center; gap:.4rem; }
+    .gp-time { width:5.5rem; text-align:center; }
+    .gp-hora-err { font-size:var(--fs-xs); color:var(--bad-fg); }
+    /* Barra de carga delgada e indeterminada: un tramo que recorre el ancho. */
+    .gp-loadbar { position:relative; height:3px; margin:0 0 var(--sp-2); overflow:hidden; border-radius:var(--r-pill); background:var(--border-color); }
+    .gp-loadbar span { position:absolute; top:0; bottom:0; left:-40%; width:40%; border-radius:inherit; background:var(--action); animation:gp-cargando 1.1s linear infinite; }
+    @keyframes gp-cargando { to { left:100%; } }
+    @media (prefers-reduced-motion: reduce) { .gp-loadbar span { animation:none; left:0; width:100%; opacity:.5; } }
     .gp-time { height:2.25rem; min-height:var(--tap-min); padding:0 .5rem; border:1px solid var(--border-color); border-radius:var(--r-sm); background:var(--card-bg); color:var(--text-main); font:inherit; font-family:var(--font-mono); }
     .gp-time:focus-visible { outline:2px solid var(--action-ring); outline-offset:1px; }
     .gp-step { padding:.7rem .85rem; border-top:1px solid var(--border-color); }
@@ -343,6 +363,8 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   readonly data = signal<ConsolaSurtidoResponse | null>(null);
   readonly leidoEn = signal<Date | null>(null);
   readonly loading = signal(false);
+  /** Mientras llega la lista de almacenes la consola no tenía nada que mostrar: quedaba en blanco. */
+  readonly cargandoAlmacenes = signal(true);
   /** El refresco de fondo no prende el spinner: un botón que gira solo parece que algo pasa. */
   private refrescando = false;
   readonly err = signal<string | null>(null);
@@ -404,6 +426,7 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   ngOnInit(): void {
     this.api.consolaAlmacenes().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (lista) => {
+        this.cargandoAlmacenes.set(false);
         this.almacenes.set(lista.map((a) => ({ ...a, etiqueta: `${a.code} · ${a.nombre}` })));
         if (!lista.length) {
           this.sinAlmacen.set(true);
@@ -423,6 +446,7 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
         }, { destroyRef: this.destroyRef, zone: this.zone });
       },
       error: () => {
+        this.cargandoAlmacenes.set(false);
         this.errDeCarga.set(false);
         this.err.set('No se pudo leer qué almacenes manejas. Recarga la página.');
       },
@@ -561,13 +585,14 @@ export class AlmacenSurtidoConsolaComponent implements OnInit {
   }
 
   horaValida(s: ConsolaSurtidoDestino): boolean {
-    return HORA_RE.test(this.borrador(s));
+    return HORA_RE.test(normalizarHora(this.borrador(s)));
   }
 
+  /** Se llama al salir de la casilla y con Enter: no hay botón "Guardar". */
   guardarSalida(s: ConsolaSurtidoDestino): void {
     const id = this.almacen();
     if (!id || !this.cambio(s) || !this.horaValida(s) || this.guardando()) return;
-    const hora = this.borrador(s);
+    const hora = normalizarHora(this.borrador(s));
     this.ejecutar(
       this.api.consolaSalida({ warehouse_id: id, destino_code: s.destino_code, destino_nombre: s.destino_nombre, hora_salida: hora }),
       `${s.destino_nombre || s.destino_code} sale a las ${hora}.`,

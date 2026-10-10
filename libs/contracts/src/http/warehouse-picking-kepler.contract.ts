@@ -303,6 +303,17 @@ export interface ChecadoRenglon {
   /** Se vende por kilo: el escaneo pide el peso de la báscula. */
   se_pesa: boolean;
   estado: 'pendiente' | 'completo' | 'falta' | 'sobra';
+  /**
+   * La unidad en que se PIDIÓ (la presentación del pedido: BOL, PAQ, CJA) y cuántas de la base
+   * trae. null = el surtido no la guardó (anterior a GP.3): se muestra en la base.
+   */
+  unidad_pedida: string | null;
+  factor_pedida: number | null;
+  /** Los textos que se muestran, en la unidad pedida: "2 BOL", "1 BOL + 5 PZA". Los arma el servidor. */
+  pedido_texto: string;
+  llevas_texto: string;
+  /** "Faltan 1 BOL" / "Sobran 5 PZA"; null si está completo o pendiente. */
+  diferencia_texto: string | null;
 }
 
 export interface ChecadoContenido {
@@ -329,8 +340,18 @@ export interface ChecadoPedido {
   started_at: string;
   renglones: ChecadoRenglon[];
   cajas_p: ChecadoCajaP[];
-  /** El último escaneo vigente (para "Deshacer"). */
-  ultimo_escaneo: { id: string; producto: string | null; unidad: string | null; cantidad: number; kind: 'mayor' | 'menor' | 'ajeno' } | null;
+  /**
+   * El último escaneo que CUENTA (lo ajeno no suma y no aparece aquí). Si se pesó, `cantidad` son
+   * los kilos y `unidad` es "kg". `deshacible` = false si su caja P ya se cerró y etiquetó.
+   */
+  ultimo_escaneo: {
+    id: string;
+    producto: string | null;
+    unidad: string | null;
+    cantidad: number;
+    kind: 'mayor' | 'menor' | 'ajeno';
+    deshacible: boolean;
+  } | null;
 }
 
 export type ChecadoTomarResponse =
@@ -405,7 +426,16 @@ export interface ChecadoTerminarResponse {
   order_code: string;
   destino: string | null;
   /** Sólo lo que no cuadra: lo que sale es lo checado. */
-  diferencias: Array<{ sku: string | null; producto: string | null; unidad: string | null; esperado: number; checado: number }>;
+  diferencias: Array<{
+    sku: string | null;
+    producto: string | null;
+    unidad: string | null;
+    esperado: number;
+    checado: number;
+    /** En la unidad pedida, como en la pantalla del checado. */
+    pedido_texto: string;
+    checado_texto: string;
+  }>;
   etiquetas_cj: ChecadoEtiquetaCJ[];
   /** La caja P que seguía abierta y se cerró al terminar (su etiqueta sale aquí). */
   etiqueta_p: ChecadoEtiquetaP | null;

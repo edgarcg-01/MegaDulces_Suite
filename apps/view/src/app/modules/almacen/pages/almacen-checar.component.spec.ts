@@ -2,7 +2,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { Subject, of, throwError } from 'rxjs';
 import type { ChecadoEscaneoResponse, ChecadoPedido, ChecadoRenglon } from '@megadulces/contracts';
-import { AlmacenChecarComponent } from './almacen-checar.component';
+import { AlmacenChecarComponent, cerradasTexto } from './almacen-checar.component';
 import { PickingService } from '../../reparto/picking.service';
 import { AuthService } from '../../../core/services/auth.service';
 import * as etiquetas from '../checado-etiquetas';
@@ -14,7 +14,8 @@ import * as etiquetas from '../checado-etiquetas';
  */
 const R = (o: Partial<ChecadoRenglon> = {}): ChecadoRenglon => ({
   id: 'l1', sku: '06001', producto: 'CHOC SNICKERS /6', unidad: 'PZA', esperado: 384, checado: 0,
-  unidad_mayor: 'CJA', factor_mayor: 192, esperado_mayor: 2, checado_mayor: 0, checado_sueltas: 0, se_pesa: false, estado: 'pendiente', ...o,
+  unidad_mayor: 'CJA', factor_mayor: 192, esperado_mayor: 2, checado_mayor: 0, checado_sueltas: 0, se_pesa: false, estado: 'pendiente',
+  unidad_pedida: 'CJA', factor_pedida: 192, pedido_texto: '2 CJA', llevas_texto: '0 CJA', diferencia_texto: null, ...o,
 });
 const P = (o: Partial<ChecadoPedido> = {}): ChecadoPedido => ({
   id: 'chk-1', order_code: 'UD4001-0002781', destino: 'ABARROTES LUPITA', sucursal: '01', warehouse_id: 'w-01',
@@ -22,7 +23,10 @@ const P = (o: Partial<ChecadoPedido> = {}): ChecadoPedido => ({
 });
 const OK = (o: Partial<ChecadoEscaneoResponse> = {}): ChecadoEscaneoResponse => ({
   resultado: 'ok', mensaje: '+1 CJA · CHOC SNICKERS /6', producto: 'CHOC SNICKERS /6',
-  pedido: P({ renglones: [R({ checado: 192, checado_mayor: 1, estado: 'falta' })], ultimo_escaneo: { id: 's1', producto: 'CHOC SNICKERS /6', unidad: 'CJA', cantidad: 1, kind: 'mayor' } }),
+  pedido: P({
+    renglones: [R({ checado: 192, checado_mayor: 1, estado: 'falta', llevas_texto: '1 CJA', diferencia_texto: 'Faltan 1 CJA' })],
+    ultimo_escaneo: { id: 's1', producto: 'CHOC SNICKERS /6', unidad: 'CJA', cantidad: 1, kind: 'mayor', deshacible: true },
+  }),
   ...o,
 });
 
@@ -138,6 +142,80 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     expect(c.comoCajas()).toBe(false);
   });
 
+  it('⭐ prueba negativa: tras tocar "+" el foco regresa al escáner (si no, la lectura se perdía y su Enter volvía a sumar)', async () => {
+    await montar(P());
+    fix.autoDetect = true;
+    // Que termine el enfoque pendiente de entrar al pedido: si no, él solo hace pasar la prueba.
+    await new Promise((r) => setTimeout(r, 10));
+    const mas = el().querySelector('button[aria-label="Una más"]') as HTMLButtonElement;
+    mas.focus();
+    expect(document.activeElement).toBe(mas);
+    mas.click();
+    await new Promise((r) => setTimeout(r, 10));
+    expect(c.cantidad()).toBe(2);
+    expect(document.activeElement?.id).toBe('ck-code');
+  });
+
+  it('⭐ prueba negativa: el Enter del escáner se registra aunque "Agregar" siga deshabilitado (sin repintar)', async () => {
+    await montar(P());
+    const input = el().querySelector('#ck-code') as HTMLInputElement;
+    input.value = 'C06001';
+    input.dispatchEvent(new Event('input'));
+    // Sin render(): el botón "Agregar" sigue deshabilitado, como cuando el escáner teclea más rápido que la pantalla.
+    expect(boton('Agregar')?.disabled).toBe(true);
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }));
+    expect(api['checadoEscanear']).toHaveBeenCalledWith('chk-1', { code: 'C06001', cantidad: 1, como_cajas: undefined, peso_kg: undefined });
+  });
+
+  it('+5 y +10 suman sin quitarle el foco al escáner', async () => {
+    await montar(P());
+    // Desde el 1 inicial, +10 da 10 (no 11): "+10 +10" son 20 exactos.
+    boton('+10')?.click();
+    expect(c.cantidad()).toBe(10);
+    boton('+10')?.click();
+    expect(c.cantidad()).toBe(20);
+    boton('+5')?.click();
+    expect(c.cantidad()).toBe(25);
+    await new Promise((r) => setTimeout(r, 10));
+    expect(document.activeElement?.id).toBe('ck-code');
+  });
+
+  it('⭐ cada lectura vuelve a pintar el aviso (dos iguales seguidas ya no se ven idénticas)', async () => {
+    await montar(P());
+    escanea('C06001');
+    const primero = el().querySelector('.ck-destello');
+    escanea('C06001');
+    const segundo = el().querySelector('.ck-destello');
+    expect(c.lecturas()).toBe(2);
+    expect(segundo).not.toBe(primero);
+  });
+
+  it('⭐ con todo completo dice "Todo listo" y ofrece terminar ahí mismo', async () => {
+    await montar(P({
+      renglones: [R({ checado: 384, checado_mayor: 2, estado: 'completo', llevas_texto: '2 CJA' })],
+      cajas_p: [{ id: 'p1', numero: 1, status: 'abierta', contenido: [{ sku: 'x', producto: 'X', unidad: 'PAQ', cantidad: 3 }] }],
+    }));
+    expect(texto()).toContain('Todo listo. Al terminar, la caja P1 se cierra y se imprimen sus etiquetas.');
+    expect(el().querySelector('.ck-listo button')).not.toBeNull();
+  });
+
+  it('prueba negativa: con algo pendiente NO dice "Todo listo"', async () => {
+    await montar(P());
+    expect(texto()).not.toContain('Todo listo');
+  });
+
+  it('la caja P con muchos artículos sugiere cerrarla y seguir en la siguiente', async () => {
+    await montar(P({ cajas_p: [{ id: 'p1', numero: 1, status: 'abierta', contenido: [{ sku: 'x', producto: 'X', unidad: 'PAQ', cantidad: 25 }] }] }));
+    expect(texto()).toContain('Lleva 25 artículos. Si ya no caben, ciérrala aquí: lo que sigas escaneando abre la P2.');
+  });
+
+  it('cerradasTexto distingue cajas de bultos', () => {
+    expect(cerradasTexto([{ unidad: 'CJA' }, { unidad: 'CJA' }, { unidad: 'BTO' }])).toBe('2 cajas y 1 bulto');
+    expect(cerradasTexto([{ unidad: 'BTO' }, { unidad: 'BTO' }, { unidad: 'CJA' }])).toBe('1 caja y 2 bultos');
+    expect(cerradasTexto([{ unidad: 'CJA' }])).toBe('1 caja');
+    expect(cerradasTexto([])).toBe('0 cajas');
+  });
+
   it('un producto ajeno se avisa en rojo', async () => {
     await montar(P());
     api['checadoEscanear'].mockReturnValueOnce(of(OK({ resultado: 'ajeno', mensaje: 'MAZAPAN no va en este pedido. Sepáralo.', producto: 'MAZAPAN', pedido: P() })));
@@ -150,6 +228,9 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     api['checadoEscanear'].mockReturnValueOnce(of(OK({ resultado: 'pide_peso', mensaje: 'Pesa ALTOS y escribe los kilos.', producto: 'ALTOS', pedido: P() })));
     escanea('17083');
     expect(texto()).toContain('Peso de ALTOS en la báscula (kg)');
+    // Vacío, no "0": con el cero puesto, teclear 2.5 dejaba "02.5".
+    expect(c.peso()).toBeNull();
+    expect(boton('Agregar')?.disabled).toBe(true);
     c.peso.set(6.14);
     c.enviar();
     expect(api['checadoEscanear']).toHaveBeenLastCalledWith('chk-1', { code: '17083', cantidad: 1, como_cajas: undefined, peso_kg: 6.14 });
@@ -176,7 +257,38 @@ describe('AlmacenChecarComponent · la pantalla del checador (GP.4)', () => {
     expect(c.fase()).toBe('terminado');
     const [lista] = imprimir.mock.calls.at(-1) ?? [[]];
     expect(lista.map((e: { grande: string }) => e.grande)).toEqual(['1/2', '2/2']);
-    expect(boton('Reimprimir etiquetas de cajas')).toBeDefined();
+    expect(boton('Reimprimir etiquetas 1/2')).toBeDefined();
+  });
+
+  it('⭐ muestra la unidad PEDIDA ("2 BOL") y la diferencia que manda el servidor', async () => {
+    await montar(P({ renglones: [R({
+      sku: '990002', producto: 'PALETA FRESA', unidad: 'PZA', esperado: 40, checado: 20, unidad_mayor: null, factor_mayor: null,
+      esperado_mayor: null, unidad_pedida: 'BOL', factor_pedida: 20, estado: 'falta',
+      pedido_texto: '2 BOL', llevas_texto: '1 BOL', diferencia_texto: 'Faltan 1 BOL',
+    })] }));
+    expect(texto()).toContain('Pedido: 2 BOL');
+    expect(texto()).toContain('Llevas: 1 BOL');
+    expect(texto()).toContain('Faltan 1 BOL');
+    expect(texto()).not.toContain('40 PZA');
+  });
+
+  it('⭐ prueba negativa: un escaneo que ya va en una caja P cerrada NO ofrece "Deshacer"', async () => {
+    await montar(P({ ultimo_escaneo: { id: 's9', producto: 'CACAHUATE', unidad: 'kg', cantidad: 2.5, kind: 'menor', deshacible: false } }));
+    expect(texto()).toContain('Último: 2.5 kg · CACAHUATE');
+    expect(boton('Deshacer')).toBeUndefined();
+    expect(texto()).toContain('Ya va en una caja P cerrada');
+  });
+
+  it('abrir Terminar borra el aviso del último escaneo (ya no aplica)', async () => {
+    await montar(P());
+    api['checadoDeshacer'].mockReturnValueOnce(throwError(() => ({ error: { message: 'La caja P1 ya se cerró y etiquetó: ese escaneo ya no se deshace.' } })));
+    c.deshacer('s1');
+    render();
+    expect(texto()).toContain('ya no se deshace');
+    boton('Terminar checado')?.click();
+    render();
+    expect(texto()).not.toContain('ya no se deshace');
+    expect(boton('Sí, terminar')).toBeDefined();
   });
 
   it('soltar el pedido pide confirmar y regresa a la fila', async () => {

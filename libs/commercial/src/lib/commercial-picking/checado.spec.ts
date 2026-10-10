@@ -1,5 +1,5 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true` (ver la nota de `allocation.spec.ts`).
-import { cuadraChecado, estadoRenglon, etiquetasCJ, excede } from './checado.service';
+import { cantidadEnUnidad, cuadraChecado, estadoRenglon, etiquetasCJ, excede, textosRenglon, type RenglonParaTexto } from './checado.service';
 
 /** `[GP.4]` Las reglas del checado que deciden qué sale y qué etiquetas se imprimen. */
 describe('cuadraChecado', () => {
@@ -57,5 +57,55 @@ describe('excede · lo que sobra no se cuenta', () => {
 
   it('prueba negativa del peso: pasarse 4% sí excede', () => {
     expect(excede(50, 50, 2, true)).toBe(true);
+  });
+});
+
+describe('cantidadEnUnidad · en la unidad PEDIDA (Francisco, 2026-10-10)', () => {
+  it.each([
+    [40, 'PZA', 'BOL', 20, '2 BOL'],
+    [20, 'PZA', 'BOL', 20, '1 BOL'],
+    [45, 'PZA', 'BOL', 20, '2 BOL + 5 PZA'],
+    [5, 'PZA', 'BOL', 20, '5 PZA'],
+    [0, 'PZA', 'BOL', 20, '0 BOL'],
+    [1200, 'PZA', 'CJA', 600, '2 CJA'],
+    [2.5, 'KG', 'KG', 1, '2.5 KG'],
+  ] as const)('%s %s pedido en %s (de %s) → %s', (base, ub, up, f, txt) => {
+    expect(cantidadEnUnidad(base, ub, up, f)).toBe(txt);
+  });
+
+  it('prueba negativa: sin unidad pedida se queda en la base (no inventa una)', () => {
+    expect(cantidadEnUnidad(40, 'PZA', null, null)).toBe('40 PZA');
+    expect(cantidadEnUnidad(40, 'PZA', 'BOL', null)).toBe('40 PZA');
+  });
+});
+
+describe('textosRenglon · lo que dice la pantalla del checado', () => {
+  const L = (o: Partial<RenglonParaTexto> = {}): RenglonParaTexto => ({
+    esperado: 40, checado: 0, unidad: 'PZA', unidad_pedida: 'BOL', factor_pedida: 20,
+    unidad_mayor: 'CJA', factor_mayor: 240, esperado_mayor: null, checado_mayor: 0, checado_sueltas: 0, estado: 'pendiente', ...o,
+  });
+
+  it('⭐ bolsa: "Pedido 2 BOL · Llevas 1 BOL · Faltan 1 BOL" (antes decía 40 / 20 PZA)', () => {
+    expect(textosRenglon(L({ checado: 20, checado_sueltas: 20, estado: 'falta' }))).toEqual({
+      pedido_texto: '2 BOL', llevas_texto: '1 BOL', diferencia_texto: 'Faltan 1 BOL',
+    });
+  });
+
+  it('⭐ caja pedida: distingue las cajas cerradas de lo suelto (de eso salen las etiquetas 1/N)', () => {
+    const t = textosRenglon(L({
+      esperado: 1200, checado: 1200, unidad_pedida: 'CJA', factor_pedida: 600, factor_mayor: 600, esperado_mayor: 2,
+      checado_mayor: 1, checado_sueltas: 600, estado: 'completo',
+    }));
+    expect(t).toEqual({ pedido_texto: '2 CJA', llevas_texto: '1 CJA + 600 PZA', diferencia_texto: null });
+  });
+
+  it('lo que sobra también en la unidad pedida', () => {
+    expect(textosRenglon(L({ checado: 60, estado: 'sobra' })).diferencia_texto).toBe('Sobran 1 BOL');
+  });
+
+  it('sin unidad pedida (surtido anterior a GP.3) usa la caja si lo esperado da cajas enteras', () => {
+    const t = textosRenglon(L({ esperado: 480, unidad_pedida: null, factor_pedida: null, esperado_mayor: 2 }));
+    expect(t.pedido_texto).toBe('2 CJA');
+    expect(t.llevas_texto).toBe('0 CJA');
   });
 });
