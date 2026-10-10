@@ -46,6 +46,8 @@
         "main": "apps/api/src/main.ts",
         "tsConfig": "apps/api/tsconfig.app.json",
         "rspackConfig": "apps/api/rspack.config.js",
+        "generatePackageJson": true,
+        "outputHashing": "none",
         "assets": [
           {
             "glob": "**/*",
@@ -66,7 +68,21 @@
       },
       "configurations": {
         "production": {
-          "optimization": true,
+          "//": [
+            "`[NX.7]` `optimization` pasó de true a false, y NO es un cambio de comportamiento:",
+            "es el comportamiento que ya había, escrito donde se ve. Con webpack mandaba el",
+            "plugin, que recibía `optimization: false` y ganaba sobre esta clave porque",
+            "applyBaseConfig mergea {...options, ...pluginOptions}. Medido sobre el bundle de",
+            "producción del 2026-10-10: 29.1 MB con 535,632 saltos de línea y 11,502 comentarios",
+            "— no estaba minificado. Con rspack el plugin ya no está en el config, así que esta",
+            "clave pasó a mandar; dejarla en true habría minificado por primera vez, que es",
+            "justo el cambio no declarado que este PR evita.",
+            "",
+            "Para un backend de Node minificar no aporta tamaño de red y empeora los stack",
+            "traces de producción. Si alguna vez se quiere, va en su propio commit con su",
+            "medición de antes/después."
+          ],
+          "optimization": false,
           "extractLicenses": true,
           "inspect": false
         }
