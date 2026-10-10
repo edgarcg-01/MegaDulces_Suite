@@ -23,6 +23,13 @@ const MAX_NOTA = 500;
 const REENVIO_MIN = 10;
 
 /** Lo que dejó una corrida del generador, por tenant. Se escribe en el latido: un aviso que no salió se DECLARA. */
+/** Una fila de `commercial.price_change_notices` tal como sale del `SELECT` de `list()`. */
+interface FilaAviso {
+  id: unknown; plaza: unknown; plaza_nombre: string | null; fecha: unknown; corte: string; origen: string;
+  productos: unknown; suben: unknown; bajan: unknown; sin_precio: unknown; nota: string | null;
+  enviado_por: string | null; created_at: string | Date;
+}
+
 export interface PriceNoticeRunResult {
   fecha: string;
   corte: 'manana' | 'tarde';
@@ -215,7 +222,7 @@ export class PriceChangeNoticesService {
         GROUP BY u.warehouse_code`,
       [tenantId],
     );
-    return new Map<string, number>((rows as any[]).map((x): [string, number] => [String(x.plaza).trim(), Number(x.n)]));
+    return new Map<string, number>((rows as Array<{ plaza: unknown; n: unknown }>).map((x): [string, number] => [String(x.plaza).trim(), Number(x.n)]));
   }
 
   /**
@@ -285,7 +292,7 @@ export class PriceChangeNoticesService {
           LIMIT 100`,
         [since, plazas, plazas],
       );
-      return (rows as any[]).map((x) => ({
+      return (rows as FilaAviso[]).map((x) => ({
         id: String(x.id),
         plaza: String(x.plaza),
         plaza_nombre: x.plaza_nombre ?? null,

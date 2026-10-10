@@ -5,6 +5,7 @@ import {
 } from '../shared/freshness';
 // `[ETQ-PRES.2]` La forma la define el contrato, no este archivo (ADR-056: un primitivo vive en
 // `libs/` o no existe). `PresentacionPrecio` extiende al `QtyUnitLabel` de VU.0 al PRECIO.
+import type { Knex } from 'knex';
 import type { PresentacionPrecio, PriceChangeRow } from '@megadulces/contracts';
 
 export interface LabelModel {
@@ -104,6 +105,12 @@ export interface LabelPriceChange {
  * 3 días" puede decidir; uno que no ve nada, no.
  */
 export type LabelsFreshness = Freshness;
+
+/** Una fila de `analytics.v_label_price_changes` tal como sale del `SELECT` de `filasDelDia`. */
+type FilaBitacora = {
+  sku: unknown; name: string | null; unidad: string | null;
+  precio_anterior: unknown; precio_nuevo: unknown; delta: unknown; es_baja: unknown; hora: string | null;
+};
 
 const n = (v: unknown): number | null => {
   if (v === null || v === undefined) return null;
@@ -377,14 +384,14 @@ export class CommercialLabelsService {
    * `[ETQ-AVISOS.1]` La lista de plazas, corriendo dentro de una transacción YA abierta. Existe para
    * que el generador de avisos (un cron, sin request) lea EXACTAMENTE lo mismo que la pantalla.
    */
-  async branchesIn(trx: any): Promise<{ sucursal: string; nombre: string | null; ultimo_dia: string }[]> {
+  async branchesIn(trx: Knex.Transaction): Promise<{ sucursal: string; nombre: string | null; ultimo_dia: string }[]> {
     const r = await trx.raw(`
       SELECT v.sucursal, max(v.fecha)::text AS ultimo_dia, max(w.name) AS nombre
         FROM analytics.v_label_price_changes v
         LEFT JOIN commercial.warehouses w ON w.code = v.sucursal AND w.deleted_at IS NULL
        WHERE v.fecha >= CURRENT_DATE - 60
        GROUP BY 1 ORDER BY 1`);
-    return (r?.rows ?? []).map((x: any) => ({
+    return ((r?.rows ?? []) as Array<{ sucursal: unknown; nombre: string | null; ultimo_dia: unknown }>).map((x) => ({
       sucursal: String(x.sucursal),
       nombre: x.nombre ?? null,
       ultimo_dia: String(x.ultimo_dia),
@@ -401,7 +408,7 @@ export class CommercialLabelsService {
    * `sucursal` y `fecha` van SIN `btrim` ni envoltura: es lo que entra por el PK de la bitácora
    * (GOTCHAS §28).
    */
-  async filasDelDia(trx: any, plaza: string, fecha: string): Promise<PriceChangeRow[]> {
+  async filasDelDia(trx: Knex.Transaction, plaza: string, fecha: string): Promise<PriceChangeRow[]> {
     const r = await trx.raw(
       `SELECT sku, nombre AS name, unidad, precio_anterior, precio_nuevo, delta, es_baja, hora
          FROM analytics.v_label_price_changes
@@ -409,7 +416,7 @@ export class CommercialLabelsService {
       [plaza, fecha, CommercialLabelsService.PISO_DELTA],
     );
     const num = (v: unknown): number | null => (v === null || v === undefined ? null : Number(v));
-    return ((r?.rows ?? []) as any[]).map((x) => ({
+    return ((r?.rows ?? []) as FilaBitacora[]).map((x) => ({
       sku: String(x.sku),
       name: x.name ?? null,
       unidad: x.unidad ?? null,
