@@ -1149,6 +1149,17 @@ const CRON_JOBS: CronCfg[] = [
   // umbrales: el hot corre @15s y el espejo completo @300s con pasadas de minutos.
   { key: 'ods_live_hot',        label: 'ODS carril vivo (replica→prod)',  cadence: 'continuo ~15 s',  warnH: 0.5, critH: 2 },
   { key: 'ods_live_mirror',     label: 'ODS espejo completo (replica→prod)', cadence: 'continuo ~5 min', warnH: 2, critH: 6 },
+  // `[CG.78]` El TERCER carril: `kdm1` sola, @3 s, para la bandeja de caja. Se registra ACÁ y no
+  // después porque un latido sin umbral cae en `cfg ? classify : 'ok'` — o sea **verde
+  // incondicional**, que es exactamente lo que la Fase VP midió dando por sanas a tres matvistas
+  // del sell-out que nadie estaba mirando.
+  //
+  // ⚠️ El umbral es MÁS DURO que el del caliente a propósito, y no por ser más nuevo: este carril
+  // embarca UNA tabla y su pasada completa sobre las 9 sucursales tarda 0.63 s (medido en seco
+  // dentro del pod, 2026-10-10). Si pasan 10 minutos sin latir no es que venga retrasado: es que
+  // dejó de dar vueltas. Darle la media hora del caliente lo volvería mudo justo donde el pedido
+  // es de segundos.
+  { key: 'ods_live_caja',       label: 'ODS carril de caja (kdm1 → prod)', cadence: 'continuo ~3 s', warnH: 0.17, critH: 0.5 },
   // [PUB.1] El carril que PUBLICA el catálogo del ODS a la tienda mayorista (Railway), que no puede
   // alcanzar a prod on-prem. Se registra ACÁ, antes de agendarlo, porque un latido sin umbral cae en
   // el `cfg ? classify : 'ok'` y se pinta verde incondicional — y este carril nace justo de eso: la
