@@ -48,6 +48,29 @@ export class ContpaqiCuadreService {
    */
   @Cron('0 */10 * * * *')
   async cron(): Promise<void> {
+    /**
+     * ⛔⛔ `[CP.8.31]` — **Sólo en el worker.** Medido en prod el 2026-10-09:
+     *
+     *     deploy/api      2 réplicas · DISABLE_CRONS=[]  ← `ScheduleModule` SE registra
+     *     deploy/worker   1 réplica  · DISABLE_CRONS=[] · WORKER=true
+     *
+     * `app.module.ts` registra `ScheduleModule.forRoot()` salvo que `DISABLE_CRONS === 'true'`, y
+     * **no está puesta en ningún pod**. O sea que todo `@Cron` del código corre en **tres
+     * procesos a la vez**. Evidencia directa: `cron_runs` tiene **36 jobs con `host='api'`** y un
+     * pod de API loguea actividad de scanner cada pocos minutos.
+     *
+     * ⚠️ **Y es invisible**: `analytics.cron_runs` es UPSERT por `job_key`, así que el tablero
+     * muestra sólo la última corrida. Tres ejecuciones simultáneas se ven exactamente igual que
+     * una.
+     *
+     * ⛔ El arreglo de fondo (poner `DISABLE_CRONS=true` en `deploy/api`) **es de plataforma y no
+     * se hace desde acá**: afecta a todos los crons y equivocarse de pod los apaga a todos. Lo
+     * que sí corresponde es **no sumar uno más al problema**.
+     *
+     * `WORKER` es el marcador que el propio repo ya usa (`QueueService.isWorker()`), y está
+     * puesto únicamente en el worker.
+     */
+    if (process.env.WORKER !== 'true') return;
     try {
       const r = await this.cuadrarPendientes();
       if (r.total) this.log.log(`cuadre: ${r.sincronizados}/${r.juzgables} sincronizados de ${r.total} pendientes`);

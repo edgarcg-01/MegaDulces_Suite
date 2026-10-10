@@ -41,6 +41,14 @@ export * from './lib/purchase-book/purchase-book.service';
 export * from './lib/payment-program/finance-payment-program.module';
 export * from './lib/payment-program/payment-program.service';
 export * from './lib/caja/finance-caja-general.module';
+// [CP.8.31] El puente ContPAQi: el cuadre tiene su @Cron y su umbral en CRON_JOBS desde
+// [CP.8.10], y el modulo no estaba registrado en ninguna app -- o sea que el latido existia y
+// nunca latia. Un umbral sin proceso detras se ve igual que un proceso sano que no tiene nada
+// que hacer.
+export * from './lib/contpaqi/finance-contpaqi.module';
+export * from './lib/contpaqi/contpaqi-cuadre.service';
+export * from './lib/contpaqi/contpaqi-armado.service';
+export * from './lib/contpaqi/txt-sink.adapter';
 export * from './lib/caos/finance-caos.module';
 export * from './lib/caos/caos.service';
 export * from './lib/caja/caja-general.service';

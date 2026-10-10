@@ -136,7 +136,7 @@ import { LogisticsTrackingModule } from '@megadulces/logistics';
 // Sprint M — sync ERP Mega_Dulces (.245) → postgres_platform (nightly cron + admin endpoints)
 import { MegaDulcesSyncModule } from '@megadulces/commercial';
 // MAAT (ADR-028) — AI de Finanzas: base de conocimiento (+ motor/chat en sprints siguientes)
-import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceCreditorStatementsModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule } from '@megadulces/finance';
+import { FinanceMaatModule, FinanceExpenseProofsModule, FinanceExpenseComprobacionesModule, FinanceExpedienteGastoModule, FinanceExpenseAreasModule, FinanceBankModule, FinancePolizasModule, FinancePurchaseBookModule, FinanceCollectionDepositsModule, FinanceCustomerLedgerModule, FinanceSupplierPaymentProofsModule, FinanceGoodsReceiptProofsModule, FinancePaymentProgramModule, FinanceCajaGeneralModule, FinanceCancelledDocsModule, FinanceCortesSucursalesModule, FinanceCreditorStatementsModule, FinanceFeedNotifyModule, FinancePaymentCalendarModule, FinanceBudgetModule, FinanceCaosModule, FinanceContpaqiModule } from '@megadulces/finance';
 import { FiscalListasModule } from '@megadulces/fiscal';
 import { FiscalVaultModule } from '@megadulces/fiscal';
 import { FiscalJobsModule } from '@megadulces/fiscal';
@@ -281,6 +281,12 @@ const multitenantModules = process.env.ENABLE_MULTITENANT === 'true'
       // Sin DB_HEALTH_ALERT_PHONES/DB_HEALTH_WA_TEMPLATE queda apagado, igual que el correo.
       HealthNotifierBindingModule,
       FinanceMaatModule,
+      // ⛔ `[CP.8.31]` — El puente ContPAQi. Su cuadre tiene `@Cron` y umbral en `CRON_JOBS`
+      // desde `[CP.8.10]`, y el módulo **no estaba registrado en ninguna app**: el latido existía
+      // y nunca latía. ⚠️ Un umbral sin proceso detrás se lee igual que un proceso sano que no
+      // tiene nada que hacer — por eso nadie lo notó en el tablero.
+      // El `@Cron` del cuadre se auto-limita a `WORKER === 'true'`; ver la nota ahí.
+      FinanceContpaqiModule,
       FinanceExpenseProofsModule,
       FinanceExpenseComprobacionesModule,
       FinanceExpedienteGastoModule,

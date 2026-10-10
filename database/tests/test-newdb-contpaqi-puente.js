@@ -55,10 +55,15 @@ const declarar = (label) => { nomedido++; console.log(`  ⚠ NO MEDIDO: ${label}
     SELECT c.relname, c.relrowsecurity AS rls, c.relforcerowsecurity AS forzado
       FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
      WHERE n.nspname = 'contpaqi' AND c.relkind = 'r' ORDER BY 1`);
-  check(rls.rows.length === 2, `2 tablas reguladas (son ${rls.rows.length})`);
-  check(rls.rows.every((r) => r.rls && r.forzado), 'RLS habilitado Y FORZADO en las dos');
+  // `[CP.8.20]` sumó `supplier_accounts` (el mapa proveedor→cuenta). Se nombra el conjunto
+  // esperado en vez de contar: un número solo no dice CUÁL falta si algún día falta una.
+  const ESPERADAS = ['account_rules', 'poliza_exports', 'supplier_accounts'];
+  const nombres = rls.rows.map((r) => r.relname).sort();
+  check(nombres.join(',') === ESPERADAS.join(','),
+    `las 3 tablas de contpaqi reguladas: ${nombres.join(', ') || '(ninguna)'}`);
+  check(rls.rows.every((r) => r.rls && r.forzado), 'RLS habilitado Y FORZADO en las tres');
   const pol = await knex.raw(`SELECT tablename FROM pg_policies WHERE schemaname='contpaqi'`);
-  check(pol.rows.length === 2, 'las dos tienen política de aislamiento');
+  check(pol.rows.length === ESPERADAS.length, `las ${ESPERADAS.length} tienen política de aislamiento (hay ${pol.rows.length})`);
 
   console.log('\n[3] ⭐ La consulta de PENDIENTES del servicio, ejecutada de verdad');
   // Copia exacta de `cuadrarPendientes()`. Si una columna o un `->>` no existe, acá revienta.
@@ -130,7 +135,7 @@ const declarar = (label) => { nomedido++; console.log(`  ⚠ NO MEDIDO: ${label}
 
   console.log('\n[6] ⭐ Las reglas están claveadas a categorías que EXISTEN, y ninguna es usable todavía');
   const reglas = await knex('contpaqi.account_rules').where({ tenant_id: MEGA })
-    .select('categoria_code', 'cuenta_gasto', 'confianza_pct', 'estado', 'concepto_medido')
+    .select('categoria_code', 'cuenta_gasto', 'confianza_pct', 'estado', 'concepto_medido', 'tipo_regla')
     .orderBy('categoria_code');
   check(reglas.length >= 19, `las 19 categorías de salida de CB (son ${reglas.length})`);
 
@@ -155,10 +160,25 @@ const declarar = (label) => { nomedido++; console.log(`  ⚠ NO MEDIDO: ${label}
   const pct = total ? (100 * cubiertos / total) : 0;
   check(pct > 95, `cubre ${pct.toFixed(1)}% de los egresos de CB (${cubiertos}/${total}) — antes era 0.03%`);
 
-  // ⭐ Y lo que parece un defecto y es el punto: NINGUNA se puede usar todavía.
-  const usables = reglas.filter((r) => r.estado !== 'sin_regla');
-  check(usables.length === 0,
-    `⛔ CERO reglas utilizables: el mapa categoría→cuenta NO es derivable y lo firma el contador (hay ${usables.length})`);
+  /**
+   * ⭐ Y lo que parece un defecto y es el punto: **ninguna regla ASIENTA todavía**.
+   *
+   * ⚠️ `[CP.8.19]` puso 2 filas en `estado='derivada'`, y la tentación acá fue cambiar el `0` por
+   * un `2`. Sería aflojar el candado: *"hay 2 que no son `sin_regla`"* no dice nada. Lo que
+   * importa es **por qué** no lo son, y son dos cosas distintas:
+   *
+   *  · `tipo_regla = 'no_aplica'` → **veredicto derivado**: esa categoría NO genera póliza.
+   *    Está decidido, no pendiente. Que no sea `sin_regla` es correcto.
+   *  · cualquier otra con `estado <> 'sin_regla'` → una regla que **asentaría**, y eso sólo puede
+   *    pasar cuando el contador firme.
+   */
+  const noAplica = reglas.filter((r) => r.tipo_regla === 'no_aplica');
+  const asentarian = reglas.filter((r) => r.estado !== 'sin_regla' && r.tipo_regla !== 'no_aplica');
+  check(asentarian.length === 0,
+    `⛔ CERO reglas que ASIENTEN: el mapa categoría→cuenta NO es derivable y lo firma el contador `
+    + `(hay ${asentarian.length})`);
+  check(noAplica.length > 0 && noAplica.every((r) => r.estado === 'derivada' && !r.cuenta_gasto),
+    `⭐ las ${noAplica.length} \`no_aplica\` son veredicto DERIVADO y sin cuenta — "ya se decidió" ≠ "falta decidir"`);
   check(reglas.every((r) => !r.cuenta_gasto && r.confianza_pct === null),
     '⭐ ni cuenta ni confianza: un % al lado de una cuenta vacía se leería como "ya está confirmada"');
   check(reglas.every((r) => (r.concepto_medido || '').length > 40),
@@ -200,7 +220,18 @@ const declarar = (label) => { nomedido++; console.log(`  ⚠ NO MEDIDO: ${label}
   // ⚠️ Se evalúa el motivo COMPLETO. La primera versión cortaba a 40 caracteres y eso partía
   // `contpaqi_cuenta` por la mitad (`…no tiene contpaq`), así que la aserción fallaba por el
   // recorte y no por el dato — un falso rojo que parecía un hallazgo.
-  const desconocidos = res.filter((r) => !/sin_regla|contpaqi_cuenta|no tiene fila/.test(r.motivo));
+  /**
+   * ⭐ `[CP.8.21]` partió el rechazo genérico en motivos **con dueño**, y el candado los enumera
+   * a propósito: si aparece uno fuera de esta lista es un camino nuevo que nadie midió.
+   *
+   *  `sin_regla`            → el contador
+   *  `proveedor_sin_cuenta` → falta el enlace pago→proveedor (`supplier_accounts` en disputa)
+   *  `sin_centro_costo`     → ⚠️ falta el DATO de entrada (CB no trae centro de costo), no la regla
+   *  `no_aplica` / `sin_medir` → ya decidido · nunca medido
+   *  `contpaqi_cuenta`      → el crosswalk de `[CP.2]` (CAJA CG y FACTORAJE no son bancos)
+   */
+  const MOTIVOS = /sin_regla|contpaqi_cuenta|no tiene fila|proveedor_sin_cuenta|sin_centro_costo|no_aplica|sin_medir/;
+  const desconocidos = res.filter((r) => !MOTIVOS.test(r.motivo));
   check(desconocidos.length === 0,
     `sólo motivos conocidos${desconocidos.length ? ` — apareció: "${desconocidos[0].motivo.slice(0, 70)}"` : ''}`);
 
