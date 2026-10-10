@@ -9,7 +9,7 @@ import {
 import { tokenDe } from './token';
 import {
   construirIndice, resolverProveedor,
-  type CuentaProveedor, type IndiceProveedores,
+  type AliasProveedor, type CuentaProveedor, type IndiceProveedores,
 } from './proveedor-resolver';
 
 /**
@@ -264,9 +264,24 @@ export class ContpaqiArmadoService {
 
     const filas = await this.db('contpaqi.supplier_accounts').where({ tenant_id: MEGA })
       .select('cuenta', 'proveedor_nombre', 'cuenta_nombre', 'veredicto', 'rfc');
+
+    /**
+     * `[CP.8.36]` Los alias que una persona confirmó. ⚠️ Si la tabla todavía no existe en este
+     * destino, se sigue **sin** alias en vez de reventar: el resolvedor degrada a lo derivado,
+     * que es exactamente lo que hacía antes.
+     */
+    let alias: AliasProveedor[] = [];
+    try {
+      alias = await this.db('contpaqi.supplier_aliases')
+        .where({ tenant_id: MEGA, active: true })
+        .select('alias_normalizado', 'cuenta');
+    } catch {
+      this.log.warn('contpaqi.supplier_aliases no existe en este destino: se resuelve sólo con el padrón');
+    }
+
     const out = new Map<string, IndiceProveedores>();
-    for (const p of prefijos) out.set(p, construirIndice(filas as CuentaProveedor[], p));
-    this.log.log(`índice de proveedores: ${filas.length} cuentas · rubros ${prefijos.join(', ')}`);
+    for (const p of prefijos) out.set(p, construirIndice(filas as CuentaProveedor[], p, alias));
+    this.log.log(`índice de proveedores: ${filas.length} cuentas · ${alias.length} alias · rubros ${prefijos.join(', ')}`);
     return out;
   }
 

@@ -75,6 +75,34 @@ const CTA = (cuenta, nombre, veredicto = 'confirmado', rfc = 'XAXX010101000') =>
     '⛔ NO parea por subcadena: "MONDELEZ INTERNACIONAL" no es "MONDELEZ"');
   lanza(() => construirIndice([], ''), '⛔ construir el índice SIN rubro lanza: olvidarlo costó 69 pp');
 
+  console.log('\n[2b] `[CP.8.36]` El alias que afirmó una persona le gana a lo derivado');
+  const conAlias = construirIndice(
+    [CTA('2120000108', 'MONDELEZ')],
+    '2120',
+    [{ alias_normalizado: 'HERSHEYS', cuenta: '2120009999' }],
+  );
+  const a1 = resolverProveedor(conAlias, 'Hersheys Mexico');
+  check(a1.veredicto === 'resuelto' && a1.cuenta === '2120009999',
+    '⭐ un nombre que el padrón NO tiene se resuelve por alias');
+  check(a1.veredicto_padron === 'alias_confirmado', 'y queda marcado como alias, no como derivado');
+
+  const pisa = construirIndice(
+    [CTA('2120000108', 'MONDELEZ')],
+    '2120',
+    [{ alias_normalizado: 'MONDELEZ', cuenta: '2120007777' }],
+  );
+  check(resolverProveedor(pisa, 'Mondelez').cuenta === '2120007777',
+    '⭐ el alias GANA sobre el padrón: lo que alguien confirmó manda sobre lo derivado');
+
+  // ⛔ Un alias a otro rubro sería una puerta trasera al defecto que costó 69 pp.
+  const fuera = construirIndice(
+    [CTA('2120000108', 'MONDELEZ')],
+    '2120',
+    [{ alias_normalizado: 'HERSHEYS', cuenta: '5010009999' }],
+  );
+  check(resolverProveedor(fuera, 'Hersheys').veredicto === 'sin_pareo',
+    '⛔ un alias que apunta FUERA del rubro se ignora: no hay puerta trasera al 5010');
+
   console.log('\n[3] ⭐ Contra prod, con control de placebo');
   const url = process.env.DATABASE_URL_NEW;
   if (!url) {
@@ -195,6 +223,23 @@ const CTA = (cuenta, nombre, veredicto = 'confirmado', rfc = 'XAXX010101000') =>
             check(contra <= 2,
               `⛔ contradicciones: ${contra}${choques.length ? ' — ' + choques.slice(0, 2).join(' · ') : ''}`);
           }
+        }
+
+        // `[CP.8.36]` La tabla de alias: existe, y la base impide dos cuentas para un mismo texto.
+        const tabla = await knex('information_schema.tables').select('table_name')
+          .where({ table_schema: 'contpaqi', table_name: 'supplier_aliases' }).first();
+        if (!tabla) {
+          nm += 1;
+          console.log('  [NO MEDIDO] la migración 20261010104218 todavía no se aplicó a este destino');
+        } else {
+          const idxs = await knex.raw(
+            `SELECT indexdef FROM pg_indexes
+              WHERE schemaname = 'contpaqi' AND tablename = 'supplier_aliases'
+                AND indexname = 'supplier_aliases_uno_por_texto'`);
+          check(idxs.rows.length === 1 && /UNIQUE/i.test(idxs.rows[0].indexdef),
+            '⛔ la base impide DOS cuentas activas para el mismo texto: elegir no es del resolvedor');
+          const pend = await knex('contpaqi.supplier_aliases').count({ n: '*' }).first();
+          check(Number(pend.n) >= 0, `alias confirmados hasta hoy: ${pend.n}`);
         }
 
         // Ninguna cuenta devuelta puede salirse del rubro pedido.
