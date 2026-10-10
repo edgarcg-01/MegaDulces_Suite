@@ -1,6 +1,6 @@
 # Fase PF — Flujo de venta de cualquier producto (Compras › Catálogo › Productos)
 
-> Estado: 🧪 PF.1–PF.5 en código y probados en local (2026-10-09). Sin migración. Sin push.
+> Estado: 🧪 PF.1–PF.6 en código y probados en local (2026-10-09). **PF.6 trae una migración** (`20261009183328_product_flow_watch`, sin aplicar en prod). Sin push.
 
 ## Pedido (Compras, 2026-10-09)
 
@@ -131,6 +131,28 @@ Lo de Productos nuevos, para **todos** los productos, en la sección de **Produc
   endpoint responde 403 sin él y la pantalla ni lo pide.
 - **Hallazgo**: en 70001 (Mazapán, líder #2) el margen de lista es 14.1% y el real 13.6%, pero **sobre lo pagado 7.9%**
   (Morelia Abastos 5.2%): la ficha de Kepler tiene un costo más bajo que lo que se paga.
+
+## PF.6 — «Para cuidar hoy» calculado en segundo plano (pedido 2026-10-09: «que nadie lo espere»)
+
+- **Medido antes**: el cálculo tarda 2.9–3.6 s con los datos calientes y **6.5 s la primera vez** (datos fríos); las
+  columnas de la lista llegaron a 7.4 s y los márgenes del producto a 14 s en su primera consulta.
+- **Diseño**: la API de prod **no corre trabajos programados** (`DISABLE_CRONS=true`, ADR-043) y está pensada para varias
+  réplicas, así que una memoria por proceso no sirve. El **worker** calcula cada minuto (`@Cron('0 * * * * *')`) y
+  guarda la foto en `analytics.product_flow_watch` (caché de una derivación, RLS forzado); la API sólo la lee.
+- **Una pasada, dos variantes** (con y sin permiso de costo) sobre las mismas consultas: 2.7–3.8 s en prod, lo mismo
+  que una sola. Verificado contra prod que la variante sin costo no trae dinero: 257 `inmovilizado` en nulo, cero
+  textos de dinero detenido, cero valores ni márgenes.
+- **Si la foto falta, tiene más de 3 minutos o la tabla todavía no existe** (código desplegado antes de la migración),
+  la API calcula en vivo como antes y **lo declara**: la pantalla dice «Calculado en vivo… la foto del servidor no está
+  al día». Con foto: «Calculado a las hh:mm; se actualiza cada minuto».
+- **Latido** `product_flow_watch` en `analytics.cron_runs` (rojo si falla o escribe menos de 2 variantes) y **umbral en
+  `CRON_JOBS`** (6 min aviso, 30 min crítico): sin umbral una foto parada se vería verde (OBS.1).
+- **Medido en local**: con foto, 23–50 ms por petición; foto vieja → cálculo en vivo; foto nueva → vuelve a la foto.
+- ⚠️ **Carga**: ~3 s de base cada minuto, todo el día. Además mantiene calientes las páginas que la pantalla lee.
+- ⚠️ **La respuesta pesa ~450 KB** (245 líderes + 300 que no se venden con su análisis): viaja comprimida, pero si pesa
+  en celular, el siguiente paso es recortarla.
+- **Para activarlo en prod**: aplicar la migración (aditiva; puede ir antes o después del código, el código aguanta sin
+  la tabla) y redesplegar api + worker.
 
 ## Tiempos (prod, sólo lectura, con el servicio real)
 

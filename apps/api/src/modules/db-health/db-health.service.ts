@@ -1118,6 +1118,9 @@ const CRON_JOBS: CronCfg[] = [
   // el día. Verificado carril por carril el 2026-09-25: 18 de 19 coincidían, éste no.
   { key: 'feed_catalog',        label: 'Feed catálogo (semanal)',           cadence: 'semanal sáb 02:00', warnH: 180, critH: 200, maxRunH: 3 },
   { key: 'feed_contpaqi',       label: 'Feed ContPAQi (pólizas+bancos)',    cadence: 'cada 1 min',   warnH: 0.5, critH: 2 },
+  // [PF.6] La foto de "Para cuidar hoy" (Productos). Si se para, la pantalla cae al cálculo en vivo (~3 s) y
+  // lo dice; sin este umbral el sensor la daría verde aunque nadie la calcule (OBS.1).
+  { key: 'product_flow_watch',  label: 'Foto de Para cuidar hoy (Productos)', cadence: 'cada 1 min', warnH: 0.1, critH: 0.5, maxRunH: 0.05 },
   // [VL.4b] El carril de PRECIOS. Corría fuera del runner (`C:\KeplerRunner\run-prices.cmd` llamaba a
   // los dos importers directo), así que no latía y no tenía entrada acá — o sea que el carril que
   // publica el precio de venta era el único sin forma de avisar. Es EL carril del incidente que
