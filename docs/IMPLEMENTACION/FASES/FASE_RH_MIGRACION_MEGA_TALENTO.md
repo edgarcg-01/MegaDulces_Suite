@@ -1,6 +1,6 @@
 # Fase RH — Recursos Humanos: migración de Mega Talento a la Suite
 
-**Estado:** 🔨 PLANEADA 2026-10-06 · sin código · ADR-084 (propuesto) ·
+**Estado:** 🔨 EN CÓDIGO (RH.1 asistencia) · ADR-084 (propuesto) · bitácora y orden de lo que falta en [`FASE_RH_PLAN_DE_TRABAJO`](FASE_RH_PLAN_DE_TRABAJO.md) ·
 absorbe `[CH.0.7]`–`[CH.0.10]` y desbloquea `[ID.16]`.
 
 > **En una frase:** Mega Talento (reclutamiento con bot de WhatsApp + asistencia de 12 relojes
@@ -273,7 +273,7 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
   fail-closed), padrón, relojes, checadas, comandos. Permisos `HR_ATTENDANCE_*`, `HR_DEVICES_GESTIONAR` y su reparto.
 - [ ] **[RH.1.3]** Agente al monorepo: código del agente de Mega Talento + `verify_mode`; contenedor en el
   namespace `ingesta` de `md`; latido en `cron_runs` + umbral en `CRON_JOBS`; prueba negativa (apagar un reloj y ver el rojo).
-- [ ] **[RH.1.4]** Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4.
+- [ ] **[RH.1.4]** 🧪 Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4. → En código 2026-10-12: guion, mapeos versionados, mig `20261012094356` (bajas sin contraseña, rol `sin_acceso`, departamento `promotoria_marca`); detalle en [`FASE_RH_PLAN_DE_TRABAJO`](FASE_RH_PLAN_DE_TRABAJO.md) §5.
   ⛔ **Es prerrequisito del corte del 7-nov, no «después»** (medido 2026-10-07, ver §5.4): la paridad se midió con
   las personas ligadas; sin ellas no hay faltas de quien no checó, ni planta/promotoras, ni bajas.
 - [ ] **[RH.1.5]** 🧪 Horarios deducidos y agente de alertas como `@Cron` del worker (una sola implementación;
@@ -597,6 +597,31 @@ Paso a paso en [`RUNBOOKS/RH_CORTE_ASISTENCIA.md`](../RUNBOOKS/RH_CORTE_ASISTENC
 - Mergear la pila **frena todos los despliegues** hasta aplicar sus migraciones (compuerta 2 de `soltar.sh`): se
   aplican el mismo día del merge. Desplegar el código antes del corte es seguro (agente apagado, ingesta sin llave
   = 401, pantallas vacías).
+
+### 5.5 `[RH.1.6b]` — nadie a prenómina sin identificar (2026-10-12)
+
+Traslado de Mega Talento `64ae212`. `cerrar()` cuenta, de los códigos que checaron en la semana, quién no está
+identificado (`logic/sin-identificar.ts`) y, si hay alguno, responde **409 con la lista**; con `force` + `reason`
+(5 letras o más, igual que allá) cierra y lo deja en el resumen. Va después de «nada por calificar», que no se
+salta ni con motivo.
+
+| Mega Talento | Suite |
+|---|---|
+| El código no tiene ficha en `empleados` | El código no está ligado a una persona (`[RH.1.4]`) |
+| `nombre_completo` vacío | ⚠️ El nombre de la persona tiene **menos de 2 palabras** |
+| `departamento` vacío | La persona no tiene `department_code` |
+| No cuentan: `es_promotora`, departamento «promotor», nombre «Admin» | No cuentan: promotora de marca (`esPromotora`), «Admin», códigos `ignorado` |
+
+⚠️ **La única aproximación:** Mega Talento tenía `nombre_completo` aparte del apodo del reloj; la Suite tiene un
+solo `nombre`. La carga de personas pone el nombre completo cuando existía y el apodo cuando no, así que un apodo
+de una palabra se detecta y uno de dos palabras no. Si RH lo necesita exacto, la salida es que el padrón marque
+«nombre por confirmar» (columna o responsabilidad), no adivinar con más reglas.
+
+**Diferencia a favor:** los ignorados (`padron_depurado`) quedan fuera explícitamente; allá sólo se excluía por el
+nombre «Admin».
+
+**No portado todavía:** el alta desde el portal con el siguiente número libre de la plaza y la conciliación
+promotora/departamento al guardar la ficha — van con la pantalla de personas.
 
 ## 6. Cómo se hace cada corte
 

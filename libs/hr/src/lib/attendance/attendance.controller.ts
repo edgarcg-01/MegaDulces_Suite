@@ -275,8 +275,8 @@ export class HrAttendanceController {
 
   @Post('closures')
   @RequirePermissions(Permission.HR_PERIOD_CLOSE)
-  @ApiOperation({ summary: 'RH — cerrar la semana jueves→miércoles para prenómina.' })
-  cerrar(@Body() b: { site_code?: string; period_start?: string }) {
+  @ApiOperation({ summary: 'RH — cerrar la semana jueves→miércoles para prenómina. Con gente sin identificar responde 409 con la lista; `force` + `reason` cierra igual y lo anota.' })
+  cerrar(@Body() b: { site_code?: string; period_start?: string; force?: boolean; reason?: string }) {
     return this.closures.cerrar(b);
   }
 
