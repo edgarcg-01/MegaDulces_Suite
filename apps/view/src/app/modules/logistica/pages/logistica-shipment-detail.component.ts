@@ -18,7 +18,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
-  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite,
+  ShipmentEta, CustomerLite, OrderLite,
   DeliveryGuide, Driver, GuideRecipient, LogisticaService, NuevoEmbarqueHoja, Shipment, Vehicle,
 } from '../logistica.service';
 import { KeplerHojaComponent } from '../components/kepler-hoja.component';
@@ -152,17 +152,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 >
                 <i class="pi pi-flag-fill" aria-hidden="true"></i>
                 <span>Cierre y pago</span>
-              </button>
-              <button
-                type="button"
-                class="shd-mode-tab"
-                [class.active]="tab() === 'cartaporte'"
-                role="radio"
-                [attr.aria-checked]="tab() === 'cartaporte'"
-                (click)="setTab('cartaporte')"
-                >
-                <i class="pi pi-file-check" aria-hidden="true"></i>
-                <span>Carta Porte</span>
               </button>
             </nav>
           </article>
@@ -364,67 +353,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <div class="sheet cols-12">
             <article class="cell cell-span-12">
               <app-cierre-viaje [shipmentId]="s.id" [drivers]="drivers()"></app-cierre-viaje>
-            </article>
-          </div>
-        }
-        <!-- ── TAB CARTA PORTE ── -->
-        @if (tab() === 'cartaporte') {
-          <!-- Documentos ya timbrados -->
-          @if (cpDocs().length) {
-            <div class="sheet cols-12">
-              <article class="cell cell-span-12 is-flush">
-                <p-table [value]="cpDocs()" styleClass="surf-table surf-table--sticky p-datatable-sm">
-                  <ng-template #header>
-                    <tr><th scope="col">Folio fiscal (UUID)</th><th scope="col">Tipo</th><th scope="col">Estado</th><th scope="col">Timbrado</th></tr>
-                  </ng-template>
-                  <ng-template #body let-d>
-                    <tr>
-                      <td><code class="comm-code">{{ d.uuid_fiscal || '—' }}</code></td>
-                      <td>{{ d.cfdi_type }}</td>
-                      <td><span class="comm-pill" [class]="cpPillClass(d.status)">{{ d.status }}</span></td>
-                      <td class="comm-muted">{{ d.stamped_at ? (d.stamped_at | date:'short') : '—' }}</td>
-                    </tr>
-                  </ng-template>
-                </p-table>
-              </article>
-            </div>
-          }
-          <!-- Validación + acción -->
-          <div class="sheet cols-12">
-            <article class="cell cell-span-12">
-              <div class="shd-cp-head">
-                <div>
-                  <span class="cell-label">Timbrado Carta Porte 3.1</span>
-                  <p class="comm-muted is-small">CFDI de Traslado, un complemento por embarque. Revisá datos faltantes antes de timbrar.</p>
-                </div>
-                <div class="shd-cp-actions">
-                  <button pButton size="small" severity="secondary" [outlined]="true" [loading]="cpValidating()" (click)="validateCp()"><span class="p-button-icon p-button-icon-left pi pi-search" aria-hidden="true"></span><span class="p-button-label">Revisar datos</span></button>
-                  <button pButton size="small" [loading]="cpStamping()" [disabled]="!cpReady()" (click)="stampCp()"><span class="p-button-icon p-button-icon-left pi pi-file-check" aria-hidden="true"></span><span class="p-button-label">Timbrar Carta Porte</span></button>
-                </div>
-              </div>
-              <!-- Gaps -->
-              @if (cpChecked() && cpGaps().length) {
-                <div class="shd-cp-gaps">
-                  <div class="shd-cp-gaps-head">
-                    <i class="pi pi-exclamation-triangle" aria-hidden="true"></i>
-                    Faltan {{ cpGaps().length }} dato{{ cpGaps().length === 1 ? '' : 's' }} para timbrar
-                  </div>
-                  <ul>
-                    @for (g of cpGaps(); track g) {
-                      <li>
-                        <code>{{ g.field }}</code> <span>{{ g.detail }}</span>
-                      </li>
-                    }
-                  </ul>
-                </div>
-              }
-              <!-- Listo -->
-              @if (cpChecked() && !cpGaps().length) {
-                <div class="shd-cp-ready">
-                  <i class="pi pi-check-circle" aria-hidden="true"></i>
-                  Datos completos — listo para timbrar.
-                </div>
-              }
             </article>
           </div>
         }
@@ -763,41 +691,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
       display: flex;
       justify-content: flex-end;
     }
-
-    /* ── CARTA PORTE ── */
-    .shd-cp-head {
-      display: flex;
-      align-items: flex-start;
-      justify-content: space-between;
-      gap: 1rem;
-      flex-wrap: wrap;
-    }
-    .shd-cp-head p { margin: .25rem 0 0; }
-    .shd-cp-actions { display: flex; gap: .5rem; flex-wrap: wrap; }
-    .shd-cp-gaps {
-      margin-top: 1rem;
-      border: 1px solid var(--warn-border);
-      background: var(--warn-soft-bg);
-      border-radius: 10px;
-      padding: .875rem 1rem;
-    }
-    .shd-cp-gaps-head {
-      display: flex; align-items: center; gap: .5rem;
-      font-weight: var(--fw-bold); font-size: var(--fs-sm);
-      color: var(--c-text-1); margin-bottom: .5rem;
-    }
-    .shd-cp-gaps ul { margin: 0; padding-left: 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
-    .shd-cp-gaps li { font-size: var(--fs-sm); color: var(--c-text-2); }
-    .shd-cp-gaps li code {
-      background: var(--c-surface-2); padding: .05rem .35rem; border-radius: 4px;
-      font-size: var(--fs-micro); color: var(--c-text-1); margin-right: .4rem;
-    }
-    .shd-cp-ready {
-      margin-top: 1rem;
-      display: flex; align-items: center; gap: .5rem;
-      font-size: var(--fs-sm); font-weight: var(--fw-medium);
-      color: var(--c-ok);
-    }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -835,19 +728,10 @@ export class LogisticaShipmentDetailComponent {
   readonly eta = signal<ShipmentEta | null>(null);
   readonly etaLoading = signal(false);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
-  readonly tab = signal<'info' | 'guides' | 'cierre' | 'cartaporte'>('info');
+  readonly tab = signal<'info' | 'guides' | 'cierre'>('info');
 
-  // ── Carta Porte ──
-  readonly cpDocs = signal<CartaPorteDocument[]>([]);
-  readonly cpGaps = signal<CartaPorteGap[]>([]);
-  readonly cpChecked = signal(false);
-  readonly cpValidating = signal(false);
-  readonly cpStamping = signal(false);
-  readonly cpReady = computed(() => this.cpChecked() && this.cpGaps().length === 0);
-
-  setTab(t: 'info' | 'guides' | 'cierre' | 'cartaporte') {
+  setTab(t: 'info' | 'guides' | 'cierre') {
     this.tab.set(t);
-    if (t === 'cartaporte') this.loadCp();
     if (t === 'guides' && !this.gpsReview() && !this.gpsReviewLoading()) this.loadGpsReview();
   }
 
@@ -1325,56 +1209,5 @@ export class LogisticaShipmentDetailComponent {
   onOrderSelect(orderId: string | null) {
     const o = this.customerOrders().find((x) => x.id === orderId);
     if (o) this.recipientForm.patchValue({ value: o.total });
-  }
-
-  // ── Carta Porte ─────────────────────────────────────────────────────
-  loadCp() {
-    this.api.listCartaPorteByShipment(this.shipmentId()).subscribe({
-      next: (d) => this.cpDocs.set(d || []),
-      error: () => { /* sin documentos aún — OK */ },
-    });
-  }
-  validateCp() {
-    this.cpValidating.set(true);
-    this.api.validateCartaPorte(this.shipmentId()).subscribe({
-      next: (gaps) => {
-        this.cpGaps.set(gaps || []);
-        this.cpChecked.set(true);
-        this.cpValidating.set(false);
-      },
-      error: (err) => {
-        this.cpValidating.set(false);
-        this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se validó' });
-      },
-    });
-  }
-  stampCp() {
-    this.confirm.confirm({
-      header: 'Timbrar Carta Porte',
-      message: 'Se generará un CFDI de Traslado con complemento Carta Porte ante el SAT. ¿Continuar?',
-      icon: 'pi pi-file-check',
-      accept: () => {
-        this.cpStamping.set(true);
-        this.api.stampCartaPorte(this.shipmentId()).subscribe({
-          next: () => {
-            this.cpStamping.set(false);
-            this.toast.add({ severity: 'success', summary: 'Carta Porte timbrada' });
-            this.loadCp();
-          },
-          error: (err) => {
-            this.cpStamping.set(false);
-            const gaps = err?.error?.gaps as CartaPorteGap[] | undefined;
-            if (gaps?.length) { this.cpGaps.set(gaps); this.cpChecked.set(true); }
-            this.toast.add({ severity: 'error', summary: 'No se timbró', detail: err?.error?.message || 'Error PAC' });
-          },
-        });
-      },
-    });
-  }
-  cpPillClass(s: string): string {
-    if (s === 'timbrado') return 'is-ok';
-    if (s === 'error') return 'is-bad';
-    if (s === 'cancelado') return 'is-neutral';
-    return 'is-info';
   }
 }
