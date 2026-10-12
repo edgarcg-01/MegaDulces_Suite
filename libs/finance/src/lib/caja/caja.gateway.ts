@@ -6,7 +6,6 @@ import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import {
   decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma, VIDA_MS,
   type ContextoFirma, type FalloVinculo, type MarcaPc, type SocketEnRoom,
-,
   hayQueFrenar, TOPE_INTENTOS,
 } from './caja-firma-remota.engine';
 import { revisarFirma } from './caja-firma.engine';
