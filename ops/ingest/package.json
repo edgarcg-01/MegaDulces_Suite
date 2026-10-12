@@ -4,12 +4,15 @@
   "version": "1.0.0",
   "description": "Carriles de ingesta empaquetados: los 4 del ODS (replica -> prod kepler_ods) mas los ~13 feeds que salen del Programador de Windows en VL.4. Imagen autocontenida: el codigo se copia del repo, aca solo viven los modulos externos.",
   "engines": { "node": ">=20 <21" },
+  "_comment_rh": "[RH.1.3] node-zklib y better-sqlite3 son del lector de relojes (database/importers/checadores/agente): FIJADAS a las versiones que corren hoy en el agente de Mega Talento (1.3.0 y 11.10.0) para que el traslado no cambie el protocolo ni la cola. better-sqlite3 trae binario precompilado para linux-musl (Alpine): no hace falta toolchain.",
   "_comment_deps": "Versiones IGUALES a las del package.json raiz, a proposito: si divergen, un feed puede comportarse distinto adentro del contenedor que corrido a mano. knex/mssql/exceljs entran en VL.4 -- knex lo usan 23 importers, exceljs 7 y mssql 6 (ContPAQi). node-windows y pg-boss NO entran: los usan install-service.js y database/importers/orchestrator/, que el contenedor nunca ejecuta.",
   "dependencies": {
     "pg": "^8.20.0",
     "dotenv": "^17.4.1",
     "knex": "^3.2.7",
     "mssql": "^12.7.0",
-    "exceljs": "^4.4.0"
+    "exceljs": "^4.4.0",
+    "node-zklib": "1.3.0",
+    "better-sqlite3": "11.10.0"
   }
 }

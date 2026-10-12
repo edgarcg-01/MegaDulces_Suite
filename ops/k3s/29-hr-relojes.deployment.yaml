@@ -1,0 +1,88 @@
+# ═══ LECTOR DE RELOJES CHECADORES ═══  [RH.1.3]  — Fase RH (ADR-084, D3)
+#
+# Lee los 12 relojes ZKTeco por TCP 4370 y empuja las checadas a la entrada compatible de la
+# Suite (`/api/hr/attendance/ingest/mt/checador/ingesta…`, [RH.1.2b]). Es el agente de Mega
+# Talento traído al monorepo (`database/importers/checadores/agente/`), sólo con el origen
+# 'relojes'. Hasta el corte, ese agente corre como servicio de Windows en una laptop
+# (`LapSistemasA`): esto es lo que lo saca de ahí.
+#
+# ⛔⛔ UN ZKTECO ACEPTA UNA SOLA SESIÓN TCP. Si este pod y el servicio de la laptop corren a la vez,
+# se pelean el socket de cada reloj y los dos leen a medias. Por eso:
+#   · `migracion: preparado-externo` — el deploy (ops/vl/deploy.sh) NO lo aplica: su filtro
+#     saltea todo archivo con 'migracion: preparado'. Se enciende en el corte con UN commit que
+#     cambia la etiqueta a `migrado` (runbook RH_CORTE_ASISTENCIA §3), DESPUÉS de detener el
+#     servicio «Mega Talento Agente de Checadas» en la laptop. Así queda en git cuándo se encendió.
+#   · `strategy: Recreate` — nunca hay dos pods a la vez, ni durante un despliegue.
+#   · `singleton: "true"` — que `check:k3s` lo trate como tal.
+# Volver atrás: `kubectl -n ingesta scale deploy/hr-relojes --replicas=0` y arrancar el servicio en
+# la laptop (después, devolver la etiqueta a `preparado-externo` para que el deploy no lo reviva).
+#
+# ── Lo persistente ──
+# La cola SQLite (lo leído que todavía no aceptó la API) y la copia del padrón viven en
+# `/datos`, un hostPath (mismo criterio que `50-pg-rag`: un solo nodo, sin PVC). Un reinicio del
+# pod no pierde checadas ni obliga a releer años de buffer: `cola.db` guarda la marca de agua de
+# cada reloj. ⚠️ Si se borra ese directorio, el primer arranque lee el log COMPLETO de cada reloj
+# (años): la API no lo duplica ([RH.1.8], puente con el histórico), pero tarda.
+#
+# ── El secreto ──
+# `hr-relojes-env` sólo lleva `HR_INGEST_KEY` (la misma que la API, la del secreto `prod-env`).
+# Se crea UNA vez en `md`, fuera del repo:
+#   kubectl -n ingesta create secret generic hr-relojes-env --from-literal=HR_INGEST_KEY='<la de prod-env>'
+#
+# ── Por qué SIN livenessProbe ──
+# El agente ya se vigila solo: 30 min sin que la API acepte UNA petición → sale con error y el
+# kubelet lo levanta (`vigilanciaMin`). La alarma de ENTREGA vive del otro lado, donde está el
+# dato: la API escribe el latido `hr_attendance_ingest` en `analytics.cron_runs` con cada lote, y
+# su fila de `CRON_JOBS` entra en el corte (§3.1 del runbook). Una sonda aquí necesitaría una
+# credencial de base que este carril no tiene ni debe tener (el agente habla con la API, no con
+# Postgres: esa fue una de las razones de existir del original).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hr-relojes
+  namespace: ingesta
+  labels:
+    carril: hr-relojes
+    singleton: "true"
+    migracion: preparado-externo
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      carril: hr-relojes
+  template:
+    metadata:
+      labels:
+        carril: hr-relojes
+        singleton: "true"
+    spec:
+      restartPolicy: Always
+      containers:
+        - name: lector
+          image: localhost:5000/trade-ingest:__COMMIT__
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "-c"]
+          args:
+            - 'while :; do node database/importers/checadores/agente/index.js; echo "[$(date "+%F %T %Z")] lector de relojes cayo, reintento en 10s"; sleep 10; done'
+          envFrom:
+            - secretRef:
+                name: hr-relojes-env
+          env:
+            - name: TZ
+              value: America/Mexico_City
+            - name: HR_AGENT_API_URL
+              value: http://api:10000/api/hr/attendance/ingest/mt
+            - name: HR_AGENT_DATA_DIR
+              value: /datos
+          volumeMounts:
+            - name: datos
+              mountPath: /datos
+          resources:
+            requests: { memory: "64Mi", cpu: "50m" }
+            limits:   { memory: "512Mi" }
+      volumes:
+        - name: datos
+          hostPath: { path: /home/superoot/rh-relojes/datos, type: DirectoryOrCreate }
