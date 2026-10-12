@@ -1194,7 +1194,7 @@ export class ExpenseProofsService {
      * `provisional` es literalmente «aprobado pero debiendo el comprobante». Si está puesto,
      * hay algo que subir: es la marca, no la clasificación, la que manda acá.
      */
-    const prev: any[] = typeof base.cur.files === 'string' ? JSON.parse(base.cur.files || '[]') : (base.cur.files || []);
+    const prev: ProofFile[] = archivosDe(base.cur.files);
     // `[GX.81]` La misma regla que aprobó el vale a «aprobada»: también destraba los que ya se
     // aprobaron sólo con cotización sin la marca (70 en prod), sin tocar datos.
     if (!debeComprobante({ provisional: base.cur.provisional, lleva_evidencia: requiereEvidencia(base.clasificacion), files: prev })) {
