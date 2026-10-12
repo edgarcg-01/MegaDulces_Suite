@@ -66,6 +66,7 @@ import {
 } from './calendario-gastos';
 import { FILTRO_HISTORIAL_VACIO, type FiltroHistorial } from '@megadulces/contracts';
 import { ESTADOS_ABIERTOS, TOPE_ABIERTOS, unirAbiertosYCerrados } from './mis-gastos-abiertos';
+import { debeComprobante, soloCotizacion as esSoloCotizacion } from './debe-comprobante';
 import { agruparGastosPorSolicitud, datosKeplerDeLaFila } from './mis-gastos-kepler';
 import { esDuenoDelVale, puedeVerCualquierExpediente, MENSAJE_EXPEDIENTE_AJENO, MENSAJE_PROPIO_VALE, type IdentidadQueDecide, type QuienAbreExpediente } from '@megadulces/contracts';
 
@@ -1071,8 +1072,7 @@ export class ExpenseProofsService {
      * marcada en `provisional`… y **sin nadie a quien le tocara nada**. La factura nunca
      * llegaba porque el trámite ya había terminado.
      */
-    const soloCotizacion = files.some((f) => String(f?.role || '').startsWith('cotizacion'))
-      && !files.some((f) => String(f?.role || '').startsWith('comprobante'));
+    const soloCotizacion = esSoloCotizacion(files);
 
     let nextStatus: string;
     /**
@@ -1133,7 +1133,9 @@ export class ExpenseProofsService {
            * La columna se conserva y se respeta si alguien la manda —hay expedientes viejos
            * con valor y borrarla los volvería ilegibles—, pero ya no se inventa un default.
            */
-          provisional: prov,
+          // `[GX.81]` Sólo-cotización TAMBIÉN es provisional: aprobado debiendo el comprobante.
+          // Sin la marca, el vale volvía a «sube la factura» y `addEvidence` lo rebotaba.
+          provisional: prov || soloCotizacion,
           comprobante_esperado_at: prov ? (esperado || null) : null,
         })
         .returning(['id', 'status']);
@@ -1192,10 +1194,12 @@ export class ExpenseProofsService {
      * `provisional` es literalmente «aprobado pero debiendo el comprobante». Si está puesto,
      * hay algo que subir: es la marca, no la clasificación, la que manda acá.
      */
-    if (!requiereEvidencia(base.clasificacion) && base.cur.provisional !== true) {
+    const prev: ProofFile[] = archivosDe(base.cur.files);
+    // `[GX.81]` La misma regla que aprobó el vale a «aprobada»: también destraba los que ya se
+    // aprobaron sólo con cotización sin la marca (70 en prod), sin tocar datos.
+    if (!debeComprobante({ provisional: base.cur.provisional, lleva_evidencia: requiereEvidencia(base.clasificacion), files: prev })) {
       throw new BadRequestException('este gasto no lleva evidencia (no comprobable)');
     }
-    const prev: any[] = typeof base.cur.files === 'string' ? JSON.parse(base.cur.files || '[]') : (base.cur.files || []);
     const files = [...prev, ...nuevos];
     const importe = Number(base.cur.importe) || Number(dto.importe) || 0;
 
@@ -1467,6 +1471,8 @@ export class ExpenseProofsService {
       }
       const crudas = await Promise.all(filasDb.map(async (r: FilaDeGasto) => ({
         ...r, importe: Number(r.importe), monto_ocr: r.monto_ocr == null ? null : Number(r.monto_ocr),
+        // `[GX.81]` La misma regla que la captura: aprobado sólo con cotización = debe la factura.
+        provisional: r.provisional === true || (r.status === 'aprobada' && esSoloCotizacion(archivosDe(r.files))),
         files: await this.storage.signFiles(archivosDe(r.files)), // URL prefirmada (bucket privado)
       })));
       // `[GX.39]` La etapa de ejercicio, derivada en vivo de la vista. Una consulta por pagina.
@@ -2872,7 +2878,9 @@ export class ExpenseProofsService {
       return {
         id: r.id, status: r.status,
         comprobante: rol('comprobante'), solicitud: rol('solicitud_kepler'),
-        provisional: r.provisional === true,
+        // `[GX.81]` Debe el comprobante si se marcó O si se aprobó sólo con cotización: los 70
+        // que se aprobaron sin la marca se leían como «cerrados» y no dejaban subir la factura.
+        provisional: r.provisional === true || (r.status === 'aprobada' && esSoloCotizacion(files)),
         clasificacion, requiere_evidencia: requiereEvidencia(clasificacion),
         tiene_comprobacion: tieneCol ? r.tiene_comprobacion : null,
         comprobacion_nota: tieneCol ? (r.comprobacion_nota || null) : null,

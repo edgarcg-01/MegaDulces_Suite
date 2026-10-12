@@ -9,6 +9,8 @@
 ---
 
 ## [Unreleased]
+### Fixed — Finanzas › Gastos: los vales aprobados sólo con cotización ya aceptan su factura (GX.81, 2026-10-12)
+- Un vale aprobado con sólo cotización pedía la factura y la Suite la rechazaba («no lleva evidencia»), así que se quedaba en «Pendientes de comprobación» aunque Kepler ya lo hubiera pagado. Ahora se puede subir; los 70 atorados se destraban sin tocar datos.
 ### Added — Avisos de cambios de precio a las sucursales, y Compras comparte la lista (ETQ-AVISOS.1–3, 2026-10-09)
 - **Aviso a la campana de cada sucursal:** a las **07:30** (resume AYER) y a las **14:00** (lo que va de HOY) llega «N productos cambiaron de precio» a quien ve la etiquetera de esa tienda, con enlace directo a la lista de ese día. Se cuenta con la **misma regla de la pantalla** (una sola función en `libs/contracts`), así aviso y lista no pueden discrepar. Un día sin cambios **no genera aviso**; si la bitácora de la plaza aún no llega a ese día se **declara** (`sin dato`), no se dice «no hubo cambios».
 - **Compras puede compartir** (permiso nuevo `STORE_LABELS_COMPARTIR`): botón «Compartir» en Cambios de precio para **avisar a sucursales** (elige plazas, agrega nota; cada plaza devuelve su estado con el motivo) (**sin exportar a Excel/CSV**, decisión de Edgar del 2026-10-10: el aviso lleva a Cambios de precio, donde se reimprime).

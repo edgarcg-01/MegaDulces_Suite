@@ -4320,6 +4320,21 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.81] · vales aprobados sólo con cotización: sin salida en la Suite, ya pagados en Kepler — 2026-10-12
+
+- [x] **[GX.81]** 🧪 Reporte: *«en ocasiones ya están aprobados en Kepler pero se les queda en donde mismo»*. Medido en
+  prod (45 días, Suite × Kepler `c43`): **70 vales** en `aprobada` con Kepler en `F` (el dinero ya salió), todos
+  `no_comprobable` con sólo cotización, sin la marca `provisional`, aprobados del 5 al 9-oct. `approve()` los manda a
+  `aprobada` por `[GX.54]` (sólo cotización) y la pantalla dice «sube la factura», pero `addEvidence` sólo dejaba pasar
+  `provisional = true` o clase comprobable → rebote «no lleva evidencia», y la captura los pintaba «cerrada». Arreglo:
+  regla única `debeComprobante()` (`debe-comprobante.ts`: marca **o** sólo cotización **o** clase que la exige) en
+  `addEvidence`; aprobar sólo con cotización deja `provisional = true`; `list`/`proofByFolio` publican el provisional
+  efectivo. **Los 70 se destraban sin tocar datos.** Pruebas: finance 921/921 · view Finanzas 753/753 · mutación en rojo.
+- [ ] **[GX.81.p]** PR + redeploy api (sin migración ni re-login).
+- [ ] **[GX.81.x]** Declarado, no es error de código: la Suite no reacciona a la autorización de Kepler. Medido: 4 vales
+  ya `F` en Kepler esperando firma en la Suite · 7 rechazados en la Suite pero autorizados/pagados en Kepler · 11
+  cerrados en la Suite y en `N` en Kepler (9 días prom.; sin poder distinguir Kepler de retraso del dato).
+
 ### 🔨 [GX.80] · Gastos: una entrada en el menú y sus cuatro pantallas en pestañas — 2026-10-09
 
 - [x] **[GX.80]** 🧪 Pedido: *«quiero que estos estén en un horizontal»* (Aprobación de gastos · Mis gastos ·
