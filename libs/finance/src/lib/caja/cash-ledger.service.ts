@@ -1763,6 +1763,53 @@ export class CashLedgerService {
       if (!m.has(k)) m.set(k, []);
       m.get(k)!.push({ concepto: f.concepto, concepto_nombre: f.concepto_nombre });
     }
+
+    /**
+     * ⭐⭐ `[CS.3.11]` **EL CATÁLOGO DE ALGUNAS PLAZAS VIENE RECORTADO, Y ESO FRENABA EL 71% DE LO
+     * QUE FALTABA.**
+     *
+     * Edgar: *"debemos casar un 100% las cuentas, concepto y los movimientos de CAOS"*. Medido
+     * sobre los 2,051 pendientes de 45 días, el resolvedor llegaba al **85.2%** y de los 304 que
+     * faltaban, **216 eran UNA sola cuenta: la `201`**, que el documento sí trae pero que no
+     * aparece en el catálogo de conceptos de su plaza.
+     *
+     * La causa no es la cuenta: es el catálogo. `kepler_ods.kdco` llega **incompleto en 01, 06, 07
+     * y 08** —126 a 128 cuentas contra 158 a 168 en las demás—. Las plazas que migraron después
+     * nunca recibieron el catálogo entero, y el resolvedor leía la ausencia como "no se puede
+     * saber" cuando el dato está, en las otras ocho sucursales.
+     *
+     * ⭐ El respaldo exige **UNANIMIDAD POR CÓDIGO**: sólo se usa el concepto de otras plazas
+     * cuando la cuenta tiene **un único código** en todas donde existe. Medido: **97 cuentas lo
+     * cumplen y 69 NO** (tienen de 2 a 6 códigos distintos) — así que copiar entre plazas a ciegas
+     * habría clasificado mal 69 cuentas. Las que no son unánimes se quedan en manual, a propósito.
+     *
+     * ⚠️ La unanimidad se mide por **CÓDIGO, no por nombre**. La `201` tiene **un código (`201`) y
+     * DOS nombres**: la sucursal 03 lo escribe `PASIVO A PROVEDORES`, con un typo. Exigir que el
+     * nombre coincida habría rechazado justo el caso que resuelve los 216 — un error de dedo en una
+     * plaza no cambia qué concepto es.
+     *
+     * ⚠️ Y se declara de dónde salió: el concepto llega con `de_otra_sucursal`, para que la
+     * pantalla pueda decirlo y nadie lo lea como si viniera de la póliza de su propia plaza.
+     */
+    const huerfanos = pares.filter((p) => !m.has(`${p.sucursal}|${p.cuenta}`));
+    if (huerfanos.length) {
+      const cuentas = [...new Set(huerfanos.map((p) => p.cuenta))];
+      const otras = await trx('analytics.v_kepler_conceptos')
+        .where('tenant_id', tenantId)
+        .whereIn('cuenta', cuentas)
+        .groupBy('cuenta')
+        .select('cuenta')
+        .count({ codigos: trx.raw('DISTINCT concepto') })
+        .select(trx.raw('min(concepto) AS concepto'), trx.raw('min(concepto_nombre) AS concepto_nombre'));
+      const unanime = new Map<string, { concepto: string; concepto_nombre: string | null }>();
+      for (const o of otras as any[]) {
+        if (Number(o.codigos) === 1) unanime.set(o.cuenta, { concepto: o.concepto, concepto_nombre: o.concepto_nombre });
+      }
+      for (const p of huerfanos) {
+        const u = unanime.get(p.cuenta);
+        if (u) m.set(`${p.sucursal}|${p.cuenta}`, [{ ...u, de_otra_sucursal: true } as any]);
+      }
+    }
     return m;
   }
 
