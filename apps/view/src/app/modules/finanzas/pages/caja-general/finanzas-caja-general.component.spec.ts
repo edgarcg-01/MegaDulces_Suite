@@ -757,6 +757,49 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
   });
 
   /**
+   * `[CG.81]` **Guardar NO manda el ticket a la térmica.** Pedido de Edgar: *"hay que dejar de
+   * mandar el imprimible del ticket y sólo almacenarlo como un historial"*.
+   *
+   * ⚠️ Se mide el EFECTO, no la ausencia de una llamada: `imprimirComprobante` no se inyecta, se
+   * importa, así que espiarla no probaría nada sobre lo que el navegador hace. Lo que define
+   * "imprimió" es que el módulo crea un `<iframe>` oculto y lo cuelga del documento; eso sí se ve.
+   *
+   * Y la negativa va PEGADA a la positiva: una prueba que sólo exige "no imprime" también pasa si
+   * la impresión se rompió entera — que es justo lo que NO queremos, porque el botón de la lista
+   * es ahora el único camino al papel.
+   */
+  it('⛔ [CG.81] guardar NO imprime el comprobante — pero el botón de la lista SÍ', async () => {
+    const crear = vi.fn(() => of({ id: 'x', folio: 'CG-2026-00009' }));
+    const detalle = vi.fn(() => of({
+      id: 'x', folio: 'CG-2026-00009', tipo: 'gasto', monto: 1500, glosa: 'compra de papeleria',
+      denominaciones: [{ denominacion: 500, piezas: 3 }],
+    }));
+    const fx = montar({ crear, detalle });
+
+    const marcos = () => document.querySelectorAll('iframe[aria-hidden="true"]').length;
+    const antes = marcos();
+
+    comp.abrirCaptura();
+    comp.setF('tipo', 'gasto');
+    comp.setF('kepler_cuenta', '601-001');
+    comp.setF('kepler_concepto', 'PAPELERIA');
+    comp.setF('glosa', 'compra de papeleria');
+    contar({ 500: 3 });
+    fx.detectChanges();
+
+    comp.guardar();
+
+    expect(crear, 'el movimiento tiene que guardarse igual').toHaveBeenCalledTimes(1);
+    expect(marcos() - antes, 'guardar mandó el ticket a la térmica').toBe(0);
+    expect(detalle, 'guardar no debe pedir el detalle para imprimir').not.toHaveBeenCalled();
+
+    // La positiva: el camino al papel sigue existiendo, y es el de la lista.
+    comp.imprimirComprobante({ id: 'x', folio: 'CG-2026-00009', estado: 'registrado' } as never);
+    expect(detalle, 'el botón de la lista tiene que pedir el detalle guardado').toHaveBeenCalledTimes(1);
+    expect(marcos() - antes, 'el botón de la lista ya no imprime nada').toBeGreaterThan(0);
+  });
+
+  /**
    * ⛔ `[CG.74]` La pantalla mandaba a un menú que NO EXISTE.
    *
    * Decía *«Abrí Caja General › Firmar en el teléfono»*. Medido: la ruta está registrada y **nada
