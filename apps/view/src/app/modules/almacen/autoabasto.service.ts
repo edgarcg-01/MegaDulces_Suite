@@ -48,7 +48,10 @@ export interface AutoabastoRow {
    * el `undefined` real se imprimiría como **0** y se leería "el objetivo es cero".
    */
   target_qty: number | null;
-  /** Lo que falta para llegar al objetivo, ya NETO de lo que viene en camino. */
+  /**
+   * Lo que falta para llegar al objetivo. Si descuenta o no lo que viene en camino lo dice
+   * `politica_transito` de la respuesta — hoy NO lo descuenta (`transito.ts`, RA.TR).
+   */
   suggested_qty: number;
   /** El residual que de verdad hay que COMPRAR, después de descontar lo traspasable. */
   buy_qty: number;
@@ -111,6 +114,12 @@ export interface AutoabastoMesaResponse {
   pageSize: number;
   target_basis: string;
   rows: AutoabastoRow[];
+  /**
+   * `[AB.14]` Si el sugerido resta lo que está en camino, y la frase para decirlo. Opcionales: una
+   * API anterior a AB.14 no los manda, y entonces la pantalla no afirma nada sobre el tránsito.
+   */
+  politica_transito?: 'ignorar' | 'curva' | 'crudo';
+  aviso_transito?: string;
 }
 
 /** KPIs por bucket. Los `*_valor` pueden venir `null`: ninguna política valuable en el filtro. */
@@ -170,6 +179,8 @@ export interface AutoabastoReporteQuery {
   warehouse_id: string;
   supplier_id?: string;
   bucket?: string;
+  /** `[AB.14]` Ya lo filtra el servidor. */
+  accion?: string;
   search?: string;
   sort_by?: string;
   sort_dir?: string;
@@ -182,6 +193,8 @@ export interface AutoabastoQuery {
   category_id?: string;
   abc?: string;
   bucket?: string;
+  /** `[AB.14]` Ya lo filtra el servidor, sobre todas las páginas. */
+  accion?: string;
   search?: string;
   target_basis?: string;
   sort_by?: string;

@@ -163,4 +163,23 @@ describe('cantidad — "por qué esa cantidad"', () => {
     expect(t).toContain('no publica el objetivo que usó');
     expect(t).not.toContain('NaN');
   });
+
+  // [AB.14] Con la política vigente (transito.ts = 'ignorar') el motor NO resta lo que viene en
+  // camino. Si el texto lo restara, la cuenta no cuadraría y haría creer que ya se descontó.
+  it('[AB.14] con política ignorar, la resta NO incluye lo que está en camino', () => {
+    const t = cantidadPorQue({ ...base, suggested_qty: 28 }, 'ignorar');
+    expect(t).toContain('Objetivo 40 − existencia 12 = faltan 28 caja(s).');
+    expect(t).not.toContain('− en camino');
+    expect(t).toContain('En camino hay 3 que NO se restan');
+  });
+
+  it('[AB.14] con política ignorar y nada en camino, no menciona el tránsito', () => {
+    const t = cantidadPorQue({ ...base, in_transit: 0, suggested_qty: 28 }, 'ignorar');
+    expect(t).toBe('Objetivo 40 − existencia 12 = faltan 28 caja(s).');
+  });
+
+  it('[AB.14] con una política que sí resta, conserva la resta completa', () => {
+    expect(cantidadPorQue(base, 'crudo')).toBe(
+      'Objetivo 40 − existencia 12 − en camino 3 = faltan 25 caja(s).');
+  });
 });
