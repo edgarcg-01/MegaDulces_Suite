@@ -95,6 +95,30 @@ export class PresupuestoDireccionService {
             'created_by', 'created_at', 'authorized_by', 'authorized_at')
           .orderBy([{ column: 'is_test', order: 'asc' }, { column: 'fiscal_year', order: 'desc' }]);
 
+        // ⭐ Los dos conteos, en UNA consulta agrupada y no una por ejercicio: con tres filas da
+        // igual, pero el patrón «una consulta por renglón» es el que convierte una tabla en un
+        // problema de rendimiento cuando crece. Un ejercicio sin renglones **no aparece** en el
+        // agrupado: por eso el mapa de abajo devuelve 0 y no `undefined`.
+        //
+        // ⛔ `count(distinct ...)` y no `count(*)`: la primera versión usaba `count(*)` y el
+        // LEFT JOIN **multiplica la fila del renglón por cada obligación que cuelga de él**.
+        // Ejercida contra prod daba **190 renglones donde son 47** — y 190 es lo bastante
+        // verosímil como para pasar sin que nadie lo mire. Lo atrapó correr la consulta, no
+        // leerla.
+        //
+        // ⚠️ Y los conteos NO distinguen al ejercicio de prueba: tiene **47 y 156, idénticos**
+        // al real. Sirven para separar «prueba 2» (45 y 0) de los otros dos; para la bandera
+        // está `is_test`, que es la única señal que lo dice.
+        const conteos = await trx('budget.budget_lines as l')
+          .where({ 'l.tenant_id': tenantId })
+          .groupBy('l.budget_id')
+          .select('l.budget_id',
+            trx.raw('count(distinct l.id)::int as renglones'),
+            trx.raw(`count(distinct o.id)::int as obligaciones`))
+          .leftJoin('budget.expense_obligations as o', 'o.budget_line_id', 'l.id') as unknown as
+          Array<{ budget_id: string; renglones: number; obligaciones: number }>;
+        const porId = new Map(conteos.map((c) => [String(c.budget_id), c]));
+
         const hoy = Date.now();
         const filasEj: EjercicioFila[] = (filas as Array<Record<string, unknown>>).map((b) => {
           // ⭐ Días SIN FIRMAR, no "en borrador": exacto, no proxy. El ejercicio está sin firmar
@@ -114,6 +138,8 @@ export class PresupuestoDireccionService {
               : Math.max(0, Math.floor((hoy - t) / 86400000)),
             autorizado_por: (b.authorized_by as string) ?? null,
             autorizado_en: b.authorized_at ? new Date(b.authorized_at as string).toISOString() : null,
+            renglones: porId.get(String(b.id))?.renglones ?? 0,
+            obligaciones: porId.get(String(b.id))?.obligaciones ?? 0,
           };
         });
 

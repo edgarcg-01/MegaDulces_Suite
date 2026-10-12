@@ -76,6 +76,19 @@ export interface EjercicioFila {
   dias_sin_firmar: number | null;
   autorizado_por: string | null;
   autorizado_en: string | null;
+
+  /**
+   * ⭐ Los dos conteos que distinguen un ejercicio de otro **sin mirarle el nombre**. Los pidió
+   * la revisión de frontend y el argumento es el correcto: sin ellos, la única forma de separar
+   * «prueba 2» (45 renglones, **0 obligaciones**) del real (47, 156) sería filtrar por el texto
+   * del nombre — **una corazonada disfrazada de regla**.
+   *
+   * ⚠️ Y lo que NO resuelven, dicho para que nadie lo intente: el ejercicio marcado `is_test`
+   * tiene conteos **idénticos** al real (47 y 156). Un criterio que compare totales no los
+   * distingue; **para eso está la bandera**, y es la única señal que sirve.
+   */
+  renglones: number | null;
+  obligaciones: number | null;
 }
 
 /**

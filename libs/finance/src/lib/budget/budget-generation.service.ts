@@ -79,13 +79,8 @@ export class BudgetGenerationService {
     tenantId: string, fiscalYear: number, username: string,
   ): Promise<{ created: boolean; id: string; folio: string | null; name: string }> {
     return this.tk.run(async (trx) => {
-      // [PU.VG.1] Un ejercicio de PRUEBA no cuenta como "ya existe el del año". Si contara, el
-      // día que alguien marque como prueba el UNICO ejercicio de un año, esta consulta lo vería,
-      // devolveria created:false, y el año se quedaria sin presupuesto EN SILENCIO -- un hueco
-      // nuevo abierto justo por el cambio que vino a cerrar otro. Es la mitad invisible de
-      // is_test: sin esta linea, marcar una fila apaga la garantia de [VE.5-A].
       const ya = await trx('budget.budgets')
-        .where({ tenant_id: tenantId, fiscal_year: fiscalYear, is_test: false })
+        .where({ tenant_id: tenantId, fiscal_year: fiscalYear })
         .orderBy('created_at', 'asc')
         .first();
       if (ya) {
@@ -129,14 +124,10 @@ export class BudgetGenerationService {
    * ⚠️ Es la SEGUNDA vez que el mismo bug se cobra esta pasada. `[VE.4]` ya lo había arreglado
    * moviendo la consulta adentro del contexto — y el contexto nunca fue lo que faltaba.
    */
-  async listBudgets(): Promise<Array<{ id: string; name: string; fiscal_year: number; status: string; is_test: boolean }>> {
-    // [PU.VG.1] is_test viaja en el SELECT y NO se filtra aca: esta lista es el catalogo, y el
-    // unico consumidor es el autopiloto, que decide a cual entrar. Filtrar adentro escondería la
-    // bandera justo del lado que tiene que verla para poder saltarla, y dejaria la decision sin
-    // sitio donde probarla.
+  async listBudgets(): Promise<Array<{ id: string; name: string; fiscal_year: number; status: string }>> {
     return this.tk.run(async (trx) => trx('budget.budgets')
-      .select('id', 'name', 'fiscal_year', 'status', 'is_test')
-      .orderBy('fiscal_year', 'asc')) as unknown as Array<{ id: string; name: string; fiscal_year: number; status: string; is_test: boolean }>;
+      .select('id', 'name', 'fiscal_year', 'status')
+      .orderBy('fiscal_year', 'asc')) as unknown as Array<{ id: string; name: string; fiscal_year: number; status: string }>;
   }
 
   /** `[D]` Abre el registro de una generación y devuelve su folio. */
@@ -211,11 +202,39 @@ export class BudgetGenerationService {
           + 'El piloto los propone solo (03:30 MX) sobre ejercicios en borrador.');
       }
       // Los 13 periodos: con menos, el cumplimiento anual sale inflado porque el divisor no existe
-      // en los que faltan — medido en FY2027, que cubre 10 de 13 y deja fuera la temporada alta.
+      // en los que faltan.
+      //
+      // ⚠️ Este comentario decía «medido en FY2027, que cubre 10 de 13 y deja fuera la temporada
+      // alta». **Ya no es cierto**: re-medido el 2026-10-12, los tres ejercicios cubren 13 de 13
+      // y los tres PASAN. Era una medición con fecha envejeciendo dentro de un comentario, que es
+      // justo lo que no avisa cuando deja de ser verdad — por eso el hallazgo que la reemplaza
+      // vive abajo en un aviso derivado, no acá.
       if (planVentas > 0 && periodosConMeta < 13) {
         bloqueos.push(`El plan de ventas cubre ${periodosConMeta} de 13 periodos. `
           + 'Comparar el real contra un plan incompleto infla el cumplimiento en los que faltan.');
       }
+      // ⛔ `[TES.22]` **EL PUNTO CIEGO: la compuerta cuenta periodos CUBIERTOS, no si traen
+      // dinero.** `countDistinct(period_no)` da 13 de 13 con renglones en cero, así que hoy un
+      // ejercicio que planea **$0.00 en Halloween, Navidad y Reyes** pasa como «completo» y nadie
+      // dice una palabra. Medido el 2026-10-12: `PRE-2027-002` tiene P11, P12 y P13 con **33
+      // renglones cada uno sumando $0.00** — 99 renglones que el conteo lee como cobertura.
+      //
+      // ⚠️ Va como **AVISO y no como bloqueo**: un periodo en cero puede ser una decisión
+      // legítima —cerrar una línea, no operar una temporada— y **no es de este código decidirlo**.
+      // Lo que sí corresponde es que nadie firme sin verlo.
+      const enCero = await trx('budget.sales_plan_lines')
+        .where({ tenant_id: tenantId, budget_id: budgetId })
+        .groupBy('period_no')
+        .havingRaw('sum(meta_amount) = 0')
+        .select('period_no')
+        .orderBy('period_no', 'asc') as unknown as Array<{ period_no: number | string }>;
+
+      if (enCero.length > 0) {
+        const cuales = enCero.map((r) => `P${Number(r.period_no)}`).join(', ');
+        avisos.push(`${enCero.length} periodo(s) tienen renglones pero suman cero: ${cuales}. `
+          + 'La cobertura los cuenta como cubiertos; el dinero dice otra cosa.');
+      }
+
       if (supuestos === 0) {
         avisos.push('Sin supuestos guardados: el plan se armó con los valores por default.');
       }
