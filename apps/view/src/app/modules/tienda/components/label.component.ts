@@ -352,6 +352,12 @@ export interface LabelModel {
    * DICE en vez de imprimir un cero) · 'copia' = no se pidio plaza, se conservo la consolidada.
    */
   piece_price_origen?: 'erp_vivo' | 'erp_sin_precio' | 'copia';
+  /**
+   * [ETQ-ESTADO.1] Por que no hay precio: 'sin_precio' (el ERP tiene el producto en esta tienda con
+   * precio 0) · 'no_existe_en_plaza' (esta en otra tienda, no en esta) · 'no_existe_en_erp' (en
+   * ninguna: hay que darlo de alta en Kepler). null = no se pudo determinar (sin tienda, o sin SKU).
+   */
+  erp_estado?: 'cotizado' | 'sin_precio' | 'no_existe_en_plaza' | 'no_existe_en_erp' | null;
   wholesale_piece_min_qty: number | null;
   wholesale_piece_price: number | null;
   pack_size: number | null;
