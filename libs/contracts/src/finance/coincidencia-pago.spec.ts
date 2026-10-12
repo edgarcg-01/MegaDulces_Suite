@@ -1,5 +1,5 @@
 import {
-  chequeoBanco, chequeoFecha, chequeoMonto, chequeoProveedor, coincidenciasPago, coincidenTodas,
+  chequeoBanco, chequeoFecha, chequeoMonto, chequeoProveedor, coincidenciasPago, coincidenTodas, difiereEnUnaLetra,
   diferenciasPago, normalizarProveedor, cuentaEsClave, esBancoBajio, formasDeCuenta,
 } from './coincidencia-pago.contract';
 
@@ -82,6 +82,43 @@ describe('[AT.2] proveedor: las tres formas en que el MISMO nombre se escribe di
     // precio que cambiar DOS letras. Con eso no hay umbral que separe a HERSHEY de DON/SAN.
     expect(chequeoProveedor('HERSHEYS MEXICO', 'HERSHEY MEXICO')).toBe('ok');
     expect(chequeoProveedor('ROMPOPE DON AGUSTIN', 'ROMPOPE SAN AGUSTIN')).toBe('difiere');
+  });
+});
+
+/**
+ * `[AT.2.2]` La comprobación directa que reemplazó a la matriz de Damerau. No es una distancia
+ * de edición: contesta **sí o no** a «¿difieren en una sola letra?», que es lo único que
+ * `chequeoProveedor` pregunta. La versión con matriz pasó el presupuesto del bundle por 7 bytes.
+ */
+describe('[AT.2.2] difiereEnUnaLetra: las cuatro formas de una sola letra, y nada más', () => {
+  it('iguales', () => {
+    expect(difiereEnUnaLetra('HERSHEYMEXICO', 'HERSHEYMEXICO')).toBe(true);
+  });
+  it('una de más / una de menos', () => {
+    expect(difiereEnUnaLetra('HERSHEYSMEXICO', 'HERSHEYMEXICO')).toBe(true);
+    expect(difiereEnUnaLetra('HERSHEYMEXICO', 'HERSHEYSMEXICO')).toBe(true);
+    expect(difiereEnUnaLetra('AVILABANUEL', 'AVILABAUEL')).toBe(true);   // la Ñ que Kepler perdió
+  });
+  it('una cambiada', () => {
+    expect(difiereEnUnaLetra('PRODUCTOSALVBRO', 'PRODUCTOSALVBRA')).toBe(true);
+  });
+  it('dos vecinas intercambiadas', () => {
+    expect(difiereEnUnaLetra('BONIFACIOALJEOAVALOS', 'BONIFACIOALEJOAVALOS')).toBe(true);
+  });
+  it('⛔ DOS letras cambiadas NO (es el caso DON/SAN, dos empresas)', () => {
+    expect(difiereEnUnaLetra('ROMPOPEDONAGUSTIN', 'ROMPOPESANAGUSTIN')).toBe(false);
+  });
+  it('⛔ dos de más tampoco, ni aunque sean vecinas', () => {
+    expect(difiereEnUnaLetra('ABCDEF', 'ABXYCDEF')).toBe(false);
+    expect(difiereEnUnaLetra('ABCDEF', 'ABCDEFGH')).toBe(false);
+  });
+  it('⛔ dos NO vecinas intercambiadas tampoco', () => {
+    expect(difiereEnUnaLetra('ABCDE', 'EBCDA')).toBe(false);
+  });
+  it('bordes: vacíos y una sola letra', () => {
+    expect(difiereEnUnaLetra('', '')).toBe(true);
+    expect(difiereEnUnaLetra('A', '')).toBe(true);
+    expect(difiereEnUnaLetra('AB', '')).toBe(false);
   });
 });
 
