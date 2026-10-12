@@ -2757,8 +2757,8 @@ que eso cambie; lo que arregla hoy es el `GRANT`.
 
 ## §38 ⛔⛔⛔ `[CP.8.44]` — El rol de la app NUNCA tuvo `USAGE` sobre `contpaqi`. El puente estaba muerto en prod desde el día uno
 
-🧪 **EN CÓDIGO 2026-10-12.** Migración `20261012092454` copiada al pod, **pendiente de aplicar**.
-Apareció buscando *"qué queda del plan"* — o sea, no lo reportó nadie: lo dijo el latido.
+🚀 **Migración `20261012092454` EN PROD — batch 889** (0.1 s). Apareció buscando *"qué queda del
+plan"* — o sea, no lo reportó nadie: **lo dijo el latido**.
 
 ### 38.1 ⭐ Lo delató el mecanismo que esta fase construyó para esto
 
@@ -2820,7 +2820,8 @@ ejerce.* El del puente gana dos aserciones que preguntan **por el rol de la app,
 ```
 
 **Prueba negativa corrida ANTES de la migración: `42 ✓ / 1 ✗`**, nombrando exactamente el rol y
-el schema. La segunda aserción no es decorativa: si alguien «arregla» esto revocándole a `dev_ro`,
+el schema. Después de aplicar: **`43 ✓ / 0 ✗`**, y `has_schema_privilege('app_runtime',
+'contpaqi','USAGE')` verificado en vivo en **`true`**. La segunda aserción no es decorativa: si alguien «arregla» esto revocándole a `dev_ro`,
 los otros nueve candados se caen juntos y nadie sabría por qué.
 
 ### 38.5 Qué arregla la migración
