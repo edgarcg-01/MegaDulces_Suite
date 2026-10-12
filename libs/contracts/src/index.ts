@@ -92,6 +92,7 @@ export * from './http/presale-load-guide.contract';
 // [PU.R] El estado de resultados del presupuesto: plan contra real, con el costo de ventas que a
 // la versión anterior le faltaba (y que es el 88 % del egreso).
 export * from './http/budget-expense-plan.contract';
+export * from './http/budget-direccion.contract';
 export * from './http/budget-result.contract';
 export * from './http/oc-seguimiento.contract';
 export * from './http/oc-cadena.contract';
