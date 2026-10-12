@@ -3,7 +3,8 @@ import type { Knex } from 'knex';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import * as reader from './attendance-reader';
 import { calcularAsistencia, desdeVentanaHorario, type AsistenciaPersonas } from './logic/asistencia-persona';
-import { diasEntre, RE_FECHA } from './logic/fechas';
+import { diasEntre, masDias, RE_FECHA } from './logic/fechas';
+import { inicioSemana } from './logic/horario-deducido';
 import type { HrPersonaDirectorioDto, HrSiteDto } from '@megadulces/contracts';
 
 /**
@@ -52,7 +53,10 @@ export class HrAttendanceReportService {
     const padron = await reader.padron(trx, site);
     const conf = await reader.confirmados(trx, site);
     const revisiones = await reader.revisionesAprobadas(trx, site, desde, hasta);
-    const incidencias = await reader.incidenciasEnRango(trx, site, desde, hasta);
+    // `[RH.1.10]` Las semanas COMPLETAS (jueves a miércoles) que toca el periodo: un cambio de descanso
+    // del viernes mueve también el día de trabajo de esa semana aunque el periodo empiece después.
+    // La lógica sigue recortando al periodo lo que pega a cada día y lo que lista por persona.
+    const incidencias = await reader.incidenciasEnRango(trx, site, inicioSemana(desde), masDias(inicioSemana(hasta), 6));
     return calcularAsistencia({
       siteCode: site, desde, hasta, soloPromotoras, cfg, filas,
       silencio: ctx.silencio, unaMarca: ctx.unaMarca, padron: padron.fichas,

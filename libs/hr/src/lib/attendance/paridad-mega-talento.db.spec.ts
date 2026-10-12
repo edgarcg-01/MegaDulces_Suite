@@ -48,6 +48,8 @@ const CAMPOS = [
   'absorbidoMin', 'diasConRetardo', 'diasEvaluados', 'faltas', 'faltasJustificadas', 'diasNoMedibles', 'diasAtipicos',
   'horasTrabajadas', 'minutosTrabajados', 'diasConIncidencia', 'desayunoExcesoMin', 'diasDesayunoExcedido',
   'pctATiempo', 'usable', 'bloqueadoPor', 'esPracticante', 'minutosEsperados', 'registrado', 'activo',
+  // `[RH.1.10]` horas extra (Mega Talento ee4ff38).
+  'horasExtraGanadasMin', 'horasExtraUsadasMin', 'horasExtraSegun',
 ] as const;
 
 type Persona = Record<string, unknown> & {
@@ -58,7 +60,9 @@ type Persona = Record<string, unknown> & {
 
 const igual = (a: unknown, b: unknown): boolean => JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 const dias = (p: Persona): Map<string, string> => new Map(p.semanas.flatMap((s) => s.dias).map((d) =>
-  [d.fecha, JSON.stringify([d['estado'], d['retardoRealMin'], d['atrasoMin'], d['netasMin'] ?? null, d['referencia'] ?? null, d['justificacion'] ?? null])]));
+  [d.fecha, JSON.stringify([d['estado'], d['retardoRealMin'], d['atrasoMin'], d['netasMin'] ?? null, d['referencia'] ?? null, d['justificacion'] ?? null,
+    // `[RH.1.10]`
+    d['extraMin'] ?? 0, d['salidaEsperada'] ?? null, d['descansoCambio'] ?? null, d['comidaExcesoMin'] ?? null, d['desayunoExcesoMin'] ?? null])]));
 
 (listo ? describe : describe.skip)('paridad contra Mega Talento (datos reales)', () => {
   it('la Suite da el mismo número que Mega Talento, persona por persona', async () => {
@@ -84,7 +88,8 @@ const dias = (p: Persona): Map<string, string> => new Map(p.semanas.flatMap((s) 
         // ── Simulación de [RH.1.4]: una persona por ficha, con el estado y la promotoría de allá ──
         const { rows: fichas } = await mt.query(`
           SELECT sucursal_id AS sitio, btrim(codigo_checador) AS codigo, coalesce(nombre_completo, nombre) AS nombre, activo,
-                 (es_promotora OR coalesce(departamento, '') ~* 'promotor') AS promotora
+                 -- La regla vigente de Mega Talento (3938723, 08/10/2026): «PROMOTORIA MEGA DULCES» es piso.
+                 (es_promotora OR (coalesce(departamento, '') ~* 'promotor' AND coalesce(departamento, '') !~* 'mega\\s*dulces')) AS promotora
             FROM empleados WHERE btrim(coalesce(codigo_checador, '')) <> ''`);
         const rol = (await trx('identity.users').first('role_name'))?.role_name ?? 'superadmin';
         await trx('identity.departments').insert({ tenant_id: TENANT, code: 'mt_promotoria_simulada', name: 'Promotoría (simulada para la paridad)' });

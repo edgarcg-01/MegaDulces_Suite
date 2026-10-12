@@ -99,6 +99,16 @@ export interface HrDiaAsistencia {
   comidaExcesoMin?: number | null;
   salidaAntesMin?: number | null;
   esperadoMin?: number | null;
+  // ── `[RH.1.10]` Horas extra y ajustes del día (Mega Talento ee4ff38) ──
+  /** A qué hora debía salir ese día (su referencia de entrada + su jornada). */
+  salidaEsperada?: string | null;
+  /** Horas extra GANADAS ese día, en bloques de 30 min. */
+  extraMin?: number;
+  /** «Desayuno distinto» / «Comida distinta»: los minutos que RH autorizó ese día. */
+  desayunoPermitidoMin?: number;
+  comidaPermitidaMin?: number;
+  /** «Cambio de día de descanso»: este día pasó a ser su descanso, o a ser de trabajo. */
+  descansoCambio?: 'descansa' | 'trabaja';
 }
 
 /** Una semana de nómina (jueves a miércoles) con su bolsa de tolerancia. */
@@ -173,6 +183,12 @@ export interface HrPersonaAsistencia {
   bloqueadoPor: string[];
   horarioAsignado: HrHorarioAsignado | null;
   minutosEsperados: number | null;
+  /** `[RH.1.10]` Horas extra ganadas en el periodo (bloques de 30 min después de su salida). */
+  horasExtraGanadasMin: number;
+  /** Horas extra que usó en el periodo («Uso de horas extra»). */
+  horasExtraUsadasMin: number;
+  /** Contra qué salida se midieron: la de su horario asignado, la deducida, o null si no se le calculan. */
+  horasExtraSegun: 'asignado' | 'deducido' | null;
 }
 
 /** `GET /hr/attendance/report` — la asistencia de un sitio en un rango. */
@@ -322,6 +338,80 @@ export interface HrCierreDto {
   vigente: boolean;
   /** Sólo en `GET /closures/:id`: la foto de la semana tal como se cerró. */
   snapshot?: HrAsistenciaResponse;
+}
+
+// ── `[RH.1.10]` Banco de horas extra ───────────────────────────────────────────────────────
+
+/** Un día en que ganó horas extra. */
+export interface HrDiaHorasExtraDto {
+  fecha: string;
+  entrada: string | null;
+  salida: string | null;
+  /** A qué hora debía salir ese día. */
+  salidaEsperada: string | null;
+  extraMin: number;
+}
+
+/** Un «Uso de horas extra» dentro del banco. */
+export interface HrUsoHorasExtraDto {
+  id: string;
+  desde: string;
+  hasta: string;
+  /** Minutos por día. */
+  minutos: number;
+  /** Días dentro del banco (desde que arranca hasta la fecha pedida). */
+  dias: number;
+  totalMin: number;
+  nota: string;
+}
+
+/** Un ajuste de RH al banco: saldo inicial o corrección, con signo. */
+export interface HrAjusteHorasExtraDto {
+  id: string;
+  fecha: string;
+  /** Con signo: +330 suma 5 h 30 min; −60 resta 1 h. */
+  minutos: number;
+  motivo: string;
+  creadoPor: string;
+  creadoEn: string;
+}
+
+export interface HrPersonaHorasExtraDto {
+  codigo: string;
+  nombreCompleto: string;
+  departamento: string | null;
+  /** Contra qué salida se midió: su horario asignado o el deducido. */
+  segun: 'asignado' | 'deducido' | null;
+  salida: string | null;
+  ganadasMin: number;
+  usadasMin: number;
+  ajustesMin: number;
+  saldoMin: number;
+  ganadas: HrDiaHorasExtraDto[];
+  usos: HrUsoHorasExtraDto[];
+  ajustes: HrAjusteHorasExtraDto[];
+}
+
+/** `GET /hr/attendance/overtime` — el banco de horas extra de un sitio (o de una persona). */
+export interface HrBancoHorasExtraDto {
+  sucursalId: string;
+  desde: string;
+  hasta: string;
+  bloqueMin: number;
+  /** Personas de planta a las que NO se les calculan (medio tiempo, rotativo o sin horario). */
+  sinHorarioFijo: number;
+  personas: HrPersonaHorasExtraDto[];
+}
+
+/** `POST /hr/attendance/overtime/adjustments`. */
+export interface HrAjusteHorasExtraBody {
+  site_code: string;
+  person_code: string;
+  /** Con signo, distinto de cero. */
+  minutes: number;
+  reason: string;
+  /** yyyy-MM-dd; hoy si no viene. */
+  effective_date?: string;
 }
 
 /**
