@@ -74,12 +74,6 @@ export const CATALOGO_TABS: PageTab[] = [
   {
     label: 'Reportes',
     route: '/compras/catalogo/reporte',
-  // `[NAV.2]` Estaba suelta en el sidebar, en el grupo «Catálogo». Es normalización DEL
-  // catálogo (RA-PRO.12): el campo `categoria` de Wincaja viene sobrecargado —plaza +
-  // proveedor + tipo + estatus— y acá se ven todas con su conteo de productos y proveedores,
-  // y se renombran. Su permiso propio viaja con ella: nadie gana ni pierde acceso.
-  { label: 'Categorías', route: '/compras/categorias', icon: 'pi pi-folder',
-    permission: Permission.COMPRAS_CATEGORIAS_VER },
     icon: 'pi pi-print',
     permission: Permission.COMMERCIAL_PRODUCTS_VER,
   },
