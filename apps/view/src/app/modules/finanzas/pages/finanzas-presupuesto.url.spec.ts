@@ -76,8 +76,9 @@ describe('PU.DIR.0 · la vista de /presupuesto viaja en la URL', () => {
 
   it('⛔ NEGATIVA — sin parámetro no inventa vista, no consulta de más y no escribe la URL', () => {
     // ⚠️ El default dejó de ser Ejercicio el día que entró `[PU.DIR.1]`: `/presupuesto` abre en
-    // Dirección. Se afirma el literal y NO la constante del componente: un test que importa la
-    // constante que vigila se pone verde aunque la constante esté mal.
+    // Dirección, y lo decidió Edgar — no el carril. Se afirma el literal y NO la constante del
+    // componente: un test que importa la constante que vigila se pone verde aunque la constante
+    // esté mal.
     const { cmp, http, navigate } = montar({});
     expect(cmp.view()).toBe('direccion');
     expect(consultasDeFlujo(http)).toBe(0);
