@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
+import { armarMatriz, ExistenciaCelda } from './existencia-agregado';
 
 /**
  * EXISTENCIA — la matriz producto × almacén, derivada del ERP. Vive en DOS proyectos
@@ -82,6 +83,10 @@ import { TenantKnexService, TenantContextService } from '@megadulces/platform-co
  *
  * Invertir 3 y 4 devuelve los 4.4 s.
  *
+ * ⭐ [EX-PERF.3] Desde 2026-10-12 los pasos 2-4 ya no van en SQL: la consulta arma una FOTO de las
+ * celdas una vez por minuto y el agregado/orden/página corre en memoria (existencia-agregado.ts).
+ * La receta de arriba sigue explicando por qué el agregado no puede pedirse por página a la base.
+ *
  * ⚠️ SIN BACKTICKS DENTRO DE LOS COMENTARIOS SQL de este archivo: van dentro de template literals
  * de JS y rompen el build (pasó 4 veces esta semana).
  */
@@ -132,73 +137,59 @@ export class ExistenciaService {
     private readonly tenantCtx: TenantContextService,
   ) {}
 
-  /** Whitelist de orden. NUNCA se interpola el input del usuario: sólo la llave decide. */
-  private sortExpr(key?: string): string {
-    const map: Record<string, string> = {
-      valor: 'valor',
-      sku: 'sku',
-      nombre: 'nombre',
-      existencia: 'total_cajas',
-      almacenes: 'n_almacenes',
-      sin_valuar: 'sin_valuar',
-    };
-    return map[key || ''] || 'valor';
+  /**
+   * `[EX-PERF.3]` La FOTO de las celdas (producto × almacén) del tenant, ya unidas con su factor,
+   * su costo, su veredicto y su política. Es el CTE `src` de siempre, SIN los filtros de la
+   * pantalla: los filtros, el agregado, el orden y la página se resuelven en memoria
+   * (`existencia-agregado.ts`).
+   *
+   * Por qué: la consulta completa costaba 1.1–1.3 s en prod POR LLAMADA (medido 2026-10-12), y la
+   * pantalla la pagaba en cada teclazo, cada filtro y cada página. El piso es armar el join de
+   * ~30,600 celdas, no el plan — forzar hash joins sólo ganaba ~10 %. Armado una vez por minuto,
+   * cada interacción baja a milisegundos.
+   *
+   * Política de frescura (stale-while-revalidate, una sola recarga a la vez por tenant):
+   *   - foto de menos de FOTO_RECARGAR_MS → se sirve tal cual;
+   *   - entre eso y FOTO_VENCE_MS → se sirve y se recarga en segundo plano;
+   *   - más vieja, o no hay → se espera la recarga.
+   * ⛔ La edad de la foto se DECLARA en `freshness` (rama `foto`): la existencia es volátil y una
+   * tabla calculada hace un minuto no puede rotularse como si fuera de este segundo.
+   */
+  private static readonly FOTO_RECARGAR_MS = 45_000;
+  private static readonly FOTO_VENCE_MS = 5 * 60_000;
+  private fotos = new Map<string, { at: number; celdas: ExistenciaCelda[]; auxListo: boolean }>();
+  private recargas = new Map<string, Promise<{ at: number; celdas: ExistenciaCelda[]; auxListo: boolean }>>();
+
+  private async foto(tenantId: string) {
+    const f = this.fotos.get(tenantId);
+    const edad = f ? Date.now() - f.at : Infinity;
+    if (f && edad < ExistenciaService.FOTO_RECARGAR_MS) return f;
+    if (f && edad < ExistenciaService.FOTO_VENCE_MS) {
+      // Se sirve la que hay y se recarga detrás. Un error en segundo plano NO tumba la pantalla:
+      // la foto vieja sigue declarando su edad, y vencida se vuelve a intentar en primer plano.
+      this.recargar(tenantId).catch((e) => this.logger.warn(`recarga de la foto de existencia falló: ${e.message}`));
+      return f;
+    }
+    return this.recargar(tenantId);
   }
 
-  async list(q: ExistenciaQuery) {
-    const tenantId = this.tenantCtx.requireTenantId();
-    const page = Math.max(1, Number(q.page) || 1);
-    const cap = q.export ? 100000 : 500;
-    const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
-    const binds: Record<string, unknown> = { t: tenantId };
+  private recargar(tenantId: string) {
+    const enCurso = this.recargas.get(tenantId);
+    if (enCurso) return enCurso;
+    const p = this.armarFoto(tenantId)
+      .then((v) => { this.fotos.set(tenantId, v); return v; })
+      .finally(() => this.recargas.delete(tenantId));
+    this.recargas.set(tenantId, p);
+    return p;
+  }
 
-    // ── Filtros. Todos van sobre el dataset COMPLETO, antes de paginar: si no, los totales
-    // mienten (un footer que suma 50 de 9,860 no es un total).
-    const filters: string[] = ['s.tenant_id = :t', 'p.activo = true', 'p.deleted_at IS NULL'];
-    if (q.supplier_id && UUID_RX.test(q.supplier_id)) { filters.push('p.supplier_id = :sup'); binds.sup = q.supplier_id; }
-    if (q.brand_id && UUID_RX.test(q.brand_id)) { filters.push('p.brand_id = :br'); binds.br = q.brand_id; }
-    if (q.category_id && UUID_RX.test(q.category_id)) { filters.push('p.category_id = :cat'); binds.cat = q.category_id; }
-    if (q.search && q.search.trim()) { filters.push('(p.sku ILIKE :s OR p.nombre ILIKE :s)'); binds.s = `%${q.search.trim()}%`; }
-
-    // Recorte de columnas: acota el ANCHO del pivot, no sólo las filas.
-    const codes = (q.warehouse_ids || '').split(',').map((c) => c.trim()).filter(Boolean);
-    if (codes.length) {
-      const inList = codes.map((_, i) => `:wc${i}`).join(',');
-      codes.forEach((c, i) => { binds[`wc${i}`] = c; });
-      filters.push(`s.warehouse_code IN (${inList})`);
-    }
-
-    // ── El divisor de presentación y el veredicto de unidad.
+  private async armarFoto(tenantId: string) {
+    const t0 = Date.now();
+    // El divisor de presentación y el veredicto de unidad.
     // `display_bf` viene del fact (donde el nocturno ya lo resolvió leyendo el resolvedor
-    // canónico); `vbf.box_factor` es el respaldo para las 603 filas de 52,340 (1.15%) que están
-    // en la vista viva pero todavía no en el fact — un SKU que apareció HOY se muestra igual.
+    // canónico); `vbf.box_factor` es el respaldo para las filas que están en la vista viva pero
+    // todavía no en el fact — un SKU que apareció HOY se muestra igual.
     const DBF = 'GREATEST(COALESCE(rp.display_bf, vbf.box_factor, 1), 1)';
-    // Sólo los veredictos EN CONTRA se persisten en el fact, así que NULL = "nada me impide
-    // convertir". `z_no_arbitrable` / `sin_dato` no entran: ausencia de árbitro no es veredicto.
-    // ⚠️ SIN calificar la tabla: se usa leyendo DE `src`, donde la columna ya viene desnuda.
-    // Calificarla con `rp.` reventaría con "missing FROM-clause entry for table rp".
-    const MEDIBLE = 'rung_veredicto IS NULL';
-
-    // `[W1.0/W1.3]` — La celda que se convierte SIN un factor con fuente. `factor_source` viene de
-    // `analytics.v_warehouse_box_factor`; `'default'`/`'none'` significan que NINGUNA de las cuatro
-    // fuentes declaró un factor, así que el divisor vale 1 y la cantidad nativa se publica en la
-    // columna de CAJAS como si 1 unidad fuera 1 caja. Eso no está verificado para ninguna de ellas.
-    // Y `is_weight` con un factor que NO vino de Wincaja es peor: el divisor cuenta PIEZAS por caja
-    // y se le aplica a kilos.
-    //
-    // ⚠️ Esto NO entra en `MEDIBLE`: se DECLARA, no se descuenta. Medido en prod el 2026-09-07,
-    // aplicar la regla estricta borraría entre 24% y 58% del total de cajas de CADA almacén
-    // —Kepler incluido: `01` pasaría de 29,774 a 18,854— y eso es una decisión de negocio, no una
-    // corrección técnica. Lo que sí corresponde es que el usuario VEA cuántas celdas del total
-    // están sostenidas por un divisor sin fuente (mismo patrón que `sin_valuar`).
-    // Dos formas del MISMO predicado, por la razón que ya documenta `MEDIBLE` unas líneas arriba:
-    // dentro de las CTEs que leen `FROM src` las columnas van DESNUDAS, y en el SELECT final —que
-    // hace `JOIN src`— hay que calificarlas o revienta con "missing FROM-clause entry".
-    const sinFactor = (t = '') => `(${t}rung_veredicto IS NULL
-        AND (${t}factor_source IN ('default','none')
-             OR (${t}is_weight AND ${t}factor_source <> 'wincaja_factor_venta')))`;
-    const SIN_FACTOR = sinFactor();
-    const SIN_FACTOR_SRC = sinFactor('src.');
 
     // El bucket se compara contra la cantidad NATIVA a propósito: los umbrales de
     // `commercial.reorder_policy` se derivan de la misma vista de existencia SIN convertir, así
@@ -211,290 +202,152 @@ export class ExistenciaService {
         WHEN pol.max_stock > 0 AND s.qty_stock_units > pol.max_stock THEN 'sobrestock'
         ELSE 'sano' END`;
 
-    return this.tk.run(async (trx) => {
+    return this.tk.run(tenantId, async (trx) => {
       // ⭐ [EX-PERF.2] Las dos vistas más caras del join, leídas de su copia materializada.
       //
       // Medido contra prod: de las 939,977 páginas que costaba devolver 50 filas,
       // `v_warehouse_box_factor` aportaba 194,173 y `v_kepler_unit_cost` 87,557 — se calculaban
       // ENTERAS en cada carga sólo para armar el hash del join. Con las dos materializadas, la
-      // consulta real bajó de **4,910 a 1,353 ms (3.6x)**, medido con tablas TEMP dentro de un
-      // ROLLBACK antes de construir nada.
+      // consulta real bajó de **4,910 a 1,353 ms (3.6x)**.
       //
       // Se pregunta si EXISTEN en vez de asumirlo por la fecha de la migración: el código y el
-      // DDL viajan por caminos distintos y llegan desordenados, así que ninguno de los dos puede
-      // romper al otro por entrar primero — la trampa de orden que casi tira la bandeja de caja.
+      // DDL viajan por caminos distintos y llegan desordenados.
       //
-      // ⛔ Que existan NO se confunde con que estén frescos: la edad la declara `freshness()`
-      // desde `analytics.cron_run_log`. Un materializado que dejó de refrescarse sirve datos
-      // viejos sin un solo error.
-      const auxListo = await this.memoized('mv_existencia_aux', 60_000, async () => {
-        const r = await trx.raw(`SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a,
-                                        to_regclass('analytics.mv_kepler_unit_cost')     AS b`);
-        return !!(r.rows?.[0]?.a && r.rows?.[0]?.b);   // o las DOS, o ninguna: no se mezcla
-      });
+      // ⛔ Que existan NO se confunde con que estén frescos: la edad la declara `freshness()`.
+      const ax = await trx.raw(`SELECT to_regclass('analytics.mv_warehouse_box_factor') AS a,
+                                       to_regclass('analytics.mv_kepler_unit_cost')     AS b`);
+      const auxListo = !!(ax.rows?.[0]?.a && ax.rows?.[0]?.b);   // o las DOS, o ninguna
       const FUENTE_VBF = auxListo ? 'analytics.mv_warehouse_box_factor' : 'analytics.v_warehouse_box_factor';
       const FUENTE_KC = auxListo ? 'analytics.mv_kepler_unit_cost' : 'analytics.v_kepler_unit_cost';
 
-      // PASO 1 — una sola pasada. MATERIALIZED es obligatorio: sin él, Postgres inlinea la CTE
-      // y la vista se escanea dos veces (medido: 2,317 ms contra 809 ms).
-      //
       // Los ALIAS se PLIEGAN, no se excluyen. El workbook de compras los excluye y ahí es
       // correcto ("qué comprar"), pero acá sería falso: un alias es mercancía en un anaquel.
-      const src = `
-        src AS MATERIALIZED (
-          SELECT COALESCE(pa.canonical_product_id, s.product_id) AS product_id,
-                 s.warehouse_code, s.warehouse_id,
-                 s.qty_stock_units AS nat,
-                 ${DBF} AS dbf,
-                 vbf.base_label, vbf.erp,
-                 COALESCE(vbf.factor_source, 'none') AS factor_source,
-                 COALESCE(vbf.is_weight, false)      AS is_weight,
-                 rp.rung_veredicto, rp.rung_bf_esperado, rp.rung_arbitrado,
-                 ${BUCKET} AS bucket,
-                 p.sku, p.nombre,
-                 -- KE.2 — el costo sale del MISMO ERP y del MISMO almacen que la cantidad.
-                 -- Ver la nota EL COSTO en el encabezado del archivo.
-                 --
-                 -- KX — el fallback del catalogo va BLINDADO con LEAST, y el motivo esta medido:
-                 -- en 62 SKUs las dos columnas del catalogo estan en UNIDADES DISTINTAS y al reves
-                 -- de lo que dicen sus nombres (cost_with_tax MENOR que cost_base, imposible para
-                 -- un impuesto). Contra el costo de Kepler, en esas filas cost_with_tax pega en 60
-                 -- de 101 con mediana 1.000 y cost_base solo en 21, con mediana 10.872: o sea
-                 -- cost_base trae el BULTO. Un LEAST resuelve los dos casos con una expresion:
-                 -- en el caso normal cost_with_tax >= cost_base y gana cost_base (el neto, que es
-                 -- lo que KE.2 quiere); en el invertido gana cost_with_tax (la unidad chica).
-                 -- Hoy ninguna de esas 101 filas llega hasta aca porque todas tienen costo del
-                 -- ERP; esto existe para el dia que Kepler deje de traer una y el fallback la
-                 -- valuaria ~10.9x arriba.
-                 COALESCE(kc.costo_unitario,
-                          CASE WHEN s.source = 'kepler_ods'
-                               THEN CASE WHEN COALESCE(p.cost_with_tax, 0) > 0
-                                          AND p.cost_with_tax < p.cost_base
-                                         THEN p.cost_with_tax ELSE p.cost_base END
-                               ELSE COALESCE(p.cost_with_tax, p.cost_base) END, 0) AS cu,
-                 CASE WHEN kc.costo_unitario IS NOT NULL      THEN 'erp'
-                      WHEN s.source = 'kepler_ods'
-                       AND COALESCE(p.cost_with_tax, 0) > 0
-                       AND p.cost_with_tax < p.cost_base      THEN 'catalogo_columnas_invertidas'
-                      WHEN s.source = 'kepler_ods'            THEN 'catalogo_neto'
-                      ELSE                                         'catalogo' END AS cu_source
-            FROM analytics.v_erp_stock_on_hand s
-            JOIN catalog.products p
-                 ON p.tenant_id = s.tenant_id AND p.id = s.product_id
-            LEFT JOIN commercial.product_aliases pa
-                 ON pa.tenant_id = s.tenant_id AND pa.alias_product_id = s.product_id
-                AND pa.deleted_at IS NULL
-            -- ↑ el alias se PLIEGA al canónico (COALESCE arriba). Hoy hay 1 activo; la regla
-            -- importa igual, porque el día que haya 50 la existencia no puede desaparecer.
-            LEFT JOIN analytics.replenishment_plan rp
-                 ON rp.tenant_id = s.tenant_id AND rp.warehouse_id = s.warehouse_id
-                AND rp.product_id = s.product_id
-            LEFT JOIN ${FUENTE_VBF} vbf
-                 ON vbf.tenant_id = s.tenant_id AND vbf.warehouse_id = s.warehouse_id
-                AND vbf.product_id = s.product_id
-            LEFT JOIN commercial.reorder_policy pol
-                 ON pol.tenant_id = s.tenant_id AND pol.warehouse_id = s.warehouse_id
-                AND pol.product_id = s.product_id
-            -- KE.2 — el costo propio de Kepler por almacen x producto. Se LEE de la vista, no se
-            -- re-deriva: un primitivo con dos implementaciones es un primitivo que va a divergir.
-            -- Y ojo: se une por s.product_id (el CRUDO), NO por el canonico del alias — kdik
-            -- mapea por el SKU real de la sucursal.
-            LEFT JOIN ${FUENTE_KC} kc
-                 ON kc.tenant_id = s.tenant_id AND kc.warehouse_id = s.warehouse_id
-                AND kc.product_id = s.product_id
-           WHERE ${filters.join(' AND ')}
-        )`;
-
-      // PASO 2 — agregado por producto SIN jsonb, con los totales de la RED por window.
-      // El valor suma SÓLO lo medible: una celda cuyo peldaño el costo contradice no se valúa
-      // (regla U.2b — NULL con motivo, jamás 0, porque 0 se lee "no cuesta nada").
-      const aggFilters: string[] = [];
-      if (q.bucket && ['agotado', 'bajo_minimo', 'bajo_reorden', 'sano', 'sobrestock'].includes(q.bucket)) {
-        aggFilters.push('buckets @> to_jsonb(:bkt::text)'); binds.bkt = q.bucket;
-      }
-      if (q.only_unverified === '1') aggFilters.push('sin_valuar > 0');
-      if (q.hide_zero === '1') aggFilters.push('hay_existencia');
-      const having = aggFilters.length ? `WHERE ${aggFilters.join(' AND ')}` : '';
-      const dir = (q.sort_dir || '').toLowerCase() === 'asc' ? 'ASC' : 'DESC';
-
+      //
+      // [EX.U2] El PAQUETE sale de la ficha de Kepler de ESE almacén (`v_kepler_unit_ladder`:
+      // `c80`/`c81` = rótulo y unidades base del peldaño 2). Sólo se toma cuando de verdad es un
+      // peldaño INTERMEDIO: más de 1 unidad base y menos que la caja que ya divide la cantidad.
+      // Si no, la celda se desglosa en cajas + unidad base, sin paquete inventado.
       const sql = `
-        WITH ${src},
-        agg0 AS (
-          SELECT product_id, max(sku) AS sku, max(nombre) AS nombre,
-                 sum(CASE WHEN ${MEDIBLE} THEN nat * cu END)              AS valor,
-                 -- ⛔ NO sumar nat crudo: cada almacén lo guarda en SU unidad nativa (kg en un
-                 -- granel de Kepler, paquetes en un multipack de Wincaja, piezas en el resto), y
-                 -- sumarlos da un número que no está en ninguna unidad. Es exactamente la clase
-                 -- de error que cerró U.2b. La CAJA es la única unidad que los dos ERPs declaran,
-                 -- así que el total comparable va en cajas y SÓLO de las celdas medibles.
-                 sum(CASE WHEN ${MEDIBLE} THEN nat / dbf END)             AS total_cajas,
-                 -- Para "esconder los que no tienen nada" no hace falta sumar: basta preguntar.
-                 bool_or(nat > 0)                                         AS hay_existencia,
-                 count(*) FILTER (WHERE nat > 0)::int                     AS n_almacenes,
-                 count(*) FILTER (WHERE NOT (${MEDIBLE}))::int            AS sin_valuar,
-                 -- [W1.0/W1.3] celdas que SÍ entran al total de cajas pero con un divisor sin
-                 -- fuente. No se descuentan: se cuentan, para que el total no se lea como si
-                 -- todas sus celdas tuvieran un factor verificado.
-                 count(*) FILTER (WHERE ${SIN_FACTOR})::int               AS sin_factor,
-                 -- KE.2 — celdas valuadas con el catalogo porque el ERP no dio su costo. NO se
-                 -- descuentan del valor (un costo del catalogo es mejor que ninguno): se CUENTAN,
-                 -- para que el total no se lea como si todo estuviera valuado con el costo del ERP.
-                 count(*) FILTER (WHERE cu_source <> 'erp' AND nat > 0)::int AS sin_costo_erp,
-                 -- KX — celdas donde el fallback tuvo que corregir las columnas del catalogo
-                 -- (cost_with_tax < cost_base). Hoy da 0 porque todas tienen costo del ERP; si
-                 -- deja de dar 0, el catalogo empezo a valuar bultos como piezas en la pantalla.
-                 count(*) FILTER (WHERE cu_source = 'catalogo_columnas_invertidas' AND nat > 0)::int
-                   AS costo_invertido,
-                 sum(rung_arbitrado) FILTER (WHERE NOT (${MEDIBLE}))      AS arbitrado,
-                 jsonb_agg(DISTINCT bucket) FILTER (WHERE bucket IS NOT NULL) AS buckets
-            FROM src GROUP BY product_id
-        ),
-        agg AS (
-          SELECT *,
-                 count(*) OVER()::int                        AS _skus,
-                 sum(valor) OVER()                           AS _valor,
-                 sum(sin_valuar) OVER()::int                 AS _celdas_sin_valuar,
-                 sum(sin_factor) OVER()::int                 AS _celdas_sin_factor,
-                 sum(sin_costo_erp) OVER()::int              AS _celdas_sin_costo_erp,
-                 sum(costo_invertido) OVER()::int            AS _celdas_costo_invertido,
-                 count(*) FILTER (WHERE sin_factor > 0) OVER()::int AS _skus_sin_factor,
-                 sum(arbitrado) OVER()                       AS _arbitrado,
-                 count(*) FILTER (WHERE sin_valuar > 0) OVER()::int AS _skus_sin_valuar
-            FROM agg0 ${having}
-        ),
-        pg AS (
-          SELECT * FROM agg
-           ORDER BY ${this.sortExpr(q.sort_by)} ${dir} NULLS LAST, sku
-           LIMIT ${pageSize} OFFSET ${(page - 1) * pageSize}
-        ),
-        -- Los totales POR ALMACÉN (la fila congelada del pie, que O.2 exige) van en el MISMO
-        -- statement a propósito: como una segunda consulta costaban una pasada entera de más
-        -- (medido: 5,517 ms contra ~1 s). Acá reusan la materialización de src, que es justo
-        -- para lo que MATERIALIZED está.
-        tw AS (
-          SELECT jsonb_agg(x ORDER BY x->>'code') AS per_warehouse FROM (
-            SELECT jsonb_build_object(
-                     'code', warehouse_code,
-                     'valor', round(sum(CASE WHEN ${MEDIBLE} THEN nat * cu END)::numeric, 2),
-                     'cajas', round(sum(CASE WHEN ${MEDIBLE} THEN nat / dbf END)::numeric, 1),
-                     'sin_valuar', count(*) FILTER (WHERE NOT (${MEDIBLE}))::int,
-                     'sin_factor', count(*) FILTER (WHERE ${SIN_FACTOR})::int,
-                     'skus_con_existencia', count(*) FILTER (WHERE nat > 0)::int
-                   ) AS x
-              FROM src GROUP BY warehouse_code) z
-        )
-        -- PASO 4 — el pivot, SÓLO sobre la página. src ya está materializada: no re-escanea.
-        -- Cada celda declara su propio veredicto: cuando el peldaño está en contra viaja la
-        -- cantidad NATIVA con su rótulo del ERP y NO la cifra en cajas, que sería inventada.
-        SELECT pg.product_id, pg.sku, pg.nombre,
-               round(pg.valor::numeric, 2)      AS valor,
-               round(pg.total_cajas::numeric, 1) AS total_cajas,
-               pg.n_almacenes, pg.sin_valuar, pg.sin_factor,
-               round(pg.arbitrado::numeric, 2)  AS arbitrado,
-               pg.buckets,
-               pg._skus, round(pg._valor::numeric, 2) AS _valor,
-               pg._celdas_sin_valuar, round(pg._arbitrado::numeric, 2) AS _arbitrado,
-               pg._skus_sin_valuar, pg._celdas_sin_factor, pg._skus_sin_factor,
-               tw.per_warehouse AS _per_warehouse,
-               jsonb_object_agg(src.warehouse_code, jsonb_strip_nulls(jsonb_build_object(
-                 'q',    CASE WHEN src.rung_veredicto IS NULL THEN round((src.nat / src.dbf)::numeric, 1) END,
-                 'val',  CASE WHEN src.rung_veredicto IS NULL THEN round((src.nat * src.cu)::numeric, 2) END,
-                 -- [EX.U] La cantidad NATIVA viaja SIEMPRE, no sólo cuando el peldaño está
-                 -- contradicho. Antes iba condicionada y por eso la pantalla no podía ofrecer
-                 -- "ver en unidad nativa": para las ~6,600 celdas sanas no tenía con qué.
-                 -- Es el dato que el ERP guarda de verdad; la caja es una DIVISIÓN de éste
-                 -- (ADR-055: el divisor es de presentación, el dato base no se convierte).
-                 -- ⛔ Y no se puede SUMAR entre almacenes: ver la nota del rollup de arriba.
-                 'nat',  round(src.nat::numeric, 2),
-                 'natu', src.base_label,
-                 'rung', src.rung_veredicto,
-                 -- [W1.0/W1.3] la celda declara que su cifra en cajas se apoya en un divisor SIN
-                 -- fuente. jsonb_strip_nulls borra la clave cuando no aplica, así que su sola
-                 -- presencia es la señal y no engorda el payload de las ~6,600 celdas sanas.
-                 -- (sin acentos graves acá: este SQL vive dentro de un template literal)
-                 'nf',   CASE WHEN ${SIN_FACTOR_SRC}
-                              THEN CASE WHEN src.is_weight THEN 'peso' ELSE 'sin_factor' END END,
-                 'b',    src.bucket
-               ))) AS cells
-          FROM pg CROSS JOIN tw JOIN src ON src.product_id = pg.product_id
-         GROUP BY pg.product_id, pg.sku, pg.nombre, pg.valor, pg.total_cajas, pg.n_almacenes,
-                  pg.sin_valuar, pg.sin_factor, pg.arbitrado, pg.buckets, pg._skus, pg._valor,
-                  pg._celdas_sin_valuar, pg._arbitrado, pg._skus_sin_valuar,
-                  pg._celdas_sin_factor, pg._skus_sin_factor, pg._celdas_sin_costo_erp,
-                  pg._celdas_costo_invertido, pg.costo_invertido,
-                  pg.sin_costo_erp, tw.per_warehouse
-         ORDER BY ${this.sortExpr(q.sort_by)} ${dir} NULLS LAST, pg.sku`;
+        SELECT COALESCE(pa.canonical_product_id, s.product_id) AS product_id,
+               s.warehouse_code,
+               s.qty_stock_units::float8 AS nat,
+               ${DBF}::float8 AS dbf,
+               vbf.base_label,
+               COALESCE(vbf.factor_source, 'none') AS factor_source,
+               COALESCE(vbf.is_weight, false)      AS is_weight,
+               rp.rung_veredicto, rp.rung_arbitrado::float8 AS rung_arbitrado,
+               ${BUCKET} AS bucket,
+               p.sku, p.nombre, p.supplier_id, p.brand_id, p.category_id,
+               -- KE.2 — el costo sale del MISMO ERP y del MISMO almacen que la cantidad.
+               -- KX — el fallback del catalogo va BLINDADO (ver la nota EL COSTO arriba).
+               COALESCE(kc.costo_unitario,
+                        CASE WHEN s.source = 'kepler_ods'
+                             THEN CASE WHEN COALESCE(p.cost_with_tax, 0) > 0
+                                        AND p.cost_with_tax < p.cost_base
+                                       THEN p.cost_with_tax ELSE p.cost_base END
+                             ELSE COALESCE(p.cost_with_tax, p.cost_base) END, 0)::float8 AS cu,
+               CASE WHEN kc.costo_unitario IS NOT NULL      THEN 'erp'
+                    WHEN s.source = 'kepler_ods'
+                     AND COALESCE(p.cost_with_tax, 0) > 0
+                     AND p.cost_with_tax < p.cost_base      THEN 'catalogo_columnas_invertidas'
+                    WHEN s.source = 'kepler_ods'            THEN 'catalogo_neto'
+                    ELSE                                         'catalogo' END AS cu_source,
+               CASE WHEN lad.f2_cap > 1 AND lad.f2_cap < ${DBF}
+                     AND lad.u2_label IS DISTINCT FROM lad.u1_label
+                    THEN lad.f2_cap::float8 END AS pf,
+               CASE WHEN lad.f2_cap > 1 AND lad.f2_cap < ${DBF}
+                     AND lad.u2_label IS DISTINCT FROM lad.u1_label
+                    THEN lad.u2_label END AS pu
+          FROM analytics.v_erp_stock_on_hand s
+          JOIN catalog.products p
+               ON p.tenant_id = s.tenant_id AND p.id = s.product_id
+          LEFT JOIN commercial.product_aliases pa
+               ON pa.tenant_id = s.tenant_id AND pa.alias_product_id = s.product_id
+              AND pa.deleted_at IS NULL
+          LEFT JOIN analytics.replenishment_plan rp
+               ON rp.tenant_id = s.tenant_id AND rp.warehouse_id = s.warehouse_id
+              AND rp.product_id = s.product_id
+          LEFT JOIN ${FUENTE_VBF} vbf
+               ON vbf.tenant_id = s.tenant_id AND vbf.warehouse_id = s.warehouse_id
+              AND vbf.product_id = s.product_id
+          LEFT JOIN commercial.reorder_policy pol
+               ON pol.tenant_id = s.tenant_id AND pol.warehouse_id = s.warehouse_id
+              AND pol.product_id = s.product_id
+          -- KE.2 — se une por s.product_id (el CRUDO), NO por el canonico del alias.
+          LEFT JOIN ${FUENTE_KC} kc
+               ON kc.tenant_id = s.tenant_id AND kc.warehouse_id = s.warehouse_id
+              AND kc.product_id = s.product_id
+          LEFT JOIN commercial.warehouses w
+               ON w.tenant_id = s.tenant_id AND w.id = s.warehouse_id
+          LEFT JOIN analytics.v_kepler_unit_ladder lad
+               ON s.source = 'kepler_ods' AND lad.sucursal = w.kepler_code AND lad.sku = s.sku
+         WHERE s.tenant_id = :t AND p.activo = true AND p.deleted_at IS NULL`;
 
-      // ⭐ [EX-PERF.1] JIT APAGADO PARA ESTA CONSULTA, y no es cautela: está medido.
-      //
-      // El plan de prod compila **821 funciones** de JIT para una consulta que devuelve 50 filas.
-      // A ese volumen la compilación no se amortiza: se paga entera antes de empezar a trabajar.
-      // Medido contra prod el 2026-09-24, tres pasadas seguidas sobre la MISMA consulta (la real,
-      // sacada del log de Postgres con sus parámetros, no una parecida):
-      //
-      //     jit on ....... 5,812 ms
-      //     jit off ...... 4,757 ms   ·  segunda pasada 4,285 ms     ≈ 20 %
-      //
-      // Mismo remedio y mismo motivo que `[RA-PERF]` en `import-replenishment-plan.js`.
-      //
-      // ⛔ NO alcanza, y conviene decirlo acá para que nadie crea que esto cerró el tema: la
-      // pantalla tardaba **27 s de LCP** y el grueso no es el JIT sino los buffers. El plan toca
-      // **939,977 páginas (~7.5 GB) para 50 filas**, y el 100 % de eso vive dentro del CTE `src`:
-      //     vista de existencia (base) ........... 226,674
-      //     + replenishment_plan y reorder_policy . 431,569
-      //     + v_warehouse_box_factor (vbf) ........ 194,173   ← el join más caro
-      //     + costo de Kepler (kc) ................  87,557
-      // `vbf` y `kc` son VISTAS que se calculan ENTERAS en cada carga para armar el hash (`vbf`
-      // tiene 180,272 llaves en este tenant, medido). Materializarlas es legítimo por costo
-      // (GOTCHAS §19) pero es un cambio con su propia verificación — queda DECLARADO con su
-      // número, no escondido.
+      // ⭐ [EX-PERF.1] JIT apagado: compilaba 821 funciones para una consulta de lectura
+      // (medido 5,812 → 4,757 ms). Mismo remedio que `[RA-PERF]`.
       await trx.raw('SET LOCAL jit = off');
-      const rows = (await trx.raw(sql, binds)).rows;
-      const agg: any = rows[0] || {};
-
-      const totWh = agg._per_warehouse || [];
-
-      return {
-        rows,
-        columns: await this.memoized(`cols:${tenantId}`, 60_000,
-          () => this.columns(trx, tenantId, [], totWh.map((w: any) => w.code)))
-          .then((all: any[]) => (codes.length ? all.filter((r) => codes.includes(r.code)) : all)),
-        totals: {
-          skus: Number(agg._skus || 0),
-          valor: agg._valor == null ? null : Number(agg._valor),
-          celdas_sin_valuar: Number(agg._celdas_sin_valuar || 0),
-          skus_sin_valuar: Number(agg._skus_sin_valuar || 0),
-          // [W1.0/W1.3] celdas que SÍ suman al total de cajas con un divisor sin fuente. Se
-          // publican para que el total no se lea como si todo tuviera factor verificado.
-          celdas_sin_factor: Number(agg._celdas_sin_factor || 0),
-          skus_sin_factor: Number(agg._skus_sin_factor || 0),
-          // KE.2 — celdas cuyo costo salio del CATALOGO y no del ERP. La procedencia del valor
-          // se declara: sin esto, el total se lee como si todo estuviera valuado con el costo
-          // del almacen (ADR-056).
-          celdas_sin_costo_erp: Number(agg._celdas_sin_costo_erp || 0),
-          // KX — el METODO con el que se valuo, dicho en vez de supuesto. El costo del ERP
-          // (kdik.c16 = c8/c5) es un PROMEDIO PONDERADO HISTORICO: c5 son las entradas
-          // acumuladas, identico a SUM(kdil.c8) en 25,143 de 25,143 pares (100.00%). Contra el
-          // ultimo costo conocido (c18) la mediana es 0.9805, o sea el inventario se valua ~2%
-          // por debajo del costo de reposicion, de forma sistematica. Publicarlo sin decirlo
-          // seria hacerlo pasar por costo de reposicion.
-          metodo_valuacion: 'erp_promedio_ponderado_historico',
-          // KX — celdas donde el catalogo trae sus dos columnas de costo en unidades distintas
-          // y el fallback tuvo que elegir la chica. Un 0 aca es la salud esperada.
-          celdas_costo_invertido: Number(agg._celdas_costo_invertido || 0),
-          // Lo que el árbitro (el costo pagado) SÍ puede afirmar de lo retenido. Es REFERENCIA
-          // para revisar, no una cifra publicable — el front tiene que rotularla así.
-          arbitrado: agg._arbitrado == null ? null : Number(agg._arbitrado),
-          per_warehouse: totWh,
-        },
-        // [EX-PERF.2] auxListo entra en la LLAVE del memo, no solo en el argumento: si no, la
-        // primera respuesta cacheada gana 30 s y la pantalla podria declarar la procedencia de
-        // la otra ruta. Un cache que devuelve la procedencia equivocada es peor que no tenerlo.
-        freshness: await this.memoized(`fresh:${tenantId}:${auxListo ? 'mv' : 'vivo'}`, 30_000,
-          () => this.freshness(trx, tenantId, auxListo)),
-        page, pageSize, total: Number(agg._skus || 0),
-      };
+      const celdas: ExistenciaCelda[] = (await trx.raw(sql, { t: tenantId })).rows.map((r: any) => ({
+        ...r,
+        nat: Number(r.nat) || 0,
+        dbf: Number(r.dbf) || 1,
+        cu: Number(r.cu) || 0,
+        rung_arbitrado: r.rung_arbitrado == null ? null : Number(r.rung_arbitrado),
+        pf: r.pf == null ? null : Number(r.pf),
+        sku: r.sku ?? '',
+        nombre: r.nombre ?? '',
+      }));
+      this.logger.log(`foto de existencia: ${celdas.length} celdas en ${Date.now() - t0} ms`);
+      return { at: Date.now(), celdas, auxListo };
     });
+  }
+
+  async list(q: ExistenciaQuery) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const page = Math.max(1, Number(q.page) || 1);
+    const cap = q.export ? 100000 : 500;
+    const pageSize = Math.min(cap, Math.max(1, Number(q.pageSize) || (q.export ? cap : 50)));
+    const codes = (q.warehouse_ids || '').split(',').map((c) => c.trim()).filter(Boolean);
+
+    const foto = await this.foto(tenantId);
+    // Los filtros van sobre el dataset COMPLETO, antes de paginar: si no, los totales mienten
+    // (un footer que suma 50 de 9,860 no es un total).
+    const m = armarMatriz(foto.celdas, {
+      supplier_id: q.supplier_id && UUID_RX.test(q.supplier_id) ? q.supplier_id : undefined,
+      brand_id: q.brand_id && UUID_RX.test(q.brand_id) ? q.brand_id : undefined,
+      category_id: q.category_id && UUID_RX.test(q.category_id) ? q.category_id : undefined,
+      search: q.search,
+      codes,
+      bucket: q.bucket,
+      only_unverified: q.only_unverified === '1',
+      hide_zero: q.hide_zero === '1',
+      sort_by: q.sort_by, sort_dir: q.sort_dir,
+      page, pageSize,
+    });
+    const totWh = m.totals.per_warehouse;
+
+    return this.tk.run(async (trx) => ({
+      rows: m.rows,
+      columns: await this.memoized(`cols:${tenantId}`, 60_000,
+        () => this.columns(trx, tenantId, [], totWh.map((w) => w.code)))
+        .then((all: any[]) => (codes.length ? all.filter((r) => codes.includes(r.code)) : all)),
+      totals: {
+        ...m.totals,
+        // KX — el METODO con el que se valuo, dicho en vez de supuesto. El costo del ERP
+        // (kdik.c16 = c8/c5) es un PROMEDIO PONDERADO HISTORICO: contra el ultimo costo conocido
+        // (c18) la mediana es 0.9805, o sea ~2% por debajo del costo de reposicion.
+        metodo_valuacion: 'erp_promedio_ponderado_historico',
+      },
+      // [EX-PERF.2] auxListo entra en la LLAVE del memo: un cache que devuelve la procedencia de
+      // la otra ruta es peor que no tenerlo.
+      freshness: [
+        ...(await this.memoized(`fresh:${tenantId}:${foto.auxListo ? 'mv' : 'vivo'}`, 30_000,
+          () => this.freshness(trx, tenantId, foto.auxListo))),
+        // [EX-PERF.3] el tramo nuevo: la tabla se calcula sobre una foto de hasta un minuto.
+        { rama: 'foto', label: 'Tabla calculada', dato_al: new Date(foto.at).toISOString(),
+          minutos: Math.round((Date.now() - foto.at) / 6000) / 10 },
+      ],
+      page, pageSize, total: m.total,
+    }));
   }
 
   /**

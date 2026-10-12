@@ -40,6 +40,16 @@ export interface ExistenciaCell {
    * el 2026-09-07, y es decisión de negocio): se DECLARA.
    */
   nf?: 'sin_factor' | 'peso';
+  /**
+   * `[EX.U2]` Los divisores con los que se calculó `q`, para que la pantalla desglose la cantidad
+   * en cajas / paquetes / piezas en vez de mostrar una caja con decimales.
+   *   · `bf` — unidades base por caja (el mismo divisor de `q`).
+   *   · `pf`/`pu` — unidades base por paquete y su rótulo, según la ficha de Kepler de ese
+   *     almacén. Ausentes cuando no hay peldaño intermedio.
+   */
+  bf?: number;
+  pf?: number;
+  pu?: string;
   /** Bucket contra la política de reorden de ESE almacén. Ausente si el producto no tiene política. */
   b?: 'agotado' | 'bajo_minimo' | 'bajo_reorden' | 'sano' | 'sobrestock';
 }
