@@ -164,7 +164,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
           </button>
           <button type="button" [class.on]="unidad() === 'nativa'" (click)="setUnidad('nativa')"
                   [attr.aria-pressed]="unidad() === 'nativa'"
-                  title="Cantidad en la unidad NATIVA de cada almacén (kg, paquetes, piezas…), tal como la guarda su ERP. Sin dividir y sin convertir. ⛔ No se suma entre almacenes: los totales quedan en raya.">
+                  title="Cantidad en la unidad NATIVA de cada almacén (kg, paquetes, piezas…), tal como la guarda su ERP. Sin dividir y sin convertir. No se suma entre almacenes: los totales quedan en raya.">
             Unidad del ERP
           </button>
         </div>
@@ -319,7 +319,7 @@ type Sev = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast';
         @if (detail().length) {
           <!-- [UIM.1] Caso de APILADO POR CAMPOS: las 8 columnas son campos de UN almacen, asi que
                apilar es correcto (a diferencia de la matriz de arriba, que pierde un eje).
-               ⚠️ El .dt-scope va acá y NO en el <table>: un elemento no puede ser su propio
+               Ojo: el .dt-scope va acá y NO en el <table>: un elemento no puede ser su propio
                contenedor de consulta, se mediria a si mismo despues de encogerse. -->
           <div class="dt-scope">
           <table class="ex-detail dt-stack">
