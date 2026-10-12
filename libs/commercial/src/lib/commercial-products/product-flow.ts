@@ -939,6 +939,154 @@ export function margenRealDe(n: number | string | null, nc: number | string | nu
   return margenesDe([{ n: num(n) ?? 0, nc: num(nc) ?? 0, c: num(c) ?? 0, nm: 0, m: 0 }], undefined)?.real ?? null;
 }
 
+// ─────────────────────────────── [PF.9] por proveedor ───────────────────────────────
+
+/** "Yurécuaro" / "Yurécuaro y Canindo" / "Yurécuaro, Canindo y 2 más". */
+export function listaNombres(xs: Array<{ plaza: string; nombre: string | null }>): string {
+  const n = xs.map((x) => x.nombre || `Sucursal ${x.plaza}`);
+  if (n.length <= 2) return n.join(' y ');
+  return `${n.slice(0, 2).join(', ')} y ${n.length - 2} más`;
+}
+
+/**
+ * `[PF.9]` El porqué en una frase, para el renglón del catálogo (el análisis completo va en el panel).
+ * Primero lo que pasa en las sucursales (agotado, estancado); si nada, lo que dice la cobertura.
+ */
+export function motivoCorto(r: Pick<FlujoResumen, 'agotadas' | 'estancadas' | 'frenadas' | 'compra' | 'lider'>): string {
+  const C = CRITERIO_FLUJO;
+  const partes: string[] = [];
+  if (r.agotadas.length) partes.push(`agotado en ${listaNombres(r.agotadas)}`);
+  if (r.estancadas.length) partes.push(`estancado en ${listaNombres(r.estancadas)}`);
+  if (!partes.length) {
+    const cob = r.compra.cobertura_dias;
+    const umbral = r.lider ? C.coberturaComprarLider : C.coberturaComprar;
+    switch (r.compra.veredicto) {
+      case 'comprar':
+        if (cob === null || cob <= 0) partes.push('ya no hay existencia');
+        else if (r.lider && cob >= C.coberturaComprar) partes.push(`es líder: se le compra antes de los ${C.coberturaComprarLider} días`);
+        else partes.push(cob < 1 ? 'se acaba hoy' : `se acaba en ${Math.floor(cob)} ${Math.floor(cob) === 1 ? 'día' : 'días'}`);
+        break;
+      case 'traspasar': partes.push('bien repartido no haría falta comprar'); break;
+      case 'esperar': partes.push(cob === null ? 'alcanza por ahora' : `revisar en unos ${Math.max(1, Math.round(cob - umbral))} días`); break;
+      case 'sobra': partes.push(cob === null ? 'sobra existencia' : `hay para ${Math.round(cob)} días`); break;
+      case 'no_comprar': partes.push('no se vende y hay existencia'); break;
+      default: partes.push('sin venta ni existencia');
+    }
+    if (r.frenadas.length) partes.push(`se frenó en ${listaNombres(r.frenadas)}`);
+  }
+  const t = partes.join(' · ');
+  return t.charAt(0).toUpperCase() + t.slice(1);
+}
+
+/** Un renglón del catálogo por proveedor: sólo lo que la tabla pinta. */
+export interface FilaProveedor {
+  product_id: string;
+  sku: string;
+  nombre: string | null;
+  mes: number;
+  variacion: number | null;
+  /** NULL = no se vende (sin ritmo no hay cobertura). */
+  cobertura_dias: number | null;
+  veredicto: VeredictoCompra;
+  titulo: string;
+  motivo: string;
+  lider: Lider | null;
+  /** NULL = sin permiso de costo o sin venta. */
+  margen_real: Pick<Margen, 'pct' | 'cobertura'> | null;
+  caducidad: CaducidadResumen | null;
+}
+
+export function filaProveedor(r: FlujoResumen, info: { sku: string; nombre: string | null }): FilaProveedor {
+  return {
+    product_id: r.product_id, sku: info.sku, nombre: info.nombre, mes: r.mes, variacion: r.variacion,
+    cobertura_dias: r.compra.cobertura_dias, veredicto: r.compra.veredicto, titulo: r.compra.titulo,
+    motivo: motivoCorto(r), lider: r.lider,
+    margen_real: r.margen_real ? { pct: r.margen_real.pct, cobertura: r.margen_real.cobertura } : null,
+    caducidad: r.caducidad,
+  };
+}
+
+export interface ResumenProveedor {
+  productos: number;
+  mes: number;
+  mes_anterior_mismo: number;
+  variacion: number | null;
+  por_veredicto: Record<VeredictoCompra, number>;
+  lideres: number;
+  /** Productos agotados en al menos una sucursal donde se venden. */
+  agotados: number;
+  estancados: number;
+}
+
+export function resumirProveedor(rs: FlujoResumen[]): ResumenProveedor {
+  const por: Record<VeredictoCompra, number> = { comprar: 0, traspasar: 0, esperar: 0, sobra: 0, no_comprar: 0, sin_movimiento: 0 };
+  for (const r of rs) por[r.compra.veredicto]++;
+  const mes = r2(rs.reduce((a, r) => a + r.mes, 0));
+  const ant = r2(rs.reduce((a, r) => a + r.mes_anterior_mismo, 0));
+  return {
+    productos: rs.length, mes, mes_anterior_mismo: ant, variacion: variacion(mes, ant), por_veredicto: por,
+    lideres: rs.filter((r) => r.lider).length,
+    agotados: rs.filter((r) => r.agotadas.length).length,
+    estancados: rs.filter((r) => r.estancadas.length).length,
+  };
+}
+
+/** Un proveedor en la barra de la izquierda. `supplier_id` NULL = el grupo de productos sin proveedor. */
+export interface ProveedorFlujo {
+  supplier_id: string | null;
+  nombre: string;
+  productos: number;
+  mes: number;
+  mes_anterior_mismo: number;
+  variacion: number | null;
+  /** Productos que vendieron en el mes. */
+  con_venta: number;
+}
+
+export interface ProveedoresRespuesta {
+  periodos: Periodos;
+  /** Ordenados por venta del mes (los que más venden primero). */
+  proveedores: ProveedorFlujo[];
+  /** Los productos sin proveedor asignado, aparte. NULL = no hay. */
+  sin_proveedor: ProveedorFlujo | null;
+}
+
+export interface ProductosProveedorRespuesta {
+  periodos: Periodos;
+  corte: string;
+  en_vivo_al: string;
+  costo_visible: boolean;
+  criterio: typeof CRITERIO_FLUJO;
+  /** `supplier_id` NULL = productos sin proveedor. */
+  proveedor: { supplier_id: string | null; nombre: string };
+  resumen: ResumenProveedor;
+  /** Ordenados por venta del mes. */
+  productos: FilaProveedor[];
+}
+
+/** El grupo comodín de Kepler para lo que no tiene proveedor. */
+export const esSinProveedor = (nombre: string | null) => !nombre || /^PRODUCTOS SIN PROVEEDOR/i.test(nombre.trim());
+
+/** Junta las filas de `PROVEEDORES_SQL`: separa los sin proveedor (NULL + el comodín) y ordena por venta. */
+export function armarProveedores(p: Periodos, filas: Array<{ supplier_id: string | null; nombre: string | null; productos: number; mes: number; ant: number; con_venta: number }>): ProveedoresRespuesta {
+  const sin = { productos: 0, mes: 0, ant: 0, con_venta: 0 };
+  const proveedores: ProveedorFlujo[] = [];
+  for (const f of filas) {
+    if (!f.supplier_id || esSinProveedor(f.nombre)) {
+      sin.productos += f.productos; sin.mes += f.mes; sin.ant += f.ant; sin.con_venta += f.con_venta;
+      continue;
+    }
+    proveedores.push({ supplier_id: f.supplier_id, nombre: (f.nombre ?? '').trim(), productos: f.productos,
+      mes: r2(f.mes), mes_anterior_mismo: r2(f.ant), variacion: variacion(f.mes, f.ant), con_venta: f.con_venta });
+  }
+  proveedores.sort((a, b) => b.mes - a.mes || a.nombre.localeCompare(b.nombre));
+  return {
+    periodos: p, proveedores,
+    sin_proveedor: sin.productos ? { supplier_id: null, nombre: 'Sin proveedor asignado', productos: sin.productos,
+      mes: r2(sin.mes), mes_anterior_mismo: r2(sin.ant), variacion: variacion(sin.mes, sin.ant), con_venta: sin.con_venta } : null,
+  };
+}
+
 export { escaleraDeFicha, existenciaEnDuda };
 export type { FichaPlaza, KardexPlaza };
 

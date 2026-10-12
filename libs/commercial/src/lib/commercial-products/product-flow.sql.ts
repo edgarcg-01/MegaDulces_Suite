@@ -300,3 +300,43 @@ export const META_MARGEN_SQL = `
    WHERE t.sku = ? AND t.veredicto = 'capturado' AND t.factor IS NOT NULL
    GROUP BY 1, 2
   HAVING count(DISTINCT t.margen_venta_pct) = 1`;
+
+/**
+ * `[PF.9]` Los proveedores con sus productos activos y su venta del mes contra los mismos días del anterior
+ * (`mv_kepler_sales_daily`, con el corte de Kepler de cada sucursal, como la lista). Para la barra de
+ * proveedores de Compras › Catálogo, que trabaja proveedor por proveedor. `supplier_id` NULL = productos sin
+ * proveedor. Parámetros: mesIni, prevIni, prevFin (exclusivo), prevIni.
+ */
+export const PROVEEDORES_SQL = `
+  WITH v AS (
+    SELECT k.product_id,
+           sum(k.monto) FILTER (WHERE k.business_date >= ?::date) AS mes,
+           sum(k.monto) FILTER (WHERE k.business_date >= ?::date AND k.business_date < ?::date) AS ant
+      FROM analytics.mv_kepler_sales_daily k ${CON_CORTE_ERP}
+     WHERE k.tenant_id = public.current_tenant_id() AND k.business_date >= ?::date
+     GROUP BY 1)
+  SELECT s.id::text AS supplier_id, s.name AS nombre, count(p.id)::int AS productos,
+         round(coalesce(sum(v.mes), 0), 2)::float AS mes, round(coalesce(sum(v.ant), 0), 2)::float AS ant,
+         (count(*) FILTER (WHERE v.mes > 0))::int AS con_venta
+    FROM catalog.products p
+    LEFT JOIN catalog.suppliers s ON s.id = p.supplier_id
+    LEFT JOIN v ON v.product_id = p.id
+   WHERE p.tenant_id = public.current_tenant_id() AND p.deleted_at IS NULL AND p.activo AND p.sku IS NOT NULL
+   GROUP BY s.id, s.name`;
+
+/** `[PF.9]` Los productos activos de UN proveedor. Parámetro: supplier_id. */
+export const PRODUCTOS_PROVEEDOR_SQL = `
+  SELECT p.id::text AS id FROM catalog.products p
+   WHERE p.tenant_id = public.current_tenant_id() AND p.deleted_at IS NULL AND p.activo AND p.sku IS NOT NULL
+     AND p.supplier_id = ?::uuid`;
+
+/**
+ * `[PF.9]` Los productos activos SIN proveedor: sin `supplier_id` o con el proveedor comodín «PRODUCTOS SIN
+ * PROVEEDOR ASIGNADO» (medido en prod el 2026-10-12: 591 productos, 13 con venta en el mes).
+ */
+export const PRODUCTOS_SIN_PROVEEDOR_SQL = `
+  SELECT p.id::text AS id FROM catalog.products p
+   WHERE p.tenant_id = public.current_tenant_id() AND p.deleted_at IS NULL AND p.activo AND p.sku IS NOT NULL
+     AND (p.supplier_id IS NULL OR p.supplier_id IN (
+           SELECT s.id FROM catalog.suppliers s
+            WHERE s.tenant_id = public.current_tenant_id() AND s.name ILIKE 'PRODUCTOS SIN PROVEEDOR%'))`;

@@ -32,8 +32,11 @@ import {
   kardexPorPlaza,
   llegadaDeKardex,
   ordenPlazasFlujo,
+  armarProveedores,
+  filaProveedor,
   periodos,
   resumirCaducidad,
+  resumirProveedor,
   resumirProducto,
   serieAcumulada,
   sumarDias,
@@ -59,19 +62,29 @@ import {
   META_MARGEN_SQL,
   NO_SE_VENDEN_SIN_NUEVOS_SQL,
   NO_SE_VENDEN_SQL,
+  PRODUCTOS_PROVEEDOR_SQL,
+  PRODUCTOS_SIN_PROVEEDOR_SQL,
+  PROVEEDORES_SQL,
   NUEVOS_POBLADA_SQL,
   RESUMEN_HISTORIA_SQL,
   SALIDAS_SQL,
   TRASPASOS_SQL,
   VENTA_VIVO_SQL,
 } from './product-flow.sql';
-import type { CaducidadResumen, CuidarRespuesta } from './product-flow';
+import type { CaducidadResumen, CuidarRespuesta, ProductosProveedorRespuesta, ProveedoresRespuesta } from './product-flow';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Lo más que pide una página del catálogo (su paginador llega a 200). */
 const MAX_IDS = 200;
 /** Cuánto se guarda "Para cuidar hoy" (la pantalla lo pide cada minuto). */
 const CUIDAR_VIGENCIA_MS = 60_000;
+/**
+ * `[PF.9]` Lo de un proveedor se guarda un minuto (la pantalla lo pide cada minuto). Medido en prod el 2026-10-12:
+ * los 269 productos activos de La Rosa toman 1.1–1.9 s; volver a abrirlo dentro del minuto, al instante.
+ */
+const PROVEEDOR_VIGENCIA_MS = 60_000;
+/** El id que la pantalla usa para el grupo de productos sin proveedor. */
+export const SIN_PROVEEDOR = 'sin';
 /**
  * `[PF.6]` La foto del worker se sirve si tiene menos de esto. Calcula cada minuto y tarda ~3 s: 3 minutos
  * aguantan dos pasadas perdidas antes de caer al cálculo en vivo (que se declara).
@@ -114,6 +127,7 @@ export class ProductFlowService {
    * y, vencido, se entrega el anterior mientras se recalcula (nunca deja la pantalla esperando dos veces).
    */
   private readonly memoCuidar = new Map<string, { at: number; valor?: CuidarRespuesta; enCurso?: Promise<CuidarRespuesta> }>();
+  private readonly memoProveedor = new Map<string, { at: number; valor?: ProductosProveedorRespuesta; enCurso?: Promise<ProductosProveedorRespuesta> }>();
 
   private async base(trx: Knex.Transaction): Promise<{ hoy: string; corte: string; p: Periodos }> {
     const r = (await trx.raw(CORTE_SQL)).rows[0] as { hoy: string; corte: string };
@@ -178,6 +192,68 @@ export class ProductFlowService {
   }
 
   /** `[PF.2]`/`[PF.3]` Para cuidar hoy: los líderes que piden atención y los lotes que caducan antes de venderse. */
+  /**
+   * `[PF.9]` Los proveedores para la barra de Compras › Catálogo: productos activos y venta del mes contra los
+   * mismos días del anterior. Los sin proveedor van aparte. Medido en prod: 280–340 ms (358 proveedores).
+   */
+  async proveedores(): Promise<ProveedoresRespuesta> {
+    return this.tk.run(async (trx) => {
+      const { p } = await this.base(trx);
+      const filas = (await trx.raw(PROVEEDORES_SQL, [p.mesIni, p.prevIni, p.prevFin, p.prevIni])).rows as
+        Array<{ supplier_id: string | null; nombre: string | null; productos: number; mes: number; ant: number; con_venta: number }>;
+      return armarProveedores(p, filas);
+    });
+  }
+
+  /**
+   * `[PF.9]` Los productos activos de UN proveedor (o `sin` = los sin proveedor) con su flujo y su resumen.
+   * En vivo, guardado un minuto por proveedor y permiso: la primera vez tarda lo que su número de productos.
+   */
+  async productosProveedor(supplierId: string, opts: { puedeVerCosto: boolean }): Promise<ProductosProveedorRespuesta> {
+    const sin = supplierId === SIN_PROVEEDOR;
+    if (!sin && !UUID_RE.test(supplierId || '')) throw new BadRequestException('Proveedor inválido');
+    const key = `${this.tenantCtx.requireTenantId()}:${supplierId}:${opts.puedeVerCosto ? 1 : 0}`;
+    const m = this.memoProveedor.get(key) ?? { at: 0 };
+    this.memoProveedor.set(key, m);
+    if (m.valor && Date.now() - m.at < PROVEEDOR_VIGENCIA_MS) return m.valor;
+    if (!m.enCurso) {
+      m.enCurso = this.calcularProveedor(supplierId, sin, opts)
+        .then((v) => { m.valor = v; m.at = Date.now(); return v; })
+        .finally(() => { m.enCurso = undefined; });
+      m.enCurso.catch(() => undefined);
+    }
+    return m.valor ?? m.enCurso;
+  }
+
+  private async calcularProveedor(supplierId: string, sin: boolean, opts: { puedeVerCosto: boolean }): Promise<ProductosProveedorRespuesta> {
+    return this.tk.run(async (trx) => {
+      let nombre = 'Sin proveedor asignado';
+      if (!sin) {
+        const s = (await trx.raw(`SELECT name FROM catalog.suppliers WHERE tenant_id = public.current_tenant_id() AND id = ?::uuid`, [supplierId])).rows[0] as { name: string } | undefined;
+        if (!s) throw new NotFoundException('Proveedor no encontrado');
+        nombre = s.name.trim();
+      }
+      const ids = ((await trx.raw(sin ? PRODUCTOS_SIN_PROVEEDOR_SQL : PRODUCTOS_PROVEEDOR_SQL, sin ? [] : [supplierId])).rows as Array<{ id: string }>).map((r) => r.id);
+      const { corte, p } = await this.base(trx);
+      const rs = ids.length ? (await this.resumenes(trx, p, corte, ids, [opts.puedeVerCosto])).get(opts.puedeVerCosto) ?? [] : [];
+      const info = new Map<string, { sku: string; nombre: string | null }>();
+      if (ids.length) {
+        for (const r of (await trx.raw(`
+          SELECT id::text AS id, sku, nombre FROM catalog.products
+           WHERE tenant_id = public.current_tenant_id() AND id = ANY(?::uuid[])`, [ids])).rows as Array<{ id: string; sku: string; nombre: string | null }>) {
+          info.set(r.id, { sku: r.sku, nombre: r.nombre });
+        }
+      }
+      return {
+        periodos: p, corte, en_vivo_al: new Date().toISOString(), costo_visible: opts.puedeVerCosto, criterio: CRITERIO_FLUJO,
+        proveedor: { supplier_id: sin ? null : supplierId, nombre },
+        resumen: resumirProveedor(rs),
+        productos: rs.map((r) => filaProveedor(r, info.get(r.product_id) ?? { sku: '', nombre: null }))
+          .sort((a, b) => b.mes - a.mes || (a.nombre ?? '').localeCompare(b.nombre ?? '')),
+      };
+    });
+  }
+
   async cuidar(opts: { puedeVerCosto: boolean }): Promise<CuidarRespuesta> {
     // [PF.6] Primero la foto que calcula el worker cada minuto: nadie espera el cálculo.
     const foto = await this.leerFoto(opts.puedeVerCosto ? 'costo' : 'sin_costo');

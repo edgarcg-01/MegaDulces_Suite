@@ -22,7 +22,7 @@ import {
   NewProductsService,
 } from './new-products.service';
 import { ProductFlowService } from './product-flow.service';
-import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta, MargenesProducto } from './product-flow';
+import type { CuidarRespuesta, FlujoDetalle, FlujoListaRespuesta, MargenesProducto, ProductosProveedorRespuesta, ProveedoresRespuesta } from './product-flow';
 
 /**
  * Admin de products. Reads gateados por COMMERCIAL_PRODUCTS_VER, mutaciones por
@@ -236,6 +236,32 @@ export class CommercialProductsController {
       req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
       isPlatformAdminRole(req?.user?.role_name);
     return this.flow.cuidar({ puedeVerCosto });
+  }
+
+  @Get('flow/proveedores')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.9]` Los proveedores para Compras › Catálogo: productos activos y venta del mes contra los '
+      + 'mismos días del anterior. Los productos sin proveedor van aparte.',
+  })
+  flowProveedores(): Promise<ProveedoresRespuesta> {
+    return this.flow.proveedores();
+  }
+
+  @Get('flow/proveedores/:id')
+  @RequirePermissions(Permission.COMMERCIAL_PRODUCTS_VER)
+  @ApiOperation({
+    summary: '`[PF.9]` Los productos activos de un proveedor (`sin` = sin proveedor) con su flujo, su veredicto '
+      + 'de compra y el porqué en una frase. En vivo, guardado un minuto.',
+  })
+  flowProveedor(
+    @Param('id') id: string,
+    @Req() req?: { user?: { permissions?: Record<string, boolean>; role_name?: string } },
+  ): Promise<ProductosProveedorRespuesta> {
+    const puedeVerCosto =
+      req?.user?.permissions?.[Permission.COMPRAS_COSTO_ESTANDAR_VER] === true ||
+      isPlatformAdminRole(req?.user?.role_name);
+    return this.flow.productosProveedor(id, { puedeVerCosto });
   }
 
   @Get(':id/flow')
