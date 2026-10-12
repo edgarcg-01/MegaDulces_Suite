@@ -94,9 +94,38 @@ spec:
           # API. Si el API está caído, Caddy queda NotReady. No cambia nada operativo —no hay
           # Service delante, el `hostPort` sirve igual— pero el tablero lo va a mostrar. Es
           # correcto: mide lo que el usuario vive, no lo que el proceso cree.
+          # ⛔ `[RES.4 2026-10-12]` Acá había un `exec: ["sh","-c","wget -q -O /dev/null https://…"]`
+          #    y DEJABA UN ZOMBIE POR SONDA. Medido en vivo: `wget` sobre HTTPS lanza `ssl_client`
+          #    (BusyBox), Caddy es el PID 1 del contenedor y **no cosecha a sus hijos**, así que cada
+          #    15 s se acumulaba un `<defunct>`. **4 por minuto**, contra un `pids.max` de cgroup de
+          #    **30,895**: se llena a los **5.4 días de uptime**, y ahí Caddy no puede hacer `fork`
+          #    — o sea que la propia sonda de salud termina tumbando lo que vigila.
+          #    ⚠️ Nunca llegó a pasar por poco: los uptimes reales fueron de 1.3 a 4.6 días.
+          #
+          # ⭐ `httpGet` lo ejecuta **kubelet desde afuera**: cero procesos dentro del contenedor, así
+          #    que no hay hijo que cosechar. Verificado en vivo: los zombis pasaron de 130 a 0.
+          #
+          # ⛔⛔ PERO va por **HTTP al 80**, no por HTTPS al 443, y el primer intento lo probó: con
+          #    `scheme: HTTPS` kubelet conecta **por IP** y por lo tanto **no manda SNI**; Caddy elige
+          #    el certificado POR SNI, así que responde `tls: internal error` y la sonda queda roja
+          #    para siempre. ⚠️ `httpHeaders: Host` NO lo arregla —eso es una cabecera HTTP, viaja
+          #    DESPUÉS del handshake; el SNI va DENTRO—. El comentario viejo de este archivo ya lo
+          #    decía («el certificado lo elige el SNI, y el SNI sale de la URL») y tenía razón.
+          #    Caddy responde **308** en el 80 (redirige a HTTPS) y kubelet cuenta 2xx **y 3xx** como
+          #    éxito, así que la sonda pasa sin TLS de por medio.
+          #
+          # ⚠️ CAMBIO DE ALCANCE, declarado: antes esto medía «el API contesta a través de Caddy»;
+          #    ahora mide «Caddy está vivo y atiende». **No se pierde la vigilancia del API**: el
+          #    deployment `api` tiene su PROPIO `readinessProbe` contra `/api/health`. Cada
+          #    componente mide lo suyo, que además es lo correcto — una sonda que se pone roja por
+          #    culpa de otro servicio no dice quién está mal.
           readinessProbe:
-            exec:
-              command: ["sh", "-c", "wget -q -O /dev/null https://interno.megadulcessuite.com/api/health"]
+            httpGet:
+              path: /api/health
+              port: 80
+              scheme: HTTP
+              httpHeaders:
+                - { name: Host, value: interno.megadulcessuite.com }
             initialDelaySeconds: 10
             periodSeconds: 15
             timeoutSeconds: 10
