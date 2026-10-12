@@ -4352,6 +4352,19 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.82] · la factura no decide el estado: un vale aprobado con cotización se cierra — 2026-10-12
+
+- [x] **[GX.82]** 🧪 Decisión del usuario: *«no quiero que sea una manera de que dependa el status»* — la cotización
+  **basta como evidencia**. Se retira el regreso automático de `[GX.54]` (aprobar con sólo cotización mandaba el vale a
+  `aprobada` a esperar la factura): ahora se cierra en `validada` al aprobarlo. **La casilla «provisional» (`[GX.56]`) se
+  conserva**: si el aprobador la marca a propósito, el vale sí vuelve. Mig `20261012144921` (sólo UPDATE) cierra los
+  que ya estaban atorados: **93 vales / $759,955.11**, todos `no_comprobable` con cotización y sin comprobante, ninguno
+  marcado provisional. Como la Suite no guardó quién los aprobó, `validated_by` dice `cierre GX.82 (aprobado con
+  cotización)` (no se inventa una persona) y el `down` deshace sólo esas filas. Pruebas: finance 1098/1098 · mutación
+  (regresar el automático) en rojo.
+- [ ] **[GX.82.p]** Aplicar la mig a prod **antes del merge** (`apply-one-migration-prod.js`) + PR + redeploy api.
+- [ ] **[GX.82.x]** Declarado: al aprobar sin cerrar, la Suite no guarda quién aprobó (`validated_by` vacío hasta cerrar).
+
 ### 🔨 [GX.81] · vales aprobados sólo con cotización: sin salida en la Suite, ya pagados en Kepler — 2026-10-12
 
 - [x] **[GX.81]** 🧪 Reporte: *«en ocasiones ya están aprobados en Kepler pero se les queda en donde mismo»*. Medido en
