@@ -10,7 +10,7 @@ import { HrAttendanceIncidentsService, type ActorIncidencia } from './attendance
 import { HrAttendanceClosuresService } from './attendance-closures.service';
 import { HrAttendanceSchedulesService, type HorarioPersonaDto, type HorarioSitioDto } from './attendance-schedules.service';
 import type { CapturaIncidencia } from './logic/incidencias';
-import type { HrPersonaDirectorioDto } from '@megadulces/contracts';
+import type { HrCierreDto, HrPersonaDirectorioDto } from '@megadulces/contracts';
 import { RE_FECHA } from './logic/fechas';
 
 /**
@@ -276,7 +276,7 @@ export class HrAttendanceController {
   @Post('closures')
   @RequirePermissions(Permission.HR_PERIOD_CLOSE)
   @ApiOperation({ summary: 'RH — cerrar la semana jueves→miércoles para prenómina. Con gente sin identificar responde 409 con la lista; `force` + `reason` cierra igual y lo anota.' })
-  cerrar(@Body() b: { site_code?: string; period_start?: string; force?: boolean; reason?: string }) {
+  cerrar(@Body() b: { site_code?: string; period_start?: string; force?: boolean; reason?: string }): Promise<HrCierreDto> {
     return this.closures.cerrar(b);
   }
 
