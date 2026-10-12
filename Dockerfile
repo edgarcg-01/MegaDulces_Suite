@@ -358,6 +358,20 @@ COPY --chown=node:node --chmod=755  migrate.sh ./migrate.sh
 ARG GIT_COMMIT_SHA=
 ENV GIT_COMMIT_SHA=${GIT_COMMIT_SHA}
 
+# `[DBH.4]` **El ASUNTO del commit, horneado igual que su SHA.** Pedido de Edgar: en
+# `/admin/db-health` la pregunta real es *"¿ya subió mi cambio?"*, y un hash de 8 caracteres no la
+# contesta — hay que irse a `git log` a traducirlo. El asunto sí: «fix([CG.72]): el KPI del libro
+# sumaba los cancelados» se reconoce de un vistazo.
+#
+# ⚠️ Va acá y no se resuelve en caliente **porque dentro del contenedor no hay git ni repositorio**.
+# Es el mismo motivo por el que el SHA se hornea: una imagen sabe de qué commit salió; preguntárselo
+# al entorno es pedirle la verdad a quien la arranca.
+#
+# ⚠️ Puede venir vacío (un `docker build` a mano no lo pasa), y eso NO es un error: el lector lo
+# trata como ausencia y la pantalla cae al SHA, que siempre está. Declarar el hueco, no inventarlo.
+ARG GIT_COMMIT_SUBJECT=
+ENV GIT_COMMIT_SUBJECT=${GIT_COMMIT_SUBJECT}
+
 LABEL org.opencontainers.image.title="Trade Marketing" \
       org.opencontainers.image.description="Mega Dulces B2B + trade marketing platform" \
       org.opencontainers.image.licenses="UNLICENSED" \

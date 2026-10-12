@@ -47,7 +47,7 @@ describe('LogisticaService — viajes de Kepler', () => {
 
   it('createShipmentFromKepler manda lo capturado a la guía correcta', () => {
     const { api, http } = montar();
-    const body = { delivery_type: 'route' as const, actual_km: 186, notes: null };
+    const body = { delivery_type: 'route' as const, departure_time: '06:30', arrival_time: '15:30', actual_km: 186, notes: null };
     api.createShipmentFromKepler('06', '0001419', body).subscribe();
     const req = http.expectOne((r) => r.url.endsWith('/logistics/shipments/from-kepler/06/0001419'));
     expect(req.request.method).toBe('POST');

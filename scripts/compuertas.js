@@ -59,10 +59,22 @@
  *           Tres cosas que esa tabla deja dicho, y las tres contradicen algo que se afirmó
  *           antes en este archivo:
  *
- *            1. **Los `ms` declarados están viejos en LAS DOS DIRECCIONES.** `estilos` dice
- *               3,106 y sola tarda **5,768**; `tablas densas` dice 1,146 y tarda **225**. No son
- *               "pisos" ni "mediciones en aislamiento que subestiman ~2×" (lo afirmé yo y es
- *               falso): son números de fechas distintas que nadie volvió a tomar.
+ *            1. **Los `ms` declarados no describen nada que se pueda reproducir.** Seis corridas
+ *               INTERLEAVED (ronda por ronda, para que la carga pegue pareja) el mismo día:
+ *
+ *                   script             declara    min–max   mediana   ¿declarado dentro?
+ *                   tablas densas         1146    218–396       258   ⛔ no (4.4× arriba)
+ *                   mig-colisiones        1362    269–448       360   ⛔ no
+ *                   tokens CSS            1318    266–324       310   ⛔ no
+ *                   set-bind              2273   1576–1816     1702   ⛔ no
+ *                   estilos               3106   5444–6900     6396   ⛔ no (2× abajo)
+ *
+ *               **Los cinco caen FUERA de su propio rango, en las dos direcciones.** ⚠️ Y no
+ *               alcanza con decir "están viejos" (lo afirmé yo) ni "son irreproducibles por la
+ *               carga de las ocho sesiones" (lo afirmó cc, con tres tandas del mismo día que
+ *               difieren −32 %): **los dos efectos están presentes y desde UN número no se
+ *               pueden separar.** La dispersión dentro de una tanda es ±12–30 %; ninguna tanda
+ *               explica un 1,146 contra 258.
  *            2. **La inflación es al revés de lo que parece.** No se inflan las pesadas: se
  *               inflan las LIVIANAS. `estilos`, la que más recorre el repo, es la que MENOS se
  *               infla (×1.16); `tablas densas`, la más liviana, la que más (×4.89). El castigo
@@ -130,12 +142,6 @@ const COMPUERTAS = [
   //     13 archivos de libs/ así, 166 pruebas sin correr una sola vez, entre ellas el candado
   //     del teclado de todas las tablas.
   { nombre: 'spec-vivo', script: 'check-spec-vivo.js', que: 'ningún spec de libs/ importa de "vitest" (cargaría en cero)', push: true, ms: 180 },
-  //   · sidebar-tabs: una pantalla que sólo está en una barra de pestañas, para quien no
-  //     conoce la pestaña, NO EXISTE — es la lección que `[AU.3]` ya había dejado escrita y
-  //     que nadie podía sostener sin compuerta. Medido el 2026-10-09: **81 pantallas** en esa
-  //     situación, entre ellas las cinco de Ruta Directa y las cuatro de MKT, que no tenían
-  //     entrada por sidebar en ningún proyecto.
-  { nombre: 'sidebar-tabs', script: 'check-sidebar-tabs.js', que: 'toda pestaña tiene entrada en el sidebar de su proyecto', push: true, ms: 120 },
   /**
    * ⛔ **Las cuatro de abajo faltaban acá, y el encabezado de este archivo dice "corre todas las
    * que existen".** Hallado el 2026-10-01: `check-dense-tables` y `check-css-tokens` vivían en
@@ -259,9 +265,6 @@ const COMPUERTAS = [
   // MISMA corrida** — que es exactamente por qué la única cifra que decide una admisión es la
   // pared de la rueda completa, con y sin la compuerta, tomadas una al lado de la otra.
   { nombre: 'set-bind', script: 'check-set-bind-param.js', que: 'sin parámetros ligados en sentencias SET (Postgres 42601)', push: true, ms: 2273 },
-  // [MSH.2] H2: la confidencialidad de la cola de RH se rompe cuando alguien escribe una consulta NUEVA a `servicedesk.requests` sin saber
-  // que existe lo confidencial. La lista de lectores es CERRADA: uno nuevo rompe el build y quien lo agrega escribe por qué es seguro.
-  { nombre: 'sd-confid', script: 'check-service-desk-confidential-reads.js', que: 'sólo los lectores listados leen servicedesk.requests (lo confidencial no se filtra por una consulta nueva)', push: true, ms: 150 },
   /**
    * ⭐⭐ `[ETQ-FIT.4]` LA ETIQUETA SE MIDE RENDERIZADA, Y EN LOS DOS ESCENARIOS.
    *

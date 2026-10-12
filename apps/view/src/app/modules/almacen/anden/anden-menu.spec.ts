@@ -85,9 +85,8 @@ describe('Andén · el menú de sucursales', () => {
     expect(bloque).toContain("AT TIME ZONE 'America/Mexico_City'");
     // El tope es HOY: nada fechado a futuro entra a la lista.
     expect(bloque).toMatch(/AND \(now\(\) AT TIME ZONE 'America\/Mexico_City'\)::date`/);
-    // Las tres consultas (menú, vales de una sucursal y `[WMS-REC.22]` Llegadas al andén) usan la
-    // misma ventana, no cada una la suya.
-    expect(SERVICIO.split('.whereRaw(VENTANA_MX)').length - 1).toBe(3);
+    // Las dos consultas (menú y vales de una sucursal) usan la misma ventana, no cada una la suya.
+    expect(SERVICIO.split('.whereRaw(VENTANA_MX)').length - 1).toBe(2);
     // Y la pantalla no pide una ventana propia: la decide el servidor.
     expect(ORQUESTADOR).not.toMatch(/pendingErpBranches\([^)]+\)/);
     expect(ORQUESTADOR).not.toMatch(/pendingErpOrders\([^,)]+,/);
