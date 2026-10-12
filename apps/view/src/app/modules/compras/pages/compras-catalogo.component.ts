@@ -595,7 +595,7 @@ export const SIN_PROVEEDOR = 'sin';
     .cp-seg-btn { border: 0; background: transparent; color: var(--c-text-2); font: inherit; font-size: var(--fs-sm); font-weight: var(--fw-medium);
       padding: .35rem .8rem; border-radius: 8px; cursor: pointer; min-height: 2rem; display: inline-flex; align-items: center; gap: .4rem; }
     .cp-seg-btn.is-on { background: var(--c-surface-1); color: var(--c-text-1); font-weight: var(--fw-bold); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
-    .cp-seg-n { font-family: var(--font-mono); font-size: var(--fs-xs); padding: 0 .35rem; border-radius: 999px; background: var(--action); color: var(--c-on-action, #fff); }
+    .cp-seg-n { font-family: var(--font-mono); font-size: var(--fs-xs); padding: 0 .35rem; border-radius: 999px; border: 1px solid var(--action); color: var(--action); font-weight: var(--fw-bold); }
     .cp-seg-btn:focus-visible, .cp-prov:focus-visible, .cp-chip:focus-visible, .cp-fila:focus-visible, .cp-link:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 1px; }
 
     .cp-aviso { display: flex; gap: .55rem; align-items: flex-start; padding: .5rem .75rem; margin: .75rem 0 0;
@@ -608,7 +608,7 @@ export const SIN_PROVEEDOR = 'sin';
       border: 1px solid var(--c-divider); border-radius: 10px; background: var(--c-surface-1); }
     .cp-buscar:focus-within { border-color: var(--c-text-1); }
     .cp-buscar i { color: var(--c-text-3); }
-    .cp-buscar input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; font-size: var(--fs-md); color: var(--c-text-1); }
+    .cp-buscar input { flex: 1; min-width: 0; border: 0; outline: none; background: transparent; font: inherit; font-size: var(--fs-h3); color: var(--c-text-1); }
     .cp-buscar input::-webkit-search-cancel-button, .cp-rail-filtro input::-webkit-search-cancel-button, .cp-dentro input::-webkit-search-cancel-button { display: none; }
     .cp-buscar input:focus-visible, .cp-rail-filtro input:focus-visible, .cp-dentro input:focus-visible {
       outline: 2px solid var(--focus-ring); outline-offset: -2px; }
@@ -647,12 +647,12 @@ export const SIN_PROVEEDOR = 'sin';
     .cp-prov-head { display: flex; justify-content: space-between; gap: 1rem; flex-wrap: wrap; align-items: flex-start;
       padding: 1rem 1.1rem; border: 1px solid var(--c-divider); border-radius: 12px; background: var(--c-surface-1); }
     .cp-prov-head-t { min-width: 0; display: flex; flex-direction: column; gap: .25rem; }
-    .cp-h2 { margin: 0; font-size: var(--fs-xl, 1.35rem); font-weight: var(--fw-bold); color: var(--c-text-1); line-height: 1.2; }
+    .cp-h2 { margin: 0; font-size: var(--fs-h2); font-weight: var(--fw-bold); color: var(--c-text-1); line-height: 1.2; }
     .cp-sub { margin: 0; font-size: var(--fs-sm); color: var(--c-text-2); }
     .cp-alerta-sin { margin: .35rem 0 0; font-size: var(--fs-sm); color: var(--warn-soft-fg); max-width: 38rem; }
     .cp-kpis { display: grid; grid-template-columns: repeat(4, auto); gap: .5rem 1.6rem; margin: 0; }
     .cp-kpi dt { font-size: var(--fs-xs); color: var(--c-text-3); }
-    .cp-kpi dd { margin: .1rem 0 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-lg, 1.15rem);
+    .cp-kpi dd { margin: .1rem 0 0; font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-size: var(--fs-lg);
       font-weight: var(--fw-bold); color: var(--c-text-1); display: flex; align-items: baseline; gap: .4rem; }
     .cp-kpi dd small { font-size: var(--fs-xs); color: var(--c-text-3); }
     .cp-kpi.is-comprar dd { color: var(--bad-soft-fg); }
@@ -685,7 +685,7 @@ export const SIN_PROVEEDOR = 'sin';
     .cp-fila:hover .cp-chev { color: var(--c-text-1); transform: translateX(2px); }
     .cp-num { text-align: right; justify-self: end; }
     .cp-prod { min-width: 0; display: flex; flex-direction: column; gap: .2rem; }
-    .cp-prod-nom { font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--c-text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cp-prod-nom { font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--c-text-1); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cp-prod-det { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; font-size: var(--fs-xs); color: var(--c-text-3); }
     .cp-prod-det code { font-family: var(--font-mono); }
     .cp-tag { padding: 0 .45rem; border-radius: 999px; font-weight: var(--fw-bold); border: 1px solid currentColor; line-height: 1.5; }
@@ -723,7 +723,7 @@ export const SIN_PROVEEDOR = 'sin';
     .pc-card { display: flex; flex-direction: column; gap: .5rem; min-width: 0; border: 1px solid var(--c-divider); border-radius: 12px;
       background: var(--c-surface-1); padding: .8rem .9rem; }
     .pc-head { display: flex; align-items: baseline; justify-content: space-between; gap: .5rem; flex-wrap: wrap; }
-    .pc-t { margin: 0; font-size: var(--fs-md); font-weight: var(--fw-bold); color: var(--c-text-1); }
+    .pc-t { margin: 0; font-size: var(--fs-h3); font-weight: var(--fw-bold); color: var(--c-text-1); }
     .pc-n { font-size: var(--fs-xs); color: var(--c-text-2); }
     .pc-chips { display: flex; flex-wrap: wrap; gap: .35rem; }
     .pc-chip { border: 1px solid var(--c-divider); background: var(--c-surface-1); color: var(--c-text-2); border-radius: 999px;
