@@ -263,6 +263,62 @@ export interface CuidarRespuesta {
   };
 }
 
+/** `[PF.9]` Un proveedor en la barra de Compras › Catálogo. `supplier_id` NULL = los sin proveedor. */
+export interface ProveedorFlujo {
+  supplier_id: string | null;
+  nombre: string;
+  productos: number;
+  mes: number;
+  mes_anterior_mismo: number;
+  variacion: number | null;
+  con_venta: number;
+}
+
+export interface ProveedoresRespuesta {
+  periodos: PeriodosFlujo;
+  proveedores: ProveedorFlujo[];
+  sin_proveedor: ProveedorFlujo | null;
+}
+
+/** `[PF.9]` Un renglón del catálogo por proveedor. */
+export interface FilaProveedor {
+  product_id: string;
+  sku: string;
+  nombre: string | null;
+  mes: number;
+  variacion: number | null;
+  /** NULL = no se vende. */
+  cobertura_dias: number | null;
+  veredicto: VeredictoCompra;
+  titulo: string;
+  motivo: string;
+  lider: Lider | null;
+  margen_real: { pct: number | null; cobertura: number | null } | null;
+  caducidad: CaducidadResumen | null;
+}
+
+export interface ResumenProveedor {
+  productos: number;
+  mes: number;
+  mes_anterior_mismo: number;
+  variacion: number | null;
+  por_veredicto: Record<VeredictoCompra, number>;
+  lideres: number;
+  agotados: number;
+  estancados: number;
+}
+
+export interface ProductosProveedorRespuesta {
+  periodos: PeriodosFlujo;
+  corte: string;
+  en_vivo_al: string;
+  costo_visible: boolean;
+  criterio: CriterioFlujo;
+  proveedor: { supplier_id: string | null; nombre: string };
+  resumen: ResumenProveedor;
+  productos: FilaProveedor[];
+}
+
 @Injectable({ providedIn: 'root' })
 export class ProductosFlujoService {
   private readonly http = inject(HttpClient);
@@ -274,6 +330,16 @@ export class ProductosFlujoService {
 
   cuidar(): Observable<CuidarRespuesta> {
     return this.http.get<CuidarRespuesta>(`${this.base}/flow/cuidar`);
+  }
+
+  /** `[PF.9]` Los proveedores con su venta del mes. */
+  proveedores(): Observable<ProveedoresRespuesta> {
+    return this.http.get<ProveedoresRespuesta>(`${this.base}/flow/proveedores`);
+  }
+
+  /** `[PF.9]` Los productos de un proveedor (`sin` = sin proveedor) con su flujo. */
+  productosProveedor(id: string): Observable<ProductosProveedorRespuesta> {
+    return this.http.get<ProductosProveedorRespuesta>(`${this.base}/flow/proveedores/${encodeURIComponent(id)}`);
   }
 
   margenes(id: string): Observable<MargenesProducto> {

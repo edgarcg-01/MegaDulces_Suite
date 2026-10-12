@@ -1,6 +1,6 @@
 # Fase PF — Flujo de venta de cualquier producto (Compras › Catálogo › Productos)
 
-> Estado: 🧪 PF.1–PF.8 en código y probados en local (2026-10-12). **Dos migraciones sin aplicar en prod**: `20261009183328_product_flow_watch` (PF.6) y `20261012083236_mv_product_margins_30d` (PF.8).
+> Estado: 🧪 PF.1–PF.9 en código y probados en local (2026-10-12). **Dos migraciones sin aplicar en prod**: `20261009183328_product_flow_watch` (PF.6) y `20261012083236_mv_product_margins_30d` (PF.8).
 
 ## Pedido (Compras, 2026-10-09)
 
@@ -177,6 +177,30 @@ Lo de Productos nuevos, para **todos** los productos, en la sección de **Produc
 - **El panel la lee si está poblada y llega hasta ayer**; si no (sin poblar, el nocturno no corrió, o antes de las 06:20
   cuando todavía llega a anteayer) calcula con la función, **mismo periodo y mismas cifras**, y lo dice.
 - Medido en local: matvista **33–38 ms**; sin poblar, cálculo en vivo con las mismas cifras.
+
+## PF.9 — El catálogo por proveedor (rediseño de la pestaña Productos)
+
+- **Por qué**: Compras revisa muchos productos de un mismo proveedor. La tabla anterior era un listado paginado de
+  13 columnas en mayúsculas, con «Para cuidar hoy» y cuatro tarjetas de conteo antes de llegar al primer producto.
+- **Ahora**: a la izquierda los proveedores ordenados por venta del mes (con su variación, y aparte **los sin
+  proveedor**, que nadie está pidiendo); a la derecha el proveedor elegido con 4 cifras (venta del mes, para comprar,
+  agotados en alguna sucursal, líderes), chips por situación (Comprar · Mover · Esperar · No comprar · Líderes, con su
+  conteo) y un renglón por producto **en palabras**: nombre legible, venta del mes, *para cuántos días alcanza* con su
+  barra, margen (con permiso de costo) y *qué hacer* con el porqué en una frase (`motivoCorto`). El clic abre el mismo
+  panel de siempre, con «Editar producto» adentro. «Para cuidar hoy» pasa a una vista aparte (botón arriba) y su
+  número cuenta sólo lo que pide hacer algo hoy. La búsqueda de arriba sigue buscando en todo el catálogo.
+- **Backend**: `GET /commercial/products/flow/proveedores` (proveedores con productos activos y venta del mes contra
+  los mismos días del anterior; los `NULL` y el comodín «PRODUCTOS SIN PROVEEDOR» de Kepler juntos) y
+  `GET /commercial/products/flow/proveedores/:id` (`sin` = sin proveedor): el flujo de todos sus productos activos
+  con `resumenes()`, **en vivo** y guardado un minuto por proveedor y permiso; dos pedidos simultáneos comparten el
+  cálculo. Sin migración.
+- **Medido**: prod (sólo lectura) proveedores **280–340 ms**; La Rosa (269 productos activos) **1.1–1.9 s** la
+  primera vez, al instante dentro del minuto. Local: 0.27 s / 0.46 s / 0.22 s.
+- **Decidido con el usuario**: en vivo con espera corta (no una foto en segundo plano).
+- ⛔ **Hallazgo del dato**: los productos sin proveedor en Kepler (591 en prod, ~13 vendieron en el mes) no los
+  está pidiendo nadie; se ven primero en la barra.
+- ⛔ **De paso**: `--c-surface-2` no cambia con el tema oscuro (apunta fijo a `--neutral-100`): en este componente se
+  usa `--hover-bg`. Otras pantallas de Compras lo siguen usando (38 usos).
 
 ## Tiempos (prod, sólo lectura, con el servicio real)
 
