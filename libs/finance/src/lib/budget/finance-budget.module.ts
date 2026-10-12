@@ -14,13 +14,13 @@ import { BudgetSalesComparisonService } from './budget-sales-comparison.service'
 import { BudgetSalesIndicatorsService } from './budget-sales-indicators.service';
 import { BudgetSalesController } from './budget-sales.controller';
 import { BudgetExpensePlanService } from './budget-expense-plan.service';
-import { BudgetFindingsService } from './budget-findings.service';
 import { BudgetExpenseController } from './budget-expense.controller';
 import { BudgetMaterializeService } from './budget-materialize.service';
 import { SelloutRollupService } from './sellout-rollup.service';
 import { CashflowForecastSnapshotService } from './cashflow-forecast-snapshot.service';
 import { CashCycleService } from './cash-cycle.service';
 import { PendingApprovalsService } from './pending-approvals.service';
+import { PresupuestoDireccionService } from './presupuesto-direccion.service';
 import { BudgetAutopilotService } from './budget-autopilot.service';
 import { BudgetGenerationService } from './budget-generation.service';
 
@@ -35,7 +35,7 @@ import { BudgetGenerationService } from './budget-generation.service';
  */
 @Module({
   controllers: [BudgetLinesController, BudgetComparisonController, BudgetPlanningController, BudgetCampaignsController, BudgetSalesController, BudgetExpenseController],
-  providers: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, BudgetFindingsService, PendingApprovalsService],
-  exports: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, BudgetFindingsService, PendingApprovalsService],
+  providers: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, PendingApprovalsService, PresupuestoDireccionService],
+  exports: [BudgetGenerationService, BudgetAutopilotService, BudgetLinesService, BudgetComparisonService, BudgetResultService, BudgetCashflowService, BudgetPlanningService, BudgetCampaignsService, BudgetSalesPlanService, BudgetSalesComparisonService, BudgetSalesIndicatorsService, BudgetExpensePlanService, BudgetMaterializeService, SelloutRollupService, CashflowForecastSnapshotService, CashCycleService, PendingApprovalsService, PresupuestoDireccionService],
 })
 export class FinanceBudgetModule {}
