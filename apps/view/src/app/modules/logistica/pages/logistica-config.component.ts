@@ -346,7 +346,7 @@ export class LogisticaConfigComponent {
     this.configForm.reset({
       key: c?.key || '',
       category: c?.category || prefilledCat || 'factor',
-      value: c?.value || 0,
+      value: aNumero(c?.value, 0),
       unit: c?.unit || '',
       description: c?.description || '',
     });
@@ -395,9 +395,9 @@ export class LogisticaConfigComponent {
     this.editingRoute.set(r || null);
     this.routeForm.reset({
       name: r?.name || '',
-      estimated_km: r?.estimated_km ?? null,
-      driver_commission: r?.driver_commission || 0,
-      helper_commission: r?.helper_commission || 0,
+      estimated_km: aNumero(r?.estimated_km, null),
+      driver_commission: aNumero(r?.driver_commission, 0),
+      helper_commission: aNumero(r?.helper_commission, 0),
       notes: r?.notes || '',
       active: r?.active !== false,
     });
@@ -443,4 +443,16 @@ export class LogisticaConfigComponent {
       },
     });
   }
+}
+
+/**
+ * Postgres devuelve los numeric como TEXTO ("0.00"). Puesto así en un p-inputnumber, el
+ * control se queda con el texto y lo que la persona teclea NO llega al formulario: al guardar se
+ * manda "0.00" otra vez. Medido el 2026-10-12: la comisión de CANINDO ZAMORA se editó en prod
+ * y quedó en $0 sin ningún error. Por eso todo monto entra al formulario como número.
+ */
+export function aNumero<T extends number | null>(v: unknown, siVacio: T): number | T {
+  if (v === null || v === undefined || v === '') return siVacio;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : siVacio;
 }
