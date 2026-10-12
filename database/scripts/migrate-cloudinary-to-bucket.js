@@ -18,9 +18,10 @@
  *   MIG_DB_URL (o DATABASE_URL_NEW / DATABASE_URL)  → la DB nueva multi-tenant
  *   S3_ENDPOINT / S3_REGION / S3_BUCKET / S3_ACCESS_KEY_ID / S3_SECRET_ACCESS_KEY
  *
- * OJO PDFs: Cloudinary bloquea el delivery de PDF por default → un GET al secure_url
- * da 401. Antes de `--apply`, habilitá temporalmente "Allow delivery of PDF and ZIP
- * files" en Cloudinary (Settings → Security). Las imágenes migran sin ese toggle.
+ * [AT.1.2] PDFs: Cloudinary bloquea su ENTREGA por default y un GET al secure_url da 401.
+ * YA NO hace falta tocar la consola: el script reintenta por `private_download_url` (endpoint
+ * de API, firmado con CLOUDINARY_API_SECRET), que no pasa por las reglas de entrega.
+ * Verificado en prod: 206 + bytes que abren con %PDF-. Ver `urlFirmadaDeApi()`.
  */
 const { Client } = require('pg');
 const { S3Client, PutObjectCommand } = require('@aws-sdk/client-s3');
@@ -55,11 +56,79 @@ const TABLES = [
 
 const isCloud = (f) => /^https?:\/\/res\.cloudinary\.com/i.test((f && f.url) || '');
 
+/**
+ * `[AT.1.2]` — **Los PDF se bajan por la API firmada, no por la URL de entrega.**
+ *
+ * La cabecera de este archivo decía: *«Antes de `--apply`, habilitá temporalmente "Allow delivery
+ * of PDF and ZIP files" en Cloudinary»*. Eso convertía la migración en algo que **nadie podía
+ * correr** sin entrar a una consola de un tercero — y por eso los 1,200 comprobantes de pago del
+ * 2026-08-05 siguieron un mes y medio con su evidencia inalcanzable: ni el carril `[AT.1]` ni la
+ * persona que abre la pantalla podían verla.
+ *
+ * ⭐⭐ Medido dentro del pod de prod el 2026-10-12, con control negativo:
+ *
+ * | vía | resultado |
+ * |---|---|
+ * | `secure_url` público | **401** (`image/gif`, el marcador de bloqueo) |
+ * | el mismo, **firmado** (`sign_url`) | **401** — firmar NO alcanza |
+ * | un `public_id` **inventado** | **404** — o sea el 401 es «bloqueado», no «no está» |
+ * | Admin API `api.resource` | **el asset EXISTE**: 88,635 bytes, `pdf`, subido 2026-08-06 |
+ * | ⭐ **`private_download_url`** | **206 · `application/pdf` · los bytes abren con `%PDF-`** |
+ *
+ * `private_download_url` pega contra el endpoint de **API** (`/image/download`), firmado con el
+ * secreto, y **no pasa por las reglas de entrega**. Con eso la migración se corre **hoy**, sin
+ * tocar la consola.
+ *
+ * ⚠️ Sólo se usa como **respaldo**, cuando la URL pública falla: si algún día el bloqueo se
+ * levanta, la vía normal sigue siendo la primera y esto no estorba. Y si falta
+ * `CLOUDINARY_API_SECRET`, se **declara** en vez de reportar «no se pudo bajar» a secas.
+ */
+function urlFirmadaDeApi(f) {
+  const pid = String((f && f.public_id) || '').trim();
+  if (!pid) return null;
+  if (!process.env.CLOUDINARY_API_SECRET || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_CLOUD_NAME) return null;
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { v2: cl } = require('cloudinary');
+    cl.config({
+      cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+      api_key: process.env.CLOUDINARY_API_KEY,
+      api_secret: process.env.CLOUDINARY_API_SECRET,
+      secure: true,
+    });
+    // El formato sale de la URL guardada; `image` es el resource_type con el que se subieron
+    // (verificado en prod: las 1,200 son `/image/upload/….pdf`).
+    const ext = (/\.([a-z0-9]{1,8})(?:\?|$)/i.exec(f.url || '') || [])[1] || 'pdf';
+    return cl.utils.private_download_url(pid, ext, { resource_type: 'image', type: 'upload' });
+  } catch (e) {
+    return null;
+  }
+}
+
+async function bajar(f) {
+  const directa = await fetch(f.url);
+  if (directa.ok) return directa;
+  // ⛔ 401 = entrega bloqueada (NO «no existe»: eso da 404, verificado). Se reintenta por la API.
+  if (directa.status !== 401) throw new Error(`GET ${directa.status}`);
+  const firmada = urlFirmadaDeApi(f);
+  if (!firmada) {
+    throw new Error('GET 401 y no hay CLOUDINARY_API_SECRET para bajarlo por la API firmada');
+  }
+  const porApi = await fetch(firmada);
+  if (!porApi.ok) throw new Error(`GET 401 (entrega) y ${porApi.status} (API firmada)`);
+  return porApi;
+}
+
 async function migrateFile(f, tenantId, t) {
-  const resp = await fetch(f.url);
-  if (!resp.ok) throw new Error(`GET ${resp.status}`);
+  const resp = await bajar(f);
   const ct = (resp.headers.get('content-type') || '').toLowerCase();
   const buf = Buffer.from(await resp.arrayBuffer());
+  // ⛔ Lo que vuelve tiene que ser el DOCUMENTO, no el marcador de bloqueo. Cloudinary responde
+  // los PDF restringidos con un `image/gif` de 0 bytes: subir eso al bucket sería reemplazar
+  // evidencia por un placeholder, y el apuntador quedaría diciendo que ya está migrada.
+  if (!buf.length) throw new Error('el cuerpo vino VACÍO: no se migra un archivo de 0 bytes');
+  const pareceBloqueo = ct.includes('gif') && (f.kind === 'pdf' || /\.pdf(\?|$)/i.test(f.url || ''));
+  if (pareceBloqueo) throw new Error('Cloudinary devolvió el marcador de bloqueo (image/gif) en vez del PDF');
   const isPdf = ct.includes('pdf') || /\.pdf(\?|$)/i.test(f.url) || f.kind === 'pdf';
   const ext = isPdf ? 'pdf' : ((ct.split('/')[1] || 'bin').replace(/[^a-z0-9]/g, '') || 'bin');
   const key = `${t.prefix}/${tenantId}/${t.folder}/${randomUUID()}.${ext}`;
@@ -69,8 +138,30 @@ async function migrateFile(f, tenantId, t) {
     ContentDisposition: 'inline',
   }));
   // Conserva role/name/sha256/ocr_*; solo cambia el apuntador al bucket.
-  return { ...f, url: key, public_id: key, kind: isPdf ? 'pdf' : 'image' };
+  //
+  // ⭐ `[AT.1.2]` …y GUARDA DE DÓNDE VENÍA. Sin esto la migración es una puerta de un solo
+  // sentido: al pisar `public_id` con la llave nueva, el asset original de Cloudinary queda sin
+  // nadie que lo nombre, así que un error de subida (o un PDF que resultó ser otra cosa) ya no
+  // se puede rehacer ni auditar. El asset sigue existiendo del otro lado; lo que se perdía era
+  // su dirección. La huella viaja EN LA FILA, no sólo en un log.
+  return {
+    ...f,
+    url: key,
+    public_id: key,
+    kind: isPdf ? 'pdf' : 'image',
+    cloudinary_public_id: f.public_id || null,
+    cloudinary_url: f.url || null,
+    migrado_en: new Date().toISOString(),
+  };
 }
+
+// `[AT.1.2]` Exportado para poder EJERCER la bajada contra Cloudinary sin migrar nada. La
+// alternativa era copiar estas funciones a un script de prueba, y copiar es exactamente como se
+// escapó el bug del regex de `[AT.1.1]`: lo que se prueba tiene que ser el código que corre.
+module.exports = { bajar, urlFirmadaDeApi, isCloud };
+
+// Sólo corre la migración si se invocó el archivo directamente, no al requerirlo.
+if (require.main !== module) return;
 
 (async () => {
   const local = /localhost|127\.0\.0\.1|192\.168\./.test(DB_URL);
@@ -107,6 +198,6 @@ async function migrateFile(f, tenantId, t) {
     console.log(`  ${t.schema}.${t.table}: ${cand} archivo(s) Cloudinary${APPLY ? ` · ${mig} migrados · ${fail} fallidos` : ''}`);
   }
   console.log(`\nTotal: ${totC} candidato(s)${APPLY ? ` · ${totM} migrado(s) · ${totF} fallido(s)` : ''}`);
-  if (!APPLY) console.log('Dry-run. Corré con --apply para migrar. (Habilitá "Allow delivery of PDF and ZIP" en Cloudinary o los PDF darán 401.)');
+  if (!APPLY) console.log('Dry-run. Corré con --apply para migrar. Los PDF bloqueados se bajan por la API firmada (requiere CLOUDINARY_API_SECRET).');
   await db.end();
 })().catch((e) => { console.error(e); process.exit(1); });
