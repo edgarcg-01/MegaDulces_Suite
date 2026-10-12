@@ -623,8 +623,29 @@ export class CommercialMovementsService {
       const cands = await trx('analytics.stock_movements as m')
         .where('m.tenant_id', tenantId).andWhere('m.doc_code', 'TrsfRcv').andWhere('m.parent_group', '41')
         .whereIn('m.parent_folio', ships.map((s) => s.folio))
-        .groupBy('m.parent_folio', 'm.parent_serie', 'm.warehouse_id')
-        .select('m.parent_folio as pf', 'm.warehouse_id as wh')
+        /**
+         * `[DM.23]` ⛔ **`m.folio` en el GROUP BY, o se suman recepciones de embarques distintos.**
+         *
+         * Una recepción es un DOCUMENTO: `(warehouse_id, folio)`. Agrupar sólo por
+         * `(parent_folio, parent_serie, warehouse_id)` junta en un solo candidato todas las
+         * recepciones que ese almacén haya hecho alguna vez contra ESE número de folio padre — y
+         * los folios de Kepler son secuencias POR SUCURSAL, así que se reciclan.
+         *
+         * Medido en prod (2026-10-12), el caso que lo destapó: el embarque `0000038` de 8 Esquinas
+         * mandó **750** a Padre Hidalgo y la recepción `0000401` recibió **750**. Pero Padre
+         * Hidalgo también tenía la recepción `0000391` (6-oct, 131 unidades) contra otro embarque
+         * que TAMBIÉN se llamaba `0000038`, de otra plaza. El grupo sumaba **881** y la lista
+         * publicaba «diferencia» sobre un traspaso que cuadra al peso.
+         *
+         * ⚠️ Y la ventana no lo salvaba: `PAIR_EARLY_DAYS` admite la recepción hasta 15 días
+         * ANTES del embarque, así que la del 6-oct entraba contra uno del 8-oct.
+         *
+         * ⭐ Son **45 grupos en 90 días** los que mezclan documentos así. Cada uno es una
+         * «diferencia» probablemente falsa — y el detalle del documento, que sí parea uno a uno,
+         * decía lo contrario en la misma pantalla.
+         */
+        .groupBy('m.parent_folio', 'm.parent_serie', 'm.warehouse_id', 'm.folio')
+        .select('m.parent_folio as pf', 'm.warehouse_id as wh', 'm.folio as rf')
         .select(trx.raw(`coalesce(m.parent_serie,'') AS ps`), trx.raw(`SUM(m.qty) AS q`), trx.raw(`MIN(m.doc_date) AS d`));
       for (const s of ships) {
         const sd = new Date(s.doc_date).getTime();
