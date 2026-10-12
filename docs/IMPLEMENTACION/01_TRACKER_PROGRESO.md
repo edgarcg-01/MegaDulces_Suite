@@ -3926,6 +3926,27 @@ cerrados con `validated_by = 'Claude Vision'`.
   y umbral propio en `CRON_JOBS`. Candado: `test-newdb-existencia-aux-matview.js` **12/12 contra
   prod**. ⛔ Las VISTAS quedan intactas: `v_warehouse_box_factor` tiene 5 dependientes, entre
   ellos `v_unit_truth` (ADR-057).
+- [ ] **[EX-PERF.3]** 🧪 `/compras/existencia` (y `/almacen/inventory/existencia`) — **cada
+  interacción de 1.1–2.8 s a 26–83 ms**, medido contra prod el 2026-10-12 sobre los mismos datos.
+  El piso ya no era el plan (forzar hash joins ganaba ~10 %) sino **re-armar en cada teclazo,
+  filtro y página** el join de ~30,600 celdas para devolver 50 filas. Ahora el API arma una
+  **foto** de las celdas por tenant (el CTE `src` de siempre, sin los filtros) y filtra, agrega,
+  ordena y pagina **en memoria** (`existencia-agregado.ts`, función pura con spec). Recarga en
+  segundo plano a los 45 s, una a la vez; vencida a los 5 min se espera (2.5 s en frío). ⛔ La
+  edad de la foto se **declara** como píldora propia («Tabla calculada»). **Paridad contra prod,
+  9 combinaciones de filtros: idéntico**, salvo tres diferencias explicadas en el encabezado del
+  módulo — la más importante, **`celdas_sin_costo_erp` llegaba SIEMPRE en 0** porque el SQL viejo
+  nunca la seleccionaba (sólo en el `GROUP BY`): el aviso KE.2 de "valuado con el catálogo"
+  estaba muerto; ahora dice 34. Sin migraciones ni permisos → sin re-login.
+- [ ] **[EX.U2]** 🧪 La existencia se muestra en **cajas, paquetes y piezas** (`35 cj 171 pz`,
+  `333 cj 14 paq 5 pz`) en vez de `35.9`/`333.7`. Pedido explícito: *"no las quiero en
+  decimales"*. Aritmética entera sobre la cantidad nativa con el **mismo divisor** de la cifra en
+  cajas (ADR-055) + el paquete de la ficha de Kepler del almacén (`v_kepler_unit_ladder`, `c81`),
+  sólo cuando es peldaño intermedio real (3,434 celdas con PAQ en prod). Sin factor de caja no se
+  fingen cajas (va la unidad base con °). El total por producto se desglosa si los almacenes
+  comparten escalera; si no, cajas enteras con `≈`. El pie por almacén suma muchos productos →
+  cajas enteras rotuladas `cj`. Spec `existencia-desglose.spec.ts` 11 casos.
+  **Falta (los dos): push + redeploy api+view + validación visual.**
 - [x] **[AX-PERF.1]** ✅ **El anexo al CFDI dejaba de responder por documento grande.** Disparado
   por *"`/comercial/documentos` tarda demasiado en cargar los documentos PDF"*.
   `analytics.erp_sales_invoice_lines` traía `box_factor` con un `LEFT JOIN` a
