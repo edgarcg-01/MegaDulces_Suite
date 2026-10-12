@@ -68,6 +68,31 @@ const files = [];
   }
 })(ROOT);
 
+/**
+ * ¿Algún COMPONENTE importa esta tira? Es la diferencia entre «hay un archivo de pestañas» y
+ * «hay una barra de pestañas EN LA PANTALLA». Sólo con la segunda se puede afirmar que,
+ * entrando por una pestaña, se llega a las demás — que es lo que el salvavidas de la tira
+ * anidada da por cierto.
+ */
+const TODOS_LOS_TS = [];
+(function walkTs(d) {
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p = path.join(d, e.name);
+    if (e.isDirectory()) walkTs(p);
+    else if (/.component.ts$/.test(e.name)) TODOS_LOS_TS.push(p);
+  }
+})(ROOT);
+
+function seConsume(archivoTabs) {
+  const base = path.basename(archivoTabs, '.ts');
+  // Sin regex a proposito: una barra invertida dentro de un template literal se degrada en
+  // silencio (una barra + s queda en s) y la comprobacion no matchea NUNCA. Ya paso al
+  // escribir esta funcion: daba rojo a una tira que SI se consume.
+  const aguja = '/' + base + "'";
+  return TODOS_LOS_TS.some((p) => fs.readFileSync(p, 'utf8').includes(aguja));
+}
+
+
 let fallas = 0; let exentas = 0; let okTabs = 0;
 for (const f of files.sort()) {
   const nom = path.basename(f).replace('-tabs.ts', '');
@@ -76,9 +101,36 @@ for (const f of files.sort()) {
     .map((m) => ({ label: m[1], route: m[2] }));
   if (!tabs.length) continue;
   if (EXENTOS[nom]) { exentas += tabs.length; console.log(`  ⓘ ${nom}: EXENTO — ${EXENTOS[nom]}`); continue; }
-  const faltan = tabs.filter((t) => !enSidebar.has(t.route));
+  // `[NAV.2]` Un archivo `*-tabs.ts` ES una tira: sus pantallas se alcanzan unas a otras desde
+  // cualquiera de ellas. Por eso una tira ANIDADA —una cuya puerta es, a su vez, pestaña de
+  // otra— está cubierta si AL MENOS UNA de sus rutas llega al sidebar: entrando por ahí, la
+  // tira se pinta entera.
+  //
+  // ⛔ Sin esto la compuerta daba un FALSO POSITIVO, y el caso real lo destapó: al agrupar
+  // `/compras` por flujo, «Control de entradas» pasó a ser una pestaña de «Recepción» y
+  // conservó su propia tira de 5. Las 5 son alcanzables (Recepción → Control de entradas →
+  // su tira), y la compuerta marcaba 4 en rojo porque sólo sabía mirar el sidebar PLANO.
+  //
+  // ⚠️ El salvavidas es ESTRECHO a propósito: exige una puerta REAL en el sidebar. Una tira
+  // con CERO rutas en el sidebar sigue en rojo — que es el defecto que esta compuerta nació
+  // para cazar: 81 pantallas que vivían sólo en una pestaña y no aparecían en ningún lado.
+  // ⛔⛔ Y la condición NO es sólo que tenga puerta: la tira tiene que EXISTIR EN PANTALLA.
+  // Medido al estrenar esta regla: con el salvavidas suelto, `contabilidad` pasó a verde — y
+  // es un FALSO NEGATIVO. Sus 16 pantallas están listadas una por una en el sidebar y NADIE
+  // importa `CONTABILIDAD_TABS`: el archivo define una tira que ningún componente pinta, así
+  // que desde sus 15 hermanas no se llega a «Cierre». Un archivo `*-tabs.ts` no prueba que
+  // haya una barra; lo prueba un componente consumiéndolo.
+  const consumida = seConsume(f);
+  const puertaEnSidebar = consumida && tabs.some((t) => enSidebar.has(t.route));
+  const faltan = puertaEnSidebar ? [] : tabs.filter((t) => !enSidebar.has(t.route));
+  const anidada = puertaEnSidebar && tabs.some((t) => !enSidebar.has(t.route));
   okTabs += tabs.length - faltan.length;
-  if (!faltan.length) { console.log(`  ✔ ${nom} (${tabs.length} pestañas)`); continue; }
+  if (!faltan.length) {
+    // Se DISTINGUE la anidada: pasa, pero por una razón distinta, y eso tiene que verse.
+    const via = anidada ? ' — anidada: su puerta está en el sidebar' : '';
+    console.log(`  ✔ ${nom} (${tabs.length} pestañas)${via}`);
+    continue;
+  }
   fallas += faltan.length;
   console.log(`  ✖ ${nom}: ${faltan.length} de ${tabs.length} pestañas NO están en el sidebar`);
   for (const t of faltan) console.log(`        ${t.label.padEnd(28)} ${t.route}`);
