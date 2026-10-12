@@ -10,7 +10,6 @@
  * supplier_payment_proofs` (con RLS) devuelve CERO FILAS y la pasada reporta «cola vacía» para
  * siempre. Es la falla canónica de este repo (ADR-056) y ya le pasó al piloto de Presupuestos.
  */
-import { describe, it, expect, vi } from 'vitest';
 import { PagosAutopilotService } from './pagos-autopilot.service';
 import { pasadaVacia, type ResultadoRelectura } from './relectura.engine';
 
