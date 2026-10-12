@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
+import { TableModule } from 'primeng/table';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -58,7 +59,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule],
   template: `
     <div class="cm-page">
       <app-page-tabs [tabs]="tabsRD" />
@@ -476,60 +477,74 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               </p>
             } @else {
               <div class="cm-table-wrap">
-                <table class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first">
-                  <thead><tr>
-                    <th>Ruta</th><th>Chofer</th><th class="comm-num">Días</th>
-                    <th class="comm-num">Subtotal</th><th class="comm-num">Venta</th><th class="comm-num">%</th>
-                    <th class="comm-num">Markup</th><th class="comm-num">Comisión</th><th class="comm-num">Bonos</th>
-                    <th class="comm-num">Nómina</th><th class="comm-num">A pagar</th><th>Procedencia</th>
-                  </tr></thead>
-                  <tbody>
-                    @for (l of choferes(); track l.route_code) {
-                      <tr [class.muted]="!!l.motivo_no_pago">
-                        <td class="comm-num">{{ l.route_code }}</td>
-                        <td class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
-                        <td class="comm-num" [class.cm-corta]="diasCortos(l)" [title]="tipDias(l)">
-                          {{ l.dias_con_venta != null ? (l.dias_con_venta + ' / ' + (l.dias_esperados ?? '?')) : '—' }}
-                        </td>
-                        <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
-                        <td class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
-                        <td class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
-                        <td class="comm-num cm-muted" [title]="tipMarkup(l)">
-                          {{ l.markup_sobre_costo_pct != null ? (pct(l.markup_sobre_costo_pct) + '%') : '—' }}
-                        </td>
-                        <td class="comm-num">{{ money(l.comision) }}</td>
-                        <td class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
-                        <td class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
-                        <td class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
-                        <td class="cm-nota">
-                          @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
-                          @if (l.dias_multifuente) {
-                            <span title="La quincena cruza un cambio de sistema: la venta de esos días viene de dos capturas. Medido: no comparten folio.">
-                              <p-tag severity="secondary" value="corte" />
-                            </span>
-                          }
-                          @if (l.costo_veredicto && l.costo_veredicto !== 'dos_fuentes') {
-                            <span [title]="tipCosto(l.costo_veredicto)">
-                              <p-tag [severity]="l.costo_veredicto === 'sin_costo' ? 'warn' : 'secondary'"
-                                     [value]="etiquetaCosto(l.costo_veredicto)" />
-                            </span>
-                          }
-                        </td>
-                      </tr>
-                    }
-                  </tbody>
-                  <tfoot><tr>
-                    <td colspan="3">{{ pagan() }} de {{ choferes().length }} pagan</td>
-                    <td class="comm-num">{{ money(sumCh('subtotal')) }}</td>
-                    <td class="comm-num">{{ money(sumCh('venta')) }}</td>
-                    <td></td><td></td>
-                    <td class="comm-num">{{ money(sumCh('comision')) }}</td>
-                    <td class="comm-num">{{ money(sumCh('bonos')) }}</td>
-                    <td class="comm-num cm-neg">−{{ money(sumCh('nomina_banco')) }}</td>
-                    <td class="comm-num is-strong">{{ money(sumCh('a_pagar')) }}</td>
-                    <td></td>
-                  </tr></tfoot>
-                </table>
+                <!--
+                  [RD.UI.2] DESIGN O.4 -- la nomina de la quincena: 12 columnas por ruta. Era
+                  una <table> cruda, asi que el sticky y la columna congelada ya los daba el
+                  CSS de surf-table, pero el TECLADO no: sin p-table no hay pSelectableRow, y
+                  esta es justo la tabla que alguien recorre renglon por renglon para verificar
+                  a quien se le paga. Ahora da flechas, Home/End y roving tabindex.
+                  min-width declarado: la compuerta de tablas densas la tenia marcada como la
+                  peor del repo (12 columnas sin decir que hace en un telefono).
+                -->
+                <p-table [value]="choferes()" dataKey="route_code" size="small" [rowHover]="true"
+                         selectionMode="single" [(selection)]="filaSel"
+                         class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first"
+                         [tableStyle]="{ 'min-width': '78rem' }">
+                  <ng-template #header>
+                    <tr>
+                      <th scope="col">Ruta</th><th scope="col">Chofer</th><th scope="col" class="comm-num">Días</th>
+                      <th scope="col" class="comm-num">Subtotal</th><th scope="col" class="comm-num">Venta</th><th scope="col" class="comm-num">%</th>
+                      <th scope="col" class="comm-num">Markup</th><th scope="col" class="comm-num">Comisión</th><th scope="col" class="comm-num">Bonos</th>
+                      <th scope="col" class="comm-num">Nómina</th><th scope="col" class="comm-num">A pagar</th><th scope="col">Procedencia</th>
+                    </tr>
+                  </ng-template>
+                  <ng-template #body let-l>
+                    <tr [pSelectableRow]="l" [class.muted]="!!l.motivo_no_pago">
+                      <td class="comm-num">{{ l.route_code }}</td>
+                      <td class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
+                      <td class="comm-num" [class.cm-corta]="diasCortos(l)" [title]="tipDias(l)">
+                        {{ l.dias_con_venta != null ? (l.dias_con_venta + ' / ' + (l.dias_esperados ?? '?')) : '—' }}
+                      </td>
+                      <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
+                      <td class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
+                      <td class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
+                      <td class="comm-num cm-muted" [title]="tipMarkup(l)">
+                        {{ l.markup_sobre_costo_pct != null ? (pct(l.markup_sobre_costo_pct) + '%') : '—' }}
+                      </td>
+                      <td class="comm-num">{{ money(l.comision) }}</td>
+                      <td class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
+                      <td class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
+                      <td class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
+                      <td class="cm-nota">
+                        @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
+                        @if (l.dias_multifuente) {
+                          <span title="La quincena cruza un cambio de sistema: la venta de esos días viene de dos capturas. Medido: no comparten folio.">
+                            <p-tag severity="secondary" value="corte" />
+                          </span>
+                        }
+                        @if (l.costo_veredicto && l.costo_veredicto !== 'dos_fuentes') {
+                          <span [title]="tipCosto(l.costo_veredicto)">
+                            <p-tag [severity]="l.costo_veredicto === 'sin_costo' ? 'warn' : 'secondary'"
+                                   [value]="etiquetaCosto(l.costo_veredicto)" />
+                          </span>
+                        }
+                      </td>
+                    </tr>
+                  </ng-template>
+                  <ng-template #footer>
+                    <tr>
+                      <td colspan="3">{{ pagan() }} de {{ choferes().length }} pagan</td>
+                      <td class="comm-num">{{ money(sumCh('subtotal')) }}</td>
+                      <td class="comm-num">{{ money(sumCh('venta')) }}</td>
+                      <td></td><td></td>
+                      <td class="comm-num">{{ money(sumCh('comision')) }}</td>
+                      <td class="comm-num">{{ money(sumCh('bonos')) }}</td>
+                      <td class="comm-num cm-neg">−{{ money(sumCh('nomina_banco')) }}</td>
+                      <td class="comm-num is-strong">{{ money(sumCh('a_pagar')) }}</td>
+                      <td></td>
+                    </tr>
+                  </ng-template>
+                </p-table>
               </div>
             }
           } @else {
@@ -702,6 +717,12 @@ export class ComercialComisionesComponent {
   readonly sinCalcular = signal<{ period_id: string; period_no: number; date_to: string }[]>([]);
   readonly sel = signal<CommissionBoardRow | null>(null);
   readonly run = signal<CommissionRunDetail | null>(null);
+  /**
+   * `[RD.UI.2]` D.7 -- PrimeNG como DISPOSITIVO DE ENTRADA del teclado, no como dueno del
+   * estado: la seleccion marca donde esta el cursor en la nomina. `pSelectableRow` la exige
+   * para dar flechas, Home/End y roving tabindex.
+   */
+  filaSel: CommissionLine | null = null;
   readonly tab = signal<string>('chofer');
   /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
   readonly tabsRD = RUTA_DIRECTA_TABS;
