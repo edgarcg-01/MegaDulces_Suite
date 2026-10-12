@@ -405,6 +405,56 @@ export class CashLedgerService {
 
       const patron = `^${beneficiario.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`;
 
+      /**
+       * ⛔⛔ `[CG.88]` **LA CASILLA PROMETÍA ALGO QUE NO SIEMPRE SE PUEDE CUMPLIR.**
+       *
+       * Edgar: *"cuando agrega el checkbox de que se guarde para siempre con ese concepto no
+       * sirve"*. Y tenía razón, pero el defecto no era que no guardara: **guardaba, y clasificaba
+       * mal**.
+       *
+       * Medido en prod el 2026-10-12. `Maria del Carmen Rdriguez Vera (003)` tiene TRES capturas
+       * vivas con TRES cuentas distintas:
+       *
+       *     CI-2026-00001  ingreso  $16,725.00  →  607-002 / 089
+       *     CG-2026-00005  gasto    $ 2,000.00  →  999 / 999
+       *     CG-2026-00006  gasto    $ 6,303.00  →  201 / 201   ← acá se marcó la casilla
+       *
+       * No es una proveedora: es una **persona de ruta**. Entrega dinero y recibe dinero, y cada
+       * cosa va a su cuenta. Una regla `beneficiario → una cuenta` **no puede ser cierta para
+       * ella**, y la que se creó iba a proponer `201/201` a todos sus gastos siguientes — incluido
+       * el próximo que debiera ser `999`.
+       *
+       * ⭐ El diseño YA lo sabía y está escrito en `resolverCuentas`: *"Sólo se declara regla donde
+       * el beneficiario DETERMINA la cuenta; los multi-cuenta se quedan en manual a propósito"*.
+       * Lo que faltaba era que alguien lo COMPROBARA — la UI ofrecía la casilla con sólo tener
+       * gasto + beneficiario + par completo.
+       *
+       * ⚠️ El freno va en el SERVIDOR y no sólo en la pantalla: la pantalla es un cliente entre
+       * varios, y una regla mal declarada no se nota hasta que ya clasificó mal un mes de gastos.
+       *
+       * ⚠️ Mira el LIBRO (lo que de verdad se contabilizó), no el historial de gastos del ERP: lo
+       * que importa es si NOSOTROS ya mandamos a ese beneficiario a otra cuenta. Y cuenta los
+       * ingresos también, aunque la regla sólo aplique a egresos — que el mismo nombre aparezca
+       * con cuenta de ingreso es justo la señal de que no es un proveedor.
+       */
+      const otras = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, beneficiario })
+        .whereNull('deleted_at')
+        .whereNot('estado', 'cancelado')
+        .whereNotNull('kepler_cuenta')
+        .where((b: any) => b.whereNot('kepler_cuenta', cuenta).orWhereNot('kepler_concepto', concepto))
+        .distinct('kepler_cuenta', 'kepler_concepto', 'tipo');
+      if (otras.length) {
+        const lista = otras
+          .map((o: any) => `${o.kepler_cuenta}/${o.kepler_concepto} (${o.tipo})`)
+          .join(', ');
+        throw new BadRequestException(
+          `«${beneficiario}» ya se contabilizó a ${lista}, así que su cuenta NO la determina el `
+          + 'beneficiario: una regla fija le pondría esa cuenta a todo lo que venga después. '
+          + 'Este movimiento se guarda igual; lo que no entra es la regla.',
+        );
+      }
+
       const ya = await trx('finance.caja_classify_rules')
         .where({ tenant_id: tenantId, match_beneficiario: patron, active: true })
         .whereNull('suppressed_at')
