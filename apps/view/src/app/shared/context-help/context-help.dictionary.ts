@@ -1739,4 +1739,54 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
       },
     ],
   },
+
+  // `[AUD.1]` Las comisiones de Ruta Directa. Este topico nace de una auditoria que midio que
+  // la pantalla publicaba SIETE explicaciones dentro de atributos `title` -- o sea, sólo
+  // alcanzables con el mouse encima. En tactil no hay hover: para quien abre esto en una
+  // tablet, esas siete explicaciones no existian. Las definiciones NO se inventaron aca: se
+  // subieron tal cual de `etiquetaVeredicto`, `etiquetaCosto`, `tipCosto`, `tipDias` y
+  // `tipMarkup` del propio componente, que es donde ya vivian.
+  'comisiones-rd': {
+    title: 'Comisiones de Ruta Directa — guía',
+    intro: 'La quincena de 14 días, ruta por ruta. La comisión se calcula sobre el SUBTOTAL (sin IVA, que es la base del costo) y la compuerta que decide si paga se abre con la VENTA TOTAL. Son dos cifras distintas a propósito: usar la venta como base inflaría el porcentaje ~16 puntos sin que nada se vea raro.',
+    groups: [
+      {
+        heading: 'Las dos cifras de la venta',
+        entries: [
+          { term: 'Subtotal', def: 'La venta sin IVA. Es la BASE sobre la que se calcula la comisión, porque es la única conmensurable con el costo.' },
+          { term: 'Venta', def: 'La venta con IVA. Es la COMPUERTA: decide si la ruta alcanza el escalón, pero no se usa para multiplicar.' },
+          { term: 'Markup sobre costo', def: '(subtotal / costo − 1) × 100. NO es margen sobre venta: el margen divide entre la venta y éste entre el costo, así que el mismo renglón da dos números distintos.' },
+        ],
+      },
+      {
+        heading: 'Días con venta',
+        entries: [
+          { term: 'N / M', def: 'Días en que esa ruta vendió, contra los que trabajaron sus hermanas de la misma plaza.' },
+          { term: 'Días cortos', def: 'Vendió menos días que sus hermanas. Puede ser que el camión no salió, o que la fuente perdió el día: el motor NO los distingue, porque la fuente es el único testigo de las dos cosas.' },
+          { term: 'Sin fuente', def: 'Esa ruta no tuvo fuente en el periodo. No es que vendiera cero: es que no hay con qué medirla.' },
+        ],
+      },
+      {
+        heading: 'Por qué una ruta no paga',
+        entries: [
+          { term: 'Bajo umbral', def: 'Vendió, pero no alcanzó el escalón mínimo de la escala.' },
+          { term: 'Sin dato en la fuente', def: 'No hay venta registrada para esa ruta en el periodo.' },
+          { term: 'No es ruta de camión', def: 'El tipo de ruta la deja fuera del esquema de Ruta Directa.' },
+          { term: 'Camión sin configurar', def: 'Es un camión, pero nadie lo dio de alta en la configuración de comisiones.' },
+          { term: 'Sin embarque documentado', def: 'No hay identidad de embarque que respalde lo que cargó.' },
+          { term: 'Configuración inactiva', def: 'Su configuración existe pero está apagada.' },
+          { term: 'Tipo de ruta sin declarar', def: 'Falta decir qué clase de ruta es; mientras tanto no entra.' },
+        ],
+      },
+      {
+        heading: 'La calidad del costo',
+        entries: [
+          { term: 'Sin costo', def: 'No hay costo en la fuente para esos días: el markup no se puede medir y el bono del supervisor no paga.' },
+          { term: 'Costo inestable', def: 'El único costo disponible es el que Wincaja re-expresa cada noche, así que el markup de un mes YA CERRADO puede cambiar solo.' },
+          { term: 'Costo de una fuente', def: 'El markup descansa en una sola fuente de costo, sin un segundo testigo que lo arbitre.' },
+          { term: 'Corte', def: 'La quincena cruza un cambio de sistema: la venta de esos días viene de dos capturas distintas. Medido: no comparten folio, así que no se están contando dos veces.' },
+        ],
+      },
+    ],
+  },
 };

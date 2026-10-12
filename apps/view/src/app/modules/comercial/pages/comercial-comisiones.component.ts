@@ -6,6 +6,7 @@ import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tab
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
+import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
@@ -59,7 +60,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent, TableModule, ContextHelpComponent],
   template: `
     <div class="cm-page">
       <app-page-tabs [tabs]="tabsRD" />
@@ -76,6 +77,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             @for (y of anios; track y) { <option [value]="y">{{ y }}</option> }
           </select>
         </label>
+        <!-- [AUD.1] Regla P: la jerga de esta pantalla (umbral, markup sobre costo, los siete
+             motivos de no pago, los tres veredictos de costo) vive en el diccionario versionado.
+             Antes vivia en SIETE atributos title, o sea solo para quien tiene mouse. -->
+        <app-context-help topic="comisiones-rd" />
         @if (run(); as r) {
           <app-freshness-pill measures="data" [since]="r.data_as_of" label="Venta medida"
                               [staleAfterSec]="172800" />
@@ -518,9 +523,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                       <td role="cell" data-label="Procedencia" class="cm-nota">
                         @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
                         @if (l.dias_multifuente) {
-                          <span title="La quincena cruza un cambio de sistema: la venta de esos días viene de dos capturas. Medido: no comparten folio.">
-                            <p-tag severity="secondary" value="corte" />
-                          </span>
+                          <!-- [AUD.1] El span existia SOLO para colgar un title con la
+                               definicion de «corte». Esa definicion ya vive en el diccionario
+                               (topico comisiones-rd), que si se alcanza sin mouse. -->
+                          <p-tag severity="secondary" value="corte" />
                         }
                         @if (l.costo_veredicto && l.costo_veredicto !== 'dos_fuentes') {
                           <span [title]="tipCosto(l.costo_veredicto)">
