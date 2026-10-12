@@ -19,7 +19,7 @@ import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
   CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite,
-  DeliveryGuide, Driver, GuideRecipient, LogisticaService, NuevoEmbarqueHoja, Shipment, ShipmentExpense, Vehicle,
+  DeliveryGuide, Driver, GuideRecipient, LogisticaService, NuevoEmbarqueHoja, Shipment, Vehicle,
 } from '../logistica.service';
 import { KeplerHojaComponent } from '../components/kepler-hoja.component';
 import { KeplerCostoComponent } from '../components/kepler-costo.component';
@@ -141,17 +141,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <i class="pi pi-file-edit" aria-hidden="true"></i>
                 <span>Guías</span>
                 <span class="shd-tab-count">{{ guides().length }}</span>
-              </button>
-              <button
-                type="button"
-                class="shd-mode-tab"
-                [class.active]="tab() === 'expenses'"
-                role="radio"
-                [attr.aria-checked]="tab() === 'expenses'"
-                (click)="setTab('expenses')"
-                >
-                <i class="pi pi-money-bill" aria-hidden="true"></i>
-                <span>Costos</span>
               </button>
               <button
                 type="button"
@@ -369,67 +358,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               </article>
             </div>
           }
-        }
-        <!-- ── TAB COSTOS ── -->
-        @if (tab() === 'expenses') {
-          <!-- Form de inputs -->
-          <div class="sheet cols-12">
-            <article class="cell cell-span-12">
-              <span class="cell-label">Conceptos de gasto operativo</span>
-              <form [formGroup]="expForm" class="shd-exp-form">
-                <div class="shd-exp-row">
-                  <label><span>Combustible</span><p-inputnumber formControlName="fuel" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Casetas</span><p-inputnumber formControlName="tolls" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Hospedaje</span><p-inputnumber formControlName="lodging" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                </div>
-                <div class="shd-exp-row">
-                  <label><span>Pensiones</span><p-inputnumber formControlName="parking" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Permisos</span><p-inputnumber formControlName="permits" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Talachas</span><p-inputnumber formControlName="repairs" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                </div>
-                <div class="shd-exp-row">
-                  <label><span>Ayudantes ext.</span><p-inputnumber formControlName="external_helpers" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Maniobras</span><p-inputnumber formControlName="handling" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label><span>Viáticos guía</span><p-inputnumber formControlName="driver_per_diem" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                </div>
-                <div class="shd-exp-row">
-                  <label><span>Otros</span><p-inputnumber formControlName="other" mode="currency" currency="MXN" locale="es-MX"></p-inputnumber></label>
-                  <label class="shd-check-line shd-check-span-2">
-                    <p-checkbox formControlName="apply_config_km" [binary]="true" inputId="apply_km"></p-checkbox>
-                    <span>Aplicar costo km de configuración (recalcula total)</span>
-                  </label>
-                </div>
-                <label class="shd-notes-field">
-                  <span>Notas</span>
-                  <input pInputText formControlName="notes" />
-                </label>
-              </form>
-            </article>
-          </div>
-          <!-- Totales -->
-          @if (expense(); as e) {
-            <div class="sheet cols-12">
-              <article class="cell cell-span-4">
-                <span class="cell-label">Subtotal operativo</span>
-                <span class="cell-value is-medium">{{ e.operating_subtotal | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                <span class="cell-sub">suma de conceptos</span>
-              </article>
-              <article class="cell cell-span-4">
-                <span class="cell-label">Costo por km</span>
-                <span class="cell-value is-medium">{{ (e.total_cost - e.operating_subtotal) | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-                <span class="cell-sub">× {{ e.fixed_cost_per_km | number:'1.2-4' }} /km</span>
-              </article>
-              <article class="cell cell-span-4">
-                <span class="cell-icon" aria-hidden="true"><i class="pi pi-wallet"></i></span>
-                <span class="cell-label">Total</span>
-                <span class="cell-value is-headline">{{ e.total_cost | currency:'MXN':'symbol-narrow':'1.2-2' }}</span>
-              </article>
-            </div>
-          }
-          <!-- Save action -->
-          <div class="shd-info-actions">
-            <button pButton [loading]="savingExp()" (click)="saveExpense()"><span class="p-button-icon p-button-icon-left pi pi-save" aria-hidden="true"></span><span class="p-button-label">Guardar costos</span></button>
-          </div>
         }
         <!-- ── TAB CIERRE Y PAGO (EMB.24–27) ── -->
         @if (tab() === 'cierre') {
@@ -816,47 +744,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .shd-eta-seq { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--c-surface-2); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); font-size: var(--fs-micro); }
     .shd-eta-time { font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); }
 
-    /* ── EXP FORM (Costos) ── */
-    .shd-exp-form { display: flex; flex-direction: column; gap: .875rem; }
-    .shd-exp-row {
-      display: grid;
-      grid-template-columns: repeat(3, 1fr);
-      gap: .75rem;
-    }
-    @media (max-width: 45rem) {
-      .shd-exp-row { grid-template-columns: 1fr; }
-    }
-    .shd-exp-form label {
-      display: flex;
-      flex-direction: column;
-      gap: .3rem;
-      font-size: var(--fs-micro);
-      color: var(--c-text-2);
-      font-weight: var(--fw-bold);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
-    .shd-check-line {
-      flex-direction: row !important;
-      align-items: center;
-      gap: .5rem !important;
-      text-transform: none !important;
-      letter-spacing: 0 !important;
-      font-size: var(--fs-sm) !important;
-      color: var(--c-text-1) !important;
-      font-weight: var(--fw-regular) !important;
-    }
-    .shd-check-span-2 { grid-column: span 2; }
-    .shd-notes-field {
-      display: flex;
-      flex-direction: column;
-      gap: .3rem;
-      font-size: var(--fs-micro);
-      color: var(--c-text-2);
-      font-weight: var(--fw-bold);
-      text-transform: uppercase;
-      letter-spacing: .06em;
-    }
 
     /* ── DIALOG: recipients ── */
     .shd-recipients-head {
@@ -931,7 +818,6 @@ export class LogisticaShipmentDetailComponent {
   /** Gasto de Kepler atribuido a la guía (CGU.4). null = no se pudo medir; no es cero. */
   readonly gastosKepler = signal<number | null>(null);
   readonly motivoGastosKepler = signal<string | null>(null);
-  readonly expense = signal<ShipmentExpense | null>(null);
   readonly drivers = signal<Driver[]>([]);
   readonly choferOptions = computed(() =>
     this.drivers().filter((d) => d.active && d.roles?.includes('chofer')).map((d) => ({ label: d.full_name, value: d.id })),
@@ -944,13 +830,12 @@ export class LogisticaShipmentDetailComponent {
       .map((d) => ({ label: d.full_name, value: d.id }));
   });
 
-  readonly savingExp = signal(false);
   readonly savingGuide = signal(false);
   readonly optimizing = signal(false);
   readonly eta = signal<ShipmentEta | null>(null);
   readonly etaLoading = signal(false);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
-  readonly tab = signal<'info' | 'guides' | 'expenses' | 'cierre' | 'cartaporte'>('info');
+  readonly tab = signal<'info' | 'guides' | 'cierre' | 'cartaporte'>('info');
 
   // ── Carta Porte ──
   readonly cpDocs = signal<CartaPorteDocument[]>([]);
@@ -960,7 +845,7 @@ export class LogisticaShipmentDetailComponent {
   readonly cpStamping = signal(false);
   readonly cpReady = computed(() => this.cpChecked() && this.cpGaps().length === 0);
 
-  setTab(t: 'info' | 'guides' | 'expenses' | 'cierre' | 'cartaporte') {
+  setTab(t: 'info' | 'guides' | 'cierre' | 'cartaporte') {
     this.tab.set(t);
     if (t === 'cartaporte') this.loadCp();
     if (t === 'guides' && !this.gpsReview() && !this.gpsReviewLoading()) this.loadGpsReview();
@@ -1086,13 +971,6 @@ export class LogisticaShipmentDetailComponent {
   readonly customerSuggestions = computed<CustomerLite[]>(() => this.customerRes.value() ?? []);
   readonly customerOrders = signal<OrderLite[]>([]);
 
-  expForm: FormGroup = this.fb.group({
-    fuel: [0], tolls: [0], lodging: [0], parking: [0], permits: [0], repairs: [0],
-    external_helpers: [0], handling: [0], driver_per_diem: [0], other: [0],
-    apply_config_km: [false],
-    notes: [''],
-  });
-
   constructor() {
     this.route.paramMap.subscribe((p) => {
       const id = p.get('id') || '';
@@ -1112,18 +990,6 @@ export class LogisticaShipmentDetailComponent {
     });
     this.api.listGuides(id).subscribe({
       next: (g) => this.guides.set(g || []),
-    });
-    this.api.getExpense(id).subscribe({
-      next: (e) => {
-        this.expense.set(e);
-        this.expForm.patchValue({
-          fuel: e.fuel, tolls: e.tolls, lodging: e.lodging, parking: e.parking,
-          permits: e.permits, repairs: e.repairs, external_helpers: e.external_helpers,
-          handling: e.handling, driver_per_diem: e.driver_per_diem, other: e.other,
-          notes: e.notes || '',
-        });
-      },
-      error: () => { /* 404 si no hay expense aún — OK */ },
     });
   }
 
@@ -1510,21 +1376,5 @@ export class LogisticaShipmentDetailComponent {
     if (s === 'error') return 'is-bad';
     if (s === 'cancelado') return 'is-neutral';
     return 'is-info';
-  }
-
-  // ── Expenses ────────────────────────────────────────────────────────
-  saveExpense() {
-    this.savingExp.set(true);
-    this.api.upsertExpense(this.shipmentId(), this.expForm.value).subscribe({
-      next: (e) => {
-        this.savingExp.set(false);
-        this.expense.set(e);
-        this.toast.add({ severity:'success', summary:'Costos guardados' });
-      },
-      error: (err) => {
-        this.savingExp.set(false);
-        this.toast.add({ severity:'error', summary:'Error', detail: err?.error?.message || 'No se pudo' });
-      },
-    });
   }
 }
