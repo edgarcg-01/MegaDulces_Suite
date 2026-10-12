@@ -47,9 +47,16 @@ export interface RespuestaCierre {
   query_ms: number;
 }
 
-const VISTA = 'analytics.v_contpaqi_cierre_mensual';
+/**
+ * `[CPA.0.2]` Se lee la MATVISTA, no la vista. La definición sigue viviendo en la vista —la
+ * matvista es `SELECT *` de ella— pero la consulta real del servicio medía **889 ms** contra un
+ * gate de 500, y contra la matvista mide **3**.
+ */
+const MV = 'analytics.mv_contpaqi_cierre_mensual';
 /** El carril `contpaqi` corre @1 min; 6 h de tolerancia es holgado y deja ver una caída real. */
 const HORAS_FRESCURA = 6;
+/** El refresco de la matvista corre @15 min; 2 h deja ver que el carril se murió sin gritar por ruido. */
+const HORAS_REFRESCO = 2;
 
 @Injectable()
 export class ContpaqiCierreService {
@@ -69,17 +76,25 @@ export class ContpaqiCierreService {
    * dejaría sin meses que promediar justo en el borde de la ventana.
    */
   async cierre(opts: { desde?: string; hasta?: string } = {}): Promise<RespuestaCierre> {
-    this.tenantCtx.requireTenantId();
+    const tenantId = this.tenantCtx.requireTenantId();
 
     const hasta = opts.hasta ?? mesDe(new Date());
     const desde = opts.desde ?? mesMenos(hasta, 12);
 
     const t0 = Date.now();
     const { filas, umbrales } = await this.tk.run(async (trx) => {
-      const filas = (await trx(VISTA)
+      /*
+       * ⚠️ `[CPA.0.2]` Se lee la MATVISTA, y el `tenant_id` va EXPLÍCITO. Postgres **no aplica
+       * RLS a una matvista** (lección de `[C.1]`), así que el filtro que en la vista ponía la
+       * política acá hay que escribirlo — si se olvida, un tenant ve los libros de otro.
+       * Medido contra prod el 2026-10-12: la misma consulta, 889 ms contra la vista y **3 ms**
+       * contra la matvista.
+       */
+      const filas = (await trx(MV)
+        .where('tenant_id', tenantId)
         .whereBetween('anio_mes', [desde, hasta])
         .orderBy([{ column: 'anio_mes', order: 'desc' }, { column: 'familia', order: 'asc' }])
-      ) as unknown as Array<FilaCierreCruda & { data_as_of: string | null }>;
+      ) as unknown as Array<FilaCierreCruda & { data_as_of: string | null; refrescado_en: string | null }>;
 
       const umbrales = (await trx('analytics.kpi_thresholds')
         .whereNull('deleted_at')
@@ -101,6 +116,16 @@ export class ContpaqiCierreService {
     const dataAsOf = filas.reduce<string | null>(
       (max, f) => (f.data_as_of && (!max || f.data_as_of > max) ? f.data_as_of : max), null,
     );
+    /*
+     * ⭐ `[CPA.0.2]` SON DOS FRESCURAS DISTINTAS y las dos se publican:
+     *   · `data_as_of`    — cuándo llegó la última póliza (carril `contpaqi`, @1 min).
+     *   · `refrescado_en` — cuándo se recalculó el veredicto (carril `mv_cierre_refresh`, @15 min).
+     * Publicar sólo la primera diría «al minuto» sobre un cálculo de ayer, que es exactamente la
+     * mentira que ADR-056 persigue. `composeFreshness` se queda con el PEOR de los dos eslabones.
+     */
+    const refrescadoEn = filas.reduce<string | null>(
+      (max, f) => (f.refrescado_en && (!max || f.refrescado_en > max) ? f.refrescado_en : max), null,
+    );
 
     return {
       meses,
@@ -108,6 +133,7 @@ export class ContpaqiCierreService {
       // "recién medido" por el solo hecho de haber contestado (Fase VP, 21 de 24 píldoras).
       freshness: composeFreshness([
         evalInput('contpaqi', 'Pólizas de ContPAQi (carril @1 min)', dataAsOf, HORAS_FRESCURA),
+        evalInput('mv_cierre', 'Recálculo del semáforo (carril @15 min)', refrescadoEn, HORAS_REFRESCO),
       ]),
       coverage: {
         measured: familias.size > 0,

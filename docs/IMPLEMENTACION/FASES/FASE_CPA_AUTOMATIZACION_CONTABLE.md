@@ -486,6 +486,48 @@ haciendo su trabajo sobre datos reales. Y cero incoherencias entre `senal` y `se
 `mediana_meses` y un `cobertura_alta` que marque lo que se despega por arriba, para que un mes
 duplicado y un mes sano **dejen de verse igual**.
 
+#### `[CPA.0.2]` ✅ El gate de 500 ms, cerrado — y el candado medía lo que no era
+
+**⛔ El número que yo venía publicando estaba mal.** Medido el 2026-10-12 sobre 9 corridas: el
+`count(*)` que el candado cronometraba daba **563 ms**, y **la consulta real del servicio**
+—`SELECT *` de 13 meses con `ORDER BY`, que es lo que corre la pantalla— daba **900–1,291 ms,
+mediana 1,078**. Casi el doble. *Medir una consulta parecida es no medir.*
+
+**Y el candado además elegía su mejor tiro:** `Math.min` de 3 corridas. Con 8 de 10 bajo 500 y 2
+arriba, reportaba *"477 ms, cumple"*. Ahora manda la **mediana** y el p90 se publica al lado.
+
+**Dos optimizaciones de SQL probadas y DESCARTADAS** (las dos con paridad verificada, por eso se
+pudieron descartar sin miedo):
+
+| Intento | Resultado |
+|---|---|
+| Filtro de cuentas por **rangos** para que entre `ix_gll_cuenta` | El índice **se usa** (Bitmap Heap Scan) y el tiempo **no cambia**: 123 vs 124 ms |
+| **Reformular la señal** sacando el `LEFT JOIN` de 141,914 líneas contra 231 pólizas futuras | Aislada es más rápida (193 vs 244 ms) ⛔ **y dentro de la vista es PEOR: 643 vs 563**. Al referenciarse dos veces, `fam_de` se materializa |
+
+⭐⭐ *Una optimización medida en aislamiento miente sobre el conjunto.* La segunda daba **110
+filas idénticas, 0 diferencias** — y aun así se tiró.
+
+**La solución es el patrón que el repo ya tenía:** `analytics.mv_contpaqi_cierre_mensual`
+(mig `20261012081551`, **prod batch 885**), que es `SELECT *` de la vista —**la definición sigue
+viviendo en un solo lugar**— más el carril `refresh-cierre-matview.js` **@15 min** con latido de
+entrega y umbral en `CRON_JOBS`.
+
+> **889 ms → 3 ms** en la consulta real. Ejercitado en el pod: refresca 110 filas en **423 ms**,
+> y el latido quedó en `ok · 110 filas`.
+
+⚠️ **Dos frescuras, y las dos se publican:** `data_as_of` (cuándo llegó la última póliza, @1 min)
+y `refrescado_en` (cuándo se recalculó el veredicto, @15 min). Publicar sólo la primera diría
+«al minuto» sobre un cálculo de ayer. `composeFreshness` se queda con el **peor** eslabón.
+
+⚠️ **Postgres NO aplica RLS a una matvista** (`[C.1]`): el `tenant_id` viaja en la llave y el
+servicio **filtra explícito**. Si eso se olvida, un tenant ve los libros de otro.
+
+⛔ **Prueba negativa nueva:** el candado compara matvista contra vista **fila por fila**. Un
+refresh que dejó de correr sirve un veredicto viejo **sin dar un solo error**, y en un semáforo de
+cierre eso se lee como «todo asentado».
+
+**Candado: 29 ✔ · 0 ✘ · 0 ◻ NO MEDIDO.**
+
 ### Bloque B — la dependencia humana (cero código)
 
 #### `[CPA.3]` El clic ⬜ ⛔⛔ RUTA CRÍTICA DE TODO EL BLOQUE C

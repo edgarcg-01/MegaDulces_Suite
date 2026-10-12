@@ -30,6 +30,13 @@
 # Va cada minuto y no mas seguido a proposito: esa es la frescura real del ODS que lo alimenta.
 * * * * *   /app/ops/vl/run-feed.sh caja-mv   "node /app/database/importers/kepler/refresh-caja-matview.js --apply"
 
+# [CPA.0.2] El semaforo de cierre contable (/contabilidad/cierre). La consulta real del servicio
+# medía 889 ms contra la vista y mide 3 contra la matvista -- 296x, y el gate del proyecto son 500.
+# ⚠️ Cada 15 min y NO cada minuto, a proposito: sus fuentes son polizas mensuales y movimientos de
+# banco, y el veredicto cambia como mucho un par de veces al dia. Refrescar cada minuto seria pagar
+# el calculo 1,440 veces para publicar lo mismo -- el defecto que [CPU.3] midio en el carril de caja.
+*/15 * * * * /app/ops/vl/run-feed.sh cierre-mv "node /app/database/importers/contpaqi/refresh-cierre-matview.js --apply"
+
 # ── cada 2 minutos ───────────────────────────────────────────────────────────
 */2 * * * * /app/ops/vl/run-feed.sh refresh-consolidado "node /app/database/importers/kepler/refresh-consolidado.js"
 # [CS.1 -> CG.80] CAOS (caja fuerte de efectivo, 192.168.0.110) -> analytics.caos_cash_movements.
