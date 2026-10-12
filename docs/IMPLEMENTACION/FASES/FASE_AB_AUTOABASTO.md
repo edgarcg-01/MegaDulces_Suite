@@ -935,7 +935,18 @@ Revisión del módulo con Francisco (2026-10-12). Cuatro arreglos, sin migració
 3. **Filtro «Acción» en el servidor.** Se recortaba la página cargada (total ≤ 50). Una sola expresión
    (`accionExpr()`) pinta la columna y filtra. `sobrante` y `ok` quedan fuera del recorte crítico por
    defecto (existencia ≤ reorden), que los volvía imposibles de encontrar. Con el filtro puesto el
-   conteo usa la consulta completa (necesita el reparto `sbp`): más lento, sólo cuando se filtra.
+   conteo suma sólo `rpl` + el reparto `sbp` (y el canal con base por cadencia), no el ranking ni
+   las tablas de decorado. Medido en prod (un almacén, página de 50): contar sobre la consulta
+   completa llevaba la página de 3.0–4.8 s a **6.4–9.8 s**; con el conteo ligero, **3.3–5.3 s**, y
+   los totales salen idénticos en los dos (01: 376 traspaso / 1,576 sobrante · 02: 321 / 1,399 ·
+   red: 10,973 sobrante = KPI «Sobrestock»). ⚠️ La página sin filtro **ya tardaba 3–5 s** antes de
+   este cambio; es deuda aparte del listado (13 relaciones + ranking).
+
+**Validación en pantalla (2026-10-12, API local contra prod en solo lectura):** aviso de tránsito ✓ ·
+alcance «20 almacenes» ✓ · nombres de sucursal ✓ · La Piedad + Traspaso → 321 renglones en varias
+páginas ✓ · PDF habilitado con un almacén, generado en 6 s con la nota «NO se descuenta» y sólo
+traspasos ✓ · tooltip de *Falta* sin «− en camino» ✓. Visto de paso: el tooltip muestra
+«0.3 − 0.1 = 0.3» por el redondeo a un decimal en cajas (preexistente; lo resuelve §15.2).
 4. **El resumen busca por producto** (`product_search`). En `summary()` `search` sigue siendo por
    proveedor, que es como lo usa Compras.
 

@@ -1050,26 +1050,39 @@ export class CommercialReplenishmentService {
       // ya cargada: con 50 renglones por página, «Traspaso» mostraba los traspasos de ESA página
       // y el total decía 50 o menos aunque hubiera cientos.
       //
-      // La acción depende del reparto del sobrante (`sbp`), así que con este filtro el conteo NO
-      // puede usar la versión ligera de abajo: cuenta sobre `base`, que ya trae `sbp` y el resto.
-      // Se paga sólo cuando alguien filtra por acción (medido en prod: ~2.4 s en el almacén 00,
-      // el peor caso); sin el filtro, el conteo sigue siendo el de 16 ms.
+      // La acción depende del reparto del sobrante (`sbp`) y del objetivo, así que con este
+      // filtro el conteo suma SÓLO las relaciones que esa expresión nombra: `rpl` (el tránsito),
+      // `sbp` y, con base por cadencia, `sup`/`ih`/`rc`. NO el ranking `sr` ni las de decorado.
+      // Medido en prod (2026-10-12, almacén 01): contar sobre `base.clone()` llevaba la página de
+      // 4.8 s a 9.8 s; los mismos 1:1 por llave que documenta el bloque de arriba sostienen que
+      // la cifra no cambia (el candado test-newdb-critical-stock-count.js vigila que no dupliquen).
       const accion = (ACCIONES as readonly string[]).includes(q.accion ?? '') ? q.accion! : null;
       if (accion) base.andWhereRaw(`${this.accionExpr(sug, surH, tin)} = ?`, [accion]);
 
-      let conteo: Knex.QueryBuilder;
+      const conteo = trx('commercial.reorder_policy as rp')
+        .leftJoin('commercial.stock as s', (j) =>
+          j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
+        .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'));
+      if (abcPedido) {
+        conteo.leftJoin('commercial.abc_classification as abc', (j) =>
+          j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'));
+      }
+      this.criticalFilters(conteo, q, tenantId, whIds);
       if (accion) {
-        conteo = base.clone();
-      } else {
-        conteo = trx('commercial.reorder_policy as rp')
-          .leftJoin('commercial.stock as s', (j) =>
-            j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
-          .join('catalog.products as pr', (j) => j.on('pr.tenant_id', 'rp.tenant_id').andOn('pr.id', 'rp.product_id'));
-        if (abcPedido) {
-          conteo.leftJoin('commercial.abc_classification as abc', (j) =>
-            j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'));
+        conteo
+          .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+            j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
+          .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence'),
+            (j: Knex.JoinClause) => j.on('sbp.product_id', 'rp.product_id'));
+        if (basis === 'cadence') {
+          conteo
+            .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
+            .leftJoin('analytics.inventory_health as ih', (j) =>
+              j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
+            .leftJoin('commercial.replenishment_channel as rc', (j) =>
+              j.on('rc.tenant_id', 'rp.tenant_id').andOn('rc.warehouse_id', 'rp.warehouse_id').andOn('rc.supplier_id', 'pr.supplier_id'));
         }
-        this.criticalFilters(conteo, q, tenantId, whIds);
+        conteo.andWhereRaw(`${this.accionExpr(sug, surH, tin)} = ?`, [accion]);
       }
 
       const totalRow: any = await conteo.count('* as c').first();
