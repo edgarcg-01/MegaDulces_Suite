@@ -25,31 +25,6 @@
 #  rompe. Por eso cada consulta va en UNA linea. Ya costo una vez: se entrego la
 #  version con here-strings y en la camioneta no existia el archivo.
 #
-#  Dos formas de correrlo:
-#    a) PEGAR el bloque de abajo (de `$f=` para adelante) en PowerShell.
-#    b) Si el archivo llego a la laptop:
-#         powershell -ExecutionPolicy Bypass -File C:\KeplerPush\DIAGNOSTICO-COBROS.ps1
-# =============================================================================
-$f='C:\KeplerPush\push-ruta.cmd'; if(-not(Test-Path $f)){$f='C:\KeplerPush\push-ruta.v2.cmd'}
-if(-not(Test-Path $f)){$f=(Get-ChildItem 'C:\KeplerPush\*.cmd' -EA SilentlyContinue | Select-Object -First 1).FullName}
-if(-not $f){Write-Host 'NO encuentro el agente en C:\KeplerPush' -f Red}else{
-$t=Get-Content $f -Raw -Encoding Default
-$SRC=[regex]::Match($t,'(?im)^\s*set\s+SRC\s*=\s*(\S+)').Groups[1].Value
-$TR=[regex]::Match($t,'(?im)^\s*set\s+TRUCK\s*=\s*(\S+)').Groups[1].Value
-$SER=[regex]::Match($t,'(?im)^\s*set\s+ROUTE_SERIE\s*=\s*(\S+)').Groups[1].Value
-$P=(Get-Command psql.exe -EA SilentlyContinue).Source
-if(-not $P){foreach($r in @('C:\Program Files\PostgreSQL','C:\Program Files (x86)\PostgreSQL')){if(Test-Path $r){$P=(Get-ChildItem $r -Directory -EA SilentlyContinue|ForEach-Object{Join-Path $_.FullName 'bin\psql.exe'}|Where-Object{Test-Path $_}|Select-Object -First 1)}}}
-Write-Host ("agente: $f") -f Cyan
-Write-Host ("TRUCK : $TR   SERIE: $SER")
-Write-Host ("SRC   : " + ($SRC -replace '://[^@]*@','://***@'))
-Write-Host ("psql  : $P")
-if(-not $P -or -not $SRC){Write-Host 'falta psql o SRC' -f Red}else{
-$qs=@(
- @('1) TIPOS de kdm1/kdm5',"select table_name,column_name,data_type from information_schema.columns where table_schema='md' and ((table_name='kdm5' and column_name in ('c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12','c14')) or (table_name='kdm1' and column_name in ('c1','c2','c3','c4','c5','c6','c9','c45','c63'))) order by table_name,ordinal_position"),
- @('2) CUANTOS cobros y desde cuando',"select count(*) cobros, min(c9)::date desde, max(c9)::date hasta from md.kdm1 where btrim(c2)='U' and btrim(c3)='A' and btrim(c4::text)='5'"),
- @('3) MUESTRA: el cobro con el corte que salda',"select h.c6 cobro, h.c9::date fecha, h.c45 cuenta, h.c63 serie, btrim(a.c8::text)||'-'||btrim(a.c9::text)||'-'||btrim(a.c10::text) doc, a.c11 folio_corte, a.c12 importe, a.c14 referencia from md.kdm5 a join md.kdm1 h on btrim(h.c1)=btrim(a.c1) and btrim(h.c2)=btrim(a.c2) and btrim(h.c3)=btrim(a.c3) and btrim(h.c4::text)=btrim(a.c4::text) and btrim(h.c5::text)=btrim(a.c5::text) and btrim(h.c6)=btrim(a.c6) where btrim(a.c2)='U' and btrim(a.c3)='A' and btrim(a.c4::text)='5' order by h.c9 desc, h.c6 desc limit 12"),
- @('4) A QUE CUENTA van (c45)',"select c45 cuenta, count(*) n, max(c9)::date ultima from md.kdm1 where btrim(c2)='U' and btrim(c3)='A' and btrim(c4::text)='5' group by 1 order by 2 desc"),
- @('5) SERIES de ruta presentes (c63)',"select rtrim(btrim(c63),'-') serie, count(*) n from md.kdm1 where btrim(c2)='U' and btrim(c3)='A' and btrim(c4::text)='5' group by 1 order by 2 desc")
-)
-foreach($q in $qs){Write-Host ("`n--- " + $q[0] + " ---") -f Cyan; & $P "$SRC" -c $q[1] 2>&1 | ForEach-Object{Write-Host ("  " + $_)}}
-Write-Host "`n=== fin ===" -f Green}}
+#  Se PEGA como UNA SOLA LINEA en PowerShell (abajo). Tambien corre como archivo:
+#    powershell -ExecutionPolicy Bypass -File C:KeplerPushDIAGNOSTICO-COBROS.ps1
+$f='C:\KeplerPush\push-ruta.cmd'; $t=Get-Content $f -Raw -Encoding Default; Write-Host "--- set del agente ---" -f Cyan; ([regex]::Matches($t,'(?im)^\s*set\s+.*$'))|%{Write-Host ("  "+($_.Value.Trim() -replace '://[^@]*@','://***@'))}; $SRC=([regex]::Match($t,'(?im)^\s*set\s+"?\s*SRC\s*=\s*([^"\r\n]*)')).Groups[1].Value.Trim().TrimEnd('"'); $TR=([regex]::Match($t,'(?im)^\s*set\s+"?\s*TRUCK\s*=\s*([^"\r\n]*)')).Groups[1].Value.Trim().TrimEnd('"'); $SER=([regex]::Match($t,'(?im)^\s*set\s+"?\s*ROUTE_SERIE\s*=\s*([^"\r\n]*)')).Groups[1].Value.Trim().TrimEnd('"'); $P=(Get-Command psql.exe -EA SilentlyContinue).Source; if(-not $P){$P='C:\Program Files\PostgreSQL\16\bin\psql.exe'}; Write-Host ("`nTRUCK: $TR  SERIE: $SER") -f Cyan; Write-Host ("SRC  : "+($SRC -replace '://[^@]*@','://***@')); if(-not $SRC){Write-Host 'SIN SRC: pegame las lineas de arriba' -f Red}else{$qs=@(@('1) TIPOS kdm1/kdm5',"select table_name,column_name,data_type from information_schema.columns where table_schema='md' and table_name in ('kdm1','kdm5') and column_name in ('c1','c2','c3','c4','c5','c6','c7','c8','c9','c10','c11','c12','c14','c45','c63') order by table_name,ordinal_position"),@('2) CUANTOS cobros',"select count(*) cobros, min(c9)::date desde, max(c9)::date hasta from md.kdm1 where btrim(c2)='U' and btrim(c3)='A' and btrim(c4::text)='5'"),@('3) MUESTRA cobro+corte',"select h.c6 cobro, h.c9::date fecha, h.c45 cuenta, h.c63 serie, btrim(a.c8::text)||'-'||btrim(a.c9::text)||'-'||btrim(a.c10::text) doc, a.c11 folio_corte, a.c12 importe, a.c14 referencia from md.kdm5 a join md.kdm1 h on btrim(h.c1)=btrim(a.c1) and btrim(h.c2)=btrim(a.c2) and btrim(h.c3)=btrim(a.c3) and btrim(h.c4::text)=btrim(a.c4::text) and btrim(h.c5::text)=btrim(a.c5::text) and btrim(h.c6)=btrim(a.c6) where btrim(a.c2)='U' and btrim(a.c3)='A' and btrim(a.c4::text)='5' order by h.c9 desc, h.c6 desc limit 12"),@('4) CUENTA c45',"select c45 cuenta, count(*) n, max(c9)::date ultima from md.kdm1 where btrim(c2)='U' and btrim(c3)='A' and btrim(c4::text)='5' group by 1 order by 2 desc"),@('5) SERIES c63',"select rtrim(btrim(c63),'-') serie, count(*) n from md.kdm1 where btrim(c2)='U' and btrim(c3)='A' and btrim(c4::text)='5' group by 1 order by 2 desc")); foreach($q in $qs){Write-Host ("`n--- "+$q[0]+" ---") -f Cyan; & $P "$SRC" -c $q[1] 2>&1|%{Write-Host ("  "+$_)}}; Write-Host "`n=== fin ===" -f Green}
