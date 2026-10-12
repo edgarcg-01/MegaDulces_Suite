@@ -2706,6 +2706,12 @@ correcto* — y una que no filtre se ve en `pg_policies` igual que una que sí.
 
 ### 37.8 ⭐ ¿Era un caso aislado o una clase? — medido, y la respuesta es *las dos cosas*
 
+> ⛔ **SUPERADO EN PARTE POR `[CP.8.44]` (§38): esta medición es de la capa equivocada.** Lo de
+> abajo mide privilegios **de tabla** y concluye que el defecto era único. Al día siguiente se
+> midió el **schema**: `app_runtime` nunca tuvo `USAGE` sobre `contpaqi`, o sea que a nivel
+> efectivo faltaban **las cuatro**, no una. *Medir la capa equivocada da un número exacto sobre la
+> pregunta equivocada.* Lo que sigue vale sólo para la capa de tabla.
+
 Antes de dar el arreglo por bueno había que saber si el defecto era único o un patrón. Medido en
 prod sobre las **434 tablas con `tenant_id`** de los 13 esquemas de negocio:
 
@@ -2716,9 +2722,12 @@ prod sobre las **434 tablas con `tenant_id`** de los 13 esquemas de negocio:
 | …de ésas, en `analytics` | **73** |
 | …fuera de `analytics` | **6** |
 
-⭐ **El defecto que rompía funcionalidad es ÚNICO en toda la base.** No hay una segunda tabla
-donde el rol de la app no pueda leer. Eso convierte a `[CP.8.36]` en un descuido puntual, no en
-un patrón del repo — y es la razón por la que ningún otro módulo tiene este síntoma.
+⭐ **A nivel de TABLA el defecto es único en toda la base.** No hay una segunda tabla donde el
+rol de la app tenga el privilegio negado explícitamente.
+
+⛔ **Pero eso no significaba que el resto estuviera sano**, y la frase original decía justo eso:
+*«es la razón por la que ningún otro módulo tiene este síntoma»*. Falso — las otras tres tablas de
+`contpaqi` estaban igual de inalcanzables, por el schema. Ver §38.
 
 ⛔ **Y el hueco de RLS NO son 79 defectos.** 73 de los 79 están en `analytics`, que es derivado y
 filtra por tenant **explícitamente** (la propia Fase C ya lo había declarado: Postgres no soporta
@@ -2743,3 +2752,94 @@ revierte una decisión ajena sin enterarse. Quedan con nombre y con dueño: son 
 ⚠️ Y vale repetir lo de §37.2: en este prod la API corre mayormente como `postgres`, así que
 **el RLS de las 434 está inerte de todos modos**. La política que pone `[CP.8.39]` es para el día
 que eso cambie; lo que arregla hoy es el `GRANT`.
+
+---
+
+## §38 ⛔⛔⛔ `[CP.8.44]` — El rol de la app NUNCA tuvo `USAGE` sobre `contpaqi`. El puente estaba muerto en prod desde el día uno
+
+🧪 **EN CÓDIGO 2026-10-12.** Migración `20261012092454` copiada al pod, **pendiente de aplicar**.
+Apareció buscando *"qué queda del plan"* — o sea, no lo reportó nadie: lo dijo el latido.
+
+### 38.1 ⭐ Lo delató el mecanismo que esta fase construyó para esto
+
+`analytics.cron_runs`, fila `contpaqi_cuadre`, leída en vivo:
+
+```
+status : error
+error  : select ... from "contpaqi"."poliza_exports" where ...
+         - permission denied for schema contpaqi
+host   : api          last_finish: 2026-10-12 15:20
+```
+
+**Cada 10 minutos**, desde que `[CP.8.31]` registró el módulo. ⭐ *El latido de `[CP.8.10]` hizo
+exactamente lo que se diseñó que hiciera — medir ENTREGA y ponerse rojo — y nadie lo leyó.* La
+fase entera se escribió alrededor de la idea de que un proceso mudo es peor que uno roto; éste
+no estaba mudo, estaba gritando.
+
+### 38.2 La causa: tres migraciones se lo dieron al rol equivocado
+
+| migración | qué hizo |
+|---|---|
+| `20261008155000` `[CP.8.1]` | creó el schema y dio privilegios **de tabla** a `app_runtime`. **Nunca `USAGE` del schema** |
+| `20261009101500` `[CP.8.1b]` | notó que faltaba `dev_ro`, le dio `USAGE` + `SELECT`… **sólo a `dev_ro`** |
+| `20261009122540` `[CP.8.20]` | volvió a dar `USAGE` — **otra vez sólo a `dev_ro`** |
+
+⛔ **Un privilegio de tabla sin `USAGE` del schema no sirve para nada**, y es invisible desde
+donde uno mira: `has_table_privilege('app_runtime','contpaqi.poliza_exports','SELECT')` devuelve
+**`true`**. Postgres concede el privilegio sobre el **objeto** y niega el paso al **contenedor**.
+Hay que preguntar las dos cosas, y nadie pregunta la segunda.
+
+### 38.3 ⚠️ Esto corrige a `[CP.8.39]` §37.8 — mi medición de ayer
+
+Ayer medí *"sin `GRANT` a `app_runtime`: **1 de 434** tablas"* y lo publiqué como *«el defecto es
+único en toda la base»*. **El número es exacto y la conclusión era falsa.**
+
+| capa | qué decía | qué pasaba |
+|---|--:|---|
+| tabla (lo que medí) | faltaba **1** | cierto |
+| **schema** (lo que manda) | — | faltaban **las 4** |
+
+⭐ *Medir la capa equivocada da un número exacto sobre la pregunta equivocada.* Y el error tiene
+la misma forma que todo lo demás de esta auditoría: no falló, **publicó una cifra con cara de
+cierta**. §37.8 queda con su puntero a esta sección.
+
+⚠️ Y `[CP.8.1]` §14.4 publica *"Grants · `app_runtime`: SELECT/INSERT/UPDATE/DELETE"* como
+verificación en prod. Era **verdad de tabla y falsa de efecto**.
+
+### 38.4 ⛔ Por qué NINGÚN candado lo vio, y qué cambia
+
+Los 10 candados de la fase leen la base como `edgar`/`dev_ro` — **que sí tiene `USAGE`**. El rol
+que falla es justo el que ninguna prueba usa.
+
+⭐ *Un candado que se conecta con otro rol que el de producción verifica un permiso que nadie
+ejerce.* El del puente gana dos aserciones que preguntan **por el rol de la app, por nombre**:
+
+```
+✗ ⭐⭐ app_runtime tiene USAGE sobre el schema contpaqi (sin esto los grants de tabla son decorativos)
+✓ dev_ro conserva su USAGE (es el que leen los candados)
+```
+
+**Prueba negativa corrida ANTES de la migración: `42 ✓ / 1 ✗`**, nombrando exactamente el rol y
+el schema. La segunda aserción no es decorativa: si alguien «arregla» esto revocándole a `dev_ro`,
+los otros nueve candados se caen juntos y nadie sabría por qué.
+
+### 38.5 Qué arregla la migración
+
+`GRANT USAGE ON SCHEMA contpaqi TO app_runtime` · los grants de tabla repetidos por si alguna
+entró sin ellos (así entró `supplier_aliases`) · y `ALTER DEFAULT PRIVILEGES`, **para que la
+próxima tabla no dependa de que alguien se acuerde** — que es la causa raíz de `[CP.8.39]` y de
+ésta. El freno de la migración pregunta **las dos capas**.
+
+### 38.6 ⛔ Lo que esto significa del estado real de la fase
+
+El puente **nunca funcionó en producción**. Lo que estaba medido y sigue siendo cierto —el
+formato, el armador, el resolvedor, los lotes, el cuadre— se midió **leyendo como `dev_ro`** o
+corriendo lógica pura. Lo que no se había ejercido ni una vez es el camino que recorre la app.
+
+⭐ Es coherente con lo que la fase ya declaraba: `contpaqi.poliza_exports` **en 0 filas** y el
+cuadre en *"NO MEDIDO: el camino de ESCRITURA"*. Sólo que el motivo no era el que estaba escrito
+—*«falta que alguien entregue algo»*— sino que **la app no podía ni leer el schema**.
+
+⚠️ Y deja una pregunta abierta que no se contesta desde acá: **si la bandeja de `[CP.8.32]` se
+abrió alguna vez en prod, tiró 500.** Nadie lo reportó, lo que probablemente significa que nadie
+la abrió todavía.
