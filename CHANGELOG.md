@@ -11,6 +11,10 @@
 ## [Unreleased]
 ### Changed — Finanzas › Gastos: un vale aprobado con cotización se cierra al aprobarlo (GX.82, 2026-10-12)
 - La cotización basta como evidencia: ya no se queda en «Pendientes de comprobación» esperando factura. Sólo vuelve si el aprobador marca «provisional». Una migración cierra los 93 que estaban atorados.
+### Changed — Compras › Catálogo: los productos se revisan por proveedor (PF.9, 2026-10-12)
+- Barra de proveedores ordenada por venta del mes, con los productos sin proveedor aparte.
+- Por proveedor: venta del mes, para comprar, agotados y líderes; chips por situación; cada producto dice para cuántos días alcanza y qué hacer, con el porqué.
+- «Para cuidar hoy» pasa a una vista aparte. Nuevos endpoints `GET /commercial/products/flow/proveedores[/:id]` (en vivo, guardados un minuto). Sin migración.
 ### Fixed — Finanzas › Gastos: los vales aprobados sólo con cotización ya aceptan su factura (GX.81, 2026-10-12)
 - Un vale aprobado con sólo cotización pedía la factura y la Suite la rechazaba («no lleva evidencia»), así que se quedaba en «Pendientes de comprobación» aunque Kepler ya lo hubiera pagado. Ahora se puede subir; los 70 atorados se destraban sin tocar datos.
 ### Changed — Existencia: respuesta en milisegundos y cantidades en cajas, paquetes y piezas (EX-PERF.3 + EX.U2, 2026-10-12)
