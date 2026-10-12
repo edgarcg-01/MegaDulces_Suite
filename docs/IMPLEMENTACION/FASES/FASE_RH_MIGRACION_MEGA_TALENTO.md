@@ -623,6 +623,37 @@ nombre «Admin».
 **No portado todavía:** el alta desde el portal con el siguiente número libre de la plaza y la conciliación
 promotora/departamento al guardar la ficha — van con la pantalla de personas.
 
+### 5.6 `[RH.1.10]` — lo que Mega Talento cambió después de la paridad (2026-10-12)
+
+Traslado de `ee4ff38` (08-oct) y `1a28f6e` (12-oct). Mismas reglas, mismo orden:
+
+- **Horas extra ganadas** (`logic/asistencia-persona.ts`): lo que se queda después de la salida esperada (su entrada
+  de ese día + su jornada), menos lo que debe (retardo + exceso de desayuno + exceso de comida), en bloques de 30 min,
+  con tope de 6 h. Sólo con horario asignado o deducido FIJO de jornada completa (más de 5 h 20): a un rotativo o a
+  medio tiempo no se le calculan, porque su salida deducida no es la de ese día.
+- **Banco** (`logic/banco-horas-extra.ts`): ganadas − usadas + ajustes, desde el 24-sep-2026 (`HR_OVERTIME_SINCE`). No se
+  guarda: sale del cálculo cada vez. Sólo se escriben los ajustes de RH (`hr.overtime_adjustments`), que se anulan con
+  motivo y nunca se borran.
+- **Desayuno distinto / Comida distinta**: un día, minutos autorizados (0-240), motivo y quién autorizó; el exceso de
+  ese día se mide contra eso.
+- **Cambio de día de descanso**: el día capturado es su descanso y su descanso habitual de ESA semana (jueves a
+  miércoles) pasa a laborable. Por eso las incidencias se leen por **semanas completas** y la lista por persona se
+  recorta al periodo.
+- **Un día con incidencia se mide aunque no haya checado** en el periodo (antes, quien usó horas extra el día completo
+  no aparecía).
+
+**Paridad** contra el código actual de Mega Talento (worktree aparte en `1a28f6e`, base en sólo lectura), 24-sep a
+12-oct: **72 cálculos, 1,467 personas, 5,094 días, 0 diferencias**, nadie de más ni de menos; alertas 3,279 iguales.
+Ejerció 12,300 min ganados y 1,710 usados. Negativa: con las horas extra apagadas, la paridad da 343 diferencias.
+
+**Hallazgo en la propia prueba:** la simulación de `[RH.1.4]` dentro de la paridad trataba como promotora a cualquier
+departamento con «promotor», regla anterior a 3938723; dos personas de La Piedad («PROMOTORIA MEGA DULCES») salían en la
+vista de promotoras de la Suite y en la de planta de Mega Talento. Corregida a la regla vigente (la misma que usa la
+carga de personas).
+
+⚠️ **No medido con datos reales:** desayuno/comida distintos y cambio de descanso tienen **0 casos** capturados en Mega
+Talento todavía; están probados sólo con unitarias (`horas-extra.spec.ts`, con mutación).
+
 ## 6. Cómo se hace cada corte
 
 1. **Ventana corta fuera de horario.** La app vieja sigue viva hasta el corte.

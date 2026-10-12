@@ -58,6 +58,8 @@ const CADENA = [
   // [RH.1.4] las bajas sin contraseña, el rol `sin_acceso` y el departamento de promotoría de marca:
   // la carga de personas (`carga-personas-mega-talento.js`) no corre sin ella.
   '20261012094356_rh_personas_bajas_y_sin_acceso.js',
+  // [RH.1.10] ajustes al banco de horas extra: sin la tabla, GET /hr/attendance/overtime da 500.
+  '20261012122707_hr_horas_extra_ajustes.js',
 ];
 /** La migración del reparto: de ella depende el chequeo de «claves en true» (ya no es la última de la cadena). */
 const MIG_REPARTO = '20261008094815_hr_reparto_asistencia.js';
