@@ -122,6 +122,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
               <button
                 type="button"
                 class="shd-mode-tab"
+                [class.active]="tab() === 'cierre'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'cierre'"
+                (click)="setTab('cierre')"
+                >
+                <i class="pi pi-flag-fill" aria-hidden="true"></i>
+                <span>Cierre y pago</span>
+              </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
                 [class.active]="tab() === 'info'"
                 role="radio"
                 [attr.aria-checked]="tab() === 'info'"
@@ -141,17 +152,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 <i class="pi pi-file-edit" aria-hidden="true"></i>
                 <span>Guías</span>
                 <span class="shd-tab-count">{{ guides().length }}</span>
-              </button>
-              <button
-                type="button"
-                class="shd-mode-tab"
-                [class.active]="tab() === 'cierre'"
-                role="radio"
-                [attr.aria-checked]="tab() === 'cierre'"
-                (click)="setTab('cierre')"
-                >
-                <i class="pi pi-flag-fill" aria-hidden="true"></i>
-                <span>Cierre y pago</span>
               </button>
             </nav>
           </article>
@@ -728,7 +728,7 @@ export class LogisticaShipmentDetailComponent {
   readonly eta = signal<ShipmentEta | null>(null);
   readonly etaLoading = signal(false);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
-  readonly tab = signal<'info' | 'guides' | 'cierre'>('info');
+  readonly tab = signal<'info' | 'guides' | 'cierre'>('cierre');
 
   setTab(t: 'info' | 'guides' | 'cierre') {
     this.tab.set(t);
