@@ -79,6 +79,30 @@ export class SupplierPaymentProofsController {
     return this.svc.recheck();
   }
 
+  /**
+   * `[AT.1]` Relee los comprobantes desde el archivo guardado y deja decidir a `[PC.6]`.
+   *
+   * ⭐ Es lo que `recheck` NO puede hacer: su guarda 2 exige una lectura **verificada**, y la
+   * verificación vive en memoria con 8 h de TTL. Medido en prod: **1,199 de 1,259** comprobantes
+   * `recibido` no tienen lectura verificable —incluidos los 189 que ya están en 4/4—, así que
+   * apretar «Volver a comparar» mil veces valida **cero**. Acá el servidor baja la evidencia del
+   * bucket y la lee él.
+   *
+   * Basta VER, igual que `recheck`: no es la decisión de nadie, es la regla determinista de
+   * siempre con una lectura que el servidor puede firmar. El carril lo corre solo cada 20 min
+   * (`PagosAutopilotService`); este botón sólo adelanta la próxima pasada.
+   */
+  @Post('relectura')
+  @RequirePermissions(Permission.FINANCE_PAYMENTS_VER)
+  @ApiOperation({ summary: 'Relee los comprobantes sin lectura verificada desde el archivo guardado, recalcula las 4 coincidencias y valida solo los que cumplen.' })
+  relectura(@Query('limite') limite?: string): ReturnType<SupplierPaymentProofsService['relectura']> {
+    // ⚠️ Acotado a 10 desde la pantalla: cada comprobante es una bajada del bucket + una llamada
+    // al modelo, o sea segundos. Un lote grande deja a la persona mirando un botón girando y se
+    // le cae por timeout del proxy. El rezago lo drena el carril, no el botón.
+    const n = Math.min(Math.max(Number(limite) || 10, 1), 25);
+    return this.svc.relectura(n);
+  }
+
   @Post(':id/bank-match')
   @RequirePermissions(Permission.FINANCE_PAYMENTS_GESTIONAR)
   @ApiOperation({ summary: 'Confirma que un cargo del estado de cuenta corresponde al pago (persiste en bank_recon_matches).' })
