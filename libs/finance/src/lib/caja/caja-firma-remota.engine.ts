@@ -1,3 +1,4 @@
+import { randomInt } from 'node:crypto';
 import { type ContextoFirma, FIRMA_VIDA_MS, firmaSigueValiendo } from '@megadulces/contracts';
 
 // El contrato de la firma vive en libs/contracts: lo necesitan el servidor Y la pantalla, y
@@ -106,11 +107,33 @@ const no = <T>(fallo: FalloVinculo): Resultado<T> => ({ ok: false, fallo });
 /**
  * Genera un código. `azar` se inyecta para que la prueba no dependa del azar — una prueba que
  * sortea no prueba lo mismo dos veces.
+ *
+ * ⛔⛔ `[CG.83]` **EL DEFAULT ERA `Math.random`, Y ACÁ ESO NO ES UN DETALLE.**
+ *
+ * `Math.random` no es criptográfico: V8 usa xorshift128+, y su estado interno se puede
+ * RECONSTRUIR observando unas pocas salidas consecutivas. Este código no es un identificador
+ * interno — **es la llave** del canal por el que viaja la firma de quien recibió efectivo, y se
+ * muestra en pantalla, o sea que sus salidas son observables por diseño.
+ *
+ * Con login exigido era un defecto latente (había una segunda puerta). Al abrir la firma SIN
+ * login (`[CG.84]`), el código pasa a ser la única, y entonces los 31^6 = 887 millones de
+ * combinaciones son NOMINALES: contra un generador predecible, adivinar no cuesta 887 millones
+ * de intentos, cuesta observar.
+ *
+ * `crypto.randomInt(max)` es uniforme y sin sesgo de módulo — el `% ALFABETO.length` de la
+ * versión anterior era inofensivo sólo porque 31 divide bien el rango de `Math.random`, pero
+ * con cualquier otro alfabeto habría inclinado la distribución hacia las primeras letras.
+ *
+ * ⚠️ El parámetro `azar` SE QUEDA y sigue aceptando `() => number` en [0,1): las pruebas lo
+ * inyectan para ser deterministas. Lo que cambia es el DEFAULT, que es lo que corre en
+ * producción. Una prueba que sortea no prueba lo mismo dos veces.
  */
-export function nuevoCodigo(azar: () => number = Math.random): string {
+export function nuevoCodigo(azar?: () => number): string {
   let c = '';
   for (let i = 0; i < LARGO; i++) {
-    const k = Math.floor(azar() * ALFABETO.length) % ALFABETO.length;
+    const k = azar
+      ? Math.floor(azar() * ALFABETO.length) % ALFABETO.length
+      : randomInt(ALFABETO.length);
     c += ALFABETO[k];
   }
   return c;
@@ -119,6 +142,36 @@ export function nuevoCodigo(azar: () => number = Math.random): string {
 /** Lo tecleado llega como venga: mayúsculas y sin separadores. */
 export function normalizarCodigo(c: string | null | undefined): string {
   return String(c ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+/**
+ * `[CG.83]` Cuántos códigos equivocados tolera UN socket antes de que se le corte.
+ *
+ * ── Por qué 5, y por qué el número casi no importa ──────────────────────────────────────────
+ *
+ * El código vive `VIDA_MS` (3 min) y es de un solo uso, así que adivinarlo a ciegas ya exigía
+ * recorrer buena parte de 31^6 = 887 millones en 180 segundos: ~5 millones de intentos por
+ * segundo sobre un socket. No era alcanzable ni sin tope.
+ *
+ * Entonces esto NO es la defensa: es el **detector**. Una persona que teclea mal se equivoca una
+ * o dos veces; cinco fallos seguidos desde el mismo socket no es alguien leyendo de una pantalla.
+ * El valor de cortar no es frenar la fuerza bruta —ya estaba frenada por el reloj— sino que
+ * intentarla deje de ser **gratis y silenciosa**.
+ *
+ * ⚠️ Es POR SOCKET, y eso tiene un límite que se declara: quien abra una conexión nueva por
+ * intento empieza de cero. Subirlo a un tope por IP exigiría estado compartido entre los dos
+ * pods, que es justo lo que este diseño evitó a propósito (`fetchSockets` en vez de un `Map`).
+ * Con el reloj de 3 minutos haciendo el trabajo pesado, no se paga esa complejidad.
+ */
+export const TOPE_INTENTOS = 5;
+
+/**
+ * ¿Hay que cortarle a este socket? Se consulta ANTES de mirar el código: un socket que ya gastó
+ * sus intentos no merece siquiera saber si el siguiente existe — responderle `no_existe` le
+ * confirmaría que el anterior tampoco, que es exactamente la señal que busca quien tantea.
+ */
+export function hayQueFrenar(intentosFallidos: number | undefined): boolean {
+  return Number(intentosFallidos ?? 0) >= TOPE_INTENTOS;
 }
 
 /**

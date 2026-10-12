@@ -6,6 +6,8 @@ import { Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 import {
   decidirTomar, decidirEntregar, nuevoCodigo, normalizarCodigo, roomDeFirma, VIDA_MS,
   type ContextoFirma, type FalloVinculo, type MarcaPc, type SocketEnRoom,
+,
+  hayQueFrenar, TOPE_INTENTOS,
 } from './caja-firma-remota.engine';
 import { revisarFirma } from './caja-firma.engine';
 
@@ -173,16 +175,32 @@ export class CajaGateway implements OnGatewayConnection, OnGatewayDisconnect {
   async tomarFirma(
     @ConnectedSocket() client: Socket,
     @MessageBody() body: { codigo?: string },
-  ): Promise<{ ok: boolean; ctx?: ContextoFirma; error?: FalloVinculo | 'sin_tenant' }> {
+  ): Promise<{ ok: boolean; ctx?: ContextoFirma; error?: FalloVinculo | 'sin_tenant' | 'demasiados_intentos' }> {
     const tenantId = client.data?.tenantId as string | undefined;
     if (!tenantId) return { ok: false, error: 'sin_tenant' };
+
+    // `[CG.83]` El tope se consulta ANTES de mirar el código: a un socket que ya gastó sus
+    // intentos no se le dice si el siguiente existe -- responderle `no_existe` le confirmaría que
+    // el anterior tampoco, que es la señal que busca quien tantea.
+    if (hayQueFrenar(client.data?.intentosFirma)) {
+      this.logger.warn(`Corte por tanteo: ${client.id} agotó ${TOPE_INTENTOS} intentos de código`);
+      client.emit('auth_error', { reason: 'demasiados_intentos' });
+      client.disconnect(true);
+      return { ok: false, error: 'demasiados_intentos' };
+    }
 
     const cod = normalizarCodigo(body?.codigo);
     const room = roomDeFirma(tenantId, cod);
     const r = decidirTomar(await this.fotoDeRoom(room), cod, tenantId, Date.now());
-    if (!r.ok || !r.v) return { ok: false, error: r.fallo };
+    if (!r.ok || !r.v) {
+      // ⚠️ Cuenta CUALQUIER fallo, no sólo `no_existe`. Distinguirlos acá volvería el contador un
+      // oráculo: "este no cuenta" significaría "este código SÍ existe, fallaste por otra cosa".
+      client.data = { ...client.data, intentosFirma: Number(client.data?.intentosFirma ?? 0) + 1 };
+      return { ok: false, error: r.fallo };
+    }
 
-    client.data = { ...client.data, firmaTel: cod };
+    // Reclamó bien: el contador se reinicia. Un error de tecleo no deja deuda para después.
+    client.data = { ...client.data, firmaTel: cod, intentosFirma: 0 };
     client.join(room);
     // Se le avisa a la PC que el telefono ya esta del otro lado: sin esto, el cajero no sabe si
     // el codigo se tecleo bien y lo vuelve a dictar.
