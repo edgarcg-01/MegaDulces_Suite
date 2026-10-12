@@ -91,6 +91,37 @@ import { armarMatriz, ExistenciaCelda } from './existencia-agregado';
  * de JS y rompen el build (pasó 4 veces esta semana).
  */
 
+/** Una columna del pivot (un almacén con dato). */
+export interface ExistenciaColumna { code: string; name: string; label: string; es_hub: boolean; }
+
+/** Edad de un tramo de la cadena. `dato_al`/`minutos` nulos = no medida (declarado, no cero). */
+export interface ExistenciaFrescura {
+  rama: string;
+  label: string;
+  dato_al: string | Date | null;
+  minutos: number | null;
+  nota?: string;
+}
+
+type Matriz = ReturnType<typeof armarMatriz>;
+
+/** La respuesta de `GET /commercial/inventory/existencia`. */
+export interface ExistenciaListado {
+  rows: Matriz['rows'];
+  columns: ExistenciaColumna[];
+  totals: Matriz['totals'] & { metodo_valuacion: string };
+  freshness: ExistenciaFrescura[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+/** Una fila cruda de la foto: pg entrega numeric como texto, se normaliza a número al leerla. */
+type FilaFoto = Omit<ExistenciaCelda, 'nat' | 'dbf' | 'cu' | 'rung_arbitrado' | 'pf' | 'sku' | 'nombre'> & {
+  nat: unknown; dbf: unknown; cu: unknown; rung_arbitrado: unknown; pf: unknown;
+  sku: string | null; nombre: string | null;
+};
+
 export interface ExistenciaQuery {
   warehouse_ids?: string;  // CSV de códigos de almacén — recorta el ANCHO del pivot
   supplier_id?: string;
@@ -286,7 +317,7 @@ export class ExistenciaService {
       // ⭐ [EX-PERF.1] JIT apagado: compilaba 821 funciones para una consulta de lectura
       // (medido 5,812 → 4,757 ms). Mismo remedio que `[RA-PERF]`.
       await trx.raw('SET LOCAL jit = off');
-      const celdas: ExistenciaCelda[] = (await trx.raw(sql, { t: tenantId })).rows.map((r: any) => ({
+      const celdas: ExistenciaCelda[] = (await trx.raw(sql, { t: tenantId })).rows.map((r: FilaFoto): ExistenciaCelda => ({
         ...r,
         nat: Number(r.nat) || 0,
         dbf: Number(r.dbf) || 1,
@@ -301,7 +332,7 @@ export class ExistenciaService {
     });
   }
 
-  async list(q: ExistenciaQuery) {
+  async list(q: ExistenciaQuery): Promise<ExistenciaListado> {
     const tenantId = this.tenantCtx.requireTenantId();
     const page = Math.max(1, Number(q.page) || 1);
     const cap = q.export ? 100000 : 500;
@@ -329,7 +360,7 @@ export class ExistenciaService {
       rows: m.rows,
       columns: await this.memoized(`cols:${tenantId}`, 60_000,
         () => this.columns(trx, tenantId, [], totWh.map((w) => w.code)))
-        .then((all: any[]) => (codes.length ? all.filter((r) => codes.includes(r.code)) : all)),
+        .then((all: ExistenciaColumna[]) => (codes.length ? all.filter((r) => codes.includes(r.code)) : all)),
       totals: {
         ...m.totals,
         // KX — el METODO con el que se valuo, dicho en vez de supuesto. El costo del ERP
