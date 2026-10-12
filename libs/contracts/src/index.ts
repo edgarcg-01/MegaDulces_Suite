@@ -106,6 +106,8 @@ export * from './http/hr-attendance.contract';
 export * from './http/nuevo-embarque.contract';
 export * from './http/viaticos-guia.contract';
 export * from './http/revision-gps.contract';
+// [EMB.24]–[EMB.29] Pago por viaje cerrado: cierre de paradas, cargadores y lo que se libera.
+export * from './http/cierre-viaje.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
 export * from './http/receipt-expediente.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.

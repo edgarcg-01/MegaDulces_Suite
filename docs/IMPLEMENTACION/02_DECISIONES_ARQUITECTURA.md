@@ -2704,3 +2704,21 @@ Plan, mapa de tablas y sprints en [`FASE_RH_MIGRACION_MEGA_TALENTO.md`](FASES/FA
 **Rechazado:** reusar `COMMERCIAL_INVENTORY_ASIGNAR`, porque mezcla armar equipos de conteo con recodificar el almacén; PEPS sobre `stock_lots.received_at`, porque sería falso sin dar error; cantidad en la posición de surtido desde ahora, por la misma razón de ADR-087; convertir sola la ubicación de Wincaja, porque `BC110` cae en nivel 0.
 
 **Hereda:** ADR-087 · ADR-044 · ADR-086 · ADR-056. Plan en [`FASE_UB`](FASES/FASE_UB_UBICACIONES.md).
+
+---
+
+## ADR-091 — Comisiones y viáticos de logística se liberan por viaje cerrado con documentos de Kepler y se pagan por Gastos
+
+**Fecha:** 2026-10-09 · **Estado:** ⏳ propuesto · **Fase:** EMB · **Hereda:** ADR-086 · ADR-056 · ADR-016
+
+**Contexto.** Logística paga comisión y viáticos como gasto en Kepler (conceptos `075`/`128`, cuenta 602-015), un gasto por persona cada 14 días, sin decir qué viajes paga: 154 de 159 gastos de 90 días no tienen vale en la Suite. La nómina de logística de la Suite (`logistics.liquidations`) está vacía y no pagaría nada (EMB.20, EMB.23). Kepler no registra la entrega: el embarque dice `EMBARCADO` en el 100%.
+
+**Decisión (usuario, 2026-10-09; propuesta de Claude).**
+1. **La parada se cierra con el documento de Kepler cuando existe.** Traspaso: la recepción `U-A-50` en la sucursal destino por el mismo importe (94% de cobertura medida). Carga a camión de ruta: al embarcarse. Cliente: Kepler no confirma a tiempo (factura antes de salir, cobro 7–21 días después), así que la cierra **la entrega que registra el chofer en la Suite**.
+2. **El viaje se libera cuando ninguna parada está pendiente.** Un faltante en un traspaso retiene sólo esa parada, como diferencia con su propio aviso.
+3. **Lo liberado se paga por Gastos**: un vale por persona y corte de 14 días, con renglones = viajes liberados, firma de quien autoriza y de quien recibe. Cada guía-persona-concepto se paga una sola vez.
+4. **Viáticos a todos los que viajan** por la regla de horario (EMB.19), comida a $100. **Maniobra de carga** ($30 por cargador) también en las cargas a camión de ruta.
+
+**Rechazado:** encender `/logistica/payroll` (duplica el flujo de Gastos que ya se usa y paga $0 hoy); usar la factura como prueba de entrega (sale antes del viaje); esperar al cobro (llega tarde y sólo en la mitad); cruzar `TI###` por número de sucursal (da 5% en vez de 94%: la equivalencia vive en `pv_suc_ip`).
+
+**Fuera:** apoyos fijos sin viaje y el tratamiento fiscal (gasto contra nómina), a confirmar con Contabilidad. Plan en [`FASE_EMB_PAGO_POR_VIAJE`](FASES/FASE_EMB_PAGO_POR_VIAJE.md).

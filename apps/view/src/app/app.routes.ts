@@ -708,6 +708,13 @@ export const routes: Routes = [
         loadComponent: () => import('./modules/finanzas/pages/finanzas-mis-gastos.component').then(m => m.FinanzasMisGastosComponent),
         canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR)]
       },
+      {
+        // `[EMB.29]` Comisiones y viáticos de logística por corte de 14 días (ADR-091): un vale
+        // por persona con SÓLO viajes cerrados y cargas en Kepler. Mismo par de permisos que la API.
+        path: 'comisiones-logistica',
+        loadComponent: () => import('./modules/finanzas/pages/finanzas-comisiones-logistica.component').then(m => m.FinanzasComisionesLogisticaComponent),
+        canActivate: [anyPermissionGuard(Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)]
+      },
         ],
       },
     ]

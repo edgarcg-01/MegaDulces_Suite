@@ -49,4 +49,12 @@ export const GASTOS_TABS: readonly PageTab[] = [
     icon: 'pi pi-history',
     anyOf: [Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_COMPROBAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS],
   },
+  {
+    // `[EMB.29]` El corte de comisiones y viáticos de logística: sólo viajes cerrados y cargas
+    // en Kepler. Lo arma Logística y lo aprueba quien firma. ⛔ No para quien sólo captura.
+    label: 'Comisiones de logística',
+    route: '/finanzas/comisiones-logistica',
+    icon: 'pi pi-truck',
+    anyOf: [Permission.FINANCE_EXPENSES_COMPROBAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR],
+  },
 ];
