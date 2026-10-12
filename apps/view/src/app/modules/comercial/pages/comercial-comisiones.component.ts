@@ -12,7 +12,7 @@ import { SegmentedComponent, SegOption } from '../../../shared/components/segmen
 import {
   ComercialService, CommissionBoardRow, CommissionRunDetail, CommissionLine,
   CommissionGate, CommissionRecalcResult, CommissionContrast, CommissionContrastRow,
-  CommissionHeadroom, CommissionHeadroomRow,
+  CommissionHeadroom, CommissionHeadroomRow, CommissionRunPayload,
 } from '../comercial.service';
 import { Permission } from '../../../core/constants/permissions';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -875,6 +875,34 @@ export class ComercialComisionesComponent {
   }
 
   /**
+   * `[RD.65]` La proyeccion con la forma que la pantalla sabe pintar.
+   *
+   * ⛔ Aqui habia un `d as CommissionRunDetail` y TypeScript lo rechazo con razon: al payload
+   * del preview le faltan `id`, `origen`, `updated_at` y `notes`, y sus lineas no traen `id`.
+   * Un `as` no convierte nada -- AFIRMA, y es el mismo defecto que `[RD.60.3]`, donde un
+   * `{ rn: number }` sobre una fila de `raw()` dejo una pantalla en cero durante meses.
+   *
+   * Los cuatro campos se llenan con lo que de verdad son, no con relleno:
+   *  · `id`: cadena vacia. NO hay corrida -- es justo lo que la distingue, y `esProyeccion()`
+   *    se apoya en `sel().run_id`, no en esto.
+   *  · `origen`: `proyeccion`, que es el origen real de estas cifras.
+   *  · `updated_at`: AHORA, y aqui si es cierto: mide cuando se CALCULO la proyeccion, que
+   *    acaba de ocurrir. No se confunde con la edad del DATO, que viaja en `data_as_of` y
+   *    sale del servidor.
+   *  · el `id` de cada linea: su `route_code`, que es su llave natural en este payload.
+   */
+  private comoCorrida(d: CommissionRunPayload): CommissionRunDetail {
+    return {
+      ...d,
+      id: '',
+      origen: 'proyeccion',
+      updated_at: new Date().toISOString(),
+      notes: null,
+      lines: d.lines.map((l) => ({ ...l, id: l.route_code })),
+    };
+  }
+
+  /**
    * `[RD.65]` Abre un periodo. Si NO tiene corrida y todavia corre, se pide la PROYECCION.
    *
    * ⛔ Antes esta funcion hacia `if (!p.run_id) return;` y se iba: la quincena en curso
@@ -902,7 +930,7 @@ export class ComercialComisionesComponent {
     if (p.estado_calculo !== 'en_curso') return;
     this.proyectando.set(true);
     this.api.commissionPreview(p.period_id).subscribe({
-      next: (d) => { this.run.set(d as CommissionRunDetail); this.proyectando.set(false); },
+      next: (d) => { this.run.set(this.comoCorrida(d)); this.proyectando.set(false); },
       // ⛔ Un fallo de la proyeccion NO es un fallo de la pantalla: el tablero, el contraste y
       //    el historial siguen sirviendo. Se declara en su sitio, no en el banner de error.
       error: () => { this.proyectando.set(false); this.proyeccionFallo.set(true); },
