@@ -686,6 +686,18 @@ export interface ArqueoDia {
      * papel de antes, y por eso viaja como número y no sólo como frase en `limites`.
      */
     fechados_otro_dia: number;
+    /**
+     * `[CG.97]` Lo que de verdad quedó en el cajón, en el modelo de **cajas separadas**: la caja
+     * chica es efectivo suelto y el cajero es la bóveda.
+     *
+     *     en_el_cajon = ingresos − gastos − depósitos + dispensado − depositado
+     *
+     * `null` cuando esta sucursal no tiene cajero o el feed no está. **No es cero**: un cero
+     * afirmaría que no quedó nada en el cajón, que es otra cosa que no poder saberlo.
+     */
+    en_el_cajon?: number | null;
+    /** `[CG.97]` Lo que la jornada le dejó a la bóveda, neto. Positivo = la bóveda creció. */
+    a_la_boveda?: number | null;
   };
   /** `null` cuando la sucursal no tiene cajero o el feed no está. El motivo viaja en `no_medido`. */
   cajero: {

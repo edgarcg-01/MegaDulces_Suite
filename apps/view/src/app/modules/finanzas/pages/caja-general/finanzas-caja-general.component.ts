@@ -746,6 +746,8 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     /* El mismo verde que ya usa el signo del ingreso en la cola (.cg-in), no uno nuevo. */
     .cg-hist-in { color:var(--ok-fg); }
     .cg-hist-benef { font-weight:600; }
+    /* [CG.97] El numero que de verdad se va a contar a mano. */
+    .cg-cajon .mono { color:var(--ok-fg); }
     /* [CG.91.2] El pie: separado por una linea, no por color -- es un total, no una alerta. */
     .cg-hist-pie > td { border-top:2px solid var(--border); padding-top:var(--sp-2);
                         color:var(--text-muted); font-size:var(--fs-sm); }
@@ -947,6 +949,19 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <span class="mono">&minus; {{ money(a.caja_general.depositos) }}</span></div>
               <div class="cg-conc-row cg-conc-tot"><span>Movimiento del dia</span>
                 <span class="mono">{{ money(a.caja_general.neto) }}</span></div>
+              <!-- ⭐⭐ [CG.97] "Movimiento del dia" es correcto -el dinero entro y se registro- pero
+                   se LEE como "esto hay en la caja", y no lo hay: la maquina se traga los billetes
+                   de los cobros de ruta y al cajon llega la morralla. Modelo "cajas separadas",
+                   el mismo que ya declara conciliacionCajero. Sin esto el arqueo sale a contar
+                   decenas de miles que estan dentro del cajero. -->
+              @if (a.caja_general.en_el_cajon != null) {
+                <div class="cg-conc-row"><span class="fin-dim">&nbsp;&nbsp;de eso, a la boveda</span>
+                  <span class="mono fin-dim">{{ money(a.caja_general.a_la_boveda!) }}</span></div>
+                <div class="cg-conc-row cg-conc-tot cg-cajon"><span>Queda en el cajon</span>
+                  <span class="mono">{{ money(a.caja_general.en_el_cajon!) }}</span></div>
+                <small class="fin-dim">Esto es lo que se cuenta a mano. Los billetes que el cajero se
+                  tragó se quedan en la bóveda y los cuenta la máquina.</small>
+              }
               <small class="fin-dim">
                 {{ a.caja_general.movimientos }} movimiento(s) registrado(s){{ a.caja_general.cancelados ? ', ' + a.caja_general.cancelados + ' cancelado(s)' : '' }}.
               </small>
