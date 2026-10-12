@@ -48,8 +48,8 @@ const MOTIVO_MINIMO = 5;
           @if (!personas().length) {
             <p class="he-vacio">Nadie tiene horas extra en esta plaza.</p>
           } @else {
-            <div class="he-scroll">
-              <table class="he-tabla">
+            <div class="he-scroll dt-scope">
+              <table class="he-tabla dt-stack">
                 <thead><tr>
                   <th scope="col">Clv</th><th scope="col">Nombre</th><th scope="col">Departamento</th><th scope="col">Según</th>
                   <th scope="col" class="num">Ganadas</th><th scope="col" class="num">Usadas</th><th scope="col" class="num">Ajustes</th><th scope="col" class="num">Saldo</th>
@@ -57,14 +57,14 @@ const MOTIVO_MINIMO = 5;
                 <tbody>
                   @for (p of personas(); track p.codigo) {
                     <tr [class.sel]="sel()?.codigo === p.codigo">
-                      <td class="mono">{{ p.codigo }}</td>
-                      <td><button type="button" class="he-nom" (click)="abrir(p)">{{ p.nombreCompleto }}</button></td>
-                      <td>{{ p.departamento || '—' }}</td>
-                      <td>{{ segun(p) }}</td>
-                      <td class="num mono">{{ horas(p.ganadasMin) }}</td>
-                      <td class="num mono">{{ horas(p.usadasMin) }}</td>
-                      <td class="num mono">{{ p.ajustesMin ? firma(p.ajustesMin) : '—' }}</td>
-                      <td class="num mono he-saldo" [class.neg]="p.saldoMin < 0">{{ firma(p.saldoMin) }}</td>
+                      <td class="mono" role="cell" data-label="Clv">{{ p.codigo }}</td>
+                      <td class="dt-id" role="cell"><button type="button" class="he-nom" (click)="abrir(p)">{{ p.nombreCompleto }}</button></td>
+                      <td role="cell" data-label="Departamento">{{ p.departamento || '—' }}</td>
+                      <td role="cell" data-label="Según">{{ segun(p) }}</td>
+                      <td class="num mono dt-num" role="cell" data-label="Ganadas">{{ horas(p.ganadasMin) }}</td>
+                      <td class="num mono dt-num" role="cell" data-label="Usadas">{{ horas(p.usadasMin) }}</td>
+                      <td class="num mono dt-num" role="cell" data-label="Ajustes">{{ p.ajustesMin ? firma(p.ajustesMin) : '—' }}</td>
+                      <td class="num mono he-saldo dt-num" role="cell" data-label="Saldo" [class.neg]="p.saldoMin < 0">{{ firma(p.saldoMin) }}</td>
                     </tr>
                   }
                 </tbody>
