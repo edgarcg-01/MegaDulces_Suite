@@ -5,6 +5,7 @@ import type { FichaPadron, FilaDia, HorarioAsignado, IncidenciaVigente } from '.
 import type { ChecadaDetector, HorarioSitio, PersonaDetector } from './logic/detector';
 import { ESTADOS_VIGENTES, type EstadoIncidencia } from './logic/incidencias';
 import { esPromotora } from './logic/tipos';
+import type { FilaChecoEnSemana } from './logic/sin-identificar';
 
 /**
  * Fase RH · `[RH.1.5]` — lo que la lógica de asistencia lee de la base. Una sola puerta para el
@@ -374,6 +375,43 @@ export async function revisionesAprobadas(trx: Knex.Transaction, siteCode: strin
 }
 
 /** El cierre VIGENTE del sitio que toca el rango, o null. */
+/**
+ * `[RH.1.6b]` Cada código que checó en el sitio entre `desde` y `hasta` (días de pared), con lo que
+ * hace falta para decidir si está identificado (`logic/sin-identificar.ts`). Un código puede estar en
+ * varios relojes del sitio: manda el que está ligado a una persona.
+ */
+export async function checaronEnSemana(trx: Knex.Transaction, siteCode: string, desde: string, hasta: string): Promise<FilaChecoEnSemana[]> {
+  const { rows } = await trx.raw<{ rows: Array<{
+    code: string; checadas: number; user_id: string | null; ignorado: boolean; device_name: string | null;
+    nombre: string | null; department_code: string | null; department_name: string | null;
+  }> }>(`
+    WITH act AS (
+      SELECT COALESCE(e.person_code, l.device_user_id) AS code, count(*)::int AS checadas,
+             (array_agg(e.user_id) FILTER (WHERE e.user_id IS NOT NULL))[1] AS user_id,
+             bool_and(COALESCE(e.match_status, 'pendiente') = 'ignorado') AS ignorado,
+             max(e.device_name) AS device_name
+        FROM hr.attendance_logs l
+        JOIN hr.attendance_devices d ON d.tenant_id = l.tenant_id AND d.id = l.device_id AND d.site_code = ?
+        LEFT JOIN hr.device_enrollments e ON e.tenant_id = l.tenant_id AND e.device_id = l.device_id AND e.device_user_id = l.device_user_id
+       WHERE l.punched_local >= ?::date AND l.punched_local < (?::date + 1)
+       GROUP BY 1)
+    SELECT a.code, a.checadas, u.id AS user_id, a.ignorado, a.device_name, u.nombre, u.department_code, dep.name AS department_name
+      FROM act a
+      LEFT JOIN identity.users u ON u.id = a.user_id AND u.deleted_at IS NULL
+      LEFT JOIN identity.departments dep ON dep.tenant_id = u.tenant_id AND dep.code = u.department_code AND dep.deleted_at IS NULL`,
+  [siteCode, desde, hasta]);
+  return rows.map((r) => ({
+    codigo: r.code,
+    checadas: r.checadas,
+    ligado: !!r.user_id,
+    ignorado: !!r.ignorado,
+    nombre: r.nombre,
+    departamento: [r.department_name, r.department_code].filter(Boolean).join(' · ') || null,
+    tieneDepartamento: !!r.department_code,
+    nombreReloj: r.device_name,
+  }));
+}
+
 export async function cierreQueToca(trx: Knex.Transaction, siteCode: string, desde: string, hasta: string): Promise<{
   id: string; period_start: string; period_end: string; closed_by_name: string | null;
 } | null> {

@@ -310,7 +310,11 @@ export interface HrCierreDto {
   closed_by: string | null;
   closed_by_name: string | null;
   closed_at: string;
-  summary: { personas: number; usables: number; faltas: number; retardoRealMin: number; horasTrabajadas: number; incidencias: number } | null;
+  summary: {
+    personas: number; usables: number; faltas: number; retardoRealMin: number; horasTrabajadas: number; incidencias: number;
+    /** `[RH.1.6b]` Sólo si se cerró con gente sin identificar: cuántos, quiénes y el motivo que se escribió. */
+    sinIdentificar?: number; motivoSinIdentificar?: string; codigosSinIdentificar?: string[];
+  } | null;
   reopened_by: string | null;
   reopened_by_name: string | null;
   reopened_at: string | null;
@@ -318,6 +322,19 @@ export interface HrCierreDto {
   vigente: boolean;
   /** Sólo en `GET /closures/:id`: la foto de la semana tal como se cerró. */
   snapshot?: HrAsistenciaResponse;
+}
+
+/**
+ * `[RH.1.6b]` Quien checó en la semana y no está identificado. Viene en el cuerpo del 409 de
+ * `POST /closures` (`{ message, sinIdentificar }`); con `force: true` + `reason` se cierra igual.
+ */
+export interface HrSinIdentificarDto {
+  codigo: string;
+  nombre: string;
+  checadas: number;
+  sinFicha: boolean;
+  sinNombre: boolean;
+  sinDepartamento: boolean;
 }
 
 // ── Relojes ─────────────────────────────────────────────────────────────────────────────

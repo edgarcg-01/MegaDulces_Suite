@@ -6,7 +6,8 @@ import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
 import type {
-  HrAccionIncidencia, HrCapturaIncidenciaBody, HrCierreDto, HrIncidenciaDto, HrPasoIncidenciaDto, HrSiteDto, HrTipoIncidenciaDto,
+  HrAccionIncidencia, HrCapturaIncidenciaBody, HrCierreDto, HrIncidenciaDto, HrPasoIncidenciaDto, HrSinIdentificarDto, HrSiteDto,
+  HrTipoIncidenciaDto,
 } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
@@ -14,8 +15,14 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { RhMarcoComponent } from '../components/rh-marco.component';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
 import {
-  BANDERA_LABEL, ESTADO_INCIDENCIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError, sumarDias,
+  BANDERA_LABEL, ESTADO_INCIDENCIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError,
+  sinIdentificarDe, sumarDias,
 } from '../rh.service';
+
+/** `[RH.1.6b]` Cuántos nombres se listan antes de «y N más». */
+const SIN_ID_VISIBLES = 8;
+/** El mínimo de letras del motivo: el servidor exige lo mismo (`MOTIVO_MINIMO`). */
+const MOTIVO_SIN_ID_MINIMO = 5;
 
 /**
  * Fase RH · `[RH.1.7]` — Incidencias y cierre de semana (`/rh/incidencias`). Antes: `incidencias-bandeja` y los
@@ -88,6 +95,25 @@ interface FormCaptura {
           }
         }
       </section>
+
+      @if (sinId(); as lista) {
+        <section class="ri-sinid" role="alert" aria-label="Gente sin identificar en la semana">
+          <p><strong>{{ lista.length }} {{ lista.length === 1 ? 'persona checó' : 'personas checaron' }} esta semana sin estar identificada.</strong>
+            Lo mejor es completarlas (ligar el número a su persona, con nombre completo y departamento) y volver a cerrar.</p>
+          <ul>
+            @for (p of lista.slice(0, visiblesSinId); track p.codigo) {
+              <li><span class="mono">#{{ p.codigo }}</span> {{ p.nombre }} · {{ motivoDe(p) }} · {{ p.checadas }} checadas</li>
+            }
+            @if (lista.length > visiblesSinId) { <li>y {{ lista.length - visiblesSinId }} más</li> }
+          </ul>
+          <div class="ri-sinid-acc">
+            <input pInputText type="text" [ngModel]="motivoSinId()" (ngModelChange)="motivoSinId.set($event)"
+                   placeholder="Si hay que cerrar ya, escribe por qué (queda en el cierre)" aria-label="Por qué se cierra con gente sin identificar" />
+            <p-button label="Cerrar de todos modos" severity="danger" size="small" [disabled]="motivoSinId().trim().length < motivoMinimo" [loading]="ocupado()" (onClick)="cerrarDeTodosModos()" />
+            <p-button label="Cancelar" [text]="true" size="small" (onClick)="sinId.set(null)" />
+          </div>
+        </section>
+      }
 
       @if (aviso(); as a) { <p class="ri-banner" [class.bad]="a.mal" role="status">{{ a.texto }}</p> }
 
@@ -212,6 +238,11 @@ interface FormCaptura {
     .ri-cierre { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--surface-2); font-size: var(--fs-sm); }
     .ri-cierre p { margin: 0; color: var(--text-main); }
     .ri-cierre input { min-width: 18rem; }
+    .ri-sinid { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border-radius: var(--r-md); background: var(--warn-soft-bg); color: var(--warn-soft-fg); font-size: var(--fs-sm); }
+    .ri-sinid p, .ri-sinid ul { margin: 0; }
+    .ri-sinid ul { padding-left: var(--sp-4); }
+    .ri-sinid-acc { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
+    .ri-sinid-acc input { min-width: 22rem; flex: 1 1 22rem; }
     .ri-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .ri-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .ri-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
@@ -260,6 +291,7 @@ interface FormCaptura {
     @media (max-width: 40rem) {
       .ri-page { padding: var(--sp-3); }
       .ri-cierre input { min-width: 0; flex: 1 1 100%; }
+      .ri-sinid-acc input { min-width: 0; flex: 1 1 100%; }
       .ri-wrap { max-height: none; }
     }
   `],
@@ -292,6 +324,11 @@ export class RhIncidenciasComponent implements OnInit {
   readonly pendiente = signal<{ accion: HrAccionIncidencia } | null>(null);
   readonly motivo = signal('');
   readonly modoReabrir = signal(false);
+  /** `[RH.1.6b]` La gente sin identificar que frenó el cierre (del 409), y el motivo para cerrar igual. */
+  readonly sinId = signal<HrSinIdentificarDto[] | null>(null);
+  readonly motivoSinId = signal('');
+  readonly visiblesSinId = SIN_ID_VISIBLES;
+  readonly motivoMinimo = MOTIVO_SIN_ID_MINIMO;
 
   readonly puede = {
     capturar: computed(() => this.perms.has(Permission.HR_INCIDENTS_CAPTURAR)),
@@ -332,6 +369,7 @@ export class RhIncidenciasComponent implements OnInit {
   cargar(): void {
     const site = this.sitio();
     if (!site) return;
+    this.sinId.set(null);
     const mi = ++this.seq;
     const statuses = FILTROS.find((f) => f.value === this.filtro())?.statuses;
     this.loading.set(true);
@@ -455,8 +493,37 @@ export class RhIncidenciasComponent implements OnInit {
     this.aviso.set(null);
     this.api.cerrarSemana(site, this.jueves()).subscribe({
       next: () => { this.ocupado.set(false); this.aviso.set({ texto: 'Semana cerrada: se guardó la foto para prenómina.', mal: false }); this.cargar(); },
+      error: (e) => {
+        this.ocupado.set(false);
+        // Gente que checó sin estar identificada: se dice quién, y sólo se cierra con motivo.
+        const lista = sinIdentificarDe(e);
+        if (lista) { this.sinId.set(lista); this.motivoSinId.set(''); return; }
+        this.aviso.set({ texto: rhError(e, 'No se pudo cerrar la semana.'), mal: true });
+      },
+    });
+  }
+
+  cerrarDeTodosModos(): void {
+    const site = this.sitio();
+    const lista = this.sinId();
+    const motivo = this.motivoSinId().trim();
+    if (!site || !lista || motivo.length < MOTIVO_SIN_ID_MINIMO) return;
+    this.ocupado.set(true);
+    this.aviso.set(null);
+    this.api.cerrarSemana(site, this.jueves(), { motivo }).subscribe({
+      next: () => {
+        this.ocupado.set(false);
+        this.aviso.set({ texto: `Semana cerrada, con ${lista.length} sin identificar anotados en el cierre.`, mal: false });
+        this.cargar();
+      },
       error: (e) => { this.ocupado.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo cerrar la semana.'), mal: true }); },
     });
+  }
+
+  /** Por qué no está identificada, en palabras. */
+  motivoDe(p: HrSinIdentificarDto): string {
+    if (p.sinFicha) return 'sin ficha';
+    return [p.sinNombre ? 'sin nombre completo' : '', p.sinDepartamento ? 'sin departamento' : ''].filter(Boolean).join(', ');
   }
 
   reabrir(c: HrCierreDto): void {
