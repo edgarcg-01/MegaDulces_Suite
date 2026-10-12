@@ -957,6 +957,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    Lo unico que se dice es SI hay corte, que no es secreto. -->
               @if (a.corte_abierto; as c) {
                 <small class="fin-hint-ok d-block">Corte {{ c.folio }} abierto: el esperado se revela al sellar el conteo.</small>
+                <!-- [CG.90.1] La puerta de salida del fondo: NO se pregunta al abrir, pero quien
+                     SI sabe con cuanto arranco la caja puede declararlo aca. Sin esto el fondo
+                     quedaria en "sin medir" para siempre y el arqueo nunca podria decir si cuadra. -->
+                @if (c.fondo_inicial == null) {
+                  <p-button label="Declarar con cuánto arrancó la caja" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true" (onClick)="abrirApertura()"></p-button>
+                }
                 <!-- El esperado y la caja chica conciliada SOLO existen cuando el servidor ya los
                      revelo (permiso de cierre). "arqueoFinal()" devuelve null mientras esten
                      ocultos, asi que este bloque no se pinta y no hay nada que tapar. -->
@@ -4118,9 +4125,30 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   cerrarJornada(): void {
     if (this.abriendo()) return;
     if (this.corteAbierto()) { this.abrirCierre(); return; }
-    // Sin corte: se pide el fondo y, cuando el servidor confirme, se sigue al conteo.
+    /**
+     * ⭐⭐ `[CG.90.1]` **EL FONDO DEJA DE PREGUNTARSE. NI SIQUIERA EL DIÁLOGO.**
+     *
+     * Edgar, con el diálogo a la vista por segunda vez: *"sigue pidiendo el fondo inicial"*.
+     * Tenía razón: `[CG.90]` enseñó al SERVIDOR a heredarlo del cierre anterior, pero la pantalla
+     * seguía abriendo «Con cuánto arrancó la caja» igual — o sea que el cambio no se notaba.
+     * Arreglar que el servidor sepa algo no sirve si la pantalla pregunta antes.
+     *
+     * Ahora se abre derecho y el servidor decide:
+     *   · hay cierre anterior → hereda su `contado` y marca `cierre_anterior`;
+     *   · no hay → abre con `sin_medir` y el aviso lo DICE («el arqueo no va a poder decir si
+     *     cuadra»), que es un hecho distinto de «arrancó en cero».
+     *
+     * ⛔ Y `undefined`, no `null`: `abrirCorte()` manda `fondoInicial() ?? undefined` porque el
+     * servicio compara contra `undefined`. Dejarlo en `null` haría que el fondo viaje como un
+     * valor y la herencia NO se dispare — el mismo tipo de detalle que hizo que `[CG.90]` no se
+     * viera.
+     *
+     * ⚠️ La puerta queda: `abrirApertura()` sigue existiendo y se alcanza desde el aviso de
+     * «sin fondo medido», para quien SÍ sabe con cuánto arrancó y quiere declararlo.
+     */
     this.cerrarTrasAbrir.set(true);
-    this.abrirApertura();
+    this.fondoInicial.set(null);
+    this.abrirCorte();
   }
 
   /** Marca que la apertura vino de "rendir cuentas": al confirmarla se sigue al conteo. */

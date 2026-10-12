@@ -696,7 +696,15 @@ export interface ArqueoDia {
     tipos_desconocidos: Array<{ type_id: number; etiqueta: string; monto: number }>;
     ultimo_movimiento: string | null;
   } | null;
-  corte_abierto: { id: string; folio: string; fecha: string } | null;
+  /**
+   * `[CG.90.1]` `fondo_inicial` es `number | null` y el `null` SIGNIFICA algo: no se midió, que
+   * no es lo mismo que haber arrancado en cero. De eso cuelga si la pantalla ofrece declararlo.
+   * Opcionales porque el API puede ir por detrás del front en un deploy parcial.
+   */
+  corte_abierto: {
+    id: string; folio: string; fecha: string;
+    fondo_inicial?: number | null; fondo_origen?: string | null;
+  } | null;
   /**
    * `[CG.29]` Lo que ESTA jornada no pudo afirmar y que **alguien puede cambiar hoy**. Se pinta
    * fuerte: es lo que separa «el movimiento registrado» de «un arqueo firmado».
