@@ -1,6 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import type { Freshness, Coverage } from '@megadulces/contracts';
 import { environment } from '../../../environments/environment';
 
 /**
@@ -80,15 +81,20 @@ export interface Bandeja {
   filas: FilaBandeja[];
 }
 
+/**
+ * ⛔ `freshness` y `coverage` vienen del CONTRATO, no redeclarados acá.
+ *
+ * Copiarlos a mano es lo que `[VP.2.1]` subió a `libs/contracts` justamente para evitar — el tipo
+ * nació el 02-sep y a los tres días ya estaba duplicado en el frontend. Y no es cosmético: la
+ * copia escribía `status: string` en `inputs`, que **compila sola** y revienta recién al pasársela
+ * a `<app-freshness-pill>`, cuyo input exige la unión `'fresh' | 'stale' | 'unknown'`.
+ *
+ * ⚠️ Eso sólo lo ve `Build & typecheck`: `vitest` no tipa las plantillas (lección de
+ * `ONBOARDING §8.0b` punto 5, y de `#346`). Las 23+563+39 pruebas estaban verdes con esto roto.
+ */
 export interface MiCierreResp {
   bandeja: Bandeja;
-  freshness: {
-    data_as_of: string | null;
-    status: 'fresh' | 'stale' | 'unknown';
-    stale: boolean;
-    age_human: string | null;
-    inputs: Array<{ key: string; label: string; at: string | null; age_human: string | null; status: string; stale: boolean }>;
-  };
-  coverage: { measured: boolean; pct: number | null; note: string };
+  freshness: Freshness;
+  coverage: Coverage;
   query_ms: number;
 }
