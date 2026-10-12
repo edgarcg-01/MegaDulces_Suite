@@ -31,12 +31,12 @@ describe('erroresDeCierreDeParada', () => {
     expect(erroresDeCierreDeParada({ resultado: 'no_entregado', motivo: 'not_located', foto: FOTO }, CLIENTE)).toEqual([]);
   });
 
-  it('sin foto no se cierra: la remisión es la prueba', () => {
-    const e = erroresDeCierreDeParada({ resultado: 'entregado', recibio: 'María López', foto: '' }, CLIENTE);
-    expect(e).toContain('Falta la foto de la remisión.');
+  it('sin foto también se cierra (opcional desde 2026-10-12)', () => {
+    expect(erroresDeCierreDeParada({ resultado: 'entregado', recibio: 'María López' }, CLIENTE)).toEqual([]);
+    expect(erroresDeCierreDeParada({ resultado: 'entregado', recibio: 'María López', foto: '' }, CLIENTE)).toEqual([]);
   });
 
-  it('la foto tiene que ser imagen o PDF y no pasar de 8 MB', () => {
+  it('si viene foto, tiene que ser imagen o PDF y no pasar de 8 MB', () => {
     expect(erroresDeCierreDeParada({ resultado: 'entregado', recibio: 'Ana', foto: 'data:text/plain;base64,aG9sYQ==' }, CLIENTE))
       .toContain('La foto debe ser una imagen o un PDF.');
     const grande = 'data:image/png;base64,' + 'A'.repeat(FOTO_MAX_CHARS);

@@ -31,7 +31,7 @@ const TIPO_LABEL: Record<string, string> = {
 
 /**
  * EMB.24–EMB.27 — Cierre y pago del viaje (ADR-091). Muestra cómo se cerró cada parada (traspaso
- * con la recepción de Kepler, cliente con la remisión firmada), registra quién cargó y dice qué
+ * con la recepción de Kepler, cliente con la entrega que registra Logística), registra quién cargó y dice qué
  * se libera para cada persona. El estado lo calcula la base: esta pantalla no decide nada.
  */
 @Component({
@@ -58,7 +58,7 @@ const TIPO_LABEL: Record<string, string> = {
       <section class="cv-block">
         <header class="cv-head">
           <h3>Paradas y cómo se cerró cada una</h3>
-          <span class="cv-sub">Traspaso: con la recepción de la sucursal destino en Kepler · Cliente: con la remisión firmada</span>
+          <span class="cv-sub">Traspaso: con la recepción de la sucursal destino en Kepler · Cliente: con la entrega que registra Logística</span>
         </header>
         <div class="cv-scroll">
           <table class="cv-table">
@@ -91,7 +91,7 @@ const TIPO_LABEL: Record<string, string> = {
                   <td><span class="cv-pill" [attr.data-estado]="p.estado_parada">{{ estadoParadaLabel(p.estado_parada) }}</span></td>
                   <td>
                     @if (puedeCerrar(p)) {
-                      <button pButton type="button" size="small" (click)="abrirCierre(p)"><span class="p-button-icon p-button-icon-left pi pi-camera" aria-hidden="true"></span><span class="p-button-label">Registrar entrega</span></button>
+                      <button pButton type="button" size="small" (click)="abrirCierre(p)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Registrar entrega</span></button>
                     }
                   </td>
                 </tr>
@@ -166,7 +166,7 @@ const TIPO_LABEL: Record<string, string> = {
       <div class="cv-empty">Cargando el cierre del viaje…</div>
     }
 
-    <p-dialog header="Registrar entrega con la remisión" [visible]="dialogo()" (visibleChange)="dialogo.set($event)" [modal]="true" [style]="{ width: '30rem', maxWidth: '95vw' }">
+    <p-dialog header="Registrar entrega" [visible]="dialogo()" (visibleChange)="dialogo.set($event)" [modal]="true" [style]="{ width: '30rem', maxWidth: '95vw' }">
       @if (parada(); as p) {
         <div class="cv-form">
           <div class="cv-sub">{{ p.customer_name }} · {{ (p.importe_embarcado ?? p.value) | currency:'MXN':'symbol-narrow':'1.2-2' }}</div>
@@ -184,9 +184,6 @@ const TIPO_LABEL: Record<string, string> = {
           }
           <label for="cv-nota">Nota (opcional)</label>
           <textarea pTextarea id="cv-nota" rows="2" [ngModel]="nota()" (ngModelChange)="nota.set($event)"></textarea>
-          <label for="cv-foto">Foto de la remisión firmada</label>
-          <input id="cv-foto" type="file" accept="image/*,application/pdf" capture="environment" (change)="leerFoto($event)">
-          @if (fotoNombre()) { <span class="cv-sub">{{ fotoNombre() }}</span> }
           @if (erroresForm().length) {
             <ul class="cv-errs">@for (e of erroresForm(); track e) { <li>{{ e }}</li> }</ul>
           }
@@ -258,8 +255,6 @@ export class CierreViajeComponent {
   readonly recibio = signal('');
   readonly motivo = signal<MotivoNoEntrega | null>(null);
   readonly nota = signal('');
-  readonly foto = signal('');
-  readonly fotoNombre = signal('');
 
   readonly motivos = (Object.keys(MOTIVO_NO_ENTREGA_LABEL) as MotivoNoEntrega[]).map((value) => ({ value, label: MOTIVO_NO_ENTREGA_LABEL[value] }));
 
@@ -274,7 +269,7 @@ export class CierreViajeComponent {
     const p = this.parada();
     if (!p) return [];
     return erroresDeCierreDeParada(
-      { resultado: this.resultado(), recibio: this.recibio(), motivo: this.motivo(), nota: this.nota(), foto: this.foto() },
+      { resultado: this.resultado(), recibio: this.recibio(), motivo: this.motivo(), nota: this.nota() },
       p,
     );
   });
@@ -307,17 +302,7 @@ export class CierreViajeComponent {
     this.recibio.set('');
     this.motivo.set(null);
     this.nota.set('');
-    this.foto.set('');
-    this.fotoNombre.set('');
     this.dialogo.set(true);
-  }
-
-  leerFoto(ev: Event) {
-    const f = (ev.target as HTMLInputElement).files?.[0];
-    if (!f) return;
-    const r = new FileReader();
-    r.onload = () => { this.foto.set(String(r.result || '')); this.fotoNombre.set(f.name); };
-    r.readAsDataURL(f);
   }
 
   guardarCierre() {
@@ -325,7 +310,7 @@ export class CierreViajeComponent {
     if (!p || this.erroresForm().length) return;
     this.guardando.set(true);
     this.api.cerrarParada(p.recipient_id, {
-      resultado: this.resultado(), recibio: this.recibio(), motivo: this.motivo(), nota: this.nota(), foto: this.foto(),
+      resultado: this.resultado(), recibio: this.recibio(), motivo: this.motivo(), nota: this.nota(),
     }).subscribe({
       next: () => { this.guardando.set(false); this.dialogo.set(false); this.cargar(); },
       error: (e) => { this.guardando.set(false); this.error.set(e?.error?.message ?? 'No se pudo cerrar la parada.'); this.dialogo.set(false); },

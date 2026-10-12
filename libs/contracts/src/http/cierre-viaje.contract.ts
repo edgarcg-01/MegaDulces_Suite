@@ -144,8 +144,12 @@ export interface CerrarParadaBody {
   /** Por qué no se entregó. Obligatorio si no se entregó. */
   motivo?: MotivoNoEntrega | null;
   nota?: string | null;
-  /** La foto de la remisión firmada (o de la evidencia de no entrega), como data URI. */
-  foto: string;
+  /**
+   * Foto de la remisión firmada (o de la evidencia de no entrega), como data URI. OPCIONAL por
+   * decisión del 2026-10-12: por ahora la parada se cierra con el resultado registrado por
+   * Logística. Si se manda, se valida y se guarda.
+   */
+  foto?: string | null;
 }
 
 /** `PUT /logistics/trip-closure/shipments/:id/cargadores` */
@@ -196,9 +200,8 @@ export function erroresDeCierreDeParada(
     if (b.motivo === 'other' && !(b.nota ?? '').trim()) errs.push('Explica el motivo.');
   }
   const foto = b.foto ?? '';
-  if (!foto) errs.push('Falta la foto de la remisión.');
-  else if (!FOTO.test(foto)) errs.push('La foto debe ser una imagen o un PDF.');
-  else if (foto.length > FOTO_MAX_CHARS) errs.push('La foto pesa más de 8 MB.');
+  if (foto && !FOTO.test(foto)) errs.push('La foto debe ser una imagen o un PDF.');
+  else if (foto && foto.length > FOTO_MAX_CHARS) errs.push('La foto pesa más de 8 MB.');
   return errs;
 }
 

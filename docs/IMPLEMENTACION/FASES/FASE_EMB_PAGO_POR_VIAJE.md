@@ -73,6 +73,12 @@ Devoluciones y notas de crédito sobre las facturas de esos embarques (`kdm5` ti
    2026-10-12). Se descartó la pantalla del chofer: el vale de entrada ya cubre los traspasos y para
    clientes la remisión es la única prueba firmada por el cliente. Una devolución posterior genera
    aviso (EMB.30), no retiene.
+   ⚠️ **Enmienda 2026-10-12: la FOTO de la remisión se quitó «por el momento».** La parada de cliente
+   se cierra con el resultado que registra Logística (entregado con quién recibió, o no entregado con
+   motivo). El servidor acepta la foto si llega (se valida y se guarda), pero la pantalla ya no la pide.
+   **Lo que se pierde:** el cierre de cliente deja de tener prueba firmada por el cliente; libera pago
+   con la palabra de quien lo registra. Al volver a exigirla: `erroresDeCierreDeParada` (contrato),
+   la condición `proof_photo_url IS NOT NULL` en `v_trip_stop_closure` y el campo de archivo del diálogo.
 5. **El pago va por Gastos** (vale por persona y por corte), no por `/logistica/payroll`.
 6. **Viáticos a todos los que viajan** (chofer y ayudantes), por la regla de horario de EMB.19.
 7. **El cargador cobra cuando Kepler registra el embarque que cargó** (no espera al cierre del viaje:
@@ -106,7 +112,7 @@ Corte de 14 días ──► un vale de Gastos por persona = sólo viajes liberad
 |---|---|---|
 | **EMB.24** | Vista `analytics.erp_shipment_stop_closure` (traspaso↔`U-A-50` con `pv_suc_ip`, carga a ruta, cliente) + índice parcial `ix_kdm1_recepcion_traspaso` (CONCURRENTLY) + `logistics.v_trip_stop_closure` | 🧪 local. 0.3 ms por parada con el índice. Candado: 40 recepciones contra kdm1 crudo; traducir `TI###` por número da 25 contra 184 (prueba negativa) |
 | ~~EMB.25~~ | ~~Entrega por parada en el celular del chofer~~ | ❌ descartado por decisión: la remisión la sube Logística (EMB.24) |
-| **EMB.26** | `logistics.v_trip_state` + `v_trip_pay_items` + pestaña **Cierre y pago** del embarque (paradas, cargadores, lo que se libera por persona) + `POST /logistics/trip-closure/paradas/:id/cierre` (remisión en el bucket privado) | 🧪 local, recorrido en navegador |
+| **EMB.26** | `logistics.v_trip_state` + `v_trip_pay_items` + pestaña **Cierre y pago** del embarque (paradas, cargadores, lo que se libera por persona) + `POST /logistics/trip-closure/paradas/:id/cierre` (foto de remisión opcional, en el bucket privado) | 🧪 local, recorrido en navegador |
 | **EMB.27** | Cargadores: `PUT /logistics/trip-closure/shipments/:id/cargadores` (tarifa `tarifa_maniobra_carga`, sin tarifa no se registra; si ya se pagó no se cambia) | 🧪 local |
 | **EMB.28** | Tarifas de viáticos (café 50 · desayuno 100 · comida 100 · cena 100) | ⚠️ se capturan en Logística › Configuración; en prod **siguen en 0 filas** (medido 2026-10-12) |
 | **EMB.29** | `finance.trip_pay_lines` (índice único parcial = no se paga dos veces) + `/finanzas/comisiones-logistica` (corte catorcenal jue→mié, pago viernes; reproduce los 6 viernes que Kepler ejerció) + vale de Gastos con hoja PDF, sin folio (se casa después) | 🧪 local: vale en 1.5 s; quien lo arma recibe 403 al aprobar; otro usuario lo valida |

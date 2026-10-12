@@ -4,12 +4,12 @@
  *
  * Usa la API real, como lo haría Logística: toma guías reales de Kepler de la copia local,
  * completa cada guía (chofer, ayudante, horario), registra cargadores y cierra paradas de cliente
- * con una remisión de prueba. Así la demo ejercita el mismo código que producción.
+ * (sin foto: es opcional desde 2026-10-12). Así la demo ejercita el mismo código que producción.
  *
  * Deja estas situaciones (corte del 24-sep al 7-oct; el faltante cae en el anterior y el viaje abierto en el actual):
  *  · TRASPASOS recibidos     → viaje cerrado: comisión y viáticos liberados.
- *  · CLIENTES con remisión    → viaje cerrado (las 5 paradas con remisión subida).
- *  · CLIENTES a medias        → viaje abierto: falta una remisión, el pago queda retenido.
+ *  · CLIENTES entregados      → viaje cerrado (las 5 paradas registradas).
+ *  · CLIENTES a medias        → viaje abierto: falta registrar una entrega, el pago queda retenido.
  *  · TRASPASO con FALTANTE    → cerrado con diferencia (corte anterior): se paga, la parada queda marcada.
  *
  * ⚠️ Sólo contra una base LOCAL (`assertSafeTarget`). Las tarifas de rutas que hoy están en $0
@@ -30,9 +30,9 @@ const URL = (process.env.DATABASE_URL_NEW || '').replace('localhost', '127.0.0.1
 /** Las guías de la demo: reales en la copia local de Kepler. */
 const GUIAS = [
   { suc: '01', guia: '0001586', que: 'traspasos recibidos', salida: '07:30', llegada: '13:10', ayudante: true, cargadores: 2 },
-  { suc: '01', guia: '0001597', que: 'clientes, todos con remisión', salida: '05:40', llegada: '16:20', ayudante: true, cargadores: 3, cerrar: 'todas' },
+  { suc: '01', guia: '0001597', que: 'clientes, todos entregados', salida: '05:40', llegada: '16:20', ayudante: true, cargadores: 3, cerrar: 'todas' },
   { suc: '01', guia: '0001571', que: 'clientes y traspaso', salida: '06:20', llegada: '15:30', ayudante: false, cargadores: 2, cerrar: 'todas_entregadas' },
-  { suc: '01', guia: '0001683', que: 'clientes, falta una remisión (corte en curso)', salida: '06:50', llegada: '14:10', ayudante: true, cargadores: 2, cerrar: 'menos_una' },
+  { suc: '01', guia: '0001683', que: 'clientes, falta registrar una (corte en curso)', salida: '06:50', llegada: '14:10', ayudante: true, cargadores: 2, cerrar: 'menos_una' },
   { suc: '01', guia: '0001338', que: 'traspaso con faltante', salida: '08:00', llegada: '12:40', ayudante: true, cargadores: 0 },
 ];
 
@@ -41,9 +41,6 @@ const TARIFAS_DEMO = [
   { name: 'LA PIEDAD', driver: 61.92, helper: 36.48 },
   { name: 'TANUHATO', driver: 77.4, helper: 51.68 },
 ];
-
-/** Una «remisión» de prueba: PNG de 1×1. La pantalla la muestra como archivo subido. */
-const REMISION = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
 
 async function http(method, path, token, body) {
   const r = await fetch(API + path, {
@@ -155,7 +152,7 @@ async function http(method, path, token, body) {
       await http('PUT', `/logistics/trip-closure/shipments/${shipmentId}/cargadores`, token, { driver_ids: ids });
     }
 
-    // 6. Cerrar paradas de cliente con la remisión.
+    // 6. Cerrar paradas de cliente.
     if (g.cerrar) {
       const cierre = await http('GET', `/logistics/trip-closure/shipments/${shipmentId}`, token);
       const abiertas = cierre.paradas.filter((p) => p.recipient_status === 'pendiente' && p.tipo_parada === 'cliente');
@@ -163,8 +160,8 @@ async function http(method, path, token, body) {
       for (const [i, p] of aCerrar.entries()) {
         const noEntrega = g.cerrar === 'todas' && i === aCerrar.length - 1; // una «no entregada» con evidencia
         await http('POST', `/logistics/trip-closure/paradas/${p.recipient_id}/cierre`, token, noEntrega
-          ? { resultado: 'no_entregado', motivo: 'not_located', nota: 'Negocio cerrado (prueba)', foto: REMISION }
-          : { resultado: 'entregado', recibio: 'PERSONA DE PRUEBA', foto: REMISION });
+          ? { resultado: 'no_entregado', motivo: 'not_located', nota: 'Negocio cerrado (prueba)' }
+          : { resultado: 'entregado', recibio: 'PERSONA DE PRUEBA' });
       }
     }
 

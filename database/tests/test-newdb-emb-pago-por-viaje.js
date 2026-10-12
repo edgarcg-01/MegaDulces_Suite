@@ -9,8 +9,8 @@
  *      cada traspaso que la vista da por cerrado tiene su U-A-50 en la sucursal destino por el
  *      mismo importe. PRUEBA NEGATIVA de la trampa medida: TI### NO es el número de sucursal
  *      (TI007 = Zamora 05); traducir por el número encuentra menos recepciones.
- *   2. EL VIAJE (transacción que se deshace): abierto mientras haya paradas sin remisión; una
- *      parada marcada sin foto NO se cierra; con foto sí; guía incompleta no libera nada.
+ *   2. EL VIAJE (transacción que se deshace): abierto mientras haya paradas sin registrar; una
+ *      parada sin registrar NO se cierra; registrada se cierra (foto opcional desde 2026-10-12); guía incompleta no libera nada.
  *   3. EL PAGO: el mismo renglón no entra a dos vales (23505, prueba negativa); si el vale se
  *      rechaza, el renglón vuelve a estar disponible sólo después de dejar de estar vigente.
  *
@@ -94,7 +94,7 @@ correr(async () => {
     assert(n(ingenuo.n) < n(trampa.cerradas_vista), 'PRUEBA NEGATIVA: traducir TI### por el número de sucursal encuentra MENOS recepciones');
 
     // ── 2 y 3. El viaje y el pago, en una transacción que se deshace ───────────────────────
-    console.log('\n── 2. El viaje: abierto → cerrado sólo con la remisión');
+    console.log('\n── 2. El viaje: abierto → cerrado sólo con las paradas registradas');
     await db.query('BEGIN');
     try {
       const persona = async (nombre, rol) => (await q(
@@ -129,17 +129,19 @@ correr(async () => {
       assert(it.length === 5, 'cinco renglones: comisión y viático del chofer y del ayudante, y la carga');
       assert(!it.find((i) => i.rol === 'cargador').liberado, 'la carga de un embarque manual que no ha salido NO se libera');
 
-      await q(`UPDATE logistics.guide_recipients SET status='entregado', delivered_to='PRUEBA' WHERE id=$1`, [r1]);
       // Se mira LA PARADA, no el viaje: el viaje seguiría abierto por la otra parada aunque la
-      // regla de la foto se rompiera (así lo encontró la mutación del 2026-10-12).
-      const [p1] = await q(`SELECT estado_parada FROM logistics.v_trip_stop_closure WHERE recipient_id=$1`, [r1]);
-      assert(p1.estado_parada === 'pendiente', 'PRUEBA NEGATIVA: marcada «entregado» SIN foto de remisión, la parada NO se cierra');
+      // regla se rompiera (así lo encontró la mutación del 2026-10-12).
+      const [p0] = await q(`SELECT estado_parada FROM logistics.v_trip_stop_closure WHERE recipient_id=$1`, [r1]);
+      assert(p0.estado_parada === 'pendiente', 'PRUEBA NEGATIVA: sin registrar la entrega, la parada de cliente NO se cierra');
 
-      await q(`UPDATE logistics.guide_recipients SET proof_photo_url='prueba/remision-1.png' WHERE id=$1`, [r1]);
-      await q(`UPDATE logistics.guide_recipients SET status='no_entregado', incident_type='not_located', proof_photo_url='prueba/fachada.png' WHERE id=$1`, [r2]);
+      await q(`UPDATE logistics.guide_recipients SET status='entregado', delivered_to='PRUEBA' WHERE id=$1`, [r1]);
+      const [p1] = await q(`SELECT estado_parada FROM logistics.v_trip_stop_closure WHERE recipient_id=$1`, [r1]);
+      assert(p1.estado_parada === 'cerrada', 'registrada «entregado» SIN foto, la parada se cierra (foto opcional desde 2026-10-12)');
+
+      await q(`UPDATE logistics.guide_recipients SET status='no_entregado', incident_type='not_located' WHERE id=$1`, [r2]);
       await q(`UPDATE logistics.shipments SET status='en_ruta' WHERE id=$1`, [s.id]);
       e = await estado();
-      assert(e.estado_viaje === 'cerrado', 'con las dos remisiones (una entrega y una no entrega con evidencia) el viaje está CERRADO');
+      assert(e.estado_viaje === 'cerrado', 'con las dos paradas registradas (una entrega y una no entrega) el viaje está CERRADO');
       it = await items();
       assert(it.every((i) => i.liberado), 'cerrado y con salida: todo liberado, incluida la carga');
 

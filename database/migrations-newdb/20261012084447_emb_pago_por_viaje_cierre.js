@@ -136,7 +136,7 @@ const V_TRIP_STOP = `
                              WHEN 'sobrante' THEN 'diferencia'
                              ELSE 'pendiente' END
       WHEN c.tipo_parada = 'carga_ruta' THEN 'cerrada'
-      WHEN r.status IN ('entregado','no_entregado','rechazado') AND r.proof_photo_url IS NOT NULL THEN 'cerrada'
+      WHEN r.status IN ('entregado','no_entregado','rechazado') THEN 'cerrada'
       ELSE 'pendiente'
     END                          AS estado_parada,
     CASE
@@ -148,10 +148,9 @@ const V_TRIP_STOP = `
           WHEN 'destino_desconocido' THEN 'Destino sin sucursal en Kepler'
           ELSE 'Falta la recepción en la sucursal destino' END
       WHEN c.tipo_parada = 'carga_ruta' THEN 'Carga a camión de ruta: se cierra al embarcar'
-      WHEN r.status = 'entregado'    AND r.proof_photo_url IS NOT NULL THEN 'Entregado con remisión firmada'
-      WHEN r.status IN ('no_entregado','rechazado') AND r.proof_photo_url IS NOT NULL THEN 'No se entregó, con evidencia'
-      WHEN r.status <> 'pendiente' THEN 'Falta la foto de la remisión'
-      ELSE 'Falta registrar la entrega con la remisión firmada'
+      WHEN r.status = 'entregado' THEN 'Entregado'
+      WHEN r.status IN ('no_entregado','rechazado') THEN 'No se entregó'
+      ELSE 'Falta registrar la entrega'
     END                          AS motivo
   FROM logistics.guide_recipients r
   JOIN logistics.delivery_guides g ON g.tenant_id = r.tenant_id AND g.id = r.guide_id
@@ -268,9 +267,9 @@ const V_PAY_ITEMS = `
 
 const COMENTARIOS = {
   'analytics.erp_shipment_stop_closure':
-    'EMB.24 — Cierre de cada parada de Kepler (U-D-41). Traspaso (serie 2, TI###): con la recepción U-A-50 de la sucursal destino (c37=41, c38=serie, c39=folio, c10=TI del origen); TI### se traduce con pv_suc_ip (NO es el número de sucursal). Carga a ruta: cerrada al embarcar. Cliente: la cierra la Suite con la remisión firmada (ADR-091). Derive-no-copy.',
+    'EMB.24 — Cierre de cada parada de Kepler (U-D-41). Traspaso (serie 2, TI###): con la recepción U-A-50 de la sucursal destino (c37=41, c38=serie, c39=folio, c10=TI del origen); TI### se traduce con pv_suc_ip (NO es el número de sucursal). Carga a ruta: cerrada al embarcar. Cliente: la cierra la Suite con el resultado que registra Logística (ADR-091; la foto de la remisión es opcional por ahora). Derive-no-copy.',
   'logistics.v_trip_stop_closure':
-    'EMB.24 — Cómo se cerró cada parada de una guía de la Suite: traspaso con la recepción de Kepler, carga a ruta al embarcar, cliente con la remisión firmada (foto obligatoria). Lo que no tiene documento queda pendiente, nunca cerrado por omisión.',
+    'EMB.24 — Cómo se cerró cada parada de una guía de la Suite: traspaso con la recepción de Kepler, carga a ruta al embarcar, cliente con el resultado registrado (foto de remisión opcional desde 2026-10-12). Lo que no tiene documento queda pendiente, nunca cerrado por omisión.',
   'logistics.v_trip_state':
     'EMB.26 — Estado del viaje por guía: abierto / cerrado / cerrado_con_diferencia / guia_incompleta / sin_paradas / cancelado. Una diferencia no frena el pago (decisión 2026-10-09: se retiene sólo la parada).',
   'logistics.v_trip_pay_items':

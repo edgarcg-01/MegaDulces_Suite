@@ -120,7 +120,7 @@ export class TripClosureService {
     };
   }
 
-  /** `[EMB.24]` La parada de cliente se cierra con la remisión firmada (o la evidencia de no entrega). */
+  /** `[EMB.24]` La parada de cliente se cierra con el resultado que registra Logística (foto opcional). */
   async cerrarParada(recipientId: string, body: CerrarParadaBody): Promise<ParadaCierre> {
     if (!UUID.test(recipientId)) throw new BadRequestException('recipientId inválido');
     const tenantId = this.tenantCtx.requireTenantId();
@@ -135,8 +135,8 @@ export class TripClosureService {
       throw new BadRequestException(errs.join(' '));
     }
 
-    // La foto se sube ANTES de escribir: si el almacenamiento falla, la parada sigue pendiente.
-    const { key } = await this.storage.putFile(body.foto, `logistics/${tenantId}/remisiones`);
+    // Si viene foto, se sube ANTES de escribir: si el almacenamiento falla, la parada sigue pendiente.
+    const key = body.foto ? (await this.storage.putFile(body.foto, `logistics/${tenantId}/remisiones`)).key : null;
     const entregado = body.resultado === 'entregado';
 
     const actualizada = await this.tk.run(async (trx) => {
@@ -149,7 +149,7 @@ export class TripClosureService {
           delivered_to: entregado ? (body.recibio ?? '').trim() : null,
           incident_type: entregado ? null : body.motivo,
           incident_notes: (body.nota ?? '').trim() || null,
-          proof_photo_url: key,
+          ...(key ? { proof_photo_url: key } : {}),
           updated_at: trx.fn.now(),
           updated_by: this.actorId(),
         });
@@ -158,7 +158,7 @@ export class TripClosureService {
       return trx('logistics.v_trip_stop_closure').where({ recipient_id: recipientId }).first();
     });
     if (!actualizada) {
-      await this.storage.remove(key);
+      if (key) await this.storage.remove(key);
       throw new ConflictException('La parada ya se cerró.');
     }
     this.logger.log(`Parada ${recipientId} cerrada (${body.resultado}) por ${this.actor() ?? '?'}`);
