@@ -1,7 +1,7 @@
 /**
  * `[RH.1.10]` El banco de horas extra contra Postgres: ganadas del cálculo real, ajuste, anulación.
  *
- *   HR_DB_TEST_URL=postgres://…/platform_local npx vitest run -c libs/hr/vitest.config.ts attendance-overtime
+ *   HR_DB_TEST_URL=postgres://…/platform_local npx vitest run -c libs/hr/vitest.config.ts horas-extra-banco
  *
  * Todo dentro de una transacción que se deshace. Sin `HR_DB_TEST_URL` se declara NO MEDIDO.
  */
@@ -34,7 +34,6 @@ async function conReintento<T>(fn: () => Promise<T>, intentos = 4): Promise<T> {
 suite('banco de horas extra contra la base', () => {
   it('ganadas del cálculo, ajuste y anulación', async () => {
     const { HrAttendanceReportService } = await import('./attendance-report.service');
-    const { HrAttendanceOvertimeService } = await import('./attendance-overtime.service');
     const knex: Knex = knexLib({ client: 'pg', connection: URL, pool: { min: 0, max: 1 } });
     const r: Record<string, unknown> = {};
     const fallo = async (fn: () => Promise<unknown>): Promise<string> => {
@@ -51,7 +50,7 @@ suite('banco de horas extra contra la base', () => {
         const ctx = { get: () => ({ tenantId: TENANT, userId: null, username: 'rh_prueba' }), requireTenantId: () => TENANT };
         const tk = { run: async (_t: string, cb: (t: Knex.Transaction) => Promise<unknown>) => cb(trx) };
         const report = new HrAttendanceReportService(tk as never, ctx as never);
-        const ot = new HrAttendanceOvertimeService(tk as never, ctx as never, report);
+        const ot = report;
 
         const site = `rh-he-${Date.now()}`;
         await trx('hr.attendance_sites').insert({ tenant_id: TENANT, code: site, name: 'Prueba horas extra', warehouse_code: '01' });
@@ -72,22 +71,22 @@ suite('banco de horas extra contra la base', () => {
         }
         await trx('hr.attendance_logs').insert(logs);
 
-        const b1 = await ot.banco({ site_code: site, date_to: '2026-10-03' });
+        const b1 = await ot.bancoHorasExtra({ site_code: site, date_to: '2026-10-03' });
         r['antes'] = b1.personas.map((p) => [p.codigo, p.ganadasMin, p.saldoMin, p.segun]);
 
-        const aj = await ot.crearAjuste({ site_code: site, person_code: '21', minutes: 330, reason: 'saldo que traía al 23 de septiembre', effective_date: '2026-09-24' });
-        r['conAjuste'] = (await ot.banco({ site_code: site, date_to: '2026-10-03', person_code: '21' })).personas.map((p) => [p.ajustesMin, p.saldoMin]);
-        r['ajusteSinMotivo'] = await fallo(() => ot.crearAjuste({ site_code: site, person_code: '21', minutes: 30, reason: 'x' }));
-        r['ajusteEnCero'] = await fallo(() => ot.crearAjuste({ site_code: site, person_code: '21', minutes: 0, reason: 'corrección de prueba' }));
+        const aj = await ot.crearAjusteHorasExtra({ site_code: site, person_code: '21', minutes: 330, reason: 'saldo que traía al 23 de septiembre', effective_date: '2026-09-24' });
+        r['conAjuste'] = (await ot.bancoHorasExtra({ site_code: site, date_to: '2026-10-03', person_code: '21' })).personas.map((p) => [p.ajustesMin, p.saldoMin]);
+        r['ajusteSinMotivo'] = await fallo(() => ot.crearAjusteHorasExtra({ site_code: site, person_code: '21', minutes: 30, reason: 'x' }));
+        r['ajusteEnCero'] = await fallo(() => ot.crearAjusteHorasExtra({ site_code: site, person_code: '21', minutes: 0, reason: 'corrección de prueba' }));
         // ⛔ NEGATIVA a nivel base: aunque alguien saltara la validación, el CHECK lo frena.
         r['checkEnCero'] = await fallo(() => trx.transaction(async (sp) => {
           await sp('hr.overtime_adjustments').insert({ tenant_id: TENANT, site_code: site, person_code: '21', minutes: 0, reason: 'directo en la base' });
         }));
 
-        r['anularSinMotivo'] = await fallo(() => ot.anularAjuste(aj.id, 'no'));
-        await ot.anularAjuste(aj.id, 'se capturó dos veces');
-        r['anularOtraVez'] = await fallo(() => ot.anularAjuste(aj.id, 'se capturó dos veces'));
-        r['despues'] = (await ot.banco({ site_code: site, date_to: '2026-10-03', person_code: '21' })).personas.map((p) => [p.ajustesMin, p.saldoMin]);
+        r['anularSinMotivo'] = await fallo(() => ot.anularAjusteHorasExtra(aj.id, 'no'));
+        await ot.anularAjusteHorasExtra(aj.id, 'se capturó dos veces');
+        r['anularOtraVez'] = await fallo(() => ot.anularAjusteHorasExtra(aj.id, 'se capturó dos veces'));
+        r['despues'] = (await ot.bancoHorasExtra({ site_code: site, date_to: '2026-10-03', person_code: '21' })).personas.map((p) => [p.ajustesMin, p.saldoMin]);
         r['sigueEnLaTabla'] = (await trx('hr.overtime_adjustments').where({ id: aj.id }).first('void_reason'))?.void_reason;
         throw ROLLBACK;
       }));

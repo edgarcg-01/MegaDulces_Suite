@@ -10,7 +10,6 @@ import { HrAttendanceAlertsService } from './attendance/attendance-alerts.servic
 import { HrAttendanceReportService } from './attendance/attendance-report.service';
 import { HrAttendanceIncidentsService } from './attendance/attendance-incidents.service';
 import { HrAttendanceClosuresService } from './attendance/attendance-closures.service';
-import { HrAttendanceOvertimeService } from './attendance/attendance-overtime.service';
 import { HrAttendanceSchedulesService } from './attendance/attendance-schedules.service';
 
 /**
@@ -30,7 +29,6 @@ import { HrAttendanceSchedulesService } from './attendance/attendance-schedules.
     HrAttendanceIngestService, HrIngestGuard,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
     HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService,
-    HrAttendanceOvertimeService,
   ],
   exports: [HrAttendanceIngestService, HrAttendanceReportService],
 })

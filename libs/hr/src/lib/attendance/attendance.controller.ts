@@ -8,7 +8,6 @@ import { HrAttendanceAlertsService } from './attendance-alerts.service';
 import { HrAttendanceReportService } from './attendance-report.service';
 import { HrAttendanceIncidentsService, type ActorIncidencia } from './attendance-incidents.service';
 import { HrAttendanceClosuresService } from './attendance-closures.service';
-import { HrAttendanceOvertimeService } from './attendance-overtime.service';
 import { HrAttendanceSchedulesService, type HorarioPersonaDto, type HorarioSitioDto } from './attendance-schedules.service';
 import type { CapturaIncidencia } from './logic/incidencias';
 import type {
@@ -70,7 +69,6 @@ export class HrAttendanceController {
     private readonly incidents: HrAttendanceIncidentsService,
     private readonly closures: HrAttendanceClosuresService,
     private readonly schedules: HrAttendanceSchedulesService,
-    private readonly overtime: HrAttendanceOvertimeService,
   ) {}
 
   // ── Sitios ───────────────────────────────────────────────────────────────────────────────
@@ -294,7 +292,7 @@ export class HrAttendanceController {
   @RequireAnyPermission(...VER_ASISTENCIA, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR)
   @ApiOperation({ summary: 'RH — banco de horas extra de un sitio (o de una persona): ganadas, usadas, ajustes y saldo.' })
   bancoHorasExtra(@Query() q: { site_code?: string; date_to?: string; person_code?: string }): Promise<HrBancoHorasExtraDto> {
-    return this.overtime.banco(q);
+    return this.report.bancoHorasExtra(q);
   }
 
   /** Mueve lo que se le paga o se le descuenta a alguien: sólo quien gestiona la asistencia. */
@@ -302,14 +300,14 @@ export class HrAttendanceController {
   @RequirePermissions(Permission.HR_ATTENDANCE_GESTIONAR)
   @ApiOperation({ summary: 'RH — ajuste al banco de horas extra (saldo inicial o corrección, minutos con signo).' })
   crearAjusteHorasExtra(@Body() b: Partial<HrAjusteHorasExtraBody>): Promise<HrAjusteHorasExtraDto> {
-    return this.overtime.crearAjuste(b);
+    return this.report.crearAjusteHorasExtra(b);
   }
 
   @Post('overtime/adjustments/:id/void')
   @RequirePermissions(Permission.HR_ATTENDANCE_GESTIONAR)
   @ApiOperation({ summary: 'RH — anular un ajuste de horas extra (no se borra; exige motivo).' })
   anularAjusteHorasExtra(@Param('id') id: string, @Body() b: { reason?: string }): Promise<{ ok: true }> {
-    return this.overtime.anularAjuste(id, String(b?.reason ?? ''));
+    return this.report.anularAjusteHorasExtra(id, String(b?.reason ?? ''));
   }
 
   @Post('closures/:id/reopen')
