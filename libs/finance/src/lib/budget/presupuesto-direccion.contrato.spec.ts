@@ -93,6 +93,14 @@ describe('[TES.21] contrato de la vista Dirección', () => {
     expect(c).toMatch(/ejercicios_error:\s*string \| null/);
   });
 
+  it('⭐ 3c — LOS CINCO bloques traen universo: la regla vale para todos o no vale', () => {
+    const c = leer(CONTRATO);
+    // `ejercicios` era el único sin universo pegado. Importa acá más que en otros lados:
+    // $74,811,634.04, $74,806,967.37 y $74,850,066.62 caen dentro del 0.058% entre sí y
+    // responden preguntas distintas. Sin universo al lado se leen como un error de dedo.
+    expect(c).toMatch(/ejercicios:\s*\{ universo: string; as_of: string; fuente: string; filas: EjercicioFila\[\] \} \| null/);
+  });
+
   it('⭐ 3b — `cadencia` admite null y NO se escribe a mano en el servicio', () => {
     expect(leer(CONTRATO)).toMatch(/cadencia:\s*string \| null/);
     const s = leer(SERVICIO);
@@ -136,8 +144,22 @@ describe('[TES.21] contrato de la vista Dirección', () => {
   });
 
   // ── 7 · Los huecos se declaran con nombre y peso ──────────────────────
-  it('⭐ 7 — los huecos llevan nombre, motivo y peso; `peso` admite null', () => {
+  it('⭐ 7 — el `peso` de un hueco se MIDE cuando se puede, y dice cómo', () => {
     const c = leer(CONTRATO);
-    expect(c).toMatch(/nombre:\s*string;\s*porque:\s*string;\s*peso:\s*string \| null;/);
+    // Era `peso: string | null` y el literal «26 familias» se pudrió antes de producción:
+    // las familias de gasto son 14. Lo medible se mide; `medido:false` sólo donde no hay consulta.
+    expect(sinComentarios(c)).not.toMatch(/peso:\s*string \| null/);
+    expect(c).toMatch(/valor:\s*number \| null/);
+    expect(c).toMatch(/medido:\s*boolean/);
+    expect(c).toMatch(/como:\s*string/);
+  });
+
+  it('⛔ 8 — el endpoint NO devuelve el conteo de firmas pendientes: ya vive en [TES.17]', () => {
+    const c = sinComentarios(leer(CONTRATO));
+    // Dos fuentes para el mismo número es como se duplican. La señal es de
+    // `GET /firmas-pendientes`; acá viajan los DATOS por ejercicio, no el agregado.
+    expect(c).not.toMatch(/esperan_firma/);
+    expect(c).not.toMatch(/firmas_pendientes/);
+    expect(c).not.toMatch(/pendientes_de_firma/);
   });
 });
