@@ -40,7 +40,7 @@ function hacerTrx(d: Doble) {
     if (d.fallan?.has(tabla)) throw new Error(`fuente apagada a propósito: ${tabla}`);
     const c: Record<string, unknown> = {};
     const self = () => c;
-    for (const m of ['where', 'andWhere', 'select', 'groupBy', 'orderBy', 'limit', 'join', 'count']) {
+    for (const m of ['where', 'andWhere', 'select', 'groupBy', 'orderBy', 'limit', 'join', 'leftJoin', 'count']) {
       c[m] = m === 'count'
         ? async () => [{ n: 0 }]
         : self;
@@ -53,6 +53,7 @@ function hacerTrx(d: Doble) {
       const arr = (d.fila[`${tabla}:filas`] as unknown[]) ?? [];
       const p = Promise.resolve(arr) as unknown as Record<string, unknown>;
       p.orderBy = () => Promise.resolve(arr);
+      p.leftJoin = () => Promise.resolve((d.fila[`${tabla}:conteos`] as unknown[]) ?? []);
       p.first = async () => d.fila[tabla] ?? {};
       return p;
     };
@@ -86,6 +87,7 @@ const SIN_DATOS: Doble['fila'] = {
   'budget.expense_obligations': { n_real: 156, m_real: 74811634.04, n_prueba: 156, m_prueba: 74806967.37 },
   'budget.budget_lines as l': {},
   'budget.budget_lines as l:filas': [],
+  'budget.budget_lines as l:conteos': [],
 };
 
 describe('[TES.21] el servicio de la vista Dirección, EJECUTADO', () => {
@@ -112,6 +114,30 @@ describe('[TES.21] el servicio de la vista Dirección, EJECUTADO', () => {
       expect(frag).toContain('NOT EXISTS');
       expect(frag).toContain('is_test');
     }
+  });
+
+  it('⛔ los conteos por ejercicio piden `count(distinct`, no `count(*)`', async () => {
+    const crudos: string[] = [];
+    await hacerServicio({ fila: { ...SIN_DATOS }, crudos }).direccion();
+
+    const deConteos = crudos.filter((s) => /as renglones|as obligaciones/.test(s));
+    expect(deConteos).toHaveLength(2);
+    // Con `count(*)` el LEFT JOIN multiplica cada renglón por sus obligaciones: ejercido contra
+    // prod daba 190 donde son 47, y 190 es lo bastante verosímil como para pasar sin mirarse.
+    for (const frag of deConteos) expect(frag).toContain('count(distinct');
+  });
+
+  it('⭐ un ejercicio sin renglones trae 0, no `undefined` — no aparece en el agrupado', async () => {
+    const r = await hacerServicio({
+      fila: {
+        ...SIN_DATOS,
+        'budget.budgets:filas': [{ id: 'b-sin-lineas', folio: 'X', fiscal_year: 2028, status: 'borrador', is_test: false, created_at: new Date().toISOString() }],
+      },
+    }).direccion();
+    const fila = r.ejercicios!.filas[0];
+    expect(fila.renglones).toBe(0);
+    expect(fila.obligaciones).toBe(0);
+    expect(fila.renglones).not.toBeUndefined();
   });
 
   it('⛔ no existe NINGÚN campo del payload que valga la suma de los dos universos', async () => {
