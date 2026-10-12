@@ -3,7 +3,6 @@ export * from './lib/domain/business-clock';
 export * from './lib/domain/priority';
 export * from './lib/domain/request-state';
 export * from './lib/domain/sla';
-export * from './lib/domain/attachment-signature';
 export * from './lib/domain/folio';
 export * from './lib/domain/routing';
 export * from './lib/domain/ubicaciones';

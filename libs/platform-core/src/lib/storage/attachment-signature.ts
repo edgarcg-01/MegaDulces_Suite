@@ -2,6 +2,9 @@
  * `[MS.2.4]` Validación de adjuntos por FIRMA (magic bytes), no por el tipo que declara el cliente.
  * Función pura. ADR-081.
  *
+ * `[RH.2.2]` Vive en `platform-core` desde que la usan dos dominios (Mesa de Servicio y los expedientes
+ * de reclutamiento): un primitivo compartido no se copia (ADR-056). Nació en `libs/service-desk`.
+ *
  * ── Por qué ──────────────────────────────────────────────────────────────────────────────────
  * `ObjectStorageService.putFile`/`putBuffer` guardan el `Content-Type` DECLARADO en el data URI, y el
  * servidor sólo limita el tamaño del cuerpo. Un `<script>` renombrado a `.png` con

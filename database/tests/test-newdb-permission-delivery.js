@@ -65,6 +65,13 @@ const SIN_REPARTIR = {
     '"quien cuenta/reconcilia NO es quien investiga". A quien le toca investigar es decision de ' +
     'negocio y NO se deriva del estado vivo -- repartirlo a ojo destruiria el control que el ' +
     'modulo existe para implementar. Pendiente: Edgar.',
+  // `[RH.2.2]` Reclutamiento: la API existe, la pantalla es `[RH.2.3]`. Se reparten con ella.
+  HR_RECRUITMENT_VER:
+    'Fase RH [RH.2.2]: gatea la API de reclutamiento; la pantalla es [RH.2.3] y se reparte con ella ' +
+    '(a `recursos_humanos`, como la asistencia). Pendiente: David.',
+  HR_RECRUITMENT_GESTIONAR:
+    'Fase RH [RH.2.2]: gatea la API de reclutamiento; la pantalla es [RH.2.3] y se reparte con ella ' +
+    '(a `recursos_humanos`, como la asistencia). Pendiente: David.',
   // `[RH.1.7]` Las claves de asistencia salieron de esta lista: con las pantallas `/rh/*` las reparte
   // la mig `20261008094815` segun el flujo que Mega Talento documenta (servicios al personal califica
   // y cierra = `recursos_humanos`; contabilidad audita). Ver SIN_PERSONAS.

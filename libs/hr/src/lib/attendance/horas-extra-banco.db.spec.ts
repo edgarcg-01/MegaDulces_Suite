@@ -16,6 +16,8 @@ const mig = (n: string) => require(path.join(RAIZ, 'database/migrations-newdb', 
 const FASE = [
   '20261007100000_hr_relojes_y_checadas', '20261007110000_hr_horarios_y_alertas', '20261007304401_hr_incidencias_y_cierres',
   '20261008094812_hr_agente_corridas', '20261008094813_hr_ordenes_quien', '20261012122707_hr_horas_extra_ajustes',
+  // [RH.1.4b] el lector de asistencia toma la sección y el estado por plaza de aquí.
+  '20261012151620_hr_secciones_por_ficha',
 ];
 
 const suite = URL && !/prod|railway|\.222:5434/i.test(URL) ? describe : describe.skip;

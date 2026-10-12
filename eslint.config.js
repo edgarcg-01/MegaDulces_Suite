@@ -27,6 +27,13 @@ module.exports = [
           // "External resources cannot be imported using a relative or absolute path" — y la
           // alternativa sería justamente duplicar el detalle que la regla existe para evitar.
           allow: ['^.*/eslint(\\.base)?\\.config\\.[cm]?js$', '^.*/vitest\\.shared$'],
+          // `[RH.2.2]` La regla de «lib cargada bajo demanda» es TRANSITIVA y existe para los chunks de
+          // Angular (`loadChildren`). `platform-core` es backend y nunca se parte en chunks, pero el grafo
+          // la ve "diferida" por `require()` dentro de funciones: `hr → database` (pruebas de la carga
+          // única) y `database → platform-core` (`run-prod-feeds.js`, una prueba de linaje). Con eso,
+          // TODO import estático nuevo de platform-core en `libs/hr` salía como error — medido el
+          // 2026-10-12: también lo marca en `attendance-incidents.service.ts`, que ya está en main.
+          checkDynamicDependenciesExceptions: ['@megadulces/platform-core'],
           depConstraints: [
             // ── capas (type:*) ──
             { sourceTag: 'type:app', onlyDependOnLibsWithTags: ['type:feature', 'type:data', 'type:util'] },
