@@ -26,6 +26,7 @@ import { environment } from '../../../../environments/environment';
 // archivos compartidos porque **el shell los sigue necesitando**: el estado y el HTTP no se
 // movieron (ver la cabecera del hijo). Mismo patrón que `bancos/`.
 import { PresupuestoVentasComponent } from './presupuesto/presupuesto-ventas.component';
+import { PresupuestoDireccionComponent } from './presupuesto/presupuesto-direccion.component';
 import { leyendaRespaldo, resumenFirma, type Completeness, type ProcedenciaCanal } from './presupuesto/presupuesto-firma';
 import { ejercicioInicial } from './presupuesto/presupuesto-seleccion';
 import { motivoSinResultado, resultadoEjercicio, tipoLabel, type FilaPorTipo } from './presupuesto/presupuesto-resultado';
@@ -163,7 +164,17 @@ interface BandejaFirmas {
   as_of: string;
 }
 
-type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
+type PresView = 'direccion' | 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'capacidad' | 'gastos';
+
+/**
+ * `[PU.DIR.1]` La vista a la que se entra sin parámetro, y la única que se omite de la URL.
+ *
+ * ⚠️ **Cambia la pantalla de aterrizaje**: hasta hoy `/presupuesto` abría en Ejercicio. Abre en
+ * Dirección porque esa vista existe para contestar y mandar a donde se trabaja — primera en el
+ * selector pero no de entrada, sería ornamento. Una sola constante para que el default no quede
+ * escrito en tres lugares que después divergen.
+ */
+const VISTA_DEFAULT: PresView = 'direccion';
 
 /**
  * Fase PU — Presupuestos (ADR-066). Surface Operations (quiet-luxury, answer-first). Tres vistas:
@@ -178,7 +189,7 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
   imports: [
     CommonModule, FormsModule, ButtonModule, TableModule, InputTextModule, SelectModule, DialogModule,
     CheckboxModule, TagModule, ToastModule, SegmentedComponent, MetricStripComponent, FreshnessPillComponent, SucursalPipe,
-    PresupuestoVentasComponent, RouterLink,
+    PresupuestoVentasComponent, PresupuestoDireccionComponent, RouterLink,
   ],
   providers: [MessageService],
   template: `
@@ -283,6 +294,16 @@ type PresView = 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | 'campanas' | 'c
             </div>
           }
         </div>
+      }
+
+      <!--
+        [PU.DIR.1] DIRECCIÓN — la primera vista: contesta y manda a las otras siete.
+        Carga su propio dato al entrar, no al cargar la pantalla: fuera de esta vista no se
+        consulta. Y NO repite la bandeja de firmas, que ya está pintada arriba por [TES.17];
+        un segundo lugar donde leer el mismo número es como se duplican las cifras acá.
+      -->
+      @if (view() === 'direccion') {
+        <app-presupuesto-direccion (irA)="setView($event)" />
       }
 
       <!-- ══════════ EJERCICIOS (sistema de presupuestos) ══════════ -->
@@ -1293,7 +1314,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   private readonly base = `${environment.apiUrl}/finance/budget`;
 
   // ── Sub-navegación ──
-  view = signal<PresView>('ejercicios');
+  view = signal<PresView>(VISTA_DEFAULT);
   // `[TES.16]` Dos grupos, rotulados por la PREGUNTA que contesta cada uno.
   //
   //   «Armar el presupuesto»  → ¿cuánto vamos a vender y a gastar?
@@ -1305,6 +1326,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   // carril de Tesorería estaba partido entre los dos grupos y el agrupado no seguía ninguna
   // pregunta: seguía el orden en que se fueron construyendo las pestañas.
   viewOptsArmar = [
+    { label: 'Dirección', value: 'direccion' },
     { label: 'Ejercicio', value: 'ejercicios' },
     { label: 'Ventas', value: 'ventas' },
     { label: 'Gastos', value: 'gasto-op' },
@@ -1358,7 +1380,7 @@ export class FinanzasPresupuestoComponent implements OnInit {
   private syncUrl(): void {
     this.router.navigate([], {
       relativeTo: this.route,
-      queryParams: { view: this.view() === 'ejercicios' ? null : this.view() },
+      queryParams: { view: this.view() === VISTA_DEFAULT ? null : this.view() },
       queryParamsHandling: 'merge',
       replaceUrl: true,
     });
