@@ -41,8 +41,10 @@ describe('[GX.81] debeComprobante', () => {
 
 describe('[GX.81] el servicio usa la regla en los dos lados', () => {
   const src = readFileSync(join(__dirname, 'expense-proofs.service.ts'), 'utf8');
-  it('aprobar sólo con cotización deja la marca provisional', () => {
-    expect(src).toContain('provisional: prov || soloCotizacion,');
+  /** `[GX.82]` Ya no: aprobar sólo con cotización CIERRA el vale; la marca la pone sólo la casilla. */
+  it('[GX.82] aprobar sólo con cotización ya no deja la marca provisional', () => {
+    expect(src).not.toContain('provisional: prov || soloCotizacion,');
+    expect(src).toContain('provisional: prov,');
   });
   /** La pantalla de captura y «Mis gastos» deciden con `provisional`: el servidor lo publica ya corregido. */
   it('la captura y la lista publican el provisional efectivo (marca o sólo cotización)', () => {
