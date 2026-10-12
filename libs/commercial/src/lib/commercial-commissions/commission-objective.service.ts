@@ -137,6 +137,7 @@ export class CommissionObjectiveService {
                ((make_date(?, ?, 1) + interval '1 month')::date <= current_date) AS cerrado,
                (make_date(?, ?, 1) > current_date) AS por_venir,
                (SELECT min(business_date) FROM analytics.mv_rd_route_daily_200d) AS fuente_desde,
+               (SELECT max(business_date) FROM analytics.mv_rd_route_daily_200d) AS fuente_hasta,
                current_date AS hoy`,
         [anio, mes, anio, mes, anio, mes, anio, mes]);
 
@@ -269,7 +270,7 @@ export class CommissionObjectiveService {
 
       return {
         anio, mes,
-        desde: iso(v.desde), hasta: iso(v.hasta), cerrado: v.cerrado,
+        desde: iso(v.desde), hasta: iso(v.hasta), cerrado: v.cerrado, fuente_hasta: v.fuente_hasta ? iso(v.fuente_hasta) : null,
         config, filas, huecos,
       };
     });
@@ -463,6 +464,14 @@ export interface ObjetivoFila {
 export interface ObjetivoResultado {
   anio: number; mes: number;
   desde: string | null; hasta: string | null; cerrado: boolean;
+  /**
+   * `[RD.UI.1]` Hasta que dia llega la FUENTE (max business_date de la ventana rodante).
+   * ⛔ No confundir con `hasta`, que es el borde del MES y se calcula con aritmetica de fechas:
+   * para el mes en curso `hasta` cae en el futuro y no dice nada sobre la edad del dato. El
+   * comentario de la consulta ya declaraba este campo como obligatorio desde `[RD.59]`, pero
+   * la consulta solo traia `fuente_desde`: el borde nuevo nunca se calculo.
+   */
+  fuente_hasta: string | null;
   config: ObjetivoConfig;
   filas: ObjetivoFila[];
   huecos: string[];

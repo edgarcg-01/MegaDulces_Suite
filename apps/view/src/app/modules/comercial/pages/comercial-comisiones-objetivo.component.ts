@@ -4,6 +4,7 @@ import { TagModule } from 'primeng/tag';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import {
   ComercialService, ObjetivoResultado, ObjetivoCriterio, ObjetivoFila, ObjetivoCriterioFila,
 } from '../comercial.service';
@@ -37,7 +38,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones-objetivo',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ob">
@@ -59,6 +60,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             @for (m of meses; track m.n) { <option [value]="m.n">{{ m.label }}</option> }
           </select>
         </div>
+        @if (data(); as d) {
+          <app-freshness-pill measures="data" [since]="d.fuente_hasta" label="Venta medida"
+                              [staleAfterSec]="172800" />
+        }
       </header>
 
       <app-load-state

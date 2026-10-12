@@ -4,6 +4,7 @@ import { TagModule } from 'primeng/tag';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
@@ -57,7 +58,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent, FreshnessPillComponent],
   template: `
     <div class="cm-page">
       <app-page-tabs [tabs]="tabsRD" />
@@ -74,6 +75,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             @for (y of anios; track y) { <option [value]="y">{{ y }}</option> }
           </select>
         </label>
+        @if (run(); as r) {
+          <app-freshness-pill measures="data" [since]="r.data_as_of" label="Venta medida"
+                              [staleAfterSec]="172800" />
+        }
       </header>
 
       @if (destacada(); as d) {

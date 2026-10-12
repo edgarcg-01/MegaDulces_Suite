@@ -30,6 +30,7 @@ import { REPORTS_TABS } from '../reports-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent } from '../../../shared/components/segmented/segmented.component';
 import { ContextHelpComponent } from '../../../shared/context-help/context-help.component';
 
@@ -58,6 +59,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [
+    FreshnessPillComponent,
     CommonModule, FormsModule, ButtonModule, TableModule, DatePickerModule, MultiSelectModule,
     ToastModule, TagModule, PageTabsComponent, SidePeekComponent, MetricStripComponent,
     LoadStateComponent, SegmentedComponent, ContextHelpComponent,
@@ -86,6 +88,10 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
       </p>
     </div>
     <app-context-help topic="inventario-de-ruta" />
+    @if (data(); as d) {
+      <app-freshness-pill measures="data" [since]="d.data_as_of" label="Movimiento"
+                          [staleAfterSec]="172800" />
+    }
   </header>
 
   <app-page-tabs [tabs]="tabs" />
