@@ -41,6 +41,7 @@ export const PERMISSION_META: Record<string, PermissionMetaEntry> = {
   [Permission.TIENDAS_CREAR]: { label: 'Crear Tiendas', description: 'Permite registrar nuevas tiendas desde la captura de visitas.', category: 'Configuración' },
   [Permission.STORE_LIVE_VER]: { label: 'Monitor Tienda en Vivo', description: 'Acceder al monitor de tickets y cajas en tiempo real (Proyecto TDA).', category: 'Tienda' },
   [Permission.STORE_LABELS_VER]: { label: 'Etiquetas de anaquel', description: 'Generar e imprimir etiquetas de precio de anaquel (Proyecto Tienda).', category: 'Tienda' },
+  [Permission.STORE_LABELS_COMPARTIR]: { label: 'Compartir cambios de precio', description: 'Enviar el aviso de cambios de precio a las sucursales y descargar la lista (Compras). Quien sólo ve la lista de su tienda no lo necesita.', category: 'Tienda' },
   [Permission.STORE_ARQUEO_CAPTURAR]: { label: 'Capturar Arqueo Ciego', description: 'La cajera cuenta el efectivo por denominación sin ver el esperado y sella el corte/relevo (Proyecto Tienda).', category: 'Tienda' },
   [Permission.STORE_ARQUEO_VER]: { label: 'Ver Arqueos Ciegos', description: 'Consultar los arqueos ciegos capturados en la sucursal (Proyecto Tienda).', category: 'Tienda' },
   [Permission.STORE_ARQUEO_RUTA_CAPTURAR]: { label: 'Capturar Arqueo de Rutas (RD/RV)', description: 'Recibir y contar el efectivo que entrega el vendedor de ruta (reparto RD y vecinal RV) en la sucursal. Solo ve las rutas dadas de alta en SU tienda. Distinto de Capturar Arqueo Ciego: ese es el de la caja de mostrador.', category: 'Tienda' },
