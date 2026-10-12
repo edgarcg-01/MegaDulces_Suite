@@ -141,7 +141,17 @@ exports.up = async function up(knex) {
   };
   await debeFallar('un aviso vacío', 'pcn_productos_ck', { productos: 0, suben: 0, bajan: 0, sin_precio: 0 });
   await debeFallar('productos = suben+bajan+sin_precio', 'pcn_cuadra_ck', { productos: 5 });
-  await debeFallar('plaza de dos dígitos', 'pcn_plaza_ck', { plaza: 'ABC' });
+  // ⛔ El valor de prueba era 'ABC' y NUNCA llegaba al CHECK: la columna es `varchar(2)`, así que
+  // Postgres rebota antes con `value too long for type character varying(2)` (22001) — un mensaje
+  // que no nombra el constraint, así que `porEse` quedaba en false y la migración se frenaba sola.
+  // Es EXACTAMENTE el modo de falla que advierte el comentario de arriba: «un rechazo por otra
+  // causa (RLS, tipo) daría verde sin probar nada» — acá dio ROJO sin probar nada, que es el mismo
+  // defecto con el signo cambiado. El candado hizo su trabajo: avisó que no estaba midiendo.
+  // Medido en prod sobre una tabla TEMP, las dos variantes:
+  //     'ABC' -> ERROR: value too long for type character varying(2)
+  //     'AB'  -> ERROR: ... violates check constraint "pcn_plaza_ck"   ✅
+  // El CHECK siempre estuvo bien; lo que no probaba nada era el valor.
+  await debeFallar('plaza de dos dígitos', 'pcn_plaza_ck', { plaza: 'AB' });
   await debeFallar('origen/corte coherentes', 'pcn_origen_corte_ck', { origen: 'auto', corte: 'compras' });
   await debeFallar('el cron no tiene autor', 'pcn_autor_ck', { created_by: quien });
   await debeFallar('Compras sin autor', 'pcn_autor_ck', { origen: 'compras', corte: 'compras', created_by: null });
