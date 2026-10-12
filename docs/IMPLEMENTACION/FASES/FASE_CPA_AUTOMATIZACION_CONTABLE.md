@@ -643,6 +643,108 @@ en el banco** (76.8 %, placebo 0.1 %) y el 23.2 % restante se arma con IVA 0 **y
 ~6,050 renglones/mes — el más grande y el de mapa más caro (cuenta por sucursal × canal × tasa).
 Va **al final** a propósito: para cuando llegue, los cuatro anteriores ya probaron el camino.
 
+#### `[CPA.10]` La bandeja «Mi cierre» 🔨 EN CÓDIGO 2026-10-12 — *la mitad que faltaba: la adopción*
+
+> ⛔⛔ **El diagnóstico que reencuadra el Bloque A, medido contra PROD el 2026-10-12.** Esta fase
+> midió bien *qué* automatizar y no midió *por qué contabilidad no entra*. `analytics.ui_usage`,
+> ventana 2026-09-30 → 2026-10-12, rol `contabilidad`:
+>
+> | | |
+> |---|---:|
+> | Hits totales, 10 días activos | **3,604** |
+> | Hits a `/api/fiscal/*` | **0** |
+> | Hits a `/api/contabilidad/*` | **0** |
+> | Hits a `/api/finance/expenses/*` (comprobación de gastos) | **1,806** (50.1 %) |
+>
+> Y **no es acceso**: el rol tiene los **19 permisos `FISCAL_*` en `true`** y entran a diario
+> (johana_tafoya hoy 12:59, ernesto_zarate hace 2 d, 4 usuarios activos). Las 16 pestañas del
+> proyecto —≈9,000 líneas de front, 12 sub-módulos en `libs/fiscal`— tienen **cero tráfico de la
+> gente para la que se construyeron**.
+>
+> ⭐ **Contabilidad YA adoptó la Suite; lo que no adoptó es su propio módulo.** El que sí usan
+> tiene cuatro cosas que `/contabilidad` no tiene: cola personal (`GET /mine`), OCR que teclea
+> por ellos, cierre de tres salidas y empuje. `/contabilidad` es un visor: **6 de 16 servicios
+> son sólo GET**.
+>
+> ⛔ **Y eso corrige el orden del `[CPA.0]`**: el semáforo es una pantalla de **sólo lectura**, o
+> sea el mismo género del que ya hay 16 con cero tráfico, y le informa a la contadora algo que
+> ella ya sabe (que septiembre está pendiente; es quien no lo hizo). Rinde para **nosotros**, no
+> para ella. Lo primero tiene que quitarle tecleo de las manos, no agregarle pantalla a los ojos.
+
+**Entregado (sin aplicar a prod):** vista `analytics.v_contpaqi_captura_mensual`
+(mig `20261012165455`) · `mi-cierre.engine.ts` puro + su candado · `MiCierreService` +
+`GET /contabilidad/mi-cierre` y `POST /:eventoTipo/:periodo/resultado` · pantalla
+`/contabilidad/mi-cierre`, **portada del proyecto** (primera pestaña y destino de
+`FISCAL_CONTAB_VER` en `CONTABILIDAD_LANDING`) · candado `test-newdb-mi-cierre.js`.
+
+**Taxonomía propia, y por qué no reusa la de `[CPA.0]`:** el semáforo agrupa por **cuenta**
+(`2120`, `1020`, `401*`) y contesta *¿está asentado?*. La bandeja agrupa por **concepto** y
+contesta *¿qué tecleo y cuánto me armás?*. Son dos preguntas; la bandeja **no re-juzga** si el
+mes está completo — **compone** el veredicto del semáforo para su alerta.
+
+**⛔⛔ Dos patrones que el clasificador obvio pierde, medidos:**
+
+1. **`VTA.` lleva PUNTO, no espacio.** El concepto real es `VTA.4/9/26 Suc. 3 Morelia Madero`.
+   Con `ILIKE 'VTA %'` la venta diaria cae de 2,653 a 1,181 renglones/mes y **los 1,472 restantes
+   se van a `otros`** sin que nada falle: el total cuadra idéntico con las dos formas. El candado
+   corre **ambas** y exige que difieran.
+2. **`TLMKT <sucursal>` es una familia propia** (408 renglones/mes), que §3 tenía enterrada en su
+   `otros` del 4.0 %. Separándola —y a `GASTOS *`— el bucket sin clasificar baja a **44
+   renglones/mes (0.4 %)**.
+
+**El reparto corregido (jul–sep 2026, renglones/mes):** cobranza 3,477 · pago_gasto 2,722 ·
+venta_diaria 2,653 · comisiones 1,532 · nomina 706 · telemarketing 408 · libro 407 · traspasos
+371 · otros 44 · gastos_varios 37 = **12,357/mes**. ⭐ **El techo real es 93.6 %, no 90**, y la
+venta diaria da **7,960 renglones en jul–sep: idéntico al conteo de §3**, que es otra derivación.
+
+**⛔⛔ El decode de comisiones REFUTA el diseño que `[CPA.6]` daba por hecho.** Se midió antes de
+armar nada:
+
+- Nuestro clasificador de banco ve **$141,343** de comisiones en sep; ContPAQi asienta
+  **$380,818** — el **37 %** (y en julio, el **6 %**). **No es cobertura de la base**: nuestros
+  movimientos de banco cubren **90–114 %** del `1020*` de ContPAQi todos los meses.
+- Están partidas en **tres categorías que son el mismo asiento**: `comision_bancaria` $43,246 +
+  `comisiones_venta` **$230,176** (tasa de descuento de TPV, el grueso) + su `iva_acreditable`
+  $2,460 + `gasto_admin` $93,603 = **$369,485 ≈ 97 %** de lo que ContPAQi asienta.
+- ⛔ **El IVA llega como un movimiento APARTE**, no se calcula: el armador tiene que **parear**,
+  no derivar. Mi mockup dibujaba `gasto / IVA / banco` por movimiento y **es falso**.
+- ⭐ **El mapa de cuentas se DERIVA de sus propios libros, sin pedirle nada a la contadora:**
+  cargo a `5200650000 COMISIONES Y SITUACIONES`, IVA a `1060000000 IVA ACREDITABLE`, banco a su
+  `1020*` (**18 de 20** mapeados, y el **100 %** de las comisiones clasificadas tiene su banco
+  mapeado). ⚠️ `5500010000 INTERESES` vive en esas mismas pólizas y **NO es comisión**.
+- ⛔ Y ContPAQi **no arma una póliza por movimiento**: pone **un abono por movimiento** y **un
+  cargo resumido por banco** (59 renglones de cargo contra ~5,500 de abono en 4 meses).
+
+→ **`[CPA.6]` sigue ⬜, con el mapa ya derivado y la estructura corregida.** Lo que falta no es el
+diccionario: son **2 cuentas de banco** sin asignar y conciliar `comisiones_venta`.
+
+**⛔ Y el candado destapó un defecto PREEXISTENTE de `libs/contracts`:** `indiceDeClaves` era
+`Map<string, Ubicacion>` con `ix.set(k, …)` → **gana el último módulo del árbol** y una clave
+compartida queda atribuida a una sola pantalla. La UI de roles le decía a quien quita
+`FISCAL_CONTAB_VER` que cerraba **una** pantalla cuando cierra **tres**. Al agregar la bandeja,
+las dos viejas **desaparecieron** de la lista y el candado `[AU.33]` lo gritó. Corregido a
+uno-a-muchos: las 27 claves del caso real pasan de **19 a 25 pantallas**, y **5 de las 6 nuevas
+ya existían** (`finanzas/egresos`, `estado-cuenta-acreedores`, `hallazgos`, `pagos-comprobantes`,
+`pronto-pago`). ⚠️ Eso **refuta un comentario del propio spec**: `FINANCE_FINDINGS_GESTIONAR`
+**sí** tiene módulo «Hallazgos» propio. La invariante `suma === 27` se reemplazó por la correcta
+—*el conjunto de claves repartidas es exactamente LAS_27*—: la vieja sólo se sostenía porque el
+índice sub-reportaba, o sea **comparaba el sub-reporte contra sí mismo**.
+
+**Medido:** la consulta da **120–129 ms** en tres corridas contra prod (gate 500) → **sin
+matvista**, a diferencia de `[CPA.0.2]`. Candados: engine **23/23** (mutado a **rojo 2/23**
+colapsando `verificada` `null`→`true`) · `test-newdb-mi-cierre.js` **18 ✔ · 0 ✘ · 4 ◻** contra
+prod (3 ◻ esperan la migración; el 4º es que `poliza_exports` sigue en **0 filas**, que es el
+hecho) · contracts **563/563** · landing-guards **39/39** · finance **1139/1139** · view
+**3069/3073** (el que falla es de Caja General, verde en aislamiento 187/187 y ajeno a esto).
+
+**Sin permiso nuevo:** reusa `FISCAL_CONTAB_VER/_GESTIONAR`, verificados `true` en el rol
+`contabilidad` en prod → **sin migración de permisos y sin re-login** (`[LC.6.2]`).
+
+**⬜ Falta:** aplicar la migración a prod · `git push` (sin autorizar) · redeploy · validación
+visual. **No construido, y se declara:** el armador de comisiones (`[CPA.6]`, ahora con el mapa
+derivado), el side-peek de detalle y la bandeja de CFDI sin asociar — las tres diseñadas y
+aprobadas, ninguna escrita.
+
 ### Bloque D — lo que se declara y NO se promete
 
 | | Motivo |

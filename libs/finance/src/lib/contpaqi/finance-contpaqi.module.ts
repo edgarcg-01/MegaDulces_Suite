@@ -6,6 +6,8 @@ import { ContpaqiArmadoService } from './contpaqi-armado.service';
 import { ContpaqiBridgeController } from './contpaqi-bridge.controller';
 import { ContpaqiCierreService } from './contpaqi-cierre.service';
 import { ContpaqiCierreController } from './contpaqi-cierre.controller';
+import { MiCierreService } from './mi-cierre.service';
+import { MiCierreController } from './mi-cierre.controller';
 
 /**
  * Fase CP `[CP.8]` — **El puente a ContPAQi.** Hereda ADR-040: la plataforma **nunca** escribe a
@@ -32,16 +34,23 @@ import { ContpaqiCierreController } from './contpaqi-cierre.controller';
   // `[CPA.0]` El semaforo de cierre: que mes ya esta asentado y cual no. Vive en este modulo
   // porque lee lo mismo (`analytics.gl_polizas`), pero su permiso es OTRO —`FISCAL_CONTAB_VER`—
   // porque lo mira quien revisa los libros, no quien emite egresos.
-  controllers: [ContpaqiBridgeController, ContpaqiCierreController],
+  // `[CPA.10]` La bandeja «Mi cierre»: la portada de /contabilidad. Mismo permiso que el
+  // semáforo (`FISCAL_CONTAB_*`, ya repartido) porque la mira la misma gente; y NO re-juzga si
+  // el mes está completo — para eso enlaza al semáforo, que ya lo hace contra un testigo.
+  controllers: [ContpaqiBridgeController, ContpaqiCierreController, MiCierreController],
   providers: [
     ContpaqiArmadoService,
     ContpaqiCuadreService,
     ContpaqiCierreService,
+    MiCierreService,
     ContpaqiTxtSinkAdapter,
     // El puerto apunta al sink de archivo. Cuando exista `SdkSinkAdapter`, esta línea es el
     // único lugar donde se elige — quien arma el asiento no se entera.
     { provide: CONTPAQI_POLIZA_SINK_PORT, useExisting: ContpaqiTxtSinkAdapter },
   ],
-  exports: [ContpaqiArmadoService, ContpaqiCuadreService, ContpaqiCierreService, CONTPAQI_POLIZA_SINK_PORT],
+  exports: [
+    ContpaqiArmadoService, ContpaqiCuadreService, ContpaqiCierreService, MiCierreService,
+    CONTPAQI_POLIZA_SINK_PORT,
+  ],
 })
 export class FinanceContpaqiModule {}
