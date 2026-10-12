@@ -476,7 +476,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                 para que la ausencia sea una decisión y no un descuido.
               </p>
             } @else {
-              <div class="cm-table-wrap">
+              <div class="cm-table-wrap dt-scope">
                 <!--
                   [RD.UI.2] DESIGN O.4 -- la nomina de la quincena: 12 columnas por ruta. Era
                   una <table> cruda, asi que el sticky y la columna congelada ya los daba el
@@ -488,7 +488,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                 -->
                 <p-table [value]="choferes()" dataKey="route_code" size="small" [rowHover]="true"
                          selectionMode="single" [(selection)]="filaSel"
-                         class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first"
+                         class="dt-stack surf-table surf-table--plain surf-table--sticky surf-table--frozen-first"
                          [tableStyle]="{ 'min-width': '78rem' }">
                   <ng-template #header>
                     <tr>
@@ -500,22 +500,22 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                   </ng-template>
                   <ng-template #body let-l>
                     <tr [pSelectableRow]="l" [class.muted]="!!l.motivo_no_pago">
-                      <td class="comm-num">{{ l.route_code }}</td>
-                      <td class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
-                      <td class="comm-num" [class.cm-corta]="diasCortos(l)" [title]="tipDias(l)">
+                      <td role="cell" data-label="Ruta" class="comm-num">{{ l.route_code }}</td>
+                      <td role="cell" data-label="Chofer" class="cm-name">{{ l.beneficiario_nombre || '—' }}</td>
+                      <td role="cell" data-label="Días" class="comm-num" [class.cm-corta]="diasCortos(l)" [title]="tipDias(l)">
                         {{ l.dias_con_venta != null ? (l.dias_con_venta + ' / ' + (l.dias_esperados ?? '?')) : '—' }}
                       </td>
-                      <td class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
-                      <td class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
-                      <td class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
-                      <td class="comm-num cm-muted" [title]="tipMarkup(l)">
+                      <td role="cell" data-label="Subtotal" class="comm-num">{{ l.subtotal != null ? money(l.subtotal) : '—' }}</td>
+                      <td role="cell" data-label="Venta" class="comm-num cm-muted">{{ l.venta != null ? money(l.venta) : '—' }}</td>
+                      <td role="cell" data-label="%" class="comm-num">{{ l.pct_aplicado != null ? (pct(l.pct_aplicado) + '%') : '—' }}</td>
+                      <td role="cell" data-label="Markup" class="comm-num cm-muted" [title]="tipMarkup(l)">
                         {{ l.markup_sobre_costo_pct != null ? (pct(l.markup_sobre_costo_pct) + '%') : '—' }}
                       </td>
-                      <td class="comm-num">{{ money(l.comision) }}</td>
-                      <td class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
-                      <td class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
-                      <td class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
-                      <td class="cm-nota">
+                      <td role="cell" data-label="Comisión" class="comm-num">{{ money(l.comision) }}</td>
+                      <td role="cell" data-label="Bonos" class="comm-num" [title]="bonosTip(l)">{{ l.bonos ? money(l.bonos) : '—' }}</td>
+                      <td role="cell" data-label="Nómina" class="comm-num cm-neg">{{ l.nomina_banco ? ('−' + money(l.nomina_banco)) : '—' }}</td>
+                      <td role="cell" data-label="A pagar" class="comm-num is-strong">{{ l.motivo_no_pago ? '—' : money(l.a_pagar) }}</td>
+                      <td role="cell" data-label="Procedencia" class="cm-nota">
                         @if (l.motivo_no_pago) { <p-tag severity="warn" [value]="etiquetaVeredicto(l.motivo_no_pago)" /> }
                         @if (l.dias_multifuente) {
                           <span title="La quincena cruza un cambio de sistema: la venta de esos días viene de dos capturas. Medido: no comparten folio.">
