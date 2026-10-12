@@ -20,6 +20,37 @@ import {
  *
  * *Un arreglo que vive sólo del lado de la escritura no es un arreglo: es un dato que nadie usa.*
  */
+/**
+ * ⭐⭐ `[CG.98]` **LA CAJA GENERAL ES UNA SOLA, NO UNA POR PLAZA.**
+ *
+ * Edgar, al ver que el cuadre no cerraba: *"resuélvelo entonces"*.
+ *
+ * El arqueo filtraba por `sucursal`, y eso suponía un cajón por plaza. Medido en prod el
+ * 2026-10-12, es falso:
+ *
+ *   · las **10 nóminas de hoy son de CUATRO sucursales** (05, 06, 07, 08) y las cuatro usan la
+ *     caja `0011`;
+ *   · suman **$32,237.00** contra **$32,220.00** dispensados por el cajero de OFICINAS — $17 de
+ *     morralla. Una sola bóveda pagó nóminas de cuatro plazas;
+ *   · y en TODO el libro (27 movimientos, 6 sucursales) **no hay más caja que `0011`**.
+ *
+ * O sea: `cash_ledger.sucursal` es la plaza del DOCUMENTO contable, no dónde estaba el efectivo.
+ * Filtrar por ella partía un cajón físico en seis pedazos y ninguno cuadraba: el efectivo salía
+ * de un pedazo y el gasto se anotaba en otro.
+ *
+ * El cajero vive en OFICINAS (`00`), así que el corte de esa sucursal es el de LA caja y ve todos
+ * los movimientos. Cualquier otra plaza sigue acotada a lo suyo — el día que una tenga su propio
+ * cajón, esto no la va a mezclar con el de oficinas.
+ *
+ * ⚠️ Si algún día aparece una segunda caja en el libro (otra `clave_banco`), esto deja de alcanzar
+ * y hay que acotar por caja de verdad. Hoy no existe: medido, 27 de 27 movimientos son `0011` o
+ * captura manual desde esta misma pantalla.
+ */
+const SUCURSAL_DEL_CAJERO = '00';
+function aplicarAlcanceCaja(qb: any, sucursal: string): any {
+  return sucursal === SUCURSAL_DEL_CAJERO ? qb.whereRaw('true') : qb.where('sucursal', sucursal);
+}
+
 function fondo(c: { fondo_inicial?: number | string | null } | null | undefined): number | null {
   const v = c?.fondo_inicial;
   return v === null || v === undefined ? null : Number(v);
@@ -109,7 +140,8 @@ export class CashCutService {
    */
   private async movimientosSueltos(trx: any, tenantId: string, sucursal: string): Promise<MovimientoDelCorte[]> {
     const rows = await trx('finance.cash_ledger')
-      .where({ tenant_id: tenantId, sucursal })
+      .where({ tenant_id: tenantId })
+      .where((b: any) => aplicarAlcanceCaja(b, sucursal))
       .whereNull('corte_id').whereNull('deleted_at')
       .select('tipo', 'monto', 'estado', 'origen_tipo')
       /**
@@ -652,7 +684,9 @@ export class CashCutService {
        * convirtió un `to_char(fecha)` en un seq scan de 167k filas.
        */
       const [libro] = await trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal })
+        .where({ tenant_id: tenantId })
+        // `[CG.98]` La caja general es UNA: en oficinas se ven todas las plazas.
+        .where((b: any) => aplicarAlcanceCaja(b, sucursal))
         .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereNull('deleted_at')
@@ -809,7 +843,10 @@ export class CashCutService {
        * cuando hay que explicarlo.
        */
       const movimientosDelDia = await trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal })
+        .where({ tenant_id: tenantId })
+        // `[CG.98]` Mismo alcance que el cuadro de arriba: si la lista mostrara otro universo que
+        // el total, el pie no sumaría lo que el cuadro dice y nada se podría revisar.
+        .where((b: any) => aplicarAlcanceCaja(b, sucursal))
         .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereNull('deleted_at')
