@@ -325,7 +325,7 @@ export class RouteProfitService {
                  AS vinculo_sospechoso,
                count(*) OVER (PARTITION BY tr.route_number)::int AS aparatos,
                row_number() OVER (PARTITION BY tr.route_number
-                                  ORDER BY tr.es_camara, tr.last_seen_at DESC) AS rn
+                                  ORDER BY tr.es_camara, tr.last_seen_at DESC)::int AS rn
           FROM tr
           LEFT JOIN logistics.vehicles v ON v.id = tr.vehicle_id AND v.deleted_at IS NULL
           LEFT JOIN analytics.v_rd_commission_universe u
@@ -334,6 +334,12 @@ export class RouteProfitService {
 
       // Una fila por ruta: la del aparato principal (no cámara, más reciente).
       const unidades: UnidadFlota[] = rows
+        // ⛔ `[RD.60.3]` `row_number()` devuelve BIGINT, y node-postgres entrega bigint como
+        //    STRING. Sin el `::int` de arriba esto comparaba la cadena "1" contra el número 1, que es false SIEMPRE: la
+        //    pantalla de flota llevaba desde su estreno publicando CERO unidades con 8 vivas.
+        //    El tipo `{ rn: number }` lo afirmaba y el compilador le creyó -- una anotación sobre
+        //    una fila de `raw()` no es una medición, es una promesa de quien la escribió.
+        //    La columna de al lado (`count(*) OVER (...)::int AS aparatos`) sí estaba casteada.
         .filter((r: { rn: number }) => r.rn === 1)
         .map((r: Record<string, unknown>) => {
           // ⛔ Los campos vacíos se ENUMERAN. Un NULL en una ficha no se explica solo, y la
