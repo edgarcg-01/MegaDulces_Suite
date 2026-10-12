@@ -5161,9 +5161,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     const f = this.f();
     // Se lee ANTES de emitir: el `next` corre despues y para entonces el dialogo ya se cerro.
     const declarar = this.declararRegla() && this.puedeDeclararRegla();
-    // CS.3.8 — el desglose que va al servidor, capturado ACÁ para imprimir el comprobante en el
-    // `next` (después la reja ya se reseteó). Es el arqueo completo (cajero + reja).
-    const densComprobante = this.denominacionesParaGuardar();
+    // ⛔ `[CG.81]` Acá se leía `densComprobante` para imprimir el comprobante en el `next`. Se fue
+    // con la impresión automática: el payload de abajo vuelve a llamar a `denominacionesParaGuardar()`
+    // por su cuenta, así que esta línea quedó sin un solo consumidor.
     this.svc.crear({
       ...f,
       // CS.3.7 — El arqueo que va al servidor es el COMPLETO: el del cajero (en la UI va aparte) +
@@ -5216,9 +5216,39 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         this.guardando.set(false);
         this.capturaAbierta.set(false);
         this.avisarOk('Movimiento registrado', `${this.etiquetaTipo(f.tipo)} por ${money(f.monto)}`);
-        // CS.3.8 — el comprobante sale solo a la térmica con lo recién guardado (folio nuestro,
-        // desglose, concepto, recibido, total, firma). Se re-imprime cuando haga falta desde la lista.
-        if (m?.folio) imprimirTicketComprobante(this.comprobanteDe(m, densComprobante));
+        /**
+         * ⛔ `[CG.81]` **ACÁ EL COMPROBANTE SALÍA SOLO A LA TÉRMICA, y se retiró.** Pedido de
+         * Edgar: *"hay que dejar de mandar el imprimible del ticket y sólo almacenarlo como un
+         * historial"*.
+         *
+         * Era `CS.3.8`: al guardar se imprimía con lo recién enviado. El papel sale en CADA
+         * captura, y en un día normal de la caja general son ~84 movimientos (medido en el libro
+         * de Access el 2026-10-09) — o sea 84 tickets que nadie pidió.
+         *
+         * ⭐ Y no se pierde nada, verificado antes de quitarlo: el comprobante se DERIVA del
+         * movimiento, no es un documento aparte. Medido en prod sobre las 5 filas vivas de
+         * `finance.cash_ledger`, **las 5 tienen su desglose guardado** en
+         * `finance.cash_ledger_denominations` (2, 2, 1, 2 y 7 renglones). El botón de la lista
+         * reconstruye el papel pidiendo `svc.detalle(id)`, así que el historial alcanza.
+         *
+         * ⚠️ Por eso NO se guarda el texto renderizado del ticket: sería una copia de algo que ya
+         * está, y una copia que se desalinea en silencio en cuanto cambie el formato. El historial
+         * ES el movimiento con su desglose; el papel es una vista de eso.
+         *
+         * ⛔ **Y lo que este papel imprimía NO era lo mismo que imprime el botón** — los dos
+         * difieren, y en direcciones opuestas. El desglose se guarda en DOS pilas (`flujo`
+         * `recibido` y `devuelto`, `[CG.38]`), y ninguno de los dos caminos la respeta:
+         *
+         *   · éste mandaba sólo `denominacionesParaGuardar()` = la pila `recibido`, sin el vuelto;
+         *   · el botón pide `svc.detalle(id)`, que trae las dos pilas APLANADAS — ni filtra por
+         *     `flujo` ni lo devuelve (`.select('denominacion','piezas')`), y el ticket tampoco
+         *     sabe de `flujo`.
+         *
+         * Medido: hoy **ninguno de los 5 movimientos tiene pila `devuelto`**, así que en la
+         * práctica coinciden. El primero que capture con vuelto va a imprimir un desglose que
+         * suma MÁS que el monto, sin que nada avise. Queda DECLARADO acá, no arreglado de paso:
+         * arreglarlo de verdad es que el ticket muestre las dos pilas, y eso es otro cambio.
+         */
         // La regla va DESPUÉS de que el movimiento se guardó, y en su propia petición: si
         // declararla falla, el registro del efectivo ya está hecho y no se pierde.
         if (declarar) this.declararCuenta(f);
