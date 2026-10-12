@@ -18,7 +18,7 @@ import { ToastModule } from 'primeng/toast';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import {
-  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite, ShipmentReadiness,
+  CartaPorteDocument, CartaPorteGap, ShipmentEta, CustomerLite, OrderLite,
   DeliveryGuide, Driver, GuideRecipient, LogisticaService, NuevoEmbarqueHoja, Shipment, ShipmentExpense, Vehicle,
 } from '../logistica.service';
 import { KeplerHojaComponent } from '../components/kepler-hoja.component';
@@ -180,32 +180,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         </div>
         <!-- ── TAB INFO ── -->
         @if (tab() === 'info') {
-          <!-- Semáforo de preparación del viaje -->
-          @if (readiness(); as rd) {
-            <div class="sheet cols-12">
-              <article class="cell cell-span-12">
-                <div class="rd-head">
-                  <span class="cell-label">Preparación del viaje</span>
-                  <span class="rd-pill" [class.ok]="rd.ready">{{ rd.ready ? 'Listo para operar' : 'Faltan datos' }}</span>
-                </div>
-                <div class="rd-progress">
-                  <div class="rd-progress-track">
-                    <div class="rd-progress-fill" [class.ok]="rd.ready" [style.width.%]="readinessPct()"></div>
-                  </div>
-                  <span class="rd-progress-pct">{{ readinessPct() }}%</span>
-                </div>
-                <ul class="rd-list">
-                  @for (c of rd.checks; track c) {
-                    <li [class]="'rd-' + c.status">
-                      <i class="pi" [class.pi-check-circle]="c.status==='ok'" [class.pi-exclamation-triangle]="c.status==='warn'" [class.pi-circle]="c.status==='pending'" aria-hidden="true"></i>
-                      <span class="rd-label">{{ c.label }}</span>
-                      <span class="rd-detail">{{ c.detail }}</span>
-                    </li>
-                  }
-                </ul>
-              </article>
-            </div>
-          }
           <div class="sheet cols-12">
             <article class="cell cell-span-3">
               <span class="cell-label">Tipo</span>
@@ -837,26 +811,6 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     .shd-guia-faltan { font-size: var(--fs-xs); color: var(--bad-soft-fg); }
     .shd-guia-faltan .shd-guia-faltan-titulo { font-weight: var(--fw-bold); }
     .shd-guia-faltan ul { margin: .2rem 0 0; padding-left: 1rem; }
-    /* ── Semáforo de preparación ── */
-    .rd-head { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:.6rem; }
-    .rd-pill { font-size:var(--fs-micro); padding:.2rem .55rem; border-radius:6px; background:var(--warn-soft-bg); color:var(--warn-soft-fg); font-weight:var(--fw-bold); }
-    .rd-pill.ok { background:var(--ok-soft-bg); color:var(--ok-soft-fg); }
-    /* Barra de % listo (semáforo de preparación) */
-    .rd-progress { display:flex; align-items:center; gap:.625rem; margin-bottom:.75rem; }
-    .rd-progress-track { flex:1; height:6px; border-radius:999px; background:var(--c-surface-2); overflow:hidden; }
-    .rd-progress-fill { height:100%; border-radius:999px; background:var(--warn-fg); transition:width var(--dur-standard,250ms) var(--ease-standard); }
-    .rd-progress-fill.ok { background:var(--ok-fg); }
-    .rd-progress-pct { font-variant-numeric:tabular-nums; font-weight:var(--fw-bold); font-size:var(--fs-sm); color:var(--c-text-1); min-width:34px; text-align:right; }
-    @media (prefers-reduced-motion: reduce){ .rd-progress-fill { transition:none; } }
-    .rd-list { list-style:none; margin:0; padding:0; display:grid; grid-template-columns:1fr 1fr; gap:.4rem .9rem; }
-    @media (max-width:45rem){ .rd-list { grid-template-columns:1fr; } }
-    .rd-list li { display:flex; align-items:center; gap:.5rem; font-size:var(--fs-sm); padding:.25rem 0; }
-    .rd-list li i { font-size:1rem; flex:0 0 auto; }
-    .rd-ok i { color:var(--ok-fg); }
-    .rd-warn i { color:var(--warn-fg); }
-    .rd-pending i { color:var(--c-text-3); }
-    .rd-label { font-weight:var(--fw-medium); }
-    .rd-detail { color:var(--c-text-3); font-size:var(--fs-micro); margin-left:auto; text-align:right; }
     .shd-eta-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: .5rem; }
     .shd-eta-head p { margin: .25rem 0 0; }
     .shd-eta-seq { display: inline-grid; place-items: center; width: 22px; height: 22px; border-radius: 6px; background: var(--c-surface-2); font-variant-numeric: tabular-nums; font-weight: var(--fw-bold); font-size: var(--fs-micro); }
@@ -995,7 +949,6 @@ export class LogisticaShipmentDetailComponent {
   readonly optimizing = signal(false);
   readonly eta = signal<ShipmentEta | null>(null);
   readonly etaLoading = signal(false);
-  readonly readiness = signal<ShipmentReadiness | null>(null);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
   readonly tab = signal<'info' | 'guides' | 'expenses' | 'cierre' | 'cartaporte'>('info');
 
@@ -1172,7 +1125,6 @@ export class LogisticaShipmentDetailComponent {
       },
       error: () => { /* 404 si no hay expense aún — OK */ },
     });
-    this.refreshReadiness();
   }
 
   /**
@@ -1206,23 +1158,6 @@ export class LogisticaShipmentDetailComponent {
     });
   }
 
-  refreshReadiness() {
-    const id = this.shipmentId();
-    if (!id) return;
-    this.api.shipmentReadiness(id).subscribe({
-      next: (r) => this.readiness.set(r),
-      error: () => { /* silencioso */ },
-    });
-  }
-
-  /** % de checks en estado 'ok' — alimenta la barra del semáforo de preparación. */
-  readonly readinessPct = computed(() => {
-    const r = this.readiness();
-    if (!r || !r.checks.length) return 0;
-    const ok = r.checks.filter((c) => c.status === 'ok').length;
-    return Math.round((ok / r.checks.length) * 100);
-  });
-
   // ── Transiciones de estado (mismo state-machine que la lista) ───────────
   canDepart(): boolean {
     const s = this.shipment()?.status;
@@ -1246,7 +1181,6 @@ export class LogisticaShipmentDetailComponent {
     fn.subscribe({
       next: (r) => {
         this.shipment.set(r);
-        this.refreshReadiness();
         this.toast.add({ severity: 'success', summary: `Embarque ${r.folio} actualizado` });
       },
       error: (err) => this.toast.add({ severity: 'error', summary: 'Error', detail: err?.error?.message || 'No se pudo' }),
@@ -1432,7 +1366,6 @@ export class LogisticaShipmentDetailComponent {
         this.toast.add({ severity:'success', summary: completar ? 'Guía completada' : 'Guía creada' });
         this.gpsReview.set(null);
         this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
-        this.refreshReadiness();
       },
       error: (err) => {
         this.savingGuide.set(false);
@@ -1453,7 +1386,6 @@ export class LogisticaShipmentDetailComponent {
           detail: r.located ? `${r.located} paradas · ${r.total_km} km${extra}` : 'Captura lat/lng en los clientes destino.',
         });
         this.api.listGuides(this.shipmentId()).subscribe((g) => this.guides.set(g || []));
-        this.refreshReadiness();
       },
       error: (err) => {
         this.optimizing.set(false);
@@ -1588,7 +1520,6 @@ export class LogisticaShipmentDetailComponent {
         this.savingExp.set(false);
         this.expense.set(e);
         this.toast.add({ severity:'success', summary:'Costos guardados' });
-        this.refreshReadiness();
       },
       error: (err) => {
         this.savingExp.set(false);
