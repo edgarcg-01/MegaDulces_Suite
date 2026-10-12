@@ -53,11 +53,22 @@ export const SEP = ' ';
  * lee basura en cada campo desde ahí.
  *
  * ⭐ **Y una cuarta, que es la más importante y es de capacidad, no de ancho:** el formato
- * **SÍ transporta el UUID del CFDI**, con renglones `AD ` + UUID + espacio ubicados **después
- * del `P`**. `FASE_LC` afirma lo contrario (*"el layout no tiene campo de UUID"*) y de ahí
- * salió toda su estrategia de dos muletas (el UUID metido en `Concepto` + el CSV para el
- * Asociador). Si el renglón `AD` existe, los **0 de 33,303 movimientos sin asociar en 5 años**
- * no son una limitación del formato: son renglones que nadie emitió.
+ * **SÍ transporta el UUID del CFDI**, con renglones `AD ` + UUID + espacio. `FASE_LC` afirma lo
+ * contrario (*"el layout no tiene campo de UUID"*) y de ahí salió toda su estrategia de dos
+ * muletas (el UUID metido en `Concepto` + el CSV para el Asociador).
+ *
+ * ⚠️ **Dos cosas de este párrafo se midieron después y salieron distinto** (`[CP.8.39]` las
+ * corrige acá, donde se leen):
+ *
+ *   · **Dónde va el `AD`.** Las fuentes externas decían *"después del `P`"*; el archivo real dice
+ *     **al FINAL de la póliza**, tras todos los `M1` (`[CP.8.24]` §21.1, confirmado en las 14).
+ *     Ponerlo donde decía el foro habría sido el primer motivo de rechazo. El emisor ya lo
+ *     escribe al final.
+ *   · **Los "0 de 33,303".** Son renglones de póliza del **libro de compras** sin UUID, y se
+ *     presentaron como si fueran *"el 0% de CFDIs asociados"*. Medido (`[CP.8.25]`): la
+ *     asociación **SÍ ocurre, 90.0%** (152,061 de 169,030). Son dos universos distintos y los dos
+ *     números son ciertos. El valor del `AD` es real pero más chico: ~263 asociaciones al mes
+ *     (`[CP.8.30]` §32.1), no las ~1,400 que llegó a decir esta fase.
  */
 export const LAYOUT_SIN_VERIFICAR = [
   { campo: 'referencia (M)', aqui: 10, fuente: 30, impacto: 'corre 20 chars todos los campos siguientes del movimiento' },
@@ -71,16 +82,17 @@ export const LAYOUT_SIN_VERIFICAR = [
 /**
  * ⭐⭐ **Ya no es una duda: es una diferencia MEDIDA** (2026-10-08). El árbitro apareció — una
  * exportación real de ContPAQi encontrada por `02-evaluar-esquema.ps1` — y dice **P=185 / M=272**
- * contra los **147 / 211** que este archivo produce.
+ * contra los **147 / 211** que este archivo producía.
  *
  * Lo que `clase` enseña y conviene no olvidar: la fuente externa decía **4** y **nosotros
  * teníamos razón con 1**. Haber "corregido" a lo que decía el foro habría roto el único campo
  * que estaba bien. Por eso no se votó: se midió.
  *
- * El layout correcto vive en `libs/finance/src/lib/contpaqi/layout.params.ts`
- * (`LAYOUT_REAL_P` / `LAYOUT_REAL_M`). Este archivo sigue emitiendo el viejo **a propósito**:
- * cambiarlo toca el libro de compras, que mueve $30–56M al mes, y eso es un sprint con su
- * propio candado, no un `sed`.
+ * ⚠️ `[CP.8.39]` — **este párrafo decía que el archivo "sigue emitiendo el viejo a propósito", y
+ * dejó de ser cierto el mismo día.** `[CP.8.13]` cambió el emisor a 185/272 con round-trip byte a
+ * byte contra 14 pólizas reales. Los anchos autoritativos son los `LAYOUT_P` / `LAYOUT_M` de
+ * ABAJO; `layout.params.ts` ya no los copia, los **aliasa** — y cuando sí los copiaba, la copia
+ * se quedó con el `sist_orig` viejo sin que nada se pusiera rojo.
  */
 export const LAYOUT_ARBITRO = 'database/tests/fixtures/poliza-contpaqi-real-2026-09.txt (local, NO se publica)';
 
