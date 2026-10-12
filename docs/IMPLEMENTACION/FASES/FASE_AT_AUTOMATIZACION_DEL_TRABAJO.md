@@ -295,7 +295,118 @@ dice el banco), ni traer los PDFs del ADD sin antes medir qué hay en sus otros 
 
 Sin migraciones ni permisos nuevos → **no hace falta re-login**.
 
-### 9bis. ⭐ El camino de la relectura ya corre en prod — medido, no supuesto
+---
+
+## 10. ⛔⛔ La primera pasada real en prod: **falló, y tenía razón**
+
+`[AT.1]` se desplegó y el `@Cron` del worker corrió a las **11:20 del 2026-10-12**:
+
+```
+status: error · host: worker · rows_affected: 0 · 3,521 ms
+note: 0/25 releidos · 0 clasificados · 0 validados · 0 cambiaron
+      sin releer: sin_archivo 25
+```
+
+Y en el log del worker, 25 veces: **`GET finance/<tenant>/supplier-payments/uyil38hglpnz7zarmv8g
+(getDataUri): Key not found`**.
+
+### ⛔ Dos afirmaciones mías de este documento eran FALSAS
+
+**1. §4bis decía «1,199 de 1,199 tienen su archivo en el bucket».** Lo que medí fue
+*«`public_id` no está vacío y no empieza con `http`»* — un **proxy**— y lo publiqué como *«el
+objeto existe en nuestro bucket»*, que sólo lo contesta un GET. Medido de verdad:
+
+| hoja `comprobante` sin lectura firmable | |
+|---|---:|
+| ⛔ `public_id` de **Cloudinary** (sin extensión) | **1,194** — todos del 2026-08-04/05 |
+| ✅ llave real del bucket (`.pdf`) | **5** — de octubre |
+
+Un `public_id` de Cloudinary se ve **idéntico** a una llave nuestra
+(`finance/<tenant>/supplier-payments/uyil38hglpnz7zarmv8g`); lo único que los separa es la
+**extensión**, porque todo lo que escribe `ObjectStorageService` sale como `<carpeta>/<uuid>.<ext>`.
+
+**2. §9bis decía «verificado por evidencia en prod».** El **mecanismo** sí: `[GX.33]` tiene 188
+lecturas reales. Pero sus archivos están en el bucket (**702 contra 2**) y los míos en Cloudinary.
+⭐⭐ *Verifiqué el mecanismo en un módulo y supuse la población en el otro — una medición sobre
+otro universo es otra afirmación.*
+
+### ⭐⭐ Y el hallazgo que vale más que la cola: **la evidencia de 1,200 pagos no se puede abrir hoy**
+
+| módulo | filas | ⛔ en Cloudinary | ✅ en bucket |
+|---|---:|---:|---:|
+| `supplier_payment_proofs` | 1,350 | **1,200 (88.9 %)** | 150 |
+| `goods_receipt_proofs` | 798 | 6 | **792** |
+| `expense_proofs` | 513 | 0 | **513** |
+
+El propio `migrate-cloudinary-to-bucket.js` (`[RE.6]`) lo documenta: *«Cloudinary bloquea el
+delivery de PDF por default → un GET al secure_url da **401**»*. Comprobado: **6 de 6 → 401**.
+
+⛔ O sea que **1,200 comprobantes de pago tienen su evidencia inalcanzable** — no sólo para mi
+carril: para la persona que abre la pantalla. Eso explica mejor que nada lo que §3 llamó *«se sube
+y nadie lo mira»*.
+
+### ⛔ Y refuta mi hipótesis sobre entradas, que iba a extender sin medir
+
+Las **789** órdenes de entrada sin validar están **en el bucket** (sólo 6 en Cloudinary), y sep y
+oct son **100 % bucket con 0 validaciones**. El documento **sí se puede abrir**: el congelamiento
+de entradas no tiene nada que ver con esto. La decisión de §7bis queda **sin contaminar**.
+
+### ⭐ Lo que el diseño hizo bien, medido
+
+1. **Cero filas escritas, cero evidencia pisada.** La guarda de lectura vacía ni llegó a probarse:
+   el fallo ocurrió antes, al bajar.
+2. **El latido dijo `error`**, no `ok` — el freno *«revisó 25 y releyó 0 es error»* (probado por
+   mutación) disparó en producción.
+3. ⭐⭐ **El desglose por motivo diagnosticó la falla en una consulta.** `[GX.33]` mete los cuatro
+   casos en un solo `AVISO_ILEGIBLE`; con esa etiqueta esto se habría leído como *«los
+   comprobantes no se entienden»* — culpando al documento por un archivo que está en otro
+   proveedor.
+
+### `[AT.1.1]` — lo corregido
+
+- `esLlaveDeBucket()` + motivo nuevo **`en_cloudinary`**: el archivo **existe**, está en el
+  proveedor anterior, y se arregla **migrando**, no volviéndolo a pedir.
+- El lote **excluye** los de Cloudinary. ⛔ No es cosmético: el orden es determinista, así que
+  entrando ellos **las 25 filas serían siempre las mismas** y la cola no avanzaría nunca.
+- `bloqueados_en_cloudinary` se publica en **cada** latido aunque el carril esté sano: un rezago
+  bloqueado por una acción humana se vuelve invisible justo cuando el carril se pone verde.
+
+⚠️ **Y un segundo bug que sólo apareció al probar el arreglo contra prod.** El predicado nuevo
+usaba `~ '\.[a-zA-Z0-9]{1,8}$'` y **no filtraba nada**: la barra invertida se pierde entre JS y
+Postgres, así que el motor recibía `.[a-zA-Z0-9]{1,8}$` — «cualquier carácter seguido de
+alfanuméricos» — que matchea todo.
+
+```
+'finance/a/b/uyil38hglpnz7zarmv8g' ~ '.[a-zA-Z0-9]{1,8}$'    →  true   ⛔
+'finance/a/b/uyil38hglpnz7zarmv8g' ~ '\.[a-zA-Z0-9]{1,8}$'   →  false  ✅
+```
+
+Lo atrapó **la prueba negativa** («los 1,200 de Cloudinary NO deben pasar»): pasaban los 1,200.
+⭐ El arreglo no fue poner más barras —eso es volver a depender de cuántas sobrevivan— sino **no
+usar ninguna**: `split_part(llave, '/', -1) LIKE '%.%'`.
+
+**Verificado contra prod, con el predicado extraído del `.ts`** (no re-tecleado, que es como se
+escapó el bug): **5 entran · 1,194 bloqueados · 142/142 con lectura firmable pasan · 0 de 1,200
+de Cloudinary pasan.**
+
+**Candados: 73 aserciones, 0 fallas**, con la regla nueva probada por mutación (poner
+`esLlaveDeBucket` siempre en `true` pone 3 en rojo).
+
+### Qué falta ahora, en orden
+
+| | |
+|---|---|
+| ⛔ **Habilitar el delivery de PDF en Cloudinary** (Settings → Security) | acción humana, destraba los 1,200 |
+| ⛔ **Correr `migrate-cloudinary-to-bucket.js --apply`** | mueve la evidencia a nuestro bucket |
+| ⬜ redeploy con `[AT.1.1]` | hasta entonces el carril sigue en `error` reintentando los mismos 25 |
+| ⬜ Mirar la pasada siguiente | con 5 documentos es poco, pero es la primera medición real |
+
+⚠️ **Y la pregunta que nadie se hizo:** ¿por qué la carga del 5-ago fue a Cloudinary si `[RE.6]`
+ya había migrado el resto? Si el camino de subida vuelve a Cloudinary alguna vez, esto se repite.
+
+---
+
+### 9bis (corregido). ⭐ El camino de la relectura corre en prod — pero NO sobre esta población
 
 Desde esta máquina **no se alcanza el bucket de prod** (el `S3_BUCKET` del `.env` local apunta a
 otro y responde *«The specified bucket does not exist»*), así que la prueba directa no se pudo

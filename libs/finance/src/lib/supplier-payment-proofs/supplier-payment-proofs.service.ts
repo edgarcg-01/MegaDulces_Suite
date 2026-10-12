@@ -5,7 +5,7 @@ import { Knex } from 'knex';
 import { esDuenoDelVale, coincidenciasPago, coincidenTodas, diferenciasPago, cuentaEsClave, type IdentidadQueDecide, type CoincidenciasPago } from '@megadulces/contracts';
 import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
 import {
-  hojaRelegible, tipoLeible, base64De, lecturaSirve, camposQueCambiaron, pasadaVacia,
+  hojaRelegible, motivoDeHoja, tipoLeible, base64De, lecturaSirve, camposQueCambiaron, pasadaVacia,
   type ResultadoRelectura,
 } from './relectura.engine';
 
@@ -558,25 +558,62 @@ export class SupplierPaymentProofsService {
       return out;
     }
 
-    // 1 ─ El lote, en una transacción CORTA. Primero los que hoy no tienen NINGUNA señal
-    //     calculada: son los que la pantalla no puede ni clasificar, o sea los invisibles.
-    const lote = await this.tk.run(async (trx) => trx('finance.supplier_payment_proofs')
-      .where('status', 'recibido')
-      .where((qb: Knex.QueryBuilder) => { qb.whereNull('lectura_verificada').orWhere('lectura_verificada', false); })
-      .orderByRaw('(coincidencias IS NULL) DESC')
-      .orderBy('created_at', 'desc')
-      .limit(limite)
+    // ⛔⛔ Los que tienen su evidencia en CLOUDINARY no entran al lote, y esto NO es cosmético:
+    // el orden del lote es determinista, así que si entraran, las 25 filas serían SIEMPRE las
+    // mismas 25 y la cola no avanzaría jamás. Fue exactamente lo que pasó en la primera pasada
+    // real (2026-10-12 11:20): `0/25 releidos · sin releer: sin_archivo 25`, los 25 con
+    // `Key not found` — porque **1,194 de 1,199** tienen un `public_id` de Cloudinary, no una
+    // llave del bucket. Ver `esLlaveDeBucket()` para el error de medición que lo causó.
+    //
+    // Su rezago se CUENTA aparte (`bloqueados_en_cloudinary`) y se publica en cada latido: se
+    // destraba migrando (`migrate-cloudinary-to-bucket.js`), que exige antes habilitar el
+    // delivery de PDF en Cloudinary — una acción humana, no código.
+    // ⛔⛔ SIN BARRA INVERTIDA, A PROPÓSITO. La primera versión de este predicado usaba
+    // `~ '\.[a-zA-Z0-9]{1,8}$'` y **no filtraba nada**: la barra se pierde en el camino de JS a
+    // Postgres, así que el motor recibía `.[a-zA-Z0-9]{1,8}$` — «cualquier carácter seguido de
+    // alfanuméricos al final», que matchea TODO. Verificado contra prod:
+    //
+    //     'finance/a/b/uyil38hglpnz7zarmv8g' ~ '.[a-zA-Z0-9]{1,8}$'   →  true   ⛔
+    //     'finance/a/b/uyil38hglpnz7zarmv8g' ~ '\.[a-zA-Z0-9]{1,8}$'  →  false  ✅
+    //
+    // Lo atrapó la prueba negativa («los 1,200 de Cloudinary NO deben pasar»): los 1,200 pasaban.
+    // ⭐ El arreglo no es poner más barras —que es volver a depender de cuántas sobrevivan— sino
+    // no usar ninguna: la regla «la última parte de la llave tiene extensión» se dice con `LIKE`,
+    // que no escapa nada. Toda llave que escribe `ObjectStorageService` es `<carpeta>/<uuid>.<ext>`
+    // y un uuid no lleva puntos, así que «el último segmento tiene un punto» es exacto.
+    const esBucket = (col: string) => `${col} NOT LIKE 'http%' AND split_part(${col}, '/', -1) LIKE '%.%'`;
+    const TIENE_ARCHIVO_PROPIO = `EXISTS (
+      SELECT 1 FROM jsonb_array_elements(COALESCE(files, '[]'::jsonb)) h
+       WHERE h->>'role' = 'comprobante' AND ${esBucket(`(h->>'public_id')`)})`;
+
+    const { lote, bloqueados } = await this.tk.run(async (trx) => {
+      const base = () => trx('finance.supplier_payment_proofs')
+        .where('status', 'recibido')
+        .where((qb: Knex.QueryBuilder) => { qb.whereNull('lectura_verificada').orWhere('lectura_verificada', false); });
+      const [{ n }] = await base().whereRaw(`NOT ${TIENE_ARCHIVO_PROPIO}`).count({ n: '*' });
+      const filas = await base()
+        .whereRaw(TIENE_ARCHIVO_PROPIO)
+        .orderByRaw('(coincidencias IS NULL) DESC')
+        .orderBy('created_at', 'desc')
+        .limit(limite)
       .select('id', 'sucursal', 'doc_prefix', 'folio', 'proveedor_nombre', 'files', 'coincidencias', 'ocr_raw',
         trx.raw('ocr_monto::numeric AS ocr_monto'),
         // ⚠️ Como TEXTO: un `date` de pg serializado se corre un día en hora de México.
         trx.raw(`to_char(ocr_fecha, 'YYYY-MM-DD') AS ocr_fecha`),
-        'ocr_cuenta_origen', 'ocr_ordenante', trx.raw('pago_monto::numeric AS pago_monto')));
+        'ocr_cuenta_origen', 'ocr_ordenante', trx.raw('pago_monto::numeric AS pago_monto'));
+      return { lote: filas, bloqueados: Number(n) || 0 };
+    });
     out.revisados = lote.length;
+    out.bloqueados_en_cloudinary = bloqueados;
 
     let ilegiblesSeguidas = 0;
     for (const p of lote) {
       const hoja = hojaRelegible(p.files);
-      if (!hoja) { out.no_relegibles.sin_hoja++; continue; }
+      // El filtro del lote ya los excluyó; esto es el cinturón: si alguien afloja la consulta,
+      // el motivo sale nombrado en vez de contarse como "archivo perdido".
+      const veto = motivoDeHoja(hoja);
+      // El `!hoja` no es redundante: `veto` no le dice al compilador que `hoja` dejó de ser null.
+      if (veto || !hoja) { out.no_relegibles[veto ?? 'sin_hoja']++; continue; }
 
       let dataUri: string | null = null;
       try {

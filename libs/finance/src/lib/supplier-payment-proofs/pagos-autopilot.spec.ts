@@ -80,7 +80,7 @@ describe('[AT.1] el latido dice la verdad (ADR-053)', () => {
   });
 
   it('⛔ PRUEBA NEGATIVA: revisó y no releyó nada → error, aunque no haya excepción', async () => {
-    const { auto, latidos } = armar(async () => pasada({ revisados: 25, releidos: 0, no_relegibles: { sin_hoja: 0, sin_archivo: 0, tipo_no_leible: 0, ilegible: 25 } }));
+    const { auto, latidos } = armar(async () => pasada({ revisados: 25, releidos: 0, no_relegibles: { sin_hoja: 0, en_cloudinary: 0, sin_archivo: 0, tipo_no_leible: 0, ilegible: 25 } }));
     await auto.run();
     expect(latidos[0].status).toBe('error');
   });

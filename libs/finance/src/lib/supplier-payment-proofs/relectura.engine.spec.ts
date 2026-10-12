@@ -10,9 +10,46 @@
  * de visión **borra evidencia** de 1,199 comprobantes.
  */
 import {
-  hojaRelegible, tipoLeible, base64De, lecturaSirve, camposQueCambiaron,
-  veredictoPasada, notaPasada, pasadaVacia, CAMPOS_QUE_DECIDEN,
+  hojaRelegible, esLlaveDeBucket, motivoDeHoja, tipoLeible, base64De, lecturaSirve,
+  camposQueCambiaron, veredictoPasada, notaPasada, pasadaVacia, CAMPOS_QUE_DECIDEN,
 } from './relectura.engine';
+
+/**
+ * ⛔⛔ Las formas REALES, copiadas de prod el 2026-10-12. No son inventadas: la primera versión
+ * de esta regla las confundía y mandó 25 descargas a un bucket donde el objeto no existe.
+ */
+const LLAVE_BUCKET = 'finance/00000000-0000-0000-0000-00000000d01c/supplier-payments/ab12cd34-5678-90ef-ab12-cd34567890ef.pdf';
+const ID_CLOUDINARY = 'finance/00000000-0000-0000-0000-00000000d01c/supplier-payments/uyil38hglpnz7zarmv8g';
+
+describe('[AT.1] ⛔⛔ ¿la evidencia está en NUESTRO bucket o en Cloudinary?', () => {
+  it('la llave del bucket termina en extensión', () => {
+    expect(esLlaveDeBucket(LLAVE_BUCKET)).toBe(true);
+    expect(esLlaveDeBucket('docs/abc.jpg')).toBe(true);
+    expect(esLlaveDeBucket('docs/abc.bin')).toBe(true); // el fallback de putFile
+  });
+
+  it('⛔ el public_id de Cloudinary se ve IGUAL y no tiene extensión', () => {
+    // Si esto fallara, el carril pediría al bucket un objeto que no existe —exactamente lo que
+    // pasó en la primera pasada real: 25 × `Key not found`.
+    expect(esLlaveDeBucket(ID_CLOUDINARY)).toBe(false);
+  });
+
+  it('⛔ una url http nunca es llave', () => {
+    expect(esLlaveDeBucket('https://res.cloudinary.com/x/y.pdf')).toBe(false);
+    expect(esLlaveDeBucket('')).toBe(false);
+    expect(esLlaveDeBucket(null)).toBe(false);
+  });
+
+  it('⚠️ un punto en una CARPETA no convierte la llave en válida', () => {
+    expect(esLlaveDeBucket('finance/v1.2/supplier-payments/uyil38hglpnz7zarmv8g')).toBe(false);
+  });
+
+  it('el motivo distingue las tres ausencias, que no se arreglan igual', () => {
+    expect(motivoDeHoja(null)).toBe('sin_hoja');
+    expect(motivoDeHoja({ role: 'comprobante', public_id: ID_CLOUDINARY })).toBe('en_cloudinary');
+    expect(motivoDeHoja({ role: 'comprobante', public_id: LLAVE_BUCKET })).toBeNull();
+  });
+});
 
 describe('[AT.1] qué hoja se relee', () => {
   it('la del rol comprobante, no la del gasto', () => {
@@ -23,8 +60,16 @@ describe('[AT.1] qué hoja se relee', () => {
     expect(h?.public_id).toBe('finance/spei.pdf');
   });
 
-  it('⛔ una url http (legacy Cloudinary) NO es llave de bucket', () => {
-    expect(hojaRelegible([{ role: 'comprobante', public_id: 'https://res.cloudinary.com/x.pdf' }])).toBeNull();
+  it('⚠️ devuelve la hoja aunque NO sea del bucket: quien veta es motivoDeHoja', () => {
+    // El contrato cambió a propósito. Antes `hojaRelegible` devolvía null y los casos
+    // "no está en nuestro bucket" se contaban como `sin_hoja`, o sea mezclados con
+    // "nunca adjuntaron nada". Son dos arreglos distintos: migrar vs volver a pedir.
+    const h = hojaRelegible([{ role: 'comprobante', public_id: 'https://res.cloudinary.com/x.pdf' }]);
+    expect(h).not.toBeNull();
+    expect(motivoDeHoja(h)).toBe('en_cloudinary');
+  });
+
+  it('⛔ sin public_id no hay hoja: no hay nada que pedirle a nadie', () => {
     expect(hojaRelegible([{ role: 'comprobante', url: 'https://x/y.pdf' }])).toBeNull();
   });
 
@@ -148,7 +193,7 @@ describe('[AT.1] el latido mide ENTREGA (ADR-053)', () => {
   it('la nota dice lo entregado Y por qué no se pudo el resto', () => {
     const n = notaPasada({
       ...pasadaVacia(), revisados: 25, releidos: 22, clasificados: 20, validados: 7, cambiaron: 3,
-      no_relegibles: { sin_hoja: 1, sin_archivo: 0, tipo_no_leible: 0, ilegible: 2 },
+      no_relegibles: { sin_hoja: 1, en_cloudinary: 0, sin_archivo: 0, tipo_no_leible: 0, ilegible: 2 },
     });
     expect(n).toContain('22/25 releidos');
     expect(n).toContain('7 validados solos');
