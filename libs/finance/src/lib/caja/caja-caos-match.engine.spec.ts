@@ -158,3 +158,80 @@ describe('rankearCaos', () => {
     expect(r.some((c) => c.external_id === 2)).toBe(false); // el negativo se descarta
   });
 });
+
+/**
+ * CS.3.7 — LO QUE EDGAR REPORTÓ, CONVERTIDO EN CANDADO.
+ *
+ * *"en el pago de nomina 41 se enlazó con un egreso de caos de la semana 40. la vinculación de
+ * egresos con caos no está funcionando adecuadamente"*.
+ *
+ * Reproducido contra prod el 2026-10-12 con los datos reales de la bandeja, no con un ejemplo
+ * inventado. Y el caso no era único: de las 207 propuestas vivas ese día,
+ *
+ *   · **40.1% estaban a más de 7 días** del gasto, con el motor documentando una ventana de ±7;
+ *   · **sólo el 1.9% tenía el monto exacto** — el resto se apoyaba en «parte del arqueo», que se
+ *     cumple con que el retiro sea menor que el gasto (un retiro de $500 contra $26,136 lo cumple);
+ *   · **67 de las 122** donde los dos lados declaraban su fecha de negocio **se contradecían**, y
+ *     salían igual como propuesta.
+ *
+ * ⚠️ Las 18 pruebas que ya existían pasaban todas. Probaban que la señal medida SUMA; ninguna
+ * probaba que la ausencia de señal FRENE. Un motor que sólo sabe sumar siempre encuentra algo.
+ */
+describe('CS.3.7 — una palabra no identifica CUÁL', () => {
+  it('⛔ el caso real: nómina de la semana 41 NO se lleva el retiro «nomina 40»', () => {
+    // Datos exactos de prod: gasto X-D-26 0023009 (09-oct) y retiro CAOS 1497 (02-oct).
+    const g: GastoCtx = { monto: 13651, fecha: '2026-10-09', beneficiario: 'NOMINA', concepto: '' };
+    const c = cand({ external_id: 1497, ref: 'nomina 40', monto: 7000, fecha_valor: '2026-10-02' });
+    const r = puntuarCaos(g, c);
+    // Sigue puntuando (el concepto coincide de verdad), pero NO se propone solo.
+    expect(r.confianza).toBe('baja');
+    expect(r.motivos).toContain('no identifica cual: solo coincide el concepto');
+  });
+
+  it('⭐ [positiva] el mismo gasto SÍ se lleva el retiro del mismo día', () => {
+    // Sin esto, un freno que rechazara todo también pasaría la prueba de arriba y dejaría la
+    // función inservible sin que nada avise.
+    const g: GastoCtx = { monto: 13651, fecha: '2026-10-09', beneficiario: 'NOMINA', concepto: '' };
+    const c = cand({ external_id: 1555, ref: 'nomina', monto: 13651, fecha_valor: '2026-10-09' });
+    const r = puntuarCaos(g, c);
+    expect(r.confianza).not.toBe('baja');
+  });
+
+  it('⛔ dos fechas de negocio que se CONTRADICEN descalifican, no son indiferentes', () => {
+    // Caso real de prod: el cobro dice 26-09 y el depósito dice 08-10. Antes salía 'media' por
+    // «ruta 23 + parte del arqueo» — la llave decisiva decía que no y no restaba nada.
+    const g: GastoCtx = { monto: 16226, fecha: '2026-09-29', beneficiario: 'R.D. 23 PH Hurtado', concepto: 'VENTA RD 23 26-09-2026' };
+    const c = cand({ ref: 'r23 08 10 26', monto: 15430, fecha_valor: '2026-10-08', denominaciones: [] });
+    const r = puntuarCaos(g, c);
+    expect(r.confianza).toBe('baja');
+    expect(r.motivos.some((m) => m.startsWith('la fecha no cuadra'))).toBe(true);
+  });
+
+  it('⭐ [positiva] la ruta con fecha de negocio que COINCIDE sigue siendo la señal fuerte', () => {
+    // Es el caso que el motor midió al 98% y que esta corrección NO debe tocar: el cobro y el
+    // depósito pueden registrarse con días de diferencia si su fecha de negocio es la misma.
+    const g: GastoCtx = { monto: 21105, fecha: '2026-10-07', beneficiario: 'R.D. 21 PH Urbano', concepto: 'VENTA RD 21 01-10-2026' };
+    const c = cand({ ref: 'ruta 21 01 10 26', monto: 20050, fecha_valor: '2026-10-01', denominaciones: [] });
+    const r = puntuarCaos(g, c);
+    expect(r.confianza).toBe('alta');
+    expect(r.motivos).toContain('fecha 01-10');
+  });
+
+  it('⛔ la RUTA sola no alcanza: «rd 26» sale todos los días, es tan recurrente como «nomina»', () => {
+    const g: GastoCtx = { monto: 24243, fecha: '2026-09-30', beneficiario: 'R.D. 26 PH García', concepto: '' };
+    const c = cand({ ref: 'rd 26', monto: 17950, fecha_valor: '2026-09-10', denominaciones: [] });
+    expect(puntuarCaos(g, c).confianza).toBe('baja');
+  });
+
+  it('⭐ [positiva] el monto EXACTO identifica la instancia aunque esté lejos', () => {
+    const g: GastoCtx = { monto: 5200, fecha: '2026-09-29', beneficiario: 'OCOTE ACHONES', concepto: '' };
+    const c = cand({ ref: 'rem ocote', monto: 5200, fecha_valor: '2026-08-26', denominaciones: [] });
+    expect(puntuarCaos(g, c).confianza).not.toBe('baja');
+  });
+
+  it('⛔ «parte del arqueo» sola no propone: $500 no identifican un gasto de $26,136', () => {
+    const g: GastoCtx = { monto: 26136, fecha: '2026-10-08', beneficiario: 'ROMPOPE SANTA SOFIA', concepto: '' };
+    const c = cand({ ref: 'rompope', monto: 500, fecha_valor: '2026-08-20', denominaciones: [] });
+    expect(puntuarCaos(g, c).confianza).toBe('baja');
+  });
+});
