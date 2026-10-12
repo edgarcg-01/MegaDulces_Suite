@@ -57,6 +57,33 @@ export interface MovimientoDelCorte {
    * Ver `cobertura_ingreso`.
    */
   anclado?: boolean;
+  /**
+   * ⭐⭐ `[CG.95]` **CUÁNTO DE ESTE MOVIMIENTO NUNCA PASÓ POR EL CAJÓN.**
+   *
+   * Edgar: *"ponemos que a caja general entró 103 mil, pero eso no ingresó; ingresó sólo monedas
+   * y lo de CAOS se queda en CAOS"*.
+   *
+   * Un cobro de ruta entra en dos pedazos: los **billetes** los traga el cajero (CAOS) y se
+   * quedan en la bóveda; sólo la **morralla** llega al cajón. Un gasto pagado con efectivo que
+   * CAOS dispensó tampoco sale del cajón: salió de la bóveda.
+   *
+   * Medido en prod el 2026-10-12 sobre la jornada entera:
+   *
+   *     la pantalla publicaba   ingresos $111,845.00   gastos $57,040.05
+   *     pasó por la bóveda      ingresos $111,795.00   gastos $11,000.00
+   *     entró al cajón de verdad          $     50.00
+   *
+   * O sea que el `esperado` pedía contar **~$90,000 que están dentro de la máquina**. El arqueo
+   * de cada día nacía con un faltante gigante, y nadie puede cuadrar contra eso.
+   *
+   * ⚠️ El TOTAL del día no cambia: el dinero entró y se registró. Lo que cambia es **dónde está**,
+   * y el arqueo cuenta un cajón, no una bóveda. Por eso `ingresos`/`gastos` se siguen publicando
+   * en bruto y lo que se corrige es el `esperado`.
+   *
+   * `0` cuando el efectivo sí pasó por el cajón. Nunca `null`: acá la ausencia de enlace significa
+   * "no se declaró que viniera de la bóveda", y eso es cero por definición.
+   */
+  en_boveda?: number;
 }
 
 export interface ConteoDenominacion { denominacion: number; piezas: number }
@@ -141,7 +168,37 @@ export function calcularCorte(input: {
   // `[CG.42]` `== null` a propósito: atrapa `null` y `undefined` y deja pasar el `0`, que es un
   // hecho medido. Un `|| 0` metía el cero en la misma bolsa que la ausencia.
   const fondo_sin_medir = input.fondoInicial == null;
-  const esperado = redondea(Number(input.fondoInicial ?? 0) + ingresos - gastos - depositos);
+
+  /**
+   * ⭐⭐ `[CG.95]` **EL ESPERADO CUENTA EL CAJÓN, NO LA BÓVEDA.**
+   *
+   * Acá decía `fondoInicial + ingresos - gastos - depositos` con el monto BRUTO de cada
+   * movimiento. Pero el arqueo pregunta *"¿cuánto efectivo hay en el cajón?"*, y de un cobro de
+   * ruta de $15,542 los $15,510 de billetes están dentro del cajero: al cajón llegaron $32.
+   *
+   * Medido en prod el 2026-10-12: el esperado pedía **~$90,000 de más**. Un arqueo que arranca
+   * con un faltante de noventa mil no se puede cuadrar, y lo que no se puede cuadrar se deja de
+   * mirar.
+   *
+   * ⚠️ `ingresos`, `gastos` y `depositos` se siguen publicando EN BRUTO: el dinero entró y se
+   * registró, y el cuadro del día tiene que decirlo. Lo que cambia es **dónde está** — y de eso
+   * depende sólo el esperado.
+   *
+   * ⚠️ Se resta en los DOS lados. Un gasto pagado con efectivo dispensado por CAOS tampoco salió
+   * del cajón; restarlo del esperado haría aparecer un sobrante del mismo tamaño.
+   */
+  const enBoveda = (t: TipoMovimiento) =>
+    redondea(vivos.filter((m) => m.tipo === t).reduce((a, m) => a + Number(m.en_boveda || 0), 0));
+  const ingresos_boveda = enBoveda('ingreso');
+  const gastos_boveda = enBoveda('gasto');
+  const depositos_boveda = enBoveda('deposito');
+
+  const esperado = redondea(
+    Number(input.fondoInicial ?? 0)
+    + (ingresos - ingresos_boveda)
+    - (gastos - gastos_boveda)
+    - (depositos - depositos_boveda),
+  );
 
   // De qué está hecho ese `esperado`. La aritmética no cambia; lo que cambia es que el corte
   // ahora DICE qué parte descansa en lo que alguien tecleó (ver el defecto de fondo, arriba).

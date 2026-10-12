@@ -441,3 +441,80 @@ describe('calcularCorte — fondo sin medir ([CG.42])', () => {
     expect(ciego['veredicto']).toBeUndefined();
   });
 });
+
+/**
+ * `[CG.95]` — EL ESPERADO CUENTA EL CAJÓN, NO LA BÓVEDA.
+ *
+ * Edgar, mirando el cierre de la jornada: *"ponemos que a caja general entró 103 mil, pero eso no
+ * ingresó; ingresó sólo monedas y lo de CAOS se queda en CAOS"*.
+ *
+ * Un cobro de ruta entra en dos pedazos: los billetes los traga el cajero y se quedan en la
+ * bóveda; sólo la morralla llega al cajón. Medido en prod el 2026-10-12 sobre la jornada entera:
+ *
+ *     la pantalla publicaba   ingresos $111,845.00   gastos $57,040.05
+ *     pasó por la bóveda      ingresos $111,795.00   gastos $11,000.00
+ *     entró al cajón                    $     50.00
+ *
+ * El `esperado` pedía contar ~$90,000 que están dentro de la máquina. Un arqueo que nace con un
+ * faltante de noventa mil no se puede cuadrar — y lo que no se puede cuadrar se deja de mirar.
+ *
+ * ⚠️ Las 52 pruebas que ya existían pasaron TODAS con el cambio puesto: ninguna miraba el reparto
+ * entre cajón y bóveda, porque hasta hoy no existía. Un cambio en la aritmética del dinero sin una
+ * prueba que lo fije es una cifra nueva sin quién la defienda.
+ */
+describe('CG.95 — el esperado cuenta el cajón, no la bóveda', () => {
+  // Números REALES de prod: cobro de ruta de $15,542 del que CAOS contó $15,510 en billetes.
+  const cobroDeRuta = [{ tipo: 'ingreso' as const, monto: 15542, en_boveda: 15510 }];
+
+  it('⭐ un cobro de ruta sólo suma al esperado la MORRALLA', () => {
+    const t = calcularCorte({ fondoInicial: 3000, movimientos: cobroDeRuta });
+    // 3000 + (15542 - 15510) = 3032. NO 18542.
+    expect(t.esperado).toBe(3032);
+    // …y el total del día sigue publicándose entero: el dinero entró y se registró.
+    expect(t.ingresos).toBe(15542);
+  });
+
+  it('⛔ [negativa] sin el reparto, el esperado pediría los billetes que están en la máquina', () => {
+    // Es el estado anterior: el mismo movimiento sin declarar su bóveda.
+    const sinReparto = [{ tipo: 'ingreso' as const, monto: 15542 }];
+    const t = calcularCorte({ fondoInicial: 3000, movimientos: sinReparto });
+    expect(t.esperado).toBe(18542);          // los $15,510 de la bóveda, exigidos en el cajón
+    expect(t.esperado - 3032).toBe(15510);   // exactamente lo que la máquina se quedó
+  });
+
+  it('⛔ un gasto pagado con efectivo de CAOS no baja el esperado', () => {
+    // Si se restara, aparecería un SOBRANTE del mismo tamaño: ese efectivo nunca estuvo adentro.
+    const t = calcularCorte({
+      fondoInicial: 3000,
+      movimientos: [{ tipo: 'gasto', monto: 2000, en_boveda: 2000 }],
+    });
+    expect(t.esperado).toBe(3000);
+    expect(t.gastos).toBe(2000);   // pero el gasto del día se publica igual
+  });
+
+  it('⭐ [positiva] lo que SÍ pasó por el cajón se sigue contando entero', () => {
+    // Sin esto, un freno que restara todo también pasaría las pruebas de arriba y dejaría el
+    // esperado clavado en el fondo inicial para siempre.
+    const t = calcularCorte({
+      fondoInicial: 3000,
+      movimientos: [
+        { tipo: 'ingreso', monto: 500 },                   // efectivo que entró al cajón
+        { tipo: 'gasto', monto: 200 },                     // efectivo que salió del cajón
+        { tipo: 'ingreso', monto: 15542, en_boveda: 15510 }, // cobro de ruta
+      ],
+    });
+    // 3000 + 500 + 32 - 200 = 3332
+    expect(t.esperado).toBe(3332);
+    expect(t.ingresos).toBe(16042);
+    expect(t.gastos).toBe(200);
+  });
+
+  it('un movimiento cancelado no aporta ni su monto ni su bóveda', () => {
+    const t = calcularCorte({
+      fondoInicial: 3000,
+      movimientos: [{ tipo: 'ingreso', monto: 15542, en_boveda: 15510, estado: 'cancelado' }],
+    });
+    expect(t.esperado).toBe(3000);
+    expect(t.ingresos).toBe(0);
+  });
+});
