@@ -22,6 +22,21 @@ export interface LabelModel {
    * precio viejo) · `copia` = no se pidió plaza, así que se conserva la vista consolidada.
    */
   piece_price_origen?: 'erp_vivo' | 'erp_sin_precio' | 'copia';
+  /**
+   * `[ETQ-ESTADO.1]` POR QUÉ un producto no tiene precio para etiquetar. Sólo se calcula con
+   * plaza (sin ella no hay a qué tienda preguntarle) y sólo cuando ningún precio es usable.
+   *
+   * Existe porque la pantalla decía "sin precio en Kepler" para tres situaciones que se arreglan
+   * en lugares distintos: el 78180 (producto que pasó a granel) **no existía en `kdii` en ninguna
+   * tienda** y todo el mundo buscó un precio en 0 que no estaba. `null` = no se pudo determinar
+   * (sin plaza, o producto sin SKU) y la pantalla cae al mensaje genérico de siempre.
+   *
+   *   `cotizado`            tiene precio usable
+   *   `sin_precio`          el ERP tiene el producto en ESA tienda, con precio base en 0
+   *   `no_existe_en_plaza`  el ERP lo tiene en otra tienda, no en ésta
+   *   `no_existe_en_erp`    ninguna tienda del ERP lo tiene: hay que darlo de alta en Kepler
+   */
+  erp_estado?: 'cotizado' | 'sin_precio' | 'no_existe_en_plaza' | 'no_existe_en_erp' | null;
   wholesale_piece_min_qty: number | null;
   wholesale_piece_price: number | null;
   pack_size: number | null;
@@ -104,6 +119,13 @@ export interface LabelPriceChange {
  * 3 días" puede decidir; uno que no ve nada, no.
  */
 export type LabelsFreshness = Freshness;
+
+/** Lo mínimo de una fila de precios que hace falta para saber si cotiza (y de qué SKU es). */
+type FilaPrecioErp = { sku?: unknown; piece_price?: unknown; pack_price?: unknown; box_price?: unknown };
+
+/** Mismo criterio que `usable()` de la pantalla: al menos UN precio (pieza, paquete o caja) mayor a 0. */
+const tienePrecio = (r: FilaPrecioErp): boolean =>
+  [r?.piece_price, r?.pack_price, r?.box_price].some((v) => (n(v) ?? 0) > 0);
 
 const n = (v: unknown): number | null => {
   if (v === null || v === undefined) return null;
@@ -603,6 +625,43 @@ export class CommercialLabelsService {
         }
       }
 
+      /**
+       * `[ETQ-ESTADO.1]` Para los que NO tienen precio usable, se le pregunta al ERP por qué.
+       *
+       * Dos consultas y no una, a propósito: la primera lleva la plaza y por eso usa
+       * `ix_kdii_suc_sku`; la segunda (sin plaza) sólo corre para los que no aparecieron ahí, que
+       * son pocos, y es la que separa "no existe en esta tienda" de "no existe en ninguna".
+       * Ninguna filtra por precio: la pregunta es si la FILA existe, no si cotiza.
+       */
+      const estadoErp = new Map<string, NonNullable<LabelModel['erp_estado']>>();
+      if (suc) {
+        const sinPrecio: string[] = Array.from(new Set<string>(
+          (rows as FilaPrecioErp[])
+            .filter((r) => !tienePrecio(r))
+            .map((r) => String(r.sku ?? '').trim())
+            .filter(Boolean),
+        ));
+        if (sinPrecio.length) {
+          const enPlaza = await trx.raw(
+            `SELECT btrim(c1::text) AS sku FROM kepler_ods.kdii
+              WHERE btrim(sucursal::text) = ? AND btrim(c1::text) = ANY(?)`,
+            [suc, sinPrecio],
+          );
+          const hayEnPlaza = new Set<string>(((enPlaza?.rows ?? []) as Array<{ sku: unknown }>).map((x) => String(x.sku)));
+          for (const s of hayEnPlaza) estadoErp.set(s, 'sin_precio');
+          const faltan = sinPrecio.filter((s) => !hayEnPlaza.has(s));
+          if (faltan.length) {
+            const enOtra = await trx.raw(
+              `SELECT DISTINCT btrim(c1::text) AS sku FROM kepler_ods.kdii
+                WHERE btrim(c1::text) = ANY(?)`,
+              [faltan],
+            );
+            const hayEnOtra = new Set<string>(((enOtra?.rows ?? []) as Array<{ sku: unknown }>).map((x) => String(x.sku)));
+            for (const s of faltan) estadoErp.set(s, hayEnOtra.has(s) ? 'no_existe_en_plaza' : 'no_existe_en_erp');
+          }
+        }
+      }
+
       // Índice por sku y por barcode del producto, para remapear al código pedido.
       const bySku = new Map<string, any>();
       const byBarcode = new Map<string, any>();
@@ -642,6 +701,10 @@ export class CommercialLabelsService {
           // `[ETQ-ODS.1]` Con plaza el origen es el ODS por construcción: `v_label_prices` sólo
           // emite filas con `c90 > 0.05`, así que ausencia = el ERP no lo cotiza en esa tienda.
           piece_price_origen: suc ? (n(r.piece_price) == null ? 'erp_sin_precio' : 'erp_vivo') : 'copia',
+          // `[ETQ-ESTADO.1]` Sin plaza no se pregunta: `null`, no "cotizado" — "no sé" no es "sí".
+          erp_estado: !suc ? null
+            : tienePrecio(r) ? 'cotizado'
+            : (estadoErp.get(String(r.sku ?? '').trim()) ?? null),
           wholesale_piece_min_qty: r.wholesale_piece_min_qty ?? null,
           wholesale_piece_price: n(r.wholesale_piece_price),
           pack_size: r.pack_size ?? null,
