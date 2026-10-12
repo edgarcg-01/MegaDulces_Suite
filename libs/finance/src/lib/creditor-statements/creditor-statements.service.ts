@@ -25,13 +25,43 @@ import {
  * de Mondelez (el acreedor con más documentos de mercancía) en menos de 100 ms.
  * `kepler_ods.*` no tiene tenant ni RLS.
  */
+/**
+ * `[ECA.7]` Documentos de CxP cancelados en Kepler (`kdm1.c43='C'`, la señal canónica: ver
+ * `20260902170000_erp_views_exclude_cancelled_kepler`). Kepler deja en cero el importe del documento
+ * cancelado en `kdxe`, pero sus aplicaciones siguen en `kdxf`: sin este filtro una nota de crédito
+ * cancelada rebaja la factura junto con la que la reemplazó. Medido 2026-10-10: 319 aplicaciones de
+ * 187 cargos cancelados ($10.99M, 63 acreedores) + 16 sobre facturas canceladas ($133k).
+ * Ejemplo: Distribuidora de la Rosa (CD015), nota de crédito 0000010 de la 03.
+ *
+ * `c43` viene limpio (una letra, sin espacios: A/C/F/N/R, medido): se compara `c43 = 'C'` SIN
+ * `btrim`, para que el planificador use las estadísticas de la columna. ⚠️ Con `btrim(...)` estima 3
+ * cancelados (son ~4,000), elige ciclos anidados y el resumen pasa de ~0.4 s a 52 s (medido).
+ */
+const CANCELADO = (suc: string, c1: string, nat: string, c4: string, c5: string, c6: string): string => `
+  EXISTS (SELECT 1 FROM kepler_ods.kdm1 k
+           WHERE k.sucursal = ${suc} AND k.c1 = ${c1} AND k.c2 = 'X' AND k.c3 = ${nat}
+             AND k.c4 = ${c4} AND k.c5 = ${c5} AND k.c6 = ${c6} AND k.c43 = 'C')`;
+
 const SQL_RESUMEN = `
-WITH e AS (
-  SELECT sucursal, c2, btrim(c2) AS prov, c3, c4, c5, c6, c7::date AS fecha, c10::date AS vence, c11
-    FROM kepler_ods.kdxe WHERE btrim(c1) = sucursal
+WITH cn AS MATERIALIZED (
+  SELECT sucursal, c1, c3, c4, c5, c6 FROM kepler_ods.kdm1 WHERE c2 = 'X' AND c43 = 'C'
+),
+e AS (
+  SELECT x.sucursal, x.c2, btrim(x.c2) AS prov, x.c3, x.c4, x.c5, x.c6, x.c7::date AS fecha, x.c10::date AS vence, x.c11
+    FROM kepler_ods.kdxe x
+    LEFT JOIN cn ON cn.sucursal = x.sucursal AND cn.c1 = x.c1 AND cn.c3 = x.c3
+                AND cn.c4 = x.c4 AND cn.c5 = x.c5 AND cn.c6 = x.c6
+   WHERE btrim(x.c1) = x.sucursal AND cn.c6 IS NULL
 ),
 p AS (SELECT ?::numeric AS tol, ?::date AS hoy, ?::date AS corte),
-ap AS (SELECT * FROM kepler_ods.kdxf WHERE btrim(c1) = sucursal),
+ap AS (
+  SELECT f.* FROM kepler_ods.kdxf f
+    LEFT JOIN cn cd ON cd.sucursal = f.sucursal AND cd.c1 = f.c1 AND cd.c3 = 'D'
+                   AND cd.c4 = f.c4 AND cd.c5 = f.c5 AND cd.c6 = f.c6
+    LEFT JOIN cn ca ON ca.sucursal = f.sucursal AND ca.c1 = f.c1 AND ca.c3 = 'A'
+                   AND ca.c4 = f.c7 AND ca.c5 = f.c8 AND ca.c6 = f.c9
+   WHERE btrim(f.c1) = f.sucursal AND cd.c6 IS NULL AND ca.c6 IS NULL
+),
 aa AS (SELECT sucursal, c2, c7 AS t, c8 AS s, c9 AS f, sum(c10) AS m FROM ap GROUP BY 1,2,3,4,5),
 ad AS (SELECT sucursal, c2, c4 AS t, c5 AS s, c6 AS f, sum(c10) AS m FROM ap GROUP BY 1,2,3,4,5),
 doc AS (
@@ -65,7 +95,8 @@ SELECT d.prov AS codigo, cat.nombre, cat.rfc, cat.grupo,
 const SQL_DOCS = `
 SELECT e.sucursal, e.c3 AS naturaleza, e.c4 AS tipo_doc, e.c5 AS sub, btrim(e.c6) AS folio,
        m.c5 AS documento, to_char(e.c7, 'YYYY-MM-DD') AS fecha, to_char(e.c10, 'YYYY-MM-DD') AS vence,
-       e.c16 AS referencia, e.c11 AS importe
+       e.c16 AS referencia, e.c11 AS importe,
+       ${CANCELADO('e.sucursal', 'e.c1', 'e.c3', 'e.c4', 'e.c5', 'e.c6')} AS cancelado
   FROM kepler_ods.kdxe e
   LEFT JOIN LATERAL (
     SELECT k.c5 FROM kepler_ods.kdmm k
@@ -78,7 +109,9 @@ const SQL_APPS = `
 SELECT f.sucursal, f.c7 AS doc_tipo, f.c8 AS doc_sub, btrim(f.c9) AS doc_folio,
        f.c4 AS pago_tipo, f.c5 AS pago_sub, btrim(f.c6) AS pago_folio,
        m.c5 AS pago_documento, to_char(d.c7, 'YYYY-MM-DD') AS pago_fecha, d.c16 AS pago_referencia,
-       f.c10 AS importe
+       f.c10 AS importe,
+       (${CANCELADO('f.sucursal', 'f.c1', `'D'`, 'f.c4', 'f.c5', 'f.c6')}
+        OR ${CANCELADO('f.sucursal', 'f.c1', `'A'`, 'f.c7', 'f.c8', 'f.c9')}) AS cancelado
   FROM kepler_ods.kdxf f
   LEFT JOIN kepler_ods.kdxe d
     ON d.sucursal = f.sucursal AND d.c1 = f.c1 AND d.c2 = f.c2 AND d.c3 = 'D' AND d.c4 = f.c4 AND d.c5 = f.c5 AND d.c6 = f.c6
@@ -224,7 +257,7 @@ export class CreditorStatementsService {
     const armado = armarEstado(docs, apps, hoy);
     const enPeriodo = (f: string | null) => !periodo || (!!f && f >= periodo.from && f <= periodo.to);
     const documentos = armado.documentos.filter((d) =>
-      solo ? d.estado !== 'pagado' : enPeriodo(d.fecha));
+      solo ? d.estado !== 'pagado' && d.estado !== 'cancelado' : enPeriodo(d.fecha));
     const pagos = armado.pagos_sin_aplicar.filter((p) => solo || enPeriodo(p.fecha));
 
     const acreedor: AcreedorFicha = {
