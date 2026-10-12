@@ -19,6 +19,7 @@ const migs = [
   '20261007304401_hr_incidencias_y_cierres',
   '20261008094812_hr_agente_corridas',
   '20261008094813_hr_ordenes_quien',
+  '20261012151620_hr_secciones_por_ficha',
 ].map((n) => require(path.resolve(__dirname, '../../../../../database/migrations-newdb', `${n}.js`)));
 
 const suite = URL && !/prod|railway|\.222:5434/i.test(URL) ? describe : describe.skip;

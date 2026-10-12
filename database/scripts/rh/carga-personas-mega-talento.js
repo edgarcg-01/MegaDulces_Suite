@@ -1,7 +1,8 @@
 'use strict';
 /**
- * Fase RH · `[RH.1.4]` — CARGA ÚNICA del padrón de Mega Talento (`empleados`) a `identity.users`, y la
- * liga de cada código de reloj (`hr.device_enrollments.user_id`) con su persona.
+ * Fase RH · `[RH.1.4]`/`[RH.1.4b]` — CARGA ÚNICA del padrón de Mega Talento (`empleados`) a la Suite:
+ * la PERSONA a `identity.users`, su FICHA de cada plaza a `hr.person_site_profiles`, y la liga de cada
+ * código de reloj (`hr.device_enrollments.user_id`) con su persona.
  *
  * No es un importer (CLAUDE.md, regla principal; ADR-084 D4): corre UNA vez, en el corte, después de
  * `carga-unica-mega-talento.js` (que deja los enrolamientos). Por omisión es ENSAYO: escribe dentro de
@@ -9,30 +10,37 @@
  *
  *   MT_DATABASE_URL=… DATABASE_URL_NEW=… node database/scripts/rh/carga-personas-mega-talento.js            # ensayo
  *   MT_DATABASE_URL=… DATABASE_URL_NEW=… node database/scripts/rh/carga-personas-mega-talento.js --aplicar  # deja lo cargado
- *   … --informe=<archivo.json>   # las listas para RH (con nombres: NUNCA dentro del repo)
+ *   … --informe=<archivo.json>   # las listas (con nombres: NUNCA dentro del repo)
  *   … --con-cargas               # ensayo en una base sin la fase: corre migraciones + carga de checadas en la misma transacción
  *   … --destino-prod             # el corte, dentro del pod (CARGA_URL="$DATABASE_URL_NEW"), igual que la carga de checadas
  *
- * ── Por qué hace falta (medido 2026-10-07, `[RH.1.8]`) ───────────────────────────────────────
- * Tras la carga de checadas hay 991 enrolamientos activos y NINGUNO ligado a una persona: el pre-vuelo
- * bloquea. Sin personas la asistencia no sabe quién faltó (el padrón es lo LIGADO), ni quién es
- * promotora, ni quién está de baja. La paridad de 0 diferencias simuló exactamente esto: una persona
- * por ficha de Mega Talento, con su estado y su promotoría.
+ * ── Lo que Mega Talento YA sabe, y por eso no se le pregunta a RH (medido 2026-10-12) ─────────
+ *  · El «departamento» de Mega Talento es la SECCIÓN del reporte de RH (sale de los PDF de nómina de
+ *    ContPAQi) y mezcla área con plaza a propósito («SUC.PADRE HIDALGO», «STAFF LA PIEDAD»…). Se
+ *    guarda TAL CUAL por ficha: el reporte de la Suite agrupa por ella igual que el de Mega Talento.
+ *    La primera versión la traducía a los 21 departamentos de la Suite y el reporte dejaba de ser el
+ *    de RH. Ahora no se le pone departamento ni puesto de la Suite a nadie: no hay de dónde sacarlos
+ *    (485 de 488 activos sin puesto) y lo que no tiene fuente no se inventa.
+ *  · 21 nombres completos aparecen en dos o tres plazas: es la MISMA persona (staff que rota entre
+ *    sucursales), con fichas activas y checadas de esta semana en las dos. Aquí es UNA persona con una
+ *    ficha por plaza. Regla: mismo nombre completo normalizado de 3 palabras o más (los nombres salen
+ *    de los reportes de nómina: completos). Un nombre más corto no se une con nada.
+ *  · Activa o de baja es POR FICHA: quien se mudó tiene la vieja de baja y la nueva activa. La persona
+ *    queda `invited` si alguna ficha está activa y `terminated` si ninguna.
+ *  · Las plazas → almacén salen de `mapeo-personas-mega-talento.json`, confirmado contra la tabla de
+ *    plazas de Mega Talento (`docs/CONTEXTO-AGENTE.md` §1).
  *
- * ── Las reglas (no adivinar: lo que no se decide con evidencia va a la lista de RH) ───────────
- *  · Una ficha = `(sitio, código del reloj)`. Mega Talento no guarda CURP/RFC/NSS, así que dos fichas
- *    con el mismo nombre en dos plazas NO se unen: salen como «posibles repetidas».
- *  · Si un enrolamiento de la ficha ya tiene persona, se REUSA (la carga es idempotente).
- *  · Si no, se busca una cuenta de la Suite con el MISMO nombre completo (normalizado, de 3 palabras o
- *    más) en el mismo almacén o sin almacén. Exactamente una → se liga a esa cuenta, sin tocarla. Más de
- *    una, o un nombre de menos de 3 palabras que coincide → NO se crea ni se liga: «por decidir».
- *  · Si no hay ninguna, se CREA la persona: `kind='interno'`, sin contraseña, rol `sin_acceso`;
- *    `invited` si la ficha está activa, `terminated` si no (`activo` lo deriva el trigger de `status`); departamento, puesto y
- *    almacén del mapeo (`mapeo-personas-mega-talento.json`).
- *  · La promotora DE MARCA (casilla `es_promotora` o «promotor» en el departamento, salvo «Mega
- *    Dulces») va al departamento `promotoria_marca`: es lo que la asistencia usa para no medirla
- *    con la vara de piso.
- *  · Los sitios sin almacén toman el del mapeo (sólo si están vacíos).
+ * ── Ligar con cuentas que ya existen en la Suite ─────────────────────────────────────────────
+ *  · Si un enrolamiento de alguna de sus fichas ya tiene persona, se REUSA (la carga es idempotente).
+ *  · Si no, una cuenta de la Suite con el MISMO nombre completo (3 palabras o más) y almacén compatible:
+ *    exactamente una → se liga a esa cuenta sin tocarla.
+ *  · Si no hay ninguna —o si el empate es con VARIAS cuentas de la Suite, o con una por un nombre corto—
+ *    se CREA la persona desde Mega Talento (`kind='interno'`, sin contraseña, rol `sin_acceso`): Mega
+ *    Talento sabe que es un empleado y la asistencia lo necesita ligado. El empate se deja como AVISO
+ *    para Sistemas (son cuentas duplicadas de la propia Suite, no una duda de RH). La primera versión no
+ *    creaba nada y la paridad lo midió: 3 personas fuera del padrón, 27 diferencias.
+ *  · Sólo se detiene («por decidir») si los códigos de reloj de la persona YA están ligados a dos
+ *    personas distintas: ahí no hay con qué escoger.
  */
 const fs = require('fs');
 const os = require('os');
@@ -42,88 +50,72 @@ const carga = require('./carga-unica-mega-talento.js');
 
 const TENANT_MD = carga.TENANT_MD;
 const PROD_CLUSTER_ID = carga.PROD_CLUSTER_ID;
-/** La migración de esta carga: bajas sin contraseña, rol `sin_acceso`, departamento de promotoría. */
+/** Bajas sin contraseña y rol `sin_acceso` (`[RH.1.4]`). */
 const MIGRACION_PERSONAS = '20261012094356_rh_personas_bajas_y_sin_acceso';
+/** La ficha por plaza: sección, casilla de promotora y activa en esa plaza (`[RH.1.4b]`). */
+const MIGRACION_FICHAS = '20261012151620_hr_secciones_por_ficha';
 const ROL_SIN_ACCESO = 'sin_acceso';
-const DEPTO_PROMOTORIA = 'promotoria_marca';
 const MAPEO_POR_OMISION = path.join(__dirname, 'mapeo-personas-mega-talento.json');
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Palabras mínimas de un nombre para unir fichas o ligarlo a una cuenta: menos es un apodo. */
+const PALABRAS_MINIMAS = 3;
 
 // ── Reglas puras (las prueba `personas-carga.spec.ts` sin base) ──────────────────────────────────
 
-/** Texto de departamento comparable: mayúsculas, sin acentos ni puntos, espacios colapsados. */
-function normalizarTexto(v) {
+/** Nombre comparable: mayúsculas, sin acentos ni signos, espacios colapsados. */
+function normalizarNombre(v) {
   return String(v ?? '')
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
-    .toUpperCase().replace(/[.,]/g, ' ').replace(/\s+/g, ' ').trim();
+    .toUpperCase().replace(/[.,_-]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const palabras = (normal) => (normal ? normal.split(' ').length : 0);
+
+/** La sección de RH como la guarda Mega Talento (MAYÚSCULAS, sin espacios de sobra); null si no hay. */
+function seccionDe(departamento) {
+  const s = String(departamento ?? '').replace(/\s+/g, ' ').trim().toUpperCase();
+  return s || null;
 }
 
-/** Nombre comparable: como el texto, y además sin guiones ni dobles espacios. */
-function normalizarNombre(v) {
-  return normalizarTexto(v).replace(/[-_]/g, ' ').replace(/\s+/g, ' ').trim();
+/** El nombre que identifica a la persona: el completo de RH, o el del reloj si no hay. */
+function nombreDe(f) {
+  return String(f.nombre_completo || f.nombre || '').trim();
 }
 
 /**
- * COPIA de `esDeptoDePromotoria` (`libs/hr/.../logic/tipos.ts`, `[RH.1.5c]`): este guion corre solo en
- * el pod y no puede requerir TypeScript. `personas-carga.spec.ts` exige que las dos den lo mismo.
+ * Junta las fichas de la MISMA persona: mismo nombre completo normalizado de 3 palabras o más. Las
+ * demás quedan solas. Devuelve [{ clave, nombre, fichas[] }] en orden estable.
  */
-function esDeptoDePromotoria(departamento) {
-  const d = String(departamento || '');
-  return /promotor/i.test(d) && !/mega\s*dulces/i.test(d);
-}
-
-/** Valida el mapeo y lo deja listo para buscar por texto normalizado. Lanza si hay variantes repetidas. */
-function prepararMapeo(mapeo) {
-  const porTexto = new Map();
-  for (const g of mapeo.departamentos || []) {
-    for (const v of g.variantes || []) {
-      const k = normalizarTexto(v);
-      if (porTexto.has(k)) throw new Error(`mapeo: la variante «${v}» está en dos grupos`);
-      porTexto.set(k, g);
-    }
+function agruparPersonas(fichas) {
+  const grupos = new Map();
+  for (const f of fichas) {
+    const normal = normalizarNombre(nombreDe(f));
+    const clave = palabras(normal) >= PALABRAS_MINIMAS ? `n:${normal}` : `f:${f.sitio}|${f.codigo}`;
+    if (!grupos.has(clave)) grupos.set(clave, { clave, nombre: nombreDe(f), normal, fichas: [] });
+    grupos.get(clave).fichas.push(f);
   }
-  return { sitios: mapeo.sitios || {}, porTexto };
+  return [...grupos.values()];
+}
+
+/** El almacén de la persona: el de sus plazas si todas coinciden; null si son varios o ninguno. */
+function almacenDe(fichasDePersona, sitios) {
+  const set = new Set(fichasDePersona.map((f) => sitios[f.sitio]?.warehouse_code ?? null));
+  return set.size === 1 ? [...set][0] : null;
 }
 
 /**
- * Qué departamento, puesto y almacén le tocan a una ficha según el mapeo. Nunca inventa: lo que no
- * está mapeado vuelve en `null` con su aviso.
+ * La decisión por persona. `ligadas` = personas que YA tienen los enrolamientos de alguna de sus fichas;
+ * `cuentas` = cuentas de la Suite con el mismo nombre normalizado (ya filtradas por almacén compatible).
  */
-function resolverFicha(ficha, mp) {
-  const avisos = [];
-  const sitio = mp.sitios[ficha.sitio];
-  if (!sitio) avisos.push('sitio_sin_mapeo');
-  const warehouse_code = sitio?.warehouse_code ?? null;
-  const promotora = ficha.es_promotora === true || esDeptoDePromotoria(ficha.departamento);
-  const texto = normalizarTexto(ficha.departamento);
-  const grupo = texto ? mp.porTexto.get(texto) : null;
-  let department_code = grupo?.department_code ?? null;
-  let position_code = grupo?.position_code ?? null;
-  if (!texto) avisos.push('sin_departamento');
-  else if (!grupo) avisos.push('departamento_sin_mapeo');
-  if (promotora && department_code !== DEPTO_PROMOTORIA) {
-    // La casilla manda: es lo que la asistencia mide. El puesto del grupo ya no aplica.
-    department_code = DEPTO_PROMOTORIA;
-    position_code = null;
-  }
-  const validado = !!(sitio?.validado && (grupo ? grupo.validado : true));
-  return { warehouse_code, department_code, position_code, promotora, validado, avisos };
-}
-
-/**
- * La decisión por ficha. `ligadas` = personas que YA tienen sus enrolamientos; `cuentas` = cuentas
- * de la Suite con el mismo nombre normalizado (ya filtradas por almacén compatible).
- */
-function decidir({ ligadas, cuentas, palabras }) {
+function decidir({ ligadas, cuentas, palabras: n }) {
   if (ligadas.length === 1) return { accion: 'reusar', userId: ligadas[0] };
-  if (ligadas.length > 1) return { accion: 'por_decidir', motivo: 'codigo_ligado_a_dos_personas' };
-  if (cuentas.length === 1 && palabras >= 3) return { accion: 'ligar_cuenta', userId: cuentas[0] };
-  if (cuentas.length > 1) return { accion: 'por_decidir', motivo: 'varias_cuentas_con_el_mismo_nombre' };
-  if (cuentas.length === 1) return { accion: 'por_decidir', motivo: 'nombre_corto_coincide_con_una_cuenta' };
+  if (ligadas.length > 1) return { accion: 'por_decidir', motivo: 'sus_codigos_estan_ligados_a_dos_personas' };
+  if (cuentas.length === 1 && n >= PALABRAS_MINIMAS) return { accion: 'ligar_cuenta', userId: cuentas[0] };
+  if (cuentas.length > 1) return { accion: 'crear', aviso: 'varias_cuentas_de_la_suite_con_el_mismo_nombre' };
+  if (cuentas.length === 1) return { accion: 'crear', aviso: 'nombre_corto_coincide_con_una_cuenta' };
   return { accion: 'crear' };
 }
 
-/** Username estable y único por ficha. */
+/** Username estable por persona: el de su primera ficha (plaza + código). */
 function usernameDe(sitio, codigo) {
   const limpio = (s) => String(s).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
   return `mt.${limpio(sitio)}.${limpio(codigo)}`;
@@ -138,17 +130,17 @@ function usernameDe(sitio, codigo) {
 async function cargarPersonas(trx, fichas, { mapeo, tenantId = TENANT_MD, log = null } = {}) {
   if (!RE_UUID.test(tenantId)) throw new Error(`tenant inválido: ${tenantId}`);
   const avisar = typeof log === 'function' ? log : () => undefined;
-  const mp = prepararMapeo(mapeo);
+  const sitios = mapeo?.sitios || {};
 
   const rol = await trx('identity.role_permissions').where({ tenant_id: tenantId, role_name: ROL_SIN_ACCESO }).whereNull('deleted_at').first('role_name');
   if (!rol) throw new Error(`no existe el rol ${ROL_SIN_ACCESO}: falta la migración ${MIGRACION_PERSONAS}`);
-  const deptos = new Set((await trx('identity.departments').where({ tenant_id: tenantId }).whereNull('deleted_at').select('code')).map((r) => r.code));
-  const puestos = new Set((await trx('identity.positions').where({ tenant_id: tenantId }).whereNull('deleted_at').select('code')).map((r) => r.code));
-  if (!deptos.has(DEPTO_PROMOTORIA)) throw new Error(`no existe el departamento ${DEPTO_PROMOTORIA}: falta la migración ${MIGRACION_PERSONAS}`);
+  if (!(await trx.schema.withSchema('hr').hasTable('person_site_profiles'))) {
+    throw new Error(`no existe hr.person_site_profiles: falta la migración ${MIGRACION_FICHAS}`);
+  }
 
   // Sitios: el almacén del mapeo, sólo donde está vacío.
   let sitiosConAlmacen = 0;
-  for (const [code, s] of Object.entries(mp.sitios)) {
+  for (const [code, s] of Object.entries(sitios)) {
     if (!s.warehouse_code) continue;
     sitiosConAlmacen += await trx('hr.attendance_sites').where({ tenant_id: tenantId, code }).whereNull('warehouse_code')
       .update({ warehouse_code: s.warehouse_code, updated_at: trx.fn.now() });
@@ -178,90 +170,96 @@ async function cargarPersonas(trx, fichas, { mapeo, tenantId = TENANT_MD, log = 
   }
   const usernames = new Set((await trx('identity.users').where({ tenant_id: tenantId }).select('username')).map((r) => r.username));
 
+  const personas = agruparPersonas(fichas);
   const c = {
-    fichas: fichas.length, creadas: 0, creadas_activas: 0, creadas_bajas: 0, reusadas: 0, ligadas_a_cuenta_existente: 0,
-    por_decidir: 0, sin_departamento: 0, departamento_sin_mapeo: 0, sitio_sin_mapeo: 0, codigo_de_departamento_inexistente: 0,
-    codigo_de_puesto_inexistente: 0, promotoras: 0, mapeo_validado: 0, enrolamientos_ligados: 0, sitios_con_almacen: sitiosConAlmacen,
+    fichas: fichas.length, personas: personas.length, personas_con_varias_fichas: 0, fichas_unidas: 0,
+    creadas: 0, creadas_activas: 0, creadas_bajas: 0, reusadas: 0, ligadas_a_cuenta_existente: 0, por_decidir: 0,
+    avisos_para_sistemas: 0,
+    fichas_guardadas: 0, fichas_con_seccion: 0, fichas_sin_seccion: 0, fichas_promotora: 0, fichas_de_baja: 0,
+    sitio_sin_mapeo: 0, enrolamientos_ligados: 0, sitios_con_almacen: sitiosConAlmacen,
   };
-  const listas = { por_decidir: [], departamento_sin_mapeo: [], posibles_repetidas: [], cuentas_existentes_ligadas: [] };
-  const reclamadas = new Map();   // cuenta existente → ficha que la tomó (una cuenta no se liga a dos fichas del mismo sitio)
-  const personaDeFicha = new Map();
+  const listas = { por_decidir: [], personas_con_varias_fichas: [], cuentas_existentes_ligadas: [], avisos_para_sistemas: [] };
 
+  // ── La ficha de cada plaza: sección, casilla de promotora, activa en esa plaza (siempre, se ligue o no) ──
   for (const f of fichas) {
-    const k = `${f.sitio}|${f.codigo}`;
-    const r = resolverFicha(f, mp);
-    for (const a of r.avisos) c[a]++;
-    if (r.promotora) c.promotoras++;
-    if (r.validado) c.mapeo_validado++;
-    if (r.department_code && !deptos.has(r.department_code)) { c.codigo_de_departamento_inexistente++; r.department_code = null; r.position_code = null; }
-    if (r.position_code && !puestos.has(r.position_code)) { c.codigo_de_puesto_inexistente++; r.position_code = null; }
-    if (r.avisos.includes('departamento_sin_mapeo')) listas.departamento_sin_mapeo.push({ sitio: f.sitio, codigo: f.codigo, departamento: f.departamento });
+    if (!sitios[f.sitio]) c.sitio_sin_mapeo++;
+    const seccion = seccionDe(f.departamento);
+    if (seccion) c.fichas_con_seccion++; else c.fichas_sin_seccion++;
+    if (f.es_promotora) c.fichas_promotora++;
+    if (!f.activo) c.fichas_de_baja++;
+    await trx('hr.person_site_profiles').insert({
+      tenant_id: tenantId, site_code: f.sitio, person_code: f.codigo,
+      report_section: seccion, is_promoter: f.es_promotora === true, is_active: f.activo === true,
+    }).onConflict(['tenant_id', 'site_code', 'person_code']).merge(['report_section', 'is_promoter', 'is_active', 'updated_at']);
+    c.fichas_guardadas++;
+  }
 
-    const nombre = String(f.nombre_completo || f.nombre || '').trim();
-    const normal = normalizarNombre(nombre);
-    const cuentas = (cuentasPorNombre.get(normal) || [])
-      .filter((u) => !u.warehouse_code || !r.warehouse_code || u.warehouse_code === r.warehouse_code)
+  const reclamadas = new Map();   // cuenta existente → persona que la tomó (una cuenta no se liga a dos personas)
+  for (const p of personas) {
+    if (p.fichas.length > 1) {
+      c.personas_con_varias_fichas++;
+      c.fichas_unidas += p.fichas.length;
+      listas.personas_con_varias_fichas.push({ nombre: p.nombre, fichas: p.fichas.map((f) => `${f.sitio}|${f.codigo}|${f.activo ? 'activa' : 'baja'}`) });
+    }
+    const almacen = almacenDe(p.fichas, sitios);
+    const ligadas = [...new Set(p.fichas.flatMap((f) => [...(ligadasPor.get(`${f.sitio}|${f.codigo}`) || [])]))];
+    const cuentas = (cuentasPorNombre.get(p.normal) || [])
+      .filter((u) => !u.warehouse_code || !almacen || u.warehouse_code === almacen)
       .map((u) => u.id);
-    const d = decidir({ ligadas: [...(ligadasPor.get(k) || [])], cuentas, palabras: normal ? normal.split(' ').length : 0 });
+    const d = decidir({ ligadas, cuentas, palabras: palabras(p.normal) });
 
     let userId = null;
     if (d.accion === 'reusar') { userId = d.userId; c.reusadas++; }
     else if (d.accion === 'ligar_cuenta') {
-      const otra = reclamadas.get(d.userId);
-      if (otra && otra.startsWith(`${f.sitio}|`)) {
-        c.por_decidir++; listas.por_decidir.push({ sitio: f.sitio, codigo: f.codigo, nombre, motivo: 'la_cuenta_ya_la_tomo_otra_ficha_del_sitio', otra });
+      if (reclamadas.has(d.userId)) {
+        c.por_decidir++; listas.por_decidir.push({ nombre: p.nombre, fichas: p.fichas.map((f) => `${f.sitio}|${f.codigo}`), motivo: 'la_cuenta_ya_la_tomo_otra_persona', otra: reclamadas.get(d.userId) });
         continue;
       }
-      reclamadas.set(d.userId, k);
+      reclamadas.set(d.userId, p.clave);
       userId = d.userId; c.ligadas_a_cuenta_existente++;
-      listas.cuentas_existentes_ligadas.push({ sitio: f.sitio, codigo: f.codigo, nombre, user_id: userId });
+      listas.cuentas_existentes_ligadas.push({ nombre: p.nombre, fichas: p.fichas.map((f) => `${f.sitio}|${f.codigo}`), user_id: userId });
     } else if (d.accion === 'por_decidir') {
-      c.por_decidir++; listas.por_decidir.push({ sitio: f.sitio, codigo: f.codigo, nombre, motivo: d.motivo });
+      c.por_decidir++; listas.por_decidir.push({ nombre: p.nombre, fichas: p.fichas.map((f) => `${f.sitio}|${f.codigo}`), motivo: d.motivo });
       continue;
     } else {
-      const username = usernameDe(f.sitio, f.codigo);
+      const primera = p.fichas[0];
+      const username = usernameDe(primera.sitio, primera.codigo);
       if (usernames.has(username)) {
-        c.por_decidir++; listas.por_decidir.push({ sitio: f.sitio, codigo: f.codigo, nombre, motivo: 'username_ocupado_sin_enrolamiento', username });
+        c.por_decidir++; listas.por_decidir.push({ nombre: p.nombre, fichas: p.fichas.map((f) => `${f.sitio}|${f.codigo}`), motivo: 'username_ocupado_sin_enrolamiento', username });
         continue;
       }
-      const activa = f.activo === true;
+      const activa = p.fichas.some((f) => f.activo === true);
+      const bajas = p.fichas.map((f) => f.baja_en || f.eliminado_en).filter(Boolean).sort();
       const [u] = await trx('identity.users').insert({
-        tenant_id: tenantId, username, password_hash: null, nombre: nombre || f.codigo,
+        tenant_id: tenantId, username, password_hash: null, nombre: p.nombre || primera.codigo,
         role_name: ROL_SIN_ACCESO, kind: 'interno',
         // `activo` lo deriva el trigger de `status` (`[ID.8]`): invited y terminated quedan en false.
         status: activa ? 'invited' : 'terminated',
-        terminated_at: activa ? null : (f.baja_en || f.eliminado_en || null),
-        department_code: r.department_code, position_code: r.position_code, warehouse_code: r.warehouse_code,
+        terminated_at: activa ? null : (bajas[bajas.length - 1] || null),
+        // Sin departamento ni puesto de la Suite: Mega Talento no los tiene, y lo que no tiene fuente no se
+        // inventa. La sección de RH vive en la ficha (hr.person_site_profiles).
+        department_code: null, position_code: null, warehouse_code: almacen,
       }).returning('id');
       userId = u.id ?? u;
       usernames.add(username);
+      if (d.aviso) {
+        c.avisos_para_sistemas++;
+        listas.avisos_para_sistemas.push({ nombre: p.nombre, fichas: p.fichas.map((f) => `${f.sitio}|${f.codigo}`), aviso: d.aviso, user_id: userId });
+      }
       c.creadas++;
       if (activa) c.creadas_activas++; else c.creadas_bajas++;
     }
-    personaDeFicha.set(k, { userId, nombre: normal, sitio: f.sitio });
 
-    const res = await trx.raw(`
-      UPDATE hr.device_enrollments e SET user_id = ?, updated_at = now()
-        FROM hr.attendance_devices d
-       WHERE d.tenant_id = e.tenant_id AND d.id = e.device_id AND e.tenant_id = ?
-         AND d.site_code = ? AND COALESCE(e.person_code, e.device_user_id) = ? AND e.user_id IS NULL`,
-    [userId, tenantId, f.sitio, f.codigo]);
-    c.enrolamientos_ligados += res.rowCount || 0;
-  }
-
-  // Mismo nombre completo en dos sitios distintos con personas distintas: RH decide si es la misma.
-  const porNombre = new Map();
-  for (const [k, p] of personaDeFicha) {
-    if (!p.nombre || p.nombre.split(' ').length < 2) continue;
-    if (!porNombre.has(p.nombre)) porNombre.set(p.nombre, []);
-    porNombre.get(p.nombre).push({ ficha: k, ...p });
-  }
-  for (const [nombre, xs] of porNombre) {
-    if (new Set(xs.map((x) => x.sitio)).size > 1 && new Set(xs.map((x) => x.userId)).size > 1) {
-      listas.posibles_repetidas.push({ nombre, fichas: xs.map((x) => x.ficha) });
+    for (const f of p.fichas) {
+      const res = await trx.raw(`
+        UPDATE hr.device_enrollments e SET user_id = ?, updated_at = now()
+          FROM hr.attendance_devices d
+         WHERE d.tenant_id = e.tenant_id AND d.id = e.device_id AND e.tenant_id = ?
+           AND d.site_code = ? AND COALESCE(e.person_code, e.device_user_id) = ? AND e.user_id IS NULL`,
+      [userId, tenantId, f.sitio, f.codigo]);
+      c.enrolamientos_ligados += res.rowCount || 0;
     }
   }
-  c.posibles_repetidas = listas.posibles_repetidas.length;
 
   const [{ total, ligados }] = (await trx.raw(`
     SELECT count(*)::int AS total, count(*) FILTER (WHERE user_id IS NOT NULL)::int AS ligados
@@ -313,7 +311,8 @@ async function main() {
     try {
       await carga.verificarDestinoProd(knex);
       const aplicadas = new Set((await knex.raw('SELECT name FROM public.knex_migrations')).rows.map((r) => r.name.replace(/\.js$/, '')));
-      if (!aplicadas.has(MIGRACION_PERSONAS)) throw new Error(`falta la migración ${MIGRACION_PERSONAS} en prod (se aplica antes, una por una)`);
+      const faltan = [MIGRACION_PERSONAS, MIGRACION_FICHAS].filter((m) => !aplicadas.has(m));
+      if (faltan.length) throw new Error(`faltan migraciones en prod (se aplican antes, una por una): ${faltan.join(', ')}`);
     } catch (e) { await knex.destroy(); throw e; }
   }
   const mapeo = JSON.parse(fs.readFileSync(process.env.RH_MAPEO || MAPEO_POR_OMISION, 'utf8'));
@@ -330,7 +329,7 @@ async function main() {
           '20260911180000_departamentos_reales',
           '20261001120000_zn8_alcance_por_area',
         ];
-        const migs = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, ...previasIdentity, MIGRACION_PERSONAS];
+        const migs = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, ...previasIdentity, MIGRACION_PERSONAS, MIGRACION_FICHAS];
         const aplicadas = new Set((await trx.raw('SELECT name FROM public.knex_migrations')).rows.map((r) => r.name.replace(/\.js$/, '')));
         for (const m of migs) if (!aplicadas.has(m)) await require(path.resolve(__dirname, '../../migrations-newdb', `${m}.js`)).up(trx);
       }
@@ -339,7 +338,7 @@ async function main() {
       console.log(`Carga de personas de Mega Talento → ${destinoProd ? 'PROD · ' : ''}${aplicar ? 'SE APLICA' : 'ENSAYO (se deshace al final)'}`);
       const { cuadre, listas } = await cargarPersonas(trx, await leerFichas(mt), { mapeo, log: console.log });
       fs.writeFileSync(informe, JSON.stringify({ generado: new Date().toISOString(), aplicado: aplicar, cuadre, listas }, null, 2));
-      console.log(`\nInforme para RH (con nombres — no subirlo al repo): ${informe}`);
+      console.log(`\nInforme (con nombres — no subirlo al repo): ${informe}`);
       if (!aplicar) throw DESHACER;
     });
   } catch (e) {
@@ -356,6 +355,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-  normalizarTexto, normalizarNombre, esDeptoDePromotoria, prepararMapeo, resolverFicha, decidir, usernameDe,
-  cargarPersonas, leerFichas, MIGRACION_PERSONAS, ROL_SIN_ACCESO, DEPTO_PROMOTORIA, MAPEO_POR_OMISION, PROD_CLUSTER_ID,
+  normalizarNombre, seccionDe, agruparPersonas, almacenDe, decidir, usernameDe,
+  cargarPersonas, leerFichas, MIGRACION_PERSONAS, MIGRACION_FICHAS, ROL_SIN_ACCESO, MAPEO_POR_OMISION, PROD_CLUSTER_ID,
+  PALABRAS_MINIMAS,
 };

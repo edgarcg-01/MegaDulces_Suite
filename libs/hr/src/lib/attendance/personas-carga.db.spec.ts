@@ -50,6 +50,7 @@ async function prepararEsquema(trx: Knex.Transaction, conPersonas: boolean) {
   for (const m of fase) if (!aplicadas.has(m)) await mig(m).up(trx);
   if (!hashNullable) await mig('20260910120000_kind_dispositivo_y_hash_nullable').up(trx);
   if (conPersonas && !aplicadas.has(P.MIGRACION_PERSONAS)) await mig(P.MIGRACION_PERSONAS).up(trx);
+  if (conPersonas && !aplicadas.has(P.MIGRACION_FICHAS)) await mig(P.MIGRACION_FICHAS).up(trx);
 }
 
 suite('carga de personas contra la base', () => {
@@ -74,7 +75,8 @@ suite('carga de personas contra la base', () => {
     else expect(codigo).toBe('23514');
   }, 120_000);
 
-  it('crea, liga, reusa y deja fuera lo ambiguo', async () => {
+  it('una persona por nombre completo, la ficha de cada plaza tal cual, sin departamento ni puesto inventados', async () => {
+    const reader = await import('./attendance-reader');
     const knex: Knex = knexLib({ client: 'pg', connection: URL, pool: { min: 0, max: 1 } });
     const r: Record<string, unknown> = {};
     try {
@@ -89,42 +91,44 @@ suite('carga de personas contra la base', () => {
         const enrol = (device: { id: string }, code: string) => ({ tenant_id: TENANT, device_id: device.id, device_user_id: code, match_status: 'pendiente' });
         await trx('hr.device_enrollments').insert([enrol(dA, '1'), enrol(dA, '2'), enrol(dA, '3'), enrol(dA, '4'), enrol(dA, '5'), enrol(dB, '1')]);
 
-        // Una cuenta de la Suite que YA existe con el nombre completo de la ficha A|3,
-        // y dos homónimas para la ficha A|4.
+        // Una cuenta de la Suite que YA existe con el nombre completo de la ficha A|3, y dos homónimas de A|4.
         const cuenta = (u: string, nombre: string) => ({ tenant_id: TENANT, username: u, password_hash: 'x', nombre,
           role_name: 'superadmin', kind: 'interno', status: 'active', activo: true, warehouse_code: '99' });
         const [existente] = await trx('identity.users').insert(cuenta(`rh-ex-${sello}`, `Cajera Uno Prueba ${sello}`)).returning('id');
         await trx('identity.users').insert([cuenta(`rh-h1-${sello}`, `Homonima Dos Prueba ${sello}`), cuenta(`rh-h2-${sello}`, `Homonima Dos Prueba ${sello}`)]);
 
-        const mapeo = {
-          sitios: { [A]: { warehouse_code: '99', validado: false }, [B]: { warehouse_code: '98', validado: true } },
-          departamentos: [{ variantes: ['CAJAS'], department_code: 'cajas', position_code: 'cajera', validado: false }],
-        };
+        const mapeo = { sitios: { [A]: { warehouse_code: '99', fuente: 'prueba' }, [B]: { warehouse_code: '98', fuente: 'prueba' } } };
+        // A|1 y B|1: la MISMA persona (staff que rota); en B ya está de baja (se mudó a A).
         const fichas = [
-          { sitio: A, codigo: '1', nombre: 'activa', nombre_completo: `Persona Activa Prueba ${sello}`, departamento: 'Cajas', activo: true },
-          { sitio: A, codigo: '2', nombre: 'baja', nombre_completo: `Persona Baja Prueba ${sello}`, departamento: 'Cajas', activo: false, baja_en: '2026-09-01T00:00:00Z' },
-          { sitio: A, codigo: '3', nombre: 'cajera', nombre_completo: `Cajera Uno Prueba ${sello}`, departamento: 'Cajas', activo: true },
-          { sitio: A, codigo: '4', nombre: 'homonima', nombre_completo: `Homonima Dos Prueba ${sello}`, departamento: 'Cajas', activo: true },
-          { sitio: A, codigo: '5', nombre: 'promo', nombre_completo: `Promotora Marca Prueba ${sello}`, departamento: 'ZONA PROMOTORIA', activo: true },
-          { sitio: B, codigo: '1', nombre: 'activa', nombre_completo: `Persona Activa Prueba ${sello}`, departamento: null, activo: true },
+          { sitio: A, codigo: '1', nombre: 'rota', nombre_completo: `Persona Rota Prueba ${sello}`, departamento: 'staff la piedad', activo: true },
+          { sitio: B, codigo: '1', nombre: 'rota', nombre_completo: `persona  rota prueba ${sello}`, departamento: 'STAFF', activo: false },
+          { sitio: A, codigo: '2', nombre: 'baja', nombre_completo: `Persona Baja Prueba ${sello}`, departamento: 'CAJAS', activo: false, baja_en: '2026-09-01T00:00:00Z' },
+          { sitio: A, codigo: '3', nombre: 'cajera', nombre_completo: `Cajera Uno Prueba ${sello}`, departamento: 'CAJAS', activo: true },
+          { sitio: A, codigo: '4', nombre: 'homonima', nombre_completo: `Homonima Dos Prueba ${sello}`, departamento: null, activo: true },
+          { sitio: A, codigo: '5', nombre: 'promo', nombre_completo: `Promotora Marca Prueba ${sello}`, departamento: 'ZONA PROMOTORIA', activo: true, es_promotora: true },
         ];
 
         const uno = await P.cargarPersonas(trx, fichas, { mapeo });
         r['cuadre1'] = uno.cuadre;
-        r['porDecidir'] = uno.listas.por_decidir.map((x: { codigo: string; motivo: string }) => `${x.codigo}:${x.motivo}`);
-        r['repetidas'] = uno.listas.posibles_repetidas.length;
+        r['avisos'] = uno.listas.avisos_para_sistemas.map((x: { aviso: string }) => x.aviso);
         const persona = async (sitio: string, code: string) => (await trx.raw(`
-          SELECT u.id, u.status, u.activo, u.password_hash, u.role_name, u.department_code, u.position_code, u.warehouse_code, u.terminated_at
+          SELECT u.id, u.status, u.password_hash, u.role_name, u.department_code, u.position_code, u.warehouse_code, u.terminated_at
             FROM hr.device_enrollments e JOIN hr.attendance_devices d ON d.id = e.device_id
             LEFT JOIN identity.users u ON u.id = e.user_id
            WHERE d.site_code = ? AND e.device_user_id = ?`, [sitio, code])).rows[0];
-        r['activa'] = await persona(A, '1');
-        r['baja'] = await persona(A, '2');
+        const rotaA = await persona(A, '1');
+        r['rota'] = [rotaA.id === (await persona(B, '1')).id, rotaA.status, rotaA.department_code, rotaA.position_code, rotaA.warehouse_code, rotaA.password_hash, rotaA.role_name];
+        r['baja'] = [(await persona(A, '2')).status, !!(await persona(A, '2')).terminated_at];
         r['ligadaACuenta'] = (await persona(A, '3')).id === (existente.id ?? existente);
-        r['homonimaSinLigar'] = (await persona(A, '4')).id;
-        r['promo'] = (await persona(A, '5')).department_code;
-        r['otroSitioOtraPersona'] = (await persona(B, '1')).id !== (await persona(A, '1')).id;
-        r['sitioConAlmacen'] = (await trx('hr.attendance_sites').where({ code: A }).first('warehouse_code')).warehouse_code;
+        r['homonimaCreada'] = !!(await persona(A, '4')).id;
+        const ficha = async (sitio: string, code: string) => trx('hr.person_site_profiles').where({ site_code: sitio, person_code: code })
+          .first('report_section', 'is_promoter', 'is_active');
+        r['fichas'] = [await ficha(A, '1'), await ficha(B, '1'), await ficha(A, '4'), await ficha(A, '5')];
+        // Lo que ve la asistencia: la sección de RH en cada plaza; en B la persona ya no está activa.
+        const pa = await reader.padron(trx, A);
+        const pb = await reader.padron(trx, B);
+        r['padron'] = [pa.fichas.get('1')?.departamento, pa.fichas.get('1')?.activo, pb.fichas.get('1')?.departamento, pb.fichas.get('1')?.activo,
+          pa.personas.find((x) => x.codigo === '5')?.excluida];
 
         // Segunda corrida: todo se reusa, nada nuevo.
         const dos = await P.cargarPersonas(trx, fichas, { mapeo });
@@ -134,18 +138,21 @@ suite('carga de personas contra la base', () => {
     } catch (e) { if (e !== ROLLBACK) throw e; } finally { await knex.destroy(); }
 
     const c1 = r['cuadre1'] as Record<string, number>;
-    expect([c1['creadas'], c1['creadas_activas'], c1['creadas_bajas'], c1['ligadas_a_cuenta_existente'], c1['por_decidir'], c1['promotoras']])
-      .toEqual([4, 3, 1, 1, 1, 1]);
-    expect(r['porDecidir']).toEqual(['4:varias_cuentas_con_el_mismo_nombre']);
-    expect(r['activa']).toMatchObject({ status: 'invited', activo: false, password_hash: null, role_name: 'sin_acceso', warehouse_code: '99' });
-    expect(r['baja']).toMatchObject({ status: 'terminated', activo: false, password_hash: null });
-    expect((r['baja'] as { terminated_at: unknown }).terminated_at).not.toBeNull();
+    expect([c1['fichas'], c1['personas'], c1['personas_con_varias_fichas'], c1['creadas'], c1['creadas_activas'], c1['creadas_bajas'],
+      c1['ligadas_a_cuenta_existente'], c1['por_decidir'], c1['avisos_para_sistemas']]).toEqual([6, 5, 1, 4, 3, 1, 1, 0, 1]);
+    expect(r['avisos']).toEqual(['varias_cuentas_de_la_suite_con_el_mismo_nombre']);
+    // Una persona, invitada (tiene una ficha activa), sin departamento ni puesto, sin almacén (dos plazas distintas).
+    expect(r['rota']).toEqual([true, 'invited', null, null, null, null, 'sin_acceso']);
+    expect(r['baja']).toEqual(['terminated', true]);
     expect(r['ligadaACuenta']).toBe(true);
-    expect(r['homonimaSinLigar']).toBeNull();
-    expect(r['promo']).toBe('promotoria_marca');
-    expect(r['otroSitioOtraPersona']).toBe(true);
-    expect(r['repetidas']).toBe(1);
-    expect(r['sitioConAlmacen']).toBe('99');
+    expect(r['homonimaCreada']).toBe(true);
+    expect(r['fichas']).toEqual([
+      { report_section: 'STAFF LA PIEDAD', is_promoter: false, is_active: true },
+      { report_section: 'STAFF', is_promoter: false, is_active: false },
+      { report_section: null, is_promoter: false, is_active: true },
+      { report_section: 'ZONA PROMOTORIA', is_promoter: true, is_active: true },
+    ]);
+    expect(r['padron']).toEqual(['STAFF LA PIEDAD', true, 'STAFF', false, true]);
     expect(r['cuadre2']).toEqual([0, 5, 0]);
   }, 120_000);
 });

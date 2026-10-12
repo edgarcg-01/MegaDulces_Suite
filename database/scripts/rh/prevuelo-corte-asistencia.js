@@ -60,6 +60,8 @@ const CADENA = [
   '20261012094356_rh_personas_bajas_y_sin_acceso.js',
   // [RH.1.10] ajustes al banco de horas extra: sin la tabla, GET /hr/attendance/overtime da 500.
   '20261012122707_hr_horas_extra_ajustes.js',
+  // [RH.1.4b] la ficha por plaza (sección del reporte de RH, casilla de promotora, activa en esa plaza).
+  '20261012151620_hr_secciones_por_ficha.js',
 ];
 /** La migración del reparto: de ella depende el chequeo de «claves en true» (ya no es la última de la cadena). */
 const MIG_REPARTO = '20261008094815_hr_reparto_asistencia.js';
