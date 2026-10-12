@@ -392,6 +392,64 @@ de Cloudinary pasan.**
 **Candados: 73 aserciones, 0 fallas**, con la regla nueva probada por mutación (poner
 `esLlaveDeBucket` siempre en `true` pone 3 en rojo).
 
+---
+
+## 11. ⭐⭐ La primera pasada que SÍ escribió — el número real
+
+Migración completa (**1,200 de 1,200** fuera de Cloudinary, 0 quedan) y `[AT.1.3]` desplegado
+(`724856da`, worker). Primera pasada con todo en su lugar, **2026-10-12 12:41:25**:
+
+```
+ok · 25 escritas · 85,646 ms
+25/25 releídos · 25 clasificados · 11 validados solos · 10 cambiaron de lectura
+```
+
+| | antes | después |
+|---|---:|---:|
+| Validados por el sistema | 82 | **93** |
+| Con lectura firmable | 142 | **167** |
+| Sin clasificar | 737 | **712** |
+
+**11 de 25 = 44 %** se auto-validaron. ⚠️ Es **una** pasada sobre el grupo sin clasificar: la
+proyección a ~500 sobre los 1,199 sigue siendo proyección hasta ver varias.
+
+### ⛔ Y el «10 cambiaron de lectura» NO era lo que yo dije
+
+Al verlo escribí que *«el 40 % de la carga del 5-ago no es lo que dice el documento»*. Desglosado,
+eso es falso:
+
+| campo | cambió |
+|---|---:|
+| `monto` | **0** |
+| `fecha` | **0** |
+| `beneficiario` | **0** |
+| ⭐ `cuenta_origen` | **10** |
+
+Y en los 10, la lectura nueva es **más larga** que la vieja (7→11, 4→18, 10→11, 7→20, 10→21): la
+vieja venía **truncada**, no equivocada. **7 de esos 10 pasaron su señal `banco` a `ok`** — que es
+justamente lo que destrabó las auto-validaciones.
+
+⭐⭐ Lo correcto es: *la carga del 5-ago era fiable en el dinero, la fecha y el beneficiario, y
+cortaba la cuenta de origen* — el campo que `[PC.7]` ya documentaba como el difícil (BanBajío pone
+la clave en el CENTRO). La relectura **no contradijo** lo capturado: **recuperó un campo que no se
+había podido leer**.
+
+### Qué frena a los 14 que no se validaron
+
+| señal que falla | casos |
+|---|---:|
+| ⛔ **`proveedor`** | **10** |
+| `monto` | 7 |
+| `banco` | 3 |
+| `fecha` | **0** |
+
+⭐ El cuello de botella es **el nombre del beneficiario**, no el importe. `chequeoProveedor` exige
+igualdad del nombre normalizado (con una sola tolerancia: el truncado del SPEI). ⬜ Antes de
+aflojarla hay que **medir en qué difieren** los 10 — aflojar una regla de validación automática
+sin medir es cómo se firma solo lo que no cuadra.
+
+---
+
 ### Qué falta ahora, en orden
 
 | | |
