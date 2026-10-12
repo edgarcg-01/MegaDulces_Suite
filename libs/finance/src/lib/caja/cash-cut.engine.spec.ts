@@ -462,59 +462,90 @@ describe('calcularCorte — fondo sin medir ([CG.42])', () => {
  * entre cajón y bóveda, porque hasta hoy no existía. Un cambio en la aritmética del dinero sin una
  * prueba que lo fije es una cifra nueva sin quién la defienda.
  */
-describe('CG.95 — el esperado cuenta el cajón, no la bóveda', () => {
-  // Números REALES de prod: cobro de ruta de $15,542 del que CAOS contó $15,510 en billetes.
-  const cobroDeRuta = [{ tipo: 'ingreso' as const, monto: 15542, en_boveda: 15510 }];
+/**
+ * `[CG.96]` — EL ESPERADO CUENTA EL CAJÓN, Y EL CAJERO ES LA OTRA CAJA.
+ *
+ * Edgar: *"a caja general entró 103 mil, pero eso no ingresó; ingresó sólo monedas y lo de CAOS se
+ * queda en CAOS"*, y después, corrigiendo mi primer intento: *"si sobra se regresa a CAOS, si no
+ * se carga al arqueo de caja general"*.
+ *
+ * ⭐ El modelo ya estaba escrito en `conciliacionCajero`: *«cajas separadas — la caja chica es
+ * efectivo suelto, el cajero es la bóveda»*. Se calculaba, se mostraba, y **el esperado lo
+ * ignoraba**. Cada pierna del cajero se cuenta UNA vez y la aritmética sale sola, sin enlazar
+ * nada:
+ *
+ *     depósito al cajero  ->  salió del cajón
+ *     dispensación        ->  entró al cajón
+ *
+ * Reconstruido con los datos de prod del 2026-10-12, al centavo:
+ *
+ *     'nom more' 20,800 + 'nom canindo' 11,420 = 32,220  ->  NOMINA (10 pagos) 32,237.00
+ *     'palomitas'        13,800                          ->  otros dos gastos  13,803.05
+ *     dispensado 46,020.00 + morralla 20.05 = gastos 46,040.05
+ *
+ * CAOS pone los BILLETES y el cajón pone la MORRALLA — espejo del lado de los cobros. `20,800`,
+ * `11,420` y `13,800` son múltiplos de 20: la máquina no maneja monedas en ninguna dirección.
+ *
+ * ⚠️ Sin esto el esperado pedía contar ~$90,000 que están dentro de la máquina. Las 52 pruebas que
+ * ya existían pasaban TODAS: ninguna miraba las piernas del cajero porque el motor no las recibía.
+ */
+describe('CG.96 — el esperado cuenta el cajón, y el cajero es la otra caja', () => {
+  const cobroDeRuta = [{ tipo: 'ingreso' as const, monto: 15542 }];
 
-  it('⭐ un cobro de ruta sólo suma al esperado la MORRALLA', () => {
-    const t = calcularCorte({ fondoInicial: 3000, movimientos: cobroDeRuta });
-    // 3000 + (15542 - 15510) = 3032. NO 18542.
+  it('⭐ un cobro de ruta deja en el cajón SOLO la morralla', () => {
+    // La máquina se tragó los billetes: 15,542 − 15,510 = 32.
+    const t = calcularCorte({
+      fondoInicial: 3000, movimientos: cobroDeRuta,
+      cajeroSinCapturar: { depositado: 15510 },
+    });
     expect(t.esperado).toBe(3032);
-    // …y el total del día sigue publicándose entero: el dinero entró y se registró.
-    expect(t.ingresos).toBe(15542);
+    expect(t.ingresos).toBe(15542);   // el total del día se publica entero
   });
 
-  it('⛔ [negativa] sin el reparto, el esperado pediría los billetes que están en la máquina', () => {
-    // Es el estado anterior: el mismo movimiento sin declarar su bóveda.
-    const sinReparto = [{ tipo: 'ingreso' as const, monto: 15542 }];
-    const t = calcularCorte({ fondoInicial: 3000, movimientos: sinReparto });
-    expect(t.esperado).toBe(18542);          // los $15,510 de la bóveda, exigidos en el cajón
-    expect(t.esperado - 3032).toBe(15510);   // exactamente lo que la máquina se quedó
+  it('⛔ [negativa] sin las piernas del cajero, el esperado pide los billetes que están en la máquina', () => {
+    const t = calcularCorte({ fondoInicial: 3000, movimientos: cobroDeRuta });
+    expect(t.esperado).toBe(18542);
+    expect(t.esperado - 3032).toBe(15510);
   });
 
-  it('⛔ un gasto pagado con efectivo de CAOS no baja el esperado', () => {
-    // Si se restara, aparecería un SOBRANTE del mismo tamaño: ese efectivo nunca estuvo adentro.
+  it('⭐ un gasto pagado con una dispensación no mueve el cajón', () => {
+    // La dispensación lo mete y el pago lo saca: neto cero.
     const t = calcularCorte({
-      fondoInicial: 3000,
-      movimientos: [{ tipo: 'gasto', monto: 2000, en_boveda: 2000 }],
+      fondoInicial: 3000, movimientos: [{ tipo: 'gasto', monto: 2000 }],
+      cajeroSinCapturar: { dispensado: 2000 },
     });
     expect(t.esperado).toBe(3000);
-    expect(t.gastos).toBe(2000);   // pero el gasto del día se publica igual
+    expect(t.gastos).toBe(2000);
   });
 
-  it('⭐ [positiva] lo que SÍ pasó por el cajón se sigue contando entero', () => {
-    // Sin esto, un freno que restara todo también pasaría las pruebas de arriba y dejaría el
-    // esperado clavado en el fondo inicial para siempre.
+  it('⭐ la nómina real: el cajón sólo pone la morralla que la máquina no puede dar', () => {
+    // Datos de prod: dispensaciones 20,800 + 11,420 contra 10 pagos por 32,237.
     const t = calcularCorte({
       fondoInicial: 3000,
-      movimientos: [
-        { tipo: 'ingreso', monto: 500 },                   // efectivo que entró al cajón
-        { tipo: 'gasto', monto: 200 },                     // efectivo que salió del cajón
-        { tipo: 'ingreso', monto: 15542, en_boveda: 15510 }, // cobro de ruta
-      ],
+      movimientos: [{ tipo: 'gasto', monto: 32237 }],
+      cajeroSinCapturar: { dispensado: 32220 },
     });
-    // 3000 + 500 + 32 - 200 = 3332
-    expect(t.esperado).toBe(3332);
-    expect(t.ingresos).toBe(16042);
-    expect(t.gastos).toBe(200);
+    expect(t.esperado).toBe(2983);           // 3000 − 17
+    expect(3000 - t.esperado).toBe(17);      // la morralla, exacta
   });
 
-  it('un movimiento cancelado no aporta ni su monto ni su bóveda', () => {
+  it('⭐ [positiva] sin cajero, el cajón se cuenta entero', () => {
+    // Sin esto, un freno que anulara todo tambien pasaria las pruebas de arriba.
     const t = calcularCorte({
       fondoInicial: 3000,
-      movimientos: [{ tipo: 'ingreso', monto: 15542, en_boveda: 15510, estado: 'cancelado' }],
+      movimientos: [{ tipo: 'ingreso', monto: 500 }, { tipo: 'gasto', monto: 200 }],
     });
-    expect(t.esperado).toBe(3000);
-    expect(t.ingresos).toBe(0);
+    expect(t.esperado).toBe(3300);
+  });
+
+  it('⛔ un movimiento cancelado no entra, y el cajero sí (la máquina ya lo movió)', () => {
+    const t = calcularCorte({
+      fondoInicial: 3000,
+      movimientos: [{ tipo: 'gasto', monto: 2000, estado: 'cancelado' }],
+      cajeroSinCapturar: { dispensado: 2000 },
+    });
+    // Cancelar la CAPTURA no devuelve el efectivo a la bóveda: el billete salió igual.
+    expect(t.esperado).toBe(5000);
+    expect(t.gastos).toBe(0);
   });
 });
