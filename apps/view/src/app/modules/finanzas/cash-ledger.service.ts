@@ -651,6 +651,14 @@ export interface ArqueoDia {
     ingresos: number; gastos: number; depositos: number;
     /** ingresos − gastos − depósitos. Sin fondo inicial: eso compone el esperado, que va gateado. */
     neto: number;
+    /**
+     * `[CG.82]` De los movimientos de la jornada, cuántos traen el documento de Kepler fechado
+     * OTRO día. La jornada se arma por el día en que se REGISTRÓ el efectivo — el único reloj en
+     * el que el otro lado del cuadre también está: el `accounting_date` del cajero coincide con el
+     * día físico en 455 de 456 movimientos de 60 días. Este número dice cuánto de la jornada es
+     * papel de antes, y por eso viaja como número y no sólo como frase en `limites`.
+     */
+    fechados_otro_dia: number;
   };
   /** `null` cuando la sucursal no tiene cajero o el feed no está. El motivo viaja en `no_medido`. */
   cajero: {
