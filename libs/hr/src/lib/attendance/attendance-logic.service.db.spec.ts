@@ -160,8 +160,20 @@ suite('lógica de asistencia contra la base', () => {
         r['permisoCalificado'] = (await report.asistencia(sem)).personas.find((p) => p.codigo === '15')?.retardoRealMin;
 
         r['cerrarMiercoles'] = await fallo(() => closures.cerrar({ site_code: site, period_start: '2026-09-09' }));
-        const cierre = await closures.cerrar({ site_code: site, period_start: '2026-09-10' }) as { id: string; period_end: string; vigente: boolean };
+        // [RH.1.6b] «17» checó sin estar ligado y Ana no tiene departamento: el cierre se frena con la
+        // lista; con `force` pide motivo; con motivo cierra y lo anota. La promotora (16) no cuenta.
+        try {
+          await closures.cerrar({ site_code: site, period_start: '2026-09-10' });
+          r['sinIdentificar'] = 'sin error';
+        } catch (e) {
+          const x = e as { getStatus?: () => number; getResponse?: () => { sinIdentificar?: Array<{ codigo: string; sinFicha: boolean; sinDepartamento: boolean }> } };
+          r['sinIdentificar'] = [x.getStatus?.(), (x.getResponse?.().sinIdentificar ?? []).map((p) => `${p.codigo}:${p.sinFicha ? 'ficha' : p.sinDepartamento ? 'depto' : 'nombre'}`).sort()];
+        }
+        r['forzarSinMotivo'] = await fallo(() => closures.cerrar({ site_code: site, period_start: '2026-09-10', force: true, reason: 'ok' }));
+        const cierre = await closures.cerrar({ site_code: site, period_start: '2026-09-10', force: true, reason: 'RH confirma sus nombres el lunes' }) as {
+          id: string; period_end: string; vigente: boolean; summary: { sinIdentificar?: number; motivoSinIdentificar?: string; codigosSinIdentificar?: string[] } };
         r['cierre'] = [cierre.period_end, cierre.vigente];
+        r['resumenSinId'] = [cierre.summary.sinIdentificar, cierre.summary.motivoSinIdentificar, cierre.summary.codigosSinIdentificar];
         r['estadosCerrados'] = (await trx('hr.attendance_incidents').where({ site_code: site }).orderBy('date_from').select('status')).map((x: { status: string }) => x.status);
         r['capturarEnCerrada'] = await fallo(() => incidents.capturar({ site_code: site, person_code: '17', incident_type: 'vacaciones', date_from: '2026-09-11', note: 'x' }, califica));
         r['cerrarOtraVez'] = await fallo(() => closures.cerrar({ site_code: site, period_start: '2026-09-10' }));
@@ -225,7 +237,10 @@ suite('lógica de asistencia contra la base', () => {
     expect(r['bCalifica']).toBe('403');
     expect(r['permisoCalificado']).toBe(0);
     expect(r['cerrarMiercoles']).toBe('400');
+    expect(r['sinIdentificar']).toEqual([409, ['15:depto', '17:ficha']]);
+    expect(r['forzarSinMotivo']).toBe('400');
     expect(r['cierre']).toEqual(['2026-09-16', true]);
+    expect(r['resumenSinId']).toEqual([2, 'RH confirma sus nombres el lunes', ['17', '15']]);
     expect(r['estadosCerrados']).toEqual(['cerrada', 'cerrada']);
     expect(r['capturarEnCerrada']).toBe('409');
     expect(r['cerrarOtraVez']).toBe('409');

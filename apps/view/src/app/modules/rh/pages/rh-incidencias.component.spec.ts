@@ -1,6 +1,7 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
+import { HttpErrorResponse } from '@angular/common/http';
 import { vi } from 'vitest';
 import type { HrCierreDto, HrIncidenciaDto } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
@@ -152,6 +153,48 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
     c.modoReabrir.set(true);
     fix.detectChanges();
     expect((boton('Reabrir') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('⭐ [RH.1.6b] gente sin identificar: se dice quién y sólo se cierra con motivo escrito', async () => {
+    await render({ claves: [Permission.HR_PERIOD_CLOSE] });
+    const sinIdentificar = [
+      { codigo: '17', nombre: 'Donnacho', checadas: 9, sinFicha: true, sinNombre: true, sinDepartamento: true },
+      { codigo: '15', nombre: 'Ana López Ruiz', checadas: 4, sinFicha: false, sinNombre: false, sinDepartamento: true },
+    ];
+    api['cerrarSemana'].mockReturnValueOnce(throwError(() => new HttpErrorResponse({ status: 409, error: { message: '2 personas…', sinIdentificar } })));
+    const c = fix.componentInstance;
+    c.moverSemana(-7);
+    fix.detectChanges();
+    c.cerrarSemana();
+    fix.detectChanges();
+    expect(texto()).toContain('2 personas checaron esta semana sin estar identificada');
+    expect(texto()).toContain('#17');
+    expect(texto()).toContain('sin ficha');
+    expect(texto()).toContain('sin departamento');
+    const forzar = () => boton('Cerrar de todos modos') as HTMLButtonElement;
+    expect(forzar().disabled).toBe(true);
+    c.motivoSinId.set('ok');
+    fix.detectChanges();
+    expect(forzar().disabled).toBe(true);
+    c.motivoSinId.set('RH confirma el lunes');
+    fix.detectChanges();
+    expect(forzar().disabled).toBe(false);
+    c.cerrarDeTodosModos();
+    expect(api['cerrarSemana']).toHaveBeenLastCalledWith('PH', '2026-09-24', { motivo: 'RH confirma el lunes' });
+    fix.detectChanges();
+    expect(texto()).toContain('con 2 sin identificar anotados en el cierre');
+  });
+
+  it('⛔ NEGATIVA — un 409 que NO trae la lista (semana ya cerrada) es un error, no el panel de motivo', async () => {
+    await render({ claves: [Permission.HR_PERIOD_CLOSE] });
+    api['cerrarSemana'].mockReturnValueOnce(throwError(() => new HttpErrorResponse({ status: 409, error: { message: 'Alguien más acaba de cerrar esta semana.' } })));
+    const c = fix.componentInstance;
+    c.moverSemana(-7);
+    c.cerrarSemana();
+    fix.detectChanges();
+    expect(c.sinId()).toBeNull();
+    expect(texto()).toContain('Alguien más acaba de cerrar esta semana.');
+    expect(boton('Cerrar de todos modos')).toBeUndefined();
   });
 
   it('⛔ NEGATIVA — sin permiso de cierre, ni cerrar ni reabrir', async () => {
