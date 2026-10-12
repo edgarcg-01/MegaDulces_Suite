@@ -102,6 +102,44 @@ const REGLAS = [
   },
 ];
 
+
+/**
+ * `[AUD.2]` — **Chequeo SEMANTICO: el archivo no sólo parsea, TIPA.**
+ *
+ * ⛔ Nace de un defecto que llegó al build del usuario. Un `d as CommissionRunDetail` sobre el
+ * payload del preview pasó las cinco compuertas de CSS, pasó el parseo con el compilador de TS,
+ * pasó esta misma auditoría de reglas — y murió en `Build & typecheck` con `TS2352`. La causa:
+ * **validar que un archivo PARSEA no es validar que TIPA.** Un `as` es sintaxis perfecta y
+ * mentira semántica.
+ *
+ * Importa más de lo que parece en este repo: ⛔⛔ no se compila ni se levanta nada en local
+ * (regla dura), así que el único que tipaba era el CI. Entre escribir el error y verlo pasan
+ * un push y varios minutos — o, como pasó, lo ve el usuario antes que el CI.
+ *
+ * ⚠️ Cuesta ~10 s: carga el programa entero (1,075 archivos) para resolver los `paths` de
+ * `tsconfig.base.json`. Por eso NO corre en el barrido `--todas` (serían 40 minutos): corre
+ * cuando se audita UNA pantalla, que es justo cuando se la está tocando.
+ */
+function tipaBien(file) {
+  const ts = require('typescript');
+  const base = path.resolve(__dirname, '..');
+  const cfg = ts.readConfigFile(path.join(base, 'tsconfig.base.json'), ts.sys.readFile);
+  if (cfg.error) return { ok: null, motivo: 'no se pudo leer tsconfig.base.json' };
+  const parsed = ts.parseJsonConfigFileContent(cfg.config, ts.sys, base);
+  const abs = path.resolve(file);
+  const prog = ts.createProgram([abs], { ...parsed.options, noEmit: true, skipLibCheck: true });
+  const sf = prog.getSourceFile(abs);
+  if (!sf) return { ok: null, motivo: 'el compilador no cargó el archivo' };
+  const d = prog.getSemanticDiagnostics(sf);
+  return {
+    ok: d.length === 0,
+    errores: d.slice(0, 5).map((x) => {
+      const p = x.file.getLineAndCharacterOfPosition(x.start);
+      return `TS${x.code} linea ${p.line + 1}: ${ts.flattenDiagnosticMessageText(x.messageText, ' ')}`;
+    }),
+  };
+}
+
 function pantallas() {
   const out = [];
   (function walk(d) {
@@ -162,6 +200,23 @@ let totalFallas = 0;
 for (const f of objetivo.sort()) {
   const { fallas, avisos } = auditar(f);
   const nom = path.basename(f).replace('.component.ts', '');
+  // `[AUD.2]` El chequeo de tipos, solo al auditar UNA pantalla: cuesta ~10 s y en el barrido
+  // serian 40 minutos. Es justo cuando se la esta tocando que importa.
+  if (!todas) {
+    const t = tipaBien(f);
+    if (t.ok === false) {
+      conFallas++; totalFallas += t.errores.length;
+      console.log(`
+  ✖ ${nom} — NO TIPA (esto muere en Build & typecheck):`);
+      for (const e of t.errores) console.log(`      ✖ ${e}`);
+    } else if (t.ok === null) {
+      // Lo que no se pudo medir se DECLARA, nunca se da por bueno (ADR-056).
+      console.log(`
+  ⓘ ${nom}: tipos NO MEDIDOS — ${t.motivo}`);
+    } else {
+      console.log(`  ✔ ${nom}: tipa (0 errores semanticos)`);
+    }
+  }
   if (!fallas.length && !avisos.length) { if (!todas) console.log(`  ✔ ${nom}: cumple las ${REGLAS.length} reglas`); continue; }
   if (fallas.length) { conFallas++; totalFallas += fallas.length; }
   if (todas && !fallas.length) continue;
