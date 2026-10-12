@@ -289,10 +289,35 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
 
 ### RH.2 — Reclutamiento en la Suite (≈3 semanas, se construye sin cortar)
 
-- [ ] **[RH.2.1]** Schema `talent.*` + bucket privado para documentos.
-- [ ] **[RH.2.2]** API: candidatos, eventos, etapas, vacantes, requisiciones, no recontratables, papelera, permanencia (vista), encuestas.
-- [ ] **[RH.2.3]** Pantallas `/rh/reclutamiento`, `/rh/vacantes`, `/rh/requisiciones`, `/rh/permanencia` (sólo las que pasaron RH.0.5).
+**Alcance recortado a lo que se USA** (medido el 12-oct-2026 en la base de Mega Talento, sólo lectura):
+`candidatos` 1,656 (≈300–700 por mes) · `candidatos_transiciones` 935 · `candidatos_eventos` 123 ·
+`puestos` 7 · **`requisiciones` 0 y `evaluaciones` 0** · `empleados.candidato_id` (permanencia) 0 con
+valor. Las etapas que de verdad se recorren: filtro_inicial → aptitudes (521) → entrevista_rh (392) →
+psicometria (6) → contratado (13, el último el 14-ago). Por eso **requisiciones, evaluaciones,
+permanencia y encuestas salen del alcance**: existen en el código de Mega Talento y nadie las usó;
+si RH las pide, se construyen sobre los datos ya portados (la permanencia se deriva, no se captura).
+
+⛔ **Hueco de seguridad que NO se porta:** en Mega Talento `GET`/`PATCH /candidatos/:id` son públicos y
+la única llave es el UUID — quien tiene la liga lee y edita el expediente completo (teléfono, RFC, NSS,
+documentos). En la Suite el acceso público va con **token firmado y con vencimiento** que sólo abre lo
+que ese formulario necesita (`[RH.2.4]`).
+
+- [ ] **[RH.2.1]** 🧪 Schema `talent.*` (mig `20261012155411`, 2026-10-12): `job_postings` (vacantes),
+  `candidates` (bot + portal en una fila, **mismo id que Mega Talento**; `phone_key` derivado con los
+  últimos 10 dígitos porque el bot guarda 13 y el portal 10 —la misma persona quedaba doble—, sin
+  UNIQUE a propósito: los duplicados históricos se fusionan a mano; lista negra y spam como marcas
+  con motivo obligatorio; papelera = `deleted_at`), `candidate_stage_transitions` y
+  `candidate_events` (de sólo agregar para la app). RLS forzado. Prueba contra la base
+  `libs/hr/src/lib/talent/talent-datos.db.spec.ts` (teléfono, marcas sin motivo, tipos inválidos,
+  bitácoras inmutables, aislamiento por tenant), **mutada a rojo** quitando un CHECK y un candado de
+  la bitácora. El bucket privado para documentos va con `[RH.2.2]` (es configuración de S3, no
+  esquema). ⚠️ Aditiva y sin consumidores: se puede aplicar a prod cuando sea.
+- [ ] **[RH.2.2]** API: candidatos (lista, ficha, etapa, marcas, papelera, fusión de duplicados), eventos,
+  vacantes; documentos en bucket privado con liga temporal (Mega Talento sube a Cloudinary sin firma).
+- [ ] **[RH.2.3]** Pantallas `/rh/reclutamiento` y `/rh/vacantes`.
 - [ ] **[RH.2.4]** Portal público `/empleo/*` con token firmado (D6).
+- [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
+  en el corte conjunto con el bot (`[RH.3.5]`).
 
 ### RH.3 — Bot de reclutamiento en `libs/whatsapp` (≈4–5 semanas)
 
