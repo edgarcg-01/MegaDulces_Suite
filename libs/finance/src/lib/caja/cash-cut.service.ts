@@ -556,9 +556,41 @@ export class CashCutService {
         fecha || (await trx.raw(`SELECT (now() AT TIME ZONE 'America/Mexico_City')::date::text d`)).rows[0].d,
       ).slice(0, 10);
 
-      // ── 1. Caja general: lo que NUESTRO libro registró en esa jornada ────────────────────
+      /**
+       * ── 1. Caja general: lo que NUESTRO libro registró en esa jornada ────────────────────
+       *
+       * ⛔⛔ `[CG.82]` **ACÁ SE FILTRABA POR `fecha`, Y `fecha` ES LA DEL DOCUMENTO DE KEPLER,
+       * NO EL DÍA EN QUE SE REGISTRÓ EL EFECTIVO.** Lo encontró Edgar al pedir que se verificara
+       * que el cierre muestra *"los ingresos y egresos que se van registrando"*. No los mostraba.
+       *
+       * La `fecha` de un movimiento nace del documento: la bandeja propone
+       * `fecha: ymd(r.fecha_valor)` (`cash-ledger.service.ts`), y el ERP captura con una **mediana
+       * de 3 días de rezago** — cifra que este mismo archivo ya publicaba en `limites`. O sea que
+       * lo normal es registrar hoy algo fechado hace tres días, y eso caía en una jornada que ya
+       * se cerró.
+       *
+       * Medido en prod el 2026-10-12, sobre las 5 filas vivas de `finance.cash_ledger`:
+       *   · **2 de 5** tienen fecha de documento distinta del día en que se registraron;
+       *   · una está fechada **2026-12-10** y se registró el **2026-09-28** — ese gasto de
+       *     $1,060 aparecía en el cierre de un día de DICIEMBRE y en ninguno antes.
+       *
+       * ⭐ Y lo que vuelve esto inequívoco, no una preferencia: **el otro lado del cuadre ya está
+       * en el reloj físico.** El cajero se agrupa por `caos_cash_movements.accounting_date`, que
+       * en **455 de 456** movimientos de 60 días coincide con el día en que el efectivo se movió.
+       * Un cuadre cuyos dos lados usan relojes distintos no cuadra nada: compara el dinero que
+       * salió hoy del cajero contra los documentos que están fechados hoy, que son otra cosa.
+       *
+       * Un arqueo responde "¿qué se movió en el cajón hoy?". El efectivo sale cuando la persona lo
+       * entrega, no cuando Kepler fecha el papel.
+       *
+       * ⚠️ El rango va con `>=` / `<` sobre `created_at` y NO con un cast a `::date`: envolver la
+       * columna en una expresión la saca de cualquier índice. Es el mismo defecto que en `[LC.9]`
+       * convirtió un `to_char(fecha)` en un seq scan de 167k filas.
+       */
       const [libro] = await trx('finance.cash_ledger')
-        .where({ tenant_id: tenantId, sucursal, fecha: dia })
+        .where({ tenant_id: tenantId, sucursal })
+        .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
+        .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
         .whereNull('deleted_at')
         .select(
           trx.raw(`count(*) FILTER (WHERE estado <> 'cancelado')::int AS movimientos`),
@@ -566,6 +598,12 @@ export class CashCutService {
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='ingreso'),0)::numeric AS ingresos`),
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='gasto'),0)::numeric AS gastos`),
           trx.raw(`coalesce(sum(monto) FILTER (WHERE estado <> 'cancelado' AND tipo='deposito'),0)::numeric AS depositos`),
+          // `[CG.82]` Cuántos de los de HOY traen el papel fechado otro día. No es un error ni algo
+          // que alguien pueda arreglar hoy: es el rezago del ERP, y se publica para que nadie lea
+          // esta jornada como si fuera un corte contable. Se cuenta, no se esconde.
+          trx.raw(`count(*) FILTER (WHERE estado <> 'cancelado'
+                     AND fecha <> (created_at AT TIME ZONE 'America/Mexico_City')::date)::int
+                   AS fechados_otro_dia`),
         );
       const ingresos = Number(libro?.ingresos ?? 0);
       const gastos = Number(libro?.gastos ?? 0);
@@ -674,6 +712,13 @@ export class CashCutService {
         no_medido.push('Todavía no rendiste cuentas de esta jornada: esto es el movimiento REGISTRADO, no un arqueo firmado contra un conteo físico.');
       }
       limites.push('La cola de Kepler no entra en este cuadre: el ERP tarda una mediana de 3 días en capturar el documento, así que el efectivo de hoy todavía no está allá.');
+      // `[CG.82]` La jornada se arma por el día en que se REGISTRÓ el efectivo, no por la fecha del
+      // documento: es el único reloj en el que el otro lado del cuadre (el cajero) también está.
+      // Se dice sólo cuando hay alguno, para que no sea un aviso permanente que nadie lee.
+      const fueraDeFecha = Number(libro?.fechados_otro_dia ?? 0);
+      if (fueraDeFecha > 0) {
+        limites.push(`Esta jornada es lo REGISTRADO hoy:  de esos movimientos traen el documento de Kepler fechado otro día. El efectivo se movió hoy; el papel es de antes.`);
+      }
       if (cajero && (cajero['tipos_desconocidos'] as unknown[]).length > 0) {
         no_medido.push('El cajero reportó un tipo de movimiento que no conocemos: está listado aparte y NO se sumó a ninguna pierna.');
       }
@@ -688,6 +733,9 @@ export class CashCutService {
           // Lo que el día le dejó a la caja chica según el libro. Sin fondo inicial: eso compone el
           // `esperado` del corte y vive gateado en `saldo()` (CG.19, arqueo ciego).
           neto: Number((ingresos - gastos - depositos).toFixed(2)),
+          // `[CG.82]` De los de hoy, cuántos traen el papel fechado otro día (el rezago del ERP).
+          // Viaja como NÚMERO y no sólo como frase: la frase se lee una vez, el número se compara.
+          fechados_otro_dia: fueraDeFecha,
         },
         cajero,
         corte_abierto: corte
