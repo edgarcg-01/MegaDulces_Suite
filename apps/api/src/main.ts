@@ -311,6 +311,9 @@ async function bootstrap() {
   app.use('/api/finance/supplier-payments', json({ limit: '16mb' }));
   // MS — Mesa de Servicio: capturas de pantalla/PDF como base64 en la solicitud y en cada comentario.
   app.use('/api/service-desk', json({ limit: '32mb' }));
+  // `[RH.2.2]` Expediente de reclutamiento: un documento (foto de celular o PDF escaneado) hasta 10 MB
+  // → ~14 MB en base64. Sólo la ruta de subida.
+  app.use('/api/hr/talent/candidates/:id/documents', json({ limit: '16mb' }));
   // Conciliación bancaria (CB.2.1): el workbook Excel llega como base64 (~2-5MB).
   app.use('/api/finance/bank/import', json({ limit: '25mb' }));
   // WhatsApp (F.1): el webhook de Meta necesita el body CRUDO para validar la

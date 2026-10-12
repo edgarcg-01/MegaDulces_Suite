@@ -312,8 +312,40 @@ que ese formulario necesita (`[RH.2.4]`).
   bitácoras inmutables, aislamiento por tenant), **mutada a rojo** quitando un CHECK y un candado de
   la bitácora. El bucket privado para documentos va con `[RH.2.2]` (es configuración de S3, no
   esquema). ⚠️ Aditiva y sin consumidores: se puede aplicar a prod cuando sea.
-- [ ] **[RH.2.2]** API: candidatos (lista, ficha, etapa, marcas, papelera, fusión de duplicados), eventos,
-  vacantes; documentos en bucket privado con liga temporal (Mega Talento sube a Cloudinary sin firma).
+- [ ] **[RH.2.2]** 🧪 API `/api/hr/talent/*` (2026-10-12), traslado de las rutas protegidas de
+  `candidatos.ts` + el KPI de fases y los eventos de `kpi.ts`. Claves nuevas `HR_RECRUITMENT_VER` /
+  `_GESTIONAR` (se reparten con la pantalla, `[RH.2.3]`; mientras, `SIN_REPARTIR`). Endpoints: lista por
+  apartado (postulados = con CV o ya movido por RH, regla `ES_POSTULACION` de Mega Talento · en proceso ·
+  spam · no recontratables · papelera) con conteo por etapa y búsqueda por nombre/puesto/teléfono; ficha
+  con la historia; corregir datos; mover de etapa; eventos; lista negra (motivo obligatorio) y spam;
+  papelera y restaurar; fusión; duplicados por teléfono; alerta de reingresos; tiempo por etapa; vacantes.
+  **Diferencias con Mega Talento, a propósito:** (1) mover de etapa y su renglón de bitácora van en la
+  MISMA transacción (allá el INSERT estuvo 5 días fallando en silencio dentro de un `catch`); (2) la
+  fusión NO mueve la historia: el absorbido queda en la papelera con `merged_into_id` y la ficha junta las
+  dos historias — restaurarlo deshace la fusión; (3) la fusión se niega si uno está en la lista negra y el
+  otro no (la marca la decide una persona); (4) no hay borrado definitivo ni se borran eventos; (5) las
+  etapas viejas se leen en su vigente con el mapa exacto de `etapa.ts` y nunca se escriben.
+  **Migración `20261012172246_talent_fusion_y_motivo_papelera`** (aparte: la de `[RH.2.1]` entró a `main`
+  en #378 en su versión anterior y ya pudo aplicarse): `deletion_reason` + `merged_into_id` con CHECK —
+  la prueba destapó que `merged_into_id` sin papelera pasaba (`NULL = 'fusionado'` no rechaza).
+  ⚠️ Restaurar a un absorbido lo vuelve su propio registro, pero lo que la fusión COPIÓ al que quedó
+  (huecos, documentos) se queda: no se adivina si alguien lo corrigió después (lo encontró la prueba).
+  **Expediente (bucket privado):** subir y retirar documentos por casillero, con el catálogo exacto del
+  bot (12 casilleros, 9 obligatorios) y `documentos_faltantes` en la ficha. Mega Talento subía a
+  Cloudinary SIN firma (toda URL era pública); aquí bucket privado, tipo validado por FIRMA (un HTML
+  disfrazado de PNG rebota), nombre saneado, URL firmada de 10 min en cada lectura (en la base se guarda
+  la llave, nunca la URL), subida fuera de la transacción y borrado del bucket si la transacción falla.
+  Retirar no borra: marca con quién, cuándo y por qué, y deja de contar (también como CV). La validación
+  por firma se SUBIÓ de `libs/service-desk` a `platform-core/storage` (la usan dos dominios; ADR-056),
+  con su prueba y el `vitest.config.ts` que `platform-core` no tenía. Pruebas: reglas puras
+  (`logic/etapas.spec.ts`, `logic/expediente.spec.ts`, CI) y el ciclo completo contra la base
+  (`talent-candidates.service.db.spec.ts`, bucket falso en memoria), **mutadas a rojo** (etapa de origen
+  mal guardada; fusión que pisa datos; no borrar el huérfano; guardar el tipo declarado). ⚠️
+  `eslint.config.js`: `checkDynamicDependenciesExceptions` para `platform-core` — la regla de lib
+  diferida es transitiva (`hr → database → platform-core` por `require()` dentro de funciones) y marcaba
+  como error TODO import nuevo de platform-core en `libs/hr`, incluido uno que ya está en main.
+  **No incluye:** la decisión aprobado/descartado (pasa por el bot: `[RH.3]`); Word como CV (el bot lo
+  acepta; un `.docx` es un ZIP y la firma no lo distingue de cualquier ZIP — se decide con RH.2.4).
 - [ ] **[RH.2.3]** Pantallas `/rh/reclutamiento` y `/rh/vacantes`.
 - [ ] **[RH.2.4]** Portal público `/empleo/*` con token firmado (D6).
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),

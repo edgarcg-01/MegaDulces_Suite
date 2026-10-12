@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { CloudinaryModule } from '@megadulces/platform-core';
 import { HrAttendanceIngestController, HrAttendanceMtCompatController } from './attendance/attendance-ingest.controller';
 import { HrAttendanceDevicesController } from './attendance/attendance-devices.controller';
 import { HrAttendanceDevicesService } from './attendance/attendance-devices.service';
@@ -11,6 +12,9 @@ import { HrAttendanceReportService } from './attendance/attendance-report.servic
 import { HrAttendanceIncidentsService } from './attendance/attendance-incidents.service';
 import { HrAttendanceClosuresService } from './attendance/attendance-closures.service';
 import { HrAttendanceSchedulesService } from './attendance/attendance-schedules.service';
+import { HrTalentController } from './talent/talent.controller';
+import { HrTalentCandidatesService } from './talent/talent-candidates.service';
+import { HrTalentJobsService } from './talent/talent-jobs.service';
 
 /**
  * Fase RH (ADR-084) — Recursos Humanos dentro de la Suite.
@@ -19,16 +23,20 @@ import { HrAttendanceSchedulesService } from './attendance/attendance-schedules.
  *     las rutas del agente de Mega Talento) y la administración de los relojes y sus órdenes;
  *   · `[RH.1.5]` horarios deducidos, la asistencia por persona y el agente de alertas (`@Cron`
  *     en el worker, apagado hasta el corte: `ENABLE_HR_ATTENDANCE_AGENT`);
- *   · `[RH.1.6]` incidencias (6 estados, separación de funciones) y el cierre semanal.
+ *   · `[RH.1.6]` incidencias (6 estados, separación de funciones) y el cierre semanal;
+ *   · `[RH.2.2]` reclutamiento: candidatos (etapas, eventos, marcas, papelera, fusión) y vacantes.
  *
  * Las pantallas son `[RH.1.7]`. Las claves `HR_*` gatean la API desde ya y se reparten con ellas.
  */
 @Module({
-  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController],
+  // `CloudinaryModule` exporta `ObjectStorageService`: el bucket PRIVADO de los expedientes de reclutamiento.
+  imports: [CloudinaryModule],
+  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController, HrTalentController],
   providers: [
     HrAttendanceIngestService, HrIngestGuard,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
     HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService,
+    HrTalentCandidatesService, HrTalentJobsService,
   ],
   exports: [HrAttendanceIngestService, HrAttendanceReportService],
 })

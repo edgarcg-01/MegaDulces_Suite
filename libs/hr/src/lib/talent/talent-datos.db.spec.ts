@@ -12,7 +12,9 @@ const URL = process.env['HR_DB_TEST_URL'];
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const OTRO = '00000000-0000-0000-0000-0000000000ff';
 const ROLLBACK = new Error('rollback-intencional');
-const MIG = require(path.resolve(__dirname, '../../../../../database/migrations-newdb', '20261012155411_talent_reclutamiento_datos.js'));
+const MIG_BASE = require(path.resolve(__dirname, '../../../../../database/migrations-newdb', '20261012155411_talent_reclutamiento_datos.js'));
+const MIG_FUSION = require(path.resolve(__dirname, '../../../../../database/migrations-newdb', '20261012172246_talent_fusion_y_motivo_papelera.js'));
+const MIG = { up: async (k: unknown) => { await MIG_BASE.up(k); await MIG_FUSION.up(k); } };
 
 const suite = URL && !/prod|railway|\.222:5434/i.test(URL) ? describe : describe.skip;
 if (!URL) console.warn('[RH.2.1] NO MEDIDO: sin HR_DB_TEST_URL no se prueba el esquema de reclutamiento contra la base.');
@@ -63,6 +65,11 @@ suite('[RH.2.1] reclutamiento — capa de datos', () => {
           await fallo(trx, () => trx('talent.candidate_events').insert({ tenant_id: TENANT, candidate_id: bot.id, event_type: 'llamada' })),
           await fallo(trx, () => trx('talent.candidate_events').insert({ tenant_id: TENANT, candidate_id: bot.id, event_type: 'contacto', channel: 'fax' })),
           await fallo(trx, () => trx('talent.job_postings').insert({ tenant_id: TENANT, name: ' ' })),
+          // Papelera sin motivo, y fusión sin estar en la papelera como «fusionado».
+          await fallo(trx, () => trx(C).where({ id: web.id }).update({ deleted_at: trx.fn.now() })),
+          await fallo(trx, () => trx(C).where({ id: web.id }).update({ merged_into_id: bot.id })),
+          await fallo(trx, () => trx(C).where({ id: web.id }).update({ deleted_at: trx.fn.now(), deletion_reason: 'manual', merged_into_id: bot.id })),
+          await fallo(trx, () => trx(C).where({ id: web.id }).update({ deleted_at: trx.fn.now(), deletion_reason: 'fusionado', merged_into_id: web.id })),
         ];
         // Con motivo, sí.
         await trx(C).where({ id: bot.id }).update({ no_rehire: true, no_rehire_reason: 'abandono', no_rehire_by_name: 'rh', no_rehire_at: trx.fn.now() });
@@ -77,7 +84,7 @@ suite('[RH.2.1] reclutamiento — capa de datos', () => {
           await fallo(trx, () => trx('talent.candidate_events').where({ candidate_id: MT_ID }).update({ note: 'x' }), true),
           await fallo(trx, () => trx(C).where({ id: MT_ID }).del(), true),                 // la papelera es deleted_at
           await fallo(trx, () => trx('talent.candidate_events').insert({ tenant_id: TENANT, candidate_id: MT_ID, event_type: 'nota' }), true),
-          await fallo(trx, () => trx(C).where({ id: MT_ID }).update({ deleted_at: trx.fn.now() }), true),
+          await fallo(trx, () => trx(C).where({ id: MT_ID }).update({ deleted_at: trx.fn.now(), deletion_reason: 'manual' }), true),
         ];
 
         // ── Aislamiento: la app de otro tenant no ve ni escribe nada de éste ───────────────
@@ -103,7 +110,7 @@ suite('[RH.2.1] reclutamiento — capa de datos', () => {
 
     expect(r['phone']).toEqual(['3511234567', '3511234567', null]);
     expect(r['mismoId']).toBe('AbCdEfGhIjKlMnOpQrSt');
-    expect(r['malos']).toEqual(['23514', '23514', '23514', '23514', '23514', '23514', '23514']);
+    expect(r['malos']).toEqual(Array(11).fill('23514'));
     expect(Number(r['listaNegra'])).toBe(1);
     // UPDATE/DELETE en bitácoras y DELETE de candidatos: sin permiso (42501). Agregar y mandar a papelera: sí.
     expect(r['app']).toEqual(['42501', '42501', '42501', '42501', 'sin error', 'sin error']);
