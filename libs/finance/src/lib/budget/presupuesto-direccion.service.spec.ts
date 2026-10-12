@@ -60,13 +60,20 @@ function hacerTrx(d: Doble) {
     return c;
   };
   const trx = (tabla: string) => chain(tabla);
-  (trx as unknown as { raw: (s: string) => Promise<unknown> }).raw = async (s: string) => {
-    // ⭐ Se capturan los fragmentos que el servicio CONSTRUYE DE VERDAD en esta corrida.
-    // Es lo que distingue esto de grepear el archivo: el grep dice «la cadena aparece en algún
-    // lado»; esto dice «el fragmento que ESTA consulta armó la lleva». Atrapa la mutación de
-    // quitar el filtro en UNO de los cuatro sitios, que al texto se le escapa porque la cadena
-    // sigue estando en los otros tres.
+  // ⚠️ PEREZOSO, como `knex.raw()` de verdad: devuelve algo que se puede esperar y sólo FALLA al
+  // esperarlo. Con un `async` la promesa nacía rechazada al llamarla, y cada `trx.raw()` que el
+  // servicio pasa dentro de un `select()` sin esperarlo quedaba como rechazo NO manejado: 16 en
+  // CI, que dejaban «Lint & test» en rojo para todo PR que tocara `finance`.
+  (trx as unknown as { raw: (s: string) => PromiseLike<unknown> }).raw = (s: string) => {
+    // ⭐ Se capturan los fragmentos que el servicio CONSTRUYE DE VERDAD en esta corrida, al
+    // armarlos (no al esperarlos: muchos viajan dentro de un `select()`). Es lo que distingue esto
+    // de grepear el archivo: atrapa la mutación de quitar el filtro en UNO de los cuatro sitios,
+    // que al texto se le escapa porque la cadena sigue estando en los otros tres.
     d.crudos?.push(s);
+    const ejecutar = async () => crudo(s);
+    return { then: (ok?: (v: unknown) => unknown, mal?: (e: unknown) => unknown) => ejecutar().then(ok, mal), toString: () => s };
+  };
+  const crudo = (s: string) => {
     if (d.fallan?.has('raw')) throw new Error('raw apagado a propósito');
     return { rows: [{ n: s.includes('account_code') ? 14 : 0 }] };
   };
