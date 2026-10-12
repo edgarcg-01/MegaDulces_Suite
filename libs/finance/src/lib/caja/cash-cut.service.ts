@@ -843,7 +843,13 @@ export class CashCutService {
         },
         cajero,
         corte_abierto: corte
-          ? { id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10) }
+          ? {
+            id: corte.id, folio: corte.folio, fecha: String(corte.fecha).slice(0, 10),
+            // `[CG.90.1]` Si el fondo se midió o no. La pantalla ofrece declararlo SOLO cuando
+            // falta; sin este campo el botón saldría siempre, incluso con el fondo ya puesto.
+            // ⚠️ `fondo()` devuelve `null` cuando no se midió — NO `0`, que sería "arrancó vacía".
+            fondo_inicial: fondo(corte), fondo_origen: corte.fondo_origen ?? null,
+          }
           : null,
         no_medido,
         limites,
