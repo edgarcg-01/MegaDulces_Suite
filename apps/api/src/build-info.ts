@@ -60,3 +60,26 @@ export function commitDelBuildOpcional(): string | undefined {
   const c = commitDelBuild();
   return c === 'unknown' ? undefined : c;
 }
+
+/**
+ * `[DBH.4]` **El ASUNTO del commit horneado, o `undefined`.**
+ *
+ * Lo pide `/admin/db-health`, donde la pregunta real es *«¿ya subió mi cambio?»*: un hash de ocho
+ * caracteres no la contesta sin irse a `git log` a traducirlo; el asunto sí.
+ *
+ * ⚠️ **Devuelve `undefined`, no `'unknown'`, y la diferencia importa.** El SHA siempre existe —si
+ * falta es una falla y vale la pena que se lea `unknown`—, pero el asunto puede faltar
+ * legítimamente: un `docker build` a mano no pasa el `ARG`. Quien lo consume debe caer al SHA, que
+ * es información verdadera, en vez de pintar la palabra «unknown» donde se espera una frase.
+ *
+ * ⚠️ Se recorta a 200 caracteres. Un asunto de commit convencional no llega ni a la mitad, pero
+ * esto viaja en una variable de entorno de un contenedor y de ahí a una pantalla: si alguien pega
+ * un cuerpo entero, que no reviente el renglón.
+ *
+ * ⛔ No se intenta leerlo de git: **dentro del contenedor no hay repositorio.** Es el mismo motivo
+ * por el que el SHA se hornea en la imagen (ver arriba).
+ */
+export function asuntoDelBuild(): string | undefined {
+  const s = noVacio(process.env.GIT_COMMIT_SUBJECT);
+  return s === undefined ? undefined : s.slice(0, 200);
+}

@@ -1,6 +1,5 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { Knex } from 'knex';
-import type { BudgetLineMovement } from '@megadulces/contracts';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import { BudgetGenerationService } from './budget-generation.service';
 
@@ -118,34 +117,9 @@ export class BudgetLinesService {
     });
   }
 
-  /**
-   * `[PU.VG.9]` El catálogo que alimenta el selector de la pantalla.
-   *
-   * ⛔ **La pantalla abría sobre el ejercicio de PRUEBA**, y los tres eslabones son inocentes por
-   * separado: esta lista ordena por `fiscal_year DESC, created_at DESC`, el duplicado de FY2027 es
-   * **el más nuevo**, y el front hace `selectBudget(rows[0])`. Medido en prod el 2026-10-09, el
-   * orden real era `[0] FY2027 [PRUEBA] · [1] FY2027 real · [2] FY2026`.
-   *
-   * ⭐ **Y lo que lo volvía invisible:** el duplicado es exacto al centavo, así que la cifra que se
-   * publicaba era CORRECTA ($74,850,066.62 de los dos lados). No es un número falso: es el número
-   * bueno leído de una fila que nadie mantiene. El día que alguien edite una de las dos, la
-   * pantalla sigue anclada a la de prueba y nada cambia visualmente.
-   *
-   * ⛔ **NO se filtra, y es deliberado.** Esconder el ejercicio de prueba lo vuelve inalcanzable
-   * desde la UI —nadie podría ni borrarlo— y es un cambio de comportamiento en silencio. Lo que
-   * cambia es el ORDEN: `is_test` último. Deja de ser `rows[0]` sin desaparecer, y se arregla para
-   * **todo** cliente del endpoint, no sólo para esta pantalla. El freno va en el servicio porque
-   * la pantalla es un cliente entre varios.
-   */
   async listBudgets() {
     this.tenantCtx.requireTenantId();
-    return this.tk.run((trx) => trx('budget.budgets').orderBy([
-      // Primero lo que manda. `is_test` es NOT NULL con default false, así que no hay NULLs que
-      // ordenar: un ejercicio nuevo se asume REAL y entra arriba, que es lo que se quiere.
-      { column: 'is_test', order: 'asc' },
-      { column: 'fiscal_year', order: 'desc' },
-      { column: 'created_at', order: 'desc' },
-    ]));
+    return this.tk.run((trx) => trx('budget.budgets').orderBy([{ column: 'fiscal_year', order: 'desc' }, { column: 'created_at', order: 'desc' }]));
   }
 
   async getBudget(id: string) {
@@ -259,7 +233,7 @@ export class BudgetLinesService {
     return this.decorate(row);
   }
 
-  async movements(lineId: string): Promise<BudgetLineMovement[]> {
+  async movements(lineId: string) {
     this.tenantCtx.requireTenantId();
     return this.tk.run((trx) => trx('budget.line_movements').where({ budget_line_id: lineId }).orderBy('created_at'));
   }
@@ -346,25 +320,12 @@ export class BudgetLinesService {
     }).first();
   }
 
-  private async writeMovement(trx: Knex.Transaction, tenantId: string, lineId: string, type: string, amount: number, opts: MovementOpts & { counterpart?: string; cancelTarget?: 'reserva' | 'compromiso' }, username: string) {
+  private async writeMovement(trx: Knex.Transaction, tenantId: string, lineId: string, type: string, amount: number, opts: MovementOpts & { counterpart?: string }, username: string) {
     try {
       const [mov] = await trx('budget.line_movements').insert({
         tenant_id: tenantId, budget_line_id: lineId, movement_type: type, amount,
         counterpart_line_id: opts.counterpart ?? null,
         source_kind: opts.sourceKind ?? null, source_ref: opts.sourceRef ?? null,
-        // [PU.VG.4a] QUE acumulador bajo esta cancelacion. Antes esto viajaba SOLO en `note`, texto
-        // libre que el llamador puede reemplazar -- o sea que `reserved_amount` y
-        // `committed_amount` no se podian recomputar desde el ledger, y ese es el unico cuadre que
-        // puede fallar (el obvio es una tautologia: `available_amount` no es columna). El CHECK de
-        // la tabla exige esto en las dos direcciones, asi que una cancelacion sin objetivo ya no
-        // entra. NULL = no aplica, nunca "no se" (ADR-056).
-        cancel_target: type === 'cancelacion' ? (opts.cancelTarget ?? null) : null,
-        // [PU.VG.4a] El gemelo del mismo defecto: un `compromiso` con fromReserva MUEVE reservado a
-        // comprometido, y sin el, `committed += amt` sale del disponible y reserved no se toca.
-        // Los dos escribian un movimiento IDENTICO, asi que reserved_amount tampoco se podia
-        // recomputar. Va booleano y no nullable: para un movimiento que no es compromiso, `false`
-        // es cierto, no una suposicion.
-        from_reserva: type === 'compromiso' ? !!opts.fromReserva : false,
         note: opts.note ?? null, created_by: username,
       }).returning('*');
       return mov;
@@ -451,15 +412,6 @@ export class BudgetLinesService {
           }
           break;
         case 'cancelacion':
-          // [PU.VG.4a] El `else` de abajo mandaba a `compromiso` CUALQUIER cancelTarget que no
-          // fuera exactamente 'reserva' -- incluido `undefined`. O sea que un llamador que lo
-          // olvidara bajaba el bucket equivocado EN SILENCIO, y el movimiento quedaba escrito sin
-          // decir cual fue. Ahora se exige explicito: una ambiguedad se rechaza, no se resuelve
-          // por default. (El CHECK de la tabla lo atrapa igual, pero da un 500 de constraint en
-          // vez de un 400 que se entienda.)
-          if (cancelTarget !== 'reserva' && cancelTarget !== 'compromiso') {
-            throw new BadRequestException("cancelacion exige target explicito: 'reserva' o 'compromiso'");
-          }
           if (cancelTarget === 'reserva') {
             if (round2(reserved) < amt) throw new BadRequestException(`No hay tanta reserva para cancelar: reservado ${round2(reserved)}`);
             reserved = round2(reserved - amt);
@@ -472,7 +424,7 @@ export class BudgetLinesService {
 
       const newVigente = type === 'ampliacion' ? round2(vigente + amt) : type === 'reduccion' ? round2(vigente - amt) : vigente;
 
-      const mov = await this.writeMovement(trx, tenantId, lineId, type, amt, { ...opts, cancelTarget }, username);
+      const mov = await this.writeMovement(trx, tenantId, lineId, type, amt, opts, username);
       const [updated] = await trx('budget.budget_lines').where({ tenant_id: tenantId, id: lineId })
         .update({
           vigente_amount: newVigente, reserved_amount: reserved, committed_amount: committed,

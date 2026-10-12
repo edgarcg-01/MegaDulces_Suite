@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, Post, Query, Req, UseGuards } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { RolesGuard, RequirePermissions, RequireAnyPermission, Permission, isPlatformAdminRole } from '@megadulces/platform-core';
 // `[GX.30]` La forma del borde HTTP, compartida con el frontend (ADR-052).
@@ -11,7 +11,7 @@ import type { SolicitudKepler } from './expense-proofs.service';
 // `[GX.41]` El vale que Kepler asigna por la caja «Solicita»: la forma vive en el contrato.
 import type { ValeAsignado } from '@megadulces/contracts';
 // `[GX.71]` Quién ve el historial de TODOS: una regla, la misma que usa la pantalla.
-import { leerFiltroHistorial, puedeVerHistorialDeTodos } from '@megadulces/contracts';
+import { puedeVerHistorialDeTodos } from '@megadulces/contracts';
 import type { CalendarioDelMes } from './calendario-gastos';
 import { filtroExpedienteDesdeQuery } from './expediente-filtro';
 
@@ -166,32 +166,22 @@ export class ExpenseProofsController {
    */
   @Get('calendario')
   @RequireAnyPermission(Permission.FINANCE_EXPENSES_VER, Permission.FINANCE_EXPENSES_CAPTURAR, Permission.FINANCE_EXPENSES_HISTORIAL_TODOS)
-  @ApiOperation({ summary: '[GX.27/GX.71] Calendario del mes (YYYY-MM): por día, cuántos levantamientos y cuánto sumaron. `alcance=todos` es de toda la empresa y exige god-mode o FINANCE_EXPENSES_HISTORIAL_TODOS; cualquier otro valor devuelve lo del propio usuario. `[GX.78]` `estado` (lista separada por comas), `sucursal` y `persona` sólo achican lo que se ve; un valor ilegible es 400.' })
+  @ApiOperation({ summary: '[GX.27/GX.71] Calendario del mes (YYYY-MM): por día, cuántos levantamientos y cuánto sumaron. `alcance=todos` es de toda la empresa y exige god-mode o FINANCE_EXPENSES_HISTORIAL_TODOS; cualquier otro valor devuelve lo del propio usuario.' })
   calendario(
     @Query('mes') mes?: string,
     @Query('alcance') alcance?: string,
     @Req() req?: AuthedRequest,
-    // `[GX.78]` Van DESPUÉS de `req` a propósito: los llamadores existentes (y sus pruebas)
-    // pasan `(mes, alcance, req)` y no tienen por qué enterarse del filtro.
-    @Query('estado') estado?: string,
-    @Query('sucursal') sucursal?: string,
-    @Query('persona') persona?: string,
   ): Promise<CalendarioDelMes> {
     // `[GX.71]` La MISMA regla que `GET /`: si divergieran, el calendario contaría por área lo
     // que la colección niega.
     if (alcance === 'todos' && !puedeVerHistorialDeTodos(req?.user, isPlatformAdminRole)) {
       throw new ForbiddenException('el calendario de toda la empresa es sólo para administradores de la plataforma o con el permiso «Ver el historial de gastos de TODOS»');
     }
-    // `[GX.78]` Un filtro ilegible es 400, no «sin filtro»: devolvería el mes entero mientras la
-    // pantalla cree que filtró.
-    const leido = leerFiltroHistorial({ estado, sucursal, persona });
-    if (!leido.ok) throw new BadRequestException(leido.motivo);
-    const filtro = leido.filtro;
-    if (alcance === 'todos') return this.svc.calendarioMes(mes, { filtro });
+    if (alcance === 'todos') return this.svc.calendarioMes(mes);
     const actor = req?.user?.full_name || req?.user?.username || '';
     // Sin actor NO se cae a sin-filtro: eso devolvería el calendario de la empresa entera a
     // quien sólo pidió el suyo. Se acota a un nombre que no existe → mes vacío, declarado.
-    return this.svc.calendarioMes(mes, { mine: actor || '\u0000sin-actor', filtro });
+    return this.svc.calendarioMes(mes, { mine: actor || '\u0000sin-actor' });
   }
 
   @Get('status-by-folio')

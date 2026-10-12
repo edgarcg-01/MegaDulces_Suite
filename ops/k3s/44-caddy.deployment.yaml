@@ -52,6 +52,29 @@ spec:
     metadata:
       labels: { app: caddy }
     spec:
+      # ⭐ `[RES.6 2026-10-12]` LO QUE DURA EL CORTE DE CADA DESPLIEGUE, y por qué se puede acortar
+      #    pero no eliminar acá.
+      #
+      #    Con `Recreate` + 1 réplica, Kubernetes MATA el pod viejo antes de crear el nuevo, y como
+      #    por este pod entra TODO el tráfico, ese hueco es el sitio caído. Medido el 2026-10-12,
+      #    la cuenta era: **hasta 30 s** de `terminationGracePeriodSeconds` (el default) **+ ~3 s**
+      #    de arranque **+ 10 s** de `initialDelaySeconds` = **~40 s por despliegue**.
+      #
+      #    Bajarlo a 5 s es seguro: Caddy es un proxy sin trabajo largo en vuelo — no hay un job de
+      #    minutos que cortar, sólo peticiones HTTP que ya se están sirviendo. 5 s alcanza para
+      #    drenarlas y ahorra los otros 25.
+      #
+      # ⛔ Esto NO elimina el corte, lo ACORTA (~40 s → ~8 s). El corte es estructural: `hostPort`
+      #    reserva el 80/443 DEL NODO y el clúster tiene UN nodo, así que dos pods de Caddy no
+      #    pueden convivir y `Recreate` es la única opción posible. Eliminarlo de verdad exige que
+      #    el túnel de Cloudflare apunte a un Service del clúster en vez de al `hostPort` — ahí sí
+      #    entran 2 réplicas con RollingUpdate y el corte es CERO. Queda declarado, no hecho: esa
+      #    config vive en Cloudflare, no en este repo.
+      #
+      # ⚠️ Importa más de lo que parece: ese hueco es la ventana en la que los service workers piden
+      #    `ngsw.json` y reciben error — los 44 respuestas 502 del 2026-10-12 12:43 salieron de ahí,
+      #    y dejaron teléfonos sin poder abrir la app.
+      terminationGracePeriodSeconds: 5
       # Para que la sonda hable con el nombre real sin salir a preguntarle a nadie. Ver el
       # comentario de `readinessProbe`: el certificado lo elige el SNI, y el SNI sale de la URL.
       hostAliases:
@@ -126,8 +149,11 @@ spec:
               scheme: HTTP
               httpHeaders:
                 - { name: Host, value: interno.megadulcessuite.com }
-            initialDelaySeconds: 10
-            periodSeconds: 15
+            # `[RES.6]` 2 s y no 10: Caddy levanta en ~3 s, así que esperar 10 era sumarle 10 s de
+            # corte a cada despliegue sin medir nada en el medio. `periodSeconds: 5` para que, si
+            # el primer intento llega antes de tiempo, el siguiente entre a los 5 s y no a los 15.
+            initialDelaySeconds: 2
+            periodSeconds: 5
             timeoutSeconds: 10
           resources:
             requests: { memory: "32Mi", cpu: "25m" }

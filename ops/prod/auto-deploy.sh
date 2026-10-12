@@ -552,6 +552,13 @@ cd "$REPO_DIR" || exit 1
 # -06:00 salía rotulado `18:16:50Z`, una hora falsa.
 COMMIT_ISO=$(TZ=UTC git show -s --date=format-local:'%Y-%m-%dT%H:%M:%SZ' --format=%cd HEAD 2>/dev/null)
 
+# `[DBH.4]` El ASUNTO del commit, para que `/admin/db-health` muestre una frase y no un hash.
+# ⚠️ Se limpia de saltos de línea y de comillas dobles antes de viajar: esto entra como
+# `--build-arg` y después como variable de entorno del contenedor, y un salto ahí parte el
+# comando. ⚠️ Y se recorta: un asunto convencional no llega a 120, pero si alguien escribió un
+# párrafo, que no se lleve puesta la línea de build.
+COMMIT_SUBJECT=$(git show -s --format=%s HEAD 2>/dev/null | tr -d '\r\n"' | cut -c1-200)
+
 # ⛔ EL GUION Y EL REPO TIENEN QUE HABLAR EL MISMO IDIOMA, y se comprueba antes de construir.
 # Este archivo vive INSTALADO en `~/ops/prod/` y el código viene de `origin/$RAMA`: son dos
 # cosas que se actualizan por caminos distintos y pueden quedar desfasadas. Si esta versión
@@ -663,6 +670,7 @@ for s in api worker portal vendor; do
   di "construyendo $img:$DESEADO"
   if ! docker build -q -f Dockerfile --target "runner-$s" \
         --build-arg GIT_COMMIT_SHA="$DESEADO" --build-arg GIT_COMMIT_ISO="$COMMIT_ISO" \
+        --build-arg GIT_COMMIT_SUBJECT="$COMMIT_SUBJECT" \
         -t "$img:$DESEADO" -t "$img:latest" . >/tmp/auto-build-$s.log 2>&1; then
     di "FALLO: no compiló $img"
     tail -15 /tmp/auto-build-$s.log | sed 's/^/      /'
@@ -710,6 +718,7 @@ for img in $_imgs_k3s; do
   di "construyendo $img:$DESEADO"
   if ! docker build -q -f "$_df" \
         --build-arg GIT_COMMIT_SHA="$DESEADO" --build-arg GIT_COMMIT_ISO="$COMMIT_ISO" \
+        --build-arg GIT_COMMIT_SUBJECT="$COMMIT_SUBJECT" \
         -t "$img:$DESEADO" -t "$img:latest" . >/tmp/auto-build-$img.log 2>&1; then
     di "FALLO: no compiló $img"
     tail -15 /tmp/auto-build-$img.log | sed 's/^/      /'
