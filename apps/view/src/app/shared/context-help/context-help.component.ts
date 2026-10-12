@@ -2,7 +2,31 @@ import { ChangeDetectionStrategy, Component, computed, input, signal } from '@an
 import { ButtonModule } from 'primeng/button';
 import { DrawerModule } from 'primeng/drawer';
 import { TooltipModule } from 'primeng/tooltip';
-import { CONTEXT_HELP } from './context-help.dictionary';
+// ⛔ `[RES.7 2026-10-12]` El diccionario NO se importa con valor acá, a propósito. Son **134 KB**
+//    de texto y este componente lo usan **49 páginas**: cuando tantos chunks lazy comparten un
+//    módulo, el bundler lo sube al chunk COMÚN, que `main` carga al arrancar. Es el mismo patrón
+//    que midió `[EMB.24]` — *«por el barrel caía en el chunk compartido que main carga al
+//    arrancar»*. Con el import estático `main` llegó a 1.65 MB y **el CI rompió por 232 bytes**.
+//    ⚠️ El `import type` NO cuenta: los tipos se borran al compilar, no viajan al bundle.
+import type { HelpTopic } from './context-help.dictionary';
+
+/**
+ * `[RES.7]` El diccionario, cargado UNA vez para toda la app y compartido por las 49 páginas.
+ *
+ * ⭐ Vive a nivel de módulo y no por instancia porque en una pantalla puede haber varios
+ *    `<app-context-help>`: con estado por instancia, cada uno dispararía su propia carga. La
+ *    `promesa` memoriza el vuelo en curso, así N componentes montados a la vez piden UNA sola vez.
+ *
+ * ⚠️ Mientras no llega, `t()` devuelve null y **el botón `?` todavía no se pinta** — el template
+ *    lo condiciona a `@if (t(); as topic)`. Es ayuda contextual, no funcionalidad: aparecer unos
+ *    milisegundos más tarde no le quita nada a nadie, y a cambio saca 134 KB del arranque de TODOS.
+ *
+ * ⚠️ Si la carga falla, el error se traga a propósito: que no haya botón de ayuda no puede tumbar
+ *    la pantalla que lo contiene. Queda en null, que es el mismo estado que «este apartado no tiene
+ *    ayuda» — y eso el template ya lo maneja.
+ */
+const DICCIONARIO = signal<Record<string, HelpTopic> | null>(null);
+let promesa: Promise<void> | null = null;
 
 /**
  * DESIGN §P — Ayuda contextual ("about" por módulo). Botón `?` en el header del
@@ -88,5 +112,12 @@ export class ContextHelpComponent {
   /** Clave del apartado en el diccionario (context-help.dictionary.ts). */
   readonly topic = input.required<string>();
   readonly open = signal(false);
-  readonly t = computed(() => CONTEXT_HELP[this.topic()] ?? null);
+  readonly t = computed(() => DICCIONARIO()?.[this.topic()] ?? null);
+
+  constructor() {
+    if (DICCIONARIO()) return;
+    promesa ??= import('./context-help.dictionary')
+      .then((m) => { DICCIONARIO.set(m.CONTEXT_HELP); })
+      .catch(() => { /* sin ayuda, pero la pantalla sigue viva */ });
+  }
 }
