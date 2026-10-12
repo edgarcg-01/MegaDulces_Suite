@@ -197,6 +197,66 @@ describe('[PP.1] la migración', () => {
   });
 });
 
+/**
+ * `[PP.2]` — **El por qué, y el estadístico que casi lo arruina.**
+ *
+ * ⛔ La primera versión de la frase decía el rango **mínimo–máximo**. Para el proveedor más grande
+ * (423 pagos, $15,080,144 de ahorro) eso daba *"entre 0 y 112 días"* — y su ventana real es de
+ * **19 a 23**. El máximo es una cola suelta: habría hecho parecer inútil el plazo más confiable
+ * que tenemos. El estadístico correcto es el **p90**.
+ *
+ * ⭐ Y midiéndolo bien apareció lo que sí hay que declarar: **29 proveedores ($7,327,046)** donde
+ * el p90 está tan lejos de la mediana que el plazo no explica el descuento, contra **128
+ * ($49,758,200)** donde la ventana es real.
+ */
+describe('[PP.2] ⛔ el por qué se arma con p90, no con el máximo', () => {
+  it('⭐⭐ la frase usa dias_p90 — el máximo es una cola suelta', () => {
+    expect(CODIGO).toMatch(/const p90 = dia\(r\.dias_p90\)/);
+    expect(CODIGO).toMatch(/9 de cada 10, antes de \$\{p90\}/);
+  });
+
+  it('⛔ NEGATIVA: no vuelve el rango mínimo–máximo', () => {
+    expect(CODIGO).not.toMatch(/dias_min/);
+    expect(CODIGO).not.toMatch(/entre \$\{lo\} y \$\{hi\}/);
+  });
+
+  it('⭐ y la consulta pide p90, no min/max', () => {
+    expect(CODIGO).toMatch(/d\.dias_p90, d\.descuento_12m/);
+  });
+});
+
+describe('[PP.2] ⭐ las ausencias se nombran distinto porque se arreglan distinto', () => {
+  it('⭐⭐ "nunca dio" y "pocas veces" NO son el mismo motivo', () => {
+    // Medido: 763 docs / $27,321,330 de proveedores que nunca dieron descuento, contra 48 docs
+    // que lo dieron 1 o 2 veces. Al primero no hay nada que pedirle; al segundo sí.
+    expect(CODIGO).toMatch(/motivo: 'nunca_dio'/);
+    expect(CODIGO).toMatch(/motivo: 'pocas_veces'/);
+    expect(CODIGO).toMatch(/motivo: 'sin_fecha'/);
+  });
+
+  it('⛔ y cuando el plazo NO manda, se dice que la fecha es poco confiable', () => {
+    expect(CODIGO).toMatch(/motivo: 'historial_disperso'/);
+    expect(CODIGO).toMatch(/El plazo no es lo que lo dispara/);
+  });
+
+  it('⭐ el umbral de dispersión es una heurística DECLARADA, no una ley escondida', () => {
+    expect(CODIGO).toMatch(/const esDisperso = \(med: number, p90: number\)/);
+    expect(SVC).toMatch(/HEUR[ÍI]STICA, no una ley/);
+  });
+
+  it('⭐⭐ el motivo lo arma el SERVIDOR, no la pantalla', () => {
+    // Mismo motivo que la marca de procedencia: si la frase la escribiera el front, al cambiar
+    // MIN_OBS o la derivación seguiría contando la historia vieja.
+    expect(CODIGO).toMatch(/private porQue\(/);
+    expect(PANT).not.toMatch(/pagos a este proveedor obtuvieron descuento/);
+    expect(VIS).toMatch(/\{\{ r\.porque \}\}/);
+  });
+
+  it('⛔ y se LEE en pantalla, no escondido en un title', () => {
+    expect(VIS).toMatch(/class="pp-porque"/);
+  });
+});
+
 describe('[PP.1] la ruta', () => {
   it('⭐ es sólo lectura y reusa el permiso de Pagos — sin permiso nuevo, sin re-login', () => {
     expect(CTRL).toContain('FINANCE_PAYMENTS_VER');
