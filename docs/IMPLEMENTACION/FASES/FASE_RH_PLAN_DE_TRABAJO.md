@@ -37,6 +37,7 @@
 | 08-oct | **[RH.1.5]/[RH.1.6]/[RH.1.7]** Lógica de asistencia, incidencias (6 estados), cierre jueves→miércoles, pantallas `/rh/*`, reparto de permisos | PR #286 → `main` |
 | 07/08-oct | **[RH.1.8]** Carga única con cuadre al registro + paridad con datos reales (**1,464 personas, 5,464 días, 0 diferencias**) + pre-vuelo + runbook del corte | PR #286 → `main` |
 | 08-oct | **[RH.1.7c]/[RH.1.5b]/[RH.1.5c]** Asistencia con la forma de Horarios de Mega Talento; desayuno y promotoría corregidos como en Mega Talento | PR #330 → `main` |
+| 12-oct | **[RH.1.6b]** en código: el cierre de semana se frena con gente sin identificar y sólo pasa con motivo anotado | PR #366 |
 | 12-oct | Este plan + **[RH.1.4]** en código: guion de carga de personas, mapeos versionados, migración `20261012094356`, pruebas (14 puras + 2 contra Postgres, `libs/hr` 148 verdes). **Falta correrlo con datos reales** | rama `feat/rh-1-4-personas` |
 
 **Nada de esto está aplicado en producción.** El código está en `main`; las migraciones de RH no.
@@ -87,7 +88,7 @@
 | 1 | **[RH.1.4]** | Personas: carga de `empleados` → `identity.users` + liga de los enrolamientos. **Lo que frena el corte.** Detalle en §5. 🧪 Código y pruebas listos el 12-oct; falta el ensayo con datos reales (necesita la URL de Mega Talento) | Claude + David | — | ensayo 14-oct |
 | 2 | [RH.0.4] | RH valida los mapeos (sitios, departamentos, puestos, ¿promotoras empleadas o externas?) | RH + David | — | **lo antes posible** |
 | 3 | [RH.0.2] | Edgar aprueba ADR-084 + el rol `sin_acceso` + la regla de bajas | Edgar | — | 17-oct |
-| 4 | [RH.1.6b] | Nadie a prenómina sin identificar (el cierre se niega con gente sin ligar, salvo motivo) | Claude | RH.1.4 | 22-oct |
+| 4 | [RH.1.6b] | Nadie a prenómina sin identificar (el cierre se niega con gente sin ligar, salvo motivo). 🧪 En código el 12-oct (PR #366) | Claude | RH.1.4 | ✅ 12-oct |
 | 5 | [RH.1.10] | Portar horas extra, desayuno/comida distintos y cambio de descanso de Mega Talento + re-correr la paridad | Claude | — | 28-oct |
 | 6 | [RH.0.3]/[RH.1.3] | Un solo lector de relojes, en `md` (hoy es una laptop). Mínimo para el corte: el agente actual apunta a la Suite (sólo configuración); mudarlo a `md` puede ir después | Claude + David | — | 31-oct |
 | 7 | Migraciones a prod | Una por una, en el orden del pre-vuelo: base de CH `20260817220000` primero, luego la cadena de RH (incluida la de RH.1.4) | David | 3 | el día del merge |
@@ -177,7 +178,7 @@ existente» puede variar un poco. El informe con nombres (las listas para RH) qu
 |---|---|---|---|
 | `091ea65`, `14c2b60` | 08-oct | Desayuno con una sola pausa = comida; la alerta junta repetidas | ✅ [RH.1.5b] |
 | `3938723` | 08-oct | «PROMOTORIA MEGA DULCES» es piso; cambiar de departamento se refleja | ✅ [RH.1.5c] (lo de la ficha va con RH.1.4) |
-| `64ae212` | — | Nadie a prenómina sin identificar | ⬜ [RH.1.6b] |
+| `64ae212` | 08-oct | Nadie a prenómina sin identificar · alta con el siguiente número libre | ✅ [RH.1.6b] el cierre (12-oct) · ⬜ el alta (va con la pantalla de personas) |
 | `ee4ff38` | 08-oct | Banco de horas extra, desayuno/comida distintos, cambio de día de descanso, día con incidencia se mide sin checadas | ⬜ [RH.1.10] |
 | `1a28f6e` | 12-oct | Horas extra en la tabla semanal, PDF y Excel | ⬜ [RH.1.10] |
 
