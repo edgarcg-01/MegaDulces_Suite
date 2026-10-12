@@ -4345,7 +4345,23 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // faltaba un segundo clic en otro lado.
         if (this.cerrarTrasAbrir()) { this.cerrarTrasAbrir.set(false); this.abrirCierre(); }
       },
-      error: (e) => { this.abriendo.set(false); this.avisarError(e, 'No se pudo abrir el corte'); },
+      /**
+       * ⛔ `[CG.90.1]` **LA INTENCIÓN SE LIMPIA TAMBIÉN CUANDO FALLA.**
+       *
+       * Antes `cerrarTrasAbrir` se ponía al abrir el diálogo y `cancelarApertura()` lo limpiaba.
+       * Al quitar el diálogo (`cerrarJornada` llama derecho a `abrirCorte`), ese camino de
+       * limpieza desapareció: si la apertura fallaba, la intención quedaba colgada en `true` y
+       * **el siguiente corte que alguien abriera por su cuenta saltaba al conteo solo**.
+       *
+       * Lo cazó la prueba negativa que ya existía para el defecto equivalente del diálogo. Un
+       * freno puesto para una puerta sirvió para la otra — por eso se conserva en vez de borrarla
+       * cuando cambia el gesto.
+       */
+      error: (e) => {
+        this.abriendo.set(false);
+        this.cerrarTrasAbrir.set(false);
+        this.avisarError(e, 'No se pudo abrir el corte');
+      },
     });
   }
 

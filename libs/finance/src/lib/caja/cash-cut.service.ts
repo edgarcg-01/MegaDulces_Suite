@@ -111,8 +111,25 @@ export class CashCutService {
     const rows = await trx('finance.cash_ledger')
       .where({ tenant_id: tenantId, sucursal })
       .whereNull('corte_id').whereNull('deleted_at')
-      .select('tipo', 'monto', 'estado', 'origen_tipo');
-    return rows.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
+      .select('tipo', 'monto', 'estado', 'origen_tipo')
+      /**
+       * `[CG.95]` Cuánto de cada movimiento nunca pasó por el cajón. DOS vías, y hacen falta las
+       * dos — medido: con sólo la segunda se perdían $21,790 de un ingreso cuyo origen entero es
+       * el cajero, y con sólo la primera se perdían los billetes de los cobros de ruta.
+       *
+       *   (a) el movimiento ENTERO es un movimiento del cajero (`origen_tipo='caos'`);
+       *   (b) parte de él se enlazó a un depósito/retiro del cajero (`caos_cash_links`).
+       *
+       * ⚠️ `monto_enlazado` es lo que contó la MÁQUINA (sólo billetes). La morralla queda afuera
+       * y por eso llega al cajón — que es exactamente la distinción que esto viene a hacer.
+       */
+      .select(trx.raw(`CASE WHEN origen_tipo = 'caos' THEN monto ELSE coalesce((
+           SELECT sum(k.monto_enlazado) FROM finance.caos_cash_links k
+            WHERE k.cash_ledger_id = finance.cash_ledger.id AND k.deleted_at IS NULL), 0)
+         END AS en_boveda`));
+    return rows.map((r: any) => ({
+      ...r, anclado: r.origen_tipo === 'cobro', en_boveda: Number(r.en_boveda ?? 0),
+    }));
   }
 
   /**
