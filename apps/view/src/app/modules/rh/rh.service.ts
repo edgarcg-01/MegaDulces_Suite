@@ -2,7 +2,7 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpErrorResponse, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import type {
-  HrAccionIncidencia, HrAsistenciaResponse, HrCapturaIncidenciaBody, HrCierreDto, HrEstadoDia, HrEstadoIncidencia, HrSinIdentificarDto,
+  HrAccionIncidencia, HrAjusteHorasExtraBody, HrAjusteHorasExtraDto, HrAsistenciaResponse, HrBancoHorasExtraDto, HrCapturaIncidenciaBody, HrCierreDto, HrEstadoDia, HrEstadoIncidencia, HrSinIdentificarDto,
   HrHorarioPersonaBody, HrIncidenciaDto, HrLotePendienteDto, HrOrdenesResponse, HrPasoIncidenciaDto, HrPersonaDirectorioDto, HrRelojBody,
   HrRelojDto, HrRelojEstadoDto, HrSemaforoReloj, HrSiteDto, HrTipoIncidenciaDto,
 } from '@megadulces/contracts';
@@ -73,6 +73,19 @@ export class RhService {
   cerrarSemana(site_code: string, period_start: string, forzar?: { motivo: string }): Observable<HrCierreDto> {
     return this.http.post<HrCierreDto>(`${this.base}/closures`,
       forzar ? { site_code, period_start, force: true, reason: forzar.motivo } : { site_code, period_start });
+  }
+
+  /** `[RH.1.10]` El banco de horas extra de la plaza (o de una persona), hasta `date_to` (hoy si no viene). */
+  bancoHorasExtra(site_code: string, person_code?: string): Observable<HrBancoHorasExtraDto> {
+    return this.http.get<HrBancoHorasExtraDto>(`${this.base}/overtime`, { params: this.params({ site_code, person_code }) });
+  }
+
+  crearAjusteHorasExtra(b: HrAjusteHorasExtraBody): Observable<HrAjusteHorasExtraDto> {
+    return this.http.post<HrAjusteHorasExtraDto>(`${this.base}/overtime/adjustments`, b);
+  }
+
+  anularAjusteHorasExtra(id: string, reason: string): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/overtime/adjustments/${encodeURIComponent(id)}/void`, { reason });
   }
 
   reabrirSemana(id: string, reason: string): Observable<HrCierreDto> {

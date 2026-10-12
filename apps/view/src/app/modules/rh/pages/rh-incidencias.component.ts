@@ -14,6 +14,7 @@ import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { RhMarcoComponent } from '../components/rh-marco.component';
 import { RhAsistenciaEstado } from '../rh-asistencia.estado';
+import { firmaHoras, horasTexto } from '../reporte-formato';
 import {
   BANDERA_LABEL, ESTADO_INCIDENCIA_LABEL, RhService, etiquetaSemana, fechaCorta, hoyEnMexico, juevesDeLaSemana, rhError,
   sinIdentificarDe, sumarDias,
@@ -44,7 +45,14 @@ const FILTROS: Array<{ value: FiltroEstado; label: string; statuses: string }> =
 interface FormCaptura {
   person_code: string; incident_type: string; date_from: string; date_to: string; note: string;
   horas: string; entrada: string; reason: string; authorized_by_name: string; deliver: boolean;
+  /** `[RH.1.10]` Desayuno o comida distintos: los minutos que RH autorizó ese día. */
+  minutos: string;
 }
+
+/** `[RH.1.10]` Los tipos de UN solo día (no llevan «Hasta»), como `TIPOS_DE_AJUSTE` del servidor. */
+const DE_UN_DIA = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta', 'cambio_descanso']);
+/** Los que piden motivo y quién lo autorizó. */
+const CON_AUTORIZACION = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta']);
 
 @Component({
   selector: 'app-rh-incidencias',
@@ -125,15 +133,28 @@ interface FormCaptura {
             <p-select [options]="tipos()" optionLabel="etiqueta" optionValue="tipo" name="tipo" [(ngModel)]="f.incident_type" appendTo="body" placeholder="Elige el tipo" ariaLabel="Tipo de incidencia" />
           </label>
           <label>Desde <input pInputText type="date" name="desde" [(ngModel)]="f.date_from" required /></label>
-          @if (f.incident_type !== 'horario_distinto') {
+          @if (!deUnDia(f.incident_type)) {
             <label>Hasta <input pInputText type="date" name="hasta" [(ngModel)]="f.date_to" [min]="f.date_from" /></label>
           }
           @if (f.incident_type === 'horas_extra') {
             <label>Horas extra usadas <input pInputText type="time" name="horas" [(ngModel)]="f.horas" required /></label>
+            <div class="ri-saldo">
+              <p-button label="Ver su saldo" [text]="true" size="small" [disabled]="!f.person_code.trim()" (onClick)="verSaldo(f.person_code)" />
+              @if (saldoUso(); as s) { <span role="status">{{ s }}</span> }
+            </div>
           }
           @if (f.incident_type === 'horario_distinto') {
             <label>Entró a las <input pInputText type="time" name="entrada" [(ngModel)]="f.entrada" required /></label>
-            <label class="ri-ancho">Por qué entró en otro horario <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
+          }
+          @if (f.incident_type === 'desayuno_distinto' || f.incident_type === 'comida_distinta') {
+            <label>Minutos de {{ f.incident_type === 'desayuno_distinto' ? 'desayuno' : 'comida' }} autorizados
+              <input pInputText type="number" name="minutos" min="0" max="240" [(ngModel)]="f.minutos" required /></label>
+          }
+          @if (f.incident_type === 'cambio_descanso') {
+            <p class="ri-ancho ri-ayuda">El día elegido es su descanso de esa semana, y su descanso de siempre pasa a ser día de trabajo: si no viene ese día, es falta.</p>
+          }
+          @if (conAutorizacion(f.incident_type)) {
+            <label class="ri-ancho">Por qué ese día fue distinto <input pInputText name="motivo" [(ngModel)]="f.reason" required /></label>
             <label>Quién lo autorizó <input pInputText name="autorizo" [(ngModel)]="f.authorized_by_name" required /></label>
           }
           <label class="ri-ancho">Nota (folio, motivo) <input pInputText name="nota" [(ngModel)]="f.note" [required]="f.incident_type === 'otros'" /></label>
@@ -243,6 +264,8 @@ interface FormCaptura {
     .ri-sinid ul { padding-left: var(--sp-4); }
     .ri-sinid-acc { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; }
     .ri-sinid-acc input { min-width: 22rem; flex: 1 1 22rem; }
+    .ri-saldo { display: flex; flex-wrap: wrap; gap: var(--sp-2); align-items: center; font-size: var(--fs-sm); color: var(--text-muted); }
+    .ri-ayuda { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); }
     .ri-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); background: var(--ok-soft-bg); color: var(--ok-soft-fg); }
     .ri-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     .ri-form { display: flex; flex-wrap: wrap; gap: var(--sp-3); align-items: flex-end; padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-md); background: var(--card-bg); }
@@ -447,9 +470,10 @@ export class RhIncidenciasComponent implements OnInit {
 
   abrirCaptura(persona = '', desde = ''): void {
     this.aviso.set(null);
+    this.saldoUso.set(null);
     this.form.set({
       person_code: persona, incident_type: 'vacaciones', date_from: desde || hoyEnMexico(), date_to: '',
-      note: '', horas: '', entrada: '', reason: '', authorized_by_name: '', deliver: false,
+      note: '', horas: '', entrada: '', reason: '', authorized_by_name: '', deliver: false, minutos: '',
     });
   }
 
@@ -459,14 +483,36 @@ export class RhIncidenciasComponent implements OnInit {
       const m = /^(\d{1,2}):(\d{2})$/.exec(t || '');
       return m ? Number(m[1]) * 60 + Number(m[2]) : undefined;
     };
-    const distinto = f.incident_type === 'horario_distinto';
+    const t = f.incident_type;
+    const pausa = t === 'desayuno_distinto' || t === 'comida_distinta';
+    const autoriza = CON_AUTORIZACION.has(t);
+    const minPausa = String(f.minutos ?? '').trim() === '' ? undefined : Math.round(Number(f.minutos));
     return {
-      site_code: site, person_code: f.person_code.trim(), incident_type: f.incident_type, date_from: f.date_from,
-      date_to: distinto ? undefined : f.date_to || undefined, note: f.note.trim() || undefined,
-      minutes: f.incident_type === 'horas_extra' ? aMin(f.horas) : distinto ? aMin(f.entrada) : undefined,
-      reason: distinto ? f.reason.trim() : undefined, authorized_by_name: distinto ? f.authorized_by_name.trim() : undefined,
+      site_code: site, person_code: f.person_code.trim(), incident_type: t, date_from: f.date_from,
+      date_to: DE_UN_DIA.has(t) ? undefined : f.date_to || undefined, note: f.note.trim() || undefined,
+      minutes: t === 'horas_extra' ? aMin(f.horas) : t === 'horario_distinto' ? aMin(f.entrada) : pausa ? minPausa : undefined,
+      reason: autoriza ? f.reason.trim() : undefined, authorized_by_name: autoriza ? f.authorized_by_name.trim() : undefined,
       deliver: f.deliver || undefined,
     };
+  }
+
+  deUnDia(tipo: string): boolean { return DE_UN_DIA.has(tipo); }
+  conAutorizacion(tipo: string): boolean { return CON_AUTORIZACION.has(tipo); }
+
+  /** `[RH.1.10]` El saldo de horas extra de la persona, para capturar su uso sabiendo cuánto tiene. */
+  readonly saldoUso = signal<string | null>(null);
+  verSaldo(persona: string): void {
+    const site = this.sitio();
+    const cod = persona.trim();
+    if (!site || !cod) return;
+    this.saldoUso.set('Calculando…');
+    this.api.bancoHorasExtra(site, cod).subscribe({
+      next: (b) => {
+        const p = b.personas.find((x) => x.codigo === cod);
+        this.saldoUso.set(p ? `Saldo: ${firmaHoras(p.saldoMin) || '0h 00m'} (ganó ${horasTexto(p.ganadasMin)}, usó ${horasTexto(p.usadasMin)})` : 'Sin horas extra en el banco.');
+      },
+      error: (e) => this.saldoUso.set(rhError(e, 'No se pudo leer el saldo.')),
+    });
   }
 
   guardarCaptura(): void {

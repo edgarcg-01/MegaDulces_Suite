@@ -122,7 +122,7 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
   it('⭐ la captura manda lo que pide cada tipo', async () => {
     await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR] });
     const c = fix.componentInstance;
-    const base = { person_code: ' 101 ', incident_type: 'vacaciones', date_from: '2026-10-02', date_to: '2026-10-03', note: '', horas: '', entrada: '', reason: '', authorized_by_name: '', deliver: false };
+    const base = { person_code: ' 101 ', incident_type: 'vacaciones', date_from: '2026-10-02', date_to: '2026-10-03', note: '', horas: '', entrada: '', reason: '', authorized_by_name: '', deliver: false, minutos: '' };
     expect(c.cuerpoCaptura(base, 'PH')).toEqual({
       site_code: 'PH', person_code: '101', incident_type: 'vacaciones', date_from: '2026-10-02', date_to: '2026-10-03',
       note: undefined, minutes: undefined, reason: undefined, authorized_by_name: undefined, deliver: undefined,
@@ -134,6 +134,19 @@ describe('[RH.1.7] RhIncidenciasComponent', () => {
     expect(hd.minutes).toBe(615);
     expect(hd.reason).toBe('Cita médica');
     expect(hd.authorized_by_name).toBe('Jefe Prueba');
+  });
+
+  it('[RH.1.10] comida distinta y cambio de descanso: de UN día, con sus minutos y quién autorizó', async () => {
+    await render({ claves: [Permission.HR_INCIDENTS_CAPTURAR] });
+    const c = fix.componentInstance;
+    const base = { person_code: '101', incident_type: 'comida_distinta', date_from: '2026-10-02', date_to: '2026-10-05', note: '', horas: '', entrada: '', reason: 'Junta con proveedor', authorized_by_name: 'Jefe Prueba', deliver: false, minutos: '90' };
+    const cd = c.cuerpoCaptura(base, 'PH');
+    expect([cd.date_to, cd.minutes, cd.reason, cd.authorized_by_name]).toEqual([undefined, 90, 'Junta con proveedor', 'Jefe Prueba']);
+    // ⛔ «0 minutos» es un valor (sin comida ese día), no un campo vacío.
+    expect(c.cuerpoCaptura({ ...base, minutos: '0' }, 'PH').minutes).toBe(0);
+    const des = c.cuerpoCaptura({ ...base, incident_type: 'cambio_descanso', minutos: '' }, 'PH');
+    expect([des.date_to, des.minutes, des.reason, des.authorized_by_name]).toEqual([undefined, undefined, undefined, undefined]);
+    expect([c.deUnDia('cambio_descanso'), c.deUnDia('vacaciones'), c.conAutorizacion('desayuno_distinto')]).toEqual([true, false, true]);
   });
 
   it('⛔ NEGATIVA — la semana en curso no se puede cerrar todavía', async () => {
