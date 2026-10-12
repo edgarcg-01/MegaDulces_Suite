@@ -116,7 +116,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             <p class="cm-eyebrow">{{ d.status === 'en_curso' ? 'Neto acumulado' : 'Neto a pagar' }}</p>
             <p class="cm-answer-monto">{{ money(d.total_neto) }}</p>
             <p class="cm-answer-pie cm-mono">
-              bruto {{ money(d.total_a_pagar) }} − deducciones {{ money(d.total_deduccion) }}
+              tras nomina {{ money(d.total_a_pagar) }} − deducciones {{ money(d.total_deduccion) }}
             </p>
           </div>
           <p-tag [severity]="sev(d)" [value]="etiquetaEstado(d)" />
@@ -180,7 +180,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                          del supervisor) y el monto quedaba invisible. Cae al BRUTO, que si se
                          conoce, y lo dice en el titulo en vez de hacerlos pasar por lo mismo.
                          (sin acentos graves: esto vive dentro de un template literal de JS) -->
-                    <span class="cm-per-monto" [class.cm-bruto]="esBruto(p)" [title]="tipMonto(p)">
+                    <span class="cm-per-monto" [class.cm-tras-nomina]="esTrasNomina(p)" [title]="tipMonto(p)">
                       {{ p.run_id ? money(p.total_neto ?? p.total_a_pagar) : '—' }}
                     </span>
                   </span>
@@ -448,7 +448,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                         <td class="cm-mono cm-micro">{{ s.rutas.join(' · ') }}</td>
                         <td class="comm-num">{{ money(s.comision) }}</td>
                         <td class="comm-num">{{ s.bonos ? money(s.bonos) : '—' }}</td>
-                        <td class="comm-num is-strong">{{ money(s.bruto) }}</td>
+                        <td class="comm-num is-strong">{{ money(s.trasNomina) }}</td>
                       </tr>
                     }
                   </tbody>
@@ -629,7 +629,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-per-fechas { font-size:var(--fs-micro); color:var(--c-text-3); }
     .cm-per-monto { font-size:var(--fs-micro); color:var(--c-text-2); font-family:var(--font-mono,'Geist Mono',monospace); font-variant-numeric:tabular-nums; }
     /* Marca la cifra que es BRUTO y no neto: el subrayado punteado la distingue sin color. */
-    .cm-per-monto.cm-bruto { text-decoration:underline dotted; text-underline-offset:3px; }
+    .cm-per-monto.cm-tras-nomina { text-decoration:underline dotted; text-underline-offset:3px; }
 
     .cm-per.hoy { border-color:color-mix(in srgb, var(--action) 45%, var(--border-color)); }
     .cm-hoy { margin-left:auto; font-size:var(--fs-micro); letter-spacing:.06em; text-transform:uppercase;
@@ -802,18 +802,21 @@ export class ComercialComisionesComponent {
   readonly supervisores = computed(() => {
     const acc = new Map<string, {
       clave: string; nombre: string; zona: string | null; rutas: string[];
-      comision: number; bonos: number; bruto: number;
+      comision: number; bonos: number; trasNomina: number;
     }>();
     for (const l of this.run()?.lines ?? []) {
       if (l.beneficiario !== 'supervisor' || l.motivo_no_pago) continue;
       const nombre = l.beneficiario_nombre || '—';
       const cur = acc.get(nombre) ?? {
-        clave: nombre, nombre, zona: l.zona ?? null, rutas: [], comision: 0, bonos: 0, bruto: 0,
+        clave: nombre, nombre, zona: l.zona ?? null, rutas: [], comision: 0, bonos: 0, trasNomina: 0,
       };
       cur.rutas.push(l.route_code);
       cur.comision += Number(l.comision) || 0;
       cur.bonos += Number(l.bonos) || 0;
-      cur.bruto += Number(l.a_pagar) || 0;
+      // `[RD.64]` Se llamaba `bruto` y acumula `a_pagar`, que YA trae la nomina restada.
+      // Es la misma confusion que publicaba un BRUTO menor que la COMISION en la tira de
+      // arriba. El nombre ahora dice lo que el numero es.
+      cur.trasNomina += Number(l.a_pagar) || 0;
       acc.set(nombre, cur);
     }
     return [...acc.values()].sort((a, b) => a.nombre.localeCompare(b.nombre));
@@ -1004,8 +1007,12 @@ export class ComercialComisionesComponent {
     });
   }
 
-  /** La cifra del rail es el BRUTO (el neto no se pudo calcular), y se marca como tal. */
-  esBruto(p: CommissionBoardRow): boolean { return !!p.run_id && p.total_neto == null && p.total_a_pagar != null; }
+  /**
+   * `[RD.64]` La cifra del rail cae a `total_a_pagar` cuando el neto no se pudo calcular, y se
+   * marca con subrayado punteado. ⛔ Se llamaba `esBruto` y NO es el bruto: `total_a_pagar` ya
+   * trae restada la nomina de cada renglon. El bruto de verdad es comision + bonos.
+   */
+  esTrasNomina(p: CommissionBoardRow): boolean { return !!p.run_id && p.total_neto == null && p.total_a_pagar != null; }
 
   tipMonto(p: CommissionBoardRow): string {
     if (!p.run_id) return '';
@@ -1025,13 +1032,47 @@ export class ComercialComisionesComponent {
     return 'manual';
   }
 
+  /**
+   * `[RD.64]` El bruto DE VERDAD: comision + bonos, antes de cualquier resta.
+   *
+   * ⛔ No sale de la corrida: `commission_runs` no guarda el bruto -- guarda `total_comision`
+   * y `total_a_pagar`, que ya trae la nomina restada. Se suma de las lineas, que es donde
+   * viven los bonos. Si la corrida no trae lineas cargadas devuelve la comision sola, que es
+   * el piso defendible, nunca un cero.
+   */
+  brutoReal(r: CommissionRunDetail): number {
+    const lineas = r.lines ?? [];
+    if (!lineas.length) return Number(r.total_comision) || 0;
+    // ⛔ SOLO las que pagan. Una ruta con `motivo_no_pago` tiene comision calculada pero no
+    //    cobra, y sumarla inflaba el bruto. Verificado contra prod: con el filtro puesto,
+    //    bruto - nomina == total_a_pagar AL CENTAVO en las dos corridas pagadas (86,257.26 -
+    //    33,939.84 = 52,317.42). Sin el filtro no cuadraba por 13,939.84, y esa fue la primera
+    //    version de este arreglo -- la aritmetica se comprueba antes de publicarla, que es
+    //    justo lo que el defecto original no hizo.
+    return lineas
+      .filter((l) => !l.motivo_no_pago)
+      .reduce((a, l) => a + (Number(l.comision) || 0) + (Number(l.bonos) || 0), 0);
+  }
+
   kpis(r: CommissionRunDetail): MetricStripItem[] {
     const conDato = r.rutas_con_dato ?? 0;
     const sinDato = r.rutas_sin_dato ?? 0;
     return [
       { label: 'Subtotal', value: Number(r.total_subtotal), format: 'currency' },
       { label: 'Comisión', value: Number(r.total_comision), format: 'currency' },
-      { label: 'Bruto', value: Number(r.total_a_pagar), format: 'currency' },
+      // ⛔⛔ `[RD.64]` Esta tira decia **BRUTO** sobre `total_a_pagar`, y `total_a_pagar` NO es el
+      //    bruto: ya trae restada la nomina de cada renglon. Medido sobre una corrida pagada:
+      //    comision 76,057.26 + bonos 10,200.00 = 86,257.26 de bruto REAL, menos 47,879.68 de
+      //    nomina = 52,317.42, que era lo que se publicaba como 'Bruto'. Son ~36 mil pesos de
+      //    diferencia, y en pantalla quedaba un BRUTO MENOR que la COMISION de al lado -- algo
+      //    imposible, que o se lee como un bug o se cree.
+      //    Ahora la tira dice lo que la cifra es y pone la resta a la vista (Q.2: explicar el
+      //    numero, no solo mostrarlo). El bruto real se publica aparte, que es el que cuadra
+      //    con la suma de las columnas Comision y Bonos de la tabla de abajo.
+      { label: 'Bruto', value: this.brutoReal(r), format: 'currency',
+        sub: 'comision + bonos, antes de descontar' },
+      { label: 'Tras nomina', value: Number(r.total_a_pagar), format: 'currency',
+        sub: `menos ${this.money(this.brutoReal(r) - Number(r.total_a_pagar))} de nomina` },
       // ⛔ `Number(null)` es **0**, y asi esta tira publicaba "NETO $0" en rojo sobre una
       // quincena en la que de verdad se pagaron $42,761. Un neto que no se puede calcular se
       // DECLARA; dibujarlo en cero es peor que no mostrarlo, porque parece una cifra.
