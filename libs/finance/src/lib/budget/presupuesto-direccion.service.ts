@@ -50,12 +50,13 @@ export class PresupuestoDireccionService {
 
     let motor: MotorPresupuesto | null = null;
     let motor_error: string | null = null;
-    let ejercicios: EjercicioFila[] = [];
+    let ejercicios: PresupuestoDireccion['ejercicios'] = null;
     let ejercicios_error: string | null = null;
     let obligaciones: ObligacionesResumen | null = null;
     let obligaciones_error: string | null = null;
     let ledger: PresupuestoDireccion['ledger'] = null;
     let ledger_error: string | null = null;
+    let huecos: HuecoDeclarado[] = [];
 
     await this.tk.run(async (trx) => {
       // ── 1 · El motor ───────────────────────────────────────────────────
@@ -95,7 +96,7 @@ export class PresupuestoDireccionService {
           .orderBy([{ column: 'is_test', order: 'asc' }, { column: 'fiscal_year', order: 'desc' }]);
 
         const hoy = Date.now();
-        ejercicios = (filas as Array<Record<string, unknown>>).map((b) => {
+        const filasEj: EjercicioFila[] = (filas as Array<Record<string, unknown>>).map((b) => {
           // ⭐ Días SIN FIRMAR, no "en borrador": exacto, no proxy. El ejercicio está sin firmar
           // desde el alta — medido, en los dos reales `created_at == updated_at` al minuto. Si ya
           // está firmado va `null`: no se cuentan días de espera de algo que no espera.
@@ -115,6 +116,13 @@ export class PresupuestoDireccionService {
             autorizado_en: b.authorized_at ? new Date(b.authorized_at as string).toISOString() : null,
           };
         });
+
+        ejercicios = {
+          universo: 'los ejercicios del tenant, SIN filtrar: el de prueba viaja con is_test en true para que se vea, no se esconde',
+          as_of: ahora(),
+          fuente: 'budget.budgets',
+          filas: filasEj,
+        };
       } catch (e) {
         ejercicios_error = e instanceof Error ? e.message.slice(0, 300) : String(e);
         this.log.warn(`ejercicios no medidos: ${ejercicios_error}`);
@@ -191,6 +199,9 @@ export class PresupuestoDireccionService {
         ledger_error = e instanceof Error ? e.message.slice(0, 300) : String(e);
         this.log.warn(`ledger no medido: ${ledger_error}`);
       }
+
+      // ── 5 · Los huecos: lo medible SE MIDE, aquí, con la misma transacción ──
+      huecos = await this.huecos(trx);
     });
 
     return {
@@ -198,27 +209,62 @@ export class PresupuestoDireccionService {
       ejercicios, ejercicios_error,
       obligaciones, obligaciones_error,
       ledger, ledger_error,
-      huecos: this.huecos(),
+      huecos,
       as_of: ahora(),
     };
   }
 
   /**
-   * ⭐ La cadencia se **deriva**, no se escribe. Mediana de la diferencia entre corridas
-   * consecutivas: con menos de tres no hay dos diferencias que comparar, así que va `null`
-   * **con motivo del lado del consumidor** — nunca `''`, que se lee como «no tiene cadencia».
+   * ⭐ La cadencia se **deriva**, no se escribe. Pero la primera versión usaba la **mediana de
+   * todas las diferencias** y publicaba **«cada ~0 h»**. Lo midió el carril de Gastos y lo
+   * reproduje: de 28 diferencias, **17 valen cero** porque el motor dispara **una corrida por
+   * ejercicio en el mismo minuto** — el 12-oct 07:30 fueron 2, el 09-oct fueron 3. La mediana
+   * cae justo en ese cero.
+   *
+   * ⛔ **Y colapsar a minutos distintos tampoco alcanza**: la mediana pasa a 7.65 h, que sigue
+   * sin describir nada. La razón es más profunda que el empate —
+   * **la mediana contesta «qué pasó normalmente» y la pregunta es «qué está pasando ahora»**.
+   * Los primeros cuatro días fueron el arranque (ahí viven las 7 corridas con error y las
+   * repeticiones con minutos de diferencia) y desde el 09-oct el régimen es 24.00 h exactas:
+   *
+   * ```
+   *   10-12 07:30  24.00      10-08 13:44  0.02
+   *   10-11 07:30  24.00      10-08 13:43  0.62
+   *   10-10 07:30  24.00      10-08 13:06  0.03
+   *   10-09 07:30  17.77      10-08 13:04  9.57
+   * ```
+   *
+   * ⇒ Regla nueva, que **se declara sola**: las últimas diferencias entre **minutos distintos**;
+   * si concuerdan dentro de tolerancia, se publica; **si no concuerdan, `null`**. Con los datos
+   * de hoy da 24.00 · 24.00 · 24.00 → «diaria, ~07:30». Hace una semana habría dado `null`,
+   * que es la respuesta correcta para un régimen inestable — y eso es lo que la vuelve honesta:
+   * **no inventa una cadencia mientras el motor todavía no la tiene.**
    */
   private async derivarCadencia(trx: unknown, tenantId: string): Promise<string | null> {
     const q = trx as { (t: string): { where: (o: object) => { orderBy: (c: string, d: string) => { limit: (n: number) => Promise<Array<Record<string, unknown>>> } } } };
     const filas = await q('budget.generation_runs').where({ tenant_id: tenantId })
-      .orderBy('started_at', 'desc').limit(30);
-    const ts = filas.map((f) => new Date(f.started_at as string).getTime()).filter((n) => !Number.isNaN(n));
-    if (ts.length < 3) return null;
-    const difs = ts.slice(0, -1).map((t, i) => Math.abs(t - ts[i + 1])).sort((a, b) => a - b);
-    const mediana = difs[Math.floor(difs.length / 2)];
-    const horas = mediana / 3600000;
+      .orderBy('started_at', 'desc').limit(60);
+
+    // Un minuto = un disparo, aunque haya corrido una vez por ejercicio.
+    const minutos = [...new Set(
+      filas.map((f) => {
+        const t = new Date(f.started_at as string).getTime();
+        return Number.isNaN(t) ? NaN : Math.floor(t / 60000) * 60000;
+      }).filter((n) => !Number.isNaN(n)),
+    )].sort((a, b) => b - a);
+
+    const MUESTRA = 4;              // las últimas 4 diferencias: el régimen vigente, no la historia
+    const TOLERANCIA_H = 1.5;       // 24.00 y 23.1 son la misma cadencia; 24.00 y 17.77 no
+    if (minutos.length < MUESTRA + 1) return null;
+
+    const difs = minutos.slice(0, MUESTRA).map((t, i) => (t - minutos[i + 1]) / 3600000);
+    const max = Math.max(...difs);
+    const min = Math.min(...difs);
+    if (max - min > TOLERANCIA_H) return null;   // régimen inestable: no se inventa
+
+    const horas = (max + min) / 2;
     if (horas >= 20 && horas <= 28) {
-      const h = new Date(ts[0]);
+      const h = new Date(minutos[0]);
       return `diaria, ~${String(h.getHours()).padStart(2, '0')}:${String(h.getMinutes()).padStart(2, '0')}`;
     }
     if (horas < 20) return `cada ~${Math.round(horas * 10) / 10} h`;
@@ -226,26 +272,76 @@ export class PresupuestoDireccionService {
   }
 
   /**
-   * Los huecos van **con nombre y peso**, no como ausencia silenciosa. Esta lista no se mide:
-   * es el estado declarado de las decisiones abiertas del dominio, y cambia cuando alguien las
-   * cierra — por eso cada una dice qué la destraba, no sólo que falta.
+   * ⛔ **Lo medible se MIDE; lo demás se declara con su motivo.**
+   *
+   * La primera versión devolvía esta lista entera escrita a mano, con el argumento de que «los
+   * huecos no se miden, se declaran». Era falso para dos de los tres, y uno **se pudrió antes de
+   * llegar a producción**: decía «26 familias» y las familias de gasto —`account_code`— son
+   * **14**. El literal venía de un artefacto ya publicado.
+   *
+   * ⭐ El 14 coincide exacto con el universo de concentración que el dominio ya publicaba
+   * («4 de 14 partidas llegan al 80 %»): **dos caminos independientes, el mismo número**.
+   *
+   * ⇒ `medido: false` queda sólo donde de verdad no hay consulta, y entonces `como` dice por qué.
    */
-  private huecos(): HuecoDeclarado[] {
+  private async huecos(trx: unknown): Promise<HuecoDeclarado[]> {
+    const q = trx as { raw: (s: string) => Promise<unknown> } & ((t: string) => {
+      count: (c: string) => Promise<Array<Record<string, unknown>>>;
+      where: (o: object) => { count: (c: string) => Promise<Array<Record<string, unknown>>> };
+    });
+
+    let familias: number | null = null;
+    let comoFamilias = '';
+    try {
+      const [f] = await q('budget.budget_lines')
+        .count('* as n') as unknown as Array<Record<string, unknown>>;
+      void f;
+      const r = await (q as unknown as { raw: (s: string) => Promise<{ rows?: Array<Record<string, unknown>> }> })
+        .raw('select count(distinct account_code)::int as n from budget.budget_lines where account_code is not null');
+      familias = Number((r.rows ?? (r as unknown as Array<Record<string, unknown>>))[0]?.n ?? 0);
+      comoFamilias = 'count(distinct account_code) sobre budget.budget_lines, medido en esta corrida';
+    } catch (e) {
+      comoFamilias = `no se pudo medir: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`;
+    }
+
+    let diasFuturos: number | null = null;
+    let comoDias = '';
+    try {
+      const r = await (q as unknown as { raw: (s: string) => Promise<{ rows?: Array<Record<string, unknown>> }> })
+        .raw('select count(*)::int as n from budget.daily_capacity where capacity_date >= current_date');
+      diasFuturos = Number((r.rows ?? (r as unknown as Array<Record<string, unknown>>))[0]?.n ?? 0);
+      comoDias = 'días con fila de capacidad desde hoy en adelante, medido en esta corrida';
+    } catch (e) {
+      comoDias = `no se pudo medir: ${e instanceof Error ? e.message.slice(0, 120) : String(e)}`;
+    }
+
     return [
       {
-        nombre: 'Meta por renglón',
-        porque: 'el registro de umbrales no tiene ninguna fila de presupuesto: sin meta, ningún renglón tiene contra qué juzgarse',
-        peso: '16 indicadores',
+        nombre: 'Dueño por familia de gasto',
+        porque: 'ningún renglón tiene quién lo defienda; no lo destraba software, lo destraban nombres',
+        peso: {
+          valor: familias, unidad: 'familias de gasto, cero con dueño',
+          medido: familias !== null, como: comoFamilias,
+        },
       },
       {
         nombre: 'Días con techo de pago hacia adelante',
         porque: 'la capacidad diaria sólo tiene filas de un mes ya cerrado; hacia adelante no hay un solo día autorizado',
-        peso: '0 días futuros',
+        peso: {
+          valor: diasFuturos, unidad: 'días futuros con techo',
+          medido: diasFuturos !== null, como: comoDias,
+        },
       },
       {
-        nombre: 'Dueño por familia de gasto',
-        porque: 'ningún renglón tiene quién lo defienda; no lo destraba software, lo destraban nombres',
-        peso: '26 familias',
+        nombre: 'Ticket por canal de venta',
+        porque: 'no existe conteo de tickets por canal en ninguna fuente: el plan de Mostrador no se puede derivar por cliente',
+        peso: {
+          // ⭐ El único de los tres que de verdad no tiene consulta. Por eso `medido: false`
+          // y `valor: null` — nunca 0, que se leería como «no falta nada».
+          valor: null, unidad: 'sin cifra',
+          medido: false,
+          como: 'ninguna fuente cuenta tickets por canal; el peso de este hueco no se puede derivar hoy',
+        },
       },
     ];
   }

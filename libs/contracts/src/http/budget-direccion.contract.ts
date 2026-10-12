@@ -109,18 +109,47 @@ export interface EtapaPorEjercicio {
   quien_la_mueve: string;
 }
 
-/** Lo que no se puede medir hoy, con nombre y peso. Nunca 0, nunca verde. */
+/**
+ * Lo que no se puede medir hoy, con nombre y peso. Nunca 0, nunca verde.
+ *
+ * ⛔ **El `peso` era un `string` literal y se pudrió antes de llegar a producción.** La primera
+ * versión decía «26 familias»; medido el 2026-10-12, las familias de gasto —`account_code`— son
+ * **14**, y el número venía de un artefacto ya publicado. ⭐ El 14 además **coincide exacto** con
+ * el universo de concentración que el dominio ya publicaba («4 de 14 partidas llegan al 80 %»):
+ * dos caminos independientes dan el mismo número, que es lo que lo vuelve creíble.
+ *
+ * ⇒ **Lo medible se mide.** `medido: false` queda sólo para lo que de verdad no tiene consulta
+ * —el ticket por canal no existe en ninguna fuente— y entonces `como` dice por qué. Un literal
+ * que nadie vuelve a medir es el mismo defecto que ya se corrigió en `cadencia`.
+ */
 export interface HuecoDeclarado {
   nombre: string;
   porque: string;
-  peso: string | null;
+  peso: {
+    /** `null` cuando no hay cifra: nunca 0, que se leería como «no falta nada». */
+    valor: number | null;
+    unidad: string;
+    /** `true` = salió de una consulta en esta corrida. `false` = no hay con qué medirlo. */
+    medido: boolean;
+    /** De dónde salió, o por qué no se pudo. Obligatorio en los dos casos. */
+    como: string;
+  };
 }
 
 export interface PresupuestoDireccion {
   motor: MotorPresupuesto | null;
   motor_error: string | null;
 
-  ejercicios: EjercicioFila[];
+  /**
+   * ⭐ Lleva `BloqueUniverso` como los demás, y lo corrigió la revisión de frontend: era **el
+   * único bloque sin universo pegado**, y la regla vale para los nueve o no vale.
+   *
+   * ⛔ Importa más acá que en otros: tres cifras del dominio caen dentro del **0.058 % entre
+   * sí** — $74,811,634.04 (obligaciones reales), $74,806,967.37 (las del ejercicio de prueba) y
+   * $74,850,066.62 (el vigente de FY2027). Sin el universo al lado, un lector supone que son la
+   * misma con un error de dedo, y **las tres responden preguntas distintas**.
+   */
+  ejercicios: { universo: string; as_of: string; fuente: string; filas: EjercicioFila[] } | null;
   ejercicios_error: string | null;
 
   obligaciones: ObligacionesResumen | null;
