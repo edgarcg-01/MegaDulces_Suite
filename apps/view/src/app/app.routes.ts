@@ -2053,7 +2053,8 @@ export const routes: Routes = [
       {
         path: 'config',
         loadComponent: () => import('./modules/logistica/pages/logistica-config.component').then(m => m.LogisticaConfigComponent),
-        canActivate: [permissionGuard(Permission.LOGISTICS_CONFIG_GESTIONAR)]
+        // [EMB.28.1] También el autorizador de tarifas (dirección), que no siempre configura.
+        canActivate: [anyPermissionGuard(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)]
       },
     ]
   },

@@ -14,6 +14,8 @@ import { TooltipModule } from 'primeng/tooltip';
 import { ConfirmDialogModule } from 'primeng/confirmdialog';
 import { MessageService, ConfirmationService } from 'primeng/api';
 import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistica.service';
+import { Permission } from '../../../core/constants/permissions';
+import { PermissionsService } from '../../../core/services/permissions.service';
 
 /**
  * J.9.8 — Config con TabView (5 tabs).
@@ -83,14 +85,14 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                     </ng-template>
                     <ng-template #body let-r>
                       <tr>
-                        <td><strong>{{ r.name }}</strong></td>
+                        <td><strong>{{ r.name }}</strong>@if (rutaFijada(r)) { <span class="tf-fijada"><i class="pi pi-lock" aria-hidden="true"></i> Fijada</span> }</td>
                         <td class="num">{{ r.estimated_km !== null ? (r.estimated_km | number:'1.0-1') : '—' }}</td>
                         <td class="num">\${{ r.driver_commission | number:'1.2-2' }}</td>
                         <td class="num">\${{ r.helper_commission | number:'1.2-2' }}</td>
                         <td><p-tag [value]="r.active ? 'Activa' : 'Inactiva'" [severity]="r.active ? 'success' : 'secondary'"></p-tag></td>
                         <td class="actions">
                           <button pButton size="small" severity="secondary" [text]="true" (click)="openRouteDialog(r)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
-                          <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteRoute(r)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                          <button pButton size="small" severity="secondary" [text]="true" [disabled]="rutaFijada(r) && !puedeAutorizar()" (click)="confirmDeleteRoute(r)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                         </td>
                       </tr>
                     </ng-template>
@@ -131,14 +133,14 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
                       </ng-template>
                       <ng-template #body let-c>
                         <tr>
-                          <td><code>{{ c.key }}</code></td>
+                          <td><code>{{ c.key }}</code>@if (configFijada(c)) { <span class="tf-fijada"><i class="pi pi-lock" aria-hidden="true"></i> Fijada</span> }</td>
                           <td>{{ c.description || '—' }}</td>
                           <td class="num"><strong>{{ c.value | number:'1.2-4' }}</strong></td>
                           <td class="muted">{{ c.unit || '—' }}</td>
                           <td><p-tag [value]="c.active ? 'Activo' : 'Inactivo'" [severity]="c.active ? 'success' : 'secondary'"></p-tag></td>
                           <td class="actions">
                             <button pButton size="small" severity="secondary" [text]="true" (click)="openConfigDialog(c)"><span class="p-button-icon p-button-icon-left pi pi-pencil" aria-hidden="true"></span></button>
-                            <button pButton size="small" severity="secondary" [text]="true" (click)="confirmDeleteConfig(c)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
+                            <button pButton size="small" severity="secondary" [text]="true" [disabled]="configFijada(c) && !puedeAutorizar()" (click)="confirmDeleteConfig(c)"><span class="p-button-icon p-button-icon-left pi pi-trash" aria-hidden="true"></span></button>
                           </td>
                         </tr>
                       </ng-template>
@@ -164,6 +166,9 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
       <!-- Dialog Route -->
       <p-dialog [(visible)]="routeDialog" [modal]="true" [style]="{ width: '520px' }" [closable]="!savingRoute()"
         [header]="editingRoute() ? 'Editar ruta' : 'Nueva ruta'">
+        @if (rutaBloqueada()) {
+          <p class="tf-aviso" role="note"><i class="pi pi-lock" aria-hidden="true"></i> Tarifa fijada: sólo un autorizador cambia las comisiones, el nombre o la desactiva. Puedes editar kilómetros y notas.</p>
+        }
         <form [formGroup]="routeForm" class="form-grid">
           <label class="full">
             Destino *
@@ -180,7 +185,7 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
             @if (!routeForm.value.active) {
               <p-tag value="Inactiva" severity="secondary"></p-tag>
             }
-            <p-button [label]="routeForm.value.active ? 'Desactivar' : 'Activar'" size="small" severity="secondary" [text]="true" type="button" (click)="toggleRouteActive()"></p-button>
+            <p-button [label]="routeForm.value.active ? 'Desactivar' : 'Activar'" size="small" severity="secondary" [text]="true" type="button" [disabled]="rutaBloqueada()" (click)="toggleRouteActive()"></p-button>
           </label>
           <label>
             Comisión chofer
@@ -204,6 +209,9 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
       <!-- Dialog Config -->
       <p-dialog [(visible)]="configDialog" [modal]="true" [style]="{ width: '480px' }" [closable]="!savingConfig()"
         [header]="editingConfig() ? 'Editar config' : 'Nuevo config (' + catLabel(configForm.value.category || 'otro') + ')'">
+        @if (configBloqueada()) {
+          <p class="tf-aviso" role="note"><i class="pi pi-lock" aria-hidden="true"></i> Tarifa fijada: sólo un autorizador cambia el valor, la clave o la categoría. Puedes editar la unidad y la descripción.</p>
+        }
         <form [formGroup]="configForm" class="form-grid">
           <label class="full">
             Clave * <i class="pi pi-info-circle" pTooltip="snake_case. Ej: costo_km_freightliner_auto"></i>
@@ -246,6 +254,8 @@ import { ConfigCategory, ConfigItem, LogisticaService, Route } from '../logistic
     .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem; }
     .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--c-text-2); }
     .form-grid .full { grid-column: 1 / -1; }
+    .tf-fijada { margin-left: .5rem; font-size: var(--fs-xs); color: var(--c-text-2); white-space: nowrap; }
+    .tf-aviso { display: flex; gap: .5rem; align-items: flex-start; margin: .25rem 0 0; padding: .5rem .75rem; border-radius: 8px; background: var(--c-surface-2); color: var(--c-text-1); font-size: var(--fs-sm); }
   `],
   changeDetection: ChangeDetectionStrategy.OnPush,
 })
@@ -254,6 +264,7 @@ export class LogisticaConfigComponent {
   private readonly fb = inject(FormBuilder);
   private readonly toast = inject(MessageService);
   private readonly confirm = inject(ConfirmationService);
+  private readonly perms = inject(PermissionsService);
 
   readonly configs = signal<ConfigItem[]>([]);
   readonly routes = signal<Route[]>([]);
@@ -262,6 +273,9 @@ export class LogisticaConfigComponent {
   readonly savingRoute = signal(false);
   readonly editingConfig = signal<ConfigItem | null>(null);
   readonly editingRoute = signal<Route | null>(null);
+  /** `[EMB.28.1]` El diálogo abierto es de una tarifa fijada y quien edita no es autorizador. */
+  readonly rutaBloqueada = signal(false);
+  readonly configBloqueada = signal(false);
 
   configDialog = false;
   routeDialog = false;
@@ -346,10 +360,16 @@ export class LogisticaConfigComponent {
     this.configForm.reset({
       key: c?.key || '',
       category: c?.category || prefilledCat || 'factor',
-      value: c?.value || 0,
+      value: aNumero(c?.value, 0),
       unit: c?.unit || '',
       description: c?.description || '',
     });
+    const bloq = !!c && this.configFijada(c) && !this.puedeAutorizar();
+    this.configBloqueada.set(bloq);
+    for (const k of ['key', 'category', 'value'] as const) {
+      const ctl = this.configForm.get(k);
+      if (bloq) ctl?.disable(); else ctl?.enable();
+    }
     this.configDialog = true;
   }
 
@@ -395,12 +415,18 @@ export class LogisticaConfigComponent {
     this.editingRoute.set(r || null);
     this.routeForm.reset({
       name: r?.name || '',
-      estimated_km: r?.estimated_km ?? null,
-      driver_commission: r?.driver_commission || 0,
-      helper_commission: r?.helper_commission || 0,
+      estimated_km: aNumero(r?.estimated_km, null),
+      driver_commission: aNumero(r?.driver_commission, 0),
+      helper_commission: aNumero(r?.helper_commission, 0),
       notes: r?.notes || '',
       active: r?.active !== false,
     });
+    const bloq = !!r && this.rutaFijada(r) && !this.puedeAutorizar();
+    this.rutaBloqueada.set(bloq);
+    for (const k of ['name', 'driver_commission', 'helper_commission'] as const) {
+      const c = this.routeForm.get(k);
+      if (bloq) c?.disable(); else c?.enable();
+    }
     this.routeDialog = true;
   }
 
@@ -443,4 +469,34 @@ export class LogisticaConfigComponent {
       },
     });
   }
+
+  // ── [EMB.28.1] Tarifas fijas ─────────────────────────────────────────────
+  // Quien manda es el servidor (logistics-config.service + tarifas-fijas.logic): aquí sólo se
+  // evita que alguien escriba algo que se va a rechazar. Misma regla, a propósito sin importarla
+  // del backend (libs/logistics no entra al navegador).
+
+  /** Autorizador = `LOGISTICS_TARIFAS_AUTORIZAR` o administrador de plataforma. */
+  puedeAutorizar(): boolean {
+    return this.perms.isAdmin() || this.perms.has(Permission.LOGISTICS_TARIFAS_AUTORIZAR);
+  }
+
+  rutaFijada(r: Pick<Route, 'driver_commission' | 'helper_commission'>): boolean {
+    return (aNumero(r.driver_commission, 0) ?? 0) > 0 || (aNumero(r.helper_commission, 0) ?? 0) > 0;
+  }
+
+  configFijada(c: Pick<ConfigItem, 'category' | 'value'>): boolean {
+    return (c.category === 'viatico' || c.category === 'tarifa_maniobra') && (aNumero(c.value, 0) ?? 0) > 0;
+  }
+}
+
+/**
+ * Postgres devuelve los numeric como TEXTO ("0.00"). Puesto así en un p-inputnumber, el
+ * control se queda con el texto y lo que la persona teclea NO llega al formulario: al guardar se
+ * manda "0.00" otra vez. Medido el 2026-10-12: la comisión de CANINDO ZAMORA se editó en prod
+ * y quedó en $0 sin ningún error. Por eso todo monto entra al formulario como número.
+ */
+export function aNumero<T extends number | null>(v: unknown, siVacio: T): number | T {
+  if (v === null || v === undefined || v === '') return siVacio;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : siVacio;
 }

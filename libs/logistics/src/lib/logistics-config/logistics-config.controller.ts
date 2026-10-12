@@ -7,25 +7,51 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import {
+  isPlatformAdminRole,
   Permission,
   RequireAnyPermission,
-  RequirePermissions,
 } from '@megadulces/platform-core';
 import {
+  ActorTarifas,
+  Borrado,
+  ConfigRow,
+  RouteDto,
+  RouteRow,
+  TariffChangeRow,
   LogisticsConfigService,
   CreateConfigDto,
   UpdateConfigDto,
   ConfigCategory,
 } from './logistics-config.service';
 
+interface SesionTarifas {
+  user?: { sub?: string; username?: string; role_name?: string; permissions?: Record<string, boolean> };
+}
+
+/**
+ * `[EMB.28.1]` Quién cambia una tarifa, leído de la SESIÓN (nunca del cuerpo). Es autorizador quien
+ * tiene `LOGISTICS_TARIFAS_AUTORIZAR` o es administrador de plataforma.
+ */
+export function actorDe(req: SesionTarifas | undefined): ActorTarifas {
+  const u = req?.user;
+  return {
+    userId: u?.sub ?? null,
+    username: u?.username ?? null,
+    autorizador: isPlatformAdminRole(u?.role_name) || u?.permissions?.[Permission.LOGISTICS_TARIFAS_AUTORIZAR] === true,
+  };
+}
+
 /**
  * `[AUTHZ.5]` — Controller sin autorización hasta acá (ver `logistics-fleet.controller`). Acá viven
  * las **tarifas y comisiones** con las que se paga: quien las edite mueve dinero.
  *
- * Sólo hay permiso de gestión (`LOGISTICS_CONFIG_GESTIONAR`), no de lectura. Las **lecturas** se
+ * `[EMB.28.1]` Escribir lo puede quien configura (`LOGISTICS_CONFIG_GESTIONAR`) o el autorizador de tarifas
+ * (`LOGISTICS_TARIFAS_AUTORIZAR`, que no siempre trae el otro: dirección). Qué tarifa puede tocar cada
+ * uno lo decide el SERVICIO (una ya fijada sólo el autorizador). No hay permiso de lectura. Las **lecturas** se
  * abren también a `LOGISTICS_SHIPMENTS_VER` porque el formulario de embarque consume el catálogo de
  * rutas/destinos: exigir el de gestión para leerlo rompía la pantalla de quien sólo programa viajes.
  */
@@ -35,10 +61,10 @@ export class LogisticsConfigController {
   constructor(private readonly service: LogisticsConfigService) {}
 
   @Post()
-  @RequirePermissions(Permission.LOGISTICS_CONFIG_GESTIONAR)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'Crear config_finance' })
-  create(@Body() body: CreateConfigDto) {
-    return this.service.create(body);
+  create(@Body() body: CreateConfigDto, @Req() req: SesionTarifas): Promise<ConfigRow> {
+    return this.service.create(body, actorDe(req));
   }
 
   @Get()
@@ -54,22 +80,29 @@ export class LogisticsConfigController {
   @Get(':id')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_VER)
   @ApiOperation({ summary: 'Obtener config por id' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id') id: string): Promise<ConfigRow> {
     return this.service.findById(id);
   }
 
   @Patch(':id')
-  @RequirePermissions(Permission.LOGISTICS_CONFIG_GESTIONAR)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'Actualizar config (parcial)' })
-  update(@Param('id') id: string, @Body() body: UpdateConfigDto) {
-    return this.service.update(id, body);
+  update(@Param('id') id: string, @Body() body: UpdateConfigDto, @Req() req: SesionTarifas): Promise<ConfigRow> {
+    return this.service.update(id, body, actorDe(req));
   }
 
   @Delete(':id')
-  @RequirePermissions(Permission.LOGISTICS_CONFIG_GESTIONAR)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'Hard-delete config (no soft-delete: poco data y se reemplaza)' })
-  remove(@Param('id') id: string) {
-    return this.service.delete(id);
+  remove(@Param('id') id: string, @Req() req: SesionTarifas): Promise<Borrado> {
+    return this.service.delete(id, actorDe(req));
+  }
+
+  @Get(':id/historial')
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
+  @ApiOperation({ summary: 'EMB.28.1: historia de un renglón de configuración (quién, cuándo, antes y después)' })
+  historialConfig(@Param('id') id: string): Promise<TariffChangeRow[]> {
+    return this.service.historial('config', id);
   }
 
   // ── J.9.8 — Routes CRUD (Comisiones por ruta del catálogo destinos) ────
@@ -84,23 +117,30 @@ export class LogisticsConfigController {
   }
 
   @Post('routes')
-  @RequirePermissions(Permission.LOGISTICS_CONFIG_GESTIONAR)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'J.9.8: crear route con comisiones' })
-  createRoute(@Body() body: any) {
-    return this.service.createRoute(body);
+  createRoute(@Body() body: RouteDto & { name: string }, @Req() req: SesionTarifas): Promise<RouteRow> {
+    return this.service.createRoute(body, actorDe(req));
   }
 
   @Patch('routes/:id')
-  @RequirePermissions(Permission.LOGISTICS_CONFIG_GESTIONAR)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'J.9.8: actualizar route (parcial)' })
-  updateRoute(@Param('id') id: string, @Body() body: any) {
-    return this.service.updateRoute(id, body);
+  updateRoute(@Param('id') id: string, @Body() body: RouteDto, @Req() req: SesionTarifas): Promise<RouteRow> {
+    return this.service.updateRoute(id, body, actorDe(req));
   }
 
   @Delete('routes/:id')
-  @RequirePermissions(Permission.LOGISTICS_CONFIG_GESTIONAR)
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'J.9.8: soft-delete route' })
-  deleteRoute(@Param('id') id: string) {
-    return this.service.deleteRoute(id);
+  deleteRoute(@Param('id') id: string, @Req() req: SesionTarifas): Promise<Borrado> {
+    return this.service.deleteRoute(id, actorDe(req));
+  }
+
+  @Get('routes/:id/historial')
+  @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
+  @ApiOperation({ summary: 'EMB.28.1: historia de la tarifa de una ruta (quién, cuándo, antes y después)' })
+  historialRuta(@Param('id') id: string): Promise<TariffChangeRow[]> {
+    return this.service.historial('route', id);
   }
 }
