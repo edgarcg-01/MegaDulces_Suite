@@ -866,6 +866,34 @@ export class CashCutService {
           // `[CG.82]` De los de hoy, cuántos traen el papel fechado otro día (el rezago del ERP).
           // Viaja como NÚMERO y no sólo como frase: la frase se lee una vez, el número se compara.
           fechados_otro_dia: fueraDeFecha,
+          /**
+           * ⭐⭐ `[CG.97]` **CUÁNTO DE ESTE MOVIMIENTO QUEDÓ DE VERDAD EN EL CAJÓN.**
+           *
+           * Edgar, mirando este mismo bloque: *"ponemos que a caja general entró 103 mil, pero eso
+           * no ingresó; ingresó sólo monedas y lo de CAOS se queda en CAOS"*.
+           *
+           * `neto` es correcto como MOVIMIENTO DEL DÍA —el dinero entró y se registró— pero se
+           * lee como «esto hay en la caja», y no lo hay: de los $111,845 de hoy, la máquina se
+           * tragó $111,750 en billetes. Al cajón llegaron $95 de morralla.
+           *
+           * El modelo es el que ya declara `conciliacionCajero`: **cajas separadas**. Un depósito
+           * al cajero saca efectivo del cajón; una dispensación lo mete. Las dos piernas las mide
+           * la MÁQUINA, que es el testigo duro — no hace falta enlazar nada.
+           *
+           *     en_el_cajon = ingresos − gastos − depósitos + dispensado − depositado
+           *
+           * ⚠️ `null` cuando no hay cajero (cualquier sucursal que no sea OFICINAS, o el feed
+           * caído). Ahí no se puede repartir, y un cero diría «nada quedó en el cajón», que es
+           * una afirmación distinta de «no se puede saber».
+           */
+          en_el_cajon: cajero
+            ? Number((ingresos - gastos - depositos
+              + Number(cajero['dispensado'] ?? 0) - Number(cajero['depositado'] ?? 0)).toFixed(2))
+            : null,
+          /** `[CG.97]` Lo que de la jornada se fue a la bóveda, neto. Positivo = la bóveda creció. */
+          a_la_boveda: cajero
+            ? Number((Number(cajero['depositado'] ?? 0) - Number(cajero['dispensado'] ?? 0)).toFixed(2))
+            : null,
         },
         cajero,
         corte_abierto: corte
