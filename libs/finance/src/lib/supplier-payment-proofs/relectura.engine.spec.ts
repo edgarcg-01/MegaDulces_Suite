@@ -9,7 +9,6 @@
  * La prueba que define el éxito es la de la lectura vacía: si esa falla, una caída del proveedor
  * de visión **borra evidencia** de 1,199 comprobantes.
  */
-import { describe, it, expect } from 'vitest';
 import {
   hojaRelegible, tipoLeible, base64De, lecturaSirve, camposQueCambiaron,
   veredictoPasada, notaPasada, pasadaVacia, CAMPOS_QUE_DECIDEN,
