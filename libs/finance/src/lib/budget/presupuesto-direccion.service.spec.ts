@@ -60,15 +60,22 @@ function hacerTrx(d: Doble) {
     return c;
   };
   const trx = (tabla: string) => chain(tabla);
-  (trx as unknown as { raw: (s: string) => Promise<unknown> }).raw = async (s: string) => {
+  (trx as unknown as { raw: (s: string) => PromiseLike<unknown> }).raw = (s: string) => {
     // ⭐ Se capturan los fragmentos que el servicio CONSTRUYE DE VERDAD en esta corrida.
     // Es lo que distingue esto de grepear el archivo: el grep dice «la cadena aparece en algún
     // lado»; esto dice «el fragmento que ESTA consulta armó la lleva». Atrapa la mutación de
     // quitar el filtro en UNO de los cuatro sitios, que al texto se le escapa porque la cadena
     // sigue estando en los otros tres.
     d.crudos?.push(s);
-    if (d.fallan?.has('raw')) throw new Error('raw apagado a propósito');
-    return { rows: [{ n: s.includes('account_code') ? 14 : 0 }] };
+    // Como en Knex: `raw` arma un fragmento y sólo se EJECUTA si se espera. Con `async` cada
+    // fragmento metido en un `select(...)` nacía como promesa rechazada que nadie esperaba
+    // (14 «Unhandled Rejection» en CI con `fallan: raw`). El error sale al esperarla, no antes.
+    return {
+      then: (ok?: (v: unknown) => unknown, mal?: (e: unknown) => unknown) =>
+        (d.fallan?.has('raw')
+          ? Promise.reject(new Error('raw apagado a propósito'))
+          : Promise.resolve({ rows: [{ n: s.includes('account_code') ? 14 : 0 }] })).then(ok, mal),
+    };
   };
   return trx;
 }

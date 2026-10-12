@@ -54,7 +54,20 @@ export const TIPOS_INCIDENCIA: TipoIncidencia[] = [
   // nueva (en `minutes`, minuto del día: 600 = 10:00). Es de UN solo día. Desde el 01/10/2026
   // exige motivo y quién lo autorizó (63 usos en dos días, 40 corriendo la entrada 1 h o más).
   { tipo: 'horario_distinto',    etiqueta: 'Horario distinto',           codigo: 'HD',  excusaFalta: false },
+  // `[RH.1.10]` (Mega Talento ee4ff38, 08/10/2026). DESAYUNO Y COMIDA DISTINTOS: igual que "Horario
+  // distinto", pero para la pausa. Ese día RH autorizó otro tiempo (`minutes`, 0-240) y el exceso se
+  // mide contra ése. De un solo día, con motivo y quién lo autorizó. No justifica.
+  { tipo: 'desayuno_distinto',   etiqueta: 'Desayuno distinto',          codigo: 'DD',  excusaFalta: false },
+  { tipo: 'comida_distinta',     etiqueta: 'Comida distinta',            codigo: 'CD',  excusaFalta: false },
+  // CAMBIO DE DÍA DE DESCANSO: ese día es su descanso de la semana, y su descanso habitual de ESA
+  // semana (jueves a miércoles) pasa a ser día de trabajo (si no viene, es falta). De un solo día.
+  { tipo: 'cambio_descanso',     etiqueta: 'Cambio de día de descanso',  codigo: 'DES', excusaFalta: false },
 ];
+
+/** Tipos de UN solo día que ajustan cómo se mide ese día, sin justificarlo. */
+export const TIPOS_DE_AJUSTE = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta', 'cambio_descanso']);
+/** Los que llevan su motivo y quién lo autorizó aparte (no levantan «sin nota»). */
+const CON_MOTIVO_PROPIO = new Set(['horario_distinto', 'desayuno_distinto', 'comida_distinta']);
 
 const POR_TIPO = new Map(TIPOS_INCIDENCIA.map((t) => [t.tipo, t]));
 export const tipoIncidencia = (tipo: string): TipoIncidencia | undefined => POR_TIPO.get(tipo);
@@ -119,8 +132,8 @@ export function banderasDe(r: FilaParaBanderas): BanderaIncidencia[] {
   }
   if ((r.rated_by || r.rated_by_name)
       && mismaPersona(r.rated_by, r.rated_by_name, r.created_by, r.created_by_name)) b.push('autocalificada');
-  // El Horario distinto lleva su nota armada sola; "sin nota" es para lo demás.
-  if (r.incident_type !== 'horario_distinto' && !String(r.note || '').trim()) b.push('sin_nota');
+  // Los ajustes de horario y de pausa llevan su nota armada sola; "sin nota" es para lo demás.
+  if (!CON_MOTIVO_PROPIO.has(r.incident_type) && !String(r.note || '').trim()) b.push('sin_nota');
   if (r.created_at && r.date_to) {
     const creado = new Date(r.created_at).getTime();
     if (creado - Date.parse(`${r.date_to}T23:59:59-06:00`) > 7 * 86400000) b.push('retroactiva');
@@ -209,6 +222,25 @@ export function validarCaptura(b: CapturaIncidencia): { ok: true; valor: Captura
     }
     // El motivo va primero; los hechos del reloj (que arma la pantalla) detrás.
     nota = nota ? `${motivo} — ${nota}` : motivo;
+  }
+  // Desayuno o comida distintos: cuántos minutos tuvo autorizados ese día.
+  if (tipo === 'desayuno_distinto' || tipo === 'comida_distinta') {
+    const cual = tipo === 'desayuno_distinto' ? 'desayuno' : 'comida';
+    minutos = Math.round(Number(b.minutes));
+    if (b.minutes === null || b.minutes === undefined || b.minutes === '' || !Number.isFinite(minutos)
+        || minutos < 0 || minutos > 240) {
+      return { ok: false, error: `Indica cuántos minutos de ${cual} tuvo autorizados (de 0 a 240).` };
+    }
+    if (hasta !== desde) {
+      return { ok: false, error: cual === 'desayuno' ? 'El desayuno distinto es de un solo día.' : 'La comida distinta es de un solo día.' };
+    }
+    const motivo = String(b.reason ?? '').trim();
+    if (!motivo) return { ok: false, error: `Escribe por qué ese día tuvo otro tiempo de ${cual}.` };
+    if (!autorizo) return { ok: false, error: 'Escribe quién lo autorizó.' };
+    nota = nota ? `${motivo} — ${nota}` : motivo;
+  }
+  if (tipo === 'cambio_descanso' && hasta !== desde) {
+    return { ok: false, error: 'El cambio de descanso es de un solo día: elige el día que descansa.' };
   }
   if (tipo === 'otros' && !nota) return { ok: false, error: 'Con "Otros" hay que escribir el motivo.' };
 

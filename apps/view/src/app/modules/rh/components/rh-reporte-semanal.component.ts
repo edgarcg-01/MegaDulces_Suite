@@ -31,6 +31,7 @@ import {
               <th class="rs-dia" [class.hoy]="c.hoy" scope="col">{{ c.dow }}<span>{{ c.dia }}</span></th>
             }
             <th class="num" scope="col" title="Horas netas del periodo: jornada menos comida. En Oficinas el desayuno no se descuenta.">Horas</th>
+            <th class="num" scope="col" title="Horas extra ganadas en el periodo: lo que se quedó después de su hora de salida, en bloques de 30 min. El saldo está en la pestaña Horas extra.">H. extra</th>
             <th class="num" scope="col" [title]="mideRetardo() ? 'Minutos tarde en la entrada contra su hora. La tolerancia semanal se aplica en la pestaña Tolerancia.' : 'Esta plaza no tiene hora límite de entrada: no se mide retardo.'">{{ mideRetardo() ? 'Min. retardo' : 'Retardo' }}</th>
             @if (hayAsignados()) { <th class="num" scope="col" title="Horas trabajadas menos las que pide su horario asignado">vs. horario</th> }
             <th scope="col"><span class="sr-only">Acciones</span></th>
@@ -60,9 +61,11 @@ import {
                         @if (c.comMin !== null) { <span [class.exc]="c.comExcedida">C {{ c.comMin }}</span> }
                       </span>
                     }
+                    @if (c.extraMin) { <span class="rs-extra" [title]="'Horas extra: debía salir a las ' + (c.salidaEsperada || '—')">+{{ horas(c.extraMin) }} extra</span> }
                   </td>
                 }
                 <td class="num">{{ horas(f.p.minutosTrabajados) }}</td>
+                <td class="num rs-extra-tot">{{ f.p.horasExtraGanadasMin ? horas(f.p.horasExtraGanadasMin) : '' }}</td>
                 <td class="num" [class.rs-ret]="mideRetardo() && f.p.atrasoBrutoMin > 0">@if (mideRetardo()) { {{ f.p.atrasoBrutoMin || '' }} } @else { <span class="na">—</span> }</td>
                 @if (hayAsignados()) { <td class="num" [class.menos]="(f.dif ?? 0) < 0" [class.mas]="(f.dif ?? 0) > 0">{{ firma(f.dif) }}</td> }
                 <td class="rs-acc">
@@ -77,6 +80,7 @@ import {
               <tr class="rs-sub">
                 <td [attr.colspan]="columnas().length + 3"><span class="sr-only">Subtotal de {{ g.departamento }}</span></td>
                 <td class="num">{{ horas(g.subMin) }}</td>
+                <td class="num rs-extra-tot">{{ g.subExtra ? horas(g.subExtra) : '' }}</td>
                 <td class="num">{{ mideRetardo() ? g.subRet : '' }}</td>
                 @if (hayAsignados()) { <td></td> }
                 <td></td>
@@ -88,6 +92,7 @@ import {
           <tr>
             <td [attr.colspan]="columnas().length + 3">{{ parcial() ? 'Totales de lo que se ve' : 'Totales' }}</td>
             <td class="num">{{ horas(totales().min) }}</td>
+            <td class="num rs-extra-tot">{{ totales().extra ? horas(totales().extra) : '' }}</td>
             <td class="num">{{ mideRetardo() ? totales().ret : '—' }}</td>
             @if (hayAsignados()) { <td></td> }
             <td></td>
@@ -125,6 +130,8 @@ import {
     .rs-celda .t { display: block; color: var(--text-muted); font-size: var(--fs-micro); line-height: 1.35; }
     .rs-celda .t span { display: inline-block; white-space: nowrap; margin: 0 2px; }
     .rs-celda .pz { display: flex; justify-content: center; gap: 6px; font-size: var(--fs-micro); color: var(--text-muted); margin-top: 1px; }
+    .rs-extra { display: block; text-align: center; font-size: var(--fs-micro); font-weight: 700; color: var(--ok-soft-fg); margin-top: 1px; }
+    .rs-extra-tot { color: var(--ok-soft-fg); font-weight: 700; }
     .rs-celda .exc, .rs-celda .antes { color: var(--warn-soft-fg); background: var(--warn-soft-bg); border-radius: 3px; padding: 0 3px; font-weight: 700; }
     .rs-celda.tarde .j { color: var(--bad-fg); font-weight: 700; }
     .rs-celda[data-t='falta'] .j, .rs-celda[data-t='marca'] .j { color: var(--bad-fg); font-weight: 700; }
@@ -179,7 +186,7 @@ export class RhReporteSemanalComponent {
   readonly firma = firmaHoras;
 
   readonly hayAsignados = computed(() => this.todas().some((p) => !!p.horarioAsignado));
-  readonly ncol = computed(() => this.columnas().length + 5 + (this.hayAsignados() ? 1 : 0));
+  readonly ncol = computed(() => this.columnas().length + 6 + (this.hayAsignados() ? 1 : 0));
 
   readonly modelo = computed(() => {
     const o = { hoy: this.hoy(), mideRetardo: this.mideRetardo() };
@@ -192,6 +199,7 @@ export class RhReporteSemanalComponent {
         ...g,
         subMin: completo.reduce((t, p) => t + p.minutosTrabajados, 0),
         subRet: completo.reduce((t, p) => t + p.atrasoBrutoMin, 0),
+        subExtra: completo.reduce((t, p) => t + (p.horasExtraGanadasMin || 0), 0),
         filas: g.personas.map((p) => {
           const dias = diasPorFecha(p);
           const lista = irr.get(p.codigo) ?? [];
@@ -217,6 +225,9 @@ export class RhReporteSemanalComponent {
 
   readonly totales = computed(() => {
     const vis = this.grupos().flatMap((g) => g.personas);
-    return { min: vis.reduce((t, p) => t + p.minutosTrabajados, 0), ret: vis.reduce((t, p) => t + p.atrasoBrutoMin, 0) };
+    return {
+      min: vis.reduce((t, p) => t + p.minutosTrabajados, 0), ret: vis.reduce((t, p) => t + p.atrasoBrutoMin, 0),
+      extra: vis.reduce((t, p) => t + (p.horasExtraGanadasMin || 0), 0),
+    };
   });
 }

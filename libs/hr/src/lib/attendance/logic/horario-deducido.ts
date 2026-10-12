@@ -605,6 +605,12 @@ export interface OpcionesRetardo extends OpcionesHorario {
    */
   horarioDelDia?: Map<string, number> | null;
   /**
+   * `[RH.1.10]` CAMBIO DE DÍA DE DESCANSO por fecha (Mega Talento ee4ff38): `false` = ese día es su
+   * descanso aunque normalmente trabaje; `true` = ese día le toca trabajar aunque normalmente
+   * descanse. Manda sobre `diasLaborales`.
+   */
+  laboralPorFecha?: Map<string, boolean> | null;
+  /**
    * false = la plaza no tiene hora límite de entrada (sucursales): los días
    * con marcas salen "a tiempo" sin atraso, ni tolerancia, ni día atípico.
    * Faltas y descansos se calculan igual.
@@ -657,6 +663,7 @@ export function retardosPorSemana(dias: DiaCrudo[], opciones: OpcionesRetardo = 
     diasLaborales = null, diaInicioSemana = DIA_INICIO_SEMANA,
     turnoPorFecha = null, atipicoFijoMin = 120, duplicadaMin = DUPLICADA_MIN,
     ausenciasPrevias = null, medirRetardo = true, horarioDelDia = null,
+    laboralPorFecha = null,
   } = opciones;
   const descansosSemana = descansosDeLaSemana(diasLaborales);
 
@@ -685,7 +692,9 @@ export function retardosPorSemana(dias: DiaCrudo[], opciones: OpcionesRetardo = 
     let atrasoSem = 0, retardoSem = 0;
 
     // Qué ausencias de esta semana caben como descanso (ver descansosDeLaSemana).
-    const esLaboralF = (f: string) => !diasLaborales || diasLaborales.includes(diaSemana(f));
+    const esLaboralF = (f: string) => laboralPorFecha?.has(f)
+      ? laboralPorFecha.get(f) as boolean
+      : !diasLaborales || diasLaborales.includes(diaSemana(f));
     const sinMarca = delaSemana.filter((d) => d.tipo === 'sin_marca');
     const habituales = sinMarca.filter((d) => !esLaboralF(d.fecha));
     const enLaborable = sinMarca.filter((d) => esLaboralF(d.fecha));

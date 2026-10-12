@@ -851,6 +851,13 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR)],
         loadComponent: () => import('./modules/rh/pages/rh-faltas.component').then(m => m.RhFaltasComponent),
       },
+      // `[RH.1.10]` El banco de horas extra: lo leen quienes ven la asistencia y quienes capturan o califican
+      // incidencias (el mismo `anyOf` que `GET /hr/attendance/overtime`).
+      {
+        path: 'asistencia/horas-extra',
+        canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-horas-extra.component').then(m => m.RhHorasExtraComponent),
+      },
       {
         path: 'incidencias',
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_INCIDENTS_AUDITAR, Permission.HR_PERIOD_CLOSE)],

@@ -24,7 +24,8 @@ export function persona(over: Partial<HrPersonaAsistencia> = {}): HrPersonaAsist
     faltasJustificadas: 0, diasNoMedibles: 0, diasAtipicos: 0, horasTrabajadas: 45, minutosTrabajados: 2700, diasConIncidencia: 0,
     incidencias: [], desayunoExcesoMin: 0, diasDesayunoExcedido: 0, pctATiempo: 100,
     semanas: [{ inicio: '2026-10-01', bolsaInicial: 15, bolsaRestante: 15, atrasoMin: 0, retardoRealMin: 0, bolsaAgotada: false, dias: [dia()], minutosTrabajados: 540 }],
-    marcas: [], usable: true, bloqueadoPor: [], horarioAsignado: null, minutosEsperados: null, ...over,
+    marcas: [], usable: true, bloqueadoPor: [], horarioAsignado: null, minutosEsperados: null,
+    horasExtraGanadasMin: 0, horasExtraUsadasMin: 0, horasExtraSegun: 'deducido', ...over,
   };
 }
 
