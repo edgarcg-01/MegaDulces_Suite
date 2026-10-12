@@ -1,6 +1,6 @@
 # Fase PF — Flujo de venta de cualquier producto (Compras › Catálogo › Productos)
 
-> Estado: 🧪 PF.1–PF.6 en código y probados en local (2026-10-09). **PF.6 trae una migración** (`20261009183328_product_flow_watch`, sin aplicar en prod). Sin push.
+> Estado: 🧪 PF.1–PF.8 en código y probados en local (2026-10-12). **Dos migraciones sin aplicar en prod**: `20261009183328_product_flow_watch` (PF.6) y `20261012083236_mv_product_margins_30d` (PF.8).
 
 ## Pedido (Compras, 2026-10-09)
 
@@ -153,6 +153,30 @@ Lo de Productos nuevos, para **todos** los productos, en la sección de **Produc
   en celular, el siguiente paso es recortarla.
 - **Para activarlo en prod**: aplicar la migración (aditiva; puede ir antes o después del código, el código aguanta sin
   la tabla) y redesplegar api + worker.
+
+## PF.7 — «Para cuidar hoy» ligero
+
+- Cada producto de la lista llevaba su análisis completo (motivos, impacto, traspasos, sucursales): **~477 KB**. Ahora
+  lleva sólo lo que la pantalla pinta (`ResumenCuidar`: venta del mes, variación, veredicto, agotadas, líder, margen
+  y caducidad); el análisis completo llega al abrir el producto. Medido en prod: **234 KB** (lo más pesado ya es
+  «No se venden», 136 KB), **37 KB comprimido** (la API comprime todas las respuestas).
+- ⛔ **Arreglado de paso un error de PF.6**: al refactorizar quedó un mapa vacío que tapaba el de los nombres, y los
+  líderes y las caducidades salían **sin SKU ni nombre**. Las pruebas del servicio no lo veían porque simulaban el
+  cálculo; ahora hay una que arma la respuesta de verdad (probada rompiéndolo).
+
+## PF.8 — Márgenes del producto al instante
+
+- **Antes**: el panel los calculaba al abrir el producto con `fn_new_products_movimientos` (entra por SKU): 1.1–1.5 s,
+  **14 s** la primera vez.
+- **Ahora**: `analytics.mv_product_margins_30d` guarda las piezas de los tres márgenes por (producto, sucursal,
+  peldaño, unidad base) de los 30 días cerrados, **entrando por fecha** para todos los productos: 15–17 s en prod,
+  27,315 filas, 4,807 productos. Se refresca en el nocturno del worker (06:20) con su latido
+  (`analytics_refresh_product_margins`) y umbral en `CRON_JOBS`.
+- ⭐ **Cruzada contra la función** (las mismas expresiones, dos implementaciones): en prod, 5 productos, **51 celdas
+  sin una sola diferencia**; en local, el candado de la prueba de base de datos (13 celdas).
+- **El panel la lee si está poblada y llega hasta ayer**; si no (sin poblar, el nocturno no corrió, o antes de las 06:20
+  cuando todavía llega a anteayer) calcula con la función, **mismo periodo y mismas cifras**, y lo dice.
+- Medido en local: matvista **33–38 ms**; sin poblar, cálculo en vivo con las mismas cifras.
 
 ## Tiempos (prod, sólo lectura, con el servicio real)
 

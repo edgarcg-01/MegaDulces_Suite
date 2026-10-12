@@ -1333,6 +1333,8 @@ const CRON_JOBS: CronCfg[] = [
   { key: 'analytics_refresh_cost_origin',     label: 'Refresh MV origen del costo (CE.11)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [NP.1] Productos nuevos. Parada, la pestaña sigue contando días sobre cifras de otra noche.
   { key: 'analytics_refresh_new_products',    label: 'Refresh MV productos nuevos (NP.1)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PF.8] Márgenes por producto (30 días cerrados). Si se para, el panel calcula en vivo (1-14 s) y lo dice.
+  { key: 'analytics_refresh_product_margins', label: 'Refresh MV márgenes por producto (PF.8)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [IC.10] Roll-forward entre conteos. Mismo motivo que las dos de arriba, con un agravante:
   // cuando envejece la pantalla de Conciliacion no se vacia ni avisa -- sigue mostrando la
   // merma del periodo anterior como si fuera la del actual, que es la clase de fallo que no

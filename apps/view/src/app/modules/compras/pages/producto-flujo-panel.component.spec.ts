@@ -194,6 +194,18 @@ describe('[PF.1] panel de flujo de un producto', () => {
     expect(fila.querySelector('.pf-down')?.textContent).toBe('-2.5%');
   });
 
+  it('[PF.8] si los márgenes se calcularon en el momento (no de la noche), lo dice', async () => {
+    const vivo = { ...MARGENES, origen: { fuente: 'en_vivo' as const, calculado_at: '2026-10-12T15:00:00Z' } };
+    const fix = await montar(vi.fn(() => of({ ...DETALLE, costo_visible: true })), vi.fn(() => of(vivo)));
+    await tick(fix);
+    expect(fix.nativeElement.textContent).toContain('el cálculo de la noche no está al día');
+    TestBed.resetTestingModule();
+    const foto = { ...MARGENES, origen: { fuente: 'foto' as const, calculado_at: '2026-10-12T12:20:00Z' } };
+    const fix2 = await montar(vi.fn(() => of({ ...DETALLE, costo_visible: true })), vi.fn(() => of(foto)));
+    await tick(fix2);
+    expect(fix2.nativeElement.textContent).not.toContain('el cálculo de la noche no está al día');
+  });
+
   it('[negativa] [PF.5] sin permiso de costo no se piden ni se pintan márgenes', async () => {
     const margenes = vi.fn(() => of(MARGENES));
     const fix = await montar(vi.fn(() => of(DETALLE)), margenes);
