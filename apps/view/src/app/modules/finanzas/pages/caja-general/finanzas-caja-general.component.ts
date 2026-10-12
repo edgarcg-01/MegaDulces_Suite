@@ -745,6 +745,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    border:1px solid var(--border); border-radius:var(--radius-sm); padding:0 var(--sp-1); }
     /* El mismo verde que ya usa el signo del ingreso en la cola (.cg-in), no uno nuevo. */
     .cg-hist-in { color:var(--ok-fg); }
+    .cg-hist-benef { font-weight:600; }
+    /* [CG.91.2] El pie: separado por una linea, no por color -- es un total, no una alerta. */
+    .cg-hist-pie > td { border-top:2px solid var(--border); padding-top:var(--sp-2);
+                        color:var(--text-muted); font-size:var(--fs-sm); }
+    .cg-hist-pie .cg-hist-neto { color:var(--text); font-weight:700; font-size:var(--fs-body); }
     @media (max-width:47.5rem) { .cg-conc-cols { grid-template-columns:1fr; } }
     .cg-conc-col { display:flex; flex-direction:column; gap:var(--sp-1); min-width:0; }
     .cg-conc-sub { font-size:var(--fs-sm); }
@@ -1029,9 +1034,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               <p class="cg-cap">Movimientos que registraste en esta jornada</p>
               <p-table [value]="a.movimientos_del_dia!" size="small" class="cg-conc-tbl">
                 <ng-template #header>
+                  <!-- [CG.91.2] El orden sigue a lo que la persona RECONOCE: la hora, con quien
+                       fue y cuanto. El folio interno (CI-2026-00007) y la cuenta son respaldo, no
+                       lo que se busca con la vista. -->
                   <tr>
-                    <th scope="col">Hora</th><th scope="col">Folio</th><th scope="col">Documento</th>
-                    <th scope="col">Contraparte</th><th scope="col">Cuenta</th>
+                    <th scope="col">Hora</th>
+                    <th scope="col">Contraparte</th>
+                    <th scope="col">De dónde salió</th>
+                    <th scope="col">Cuenta</th>
                     <th scope="col" class="ta-r">Importe</th>
                   </tr>
                 </ng-template>
@@ -1040,15 +1050,35 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                        explique su propio contador, que los cuenta aparte. -->
                   <tr [class.cg-hist-canc]="m.estado === 'cancelado'">
                     <td class="mono">{{ m.hora }}</td>
-                    <td class="mono">{{ m.folio }}</td>
-                    <td class="mono fin-dim">{{ m.documento || '—' }}</td>
-                    <td>{{ m.beneficiario || '—' }}
+                    <td>
+                      <span class="cg-hist-benef">{{ m.beneficiario || '—' }}</span>
                       @if (m.estado === 'cancelado') { <span class="cg-hist-tag">cancelado</span> }
+                      <small class="mono fin-dim d-block">{{ m.folio }}</small>
                     </td>
+                    <!-- Sale del origen_ref, que lo arma el servidor — no de la glosa. -->
+                    <td class="mono fin-dim">{{ m.documento || 'captura a mano' }}</td>
                     <td class="fin-dim">{{ m.cuenta ? m.cuenta + (m.concepto ? ' · ' + m.concepto : '') : '—' }}</td>
                     <td class="mono ta-r" [class.cg-hist-in]="m.tipo === 'ingreso'">
                       {{ m.tipo === 'ingreso' ? '+ ' : '&minus; ' }}{{ money(m.monto) }}
                     </td>
+                  </tr>
+                </ng-template>
+                <!-- ⭐ [CG.91.2] EL PIE QUE CIERRA. Sin esto la lista no se puede revisar contra
+                     nada: el cuadro de arriba dice "Movimiento del dia" y abajo habia renglones
+                     sueltos que nadie podia sumar con la vista. Aca se suman los MISMOS renglones
+                     que estan a la vista, y el total tiene que dar igual al de arriba. Si no da,
+                     eso YA es informacion -- quiere decir que la lista esta topada o que hay algo
+                     fuera del reloj de la jornada. -->
+                <ng-template #footer>
+                  <tr class="cg-hist-pie">
+                    <td colspan="4">
+                      Entradas <strong class="mono cg-hist-in">+ {{ money(totalHistorial().ingresos) }}</strong>
+                      &nbsp;·&nbsp; Salidas <strong class="mono">&minus; {{ money(totalHistorial().gastos) }}</strong>
+                      @if (totalHistorial().cancelados) {
+                        <small class="fin-dim">&nbsp;· {{ totalHistorial().cancelados }} cancelado(s), fuera del total</small>
+                      }
+                    </td>
+                    <td class="mono ta-r cg-hist-neto">{{ money(totalHistorial().neto) }}</td>
                   </tr>
                 </ng-template>
               </p-table>
@@ -3326,6 +3356,24 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    */
   corrigiendo = signal(false);
   fichaSolaLectura = computed(() => !!this.cobroElegido() && !this.corrigiendo());
+
+  /**
+   * `[CG.91.2]` El pie del historial: suma LOS RENGLONES QUE ESTÁN A LA VISTA, no los del
+   * servidor. Es a propósito — el total de arriba ya viene del servidor, y si los dos salieran de
+   * la misma fuente el pie no comprobaría nada. Sumando lo visible, una diferencia entre el pie y
+   * el cuadro ES información: la lista está topada, o hay algo fuera del reloj de la jornada.
+   *
+   * ⚠️ Los cancelados quedan fuera del total y se cuentan aparte, igual que arriba.
+   */
+  totalHistorial = computed(() => {
+    const ms = this.arqueo()?.movimientos_del_dia ?? [];
+    let ingresos = 0; let gastos = 0; let cancelados = 0;
+    for (const m of ms) {
+      if (m.estado === 'cancelado') { cancelados++; continue; }
+      if (m.tipo === 'ingreso') ingresos += Number(m.monto); else gastos += Number(m.monto);
+    }
+    return { ingresos, gastos, cancelados, neto: Number((ingresos - gastos).toFixed(2)) };
+  });
   /** `[CG.62]` La ventana de "seguro que queres guardar". Es una PREGUNTA, no el guardado. */
   confirmarGuardar = signal(false);
 
