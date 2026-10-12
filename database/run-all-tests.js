@@ -378,6 +378,7 @@ const TESTS = [
   // 00009). El decode no se dedujo por estadística: está anclado a una captura de la pantalla
   // de Kepler (UD4101-0000713) que se comprueba campo por campo.
   { file: 'test-newdb-erp-shipment-headers.js', label: 'EMB.0/0.1 cabecera de embarque Kepler (paridad con kdm1 sin duplicar + resolución 100% de la unidad con prueba negativa + precedencia exacto>normalizado anclada en el caso BENJAMIN/MARIA + el decode contra la captura de pantalla + los huecos declarados: chofer sin capturar, fecha de pago que se contradice, ruta inexistente + la guía como VIAJE contra el embarque como PARADA)', needsApi: false },
+  { file: 'test-newdb-emb-pago-por-viaje.js', label: 'EMB.24–29 pago por viaje cerrado (traspaso cerrado por su U-A-50 contra kdm1 crudo + prueba negativa de traducir TI### por número + parada sin foto NO se cierra + guía incompleta no libera + el mismo renglón no entra a dos vales 23505 + vale rechazado libera sólo al dejar de estar vigente)', needsApi: false },
   { file: 'test-newdb-lt-routes-sync.js', label: 'LT.7 sync autoritativo ruta↔operador↔camión (API oficial travels/operators)', needsApi: false },
   { file: 'test-newdb-ltv-trips.js', label: 'LTV.0 reconstrucción de viajes/paradas', needsApi: false },
   { file: 'test-newdb-ltv-pod-audit.js', label: 'LTV.3 auditoría georreferenciada de POD', needsApi: false },

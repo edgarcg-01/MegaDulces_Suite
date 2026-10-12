@@ -25,6 +25,7 @@ import { KeplerHojaComponent } from '../components/kepler-hoja.component';
 import { KeplerCostoComponent } from '../components/kepler-costo.component';
 import { GuiaCalculadaComponent, PersonaDeLaGuia } from '../components/guia-calculada.component';
 import { RevisionGpsComponent } from '../components/revision-gps.component';
+import { CierreViajeComponent } from '../components/cierre-viaje.component';
 import type { RevisionGps } from '@megadulces/contracts';
 import type { TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
 import {
@@ -43,7 +44,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     ButtonModule, CardModule, TableModule, DialogModule,
     InputTextModule, InputNumberModule, CheckboxModule, SelectModule, AutoCompleteModule,
     TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
-    KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent, RevisionGpsComponent,
+    KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent, RevisionGpsComponent, CierreViajeComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -151,6 +152,17 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
                 >
                 <i class="pi pi-money-bill" aria-hidden="true"></i>
                 <span>Costos</span>
+              </button>
+              <button
+                type="button"
+                class="shd-mode-tab"
+                [class.active]="tab() === 'cierre'"
+                role="radio"
+                [attr.aria-checked]="tab() === 'cierre'"
+                (click)="setTab('cierre')"
+                >
+                <i class="pi pi-flag-fill" aria-hidden="true"></i>
+                <span>Cierre y pago</span>
               </button>
               <button
                 type="button"
@@ -443,6 +455,14 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <!-- Save action -->
           <div class="shd-info-actions">
             <button pButton [loading]="savingExp()" (click)="saveExpense()"><span class="p-button-icon p-button-icon-left pi pi-save" aria-hidden="true"></span><span class="p-button-label">Guardar costos</span></button>
+          </div>
+        }
+        <!-- ── TAB CIERRE Y PAGO (EMB.24–27) ── -->
+        @if (tab() === 'cierre') {
+          <div class="sheet cols-12">
+            <article class="cell cell-span-12">
+              <app-cierre-viaje [shipmentId]="s.id" [drivers]="drivers()"></app-cierre-viaje>
+            </article>
           </div>
         }
         <!-- ── TAB CARTA PORTE ── -->
@@ -977,7 +997,7 @@ export class LogisticaShipmentDetailComponent {
   readonly etaLoading = signal(false);
   readonly readiness = signal<ShipmentReadiness | null>(null);
   readonly selectedGuide = signal<DeliveryGuide | null>(null);
-  readonly tab = signal<'info' | 'guides' | 'expenses' | 'cartaporte'>('info');
+  readonly tab = signal<'info' | 'guides' | 'expenses' | 'cierre' | 'cartaporte'>('info');
 
   // ── Carta Porte ──
   readonly cpDocs = signal<CartaPorteDocument[]>([]);
@@ -987,7 +1007,7 @@ export class LogisticaShipmentDetailComponent {
   readonly cpStamping = signal(false);
   readonly cpReady = computed(() => this.cpChecked() && this.cpGaps().length === 0);
 
-  setTab(t: 'info' | 'guides' | 'expenses' | 'cartaporte') {
+  setTab(t: 'info' | 'guides' | 'expenses' | 'cierre' | 'cartaporte') {
     this.tab.set(t);
     if (t === 'cartaporte') this.loadCp();
     if (t === 'guides' && !this.gpsReview() && !this.gpsReviewLoading()) this.loadGpsReview();

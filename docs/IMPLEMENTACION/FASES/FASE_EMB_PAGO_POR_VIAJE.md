@@ -1,7 +1,8 @@
 # Fase EMB — Pago por viaje cerrado (comisiones, viáticos y maniobras)
 
 > Continúa la Fase EMB (EMB.0–EMB.23, en [`01_TRACKER_PROGRESO.md`](../01_TRACKER_PROGRESO.md)).
-> Decisión: **ADR-091**. Sprints **EMB.24–EMB.31**. Planeado el 2026-10-09; sin código.
+> Decisión: **ADR-091**. Sprints **EMB.24–EMB.31**. Planeado el 2026-10-09. **EMB.24/26/27/28/29 🧪 en código y probados en
+> local el 2026-10-12** (sin migraciones en prod, sin push). Pendientes: EMB.30 (avisos) y EMB.31 (padrón).
 
 ## 1. El pedido
 
@@ -68,10 +69,15 @@ Devoluciones y notas de crédito sobre las facturas de esos embarques (`kdm5` ti
 2. **Cargas a camión de ruta → sí se paga a quienes cargan** (maniobra de carga, `$30` por
    cargador, `config_finance.tarifa_maniobra_carga`).
 3. **Tarifa de comida: $100** (no los $80 que se pagan hoy).
-4. **Pedido de cliente: basta con la entrega que registra el chofer** en la Suite; una devolución
-   posterior genera aviso, no retiene.
+4. **Pedido de cliente: lo cierra la REMISIÓN FIRMADA que sube Logística al regreso** (opción A,
+   2026-10-12). Se descartó la pantalla del chofer: el vale de entrada ya cubre los traspasos y para
+   clientes la remisión es la única prueba firmada por el cliente. Una devolución posterior genera
+   aviso (EMB.30), no retiene.
 5. **El pago va por Gastos** (vale por persona y por corte), no por `/logistica/payroll`.
 6. **Viáticos a todos los que viajan** (chofer y ayudantes), por la regla de horario de EMB.19.
+7. **El cargador cobra cuando Kepler registra el embarque que cargó** (no espera al cierre del viaje:
+   cargar no depende de la ruta). Kepler sólo guarda UN responsable de embarque; los cargadores se
+   registran en la Suite.
 
 ## 5. Diseño
 
@@ -96,16 +102,32 @@ Corte de 14 días ──► un vale de Gastos por persona = sólo viajes liberad
 
 ## 6. Sprints
 
-| Sprint | Qué | Notas |
+| Sprint | Qué | Estado |
 |---|---|---|
-| **EMB.24** | Vista `analytics.erp_shipment_stop_closure` (derive-no-copy): tipo de parada + cierre Kepler (traspaso↔`U-A-50` con `pv_suc_ip`, carga a ruta, señal de devolución/NC por `kdm5`) | Candado con prueba negativa del cruce por número; ancla `btrim(c1)=sucursal` |
-| **EMB.25** | Entrega por parada en la Suite: el endpoint de entrega exige evidencia (foto, quién recibe, GPS) y acepta `no_entregado` con motivo | Hoy `recipients/:id/deliver` se llama con `{}` y no guarda nada |
-| **EMB.26** | Estado del viaje: abierto · cerrado · con diferencias, con motivo por parada | Resuelve EMB.23 por decisión: la guía pasa a cerrada por sus paradas |
-| **EMB.27** | Maniobra de carga: cargadores por carga (incluye camión de ruta), $30 c/u | Usa `logistics.load_details`; depende de GP.5 para registrar quién cargó |
-| **EMB.28** | Viáticos: tarifa de comida $100, a chofer y ayudantes, por horario | Configurar `config_finance` categoría `viatico` (hoy 0 filas en prod) |
-| **EMB.29** | Vale de Gastos por persona y corte, armado con viajes liberados; liga pago↔viaje con llave única; hoja PDF de respaldo con firma de quien recibe | Reusa `finance.expense_proofs`; antes leer los PDF de §2 |
-| **EMB.30** | Avisos: gasto `075`/`128` en Kepler sin vale · importe Kepler ≠ suma de viajes · viaje abierto > N días · persona en dos viajes a la vez · devolución/NC sobre una parada pagada | A la bandeja de hallazgos existente |
-| **EMB.31** | Padrón: dar de alta a las 7 personas que cobran y ligar `logistics.drivers` ↔ `identity.users` (hoy 0 de 56) | Sin esto no pueden firmar el vale |
+| **EMB.24** | Vista `analytics.erp_shipment_stop_closure` (traspaso↔`U-A-50` con `pv_suc_ip`, carga a ruta, cliente) + índice parcial `ix_kdm1_recepcion_traspaso` (CONCURRENTLY) + `logistics.v_trip_stop_closure` | 🧪 local. 0.3 ms por parada con el índice. Candado: 40 recepciones contra kdm1 crudo; traducir `TI###` por número da 25 contra 184 (prueba negativa) |
+| ~~EMB.25~~ | ~~Entrega por parada en el celular del chofer~~ | ❌ descartado por decisión: la remisión la sube Logística (EMB.24) |
+| **EMB.26** | `logistics.v_trip_state` + `v_trip_pay_items` + pestaña **Cierre y pago** del embarque (paradas, cargadores, lo que se libera por persona) + `POST /logistics/trip-closure/paradas/:id/cierre` (remisión en el bucket privado) | 🧪 local, recorrido en navegador |
+| **EMB.27** | Cargadores: `PUT /logistics/trip-closure/shipments/:id/cargadores` (tarifa `tarifa_maniobra_carga`, sin tarifa no se registra; si ya se pagó no se cambia) | 🧪 local |
+| **EMB.28** | Tarifas de viáticos (café 50 · desayuno 100 · comida 100 · cena 100) | ⚠️ se capturan en Logística › Configuración; en prod **siguen en 0 filas** (medido 2026-10-12) |
+| **EMB.29** | `finance.trip_pay_lines` (índice único parcial = no se paga dos veces) + `/finanzas/comisiones-logistica` (corte catorcenal jue→mié, pago viernes; reproduce los 6 viernes que Kepler ejerció) + vale de Gastos con hoja PDF, sin folio (se casa después) | 🧪 local: vale en 1.5 s; quien lo arma recibe 403 al aprobar; otro usuario lo valida |
+| **EMB.30** | Avisos: gasto `075`/`128` en Kepler sin vale · importe Kepler ≠ suma · viaje abierto > N días · persona en dos viajes · devolución sobre parada pagada | ⬜ |
+| **EMB.31** | Padrón: alta de las 7 personas que cobran y ligar `logistics.drivers` ↔ `identity.users` (0 de 56) | ⬜ |
+
+**Para probar en local:** aplicar las 2 migraciones a `platform_local`, levantar API y vista, y correr
+`node database/scripts/dev-seed-emb-pago.js --api http://127.0.0.1:<puerto>`: toma 5 guías reales de la
+copia local (traspasos recibidos, clientes con remisión, viaje abierto, faltante), registra cargadores de
+PRUEBA y crea el usuario `aprobador_prueba` (rol tesorería). Prueba de base:
+`node database/tests/test-newdb-emb-pago-por-viaje.js` (23 aserciones, 3 negativas, mutación verificada).
+
+**Hallazgos de la construcción:**
+- ⛔ Mi prueba negativa de «sin foto no se cierra» pasaba **con la regla rota**: miraba el estado del
+  VIAJE, que seguía abierto por otra parada. Se corrigió para mirar la PARADA y se verificó en rojo
+  rompiendo la vista a propósito.
+- Retractado: «los traspasos del CEDIS no tienen ruta» era un artefacto de la copia local; en prod el
+  100% de las paradas de 30 días tienen ruta.
+- `logistics.*.created_by/updated_by` son `uuid` (el id del usuario), no el nombre.
+- La hoja «Paradas» de Kepler (EMB.12) sigue mostrando «Pendiente» en los traspasos aunque la recepción
+  ya los cerró: lee el estado del destinatario, no el cierre. Pendiente alinearla con `v_trip_stop_closure`.
 
 ## 7. Fuera de alcance y pendientes
 

@@ -2159,12 +2159,13 @@ El embarque `U-D-41` llegaba por tres puertas (detalle de artículos DM, dinero 
   horario ya entraron con EMB.19): carga de salida ($30 por cargador), descarga
   de regreso ($1 por caja, reparto igual) y maniobra LAB (monto en reparto igual). Y la comisión de
   **repartidor** del catálogo original, que la tabla de rutas no guarda.
-- [ ] **[EMB.24–EMB.31]** ⬜ **Pago por viaje cerrado** (planeado 2026-10-09, ADR-091, sin código).
+- [ ] **[EMB.24–EMB.31]** 🧪 **Pago por viaje cerrado** (ADR-091; EMB.24/26/27/29 en código y probados en local 2026-10-12, sin prod; EMB.30–31 pendientes; EMB.25 descartado).
   Comisión, viáticos y maniobra de carga se liberan cuando el viaje cierra: traspaso por la recepción
   `U-A-50` en destino (94% medido; ⛔ `TI###` ≠ número de sucursal, usar `pv_suc_ip`), cliente por la
   entrega del chofer en la Suite, carga a ruta al embarcarse. Se paga por **Gastos**, un vale por persona
   cada 14 días con los viajes liberados. Resuelve por decisión EMB.20 y EMB.23 (no se enciende
-  `/logistica/payroll`); comida a $100. Plan en
+  `/logistica/payroll`); comida a $100. Clientes: la remisión firmada la sube Logística (sin app del chofer).
+  Pantallas: pestaña «Cierre y pago» del embarque y `/finanzas/comisiones-logistica`. Plan en
   [`FASE_EMB_PAGO_POR_VIAJE`](FASES/FASE_EMB_PAGO_POR_VIAJE.md).
 - [ ] **[EMB.8]** ⬜ `analytics.erp_shipments.route` **no es una ruta**: dos valores en todo el
   histórico (`'40'` 102,310 · `'35'` 44) = el tipo de documento padre, 0/10 match contra
