@@ -159,6 +159,13 @@ export class PresupuestoDireccionService {
           .andWhere((q: { where: (c: string, v: unknown) => unknown; orWhereNull: (c: string) => unknown }) => {
             q.where('b.is_test', false); q.orWhereNull('b.is_test');
           })
+          // ⛔ `line_type = 'gasto'`, y faltaba. Sin este filtro la consulta suma INGRESO Y
+          // GASTO en el mismo renglón: FY2026 daba $838,642,961.87 = $32,425,843.06 de gasto
+          // + $806,217,118.81 de ingreso. Las cinco etapas —reservado, comprometido, ejercido,
+          // pagado— son conceptos de EGRESO: un renglón de ingreso no se "reserva". Medido:
+          // las cuatro están en cero para los dos tipos, así que el defecto no se veía en las
+          // etapas; sólo en `vigente`, que es la única con cifra.
+          .andWhere('l.line_type', 'gasto')
           .groupBy('b.fiscal_year')
           .select('b.fiscal_year',
             trx.raw('coalesce(sum(l.vigente_amount),0)::float8 as vigente'),
@@ -190,7 +197,7 @@ export class PresupuestoDireccionService {
         }));
 
         ledger = {
-          universo: 'renglones de los ejercicios REALES, el de prueba fuera; una columna por ejercicio y sin total',
+          universo: 'renglones de GASTO de los ejercicios reales -- ingreso fuera: las cinco etapas son de egreso -- una columna por ejercicio y sin total',
           as_of: ahora(),
           fuente: 'budget.budget_lines',
           etapas,
