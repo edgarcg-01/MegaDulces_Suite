@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { TagModule } from 'primeng/tag';
+import { TableModule } from 'primeng/table';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -38,7 +39,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 @Component({
   selector: 'app-comercial-comisiones-objetivo',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, FreshnessPillComponent],
+  imports: [PageTabsComponent, FormsModule, TagModule, LoadStateComponent, FreshnessPillComponent, TableModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="ob">
@@ -101,50 +102,62 @@ import { PermissionsService } from '../../../core/services/permissions.service';
 
           <h2 class="ob-h2">Los criterios</h2>
           <div class="ob-wrap dt-scope">
-            <table class="ob-table dt-stack">
-              <caption class="sr-only">Configuración de los criterios del bono</caption>
-              <thead>
+            <!--
+              [RD.UI.2] DESIGN O.4 -- la rejilla principal de la pantalla: una fila por ruta.
+              Pasa a p-table por el teclado (flechas, Home/End, roving tabindex) y el header
+              fijo, que una <table> cruda no da. Sus columnas son DINAMICAS (una por criterio
+              encendido), asi que el min-width se declara al piso: con un solo criterio la
+              tabla tiene 6 columnas y con los tres, 8.
+              dt-stack se conserva: es la salida en pantalla angosta.
+            -->
+            <p-table [value]="d.filas" dataKey="route_code" size="small" [rowHover]="true"
+                     selectionMode="single" [(selection)]="filaSel"
+                     class="ob-table dt-stack surf-table surf-table--sticky surf-table--frozen-first"
+                     [tableStyle]="{ 'min-width': '56rem' }">
+              <ng-template #caption>
+                <span class="sr-only">Resultado del mes por ruta</span>
+              </ng-template>
+              <ng-template #header>
                 <tr>
-                  <th scope="col">Criterio</th>
-                  <th scope="col">Cómo se resuelve</th>
-                  <th scope="col" class="num">Peso</th>
-                  <th scope="col" class="num">Umbral</th>
-                  <th scope="col" class="num">Importe</th>
-                  <th scope="col">Estado</th>
-                  @if (puedeGestionar()) { <th scope="col"></th> }
+                  <th scope="col">Ruta</th>
+                  <th scope="col">Chofer</th>
+                  @for (c of criteriosActivos(); track c.id) {
+                    <th scope="col">{{ c.nombre }}</th>
+                  }
+                  <th scope="col" class="num">Alcanzado</th>
+                  <th scope="col" class="num">Sin resolver</th>
+                  <th scope="col" class="num">Fallado</th>
                 </tr>
-              </thead>
-              <tbody>
-                @for (c of d.config.criterios; track c.id) {
-                  <tr>
-                    <td role="cell" data-label="Criterio" class="dt-id">{{ c.nombre }}</td>
-                    <td role="cell" data-label="Cómo se resuelve">
-                      <span [class]="c.metrica === 'manual' ? 'ob-manual' : 'ob-medido'">
-                        {{ comoSeResuelve(c.metrica) }}
-                      </span>
-                    </td>
-                    <td role="cell" data-label="Peso" class="num dt-num mono">{{ num(c.peso_pct) }}%</td>
-                    <td role="cell" data-label="Umbral" class="num dt-num mono">
-                      @if (c.metrica === 'manual') { <span class="ob-nd">no aplica</span> }
-                      @else if (num(c.umbral) === 0) { <span class="ob-nd">sin fijar</span> }
-                      @else { {{ c.comparador === 'gt' ? '>' : '≥' }} {{ num(c.umbral) }} }
-                    </td>
-                    <td role="cell" data-label="Importe" class="num dt-num mono">
-                      {{ num(c.monto) ? dinero(num(c.monto)) : '—' }}
-                    </td>
-                    <td role="cell" data-label="Estado">
-                      <p-tag [severity]="c.activo ? 'success' : 'secondary'"
-                             [value]="c.activo ? 'encendido' : 'apagado'" />
-                    </td>
-                    @if (puedeGestionar()) {
-                      <td role="cell" data-label="" class="dt-actions">
-                        <button type="button" class="ob-btn" (click)="abrirEdicion(c)">Editar</button>
-                      </td>
+              </ng-template>
+              <ng-template #body let-f>
+                <tr [pSelectableRow]="f" [class.ob-fila-baja]="sinActividad(f)">
+                  <td data-label="Ruta" class="mono dt-id">
+                    {{ f.route_code }}
+                    @if (sinActividad(f)) {
+                      <span class="ob-baja" [title]="tituloBaja(f)">sin actividad</span>
                     }
-                  </tr>
-                }
-              </tbody>
-            </table>
+                  </td>
+                  <td data-label="Chofer">{{ f.chofer || '—' }}</td>
+                  @for (c of f.criterios; track c.bonus_id) {
+                    <td [attr.data-label]="c.nombre">
+                      <span [class]="claseCriterio(c)">{{ textoCriterio(c) }}</span>
+                      @if (c.metrica === 'manual' && puedeGestionar()) {
+                        <button type="button" class="ob-link" (click)="abrirMarca(f, c)">
+                          {{ c.cumplido === null ? 'marcar' : 'cambiar' }}
+                        </button>
+                      }
+                    </td>
+                  }
+                  <td data-label="Alcanzado" class="num dt-num mono fuerte">{{ f.alcanzado_pct }}%</td>
+                  <td data-label="Sin resolver" class="num dt-num mono"
+                      [class.ob-pendiente]="f.sin_resolver_pct > 0">{{ f.sin_resolver_pct }}%</td>
+                  <!-- El pie afirma que los tres porcentajes suman el peso activo. Sin esta
+                       columna la afirmacion no se puede comprobar: faltaba el sumando. -->
+                  <td data-label="Fallado" class="num dt-num mono"
+                      [class.ob-no]="f.fallado_pct > 0">{{ f.fallado_pct }}%</td>
+                </tr>
+              </ng-template>
+            </p-table>
           </div>
 
           @if (editando(); as e) {
@@ -393,6 +406,8 @@ export class ComercialComisionesObjetivoComponent {
 
   readonly cargando = signal(true);
   readonly data = signal<ObjetivoResultado | null>(null);
+  /** `[RD.UI.2]` D.7 -- PrimeNG como dispositivo de entrada del teclado, no dueno del estado. */
+  filaSel: ObjetivoFila | null = null;
   readonly error = signal<string | null>(null);
   readonly guardando = signal(false);
   readonly editando = signal<ObjetivoCriterio | null>(null);
