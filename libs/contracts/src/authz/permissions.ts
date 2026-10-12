@@ -287,6 +287,10 @@ export enum Permission {
 
   // Módulo: Logística — Configuración financiera (factores, costo km)
   LOGISTICS_CONFIG_GESTIONAR = 'LOGISTICS_CONFIG_GESTIONAR',
+  // [EMB.28.1] Cambiar una tarifa YA FIJADA (comisión por ruta, viático, maniobra de carga):
+  // capturarla la primera vez es de _CONFIG_GESTIONAR; cambiarla, borrarla o desactivarla, de
+  // éste. FUERA de todo MODULE_GROUP (molde TP.6 / RE.30): se reparte por migración.
+  LOGISTICS_TARIFAS_AUTORIZAR = 'LOGISTICS_TARIFAS_AUTORIZAR',
 
   // Módulo: Logística — Carta Porte 3.1 (CFDI Traslado vía PAC)
   LOGISTICS_CARTAPORTE_VER = 'LOGISTICS_CARTAPORTE_VER',

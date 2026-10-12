@@ -44,7 +44,8 @@ describe('LogisticaConfigComponent — los montos entran como número', () => {
       id: 'r1', name: 'CANINDO ZAMORA', estimated_km: '186.5', driver_commission: '0.00',
       helper_commission: '91.20', active: true, notes: null,
     } as never);
-    const v = c.routeForm.value;
+    // getRawValue: con la ruta tarifada y sin autorizador los controles quedan deshabilitados.
+    const v = c.routeForm.getRawValue();
     expect(v.driver_commission).toBe(0);
     expect(v.helper_commission).toBe(91.2);
     expect(v.estimated_km).toBe(186.5);
@@ -61,6 +62,58 @@ describe('LogisticaConfigComponent — los montos entran como número', () => {
   it('editar un viático con valor en texto deja un número', () => {
     const { c } = montar();
     c.openConfigDialog({ id: 'v1', key: 'viatico_comida', category: 'viatico', value: '100.0000', active: true } as never);
-    expect(c.configForm.value.value).toBe(100);
+    expect(c.configForm.getRawValue().value).toBe(100);
+  });
+});
+
+describe('LogisticaConfigComponent — tarifas fijas (EMB.28.1)', () => {
+  const RUTA = { id: 'r1', name: 'CANINDO ZAMORA', driver_commission: '180.00', helper_commission: '120.00', active: true };
+  const VIATICO = { id: 'v1', key: 'viatico_comida', category: 'viatico', value: '100.0000', active: true };
+
+  function conPermisos(autorizador: boolean) {
+    const { c } = montar();
+    vi.spyOn(c, 'puedeAutorizar').mockReturnValue(autorizador);
+    return c;
+  }
+
+  it('sin ser autorizador, una ruta fijada abre con comisiones y nombre bloqueados y no los manda', () => {
+    const c = conPermisos(false);
+    c.openRouteDialog(RUTA as never);
+    expect(c.rutaBloqueada()).toBe(true);
+    expect(c.routeForm.get('driver_commission')?.disabled).toBe(true);
+    expect(c.routeForm.get('name')?.disabled).toBe(true);
+    expect(c.routeForm.get('notes')?.enabled).toBe(true);
+    expect('driver_commission' in c.routeForm.value).toBe(false);
+  });
+
+  it('el autorizador la edita completa', () => {
+    const c = conPermisos(true);
+    c.openRouteDialog(RUTA as never);
+    expect(c.rutaBloqueada()).toBe(false);
+    expect(c.routeForm.get('driver_commission')?.enabled).toBe(true);
+  });
+
+  it('una ruta en cero se captura sin autorizador (primera vez)', () => {
+    const c = conPermisos(false);
+    c.openRouteDialog({ ...RUTA, driver_commission: '0.00', helper_commission: '0.00' } as never);
+    expect(c.rutaBloqueada()).toBe(false);
+    expect(c.routeForm.get('driver_commission')?.enabled).toBe(true);
+  });
+
+  it('abrir una ruta fijada y luego una nueva no deja los campos bloqueados', () => {
+    const c = conPermisos(false);
+    c.openRouteDialog(RUTA as never);
+    c.openRouteDialog();
+    expect(c.routeForm.get('driver_commission')?.enabled).toBe(true);
+  });
+
+  it('un viático fijado bloquea valor, clave y categoría; un costo por km no', () => {
+    const c = conPermisos(false);
+    c.openConfigDialog(VIATICO as never);
+    expect(c.configBloqueada()).toBe(true);
+    expect(c.configForm.get('value')?.disabled).toBe(true);
+    c.openConfigDialog({ id: 'k1', key: 'costo_km_f350', category: 'costo_km', value: '4.05', active: true } as never);
+    expect(c.configBloqueada()).toBe(false);
+    expect(c.configForm.get('value')?.enabled).toBe(true);
   });
 });

@@ -3,8 +3,25 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { TenantKnexService } from '@megadulces/platform-core';
+import {
+  CambioDeTarifa, cambiosDeConfig, cambiosDeRuta, configFijada, mensajeTarifaFijada, rutaFijada,
+} from './tarifas-fijas.logic';
+
+/**
+ * `[EMB.28.1]` Quién hace el cambio. Lo arma el controlador desde la sesión: `autorizador` es
+ * `LOGISTICS_TARIFAS_AUTORIZAR` o administrador de plataforma.
+ */
+export interface ActorTarifas {
+  userId?: string | null;
+  username?: string | null;
+  autorizador: boolean;
+}
+const SIN_ACTOR: ActorTarifas = { autorizador: false };
+const UUID_ACTOR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ConfigCategory = 'factor' | 'costo_km' | 'tarifa_maniobra' | 'viatico' | 'otro';
 
@@ -30,7 +47,7 @@ const VALID_CATEGORIES: ConfigCategory[] = ['factor', 'costo_km', 'tarifa_maniob
 export class LogisticsConfigService {
   constructor(private readonly tk: TenantKnexService) {}
 
-  async create(dto: CreateConfigDto) {
+  async create(dto: CreateConfigDto, actor: ActorTarifas = SIN_ACTOR) {
     this.validateCreate(dto);
     return this.tk.run(async (trx) => {
       const dup = await trx('logistics.config_finance').where({ key: dto.key }).first();
@@ -47,6 +64,9 @@ export class LogisticsConfigService {
           active: true,
         })
         .returning('*');
+      if (configFijada(row)) {
+        await this.registrar(trx, 'config', row.id, row.key, [{ field: 'value', old_value: null, new_value: String(Number(row.value)) }], actor, false);
+      }
       return row;
     });
   }
@@ -77,7 +97,7 @@ export class LogisticsConfigService {
     });
   }
 
-  async update(id: string, dto: UpdateConfigDto) {
+  async update(id: string, dto: UpdateConfigDto, actor: ActorTarifas = SIN_ACTOR) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const existing = await trx('logistics.config_finance').where({ id }).first();
@@ -95,6 +115,11 @@ export class LogisticsConfigService {
         throw new BadRequestException(`category inválida: ${dto.category}`);
       }
 
+      // [EMB.28.1] Una tarifa con la que se paga, ya fijada, sólo la cambia un autorizador.
+      const fijada = configFijada(existing);
+      const cambios = cambiosDeConfig(existing, dto);
+      if (fijada && cambios.length && !actor.autorizador) throw new ForbiddenException(mensajeTarifaFijada(existing.key));
+
       const patch: Record<string, any> = { updated_at: trx.fn.now() };
       for (const k of ['key', 'category', 'description', 'value', 'unit', 'active'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
@@ -104,15 +129,23 @@ export class LogisticsConfigService {
         .where({ id })
         .update(patch)
         .returning('*');
+      if (cambios.length && (fijada || configFijada(row))) {
+        await this.registrar(trx, 'config', id, row.key, cambios, actor, fijada);
+      }
       return row;
     });
   }
 
-  async delete(id: string) {
+  async delete(id: string, actor: ActorTarifas = SIN_ACTOR) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const cfg = await trx('logistics.config_finance').where({ id }).first();
       if (!cfg) throw new NotFoundException(`Config ${id} no encontrado`);
+      // Se borra DE VERDAD: sin este candado, borrar y volver a crear saltaba el de update().
+      if (configFijada(cfg)) {
+        if (!actor.autorizador) throw new ForbiddenException(mensajeTarifaFijada(cfg.key));
+        await this.registrar(trx, 'config', id, cfg.key, [{ field: 'borrado', old_value: String(Number(cfg.value)), new_value: null }], actor, true);
+      }
       await trx('logistics.config_finance').where({ id }).del();
       return { deleted: true, id };
     });
@@ -141,7 +174,7 @@ export class LogisticsConfigService {
     origin?: string;
     destination?: string;
     notes?: string;
-  }) {
+  }, actor: ActorTarifas = SIN_ACTOR) {
     if (!dto.name || dto.name.length < 2) {
       throw new BadRequestException('name requerido (mín 2 chars)');
     }
@@ -164,6 +197,9 @@ export class LogisticsConfigService {
           active: true,
         })
         .returning('*');
+      if (rutaFijada(row)) {
+        await this.registrar(trx, 'route', row.id, row.name, cambiosDeRuta({ driver_commission: 0, helper_commission: 0 }, row), actor, false);
+      }
       return row;
     });
   }
@@ -177,28 +213,61 @@ export class LogisticsConfigService {
     destination?: string;
     notes?: string;
     active?: boolean;
-  }) {
+  }, actor: ActorTarifas = SIN_ACTOR) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const existing = await trx('logistics.routes').where({ id }).whereNull('deleted_at').first();
       if (!existing) throw new NotFoundException(`Route ${id} no encontrada`);
+      // [EMB.28.1] Ruta ya tarifada: comisiones, nombre (empareja con Kepler) y desactivar = autorizador.
+      const fijada = rutaFijada(existing);
+      const cambios = cambiosDeRuta(existing, dto);
+      if (fijada && cambios.length && !actor.autorizador) throw new ForbiddenException(mensajeTarifaFijada(existing.name));
       const patch: Record<string, any> = { updated_at: trx.fn.now() };
       for (const k of ['name','driver_commission','helper_commission','estimated_km','origin','destination','notes','active'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
       }
       const [row] = await trx('logistics.routes').where({ id }).update(patch).returning('*');
+      if (cambios.length && (fijada || rutaFijada(row))) {
+        await this.registrar(trx, 'route', id, row.name, cambios, actor, fijada);
+      }
       return row;
     });
   }
 
-  async deleteRoute(id: string) {
+  async deleteRoute(id: string, actor: ActorTarifas = SIN_ACTOR) {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const route = await trx('logistics.routes').where({ id }).whereNull('deleted_at').first();
       if (!route) throw new NotFoundException(`Route ${id} no encontrada`);
+      if (rutaFijada(route)) {
+        if (!actor.autorizador) throw new ForbiddenException(mensajeTarifaFijada(route.name));
+        await this.registrar(trx, 'route', id, route.name, [{ field: 'borrado', old_value: `${route.driver_commission}/${route.helper_commission}`, new_value: null }], actor, true);
+      }
       await trx('logistics.routes').where({ id }).update({ deleted_at: trx.fn.now() });
       return { deleted: true, id };
     });
+  }
+
+  /** `[EMB.28.1]` La historia de una tarifa: quién, cuándo, antes y después. */
+  async historial(entity: 'route' | 'config', id: string) {
+    if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
+    return this.tk.run((trx) =>
+      trx('logistics.tariff_changes').where({ entity, entity_id: id }).orderBy('changed_at', 'desc').limit(100));
+  }
+
+  private async registrar(
+    trx: Knex.Transaction, entity: 'route' | 'config', id: string, label: string,
+    cambios: CambioDeTarifa[], actor: ActorTarifas, autorizado: boolean,
+  ): Promise<void> {
+    if (!cambios.length) return;
+    await trx('logistics.tariff_changes').insert(cambios.map((c) => ({
+      tenant_id: trx.raw('public.current_tenant_id()'),
+      entity, entity_id: id, entity_label: label,
+      field: c.field, old_value: c.old_value, new_value: c.new_value,
+      autorizado,
+      changed_by: actor.userId && UUID_ACTOR.test(actor.userId) ? actor.userId : null,
+      changed_by_username: actor.username ?? null,
+    })));
   }
 
   private validateCreate(dto: CreateConfigDto): void {
