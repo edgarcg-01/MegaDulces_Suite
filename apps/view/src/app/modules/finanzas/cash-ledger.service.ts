@@ -643,9 +643,36 @@ export interface ArqueoTipoCajero {
  * publica su contenido, y el flujo acumulado da negativo porque el saldo anterior al arranque del
  * feed no se conoce. Rotularlo «saldo» sería publicar un número que no existe.
  */
+/**
+ * `[CG.91]` Un renglón del historial de la jornada: lo que la persona capturó, no el agregado.
+ * El cuadro de arriba es el resumen; esto es lo que lo forma y lo que permite revisarlo.
+ */
+export interface ArqueoMovimientoDia {
+  id: string;
+  folio: string;
+  /** `HH:MM` en hora de México, del reloj FÍSICO (`created_at`), igual que el resto de la jornada. */
+  hora: string;
+  tipo: 'ingreso' | 'gasto' | 'deposito';
+  monto: number;
+  beneficiario: string | null;
+  /** El documento de Kepler que lo originó (`X-D-26 0023030`), si lo hay. */
+  documento: string | null;
+  concepto: string | null;
+  cuenta: string | null;
+  estado: string;
+  origen: string | null;
+  quien: string | null;
+}
+
 export interface ArqueoDia {
   fecha: string;
   sucursal: string;
+  /**
+   * `[CG.91]` El historial de la jornada. Opcional porque el API puede ir por detrás del front
+   * (deploy parcial): si no viene, la pantalla no pinta la lista en vez de reventar. Ausente NO
+   * es "no hubo movimientos" — eso lo dice `caja_general.movimientos`.
+   */
+  movimientos_del_dia?: ArqueoMovimientoDia[];
   caja_general: {
     movimientos: number; cancelados: number;
     ingresos: number; gastos: number; depositos: number;
