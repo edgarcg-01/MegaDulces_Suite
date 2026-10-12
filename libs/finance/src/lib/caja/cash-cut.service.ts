@@ -761,9 +761,54 @@ export class CashCutService {
         no_medido.push('El cajero reportó un tipo de movimiento que no conocemos: está listado aparte y NO se sumó a ninguna pierna.');
       }
 
+      /**
+       * ⭐ `[CG.91]` **EL HISTORIAL DE LO QUE LLEVO HECHO. Lo pidió Edgar dos veces.**
+       *
+       * La primera: *"necesito que agreguemos un historial de movimientos para que el usuario vea
+       * qué movimientos ya hizo"*. Lo que se entregó fue un filtro («los míos») y un reporte del
+       * día en texto — **ninguna de las dos es la lista**. La segunda, con la pantalla a la vista:
+       * *"ni siquiera me muestra un historial de lo que llevo hecho, como te lo pedí"*.
+       *
+       * Tenía razón: este bloque decía **"7 movimiento(s) registrado(s)"** y ahí terminaba. Un
+       * contador no es un historial. Quien captura necesita ver QUÉ capturó —para reconocer lo
+       * suyo, para detectar lo que falta y para no capturar dos veces lo mismo—, y el total de
+       * arriba no se puede revisar contra nada si no están los renglones que lo forman.
+       *
+       * ⚠️ Mismo reloj que el resto de la jornada (`created_at` físico, `[CG.82]`), no la fecha del
+       * documento: si una mitad del cuadro se agrupa por un reloj y la lista por otro, los
+       * renglones no suman el total que tienen arriba y el cuadro deja de poder revisarse.
+       *
+       * ⚠️ Los cancelados VAN, marcados. Esconderlos haría que la lista no explique su propio
+       * contador —que los cuenta aparte— y que un error de captura desaparezca de la vista justo
+       * cuando hay que explicarlo.
+       */
+      const movimientosDelDia = await trx('finance.cash_ledger')
+        .where({ tenant_id: tenantId, sucursal })
+        .whereRaw(`created_at >= (?::date) AT TIME ZONE 'America/Mexico_City'`, [dia])
+        .whereRaw(`created_at <  ((?::date) + 1) AT TIME ZONE 'America/Mexico_City'`, [dia])
+        .whereNull('deleted_at')
+        .orderBy('created_at', 'desc')
+        .limit(200)
+        .select(
+          'id', 'folio', 'tipo', 'monto', 'beneficiario', 'glosa', 'estado',
+          'kepler_cuenta', 'kepler_concepto', 'kepler_concepto_nombre',
+          'created_by_username', 'origen_tipo',
+          trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS hora`),
+          // El documento de Kepler que lo originó, si lo hay: es como la persona lo reconoce.
+          trx.raw(`split_part(coalesce(glosa,''), ' · ', 1) AS documento`),
+        );
+
       return {
         fecha: dia,
         sucursal,
+        // `[CG.91]` La lista, no sólo el conteo.
+        movimientos_del_dia: movimientosDelDia.map((m: any) => ({
+          id: m.id, folio: m.folio, hora: m.hora, tipo: m.tipo,
+          monto: Number(m.monto), beneficiario: m.beneficiario,
+          documento: m.documento || null, concepto: m.kepler_concepto_nombre ?? null,
+          cuenta: m.kepler_cuenta ?? null, estado: m.estado,
+          origen: m.origen_tipo ?? null, quien: m.created_by_username ?? null,
+        })),
         caja_general: {
           movimientos: Number(libro?.movimientos ?? 0),
           cancelados: Number(libro?.cancelados ?? 0),
