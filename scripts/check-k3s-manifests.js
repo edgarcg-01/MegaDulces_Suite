@@ -297,9 +297,13 @@ function revisar(doc, archivo) {
       // `migracion`, y la regla se aplica a lo que DICE, no a que el archivo exista:
       //    migrado   → el carril ya corre en K3s  ⇒ NO puede seguir en SERVICIOS_DEF
       //    preparado → el YAML está escrito y sin aplicar ⇒ SÍ debe seguir en SERVICIOS_DEF
+      //    preparado-externo → `[RH.1.3]` escrito y sin aplicar, pero lo corre algo FUERA de Compose
+      //                (el lector de relojes vive en una laptop hasta el corte) ⇒ NO puede estar en
+      //                SERVICIOS_DEF. El deploy lo saltea igual que a `preparado`: su filtro busca la
+      //                subcadena 'migracion: preparado', que también matchea aquí.
       // La trampa que esto cierra: un `kubectl apply -f ops/k3s/` aplicaría también los
       // `preparado` y crearía el doble-corredor al instante, en silencio.
-      const migrados = []; const preparados = []; const sinMarca = [];
+      const migrados = []; const preparados = []; const externos = []; const sinMarca = [];
       for (const f of archivos) {
         for (const doc of documentos(fs.readFileSync(path.join(DIR, f), 'utf8'))) {
           const k = campo(doc, 'kind');
@@ -307,6 +311,7 @@ function revisar(doc, archivo) {
           const n = campo(doc, 'name'); const est = campo(doc, 'migracion');
           if (est === 'migrado') migrados.push(n);
           else if (est === 'preparado') preparados.push(n);
+          else if (est === 'preparado-externo') externos.push(n);
           else sinMarca.push(n);
         }
       }
@@ -324,6 +329,13 @@ function revisar(doc, archivo) {
         huerfanos.length === 0
           ? `los ${preparados.length} PREPARADO(s) siguen corriendo en Compose, como corresponde`
           : `NO LOS CORRE NADIE: ${huerfanos.join(', ')} — marcados 'preparado' pero fuera de Compose`);
+      // `[RH.1.3]` Un preparado-externo NO corre en Compose (lo corre otra máquina): si apareciera
+      // ahí, al encenderlo habría dos lectores del mismo equipo.
+      const externosEnCompose = externos.filter((n) => enCompose.includes(n));
+      A(externosEnCompose.length === 0,
+        externosEnCompose.length === 0
+          ? `los ${externos.length} PREPARADO-EXTERNO(s) no están en Compose (los corre otra máquina hasta su corte)`
+          : `PREPARADO-EXTERNO EN COMPOSE: ${externosEnCompose.join(', ')} — al encenderlo habría dos corredores`);
       // ⛔ [K3S.21] UN ARCHIVO NO MEZCLA LOS DOS ESTADOS. El despliegue (`aplicar_k3s` en
       // ops/vl/deploy.sh) filtra POR ARCHIVO: si un .yaml contiene 'migracion: preparado' se
       // saltea ENTERO. Con los dos estados en el mismo archivo, el `migrado` dejaría de
@@ -347,6 +359,7 @@ function revisar(doc, archivo) {
           : `MEZCLAN ESTADOS: ${mezclados.join(', ')} — aplicar_k3s saltearía el archivo ENTERO`);
       console.log(`  ⓘ migrados: ${migrados.join(', ') || 'ninguno'}`);
       console.log(`  ⓘ preparados (YAML escrito, todavía en Compose): ${preparados.join(', ') || 'ninguno'}`);
+      console.log(`  ⓘ preparados-externos (YAML escrito, corre fuera del clúster): ${externos.join(', ') || 'ninguno'}`);
     }
   }
 
