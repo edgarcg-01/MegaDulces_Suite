@@ -95,4 +95,21 @@ describe('[AT.1] relectura: la lectura la produce el servidor, no el request', (
     expect(relectura).toContain('anterior:');
     expect(relectura).toContain('relectura:');
   });
+
+  /**
+   * ⛔⛔ `ref_norm` es `GENERATED ALWAYS AS` sobre `ocr_referencia` (verificado en prod).
+   * Escribirla hace que Postgres rechace **el UPDATE entero**: «column "ref_norm" can only be
+   * updated to DEFAULT». Costó una pasada completa de 90,910 ms —los 25 comprobantes bajados y
+   * leídos con el modelo, pagados— con cada fila fallando al guardar.
+   *
+   * ⚠️ Es una prueba por TEXTO y sé lo que vale: no ejecuta SQL, así que no descubriría una
+   * columna generada NUEVA. Lo que hace es impedir que ésta vuelva — un doble de Knex tampoco la
+   * habría atrapado, porque un doble no ejecuta SQL. Lo que la atrapó de verdad fue que el latido
+   * mida ENTREGA: con un `ok` por «la pasada terminó», esto se repetía cada 20 min en silencio.
+   */
+  it('⛔⛔ no escribe columnas GENERATED (ref_norm se deriva de ocr_referencia)', () => {
+    expect(relectura).not.toMatch(/ref_norm:\s/);
+    // …y sí escribe la columna de la que ref_norm se deriva, o no se actualizaría nunca.
+    expect(relectura).toContain('ocr_referencia:');
+  });
 });

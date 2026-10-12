@@ -672,7 +672,20 @@ export class SupplierPaymentProofsService {
             ocr_cuenta_origen: fresca.cuenta_origen || null, ocr_cuenta_dest: fresca.cuenta_destino || null,
             ocr_ordenante: fresca.beneficiario || null, ocr_referencia: fresca.clave_rastreo || null,
             ocr_banco: fresca.banco_destino || null, ocr_metodo: fresca.metodo || null,
-            ocr_status: 'ok', ref_norm: ref,
+            // ⛔⛔ `ref_norm` NO se escribe: es `GENERATED ALWAYS AS` sobre `ocr_referencia`
+            // (verificado en prod), y Postgres rechaza el UPDATE entero con
+            // «column "ref_norm" can only be updated to DEFAULT». Se actualiza SOLA al escribir
+            // `ocr_referencia`, que sí va arriba.
+            //
+            // ⭐ Esto costó una pasada completa: la del 2026-10-12 12:01 duró **90,910 ms** —o sea
+            // bajó y leyó los 25 comprobantes con el modelo, pagándolos— y después **cada** fila
+            // falló al escribir. Trabajo hecho y tirado, 25 veces.
+            //
+            // ⚠️ Es la misma trampa que el repo ya tenía documentada con la columna `activo`
+            // (`GENERATED` + `update({ activo })` = error en runtime que ningún build ve). Que
+            // esté en GOTCHAS no alcanza: lo que la atrapa es que el latido mida ENTREGA. Con un
+            // `status: ok` por «la pasada terminó», esto se repetía cada 20 minutos en silencio.
+            ocr_status: 'ok',
             // La lectura ANTERIOR no se tira: queda con la fecha y qué campos se movieron.
             ocr_raw: JSON.stringify({
               ...fresca,
