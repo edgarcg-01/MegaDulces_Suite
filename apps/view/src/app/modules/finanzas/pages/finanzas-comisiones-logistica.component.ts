@@ -61,8 +61,8 @@ const mover = (iso: string, dias: number) => new Date(Date.parse(iso + 'T00:00:0
           <div class="cl-kpi"><span>Personas</span><strong>{{ d.personas.length }}</strong></div>
         </div>
 
-        <div class="cl-scroll">
-          <table class="cl-table">
+        <div class="cl-scroll dt-scope">
+          <table class="cl-table dt-stack">
             <thead>
               <tr>
                 <th scope="col">Persona</th><th scope="col">Papel</th><th scope="col" class="num">Viajes</th><th scope="col" class="num">Cargas</th>
@@ -73,23 +73,23 @@ const mover = (iso: string, dias: number) => new Date(Date.parse(iso + 'T00:00:0
             <tbody>
               @for (p of d.personas; track p.driver_id) {
                 <tr class="cl-row" [class.cl-sel]="sel() === p.driver_id" tabindex="0" (click)="abrir(p)" (keydown.enter)="abrir(p)">
-                  <td><strong>{{ p.persona }}</strong></td>
-                  <td>{{ p.roles.join(', ') }}</td>
-                  <td class="num">{{ p.viajes || '—' }}</td>
-                  <td class="num">{{ p.cargas || '—' }}</td>
-                  <td class="num">{{ p.liberado.comision ? (p.liberado.comision | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
-                  <td class="num">{{ p.liberado.viatico ? (p.liberado.viatico | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
-                  <td class="num">{{ p.liberado.maniobra_carga ? (p.liberado.maniobra_carga | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
-                  <td class="num"><strong>{{ p.liberado_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong></td>
-                  <td class="num">@if (p.retenido_total) { <span class="cl-pill cl-pill-warn">{{ p.retenido_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> } @else { — }</td>
-                  <td>
+                  <td class="dt-id" role="cell" data-label="Persona"><strong>{{ p.persona }}</strong></td>
+                  <td role="cell" data-label="Papel">{{ p.roles.join(', ') }}</td>
+                  <td class="num dt-num" role="cell" data-label="Viajes">{{ p.viajes || '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="Cargas">{{ p.cargas || '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="075 Comisión">{{ p.liberado.comision ? (p.liberado.comision | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="128 Viáticos">{{ p.liberado.viatico ? (p.liberado.viatico | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="186 Maniobra">{{ p.liberado.maniobra_carga ? (p.liberado.maniobra_carga | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="A pagar"><strong>{{ p.liberado_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong></td>
+                  <td class="num dt-num" role="cell" data-label="Retenido">@if (p.retenido_total) { <span class="cl-pill cl-pill-warn">{{ p.retenido_total | currency:'MXN':'symbol-narrow':'1.2-2' }}</span> } @else { — }</td>
+                  <td role="cell" data-label="Vale">
                     @if (p.vales.length) { <span class="cl-pill cl-pill-info">{{ p.vales.length }} vale{{ p.vales.length === 1 ? '' : 's' }}</span> }
                     @else if (p.liberado_total > 0) { <span class="cl-pill">Por armar</span> }
                     @else { — }
                   </td>
                 </tr>
               } @empty {
-                <tr><td colspan="10" class="cl-empty">No hay viajes ni cargas de logística en este corte.</td></tr>
+                <tr><td colspan="10" class="cl-empty" role="cell">No hay viajes ni cargas de logística en este corte.</td></tr>
               }
             </tbody>
           </table>
@@ -123,21 +123,21 @@ const mover = (iso: string, dias: number) => new Date(Date.parse(iso + 'T00:00:0
       }
 
       <ng-template #tabla let-items let-vacio="vacio">
-        <div class="cl-scroll">
-          <table class="cl-table">
+        <div class="cl-scroll dt-scope">
+          <table class="cl-table dt-stack">
             <thead><tr><th scope="col">Fecha</th><th scope="col">Embarque</th><th scope="col">Papel</th><th scope="col">Concepto</th><th scope="col">Estado</th><th scope="col" class="num">Importe</th></tr></thead>
             <tbody>
               @for (i of items; track i.source_id + i.concept) {
                 <tr>
-                  <td>{{ i.shipment_date | date:'EEE d MMM':'UTC':'es-MX' }}</td>
-                  <td><code>{{ i.shipment_folio }}</code>@if (i.kepler_guia) { <span class="cl-sub">guía Kepler {{ i.kepler_sucursal }}-{{ i.kepler_guia }}</span> }</td>
-                  <td>{{ i.rol }}</td>
-                  <td>{{ concepto(i.concept) }}</td>
-                  <td>{{ i.motivo }}@if (i.vale_status) { <span class="cl-sub">Vale: {{ i.vale_status }}</span> }</td>
-                  <td class="num">{{ i.amount | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td role="cell" data-label="Fecha">{{ i.shipment_date | date:'EEE d MMM':'UTC':'es-MX' }}</td>
+                  <td class="dt-id" role="cell" data-label="Embarque"><code>{{ i.shipment_folio }}</code>@if (i.kepler_guia) { <span class="cl-sub">guía Kepler {{ i.kepler_sucursal }}-{{ i.kepler_guia }}</span> }</td>
+                  <td role="cell" data-label="Papel">{{ i.rol }}</td>
+                  <td role="cell" data-label="Concepto">{{ concepto(i.concept) }}</td>
+                  <td role="cell" data-label="Estado">{{ i.motivo }}@if (i.vale_status) { <span class="cl-sub">Vale: {{ i.vale_status }}</span> }</td>
+                  <td class="num dt-num" role="cell" data-label="Importe">{{ i.amount | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
                 </tr>
               } @empty {
-                @if (vacio) { <tr><td colspan="6" class="cl-empty">{{ vacio }}</td></tr> }
+                @if (vacio) { <tr><td colspan="6" class="cl-empty" role="cell">{{ vacio }}</td></tr> }
               }
             </tbody>
           </table>

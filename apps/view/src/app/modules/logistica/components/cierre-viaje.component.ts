@@ -60,8 +60,8 @@ const TIPO_LABEL: Record<string, string> = {
           <h3>Paradas y cómo se cerró cada una</h3>
           <span class="cv-sub">Traspaso: con la recepción de la sucursal destino en Kepler · Cliente: con la entrega que registra Logística</span>
         </header>
-        <div class="cv-scroll">
-          <table class="cv-table">
+        <div class="cv-scroll dt-scope">
+          <table class="cv-table dt-stack">
             <thead>
               <tr>
                 <th scope="col">#</th><th scope="col">Destino</th><th scope="col">Tipo</th><th scope="col">Embarque Kepler</th>
@@ -71,12 +71,12 @@ const TIPO_LABEL: Record<string, string> = {
             <tbody>
               @for (p of d.paradas; track p.recipient_id; let i = $index) {
                 <tr [class.cv-row-bad]="p.estado_parada === 'diferencia'">
-                  <td class="num">{{ p.sequence_order ?? i + 1 }}</td>
-                  <td>{{ p.customer_name }}@if (p.destino_code) { <span class="cv-sub">{{ p.destino_code }}</span> }</td>
-                  <td>{{ tipoLabel(p.tipo_parada) }}</td>
-                  <td><code>{{ p.kepler_folio ? 'UD41' + (p.kepler_serie === '2' ? '02' : '01') + '-' + p.kepler_folio : '—' }}</code></td>
-                  <td class="num">{{ (p.importe_embarcado ?? p.value) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
-                  <td>
+                  <td class="num" role="cell" data-label="#">{{ p.sequence_order ?? i + 1 }}</td>
+                  <td class="dt-id" role="cell" data-label="Destino">{{ p.customer_name }}@if (p.destino_code) { <span class="cv-sub">{{ p.destino_code }}</span> }</td>
+                  <td role="cell" data-label="Tipo">{{ tipoLabel(p.tipo_parada) }}</td>
+                  <td role="cell" data-label="Embarque Kepler"><code>{{ p.kepler_folio ? 'UD41' + (p.kepler_serie === '2' ? '02' : '01') + '-' + p.kepler_folio : '—' }}</code></td>
+                  <td class="num dt-num" role="cell" data-label="Embarcado">{{ (p.importe_embarcado ?? p.value) | currency:'MXN':'symbol-narrow':'1.2-2' }}</td>
+                  <td role="cell" data-label="Cómo se cerró">
                     {{ p.motivo }}
                     @if (p.recepcion_folio) {
                       <span class="cv-sub">Recepción UA5001-{{ p.recepcion_folio }} · {{ p.recepcion_importe | currency:'MXN':'symbol-narrow':'1.2-2' }} · {{ p.recepcion_fecha }}</span>
@@ -88,15 +88,15 @@ const TIPO_LABEL: Record<string, string> = {
                     @if (p.incident_type) { <span class="cv-sub">{{ motivoLabel(p.incident_type) }}@if (p.incident_notes) { · {{ p.incident_notes }} }</span> }
                     @if (p.remision_url) { <a class="cv-sub" [href]="p.remision_url" target="_blank" rel="noopener">Ver remisión</a> }
                   </td>
-                  <td><span class="cv-pill" [attr.data-estado]="p.estado_parada">{{ estadoParadaLabel(p.estado_parada) }}</span></td>
-                  <td>
+                  <td role="cell" data-label="Estado"><span class="cv-pill" [attr.data-estado]="p.estado_parada">{{ estadoParadaLabel(p.estado_parada) }}</span></td>
+                  <td class="dt-actions" role="cell" data-label="Acción">
                     @if (puedeCerrar(p)) {
                       <button pButton type="button" size="small" (click)="abrirCierre(p)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Registrar entrega</span></button>
                     }
                   </td>
                 </tr>
               } @empty {
-                <tr><td colspan="8" class="cv-empty">Este embarque no tiene paradas registradas.</td></tr>
+                <tr><td colspan="8" class="cv-empty" role="cell">Este embarque no tiene paradas registradas.</td></tr>
               }
             </tbody>
           </table>
@@ -132,8 +132,8 @@ const TIPO_LABEL: Record<string, string> = {
           <h3>Lo que se libera por persona</h3>
           <span class="cv-sub">Se paga en el vale del corte de 14 días (Gastos › Comisiones de logística)</span>
         </header>
-        <div class="cv-scroll">
-          <table class="cv-table">
+        <div class="cv-scroll dt-scope">
+          <table class="cv-table dt-stack">
             <thead>
               <tr>
                 <th scope="col">Persona</th><th scope="col">Papel</th>
@@ -144,19 +144,19 @@ const TIPO_LABEL: Record<string, string> = {
             <tbody>
               @for (f of personas(); track f.driver_id + f.rol) {
                 <tr>
-                  <td>{{ f.persona }}</td>
-                  <td>{{ f.rol }}</td>
-                  <td class="num">{{ f.montos.comision ? (f.montos.comision | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
-                  <td class="num">{{ f.montos.viatico ? (f.montos.viatico | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
-                  <td class="num">{{ f.montos.maniobra_carga ? (f.montos.maniobra_carga | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
-                  <td class="num"><strong>{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong></td>
-                  <td>
+                  <td class="dt-id" role="cell" data-label="Persona">{{ f.persona }}</td>
+                  <td role="cell" data-label="Papel">{{ f.rol }}</td>
+                  <td class="num dt-num" role="cell" data-label="Comisión 075">{{ f.montos.comision ? (f.montos.comision | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="Viáticos 128">{{ f.montos.viatico ? (f.montos.viatico | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="Maniobra 186">{{ f.montos.maniobra_carga ? (f.montos.maniobra_carga | currency:'MXN':'symbol-narrow':'1.2-2') : '—' }}</td>
+                  <td class="num dt-num" role="cell" data-label="Total"><strong>{{ f.total | currency:'MXN':'symbol-narrow':'1.2-2' }}</strong></td>
+                  <td role="cell" data-label="Estado">
                     <span class="cv-pill" [attr.data-estado]="f.estado">{{ f.estado === 'liberado' ? 'Liberado' : f.estado === 'en_vale' ? 'En vale' : 'Retenido' }}</span>
                     @if (f.estado === 'retenido') { <span class="cv-sub">{{ f.motivo }}</span> }
                   </td>
                 </tr>
               } @empty {
-                <tr><td colspan="7" class="cv-empty">Todavía no hay montos: completa la guía (chofer, ayudantes y horario) y registra a los cargadores.</td></tr>
+                <tr><td colspan="7" class="cv-empty" role="cell">Todavía no hay montos: completa la guía (chofer, ayudantes y horario) y registra a los cargadores.</td></tr>
               }
             </tbody>
           </table>
