@@ -38,6 +38,7 @@
 | 07/08-oct | **[RH.1.8]** Carga única con cuadre al registro + paridad con datos reales (**1,464 personas, 5,464 días, 0 diferencias**) + pre-vuelo + runbook del corte | PR #286 → `main` |
 | 08-oct | **[RH.1.7c]/[RH.1.5b]/[RH.1.5c]** Asistencia con la forma de Horarios de Mega Talento; desayuno y promotoría corregidos como en Mega Talento | PR #330 → `main` |
 | 12-oct | **[RH.1.10]** en código: horas extra ganadas, banco con ajustes, desayuno/comida distintos, cambio de descanso; pestaña Horas extra. Paridad con datos reales contra Mega Talento `1a28f6e`: **0 diferencias** | rama `feat/rh-1-10-horas-extra` |
+| 12-oct | **[RH.1.3]** en código: el lector de relojes en `database/importers/checadores/agente/` + `ops/k3s/29-hr-relojes.deployment.yaml` (nace apagado); retirado `import-checadores.js` (RH.0.3) | rama `feat/rh-1-3-lector-relojes` |
 | 12-oct | **[RH.1.6b]** en código: el cierre de semana se frena con gente sin identificar y sólo pasa con motivo anotado | PR #366 |
 | 12-oct | Este plan + **[RH.1.4]** en código: guion de carga de personas, mapeos versionados, migración `20261012094356`, pruebas (14 puras + 2 contra Postgres, `libs/hr` 148 verdes). **Falta correrlo con datos reales** | rama `feat/rh-1-4-personas` |
 
@@ -91,7 +92,7 @@
 | 3 | [RH.0.2] | Edgar aprueba ADR-084 + el rol `sin_acceso` + la regla de bajas | Edgar | — | 17-oct |
 | 4 | [RH.1.6b] | Nadie a prenómina sin identificar (el cierre se niega con gente sin ligar, salvo motivo). 🧪 En código el 12-oct (PR #366) | Claude | RH.1.4 | ✅ 12-oct |
 | 5 | [RH.1.10] | Portar horas extra, desayuno/comida distintos y cambio de descanso de Mega Talento + re-correr la paridad. 🧪 En código el 12-oct: paridad 0 diferencias con datos reales | Claude | — | ✅ 12-oct |
-| 6 | [RH.0.3]/[RH.1.3] | Un solo lector de relojes, en `md` (hoy es una laptop). Mínimo para el corte: el agente actual apunta a la Suite (sólo configuración); mudarlo a `md` puede ir después | Claude + David | — | 31-oct |
+| 6 | [RH.0.3]/[RH.1.3] | Un solo lector de relojes, en `md` (hoy es una laptop). 🧪 12-oct: el lector está en el monorepo con su manifiesto (nace apagado, `preparado-externo`) y se retiró `import-checadores.js`. **Falta: medir desde `md` (`ops/rh/medir-relojes.sh`) y crear el secreto `hr-relojes-env`.** Si un reloj no contesta desde `md`, el corte usa la opción A (la laptop apunta a la Suite) | David | — | 31-oct |
 | 7 | Migraciones a prod | Una por una, en el orden del pre-vuelo: base de CH `20260817220000` primero, luego la cadena de RH (incluida la de RH.1.4) | David | 3 | el día del merge |
 | 8 | Ocupar `recursos_humanos` | Darle el rol a las coordinadoras de RH desde `/admin/personas` (hoy tiene 0 personas) | David | 7 | 31-oct |
 | 9 | Validación visual | Las pantallas `/rh/*` con datos reales, con RH | RH + Claude | 7, 8 | 3-nov |

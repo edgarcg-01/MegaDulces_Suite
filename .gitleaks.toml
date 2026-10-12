@@ -46,4 +46,8 @@ regexes = [
   '''(postgres(?:ql)?|redis):\/\/[^:@\/\s]+:(superoot|postgres|kepler123|app_runtime)@(localhost|127\.0\.0\.1|192\.168\.|::1)''',
   # DSN de Sentry del frontend: PÚBLICO por diseño (va en el bundle del browser).
   '''https:\/\/[a-f0-9]+@o\d+\.ingest\.[a-z0-9.]*sentry\.io\/\d+''',
+  # [RH.1.3] La API DENTRO del clúster k3s: el Service `api` en el puerto 10000 (ops/k3s/11-api-externo.yaml).
+  # `generic-api-key` lee «api:» + una ruta larga como si fuera una llave. No lleva credencial ni puede llevarla
+  # (la regla exige el esquema http(s), el host `api` y el puerto exacto, sin usuario ni arroba).
+  '''https?:\/\/api:10000\/api\/[A-Za-z0-9\/_-]*''',
 ]

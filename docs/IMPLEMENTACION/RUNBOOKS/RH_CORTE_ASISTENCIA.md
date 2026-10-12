@@ -200,6 +200,22 @@ Listo en ~45 s · Ensayo: no quedó nada escrito.
 Si aparece `ya_en_un_reloj_del_sitio` con un número grande, el destino ya traía esas checadas (ver §2.1, «datos
 previos»): la carga no las duplica, pero hay que saber de dónde vinieron.
 
+### 2.7 El lector de relojes en `md` (`[RH.1.3]`) — opcional para el corte, recomendado
+
+El lector ya está en el monorepo (`database/importers/checadores/agente/`, el agente de Mega Talento sólo con el
+origen `relojes`) y tiene su manifiesto: `ops/k3s/29-hr-relojes.deployment.yaml`. **Nace fuera del despliegue**
+(`migracion: preparado-externo`): `ops/vl/deploy.sh` lo saltea hasta que un commit lo cambie a `migrado`.
+
+⛔ **Un ZKTeco acepta UNA sola sesión TCP.** El pod y el servicio de la laptop nunca corren a la vez.
+
+Antes del corte (David, en `md`):
+1. **`[RH.0.3]` ¿`md` alcanza los relojes?** `ops/rh/medir-relojes.sh ping <IPs>` en cualquier momento;
+   `ops/rh/medir-relojes.sh tcp <IPs>` **sólo fuera de horario** (abre y cierra el 4370 de cada reloj, sin comandos).
+   Las IPs son las de `/rh/relojes`. Si algún reloj no contesta desde `md`, ese carril se queda en la laptop (opción A).
+2. **El secreto** (una vez): `kubectl -n ingesta create secret generic hr-relojes-env --from-literal=HR_INGEST_KEY='<la de prod-env>'`.
+3. La imagen `trade-ingest` del commit ya trae el agente y sus dependencias (`node-zklib` 1.3.0, `better-sqlite3`
+   11.10.0, las mismas que corren hoy en la laptop): no hay nada que instalar.
+
 ---
 
 ## 3. El día del corte (sábado 7-nov, después de las 20:00)
@@ -209,7 +225,7 @@ previos»): la carga no las duplica, pero hay que saber de dónde vinieron.
 | 1 | Edgar | **Pre-vuelo** con Mega Talento (§2.3 + `MT_DATABASE_URL`) | Sin BLOQUEA. «padrón» puede seguir NO MEDIDO: todavía no hay carga |
 | 2 | Edgar | **Carga real**: lo mismo que §2.6 con `--aplicar`. Guardar la salida | El cuadre coincide con el del ensayo (las checadas crecen un poco) |
 | 3 | Edgar | **Ligar personas** (`[RH.1.4]`): el comando de §2.5 con `--aplicar`, y otra vez el pre-vuelo | «padrón» en OK o AVISO, **nunca BLOQUEA**; `por_decidir` del cuadre = lista para RH |
-| 4 | David | **Agente → Suite** (en `LapSistemasA`): copiar `config.json` a `config.json.antes-corte`; en `config.json` poner `apiUrl = https://megadulcessuite.com/api/hr/attendance/ingest/mt` y `token = <HR_INGEST_KEY>`; reiniciar el servicio «Mega Talento Agente de Checadas» | Su log muestra el respaldo inicial («backfill … nuevas a la cola») y respuestas 200, sin 401 |
+| 4 | David | **El lector → Suite.** Una de dos (ver §2.7):<br>**B (recomendada, lector en `md`):** (a) detener el servicio «Mega Talento Agente de Checadas» en `LapSistemasA` y dejarlo **deshabilitado** (no desinstalado: es la reversa); (b) copiar `cola.db`, `cola.db-wal` y `cola.db-shm` de `api\agente\` de la laptop a `md:/home/superoot/rh-relojes/datos/` — **con el servicio ya detenido** — para que el pod arranque con la marca de agua de cada reloj y lo pendiente, en vez de releer años de log; (c) commit que cambia `migracion: preparado-externo` → `migrado` en `29-hr-relojes.deployment.yaml` y desplegar.<br>**A (mínima, lector en la laptop):** copiar `config.json` a `config.json.antes-corte`; en `config.json` poner `apiUrl = https://megadulcessuite.com/api/hr/attendance/ingest/mt` y `token = <HR_INGEST_KEY>`; reiniciar el servicio | **B:** `kubectl -n ingesta logs deploy/hr-relojes` muestra «Relojes a cargo: …» y lotes aceptados, sin 401; el servicio de la laptop sigue detenido. **A:** su log muestra el respaldo inicial y respuestas 200, sin 401 |
 | 5 | Edgar | **La ingesta late** | Salud BD: `hr_attendance_ingest` con latido reciente. `/rh/relojes`: los relojes «Al día» en ~10 min |
 | 6 | David | **Mega Talento dejó de recibir** | En su base, `max(recibido_en)` de `checadas` se queda quieto |
 | 7 | Edgar | **Encender el agente de alertas**: respaldo de `prod-env`; `ENABLE_HR_ATTENDANCE_AGENT=true` (mismo `patch` que §2.4); `kubectl -n prod rollout restart deploy/worker`. Mergear y soltar el PR de `CRON_JOBS` (§3.1) | En ≤30 min, `hr_attendance_agent` late en Salud BD |
@@ -243,8 +259,10 @@ No se agregan antes: dos filas de jobs que todavía no corren pondrían el table
 ## 4. Reversa
 
 **Dentro de las primeras 36 horas** (limpia):
-1. David: restaurar `config.json.antes-corte` y reiniciar el servicio. El agente reenvía las últimas 36 h a Mega
-   Talento, así que no le falta nada.
+1. David: si se usó **B**, primero `kubectl -n ingesta scale deploy/hr-relojes --replicas=0` (y devolver la etiqueta a
+   `preparado-externo`, para que el siguiente deploy no lo reviva). En los dos casos, restaurar
+   `config.json.antes-corte` y arrancar el servicio de la laptop. El agente reenvía las últimas 36 h a Mega Talento, así
+   que no le falta nada.
 2. Edgar: `ENABLE_HR_ATTENDANCE_AGENT=false` (o restaurar el respaldo de `prod-env`) y reiniciar el `worker`.
 3. Las incidencias capturadas en la Suite durante ese tiempo se recapturan en Mega Talento:
    `GET /api/hr/attendance/incidents?site_code=…&date_from=…&date_to=…` las lista.
@@ -257,9 +275,10 @@ hacia adelante en la Suite.
 
 ## 5. Lo que este corte NO hace (y se declara)
 
-- **No muda el lector de relojes al servidor** (`[RH.1.3]`): sigue en la laptop `LapSistemasA`. Cuando se mude, el
-  primer respaldo manda el buffer completo; la ingesta ya no lo duplica (probado con datos reales: 83,512 checadas
-  reenviadas de tres sitios, 0 nuevas).
+- **El lector en `md` es opcional** (`[RH.1.3]`, opción B del paso 4). Si no se muda ese día, sigue en la laptop
+  `LapSistemasA` (opción A) y se muda después con los mismos pasos. Si se muda sin copiar `cola.db`, el primer
+  respaldo manda el buffer completo de cada reloj; la ingesta no lo duplica (probado con datos reales: 83,512
+  checadas reenviadas de tres sitios, 0 nuevas), sólo tarda.
 - **No toca reclutamiento ni el bot** (corte del 5-dic).
 - **No apaga Mega Talento** (18-dic).
 - **La cola de alertas de Mega Talento** se carga, pero nadie la ha decidido nunca (10,429 sugeridas, 0 decididas).

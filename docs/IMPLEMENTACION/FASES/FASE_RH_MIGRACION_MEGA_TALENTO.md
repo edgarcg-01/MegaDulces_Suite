@@ -84,7 +84,7 @@ unifican en `hr.*`, y la Fase RH continúa la Fase CH en lugar de abrir una para
 | Agente de Mega Talento, modo `relojes` (TCP directo) | **El único vivo.** Los 12 relojes con latido de minutos; 9,191 checadas en 14 días. Corre como servicio de Windows en **una laptop** (`LapSistemasA`) |
 | `agente-checador` del repo del bot (julio, empujaba al bot) | Muerto: su última checada es del 2026-08-21 (142,148 filas con `origen` NULL) |
 | Modo `hr` del agente de Mega Talento (leía la base `hr` de `.245`) | Apagado: el agente está configurado en `relojes` |
-| `import-checadores.js` de la Fase CH | No agendado (`[CH.0.9]`), pero existe y se puede correr a mano |
+| `import-checadores.js` de la Fase CH | No agendado (`[CH.0.9]`), pero existía y se podía correr a mano. **Retirado el 2026-10-12** (`[RH.0.3]`) |
 
 Dos lectores al mismo reloj **se pisan la sesión y leen a medias** (el propio agente lo documenta).
 Hoy hay uno solo de hecho; **tiene que quedar uno solo de derecho** (D3): los otros tres se retiran
