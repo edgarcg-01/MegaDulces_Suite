@@ -16,16 +16,16 @@ import {
 
 const A = (folio: string, importe: string, over: Partial<DocCrudo> = {}): DocCrudo => ({
   sucursal: '00', naturaleza: 'A', tipo_doc: '20', sub: '1', folio, documento: 'Aplica Orden Entrada',
-  fecha: '2026-06-29', vence: '2026-07-27', referencia: '0-F-7455', importe, ...over,
+  fecha: '2026-06-29', vence: '2026-07-27', referencia: '0-F-7455', importe, cancelado: false, ...over,
 });
 const D = (tipo: string, folio: string, importe: string, fecha: string): DocCrudo => ({
   sucursal: '00', naturaleza: 'D', tipo_doc: tipo, sub: '1', folio,
   documento: tipo === '26' ? 'Transferencia a proveedor' : 'Nota crédito',
-  fecha, vence: '1800-01-01', referencia: null, importe,
+  fecha, vence: '1800-01-01', referencia: null, importe, cancelado: false,
 });
-const ap = (doc: string, tipo: string, pago: string, importe: string, fecha: string): AplicacionCruda => ({
+const ap = (doc: string, tipo: string, pago: string, importe: string, fecha: string, cancelado = false): AplicacionCruda => ({
   sucursal: '00', doc_tipo: '20', doc_sub: '1', doc_folio: doc, pago_tipo: tipo, pago_sub: '1', pago_folio: pago,
-  pago_documento: tipo === '26' ? 'Transferencia a proveedor' : 'Nota crédito', pago_fecha: fecha, pago_referencia: null, importe,
+  pago_documento: tipo === '26' ? 'Transferencia a proveedor' : 'Nota crédito', pago_fecha: fecha, pago_referencia: null, importe, cancelado,
 });
 
 describe('[ECA.1] tipo de acreedor', () => {
@@ -137,5 +137,60 @@ describe('[ECA.1] saldo, vencimiento y pagos sin aplicar', () => {
     const t = totalesEstado(r.documentos, r.pagos_sin_aplicar);
     expect(t.pendiente).toBe(1000);       // el sobreaplicado no es "pendiente"…
     expect(t.saldo).toBe(1000 - 50 - 300); // …pero sus $50 de más sí restan del saldo
+  });
+});
+
+/**
+ * `[ECA.7]` Documentos cancelados en Kepler (`kdm1.c43='C'`). Caso REAL de Distribuidora de la Rosa
+ * (CD015), sucursal 03, medido en prod 2026-10-10: la nota de crédito 0000010 (30/09/26) se canceló
+ * y se reemplazó con la 0000011 (09/10/26). Kepler dejó la 10 en importe 0 en `kdxe`, pero su
+ * aplicación de $26,124.14 a la entrada 0000149 sigue en `kdxf`: la pantalla la restaba junto con la
+ * de la 11 y mostraba la entrada "Pagada de más" en −$26,124.14.
+ */
+describe('[ECA.7] lo cancelado en Kepler no rebaja', () => {
+  const s03 = { sucursal: '03' };
+  const nc = (folio: string, fecha: string, cancelado: boolean): AplicacionCruda => ({
+    ...ap('0000149', '55', folio, '26124.14', fecha, cancelado), ...s03,
+  });
+
+  it('una nota de crédito cancelada se muestra, marcada, y no cuenta en lo aplicado', () => {
+    const r = armarEstado(
+      [A('0000149', '26124.14', { ...s03, fecha: '2026-01-27', vence: '2026-02-17', referencia: '40-9966' })],
+      [nc('0000010', '2026-09-30', true), nc('0000011', '2026-10-09', false)],
+      '2026-10-10',
+    );
+    const d = r.documentos[0];
+    expect(d.aplicaciones.map((a) => [a.folio, a.cancelado])).toEqual([['0000010', true], ['0000011', false]]);
+    expect(d.aplicado).toBe(26124.14);
+    expect(d.saldo).toBe(0);
+    expect(d.estado).toBe('pagado');
+  });
+
+  it('PRUEBA NEGATIVA: sin la marca de cancelado, la misma nota sí rebaja dos veces', () => {
+    const r = armarEstado(
+      [A('0000149', '26124.14', s03)],
+      [nc('0000010', '2026-09-30', false), nc('0000011', '2026-10-09', false)],
+      '2026-10-10',
+    );
+    expect(r.documentos[0].saldo).toBe(-26124.14);
+    expect(r.documentos[0].estado).toBe('sobreaplicado');
+  });
+
+  it('una factura cancelada no debe nada, y el pago que tenía aplicado vuelve a quedar sin aplicar', () => {
+    const r = armarEstado(
+      [A('0000005', '0', { vence: '2026-01-01', cancelado: true }), D('26', '0000020', '500', '2026-02-01')],
+      [ap('0000005', '26', '0000020', '500', '2026-02-01', true)],
+      '2026-10-10',
+    );
+    const d = r.documentos[0];
+    expect(d.estado).toBe('cancelado');
+    expect([d.aplicado, d.saldo, d.vencido]).toEqual([0, 0, false]);
+    expect(d.aplicaciones.every((a) => a.cancelado)).toBe(true);
+    expect(r.pagos_sin_aplicar.map((p) => [p.folio, p.remanente])).toEqual([['0000020', 500]]);
+  });
+
+  it('un pago cancelado con importe no aparece como saldo a favor', () => {
+    const r = armarEstado([{ ...D('26', '0000030', '700', '2026-02-01'), cancelado: true }], [], '2026-10-10');
+    expect(r.pagos_sin_aplicar).toEqual([]);
   });
 });

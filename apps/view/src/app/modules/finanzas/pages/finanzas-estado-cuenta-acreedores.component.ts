@@ -34,6 +34,7 @@ const ESTADO: Record<AcreedorDocEstado, { label: string; sev: Sev }> = {
   parcial: { label: 'Parcial', sev: 'info' },
   pagado: { label: 'Pagado', sev: 'success' },
   sobreaplicado: { label: 'Pagado de más', sev: 'danger' },
+  cancelado: { label: 'Cancelado', sev: 'secondary' },
 };
 
 const pad = (n: number): string => String(n).padStart(2, '0');
@@ -157,14 +158,20 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
                           <td class="ta-r"><p-tag [value]="estadoLabel(doc.estado)" [severity]="estadoSev(doc.estado)" styleClass="ec-tag" /></td>
                         </tr>
                         @for (ap of doc.aplicaciones; track ap.tipo_doc + ap.folio) {
-                          <tr class="ec-ap-row">
+                          <tr class="ec-ap-row" [class.ec-cancel]="ap.cancelado">
                             <td></td>
                             <td class="ec-ap-name">{{ ap.documento }}</td>
                             <td class="ec-mono">{{ ap.folio }}</td>
                             <td class="ec-mono">{{ dmy(ap.fecha) }}</td>
                             <td class="ec-mono">{{ ap.referencia || '' }}</td>
-                            <td class="ta-r num">{{ money(ap.importe) }}</td>
-                            <td></td><td></td><td></td>
+                            <td class="ta-r num"><span class="ec-cancel-amt">{{ money(ap.importe) }}</span></td>
+                            <td></td><td></td>
+                            <td class="ta-r">
+                              @if (ap.cancelado) {
+                                <p-tag value="Cancelada" severity="secondary" styleClass="ec-tag"
+                                       title="Cancelada en Kepler: se muestra, pero no rebaja el saldo." />
+                              }
+                            </td>
                           </tr>
                         }
                         <tr class="ec-saldo-row"><td colspan="8" class="ta-r">Saldo documento</td><td class="ta-r num" [class.ec-bad]="doc.saldo > 0.005 && doc.vencido">{{ money(doc.saldo) }}</td></tr>
@@ -243,6 +250,8 @@ const iso = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${
     .ec-doc-row td { padding-top:.45rem; }
     .ec-ap-row td { color:var(--text-muted); }
     .ec-ap-name { padding-left:1.4rem !important; }
+    .ec-cancel td { opacity:.7; }
+    .ec-cancel .ec-cancel-amt { text-decoration:line-through; }
     .ec-saldo-row td { font-weight:600; padding-bottom:.45rem; }
     .ec-sub { padding:.6rem .85rem; border-top:1px solid var(--border-color); }
     .ec-sub h3 { font-size:var(--fs-sm); font-weight:700; margin:0 0 .2rem; }

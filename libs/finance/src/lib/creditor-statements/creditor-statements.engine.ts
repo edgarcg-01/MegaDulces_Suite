@@ -95,6 +95,8 @@ export interface DocCrudo {
   vence: string | null;
   referencia: string | null;
   importe: string | number;
+  /** `[ECA.7]` Cancelado en Kepler (`kdm1.c43='C'`). */
+  cancelado: boolean;
 }
 
 /** AplicaciÃ³n cruda de `kdxf`: el cargo `pago_*` se aplicÃ³ al abono `doc_*`. */
@@ -110,6 +112,12 @@ export interface AplicacionCruda {
   pago_fecha: string | null;
   pago_referencia: string | null;
   importe: string | number;
+  /**
+   * `[ECA.7]` El cargo o el abono está cancelado en Kepler (`kdm1.c43='C'`). Kepler deja el importe
+   * del documento cancelado en cero pero la aplicación sigue en `kdxf` (medido 2026-10-10: 319
+   * aplicaciones de 187 cargos cancelados, $10.99M en 63 acreedores) — contarla rebaja dos veces.
+   */
+  cancelado: boolean;
 }
 
 const clave = (sucursal: string, tipo: string | number, sub: string | number, folio: string): string =>
@@ -139,8 +147,11 @@ export function armarEstado(docs: DocCrudo[], apps: AplicacionCruda[], hoy: stri
       fecha: fechaOnull(a.pago_fecha),
       referencia: a.pago_referencia?.trim() || null,
       importe: r2(a.importe),
+      cancelado: !!a.cancelado,
     });
     porDoc.set(kd, lista);
+    // Una aplicación cancelada se muestra, pero no consume el pago.
+    if (a.cancelado) continue;
     const kp = clave(a.sucursal, a.pago_tipo, a.pago_sub, a.pago_folio);
     aplicadoPorPago.set(kp, r2((aplicadoPorPago.get(kp) ?? 0) + r2(a.importe)));
   }
@@ -164,16 +175,24 @@ export function armarEstado(docs: DocCrudo[], apps: AplicacionCruda[], hoy: stri
       // antes que las notas de crÃ©dito (55).
       const aplicaciones = (porDoc.get(k) ?? []).sort((x, y) =>
         (x.fecha ?? '').localeCompare(y.fecha ?? '') || x.tipo_doc - y.tipo_doc || x.folio.localeCompare(y.folio));
-      const aplicado = r2(aplicaciones.reduce((t, a) => t + a.importe, 0));
-      const saldo = r2(importe - aplicado);
       const vence = fechaOnull(d.vence);
+      if (d.cancelado) {
+        documentos.push({
+          ...base, vence, aplicado: 0, saldo: 0, estado: 'cancelado', vencido: false, cancelado: true,
+          aplicaciones: aplicaciones.map((a) => ({ ...a, cancelado: true })),
+        });
+        continue;
+      }
+      const aplicado = r2(aplicaciones.reduce((t, a) => t + (a.cancelado ? 0 : a.importe), 0));
+      const saldo = r2(importe - aplicado);
       documentos.push({
         ...base, vence, aplicado, saldo,
         estado: estadoDocumento(importe, aplicado),
         vencido: saldo > TOLERANCIA && !!vence && vence < hoy,
+        cancelado: false,
         aplicaciones,
       });
-    } else {
+    } else if (!d.cancelado) {
       const aplicado = aplicadoPorPago.get(k) ?? 0;
       const remanente = r2(importe - aplicado);
       if (remanente > TOLERANCIA) pagos.push({ ...base, aplicado, remanente });

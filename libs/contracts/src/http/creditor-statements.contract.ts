@@ -27,8 +27,11 @@
  */
 export type AcreedorTipo = 'mercancia' | 'servicios' | 'financiero' | 'interno' | 'sin_clasificar';
 
-/** Cómo está un documento que sube la deuda, según lo que Kepler le aplicó. */
-export type AcreedorDocEstado = 'pendiente' | 'parcial' | 'pagado' | 'sobreaplicado';
+/**
+ * Cómo está un documento que sube la deuda, según lo que Kepler le aplicó. `cancelado`: el documento
+ * está cancelado en Kepler (`kdm1.c43='C'`) — no debe nada y no se le resta nada.
+ */
+export type AcreedorDocEstado = 'pendiente' | 'parcial' | 'pagado' | 'sobreaplicado' | 'cancelado';
 
 export interface AcreedorTipoTotal {
   tipo: AcreedorTipo;
@@ -91,6 +94,11 @@ export interface AcreedorAplicacion {
   referencia: string | null;
   /** Lo que ESTE cargo le aplicó a ESTE documento (un pago puede repartirse entre varias facturas). */
   importe: number;
+  /**
+   * `[ECA.7]` El cargo o el documento está CANCELADO en Kepler (`kdm1.c43='C'`), pero la aplicación
+   * sigue en `kdxf`. Se muestra para que se vea, y NO cuenta en `aplicado` ni en el saldo.
+   */
+  cancelado: boolean;
 }
 
 /** Documento que sube la deuda (abono `A`), con lo que se le aplicó. */
@@ -108,6 +116,8 @@ export interface AcreedorDocumento {
   saldo: number;
   estado: AcreedorDocEstado;
   vencido: boolean;
+  /** `[ECA.7]` Cancelado en Kepler (`kdm1.c43='C'`): `aplicado` y `saldo` en cero. */
+  cancelado: boolean;
   aplicaciones: AcreedorAplicacion[];
 }
 

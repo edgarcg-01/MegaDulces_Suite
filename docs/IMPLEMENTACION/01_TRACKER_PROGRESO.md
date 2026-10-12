@@ -208,6 +208,7 @@ Y se actualiza el símbolo al avanzar:
 - [ ] **[ECA.4]** Lente ContPAQi (2120/2140) por acreedor.
 - [ ] **[ECA.5]** Replicar al ODS el catálogo de nombres de grupo de proveedor.
 - [ ] **[ECA.6]** Revisar con Finanzas las facturas de sucursal anteriores al 1-oct sin pago aplicado. Créditos bancarios (Banorte, BBVA, Bajío, ~$26M) a dar de alta en Kepler con clave `A*` o grupo 140.
+- [x] **[ECA.7]** Documentos cancelados en Kepler (`kdm1.c43='C'`): Kepler deja el importe en 0 en `kdxe` pero la aplicación sigue en `kdxf`, así que una nota de crédito cancelada rebajaba doble (caso de Francisco: Distribuidora de la Rosa CD015, NC 0000010 de la 03 cancelada y reemplazada por la 0000011 → entradas "Pagadas de más"). Ahora la aplicación cancelada se muestra tachada con etiqueta **Cancelada** y no cuenta; la factura cancelada sale con estado **Cancelado** y su pago vuelve a "sin aplicar". Medido en prod: **319 aplicaciones de 187 cargos cancelados ($10.99M, 63 acreedores) + 16 sobre facturas canceladas ($133k)**; saldo total $89.76M → $100.75M; CD015 $7,424,917.53 → $9,690,501.64. Resumen 0.54 s (⚠️ con `btrim(c43)` el planificador estima 3 cancelados y tarda 52 s: se compara `c43 = 'C'`, valores limpios medidos). 4 pruebas nuevas (1 negativa, mutación verificada); 49/49; build api+view OK. Validación visual pendiente. 🧪 2026-10-10
 
 ### Fase CSU — Cortes/Sucursales: corte de caja → cobro → ingreso · 2026-10-05 · plan en [`FASE_CSU`](FASES/FASE_CSU_CORTES_SUCURSALES.md)
 
