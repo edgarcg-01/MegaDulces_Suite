@@ -310,6 +310,54 @@ const MOVS = [
       }
     }
 
+    console.log('\n═══ 6. `[CP.8.30]` Los renglones `AD` — y que apagados no cambien un byte ═══');
+    {
+      const UUIDS = [
+        'A1B2C3D4-0000-4000-8000-000000000001',
+        'A1B2C3D4-0000-4000-8000-000000000002',
+      ];
+      const apagado = construirTxt('20260831', 1, 'REGISTRO DE COMPRAS', MOVS);
+      const vacio = construirTxt('20260831', 1, 'REGISTRO DE COMPRAS', MOVS, undefined, undefined, undefined, undefined, []);
+      // ⭐ El invariante que permite prender esto sobre un flujo de $30–56M al mes. Si se cae,
+      // el libro de compras cambió de archivo sin que nadie lo pidiera.
+      ok(apagado === vacio, 'apagado y lista vacía dan el MISMO archivo, byte a byte');
+      ok(!apagado.includes('\r\nAD'), 'apagado NO emite ningún renglón AD');
+
+      const prendido = construirTxt('20260831', 1, 'REGISTRO DE COMPRAS', MOVS, undefined, undefined, undefined, undefined, UUIDS);
+      const lineas = prendido.split('\r\n').filter(Boolean);
+      const ad = lineas.filter((l) => l.startsWith('AD'));
+      ok(ad.length === UUIDS.length, `prendido emite ${ad.length} renglones AD (uno por UUID)`);
+      // ⛔ Al FINAL de la póliza, no después del encabezado: lo decía un foro y el archivo real
+      // de ContPAQi lo desmintió (`[CP.8.29]`).
+      ok(lineas.slice(-UUIDS.length).every((l) => l.startsWith('AD')),
+        'los AD van al FINAL de la póliza, después de los movimientos');
+      ok(prendido.startsWith(apagado.slice(0, apagado.lastIndexOf('\r\n'))),
+        'prendido es el archivo de siempre MÁS los AD: no reescribe ni un movimiento');
+      for (const u of UUIDS) ok(prendido.includes(u), `el AD lleva el UUID ${u.slice(0, 13)}…`);
+
+      // ⛔ Prueba negativa: un UUID corto tiene que TUMBAR el archivo, no rellenarse. Un AD de
+      // largo correcto con basura adentro asocia el comprobante equivocado y nadie lo nota.
+      lanza(() => construirTxt('20260831', 1, 'X', MOVS, undefined, undefined, undefined, undefined, ['NO-SOY-UN-UUID']),
+        '⛔ un UUID que no mide 36 TUMBA el archivo en vez de rellenarse');
+      lanza(() => construirTxt('20260831', 1, 'X', MOVS, undefined, undefined, undefined, undefined, ['']),
+        '⛔ un UUID vacío también lo tumba');
+
+      // Y que el round-trip siga funcionando con los AD puestos: el parser es el que prueba
+      // que el archivo que escribimos es el que ContPAQi escribiría.
+      const re = parsearTxt(prendido);
+      ok(re.movimientos.length === MOVS.length,
+        `el parser lee ${re.movimientos.length} movimientos y NO confunde los AD con renglones`);
+
+      const col = await knex('information_schema.columns').select('column_name')
+        .where({ table_schema: 'finance', table_name: 'purchase_book_runs', column_name: 'asocia_cfdi' }).first();
+      if (col) {
+        const d = await knex('finance.purchase_book_runs').count({ n: '*' }).where({ asocia_cfdi: true }).first();
+        ok(Number(d.n) === 0, `⭐ ninguna corrida tiene \`asocia_cfdi\` prendida todavía (${d.n}) — el AD no se verificó contra un import real`);
+      } else {
+        console.log('  NO MEDIDO: la migración 20261010093324 todavía no se aplicó a este destino');
+      }
+    }
+
     console.log(`\n${fail === 0 ? '✅' : '❌'} ${pass} ok · ${fail} fallidas`);
   } catch (e) {
     console.error('ERROR:', e.message);

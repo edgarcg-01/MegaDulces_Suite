@@ -1,5 +1,7 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { TagModule } from 'primeng/tag';
+import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
@@ -47,10 +49,11 @@ import {
 @Component({
   selector: 'app-comercial-ruta-directa-rentabilidad',
   standalone: true,
-  imports: [TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent],
+  imports: [PageTabsComponent, TagModule, LoadStateComponent, MetricStripComponent, SegmentedComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="rp">
+      <app-page-tabs [tabs]="tabsRD" />
       <header class="rp-head">
         <div>
           <h1>Rentabilidad de Ruta Directa</h1>
@@ -426,6 +429,8 @@ import {
   `],
 })
 export class ComercialRutaDirectaRentabilidadComponent {
+  /** La tira del sub-módulo: sin ella la pantalla es un callejón sin salida. */
+  readonly tabsRD = RUTA_DIRECTA_TABS;
   private readonly svc = inject(ComercialService);
 
   readonly cargando = signal(true);

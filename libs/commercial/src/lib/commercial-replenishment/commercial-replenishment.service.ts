@@ -321,6 +321,13 @@ export interface RequisitionListRowDto {
   warehouse_code: string | null;
   warehouse_name: string | null;
   supplier_name: string | null;
+  /**
+   * `[RQ.15]` La orden de compra de Kepler que salió de esta requisición. Las DOS o ninguna.
+   * ⛔ `null` en una `ordered` NO significa "no tiene OC": significa que se ordenó antes de que
+   * la columna existiera y **no se puede seguir hasta la entrada de mercancía**. Se declara.
+   */
+  oc_sucursal?: string | null;
+  oc_folio?: string | null;
   source_warehouse_code: string | null;
   source_warehouse_name: string | null;
 }
@@ -3677,6 +3684,12 @@ export class CommercialReplenishmentService {
           ...(loteCols ? ['r.batch_id', 'r.batch_folio', 'r.origin_requisition_id'] : []),
           trx.raw('w.code AS warehouse_code'), trx.raw('w.name AS warehouse_name'),
           trx.raw('sup.name AS supplier_name'),
+          // `[RQ.15]` La orden de compra de Kepler. ⚠️ Se piden con `to_jsonb(r) ->> …` y no como
+          // columnas directas para que la lista NO se caiga con un 42703 si el código llega a
+          // prod antes que su migración — el deploy y las migraciones viajan por caminos
+          // distintos y ya llegaron desordenados antes en este repo.
+          trx.raw(`to_jsonb(r) ->> 'oc_sucursal' AS oc_sucursal`),
+          trx.raw(`to_jsonb(r) ->> 'oc_folio'    AS oc_folio`),
           trx.raw('sw.code AS source_warehouse_code'), trx.raw('sw.name AS source_warehouse_name'),
           // `[RQ.2]` La ANTIGUEDAD viaja en la fila. Sin ella la lista ordena por fecha y el
           // lector tiene que restar de cabeza para darse cuenta de que esa requisicion lleva
@@ -3928,15 +3941,18 @@ export class CommercialReplenishmentService {
     });
   }
 
-  private async setEstado(id: string, from: string, to: string) {
+  private async setEstado(id: string, from: string, to: string, extra?: Record<string, unknown>) {
     const tenantId = this.tenantCtx.requireTenantId();
     const userId = this.tenantCtx.get()?.userId ?? null;
     if (!UUID_RX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
-      const patch: any = { estado: to, updated_at: trx.fn.now() };
+      const patch: any = { estado: to, updated_at: trx.fn.now(), ...(extra ?? {}) };
       if (to === 'approved') { patch.approved_by = userId; patch.approved_at = trx.fn.now(); }
       if (to === 'ordered') { patch.ordered_by = userId; patch.ordered_at = trx.fn.now(); }
       if (to === 'received') { patch.received_by = userId; patch.received_at = trx.fn.now(); }
+      // `[RQ.15]` Quién capturó el folio de la OC es dato aparte de quién marcó el estado: con el
+      // tiempo el segundo se automatiza y el primero sigue siendo una persona mirando un papel.
+      if (extra && 'oc_folio' in extra) { patch.oc_capturada_por = userId; patch.oc_capturada_at = trx.fn.now(); }
       const n = await trx('commercial.purchase_requisitions')
         .where({ tenant_id: tenantId, id, estado: from }).update(patch);
       if (!n) throw new BadRequestException(`La requisición no está en estado '${from}'`);
@@ -4001,7 +4017,28 @@ export class CommercialReplenishmentService {
     return { pedidas: unicos.length, hechas: ok.length, ok, fallas };
   }
   /** RA.14 — approved → ordered (OC emitida / exportada al proveedor). */
-  markOrdered(id: string) { return this.setEstado(id, 'approved', 'ordered'); }
+  /**
+   * `[RQ.15]` Marcar ORDENADA exige decir **cuál** orden de compra salió.
+   *
+   * ⭐ El folio es OBLIGATORIO y no un campo más. La junta requisición↔OC no estaba floja en la
+   * auditoría del 2026-10-09: **no existía** — `ordered_at` y `ordered_by` guardan cuándo y quién,
+   * nunca cuál. Dejarlo opcional lo habría dejado vacío igual que a las 53 `ordered` por
+   * $11,586,824 que hoy no se pueden seguir hasta la entrada de mercancía.
+   *
+   * ⚠️ Es la coordenada de KEPLER (sucursal + folio), no una llave nuestra: la OC vive allá
+   * (ADR-040). Las dos juntas o ninguna — un folio suelto se repite entre sucursales y apunta a
+   * varios documentos mientras se lee como si apuntara a uno.
+   */
+  markOrdered(id: string, oc?: { sucursal?: string; folio?: string }) {
+    const sucursal = String(oc?.sucursal ?? '').trim();
+    const folio = String(oc?.folio ?? '').trim();
+    if (!sucursal || !folio) {
+      throw new BadRequestException(
+        'Para marcar la requisición como ordenada hay que decir de qué orden de compra de Kepler se trata: sucursal y folio.',
+      );
+    }
+    return this.setEstado(id, 'approved', 'ordered', { oc_sucursal: sucursal, oc_folio: folio });
+  }
 
   /**
    * RA.14 — ordered → received (mercancía entró; espejo de la orden de entrada

@@ -48,6 +48,29 @@ export class ContpaqiCuadreService {
    */
   @Cron('0 */10 * * * *')
   async cron(): Promise<void> {
+    /**
+     * ⛔⛔ `[CP.8.31]` — **Sólo en el worker.** Medido en prod el 2026-10-09:
+     *
+     *     deploy/api      2 réplicas · DISABLE_CRONS=[]  ← `ScheduleModule` SE registra
+     *     deploy/worker   1 réplica  · DISABLE_CRONS=[] · WORKER=true
+     *
+     * `app.module.ts` registra `ScheduleModule.forRoot()` salvo que `DISABLE_CRONS === 'true'`, y
+     * **no está puesta en ningún pod**. O sea que todo `@Cron` del código corre en **tres
+     * procesos a la vez**. Evidencia directa: `cron_runs` tiene **36 jobs con `host='api'`** y un
+     * pod de API loguea actividad de scanner cada pocos minutos.
+     *
+     * ⚠️ **Y es invisible**: `analytics.cron_runs` es UPSERT por `job_key`, así que el tablero
+     * muestra sólo la última corrida. Tres ejecuciones simultáneas se ven exactamente igual que
+     * una.
+     *
+     * ⛔ El arreglo de fondo (poner `DISABLE_CRONS=true` en `deploy/api`) **es de plataforma y no
+     * se hace desde acá**: afecta a todos los crons y equivocarse de pod los apaga a todos. Lo
+     * que sí corresponde es **no sumar uno más al problema**.
+     *
+     * `WORKER` es el marcador que el propio repo ya usa (`QueueService.isWorker()`), y está
+     * puesto únicamente en el worker.
+     */
+    if (process.env.WORKER !== 'true') return;
     try {
       const r = await this.cuadrarPendientes();
       if (r.total) this.log.log(`cuadre: ${r.sincronizados}/${r.juzgables} sincronizados de ${r.total} pendientes`);
@@ -203,6 +226,57 @@ export class ContpaqiCuadreService {
         .onConflict(['tenant_id', 'job_key'])
         .merge(['label', 'last_start', 'last_finish', 'status', 'rows_affected', 'duration_ms', 'note', 'error', 'host', 'updated_at']);
     } catch { /* el latido nunca rompe al que late */ }
+  }
+
+  /**
+   * `[CP.8.32]` — **Estado del cuadre, de SOLO LECTURA.** Para que la bandeja pueda mirarse sin
+   * que mirar cambie nada.
+   *
+   * ⛔ La tentación era que el `GET` llamara a `cuadrarPendientes()`, que devuelve justo este
+   * resumen — y **escribe**: asciende estados y mueve el latido. Un tablero que corre el proceso
+   * al abrirlo convierte a cada visita en una ejecución, y el latido deja de medir la cadencia
+   * real para medir cuánta gente abrió la pantalla.
+   *
+   * ⚠️ Hoy devuelve todo en cero **y el cero es el dato**: `poliza_exports` está vacía porque
+   * nunca se entregó nada. Por eso viaja `hay_entregas`: un `0 %` sin decir que el denominador
+   * es cero miente por omisión (ADR-056).
+   */
+  async estado(): Promise<{
+    hay_entregas: boolean;
+    por_estado: { estado: string; n: number }[];
+    verificadas: number;
+    esperando: number;
+    divergentes: number;
+    plazo_dias: number;
+  }> {
+    const filas = await this.db('contpaqi.poliza_exports')
+      .where({ tenant_id: MEGA })
+      .select('estado', 'verificada')
+      .count({ n: '*' })
+      .groupBy('estado', 'verificada');
+
+    const num = (v: unknown) => Number(v ?? 0);
+    const porEstado = new Map<string, number>();
+    let verificadas = 0;
+    let esperando = 0;
+    let divergentes = 0;
+    for (const f of filas as any[]) {
+      const n = num(f.n);
+      porEstado.set(f.estado, (porEstado.get(f.estado) ?? 0) + n);
+      if (f.verificada === true) verificadas += n;
+      else if (f.verificada === null) esperando += n;
+      else divergentes += n;
+    }
+    const total = [...porEstado.values()].reduce((a, b) => a + b, 0);
+
+    return {
+      hay_entregas: total > 0,
+      por_estado: [...porEstado.entries()].map(([estado, n]) => ({ estado, n })),
+      verificadas,
+      esperando,
+      divergentes,
+      plazo_dias: PLAZO_DIAS,
+    };
   }
 
   /** Para la bandeja de `[CP.8.11]`: lo que no cuadró y necesita a una persona. */

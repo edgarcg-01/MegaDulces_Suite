@@ -10154,6 +10154,26 @@ contra `pg-prod` (namespace `prod`, k3s).
   armador 33 · cuadre 35 · lote 38 · LC 38. ⛔ **SIN MEDIR**: si ContPAQi **honra** los `AD` al
   importar — lo contesta el archivo `B`. 2026-10-09
 
+- [x] **[CP.8.33]** 🧪 **La pantalla de la bandeja** — `/contabilidad/contpaqi-puente`, Operations,
+  answer-first. ⛔ **Ruta nueva porque la que `[CP.8.32]` declaró ya estaba ocupada**: el nodo del
+  árbol apuntaba a `/contabilidad/contpaqi`, que existe desde CP.1–CP.4 y la gatea
+  `FISCAL_CONTAB_VER` — quien sólo tuviera el permiso del puente veía el renglón y **el guard lo
+  rebotaba** (gates mal partidos, `[IC.13]`). Y el candado viejo daba verde porque comparaba con
+  `includes` y la ruta mala es **prefijo** de la buena. `no_aplica` **no se suma** a los
+  pendientes (148 de 1,474); `Fuera de lote` y `Entregas` usan `state: 'no_medido'`, no un cero.
+  ⛔ La tabla de motivos **no es un control** — el filtro vive en botones alcanzables por teclado.
+  Candado `contpaqi-puente.spec.ts` **12 ✓**, mutado a rojo devolviendo la ruta vieja.
+  Sin migración ni permiso nuevo → **sin re-login**. 2026-10-09
+- [x] **[CP.8.34]** ⭐⭐ **La bandeja publicaba un denominador recortado en 37.3 %** —
+  `simularLotes` tiraba a un `logger.warn` los **876 movimientos** de enero que no entran a ningún
+  lote, así que 1,474 se leía como el universo del mes y el universo es **2,350**. ⛔ **Y la causa
+  no era la que el `warn` decía**: «sin `contpaqi_cuenta`» suena a mapeo faltante y es falso — son
+  `CAJA CG` (864, $10.19M) y `FACTORAJE FAC` (12, $876k), que **tienen cuenta y no son bancos**.
+  El propio mapa `DUENO` de `[CP.8.32]` ya lo decía y el `warn` de al lado afirmaba lo contrario.
+  Ahora `simularLotes` devuelve `{ lotes, fuera_de_lote }` con desglose por cuenta, nombre e
+  importe, y el endpoint agrega `resumen.universo`. Candado **22 → 28 ✓**, mutado a rojo poniendo
+  el hueco en 0. 2026-10-09
+
 ### E3 — El mapa firmado *(dependencia: el contador)*
 
 - [ ] **[CP.8.14]** UI de reglas con confianza + aprobación (`derivada` → `aprobada`).
@@ -10167,13 +10187,53 @@ contra `pg-prod` (namespace `prod`, k3s).
 - [ ] **[CP.8.18]** Correrlo en una terminal ContPAQi · **[CP.8.19]** el agente · **[CP.8.20]**
   `SdkSinkAdapter` + reversa a TXT.
 
+- [x] **[CP.8.30]** 🧪 **El renglón `AD` en el libro de compras — construido y APAGADO.** Bandera
+  propia `asocia_cfdi` (mig `20261010093324`, **sin aplicar**), `opts.asociar === true`: con la
+  bandera en cero el archivo sale **idéntico al byte**. ⛔ **Dos cifras de esta fase eran falsas**:
+  «~4,200 asociaciones/mes» contaba TODOS los CFDI asociados (16× de más) y el «~1,400» de §22.3 no
+  tiene derivación (5×). Lo medido: el libro transporta **~263 comprobantes al mes** (1,838 en 7
+  meses, cuadra con los 256 abonos a `212` de enero) + **1,772 de atraso del complemento**. *Eso
+  degrada la fase*: el premio mayor sigue siendo el libro. ⛔ `construirTxt` tiene **9 parámetros
+  posicionales** y los UUID aterrizaron en `impresa` — el array se serializaba **dentro del
+  encabezado**; lo atrapó el invariante «apagado == lista vacía», no el compilador. Candado
+  **38 → 48 ✓** con 2 pruebas negativas. 2026-10-10
+- [x] **[CP.8.31]** ⛔ **Un candado con la fecha escrita adentro caducó solo.** `caratula`
+  afirmaba *«ago-2026 no tiene póliza»*: al 2026-10-10 **agosto ya está posteado** (293 abonos a
+  `212`, $40.9M) y se puso rojo sin que nadie rompiera nada. Medido: **ene–ago tienen las ocho
+  pólizas**; **sep y oct están en cero**. Ahora **deriva** el mes sin póliza en vez de nombrarlo
+  (lección de `[CDRP.2.1]`). ⚠️ Corrige el plan presentado al área: el mes candidato es
+  **septiembre**, no agosto. **66 ✓**. 2026-10-10
+
+- [x] **[CP.8.35]** ⭐⭐ **El resolvedor de proveedor — el puente emite su PRIMERA póliza.**
+  `armarPagoProveedor` lee `regla.cuenta_gasto`, que en una regla `por_proveedor` es **NULL por
+  diseño** (lo exige el CHECK de `[CP.8.19]`): la cuenta se resuelve **por movimiento** desde el
+  concepto del banco, y **ese paso no existía** — los 216 movimientos de `compra_mercancia` de
+  enero ($43.5M) se rechazaban en bloque. ⭐ **No necesita al contador**: `armarAsientoEgreso`
+  devuelve en `por_proveedor` antes de mirar `estado`. ⛔ **1.4 % → 70.4 % honrando
+  `cuenta_prefijo`**: las cuentas de proveedor viven en **tres rubros** y el mismo nombre está en
+  los tres, así que todo salía *ambiguo*; un pago carga a la de **por pagar**. Prueba negativa
+  medida: **1,002 nombres existen en `2120` y en `5010`/`5020`, y 141 de los 144 resueltos son de
+  esos**. **Efecto: lotes con asiento 0 → 88 · incluidas 0 → 144 · $36,718,975 ·
+  `proveedor_sin_cuenta` 216 → 72.** Se niega a adivinar (ambiguo → null, veredicto sin RFC →
+  null, nada de subcadenas). Candado **17 ✓** con placebo (padrón invertido parea 0). 2026-10-10
+
 ### ⛔ Bloqueos abiertos
 
 - [ ] ⭐ **Importar UN archivo** para confirmar que ContPAQi lo acepta. **Un minuto de la
   contadora**, y contesta tres cosas: si el formato vale, si respeta el `guid`, y si los
   renglones `AD` se pueden prender.
-- [ ] Aplicar `[CP.8.1]` a prod · [ ] Firmar el mapa de 5 reglas · [ ] Emitir renglones `AD`
-- [ ] Decodificar `AM`, `AP`, `I`, `V`, `W2` (los guids de `AM` **no cruzan con nada**)
+- [ ] ⭐ **Firmar el mapa.** Medido en prod 2026-10-10: `contpaqi.account_rules` tiene **21 filas —
+  2 `derivada`, 19 `sin_regla`, CERO `aprobada`**. Por eso el puente rechaza el 100 %. Es lo único
+  que, una vez resuelto, hace que la bandeja deje de ser una lista de pendientes.
+- [x] ~~Aplicar `[CP.8.1]` a prod~~ — **ya está**: las dos tablas existen en producción
+  (`account_rules` 21 filas · `poliza_exports` 0). Verificado 2026-10-10.
+- [x] ~~Emitir renglones `AD`~~ — cerrado en `[CP.8.29]`.
+- [x] ~~Decodificar `AM`, `AP`, `I`, `V`, `W2`~~ — cerrado en `[CP.8.28]` con el esquema del
+  fabricante.
+
+> ⚠️ **Tres de los cuatro bloqueos de esta lista llevaban días hechos.** Una lista de bloqueos que
+> enumera trabajo terminado **esconde el que sí bloquea**: acá quedaban dos (el clic y la firma)
+> entre cuatro renglones. *Un bloqueo se tacha el día que se cierra, no cuando alguien lo relee.*
 
 ---
 

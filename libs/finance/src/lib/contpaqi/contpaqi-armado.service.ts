@@ -7,6 +7,10 @@ import {
   armarAsientoEgreso, armarLoteEgresos, AsientoRechazado, type ReglaCuenta,
 } from './poliza-egreso';
 import { tokenDe } from './token';
+import {
+  construirIndice, resolverProveedor, normalizarNombre, palabrasEnComun,
+  type AliasProveedor, type CuentaProveedor, type IndiceProveedores,
+} from './proveedor-resolver';
 
 /**
  * Fase CP `[CP.8.7]` — **El eslabón que faltaba: de un movimiento bancario a una póliza.**
@@ -56,6 +60,12 @@ const MEGA = '00000000-0000-0000-0000-00000000d01c';
  */
 export interface ResumenLote {
   cuenta_banco: string;
+  /**
+   * Cómo lo nombra finanzas (`BBAJIO 4166`). ⚠️ Viaja además de la cuenta contable, no en vez
+   * de ella: la pantalla no debe inventar el alias, y una cuenta mal rotulada en contabilidad
+   * es peor que una cuenta sin rótulo.
+   */
+  banco_label: string | null;
   fecha: string;
   movimientos: number;
   incluidas: number;
@@ -64,6 +74,50 @@ export interface ResumenLote {
   /** `'no_emitido'` = el lote cuadra pero le falta el traspaso de impuesto. Se declara. */
   iva_traspaso: 'no_emitido' | null;
   motivos: Record<string, number>;
+}
+
+/**
+ * `[CP.8.34]` — **Lo que el puente NO cubre, dicho por el servidor.**
+ *
+ * ⛔ Antes esto vivía en un `logger.warn` que nadie lee: *"876 egresos sin contpaqi_cuenta"*.
+ * La bandeja publicaba 1,474 como si fuera el universo del mes, y el universo real de enero es
+ * **2,350** — un denominador recortado en 37.3 %, el mismo defecto que esta fase le corrigió al
+ * `0 %` del cuadre.
+ *
+ * ⚠️ **Y la causa no es la que el `warn` sugería.** Medido el 2026-10-09: los 876 **sí tienen
+ * cuenta**; son `CAJA CG` (864) y `FACTORAJE FAC` (12), que **no son bancos** y por eso no
+ * tienen cuenta `102*` que ponerles. No es un mapeo que falte: es un circuito distinto, fuera
+ * del alcance de un puente de egresos de banco. Se declara con nombre e importe para que nadie
+ * lo lea como trabajo pendiente ni como cero.
+ */
+export interface CuentaFueraDeLote {
+  /** Como la conoce finanzas: `CAJA CG`, `FACTORAJE FAC`. */
+  cuenta: string;
+  movimientos: number;
+  importe: number;
+}
+
+/** Lo que devuelve la simulación de un mes: los lotes **y** lo que quedó fuera de todo lote. */
+export interface ResumenMes {
+  lotes: ResumenLote[];
+  fuera_de_lote: {
+    movimientos: number;
+    importe: number;
+    cuentas: CuentaFueraDeLote[];
+  };
+}
+
+/** `[CP.8.37]` Un nombre del banco que todavía no llega a una cuenta, con sus pistas. */
+export interface PendienteProveedor {
+  alias_normalizado: string;
+  concepto_banco: string;
+  movimientos: number;
+  importe: number;
+  veredicto: string;
+  motivo: string | null;
+  rubro: string;
+  /** ⛔ Pistas por palabras en común. Nunca se aplican solas. */
+  sugerencias: { cuenta: string; nombre: string; veredicto: string; parecido: number }[];
 }
 
 export interface ResultadoArmado {
@@ -169,6 +223,9 @@ export class ContpaqiArmadoService {
         this.db.raw(`to_char(m.movement_date, 'YYYY-MM-DD') as fecha`),
         'c.code as categoria_code', 'c.name as categoria_nombre',
         'ba.contpaqi_cuenta as cuenta_banco', 'ba.account_label as banco_label',
+        // `[CP.8.34]` El nombre del banco viaja para poder NOMBRAR lo que queda fuera de lote:
+        // `CAJA CG` y `FACTORAJE FAC` se leen solos; un `CG` suelto no lo entiende nadie.
+        'ba.bank as banco_nombre',
         this.db.raw('iva.amount_out as iva_hermano'),
       )
       .from('finance.bank_movements as m')
@@ -203,6 +260,165 @@ export class ContpaqiArmadoService {
    * Leerlo acá es lo que hace que `no_aplica` (ya decidido) deje de verse igual que `sin_regla`
    * (falta decidir) — dos estados con dueños distintos.
    */
+  /**
+   * `[CP.8.35]` — Un índice de proveedores **por rubro**, uno por cada regla `por_proveedor`.
+   *
+   * ⛔ El rubro sale de `cuenta_prefijo` de la propia regla y no de una constante: ahí estuvo el
+   * defecto que tuvo esto en 1.4 % de resolución. Las cuentas de proveedor viven en 2120, 5010 y
+   * 5020; un PAGO carga a la de por pagar, y el mismo nombre existe en los tres rubros.
+   */
+  private async leerIndicesProveedor(
+    reglas: Map<string, ReglaCuenta>,
+  ): Promise<Map<string, IndiceProveedores>> {
+    const prefijos = [...new Set([...reglas.values()]
+      .filter((r) => r.tipo_regla === 'por_proveedor' && r.cuenta_prefijo)
+      .map((r) => r.cuenta_prefijo as string))];
+    if (!prefijos.length) return new Map();
+
+    const filas = await this.db('contpaqi.supplier_accounts').where({ tenant_id: MEGA })
+      .select('cuenta', 'proveedor_nombre', 'cuenta_nombre', 'veredicto', 'rfc');
+
+    /**
+     * `[CP.8.36]` Los alias que una persona confirmó. ⚠️ Si la tabla todavía no existe en este
+     * destino, se sigue **sin** alias en vez de reventar: el resolvedor degrada a lo derivado,
+     * que es exactamente lo que hacía antes.
+     */
+    let alias: AliasProveedor[] = [];
+    try {
+      alias = await this.db('contpaqi.supplier_aliases')
+        .where({ tenant_id: MEGA, active: true })
+        .select('alias_normalizado', 'cuenta');
+    } catch {
+      this.log.warn('contpaqi.supplier_aliases no existe en este destino: se resuelve sólo con el padrón');
+    }
+
+    const out = new Map<string, IndiceProveedores>();
+    for (const p of prefijos) out.set(p, construirIndice(filas as CuentaProveedor[], p, alias));
+    this.log.log(`índice de proveedores: ${filas.length} cuentas · ${alias.length} alias · rubros ${prefijos.join(', ')}`);
+    return out;
+  }
+
+  /**
+   * `[CP.8.37]` — **El trabajo pendiente de proveedores, agrupado por NOMBRE y ordenado por dinero.**
+   *
+   * ⭐ Agrupa a propósito: quien confirma no resuelve 72 movimientos, confirma **53 nombres**. Es
+   * la diferencia entre una tarde y una hora.
+   *
+   * ⛔ Las sugerencias se ordenan por **palabras en común** y son una PISTA, no un veredicto. No
+   * se aplican solas nunca: una cuenta equivocada **cuadra igual** y no se ve hasta la balanza.
+   */
+  async proveedoresPendientes(anioMes: string): Promise<PendienteProveedor[]> {
+    const egresos = await this.leerEgresos(anioMes);
+    const reglas = await this.leerReglas();
+    const indices = await this.leerIndicesProveedor(reglas);
+
+    const padron = await this.db('contpaqi.supplier_accounts').where({ tenant_id: MEGA })
+      .select('cuenta', 'proveedor_nombre', 'cuenta_nombre', 'veredicto');
+
+    const pend = new Map<string, PendienteProveedor>();
+    for (const e of egresos) {
+      const regla = reglas.get(e.categoria_code);
+      if (!regla || regla.tipo_regla !== 'por_proveedor' || !e.cuenta_banco) continue;
+      const idx = regla.cuenta_prefijo ? indices.get(regla.cuenta_prefijo) : undefined;
+      if (!idx) continue;
+      const r = resolverProveedor(idx, e.concept);
+      if (r.veredicto === 'resuelto') continue;
+
+      const clave = normalizarNombre(e.concept) || '(sin concepto)';
+      const y = pend.get(clave) ?? {
+        alias_normalizado: clave,
+        concepto_banco: String(e.concept ?? ''),
+        movimientos: 0,
+        importe: 0,
+        veredicto: r.veredicto,
+        motivo: r.motivo,
+        rubro: regla.cuenta_prefijo ?? '2120',
+        sugerencias: [],
+      };
+      y.movimientos += 1;
+      y.importe = Math.round((y.importe + Number(e.amount_out)) * 100) / 100;
+      pend.set(clave, y);
+    }
+
+    const filas = [...pend.values()].sort((a, b) => b.importe - a.importe);
+    for (const f of filas) {
+      f.sugerencias = padron
+        .filter((p: any) => String(p.cuenta).startsWith(f.rubro))
+        .map((p: any) => ({
+          cuenta: p.cuenta,
+          nombre: p.proveedor_nombre ?? p.cuenta_nombre ?? '',
+          veredicto: p.veredicto,
+          parecido: Math.max(
+            palabrasEnComun(f.concepto_banco, p.proveedor_nombre),
+            palabrasEnComun(f.concepto_banco, p.cuenta_nombre),
+          ),
+        }))
+        .filter((s: any) => s.parecido >= 0.5)
+        .sort((a: any, b: any) => b.parecido - a.parecido)
+        .slice(0, 3);
+    }
+    return filas;
+  }
+
+  /**
+   * Guarda un alias confirmado por una PERSONA.
+   *
+   * ⛔ Valida que la cuenta **exista en el catálogo de ContPAQi** y que sea del rubro: el CHECK de
+   * la tabla sólo cuida la forma (10 dígitos), y una cuenta con forma válida que no existe se
+   * importaría como basura.
+   */
+  async confirmarAlias(entrada: {
+    concepto_banco: string; cuenta: string; rubro?: string; nota?: string; confirmado_por: string;
+  }): Promise<{ alias_normalizado: string; cuenta: string }> {
+    const alias = normalizarNombre(entrada.concepto_banco);
+    if (alias.length < 5) throw new Error('el concepto no deja un nombre con qué buscar');
+    const rubro = entrada.rubro ?? '2120';
+    if (!String(entrada.cuenta).startsWith(rubro)) {
+      throw new Error(
+        `la cuenta ${entrada.cuenta} no es del rubro ${rubro}: un alias a otro rubro sería una `
+        + 'puerta trasera al defecto que costó 69 pp de resolución',
+      );
+    }
+    const existe = await this.db('analytics.contpaqi_accounts')
+      .where({ codigo: entrada.cuenta }).first();
+    if (!existe) throw new Error(`la cuenta ${entrada.cuenta} no existe en el catálogo de ContPAQi`);
+    if (!entrada.confirmado_por) throw new Error('un alias sin autor no es una afirmación');
+
+    await this.db('contpaqi.supplier_aliases')
+      .insert({
+        tenant_id: MEGA,
+        concepto_banco: entrada.concepto_banco,
+        alias_normalizado: alias,
+        cuenta: entrada.cuenta,
+        cuenta_nombre: (existe as any).nombre ?? null,
+        confirmado_por: entrada.confirmado_por,
+        nota: entrada.nota ?? null,
+      })
+      .onConflict(this.db.raw('(tenant_id, alias_normalizado) WHERE active') as any)
+      .merge({
+        cuenta: entrada.cuenta,
+        cuenta_nombre: (existe as any).nombre ?? null,
+        nota: entrada.nota ?? null,
+        updated_at: this.db.fn.now(),
+        updated_by: entrada.confirmado_por,
+      });
+    this.log.log(`alias confirmado: "${alias}" → ${entrada.cuenta} (${entrada.confirmado_por})`);
+    return { alias_normalizado: alias, cuenta: entrada.cuenta };
+  }
+
+  /** Devuelve la regla con la cuenta del proveedor puesta, o igual con su motivo si no resolvió. */
+  private conProveedor(
+    base: ReglaCuenta,
+    concepto: unknown,
+    indices: Map<string, IndiceProveedores>,
+  ): ReglaCuenta {
+    if (base.tipo_regla !== 'por_proveedor') return base;
+    const idx = base.cuenta_prefijo ? indices.get(base.cuenta_prefijo) : undefined;
+    if (!idx) return base;
+    const r = resolverProveedor(idx, concepto);
+    return r.veredicto === 'resuelto' ? { ...base, cuenta_gasto: r.cuenta } : base;
+  }
+
   private async leerReglas(): Promise<Map<string, ReglaCuenta>> {
     const filas = await this.db('contpaqi.account_rules').where({ tenant_id: MEGA })
       .select('categoria_code', 'cuenta_gasto', 'cuenta_iva', 'confianza_pct', 'estado',
@@ -227,9 +443,10 @@ export class ContpaqiArmadoService {
    *
    * Devuelve un renglón por lote con lo que entraría y los motivos de lo que no. No escribe.
    */
-  async simularLotes(anioMes: string): Promise<ResumenLote[]> {
+  async simularLotes(anioMes: string): Promise<ResumenMes> {
     const egresos = await this.leerEgresos(anioMes);
     const reglas = await this.leerReglas();
+    const indices = await this.leerIndicesProveedor(reglas);
 
     // (cuenta de banco × día) — exactamente el grano de la póliza real.
     const grupos = new Map<string, any[]>();
@@ -247,14 +464,20 @@ export class ContpaqiArmadoService {
       const entradas = filas.map((e) => {
         const subtotal = Number(e.amount_out);
         const iva = Number(e.iva_hermano ?? 0);
+        // Una categoría sin fila en `account_rules` no se inventa: entra con `sin_medir`
+        // para que el lote la rechace con ese motivo, no con uno prestado.
+        const base = reglas.get(e.categoria_code) ?? {
+          categoria_code: e.categoria_code, cuenta_gasto: null, cuenta_iva: '1060000000',
+          confianza_pct: null, estado: 'sin_regla' as const, tipo_regla: 'sin_medir' as const,
+          cuenta_prefijo: null,
+        };
         return {
-          // Una categoría sin fila en `account_rules` no se inventa: entra con `sin_medir`
-          // para que el lote la rechace con ese motivo, no con uno prestado.
-          regla: reglas.get(e.categoria_code) ?? {
-            categoria_code: e.categoria_code, cuenta_gasto: null, cuenta_iva: '1060000000',
-            confianza_pct: null, estado: 'sin_regla' as const, tipo_regla: 'sin_medir' as const,
-            cuenta_prefijo: null,
-          },
+          // ⭐ `[CP.8.35]` En una regla `por_proveedor` la cuenta **no es de la categoría**: hay
+          // que resolverla por movimiento, desde el concepto del banco. Sin este paso los 216
+          // movimientos de `compra_mercancia` de enero ($43.5M) se rechazaban en bloque.
+          // ⛔ Si no resuelve, se deja `cuenta_gasto` en null **con su motivo**: el armador la
+          // rechaza con `proveedor_sin_cuenta` y la bandeja dice por qué, en vez de inventar.
+          regla: this.conProveedor(base, e.concept, indices),
           subtotal,
           iva,
           total: Math.round((subtotal + iva) * 100) / 100,
@@ -272,6 +495,7 @@ export class ContpaqiArmadoService {
 
       out.push({
         cuenta_banco,
+        banco_label: [filas[0]?.banco_nombre, filas[0]?.banco_label].filter(Boolean).join(' ').trim() || null,
         fecha,
         movimientos: filas.length,
         incluidas: lote.incluidas,
@@ -281,12 +505,28 @@ export class ContpaqiArmadoService {
         motivos: porMotivo,
       });
     }
-    if (sinBanco.length) {
-      this.log.warn(`${sinBanco.length} egresos sin contpaqi_cuenta (crosswalk CP.2): no agrupan`);
+    // ⭐ `[CP.8.34]` Lo que quedó fuera se AGRUPA y se devuelve, no se registra en un `warn`.
+    // Un hueco que sólo existe en el log no lo ve quien mira la pantalla, que es justo
+    // quien necesita saber que el denominador no es el universo del mes.
+    const porCuenta = new Map<string, CuentaFueraDeLote>();
+    for (const e of sinBanco) {
+      const cuenta = [e.banco_nombre, e.banco_label].filter(Boolean).join(' ').trim() || '(sin cuenta)';
+      const acc = porCuenta.get(cuenta) ?? { cuenta, movimientos: 0, importe: 0 };
+      acc.movimientos += 1;
+      acc.importe = Math.round((acc.importe + Number(e.amount_out)) * 100) / 100;
+      porCuenta.set(cuenta, acc);
     }
+    const cuentas = [...porCuenta.values()].sort((a, b) => b.movimientos - a.movimientos);
+    const fuera = {
+      movimientos: sinBanco.length,
+      importe: Math.round(cuentas.reduce((a, c) => a + c.importe, 0) * 100) / 100,
+      cuentas,
+    };
+
     const conAsiento = out.filter((l) => l.incluidas > 0).length;
-    this.log.log(`lotes ${anioMes}: ${out.length} (banco × día) · ${conAsiento} con asiento`);
-    return out;
+    this.log.log(`lotes ${anioMes}: ${out.length} (banco × día) · ${conAsiento} con asiento`
+      + ` · ${fuera.movimientos} fuera de lote (${cuentas.map((c) => c.cuenta).join(', ') || '—'})`);
+    return { lotes: out, fuera_de_lote: fuera };
   }
 
   /**

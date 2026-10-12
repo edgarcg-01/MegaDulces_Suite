@@ -469,12 +469,26 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           // Un solo módulo con dos pantallas (no asociados + libro completo del mes); el
           // par de permisos vive acá y en ningún otro nodo. La ruta apunta a la principal.
           { id: 'libro-compras', label: 'Libro de Compras (no asociados → TXT a ContPAQi)', route: '/contabilidad/movimientos-no-asociados', view: [Permission.FISCAL_PURCHASE_BOOK_VER], manage: [Permission.FISCAL_PURCHASE_BOOK_GESTIONAR] },
+          // `[CP.8.32]` El puente a ContPAQi. Vecino del Libro de Compras y con permiso propio:
+          // los dos emiten TXT al mismo sistema, pero el libro es el trámite MENSUAL de compras y
+          // esto es el flujo CONTINUO de egresos de banco. Quien revisa uno no revisa el otro.
+          // ⛔ La ruta es `-puente`, NO `/contabilidad/contpaqi`: esa página ya existía desde
+          // CP.1–CP.4 (los libros fiscales) y la gatea `FISCAL_CONTAB_VER`. Apuntar este nodo
+          // ahí mandaba a quien sólo tiene el permiso del puente a una ruta que lo rebota —
+          // el mismo defecto de gates mal partidos de `[IC.13]`.
+          { id: 'contpaqi-puente', label: 'Puente ContPAQi (egresos → póliza)', route: '/contabilidad/contpaqi-puente', view: [Permission.FISCAL_CONTPAQI_BRIDGE_VER], manage: [Permission.FISCAL_CONTPAQI_BRIDGE_GESTIONAR] },
           { id: 'facturar', label: 'Facturación (emisión CFDI)', route: '/contabilidad/facturar', view: [Permission.FISCAL_FACTURAR_VER], manage: [Permission.FISCAL_FACTURAR_GESTIONAR] },
           { id: 'conciliacion', label: 'Conciliación fiscal', route: '/contabilidad/conciliacion', view: [Permission.FISCAL_CONCILIACION_VER], manage: [] },
           { id: 'diot', label: 'DIOT / IVA', route: '/contabilidad/diot', view: [Permission.FISCAL_DIOT_VER], manage: [] },
           { id: 'descarga', label: 'Descarga masiva CFDI', route: '/contabilidad/descarga', view: [Permission.FISCAL_DESCARGA_VER], manage: [Permission.FISCAL_DESCARGA_GESTIONAR] },
           { id: 'materialidad', label: 'Expediente de materialidad', route: '/contabilidad/materialidad', view: [Permission.FISCAL_MATERIALIDAD_VER], manage: [Permission.FISCAL_MATERIALIDAD_GESTIONAR] },
           { id: 'contabilidad', label: 'Contabilidad electrónica', route: '/contabilidad/contabilidad', view: [Permission.FISCAL_CONTAB_VER], manage: [Permission.FISCAL_CONTAB_GESTIONAR] },
+          // `[CPA.0]` El semáforo de cierre: qué mes ya está asentado en ContPAQi y cuál no.
+          // ⭐ Reusa `FISCAL_CONTAB_VER` a propósito y NO estrena permiso: lo mira exactamente
+          // quien ya revisa los libros fiscales, y así nace repartido en prod — la condición que
+          // `[LC.6.2]` midió que faltaba (un módulo no está entregado hasta que su permiso está
+          // REPARTIDO, no sólo declarado en el enum). Sin `manage`: esta pantalla no asienta nada.
+          { id: 'cierre-contable', label: 'Cierre contable (qué mes falta)', route: '/contabilidad/cierre', view: [Permission.FISCAL_CONTAB_VER], manage: [] },
           { id: 'impuestos', label: 'Impuestos provisionales', route: '/contabilidad/impuestos', view: [Permission.FISCAL_IMPUESTOS_VER], manage: [] },
           { id: 'credenciales', label: 'Credenciales SAT (e.firma)', route: '/contabilidad/credenciales', view: [], manage: [Permission.FISCAL_CREDENCIALES_GESTIONAR] },
         ],

@@ -1,7 +1,15 @@
 import { PageTab } from '../../shared/components/page-tabs/page-tabs.component';
 import { Permission } from '../../core/constants/permissions';
+import { RUTA_DIRECTA_TABS } from './ruta-directa-tabs';
 
-export const REPORTS_TABS: PageTab[] = [
+/**
+ * Los reportes de venta GENERAL: los que no son del sub-módulo de Ruta Directa.
+ *
+ * ⛔ Existe aparte de `REPORTS_TABS` por una razón concreta: el sidebar agrupa Ruta Directa por
+ * su lado, y si el grupo «Reportes» se derivara de la tira COMPLETA, las siete de RD saldrían
+ * **dos veces** — `dedupeByRoute` dedupe dentro de un grupo, no entre grupos.
+ */
+export const REPORTES_GENERALES_TABS: PageTab[] = [
   {
     label: 'Sell-Out por empresa',
     route: '/comercial/sell-out',
@@ -23,62 +31,6 @@ export const REPORTS_TABS: PageTab[] = [
     permission: Permission.COMMERCIAL_SALIDAS_VER,
   },
   {
-    label: 'Ventas por ruta',
-    route: '/comercial/ventas-por-ruta',
-    icon: 'pi pi-directions',
-    permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
-  },
-  {
-    // RD.13 — la misma operacion del otro lado: lo que se le cargo al camion contra lo que
-    // vendio. Mismo permiso que Ventas por ruta; no es nomina.
-    label: 'Inventario de ruta',
-    route: '/comercial/inventario-ruta',
-    icon: 'pi pi-truck',
-    permission: Permission.COMMERCIAL_ROUTE_SALES_VER,
-  },
-  {
-    // RD.6 — la comision quincenal de Ruta Directa. Al lado de Ventas por ruta porque es la
-    // misma venta, pero con permiso PROPIO: ver cuanto vendio una ruta y ver cuanto cobra su
-    // chofer son cosas distintas, y lo segundo es nomina.
-    label: 'Comisiones RD',
-    route: '/comercial/comisiones',
-    icon: 'pi pi-percentage',
-    permission: Permission.COMMERCIAL_COMMISSIONS_VER,
-  },
-  {
-    // `[RD.59]` — el bono por objetivo mensual. Tab propio y no una pestaña dentro de
-    // Comisiones: configurar un bono y verificar una corrida de nómina son dos trabajos
-    // distintos. Mismo permiso de lectura; editar exige GESTIONAR, que gatea el servidor.
-    label: 'Objetivo RD',
-    route: '/comercial/comisiones/objetivo',
-    icon: 'pi pi-flag',
-    permission: Permission.COMMERCIAL_COMMISSIONS_VER,
-  },
-  {
-    // `[RD.57]` — la misma operacion mirada por el resultado: utilidad bruta, kilometros del
-    // GPS y gasto del departamento. Permiso PROPIO y mas estrecho que Comisiones: publica el
-    // gasto del area completo (nomina, SUA, comisiones), no lo que cobra cada persona.
-    label: 'Rentabilidad RD',
-    route: '/comercial/ruta-directa/rentabilidad',
-    icon: 'pi pi-chart-line',
-    permission: Permission.COMMERCIAL_ROUTE_PROFIT_VER,
-  },
-  {
-    // [RD.60] el gasto renglon por renglon. Mismo permiso: es la misma superficie.
-    label: 'Gasto RD',
-    route: '/comercial/ruta-directa/gastos',
-    icon: 'pi pi-receipt',
-    permission: Permission.COMMERCIAL_ROUTE_PROFIT_VER,
-  },
-  {
-    // [RD.60] la ficha de cada camioneta, con lo que falta capturar declarado.
-    label: 'Flota RD',
-    route: '/comercial/ruta-directa/flota',
-    icon: 'pi pi-truck',
-    permission: Permission.COMMERCIAL_ROUTE_PROFIT_VER,
-  },
-
-  {
     // AX.2 — el documento que se le entrega al cliente (anexo imprimible + pagaré).
     // AX.9: se llamaba "Documentos", más ancho de lo que muestra — la pantalla trae SÓLO
     // facturas de telemarketing (U/D/8, canal TELEMARK en el 100%). El tab va corto por el
@@ -90,4 +42,17 @@ export const REPORTS_TABS: PageTab[] = [
   },
   // Traspasos vive en Logística y Egresos en Finanzas — fuera de los tabs de
   // reportes de VENTA (aquí solo la familia sell-out/salidas/ruta).
+];
+
+/**
+ * La tira completa de la superficie de reportes de venta. **No cambia de orden ni de contenido**
+ * respecto de cómo estaba: los tres de sell-out, las siete de Ruta Directa, y Facturación TM al
+ * final. Lo único que cambió es que ahora el conjunto de RD tiene nombre propio, así que las dos
+ * superficies que lo necesitan —esta tira y el grupo del sidebar— salen de la MISMA lista.
+ */
+export const REPORTS_TABS: PageTab[] = [
+  ...REPORTES_GENERALES_TABS.slice(0, 3),
+  ...RUTA_DIRECTA_TABS,
+  // Facturación TM va al final, como estaba.
+  ...REPORTES_GENERALES_TABS.slice(3),
 ];

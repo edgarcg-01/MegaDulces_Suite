@@ -211,6 +211,61 @@ describe('TiendaEtiquetasComponent · la cola, la hoja y lo que declara', () => 
     // Escaneo y lote: los dos con la plaza. Un camino que la olvide vuelve a traer el defecto.
     expect(svc.plazas).toEqual(['01', '01']);
   });
+
+  /**
+   * `[ETQ-ESTADO.1]` Caso real: el 78180 ("500 GR CONF BLANCO/ TURIN", paso a granel) no existia en
+   * `kdii` en NINGUNA tienda, y la pantalla decia "sin precio en Kepler": mando a buscar un precio
+   * en 0 que no estaba. Cada causa se arregla en un lugar distinto y el mensaje tiene que decirlo.
+   */
+  describe('por qué no hay precio', () => {
+    const sinPrecio = (sku: string, erp_estado: LabelModel['erp_estado']): LabelModel =>
+      ({ ...modelo(sku), piece_price: null, erp_estado });
+
+    const escaneaSinPrecio = async (m: LabelModel): Promise<string> => {
+      svc.proximo = { labels: [m], not_found: [], freshness: FRESH };
+      cmp.onScan(m.sku!);
+      await tick();
+      return cmp.msg()?.text ?? '';
+    };
+
+    it('⭐ un producto que NO existe en el ERP se dice distinto de uno con precio en 0', async () => {
+      const noExiste = await escaneaSinPrecio(sinPrecio('78180', 'no_existe_en_erp'));
+      expect(noExiste).toContain('no existe en Kepler');
+      expect(noExiste).toContain('darlo de alta');
+      expect(noExiste).not.toContain('precio 0');
+
+      const enCero = await escaneaSinPrecio(sinPrecio('78181', 'sin_precio'));
+      expect(enCero).toContain('precio 0');
+      expect(enCero).toContain('tienda 01');
+      expect(enCero).not.toContain('no existe');
+    });
+
+    it('existe en otra tienda pero no en ésta: nombra la tienda', async () => {
+      const t = await escaneaSinPrecio(sinPrecio('78182', 'no_existe_en_plaza'));
+      expect(t).toContain('no en la tienda 01');
+    });
+
+    it('sin estado del servidor (API vieja) cae al mensaje genérico, no inventa uno', async () => {
+      const t = await escaneaSinPrecio(sinPrecio('78183', undefined));
+      expect(t).toContain('sin precio en Kepler');
+      expect(cmp.queue().length).toBe(0);
+    });
+
+    it('la carga masiva separa "no existen en Kepler" (con sus códigos) de "sin precio"', async () => {
+      svc.proximo = {
+        labels: [sinPrecio('78180', 'no_existe_en_erp'), sinPrecio('78181', 'sin_precio'), modelo('10001')],
+        not_found: [], freshness: FRESH,
+      };
+      cmp.bulk.set('78180\n78181\n10001');
+      cmp.addBulk();
+      await tick();
+      const t = cmp.msg()?.text ?? '';
+      expect(t).toContain('Agregados 1');
+      expect(t).toContain('no existen en Kepler 1 (78180)');
+      expect(t).toContain('sin precio 1');
+      expect(cmp.queue().length).toBe(1);
+    });
+  });
 });
 
 /**

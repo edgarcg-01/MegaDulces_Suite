@@ -124,7 +124,7 @@ plazo. `NULL` no es `false`.
 | `[CP.8.4]` ⛔ | **Conseguir un TXT real ya aceptado** y cerrar el `SEP` | **Ruta crítica de TODO.** Cuesta cero código. Mientras no esté, cada póliza que generemos es una apuesta sobre un formato sin verificar |
 | `[CP.8.5]` ✅ | `CONTPAQI_POLIZA_SINK_PORT` + `ContpaqiTxtSinkAdapter` | **EN CÓDIGO 2026-10-08.** Ver nota abajo |
 | `[CP.8.6]` ✅ | **El token de correlación** (`token.ts`) | **EN CÓDIGO 2026-10-09.** `MD:`+12 hex, determinista por evento. Ver nota abajo |
-| `[CP.8.7]` | Bandeja `/finanzas/contpaqi`: armar → revisar → entregar | HITL. El motor arma, la persona entrega (ADR-028 intacto) |
+| `[CP.8.32]` | Bandeja `/finanzas/contpaqi`: armar → revisar → entregar | HITL. El motor arma, la persona entrega (ADR-028 intacto) |
 
 #### `[CP.8.5]` — qué se hizo y qué costó (2026-10-08)
 
@@ -229,19 +229,19 @@ existe. **Disparador para agregarlo:** que esa consulta pase de 200 ms, o que `g
 
 | | Qué |
 |---|---|
-| `[CP.8.12]` | UI de reglas con su **confianza medida** + aprobación (`derivada` → `aprobada`) |
-| `[CP.8.13]` | **Proveedor → su subcuenta** por RFC contra `analytics.contpaqi_suppliers` (3,411, 99.6% con RFC) |
-| `[CP.8.14]` | La regla del **IVA desde `fiscal.cfdis`** — nunca calculado (medido: difiere 1–2 ¢) |
-| `[CP.8.15]` | Las categorías que no concentran (`imss_sua`, 10.2%): medirlas mejor **o declararlas** |
+| `[CP.8.33]` | UI de reglas con su **confianza medida** + aprobación (`derivada` → `aprobada`) |
+| ~~`[CP.8.13]`~~ | ✅ **HECHO como `[CP.8.20]`** — y no por RFC sino por el **UUID del CFDI**: 99.8 % del importe |
+| ~~`[CP.8.14]`~~ | ✅ **HECHO en `[CP.8.2]`**: `iva` es parámetro OBLIGATORIO y el armador se niega a derivarlo |
+| ~~`[CP.8.15]`~~ | ✅ **MEDIDAS Y DECLARADAS** en `[CP.8.22]`/`[CP.8.27]`: no son derivables, y 3 **no pueden tener UNA cuenta** |
 
 ### E4 — La ida automática (dependencia: terminal + SDK) ⬜
 
 | | Qué |
 |---|---|
-| `[CP.8.16]` | Correr [`01-probe-sdk.ps1`](../../../database/importers/contpaqi/01-probe-sdk.ps1) en una terminal ContPAQi |
-| `[CP.8.17]` | El agente (`.exe`/servicio C#), **un endpoint**, sin lógica de negocio |
-| `[CP.8.18]` | `SdkSinkAdapter` + **reversa automática a TXT** si el agente no responde |
-| `[CP.8.19]` | Asociación formal de UUID (`AsocCFDIs`) — cierra el **0% en 5 años** medido en §7.9 |
+| `[CP.8.40]` | Correr [`01-probe-sdk.ps1`](../../../database/importers/contpaqi/01-probe-sdk.ps1) en la terminal ContPAQi — ⭐ ya tiene dirección: **`192.168.0.208`** (`0contabilidadd`) |
+| `[CP.8.41]` | El agente (`.exe`/servicio C#), **un endpoint**, sin lógica de negocio |
+| `[CP.8.42]` | `SdkSinkAdapter` + **reversa automática a TXT** si el agente no responde |
+| ~~`[CP.8.19]`~~ | ⭐⭐ **HECHO SIN SDK** en `[CP.8.29]` (renglones `AD`). ⛔ Era el argumento #2 del SDK y **ya no existe** |
 
 ### E5 — Ampliar flujos ⬜
 
@@ -1887,3 +1887,564 @@ descubre el día del cierre.
 
 ⭐ **Los cuatro caminos son útiles.** El único que no informa nada es prenderlo a ciegas y que
 funcione por casualidad.
+
+---
+
+## 28. ⛔⛔ `[CP.8.31]` El cuadre tenía umbral, `@Cron` y latido — y el módulo no estaba registrado
+
+Revisando qué faltaba del plan apareció lo peor posible: **`FinanceContpaqiModule` no estaba en
+ninguna app.** El servicio de cuadre tiene su `@Cron('0 */10 * * * *')` desde `[CP.8.8]` y su
+umbral en `CRON_JOBS` desde `[CP.8.10]`… y **nunca arrancó**.
+
+⭐ *Un umbral sin proceso detrás se lee en el tablero exactamente igual que un proceso sano que
+no tiene nada que hacer.* Por eso nadie lo notó: `contpaqi_cuadre` no está en rojo — está mudo, y
+mudo y tranquilo se ven igual.
+
+Registrado en `app.module.ts` + exportado desde el barrel de `libs/finance`.
+
+### 28.1 ⛔⛔ Y al medir dónde correría, apareció un defecto de PLATAFORMA
+
+Antes de registrarlo había que saber dónde cae el `@Cron`. Medido en prod el 2026-10-09:
+
+```
+deploy/api      2 réplicas   DISABLE_CRONS=[]   WORKER=[]
+deploy/worker   1 réplica    DISABLE_CRONS=[]   WORKER=[true]
+```
+
+`app.module.ts` registra `ScheduleModule.forRoot()` **salvo que `DISABLE_CRONS === 'true'`**, y
+esa variable **no está puesta en ningún pod**.
+
+⭐⭐ **Todo `@Cron` de la plataforma corre en TRES procesos a la vez.** Evidencia directa, no
+inferida:
+
+| | |
+|---|--:|
+| `cron_runs` con `host = 'api'` | **36 jobs** |
+| líneas de scanner/cron en el log de **un** pod de API (2 h) | **12** |
+| `DISABLE_CRONS` leído dentro de los pods | **vacío en los 3** |
+
+⚠️ **Y es invisible**: `analytics.cron_runs` es **UPSERT por `job_key`** — guarda la última
+corrida, no un log. Tres ejecuciones simultáneas producen exactamente la misma fila que una.
+*La duplicación no se puede ver en el tablero que existe para ver los crons.*
+
+⛔ **No se arregla desde acá.** Poner `DISABLE_CRONS=true` en `deploy/api` es un cambio de
+plataforma que toca **todos** los crons, y equivocarse de pod los apaga a todos. Lo que sí
+corresponde es **no sumar uno más**: el `@Cron` del cuadre sale por `return` si
+`process.env.WORKER !== 'true'` — el marcador que el propio repo ya usa en `QueueService.isWorker()`.
+
+### 28.2 El candado notó los cambios, que es su trabajo
+
+`test-newdb-contpaqi-puente.js` se puso en **35 ✓ / 4 ✗** contra prod. Los cuatro eran el candado
+afirmando un mundo que mi propio trabajo cambió a propósito — ninguno una regresión.
+
+⭐ **Y en uno la corrección cómoda era la equivocada.** La aserción decía *"CERO reglas
+utilizables"*; `[CP.8.19]` dejó 2 filas en `derivada`. Cambiar el `0` por un `2` habría sido
+aflojar el candado: *"hay 2 que no son `sin_regla`"* no afirma nada. Lo que importa es **por qué**
+no lo son, y son dos cosas distintas:
+
+- `tipo_regla = 'no_aplica'` → **veredicto derivado**: ya se decidió que no genera póliza.
+- cualquier otra con `estado <> 'sin_regla'` → una regla que **asentaría**, y eso sólo pasa cuando
+  el contador firme.
+
+Ahora son dos aserciones separadas. Y la lista de tablas reguladas **se nombra** en vez de
+contarse: un número no dice *cuál* falta.
+
+**40 ✓ / 0 ✗**, mutado a rojo tres veces — incluida la mutación *"aflojar a `estado !==
+'sin_regla'`"*, que es exactamente el atajo que estuve por tomar.
+
+---
+
+## 29. 🗺️ `[CP.8.32]`+ El mapa de códigos — qué quedó dónde, y qué códigos chocaron
+
+El plan de §3 reservó `[CP.8.1]`–`[CP.8.19]` antes de construir. Al construir, **tres códigos
+quedaron usados dos veces**, con significados distintos:
+
+| código | en el PLAN (§3) | en los COMMITS |
+|---|---|---|
+| `[CP.8.7]` | bandeja `/finanzas/contpaqi` | **la plomería** (movimiento bancario → póliza) |
+| `[CP.8.13]` | proveedor → subcuenta por RFC | **el round-trip byte a byte** |
+| `[CP.8.18]` | `SdkSinkAdapter` | **el derivador del mapa** |
+
+⛔ **El historial manda**: un código que ya vive en un mensaje de commit **no se renumera** — el
+mensaje es inmutable y renombrarlo rompe la trazabilidad. Lo que se renumera es el **placeholder
+del plan**, que no está construido y no lo referencia nadie.
+
+| era | ahora | qué es |
+|---|---|---|
+| `[CP.8.7]` | **`[CP.8.32]`** | bandeja de armado: armar → revisar → entregar |
+| `[CP.8.12]` | **`[CP.8.33]`** | UI de reglas con confianza + aprobación |
+| `[CP.8.16]` | **`[CP.8.40]`** | correr el probe del SDK en `192.168.0.208` |
+| `[CP.8.17]` | **`[CP.8.41]`** | el agente C# |
+| `[CP.8.18]` | **`[CP.8.42]`** | `SdkSinkAdapter` + reversa a TXT |
+
+### 29.1 Y cuatro del plan ya estaban hechos sin que el plan lo dijera
+
+| | |
+|---|---|
+| `[CP.8.13]` proveedor → subcuenta | ✅ es `[CP.8.20]` — y **no por RFC sino por el UUID del CFDI**: 99.8 % del importe |
+| `[CP.8.14]` IVA desde `fiscal.cfdis` | ✅ es `[CP.8.2]`: `iva` es parámetro OBLIGATORIO y el armador **se niega a derivarlo** |
+| `[CP.8.15]` categorías que no concentran | ✅ `[CP.8.22]`/`[CP.8.27]`: **no son derivables**, y 3 **no pueden tener UNA cuenta** |
+| `[CP.8.19]` asociación formal de UUID | ⭐⭐ ✅ `[CP.8.29]`, **y sin SDK** |
+
+### 29.2 ⛔ Lo que esto le hace a E4 (el SDK)
+
+`[CP.8.19]` era **el argumento #2 del SDK**: la asociación formal del UUID. §9.1 ya había avisado
+que si el TXT podía hacerla, *"al SDK le queda un solo argumento"*. **Ahora está hecho por TXT.**
+
+Al SDK le queda **uno**: que nadie tenga que apretar Importar. Sigue siendo válido —
+`[CP.8.40]`–`[CP.8.42]`— pero es mucho más chico de lo que el plan asumía, y **E4 deja de estar
+en la ruta crítica de nada**.
+
+### 29.3 Lo que de verdad falta
+
+| | quién | |
+|---|---|---|
+| **el clic** | contabilidad | desbloquea **3 de los 5** criterios de §5; `poliza_exports` está **vacía: nada se entregó nunca** |
+| `[CP.8.32]` bandeja de armado | código | |
+| `[CP.8.11]` bandeja de divergencias + plazo | código | |
+| `[CP.8.33]` UI de aprobación de reglas | código | tras firmar |
+| los **33 alias** | compras | `por_proveedor` 72.7 % → ~94.5 % |
+| `DISABLE_CRONS` en `deploy/api` | plataforma | ⛔ **no es de esta fase**, pero afecta a todos los crons |
+
+---
+
+## 30. ✅ `[CP.8.32]` La bandeja del puente — el backend, y el permiso REPARTIDO (prod batch 871)
+
+Elegida sobre `[CP.8.11]` (divergencias) por una razón medible: **la de divergencias estaría
+vacía por construcción** —`poliza_exports` no tiene una sola fila— mientras que ésta **ya tiene
+qué mostrar hoy**.
+
+### 30.1 Lo que la bandeja entrega, y por qué es eso
+
+El puente rechaza todo. Una bandeja que listara *lo entregado* mostraría una pantalla en blanco.
+⭐ **Lo que vale hoy es el rechazo con DUEÑO.** Enero, medido en vivo:
+
+| motivo | movs | quién lo arregla |
+|---|--:|---|
+| `sin_regla` | 954 | el contador |
+| `proveedor_sin_cuenta` | 216 | compras — los 33 alias |
+| **`no_aplica`** | **148** | ⭐ **nadie: ya se midió y NO genera póliza** |
+| `sin_centro_costo` | 135 | negocio — CB no trae centro de costo |
+| `sin_medir` | 21 | sistemas |
+
+**Esa tabla ES la entrega.** Antes todo caía en un rechazo genérico y la pantalla habría dicho
+*"1,474 pendientes"* — un número que no le dice a nadie qué hacer. Y **148 de ellos no son trabajo
+pendiente de nadie**: mezclarlos haría que la bandeja pida trabajo que no existe.
+
+⛔ **No hay `POST /entregar`, a propósito.** Nunca se importó un archivo a ContPAQi: un botón de
+entregar sería ofrecer un camino que nadie recorrió.
+
+### 30.2 ⛔ El permiso NO se calcó del módulo hermano
+
+Lo natural era copiar `FISCAL_PURCHASE_BOOK_*`. Leído en vivo, su `VER` lo tienen **8 roles**,
+entre ellos `marketing`, `credito_cobranza` y `gerente_compras`.
+
+Esta pantalla muestra **movimientos de banco con su cuenta contable**, y ninguno de esos tres
+opera egresos bancarios. ⭐ *Copiar una distribución hereda también sus errores.*
+
+| rol | VER | GESTIONAR | personas |
+|---|:-:|:-:|--:|
+| `contabilidad` · `finanzas` · `superadmin` | ✓ | ✓ | 4 · 1 · 8 |
+| `direccion` · `auditor_externo` | ✓ | — | 2 · 0 |
+
+⭐ *Entre quedarse corto y pasarse, corto es el lado barato*: si a alguien le falta, lo pide y se
+ve; si le sobra, nadie se entera.
+
+⚠️ **`GESTIONAR` se repartió aunque no haya nada que entregar.** El día que se firme una regla, la
+puerta ya está separada — repartir permisos con el botón vivo es cuando se cometen los errores.
+
+### 30.3 Dos defectos propios, atrapados antes de llegar a ninguna pantalla
+
+1. **Inventé `cuadre.resumen()`**, que no existe. Lo que existe es `cuadrarPendientes()`, que
+   devuelve justo ese resumen **y escribe** (asciende estados, mueve el latido).
+   ⛔ Un `GET` que lo llamara convertiría **cada visita en una ejecución**, y el latido dejaría de
+   medir la cadencia real para medir cuánta gente abrió la pantalla. Se agregó `estado()`, de
+   solo lectura — y el candado comprueba que **no escribió ni una fila**.
+2. El candado cargaba un servicio de Nest con `skipProject: true`, que deja fuera los alias
+   `@megadulces/*`. Los smokes anteriores no lo sufrían porque cargaban **archivos puros**.
+
+### 30.4 El candado — **22 ✓ / 0 ✗**, mutado a rojo dos veces
+
+Existe por `[LC.6.2]`: ahí el par de permisos nació con la fase, vivió **sólo en el enum**, y el
+módulo estuvo en prod con **cero roles** pudiendo abrirlo. Este candado mira **el reparto**, no la
+declaración — y además que el permiso **cuelgue de un nodo con ruta**, porque uno huérfano no se
+alcanza desde la navegación.
+
+| mutación | |
+|---|---|
+| copiar la distribución del Libro de Compras | ✗ 18/2 |
+| mezclar `no_aplica` con los pendientes | ✗ 21/1 |
+
+🚀 **Migración `20261009182612` aplicada a prod — batch 871.** ⚠️ Volvió a aparecer el
+`migration directory is corrupt`, esta vez por una migración **de otra sesión**
+(`cg76_kdm1_indice_captura`) que está en el ledger y no en la imagen: se copió al pod, no se
+inventó un marcador.
+
+---
+
+## §31 `[CP.8.33]` + `[CP.8.34]` — La pantalla de la bandeja, y el universo que la bandeja omitía
+
+🧪 **EN CÓDIGO 2026-10-09.** Sin migraciones ni permisos nuevos (el reparto es el batch 871 de
+§30) → **no hace falta re-login**. Falta `git push` + redeploy api+view + validación visual.
+
+### 31.1 ⛔ La ruta que `[CP.8.32]` declaró ya estaba ocupada
+
+El nodo `contpaqi-puente` del árbol apuntaba a **`/contabilidad/contpaqi`**, y esa página
+**existe desde CP.1–CP.4**: es el *otro sentido* del conector (leer balanza, bancos, EFOS y
+libros-vs-operación de ContPAQi), gateada por `FISCAL_CONTAB_VER`.
+
+El efecto no era un error visible sino el patrón de **gates mal partidos** de `[IC.13]`: alguien
+con sólo `FISCAL_CONTPAQI_BRIDGE_VER` veía el renglón en la navegación y **el guard de la ruta lo
+rebotaba**, porque pide otro permiso. Y al revés, el árbol rotulaba la página de los libros con el
+nombre del puente.
+
+El puente queda en **`/contabilidad/contpaqi-puente`**, con su propio guard. ⛔ No se resolvió
+como pestaña de la página existente: eso lo habría escondido detrás de `FISCAL_CONTAB_VER`, que
+**lo tienen 8 roles** contra los 5 del puente — incluidos los tres que §30 recortó con motivo.
+
+⚠️ El candado viejo decía `json.includes('/contabilidad/contpaqi')` y **daba verde con el nodo
+apuntando a la página equivocada**, porque es prefijo de la ruta correcta. Ahora busca el nodo y
+compara la ruta **exacta**.
+
+### 31.2 ⭐⭐ El hallazgo: la bandeja publicaba un denominador recortado en 37.3 %
+
+Al sacar los lotes reales para la maqueta, el servicio escribió esto en el log:
+
+```
+876 egresos sin contpaqi_cuenta (crosswalk CP.2): no agrupan
+```
+
+**No estaban en los 1,474.** El universo de enero es **2,350**, y la bandeja publicaba 1,474 como
+si fuera el mes entero — el mismo defecto que esta fase le corrigió al `0 %` del cuadre, esta vez
+del otro lado del cociente.
+
+⛔ **Y la causa no era la que el `warn` sugería.** «Sin `contpaqi_cuenta`» se lee como *falta un
+mapeo*, y es falso. Medido:
+
+| cuenta | movs | importe |
+|---|--:|--:|
+| `CAJA CG` | 864 | $10,193,960 |
+| `FACTORAJE FAC` | 12 | $876,417 |
+
+**Tienen cuenta; no son bancos.** No existe una cuenta `102*` que ponerles porque son otro
+circuito. El propio mapa `DUENO` de `[CP.8.32]` ya lo decía —
+`contpaqi_cuenta: 'sistemas — el crosswalk de CP.2 (CAJA CG y FACTORAJE no son bancos)'` — y el
+`warn` de al lado afirmaba lo contrario. *Dos líneas del mismo módulo decían cosas distintas del
+mismo hecho, y la que se leía era la del log.*
+
+`simularLotes` pasa a devolver `{ lotes, fuera_de_lote }` con el desglose **por cuenta, con
+nombre e importe**, y el endpoint agrega `resumen.universo`. ⭐ *Un hueco que sólo existe en el log
+no lo ve quien mira la pantalla, que es justo quien necesita saber que el denominador no es el mes.*
+
+### 31.3 La pantalla
+
+`/contabilidad/contpaqi-puente`, superficie Operations. Answer-first: el veredicto (**0 de 1,474**)
+antes de cualquier tabla, el hueco declarado **arriba** del número que lo omite, la tira de KPIs
+sin caja, el rechazo con dueño, el maestro-detalle de lotes y el cuadre vacío.
+
+- **`no_aplica` no se suma a los pendientes.** 148 de 1,474 (10.0 %) ya se midieron y no generan
+  póliza; el pie dice **1,326 de alguien · 148 de nadie**.
+- **`Fuera de lote` y `Entregas` usan `state: 'no_medido'`** de `MetricStrip`, no un cero con tono
+  neutro: *«este puente no lo cubre»* y *«nunca se importó un archivo»* no son la cifra 0.
+- ⛔ **La tabla de motivos NO es un control.** El filtro vive en botones de verdad abajo: una fila
+  clicable sin equivalente de teclado deja afuera a quien no usa mouse, y tener el filtro en dos
+  lugares son dos sitios donde se desincroniza.
+- **No hay botón de entregar**, igual que en el backend.
+
+### 31.4 Los candados
+
+| candado | |
+|---|---|
+| `test-newdb-contpaqi-bandeja.js` | **28 ✓ / 0 ✗** (eran 22) |
+| `contpaqi-puente.spec.ts` | **12 ✓** — cableado ruta↔guard↔árbol↔sidebar + la clasificación |
+
+Mutaciones verificadas en rojo:
+
+| mutación | |
+|---|---|
+| `fuera_de_lote.movimientos` vuelve a 0 (el hueco invisible) | ✗ 25/2 |
+| el nodo del árbol vuelve a apuntar a `/contabilidad/contpaqi` | ✗ 11/1 |
+
+⚠️ Tres defectos míos los atrapó el propio candado mientras se escribía: el barrel
+`@megadulces/contracts` **no re-exporta `authz` a propósito** (`[ID.28]`) y el import dejaba
+`AUTHZ_TREE` en `undefined`, con lo que el candado habría dicho *«el nodo no existe»* en vez de
+*«el import está mal»* — ahora lo comprueba primero; una ventana de N caracteres sobre
+`app.routes.ts` **se comía la ruta vecina** (`polizas`, que sí usa `FISCAL_CONTAB_VER`) y la
+prueba negativa fallaba por el vecino; y `check:estilos` frenó un breakpoint en **px** (§R los
+pide en `rem`).
+
+---
+
+## §32 `[CP.8.30]` — El renglón `AD` en el libro de compras, **apagado y con número corregido**
+
+🧪 **EN CÓDIGO 2026-10-10.** Migración `20261010093324` **sin aplicar**. Falta `git push` + aplicar
++ redeploy.
+
+### 32.1 ⛔ Dos cifras que circulaban eran falsas, y la fase se apoyaba en ellas
+
+Antes de escribir una línea se midió el universo que un `AD` puede alcanzar — los comprobantes que
+**viajan dentro del archivo**, ni uno más:
+
+| cifra | de dónde salía | veredicto |
+|---|---|---|
+| «~4,200 al mes» | todos los CFDI asociados del mes | ⛔ **16× de más**: incluye los que ContPAQi asocia solo al capturarlos |
+| «~1,400 al mes» (§22.3) | sin derivación escrita | ⛔ **5× de más** |
+| **~263 al mes** | `finance.v_purchase_book_uuids`, 1,838 en 7 meses | ✅ y **cuadra** con los 256 abonos a `212` de enero |
+
+⭐ *Eso degrada la fase*: 263 asociaciones al mes son una o dos horas, no el premio mayor. El premio
+mayor sigue siendo el libro en sí (460–848 renglones tecleados). Lo que sí queda grande es el
+**atraso del complemento: 1,772 comprobantes de 2026**, que se asocian en una sola carga.
+
+### 32.2 Dos banderas, no una
+
+`[LC.15]` ya escribe el UUID en el **concepto** del renglón `M1`, y eso sólo sirve para **leerlo de
+vuelta**. ⛔ No asocia: la asociación vive en `AsocCFDIs` y el único registro que la crea es `AD`.
+
+Por eso `asocia_cfdi` es una columna **nueva** y no se cuelga de `incluye_uuid`, que viene en `true`
+por omisión — colgarla ahí habría prendido el `AD` **en todas las corridas de golpe**. Y en el
+servicio es `opts.asociar === true`, no `!== false`: la forma permisiva es para una bandera probada,
+no para una que emite un registro que ningún import verificó.
+
+Con la bandera apagada **el archivo sale idéntico al byte**, y eso es ahora una aserción del candado.
+
+### 32.3 ⛔ El defecto que atrapó el invariante, no el compilador
+
+`construirTxt` tiene **nueve** parámetros posicionales. Entre `guid` y `uuids` están `impresa` y
+`ajuste`, así que el primer intento pasó el arreglo de UUID **en la posición de `impresa`**: el
+array se serializaba **dentro del encabezado** y el archivo salía corrupto, sin error de tipos.
+
+Lo detectó la aserción *«apagado y lista vacía dan el mismo archivo»*. ⭐ *Una función con nueve
+argumentos posicionales no se prueba leyéndola; se prueba con un invariante que compare su salida
+contra sí misma.*
+
+### 32.4 ⛔ Y un candado con la fecha escrita adentro, que caducó
+
+`test-newdb-libro-compras-caratula.js` afirmaba que **ago-2026 no tiene póliza**. Era cierto al
+escribirlo; al 2026-10-10 **agosto ya está posteado** (293 abonos a `212` por $40.9M) y el candado se
+puso rojo **sin que nadie rompiera nada**.
+
+Medido: **enero a agosto tienen las ocho pólizas** (un folio cada mes, $30–45M); **septiembre y
+octubre están en cero**. El candado ahora **deriva** el mes sin póliza en vez de nombrarlo — misma
+lección que `[CDRP.2.1]`.
+
+⚠️ Esto corrige también el plan que se le presentó al área: el mes candidato es **septiembre**, no
+agosto. Mandar a contabilidad a rehacer un mes ya posteado es justo el duplicado que `[LC.14]`
+existe para impedir.
+
+### 32.5 Candados
+
+| | |
+|---|---|
+| `test-newdb-libro-compras-txt.js` | **38 → 48 ✓** (10 nuevas, 2 de ellas negativas) |
+| `test-newdb-libro-compras-caratula.js` | **66 ✓** (derivando, antes 64 ✓ / 2 ✗ por caducidad) |
+| esquema 46 · lote 38 · bandeja 28 | sin regresión |
+
+---
+
+## §33 `[CP.8.35]` — El resolvedor de proveedor: **el puente emite su primera póliza**
+
+🧪 **EN CÓDIGO 2026-10-10.** Sin migración. Falta `git push` + redeploy.
+
+### 33.1 ⛔ El paso que faltaba, y por qué nadie lo había visto
+
+`armarPagoProveedor` lee `regla.cuenta_gasto`. Para una regla `por_proveedor` esa columna es
+**NULL por diseño** — lo exige el CHECK de coherencia de `[CP.8.19]`, porque la cuenta no es de la
+categoría sino **del proveedor**. O sea que había que resolverla **por movimiento**, desde el
+concepto del banco, y **ese paso simplemente no existía**.
+
+⭐ Y no necesita al contador: `armarAsientoEgreso` devuelve en `por_proveedor` **antes** de mirar
+`estado`. *La primera póliza del puente nunca dependió de una firma.*
+
+### 33.2 ⭐⭐ 1.4 % → 70.4 %: no era el nombre, era el rubro
+
+| | pareo contra todo el padrón | honrando `cuenta_prefijo` |
+|---|--:|--:|
+| resuelto | **1.4 %** (3 de 216) | **70.4 %** (152) |
+| ambiguo | 70.8 % (153) | 1.9 % (4) |
+| placebo | 0.0 % | 0.0 % |
+
+Las cuentas de proveedor viven en **tres rubros** (`2120`, `5010`, `5020`) y el mismo nombre está
+en los tres, así que casi todo salía *ambiguo*. Un **pago** carga a la cuenta por pagar, no a la de
+compras — y la propia regla ya lo decía en `cuenta_prefijo = '2120'`.
+
+⛔ **Medido como prueba negativa, no como anécdota: 1,002 nombres del padrón existen en `2120` y
+también en `5010`/`5020`, y 141 de los 144 resueltos son de esos.** Sin el rubro se perderían casi
+todos.
+
+### 33.3 El efecto en la bandeja
+
+| | antes | después |
+|---|--:|--:|
+| lotes con asiento | **0** | **88** |
+| movimientos incluidos | 0 | **144** (9.8 %) |
+| importe | $0 | **$36,718,975** |
+| `proveedor_sin_cuenta` | 216 | **72** |
+
+⚠️ 144 y no 152: ocho pareos caen en veredictos **sin RFC** (`solo_nombre` 6, `sin_proveedor` 2) y
+el resolvedor **se niega a usarlos**. Es el mismo criterio del CHECK de `supplier_accounts`,
+repetido del lado del consumidor a propósito: *un CHECK protege la tabla, no a quien lee una fila
+vieja.*
+
+### 33.4 Las tres cosas que se niega a hacer
+
+1. **Elegir entre dos cuentas** del mismo rubro → `ambiguo`, cuenta `null`.
+2. **Usar un veredicto sin RFC** → `veredicto_debil`, cuenta `null`.
+3. **Parear parecido** — sin subcadenas ni distancia de edición: un `HERSHEYS` que casara con
+   `HERSHEYS DISTRIBUIDORA` cargaría a la cuenta equivocada **sin que nada se descuadre**.
+
+### 33.5 Candado
+
+`test-newdb-contpaqi-proveedor.js` — **17 ✓ / 0 ✗**, con placebo y con la prueba negativa del
+rubro medida sobre el padrón real. Vecinos sin regresión: lote 38 · esquema 46 · libro-txt 49 ·
+bandeja 28.
+
+### 33.6 ⭐⭐ Cruce de dos implementaciones, y lo que queda NO es derivable
+
+**El cruce.** `[CP.8.23]` ya había llegado al proveedor por otro camino: *«la contadora no adivina
+el proveedor mirando el estado de cuenta — lo lee del pago registrado en Kepler»*
+(`analytics.erp_supplier_payments`). Eso no contradice a este resolvedor: son **dos fuentes
+independientes del mismo hecho**, y cruzarlas es como aparecen los bugs acá.
+
+**Coinciden en 66 de 67** donde las dos pueden opinar (**98.5 %**), con **una** contradicción:
+
+```
+$69,257.27  banco  "Botanas y Cereales de Zamora"            → 2120000529
+            kepler "ALIMENTOS PROCESADOS DE ZAMORA SA DE CV" → 2120000018
+```
+
+⚠️ Probablemente el **nombre comercial contra el legal**, o sea el mismo proveedor con dos cuentas
+en el catálogo de ContPAQi — y eso se arregla allá, no acá. Por eso el candado tolera ≤ 2 y lo que
+vigila es que **no crezcan**. El cruce quedó como aserción permanente, no como script suelto.
+
+**Lo que queda NO es derivable, y el derivador tiene razón en negarse.** Corrido sobre ene–mar
+(razón real/placebo **369×**):
+
+| categoría | movs enero | qué dice la evidencia | candidato |
+|---|--:|---|---|
+| `comision_bancaria` | 500 | `100 %` toca `52*` | ⛔ **ninguno** |
+| `compra_tarjeta` | 407 | `83.3 %` toca `52*` | `2140800000` con **4 votos / 36.4 %** |
+
+⭐ `comision_bancaria` parea **18 de 500**, y contra pólizas de **278 renglones promedio**: ahí
+cualquier cuenta parece la contraparte, y el filtro 1:1 las descarta con razón. *Una regla sin
+candidato defendible se declara; no se rellena con el más votado de una póliza de 278 líneas.*
+
+⚠️ Y el dinero no está ahí: los 954 `sin_regla` son **$0.7M** del mes. Lo grande que queda son los
+**72 proveedores sin resolver, $6.8M** — 60 sin pareo, 4 ambiguos, 8 con veredicto sin RFC. Ésa es
+la lista acotada para compras, y **todavía no tiene dónde guardarse**: no existe tabla de alias de
+proveedor (hay tres para productos, ninguna para esto). Declarado como deuda con nombre.
+
+---
+
+## §34 `[CP.8.36]` — Dónde se guarda que «Hersheys Mexico» es tal cuenta
+
+🚀 **Migración `20261010104218` EN PROD (batch 878).** Código sin empujar.
+
+`[CP.8.35]` deja **72 movimientos / $6.76M** sin resolver, agrupados en **53 nombres**. No los
+resuelve ningún algoritmo: el banco escribe `"Effem Mexico Inc y Compañia"` y ContPAQi tiene la
+razón social completa.
+
+⛔ **No se arregla con pareo difuso.** Una cuenta equivocada **cuadra igual** y no se ve hasta la
+balanza. Lo que falta no es un algoritmo más listo: es **que una persona lo diga una vez**.
+
+### 34.1 La tabla, y de quién se calcó
+
+`contpaqi.supplier_aliases` sigue el molde de **`finance.bank_classify_rules`** (Fase CB), que ya
+resuelve esta misma forma: texto de un estado de cuenta → un código, editable por humanos, con
+`active` y `nota`.
+
+⚠️ **No** se calcaron `commercial.product_aliases` ni `trade.catalog_aliases`: ésas mapean
+**id → id** (una entidad absorbida por otra), que es otro problema. *Había tres tablas de alias y
+ninguna servía; elegir la correcta es parte del trabajo.*
+
+Lo que la tabla **no permite**: dos cuentas activas para el mismo texto (índice UNIQUE parcial —
+si pudiera, el resolvedor tendría que elegir, y elegir es justo lo que no hace); un alias sin
+autor (`confirmado_por` NOT NULL); una cuenta con forma inválida (CHECK de 10 dígitos).
+
+### 34.2 El alias gana, pero no abre puertas traseras
+
+El resolvedor consulta el alias **antes** del padrón. Y **un alias que apunte fuera del rubro se
+ignora**: sería exactamente la puerta trasera al defecto que costó 69 pp en §33.2.
+
+### 34.3 La lista de trabajo
+
+`database/scripts/alias-proveedor-pendientes.js` — enero: **53 nombres, $6,758,575**, ordenados por
+dinero, con hasta 3 candidatos por **palabras en común**.
+
+⛔ **Propone; no escribe.** La sugerencia es una pista para ordenar, nunca un criterio para
+aplicar. Medido, la mayoría es obvia para un humano:
+
+```
+$1,118,193   "Effem Mexico Inc y Compañia"  → ¿2120000112 EFFEM MEXICO INC Y COMPAÑÍA (100%, confirmado)
+$  425,193   "Hernan Manuel Valencia"       → ¿2120005465 HERNAN MANUEL VALENCIA MELGOZA (75%, confirmado)
+$1,189,887   "Hersheys Mexico"              → sin candidato: hay que buscarlo en ContPAQi
+```
+
+⭐ Y de paso sale un defecto **del catálogo de ContPAQi**: `"Tecnica Mexicana de Alimentacion"`
+existe en **dos cuentas con el mismo nombre** (`2120000047` y `2120000097`). El resolvedor lo marca
+`ambiguo` y se niega — se arregla allá, no acá.
+
+### 34.4 Candado
+
+`test-newdb-contpaqi-proveedor.js` **25 ✓ / 0 ✗**: el alias gana al padrón, queda marcado como
+alias (no como derivado), **se ignora si apunta fuera del rubro**, y la base impide dos cuentas
+activas para el mismo texto.
+
+---
+
+## §35 `[CP.8.37]` — La pantalla para confirmar el alias: el puente queda probable de punta a punta
+
+🧪 **EN CÓDIGO 2026-10-10.** Sin migración nueva (usa la 878). Falta `git push` + que alguien lo
+levante en local y lo mire.
+
+### 35.1 Por qué sin esto no se podía probar nada
+
+`[CP.8.36]` creó la tabla y **nadie podía escribir en ella desde la UI**. Pedirle a compras que
+corra un `INSERT` rompe la regla de *«todo desde la UI»*, así que el puente quedaba trabado en el
+último metro: la bandeja mostraba 53 nombres pendientes y ningún camino para resolverlos.
+
+### 35.2 Dónde vive, y por qué ahí
+
+**Dentro de la bandeja**, debajo de los rechazos — el trabajo se hace donde se ve el problema.
+
+⚠️ Y en el puente, no en Compras: la decisión no es *qué proveedor es* sino **a qué cuenta
+contable carga**, y eso es de contabilidad. Si Compras termina necesitándolo, es un permiso nuevo
+repartido con nombre, **no abrir éste**.
+
+`GET /proveedores-pendientes` va con **`_VER`** y `POST /alias-proveedor` con **`_GESTIONAR`**:
+*mirar el trabajo pendiente no es hacerlo*, y quien revisa la bandeja tiene que poder ver por qué
+está trabada sin poder tocarla.
+
+### 35.3 Lo que la pantalla NO hace
+
+- **No preselecciona** ninguna sugerencia. Están ordenadas por palabras en común, que es una
+  pista para que un humano reconozca de un vistazo — no un voto.
+- **No esconde el aviso**: arriba de la tabla dice que una cuenta equivocada **cuadra igual** y no
+  se ve hasta la balanza.
+- El permiso del navegador **esconde el botón, no protege nada**: quien manda es el guard del
+  endpoint.
+
+⭐ Al confirmar **recarga la bandeja entera**, no sólo la lista: el alias cambia *cuántos
+movimientos entran al asiento*, y dejar los lotes con el número viejo sería publicar un resultado
+que ya no es cierto.
+
+### 35.4 Lo que valida el guardado, y por qué el CHECK no alcanzaba
+
+El CHECK de la tabla sólo cuida la **forma** (10 dígitos). Una cuenta con forma válida que **no
+existe** se importaría como basura, así que el servicio además verifica contra
+`analytics.contpaqi_accounts`, que sea **del rubro**, y que venga **con autor**.
+
+### 35.5 Candado — **30 ✓ / 0 ✗ · 1 NO MEDIDO**
+
+| | |
+|---|---|
+| agrupa | 72 movimientos → **53 nombres** |
+| con candidato | **39 de 53** |
+| negativas del guardado | cuenta inexistente · cuenta de otro rubro · sin autor → **3/3 rechazados** |
+| ninguna sugerencia fuera del rubro | ✓ |
+
+⛔ **El camino de escritura queda NO MEDIDO y se declara**: `edgar`/`dev_ro` es read-only por
+diseño, así que desde esta máquina no se puede ejercer. Se ejerce desde el pod o desde la
+pantalla. *Un candado que salta un bloque en silencio se lee igual que uno que lo probó.*
+
+⚠️⚠️ **Séptima vez que un acento grave en un comentario de `template`/`styles` rompe el build.** Lo
+agarró `check:templates`.

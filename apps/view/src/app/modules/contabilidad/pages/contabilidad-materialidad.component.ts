@@ -259,8 +259,19 @@ import { Permission } from '../../../core/constants/permissions';
         @if (reconSummary(); as rs) {
           <div class="mt-recon-sum">
             <span class="mt-rs ok">✓ {{ rs.confirmed }} asignadas</span>
+            <!-- [MAT.5.1] Las propuestas de la maquina van en su propio conteo. Sumarlas a
+                 "asignadas" diria que hay mas evidencia de la que una persona miro. -->
+            @if (rs.auto) { <span class="mt-rs info" title="Pares que propuso la máquina. Todavía no son evidencia: alguien tiene que mirarlos.">⟳ {{ rs.auto }} propuestas</span> }
             <span class="mt-rs warn">◐ {{ rs.suggested }} sugeridas</span>
             <span class="mt-rs muted">○ {{ rs.unmatched }} sin operación</span>
+            @if (canManage && rs.auto) {
+              <button pButton type="button" class="p-button-sm p-button-success mt-dl-btn" [disabled]="busy() === '*'"
+                      title="Confirma de una vez las propuestas de este proveedor. Quien confirma responde de haberlas mirado."
+                      (click)="confirmarPropuestas()">
+                <span class="p-button-icon p-button-icon-left pi pi-check-circle" aria-hidden="true"></span>
+                <span class="p-button-label">Confirmar {{ rs.auto }}</span>
+              </button>
+            }
             <button pButton type="button" class="p-button-sm p-button-outlined mt-dl-btn" [loading]="exporting()" [disabled]="rs.total === 0" (click)="downloadExpediente()"><span class="p-button-icon p-button-icon-left pi pi-download" aria-hidden="true"></span><span class="p-button-label">Descargar ZIP</span></button>
           </div>
         }
@@ -291,6 +302,20 @@ import { Permission } from '../../../core/constants/permissions';
                         <span class="mt-est e-vigente" title="Asignada por {{ c.assignment?.by || '—' }}"><i class="pi pi-check"></i> {{ c.assignment?.doc_folio }}</span>
                         <span class="muted cf-sub">{{ c.assignment?.sucursal | sucursal }} · Δ {{ money($safeNavigationMigration(c.assignment?.diff_importe)) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d }</span>
                         @if (canManage) { <button pButton type="button" class="p-button-text p-button-sm mt-asg-x" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"><span class="p-button-label">Quitar</span></button> }
+                      </div>
+                    }
+                    @case ('auto') {
+                      <!-- [MAT.5.1] La PROPUESTA de la maquina. Nunca con palomita ni con un
+                           "Asignada por": las dos cosas dicen que una persona la miro, y no. -->
+                      <div class="mt-asg">
+                        <span class="mt-conf c-inferred" title="La propuso la máquina por ser el único par posible (1:1 por RFC, importe y fecha). Todavía NO es evidencia: falta que alguien la mire."><i class="pi pi-sync"></i> {{ c.assignment?.doc_folio }}</span>
+                        <span class="muted cf-sub">{{ c.assignment?.sucursal | sucursal }} · Δ {{ money($safeNavigationMigration(c.assignment?.diff_importe)) }}@if (c.assignment?.diff_days != null) { · {{ c.assignment?.diff_days }}d } · <b class="warn">propuesta</b></span>
+                        @if (canManage) {
+                          <span class="mt-asg-acts">
+                            <button pButton type="button" class="p-button-sm p-button-success mt-ico-btn" title="Confirmar: la propuesta se vuelve evidencia y queda tu nombre" aria-label="Confirmar propuesta" [disabled]="busy() === c.cfdi_id" (click)="confirmarPropuesta(c)"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span></button>
+                            <button pButton type="button" class="p-button-text p-button-sm p-button-secondary mt-ico-btn" title="Quitar la propuesta" aria-label="Quitar propuesta" [disabled]="busy() === c.cfdi_id" (click)="unassignRow(c)"><span class="p-button-icon p-button-icon-left pi pi-times" aria-hidden="true"></span></button>
+                          </span>
+                        }
                       </div>
                     }
                     @case ('suggested') {
@@ -397,6 +422,9 @@ import { Permission } from '../../../core/constants/permissions';
     .mt-recon-sum { display: flex; gap: .9rem; flex-wrap: wrap; align-items: center; margin-bottom: .7rem; font-size: .74rem; font-weight: 600; }
     .mt-dl-btn { margin-left: auto; }
     .mt-rs.ok { color: var(--ok-fg); } .mt-rs.warn { color: var(--warn-soft-fg); } .mt-rs.muted { color: var(--text-muted); }
+    /* [MAT.5.1] Las propuestas van en ambar de IA, el token que DESIGN reserva para lo que generó
+       la maquina. Pintarlas del verde de "asignadas" es, literalmente, el bug de este sprint. */
+    .mt-rs.info { color: var(--ai-accent-soft-fg); }
     .mt-asg { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap; }
     .mt-asg-acts { display: inline-flex; gap: .2rem; }
     .mt-asg .mt-conf .pi, .mt-est .pi { font-size: .82em; }
@@ -480,6 +508,12 @@ export class ContabilidadMaterialidadComponent {
     return {
       total: rows.length,
       confirmed: rows.filter((r) => r.status === 'confirmed').length,
+      /**
+       * `[MAT.5.1]` Las propuestas de la máquina, contadas APARTE de las asignadas. Si se sumaran
+       * a `confirmed`, el renglón de arriba diría que hay más evidencia mirada de la que hay —
+       * que es justo el error que este sprint vino a cerrar.
+       */
+      auto: rows.filter((r) => r.status === 'auto').length,
       suggested: rows.filter((r) => r.status === 'suggested').length,
       unmatched: rows.filter((r) => r.status === 'unmatched').length,
     };
@@ -571,6 +605,61 @@ export class ContabilidadMaterialidadComponent {
       .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
         next: () => { this.busy.set(null); this.toast.add({ severity: 'success', summary: 'Asignada', detail: `CFDI ligado a ${s.doc_folio}.` }); this.reloadRecon(); },
         error: (e: any) => { this.busy.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo asignar', detail: e?.error?.message || 'Intenta de nuevo.' }); },
+      });
+  }
+
+  /**
+   * `[MAT.5.1]` Confirma UNA propuesta de la máquina (`auto` → `confirmed`).
+   *
+   * ⚠️ Va por `confirmBatch` con un solo id y NO por `confirmAssign`: ese otro camino INSERTA una
+   * asignación nueva, y acá la fila ya existe — chocaría contra el índice único de MAT.5. El
+   * backend además conserva `match_source`, así que queda escrito que el par lo halló la máquina
+   * y que la persona respondió de haberlo mirado, que no es lo mismo.
+   */
+  confirmarPropuesta(row: MatReconcileRow) {
+    if (!this.canManage || row.status !== 'auto' || !row.assignment) return;
+    this.busy.set(row.cfdi_id);
+    this.svc.confirmBatch([row.assignment.id])
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.busy.set(null);
+          // ⚠️ `confirmadas: 0` NO es un error del servidor: alguien más ya la confirmó o la quitó.
+          // Decir "Confirmada" ahí sería afirmar algo que esta sesión no hizo.
+          if (r?.confirmadas) this.toast.add({ severity: 'success', summary: 'Confirmada', detail: 'La propuesta ya es evidencia.' });
+          else this.toast.add({ severity: 'info', summary: 'Sin cambios', detail: 'Esa propuesta ya no estaba pendiente. Se recarga la lista.' });
+          this.reloadRecon();
+        },
+        error: (e: any) => { this.busy.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo confirmar', detail: e?.error?.message || 'Intenta de nuevo.' }); },
+      });
+  }
+
+  /**
+   * `[MAT.5.1]` Confirma TODAS las propuestas de este proveedor de una vez.
+   *
+   * ⛔ Sólo las de ESTE RFC, las que están en pantalla — nunca todas las del tenant. Un botón que
+   * confirmara en ciego lo que nadie abrió convertiría en evidencia fiscal un lote que nadie vio,
+   * que es exactamente lo que el estado `auto` existe para impedir.
+   */
+  confirmarPropuestas() {
+    if (!this.canManage) return;
+    const ids = (this.recon() || []).filter((r) => r.status === 'auto' && r.assignment).map((r) => r.assignment!.id);
+    if (!ids.length) return;
+    this.busy.set('*');
+    this.svc.confirmBatch(ids)
+      .pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+        next: (r) => {
+          this.busy.set(null);
+          // Se reporta lo que el servidor DIJO que confirmó, no lo que se pidió: si otra sesión
+          // tocó algunas en el medio, los dos números difieren y hay que decirlo.
+          const n = r?.confirmadas ?? 0;
+          this.toast.add({
+            severity: n === ids.length ? 'success' : 'warn',
+            summary: `${n} confirmada${n === 1 ? '' : 's'}`,
+            detail: n === ids.length ? 'Ya son evidencia de materialidad.' : `Se pidieron ${ids.length}; el resto ya no estaba pendiente.`,
+          });
+          this.reloadRecon();
+        },
+        error: (e: any) => { this.busy.set(null); this.toast.add({ severity: 'error', summary: 'No se pudo confirmar el lote', detail: e?.error?.message || 'Intenta de nuevo.' }); },
       });
   }
 

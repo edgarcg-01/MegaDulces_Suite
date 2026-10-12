@@ -952,8 +952,25 @@ export const routes: Routes = [
         canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
       },
       {
+        // `[CP.8.33]` El otro sentido del conector: la IDA (egresos de banco → póliza).
+        // ⛔ Ruta propia y permiso propio, NO un tab de `/contabilidad/contpaqi`: esa página lee
+        // los libros que ContPAQi ya tiene y la gatea `FISCAL_CONTAB_VER`. Colgar el puente ahí
+        // lo habría escondido tras el permiso equivocado.
+        path: 'contpaqi-puente',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-contpaqi-puente.component').then(m => m.ContabilidadContpaqiPuenteComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTPAQI_BRIDGE_VER)]
+      },
+      {
         path: 'polizas',
         loadComponent: () => import('./modules/contabilidad/pages/contabilidad-polizas.component').then(m => m.ContabilidadPolizasComponent),
+        canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
+      },
+      {
+        // `[CPA.0]` El semáforo de cierre: qué mes ya está asentado en ContPAQi y cuál no.
+        // ⭐ Mismo permiso que Pólizas y ContPAQi — no estrena puerta, así que nadie tiene que
+        // repartir nada ni volver a entrar.
+        path: 'cierre',
+        loadComponent: () => import('./modules/contabilidad/pages/contabilidad-cierre.component').then(m => m.ContabilidadCierreComponent),
         canActivate: [permissionGuard(Permission.FISCAL_CONTAB_VER)]
       },
       {
