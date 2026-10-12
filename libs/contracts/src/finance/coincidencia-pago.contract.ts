@@ -175,21 +175,21 @@ const pegado = (s: string): string => s.replace(/ /g, '');
  * Con prefijos recortados los dos miden 2 y no hay umbral que los separe. Sobre la cadena
  * completa, el tope de **1** acepta al primero y rechaza al segundo.
  */
-function distanciaConTransposicion(a: string, b: string, tope: number): number {
-  if (Math.abs(a.length - b.length) > tope) return tope + 1;
-  const m: number[][] = [];
-  for (let i = 0; i <= a.length; i++) m[i] = [i];
-  for (let j = 0; j <= b.length; j++) m[0][j] = j;
-  for (let i = 1; i <= a.length; i++) {
-    let min = Infinity;
-    for (let j = 1; j <= b.length; j++) {
-      m[i][j] = Math.min(m[i - 1][j] + 1, m[i][j - 1] + 1, m[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
-      if (i > 1 && j > 1 && a[i - 1] === b[j - 2] && a[i - 2] === b[j - 1]) m[i][j] = Math.min(m[i][j], m[i - 2][j - 2] + 1);
-      if (m[i][j] < min) min = m[i][j];
-    }
-    if (min > tope) return tope + 1; // ya no puede bajar
-  }
-  return m[a.length][b.length];
+export function difiereEnUnaLetra(a: string, b: string): boolean {
+  const d = a.length - b.length;
+  if (d < -1 || d > 1) return false;
+  // Se recorta lo que ya coincide por delante y por detrás; lo que queda en medio es la diferencia.
+  let i = 0;
+  while (i < a.length && i < b.length && a[i] === b[i]) i++;
+  if (i === a.length && i === b.length) return true;
+  let j = 0;
+  while (j < a.length - i && j < b.length - i && a[a.length - 1 - j] === b[b.length - 1 - j]) j++;
+  const ra = a.length - i - j;
+  const rb = b.length - i - j;
+  // 1 cambiada (1/1) · 1 de más o de menos (1/0, 0/1)
+  if (ra <= 1 && rb <= 1) return true;
+  // 2 y 2 cruzadas = transposición de dos letras vecinas
+  return ra === 2 && rb === 2 && a[i] === b[i + 1] && a[i + 1] === b[i];
 }
 
 /**
@@ -256,7 +256,7 @@ export function chequeoProveedor(beneficiario: string | null | undefined, provee
   if (lp.startsWith(cp)) return 'ok';
 
   // 3· Una sola letra de diferencia en todo el nombre (incluida una transposición).
-  return distanciaConTransposicion(ap, bp, 1) <= 1 ? 'ok' : 'difiere';
+  return difiereEnUnaLetra(ap, bp) ? 'ok' : 'difiere';
 }
 
 export function coincidenciasPago(ocr: LecturaComprobante, pago: PagoKepler): CoincidenciasPago {
