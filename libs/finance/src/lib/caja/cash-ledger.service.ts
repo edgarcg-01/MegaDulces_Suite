@@ -37,6 +37,12 @@ export interface ConceptQuery { sucursal?: string; search?: string; limit?: numb
 export interface LedgerQuery {
   from?: string; to?: string; tipo?: string; sucursal?: string;
   cuenta?: string; search?: string; limit?: number; offset?: number;
+  /**
+   * `[CG.86]` El id de quien capturó, para «los míos». Lo resuelve el CONTROLADOR desde el token
+   * de la petición, nunca llega de la query: si fuera un parámetro libre, «los míos» sería «los
+   * de cualquiera que yo diga». `null` = sin filtrar (el libro completo).
+   */
+  solo_de?: string | null;
 }
 
 /**
@@ -951,7 +957,52 @@ export class CashLedgerService {
         if (q.tipo) x = x.where('tipo', q.tipo);
         if (q.caja) x = x.where('clave_banco', q.caja);
         if (q.sucursal) x = x.where('sucursal', q.sucursal);
-        return x;
+        /**
+         * ⛔⛔ `[CG.85]` **LO YA CAPTURADO DESDE LA OTRA FUENTE SEGUÍA EN LA COLA.**
+         *
+         * Edgar: *"los movimientos ya completos no aparezcan más, para evitar confusiones"*.
+         *
+         * La vista ya excluye lo capturado **por su propia identidad** (`origen_ref`), y
+         * `caosCapturables` hace lo mismo del lado del cajero. Lo que ninguna hacía es excluir lo
+         * capturado por **LA OTRA**: son dos fuentes del MISMO efectivo, y el código lo decía con
+         * todas las letras — *"NO se deduplica contra Kepler por fila: la medición dio 0% de llave
+         * común (bulto vs individual)"*.
+         *
+         * ⭐ **Esa premisa se cayó, y con casos reales.** Medido en prod el 2026-10-12: TRES
+         * documentos de Kepler capturados desde CAOS seguían ofreciéndose como pendientes.
+         *
+         *     X-D-26 0023030  $ 2,000.00  ya es CG-2026-00005   (dif 0.00)
+         *     U-A-5  0000075  $21,790.00  ya es CI-2026-00002   (dif 0.00)
+         *     U-A-5  0000076  $16,724.95  ya es CI-2026-00001   (dif 0.05)
+         *
+         * El siguiente que mirara la cola los capturaba de nuevo. Verificado contra prod: la cola
+         * pasa de 2,029 a 2,026 y desaparecen EXACTAMENTE esos tres.
+         *
+         * ⭐ La llave que faltaba **no es el importe**: es lo que la PERSONA declaró al capturar.
+         * Al elegir el documento, la glosa queda `"<doc_tipo> <folio> · <beneficiario>"` — una
+         * declaración humana, no un pareo. Por eso NO hay tolerancia de monto ni ventana de fecha:
+         * casar por importe exigiría control de placebo y **fallaría justo en estos casos** (CAOS
+         * no cuenta monedas: los $0.05 de acá y los $20 del día anterior son diferencias reales).
+         *
+         * ⚠️ Lo que NO hace, a propósito: esconder lo que se PARECE. Si nadie declaró el
+         * documento, la fila sigue visible. Ocultar por semejanza sería peor que mostrar dos veces
+         * — un duplicado se ve y se corrige; un movimiento escondido no.
+         *
+         * ⚠️ Va ACÁ y no en la consulta de la lista para que la compartan las CUATRO: la lista, su
+         * total y los dos conteos de fuera de ventana. Sólo en la lista, el subtítulo contaría
+         * pendientes que la lista ya no muestra — y este archivo ya declara que «un total que no
+         * corresponde a lo filtrado es otra forma de mentir, más difícil de ver».
+         *
+         * ⚠️ Límite abierto: mientras declarar el documento desde CAOS sea opcional, lo que no se
+         * declare vuelve a duplicarse. Eso se cierra haciéndolo obligatorio, y va aparte.
+         */
+        return x.whereNotExists((sub: any) => sub
+          .select(trx.raw('1'))
+          .from('finance.cash_ledger as yac')
+          .whereRaw(`yac.tenant_id = v_caja_movimientos_pendientes.tenant_id
+             AND yac.deleted_at IS NULL AND yac.estado <> 'cancelado'
+             AND yac.glosa LIKE v_caja_movimientos_pendientes.doc_tipo
+                                || ' ' || v_caja_movimientos_pendientes.folio || '%'`));
       };
 
       // Lo que la ventana DEJA FUERA se cuenta y se publica. Una bandeja acotada que no dice
@@ -984,6 +1035,7 @@ export class CashLedgerService {
       let qb = filtros(trx('finance.v_caja_movimientos_pendientes'))
         .where('fecha_valor', '>=', desde)
         .where('fecha_valor', '<=', hoy);
+
       if (q.to) qb = qb.where('fecha_valor', '<=', q.to);
       if (q.search) {
         // `%` y `_` escapados: sin esto, buscar "100%" devuelve TODO y la persona cree que filtró.
@@ -1848,6 +1900,11 @@ export class CashLedgerService {
     return this.tk.run(async (trx) => {
       const base = () => {
         let qb = trx('finance.cash_ledger').where('tenant_id', tenantId).whereNull('deleted_at');
+        // `[CG.86]` «Los míos»: por `created_by` (el id del token), NUNCA por el nombre. El
+        // buscador ya miraba `created_by_username`, pero un nombre no es una identidad — en esta
+        // base hay dos «Guillermo», y un apellido mal tecleado devuelve el libro de otra persona.
+        // Va en `base()` para que los KPIs se calculen sobre lo MISMO que la lista.
+        if (q.solo_de) qb = qb.where('created_by', q.solo_de);
         if (q.from) qb = qb.where('fecha', '>=', q.from);
         if (q.to) qb = qb.where('fecha', '<=', q.to);
         if (q.tipo) qb = qb.where('tipo', q.tipo);
