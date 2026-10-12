@@ -288,8 +288,32 @@ export class ContpaqiArmadoService {
       alias = await this.db('contpaqi.supplier_aliases')
         .where({ tenant_id: MEGA, active: true })
         .select('alias_normalizado', 'cuenta');
-    } catch {
-      this.log.warn('contpaqi.supplier_aliases no existe en este destino: se resuelve sólo con el padrón');
+    } catch (e) {
+      /**
+       * ⛔ `[CP.8.39]` — **Las dos ausencias NO son la misma** (ADR-056), y este `catch` las
+       * confundía: cualquier error se reportaba como *"no existe en este destino"*.
+       *
+       * Medido en prod: la tabla **sí existía** (batch 878) y lo que faltaba era el `GRANT` a
+       * `app_runtime`, o sea `42501 permission denied`. El resolvedor degradaba al padrón sin
+       * alias —comportamiento razonable para un destino viejo, **defecto** en producción— y el
+       * log afirmaba un motivo falso, que es lo que lo volvía invisible.
+       *
+       *   `42P01` tabla ausente  → destino sin la migración: degradar es correcto.
+       *   `42501` sin permiso    → la defensa está rota: se degrada igual (no se tumba el
+       *                            armado entero) pero se grita `error`, no `warn`.
+       */
+      const code = (e as { code?: string })?.code;
+      if (code === '42P01') {
+        this.log.warn('contpaqi.supplier_aliases no existe en este destino: se resuelve sólo con el padrón');
+      } else if (code === '42501') {
+        this.log.error(
+          '⛔ contpaqi.supplier_aliases existe pero el rol de la app NO puede leerla (42501): '
+          + 'los alias confirmados NO se están aplicando. Falta el GRANT — ver migración [CP.8.39].');
+      } else {
+        this.log.error(
+          `contpaqi.supplier_aliases ilegible (${code ?? 'sin código'}): se resuelve sólo con el padrón. `
+          + `${(e as Error)?.message ?? e}`);
+      }
     }
 
     const out = new Map<string, IndiceProveedores>();

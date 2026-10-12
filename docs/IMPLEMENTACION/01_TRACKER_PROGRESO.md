@@ -10216,6 +10216,47 @@ contra `pg-prod` (namespace `prod`, k3s).
   esos**. **Efecto: lotes con asiento 0 → 88 · incluidas 0 → 144 · $36,718,975 ·
   `proveedor_sin_cuenta` 216 → 72.** Se niega a adivinar (ambiguo → null, veredicto sin RFC →
   null, nada de subcadenas). Candado **17 ✓** con placebo (padrón invertido parea 0). 2026-10-10
+- [x] **[CP.8.36]** **Dónde se guarda que «Hersheys Mexico» es tal cuenta.** `contpaqi.supplier_aliases`
+  (molde `finance.bank_classify_rules`, NO las de producto que mapean id→id): texto del estado de
+  cuenta → cuenta de proveedor, confirmado por una persona. Resuelve los **72 movimientos /
+  $6.76M** en **53 nombres** que ningún algoritmo saca. UNIQUE parcial (dos cuentas activas para el
+  mismo texto son imposibles), autor NOT NULL, CHECK de 10 dígitos, y **un alias fuera del rubro se
+  ignora**. Candado **25 ✓**. 🚀 Mig `20261010104218` PROD batch 878. 2026-10-10
+- [x] **[CP.8.37]** **La pantalla para confirmar el alias.** Sin esto la tabla existía y nadie podía
+  escribirla desde la UI. Vive **dentro de la bandeja**, bajo los rechazos; `_VER` lista y
+  `_GESTIONAR` guarda (*mirar el trabajo pendiente no es hacerlo*). No preselecciona sugerencia,
+  avisa que una cuenta equivocada **cuadra igual**, y valida contra `contpaqi_accounts` porque el
+  CHECK sólo cuida la forma. Candado **30 ✓ · 1 NO MEDIDO** (la escritura: `dev_ro` es read-only).
+  2026-10-10
+- [x] **[CP.8.38]** **El botón de generar, y la línea que no se cruza.** `GET /archivo` **no**
+  escribe `poliza_exports`: marcar *entregada* al descargar arrancaría el reloj del cuadre sobre
+  archivos que nadie importó, y el cuadre pasaría a medir cuánta gente apretó un botón. Un solo
+  camino de armado (`construirLotes`), serializa con el sink, y un lote que no serializa **tumba el
+  archivo entero**. Enero: 88 pólizas · 144 movs · $36,718,975.48 · 232 renglones, todas cuadrando
+  al centavo. Candado bandeja **28 → 34 ✓**. 2026-10-10
+- [x] **[CP.8.1d]** Las 2 categorías de `flow='in'` que aparecen con salida (`cobranza` 79,
+  `ingreso_devolucion` 1) son **reversos**: un cobro que se devuelve sale por el banco. *El `flow`
+  del catálogo describe la intención de la categoría, no lo que cada movimiento termina haciendo.*
+  🚀 PROD batch 859. 2026-10-09
+- [x] **[CP.8.27]** **Nueve meses en vez de dos** (11,804 egresos · $624.6M, 4.3× el universo): los
+  `tipo_regla` **aguantan**, y la conclusión de que la cuenta `por_categoria` NO es derivable **se
+  refuerza** — ninguna pasa de ~65 %. ⭐ Hallazgo: **tres categorías no pueden tener UNA cuenta**
+  (`compra_tarjeta` se reparte en seis; `nomina` mezcla tres; `servicios` corona una SOFOM).
+  *Separar «falta que lo firmen» de «la categoría no alcanza» evita mandarle al contador una
+  decisión que no existe.* 2026-10-09
+- [ ] 🧪 **[CP.8.39]** ⛔⛔ **`supplier_aliases` entró a prod SIN RLS y SIN GRANT.** Salió de auditar
+  la fase, no de un síntoma reportado. Las 3 tablas hermanas tienen rls+forzado+política+grant;
+  ésta **ninguna de las cuatro**. ⭐ **El que rompe funcionalidad es el GRANT**: como `app_runtime`
+  la lectura tira `42501` y el `catch` del armador lo reportaba como *«la tabla no existe en este
+  destino»* → degradaba al padrón **sin alias**, con un motivo falso en el log (misma forma que
+  `[CP.8.34]`). ⚠️ Y casi se publica un falso positivo cuádruple:
+  `information_schema.role_table_grants` **filtra por el privilegio de quien lee** — se mide con
+  `has_table_privilege` (la trampa de §14.3, pagada dos veces). ⛔ **El candado del puente llevaba
+  2 días en rojo** (38 ✓ / 2 ✗) mientras el doc publicaba 40 ✓ / 0 ✗: su lista de tablas se quedó
+  en 3 cuando la fase sumó la 4ª. De rebote: `LAYOUT_REAL_P` era una **copia divergida** de los
+  anchos (conservaba el `sist_orig` pre-`[CP.8.28]`) y las dos sumaban 185, así que ningún candado
+  se ponía rojo → ahora **aliasa** y el largo se mide con `largoLinea()`. Mig `20261012083145`
+  **copiada al pod, falta aplicar**. 2026-10-12
 
 ### ⛔ Bloqueos abiertos
 
