@@ -89,6 +89,50 @@ if (noResueltas.length) {
   fallas += noResueltas.length;
 }
 
+
+// ── `[NAV.2.2]` Una entrada `tabs:` promete una BARRA, y la barra la pinta la PÁGINA ────────
+//
+// ⛔ El defecto que esto caza, vivido el 2026-10-12. Se agruparon las 22 pantallas de
+// `/compras` en 6 entradas con `tabs:`, y el sidebar quedó impecable — pero **ninguna de las 5
+// tiras nuevas la pintaba un componente**. O sea: se borraron 19 renglones del menú y las 19
+// pantallas se quedaron sin NINGUNA forma de llegar. La compuerta daba verde, porque un
+// `tabs: X` mete todas las rutas de X en `enSidebar` y da por cierto que existe una barra.
+//
+// ⭐ Por qué `[NAV.1]` sí estaba bien y éste no: allá se plegaron tiras que YA existían y que
+// sus páginas YA pintaban (2 a 5 componentes cada una); acá se crearon tiras nuevas. El
+// `tabs:` del sidebar NO crea la barra — sólo apunta a ella.
+//
+// La regla: para cada `tabs: X` del layout, algún `*.component.ts` que no sea el layout tiene
+// que importar el archivo de X. Si nadie lo importa, la entrada es una puerta a un cuarto sin
+// salida, y eso es peor que el renglón de más que vino a ahorrar.
+const COMPONENTES = [];
+(function walkComp(d) {
+  for (const e of fs.readdirSync(d, { withFileTypes: true })) {
+    const p = path.join(d, e.name);
+    if (e.isDirectory()) walkComp(p);
+    else if (/\.component\.ts$/.test(e.name) && !/layout\.component\.ts$/.test(e.name)) COMPONENTES.push(p);
+  }
+})(ROOT);
+
+const conTabs = [...new Set([...lay.matchAll(/tabs:\s*([A-Z_0-9]+)\s*[,}]/g)].map((m) => m[1]))];
+const sinBarra = [];
+for (const sym of conTabs) {
+  const rel = importes.get(sym);
+  if (!rel) continue; // ya se reporta en `noResueltas`
+  // Sin regex: una barra invertida dentro de un template literal se degrada en silencio.
+  const aguja = '/' + path.basename(rel) + "'";
+  const pintan = COMPONENTES.filter((p) => fs.readFileSync(p, 'utf8').includes(aguja));
+  if (!pintan.length) sinBarra.push(sym);
+}
+if (sinBarra.length) {
+  console.log(`\n  ✖ ${sinBarra.length} entrada(s) del sidebar prometen una barra que NINGUNA página pinta:`);
+  for (const s of sinBarra) console.log(`        ${s} — sus pantallas quedan sin forma de llegar`);
+  console.log('     Arreglo: la página aterrizaje (y las demás del grupo) renderizan <app-page-tabs [tabs]="…">.');
+  console.log('     ⛔ El orden importa: PRIMERO la barra en las páginas, DESPUÉS se pliega el sidebar.');
+  fallas += sinBarra.length;
+} else if (conTabs.length) {
+  console.log(`\n  ✔ las ${conTabs.length} entrada(s) con barra: su tira la pinta al menos una página`);
+}
 // PRUEBA NEGATIVA: la compuerta tiene que SABER ver una derivada; si no ve ninguna, no está
 // midiendo lo que cree y un verde no significa nada.
 if (!derivadas.length) {
