@@ -10244,7 +10244,7 @@ contra `pg-prod` (namespace `prod`, k3s).
   (`compra_tarjeta` se reparte en seis; `nomina` mezcla tres; `servicios` corona una SOFOM).
   *Separar «falta que lo firmen» de «la categoría no alcanza» evita mandarle al contador una
   decisión que no existe.* 2026-10-09
-- [ ] 🧪 **[CP.8.39]** ⛔⛔ **`supplier_aliases` entró a prod SIN RLS y SIN GRANT.** Salió de auditar
+- [x] 🚀 **[CP.8.39]** ⛔⛔ **`supplier_aliases` entró a prod SIN RLS y SIN GRANT.** Salió de auditar
   la fase, no de un síntoma reportado. Las 3 tablas hermanas tienen rls+forzado+política+grant;
   ésta **ninguna de las cuatro**. ⭐ **El que rompe funcionalidad es el GRANT**: como `app_runtime`
   la lectura tira `42501` y el `catch` del armador lo reportaba como *«la tabla no existe en este
@@ -10255,8 +10255,14 @@ contra `pg-prod` (namespace `prod`, k3s).
   2 días en rojo** (38 ✓ / 2 ✗) mientras el doc publicaba 40 ✓ / 0 ✗: su lista de tablas se quedó
   en 3 cuando la fase sumó la 4ª. De rebote: `LAYOUT_REAL_P` era una **copia divergida** de los
   anchos (conservaba el `sist_orig` pre-`[CP.8.28]`) y las dos sumaban 185, así que ningún candado
-  se ponía rojo → ahora **aliasa** y el largo se mide con `largoLinea()`. Mig `20261012083145`
-  **copiada al pod, falta aplicar**. 2026-10-12
+  se ponía rojo → ahora **aliasa** y el largo se mide con `largoLinea()`. 🚀 Mig `20261012083145`
+  **PROD batch 888** (0.1 s); candado del puente **38 ✓/3 ✗ → 41 ✓ / 0 ✗**, y la política verificada
+  **por su expresión** (`tenant_id = current_tenant_id()` en USING y WITH CHECK), no por existir.
+  ⚠️ El apply chocó con `migration directory is corrupt`: 2 migraciones del PR #350 están en
+  `origin/main` y no en la imagen ni en el `HEAD` local (**6 commits atrás**) — se copiaron los
+  **archivos reales**, y se verificó que no hubiera un tercero (1,208 distintas, faltantes 0). De
+  paso: el ledger trae **una fila duplicada** (`20260921200000_budget_sales_plan_method_fallback`).
+  Falta `git push` + redeploy. 2026-10-12
 
 ### ⛔ Bloqueos abiertos
 

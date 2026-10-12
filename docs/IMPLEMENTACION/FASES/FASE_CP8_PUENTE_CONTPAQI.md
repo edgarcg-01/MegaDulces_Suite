@@ -2558,8 +2558,8 @@ Sin regresión: proveedor 30 ✓ · libro-txt 49 ✓ · esquema 46 ✓.
 
 ## §37 ⛔⛔ `[CP.8.39]` — La tabla de `[CP.8.36]` entró a prod sin RLS **y sin GRANT**, y el candado llevaba dos días gritándolo
 
-🧪 **EN CÓDIGO 2026-10-12.** Migración `20261012083145` **copiada al pod, SIN aplicar** (ver §37.5).
-Salió de auditar esta fase contra el código y contra prod, no de un síntoma reportado.
+🚀 **Migración `20261012083145` EN PROD — batch 888** (2026-10-12 15:02 UTC, 0.1 s). Código sin
+empujar. Salió de auditar esta fase contra el código y contra prod, no de un síntoma reportado.
 
 ### 37.1 Lo medido
 
@@ -2637,11 +2637,31 @@ Ahora vigila **tres** cosas y nombra cuál falla, en vez de contar:
 ❌ 38 ✓ / 3 ✗
 ```
 
-### 37.5 ⚠️ La migración está en el pod y NO aplicada
+### 37.5 🚀 Aplicada — batch 888, y el hueco del ledger volvió a aparecer
 
-`scp` + `kubectl cp` hechos sobre `api-6c568ccc-42b9x`; el `kubectl exec` que la aplica quedó
-**bloqueado por la compuerta de escritura remota** de la sesión. Es un paso de una línea y está
-en §37.7.
+El primer intento murió con **`migration directory is corrupt`** nombrando
+`20261009160146_etq_avisos_cambios_precio_tabla.js` y `…160147_etq_avisos_reparto_compartir.js`.
+
+⭐ **Los dos archivos existen en `origin/main`** (PR #350, `b8647e2dc`) **y no en el `HEAD` local**,
+que está **6 commits atrás** — y tampoco en la imagen desplegada, que es anterior a ese PR. Se
+extrajeron con `git show origin/main:<ruta>` y se copiaron al pod: **archivos reales, ningún
+marcador vacío** (misma regla que §14.2 y Paso 2 de §18).
+
+**Antes de reintentar se verificó que no hubiera un tercero**, cruzando el ledger contra el
+sistema de archivos del pod: **1,208 migraciones distintas, las 1,208 presentes, faltantes 0.**
+
+⚠️ Dos cosas que salieron del cruce y no son de esta fase:
+
+- **El ledger tiene una fila duplicada**: `20260921200000_budget_sales_plan_method_fallback.js`
+  aparece **dos veces** (1,209 filas / 1,208 nombres). Inofensivo para knex, pero es un artefacto
+  real y nadie lo había visto.
+- ⛔ **El hueco se va a repetir** en cada sesión que migre desde el contenedor hasta que haya
+  `git push` + redeploy: prod aplica desde worktrees que la imagen no conoce.
+
+⚠️ Y un error propio en el camino: el primer diff ledger-vs-pod reportó *"faltan 1,209"* porque
+usó `process.argv[1]`, que en Node es **el script**, no el argumento — estaba leyendo su propio
+fuente. *Una lectura equivocada no falla: publica un número con cara de cierto.* Re-medido antes
+de citarlo.
 
 ### 37.6 ⭐ Lo que esto le hizo al layout, de rebote
 
@@ -2661,13 +2681,25 @@ una vez) y el candado mide con `largoLinea()`, que sabe de `sinSep`.
 ⭐ Con la copia vieja las dos fórmulas daban 185; con la real dan **185 vs 186**. Esa diferencia
 quedó como aserción permanente: si vuelven a coincidir, alguien quitó el `sinSep`.
 
-### 37.7 Lo que falta de esto
+### 37.7 ✅ Verificado en prod, y lo que falta
 
-| | quién | |
-|---|---|---|
-| aplicar `20261012083145` | **una línea, bloqueada en esta sesión** | `kubectl exec -n prod api-6c568ccc-42b9x -c api -- sh -c 'PROD_DB_URL="$DATABASE_URL_NEW" node /app/database/scripts/apply-one-migration-prod.js 20261012083145_contpaqi_supplier_aliases_rls_y_grant.js'` |
-| re-correr el candado del puente | tras aplicar | tiene que dar **41 ✓ / 0 ✗** |
-| `git push` + redeploy | el `catch` partido sólo sirve desplegado | |
+Identidad del clúster **7688376744939610156** (la misma antes y después):
+
+| | rls | forzado | políticas | `app_runtime` | `dev_ro` |
+|---|:-:|:-:|--:|:-:|:-:|
+| `account_rules` · `poliza_exports` · `supplier_accounts` | t | t | 1 | SELECT+INSERT | SELECT |
+| **`supplier_aliases`** | **t** | **t** | **1** | **SELECT+INSERT** | **SELECT** |
+
+⭐ Y la política se comprobó **por su expresión, no por su existencia**: `USING` y `WITH CHECK`
+dicen los dos `tenant_id = current_tenant_id()`. *Que exista una política no dice que diga lo
+correcto* — y una que no filtre se ve en `pg_policies` igual que una que sí.
+
+**Candado del puente: 38 ✓ / 3 ✗ → `41 ✓ / 0 ✗` · 2 NO MEDIDO.**
+
+| falta | quién |
+|---|---|
+| `git push` + redeploy api | el `catch` partido sólo sirve desplegado; hasta entonces un `42501` futuro volvería a reportarse como *«no existe»* |
+| **el clic de la contadora** | sigue siendo lo único que destraba 3 de los 5 criterios de §5 |
 
 **Candados tras el arreglo:** sink **65 ✓** (era 64, +1 la aserción del `sinSep`) · libro-txt 49 ✓
 · esquema 46 ✓ · lote 38 · armador 33 · cuadre 35 · token 29 · proveedor 30 · bandeja 34.
