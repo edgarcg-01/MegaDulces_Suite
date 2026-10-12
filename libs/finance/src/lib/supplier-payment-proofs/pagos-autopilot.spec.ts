@@ -39,10 +39,13 @@ function ctxEspia() {
   };
 }
 
-const armar = (relectura: () => Promise<ResultadoRelectura>) => {
+const armar = (relectura: () => Promise<ResultadoRelectura>, recheck?: () => Promise<unknown>) => {
   const { knex, latidos } = knexEspia();
   const { ctx, scopes } = ctxEspia();
-  const svc = { relectura: vi.fn(relectura) };
+  const svc = {
+    relectura: vi.fn(relectura),
+    recheck: vi.fn(recheck ?? (async () => ({ revisados: 0, validados: 0, con_diferencias: 0 }))),
+  };
   const auto = new PagosAutopilotService(
     knex as never, svc as never, ctx as never,
   );
@@ -63,10 +66,45 @@ describe('[AT.1] el carril abre el contexto de tenant', () => {
     const orden: string[] = [];
     const { knex, latidos } = knexEspia();
     const ctx = { run: async <T>(_s: unknown, f: () => Promise<T>) => { orden.push('abre'); const r = await f(); orden.push('cierra'); return r; } };
-    const svc = { relectura: async () => { orden.push('relee'); return pasada({ revisados: 1, releidos: 1 }); } };
+    const svc = { recheck: async () => ({ revisados: 0, validados: 0 }), relectura: async () => { orden.push('relee'); return pasada({ revisados: 1, releidos: 1 }); } };
     await new PagosAutopilotService(knex as never, svc as never, ctx as never).run();
     expect(orden).toEqual(['abre', 'relee', 'cierra']);
     expect(latidos).toHaveLength(1);
+  });
+});
+
+describe('[AT.2] re-comparar con Kepler antes de releer', () => {
+  it('⭐ llama a recheck en CADA pasada: una regla que cambia no espera un clic', () => {
+    // `[AT.2]` destrabó 17 comprobantes YA releídos, y el carril no los vuelve a mirar
+    // (sólo toma los que no tienen lectura firmable). Sin esto haría falta un botón manual
+    // después de cada cambio de regla — el modo de falla que esta fase existe para borrar.
+    const { auto, svc } = armar(async () => pasadaVacia());
+    return auto.run().then(() => {
+      expect(svc.recheck).toHaveBeenCalledTimes(1);
+      expect(svc.relectura).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('⛔ si recheck truena, la relectura IGUAL corre y la pasada no se cae', async () => {
+    const { auto, svc, latidos } = armar(
+      async () => pasadaVacia(),
+      async () => { throw new Error('kepler fuera de linea'); },
+    );
+    const r = await auto.run();
+    expect(svc.relectura).toHaveBeenCalledTimes(1);
+    expect(r.errores).toHaveLength(0);     // no es SU entrega: no ensucia el veredicto
+    expect(latidos[0].status).toBe('ok');
+  });
+
+  it('⚠️ lo que recheck valida NO entra en el latido', async () => {
+    // Si entrara, una pasada que no releyó NADA se vería sana porque recheck revalidó algo.
+    const { auto, latidos } = armar(
+      async () => pasadaVacia(),
+      async () => ({ revisados: 40, validados: 9, con_diferencias: 31 }),
+    );
+    await auto.run();
+    expect(latidos[0].rows_affected).toBe(0);
+    expect(String(latidos[0].note)).toContain('0/0 releidos');
   });
 });
 

@@ -94,7 +94,35 @@ export class PagosAutopilotService {
       // este repo (ADR-056) y la que dejó al piloto de Presupuestos recorriendo «0/0 ejercicios»
       // con dos en la tabla. `SupplierPaymentProofsService` usa `tk.run()`, que fija el tenant,
       // pero lo LEE del AsyncLocalStorage: hay que abrirlo acá.
-      r = await this.conTenant(MEGA, () => this.svc.relectura());
+      r = await this.conTenant(MEGA, async () => {
+        // `[AT.2]` **Primero re-comparar, después releer.** `recheck()` no baja archivos ni llama
+        // al modelo: recalcula las cuatro señales de los `recibido` que YA tienen lectura firmable
+        // contra lo que Kepler dice hoy. Es barato y arregla dos cosas que de otro modo quedan
+        // esperando que alguien se acuerde de apretar un botón:
+        //
+        //  · ⛔ **una regla que cambia.** `[AT.2]` aflojó `chequeoProveedor` y destrabó 17
+        //    comprobantes ya releídos — y el carril NO los habría vuelto a mirar, porque sólo
+        //    toma los que **no** tienen lectura firmable. Sin esto hacía falta un clic manual
+        //    después de cada cambio de regla, que es exactamente el modo de falla que esta fase
+        //    existe para borrar.
+        //  · **Kepler corregido a mano**: si alguien arregla allá la fecha o el banco del pago,
+        //    el comprobante se valida solo en la pasada siguiente.
+        //
+        // ⚠️ Su resultado NO entra en el latido: el latido mide la ENTREGA de la relectura
+        // (lecturas que el servidor firmó). Mezclar los dos conteos haría que una pasada que no
+        // releyó nada se viera sana porque `recheck` revalidó algo. Se registra en el log.
+        // ⚠️ `try/catch`, NO `.catch()` sobre la promesa: si la llamada truena de forma
+        // SÍNCRONA, `.catch()` ni se encadena y la excepción se lleva puesta toda la pasada.
+        // Lo destapó una prueba del doble; en producción sería un cambio de firma del servicio.
+        let re: { validados: number } | null = null;
+        try {
+          re = await this.svc.recheck();
+        } catch (e) {
+          this.logger.warn(`recheck previo: ${(e as Error)?.message ?? e}`);
+        }
+        if (re?.validados) this.logger.log(`recheck: ${re.validados} validados al re-comparar con Kepler`);
+        return this.svc.relectura();
+      });
     } catch (e) {
       r.errores.push((e as Error)?.message ?? String(e));
     } finally {
