@@ -3189,6 +3189,40 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   }
 
   /**
+   * ⭐⭐ `[CG.93]` **LO ÚNICO QUE TIENE QUE HACER LA PERSONA ES CONTAR.**
+   *
+   * Edgar: *"lo único que debe hacer el usuario es arquear, no debe seleccionar ningún botón ni
+   * rellenar nada; a lo máximo alinearlo con algún movimiento de CAOS"*.
+   *
+   * El trabajo real es contar billetes contra un documento. Todo lo demás —elegir la fila, elegir
+   * la cuenta, elegir el concepto, buscar el retiro del cajero— es trámite que el sistema puede
+   * resolver, y cada trámite es una oportunidad de equivocarse. Hoy ya resuelve la cuenta y el
+   * concepto (`[CS.3.1b]`/`[CS.3.8]`) y engancha el CAOS (`[CS.3.6]`/`[CS.3.7]`); lo que quedaba
+   * era que alguien tuviera que ELEGIR la fila, una por una, 165 veces.
+   *
+   * Acá la cola se abre sola en el siguiente movimiento resoluble, y al guardar avanza al que
+   * sigue. La persona cuenta, guarda, cuenta, guarda.
+   *
+   * ⛔ **Sólo avanza si NO hay nada abierto.** La lista se recarga sola cada 60 s; si esto corriera
+   * con una captura en curso, le arrancaría el documento de las manos a alguien que está contando
+   * — y el conteo a medias se perdería. Que una pantalla se mueva sola mientras se trabaja en ella
+   * es peor que un clic de más.
+   *
+   * ⛔ **Sólo toma `confirmable`.** Lo que necesita que una persona decida algo (ruta sin declarar,
+   * documento sin contra-cuenta) NO se abre solo: abrirlo sería dejarla frente a un formulario que
+   * no puede cerrar, que es exactamente el trámite que esto viene a sacar. Esas filas se quedan en
+   * la lista, marcadas, para que alguien las resuelva a propósito.
+   *
+   * ⚠️ No captura nada: sólo ELIGE. Guardar sigue exigiendo el conteo del efectivo, que es el acto
+   * que esto protege.
+   */
+  private avanzarAlSiguiente(): void {
+    if (this.capturaAbierta()) return;
+    const siguiente = this.pendientes().find((p) => p.confirmable);
+    if (siguiente) this.capturarDesde(siguiente);
+  }
+
+  /**
    * `[CG.50]` La fila enfocada de las tres tablas de LECTURA con acciones (recurrentes, libro,
    * cortes). `selectionMode="single"` necesita dónde guardar lo elegido, y sin eso `pSelectableRow`
    * no enciende el roving tabindex. No alimenta ninguna decisión: es sólo el cursor del teclado.
@@ -4795,6 +4829,8 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     }).subscribe({
       next: (r) => {
         this.pendientes.set(r.rows ?? []);
+        // `[CG.93]` Lo único que tiene que hacer la persona es CONTAR. Ver `avanzarAlSiguiente()`.
+        this.avanzarAlSiguiente();
         // CG — los documentos POR PAGAR (gastos / órdenes de entrada) sólo vienen con búsqueda: sin
         // término la lista llega vacía y la sección no se pinta, que es lo correcto.
         this.pagables.set(r.pagables ?? []);
@@ -5376,6 +5412,21 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         // La regla va DESPUÉS de que el movimiento se guardó, y en su propia petición: si
         // declararla falla, el registro del efectivo ya está hecho y no se pierde.
         if (declarar) this.declararCuenta(f);
+        /**
+         * ⛔ `[CG.93]` **ACÁ FALTABA `cargarPendientes()`, y se podía capturar DOS VECES lo mismo.**
+         *
+         * Al guardar se recargaba el libro y el saldo, pero NO la cola. La fila recién capturada
+         * seguía en pantalla hasta el refresco de fondo —cada 60 s— y en esa ventana un segundo
+         * clic la volvía a abrir: mismo documento, dos movimientos, dinero contado doble.
+         *
+         * La de-duplicación del servidor es por `origen_ref` y existe (`[CG.85]`), pero recién se
+         * nota al RECARGAR; lo que la pantalla mostraba mientras tanto era trabajo que ya no
+         * estaba. Una lista que no se refresca después de modificarla es una lista que miente.
+         *
+         * ⭐ Y de paso es lo que encadena el flujo: al volver la lista sin lo capturado,
+         * `avanzarAlSiguiente()` abre el que sigue. Contar, guardar, contar, guardar.
+         */
+        this.cargarPendientes();
         this.cargar(); this.cargarSaldo();
       },
       error: (e) => { this.guardando.set(false); this.avisarError(e, 'No se pudo guardar el movimiento'); },
