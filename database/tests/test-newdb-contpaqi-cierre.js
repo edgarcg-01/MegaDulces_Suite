@@ -44,6 +44,7 @@ if (!DST) { console.error('Falta PROD_DB_URL (o DATABASE_URL_NEW).'); process.ex
 
 const TENANT = '00000000-0000-0000-0000-00000000d01c';
 const VISTA = 'analytics.v_contpaqi_cierre_mensual';
+const MV = 'analytics.mv_contpaqi_cierre_mensual';
 /** Gate duro del proyecto para una pantalla. Ver `[CPA.0]` sobre el índice que falta. */
 const GATE_MS = 500;
 
@@ -310,19 +311,47 @@ const money = (v) => (v === null ? 'null' : Number(v).toLocaleString('es-MX', { 
     if (!existe) {
       noMedido('tiempo de la vista', 'la vista no existe todavía');
     } else {
+      /*
+       * ⛔⛔ DOS DEFECTOS PROPIOS, corregidos acá — y los dos hacían que este bloque reportara
+       * un número que nadie vive:
+       *
+       *  1. **Medía un `count(*)`**, no la consulta del servicio. Medido el 2026-10-12: el
+       *     `count(*)` daba 563 ms de mediana y la consulta REAL —`SELECT *` de 13 meses con
+       *     `ORDER BY`— daba **1,078**. Casi el doble. *Medir una consulta parecida es no medir.*
+       *  2. **Se quedaba con `Math.min` de 3 corridas**, o sea con la mejor. Un gate que elige
+       *     su mejor tiro se pone verde con una corrida con suerte: medido, 8 de 10 bajo 500 y
+       *     2 arriba se reportaba como "477 ms, cumple". Ahora manda la **mediana**, y el p90
+       *     se publica al lado.
+       */
       const ms = [];
-      for (let i = 0; i < 3; i++) {
+      for (let i = 0; i < 9; i++) {
         const a = Date.now();
-        await knex.raw(`SELECT count(*) FROM ${VISTA} WHERE tenant_id=? AND anio_mes >= ?`,
-          [TENANT, '2025-10']);
+        await knex.raw(
+          `SELECT * FROM ${MV} WHERE tenant_id = ? AND anio_mes BETWEEN ? AND ? `
+          + 'ORDER BY anio_mes DESC, familia ASC',
+          [TENANT, '2025-10', '2026-10']);
         ms.push(Date.now() - a);
       }
-      const mejor = Math.min(...ms);
-      console.log(`     corridas: ${ms.join(' / ')} ms`);
-      t('la vista responde en menos de 3 s (techo duro: arriba de esto la pantalla es inusable)',
+      ms.sort((a, b) => a - b);
+      const mejor = ms[4]; // la MEDIANA, no el mínimo
+      console.log(`     9 corridas de la consulta REAL: mediana ${mejor} ms · p90 ${ms[7]} · max ${ms[8]}`);
+      t('responde en menos de 3 s (techo duro: arriba de esto la pantalla es inusable)',
         mejor < 3000, { ms });
       if (mejor <= GATE_MS) {
-        t(`cumple el gate de ${GATE_MS} ms (${mejor} ms)`, true);
+        t(`⭐ cumple el gate de ${GATE_MS} ms en la consulta REAL del servicio (mediana ${mejor} ms, p90 ${ms[7]})`, true);
+        /*
+         * ⛔ PRUEBA NEGATIVA: la matvista no vale si sirve otra cosa que la vista. Un refresh que
+         * dejó de correr publica un veredicto viejo SIN dar error — el modo de falla que este
+         * carril entero existe para evitar. Se comparan las dos derivaciones, fila por fila.
+         */
+        const dif = await knex.raw(`
+          SELECT count(*)::int AS n FROM (
+            SELECT tenant_id, anio_mes, familia, senal, senal_renglones, cobertura FROM ${MV}
+            EXCEPT
+            SELECT tenant_id, anio_mes, familia, senal, senal_renglones, cobertura FROM ${VISTA}
+          ) d`);
+        t('⛔ NEGATIVA — la matvista coincide con la vista fila por fila (si no, sirve una foto vieja)',
+          Number(dif.rows[0].n) === 0, dif.rows[0]);
       } else {
         /*
          * ⚠️ Este motivo YA FUE FALSO UNA VEZ. Decía "falta el índice cubriente de fiscal.cfdis"

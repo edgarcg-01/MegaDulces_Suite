@@ -1299,6 +1299,14 @@ const CRON_JOBS: CronCfg[] = [
   // afirma que una póliza llegó a ContPAQi: si deja de correr, lo entregado vuelve a ser
   // inverificable y nadie se entera. Umbral de job de alta frecuencia, criterio de `twins_pairing`.
   { key: 'contpaqi_cuadre',                   label: 'Cuadre del puente ContPAQi',        cadence: 'cada 10 min', warnH: 3, critH: 12 },
+  // [CPA.0.2] `mv_cierre_refresh`: la matvista del semáforo de cierre (/contabilidad/cierre).
+  // Sin este renglón el carril caería en `cfg ? classify : 'ok'` = **verde incondicional**, que es
+  // lo que la Fase VP midió sobre tres matvistas del sell-out. Un carril que nace mudo nace roto.
+  //
+  // ⚠️ Su modo de falla es el peor que puede tener un semáforo: una matvista que dejó de
+  // refrescarse **no da error**, sirve el veredicto viejo — y en un tablero de cierre eso se lee
+  // como "todo asentado". Corre cada 15 min; warn al saltarse ~8 corridas.
+  { key: 'mv_cierre_refresh',                 label: 'Cierre contable — refresca mv_contpaqi_cierre_mensual', cadence: 'cada 15 min', warnH: 2, critH: 6 },
   { key: 'analytics_refresh_kepler',          label: 'Refresh MV Kepler (nightly)',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_payment_terms',   label: 'Refresh MV condición de pago (SD-PAY, nightly)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   { key: 'analytics_refresh_sellout_monthly', label: 'Refresh MV sell-out mensual',       cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
