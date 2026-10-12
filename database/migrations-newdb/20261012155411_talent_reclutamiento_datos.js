@@ -6,8 +6,9 @@
  *  · `candidatos` 1,656 (≈300–700 por mes) · `candidatos_transiciones` 935 · `candidatos_eventos` 123
  *    · `puestos` 7.
  *  · `requisiciones` 0 y `evaluaciones` 0 → NO se portan: existen en el código y nadie las usó.
- *  · Etapas del portal (`portal_status`): filtro_inicial → aptitudes (521 pasos) → entrevista_rh (392)
- *    → psicometria (6) → contratado (13, el último el 14-ago).
+ *  · Etapas vigentes del portal (`portal_status`, `proceso.model.ts` de Mega Talento): filtro_inicial →
+ *    entrevista_rh → aptitudes → psicometria; contratado y rechazado son desenlaces. Pasos registrados
+ *    hacia cada una: aptitudes 521 · entrevista_rh 392 · psicometria 6 · contratado 13 (el último el 14-ago).
  *  · `portal_data` trae dictamen 905 · cuestionarioLiderazgo 864 · riesgo 515 · destacado 173 ·
  *    solicitud 279. Se queda como bolsa jsonb: son señales que calcula el bot y lee el portal tal cual.
  *  · `empleados.candidato_id` (permanencia) = 0 filas con valor → la liga candidato→persona no se
@@ -26,6 +27,10 @@
  *  · Lista negra (`no_rehire`) y spam son MARCAS sobre el candidato, con motivo, quién y cuándo
  *    (CHECK: no hay marca sin motivo). La papelera es `deleted_at`: nada se borra.
  *  · La bitácora de etapas y los eventos son de sólo agregar para la app (SELECT, INSERT).
+ *  · FUSIONAR dos registros de la misma persona NO mueve su historia, como hacía Mega Talento
+ *    (`UPDATE candidatos_eventos SET candidato_id=…`): el absorbido va a la papelera con
+ *    `merged_into_id` y la ficha junta la historia de los dos. Así la bitácora sigue intacta y la
+ *    fusión se deshace restaurando. `deletion_reason` dice por qué está en la papelera.
  *  · El acceso público (formulario y evaluación) NO usa el id como llave, como hacía Mega Talento
  *    (cualquiera con el UUID leía y editaba el expediente): será un token firmado con vencimiento
  *    (`[RH.2.3]`), que no necesita columna.
@@ -144,16 +149,23 @@ exports.up = async function up(knex) {
         updated_at             timestamptz NOT NULL DEFAULT now(),
         deleted_at             timestamptz,                  -- papelera: nada se borra
         deleted_by             uuid,
+        deletion_reason        text CHECK (deletion_reason IS NULL OR deletion_reason IN ('manual','cierre_seguimiento','fusionado')),
+        merged_into_id         uuid,                         -- el registro que lo absorbió
         UNIQUE (tenant_id, id),
+        FOREIGN KEY (tenant_id, merged_into_id) REFERENCES ${S}.candidates (tenant_id, id),
         FOREIGN KEY (tenant_id, job_posting_id) REFERENCES ${S}.job_postings (tenant_id, id) ON DELETE SET NULL,
         CONSTRAINT candidates_no_rehire_ck CHECK (
           NOT no_rehire OR (no_rehire_reason IS NOT NULL AND btrim(no_rehire_reason) <> '' AND no_rehire_at IS NOT NULL)),
         CONSTRAINT candidates_spam_ck CHECK (
-          NOT is_spam OR (spam_reason IS NOT NULL AND btrim(spam_reason) <> '' AND spam_at IS NOT NULL))
+          NOT is_spam OR (spam_reason IS NOT NULL AND btrim(spam_reason) <> '' AND spam_at IS NOT NULL)),
+        CONSTRAINT candidates_trash_ck CHECK ((deleted_at IS NULL) = (deletion_reason IS NULL)),
+        CONSTRAINT candidates_merge_ck CHECK (
+          merged_into_id IS NULL OR (coalesce(deletion_reason, '') = 'fusionado' AND merged_into_id <> id))
       )`);
     await knex.raw(`CREATE INDEX ix_talent_cand_phone ON ${S}.candidates (tenant_id, phone_key)`);
     await knex.raw(`CREATE INDEX ix_talent_cand_no_rehire ON ${S}.candidates (tenant_id, phone_key) WHERE no_rehire`);
     await knex.raw(`CREATE INDEX ix_talent_cand_stage ON ${S}.candidates (tenant_id, stage, created_at DESC) WHERE deleted_at IS NULL`);
+    await knex.raw(`CREATE INDEX ix_talent_cand_merged ON ${S}.candidates (tenant_id, merged_into_id) WHERE merged_into_id IS NOT NULL`);
     await knex.raw(`CREATE INDEX ix_talent_cand_legacy ON ${S}.candidates (tenant_id, legacy_portal_id) WHERE legacy_portal_id IS NOT NULL`);
     await knex.raw(`COMMENT ON TABLE ${S}.candidates IS 'Fase RH: candidatos (antes candidatos de Mega Talento, bot + portal). Mismo id. Lista negra y spam son marcas con motivo; la papelera es deleted_at.'`);
     await knex.raw(`COMMENT ON COLUMN ${S}.candidates.phone_key IS 'Últimos 10 dígitos del teléfono. El bot guardaba 13 y el portal 10: así se reconoce a la misma persona. No es UNIQUE a propósito (hay duplicados históricos).'`);

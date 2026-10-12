@@ -114,6 +114,12 @@ export enum Permission {
   // Dar de alta y pausar relojes, y mandarles órdenes (renombrar, restaurar a alguien). Fuera de
   // los grupos «de paquete»: una orden se ejecuta en el equipo físico de una plaza.
   HR_DEVICES_GESTIONAR = 'HR_DEVICES_GESTIONAR',
+  // Módulo: RH / Reclutamiento — `[RH.2.2]`, lo que antes vivía en el portal de Mega Talento.
+  // VER lee candidatos y vacantes; GESTIONAR mueve de etapa, registra eventos, marca (no
+  // recontratable, spam), fusiona duplicados, manda a la papelera y publica vacantes. La pantalla es
+  // `[RH.2.3]`: hasta entonces gatean la API y están en `SIN_REPARTIR` del candado de reparto.
+  HR_RECRUITMENT_VER = 'HR_RECRUITMENT_VER',
+  HR_RECRUITMENT_GESTIONAR = 'HR_RECRUITMENT_GESTIONAR',
 
   // Módulo: Tienda — verificador de precios de mostrador (kiosco con lector de barras).
   // Sólo lectura de precio de venta: nunca costo ni margen. Los endpoints que consume

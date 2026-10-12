@@ -312,8 +312,27 @@ que ese formulario necesita (`[RH.2.4]`).
   bitácoras inmutables, aislamiento por tenant), **mutada a rojo** quitando un CHECK y un candado de
   la bitácora. El bucket privado para documentos va con `[RH.2.2]` (es configuración de S3, no
   esquema). ⚠️ Aditiva y sin consumidores: se puede aplicar a prod cuando sea.
-- [ ] **[RH.2.2]** API: candidatos (lista, ficha, etapa, marcas, papelera, fusión de duplicados), eventos,
-  vacantes; documentos en bucket privado con liga temporal (Mega Talento sube a Cloudinary sin firma).
+- [ ] **[RH.2.2]** 🧪 API `/api/hr/talent/*` (2026-10-12), traslado de las rutas protegidas de
+  `candidatos.ts` + el KPI de fases y los eventos de `kpi.ts`. Claves nuevas `HR_RECRUITMENT_VER` /
+  `_GESTIONAR` (se reparten con la pantalla, `[RH.2.3]`; mientras, `SIN_REPARTIR`). Endpoints: lista por
+  apartado (postulados = con CV o ya movido por RH, regla `ES_POSTULACION` de Mega Talento · en proceso ·
+  spam · no recontratables · papelera) con conteo por etapa y búsqueda por nombre/puesto/teléfono; ficha
+  con la historia; corregir datos; mover de etapa; eventos; lista negra (motivo obligatorio) y spam;
+  papelera y restaurar; fusión; duplicados por teléfono; alerta de reingresos; tiempo por etapa; vacantes.
+  **Diferencias con Mega Talento, a propósito:** (1) mover de etapa y su renglón de bitácora van en la
+  MISMA transacción (allá el INSERT estuvo 5 días fallando en silencio dentro de un `catch`); (2) la
+  fusión NO mueve la historia: el absorbido queda en la papelera con `merged_into_id` y la ficha junta las
+  dos historias — restaurarlo deshace la fusión; (3) la fusión se niega si uno está en la lista negra y el
+  otro no (la marca la decide una persona); (4) no hay borrado definitivo ni se borran eventos; (5) las
+  etapas viejas se leen en su vigente con el mapa exacto de `etapa.ts` y nunca se escriben. Ajuste a
+  `[RH.2.1]` (aún sin aplicar): `deletion_reason` + `merged_into_id` con CHECK — la prueba destapó que
+  `merged_into_id` sin papelera pasaba (`NULL = 'fusionado'` no rechaza). Pruebas: reglas puras
+  `logic/etapas.spec.ts` (CI) y el ciclo completo contra la base `talent-candidates.service.db.spec.ts`,
+  **mutadas a rojo** (etapa de origen mal guardada; fusión que pisa datos). ⚠️ `eslint.config.js`:
+  `checkDynamicDependenciesExceptions` para `platform-core` — la regla de lib diferida es transitiva
+  (`hr → database → platform-core` por `require()` dentro de funciones) y marcaba como error TODO import
+  nuevo de platform-core en `libs/hr`, incluido uno que ya está en main. **No incluye:** documentos en
+  bucket privado (siguiente), la decisión aprobado/descartado (pasa por el bot: `[RH.3]`).
 - [ ] **[RH.2.3]** Pantallas `/rh/reclutamiento` y `/rh/vacantes`.
 - [ ] **[RH.2.4]** Portal público `/empleo/*` con token firmado (D6).
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
