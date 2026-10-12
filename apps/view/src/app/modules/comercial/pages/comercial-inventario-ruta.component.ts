@@ -142,7 +142,18 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
       </div>
 
       <div class="dt-scope">
-        <p-table [value]="filas()" dataKey="route_no" [scrollable]="true" scrollHeight="46vh"
+        <!--
+          [RD.UI.3] D.7 -- la rejilla ya era p-table pero NO tenia teclado. Con 14 rutas y un
+          boton de detalle por fila, el tabulador hacia 14 paradas para recorrerla.
+          pSelectableRow da flechas, Home/End y roving tabindex: la tabla entera pasa a ser UN
+          stop, y Enter abre el detalle igual que el clic. La guarda global installRowNavGuard
+          (main.ts) impide que le robe las teclas al boton de la fila.
+          ⚠️ La verdad de que fila esta abierta la sigue teniendo la senal detalle: PrimeNG
+          DISPOSITIVO DE ENTRADA, no como segundo dueno del estado. Por eso [selection] va de
+          una via y (selectionChange) llama al mismo abrirDetalle() que el boton.
+        -->
+        <p-table [value]="filas()" selectionMode="single" [selection]="filaSel"
+                 (selectionChange)="filaSel = $event; abrirDetalle($event)" dataKey="route_no" [scrollable]="true" scrollHeight="46vh"
                  class="dt-stack surf-table surf-table--sticky surf-table--frozen-first"
                  size="small" [rowHover]="true" [tableStyle]="{ 'min-width': '64rem' }">
           <ng-template #header>
@@ -171,7 +182,7 @@ type Pestana = 'productos' | 'movimiento' | 'traspasos' | 'rojos' | 'quedados';
               NUNCA da 0 en una ruta anclada. Pintarlo rojo convertia el exito de la fase en
               una alarma: las 10 camionetas salian en rojo el dia que empezaron a medirse.
             -->
-            <tr [class.ir-fila-parada]="parada(r)">
+            <tr [pSelectableRow]="r" [class.ir-fila-parada]="parada(r)">
               <td class="dt-id ir-mono" role="cell"><strong>{{ r.route_no }}</strong></td>
               <td class="ir-tenue" role="cell" data-label="Plaza">{{ r.plaza }}</td>
               <td class="num ir-mono ir-fuerte" role="cell" data-label="Trae hoy"
@@ -869,6 +880,8 @@ export class ComercialInventarioRutaComponent {
   readonly plazasSel = signal<string[]>([]);
   readonly rutasSel = signal<string[]>([]);
   readonly data = signal<RouteInventoryReport | null>(null);
+  /** `[RD.UI.3]` Donde esta el cursor del teclado. El detalle abierto lo sigue mandando `detalle`. */
+  filaSel: RouteInventoryRow | null = null;
   readonly cargando = signal(false);
   readonly error = signal<string | null>(null);
 
