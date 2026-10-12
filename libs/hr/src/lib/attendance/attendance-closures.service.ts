@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import type { Knex } from 'knex';
+import type { HrCierreDto } from '@megadulces/contracts';
 import { TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import * as reader from './attendance-reader';
 import { HrAttendanceReportService } from './attendance-report.service';
@@ -90,7 +91,7 @@ export class HrAttendanceClosuresService {
   }
 
   /** Cierra la semana que abre el jueves `period_start`. */
-  async cerrar(b: { site_code?: string; period_start?: string; force?: boolean; reason?: string }): Promise<unknown> {
+  async cerrar(b: { site_code?: string; period_start?: string; force?: boolean; reason?: string }): Promise<HrCierreDto> {
     const site = String(b.site_code || '').trim();
     const desde = String(b.period_start || '');
     const forzar = b.force === true;
@@ -157,7 +158,7 @@ export class HrAttendanceClosuresService {
           closed_by: q.id, closed_by_name: q.nombre, summary: JSON.stringify(summary), snapshot: JSON.stringify(foto),
         }).returning('id');
         const id = typeof nuevo === 'object' ? (nuevo as { id: string }).id : nuevo;
-        return trx('hr.attendance_closures').where({ id }).first(this.columnas(trx));
+        return trx('hr.attendance_closures').where({ id }).first(this.columnas(trx)) as Promise<HrCierreDto>;
       } catch (e) {
         if ((e as { code?: string }).code === '23505') throw new ConflictException('Alguien más acaba de cerrar esta semana.');
         throw e;

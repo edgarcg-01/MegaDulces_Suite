@@ -137,7 +137,7 @@ function usernameDe(sitio, codigo) {
  */
 async function cargarPersonas(trx, fichas, { mapeo, tenantId = TENANT_MD, log = null } = {}) {
   if (!RE_UUID.test(tenantId)) throw new Error(`tenant inválido: ${tenantId}`);
-  const avisar = typeof log === 'function' ? log : () => {};
+  const avisar = typeof log === 'function' ? log : () => undefined;
   const mp = prepararMapeo(mapeo);
 
   const rol = await trx('identity.role_permissions').where({ tenant_id: tenantId, role_name: ROL_SIN_ACCESO }).whereNull('deleted_at').first('role_name');
@@ -235,7 +235,8 @@ async function cargarPersonas(trx, fichas, { mapeo, tenantId = TENANT_MD, log = 
       }).returning('id');
       userId = u.id ?? u;
       usernames.add(username);
-      c.creadas++; activa ? c.creadas_activas++ : c.creadas_bajas++;
+      c.creadas++;
+      if (activa) c.creadas_activas++; else c.creadas_bajas++;
     }
     personaDeFicha.set(k, { userId, nombre: normal, sitio: f.sitio });
 
