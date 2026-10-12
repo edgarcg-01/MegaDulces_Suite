@@ -5,6 +5,7 @@ import { map } from 'rxjs/operators';
 import { environment } from '../../../environments/environment';
 import type {
   KeplerTripList, NuevoEmbarqueHoja, TomaKeplerBody, TomaKeplerResultado, NuevaGuiaBody, RevisionGps, CompletarGuiaBody, GuiaCompletada,
+  CierreDeEmbarque, CerrarParadaBody, ParadaCierre,
 } from '@megadulces/contracts';
 
 // ── Tipos ────────────────────────────────────────────────────────────────
@@ -1247,6 +1248,17 @@ export class LogisticaService {
   }
   removeRecipient(recipientId: string) {
     return this.http.delete<{ deleted: boolean }>(`${this.base}/guides/recipients/${recipientId}`);
+  }
+
+  // ── EMB.24–27 Cierre del viaje (ADR-091) ────────────────────────────────
+  getCierre(shipmentId: string) {
+    return this.http.get<CierreDeEmbarque>(`${this.base}/trip-closure/shipments/${shipmentId}`);
+  }
+  cerrarParada(recipientId: string, body: CerrarParadaBody) {
+    return this.http.post<ParadaCierre>(`${this.base}/trip-closure/paradas/${recipientId}/cierre`, body);
+  }
+  setCargadores(shipmentId: string, driverIds: string[]) {
+    return this.http.put<CierreDeEmbarque>(`${this.base}/trip-closure/shipments/${shipmentId}/cargadores`, { driver_ids: driverIds });
   }
 
   // ── Expenses ─────────────────────────────────────────────────────────────

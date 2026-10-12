@@ -68,6 +68,8 @@ export * from './lib/cortes-sucursales/cortes-sucursales.service';
 // [ECA.1] Estado de cuenta de acreedores. El motor tampoco se reexporta (r2 chocaría con el de CSU).
 export * from './lib/creditor-statements/finance-creditor-statements.module';
 export * from './lib/creditor-statements/creditor-statements.service';
+// [EMB.29] Vale de comisiones y viáticos de logística: sólo viajes cerrados y cargas en Kepler.
+export * from './lib/trip-pay/finance-trip-pay.module';
 export * from './lib/feed-notify/finance-feed-notify.module';
 export * from './lib/feed-notify/finance-feed-scanner.service';
 export * from './lib/budget/finance-budget.module';
