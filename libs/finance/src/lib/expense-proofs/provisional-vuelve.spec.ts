@@ -62,8 +62,8 @@ describe('[GX.56] la casilla del aprobador devuelve el vale', () => {
    */
   it('un vale que sólo trae cotización vuelve aunque nadie marque la casilla', () => {
     const cuerpo = metodo(SERVICIO, 'async approve(');
-    expect(cuerpo).toContain("const soloCotizacion = files.some((f) => String(f?.role || '').startsWith('cotizacion'))");
-    expect(cuerpo).toContain("&& !files.some((f) => String(f?.role || '').startsWith('comprobante'))");
+    // `[GX.81]` El cálculo vive en `debe-comprobante.ts` (con sus pruebas de comportamiento).
+    expect(cuerpo).toContain('const soloCotizacion = esSoloCotizacion(files);');
   });
 });
 
@@ -91,7 +91,8 @@ describe('[GX.55] el vale provisional puede recibir su comprobante después', ()
    */
   it('`addEvidence` no rebota si el vale debe el comprobante', () => {
     const cuerpo = metodo(SERVICIO, 'async addEvidence(');
-    expect(cuerpo).toContain('if (!requiereEvidencia(base.clasificacion) && base.cur.provisional !== true) {');
+    // `[GX.81]` La regla vive en `debe-comprobante.ts` (provisional, sólo-cotización o clase que la exige).
+    expect(cuerpo).toContain('if (!debeComprobante({ provisional: base.cur.provisional, lleva_evidencia: requiereEvidencia(base.clasificacion), files: prev })) {');
   });
 
   /** ⛔ Y para poder mirarlo, tiene que venir en el SELECT. */
