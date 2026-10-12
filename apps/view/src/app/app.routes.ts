@@ -868,6 +868,23 @@ export const routes: Routes = [
         canActivate: [anyPermissionGuard(Permission.HR_ATTENDANCE_VER, Permission.HR_DEVICES_GESTIONAR)],
         loadComponent: () => import('./modules/rh/pages/rh-relojes.component').then(m => m.RhRelojesComponent),
       },
+      // `[RH.2.3]` Reclutamiento (antes el portal de Mega Talento). Las tres pestañas leen con VER o GESTIONAR,
+      // igual que `GET /hr/talent/*`: gestionar implica ver.
+      {
+        path: 'reclutamiento',
+        canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-candidatos.component').then(m => m.RhCandidatosComponent),
+      },
+      {
+        path: 'reclutamiento/vacantes',
+        canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-vacantes.component').then(m => m.RhVacantesComponent),
+      },
+      {
+        path: 'reclutamiento/revisiones',
+        canActivate: [anyPermissionGuard(Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR)],
+        loadComponent: () => import('./modules/rh/pages/rh-reclutamiento-revisiones.component').then(m => m.RhReclutamientoRevisionesComponent),
+      },
     ]
   },
   // ── Proyecto Mesa de Servicio (Fase MS, ADR-081) ────────────────────

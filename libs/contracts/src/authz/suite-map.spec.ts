@@ -88,7 +88,7 @@ describe('SUITE_SPACES · el mapa contra el árbol', () => {
     );
   });
 
-  it('Personal vive en «Recursos Humanos» y abre con cualquiera de sus siete claves de pantalla', () => {
+  it('Personal vive en «Recursos Humanos» y abre con cualquiera de sus nueve claves de pantalla', () => {
     const rh = SUITE_SPACES.find((s) => s.id === 'recursos-humanos')!;
     expect(rh.status).toBe('active');
     const e = rh.entries.find((x) => x.project === 'rh')!;
@@ -99,6 +99,8 @@ describe('SUITE_SPACES · el mapa contra el árbol', () => {
         Permission.HR_ATTENDANCE_VER, Permission.HR_ATTENDANCE_GESTIONAR, Permission.HR_INCIDENTS_CAPTURAR,
         Permission.HR_INCIDENTS_AUDITAR, Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_PERIOD_CLOSE,
         Permission.HR_DEVICES_GESTIONAR,
+        // `[RH.2.3]` Reclutamiento: quien sólo recluta también entra a Personal.
+        Permission.HR_RECRUITMENT_VER, Permission.HR_RECRUITMENT_GESTIONAR,
       ].sort(),
     );
     // El kiosco sigue siendo otra puerta: checar no abre RH.

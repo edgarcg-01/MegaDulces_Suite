@@ -553,6 +553,8 @@ export const AUTHZ_TREE: readonly AuthzApp[] = [
           { id: 'rh-asistencia', label: 'Asistencia', route: '/rh/asistencia', view: [Permission.HR_ATTENDANCE_VER], manage: [Permission.HR_ATTENDANCE_GESTIONAR] },
           { id: 'rh-incidencias', label: 'Incidencias y cierre semanal', route: '/rh/incidencias', view: [Permission.HR_INCIDENTS_CAPTURAR, Permission.HR_INCIDENTS_AUDITAR], manage: [Permission.HR_INCIDENTS_CALIFICAR, Permission.HR_PERIOD_CLOSE] },
           { id: 'rh-relojes', label: 'Relojes checadores', route: '/rh/relojes', view: [], manage: [Permission.HR_DEVICES_GESTIONAR] },
+          // `[RH.2.3]` Reclutamiento: candidatos, vacantes y revisiones (antes el portal de Mega Talento).
+          { id: 'rh-reclutamiento', label: 'Reclutamiento', route: '/rh/reclutamiento', view: [Permission.HR_RECRUITMENT_VER], manage: [Permission.HR_RECRUITMENT_GESTIONAR] },
         ],
       },
       {
