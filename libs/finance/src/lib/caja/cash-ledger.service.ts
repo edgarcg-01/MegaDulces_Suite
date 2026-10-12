@@ -1635,6 +1635,43 @@ export class CashLedgerService {
           return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: cs[0].concepto,
             kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
         }
+        /**
+         * ⛔⛔ `[CS.3.8]` **EXIGIR UN SOLO CONCEPTO DEJABA LA COLA EN CERO PARA SIEMPRE.**
+         *
+         * Edgar, 2026-10-12, con la pantalla a la vista: *"0 de 6 se confirman de un clic"*, las
+         * seis marcadas `falta elegir concepto`. No era un caso raro: es TODA la cobranza.
+         *
+         * La cuenta ya estaba resuelta y es AUTORITATIVA — sale de la póliza del propio documento
+         * (`115 ABONO A CLIENTES`). Lo único que faltaba era elegir 1 concepto entre 2, y la cuenta
+         * `115` tiene exactamente DOS en las nueve sucursales:
+         *
+         *     071  ABONO A CLIENTES     ← un cobro es un abono
+         *     171  CARGO A CLIENTES.    ← lo contrario
+         *
+         * Con `cs.length === 1` eso no resuelve NUNCA. Y no es ambiguo: medido sobre la póliza
+         * real, **UA0501 / cuenta 115 = 25,393 líneas, 100.00% ABONO, $462,745,461.86**.
+         *
+         * ⭐ Con PLACEBO, que es lo que lo vuelve regla y no corazonada: la MISMA cuenta `115` en
+         * otros doctypes (`UD0501`/`UD1301`/`UD1201`) es **100% CARGO**. El sentido NO es una
+         * propiedad de la cuenta — lo decide la naturaleza del documento.
+         *
+         * ⭐⭐ Y el dato que lo resuelve ya venía en la mano: **el documento NOMBRA su cuenta**
+         * (`contra_cuenta_nombre`), y ese nombre coincide exactamente con el de UNO de los dos
+         * conceptos. Medido sobre los pendientes vivos: 12 pares (6 sucursales × 2 conceptos),
+         * **coincide 1 por sucursal, 6 de 12**. No se inventa el concepto: se lee el que Kepler
+         * ya nombró.
+         *
+         * ⚠️ Se limita sola: si coinciden CERO o DOS, no resuelve y la fila sigue cayendo a la
+         * elección acotada de abajo. Nunca elige «el primero» ni «el más usado» — o hay una sola
+         * coincidencia exacta, o no hay regla.
+         */
+        const sinPunto = (x: unknown) => String(x ?? '').toUpperCase().trim().replace(/\.+$/, '');
+        const nomDoc = sinPunto(cc.contra_cuenta_nombre);
+        const porNombre = nomDoc ? cs.filter((x) => sinPunto(x.concepto_nombre) === nomDoc) : [];
+        if (porNombre.length === 1) {
+          return { ...r, confirmable: true, kepler_cuenta: cc.contra_cuenta, kepler_concepto: porNombre[0].concepto,
+            kepler_cuenta_nombre: cc.contra_cuenta_nombre, cuenta_fuente: 'documento' };
+        }
         // La CUENTA es autoritativa (del documento) → se bloquea. El CONCEPTO es una elección
         // acotada a esa cuenta (o manual, si la cuenta no está en el catálogo de conceptos). NO es
         // "faltan datos": el dato de Kepler ya está, sólo se afina el concepto.
