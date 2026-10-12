@@ -155,6 +155,12 @@ export function calcularCorte(input: {
   movimientos: MovimientoDelCorte[];
   conteo?: ConteoDenominacion[] | null;
   morralla?: number;
+  /**
+   * `[CG.96]` Lo que el cajero movió en la jornada y **nadie capturó** como movimiento del libro.
+   * Dispensado = billetes que salieron de la bóveda y están en el cajón; depositado = efectivo que
+   * salió del cajón a la bóveda. Ausente = 0: no se asume nada sobre un cajero que no se midió.
+   */
+  cajeroSinCapturar?: { dispensado?: number; depositado?: number } | null;
 }): TotalesCorte {
   const vivos = (input.movimientos ?? []).filter((m) => m && m.estado !== 'cancelado');
   const cancelados = (input.movimientos ?? []).length - vivos.length;
@@ -193,11 +199,64 @@ export function calcularCorte(input: {
   const gastos_boveda = enBoveda('gasto');
   const depositos_boveda = enBoveda('deposito');
 
+  /**
+   * ⭐⭐ `[CG.96]` **LO QUE EL CAJERO MOVIÓ Y NADIE CAPTURÓ TAMBIÉN ESTÁ EN EL CAJÓN.**
+   *
+   * Edgar, corrigiendo mi modelo: *"si sobra se regresa a CAOS, si no se carga al arqueo de caja
+   * general"*.
+   *
+   * Una dispensación saca billetes de la bóveda y los deja **en el cajón**. Si se pagan, salen; si
+   * sobran, o vuelven al cajero (y entonces hay un depósito) o **se quedan en el cajón y el arqueo
+   * los encuentra**. En los dos casos el cajón es la verdad — por eso no hace falta enlazar cada
+   * dispensación con el gasto que financió.
+   *
+   * Reconstruido con los datos de hoy, al centavo:
+   *
+   *     'nom more' 20,800 + 'nom canindo' 11,420 = 32,220  ->  NOMINA (10 pagos)  32,237.00
+   *     'palomitas'        13,800                          ->  otros dos gastos   13,803.05
+   *     dispensado 46,020.00 + morralla 20.05 = gastos 46,040.05
+   *
+   * O sea: CAOS pone los BILLETES, el cajón pone la MORRALLA. Espejo exacto del lado de los
+   * cobros, donde el cajero traga los billetes y sólo las monedas llegan al cajón. `20,800`,
+   * `11,420` y `13,800` son todos múltiplos de 20: la máquina no maneja monedas en ninguna
+   * dirección.
+   *
+   * ⛔ Sólo entra lo que NADIE capturó. Una dispensación ya capturada como gasto (`origen_tipo
+   * ='caos'`) representa el ciclo entero —entró al cajón y salió— y su neto ya es cero; sumarla
+   * otra vez sería contarla dos veces.
+   *
+   * ⚠️ Y los depósitos al cajero RESTAN por el mismo motivo: ese efectivo salió del cajón y se
+   * fue a la bóveda.
+   *
+   * Medido: con esto el esperado de hoy pasa de **−$45,990.05** (imposible) a **$3,357.45**, que
+   * es el fondo más unas monedas. Un número que se puede ir a contar.
+   */
+  const dispensadoCajero = Number(input.cajeroSinCapturar?.dispensado ?? 0);
+  const depositadoCajero = Number(input.cajeroSinCapturar?.depositado ?? 0);
+
+  /**
+   * ⛔ Y acá se RETIRA el `en_boveda` del esperado, que fue mi primer intento y era peor.
+   *
+   * Restar la bóveda movimiento por movimiento dependía de que alguien hubiera ENLAZADO cada
+   * cobro con su depósito y cada gasto con su dispensación. Con las dos piernas del cajero el
+   * enlace no hace falta: cada pierna se cuenta una vez y la aritmética sale sola.
+   *
+   *     cobro de ruta $15,542  ->  ingreso +15,542 · depósito −15,510  =  +32  (la morralla)
+   *     gasto con dispensación ->  dispensación +2,000 · gasto −2,000  =    0
+   *     nómina $32,237 de dispensaciones $32,220  ->  −17  (la morralla que puso el cajón)
+   *
+   * ⭐ Y es MÁS exacto: `en_boveda` para un movimiento `origen_tipo='caos'` usaba su monto
+   * entero, cuando la máquina sólo se llevó los billetes. Medido: el ingreso `CI-2026-00002` de
+   * $21,790 se contaba completo contra un depósito real de $21,770 — se perdían $20 de morralla.
+   * La máquina es el testigo duro; el enlace es una declaración.
+   *
+   * `en_boveda` se CONSERVA en el movimiento porque sirve para explicar un renglón en pantalla,
+   * pero ya no decide el esperado.
+   */
   const esperado = redondea(
     Number(input.fondoInicial ?? 0)
-    + (ingresos - ingresos_boveda)
-    - (gastos - gastos_boveda)
-    - (depositos - depositos_boveda),
+    + ingresos - gastos - depositos
+    + dispensadoCajero - depositadoCajero,
   );
 
   // De qué está hecho ese `esperado`. La aritmética no cambia; lo que cambia es que el corte

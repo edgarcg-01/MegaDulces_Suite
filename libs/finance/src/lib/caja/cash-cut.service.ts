@@ -299,8 +299,11 @@ export class CashCutService {
       }
 
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
+      // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
       const totales = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
@@ -326,10 +329,13 @@ export class CashCutService {
       if (!c) throw new NotFoundException('Corte no encontrado');
 
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
+      // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
+      // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
       const previos = await trx('finance.cash_ledger_cut_denominations')
         .where({ tenant_id: tenantId, cut_id: id }).select('denominacion', 'piezas');
       const totalesPrevios = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: previos as ConteoDenominacion[], morralla: Number(c.morralla ?? 0),
       });
 
@@ -347,7 +353,7 @@ export class CashCutService {
       });
 
       const totales = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
       if (totales.veredicto === 'sin_contar') throw new BadRequestException(TEXTO_NO_CIERRA['sin_conteo']);
@@ -403,9 +409,12 @@ export class CashCutService {
       // esperado venía de Kepler. Es el dato que distingue un corte auditable de uno que sólo
       // repite lo que el capturista tecleó (regla M4).
       const movs: MovimientoDelCorte[] = filas.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
+      // `[CG.96]` Las dos piernas del cajero desde que abrió ESTE corte. Sin esto el esperado
+      // ignora la bóveda y pide contar efectivo que está dentro de la máquina.
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
 
       const t = calcularCorte({
-        fondoInicial: fondo(c), movimientos: movs,
+        fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
       });
 
@@ -542,7 +551,7 @@ export class CashCutService {
         .where({ tenant_id: tenantId, sucursal, estado: 'borrador' }).first();
       const movs = await this.movimientosSueltos(trx, tenantId, sucursal);
       const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.created_at ?? null);
-      const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs });
+      const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs, cajeroSinCapturar: cajero });
       return {
         sucursal,
         corte_abierto: abierto
