@@ -29,6 +29,8 @@ export interface FilaChecoEnSemana {
   departamento: string | null;
   tieneDepartamento: boolean;
   nombreReloj: string | null;
+  /** `[RH.1.4b]` La casilla de promotora de la ficha (Mega Talento `es_promotora`). */
+  esPromotora?: boolean;
 }
 
 export interface PersonaSinIdentificar {
@@ -49,7 +51,7 @@ export function sinIdentificar(filas: FilaChecoEnSemana[]): PersonaSinIdentifica
   for (const f of filas) {
     if (f.ignorado) continue;
     if (RE_ADMIN.test(f.nombre || '') || RE_ADMIN.test(f.nombreReloj || '')) continue;
-    if (f.ligado && esPromotora({ departamento: f.departamento })) continue;
+    if (f.ligado && esPromotora({ es_promotora: f.esPromotora === true, departamento: f.departamento })) continue;
     const sinFicha = !f.ligado;
     const sinNombre = sinFicha || palabras(f.nombre) < 2;
     const sinDepartamento = sinFicha || !f.tieneDepartamento;
