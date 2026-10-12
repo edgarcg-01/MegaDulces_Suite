@@ -1,0 +1,47 @@
+# /etc/systemd/system/verificar-arranque.service
+# `[RES.2]` Corre el verificador DESPUÉS de cada arranque y avisa por correo.
+#
+# ⭐ Por qué en systemd y no en cron: esto tiene que correr **una vez por arranque**, y cron no
+#    sabe qué es un arranque — tendría que inventar un archivo centinela para no repetirse. El
+#    `WantedBy=multi-user.target` lo dispara solo, sin sesión de usuario, que es justo lo que falló
+#    en `.249` (ver VL: Docker Desktop no arrancaba hasta el login, 9.5 h sin ingesta).
+#
+# ⭐ Por qué `Type=oneshot` y NO `Restart=`: si el verificador no puede medir, NO queremos que se
+#    reintente en bucle mandando correos. Mide una vez, avisa, se va. Un vigilante que spamea
+#    enseña a ignorar el tablero — la misma razón por la que `[VL.4b]` rechazó la alarma obvia
+#    de `store_poller` («hace mucho que no llega un ticket» gritaría cada noche al cerrar).
+#
+# ⚠️ `After=k3s.service` + el propio `ESPERA_MAX` del script: arrancar al segundo 0 del boot daría
+#    rojo en todo. El script espera a que `api` tenga réplicas antes de declarar.
+#
+# ⛔ NO repara nada. Si algo no volvió, lo dice y se calla. Un verificador que además arregla no
+#    se puede leer: cuando llega el correo ya no sabés qué estaba roto.
+#
+# Instalar:
+#   sudo cp verificar-arranque.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable verificar-arranque.service
+# Probar sin reiniciar:
+#   sudo systemctl start verificar-arranque.service && journalctl -u verificar-arranque -n 40
+
+[Unit]
+Description=Verifica que todo volvio despues de un arranque, y avisa
+Documentation=file:///home/superoot/ops/prod/verificar-arranque.sh
+After=k3s.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=superoot
+Environment=KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+Environment=ENV_FILE=/home/superoot/secrets/prod.env
+# A quien le llega. Varios destinatarios: separar con coma y ajustar el script.
+Environment=RES_ALERTA_PARA=sistemas@megadulces.com.mx
+ExecStart=/bin/sh /home/superoot/ops/prod/verificar-arranque.sh
+# Tope duro: el script ya espera hasta 15 min por su cuenta; 20 min es el cinturon.
+TimeoutStartSec=1200
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
