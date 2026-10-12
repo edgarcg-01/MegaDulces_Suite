@@ -55,7 +55,12 @@ const CADENA = [
   '20261008094812_hr_agente_corridas.js',
   '20261008094813_hr_ordenes_quien.js',
   '20261008094815_hr_reparto_asistencia.js',
+  // [RH.1.4] las bajas sin contraseña, el rol `sin_acceso` y el departamento de promotoría de marca:
+  // la carga de personas (`carga-personas-mega-talento.js`) no corre sin ella.
+  '20261012094356_rh_personas_bajas_y_sin_acceso.js',
 ];
+/** La migración del reparto: de ella depende el chequeo de «claves en true» (ya no es la última de la cadena). */
+const MIG_REPARTO = '20261008094815_hr_reparto_asistencia.js';
 
 /**
  * Nombres que estas migraciones tuvieron antes de renombrarlas: chocaron con `main` TRES veces (7 y 8 de
@@ -172,7 +177,7 @@ async function revisar({ url, mtUrl = null, exigirProd = false, env = process.en
     } else {
       const aplicadas = (await q(`SELECT name FROM public.knex_migrations`)).map((r) => r.name);
       const e = evaluarLedger(aplicadas);
-      repartoAplicado = !e.pendientes.includes(CADENA[CADENA.length - 1]);
+      repartoAplicado = !e.pendientes.includes(MIG_REPARTO);
       if (e.viejas.length) anotar('migraciones', 'BLOQUEA', `aplicadas con el NOMBRE VIEJO (antes del renombre): ${e.viejas.join(', ')} — knex dirá «directory is corrupt»`);
       if (e.colisiones.length) anotar('migraciones', 'BLOQUEA', `otra migración ya aplicada comparte timestamp con la cadena: ${e.colisiones.map((x) => `${x.aplicada} ↔ ${x.choca_con}`).join('; ')} — renombrar la nuestra antes del corte`);
       if (e.fueraDeOrden.length) anotar('migraciones', 'BLOQUEA', `aplicadas fuera de orden (hay una pendiente antes): ${e.fueraDeOrden.join(', ')}`);
@@ -315,4 +320,4 @@ if (require.main === module) {
     .catch((e) => { console.error('FALLA:', String(e.message).replace(/postgres(ql)?:\/\/\S+/g, '<url>')); process.exit(1); });
 }
 
-module.exports = { PROD_CLUSTER_ID, CADENA, NOMBRES_VIEJOS, REPARTO, evaluarLedger, evaluarPadron, enHorarioHabil, veredicto, revisar };
+module.exports = { PROD_CLUSTER_ID, CADENA, MIG_REPARTO, NOMBRES_VIEJOS, REPARTO, evaluarLedger, evaluarPadron, enHorarioHabil, veredicto, revisar };

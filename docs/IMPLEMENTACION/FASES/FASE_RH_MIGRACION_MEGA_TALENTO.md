@@ -1,6 +1,6 @@
 # Fase RH — Recursos Humanos: migración de Mega Talento a la Suite
 
-**Estado:** 🔨 PLANEADA 2026-10-06 · sin código · ADR-084 (propuesto) ·
+**Estado:** 🔨 EN CÓDIGO (RH.1 asistencia) · ADR-084 (propuesto) · bitácora y orden de lo que falta en [`FASE_RH_PLAN_DE_TRABAJO`](FASE_RH_PLAN_DE_TRABAJO.md) ·
 absorbe `[CH.0.7]`–`[CH.0.10]` y desbloquea `[ID.16]`.
 
 > **En una frase:** Mega Talento (reclutamiento con bot de WhatsApp + asistencia de 12 relojes
@@ -273,7 +273,7 @@ qué pantallas se usan: lo que nadie usa se declara retirado, no se porta.
   fail-closed), padrón, relojes, checadas, comandos. Permisos `HR_ATTENDANCE_*`, `HR_DEVICES_GESTIONAR` y su reparto.
 - [ ] **[RH.1.3]** Agente al monorepo: código del agente de Mega Talento + `verify_mode`; contenedor en el
   namespace `ingesta` de `md`; latido en `cron_runs` + umbral en `CRON_JOBS`; prueba negativa (apagar un reloj y ver el rojo).
-- [ ] **[RH.1.4]** Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4.
+- [ ] **[RH.1.4]** 🧪 Personas: carga única de `empleados` a `identity.users` (D1) con los mapeos de RH.0.4. → En código 2026-10-12: guion, mapeos versionados, mig `20261012094356` (bajas sin contraseña, rol `sin_acceso`, departamento `promotoria_marca`); detalle en [`FASE_RH_PLAN_DE_TRABAJO`](FASE_RH_PLAN_DE_TRABAJO.md) §5.
   ⛔ **Es prerrequisito del corte del 7-nov, no «después»** (medido 2026-10-07, ver §5.4): la paridad se midió con
   las personas ligadas; sin ellas no hay faltas de quien no checó, ni planta/promotoras, ni bajas.
 - [ ] **[RH.1.5]** 🧪 Horarios deducidos y agente de alertas como `@Cron` del worker (una sola implementación;

@@ -155,8 +155,22 @@ Medido con datos reales: tras la carga hay **991 enrolamientos activos y 0 ligad
 
 Antes del corte:
 1. RH valida los mapeos de empleados (`[RH.0.4]`).
-2. Se crean o enlazan las personas en `identity.users` y se ligan sus enrolamientos (`[RH.1.4]`). **El guion todavía
-   no existe**: es el siguiente trabajo de esta fase y depende del paso 1.
+2. Se crean o enlazan las personas en `identity.users` y se ligan sus enrolamientos (`[RH.1.4]`) con
+   `database/scripts/rh/carga-personas-mega-talento.js` (ensayo por omisión, `--aplicar` para dejarlo). Necesita la
+   migración `20261012094356_rh_personas_bajas_y_sin_acceso` aplicada (va al final de la cadena del pre-vuelo) y corre
+   **después** de la carga de checadas, que es la que deja los enrolamientos. Los mapeos están en
+   `database/scripts/rh/mapeo-personas-mega-talento.json`; mientras RH no los valide, cada persona queda con el mapeo
+   propuesto y el cuadre lo cuenta (`mapeo_validado`). Reglas y lo que NO hace: cabecera del guion y
+   [`FASE_RH_PLAN_DE_TRABAJO`](../FASES/FASE_RH_PLAN_DE_TRABAJO.md) §5.
+   - Ensayo en prod, después del de §2.6 (mismo pod, misma `mt.url`):
+     ```sh
+     kubectl exec -n prod $API -c api -- sh -c        'CARGA_URL="$DATABASE_URL_NEW" MT_DATABASE_URL="$(cat /tmp/mt.url)"         node /app/database/scripts/rh/carga-personas-mega-talento.js --destino-prod --informe=/tmp/rh-personas.json'
+     kubectl cp prod/$API:/tmp/rh-personas.json ~/rh-personas-$(date +%Y%m%d-%H%M).json -c api   # listas para RH, con nombres
+     ```
+   - ⚠️ En el ensayo de prod la carga de checadas se deshizo, así que las personas se crean pero no hay enrolamientos
+     que ligar (`enrolamientos_ligados: 0`). El número que importa ahí es `creadas` / `por_decidir`; el de ligados se
+     ve en el corte. En local, `--con-cargas` corre todo en la misma transacción.
+   - El informe trae nombres: **nunca al repo** (el guion se niega a escribirlo dentro de él).
 3. RH: quien califica y cierra va en el rol `recursos_humanos` (`/admin/personas`); contabilidad ya tiene la
    auditoría por el reparto. Que entren una vez para confirmar que ven las pantallas (vacías).
 
@@ -194,7 +208,7 @@ previos»): la carga no las duplica, pero hay que saber de dónde vinieron.
 |---|---|---|---|
 | 1 | Edgar | **Pre-vuelo** con Mega Talento (§2.3 + `MT_DATABASE_URL`) | Sin BLOQUEA. «padrón» puede seguir NO MEDIDO: todavía no hay carga |
 | 2 | Edgar | **Carga real**: lo mismo que §2.6 con `--aplicar`. Guardar la salida | El cuadre coincide con el del ensayo (las checadas crecen un poco) |
-| 3 | Edgar | **Ligar personas** (`[RH.1.4]`) y otra vez el pre-vuelo | «padrón» en OK o AVISO, **nunca BLOQUEA** |
+| 3 | Edgar | **Ligar personas** (`[RH.1.4]`): el comando de §2.5 con `--aplicar`, y otra vez el pre-vuelo | «padrón» en OK o AVISO, **nunca BLOQUEA**; `por_decidir` del cuadre = lista para RH |
 | 4 | David | **Agente → Suite** (en `LapSistemasA`): copiar `config.json` a `config.json.antes-corte`; en `config.json` poner `apiUrl = https://megadulcessuite.com/api/hr/attendance/ingest/mt` y `token = <HR_INGEST_KEY>`; reiniciar el servicio «Mega Talento Agente de Checadas» | Su log muestra el respaldo inicial («backfill … nuevas a la cola») y respuestas 200, sin 401 |
 | 5 | Edgar | **La ingesta late** | Salud BD: `hr_attendance_ingest` con latido reciente. `/rh/relojes`: los relojes «Al día» en ~10 min |
 | 6 | David | **Mega Talento dejó de recibir** | En su base, `max(recibido_en)` de `checadas` se queda quieto |
