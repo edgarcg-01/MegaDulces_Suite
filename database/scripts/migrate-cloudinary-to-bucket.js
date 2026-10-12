@@ -105,8 +105,37 @@ function urlFirmadaDeApi(f) {
   }
 }
 
+/**
+ * `[AT.1.3]` Un `fetch` que reintenta **sólo los fallos de RED**, con espera creciente.
+ *
+ * La primera corrida real sobre los 1,198 comprobantes cerró en **742 migrados / 456 fallidos**,
+ * y el motivo no era `401` sino **`fetch failed`** — una excepción del propio `fetch`, o sea que
+ * la petición ni llegó a tener código de estado. Bajar ~50 archivos por minuto en serie contra
+ * el mismo host agota conexiones y el proveedor empieza a cortar.
+ *
+ * ⛔ Se reintenta la EXCEPCIÓN, nunca una respuesta con código. Un `401` o un `404` son
+ * respuestas legítimas —«bloqueado» y «no está»— y reintentarlas sería esconder el diagnóstico
+ * detrás de tres intentos idénticos.
+ *
+ * ⚠️ No hace falta que esto sea perfecto: el script es **idempotente** (una fila ya migrada deja
+ * de tener url de Cloudinary y no vuelve a entrar), así que lo que falle se recupera corriéndolo
+ * otra vez. El reintento existe para no necesitar tres corridas.
+ */
+async function fetchConReintento(url, intentos = 3) {
+  let ultima;
+  for (let i = 0; i < intentos; i++) {
+    try {
+      return await fetch(url);
+    } catch (e) {
+      ultima = e;
+      if (i < intentos - 1) await new Promise((r) => setTimeout(r, 400 * Math.pow(3, i)));
+    }
+  }
+  throw new Error(`red: ${(ultima && ultima.message) || ultima} (tras ${intentos} intentos)`);
+}
+
 async function bajar(f) {
-  const directa = await fetch(f.url);
+  const directa = await fetchConReintento(f.url);
   if (directa.ok) return directa;
   // ⛔ 401 = entrega bloqueada (NO «no existe»: eso da 404, verificado). Se reintenta por la API.
   if (directa.status !== 401) throw new Error(`GET ${directa.status}`);
@@ -114,7 +143,7 @@ async function bajar(f) {
   if (!firmada) {
     throw new Error('GET 401 y no hay CLOUDINARY_API_SECRET para bajarlo por la API firmada');
   }
-  const porApi = await fetch(firmada);
+  const porApi = await fetchConReintento(firmada);
   if (!porApi.ok) throw new Error(`GET 401 (entrega) y ${porApi.status} (API firmada)`);
   return porApi;
 }
