@@ -55,7 +55,7 @@ import {
         </div>
         <div class="surf-page-head-actions">
           <p-select [options]="mesOpts" [ngModel]="mes()" (ngModelChange)="setMes($event)"
-                    appendTo="body" styleClass="cpp-sel" [style]="{ minWidth: '10rem' }"
+                    appendTo="body" class="cpp-sel" [style]="{ minWidth: '10rem' }"
                     ariaLabel="Mes"></p-select>
         </div>
       </header>
