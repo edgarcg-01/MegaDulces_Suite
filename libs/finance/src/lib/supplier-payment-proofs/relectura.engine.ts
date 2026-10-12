@@ -59,18 +59,56 @@ export interface HojaGuardada {
 }
 
 /**
+ * ⛔⛔ **¿Esta llave es de NUESTRO bucket, o es un `public_id` de Cloudinary?**
+ *
+ * Esta función existe por un error mío que llegó hasta producción. La primera versión aceptaba
+ * cualquier `public_id` que no empezara con `http`, y yo medí **«1,199 de 1,199 tienen su archivo
+ * en el bucket»**. Era falso: medí *«el campo no está vacío y no es una URL»*, un **proxy**, y lo
+ * publiqué como si fuera *«el objeto existe en nuestro bucket»* — que sólo lo contesta un GET.
+ *
+ * Un `public_id` de Cloudinary se ve **idéntico** a una llave nuestra: `finance/<tenant>/
+ * supplier-payments/uyil38hglpnz7zarmv8g`. Lo que los separa es la **extensión**: todo lo que
+ * escribe `ObjectStorageService` sale como `<carpeta>/<uuid>.<ext>` —`putPdf` fija `.pdf`,
+ * `putFile` y `putStream` derivan la extensión y caen en `.bin`, nunca vacío—. Cloudinary no
+ * pone extensión.
+ *
+ * Medido en prod el 2026-10-12, con la primera pasada real ya corriendo:
+ *
+ * | hoja `comprobante` de un pago | |
+ * |---|---:|
+ * | `public_id` de Cloudinary (sin extensión) | **1,194** — todos del 2026-08-04/05 |
+ * | llave real del bucket (`.pdf`) | **5** — de octubre |
+ *
+ * El contraste cierra el caso: los **142** comprobantes que SÍ tienen lectura firmable son
+ * **100 % llave de bucket**, y `expense_proofs` —el módulo hermano cuya visión funciona— es 702
+ * de bucket contra 2 de Cloudinary. *Verifiqué el mecanismo en un módulo y supuse la población
+ * en el otro.*
+ */
+export function esLlaveDeBucket(publicId: string | null | undefined): boolean {
+  const k = String(publicId ?? '').trim();
+  if (!k || /^https?:\/\//i.test(k)) return false;
+  return /\.[a-z0-9]{1,8}$/i.test(k);
+}
+
+/**
  * La hoja que se relee: la del rol `comprobante` (la que liga el pago), **no** la del rol `gasto`
- * —que es la factura de lo comprado y se lee con otro extractor—. Sin `public_id` que parezca
- * llave del bucket no hay nada que bajar: una `url` http es un archivo legacy de Cloudinary, que
- * `getDataUri` rechaza a propósito.
+ * —que es la factura de lo comprado y se lee con otro extractor—.
+ *
+ * ⚠️ Devuelve la hoja aunque NO esté en el bucket: quién decide es `motivoDeHoja()`, para poder
+ * **contar aparte** la evidencia que vive en Cloudinary en vez de confundirla con un archivo que
+ * se perdió. No se arreglan igual: una se migra (`migrate-cloudinary-to-bucket.js`), la otra se
+ * vuelve a pedir.
  */
 export function hojaRelegible(files: unknown): HojaGuardada | null {
   const lista = Array.isArray(files) ? (files as HojaGuardada[]) : [];
-  const esLlave = (h: HojaGuardada) => {
-    const k = String(h?.public_id ?? '').trim();
-    return !!k && !/^https?:\/\//i.test(k);
-  };
-  return lista.find((h) => h?.role === 'comprobante' && esLlave(h)) ?? null;
+  return lista.find((h) => h?.role === 'comprobante' && String(h?.public_id ?? '').trim()) ?? null;
+}
+
+/** Por qué esta hoja no se puede releer todavía. `null` = adelante. */
+export function motivoDeHoja(h: HojaGuardada | null): MotivoNoRelegible | null {
+  if (!h) return 'sin_hoja';
+  if (!esLlaveDeBucket(h.public_id)) return 'en_cloudinary';
+  return null;
 }
 
 /**
@@ -154,8 +192,20 @@ export function camposQueCambiaron(
   return CAMPOS_QUE_DECIDEN.filter((c) => norm(c, vieja?.[c]) !== norm(c, nueva?.[c]));
 }
 
-/** Por qué un comprobante no se pudo releer. Cada motivo se cuenta aparte, nunca un total mudo. */
-export type MotivoNoRelegible = 'sin_hoja' | 'sin_archivo' | 'tipo_no_leible' | 'ilegible';
+/**
+ * Por qué un comprobante no se pudo releer. Cada motivo se cuenta aparte, **nunca un total mudo**
+ * — y esto dejó de ser una preferencia de estilo el día que se desplegó:
+ *
+ * La primera pasada real en prod (2026-10-12 11:20) cerró en `0/25 releidos · sin releer:
+ * sin_archivo 25`. **Ese desglose diagnosticó la falla en una consulta.** El módulo hermano
+ * `[GX.33]` mete los cuatro casos en un solo `AVISO_ILEGIBLE`, y con esa etiqueta lo mismo se
+ * habría leído como *«los comprobantes no se entienden»* — o sea, culpando al documento por un
+ * archivo que está en otro proveedor.
+ *
+ * ⛔ `en_cloudinary` NO es un sabor de `sin_archivo`: el archivo **existe**, está en el proveedor
+ * anterior, y se arregla migrándolo (`migrate-cloudinary-to-bucket.js`), no volviéndolo a pedir.
+ */
+export type MotivoNoRelegible = 'sin_hoja' | 'en_cloudinary' | 'sin_archivo' | 'tipo_no_leible' | 'ilegible';
 
 export interface ResultadoRelectura {
   /** Cuántos comprobantes entraron a la pasada. */
@@ -170,20 +220,31 @@ export interface ResultadoRelectura {
   validados: number;
   /** Por qué no se pudo releer, desglosado. */
   no_relegibles: Record<MotivoNoRelegible, number>;
+  /**
+   * ⛔ Comprobantes `recibido` cuya evidencia vive en **Cloudinary**, no en el bucket. El carril
+   * NO los toma (ver `relectura()`): si los tomara, los 25 del lote serían siempre los mismos y
+   * la cola no avanzaría nunca — es lo que pasó en la primera pasada real.
+   *
+   * Se publica en CADA pasada aunque el carril esté sano. Es un rezago **bloqueado por una acción
+   * humana** (habilitar el delivery de PDF en Cloudinary + correr
+   * `migrate-cloudinary-to-bucket.js`), y un rezago que no se cuenta se vuelve invisible el día
+   * que el carril se pone verde.
+   */
+  bloqueados_en_cloudinary: number;
   /** Fallas acumuladas. Una pasada con fallas NO reporta `ok` (ADR-053). */
   errores: string[];
   ms: number;
 }
 
 export const SIN_RELEER: Record<MotivoNoRelegible, number> = {
-  sin_hoja: 0, sin_archivo: 0, tipo_no_leible: 0, ilegible: 0,
+  sin_hoja: 0, en_cloudinary: 0, sin_archivo: 0, tipo_no_leible: 0, ilegible: 0,
 };
 
 /** Un resultado vacío, para arrancar una pasada sin repetir la forma en cada llamador. */
 export function pasadaVacia(): ResultadoRelectura {
   return {
     revisados: 0, releidos: 0, cambiaron: 0, clasificados: 0, validados: 0,
-    no_relegibles: { ...SIN_RELEER }, errores: [], ms: 0,
+    no_relegibles: { ...SIN_RELEER }, bloqueados_en_cloudinary: 0, errores: [], ms: 0,
   };
 }
 
@@ -212,5 +273,8 @@ export function notaPasada(r: ResultadoRelectura): string {
     `${r.validados} validados solos`,
     `${r.cambiaron} cambiaron de lectura`,
     no.length ? `sin releer: ${no.join(', ')}` : null,
+    // Se dice SIEMPRE que haya alguno, aunque la pasada esté sana: un rezago bloqueado por una
+    // acción humana se vuelve invisible justo cuando el carril se pone verde.
+    r.bloqueados_en_cloudinary ? `⛔ ${r.bloqueados_en_cloudinary} con evidencia en Cloudinary (migrar)` : null,
   ].filter(Boolean).join(' · ');
 }
