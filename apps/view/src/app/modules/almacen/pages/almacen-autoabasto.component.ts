@@ -175,23 +175,23 @@ const BUCKET_LABEL: Record<string, string> = {
                        [ngModel]="warehouseIds()" (ngModelChange)="setWarehouses($event)"
                        placeholder="Todos los almacenes" [filter]="true"
                        [showClear]="warehouses().length > 1" [disabled]="warehouses().length <= 1"
-                       styleClass="ab-f" [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes">
+                       class="ab-f" [maxSelectedLabels]="2" selectedItemsLabel="{0} almacenes">
         </p-multiselect>
 
         <p-select [options]="supplierOpts()" optionLabel="name" optionValue="id"
                   [ngModel]="supplierId()" (ngModelChange)="setSupplier($event)"
                   placeholder="Todos los proveedores" [filter]="true" [showClear]="true"
-                  styleClass="ab-f">
+                  class="ab-f">
         </p-select>
 
         <p-select [options]="accionOpts" optionLabel="label" optionValue="value"
                   [ngModel]="accion()" (ngModelChange)="setAccion($event)"
-                  placeholder="Toda acción" [showClear]="true" styleClass="ab-f">
+                  placeholder="Toda acción" [showClear]="true" class="ab-f">
         </p-select>
 
         <p-select [options]="bucketOpts" optionLabel="label" optionValue="value"
                   [ngModel]="bucket()" (ngModelChange)="setBucket($event)"
-                  placeholder="Toda posición" [showClear]="true" styleClass="ab-f">
+                  placeholder="Toda posición" [showClear]="true" class="ab-f">
         </p-select>
 
         <input pInputText type="search" class="ab-search" placeholder="SKU o nombre"
@@ -206,7 +206,7 @@ const BUCKET_LABEL: Record<string, string> = {
         <p-table [value]="rows()" [lazy]="true" (onLazyLoad)="onLazyLoad($event)"
                  [paginator]="true" [rows]="pageSize()" [totalRecords]="total()"
                  [rowsPerPageOptions]="[50, 100, 250]" [first]="(page() - 1) * pageSize()"
-                 [scrollable]="true" scrollHeight="flex" styleClass="p-datatable-sm"
+                 [scrollable]="true" scrollHeight="flex" size="small"
                  dataKey="rowKey" [customSort]="true">
           <ng-template #header>
             <tr>
