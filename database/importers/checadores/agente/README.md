@@ -1,32 +1,37 @@
-# Agente local de checadas
+# Lector de relojes checadores (Fase RH · `[RH.1.3]`)
 
-Corre **dentro de la red del corporativo** y empuja las checadas a la API. Es el
-reemplazo de `jalar-en-vivo.bat`.
+El agente de Mega Talento (`mega-talento-90/api/agente` @ e8a2ad3) traído a la Suite, **sólo con el origen
+`relojes`**: lee los ZKTeco por TCP 4370 y empuja a la entrada compatible de la Suite
+(`/api/hr/attendance/ingest/mt/checador/ingesta…`, `[RH.1.2b]`). Corre como carril del namespace `ingesta`
+en `md`: [`ops/k3s/29-hr-relojes.deployment.yaml`](../../../../ops/k3s/29-hr-relojes.deployment.yaml).
 
-Las instrucciones de instalación están en [`../COMO-DEJAR-EN-VIVO.md`](../COMO-DEJAR-EN-VIVO.md).
-Aquí está **por qué** cada pieza es como es.
+⛔ **Un ZKTeco acepta UNA sola sesión TCP.** Este lector y el servicio de Windows de la laptop nunca corren a la
+vez. El manifiesto nace fuera del despliegue (`migracion: preparado-externo`) y se enciende en el corte:
+[`RH_CORTE_ASISTENCIA`](../../../../docs/IMPLEMENTACION/RUNBOOKS/RH_CORTE_ASISTENCIA.md) §2.7 y paso 4.
+
+## Lo que cambió contra el original
+
+| Original (Mega Talento) | Aquí |
+|---|---|
+| `config.json` (apiUrl, token) | Entorno: `HR_AGENT_API_URL`, `HR_INGEST_KEY`, `HR_AGENT_DATA_DIR`… (ver `config.js`) |
+| Origen `hr` (leía la base del proveedor) u origen `relojes` | Sólo `relojes`. El sistema del proveedor dejó de existir el 21-ago-2026 |
+| Servicio de Windows (`node-windows`) | Pod de k3s: el kubelet lo levanta si sale |
+| Log a archivo con rotación | stdout (k8s / dozzle) |
+| `cola.db` y `padron.json` junto al código | En `HR_AGENT_DATA_DIR` (hostPath en `md`) |
+
+Lo demás —el protocolo, la cola, la marca de agua, el descubrimiento por serie, las órdenes al reloj— es el
+código de Mega Talento sin cambios de comportamiento (sólo ajustes de lint que no alteran nada).
+
+Correrlo a mano (sin relojes alcanzables no toca ninguno: la lista viene de la API):
+
+```sh
+HR_AGENT_API_URL=http://localhost:3000/api/hr/attendance/ingest/mt HR_INGEST_KEY=… node database/importers/checadores/agente/index.js --una-vez
+```
 
 ---
 
-## Dos orígenes posibles
-
-El agente puede tomar el dato de dos lados, según `config.origen`:
-
-| origen | De dónde lee | Cuándo se usa |
-|---|---|---|
-| `hr` | el Postgres del sistema del proveedor (`192.168.0.245`) | **el que aplica hoy** |
-| `relojes` | los relojes ZKTeco por TCP 4370 | si algún día se libera el puerto |
-
-**Por qué hoy es `hr`.** Los 10 relojes contestan `CMD_ACK_UNAUTH` (commandId
-2005) a nuestro saludo. Un ZKTeco acepta **una sola sesión TCP**, y el sistema
-del proveedor los sondea cada pocos minutos. Si le peleamos el socket, los dos
-leen a medias — que es justo el error que este módulo lleva meses corrigiendo.
-
-El modo `relojes` no es código muerto: es la ruta para una plaza donde no exista
-ese sistema, y lleva la lectura verificada (`tools/lectura-verificada.js`), el
-stream en vivo y el descubrimiento por serie.
-
----
+_Lo que sigue es el README original de Mega Talento: explica **por qué** cada pieza es como es. Lo del origen
+`hr` y del servicio de Windows es historia (ver la tabla de arriba)._
 
 ## Las piezas
 
