@@ -40,7 +40,7 @@ import { CashLedgerService, type ConceptoKepler, type MovimientoCaja, type Autof
 import { AuthService } from '../../../../core/services/auth.service';
 import { CajaBorradorService } from './caja-borrador.service';
 import { CajaSocketService } from '../../caja-socket.service';
-import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
+import { imprimirComprobante as imprimirTicketComprobante, imprimirReporteDia as imprimirTicketReporte, cuerpoReporteDia, type ComprobanteCaja, type ReporteDia } from './ticket-comprobante';
 import { encuestarVisible } from '../../../../core/utils/poll-visible';
 import {
   BILLETES_CAJA, MONEDAS_CAJA, motivosDeBloqueo, TEXTO_BLOQUEO, etiquetaProcedencia, etiquetaManual,
@@ -484,6 +484,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-trabada .cg-motivo-tag { margin-top:0; margin-left:var(--sp-2); vertical-align:middle; }
     /* ⛔ [CG.48] Acá vivía ".cg-contado", el input de conteo por renglón de la bandeja. Se fue
        con su columna: era la única forma de meter una cifra contada al libro SIN desglose. */
+    /* [CG.87] El reporte en pantalla. Mono y sin envolver: el cuerpo viene alineado en columnas
+       de ancho fijo desde el mismo armador que el papel; con tipografia proporcional los totales
+       se desalinean y el reporte deja de leerse de un vistazo. El scroll horizontal es
+       PREFERIBLE a romper las columnas. */
+    .cg-reporte { margin:0; max-height:60vh; overflow:auto; font-family:var(--font-mono);
+                  font-size:var(--fs-xs); line-height:1.45; white-space:pre; color:var(--text); }
     .cg-rezago { margin:var(--sp-2) 0 0; font-size:var(--fs-xs); }
     /* [CG.56] La columna de la MARCA. Ya no hay casilla: la fila es el control y esta celda sólo
        publica el estado. Angosta a proposito -- es una senial, no un boton. */
@@ -1172,9 +1178,21 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   optionLabel="label" optionValue="value" placeholder="Todos los tipos" [showClear]="true"></p-select>
         <input pInputText [(ngModel)]="search" (keyup.enter)="cargar()"
                placeholder="Buscar en realizados: folio, concepto, beneficiario, usuario…" />
-        <!-- CS.3.10 — Reporte diario en la térmica: los movimientos del rango/filtros + totales. -->
-        <p-button label="Reporte del día" icon="pi pi-print" severity="secondary" size="small"
+        <!-- CS.3.10 — Reporte diario: los movimientos del rango/filtros + totales.
+             [CG.87] VER va primero y imprimir queda al lado: hasta hoy el reporte sólo existía
+             en papel, así que para leerlo había que gastar un ticket. Los dos salen del MISMO
+             armador (cuerpoReporteDia), no de dos maquetas que se desalinean. -->
+        <p-button label="Reporte del día" icon="pi pi-file" severity="secondary" size="small"
+                  [loading]="imprimiendoReporte()" (onClick)="verReporteDia()"></p-button>
+        <p-button icon="pi pi-print" severity="secondary" size="small" [text]="true"
+                  title="Imprimir el reporte en la térmica" ariaLabel="Imprimir el reporte del día"
                   [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
+        <!-- [CG.86] «Sólo los míos»: filtra por el id de quien pregunta, no por su nombre. -->
+        <p-button [label]="soloMios() ? 'Viendo: los míos' : 'Todo el libro'"
+                  [icon]="soloMios() ? 'pi pi-user' : 'pi pi-users'"
+                  [severity]="soloMios() ? 'primary' : 'secondary'" size="small" [outlined]="!soloMios()"
+                  title="Alternar entre todo el libro y sólo lo que capturaste vos"
+                  (onClick)="alternarMios()"></p-button>
       </div>
 
       <!-- size="small" SÍ es un input de p-table en v22; styleClass="p-datatable-sm" NO lo es y
@@ -2459,6 +2477,22 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                   (onClick)="cerrarConFoco(confirmarGuardar)"></p-button>
         <p-button label="Sí, guardar" icon="pi pi-check" size="small"
                   [disabled]="guardando()" (onClick)="guardar()"></p-button>
+      </ng-template>
+    </p-dialog>
+
+    <!-- [CG.87] El reporte del dia EN PANTALLA. El cuerpo es el MISMO que sale a la termica
+         (cuerpoReporteDia, funcion pura): dos superficies, un solo armador. Va en <pre> con fuente
+         mono porque el texto esta alineado en columnas de ancho fijo -- renderizarlo con tipografia
+         proporcional desalinea los totales y el reporte deja de poder leerse de un vistazo. -->
+    <p-dialog [visible]="reporteAbierto()" (visibleChange)="$event ? null : cerrarConFoco(reporteAbierto)"
+              [modal]="true" [style]="{ width: '34rem', maxWidth: '96vw' }"
+              header="Reporte de movimientos" [draggable]="false">
+      <pre class="cg-reporte">{{ reporteTexto() }}</pre>
+      <ng-template #footer>
+        <p-button label="Imprimir" icon="pi pi-print" severity="secondary"
+                  [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
+        <p-button label="Cerrar" severity="secondary" [text]="true"
+                  (onClick)="cerrarConFoco(reporteAbierto)"></p-button>
       </ng-template>
     </p-dialog>
 
@@ -4169,7 +4203,11 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
 
   cargar(): void {
     this.cargando.set(true);
-    this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined })
+    this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined,
+      // [CG.86] El filtro viaja como BANDERA, no como nombre ni como id: el servidor resuelve
+      // quién es "yo" desde el token de la petición. Mandar el id desde acá volvería "los míos"
+      // en "los de cualquiera que yo escriba".
+      mios: this.soloMios() ? '1' : undefined })
       .subscribe({
         next: (r) => {
           this.rows.set(r.rows ?? []); this.kpiRaw.set(r.kpi);
@@ -4189,7 +4227,44 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * neto), con el mismo criterio que el corte. Es un reporte de lo REALIZADO (el libro), no de la bandeja.
    */
   imprimiendoReporte = signal(false);
+  /** `[CG.87]` El texto del reporte, tal cual lo arma el papel. Vacío = nunca se pidió. */
+  reporteTexto = signal('');
+  reporteAbierto = signal(false);
+  /** `[CG.86]` ¿El libro muestra sólo lo que capturó quien mira? */
+  soloMios = signal(false);
+
+  alternarMios(): void {
+    this.soloMios.set(!this.soloMios());
+    this.cargar();
+  }
+  /**
+   * `[CG.87]` **El reporte del día, EN PANTALLA.** Pedido de Edgar: *"un reporte de movimientos
+   * del día"*. Existía, pero **sólo salía a la térmica** — para leerlo había que imprimirlo.
+   *
+   * ⭐ Comparte el MISMO armador que el papel (`cuerpoReporteDia`, una función pura que devuelve
+   * el texto). Dos superficies, un solo cuerpo: si mañana cambia un total o un renglón, cambian
+   * las dos juntas. Reescribirlo en HTML habría creado una segunda versión que se desalinea en
+   * silencio — y un reporte de dinero que dice algo distinto en papel y en pantalla es peor que
+   * no tenerlo.
+   *
+   * ⚠️ Y pesa más desde `[CG.81]`: al quitar la impresión automática del comprobante, dejar el
+   * reporte sólo en papel empujaba en la dirección contraria.
+   */
+  verReporteDia(): void {
+    this.armarReporte((rep) => {
+      this.reporteTexto.set(cuerpoReporteDia(rep));
+      this.reporteAbierto.set(true);
+    });
+  }
+
   imprimirReporteDia(): void {
+    this.armarReporte((rep) => {
+      if (!imprimirTicketReporte(rep)) this.avisarError(null, 'El navegador no dejó abrir la impresión del reporte');
+    });
+  }
+
+  /** El armado es UNO solo: lo que se ve y lo que se imprime salen de la misma consulta. */
+  private armarReporte(usar: (r: ReporteDia) => void): void {
     this.imprimiendoReporte.set(true);
     this.svc.libro({ from: this.from, to: this.to, tipo: this.tipo ?? undefined, search: this.search || undefined, limit: 500 })
       .subscribe({
@@ -4211,7 +4286,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
             generado_por: this.auth.user()?.username ?? null,
             truncado: !!r.has_more,
           };
-          if (!imprimirTicketReporte(rep)) this.avisarError(null, 'El navegador no dejó abrir la impresión del reporte');
+          usar(rep);
         },
         error: (e) => { this.imprimiendoReporte.set(false); this.avisarError(e, 'No se pudo generar el reporte del día'); },
       });

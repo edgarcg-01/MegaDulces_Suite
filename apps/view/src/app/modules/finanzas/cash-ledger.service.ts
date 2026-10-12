@@ -89,7 +89,7 @@ export class CashLedgerService {
   private http = inject(HttpClient);
   private base = `${environment.apiUrl}/finance/cash-ledger`;
 
-  libro(f: { from?: string; to?: string; tipo?: string; sucursal?: string; cuenta?: string; search?: string; limit?: number; offset?: number }): Observable<LibroResponse> {
+  libro(f: { from?: string; to?: string; tipo?: string; sucursal?: string; cuenta?: string; search?: string; limit?: number; offset?: number ; mios?: '1' }): Observable<LibroResponse> {
     let p = new HttpParams();
     for (const [k, v] of Object.entries(f)) if (v !== undefined && v !== null && v !== '') p = p.set(k, String(v));
     return this.http.get<LibroResponse>(this.base, { params: p });
