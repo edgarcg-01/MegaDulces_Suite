@@ -274,6 +274,25 @@ export const MARGEN_DETALLE_SQL = `
     FROM analytics.fn_new_products_movimientos(?::uuid, ARRAY[?]::text[], ?::date, ?::date)
    GROUP BY 1, 2, 3, 4`;
 
+/**
+ * `[PF.8]` ¿Está la matvista de márgenes poblada, y hasta qué día llega? Nunca truena: si no existe o no está
+ * poblada devuelve NULL/false (leerla sin poblar truena con `55000` y abortaría la transacción).
+ */
+export const MARGEN_FOTO_ESTADO_SQL = `
+  SELECT coalesce((SELECT c.relispopulated FROM pg_class c
+                    WHERE c.oid = to_regclass('analytics.mv_product_margins_30d')), false) AS poblada`;
+
+/** `[PF.8]` Hasta qué día llega la matvista y cuándo se calculó (sólo si está poblada). */
+export const MARGEN_FOTO_HASTA_SQL = `
+  SELECT to_char(max(hasta), 'YYYY-MM-DD') AS hasta, to_char(min(desde), 'YYYY-MM-DD') AS desde, max(calculado_at) AS calculado_at
+    FROM analytics.mv_product_margins_30d WHERE tenant_id = public.current_tenant_id()`;
+
+/** `[PF.8]` Las piezas de los márgenes de UN producto desde la matvista (mismas columnas que `MARGEN_DETALLE_SQL`). Parámetro: sku. */
+export const MARGEN_FOTO_SQL = `
+  SELECT tipo, plaza, factor, unidad_base, n, nc, c, q
+    FROM analytics.mv_product_margins_30d
+   WHERE tenant_id = public.current_tenant_id() AND sku = ?`;
+
 /** `[PF.5]` La meta de margen de la ficha por (sucursal, peldaño), con el mismo filtro que `[NP.15]`. Parámetro: sku. */
 export const META_MARGEN_SQL = `
   SELECT t.sucursal AS plaza, round(t.factor, 4) AS factor, min(t.margen_venta_pct) AS margen

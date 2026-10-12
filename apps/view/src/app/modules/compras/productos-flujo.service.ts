@@ -58,6 +58,8 @@ export interface Margenes {
 
 export interface MargenesProducto {
   product_id: string;
+  /** `[PF.8]` La matvista nocturna (`foto`) o el cálculo en el momento (`en_vivo`). */
+  origen?: { fuente: 'foto' | 'en_vivo'; calculado_at: string | null };
   desde: string;
   hasta: string;
   dias: number;
@@ -224,10 +226,22 @@ export interface FlujoDetalle {
   lotes: LoteCaducidad[];
 }
 
+/** `[PF.7]` Lo que «Para cuidar hoy» trae de cada producto (el análisis completo llega al abrirlo). */
+export interface ResumenCuidar {
+  product_id: string;
+  mes: number;
+  variacion: number | null;
+  lider: Lider | null;
+  caducidad: CaducidadResumen | null;
+  agotadas: Array<{ plaza: string; nombre: string | null }>;
+  compra: Pick<AnalisisCompra, 'veredicto' | 'titulo'>;
+  margen_real: Pick<Margen, 'pct' | 'cobertura'> | null;
+}
+
 export interface ProductoACuidar {
   sku: string;
   nombre: string | null;
-  resumen: FlujoResumen;
+  resumen: ResumenCuidar;
   motivos?: MotivoLider[];
   en_juego_dia?: number;
 }

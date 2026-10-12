@@ -236,6 +236,37 @@ function periodosJs(hoy) {
       check('[negativa] un producto que vendió en los últimos 30 días no aparece',
         conVenta.length > 0 && conVenta.every((id) => !nv.some((x) => x.product_id === id)), { conVenta: conVenta.length, sembrados: vendidos.size });
     }
+
+    console.log('\n── 9. [PF.8] Márgenes: la matvista nocturna = la función de Productos nuevos ──');
+    // Dos implementaciones de las mismas piezas: la matvista entra por fecha para todos los productos; la
+    // función, por SKU. Medido en prod el 2026-10-12: 51 celdas, 0 diferencias.
+    const existeMv = (await trx.raw(`SELECT to_regclass('analytics.mv_product_margins_30d') IS NOT NULL AS ok`)).rows[0].ok;
+    if (!existeMv) {
+      console.log('  · NO MEDIDO: la migración de la matvista no está aplicada en esta base');
+    } else {
+      await trx.raw('REFRESH MATERIALIZED VIEW analytics.mv_product_margins_30d');
+      const ventana = (await trx.raw(`SELECT to_char(min(desde), 'YYYY-MM-DD') desde, to_char(max(hasta), 'YYYY-MM-DD') hasta FROM analytics.mv_product_margins_30d`)).rows[0];
+      check('el periodo son los 30 días cerrados (hasta ayer)', ventana.hasta === dia(hoy, -1) && ventana.desde === dia(hoy, -30), ventana);
+      const malas = [];
+      let celdas = 0;
+      for (const prod of productos) {
+        const mv = (await trx.raw(`SELECT tipo, plaza, sum(n) n, sum(nc) nc, sum(c) c, sum(q) q FROM analytics.mv_product_margins_30d
+          WHERE sku = ? GROUP BY 1, 2`, [prod.sku])).rows;
+        const fn = (await trx.raw(`SELECT tipo, plaza, sum(importe_neto) n, coalesce(sum(importe_neto_costeado), 0) nc, coalesce(sum(costo), 0) c,
+          sum(cantidad_base) q FROM analytics.fn_new_products_movimientos(?, ARRAY[?]::text[], ?::date, ?::date)
+          WHERE tipo IN ('venta', 'entrada') GROUP BY 1, 2`, [esc.TENANT, prod.sku, dia(hoy, -30), dia(hoy, -1)])).rows;
+        const k = (r) => `${r.tipo}|${r.plaza}`;
+        const mf = new Map(fn.map((r) => [k(r), r]));
+        for (const r of mv) {
+          celdas += 1;
+          const o = mf.get(k(r));
+          if (!o || ['n', 'nc', 'c', 'q'].some((f) => Math.abs(n(r[f]) - n(o[f])) > 0.05)) malas.push({ sku: prod.sku, mv: r, fn: o });
+          mf.delete(k(r));
+        }
+        for (const [kk, o] of mf) { celdas += 1; malas.push({ sku: prod.sku, falta_en_mv: kk, fn: o }); }
+      }
+      check(`venta, venta con costo, costo y cantidad coinciden por sucursal (${celdas} celdas)`, celdas > 0 && malas.length === 0, malas.slice(0, 3));
+    }
   } catch (e) {
     ko += 1;
     console.log(`  ✗ excepción: ${e.message}`);

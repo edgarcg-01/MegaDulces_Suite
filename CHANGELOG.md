@@ -210,6 +210,11 @@
 - Teclado: Enter / ↓ recorren la lista entera y la última casilla baja al botón de guardar; → pasa al medio de pago del mismo renglón.
 - Fixed de paso: un medio escrito en el cierre ya no se suma ni se manda con un retiro.
 
+### Changed — Productos: márgenes al instante y «Para cuidar hoy» ligero (PF.7/PF.8, 2026-10-12)
+- Los márgenes del producto se calculan cada noche y el panel los muestra al instante (antes 1.5 s, hasta 14 s la primera vez); si el cálculo de la noche no está al día, se calculan en el momento y se avisa.
+- «Para cuidar hoy» pesa la mitad (234 KB, 37 KB comprimido): lleva sólo lo que se ve; el análisis completo llega al abrir el producto.
+- Fixed: los líderes y las caducidades de «Para cuidar hoy» salían sin nombre.
+
 ### Changed — Productos: «Para cuidar hoy» ya no se espera (PF.6, 2026-10-09)
 - El servidor lo calcula cada minuto en segundo plano y la pantalla lo recibe al instante (23–50 ms medidos en local, antes ~3 s y hasta 6.5 s la primera vez). Dice a qué hora se calculó; si la foto no está al día lo calcula en el momento y lo avisa.
 

@@ -25,7 +25,7 @@ export const liderTexto = (l: { rank: number; participacion: number }) =>
   `Líder · #${l.rank} en venta de la red (${(l.participacion * 100).toFixed(1)}%)`;
 
 /** `[PF.5]` "13.6%" / guion si no se pudo medir. */
-export const margenTexto = (m: Margen | null | undefined) => (m?.pct === null || m?.pct === undefined ? '—' : `${m.pct.toFixed(1)}%`);
+export const margenTexto = (m: Pick<Margen, 'pct'> | null | undefined) => (m?.pct === null || m?.pct === undefined ? '—' : `${m.pct.toFixed(1)}%`);
 
 /** `[PF.5]` Los tres márgenes en el orden y con las preguntas de Productos nuevos. */
 export const margenKpis = (t: Margenes) => [
@@ -219,7 +219,8 @@ export function trazos(serie: FlujoDetalle['serie']): { actual: string; anterior
                 </div>
                 <p class="pf-meta">Del {{ fecha(m.desde) }} al {{ fecha(m.hasta) }}, venta de tienda sin IVA ni IEPS. Cada margen se mide sólo sobre la
                   venta que puede juzgar: lo que no trae costo o meta queda fuera y se dice, no se cuenta como cero.
-                  @if (t.costo_pagado; as cp) { Lo pagado: {{ dinero2(cp.por_unidad) }} por {{ cp.unidad }}. }</p>
+                  @if (t.costo_pagado; as cp) { Lo pagado: {{ dinero2(cp.por_unidad) }} por {{ cp.unidad }}. }
+                  @if (m.origen?.fuente === 'en_vivo') { <span class="pf-nota">Calculado en el momento: el cálculo de la noche no está al día.</span> }</p>
               } @else {
                 <p class="pf-meta">Sin venta en los últimos {{ d.criterio.ventanaMargen }} días cerrados: no hay margen que medir.</p>
               }
