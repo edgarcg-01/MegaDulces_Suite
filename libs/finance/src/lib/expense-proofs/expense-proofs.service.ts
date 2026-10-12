@@ -1071,8 +1071,14 @@ export class ExpenseProofsService {
      * ⚠️ Sin esto el vale cerraba en `validada` con la sola cotización: aprobado, con la deuda
      * marcada en `provisional`… y **sin nadie a quien le tocara nada**. La factura nunca
      * llegaba porque el trámite ya había terminado.
+     *
+     * `[GX.82]` ⛔ **RETIRADO por decisión del usuario (2026-10-12): la factura no decide el
+     * estado.** *«No quiero que sea una manera de que dependa el status»* — la cotización
+     * BASTA como evidencia. Medido antes: el regreso automático dejó **70 vales** en `aprobada`
+     * esperando una factura que no iba a llegar, ya pagados en Kepler. Un vale aprobado con
+     * cotización se cierra al aprobarlo; sólo vuelve si el aprobador marca la casilla
+     * «provisional» a propósito (`[GX.56]`, que se conserva).
      */
-    const soloCotizacion = esSoloCotizacion(files);
 
     let nextStatus: string;
     /**
@@ -1088,10 +1094,9 @@ export class ExpenseProofsService {
      *
      * Ahora el que la marca es el que decide: si dice que falta, el vale vuelve.
      *
-     * ⚠️ `soloCotizacion` se conserva **además** (GX.54): cubre al aprobador que NO marca la
-     * casilla sobre un vale que sólo trae cotización. Son dos señales de lo mismo y basta una.
+     * `[GX.82]` Es la ÚNICA señal: el regreso automático por sólo-cotización (GX.54) se retiró.
      */
-    if (prov || soloCotizacion) {
+    if (prov) {
       nextStatus = 'aprobada';
     } else if (!lleva) {
       nextStatus = 'validada';
@@ -1133,9 +1138,8 @@ export class ExpenseProofsService {
            * La columna se conserva y se respeta si alguien la manda —hay expedientes viejos
            * con valor y borrarla los volvería ilegibles—, pero ya no se inventa un default.
            */
-          // `[GX.81]` Sólo-cotización TAMBIÉN es provisional: aprobado debiendo el comprobante.
-          // Sin la marca, el vale volvía a «sube la factura» y `addEvidence` lo rebotaba.
-          provisional: prov || soloCotizacion,
+          // `[GX.82]` Sólo la casilla del aprobador: la cotización ya no deja deuda de factura.
+          provisional: prov,
           comprobante_esperado_at: prov ? (esperado || null) : null,
         })
         .returning(['id', 'status']);
