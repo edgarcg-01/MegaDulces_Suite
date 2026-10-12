@@ -151,8 +151,23 @@ de verdad.
 **Lo que no hace:** unir fichas por nombre entre plazas, inventar puestos para quien no tiene
 departamento, ni dar acceso a nadie. Lo que no se puede decidir con evidencia va a la lista de RH.
 
-**Para correrlo con datos reales** hace falta la URL de la base de Mega Talento (sólo lectura). No se
-guarda en ningún archivo: va en una variable del mismo comando.
+**Ensayo con datos reales (12-oct, base local, Mega Talento en sólo lectura, todo deshecho al final):**
+
+| Cuadre | Cifra |
+|---|---:|
+| Fichas de Mega Talento | 1,057 |
+| Personas creadas | 1,038 (470 activas como `invited`, 568 bajas como `terminated`) |
+| Ligadas a una cuenta de la Suite que ya existía | 16 (corporativo y 8 Esquinas) |
+| Por decidir (RH) | 3 (2 con dos cuentas del mismo nombre, 1 con nombre corto) |
+| Promotoras de marca → `promotoria_marca` | 115 |
+| Sin departamento en Mega Talento | 672 (activas + bajas; el doc de mapeos contó 164 activas) |
+| Departamento sin mapeo | 1 («ZONA TEMPORAL») — «RECURSOS HUMANOS» se agregó a `rh` tras la primera corrida |
+| Posibles repetidas entre plazas (mismo nombre, dos sitios) | 21 |
+| Enrolamientos activos ligados | **988 de 1,004** (antes: 0) → el pre-vuelo pasa de BLOQUEA a AVISO |
+| Sitios con almacén del mapeo | 11 (`reloj-196` sin almacén: duda abierta) |
+
+⚠️ Las cuentas de la Suite de la base local son una copia; en prod el número de «ligadas a una cuenta
+existente» puede variar un poco. El informe con nombres (las listas para RH) queda fuera del repo.
 
 ---
 

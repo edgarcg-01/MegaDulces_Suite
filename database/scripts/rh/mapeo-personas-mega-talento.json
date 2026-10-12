@@ -38,7 +38,7 @@
     { "variantes": ["SISTEMAS"], "department_code": "sistemas", "position_code": "sistemas", "validado": false },
     { "variantes": ["CONTABILIDAD"], "department_code": "contabilidad", "position_code": null, "validado": false },
     { "variantes": ["MERCADOTECNIA"], "department_code": "mercadotecnia", "position_code": null, "validado": false },
-    { "variantes": ["RRHH"], "department_code": "rh", "position_code": null, "validado": false },
+    { "variantes": ["RRHH", "RECURSOS HUMANOS"], "department_code": "rh", "position_code": null, "validado": false },
     { "variantes": ["COMPRAS"], "department_code": "compras", "position_code": null, "validado": false },
     { "variantes": ["ADMIN"], "department_code": "administracion", "position_code": null, "validado": false },
     { "variantes": ["RD"], "department_code": "ruta_directa", "position_code": "vendedor_ruta", "validado": false },

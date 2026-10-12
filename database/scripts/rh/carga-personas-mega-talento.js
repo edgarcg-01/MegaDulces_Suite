@@ -321,7 +321,15 @@ async function main() {
   try {
     await knex.transaction(async (trx) => {
       if (conCargas) {
-        const migs = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, MIGRACION_PERSONAS];
+        // Las de identity que la carga supone y una base local atrasada puede no tener (en prod ya están).
+        // Primero hr.*, después identity: el mismo orden de candados que las pruebas.
+        const previasIdentity = [
+          '20260910120000_kind_dispositivo_y_hash_nullable',
+          '20260911120000_positions_oficina',
+          '20260911180000_departamentos_reales',
+          '20261001120000_zn8_alcance_por_area',
+        ];
+        const migs = [carga.MIGRACION_BASE_CH, ...carga.MIGRACIONES_FASE, ...previasIdentity, MIGRACION_PERSONAS];
         const aplicadas = new Set((await trx.raw('SELECT name FROM public.knex_migrations')).rows.map((r) => r.name.replace(/\.js$/, '')));
         for (const m of migs) if (!aplicadas.has(m)) await require(path.resolve(__dirname, '../../migrations-newdb', `${m}.js`)).up(trx);
       }
