@@ -738,6 +738,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
        display:none que el navegador le da a [hidden], y el bloque se seguiria viendo plegado.
        Es el mismo descuido que hace creer que un toggle no funciona. */
     .cg-conc-cols[hidden] { display:none; }
+    /* [CG.91] El historial del dia: ancho completo, debajo del resumen. */
+    .cg-hist { margin-top:var(--sp-4); }
+    .cg-hist-canc > td { opacity:.55; text-decoration:line-through; }
+    .cg-hist-tag { margin-left:var(--sp-2); font-size:var(--fs-xs); color:var(--text-muted);
+                   border:1px solid var(--border); border-radius:var(--radius-sm); padding:0 var(--sp-1); }
+    /* El mismo verde que ya usa el signo del ingreso en la cola (.cg-in), no uno nuevo. */
+    .cg-hist-in { color:var(--ok-fg); }
     @media (max-width:47.5rem) { .cg-conc-cols { grid-template-columns:1fr; } }
     .cg-conc-col { display:flex; flex-direction:column; gap:var(--sp-1); min-width:0; }
     .cg-conc-sub { font-size:var(--fs-sm); }
@@ -1005,6 +1012,48 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
               }
             </div>
           </div>
+
+          <!-- ⭐ [CG.91] EL HISTORIAL DE LO QUE LLEVO HECHO. Pedido dos veces.
+               La primera: "un historial de movimientos para que el usuario vea que movimientos ya
+               hizo". Se entrego un filtro ("los mios") y un reporte en texto: ninguna es la lista.
+               La segunda, con la pantalla a la vista: "ni siquiera me muestra un historial de lo
+               que llevo hecho, como te lo pedi".
+               Acá estaba el defecto: el cuadro decia "7 movimiento(s) registrado(s)" y ahi
+               terminaba. Un contador no es un historial -- y un total que no se puede revisar
+               contra sus renglones no se puede revisar.
+               Va a lo ANCHO y debajo de las dos columnas a proposito: el cuadro de arriba es el
+               resumen, esto es el cuerpo. De paso empareja el bloque, que tenia una tabla de un
+               lado y cuatro renglones del otro. -->
+          @if (a.movimientos_del_dia?.length) {
+            <div class="cg-hist">
+              <p class="cg-cap">Movimientos que registraste en esta jornada</p>
+              <p-table [value]="a.movimientos_del_dia!" size="small" class="cg-conc-tbl">
+                <ng-template #header>
+                  <tr>
+                    <th scope="col">Hora</th><th scope="col">Folio</th><th scope="col">Documento</th>
+                    <th scope="col">Contraparte</th><th scope="col">Cuenta</th>
+                    <th scope="col" class="ta-r">Importe</th>
+                  </tr>
+                </ng-template>
+                <ng-template #body let-m>
+                  <!-- El cancelado NO se esconde: se marca. Esconderlo haria que la lista no
+                       explique su propio contador, que los cuenta aparte. -->
+                  <tr [class.cg-hist-canc]="m.estado === 'cancelado'">
+                    <td class="mono">{{ m.hora }}</td>
+                    <td class="mono">{{ m.folio }}</td>
+                    <td class="mono fin-dim">{{ m.documento || '—' }}</td>
+                    <td>{{ m.beneficiario || '—' }}
+                      @if (m.estado === 'cancelado') { <span class="cg-hist-tag">cancelado</span> }
+                    </td>
+                    <td class="fin-dim">{{ m.cuenta ? m.cuenta + (m.concepto ? ' · ' + m.concepto : '') : '—' }}</td>
+                    <td class="mono ta-r" [class.cg-hist-in]="m.tipo === 'ingreso'">
+                      {{ m.tipo === 'ingreso' ? '+ ' : '&minus; ' }}{{ money(m.monto) }}
+                    </td>
+                  </tr>
+                </ng-template>
+              </p-table>
+            </div>
+          }
 
           <!-- ⛔ Lo que NO se puede afirmar se PINTA. Un hueco callado se lee como cero, y aca la
                diferencia entre "flujo del dia" y "cuanto hay en el cajero" es justamente esto. -->
