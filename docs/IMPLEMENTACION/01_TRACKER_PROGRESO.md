@@ -10279,7 +10279,10 @@ contra `pg-prod` (namespace `prod`, k3s).
   antes de aplicar: **42 ✓ / 1 ✗**. La mig suma `ALTER DEFAULT PRIVILEGES` para que la próxima
   tabla no dependa de que alguien se acuerde — que es la causa raíz de ésta y de `[CP.8.39]`.
   🚀 Mig `20261012092454` **PROD batch 889**; candado **42 ✓/1 ✗ → 43 ✓ / 0 ✗** y el `USAGE` de
-  `app_runtime` verificado en vivo. Falta `git push` + redeploy. 2026-10-12
+  `app_runtime` verificado en vivo. ⭐ **Y el latido se puso VERDE SOLO** en su corrida de las
+  15:40 (`ok · 0 filas · 37 ms · nota «sin eventos pendientes de cuadrar»`): primera vez que el
+  camino de la app funciona en prod. ⛔ Ojo con leerlo de más — `ok` dice *la consulta corrió*, no
+  *el puente entregó*; las 0 filas son reales. Falta `git push` + redeploy. 2026-10-12
 
 ### ⛔ Bloqueos abiertos
 
