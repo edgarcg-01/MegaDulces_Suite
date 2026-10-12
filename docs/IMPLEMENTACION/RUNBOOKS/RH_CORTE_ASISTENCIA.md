@@ -154,13 +154,14 @@ midió **con las personas ligadas**. Sin ficha, una persona sólo aparece si che
 Medido con datos reales: tras la carga hay **991 enrolamientos activos y 0 ligados** → el pre-vuelo da **BLOQUEA**.
 
 Antes del corte:
-1. RH valida los mapeos de empleados (`[RH.0.4]`).
+1. ~~RH valida los mapeos~~: ya no hace falta (`[RH.0.4]`, `[RH.1.4b]`): Mega Talento trae las plazas, la sección de RH de cada ficha y quién es la misma persona.
 2. Se crean o enlazan las personas en `identity.users` y se ligan sus enrolamientos (`[RH.1.4]`) con
    `database/scripts/rh/carga-personas-mega-talento.js` (ensayo por omisión, `--aplicar` para dejarlo). Necesita la
-   migración `20261012094356_rh_personas_bajas_y_sin_acceso` aplicada (va al final de la cadena del pre-vuelo) y corre
+   migraciones `20261012094356_rh_personas_bajas_y_sin_acceso` y `20261012151620_hr_secciones_por_ficha` aplicadas (van al final de la cadena del pre-vuelo) y corre
    **después** de la carga de checadas, que es la que deja los enrolamientos. Los mapeos están en
-   `database/scripts/rh/mapeo-personas-mega-talento.json`; mientras RH no los valide, cada persona queda con el mapeo
-   propuesto y el cuadre lo cuenta (`mapeo_validado`). Reglas y lo que NO hace: cabecera del guion y
+   `database/scripts/rh/mapeo-personas-mega-talento.json` (sólo plaza → almacén, confirmado contra Mega Talento); la
+   sección de RH de cada ficha se guarda tal cual en `hr.person_site_profiles`. El cuadre cuenta las personas con varias
+   fichas unidas y los avisos para Sistemas (cuentas duplicadas de la Suite). Reglas y lo que NO hace: cabecera del guion y
    [`FASE_RH_PLAN_DE_TRABAJO`](../FASES/FASE_RH_PLAN_DE_TRABAJO.md) §5.
    - Ensayo en prod, después del de §2.6 (mismo pod, misma `mt.url`):
      ```sh

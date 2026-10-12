@@ -74,9 +74,11 @@
    `[RH.1.5c]`) y la deja fuera de la medición de piso. En «Tienda», las 101 promotoras habrían salido
    con falta todos los días. → departamento nuevo **`promotoria_marca`** en la migración de RH.1.4. Si RH
    contesta que son de la marca (externas), cambia `kind`, no el departamento.
-6. **La validación de RH sigue en blanco.** La columna «¿Correcto?» de las tres tablas del doc de
-   mapeos está vacía (venció el 9-oct). La carga puede correr con la propuesta, pero cada persona queda
-   marcada como «mapeo propuesto, no validado» hasta que RH conteste.
+6. ~~La validación de RH sigue en blanco~~ → **no hacía falta** (revisado a fondo el 12-oct): Mega Talento ya
+   trae las plazas, la sección del reporte de RH de cada ficha (es su «departamento»: se guarda tal cual) y quién
+   es la misma persona en varias plazas. Lo que sí estaba mal era la carga: traducía las secciones a los
+   departamentos de la Suite (el reporte dejaba de ser el de RH), inventaba puestos y duplicaba al personal que
+   rota. Corregido en `[RH.1.4b]`; el departamento `promotoria_marca` del punto 5 queda sin uso.
 
 ---
 
@@ -87,7 +89,7 @@
 | # | Item | Qué | Quién | Depende de | Fecha objetivo |
 |---|---|---|---|---|---|
 | 1 | **[RH.1.4]** | Personas: carga de `empleados` → `identity.users` + liga de los enrolamientos. **Lo que frena el corte.** Detalle en §5. 🧪 Código y pruebas listos el 12-oct; falta el ensayo con datos reales (necesita la URL de Mega Talento) | Claude + David | — | ensayo 14-oct |
-| 2 | [RH.0.4] | RH valida los mapeos (sitios, departamentos, puestos, ¿promotoras empleadas o externas?) | RH + David | — | **lo antes posible** |
+| 2 | [RH.0.4] | ~~RH valida los mapeos~~ ✅ 12-oct: no hace falta, Mega Talento lo trae todo (`[RH.1.4b]`, carga corregida y paridad con la sección de RH) | Claude | — | ✅ 12-oct |
 | 3 | [RH.0.2] | Edgar aprueba ADR-084 + el rol `sin_acceso` + la regla de bajas | Edgar | — | 17-oct |
 | 4 | [RH.1.6b] | Nadie a prenómina sin identificar (el cierre se niega con gente sin ligar, salvo motivo). 🧪 En código el 12-oct (PR #366) | Claude | RH.1.4 | ✅ 12-oct |
 | 5 | [RH.1.10] | Portar horas extra, desayuno/comida distintos y cambio de descanso de Mega Talento + re-correr la paridad. 🧪 En código el 12-oct: paridad 0 diferencias con datos reales | Claude | — | ✅ 12-oct |

@@ -41,7 +41,11 @@ const ROLLBACK = new Error('rollback-intencional');
 const listo = !!(URL && MT && JSON_MT && !/prod|railway|\.222:5434/i.test(URL));
 if (!listo) console.warn('[RH.1.8] NO MEDIDO: la paridad contra Mega Talento necesita HR_DB_TEST_URL, MT_DATABASE_URL y MT_PARIDAD_JSON.');
 
-/** Lo que se compara de cada persona. El nombre y el departamento no: dependen del mapeo de RH. */
+/**
+ * Lo que se compara de cada persona. `[RH.1.4b]` El departamento SÍ: es la sección del reporte de RH y se
+ * guarda tal cual por ficha; si la carga la tradujera (como hacía la primera versión), el reporte agrupado
+ * dejaría de ser el de RH y esto se pone rojo. El nombre no: puede venir de una cuenta de la Suite.
+ */
 const CAMPOS = [
   'tipo', 'horario', 'turnos', 'horarioConfirmado', 'costumbre', 'desfaseMin', 'salida', 'dispersionMin',
   'diasLaborales', 'diasUsados', 'diasEnRango', 'silencioDias', 'pctUnaMarca', 'retardoRealMin', 'atrasoBrutoMin',
@@ -50,6 +54,7 @@ const CAMPOS = [
   'pctATiempo', 'usable', 'bloqueadoPor', 'esPracticante', 'minutosEsperados', 'registrado', 'activo',
   // `[RH.1.10]` horas extra (Mega Talento ee4ff38).
   'horasExtraGanadasMin', 'horasExtraUsadasMin', 'horasExtraSegun',
+  'departamento',
 ] as const;
 
 type Persona = Record<string, unknown> & {
@@ -69,6 +74,9 @@ const dias = (p: Persona): Map<string, string> => new Map(p.semanas.flatMap((s) 
     const { HrAttendanceReportService } = await import('./attendance-report.service');
     const { HrAttendanceAgentService } = await import('./attendance-agent.service');
     const carga = require(path.resolve(__dirname, '../../../../../database/scripts/rh/carga-unica-mega-talento.js'));
+    const cargaPersonas = require(path.resolve(__dirname, '../../../../../database/scripts/rh/carga-personas-mega-talento.js'));
+    const mapeo = JSON.parse(fs.readFileSync(cargaPersonas.MAPEO_POR_OMISION, 'utf8'));
+    const mig = (n: string) => require(path.resolve(__dirname, '../../../../../database/migrations-newdb', `${n}.js`));
     const mtJson = JSON.parse(fs.readFileSync(String(JSON_MT), 'utf8')) as {
       generado: string;
       resultados: Array<{ sitio: string; desde: string; hasta: string; soloPromotoras: boolean; datos: { personas: Persona[] } }>;
@@ -76,34 +84,25 @@ const dias = (p: Persona): Map<string, string> => new Map(p.semanas.flatMap((s) 
 
     const knex: Knex = knexLib({ client: 'pg', connection: URL, pool: { min: 0, max: 1 } });
     const mt = await carga.conectarMegaTalento(MT);
-    const informe = { generado: mtJson.generado, cuadre: {} as unknown, calculos: 0, personasComparadas: 0, diasComparados: 0,
+    const informe = { generado: mtJson.generado, cuadre: {} as unknown, personas: {} as unknown, calculos: 0, personasComparadas: 0, diasComparados: 0,
       soloEnMt: [] as string[], soloEnSuite: [] as string[], diferencias: [] as Array<Record<string, unknown>>,
       alertas: { sitios: 0, comparadas: 0, soloEnMt: [] as string[], soloEnSuite: [] as string[] } };
     try {
       await knex.transaction(async (trx) => {
-        for (const m of carga.MIGRACIONES_FASE) await require(path.resolve(__dirname, '../../../../../database/migrations-newdb', `${m}.js`)).up(trx);
+        for (const m of carga.MIGRACIONES_FASE) await mig(m).up(trx);
+        // Lo que la carga de personas supone y una base local atrasada puede no tener (en prod ya está).
+        const aplicadas = new Set((await trx.raw('SELECT name FROM public.knex_migrations')).rows.map((x: { name: string }) => x.name.replace(/\.js$/, '')));
+        for (const m of ['20260910120000_kind_dispositivo_y_hash_nullable', '20261001120000_zn8_alcance_por_area',
+          cargaPersonas.MIGRACION_PERSONAS, cargaPersonas.MIGRACION_FICHAS]) {
+          if (!aplicadas.has(m)) await mig(m).up(trx);
+        }
         await trx.raw(`SELECT set_config('app.tenant_id', ?, true)`, [TENANT]);
         informe.cuadre = await carga.cargarMegaTalento(trx, mt, { recibidasHasta: mtJson.generado });
 
-        // ── Simulación de [RH.1.4]: una persona por ficha, con el estado y la promotoría de allá ──
-        const { rows: fichas } = await mt.query(`
-          SELECT sucursal_id AS sitio, btrim(codigo_checador) AS codigo, coalesce(nombre_completo, nombre) AS nombre, activo,
-                 -- La regla vigente de Mega Talento (3938723, 08/10/2026): «PROMOTORIA MEGA DULCES» es piso.
-                 (es_promotora OR (coalesce(departamento, '') ~* 'promotor' AND coalesce(departamento, '') !~* 'mega\\s*dulces')) AS promotora
-            FROM empleados WHERE btrim(coalesce(codigo_checador, '')) <> ''`);
-        const rol = (await trx('identity.users').first('role_name'))?.role_name ?? 'superadmin';
-        await trx('identity.departments').insert({ tenant_id: TENANT, code: 'mt_promotoria_simulada', name: 'Promotoría (simulada para la paridad)' });
-        const sello = Date.now();
-        const usuarios = await trx('identity.users').insert(fichas.map((f: { sitio: string; codigo: string; nombre: string; activo: boolean; promotora: boolean }, i: number) => ({
-          tenant_id: TENANT, username: `paridad_${sello}_${i}`, password_hash: 'x', role_name: rol, nombre: f.nombre || f.codigo,
-          status: f.activo ? 'active' : 'terminated', department_code: f.promotora ? 'mt_promotoria_simulada' : null,
-        }))).returning('id');
-        const ligas = fichas.map((f: { sitio: string; codigo: string }, i: number) => ({ sitio: f.sitio, codigo: f.codigo, user_id: (usuarios[i] as { id: string }).id ?? usuarios[i] }));
-        await trx.raw(`
-          UPDATE hr.device_enrollments e SET user_id = s.user_id
-            FROM hr.attendance_devices d, jsonb_to_recordset(?::jsonb) AS s(sitio text, codigo text, user_id uuid)
-           WHERE d.id = e.device_id AND d.site_code = s.sitio AND COALESCE(e.person_code, e.device_user_id) = s.codigo`,
-          [JSON.stringify(ligas)]);
+        // ── `[RH.1.4b]` Las personas con la CARGA REAL (antes se simulaba: una persona por ficha) ──
+        // Así la paridad prueba también la carga: la sección de RH por ficha, las fichas de la misma
+        // persona unidas, y la baja por plaza.
+        informe.personas = (await cargaPersonas.cargarPersonas(trx, await cargaPersonas.leerFichas(mt), { mapeo })).cuadre;
 
         // ── La Suite calcula lo mismo y se compara ──────────────────────────────────────
         const ctx = { get: () => ({ tenantId: TENANT }), requireTenantId: () => TENANT };
