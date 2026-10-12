@@ -3,6 +3,7 @@ import { TagModule } from 'primeng/tag';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { ComercialService, RouteProfitFlota, RouteProfitUnidad } from '../comercial.service';
 
 /**
@@ -33,7 +34,7 @@ import { ComercialService, RouteProfitFlota, RouteProfitUnidad } from '../comerc
 @Component({
   selector: 'app-comercial-ruta-directa-flota',
   standalone: true,
-  imports: [PageTabsComponent, TagModule, LoadStateComponent],
+  imports: [PageTabsComponent, TagModule, LoadStateComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="fl">
@@ -46,6 +47,13 @@ import { ComercialService, RouteProfitFlota, RouteProfitUnidad } from '../comerc
             del rastreador; el resto se captura en Logística.
           </p>
         </div>
+        @if (data(); as d) {
+          <div class="fl-fresh">
+            <app-freshness-pill measures="data" [since]="d.procedencia.gps_hasta"
+                                label="GPS" [staleAfterSec]="7200" />
+            <span class="fl-fresh-n">{{ d.procedencia.aparatos_reportando }} aparato(s) reportando hoy</span>
+          </div>
+        }
       </header>
 
       <app-load-state
@@ -147,6 +155,13 @@ import { ComercialService, RouteProfitFlota, RouteProfitUnidad } from '../comerc
     .fl { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
     .fl-head h1 { margin: 0; font-size: var(--fs-h2); font-weight: var(--fw-bold); color: var(--c-text-1); }
     .fl-sub { margin: 4px 0 0; font-size: var(--fs-sm); color: var(--c-text-3); max-width: 72ch; line-height: 1.5; }
+
+    /* [RD.UI.1] DESIGN O.4 -- la frescura va en la CABECERA, no al pie: condiciona todo lo
+       de abajo. Si el GPS dejo de reportar, la ficha sigue viendose completa y engania igual.
+       El tope de 2 h es el del poller (1 min) con holgura para un reinicio. */
+    .fl-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    .fl-fresh { display: flex; flex-direction: column; align-items: flex-end; gap: 2px; flex: none; }
+    .fl-fresh-n { font-size: var(--fs-micro); color: var(--c-text-3); font-variant-numeric: tabular-nums; }
 
     .fl-resumen { display: flex; gap: 20px; flex-wrap: wrap;
       border: 1px solid var(--border-color); border-radius: 8px; padding: 14px 16px; background: var(--card-bg); }

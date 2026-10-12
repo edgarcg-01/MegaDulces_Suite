@@ -28,6 +28,7 @@ import {
   SalesByRouteTicketsParams,
 } from '../comercial.service';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { REPORTS_TABS } from '../reports-tabs';
 import { SidePeekComponent } from '../../../shared/components/side-peek/side-peek.component';
@@ -49,6 +50,7 @@ const MES: Record<string, string> = {
   selector: 'app-comercial-ventas-por-ruta',
   standalone: true,
   imports: [
+    FreshnessPillComponent,
     CommonModule, FormsModule, ButtonModule, SelectModule, MultiSelectModule,
     ToastModule, TableModule, InputTextModule, InputNumberModule, CheckboxModule,
     IconFieldModule, InputIconModule,
@@ -66,6 +68,9 @@ const MES: Record<string, string> = {
           <h1>Ventas por ruta</h1>
           <p class="surf-page-sub">Venta real por sucursal y ruta, mes a mes · importe · tickets · exporta XLSX</p>
         </div>
+        @if (report(); as r) {
+          <app-freshness-pill measures="data" [freshness]="r.freshness" label="Venta" />
+        }
       </header>
 
       <!-- RR — Conciliación cierre de ruta (corte vendedor vs venta real, D+1) -->

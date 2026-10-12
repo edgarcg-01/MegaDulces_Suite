@@ -3,6 +3,7 @@ import { FormsModule } from '@angular/forms';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { RUTA_DIRECTA_TABS } from '../ruta-directa-tabs';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
+import { FreshnessPillComponent } from '../../../shared/components/freshness-pill/freshness-pill.component';
 import { SegmentedComponent, SegOption } from '../../../shared/components/segmented/segmented.component';
 import {
   ComercialService, RouteProfitGasto, RouteProfitGastoRenglon, RouteProfitPeriodo,
@@ -31,7 +32,7 @@ import {
 @Component({
   selector: 'app-comercial-ruta-directa-gastos',
   standalone: true,
-  imports: [PageTabsComponent, FormsModule, LoadStateComponent, SegmentedComponent],
+  imports: [PageTabsComponent, FormsModule, LoadStateComponent, SegmentedComponent, FreshnessPillComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="gf">
@@ -55,6 +56,10 @@ import {
               }
             </select>
           </div>
+        }
+        @if (data(); as d) {
+          <app-freshness-pill measures="data" [since]="d.procedencia.gasto_calculado_at"
+                              label="Contabilidad" [staleAfterSec]="86400" />
         }
       </header>
 
