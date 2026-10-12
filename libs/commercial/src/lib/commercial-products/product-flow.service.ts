@@ -12,6 +12,7 @@ import {
   margenRealDe,
   motivosLider,
   noSeVende,
+  resumenCuidar,
   ExistenciaPlaza,
   FlujoDetalle,
   FlujoListaRespuesta,
@@ -51,6 +52,9 @@ import {
   LIDERES_SQL,
   LOTES_CADUCIDAD_SQL,
   MARGEN_DETALLE_SQL,
+  MARGEN_FOTO_ESTADO_SQL,
+  MARGEN_FOTO_HASTA_SQL,
+  MARGEN_FOTO_SQL,
   MARGEN_LISTA_SQL,
   META_MARGEN_SQL,
   NO_SE_VENDEN_SIN_NUEVOS_SQL,
@@ -252,20 +256,19 @@ export class ProductFlowService {
     calculado: string | null, lotes: LoteFila[], noSeVenden: CuidarRespuesta['no_se_venden']): CuidarRespuesta {
     {
       const porId = new Map(resumenes.map((r) => [r.product_id, r]));
-      const info = new Map<string, { sku: string; nombre: string | null }>();
       // Los líderes, TODOS y por su lugar en la venta de la red (pedido 2026-10-09: de un lado los
       // líderes, del otro lo que no se vende); cada uno dice lo que pide.
       const lideres = [...mapa.keys()]
         .map((id) => porId.get(id))
         .filter((r): r is NonNullable<typeof r> => !!r)
-        .map((r) => ({ ...info.get(r.product_id)!, resumen: r, motivos: motivosLider(p, r), en_juego_dia: enJuegoPorDia(r) }))
+        .map((r) => ({ ...info.get(r.product_id)!, resumen: resumenCuidar(r), motivos: motivosLider(p, r), en_juego_dia: enJuegoPorDia(r) }))
         .sort((a, b) => (a.resumen.lider?.rank ?? 0) - (b.resumen.lider?.rank ?? 0));
       const porMotivo = { agotado: 0, comprar: 0, mover: 0, se_freno: 0 };
       for (const x of lideres) for (const m of x.motivos) porMotivo[m]++;
       const caducidad = resumenes
         .filter((r) => r.caducidad && (r.caducidad.vencido > 0 || r.caducidad.en_riesgo > 0 || r.caducidad.por_caducar > 0))
         .sort((a, b) => (a.caducidad!.proxima ?? '9999').localeCompare(b.caducidad!.proxima ?? '9999'))
-        .map((r) => ({ ...info.get(r.product_id)!, resumen: r }));
+        .map((r) => ({ ...info.get(r.product_id)!, resumen: resumenCuidar(r) }));
       return {
         periodos: p, corte, en_vivo_al: new Date().toISOString(), costo_visible: conCosto, criterio: CRITERIO_FLUJO,
         lideres: { total: mapa.size, calculado, lista: lideres, por_motivo: porMotivo },
@@ -536,7 +539,19 @@ export class ProductFlowService {
       const { p } = await this.base(trx);
       const hasta = sumarDias(p.hoy, -1);
       const desde = sumarDias(p.hoy, -CRITERIO_FLUJO.ventanaMargen);
-      const filas = (await trx.raw(MARGEN_DETALLE_SQL, [this.tenantCtx.requireTenantId(), prod.sku, desde, hasta])).rows as MargenFila[];
+      // [PF.8] Primero la matvista nocturna (al instante). Sólo si está poblada Y llega hasta ayer; si no, la
+      // función de Productos nuevos (1–14 s) con el MISMO periodo, y se declara. Cruzadas: 51 celdas, 0 diferencias.
+      let filas: MargenFila[];
+      let origen: MargenesProducto['origen'];
+      const poblada = !!(await trx.raw(MARGEN_FOTO_ESTADO_SQL)).rows[0]?.poblada;
+      const estado = poblada ? (await trx.raw(MARGEN_FOTO_HASTA_SQL)).rows[0] as { hasta: string | null; desde: string | null; calculado_at: Date | null } : null;
+      if (estado && estado.hasta === hasta && estado.desde === desde) {
+        filas = (await trx.raw(MARGEN_FOTO_SQL, [prod.sku])).rows as MargenFila[];
+        origen = { fuente: 'foto', calculado_at: estado.calculado_at ? new Date(estado.calculado_at).toISOString() : null };
+      } else {
+        filas = (await trx.raw(MARGEN_DETALLE_SQL, [this.tenantCtx.requireTenantId(), prod.sku, desde, hasta])).rows as MargenFila[];
+        origen = { fuente: 'en_vivo', calculado_at: new Date().toISOString() };
+      }
       const meta = (await trx.raw(META_MARGEN_SQL, [prod.sku])).rows as Array<{ plaza: string; factor: string; margen: string }>;
       const { porPlaza, compra } = fuentesDeMargen(filas, meta);
       const nombres = await this.nombres(trx);
@@ -545,7 +560,7 @@ export class ProductFlowService {
         .filter((x): x is { plaza: string; nombre: string | null; margenes: NonNullable<typeof x.margenes> } => !!x.margenes)
         .sort((a, b) => b.margenes.venta_neta - a.margenes.venta_neta);
       return {
-        product_id: prod.id, desde, hasta, dias: CRITERIO_FLUJO.ventanaMargen,
+        product_id: prod.id, desde, hasta, dias: CRITERIO_FLUJO.ventanaMargen, origen,
         total: margenesDe([...porPlaza.values()], compra), plazas,
       };
     });

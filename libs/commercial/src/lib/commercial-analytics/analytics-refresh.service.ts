@@ -592,6 +592,14 @@ export class AnalyticsRefreshService {
         'Refresh MV señales de precio (nightly)',
         ['analytics.mv_price_waterfall_sku', 'analytics.mv_erp_count_rollforward',
           'analytics.mv_kepler_standard_cost_activity']],
+      /**
+       * `[PF.8]` Las piezas de los tres márgenes por producto (Compras › Catálogo › Productos), 30 días
+       * cerrados. Sale directo del ODS (`deps` vacío). Medido en prod: 15–17 s, 27,315 filas. Si no se
+       * refresca, la API lo ve en `hasta` y calcula en vivo (lo declara). ⚠️ Umbral en `CRON_JOBS`
+       * (`analytics_refresh_product_margins`) o una MV parada se ve VERDE (OBS.1).
+       */
+      ['analytics.mv_product_margins_30d', 'analytics_refresh_product_margins',
+        'Refresh MV márgenes por producto 30 d (nightly)', []],
     ] as const) {
       const start = Date.now();
       let ok = false;

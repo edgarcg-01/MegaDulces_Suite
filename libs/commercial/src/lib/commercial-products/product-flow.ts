@@ -919,6 +919,11 @@ export interface MargenesPlaza {
 
 export interface MargenesProducto {
   product_id: string;
+  /**
+   * `[PF.8]` De dónde salió: la matvista nocturna (`foto`, al instante) o la función de Productos nuevos (`en_vivo`,
+   * cuando la matvista no está poblada o no llega hasta ayer). Mismo periodo y mismas cifras en los dos casos.
+   */
+  origen: { fuente: 'foto' | 'en_vivo'; calculado_at: string | null };
   /** Primer día del periodo. */
   desde: string;
   /** Último día del periodo (ayer: lo de hoy no entra en los márgenes). */
@@ -937,11 +942,36 @@ export function margenRealDe(n: number | string | null, nc: number | string | nu
 export { escaleraDeFicha, existenciaEnDuda };
 export type { FichaPlaza, KardexPlaza };
 
+/**
+ * `[PF.7]` Lo que «Para cuidar hoy» muestra de cada producto. El análisis completo (motivos, impacto, traspasos,
+ * sucursales) lo trae el panel del producto al abrirlo: mandarlo aquí para 545 productos pesaba ~450 KB.
+ */
+export interface ResumenCuidar {
+  product_id: string;
+  mes: number;
+  variacion: number | null;
+  lider: Lider | null;
+  caducidad: CaducidadResumen | null;
+  agotadas: Array<{ plaza: string; nombre: string | null }>;
+  compra: Pick<AnalisisCompra, 'veredicto' | 'titulo'>;
+  /** NULL = sin permiso de costo o sin venta. */
+  margen_real: Pick<Margen, 'pct' | 'cobertura'> | null;
+}
+
+export function resumenCuidar(r: FlujoResumen): ResumenCuidar {
+  return {
+    product_id: r.product_id, mes: r.mes, variacion: r.variacion, lider: r.lider, caducidad: r.caducidad,
+    agotadas: r.agotadas.map((a) => ({ plaza: a.plaza, nombre: a.nombre })),
+    compra: { veredicto: r.compra.veredicto, titulo: r.compra.titulo },
+    margen_real: r.margen_real ? { pct: r.margen_real.pct, cobertura: r.margen_real.cobertura } : null,
+  };
+}
+
 /** `[PF.2]`/`[PF.3]` Para cuidar hoy (arriba de la tabla de Productos). */
 export interface ProductoACuidar {
   sku: string;
   nombre: string | null;
-  resumen: FlujoResumen;
+  resumen: ResumenCuidar;
   /** `[PF.2]` Por qué pide atención (sólo líderes). */
   motivos?: MotivoLider[];
   /** `[PF.2]` Lo que se juega por día (sólo líderes): el orden de la lista. */

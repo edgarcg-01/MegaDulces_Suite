@@ -1355,6 +1355,8 @@ const CRON_JOBS: CronCfg[] = [
   // [PP.0] Si esto se para, Tesoreria sigue viendo una fecha limite de pronto pago que ya caduco:
   // la pantalla no se rompe, envejece. Mismo umbral que sus hermanas nocturnas.
   { key: 'analytics_refresh_prompt_discount', label: 'Refresh MV ventana de pronto pago (PP.0)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
+  // [PF.8] Márgenes por producto (30 días cerrados). Si se para, el panel calcula en vivo (1-14 s) y lo dice.
+  { key: 'analytics_refresh_product_margins', label: 'Refresh MV márgenes por producto (PF.8)', cadence: 'nightly 06:20 MX', warnH: 26, critH: 50 },
   // [IC.10] Roll-forward entre conteos. Mismo motivo que las dos de arriba, con un agravante:
   // cuando envejece la pantalla de Conciliacion no se vacia ni avisa -- sigue mostrando la
   // merma del periodo anterior como si fuera la del actual, que es la clase de fallo que no

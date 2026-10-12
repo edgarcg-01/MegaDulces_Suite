@@ -91,3 +91,26 @@ describe('[PF.6] Para cuidar hoy: la foto del worker', () => {
     expect(calcular).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('[PF.6] el armado de «Para cuidar hoy» (sin simularlo)', () => {
+  it('⛔ cada líder y cada producto que caduca lleva su SKU y su nombre (un mapa vacío los borraba en silencio)', async () => {
+    const { periodos, juzgarPlaza, resumirProducto } = await import('./product-flow');
+    const P = periodos('2026-10-12');
+    const plaza = juzgarPlaza(P, {
+      plaza: '01', nombre: 'Padre Hidalgo', mes: 1000, mes_anterior_mismo: 900, mes_anterior_total: 3000,
+      monto30: 3000, unidades30: 300, ultima: '2026-10-12', existencia: 50, duda: null, escalera: null, costo: null,
+    });
+    const caducidad = { vencido: 0, en_riesgo: 5, por_caducar: 1, proxima: '2026-10-20', plazas_vencido: [], plazas_en_riesgo: ['Padre Hidalgo'], lotes: 1 };
+    const r = resumirProducto('p-1', P, [plaza], { lider: { rank: 1, participacion: 0.01 }, caducidad });
+    const svc = new ProductFlowService({} as never, {} as never, {} as never);
+    const armar = (svc as unknown as { armarCuidar: (...a: unknown[]) => CuidarRespuesta }).armarCuidar.bind(svc);
+    const out = armar(P, '2026-10-12', false, [r], new Map([['p-1', { sku: '70001', nombre: 'LA ROSA MAZAPAN /30' }]]),
+      new Map([['01', 'Padre Hidalgo']]), new Map([['p-1', { rank: 1, participacion: 0.01 }]]), null, [],
+      { nuevos_excluidos: true, total: 0, valor_total: null, por_tramo: { mes: 0, trimestre: 0, anio: 0 }, productos: [] });
+    expect(out.lideres.lista[0]).toMatchObject({ sku: '70001', nombre: 'LA ROSA MAZAPAN /30' });
+    expect(out.caducidad.productos[0]).toMatchObject({ sku: '70001', nombre: 'LA ROSA MAZAPAN /30' });
+    // [PF.7] Y va el resumen corto, no el análisis completo.
+    expect(Object.keys(out.lideres.lista[0].resumen).sort()).toEqual(
+      ['agotadas', 'caducidad', 'compra', 'lider', 'margen_real', 'mes', 'product_id', 'variacion']);
+  });
+});
