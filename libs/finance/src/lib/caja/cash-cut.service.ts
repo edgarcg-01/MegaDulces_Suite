@@ -176,8 +176,46 @@ export class CashCutService {
        * de "se contó y estaba vacía", y el CHECK de la tabla no deja guardar un monto sin decir
        * de dónde salió.
        */
-      const monto = input.fondo_inicial === undefined ? null : input.fondo_inicial;
-      const origen = monto === null ? 'sin_medir' : (input.fondo_origen ?? 'contado');
+      let monto = input.fondo_inicial === undefined ? null : input.fondo_inicial;
+      let origen = monto === null ? 'sin_medir' : (input.fondo_origen ?? 'contado');
+
+      /**
+       * ⭐ `[CG.90]` **EL FONDO DE HOY ES LO QUE SE CONTÓ AYER. No hace falta preguntarlo.**
+       *
+       * Edgar, 2026-10-12, con el diálogo a la vista: *"aquí ya tenemos fondo inicial, ya no es
+       * necesario que lo pidamos"*. Tiene razón, y el diseño ya lo sabía: el CHECK de esta misma
+       * tabla acepta `fondo_origen = 'cierre_anterior'` desde que se creó — **nadie lo cableó**.
+       * El valor estaba previsto y el camino para llenarlo no existía.
+       *
+       * El efectivo no se evapora de un día para el otro: lo que quedó contado al sellar la
+       * jornada anterior ES con lo que arranca la siguiente. Pedirlo de nuevo es pedirle a una
+       * persona que teclee un número que el sistema ya tiene — y cada vez que se teclea se puede
+       * teclear mal, justo en el campo del que cuelga todo el arqueo.
+       *
+       * ⚠️ Sólo hereda de un corte **CERRADO o AUTORIZADO** y con `contado` real. Un borrador no
+       * sirve: su conteo todavía no pasó por el sello, y heredar de algo sin sellar es propagar
+       * una cifra que nadie confirmó.
+       *
+       * ⚠️ Y sigue sin inventar: si no hay corte anterior —hoy en prod hay **CERO**, medido— el
+       * fondo queda `null` con `fondo_origen='sin_medir'`, que es un hecho distinto de "arrancó en
+       * cero". Ese `?? 0` ya costó una vez un faltante y un sobrante del mismo tamaño todos los
+       * días (ver `[CG.39]` arriba). Acá no se repone.
+       *
+       * ⚠️ Lo explícito gana: si quien abre TECLEA un fondo, se respeta el suyo y se marca
+       * `'contado'`. La herencia sólo llena el hueco.
+       */
+      if (monto === null) {
+        const prev = await trx('finance.cash_ledger_cuts')
+          .where({ tenant_id: tenantId, sucursal: input.sucursal })
+          .whereIn('estado', ['cerrado', 'autorizado'])
+          .whereNotNull('contado')
+          .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'closed_at', order: 'desc' }])
+          .first('folio', 'contado', 'fecha');
+        if (prev && Number(prev.contado) >= 0) {
+          monto = Number(prev.contado);
+          origen = 'cierre_anterior';
+        }
+      }
 
       const folio = await this.nextFolio(trx, tenantId, Number(String(input.fecha).slice(0, 4)));
       const [c] = await trx('finance.cash_ledger_cuts').insert({
