@@ -16,6 +16,30 @@ Son **dos archivos y no uno** a propósito: si fuera uno solo y fallara, no sabr
 
 ---
 
+## Dónde está la importación — menú exacto
+
+**`Pólizas` → `Cargar Pólizas...` (F5)**
+
+⭐ En ContPAQi la convención es **Bajar = exportar** / **Cargar = importar**:
+
+| | |
+|---|---|
+| `Bajar Pólizas... <F4>` | exporta a archivo — **es lo que produjo el archivo real** que usamos de referencia |
+| `Cargar Pólizas... <F5>` | **importa desde archivo ← ésta** |
+
+### ⭐ Marcar `Cargar sin Afectar`
+
+El propio diálogo de `Cargar Pólizas` trae una casilla **`Cargar sin Afectar`**: carga la póliza
+**sin tocar los saldos**, por el **mismo camino y el mismo formato**. Es la red de seguridad que
+hay que usar.
+
+⚠️ **No usar `Cargar Prepóliza...`**, aunque suene más seguro. Es **otro formato**, y eso ya está
+medido: su esquema (`CT_EST_Prepoliza_NG.xls`) declara anchos distintos —`Referencia` 100 contra
+30, `Cuenta` 52 contra 30—. Nuestro archivo está hecho contra el de póliza. Si se importa por ahí
+y falla, no sabríamos si falló el formato o el camino, y la prueba no habría servido de nada.
+
+---
+
 ## Los dos archivos
 
 | | qué trae | qué contesta |
@@ -35,8 +59,13 @@ La póliza es de **un peso**, a `5200800000 VARIOS` contra `1020020000 BBVA`, co
 
 ### 1. ¿Entró?
 
-Si ContPAQi la rechaza: **copiar el mensaje de error tal cual**, aunque parezca que no dice nada.
-Es la información más valiosa de toda la prueba.
+⭐ **No hace falta transcribir nada ni interpretar un popup.** ContPAQi escribe sola una bitácora
+del proceso — un archivo **`Cargar_Pólizas_AAAAMMDD.xls`** (la fecha del día) en la carpeta que
+indique el campo `Archivo de bitácora` del mismo diálogo. **Mandar ese archivo tal cual.**
+
+Si además aparece un mensaje en pantalla, una foto o el texto copiado ayuda — pero la bitácora es
+lo que de verdad dice qué pasó, renglón por renglón. Es la información más valiosa de toda la
+prueba, y vale **igual de mucho si falla que si funciona**.
 
 ### 2. ¿Conservó el identificador?
 
@@ -62,6 +91,9 @@ que quedan sin asociar** — y sin comprar ni instalar nada.
 **Borrar las dos pólizas de prueba.** Borrarlas deshace también la asociación del CFDI del
 archivo B, así que no queda rastro.
 
+⭐ Si se cargaron con **`Cargar sin Afectar`**, los saldos nunca se movieron: borrar las pólizas
+es lo único que hay que hacer. No hay nada que reversar.
+
 ---
 
 ## Lo que se hace con la respuesta
@@ -73,3 +105,17 @@ archivo B, así que no queda rastro.
 | B asocia el CFDI | Se cierra el hueco de los comprobantes sin asociar |
 | B no asocia | Se sigue asociando aparte, como hoy |
 | Conserva el identificador | Cada póliza se reconoce sola, sin depender del concepto |
+
+---
+
+## Qué mandar de vuelta
+
+Tres cosas, y con las tres alcanza:
+
+1. **La bitácora** `Cargar_Pólizas_AAAAMMDD.xls` de cada intento (A y B).
+2. Si entraron: **el número de póliza** que ContPAQi les asignó, y si el identificador largo del
+   encabezado quedó igual o lo cambió.
+3. Sólo para B: si la póliza aparece **asociada al comprobante** o no.
+
+⛔ **Si algo falla, eso también se manda** — un rechazo con su bitácora vale tanto como un éxito:
+dice exactamente qué corregir. Lo único que no sirve es no intentarlo.
