@@ -4,6 +4,39 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-12 — `[CPA.10]` La bandeja «Mi cierre»: contabilidad no ignoraba la Suite, ignoraba SU módulo
+
+**Qué se pidió.** *"Analizá todo /contabilidad y decime cómo aportarle valor para que contabilidad empiece a usar la Suite y su trabajo se automatice un 90 %; tenemos un puente ContPAQi, pero hoy no le encuentran nada de valor a su módulo."* Después: diseñar las interfaces primero, y luego construirlas.
+
+**⛔⛔ El diagnóstico, medido en prod y no supuesto.** `analytics.ui_usage`, ventana 2026-09-30 → 2026-10-12, rol `contabilidad`: **3,604 hits en 10 días activos · 0 a `/api/fiscal/*` · 0 a `/api/contabilidad/*` · 1,806 (50.1 %) a `/api/finance/expenses/*`**. Tienen los **19 permisos `FISCAL_*` en `true`** y entran a diario. No es acceso, ni permiso, ni capacitación.
+
+> **Contabilidad ya había adoptado la Suite; lo que no adoptó es su propio módulo.** Las 16 pestañas —≈9,000 líneas de front, 12 sub-módulos en `libs/fiscal`— tienen cero tráfico de la gente para la que se construyeron. El módulo que sí usan tiene cuatro cosas que el suyo no: cola personal (`GET /mine`), OCR que teclea por ellos, cierre de tres salidas y empuje. `/contabilidad` es un visor: **6 de 16 servicios son sólo GET**.
+
+⭐ **Eso corrigió el orden del plan que ya existía.** `FASE_CPA` acierta en *qué* automatizar y arranca su Bloque A con el semáforo de cierre — una pantalla de **sólo lectura**, o sea el mismo género del que ya hay 16 ignoradas, y que además le informa a la contadora algo que ella ya sabe. Rinde para nosotros, no para ella. El primer entregable tiene que **quitarle tecleo de las manos**, no agregarle pantalla a los ojos.
+
+**Lo que se construyó.** `[CPA.10]`: vista `analytics.v_contpaqi_captura_mensual` (mig `20261012165455`), `mi-cierre.engine.ts` puro, `MiCierreService` + 2 endpoints, la pantalla `/contabilidad/mi-cierre` como **portada** del proyecto, y su candado contra prod. Sin permiso nuevo (reusa `FISCAL_CONTAB_*`, ya repartido) → **sin re-login**.
+
+**Lo que se aprendió, y cada punto costó encontrarlo:**
+
+1. ⛔⛔ **Un patrón de texto puede perder una familia entera sin que nada falle.** La venta diaria se llama `VTA.4/9/26 Suc. 3 …` — con **punto**. Con `ILIKE 'VTA %'` se van **1,472 renglones/mes a `otros`**, el total cuadra idéntico y la pantalla pinta normal. El candado corre **las dos formas** y exige que difieran; si coincidieran, dejó de probar algo. Al corregirlo, `otros` cae de 1,961 a **44 renglones/mes** y aparece una familia que nadie había nombrado (`TLMKT`, 408/mes). El techo real de automatización es **93.6 %**, no 90.
+
+2. ⛔⛔ **Medir la premisa antes de construir sobre ella mató el diseño que yo mismo había dibujado.** El mockup proponía estrenar la ida con comisiones bancarias y armar `gasto / IVA / banco` por movimiento. Medido: nuestro clasificador ve **$141,343** de comisiones en septiembre y ContPAQi asienta **$380,818** — el **37 %** (en julio, el **6 %**). **No era cobertura de la base** (nuestros movimientos cubren 90–114 % del `1020*` todos los meses): estaban partidas en **tres categorías que son el mismo asiento**, el **IVA llega como movimiento aparte** (hay que *parear*, no derivar), y ContPAQi pone **un abono por movimiento y un cargo resumido por banco**, no una póliza por movimiento.
+
+3. ⭐ **Un mapa que se iba a pedir se derivó de sus propios libros.** El plan daba por bloqueante «media hora del contador» para las cuentas de comisiones. Salen de su propia contabilidad: cargo a `5200650000`, IVA a `1060000000`, banco a su `1020*` (18/20 mapeados, y el **100 %** de las comisiones clasificadas tiene banco mapeado). Lo que falta no es el diccionario: son **2 cuentas de banco**.
+
+4. ⛔ **Un candado puede comparar un sub-reporte contra sí mismo.** Al agregar la pantalla al árbol de authz, el spec `[AU.33]` reportó que **dos pantallas viejas desaparecían** de la lista de afectadas. Causa: `indiceDeClaves` era `Map<string, Ubicacion>` con `ix.set(k, …)` → **gana el último módulo del árbol**, y una clave compartida queda atribuida a una sola pantalla. La UI de roles le decía a quien quita `FISCAL_CONTAB_VER` que cerraba **una** pantalla cuando cierra **tres**. Corregido a uno-a-muchos: las 27 claves del caso real pasan de **19 a 25 pantallas**, y **5 de las 6 nuevas ya existían** — la lista no creció porque se construyera algo, creció porque se dejó de sub-reportar. De paso **refuta un comentario del propio spec** (`FINANCE_FINDINGS_GESTIONAR` sí tiene módulo «Hallazgos»). Y la invariante `suma === 27` sólo se sostenía por el sub-reporte: se reemplazó por *el conjunto de claves repartidas es exactamente LAS_27*.
+
+5. ⚠️ **Dos candidatos de landing con la misma clave dejan muerto al segundo.** El spec de `[SN.4]` lo prohíbe. La bandeja no **agrega** un candidato: **mueve** el destino de `FISCAL_CONTAB_VER`, que antes iba a Contabilidad electrónica.
+
+6. ⭐ **Materializar sin medir el costo es inventarse un problema.** Su hermana `[CPA.0.2]` necesitó matvista (889 → 3 ms). Ésta mide **120–129 ms en tres corridas** contra prod, bajo el gate de 500 → vista simple.
+
+**Candados.** engine **23/23**, mutado a **rojo 2/23** colapsando `verificada` `null` → `true` (la regla ternaria de ADR-056: `null` es *nadie comprobó* y no es `false`) · `test-newdb-mi-cierre.js` **18 ✔ · 0 ✘ · 4 ◻ NO MEDIDO** contra prod · contracts **563/563** · landing-guards **39/39** · finance **1139/1139** · view **3069/3073** (el que falla es de Caja General, verde en aislamiento 187/187 y ajeno a este cambio) · `check:templates` y `check:tokens` verdes.
+
+**El vacío que es el dato.** `contpaqi.poliza_exports` sigue en **0 filas** y `finance.purchase_book_runs` en 3 corridas con **0 entregadas**, dos días después de que `FASE_CPA` lo señalara. Septiembre **sigue** sin póliza de compras (8 renglones contra 607 de julio y 636 de agosto) y octubre tampoco; los CFDI recibidos sin asociar van sep **552/$29.7 M** y oct **373/$19.9 M**, creciendo. **El candado que bloquea los cinco renglones de la ida no es código: es un clic de la contadora sobre un archivo de prueba.**
+
+**Falta:** aplicar la migración a prod · `git push` (sin autorizar) · redeploy · validación visual. **Declarado y no construido:** el armador de comisiones (`[CPA.6]`, ahora con el mapa derivado y la estructura corregida), el side-peek de detalle y la bandeja de CFDI sin asociar — diseñados y aprobados, ninguno escrito.
+
+
 ## 2026-10-10 — `[ETQ-CAMBIOS.8–9]` y `[ETQ-ESTADO.1]` + lo que costó llevar tres PR de etiquetas a verde
 
 **Qué se hizo.** (a) *Cambios de precio* pasó a **un código, una fila**, con confirmación del precio que lleva la etiqueta, y un clic en la fila lleva a imprimirla (#349, ya en `main`). (b) La etiquetera ahora dice **por qué** un producto no tiene precio (#351). (c) Se retiró del aviso la descarga en Excel/CSV por decisión de Edgar (#350).
