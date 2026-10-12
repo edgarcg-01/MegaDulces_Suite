@@ -245,26 +245,60 @@ export class PresupuestoDireccionService {
     const filas = await q('budget.generation_runs').where({ tenant_id: tenantId })
       .orderBy('started_at', 'desc').limit(60);
 
-    // Un minuto = un disparo, aunque haya corrido una vez por ejercicio.
-    const minutos = [...new Set(
-      filas.map((f) => {
-        const t = new Date(f.started_at as string).getTime();
-        return Number.isNaN(t) ? NaN : Math.floor(t / 60000) * 60000;
-      }).filter((n) => !Number.isNaN(n)),
-    )].sort((a, b) => b - a);
+    const crudos = filas
+      .map((f) => new Date(f.started_at as string).getTime())
+      .filter((n) => !Number.isNaN(n))
+      .sort((a, b) => b - a);
 
-    const MUESTRA = 4;              // las últimas 4 diferencias: el régimen vigente, no la historia
-    const TOLERANCIA_H = 1.5;       // 24.00 y 23.1 son la misma cadencia; 24.00 y 17.77 no
-    if (minutos.length < MUESTRA + 1) return null;
+    // ⭐ Las TRES constantes con nombre, y la primera la pidió la verificación: midiendo «cuántas
+    // diferencias valen cero» este carril dio 17 de 28 y el de Gastos 20 de 28. Las dos
+    // mediciones eran correctas — una contó el cero exacto y la otra todo lo menor a media hora.
+    // El veredicto no se movía, pero **una tolerancia que no está fijada hace que dos
+    // implementaciones correctas discrepen**, y el día que alguien toque la regla no va a saber
+    // cuál era la buena.
+    //
+    // ⚠️ Y de paso arregla un borde: colapsar por minuto de RELOJ parte dos corridas a 07:30:59
+    // y 07:31:01, que están a dos segundos. Se colapsa por DISTANCIA, no por cubo.
+    const MISMO_DISPARO_MS = 120_000;   // dos corridas a menos de 2 min son el mismo disparo
+    const MUESTRA = 3;                  // ver la tabla de abajo: 4 era uno de más
+    const TOLERANCIA_H = 1.5;           // 24.00 y 23.1 son la misma cadencia; 24.00 y 17.75 no
 
-    const difs = minutos.slice(0, MUESTRA).map((t, i) => (t - minutos[i + 1]) / 3600000);
+    // ⭐ `MUESTRA = 3` NO es un número elegido: lo decidió una medición contra prod, y mi primer
+    // valor (4) estaba mal. Las ocho diferencias más recientes, en horas:
+    //
+    //     24.00  24.00  24.00  17.75  0.65  9.60  7.64  0.18
+    //            └──── el régimen ────┘  └──── el arranque ────┘
+    //
+    //     MUESTRA=2 -> spread 0.00  -> publica   ⚠️ pero DOS valores iguales siempre concuerdan:
+    //                                             no distingue un patrón de una coincidencia
+    //     MUESTRA=3 -> spread 0.00  -> publica   ⭐ el mínimo que evidencia un régimen
+    //     MUESTRA=4 -> spread 6.25  -> null      ⛔ alcanza el arranque y esconde una cadencia
+    //                                             que existe y se ve
+    //     MUESTRA=5 -> spread 23.35 -> null
+    //
+    // El costo de 3 es que la regla no reconoce un régimen hasta la cuarta corrida. Es el lado
+    // correcto del error: tarda en afirmar, no afirma de más.
+    //
+    // ⚠️ Y `MISMO_DISPARO_MS` resultó **inocuo entre 60 s y 30 min** —las mismas diferencias en
+    // todo ese rango—, así que la divergencia que lo motivó (17 contra 20 ceros, según dónde se
+    // pusiera el corte) **no movía el veredicto**. Queda fijado igual: que hoy no cambie el
+    // resultado no es lo mismo que no importar, y sin nombre dos implementaciones correctas
+    // vuelven a discrepar.
+
+    const disparos: number[] = [];
+    for (const t of crudos) {
+      if (disparos.length === 0 || disparos[disparos.length - 1] - t > MISMO_DISPARO_MS) disparos.push(t);
+    }
+    if (disparos.length < MUESTRA + 1) return null;
+
+    const difs = disparos.slice(0, MUESTRA).map((t, i) => (t - disparos[i + 1]) / 3600000);
     const max = Math.max(...difs);
     const min = Math.min(...difs);
     if (max - min > TOLERANCIA_H) return null;   // régimen inestable: no se inventa
 
     const horas = (max + min) / 2;
     if (horas >= 20 && horas <= 28) {
-      const h = new Date(minutos[0]);
+      const h = new Date(disparos[0]);
       return `diaria, ~${String(h.getHours()).padStart(2, '0')}:${String(h.getMinutes()).padStart(2, '0')}`;
     }
     if (horas < 20) return `cada ~${Math.round(horas * 10) / 10} h`;
