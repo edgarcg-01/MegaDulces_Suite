@@ -945,6 +945,12 @@ const CRON_JOBS: CronCfg[] = [
   // despues. La cadencia va aca tambien, asi que si alguien mueve el @Cron sin tocar esta linea el
   // umbral queda mintiendo.
   { key: 'budget_autopilot',    label: 'Presupuesto que se mantiene solo',  cadence: 'diario 07:30 MX', warnH: 30, critH: 54 },
+  // `[AT.1]` Comprobantes de pago: relee el archivo guardado (el servidor produce la lectura) y
+  // deja que `[PC.6]` decida. Corre @20 min, asi que 3 h es ya un carril parado, no un retraso.
+  // ⚠️ Sin esta fila `db-health` cae en el `cfg ? classify : 'ok'` y un carril muerto sale VERDE
+  // -- que es lo que la Fase VP midio en las 3 matvistas del sell-out. El numero esta en DOS
+  // lugares (aca y el @Cron de `pagos-autopilot.service.ts`): si alguien mueve uno, el otro miente.
+  { key: 'pagos_relectura',     label: 'Comprobantes de pago: relectura y auto-validacion', cadence: 'cada 20 min', warnH: 3, critH: 12 },
   // ⛔ `[RD.22]` Aca estaba `rd_commission_runner`, el cron que calculaba la quincena de
   // comisiones a las 08:30. Se RETIRO el 2026-10-07 junto con el cron: una quincena cerrada es
   // un valor estatico que se calcula una vez, no un derivado que haya que refrescar, y dejar su

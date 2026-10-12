@@ -74,7 +74,7 @@ interface GastoFile {
         <div class="cb-field"><label>&nbsp;</label>
           <button pButton type="button" size="small" [outlined]="!soloAlertas()" severity="danger" (click)="toggleAlertas()" [attr.aria-pressed]="soloAlertas()" title="Solo pagos con alerta de control (cuenta ajena / clave repetida)"><span class="p-button-icon p-button-icon-left pi pi-flag" aria-hidden="true"></span><span class="p-button-label">Solo alertas</span></button></div>
         <div class="cb-field"><label>&nbsp;</label>
-          <button pButton type="button" size="small" outlined (click)="doRecheck()" [loading]="rechecking()" title="Compara otra vez con Kepler los comprobantes con diferencias: los que ya coinciden en banco, fecha, monto y proveedor se validan solos"><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Volver a comparar</span></button></div>
+          <button pButton type="button" size="small" outlined (click)="doRecheck()" [loading]="rechecking()" title="Relee los comprobantes desde el archivo guardado y los vuelve a comparar con Kepler: los que coinciden en banco, fecha, monto y proveedor se validan solos. Esto corre solo cada 20 minutos; el botón sólo adelanta la próxima pasada."><span class="p-button-icon p-button-icon-left pi pi-sync" aria-hidden="true"></span><span class="p-button-label">Ponerse al día</span></button></div>
       </div>
 
       @if (report(); as r) { <app-metric-strip [items]="kpiItems(r)" ariaLabel="Resumen" /> }
@@ -697,20 +697,42 @@ export class FinanzasPagosComprobantesComponent implements OnInit, OnDestroy {
     return v === 'ok' ? 'coincide' : v === 'difiere' ? 'no coincide' : 'no se pudo leer';
   }
 
-  /** [PC.6] Compara otra vez con Kepler lo que tiene diferencias (p. ej. si ya se corrigió el pago allá). */
+  /**
+   * `[AT.1]` Relee desde el archivo guardado y vuelve a comparar con Kepler.
+   *
+   * ⛔ Antes esto llamaba a `recheck`, y el mensaje decía *«0 de 500 ya coinciden y quedaron
+   * validados; 500 siguen con diferencias»* — que se lee como «500 documentos están mal» cuando
+   * en realidad 189 estaban perfectos y sólo les faltaba una lectura que el servidor pudiera
+   * firmar. El botón prometía algo que `recheck` **no puede** cumplir (guarda 2 de `[PC.6]`).
+   *
+   * ⚠️ De a 10: cada comprobante es una bajada del bucket + una llamada al modelo. El rezago lo
+   * drena el carril de 20 min; esto sólo adelanta la próxima pasada.
+   */
   doRecheck() {
     if (this.rechecking()) return;
     this.rechecking.set(true);
-    this.svc.recheck().pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
+    this.svc.relectura(10).pipe(takeUntilDestroyed(this.destroyRef)).subscribe({
       next: (r) => {
         this.rechecking.set(false);
+        const noPudo = Object.entries(r.no_relegibles).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${k.replace(/_/g, ' ')}`);
+        const partes = [
+          `${r.releidos} de ${r.revisados} releídos`,
+          r.validados ? `${r.validados} quedaron validados` : null,
+          r.clasificados ? `${r.clasificados} ya tienen sus 4 señales` : null,
+          r.cambiaron ? `${r.cambiaron} leyeron distinto que antes` : null,
+          noPudo.length ? `sin releer: ${noPudo.join(', ')}` : null,
+        ].filter(Boolean);
         this.toast.add({
-          severity: r.validados ? 'success' : 'info', summary: 'Comparado con Kepler',
-          detail: r.revisados ? `${r.validados} de ${r.revisados} ya coinciden y quedaron validados; ${r.con_diferencias} siguen con diferencias.` : 'No hay comprobantes con diferencias.',
+          severity: r.errores.length ? 'warn' : r.validados ? 'success' : 'info',
+          summary: r.revisados ? 'Comprobantes releídos' : 'Todo al día',
+          // Lo que no se pudo se DICE, con su motivo: un total mudo no se puede arreglar.
+          detail: r.revisados ? `${partes.join('; ')}.` + (r.errores.length ? ` ⚠ ${r.errores[0]}` : '')
+            : 'No queda ningún comprobante sin lectura verificada.',
+          life: 7000,
         });
         this.load();
       },
-      error: (e) => { this.rechecking.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo comparar', detail: e?.error?.message }); },
+      error: (e) => { this.rechecking.set(false); this.toast.add({ severity: 'error', summary: 'No se pudo releer', detail: e?.error?.message }); },
     });
   }
 

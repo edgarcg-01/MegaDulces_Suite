@@ -171,6 +171,22 @@ export interface AttachResult {
   coincidencias?: CoincidenciasPago; auto_validado?: boolean; diferencias?: string[]; motivo_no_automatico?: string | null;
 }
 
+/**
+ * `[AT.1]` Lo que devuelve una pasada de relectura. `no_relegibles` viene **desglosado** a
+ * propósito: «3 no se pudieron releer» no se arregla igual si son archivos que no están en el
+ * bucket, tipos que el lector no entiende o documentos de verdad ilegibles.
+ */
+export interface RelecturaResult {
+  revisados: number;
+  releidos: number;
+  cambiaron: number;
+  clasificados: number;
+  validados: number;
+  no_relegibles: { sin_hoja: number; sin_archivo: number; tipo_no_leible: number; ilegible: number };
+  errores: string[];
+  ms: number;
+}
+
 @Injectable({ providedIn: 'root' })
 export class PagosComprobantesService {
   private readonly http = inject(HttpClient);
@@ -206,6 +222,17 @@ export class PagosComprobantesService {
   /** `[PC.6]` Vuelve a comparar con Kepler los comprobantes con diferencias; valida solo los que ya cumplen. */
   recheck(): Observable<{ revisados: number; validados: number; con_diferencias: number }> {
     return this.http.post<{ revisados: number; validados: number; con_diferencias: number }>(`${this.base}/recheck`, {});
+  }
+  /**
+   * `[AT.1]` Relee el comprobante desde el archivo guardado y deja decidir a `[PC.6]`.
+   *
+   * ⭐ Es lo que `recheck` **no puede** hacer: la guarda 2 de `[PC.6]` exige una lectura
+   * verificada, y la verificación vive en memoria del servidor con 8 h de TTL. Medido en prod el
+   * 2026-10-12: **1,199 de 1,259** comprobantes `recibido` no la tienen —entre ellos los 189 que
+   * ya están en 4/4—, así que `recheck` valida **cero** por más veces que se apriete.
+   */
+  relectura(limite = 10): Observable<RelecturaResult> {
+    return this.http.post<RelecturaResult>(`${this.base}/relectura?limite=${limite}`, {});
   }
   validate(id: string): Observable<any> { return this.http.post(`${this.base}/${id}/validate`, {}); }
   reject(id: string, motivo?: string): Observable<any> { return this.http.post(`${this.base}/${id}/reject`, { motivo }); }

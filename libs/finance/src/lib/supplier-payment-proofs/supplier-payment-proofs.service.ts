@@ -4,6 +4,10 @@ import { LlmExtractorService, OcrReadingsService, SupplierPaymentFields } from '
 import { Knex } from 'knex';
 import { esDuenoDelVale, coincidenciasPago, coincidenTodas, diferenciasPago, cuentaEsClave, type IdentidadQueDecide, type CoincidenciasPago } from '@megadulces/contracts';
 import { PagosComprobantesGateway } from './pagos-comprobantes.gateway';
+import {
+  hojaRelegible, tipoLeible, base64De, lecturaSirve, camposQueCambiaron, pasadaVacia,
+  type ResultadoRelectura,
+} from './relectura.engine';
 
 /**
  * Fase CC (extensión) — Comprobantes de PAGO A PROVEEDOR. Adjunta el comprobante
@@ -44,6 +48,21 @@ const LATERAL_BANCO_DEL_PAGO = `LEFT JOIN LATERAL (
 
 /** `[PC.6]` Quién firma una validación automática. */
 export const VALIDADOR_AUTOMATICO = 'Sistema · 4 coincidencias';
+
+/**
+ * `[AT.1]` Cuántos comprobantes relee una pasada. Cada uno es una bajada del bucket + una llamada
+ * al modelo (segundos), así que el tope es de **tiempo**, no de base: con 25 la pasada cierra
+ * holgada dentro de su ventana y el rezago de 1,199 se drena en ~2 días de carril.
+ */
+export const LOTE_RELECTURA = 25;
+
+/**
+ * `[AT.1]` Lecturas vacías SEGUIDAS que abortan la pasada. Separa dos cosas que de otro modo se
+ * cuentan igual: *«estos documentos no se entienden»* (disperso) y *«el lector está caído»*
+ * (seguido). Sin este freno, un proveedor caído quema el lote entero y lo informa como si los
+ * comprobantes fueran ilegibles.
+ */
+export const ILEGIBLES_SEGUIDAS = 5;
 
 /** Clave de rastreo → alfanumérico (llave determinista de dedup). null si no hay. */
 const normRef = (s: unknown): string | null => {
@@ -486,6 +505,176 @@ export class SupplierPaymentProofsService {
       this.logger.log(`recheck: ${pendientes.length} revisados, ${validados} validados solos`);
       return { revisados: pendientes.length, validados, con_diferencias: pendientes.length - validados };
     });
+    for (const ev of validadosEv) this.emit('validated', { ...ev, status: 'validado', actor: VALIDADOR_AUTOMATICO });
+    return out;
+  }
+
+  /**
+   * `[AT.1]` **Relee el comprobante desde el archivo guardado y lo deja listo para decidir.**
+   *
+   * `recheck()` vuelve a comparar con Kepler, pero **no puede desbloquear nada**: la guarda 2 de
+   * `[PC.6]` exige una lectura verificada, y la verificación vive en memoria (`OcrReadingsService`,
+   * 8 h de TTL, se pierde en cada reinicio). Medido en prod el 2026-10-12: de los **1,259**
+   * comprobantes `recibido`, **1,199** no tienen lectura verificable, entre ellos los **189 que ya
+   * están en 4/4** — o sea que apretar «Volver a comparar» mil veces valida **cero**.
+   *
+   * Esto baja los bytes del bucket y **el servidor los lee él mismo**. Eso satisface la guarda por
+   * su razón de ser (la lectura no la dicta el request) y de hecho con más fuerza que el recuerdo
+   * en memoria, porque lo que se lee es la evidencia archivada.
+   *
+   * ## Cómo falla, que es donde está el riesgo
+   *
+   * ⛔⛔ `extractSupplierPayment` **se traga sus excepciones y devuelve todos los campos en
+   * `null`**: sin API key, con el proveedor caído o con un PDF ilegible el retorno es idéntico.
+   * Persistir eso **borraría la lectura guardada** de hasta 1,199 comprobantes y dejaría sus
+   * cuatro señales en `sin_dato`. Por eso una lectura vacía no se escribe nunca (`lecturaSirve`),
+   * y además hay dos frenos: sin `ANTHROPIC_API_KEY` la pasada **no arranca**, y
+   * `ILEGIBLES_SEGUIDAS` ilegibles en fila la **abortan** — que es la diferencia entre *«estos
+   * documentos no se entienden»* y *«el lector está caído»*, dos cosas que de otro modo se cuentan
+   * igual.
+   *
+   * ⚠️ La lectura anterior **no se pierde**: queda en `ocr_raw.relectura.anterior` con la fecha y
+   * los campos que cambiaron. La huella viaja EN LA FILA, no sólo en un log — una evidencia que se
+   * reescribió sola tiene que poder explicar de dónde salió el cambio.
+   *
+   * ⚠️ El I/O (bucket + modelo) corre **fuera de toda transacción**: son segundos por documento y
+   * sostener una transacción abierta mientras tanto frena a quien escribe. Cada fila se guarda en
+   * su propia transacción corta, así que una que truene no revierte a las demás.
+   *
+   * ⛔ Esto NO afloja `[PC.6]`: las cinco guardas siguen mandando y la decisión la sigue tomando
+   * el cruce exacto contra Kepler. Una relectura puede DESCALIFICAR a uno que hoy aparenta 4/4.
+   */
+  async relectura(limite = LOTE_RELECTURA): Promise<ResultadoRelectura> {
+    const t0 = Date.now();
+    const out = pasadaVacia();
+    const validadosEv: { sucursal: string; doc_prefix: string | null; folio: string; proveedor: string | null; monto: number | null }[] = [];
+
+    // ⛔ Sin lector no se arranca. Si se arrancara, las 25 lecturas volverían vacías, las 25
+    // contarían como `ilegible` y el latido diría «los comprobantes no se entienden» sobre una
+    // variable de entorno que falta. Declararlo cuesta una línea; confundirlo cuesta la cola.
+    if (!process.env.ANTHROPIC_API_KEY) {
+      out.errores.push('sin ANTHROPIC_API_KEY: no hay con qué releer el comprobante');
+      out.ms = Date.now() - t0;
+      return out;
+    }
+
+    // 1 ─ El lote, en una transacción CORTA. Primero los que hoy no tienen NINGUNA señal
+    //     calculada: son los que la pantalla no puede ni clasificar, o sea los invisibles.
+    const lote = await this.tk.run(async (trx) => trx('finance.supplier_payment_proofs')
+      .where('status', 'recibido')
+      .where((qb: Knex.QueryBuilder) => { qb.whereNull('lectura_verificada').orWhere('lectura_verificada', false); })
+      .orderByRaw('(coincidencias IS NULL) DESC')
+      .orderBy('created_at', 'desc')
+      .limit(limite)
+      .select('id', 'sucursal', 'doc_prefix', 'folio', 'proveedor_nombre', 'files', 'coincidencias', 'ocr_raw',
+        trx.raw('ocr_monto::numeric AS ocr_monto'),
+        // ⚠️ Como TEXTO: un `date` de pg serializado se corre un día en hora de México.
+        trx.raw(`to_char(ocr_fecha, 'YYYY-MM-DD') AS ocr_fecha`),
+        'ocr_cuenta_origen', 'ocr_ordenante', trx.raw('pago_monto::numeric AS pago_monto')));
+    out.revisados = lote.length;
+
+    let ilegiblesSeguidas = 0;
+    for (const p of lote) {
+      const hoja = hojaRelegible(p.files);
+      if (!hoja) { out.no_relegibles.sin_hoja++; continue; }
+
+      let dataUri: string | null = null;
+      try {
+        dataUri = await this.storage.getDataUri(String(hoja.public_id));
+      } catch (e) {
+        out.errores.push(`${p.sucursal}/${p.folio}: bucket ${(e as Error)?.message || e}`);
+        continue;
+      }
+      if (!dataUri) { out.no_relegibles.sin_archivo++; continue; }
+
+      const tipo = tipoLeible(dataUri);
+      if (!tipo) { out.no_relegibles.tipo_no_leible++; continue; }
+
+      const fresca = await this.ocr.extractSupplierPayment(base64De(dataUri), tipo);
+      if (!lecturaSirve(fresca)) {
+        out.no_relegibles.ilegible++;
+        if (++ilegiblesSeguidas >= ILEGIBLES_SEGUIDAS) {
+          out.errores.push(`${ILEGIBLES_SEGUIDAS} lecturas vacías seguidas: el lector no responde (no son los documentos)`);
+          break;
+        }
+        continue;
+      }
+      ilegiblesSeguidas = 0;
+
+      const cambios = camposQueCambiaron(
+        { monto: p.ocr_monto, fecha: p.ocr_fecha, cuenta_origen: p.ocr_cuenta_origen, beneficiario: p.ocr_ordenante },
+        { monto: fresca.monto, fecha: fresca.fecha, cuenta_origen: fresca.cuenta_origen, beneficiario: fresca.beneficiario },
+      );
+      const teniaSenales = p.coincidencias != null;
+
+      try {
+        const escrito = await this.tk.run(async (trx) => {
+          const ref = normRef(fresca.clave_rastreo);
+          const refDuplicada = ref
+            ? !!(await trx('finance.supplier_payment_proofs').where('ref_norm', ref).whereNot('status', 'rechazado')
+                .whereNot('id', p.id)
+                .whereNot((qb: Knex.QueryBuilder) => { qb.where('sucursal', p.sucursal).andWhere('doc_prefix', p.doc_prefix).andWhere('folio', p.folio); })
+                .first('id'))
+            : false;
+          const auto = await this.decidirAutomatico(trx, {
+            sucursal: p.sucursal, docPrefix: p.doc_prefix, folio: p.folio,
+            lectura: {
+              monto: fresca.monto != null ? Number(fresca.monto) : null, fecha: fresca.fecha,
+              cuenta_origen: fresca.cuenta_origen, beneficiario: fresca.beneficiario,
+            },
+            // ⭐ Acá está el desbloqueo: la lectura la produjo el servidor, bajando la evidencia.
+            verificada: true, ocrStatus: 'ok', refDuplicada, excluirProofId: p.id,
+          });
+          const pagoMonto = Number(p.pago_monto) || 0;
+          const ocrMonto = fresca.monto != null ? Number(fresca.monto) : null;
+          const tails = await this.ownBankTails(trx);
+          // ⚠️ `.where(status:'recibido')` otra vez: entre que se leyó el lote y se escribe pudo
+          // pasar una persona y validarlo o rechazarlo. Si pasó, esta fila no se toca.
+          const n = await trx('finance.supplier_payment_proofs').where({ id: p.id, status: 'recibido' }).update({
+            ocr_monto: ocrMonto, ocr_fecha: fresca.fecha || null, ocr_concepto: fresca.concepto || null,
+            ocr_cuenta_origen: fresca.cuenta_origen || null, ocr_cuenta_dest: fresca.cuenta_destino || null,
+            ocr_ordenante: fresca.beneficiario || null, ocr_referencia: fresca.clave_rastreo || null,
+            ocr_banco: fresca.banco_destino || null, ocr_metodo: fresca.metodo || null,
+            ocr_status: 'ok', ref_norm: ref,
+            // La lectura ANTERIOR no se tira: queda con la fecha y qué campos se movieron.
+            ocr_raw: JSON.stringify({
+              ...fresca,
+              ocr_status: 'ok',
+              relectura: {
+                at: new Date().toISOString(), origen: 'archivo_guardado', cambios,
+                anterior: {
+                  monto: p.ocr_monto, fecha: p.ocr_fecha,
+                  cuenta_origen: p.ocr_cuenta_origen, beneficiario: p.ocr_ordenante,
+                },
+              },
+            }),
+            lectura_verificada: true,
+            monto_match: ocrMonto != null ? Math.abs(ocrMonto - pagoMonto) <= TOLERANCIA : null,
+            cuenta_propia: this.isOwnAccount(fresca.cuenta_origen, tails),
+            coincidencias: JSON.stringify(auto.coincidencias),
+            updated_at: trx.fn.now(),
+            ...(auto.validar ? { status: 'validado', auto_validado: true, validated_by: VALIDADOR_AUTOMATICO, validated_at: trx.fn.now() } : {}),
+          });
+          return { filas: Number(n) || 0, validado: auto.validar };
+        });
+
+        if (!escrito.filas) continue; // alguien decidió primero: ni se cuenta como releído
+        out.releidos++;
+        if (cambios.length) out.cambiaron++;
+        if (!teniaSenales) out.clasificados++;
+        if (escrito.validado) {
+          out.validados++;
+          validadosEv.push({ sucursal: p.sucursal, doc_prefix: p.doc_prefix, folio: p.folio, proveedor: p.proveedor_nombre, monto: Number(p.pago_monto) || null });
+        }
+      } catch (e) {
+        // ⛔ Acumula, no `continue` mudo: una falla que se traga deja la pasada diciendo «ok»
+        // con menos trabajo hecho del que informa — la lección de `[OBS.1]`.
+        out.errores.push(`${p.sucursal}/${p.folio}: ${(e as Error)?.message || e}`);
+      }
+    }
+
+    out.ms = Date.now() - t0;
+    this.logger.log(`relectura: ${out.releidos}/${out.revisados} releídos, ${out.clasificados} clasificados, ${out.validados} validados solos, ${out.cambiaron} cambiaron`);
     for (const ev of validadosEv) this.emit('validated', { ...ev, status: 'validado', actor: VALIDADOR_AUTOMATICO });
     return out;
   }

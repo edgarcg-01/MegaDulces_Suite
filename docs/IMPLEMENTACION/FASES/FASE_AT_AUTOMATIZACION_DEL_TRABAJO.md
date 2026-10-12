@@ -64,12 +64,110 @@ sobre los 1,350 comprobantes de pago:
 | Estado del cruce | Total | **Pendientes** | Qué toca |
 |---|---:|---:|---|
 | ⛔ **sin cruce calculado** | 746 | **737** | *el sistema no sabe nada de ellos* — falta correr el cruce |
-| ✅ **4/4 `ok`** | 271 | **189** | **auto-validables hoy**, y están parados |
+| ✅ **4/4 `ok`** | 271 | **189** | parados — ver §4bis, no es lo que yo dije |
 | ⚠️ `monto` difiere | 201 | 201 | sí necesita a una persona |
 | ⚠️ parcial | 132 | 132 | sí necesita a una persona |
 
 ⭐⭐ **La cola humana no son 1,196: son ~333.** Las otras 926 o se auto-validan o ni siquiera se
 han clasificado. Eso cambia el problema de *"falta gente"* a *"falta correr dos cosas"*.
+
+---
+
+## 4bis. ⛔⛔ Lo que yo dije en §7 era FALSO: **ninguno de los 189 se podía auto-validar**
+
+El renglón 2 de mi lista decía *«Encender la auto-validación para los 4/4 → **189 revisiones
+hoy**»*, como si hubiera un interruptor apagado. Al ir a prenderlo, la medición lo desarmó.
+
+`[PC.6]` tiene **cinco** guardas, no una. La segunda exige que **la lectura sea verificada** — que
+la haya producido el servidor y no venga en el request, para que nadie pueda teclear los números
+que Kepler espera y cobrar una validación automática. Y la verificación vive en
+`OcrReadingsService`: **un mapa en memoria** indexado por el hash del archivo, con 8 h de TTL,
+que el endpoint de OCR escribe y `attach` recupera segundos después.
+
+Ese recuerdo no sobrevive a un reinicio, ni al día siguiente, ni a una carga masiva. Medido:
+
+| De los 189 en 4/4, qué los frena | |
+|---|---:|
+| ⛔ `lectura_verificada` no es `true` (guarda 2) | **187** |
+| ⛔ el pago ya tiene OTRO comprobante validado (guarda 5) | **2** |
+| ✅ se auto-validarían hoy | **0** |
+
+**Cero.** Y no es un defecto de la regla: la regla está bien. El botón «Volver a comparar»
+recalcula las señales contra Kepler y **no puede desbloquear nada**, por más veces que se apriete.
+Su propio mensaje lo venía diciendo sin que nadie lo leyera así: *«0 de 500 ya coinciden y
+quedaron validados; 500 siguen con diferencias»* — que se lee como *«500 documentos están mal»*
+cuando 189 estaban perfectos.
+
+⭐⭐ **Y el rezago no se fue acumulando: nació de golpe.** 920 de los 926 comprobantes sin resolver
+—736 de los 737 sin clasificar y 183 de los 189 en 4/4— entraron el **2026-08-05**, por
+`superoot`, en **una sola carga**. De los 1,259 archivos adjuntos, sólo **65** traen `sha256`: los
+demás nunca pudieron anclarse a una lectura del servidor.
+
+### La salida estaba construida y nadie la había cableado acá
+
+`ObjectStorageService.getDataUri()` existe en el repo —con este comentario literal— *«para
+re-correr OCR/Vision en el servidor sobre un archivo ya subido (validación autoritativa, sin
+confiar en lo que reporta el cliente)»*. Lo usan Gastos y Comprobaciones. Y **1,199 de 1,199**
+comprobantes sin verificar tienen su archivo en el bucket (`finance/<uuid>.pdf`, todos PDF).
+
+Releer desde ahí **no afloja la guarda: la cumple mejor** que el recuerdo en memoria, porque el
+servidor baja los bytes que están guardados *como evidencia* y los lee él. Eso es `[AT.1]`.
+
+---
+
+## 4ter. `[AT.1]` — lo construido
+
+| Pieza | Qué hace |
+|---|---|
+| `relectura.engine.ts` | Reglas puras: qué hoja se relee · qué tipo se le manda al modelo · **qué lectura NO se persiste** · qué cambió · el veredicto del latido |
+| `SupplierPaymentProofsService.relectura()` | Baja el archivo, el servidor corre el OCR, persiste la lectura con `lectura_verificada = true` y deja decidir a `decidirAutomatico()` (las 5 guardas intactas) |
+| `PagosAutopilotService` | `@Cron` cada 20 min, lote de 25, latido `pagos_relectura` en `analytics.cron_runs` |
+| `CRON_JOBS` | Umbral `warn 3 h / crit 12 h` — **sin esa fila `db-health` da verde incondicional** |
+| `POST /finance/supplier-payments/relectura` | El botón, acotado a 10: adelanta la próxima pasada |
+
+**Drenado: 1,199 pendientes ÷ 25 × 3 pasadas/h ≈ 16 h.** Después el carril corre casi siempre en
+vacío, que es el estado al que tiende.
+
+### ⛔ Lo que NO es, y el precedente que obliga a decirlo
+
+`[GX.32]` **retiró** del módulo de gastos un cuadre donde **la visión firmaba la validación**
+(`validated_by: 'Claude Vision'`): si el monto leído cuadraba, el expediente cerraba solo. Se
+quitó por pedido explícito del usuario y no vuelve.
+
+Acá la visión **no decide nada**. Produce una lectura; quien decide es el cruce exacto contra
+**Kepler** en cuatro campos — `[PC.6]`, que ya está en prod y firmó 82 validaciones en octubre.
+Una relectura puede **descalificar** a uno que hoy aparenta 4/4, y eso es una función, no un
+efecto colateral.
+
+### Cómo falla, que es donde estaba el riesgo real
+
+⛔⛔ `extractSupplierPayment` **se traga sus excepciones y devuelve todos los campos en `null`**:
+sin API key, con el proveedor caído o con un PDF que no se pudo decodificar, el retorno es
+**idéntico al de un documento en blanco**. Persistir eso habría borrado la lectura guardada de
+hasta 1,199 comprobantes y dejado sus cuatro señales en `sin_dato` — una caída del proveedor
+disfrazada de *«los comprobantes no se entienden»*, **destruyendo evidencia**. Tres frenos:
+
+1. una lectura vacía **no se escribe nunca** (`lecturaSirve`), la fila queda intacta;
+2. sin `ANTHROPIC_API_KEY` la pasada **no arranca** (si no, 25 ilegibles por una variable que falta);
+3. **5 ilegibles seguidas abortan la pasada** — que es la diferencia entre *«estos documentos no
+   se entienden»* (disperso) y *«el lector está caído»* (seguido).
+
+⚠️ La lectura anterior **no se pierde**: queda en `ocr_raw.relectura.anterior` con la fecha y los
+campos que se movieron. La huella viaja EN LA FILA, no sólo en un log.
+
+### Candados
+
+**67 aserciones, 0 fallas** (`relectura.engine.spec.ts` 22 · `pagos-autopilot.spec.ts` 10 ·
+`validacion-automatica.spec.ts` ampliado · los 3 preexistentes). **Probados por mutación**:
+apagar `lecturaSirve`, el freno de entrega del latido, el contexto de tenant o el cerrojo de
+solape pone en rojo **6 aserciones**.
+
+⚠️ **Un candado del directorio tenía un agujero que yo mismo abrí.** `validacion-automatica.spec`
+recorta el `.ts` del servicio entre `recheck(` y `detail(` y le busca cadenas con `toContain`; al
+insertar `relectura()` entre medio, ese recorte pasó a abarcarla, y su aserción *«recheck exige
+`lectura_verificada === true`»* **seguía verde** sobre un método que pone `verificada: true`. Se
+cerró el recorte y se agregó la aserción negativa (`not.toContain('verificada: true')`). *Es la
+debilidad de un candado por texto: crece con el archivo y deja de decir lo que su nombre dice.*
 
 ---
 
@@ -119,13 +217,47 @@ firma al recibir, antes de facturar, y los totales difieren por entregas parcial
 
 ## 7. Qué hacer, por rendimiento
 
-| # | Acción | Elimina | Cuesta |
+| # | Acción | Elimina | Estado |
 |---|---|---|---|
-| 1 | **Correr el cruce de 4 señales sobre los 737 sin clasificar** | convierte una cola opaca en una lista con dueño | un backfill |
-| 2 | **Encender la auto-validación para los 4/4** | **189 revisiones hoy** + las futuras | ya existe, hay que soltarla |
-| 3 | ⛔ **Entradas: dueño o apagar el requisito** | 647 documentos sin mirar desde el 1-sep | decisión, no código |
-| 4 | **El renglón `AD` del TXT** (`[CP.8.29]`, ya escrito) | ~**1,100 asociaciones/mes** | el clic de `[CPA.3]` |
-| 5 | **Proponer el pago ya cuadrado** desde el banco | la búsqueda manual en 2 de cada 3 casos | pantalla |
+| 1+2 | **`[AT.1]` Relectura desde el archivo + carril que corre solo** | hasta ~**450** revisiones (ver abajo) + todas las futuras | 🧪 **en código**, 67 aserciones |
+| 3 | ⛔ **Entradas: dueño o apagar el requisito** | 647 documentos sin mirar desde el 1-sep | decisión, no código — y ver §7bis |
+| 4 | **El renglón `AD` del TXT** (`[CP.8.29]`, ya escrito) | ~**263 asociaciones/mes** | espera el clic de `[CPA.3]` |
+| 5 | **Proponer el pago ya cuadrado** desde el banco | la búsqueda manual en 2 de cada 3 casos | ⬜ pantalla |
+
+⚠️ **Los renglones 1 y 2 eran el mismo problema**, y mi separación los describía mal: el cruce
+sobre los 737 no sirve de nada sin una lectura que el servidor pueda firmar, y la auto-validación
+no se podía «encender» porque no había interruptor. Ver §4bis.
+
+### ⚠️ El ~450 es una PROYECCIÓN, no una medición
+
+Se arma con dos piezas y cada una puede moverse:
+
+- **187** de los 189 en 4/4 están frenados **sólo** por la guarda 2 (medido). Se auto-validan **si
+  la relectura confirma su lectura actual** — y puede no confirmarla: por eso el motor cuenta
+  `cambiaron`, que es la única manera de saber si la carga del 5-ago era confiable.
+- **~265** más, si de los 737 sin clasificar sale la misma proporción de 4/4 que en los ya
+  clasificados (189 de 522 = **36 %**). Es una regla de tres sobre otra población: puede fallar.
+
+⛔ La cifra honesta hoy es **0 validados**, y la primera pasada en prod da la real. No se publica
+como logro hasta que el latido lo diga.
+
+---
+
+## 7bis. ⛔ Entradas: en el renglón 3 yo dije «apagar el requisito» como si hubiera algo prendido
+
+Medido: `finance.goods_receipt_proofs` **no tiene auto-validador**. Ni `coincidencias`, ni
+`lectura_verificada`, ni `auto_validado` — ninguna de las columnas existe. El mecanismo de `[PC.6]`
+**no se le puede soltar: habría que construirlo**.
+
+Y sería más difícil, no más fácil: el cruce contra el CFDI del mismo proveedor da **32.5 %** de
+cobertura (placebo impecable, 0 %), contra el **65.6 %** del pago contra el banco. La causa está
+en §5 — **la remisión no es la factura**: se firma al recibir, antes de facturar, y los totales
+difieren por entregas parciales. Un auto-validador de 4 señales sobre esa base dejaría fuera a dos
+de cada tres.
+
+⭐ Así que el renglón 3 **sigue siendo una decisión**, y ahora con el motivo medido: no hay nada
+que encender, y lo que habría que construir rinde la mitad. Antes de construirlo conviene saber
+por qué nadie valida desde el 1-sep (§8).
 
 ⛔ **Lo que NO se propone, con motivo:** eliminar la subida del comprobante (es evidencia que sólo
 tiene la persona), ni la del estado de cuenta (ContPAQi guarda la *contabilización*, no lo que
@@ -140,4 +272,25 @@ dice el banco), ni traer los PDFs del ADD sin antes medir qué hay en sus otros 
 - **Por qué se detuvo la validación de entradas.** El dato dice *cuándo* (1-sep), no *por qué*.
   Puede ser falta de tiempo, de dueño, o que el paso no sirva para nada — y las tres se arreglan
   distinto.
-- **Si los 737 sin cruce son del backfill de agosto** o de un fallo del cálculo. Hay que mirar uno.
+- ~~**Si los 737 sin cruce son del backfill de agosto**~~ — **RESUELTO**: los 737 son del
+  `2026-08-05`, `superoot`, una sola carga (§4bis). No fue un fallo del cálculo: el cálculo no
+  existía todavía (`coincidencias` nació con la migración `20261004120000`, el 4-oct).
+- **Si la relectura confirma la lectura de la carga del 5-ago.** El motor lo cuenta (`cambiaron`),
+  pero hasta la primera pasada en prod no hay número. Si cambia mucho, lo que está guardado hoy
+  **no describe a los documentos**, y eso es un hallazgo mayor que la cola.
+- **Cuánto cuesta la relectura.** 1,199 lecturas de visión. El orden de magnitud es trivial contra
+  1,199 revisiones humanas, pero no está medido y conviene mirarlo tras la primera pasada.
+
+---
+
+## 9. Lo que falta para que esto sirva (nada de esto está hecho)
+
+| | |
+|---|---|
+| ⛔ **`git push`** | el código no está en `origin/main`; sin eso no hay despliegue (pendiente de autorización) |
+| ⛔ **redeploy api + worker** | el `@Cron` vive en el **worker** (`replicas: 1`, `Recreate`); el `api` corre con `DISABLE_CRONS=true` |
+| ⚠️ **`ANTHROPIC_API_KEY` y `S3_*` en el worker** | hereda el secreto `prod-env`, el mismo del `api` — **declarado, no verificado desde esta máquina** |
+| ⬜ **Mirar el latido `pagos_relectura`** | la primera pasada es la que convierte la proyección de §7 en una medición |
+| ⬜ **Validación visual** del botón «Ponerse al día» | |
+
+Sin migraciones ni permisos nuevos → **no hace falta re-login**.
