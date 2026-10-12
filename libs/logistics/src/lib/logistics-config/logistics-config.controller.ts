@@ -17,6 +17,11 @@ import {
 } from '@megadulces/platform-core';
 import {
   ActorTarifas,
+  Borrado,
+  ConfigRow,
+  RouteDto,
+  RouteRow,
+  TariffChangeRow,
   LogisticsConfigService,
   CreateConfigDto,
   UpdateConfigDto,
@@ -58,7 +63,7 @@ export class LogisticsConfigController {
   @Post()
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'Crear config_finance' })
-  create(@Body() body: CreateConfigDto, @Req() req: SesionTarifas) {
+  create(@Body() body: CreateConfigDto, @Req() req: SesionTarifas): Promise<ConfigRow> {
     return this.service.create(body, actorDe(req));
   }
 
@@ -75,28 +80,28 @@ export class LogisticsConfigController {
   @Get(':id')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_VER)
   @ApiOperation({ summary: 'Obtener config por id' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id') id: string): Promise<ConfigRow> {
     return this.service.findById(id);
   }
 
   @Patch(':id')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'Actualizar config (parcial)' })
-  update(@Param('id') id: string, @Body() body: UpdateConfigDto, @Req() req: SesionTarifas) {
+  update(@Param('id') id: string, @Body() body: UpdateConfigDto, @Req() req: SesionTarifas): Promise<ConfigRow> {
     return this.service.update(id, body, actorDe(req));
   }
 
   @Delete(':id')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'Hard-delete config (no soft-delete: poco data y se reemplaza)' })
-  remove(@Param('id') id: string, @Req() req: SesionTarifas) {
+  remove(@Param('id') id: string, @Req() req: SesionTarifas): Promise<Borrado> {
     return this.service.delete(id, actorDe(req));
   }
 
   @Get(':id/historial')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'EMB.28.1: historia de un renglón de configuración (quién, cuándo, antes y después)' })
-  historialConfig(@Param('id') id: string) {
+  historialConfig(@Param('id') id: string): Promise<TariffChangeRow[]> {
     return this.service.historial('config', id);
   }
 
@@ -114,28 +119,28 @@ export class LogisticsConfigController {
   @Post('routes')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'J.9.8: crear route con comisiones' })
-  createRoute(@Body() body: any, @Req() req: SesionTarifas) {
+  createRoute(@Body() body: RouteDto & { name: string }, @Req() req: SesionTarifas): Promise<RouteRow> {
     return this.service.createRoute(body, actorDe(req));
   }
 
   @Patch('routes/:id')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'J.9.8: actualizar route (parcial)' })
-  updateRoute(@Param('id') id: string, @Body() body: any, @Req() req: SesionTarifas) {
+  updateRoute(@Param('id') id: string, @Body() body: RouteDto, @Req() req: SesionTarifas): Promise<RouteRow> {
     return this.service.updateRoute(id, body, actorDe(req));
   }
 
   @Delete('routes/:id')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'J.9.8: soft-delete route' })
-  deleteRoute(@Param('id') id: string, @Req() req: SesionTarifas) {
+  deleteRoute(@Param('id') id: string, @Req() req: SesionTarifas): Promise<Borrado> {
     return this.service.deleteRoute(id, actorDe(req));
   }
 
   @Get('routes/:id/historial')
   @RequireAnyPermission(Permission.LOGISTICS_CONFIG_GESTIONAR, Permission.LOGISTICS_TARIFAS_AUTORIZAR)
   @ApiOperation({ summary: 'EMB.28.1: historia de la tarifa de una ruta (quién, cuándo, antes y después)' })
-  historialRuta(@Param('id') id: string) {
+  historialRuta(@Param('id') id: string): Promise<TariffChangeRow[]> {
     return this.service.historial('route', id);
   }
 }

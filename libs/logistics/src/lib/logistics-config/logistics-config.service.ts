@@ -21,6 +21,54 @@ export interface ActorTarifas {
   autorizador: boolean;
 }
 const SIN_ACTOR: ActorTarifas = { autorizador: false };
+
+/** Un renglón de `logistics.config_finance` como lo devuelve Postgres (numeric llega como texto). */
+export interface ConfigRow {
+  id: string;
+  key: string;
+  category: ConfigCategory;
+  description: string | null;
+  value: string | number;
+  unit: string | null;
+  active: boolean;
+  [col: string]: unknown;
+}
+/** Un renglón de `logistics.routes` como lo devuelve Postgres. */
+export interface RouteRow {
+  id: string;
+  name: string;
+  driver_commission: string | number;
+  helper_commission: string | number;
+  estimated_km: string | number | null;
+  active: boolean;
+  notes: string | null;
+  [col: string]: unknown;
+}
+export interface RouteDto {
+  name?: string;
+  driver_commission?: number;
+  helper_commission?: number;
+  estimated_km?: number | null;
+  origin?: string;
+  destination?: string;
+  notes?: string;
+  active?: boolean;
+}
+export interface Borrado { deleted: true; id: string }
+/** `[EMB.28.1]` Un movimiento de `logistics.tariff_changes`. */
+export interface TariffChangeRow {
+  id: string;
+  entity: 'route' | 'config';
+  entity_id: string;
+  entity_label: string;
+  field: string;
+  old_value: string | null;
+  new_value: string | null;
+  autorizado: boolean;
+  changed_by: string | null;
+  changed_by_username: string | null;
+  changed_at: string;
+}
 const UUID_ACTOR = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type ConfigCategory = 'factor' | 'costo_km' | 'tarifa_maniobra' | 'viatico' | 'otro';
@@ -47,7 +95,7 @@ const VALID_CATEGORIES: ConfigCategory[] = ['factor', 'costo_km', 'tarifa_maniob
 export class LogisticsConfigService {
   constructor(private readonly tk: TenantKnexService) {}
 
-  async create(dto: CreateConfigDto, actor: ActorTarifas = SIN_ACTOR) {
+  async create(dto: CreateConfigDto, actor: ActorTarifas = SIN_ACTOR): Promise<ConfigRow> {
     this.validateCreate(dto);
     return this.tk.run(async (trx) => {
       const dup = await trx('logistics.config_finance').where({ key: dto.key }).first();
@@ -71,7 +119,7 @@ export class LogisticsConfigService {
     });
   }
 
-  async list(query: ListConfigQuery) {
+  async list(query: ListConfigQuery): Promise<ConfigRow[]> {
     return this.tk.run(async (trx) => {
       let q = trx('logistics.config_finance');
       if (query.category) q = q.where({ category: query.category });
@@ -88,7 +136,7 @@ export class LogisticsConfigService {
     });
   }
 
-  async findById(id: string) {
+  async findById(id: string): Promise<ConfigRow> {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const row = await trx('logistics.config_finance').where({ id }).first();
@@ -97,7 +145,7 @@ export class LogisticsConfigService {
     });
   }
 
-  async update(id: string, dto: UpdateConfigDto, actor: ActorTarifas = SIN_ACTOR) {
+  async update(id: string, dto: UpdateConfigDto, actor: ActorTarifas = SIN_ACTOR): Promise<ConfigRow> {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const existing = await trx('logistics.config_finance').where({ id }).first();
@@ -120,7 +168,7 @@ export class LogisticsConfigService {
       const cambios = cambiosDeConfig(existing, dto);
       if (fijada && cambios.length && !actor.autorizador) throw new ForbiddenException(mensajeTarifaFijada(existing.key));
 
-      const patch: Record<string, any> = { updated_at: trx.fn.now() };
+      const patch: Record<string, unknown> = { updated_at: trx.fn.now() };
       for (const k of ['key', 'category', 'description', 'value', 'unit', 'active'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
       }
@@ -136,7 +184,7 @@ export class LogisticsConfigService {
     });
   }
 
-  async delete(id: string, actor: ActorTarifas = SIN_ACTOR) {
+  async delete(id: string, actor: ActorTarifas = SIN_ACTOR): Promise<Borrado> {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const cfg = await trx('logistics.config_finance').where({ id }).first();
@@ -147,7 +195,7 @@ export class LogisticsConfigService {
         await this.registrar(trx, 'config', id, cfg.key, [{ field: 'borrado', old_value: String(Number(cfg.value)), new_value: null }], actor, true);
       }
       await trx('logistics.config_finance').where({ id }).del();
-      return { deleted: true, id };
+      return { deleted: true as const, id };
     });
   }
 
@@ -166,15 +214,7 @@ export class LogisticsConfigService {
     });
   }
 
-  async createRoute(dto: {
-    name: string;
-    driver_commission?: number;
-    helper_commission?: number;
-    estimated_km?: number | null;
-    origin?: string;
-    destination?: string;
-    notes?: string;
-  }, actor: ActorTarifas = SIN_ACTOR) {
+  async createRoute(dto: RouteDto & { name: string }, actor: ActorTarifas = SIN_ACTOR): Promise<RouteRow> {
     if (!dto.name || dto.name.length < 2) {
       throw new BadRequestException('name requerido (mín 2 chars)');
     }
@@ -204,16 +244,7 @@ export class LogisticsConfigService {
     });
   }
 
-  async updateRoute(id: string, dto: {
-    name?: string;
-    driver_commission?: number;
-    helper_commission?: number;
-    estimated_km?: number | null;
-    origin?: string;
-    destination?: string;
-    notes?: string;
-    active?: boolean;
-  }, actor: ActorTarifas = SIN_ACTOR) {
+  async updateRoute(id: string, dto: RouteDto, actor: ActorTarifas = SIN_ACTOR): Promise<RouteRow> {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const existing = await trx('logistics.routes').where({ id }).whereNull('deleted_at').first();
@@ -222,7 +253,7 @@ export class LogisticsConfigService {
       const fijada = rutaFijada(existing);
       const cambios = cambiosDeRuta(existing, dto);
       if (fijada && cambios.length && !actor.autorizador) throw new ForbiddenException(mensajeTarifaFijada(existing.name));
-      const patch: Record<string, any> = { updated_at: trx.fn.now() };
+      const patch: Record<string, unknown> = { updated_at: trx.fn.now() };
       for (const k of ['name','driver_commission','helper_commission','estimated_km','origin','destination','notes','active'] as const) {
         if (dto[k] !== undefined) patch[k] = dto[k];
       }
@@ -234,7 +265,7 @@ export class LogisticsConfigService {
     });
   }
 
-  async deleteRoute(id: string, actor: ActorTarifas = SIN_ACTOR) {
+  async deleteRoute(id: string, actor: ActorTarifas = SIN_ACTOR): Promise<Borrado> {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run(async (trx) => {
       const route = await trx('logistics.routes').where({ id }).whereNull('deleted_at').first();
@@ -244,12 +275,12 @@ export class LogisticsConfigService {
         await this.registrar(trx, 'route', id, route.name, [{ field: 'borrado', old_value: `${route.driver_commission}/${route.helper_commission}`, new_value: null }], actor, true);
       }
       await trx('logistics.routes').where({ id }).update({ deleted_at: trx.fn.now() });
-      return { deleted: true, id };
+      return { deleted: true as const, id };
     });
   }
 
   /** `[EMB.28.1]` La historia de una tarifa: quién, cuándo, antes y después. */
-  async historial(entity: 'route' | 'config', id: string) {
+  async historial(entity: 'route' | 'config', id: string): Promise<TariffChangeRow[]> {
     if (!UUID_REGEX.test(id)) throw new BadRequestException('id inválido');
     return this.tk.run((trx) =>
       trx('logistics.tariff_changes').where({ entity, entity_id: id }).orderBy('changed_at', 'desc').limit(100));
