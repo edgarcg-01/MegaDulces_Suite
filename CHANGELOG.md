@@ -11,6 +11,11 @@
 ## [Unreleased]
 ### Fixed — Finanzas › Gastos: los vales aprobados sólo con cotización ya aceptan su factura (GX.81, 2026-10-12)
 - Un vale aprobado con sólo cotización pedía la factura y la Suite la rechazaba («no lleva evidencia»), así que se quedaba en «Pendientes de comprobación» aunque Kepler ya lo hubiera pagado. Ahora se puede subir; los 70 atorados se destraban sin tocar datos.
+### Changed — Existencia: respuesta en milisegundos y cantidades en cajas, paquetes y piezas (EX-PERF.3 + EX.U2, 2026-10-12)
+- `/compras/existencia` y `/almacen/inventory/existencia`: filtrar, buscar, ordenar y paginar pasa de **1.1–2.8 s a 26–83 ms** (medido contra prod). El servidor arma una foto de la existencia cada ~45 s y la pantalla muestra su edad en la píldora «Tabla calculada»; la primera carga tras 5 min sin uso tarda ~2.5 s.
+- Las cantidades ya no salen con decimales de caja: `333.7` pasa a `333 cj 14 paq` (caja, paquete de la ficha de Kepler de esa sucursal y pieza). Si un producto no tiene factor de caja, se muestra en su unidad con °. El total del producto va desglosado cuando todas las sucursales usan el mismo empaque; si no, en cajas enteras con `≈`.
+- Corregido de paso: el aviso «celdas valuadas con el catálogo» nunca aparecía (el servidor siempre mandaba 0); hoy son 34.
+- Sin migraciones ni permisos nuevos.
 ### Added — Avisos de cambios de precio a las sucursales, y Compras comparte la lista (ETQ-AVISOS.1–3, 2026-10-09)
 - **Aviso a la campana de cada sucursal:** a las **07:30** (resume AYER) y a las **14:00** (lo que va de HOY) llega «N productos cambiaron de precio» a quien ve la etiquetera de esa tienda, con enlace directo a la lista de ese día. Se cuenta con la **misma regla de la pantalla** (una sola función en `libs/contracts`), así aviso y lista no pueden discrepar. Un día sin cambios **no genera aviso**; si la bitácora de la plaza aún no llega a ese día se **declara** (`sin dato`), no se dice «no hubo cambios».
 - **Compras puede compartir** (permiso nuevo `STORE_LABELS_COMPARTIR`): botón «Compartir» en Cambios de precio para **avisar a sucursales** (elige plazas, agrega nota; cada plaza devuelve su estado con el motivo) (**sin exportar a Excel/CSV**, decisión de Edgar del 2026-10-10: el aviso lleva a Cambios de precio, donde se reimprime).
