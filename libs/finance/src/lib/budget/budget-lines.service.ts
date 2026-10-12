@@ -166,6 +166,27 @@ export class BudgetLinesService {
    * La compuerta separa **bloqueos** de **avisos**: un plan de gastos faltante se declara y deja
    * pasar; no tener ni un renglón, o un plan de ventas que cubre 10 de 13 periodos, no.
    */
+  /**
+   * ⛔ `[TES.23]` **SIN USO POR DECISIÓN, no por olvido — Dirección, 2026-10-12.**
+   *
+   * El rumbo es *«no es necesario firmar, todo debe ser automático y no se necesita autorización
+   * de nadie»*. `submitBudget` y `approveBudget` **funcionan y nadie los llama**. No se borran:
+   * la política de control interno puede volver, y reconstruirlos costaría más que dejarlos.
+   *
+   * ⚠️ **Un método vivo que nadie llama y no dice por qué es una trampa para el que venga** — va
+   * a suponer que falta cablearlo y lo va a cablear.
+   *
+   * ⭐ Y la consecuencia que esto deja abierta, medida y declarada, no escondida:
+   * `payment-calendar.service.ts:123` excluye `status = 'propuesta'` del Calendario de Pagos.
+   * Sin nadie que autorice, las 312 obligaciones **nunca salen de `propuesta`** y el Calendario
+   * ve **cero de forma permanente** — sin fallar y sin avisar, mostrando una lista vacía que se
+   * lee como «no hay nada que pagar». Contradice ADR-064, está subido a Dirección, y **no se
+   * resuelve desde acá**.
+   *
+   * ✅ Lo que esto NO rompe, verificado: la materialización de partidas. `approveBudget` la
+   * dispara, pero el autopiloto también lo hace solo todos los días
+   * (`budget-autopilot.service.ts:405`), así que apagar este camino no la apaga.
+   */
   async submitBudget(id: string, username: string) {
     const estado = await this.generation.completeness(id);
     if (!estado.listo) {
