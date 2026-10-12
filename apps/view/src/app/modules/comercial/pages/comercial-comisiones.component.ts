@@ -106,7 +106,15 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                 calculada {{ cuando(d.updated_at) }}
                 @if (d.origen) { <span class="cm-muted">· {{ etiquetaOrigen(d.origen) }}</span> }
               } @else if (d.estado_calculo === 'en_curso') {
-                todavía corre: no se calcula hasta que cierre
+                @if (proyectando()) {
+                  calculando cómo va…
+                } @else if (proyeccionFallo()) {
+                  <span class="cm-neg">no se pudo proyectar</span> · el periodo sigue abierto
+                } @else if (esProyeccion()) {
+                  <strong>proyección</strong> de lo que va corrido · no es una corrida: cambia cada día
+                } @else {
+                  todavía corre
+                }
               } @else {
                 <span class="cm-neg">sin calcular</span>
               }
@@ -298,6 +306,15 @@ import { PermissionsService } from '../../../core/services/permissions.service';
               </div>
             }
 
+            @if (esProyeccion()) {
+              <!-- [RD.65] El motor corrio sobre un periodo ABIERTO. La cifra es buena pero no
+                   es definitiva, y la pantalla lo dice ANTES de los numeros, no al pie. -->
+              <p class="cm-proy">
+                <i class="pi pi-hourglass" aria-hidden="true"></i>
+                Proyección del periodo en curso — el motor ya corrió sobre lo que va vendido.
+                Al cerrar la quincena esto se congela en una corrida.
+              </p>
+            }
             <app-metric-strip [items]="kpis(r)" ariaLabel="Totales de la quincena" />
 
             <p class="cm-proc">
@@ -684,6 +701,11 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .cm-gate.warn { border:1px solid color-mix(in srgb, var(--warn-fg) 35%, transparent);
       background:color-mix(in srgb, var(--warn-fg) 8%, transparent); color:var(--c-text-2); }
 
+    /* [RD.65] El aviso de proyeccion: franja de atencion, no de error. Usa el token de aviso
+       y nunca un hex -- la cifra de abajo es correcta, solo que no es definitiva. */
+    .cm-proy { margin:0 0 8px; padding:8px 12px; display:flex; align-items:center; gap:8px;
+      border-left:3px solid var(--c-warn); border-radius:var(--r-md,8px);
+      background:var(--card-bg); color:var(--c-text-2); font-size:var(--fs-sm); }
     .cm-proc { margin:.5rem 0 .6rem; font-size:var(--fs-micro); color:var(--c-text-3);
       font-family:var(--font-mono,'Geist Mono',monospace); }
     .cm-warn.bad { border-color:color-mix(in srgb, var(--bad-fg) 45%, transparent);
@@ -723,6 +745,12 @@ export class ComercialComisionesComponent {
   readonly sinCalcular = signal<{ period_id: string; period_no: number; date_to: string }[]>([]);
   readonly sel = signal<CommissionBoardRow | null>(null);
   readonly run = signal<CommissionRunDetail | null>(null);
+  /** `[RD.65]` La proyeccion esta en vuelo: su hueco muestra esqueleto, no un guion. */
+  readonly proyectando = signal(false);
+  /** `[RD.65]` La proyeccion fallo. Se DECLARA en su sitio; el resto de la pantalla sigue viva. */
+  readonly proyeccionFallo = signal(false);
+  /** `[RD.65]` Lo que se ve NO es una corrida: es el motor mirando un periodo que aun corre. */
+  readonly esProyeccion = computed(() => !!this.run() && !this.sel()?.run_id);
   /**
    * `[RD.UI.2]` D.7 -- PrimeNG como DISPOSITIVO DE ENTRADA del teclado, no como dueno del
    * estado: la seleccion marca donde esta el cursor en la nomina. `pSelectableRow` la exige
@@ -846,13 +874,38 @@ export class ComercialComisionesComponent {
     });
   }
 
+  /**
+   * `[RD.65]` Abre un periodo. Si NO tiene corrida y todavia corre, se pide la PROYECCION.
+   *
+   * ⛔ Antes esta funcion hacia `if (!p.run_id) return;` y se iba: la quincena en curso
+   * quedaba en blanco los 14 dias, y lo unico que la pantalla decia era «todavia corre: no se
+   * calcula hasta que cierre». Cierto, pero inutil -- el usuario pasa media quincena sin saber
+   * como va, y la cifra SI se puede calcular: `POST /commissions/preview` existe desde
+   * `[RD.22]`, corre el mismo motor con `dryRun` y no deja fila. El freno de periodo abierto
+   * lo deja pasar a proposito. Nadie la llamaba.
+   *
+   * ⚠️ Va APARTE y no bloquea: medido contra prod, su consulta mas lenta (`SQL_COSTO_DIA`)
+   * tarda 874 ms, y el tablero entero carga en 33. Pedirla en serie pondria la pantalla al
+   * filo del segundo por una cifra que es secundaria. Se pide sola y llega cuando llega.
+   */
   elegir(p: CommissionBoardRow) {
     this.sel.set(p);
     this.run.set(null);
-    if (!p.run_id) return;
-    this.api.commissionRun(p.run_id).subscribe({
-      next: (d) => this.run.set(d),
-      error: () => this.err.set('No se pudo cargar la corrida.'),
+    this.proyectando.set(false);
+    if (p.run_id) {
+      this.api.commissionRun(p.run_id).subscribe({
+        next: (d) => this.run.set(d),
+        error: () => this.err.set('No se pudo cargar la corrida.'),
+      });
+      return;
+    }
+    if (p.estado_calculo !== 'en_curso') return;
+    this.proyectando.set(true);
+    this.api.commissionPreview(p.period_id).subscribe({
+      next: (d) => { this.run.set(d as CommissionRunDetail); this.proyectando.set(false); },
+      // ⛔ Un fallo de la proyeccion NO es un fallo de la pantalla: el tablero, el contraste y
+      //    el historial siguen sirviendo. Se declara en su sitio, no en el banner de error.
+      error: () => { this.proyectando.set(false); this.proyeccionFallo.set(true); },
     });
   }
 
