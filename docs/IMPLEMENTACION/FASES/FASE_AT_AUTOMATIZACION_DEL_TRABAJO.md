@@ -289,8 +289,35 @@ dice el banco), ni traer los PDFs del ADD sin antes medir qué hay en sus otros 
 |---|---|
 | ⛔ **`git push`** | el código no está en `origin/main`; sin eso no hay despliegue (pendiente de autorización) |
 | ⛔ **redeploy api + worker** | el `@Cron` vive en el **worker** (`replicas: 1`, `Recreate`); el `api` corre con `DISABLE_CRONS=true` |
-| ⚠️ **`ANTHROPIC_API_KEY` y `S3_*` en el worker** | hereda el secreto `prod-env`, el mismo del `api` — **declarado, no verificado desde esta máquina** |
+| ✅ **`ANTHROPIC_API_KEY` y `S3_*`** | **verificado por evidencia en prod**, ver §9bis |
 | ⬜ **Mirar el latido `pagos_relectura`** | la primera pasada es la que convierte la proyección de §7 en una medición |
 | ⬜ **Validación visual** del botón «Ponerse al día» | |
 
 Sin migraciones ni permisos nuevos → **no hace falta re-login**.
+
+### 9bis. ⭐ El camino de la relectura ya corre en prod — medido, no supuesto
+
+Desde esta máquina **no se alcanza el bucket de prod** (el `S3_BUCKET` del `.env` local apunta a
+otro y responde *«The specified bucket does not exist»*), así que la prueba directa no se pudo
+hacer. ⚠️ Y había un riesgo concreto que valía la pena descartar: `.env.example` trae **dos juegos
+de nombres** para lo mismo (`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` en la línea 142 y
+`S3_ACCESS_KEY`/`S3_SECRET_KEY` en la 322), y `ObjectStorageService` **sólo lee el primero**. Con
+el juego equivocado, `isConfigured()` es `false`, `getDataUri()` devuelve `null` sin avisar, y los
+1,199 comprobantes caerían en `sin_archivo` — un despliegue que no entrega nada y no dice por qué.
+
+Se descartó midiendo al otro consumidor del mismo primitivo, `[GX.33]` en Gastos:
+
+| `finance.expense_proofs` · nota de la visión | |
+|---|---:|
+| ✅ **leyó de verdad** (*«⚠ El comprobante dice $762.15 y la solicitud $1,462.54…»*) | **188** · la última **hoy, 2026-10-12** |
+| ⛔ no se pudo leer | 29 |
+| sin nota | 280 |
+
+⭐ Eso prueba, en prod y hoy, las tres cosas que `[AT.1]` necesita: **las variables `S3_*` tienen
+los nombres canónicos**, `getDataUri()` baja el archivo del bucket, y el modelo de visión
+responde. Es el mismo código, invocado desde otro módulo.
+
+⚠️ **188 contra 29 da un ~13 % de ilegibles como referencia previa** para lo que va a volver vacío
+de los 1,199 — y Gastos no distingue *«no se pudo bajar»* de *«el modelo no leyó»* (los dos caen
+en el mismo `AVISO_ILEGIBLE`). `[AT.1]` sí los separa (`sin_archivo` ≠ `ilegible` ≠
+`tipo_no_leible`), porque no se arreglan igual.
