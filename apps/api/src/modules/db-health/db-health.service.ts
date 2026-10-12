@@ -1304,6 +1304,11 @@ const CRON_JOBS: CronCfg[] = [
   // lo midió la Fase VP sobre 3 matvistas del sell-out. Y porque este job es justamente el que
   // afirma que una póliza llegó a ContPAQi: si deja de correr, lo entregado vuelve a ser
   // inverificable y nadie se entera. Umbral de job de alta frecuencia, criterio de `twins_pairing`.
+  // ⭐ [CP.8.45] Mensual: las categorias de CB no cambian a diario. warnH/critH holgados a
+  // proposito -- lo que vigila no es que corra puntual, es que NO deje de correr: se corrio una
+  // sola vez (feb-2026) y los rechazos por sin_medir pasaron de 21 a 254 al mes sin que nada
+  // se pusiera rojo.
+  { key: 'contpaqi_derivador',               label: 'Derivador mapa categoría→cuenta (ContPAQi)', cadence: 'mensual (día 3)', warnH: 24 * 40, critH: 24 * 70 },
   { key: 'contpaqi_cuadre',                   label: 'Cuadre del puente ContPAQi',        cadence: 'cada 10 min', warnH: 3, critH: 12 },
   // [CPA.0.2] `mv_cierre_refresh`: la matvista del semáforo de cierre (/contabilidad/cierre).
   // Sin este renglón el carril caería en `cfg ? classify : 'ok'` = **verde incondicional**, que es

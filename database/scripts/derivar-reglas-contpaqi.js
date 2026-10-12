@@ -53,8 +53,21 @@ const arg = (n, def) => {
   const i = process.argv.indexOf(`--${n}`);
   return i === -1 ? def : process.argv[i + 1];
 };
-const DESDE = arg('desde', '2026-01-01');
-const HASTA = arg('hasta', '2026-03-01');
+/**
+ * ⚠️ `[CP.8.45]` — **La ventana por default era `2026-01-01..2026-03-01`, escrita a mano.**
+ * Un literal de fecha como default no falla: se queda midiendo una ventana que envejece, y cada
+ * corrida futura habría re-derivado los mismos dos meses de hace un año mientras las categorías
+ * nuevas seguían cayendo en `sin_medir`. *Una fecha escrita adentro caduca y no avisa* (misma
+ * lección que `[CDRP.2.1]`).
+ *
+ * Ahora la ventana se DERIVA: desde el 1-ene del año en curso hasta el 1 del mes actual — o sea
+ * sólo meses **cerrados**, que es lo que el pareo necesita para tener muestra. Y sigue siendo
+ * overrideable con `--desde` / `--hasta` para re-medir un rango puntual.
+ */
+const hoy = new Date();
+const primeroDeMesActual = `${hoy.getFullYear()}-${String(hoy.getMonth() + 1).padStart(2, '0')}-01`;
+const DESDE = arg('desde', `${hoy.getFullYear()}-01-01`);
+const HASTA = arg('hasta', primeroDeMesActual);
 const MIN_VOTOS = Number(arg('min-votos', 2));
 const CSV = arg('csv', null);
 
@@ -430,6 +443,106 @@ function tipoRegla(f) {
       .join('\n');
     fs.writeFileSync(CSV, `${cab}${cuerpo}\n`, 'utf8');
     console.log(`\nCSV escrito: ${CSV}`);
+  }
+
+
+  /**
+   * ── `[CP.8.45]` `--apply`: el derivador deja de ser un informe y se vuelve CARRIL ──────────
+   *
+   * ⛔ **Por qué hacía falta.** Este script se corrió UNA vez (feb-2026) y nunca más. Medido el
+   * 2026-10-12 sobre 8 meses: los rechazos por `sin_medir` pasaron de **21 en enero a 254 en
+   * julio y 231 en agosto** — cada categoría de CB que nació después de aquella ventana cae en
+   * `sin_medir` y se queda ahí para siempre. No es que no se pueda clasificar: es que nadie
+   * volvió a correr esto. *Un carril es script + agenda + latido; faltaban los dos últimos.*
+   *
+   * ── ⛔ Lo que escribe, y lo que NO ───────────────────────────────────────────────────────
+   * Escribe **sólo la CLASIFICACIÓN** (`tipo_regla`, `forma_medida`), que es lo que `[CP.8.18]`
+   * midió que no hay que preguntarle al contador. **Jamás** toca `cuenta_gasto`, `confianza_pct`
+   * ni `estado`: ésas son su firma, y una cuenta equivocada **cuadra igual** — no se ve hasta la
+   * balanza.
+   *
+   * ── Las cuatro condiciones, conjuntas ────────────────────────────────────────────────────
+   *  1. la regla está hoy en `sin_medir` — **nunca se pisa una clasificación ya medida**, porque
+   *     reclasificar en silencio es cómo se mueve dinero sin que nadie lo decida;
+   *  2. su `estado` sigue en `sin_regla` — si el contador ya firmó, acá no se toca nada;
+   *  3. ⭐ el tipo **sobrevive al filtro 1:1** (`estable === 'SI'`). Es la guarda que importa:
+   *     `[CP.8.27]` midió que `cobranza` y `servicios` CAMBIAN de tipo al restringir, porque sus
+   *     pólizas promedian 255 y 4.9 renglones. Un tipo que depende del agrupamiento no es un tipo;
+   *  4. hay muestra (`pareados >= MIN_VOTOS`).
+   *
+   * Y no corre si el freno de clasificador muerto disparó: ese `process.exit(2)` está arriba a
+   * propósito, antes de esto.
+   */
+  const APPLY = process.argv.map((a) => a.trim()).includes('--apply');
+  // ⚠️ El `.trim()` no es cosmético: en `[VL.4]` un `crontab` exportado con CRLF dejó el
+  // argumento como `--apply\r`, `includes()` es comparación EXACTA, y nueve carriles corrieron
+  // en seco imprimiendo "ok" durante horas. Se paga una vez.
+
+  const estables = new Map(comparacion.map((c) => [c.categoria, c.estable]));
+  const candidatosApply = formaFilas.filter((f) =>
+    f.pareados >= MIN_VOTOS && estables.get(f.categoria) === 'SI');
+
+  console.log(`\n=== [CP.8.45] clasificables con evidencia estable: ${candidatosApply.length} ===`);
+  console.table(candidatosApply.map((f) => ({
+    categoria: f.categoria, tipo_regla: f.tipo_regla, pareados: f.pareados, evidencia: f.evidencia,
+  })));
+
+  const pg = new Client({ connectionString: DST });
+  await pg.connect();
+  const t0 = Date.now();
+  let tocadas = 0;
+  const detalle = [];
+  try {
+    for (const f of candidatosApply) {
+      const { rows } = await pg.query(
+        `SELECT tipo_regla, estado FROM contpaqi.account_rules
+          WHERE tenant_id = $1 AND categoria_code = $2`, [TENANT, f.categoria]);
+      if (!rows.length) { detalle.push(`${f.categoria}: sin fila de regla`); continue; }
+      const r = rows[0];
+      if (r.tipo_regla !== 'sin_medir') { continue; }          // (1) ya clasificada
+      if (r.estado !== 'sin_regla') { detalle.push(`${f.categoria}: FIRMADA, no se toca`); continue; } // (2)
+      if (!APPLY) { detalle.push(`${f.categoria}: sin_medir -> ${f.tipo_regla} (seco)`); tocadas++; continue; }
+      await pg.query(
+        `UPDATE contpaqi.account_rules
+            SET tipo_regla = $3, forma_medida = $4, updated_at = now()
+          WHERE tenant_id = $1 AND categoria_code = $2
+            AND tipo_regla = 'sin_medir' AND estado = 'sin_regla'`,
+        [TENANT, f.categoria, f.tipo_regla,
+          `[CP.8.45] ${DESDE}..${HASTA} · ${f.pareados} pareados · ${f.evidencia} · estable bajo 1:1`]);
+      tocadas++;
+      detalle.push(`${f.categoria}: sin_medir -> ${f.tipo_regla}`);
+    }
+
+    /**
+     * ⭐ El latido mide ENTREGA, no "el proceso corrió" (ADR-053): lo que reporta es cuántas
+     * reglas quedaron clasificadas y cuántas siguen sin medir — que es la cifra que crece cuando
+     * este carril deja de correr. Un `ok` con la nota vacía no diría nada.
+     */
+    const { rows: est } = await pg.query(
+      `SELECT count(*) FILTER (WHERE tipo_regla = 'sin_medir')::int AS sin_medir,
+              count(*)::int AS total
+         FROM contpaqi.account_rules WHERE tenant_id = $1`, [TENANT]);
+    const nota = `${tocadas} clasificadas · ${est[0].sin_medir} siguen sin medir de ${est[0].total}`
+      + (APPLY ? '' : ' (SECO: sin --apply no se escribió nada)');
+    console.log(`\n[CP.8.45] ${nota}`);
+    if (detalle.length) detalle.forEach((d) => console.log('   ' + d));
+
+    if (APPLY) {
+      await pg.query(
+        `INSERT INTO analytics.cron_runs
+           (tenant_id, job_key, label, last_start, last_finish, status, rows_affected, duration_ms, note, host)
+         VALUES ($1,'contpaqi_derivador','Derivador del mapa categoria->cuenta (ContPAQi)',
+                 to_timestamp($2/1000.0), now(), $3, $4, $5, $6, 'script')
+         ON CONFLICT (tenant_id, job_key) DO UPDATE SET
+           last_start = EXCLUDED.last_start, last_finish = EXCLUDED.last_finish,
+           status = EXCLUDED.status, rows_affected = EXCLUDED.rows_affected,
+           duration_ms = EXCLUDED.duration_ms, note = EXCLUDED.note,
+           host = EXCLUDED.host, error = NULL, updated_at = now()`,
+        [TENANT, t0, 'ok', tocadas, Date.now() - t0, nota]);
+      console.log('[CP.8.45] latido escrito en analytics.cron_runs');
+    }
+  } finally {
+    await pg.end();
   }
 
   const importe = cb.reduce((s, m) => s + m.importe, 0);

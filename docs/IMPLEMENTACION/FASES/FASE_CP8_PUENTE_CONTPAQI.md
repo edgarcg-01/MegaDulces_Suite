@@ -2864,3 +2864,74 @@ cuadre en *"NO MEDIDO: el camino de ESCRITURA"*. Sólo que el motivo no era el q
 ⚠️ Y deja una pregunta abierta que no se contesta desde acá: **si la bandeja de `[CP.8.32]` se
 abrió alguna vez en prod, tiró 500.** Nadie lo reportó, lo que probablemente significa que nadie
 la abrió todavía.
+
+---
+
+## §39 `[CP.8.45]` — El derivador se vuelve CARRIL. Y la medición que le baja el precio
+
+🧪 **EN CÓDIGO 2026-10-12.** Sin migración. Falta `git push` + `ops/vl/deploy.sh`.
+
+Pedido de Edgar: *"implementémoslo, tratando de tener la menor cantidad de interacción manual"*.
+Antes de escribir una línea se midió **el techo**: cuánto se puede asentar sin que nadie decida.
+
+### 39.1 El techo, medido sobre 8 meses y 15,599 egresos
+
+| | movimientos | % | quién lo destraba |
+|---|--:|--:|---|
+| **arma solo hoy** | **958** | **6.1 %** | nadie — $217.4M, vía `por_proveedor` |
+| `sin_regla` | 5,858 | 37.6 % | el contador. **No derivable** (§19.1, §24.2) |
+| fuera del puente (CAJA CG · FACTORAJE) | 5,281 | 33.9 % | no son bancos |
+| `no_aplica` | 1,202 | 7.7 % | nadie, ya decidido |
+| `sin_centro_costo` | 932 | 6.0 % | negocio |
+| `sin_medir` | 695 | 4.5 % | ⭐ parecía nuestro |
+| `proveedor_sin_cuenta` | 673 | 4.3 % | los 53 alias |
+
+⛔ **No hay una versión de esto que llegue al 90 % automatizando.** El 37.6 % es una firma y el
+33.9 % ni siquiera es banco. Decirlo de otro modo sería vender una cifra que la medición no da.
+
+### 39.2 ⭐ Lo que sí era nuestro: un carril sin agenda
+
+`sin_medir` **creció de 21 en enero a 254 en julio y 231 en agosto**. No era que esas categorías
+no se pudieran clasificar: **el derivador se corrió una vez (feb-2026) y nunca más**, así que toda
+categoría nacida después caía ahí para siempre. *Script + agenda + latido; faltaban los dos
+últimos* — la misma lección que `[VL.17]` dejó escrita para el despliegue.
+
+Entregado: `--apply` en `derivar-reglas-contpaqi.js` · línea en `ops/vl/crontab.feeds` (mensual,
+día 3) · latido `contpaqi_derivador` con umbral en `CRON_JOBS` · candado **21 ✓**, mutado a rojo
+4 veces.
+
+⛔ **Lo que el `--apply` se niega a escribir** es el diseño entero: sólo `tipo_regla` y
+`forma_medida`; **jamás** `cuenta_gasto`, `confianza_pct` ni `estado`. Sólo filas en `sin_medir`
+y sin firmar. Y **sólo si el tipo sobrevive al filtro 1:1** — `[CP.8.27]` midió que `cobranza` y
+`servicios` cambian de tipo al restringir, y *un tipo que depende del agrupamiento no es un tipo*.
+
+⚠️ De paso, dos defectos propios: `--hasta` tenía una **fecha literal por default**
+(`2026-03-01`), o sea que cada corrida futura habría re-derivado los mismos dos meses de siempre
+— *una fecha escrita adentro caduca y no avisa* (`[CDRP.2.1]`). Y el `--apply` se compara con
+`.trim()`, por la quemada de `[VL.4]`.
+
+### 39.3 ⛔⛔ Y acá la medición le baja el precio al carril — corrido en seco, clasifica UNA
+
+La corrida real sobre ene–sep ($624.6M, 11,804 egresos) mueve **1 de las 11** reglas
+(`devolucion_spei → no_aplica`). O sea: **el carril NO resuelve los 695.**
+
+Medido de dónde salen esas 11 categorías en 8 meses:
+
+| categoría | movs | de dónde sale | ¿en el universo del puente? |
+|---|--:|---|---|
+| **`pago_credito`** | **597** | 581 de **bancos reales enlazados** | ⭐ **SÍ — y cero pareos** |
+| `comisiones_venta` | 360 | **353 de CAJA GENERAL** | no: `cash` |
+| `compra_factoraje` | 183 | **183 de FACTORAJE** | no: `factoraje` |
+| `pago_factoraje` | 29 | banco real (BB 4166), $26.6M | sí |
+| `cobranza` · resto | 78 | bancos reales | sí |
+
+⭐ **Los 695 son, esencialmente, `pago_credito`**: 581 movimientos que salen de BBVA 4885/4176,
+BTE 7744… y que **en ocho meses no parean ni una vez** contra los abonos a `102*` de ContPAQi.
+Eso no es una clasificación rancia: es que **esos pagos no aparecen donde el derivador mira**.
+Hipótesis a medir —y no a asumir—: ContPAQi los lleva por su módulo de tesorería (`EG`/`IN`/`DE`,
+decodificados en §25.3) y no como renglón de póliza.
+
+⛔ **Entonces el valor del carril es PREVENTIVO, no correctivo:** impide que la clasificación se
+pudra y que la pila crezca con cada categoría nueva. **No mueve el 6.1 %.** Construirlo estuvo
+bien; venderlo como el arreglo de los 695 habría sido exactamente el tipo de cifra que esta fase
+viene corrigiendo.
