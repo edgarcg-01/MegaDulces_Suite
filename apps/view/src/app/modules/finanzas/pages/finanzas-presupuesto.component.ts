@@ -1,7 +1,7 @@
 import { ChangeDetectionStrategy, ChangeDetectorRef, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { CommonModule } from '@angular/common';
-import { RouterLink } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { SucursalPipe } from '../../../shared/pipes/sucursal.pipe';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
@@ -1271,6 +1271,8 @@ export class FinanzasPresupuestoComponent implements OnInit {
   private readonly http = inject(HttpClient);
   private readonly toast = inject(MessageService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly route = inject(ActivatedRoute);
+  private readonly router = inject(Router);
   /**
    * `[PU.VA]` ⛔ **Los supuestos de ventas llegaban y no se pintaban.** El componente es `OnPush` y
    * `channelsList` / `asVentasGrowth` / `asVentasDefault` son campos **planos, no signals**:
@@ -1318,7 +1320,62 @@ export class FinanzasPresupuestoComponent implements OnInit {
     { label: 'Capacidad de pago', value: 'capacidad' },
     { label: 'Obligaciones', value: 'gastos' },
   ];
+
+  /**
+   * `[PU.DIR.0]` **Las siete vistas eran estado local: no se compartían, no se marcaban y un F5
+   * te devolvía a Ejercicio.** Medido antes de tocar: cero coincidencias de `ActivatedRoute`,
+   * `queryParam` y `router.navigate` en las 2,778 líneas del archivo. Eso contradice a
+   * `DESIGN.md` ("estado de filtros/selección en URL") y, concreto, impide que la vista
+   * «Dirección» enlace a la vista donde se trabaja: un destino que no se puede nombrar no es
+   * un destino.
+   *
+   * ⭐ **La lista NO se escribe a mano: sale de los dos selectores.** Un tercer arreglo con los
+   * mismos siete valores se desincroniza el día que alguien agregue una vista — y el síntoma
+   * sería que la vista nueva funciona con el dedo y NO por enlace, que es justo el defecto que
+   * este commit cierra.
+   *
+   * ⚠️ El parámetro se llama `view`, en inglés, no `vista`: es la convención del repo para
+   * columnas y query params nuevos (el español queda para términos de dominio sin traducción
+   * limpia, como `sucursal` o `mes`), y ya hay tres precedentes de `?view=` para exactamente
+   * este concepto — `compras-descuentos` el más cercano, que sincroniza «vista + filtros».
+   */
+  private readonly VIEWS: PresView[] =
+    [...this.viewOptsArmar, ...this.viewOptsPagos].map((o) => o.value as PresView);
+
+  /**
+   * Refleja la vista en la URL. `replaceUrl` → no ensucia el historial, que es lo que hacen las
+   * otras veinte pantallas del repo.
+   *
+   * ⚠️ **Y eso tiene una consecuencia que conviene decir en voz alta: «atrás» NO recorre las
+   * vistas.** Es deliberado: cambiar de pestaña no es navegar, y con `replaceUrl:false` salir de
+   * la pantalla costaría tantos «atrás» como clics hayas dado. Lo que sí queda cubierto es
+   * enlazar, compartir y F5. Si alguna vez se quiere el recorrido real hace falta además
+   * *reaccionar* a `queryParamMap` (hoy se lee el `snapshot` una vez), porque si no el botón
+   * cambiaría la URL sin cambiar la vista: peor que no tenerlo.
+   *
+   * La vista por default se omite del parámetro — `/presupuesto` limpio es Ejercicio.
+   */
+  private syncUrl(): void {
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { view: this.view() === 'ejercicios' ? null : this.view() },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+  }
+
+  /** Cambio de vista pedido por el usuario: aplica y lo deja escrito en la URL. */
   setView(v: string) {
+    this.applyView(v);
+    this.syncUrl();
+  }
+
+  /**
+   * Aplica la vista y dispara su carga perezosa. Separado de `setView` a propósito: al
+   * rehidratar desde la URL ya tenemos el valor escrito, y volver a navegar durante el
+   * `ngOnInit` es una navegación adentro de otra.
+   */
+  private applyView(v: string) {
     this.view.set(v as PresView);
     // `[VE.3]` El flujo de caja se cargaba sólo apretando «Actualizar». Una cifra que hay que
     // pedir no es un tablero: es un reporte a demanda. Se dispara al entrar a la pestaña, en
@@ -1462,7 +1519,15 @@ export class FinanzasPresupuestoComponent implements OnInit {
   newVisible = false;
   form: { concept?: string; beneficiary?: string; subtype?: string; area?: string; original_amount?: number; original_due_date?: string; is_critical?: boolean; critical_reason?: string } = {};
 
-  ngOnInit(): void { this.loadBudgets(); this.loadCapacity(); this.loadExpenses(); this.loadFirmas(); }
+  ngOnInit(): void {
+    // `[PU.DIR.0]` La vista se rehidrata ANTES de las cargas, no después. Si se leyera después,
+    // `loadBudgets()` ya habría resuelto con la vista por default y el bloque que la selección de
+    // ejercicio dispara por vista (`loadResultado` para flujo) saldría para la vista equivocada:
+    // la pantalla terminaría en el lugar correcto, con el dato del lugar anterior.
+    const v = this.route.snapshot.queryParamMap.get('view');
+    if (v && this.VIEWS.includes(v as PresView)) this.applyView(v);
+    this.loadBudgets(); this.loadCapacity(); this.loadExpenses(); this.loadFirmas();
+  }
 
   // ── [TES.17] Bandeja de firmas ──
   firmas = signal<BandejaFirmas | null>(null);
