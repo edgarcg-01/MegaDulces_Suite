@@ -73,6 +73,12 @@ export enum Permission {
   STORE_LIVE_VER = 'STORE_LIVE_VER',
   // Módulo: Tienda — etiquetera de anaquel (impresión de etiquetas)
   STORE_LABELS_VER = 'STORE_LABELS_VER',
+  // Módulo: Tienda — etiquetera › Cambios de precio: COMPARTIR la lista (`[ETQ-AVISOS.3]`). Mandar el
+  // aviso a las sucursales y descargar la lista. Es una acción de ESCRITURA que llega a OTRAS
+  // plazas, así que no se cuelga de VER (lo tienen cajeras y encargados de tienda): quien sólo
+  // ve la lista de su tienda no debe poder avisarle a las demás. Se reparte por migración a
+  // quienes hoy ven la etiquetera Y operan Compras — no «de paquete».
+  STORE_LABELS_COMPARTIR = 'STORE_LABELS_COMPARTIR',
   // Módulo: Tienda — arqueo ciego de caja para cajeras (captura + ver). Superficie
   // acotada del arqueo del Supervisor de Movimientos (sin el motor de reconciliación).
   STORE_ARQUEO_CAPTURAR = 'STORE_ARQUEO_CAPTURAR',

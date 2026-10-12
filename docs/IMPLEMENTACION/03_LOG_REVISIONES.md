@@ -4,6 +4,61 @@
 >
 > Útil para: recordar qué se validó, cuándo, qué problemas se encontraron, qué decisiones se tomaron en review.
 
+## 2026-10-10 — `[ETQ-CAMBIOS.8–9]` y `[ETQ-ESTADO.1]` + lo que costó llevar tres PR de etiquetas a verde
+
+**Qué se hizo.** (a) *Cambios de precio* pasó a **un código, una fila**, con confirmación del precio que lleva la etiqueta, y un clic en la fila lleva a imprimirla (#349, ya en `main`). (b) La etiquetera ahora dice **por qué** un producto no tiene precio (#351). (c) Se retiró del aviso la descarga en Excel/CSV por decisión de Edgar (#350).
+
+**Lo que falló en el camino, y qué se aprendió** (cada punto está ya en `ONBOARDING.md` §8.0b, puntos 8–12):
+1. **El `pre-push` NO corre el `Boundary type gate` y el CI sí.** #350 y #351 llegaron a CI con 12 y 4 violaciones (`any`, métodos sin tipo de retorno). Un paso que sólo existe en CI se descubre tarde: hay que correr `node scripts/lint-boundary-gate.js` a mano cuando se toca un controller o service.
+2. **Filtrar las pruebas por nombre dejó pasar un fallo.** Un texto de `etiqueta-hoja.spec.ts` comprobaba la firma de `addBulk` y no lo corrí porque filtré por componente. Se corre **el directorio entero** del módulo tocado.
+3. **Fusionar `main` puede duplicar lógica sin conflicto de git.** `agruparPorCodigo` quedó en dos lugares (la app y `libs/contracts`); git no lo vio porque eran archivos distintos. Tras fusionar, se busca lo que tu PR y lo recién entrado hacen por duplicado.
+4. **Entre PR abiertos también chocan.** #350 y #351 chocan entre sí en `commercial-labels.service.ts` aunque cada uno esté limpio contra `main`; lo escribí al revés en una descripción y lo corregí. Se verifica con `git merge-tree`, no de memoria.
+5. **Una cifra en la descripción tiene que sumar.** Dije «55 pruebas» con un desglose que sumaba 64.
+6. **Una mutación que no se aplicó parece una prueba que pasa.** Los archivos con CRLF hicieron que `str.replace` no cambiara nada; la prueba «sobrevivió» sin probar nada. La mutación debe afirmar que el reemplazo ocurrió.
+
+## 2026-10-09 — `[ETQ-AVISOS.1–3]` Avisar a las sucursales que cambió un precio, y que Compras comparta la lista
+
+**Qué se pidió.** Mandar una notificación a los usuarios de sucursal cuando hay cambios de precio, y darle a
+Compras la opción de compartir la lista. Si no había estructura, un plan por fases. Se decidió: resumen a las
+07:30 y a las 14:00 (D1), avisar a sucursales y descargar la lista (D2), permiso propio (D3), mínimo 1 producto
+(D4), plaza sin usuario con tienda asignada se ve igual y se declara (D5).
+
+> **Enmienda 2026-10-10 (Edgar):** se **retiró «descargar la lista»** de D2. No se acepta ningún Excel (a lo mucho PDF, que no se construyó); lo ideal es que a quien puede usar la etiquetera le llegue el aviso a la campana y, al tocarlo, entre a Cambios de precio de su tienda y reimprima. Se borró `cambios-csv.ts` y el botón del diálogo; una prueba negativa vigila que no reaparezca. La campana y el enlace ya existían.
+
+**Lo que se encontró al investigar.**
+- **Casi toda la estructura ya existía:** la fuente de «qué cambió» (`v_label_price_changes`), el molde de aviso
+  dirigido con memoria (`[VEC.4]`), la campana del header, el cron con latido. Faltaban la tabla de avisos, el
+  generador y «compartir».
+- **El worker no tiene WebSocket (ADR-080) y es donde corre el cron:** por eso la fila ES la entrega y la
+  campana la recoge por poll; el aviso por WebSocket de `label_prices_changed` (TDA.1) no sirve (es por tenant,
+  no por plaza, y arrastra el ruido de los movimientos de un centavo).
+- **`COMPRAS_VER` está en 0 de 37 roles** (documentado en `permissions.ts`): la alternativa «reusar el permiso de
+  Compras» habría dejado el botón sin nadie. Tampoco sirve «cualquier `COMPRAS_*`»: `COMPRAS_ENTRADAS_VALIDAR`
+  la tienen ~25 personas y casi todas son de sucursal.
+- **Simular al usuario encontró lo que el plan no veía** (ver `[ETQ-CAMBIOS.8]`): lo que parecían «tres
+  presentaciones» eran dos, y la unidad `500` aparecía dos veces porque su precio se movió dos veces el mismo
+  día. Por eso la regla de agrupado se sube a `libs/contracts`: si el aviso contara distinto que la pantalla,
+  nadie le creería a ninguno.
+
+**Qué quedó (rama `feat/etq-avisos-precio`, 2 migraciones aditivas):** ver el tracker y
+[`FASE_ETQ_AVISOS_CAMBIOS_PRECIO`](FASES/FASE_ETQ_AVISOS_CAMBIOS_PRECIO.md) §8. 55 pruebas nuevas; probado en
+negativo; lint y compuertas del proyecto sin errores nuevos.
+
+**Lecciones.**
+1. **Un día sin cambios no genera aviso, y lo hace cumplir la tabla** (`CHECK productos >= 1`), no sólo un `if`.
+2. **Sin dato no es cero:** si la bitácora de la plaza no llega al día, se declara; y si NINGUNA plaza tiene dato,
+   el latido es `error` (la ingesta está caída y todo se vería «sin cambios»).
+3. **La prueba negativa debe fallar POR EL CHECK esperado**, no por cualquier error: un rechazo por RLS daría
+   verde sin probar nada.
+4. **Las pruebas atraparon cuatro errores míos** (la protección anti-fórmulas del CSV le ponía apóstrofo a los
+   negativos; un fixture con fecha distinta a la real; el cambio de firma de `addBulk` que rompió una prueba
+   existente de #349 —que no corrí porque su nombre no coincidía con mis filtros—; y el lint de mis stubs).
+5. **Las herramientas de edición convierten `\uFEFF` en el carácter real:** para un BOM se usa
+   `String.fromCharCode(0xfeff)`.
+
+**Falta (declarado, no escondido).** Fase 0 sin correr (no se alcanzó prod). Las migraciones **no se ejecutaron
+contra ninguna base**. Sin validación visual. Aplicar las dos migraciones una por una **antes** del código.
+
 ## 2026-10-09 — `[WMS-REC.22]` Llegadas al andén y el producto sin caducidad
 
 **Qué se pidió.** Un monitoreo de qué camiones llegaron, con qué mercancía y si se les dio caducidad, que
