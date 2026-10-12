@@ -6,7 +6,7 @@ import { TripClosureService } from './trip-closure.service';
 
 /**
  * `[EMB.24]` `[EMB.27]` — Cierre del viaje (ADR-091). Lo opera Logística: cierra las paradas de
- * cliente con la remisión firmada y registra quién cargó. Traspasos y cargas a ruta los cierra
+ * cliente (entregado o no, con foto de la remisión opcional) y registra quién cargó. Traspasos y cargas a ruta los cierra
  * Kepler solo; aquí sólo se leen.
  */
 @ApiTags('logistics-trip-closure')
@@ -23,7 +23,7 @@ export class TripClosureController {
 
   @Post('paradas/:recipientId/cierre')
   @RequirePermissions(Permission.LOGISTICS_GUIDES_GESTIONAR)
-  @ApiOperation({ summary: 'EMB.24: cerrar una parada de cliente con la remisión firmada (o evidencia de no entrega)' })
+  @ApiOperation({ summary: 'EMB.24: cerrar una parada de cliente (entregado + quién recibió, o no entregado + motivo; foto opcional)' })
   cerrarParada(@Param('recipientId') recipientId: string, @Body() body: CerrarParadaBody): Promise<ParadaCierre> {
     return this.service.cerrarParada(recipientId, body);
   }

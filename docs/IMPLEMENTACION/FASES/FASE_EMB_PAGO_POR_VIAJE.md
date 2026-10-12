@@ -121,9 +121,19 @@ Corte de 14 días ──► un vale de Gastos por persona = sólo viajes liberad
 
 **Para probar en local:** aplicar las 2 migraciones a `platform_local`, levantar API y vista, y correr
 `node database/scripts/dev-seed-emb-pago.js --api http://127.0.0.1:<puerto>`: toma 5 guías reales de la
-copia local (traspasos recibidos, clientes con remisión, viaje abierto, faltante), registra cargadores de
+copia local (traspasos recibidos, clientes entregados, viaje abierto, faltante), registra cargadores de
 PRUEBA y crea el usuario `aprobador_prueba` (rol tesorería). Prueba de base:
-`node database/tests/test-newdb-emb-pago-por-viaje.js` (23 aserciones, 3 negativas, mutación verificada).
+`node database/tests/test-newdb-emb-pago-por-viaje.js` (24 aserciones, 3 negativas, mutación verificada).
+
+**Pruebas unitarias (2026-10-12):** `trip-closure.spec.ts` (16: cierre sin/con foto, carrera → 409 que
+borra la foto, traspaso no se cierra a mano, cargadores, permisos de las 3 rutas) · `trip-pay.spec.ts`
+(11: el vale lleva SÓLO lo liberado y sin pagar, a nombre de quien lo prepara; 23505 → 409 sin hoja
+huérfana; permisos) · montaje de `cierre-viaje` (4), de la página de comisiones (5) y de las pestañas del
+embarque (2). Las dos reglas de dinero se rompieron a propósito y las pruebas se pusieron en rojo.
+
+**Revisión del 2026-10-12 (pantalla del embarque):** «Cierre y pago» pasa a ser la primera pestaña y la que
+abre; se quitaron la pestaña Costos (se captura en Logística › Costos), la pestaña Carta Porte (el backend
+queda; no hay otra pantalla que timbre) y el panel «Preparación del viaje».
 
 **Hallazgos de la construcción:**
 - ⛔ Mi prueba negativa de «sin foto no se cierra» pasaba **con la regla rota**: miraba el estado del

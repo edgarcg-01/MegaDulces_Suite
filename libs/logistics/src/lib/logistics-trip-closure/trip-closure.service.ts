@@ -30,7 +30,7 @@ const dia = (v: unknown): string | null => {
  *
  * Lee las vistas `logistics.v_trip_*` (migración `20261012084447`): la Suite NO guarda el estado
  * del viaje, lo DERIVA de las paradas — traspasos con la recepción de Kepler, cargas a ruta al
- * embarcar, clientes con la remisión firmada que se sube aquí.
+ * embarcar, clientes con la entrega que registra Logística aquí (foto de la remisión opcional).
  */
 @Injectable()
 export class TripClosureService {

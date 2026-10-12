@@ -26,9 +26,9 @@ describe('[GX.80] GastosAreaShellComponent', () => {
 
   afterEach(() => TestBed.resetTestingModule());
 
-  it('quien firma ve la barra con las cuatro pantallas', async () => {
+  it('quien firma ve la barra con las cinco pantallas (EMB.29: + Comisiones de logística)', async () => {
     const el = await render({ FINANCE_EXPENSES_COMPROBAR: true, FINANCE_EXPENSES_VER: true });
-    expect(etiquetas(el)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial']);
+    expect(etiquetas(el)).toEqual(['Aprobación de gastos', 'Mis gastos', 'Expediente', 'Historial', 'Comisiones de logística']);
   });
 
   it('con VER (sin firmar) ve Mis gastos e Historial', async () => {
@@ -43,8 +43,14 @@ describe('[GX.80] GastosAreaShellComponent', () => {
     expect(el.querySelector('router-outlet')).not.toBeNull();
   });
 
-  it('el administrador de plataforma ve las cuatro', async () => {
+  it('el administrador de plataforma ve las cinco', async () => {
     const el = await render({}, true);
-    expect(etiquetas(el)).toHaveLength(4);
+    expect(etiquetas(el)).toHaveLength(5);
+  });
+
+  /** EMB.29: Logística arma los vales de comisiones, pero no ve el resto de Gastos. */
+  it('quien sólo gestiona embarques tiene UNA pantalla: sin barra', async () => {
+    const el = await render({ LOGISTICS_SHIPMENTS_GESTIONAR: true });
+    expect(el.querySelector('.gx-area-tabs')).toBeNull();
   });
 });

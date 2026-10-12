@@ -4,7 +4,7 @@ import { TripClosureController } from './trip-closure.controller';
 import { TripClosureService } from './trip-closure.service';
 
 // EMB.24/26/27 — cierre del viaje. CloudinaryModule trae el ObjectStorageService (bucket privado)
-// donde se guarda la foto de la remisión firmada.
+// donde se guarda la foto de la remisión, cuando se manda (opcional).
 @Module({
   imports: [CloudinaryModule],
   controllers: [TripClosureController],
