@@ -1459,6 +1459,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             </div>
 
             <div class="fin-form">
+              <!-- ⭐⭐ [CG.94] Con documento, estos tres los FIJA el documento: ni se preguntan.
+                   El tipo ya lo dice el chip "Sale de la caja", la fecha esta en el encabezado y la
+                   sucursal es la del folio. Ver fichaSolaLectura. -->
+              @if (!fichaSolaLectura()) {
               <div class="fin-row">
                 <!-- Los <label> de este formulario NO tenían for= ni envolvían su control: un lector de
                      pantalla anunciaba TODA la captura de caja como campos sin nombre. -->
@@ -1475,6 +1479,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 <p-select inputId="cg-suc" [options]="opcionesSucursal()" [ngModel]="f().sucursal" optionLabel="label" optionValue="value"
                           (ngModelChange)="onSucursal($event)" [ariaLabel]="'Sucursal'"></p-select>
               </div>
+              }
 
               <!-- ⭐ CG.19 Capa 1 — el movimiento se ELIGE, no se teclea. El monto viaja de Kepler.
                    ⛔ Acá decía "Sólo para ingresos: un gasto o un depósito no tienen un cobro del ERP
@@ -1485,6 +1490,11 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    retipearlo entero a mano. El depósito sí queda fuera, y con motivo: es una salida a
                    banco, no un pago, y su pierna doble ("N-A-26") está declarada fuera de alcance. -->
               @if (f().tipo === 'ingreso' || f().tipo === 'gasto') {
+                <!-- ⛔ [CG.94] El selector de documento NO se pinta cuando ya hay uno elegido: seria
+                     ofrecer elegir lo que ya esta elegido, y el encabezado lo muestra con su ✕ para
+                     soltarlo. Era la peor de las siete repeticiones -- un buscador cuyo unico
+                     contenido posible ya estaba arriba, dos centimetros mas alto. -->
+                @if (!fichaSolaLectura()) {
                 <div class="fin-row fin-row-col">
                   <label for="cg-cobro">{{ f().tipo === 'gasto' ? 'Comprobante contra un pago de Kepler' : 'Entrega contra un cobro de Kepler' }}</label>
                   <p-autocomplete inputId="cg-cobro" [(ngModel)]="cobroSel" [suggestions]="cobros()"
@@ -1505,9 +1515,10 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                          lo contado. Decir "contaste 1100 vs documento 1060" al lado del selector de
                          documento era mandar a la persona a buscar el dato al otro extremo. -->
                   } @else {
-                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elegilo y el importe lo pone el documento.</small>
+                    <small class="fin-dim">Sin documento: captura manual (marcada así en la cobertura). Si ya está en Kepler, elígelo y el importe lo pone el documento.</small>
                   }
                 </div>
+                }
 
                 <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
                      abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
@@ -1533,7 +1544,9 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    hora. Un toque llena cuenta + concepto + beneficiario; solo queda el importe.
                    El gasto NO se deriva de Kepler, asi que esto baja clics pero no vuelve auditable
                    el dato -- y por eso el bloque lo dice. -->
-              @if (f().tipo === 'gasto' && frecuentes().length) {
+              <!-- [CG.94] Los atajos de cuenta no aplican con documento: su cuenta ya salio de la
+                   poliza, y ofrecer un atajo para pisarla es invitar a desalinearla. -->
+              @if (!fichaSolaLectura() && f().tipo === 'gasto' && frecuentes().length) {
                 <div class="fin-row fin-row-col">
                   <label>Lo que más repetís en {{ f().sucursal | sucursal }}</label>
                   <div class="cg-chips">
@@ -1551,12 +1564,32 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 </div>
               }
 
+              <!-- [CG.94] El beneficiario con documento ya es el TITULO de la ficha, arriba. -->
+              @if (!fichaSolaLectura()) {
               <div class="fin-row">
                 <label for="cg-benef">Beneficiario</label>
                 <input pInputText id="cg-benef" [ngModel]="f().beneficiario" (ngModelChange)="setF('beneficiario', $event)"
                        (blur)="pedirPropuesta()" class="cg-full" [readonly]="!!cobroElegido()" />
               </div>
+              }
 
+              <!-- ⭐ [CG.94] LA CUENTA, EN MODO FICHA: un renglon que la DICE, no un buscador que la
+                   pregunta. La cuenta sale de la poliza del propio documento y es autoritativa; el
+                   buscador la ofrecia editable y con el dropdown abierto, que invita a cambiarla. -->
+              @if (fichaSolaLectura()) {
+                <div class="fin-row fin-row-col cg-ficha-cta">
+                  <span class="fin-dim">Cuenta de Kepler</span>
+                  <strong class="mono">{{ f().kepler_cuenta || '—' }} / {{ f().kepler_concepto || '—' }}</strong>
+                  <small [class]="etiquetaConcepto().tono === 'propuesto' ? 'fin-hint-ok' : 'fin-hint-warn'">
+                    {{ etiquetaConcepto().texto }}
+                  </small>
+                  <!-- La puerta de salida: Kepler se equivoca, y una captura que no se puede
+                       corregir obliga a cancelar y rehacer. Abre el formulario completo. -->
+                  <p-button label="Corregir" icon="pi pi-pencil" size="small"
+                            severity="secondary" [text]="true"
+                            (onClick)="corrigiendo.set(true)"></p-button>
+                </div>
+              } @else {
               <div class="fin-row fin-row-col">
                 <label for="cg-concepto">Cuenta y concepto de Kepler</label>
                 <p-autocomplete inputId="cg-concepto" [(ngModel)]="conceptoSel" [suggestions]="conceptos()"
@@ -1573,13 +1606,18 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                             severity="secondary" [text]="true" (onClick)="corregirCuentaDoc()"></p-button>
                 }
               </div>
+              }
 
+              <!-- [CG.94] La glosa con documento se arma del documento (X-D-26 0023028 · …).
+                   Preguntarla es pedir que alguien reescriba lo que ya quedo escrito. -->
+              @if (!fichaSolaLectura()) {
               <div class="fin-row">
                 <label for="cg-glosa">Qué pasó</label>
                 <input pInputText id="cg-glosa" [ngModel]="f().glosa" (ngModelChange)="onGlosa($event)" class="cg-full"
                        (keydown.enter)="guardar()"
-                       placeholder="Contá qué pasó — esto NO es el concepto contable" />
+                       placeholder="Cuenta qué pasó — esto NO es el concepto contable" />
               </div>
+              }
 
 
               <!-- ⛔ ACÁ ESTABA EL BLOQUEO DE TODO EL MÓDULO, y no era falta de trabajo: medido el
@@ -1587,7 +1625,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    para cargarlas. La bandeja decía "0 de 8 se confirman · el resto necesita que su
                    cuenta esté declarada" y no había por dónde declararla. Se declara acá, que es donde
                    la persona tiene el beneficiario delante y acaba de elegir la cuenta. -->
-              @if (puedeDeclararRegla()) {
+              <!-- ⛔ [CG.94] Con documento NO se ofrece declarar regla, y no es cosmetico: la cuenta
+                   de este movimiento salio de SU poliza, asi que el proximo movimiento de ese mismo
+                   beneficiario tambien la va a traer. Declarar una regla aca es fijar a mano algo que
+                   el ERP ya resuelve por si solo -- y si el beneficiario usa mas de una cuenta, la
+                   regla lo clasifica MAL (es lo que CG.88 frena del lado del servidor). -->
+              @if (!fichaSolaLectura() && puedeDeclararRegla()) {
                 <label class="fin-row cg-declara">
                   <p-checkbox [binary]="true" [ngModel]="declararRegla()"
                               (ngModelChange)="declararRegla.set($event)"></p-checkbox>
@@ -3246,6 +3289,43 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * alguna señal hermana cambiara en el mismo turno. `abrirCorte()` no tenía ninguna.
    */
   capturaAbierta = signal(false);
+
+  /**
+   * ⭐⭐ `[CG.94]` **CUANDO EL MOVIMIENTO VIENE DE UN DOCUMENTO, NADA SE EDITA.**
+   *
+   * Edgar, con la captura abierta: *"nada aquí puede ser editable. te mencioné que ya existe.
+   * ¿por qué preguntar dos veces los movimientos?"*.
+   *
+   * Tenía razón y el screenshot lo prueba solo. El encabezado ya decía
+   * `X-D-26 0023028 · MANIOBRAS Y DESCARGAS · $100.00 · 10/10/26`, y abajo el formulario volvía a
+   * preguntar **lo mismo siete veces**, todo editable:
+   *
+   *     Tipo         Comprobante de gasto      ← lo dice el documento
+   *     Fecha        10/10/2026                ← lo dice el documento
+   *     Sucursal     00 · CEDIS                ← lo dice el documento
+   *     Comprobante  X-D-26 0023028 …          ← ES el documento que ya estaba elegido
+   *     Beneficiario MANIOBRAS Y DESCARGAS     ← lo dice el documento
+   *     Cuenta       201 / 201                 ← lo dice la póliza del documento
+   *     Qué pasó     X-D-26 0023028 · MANIO…   ← armado del documento
+   *
+   * Ninguno de esos campos es una decisión: los siete salen del mismo lugar. Ofrecerlos editables
+   * no es dar flexibilidad — es pedirle a alguien que revise siete veces un dato que el ERP ya
+   * fijó, y abrir siete formas de desalinear la captura respecto del documento contra el que se
+   * supone que cuadra.
+   *
+   * Lo que SÍ queda a la vista es lo único que la persona aporta: **el conteo del efectivo**, y
+   * **la alineación con CAOS**, que es la excepción que el propio Edgar marcó (*"a lo máximo
+   * alinearlo con algún movimiento de CAOS"*).
+   *
+   * ⚠️ No se CIERRA la puerta, se cierra el default: `Corregir` revela el formulario completo,
+   * tal cual era. Kepler se equivoca —de ahí salió `corregirCuentaDoc()`— y una captura que no se
+   * puede corregir obliga a cancelar y rehacer.
+   *
+   * ⚠️ Sin documento (captura a mano) el formulario sigue entero: ahí no hay de dónde sacar nada
+   * y cada campo sí es una decisión.
+   */
+  corrigiendo = signal(false);
+  fichaSolaLectura = computed(() => !!this.cobroElegido() && !this.corrigiendo());
   /** `[CG.62]` La ventana de "seguro que queres guardar". Es una PREGUNTA, no el guardado. */
   confirmarGuardar = signal(false);
 
@@ -4380,6 +4460,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     this.conceptoSel = null;
     this.conceptoManual.set(false);
     this.cuentaFuenteDoc.set(null);
+    // `[CG.94]` Cada captura arranca en modo ficha. Si no se reseteara, corregir UNA dejaría
+    // abierto el formulario para todas las siguientes — y el modo se elige por movimiento.
+    this.corrigiendo.set(false);
     this.declararRegla.set(false);
     this.propuesta.set(null);
     // El cobro elegido NO sobrevive al diálogo anterior: arrastrarlo aplicaría el documento de
