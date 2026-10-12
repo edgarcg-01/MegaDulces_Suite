@@ -73,11 +73,32 @@ export class ServiceDeskConfigService {
     };
   }
 
-  /** Lo que la pantalla «Nueva solicitud» necesita para pintarse. */
-  async catalog(): Promise<SdCatalogResponse> {
+  /** Lo que la pantalla «Nueva solicitud» necesita para pintarse. `userId` = quien pregunta (para saber si ya aceptó el aviso de privacidad). */
+  async catalog(userId?: string): Promise<SdCatalogResponse> {
     return this.tk.run(async (trx) => {
-      const queues = await trx('servicedesk.queues').where({ active: true }).whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'priority_model', 'asks_zone', 'confidential', 'uses_priority', 'sla_enabled');
+      const queues = await trx('servicedesk.queues').where({ active: true }).whereNull('deleted_at').orderBy([{ column: 'sort_order' }, { column: 'name' }]).select('id', 'code', 'name', 'priority_model', 'asks_zone', 'confidential', 'uses_priority', 'sla_enabled', 'privacy_notice_code');
       const activas = new Set(queues.map((q: { id: string }) => q.id));
+      /*
+       * `[PRV.2]` El aviso de privacidad VIGENTE de las colas que lo exigen, y si quien pregunta ya lo aceptó. `privacy_notice_code` es un dato
+       * interno: NO sale en la respuesta; salen `privacy_required` y, si hay versión vigente, `privacy_notice`.
+       */
+      const codigos = [...new Set(queues.map((q: { privacy_notice_code: string | null }) => q.privacy_notice_code).filter((c: string | null): c is string => !!c))];
+      const vigentes = codigos.length
+        ? ((await trx('servicedesk.privacy_notices').whereIn('code', codigos).where({ status: 'vigente' }).select('id', 'code', 'version', 'title', 'summary_text', 'consent_text', 'full_url')) as { id: string; code: string; version: number; title: string; summary_text: string; consent_text: string; full_url: string | null }[])
+        : [];
+      const aceptados = new Set<string>(
+        userId && vigentes.length ? ((await trx('servicedesk.privacy_acceptances').where({ user_id: userId }).whereIn('notice_id', vigentes.map((v) => v.id)).pluck('notice_id')) as string[]) : [],
+      );
+      const colasDto = queues.map((q: { privacy_notice_code: string | null } & Record<string, unknown>) => {
+        const { privacy_notice_code: codigo, ...resto } = q;
+        if (!codigo) return resto;
+        const v = vigentes.find((x) => x.code === codigo);
+        return {
+          ...resto,
+          privacy_required: true,
+          privacy_notice: v ? { id: v.id, version: v.version, title: v.title, summary_text: v.summary_text, consent_text: v.consent_text, full_url: v.full_url, accepted: aceptados.has(v.id) } : null,
+        };
+      });
       const cats = await trx('servicedesk.categories')
         .where({ active: true })
         .whereNull('deleted_at')
@@ -90,7 +111,7 @@ export class ServiceDeskConfigService {
         .orderBy([{ column: 'sort_order' }, { column: 'label' }])
         .select('queue_id', 'code', 'label', 'type', 'required', 'options');
       return {
-        queues,
+        queues: colasDto as unknown as SdCatalogResponse['queues'],
         zones,
         fields: fieldRows.filter((f: { queue_id: string }) => activas.has(f.queue_id)),
         // Una categoría de una cola apagada no se ofrece: crearía un ticket que nadie atiende.
