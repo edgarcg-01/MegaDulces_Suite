@@ -10263,6 +10263,22 @@ contra `pg-prod` (namespace `prod`, k3s).
   **archivos reales**, y se verificó que no hubiera un tercero (1,208 distintas, faltantes 0). De
   paso: el ledger trae **una fila duplicada** (`20260921200000_budget_sales_plan_method_fallback`).
   Falta `git push` + redeploy. 2026-10-12
+- [ ] 🧪 **[CP.8.44]** ⛔⛔⛔ **`app_runtime` NUNCA tuvo `USAGE` sobre el schema `contpaqi`: el
+  puente estuvo muerto en prod desde el día uno.** No lo reportó nadie — **lo dijo el latido**:
+  `cron_runs.contpaqi_cuadre` en `status='error'` cada 10 min con *permission denied for schema
+  contpaqi*, desde que `[CP.8.31]` registró el módulo. ⭐ *El mecanismo que `[CP.8.10]` construyó
+  para medir ENTREGA funcionó como se diseñó y nadie lo leyó.* Causa: 3 migraciones dieron el
+  `USAGE` **sólo a `dev_ro`** (`[CP.8.1]` nunca se lo dio a la app; `[CP.8.1b]` y `[CP.8.20]` lo
+  repitieron para `dev_ro`). ⛔ **Un privilegio de tabla sin `USAGE` del schema no sirve, y
+  `has_table_privilege` devuelve `true` igual** — Postgres concede el objeto y niega el paso al
+  contenedor. ⚠️ **Corrige mi propia medición de `[CP.8.39]`**: *"1 de 434 tablas sin grant"* era
+  exacta sobre la capa de TABLA y falsa de efecto — al nivel que manda faltaban **las 4**. *Medir
+  la capa equivocada da un número exacto sobre la pregunta equivocada.* ⛔ Ningún candado lo vio
+  porque **los 10 leen como `dev_ro`, que sí tiene `USAGE`**: el rol que falla es el que ninguna
+  prueba usa. Candado +2 aserciones que preguntan por el rol de la app **por nombre**; negativa
+  antes de aplicar: **42 ✓ / 1 ✗**. La mig suma `ALTER DEFAULT PRIVILEGES` para que la próxima
+  tabla no dependa de que alguien se acuerde — que es la causa raíz de ésta y de `[CP.8.39]`.
+  Mig `20261012092454` **copiada al pod, falta aplicar**. 2026-10-12
 
 ### ⛔ Bloqueos abiertos
 

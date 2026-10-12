@@ -86,6 +86,24 @@ const declarar = (label) => { nomedido++; console.log(`  ⚠ NO MEDIDO: ${label}
   check(sinGrant.length === 0,
     `⭐ app_runtime puede leer y escribir las ${ESPERADAS.length}${sinGrant.length ? ` — sin grant: ${sinGrant.join(', ')}` : ''}`);
 
+  /**
+   * ⛔⛔ `[CP.8.44]` — **Y el USAGE del schema, que es el que de verdad manda.** Un privilegio
+   * de tabla SIN `USAGE` no sirve para nada, y `has_table_privilege` devuelve `true` igual:
+   * Postgres concede el objeto y niega el paso al contenedor. Así vivió el puente desde el día
+   * uno — `app_runtime` nunca tuvo `USAGE` sobre `contpaqi` (tres migraciones se lo dieron sólo
+   * a `dev_ro`) y la consulta del cuadre moría cada 10 min con `permission denied for schema`,
+   * con el latido en `error` y nadie leyéndolo.
+   *
+   * ⚠️ Ningún candado lo veía porque **todos leen como `dev_ro`, que sí lo tiene**. El rol que
+   * falla es el que ninguna prueba usa — por eso se pregunta por él explícitamente.
+   */
+  const usg = await knex.raw(
+    "SELECT has_schema_privilege('app_runtime','contpaqi','USAGE') AS ar,"
+    + " has_schema_privilege('dev_ro','contpaqi','USAGE') AS dev");
+  check(usg.rows[0].ar === true,
+    '⭐⭐ app_runtime tiene USAGE sobre el schema contpaqi (sin esto los grants de tabla son decorativos)');
+  check(usg.rows[0].dev === true, 'dev_ro conserva su USAGE (es el que leen los candados)');
+
   console.log('\n[3] ⭐ La consulta de PENDIENTES del servicio, ejecutada de verdad');
   // Copia exacta de `cuadrarPendientes()`. Si una columna o un `->>` no existe, acá revienta.
   let pendientes = null;
