@@ -794,8 +794,29 @@ export class CashCutService {
           'kepler_cuenta', 'kepler_concepto', 'kepler_concepto_nombre',
           'created_by_username', 'origen_tipo',
           trx.raw(`to_char(created_at AT TIME ZONE 'America/Mexico_City', 'HH24:MI') AS hora`),
-          // El documento de Kepler que lo originó, si lo hay: es como la persona lo reconoce.
-          trx.raw(`split_part(coalesce(glosa,''), ' · ', 1) AS documento`),
+          /**
+           * ⛔⛔ `[CG.91.2]` **ACÁ SE PARTÍA LA GLOSA, Y LA GLOSA ES TEXTO LIBRE.**
+           *
+           * Era `split_part(glosa, ' · ', 1)`. Edgar lo vio al primer vistazo: la columna
+           * «Documento» decía `X-D-26 0000161` en SEIS filas seguidas, cinco de ellas depósitos
+           * de ruta que no tienen documento de Kepler.
+           *
+           * Y la columna no mentía: el dato está mal en la base. Los 5 ingresos de ruta quedaron
+           * con `glosa = 'X-D-26 0000161 · GUILLERMO LOPEZ GUTIERREZ'` —un gasto ajeno, los cinco
+           * iguales— porque el campo «Qué pasó» era editable y venía arrastrado de la captura
+           * anterior. `[CG.94]` cierra esa puerta; esto arregla lo otro: **derivar un dato duro de
+           * un campo que una persona puede escribir mal es construir sobre arena.**
+           *
+           * El `origen_ref` sí es duro: lo arma el servidor al anclar, y el índice único lo
+           * protege. `07|X-D-26|0000091|0011` → `X-D-26 0000091`; `AST700-19758|1564` → el retiro
+           * del cajero. Si no hay origen, no hay documento — y se dice, no se inventa uno.
+           */
+          trx.raw(`CASE
+                     WHEN origen_tipo = 'caos' THEN 'CAOS #' || split_part(origen_ref, '|', 2)
+                     WHEN origen_ref IS NOT NULL AND split_part(origen_ref, '|', 3) <> ''
+                       THEN split_part(origen_ref, '|', 2) || ' ' || split_part(origen_ref, '|', 3)
+                     ELSE NULL
+                   END AS documento`),
         );
 
       return {
