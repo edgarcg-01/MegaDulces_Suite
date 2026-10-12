@@ -2671,3 +2671,43 @@ quedó como aserción permanente: si vuelven a coincidir, alguien quitó el `sin
 
 **Candados tras el arreglo:** sink **65 ✓** (era 64, +1 la aserción del `sinSep`) · libro-txt 49 ✓
 · esquema 46 ✓ · lote 38 · armador 33 · cuadre 35 · token 29 · proveedor 30 · bandeja 34.
+
+### 37.8 ⭐ ¿Era un caso aislado o una clase? — medido, y la respuesta es *las dos cosas*
+
+Antes de dar el arreglo por bueno había que saber si el defecto era único o un patrón. Medido en
+prod sobre las **434 tablas con `tenant_id`** de los 13 esquemas de negocio:
+
+| | |
+|---|--:|
+| ⭐⭐ **sin `GRANT` a `app_runtime`** | **1 de 434** — `contpaqi.supplier_aliases` |
+| sin RLS o sin forzar | 79 de 434 |
+| …de ésas, en `analytics` | **73** |
+| …fuera de `analytics` | **6** |
+
+⭐ **El defecto que rompía funcionalidad es ÚNICO en toda la base.** No hay una segunda tabla
+donde el rol de la app no pueda leer. Eso convierte a `[CP.8.36]` en un descuido puntual, no en
+un patrón del repo — y es la razón por la que ningún otro módulo tiene este síntoma.
+
+⛔ **Y el hueco de RLS NO son 79 defectos.** 73 de los 79 están en `analytics`, que es derivado y
+filtra por tenant **explícitamente** (la propia Fase C ya lo había declarado: Postgres no soporta
+RLS en vistas materializadas). Contarlos como defectos sería el error simétrico del que esta fase
+viene arreglando: publicar un número grande que mide otra cosa.
+
+Los **6 de afuera**, nombrados para que se puedan decidir en vez de contarse:
+
+| tabla | filas aprox | |
+|---|--:|---|
+| `logistics.vehicle_positions` | 598,619 | ⭐ **decisión declarada** — `CLAUDE.md` dice «sin RLS, patrón `route_location_pings`» |
+| `commercial.portal_telemetry_events` | 10,405 | sin medir |
+| `catalog.top_sellers_live` | 1,000 | derivada; sin medir |
+| `catalog.products_top_sellers` | 550 | derivada; sin medir |
+| `commercial.push_subscriptions` | 3 | sin medir |
+| **`contpaqi.supplier_aliases`** | 0 | ⬅ **la de esta fase, la única con los dos huecos** |
+
+⛔ **Los otros 5 NO se tocan desde acá y se DECLARAN** (ADR-056): al menos uno es una decisión
+tomada a propósito, y arreglar «en bloque» una lista que no se midió una por una es cómo se
+revierte una decisión ajena sin enterarse. Quedan con nombre y con dueño: son de sus fases.
+
+⚠️ Y vale repetir lo de §37.2: en este prod la API corre mayormente como `postgres`, así que
+**el RLS de las 434 está inerte de todos modos**. La política que pone `[CP.8.39]` es para el día
+que eso cambie; lo que arregla hoy es el `GRANT`.
