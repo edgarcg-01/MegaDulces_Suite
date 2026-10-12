@@ -6,6 +6,12 @@ import { environment } from '../../../environments/environment';
 /** `[PP.1]` En qué punto de su ventana de pronto pago está una factura pendiente. */
 export type EstadoPronto = 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
 
+/**
+ * `[PP.2]` Por qué decimos lo que decimos de esta factura. Va aparte del estado: el estado
+ * contesta «¿puedo actuar sobre una fecha?», el motivo «¿por qué, y qué hago si no?».
+ */
+export type MotivoPronto = 'historial' | 'historial_disperso' | 'nunca_dio' | 'pocas_veces' | 'sin_fecha';
+
 export interface ProntoPagoRow {
   sucursal: string;
   proveedor_code: string;
@@ -22,6 +28,10 @@ export interface ProntoPagoRow {
   fecha_limite: string | null;
   dias_restantes: number | null;
   estado: EstadoPronto;
+  /** `[PP.2]` Por qué. Lo arma el SERVIDOR: es el único que sabe con qué evidencia se calculó. */
+  motivo: MotivoPronto;
+  /** La misma razón, en una frase que se lee sin saber de dónde salió el número. */
+  porque: string;
 }
 
 export interface ProntoPagoBalde { estado: string; docs: number; monto: number; beneficio: number }

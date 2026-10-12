@@ -47,6 +47,51 @@ const DIAS_AVISO = 5;
 
 export type EstadoPronto = 'capturable' | 'por_vencer' | 'fuera_de_ventana' | 'sin_medir';
 
+/**
+ * `[PP.2]` **Por qué decimos lo que decimos de esta factura.**
+ *
+ * ⛔ `sin_medir` mezclaba dos cosas que para quien paga NO son lo mismo, y medirlo lo confirmó:
+ *
+ * | | docs | pendiente | proveedores |
+ * |---|---:|---:|---:|
+ * | **nunca** dio descuento en 12 meses | 763 | $27,321,330 | 82 |
+ * | lo dio 1 o 2 veces (no alcanza) | 48 | $3,648,747 | 18 |
+ *
+ * Al primero no hay nada que pedirle; al segundo vale la pena preguntarle. Por eso el MOTIVO va
+ * aparte del estado: el estado contesta *"¿puedo actuar sobre una fecha?"*, el motivo contesta
+ * *"¿por qué, y qué hago si no?"*.
+ *
+ * ⚠️ `estado` NO se parte en más valores a propósito: los cuatro siguen respondiendo la misma
+ * pregunta y partirlos obligaría a tocar el filtro, los KPIs y el orden por una distinción que es
+ * explicativa, no operativa.
+ */
+export type MotivoPronto =
+  | 'historial'            // suficientes pagos y CONCENTRADOS: la ventana es real
+  | 'historial_disperso'   // los hay, pero el plazo no explica el descuento
+  | 'nunca_dio'            // 12 meses sin un solo pago con descuento a este proveedor
+  | 'pocas_veces'          // lo dio 1 o 2 veces: no alcanza para fijar una fecha
+  | 'sin_fecha';           // la factura no trae fecha: no hay desde dónde contar
+
+/**
+ * `[PP.2]` **Cuándo el plazo NO explica el descuento.**
+ *
+ * ⛔ Casi me publico una mentira al revés: la primera versión de la frase decía el rango
+ * **mínimo–máximo**, y para el proveedor más grande (423 pagos, $15,080,144 de ahorro) eso daba
+ * *"entre 0 y 112 días"* — que hace parecer inútil una ventana que en realidad es de **19 a 23**.
+ * El máximo es una cola suelta; el estadístico que sirve es el **p90**.
+ *
+ * ⭐ Y al medirlo bien aparece una distinción que sí hay que decir: en 29 proveedores
+ * (**$7,327,046** de ahorro) el p90 está tan lejos de la mediana que el plazo **no manda** — se
+ * llevaron descuento pagando a los 4 días y también a los 30. Contra 128 proveedores
+ * (**$49,758,200**) donde la ventana es real. Prometerle a Tesorería una fecha límite en los
+ * primeros sería mandarla a correr por un plazo que no existe.
+ *
+ * ⚠️ El umbral es una HEURÍSTICA, no una ley: `p90 > 2×mediana + 7`. Los 7 días evitan marcar
+ * como disperso a un proveedor de ventana corta (mediana 4, p90 12 no es dispersión, es ruido).
+ * Se declara como lo que es y se puede mover con una medición mejor.
+ */
+const esDisperso = (med: number, p90: number): boolean => p90 > med * 2 + 7;
+
 export interface ProntoPagoQuery {
   estado?: EstadoPronto;
   search?: string;
@@ -123,6 +168,10 @@ export class ProntoPagoService {
           SELECT p.sucursal, btrim(p.proveedor) AS proveedor_code, p.proveedor_nombre,
                  p.folio, p.fecha, p.vencimiento, p.pendiente,
                  d.n_observaciones, d.dias_mediana, d.tasa_observada,
+                 -- [PP.2] La EVIDENCIA detrás de la fecha. Sin esto la pantalla afirma "este
+                 -- proveedor da 6.3% a 26 días" y no muestra con qué lo sabe; quien paga no puede
+                 -- decidir si confiar en el número ni cuándo ignorarlo.
+                 d.dias_p90, d.descuento_12m,
                  CASE WHEN d.n_observaciones >= ${MIN_OBS} AND p.fecha IS NOT NULL
                       THEN p.fecha + d.dias_mediana END AS fecha_limite,
                  CASE WHEN d.n_observaciones >= ${MIN_OBS} AND d.tasa_observada IS NOT NULL
@@ -209,9 +258,65 @@ export class ProntoPagoService {
           fecha_limite: r.fecha_limite,
           dias_restantes: r.dias_restantes == null ? null : Number(r.dias_restantes),
           estado: r.estado as EstadoPronto,
+          ...this.porQue(r),
         })),
         truncado: detalle.length >= limit,
       };
     });
+  }
+
+  /**
+   * `[PP.2]` El motivo, y la frase que lo dice en llano.
+   *
+   * ⭐ La arma el SERVIDOR y no la pantalla, por el mismo motivo que la marca de procedencia: es
+   * el único lugar que sabe con qué evidencia se calculó. Si la escribiera el front, al cambiar
+   * `MIN_OBS` o la derivación la frase seguiría contando la historia vieja.
+   *
+   * ⚠️ El rango min–max va en la frase y no sólo la mediana: un proveedor que pagó entre 18 y 41
+   * días es distinto de uno que pagó siempre a 26, y la mediana sola los hace parecer iguales.
+   */
+  private porQue(r: any): { motivo: MotivoPronto; porque: string } {
+    const n = Number(r.n_observaciones) || 0;
+    const dia = (x: any) => Number(x) || 0;
+    const pesos = (x: any) => (Number(x) || 0).toLocaleString('es-MX', {
+      style: 'currency', currency: 'MXN', maximumFractionDigits: 0 });
+
+    if (n >= MIN_OBS) {
+      const med = dia(r.dias_mediana);
+      const p90 = dia(r.dias_p90);
+      const tasa = r.tasa_observada == null ? '' : ` al ${(Number(r.tasa_observada) * 100).toFixed(1)}%`;
+      const cabeza = `${n} pagos a este proveedor obtuvieron descuento${tasa} en los últimos 12 meses`;
+      const ahorro = `Nos ahorró ${pesos(r.descuento_12m)}.`;
+      // ⚠️ p90 y NO el máximo: el máximo es una cola suelta y hace parecer inútil una ventana
+      // que es corta. Medido: el proveedor más grande va de 19 a 23 días, con un máximo de 112.
+      if (esDisperso(med, p90)) {
+        return {
+          motivo: 'historial_disperso',
+          porque: `${cabeza}, pero pagando desde los ${med} hasta los ${p90} días. `
+                + `El plazo no es lo que lo dispara: la fecha de abajo es poco confiable acá. ${ahorro}`,
+        };
+      }
+      return {
+        motivo: 'historial',
+        porque: `${cabeza}, pagando a los ${med} días `
+              + `(9 de cada 10, antes de ${p90}). ${ahorro}`,
+      };
+    }
+    // ⛔ Las tres ausencias se nombran distinto porque se resuelven distinto (ADR-056).
+    if (n === 0) {
+      return {
+        motivo: 'nunca_dio',
+        porque: 'En 12 meses no hubo un solo pago a este proveedor con descuento. '
+              + 'No hay historial que diga que lo ofrece.',
+      };
+    }
+    if (!r.fecha) {
+      return { motivo: 'sin_fecha', porque: 'La factura no trae fecha: no hay desde dónde contar los días.' };
+    }
+    return {
+      motivo: 'pocas_veces',
+      porque: `Sólo ${n} pago${n === 1 ? '' : 's'} con descuento en 12 meses: no alcanza para fijar `
+            + `una fecha (hacen falta ${MIN_OBS}). Vale preguntarle al proveedor.`,
+    };
   }
 }
