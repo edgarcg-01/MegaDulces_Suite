@@ -2831,7 +2831,27 @@ entró sin ellos (así entró `supplier_aliases`) · y `ALTER DEFAULT PRIVILEGES
 próxima tabla no dependa de que alguien se acuerde** — que es la causa raíz de `[CP.8.39]` y de
 ésta. El freno de la migración pregunta **las dos capas**.
 
-### 38.6 ⛔ Lo que esto significa del estado real de la fase
+### 38.6 ✅ El latido se puso verde SOLO, y lo que eso dice y lo que no
+
+Primera corrida después de la migración, sin tocar nada:
+
+```
+status      : ok          last_finish : 2026-10-12 15:40:00
+filas       : 0           duration_ms : 37
+note        : sin eventos pendientes de cuadrar
+error       : (ninguno)
+```
+
+⭐ **Es la primera vez que el camino que recorre la app funciona en producción.** Y la prueba es
+del tipo que vale: nadie lo declaró verde — el proceso corrió solo a las 15:40 y se midió.
+
+⛔ **Pero `ok` acá significa *"la consulta corrió"*, no *"el puente entregó algo"*.** Las 0 filas
+son reales: `poliza_exports` sigue vacía porque nunca se entregó nada. Por eso la nota dice
+**por qué** es cero en vez de reportar un `ok` pelado — es la regla que §13.2 fijó: *cero
+pendientes no es salud, es silencio*. El día que haya entregas y siga en cero, ese mismo verde
+querrá decir otra cosa.
+
+### 38.7 ⛔ Lo que esto significa del estado real de la fase
 
 El puente **nunca funcionó en producción**. Lo que estaba medido y sigue siendo cierto —el
 formato, el armador, el resolvedor, los lotes, el cuadre— se midió **leyendo como `dev_ro`** o
