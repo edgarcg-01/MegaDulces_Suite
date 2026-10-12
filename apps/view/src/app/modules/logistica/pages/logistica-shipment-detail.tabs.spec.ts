@@ -17,13 +17,18 @@ const EMB = {
   freight_revenue: 0, cargo_value: 0, boxes_count: 0, total_weight_kg: 0,
 };
 
+const CIERRE = { shipment_id: 'e1', viajes: [], paradas: [], pagos: [], cargadores: [], tarifa_carga: 30 };
+
 function contestar(http: HttpTestingController) {
   for (let vuelta = 0; vuelta < 8; vuelta++) {
     const abiertas = http.match(() => true).filter((r: TestRequest) => !r.cancelled);
     if (!abiertas.length) return;
     for (const r of abiertas) {
-      if (/\/shipments\/e1$/.test(r.request.url)) r.flush(EMB);
-      else r.flush(null, { status: 404, statusText: 'Not Found' });
+      // OJO: /trip-closure/shipments/e1 también termina en shipments/e1 (lo pide la pestaña de cierre).
+      if (/\/logistics\/shipments\/e1$/.test(r.request.url)) r.flush(EMB);
+      else if (r.request.url.includes('/trip-closure/')) r.flush(CIERRE);
+      // Listas vacías: varias cargas del detalle no manejan error y un 404 sería un error sin capturar.
+      else r.flush([]);
     }
   }
 }

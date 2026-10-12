@@ -42,6 +42,9 @@
       "@megadulces/contracts/authz/suite-map": ["libs/contracts/src/authz/suite-map.ts"],
       "@megadulces/contracts/authz/divergencia": ["libs/contracts/src/authz/divergencia.ts"],
       "@megadulces/contracts/authz/scope-areas": ["libs/contracts/src/authz/scope-areas.ts"],
+      // [EMB.24] Lo que el NAVEGADOR importa con valor (textos, validaciones) entra por subruta: por el
+      // barrel caía en el chunk compartido que `main` carga al arrancar (+1.5 kB sobre el presupuesto).
+      "@megadulces/contracts/http/cierre-viaje": ["libs/contracts/src/http/cierre-viaje.contract.ts"],
       "@megadulces/finance": ["libs/finance/src/index.ts"],
       "@megadulces/fiscal": ["libs/fiscal/src/index.ts"],
       "@megadulces/logistics": ["libs/logistics/src/index.ts"],

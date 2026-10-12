@@ -10,9 +10,10 @@ import { TextareaModule } from 'primeng/textarea';
 import type {
   CierreDeEmbarque, ConceptoPago, MotivoNoEntrega, PagoViaje, ParadaCierre, ResultadoParada,
 } from '@megadulces/contracts';
+// Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
 import {
   CONCEPTO_KEPLER, erroresDeCierreDeParada, ESTADO_VIAJE_LABEL, MOTIVO_NO_ENTREGA_LABEL, seCierraEnLaSuite,
-} from '@megadulces/contracts';
+} from '@megadulces/contracts/http/cierre-viaje';
 import { Driver, LogisticaService } from '../logistica.service';
 
 interface FilaPersona {

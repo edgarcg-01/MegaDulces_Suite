@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { ObjectStorageService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type {
   CargadorRegistrado,
@@ -18,6 +19,35 @@ import type {
 import { erroresDeCargadores, erroresDeCierreDeParada } from '@megadulces/contracts';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Fila cruda de `logistics.v_trip_stop_closure` (pg devuelve numeric como texto y date como Date). */
+type Num = string | number | null;
+type Fecha = string | Date | null;
+interface FilaParada extends Omit<ParadaCierre, 'value' | 'importe_embarcado' | 'recepcion_importe' | 'recepcion_fecha' | 'diferencia' | 'delivered_at' | 'remision_url'> {
+  value: Num;
+  importe_embarcado: Num;
+  recepcion_importe: Num;
+  recepcion_fecha: Fecha;
+  diferencia: Num;
+  delivered_at: Fecha;
+  proof_photo_url: string | null;
+  shipment_id: string;
+}
+/** Fila cruda de `logistics.v_trip_state`. */
+interface FilaViaje extends Omit<EstadoDeViaje, 'shipment_date' | 'paradas' | 'paradas_cerradas' | 'paradas_con_diferencia' | 'paradas_pendientes'> {
+  shipment_date: Fecha;
+  paradas: Num;
+  paradas_cerradas: Num;
+  paradas_con_diferencia: Num;
+  paradas_pendientes: Num;
+}
+/** Fila cruda de `logistics.v_trip_pay_items`. */
+export interface FilaPago extends Omit<PagoViaje, 'shipment_date' | 'amount'> {
+  shipment_date: Fecha;
+  amount: Num;
+}
+interface FilaCargador { id: string; driver_id: string; persona: string; rate: Num; pagado: boolean | null }
+
 const num = (v: unknown): number | null => (v == null ? null : Number(v));
 const dia = (v: unknown): string | null => {
   if (v == null) return null;
@@ -71,7 +101,7 @@ export class TripClosureService {
     });
 
     const paradas: ParadaCierre[] = await Promise.all(
-      datos.paradas.map(async (p: any) => ({
+      (datos.paradas as FilaParada[]).map(async (p) => ({
         recipient_id: p.recipient_id,
         guide_id: p.guide_id,
         sequence_order: p.sequence_order,
@@ -99,7 +129,7 @@ export class TripClosureService {
 
     return {
       shipment_id: shipmentId,
-      viajes: datos.viajes.map((v: any): EstadoDeViaje => ({
+      viajes: (datos.viajes as FilaViaje[]).map((v): EstadoDeViaje => ({
         guide_id: v.guide_id,
         guide_number: v.guide_number,
         shipment_id: v.shipment_id,
@@ -114,7 +144,7 @@ export class TripClosureService {
         paradas_pendientes: Number(v.paradas_pendientes),
       })),
       paradas,
-      pagos: datos.pagos.map(aPagoViaje),
+      pagos: (datos.pagos as FilaPago[]).map(aPagoViaje),
       cargadores: datos.cargadores,
       tarifa_carga: datos.tarifa,
     };
@@ -217,10 +247,10 @@ export class TripClosureService {
     return this.cierre(shipmentId);
   }
 
-  private async cargadoresDe(trx: any, shipmentId: string): Promise<CargadorRegistrado[]> {
+  private async cargadoresDe(trx: Knex.Transaction, shipmentId: string): Promise<CargadorRegistrado[]> {
     const rows = await trx('logistics.load_details as ld')
       .join('logistics.drivers as d', 'd.id', 'ld.driver_id')
-      .leftJoin('finance.trip_pay_lines as l', function (this: any) {
+      .leftJoin('finance.trip_pay_lines as l', function (this: Knex.JoinClause) {
         this.on('l.source_id', '=', 'ld.id').andOn('l.driver_id', '=', 'ld.driver_id')
           .andOn(trx.raw("l.source = 'carga'")).andOn(trx.raw('l.vigente'));
       })
@@ -229,12 +259,12 @@ export class TripClosureService {
       .orderBy('d.full_name')
       .select('ld.id', 'ld.driver_id', 'd.full_name as persona', 'ld.rate',
         trx.raw("(l.id IS NOT NULL AND COALESCE(p.status,'') <> 'rechazada') AS pagado"));
-    return rows.map((r: any) => ({
+    return (rows as FilaCargador[]).map((r) => ({
       id: r.id, driver_id: r.driver_id, persona: r.persona, rate: Number(r.rate), pagado: !!r.pagado,
     }));
   }
 
-  private async tarifaCarga(trx: any): Promise<number | null> {
+  private async tarifaCarga(trx: Knex.Transaction): Promise<number | null> {
     const row = await trx('logistics.config_finance')
       .where({ key: 'tarifa_maniobra_carga', active: true })
       .first('value');
@@ -250,7 +280,7 @@ export class TripClosureService {
   }
 }
 
-export function aPagoViaje(r: any): PagoViaje {
+export function aPagoViaje(r: FilaPago): PagoViaje {
   return {
     source: r.source,
     source_id: r.source_id,

@@ -5,6 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
+import type { Knex } from 'knex';
 import { ObjectStorageService, TenantContextService, TenantKnexService } from '@megadulces/platform-core';
 import type { PagoViaje } from '@megadulces/contracts';
 import { CONCEPTO_KEPLER, totalesPorConcepto } from '@megadulces/contracts';
@@ -14,6 +15,12 @@ import {
 } from './trip-pay.logic';
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** Fila cruda de `logistics.v_trip_pay_items` (pg devuelve numeric como texto y date como Date). */
+interface FilaPago extends Omit<PagoViaje, 'shipment_date' | 'amount'> {
+  shipment_date: string | Date;
+  amount: string | number;
+}
+
 const dia = (v: unknown): string => (v instanceof Date ? v.toISOString().slice(0, 10) : String(v ?? '').slice(0, 10));
 
 export interface CorteDeLogistica {
@@ -69,11 +76,11 @@ export class TripPayService {
     return corteAPagar(hoy);
   }
 
-  private async items(trx: any, corte: Corte, driverId?: string): Promise<PagoViaje[]> {
+  private async items(trx: Knex.Transaction, corte: Corte, driverId?: string): Promise<PagoViaje[]> {
     const q = trx('logistics.v_trip_pay_items').whereBetween('shipment_date', [corte.desde, corte.hasta]);
     if (driverId) q.where({ driver_id: driverId });
     const rows = await q.orderBy(['shipment_date', 'shipment_folio']);
-    return rows.map((r: any) => ({
+    return (rows as FilaPago[]).map((r) => ({
       source: r.source, source_id: r.source_id, shipment_id: r.shipment_id, shipment_folio: r.shipment_folio,
       kepler_sucursal: r.kepler_sucursal, kepler_guia: r.kepler_guia, shipment_date: dia(r.shipment_date),
       guide_number: r.guide_number, driver_id: r.driver_id, persona: r.persona, rol: r.rol, concept: r.concept,
@@ -190,10 +197,10 @@ export class TripPayService {
       });
       this.logger.log(`Vale ${vale} de ${det.persona}: ${items.length} renglones, $${importe} (preparó ${actor})`);
       return { id: vale, importe, renglones: items.length, persona: det.persona };
-    } catch (e: any) {
+    } catch (e: unknown) {
       await this.storage.remove(key);
       // El índice único dice que alguno de estos renglones ya entró a otro vale (dos personas a la vez).
-      if (e?.code === '23505') throw new ConflictException('Alguno de estos viajes ya se pagó en otro vale. Recarga la página.');
+      if ((e as { code?: string } | null)?.code === '23505') throw new ConflictException('Alguno de estos viajes ya se pagó en otro vale. Recarga la página.');
       throw e;
     }
   }

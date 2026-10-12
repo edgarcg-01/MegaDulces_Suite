@@ -4,7 +4,8 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { RouterLink } from '@angular/router';
 import { ButtonModule } from 'primeng/button';
 import type { ConceptoPago, PagoViaje } from '@megadulces/contracts';
-import { CONCEPTO_KEPLER } from '@megadulces/contracts';
+// Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
+import { CONCEPTO_KEPLER } from '@megadulces/contracts/http/cierre-viaje';
 import { environment } from '../../../../environments/environment';
 
 interface Corte { desde: string; hasta: string; pago: string }
