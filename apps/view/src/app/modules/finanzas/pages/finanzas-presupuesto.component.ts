@@ -171,8 +171,14 @@ type PresView = 'direccion' | 'ejercicios' | 'gasto-op' | 'ventas' | 'flujo' | '
  *
  * ⚠️ **Cambia la pantalla de aterrizaje**: hasta hoy `/presupuesto` abría en Ejercicio. Abre en
  * Dirección porque esa vista existe para contestar y mandar a donde se trabaja — primera en el
- * selector pero no de entrada, sería ornamento. Una sola constante para que el default no quede
- * escrito en tres lugares que después divergen.
+ * selector pero no de entrada, sería ornamento.
+ *
+ * ⭐ **Lo decidió Edgar, no este carril.** Se preguntó a propósito: cambiar la entrada afecta a
+ * todos los que ya usan el módulo, y con trabajo local sin empujar una autorización de push por
+ * otro motivo se habría llevado puesto un cambio de comportamiento que nadie aprobó. Estuvo
+ * revertido a `'ejercicios'` mientras se preguntaba.
+ *
+ * Una sola constante para que el default no quede escrito en tres lugares que después divergen.
  */
 const VISTA_DEFAULT: PresView = 'direccion';
 
