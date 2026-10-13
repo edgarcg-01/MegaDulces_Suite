@@ -998,3 +998,61 @@ máximo y 33% agotado.
 **Siguiente:** vista «Mi pedido» para sucursales que no surten a otras (por origen, venta 30d, negados
 de la Fase DN, ya pedido, cubiertos, redondeo §15.2) → Nivelación de matrices → guardar el pedido
 semanal (AB.7/AB.8) → aprendizaje.
+
+### 15.10 🧪 [AB.17] Freno de fin de pico en el motor común — EN CÓDIGO 2026-10-12
+
+**Disparador (Francisco, 2026-10-12):** el bombón La Rosa 70012 en La Piedad salía primero en «Mi
+pedido» con 46 cajas. Es producto de pico de temporada: vendía 2–10 piezas al día, subió del 19-sep al
+4-oct (43, 81, 105, **144**, 87…) y desde el 5-oct volvió a 2–8. El año pasado igual: sep-2025 1,221
+piezas en La Piedad, oct 206. **El historial sí lo sabe; falló la ponderación**, por tres razones:
+1. la demanda es el promedio de 30 días (13-sep → 12-oct) y sigue cargando el pico: 31.6 al día;
+2. la temporalidad es de RED: en la red septiembre sube ~40%, en La Piedad 10×; mezclado da 0.848;
+3. la temporalidad tiene piso de 0.5: aun bien calculada no podría bajar más de la mitad.
+
+**Medido:** 222 productos-sucursal (unos 251 pares con la regla final) estaban así, ~$250 mil de pedido
+de más a costo (01: 69 · 06: 49 · 08: 45 · 02: 15 …).
+
+**Decisión de Francisco:** corregirlo en el **motor común** (`import-replenishment-plan.js`), así lo
+ven igual Compras y Autoabasto; la temporalidad por sucursal y sin piso queda para después, con prueba
+contra el historial (RA-PRO.41 está backtesteada).
+
+**Criterio de negocio (Francisco, 2026-10-12), sobre una primera versión que frenaba cualquier caída:**
+el freno aplica **sólo después de un pico real** —cualquier cosa que altere el ritmo semanal: una
+promoción (Canels 20021 con 5+1, no más de dos veces al año), una oferta extraordinaria, la temporada,
+una venta grande y única— y **nunca cuando la venta cayó porque la existencia llegó a 0 o casi 0**: eso
+no es fin de pico, es **venta negada** (fase DN), y frenarlo pediría menos justo cuando falta (agua 59108
+por suministro de empaque, 17085 y 20606 por agotado de origen). Umbrales decididos por él: pico de más
+de 2×, «ya pasó» por debajo del 40% del pico, y «casi 0» = existencia para menos de 3 días.
+
+**La regla** (CTEs `fp_d` … `fpico`, todos MATERIALIZED), en **pesos** (inmune a la unidad del almacén)
+y semanas completas hasta ayer:
+1. **venta regular:** vendió en 6 o más de las 8 semanas previas (semanas 5–12 hacia atrás) — deja fuera
+   lo que se compra salteado (rollos Altos);
+2. **hubo pico:** alguna de las últimas 4 semanas vendió **más de 2×** su nivel normal (nivel normal =
+   **mediana** semanal de las semanas 5–12: no se deja arrastrar por un pico viejo);
+3. **el pico infló el promedio:** la venta de 30 días quedó 1.5× o más arriba del normal;
+4. **el pico ya pasó:** la última semana vende menos del **40% de la semana pico** (contra el pico y no
+   contra el normal: después del pico el bombón en La Piedad todavía vende el doble de lo normal);
+5. **no faltó mercancía:** en 6 o más de los últimos 7 días tuvo existencia para **3 días de su venta
+   normal** según `analytics.stock_snapshots` (AB.0b), con la foto cubriendo el almacén 6+ días.
+
+Entonces la demanda baja a **lo mayor entre la última semana y el nivel normal**:
+`razón = GREATEST(r7, normal) / r30`, `season_ratio = LEAST(season_ratio, razón)`, `season_src = 'fin_pico'`.
+La venta de 30 días que se muestra no cambia; sólo baja el objetivo. Las rutas se miden con su sucursal
+madre (`rmap`). Se suelta solo.
+
+**Verificación:** el SQL completo del motor pasa `EXPLAIN` contra prod en solo lectura, y la lista se sacó
+con el SQL del propio motor (copia que sólo lee): **725 pares frenados** (pedido de esos productos $718
+mil → $162 mil), **276 con pico pero sin mercancía** (no se frenan: entrada para venta negada), ~3.7 s.
+Casos: bombón 70012 — La Piedad 45.6 → 3.2 cajas, Padre Hidalgo 81.9 → 0, 8 Esquinas 67.3 → 35.4 (aún
+vende 30% del pico); Canels 20021 en Canindo 32.8 → 6.5; agua 59108 no se frena (en la 01 no hubo pico,
+en la 06 mercancía suficiente sólo 2 de 7 días). ⚠️ El 17085 en La Piedad **sí** se frena (pico 2.4× y
+ahí sí tuvo mercancía: mínimo 107 u contra 9/día); su agotado de origen afecta a otras sucursales.
+Listas en `C:\DEV\entregables\freno-fin-de-pico-final-2026-10-12.xlsx` (fuera del repo).
+
+**Cuándo surte efecto:** en la siguiente corrida del plan (carril `stock`, varias veces por hora, o el
+nocturno) **después de actualizar la imagen de los feeds en `md`**: el motor corre en los contenedores
+de ingesta, no en la API.
+
+**Abierto:** temporalidad por sucursal y sin piso de 0.5 (el ANTES del pico: pedir más cuando se acerca
+septiembre), con prueba contra el historial.
