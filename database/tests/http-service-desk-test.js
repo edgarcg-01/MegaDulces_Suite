@@ -2042,6 +2042,79 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
       noMedido.push('el filtro de la Bitácora (H9): el puerto hoy no hace nada; se cubre con el spec de `sinConfidenciales`');
     }
 
+    // ── 36. [PRV.2] Aviso de privacidad: se exige aceptar la versión vigente ANTES de crear el ticket, y el consentimiento es de la persona titular ───
+    {
+      console.log('\n36 — aviso de privacidad');
+      const codigoAviso = `smoke_prv${SUF}`;
+      const [{ id: qP }] = await knex('servicedesk.queues').insert({ tenant_id: T, code: `smoke_prv2_${SUF}`, name: 'SMOKE Privacidad', sort_order: 913, privacy_notice_code: codigoAviso }).returning('id');
+      const [{ id: catP }] = await knex('servicedesk.categories').insert({ tenant_id: T, queue_id: qP, code: `smoke_prv2_cat_${SUF}`, name: 'SMOKE PRV cat', default_priority: 'media', requires_branch: false }).returning('id');
+      const publicar = async (version) => (await knex('servicedesk.privacy_notices').insert({
+        tenant_id: T, code: codigoAviso, version, status: 'vigente', title: `Aviso SMOKE v${version}`,
+        summary_text: 'Usaremos tus datos para atender tu solicitud de prueba.', consent_text: 'Acepto el aviso de prueba.',
+      }).returning('id'))[0].id;
+      const mk = (token, extra = {}) => req('POST', `${SD}/requests`, token, { category_id: catP, title: 'SMOKE 36 ' + Math.random().toString(36).slice(2, 7), ...extra });
+      const aceptaciones = async (userId) => Number((await knex('servicedesk.privacy_acceptances').where({ user_id: userId }).count({ n: '*' }).first()).n);
+      const tickets = async () => Number((await knex('servicedesk.requests').where({ queue_id: qP }).count({ n: '*' }).first()).n);
+      let v1 = await publicar(1);
+
+      // A) Sin aviso publicado la cola no abre (fail-closed): el aviso de prueba aún no existe para el catálogo de otra cola.
+      const sinAviso = await knex('servicedesk.privacy_notices').where({ code: codigoAviso }).del();
+      check('(preparación) se retiró el aviso de prueba', sinAviso === 1);
+      const rSin = await mk(sol.token);
+      check('⛔ FAIL-CLOSED — una cola que exige aviso y NO tiene versión vigente publicada NO crea tickets → 409', rSin.status === 409 && /no está publicado/i.test(JSON.stringify(rSin.body)), dump(rSin));
+      v1 = await publicar(1);
+
+      // B) El catálogo dice qué se exige, sin filtrar el código interno.
+      const cat1 = (await req('GET', `${SD}/catalog`, sol.token)).body;
+      const q1 = (cat1?.queues ?? []).find((q) => q.id === qP);
+      check('⭐ el catálogo marca la cola como `privacy_required` y trae el aviso vigente (texto de la casilla incluido)', q1?.privacy_required === true && q1?.privacy_notice?.id === v1 && q1?.privacy_notice?.version === 1 && q1?.privacy_notice?.accepted === false, JSON.stringify(q1));
+      check('⛔ y NO filtra el código interno del aviso', !JSON.stringify(cat1).includes('privacy_notice_code'));
+      const qTi = (cat1?.queues ?? []).find((q) => q.code === 'ti');
+      check('⭐ CONTROL — TI no exige aviso: sin `privacy_required` ni aviso', qTi && !qTi.privacy_required && !qTi.privacy_notice);
+
+      // C) Sin aceptar no se crea; con una aceptación inválida tampoco.
+      const antes = await tickets();
+      const r1 = await mk(sol.token);
+      check('⛔ sin casilla → 400 y NO se creó el ticket', r1.status === 400 && /aviso de privacidad/i.test(JSON.stringify(r1.body)) && (await tickets()) === antes, dump(r1));
+      check('⛔ un `privacy_notice_id` mal formado → 400', (await mk(sol.token, { privacy_notice_id: 'x' })).status === 400);
+      check('⛔ un aviso que NO es el vigente → 400 «cambió»', (await mk(sol.token, { privacy_notice_id: '00000000-0000-4000-8000-0000000000cc' })).status === 400);
+      check('(preparación) nada de lo anterior dejó una aceptación', (await aceptaciones(sol.id)) === 0);
+
+      // D) Aceptar: se crea y queda la evidencia en la MISMA transacción.
+      const r2 = await mk(sol.token, { privacy_notice_id: v1 });
+      check('⭐ con la casilla de la versión vigente se crea el ticket', r2.status < 300 && !!r2.body?.id, dump(r2));
+      const ac = await knex('servicedesk.privacy_acceptances').where({ user_id: sol.id, notice_id: v1 }).first();
+      check('⭐ y queda la evidencia: quién, qué versión y el ticket con el que aceptó', !!ac && ac.request_id === r2.body?.id && ac.accepted_at !== null, JSON.stringify(ac));
+      check('⭐ el catálogo ya dice `accepted: true` para esa persona (y sólo para ella)', (await req('GET', `${SD}/catalog`, sol.token)).body.queues.find((q) => q.id === qP)?.privacy_notice?.accepted === true && (await req('GET', `${SD}/catalog`, otro.token)).body.queues.find((q) => q.id === qP)?.privacy_notice?.accepted === false);
+
+      // E) Quien ya aceptó la vigente no vuelve a aceptar.
+      const r3 = await mk(sol.token);
+      check('⭐ quien ya aceptó esta versión levanta otro ticket SIN volver a marcar la casilla', r3.status < 300, dump(r3));
+      check('⭐ y no se duplica la evidencia', (await aceptaciones(sol.id)) === 1);
+
+      // F) Nueva versión: vuelve a pedirse; la versión vieja ya no vale.
+      await knex('servicedesk.privacy_notices').where({ id: v1 }).update({ status: 'retirado' });
+      const v2 = await publicar(2);
+      const r4 = await mk(sol.token);
+      check('⛔ al publicarse una versión NUEVA, quien aceptó la anterior debe aceptar otra vez → 400', r4.status === 400, dump(r4));
+      check('⛔ y aceptar la versión VIEJA ya no vale → 400', (await mk(sol.token, { privacy_notice_id: v1 })).status === 400);
+      check('⭐ aceptar la nueva sí', (await mk(sol.token, { privacy_notice_id: v2 })).status < 300);
+      check('⭐ quedan las dos aceptaciones, una por versión (la historia no se reescribe)', (await aceptaciones(sol.id)) === 2);
+
+      // G) A nombre de otra persona: la casilla de quien atiende NO consiente por ella.
+      const rOtro = await mk(agente.token, { requester_id: otro.id, privacy_notice_id: v2 });
+      check('⛔ quien atiende levanta a nombre de otra persona que NO ha aceptado → 409, aunque marque SU casilla', rOtro.status === 409 && /aceptarlo ella misma/i.test(JSON.stringify(rOtro.body)), dump(rOtro));
+      check('⛔ y no se registró aceptación a nombre de la persona', (await aceptaciones(otro.id)) === 0);
+      await knex('servicedesk.privacy_acceptances').insert({ tenant_id: T, notice_id: v2, user_id: otro.id });
+      const rOtro2 = await mk(agente.token, { requester_id: otro.id });
+      check('⭐ cuando la persona YA aceptó por su cuenta, sí se puede levantar a su nombre', rOtro2.status < 300, dump(rOtro2));
+
+      // H) Las demás colas no cambian.
+      const rTi = await req('POST', `${SD}/requests`, sol.token, { category_id: catSimple.id, title: 'SMOKE 36 TI sin aviso' });
+      check('⭐ CONTROL — TI sigue creando tickets sin aviso ni casilla', rTi.status < 300, dump(rTi));
+      noMedido.push('PRV.2: el tick de la casilla en pantalla se cubre con specs de DOM; aquí sólo el servidor');
+    }
+
     // ── 20b. Filtrar y ordenar la bandeja (el orden lo pone el SERVIDOR) ───────────────
     {
       console.log('\n20b — la bandeja filtra y ordena en el servidor (categoría, atiende, fechas, columnas)');
@@ -2209,6 +2282,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     // Se borra con la conexión PRIVILEGIADA: `app_runtime` no tiene DELETE sobre el registro, y es lo correcto.
     const ids = usuarios.map((u) => u.id);
     if (ids.length) {
+      await knex('servicedesk.privacy_acceptances').whereIn('user_id', ids).del(); // [PRV.2] referencian tickets y personas
       const reqs = (await knex('servicedesk.requests').whereIn('requester_id', ids).select('id')).map((r) => r.id);
       await knex('servicedesk.notification_log').whereIn('recipient_id', ids).del();
       if (reqs.length) {
@@ -2228,6 +2302,7 @@ const dataUri = (mime, buf) => `data:${mime};base64,${buf.toString('base64')}`;
     await knex('servicedesk.queue_members').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.sla_policies').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.categories').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
+    await knex('servicedesk.privacy_notices').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex('servicedesk.queue_fields').whereIn('queue_id', knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').select('id')).del();
     await knex('servicedesk.zones').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();
     await knex('servicedesk.queues').where({ tenant_id: T }).where('code', 'like', 'smoke_%').del();

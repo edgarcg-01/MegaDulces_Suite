@@ -99,6 +99,28 @@ export interface SdQueueDto {
   uses_priority: boolean;
   /** `[MSH.2]` `false` = la cola no mide SLA: no hay plazos; se declara «—», nunca 0. */
   sla_enabled: boolean;
+  /**
+   * `[PRV.2]` `true` = levantar una solicitud en esta cola exige haber aceptado el aviso de privacidad. Ausente/`false` = no lo exige (TI y
+   * Mantenimiento). Si es `true` y `privacy_notice` viene `null`, el aviso aún NO está publicado: el servidor no crea tickets en esta cola.
+   */
+  privacy_required?: boolean;
+  /** `[PRV.2]` La versión VIGENTE del aviso que exige la cola, o `null` si no hay ninguna publicada. Sólo viene en una cola que lo exige. */
+  privacy_notice?: SdPrivacyNoticeDto | null;
+}
+
+/** `[PRV.2]` El aviso de privacidad vigente de una cola, tal como lo necesita el formulario. */
+export interface SdPrivacyNoticeDto {
+  id: string;
+  version: number;
+  title: string;
+  /** El texto corto que se muestra en el formulario. */
+  summary_text: string;
+  /** El texto de la casilla de consentimiento. */
+  consent_text: string;
+  /** El aviso integral (documento completo), si está publicado. */
+  full_url: string | null;
+  /** La persona que pregunta YA aceptó esta versión (no se le vuelve a pedir en cada solicitud). */
+  accepted: boolean;
 }
 
 /** `[MS.7.4]` Un campo propio de la cola, como lo ve quien reporta (sólo los ACTIVOS). */
@@ -202,6 +224,12 @@ export interface SdCreateRequestDto {
    * Ausente = el solicitante es quien llama (lo de siempre).
    */
   requester_id?: string | null;
+  /**
+   * `[PRV.2]` El `id` del aviso de privacidad que la persona aceptó al marcar la casilla (el `privacy_notice.id` del catálogo). Obligatorio en
+   * una cola que exige aviso, salvo que la persona ya haya aceptado la versión vigente. Una versión que ya no es la vigente → 400. Quien
+   * levanta A NOMBRE de otra persona no consiente por ella: ver `FASE_MSH_PRIVACIDAD_Y_RETENCION`.
+   */
+  privacy_notice_id?: string | null;
   /**
    * `[MS.3.11]` Departamento (área) del solicitante. Ausente = el de la ficha de esa persona. Sólo quien atiende.
    */
