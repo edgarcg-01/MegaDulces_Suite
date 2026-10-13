@@ -4,6 +4,7 @@ import { RolesGuard, RequirePermissions, Permission, isPlatformAdminRole } from 
 import { CashLedgerService, type CreateMovementInput } from './cash-ledger.service';
 import { CajaAutofillService, type AutofillInput } from './caja-autofill.service';
 import { CashCutService, type AbrirCorteInput, type CerrarCorteInput } from './cash-cut.service';
+import type { PorReclasificar } from './cash-cut.service';
 import { CajaFechaFuturaScannerService } from './caja-fecha-futura-scanner.service';
 
 interface AuthedRequest {
@@ -392,6 +393,28 @@ export class CashLedgerController {
   @ApiOperation({ summary: 'Cancela un movimiento con motivo. No se borra: se marca y sigue en la lista. No se puede cancelar lo que ya entro a un corte cerrado.' })
   cancelar(@Param('id') id: string, @Body() body: { motivo: string }, @Req() req: AuthedRequest) {
     return this.cortes.cancelarMovimiento(id, body?.motivo, this.user(req));
+  }
+
+  /**
+   * ⭐⭐ `[CG.128]` **Corrige la cuenta de un movimiento, con rastro.** Hasta hoy no existía: se
+   * podía editar una REGLA y cancelar el movimiento, pero cambiarle la cuenta no — por eso los 25
+   * ingresos medidos en prod seguían en `102/011`, `201/201` y `607-002/089`.
+   *
+   * ⛔ La cuenta nueva **no viaja en el cuerpo**: la dice el árbitro (la póliza del propio Kepler).
+   * Aceptarla del cliente sería repetir el problema que esto cierra, con un clic menos.
+   */
+  @Get('por-reclasificar')
+  @RequirePermissions(Permission.FINANCE_CAJA_VER)
+  @ApiOperation({ summary: 'CG.128 — Ingresos SIN SELLAR cuya cuenta contradice a la poliza de Kepler. No corrige: lista.' })
+  porReclasificar(): Promise<{ filas: PorReclasificar[]; total: number; monto: number }> {
+    return this.cortes.porReclasificar();
+  }
+
+  @Post(':id/reclasificar')
+  @RequirePermissions(Permission.FINANCE_CAJA_GESTIONAR)
+  @ApiOperation({ summary: 'CG.128 — Corrige la cuenta de un movimiento a la que dice la poliza de Kepler, guardando el ANTES. Exige motivo (>=12). Lo que ya entro a un corte NO se toca.' })
+  reclasificar(@Param('id') id: string, @Body() body: { motivo: string }, @Req() req: AuthedRequest): Promise<Record<string, unknown>> {
+    return this.cortes.reclasificar(id, body?.motivo, this.user(req));
   }
 
   @Get(':id')
