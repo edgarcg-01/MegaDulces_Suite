@@ -1,5 +1,6 @@
 // Sin `import ... from 'vitest'`: la config usa `globals: true`.
 import { CashLedgerService } from './cash-ledger.service';
+import { CajaAutofillService } from './caja-autofill.service';
 
 /**
  * ⭐⭐ `[CG.124]` — **que el freno esté CABLEADO, no sólo escrito.**
@@ -72,5 +73,62 @@ describe('[CG.124] el freno de conciliación está cableado en create()', () => 
       tipo: 'gasto', fecha: '2026-10-13', monto: 1250,
       origen_tipo: 'pago_proveedor', origen_ref: '00|X-D-26|0023047|0011',
     } as never, {})).rejects.toThrow(/identificar al usuario/);
+  });
+});
+
+/**
+ * ⭐⭐ `[CG.127]` — **El ingreso no tenía ningún nivel de autollenado.**
+ *
+ * Edgar, leyendo el libro: *"estos no son honorarios a contador"*. Los dos que señaló son
+ * cobranza de ruta: `CI-2026-00010` cuadra con la **ruta 26 del 10-oct** ($17,267.04) y
+ * `CI-2026-00009` con la **ruta 21 del 09-oct** ($22,676.07), un solo candidato cada uno.
+ *
+ * Medido sobre los 24 ingresos del libro ($404,725): **ninguno** está en `115/071 ABONO A
+ * CLIENTES`, que es lo que dice la póliza `UA0501` del propio Kepler. Y la causa no era el
+ * criterio de nadie — la cascada **sólo tenía respaldo para `gasto`**, así que un ingreso
+ * llegaba al final sin propuesta y quien captura elegía de 2,840 conceptos.
+ */
+describe('[CG.127] el ingreso recibe la contracuenta del ÁRBITRO, no una constante', () => {
+  const trxQueResponde = (fila: unknown) => {
+    const qb = { where: () => qb, first: async () => fila };
+    return (() => qb) as never;
+  };
+  const montarCon = (fila: unknown) => new CajaAutofillService(
+    { run: (cb: (trx: unknown) => unknown) => cb(trxQueResponde(fila)) } as never,
+    { requireTenantId: () => '00000000-0000-0000-0000-00000000d01c' } as never,
+  );
+
+  it('⭐ un ingreso sin documento recibe 115/071, el abono de la póliza UA0501', async () => {
+    const r = await montarCon({ cuenta: '115', concepto: '071', renglones: 16700 })
+      .suggest({ tipo: 'ingreso', sucursal: '00' } as never);
+    expect(r.concepto.value).toEqual({ kepler_cuenta: '115', kepler_concepto: '071' });
+    // Confianza por ENCIMA del respaldo del gasto (0.5): esto sale de la póliza, no de una
+    // mayoría de cuatro capturas. Y por debajo de cualquier nivel que lea el documento.
+    expect(r.concepto.confidence).toBeGreaterThan(0.5);
+    expect(r.concepto.confidence).toBeLessThan(0.8);
+  });
+
+  /**
+   * ⛔ La prueba que impide la salida fácil. Si el árbitro no dice concepto, **no se propone**:
+   * media propuesta no sirve para guardar, y completarla «con el más parecido» inventaría una
+   * cuenta — exactamente lo que estos tres commits vienen a impedir.
+   */
+  it('⛔ [negativa] sin concepto en el catálogo de la plaza, NO propone', async () => {
+    const r = await montarCon({ cuenta: '115', concepto: null, renglones: 16700 })
+      .suggest({ tipo: 'ingreso', sucursal: '00' } as never);
+    expect(r.concepto.value).toBeNull();
+    expect(r.concepto.reason).toBeDefined();
+  });
+
+  it('⛔ [negativa] sin sucursal NO adivina: la cuenta difiere por plaza', async () => {
+    const r = await montarCon({ cuenta: '115', concepto: '071', renglones: 16700 })
+      .suggest({ tipo: 'ingreso' } as never);
+    expect(r.concepto.value).toBeNull();
+  });
+
+  it('⛔ [negativa] el GASTO conserva su propio respaldo, no se contamina', async () => {
+    const r = await montarCon({ cuenta: '115', concepto: '071', renglones: 16700 })
+      .suggest({ tipo: 'gasto', sucursal: '00' } as never);
+    expect(r.concepto.value).toEqual({ kepler_cuenta: '201', kepler_concepto: '201' });
   });
 });
