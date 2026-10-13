@@ -555,6 +555,21 @@ export interface SaldoResponse {
   saldo_oculto: boolean;
   sin_corte_abierto: boolean;
   movimientos_sueltos: number;
+  /** `[CG.115]` La jornada que se midió (`YYYY-MM-DD`): sin esto «N sueltos» no dice de qué día. */
+  dia?: string;
+  /**
+   * ⭐ `[CG.115]` **Lo que quedó suelto de OTRAS jornadas.** `null` = no hay pendientes de otros
+   * días; nunca significa "no se midió". Existe porque acotar el corte a su día sin publicar esto
+   * sería cambiar un defecto por otro: los $130,000 del 25-sep dejarían de torcer el esperado,
+   * pero también dejarían de verse.
+   */
+  sueltos_fuera?: {
+    dia: string;
+    anteriores: { movimientos: number; neto: number };
+    posteriores: { movimientos: number; neto: number };
+    desde: string | null;
+    hasta: string | null;
+  } | null;
   totales: TotalesCorte;
   /**
    * CS.3.11 — Movimiento del CAJERO (CAOS) en el período del corte, para conciliar la caja chica
