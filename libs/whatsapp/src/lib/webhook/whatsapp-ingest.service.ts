@@ -388,7 +388,7 @@ export class WhatsAppIngestService implements OnModuleInit {
     }
     const media = r.media;
     const replies: RecruitmentReply[] = await this.recruitmentBot.handleMessage({
-      phone: p.phone, phoneNumberId: r.phone_number_id, waMessageId: p.wa_message_id, type: r.type, text: p.text,
+      tenantId, phone: p.phone, phoneNumberId: r.phone_number_id, waMessageId: p.wa_message_id, type: r.type, text: p.text,
       profileName: r.profile_name,
       media: media ? { id: media.id, mimeType: media.mime_type, filename: media.filename } : null,
       descargar: media ? () => this.port.downloadMedia(media.id) : null,

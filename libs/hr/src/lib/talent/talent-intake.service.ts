@@ -45,7 +45,20 @@ export interface EntradaPostulacion {
   heard_from: string | null;
   cv: { adjunto: AdjuntoValido; file_name: string } | null;
   license: { adjunto: AdjuntoValido; file_name: string } | null;
+  /** `[RH.3.2]` Lo que pregunta el bot y la web no (la web no los manda). */
+  commute_time?: string | null;
+  availability?: string | null;
+  previous_employer?: string | null;
+  desired_salary?: string | null;
+  rfc?: string | null;
+  nss?: string | null;
 }
+
+/** Los campos que sólo trae el bot, con su nombre de columna (se guardan al crear y se rellenan si faltan). */
+const CAMPOS_BOT = ['commute_time', 'availability', 'previous_employer', 'desired_salary', 'rfc', 'nss'] as const;
+
+/** Lo que la regla necesita saber de la vacante que pide. */
+interface VacantePedida { job_posting_id: string | null; job_posting_name: string | null; position_interest: string | null }
 
 const corto = (v: unknown, max = 200): string | null => {
   const s = String(v ?? '').trim().replace(/\s+/g, ' ');
@@ -95,7 +108,8 @@ export class HrTalentIntakeService {
     private readonly storage: ObjectStorageService,
   ) {}
 
-  private tenant(): string {
+  /** El tenant de la bolsa de trabajo pública (la web no trae sesión). */
+  tenant(): string {
     return process.env['HR_TALENT_PUBLIC_TENANT_ID'] || MEGA;
   }
 
@@ -118,10 +132,35 @@ export class HrTalentIntakeService {
   }
 
   /**
-   * El núcleo, común a la web y al bot. Devuelve la decisión (el que llama decide qué contestar).
+   * `[RH.3.2]` Las reglas de postulación SIN escribir nada: el bot la consulta al confirmar los datos, antes de pedirle
+   * el CV (no tiene caso pedirle un archivo para después decirle que ya está en un proceso). Corre en la transacción de
+   * quien llama. `postular` vuelve a decidir dentro de su candado: esto es un aviso temprano, no la decisión final.
    */
-  async postular(e: EntradaPostulacion, canal: 'web' | 'whatsapp'): Promise<Decision> {
-    const tenant = this.tenant();
+  async revisarPostulacion(trx: Knex.Transaction, e: Pick<EntradaPostulacion, 'phone' | 'job_posting_id' | 'position_interest' | 'city_branch'>):
+    Promise<Decision> {
+    const nueva = await this.vacantePedida(trx, e);
+    return decidirPostulacion(await this.existentes(trx, e.phone), nueva);
+  }
+
+  /** La vacante que pide, validada: publicada y en su ciudad. Lanza 400 si no. */
+  private async vacantePedida(trx: Knex.Transaction, e: Pick<EntradaPostulacion, 'job_posting_id' | 'position_interest' | 'city_branch'>):
+    Promise<VacantePedida> {
+    const vacante = e.job_posting_id
+      ? await trx('talent.job_postings').where({ id: e.job_posting_id, is_active: true }).first('id', 'name', 'branch_codes')
+      : null;
+    if (e.job_posting_id && !vacante) throw new BadRequestException('Esa vacante ya no está publicada.');
+    if (vacante && e.city_branch && !hrVacanteEnCiudad(vacante.branch_codes, e.city_branch)) {
+      throw new BadRequestException(`Esa vacante no está en ${e.city_branch}.`);
+    }
+    return { job_posting_id: vacante?.id ?? null, job_posting_name: vacante?.name ?? null, position_interest: vacante?.name ?? e.position_interest };
+  }
+
+  /**
+   * El núcleo, común a la web y al bot. Devuelve la decisión (el que llama decide qué contestar); al crear, con el id
+   * del candidato. `tenantId`: el bot lo trae del número que recibió; la web usa el de la bolsa pública.
+   */
+  async postular(e: EntradaPostulacion, canal: 'web' | 'whatsapp', tenantId?: string): Promise<Decision> {
+    const tenant = tenantId || this.tenant();
     // Los archivos se suben ANTES de la transacción (no retener una conexión por la red) y se borran si no se usaron.
     const carpeta = `talent/${tenant}/postulaciones`;
     let cvKey: string | null = null;
@@ -134,14 +173,7 @@ export class HrTalentIntakeService {
       const d = await this.tk.run(tenant, async (trx) => {
         // Un candado por teléfono: dos envíos simultáneos de la misma persona se forman en fila.
         await trx.raw(`SELECT pg_advisory_xact_lock(hashtext(?))`, [`talent:${tenant}:${e.phone}`]);
-        const vacante = e.job_posting_id
-          ? await trx('talent.job_postings').where({ id: e.job_posting_id, is_active: true }).first('id', 'name', 'branch_codes')
-          : null;
-        if (e.job_posting_id && !vacante) throw new BadRequestException('Esa vacante ya no está publicada.');
-        if (vacante && e.city_branch && !hrVacanteEnCiudad(vacante.branch_codes, e.city_branch)) {
-          throw new BadRequestException(`Esa vacante no está en ${e.city_branch}.`);
-        }
-        const nueva = { job_posting_id: vacante?.id ?? null, job_posting_name: vacante?.name ?? null, position_interest: vacante?.name ?? e.position_interest };
+        const nueva = await this.vacantePedida(trx, e);
         if (canal === 'web' && hrPideLicencia(nueva.position_interest) && !e.license) {
           throw new BadRequestException(`Para ${nueva.position_interest} adjunta tu licencia de manejo vigente.`);
         }
@@ -161,6 +193,7 @@ export class HrTalentIntakeService {
             tenant_id: tenant, phone: e.phone, full_name: e.full_name, email: e.email, city_branch: e.city_branch,
             job_posting_id: nueva.job_posting_id, position_interest: nueva.position_interest, relative_in_company: e.relative_in_company,
             rehire_note: e.rehire_note, source: e.heard_from, origin: canal, stage: 'filtro_inicial',
+            ...Object.fromEntries(CAMPOS_BOT.map((k) => [k, e[k] ?? null])),
             documents: JSON.stringify(docs), last_activity_at: trx.fn.now(),
           }).returning('id');
           cvUsado = !!cvDoc;
@@ -169,7 +202,7 @@ export class HrTalentIntakeService {
           if (decision.en_lista_negra) {
             await this.nota(trx, tenant, nuevo.id ?? nuevo, canal, 'Su teléfono coincide con alguien marcado como NO RECONTRATABLE (ver Revisiones).');
           }
-          return decision;
+          return { ...decision, candidato_id: String(nuevo.id ?? nuevo) };
         }
 
         // Rechazada: no se crea nada. Si sigue en proceso, lo que traiga y a su proceso le falte se le agrega.
@@ -229,7 +262,7 @@ export class HrTalentIntakeService {
     const cambios: Record<string, unknown> = {};
     const rellenados: string[] = [];
     const vacio = (v: unknown) => v == null || String(v).trim() === '';
-    for (const k of ['full_name', 'email', 'city_branch', 'relative_in_company', 'rehire_note'] as const) {
+    for (const k of ['full_name', 'email', 'city_branch', 'relative_in_company', 'rehire_note', ...CAMPOS_BOT] as const) {
       if (vacio(c[k]) && e[k]) { cambios[k] = e[k]; rellenados.push(k); }
     }
     if (vacio(c.source) && e.heard_from) { cambios['source'] = e.heard_from; rellenados.push('dónde se enteró'); }

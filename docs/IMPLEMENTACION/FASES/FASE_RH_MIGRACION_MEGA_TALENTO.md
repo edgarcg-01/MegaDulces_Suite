@@ -457,8 +457,34 @@ que ese formulario necesita (`[RH.2.4]`).
   primer spec de `libs/whatsapp`, que gana su `vitest.config.ts`) y la migración contra la base, **mutadas a rojo** (la
   respuesta sin «from»; quitar el CHECK de comercio). ⚠️ El código funciona sin la migración (el mapa sin `flow` cae a
   comercio). No cambia: el número de ventas, la captura bancaria (sus respuestas siguen sin registrarse).
-- [ ] **[RH.3.2]** Registro por chat: los 12 pasos, validaciones (`CAMPOS_CLAVE`, `esDatoClaro`, RFC/NSS, practicantes),
-  extracción con Claude, orientación de puesto, edición y confirmación; al terminar → `postular(…, 'whatsapp')`.
+- [ ] **[RH.3.2]** 🧪 Registro por chat (2026-10-13). Mig `20261013150116_talent_bot_conversaciones`: la conversación
+  vive en `talent.bot_conversations` (una por teléfono, últimos 10 dígitos), **no** en `talent.candidates` — en Mega
+  Talento el primer «hola» creaba al candidato, y por eso hay puestos que dicen «Hola» y fichas de gente que nunca
+  terminó. CHECKs: estado conocido, cierre coherente (`postulada` exige candidato; `rechazada`, motivo), `data` objeto.
+  Lógica PURA en `libs/hr/.../talent/bot/registro.ts` (portada con sus textos): los 12 pasos en orden; puesto y ciudad
+  CLAVE («cualquiera»/«donde sea» no cuentan y no se confirma sin ellos); un saludo donde iba el puesto no se guarda;
+  correo suave («Sin correo»); RFC/NSS suaves sólo para practicante («No aplica»); «no sé» en RFC/NSS da el enlace
+  oficial; tecleo al azar rechazado; comandos sólo si el mensaje ES el comando; resumen numerado (número = corregir ese
+  dato); `reiniciar` en cualquier momento. `vacante-match.ts` = el matcher de Mega Talento con sus casos (las DOS
+  listas). El servicio `HrRecruitmentBotService` guarda la conversación con candado por teléfono y usa las MISMAS reglas
+  que la web: al **confirmar** consulta `HrTalentIntakeService.revisarPostulacion` (nuevo, sin escribir) y si ya está en
+  un proceso se le dice ahí, **antes** de pedirle el CV; al llegar el **CV** (validado por firma) llama a
+  `postular(…, 'whatsapp', tenant)`, que ahora devuelve el id al crear y guarda también traslado, disponibilidad,
+  empresa anterior, salario, RFC y NSS (y los rellena si faltan en un proceso abierto). La ciudad se lleva al catálogo
+  por como la escribe la gente («Canindo» → Zamora); la vacante se liga sólo si aplica en esa ciudad (si no, queda como
+  texto: `postular` la habría rechazado con un error incomprensible). `RecruitmentInbound` gana `tenantId` (el del
+  número que recibió). Pruebas: 19 de la lógica + 43 del matcher + la conversación completa contra la base
+  (`recruitment-bot.service.db.spec.ts`), todas **mutadas a rojo** (saludo como puesto, vacante fuera de su ciudad,
+  confirmar sin clave, centinelas como dato, quitar el aviso temprano, no guardar los campos del bot). ⭐ La prueba
+  contra la base encontró un bug: `INSERT … ON CONFLICT DO UPDATE` valida los CHECK sobre la fila propuesta antes de
+  resolver el conflicto, así que el «hola» de alguien ya postulado se caía → actualizar-o-insertar bajo el candado.
+  **Cambios de comportamiento declarados:** «no sé» en RFC/NSS de un puesto normal ahora da el enlace (en Mega Talento,
+  sin IA, recibía la respuesta firme); las sucursales salen del catálogo de la Suite (`HR_SUCURSALES_EMPLEO`, sin
+  teléfonos). **No incluye** (siguen en RH.3): `[RH.3.2.1]` interpretar con IA mensajes con varios datos; `[RH.3.2.2]`
+  la orientación a quien pide un puesto que no existe (hoy recibe el respaldo de Mega Talento, «te registramos para
+  futuras»); armar el CV y las notas de voz (`[RH.3.3]`; mientras, a quien no tiene CV se le dice la verdad); la
+  invitación desde la web (estado `invitado`); el aviso a reclutadores por WhatsApp (el candidato aparece en el tablero);
+  «¿dónde te enteraste?» (el bot de Mega Talento no lo preguntaba) y la licencia de Chofer (la pide la web).
 - [ ] **[RH.3.3]** CV y expediente: `validarCV`, clasificación de documentos a los 12 casilleros, la solicitud de 175
   preguntas y el CV en PDF armado por el bot; notas de voz (Whisper → `speech-to-text` de la Suite).
 - [ ] **[RH.3.4]** Cierre y decisiones: dictamen (reglas duras + Claude), aprobación por botones de WhatsApp, avance 1→2

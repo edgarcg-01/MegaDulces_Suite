@@ -66,7 +66,7 @@ describe('[RH.3.1] ruteo de la ingesta por número', () => {
     const n = await svc.ingestSimulator({ from: '5213511234567', text: 'quiero trabajar', phone_number_id: NUM_RH, profile_name: 'Ana Prueba' });
     expect(n).toBe(1);
     expect(orchestrator.handleTurn).not.toHaveBeenCalled();
-    expect(recibidos.map((m) => [m.phone, m.phoneNumberId, m.text, m.profileName])).toEqual([['523511234567', NUM_RH, 'quiero trabajar', 'Ana Prueba']]);
+    expect(recibidos.map((m) => [m.tenantId, m.phone, m.phoneNumberId, m.text, m.profileName])).toEqual([[TENANT, '523511234567', NUM_RH, 'quiero trabajar', 'Ana Prueba']]);
     expect(port.outbox.map((o) => [o.to, o.body, o.from])).toEqual([['523511234567', 'hola desde RH', NUM_RH]]);
     expect(libro.map((l) => [l.flow, l.direction, l.phone_number_id])).toEqual([['recruitment', 'in', NUM_RH], ['recruitment', 'out', NUM_RH]]);
   });

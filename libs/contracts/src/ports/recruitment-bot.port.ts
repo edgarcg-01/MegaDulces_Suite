@@ -10,6 +10,8 @@ export const RECRUITMENT_BOT_PORT = 'RECRUITMENT_BOT_PORT';
 
 /** Un mensaje que llegó al número de reclutamiento. */
 export interface RecruitmentInbound {
+  /** El tenant dueño del número que lo recibió (`phone_number_tenant_map`). */
+  tenantId: string;
   /** Teléfono canónico del remitente (52XXXXXXXXXX). */
   phone: string;
   /** El número de la empresa que lo recibió (Meta `phone_number_id`). */
