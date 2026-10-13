@@ -2834,3 +2834,135 @@ que el Deployment lo rehaga. Y di una **falsa alarma de «producción caída»**
 normal (`de2f53c8`); el `57P03` era el `Recreate`, no mi prueba.
 
 ⚠️⚠️ **Décima vez que un acento grave rompe algo**, esta vez dentro de una cadena de shell.
+
+---
+
+## §36 · `[CG.96]`–`[CG.136]` — plan de mejora de la interfaz, con el usuario ya definido (2026-10-13)
+
+> **Lo que destrabó todo no fue una medición: fue una frase de Edgar.** *"La pantalla es para la
+> persona que lo está llenando… la prioridad darle al usuario la visibilidad de su trabajo sin
+> llegar a saturar. En otra generaremos la persona que revisa la caja chica todas las mañanas."*
+>
+> Con eso, lo que satura deja de ser opinión y se vuelve **medible**: satura lo que le habla a
+> OTRO. Y lo que falta deja de ser una lista de gustos: falta lo que esa persona no puede ver de
+> su propio trabajo.
+
+### El punto de partida, medido
+
+Antes de proponer nada se midió la pantalla, y **cuatro hallazgos propios se cayeron al medirlos**
+— cada uno era un diseño que este proyecto ya había rechazado, con su medición y con las palabras
+de Edgar en el código:
+
+| Propuesta inicial | Lo que decía el código |
+|---|---|
+| subir la tira de KPIs al encabezado | `[CG.37]`: bajó 340 líneas a propósito; se comía ~100px justo antes de la bandeja |
+| una franja de veredicto arriba | `[CG.71]`: *"los apartados son DOS… un tercero rompe el tablero aprobado"* |
+| el modal es «un tablero escondido» | `[CG.116]`: es ventana **para no empujar**; Edgar lo pidió tres veces |
+| mandar la captura a `app-side-peek` | `[CG.46]`: O.1 binding, ya vivió en un modal de 62rem y se sacó |
+
+⭐ **La lección de método:** en este repo los comentarios cargan la historia medida. Un `grep` que
+no los excluye **fabrica hallazgos** — cinco candidatos murieron así (dos «tokens fantasma» que
+eran menciones dentro de comentarios que documentan su propia remoción, tres clases «huérfanas»
+igual). *El único hallazgo que sobrevivió fue el que se verificó contra el mecanismo, no contra
+una cadena de texto.*
+
+### Lo ya entregado en esta ronda
+
+| Item | Qué | Commit |
+|---|---|---|
+| `[CG.96]` | tres clases `fin-*` vivían en un componente y `caos` las usaba sin alcance: su barra de filtros se pintaba **sin layout** | `2749094b0` |
+| `[CG.97]` | el atajo de frecuentes estaba clavado en `'gasto'`; la regla real de `[CG.94]` era **«sin documento»** | `47831dbbe` |
+| `[CG.98]` | los chips no se podían usar con el teclado: diez chips, diez paradas del tabulador. `installToolbarNav` en `libs/` | `16699caf2` |
+| `[CG.99]` | la pantalla decía *"el esperado se revela al sellar"* y lo imprimía tres renglones abajo | `4aaae9cb3` |
+
+### El plan
+
+Ordenado por **lo que el usuario no puede ver de su trabajo** primero, y pulido después.
+
+#### `[CG.130]` · El Esperado no se publica sobre un fondo que nadie declaró — ⚠️ DECISIÓN
+
+Tres renglones de distancia, en la misma columna: *"No se puede decir cuánto hay en el cajón:
+falta declarar con cuánto arrancó"* y **Esperado en caja general $3,402.45**. El resumen del
+endpoint dice qué es ese número: *"fondo del corte abierto + efecto de sus movimientos"*, y
+`fondo(abierto)` devuelve `null` cuando nadie lo declaró.
+
+**La misma ignorancia bloquea un número y se publica como otro.** El sistema ya tiene el estado
+declarado (`sin_base`, `[CG.42]`); el display del Esperado es el único que no lo respeta.
+`arqueoFinal()` ya trae `fondo: null`, así que es una condición de plantilla.
+
+⚠️ **Es comportamiento, no copy, y el botón de sellar vive en esta misma ventana.** Si alguien usa
+ese número para rendir cuentas, quitarlo le cambia el trabajo. **Decide Edgar.**
+
+#### `[CG.131]` · Cada bloque declara su universo
+
+El panel apila **dos universos** sin decirlo:
+
+| En pantalla | Fuente | Universo |
+|---|---|---|
+| Ingresos · Gastos · Movimiento del libro · bóveda | `arqueoDelDia(fecha, sucursal)` | **la jornada** |
+| Esperado · Caja chica conciliada | `saldo()` → `movimientosSueltos(…, dia)` + fondo del corte | **lo suelto + el corte** |
+
+**Probado con dos capturas reales de la misma pantalla:** entre una y otra el libro subió
+**$32,502.00** (los dos ingresos nuevos del pie, $14,370 + $18,132), los movimientos pasaron de 33
+a 35 y la bóveda se movió — y el Esperado quedó en **$3,402.45 al centavo**, igual que la
+conciliada en **−$49,657.55**.
+
+Es el patrón que este repo ya nombra como su peor degradación: *el mismo número en varios lugares
+contando universos distintos sin decirlo*. Un capturista lee $137,528.18 arriba y $3,402.45 abajo
+y no tiene cómo saber que no hablan de lo mismo.
+
+#### `[CG.132]` · «Tu jornada» es tuya — el pedido central
+
+⛔ **La ventana se llama «Tu jornada» y no es tuya.** `arqueoDia({ fecha, sucursal })` y
+`arqueoDelDia(fecha, sucursal)`: **el endpoint no recibe la persona**. Los 35 movimientos y los
+$137,528.18 son **de la caja**, no de quien la mira. Si capturan dos personas en la misma
+sucursal, ninguna puede ver lo suyo.
+
+El filtro «los míos» **existe y está bien hecho** (`[CG.86]`, por `created_by` y nunca por nombre)
+— pero vive en **otra** tabla del mismo diálogo y se manda a `list()`, no al arqueo.
+
+⭐ **Y no es «sólo lo mío»:** para rendir cuentas se cuenta **toda** la caja. Mostrar únicamente lo
+propio dejaría a alguien sellando contra un número que no es el que va a contar. La forma es **lo
+mío en primer plano, el total como contexto** — nunca uno solo de los dos.
+
+Toca backend (`arqueoDelDia` tiene que aceptar quién) + el panel.
+
+#### `[CG.133]` · El desglose
+
+*"Sus movimientos (con opción a desglosar)"*. Hoy la tabla del pie lista y no se expande.
+
+#### `[CG.134]` · Sacar de esta ventana lo que le habla a otro
+
+| En pantalla | A quién le habla | Destino |
+|---|---|---|
+| «2,840 conceptos de 3,008 · 114 sin subcuenta» | Sistemas: salud del catálogo | ⚠️ **no se borra** (ADR-056 la exige): se demota y se pone **junto a lo que califica**, el selector de conceptos |
+| «Caja chica conciliada (esperado − depositado + dispensado)» | el que revisa en la mañana | la pantalla nueva del revisor |
+
+🔸 La línea de cobertura además **invita a una resta que no cierra**: 3,008 − 2,840 = 168, no 114.
+**No es un error aritmético** — `usables`, `filas_origen` y `sin_subcuenta` son tres agregados
+independientes — pero puesta así se lee como si lo fuera, y es lo primero de la ventana.
+
+#### `[CG.135]` · La tabla del pie respira
+
+Columnas cuyo valor no cambia en ninguna fila visible (*Vendedor (006) - VENTAS*, y la cuenta
+repetida) **no son columnas: son un encabezado**, y están gastando el ancho que necesitan Hora e
+Importe.
+
+#### `[CG.136]` · Lo que la compuerta ya marca
+
+`check:pantalla` deja un aviso vivo: **una definición fija escondida en un `title`** — sólo existe
+para quien tiene mouse; va al diccionario (regla P). Más, de la auditoría de la pantalla:
+`pFrozenColumn` **0** y `--row-h-*` **0** en las rejillas densas.
+
+### Lo que NO se toca, y por qué
+
+El tablero aprobado queda intacto: `[CG.59]` (90% los dos apartados) · `[CG.37]` (la tira de KPIs
+abajo) · `[CG.71]` (dos apartados, no tres) · `[CG.116]` (ventana que no empuja) · `[CG.46]`
+(master-detail, la captura no vuelve a un modal).
+
+⭐ **Y una defensa que se autorizó aflojar y NO se aflojó.** Edgar autorizó mostrarle el esperado
+al capturista *"mientras se encuentra una adaptabilidad al programa"*. La medición posterior
+mostró que **no hacía falta**: `hayEnCajon()` —que es literalmente *«cuánto debe tener»*— sale de
+`arqueo-dia`, gateado sólo por `FINANCE_CAJA_VER`, **no** de `saldo()`. Lo único que lo bloquea es
+`fondo_inicial == null`, que la pantalla ya declara y ya ofrece resolver. *Una autorización para
+bajar un control anti-fraude que la medición volvió innecesaria no se usa.*

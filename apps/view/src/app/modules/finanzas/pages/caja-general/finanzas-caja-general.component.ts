@@ -1420,6 +1420,17 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
              armador (cuerpoReporteDia), no de dos maquetas que se desalinean. -->
         <p-button label="Reporte del día" icon="pi pi-file" severity="secondary" size="small"
                   [loading]="imprimiendoReporte()" (onClick)="verReporteDia()"></p-button>
+        <!-- ⚠️ [CG.136] ESTE title SE QUEDA, Y NO ES UN DESCUIDO. La compuerta check:pantalla lo
+             marca con la regla TBL ("definicion fija escondida en un title"), pero aca no es una
+             definicion: es la UNICA etiqueta visible de un boton sin texto, y su lectura para
+             asistencia ya viaja en ariaLabel. Borrarlo para apagar el aviso dejaria el icono
+             mudo para quien ve. Lo mismo vale para el de "Imprimir comprobante", abajo.
+             Medido en apps/view: de 363 title fijos, 292 estan sobre elementos NO interactivos
+             (th/span/i/td) --esos si son definiciones-- y 71 sobre button/a, que son etiquetas
+             de control. La regla no separa los dos casos; afinarla es decision de Edgar, porque
+             esa compuerta corre sobre 255 pantallas.
+             (Sin acentos graves aca adentro: esto vive en un template literal y un backtick lo
+              CIERRA. Me acaba de pasar escribiendo este mismo comentario.) -->
         <p-button icon="pi pi-print" severity="secondary" size="small" [text]="true"
                   title="Imprimir el reporte en la térmica" ariaLabel="Imprimir el reporte del día"
                   [loading]="imprimiendoReporte()" (onClick)="imprimirReporteDia()"></p-button>
@@ -1427,7 +1438,6 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
         <p-button [label]="soloMios() ? 'Viendo: los míos' : 'Todo el libro'"
                   [icon]="soloMios() ? 'pi pi-user' : 'pi pi-users'"
                   [severity]="soloMios() ? 'primary' : 'secondary'" size="small" [outlined]="!soloMios()"
-                  title="Alternar entre todo el libro y sólo lo que capturaste vos"
                   (onClick)="alternarMios()"></p-button>
       </div>
 
@@ -1464,9 +1474,12 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <td>{{ m.created_by_username || '—' }}</td>
             <td>
               @if (m.autofill) {
-                <span title="Parte de este movimiento la propuso el sistema">
-                  <p-tag value="autorrellenado" severity="info"></p-tag>
-                </span>
+                <!-- [CG.136] Acá el <span> existía sólo para colgarle un title con la DEFINICIÓN
+                     de la etiqueta ("parte de este movimiento la propuso el sistema"). Una
+                     definición fija en un title sólo existe para quien tiene mouse: se fue al
+                     diccionario versionado (regla P), que esta pantalla ya abre con su cajón de
+                     ayuda. Sin el title, el envoltorio no envolvía nada. -->
+                <p-tag value="autorrellenado" severity="info"></p-tag>
               } @else { <small class="fin-dim">manual</small> }
             </td>
             <td class="ta-c">

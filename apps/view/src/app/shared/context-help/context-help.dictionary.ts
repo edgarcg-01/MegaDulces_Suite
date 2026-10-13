@@ -1712,7 +1712,11 @@ export const CONTEXT_HELP: Record<string, HelpTopic> = {
         entries: [
           { term: 'Cuenta y concepto de Kepler', def: 'El par contable con el que nace el movimiento. Es POR SUCURSAL: el mismo par tiene nombre distinto en cada plaza.' },
           { term: 'Espejo del Access', def: 'El libro que hoy se captura en la aplicacion Control. Se lee, no se escribe: sirve para comparar lo que la plataforma registra contra lo que el metodo viejo registro.' },
-          { term: 'Frescura', def: 'De cuando son los datos de la bandeja. Sale del servidor, no del reloj del navegador. Si el carril que alimenta la lista se cae, la foto se congela SIN dar error y esta es la unica senal.' },
+          // `[CG.136]` Estas dos vivian en un `title=` fijo, o sea que solo existian para quien
+          // tiene mouse. Regla P: una definicion va al diccionario, no a un tooltip.
+          { term: 'Autorrellenado', def: 'La etiqueta de una fila del libro: parte de ese movimiento lo propuso el sistema, no se tecleo entero. No dice que este mal -- dice de donde salio, que es otra cosa. Lo que se propone es la cuenta y el concepto; el importe se escribe siempre a mano.' },
+          { term: 'Viendo: los mios / Todo el libro', def: 'El mismo boton en sus dos estados: alterna entre todo lo que la caja registro en el periodo y solo lo que capturaste vos. Filtra por tu identidad, nunca por tu nombre -- en esta base hay dos personas que se llaman igual, y un apellido mal tecleado devolveria el libro de otra.' },
+          { term: 'Frescura', def: 'De cuando son los datos de la bandeja. Sale del servidor, no del reloj del navegador. Si el carrilque alimenta la lista se cae, la foto se congela SIN dar error y esta es la unica senal.' },
         ],
       },
     ],
