@@ -113,7 +113,18 @@ const COMPUERTAS = [
   //    acotado a lo staged: 94 ms, y ataja ANTES de que el commit exista. Aca queda para el
   //    barrido entero de `npm run check`.
   { nombre: 'conflicto', cmd: 'node scripts/check-conflict-markers.js', que: 'ningun marcador de conflicto sin resolver (rompe el build de todas las sesiones)' },
-  { nombre: 'boundary', cmd: 'node scripts/lint-boundary-gate.js', que: 'sin `any` nuevo en el borde HTTP (ADR-052)' },
+  // `[ETQ.GATE]` Esta compuerta corria SÓLO en el CI, y asi llegaron #350 y #351 con 12 y 4 violaciones
+  // (`any`, metodos de controller sin tipo de retorno, `trx: any`): el pre-push dio verde, el CI dio rojo,
+  // y se descubrio 5 minutos despues del push, con el PR ya abierto. Entra al push porque cumple lo que
+  // importa: es estatica, sin red, sin DB, y SOLO mira las lineas que TU rama escribio (ratchet por linea,
+  // no por archivo), asi que la deuda vieja de un service no te frena.
+  // ⚠️ Medido el 2026-10-13 con la regla de `[PVI.18]` (pared de la rueda completa, con y sin ella, 3 corridas):
+  //      · push SIN controller/service tocado:  3.4 s -> 3.6 s   (+0.2 s; sale en ~0.6 s)
+  //      · push CON 5 archivos de frontera:     3.45 s -> 5.3 s  (+1.9 s; la compuerta sola tarda ~5.2 s concurrente)
+  //    Pasa el ~3 s del criterio de admision en el peor caso, y se admite igual porque ese peor caso es
+  //    justo el push que la necesita. Si la rueda crece mas, esta es la primera candidata a salir.
+  // ⛔ En el push solo frena lo que viaja en ESE push (`gate-push.js` intersecta la salida con tus archivos).
+  { nombre: 'boundary', script: 'lint-boundary-gate.js', que: 'sin `any` nuevo en el borde HTTP (ADR-052)', push: true, ms: 3075 },
   { nombre: 'provenance', cmd: 'node scripts/check-provenance.js', que: 'un número publicado declara con qué se calculó (ADR-056)' },
   // `[CG.22]` Las dos que siguen atrapan defectos de UI **mudos**: build verde, typecheck verde,
   // cero errores en consola, y la pantalla no funciona. La única forma de verlos era abrirla.
