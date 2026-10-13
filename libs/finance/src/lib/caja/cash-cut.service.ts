@@ -353,7 +353,7 @@ export class CashCutService {
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
       // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
       // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
-      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
       const totales = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
         conteo: input.conteo, morralla: input.morralla ?? 0,
@@ -383,7 +383,7 @@ export class CashCutService {
       const movs = await this.movimientosSueltos(trx, tenantId, c.sucursal);
       // [CG.96] Las dos piernas del cajero desde que abrio ESTE corte. Mismo origen que usa
       // `saldo()`; sin esto el esperado ignora la boveda y pide contar lo que esta en la maquina.
-      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
       const previos = await trx('finance.cash_ledger_cut_denominations')
         .where({ tenant_id: tenantId, cut_id: id }).select('denominacion', 'piezas');
       const totalesPrevios = calcularCorte({
@@ -463,7 +463,7 @@ export class CashCutService {
       const movs: MovimientoDelCorte[] = filas.map((r: any) => ({ ...r, anclado: r.origen_tipo === 'cobro' }));
       // `[CG.96]` Las dos piernas del cajero desde que abrió ESTE corte. Sin esto el esperado
       // ignora la bóveda y pide contar efectivo que está dentro de la máquina.
-      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.created_at ?? null);
+      const cajero = await this.conciliacionCajero(trx, tenantId, c.sucursal, c.fecha ?? null);
 
       const t = calcularCorte({
         fondoInicial: fondo(c), movimientos: movs, cajeroSinCapturar: cajero,
@@ -561,13 +561,45 @@ export class CashCutService {
    * ⚠️ CAOS no tiene columna sucursal (un solo dispositivo en oficinas): el filtro es sólo por período.
    * ⚠️ `abs(total)`: una dispensación puede venir con `total` negativo — acá interesa la MAGNITUD movida.
    */
-  private async conciliacionCajero(trx: any, tenantId: string, sucursal: string, desde: string | Date | null) {
-    if (sucursal !== '00' || !desde) return null;
+  private async conciliacionCajero(trx: any, tenantId: string, sucursal: string, fecha: string | Date | null) {
+    if (sucursal !== '00') return null;
     const existe = await trx.raw(`SELECT to_regclass('analytics.caos_cash_movements') AS t`);
     if (!existe.rows?.[0]?.t) return null; // el feed del cajero puede no estar en este entorno
+
+    /**
+     * ⛔⛔ `[CG.101]` **ACÁ DECÍA `occurred_at >= corte.created_at`, Y ESA VENTANA SIEMPRE ESTÁ
+     * VACÍA.** Medido en prod el 2026-10-13 contra el corte `CC-2026-00001`:
+     *
+     *     ventana del código (occurred_at >= created_at) ->  $0 depositado · $0 dispensado · 0 movs
+     *     el día completo 12-oct                          ->  $111,750     · $58,690      · 14 movs
+     *
+     * La causa es el flujo real, no la aritmética: **el corte se abre al CERRAR la jornada**. La
+     * pantalla llama a `abrir()` y a `cerrar()` en el mismo gesto ("Cerrar jornada y rendir
+     * cuentas"), así que `created_at` quedó a las 18:00 y los 14 movimientos de la bóveda de ese
+     * día habían ocurrido ANTES. La ventana arrancaba después de todo lo que tenía que medir.
+     *
+     * ⭐ Y esto deja a `[CG.96]` sin poder dispararse: el motor calcula bien las dos piernas, pero
+     * recibía ceros. O sea que la corrección estaba escrita y **nunca llegó a correr** — el
+     * esperado seguía ignorando la bóveda y pedía contar en el cajón lo que estaba en la máquina.
+     *
+     * La ventana correcta es **la jornada**, el mismo grano con el que el libro fecha sus
+     * movimientos (`cash_ledger.fecha`) y con el que el feed fecha los suyos (`accounting_date`).
+     * No la hora en que alguien alcanzó a crear la fila del corte.
+     *
+     * ⚠️ `fecha == null` significa **hoy** — es el panel del día cuando todavía no hay corte
+     * abierto. Antes eso devolvía `null` entero y el panel no podía decir nada de la bóveda.
+     */
+    const dia: string = fecha == null
+      ? (await trx.raw(
+          `SELECT to_char((now() AT TIME ZONE 'America/Mexico_City')::date,'YYYY-MM-DD') AS d`)).rows[0].d
+      // ⚠️ `String(unDate).slice(0,10)` da "Mon Oct 12 2026" — el mismo defecto que `[LC.16]`.
+      // Una columna `date` de pg llega como `Date` a la medianoche local, así que `toISOString()`
+      // es lo único que devuelve el día que se guardó.
+      : (fecha instanceof Date ? fecha.toISOString().slice(0, 10) : String(fecha).slice(0, 10));
+
     const [r] = await trx('analytics.caos_cash_movements')
       .where('tenant_id', tenantId)
-      .where('occurred_at', '>=', desde)
+      .whereRaw(`accounting_date = ?::date`, [dia])
       .select(
         trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = ${CAOS.DEPOSITO}), 0)::numeric AS depositado`),
         trx.raw(`coalesce(sum(abs(total)) FILTER (WHERE type_id = ${CAOS.DISPENSAR}), 0)::numeric AS dispensado`),
@@ -592,7 +624,9 @@ export class CashCutService {
       // cajero emite un tipo nuevo, acá aparece con su monto en vez de desaparecer en silencio.
       otros: { movimientos: Number(r?.otros_movs ?? 0), monto: Number(r?.otros_monto ?? 0) },
       movimientos: Number(r?.movimientos ?? 0),
-      desde: desde instanceof Date ? desde.toISOString() : String(desde),
+      // La jornada que se midió. Se publica para que la pantalla pueda decir DE QUÉ DÍA habla,
+      // en vez de mostrar dos cifras de la bóveda sin fecha.
+      dia,
     };
   }
 
@@ -602,7 +636,7 @@ export class CashCutService {
       const abierto = await trx('finance.cash_ledger_cuts')
         .where({ tenant_id: tenantId, sucursal, estado: 'borrador' }).first();
       const movs = await this.movimientosSueltos(trx, tenantId, sucursal);
-      const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.created_at ?? null);
+      const cajero = await this.conciliacionCajero(trx, tenantId, sucursal, abierto?.fecha ?? null);
       const t = calcularCorte({ fondoInicial: fondo(abierto), movimientos: movs, cajeroSinCapturar: cajero });
       return {
         sucursal,
