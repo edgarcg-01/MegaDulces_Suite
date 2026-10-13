@@ -338,8 +338,8 @@ export class RhCandidatoFichaComponent {
   readonly fusionado = output<string>();
 
   readonly flujo = ETAPAS_DEL_FLUJO;
-  readonly tipos = TIPOS_EVENTO;
-  readonly canales = CANALES;
+  readonly tipos = [...TIPOS_EVENTO];
+  readonly canales = [...CANALES];
   readonly etapaLabel = etapaLabel;
   readonly fechaMx = fechaMx;
   readonly fechaHoraMx = fechaHoraMx;
