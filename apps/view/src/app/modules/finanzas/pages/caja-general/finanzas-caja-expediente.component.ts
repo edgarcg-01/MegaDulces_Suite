@@ -221,7 +221,7 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
 
         @if (dias().length) {
           <p-table [value]="dias()" size="small" dataKey="fecha" [rowHover]="true"
-                   class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first"
+                   class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
                    selectionMode="single" [selection]="diaSel()" (selectionChange)="abrir($event)">
             <ng-template #header>
               <tr>
