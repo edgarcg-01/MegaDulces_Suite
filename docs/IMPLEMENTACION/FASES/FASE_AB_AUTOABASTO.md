@@ -1037,6 +1037,110 @@ fact, y renglones que Compras deja en blanco por peldaño contradicho.
 **Pendiente de esta línea:** los días de cobertura de «Entrega» siguen usando la venta diaria de 90
 días (`inventory_health`), no la de 30; y el máximo de la tabla de reorden puede quedar corto contra
 la demanda (ej. Japonés granel 20 kg en Morelia Abastos: máx 125 cajas, objetivo 175.4).
+
+### 15.9 🧪 [AB.16] «Mi pedido» — EN CÓDIGO 2026-10-12
+
+Primera entrega de §15.1, **sólo lectura y sin tablas nuevas**: pestaña `/almacen/autoabasto/pedido`
++ `GET /commercial/autoabasto/pedido?warehouse_id=` (`AutoabastoPedidoService`). No calcula el
+reabasto: toma los renglones de la mesa (base `'demanda'`, AB.15) y les agrega lo que la mesa no sabe.
+
+**Decisiones de Francisco (2026-10-12):**
+- **«Ya pedido» = pedidos abiertos a la matriz de 7 días o menos**; se restan. Los más viejos son
+  **atorados**: se marcan para reclamarlos o cancelarlos y **no** se restan (medido: 29 de 77
+  abiertos tenían más de 7 días).
+- **Lo negado se muestra y se marca**, sin cambiar el sugerido.
+
+**De dónde sale (derivado del ODS, cero importers):** el pedido de una sucursal a su matriz vive en
+Kepler como `U-D-40` de la MATRIZ al cliente `TI…` de la sucursal (`c27='SUCURSAL'`; código TI de
+`analytics.v_erp_branch_catalog`). Versión vigente por `DISTINCT ON … c9 DESC`, renglones anclados a
+`c1` (mismo criterio que `warehouse-orders.service.ts`). Ya pedido = `kdm2.c9` (unidad base) de los
+abiertos; negado = `(c51 − c54) × c9 / c56` de los EMBARCADOS del periodo. ⚠️ Que `c51` sea siempre lo
+pedido originalmente sigue siendo la hipótesis sin arbitrar de FASE_DN. ⚠️ Kepler no decodifica
+«cancelado» en `c11`: un pedido abierto sin renglones no suma (los 2 abiertos de la 01 a la 02 estaban
+vacíos).
+
+**Redondeo §15.2** como función pura `redondearPedido()` en `libs/contracts` (14 pruebas con los
+ejemplos del documento): menos de media caja → unidad inmediata menor (el peldaño del medio si hay
+tres); media caja o más → cajas completas (.5 sube); granel → kilos completos; sólo base → entera;
+**sin escalera → se declara sin redondear**. Escalera = `analytics.v_product_unit_ladder`.
+
+**Agrupado por origen** (`replenishment_channel`: matriz por traspaso, o proveedor), con total en cajas
+—**sin sumar como cajas lo que no tiene caja**: el primer cálculo daba «2,837 cajas» a 3 churros que se
+venden por pieza—, valor a costo (sólo renglones valuables) y aviso de pedido mínimo del proveedor. ~~Descarga en Excel por
+grupo~~ — **retirada en AB.18** (§15.11): el pedido se ajusta y se guarda dentro de la Suite.
+
+**Medido contra prod (solo lectura):** Morelia Madero 814 renglones a pedir en 55 orígenes, $932 mil;
+121 con pedido abierto, 27 atorados, 7 negados. La consulta de pedidos tarda 56–137 ms; el endpoint
+completo 3.7 s (lo que cuesta es la mesa). Ej.: charola 94156 — falta 84.7, ya pedido 50 → **35 CJA**.
+
+**Abierto:**
+- ~~El granel con caja se pide en kilos~~ — **resuelto en AB.19** (§15.11): con unidad mayor sigue la
+  misma regla que lo demás.
+- Lo embarcado y no recibido todavía no cuenta como «ya pedido» (pareo `U-D-41` ↔ recepción).
+- La mesa sigue rotulando «cajas» a productos que sólo tienen pieza (factor 1): es anterior a AB.16.
+- Guardar el pedido en la Suite, el borrador de dos veces por semana y el aprendizaje (AB.7/AB.8).
+
+### 15.11 🧪 [AB.18]–[AB.20] «Mi pedido» se ajusta en la Suite, sin Excel — EN CÓDIGO 2026-10-12
+
+**Decisión de Francisco (2026-10-12):** nada de Excel ni papel. El sistema arma el pedido, el
+almacenista corrige **excepciones** (meta: no más de 20% de los renglones) apoyado por el sistema, y
+cada decisión deja **huella** para estudiar el comportamiento y alimentar el aprendizaje. **Por
+etapas:** (1) ajustar y guardar en la Suite ← esta entrega · (2) enviar a la matriz —que lo captura en
+Kepler **asistida**, la Suite liga por folio— y a Compras como requisición · (3) seguimiento contra
+Kepler · (4) aprendizaje.
+
+**[AB.18] Ajustar y guardar.**
+- **− / +** en la unidad de captura del renglón (`pasoAjuste`); el factor sale del redondeo
+  (`RedondeoPedido.factor`), la pantalla no lo adivina.
+- Si el ajuste se aleja **más de 20%** del sugerido (o se pide algo que el sistema no sugirió, o se baja
+  a 0), pide **motivo con un clic** de una lista cerrada (`MOTIVOS_AJUSTE`: espacio en bodega, viene
+  promoción, cliente apartó, producto lento, caducidad, exhibición, otro). Un texto libre no se aprende.
+- Guardado automático al dejar de mover (700 ms); «volver» al sugerido; «Aceptar grupo» reemplaza al
+  Excel. Valor y totales en vivo con `costo_base`.
+- **Tablas** (mig `20261012215125`, RLS forzado): `commercial.autoabasto_pedidos` (UN borrador vivo
+  por almacén, índice único parcial; `motor` = con qué se calculó) · `autoabasto_pedido_lineas` (SÓLO
+  los renglones tocados: lo no tocado es el sugerido del motor) · `autoabasto_huella` (cada evento con
+  sugerido visto, antes, después, motivo y ms en el renglón; **sólo se inserta**).
+- ⛔ **El privilegio por omisión del schema `commercial` le da a `app_runtime` UPDATE/DELETE en toda
+  tabla nueva** (`{app_runtime=arwd/postgres}`): con sólo `GRANT SELECT, INSERT` la huella se podía
+  reescribir. Lo encontró el smoke; la migración hace `REVOKE UPDATE, DELETE, TRUNCATE` explícito.
+- **Permiso:** `almacenista` (7 personas) tenía `AUTOABASTO_VER` pero no `AUTOABASTO_SOLICITAR`; la
+  migración se lo da donde la clave está vacía (un `false` explícito no se pisa).
+- Sin las tablas (la migración no ha llegado) el pedido se sirve igual y lo **declara**
+  (`guardado_disponible: false`); las escrituras responden **503** con mensaje, no 500. Se pregunta con
+  `to_regclass` porque un SELECT fallido abortaría la transacción.
+
+**[AB.19] Hasta dónde pide y en qué lista se surte.**
+- **Granel con unidad mayor** (caja, bulto) sigue la misma regla: media unidad mayor o más → mayores
+  completas; menos → kilos. Sin unidad mayor, kilos completos. Medido: **212 de 308** productos a granel
+  tienen unidad mayor.
+- **«¿Hasta dónde pides?»**: casillas Agotado · Bajo mínimo · Bajo reorden (default las tres) y
+  «Sobre reorden, con venta» (apagada: lo que el motor de demanda pide aunque la existencia ya esté
+  sobre el reorden). La selección **se guarda en el borrador** (`posiciones text[]`, con CHECK) y deja
+  huella `posiciones` con antes/después: elegir sólo lo agotado es una decisión, no un filtro.
+- **Cada origen se parte en listas de surtido** (`RedondeoPedido.clase`): **unidad mayor** (una orden
+  de cajas/bultos) · **unidad menor** (otra de piezas/paquetes/kilos) · **una sola unidad** · sin
+  unidad en Kepler. Así surtía la matriz: una orden de cajas y otra de piezas.
+
+**[AB.20] Mínimo de $200 en unidad menor.** Un renglón en unidad menor de un producto que SÍ tiene
+caja y vale menos de **$200** no se pide (`aplicarMinimoMenor`); queda en su unidad menor para que el
+**+** lo pida si hace falta. **Excepción: un agotado se pide siempre.** Sin costo confiable el mínimo
+no se puede revisar: el renglón se queda y se marca «Mínimo sin revisar» (no se supone). Cajas
+completas y productos de una sola unidad no se tocan.
+
+**Simulación contra prod (solo lectura, API local, 2026-10-12): 32,174 revisiones, 0 fallas**, 9
+almacenes, ~7,400 renglones, 3.5–4.9 s por sucursal. Por sucursal, renglones en menor que el mínimo
+quitó / agotados de poco valor que se piden igual: 01 113/133 · 08 54/109 · 07 86/116 · 03 78/86 ·
+02 132/153 · 04 110/116 · 06 98/134 · 05 62/111. El almacenista sólo ve su almacén y no abre uno ajeno.
+Docker (`app_runtime`, RLS): 13/13 (un solo borrador, el 2º ajuste reemplaza, huella no se reescribe,
+motivo/cantidad/posición inválidos rechazados, otro tenant no ve nada).
+
+**Hallazgo de datos:** **5 de 6 almacenistas activos NO tienen almacén asignado** en su ficha (sólo
+`luis_espino` → 01): la pantalla les dice «No tienes almacén asignado». Se asigna desde Personas.
+
+**Abierto:** etapa 2 (envío a la matriz con captura asistida + requisición a Compras), 3 y 4; el
+mínimo de $200 no aplica a mayor ni a «una sola unidad» (decisión, se puede extender).
+
 ### 15.10 🧪 [AB.17] Freno de fin de pico en el motor común — EN CÓDIGO 2026-10-12
 
 **Disparador (Francisco, 2026-10-12):** el bombón La Rosa 70012 en La Piedad salía primero en «Mi

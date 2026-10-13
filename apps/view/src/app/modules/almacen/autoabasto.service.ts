@@ -2,6 +2,11 @@ import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
+import type {
+  AutoabastoPedidoResponse, AutoabastoAjusteRequest, AutoabastoAjusteResponse,
+  AutoabastoRestablecerRequest, AutoabastoAceptarGrupoRequest, AutoabastoAbrirRequest,
+  AutoabastoPosicionesRequest, PosicionPedido,
+} from '@megadulces/contracts';
 
 /**
  * Fase AB — cliente de la **mesa de autoabasto** (`/commercial/autoabasto/*`).
@@ -234,6 +239,36 @@ export class AutoabastoService {
 
   filtros(): Observable<AutoabastoFiltros> {
     return this.http.get<AutoabastoFiltros>(`${this.base}/filtros`);
+  }
+
+  /** `[AB.16]` «Mi pedido» de un almacén: por origen, con ya pedido / atorado / negado y redondeo. */
+  pedido(warehouseId: string): Observable<AutoabastoPedidoResponse> {
+    return this.http.get<AutoabastoPedidoResponse>(`${this.base}/pedido`, { params: this.params({ warehouse_id: warehouseId }) });
+  }
+
+  /** `[AB.18]` Guarda lo que la persona dejó en un renglón (con la foto de lo que vio). */
+  ajustar(req: AutoabastoAjusteRequest): Observable<AutoabastoAjusteResponse> {
+    return this.http.put<AutoabastoAjusteResponse>(`${this.base}/pedido/ajuste`, req);
+  }
+
+  /** `[AB.18]` Vuelve un renglón al sugerido. */
+  restablecer(req: AutoabastoRestablecerRequest): Observable<AutoabastoAjusteResponse> {
+    return this.http.post<AutoabastoAjusteResponse>(`${this.base}/pedido/restablecer`, req);
+  }
+
+  /** `[AB.18]` La persona revisó un grupo y lo acepta como está. */
+  aceptarGrupo(req: AutoabastoAceptarGrupoRequest): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/pedido/aceptar-grupo`, req);
+  }
+
+  /** `[AB.19]` Guarda hasta dónde pide (qué posiciones entran al pedido). */
+  guardarPosiciones(req: AutoabastoPosicionesRequest): Observable<{ posiciones: PosicionPedido[] }> {
+    return this.http.put<{ posiciones: PosicionPedido[] }>(`${this.base}/pedido/posiciones`, req);
+  }
+
+  /** `[AB.18]` Huella de apertura del pedido. */
+  abrirPedido(req: AutoabastoAbrirRequest): Observable<{ ok: true }> {
+    return this.http.post<{ ok: true }>(`${this.base}/pedido/abrir`, req);
   }
 
   /** `[AB.13]` Todas las filas + resumen + sello de fecha y hora, de un almacén de tu alcance. */
