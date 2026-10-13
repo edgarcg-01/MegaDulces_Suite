@@ -353,9 +353,16 @@ interface GrupoImpresion {
 
             <tfoot>
               <tr><td>
+                <!--
+                  El bloque "Como leer esta hoja" vivia al final y se retiro a pedido de Compras
+                    (2026-10-13): tres renglones de instrucciones al pie de una hoja que el
+                  comprador ya sabe leer. Lo unico que no se podia perder de ahi era que el guion
+                  NO es un cero — eso es un dato ausente declarado, no una lectura — y cabe en
+                  tres palabras en el pie, que ademas se repite en todas las hojas.
+                -->
                 <div class="rp-run-pie">
                   <span>Documento interno de Mega Dulces · Compras</span>
-                  <span>Precios calculados el {{ preciosAlImpreso() }}</span>
+                  <span>— sin dato · Precios calculados el {{ preciosAlImpreso() }}</span>
                 </div>
               </td></tr>
             </tfoot>
@@ -463,12 +470,6 @@ interface GrupoImpresion {
                   </section>
                 }
 
-                <aside class="rp-nota">
-                  <strong>Cómo leer esta hoja.</strong>
-                  El precio unitario es el de la unidad BASE de Kepler (columna Unidad): en los
-                  productos con base PAQ ese renglón ya es el paquete. Un guion (—) significa que
-                  el dato no está cargado, no que sea cero.
-                </aside>
               </td></tr>
             </tbody>
           </table>
@@ -694,12 +695,6 @@ interface GrupoImpresion {
     /* Sin bandas: ya hay una linea por renglon, y en una impresora de oficina ese gris sale
        sucio y gasta toner en una hoja que se imprime por docenas. */
 
-    .rp-nota {
-      display: block; margin-top: 6mm; padding: 3mm 3.5mm;
-      border-left: .8mm solid #a8a29e; background: #fafaf9;
-      font-size: var(--fs-hoja-sm); line-height: 1.45; color: #44403c;
-    }
-    .rp-nota strong { color: #111; }
 
   `],
 })
@@ -988,7 +983,6 @@ export class ComprasCatalogoReporteComponent {
     '.rp-hoja-tbl thead{display:table-header-group;}',
     '.rp-hoja-tbl tr{break-inside:avoid;page-break-inside:avoid;}',
     '.rp-portada{break-after:avoid;}',
-    '.rp-nota{break-inside:avoid;}',
   ].join('');
 
   private readonly hoja = viewChild<ElementRef<HTMLElement>>('hoja');
