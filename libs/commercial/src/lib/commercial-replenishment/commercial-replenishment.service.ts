@@ -9,7 +9,7 @@ import { Knex } from 'knex';
 import { randomUUID } from 'node:crypto';
 import { ReplenishmentScannerService } from './replenishment-scanner.service';
 import { armarSenales } from './pedido-senales';
-import { AVISO_TRANSITO, POLITICA_TRANSITO, transitoDescontado, transitoMostrado } from './transito';
+import { AVISO_TRANSITO, POLITICA_TRANSITO, type PoliticaTransito, transitoDescontado, transitoMostrado } from './transito';
 import { FRESHNESS_UNKNOWN, Freshness, composeFreshness, evalInput, laneAt } from '../shared/freshness';
 
 /**
@@ -176,6 +176,14 @@ export interface CriticalStockQuery {
   bucket?: string;
   source?: string;
   search?: string;
+  /**
+   * `[AB.14]` Búsqueda por SKU o nombre de PRODUCTO para `summary()`. Va aparte de `search`
+   * porque ahí `search` filtra por nombre de PROVEEDOR (lo usa así Compras) y cambiarlo movería
+   * sus KPIs. En la mesa de Autoabasto el buscador es de producto: tabla y KPIs, mismo universo.
+   */
+  product_search?: string;
+  /** `[AB.14]` Filtro por acción (sobrante / traspaso / traspaso_parcial / comprar / ok), en el servidor. */
+  accion?: string;
   target_basis?: string;
   scope?: string; // 'all' = todo; default = sólo <= punto de reorden (crítico)
   sort_by?: string;  // columna de orden (whitelist en SORTABLE); default = prioridad por valor
@@ -377,6 +385,14 @@ export interface ReceiveRequisitionDto { lines?: ReceiveLineDto[]; }
 
 const BASES: TargetBasis[] = ['min', 'reorder', 'max', 'cadence'];
 const BUCKETS: Bucket[] = ['agotado', 'bajo_minimo', 'bajo_reorden', 'sano', 'sobrestock'];
+/** `[AB.14]` Las acciones de la mesa, en el orden en que las resuelve `accionExpr()`. */
+const ACCIONES = ['sobrante', 'traspaso', 'traspaso_parcial', 'comprar', 'ok'] as const;
+/**
+ * `[AB.14]` Las acciones que viven FUERA del recorte crítico por defecto (existencia ≤ reorden):
+ * un sobrante está por encima del máximo por definición. Con el recorte puesto, filtrar por ellas
+ * daba una lista vacía siempre — el filtro existía y nunca devolvía nada.
+ */
+const ACCIONES_FUERA_DE_CRITICO = ['sobrante', 'ok'];
 const UUID_RX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
@@ -405,6 +421,13 @@ export interface CriticalStockPage {
   pageSize: number;
   target_basis: TargetBasis;
   rows: Record<string, unknown>[];
+  /**
+   * `[AB.14]` Si el sugerido descuenta o no lo que está en camino, y el aviso para decirlo en
+   * pantalla. Viaja con la página para que ninguna pantalla afirme «neto de lo que está en
+   * camino» cuando la política vigente (`transito.ts`) es no restarlo.
+   */
+  politica_transito: PoliticaTransito;
+  aviso_transito: string;
 }
 /** Una sola fila de agregados; `undefined` si la consulta no devolvió fila. */
 export type CriticalStockSummary = Record<string, unknown> | undefined;
@@ -862,6 +885,20 @@ export class CommercialReplenishmentService {
   }
 
   /**
+   * `[AB.14]` La acción del renglón, en UN solo lugar: la columna que se pinta y el filtro que
+   * la recorta salen de esta misma expresión. Si fueran dos, el filtro podría dejar pasar un
+   * renglón que la tabla rotula distinto. Requiere `sbp` joineado (ver `transferIn()`).
+   */
+  private accionExpr(sug: string, surH: string, tin: string): string {
+    return `(CASE
+              WHEN ${surH} > 0 THEN 'sobrante'
+              WHEN ${tin} > 0 AND ${sug} - ${tin} <= 0 THEN 'traspaso'
+              WHEN ${tin} > 0 THEN 'traspaso_parcial'
+              WHEN ${sug} > 0 THEN 'comprar'
+              ELSE 'ok' END)`;
+  }
+
+  /**
    * [RA-PERF.2] Los filtros de Existencia Crítica, en UN solo lugar.
    *
    * Existe para que el CONTEO y el LISTADO no puedan divergir. El listado se arma sobre 13
@@ -898,7 +935,7 @@ export class CommercialReplenishmentService {
     // Filtro por bucket / scope
     if (q.bucket && BUCKETS.includes(q.bucket as Bucket)) {
       b.andWhereRaw(`${this.bucketExpr()} = ?`, [q.bucket]);
-    } else if (q.scope !== 'all') {
+    } else if (q.scope !== 'all' && !ACCIONES_FUERA_DE_CRITICO.includes(q.accion ?? '')) {
       b.andWhereRaw(`${oh} <= rp.reorder_point`); // default: crítico (≤ punto de reorden)
     }
     return abcPedido;
@@ -1005,6 +1042,23 @@ export class CommercialReplenishmentService {
       //
       // ⛔ El LISTADO sí necesita los 13: ordena por sr.sales_rank, sbp.surplus_total, sup.name
       // y por el factor de caja de vbf. Esto NO es "quitarle joins a la pantalla".
+      const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
+      const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
+      const tin = this.transferIn(sug, surH);
+
+      // `[AB.14]` El filtro por acción va en el SERVIDOR. Antes la pantalla recortaba la página
+      // ya cargada: con 50 renglones por página, «Traspaso» mostraba los traspasos de ESA página
+      // y el total decía 50 o menos aunque hubiera cientos.
+      //
+      // La acción depende del reparto del sobrante (`sbp`) y del objetivo, así que con este
+      // filtro el conteo suma SÓLO las relaciones que esa expresión nombra: `rpl` (el tránsito),
+      // `sbp` y, con base por cadencia, `sup`/`ih`/`rc`. NO el ranking `sr` ni las de decorado.
+      // Medido en prod (2026-10-12, almacén 01): contar sobre `base.clone()` llevaba la página de
+      // 4.8 s a 9.8 s; los mismos 1:1 por llave que documenta el bloque de arriba sostienen que
+      // la cifra no cambia (el candado test-newdb-critical-stock-count.js vigila que no dupliquen).
+      const accion = (ACCIONES as readonly string[]).includes(q.accion ?? '') ? q.accion! : null;
+      if (accion) base.andWhereRaw(`${this.accionExpr(sug, surH, tin)} = ?`, [accion]);
+
       const conteo = trx('commercial.reorder_policy as rp')
         .leftJoin('commercial.stock as s', (j) =>
           j.on('s.tenant_id', 'rp.tenant_id').andOn('s.warehouse_id', 'rp.warehouse_id').andOn('s.product_id', 'rp.product_id'))
@@ -1014,6 +1068,22 @@ export class CommercialReplenishmentService {
           j.on('abc.tenant_id', 'rp.tenant_id').andOn('abc.warehouse_id', 'rp.warehouse_id').andOn('abc.product_id', 'rp.product_id'));
       }
       this.criticalFilters(conteo, q, tenantId, whIds);
+      if (accion) {
+        conteo
+          .leftJoin('analytics.replenishment_plan as rpl', (j) =>
+            j.on('rpl.tenant_id', 'rp.tenant_id').andOn('rpl.warehouse_id', 'rp.warehouse_id').andOn('rpl.product_id', 'rp.product_id'))
+          .leftJoin(this.networkSurplus(trx, tenantId, target, basis === 'cadence'),
+            (j: Knex.JoinClause) => j.on('sbp.product_id', 'rp.product_id'));
+        if (basis === 'cadence') {
+          conteo
+            .leftJoin('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
+            .leftJoin('analytics.inventory_health as ih', (j) =>
+              j.on('ih.tenant_id', 'rp.tenant_id').andOn('ih.warehouse_id', 'rp.warehouse_id').andOn('ih.product_id', 'rp.product_id'))
+            .leftJoin('commercial.replenishment_channel as rc', (j) =>
+              j.on('rc.tenant_id', 'rp.tenant_id').andOn('rc.warehouse_id', 'rp.warehouse_id').andOn('rc.supplier_id', 'pr.supplier_id'));
+        }
+        conteo.andWhereRaw(`${this.accionExpr(sug, surH, tin)} = ?`, [accion]);
+      }
 
       const totalRow: any = await conteo.count('* as c').first();
       const total = Number(totalRow?.c || 0);
@@ -1024,10 +1094,7 @@ export class CommercialReplenishmentService {
       // con `ROUND(..., 1)`, y re-multiplicar un 0.1 por un factor de 58 inventa casi 6 unidades.
       // Se piden a la fuente. Son expresiones que esta consulta YA calcula (el bucket, el orden y
       // el costo trabajan sobre ellas sin dividir): agregarlas al SELECT no mueve ninguna cifra.
-      const sug = `GREATEST(0, ${target} - ${oh} - ${it})`;
-      const surH = `GREATEST(0, ${oh} - rp.max_stock)`;
-      const tin = this.transferIn(sug, surH);
-
+      // (`sug`, `surH` y `tin` se definen arriba: el filtro por acción también los usa.)
       const rows = await base.clone()
         .select(
           'rp.product_id',
@@ -1104,12 +1171,7 @@ export class CommercialReplenishmentService {
           trx.raw(`ROUND((${tin}) / (${cf}), 1) AS transfer_in`), // cubrible por traspaso
           trx.raw(`ROUND(GREATEST(0, ${sug} - ${tin}) / (${cf}), 1) AS buy_qty`), // compra REAL (residual)
           trx.raw(`CASE WHEN ${this.rungMedible()} THEN ROUND(GREATEST(0, ${sug} - ${tin}) * ${this.costUnit()}, 2) END AS buy_cost`),
-          trx.raw(`CASE
-              WHEN ${surH} > 0 THEN 'sobrante'
-              WHEN ${tin} > 0 AND ${sug} - ${tin} <= 0 THEN 'traspaso'
-              WHEN ${tin} > 0 THEN 'traspaso_parcial'
-              WHEN ${sug} > 0 THEN 'comprar'
-              ELSE 'ok' END AS accion`),
+          trx.raw(`${this.accionExpr(sug, surH, tin)} AS accion`),
         )
         // Dinero primero: el sugerido valorizado ($) manda. Sin esto, los 3k+
         // agotados (muchos SKUs admin/insumo con costo 0) acaparan 60+ páginas
@@ -1135,7 +1197,11 @@ export class CommercialReplenishmentService {
         })
         .limit(pageSize).offset((page - 1) * pageSize);
 
-      return { total, page, pageSize, target_basis: basis, rows };
+      return {
+        total, page, pageSize, target_basis: basis, rows,
+        politica_transito: POLITICA_TRANSITO,
+        aviso_transito: AVISO_TRANSITO[POLITICA_TRANSITO],
+      };
     });
   }
 
@@ -1219,6 +1285,12 @@ export class CommercialReplenishmentService {
       if (q.search && q.search.trim()) {
         base.join('catalog.suppliers as sup', (j) => j.on('sup.tenant_id', 'rp.tenant_id').andOn('sup.id', 'pr.supplier_id'))
           .andWhereRaw('sup.name ILIKE ?', [`%${q.search.trim()}%`]);
+      }
+      // `[AB.14]` Por SKU o nombre de producto — el mismo criterio que `criticalFilters()` usa para
+      // la tabla, para que la mesa de Autoabasto cuente lo mismo que lista.
+      if (q.product_search && q.product_search.trim()) {
+        const s = `%${q.product_search.trim()}%`;
+        base.andWhere((w) => w.whereILike('pr.sku', s).orWhereILike('pr.nombre', s));
       }
       const cost = this.costUnit();
       const cf = this.cajaFactor(); // divisor por-almacén para SUMar cajas reales (display)

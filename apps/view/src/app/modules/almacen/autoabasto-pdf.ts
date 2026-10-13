@@ -168,13 +168,20 @@ export async function descargarPdfAutoabasto(rep: AutoabastoReporte, opts: Autoa
   });
 
   // ── Notas: cómo se lee cada columna ────────────────────────────────────────────────────
+  // [AB.14] La nota sigue la política que mandó el servidor (transito.ts). Con `ignorar` el motor
+  // NO resta lo que está en camino, y el papel no puede afirmar lo contrario.
+  const ignoraTransito = rep.mesa.politica_transito === 'ignorar';
   const notas = [
-    'Cantidades en cajas. Falta = objetivo - existencia - en camino: lo que ya viene se descuenta.',
+    ignoraTransito
+      ? 'Cantidades en cajas. Falta = objetivo - existencia. Lo que está en camino NO se descuenta: revisa la columna En camino antes de pedir.'
+      : 'Cantidades en cajas. Falta = objetivo - existencia - en camino: lo que ya viene se descuenta.',
     'De la red: la parte del sobrante de otras sucursales que le toca a este almacén. Cuando varias sucursales necesitan el mismo producto, el sobrante se reparte en proporción a lo que le falta a cada una.',
     'A comprar: lo que falta después de descontar lo que se cubre con la red.',
   ];
   if (cubiertos > 0) {
-    notas.push(`${cubiertos} producto(s) están en su punto de reorden o por debajo, pero lo que ya viene en camino los cubre: no se imprimen.`);
+    notas.push(ignoraTransito
+      ? `${cubiertos} producto(s) están en su punto de reorden o por debajo, pero ya alcanzan su objetivo: no se imprimen.`
+      : `${cubiertos} producto(s) están en su punto de reorden o por debajo, pero lo que ya viene en camino los cubre: no se imprimen.`);
   }
   if (r.sin_valuar_politicas > 0) {
     notas.push(`${r.sin_valuar_politicas} producto(s) no entran en los importes de arriba: su costo de compra no coincide con su unidad, así que el dinero no se está midiendo. Las cantidades sí son válidas.`);

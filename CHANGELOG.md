@@ -22,6 +22,11 @@
 - Las cantidades ya no salen con decimales de caja: `333.7` pasa a `333 cj 14 paq` (caja, paquete de la ficha de Kepler de esa sucursal y pieza). Si un producto no tiene factor de caja, se muestra en su unidad con °. El total del producto va desglosado cuando todas las sucursales usan el mismo empaque; si no, en cajas enteras con `≈`.
 - Corregido de paso: el aviso «celdas valuadas con el catálogo» nunca aparecía (el servidor siempre mandaba 0); hoy son 34.
 - Sin migraciones ni permisos nuevos.
+### Fixed — Autoabasto: vuelve el PDF, el aviso de tránsito dice la verdad y el filtro de acción cubre todas las páginas (AB.14, 2026-10-12)
+- **Volvieron el botón «Descargar PDF» y los avisos de «Tu almacén»** en /almacen/autoabasto: un cambio del 8-oct (nombres de sucursal) se había hecho sobre una versión anterior de la pantalla y los borró.
+- **Lo que está en camino ya no se presenta como descontado.** Desde el 9-oct el sugerido no resta las órdenes en camino; la pantalla, el «por qué» de *Falta* y el PDF decían lo contrario. Ahora muestran el aviso real.
+- **El filtro «Acción» lo aplica el servidor**: antes sólo recortaba la página visible y el total era falso. «Sobrante» y «En política» ya aparecen.
+- **La búsqueda también filtra los indicadores de arriba por producto** (antes los filtraba por nombre de proveedor).
 ### Added — Avisos de cambios de precio a las sucursales, y Compras comparte la lista (ETQ-AVISOS.1–3, 2026-10-09)
 - **Aviso a la campana de cada sucursal:** a las **07:30** (resume AYER) y a las **14:00** (lo que va de HOY) llega «N productos cambiaron de precio» a quien ve la etiquetera de esa tienda, con enlace directo a la lista de ese día. Se cuenta con la **misma regla de la pantalla** (una sola función en `libs/contracts`), así aviso y lista no pueden discrepar. Un día sin cambios **no genera aviso**; si la bitácora de la plaza aún no llega a ese día se **declara** (`sin dato`), no se dice «no hubo cambios».
 - **Compras puede compartir** (permiso nuevo `STORE_LABELS_COMPARTIR`): botón «Compartir» en Cambios de precio para **avisar a sucursales** (elige plazas, agrega nota; cada plaza devuelve su estado con el motivo) (**sin exportar a Excel/CSV**, decisión de Edgar del 2026-10-10: el aviso lleva a Cambios de precio, donde se reimprime).

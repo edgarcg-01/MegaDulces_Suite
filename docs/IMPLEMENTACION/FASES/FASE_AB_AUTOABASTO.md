@@ -917,4 +917,84 @@ Prerrequisito de §15.1 resuelto. `transfer_in` deja de ser el sobrante de red e
 
 ### 15.5 🧪 [AB.13] El reporte PDF y el alcance por almacén — EN CÓDIGO 2026-10-07
 
+⚠️ **El frontend de AB.13 se perdió el 8-oct** (`fcf85959c`, `[SUC.1]`, hecho sobre una copia anterior a #314) y se restauró en `[AB.14]`.
+
 `GET /commercial/autoabasto/reporte` + botón «Descargar PDF». Sello de fecha y hora del **servidor** (hora de México) y usuario; un solo almacén por reporte; sólo lo que falta, agrupado por origen; «sin venta medida» aparte. El alcance de la mesa se resuelve en el área **Almacén** (ZN.8), y la mig `20261007200100` da `AUTOABASTO_VER` al almacenista + la regla `warehouse · almacen · own`. Simulado como almacenista con el código real (ver log 2026-10-07). **Abierto:** 5 de 6 almacenistas sin almacén en su ficha; el reporte de Padre Hidalgo son 96 páginas — la regla de redondeo (§15.2) y limpiar códigos `* DESC…`/servicios de las políticas lo achican.
+
+### 15.6 🧪 [AB.14] Arreglos menores tras la revisión del módulo — EN CÓDIGO 2026-10-12
+
+Revisión del módulo con Francisco (2026-10-12). Cuatro arreglos, sin migración ni permisos:
+
+1. **Se restaura el frontend de AB.13.** `fcf85959c` (`[SUC.1]`, 8-oct) se hizo sobre una copia de la
+   pantalla anterior a #314 y borró el botón «Descargar PDF», los avisos de alcance y la fijación del
+   almacén único. El endpoint `/reporte` seguía vivo y nadie lo llamaba. Se conservan los nombres de
+   sucursal que SUC.1 sí quería poner.
+2. **El tránsito.** Desde `[RA.TR]` (9-oct, `transito.ts`) la política es `ignorar`: el sugerido NO resta
+   lo que está en camino. El subtítulo, el «por qué» de *Falta* y las notas del PDF decían lo contrario.
+   `criticalStock()` publica ahora `politica_transito` + `aviso_transito` y los tres textos la siguen.
+3. **Filtro «Acción» en el servidor.** Se recortaba la página cargada (total ≤ 50). Una sola expresión
+   (`accionExpr()`) pinta la columna y filtra. `sobrante` y `ok` quedan fuera del recorte crítico por
+   defecto (existencia ≤ reorden), que los volvía imposibles de encontrar. Con el filtro puesto el
+   conteo suma sólo `rpl` + el reparto `sbp` (y el canal con base por cadencia), no el ranking ni
+   las tablas de decorado. Medido en prod (un almacén, página de 50): contar sobre la consulta
+   completa llevaba la página de 3.0–4.8 s a **6.4–9.8 s**; con el conteo ligero, **3.3–5.3 s**, y
+   los totales salen idénticos en los dos (01: 376 traspaso / 1,576 sobrante · 02: 321 / 1,399 ·
+   red: 10,973 sobrante = KPI «Sobrestock»). ⚠️ La página sin filtro **ya tardaba 3–5 s** antes de
+   este cambio; es deuda aparte del listado (13 relaciones + ranking).
+
+**Validación en pantalla (2026-10-12, API local contra prod en solo lectura):** aviso de tránsito ✓ ·
+alcance «20 almacenes» ✓ · nombres de sucursal ✓ · La Piedad + Traspaso → 321 renglones en varias
+páginas ✓ · PDF habilitado con un almacén, generado en 6 s con la nota «NO se descuenta» y sólo
+traspasos ✓ · tooltip de *Falta* sin «− en camino» ✓. Visto de paso: el tooltip muestra
+«0.3 − 0.1 = 0.3» por el redondeo a un decimal en cajas (preexistente; lo resuelve §15.2).
+4. **El resumen busca por producto** (`product_search`). En `summary()` `search` sigue siendo por
+   proveedor, que es como lo usa Compras.
+
+### 15.7 Revisión de la lógica de negocio — medido en prod (solo lectura) 2026-10-12
+
+**Red de abasto, configurada como la describe el negocio** (`replenishment_channel`): 02, 03 y 04 se
+surten de la 01; la 05 de la 06; la 07 de la 08; 01, 06 y 08 del 00. Matrices: **00, 01, 06, 08**.
+
+**El mín/máx dinámico vigente es el motor de `/compras/pedido`, y SÍ está corriendo — pero Autoabasto
+no lo usa.** (Corregido el mismo 2026-10-12: primero se buscó como `reorder_policy.source='dynamic'`,
+que es el contrato de `FASE_RA_PEDIDO_PERSPECTIVA` Etapa 5, y ahí hay 0 filas; Francisco señaló que el
+dinámico es el de `/compras/pedido`.) `workbook()` NO lee `reorder_policy` para decidir: calcula el
+objetivo al vuelo como **venta limpia de 30 días** (`analytics.product_demand`, ventana anclada por
+almacén) **× temporalidad** (`replenishment_plan.season_ratio` = índice de los próximos 30 d ÷ últimos
+30 d) **× días de cobertura** (30 por default), con demanda dependiente en las matrices. El fact se
+recalcula cada noche (`fact_replenishment_plan_nightly`, ok 2026-10-12 03:36 MX) y durante el día al
+cambiar la existencia (`fact_replenishment_plan_stock`, ok). Es diario, no semanal.
+
+**Autoabasto usa otro número**: `reorder_policy.max_stock` de `import-computed-reorder.js` (venta de
+**90 días**, colchón por nivel de servicio, ciclo de 14 d). Comparado contra el objetivo de
+`/compras/pedido` (aproximado: cobertura 30 d, sin factor de surtido), por sucursal:
+
+| | 01 | 02 | 03 | 04 | 05 | 06 | 07 | 08 |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| mediana máx Autoabasto ÷ objetivo Pedido | 1.52 | 1.12 | 0.97 | 1.25 | 1.24 | 1.43 | 0.99 | 1.29 |
+| % que difieren más de 25% | 79.5 | 69.1 | 70.4 | 69.2 | 73.5 | 76.5 | 70.2 | 72.8 |
+| Autoabasto pide y Pedido no (sin venta 30 d) | 1,383 | 1,515 | 1,564 | 1,056 | 1,261 | 905 | 406 | 301 |
+
+O sea: **el almacenista y el comprador ven objetivos distintos para el mismo producto**, lo que la propia
+mesa promete evitar («dos audiencias, un solo número»). Además `reorder_policy` arrastra dos huecos:
+no recalcula las 1,485 políticas `kepler` de 02–05 (fijas desde julio/agosto) ni retira las de productos
+que dejaron de vender. **Siguiente paso:** que Autoabasto tome el objetivo del motor de `/compras/pedido`
+(venta 30 d × temporalidad), que es justo lo que pide el negocio.
+
+**⛔ El CEDIS 00 no tiene existencia desde el 29-sep**: 196 renglones en `commercial.stock` contra 5,046
+en `kepler_ods.kdil`. `import-branch-stock-live.js` lo excluye porque «viene de Wincaja», y Wincaja dejó
+de alimentarlo con el corte del 30-sep. Sale agotado en 5,754 de 5,930 productos y no aporta a la
+nivelación. Coordinar con la sesión de `IC.CEDIS`.
+
+**Parámetros:** fuera del 00, sólo el 9.5% de los productos está entre reorden y máximo; 36% arriba del
+máximo y 33% agotado.
+
+**Decisiones de Francisco (2026-10-12)**, para la vista de matrices (Nivelación):
+- **Cuánto cede la matriz:** lo que pasa del **máximo** se propone siempre; lo que está entre **reorden y
+  máximo** sólo si hay una sucursal **agotada**. (Afina la decisión #7.)
+- **Alcance en dos capas:** capa 1 = la matriz con **sus** sucursales; capa 2 = **toda la red**.
+- **Mín/reorden/máx:** lo define el módulo del PM; acá sólo se verifica que esté vigente (ver arriba).
+
+**Siguiente:** vista «Mi pedido» para sucursales que no surten a otras (por origen, venta 30d, negados
+de la Fase DN, ya pedido, cubiertos, redondeo §15.2) → Nivelación de matrices → guardar el pedido
+semanal (AB.7/AB.8) → aprendizaje.
