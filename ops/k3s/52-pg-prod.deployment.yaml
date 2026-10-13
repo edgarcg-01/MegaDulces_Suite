@@ -65,7 +65,19 @@ spec:
       terminationGracePeriodSeconds: 300
       containers:
         - name: postgres
-          image: localhost:5000/trade-prod-pg:__COMMIT__
+          # ⭐ [DEPLOY.2] TAG ESTABLE, NO `__COMMIT__`. Esta imagen NO lleva código de la app:
+          # es `pgvector/pgvector:pg18` + pgbackrest (versión fijada) + un `.conf`. Con
+          # `__COMMIT__`, el aplicador le cambiaba el tag en CADA despliegue → cambiaba la
+          # plantilla del Pod → y con `replicas: 1` + `Recreate` eso MATA LA BASE DE DATOS DE
+          # PRODUCCIÓN. Medido el 2026-10-13: 11 ReplicaSets, uno por despliegue, y el respaldo
+          # del 12-oct muerto con `FATAL: terminating connection due to administrator command`
+          # 5 segundos después de uno. `redis`, misma estrategia y sin `__COMMIT__`, lleva 1 solo
+          # ReplicaSet en 5 días — ése es el control.
+          # ⚠️ El tag es el hash de las entradas de la imagen y lo vigila
+          # `npm run check:base-tags`: si cambiás `Dockerfile.pg` o `pgbackrest.conf` y no lo
+          # bumpeás, la compuerta se pone roja. Sin ella, prod seguiría sirviendo la imagen
+          # VIEJA sin un solo error.
+          image: localhost:5000/trade-prod-pg:base-ab04fe3d5350
           # ═══ [K3S.42] EL `command` DEL COMPOSE — SIN ESTO EL POD ARRANCA EN DEFAULTS ═══
           #
           # ⛔⛔ ESTO FALTABA EN LOS TRES MANIFIESTOS Y DOS YA ESTABAN EN PRODUCCIÓN ASÍ.

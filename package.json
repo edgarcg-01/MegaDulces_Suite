@@ -42,6 +42,7 @@
     "check:provenance": "node scripts/check-provenance.js",
     "check:docker": "node scripts/check-docker-context.js",
     "check:k3s": "node scripts/check-k3s-manifests.js",
+    "check:base-tags": "node scripts/check-base-image-tags.js",
     "typecheck:fast": "nx run api:typecheck",
     "check:ts7paths": "node scripts/check-ts7-paths.js",
     "check:powershell": "node scripts/check-powershell.js",

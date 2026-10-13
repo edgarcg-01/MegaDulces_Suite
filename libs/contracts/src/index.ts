@@ -104,12 +104,15 @@ export * from './http/vendor-route-day-pick.contract';
 export * from './http/service-desk.contract';
 export * from './http/hr-attendance.contract';
 export * from './http/hr-talent.contract';
+export * from './http/hr-liderazgo.contract';
 // [EMB.12] «Nuevo embarque» desde Kepler: la hoja del viaje, la lista y la toma. Sólo tipos.
 export * from './http/nuevo-embarque.contract';
 export * from './http/viaticos-guia.contract';
 export * from './http/revision-gps.contract';
 // [EMB.24]–[EMB.29] Pago por viaje cerrado: cierre de paradas, cargadores y lo que se libera.
 export * from './http/cierre-viaje.contract';
+// [EMB.32] Alta rápida de ayudantes y cargadores desde la guía y el cierre.
+export * from './http/alta-persona.contract';
 // [RE.35] El expediente de la factura de una orden de entrada (el papel identifica, el CFDI informa).
 export * from './http/receipt-expediente.contract';
 // [GX.14] Egresos: lo que quien gasta aporta antes de mandar la solicitud a revision.

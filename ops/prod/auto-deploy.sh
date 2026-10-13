@@ -717,6 +717,65 @@ for img in $_imgs_k3s; do
   fi
 done
 
+# ═══ [DEPLOY.2] LAS IMÁGENES BASE: TAG ESTABLE, Y SÓLO SE CONSTRUYEN SI FALTAN ═════════════
+#
+# ⛔ POR QUÉ. `pg-prod` y `caddy` pedían `:__COMMIT__`, así que el aplicador les cambiaba el
+# tag en CADA despliegue → cambiaba la plantilla del Pod → y las dos son `replicas: 1` +
+# `Recreate`. O sea que cada despliegue MATABA LA BASE DE DATOS y LA PUERTA DE ENTRADA, sin
+# que ninguna de las dos lleve una línea de código de la app.
+#
+# Medido en prod el 2026-10-13: 11 ReplicaSets de cada una, uno por despliegue con las horas
+# calzando con este mismo log; el respaldo del 12-oct muerto con `FATAL: terminating
+# connection due to administrator command` 5 s después de uno; y `redis` —misma estrategia,
+# sin `__COMMIT__`— con 1 solo ReplicaSet en 5 días.
+#
+# Ahora el manifiesto trae un tag `base-<hash de sus entradas>`, que cambia sólo cuando
+# cambia el Dockerfile o sus archivos. Lo vigila `npm run check:base-tags`.
+#
+# ⚠️ ESTE BLOQUE NO ES OPCIONAL. Sin él estas imágenes dejarían de construirse —se detectaban
+# por `:__COMMIT__`, que ya no tienen— el registry no tendría el tag, y los pods quedarían en
+# ImagePullBackOff. Que es exactamente la caída de 32 minutos del 2026-10-01.
+_bases_k3s=$(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):\(base-[0-9a-f]\{6,\}\).*#\1 \2#p' \
+              "$K3S_DIR_AD"/*.yaml 2>/dev/null | sort -u || true)
+
+# ⚠️ Sin tubería: un `while read` del otro lado de un `|` corre en subshell y un `exit 1` de
+# adentro NO corta el guion — exactamente la trampa que ya mordió en `[VL.4]`.
+_LISTA_BASES=$(mktemp); printf '%s\n' "$_bases_k3s" > "$_LISTA_BASES"
+while IFS=' ' read -r img tag; do
+  [ -n "$img" ] && [ -n "$tag" ] || continue
+  # Si el registry YA la tiene, no se toca: ése es todo el punto — que no cambie nada.
+  if curl -fsS -o /dev/null \
+       -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+       -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+       -H 'Accept: application/vnd.oci.image.index.v1+json' \
+       "http://127.0.0.1:5000/v2/$img/manifests/$tag" 2>/dev/null; then
+    di "  $img:$tag ya está en el registry — no se reconstruye (y por eso el pod NO se recrea)"
+    continue
+  fi
+  case "$img" in
+    trade-prod-caddy)  _dfb=ops/prod/Dockerfile.caddy ;;
+    trade-prod-pg)     _dfb=ops/prod/Dockerfile.pg ;;
+    trade-prod-backup) _dfb=ops/prod/Dockerfile.backup ;;
+    *) di "FALLO: el manifiesto pide la imagen base $img:$tag y este carril no sabe construirla."
+       latir error "auto-deploy no sabe construir la base $img"; rm -f "$_LISTA_BASES"; exit 1 ;;
+  esac
+  [ -f "$_dfb" ] || { di "FALLO: falta $_dfb para $img"; latir error "falta $_dfb"; rm -f "$_LISTA_BASES"; exit 1; }
+  di "construyendo IMAGEN BASE $img:$tag (cambió alguna de sus entradas)"
+  # ⛔ Sin `--build-arg GIT_COMMIT_*`: meter el commit acá volvería la imagen distinta en cada
+  # despliegue otra vez, que es el bug que este bloque existe para no repetir.
+  if ! docker build -q -f "$_dfb" -t "$img:$tag" -t "localhost:5000/$img:$tag" . >/tmp/auto-build-$img.log 2>&1; then
+    di "FALLO: no compiló la imagen base $img"
+    tail -15 /tmp/auto-build-$img.log | sed 's/^/      /'
+    latir error "build de la base $img falló"; rm -f "$_LISTA_BASES"; exit 1
+  fi
+  if ! docker push -q "localhost:5000/$img:$tag" >/dev/null 2>&1; then
+    di "FALLO: no se pudo publicar $img:$tag en el registry"
+    latir error "push de la base $img:$tag falló"; rm -f "$_LISTA_BASES"; exit 1
+  fi
+  di "  publicada $img:$tag"
+done < "$_LISTA_BASES"
+rm -f "$_LISTA_BASES"
+
 # ═══ [K3S.24] AL REGISTRY, EN CADA DESPLIEGUE ══════════════════════════════════════════════
 #
 # Este es el camino que despliega ~7 veces al día; `ops/prod/deploy.sh` casi no se usa. Una

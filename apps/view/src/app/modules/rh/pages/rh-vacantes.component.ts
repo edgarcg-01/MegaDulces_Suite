@@ -2,7 +2,7 @@ import { ChangeDetectionStrategy, Component, OnInit, computed, inject, signal } 
 import { FormsModule } from '@angular/forms';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
-import type { HrVacanteDto, HrVacanteEdicion } from '@megadulces/contracts';
+import { HR_SUCURSALES_EMPLEO, type HrVacanteDto, type HrVacanteEdicion } from '@megadulces/contracts';
 import { PermissionsService } from '../../../core/services/permissions.service';
 import { Permission } from '../../../core/constants/permissions';
 import { LoadStateComponent } from '../../../shared/components/load-state/load-state.component';
@@ -12,14 +12,14 @@ import { ReclutamientoService } from '../reclutamiento.service';
 import { rhError } from '../rh.service';
 
 interface FormVacante {
-  id: string | null; name: string; area: string; branches_text: string; salary_text: string; schedule_text: string;
+  id: string | null; name: string; area: string; branch_codes: string[]; branches_text: string; salary_text: string; schedule_text: string;
   requirements: string; description: string; image_url: string; is_active: boolean; sort_order: number;
 }
 
 /** El formulario de una vacante (vacío para una nueva). */
 export function formDe(v: HrVacanteDto | null): FormVacante {
   return {
-    id: v?.id ?? null, name: v?.name ?? '', area: v?.area ?? '', branches_text: v?.branches_text ?? '', salary_text: v?.salary_text ?? '',
+    id: v?.id ?? null, name: v?.name ?? '', area: v?.area ?? '', branch_codes: [...(v?.branch_codes ?? [])], branches_text: v?.branches_text ?? '', salary_text: v?.salary_text ?? '',
     schedule_text: v?.schedule_text ?? '', requirements: v?.requirements ?? '', description: v?.description ?? '',
     image_url: v?.image_url ?? '', is_active: v?.is_active ?? true, sort_order: v?.sort_order ?? 999,
   };
@@ -29,7 +29,7 @@ export function formDe(v: HrVacanteDto | null): FormVacante {
 export function cuerpoDe(f: FormVacante): HrVacanteEdicion {
   const t = (s: string) => s.trim() || null;
   return {
-    name: f.name.trim(), area: t(f.area), branches_text: t(f.branches_text), salary_text: t(f.salary_text),
+    name: f.name.trim(), area: t(f.area), branch_codes: [...f.branch_codes], branches_text: t(f.branches_text), salary_text: t(f.salary_text),
     schedule_text: t(f.schedule_text), requirements: t(f.requirements), description: t(f.description), image_url: t(f.image_url),
     is_active: f.is_active, sort_order: Number(f.sort_order) || 999,
   };
@@ -69,7 +69,7 @@ export function cuerpoDe(f: FormVacante): HrVacanteEdicion {
                       @if (gestiona()) { <button type="button" class="rv-nom" (click)="editar(v)">{{ v.name }}</button> } @else { <b>{{ v.name }}</b> }
                     </td>
                     <td role="cell" data-label="Área">{{ v.area || '—' }}</td>
-                    <td role="cell" data-label="Plazas">{{ v.branches_text || (v.branch_codes.length ? v.branch_codes.join(', ') : '—') }}</td>
+                    <td role="cell" data-label="Plazas">{{ plazas(v) }}</td>
                     <td role="cell" data-label="Sueldo">{{ v.salary_text || '—' }}</td>
                     <td role="cell" data-label="Horario">{{ v.schedule_text || '—' }}</td>
                     <td role="cell" data-label="Estado"><span class="pill" [attr.data-t]="v.is_active ? 'ok' : 'gris'">{{ v.is_active ? 'Publicada' : 'Cerrada' }}</span></td>
@@ -87,7 +87,14 @@ export function cuerpoDe(f: FormVacante): HrVacanteEdicion {
           <form class="rv-form" (ngSubmit)="guardar()" aria-label="Datos de la vacante">
             <label>Nombre <input pInputText name="name" [(ngModel)]="f.name" required maxlength="200" /></label>
             <label>Área <input pInputText name="area" [(ngModel)]="f.area" /></label>
-            <label>Plazas <input pInputText name="plazas" [(ngModel)]="f.branches_text" placeholder="Zamora y La Piedad" /></label>
+            <fieldset class="rv-suc">
+              <legend>Sucursales donde se contrata</legend>
+              <small>Sin ninguna marcada, la vacante sale en todas las ciudades de la bolsa de trabajo.</small>
+              @for (s of sucursales; track s.id) {
+                <label class="rv-check"><input type="checkbox" [checked]="f.branch_codes.includes(s.id)" (change)="alternar(f, s.id)" /> {{ s.ciudad }} — {{ sucursalCorta(s.direccion) }}</label>
+              }
+            </fieldset>
+            <label>Plazas (texto que se publica, opcional) <input pInputText name="plazas" [(ngModel)]="f.branches_text" placeholder="Zamora y La Piedad" /></label>
             <label>Sueldo <input pInputText name="sueldo" [(ngModel)]="f.salary_text" placeholder="$2,300 semanales" /></label>
             <label>Horario <input pInputText name="horario" [(ngModel)]="f.schedule_text" /></label>
             <label>Requisitos <textarea pInputText name="req" rows="3" [(ngModel)]="f.requirements"></textarea></label>
@@ -125,6 +132,9 @@ export function cuerpoDe(f: FormVacante): HrVacanteEdicion {
     .rv-form { display: flex; flex-direction: column; gap: var(--sp-3); }
     .rv-form label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .rv-form .rv-check { flex-direction: row; align-items: center; gap: var(--sp-2); }
+    .rv-suc { border: 1px solid var(--border-color); border-radius: var(--r-sm); padding: var(--sp-2) var(--sp-3); margin: 0; display: flex; flex-direction: column; gap: var(--sp-1); }
+    .rv-suc legend { font-size: var(--fs-xs); color: var(--text-muted); padding: 0 var(--sp-1); }
+    .rv-suc small { font-size: var(--fs-xs); color: var(--text-muted); }
     .rv-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
     @media (max-width: 40rem) { .rv-page { padding: var(--sp-3); } }
   `],
@@ -133,6 +143,7 @@ export class RhVacantesComponent implements OnInit {
   private readonly api = inject(ReclutamientoService);
   private readonly perms = inject(PermissionsService);
 
+  readonly sucursales = HR_SUCURSALES_EMPLEO;
   readonly vacantes = signal<HrVacanteDto[]>([]);
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -146,6 +157,13 @@ export class RhVacantesComponent implements OnInit {
 
   ngOnInit(): void { this.cargar(); }
 
+  /** Las plazas: el texto de RH si lo hay; si no, las ciudades de sus sucursales; sin sucursales, todas. */
+  plazas(v: HrVacanteDto): string {
+    if (v.branches_text) return v.branches_text;
+    if (!v.branch_codes.length) return 'Todas';
+    return [...new Set(HR_SUCURSALES_EMPLEO.filter((s) => v.branch_codes.includes(s.id)).map((s) => s.ciudad))].join(' · ') || v.branch_codes.join(', ');
+  }
+
   cargar(): void {
     this.loading.set(true);
     this.error.set(null);
@@ -153,6 +171,15 @@ export class RhVacantesComponent implements OnInit {
       next: (v) => { this.vacantes.set(v); this.loading.set(false); },
       error: (e) => { this.error.set(rhError(e, 'No se pudieron leer las vacantes.')); this.loading.set(false); },
     });
+  }
+
+  /** La primera parte de la dirección (calle y número), para distinguir dos sucursales de la misma ciudad. */
+  sucursalCorta(dir: string): string {
+    return dir.split(',')[0] || dir;
+  }
+
+  alternar(f: FormVacante, id: string): void {
+    f.branch_codes = f.branch_codes.includes(id) ? f.branch_codes.filter((x) => x !== id) : [...f.branch_codes, id];
   }
 
   editar(v: HrVacanteDto | null): void {

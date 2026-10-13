@@ -143,9 +143,13 @@ export interface NuevoEmbarqueComision {
   emparejadas: Array<{
     clave: string; nombre: string | null; route_id: string;
     metodo: 'kepler_code' | 'nombre'; driver: number; helper: number;
+    /** `[EMB.33]` La ruta no paga comisión (traslado local): cuenta como emparejada en $0. */
+    sin_comision?: boolean;
   }>;
   /** Rutas del viaje que el catálogo de la Suite no tiene: no se adivina su tarifa. */
   sin_tarifa: Array<{ clave: string; nombre: string | null }>;
+  /** `[EMB.33]` Todas las rutas del viaje son «sin comisión»: la guía va con comisión $0, sin error. */
+  sin_comision?: boolean;
 }
 
 /** La hoja de un viaje: lo que Kepler ya escribió + la tarifa del catálogo + si ya se tomó. */
@@ -242,7 +246,7 @@ export function comisionesDeLaGuia(
  * que falta podría ser justo la mayor (la más lejana), y tomar otra sería pagar de menos.
  */
 export function erroresDeTarifa(
-  comision: Pick<NuevoEmbarqueComision, 'driver' | 'helper' | 'sin_tarifa' | 'ruta_usada'>,
+  comision: Pick<NuevoEmbarqueComision, 'driver' | 'helper' | 'sin_tarifa' | 'ruta_usada' | 'sin_comision'>,
   paradasSinRuta: number,
   ayudantes: { helper1: boolean; helper2: boolean },
 ): string[] {
@@ -254,6 +258,8 @@ export function erroresDeTarifa(
     return [`Falta la tarifa de ${comision.sin_tarifa.map(nombre).join(', ')} en ${DONDE_SE_CAPTURA_LA_TARIFA}.`];
   }
   if (!comision.ruta_usada) return ['El viaje no tiene ruta en Kepler: sin ruta no se calcula la comisión.'];
+  // [EMB.33] Traslado local: la ruta no paga comisión. La guía se completa en $0, sin error.
+  if (comision.sin_comision) return [];
   const ruta = nombre(comision.ruta_usada);
   const e: string[] = [];
   if (!((comision.driver ?? 0) > 0)) e.push(`${ruta} no tiene tarifa de chofer en ${DONDE_SE_CAPTURA_LA_TARIFA}.`);

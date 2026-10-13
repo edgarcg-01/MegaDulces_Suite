@@ -3,8 +3,10 @@ import { FormsModule } from '@angular/forms';
 import { SelectModule } from 'primeng/select';
 import { InputTextModule } from 'primeng/inputtext';
 import { ButtonModule } from 'primeng/button';
-import type {
-  HrCandidatoEdicion, HrCandidatoFichaDto, HrCasilleroDto, HrDocumentoDto, HrTalentCanal, HrTalentEtapa, HrTalentTipoEvento,
+import {
+  HR_ESTILOS_LIDERAZGO, hrResultadoLiderazgo,
+  type HrCandidatoEdicion, type HrCandidatoFichaDto, type HrCasilleroDto, type HrDocumentoDto, type HrLigaCreadaDto, type HrTalentCanal,
+  type HrTalentEtapa, type HrTalentTipoEvento,
 } from '@megadulces/contracts';
 import { ReclutamientoService } from '../reclutamiento.service';
 import { rhError } from '../rh.service';
@@ -144,7 +146,8 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
             <dt>Correo</dt><dd>{{ f.email || '—' }}</dd>
             <dt>Plaza</dt><dd>{{ f.city_branch || '—' }}</dd>
             <dt>Puesto que busca</dt><dd>{{ f.position_interest || '—' }}</dd>
-            <dt>Llegó por</dt><dd>{{ f.source || '—' }}</dd>
+            <dt>Se enteró por</dt><dd>{{ f.source || '—' }}</dd>
+            <dt>Entró por</dt><dd>{{ f.origin === 'web' ? 'La página web' : f.origin === 'whatsapp' ? 'WhatsApp' : (f.origin || '—') }}</dd>
             <dt>Alta</dt><dd>{{ fechaHoraMx(f.created_at) }}</dd>
             <dt>Tiempo de traslado</dt><dd>{{ f.commute_time || '—' }}</dd>
             <dt>Disponibilidad</dt><dd>{{ f.availability || '—' }}</dd>
@@ -202,6 +205,20 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
             <small class="cf-nota">PDF o imagen, hasta 10 MB.</small>
           </div>
         }
+        @if (gestiona() && !f.deleted_at) {
+          <div class="cf-liga" role="group" aria-label="Liga para que suba su CV">
+            @if (liga(); as l) {
+              <p class="cf-nota">Liga lista (vence {{ fechaMx(l.expires_at) }}). Es personal: sólo sirve para subir el CV de esta persona.</p>
+              <input class="cf-liga-url" readonly [value]="l.url" aria-label="Liga para subir el CV" />
+              <div class="cf-fila">
+                @if (l.whatsapp_url) { <a class="cf-wa" [href]="l.whatsapp_url" target="_blank" rel="noopener">Mandar por WhatsApp</a> }
+                <p-button label="Copiar" size="small" severity="secondary" [outlined]="true" (onClick)="copiarLiga(l)" />
+              </div>
+            } @else {
+              <p-button label="Mandar liga para subir su CV" size="small" severity="secondary" [outlined]="true" [loading]="ocupado()" (onClick)="pedirLiga('cv')" />
+            }
+          </div>
+        }
         @if (expediente().retirados.length) {
           <details class="cf-ret"><summary>{{ expediente().retirados.length }} retirado(s)</summary>
             <ul class="cf-lista">
@@ -210,6 +227,31 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
               }
             </ul>
           </details>
+        }
+      </section>
+
+      <section class="cf-sec" aria-label="Cuestionario de liderazgo">
+        <h3>Cuestionario de liderazgo</h3>
+        @let l = liderazgo();
+        @if (!l.contestadas) {
+          <p class="cf-nota">No lo ha contestado.</p>
+        } @else if (l.contestadas < l.total) {
+          <p class="cf-nota">Lleva {{ l.contestadas }} de {{ l.total }} preguntas.@if (contestandoAhora()) { <b> Contestando ahora.</b>}</p>
+        } @else {
+          <p><b class="mono">{{ l.porcentaje }}%</b> · {{ l.interpretacion }}</p>
+          <p class="cf-nota">{{ estiloNombre(l.estilo) }} · tarea {{ l.puntajeTarea }}/30 · relaciones {{ l.puntajeRelaciones }}/30
+            @if (l.porcentaje >= 66) { · <span class="pill" data-t="etapa">califica</span> } @else { · no llega al 66% }</p>
+        }
+        @if (gestiona() && !f.deleted_at && l.contestadas < l.total) {
+          @if (ligaLiderazgo(); as ll) {
+            <input class="cf-liga-url" readonly [value]="ll.url" aria-label="Liga del cuestionario" />
+            <div class="cf-fila">
+              @if (ll.whatsapp_url) { <a class="cf-wa" [href]="ll.whatsapp_url" target="_blank" rel="noopener">Mandar por WhatsApp</a> }
+              <p-button label="Copiar" size="small" severity="secondary" [outlined]="true" (onClick)="copiarLiga(ll)" />
+            </div>
+          } @else {
+            <p-button label="Mandar liga del cuestionario" size="small" severity="secondary" [outlined]="true" [loading]="ocupado()" (onClick)="pedirLiga('liderazgo')" />
+          }
         }
       </section>
 
@@ -310,6 +352,10 @@ type Accion = null | 'no_rehire' | 'spam' | 'papelera' | 'retirar' | 'fusionar' 
     .cf-archivo input { position: absolute; inset: 0; opacity: 0; cursor: pointer; }
     .cf-archivo:focus-within { outline: 2px solid var(--focus-ring); }
     .cf-ret summary { cursor: pointer; font-size: var(--fs-xs); color: var(--text-muted); }
+    .cf-liga { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-2) var(--sp-3); border: 1px dashed var(--border-color); border-radius: var(--r-sm); }
+    .cf-liga-url { font-family: var(--font-mono); font-size: var(--fs-xs); padding: var(--sp-1) var(--sp-2); border: 1px solid var(--border-color);
+      border-radius: var(--r-sm); background: var(--surface-2); color: var(--text-main); width: 100%; }
+    .cf-wa { color: var(--action); font-weight: 600; }
     .cf-form { display: flex; flex-direction: column; gap: var(--sp-2); }
     .cf-form label { display: flex; flex-direction: column; gap: var(--sp-1); font-size: var(--fs-xs); color: var(--text-muted); }
     .cf-evento { flex-direction: row; flex-wrap: wrap; align-items: center; }
@@ -352,6 +398,16 @@ export class RhCandidatoFichaComponent {
   readonly motivo = signal('');
   readonly etapaElegida = signal<HrTalentEtapa | null>(null);
   readonly casillero = signal<string | null>(null);
+  readonly liga = signal<HrLigaCreadaDto | null>(null);
+  readonly ligaLiderazgo = signal<HrLigaCreadaDto | null>(null);
+  /** El resultado del cuestionario, calculado con el mismo código que usa el servidor para decidir. */
+  readonly liderazgo = computed(() => hrResultadoLiderazgo(
+    (this.ficha().portal_data?.['cuestionarioLiderazgo'] ?? null) as Record<number, number> | null));
+  /** ¿Lo está contestando ahora? (respondió hace menos de 30 s, como en Mega Talento). */
+  readonly contestandoAhora = computed(() => {
+    const t = this.ficha().portal_data?.['ultimaActividadCuestionario'];
+    return typeof t === 'string' && Date.now() - new Date(t).getTime() < 30_000;
+  });
   edicion: HrCandidatoEdicion = {};
   nuevoEvento: { event_type: HrTalentTipoEvento; channel: HrTalentCanal | null; note: string } = { event_type: 'contacto', channel: null, note: '' };
 
@@ -467,6 +523,25 @@ export class RhCandidatoFichaComponent {
       this.ocupado.set(false);
       this.aviso.set({ texto: 'No se pudo leer el archivo.', mal: true });
     }
+  }
+
+  estiloNombre(e: keyof typeof HR_ESTILOS_LIDERAZGO): string {
+    return HR_ESTILOS_LIDERAZGO[e].nombre;
+  }
+
+  /** `[RH.2.4]` Genera una liga personal (subir el CV o el cuestionario de liderazgo; vence en 7 días). */
+  pedirLiga(form: 'cv' | 'liderazgo'): void {
+    this.ocupado.set(true);
+    this.api.crearLiga(this.ficha().id, form).subscribe({
+      next: (l) => { this.ocupado.set(false); (form === 'cv' ? this.liga : this.ligaLiderazgo).set(l); this.aviso.set(null); },
+      error: (e) => { this.ocupado.set(false); this.aviso.set({ texto: rhError(e, 'No se pudo generar la liga.'), mal: true }); },
+    });
+  }
+
+  copiarLiga(l: HrLigaCreadaDto): void {
+    const ok = () => this.aviso.set({ texto: 'Mensaje con la liga copiado: pégalo en WhatsApp.', mal: false });
+    const mal = () => this.aviso.set({ texto: 'No se pudo copiar: selecciona la liga y cópiala a mano.', mal: true });
+    if (navigator.clipboard?.writeText) navigator.clipboard.writeText(l.mensaje).then(ok, mal); else mal();
   }
 
   fusionar(absorbId: string): void {

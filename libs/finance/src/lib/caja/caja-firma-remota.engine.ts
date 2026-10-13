@@ -166,6 +166,59 @@ export function normalizarCodigo(c: string | null | undefined): string {
 export const TOPE_INTENTOS = 5;
 
 /**
+ * ⭐⭐ `[CG.84]` **EL PASE: firmar sin iniciar sesión.**
+ *
+ * Edgar, 2026-10-13: *"el no password para firmar"*. Y tenía razón en que molestaba: la pantalla
+ * del teléfono exigía `FINANCE_CAJA_VER`, o sea **sesión**. La sesión dura 12 h, así que el
+ * teléfono que se dejó logueado ayer ya caducó, y el de la persona que viene a firmar nunca lo
+ * estuvo. Firmar un recibo no debería pedir ser empleado del área de finanzas.
+ *
+ * ── Por qué un pase y no simplemente abrir la ruta ──────────────────────────────────────────
+ *
+ * Quitar el guard no alcanzaba: el canal también autentica por JWT en el handshake, y sin tenant
+ * no hay forma de calcular la room. La salida obvia era que el teléfono mandara `tenant + código`
+ * sueltos, y es peor: publica el identificador del tenant y vuelve al código de 6 la única llave
+ * de una room que cualquiera puede nombrar.
+ *
+ * El pase es **la misma llave que ya existe, firmada**. Lo emite el servidor cuando la PC —ya
+ * autenticada y con permiso de GESTIONAR— pide el código, vive lo mismo que el código
+ * (`FIRMA_VIDA_MS`), y lleva adentro el tenant y el código. El teléfono no elige nada: presenta
+ * el pase y el servidor sabe a qué room meterlo. **Nada nuevo que adivinar y nada nuevo que
+ * guardar** — sigue sin haber estado del lado del servidor.
+ *
+ * ⛔ Y el invitado es un invitado: no entra a la room del tenant (no recibe NINGÚN aviso de caja),
+ * no puede pedir códigos, y queda atado al código de SU pase — con el pase de un movimiento no
+ * puede reclamar el de otro. Lo único que puede hacer es lo que vino a hacer: firmar.
+ */
+export const CLAVE_PASE = 'firma-pase';
+
+/** Lo que viaja dentro del pase. Mínimo a propósito: el contexto del dinero ya viaja por la room. */
+export interface PaseDeFirma {
+  /** Marca de tipo: un JWT de sesión NUNCA la trae, así que no se puede usar uno en su lugar. */
+  readonly k: string;
+  /** Tenant. */
+  readonly t: string;
+  /** El código al que este pase queda atado. */
+  readonly c: string;
+}
+
+/**
+ * ¿Este payload es un pase de firma bien formado?
+ *
+ * ⚠️ Puro: la EXPIRACIÓN no se verifica acá — la verifica quien valida la firma del JWT, que es
+ * el único que puede. Esto comprueba la FORMA. Separarlas es a propósito: un `verify()` que
+ * devuelve un payload cualquiera no prueba que ese payload sea un pase, y sin esta función un
+ * token de sesión válido serviría para entrar como invitado a una room.
+ */
+export function esPaseDeFirma(p: unknown): p is PaseDeFirma {
+  const x = p as Record<string, unknown> | null;
+  return !!x
+    && x['k'] === CLAVE_PASE
+    && typeof x['t'] === 'string' && (x['t'] as string).length > 0
+    && typeof x['c'] === 'string' && normalizarCodigo(x['c'] as string).length === LARGO;
+}
+
+/**
  * ¿Hay que cortarle a este socket? Se consulta ANTES de mirar el código: un socket que ya gastó
  * sus intentos no merece siquiera saber si el siguiente existe — responderle `no_existe` le
  * confirmaría que el anterior tampoco, que es exactamente la señal que busca quien tantea.

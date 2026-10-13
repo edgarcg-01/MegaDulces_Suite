@@ -107,7 +107,7 @@ export class CashLedgerService {
   }
 
   /** PROPONE. No guarda nada. Lo que no puede proponer vuelve en null con su motivo. */
-  autofill(input: { tipo?: string; sucursal?: string; glosa?: string; beneficiario?: string; beneficiario_rfc?: string; legacy_cuenta?: string }): Observable<AutofillResponse> {
+  autofill(input: { tipo?: string; sucursal?: string; glosa?: string; beneficiario?: string; beneficiario_rfc?: string; legacy_cuenta?: string; origen_ref?: string; entidad_code?: string }): Observable<AutofillResponse> {
     return this.http.post<AutofillResponse>(`${this.base}/autofill`, input);
   }
 
@@ -566,7 +566,14 @@ export interface SaldoResponse {
    * daría un «caja chica conciliada» inventado.
    */
   cajero?: {
-    depositado: number; dispensado: number; movimientos: number; desde: string;
+    /**
+     * `[CG.101]` La JORNADA que se midió (`YYYY-MM-DD`), no el instante en que se creó el corte.
+     * Antes acá decía `desde` con un timestamp, y ese timestamp era el defecto: el corte se abre
+     * al cerrar la jornada, así que la ventana empezaba después de todo lo que tenía que medir
+     * y las dos piernas llegaban en cero.
+     */
+    dia: string;
+    depositado: number; dispensado: number; movimientos: number;
     dotado?: number; vaciado?: number;
     otros?: { movimientos: number; monto: number };
   } | null;
@@ -698,6 +705,12 @@ export interface ArqueoDia {
     en_el_cajon?: number | null;
     /** `[CG.97]` Lo que la jornada le dejó a la bóveda, neto. Positivo = la bóveda creció. */
     a_la_boveda?: number | null;
+    /**
+     * `[CG.99]` Con qué arrancó el cajón: el corte abierto, o el `contado` del último corte
+     * sellado. **`null` = no se midió**, y es distinto de cero — sin esto `en_el_cajon` es sólo
+     * un movimiento y no se puede publicar como saldo.
+     */
+    fondo_inicial?: number | null;
   };
   /** `null` cuando la sucursal no tiene cajero o el feed no está. El motivo viaja en `no_medido`. */
   cajero: {

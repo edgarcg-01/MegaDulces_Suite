@@ -172,8 +172,22 @@ function revisar(doc, archivo) {
     r.push([img.startsWith('localhost:5000/'),
       `${et}: imagen propia servida por el registry local (es "${img}") — sin registry hay `
       + 'que importarla a mano con sudo, y lo que se hace a mano se olvida']);
-    r.push([/:__COMMIT__$/.test(img),
-      `${et}: imagen propia etiquetada por commit, no latest (es "${img}") — `
+    // ⭐ [DEPLOY.2] La propiedad que importa no es "dice __COMMIT__": es que el tag sea
+    // INMUTABLE. `latest` con IfNotPresent dejó pods 36 commits atrás porque es un tag MÓVIL
+    // —el mismo nombre apuntando a otro contenido—, y eso sigue prohibido.
+    //
+    // `base-<hash del contenido>` cumple ese invariante MEJOR que `__COMMIT__`: si el
+    // contenido cambia, el nombre cambia; y si no cambia, el Pod no se recrea. Eso último es
+    // justo lo que se buscaba — con `__COMMIT__`, `pg-prod` y `caddy` (que no llevan código de
+    // la app) se recreaban en CADA despliegue, y como son `replicas: 1` + `Recreate` eso
+    // mataba la base de datos y la puerta de entrada. Medido en prod el 2026-10-13.
+    //
+    // ⚠️ Que el hash siga correspondiendo a las entradas lo vigila `npm run check:base-tags`,
+    // que es donde vive esa mitad del invariante. Acá sólo se admite la FORMA inmutable; si
+    // alguien escribe un `base-deadbeef` inventado, el otro candado se pone rojo.
+    const tagInmutable = /:__COMMIT__$/.test(img) || /:base-[0-9a-f]{6,}$/.test(img);
+    r.push([tagInmutable,
+      `${et}: imagen propia con tag INMUTABLE —:__COMMIT__ o :base-<hash>— (es "${img}") — `
       + 'latest con IfNotPresent es cómo los pods quedaron 36 commits atrás']);
   }
 
@@ -659,8 +673,19 @@ function revisar(doc, archivo) {
   // justamente el caso que no prueba nada.
   const malo5 = ['kind: Deployment', 'name: x', 'singleton: "false"', 'replicas: 2',
     'image: localhost:5000/trade-prod-api:latest'];
-  A(revisar(malo5, 'test').some(([c, m]) => !c && /etiquetada por commit/.test(m)),
+  A(revisar(malo5, 'test').some(([c, m]) => !c && /tag INMUTABLE/.test(m)),
     'una imagen propia con latest se detecta (el defecto que dejó a los pods 36 commits atrás)');
+  // ⭐ [DEPLOY.2] El control POSITIVO de la ampliación: `base-<hash>` tiene que PASAR. Ensanchar
+  // una regla sin probar lo que ahora deja entrar es ensancharla a ciegas.
+  const bueno5 = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1',
+    'image: localhost:5000/trade-prod-pg:base-ab04fe3d5350'];
+  A(!revisar(bueno5, 'test').some(([c, m]) => !c && /tag INMUTABLE/.test(m)),
+    'un tag base-<hash> NO se marca: es inmutable, que es la propiedad que la regla cuida');
+  // Y lo que NO debe pasar: un "base-" sin hash hexadecimal es un nombre móvil disfrazado.
+  const malo5b = ['kind: Deployment', 'name: x', 'singleton: "true"', 'replicas: 1',
+    'image: localhost:5000/trade-prod-pg:base-produccion'];
+  A(revisar(malo5b, 'test').some(([c, m]) => !c && /tag INMUTABLE/.test(m)),
+    'pero un "base-produccion" sin hash SÍ se marca: no es direccionado por contenido');
   const malo6 = ['kind: Deployment', 'name: x', 'singleton: "false"', 'replicas: 2',
     'image: trade-ingest:__COMMIT__'];
   A(revisar(malo6, 'test').some(([c, m]) => !c && /registry local/.test(m)),
