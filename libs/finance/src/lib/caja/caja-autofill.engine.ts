@@ -33,7 +33,15 @@ export type NoProposalReason =
   | 'soporte_insuficiente'  // hay historia, pero muy poca para arriesgar una propuesta
   | 'empate'                // hay historia repartida entre varios pares: elegir sería inventar
   | 'sin_regla'             // ninguna regla activa hizo match
-  | 'sin_documento';        // no se encontró documento origen
+  | 'sin_documento'         // no se encontró documento origen
+  /**
+   * ⭐ `[CG.118]` El nivel SÍ tenía un par, y la plaza no lo tiene en su catálogo.
+   *
+   * No es lo mismo que `sin_regla`: acá hubo propuesta y se descartó por una razón concreta que
+   * se puede ir a mirar. Medido en prod: la cuenta `201` —el respaldo de `[CG.110]`— **no existe
+   * en 4 de las 9 sucursales**, y el rechazo salía al GUARDAR, después de la firma.
+   */
+  | 'no_existe_en_la_plaza';
 
 export interface Proposal<T = string> {
   /** El valor propuesto, o `null` cuando el motor decide NO proponer. */
@@ -231,8 +239,45 @@ export function buildFolio(tipo: string, year: number, seq: number): string {
  * tiene que teclearlo él ('empate' explica más que 'sin_regla').
  */
 const REASON_RANK: Record<NoProposalReason, number> = {
+  no_existe_en_la_plaza: 6,
   empate: 5, soporte_insuficiente: 4, sin_historia: 3, sin_documento: 2, sin_regla: 1,
 };
+
+/** La llave de un par en el catálogo de una plaza. UNA función, para que el conjunto y la
+ *  consulta no puedan escribirla distinto (un `${a}|${b}` suelto en dos lados ya costó antes). */
+export function clavePar(cuenta: string, concepto: string): string {
+  return `${cuenta}|${concepto}`;
+}
+
+/**
+ * ⭐⭐ `[CG.118]` **Criba: el nivel que propone un par que la plaza no tiene se VACÍA, con motivo.**
+ *
+ * Reportado por Edgar con foto, 2026-10-13: *"El par cuenta/concepto 201/201 no existe en el
+ * catálogo de Kepler para la sucursal 01"* — y el aviso salía al GUARDAR, **después de la firma**.
+ * Medido: la cuenta `201` (el respaldo de `[CG.110]`) **no existe en 4 de las 9 sucursales**.
+ *
+ * Tres decisiones, y las tres se pueden romper a propósito en la suite:
+ *
+ *  1. **Se vacía, no se sustituye.** Cambiarlo por "algo parecido" inventaría una cuenta, que es
+ *     peor que no proponer. Al vaciarse, `pickBest` baja al nivel siguiente — que es el
+ *     comportamiento correcto: un respaldo inválido no debe tapar a una regla válida.
+ *  2. **El motivo es propio** (`no_existe_en_la_plaza`), no `sin_regla`. Acá SÍ hubo propuesta y
+ *     se descartó por algo que alguien puede ir a mirar; confundirlos borraría la pista.
+ *  3. **Un conjunto VACÍO no criba.** Si el catálogo no se pudo leer, vaciar los seis niveles se
+ *     vería idéntico a "no había nada que proponer" (ADR-056). Quien llama declara `sin_fuente`.
+ */
+export function cribarContraCatalogo<T extends { kepler_cuenta?: string; kepler_concepto?: string }>(
+  candidatos: Array<Proposal<T>>,
+  vivos: ReadonlySet<string> | null,
+): Array<Proposal<T>> {
+  if (!vivos) return candidatos;
+  return candidatos.map((p) => {
+    const v = p?.value;
+    if (!v?.kepler_cuenta || !v?.kepler_concepto) return p;
+    if (vivos.has(clavePar(v.kepler_cuenta, v.kepler_concepto))) return p;
+    return { value: null, source: null, confidence: null, reason: 'no_existe_en_la_plaza' };
+  });
+}
 
 export function pickBest<T>(...proposals: Array<Proposal<T> | null | undefined>): Proposal<T> {
   const list = (proposals.filter(Boolean) as Array<Proposal<T>>);

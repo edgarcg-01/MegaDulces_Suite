@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { TenantKnexService, TenantContextService } from '@megadulces/platform-core';
 import {
   classifyByRules, learnConceptFromHistory, pickBest, buildProvenance,
+  cribarContraCatalogo, clavePar,
   type ClassifyRule, type HistoryRow, type Proposal, type ConceptPair,
 } from './caja-autofill.engine';
 
@@ -239,11 +240,82 @@ export class CajaAutofillService {
       // ⭐ `[CG.108]` La póliza va PRIMERA: es lo que Kepler ya contabilizó para ESE documento,
       // no una inferencia. La regla de la entidad va después: es cierta para la entidad, no
       // para el movimiento, y un movimiento atípico de una entidad regular existe.
-      const concepto = pickBest<ConceptPair>(porPoliza, porEntidad, porMapa, aprendido, porRegla, respaldo);
+      //
+      // ⛔⛔ `[CG.118]` **PERO ANTES SE CRIBA CONTRA EL CATÁLOGO DE LA PLAZA.** Reportado por
+      // Edgar con foto de la pantalla, 2026-10-13 12:55: *"El par cuenta/concepto 201/201 no
+      // existe en el catálogo de Kepler para la sucursal 01"* — y el aviso salió **después de que
+      // la persona ya había firmado**. Se perdió la firma y la captura.
+      //
+      // Medido: la cuenta `201` **no existe en 4 de las 9 sucursales** (01, 06, 07, 08). O sea
+      // que `RESPALDO_GASTO`, que es una constante, sólo era válida en 5. Lo mismo vale para
+      // cualquier otro nivel: `aprendido` y `porEntidad` salen de pólizas que pueden ser de OTRA
+      // plaza, así que también pueden proponer un par que acá no existe.
+      //
+      // ⭐ El arreglo NO es "arreglar el respaldo": es que **ningún nivel pueda emitir un par que
+      // el guardado va a rechazar**. La validación ya existía (`resolveConcept`) pero vivía en el
+      // otro extremo del trámite, y una compuerta que se dispara después del esfuerzo no evita el
+      // error: lo cobra. *Si la cuenta la decide el motor, el motor es quien tiene que mirarla.*
+      const cribados = await this.cribarPorPlaza(
+        trx, tenantId, input.sucursal, niveles,
+        [porPoliza, porEntidad, porMapa, aprendido, porRegla, respaldo],
+      );
+      const concepto = pickBest<ConceptPair>(...cribados);
       const provenance = buildProvenance({ kepler_concepto: concepto, documento });
 
       return { concepto, documento, provenance, niveles };
     });
+  }
+
+  /**
+   * ⭐⭐ `[CG.118]` **La criba: un par que la plaza no tiene no es una propuesta, es un error
+   * diferido.**
+   *
+   * Cada candidato de la cascada se contrasta contra `analytics.v_kepler_conceptos` de SU
+   * sucursal. El que no existe **no se corrige ni se sustituye**: se vacía y se queda con el
+   * motivo `no_existe_en_la_plaza`, de modo que la cascada siga bajando al nivel siguiente.
+   * Sustituirlo por "algo parecido" sería inventar una cuenta, que es peor que no proponer.
+   *
+   * ⚠️ **Una sola consulta para los seis niveles.** Preguntar par por par serían 6 viajes por
+   * cada tecla del capturista; acá se arma el conjunto de pares distintos y se pregunta una vez.
+   *
+   * ⚠️ **Sin sucursal NO se criba, y se DECLARA** (`niveles.catalogo = 'sin_fuente'`). Dejar
+   * pasar en silencio haría que la ausencia de la criba se viera igual que una criba que aprobó
+   * todo — la confusión que ADR-056 prohíbe. El guardado sigue siendo la última compuerta.
+   */
+  private async cribarPorPlaza(
+    trx: any,
+    tenantId: string,
+    sucursal: string | undefined,
+    niveles: AutofillResult['niveles'],
+    candidatos: Array<Proposal<ConceptPair>>,
+  ): Promise<Array<Proposal<ConceptPair>>> {
+    const conValor = candidatos.filter((p) => p?.value?.kepler_cuenta && p?.value?.kepler_concepto);
+    if (!conValor.length) return candidatos;
+
+    if (!sucursal) {
+      niveles['catalogo'] = 'sin_fuente';
+      this.log.warn('criba por plaza omitida: la propuesta llegó sin sucursal');
+      return candidatos;
+    }
+
+    try {
+      const pares = conValor.map((p) => [p.value!.kepler_cuenta, p.value!.kepler_concepto]);
+      const rows = await trx('analytics.v_kepler_conceptos')
+        .where({ tenant_id: tenantId, sucursal })
+        .whereIn(['cuenta', 'concepto'], pares)
+        .select('cuenta', 'concepto');
+      niveles['catalogo'] = 'consultado';
+      const vivos = new Set<string>(rows.map((r: any) => clavePar(r.cuenta, r.concepto)));
+      // La DECISIÓN vive en el motor y se prueba ahí: acá sólo se consulta. Lo que esta función
+      // sabe hacer es preguntarle a la base; lo que hay que hacer con la respuesta es lógica.
+      return cribarContraCatalogo<ConceptPair>(candidatos, vivos);
+    } catch (e) {
+      // ⛔ Si el catálogo no se puede leer, NO se criba — y se dice. Cribar contra un conjunto
+      // vacío habría vaciado las seis propuestas y se vería igual que "no hubo nada que proponer".
+      niveles['catalogo'] = 'sin_fuente';
+      this.log.warn(`criba por plaza no consultable: ${(e as Error).message}`);
+      return candidatos;
+    }
   }
 
   /**
