@@ -8,7 +8,7 @@ import { CheckboxModule } from 'primeng/checkbox';
 import {
   necesitaMotivo, pasoAjuste, MOTIVOS_AJUSTE, MOTIVO_AJUSTE_LABEL, UMBRAL_MOTIVO,
   posicionPedido, POSICIONES_PEDIDO, POSICIONES_PEDIDO_DEFAULT, POSICION_PEDIDO_LABEL,
-  CLASES_UNIDAD, CLASE_UNIDAD_LABEL, MINIMO_VALOR_MENOR,
+  CLASES_UNIDAD, CLASE_UNIDAD_LABEL, MINIMO_VALOR_MENOR, warehouseCodeAndName,
   type ClaseUnidad, type PosicionPedido,
   type MotivoAjuste, type AutoabastoPedidoGrupo, type AutoabastoPedidoLinea, type AutoabastoPedidoResponse,
 } from '@megadulces/contracts';
@@ -18,6 +18,8 @@ import { LoadStateComponent } from '../../../shared/components/load-state/load-s
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { AutoabastoService, AutoabastoWarehouseOpt } from '../autoabasto.service';
 import { qty } from '../porques.util';
+import { descargarPdfMiPedido, type MiPedidoPdfGrupo } from '../mi-pedido-pdf';
+import { AuthService } from '../../../core/services/auth.service';
 
 /**
  * `[AB.16]` + `[AB.18]` Fase AB — **«Mi pedido»**: el pedido de la semana de una sucursal, armado
@@ -75,6 +77,12 @@ interface Renglon {
                     [ngModel]="warehouseId()" (ngModelChange)="setWarehouse($event)"
                     placeholder="Elige tu almacén" [filter]="warehouses().length > 6"
                     [disabled]="warehouses().length <= 1" class="mp-wh"></p-select>
+          <button pButton type="button" class="p-button-sm"
+                  (click)="pdf()" [disabled]="loading() || !hayQuePedir() || imprimiendo()"
+                  pTooltip="Un PDF con todo el pedido, cada origen en su hoja, para capturarlo en Kepler." tooltipPosition="bottom">
+            <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
+            <span class="p-button-label">PDF de todo el pedido</span>
+          </button>
           <button pButton type="button" class="p-button-sm p-button-outlined"
                   (click)="cargar()" [disabled]="loading() || !warehouseId()">
             <span class="p-button-icon p-button-icon-left pi pi-refresh" aria-hidden="true"></span>
@@ -169,6 +177,13 @@ interface Renglon {
                 <span>{{ t.renglones }} renglones</span>
                 @if (t.ajustados > 0) { <span class="mp-dim">{{ t.ajustados }} ajustados</span> }
                 <span class="mp-strong">{{ t.valor == null ? '—' : (t.valor | currency:'MXN':'symbol-narrow':'1.0-0') }}</span>
+                <button pButton type="button" class="p-button-sm p-button-outlined"
+                        (click)="pdf(g)" [disabled]="!t.renglones || imprimiendo()"
+                        [attr.aria-label]="'PDF del pedido a ' + g.nombre"
+                        [pTooltip]="g.tipo === 'proveedor' ? 'Requisición de compra para este proveedor' : 'Pedido de traspaso para capturar en la sucursal que surte'" tooltipPosition="top">
+                  <span class="p-button-icon p-button-icon-left pi pi-file-pdf" aria-hidden="true"></span>
+                  <span class="p-button-label">PDF</span>
+                </button>
                 @if (data()?.puede_ajustar) {
                   <button pButton type="button" class="p-button-sm"
                           [class.p-button-outlined]="aceptados().has(llaveGrupo(g))"
@@ -373,6 +388,7 @@ interface Renglon {
 export class AlmacenAutoabastoPedidoComponent {
   private readonly svc = inject(AutoabastoService);
   private readonly destroyRef = inject(DestroyRef);
+  private readonly auth = inject(AuthService);
 
   readonly loading = signal(false);
   readonly error = signal<string | null>(null);
@@ -423,6 +439,14 @@ export class AlmacenAutoabastoPedidoComponent {
   });
 
   readonly minimoMenor = MINIMO_VALOR_MENOR;
+  readonly imprimiendo = signal(false);
+
+  /** Hay al menos un renglón que pedir con las posiciones marcadas (habilita el PDF de todo). */
+  readonly hayQuePedir = computed<boolean>(() => {
+    this.estado();
+    this.posiciones();
+    return (this.data()?.grupos ?? []).some((g) => g.lineas.some((l) => this.incluida(l) && this.cantidad(l) > 0));
+  });
 
   /** `[AB.20]` Renglones de las posiciones marcadas que el mínimo de $200 dejó fuera (y nadie subió). */
   readonly debajoMinimo = computed<number>(() => {
@@ -628,6 +652,61 @@ export class AlmacenAutoabastoPedidoComponent {
   private cancelarTimer(productId: string): void {
     const t = this.timers.get(productId);
     if (t) { clearTimeout(t); this.timers.delete(productId); }
+  }
+
+  /**
+   * `[AB.21]` PDF para la captura manual en Kepler: de un origen (`g`) o de todo el pedido. Lleva
+   * exactamente lo que se ve: posiciones marcadas, ajustes (guardados o en curso) y el mínimo de $200.
+   */
+  async pdf(g?: AutoabastoPedidoGrupo): Promise<void> {
+    const d = this.data();
+    if (!d || this.imprimiendo()) return;
+    this.imprimiendo.set(true);
+    try {
+      const grupos = (g ? [g] : d.grupos).map((x) => this.grupoPdf(x));
+      const archivo = await descargarPdfMiPedido({
+        almacen: d.almacen,
+        fecha_mx: d.fecha_mx,
+        hora_mx: d.hora_mx,
+        elaboro: this.auth.user()?.username ?? null,
+        posiciones: POSICIONES_PEDIDO.filter((p) => this.posiciones().has(p)).map((p) => POSICION_PEDIDO_LABEL[p]),
+        grupos,
+      });
+      if (!archivo) this.aviso.set('No hay nada que pedir con lo que tienes marcado.');
+    } catch {
+      this.aviso.set('No se pudo generar el PDF. Intenta de nuevo.');
+    } finally {
+      this.imprimiendo.set(false);
+    }
+  }
+
+  private grupoPdf(g: AutoabastoPedidoGrupo): MiPedidoPdfGrupo {
+    const origen = g.tipo === 'matriz' ? warehouseCodeAndName(g.nombre) : g.nombre;
+    return {
+      tipo: g.tipo,
+      origen,
+      aviso: this.avisoMinimo(g),
+      listas: CLASES_UNIDAD.map((clase) => ({
+        clase,
+        renglones: g.lineas
+          .filter((l) => this.incluida(l) && this.claseDe(l) === clase && this.cantidad(l) > 0)
+          .map((l) => {
+            const c = this.cantidad(l);
+            const notas: string[] = [];
+            if (c !== l.a_pedir.cantidad) {
+              const m = this.motivoDe(l);
+              notas.push(`Ajustado (sugerido ${qty(l.a_pedir.cantidad)})${m ? `: ${MOTIVO_AJUSTE_LABEL[m]}` : ''}`);
+            }
+            if (l.minimo_menor === 'agotado') notas.push('Agotado: se pide aunque sea poco');
+            if (l.atorado > 0) notas.push(`Atorado ${qty(l.atorado)} cj`);
+            if (l.negado_30d > 0) notas.push(`Negado 30 d ${qty(l.negado_30d)} cj`);
+            return {
+              sku: l.sku, nombre: l.nombre, cantidad: c, unidad: l.a_pedir.unidad,
+              existencia: l.existencia, venta_30d: l.venta_30d, valor: this.valor(l), nota: notas.join(' · '),
+            };
+          }),
+      })),
+    };
   }
 
   /** `[AB.19]` El renglón entra al pedido si su posición está marcada. */

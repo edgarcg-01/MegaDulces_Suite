@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Added — PDF de «Mi pedido» para capturar en Kepler (AB.21, 2026-10-13)
+- Botón **PDF** en cada origen y **«PDF de todo el pedido»**: «Pedido de traspaso» para la sucursal que surte o «Requisición de compra» para el proveedor, con una tabla por unidad mayor, unidad menor y una sola unidad, la cantidad en la unidad de captura y una columna en blanco para anotar lo surtido o recibido.
+- Imprime exactamente lo que lleva el pedido en pantalla (casillas, ajustes y mínimo de $200). Sin migración ni permisos.
 ### Added — «Mi pedido» se ajusta y se guarda en la Suite, sin Excel (AB.18–AB.20, 2026-10-12)
 - El almacenista corrige el sugerido con **− / +**; si se aleja más de 20%, elige el motivo con un clic. Se guarda solo, con «volver» al sugerido y «Aceptar grupo». Cada decisión deja huella (sugerido visto, lo que dejó, motivo, tiempo) para el aprendizaje.
 - **¿Hasta dónde pides?**: casillas Agotado · Bajo mínimo · Bajo reorden (y «Sobre reorden, con venta», apagada). Lo marcado es lo que entra al pedido y se guarda.

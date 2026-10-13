@@ -1141,6 +1141,31 @@ motivo/cantidad/posición inválidos rechazados, otro tenant no ve nada).
 **Abierto:** etapa 2 (envío a la matriz con captura asistida + requisición a Compras), 3 y 4; el
 mínimo de $200 no aplica a mayor ni a «una sola unidad» (decisión, se puede extender).
 
+### 15.12 🧪 [AB.21] PDF de «Mi pedido» para la captura manual — EN CÓDIGO 2026-10-13
+
+**Pedido de Francisco (2026-10-13), con AB.18–AB.20 ya en prod:** mientras llega la etapa 2, el
+almacenista necesita el papel para capturar el pedido en Kepler en la sucursal que lo surte, o para
+mandarlo como requisición de compra al proveedor.
+
+- Botón **PDF** en cada origen y **«PDF de todo el pedido»** arriba (cada origen en su hoja).
+- Título según el origen: **«Pedido de traspaso entre sucursales»** (matriz) o **«Requisición de
+  compra a proveedor»**; caja con quién pide, a quién, fecha/hora del cálculo (del servidor) y quién
+  elaboró.
+- **Una tabla por lista de surtido** (orden de unidad mayor / unidad menor / una sola unidad): SKU,
+  producto, **cantidad a capturar en su unidad**, existencia y venta 30 d en cajas, valor y una columna
+  **en blanco** («Surtido» o «Recibido») para anotar a mano. Cada renglón lleva su nota: ajustado (con
+  el sugerido y el motivo), agotado de poco valor, atorado, negado.
+- Imprime **exactamente** lo que lleva el pedido en pantalla: posiciones marcadas, ajustes guardados o
+  en curso y el mínimo de $200. Sin costo → «sin medir», nunca $0. Aviso del mínimo del proveedor.
+- Firmas: matriz → Elaboró / Surtió (sucursal que abastece) / Recibió; proveedor → Elaboró / Autorizó
+  (Compras) / Recibió. Pura vista: **sin migración ni permiso nuevo**; el PDF se arma en el navegador.
+- `mi-pedido-pdf.ts` reusa `compras-pdf-comun` (encabezado, recuadros, notas, pies). Candado
+  `mi-pedido-pdf.spec.ts` (5) corre el dibujo **real** de jsPDF y lee lo escrito; visto en rojo al
+  cambiar «sin medir» por $0. Suite `almacen` 440/440.
+
+**Abierto:** la huella no registra que se imprimió (el CHECK de `autoabasto_huella.evento` no tiene
+`imprimir`; necesita migración); con la etapa 2 el PDF deja de ser el camino principal.
+
 ### 15.10 🧪 [AB.17] Freno de fin de pico en el motor común — EN CÓDIGO 2026-10-12
 
 **Disparador (Francisco, 2026-10-12):** el bombón La Rosa 70012 en La Piedad salía primero en «Mi
