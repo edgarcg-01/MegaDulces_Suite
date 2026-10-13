@@ -272,7 +272,7 @@ export class CashCutService {
    * ⚠️ `null` si no se puede leer (el espejo de Control puede no estar en este entorno). Un cero
    * acá sería «la caja arrancó vacía», que es un hecho distinto y falso.
    */
-  private async fondoDeControl(trx: any, tenantId: string) {
+  private async fondoDeControl(trx: Knex.Transaction, tenantId: string) {
     const existe = await trx.raw(`SELECT to_regclass('caja_general_ods.arqueo_movimientos') AS t`);
     if (!existe.rows?.[0]?.t) return null;
     const num = (c: string) => `coalesce(nullif(btrim(${c}::text),'')::numeric, 0)`;
