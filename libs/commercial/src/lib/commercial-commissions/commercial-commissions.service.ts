@@ -327,6 +327,158 @@ export class CommercialCommissionsService {
     return this.tk.run(async (trx) => this.loadScale(trx, onDate));
   }
 
+
+  /**
+   * `[RD.66]` — **El tabulador, con sus escalones y su historia.** Lo consume la pantalla de
+   * configuración, que hasta hoy no existía: los cuatro escalones que deciden cuánto cobra cada
+   * chofer sólo se podían cambiar por SQL.
+   *
+   * Devuelve TODAS las versiones, no sólo la vigente: una escala versionada donde no se ve la
+   * historia invita a creer que el porcentaje de una quincena vieja es el de hoy.
+   */
+  async listScales() {
+    const hoy = new Date().toISOString().slice(0, 10);
+    return this.tk.run(async (trx) => {
+      const escalas = await trx('commercial.commission_scales')
+        .whereNull('deleted_at')
+        .orderBy('valid_from', 'desc')
+        .select('id', 'code', 'nombre', 'valid_from', 'valid_to',
+          'base_field', 'gate_field', 'share_supervisor_pct', 'notes');
+      const ids = escalas.map((e: any) => e.id);
+      const tiers = ids.length
+        ? await trx('commercial.commission_scale_tiers')
+          .whereIn('scale_id', ids).whereNull('deleted_at')
+          .orderBy('min_amount')
+          .select('scale_id', 'min_amount', 'max_amount', 'pct')
+        : [];
+      // El piso de lo editable: una escala nueva NO puede empezar antes de que termine lo ya
+      // pagado o aprobado. Es la regla firmada: lo pagado no se recalcula nunca.
+      const { rows } = await trx.raw(
+        `SELECT max(p.date_to)::text AS ultimo_cerrado
+           FROM commercial.commission_runs r
+           JOIN commercial.commission_periods p ON p.id = r.period_id
+          WHERE r.deleted_at IS NULL AND r.status IN ('pagado','aprobado')`);
+      const tope = rows[0];
+      return {
+        escalas: escalas.map((e: any) => ({
+          ...e,
+          vigente: !!e.valid_from && String(e.valid_from).slice(0, 10) <= hoy
+            && (!e.valid_to || String(e.valid_to).slice(0, 10) > hoy),
+          tiers: tiers.filter((t: any) => t.scale_id === e.id),
+        })),
+        /** La primera fecha desde la que se puede estrenar una escala nueva. */
+        piso_editable: tope?.ultimo_cerrado ?? null,
+        hoy,
+      };
+    });
+  }
+
+  /**
+   * `[RD.66]` — **Estrena una versión del tabulador. NUNCA pisa la vigente.**
+   *
+   * ⛔⛔ La regla, confirmada antes de escribir una línea: *editar crea una versión nueva, y lo
+   * pagado no se recalcula jamás.* Por eso esto es un INSERT con `valid_from` más el cierre de
+   * la anterior, y no un UPDATE de los escalones. Un UPDATE cambiaría **retroactivamente** lo
+   * que ya se depositó: `loadScale()` elige la escala vigente a la fecha de cierre del periodo,
+   * así que tocar los porcentajes de la escala en curso reescribe quincenas ya pagadas.
+   *
+   * Tres frenos, y ninguno es cosmético:
+   *  1. `valid_from` POSTERIOR al último periodo pagado o aprobado.
+   *  2. Los escalones cubren sin huecos ni traslapes, en orden, y el último sin techo — si no,
+   *     una venta cae en ningún escalón y el motor paga cero sin decir por qué.
+   *  3. Al menos un escalón: una escala vacía deja a todos en cero.
+   */
+  async createScaleVersion(
+    body: {
+      valid_from: string; nombre?: string; share_supervisor_pct?: number;
+      tiers: { min_amount: number; max_amount: number | null; pct: number }[];
+    },
+    userId?: string,
+  ) {
+    const tenantId = this.tenantCtx.requireTenantId();
+    const desde = String(body?.valid_from ?? '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(desde)) {
+      throw new ConflictException('Falta la fecha desde la que rige la escala nueva (YYYY-MM-DD).');
+    }
+    const tiers = [...(body?.tiers ?? [])].sort((a, b) => Number(a.min_amount) - Number(b.min_amount));
+    if (!tiers.length) {
+      throw new ConflictException('Una escala sin escalones deja a todas las rutas en cero.');
+    }
+    for (let i = 0; i < tiers.length; i++) {
+      const t = tiers[i];
+      if (!(Number(t.pct) >= 0)) throw new ConflictException(`El escalon ${i + 1} no tiene porcentaje.`);
+      const ultimo = i === tiers.length - 1;
+      if (ultimo && t.max_amount != null) {
+        throw new ConflictException(
+          'El ultimo escalon va SIN techo: con techo, una venta mayor no cae en ninguno y el motor paga cero.');
+      }
+      if (!ultimo) {
+        if (t.max_amount == null) {
+          throw new ConflictException(`El escalon ${i + 1} no es el ultimo y no puede ir sin techo.`);
+        }
+        if (Number(t.max_amount) <= Number(t.min_amount)) {
+          throw new ConflictException(`El escalon ${i + 1} tiene el techo por debajo del piso.`);
+        }
+        if (Number(tiers[i + 1].min_amount) !== Number(t.max_amount)) {
+          throw new ConflictException(
+            `Entre el escalon ${i + 1} y el ${i + 2} hay un hueco o un traslape: uno termina en `
+            + `${t.max_amount} y el siguiente empieza en ${tiers[i + 1].min_amount}. `
+            + 'Una venta que caiga en medio no cobraria nada.');
+        }
+      }
+    }
+
+    return this.tk.run(async (trx) => {
+      const { rows } = await trx.raw(
+        `SELECT max(p.date_to)::text AS ultimo_cerrado
+           FROM commercial.commission_runs r
+           JOIN commercial.commission_periods p ON p.id = r.period_id
+          WHERE r.deleted_at IS NULL AND r.status IN ('pagado','aprobado')`);
+      const tope = rows[0];
+      if (tope?.ultimo_cerrado && desde <= tope.ultimo_cerrado) {
+        throw new ConflictException(
+          `La quincena que cierra el ${tope.ultimo_cerrado} ya esta pagada o aprobada. Una escala `
+          + `que rija desde el ${desde} reescribiria lo que ya se deposito: la fecha mas temprana `
+          + 'posible es el dia siguiente.');
+      }
+      const vigente = await this.loadScale(trx, desde).catch(() => null);
+      const ins = await trx('commercial.commission_scales').insert({
+        tenant_id: tenantId,
+        code: vigente?.code ?? 'RD',
+        nombre: body.nombre ?? `Tabulador vigente desde ${desde}`,
+        valid_from: desde,
+        valid_to: null,
+        base_field: vigente?.base_field ?? 'subtotal',
+        gate_field: vigente?.gate_field ?? 'venta',
+        share_supervisor_pct: body.share_supervisor_pct ?? vigente?.share_supervisor_pct ?? 0,
+        notes: `Estrenada desde la pantalla de configuracion. Reemplaza a ${vigente?.id ?? '(ninguna)'}.`,
+        created_by: userId ?? null,
+        updated_by: userId ?? null,
+      }).returning('id');
+      const nuevaId = (ins?.[0] as any)?.id ?? ins?.[0];
+
+      await trx('commercial.commission_scale_tiers').insert(tiers.map((t) => ({
+        tenant_id: tenantId,
+        scale_id: nuevaId,
+        min_amount: t.min_amount,
+        max_amount: t.max_amount,
+        pct: t.pct,
+        created_by: userId ?? null,
+        updated_by: userId ?? null,
+      })));
+
+      // La anterior se CIERRA, no se borra: las quincenas ya calculadas tienen que poder seguir
+      // explicando con que porcentaje se pagaron.
+      if (vigente?.id) {
+        await trx('commercial.commission_scales')
+          .where({ id: vigente.id })
+          .update({ valid_to: desde, updated_by: userId ?? null, updated_at: trx.fn.now() });
+      }
+      this.logger.log(`[RD.66] escala ${nuevaId} desde ${desde}; cerrada ${vigente?.id ?? '-'}`);
+      return { id: nuevaId, valid_from: desde, cerro_a: vigente?.id ?? null, escalones: tiers.length };
+    });
+  }
+
   /** El universo derivado, con el veredicto de cada ruta. Lo consume la pantalla de config. */
   async listUniverse() {
     const tenantId = this.tenantCtx.requireTenantId();

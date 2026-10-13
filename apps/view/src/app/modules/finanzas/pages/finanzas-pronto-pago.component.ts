@@ -167,6 +167,9 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
                   <i class="pi" [ngClass]="iconoDe(r.estado)" aria-hidden="true"></i>
                   {{ etiquetaDe(r.estado) }}
                 </span>
+                <!-- [PP.2] El POR QUE, visible. No en un title: la razon por la que creemos que
+                     este proveedor da descuento es justo lo que decide si pagarle hoy. -->
+                <div class="pp-porque" [class.pp-porque-nd]="r.motivo !== 'historial'">{{ r.porque }}</div>
               </td>
             </tr>
           </ng-template>
@@ -225,6 +228,10 @@ import { ProntoPagoService, ProntoPagoResponse, ProntoPagoRow, EstadoPronto } fr
     .pp-e-capturable { color: var(--ok-fg); border-color: var(--ok-border, var(--border)); }
     .pp-e-fuera_de_ventana { color: var(--text-muted); }
     .pp-e-sin_medir { color: var(--text-muted); border-style: dashed; }
+    /* [PP.2] La razon, bajo su estado. Angosta a proposito: es una frase, no un parrafo. */
+    .pp-porque { margin-top: .25rem; max-width: 24rem; font-size: var(--fs-xs);
+      color: var(--text-muted); line-height: 1.35; text-wrap: pretty; }
+    .pp-porque-nd { font-style: italic; }
     .pp-empty, .pp-trunc { text-align: center; color: var(--text-muted); font-size: var(--fs-sm); padding: 1rem; }
     .pp-link { border: 0; background: transparent; color: var(--action); cursor: pointer;
       font: inherit; text-decoration: underline; padding: .2rem .35rem; }

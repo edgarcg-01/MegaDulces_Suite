@@ -156,13 +156,28 @@ interface Ubicacion {
 }
 
 /** Índice inverso clave → dónde vive. Se arma una vez por árbol. */
-function indiceDeClaves(tree: readonly AuthzApp[]): Map<string, Ubicacion> {
-  const ix = new Map<string, Ubicacion>();
+/**
+ * ⛔ **UNO A MUCHOS, y el singular era un defecto.** Hasta `[CPA.10]` esto era
+ * `Map<string, Ubicacion>` con `ix.set(k, …)`: **gana el último módulo del árbol** y los demás
+ * desaparecen. Una clave compartida es lo normal, no la excepción —`FISCAL_CONTAB_VER` abre hoy
+ * «Contabilidad electrónica», el semáforo de cierre y la bandeja—, así que la UI de roles le
+ * decía a quien quita esa clave que cerraba **una** pantalla cuando cerraba tres.
+ *
+ * Se vio al agregar la bandeja: el candado `[AU.33]` reportó que las dos pantallas viejas
+ * **desaparecían** de la lista en cuanto la nueva declaraba las mismas claves. El defecto ya
+ * estaba; lo que hizo la pantalla nueva fue volverlo visible.
+ */
+function indiceDeClaves(tree: readonly AuthzApp[]): Map<string, Ubicacion[]> {
+  const ix = new Map<string, Ubicacion[]>();
   for (const app of tree) {
     if (app.kind !== 'workspace') continue;
     for (const project of app.projects) {
       for (const module of project.modules) {
-        for (const k of clavesDeModulo(module)) ix.set(k, { project, module });
+        for (const k of clavesDeModulo(module)) {
+          const ya = ix.get(k);
+          if (ya) ya.push({ project, module });
+          else ix.set(k, [{ project, module }]);
+        }
       }
     }
   }
@@ -185,29 +200,34 @@ export function pantallasAfectadas(
   const sinModulo: string[] = [];
 
   for (const o of overrides) {
-    const u = ix.get(o.permission_key);
-    if (!u) {
+    const ubicaciones = ix.get(o.permission_key);
+    if (!ubicaciones || ubicaciones.length === 0) {
       sinModulo.push(o.permission_key);
       continue;
     }
-    const id = `${u.project.id}/${u.module.id}`;
-    let fila = porModulo.get(id);
-    if (!fila) {
-      fila = {
-        projectId: u.project.id,
-        projectLabel: u.project.label,
-        moduleId: u.module.id,
-        label: u.module.label,
-        route: u.module.route ?? '',
-        quita: [],
-        concede: [],
-        tocaGestion: false,
-      };
-      porModulo.set(id, fila);
+    // ⛔ TODAS las pantallas donde vive la clave, no sólo una: quitar `FISCAL_CONTAB_VER` cierra
+    // tres, y decir «una» es sub-reportar el alcance justo en la pantalla que existe para que
+    // alguien pueda revisarlo antes de guardar.
+    for (const u of ubicaciones) {
+      const id = `${u.project.id}/${u.module.id}`;
+      let fila = porModulo.get(id);
+      if (!fila) {
+        fila = {
+          projectId: u.project.id,
+          projectLabel: u.project.label,
+          moduleId: u.module.id,
+          label: u.module.label,
+          route: u.module.route ?? '',
+          quita: [],
+          concede: [],
+          tocaGestion: false,
+        };
+        porModulo.set(id, fila);
+      }
+      if (o.allow) fila.concede.push(o.permission_key);
+      else fila.quita.push(o.permission_key);
+      if ((u.module.manage as readonly string[]).includes(o.permission_key)) fila.tocaGestion = true;
     }
-    if (o.allow) fila.concede.push(o.permission_key);
-    else fila.quita.push(o.permission_key);
-    if ((u.module.manage as readonly string[]).includes(o.permission_key)) fila.tocaGestion = true;
   }
 
   return { pantallas: [...porModulo.values()], sinModulo };
@@ -218,5 +238,8 @@ export function ubicacionDeClave(
   clave: string,
   tree: readonly AuthzApp[],
 ): { project: AuthzProject; module: AuthzModule } | null {
-  return indiceDeClaves(tree).get(clave) ?? null;
+  // ⚠️ Devuelve la PRIMERA de las pantallas donde vive la clave — su contrato es «dónde la
+  // encuentro», que es lo que su único consumidor necesita para etiquetarla. Para saber a
+  // cuántas afecta hay que usar `pantallasAfectadas`, que desde `[CPA.10]` las lista TODAS.
+  return indiceDeClaves(tree).get(clave)?.[0] ?? null;
 }

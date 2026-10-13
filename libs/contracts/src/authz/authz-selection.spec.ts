@@ -183,33 +183,63 @@ describe('[AU.33] contra el árbol REAL', () => {
    * **Calendario de pagos** y no en Pagos a proveedor, `FINANCE_EXPENSES_VER` en **Gastos** y no
    * en Egresos contables, y `FINANCE_FINDINGS_GESTIONAR` no tiene módulo «Hallazgos» propio—.
    * Comprobar una derivación contra sí misma la pasa en verde; sólo el árbol la refuta.
+   *
+   * ⛔ **Enmienda `[CPA.10]`:** las tres «caídas mal» eran, en realidad, el índice uno-a-uno
+   * acreditando una clave compartida a una sola pantalla. `FINANCE_FINDINGS_GESTIONAR` **sí**
+   * tiene «Hallazgos» propio, y `FINANCE_PAYMENTS_*` abre Calendario de pagos **y** Pagos a
+   * proveedor. Las tres aparecen hoy en `LAS_25_PANTALLAS`. La lección de método se sostiene;
+   * lo que falló fue el instrumento con que se comprobó.
    */
   /*
-   * ⭐ Pasó de 18 a 19 con `[CPA.0]`, y la lista crece ENUMERANDO la pantalla nueva, no subiendo
-   * un contador. El semáforo de cierre (`contabilidad/cierre-contable`) reusa `FISCAL_CONTAB_VER`
-   * —que está en LAS_27— a propósito, para no estrenar un permiso que alguien tendría que
-   * repartir en prod (`[LC.6.2]`). El efecto correcto de esa decisión es justo éste: quitarle esa
-   * clave a alguien ahora le quita una pantalla más, y este candado lo dice.
+   * ⭐ Pasó de 18 a 19 con `[CPA.0]` y **de 19 a 25 con `[CPA.10]`**, y la lista crece
+   * ENUMERANDO las pantallas, no subiendo un contador.
+   *
+   * ⛔⛔ De las 6 que entraron, **sólo una es nueva** (`contabilidad/mi-cierre`). Las otras cinco
+   * —`finanzas/egresos`, `finanzas/estado-cuenta-acreedores`, `finanzas/hallazgos`,
+   * `finanzas/pagos-comprobantes`, `finanzas/pronto-pago`— **ya existían y el candado no las
+   * veía**: el índice era uno-a-uno (`ix.set`) y una clave compartida quedaba atribuida al
+   * último módulo del árbol. O sea que esta lista no creció porque se construyó algo: creció
+   * porque se dejó de sub-reportar.
+   *
+   * ⚠️ Y eso **refuta un comentario de este mismo archivo**: decía que
+   * «`FINANCE_FINDINGS_GESTIONAR` no tiene módulo "Hallazgos" propio». Sí lo tiene
+   * (`finanzas/hallazgos`); lo que pasaba es que el índice se lo acreditaba a otra pantalla.
+   *
+   * El semáforo (`contabilidad/cierre-contable`), la bandeja (`contabilidad/mi-cierre`) y
+   * «Contabilidad electrónica» comparten `FISCAL_CONTAB_VER` a propósito, para no estrenar un
+   * permiso que alguien tendría que repartir en prod (`[LC.6.2]`). El efecto correcto de esa
+   * decisión es justo éste: quitarle esa clave a alguien cierra **tres** pantallas, y la UI de
+   * roles ahora lo dice en vez de nombrar una sola.
    */
-  const LAS_19_PANTALLAS = [
+  const LAS_25_PANTALLAS = [
     'contabilidad/cfdi', 'contabilidad/cierre-contable', 'contabilidad/conciliacion',
     'contabilidad/contabilidad', 'contabilidad/credenciales', 'contabilidad/descarga',
     'contabilidad/diot', 'contabilidad/facturar', 'contabilidad/impuestos',
     'contabilidad/libro-compras', 'contabilidad/listas-sat', 'contabilidad/materialidad',
+    'contabilidad/mi-cierre',
     'finanzas/bancos', 'finanzas/calendario-pagos', 'finanzas/cartera', 'finanzas/cobranza',
-    'finanzas/gastos', 'finanzas/maat', 'finanzas/tareas',
+    'finanzas/egresos', 'finanzas/estado-cuenta-acreedores', 'finanzas/gastos',
+    'finanzas/hallazgos', 'finanzas/maat', 'finanzas/pagos-comprobantes',
+    'finanzas/pronto-pago', 'finanzas/tareas',
   ];
 
-  it('las 27 claves del caso real caen en 19 pantallas de 2 proyectos', () => {
+  it('las 27 claves del caso real caen en 25 pantallas de 2 proyectos', () => {
     const r = pantallasAfectadas(
       LAS_27.map((k) => ({ permission_key: k, allow: false })),
       AUTHZ_TREE,
     );
     expect(r.sinModulo).toEqual([]);
-    expect(r.pantallas.map((p) => `${p.projectId}/${p.moduleId}`).sort()).toEqual(LAS_19_PANTALLAS);
+    expect(r.pantallas.map((p) => `${p.projectId}/${p.moduleId}`).sort()).toEqual(LAS_25_PANTALLAS);
     expect(new Set(r.pantallas.map((p) => p.projectId))).toEqual(new Set(['finanzas', 'contabilidad']));
-    // La suma vuelve a dar 27: ninguna clave se perdió ni se contó dos veces al agrupar.
-    expect(r.pantallas.reduce((s, p) => s + p.quita.length + p.concede.length, 0)).toBe(27);
+    /*
+     * ⛔ `[CPA.10]` Acá se exigía que la suma diera 27 («ninguna clave se contó dos veces»), y
+     * esa invariante SÓLO se sostenía porque el índice guardaba una pantalla por clave. Con el
+     * índice uno-a-muchos una clave compartida aparece en varias pantallas a propósito, y la
+     * suma da 39. Lo que de verdad hay que proteger es que no se PIERDA ni se INVENTE ninguna:
+     * el conjunto de claves distintas repartidas sigue siendo exactamente LAS_27.
+     */
+    const repartidas = new Set(r.pantallas.flatMap((p) => [...p.quita, ...p.concede]));
+    expect([...repartidas].sort()).toEqual([...LAS_27].sort());
   });
 
   it('cada una de las 27 tiene casa en el árbol', () => {
@@ -217,25 +247,34 @@ describe('[AU.33] contra el árbol REAL', () => {
     expect(huerfanas).toEqual([]);
   });
 
-  it('11 de las 27 son de gestión: lo que escribe se distingue de lo que sólo lee', () => {
+  it('las de gestión se distinguen de las que sólo leen, en TODAS sus pantallas', () => {
     const r = pantallasAfectadas(
       LAS_27.map((k) => ({ permission_key: k, allow: false })),
       AUTHZ_TREE,
     );
-    const deGestion = LAS_27.filter((k) => {
-      const u = ubicacionDeClave(k, AUTHZ_TREE);
-      return !!u && (u.module.manage as readonly string[]).includes(k);
-    });
-    expect(deGestion).toHaveLength(11);
 
-    // ⚠️ El número de pantallas con gestión NO se afirma como 11: que hoy coincida es un hecho de
-    // estos datos (cada clave de gestión cae en un módulo distinto), no una ley. Se comprueba la
-    // relación, que sí lo es — las marcadas son exactamente los módulos de esas claves.
-    const modulosConGestion = new Set(
-      deGestion.map((k) => ubicacionDeClave(k, AUTHZ_TREE)?.module.id),
-    );
+    /*
+     * ⛔ `[CPA.10]` Esta derivación usaba `ubicacionDeClave`, que devuelve UNA pantalla. Mientras
+     * el índice era uno-a-uno las dos caras coincidían por construcción — o sea que el candado
+     * comparaba el sub-reporte contra sí mismo y pasaba en verde. Ahora se barre el árbol
+     * ENTERO: la marca de gestión tiene que aparecer en cada pantalla que declare la clave en su
+     * `manage`, no sólo en la última que el índice conservaba.
+     */
+    const modulosConGestion = new Set<string>();
+    for (const app of AUTHZ_TREE) {
+      if (app.kind !== 'workspace') continue;
+      for (const project of app.projects) {
+        for (const module of project.modules) {
+          if (LAS_27.some((k) => (module.manage as readonly string[]).includes(k))) {
+            modulosConGestion.add(module.id);
+          }
+        }
+      }
+    }
     expect(new Set(r.pantallas.filter((p) => p.tocaGestion).map((p) => p.moduleId))).toEqual(
       modulosConGestion,
     );
+    // Y que la marca no sea vacua: hay pantallas de sólo lectura entre las afectadas.
+    expect(r.pantallas.some((p) => !p.tocaGestion)).toBe(true);
   });
 });
