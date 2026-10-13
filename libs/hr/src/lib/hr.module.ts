@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { CloudinaryModule } from '@megadulces/platform-core';
+import { JwtModule } from '@nestjs/jwt';
+import { CloudinaryModule, jwtVerifyOptions, requireJwtSecret } from '@megadulces/platform-core';
 import { HrAttendanceIngestController, HrAttendanceMtCompatController } from './attendance/attendance-ingest.controller';
 import { HrAttendanceDevicesController } from './attendance/attendance-devices.controller';
 import { HrAttendanceDevicesService } from './attendance/attendance-devices.service';
@@ -15,6 +16,9 @@ import { HrAttendanceSchedulesService } from './attendance/attendance-schedules.
 import { HrTalentController } from './talent/talent.controller';
 import { HrTalentCandidatesService } from './talent/talent-candidates.service';
 import { HrTalentJobsService } from './talent/talent-jobs.service';
+import { HrTalentIntakeService } from './talent/talent-intake.service';
+import { HrTalentPublicController } from './talent/talent-public.controller';
+import { HrTalentLinksService } from './talent/talent-links.service';
 
 /**
  * Fase RH (ADR-084) — Recursos Humanos dentro de la Suite.
@@ -24,19 +28,29 @@ import { HrTalentJobsService } from './talent/talent-jobs.service';
  *   · `[RH.1.5]` horarios deducidos, la asistencia por persona y el agente de alertas (`@Cron`
  *     en el worker, apagado hasta el corte: `ENABLE_HR_ATTENDANCE_AGENT`);
  *   · `[RH.1.6]` incidencias (6 estados, separación de funciones) y el cierre semanal;
- *   · `[RH.2.2]` reclutamiento: candidatos (etapas, eventos, marcas, papelera, fusión) y vacantes.
+ *   · `[RH.2.2]` reclutamiento: candidatos (etapas, eventos, marcas, papelera, fusión) y vacantes;
+ *   · `[RH.2.4]` la bolsa de trabajo pública (vacantes y postulación, con las reglas de `logic/postulacion.ts`).
  *
  * Las pantallas son `[RH.1.7]`. Las claves `HR_*` gatean la API desde ya y se reparten con ellas.
  */
 @Module({
   // `CloudinaryModule` exporta `ObjectStorageService`: el bucket PRIVADO de los expedientes de reclutamiento.
-  imports: [CloudinaryModule],
-  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController, HrTalentController],
+  // `JwtModule` local para las LIGAS de candidatos, con un secreto DERIVADO: una liga nunca vale como sesión de
+  // usuario ni una sesión como liga, aunque las dos sean JWT (ver `talent-links.service.ts`).
+  imports: [
+    CloudinaryModule,
+    JwtModule.register({
+      secret: `${requireJwtSecret()}:talent-link`,
+      signOptions: { algorithm: 'HS256' },
+      verifyOptions: jwtVerifyOptions,
+    }),
+  ],
+  controllers: [HrAttendanceIngestController, HrAttendanceMtCompatController, HrAttendanceController, HrAttendanceDevicesController, HrTalentController, HrTalentPublicController],
   providers: [
     HrAttendanceIngestService, HrIngestGuard,
     HrAttendanceAgentService, HrAttendanceAlertsService, HrAttendanceReportService,
     HrAttendanceIncidentsService, HrAttendanceClosuresService, HrAttendanceSchedulesService, HrAttendanceDevicesService,
-    HrTalentCandidatesService, HrTalentJobsService,
+    HrTalentCandidatesService, HrTalentJobsService, HrTalentIntakeService, HrTalentLinksService,
   ],
   exports: [HrAttendanceIngestService, HrAttendanceReportService],
 })
