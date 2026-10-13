@@ -50,20 +50,18 @@ describe('[RH.2.4] EmpleoComponent', () => {
   it('el puesto se elige después de la ciudad: sólo las de esa ciudad (y las de todas)', () => {
     const c = fix.componentInstance;
     expect(c.vacantesDeCiudad()).toEqual([]);
-    c.f.city_branch = 'Zamora';
-    c.alCambiarCiudad();
+    c.setCiudad('Zamora');
     expect(c.vacantesDeCiudad().map((x) => x.name)).toEqual(['Cajera', 'Almacenista']);
     // Cambiar de ciudad limpia un puesto que ya no aplica.
-    c.f.job_posting_id = 'v1';
-    c.f.city_branch = 'Morelia';
-    c.alCambiarCiudad();
-    expect(c.f.job_posting_id).toBe('');
+    c.puestoId.set('v1');
+    c.setCiudad('Morelia');
+    expect(c.puestoId()).toBe('');
   });
 
   it('«Postularme» en una vacante de una sola ciudad la deja elegida con su ciudad', () => {
     const c = fix.componentInstance;
     c.elegir(VACANTES[1]);
-    expect([c.f.city_branch, c.f.job_posting_id, c.pideLicencia()]).toEqual(['Morelia', 'v2', true]);
+    expect([c.ciudad(), c.puestoId(), c.pideLicencia()]).toEqual(['Morelia', 'v2', true]);
   });
 
   it('⛔ NEGATIVA — con datos faltantes no se envía nada al servidor, y dice qué falta', async () => {
@@ -80,9 +78,9 @@ describe('[RH.2.4] EmpleoComponent', () => {
 
   it('⭐ envía la solicitud completa y muestra lo que contesta el servidor', async () => {
     const c = fix.componentInstance;
-    c.f.city_branch = 'Zamora';
-    c.alCambiarCiudad();
-    Object.assign(c.f, { job_posting_id: 'v1', full_name: 'Ana Prueba López', phone: '351 123 4567', heard_from: 'Feria de empleo', privacy_accepted: true });
+    c.setCiudad('Zamora');
+    c.puestoId.set('v1');
+    Object.assign(c.f, { full_name: 'Ana Prueba López', phone: '351 123 4567', heard_from: 'Feria de empleo', privacy_accepted: true });
     c.cv.set(new File(['%PDF-1.7'], 'cv.pdf', { type: 'application/pdf' }));
     await c.enviar();
     const req = http.expectOne((r) => r.url.endsWith('/hr/talent/public/applications'));

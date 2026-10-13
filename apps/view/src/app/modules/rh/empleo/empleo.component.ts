@@ -19,14 +19,14 @@ export const AVISO_PRIVACIDAD_CANDIDATOS = [
   'Puedes pedir que corrijamos o borremos tus datos escribiéndonos por WhatsApp al número de Recursos Humanos.',
 ];
 
+/** Lo que no decide nada en pantalla (la ciudad y el puesto sí: son señales, porque de ellos depende qué se muestra). */
 interface Form {
-  city_branch: string; job_posting_id: string; full_name: string; phone: string; email: string; heard_from: string;
+  full_name: string; phone: string; email: string; heard_from: string;
   relative_in_company: string; rehire_note: string; privacy_accepted: boolean; website: string;
 }
 
 const vacio = (): Form => ({
-  city_branch: '', job_posting_id: '', full_name: '', phone: '', email: '', heard_from: '',
-  relative_in_company: '', rehire_note: '', privacy_accepted: false, website: '',
+  full_name: '', phone: '', email: '', heard_from: '', relative_in_company: '', rehire_note: '', privacy_accepted: false, website: '',
 });
 
 /** Las ciudades de una vacante, para mostrarlas (sin sucursales asignadas = todas). */
@@ -85,7 +85,7 @@ function errorDe(e: unknown): string {
           @else if (!vacantes().length) { <p class="em-nota">Por ahora no hay vacantes publicadas.</p> }
           <ul class="em-vacantes">
             @for (v of vacantes(); track v.id) {
-              <li [class.sel]="f.job_posting_id === v.id">
+              <li [class.sel]="puestoId() === v.id">
                 <div class="em-v-head">
                   <h3>{{ v.name }}</h3>
                   <button type="button" class="em-btn" (click)="elegir(v)">Postularme</button>
@@ -106,18 +106,18 @@ function errorDe(e: unknown): string {
           <h2>Tu solicitud</h2>
 
           <label>Ciudad donde te interesa trabajar *
-            <select name="ciudad" [(ngModel)]="f.city_branch" (ngModelChange)="alCambiarCiudad()" required>
+            <select name="ciudad" [ngModel]="ciudad()" (ngModelChange)="setCiudad($event)" required>
               <option value="" disabled>Elige una ciudad…</option>
               @for (c of ciudades; track c) { <option [value]="c">{{ c }}</option> }
             </select>
           </label>
 
           <label>Puesto que te interesa *
-            <select name="puesto" [(ngModel)]="f.job_posting_id" [disabled]="!f.city_branch" required>
-              <option value="" disabled>{{ f.city_branch ? 'Elige un puesto…' : 'Primero elige una ciudad' }}</option>
+            <select name="puesto" [ngModel]="puestoId()" (ngModelChange)="puestoId.set($event)" [disabled]="!ciudad()" required>
+              <option value="" disabled>{{ ciudad() ? 'Elige un puesto…' : 'Primero elige una ciudad' }}</option>
               @for (v of vacantesDeCiudad(); track v.id) { <option [value]="v.id">{{ v.name }}</option> }
             </select>
-            @if (f.city_branch && !vacantesDeCiudad().length) { <small>No hay vacantes en {{ f.city_branch }} por ahora.</small> }
+            @if (ciudad() && !vacantesDeCiudad().length) { <small>No hay vacantes en {{ ciudad() }} por ahora.</small> }
           </label>
 
           <label>Nombre completo * <input name="nombre" [(ngModel)]="f.full_name" autocomplete="name" required maxlength="150" /></label>
@@ -238,16 +238,19 @@ export class EmpleoComponent implements OnInit {
   readonly resultado = signal<HrPostulacionResultadoDto | null>(null);
   readonly cv = signal<File | null>(null);
   readonly licencia = signal<File | null>(null);
-  /** Para que los `computed` se enteren de los cambios del formulario (que vive en un objeto plano por ngModel). */
-  private readonly version = signal(0);
+  readonly ciudad = signal('');
+  readonly puestoId = signal('');
   f: Form = vacio();
 
   readonly vacantesDeCiudad = computed(() => {
-    this.version();
-    const c = this.f.city_branch;
-    return c ? this.vacantes().filter((v) => hrVacanteEnCiudad(v.branch_codes, c)) : [];
+    const c = this.ciudad();
+    const todas = this.vacantes();
+    return c ? todas.filter((v) => hrVacanteEnCiudad(v.branch_codes, c)) : [];
   });
-  readonly puestoElegido = computed(() => { this.version(); return this.vacantes().find((v) => v.id === this.f.job_posting_id) ?? null; });
+  readonly puestoElegido = computed(() => {
+    const id = this.puestoId();
+    return this.vacantes().find((v) => v.id === id) ?? null;
+  });
   readonly pideLicencia = computed(() => hrPideLicencia(this.puestoElegido()?.name));
 
   ngOnInit(): void { this.cargar(); }
@@ -256,7 +259,7 @@ export class EmpleoComponent implements OnInit {
     this.cargando.set(true);
     this.errorVacantes.set(null);
     this.http.get<HrVacantePublicaDto[]>(`${this.base}/jobs`).subscribe({
-      next: (v) => { this.vacantes.set(v); this.cargando.set(false); this.version.update((n) => n + 1); },
+      next: (v) => { this.vacantes.set(v); this.cargando.set(false); },
       error: (e) => { this.errorVacantes.set(errorDe(e)); this.cargando.set(false); },
     });
   }
@@ -264,17 +267,15 @@ export class EmpleoComponent implements OnInit {
   /** «Postularme» en una vacante: la deja elegida (con su ciudad si es una sola) y baja al formulario. */
   elegir(v: HrVacantePublicaDto): void {
     const ciudades = [...new Set(HR_SUCURSALES_EMPLEO.filter((s) => v.branch_codes?.includes(s.id)).map((s) => s.ciudad))];
-    if (ciudades.length === 1) this.f.city_branch = ciudades[0];
-    if (this.f.city_branch && hrVacanteEnCiudad(v.branch_codes, this.f.city_branch)) this.f.job_posting_id = v.id;
-    this.version.update((n) => n + 1);
+    if (ciudades.length === 1) this.ciudad.set(ciudades[0]);
+    if (this.ciudad() && hrVacanteEnCiudad(v.branch_codes, this.ciudad())) this.puestoId.set(v.id);
     document.getElementById('solicitud')?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   }
 
-  /** Si el puesto elegido ya no aplica en la ciudad nueva, se limpia (regla de Mega Talento). */
-  alCambiarCiudad(): void {
-    this.version.update((n) => n + 1);
-    if (this.f.job_posting_id && !this.vacantesDeCiudad().some((v) => v.id === this.f.job_posting_id)) this.f.job_posting_id = '';
-    this.version.update((n) => n + 1);
+  /** Al cambiar de ciudad, si el puesto elegido ya no aplica, se limpia (regla de Mega Talento). */
+  setCiudad(c: string): void {
+    this.ciudad.set(c);
+    if (this.puestoId() && !this.vacantesDeCiudad().some((v) => v.id === this.puestoId())) this.puestoId.set('');
   }
 
   archivo(ev: Event, cual: 'cv' | 'licencia'): void {
@@ -292,8 +293,8 @@ export class EmpleoComponent implements OnInit {
   /** Lo que falta, en el orden del formulario (el servidor valida lo mismo; esto sólo ayuda a quien llena). */
   faltante(): string | null {
     const f = this.f;
-    if (!f.city_branch) return 'Elige la ciudad.';
-    if (!f.job_posting_id) return 'Elige el puesto.';
+    if (!this.ciudad()) return 'Elige la ciudad.';
+    if (!this.puestoId()) return 'Elige el puesto.';
     if (f.full_name.trim().split(/\s+/).length < 2) return 'Escribe tu nombre completo.';
     if (f.phone.replace(/\D/g, '').length < 10) return 'Escribe tu teléfono a 10 dígitos.';
     if (!f.heard_from) return 'Dinos dónde te enteraste de la vacante.';
@@ -304,7 +305,6 @@ export class EmpleoComponent implements OnInit {
   }
 
   async enviar(): Promise<void> {
-    this.version.update((n) => n + 1);
     const falta = this.faltante();
     if (falta) { this.error.set(falta); return; }
     this.enviando.set(true);
@@ -313,8 +313,8 @@ export class EmpleoComponent implements OnInit {
       const cv = this.cv()!;
       const lic = this.pideLicencia() ? this.licencia() : null;
       const cuerpo: HrPostulacionPublica = {
-        full_name: this.f.full_name, phone: this.f.phone, email: this.f.email || null, city_branch: this.f.city_branch,
-        job_posting_id: this.f.job_posting_id, heard_from: this.f.heard_from, relative_in_company: this.f.relative_in_company || null,
+        full_name: this.f.full_name, phone: this.f.phone, email: this.f.email || null, city_branch: this.ciudad(),
+        job_posting_id: this.puestoId(), heard_from: this.f.heard_from, relative_in_company: this.f.relative_in_company || null,
         rehire_note: this.f.rehire_note || null, cv_base64: await leerComoDataUri(cv), cv_file_name: cv.name,
         license_base64: lic ? await leerComoDataUri(lic) : null, license_file_name: lic?.name ?? null,
         privacy_accepted: this.f.privacy_accepted, website: this.f.website || null,
@@ -332,9 +332,10 @@ export class EmpleoComponent implements OnInit {
   /** Después de una postulación recibida: formulario limpio. */
   otra(): void {
     this.f = vacio();
+    this.ciudad.set('');
+    this.puestoId.set('');
     this.cv.set(null);
     this.licencia.set(null);
     this.resultado.set(null);
-    this.version.update((n) => n + 1);
   }
 }
