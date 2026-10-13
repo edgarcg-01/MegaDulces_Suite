@@ -235,6 +235,48 @@ export class CajaAutofillService {
           value: { kepler_cuenta: RESPALDO_GASTO.cuenta, kepler_concepto: RESPALDO_GASTO.concepto },
           source: 'regla', confidence: 0.5,
         };
+      } else {
+        /**
+         * ⭐⭐ `[CG.127]` **EL INGRESO NO TENÍA NINGÚN NIVEL, y por eso la cobranza de ruta
+         * terminaba en «HONORARIOS CONTADOR».**
+         *
+         * Edgar, leyendo el libro: *"estos no son honorarios a contador"*. Tenía razón, y los dos
+         * que señaló son cobranza de ruta — `CI-2026-00010` cuadra con la **ruta 26 del 10-oct**
+         * ($17,267.04) y `CI-2026-00009` con la **ruta 21 del 09-oct** ($22,676.07), con **un solo
+         * candidato** cada uno.
+         *
+         * Medido sobre los 24 ingresos del libro ($404,725):
+         *
+         *     102/011  CAJA GENERAL ............ 15 movs  $271,763   la caja contra SI MISMA
+         *     201/201  PASIVO A PROVEEDORES .....  5 movs   $59,812   deuda con proveedor
+         *     607-002  HONORARIOS CONTADOR ......  3 movs   $56,668   ← lo que Edgar vio
+         *     102/037  CAJA CHICA MORELIA .......  1 mov    $16,482
+         *     115/071  ABONO A CLIENTES .........  0 movs        $0   ← lo correcto
+         *
+         * ⛔ Y la causa no era el criterio de nadie: **la cascada entera sólo tenía respaldo para
+         * `gasto`**. Un ingreso que llegaba hasta acá salía sin propuesta, y quien captura elegía
+         * de una lista de 2,840 conceptos la que sonara. *No fallaba el autollenado en los
+         * ingresos: no existía para ellos.*
+         *
+         * ⭐ La cuenta NO se cablea: la dice el **árbitro**, que es la póliza del propio Kepler
+         * (ADR-040/059). Un cobro `UA0501` lleva cargo a `102` y **abono a `115`**, así que la
+         * contrapartida de un ingreso de cobranza es el abono — derivado por sucursal en
+         * `analytics.v_caja_contracuenta_cobro`, que cuadra en **9 de 9 plazas** (la `00` con
+         * 16,700 renglones de respaldo).
+         *
+         * ⚠️ Confianza **0.6**, por encima del respaldo del gasto (0.5) y por debajo de cualquier
+         * nivel que lea el documento: esto es cierto para *la clase* «cobranza», no para ESTE
+         * movimiento. Si el ingreso trae documento, la póliza gana y este nivel ni se mira.
+         */
+        try {
+          respaldo = await this.contracuentaDeCobro(trx, tenantId, input.sucursal);
+          niveles['contracuenta'] = 'consultado';
+        } catch (e) {
+          // ⛔ Si el árbitro no se puede leer NO se inventa una cuenta: se declara y el ingreso
+          //    cae a captura manual con su motivo, que es el comportamiento correcto.
+          niveles['contracuenta'] = 'sin_fuente';
+          this.log.warn(`contracuenta del cobro no consultable: ${(e as Error).message}`);
+        }
       }
 
       // Cascada: gana el nivel de más certeza que haya producido un valor.
@@ -283,6 +325,34 @@ export class CajaAutofillService {
    * pasar en silencio haría que la ausencia de la criba se viera igual que una criba que aprobó
    * todo — la confusión que ADR-056 prohíbe. El guardado sigue siendo la última compuerta.
    */
+  /**
+   * ⭐ `[CG.127]` **La contracuenta de un cobro, preguntada al árbitro.**
+   *
+   * ⚠️ `concepto` puede venir NULL si el nombre que usa la póliza no existe en el catálogo de esa
+   * plaza. Ahí **no se propone**: media propuesta no sirve para guardar nada, y rellenar el
+   * concepto «con el más parecido» inventaría una cuenta.
+   *
+   * ⚠️ Sin sucursal tampoco se propone. La cuenta difiere por plaza, y adivinar cuál usar sería
+   * la misma falta que `[CG.118]` vino a cerrar del otro lado.
+   */
+  private async contracuentaDeCobro(
+    trx: Knex.Transaction, tenantId: string, sucursal: string | undefined,
+  ): Promise<Proposal<ConceptPair>> {
+    if (!sucursal) {
+      return { value: null, source: null, confidence: null, reason: 'sin_regla' };
+    }
+    const r = await trx('analytics.v_caja_contracuenta_cobro')
+      .where({ tenant_id: tenantId, sucursal })
+      .first('cuenta', 'concepto', 'renglones');
+    if (!r?.cuenta || !r?.concepto) {
+      return { value: null, source: null, confidence: null, reason: 'sin_historia' };
+    }
+    return {
+      value: { kepler_cuenta: String(r.cuenta), kepler_concepto: String(r.concepto) },
+      source: 'regla', confidence: 0.6,
+    };
+  }
+
   private async cribarPorPlaza(
     trx: Knex.Transaction,
     tenantId: string,
