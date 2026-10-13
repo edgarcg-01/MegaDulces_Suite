@@ -91,6 +91,25 @@ for f in "$DIR"/*.yaml; do
       "http://127.0.0.1:5000/v2/$_img/manifests/$COMMIT" 2>/dev/null \
       || _faltan="$_faltan $_img"
   done
+
+  # ⭐ [DEPLOY.2] Y las IMÁGENES BASE, que ya no llevan `:__COMMIT__`.
+  #
+  # `pg-prod` y `caddy` pasaron a un tag estable `base-<hash>` para dejar de recrearse en cada
+  # despliegue (mataban la base de datos y la puerta de entrada: ver el manifiesto de cada una).
+  # ⛔ Pero el bucle de arriba busca `:__COMMIT__`, así que al cambiarles el tag quedaban FUERA
+  # del pre-vuelo — y este pre-vuelo existe justo porque aplicar sin imagen mata a los pods
+  # `Recreate` antes de descubrir que no hay con qué reemplazarlos (32 min de sitio abajo el
+  # 2026-10-01). Dejarlas sin vigilar habría reintroducido esa caída por la puerta de atrás.
+  for _par in $(sed -n 's#^[[:space:]]*image:[[:space:]]*localhost:5000/\([A-Za-z0-9._-]*\):\(base-[0-9a-f]\{6,\}\).*#\1:\2#p' "$f" | sort -u); do
+    _bimg=${_par%%:*}; _btag=${_par#*:}
+    case " $_faltan " in *" $_par "*) continue ;; esac
+    curl -fsS -o /dev/null \
+      -H 'Accept: application/vnd.docker.distribution.manifest.v2+json' \
+      -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
+      -H 'Accept: application/vnd.oci.image.index.v1+json' \
+      "http://127.0.0.1:5000/v2/$_bimg/manifests/$_btag" 2>/dev/null \
+      || _faltan="$_faltan $_par"
+  done
 done
 if [ -n "$_faltan" ]; then
   echo "   ⛔ NO SE APLICA NADA: el registry no tiene estas imágenes en :$COMMIT —$_faltan"

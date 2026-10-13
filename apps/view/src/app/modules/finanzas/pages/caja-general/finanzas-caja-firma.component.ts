@@ -153,14 +153,38 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
    * `tomar()` es justamente lo que la persona necesita leer. Reintentar lo taparía.
    */
   ngOnInit(): void {
-    this.caja.connect();
-    const porUrl = new URLSearchParams(location.search).get('c');
+    const q = new URLSearchParams(location.search);
+    // ⭐⭐ `[CG.84]` **EL PASE: acá se deja de pedir contraseña.** Edgar: *"el no password para
+    // firmar"*. Si el QR trae pase, el canal se abre con él en vez de con una sesión, y este
+    // teléfono entra como invitado atado a ese único código. Sin pase todo sigue igual que antes
+    // (hace falta sesión), que es el camino del teléfono del cajero.
+    const pase = q.get('pase');
+    this.porPase = !!pase;
+    this.caja.connect(pase);
+    const porUrl = q.get('c');
     if (porUrl) {
       this.codigo = porUrl;
-      void this.tomar();
+      void this.tomarCuandoHayaCanal();
     }
   }
   ngOnDestroy(): void { this.caja.disconnect(); }
+
+  /** Si entró por QR con pase: cambia lo que se le dice cuando el canal no abre. */
+  private porPase = false;
+
+  /**
+   * ⚠️ `connect()` NO deja el socket listo — el handshake tarda, y `tomar()` en el mismo turno le
+   * pega a un socket todavía desconectado y responde `sin_conexion`. Con el QR recién escaneado
+   * eso se lee como "no funciona", cuando lo único que pasó es que se preguntó demasiado pronto.
+   * Se espera al canal, con techo: una espera sin techo deja la pantalla girando para siempre.
+   */
+  private async tomarCuandoHayaCanal(plazoMs = 6000): Promise<void> {
+    const hasta = Date.now() + plazoMs;
+    while (!this.caja.connected() && Date.now() < hasta) {
+      await new Promise((r) => setTimeout(r, 120));
+    }
+    await this.tomar();
+  }
 
   /**
    * ⛔ Se re-prepara cuando el `<canvas>` cambia de identidad: el `@if` lo destruye y lo re-crea,
@@ -238,15 +262,19 @@ export class FinanzasCajaFirmaComponent implements OnInit, OnDestroy {
     switch (e) {
       // ⭐ `vencido` y `no_existe` son DOS cosas y la persona tiene que oír cosas distintas:
       // una se arregla pidiendo otro código, la otra revisando lo que tecleó.
-      case 'vencido': return 'El código ya venció. Pedile uno nuevo a la caja.';
-      case 'no_existe': return 'Ese código no existe. Revisá lo que escribiste.';
+      case 'vencido': return 'El código ya venció. Pídele uno nuevo a la caja.';
+      case 'no_existe': return 'Ese código no existe. Revisa lo que escribiste.';
       case 'ya_tomado': return 'Ese código ya lo está usando otro teléfono.';
       case 'otro_tenant': return 'Ese código no es de esta empresa.';
       case 'no_es_suyo': return 'Este teléfono no es el que tomó el código.';
-      case 'no_es_firma': return 'La firma no se pudo leer. Borrá y firmá de nuevo.';
-      case 'sin_conexion': return 'Sin conexión con el servidor. Revisá la red del teléfono.';
-      case 'sin_respuesta': return 'El servidor no contestó. Probá de nuevo.';
-      default: return 'No se pudo continuar. Probá de nuevo.';
+      case 'no_es_firma': return 'La firma no se pudo leer. Borra y firma de nuevo.';
+      // ⭐ `[CG.84]` Entrar por QR y que no abra el canal casi siempre es UNA cosa: el QR venció.
+      // Decir "revisa la red" ahí manda a la persona a buscar el problema donde no está.
+      case 'sin_conexion': return this.porPase
+        ? 'El QR venció (dura 3 minutos). Pide uno nuevo en la pantalla de la caja.'
+        : 'Sin conexión con el servidor. Revisa la red del teléfono.';
+      case 'sin_respuesta': return 'El servidor no contestó. Prueba de nuevo.';
+      default: return 'No se pudo continuar. Prueba de nuevo.';
     }
   }
 }

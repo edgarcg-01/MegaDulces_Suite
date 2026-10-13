@@ -4088,3 +4088,55 @@ Quien investigue autoría dentro de seis meses no va a tener el hilo donde sali�
 el mismo defecto que el repo documenta en otros diez lugares: **un dato correcto —el blame SÍ dice
 `f058bf500`— sosteniendo una conclusión falsa.** Lo que lo destapa es mirar qué hizo ese commit,
 no confiar en que el blame contesta la pregunta que uno cree estar haciendo.
+
+---
+
+## 79. ⛔ Nada de Python — y el costo de que la regla viviera sólo en la memoria de UNA sesión
+
+**La regla, en una línea:** las herramientas de este repo son **Node/TypeScript/JavaScript**
+(scripts, gates, importers), **SQL**, y **PowerShell/Bash** para el shell. **Python no se usa para
+nada**, ni para un script de un solo uso en el scratchpad.
+
+Lo pidió Edgar el **2026-10-05**: *«no uses python, sólo trabajar con los lenguajes del proyecto»*.
+
+**Lo que costó, medido el 2026-10-12:** **9 procesos `python - <<EOF` colgados desde el 7-oct**,
+quemando **8.8 de 12 núcleos** y **~366 horas de CPU** acumuladas. Al matarlos, `nx build api` pasó
+de **2m05s a 1m03s** — la mitad del tiempo de build de todo el equipo se lo estaba comiendo un
+intérprete esperando una entrada que nunca llegó.
+
+⚠️ **Por qué nadie los vio en cinco días.** Un heredoc mal formado contra `python -` **no falla:
+espera `stdin` para siempre.** No hay error, no hay exit code, no hay log. El proceso simplemente
+se queda. Es la misma familia que el resto de este documento: *algo que no se rompe, se queda
+callado*.
+
+### ⭐⭐ Y la causa de fondo no fue Python
+
+La instrucción existía desde el 5-oct, pero vivía **sólo en la memoria personal de una sesión**. Y
+este repo ya lo advierte en [`CLAUDE.md`](../CLAUDE.md): *«La memoria personal de Claude NO se
+comparte entre máquinas — todo lo que deba verlo el equipo va a estos `.md`»*.
+
+O sea: **las otras ~16 sesiones nunca recibieron la regla.** No la desobedecieron; no podían verla.
+Siete días después, el costo aparecía como «el build está lento», que es un síntoma que nadie
+conecta con una instrucción dada en otra conversación.
+
+⭐ La lección es más grande que Python: **una regla guardada donde sólo la ve quien la recibió no
+es una regla, es un recuerdo.** Si algo debe atar al equipo, va en `CLAUDE.md` o acá.
+
+### Qué hacer en su lugar
+
+- Para escribir o cambiar archivos del repo: **`Edit`/`Write`**, nunca un script. (Edgar quiere el
+  diff lado a lado en VSCode — ver `feedback_use_edit_tool_for_visible_diffs`.)
+- Para manipular datos fuera de esas herramientas: **`node -e "..."`** con comillas dobles y **sin
+  heredoc**.
+- Si el script necesita varias líneas: escribirlo primero al scratchpad con `Write` y correrlo con
+  **`node <ruta>`**.
+- Heredocs de shell (`cat > /tmp/x.sql <<'SQL'`) sí están bien: **terminan solos**. El peligro no es
+  el heredoc, es el **intérprete que se queda esperando** al otro lado.
+
+### Cómo detectar si volvió a pasar
+
+```bash
+ps aux | grep "[p]ython" | head        # en el host de la ingesta y en la máquina de trabajo
+```
+
+Cualquier `python` vivo en este proyecto es un hallazgo, no un proceso normal.

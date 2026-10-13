@@ -24,7 +24,10 @@ import { prepararFirma, pintarQr, type FirmaCanvas } from '@megadulces/ui-web';
  * DOS lugares —el QR y el texto de respaldo— y escribirla dos veces es la forma barata de que una
  * de las dos quede vieja el día que la ruta cambie.
  */
-const RUTA_FIRMA = '/finanzas/caja-general/firma';
+// ⭐ `[CG.84]` Apunta a la ruta PÚBLICA. La vieja (`/finanzas/caja-general/firma`) sigue viva
+// para un teléfono con sesión, pero el QR y la ruta que se dicta van acá: ésta no exige iniciar
+// sesión ni carga el shell de la Suite en un teléfono que se le presta a quien viene a firmar.
+const RUTA_FIRMA = '/firmar';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { LoadStateComponent } from '../../../../shared/components/load-state/load-state.component';
 // `[CG.45]` Tres piezas del repertorio compartido que esta pantalla se había construido a mano
@@ -1599,7 +1602,23 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 }
 
                 <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
-                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
+                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano.
+
+                     ⛔⛔ [CG.111] SÓLO SI NO HAY DOCUMENTO, y eso es una corrección, no un detalle.
+                     Este campo llama a tomarMovimientoCaos, que hace cobroElegido.set(null):
+                     es EXCLUYENTE. Estaba visible también con un documento ya elegido, así que
+                     usarlo ahí BORRABA el documento en silencio -- se iban fecha, sucursal,
+                     beneficiario y la cuenta de la póliza, y origen_tipo pasaba de
+                     pago_proveedor a caos, o sea que el movimiento dejaba de estar anclado al
+                     ERP. Medido en prod: 11 de 30 movimientos quedaron con origen caos contra
+                     16 anclados al documento.
+
+                     ⭐ Con documento, el camino correcto es OTRO y ya existe: caosVinculados
+                     (más abajo, "retiros del cajero que financiaron este gasto"), que CONSERVA el
+                     ancla y adjunta las dispensaciones. Es el que dejó las 6 filas vivas en
+                     finance.caos_cash_links. Edgar: "a lo mucho enlazarlo con un movimiento de
+                     caos" -- enlazar, no reemplazar. -->
+                @if (!cobroElegido()) {
                 <div class="fin-row fin-row-col">
                   <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
                   <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
@@ -1615,6 +1634,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     </small>
                   }
                 </div>
+                }
               }
 
               <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
@@ -3459,7 +3479,13 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
    * mientras alguien prueba en local — o al revés, que es peor.
    */
   private urlFirmaTelefono(codigo: string): string {
-    return `${location.origin}${RUTA_FIRMA}?c=${encodeURIComponent(codigo)}`;
+    // ⭐ `[CG.84]` Con pase, el teléfono entra sin sesión y con su código ya puesto. El `c=` se
+    // manda igual: es el que se dicta en voz alta cuando el teléfono no puede escanear, y es el
+    // que usa un teléfono que SÍ tiene sesión. Los dos caminos siguen vivos.
+    const pase = this.firmaPase();
+    const q = `?c=${encodeURIComponent(codigo)}`
+      + (pase ? `&pase=${encodeURIComponent(pase)}` : '');
+    return `${location.origin}${RUTA_FIRMA}${q}`;
   }
 
   /**
@@ -3571,6 +3597,18 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     return firmaSigueValiendo(m, Number(this.f().monto) || 0);
   });
 
+  /**
+   * ⭐⭐ `[CG.84]` **El pase que va dentro del QR, para que el teléfono NO tenga que loguearse.**
+   *
+   * Edgar: *"el no password para firmar"*. Lo emite el servidor cuando esta PC —ya con sesión y
+   * con permiso de gestionar— pide el código, y vive los mismos 3 minutos. El teléfono lo
+   * presenta en lugar de un usuario y entra como invitado atado a ESE código.
+   *
+   * ⚠️ No se guarda en ningún lado ni se muestra como texto: vive en memoria mientras el panel
+   * está abierto y se borra al cerrarlo. Es una llave, no un dato.
+   */
+  readonly firmaPase = signal<string | null>(null);
+
   async firmaPedirEnTelefono(): Promise<void> {
     this.firmaAviso.set(null);
     this.firmaPidiendo.set(true);
@@ -3588,6 +3626,9 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
         return;
       }
       this.firmaCodigo.set(r.codigo);
+      // `[CG.84]` El pase ANTES de pintar: el QR lo lee de acá. Si el servidor es viejo y no lo
+      // manda, queda `null` y el QR sale con el código solo — el camino de antes, que sigue vivo.
+      this.firmaPase.set(r.pase ?? null);
       this.firmaTelefonoListo.set(false);
       this.pintarQrFirma();   // `[CG.74]` el QR del codigo que acaba de nacer
     } finally {
@@ -3600,6 +3641,7 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
     // telefono podria ver el contexto de un pedido que el cajero ya cancelo.
     if (this.firmaCodigo()) void this.caja.cerrarFirma();
     this.firmaCodigo.set(null);
+    this.firmaPase.set(null);   // `[CG.84]` la llave se va con el panel
     this.firmaTelefonoListo.set(false);
     this.firmaAviso.set(null);
     // `[CG.74]` Y se borra el QR: uno vencido en pantalla es peor que ninguno — alguien lo
@@ -5373,10 +5415,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Pide una PROPUESTA. Nunca pisa lo que el humano ya eligió a mano. */
   pedirPropuesta(): void {
     const f = this.f();
-    if (!f.tipo && !f.beneficiario && !f.glosa) return;
+    const c = this.cobroElegido();
+    if (!f.tipo && !f.beneficiario && !f.glosa && !c) return;
     this.svc.autofill({
       tipo: f.tipo, sucursal: f.sucursal,
       glosa: f.glosa || undefined, beneficiario: f.beneficiario || undefined,
+      // ⭐ `[CG.108]` El documento abre el NIVEL 0: con él, el servidor va a la contabilidad de
+      // Kepler y LEE la cuenta en vez de aprenderla. Sin esta línea el nivel existe y nunca
+      // se consulta — un motor nuevo que no recibe su entrada se lee igual que uno que no
+      // propone, y ése es el modo más caro de equivocarse.
+      origen_ref: c?.origen_ref || undefined,
+      // `[CG.109]` El tercero abre el Nivel 0.5: la regla de la entidad, que cubre lo que el
+      // documento no resuelve (cajas chicas, tarjetas, cobros de ruta).
+      entidad_code: c?.entidad_code || undefined,
     }).subscribe({
       next: (r) => {
         this.propuesta.set(r);
