@@ -138,6 +138,40 @@ export function redondearPedido(faltaBase: number, esc: EscaleraUnidades | null)
   return { regla: 'cajas', clase: 'mayor', cantidad: cajas, unidad: etiquetaMayor, cantidad_base: cajas * mayor, falta_mayor: faltaMayor, factor: mayor };
 }
 
+// ── [AB.22] Días de cobertura del objetivo por demanda, por almacén ─────────────────────────
+
+/**
+ * Para cuántos días de venta pide cada almacén (decisión de Francisco, 2026-10-13). El objetivo
+ * de Autoabasto es `venta diaria × temporalidad × cobertura`; hasta AB.21 la cobertura era 30
+ * días fijos para todos (igual que el default de /compras/pedido).
+ *  · sucursales que no abastecen a otras → 21 días;
+ *  · rutas → 2.5 días (se surten casi a diario);
+ *  · el resto (CEDIS y matrices 00, 01, 06, 08) → 30 días.
+ * ⚠️ Se aplica por CÓDIGO de almacén tal como vive en `commercial.warehouses.code` (las rutas son
+ * `RUTA-NN`, medido en prod 2026-10-13). Ruta 321 y 322 no tienen plan de reabasto: quedan en 30.
+ */
+export const COBERTURA_AUTOABASTO_DEFAULT = 30;
+export const COBERTURA_AUTOABASTO: Readonly<Record<string, number>> = {
+  '02': 21, '03': 21, '04': 21, '05': 21, '07': 21,
+  'RUTA-21': 2.5, 'RUTA-22': 2.5, 'RUTA-23': 2.5, 'RUTA-26': 2.5, 'RUTA-27': 2.5, 'RUTA-28': 2.5,
+  'RUTA-501': 2.5, 'RUTA-502': 2.5, 'RUTA-503': 2.5, 'RUTA-504': 2.5, 'RUTA-505': 2.5,
+};
+
+/** Días de cobertura de un almacén por su código. Sin código conocido, el default (30). */
+export function coberturaAutoabasto(code: string | null | undefined): number {
+  return COBERTURA_AUTOABASTO[String(code ?? '').trim().toUpperCase()] ?? COBERTURA_AUTOABASTO_DEFAULT;
+}
+
+/**
+ * La misma regla como expresión SQL sobre la columna del código de almacén (p. ej. `w.code`), para
+ * que el motor y la pantalla no puedan divergir: los dos leen el mismo mapa.
+ */
+export function coberturaAutoabastoSql(colCodigo: string): string {
+  const casos = Object.entries(COBERTURA_AUTOABASTO)
+    .map(([c, d]) => `WHEN '${c.replace(/'/g, "''")}' THEN ${d}`).join(' ');
+  return `(CASE upper(btrim(${colCodigo})) ${casos} ELSE ${COBERTURA_AUTOABASTO_DEFAULT} END)`;
+}
+
 // ── [AB.20] Mínimo en pesos para lo que se pide en unidad menor ──────────────────────────────
 
 /**
@@ -390,8 +424,9 @@ export interface AutoabastoPedidoResponse {
   /** `[AB.18]` La persona puede ajustar (tiene AUTOABASTO_SOLICITAR). */
   puede_ajustar: boolean;
   /**
-   * `[AB.18]` Esta base ya tiene las tablas del borrador. `false` = la migración no ha llegado: la
-   * pantalla lo declara arriba en vez de dejar que cada ajuste falle sin explicación.
+   * `[AB.18]` Se puede guardar el borrador: las tablas existen Y la conexión escribe. `false` = falta
+   * la migración o la base es de sólo lectura (p. ej. probar en local contra prod): la pantalla lo
+   * declara arriba en vez de dejar que cada ajuste falle sin explicación.
    */
   guardado_disponible: boolean;
   /** `[AB.19]` Qué posiciones entran al pedido: lo guardado en el borrador, o el default. */

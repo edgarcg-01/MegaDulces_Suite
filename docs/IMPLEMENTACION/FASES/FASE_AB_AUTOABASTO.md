@@ -1141,6 +1141,57 @@ motivo/cantidad/posición inválidos rechazados, otro tenant no ve nada).
 **Abierto:** etapa 2 (envío a la matriz con captura asistida + requisición a Compras), 3 y 4; el
 mínimo de $200 no aplica a mayor ni a «una sola unidad» (decisión, se puede extender).
 
+### 15.12 🧪 [AB.21] PDF de «Mi pedido» para la captura manual — EN CÓDIGO 2026-10-13
+
+**Pedido de Francisco (2026-10-13), con AB.18–AB.20 ya en prod:** mientras llega la etapa 2, el
+almacenista necesita el papel para capturar el pedido en Kepler en la sucursal que lo surte, o para
+mandarlo como requisición de compra al proveedor.
+
+- Botón **PDF** en cada origen y **«PDF de todo el pedido»** arriba (cada origen en su hoja).
+- Título según el origen: **«Pedido de traspaso entre sucursales»** (matriz) o **«Requisición de
+  compra a proveedor»**; caja con quién pide, a quién, fecha/hora del cálculo (del servidor) y quién
+  elaboró.
+- **Una tabla por lista de surtido** (orden de unidad mayor / unidad menor / una sola unidad), en el
+  **orden de captura** (Francisco, 2026-10-13): SKU · **Pedir** · **Unidad** · Producto · existencia y
+  venta 30 d en cajas · valor · **Aviso**. Es hoja de transcripción y análisis: la columna en blanco
+  «Surtido/Recibido» se retiró por no aportar, y «Aviso» lleva la nota del renglón (ajustado con el
+  sugerido y el motivo, agotado de poco valor, atorado, negado).
+- «A LA SUCURSAL» / «AL PROVEEDOR» va **del mismo tamaño que «PIDE»** en la caja del encabezado
+  (`cajaTitulo2`, opcional en `compras-pdf-comun`; los demás PDF no cambian).
+- Imprime **exactamente** lo que lleva el pedido en pantalla: posiciones marcadas, ajustes guardados o
+  en curso y el mínimo de $200. Sin costo → «sin medir», nunca $0. Aviso del mínimo del proveedor.
+- Firmas: matriz → Elaboró / Surtió (sucursal que abastece) / Recibió; proveedor → Elaboró / Autorizó
+  (Compras) / Recibió. Pura vista: **sin migración ni permiso nuevo**; el PDF se arma en el navegador.
+- `mi-pedido-pdf.ts` reusa `compras-pdf-comun` (encabezado, recuadros, notas, pies). Candado
+  `mi-pedido-pdf.spec.ts` (5) corre el dibujo **real** de jsPDF y lee lo escrito; visto en rojo al
+  cambiar «sin medir» por $0. Suite `almacen` 440/440.
+
+**Abierto:** la huella no registra que se imprimió (el CHECK de `autoabasto_huella.evento` no tiene
+`imprimir`; necesita migración); con la etapa 2 el PDF deja de ser el camino principal.
+
+### 15.13 🧪 [AB.22] Cobertura por almacén: 21 días sucursales, 2.5 días rutas — EN CÓDIGO 2026-10-13
+
+**Decisión de Francisco (2026-10-13):** el objetivo por demanda (`venta diaria × temporalidad ×
+cobertura`) deja los 30 días fijos de AB.15 y toma la cobertura **por almacén**:
+- **21 días**: 02 La Piedad Abastos · 03 8 Esquinas · 04 Yurécuaro · 05 Zamora Centro · 07 Morelia Madero;
+- **2.5 días**: rutas `RUTA-21/22/23/26/27/28` y `RUTA-501…505` (códigos medidos en prod);
+- **30 días** (sin cambio, = Compras): CEDIS 00 y matrices 01, 06, 08; RUTA-321/322 (sin plan).
+
+Un solo mapa en `libs/contracts` (`COBERTURA_AUTOABASTO`, `coberturaAutoabasto()`) y su forma SQL
+(`coberturaAutoabastoSql('w.code')`) que usa el motor: la pantalla, el PDF y el SQL no pueden
+divergir. Afecta la mesa, el resumen, el reporte y «Mi pedido» (base `'demanda'`); `/compras/pedido`
+no cambia. El «por qué» del renglón dice los días de su almacén.
+
+**Medido en prod (solo lectura), renglones con falta / cajas, 30 d → cobertura nueva:** 02 1,123 →
+927 / 3,695 → 2,072 · 03 1,378 → 1,170 / 9,245 → 5,682 · 04 728 → 586 / 1,219 → 753 · 05 694 → 579
+/ 2,626 → 1,549 · 07 1,254 → 1,051 / 9,673 → 6,103. Matrices sin cambio.
+
+⛔ **Las rutas no cambian porque hoy no piden nada**: en `analytics.replenishment_plan` las 11 rutas
+tienen venta diaria 0 y existencia 0 en el 100% de sus renglones, y **ninguna** tiene
+`commercial.reorder_policy` (de donde salen los renglones de la mesa). La cobertura de 2.5 d queda
+configurada y aplica sola cuando el plan traiga la venta y la carga de cada ruta — **deuda con
+nombre: demanda y existencia por ruta en el plan de reabasto** (no se resuelve con un importer).
+
 ### 15.10 🧪 [AB.17] Freno de fin de pico en el motor común — EN CÓDIGO 2026-10-12
 
 **Disparador (Francisco, 2026-10-12):** el bombón La Rosa 70012 en La Piedad salía primero en «Mi

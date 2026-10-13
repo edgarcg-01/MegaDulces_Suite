@@ -4,6 +4,9 @@ import { TenantKnexService, TenantContextService, MX_TZ, toMxDateKey } from '@me
 import {
   redondearPedido,
   aplicarMinimoMenor,
+  coberturaAutoabasto,
+  COBERTURA_AUTOABASTO,
+  COBERTURA_AUTOABASTO_DEFAULT,
   necesitaMotivo,
   normalizarPosiciones,
   MOTIVOS_AJUSTE,
@@ -28,8 +31,6 @@ import { CommercialReplenishmentService } from './commercial-replenishment.servi
 const VENTANA_YA_PEDIDO_DIAS = 7;
 /** Lo negado se mira sobre este periodo. Sólo informa: no cambia el sugerido (decisión 2026-10-12). */
 const VENTANA_NEGADO_DIAS = 30;
-/** Cobertura del objetivo: la misma de la base 'demanda' del motor (= /compras/pedido). */
-const COBERTURA_DIAS = 30;
 
 /**
  * Lo pedido a otra sucursal y lo que no le surtieron, por producto, para UNA sucursal destino.
@@ -288,7 +289,7 @@ export class AutoabastoPedidoService {
       almacen,
       fecha_mx: toMxDateKey(ahora),
       hora_mx: new Intl.DateTimeFormat('es-MX', { timeZone: MX_TZ, hour: '2-digit', minute: '2-digit', hour12: false }).format(ahora),
-      cobertura_dias: COBERTURA_DIAS,
+      cobertura_dias: coberturaAutoabasto(almacen.code),
       ventana_ya_pedido_dias: VENTANA_YA_PEDIDO_DIAS,
       ventana_negado_dias: VENTANA_NEGADO_DIAS,
       grupos: lista,
@@ -325,16 +326,24 @@ export class AutoabastoPedidoService {
 
   // ── [AB.18] Ajustes del almacenista y su huella ─────────────────────────────────────────────
 
-  /** ¿Existe ya la tabla del borrador en esta base? (`[AB.18]` se migra antes que el código.) */
+  /**
+   * ¿Se puede guardar el borrador en esta base? Hacen falta DOS cosas: que la tabla exista
+   * (`[AB.18]` se migra antes que el código) y que la conexión pueda escribir. La segunda se
+   * agregó al probar contra prod con un usuario de sólo lectura (2026-10-13): la tabla existía, la
+   * pantalla creía que podía guardar y cada casilla terminaba en un 500 que parecía una falla.
+   */
   private async borradorDisponible(trx: Knex.Transaction): Promise<boolean> {
-    const r = await trx.raw(`SELECT to_regclass('commercial.autoabasto_pedidos') IS NOT NULL AS ok`);
+    const r = await trx.raw(
+      `SELECT to_regclass('commercial.autoabasto_pedidos') IS NOT NULL
+              AND current_setting('transaction_read_only') = 'off' AS ok`);
     return Boolean(r.rows?.[0]?.ok);
   }
 
-  /** Antes de escribir: sin las tablas, un mensaje que se entiende en vez de un 500. */
+  /** Antes de escribir: sin tablas o en una base de sólo lectura, un mensaje que se entiende en vez de un 500. */
   private async exigeBorrador(trx: Knex.Transaction): Promise<void> {
     if (!(await this.borradorDisponible(trx))) {
-      throw new ServiceUnavailableException('Esta base todavía no tiene el borrador del pedido: falta aplicar su migración.');
+      throw new ServiceUnavailableException(
+        'Esta base no permite guardar el pedido: le falta su migración o la conexión es de sólo lectura.');
     }
   }
 
@@ -355,7 +364,7 @@ export class AutoabastoPedidoService {
       `INSERT INTO commercial.autoabasto_pedidos (tenant_id, warehouse_id, motor, abierto_por, abierto_por_username)
        VALUES (?, ?, ?::jsonb, ?, ?)
        ON CONFLICT (tenant_id, warehouse_id) WHERE estado = 'borrador' DO NOTHING`,
-      [tenantId, warehouseId, JSON.stringify({ base: 'demanda', cobertura_dias: COBERTURA_DIAS,
+      [tenantId, warehouseId, JSON.stringify({ base: 'demanda', cobertura_por_almacen: COBERTURA_AUTOABASTO, cobertura_default: COBERTURA_AUTOABASTO_DEFAULT,
         ventana_ya_pedido_dias: VENTANA_YA_PEDIDO_DIAS, ventana_negado_dias: VENTANA_NEGADO_DIAS }),
       ctx?.userId ?? null, ctx?.username ?? null]);
     const creado = await this.borradorDe(trx, tenantId, warehouseId);

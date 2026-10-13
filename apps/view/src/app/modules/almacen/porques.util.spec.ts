@@ -180,6 +180,17 @@ describe('cantidad — "por qué esa cantidad"', () => {
 
   // [AB.15] Con la base 'demanda' el objetivo es la venta de 30 días (× temporalidad), igual que
   // en Compras. Si no se dice, el almacenista lo busca en la columna Máx y no cuadra.
+  it('[AB.22] sucursal y ruta dicen sus días de cobertura; la matriz sigue igual que Compras', () => {
+    expect(objetivoDemandaTexto({ venta_30d: 30, season_ratio: 1, warehouse_code: '07' }))
+      .toBe('Objetivo = 21 días de venta: venta de 30 días (30) ÷ 30 × 21.');
+    expect(objetivoDemandaTexto({ venta_30d: 30, season_ratio: 1, warehouse_code: 'RUTA-501' }))
+      .toBe('Objetivo = 2.5 días de venta: venta de 30 días (30) ÷ 30 × 2.5.');
+    expect(objetivoDemandaTexto({ venta_30d: 30, season_ratio: 1, warehouse_code: '01' }))
+      .toBe('Objetivo = venta de 30 días (30), igual que en Compras.');
+    expect(objetivoDemandaTexto({ venta_30d: null, season_ratio: null, warehouse_code: '03' }))
+      .toBe('Objetivo = 21 días de venta, pero este producto no tiene venta medida.');
+  });
+
   it('[AB.15] con base demanda, dice que el objetivo es la venta de 30 días', () => {
     const t = cantidadPorQue({ ...base, venta_30d: 40, season_ratio: 1, suggested_qty: 28 }, 'ignorar', 'demanda');
     expect(t).toBe('Objetivo = venta de 30 días (40), igual que en Compras. ' +
