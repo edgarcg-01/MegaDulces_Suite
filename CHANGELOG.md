@@ -9,6 +9,10 @@
 ---
 
 ## [Unreleased]
+### Fixed — El pedido ya no carga un pico que ya pasó (AB.17, 2026-10-12)
+- Cuando un producto tuvo un pico real (promoción, oferta, temporada o una venta grande: más de 2 veces su venta normal en una semana) y ya regresó a su ritmo, el sistema pide con su venta normal en lugar del promedio de 30 días que todavía arrastra el pico. Aplica a Compras (/compras/pedido) y a Autoabasto.
+- No se frena si la venta bajó por falta de mercancía (existencia para menos de 3 días): eso es venta negada.
+- Ejemplo: bombón La Rosa 70012 en La Piedad — el pedido baja de 46 cajas a unas 3. Hoy son 725 productos-sucursal.
 ### Changed — Finanzas › Gastos: un vale aprobado con cotización se cierra al aprobarlo (GX.82, 2026-10-12)
 - La cotización basta como evidencia: ya no se queda en «Pendientes de comprobación» esperando factura. Sólo vuelve si el aprobador marca «provisional». Una migración cierra los 93 que estaban atorados.
 ### Changed — Compras › Catálogo: los productos se revisan por proveedor (PF.9, 2026-10-12)
