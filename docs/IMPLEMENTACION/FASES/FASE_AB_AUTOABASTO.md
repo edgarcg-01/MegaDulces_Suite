@@ -998,3 +998,42 @@ máximo y 33% agotado.
 **Siguiente:** vista «Mi pedido» para sucursales que no surten a otras (por origen, venta 30d, negados
 de la Fase DN, ya pedido, cubiertos, redondeo §15.2) → Nivelación de matrices → guardar el pedido
 semanal (AB.7/AB.8) → aprendizaje.
+
+### 15.8 🧪 [AB.15] «Cuánto pedir» igual que /compras/pedido — EN CÓDIGO 2026-10-12
+
+**Decisión de Francisco (2026-10-12):** Falta se calcula igual que la cantidad a pedir de Compras;
+cobertura de **30 días fijos**; el mín/reorden/máx dinámico sigue decidiendo el semáforo y el sobrante.
+
+- **Base nueva `'demanda'` en el motor** (`demandTarget()`): `daily_pieces × season_ratio × 30 ÷
+  (SUF × BF) × DBF`, con los COALESCE de `workbook()` copiados tal cual, en la unidad nativa del
+  almacén. Es el default de los tres endpoints de Autoabasto; Compras sigue en `'max'`.
+- **Lo que `workbook()` aplica y esto no:** el factor de cumplimiento del proveedor (FILLF) —es una
+  corrección del comprador— y retener el renglón cuando el peldaño está contradicho (acá se retiene
+  sólo el $, como en el resto de la mesa).
+- **La existencia también es la de Compras** (`onHand('plan')` = `replenishment_plan.stock_pz`, que
+  deriva de `v_erp_stock_on_hand`). El CEDIS cambió de base el 30-sep (Wincaja → Kepler) y la vista lo
+  toma de Kepler sólo desde ese corte; la copia `commercial.stock` que leía Autoabasto se quedó con la
+  foto de Wincaja del 29-sep (196 renglones). Cruce contra `workbook()`: **CEDIS 208/208 y La Piedad
+  2,777/2,777 iguales** (ej. bombón 70014: CEDIS 80, La Piedad 9). Compras (`/compras/existencia`) no
+  cambia: su base sigue leyendo la copia.
+- ⚠️ **Lo que el CEDIS tiene mal es de Kepler, no de la Suite** (compuerta `check-cedis-cutover.js`,
+  2026-10-12): 10 productos en negativo desde el corte (−20,722 u; el agua 59108 en −13,410: recibió
+  11,070 y sacó 24,480 sin inventario inicial), 71 productos de Wincaja que no entraron bien ($568,567,
+  6.9%) y 7 donde la carga se sumó a un saldo previo. Se corrige en Kepler (IC.CEDIS / operación).
+- **Columna «Venta 30 d»** (misma cuenta que «V30d» de Compras) y el «por qué» de *Falta* dice que el
+  objetivo es la venta de 30 días × temporalidad. Nota equivalente en el PDF.
+- **Vista por defecto = sólo lo que tiene algo que pedir.** Con el objetivo de Compras, el recorte
+  crítico (existencia ≤ reorden, de la tabla de reorden) dejaba pasar renglones con Falta 0: en La
+  Piedad 1,155 de 2,003, 1,142 de ellos sin venta en 30 días. Siguen visibles con «En política».
+
+**Cruce contra `workbook()` (prod, solo lectura, La Piedad, 1,163 productos en las dos pantallas):**
+venta 30 d igual en **1,163/1,163**; existencia igual en 1,158; Falta = pedido de Compras sin el
+factor de cumplimiento en **1,142 (98.2%)**. Las diferencias: existencia en vivo contra la foto del
+fact, y renglones que Compras deja en blanco por peldaño contradicho.
+
+**Tiempos** (página de 50): vista por defecto 4.0–4.8 s por almacén, red 6.4 s; «En política» hasta
+7.2 s (sin el recorte crítico recorre todas las políticas del almacén).
+
+**Pendiente de esta línea:** los días de cobertura de «Entrega» siguen usando la venta diaria de 90
+días (`inventory_health`), no la de 30; y el máximo de la tabla de reorden puede quedar corto contra
+la demanda (ej. Japonés granel 20 kg en Morelia Abastos: máx 125 cajas, objetivo 175.4).

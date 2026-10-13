@@ -97,8 +97,9 @@ const BUCKET_LABEL: Record<string, string> = {
         <div>
           <h1 class="ab-title">Autoabasto</h1>
           <p class="ab-sub">
-            Qué falta, cuánto pedir y a quién. Lo que se puede cubrir con sobrante de otra sucursal
-            se separa de lo que hay que comprar.
+            Qué falta, cuánto pedir y a quién. Cuánto pedir se calcula igual que en Compras: venta
+            de 30 días por temporalidad, menos la existencia. Lo que se puede cubrir con sobrante de
+            otra sucursal se separa de lo que hay que comprar.
           </p>
         </div>
         <div class="ab-actions">
@@ -212,6 +213,8 @@ const BUCKET_LABEL: Record<string, string> = {
             <tr>
               <th pSortableColumn="sku" class="ab-c-sku">SKU / Producto</th>
               <th pSortableColumn="warehouse_code" class="ab-c-wh">Almacén</th>
+              <!-- [AB.15] La venta de 30 días: es la base de cuánto pedir. -->
+              <th class="ab-c-num" pTooltip="Venta de los últimos 30 días, en cajas. Misma cifra que la columna V30d de Compras." tooltipPosition="top">Venta 30 d</th>
               <th class="ab-c-num">Existencia</th>
               <th class="ab-c-num">Mín</th>
               <th class="ab-c-num">Reorden</th>
@@ -239,6 +242,7 @@ const BUCKET_LABEL: Record<string, string> = {
                 <span class="ab-wh">{{ r.warehouse_code | sucursal }}</span>
                 <span class="ab-bucket ab-b-{{ r.bucket }}">{{ bucketLabel(r.bucket) }}</span>
               </td>
+              <td class="ab-c-num">{{ r.venta_30d == null ? '—' : qty(r.venta_30d) }}</td>
               <td class="ab-c-num">{{ qty(r.on_hand) }}</td>
               <td class="ab-c-num ab-dim">{{ qty(r.min_stock) }}</td>
               <td class="ab-c-num ab-dim">{{ qty(r.reorder_point) }}</td>
@@ -246,7 +250,7 @@ const BUCKET_LABEL: Record<string, string> = {
               <td class="ab-c-num">{{ r.in_transit > 0 ? qty(r.in_transit) : '—' }}</td>
               <!-- [AB.3b] "¿por qué esa cantidad?" — la resta, con el objetivo que publicó el motor. -->
               <td class="ab-c-num ab-strong ab-why"
-                  [pTooltip]="cantidadPorQue(r, politicaTransito())" tooltipPosition="top">{{ qty(r.suggested_qty) }}</td>
+                  [pTooltip]="cantidadPorQue(r, politicaTransito(), baseObjetivo())" tooltipPosition="top">{{ qty(r.suggested_qty) }}</td>
               <!-- Lo que la empresa YA compró y está en otra sucursal. Va antes que "A comprar"
                    porque ese es el orden de decisión que pide la regla de traspaso. -->
               <td class="ab-c-num ab-transfer">{{ r.transfer_in > 0 ? qty(r.transfer_in) : '—' }}</td>
@@ -400,6 +404,8 @@ export class AlmacenAutoabastoComponent {
   readonly avisoTransito = signal<string | null>(null);
   /** `[AB.14]` Si el sugerido resta lo que está en camino (lo usan el tooltip y el PDF). */
   readonly politicaTransito = signal<string | null>(null);
+  /** `[AB.15]` Con qué base calculó el servidor el objetivo ('demanda' = igual que Compras). */
+  readonly baseObjetivo = signal<string | null>(null);
 
   /** `[AB.13]` El almacén del reporte: el único elegido, o el único que la persona alcanza. */
   readonly almacenDelReporte = computed<AutoabastoWarehouseOpt | null>(() => {
@@ -515,6 +521,7 @@ export class AlmacenAutoabastoComponent {
         this.total.set(res.total ?? 0);
         this.avisoTransito.set(res.aviso_transito ?? null);
         this.politicaTransito.set(res.politica_transito ?? null);
+        this.baseObjetivo.set(res.target_basis ?? null);
         this.loading.set(false);
       },
       error: (e) => {
