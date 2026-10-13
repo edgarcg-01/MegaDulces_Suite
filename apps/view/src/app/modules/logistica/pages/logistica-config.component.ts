@@ -85,7 +85,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
                     </ng-template>
                     <ng-template #body let-r>
                       <tr>
-                        <td><strong>{{ r.name }}</strong>@if (rutaFijada(r)) { <span class="tf-fijada"><i class="pi pi-lock" aria-hidden="true"></i> Fijada</span> }</td>
+                        <td><strong>{{ r.name }}</strong>@if (r.sin_comision) { <span class="tf-fijada">· Sin comisión</span> }@if (rutaFijada(r)) { <span class="tf-fijada"><i class="pi pi-lock" aria-hidden="true"></i> Fijada</span> }</td>
                         <td class="num">{{ r.estimated_km !== null ? (r.estimated_km | number:'1.0-1') : '—' }}</td>
                         <td class="num">\${{ r.driver_commission | number:'1.2-2' }}</td>
                         <td class="num">\${{ r.helper_commission | number:'1.2-2' }}</td>
@@ -187,6 +187,10 @@ import { PermissionsService } from '../../../core/services/permissions.service';
             }
             <p-button [label]="routeForm.value.active ? 'Desactivar' : 'Activar'" size="small" severity="secondary" [text]="true" type="button" [disabled]="rutaBloqueada()" (click)="toggleRouteActive()"></p-button>
           </label>
+          <label class="full tf-sincom">
+            <span><input type="checkbox" formControlName="sin_comision" /> No paga comisión (traslado local)</span>
+            <small class="muted">La guía se completa con comisión $0: sólo cobran viáticos y cargadores.</small>
+          </label>
           <label>
             Comisión chofer
             <p-inputnumber formControlName="driver_commission" mode="currency" currency="MXN" locale="es-MX" [minFractionDigits]="2"></p-inputnumber>
@@ -254,6 +258,7 @@ import { PermissionsService } from '../../../core/services/permissions.service';
     .form-grid { display:grid; grid-template-columns: 1fr 1fr; gap:1rem; margin-top:1rem; }
     .form-grid label { display:flex; flex-direction:column; gap:.25rem; font-size:.8rem; color: var(--c-text-2); }
     .form-grid .full { grid-column: 1 / -1; }
+    .tf-sincom span { display: flex; gap: .5rem; align-items: center; color: var(--c-text-1); font-size: var(--fs-sm); }
     .tf-fijada { margin-left: .5rem; font-size: var(--fs-xs); color: var(--c-text-2); white-space: nowrap; }
     .tf-aviso { display: flex; gap: .5rem; align-items: flex-start; margin: .25rem 0 0; padding: .5rem .75rem; border-radius: 8px; background: var(--c-surface-2); color: var(--c-text-1); font-size: var(--fs-sm); }
   `],
@@ -310,6 +315,7 @@ export class LogisticaConfigComponent {
     estimated_km: [null],
     driver_commission: [0],
     helper_commission: [0],
+    sin_comision: [false],
     notes: [''],
     active: [true],
   });
@@ -418,12 +424,13 @@ export class LogisticaConfigComponent {
       estimated_km: aNumero(r?.estimated_km, null),
       driver_commission: aNumero(r?.driver_commission, 0),
       helper_commission: aNumero(r?.helper_commission, 0),
+      sin_comision: !!r?.sin_comision,
       notes: r?.notes || '',
       active: r?.active !== false,
     });
     const bloq = !!r && this.rutaFijada(r) && !this.puedeAutorizar();
     this.rutaBloqueada.set(bloq);
-    for (const k of ['name', 'driver_commission', 'helper_commission'] as const) {
+    for (const k of ['name', 'driver_commission', 'helper_commission', 'sin_comision'] as const) {
       const c = this.routeForm.get(k);
       if (bloq) c?.disable(); else c?.enable();
     }
@@ -480,8 +487,8 @@ export class LogisticaConfigComponent {
     return this.perms.isAdmin() || this.perms.has(Permission.LOGISTICS_TARIFAS_AUTORIZAR);
   }
 
-  rutaFijada(r: Pick<Route, 'driver_commission' | 'helper_commission'>): boolean {
-    return (aNumero(r.driver_commission, 0) ?? 0) > 0 || (aNumero(r.helper_commission, 0) ?? 0) > 0;
+  rutaFijada(r: Pick<Route, 'driver_commission' | 'helper_commission' | 'sin_comision'>): boolean {
+    return !!r.sin_comision || (aNumero(r.driver_commission, 0) ?? 0) > 0 || (aNumero(r.helper_commission, 0) ?? 0) > 0;
   }
 
   configFijada(c: Pick<ConfigItem, 'category' | 'value'>): boolean {

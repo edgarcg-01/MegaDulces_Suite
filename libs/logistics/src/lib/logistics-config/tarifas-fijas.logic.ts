@@ -25,6 +25,8 @@ export interface RutaTarifa {
   driver_commission?: unknown;
   helper_commission?: unknown;
   active?: boolean | null;
+  /** `[EMB.33]` «No paga comisión» también es una tarifa: quitarla haría cobrar una ruta local. */
+  sin_comision?: boolean | null;
 }
 
 export interface ConfigTarifa {
@@ -36,7 +38,7 @@ export interface ConfigTarifa {
 
 /** ¿La ruta ya tiene una tarifa fijada? (cero en las dos = todavía no). */
 export function rutaFijada(r: RutaTarifa): boolean {
-  return n(r.driver_commission) > 0 || n(r.helper_commission) > 0;
+  return !!r.sin_comision || n(r.driver_commission) > 0 || n(r.helper_commission) > 0;
 }
 
 /** ¿El renglón de configuración ya es una tarifa fijada con la que se paga? */
@@ -65,6 +67,9 @@ export function cambiosDeRuta(antes: RutaTarifa, dto: Partial<RutaTarifa>): Camb
   }
   if (dto.active === false && antes.active !== false) {
     c.push({ field: 'active', old_value: 'true', new_value: 'false' });
+  }
+  if (dto.sin_comision !== undefined && dto.sin_comision !== null && !!dto.sin_comision !== !!antes.sin_comision) {
+    c.push({ field: 'sin_comision', old_value: String(!!antes.sin_comision), new_value: String(!!dto.sin_comision) });
   }
   return c;
 }

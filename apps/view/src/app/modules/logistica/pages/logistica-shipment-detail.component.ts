@@ -1107,7 +1107,7 @@ export class LogisticaShipmentDetailComponent {
     forkJoin({ rutas: this.api.listRoutes(), viatico: this.api.listConfig('viatico', true) }).subscribe({
       next: ({ rutas, viatico }) => {
         const r = routeId ? (rutas || []).find((x) => x.id === routeId) : undefined;
-        this.rutaGuia.set(r ? { route_id: r.id, nombre: r.name, driver: Number(r.driver_commission), helper: Number(r.helper_commission) } : null);
+        this.rutaGuia.set(r ? { route_id: r.id, nombre: r.name, driver: Number(r.driver_commission), helper: Number(r.helper_commission), sin_comision: !!r.sin_comision } : null);
         this.tarifasViatico.set(tarifasDeViatico(viatico || []));
       },
       error: (err) => {

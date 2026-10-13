@@ -487,6 +487,8 @@ export interface Route {
   helper_commission: number;
   active: boolean;
   notes?: string | null;
+  /** `[EMB.33]` Traslado local: la ruta no paga comisión (la guía va en $0). */
+  sin_comision?: boolean;
 }
 
 export interface KpiSummary {
