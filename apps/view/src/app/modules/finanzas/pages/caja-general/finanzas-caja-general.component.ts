@@ -1088,7 +1088,22 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                    alguien cuenta a ciegas seria devolverle por la ventana lo que se le oculta.
                    Lo unico que se dice es SI hay corte, que no es secreto. -->
               @if (a.corte_abierto; as c) {
-                <small class="fin-hint-ok d-block">Corte {{ c.folio }} abierto: el esperado se revela al sellar el conteo.</small>
+                <!-- ⛔ [CG.99] ESTA FRASE Y EL NUMERO DE ABAJO SE CONTRADECIAN EN LA MISMA
+                     PANTALLA. Decia "el esperado se revela al sellar el conteo" SIEMPRE que
+                     hubiera corte abierto, y tres renglones mas abajo imprimia "Esperado en caja
+                     general $3,402.45" a quien tiene permiso de cierre. El dato estaba bien
+                     gateado -- el servidor manda saldo:null cuando recorta, y arqueoFinal() es
+                     null mientras este oculto -- pero el TEXTO no se condiciono a lo mismo que
+                     el numero, asi que para quien si lo ve la frase era falsa.
+                     Es el mismo defecto que el comentario de la cobertura, 40 lineas mas arriba,
+                     ya denuncia: "dos frases contradictorias sobre el mismo hecho".
+                     Ahora cada caso dice lo suyo, y la condicion es la MISMA que pinta el
+                     numero: arqueoFinal(). -->
+                @if (arqueoFinal()) {
+                  <small class="fin-hint-ok d-block">Corte {{ c.folio }} abierto.</small>
+                } @else {
+                  <small class="fin-hint-ok d-block">Corte {{ c.folio }} abierto: el esperado se revela al sellar el conteo.</small>
+                }
                 <!-- ⛔ [CG.112] ACA HABIA UN SEGUNDO BOTON "Declarar con cuanto arranco la caja",
                      identico al de 18 lineas mas arriba: misma etiqueta, misma accion, mismo
                      hecho. Sus dos condiciones (hayEnCajon() nulo / c.fondo_inicial nulo) son la
