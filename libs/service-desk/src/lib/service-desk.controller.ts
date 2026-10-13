@@ -85,8 +85,8 @@ export class ServiceDeskController {
   @Get('catalog')
   @RequirePermissions(Permission.SERVICIO_REPORTAR)
   @ApiOperation({ summary: 'Colas, categorías e impactos para la pantalla «Nueva solicitud».' })
-  catalog(): Promise<SdCatalogResponse> {
-    return this.config.catalog();
+  catalog(@Req() req: AuthedRequest): Promise<SdCatalogResponse> {
+    return this.config.catalog(actorDesdeRequest(req).userId);
   }
 
   @Get('agents')

@@ -148,6 +148,25 @@ function dataUri(f: File): Promise<string> {
                 @if (confidencial()) {
                   <p class="ss-conf" role="note"><i class="pi pi-lock" aria-hidden="true"></i> {{ avisoConf() }}</p>
                 }
+                <!-- [PRV.2] El aviso de privacidad de la cola y la casilla de consentimiento. Sin aviso publicado no se puede enviar: se dice por que. -->
+                @if (privacidadRequerida()) {
+                  @if (avisoPrivacidad(); as av) {
+                    <section class="ss-priv" aria-label="Aviso de privacidad">
+                      <b>{{ av.title }}</b>
+                      <p>{{ av.summary_text }}</p>
+                      @if (av.full_url) { <a [href]="av.full_url" target="_blank" rel="noopener">Leer el aviso de privacidad completo</a> }
+                      @if (aNombreDe()) {
+                        <p class="ss-hint">Si levantas la solicitud a nombre de otra persona, ella debe haber aceptado antes este aviso: tu casilla no consiente por ella.</p>
+                      } @else if (av.accepted) {
+                        <p class="ss-hint"><i class="pi pi-check" aria-hidden="true"></i> Ya aceptaste esta versión del aviso de privacidad.</p>
+                      } @else {
+                        <label class="ss-chk"><input type="checkbox" [(ngModel)]="form.acepta_aviso" /> <b>{{ av.consent_text }}</b></label>
+                      }
+                    </section>
+                  } @else {
+                    <p class="ss-banner bad" role="alert">El aviso de privacidad de esta área aún no está publicado: por ahora no se pueden levantar solicitudes en ella.</p>
+                  }
+                }
                 <label class="ss-field"><span>Título corto <em>*</em></span>
                   <input pInputText [(ngModel)]="form.title" maxlength="200" placeholder="Ej. No me abre el sistema de caja" /></label>
                 <label class="ss-field"><span>Cuéntanos qué pasa</span>
@@ -276,6 +295,8 @@ function dataUri(f: File): Promise<string> {
     .ss-search { position: relative; flex: 1 1 220px; max-width: 360px; margin-left: auto; }
     .ss-search i { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); color: var(--text-faint); font-size: var(--fs-xs); }
     .ss-search input { width: 100%; padding-left: 30px; }
+    .ss-priv { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--text-main); }
+    .ss-priv p { margin: 0; }
     .ss-conf { margin: 0; display: flex; gap: var(--sp-2); align-items: flex-start; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--border-color); border-radius: var(--r-sm); font-size: var(--fs-sm); color: var(--text-main); }
     .ss-banner { margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--r-sm); font-size: var(--fs-sm); }
     .ss-banner.bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
@@ -382,7 +403,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   readonly archivos = signal<File[]>([]);
   readonly enviando = signal(false);
   readonly formError = signal<string | null>(null);
-  form: { category_id: string | null; title: string; description: string; impact: SdImpact; blocks_work: boolean; warehouse_code: string | null; /** `[MS.7.7]` `null` = sin contestar (en una cola de riesgo es obligatoria). */ safety_risk: boolean | null; /** `[MS.7.3]` Zona opcional. */ zone_code: string | null } = this.formVacio();
+  form: { category_id: string | null; title: string; description: string; impact: SdImpact; blocks_work: boolean; warehouse_code: string | null; /** `[MS.7.7]` `null` = sin contestar (en una cola de riesgo es obligatoria). */ safety_risk: boolean | null; /** `[MS.7.3]` Zona opcional. */ zone_code: string | null; /** `[PRV.2]` La casilla del aviso de privacidad. */ acepta_aviso: boolean } = this.formVacio();
 
   /** `[MS.7.15]` Las áreas (colas) que ofrecen al menos una categoría. Una cola sin categorías no se ofrece: no se podría reportar nada ahí. */
   readonly areas = computed(() => {
@@ -431,6 +452,9 @@ export class ServicioSolicitudesComponent implements OnInit {
     return cat ? c?.queues.find((q) => q.id === cat.queue_id) ?? null : null;
   });
   readonly confidencial = computed(() => this.colaElegida()?.confidential === true);
+  /** `[PRV.2]` ¿La cola exige aviso de privacidad? y ¿cuál es la versión vigente (o `null`: aún no está publicada)? */
+  readonly privacidadRequerida = computed(() => this.colaElegida()?.privacy_required === true);
+  readonly avisoPrivacidad = computed(() => this.colaElegida()?.privacy_notice ?? null);
   /** `[MSH.3]` Un área sin prioridad (`uses_priority: false`) no pregunta impacto, riesgo ni bloqueo. Sin dato = sí la usa (lo de siempre). */
   readonly usaPrioridad = computed(() => this.colaElegida()?.uses_priority !== false);
   readonly avisoConf = computed(() => avisoConfidencial(this.colaElegida()?.name));
@@ -451,7 +475,7 @@ export class ServicioSolicitudesComponent implements OnInit {
   pForm = { email: '', phone: '', email_enabled: true, whatsapp_enabled: false };
 
   private formVacio() {
-    return { category_id: null as string | null, title: '', description: '', impact: 'yo' as SdImpact, blocks_work: false, warehouse_code: null as string | null, safety_risk: null as boolean | null, zone_code: null as string | null };
+    return { category_id: null as string | null, title: '', description: '', impact: 'yo' as SdImpact, blocks_work: false, warehouse_code: null as string | null, safety_risk: null as boolean | null, zone_code: null as string | null, acepta_aviso: false };
   }
 
   ngOnInit(): void {
@@ -509,12 +533,16 @@ export class ServicioSolicitudesComponent implements OnInit {
     this.areaId.set(id);
     this.form.category_id = null;
     this.form.zone_code = null;
+    this.form.acepta_aviso = false; // [PRV.2] la casilla es de UN aviso: al cambiar de area no se arrastra
     this.categoriaId.set(null);
     this.extraForm = {};
   }
   elegirCategoria(id: string): void {
     // Cambiar de categoría cambia (o no) la cola, y con ella los campos: lo contestado de otra cola no viaja.
-    if (id !== this.categoriaId()) this.extraForm = {};
+    if (id !== this.categoriaId()) {
+      this.extraForm = {};
+      this.form.acepta_aviso = false; // [PRV.2] idem: lo aceptado en otra area no cuenta aqui
+    }
     this.form.category_id = id;
     this.categoriaId.set(id);
     // El área sigue a la categoría (así una categoría elegida por código, o un enlace directo, deja el área coherente).
@@ -528,6 +556,13 @@ export class ServicioSolicitudesComponent implements OnInit {
     if (this.optimizando()) return false;
     // Con «a nombre de otra persona» encendido hay que haber ELEGIDO a la persona: si no, se levantaría a nombre de quien llama sin que lo note.
     if (this.aNombreDe() && !this.solicitante()) return false;
+    // `[PRV.2]` Una cola con aviso de privacidad: sin aviso publicado no se envía; con aviso, hay que haberlo aceptado (casilla) o ya haber aceptado esta
+    // versión. A nombre de otra persona la casilla no cuenta: la persona debe haberlo aceptado ella (lo decide el servidor).
+    if (this.privacidadRequerida()) {
+      const aviso = this.avisoPrivacidad();
+      if (!aviso) return false;
+      if (!this.aNombreDe() && !aviso.accepted && !this.form.acepta_aviso) return false;
+    }
     // `[MS.7.7]` En una cola de riesgo hay que CONTESTAR si hay riesgo para personas: sin respuesta no se sugiere prioridad (y no se adivina «no»).
     if (this.modeloRiesgo() && this.form.safety_risk === null) return false;
     // `[MS.7.4]` Cada campo requerido de la cola necesita una respuesta de verdad («No» cuenta; un texto en blanco no) y la foto requerida, un archivo.
@@ -632,6 +667,8 @@ export class ServicioSolicitudesComponent implements OnInit {
         attachments: attachments.length ? attachments : undefined,
         // Sólo viaja si quien atiende ELIGIÓ a la persona: sin ella, la solicitud es de quien la escribe (lo de siempre).
         requester_id: this.solicitante()?.user_id,
+        // `[PRV.2]` Sólo viaja si la persona marcó la casilla de la versión vigente (el servidor exige el id exacto).
+        privacy_notice_id: this.privacidadRequerida() && !this.aNombreDe() && this.form.acepta_aviso ? this.avisoPrivacidad()?.id : undefined,
         department_code: this.solicitante() ? this.areaCode : undefined,
       }).subscribe({
         next: (t) => {
