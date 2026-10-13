@@ -362,24 +362,42 @@ interface GrupoImpresion {
             <tbody>
               <tr><td class="rp-doc-cuerpo">
                 <header class="rp-portada">
-                  <h1 class="rp-portada-h1">Reporte de precios por proveedor</h1>
-                  <p class="rp-portada-sub">Precio de venta vigente en el ERP para los productos del proveedor.</p>
+                  <!--
+                    El titulo de la caratula es el PROVEEDOR, no el nombre del reporte: eso ya lo
+                    dice el membrete, que ademas viaja a todas las hojas. Repetirlo aca gastaba el
+                    renglon mas visible del documento en una palabra que el lector ya leyo 3 cm
+                    antes.
+                  -->
+                  <h1 class="rp-portada-h1">{{ sujetoHoja() }}</h1>
+                  <p class="rp-portada-sub">Precios de venta vigentes en el ERP, por unidad, paquete y caja.</p>
+                  <!--
+                    "Precios al" y "Impreso" y no "Precios calculados" / "Emitido": eran dos fechas
+                    lado a lado con rotulos que se parecian, y la que decide si el numero sirve es
+                    la primera. La plaza va primero y con mas peso porque es lo que CAMBIA el
+                    precio: la misma fila vale distinto en otra tienda.
+                  -->
                   <dl class="rp-ficha">
-                    <div class="rp-ficha-par">
+                    <div class="rp-ficha-par is-fuerte">
                       <dt>Plaza del precio</dt>
                       <dd>{{ plazaImpresa() }}</dd>
                     </div>
                     <div class="rp-ficha-par">
-                      <dt>Precios calculados</dt>
-                      <dd>{{ preciosAlImpreso() }}</dd>
+                      <dt>Precios al</dt>
+                      <dd>{{ preciosAlCorto() }}</dd>
                     </div>
                     <div class="rp-ficha-par">
                       <dt>Renglones</dt>
                       <dd>{{ seleccion().length }}</dd>
                     </div>
+                    @if (sinPrecioImpresos(); as sin) {
+                      <div class="rp-ficha-par">
+                        <dt>Sin precio</dt>
+                        <dd>{{ sin }} salen con guion</dd>
+                      </div>
+                    }
                     <div class="rp-ficha-par">
-                      <dt>Emitido</dt>
-                      <dd>{{ hoy }}</dd>
+                      <dt>Impreso</dt>
+                      <dd>{{ hoyCorto }}</dd>
                     </div>
                   </dl>
                 </header>
@@ -399,10 +417,21 @@ interface GrupoImpresion {
                             <span class="rp-hoja-h2-n">{{ g.filas.length }} {{ g.filas.length === 1 ? 'producto' : 'productos' }}</span>
                           </th>
                         </tr>
+                        <!--
+                          Siete columnas de dinero en fila son una matriz, no una lista: sin decir
+                          cual peldano mide cada una, "Paquete" y "Caja" se leen como dos precios
+                          sueltos. Esta fila las agrupa por el peldano de Kepler del que hablan, y
+                          como vive en el thead se repite en cada hoja junto con los titulos.
+                        -->
+                        <tr class="rp-hoja-tr-fam">
+                          @for (f of familiasVisibles(); track f.titulo + f.span) {
+                            <th class="rp-hoja-fam" [attr.colspan]="f.span" [class.es-vacia]="!f.titulo">{{ f.titulo }}</th>
+                          }
+                        </tr>
                         <tr>
                           <th scope="col">Producto</th>
                           @for (c of columnasVisibles(); track c.id) {
-                            <th scope="col" [class.num]="c.num">{{ c.label }}</th>
+                            <th scope="col" class="col" [class.num]="c.num">{{ c.label }}</th>
                           }
                         </tr>
                       </thead>
@@ -578,7 +607,7 @@ interface GrupoImpresion {
     .rp-portada-h1 { margin: 0; font-size: var(--fs-hoja-tit); font-weight: 700; letter-spacing: -.01em; color: #111; }
     .rp-portada-sub { margin: 1.2mm 0 0; font-size: var(--fs-hoja-md); color: #57534e; }
     .rp-ficha {
-      display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 5mm 0 0;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 0; margin: 5mm 0 0;
       border: .2mm solid #d6d3d1; border-radius: 1mm; overflow: hidden;
     }
     .rp-ficha-par { padding: 3mm 3.5mm; border-left: .2mm solid #e7e5e4; }
@@ -588,6 +617,7 @@ interface GrupoImpresion {
       text-transform: uppercase; letter-spacing: .06em;
     }
     .rp-ficha dd { margin: 0; font-size: var(--fs-hoja-md); color: #111; line-height: 1.3; }
+    .rp-ficha-par.is-fuerte dd { font-size: var(--fs-hoja-lg); font-weight: 600; }
 
     /* Un proveedor por bloque. */
     .rp-hoja-grupo { margin-top: 7mm; }
@@ -603,8 +633,16 @@ interface GrupoImpresion {
     }
     .rp-hoja-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-hoja-base); color: #111; }
     .rp-hoja-tbl th, .rp-hoja-tbl td {
-      border-bottom: .2mm solid #e7e5e4; padding: 1.6mm 2mm; text-align: left; vertical-align: top;
+      border-bottom: .2mm solid #ededec; padding: 1.9mm 2mm; text-align: left; vertical-align: top;
     }
+    /* La fila que agrupa las columnas de dinero por peldano. */
+    .rp-hoja-tr-fam th {
+      border-bottom: 0; padding-bottom: .4mm;
+      font-size: var(--fs-hoja-xs); font-weight: 600; color: #78716c;
+      text-transform: uppercase; letter-spacing: .06em; text-align: center;
+    }
+    .rp-hoja-fam { border-left: .2mm solid #e7e5e4; }
+    .rp-hoja-fam.es-vacia, .rp-hoja-tr-fam th:first-child { border-left: 0; }
     .rp-hoja-tbl thead th {
       border-bottom: .3mm solid #a8a29e; font-size: var(--fs-hoja-xs); font-weight: 700;
       text-transform: uppercase; letter-spacing: .04em; color: #44403c; white-space: nowrap;
@@ -616,7 +654,8 @@ interface GrupoImpresion {
       white-space: nowrap; width: 1%;
     }
     .rp-hoja-tbl tbody td:first-child { width: auto; min-width: 42mm; }
-    .rp-hoja-tbl tbody tr:nth-child(even) td { background: #fafaf9; }
+    /* Sin bandas: ya hay una linea por renglon, y en una impresora de oficina ese gris sale
+       sucio y gasta toner en una hoja que se imprime por docenas. */
 
     .rp-nota {
       display: block; margin-top: 6mm; padding: 3mm 3.5mm;
@@ -649,6 +688,17 @@ export class ComprasCatalogoReporteComponent {
   readonly previa = signal(false);
 
   readonly hoy = new Date().toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' });
+
+  /**
+   * La misma fecha, en tres palabras. La ficha son cinco casillas en 19 cm: con el mes escrito
+   * entero las dos fechas se parten en dos renglones y la casilla deja de leerse de un golpe.
+   * El pie y el membrete siguen con el mes completo, donde sí entra.
+   */
+  private static corta(d: Date): string {
+    return d.toLocaleDateString('es-MX', { day: 'numeric', month: 'short', year: 'numeric' })
+      .replace(/.$/, '');
+  }
+  readonly hoyCorto = ComprasCatalogoReporteComponent.corta(new Date());
 
   // ── Lecturas ────────────────────────────────────────────────────────────
   private readonly proveedoresRes = rxResource({
@@ -743,11 +793,62 @@ export class ComprasCatalogoReporteComponent {
       : `${m.sucursal_nombre || 'Plaza'} (${m.sucursal})`;
   });
 
+  /**
+   * De qué habla la hoja. Casi siempre es UN proveedor — el flujo arranca eligiéndolo — y entonces
+   * su nombre es el mejor título que puede llevar la carátula. Con varios no se inventa un nombre:
+   * se dice cuántos son y la lista queda en los encabezados de cada tabla.
+   */
+  readonly sujetoHoja = computed(() => {
+    const g = this.gruposImpresion();
+    if (g.length === 1) return g[0].proveedor;
+    if (!g.length) return 'Precios por proveedor';
+    return `${g.length} proveedores`;
+  });
+
+  /**
+   * Cuántos de los renglones QUE SE IMPRIMEN no traen precio. No se usa `meta().sin_precio`: ése
+   * cuenta sobre todo lo que trajo la consulta, y la hoja lleva lo seleccionado. Un número que no
+   * corresponde a lo que el lector tiene enfrente es peor que no ponerlo.
+   */
+  readonly sinPrecioImpresos = computed(
+    () => this.seleccion().filter((r) => r.piece_price == null).length,
+  );
+
+  /**
+   * Las columnas de precio, agrupadas por el peldaño del que hablan. Devuelve tramos
+   * `{ titulo, span }` en el orden en que se pintan, para la fila de encabezado que los agrupa.
+   *
+   * El primer tramo arranca sin título y se come la columna Producto más las de identidad (SKU,
+   * marca, contenido, unidad): no son un peldaño, son de quién hablamos.
+   */
+  readonly familiasVisibles = computed<{ titulo: string; span: number }[]>(() => {
+    const DE: Record<string, string> = {
+      precio_unidad: 'Por unidad', mayoreo_unidad: 'Por unidad',
+      paquete: 'Por paquete', mayoreo_paquete: 'Por paquete',
+      caja: 'Por caja', costo: 'Interno',
+    };
+    // Arranca en 1 por la columna Producto, que no está en `columnasVisibles()`.
+    const tramos: { titulo: string; span: number }[] = [{ titulo: '', span: 1 }];
+    for (const c of this.columnasVisibles()) {
+      const titulo = DE[c.id] ?? '';
+      const ultimo = tramos[tramos.length - 1];
+      if (ultimo.titulo === titulo) ultimo.span += 1;
+      else tramos.push({ titulo, span: 1 });
+    }
+    return tramos;
+  });
+
   /** La plaza en dos palabras: el membrete se repite en cada hoja y no puede llevar un párrafo. */
   readonly plazaCorta = computed(() => {
     const m = this.meta();
     if (!m) return '—';
     return m.consolidado ? 'Consolidado' : (m.sucursal_nombre || `Plaza ${m.sucursal}`);
+  });
+
+  /** La fecha de cómputo para la ficha. Mantiene la declaración cuando no se pudo medir. */
+  readonly preciosAlCorto = computed(() => {
+    const iso = this.meta()?.precios_al;
+    return iso ? ComprasCatalogoReporteComponent.corta(new Date(iso)) : 'sin fecha declarada';
   });
 
   readonly preciosAlImpreso = computed(() => {

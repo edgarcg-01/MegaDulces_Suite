@@ -360,6 +360,39 @@ describe('[CAT.7] ComprasCatalogoReporteComponent', () => {
     expect(hoja()?.querySelector('.rp-doc > tfoot .rp-run-pie')).not.toBeNull();
   });
 
+  it('la carátula nombra al PROVEEDOR, no repite el nombre del reporte', async () => {
+    await elegirProveedor();
+    const h1 = hoja()?.querySelector('.rp-portada-h1');
+    expect(h1?.textContent).toContain('DISTRIBUIDORA DE LA ROSA');
+    // El membrete ya dice qué documento es; repetirlo gastaba el renglón más visible de la hoja.
+    expect(h1?.textContent).not.toMatch(/Reporte de precios/i);
+  });
+
+  it('las columnas de dinero se agrupan por peldaño, y los tramos cubren TODA la fila', async () => {
+    await elegirProveedor();
+    const fam = [...(hoja()?.querySelectorAll('.rp-hoja-tr-fam th') ?? [])];
+    expect(fam.map((t) => t.textContent?.trim())).toContain('Por unidad');
+    // Un colspan que no suma deja la tabla corrida una columna, en silencio.
+    const suma = fam.reduce((n, t) => n + Number(t.getAttribute('colspan') ?? 1), 0);
+    expect(suma).toBe(cmp.columnasVisibles().length + 1);
+  });
+
+  it('⛔ el hueco se cuenta sobre lo que SE IMPRIME, no sobre lo que trajo la consulta', async () => {
+    api.proximo = {
+      ...api.proximo,
+      rows: [
+        fila({ product_id: 'p1', nombre: 'CON PRECIO' }),
+        fila({ product_id: 'p2', nombre: 'SIN PRECIO', piece_price: null }),
+      ],
+      // La consulta dice 9; en la hoja entran 2, y uno es el que falta.
+      meta: { ...api.proximo.meta, sin_precio: 9, mostrados: 2 },
+    };
+    await elegirProveedor();
+    expect(cmp.sinPrecioImpresos()).toBe(1);
+    expect(hoja()?.textContent).toContain('1 salen con guion');
+    expect(hoja()?.textContent).not.toContain('9 salen con guion');
+  });
+
   it('el proveedor va DENTRO del thead de su tabla, o la página 2 no dice de quién es', async () => {
     await elegirProveedor();
     const prov = hoja()?.querySelector('.rp-hoja-tbl thead .rp-hoja-prov');
