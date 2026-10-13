@@ -59,6 +59,7 @@ import { ServiceDeskAttachmentsService, type AdjuntoSubido } from './attachments
 import { efectosDe, motivoDeCierre, puedeTransicionar, respuestaReanuda, TRANSICIONES } from './domain/request-state';
 import { formatFolio } from './domain/folio';
 import { sinConfidenciales, vidaDeUrlAdjunto } from './domain/destinatarios';
+import { decidirConsentimiento } from './domain/privacidad';
 import { estadoTrasTraslado, terminaEspera, validarTraslado } from './domain/traslado';
 import { normalizarUbicacion } from './ubicacion.util';
 import { validarCamposExtra, type CampoDef } from './domain/campos-extra';
@@ -204,6 +205,7 @@ export class ServiceDeskRequestsService {
     if (title.length > MAX_TITULO) throw new BadRequestException(`El título admite hasta ${MAX_TITULO} caracteres`);
     if (description.length > MAX_TEXTO) throw new BadRequestException(`La descripción admite hasta ${MAX_TEXTO} caracteres`);
     if (!esUuid(dto?.category_id)) throw new BadRequestException('category_id inválido');
+    if (dto.privacy_notice_id !== undefined && dto.privacy_notice_id !== null && !esUuid(dto.privacy_notice_id)) throw new BadRequestException('privacy_notice_id inválido');
     const impact = dto.impact ?? 'yo';
     if (!SD_IMPACTS.includes(impact)) throw new BadRequestException(`impact debe ser uno de: ${SD_IMPACTS.join(', ')}`);
     if (dto.blocks_work !== undefined && typeof dto.blocks_work !== 'boolean') throw new BadRequestException('blocks_work debe ser verdadero o falso');
@@ -240,7 +242,7 @@ export class ServiceDeskRequestsService {
           .where('c.id', dto.category_id)
           .where({ 'c.active': true, 'q.active': true })
           .whereNull('c.deleted_at')
-          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model', 'q.asks_zone', 'q.uses_priority', 'q.sla_enabled', 'q.confidential');
+          .first('c.id', 'c.queue_id', 'c.default_priority', 'c.requires_branch', 'q.priority_model', 'q.asks_zone', 'q.uses_priority', 'q.sla_enabled', 'q.confidential', 'q.privacy_notice_code');
         if (!cat) throw new BadRequestException('La categoría no existe o no está disponible');
         if (cat.requires_branch && !warehouse) throw new BadRequestException('Esta categoría exige indicar la ubicación');
         /*
@@ -302,6 +304,19 @@ export class ServiceDeskRequestsService {
           })
           .first('id', 'nombre', 'username', 'department_code', 'position_code');
         if (pidioOtro && !me) throw new BadRequestException('La persona indicada no existe o no puede figurar como solicitante');
+        /*
+         * `[PRV.2]` El aviso de privacidad de la cola (RH): se exige haber ACEPTADO la versión vigente ANTES de crear el ticket — lo pide el
+         * servidor, no sólo la pantalla. El consentimiento es de la persona TITULAR (`solicitanteId`): la casilla de quien atiende no consiente
+         * por otra. Sin versión vigente publicada no se crea nada (fail-closed). Una cola sin aviso (TI, Mantenimiento) no pasa por aquí.
+         */
+        let aceptarAviso: string | null = null;
+        if (cat.privacy_notice_code) {
+          const vigente = (await trx('servicedesk.privacy_notices').where({ code: cat.privacy_notice_code, status: 'vigente' }).first('id', 'version')) as { id: string; version: number } | undefined;
+          const yaAcepto = vigente ? !!(await trx('servicedesk.privacy_acceptances').where({ notice_id: vigente.id, user_id: solicitanteId }).first('id')) : false;
+          const decision = decidirConsentimiento({ colaExigeAviso: true, avisoVigente: vigente ?? null, idAceptado: dto.privacy_notice_id, yaAcepto, aNombreDeOtro: pidioOtro });
+          if (!decision.ok) throw decision.status === 409 ? new ConflictException(decision.mensaje) : new BadRequestException(decision.mensaje);
+          if (decision.registrar && vigente) aceptarAviso = vigente.id;
+        }
         // El área: la que indicó quien atiende (validada contra el catálogo) o, si no, la de la ficha.
         let departamento: string | null = me?.department_code ?? null;
         if (pidioArea) {
@@ -348,6 +363,14 @@ export class ServiceDeskRequestsService {
             updated_by: ctx.userId,
           })
           .returning('id');
+
+        // `[PRV.2]` La evidencia del consentimiento va en LA MISMA transacción que el ticket: o quedan los dos, o ninguno.
+        if (aceptarAviso) {
+          await trx('servicedesk.privacy_acceptances')
+            .insert({ tenant_id: tenantId, notice_id: aceptarAviso, user_id: solicitanteId, request_id: id, created_by: ctx.userId })
+            .onConflict(['tenant_id', 'notice_id', 'user_id'])
+            .ignore();
+        }
 
         const msgId = await this.addMessage(trx, tenantId, id, {
           kind: 'system',
