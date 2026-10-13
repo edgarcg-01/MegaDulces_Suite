@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
@@ -323,5 +325,46 @@ describe('[CAT.7] ComprasCatalogoReporteComponent', () => {
     await elegirProveedor();
     expect(cmp.error()).toBe(true);
     expect(texto()).toContain('No se pudo cargar el reporte');
+  });
+
+  // ── Impresión ──────────────────────────────────────────────────────────
+  //
+  // El 2026-10-13 la hoja salía de la impresora como una captura de pantalla: la migaja
+  // "Comercial / Compras / Reabastecimiento / Catálogo", el aviso de "hay una versión nueva" y
+  // los botones, todo encima de la tabla de precios. La causa no era una regla que faltara: era
+  // que las reglas estaban en los estilos del COMPONENTE, que Angular encapsula, así que no
+  // podían alcanzar a nada de afuera. Estos cuatro candados vigilan el mecanismo que lo
+  // reemplazó, no su resultado visual — lo visual no se puede medir desde acá.
+  const FUENTE = readFileSync(join(__dirname, 'compras-catalogo-reporte.component.ts'), 'utf8');
+  /**
+   * Los comentarios fuera: la cabecera de ese archivo EXPLICA el metodo viejo para que nadie lo
+   * reintroduzca, y un candado que lee prosa se pondria rojo justo por documentar bien. Lo que se
+   * vigila es el codigo.
+   */
+  const CODIGO = FUENTE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('⛔ NO imprime con window.print(): eso arrastra la app entera a la hoja', () => {
+    expect(CODIGO).not.toMatch(/window\.print\(\)/);
+    expect(CODIGO).toContain('printIsolated({');
+  });
+
+  it('⛔ y tampoco vuelve a confiar en un @media print del componente, que está encapsulado', () => {
+    // La prueba negativa de la de arriba: si alguien reintroduce el bloque, esto se pone rojo
+    // aunque printIsolated siga en el archivo.
+    expect(CODIGO).not.toMatch(/@media print/);
+  });
+
+  it('el membrete y el pie viven en thead/tfoot: es lo que los repite en cada hoja', async () => {
+    await elegirProveedor();
+    expect(hoja()?.querySelector('.rp-doc > thead .rp-run-org')?.textContent).toContain('MEGA DULCES');
+    expect(hoja()?.querySelector('.rp-doc > tfoot .rp-run-pie')).not.toBeNull();
+  });
+
+  it('el proveedor va DENTRO del thead de su tabla, o la página 2 no dice de quién es', async () => {
+    await elegirProveedor();
+    const prov = hoja()?.querySelector('.rp-hoja-tbl thead .rp-hoja-prov');
+    expect(prov?.textContent).toContain('DISTRIBUIDORA DE LA ROSA');
+    // Y no quedó una copia suelta afuera, que se imprimiría una sola vez y mentiría por omisión.
+    expect(hoja()?.querySelector('.rp-hoja-grupo > .rp-hoja-h2')).toBeNull();
   });
 });

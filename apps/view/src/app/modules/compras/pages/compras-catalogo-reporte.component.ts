@@ -1,4 +1,4 @@
-import { ChangeDetectionStrategy, Component, computed, effect, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, ElementRef, computed, effect, inject, signal, viewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { rxResource } from '@angular/core/rxjs-interop';
@@ -20,6 +20,7 @@ import {
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CATALOGO_TABS } from '../catalogo-tabs';
+import { printIsolated } from '../../../shared/util/print-isolated';
 import {
   COLUMNAS_DEFAULT,
   COLUMNAS_REPORTE,
@@ -59,9 +60,21 @@ interface GrupoImpresion {
  * y no mezcla la lista `BASE-MXN` de la pestaña Catálogo: esa no tiene sucursal y llega con
  * semanas de rezago, así que en la misma hoja serían dos verdades sin etiqueta que las distinga.
  *
- * Impresión con `@media print` y el diálogo del navegador ("Guardar como PDF"), mismo patrón que
- * `/tienda/etiquetas` y la hoja de caducidades: el documento ES la pantalla, sin dependencias
- * nuevas ni almacenamiento de archivos.
+ * ── Cómo se imprime, y por qué así ─────────────────────────────────────────────────────────
+ * Con `printIsolated()` (el mismo helper del cartel del andén y de las etiquetas de checado): la
+ * hoja se clona a un documento aparte y ESO es lo que se imprime.
+ *
+ * ⛔ Antes era `window.print()` + un bloque `@media print` en los estilos del componente, y no
+ * podía funcionar: **los estilos de un componente Angular están encapsulados**, así que su
+ * `.no-print{display:none}` sólo alcanza a los elementos de ESTE componente. Todo lo que vive
+ * afuera —la migaja, el aviso de "hay una versión nueva", la barra lateral, los botones del
+ * armazón— se imprimía igual. Medido en producción el 2026-10-13: la hoja salía con la migaja
+ * "Comercial / Compras / Reabastecimiento / Catálogo" arriba y el botón "Actualizar" encima de la
+ * tabla. Un `@media print` encapsulado no puede esconder lo que no es suyo.
+ *
+ * El helper además trae la red de seguridad para las tablets que ignoran el `print()` del iframe,
+ * y el `@page{margin:0}` apaga el encabezado del navegador (fecha, URL y "1/1"). El margen real
+ * de cada hoja lo pone el `thead`/`tfoot` de `.rp-doc`, que el navegador repite por página.
  */
 @Component({
   selector: 'app-compras-catalogo-reporte',
@@ -258,9 +271,11 @@ interface GrupoImpresion {
                   <span class="p-button-icon p-button-icon-left pi pi-eye" aria-hidden="true"></span>
                   <span class="p-button-label">{{ previa() ? 'Ocultar hoja' : 'Ver hoja' }}</span>
                 </button>
-                <button pButton size="small" (click)="imprimir()" [disabled]="!seleccion().length">
-                  <span class="p-button-icon p-button-icon-left pi pi-print" aria-hidden="true"></span>
-                  <span class="p-button-label">Imprimir / Guardar PDF</span>
+                <button pButton size="small" (click)="imprimir()"
+                        [disabled]="!seleccion().length || imprimiendo()">
+                  <span class="p-button-icon p-button-icon-left"
+                        [class]="imprimiendo() ? 'pi pi-spin pi-spinner' : 'pi pi-print'" aria-hidden="true"></span>
+                  <span class="p-button-label">{{ imprimiendo() ? 'Preparando…' : 'Imprimir / Guardar PDF' }}</span>
                 </button>
               </div>
             </div>
@@ -317,64 +332,103 @@ interface GrupoImpresion {
 
       <!-- ═══════════ La hoja: lo único que se imprime ═══════════ -->
       @if (seleccion().length) {
-        <article class="rp-hoja" [class.is-previa]="previa()" aria-label="Hoja del reporte de precios">
-          <header class="rp-hoja-head">
-            <div>
-              <strong class="rp-hoja-org">MEGA DULCES</strong>
-              <span class="rp-hoja-doc">Reporte de precios por proveedor</span>
-            </div>
-            <div class="rp-hoja-fecha">
-              <span class="rp-hoja-lbl">Emitido</span>
-              <strong>{{ hoy }}</strong>
-            </div>
-          </header>
+        <!--
+          La hoja ES el documento. Va envuelta en una tabla de una sola celda a proposito: su "thead" y su "tfoot" son el membrete y el pie, y el navegador los REPITE en cada hoja
+          impresa. Es la unica forma de tener margen de arriba y de abajo en TODAS las paginas
+          con @page margin cero — y ese margen cero es lo que apaga el encabezado propio del
+          navegador (la fecha, la URL y el "1/1" que salian en la impresion vieja).
+        -->
+        <article #hoja class="rp-hoja" [class.is-previa]="previa()" aria-label="Hoja del reporte de precios">
+          <table class="rp-doc">
+            <thead>
+              <tr><td>
+                <div class="rp-run">
+                  <span class="rp-run-org">MEGA DULCES</span>
+                  <span class="rp-run-doc">Precios por proveedor</span>
+                  <span class="rp-run-meta">{{ plazaCorta() }} · {{ hoy }}</span>
+                </div>
+              </td></tr>
+            </thead>
 
-          <section class="rp-hoja-ident">
-            <div>
-              <span class="rp-hoja-lbl">Precio de</span>
-              <span class="rp-hoja-val">{{ plazaImpresa() }}</span>
-            </div>
-            <div>
-              <span class="rp-hoja-lbl">Precios calculados</span>
-              <span class="rp-hoja-val">{{ preciosAlImpreso() }}</span>
-            </div>
-            <div>
-              <span class="rp-hoja-lbl">Renglones</span>
-              <span class="rp-hoja-val">{{ seleccion().length }}</span>
-            </div>
-          </section>
+            <tfoot>
+              <tr><td>
+                <div class="rp-run-pie">
+                  <span>Documento interno de Mega Dulces · Compras</span>
+                  <span>Precios calculados el {{ preciosAlImpreso() }}</span>
+                </div>
+              </td></tr>
+            </tfoot>
 
-          @for (g of gruposImpresion(); track g.proveedor) {
-            <section class="rp-hoja-grupo">
-              <h2 class="rp-hoja-h2">{{ g.proveedor }} <span>({{ g.filas.length }})</span></h2>
-              <table class="rp-hoja-tbl">
-                <thead>
-                  <tr>
-                    <th scope="col">Producto</th>
-                    @for (c of columnasVisibles(); track c.id) {
-                      <th scope="col" [class.num]="c.num">{{ c.label }}</th>
-                    }
-                  </tr>
-                </thead>
-                <tbody>
-                  @for (r of g.filas; track r.product_id) {
-                    <tr>
-                      <td>{{ r.nombre }}</td>
-                      @for (c of columnasVisibles(); track c.id) {
-                        <td [class.num]="c.num">{{ celda(r, c.id) }}</td>
-                      }
-                    </tr>
-                  }
-                </tbody>
-              </table>
-            </section>
-          }
+            <tbody>
+              <tr><td class="rp-doc-cuerpo">
+                <header class="rp-portada">
+                  <h1 class="rp-portada-h1">Reporte de precios por proveedor</h1>
+                  <p class="rp-portada-sub">Precio de venta vigente en el ERP para los productos del proveedor.</p>
+                  <dl class="rp-ficha">
+                    <div class="rp-ficha-par">
+                      <dt>Plaza del precio</dt>
+                      <dd>{{ plazaImpresa() }}</dd>
+                    </div>
+                    <div class="rp-ficha-par">
+                      <dt>Precios calculados</dt>
+                      <dd>{{ preciosAlImpreso() }}</dd>
+                    </div>
+                    <div class="rp-ficha-par">
+                      <dt>Renglones</dt>
+                      <dd>{{ seleccion().length }}</dd>
+                    </div>
+                    <div class="rp-ficha-par">
+                      <dt>Emitido</dt>
+                      <dd>{{ hoy }}</dd>
+                    </div>
+                  </dl>
+                </header>
 
-          <footer class="rp-hoja-pie">
-            El precio unitario es el de la unidad BASE de Kepler (columna Unidad): en los productos
-            con base PAQ ese renglón ya es el paquete. Un guion (—) significa que el dato no está
-            cargado, no que sea cero.
-          </footer>
+                @for (g of gruposImpresion(); track g.proveedor) {
+                  <section class="rp-hoja-grupo">
+                    <table class="rp-hoja-tbl">
+                      <thead>
+                        <!--
+                          El proveedor va DENTRO del thead, no en un h2 afuera: asi el navegador lo
+                          repite en cada hoja junto con los titulos de columna. Antes vivia afuera y
+                          en la pagina 2 quedaba una tabla de precios sin decir de quien era.
+                        -->
+                        <tr class="rp-hoja-tr-prov">
+                          <th scope="colgroup" class="rp-hoja-prov" [attr.colspan]="columnasVisibles().length + 1">
+                            <span class="rp-hoja-h2-nom">{{ g.proveedor }}</span>
+                            <span class="rp-hoja-h2-n">{{ g.filas.length }} {{ g.filas.length === 1 ? 'producto' : 'productos' }}</span>
+                          </th>
+                        </tr>
+                        <tr>
+                          <th scope="col">Producto</th>
+                          @for (c of columnasVisibles(); track c.id) {
+                            <th scope="col" [class.num]="c.num">{{ c.label }}</th>
+                          }
+                        </tr>
+                      </thead>
+                      <tbody>
+                        @for (r of g.filas; track r.product_id) {
+                          <tr>
+                            <td>{{ r.nombre }}</td>
+                            @for (c of columnasVisibles(); track c.id) {
+                              <td [class.num]="c.num">{{ celda(r, c.id) }}</td>
+                            }
+                          </tr>
+                        }
+                      </tbody>
+                    </table>
+                  </section>
+                }
+
+                <aside class="rp-nota">
+                  <strong>Cómo leer esta hoja.</strong>
+                  El precio unitario es el de la unidad BASE de Kepler (columna Unidad): en los
+                  productos con base PAQ ese renglón ya es el paquete. Un guion (—) significa que
+                  el dato no está cargado, no que sea cero.
+                </aside>
+              </td></tr>
+            </tbody>
+          </table>
         </article>
       }
     </div>
@@ -466,46 +520,111 @@ interface GrupoImpresion {
     :host ::ng-deep .surf-table td.num,
     :host ::ng-deep .surf-table th.num { text-align: right; font-variant-numeric: tabular-nums; }
 
-    /* ── La hoja ─────────────────────────────────────────────────────────── */
-    .rp-hoja { display: none; }
-    .rp-hoja.is-previa {
-      display: block;
-      background: var(--c-surface-1); color: var(--c-text-1);
-      border: 1px solid var(--c-divider); border-radius: 10px;
-      padding: 1.25rem; margin-top: 1rem;
-    }
-    .rp-hoja-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 1rem; border-bottom: 2px solid var(--c-divider); padding-bottom: .5rem; }
-    .rp-hoja-org { display: block; font-size: var(--fs-lg); letter-spacing: .06em; }
-    .rp-hoja-doc { color: var(--c-text-2); font-size: var(--fs-sm); }
-    .rp-hoja-fecha { text-align: right; font-variant-numeric: tabular-nums; }
-    .rp-hoja-lbl { display: block; color: var(--c-text-2); font-size: var(--fs-xs); text-transform: uppercase; letter-spacing: .04em; }
-    .rp-hoja-ident { display: flex; gap: 2rem; flex-wrap: wrap; margin: .75rem 0; }
-    .rp-hoja-val { font-weight: var(--fw-medium); }
-    .rp-hoja-h2 { font-size: var(--fs-sm); margin: 1rem 0 .375rem; text-transform: uppercase; letter-spacing: .04em; }
-    .rp-hoja-h2 span { color: var(--c-text-2); font-weight: var(--fw-regular); }
-    .rp-hoja-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-xs); }
-    .rp-hoja-tbl th, .rp-hoja-tbl td { border: 1px solid var(--c-divider); padding: .25rem .375rem; text-align: left; }
-    .rp-hoja-tbl th { background: var(--c-surface-2); }
-    .rp-hoja-tbl td.num, .rp-hoja-tbl th.num { text-align: right; font-variant-numeric: tabular-nums; }
-    .rp-hoja-pie { margin-top: 1rem; color: var(--c-text-2); font-size: var(--fs-xs); }
+    /* ── La hoja ──────────────────────────────────────────────────────────
+       Esto es PAPEL, no pantalla: los colores van en literales de tinta y no en
+       tokens. Es la excepcion que DESIGN.md ya declaraba para la hoja impresa —
+       en papel no hay tema oscuro, hay tinta — y ahora ademas es necesaria: estos
+       mismos estilos se clonan dentro del documento aislado que se imprime, donde
+       un token que resuelva a blanco sobre blanco no se ve hasta que sale la hoja.
 
-    /*
-      Impresión: se esconde el chrome de la app y queda sólo la hoja, en A4 con márgenes reales.
-      Los literales de color acá son la excepción declarada del sistema (hoja de papel): en papel
-      no hay tema oscuro ni tokens — hay tinta.
+       Las medidas van en milimetros porque la unidad del destino es la hoja carta.
     */
-    @media print {
-      .no-print, p-skeleton { display: none !important; }
-      .rp-hoja { display: block !important; background: #fff; color: #000; border: 0; padding: 0; margin: 0; }
-      .rp-hoja-head { border-bottom-color: #000; }
-      .rp-hoja-tbl th, .rp-hoja-tbl td { border-color: #999; }
-      .rp-hoja-tbl th { background: #f2f2f2; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      .rp-hoja-doc, .rp-hoja-lbl, .rp-hoja-pie { color: #444; }
-      /* Un renglón no se parte a la mitad, y el encabezado del grupo no queda huérfano al pie. */
-      .rp-hoja-tbl tr { break-inside: avoid; }
-      .rp-hoja-h2 { break-after: avoid; }
-      .rp-hoja-tbl thead { display: table-header-group; }
+    /* La escala tipografica del PAPEL, en milimetros, declarada una sola vez. No sale de los
+       tokens de pantalla a proposito: un cuerpo en rem depende del zoom del navegador y de la
+       densidad del tema, y una hoja impresa no tiene ninguna de las dos cosas — es el mismo
+       razonamiento de [DS.6.1], que ya dejo los font-size de tickets y exports en unidades
+       fisicas: la pregunta no es en que archivo esta, es DONDE se renderiza.
+       Son tokens de la familia --fs-*, acotados a la hoja, para que la tipografia del papel
+       se cambie en un solo lugar. */
+    .rp-hoja {
+      display: none;
+      --fs-hoja-xs: 2.6mm;   /* etiquetas de la ficha, pie */
+      --fs-hoja-sm: 2.8mm;   /* notas, conteos */
+      --fs-hoja-base: 2.9mm; /* la tabla */
+      --fs-hoja-meta: 3mm;   /* la linea de contexto del membrete */
+      --fs-hoja-md: 3.2mm;   /* datos de la ficha, bajada */
+      --fs-hoja-lg: 3.4mm;   /* proveedor */
+      --fs-hoja-xl: 4.6mm;   /* la marca */
+      --fs-hoja-tit: 6mm;    /* el titulo del documento */
     }
+    .rp-hoja.is-previa {
+      display: block; margin-top: 1rem;
+      /* La previa en pantalla imita la hoja: ancho carta y sombra de papel. */
+      width: 215.9mm; max-width: 100%;
+      background: #fff; color: #111; border: 1px solid #d6d3d1; border-radius: 4px;
+      box-shadow: 0 1px 3px rgb(0 0 0 / .08); overflow: hidden;
+    }
+    .rp-doc { width: 100%; border-collapse: collapse; }
+    .rp-doc > thead > tr > td,
+    .rp-doc > tfoot > tr > td { padding: 0; border: 0; }
+    .rp-doc-cuerpo { padding: 0 14mm; border: 0; vertical-align: top; }
+
+    /* Membrete y pie: se repiten en cada hoja (thead/tfoot de .rp-doc). */
+    .rp-run {
+      display: flex; align-items: baseline; gap: 3mm;
+      padding: 10mm 14mm 2.5mm; border-bottom: .6mm solid #111;
+    }
+    .rp-run-org { font-size: var(--fs-hoja-xl); font-weight: 800; letter-spacing: .10em; color: #111; }
+    .rp-run-doc { font-size: var(--fs-hoja-md); color: #57534e; letter-spacing: .02em; }
+    .rp-run-meta { margin-left: auto; font-size: var(--fs-hoja-meta); color: #57534e; font-variant-numeric: tabular-nums; }
+    .rp-run-pie {
+      display: flex; justify-content: space-between; gap: 4mm;
+      padding: 2.5mm 14mm 9mm; margin-top: 4mm;
+      border-top: .2mm solid #d6d3d1; font-size: var(--fs-hoja-sm); color: #78716c;
+    }
+
+    /* Portada: va una sola vez, en la primera hoja. */
+    .rp-portada { padding-top: 7mm; }
+    .rp-portada-h1 { margin: 0; font-size: var(--fs-hoja-tit); font-weight: 700; letter-spacing: -.01em; color: #111; }
+    .rp-portada-sub { margin: 1.2mm 0 0; font-size: var(--fs-hoja-md); color: #57534e; }
+    .rp-ficha {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 0; margin: 5mm 0 0;
+      border: .2mm solid #d6d3d1; border-radius: 1mm; overflow: hidden;
+    }
+    .rp-ficha-par { padding: 3mm 3.5mm; border-left: .2mm solid #e7e5e4; }
+    .rp-ficha-par:first-child { border-left: 0; }
+    .rp-ficha dt {
+      margin: 0 0 1mm; font-size: var(--fs-hoja-xs); font-weight: 600; color: #78716c;
+      text-transform: uppercase; letter-spacing: .06em;
+    }
+    .rp-ficha dd { margin: 0; font-size: var(--fs-hoja-md); color: #111; line-height: 1.3; }
+
+    /* Un proveedor por bloque. */
+    .rp-hoja-grupo { margin-top: 7mm; }
+    .rp-hoja-prov {
+      padding: 0 0 1.2mm !important; border-bottom: .4mm solid #111 !important; text-align: left;
+    }
+    .rp-hoja-prov .rp-hoja-h2-nom {
+      font-size: var(--fs-hoja-lg); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #111;
+    }
+    .rp-hoja-prov .rp-hoja-h2-n {
+      float: right; font-size: var(--fs-hoja-sm); font-weight: 400; color: #78716c;
+      text-transform: none; letter-spacing: 0;
+    }
+    .rp-hoja-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-hoja-base); color: #111; }
+    .rp-hoja-tbl th, .rp-hoja-tbl td {
+      border-bottom: .2mm solid #e7e5e4; padding: 1.6mm 2mm; text-align: left; vertical-align: top;
+    }
+    .rp-hoja-tbl thead th {
+      border-bottom: .3mm solid #a8a29e; font-size: var(--fs-hoja-xs); font-weight: 700;
+      text-transform: uppercase; letter-spacing: .04em; color: #44403c; white-space: nowrap;
+    }
+    .rp-hoja-tbl td.num, .rp-hoja-tbl th.num {
+      text-align: right; font-variant-numeric: tabular-nums;
+      /* Un precio partido en dos renglones se lee como dos numeros. El nombre del producto es
+         lo unico que puede envolver, y por eso se queda con el ancho sobrante. */
+      white-space: nowrap; width: 1%;
+    }
+    .rp-hoja-tbl tbody td:first-child { width: auto; min-width: 42mm; }
+    .rp-hoja-tbl tbody tr:nth-child(even) td { background: #fafaf9; }
+
+    .rp-nota {
+      display: block; margin-top: 6mm; padding: 3mm 3.5mm;
+      border-left: .8mm solid #a8a29e; background: #fafaf9;
+      font-size: var(--fs-hoja-sm); line-height: 1.45; color: #44403c;
+    }
+    .rp-nota strong { color: #111; }
+
   `],
 })
 export class ComprasCatalogoReporteComponent {
@@ -624,6 +743,13 @@ export class ComprasCatalogoReporteComponent {
       : `${m.sucursal_nombre || 'Plaza'} (${m.sucursal})`;
   });
 
+  /** La plaza en dos palabras: el membrete se repite en cada hoja y no puede llevar un párrafo. */
+  readonly plazaCorta = computed(() => {
+    const m = this.meta();
+    if (!m) return '—';
+    return m.consolidado ? 'Consolidado' : (m.sucursal_nombre || `Plaza ${m.sucursal}`);
+  });
+
   readonly preciosAlImpreso = computed(() => {
     const iso = this.meta()?.precios_al;
     if (!iso) return 'sin fecha declarada';
@@ -676,5 +802,47 @@ export class ComprasCatalogoReporteComponent {
 
   recargar(): void { this.reporteRes.reload(); }
 
-  imprimir(): void { if (typeof window !== 'undefined') window.print(); }
+  /**
+   * Lo que el navegador debe ver en el documento aislado. Los estilos del componente SE CLONAN
+   * (el helper copia los `<style>` del `<head>`, y los atributos de encapsulación viajan en el
+   * HTML), así que acá sólo va lo que el papel necesita y la pantalla no:
+   *
+   *  - `.rp-hoja` vive en `display:none` salvo en la previa. En la hoja clonada hay que
+   *    encenderla a mano, o se imprime una página en blanco si el usuario nunca abrió "Ver hoja".
+   *  - `thead`/`tfoot` como grupos de encabezado y pie: es lo que los REPITE en cada página, y
+   *    con eso cada hoja tiene su membrete, su pie y sus márgenes.
+   *  - lo que no se parte: un renglón a la mitad y un encabezado de proveedor huérfano al pie.
+   */
+  private static readonly CSS_HOJA = [
+    '.rp-hoja{display:block !important;width:auto !important;max-width:none !important;',
+    'margin:0 !important;border:0 !important;border-radius:0 !important;box-shadow:none !important;',
+    'background:#fff !important;color:#111 !important;overflow:visible !important;}',
+    '.rp-doc{width:100%;}',
+    '.rp-doc > thead{display:table-header-group;}',
+    '.rp-doc > tfoot{display:table-footer-group;}',
+    '.rp-hoja-tbl thead{display:table-header-group;}',
+    '.rp-hoja-tbl tr{break-inside:avoid;page-break-inside:avoid;}',
+    '.rp-portada{break-after:avoid;}',
+    '.rp-nota{break-inside:avoid;}',
+  ].join('');
+
+  private readonly hoja = viewChild<ElementRef<HTMLElement>>('hoja');
+  readonly imprimiendo = signal(false);
+
+  imprimir(): void {
+    const el = this.hoja()?.nativeElement;
+    if (!el || this.imprimiendo()) return;
+    this.imprimiendo.set(true);
+    printIsolated({
+      html: el.outerHTML,
+      // Carta, no A4: es el papel que hay en la oficina. Margen cero a propósito — los márgenes
+      // de cada página los pone el membrete/pie repetido, y el cero apaga el encabezado que el
+      // navegador imprime por su cuenta.
+      page: 'size: letter portrait; margin: 0;',
+      css: ComprasCatalogoReporteComponent.CSS_HOJA,
+      bodyClass: 'rp-printing',
+      fallbackClass: 'rp-fallback',
+      onDone: () => this.imprimiendo.set(false),
+    });
+  }
 }
