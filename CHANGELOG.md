@@ -9,6 +9,9 @@
 ---
 
 ## [Unreleased]
+### Changed — Arqueo de caja: la confirmación del corte desglosa cada denominación (SM.44, 2026-10-13)
+- `/tienda/arqueo`: el diálogo «¿Confirmas el corte?» lista cada billete y moneda contados con sus piezas e importe, el total por familia, el efectivo contado, los medios de pago con su total y el total del turno. Las denominaciones en cero no se listan.
+
 ### Added — «Mi pedido» se ajusta y se guarda en la Suite, sin Excel (AB.18–AB.20, 2026-10-12)
 - El almacenista corrige el sugerido con **− / +**; si se aleja más de 20%, elige el motivo con un clic. Se guarda solo, con «volver» al sugerido y «Aceptar grupo». Cada decisión deja huella (sugerido visto, lo que dejó, motivo, tiempo) para el aprendizaje.
 - **¿Hasta dónde pides?**: casillas Agotado · Bajo mínimo · Bajo reorden (y «Sobre reorden, con venta», apagada). Lo marcado es lo que entra al pedido y se guarda.

@@ -609,4 +609,33 @@ describe('TiendaArqueoComponent · [SM.40] la cajera siempre puede contar', () =
     expect(papel).toContain('$10,500.00');
     expect(papel).not.toContain('99,999');      // ciego: sin esperado para la cajera
   });
+
+  // ── `[SM.44]` La confirmación del corte desglosa pieza por pieza ─────────────────────────
+  it('⭐ la confirmación lista cada denominación con piezas e importe, y omite las que van en cero', async () => {
+    svc.resp = { turnos: [turno()], aviso: null };
+    cmp.ngOnInit();
+    await tick();
+    cmp.denomCount['1000'] = 2;
+    cmp.denomCount['20'] = 1;
+    cmp.denomCount['20m'] = 3;
+    cmp.denomCount['0.5'] = 9;
+    cmp.recalc();
+
+    const billetes = cmp.desgloseFamilia('billete');
+    expect(billetes.map((d) => [d.label, d.cantidad, d.importe])).toEqual([['$1,000', 2, 2000], ['$20 billete', 1, 20]]);
+    const monedas = cmp.desgloseFamilia('moneda');
+    expect(monedas.map((d) => [d.label, d.cantidad, d.importe])).toEqual([['$20 moneda', 3, 60], ['50¢', 9, 4.5]]);
+
+    cmp.confirmar();
+    await tick();
+    // Solo el diálogo: la tabla de captura de atrás sí lista todas las denominaciones.
+    const texto = document.querySelector('.arq-cfm')?.textContent ?? '';
+    expect(texto).not.toBe('');
+    expect(texto).toContain('Total billetes');
+    expect(texto).toContain('Total monedas');
+    expect(texto).toContain('$2,000.00');
+    expect(texto).toContain('× 9');
+    // NEGATIVA: lo que va en cero no aparece.
+    expect(texto).not.toContain('$500');
+  });
 });
