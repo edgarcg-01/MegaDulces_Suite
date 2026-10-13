@@ -12,6 +12,12 @@
 ### Changed — Arqueo de caja: la confirmación del corte desglosa cada denominación (SM.44, 2026-10-13)
 - `/tienda/arqueo`: el diálogo «¿Confirmas el corte?» lista cada billete y moneda contados con sus piezas e importe, el total por familia, el efectivo contado, los medios de pago con su total y el total del turno. Las denominaciones en cero no se listan.
 
+### Fixed — Compras › Catálogo › Reportes: la hoja salía de la impresora como una captura de pantalla (CAT.7, 2026-10-13)
+- El reporte de precios por proveedor imprimía la **migaja de la app**, el aviso flotante «Hay una versión nueva · Actualizar» encima de la tabla y los encabezados del navegador (fecha, URL, «1/1»). No faltaba una regla: el `@media print` vivía en los estilos del componente, que Angular encapsula, así que no podía esconder nada de afuera. Ahora la hoja se clona a un documento aparte y se imprime ése.
+- **El documento se rehízo**: membrete y pie **repetidos en cada hoja** (es lo que además da margen arriba y abajo), carátula con el nombre del proveedor y una ficha de cuatro casillas (plaza, fecha de cálculo, renglones, cuántos salen sin precio), y el proveedor dentro del encabezado de la tabla para que la hoja 2 siga diciendo de quién es.
+- **Se lee**: margen de 20 mm, SKU y unidad debajo del nombre en vez de una columna cada uno (ocho columnas no entran en 176 mm), las siete columnas de dinero agrupadas por peldaño (por unidad / por paquete / por caja), nombres legibles en vez de la caja alta del ERP, y sin bandas grises.
+- Hoja **carta**. El PDF lo sigue produciendo el diálogo «Guardar como PDF»: sin dependencias nuevas ni archivos en el servidor.
+- **No numera las páginas**, y queda dicho: el contador de CSS no existe en el navegador que se usa y el del navegador se apaga junto con la fecha y la URL. Numerar exige generar el PDF del lado del servidor.
 ### Added — «Mi pedido» se ajusta y se guarda en la Suite, sin Excel (AB.18–AB.20, 2026-10-12)
 - El almacenista corrige el sugerido con **− / +**; si se aleja más de 20%, elige el motivo con un clic. Se guarda solo, con «volver» al sugerido y «Aceptar grupo». Cada decisión deja huella (sugerido visto, lo que dejó, motivo, tiempo) para el aprendizaje.
 - **¿Hasta dónde pides?**: casillas Agotado · Bajo mínimo · Bajo reorden (y «Sobre reorden, con venta», apagada). Lo marcado es lo que entra al pedido y se guarda.

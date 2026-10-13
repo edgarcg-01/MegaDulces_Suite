@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { provideRouter } from '@angular/router';
 import { provideHttpClient } from '@angular/common/http';
@@ -246,7 +248,8 @@ describe('[CAT.7] ComprasCatalogoReporteComponent', () => {
     const grupos = cmp.gruposImpresion();
     expect(grupos.length).toBe(1);
     expect(grupos[0].proveedor).toBe('LA ROSA');
-    expect(hoja()?.textContent).toContain('MAZAPAN');
+    // Legible, no la caja alta del ERP: el humanizador de [PF.9].
+    expect(hoja()?.textContent).toContain('Mazapan');
     expect(hoja()?.textContent).not.toContain('PALETA');
   });
 
@@ -323,5 +326,91 @@ describe('[CAT.7] ComprasCatalogoReporteComponent', () => {
     await elegirProveedor();
     expect(cmp.error()).toBe(true);
     expect(texto()).toContain('No se pudo cargar el reporte');
+  });
+
+  // ── Impresión ──────────────────────────────────────────────────────────
+  //
+  // El 2026-10-13 la hoja salía de la impresora como una captura de pantalla: la migaja
+  // "Comercial / Compras / Reabastecimiento / Catálogo", el aviso de "hay una versión nueva" y
+  // los botones, todo encima de la tabla de precios. La causa no era una regla que faltara: era
+  // que las reglas estaban en los estilos del COMPONENTE, que Angular encapsula, así que no
+  // podían alcanzar a nada de afuera. Estos cuatro candados vigilan el mecanismo que lo
+  // reemplazó, no su resultado visual — lo visual no se puede medir desde acá.
+  const FUENTE = readFileSync(join(__dirname, 'compras-catalogo-reporte.component.ts'), 'utf8');
+  /**
+   * Los comentarios fuera: la cabecera de ese archivo EXPLICA el metodo viejo para que nadie lo
+   * reintroduzca, y un candado que lee prosa se pondria rojo justo por documentar bien. Lo que se
+   * vigila es el codigo.
+   */
+  const CODIGO = FUENTE.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+
+  it('⛔ NO imprime con window.print(): eso arrastra la app entera a la hoja', () => {
+    expect(CODIGO).not.toMatch(/window\.print\(\)/);
+    expect(CODIGO).toContain('printIsolated({');
+  });
+
+  it('⛔ y tampoco vuelve a confiar en un @media print del componente, que está encapsulado', () => {
+    // La prueba negativa de la de arriba: si alguien reintroduce el bloque, esto se pone rojo
+    // aunque printIsolated siga en el archivo.
+    expect(CODIGO).not.toMatch(/@media print/);
+  });
+
+  it('el membrete y el pie viven en thead/tfoot: es lo que los repite en cada hoja', async () => {
+    await elegirProveedor();
+    expect(hoja()?.querySelector('.rp-doc > thead .rp-run-org')?.textContent).toContain('MEGA DULCES');
+    expect(hoja()?.querySelector('.rp-doc > tfoot .rp-run-pie')).not.toBeNull();
+  });
+
+  it('la carátula nombra al PROVEEDOR, no repite el nombre del reporte', async () => {
+    await elegirProveedor();
+    const h1 = hoja()?.querySelector('.rp-portada-h1');
+    expect(h1?.textContent).toContain('DISTRIBUIDORA DE LA ROSA');
+    // El membrete ya dice qué documento es; repetirlo gastaba el renglón más visible de la hoja.
+    expect(h1?.textContent).not.toMatch(/Reporte de precios/i);
+  });
+
+  it('las columnas de dinero se agrupan por peldaño, y los tramos cubren TODA la fila', async () => {
+    await elegirProveedor();
+    const fam = [...(hoja()?.querySelectorAll('.rp-hoja-tr-fam th') ?? [])];
+    expect(fam.map((t) => t.textContent?.trim())).toContain('Por unidad');
+    // Un colspan que no suma deja la tabla corrida una columna, en silencio.
+    const suma = fam.reduce((n, t) => n + Number(t.getAttribute('colspan') ?? 1), 0);
+    expect(suma).toBe(cmp.dineroVisibles().length + 1);
+  });
+
+  it('SKU y unidad viajan bajo el nombre, no como columnas propias', async () => {
+    await elegirProveedor();
+    // Con ocho columnas en 176 mm el nombre se partía en cuatro renglones. La identidad baja a un
+    // renglón debajo y la tabla queda con las de dinero.
+    const ident = hoja()?.querySelector('.rp-td-nombre .rp-ident');
+    expect(ident?.textContent).toContain('70002');
+    const titulos = [...(hoja()?.querySelectorAll('.rp-hoja-tbl thead th.col') ?? [])]
+      .map((t) => t.textContent?.trim());
+    expect(titulos).not.toContain('SKU');
+    expect(titulos).toContain('Precio unidad');
+  });
+
+  it('⛔ el hueco se cuenta sobre lo que SE IMPRIME, no sobre lo que trajo la consulta', async () => {
+    api.proximo = {
+      ...api.proximo,
+      rows: [
+        fila({ product_id: 'p1', nombre: 'CON PRECIO' }),
+        fila({ product_id: 'p2', nombre: 'SIN PRECIO', piece_price: null }),
+      ],
+      // La consulta dice 9; en la hoja entran 2, y uno es el que falta.
+      meta: { ...api.proximo.meta, sin_precio: 9, mostrados: 2 },
+    };
+    await elegirProveedor();
+    expect(cmp.sinPrecioImpresos()).toBe(1);
+    expect(hoja()?.textContent).toContain('1 salen con guion');
+    expect(hoja()?.textContent).not.toContain('9 salen con guion');
+  });
+
+  it('el proveedor va DENTRO del thead de su tabla, o la página 2 no dice de quién es', async () => {
+    await elegirProveedor();
+    const prov = hoja()?.querySelector('.rp-hoja-tbl thead .rp-hoja-prov');
+    expect(prov?.textContent).toContain('DISTRIBUIDORA DE LA ROSA');
+    // Y no quedó una copia suelta afuera, que se imprimiría una sola vez y mentiría por omisión.
+    expect(hoja()?.querySelector('.rp-hoja-grupo > .rp-hoja-h2')).toBeNull();
   });
 });
