@@ -248,7 +248,8 @@ describe('[CAT.7] ComprasCatalogoReporteComponent', () => {
     const grupos = cmp.gruposImpresion();
     expect(grupos.length).toBe(1);
     expect(grupos[0].proveedor).toBe('LA ROSA');
-    expect(hoja()?.textContent).toContain('MAZAPAN');
+    // Legible, no la caja alta del ERP: el humanizador de [PF.9].
+    expect(hoja()?.textContent).toContain('Mazapan');
     expect(hoja()?.textContent).not.toContain('PALETA');
   });
 
@@ -374,7 +375,19 @@ describe('[CAT.7] ComprasCatalogoReporteComponent', () => {
     expect(fam.map((t) => t.textContent?.trim())).toContain('Por unidad');
     // Un colspan que no suma deja la tabla corrida una columna, en silencio.
     const suma = fam.reduce((n, t) => n + Number(t.getAttribute('colspan') ?? 1), 0);
-    expect(suma).toBe(cmp.columnasVisibles().length + 1);
+    expect(suma).toBe(cmp.dineroVisibles().length + 1);
+  });
+
+  it('SKU y unidad viajan bajo el nombre, no como columnas propias', async () => {
+    await elegirProveedor();
+    // Con ocho columnas en 176 mm el nombre se partía en cuatro renglones. La identidad baja a un
+    // renglón debajo y la tabla queda con las de dinero.
+    const ident = hoja()?.querySelector('.rp-td-nombre .rp-ident');
+    expect(ident?.textContent).toContain('70002');
+    const titulos = [...(hoja()?.querySelectorAll('.rp-hoja-tbl thead th.col') ?? [])]
+      .map((t) => t.textContent?.trim());
+    expect(titulos).not.toContain('SKU');
+    expect(titulos).toContain('Precio unidad');
   });
 
   it('⛔ el hueco se cuenta sobre lo que SE IMPRIME, no sobre lo que trajo la consulta', async () => {

@@ -20,6 +20,7 @@ import {
 import { MetricStripComponent, MetricStripItem } from '../../../shared/components/metric-strip/metric-strip.component';
 import { PageTabsComponent } from '../../../shared/components/page-tabs/page-tabs.component';
 import { CATALOGO_TABS } from '../catalogo-tabs';
+import { nombrePropio } from '../catalogo-proveedor';
 import { printIsolated } from '../../../shared/util/print-isolated';
 import {
   COLUMNAS_DEFAULT,
@@ -395,10 +396,11 @@ interface GrupoImpresion {
                         <dd>{{ sin }} salen con guion</dd>
                       </div>
                     }
-                    <div class="rp-ficha-par">
-                      <dt>Impreso</dt>
-                      <dd>{{ hoyCorto }}</dd>
-                    </div>
+                    <!--
+                      Aca iba "Impreso". Se fue: la fecha ya esta en el membrete y en el pie, o sea
+                      en todas las hojas, y una quinta casilla dejaba a la ficha partida en dos
+                      renglones con una sola caja sola abajo.
+                    -->
                   </dl>
                 </header>
 
@@ -412,7 +414,7 @@ interface GrupoImpresion {
                           en la pagina 2 quedaba una tabla de precios sin decir de quien era.
                         -->
                         <tr class="rp-hoja-tr-prov">
-                          <th scope="colgroup" class="rp-hoja-prov" [attr.colspan]="columnasVisibles().length + 1">
+                          <th scope="colgroup" class="rp-hoja-prov" [attr.colspan]="dineroVisibles().length + 1">
                             <span class="rp-hoja-h2-nom">{{ g.proveedor }}</span>
                             <span class="rp-hoja-h2-n">{{ g.filas.length }} {{ g.filas.length === 1 ? 'producto' : 'productos' }}</span>
                           </th>
@@ -430,7 +432,7 @@ interface GrupoImpresion {
                         </tr>
                         <tr>
                           <th scope="col">Producto</th>
-                          @for (c of columnasVisibles(); track c.id) {
+                          @for (c of dineroVisibles(); track c.id) {
                             <th scope="col" class="col" [class.num]="c.num">{{ c.label }}</th>
                           }
                         </tr>
@@ -438,8 +440,20 @@ interface GrupoImpresion {
                       <tbody>
                         @for (r of g.filas; track r.product_id) {
                           <tr>
-                            <td>{{ r.nombre }}</td>
-                            @for (c of columnasVisibles(); track c.id) {
+                            <!--
+                              SKU, unidad, marca y gramaje viajan DEBAJO del nombre y no como
+                              columnas propias. Con ocho columnas en 176 mm el nombre se partia en
+                              cuatro renglones mientras el SKU ocupaba una columna entera para
+                              cinco digitos. Siguen saliendo solo si el comprador los tildo: lo que
+                              cambia es donde se imprimen, no quien los elige.
+                            -->
+                            <td class="rp-td-nombre">
+                              <span class="rp-nom">{{ legible(r.nombre) }}</span>
+                              @if (identidadDe(r); as ident) {
+                                <span class="rp-ident">{{ ident }}</span>
+                              }
+                            </td>
+                            @for (c of dineroVisibles(); track c.id) {
                               <td [class.num]="c.num">{{ celda(r, c.id) }}</td>
                             }
                           </tr>
@@ -567,14 +581,14 @@ interface GrupoImpresion {
        se cambie en un solo lugar. */
     .rp-hoja {
       display: none;
-      --fs-hoja-xs: 2.6mm;   /* etiquetas de la ficha, pie */
-      --fs-hoja-sm: 2.8mm;   /* notas, conteos */
-      --fs-hoja-base: 2.9mm; /* la tabla */
-      --fs-hoja-meta: 3mm;   /* la linea de contexto del membrete */
-      --fs-hoja-md: 3.2mm;   /* datos de la ficha, bajada */
-      --fs-hoja-lg: 3.4mm;   /* proveedor */
+      --fs-hoja-xs: 2.8mm;   /* etiquetas de la ficha, pie */
+      --fs-hoja-sm: 3mm;   /* notas, conteos */
+      --fs-hoja-base: 3.2mm; /* la tabla */
+      --fs-hoja-meta: 3.1mm;   /* la linea de contexto del membrete */
+      --fs-hoja-md: 3.4mm;   /* datos de la ficha, bajada */
+      --fs-hoja-lg: 3.7mm;   /* proveedor */
       --fs-hoja-xl: 4.6mm;   /* la marca */
-      --fs-hoja-tit: 6mm;    /* el titulo del documento */
+      --fs-hoja-tit: 5.4mm;    /* el titulo del documento */
     }
     .rp-hoja.is-previa {
       display: block; margin-top: 1rem;
@@ -586,31 +600,39 @@ interface GrupoImpresion {
     .rp-doc { width: 100%; border-collapse: collapse; }
     .rp-doc > thead > tr > td,
     .rp-doc > tfoot > tr > td { padding: 0; border: 0; }
-    .rp-doc-cuerpo { padding: 0 14mm; border: 0; vertical-align: top; }
+    /* 20 mm de margen y no 14: la hoja anterior llegaba casi al filo y no se podia ni
+       sostener sin tapar un precio. Con 20 el bloque de texto mide 176 mm, que es lo que
+       un ojo recorre sin perder el renglon. */
+    .rp-doc-cuerpo { padding: 0 20mm; border: 0; vertical-align: top; }
 
     /* Membrete y pie: se repiten en cada hoja (thead/tfoot de .rp-doc). */
     .rp-run {
       display: flex; align-items: baseline; gap: 3mm;
-      padding: 10mm 14mm 2.5mm; border-bottom: .6mm solid #111;
+      padding: 12mm 20mm 3mm; border-bottom: .6mm solid #111;
     }
     .rp-run-org { font-size: var(--fs-hoja-xl); font-weight: 800; letter-spacing: .10em; color: #111; }
     .rp-run-doc { font-size: var(--fs-hoja-md); color: #57534e; letter-spacing: .02em; }
     .rp-run-meta { margin-left: auto; font-size: var(--fs-hoja-meta); color: #57534e; font-variant-numeric: tabular-nums; }
     .rp-run-pie {
       display: flex; justify-content: space-between; gap: 4mm;
-      padding: 2.5mm 14mm 9mm; margin-top: 4mm;
+      padding: 3mm 20mm 11mm; margin-top: 4mm;
       border-top: .2mm solid #d6d3d1; font-size: var(--fs-hoja-sm); color: #78716c;
     }
 
     /* Portada: va una sola vez, en la primera hoja. */
     .rp-portada { padding-top: 7mm; }
-    .rp-portada-h1 { margin: 0; font-size: var(--fs-hoja-tit); font-weight: 700; letter-spacing: -.01em; color: #111; }
+    /* Viene en caja alta del ERP: con el cuerpo del titular a secas gritaba, y el interletrado
+       negativo que sirve en minusculas aprieta las mayusculas. */
+    .rp-portada-h1 {
+      margin: 0; font-size: var(--fs-hoja-tit); font-weight: 700; letter-spacing: .005em;
+      line-height: 1.15; color: #111;
+    }
     .rp-portada-sub { margin: 1.2mm 0 0; font-size: var(--fs-hoja-md); color: #57534e; }
     .rp-ficha {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 0; margin: 5mm 0 0;
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(40mm, 1fr)); gap: 0; margin: 5mm 0 0;
       border: .2mm solid #d6d3d1; border-radius: 1mm; overflow: hidden;
     }
-    .rp-ficha-par { padding: 3mm 3.5mm; border-left: .2mm solid #e7e5e4; }
+    .rp-ficha-par { padding: 3.4mm 4mm; border-left: .2mm solid #e7e5e4; }
     .rp-ficha-par:first-child { border-left: 0; }
     .rp-ficha dt {
       margin: 0 0 1mm; font-size: var(--fs-hoja-xs); font-weight: 600; color: #78716c;
@@ -622,10 +644,16 @@ interface GrupoImpresion {
     /* Un proveedor por bloque. */
     .rp-hoja-grupo { margin-top: 7mm; }
     .rp-hoja-prov {
-      padding: 0 0 1.2mm !important; border-bottom: .4mm solid #111 !important; text-align: left;
+      padding: 0 0 1.4mm !important; border-bottom: .3mm solid #78716c !important; text-align: left;
     }
+    /* En la hoja 1 este renglon queda debajo del titulo, que ya nombra al proveedor: es una
+       marca de continuacion para las hojas 2 en adelante, no un segundo titulo. Por eso pesa
+       menos que el h1 y no va en caja alta. */
     .rp-hoja-prov .rp-hoja-h2-nom {
-      font-size: var(--fs-hoja-lg); font-weight: 700; text-transform: uppercase; letter-spacing: .05em; color: #111;
+      font-size: var(--fs-hoja-md); font-weight: 600; letter-spacing: .01em; color: #44403c;
+      /* El th del encabezado pone caja alta y el span la HEREDA: sin este reset el nombre del
+         proveedor salia gritado aunque la regla de arriba ya no lo pidiera. */
+      text-transform: none; white-space: normal;
     }
     .rp-hoja-prov .rp-hoja-h2-n {
       float: right; font-size: var(--fs-hoja-sm); font-weight: 400; color: #78716c;
@@ -633,7 +661,16 @@ interface GrupoImpresion {
     }
     .rp-hoja-tbl { width: 100%; border-collapse: collapse; font-size: var(--fs-hoja-base); color: #111; }
     .rp-hoja-tbl th, .rp-hoja-tbl td {
-      border-bottom: .2mm solid #ededec; padding: 1.9mm 2mm; text-align: left; vertical-align: top;
+      border-bottom: .2mm solid #ededec; padding: 2.4mm 2.2mm; text-align: left; vertical-align: top;
+    }
+    /* El nombre se lleva un tercio y los precios quedan juntos a la derecha. Sin esto el
+       navegador reparte el sobrante entre las ocho columnas: el nombre se parte en dos
+       renglones mientras entre un precio y el siguiente queda un centimetro de nada. */
+    .rp-td-nombre, .rp-hoja-tbl thead th:first-child { width: 42%; }
+    .rp-nom { display: block; line-height: 1.25; }
+    .rp-ident {
+      display: block; margin-top: .6mm;
+      font-size: var(--fs-hoja-xs); color: #78716c; font-variant-numeric: tabular-nums;
     }
     /* La fila que agrupa las columnas de dinero por peldano. */
     .rp-hoja-tr-fam th {
@@ -653,7 +690,7 @@ interface GrupoImpresion {
          lo unico que puede envolver, y por eso se queda con el ancho sobrante. */
       white-space: nowrap; width: 1%;
     }
-    .rp-hoja-tbl tbody td:first-child { width: auto; min-width: 42mm; }
+    .rp-hoja-tbl { line-height: 1.35; }
     /* Sin bandas: ya hay una linea por renglon, y en una impresora de oficina ese gris sale
        sucio y gasta toner en una hoja que se imprime por docenas. */
 
@@ -821,15 +858,29 @@ export class ComprasCatalogoReporteComponent {
    * El primer tramo arranca sin título y se come la columna Producto más las de identidad (SKU,
    * marca, contenido, unidad): no son un peldaño, son de quién hablamos.
    */
+  /** Las columnas que son DINERO: las que de verdad ocupan una columna en la hoja. */
+  readonly dineroVisibles = computed(() => this.columnasVisibles().filter((c) => c.grupo !== 'identidad'));
+
+  /** Las que identifican al producto. Se imprimen juntas, debajo del nombre. */
+  readonly identidadVisibles = computed(() => this.columnasVisibles().filter((c) => c.grupo === 'identidad'));
+
+  /** "18090 · PAQ · Santoyo" — lo que el comprador tildó, en un renglón bajo el nombre. */
+  identidadDe(row: PriceReportRow): string {
+    return this.identidadVisibles()
+      .map((c) => this.celda(row, c.id))
+      .filter((v) => v && v !== '—')
+      .join(' · ');
+  }
+
   readonly familiasVisibles = computed<{ titulo: string; span: number }[]>(() => {
     const DE: Record<string, string> = {
       precio_unidad: 'Por unidad', mayoreo_unidad: 'Por unidad',
       paquete: 'Por paquete', mayoreo_paquete: 'Por paquete',
       caja: 'Por caja', costo: 'Interno',
     };
-    // Arranca en 1 por la columna Producto, que no está en `columnasVisibles()`.
+    // Arranca en 1 por la columna Producto, que no está en `dineroVisibles()`.
     const tramos: { titulo: string; span: number }[] = [{ titulo: '', span: 1 }];
-    for (const c of this.columnasVisibles()) {
+    for (const c of this.dineroVisibles()) {
       const titulo = DE[c.id] ?? '';
       const ultimo = tramos[tramos.length - 1];
       if (ultimo.titulo === titulo) ultimo.span += 1;
@@ -900,6 +951,19 @@ export class ComprasCatalogoReporteComponent {
   seleccionarNinguno(): void { this.seleccion.set([]); }
 
   celda(row: PriceReportRow, id: ColumnaReporteId): string { return celdaReporte(row, id); }
+
+  /**
+   * Kepler guarda los nombres en mayúsculas y una hoja de 40 renglones en caja alta se lee a
+   * tirones. Es el mismo `nombrePropio()` de [PF.9], que ya se usa en la pestaña Productos y
+   * tiene su prueba: no se escribe un segundo humanizador para la misma caja alta.
+   *
+   * ⛔ Sólo para el PRODUCTO. El nombre del proveedor va verbatim, como lo tiene el ERP: es un
+   * nombre legal en un documento de compras y no nos toca re-escribirlo. Medido en producción el
+   * 2026-10-13: de 1,007 proveedores, **1,002 no traen razón social**, así que recortarla tampoco
+   * compraba nada — y en los pocos que sí, "SPR DE RL" salía "Spr de Rl".
+   */
+  legible(s: string | null | undefined): string { return nombrePropio(s); }
+
 
   recargar(): void { this.reporteRes.reload(); }
 
