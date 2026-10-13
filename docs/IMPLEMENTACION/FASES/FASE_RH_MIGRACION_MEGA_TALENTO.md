@@ -359,7 +359,21 @@ que ese formulario necesita (`[RH.2.4]`).
   `recursos_humanos` (mig `20261012174003`, sólo datos: aplicarla antes de mergear). Pruebas de la vista:
   formato, cliente, ficha y las tres páginas, **mutadas a rojo** (motivo de la lista negra, quien sólo ve no
   edita, cambiar de etapa recarga). Validación visual pendiente.
-- [ ] **[RH.2.4]** Portal público `/empleo/*` con token firmado (D6).
+- [ ] **[RH.2.4]** 🔨 Bolsa de trabajo pública. **Decisión de David (13-oct-2026): se conservan las DOS entradas
+  —web y WhatsApp— con reglas en las dos.** Se evaluó dejar sólo el bot (una sola puerta: sin duplicados por
+  tecleo, sin spam anónimo, sin subidas sin identificar) y se descartó para no cambiarle el hábito a quien se
+  postula por la web. Reglas (`logic/postulacion.ts`, iguales para web y bot):
+  (1) **una persona, un proceso a la vez**: si ya está en proceso —misma vacante u otra— se rechaza, y lo que
+  traiga y a su proceso le falte (CV, correo) se le agrega; (2) **la misma vacante, cerrada (rechazado o
+  contratado), se acepta pasados 90 días**, antes se rechaza; (3) la persona se reconoce por el teléfono
+  (10 dígitos); (4) **lista negra: se recibe, no se le avisa, RH la ve**. ⛔ Lo que se contesta por la web
+  **no nombra la vacante ni la lista negra** (cualquiera teclea el teléfono de otro); por WhatsApp sí la vacante.
+  Web: CV obligatorio por firma, ciudad y puesto obligatorios, aviso de privacidad aceptado, campo trampa contra
+  robots, límite de 2 envíos/10 s y 5/10 min por conexión, candado por teléfono contra envíos simultáneos.
+  Duplicados (Revisiones) deja de contar procesos cerrados. **🧪 Backend** (`/api/hr/talent/public/jobs` y
+  `/applications`; pruebas puras y contra la base, mutadas a rojo). ⚠️ El candado por teléfono con dos envíos
+  REALMENTE simultáneos no se probó (pide dos conexiones fuera de la transacción de prueba). **Falta:** la página
+  `/empleo` (formulario) y las ligas firmadas para la solicitud y las evaluaciones (D6).
 - [ ] **[RH.2.5]** Carga única verificada de candidatos, etapas, eventos y vacantes (cuadre al registro),
   en el corte conjunto con el bot (`[RH.3.5]`).
 

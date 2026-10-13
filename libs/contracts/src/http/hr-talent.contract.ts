@@ -209,3 +209,43 @@ export interface HrVacanteDto {
 }
 
 export type HrVacanteEdicion = Partial<Omit<HrVacanteDto, 'id' | 'created_at' | 'updated_at'>>;
+
+// ── Bolsa de trabajo pública (`[RH.2.4]`) ───────────────────────────────────────────────────
+
+/** Una vacante tal como se publica (sin nada interno). */
+export interface HrVacantePublicaDto {
+  id: string;
+  name: string;
+  area: string | null;
+  branch_codes: string[];
+  branches_text: string | null;
+  salary_text: string | null;
+  schedule_text: string | null;
+  requirements: string | null;
+  description: string | null;
+  image_url: string | null;
+}
+
+/** Lo que manda el formulario público. El CV es obligatorio (data URI, PDF o imagen, máx. 10 MB). */
+export interface HrPostulacionPublica {
+  full_name: string;
+  phone: string;
+  email?: string | null;
+  city_branch: string;
+  /** La vacante elegida; si no hay, el puesto escrito. */
+  job_posting_id?: string | null;
+  position_interest?: string | null;
+  relative_in_company?: string | null;
+  rehire_note?: string | null;
+  cv_base64: string;
+  cv_file_name?: string | null;
+  privacy_accepted: boolean;
+  /** Campo trampa: una persona no lo ve. Si llega lleno, es un robot. */
+  website?: string | null;
+}
+
+/** La respuesta: nunca dice para qué vacante está la persona ni si está en la lista negra. */
+export interface HrPostulacionResultadoDto {
+  resultado: 'recibida' | 'rechazada';
+  mensaje: string;
+}

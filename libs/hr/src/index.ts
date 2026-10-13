@@ -16,4 +16,6 @@ export * from './lib/attendance/logic/relojes';
 export * from './lib/talent/talent-candidates.service';
 export * from './lib/talent/talent-jobs.service';
 export * from './lib/talent/talent.controller';
+export * from './lib/talent/talent-intake.service';
+export * from './lib/talent/talent-public.controller';
 export * from './lib/hr.module';

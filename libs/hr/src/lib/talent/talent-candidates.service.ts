@@ -463,11 +463,16 @@ export class HrTalentCandidatesService {
 
   // ── Revisiones ───────────────────────────────────────────────────────────────────────────
 
-  /** Grupos de registros vivos con el mismo teléfono (lo que hay que fusionar). */
+  /**
+   * Grupos de registros EN PROCESO con el mismo teléfono (lo que hay que fusionar). Un proceso cerrado
+   * (rechazado o contratado) no es un duplicado: desde `[RH.2.4]` la misma persona puede volver a postularse.
+   */
   async duplicados(): Promise<HrDuplicadoGrupoDto[]> {
+    const abiertos = (q: Knex.QueryBuilder, a = '') => q.whereNull(`${a}deleted_at`).whereNotNull(`${a}phone_key`)
+      .where(`${a}is_spam`, false).where((w) => w.whereNull(`${a}stage`).orWhereNotIn(`${a}stage`, ['rechazado', 'contratado']));
     return this.run(async (trx) => {
-      const filas = await trx(`${T} as c`).whereNull('c.deleted_at').whereNotNull('c.phone_key')
-        .whereIn('c.phone_key', trx(T).whereNull('deleted_at').whereNotNull('phone_key').groupBy('phone_key').havingRaw('count(*) > 1').select('phone_key'))
+      const filas = await abiertos(trx(`${T} as c`), 'c.')
+        .whereIn('c.phone_key', abiertos(trx(T)).groupBy('phone_key').havingRaw('count(*) > 1').select('phone_key'))
         .orderBy(['c.phone_key', 'c.created_at']).select(trx.raw(COLS_FILA)) as FilaCruda[];
       const grupos = new Map<string, HrDuplicadoGrupoDto>();
       for (const r of filas) {
