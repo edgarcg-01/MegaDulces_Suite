@@ -5398,10 +5398,19 @@ export class FinanzasCajaGeneralComponent implements OnInit, OnDestroy {
   /** Pide una PROPUESTA. Nunca pisa lo que el humano ya eligió a mano. */
   pedirPropuesta(): void {
     const f = this.f();
-    if (!f.tipo && !f.beneficiario && !f.glosa) return;
+    const c = this.cobroElegido();
+    if (!f.tipo && !f.beneficiario && !f.glosa && !c) return;
     this.svc.autofill({
       tipo: f.tipo, sucursal: f.sucursal,
       glosa: f.glosa || undefined, beneficiario: f.beneficiario || undefined,
+      // ⭐ `[CG.108]` El documento abre el NIVEL 0: con él, el servidor va a la contabilidad de
+      // Kepler y LEE la cuenta en vez de aprenderla. Sin esta línea el nivel existe y nunca
+      // se consulta — un motor nuevo que no recibe su entrada se lee igual que uno que no
+      // propone, y ése es el modo más caro de equivocarse.
+      origen_ref: c?.origen_ref || undefined,
+      // `[CG.109]` El tercero abre el Nivel 0.5: la regla de la entidad, que cubre lo que el
+      // documento no resuelve (cajas chicas, tarjetas, cobros de ruta).
+      entidad_code: c?.entidad_code || undefined,
     }).subscribe({
       next: (r) => {
         this.propuesta.set(r);
