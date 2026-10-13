@@ -107,7 +107,7 @@ export class CashLedgerService {
   }
 
   /** PROPONE. No guarda nada. Lo que no puede proponer vuelve en null con su motivo. */
-  autofill(input: { tipo?: string; sucursal?: string; glosa?: string; beneficiario?: string; beneficiario_rfc?: string; legacy_cuenta?: string }): Observable<AutofillResponse> {
+  autofill(input: { tipo?: string; sucursal?: string; glosa?: string; beneficiario?: string; beneficiario_rfc?: string; legacy_cuenta?: string; origen_ref?: string; entidad_code?: string }): Observable<AutofillResponse> {
     return this.http.post<AutofillResponse>(`${this.base}/autofill`, input);
   }
 

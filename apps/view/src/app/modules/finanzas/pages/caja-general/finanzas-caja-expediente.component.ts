@@ -9,6 +9,7 @@ import { LoadStateComponent } from '../../../../shared/components/load-state/loa
 import { SidePeekComponent } from '../../../../shared/components/side-peek/side-peek.component';
 import { MetricStripComponent, MetricStripItem } from '../../../../shared/components/metric-strip/metric-strip.component';
 import { FreshnessPillComponent } from '../../../../shared/components/freshness-pill/freshness-pill.component';
+import { SegmentedComponent, type SegOption } from '../../../../shared/components/segmented/segmented.component';
 import type { Freshness } from '@megadulces/contracts';
 import { FINANZAS_SHARED_STYLES } from '../finanzas-shared.styles';
 import { money, dmy } from '../finanzas-format';
@@ -124,7 +125,7 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
   standalone: true,
   changeDetection: ChangeDetectionStrategy.OnPush,
   imports: [CommonModule, ButtonModule, TableModule, TagModule,
-    LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent],
+    LoadStateComponent, SidePeekComponent, MetricStripComponent, FreshnessPillComponent, SegmentedComponent],
   template: `
     <div class="surf-page in">
       <header class="surf-page-head">
@@ -147,6 +148,13 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
         </div>
       </header>
 
+      <!-- ⭐ [CG.106] El selector de arriba. Edgar: una pantalla, dos trabajos distintos, y la
+           persona que revisa en la mañana no tiene que pasar por el otro para llegar al suyo.
+           Arranca en Corte historico: ESE es el trabajo de la mañana. -->
+      <app-segmented [options]="VISTAS" [value]="vista()" (valueChange)="cambiarVista($event)"
+                     ariaLabel="Qué quieres revisar" />
+
+      @if (vista() === 'corte') {
       <!-- Q.1 answer-first: la pregunta de la mañana, antes de la rejilla. -->
       @if (ultimo(); as u) {
         <section class="cx-veredicto" [class.cx-veredicto-bad]="!u.tiene_corte"
@@ -167,35 +175,70 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
           </div>
           @if (u.tiene_corte) {
             <div class="cx-apartados">
-              <div class="cx-ap cx-ap-fuerte">
-                <span class="cx-ap-lbl">Efectivo en el cajón</span>
-                <strong class="comm-num">{{ mx(u.total_efectivo) }}</strong>
-                <small>{{ mx(u.total_billetes) }} en billetes · {{ mx(u.total_monedas) }} en monedas</small>
-              </div>
-              <div class="cx-ap">
-                <span class="cx-ap-lbl">Dólares</span>
-                <strong class="comm-num">{{ mx(u.total_dolares) }}</strong>
-                <small>{{ usd(u.dolares_usd) }} USD al tipo de cambio {{ u.tipo_cambio ?? '—' }}</small>
-              </div>
-              <div class="cx-ap">
-                <span class="cx-ap-lbl">Papeles por pagar</span>
-                <strong class="comm-num">{{ mx(u.total_papeles) }}</strong>
-                <small>no es efectivo: es un saldo en custodia</small>
-              </div>
-              <div class="cx-ap">
-                <span class="cx-ap-lbl">Cheques</span>
-                <strong class="comm-num">{{ mx(u.total_cheques) }}</strong>
-              </div>
-              <div class="cx-ap">
-                <span class="cx-ap-lbl">Tarjeta</span>
-                <strong class="comm-num">{{ mx(u.total_tarjeta) }}</strong>
-              </div>
-              <div class="cx-ap cx-ap-total">
-                <span class="cx-ap-lbl">Total declarado</span>
-                <strong class="comm-num">{{ mx(u.total_declarado) }}</strong>
-                <small>efectivo + dólares + papeles + cheques + tarjeta</small>
-              </div>
+              <!-- 1) EFECTIVO EN PESOS. Lo UNICO que se cuadra contra lo que hay en el cajon. -->
+              <section class="cx-grupo cx-grupo-efe" aria-labelledby="cx-g-efe">
+                <h3 id="cx-g-efe" class="cx-grupo-h">
+                  <i class="pi pi-wallet" aria-hidden="true"></i> Efectivo en pesos
+                  <span class="cx-grupo-sub">esto es lo que se cuenta y lo que tiene que cuadrar</span>
+                </h3>
+                <div class="cx-grupo-body">
+                  <div class="cx-ap cx-ap-fuerte">
+                    <span class="cx-ap-lbl">En el cajón</span>
+                    <strong class="comm-num">{{ mx(u.total_efectivo) }}</strong>
+                    <small>{{ mx(u.total_billetes) }} en billetes · {{ mx(u.total_monedas) }} en monedas</small>
+                  </div>
+                </div>
+              </section>
+
+              <!-- 2) DOLARES. Moneda distinta: el peso que muestra depende de un tipo de cambio
+                   que alguien tecleo, asi que se dice en USD Y en pesos, nunca solo en pesos. -->
+              <section class="cx-grupo cx-grupo-usd" aria-labelledby="cx-g-usd">
+                <h3 id="cx-g-usd" class="cx-grupo-h">
+                  <i class="pi pi-dollar" aria-hidden="true"></i> Dólares
+                  <span class="cx-grupo-sub">otra moneda — no entra al cuadre en pesos</span>
+                </h3>
+                <div class="cx-grupo-body">
+                  <div class="cx-ap">
+                    <span class="cx-ap-lbl">En custodia</span>
+                    <strong class="comm-num">{{ usd(u.dolares_usd) }} USD</strong>
+                    <small>
+                      @if (u.tipo_cambio) {
+                        ≈ {{ mx(u.total_dolares) }} al tipo de cambio {{ u.tipo_cambio }}
+                      } @else {
+                        sin tipo de cambio declarado: el valor en pesos no se puede publicar
+                      }
+                    </small>
+                  </div>
+                </div>
+              </section>
+
+              <!-- 3) CREDITO Y DEMAS PAPEL. No es dinero todavia: es una promesa. -->
+              <section class="cx-grupo cx-grupo-cre" aria-labelledby="cx-g-cre">
+                <h3 id="cx-g-cre" class="cx-grupo-h">
+                  <i class="pi pi-file-edit" aria-hidden="true"></i> Crédito y papel
+                  <span class="cx-grupo-sub">no es efectivo: es lo que alguien debe o todavía no se cobra</span>
+                </h3>
+                <div class="cx-grupo-body">
+                  <div class="cx-ap">
+                    <span class="cx-ap-lbl">Papeles por pagar</span>
+                    <strong class="comm-num">{{ mx(u.total_papeles) }}</strong>
+                  </div>
+                  <div class="cx-ap">
+                    <span class="cx-ap-lbl">Cheques</span>
+                    <strong class="comm-num">{{ mx(u.total_cheques) }}</strong>
+                  </div>
+                  <div class="cx-ap">
+                    <span class="cx-ap-lbl">Tarjeta</span>
+                    <strong class="comm-num">{{ mx(u.total_tarjeta) }}</strong>
+                  </div>
+                </div>
+              </section>
             </div>
+
+            <p class="cx-ver-total">
+              Suma de los tres: <strong class="comm-num">{{ mx(u.total_declarado) }}</strong>
+              <span class="cx-dim"> — es el total que declaró Control, no lo que hay en el cajón.</span>
+            </p>
           } @else {
             <p class="cx-ver-hint">
               Ese día hubo movimientos pero nadie dejó un conteo de la caja completa, así que
@@ -224,14 +267,25 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
                    class="surf-table surf-table--plain surf-table--sticky surf-table--frozen-first dt-stack"
                    selectionMode="single" [selection]="diaSel()" (selectionChange)="abrir($event)">
             <ng-template #header>
+              <!-- Las tres familias, rotuladas. Sin esta fila, efectivo, dolares y credito se
+                   leen como una sola cifra corrida y el que revisa en la mañana suma lo que no
+                   se suma: solo la primera columna cuadra contra lo que hay en el cajon. -->
+              <tr class="cx-grp-row">
+                <th scope="colgroup" colspan="2"></th>
+                <th scope="colgroup" class="cx-grp cx-grp-efe">Efectivo en pesos</th>
+                <th scope="colgroup" class="cx-grp cx-grp-usd" colspan="2">Dólares</th>
+                <th scope="colgroup" class="cx-grp cx-grp-cre" colspan="3">Crédito y papel</th>
+                <th scope="colgroup" colspan="3"></th>
+              </tr>
               <tr>
                 <th scope="col">Día</th>
                 <th scope="col">Corte</th>
-                <th scope="col" class="comm-num">Efectivo</th>
-                <th scope="col" class="comm-num">Dólares</th>
-                <th scope="col" class="comm-num">Papeles</th>
-                <th scope="col" class="comm-num">Cheques</th>
-                <th scope="col" class="comm-num">Tarjeta</th>
+                <th scope="col" class="comm-num cx-grp-efe">En el cajón</th>
+                <th scope="col" class="comm-num cx-grp-usd">USD</th>
+                <th scope="col" class="comm-num cx-grp-usd">≈ pesos</th>
+                <th scope="col" class="comm-num cx-grp-cre">Papeles</th>
+                <th scope="col" class="comm-num cx-grp-cre">Cheques</th>
+                <th scope="col" class="comm-num cx-grp-cre">Tarjeta</th>
                 <th scope="col" class="comm-num">Total declarado</th>
                 <th scope="col" class="comm-num">Movimientos</th>
                 <th scope="col">Revisar</th>
@@ -246,19 +300,26 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
                     <span class="cx-dim"> · {{ hhmm(d.corte_hora) }}</span>
                   } @else { <span class="cx-dim">sin conteo</span> }
                 </td>
-                <td role="cell" data-label="Efectivo" class="comm-num">
+                <td role="cell" data-label="Efectivo en el cajón" class="comm-num cx-grp-efe cx-strong">
                   @if (d.tiene_corte) { {{ mx(d.total_efectivo) }} } @else { <span class="cx-dim">—</span> }
                 </td>
-                <td role="cell" data-label="Dólares" class="comm-num">
-                  @if (d.tiene_corte) { {{ mx(d.total_dolares) }} } @else { <span class="cx-dim">—</span> }
+                <td role="cell" data-label="Dólares (USD)" class="comm-num cx-grp-usd">
+                  @if (d.tiene_corte) { {{ usd(d.dolares_usd) }} } @else { <span class="cx-dim">—</span> }
                 </td>
-                <td role="cell" data-label="Papeles" class="comm-num">
+                <td role="cell" data-label="Dólares en pesos" class="comm-num cx-grp-usd">
+                  @if (d.tiene_corte && d.tipo_cambio) { {{ mx(d.total_dolares) }} }
+                  <!-- El texto va VISIBLE, no en un title: un title solo existe para quien
+                       tiene mouse, y esta pantalla se revisa tambien desde el telefono. -->
+                  @else if (d.tiene_corte) { <span class="cx-dim">sin tipo de cambio</span> }
+                  @else { <span class="cx-dim">—</span> }
+                </td>
+                <td role="cell" data-label="Papeles" class="comm-num cx-grp-cre">
                   @if (d.tiene_corte) { {{ mx(d.total_papeles) }} } @else { <span class="cx-dim">—</span> }
                 </td>
-                <td role="cell" data-label="Cheques" class="comm-num">
+                <td role="cell" data-label="Cheques" class="comm-num cx-grp-cre">
                   @if (d.tiene_corte) { {{ mx(d.total_cheques) }} } @else { <span class="cx-dim">—</span> }
                 </td>
-                <td role="cell" data-label="Tarjeta" class="comm-num">
+                <td role="cell" data-label="Tarjeta" class="comm-num cx-grp-cre">
                   @if (d.tiene_corte) { {{ mx(d.total_tarjeta) }} } @else { <span class="cx-dim">—</span> }
                 </td>
                 <td role="cell" data-label="Total declarado" class="comm-num cx-strong">
@@ -278,6 +339,34 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
           </p-table>
         }
       </section>
+      }
+
+      @if (vista() === 'expediente') {
+        <section class="cx-block" aria-labelledby="cx-h-exp">
+          <div class="cx-bh">
+            <h2 id="cx-h-exp">Expediente del día</h2>
+            <span class="cx-hint">Cada movimiento con su ticket, tal como se contó</span>
+          </div>
+
+          <div class="cx-dias" role="group" aria-label="Elegir el día">
+            @for (d of diasRecientes(); track d.fecha) {
+              <button type="button" class="cx-dia" [class.cx-dia-on]="esDiaElegido(d)"
+                      [attr.aria-pressed]="esDiaElegido(d)" (click)="abrirInline(d)">
+                <span class="cx-dia-f">{{ dmy(d.fecha) }}</span>
+                <span class="cx-dia-n">{{ d.movimientos }} mov.</span>
+                @if (!d.tiene_corte) { <span class="cx-dia-sc">sin conteo</span> }
+              </button>
+            }
+          </div>
+
+          <app-load-state [loading]="cargandoExp()" [skeletonRows]="6"
+                          [isEmpty]="!cargandoExp() && !!exp() && !exp()!.rows.length"
+                          emptyTitle="Ese día no tuvo movimientos" />
+          @if (!cargandoExp() && exp(); as e) {
+            <ng-container *ngTemplateOutlet="listaMovs; context: { $implicit: e }"></ng-container>
+          }
+        </section>
+      }
 
       <app-side-peek [(open)]="peek" mode="window" [width]="1040"
                      [title]="'Expediente del ' + (diaSel()?.fecha ? dmy(diaSel()!.fecha) : '')"
@@ -285,6 +374,15 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
         @if (cargandoExp()) {
           <app-load-state [loading]="true" [skeletonRows]="8" />
         } @else if (exp(); as e) {
+          <ng-container *ngTemplateOutlet="listaMovs; context: { $implicit: e }"></ng-container>
+        }
+      </app-side-peek>
+
+      <!-- ⚠️ UNA sola definición de la lista de movimientos, usada por la vista Expediente y por
+           el cajón del Corte histórico. Duplicarla era el camino corto y el de siempre: la de
+           abajo se queda vieja y nadie lo nota hasta que los dos lugares dicen cosas distintas
+           del mismo movimiento. -->
+      <ng-template #listaMovs let-e>
           <div class="cx-exp">
             @for (m of e.rows; track m.folio) {
               <article class="cx-mov" [class.cx-mov-cancel]="m.cancelado"
@@ -334,8 +432,7 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
               </article>
             }
           </div>
-        }
-      </app-side-peek>
+      </ng-template>
     </div>
   `,
   styles: [FINANZAS_SHARED_STYLES, `
@@ -356,8 +453,37 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
 
     .cx-apartados {
       display:grid; gap:var(--sp-3); margin-top:var(--sp-4);
-      grid-template-columns:repeat(auto-fit, minmax(13rem, 1fr));
+      grid-template-columns:repeat(auto-fit, minmax(16rem, 1fr));
+      align-items:start;
     }
+
+    /* [CG.107] Las TRES familias separadas. Edgar: "separemos dls, efectivo y credito".
+       No es cosmetico: solo la primera cuadra contra lo que hay en el cajon, la segunda esta
+       en otra moneda y la tercera todavia no es dinero. Verlas corridas invita a sumarlas. */
+    .cx-grupo {
+      border:1px solid var(--border-color); border-radius:var(--r-md);
+      padding:var(--sp-3); background:var(--surface-card);
+      border-top-width:3px;
+    }
+    .cx-grupo-efe { border-top-color:var(--action); }
+    .cx-grupo-usd { border-top-color:var(--text-muted); }
+    .cx-grupo-cre { border-top-color:var(--warn-fg); }
+    .cx-grupo-h {
+      margin:0 0 var(--sp-3); font-size:var(--fs-sm); display:flex; flex-wrap:wrap;
+      align-items:baseline; gap:var(--sp-2);
+    }
+    .cx-grupo-h i { color:var(--text-muted); }
+    .cx-grupo-sub { flex:1 1 100%; font-weight:400; color:var(--text-faint); font-size:var(--fs-micro); }
+    .cx-grupo-body { display:flex; flex-direction:column; gap:var(--sp-2); }
+    .cx-ver-total { margin:var(--sp-3) 0 0; font-size:var(--fs-sm); }
+
+    /* En la tabla las familias se rotulan con una fila de grupo. El tinte es AYUDA, no la
+       señal: la señal es el texto del encabezado, que sobrevive a Alto Contraste. */
+    .cx-grp { font-size:var(--fs-micro); color:var(--text-muted); text-align:center; font-weight:400; }
+    .cx-grp-row th { border-bottom:none; padding-bottom:0; }
+    .cx-grp-efe { background:color-mix(in srgb, var(--action) 7%, transparent); }
+    .cx-grp-usd { background:var(--overlay-hover); }
+    .cx-grp-cre { background:color-mix(in srgb, var(--warn-fg) 7%, transparent); }
     .cx-ap {
       display:flex; flex-direction:column; gap:var(--sp-1);
       padding:var(--sp-3); border:1px solid var(--border-color); border-radius:var(--r-md);
@@ -368,6 +494,26 @@ const n = (v: unknown): number => Number(v ?? 0) || 0;
     .cx-ap small { color:var(--text-faint); font-size:var(--fs-micro); }
     .cx-ap-fuerte { border-color:var(--action); }
     .cx-ap-total strong { color:var(--text-main); }
+
+    /* [CG.106] Los dias como atajo del Expediente. Botones de verdad, no divs con click:
+       asi llegan por teclado y el lector de pantalla dice cual esta elegido (aria-pressed). */
+    .cx-dias {
+      display:flex; gap:var(--sp-2); flex-wrap:wrap; margin-bottom:var(--sp-4);
+    }
+    .cx-dia {
+      display:flex; flex-direction:column; gap:2px; align-items:flex-start;
+      padding:var(--sp-2) var(--sp-3); border:1px solid var(--border-color);
+      border-radius:var(--r-md); background:transparent; color:var(--text-main);
+      cursor:pointer; font:inherit;
+    }
+    .cx-dia:hover { background:var(--overlay-hover); }
+    .cx-dia:focus-visible { outline:2px solid var(--action); outline-offset:2px; }
+    /* El elegido se marca con BORDE y peso, no solo con color: en Alto Contraste de Windows
+       el fondo se reemplaza y un estado que solo vive en el color desaparece. */
+    .cx-dia-on { border-color:var(--action); border-width:2px; font-weight:var(--fw-bold, 700); }
+    .cx-dia-f { font-size:var(--fs-sm); }
+    .cx-dia-n { font-size:var(--fs-micro); color:var(--text-muted); }
+    .cx-dia-sc { font-size:var(--fs-micro); color:var(--warn-fg); }
 
     .cx-block { margin-top:var(--sp-5); }
     .cx-bh { display:flex; align-items:baseline; gap:var(--sp-3); margin-bottom:var(--sp-2); }
@@ -411,6 +557,20 @@ export class FinanzasCajaExpedienteComponent implements OnInit {
   /** `[CG.105]` La edad del dato, tal como la reporta el carril. `null` = no se pudo medir. */
   readonly frescura = signal<Freshness | null>(null);
   readonly error = signal<string | null>(null);
+
+  /**
+   * ⭐ `[CG.106]` **Las dos mitades de la pantalla, y cuál abre primero.**
+   *
+   * Edgar: *"para la persona que revisa todas las mañanas que el saldo cuadre con lo que existe
+   * en caja"*. Esa persona entra a UNA cosa: el corte. Por eso `corte` es el valor inicial —
+   * abrir en el expediente la obligaría a cambiar de pestaña todos los días para llegar a su
+   * trabajo, que es el defecto que el selector viene a quitar, no a crear.
+   */
+  readonly VISTAS: SegOption[] = [
+    { label: 'Corte histórico', value: 'corte' },
+    { label: 'Expediente del día', value: 'expediente' },
+  ];
+  readonly vista = signal<'corte' | 'expediente'>('corte');
 
   readonly diaSel = signal<CorteDia | null>(null);
   readonly peek = signal(false);
@@ -482,13 +642,47 @@ export class FinanzasCajaExpedienteComponent implements OnInit {
     });
   }
 
+  /** Los días que se ofrecen como atajo en el Expediente. 14 entran sin hacer scroll. */
+  readonly diasRecientes = computed<CorteDia[]>(() => this.dias().slice(0, 14));
+
+  esDiaElegido(d: CorteDia): boolean {
+    return String(this.diaSel()?.fecha ?? '').slice(0, 10) === String(d.fecha).slice(0, 10);
+  }
+
+  /**
+   * `[CG.106]` Cambiar de mitad. Al entrar al Expediente **sin día elegido** se abre el más
+   * reciente: una pantalla que arranca vacía obliga a un clic que no decide nada.
+   */
+  cambiarVista(v: string): void {
+    const x = v === 'expediente' ? 'expediente' : 'corte';
+    this.vista.set(x);
+    if (x === 'expediente' && !this.exp() && this.dias().length) {
+      this.abrirInline(this.dias()[0]);
+    }
+  }
+
+  /** Elegir día DENTRO del expediente: carga en la página, sin abrir el cajón. */
+  abrirInline(d: CorteDia): void {
+    this.diaSel.set(d);
+    this.cargarExpediente(d);
+  }
+
   abrir(d: CorteDia | null): void {
     if (!d) return;
     this.diaSel.set(d);
-    this.exp.set(null);
     this.peek.set(true);
+    this.cargarExpediente(d);
+  }
+
+  /**
+   * ⚠️ `exp` se limpia ANTES de pedir: si no, mientras carga el día nuevo la pantalla sigue
+   * mostrando los movimientos del anterior con el título ya cambiado — un expediente que dice
+   * ser de un día y enseña otro.
+   */
+  private cargarExpediente(d: CorteDia): void {
+    this.exp.set(null);
     this.cargandoExp.set(true);
-    this.http.get<Expediente>(`${this.base}/expediente/${d.fecha.slice(0, 10)}`).subscribe({
+    this.http.get<Expediente>(`${this.base}/expediente/${String(d.fecha).slice(0, 10)}`).subscribe({
       next: (e) => { this.exp.set(e); this.cargandoExp.set(false); },
       error: () => { this.cargandoExp.set(false); },
     });
