@@ -262,6 +262,40 @@ export class CashCutService {
     return previo ? Number(previo.contado) : null;
   }
 
+  /**
+   * ⭐ `[CG.125]` **El efectivo del último arqueo de custodia de Control** — el dato que la empresa
+   * ya lleva y que la pantalla estaba pidiendo que alguien volviera a teclear.
+   *
+   * ⚠️ Las columnas de `caja_general_ods` son **`text`**: `sum(totalefectivo)` revienta con `""` y
+   * `btrim(numeric)` no existe. Todo pasa por `nullif(btrim(x::text),'')::numeric`.
+   *
+   * ⚠️ `null` si no se puede leer (el espejo de Control puede no estar en este entorno). Un cero
+   * acá sería «la caja arrancó vacía», que es un hecho distinto y falso.
+   */
+  private async fondoDeControl(trx: any, tenantId: string) {
+    const existe = await trx.raw(`SELECT to_regclass('caja_general_ods.arqueo_movimientos') AS t`);
+    if (!existe.rows?.[0]?.t) return null;
+    const num = (c: string) => `coalesce(nullif(btrim(${c}::text),'')::numeric, 0)`;
+    const [r] = await trx('caja_general_ods.arqueo_movimientos')
+      .whereRaw('NOT cancelado')
+      .whereRaw(`${num('dolares')} <> 0`)
+      .orderBy([{ column: 'movimientofecha', order: 'desc' }, { column: 'movimientohora', order: 'desc' }])
+      .limit(1)
+      .select(
+        'folio',
+        trx.raw(`to_char(movimientofecha,'YYYY-MM-DD') AS fecha`),
+        trx.raw(`${num('totalefectivo')} AS efectivo`),
+        trx.raw(`${num('totalbilletes')} AS billetes`),
+        trx.raw(`${num('totalmonedas')} AS monedas`),
+      );
+    if (!r) return null;
+    void tenantId; // el espejo de Control no está particionado por tenant: es una sola caja.
+    return {
+      folio: String(r.folio), fecha: String(r.fecha),
+      efectivo: Number(r.efectivo), billetes: Number(r.billetes), monedas: Number(r.monedas),
+    };
+  }
+
   async sugerirFondo(sucursal: string) {
     const tenantId = this.tenantCtx.requireTenantId();
     return this.tk.run(async (trx) => {
@@ -273,7 +307,23 @@ export class CashCutService {
         .whereNot('estado', 'borrador')
         .orderBy([{ column: 'fecha', order: 'desc' }, { column: 'folio', order: 'desc' }])
         .first();
-      if (!previo) return fondoSugerido(null);
+      /**
+       * ⭐⭐ `[CG.125]` **ANTES DE PEDIRLO, PREGUNTARLE A CONTROL.**
+       *
+       * Edgar, con la pantalla delante: *"pide se declare con cuánto arrancó la caja, pero no es
+       * necesario porque nosotros ya llevamos ese seguimiento"*. Tiene razón, y pedirlo a mano
+       * rompe la regla principal del proyecto: **lo que ya existe en una fuente no se captura**.
+       *
+       * El fondo del cajón es el **efectivo del último arqueo de custodia** de Control, que la
+       * empresa lleva desde 2013. Acá sólo se devolvía `sin_medir` porque no hay cortes cerrados
+       * en la Suite todavía — se miraba la fuente nueva y no la que de verdad tiene el dato.
+       *
+       * ⚠️ Y el arqueo se discrimina por **`dolares <> 0`**, no por "trae varias piernas": los
+       * cobros con tarjeta también traen dos (`A23634`: efectivo $866 + tarjeta $16,420) y no son
+       * arqueos. Medido: con el criterio correcto quedan **901 arqueos en 616 días**; el último es
+       * `A23641` del 2026-10-10 12:58 con **$3,327.50** de efectivo. Ver `VERDAD_ABSOLUTA.md` §28.2.
+       */
+      if (!previo) return fondoSugerido(null, await this.fondoDeControl(trx, tenantId));
 
       const filas = await trx('finance.cash_ledger_cut_denominations')
         .where({ tenant_id: tenantId, cut_id: previo.id })

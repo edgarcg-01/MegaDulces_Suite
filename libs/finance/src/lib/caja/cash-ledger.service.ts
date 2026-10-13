@@ -10,6 +10,7 @@ import {
   type FilaLote, type ResumenLote, type Descuadre,
 } from './caja-lote.engine';
 import { revisarFirma } from './caja-firma.engine';
+import { conciliacion } from './caja-conciliacion.engine';
 import {
   rankearCaos, ymd, type GastoCtx as CaosGastoCtx, type CaosCandidato as CaosCand, type PatronAprendido,
 } from './caja-caos-match.engine';
@@ -103,6 +104,14 @@ export interface CreateMovementInput {
    * diferencia se levanta como hallazgo; nunca se rechaza el efectivo.
    */
   monto_contado?: number;
+  /**
+   * ⭐⭐ `[CG.124]` **Por qué este movimiento NO se pudo conciliar.** Obligatorio (≥12
+   * caracteres) cuando no hay `origen_ref`; y **no sirve** cuando el enlace se perdió — ahí lo
+   * que hace falta es volver a elegir el documento, no escribir una razón encima.
+   *
+   * El caso legítimo medido: las rutas 501/502/503 de Canindo, cuyo cobro no existe en Kepler.
+   */
+  sin_documento_motivo?: string | null;
   /**
    * `[CG.67]` La firma de conformidad: el PNG como data URI y quién firmó.
    *
@@ -791,6 +800,25 @@ export class CashLedgerService {
         if (prev) return { ...prev, idempotent_replay: true };
       }
 
+      /**
+       * ⭐⭐ `[CG.124]` **NINGÚN MOVIMIENTO SE GUARDA SIN CONCILIAR.** Regla de Edgar, dicha tres
+       * veces: *"todos los movimientos deben estar vinculados"* · *"el usuario sólo va a llenar el
+       * arqueo y a lo mucho enlazarlo con un movimiento de CAOS"* · *"aún salen capturas a mano"*.
+       *
+       * Medido en prod: 6 de 59 movimientos sin `origen_ref`, y **no son el mismo caso**. Dos
+       * traen en la glosa un documento que el sistema sólo escribe cuando se ELIGE de la bandeja
+       * (`CG-2026-00006` → `X-D-26 0000161`, `CG-2026-00028` → `X-D-26 0023047`): ahí el enlace se
+       * cayó, y el documento **sigue ofreciéndose**, listo para capturarse dos veces. Los otros
+       * cuatro son las rutas de Canindo, cuyo cobro **no existe en Kepler**: ésos no tienen qué
+       * enlazar y lo que hace falta es que digan por qué.
+       *
+       * ⚠️ Va ANTES de resolver el documento y antes de tocar el monto: si no se puede guardar, no
+       * tiene sentido haber consultado la base. Y el veredicto lo decide una función pura que se
+       * prueba de verdad — un doble de Knex no ejecuta SQL.
+       */
+      const conc = conciliacion(input as never);
+      if (!conc.ok) throw new BadRequestException(conc.texto);
+
       // ⭐ El monto del documento MANDA sobre el del formulario…
       const anclado = ORIGEN_ANCLADO.includes(String(input.origen_tipo)) && !!input.origen_ref;
       const doc = anclado ? await this.resolveMovimiento(trx, tenantId, input.origen_ref as string) : null;
@@ -873,6 +901,13 @@ export class CashLedgerService {
         origen_tipo: input.origen_tipo ?? null,
         origen_ref: input.origen_ref ?? null,
         origen_uuid: input.origen_uuid ?? null,
+        /**
+         * `[CG.124]` Sólo se guarda cuando de verdad explicó algo: si el movimiento quedó
+         * enlazado, el motivo sobra y escribirlo ensuciaría la columna que sirve para ENCONTRAR
+         * los que no tienen documento. `conc.via` ya lo decidió arriba.
+         */
+        sin_documento_motivo: conc.via === 'motivo_declarado'
+          ? String(input.sin_documento_motivo).trim() : null,
         autofill: input.autofill ? JSON.stringify(input.autofill) : null,
         legacy_cuenta_access: input.legacy_cuenta_access ?? null,
         // ⭐ `[CG.67]` La firma, revisada DEL LADO DEL SERVIDOR. `revisarFirma` decide el estado

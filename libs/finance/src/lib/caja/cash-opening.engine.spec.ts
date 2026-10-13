@@ -107,3 +107,63 @@ describe('[CG.39] el estado inicial de la caja', () => {
     });
   });
 });
+
+/**
+ * ⭐⭐ `[CG.125]` — **El fondo NO se pide: ya existe en Control.**
+ *
+ * Edgar, con la pantalla delante: *"pide se declare con cuánto arrancó la caja, pero no es
+ * necesario porque nosotros ya llevamos ese seguimiento"*. Es la regla principal del proyecto
+ * aplicada al fondo: lo que ya existe en una fuente no se vuelve a capturar.
+ *
+ * El dato real: arqueo `A23641` del 2026-10-10 12:58, **$1,000.00 en billetes + $2,327.50 en
+ * moneda = $3,327.50**. Control lleva 901 arqueos de custodia en 616 días.
+ */
+describe('[CG.125] fondoSugerido — antes de pedirlo, le pregunta a Control', () => {
+  const A23641 = {
+    folio: 'A23641', fecha: '2026-10-10',
+    efectivo: 3327.5, billetes: 1000, monedas: 2327.5,
+  };
+
+  it('sin corte anterior pero CON arqueo de Control, propone su efectivo', () => {
+    const f = fondoSugerido(null, A23641);
+    expect(f.monto).toBe(3327.5);
+    expect(f.origen).toBe('arqueo_control');
+    // La procedencia nombra el folio y la fecha: sin eso nadie puede ir a verificarlo.
+    expect(f.procedencia).toContain('A23641');
+    expect(f.procedencia).toContain('2026-10-10');
+  });
+
+  /**
+   * ⛔ Control guarda el total de billetes y de moneda, NO las piezas. Repartirlo sería inventar
+   * un conteo que nadie hizo — la misma falta que `[CG.114]`, dibujar un número donde no hubo
+   * medición. La reja arranca vacía y quien cuenta la llena.
+   */
+  it('⛔ [negativa] NO inventa el desglose por denominación, y lo declara', () => {
+    const f = fondoSugerido(null, A23641);
+    expect(f.denominaciones).toEqual({});
+    expect(f.limites.join(' ')).toContain('no las piezas');
+  });
+
+  it('⭐ declara que es el ÚLTIMO arqueo, no necesariamente el cierre de ayer', () => {
+    // El sábado, 1 minuto después del arqueo, la bóveda dispensó $5,000 que ya no están en él.
+    expect(fondoSugerido(null, A23641).limites.join(' ')).toContain('no necesariamente el cierre de ayer');
+  });
+
+  it('⛔ [negativa] sin corte y SIN Control sigue siendo "sin medir", nunca 0', () => {
+    for (const c of [null, undefined]) {
+      const f = fondoSugerido(null, c);
+      expect(f.monto).toBeNull();
+      expect(f.origen).toBe('sin_medir');
+    }
+  });
+
+  it('⛔ [negativa] el corte anterior GANA: Control es el respaldo, no la fuente preferida', () => {
+    // Si la Suite ya cerró un corte, ese conteo es más reciente y trae el desglose por pieza.
+    const f = fondoSugerido(
+      { folio: 'CC-2026-00001', fecha: '2026-10-12', contado: 3340, denominaciones: { b500: 1 } },
+      A23641,
+    );
+    expect(f.origen).not.toBe('arqueo_control');
+    expect(f.monto).toBe(3340);
+  });
+});

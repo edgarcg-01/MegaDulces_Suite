@@ -24,7 +24,7 @@
 
 import { totalDenominaciones, type ConteoPorLlave } from '@megadulces/contracts';
 
-export type OrigenFondo = 'cierre_anterior' | 'contado' | 'sin_medir';
+export type OrigenFondo = 'cierre_anterior' | 'contado' | 'sin_medir' | 'arqueo_control';
 
 /** El último corte cerrado de la sucursal, tal como vive en la tabla. */
 export interface CorteCerrado {
@@ -58,13 +58,56 @@ export interface FondoSugerido {
  * `null` con `origen: 'sin_medir'`, que es lo que ADR-056 pide y lo que distingue *"la caja
  * arrancó vacía"* de *"nadie sabe con qué arrancó"*.
  */
-export function fondoSugerido(previo: CorteCerrado | null | undefined): FondoSugerido {
+/**
+ * ⭐⭐ `[CG.125]` **El arqueo de custodia de Control** — el seguimiento que la empresa YA lleva.
+ *
+ * Edgar: *"pide se declare con cuánto arrancó la caja, pero no es necesario porque nosotros ya
+ * llevamos ese seguimiento"*. Es la regla principal del proyecto aplicada al fondo: lo que ya
+ * existe en una fuente **no se vuelve a capturar**.
+ */
+export interface ArqueoDeControl {
+  readonly folio: string;
+  readonly fecha: string;
+  readonly efectivo: number;
+  readonly billetes: number;
+  readonly monedas: number;
+}
+
+export function fondoSugerido(
+  previo: CorteCerrado | null | undefined,
+  control?: ArqueoDeControl | null,
+): FondoSugerido {
   if (!previo) {
+    /**
+     * ⭐ Antes de declarar "nadie sabe", se le pregunta a quien sí sabe. El arqueo de custodia de
+     * Control cuenta el efectivo por denominación desde 2013; que la Suite no tenga cortes
+     * cerrados todavía no quiere decir que el dato no exista.
+     */
+    if (control && Number.isFinite(control.efectivo)) {
+      return {
+        monto: control.efectivo,
+        origen: 'arqueo_control',
+        /**
+         * ⛔ El desglose va VACÍO a propósito, y no es un olvido. Control guarda el efectivo
+         * partido en `billetes` y `monedas`, no pieza por pieza con la llave de cada
+         * denominación. Repartirlo yo sería inventar un conteo que nadie hizo — la reja arranca
+         * vacía y quien cuenta la llena, que es lo correcto (`[CG.114]`).
+         */
+        denominaciones: {},
+        procedencia:
+          `Del arqueo ${control.folio} de Control, del ${control.fecha}: ` +
+          `${control.billetes.toFixed(2)} en billetes + ${control.monedas.toFixed(2)} en moneda.`,
+        limites: [
+          'Control guarda el total de billetes y de moneda, no las piezas: la reja arranca vacía.',
+          'Es el ÚLTIMO arqueo de custodia, no necesariamente el cierre de ayer — si hubo movimientos después, no están.',
+        ],
+      };
+    }
     return {
       monto: null,
       origen: 'sin_medir',
       denominaciones: {},
-      procedencia: 'No hay un corte anterior de esta sucursal: nadie sabe con qué quedó la caja.',
+      procedencia: 'No hay un corte anterior ni un arqueo de Control: nadie sabe con qué quedó la caja.',
       limites: ['Hay que contar el efectivo y declararlo. Sin eso, el esperado del corte no significa nada.'],
     };
   }
