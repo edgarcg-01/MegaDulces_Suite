@@ -95,6 +95,7 @@ describe('[AB.21] PDF de Mi pedido', () => {
     expect(textos.some((t) => t.startsWith('Surtió (sucursal que abastece)'))).toBe(true);
     expect(textos.some((t) => t.startsWith('Autorizó (Compras)'))).toBe(true);
     expect(textos).toContain('El proveedor pide un mínimo de $27,514; este pedido lleva $20,280.');
+    expect(textos).toContain('Incluye: Agotado, Bajo mínimo'); // completo, no cortado en un recuadro
   });
 
   it('un solo origen nombra el archivo con el origen', async () => {

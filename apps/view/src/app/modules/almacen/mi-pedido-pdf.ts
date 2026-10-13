@@ -106,12 +106,15 @@ function dibujarGrupo(
     ['Renglones', String(todos.length)],
     ['Unidades mayores', mayores > 0 ? qty(mayores) : '-'],
     ['Valor a costo', valuados.length ? money(valor) : 'sin medir'],
-    ['Incluye', d.posiciones.join(', ') || 'nada'],
   ];
   const gap = 10;
   const bw = (W - 2 * M - gap * (cajas.length - 1)) / cajas.length;
   cajas.forEach(([t, v], i) => dibujarRecuadro(doc, M + i * (bw + gap), y, bw, 40, t, v));
   y += 52;
+  // Lo que entra va como línea completa: en un recuadro se cortaba («Agotado, Bajo»).
+  doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
+  doc.text(`Incluye: ${d.posiciones.join(', ') || 'nada'}`, M, y);
+  y += 12;
 
   if (g.aviso) {
     doc.setFont('helvetica', 'bold'); doc.setFontSize(8); doc.setTextColor(146, 64, 14);
@@ -155,7 +158,7 @@ function dibujarGrupo(
         2: { halign: 'right', cellWidth: 40, fontStyle: 'bold', fontSize: 9.5 },
         3: { cellWidth: 40 },
         4: { halign: 'right', cellWidth: 46 },
-        5: { halign: 'right', cellWidth: 52 },
+        5: { halign: 'right', cellWidth: 64 },
         6: { halign: 'right', cellWidth: 58 },
         7: { cellWidth: 52 },
       },
