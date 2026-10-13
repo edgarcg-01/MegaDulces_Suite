@@ -828,24 +828,43 @@ interface CortesPersona {
 
         <table class="arq-cfm-t">
           <tbody>
-            <tr>
-              <td>Billetes</td>
-              <td class="ta-r muted">{{ pzasBilletes() }} pzas</td>
-              <td class="ta-r">{{ money(totBilletes()) }}</td>
-            </tr>
-            <tr>
-              <td>Monedas</td>
-              <td class="ta-r muted">{{ pzasMonedas() }} pzas</td>
-              <td class="ta-r">{{ money(totMonedas()) }}</td>
-            </tr>
-            <tr class="arq-cfm-sub">
+            <!-- [SM.44] Desglose COMPLETO: cada denominacion con sus piezas e importe,
+                 para que la persona compare pieza por pieza contra los fajos que tiene
+                 en la mano antes de sellar. Las que van en cero no se listan. -->
+            @if (desgloseFamilia('billete').length) {
+              <tr class="arq-cfm-sec"><td>Billetes</td><td class="ta-r">Piezas</td><td class="ta-r">Importe</td></tr>
+              @for (d of desgloseFamilia('billete'); track d.key) {
+                <tr><td>{{ d.label }}</td><td class="ta-r muted">× {{ d.cantidad }}</td><td class="ta-r">{{ money(d.importe) }}</td></tr>
+              }
+              <tr class="arq-cfm-sub">
+                <td>Total billetes</td>
+                <td class="ta-r muted">{{ pzasBilletes() }} pzas</td>
+                <td class="ta-r strong">{{ money(totBilletes()) }}</td>
+              </tr>
+            }
+            @if (desgloseFamilia('moneda').length) {
+              <tr class="arq-cfm-sec"><td>Monedas</td><td></td><td></td></tr>
+              @for (d of desgloseFamilia('moneda'); track d.key) {
+                <tr><td>{{ d.label }}</td><td class="ta-r muted">× {{ d.cantidad }}</td><td class="ta-r">{{ money(d.importe) }}</td></tr>
+              }
+              <tr class="arq-cfm-sub">
+                <td>Total monedas</td>
+                <td class="ta-r muted">{{ pzasMonedas() }} pzas</td>
+                <td class="ta-r strong">{{ money(totMonedas()) }}</td>
+              </tr>
+            }
+            <tr class="arq-cfm-ef">
               <td>Efectivo contado</td>
               <td class="ta-r muted">{{ pzasBilletes() + pzasMonedas() }} pzas</td>
               <td class="ta-r strong">{{ money(arqTotal()) }}</td>
             </tr>
             <!-- Solo los medios declarados: cinco ceros no son información. -->
-            @for (m of mediosDeclarados(); track m.key) {
-              <tr><td>{{ m.label }}</td><td></td><td class="ta-r">{{ money(m.monto) }}</td></tr>
+            @if (mediosDeclarados().length) {
+              <tr class="arq-cfm-sec"><td>Medios de pago</td><td></td><td></td></tr>
+              @for (m of mediosDeclarados(); track m.key) {
+                <tr><td>{{ m.label }}</td><td></td><td class="ta-r">{{ money(m.monto) }}</td></tr>
+              }
+              <tr class="arq-cfm-sub"><td>Total otros medios</td><td></td><td class="ta-r strong">{{ money(totMedios()) }}</td></tr>
             }
           </tbody>
           <tfoot>
@@ -938,6 +957,10 @@ interface CortesPersona {
     .arq-cfm-t { width: 100%; border-collapse: collapse; font-size: .82rem; font-variant-numeric: tabular-nums; }
     .arq-cfm-t td { padding: .22rem .1rem; border-bottom: 1px solid color-mix(in srgb, var(--border-color) 45%, transparent); }
     .arq-cfm-sub td { border-bottom: 1px solid var(--border-color); }
+    /* [SM.44] Encabezado de cada familia y el efectivo marcado entre las dos reglas. */
+    .arq-cfm-sec td { padding-top: .6rem; font-size: var(--fs-micro); font-weight: 700; text-transform: uppercase;
+                      letter-spacing: .04em; color: var(--text-muted); border-bottom: 1px solid var(--border-color); }
+    .arq-cfm-ef td { font-weight: 800; border-top: 2px solid var(--border-color); border-bottom: 2px solid var(--border-color); }
     .arq-cfm-t tfoot td { padding-top: .35rem; border-bottom: 0; font-size: .95rem; font-weight: 800; }
     .arq-cfm-n { margin: .5rem 0 0; font-size: .78rem; }
     .arq-cfm-w { display: flex; align-items: baseline; gap: .4rem; margin: .8rem 0 0; padding-top: .6rem;
@@ -2282,6 +2305,26 @@ export class TiendaArqueoComponent implements OnInit, HasUnsavedChanges {
   private recalcMedios() {
     const t = this.mediosCampos.reduce((s, m) => s + (Number(this.medios[m.key]) || 0), 0);
     this.totMedios.set(Math.round(t * 100) / 100);
+  }
+
+  /**
+   * [SM.44] El conteo pieza por pieza de una familia, para la confirmación: cada
+   * denominación con cantidad e importe, de mayor a menor (el orden del catálogo).
+   * Las que van en cero no se listan. La de $20 existe en las dos familias, así que
+   * lleva su familia en el rótulo.
+   */
+  desgloseFamilia(fam: 'billete' | 'moneda'): { key: string; label: string; cantidad: number; importe: number }[] {
+    return (fam === 'billete' ? this.billetes : this.monedas)
+      .map((d) => {
+        const cantidad = Number(this.denomCount[d.key]) || 0;
+        return {
+          key: d.key,
+          label: d.valor === 20 ? `${d.label} ${fam}` : d.label,
+          cantidad,
+          importe: Math.round(cantidad * d.valor * 100) / 100,
+        };
+      })
+      .filter((d) => d.cantidad > 0);
   }
 
   /** Solo los medios con monto: cinco ceros en el resumen no son información. */
