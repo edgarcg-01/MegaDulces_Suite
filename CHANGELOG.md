@@ -24,6 +24,8 @@
 - **Se lee**: margen de 20 mm, SKU y unidad debajo del nombre en vez de una columna cada uno (ocho columnas no entran en 176 mm), las siete columnas de dinero agrupadas por peldaño (por unidad / por paquete / por caja), nombres legibles en vez de la caja alta del ERP, y sin bandas grises.
 - Hoja **carta**. El PDF lo sigue produciendo el diálogo «Guardar como PDF»: sin dependencias nuevas ni archivos en el servidor.
 - **No numera las páginas**, y queda dicho: el contador de CSS no existe en el navegador que se usa y el del navegador se apaga junto con la fecha y la URL. Numerar exige generar el PDF del lado del servidor.
+### Fixed — Finanzas › Gastos: la tarjeta «Gastos» abre sus pantallas, no la captura de un folio (GX.83, 2026-10-13)
+- Desde «Mi trabajo» y al entrar a Finanzas, «Gastos» lleva a la primera pestaña que cada quien puede ver (Aprobación, Mis gastos…), igual que el menú lateral.
 ### Added — «Mi pedido» se ajusta y se guarda en la Suite, sin Excel (AB.18–AB.20, 2026-10-12)
 - El almacenista corrige el sugerido con **− / +**; si se aleja más de 20%, elige el motivo con un clic. Se guarda solo, con «volver» al sugerido y «Aceptar grupo». Cada decisión deja huella (sugerido visto, lo que dejó, motivo, tiempo) para el aprendizaje.
 - **¿Hasta dónde pides?**: casillas Agotado · Bajo mínimo · Bajo reorden (y «Sobre reorden, con venta», apagada). Lo marcado es lo que entra al pedido y se guarda.

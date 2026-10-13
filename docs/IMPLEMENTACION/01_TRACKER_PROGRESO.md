@@ -4377,6 +4377,17 @@ prod ANTES del redeploy** (si el código sale primero, `/attach` escribe columna
 falla). · Redeploy api+view. **Sin permisos nuevos → sin re-login.** · Considerar un cron para
 «Volver a comparar» (hoy es manual) con su latido en `CRON_JOBS`.
 
+### 🔨 [GX.83] · «Gastos» desde «Mi trabajo» y desde Finanzas abría la captura de un folio — 2026-10-13
+
+- [x] **[GX.83]** 🧪 Reporte: *«cuando entran a gastos sale esto (Capturar gasto) en lugar de la ventana que sí es de
+  gastos»*. El menú lateral ya llevaba al área (`[GX.80]`), pero dos puertas seguían en `/finanzas/gastos` (la captura de
+  un folio, a la que se llega con «Subir evidencia»): la tarjeta del módulo en `AUTHZ_TREE` (la usan «Mi trabajo» y los
+  accesos del espacio) y el candidato `CAPTURAR` de `FINANZAS_LANDING`. Nueva puerta `/finanzas/gastos-inicio` con
+  `gastosAreaEntryGuard`: manda a la **primera pestaña que la persona ve** (misma regla que la barra y el menú). ⛔ Se
+  descartó apuntar a `mis-gastos` fijo: el candado `[SN.4]` (`landing-guards.spec.ts`) marcó que quien sólo tiene
+  `COMPROBAR` / `HISTORIAL_TODOS` / `FINDINGS_GESTIONAR` rebotaba ahí. La ruta de captura no se toca. Pruebas: guard 4/4
+  (con negativa) · contratos 605/605 · view core+finanzas 964/964.
+
 ### 🔨 [GX.82] · la factura no decide el estado: un vale aprobado con cotización se cierra — 2026-10-12
 
 - [x] **[GX.82]** 🧪 Decisión del usuario: *«no quiero que sea una manera de que dependa el status»* — la cotización
