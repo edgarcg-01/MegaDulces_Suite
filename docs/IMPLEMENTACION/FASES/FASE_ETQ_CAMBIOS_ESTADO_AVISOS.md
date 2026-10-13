@@ -160,7 +160,7 @@ Este PR traía «Descargar CSV». **Edgar pidió quitarlo: no se acepta ningún 
 | 5 | **Decisión:** ¿el clic en un producto debe **imprimir directo** sin pasar por la etiquetera? (hoy no, a propósito) | Edgar |
 | 6 | **Decisión:** ¿hace falta un **PDF** de la lista? (no se construyó) | Edgar |
 | 7 | Una plaza **sin nadie con tienda asignada** no tiene a quién avisar: el aviso lo ve quien tiene alcance total y el diálogo de Compartir lo **declara** (`destinatarios = 0`). Es la limitación D5, no un arreglo: se resuelve asignando tienda a las personas | Edgar / RH |
-| 8 | Hacer que el `pre-push` corra el `Boundary type gate` (hoy sólo lo corre el CI) | Propuesta aparte |
+| 8 | ~~Hacer que el `pre-push` corra el `Boundary type gate`~~ — **hecho en el PR #390** (prueba negativa y medición en su descripción); falta fusionarlo | Edgar |
 | 9 | Borrar las ramas remotas que ya cumplieron (el proyecto pide borrarlas al fusionar): `feat/etq-estado-1-v2` (#351), `docs/protocolo-pr-lecciones-etq` (#361) y `feat/etq-estado-1-motivo-sin-precio` (obsoleta, la reemplazó #351). La de #349 ya no existe | Cualquiera, con visto bueno |
 
 ---
@@ -186,7 +186,7 @@ Este PR traía «Descargar CSV». **Edgar pidió quitarlo: no se acepta ningún 
 ## 10. Lo que costó llegar aquí (y dónde quedó escrito)
 
 Llevar los tres PR a verde dejó seis lecciones, ya en el protocolo previo a enviar un PR (`ONBOARDING.md` §8.0b, puntos **8–13**, PR #361):
-1. El `pre-push` **no corre** el `Boundary type gate`; el CI sí (12 + 4 violaciones de `any`/retorno sin tipar).
+1. El `pre-push` **no corría** el `Boundary type gate`; el CI sí (12 + 4 violaciones de `any`/retorno sin tipar). Arreglado en #390.
 2. Probar el **directorio entero** del módulo, no un filtro por nombre.
 3. Tras fusionar `main`, buscar **lógica duplicada** aunque git no marque conflicto (`agruparPorCodigo` quedó en dos archivos).
 4. Los conflictos **entre PR abiertos** se comprueban con `git merge-tree`.
