@@ -1196,6 +1196,35 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.bloqueos()).toContain('falta_desglose');
   });
 
+  it('⛔⛔ [CG.111] con documento anclado, el selector EXCLUYENTE de CAOS no se ofrece', () => {
+    // Ese campo llama a `tomarMovimientoCaos`, que hace `cobroElegido.set(null)`. Estaba visible
+    // también con un documento ya elegido, así que usarlo ahí BORRABA el documento en silencio:
+    // se iban fecha, sucursal, beneficiario y la cuenta de la póliza, y `origen_tipo` pasaba de
+    // `pago_proveedor` a `caos`. Medido en prod: 11 de 30 movimientos quedaron con origen `caos`.
+    // Edgar: "a lo mucho enlazarlo con un movimiento de caos" — enlazar, no reemplazar.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    fx.detectChanges();
+
+    expect(comp.cobroElegido()?.origen_ref, 'el documento tiene que estar anclado')
+      .toBe(GASTO_TRABADO.origen_ref);
+    expect(fx.nativeElement.querySelector('#cg-caos'),
+      'el selector que BORRA el documento sigue a la vista').toBeNull();
+  });
+
+  it('⭐ [CG.111] [negativa] SIN documento, el selector de CAOS SÍ se ofrece', () => {
+    // La prueba negativa del candado: si se ocultara siempre, la captura manual desde la caja
+    // fuerte —que es un camino legítimo y el único para un movimiento sin documento— quedaría
+    // sin entrada. Ocultar de más es tan defecto como ocultar de menos.
+    const fx = montar();
+    comp.abrirCaptura();
+    fx.detectChanges();
+
+    expect(comp.cobroElegido()).toBeNull();
+    expect(fx.nativeElement.querySelector('#cg-caos'),
+      'sin documento el selector de CAOS tiene que estar').not.toBeNull();
+  });
+
   it('sin conteo, el importe NO lo hereda del documento: hay que contar', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
     comp.capturarDesde(GASTO_TRABADO);

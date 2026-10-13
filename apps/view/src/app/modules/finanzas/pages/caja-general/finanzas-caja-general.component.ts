@@ -1602,7 +1602,23 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                 }
 
                 <!-- CS.3 — La segunda fuente: la caja fuerte (CAOS). Al elegir un movimiento, el arqueo de
-                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano. -->
+                     abajo se PRECARGA con el conteo de la máquina; lo que falte se cuenta a mano.
+
+                     ⛔⛔ [CG.111] SÓLO SI NO HAY DOCUMENTO, y eso es una corrección, no un detalle.
+                     Este campo llama a tomarMovimientoCaos, que hace cobroElegido.set(null):
+                     es EXCLUYENTE. Estaba visible también con un documento ya elegido, así que
+                     usarlo ahí BORRABA el documento en silencio -- se iban fecha, sucursal,
+                     beneficiario y la cuenta de la póliza, y origen_tipo pasaba de
+                     pago_proveedor a caos, o sea que el movimiento dejaba de estar anclado al
+                     ERP. Medido en prod: 11 de 30 movimientos quedaron con origen caos contra
+                     16 anclados al documento.
+
+                     ⭐ Con documento, el camino correcto es OTRO y ya existe: caosVinculados
+                     (más abajo, "retiros del cajero que financiaron este gasto"), que CONSERVA el
+                     ancla y adjunta las dispensaciones. Es el que dejó las 6 filas vivas en
+                     finance.caos_cash_links. Edgar: "a lo mucho enlazarlo con un movimiento de
+                     caos" -- enlazar, no reemplazar. -->
+                @if (!cobroElegido()) {
                 <div class="fin-row fin-row-col">
                   <label for="cg-caos">…o traer de la caja fuerte (CAOS)</label>
                   <p-autocomplete inputId="cg-caos" [(ngModel)]="caosSel" [suggestions]="caosOpciones()"
@@ -1618,6 +1634,7 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     </small>
                   }
                 </div>
+                }
               }
 
               <!-- CG.20 - Lo que esta persona repite se ofrece, no se reescribe. Medido: 57% de los
