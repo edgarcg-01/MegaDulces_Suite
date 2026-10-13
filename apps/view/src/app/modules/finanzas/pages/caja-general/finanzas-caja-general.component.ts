@@ -1294,7 +1294,13 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     <th scope="col">Contraparte</th>
                     <th scope="col">De dónde salió</th>
                     <th scope="col">Cuenta</th>
-                    <th scope="col" class="ta-r">Importe</th>
+                    <!-- ⭐ [CG.139] Era UNA columna "Importe" con el signo pegado al numero y el
+                         verde para distinguir la entrada. Partida en dos, el lado ya dice el
+                         signo: el diario es columnar por eso, y asi el color deja de ser lo que
+                         separa una entrada de una salida (DESIGN: el color nunca es el unico
+                         portador). Mismo par Cargo/Abono que las dos cuentas T de arriba. -->
+                    <th scope="col" class="comm-num">Cargo</th>
+                    <th scope="col" class="comm-num">Abono</th>
                   </tr>
                 </ng-template>
                 <ng-template #body let-m>
@@ -1310,8 +1316,14 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     <!-- Sale del origen_ref, que lo arma el servidor — no de la glosa. -->
                     <td class="mono fin-dim">{{ m.documento || 'captura a mano' }}</td>
                     <td class="fin-dim">{{ m.cuenta ? m.cuenta + (m.concepto ? ' · ' + m.concepto : '') : '—' }}</td>
-                    <td class="mono ta-r" [class.cg-hist-in]="m.tipo === 'ingreso'">
-                      {{ m.tipo === 'ingreso' ? '+ ' : '&minus; ' }}{{ money(m.monto) }}
+                    <!-- [CG.139] El lado dice el signo, asi que ni el + / - ni el verde hacen
+                         falta ya. La celda del lado contrario lleva el mismo guion tenue que las
+                         T de arriba: un blanco se leeria como "no se midio". -->
+                    <td class="comm-num" [class.cg-t-vacia]="m.tipo !== 'ingreso'">
+                      @if (m.tipo === 'ingreso') { {{ money(m.monto) }} }
+                    </td>
+                    <td class="comm-num" [class.cg-t-vacia]="m.tipo === 'ingreso'">
+                      @if (m.tipo !== 'ingreso') { {{ money(m.monto) }} }
                     </td>
                   </tr>
                 </ng-template>
@@ -1322,15 +1334,29 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                      eso YA es informacion -- quiere decir que la lista esta topada o que hay algo
                      fuera del reloj de la jornada. -->
                 <ng-template #footer>
+                  <!-- [CG.139] El pie de un diario son las SUMAS DE SUS COLUMNAS, cada una bajo
+                       la suya. Antes las dos iban como texto corrido dentro de un colspan y el
+                       neto solo en la ultima celda: habia que leer una frase para enterarse de
+                       cuanto sumaba cada lado, y ninguna de las dos cifras caia debajo de los
+                       numeros que resumia.
+                       ⛔ Y el segundo renglon NO se llama "Movimiento del libro" aunque mida casi
+                       lo mismo. Ese rotulo ya es el del pie de la cuenta T de arriba, que sale
+                       del SERVIDOR; este sale de sumar los renglones VISIBLES. [CG.112] ya costo
+                       una vez tener el mismo rotulo sobre dos cifras distintas a la vista. Que
+                       las dos tengan que coincidir es justamente el control: si no coinciden, la
+                       lista esta topada o hay algo fuera del reloj de la jornada. -->
                   <tr class="cg-hist-pie">
-                    <td colspan="4">
-                      Entradas <strong class="mono cg-hist-in">+ {{ money(totalHistorial().ingresos) }}</strong>
-                      &nbsp;·&nbsp; Salidas <strong class="mono">&minus; {{ money(totalHistorial().gastos) }}</strong>
+                    <td colspan="4">Suma de los renglones a la vista
                       @if (totalHistorial().cancelados) {
                         <small class="fin-dim">&nbsp;· {{ totalHistorial().cancelados }} cancelado(s), fuera del total</small>
                       }
                     </td>
-                    <td class="mono ta-r cg-hist-neto">{{ money(totalHistorial().neto) }}</td>
+                    <td class="comm-num">{{ money(totalHistorial().ingresos) }}</td>
+                    <td class="comm-num">{{ money(totalHistorial().gastos) }}</td>
+                  </tr>
+                  <tr class="cg-hist-pie">
+                    <td colspan="4">Diferencia</td>
+                    <td class="comm-num cg-hist-neto" colspan="2">{{ money(totalHistorial().neto) }}</td>
                   </tr>
                 </ng-template>
               </p-table>
