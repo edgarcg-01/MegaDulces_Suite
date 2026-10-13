@@ -1,4 +1,4 @@
-import { veredictoRetirada, veredictoSinLatido } from './db-health.service';
+import { veredictoRetirada, veredictoSinLatido, CRON_JOBS } from './db-health.service';
 
 /**
  * `[DBH.5]` — **Un job declarado que nunca reportó no puede leerse como sano.**
@@ -98,5 +98,50 @@ describe('[VL.14] veredictoRetirada', () => {
 
   it('sin motivo escrito lo DECLARA, no lo inventa', () => {
     expect(veredictoRetirada({ retiredOn: '2026-09-19' }, null)?.note).toContain('sin motivo escrito');
+  });
+});
+
+/**
+ * ⭐⭐ `[CG.119]` — **Un carril que late mientras espera necesita `maxRunH`, o su muerte sale en
+ * amarillo.**
+ *
+ * Medido en prod el 2026-10-13: `mv_caja_push` llevaba **99.5 horas en `running`** desde el
+ * 09-oct 16:33 (pod `ods-reconcile-67df444dbd-mn2jn`), con el `last_finish` **anterior** al
+ * `last_start` — la firma de un proceso que murió entre `hb.begin()` y `hb.end()`. Sin `maxRunH`
+ * la rama de `running` cae en `runH >= critH` y eso da **`warn`**: cuatro días de amarillo sobre
+ * un carril que no existía.
+ *
+ * Y el que se perdió es el que empuja la bandeja de Caja General en cuanto llega el dato.
+ */
+describe('[CG.119] CRON_JOBS — el carril que late declara su tope de cuelgue', () => {
+  const porLlave = (k: string) => CRON_JOBS.find((j) => j.key === k);
+
+  it('mv_caja_push tiene maxRunH: sin él, morirse se ve igual que estar ocupado', () => {
+    const j = porLlave('mv_caja_push');
+    expect(j).toBeDefined();
+    expect(j!.maxRunH).toBeDefined();
+    // Late cada 60 s, así que 15 min son quince latidos perdidos: holgado para un reinicio de
+    // pod e imposible de alcanzar mientras el oyente respire.
+    expect(j!.maxRunH).toBeLessThanOrEqual(0.5);
+  });
+
+  it('⭐ maxRunH siempre por DEBAJO de critH: si no, el veredicto COLGADO nunca llegaría primero', () => {
+    // La rama de `running` evalúa `maxRunH` ANTES que el warn de `critH`. Un `maxRunH` mayor
+    // dejaría que el carril pasara por amarillo y nunca llegara a crítico — que es exactamente
+    // el estado del que venimos, con otra cara.
+    const malos = CRON_JOBS.filter((j) => j.maxRunH != null && j.maxRunH >= j.critH);
+    expect(malos.map((j) => `${j.key} (maxRunH ${j.maxRunH} >= critH ${j.critH})`)).toEqual([]);
+  });
+
+  it('⛔ [negativa] NO se exige maxRunH a todos: un job que no late lo marcaría estando sano', () => {
+    // La regla es "late mientras espera ⇒ lleva tope", no "todos llevan tope". Si esta prueba
+    // se cayera, alguien convirtió la guía en una regla general y el siguiente paso es
+    // silenciarla — que es como mueren las compuertas.
+    expect(CRON_JOBS.some((j) => j.maxRunH == null)).toBe(true);
+  });
+
+  it('[negativa] ningún job declara umbrales incoherentes (warnH por encima de critH)', () => {
+    const malos = CRON_JOBS.filter((j) => j.warnH > j.critH);
+    expect(malos.map((j) => `${j.key} (warnH ${j.warnH} > critH ${j.critH})`)).toEqual([]);
   });
 });
