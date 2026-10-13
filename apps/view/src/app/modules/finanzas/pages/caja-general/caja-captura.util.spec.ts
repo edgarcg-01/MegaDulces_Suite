@@ -324,6 +324,18 @@ describe('textoSaldo — null NO es cero', () => {
     expect(t).toContain('1,300');
     expect(t).toContain('CC-2026-00001');
   });
+
+  it('⛔⛔ [CG.112] se llama ESPERADO, no saldo — y con un negativo es la diferencia', () => {
+    // Edgar, con la pantalla delante: "mi saldo en caja no se entiende". El defecto era el
+    // rótulo: esta cifra es `t.esperado` con otro nombre (lo dice `cash-cut.service`), y el panel
+    // de la jornada publica el MISMO número como "Esperado en caja general". Un saldo es lo que
+    // HAY —y "saldo −$125,868.34" no tiene sentido físico—; un esperado es lo que el libro dice
+    // que debería haber, y puede salir negativo cuando arrastra movimientos viejos sin cerrar.
+    const t = textoSaldo({ saldo: -125868.34, sin_corte_abierto: false, corte_abierto: { folio: 'CC-2026-00001' } });
+    expect(t).toContain('Esperado en caja');
+    expect(t, 'volvió a decir que un negativo es un saldo').not.toContain('Saldo en caja');
+    expect(t).toContain('125,868.34');
+  });
   it('[negativa] sin respuesta dice "sin medir", que no es lo mismo que cero', () => {
     expect(textoSaldo(null)).toContain('sin medir');
   });

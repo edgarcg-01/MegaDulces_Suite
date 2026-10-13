@@ -24,7 +24,7 @@ import { provideZonelessChangeDetection } from '@angular/core';
 import { provideRouter } from '@angular/router';
 import { of, throwError, Subject } from 'rxjs';
 
-import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, denomDe, type Denominacion } from '@megadulces/contracts';
+import { CAJA_VENTANA_DIAS, CAJA_JORNADA_DIAS, DENOMINACIONES_MXN, denomDe, type Denominacion } from '@megadulces/contracts';
 import { FinanzasCajaGeneralComponent } from './finanzas-caja-general.component';
  import { CONTEXT_HELP } from '../../../../shared/context-help/context-help.dictionary';
 import {
@@ -1225,6 +1225,43 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
       'sin documento el selector de CAOS tiene que estar').not.toBeNull();
   });
 
+  it('⛔⛔ [CG.114] la reja arranca VACÍA, no en cero — si no, teclear 1 deja 10', () => {
+    // Edgar: "otro error típico de pendejos es poner un 0 por default en una caja, si yo pongo 1
+    // se escribe 10". Es literal: con un 0 ya tecleado, escribir 1 deja 10. En una reja de arqueo
+    // eso es un billete de más por renglón, en el campo del que SALE el monto del movimiento.
+    //
+    // Y es el mismo defecto que ADR-056 nombra, movido al formulario: dibujar un cero donde no
+    // hubo medición. "No conté este renglón" y "conté y había cero" son hechos distintos.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    fx.detectChanges();
+
+    const b500 = DENOMINACIONES_MXN.find((d) => d.key === '500')!;
+    expect(comp.piezasDe(b500), 'la caja nace con un cero tecleado adentro').toBeNull();
+    expect(comp.piezasDevueltasDe(b500)).toBeNull();
+    expect(comp.morrallaVista(), 'la morralla también').toBeNull();
+
+    // Y en cuanto se cuenta, muestra lo contado: vacía no es "siempre vacía".
+    comp.setPiezas(b500, 3);
+    expect(comp.piezasDe(b500)).toBe(3);
+    expect(comp.subtotalDe(b500)).toBe(1500);
+  });
+
+  it('⛔ [CG.114] [negativa] un cero CONTADO no se guarda como renglón, y la caja queda vacía', () => {
+    // La otra mitad: si alguien teclea 0 a propósito, no hay nada que guardar — cero piezas de
+    // $500 no es un renglón del arqueo. La caja vuelve a vacía, que es lo que de verdad hay.
+    const fx = montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
+    comp.capturarDesde(GASTO_TRABADO);
+    fx.detectChanges();
+
+    const b500 = DENOMINACIONES_MXN.find((d) => d.key === '500')!;
+    comp.setPiezas(b500, 3);
+    comp.setPiezas(b500, 0);
+    expect(comp.piezasDe(b500)).toBeNull();
+    expect(comp.f().denominaciones.some((d) => d.denom_key === '500'),
+      'guardó un renglón de cero piezas').toBe(false);
+  });
+
   it('sin conteo, el importe NO lo hereda del documento: hay que contar', () => {
     montar({ movimientosPendientes: vi.fn(() => of(CON_GASTO)) });
     comp.capturarDesde(GASTO_TRABADO);
@@ -1645,8 +1682,15 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     const btn: HTMLElement | null = fx.nativeElement.querySelector('.cg-jornada-btn');
     expect(btn).not.toBeNull();
     expect(btn!.tagName).toBe('BUTTON');
-    expect(btn!.getAttribute('aria-expanded')).toBe('false');
-    // ⭐ Plegar NO es esconder: cerrada ya publica el estado del día.
+    /**
+     * `[CG.116]` **Abre una VENTANA, no despliega.** Antes acá se exigía `aria-expanded`, y eso
+     * congelaba justo el defecto que Edgar reportó tres veces: un desplegable EMPUJA, así que
+     * abrirlo movía de lugar el arqueo y los movimientos y el que estaba contando perdía el
+     * renglón. Lo que el lector de pantalla anuncia tiene que ser lo que de verdad pasa.
+     */
+    expect(btn!.getAttribute('aria-haspopup')).toBe('dialog');
+    expect(btn!.getAttribute('aria-expanded')).toBeNull();
+    // ⭐ Cerrada ya publica el estado del día.
     expect(btn!.textContent).toContain('Tu jornada');
     expect(btn!.textContent).toContain(comp.subtituloJornada());
 
@@ -1656,7 +1700,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
 
   it('⛔ [negativa] abrir la jornada NO pierde nada: todo lo que se mudó sigue ahí', () => {
     const fx = montarJornada();
-    expect(fx.nativeElement.querySelector('.cg-jornada-btn')!.getAttribute('aria-expanded')).toBe('true');
+    expect(comp.jornadaAbierta()).toBe(true);
 
     // Los cinco bloques que se mudaron al desplegable. Si alguno se cayó en la mudanza, esto
     // se pone rojo — que es la diferencia entre MOVER y borrar.
@@ -1665,6 +1709,72 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(panel.querySelector('.cg-rec')).not.toBeNull();         // los que repiten sin cuenta
     expect(panel.querySelector('.cg-historial')).not.toBeNull();   // el libro y los cortes
     expect(panel.textContent).toContain('Cerrar jornada');         // la acción de rendir cuentas
+  });
+
+  /**
+   * ⭐ `[CG.116]` **La jornada no empuja: vive en una ventana.** Pedido de Edgar tres veces, la
+   * última con el pantallazo a la vista: *"al hacer que el usuario despliegue y deslice hacia
+   * abajo pierde el enfoque... que esto viva en un selector para no tener esa perdida de la
+   * pantalla principal, o se abre una pestaña nueva o se despliega una ventana"*.
+   *
+   * La aserción que importa es la SEGUNDA: que el panel **no** sea hijo del tablero. Comprobar
+   * sólo que existe un `p-dialog` lo pasaría también una pantalla que abra la ventana Y además
+   * siga empujando — que es el defecto con una capa encima.
+   */
+  it('[CG.116] la jornada abre una VENTANA y no empuja el tablero', () => {
+    const fx = montarJornada();
+    const panel: Element | null = fx.nativeElement.querySelector('.cg-jornada');
+    expect(panel).not.toBeNull();
+    expect(panel!.closest('p-dialog')).not.toBeNull();
+    // ⛔ Y NO cuelga del tablero: si colgara, abrirla volvería a correr el arqueo hacia abajo.
+    expect(fx.nativeElement.querySelector('.cg-app > .cg-jornada')).toBeNull();
+  });
+
+  it('⛔ [CG.116 negativa] cerrada, el tablero no tiene ni rastro del panel', () => {
+    const fx = montar();
+    expect(comp.jornadaAbierta()).toBe(false);
+    expect(fx.nativeElement.querySelector('.cg-conc')).toBeNull();
+    // El botón sigue ahí y sigue resumiendo: la ventana no se lleva el estado del día.
+    expect(fx.nativeElement.querySelector('.cg-jornada-btn')!.textContent).toContain('Tu jornada');
+  });
+
+  /**
+   * ⭐ `[CG.115]` **Lo suelto de OTRAS jornadas se declara con su monto.**
+   *
+   * Nace de que el esperado salía en −$206,008.34: el corte barría todo lo que tuviera
+   * `corte_id IS NULL` sin mirar la fecha, así que un corte del 12-oct se tragaba $130,000 del
+   * 25-sep y hasta un movimiento fechado 10-dic. Acotarlo a su día sin publicar esto sería el
+   * defecto simétrico — el dinero dejaría de torcer el esperado y también de verse.
+   */
+  it('[CG.115] lo suelto de otras jornadas se declara, con día y monto', () => {
+    const fx = montarJornada({
+      saldo: vi.fn(() => of({
+        ...SALDO,
+        dia: '2026-10-12',
+        sueltos_fuera: {
+          dia: '2026-10-12',
+          anteriores: { movimientos: 5, neto: -121775 },
+          posteriores: { movimientos: 3, neto: -58524 },
+          desde: '2026-09-25', hasta: '2026-12-10',
+        },
+      })),
+    });
+    const caja: string = fx.nativeElement.querySelector('.cg-fuera').textContent;
+    expect(caja).toContain('5 de días anteriores');
+    expect(caja).toContain('2026-09-25');
+    expect(caja).toContain('3 con fecha posterior');
+    expect(caja).toContain('2026-12-10');
+    // El monto, no sólo el conteo: un pendiente sin cifra no se puede priorizar.
+    expect(caja).toContain('121,775');
+    // ⭐ Y dice que NO entran al corte — que es la razón de que el esperado ya no sea un disparate.
+    expect(caja).toContain('No entran a este corte');
+  });
+
+  it('⛔ [CG.115 negativa] sin pendientes de otros días la caja NO se pinta', () => {
+    // `null` acá significa "no hay nada fuera", y eso NO puede verse igual que "no se midió":
+    // dibujar la caja en ceros inventaría un pendiente que no existe.
+    const fx = montarJornada({ saldo: vi.fn(() => of({ ...SALDO, dia: '2026-10-12', sueltos_fuera: null })) });
+    expect(fx.nativeElement.querySelector('.cg-fuera')).toBeNull();
   });
 
   it('⛔ [negativa] la reja pregunta por SU apartado, no por una caja de más arriba', () => {
@@ -2150,7 +2260,7 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setPiezas(den(100), 3.7);
     expect(comp.piezasDe(den(100))).toBe(3);
     comp.setPiezas(den(100), -2);
-    expect(comp.piezasDe(den(100))).toBe(0);
+    expect(comp.piezasDe(den(100)), '[CG.114] un negativo no se guarda: la caja vuelve a VACIA, no a un 0 tecleado').toBeNull();
   });
 
   it('Enter y la flecha abajo bajan por la reja, como se cuenta un fajo', async () => {
@@ -2305,8 +2415,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(comp.caosElegido()?.origen_ref).toBe('AST700-19758|1420');
     expect(comp.f().tipo).toBe('ingreso');
     expect(comp.f().sucursal).toBe('00');
-    // El efectivo de la máquina va APARTE (denominacionesCajero), NO en la reja.
-    expect(comp.piezasDe(den(500))).toBe(0);
+    // El efectivo de la máquina va APARTE (denominacionesCajero), NO en la reja: queda VACIA.
+    expect(comp.piezasDe(den(500))).toBeNull();
     expect(comp.aporteCajero()).toBe(1300);   // 500×2 + 100×3 = 1300
     expect(comp.f().monto).toBe(1300);        // monto = aporte del cajero + reja (0)
     // El arqueo (el del cajero) YA cuadra → no falta desglose ni descuadra.
@@ -2363,8 +2473,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     // el que SÍ se concilió (llega pegado a su fila de Kepler como `caos_match`).
     comp.capturarDesdeCaos(CAOS_DEP);
     expect(comp.caosElegido()?.origen_ref).toBe('AST700-19758|1420');
-    // El efectivo de la máquina va APARTE, no en la reja: la reja queda en cero (para la diferencia).
-    expect(comp.piezasDe(den(500))).toBe(0);
+    // El efectivo de la máquina va APARTE, no en la reja: la reja queda VACIA (para la diferencia).
+    expect(comp.piezasDe(den(500))).toBeNull();
     expect(comp.hayCajero()).toBe(true);
     expect(comp.aporteCajero()).toBe(1300);
     expect(comp.f().monto).toBe(1300);   // monto = aporte del cajero + reja (0)
@@ -2404,8 +2514,8 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     comp.setF('sucursal', '00');
     comp.buscarEnCajero();
     comp.vincularCaos(comp.caosSugeridos()[0] as any);
-    // El efectivo del cajero va APARTE; la reja NO se toca (queda en cero, para la diferencia).
-    expect(comp.piezasDe(den(500))).toBe(0);
+    // El efectivo del cajero va APARTE; la reja NO se toca (queda VACIA, para la diferencia).
+    expect(comp.piezasDe(den(500))).toBeNull();
     expect(comp.aporteCajero()).toBe(1300);
     expect(comp.f().monto).toBe(1300);   // monto = cajero + reja
     // El arqueo que va al servidor FUSIONA cajero + reja, para que cuadre con el monto (assertArqueo).
@@ -2647,13 +2757,21 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
     expect(panel).toContain('Dispensar');
   });
 
-  it('el neto del cajero se rotula «movimiento del día», NUNCA «saldo»', () => {
+  it('el neto del cajero se rotula «movimiento», NUNCA «saldo» — y DICE de qué', () => {
     // No es cosmética: el flujo acumulado da negativo porque el efectivo anterior al feed no se
     // conoce. Publicarlo como saldo sería publicar un número que no existe.
+    //
+    // ⛔ [CG.112] Esta prueba fijaba la cadena literal «Movimiento del dia», y ESE era el
+    // problema que reportó Edgar: la columna del libro usaba el MISMO rótulo con otra cifra
+    // (−$6,435.79 contra $38,550.00), las dos a la vista. Ahora cada columna nombra lo suyo y la
+    // prueba fija el INVARIANTE —movimiento, nunca saldo— más la desambiguación.
     const fx = montarJornada();
     const panel = panelCierre(fx);
-    expect(panel).toContain('Movimiento del dia');
+    expect(panel).toContain('Movimiento de la bóveda');
+    expect(panel).toContain('Movimiento del libro');
     expect(panel.toLowerCase()).not.toContain('saldo del cajero');
+    // Los dos rótulos tienen que ser DISTINTOS: si vuelven a ser iguales, vuelve el defecto.
+    expect(panel).not.toContain('Movimiento del dia');
   });
 
   it('⛔ [negativa] sin cajero en la sucursal NO pinta ceros: pinta el motivo', () => {
@@ -3258,11 +3376,20 @@ describe('FinanzasCajaGeneralComponent · CG.22', () => {
         limites: ['Del cajero se cuadra el FLUJO del dia, no su contenido.', 'La cola de Kepler no entra.'],
       })),
     });
-    expect(comp.limitesAbiertos()).toBe(false);
     const panel: string = fx.nativeElement.querySelector('.cg-conc').innerHTML;
-    expect(panel).toContain('Todavia no rendiste cuentas');   // el accionable, a la vista
-    expect(panel).toContain('Que NO cubre este cuadre (2)');   // los permanentes, contados y plegados
-    expect(panel).not.toContain('La cola de Kepler no entra');
+    expect(panel).toContain('Todavia no rendiste cuentas');   // el accionable, arriba
+    /**
+     * `[CG.116]` **Ya no se pliegan, y el nombre de la prueba cambió con ellos.** Era el TERCER
+     * desplegable de la pantalla y es el que sale en el pantallazo de Edgar. Plegar sólo protege
+     * cuando lo de abajo se mueve; ahora todo esto vive dentro de una ventana, así que plegar no
+     * protegía nada y sí escondía dos renglones de texto detrás de un clic.
+     *
+     * Lo que la prueba sigue exigiendo es el ORDEN, que era el hallazgo de `[CG.29]`: el aviso
+     * accionable arriba, los límites permanentes abajo y en gris. Ordenar no es esconder.
+     */
+    expect(panel).toContain('Que NO cubre este cuadre (2)');
+    expect(panel).toContain('La cola de Kepler no entra');
+    expect(panel.indexOf('Todavia no rendiste cuentas')).toBeLessThan(panel.indexOf('Que NO cubre este cuadre'));
   });
   // ── [CG.43] La marca pertenece a la lista que se ve ────────────────────────────────────────
   //
