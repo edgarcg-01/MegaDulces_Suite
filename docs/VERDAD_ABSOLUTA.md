@@ -166,6 +166,10 @@ y aun así publicaba el UxC desde otra columna.
 | **Egreso · qué cuenta como egreso** | la familia contable, con la compra **siempre al lado y nunca sumada** | el **87.8 %** de lo que sale por esa puerta es compra de mercancía (511), no gasto: $453.7 M contra $56.0 M. Llamar «gasto» al total lo multiplica por nueve | ✅ **sí, partido en 4 bloques** — §21 |
 | **Supuesto de crecimiento · GASTO** | ⭐ los mismos libros de §21, pareando **meses completos de cada lado por separado** | el signo se **invierte**: Kepler puede parear 3 meses (uno es el mes en curso) y da **−40.04 %**; los libros parean 9 completos y dan **+10.55 %**. El `0 %` que publica la pantalla no es un cero medido: es `basis:'default'` por 3 pares contra un mínimo de 4 | ⚠️ **refutado el publicado, NO sustituido**: `familia 6` ≠ agrupador SAT (§21.3) y la correspondencia sigue sin firmar — §22 |
 | **Supuesto de crecimiento · VENTAS** | para `mostrador`/`credito`/`mayoreo`, el ingreso fiscal — **para `ruta` y `preventa` NO puede serlo**: esa venta cobra en efectivo fuera del circuito fiscal | en prod `sales_plan_settings` tiene **0 filas**: los 20.1/10.6/62.1/29.3 que se ven **no están guardados** — el motor leería 0. El `+62.1 %` de Vecinal es el mayor crecimiento declarado **y** uno de los dos canales sin testigo fiscal | ⛔ **declarado, no arbitrado** — §22.6/22.7/22.9 |
+| **Caja general · EFECTIVO del cajón** | el **arqueo de custodia** de Control (conteo humano, externo a la Suite) más el flujo de CAOS, que es otra derivación | el cierre del sábado 10-oct da **$3,327.50** y el esperado del 12-oct **$3,402.45** por **dos caminos independientes que coinciden al centavo**; contado $3,340.00 → falta **$62.45** | ✅ **sí** — §28.6 |
+| **Caja general · saldo de la BÓVEDA (CAOS)** | — | la máquina publica **flujo, nunca contenido**, y el efectivo anterior al feed no se conoce: el acumulado NO es el saldo | ⛔ **declarada, no medida** — §28.7 |
+| **Caja general · DÓLARES y PAPELES** | el mismo arqueo que cuenta efectivo, cheques y tarjeta | ⭐ placebo DENTRO de la tabla: en 321 arqueos de 2026 el efectivo toma **307** valores, la tarjeta **193**, los cheques **114** — y los dólares **8** (el actual repetido **201 veces** desde abril) y el crédito **1** (**383 veces** desde oct-2025) | ⚠️ **arrastrados, no contados**: $230,338.96 + $20,782.00 — §28.4 |
+| **Caja general · ¿todo lo dispensado tiene dueño?** | el pareo **hora por hora** contra Control y el libro — el agregado diario NO sirve | sábado **3/3** · lunes **6/7** (falta **$13,800** de las 12:29) · martes parcial. ⛔ Sumando por día medí «$165,410 sin nombre» y era **falso** | ⚠️ **sí, con huecos nombrados** — §28.5 |
 | **Ingreso · lo que NO llega a los libros** | ⭐ **cuenta nombrada contra plaza nombrada** — NO el agregado anual, que compara universos distintos | la contabilidad tiene **10 cuentas con el nombre de una ruta** y **seis nunca movieron un peso** desde 2018; las diez juntas registran **$281,816** contra **$66,055,835** de venta de ruta y vecinal (2026 ene–sep) = **0.43 %**. Control positivo con el mismo método: La Piedad Abastos cuadra al **0.03 %** | ✅ **sí: la venta de ruta no pasa por los libros** — §22.10. ⛔ El **destino** de ese efectivo NO se midió |
 
 ---
@@ -4000,3 +4004,179 @@ filas con `created_by = 'superoot'`, o sea puestas por una persona—. El defect
 **Medición reproducible:** 9 consultas read-only contra `pg-prod` el 2026-10-10. Verificación cruzada
 pendiente: por regla del plan (§5), **este carril no verifica sus propias cifras** — las verifica
 Gastos.
+
+---
+
+## 28. ⭐⭐ LA CAJA GENERAL: el efectivo SÍ tiene testigo — la custodia no se cuenta, se arrastra (CG, 2026-10-13)
+
+Pedido de Edgar: *"veamos con qué cerró el sábado… y tengamos una verdad absoluta de cuánto existe
+en caja, cuánto existe en CAOS, cuánto se tiene en billetes, cuánto en dólares y cuánto en crédito"*.
+
+### 28.1 Las cuatro fuentes, y el universo de cada una
+
+Hay **cuatro registros del mismo dinero**, y confundir sus universos es el error que esta sección
+viene a cerrar. Ninguno es sustituto de otro:
+
+| fuente | qué registra | ¿es testigo? |
+|---|---|---|
+| **Control** (`caja_general_ods.arqueo_movimientos`, 30,202 filas desde 2013) | el **arqueo de custodia** (5 piernas) y las **salidas nombradas** de efectivo | ✅ sí: es un conteo humano, externo a la Suite |
+| **CAOS** (`analytics.caos_cash_movements`) | el **flujo** de la bóveda: depósito · dispensar · dotar · vaciar, con hora | ✅ sí para el flujo · ⛔ **NO publica su contenido** |
+| **El libro** (`finance.cash_ledger`) | lo que la persona capturó en la Suite | ⛔ no: es una declaración |
+| **Kepler** (`kdm1` con `c45='0011'`) | la contabilidad del cobro/pago | ✅ sí, pero del **documento**, no del cajón |
+
+⛔ **Ninguna de las cuatro publica un SALDO de efectivo.** Las cuatro registran flujo. El único que
+dice cuánto hay es el **arqueo de custodia de Control**, y existe sólo cuando alguien cuenta.
+
+### 28.2 El discriminador: un arqueo lleva DÓLARES; un cobro con tarjeta, no
+
+`arqueo_movimientos` mezcla dos poblaciones y el nombre de la tabla lo dice. Mi primer
+discriminador —«lleva más de una pierna»— era **falso**: los cobros de ruta traen `tarjeta` y
+`efectivo` juntos (`A23634`: efectivo $866 + tarjeta $16,420) y no son arqueos.
+
+El discriminador correcto es **`dolares <> 0`**: la custodia de divisa sólo se declara cuando se
+hace el corte completo. Con él quedan **901 arqueos en 616 días** (2022-09-12 → 2026-10-10).
+
+### 28.3 Con qué cerró el sábado — `A23641`, 2026-10-10 12:58:46
+
+| pierna | monto | ¿se contó? |
+|---|---|---|
+| billetes | **$1,000.00** | ✅ por denominación |
+| monedas | **$2,327.50** | ✅ por denominación |
+| **efectivo** | **$3,327.50** | ✅ |
+| cheques | $25,840.00 | ✅ |
+| tarjeta | $337,500.00 | ✅ |
+| crédito (papeles por pagar) | $20,782.00 | ⛔ **arrastrado** |
+| dólares | 12,059 USD × 19.101 = **$230,338.96** | ⛔ **arrastrado** |
+| **total** | **$617,788.46** | |
+
+⚠️ Y **un minuto después**, a las 12:59, la bóveda dispensó **$5,000** que ya no están en ese
+arqueo. El libro los tiene. *El cierre no es el fin del día: es un instante.*
+
+### 28.4 ⭐⭐ Dos piernas NO se cuentan: se arrastran — con control de placebo interno
+
+Las mismas 321 filas de 2026, la misma persona, el mismo formulario:
+
+| pierna | valores distintos en 2026 | veredicto |
+|---|---|---|
+| efectivo | **307** | se cuenta |
+| tarjeta | **193** | se cuenta |
+| cheques | **114** | se cuenta |
+| **dólares** | **8** · el actual (12,059 USD) repetido **201 veces** desde el 2-abr | ⛔ se arrastra |
+| **crédito** | **1** · $20,782 repetido **383 veces** desde el 2025-10-06 | ⛔ se arrastra |
+
+⭐ Ése es el **placebo perfecto**, y está dentro de la misma tabla: si la caja no se moviera, las
+cinco piernas estarían clavadas. Tres tienen cientos de valores y dos tienen uno.
+
+⛔ **Consecuencia:** los $230,338.96 de dólares y los $20,782 de papeles **no son una medición de
+hoy**; son el último conteo, repetido. Sumarlos al total publica como «arqueado» algo que nadie
+contó desde abril. El total de $617,788.46 **se publica con esa salvedad o no se publica**.
+
+### 28.5 La paridad del flujo: cada dispensación contra su dueño, HORA POR HORA
+
+⚠️ **Y la hora NO es un detalle.** Sumando día contra día medí «$165,410 sin nombre el sábado» y
+era **falso**: las tres dispensaciones tenían dueño. El agregado diario destruye el pareo.
+
+**Sábado 10-oct — 3 de 3 (100%)**
+
+| bóveda | dueño | Δ |
+|---|---|---|
+| 11:57 · $55,150.00 | Control `A23639` 11:56 *GNF Y COM CANINDO* $55,152.50 | +$2.50 |
+| 12:45 · $105,260.00 | Control `A23640` 12:43 *com y gnf ma* $105,263.00 | +$3.00 |
+| 12:59 · $5,000.00 | el libro (gasto del 10-oct) | 0 |
+
+El Δ positivo es **morralla que puso el cajón**: la máquina sólo entrega billetes.
+
+**Lunes 12-oct — 6 de 7 · $58,690 dispensados**
+
+| bóveda | dueño |
+|---|---|
+| 12:03 · $2,000 | libro `CG-2026-00005` |
+| **12:29 · $13,800** | ⛔ **NADIE** |
+| 14:13 · $20,800 | Control `A23642` *NOM MORELIA* $20,803 |
+| 14:13 · $11,420 | Control `A23643` *NOM 41 ZAM Y CAN* $11,434 |
+| 17:15 · $4,000 | libro `CG-2026-00019` |
+| 17:46 · $5,420 | libro `CG-2026-00020` |
+| 17:56 · $1,250 | libro `CG-2026-00021` |
+
+**Martes 13-oct — parcial · $66,520 dispensados, $12,947 nombrados**
+
+| bóveda | dueño |
+|---|---|
+| 09:43 · $6,420 | ⛔ sin nombre |
+| **12:24 · $45,950** | ⛔ **sin nombre** |
+| 13:38 · $14,150 | Control `A23645` *BONOS CANINDO* $5,450 + `A23646` *BONOS MKT* $4,350 = $9,800 (faltan $4,350) |
+
+⚠️ El 13 **no ha cerrado**: lo que falta puede ser captura pendiente, no faltante.
+
+### 28.6 El cajón, de cierre a cierre
+
+```
+cierre sábado 10-oct (contado) ............  $3,327.50
+movimiento del 12-oct ....................     +$74.95
+  = ingresos 111,845.00 − gastos 58,710.05
+    + dispensado 58,690.00 − depositado 111,750.00
+                                            ──────────
+esperado al cierre del 12-oct ............  $3,402.45
+contado (1x500 · 5x100 · 160x10 · 114x5 · 57x2 · 56x1)
+                                            $3,340.00
+                                            ──────────
+FALTA .....................................    $62.45
+```
+
+⭐ Ese $3,402.45 lo producen **dos derivaciones independientes**: el arqueo de Control más su
+movimiento, y el libro más las dos piernas de CAOS. Coinciden al centavo.
+
+⚠️ El arqueo del sábado registra **11 monedas de $0.50 = $5.50** que el conteo del 12 no trae.
+
+### 28.7 El estado, al 2026-10-13
+
+| pregunta | respuesta | ¿verdad absoluta? |
+|---|---|---|
+| **¿cuánto hay en el cajón?** | **$3,402.45** esperado al cierre del 12-oct · contado **$3,340.00** | ✅ **sí** — dos derivaciones independientes coinciden al centavo |
+| **¿cuánto en billetes / monedas?** | $1,000.00 / $2,327.50 al sábado; el conteo del 12 da $1,000 y $2,340 | ✅ sí, por denominación |
+| **¿cuánto hay en CAOS?** | ⛔ **NO SE SABE.** La máquina publica flujo, nunca contenido; el efectivo anterior al feed no se conoce, así que el acumulado **no es el saldo** | ⛔ **declarado, no medido** |
+| **¿cuánto en dólares?** | 12,059 USD × 19.101 = $230,338.96 — **del 2-abr**, repetido 201 veces | ⚠️ **arrastrado, no contado** |
+| **¿cuánto en crédito (papeles)?** | $20,782.00 — **del 2025-10-06**, repetido 383 veces | ⚠️ **arrastrado, no contado** |
+| **¿cuánto en cheques / tarjeta?** | $25,840.00 / $337,500.00 al sábado | ✅ sí, se cuentan |
+| **¿todo lo que salió de la bóveda tiene dueño?** | sábado **3/3** · lunes **6/7** · martes parcial (día abierto) | ⚠️ **sí, con huecos nombrados** |
+
+### 28.8 Los huecos, con nombre y monto
+
+| hueco | monto | de quién es |
+|---|---|---|
+| dispensación del **12-oct 12:29** sin dueño | **$13,800.00** | operación: falta capturar el gasto |
+| dispensaciones del **13-oct** sin dueño (día abierto) | **$53,573.00** | operación |
+| **dólares** sin recontar desde el 2-abr | $230,338.96 declarados | operación: hay que contarlos |
+| **papeles** sin recontar desde el 2025-10-06 | $20,782.00 declarados | operación |
+| **saldo de la bóveda** | — | ⛔ **límite de la fuente**: CAOS no lo publica |
+| faltante del arqueo del 12-oct | $62.45 | operación |
+
+### 28.9 ⛔⛔ El corte del 12-oct NO se puede sellar con el código desplegado
+
+La API de prod corre `1e9b7788`, **anterior a `[CG.115]`**. Con ese código, `cerrar()` barre
+**todo** lo que tenga `corte_id IS NULL` sin mirar la fecha: medido el 2026-10-13, son **58
+movimientos del 25-sep al 10-dic**, y el esperado que publica es **−$85,818.37** (reproducido al
+centavo contra prod).
+
+⛔ Sellar así no sólo firmaría un número imposible: **ataría al corte del 12-oct los $130,000 del
+25-sep y todo lo del 13**, y esos días ya no podrían cuadrarse nunca — un movimiento atado a un
+corte deja de estar suelto.
+
+**El corte del 12-oct se sella DESPUÉS de desplegar `[CG.115]`.** Con el arreglo, el mismo corte
+publica **$3,402.45** sobre 23 movimientos de su jornada.
+
+### 28.10 Las trampas que cobraron escribiendo esta sección
+
+1. ⛔ **Agregar por día destruye el pareo.** «$165,410 sin nombre el sábado» salió de sumar Control
+   contra CAOS por fecha. Hora por hora, las tres dispensaciones tenían dueño. *Si los dos lados
+   traen hora, el pareo se hace con la hora.*
+2. ⛔ **`folio > 'A23641'` compara TEXTO**: `'A9968' > 'A23641'` porque `9 > 2`. Devolvió 8,484
+   filas de 2014–2023 como «posteriores al sábado».
+3. ⛔ **`movimientofecha BETWEEN … AND '2026-10-13'`** sobre un `timestamp` corta a medianoche y se
+   come el día entero. Los tres movimientos del 13 desaparecieron sin error.
+4. ⛔ **«Más de una pierna» no distingue un arqueo de un cobro.** Afirmé que `A23641` era «un
+   movimiento, no un saldo» y era al revés: lleva dólares, que es lo que sólo trae un arqueo.
+5. ⛔ **Las columnas de Control son `text`.** `sum(totalefectivo)` revienta con `""` y
+   `btrim(numeric)` no existe: todo va por `nullif(btrim(x::text),'')::numeric`.
+
+**Medición reproducible:** 14 consultas read-only contra `pg-prod` el 2026-10-13.
