@@ -1,5 +1,6 @@
 import {
-  redondearPedido, necesitaMotivo, pasoAjuste, posicionPedido, normalizarPosiciones, aplicarMinimoMenor, EscaleraUnidades,
+  redondearPedido, necesitaMotivo, pasoAjuste, posicionPedido, normalizarPosiciones, aplicarMinimoMenor,
+  coberturaAutoabasto, coberturaAutoabastoSql, EscaleraUnidades,
 } from './autoabasto-pedido.contract';
 
 /**
@@ -117,6 +118,27 @@ describe('[AB.19] clase de surtido', () => {
     expect(redondearPedido(0, cajaDe12).clase).toBe('mayor');
     expect(redondearPedido(0, soloBase).clase).toBe('unica');
     expect(redondearPedido(0, null).clase).toBe('sin_unidad');
+  });
+});
+
+describe('[AB.22] cobertura por almacén', () => {
+  it('sucursales que no abastecen: 21 días', () => {
+    ['02', '03', '04', '05', '07'].forEach((c) => expect(coberturaAutoabasto(c)).toBe(21));
+  });
+  it('rutas: 2.5 días', () => {
+    ['RUTA-21', 'RUTA-22', 'RUTA-23', 'RUTA-26', 'RUTA-27', 'RUTA-28',
+      'RUTA-501', 'RUTA-502', 'RUTA-503', 'RUTA-504', 'RUTA-505'].forEach((c) => expect(coberturaAutoabasto(c)).toBe(2.5));
+    expect(coberturaAutoabasto(' ruta-21 ')).toBe(2.5);
+  });
+  it('CEDIS, matrices y lo desconocido: 30 días', () => {
+    ['00', '01', '06', '08', 'RUTA-321', '', null, undefined].forEach((c) => expect(coberturaAutoabasto(c)).toBe(30));
+  });
+  it('el SQL lleva exactamente el mismo mapa', () => {
+    const sql = coberturaAutoabastoSql('w.code');
+    expect(sql).toContain("WHEN '07' THEN 21");
+    expect(sql).toContain("WHEN 'RUTA-505' THEN 2.5");
+    expect(sql).toContain('ELSE 30 END');
+    expect(sql.match(/WHEN /g)).toHaveLength(16);
   });
 });
 

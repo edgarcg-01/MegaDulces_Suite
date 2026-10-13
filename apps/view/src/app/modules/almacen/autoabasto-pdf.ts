@@ -20,6 +20,7 @@ import {
 } from '../compras/compras-pdf-comun';
 import type { AutoabastoReporte, AutoabastoRow, AutoabastoAccion } from './autoabasto.service';
 import { qty, cuandoTexto } from './porques.util';
+import { coberturaAutoabasto } from '@megadulces/contracts';
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
 
@@ -177,7 +178,7 @@ export async function descargarPdfAutoabasto(rep: AutoabastoReporte, opts: Autoa
       : 'Cantidades en cajas. Falta = objetivo - existencia - en camino: lo que ya viene se descuenta.',
     // [AB.15] Con la base 'demanda' el objetivo no es el máximo: el papel tiene que decirlo.
     ...(rep.mesa.target_basis === 'demanda'
-      ? ['Objetivo = venta de los últimos 30 días por temporalidad, para 30 días: el mismo cálculo que usa Compras. El mínimo, el reorden y el máximo deciden la posición (agotado, bajo mínimo...) y qué es sobrante.']
+      ? [`Objetivo = venta diaria por temporalidad, para ${coberturaAutoabasto(rep.almacen.code).toLocaleString('es-MX', { maximumFractionDigits: 1 })} días de cobertura de este almacén (30 en CEDIS y matrices, 21 en sucursales, 2.5 en rutas). El mínimo, el reorden y el máximo deciden la posición (agotado, bajo mínimo...) y qué es sobrante.`]
       : []),
     'De la red: la parte del sobrante de otras sucursales que le toca a este almacén. Cuando varias sucursales necesitan el mismo producto, el sobrante se reparte en proporción a lo que le falta a cada una.',
     'A comprar: lo que falta después de descontar lo que se cubre con la red.',

@@ -83,7 +83,9 @@ export const lastY = (doc: jsPDFType, fallback: number) =>
 export interface EncabezadoPdf {
   titulo: string;              // "Orden de requisición de compra", "Orden de compra (Kepler)"…
   cajaTitulo: string;          // la línea destacada de la caja de la derecha ("BORRADOR · SIN FOLIO")
-  cajaLineas: string[];        // hasta 3 líneas chicas debajo
+  /** Segunda línea destacada, mismo tamaño que `cajaTitulo` (quién pide / a quién). Con ella caben 2 líneas chicas. */
+  cajaTitulo2?: string;
+  cajaLineas: string[];        // hasta 3 líneas chicas debajo (2 si hay `cajaTitulo2`)
 }
 
 /** Encabezado con logo, empresa, título y la caja de la derecha. Devuelve la y donde sigue el contenido. */
@@ -102,8 +104,13 @@ export function dibujarEncabezado(doc: jsPDFType, logo: string | null, e: Encabe
   doc.roundedRect(bx, y - 6, bw, 54, 4, 4, 'FD');
   doc.setFont('helvetica', 'bold'); doc.setFontSize(10); doc.setTextColor(...ACTION);
   doc.text(doc.splitTextToSize(e.cajaTitulo, bw - 20)[0], bx + 10, y + 8);
+  let ly = y + 21;
+  if (e.cajaTitulo2) {
+    doc.text(doc.splitTextToSize(e.cajaTitulo2, bw - 20)[0], bx + 10, y + 21);
+    ly = y + 33;
+  }
   doc.setFont('helvetica', 'normal'); doc.setFontSize(8); doc.setTextColor(...MUTED);
-  e.cajaLineas.slice(0, 3).forEach((l, i) => doc.text(doc.splitTextToSize(l, bw - 20)[0], bx + 10, y + 21 + i * 11));
+  e.cajaLineas.slice(0, e.cajaTitulo2 ? 2 : 3).forEach((l, i) => doc.text(doc.splitTextToSize(l, bw - 20)[0], bx + 10, ly + i * 11));
 
   doc.setDrawColor(...ACTION); doc.setLineWidth(1.5); doc.line(M, y + 58, W - M, y + 58);
   doc.setLineWidth(0.5);

@@ -12,6 +12,8 @@
  * realidad era `undefined`, son cifras falsas con cara de sanas (ADR-056).
  */
 
+import { coberturaAutoabasto, COBERTURA_AUTOABASTO_DEFAULT } from '@megadulces/contracts';
+
 /** Lo que estas funciones necesitan de un renglón de la mesa. Subconjunto de `AutoabastoRow`. */
 export interface PorqueRow {
   on_hand: number;
@@ -31,6 +33,8 @@ export interface PorqueRow {
   venta_30d?: number | null;
   /** `[AB.15]` Temporalidad que multiplica la demanda; 1 = sin ajuste. */
   season_ratio?: number | null;
+  /** `[AB.22]` Código del almacén: decide los días de cobertura del objetivo. */
+  warehouse_code?: string | null;
 }
 
 /** Cajas con hasta 1 decimal. `—` cuando no es un número, en vez de imprimir `NaN`. */
@@ -160,15 +164,24 @@ export function cantidadPorQue(r: PorqueRow, politicaTransito?: string | null, b
  * `[AB.15]` De dónde sale el objetivo con la base 'demanda'. La temporalidad sólo se menciona si
  * mueve algo (≠ 1); sin venta medida se dice, no se dibuja «venta 0».
  */
-export function objetivoDemandaTexto(r: Pick<PorqueRow, 'venta_30d' | 'season_ratio'>): string {
+export function objetivoDemandaTexto(r: Pick<PorqueRow, 'venta_30d' | 'season_ratio' | 'warehouse_code'>): string {
+  // `[AB.22]` Los días de cobertura son por almacén: 30 (= Compras) en CEDIS y matrices, 21 en las
+  // sucursales que no abastecen y 2.5 en las rutas.
+  const cov = coberturaAutoabasto(r.warehouse_code);
+  const dias = cov.toLocaleString('es-MX', { maximumFractionDigits: 1 });
   if (r.venta_30d == null || !Number.isFinite(Number(r.venta_30d))) {
-    return 'Objetivo = venta de 30 días, igual que en Compras, pero este producto no tiene venta medida.';
+    return cov === COBERTURA_AUTOABASTO_DEFAULT
+      ? 'Objetivo = venta de 30 días, igual que en Compras, pero este producto no tiene venta medida.'
+      : `Objetivo = ${dias} días de venta, pero este producto no tiene venta medida.`;
   }
   const s = Number(r.season_ratio ?? 1);
   const temp = Number.isFinite(s) && Math.abs(s - 1) >= 0.005
     ? ` × temporalidad ${s.toLocaleString('es-MX', { maximumFractionDigits: 2 })}`
     : '';
-  return `Objetivo = venta de 30 días (${qty(r.venta_30d)})${temp}, igual que en Compras.`;
+  if (cov === COBERTURA_AUTOABASTO_DEFAULT) {
+    return `Objetivo = venta de 30 días (${qty(r.venta_30d)})${temp}, igual que en Compras.`;
+  }
+  return `Objetivo = ${dias} días de venta: venta de 30 días (${qty(r.venta_30d)}) ÷ 30 × ${dias}${temp}.`;
 }
 
 function restaPorQue(r: PorqueRow, politicaTransito?: string | null): string {
