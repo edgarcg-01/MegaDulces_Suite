@@ -726,6 +726,29 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
     .cg-conc-row { display:flex; justify-content:space-between; gap:var(--sp-4); font-size:var(--fs-sm); }
     .cg-conc-row .mono { font-variant-numeric:tabular-nums; white-space:nowrap; }
     .cg-conc-tot { border-top:1px solid var(--border-color); padding-top:var(--sp-1); font-weight:600; }
+    /* [CG.137] La cuenta T. La base (ancho, interlineado, encabezado, divisores) la pone
+       surf-table--plain; aca va SOLO lo que hace que se lea como una T y no como una tabla de
+       tres columnas:
+         1. la barra vertical que separa cargo de abono -- es la pata de la T, y sin ella las dos
+            columnas de numeros se leen como una sola lista a la derecha;
+         2. la celda vacia del lado contrario, que NO se deja en blanco a secas: un blanco se lee
+            como "no se midio". Lleva un guion tenue, que se lee como "de este lado no va";
+         3. el pie, que es el saldo y por eso pesa.
+       Sin fondo ni caja propia: la profundidad de este sistema la lleva el hairline (12b). */
+    .cg-t { margin:var(--sp-2) 0 var(--sp-1); }
+    .cg-t thead th:last-child,
+    .cg-t tbody td:last-child,
+    .cg-t tfoot td:last-child { border-left:1px solid var(--border-color); }
+    .cg-t tbody th, .cg-t tfoot th { font-weight:400; text-align:left; }
+    /* ⛔ El guion va como CARACTER, no como codigo CSS. Intentarlo con el codigo falla DOS veces
+       y por dos motores distintos: primero JS lo lee como secuencia octal dentro del template
+       literal (lo atrapo check:templates); y al escapar la barra para sortear eso, Angular
+       vuelve a inlinear este mismo CSS dentro de un string de JS -- virtual:angular:jit:style --
+       donde la secuencia es octal OTRA VEZ y Rollup la rechaza en modo estricto.
+       ⚠️ Ese segundo viaje NO lo ve check:templates, que parsea el .ts y ahi la version escapada
+       es legal: lo encontro la corrida de pruebas. Una compuerta verde no es un build verde. */
+    .cg-t-vacia::before { content:"–"; color:var(--text-faint); }
+    .cg-t-saldo th, .cg-t-saldo td { border-top:1px solid var(--border-color); font-weight:600; }
     /* [CG.26] El cierre de la jornada reusa el mismo panel, en dos columnas: nuestro libro y el
        cajero. Se ensancha porque ahora lleva la tabla de tipos del cajero, que antes no existia. */
     /* [CG.27] La lista de recurrentes sin regla. */
@@ -1006,18 +1029,55 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
             <!-- IZQUIERDA: nuestro libro -->
             <div class="cg-conc-col">
               <strong class="cg-conc-sub">Caja general <small class="fin-dim">(nuestro libro)</small></strong>
-              <div class="cg-conc-row"><span>Ingresos</span>
-                <span class="mono">+ {{ money(a.caja_general.ingresos) }}</span></div>
-              <div class="cg-conc-row"><span>Gastos</span>
-                <span class="mono">&minus; {{ money(a.caja_general.gastos) }}</span></div>
-              <div class="cg-conc-row"><span>Depositos al banco</span>
-                <span class="mono">&minus; {{ money(a.caja_general.depositos) }}</span></div>
-              <!-- ⛔ [CG.112] DECIA "Movimiento del dia", igual que el renglon del cajero de la
-                   columna de al lado, con OTRA cifra. Dos rotulos identicos con dos numeros
-                   distintos, a la vista al mismo tiempo: -$6,435.79 aca y $38,550.00 alla.
-                   Edgar: "poco entendible". Cada columna nombra lo SUYO. -->
-              <div class="cg-conc-row cg-conc-tot"><span>Movimiento del libro</span>
-                <span class="mono">{{ money(a.caja_general.neto) }}</span></div>
+              <!-- ⭐ [CG.137] CUENTA T. Antes eran tres renglones con el signo pegado al numero
+                   (+ ingresos, - gastos, - depositos). Esa es la forma NETA: obliga a leer el
+                   signo de cada cifra y a sumarlos de cabeza. La caja es una cuenta de activo y
+                   la forma que le corresponde es la BRUTA: lo que entra de un lado, lo que sale
+                   del otro, y el saldo se sigue solo.
+                   El vocabulario es el que este repo ya usa -Cargo y Abono-, el mismo de
+                   /contabilidad/polizas y /finanzas/estado-cuenta-acreedores. No se inventa
+                   "Debe/Haber", que seria un cuarto dialecto para el mismo par.
+                   ⚠️ De esa pantalla se toma la SEMANTICA (celda vacia del lado contrario, total
+                   al pie), no su CSS: ahi la tabla es cruda con su propia clase de numero
+                   (comm-num 0, app-load-state 0), o sea deuda. La base va con surf-table--plain
+                   y comm-num, que es la que existe una sola vez.
+                   ⛔ [CG.112] El rotulo del pie dice "del libro" y no "del dia": el cajero, en la
+                   columna de al lado, tenia el MISMO rotulo con otra cifra. Cada columna nombra
+                   lo suyo.
+                   (Sin acentos graves aca adentro: template literal.) -->
+              <table class="surf-table surf-table--plain cg-t">
+                <caption class="sr-only">Caja general: lo que entro y lo que salio en la jornada</caption>
+                <thead>
+                  <tr>
+                    <th scope="col">Concepto</th>
+                    <th scope="col" class="comm-num">Cargo</th>
+                    <th scope="col" class="comm-num">Abono</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <th scope="row">Ingresos</th>
+                    <td class="comm-num">{{ money(a.caja_general.ingresos) }}</td>
+                    <td class="comm-num cg-t-vacia" aria-label="sin abono"></td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Gastos</th>
+                    <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
+                    <td class="comm-num">{{ money(a.caja_general.gastos) }}</td>
+                  </tr>
+                  <tr>
+                    <th scope="row">Depositos al banco</th>
+                    <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
+                    <td class="comm-num">{{ money(a.caja_general.depositos) }}</td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr class="cg-t-saldo">
+                    <th scope="row">Movimiento del libro</th>
+                    <td class="comm-num" colspan="2">{{ money(a.caja_general.neto) }}</td>
+                  </tr>
+                </tfoot>
+              </table>
               <!-- ⭐⭐ [CG.97] "Movimiento del dia" es correcto -el dinero entro y se registro- pero
                    se LEE como "esto hay en la caja", y no lo hay: la maquina se traga los billetes
                    de los cobros de ruta y al cajon llega la morralla. Modelo "cajas separadas",
@@ -1156,16 +1216,43 @@ function mergeDenoms(fuentes: DenominacionCapturada[]): DenominacionCapturada[] 
                     <tr><td colspan="3"><small class="fin-dim">El cajero no se movio en esta jornada.</small></td></tr>
                   </ng-template>
                 </p-table>
-                <div class="cg-conc-row"><span>Entra <small class="fin-dim">(deposito + dotar)</small></span>
-                  <span class="mono">+ {{ money(cj.entra) }}</span></div>
-                <div class="cg-conc-row"><span>Sale <small class="fin-dim">(dispensar + vaciar)</small></span>
-                  <span class="mono">&minus; {{ money(cj.sale) }}</span></div>
-                <!-- ⛔ "Movimiento", NUNCA "saldo": CAOS no publica su contenido y el acumulado
-                     del flujo da negativo porque el efectivo anterior al feed no se sabe.
+                <!-- ⭐ [CG.137] La misma cuenta T que la columna de al lado, para que las dos se
+                     lean igual. La tabla de arriba es el DESGLOSE por tipo de movimiento del
+                     cajero; esto es la cuenta.
+                     ⛔ "Movimiento", NUNCA "saldo": CAOS no publica su contenido y el acumulado
+                     del flujo da negativo porque el efectivo anterior al feed no se sabe. Por eso
+                     el pie de esta T no se rotula "Saldo" aunque la forma sea la de una cuenta:
+                     la forma no autoriza a afirmar lo que el dato no dice.
                      [CG.112] Y dice "de la boveda", no "del dia": el de al lado tambien era "del
                      dia" con otra cifra. -->
-                <div class="cg-conc-row cg-conc-tot"><span>Movimiento de la bóveda</span>
-                  <span class="mono">{{ money(cj.neto) }}</span></div>
+                <table class="surf-table surf-table--plain cg-t">
+                  <caption class="sr-only">Cajero: lo que entro y lo que salio de la boveda</caption>
+                  <thead>
+                    <tr>
+                      <th scope="col">Concepto</th>
+                      <th scope="col" class="comm-num">Cargo</th>
+                      <th scope="col" class="comm-num">Abono</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr>
+                      <th scope="row">Entra <small class="fin-dim">(deposito + dotar)</small></th>
+                      <td class="comm-num">{{ money(cj.entra) }}</td>
+                      <td class="comm-num cg-t-vacia" aria-label="sin abono"></td>
+                    </tr>
+                    <tr>
+                      <th scope="row">Sale <small class="fin-dim">(dispensar + vaciar)</small></th>
+                      <td class="comm-num cg-t-vacia" aria-label="sin cargo"></td>
+                      <td class="comm-num">{{ money(cj.sale) }}</td>
+                    </tr>
+                  </tbody>
+                  <tfoot>
+                    <tr class="cg-t-saldo">
+                      <th scope="row">Movimiento de la bóveda</th>
+                      <td class="comm-num" colspan="2">{{ money(cj.neto) }}</td>
+                    </tr>
+                  </tfoot>
+                </table>
                 <small class="fin-dim">
                   {{ cj.movimientos }} movimiento(s) del cajero en la jornada.
                 </small>
