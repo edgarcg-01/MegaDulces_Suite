@@ -115,6 +115,18 @@ describe('[RH.2.3] RhCandidatoFichaComponent', () => {
     expect(api['crearLiga']).toHaveBeenCalledWith(ID, 'liderazgo');
   });
 
+  it('⭐ aptitudes: muestra la evaluación del jefe, y la liga es para el jefe (no para el candidato)', async () => {
+    await render(ficha({ aptitude_eval: { evaluador: 'Jefe Prueba', cargoEvaluador: 'Gerente', tiempo: '40 min', observaciones: 'Buen perfil',
+      puntaje: 120, max: 150, pct: 80, banda: 'Recomendable', aprobado: true, completadaEn: '2026-10-13T16:00:00Z' } }), true);
+    expect(texto()).toContain('120/150');
+    expect(texto()).toContain('Recomendable');
+    expect(texto()).toContain('Evaluó Jefe Prueba');
+    boton('Liga para el jefe que entrevista')!.click();
+    expect(api['crearLiga']).toHaveBeenCalledWith(ID, 'aptitudes');
+    fix.detectChanges();
+    expect(texto()).toContain('no al candidato');
+  });
+
   it('el expediente dice qué falta', async () => {
     await render(ficha(), true);
     expect(texto()).toContain('Faltan 1 documento(s) obligatorio(s).');
@@ -138,7 +150,7 @@ describe('[RH.2.3] RhCandidatoFichaComponent', () => {
   it('⛔ NEGATIVA — quien sólo ve no tiene con qué cambiar nada', async () => {
     await render(ficha({ mismo_telefono: [{ id: OTRO, full_name: 'Ana', created_at: '2026-10-01T00:00:00Z', no_rehire: false }] }), false);
     for (const t of ['Corregir', 'No recontratable', 'Spam', 'Papelera', 'Fusionar aquí', 'Registrar', 'Retirar', 'Mandar liga para subir su CV',
-      'Mandar liga del cuestionario']) expect(boton(t)).toBeUndefined();
+      'Mandar liga del cuestionario', 'Liga para el jefe que entrevista']) expect(boton(t)).toBeUndefined();
     expect(texto()).not.toContain('Pasar a');
     expect(texto()).toContain('Mismo teléfono'); // pero sí lo ve
   });

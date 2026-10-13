@@ -3,12 +3,14 @@ import { JwtService } from '@nestjs/jwt';
 import type { Knex } from 'knex';
 import { ObjectStorageService, TenantContextService, TenantKnexService, sanitizarNombre, validarAdjunto, type AdjuntoValido } from '@megadulces/platform-core';
 import {
-  HR_CUESTIONARIO_LIDERAZGO, HR_ESTILOS_LIDERAZGO, hrCalificaLiderazgo, hrResultadoLiderazgo,
+  HR_APTITUDES_APROBADO_PCT, HR_CUESTIONARIO_LIDERAZGO, HR_ESTILOS_LIDERAZGO, HR_NIVELES_STAR, hrCalificaLiderazgo, hrPuntajeStar,
+  hrResultadoLiderazgo, type HrAptitudesEvalGuardada, type HrAptitudesEvaluacion, type HrCompetenciaStar, type HrNivelStar,
   type HrLiderazgoAvanceDto, type HrLiderazgoRespuesta, type HrLigaContextoDto, type HrLigaCreadaDto, type HrLigaCvSubida,
   type HrLigaFormulario, type HrPostulacionResultadoDto, type HrRespuestasLiderazgo,
 } from '@megadulces/contracts';
 import { MAX_DOCUMENTO_BYTES, entradaNueva, type EntradaDocumento } from './logic/expediente';
-import { puedeAvanzarPorCuestionario } from './logic/avance';
+import { puedeAvanzarPorCuestionario, revisarAvance } from './logic/avance';
+import { hojaPorKey, hojaPorNombrePuesto } from './data/competencias-puesto';
 import { registrarCambioEtapa } from './talent-etapa.db';
 
 /**
@@ -27,16 +29,30 @@ import { registrarCambioEtapa } from './talent-etapa.db';
  */
 
 export const VIGENCIA_DIAS = 7;
-const FORMULARIOS: readonly HrLigaFormulario[] = ['cv', 'liderazgo'];
+const FORMULARIOS: readonly HrLigaFormulario[] = ['cv', 'liderazgo', 'aptitudes'];
+
+/** Desde dónde la evaluación de aptitudes puede mover SOLA a Psicométricas (compuerta 3 → 4: sólo hacia adelante). */
+const ETAPAS_QUE_AVANZA_APTITUDES: readonly (string | null)[] = [null, 'filtro_inicial', 'nuevo', 'entrevista_rh', 'aptitudes'];
 
 /** Las respuestas del cuestionario guardadas en el candidato (la forma de Mega Talento: `{ num: valor }`). */
 const respuestasDe = (c: Record<string, unknown>): HrRespuestasLiderazgo =>
   ((c['portal_data'] as Record<string, unknown> | null)?.['cuestionarioLiderazgo'] ?? {}) as HrRespuestasLiderazgo;
 
+/** Las competencias congeladas en el candidato al generar la liga de aptitudes. */
+const competenciasDe = (c: Record<string, unknown>): HrCompetenciaStar[] => {
+  const v = (c['portal_data'] as Record<string, unknown> | null)?.['competenciasConfig'];
+  return Array.isArray(v) ? (v as HrCompetenciaStar[]) : [];
+};
+
 /** El texto del WhatsApp según lo que abre la liga. */
 function mensajeDe(form: HrLigaFormulario, nombre: string, url: string): string {
   const hola = `Hola${nombre ? ` ${nombre}` : ''}, soy de Capital Humano de Mega Dulces.\n\n`;
   const pie = `\n\nEl enlace es personal y vence en ${VIGENCIA_DIAS} días. ¡Gracias!`;
+  if (form === 'aptitudes') {
+    // Ésta NO va al candidato: la abre el jefe que lo entrevista.
+    return `Hola, soy de Capital Humano de Mega Dulces.\n\nTe comparto la evaluación de aptitudes (entrevista por competencias) de ${nombre || 'el candidato'}. `
+      + `Califica cada competencia al terminar la entrevista:\n\n${url}${pie}`;
+  }
   if (form === 'liderazgo') {
     return `${hola}Para continuar con tu evaluación, contesta el cuestionario de liderazgo desde tu celular en este enlace:\n\n${url}\n\n`
       + `Son ${HR_CUESTIONARIO_LIDERAZGO.length} preguntas breves. Responde con honestidad.${pie}`;
@@ -83,24 +99,28 @@ export class HrTalentLinksService {
     const base = (process.env['APP_PUBLIC_URL'] || origin || '').replace(/\/+$/, '');
     if (!base) throw new BadRequestException('No se pudo armar la liga: falta el origen público (APP_PUBLIC_URL).');
     return this.tk.run(tenant, async (trx) => {
-      const c = await trx('talent.candidates').where({ id: candidateId }).first('id', 'full_name', 'phone_key', 'deleted_at', 'is_spam');
+      const c = await trx('talent.candidates').where({ id: candidateId }).first('id', 'full_name', 'phone_key', 'deleted_at', 'is_spam', 'job_posting_id', 'position_interest', 'portal_data');
       if (!c) throw new NotFoundException('Candidato no encontrado.');
       if (c.deleted_at || c.is_spam) throw new BadRequestException('No se manda liga a alguien en la papelera o en spam.');
+      if (form === 'aptitudes') await this.congelarCompetencias(trx, c);
       const payload: PayloadLiga = { t: 'talent_link', cid: c.id, f: form as HrLigaFormulario, tid: tenant };
       const token = this.jwt.sign(payload, { expiresIn: `${VIGENCIA_DIAS}d` });
       const expires_at = new Date(Date.now() + VIGENCIA_DIAS * 86_400_000).toISOString();
       const url = `${base}/empleo/liga/${token}`;
       const nombre = String(c.full_name ?? '').trim().split(/\s+/)[0] || '';
-      const mensaje = mensajeDe(form as HrLigaFormulario, nombre, url);
+      // La de aptitudes va al jefe: su nombre completo, para que sepa a quién evalúa.
+      const mensaje = mensajeDe(form as HrLigaFormulario, form === 'aptitudes' ? String(c.full_name ?? '').trim() : nombre, url);
       const quien = this.tenantCtx.get();
       await trx('talent.candidate_events').insert({
         tenant_id: tenant, candidate_id: c.id, event_type: 'nota', channel: 'portal', actor_id: quien?.userId ?? null,
         actor_name: quien?.username ?? 'RH',
-        note: `Se generó la liga ${form === 'liderazgo' ? 'del cuestionario de liderazgo' : 'para subir su CV'} (vence en ${VIGENCIA_DIAS} días).`,
+        note: `Se generó la liga ${form === 'liderazgo' ? 'del cuestionario de liderazgo' : form === 'aptitudes' ? 'de la evaluación de aptitudes (para el jefe que entrevista)' : 'para subir su CV'} (vence en ${VIGENCIA_DIAS} días).`,
       });
       return {
         url, expires_at, mensaje,
-        whatsapp_url: c.phone_key ? `https://wa.me/52${c.phone_key}?text=${encodeURIComponent(mensaje)}` : null,
+        // La de aptitudes NO va al teléfono del candidato: `wa.me` sin número deja elegir al jefe.
+        whatsapp_url: form === 'aptitudes' ? `https://wa.me/?text=${encodeURIComponent(mensaje)}`
+          : c.phone_key ? `https://wa.me/52${c.phone_key}?text=${encodeURIComponent(mensaje)}` : null,
       };
     });
   }
@@ -134,6 +154,14 @@ export class HrTalentLinksService {
       form: p.f, nombre: String(c['full_name'] ?? '').trim().split(/\s+/)[0] || null,
       puesto: (c['position_interest'] as string | null) ?? null, ya_tiene_cv: ya, vence,
     };
+    if (p.f === 'aptitudes') {
+      const ev = (c['aptitude_eval'] ?? null) as Partial<HrAptitudesEvalGuardada> | null;
+      return {
+        ...base, candidato_nombre: (c['full_name'] as string | null) ?? null, competencias: competenciasDe(c),
+        rubrica: (c['aptitude_rubric'] ?? null) as Record<string, HrNivelStar> | null,
+        evaluacion: ev ? { evaluador: ev.evaluador ?? '', cargoEvaluador: ev.cargoEvaluador ?? '', tiempo: ev.tiempo ?? '', observaciones: ev.observaciones ?? '' } : null,
+      };
+    }
     if (p.f !== 'liderazgo') return base;
     const r = hrResultadoLiderazgo(respuestasDe(c));
     // Sus propias respuestas (para retomar), nunca el puntaje.
@@ -163,6 +191,81 @@ export class HrTalentLinksService {
       const r = hrResultadoLiderazgo(respuestas);
       if (r.contestadas === r.total) await this.alTerminarLiderazgo(trx, p, c, r);
       return { contestadas: r.contestadas, total: r.total, terminado: r.contestadas === r.total };
+    });
+  }
+
+  /**
+   * La hoja de competencias del candidato, CONGELADA al generar la liga (`portal_data.competenciasConfig`, la clave de
+   * Mega Talento): el jefe evalúa exactamente lo que RH definió aunque el puesto cambie después. Primero la hoja que RH
+   * le asignó a la vacante; si no, la que coincide con el nombre del puesto. Sin hoja no hay liga.
+   */
+  private async congelarCompetencias(trx: Knex.Transaction, c: Record<string, unknown>): Promise<void> {
+    const vacante = c['job_posting_id']
+      ? await trx('talent.job_postings').where({ id: c['job_posting_id'] }).first('name', 'competencies_sheet') as { name: string; competencies_sheet: string | null } | undefined
+      : undefined;
+    const hoja = hojaPorKey(vacante?.competencies_sheet ?? undefined)
+      ?? hojaPorNombrePuesto(vacante?.name ?? (c['position_interest'] as string | undefined));
+    if (!hoja) throw new BadRequestException('Este puesto no tiene hoja de competencias. Asígnala en Vacantes («Hoja de competencias»).');
+    const portal = { ...((c['portal_data'] as Record<string, unknown>) ?? {}), competenciasConfig: hoja.competencias, hojaCompetencias: hoja.key };
+    await trx('talent.candidates').where({ id: c['id'] }).update({ portal_data: JSON.stringify(portal), updated_at: trx.fn.now() });
+  }
+
+  /**
+   * El jefe guarda la evaluación. Se puede corregir (como en Mega Talento). Si queda «aprobado» (≥ Recomendable,
+   * 76.7%), el SERVIDOR lo pasa a Psicométricas — sólo hacia adelante y, además, con los mínimos del expediente. En
+   * Mega Talento lo hacía el navegador del jefe y sin revisar los mínimos: aquí se aplica el mismo principio que Mega
+   * Talento escribió para el cuestionario («al sistema se le prohíbe avanzar solo si no cumple»).
+   */
+  async evaluarAptitudes(token: string, b: HrAptitudesEvaluacion): Promise<HrPostulacionResultadoDto> {
+    const evaluador = String(b?.evaluador ?? '').trim().slice(0, 150);
+    if (evaluador.length < 3) throw new BadRequestException('Escribe el nombre de quien evalúa.');
+    const { p } = await this.resolver(token);
+    if (p.f !== 'aptitudes') throw new ForbiddenException('Este enlace no es para la evaluación de aptitudes.');
+    return this.tk.run(p.tid, async (trx) => {
+      await trx('talent.candidates').where({ id: p.cid }).forUpdate().first('id');
+      const { c } = await this.resolver(token, trx);
+      const competencias = competenciasDe(c);
+      if (!competencias.length) throw new ConflictException('Esta liga no tiene competencias. Pide una nueva a Capital Humano.');
+      const niveles = new Set(HR_NIVELES_STAR.map((n) => n.id));
+      const rubrica: Record<string, HrNivelStar> = {};
+      for (const comp of competencias) {
+        const v = b?.rubrica?.[comp.key];
+        if (v && niveles.has(v)) rubrica[comp.key] = v;
+      }
+      const calc = hrPuntajeStar(rubrica, competencias);
+      if (!calc.completa) throw new BadRequestException(`Faltan ${calc.total - calc.calificadas} competencia(s) por calificar.`);
+      const aprobado = calc.pct >= HR_APTITUDES_APROBADO_PCT;
+      const evalGuardada: HrAptitudesEvalGuardada = {
+        evaluador, cargoEvaluador: String(b?.cargo_evaluador ?? '').trim().slice(0, 150), tiempo: String(b?.tiempo ?? '').trim().slice(0, 50),
+        observaciones: String(b?.observaciones ?? '').trim().slice(0, 2000), puntaje: calc.puntaje, max: calc.max, pct: calc.pct,
+        banda: calc.banda, aprobado, completadaEn: new Date().toISOString(),
+      };
+      await trx('talent.candidates').where({ id: p.cid }).update({
+        aptitude_rubric: JSON.stringify(rubrica), aptitude_eval: JSON.stringify(evalGuardada), updated_at: trx.fn.now(),
+      });
+      let desenlace = 'No llegó a Recomendable: se queda para que RH lo revise.';
+      if (aprobado) {
+        const stage = (c['stage'] as string | null) ?? null;
+        if (!ETAPAS_QUE_AVANZA_APTITUDES.includes(stage)) {
+          desenlace = 'Aprobado; ya iba más adelante, no se le mueve.';
+        } else {
+          const rev = revisarAvance({
+            stage, cv_url: c['cv_url'] as string | null, documents: c['documents'], bot_state: c['bot_state'] as string | null,
+            position_interest: c['position_interest'] as string | null, portal_data: c['portal_data'] as Record<string, unknown> | null,
+          });
+          if (rev.ok) {
+            await registrarCambioEtapa(trx, { candidateId: p.cid, desde: stage, hacia: 'psicometria', quienId: null, quienNombre: 'sistema (evaluación de aptitudes)' });
+            desenlace = 'Aprobado: pasó solo a Psicométricas.';
+          } else {
+            desenlace = `Aprobado, pero no avanza solo: ${rev.motivos.join(' ')} RH decide.`;
+          }
+        }
+      }
+      await trx('talent.candidate_events').insert({
+        tenant_id: p.tid, candidate_id: p.cid, event_type: 'entrevista', channel: 'presencial', actor_name: evaluador,
+        note: `Evaluación de aptitudes: ${calc.puntaje}/${calc.max} (${calc.pct}%, ${calc.banda}). ${desenlace}`,
+      });
+      return { resultado: 'recibida', mensaje: 'Gracias. La evaluación quedó guardada y Capital Humano ya la puede ver.' };
     });
   }
 

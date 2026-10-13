@@ -5,6 +5,8 @@
  * con los ids de Mega Talento para que la carga única no traduzca nada.
  */
 
+import type { HrCompetenciaStar, HrNivelStar } from './hr-aptitudes.contract';
+
 export type HrTalentEtapa = 'filtro_inicial' | 'entrevista_rh' | 'aptitudes' | 'psicometria' | 'contratado' | 'rechazado';
 export type HrTalentApartado = 'postulados' | 'en_proceso' | 'spam' | 'no_recontratables' | 'papelera';
 export type HrTalentTipoEvento = 'contacto' | 'entrevista' | 'contratacion' | 'nota';
@@ -295,8 +297,11 @@ export interface HrPostulacionPublica {
 
 // ── Ligas personales (`[RH.2.4]`) ───────────────────────────────────────────────────────────
 
-/** Lo que una liga deja hacer: subir el CV, o contestar el cuestionario de liderazgo. */
-export type HrLigaFormulario = 'cv' | 'liderazgo';
+/**
+ * Lo que una liga deja hacer: subir el CV o contestar el cuestionario de liderazgo (las abre el CANDIDATO), o la
+ * evaluación de aptitudes (la abre el JEFE que entrevista).
+ */
+export type HrLigaFormulario = 'cv' | 'liderazgo' | 'aptitudes';
 
 /** Lo que recibe RH al generar una liga. */
 export interface HrLigaCreadaDto {
@@ -319,6 +324,13 @@ export interface HrLigaContextoDto {
   respuestas?: Record<number, number> | null;
   /** Cuestionario de liderazgo: ya contestó las 12 y quedó cerrado. */
   terminado?: boolean;
+  /** Aptitudes (la abre el jefe): el nombre completo del candidato, para saber a quién evalúa. Nada de contacto. */
+  candidato_nombre?: string | null;
+  /** Aptitudes: las competencias CONGELADAS al generar la liga (la hoja del puesto). */
+  competencias?: HrCompetenciaStar[];
+  /** Aptitudes: lo que ya calificó (para corregir sin empezar de cero, como en Mega Talento). */
+  rubrica?: Record<string, HrNivelStar> | null;
+  evaluacion?: { evaluador: string; cargoEvaluador: string; tiempo: string; observaciones: string } | null;
 }
 
 /** Una respuesta del cuestionario de liderazgo. */

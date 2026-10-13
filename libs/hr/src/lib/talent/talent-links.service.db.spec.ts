@@ -84,7 +84,7 @@ suite('[RH.2.4] ligas personales contra la base', () => {
         const conSecretoDeSesion = sesion.sign({ t: 'talent_link', cid: id, f: 'cv', tid: TENANT });
         const sinTipo = jwt.sign({ cid: id, f: 'cv', tid: TENANT });
         const vencido = jwt.sign({ t: 'talent_link', cid: id, f: 'cv', tid: TENANT, exp: Math.floor(Date.now() / 1000) - 60 });
-        const otroForm = jwt.sign({ t: 'talent_link', cid: id, f: 'aptitudes', tid: TENANT }); // un formulario que (todavía) no existe
+        const otroForm = jwt.sign({ t: 'talent_link', cid: id, f: 'inventado', tid: TENANT }); // un formulario que no existe
         r['noAbre'] = [
           await fallo(() => svc.contexto(alterado)), await fallo(() => svc.contexto(conSecretoDeSesion)),
           await fallo(() => svc.contexto(sinTipo)), await fallo(() => svc.contexto(vencido)),
@@ -153,6 +153,44 @@ suite('[RH.2.4] ligas personales contra la base', () => {
         await contestar(await ligaDe(adelante), () => 5);
         r['lidAdelante'] = (await trx('talent.candidates').where({ id: adelante }).first('stage')).stage;
 
+        // ── Evaluación de aptitudes (la abre el jefe) ──────────────────────────────────────
+        const [vac] = await trx('talent.job_postings').insert({ tenant_id: TENANT, name: 'Vendedor de ruta', competencies_sheet: 'vendedor-a-detalle' }).returning('id');
+        const evaluado = await nuevo({ full_name: 'Carla Prueba Ruiz', stage: 'aptitudes', cv_url: 'https://c/cv.pdf', bot_state: 'completado', job_posting_id: vac.id ?? vac });
+        const la = await svc.crear(evaluado, 'aptitudes');
+        const ta = la.url.split('/empleo/liga/')[1];
+        const congelado = await trx('talent.candidates').where({ id: evaluado }).first('portal_data');
+        const comps = (congelado.portal_data as { competenciasConfig: Array<{ key: string }>; hojaCompetencias: string });
+        r['aptLiga'] = [comps.hojaCompetencias, comps.competenciasConfig.length > 0, la.whatsapp_url?.startsWith('https://wa.me/?text='),
+          /Carla Prueba Ruiz/.test(la.mensaje)];
+        const ctxA = await svc.contexto(ta);
+        r['aptCtx'] = [ctxA.form, ctxA.candidato_nombre, ctxA.competencias?.length === comps.competenciasConfig.length, ctxA.rubrica ?? null];
+        const todas = (n: string) => Object.fromEntries(comps.competenciasConfig.map((c) => [c.key, n]));
+        r['aptMalos'] = [
+          await fallo(() => svc.evaluarAptitudes(ta, { rubrica: todas('supera') as never, evaluador: ' ' })),
+          await fallo(() => svc.evaluarAptitudes(ta, { rubrica: { [comps.competenciasConfig[0].key]: 'supera' }, evaluador: 'Jefe Prueba' })),
+          await fallo(() => svc.evaluarAptitudes(tb, { rubrica: todas('supera') as never, evaluador: 'Jefe Prueba' })), // liga de liderazgo
+        ];
+        // Todo «supera»: 100%, aprobado → pasa SOLO a Psicométricas.
+        await svc.evaluarAptitudes(ta, { rubrica: todas('supera') as never, evaluador: 'Jefe Prueba', cargo_evaluador: 'Gerente', tiempo: '40 min' });
+        const ev1 = await trx('talent.candidates').where({ id: evaluado }).first('stage', 'aptitude_eval');
+        r['aptAprobado'] = [ev1.stage, (ev1.aptitude_eval as { pct: number }).pct, (ev1.aptitude_eval as { banda: string }).banda, (ev1.aptitude_eval as { evaluador: string }).evaluador];
+        // El jefe corrige a la baja: se guarda, pero NO lo regresa de etapa.
+        await svc.evaluarAptitudes(ta, { rubrica: todas('inferior') as never, evaluador: 'Jefe Prueba' });
+        const ev2 = await trx('talent.candidates').where({ id: evaluado }).first('stage', 'aptitude_eval');
+        r['aptCorrige'] = [ev2.stage, (ev2.aptitude_eval as { banda: string }).banda, (await svc.contexto(ta)).rubrica?.[comps.competenciasConfig[0].key]];
+        const notasA = await trx('talent.candidate_events').where({ candidate_id: evaluado, event_type: 'entrevista' }).pluck('note');
+        r['aptNotas'] = notasA.length;
+
+        // ⛔ Aprobado pero SIN CV: no avanza solo (el principio de Mega Talento, aplicado también aquí).
+        const sinCvA = await nuevo({ full_name: 'Dora Prueba', stage: 'aptitudes', bot_state: 'completado', job_posting_id: vac.id ?? vac });
+        const tsa = (await svc.crear(sinCvA, 'aptitudes')).url.split('/empleo/liga/')[1];
+        await svc.evaluarAptitudes(tsa, { rubrica: todas('supera') as never, evaluador: 'Jefe Prueba' });
+        r['aptSinCv'] = (await trx('talent.candidates').where({ id: sinCvA }).first('stage')).stage;
+
+        // Sin hoja para su puesto: no hay liga.
+        const sinHoja = await nuevo({ position_interest: 'Astronauta' });
+        r['aptSinHoja'] = await fallo(() => svc.crear(sinHoja, 'aptitudes'));
+
         throw ROLLBACK;
       });
     } catch (e) { if (e !== ROLLBACK) throw e; } finally { await knex.destroy(); delete process.env['APP_PUBLIC_URL']; }
@@ -178,5 +216,14 @@ suite('[RH.2.4] ligas personales contra la base', () => {
     expect(r['lidFlojo']).toEqual(['entrevista_rh', true]);
     expect(r['lidSinCv']).toEqual(['entrevista_rh', true]);
     expect(r['lidAdelante']).toBe('psicometria');
+    // La hoja de la vacante se congela; el WhatsApp NO va al teléfono del candidato; el mensaje dice a quién evalúa.
+    expect(r['aptLiga']).toEqual(['vendedor-a-detalle', true, true, true]);
+    expect(r['aptCtx']).toEqual(['aptitudes', 'Carla Prueba Ruiz', true, null]);
+    expect(r['aptMalos']).toEqual(['400', '400', '403']);
+    expect(r['aptAprobado']).toEqual(['psicometria', 100, 'Altamente Recomendable', 'Jefe Prueba']);
+    expect(r['aptCorrige']).toEqual(['psicometria', 'No Recomendable', 'inferior']);
+    expect(r['aptNotas']).toBe(2);
+    expect(r['aptSinCv']).toBe('aptitudes');
+    expect(r['aptSinHoja']).toBe('400');
   }, 60_000);
 });
