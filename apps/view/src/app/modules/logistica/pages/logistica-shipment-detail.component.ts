@@ -25,8 +25,9 @@ import { KeplerHojaComponent } from '../components/kepler-hoja.component';
 import { KeplerCostoComponent } from '../components/kepler-costo.component';
 import { GuiaCalculadaComponent, PersonaDeLaGuia } from '../components/guia-calculada.component';
 import { RevisionGpsComponent } from '../components/revision-gps.component';
+import { AltaPersonaComponent } from '../components/alta-persona.component';
 import { CierreViajeComponent } from '../components/cierre-viaje.component';
-import type { RevisionGps } from '@megadulces/contracts';
+import type { AltaRapidaResultado, RevisionGps } from '@megadulces/contracts';
 import type { TarifaDeRuta, TarifasViatico } from '@megadulces/contracts';
 import {
   comisionesDeLaGuia, erroresDeTarifa, erroresDeTarifaDeRuta, erroresDeTripulacion, erroresDeViaticos,
@@ -45,6 +46,7 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
     InputTextModule, InputNumberModule, CheckboxModule, SelectModule, AutoCompleteModule,
     TagModule, TooltipModule, ToastModule, ConfirmDialogModule,
     KeplerHojaComponent, KeplerCostoComponent, GuiaCalculadaComponent, RevisionGpsComponent, CierreViajeComponent,
+    AltaPersonaComponent,
   ],
   providers: [MessageService, ConfirmationService],
   template: `
@@ -395,12 +397,24 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
           <label>
             <span>Ayudante 1</span>
             <p-select formControlName="helper1_id" [options]="ayudanteOptions()" optionLabel="label" optionValue="value"
-            placeholder="Sin ayudante" [showClear]="true" [filter]="true" appendTo="body"></p-select>
+            placeholder="Sin ayudante" [showClear]="true" [filter]="true" appendTo="body" (onFilter)="filtroAyudante.set($event.filter ?? '')">
+              <ng-template #footer>
+                <div class="shd-alta-pie">
+                  <button pButton type="button" size="small" [text]="true" (click)="abrirAltaAyudante('helper1_id')"><span class="p-button-icon p-button-icon-left pi pi-user-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo ayudante</span></button>
+                </div>
+              </ng-template>
+            </p-select>
           </label>
           <label>
             <span>Ayudante 2</span>
             <p-select formControlName="helper2_id" [options]="ayudanteOptions()" optionLabel="label" optionValue="value"
-            placeholder="Sin ayudante" [showClear]="true" [filter]="true" appendTo="body"></p-select>
+            placeholder="Sin ayudante" [showClear]="true" [filter]="true" appendTo="body" (onFilter)="filtroAyudante.set($event.filter ?? '')">
+              <ng-template #footer>
+                <div class="shd-alta-pie">
+                  <button pButton type="button" size="small" [text]="true" (click)="abrirAltaAyudante('helper2_id')"><span class="p-button-icon p-button-icon-left pi pi-user-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo ayudante</span></button>
+                </div>
+              </ng-template>
+            </p-select>
           </label>
           <label>
             <span>Hora de salida</span>
@@ -528,8 +542,11 @@ type Severity = 'success' | 'info' | 'warn' | 'danger' | 'secondary' | 'contrast
         }
       </p-dialog>
     </div>
+      <app-alta-persona rol="ayudante" [nombreInicial]="filtroAyudante()" [visible]="altaAyudanteVisible()"
+        (visibleChange)="altaAyudanteVisible.set($event)" (creada)="ayudanteCreado($event)"></app-alta-persona>
     `,
   styles: [`
+    .shd-alta-pie { padding: .25rem .5rem .5rem; border-top: 1px solid var(--c-surface-2); }
     :host { display:block; }
 
     /* ── BACK link + eyebrow + head ── */
@@ -712,6 +729,10 @@ export class LogisticaShipmentDetailComponent {
   readonly gastosKepler = signal<number | null>(null);
   readonly motivoGastosKepler = signal<string | null>(null);
   readonly drivers = signal<Driver[]>([]);
+  /** `[EMB.32]` Alta rápida de ayudante desde la guía: a qué lista va y lo que ya se escribió en el buscador. */
+  readonly altaAyudanteVisible = signal(false);
+  readonly altaAyudantePara = signal<'helper1_id' | 'helper2_id'>('helper1_id');
+  readonly filtroAyudante = signal('');
   readonly choferOptions = computed(() =>
     this.drivers().filter((d) => d.active && d.roles?.includes('chofer')).map((d) => ({ label: d.full_name, value: d.id })),
   );
@@ -1086,7 +1107,7 @@ export class LogisticaShipmentDetailComponent {
     forkJoin({ rutas: this.api.listRoutes(), viatico: this.api.listConfig('viatico', true) }).subscribe({
       next: ({ rutas, viatico }) => {
         const r = routeId ? (rutas || []).find((x) => x.id === routeId) : undefined;
-        this.rutaGuia.set(r ? { route_id: r.id, nombre: r.name, driver: Number(r.driver_commission), helper: Number(r.helper_commission) } : null);
+        this.rutaGuia.set(r ? { route_id: r.id, nombre: r.name, driver: Number(r.driver_commission), helper: Number(r.helper_commission), sin_comision: !!r.sin_comision } : null);
         this.tarifasViatico.set(tarifasDeViatico(viatico || []));
       },
       error: (err) => {
@@ -1209,5 +1230,20 @@ export class LogisticaShipmentDetailComponent {
   onOrderSelect(orderId: string | null) {
     const o = this.customerOrders().find((x) => x.id === orderId);
     if (o) this.recipientForm.patchValue({ value: o.total });
+  }
+
+  // ── [EMB.32] Alta rápida de ayudante desde la guía ──────────────────────
+  abrirAltaAyudante(para: 'helper1_id' | 'helper2_id'): void {
+    this.altaAyudantePara.set(para);
+    this.altaAyudanteVisible.set(true);
+  }
+
+  /** La persona nueva (o la que ya existía) entra a la lista y queda elegida en el campo que la pidió. */
+  ayudanteCreado(r: AltaRapidaResultado & { mensaje: string }): void {
+    const d = r.driver as unknown as Driver;
+    this.drivers.update((xs) => [...xs.filter((x) => x.id !== d.id), d].sort((a, b) => a.full_name.localeCompare(b.full_name)));
+    this.guideForm.get(this.altaAyudantePara())?.setValue(d.id);
+    this.filtroAyudante.set('');
+    this.toast.add({ severity: 'success', summary: 'Ayudante agregado', detail: r.mensaje });
   }
 }

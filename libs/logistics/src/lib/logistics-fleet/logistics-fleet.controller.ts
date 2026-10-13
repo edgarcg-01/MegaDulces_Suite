@@ -22,6 +22,7 @@ import {
   UpdateDriverDto,
   DriverRole,
 } from './logistics-fleet.service';
+import type { AltaRapidaBody, AltaRapidaResultado } from '@megadulces/contracts';
 import {
   VehicleAssignmentService,
   GrantEntitlementDto,
@@ -171,6 +172,18 @@ export class LogisticsFleetController {
   @ApiOperation({ summary: 'Crear driver (chofer/ayudante/cargador)' })
   createDriver(@Body() body: CreateDriverDto) {
     return this.service.createDriver(body);
+  }
+
+  /**
+   * `[EMB.32]` Alta rápida de ayudante o cargador. Abierta también a quien completa guías
+   * (`LOGISTICS_GUIDES_GESTIONAR`: el repartidor no tiene el de flota) y a quien registra cargadores
+   * (`LOGISTICS_SHIPMENTS_GESTIONAR`). Sólo nombre y papel: el resto del expediente sigue en Personal.
+   */
+  @Post('drivers/alta-rapida')
+  @RequireAnyPermission(Permission.LOGISTICS_FLEET_GESTIONAR, Permission.LOGISTICS_GUIDES_GESTIONAR, Permission.LOGISTICS_SHIPMENTS_GESTIONAR)
+  @ApiOperation({ summary: 'EMB.32: alta rápida de ayudante o cargador (sin duplicar; reactiva si estaba de baja)' })
+  altaRapida(@Body() body: AltaRapidaBody): Promise<AltaRapidaResultado> {
+    return this.service.altaRapida(body);
   }
 
   @Get('drivers')

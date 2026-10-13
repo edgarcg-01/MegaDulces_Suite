@@ -21,8 +21,9 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   //      a nadie rompería una ruta pública.
   //   2. Ese 401 dispararía el logout + redirect de abajo, y el trabajador terminaría en un
   //      /login que no puede usar porque no tiene cuenta.
+  // `[RH.2.4]` La bolsa de trabajo (`/hr/talent/public`) es pública por lo mismo: quien se postula no tiene cuenta.
   if (req.url.includes('/auth/login') || req.url.includes('/auth-mt/login')
-      || req.url.includes('/finance/captura')) {
+      || req.url.includes('/finance/captura') || req.url.includes('/hr/talent/public')) {
     return next(req);
   }
 
