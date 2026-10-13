@@ -74,3 +74,14 @@ describe('LogisticaShipmentDetailComponent — pestañas', () => {
     expect(el.textContent).not.toContain('Guardar costos');
   });
 });
+
+describe('LogisticaShipmentDetailComponent — nuevo ayudante desde la guía (EMB.32)', () => {
+  it('el ayudante dado de alta entra a la lista y queda elegido en el campo que lo pidió', () => {
+    const { c } = montar();
+    c.abrirAltaAyudante('helper2_id');
+    expect(c.altaAyudanteVisible()).toBe(true);
+    c.ayudanteCreado({ accion: 'papel_agregado', mensaje: 'X', driver: { id: 'a9', full_name: 'AYUDANTE NUEVO', roles: ['chofer', 'ayudante'], active: true, status: 'activo' } });
+    expect(c.guideForm.get('helper2_id')?.value).toBe('a9');
+    expect(c.ayudanteOptions().map((o) => o.value)).toContain('a9');
+  });
+});

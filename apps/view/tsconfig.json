@@ -36,6 +36,7 @@
       // [EMB.24] Lo que el NAVEGADOR importa con valor (textos, validaciones) entra por subruta: por el
       // barrel caía en el chunk compartido que `main` carga al arrancar (+1.5 kB sobre el presupuesto).
       "@megadulces/contracts/http/cierre-viaje": ["../../libs/contracts/src/http/cierre-viaje.contract.ts"],
+      "@megadulces/contracts/http/alta-persona": ["../../libs/contracts/src/http/alta-persona.contract.ts"],
       "@shared-models": ["../../libs/shared-models/src/index.ts"],
       "@megadulces/shared-scoring": ["../../libs/shared-scoring/index.ts"],
       "@megadulces/ui-web": ["../../libs/ui-web/src/index.ts"],

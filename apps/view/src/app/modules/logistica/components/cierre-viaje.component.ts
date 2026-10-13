@@ -8,13 +8,14 @@ import { MultiSelectModule } from 'primeng/multiselect';
 import { SelectModule } from 'primeng/select';
 import { TextareaModule } from 'primeng/textarea';
 import type {
-  CierreDeEmbarque, ConceptoPago, MotivoNoEntrega, PagoViaje, ParadaCierre, ResultadoParada,
+  AltaRapidaResultado, CierreDeEmbarque, ConceptoPago, MotivoNoEntrega, PagoViaje, ParadaCierre, ResultadoParada,
 } from '@megadulces/contracts';
 // Por subruta, no por el barrel: ver tsconfig.base.json (bundle inicial).
 import {
   CONCEPTO_KEPLER, erroresDeCierreDeParada, ESTADO_VIAJE_LABEL, MOTIVO_NO_ENTREGA_LABEL, seCierraEnLaSuite,
 } from '@megadulces/contracts/http/cierre-viaje';
 import { Driver, LogisticaService } from '../logistica.service';
+import { AltaPersonaComponent } from './alta-persona.component';
 
 interface FilaPersona {
   driver_id: string;
@@ -38,7 +39,7 @@ const TIPO_LABEL: Record<string, string> = {
 @Component({
   selector: 'app-cierre-viaje',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonModule, DialogModule, InputTextModule, MultiSelectModule, SelectModule, TextareaModule],
+  imports: [CommonModule, FormsModule, ButtonModule, DialogModule, InputTextModule, MultiSelectModule, SelectModule, TextareaModule, AltaPersonaComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (error()) {
@@ -119,12 +120,21 @@ const TIPO_LABEL: Record<string, string> = {
             <div class="cv-ms">
               <p-multiselect inputId="cv-cargadores" [options]="opcionesCargadores()" optionLabel="full_name" optionValue="id"
                 [(ngModel)]="seleccion" [filter]="true" placeholder="Elige a quienes cargaron" display="chip"
-                [disabled]="cargaPagada()"></p-multiselect>
+                [disabled]="cargaPagada()" (onFilter)="filtroCargador.set($event.filter ?? '')">
+                <ng-template #footer>
+                  <div class="cv-alta-pie">
+                    <button pButton type="button" size="small" [text]="true" (click)="altaCargadorVisible.set(true)"><span class="p-button-icon p-button-icon-left pi pi-user-plus" aria-hidden="true"></span><span class="p-button-label">Nuevo cargador</span></button>
+                  </div>
+                </ng-template>
+              </p-multiselect>
+              <app-alta-persona rol="cargador" [nombreInicial]="filtroCargador()" [visible]="altaCargadorVisible()"
+                (visibleChange)="altaCargadorVisible.set($event)" (creada)="cargadorCreado($event)"></app-alta-persona>
             </div>
             <button pButton type="button" [loading]="guardandoCarga()"
               [disabled]="cargaPagada()" (click)="guardarCargadores()"><span class="p-button-icon p-button-icon-left pi pi-check" aria-hidden="true"></span><span class="p-button-label">Guardar cargadores</span></button>
           </div>
           @if (cargaPagada()) { <div class="cv-sub">La carga ya está en un vale: no se puede cambiar.</div> }
+          @if (aviso(); as a) { <div class="cv-sub" role="status">{{ a }}</div> }
         }
       </section>
 
@@ -224,6 +234,7 @@ const TIPO_LABEL: Record<string, string> = {
     .cv-loaders { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
     .cv-ms { min-width: 18rem; max-width: 100%; }
     .cv-ms ::ng-deep .p-multiselect { width: 100%; }
+    .cv-alta-pie { padding: .25rem .5rem .5rem; border-top: 1px solid var(--c-surface-2); }
     .cv-msg { padding: .6rem .8rem; border-radius: 8px; font-size: var(--fs-sm); margin-bottom: .75rem; }
     .cv-msg-warn { background: var(--warn-soft-bg); color: var(--warn-soft-fg); }
     .cv-msg-bad { background: var(--bad-soft-bg); color: var(--bad-soft-fg); }
@@ -243,6 +254,11 @@ export class CierreViajeComponent {
   readonly shipmentId = input.required<string>();
   /** El padrón de logística (choferes, ayudantes, cargadores) para elegir a quienes cargaron. */
   readonly drivers = input<Driver[]>([]);
+  /** `[EMB.32]` Los dados de alta aquí mismo, mientras el padrón del padre no se recarga. */
+  readonly altas = signal<Driver[]>([]);
+  readonly altaCargadorVisible = signal(false);
+  readonly filtroCargador = signal('');
+  readonly aviso = signal<string | null>(null);
 
   readonly data = signal<CierreDeEmbarque | null>(null);
   readonly error = signal<string | null>(null);
@@ -260,7 +276,7 @@ export class CierreViajeComponent {
   readonly motivos = (Object.keys(MOTIVO_NO_ENTREGA_LABEL) as MotivoNoEntrega[]).map((value) => ({ value, label: MOTIVO_NO_ENTREGA_LABEL[value] }));
 
   readonly opcionesCargadores = computed(() =>
-    this.drivers().filter((d) => d.active && d.status === 'activo').slice().sort((a, b) => a.full_name.localeCompare(b.full_name)),
+    [...this.drivers().filter((d) => !this.altas().some((a) => a.id === d.id)), ...this.altas()].filter((d) => d.active && d.status === 'activo').slice().sort((a, b) => a.full_name.localeCompare(b.full_name)),
   );
   readonly cargaPagada = computed(() => (this.data()?.cargadores ?? []).some((c) => c.pagado));
 
@@ -324,6 +340,15 @@ export class CierreViajeComponent {
       next: (d) => { this.guardandoCarga.set(false); this.data.set(d); this.seleccion = d.cargadores.map((c) => c.driver_id); },
       error: (e) => { this.guardandoCarga.set(false); this.error.set(e?.error?.message ?? 'No se pudieron guardar los cargadores.'); },
     });
+  }
+
+  /** `[EMB.32]` El cargador nuevo (o el que ya existía) entra a la lista y queda elegido. */
+  cargadorCreado(r: AltaRapidaResultado & { mensaje: string }): void {
+    const d = r.driver as unknown as Driver;
+    this.altas.update((xs) => [...xs.filter((x) => x.id !== d.id), d]);
+    if (!this.seleccion.includes(d.id)) this.seleccion = [...this.seleccion, d.id];
+    this.filtroCargador.set('');
+    this.aviso.set(r.mensaje + ' Falta «Guardar cargadores».');
   }
 
   tipoLabel(t: string) { return TIPO_LABEL[t] ?? t; }

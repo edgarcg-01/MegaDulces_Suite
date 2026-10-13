@@ -5,6 +5,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { TenantKnexService } from '@megadulces/platform-core';
+import type { AltaRapidaBody, AltaRapidaResultado, PersonaPadron } from '@megadulces/contracts';
+import { decidirAltaRapida, erroresDeAltaRapida, nombreParaGuardar } from '@megadulces/contracts';
 
 // ─── Vehicles ───────────────────────────────────────────────────────────────
 
@@ -221,6 +223,45 @@ export class LogisticsFleetService {
         })
         .returning('*');
       return row;
+    });
+  }
+
+  /**
+   * `[EMB.32]` Alta rápida de un ayudante o cargador desde la guía o el cierre del viaje. Sólo nombre
+   * y papel. Nunca duplica: si el nombre ya existe (sin acentos, mayúsculas ni espacios de más) usa a
+   * esa persona y le agrega el papel; si estaba dada de baja, la reactiva.
+   */
+  async altaRapida(body: AltaRapidaBody): Promise<AltaRapidaResultado> {
+    const errs = erroresDeAltaRapida(body);
+    if (errs.length) throw new BadRequestException(errs.join(' '));
+    const nombre = nombreParaGuardar(body.full_name);
+    return this.tk.run(async (trx) => {
+      // El padrón es chico (decenas): se compara en memoria con la misma regla que la pantalla.
+      const padron: PersonaPadron[] = await trx('logistics.drivers')
+        .select('id', 'full_name', 'roles', 'active', 'status', 'deleted_at', 'updated_at');
+      const { accion, persona } = decidirAltaRapida(padron, nombre, body.rol);
+      const columnas = ['id', 'full_name', 'roles', 'active', 'status'];
+
+      if (accion === 'ya_existia' && persona) {
+        return { accion, driver: await trx('logistics.drivers').where({ id: persona.id }).first(columnas) };
+      }
+      if ((accion === 'papel_agregado' || accion === 'reactivada') && persona) {
+        const roles = Array.from(new Set([...(persona.roles ?? []), body.rol]));
+        const [driver] = await trx('logistics.drivers').where({ id: persona.id }).update({
+          roles, active: true, status: 'activo', deleted_at: null, updated_at: trx.fn.now(),
+        }).returning(columnas);
+        return { accion, driver };
+      }
+      const [driver] = await trx('logistics.drivers').insert({
+        tenant_id: trx.raw('public.current_tenant_id()'),
+        full_name: nombre,
+        roles: [body.rol],
+        employee_type: 'interno',
+        status: 'activo',
+        active: true,
+        notes: 'Alta rápida desde la guía (EMB.32)',
+      }).returning(columnas);
+      return { accion: 'creada' as const, driver };
     });
   }
 

@@ -168,3 +168,26 @@ describe('LogisticsConfigController — quién entra a escribir', () => {
     }
   });
 });
+
+describe('[EMB.33] «sin comisión» también es una tarifa fijada', () => {
+  const LOCAL = { id: RUTA, name: 'SANTA ANA PACUECO', driver_commission: '0.00', helper_commission: '0.00', active: true, sin_comision: true };
+
+  it('una ruta local marcada cuenta como fijada', () => {
+    expect(rutaFijada(LOCAL)).toBe(true);
+    expect(cambiosDeRuta(LOCAL, { sin_comision: false }).map((c) => c.field)).toEqual(['sin_comision']);
+  });
+
+  it('PRUEBA NEGATIVA: quien configura no puede quitarle la marca ni ponerle comisión', async () => {
+    for (const dto of [{ sin_comision: false }, { driver_commission: 50 }]) {
+      const { svc, updates } = baseFalsa({ 'logistics.routes': LOCAL });
+      await expect(svc.updateRoute(RUTA, dto, CONFIGURA)).rejects.toBeInstanceOf(ForbiddenException);
+      expect(updates).toHaveLength(0);
+    }
+  });
+
+  it('marcar una ruta en $0 como local lo puede quien configura, y queda en la historia', async () => {
+    const { svc, historia } = baseFalsa({ 'logistics.routes': { ...LOCAL, sin_comision: false } });
+    await svc.updateRoute(RUTA, { sin_comision: true }, CONFIGURA);
+    expect(historia).toEqual([expect.objectContaining({ field: 'sin_comision', old_value: 'false', new_value: 'true', autorizado: false })]);
+  });
+});

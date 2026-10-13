@@ -446,7 +446,7 @@ export class ErpShipmentsService {
           .first('id', 'full_name', 'active')
         : null;
       const rutas = await trx('logistics.routes').whereNull('deleted_at').where('active', true)
-        .select('id', 'name', 'kepler_code', 'driver_commission', 'helper_commission');
+        .select('id', 'name', 'kepler_code', 'driver_commission', 'helper_commission', 'sin_comision');
       const tomado = await trx('logistics.shipments')
         .where({ kepler_sucursal: sucursal, kepler_guia: guia })
         .whereNull('deleted_at').whereNot('status', 'cancelado')
